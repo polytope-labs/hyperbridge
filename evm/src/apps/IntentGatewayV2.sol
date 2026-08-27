@@ -467,6 +467,10 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardT
      *
      * Reverts if the order has already been filled or if called from the wrong chain.
      *
+     * Emits `OrderCancelled` on whichever chain the cancellation is initiated from. `EscrowRefunded`
+     * remains the terminal event: same transaction for a same-chain cancel, on the source chain
+     * after a Hyperbridge round trip for a cross-chain one.
+     *
      * @param order The order to cancel. Must match the exact order that was placed.
      * @param options Cancel options including proof height and relayer fee for cross-chain cancels.
      */
@@ -481,7 +485,19 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardT
         bytes32 orderDest = keccak256(order.destination);
         bool isSameChain = orderSource == orderDest;
 
+        // Emitted here, once, rather than from each of the three routes below. Every check those
+        // routes make — Unauthorized, NotExpired, UnknownOrder — reverts, and a revert discards
+        // logs, so an early emit can never announce a cancellation that did not happen. Emitting
+        // before the branch also keeps `EscrowRefunded` the last log on the same-chain route, where
+        // the refund is processed in this same transaction. Three emit sites cost bytecode this
+        // contract does not have: it sits within ~100 bytes of the EIP-170 limit.
+        emit OrderCancelled({commitment: commitment, canceller: msg.sender});
+
         if (isSameChain) {
+            // Checked here rather than inside `_cancelSameChain`, which used to re-read `host()`,
+            // re-query the host's state machine id and re-hash `order.source` to reach the same
+            // answer this function already has. Same check, one external call fewer.
+            if (currentChain != orderSource) revert WrongChain();
             _cancelSameChain(order, commitment);
         } else if (currentChain == orderSource) {
             _cancelFromSource(order, options, commitment);

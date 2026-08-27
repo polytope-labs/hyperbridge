@@ -54,6 +54,8 @@ pub trait WeightInfo {
 	fn register_paymaster_token() -> Weight;
 	fn deactivate_paymaster_token() -> Weight;
 	fn withdraw_paymaster_assets() -> Weight;
+	fn unlock_paymaster_stake() -> Weight;
+	fn withdraw_paymaster_stake() -> Weight;
 }
 
 /// Weights for pallet_intents using the Substrate node and recommended hardware.
@@ -219,6 +221,22 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(T::DbWeight::get().reads(2))
 			.saturating_add(T::DbWeight::get().writes(1))
 	}
+
+	/// Storage: Paymasters (r:1 w:0), Nonce (r:1 w:1)
+	fn unlock_paymaster_stake() -> Weight {
+		Weight::from_parts(70_000_000, 0)
+			.saturating_add(Weight::from_parts(0, 3500))
+			.saturating_add(T::DbWeight::get().reads(2))
+			.saturating_add(T::DbWeight::get().writes(1))
+	}
+
+	/// Storage: Paymasters (r:1 w:0), Nonce (r:1 w:1)
+	fn withdraw_paymaster_stake() -> Weight {
+		Weight::from_parts(70_000_000, 0)
+			.saturating_add(Weight::from_parts(0, 3500))
+			.saturating_add(T::DbWeight::get().reads(2))
+			.saturating_add(T::DbWeight::get().writes(1))
+	}
 }
 
 // For backwards compatibility and tests
@@ -274,6 +292,12 @@ impl WeightInfo for () {
 		Weight::from_parts(70_000_000, 0)
 	}
 	fn withdraw_paymaster_assets() -> Weight {
+		Weight::from_parts(70_000_000, 0)
+	}
+	fn unlock_paymaster_stake() -> Weight {
+		Weight::from_parts(70_000_000, 0)
+	}
+	fn withdraw_paymaster_stake() -> Weight {
 		Weight::from_parts(70_000_000, 0)
 	}
 }

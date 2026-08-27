@@ -13,12 +13,16 @@ use ismp::{
 	host::StateMachine,
 	messaging::{CreateConsensusState, Message},
 };
+use ismp_parachain::consensus::{
+	ASSET_HUB_MAINNET_CHAIN_ID, ASSET_HUB_PARA_ID, PASSET_HUB_TESTNET_CHAIN_ID,
+};
 use pallet_ismp_host_executive::HostParam;
 use polkadot_sdk::*;
 use primitive_types::U256;
 use sp_core::{Bytes, H160, H256, storage::ChildInfo};
 use sp_crypto_hashing::{blake2_256, twox_128};
 use std::{collections::BTreeMap, sync::Arc, time::Duration};
+use substrate_state_machine::fetch_overlay_root_and_timestamp;
 use subxt::{
 	OnlineClient,
 	backend::rpc::RpcClient,
@@ -30,7 +34,7 @@ use subxt::{
 use tesseract_evm::{EvmClient, EvmConfig};
 use tesseract_primitives::{
 	BoxStream, ByzantineHandler, EstimateGasReturnParams, IsmpProvider, Query, Signature,
-	StateMachineUpdated, StateProofQueryType, TxResult,
+	StateMachineUpdated, StateProofQueryType, StorageKey, TxResult,
 };
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
@@ -70,6 +74,71 @@ where
 			subxt_utils::client::ws_client(&config.ws_url, 300u32 * 1024 * 1024).await?;
 		let legacy_rpc = LegacyRpcMethods::<C>::new(rpc_client.clone());
 		Ok(Self { evm, online_client, legacy_rpc, subxt_rpc_client: rpc_client })
+	}
+
+	/// Para id of this chain, as `pallet-ismp-parachain` keys it on hyperbridge.
+	///
+	/// Asset Hub is relayed under its EVM chain id rather than its parachain id, so it needs the
+	/// same remapping the consensus client applies when it records commitments.
+	fn para_id(&self) -> Result<u32, anyhow::Error> {
+		match self.state_machine_id().state_id {
+			StateMachine::Polkadot(id) | StateMachine::Kusama(id) => Ok(id),
+			StateMachine::Evm(id)
+				if id == ASSET_HUB_MAINNET_CHAIN_ID || id == PASSET_HUB_TESTNET_CHAIN_ID =>
+			{
+				Ok(ASSET_HUB_PARA_ID)
+			},
+			state_machine => Err(anyhow!("No parachain id known for {state_machine}")),
+		}
+	}
+
+	/// The aura slot duration in milliseconds that hyperbridge derives this chain's block
+	/// timestamps from, read straight out of `pallet-ismp-parachain`'s `SlotDurations` map on the
+	/// counterparty.
+	///
+	/// Deliberately sourced from the counterparty rather than from this chain's own `AuraApi`:
+	/// the governance-set value is the one the consensus client actually used to build the
+	/// commitment we're checking, so reading it here means an honest commitment can never be
+	/// vetoed over a disagreement about slot duration. Read at hyperbridge's tip — the value
+	/// only ever changes by governance, and never retroactively.
+	async fn slot_duration(
+		&self,
+		counterparty: &Arc<dyn IsmpProvider>,
+	) -> Result<u64, anyhow::Error> {
+		let para_id = self.para_id()?;
+		let key = StorageKey::Substrate(subxt_utils::parachain_slot_duration_storage_key(para_id));
+		let raw = counterparty
+			.query_storage(key, None)
+			.await?
+			.ok_or_else(|| anyhow!("No slot duration configured for parachain {para_id}"))?;
+
+		u64::decode(&mut &*raw).map_err(|err| anyhow!("SCALE decode slot duration: {err:?}"))
+	}
+
+	/// Reconstructs the block timestamp `pallet-ismp-parachain` records for this header, in
+	/// seconds.
+	///
+	/// Parachains running `pallet-ismp` deposit an ISMP timestamp digest and the slot duration is
+	/// never consulted; the rest fall back to `slot * slot_duration`, so the slot duration is only
+	/// fetched from the counterparty when the digest is absent.
+	async fn header_timestamp(
+		&self,
+		header: &SubstrateHeader<u32, C::Hasher>,
+		counterparty: &Arc<dyn IsmpProvider>,
+	) -> Result<u64, anyhow::Error> {
+		let digest =
+			polkadot_sdk::sp_runtime::generic::Digest::decode(&mut &*header.digest.encode())?;
+
+		// A zero slot duration makes the helper fail whenever the ISMP digest is missing, which
+		// is exactly the signal that we need to go ask hyperbridge for the slot duration.
+		if let Ok(result) = fetch_overlay_root_and_timestamp(&digest, 0) {
+			return Ok(result.timestamp);
+		}
+
+		let slot_duration = self.slot_duration(counterparty).await?;
+		fetch_overlay_root_and_timestamp(&digest, slot_duration)
+			.map(|result| result.timestamp)
+			.map_err(|err| anyhow!("Failed to derive timestamp from header digest: {err:?}"))
 	}
 
 	pub fn storage_key(&self, slot: H256) -> Vec<u8> {
@@ -451,11 +520,41 @@ where
 		let finalized_state_commitment =
 			counterparty.query_state_machine_commitment(height).await?;
 
-		if finalized_state_commitment.state_root != state_root.into() {
+		let state_root_mismatch = finalized_state_commitment.state_root != state_root.into();
+		// The commitment's timestamp is reconstructed exactly the way `pallet-ismp-parachain`
+		// does it — from the ISMP timestamp digest when the parachain runs `pallet-ismp`, and
+		// from `slot * slot_duration` otherwise. Anything else recorded against this height is
+		// forged, and a skewed timestamp is as damaging as a forged state root: timeouts are
+		// settled against it, so it either strands messages or expires them early.
+		//
+		// Kept best-effort on purpose. A chain with neither an ISMP digest nor a slot duration
+		// configured on hyperbridge leaves us no honest timestamp to compare against, and losing
+		// the state root check too would be the worse outcome — so we warn and check the state
+		// root alone.
+		let derived_timestamp = match self.header_timestamp(&header, &counterparty).await {
+			Ok(timestamp) => Some(timestamp),
+			Err(err) => {
+				log::warn!(
+					target: LOG_TARGET,
+					"Could not derive block timestamp for {} at height {}, skipping timestamp check: {err:?}",
+					self.state_machine_id().state_id,
+					event.latest_height,
+				);
+				None
+			},
+		};
+		let timestamp_mismatch = derived_timestamp
+			.is_some_and(|timestamp| finalized_state_commitment.timestamp != timestamp);
+
+		if state_root_mismatch || timestamp_mismatch {
 			log::info!(
-				target: LOG_TARGET, "Vetoing state commitment for {} on {}, state commitment mismatch",
+				target: LOG_TARGET, "Vetoing state commitment for {} on {} at height {}: recorded (state root {:?}, timestamp {}) disagrees with header (state root {:?}, timestamp {derived_timestamp:?})",
 				self.state_machine_id().state_id,
-				counterparty.state_machine_id().state_id
+				counterparty.state_machine_id().state_id,
+				event.latest_height,
+				finalized_state_commitment.state_root,
+				finalized_state_commitment.timestamp,
+				state_root,
 			);
 			counterparty.veto_state_commitment(height).await?;
 		}

@@ -12,6 +12,87 @@ Files: list of files touched.
 
 Newest entries first.
 
+## 2026-08-26 — `decimals()` read failures fall back to the asset registry instead of guessing 18
+
+`ContractInteractionService.getTokenDecimals` previously swallowed a failed on-chain `decimals()`
+read and returned a hardcoded 18. That value flows into `computeLegPolicyOutput`, which scales
+`policyMaxOutput` by `10 ** decimals` — so a 6-decimal token (USDC/USDT/cNGN) misread as 18
+inflates the computed payout by 10^12. Since the overfill clamp is disabled, nothing bounds the
+result back to the user's requested output, and the filler would size the leg against its whole
+wallet balance.
+
+The correct values were already in the tree: `chain.ts` carries a per-chain `tokenDecimals` table
+and `ChainConfigService.getAssetMetadataByAddress` resolves it by address. Nothing in simplex
+consulted it — `CacheService.tokenDecimals` starts empty and its only writer is the success path
+of the very read that just failed. The catch branch now consults the registry through a new
+`FillerConfigService.getAssetDecimalsByAddress` delegator, and raises a hard error when neither
+the RPC nor the registry can supply a value — there is no safe guess, so the order is skipped
+instead. Every caller was audited to confirm a throw skips one order rather than escaping:
+`initCache` runs unawaited from the constructor and now swallows its own failures, so a boot-time
+RPC hiccup cannot become an unhandled rejection.
+
+Found by the scheduled IntentGateway/Simplex security audit.
+
+Files: `src/services/ContractInteractionService.ts`, `src/services/FillerConfigService.ts`,
+`src/tests/services/ContractInteractionService.decimals.test.ts`.
+
+## 2026-08-26 — Final-review fixes: cause-chain probe classification, batching guards (#1071)
+
+Second review round on the 08-24 fixes; the transport-error fix (F4) did not survive contact with viem, and the new batching/zero-first code had gaps.
+
+- **Probe classification actually works now.** viem 2.47.6's `readContract` wraps *every* failure — HTTP 429/timeout included — in `ContractFunctionExecutionError` (verified empirically against the installed package), so the 08-24 `instanceof` check still cached transport errors as "unsupported". `paymasterSupportsPermit2` now classifies by the cause chain: `error.walk(e => e instanceof ContractFunctionRevertedError || e instanceof ContractFunctionZeroDataError)` marks a genuine revert; everything else propagates uncached. Both unit-test mocks were reshaped to throw what viem actually throws (the old transport mock threw a bare `Error`, which real viem never does — the test was validating a fantasy), and the transport test now also proves the negative was not cached by probing again with a healthy client.
+- **Zero-only batching.** `resolvePendingPermit2Approval` returns null for any non-zero allowance, not just one at the recommendation: the batched delegation tx approves max directly and skips simulation (explicit gas), so a stale partial allowance on a USDT-rule token was a deterministic on-chain revert. Stale-allowance cases defer to `sendFundedApprove`'s zero-first path.
+- **Delegation retry checks `isDelegated` first.** EIP-7702 applies authorization tuples before execution and keeps them applied when execution reverts, so a batched tx that reverted on the approve usually still delegated — the retry now costs one `eth_getCode` instead of a full second tx.
+- **Pre-check budgets the whole sequence.** `sendFundedApprove` reads the allowance up front and requires native for two txs when a zero-first reset is needed; previously dust for exactly one tx passed the check, landed the reset, and died mid-sequence with the allowance stuck at zero.
+- **The 100k ceiling is now tested for profitability.** The gas-grief loop covers {100k, 40k, 30k}; 100k is where the EntryPoint penalty actually applies and is the case the restored ceiling's safety argument rests on. Stale "cap 40k" comments/labels in the same file and the `POST_OP_GAS_LIMIT_SIMPLEX` comment ("matching its on-chain MAX") corrected; the Permit2 fork test's `_maxCost` now sums the 40k postOp limit `_opWithData` actually packs (was 100k, overstating requiredPrefund).
+
+Files: `src/services/paymaster/provider/simplex.ts`, `src/services/paymaster/types.ts`, `src/services/DelegationService.ts`, `src/tests/services/SimplexPaymaster.test.ts`, `evm/tests/foundry/{SimplexPaymasterGasGriefTest,SimplexPaymasterPermit2ForkTest}.t.sol`, `docs/ai/{ChangeLog,Decisions,Flow}.md`.
+
+## 2026-08-24 — PR #1147 review fixes (#1071)
+
+Ten inline findings from Seun's review, all addressed.
+
+- **F1 postOp rollout** — reverted `MAX_POST_OP_GAS_LIMIT` to 100k (kept `MIN`=30k); only the SDK value stays at 40k. An in-place upgrade of a live proxy (needed for stake recovery) no longer rejects clients still sending 100k. Contract + Solidity tests + CHANGELOG/Decisions updated.
+- **F2 delegation fail-open** — the native-fallback batched delegate+approve now retries as a plain self-call on any revert (`trySendDelegation`), so a token that rejects the approve can't block delegation forever.
+- **F3 zero-first approve** — `sendFundedApprove` resets a stale non-zero allowance to zero before approving max (Ethereum USDT rule).
+- **F4 narrowed probe catch** — `paymasterSupportsPermit2` only caches a real contract revert as "unsupported"; a transport error propagates instead of silently reverting to a native paymaster allowance.
+- **F5 chain-keyed probe cache** — keyed by `${chainId}:${address}` so a shared CREATE2 address can't leak support across chains.
+- **F8 dropped `permit2DeadlineSeconds`** — unreachable config removed; fixed 1h deadline documented.
+- **F6/F7 test rigor** — added assertions to the gas-band token test and named the exact reverts (`InvalidPostOpGasLimit`, `InvalidSigner`/`InvalidAmount`/`InvalidNonce`/`AllowanceExpired`) in the gas-grief and compromise fork tests.
+- **F9 doc fix** — `sendFundedApprove` docstring and `Flow.md` now say two confirmations.
+- **F10** — mode-0x02 `_prefund` uses the base's `prefunder_` instead of re-reading `userOp.sender`.
+
+Files: `evm/src/utils/SimplexPaymaster.sol`, `evm/tests/foundry/{SimplexPaymasterTest,SimplexPaymasterGasGriefTest,Permit2CompromiseForkTest}.t.sol`, `src/services/paymaster/{provider/simplex.ts,types.ts,index.ts}`, `src/services/DelegationService.ts`, `src/tests/services/SimplexPaymaster.test.ts`, `modules/pallets/intents-coprocessor/src/{benchmarking,tests}.rs`, `parachain/runtimes/{gargantua,nexus}/src/weights/pallet_intents_coprocessor.rs`.
+
+## 2026-08-20 — PR #1147 review: v,r,s signature layout + batched delegation approve (#1071)
+
+Two changes from Seun's review of the PERMIT2 PR.
+
+**Signature layout.** Mode 0x02's `paymasterData` now carries the Permit2 signature as explicit `uint8(v), bytes32(r), bytes32(s)` fields instead of a 65-byte `bytes` blob, mirroring the EIP-2612 mode 0x00 layout. Same 182-byte length; the contract reconstructs `abi.encodePacked(r, s, v)` for the Permit2 call. Client (`permit2.ts` / `provider/simplex.ts`) splits the signature before packing; fork/unit tests updated. Note: this keeps mode 0x02 65-byte-ECDSA-only, which the fixed length already enforced — no ERC-1271-length flexibility is lost.
+
+**Batched delegation approve.** When Simplex falls back to a native EIP-7702 delegation (bundler/sponsored path unavailable), it now folds the one-time `approve(Permit2, max)` into that same set-code tx on no-permit chains, so the bootstrap costs one native tx (delegate + approve) instead of two. New `resolvePendingPermit2Approval` in `provider/simplex.ts` decides the token (null when a permit token, an approval already in place, no Permit2/PERMIT2-mode, or no fee-token balance yet); `DelegationService.sendDelegationTransaction` takes an optional approval and sets `to = token, data = approve(...)` with the authorization list attached (the delegation lands regardless of `to`). Best-effort: any resolver failure falls back to the plain self-call delegation. Scope is the native fallback only (per review).
+
+Files: `evm/src/utils/SimplexPaymaster.sol`, `evm/tests/foundry/SimplexPaymasterPermit2ForkTest.t.sol`, `src/services/paymaster/provider/simplex.ts`, `src/services/paymaster/permit2.ts`, `src/services/DelegationService.ts`, `src/tests/services/SimplexPaymaster.test.ts`.
+
+## 2026-08-19 — Security-review fixes: stake recovery, postOp gas band (#1071)
+
+A threat-model audit of the paymaster (fork-executed, not just read) produced three fixes carried here.
+
+**Stake recovery.** `PaymasterCore.addStake` was ungated while `unlockStake`/`withdrawStake` route through `_authorizeWithdraw()`, which reverts unconditionally, and no governance request kind covered stake — so staked native was permanently unrecoverable. Verified against the live deployments: 0.1 native was already stuck on each of Ethereum, BSC and Arbitrum, and any unprivileged address could call `addStake{value: 1 wei}(type(uint32).max)` to stretch the unstake delay from one day to 136 years, defeating even a future upgrade. Added `RequestKind.UnlockStake` / `RequestKind.WithdrawStake` (discriminators 5 and 6, both empty-payload, destination always the treasury) and gated `addStake` to the treasury.
+
+**postOp gas band.** The EntryPoint penalises the unused part of `paymasterPostOpGasLimit` after fixing the cost handed to `postOp`, so that penalty is never billed to the user; it waives the penalty entirely while `gasLimit <= gasUsed + 40_000`. The SDK pinned the limit at the contract's 100k cap while postOp actually needs ~8-12k, so roughly half the per-op margin was being burned. `MAX_POST_OP_GAS_LIMIT` is now 40_000 — the largest unconditionally penalty-free value — and a `MIN_POST_OP_GAS_LIMIT` of 30_000 closes the refund-underflow window that an unbounded-below limit left open. Fork-measured margin at the cap rose from 9,053,104,589,778 to 21,354,113,277,112 wei per op, and is now identical at the cap and the floor.
+
+The SDK's shared `POST_OP_GAS_LIMIT` split into `POST_OP_GAS_LIMIT_SIMPLEX` (40k) and `POST_OP_GAS_LIMIT_CIRCLE` (100k) — it was feeding both paymasters, and Circle's is a different contract whose postOp was never measured here.
+
+Files: `src/services/paymaster/types.ts`, `src/services/paymaster/provider/simplex.ts`, `src/services/paymaster/provider/circle.ts`, `src/tests/services/UserOpSender.test.ts`, plus `evm/src/utils/SimplexPaymaster.sol`, `evm/tests/foundry/{SimplexPaymasterTest,SimplexPaymasterPermit2ForkTest,SimplexPaymasterGasGriefTest,SimplexPaymasterStakeLockForkTest}.t.sol` and `modules/pallets/intents-coprocessor/src/{lib,types,weights}.rs`.
+
+## 2026-08-18 — Permit2 mode for the Simplex paymaster (#1071)
+
+The Simplex paymaster client gained mode `0x02 PERMIT2`. On chains whose fee token has no EIP-2612 permit (BSC pegged USDC/USDT), the solver previously kept a $5 standing allowance to the paymaster and refilled it with a native-funded `approve` every time it dipped under $2. Now the bootstrap is a single funded `approve(Permit2, max)` per token, and every subsequent op carries a per-op Permit2 `PermitTransferFrom` signature (spender = paymaster, amount = the same $5 cap, random 256-bit nonce, 1 hour deadline) packed as `mode(1) + token(20) + permitAmount(32) + nonce(32) + deadline(32) + signature(65)`. Selection order in `buildSimplexPaymasterData`: EIP-2612 PERMIT when the token supports it (unless `skipPermit`), then PERMIT2 when the token is already approved to Permit2, then APPROVE while a legacy paymaster allowance is still in place, then the bootstrap approve. Mode 2 is only used when the paymaster deployment exposes `PERMIT2()` (older deployments reject it with `InvalidMode`), probed once per paymaster address and cached. `PaymasterOptions.forceApproveMode` was renamed to `skipPermit` since PERMIT2 stays allowed for delegation ops; `ensureCappedApproval` became the generic `sendFundedApprove`.
+
+Live probe on Base Sepolia through Alchemy's bundler (deployment script `evm/script/SimplexPaymasterPermit2Probe.s.sol`, env-gated suite `src/tests/services/SimplexPaymasterPermit2.probe.test.ts`): a fresh EOA's sponsored EIP-7702 delegation and a follow-up no-op from the delegated account were both accepted in mode 2 (`Permit2Executed` on-chain), answering the ERC-7562 question for that bundler. The very first op right after the bootstrap approve was rejected `AA33` twice in a row until the approve was one more block old, so `sendFundedApprove` now waits for two confirmations.
+
+Files: `src/services/paymaster/permit2.ts` (new), `src/services/paymaster/provider/simplex.ts`, `src/services/paymaster/types.ts`, `src/services/paymaster/index.ts`, `src/services/UserOpSender.ts`, `src/services/DelegationService.ts`, `src/config/abis/SimplexPaymaster.ts`, `src/tests/services/SimplexPaymaster.test.ts`, `src/tests/services/UserOpSender.test.ts`, `src/tests/services/SimplexPaymasterPermit2.probe.test.ts` (new).
 ## 2026-08-20 — The filler only takes single-leg orders
 
 `EventMonitor.handleOrder` now forwards an order only when it has exactly one input asset and one
@@ -129,6 +210,35 @@ it is now `accepts an omitted maxOrderSize, and rejects a malformed one`.
 
 Files: src/strategies/fx.ts, src/config/pairs.ts, src/core/boot.ts, src/simplex.ts,
 src/tests/pairs.test.ts.
+
+## 2026-08-20 — pairs.test.ts catches up with the probe and paymaster changes, and CI now runs it
+
+`src/tests/pairs.test.ts` failed 12 of its 55 tests on main, unnoticed because no CI script ran
+the file. Both failure groups were stale test expectations, not product regressions — each was
+verified against the intent recorded in the 2026-08-19 entries before editing:
+
+- Three phantom-probe tests still expected `quotePhantomFill` to cap its quote at the pair's
+  `maxOrderSize`. The cap no longer rations probes (see "A phantom probe is no longer rationed by
+  the pair's exposure cap", and the Decisions entry "The exposure cap governs fills, never
+  probes") — that change updated `fx.one-sided-lp.test.ts` only and left this file behind. The
+  assertions now expect the full unrationed quotes (e.g. 200,000 ZARP × 100 = 20,000,000 CNGN
+  where the old cap produced 10,000,000), and the test names/comments no longer claim probes are
+  capped.
+- Nine profit-gates tests scored 0 where they expected a positive result (or the partial-fill
+  flag). The leg loop now calls `paymasterReserveForToken` (see "Fill sizing reserves the
+  paymaster's gas pull"), whose `hasPaymaster` check calls
+  `configService.getCirclePaymasterAddress` / `getSimplexPaymasterAddress` — absent on the
+  suite's `cfg` mock, so every evaluation threw `TypeError` into `calculateProfitability`'s catch
+  and returned 0. Root cause pinned with a throwaway probe test against the exact mock shape. The
+  mock now defines both getters as `() => undefined` (no paymaster configured → zero reserve),
+  which restores the suite's exact spread/fee arithmetic.
+
+`test:filler` now includes `src/tests/pairs.test.ts`, so the file runs in CI (the "Run simplex
+test" step of `.github/workflows/test-sdk.yml`). It is pure-unit — no network, no env. Verified:
+55/55 pass via `pnpm vitest run --maxConcurrency=1 src/tests/pairs.test.ts`, biome lint clean on
+the file, and `vitest list` collects all four `test:filler` files after codegen.
+
+Files: `src/tests/pairs.test.ts`, `package.json`, `docs/ai/{ChangeLog,Decisions}.md`.
 
 ## 2026-08-19 — A phantom probe is no longer rationed by the pair's exposure cap
 

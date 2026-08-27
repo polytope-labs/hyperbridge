@@ -29,6 +29,11 @@
       "source": "/docs/developers/configurations/:path*",
       "destination": "/docs/developers/evm/contract-addresses/:path*",
       "permanent": true
+    },
+    {
+      "source": "/protocol/ismp",
+      "destination": "/protocol/ismp/introduction",
+      "permanent": true
     }
   ]
 }

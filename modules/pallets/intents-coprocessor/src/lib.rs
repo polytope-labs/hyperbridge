@@ -257,6 +257,10 @@ pub mod pallet {
 		PaymasterTokenDeactivated { state_machine: StateMachine, token: H160 },
 		/// A paymaster asset withdrawal was initiated
 		PaymasterWithdrawalInitiated { state_machine: StateMachine, token: H160, amount: U256 },
+		/// A paymaster stake unlock was initiated
+		PaymasterStakeUnlockInitiated { state_machine: StateMachine },
+		/// A paymaster stake withdrawal was initiated
+		PaymasterStakeWithdrawalInitiated { state_machine: StateMachine },
 	}
 
 	#[pallet::error]
@@ -922,6 +926,51 @@ pub mod pallet {
 				token,
 				amount,
 			});
+
+			Ok(())
+		}
+
+		/// Start the paymaster's EntryPoint unstake timer. The stake only becomes
+		/// withdrawable once the `unstakeDelaySec` it was staked with has elapsed, so this
+		/// must precede `withdraw_paymaster_stake` by at least that long.
+		#[pallet::call_index(17)]
+		#[pallet::weight(T::WeightInfo::unlock_paymaster_stake())]
+		pub fn unlock_paymaster_stake(
+			origin: OriginFor<T>,
+			state_machine: StateMachine,
+		) -> DispatchResult {
+			T::GovernanceOrigin::ensure_origin(origin)?;
+
+			let paymaster =
+				Paymasters::<T>::get(state_machine).ok_or(Error::<T>::PaymasterNotFound)?;
+
+			Self::dispatch(state_machine, paymaster, RequestKind::PaymasterUnlockStake.encode_body())?;
+
+			Self::deposit_event(Event::PaymasterStakeUnlockInitiated { state_machine });
+
+			Ok(())
+		}
+
+		/// Sweep the paymaster's unlocked EntryPoint stake to its treasury. Requires a prior
+		/// `unlock_paymaster_stake` and the unstake delay to have elapsed.
+		#[pallet::call_index(18)]
+		#[pallet::weight(T::WeightInfo::withdraw_paymaster_stake())]
+		pub fn withdraw_paymaster_stake(
+			origin: OriginFor<T>,
+			state_machine: StateMachine,
+		) -> DispatchResult {
+			T::GovernanceOrigin::ensure_origin(origin)?;
+
+			let paymaster =
+				Paymasters::<T>::get(state_machine).ok_or(Error::<T>::PaymasterNotFound)?;
+
+			Self::dispatch(
+				state_machine,
+				paymaster,
+				RequestKind::PaymasterWithdrawStake.encode_body(),
+			)?;
+
+			Self::deposit_event(Event::PaymasterStakeWithdrawalInitiated { state_machine });
 
 			Ok(())
 		}

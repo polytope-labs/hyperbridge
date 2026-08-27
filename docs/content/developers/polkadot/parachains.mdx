@@ -3,6 +3,8 @@ title: Parachains
 description: This is the implementation of the ISMP consensus client for parachains.
 ---
 
+import addParachain from "./images/add_parachain.png";
+
 # Parachain Integration
 
 Parachains that want to leverage the Hyperbridge protocol for secure cross-chain interoperability can do so by integrating the `ismp-parachain` pallet. This pallet empowers parachains to interoperate with whitelisted sibling parachains through the ISMP framework. 
@@ -50,7 +52,7 @@ construct_runtime! {
 
 To use the parachain consensus client to communicate with sibling parachains, Hyperbridge included. You will need to first whitelist these parachains using the `ismp_parachain::Call::<T>::add_parachain` extrinsic. Once added, the [tesseract relayer](/developers/network/relayer) will begin submitting finality proofs of these parachains to your runtime, opening the doors of secure cross-chain communication.
 
-<img src="/add_parachain.png" />
+<img src={addParachain.src} />
 
 
 ## Calls

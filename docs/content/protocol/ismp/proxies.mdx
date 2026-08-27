@@ -3,6 +3,8 @@ title: Proxies
 description: The ISMP protocol specification for proxies
 ---
 
+import coprocessor from "./images/coprocessor.svg";
+
 # Proxies
 
 We already know that ISMP mimics the HTTP API, in terms of requests and responses, using POST requests to send data and GET requests for cross-chain state reads. It also allows for request and response proxies, akin to a typical [HTTP proxy](https://en.wikipedia.org/wiki/Proxy_server). An ISMP proxy simply redirects incoming requests and responses to an external state machine.
@@ -11,7 +13,7 @@ In this context, **the proxy functions as a coprocessor**. Without it, the state
 
 <figure>
   <img
-    src="/coprocessor.svg"
+    src={coprocessor.src}
     alt="An interoperability coprocessor for secure cross-chain communication"
   />
   <figcaption>

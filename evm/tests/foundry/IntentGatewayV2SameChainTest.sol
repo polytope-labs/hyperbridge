@@ -74,9 +74,9 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         super.setUp();
 
         // Setup test accounts
-        user = makeAddr("user");
-        solver = makeAddr("solver");
-        otherUser = makeAddr("otherUser");
+        user = makeCleanAddr("user");
+        solver = makeCleanAddr("solver");
+        otherUser = makeCleanAddr("otherUser");
 
         // Deploy IntentGatewayV2
         intentGateway = _deployGatewayProxy();
@@ -379,6 +379,13 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         // User cancels order before deadline (same-chain allows this)
         vm.startPrank(user);
         CancelOptions memory cancelOpts = CancelOptions({height: uint64(block.number), relayerFee: 0});
+
+        // `OrderCancelled` announces the cancel, `EscrowRefunded` closes it — in that order,
+        // so a consumer applying statuses in log order settles on the refund.
+        vm.expectEmit(true, false, false, true, address(intentGateway));
+        emit IntentsBase.OrderCancelled(keccak256(abi.encode(order)), user);
+        vm.expectEmit(true, false, false, false, address(intentGateway));
+        emit IntentsBase.EscrowRefunded(keccak256(abi.encode(order)), inputs);
 
         intentGateway.cancelOrder(order, cancelOpts);
         vm.stopPrank();
@@ -1142,7 +1149,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         uint256 outputAmount = 1000 * 1e18;
         Order memory order = _placeStandardOrder(inputAmount, outputAmount);
 
-        address solver2 = makeAddr("solver2");
+        address solver2 = makeCleanAddr("solver2");
         vm.deal(solver2, 10 ether);
         deal(address(dai), solver2, 100000 * 1e18);
 
@@ -1188,7 +1195,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         vm.stopPrank();
 
         // Solver 2 tries to fill 500 DAI but only 400 remains — excess capped, no surplus
-        address solver2 = makeAddr("solver2");
+        address solver2 = makeCleanAddr("solver2");
         deal(address(dai), solver2, 100000 * 1e18);
         vm.startPrank(solver2);
         dai.approve(address(intentGateway), 500 * 1e18);
@@ -1252,7 +1259,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         intentGateway.cancelOrder(order, CancelOptions({height: uint64(block.number), relayerFee: 0}));
 
         // Another solver tries to fill — should revert
-        address solver2 = makeAddr("solver2");
+        address solver2 = makeCleanAddr("solver2");
         deal(address(dai), solver2, 100000 * 1e18);
         vm.startPrank(solver2);
         dai.approve(address(intentGateway), 500 * 1e18);
@@ -1316,7 +1323,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         assertEq(usdc.balanceOf(solver), solverUsdcBefore + expectedInput, "Solver should receive proportional USDC");
 
         // Complete with remaining 0.4 ETH
-        address solver2 = makeAddr("solver2");
+        address solver2 = makeCleanAddr("solver2");
         vm.deal(solver2, 10 ether);
         uint256 remainingETH = 0.4 ether;
 
@@ -1346,7 +1353,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         vm.stopPrank();
 
         // Solver 2 fills remaining 500 with 600 offered — excess should be capped (no surplus on partially filled pair)
-        address solver2 = makeAddr("solver2");
+        address solver2 = makeCleanAddr("solver2");
         deal(address(dai), solver2, 100000 * 1e18);
         uint256 solver2DaiBefore = dai.balanceOf(solver2);
         uint256 userDaiBefore = dai.balanceOf(user);
@@ -1593,7 +1600,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         uint256 truncatedRelease = (inputAmount * fillPerSolver) / outputAmount; // 33333333
 
         // --- Solver 1 fills 1 DAI ---
-        address solver1 = makeAddr("solver1");
+        address solver1 = makeCleanAddr("solver1");
         vm.deal(solver1, 1 ether);
         deal(address(dai), solver1, 10 * 1e18);
         uint256 solver1UsdcBefore = usdc.balanceOf(solver1);
@@ -1612,7 +1619,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         );
 
         // --- Solver 2 fills 1 DAI ---
-        address solver2 = makeAddr("solver2");
+        address solver2 = makeCleanAddr("solver2");
         vm.deal(solver2, 1 ether);
         deal(address(dai), solver2, 10 * 1e18);
         uint256 solver2UsdcBefore = usdc.balanceOf(solver2);
@@ -1631,7 +1638,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         );
 
         // --- Solver 3 fills final 1 DAI (completes the order) ---
-        address solver3 = makeAddr("solver3");
+        address solver3 = makeCleanAddr("solver3");
         vm.deal(solver3, 1 ether);
         deal(address(dai), solver3, 10 * 1e18);
         uint256 solver3UsdcBefore = usdc.balanceOf(solver3);
@@ -1698,7 +1705,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         uint256 truncatedRelease = (inputAmount * fillPerSolver) / outputAmount;
 
         // --- Solver 1 ---
-        address solver1 = makeAddr("ethSolver1");
+        address solver1 = makeCleanAddr("ethSolver1");
         vm.deal(solver1, 10 ether);
         deal(address(dai), solver1, 10 * 1e18);
         uint256 solver1EthBefore = solver1.balance;
@@ -1713,7 +1720,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         assertEq(solver1.balance, solver1EthBefore + truncatedRelease, "Solver1 gets truncated ETH");
 
         // --- Solver 2 ---
-        address solver2 = makeAddr("ethSolver2");
+        address solver2 = makeCleanAddr("ethSolver2");
         vm.deal(solver2, 10 ether);
         deal(address(dai), solver2, 10 * 1e18);
         uint256 solver2EthBefore = solver2.balance;
@@ -1728,7 +1735,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         assertEq(solver2.balance, solver2EthBefore + truncatedRelease, "Solver2 gets truncated ETH");
 
         // --- Solver 3 (final) ---
-        address solver3 = makeAddr("ethSolver3");
+        address solver3 = makeCleanAddr("ethSolver3");
         vm.deal(solver3, 10 ether);
         deal(address(dai), solver3, 10 * 1e18);
         uint256 solver3EthBefore = solver3.balance;

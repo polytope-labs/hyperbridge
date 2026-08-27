@@ -43,7 +43,9 @@ export {
 	encodePhantomBidDeclaration,
 	decodePhantomBidDeclaration,
 	applyUniswapQuoteHaircut,
+	applyPhantomQuoteHaircut,
 	UNISWAP_QUOTE_HAIRCUT_BPS,
+	PHANTOM_QUOTE_HAIRCUT_BPS,
 	type PhantomBidDeclaration,
 } from "./phantom-aggregation"
 export {

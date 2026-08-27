@@ -2,6 +2,8 @@ import { stubOrderScanner } from "../helpers/stub-scanner"
 import { describe, expect, it, vi } from "vitest"
 import type { HexString, Order, PhantomOrderEvent } from "@hyperbridge/sdk"
 import { IntentFiller } from "@/core/filler"
+import { encodeAbiParameters, decodeAbiParameters, hexToBytes, toHex } from "viem"
+import { INTENT_GATEWAY_V2_ABI } from "@/config/abis/IntentGatewayV2"
 
 /**
  * A phantom order is only safe to quote because it can never be filled.
@@ -168,5 +170,86 @@ describe("phantom order validation", () => {
 
 			expect(quotePhantomLeg).toHaveBeenCalled()
 		})
+	})
+})
+
+/**
+ * The checks above run against a hand-built fixture, which bakes in an assumption: that a real
+ * pallet-generated order, ABI-encoded on the Rust side and decoded by `fetchPhantomOrder`,
+ * actually presents `source`/`destination` as the same string the event carries in `chain`.
+ *
+ * If that assumption is wrong the guard refuses every genuine phantom order and the filler
+ * silently stops bidding — which is exactly what the simnode E2E would catch, and what nothing
+ * here would. So this rebuilds the order the way `phantom_order_commitment` does
+ * (`intents-coprocessor/src/types.rs`), encodes it with the real `placeOrder` ABI, and decodes it
+ * the way `fetchPhantomOrder` does, before running it through the guard.
+ */
+describe("phantom order validation — against a pallet-shaped order", () => {
+	const CHAIN_BYTES = toHex(new TextEncoder().encode(CHAIN)) as HexString
+
+	/** Mirrors `sol_types::Order` as the pallet fills it in for a phantom order. */
+	function palletEncodedOrder(deadline: bigint): HexString {
+		const orderType = (INTENT_GATEWAY_V2_ABI as readonly any[]).find(
+			(e) => e.type === "function" && e.name === "placeOrder",
+		)!.inputs[0]
+
+		return encodeAbiParameters(
+			[orderType],
+			[
+				{
+					user: ZERO_BYTES32,
+					source: CHAIN_BYTES,
+					destination: CHAIN_BYTES,
+					deadline,
+					nonce: 7n,
+					fees: 0n,
+					session: ZERO_ADDRESS,
+					predispatch: { assets: [], call: "0x" },
+					// token_a on the input side, token_b on the output side, output amount zero.
+					inputs: [{ token: TOKEN, amount: 1_000_000n }],
+					output: { beneficiary: ZERO_BYTES32, assets: [{ token: TOKEN, amount: 0n }], call: "0x" },
+				},
+			] as any,
+		) as HexString
+	}
+
+	/** Mirrors `IntentsCoprocessor.fetchPhantomOrder`'s decode. */
+	function decodeLikeCoprocessor(encoded: HexString): Order {
+		const orderType = (INTENT_GATEWAY_V2_ABI as readonly any[]).find(
+			(e) => e.type === "function" && e.name === "placeOrder",
+		)!.inputs[0]
+		const [d] = decodeAbiParameters([orderType], encoded) as unknown as any[]
+		const textDecoder = new TextDecoder()
+		return {
+			...d,
+			id: COMMITMENT,
+			source: textDecoder.decode(hexToBytes(d.source)),
+			destination: textDecoder.decode(hexToBytes(d.destination)),
+		} as unknown as Order
+	}
+
+	it("round-trips the pallet's chain bytes into the string the event carries", () => {
+		const decoded = decodeLikeCoprocessor(palletEncodedOrder(CURRENT_BLOCK - 1n))
+
+		// The pallet writes the same `chain_bytes` into the event and into source/destination,
+		// so the guard's equality check is comparing like with like.
+		expect(decoded.source).toBe(CHAIN)
+		expect(decoded.destination).toBe(CHAIN)
+		expect(event().chain).toBe(CHAIN)
+	})
+
+	it("quotes a genuine pallet-shaped order", async () => {
+		const { run, quotePhantomLeg } = build(decodeLikeCoprocessor(palletEncodedOrder(CURRENT_BLOCK - 1n)))
+
+		await run()
+
+		expect(quotePhantomLeg).toHaveBeenCalled()
+	})
+
+	it("still refuses one whose deadline has not passed", async () => {
+		const { run, quotePhantomLeg } = build(decodeLikeCoprocessor(palletEncodedOrder(CURRENT_BLOCK + 1n)))
+
+		await expect(run()).resolves.toBeNull()
+		expect(quotePhantomLeg).not.toHaveBeenCalled()
 	})
 })

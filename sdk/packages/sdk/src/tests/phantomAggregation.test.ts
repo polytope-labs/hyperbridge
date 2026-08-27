@@ -56,9 +56,44 @@ function fillOptions() {
 	return {
 		relayerFee: 0n,
 		nativeDispatchFee: 0n,
+		validUntil: 0n,
 		outputs: [{ token: USDT_BYTES32, amount: SOLVER_AMOUNT }],
 	}
 }
+
+/** The pre-`validUntil` FillOptions shape, still on the wire from older gateways' solvers. */
+function legacyFillOptions() {
+	const { relayerFee, nativeDispatchFee, outputs } = fillOptions()
+	return { relayerFee, nativeDispatchFee, outputs }
+}
+
+const LEGACY_FILL_ORDER_ABI = [
+	{
+		type: "function",
+		name: "fillOrder",
+		stateMutability: "payable",
+		outputs: [],
+		inputs: [
+			(FILL_ORDER_ABI as readonly any[]).find((e) => e.type === "function" && e.name === "fillOrder")!.inputs[0],
+			{
+				name: "options",
+				type: "tuple",
+				components: [
+					{ name: "relayerFee", type: "uint256" },
+					{ name: "nativeDispatchFee", type: "uint256" },
+					{
+						name: "outputs",
+						type: "tuple[]",
+						components: [
+							{ name: "token", type: "bytes32" },
+							{ name: "amount", type: "uint256" },
+						],
+					},
+				],
+			},
+		],
+	},
+] as const
 
 // Encodes a fillOrder call wrapped in an ERC-7821 execute batch, the way a solver's bid arrives.
 function bidCalldata(target: string = GATEWAY): HexString {
@@ -67,6 +102,17 @@ function bidCalldata(target: string = GATEWAY): HexString {
 		abi: FILL_ORDER_ABI,
 		functionName: "fillOrder",
 		args: [phantomOrder(), fillOptions()],
+	}) as HexString
+	return encodeERC7821ExecuteBatch([{ target: target as HexString, value: 0n, data: fillCalldata }])
+}
+
+/** The same bid encoded in the pre-`validUntil` shape, as an older gateway's solver would send it. */
+function legacyBidCalldata(target: string = GATEWAY): HexString {
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	const fillCalldata = (encodeFunctionData as any)({
+		abi: LEGACY_FILL_ORDER_ABI,
+		functionName: "fillOrder",
+		args: [phantomOrder(), legacyFillOptions()],
 	}) as HexString
 	return encodeERC7821ExecuteBatch([{ target: target as HexString, value: 0n, data: fillCalldata }])
 }
@@ -118,6 +164,16 @@ describe("extractFillData", () => {
 	it("returns null when no inner call targets the gateway", () => {
 		const other = "0x9999999999999999999999999999999999999999"
 		expect(extractFillData(bidCalldata(other), GATEWAY)).toBeNull()
+	})
+
+	it("decodes a bid encoded in the pre-validUntil FillOptions shape", () => {
+		// Gateways are upgraded per chain, so both shapes are on the wire at once. A solver
+		// bidding against an older gateway must still be priced into the aggregate, not dropped.
+		const result = extractFillData(legacyBidCalldata(), GATEWAY)
+
+		expect(result).not.toBeNull()
+		expect(result!.legs[0].solverAmount).toBe(SOLVER_AMOUNT)
+		expect(result!.legs[0].outputToken.toLowerCase()).toBe(USDT_BYTES32.toLowerCase())
 	})
 
 	it("returns null for calldata that is not an ERC-7821 batch", () => {

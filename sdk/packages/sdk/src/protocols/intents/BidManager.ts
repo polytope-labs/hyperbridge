@@ -14,6 +14,7 @@ import type {
 } from "@/types"
 import type { IntentGatewayContext } from "./types"
 import { CryptoUtils } from "./CryptoUtils"
+import { decodeFillOrder } from "./fillOrderCodec"
 import { BidImpl } from "./Bid"
 import Decimal from "decimal.js"
 
@@ -284,19 +285,12 @@ export class BidManager {
 			if (!innerCalls || innerCalls.length === 0) return null
 
 			for (const call of innerCalls) {
-				try {
-					const decoded = decodeFunctionData({
-						abi: IntentGatewayV2ABI,
-						data: call.data,
-					})
-					if (decoded?.functionName === "fillOrder" && decoded.args && decoded.args.length >= 2) {
-						const fillOptions = decoded.args[1] as FillOptions
-						if (fillOptions?.outputs?.length > 0) {
-							return fillOptions
-						}
-					}
-				} catch {
-					continue
+				// Bids may be built against either FillOptions shape depending on the gateway
+				// the bidder targeted, so decode tries both. A v1 payload reports validUntil
+				// as 0n, which is accurate: that fill genuinely carries no bound.
+				const decoded = decodeFillOrder(call.data as HexString)
+				if (decoded && decoded.options?.outputs?.length > 0) {
+					return decoded.options
 				}
 			}
 		} catch {

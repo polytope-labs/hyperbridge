@@ -11,6 +11,7 @@ import { decodeUserOpScale } from "@/chains/intentsCoprocessor"
 import { CryptoUtils } from "@/protocols/intents/CryptoUtils"
 import type { PackedUserOperation } from "@/types"
 import IntentGatewayV2 from "@/abis/IntentGatewayV2"
+import { decodeFillOrder } from "./fillOrderCodec"
 import {
 	decodePoolAndPositionInfo,
 	positionAmountOfToken,
@@ -447,10 +448,13 @@ export function extractFillData(callData: HexString, gatewayAddress: string): Fi
 	for (const call of calls) {
 		if (call.target.toLowerCase() !== normalized) continue
 		try {
-			const decoded = decodeFunctionData({ abi: FILL_ORDER_ABI, data: call.data as HexString })
-			if (decoded.functionName !== "fillOrder" || !decoded.args || decoded.args.length < 2) continue
-			const order = decoded.args[0] as Record<string, unknown>
-			const options = decoded.args[1] as Record<string, unknown>
+			// Bids come from solvers targeting whichever gateway they run against, so the
+			// calldata may be either FillOptions shape. The selectors differ, so this cannot
+			// mis-decode one as the other.
+			const decoded = decodeFillOrder(call.data as HexString)
+			if (!decoded) continue
+			const order = decoded.order as unknown as Record<string, unknown>
+			const options = decoded.options as unknown as Record<string, unknown>
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any
 			const assets = (order as any)?.output?.assets as { token: HexString }[] | undefined
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any

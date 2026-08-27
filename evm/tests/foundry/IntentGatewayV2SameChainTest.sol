@@ -241,12 +241,6 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         vm.stopPrank();
     }
 
-    function testFillOptionsVersion_ReportsTwo() public view {
-        // Clients probe this to choose which FillOptions shape to encode; a deployment that
-        // does not answer is read as the pre-validUntil shape.
-        assertEq(intentGateway.fillOptionsVersion(), 2);
-    }
-
     function testSameChainSwap_BasicFill() public {
         uint256 inputAmount = 1000 * 1e6; // 1000 USDC
         uint256 outputAmount = 900 * 1e18; // 900 DAI

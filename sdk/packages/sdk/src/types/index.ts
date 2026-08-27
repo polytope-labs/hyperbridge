@@ -1298,7 +1298,7 @@ export interface FillOptions {
 	 * the placer can sit on a signed bid and execute it once the price has moved their way.
 	 *
 	 * In blocks, matching `order.deadline`, so both read against the same clock. Dropped when
-	 * encoding against a gateway whose `fillOptionsVersion` predates the field.
+	 * encoding against a gateway whose implementation predates the field.
 	 */
 	validUntil: bigint
 	outputs: TokenInfo[]

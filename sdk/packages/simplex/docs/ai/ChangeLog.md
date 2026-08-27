@@ -14,7 +14,7 @@ Newest entries first.
 
 ## 2026-08-27 — Bids are stamped with an expiry (`bidValiditySeconds`)
 
-Every bid this filler signs now carries a `validUntil`, defaulting to 300 seconds and configurable as
+Every bid this filler signs now carries a `validUntil`, defaulting to 1800 seconds (30 minutes) and configurable as
 `simplex.bidValiditySeconds`. Both bid paths set it — the real one in `prepareBidUserOp` and the phantom quote in
 `preparePhantomBidUserOp` — through a single `bidValidUntil()` helper.
 

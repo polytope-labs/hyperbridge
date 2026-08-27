@@ -6,17 +6,25 @@ Entry format: heading with the decision, then alternatives considered and the re
 
 ## 2026-08-27 — Bid tenor is capped in the filler, because the account cannot cap it
 
-Chosen: `bidValiditySeconds` (default 300) is applied here, in `ContractInteractionService.bidValidUntil()`, and
+Chosen: `bidValiditySeconds` (default 1800) is applied here, in `ContractInteractionService.bidValidUntil()`, and
 stamped into every bid. `SolverAccount` enforces that the expiry is *signed*, never that it is *sensible*.
 
 The split is forced, not stylistic. ERC-7562 bans the `TIMESTAMP` opcode during validation, so the account cannot
 compare `validUntil` against now; all it can do is bind the value to the signature and hand it to the EntryPoint.
 Whether 5 minutes or 30 days is appropriate is a pricing question anyway, and pricing lives here.
 
-300 seconds is chosen to comfortably cover the existing quote-to-fill path — cross-chain confirmation waits run to
-roughly 180s on the deepest default policies — while staying far below the window over which a quote on a volatile
-pair stops being one. It is deliberately not tied to `BID_TTL_MS` (the 1-hour Hyperbridge retraction sweep): that TTL
-governs reclaiming a deposit, this governs how long we are short an option, and an hour is far too long for the latter.
+1800 seconds is set by the selection window, not by the quote's shelf life. A bid is not consumed when it is signed —
+it sits in the coprocessor until the order placer selects a solver, and a bid that lapses before selection is simply
+lost revenue. `BID_TTL_MS` (the 1-hour retraction sweep) is the closest thing to a stated expectation for how long
+that takes, so an expiry has to be a decent fraction of an hour or the filler bids into the void. 30 minutes sits
+inside that window while still halving the worst case, and comfortably clears the quote-to-fill path itself, where
+cross-chain confirmation waits reach roughly 180s on the deepest default policies.
+
+The trade-off is real and worth stating plainly: 30 minutes of free optionality on a volatile pair is not nothing.
+The security property this fix delivers is that the option is now *bounded and priced by us* rather than unbounded and
+chosen by the placer — 1800 is a default, not a ceiling, and USDC/CNGN is exactly the pair to turn it down on. It is
+deliberately still shorter than `BID_TTL_MS`: that TTL governs reclaiming a deposit, this governs how long we are
+short an option, and the two should not be assumed to move together.
 
 Alternatives rejected:
 

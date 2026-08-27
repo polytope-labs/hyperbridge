@@ -166,7 +166,7 @@ export interface FillerTomlConfig {
 		 */
 		acceptedSourceChains?: string[]
 		/**
-		 * How long a signed bid stays executable, in seconds. Defaults to 300.
+		 * How long a signed bid stays executable, in seconds. Defaults to 1800 (30 minutes).
 		 *
 		 * This is how long the quoted price is a firm commitment the placer can take up.
 		 * Nothing else bounds it: the order's `deadline` is chosen by the placer with no

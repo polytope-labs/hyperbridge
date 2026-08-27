@@ -42,7 +42,14 @@ pallet-generated order presents `source`/`destination` as the same string the ev
 `chain` — and getting that wrong would refuse every genuine phantom order and silently stop the
 filler bidding, which only the simnode E2E would have caught.
 
-Files: `src/core/filler.ts`, `src/tests/core/phantom-order-validation.test.ts`.
+The simnode E2E was seeding `LatestStateMachineHeight` with `createType("u64", h).toHex()`.
+polkadot-js renders integers big-endian in hex while SCALE stores them little-endian, so the
+runtime read `0x00000000000f4240` back as 4.6e18: every phantom order in that suite carried a
+far-future deadline and was, contrary to the entire point of a phantom order, genuinely fillable.
+Nothing noticed until this guard refused to quote them. Fixed to seed `toU8a()`.
+
+Files: `src/core/filler.ts`, `src/tests/core/phantom-order-validation.test.ts`,
+`src/tests/phantom-filler.e2e.simnode.test.ts`.
 
 ## 2026-08-27 — Bids carry an on-chain expiry (`bidValiditySeconds`)
 

@@ -4,7 +4,7 @@ import type { HexString } from "@hyperbridge/sdk"
 
 import { UserOpSender, type Eip7702Authorization } from "@/services/UserOpSender"
 import { buildPaymasterAndData } from "@/services/paymaster"
-import { packPaymasterAndData, VERIFICATION_GAS_LIMIT_APPROVE, POST_OP_GAS_LIMIT } from "@/services/paymaster/types"
+import { packPaymasterAndData, VERIFICATION_GAS_LIMIT_APPROVE, POST_OP_GAS_LIMIT_SIMPLEX } from "@/services/paymaster/types"
 import type { ChainClientManager } from "@/services/ChainClientManager"
 import type { FillerConfigService } from "@/services/FillerConfigService"
 import type { Signer } from "@/services/wallet"
@@ -60,7 +60,7 @@ const approveModePaymasterAndData = packPaymasterAndData({
 	paymaster: PAYMASTER,
 	paymasterData: "0x01" as HexString,
 	paymasterVerificationGasLimit: VERIFICATION_GAS_LIMIT_APPROVE,
-	paymasterPostOpGasLimit: POST_OP_GAS_LIMIT,
+	paymasterPostOpGasLimit: POST_OP_GAS_LIMIT_SIMPLEX,
 })
 
 let bundlerCalls: Array<{ method: string; params: unknown[] }>
@@ -118,7 +118,7 @@ describe("UserOpSender EIP-7702 authorization ordering", () => {
 			callData: "0x" as HexString,
 			eip7702Auth: signAuthorization,
 			gas: GAS,
-			forceApproveMode: true,
+			skipPermit: true,
 		})
 
 		expect(result).toEqual({ txHash: "0x" + "cd".repeat(32) })
@@ -151,7 +151,7 @@ describe("UserOpSender EIP-7702 authorization ordering", () => {
 				callData: "0x" as HexString,
 				eip7702Auth: signAuthorization,
 				gas: GAS,
-				forceApproveMode: true,
+				skipPermit: true,
 			}),
 		).resolves.toBeNull()
 

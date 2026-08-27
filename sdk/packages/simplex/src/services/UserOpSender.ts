@@ -58,11 +58,11 @@ export interface SponsoredUserOpRequest {
 	 */
 	paymasterVerificationGasLimit?: bigint
 	/**
-	 * Forces the Simplex paymaster into approve mode. Delegation ops pass fixed,
+	 * Skips the Simplex paymaster's EIP-2612 permit mode. Delegation ops pass fixed,
 	 * measured gas limits that a permit executed during paymaster validation
-	 * would exceed.
+	 * would exceed; PERMIT2 and APPROVE modes stay available.
 	 */
-	forceApproveMode?: boolean
+	skipPermit?: boolean
 }
 
 // Generous fallbacks used only when bundler gas estimation fails. The paymaster
@@ -116,7 +116,7 @@ export class UserOpSender {
 			nonceKey = 0n,
 			gas,
 			paymasterVerificationGasLimit,
-			forceApproveMode,
+			skipPermit,
 		} = req
 
 		const entryPoint = this.configService.getEntryPointAddress(chain)
@@ -141,7 +141,7 @@ export class UserOpSender {
 				signer: this.signer,
 				configService: this.configService,
 				paymasterVerificationGasLimit,
-				forceApproveMode,
+				skipPermit,
 			})
 			if (pm.type === "none") {
 				this.logger.warn(
@@ -152,8 +152,8 @@ export class UserOpSender {
 			}
 
 			// Sign the EIP-7702 authorization only after paymaster data is built —
-			// approve-mode building sends an approve tx from the authority EOA, and an
-			// authorization signed before that tx embeds a stale nonce (bundler reject).
+			// bootstrapping an approval (to Permit2 or the paymaster) sends a tx from the
+			// authority EOA, and an authorization signed before it embeds a stale nonce.
 			auth = typeof eip7702Auth === "function" ? await eip7702Auth() : eip7702Auth
 		} catch (error) {
 			// Preparation failures (approve tx, permit/authorization signing) happen

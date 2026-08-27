@@ -844,8 +844,9 @@ fn phantom_generation_emits_one_order_per_configured_chain() {
 		let exhausted = System::events()
 			.into_iter()
 			.filter_map(|record| match record.event {
-				RuntimeEvent::Intents(Event::PhantomBidWindowExhausted { commitment, .. }) =>
-					Some(commitment),
+				RuntimeEvent::Intents(Event::PhantomBidWindowExhausted { commitment, .. }) => {
+					Some(commitment)
+				},
 				_ => None,
 			})
 			.collect::<alloc::vec::Vec<_>>();
@@ -1263,8 +1264,9 @@ fn phantom_bid_window_exhausted_fires_once_for_the_active_order() {
 		let exhausted = System::events()
 			.into_iter()
 			.filter_map(|record| match record.event {
-				RuntimeEvent::Intents(Event::PhantomBidWindowExhausted { commitment, .. }) =>
-					Some(commitment),
+				RuntimeEvent::Intents(Event::PhantomBidWindowExhausted { commitment, .. }) => {
+					Some(commitment)
+				},
 				_ => None,
 			})
 			.collect::<alloc::vec::Vec<_>>();
@@ -1344,6 +1346,14 @@ fn paymaster_actions_fail_when_not_registered() {
 			),
 			Error::<Test>::PaymasterNotFound
 		);
+		assert_noop!(
+			Intents::unlock_paymaster_stake(RuntimeOrigin::root(), sm),
+			Error::<Test>::PaymasterNotFound
+		);
+		assert_noop!(
+			Intents::withdraw_paymaster_stake(RuntimeOrigin::root(), sm),
+			Error::<Test>::PaymasterNotFound
+		);
 	});
 }
 
@@ -1382,6 +1392,8 @@ fn paymaster_governance_actions_dispatch() {
 			H160::zero(),
 			U256::from(1_000_000)
 		));
+		assert_ok!(Intents::unlock_paymaster_stake(RuntimeOrigin::root(), sm));
+		assert_ok!(Intents::withdraw_paymaster_stake(RuntimeOrigin::root(), sm));
 	});
 }
 

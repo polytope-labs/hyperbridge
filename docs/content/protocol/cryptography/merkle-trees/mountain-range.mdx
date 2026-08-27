@@ -2,13 +2,17 @@
 title: Merkle Mountain Range Trees
 description: Merkle mountain ranges<sup>[1]</sup> are an improvement over conventional merkle trees for growing, potentially unbounded lists.
 ---
+
+import mmrGrowth from "./images/mmr-01.svg";
+import mmrSubtrees from "./images/mmr-02.svg";
+
 # Merkle Mountain Ranges
 
 Merkle mountain ranges<sup>[1]</sup> are an improvement over conventional merkle trees for growing, potentially unbounded lists. Where conventional merkle tree constructions over growing lists prove very inefficient to compute, as all nodes in the tree must be recomputed. Merkle mountain ranges amortise this cost by growing subtrees incrementally and merging subtrees at the same height, rather than growing the full tree.
 
 
 <figure>
-  <img src="/mmr-01.svg" alt="MMR tree" />
+  <img src={mmrGrowth.src} alt="MMR tree" />
   <figcaption style={{ textAlign: "center" }}>You can observe how the tree grows by looking at the order of the nodes.</figcaption>
 </figure>
 
@@ -83,7 +87,7 @@ Our approach to verifying mmr multi proofs will be to regard each sub tree as an
 
 
 <figure>
-  <img src="/mmr-02.svg" alt="MMR tree" />
+  <img src={mmrSubtrees.src} alt="MMR tree" />
   <figcaption style={{ textAlign: "center" }}>We can describe each subtree as a standalone, perfectly balanced merkle tree.</figcaption>
 </figure>
 

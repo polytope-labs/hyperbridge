@@ -191,6 +191,15 @@ jobs:
 
             - name: Install Foundry (anvil)
               uses: foundry-rs/foundry-toolchain@v1
+              with:
+                  # Pinned, not `stable`, for the same reason as evm.yml. Foundry v1.8.0
+                  # (2026-08-27) probes `anvil_nodeInfo` to work out an endpoint's network family,
+                  # and providers that answer it with HTTP 400 fail the fork outright — here that
+                  # would take down both `anvil --fork-url` instances below and with them the whole
+                  # phantom-filler E2E. v1.7.1 is the last version this suite ran green on. Revert
+                  # to `stable` once upstream stops probing, or once the fork URL is a provider that
+                  # answers it, and do it in both workflows together.
+                  version: v1.7.1
 
             - name: Set up Node
               uses: actions/setup-node@v4

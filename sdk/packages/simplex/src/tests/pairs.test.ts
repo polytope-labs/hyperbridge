@@ -369,7 +369,9 @@ describe("validatePairConfigs", () => {
 })
 
 // ---------------------------------------------------------------------------
-// FX engine leg math with pair-local rates and caps, via quotePhantomFill
+// FX engine leg math with pair-local rates, via quotePhantomFill. A probe is a
+// price quote, not an allocation, so maxOrderSize never rations it — the cap
+// governs real fills only (see the exposure-cap and profit-gates suites).
 // ---------------------------------------------------------------------------
 
 function makeContractService(): any {
@@ -461,9 +463,9 @@ describe("FXFiller pairs engine", () => {
 		expect((await filler.quotePhantomFill(usdtLeg))?.[0].amount).toBe(parseUnits("100000", 18))
 	})
 
-	it("caps each pair at its own maxOrderSize, in token0 units", async () => {
-		// ZARP-quoted pair: pricing and the cap are denominated in ZARP. The
-		// USDC/ZARP pair only anchors ZARP for confirmation sizing.
+	it("prices ZARP-quoted pairs in token0 units; probes are not rationed by maxOrderSize", async () => {
+		// ZARP-quoted pair: pricing is denominated in ZARP. The USDC/ZARP pair
+		// only anchors ZARP for confirmation sizing.
 		const filler = makeFiller([
 			{ token0: "USDC", token1: "ZARP", maxOrderSize: size("100000"), askPricePolicy: flat("18") },
 			{ token0: "ZARP", token1: "CNGN", maxOrderSize: size("100000"), askPricePolicy: flat("100") },
@@ -486,8 +488,10 @@ describe("FXFiller pairs engine", () => {
 			{ token: bytes20ToBytes32(ZARP), amount: parseUnits("200000", 18) },
 			{ token: bytes20ToBytes32(CNGN), amount: 0n },
 		)
-		// 200,000 ZARP → capped at maxOrderSize 100,000 ZARP → 10,000,000 CNGN
-		expect((await filler.quotePhantomFill(large))?.[0].amount).toBe(parseUnits("10000000", 18))
+		// 200,000 ZARP exceeds maxOrderSize 100,000, but a probe commits no
+		// capital, so the cap does not ration it (it only logs a config warning):
+		// 200,000 × 100 = 20,000,000 CNGN.
+		expect((await filler.quotePhantomFill(large))?.[0].amount).toBe(parseUnits("20000000", 18))
 	})
 
 	it("sizes bid legs through the pair's own curve", async () => {
@@ -504,13 +508,14 @@ describe("FXFiller pairs engine", () => {
 		expect(sized?.inputUsd.eq(new Decimal(2000))).toBe(true)
 		expect((await filler.quotePhantomFill(order))?.[0].amount).toBe(parseUnits("2000", 6))
 
-		// 15,000,000 CNGN ÷ 1500 = 10,000 USDC notional → capped at 5000 USDC out.
+		// 15,000,000 CNGN ÷ 1500 = 10,000 USDC notional — over the 5000 cap, but
+		// probes are not rationed by it: the full 10,000 USDC is quoted.
 		const large = makeOrder(
 			"bid-sizing-large",
 			{ token: bytes20ToBytes32(CNGN), amount: parseUnits("15000000", 18) },
 			{ token: bytes20ToBytes32(USDC), amount: 0n },
 		)
-		expect((await filler.quotePhantomFill(large))?.[0].amount).toBe(parseUnits("5000", 6))
+		expect((await filler.quotePhantomFill(large))?.[0].amount).toBe(parseUnits("10000", 6))
 	})
 
 	it("quotes same-token pairs at the below-par ask, across differing decimals", async () => {
@@ -560,8 +565,9 @@ describe("FXFiller pairs engine", () => {
 			),
 			destination: CHAIN2,
 		} as unknown as Order
-		// 20,000 USDC → capped at maxOrderSize 10,000 → 9,950 out.
-		expect((await filler.quotePhantomFill(large))?.[0].amount).toBe(parseUnits("9950", 18))
+		// 20,000 USDC exceeds maxOrderSize 10,000, but probes are not rationed by
+		// the cap: 20,000 × 0.995 = 19,900 out.
+		expect((await filler.quotePhantomFill(large))?.[0].amount).toBe(parseUnits("19900", 18))
 	})
 
 	it("prefers explicitly configured curves over venue pricing", async () => {
@@ -728,6 +734,11 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 		getCNgnAsset: () => undefined,
 		getMaxOverfillBps: () => 500n,
 		getMaxConsecutiveClamps: () => 3,
+		// No paymaster on any chain: the leg loop's paymasterReserveForToken
+		// consults these and must reserve nothing here — this suite asserts
+		// exact spread/fee arithmetic with no gas headroom held back.
+		getCirclePaymasterAddress: () => undefined,
+		getSimplexPaymasterAddress: () => undefined,
 	} as any
 	const signer = { address: SOLVER } as any
 

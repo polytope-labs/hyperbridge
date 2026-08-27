@@ -2032,6 +2032,10 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         vm.startPrank(user);
         dai.approve(address(intentGateway), type(uint256).max);
+
+        vm.expectEmit(true, false, false, true, address(intentGateway));
+        emit IntentsBase.OrderCancelled(keccak256(abi.encode(order)), user);
+
         intentGateway.cancelOrder(order, cancelOptions);
         vm.stopPrank();
     }
@@ -2342,6 +2346,10 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         vm.startPrank(user);
         dai.approve(address(intentGateway), type(uint256).max);
+
+        vm.expectEmit(true, false, false, true, address(intentGateway));
+        emit IntentsBase.OrderCancelled(commitment, user);
+
         intentGateway.cancelOrder(order, cancelOptions);
         vm.stopPrank();
 
@@ -2428,6 +2436,57 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         vm.stopPrank();
     }
 
+    function testCancelOrderFromSourceChainDispatchesGetRequest() public {
+        uint256 inputAmount = 1000 * 1e6;
+
+        TokenInfo[] memory inputs = new TokenInfo[](1);
+        inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: inputAmount});
+
+        TokenInfo[] memory outputAssets = new TokenInfo[](1);
+        outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
+
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
+
+        // Cross-chain order placed here; this chain is the source.
+        Order memory order = Order({
+            user: bytes32(uint256(uint160(user))),
+            source: host.host(),
+            destination: bytes("DEST_CHAIN"),
+            deadline: block.number + 100,
+            nonce: 0,
+            fees: 0,
+            session: address(0),
+            predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
+            inputs: inputs,
+            output: output
+        });
+
+        vm.startPrank(user);
+        usdc.approve(address(intentGateway), inputAmount);
+        intentGateway.placeOrder(order, bytes32(0));
+        vm.stopPrank();
+
+        vm.roll(block.number + 101);
+
+        bytes32 commitment = keccak256(abi.encode(order));
+        CancelOptions memory cancelOptions = CancelOptions({relayerFee: 1 ether, height: uint64(order.deadline + 1)});
+
+        // The GET dispatch is the only other trace this route leaves, and it carries no
+        // reference to the order — `OrderCancelled` is what keys the cancel to a commitment.
+        vm.expectCall(
+            address(host), abi.encodeWithSignature("dispatch((bytes,uint64,bytes[],uint64,uint256,bytes,address))")
+        );
+        vm.expectEmit(true, false, false, true, address(intentGateway));
+        emit IntentsBase.OrderCancelled(commitment, user);
+
+        vm.prank(user);
+        intentGateway.cancelOrder{value: 0.1 ether}(order, cancelOptions);
+
+        // Escrow is untouched until the GET response comes back through `onGetResponse`.
+        assertEq(intentGateway._orders(commitment, address(usdc)), inputAmount, "Escrow should still be held");
+    }
+
     function testCancelOrderFromWrongChainFails() public {
         uint256 inputAmount = 1000 * 1e6;
 
@@ -2460,6 +2519,41 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         vm.expectRevert(IntentsBase.WrongChain.selector);
         intentGateway.cancelOrder(order, cancelOptions);
         vm.stopPrank();
+    }
+
+    function testCancelSameChainOrderBelongingToAnotherChainFails() public {
+        uint256 inputAmount = 1000 * 1e6;
+
+        TokenInfo[] memory inputs = new TokenInfo[](1);
+        inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: inputAmount});
+
+        TokenInfo[] memory outputAssets = new TokenInfo[](1);
+        outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
+
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
+
+        // Same-chain order (source == destination), but for a chain that is not this one. The
+        // same-chain route is selected on `source == destination` alone, so without this check a
+        // foreign order would reach `_cancelSameChain` and be refunded against escrow held here.
+        Order memory order = Order({
+            user: bytes32(uint256(uint160(user))),
+            source: bytes("SOURCE_CHAIN"),
+            destination: bytes("SOURCE_CHAIN"),
+            deadline: block.number + 100,
+            nonce: 0,
+            fees: 0,
+            session: address(0),
+            predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
+            inputs: inputs,
+            output: output
+        });
+
+        CancelOptions memory cancelOptions = CancelOptions({relayerFee: 0, height: 0});
+
+        vm.prank(user);
+        vm.expectRevert(IntentsBase.WrongChain.selector);
+        intentGateway.cancelOrder(order, cancelOptions);
     }
 
     function testRefundEscrowOnSourceChainAfterDestinationCancellation() public {
@@ -2598,6 +2692,11 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         // Anyone (filler) can cancel after expiry
         vm.startPrank(filler);
         dai.approve(address(intentGateway), type(uint256).max);
+
+        // `canceller` is msg.sender, which on this route need not be the order's creator.
+        vm.expectEmit(true, false, false, true, address(intentGateway));
+        emit IntentsBase.OrderCancelled(commitment, filler);
+
         intentGateway.cancelOrder(order, cancelOptions);
         vm.stopPrank();
 

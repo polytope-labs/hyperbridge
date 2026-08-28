@@ -159,9 +159,9 @@ pub mod signer {
 	/// `inject_account_nonce_and_block`). On a parachain, finality trails the best chain by
 	/// several blocks, so a submitter that only waits for in-block (not finalization) before its
 	/// next submission reuses an already-spent nonce and the node rejects it as
-	/// `InvalidTransaction::Stale`. Passing a pool-aware nonce (e.g. from `system_accountNextIndex`)
-	/// avoids that. This uses `create_partial_offline`, which — unlike `create_signed` — does not
-	/// overwrite the nonce we set.
+	/// `InvalidTransaction::Stale`. Passing a pool-aware nonce (e.g. from
+	/// `system_accountNextIndex`) avoids that. This uses `create_partial_offline`, which — unlike
+	/// `create_signed` — does not overwrite the nonce we set.
 	pub async fn send_extrinsic_with_nonce<T, Tx: Payload>(
 		client: &OnlineClient<T>,
 		signer: &InMemorySigner<T>,

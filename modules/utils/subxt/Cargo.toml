@@ -10,6 +10,8 @@ ismp = { workspace = true }
 codec = { workspace = true }
 anyhow = { workspace = true }
 reconnecting-jsonrpsee-ws-client = { workspace = true }
+jsonrpsee = { workspace = true, features = ["http-client"], optional = true }
+json = { workspace = true, default-features = true, optional = true }
 primitive-types = { workspace = true, features = ["scale-info", "serde"] }
 alloy-primitives = { workspace = true }
 pallet-ismp-host-executive = { workspace = true }
@@ -28,6 +30,8 @@ features = ["sp-crypto-hashing"]
 default = ["std"]
 wasm = ["subxt/web", "subxt/jsonrpsee", "reconnecting-jsonrpsee-ws-client/web", "subxt/reconnecting-rpc-client"]
 std = [
+    "jsonrpsee",
+    "json",
     "subxt/default",
     "subxt/reconnecting-rpc-client",
     "ismp/std",

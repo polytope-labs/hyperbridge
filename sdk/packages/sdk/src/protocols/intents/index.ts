@@ -44,6 +44,7 @@ export {
 	resetFillOptionsVersionCache,
 	LEGACY_FILL_OPTIONS_IMPLEMENTATIONS,
 	CHAINS_WITHOUT_VALID_UNTIL,
+	FILL_ORDER_V1_ABI,
 } from "./fillOrderCodec"
 export type { FillOptionsVersion } from "./fillOrderCodec"
 export {

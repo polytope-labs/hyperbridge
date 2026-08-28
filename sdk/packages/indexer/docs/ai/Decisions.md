@@ -4,6 +4,35 @@ AI-maintained record of non-obvious choices made in `sdk/packages/indexer`: what
 
 Entry format: heading with the decision, then alternatives considered and the reasoning. Newest first.
 
+## 2026-08-28 — `CANCELLED` is a real status, but only reachable from `PLACED`
+
+`OrderCancelled` marks the *initiation* of a cancellation, not its completion. The gateway's own docs are
+explicit that `EscrowRefunded` stays terminal: it follows in the same transaction for a same-chain cancel, and on
+the source chain once the cancellation has travelled through Hyperbridge for a cross-chain one. An order can also
+sit cancelled forever — the source-side route re-emits on every call and only refunds when the GET response
+returns.
+
+Two alternatives were rejected:
+
+- **Record the event but never touch `status`.** Safest, but leaves a cancelled cross-chain order reading `PLACED`
+  for as long as the refund takes, which is exactly the window an API consumer most wants to see.
+- **Set `CANCELLED` unconditionally.** `updateOrderStatus` assigns without comparing against the current value,
+  and the destination-chain cancel and source-chain refund are indexed by two datasources with no ordering
+  guarantee between them. A cancellation indexed after its own refund would move a settled order back to
+  `CANCELLED`.
+
+So the write is guarded on the current status being `PLACED`. That makes it idempotent and order-independent —
+whichever of the pair is processed second is dropped if it would regress — without changing behaviour for any
+other status.
+
+The guard lives in `recordOrderCancellation`, not in `updateOrderStatus`. Adding a general "never regress" rule to
+`updateOrderStatus` would be the broader fix, but it would silently change every existing transition (including
+the `FILLED` → points path) on a code path with no test coverage for ordering. Narrow guard now; the general rule
+is a separate change with its own justification.
+
+An order not yet seen falls through to `updateOrderStatus`'s existing `PendingStatusMetadata` path, which is
+already how out-of-order arrival is handled everywhere else in this service.
+
 ## 2026-08-19 — The standard-amount check bounds plausibility instead of pinning one unit
 
 Chosen: `resolvePoolLeg` accepts any standard amount within a plausibility window around one whole input token, and `updateLiquidityPools` renormalizes the rate by the leg's own standard amount. The pallet is then free to raise the probe size to buy quote precision without the indexer rescaling every published rate by that factor.

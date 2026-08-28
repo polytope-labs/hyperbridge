@@ -31,6 +31,7 @@ import { IOrderV3FillInputAsset } from "@/configs/src/types/models/IOrderV3FillI
 import { IOrderV3FillOutputAsset } from "@/configs/src/types/models/IOrderV3FillOutputAsset"
 import { IOrderV3EscrowRelease } from "@/configs/src/types/models/IOrderV3EscrowRelease"
 import { IOrderV3EscrowReleaseToken } from "@/configs/src/types/models/IOrderV3EscrowReleaseToken"
+import { IOrderV3Cancellation } from "@/configs/src/types/models/IOrderV3Cancellation"
 import { IOrderV3EscrowRefund } from "@/configs/src/types/models/IOrderV3EscrowRefund"
 import { IOrderV3EscrowRefundToken } from "@/configs/src/types/models/IOrderV3EscrowRefundToken"
 import { IntentGatewayTokenVolume } from "@/configs/src/types/models/IntentGatewayTokenVolume"
@@ -914,6 +915,64 @@ export class IntentGatewayV3Service {
 				await tokenEntity.save()
 			}),
 		)
+	}
+
+	/**
+	 * Records an OrderCancelled event and advances the order to CANCELLED, but only from
+	 * PLACED.
+	 *
+	 * The gateway documents EscrowRefunded — not this event — as terminal, and
+	 * `updateOrderStatus` overwrites unconditionally, so calling it unguarded would let a
+	 * cancellation clobber a REFUNDED that has already landed. That ordering is not
+	 * hypothetical: a cross-chain cancel is initiated on the destination chain and refunded
+	 * on the source chain, and the two are indexed by separate datasources with no ordering
+	 * guarantee between them. Guarding on PLACED makes the write idempotent and
+	 * order-independent — whichever arrives second is ignored if it would regress.
+	 *
+	 * An order not yet seen falls through to `updateOrderStatus`'s PendingStatusMetadata
+	 * path, which is the existing mechanism for out-of-order arrival.
+	 */
+	static async recordOrderCancellation(
+		commitment: string,
+		canceller: string,
+		logsData: {
+			transactionHash: string
+			blockNumber: number
+			timestamp: bigint
+			logIndex: number
+		},
+	): Promise<void> {
+		const { transactionHash, blockNumber, timestamp, logIndex } = logsData
+		const cancellationId = `${transactionHash}.${logIndex}`
+
+		let cancellation = await IOrderV3Cancellation.get(cancellationId)
+		if (!cancellation) {
+			cancellation = await IOrderV3Cancellation.create({
+				id: cancellationId,
+				orderId: commitment,
+				chain: chainId,
+				canceller,
+				timestamp,
+				blockNumber: blockNumber.toString(),
+				transactionHash,
+				createdAt: timestampToDate(timestamp),
+			})
+		}
+		await cancellation.save()
+
+		const orderPlaced = await OrderV3Placed.get(commitment)
+		if (orderPlaced && orderPlaced.status !== OrderStatus.PLACED) {
+			logger.info(
+				`[Intent Gateway V3] Order ${commitment} already at ${orderPlaced.status}; not regressing to CANCELLED`,
+			)
+			return
+		}
+
+		await IntentGatewayV3Service.updateOrderStatus(commitment, OrderStatus.CANCELLED, {
+			transactionHash,
+			blockNumber,
+			timestamp,
+		})
 	}
 
 	static computeOrderCommitment(order: OrderV3): string {

@@ -1122,6 +1122,25 @@
 	},
 	{
 		"type": "event",
+		"name": "OrderCancelled",
+		"inputs": [
+			{
+				"name": "commitment",
+				"type": "bytes32",
+				"indexed": true,
+				"internalType": "bytes32"
+			},
+			{
+				"name": "canceller",
+				"type": "address",
+				"indexed": false,
+				"internalType": "address"
+			}
+		],
+		"anonymous": false
+	},
+	{
+		"type": "event",
 		"name": "DustSwept",
 		"inputs": [
 			{

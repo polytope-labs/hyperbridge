@@ -45,6 +45,15 @@ enum OrderStatus {
 	"""
 	REDEEMED
 	"""
+	Cancellation has been initiated, but the escrow has not been refunded yet.
+
+	Not terminal: REFUNDED follows, in the same transaction for a same-chain cancel and on
+	the source chain once the cancellation has travelled through Hyperbridge for a
+	cross-chain one. An order can also sit in this state permanently — the source-side
+	route re-emits on every call and the refund only lands when the GET response returns.
+	"""
+	CANCELLED
+	"""
 	The order has been cancelled and refunded on the source chain
 	"""
 	REFUNDED
@@ -857,6 +866,13 @@ type IOrderV3 @entity {
 	escrowRefunds: [IOrderV3EscrowRefund!]! @derivedFrom(field: "order")
 
 	"""
+	Cancellation events for this order. More than one is possible: the source-side route
+	re-emits on every call, and a cross-chain cancel is initiated on the destination chain
+	while the refund lands on the source chain.
+	"""
+	cancellations: [IOrderV3Cancellation!]! @derivedFrom(field: "order")
+
+	"""
 	Predispatch assets for this order
 	"""
 	predispatchAssets: [IOrderV3PredispatchAsset!]! @derivedFrom(field: "order")
@@ -1363,6 +1379,54 @@ type IOrderV3EscrowReleaseToken @entity {
 	Position index in the release tokens array
 	"""
 	index: Int!
+}
+
+"""
+Represents an IOrderV3 OrderCancelled event — the initiation of a cancellation, on the
+chain it was initiated from. The terminal event is EscrowRefunded, not this one.
+"""
+type IOrderV3Cancellation @entity {
+	"""
+	Unique identifier for the cancellation event. Format: {transactionHash}.{logIndex}
+	"""
+	id: ID!
+
+	"""
+	The order whose cancellation was initiated
+	"""
+	order: IOrderV3!
+
+	"""
+	The chain on which the cancellation was initiated. The source chain for a same-chain
+	cancel, the destination chain for the permissionless post-expiry route.
+	"""
+	chain: String! @index
+
+	"""
+	The account that initiated the cancellation. The destination-side route is
+	permissionless after expiry, so this is not necessarily the order's creator.
+	"""
+	canceller: String! @index
+
+	"""
+	The timestamp of the cancellation event
+	"""
+	timestamp: BigInt! @index
+
+	"""
+	The number of the block in which the cancellation occurred
+	"""
+	blockNumber: String! @index
+
+	"""
+	The hash of the transaction in which the cancellation occurred
+	"""
+	transactionHash: String! @index
+
+	"""
+	The timestamp when this record was created
+	"""
+	createdAt: Date! @index
 }
 
 """

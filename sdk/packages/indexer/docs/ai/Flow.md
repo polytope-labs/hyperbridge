@@ -47,3 +47,28 @@ Verified 2026-08-19 against live mainnet data.
 5. Chain rows (`PoolChainLiquidity`, one per pool/chain/direction) are merged into the pool's single `sellRate`/`buyRate` by `weightedRate` — a depth-weighted **mean**, which unlike the median in step 3 does produce values no filler quoted. Samples older than `MAX_SAMPLE_AGE_BLOCKS` are excluded unless every sample is stale.
 
 Precision note: a leg's quoted output integer *is* the price, to whatever resolution the output token's decimals allow. cNGN into 6-decimal USDC quotes ~715 base units, so the grid is 1/715 = 0.14% and the filler's floor rounding costs up to one full step. Chains whose output token has 18 decimals carry full precision on the same leg — which is why EVM-56 publishes `716845878136200` where Base publishes a bare `715`. The fix is a larger `standardAmount`, which step 4 now supports; see Decisions.md for why the filler's flooring must stay.
+
+## Order cancellation (OrderCancelled → EscrowRefunded)
+
+Verified by reading the handler, the service, and the gateway's event docs; the two-event split is what makes the
+status guard necessary.
+
+1. `cancelOrder` on IntentGatewayV2 emits `OrderCancelled(commitment, canceller)` on the chain the cancellation is
+   initiated from. This is *not* terminal.
+2. The log triggers `handleOrderCancelledEventV3`
+   (`src/handlers/events/intentGatewayV3/orderCancelledV3.event.handler.ts`), which resolves the block timestamp
+   and calls `IntentGatewayV3Service.recordOrderCancellation`.
+3. That method always writes an `IOrderV3Cancellation` row keyed `{transactionHash}.{logIndex}`, so repeat
+   cancellations each get their own record. It then advances the order to `CANCELLED` **only if the order is
+   currently `PLACED`** — see Decisions for why.
+4. `EscrowRefunded` is the terminal event and moves the order to `REFUNDED` via the existing
+   `handleEscrowRefundedEventV3`. Two timings:
+   - **Same-chain cancel:** both logs are in one transaction, `OrderCancelled` at the lower `logIndex`
+     (`_cancelSameChain` emits before `_withdraw`). The order passes through `CANCELLED` to `REFUNDED` in the same
+     block.
+   - **Cross-chain cancel:** `OrderCancelled` fires on the destination chain, and `EscrowRefunded` on the source
+     chain only once the cancellation has travelled through Hyperbridge. These are separate datasources with no
+     ordering guarantee, which is the case the `PLACED` guard exists for.
+5. A cancellation initiated from the source side can emit `OrderCancelled` and never be followed by
+   `EscrowRefunded` — the route re-emits on every call and only refunds when the GET response returns. An order
+   resting at `CANCELLED` is therefore an expected steady state, not necessarily an indexing gap.

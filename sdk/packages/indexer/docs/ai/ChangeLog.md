@@ -12,6 +12,27 @@ Files: list of files touched.
 
 Newest entries first.
 
+## 2026-08-28 — Index the gateway's OrderCancelled event
+
+`09888bd1` added `OrderCancelled(bytes32 indexed commitment, address canceller)` to IntentGatewayV2. It was the
+only contract event with no counterpart in the indexer: the ABI already carried the other reshaped events from
+this cycle (`OrderFilled`/`PartialFill`/`EscrowReleased`/`EscrowRefunded` with their token arrays, `DeploymentAdded`,
+`DestinationProtocolFeeUpdated`), so cancellation was the whole gap.
+
+Added a `CANCELLED` order status, an `IOrderV3Cancellation` entity recording who cancelled and where, a handler,
+and the datasource wiring. The `canceller` is worth storing separately from the order's `user`: the
+destination-side cancel route is permissionless once the order has expired, so the two are not the same account
+in general.
+
+`recordOrderCancellation` only advances the status from `PLACED` — `updateOrderStatus` overwrites unconditionally,
+and a cross-chain cancel is initiated on the destination chain while its refund lands on the source chain, so
+without the guard a late-indexed cancellation would clobber a `REFUNDED` that had already been recorded. See
+Decisions for why the guard sits in the service rather than in `updateOrderStatus`.
+
+Files: `src/configs/abis/IntentGatewayV3.abi.json`, `src/configs/schema.graphql`,
+`src/services/intentGatewayV3.service.ts`, `src/handlers/events/intentGatewayV3/orderCancelledV3.event.handler.ts`,
+`src/mappings/mappingHandlers.ts`, `scripts/templates/evm-chain.yaml.hbs`.
+
 ## 2026-08-19 — Pool rates renormalize by the leg's own standard amount
 
 `resolvePoolLeg` used to require `standardAmount === 10 ** inputDecimals` exactly, and `updateLiquidityPools` derived a chain sample as `medianPrice * scale`, which silently assumes that same one-unit probe. Both now work for whatever standard amount the phantom order carries: the rate is `medianPrice * scale * 10 ** inDecimals / standardAmount`, exact for any probe size, whole-token or not, and it collapses to the old expression when the probe is one unit. Verified against production: the four live one-unit rates (Base cNGN/USDC both directions, BSC cNGN/USDT both directions) reproduce byte-for-byte, and a 1000x probe with a 1000x quote yields the identical rate.

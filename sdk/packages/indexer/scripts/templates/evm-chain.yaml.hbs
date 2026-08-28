@@ -73,6 +73,11 @@ dataSources:
             topics:
               - 'EscrowRefunded(bytes32,(bytes32,uint256)[])'
         - kind: ethereum/LogHandler
+          handler: handleOrderCancelledEventV3
+          filter:
+            topics:
+              - 'OrderCancelled(bytes32,address)'
+        - kind: ethereum/LogHandler
           handler: handleDustCollectedEventV3
           filter:
             topics:

@@ -151,6 +151,7 @@ impl pallet_ismp::Config for Runtime {
 		ismp_optimism::OptimismConsensusClient<Ismp, Runtime>,
 		ismp_polygon::PolygonClient<Ismp, Runtime>,
 		ismp_tendermint::TendermintClient<Ismp, Runtime>,
+		ismp_tempo::TempoClient<Ismp, Runtime>,
 		ismp_pharos::PharosClient<Ismp, Runtime, ismp_pharos::Mainnet>,
 		ismp_beefy::BeefyConsensusClient<Ismp, Runtime>,
 	);

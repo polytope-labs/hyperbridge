@@ -1,0 +1,21 @@
+[package]
+name = "tesseract-tempo"
+version = "0.1.0"
+edition = "2021"
+description = "Tempo consensus relayer for tesseract"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+
+[dependencies]
+anyhow = { workspace = true, default-features = true }
+async-trait = "0.1.88"
+codec = { package = "parity-scale-codec", version = "3.2.2", features = ["derive"] }
+hex = { workspace = true, default-features = true }
+ismp = { workspace = true, default-features = true }
+ismp-tempo = { workspace = true, default-features = true }
+tempo-verifier = { workspace = true, default-features = true }
+tempo-prover = { workspace = true, default-features = true }
+log = { workspace = true, default-features = true }
+serde = { version = "1.0", features = ["derive"] }
+tesseract-evm = { workspace = true }
+tesseract-primitives = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }

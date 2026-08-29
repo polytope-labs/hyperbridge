@@ -8373,6 +8373,7 @@ dependencies = [
  "ismp-beefy",
  "ismp-bsc",
  "ismp-grandpa",
+ "ismp-kaia",
  "ismp-optimism",
  "ismp-parachain",
  "ismp-parachain-runtime-api",
@@ -10605,6 +10606,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "ismp-kaia"
+version = "0.1.0"
+dependencies = [
+ "evm-state-machine",
+ "ismp",
+ "kaia-verifier",
+ "pallet-ismp-host-executive",
+ "parity-scale-codec",
+]
+
+[[package]]
 name = "ismp-optimism"
 version = "0.1.0"
 dependencies = [
@@ -11219,6 +11231,44 @@ dependencies = [
  "serdect",
  "sha2 0.10.9",
  "signature 2.2.0",
+]
+
+[[package]]
+name = "kaia-prover"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "ethabi",
+ "futures",
+ "hex",
+ "ismp",
+ "kaia-verifier",
+ "parity-scale-codec",
+ "polkadot-sdk",
+ "primitive-types 0.13.1",
+ "reqwest 0.11.27",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "kaia-verifier"
+version = "0.1.0"
+dependencies = [
+ "alloy-primitives 1.5.7",
+ "alloy-rlp",
+ "alloy-rlp-derive",
+ "ethabi",
+ "hex",
+ "ismp",
+ "parity-scale-codec",
+ "polkadot-sdk",
+ "primitive-types 0.13.1",
+ "scale-info",
+ "serde_json",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -13229,6 +13279,7 @@ dependencies = [
  "ismp-beefy",
  "ismp-bsc",
  "ismp-grandpa",
+ "ismp-kaia",
  "ismp-optimism",
  "ismp-parachain",
  "ismp-parachain-runtime-api",
@@ -28583,6 +28634,7 @@ dependencies = [
  "tesseract-bsc",
  "tesseract-evm",
  "tesseract-grandpa",
+ "tesseract-kaia",
  "tesseract-parachain",
  "tesseract-pharos",
  "tesseract-polygon",
@@ -28788,6 +28840,27 @@ dependencies = [
  "tokio",
  "tracing-subscriber 0.3.19",
  "transaction-fees",
+]
+
+[[package]]
+name = "tesseract-kaia"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "hex",
+ "ismp",
+ "ismp-kaia",
+ "kaia-prover",
+ "kaia-verifier",
+ "log",
+ "parity-scale-codec",
+ "polkadot-sdk",
+ "primitive-types 0.13.1",
+ "serde",
+ "tesseract-evm",
+ "tesseract-primitives",
+ "tokio",
 ]
 
 [[package]]

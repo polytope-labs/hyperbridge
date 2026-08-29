@@ -24,6 +24,7 @@ op-host = { workspace = true }
 pharos-primitives = { workspace = true, default-features = true }
 tesseract-beefy = { path = "../beefy" }
 tesseract-bsc = { workspace = true }
+tesseract-kaia = { workspace = true }
 tesseract-evm = { workspace = true }
 tesseract-grandpa = { workspace = true }
 tesseract-parachain = { workspace = true }

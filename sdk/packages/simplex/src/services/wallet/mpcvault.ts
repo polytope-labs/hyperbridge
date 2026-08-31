@@ -9,9 +9,11 @@ import {
 	type CreateSigningRequestResponse,
 	type ExecuteSigningRequestsRequest,
 	type ExecuteSigningRequestsResponse,
+	type RejectSigningRequestRequest,
+	type RejectSigningRequestResponse,
 	type SignatureContainer_ECDSASignature,
 } from "../../proto/mpcvault/platform/v1/api"
-import { getLogger } from "../Logger"
+import { getLogger, type Logger } from "../Logger"
 import type { MpcVaultClientConfig } from "./types"
 
 // ---------------------------------------------------------------------------
@@ -45,12 +47,12 @@ function rpcFailure(rpc: string, err: unknown, uuid?: string): Error {
 
 type MpcVaultApiError = NonNullable<CreateSigningRequestResponse["error"]>
 
-// MPCVault reports failures with an empty message and only a code set, so the
-// message alone cannot be the error signal.
+// Defensive: an Error carrying only a non-zero code with an empty message is
+// still a failure. Zero is UNSPECIFIED on both enums, not an error.
 function apiErrorText(error: MpcVaultApiError): string | undefined {
 	if (error.message) return error.message
-	if (error.serviceErrorCode !== undefined) return `service error code ${error.serviceErrorCode}`
-	if (error.executeSigningRequestsErrorCode !== undefined) {
+	if (error.serviceErrorCode) return `service error code ${error.serviceErrorCode}`
+	if (error.executeSigningRequestsErrorCode) {
 		return `execute error code ${error.executeSigningRequestsErrorCode}`
 	}
 	return undefined
@@ -83,7 +85,7 @@ export class MpcVaultService {
 	private readonly callbackClientSignerPublicKey: string
 	private readonly client: PlatformAPIClient
 	private readonly metadata: grpc.Metadata
-	private readonly logger = getLogger("mpc-vault")
+	private readonly logger: Logger
 
 	constructor(config: MpcVaultClientConfig) {
 		this.vaultUuid = config.vaultUuid
@@ -91,7 +93,8 @@ export class MpcVaultService {
 		this.callbackClientSignerPublicKey = config.callbackClientSignerPublicKey
 
 		const grpcTarget = config.grpcTarget ?? "api.mpcvault.com:443"
-		this.client = new PlatformAPIClient(grpcTarget, grpc.credentials.createSsl())
+		this.client = new PlatformAPIClient(grpcTarget, config.credentials ?? grpc.credentials.createSsl())
+		this.logger = config.logger ?? getLogger("mpc-vault")
 
 		this.metadata = new grpc.Metadata()
 		this.metadata.add("x-mtoken", config.apiToken)
@@ -160,6 +163,7 @@ export class MpcVaultService {
 					await delay(EXECUTE_RETRY_BASE_DELAY_MS * (attempt + 1))
 					continue
 				}
+				await this.rejectAbandonedRequest(uuid)
 				throw rpcFailure("executeSigningRequests", err, uuid)
 			}
 
@@ -168,6 +172,25 @@ export class MpcVaultService {
 				throw new Error(`MPCVault executeSigningRequests error: ${errorText}`)
 			}
 			return response
+		}
+	}
+
+	// A request that will never be executed stays PENDING in the vault — dead
+	// weight and a standing authorization to sign a stale payload. Best-effort:
+	// the original failure is what propagates.
+	private async rejectAbandonedRequest(uuid: string): Promise<void> {
+		try {
+			await promisifyUnary<RejectSigningRequestRequest, RejectSigningRequestResponse>(
+				this.client.rejectSigningRequest.bind(this.client),
+				{ uuid },
+				this.metadata,
+			)
+			this.logger.debug({ uuid }, "Rejected abandoned signing request")
+		} catch (err) {
+			this.logger.warn(
+				{ uuid, err },
+				"Could not reject abandoned signing request; it stays pending in the vault",
+			)
 		}
 	}
 

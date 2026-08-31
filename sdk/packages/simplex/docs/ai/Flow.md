@@ -112,9 +112,12 @@ returns a signing-request uuid, then `executeSigningRequests` triggers MPCVault'
 the callback co-signer approval and the MPC ceremony. The callback server is only contacted during
 execute — a failure before that step leaves no callback log at all. Execute retries
 INVALID_ARGUMENT/NOT_FOUND twice with short backoff because MPCVault intermittently rejects a uuid
-its own create just returned; any other failure propagates as an error naming the RPC, the uuid and
-MPCVault's x-request-id, and both RPCs also fail on app-level errors that carry only a code with an
-empty message.
+its own create just returned; when execute fails terminally the created request is best-effort
+rejected in the vault so it does not stay pending as a signable stale payload. Any failure
+propagates as an error naming the RPC, the uuid and MPCVault's x-request-id, and both RPCs also
+fail on app-level errors that carry only a non-zero code with an empty message (zero is
+UNSPECIFIED, not an error). Lifecycle logs default to the process-wide logger context, which an
+embedded filler's `SimplexOptions.logger` never sees — `MpcVaultClientConfig.logger` injects one.
 
 ### The viem boundary
 

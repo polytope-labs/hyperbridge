@@ -4,7 +4,8 @@
 
 ### Patch Changes
 
-- MPCVault signing failures now name the failing RPC, the signing-request uuid and MPCVault's x-request-id, and the error guard also trips on code-only errors (MPCVault sends empty messages with only a code set). `executeSigningRequests` retries INVALID_ARGUMENT/NOT_FOUND twice with short backoff: MPCVault intermittently rejects a uuid its own createSigningRequest just returned, which failed live fills with `3 INVALID_ARGUMENT: Invalid uuid` before the callback co-signer was contacted.
+- MPCVault signing failures now name the failing RPC, the signing-request uuid and MPCVault's x-request-id, and the error guard defensively trips on errors that carry only a non-zero code with an empty message. `executeSigningRequests` retries INVALID_ARGUMENT/NOT_FOUND twice with short backoff: MPCVault intermittently rejects a uuid its own createSigningRequest just returned, which failed live fills with `3 INVALID_ARGUMENT: Invalid uuid` before the callback co-signer was contacted.
+- A signing request whose execute fails terminally is best-effort rejected in the vault instead of staying pending forever, and `MpcVaultClientConfig` accepts an injected `logger` (embedded fillers passing `SimplexOptions.logger` otherwise never see MPCVault retry warnings) and channel `credentials`.
 
 ## 0.12.0
 

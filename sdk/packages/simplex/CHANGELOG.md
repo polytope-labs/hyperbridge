@@ -1,5 +1,11 @@
 # @hyperbridge/filler
 
+## 0.12.1
+
+### Patch Changes
+
+- MPCVault signing failures now name the failing RPC, the signing-request uuid and MPCVault's x-request-id, and the error guard also trips on code-only errors (MPCVault sends empty messages with only a code set). `executeSigningRequests` retries INVALID_ARGUMENT/NOT_FOUND twice with short backoff: MPCVault intermittently rejects a uuid its own createSigningRequest just returned, which failed live fills with `3 INVALID_ARGUMENT: Invalid uuid` before the callback co-signer was contacted.
+
 ## 0.12.0
 
 ### Minor Changes

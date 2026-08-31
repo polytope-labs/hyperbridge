@@ -13,6 +13,7 @@ async-trait = "0.1.71"
 futures = "0.3.28"
 primitive-types = { workspace = true, default-features = true }
 sp-core = { workspace = true, features = ["full_crypto"] }
+sp-crypto-hashing = { workspace = true }
 tokio = { workspace = true, features = ["macros", "sync", "time"] }
 subxt = { workspace = true }
 codec = { package = "parity-scale-codec", version = "3.2.2", features = [
@@ -24,6 +25,8 @@ tesseract-primitives = { workspace = true, default-features = true }
 tesseract-evm = { workspace = true, default-features = true }
 tesseract-substrate = { workspace = true, default-features = true }
 evm-state-machine = { workspace = true, default-features = true }
+substrate-state-machine = { workspace = true, default-features = true }
+ismp-parachain = { workspace = true, default-features = true }
 pallet-ismp-host-executive = { workspace = true, default-features = true }
 serde = { workspace = true, features = ["derive", "alloc"] }
 subxt-utils = { workspace = true }

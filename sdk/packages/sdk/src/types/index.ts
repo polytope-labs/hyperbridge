@@ -1,13 +1,14 @@
 import type { ConsolaInstance } from "consola"
 import type Decimal from "decimal.js"
 import type { GraphQLClient } from "graphql-request"
-import type { ContractFunctionArgs, Hex, Log, PublicClient, TransactionReceipt } from "viem"
+import type { Chain, ContractFunctionArgs, Hex, Log, PublicClient, TransactionReceipt } from "viem"
 import type { Account } from "viem/accounts"
 
 /** Re-export: use this type when wiring a viem `Account` next to `SigningAccount` so you stay aligned with the SDK’s viem resolution. */
 export type { Account as ViemAccount } from "viem/accounts"
 import type HandlerV2 from "@/abis/handlerV2"
 import type { IChain } from "@/chain"
+import type { Chains, ConfiguredAssetSymbol, ConfiguredAssetSymbolInput } from "@/configs/chain"
 import { Struct, Vector, Bytes, u8 } from "scale-ts"
 
 export type EstimateGasCallData = ContractFunctionArgs<
@@ -158,6 +159,8 @@ export interface RetryConfig {
 	backoffMs: number
 	logMessage?: string
 	logger?: ConsolaInstance
+	/** Return false to stop retrying and immediately rethrow the error. */
+	shouldRetry?: (error: unknown) => boolean
 }
 
 export interface IsmpRequest {
@@ -598,6 +601,21 @@ export interface DecodedOrderPlacedLog extends Log {
 			token: HexString
 			amount: bigint
 		}>
+		/**
+		 * Calldata executed via the CallDispatcher before escrow.
+		 * Absent on logs emitted under the pre-#1092 event schema.
+		 */
+		predispatchCall?: HexString
+		/**
+		 * Calldata executed on the destination chain during the fill.
+		 * Absent on logs emitted under the pre-#1092 event schema.
+		 */
+		outputCall?: HexString
+		/**
+		 * Attribution tag supplied by the order placer.
+		 * Absent on logs emitted under the pre-#1092 event schema.
+		 */
+		graffiti?: HexString
 	}
 	transactionHash: HexString
 }
@@ -794,6 +812,26 @@ export interface FillerConfig {
 	 * Example: { 1: true, 56: false } - watch-only on Ethereum, normal execution on BSC
 	 */
 	watchOnly?: Record<number, boolean>
+
+	/**
+	 * Source chains (state machine ids, e.g. "EVM-8453") this filler accepts payment from when
+	 * filling cross-chain orders, declared inside its phantom bids' paymasterAndData. Omit to
+	 * declare nothing, which downstream consumers read as "accepts all CCTP/USDT0-covered
+	 * chains"; an empty array declares that no source chain is accepted.
+	 */
+	acceptedSourceChains?: string[]
+
+	/**
+	 * Uniswap V4 position tokenIds this filler holds, per chain (state machine id -> tokenIds as
+	 * decimal strings), declared inside its phantom bids' paymasterAndData for the bid's own chain.
+	 *
+	 * Liquidity parked in a V4 position is invisible to the snapshot's inventory read, which sees
+	 * only ERC-20 balances and ERC-4626 vault shares — so without this a venue-funded filler is
+	 * weighted at zero and its quotes are discarded. The declaration is only a POINTER: the indexer
+	 * reads each position's liquidity on-chain and checks it is owned by the solver that signed the
+	 * bid, so naming a position cannot inflate it and naming someone else's achieves nothing.
+	 */
+	uniswapV4PositionsByChain?: Record<string, string[]>
 }
 
 /**
@@ -1086,6 +1124,84 @@ export interface OrderResponse {
 	}
 }
 
+export interface PhantomOrderPriceSnapshot {
+	commitment: HexString
+	tokenA: HexString
+	tokenB: HexString
+	standardAmount: bigint
+	blockNumber: bigint
+	medianPrice: bigint
+	lowestPrice?: bigint
+	highestPrice?: bigint
+	bidCount: number
+	snapshotTime: Date
+}
+
+export interface PhantomOrderPriceSnapshotsResponse {
+	phantomOrderPriceSnapshots: {
+		nodes: Array<{
+			commitment: string
+			tokenA: string
+			tokenB: string
+			standardAmount: string
+			blockNumber: string
+			medianPrice: string | null
+			lowestPrice: string | null
+			highestPrice: string | null
+			bidCount: number
+			snapshotTime: string
+		}>
+	}
+}
+
+/** One independently reported slice of indexed liquidity. */
+export interface LiquiditySlice {
+	totalLiquidity: string
+	providerCount: number
+}
+
+/**
+ * Indexed destination capacity and its source-routing slices.
+ *
+ * The SDK reports the indexer's facts separately and does not decide whether a
+ * source chain is covered by the legacy unrestricted-bidder policy.
+ */
+export interface AvailableLiquidity {
+	sourceChain: Chains
+	destinationChain: Chains
+	tokenAddress: HexString
+	updatedAt: Date
+	destination: LiquiditySlice
+	unrestricted: LiquiditySlice
+	explicitRoute: (LiquiditySlice & { updatedAt: Date }) | null
+}
+
+/**
+ * Aggregate indexed pool buy and sell rates expressed as quote-token units per
+ * one base token. The quote token is the less valuable currency when the rates
+ * establish an ordering (for example, cNGN in a USDC/cNGN pair).
+ */
+export interface BuyAndSellRates {
+	baseTokenSymbol: ConfiguredAssetSymbol
+	quoteTokenSymbol: ConfiguredAssetSymbol
+	sourceChain: Chains
+	destinationChain: Chains
+	/** Quote-token units received when buying the quote token with one base token. */
+	buyRate: string | null
+	/** Quote-token units sold to receive one base token. */
+	sellRate: string | null
+	buyRateUpdatedAt: Date | null
+	sellRateUpdatedAt: Date | null
+}
+
+/** Symbol-only input for querying an indexed pool's rates. */
+export interface QueryBuyAndSellRatesParams {
+	tokenInSymbol: ConfiguredAssetSymbolInput
+	tokenOutSymbol: ConfiguredAssetSymbolInput
+	sourceChainId: Chain["id"]
+	destinationChainId: Chain["id"]
+}
+
 export interface TokenPrice {
 	symbol: string
 	address?: string
@@ -1173,6 +1289,18 @@ export interface CancelOrderOptions {
 export interface FillOptions {
 	relayerFee: bigint
 	nativeDispatchFee: bigint
+	/**
+	 * Last block number at which this fill may execute. `0n` means no bound.
+	 *
+	 * A solver bidding through the coprocessor signs this calldata and then has no further
+	 * say in when it is used: the order's `deadline` is placer-chosen with no ceiling, and
+	 * retracting the bid on Hyperbridge does not reach the destination chain. Without a bound
+	 * the placer can sit on a signed bid and execute it once the price has moved their way.
+	 *
+	 * In blocks, matching `order.deadline`, so both read against the same clock. Dropped when
+	 * encoding against a gateway whose implementation predates the field.
+	 */
+	validUntil: bigint
 	outputs: TokenInfo[]
 }
 
@@ -1193,15 +1321,17 @@ export interface PackedUserOperation {
 }
 
 export interface SigningAccount {
-	/** Signs a bid message hash for a given chain. Returns a 65-byte ECDSA signature. */
-	signMessage: (messageHash: HexString, chainId: number) => Promise<HexString>
-	/** Signs a raw 32-byte hash, returning split signature components for EIP-7702 etc. */
-	signRawHash: (hash: HexString) => Promise<{ r: HexString; s: HexString; yParity: number }>
 	/**
 	 * Signs an EIP-712 typed-data payload (e.g. an EIP-2612 USDC permit for the Circle Paymaster).
 	 * The shape of `typedData` matches viem's `TypedDataDefinition` (domain + types + message).
+	 *
+	 * No chain id parameter: EIP-712 carries it in `domain.chainId`, which is what
+	 * the digest covers and what a backend scoping the request to a chain reads.
+	 *
+	 * Returns the 65-byte `r ‖ s ‖ v` signature as 0x-hex, `v` 27 or 28 — the
+	 * `eth_signTypedData_v4` form. Bid validation recovers against exactly this.
 	 */
-	signTypedData: (typedData: unknown, chainId?: number) => Promise<HexString>
+	signTypedData: (typedData: unknown) => Promise<HexString>
 }
 
 export interface SubmitBidOptions {
@@ -1267,6 +1397,41 @@ export interface FillOrderEstimate {
 	maxPriorityFeePerGas: bigint
 	totalGasCostWei: bigint
 	totalGasInFeeToken: bigint
+	/**
+	 * Relayer fee for the cross-chain settlement message, denominated in the
+	 * SOURCE fee token (same unit as `Order.fees`). This is `RELAYER_MESSAGE_GAS`
+	 * priced on the source chain; it is 0 for same-chain fills. A filler's
+	 * `order.fees` must cover `totalGasInFeeToken + relayerFeeInSourceFeeToken`.
+	 */
+	relayerFeeInSourceFeeToken: bigint
+}
+
+/**
+ * Solver-fee quote for an order, priced with the same policy `execute()` /
+ * `executeBest()` apply when `order.fees` is `0n`.
+ */
+export interface OrderFeesQuote {
+	/**
+	 * The amount to set as `Order.fees`, denominated in the source-chain fee
+	 * token. Same-chain fills carry a 2x margin over the estimated fill gas without
+	 * a gas-price bump. Cross-chain gas is priced with 10% SDK-only headroom before
+	 * adding the settlement relayer fee and a further 5% buffer over the whole sum.
+	 */
+	fees: bigint
+	/**
+	 * The native value attached to the placement transaction when the fee is
+	 * paid in the native token: the estimated fill gas cost in source-chain
+	 * wei plus a 2% buffer. The gateway swaps it for the fee token and refunds
+	 * any unused amount.
+	 */
+	nativeValue: bigint
+	/**
+	 * The source-chain fee token `fees` is denominated in — check the user's
+	 * balance and allowance against this address when paying the fee directly.
+	 */
+	feeToken: HexString
+	/** The underlying gas estimate the quote was derived from. */
+	estimate: FillOrderEstimate
 }
 
 /**
@@ -1292,6 +1457,16 @@ export interface BidSubmissionResult {
 	 * Error message if submission failed
 	 */
 	error?: string
+
+	/**
+	 * The extrinsic is (or may still be) in the transaction pool: it was accepted but its
+	 * inclusion was not observed before the watch timed out, or a resubmission bounced off an
+	 * earlier copy already pooled (RPC 1013/1014). Only meaningful when `success` is false —
+	 * the operation is in flight, not failed, and must not be re-signed with the same nonce.
+	 * Callers should confirm the outcome later (e.g. re-check on-chain state) instead of
+	 * treating this as a terminal failure.
+	 */
+	pending?: boolean
 }
 
 /**
@@ -1403,7 +1578,29 @@ export type IntentOrderStatusKey = keyof typeof IntentOrderStatus
 
 /** Tagged union of all possible status updates yielded by the intent order execution stream */
 export type IntentOrderStatusUpdate =
-	| { status: "AWAITING_PLACE_ORDER"; to: HexString; data: HexString; value?: bigint; sessionPrivateKey: HexString }
+	| {
+			status: "AWAITING_PLACE_ORDER"
+			to: HexString
+			data: HexString
+			/**
+			 * The order's native-token input amounts. Native inputs cannot be
+			 * pulled via allowance, so this must be part of the placement
+			 * transaction's `msg.value`. Does not include the solver fee.
+			 */
+			value: bigint
+			/**
+			 * The native amount that funds `order.fees`: what the gateway swaps
+			 * into the fee token at placement. Add it to `value` when paying the
+			 * fee in native token. `0n` when `order.fees` was set by the caller
+			 * (fee-token rail).
+			 */
+			nativeFee: bigint
+			sessionPrivateKey: HexString
+			/** Exact source-chain fee-token amount encoded in `data`. */
+			feeTokenAmount: bigint
+			/** Source-chain ERC-20 token charged for `feeTokenAmount`. */
+			feeTokenAddress: HexString
+	  }
 	| { status: "ORDER_PLACED"; order: Order; receipt: TransactionReceipt }
 	| { status: "AWAITING_BIDS"; commitment: HexString; totalFilledAssets: TokenInfo[]; remainingAssets: TokenInfo[] }
 	| { status: "NEW_BID"; commitment: HexString; bid: Bid }

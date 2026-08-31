@@ -22,6 +22,7 @@ import {IUniversalRouter} from "@uniswap/universal-router/contracts/interfaces/I
 import {Commands} from "@uniswap/universal-router/contracts/libraries/Commands.sol";
 import {Actions} from "@uniswap/v4-periphery/src/libraries/Actions.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 /**
  * @title UniV4UniswapV2Wrapper
@@ -29,6 +30,8 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
  * @notice Wraps Uniswap V4 Universal Router with V2-style interface for ETH swaps
  */
 contract UniV4UniswapV2Wrapper {
+    using SafeERC20 for IERC20;
+
     struct Params {
         address universalRouter;
         address quoter;
@@ -95,6 +98,42 @@ contract UniV4UniswapV2Wrapper {
         amounts = new uint256[](2);
         amounts[0] = msg.value - refundETH;
         amounts[1] = amountOut;
+    }
+
+    function swapExactTokensForETH(
+        uint256 amountIn,
+        uint256 amountOutMin,
+        address[] calldata path,
+        address to,
+        uint256 deadline
+    ) external returns (uint256[] memory amounts) {
+        address token = path[0];
+        PoolKey memory poolKey = _createPoolKey(token);
+
+        // Stage the tokens on the router so SETTLE can pay them from its own balance.
+        IERC20(token).safeTransferFrom(msg.sender, address(this), amountIn);
+        IERC20(token).safeTransfer(_params.universalRouter, amountIn);
+
+        bytes[] memory params = new bytes[](3);
+        // token (currency1) -> ETH (currency0), so zeroForOne is false.
+        params[0] = abi.encode(poolKey, false, uint128(amountIn), uint128(amountOutMin), bytes(""));
+        params[1] = abi.encode(poolKey.currency1, uint256(0), false);
+        params[2] = abi.encode(poolKey.currency0, to, uint256(0));
+
+        bytes[] memory inputs = new bytes[](1);
+        inputs[0] = abi.encode(
+            abi.encodePacked(uint8(Actions.SWAP_EXACT_IN_SINGLE), uint8(Actions.SETTLE), uint8(Actions.TAKE)), params
+        );
+
+        uint256 balanceBefore = to.balance;
+
+        IUniversalRouter(_params.universalRouter).execute(
+            abi.encodePacked(bytes1(uint8(Commands.V4_SWAP))), inputs, deadline
+        );
+
+        amounts = new uint256[](2);
+        amounts[0] = amountIn;
+        amounts[1] = to.balance - balanceBefore;
     }
 
     function getAmountsIn(uint256 amountOut, address[] calldata path) external returns (uint256[] memory amounts) {

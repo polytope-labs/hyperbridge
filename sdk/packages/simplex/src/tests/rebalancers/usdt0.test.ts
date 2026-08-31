@@ -1,11 +1,11 @@
 import { describe, it, expect } from "vitest"
 import { ChainClientManager, FillerConfigService, RebalancingService, type ResolvedChainConfig } from "@/services"
 import type { HexString } from "@hyperbridge/sdk"
-import { createSimplexSigner, SignerType } from "@/services/wallet"
+import { createSigner, SignerType } from "@/services/wallet"
 import "../setup"
 
 describe("RebalancingService - USDT0 (LayerZero OFT)", () => {
-	it.only("Should send 1 USDT from Arbitrum to Polygon", async () => {
+	it("Should send 1 USDT from Arbitrum to Polygon", async () => {
 		const { rebalancingService } = await setUp()
 
 		const result = await rebalancingService.sendUsdt0({
@@ -68,7 +68,7 @@ async function setUp() {
 
 	const chainConfigService = new FillerConfigService(testChainConfigs)
 	const privateKey = process.env.PRIVATE_KEY as HexString
-	const signer = await createSimplexSigner({ type: SignerType.PrivateKey, key: privateKey })
+	const signer = await createSigner({ type: SignerType.PrivateKey, key: privateKey })
 	const chainClientManager = new ChainClientManager(chainConfigService, signer)
 
 	const rebalancingService = new RebalancingService(chainClientManager, chainConfigService)

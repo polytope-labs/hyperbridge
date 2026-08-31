@@ -26,6 +26,10 @@ describe.sequential("IntentsCoprocessor", () => {
 	}
 	const encodedUserOp = encodeUserOp(testUserOp)
 
+	// The default 10s hook timeout races websocket jitter on the public
+	// Hyperbridge endpoint; give the connection a real window. 60s still lost
+	// the race in CI — the hook timed out and took all five tests down as
+	// skipped — so this matches the per-test budget below.
 	beforeAll(async () => {
 		hyperbridge = await SubstrateChain.connect({
 			wsUrl: process.env.HYPERBRIDGE_GARGANTUA!,
@@ -40,12 +44,12 @@ describe.sequential("IntentsCoprocessor", () => {
 
 		console.log("Test commitment:", testCommitment)
 		console.log("Test userOp sender:", testUserOp.sender)
-	})
+	}, 300_000)
 
 	afterAll(async () => {
-		await hyperbridge.disconnect()
+		await hyperbridge?.disconnect()
 		console.log("Disconnected")
-	})
+	}, 60_000)
 
 	it("should submit a bid with realistic userOp", async () => {
 		const keyPair = coprocessor.getKeyPair()

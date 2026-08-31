@@ -4,6 +4,7 @@ import {
 	ASSET_TELEPORTED_BY_PARAMS,
 	GET_REQUEST_STATUS,
 	ORDER_STATUS,
+	LATEST_PHANTOM_ORDER_PRICE_SNAPSHOT,
 	POST_REQUEST_STATUS,
 	TOKEN_GATEWAY_ASSET_TELEPORTED_STATUS,
 	TOKEN_PRICE,
@@ -17,6 +18,8 @@ import type {
 	IndexerQueryClient,
 	OrderResponse,
 	OrderWithStatus,
+	PhantomOrderPriceSnapshot,
+	PhantomOrderPriceSnapshotsResponse,
 	PostRequestWithStatus,
 	RequestResponse,
 	RequestStatusKey,
@@ -106,6 +109,35 @@ export function queryGetRequest(params: { commitmentHash: string; queryClient: I
  */
 export function queryOrder(params: { commitmentHash: string; queryClient: IndexerQueryClient }) {
 	return _queryOrderInternal(params)
+}
+
+export async function _queryLatestPhantomOrderPriceSnapshot(params: {
+	tokenA: HexString
+	tokenB: HexString
+	queryClient: IndexerQueryClient
+}): Promise<PhantomOrderPriceSnapshot | undefined> {
+	const response = await params.queryClient.request<PhantomOrderPriceSnapshotsResponse>(
+		LATEST_PHANTOM_ORDER_PRICE_SNAPSHOT,
+		{
+			tokenA: params.tokenA.toLowerCase(),
+			tokenB: params.tokenB.toLowerCase(),
+		},
+	)
+	const snapshot = response.phantomOrderPriceSnapshots.nodes[0]
+	if (!snapshot?.medianPrice) return
+
+	return {
+		commitment: snapshot.commitment as HexString,
+		tokenA: snapshot.tokenA as HexString,
+		tokenB: snapshot.tokenB as HexString,
+		standardAmount: BigInt(snapshot.standardAmount),
+		blockNumber: BigInt(snapshot.blockNumber),
+		medianPrice: BigInt(snapshot.medianPrice),
+		lowestPrice: snapshot.lowestPrice === null ? undefined : BigInt(snapshot.lowestPrice),
+		highestPrice: snapshot.highestPrice === null ? undefined : BigInt(snapshot.highestPrice),
+		bidCount: snapshot.bidCount,
+		snapshotTime: new Date(snapshot.snapshotTime),
+	}
 }
 
 /**

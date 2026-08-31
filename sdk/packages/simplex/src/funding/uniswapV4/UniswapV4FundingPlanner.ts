@@ -1,4 +1,5 @@
 import { UNISWAP_V4_POSITION_MANAGER_ABI } from "@/config/abis/UniswapV4"
+import { validateUniswapV4Positions } from "@/config/filler-toml"
 import type {
 	FundingPlanResult,
 	FundingVenue,
@@ -10,8 +11,8 @@ import { UniswapV4LiquidityState } from "@/funding/uniswapV4/UniswapV4LiquidityS
 import { chainIdFromIdentifier, fetchPoolCurrencyDecimals } from "@/funding/uniswapV4/v4PoolCurrency"
 import type { ChainClientManager } from "@/services/ChainClientManager"
 import type { FillerConfigService } from "@/services/FillerConfigService"
-import { getLogger } from "@/services/Logger"
-import { type ERC7821Call, type HexString } from "@hyperbridge/sdk"
+import { type Logger , moduleLogger} from "@/services/Logger"
+import type { ERC7821Call, HexString } from "@hyperbridge/sdk"
 import { Mutex } from "async-mutex"
 import { Decimal } from "decimal.js"
 import { Percent } from "@uniswap/sdk-core"
@@ -19,10 +20,49 @@ import { V4PositionManager, type Pool as V4Pool } from "@uniswap/v4-sdk"
 import type { RemoveLiquidityOptions } from "@uniswap/v4-sdk"
 import { encodeFunctionData } from "viem"
 
-const logger = getLogger("uniswapv4-funding")
 
 /** Default slippage tolerance for remove-liquidity operations. */
 const DEFAULT_SLIPPAGE_BPS = 50
+
+/**
+ * Denominator of the liquidity percentage handed to `removeCallParameters`.
+ *
+ * The SDK re-derives the liquidity to decrease as
+ * `liquidityPercentage.multiply(position.liquidity).quotient`, which truncates.
+ * A coarse denominator therefore removes measurably less than asked for — at
+ * 1e6, taking a 0.0158% slice of a position loses up to 0.63% of it.
+ */
+const LIQUIDITY_PERCENT_PRECISION = 10n ** 18n
+
+/**
+ * Resolves a desired liquidity decrease into the percentage the SDK is given and
+ * the liquidity it will actually encode, applying the SDK's own truncation.
+ *
+ * Callers must credit the fill from the returned `liquidity`, never from what
+ * they asked for: the two differ, always downwards, and a credit computed from
+ * the larger figure overstates the tokens the pool will pay out — which reverts
+ * the fill that was sized against it.
+ */
+export function liquidityRemoval(
+	totalLiquidity: bigint,
+	desiredLiquidity: bigint,
+): { percentage: Percent; liquidity: bigint } | null {
+	if (totalLiquidity <= 0n || desiredLiquidity <= 0n) return null
+
+	const capped = desiredLiquidity > totalLiquidity ? totalLiquidity : desiredLiquidity
+	const pct = (capped * LIQUIDITY_PERCENT_PRECISION) / totalLiquidity
+	const liquidity = (pct * totalLiquidity) / LIQUIDITY_PERCENT_PRECISION
+	// Both floors can collapse to nothing independently, so the guard belongs on
+	// the product the SDK actually decreases — a non-zero percentage can still
+	// derive a zero decrease and trip its ZERO_LIQUIDITY invariant. There is no
+	// fill to plan from a slice that thin either way.
+	if (liquidity === 0n) return null
+
+	return {
+		percentage: new Percent(pct.toString(), LIQUIDITY_PERCENT_PRECISION.toString()),
+		liquidity,
+	}
+}
 
 /**
  * Funding venue that sources output tokens by removing liquidity from
@@ -37,6 +77,8 @@ const DEFAULT_SLIPPAGE_BPS = 50
  * wrapped into an ERC-7821 call for batched UserOp execution.
  */
 export class UniswapV4FundingPlanner implements FundingVenue {
+	private readonly logger: Logger
+
 	name = "UniswapV4"
 	/** Long-lived state per chain, keyed by chain identifier. */
 	private stateByChain = new Map<string, UniswapV4LiquidityState>()
@@ -50,6 +92,7 @@ export class UniswapV4FundingPlanner implements FundingVenue {
 		private readonly configService: FillerConfigService,
 		spreadBps?: number,
 	) {
+		this.logger = moduleLogger(clientManager.loggers, "uniswapv4-funding")
 		const bps = spreadBps ?? DEFAULT_SLIPPAGE_BPS
 		this.slippageTolerance = new Percent(bps, 10_000)
 	}
@@ -59,14 +102,7 @@ export class UniswapV4FundingPlanner implements FundingVenue {
 	 * Throws on missing/invalid required fields.
 	 */
 	static validateConfig(positions: { chain?: string; tokenId?: string }[]): void {
-		for (const pos of positions) {
-			if (!pos.chain?.trim()) {
-				throw new Error("Each UniswapV4 vault position must have a non-empty 'chain' (e.g. EVM-8453)")
-			}
-			if (!pos.tokenId) {
-				throw new Error("Each UniswapV4 position must include a 'tokenId'")
-			}
-		}
+		validateUniswapV4Positions(positions)
 	}
 
 	// =========================================================================
@@ -79,7 +115,7 @@ export class UniswapV4FundingPlanner implements FundingVenue {
 	 */
 	async initialise(solver: HexString): Promise<void> {
 		for (const [chain, positions] of Object.entries(this.config.positionsByChain)) {
-			logger.info({ chain, positionCount: positions.length, solver }, "UniswapV4 initialising chain")
+			this.logger.info({ chain, positionCount: positions.length, solver }, "UniswapV4 initialising chain")
 			const positionManager = this.configService.getUniswapV4PositionManagerAddress(chain)
 			const poolManager = this.configService.getUniswapV4PoolManagerAddress(chain)
 			const stateView = this.configService.getUniswapV4StateViewAddress(chain)
@@ -94,7 +130,7 @@ export class UniswapV4FundingPlanner implements FundingVenue {
 				throw new Error(`UniswapV4 StateView not configured for chain ${chain}`)
 			}
 
-			logger.info({ chain, positionManager, poolManager, stateView }, "UniswapV4 addresses resolved")
+			this.logger.info({ chain, positionManager, poolManager, stateView }, "UniswapV4 addresses resolved")
 
 			const client = this.clientManager.getPublicClient(chain)
 			const chainId = chainIdFromIdentifier(chain)
@@ -174,7 +210,7 @@ export class UniswapV4FundingPlanner implements FundingVenue {
 		try {
 			await state.refresh()
 		} catch (err) {
-			logger.error({ err, chain }, "Failed to refresh state for price query")
+			this.logger.error({ err, chain }, "Failed to refresh state for price query")
 			return null
 		}
 
@@ -198,7 +234,7 @@ export class UniswapV4FundingPlanner implements FundingVenue {
 		}
 
 		if (bestPrice) {
-			logger.debug({ chain, token: tokenLower, priceUsd: bestPrice.toString() }, "Exotic token price computed")
+			this.logger.debug({ chain, token: tokenLower, priceUsd: bestPrice.toString() }, "Exotic token price computed")
 		}
 		return bestPrice
 	}
@@ -263,7 +299,7 @@ export class UniswapV4FundingPlanner implements FundingVenue {
 	): Promise<FundingPlanResult> {
 		const noopResult: FundingPlanResult = { calls: [], credited: 0n }
 
-		logger.debug(
+		this.logger.debug(
 			{
 				destChain,
 				solver,
@@ -277,7 +313,7 @@ export class UniswapV4FundingPlanner implements FundingVenue {
 
 		const state = this.stateByChain.get(destChain)
 		if (!state || !state.isHydrated()) {
-			logger.debug(
+			this.logger.debug(
 				{ destChain, hasState: !!state, isHydrated: state?.isHydrated() },
 				"UniswapV4 no state or not hydrated",
 			)
@@ -295,7 +331,7 @@ export class UniswapV4FundingPlanner implements FundingVenue {
 				.positionsForToken(tokenNeed)
 				.sort((a, b) => (b.remainingLiquidity > a.remainingLiquidity ? 1 : -1))
 
-			logger.debug(
+			this.logger.debug(
 				{
 					tokenNeed,
 					candidateCount: candidates.length,
@@ -335,8 +371,15 @@ export class UniswapV4FundingPlanner implements FundingVenue {
 
 				const cappedLiq = neededLiq > availLiq ? availLiq : neededLiq
 
+				// Resolve the percentage the calldata will carry *before* pricing the
+				// withdrawal, and price it from the liquidity that percentage actually
+				// decreases. Pricing `cappedLiq` instead over-credits by the SDK's
+				// truncation, and the fill sized against that credit reverts.
+				const removal = liquidityRemoval(pos.liquidity, cappedLiq)
+				if (!removal) continue
+
 				// Build SDK Position to compute expected amounts
-				const sdkPosition = state.buildSdkPosition(pos.tokenId, cappedLiq)
+				const sdkPosition = state.buildSdkPosition(pos.tokenId, removal.liquidity)
 				if (!sdkPosition) continue
 
 				// The SDK Position computes amounts for the given liquidity
@@ -344,7 +387,7 @@ export class UniswapV4FundingPlanner implements FundingVenue {
 				const amount1 = BigInt(sdkPosition.amount1.quotient.toString())
 				const credit = isToken0 ? amount0 : amount1
 
-				logger.debug(
+				this.logger.debug(
 					{
 						tokenId: pos.tokenId.toString(),
 						isToken0,
@@ -352,6 +395,7 @@ export class UniswapV4FundingPlanner implements FundingVenue {
 						neededLiq: neededLiq.toString(),
 						availLiq: availLiq.toString(),
 						cappedLiq: cappedLiq.toString(),
+						removedLiq: removal.liquidity.toString(),
 						amount0: amount0.toString(),
 						amount1: amount1.toString(),
 						credit: credit.toString(),
@@ -365,18 +409,18 @@ export class UniswapV4FundingPlanner implements FundingVenue {
 
 				// Use V4PositionManager.removeCallParameters to generate the calldata
 				// This encodes DECREASE_LIQUIDITY + TAKE_PAIR actions internally
-				const call = this.buildRemoveLiquidityCall(state, pos, cappedLiq, deadlineTimestamp)
+				const call = this.buildRemoveLiquidityCall(state, pos, removal.percentage, deadlineTimestamp)
 				if (!call) continue
 
 				allCalls.push(call)
 				totalCredited += credit
 				remaining -= credit
-				state.consume(pos.tokenId, cappedLiq)
+				state.consume(pos.tokenId, removal.liquidity)
 
-				logger.debug(
+				this.logger.debug(
 					{
 						tokenId: pos.tokenId.toString(),
-						liquidity: cappedLiq.toString(),
+						liquidity: removal.liquidity.toString(),
 						tokenOut: tokenNeed,
 						credited: credit.toString(),
 					},
@@ -384,7 +428,7 @@ export class UniswapV4FundingPlanner implements FundingVenue {
 				)
 			}
 
-			logger.debug(
+			this.logger.debug(
 				{
 					callCount: allCalls.length,
 					totalCredited: totalCredited.toString(),
@@ -465,33 +509,21 @@ export class UniswapV4FundingPlanner implements FundingVenue {
 	 * The SDK internally encodes:
 	 *   1. DECREASE_LIQUIDITY action (position tokenId, liquidity delta, min amounts)
 	 *   2. TAKE_PAIR action (currency0, currency1, recipient)
+	 *
+	 * The liquidity delta is absolute in the encoded calldata, so it is fixed at
+	 * plan time and does not drift with the position's on-chain liquidity.
 	 */
 	private buildRemoveLiquidityCall(
 		state: UniswapV4LiquidityState,
 		pos: HydratedV4Position,
-		liquidity: bigint,
+		liquidityPercentage: Percent,
 		deadlineTimestamp?: bigint,
 	): ERC7821Call | null {
-		// Build an SDK Position representing what we want to remove
-		const sdkPosition = state.buildSdkPosition(pos.tokenId, liquidity)
-		if (!sdkPosition) return null
-
-		// Compute the percentage of total position liquidity being removed
-		// The SDK expects a Percent representing what fraction of the position to exit
-		const totalLiq = pos.liquidity
-		if (totalLiq === 0n) return null
-
-		// Calculate percentage with high precision
-		// liquidityPercentage = liquidity / totalLiquidity
-		const pctNumerator = liquidity * 1_000_000n
-		const pctDenominator = totalLiq
-		const pctValue = pctNumerator / pctDenominator
-
-		const liquidityPercentage = new Percent(pctValue.toString(), "1000000")
-
-		// Build a full-liquidity Position for the SDK (it computes the removal
-		// proportionally based on liquidityPercentage)
-		const fullPosition = state.buildSdkPosition(pos.tokenId, totalLiq)
+		// The SDK takes the whole position plus the fraction to exit, and derives
+		// the liquidity to decrease itself. `liquidityPercentage` must be the one
+		// `liquidityRemoval` produced, so the encoded decrease matches the amounts
+		// the caller credited.
+		const fullPosition = state.buildSdkPosition(pos.tokenId, pos.liquidity)
 		if (!fullPosition) return null
 
 		const deadline = deadlineTimestamp ? Number(deadlineTimestamp) : Math.floor(Date.now() / 1000) + 30 * 60

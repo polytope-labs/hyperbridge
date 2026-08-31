@@ -19,6 +19,7 @@ tokio = { workspace = true, features = ["full"] }
 tokio-stream = { workspace = true }
 
 sp-core = { workspace = true, default-features = true, features = ["full_crypto"] }
+sp-crypto-hashing = { workspace = true }
 subxt = { workspace = true, default-features = true }
 
 ismp = { workspace = true, default-features = true }

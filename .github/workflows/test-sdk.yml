@@ -131,6 +131,10 @@ jobs:
             - name: Run SDK test - intents-coprocessor
               run: pnpm --filter="@hyperbridge/sdk" test:intents-coprocessor
 
+            # Dead imports have shipped twice past tsc, which does not flag them.
+            - name: Lint simplex
+              run: pnpm --filter="@hyperbridge/simplex" lint
+
             - name: Run simplex test
               run: pnpm --filter="@hyperbridge/simplex" test:filler
 
@@ -187,6 +191,15 @@ jobs:
 
             - name: Install Foundry (anvil)
               uses: foundry-rs/foundry-toolchain@v1
+              with:
+                  # Pinned, not `stable`, for the same reason as evm.yml. Foundry v1.8.0
+                  # (2026-08-27) probes `anvil_nodeInfo` to work out an endpoint's network family,
+                  # and providers that answer it with HTTP 400 fail the fork outright — here that
+                  # would take down both `anvil --fork-url` instances below and with them the whole
+                  # phantom-filler E2E. v1.7.1 is the last version this suite ran green on. Revert
+                  # to `stable` once upstream stops probing, or once the fork URL is a provider that
+                  # answers it, and do it in both workflows together.
+                  version: v1.7.1
 
             - name: Set up Node
               uses: actions/setup-node@v4
@@ -213,14 +226,20 @@ jobs:
                   pnpm install
                   pnpm --filter "@hyperbridge/sdk" build:node
 
-            - name: Run phantom-filler E2E (anvil fork of Base + simnode)
+            # The second anvil forks Base but reports Optimism's chain id, presenting the same
+            # forked state as a second chain (EVM-10) — the protocol contracts are CREATE2-deployed
+            # at the same addresses everywhere, so the EVM-10 config finds them in Base state.
+            - name: Run phantom-filler E2E (two anvil forks of Base + simnode)
               env:
                   SIMNODE_URL: ws://127.0.0.1:9991
                   ANVIL_URL: http://127.0.0.1:8545
+                  ANVIL2_URL: http://127.0.0.1:8546
               run: |
                   anvil --fork-url "${{ secrets.BASE_MAINNET }}" --port 8545 --silent &
+                  anvil --fork-url "${{ secrets.BASE_MAINNET }}" --port 8546 --chain-id 10 --silent &
                   ./target/debug/hyperbridge simnode --chain gargantua-1000 --rpc-port 9991 --port 40341 --tmp --rpc-methods=unsafe --rpc-cors=all --pool-type=single-state &
                   ./scripts/wait_for_tcp_port_opening.sh localhost 8545
+                  ./scripts/wait_for_tcp_port_opening.sh localhost 8546
                   ./scripts/wait_for_tcp_port_opening.sh localhost 9991
                   cd sdk && pnpm --filter "@hyperbridge/simplex" test:phantom-filler-e2e
 

@@ -21,7 +21,7 @@ use ismp::{
 	events::{Event, StateCommitmentVetoed},
 	messaging::{Message, StateCommitmentHeight},
 };
-use ismp_abi::evm_host::PostRequestHandled;
+use ismp_abi::evm_host::{GetRequestHandled, PostRequestHandled};
 use pallet_ismp_host_executive::{EvmHostParam, HostParam};
 
 use crate::{
@@ -783,7 +783,15 @@ impl IsmpProvider for EvmClient {
 }
 
 pub enum CheckTraceForEventParams {
+	/// `EvmHost.PostRequestHandled`, emitted once `handlePostRequests` has dispatched a
+	/// post request to its destination module.
 	Request,
+	/// `EvmHost.GetRequestHandled`, emitted once `handleGetResponses` has dispatched a get
+	/// response to the module that made the request. `EvmHost.dispatchIncoming` swallows a
+	/// reverting `onGetResponse` callback — it rolls back the response receipt, skips the
+	/// relayer fee transfer and returns without reverting — so the event is the only
+	/// reliable signal that the delivery actually landed.
+	Response,
 }
 
 pub fn check_trace_for_event(
@@ -835,6 +843,7 @@ fn any_frame_has_event(
 			alloy::primitives::Log { address: log.address.unwrap_or_default(), data: log_data };
 		let matched = match event_in {
 			CheckTraceForEventParams::Request => PostRequestHandled::decode_log(&prim_log).is_ok(),
+			CheckTraceForEventParams::Response => GetRequestHandled::decode_log(&prim_log).is_ok(),
 		};
 		if matched {
 			return true;
@@ -853,7 +862,8 @@ fn any_frame_has_event(
 /// Shared body of gas estimation for a pre-built `Vec<TransactionRequest>`
 /// + the matching `Vec<Message>`. Splits into `tracing_batch_size` chunks,
 /// fires `debug_traceCall` per entry, walks each trace to confirm the
-/// `PostRequestHandled` event is emitted, and computes the
+/// message's handled event is emitted (`PostRequestHandled` for post requests,
+/// `GetRequestHandled` for get responses), and computes the
 /// actual gas used (+ L2 calldata-fee padding).
 ///
 /// Called from both [`IsmpProvider::estimate_gas`] (one tx per message) and
@@ -946,10 +956,16 @@ async fn estimate_gas_for_tx_requests(
 									}
 								},
 								Message::Response(_) => {
-									log::trace!(
-										target: crate::LOG_TARGET, "debug_traceCall response message on {:?}",
-										client.state_machine
+									successful_execution = check_trace_for_event(
+										&call_frame,
+										CheckTraceForEventParams::Response,
 									);
+									if !successful_execution {
+										log::trace!(
+											target: crate::LOG_TARGET, "debug_traceCall response message failed on {:?}",
+											client.state_machine
+										);
+									}
 								},
 								_ => unreachable!("Only request/responses are estimated"),
 							};

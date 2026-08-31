@@ -2,9 +2,9 @@ import type { ChainConfig, HexString } from "@/types"
 import {
 	chainConfigs,
 	getConfigByStateMachineId,
-	Chains,
 	hyperbridgeAddress,
 	type ConfiguredAssetSymbol,
+	type Erc4626VaultConfigData,
 	type UniswapV4PoolConfigData,
 } from "@/configs/chain"
 
@@ -20,7 +20,7 @@ export class ChainConfigService {
 	}
 
 	private getConfig(chain: string) {
-		return getConfigByStateMachineId(chain as Chains)
+		return getConfigByStateMachineId(chain)
 	}
 
 	getChainConfig(chain: string): ChainConfig {
@@ -60,6 +60,29 @@ export class ChainConfigService {
 		return this.getConfig(chain)?.assets?.[symbol] as HexString | undefined
 	}
 
+	/**
+	 * Resolves configured token metadata from an address on a specific chain.
+	 * This is used by SDK helpers that accept token addresses rather than caller-
+	 * supplied symbols or decimals.
+	 */
+	getAssetMetadataByAddress(
+		chain: string,
+		address: HexString,
+	): { symbol: ConfiguredAssetSymbol; address: HexString; decimals?: number } | undefined {
+		const config = this.getConfig(chain)
+		if (!config?.assets) return
+
+		const normalizedAddress = address.toLowerCase()
+		for (const [symbol, configuredAddress] of Object.entries(config.assets)) {
+			if (configuredAddress.toLowerCase() !== normalizedAddress) continue
+			return {
+				symbol: symbol as ConfiguredAssetSymbol,
+				address: configuredAddress as HexString,
+				decimals: config.tokenDecimals?.[symbol as keyof typeof config.tokenDecimals],
+			}
+		}
+	}
+
 	getUsdtAsset(chain: string): HexString {
 		return (this.getConfig(chain)?.assets?.USDT ?? "0x") as HexString
 	}
@@ -80,6 +103,36 @@ export class ChainConfigService {
 		return this.getConfig(chain)?.assets?.cNGN as HexString | undefined
 	}
 
+	/**
+	 * Address of `symbol` on `chain` from the per-chain asset table, matched
+	 * case-insensitively ("cNGN" ≡ "CNGN"). This table is the single source of
+	 * truth for token addresses — the simplex asset registry resolves through
+	 * it, so a new asset is added once in `chain.ts` and nowhere else.
+	 */
+	getAssetBySymbol(chain: string, symbol: string): HexString | undefined {
+		return this.getAssetMetadataBySymbol(chain, symbol)?.address
+	}
+
+	/** Resolves a configured token symbol case-insensitively on a specific chain. */
+	getAssetMetadataBySymbol(
+		chain: string,
+		symbol: string,
+	): { symbol: ConfiguredAssetSymbol; address: HexString; decimals?: number } | undefined {
+		const config = this.getConfig(chain)
+		const assets = config?.assets
+		if (!assets) return undefined
+		const target = symbol.trim().toUpperCase()
+		for (const [key, address] of Object.entries(assets)) {
+			if (key.toUpperCase() !== target) continue
+			return {
+				symbol: key as ConfiguredAssetSymbol,
+				address: address as HexString,
+				decimals: config.tokenDecimals?.[key as keyof typeof config.tokenDecimals],
+			}
+		}
+		return undefined
+	}
+
 	getCNgnDecimals(chain: string): number | undefined {
 		return this.getConfig(chain)?.tokenDecimals?.cNGN
 	}
@@ -90,6 +143,21 @@ export class ChainConfigService {
 
 	getExtDecimals(chain: string): number | undefined {
 		return this.getConfig(chain)?.tokenDecimals?.EXT
+	}
+
+	/** Configured exotic (non-USD) tokens on a chain, for selection UIs. EXT is a test asset and is not offered. */
+	getKnownExoticTokens(chain: string): Array<{ symbol: string; address: HexString; decimals?: number }> {
+		const config = this.getConfig(chain)
+		const tokens: Array<{ symbol: string; address: HexString; decimals?: number }> = []
+		if (config?.assets?.cNGN) {
+			tokens.push({ symbol: "cNGN", address: config.assets.cNGN as HexString, decimals: config.tokenDecimals?.cNGN })
+		}
+		return tokens
+	}
+
+	/** Known ERC-4626 treasury vaults on a chain, for selection UIs. */
+	getKnownVaults(chain: string): Erc4626VaultConfigData[] {
+		return this.getConfig(chain)?.erc4626Vaults ?? []
 	}
 
 	getChainId(chain: string): number {
@@ -200,6 +268,10 @@ export class ChainConfigService {
 
 	getCirclePaymasterAddress(chain: string): HexString | undefined {
 		return this.getConfig(chain)?.addresses.CirclePaymaster as HexString | undefined
+	}
+
+	getSimplexPaymasterAddress(chain: string): HexString | undefined {
+		return this.getConfig(chain)?.addresses.SimplexPaymaster as HexString | undefined
 	}
 
 	getHyperbridgeAddress(): string {

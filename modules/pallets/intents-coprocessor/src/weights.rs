@@ -41,9 +41,21 @@ pub trait WeightInfo {
 	fn update_params() -> Weight;
 	fn sweep_dust() -> Weight;
 	fn update_token_decimals() -> Weight;
-	fn set_phantom_order_config() -> Weight;
+	/// Setting the configuration, over the number of chains the call carries.
+	fn set_phantom_order_config(c: u32) -> Weight;
+	fn remove_phantom_order_config() -> Weight;
 	fn set_phantom_bid_window() -> Weight;
+	/// The on_initialize generation path, over the number of token pairs bundled into the order.
+	fn generate_phantom_order(p: u32) -> Weight;
 	fn upgrade_gateway() -> Weight;
+	fn add_paymaster_deployment() -> Weight;
+	fn upgrade_paymaster() -> Weight;
+	fn update_paymaster_params() -> Weight;
+	fn register_paymaster_token() -> Weight;
+	fn deactivate_paymaster_token() -> Weight;
+	fn withdraw_paymaster_assets() -> Weight;
+	fn unlock_paymaster_stake() -> Weight;
+	fn withdraw_paymaster_stake() -> Weight;
 }
 
 /// Weights for pallet_intents using the Substrate node and recommended hardware.
@@ -109,12 +121,27 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(T::DbWeight::get().writes(1))
 	}
 
-	/// Storage: PhantomOrderConfig (r:0 w:1), CurrentPhantomOrder (r:0 w:1)
-	/// Proof Skipped: PhantomOrderConfig (max_values: Some(1), max_size: None, mode: Measured)
-	fn set_phantom_order_config() -> Weight {
+	/// Storage: PhantomChains (r:1 w:1), PhantomOrderConfig (r:0 w:1),
+	/// PhantomOrderInterval (r:0 w:1), CurrentPhantomOrder (r:0 w:1),
+	/// LastPhantomGeneration (r:0 w:1)
+	/// Proof Skipped: PhantomOrderConfig (max_values: None, max_size: None, mode: Measured)
+	fn set_phantom_order_config(c: u32) -> Weight {
+		// The per-chain term covers validating one more chain's pairs and writing its entry.
+		Weight::from_parts(20_000_000, 0)
+			.saturating_add(Weight::from_parts(4_000_000, 0).saturating_mul(c.into()))
+			.saturating_add(Weight::from_parts(0, 1_024))
+			.saturating_add(T::DbWeight::get().reads(1))
+			.saturating_add(T::DbWeight::get().writes(4))
+			.saturating_add(T::DbWeight::get().writes(c.into()))
+	}
+
+	/// Storage: PhantomOrderConfig (r:1 w:1), PhantomChains (r:1 w:1),
+	/// CurrentPhantomOrder (r:1 w:1)
+	fn remove_phantom_order_config() -> Weight {
 		Weight::from_parts(20_000_000, 0)
 			.saturating_add(Weight::from_parts(0, 1_024))
-			.saturating_add(T::DbWeight::get().writes(2))
+			.saturating_add(T::DbWeight::get().reads(3))
+			.saturating_add(T::DbWeight::get().writes(3))
 	}
 
 	/// Storage: PhantomBidWindow (r:0 w:1)
@@ -125,11 +152,86 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(T::DbWeight::get().writes(1))
 	}
 
+	/// Storage: PhantomChains (r:1 w:0), PhantomOrderInterval (r:1 w:0),
+	/// PhantomOrderConfig (r:1 w:0), LastPhantomGeneration (r:1 w:1),
+	/// Ismp::LatestStateMachineHeight (r:1 w:0), CurrentPhantomOrder (r:0 w:1)
+	fn generate_phantom_order(p: u32) -> Weight {
+		// The per-pair term covers ABI-encoding and hashing one more leg plus the event bytes.
+		Weight::from_parts(30_000_000, 0)
+			.saturating_add(Weight::from_parts(200_000, 0).saturating_mul(p.into()))
+			.saturating_add(Weight::from_parts(0, 3_000))
+			.saturating_add(T::DbWeight::get().reads(3))
+			.saturating_add(T::DbWeight::get().writes(2))
+	}
+
 	/// Storage: Gateways (r:1 w:0)
 	/// Proof Skipped: Gateways (max_values: None, max_size: None, mode: Measured)
 	/// Storage: Nonce (r:1 w:1)
 	/// Proof Skipped: Nonce (max_values: Some(1), max_size: None, mode: Measured)
 	fn upgrade_gateway() -> Weight {
+		Weight::from_parts(70_000_000, 0)
+			.saturating_add(Weight::from_parts(0, 3500))
+			.saturating_add(T::DbWeight::get().reads(2))
+			.saturating_add(T::DbWeight::get().writes(1))
+	}
+
+	/// Storage: Paymasters (r:0 w:1)
+	fn add_paymaster_deployment() -> Weight {
+		Weight::from_parts(30_000_000, 0)
+			.saturating_add(Weight::from_parts(0, 2000))
+			.saturating_add(T::DbWeight::get().writes(1))
+	}
+
+	/// Storage: Paymasters (r:1 w:0), Nonce (r:1 w:1)
+	fn upgrade_paymaster() -> Weight {
+		Weight::from_parts(70_000_000, 0)
+			.saturating_add(Weight::from_parts(0, 3500))
+			.saturating_add(T::DbWeight::get().reads(2))
+			.saturating_add(T::DbWeight::get().writes(1))
+	}
+
+	/// Storage: Paymasters (r:1 w:0), Nonce (r:1 w:1)
+	fn update_paymaster_params() -> Weight {
+		Weight::from_parts(70_000_000, 0)
+			.saturating_add(Weight::from_parts(0, 3500))
+			.saturating_add(T::DbWeight::get().reads(2))
+			.saturating_add(T::DbWeight::get().writes(1))
+	}
+
+	/// Storage: Paymasters (r:1 w:0), Nonce (r:1 w:1)
+	fn register_paymaster_token() -> Weight {
+		Weight::from_parts(70_000_000, 0)
+			.saturating_add(Weight::from_parts(0, 3500))
+			.saturating_add(T::DbWeight::get().reads(2))
+			.saturating_add(T::DbWeight::get().writes(1))
+	}
+
+	/// Storage: Paymasters (r:1 w:0), Nonce (r:1 w:1)
+	fn deactivate_paymaster_token() -> Weight {
+		Weight::from_parts(70_000_000, 0)
+			.saturating_add(Weight::from_parts(0, 3500))
+			.saturating_add(T::DbWeight::get().reads(2))
+			.saturating_add(T::DbWeight::get().writes(1))
+	}
+
+	/// Storage: Paymasters (r:1 w:0), Nonce (r:1 w:1)
+	fn withdraw_paymaster_assets() -> Weight {
+		Weight::from_parts(70_000_000, 0)
+			.saturating_add(Weight::from_parts(0, 3500))
+			.saturating_add(T::DbWeight::get().reads(2))
+			.saturating_add(T::DbWeight::get().writes(1))
+	}
+
+	/// Storage: Paymasters (r:1 w:0), Nonce (r:1 w:1)
+	fn unlock_paymaster_stake() -> Weight {
+		Weight::from_parts(70_000_000, 0)
+			.saturating_add(Weight::from_parts(0, 3500))
+			.saturating_add(T::DbWeight::get().reads(2))
+			.saturating_add(T::DbWeight::get().writes(1))
+	}
+
+	/// Storage: Paymasters (r:1 w:0), Nonce (r:1 w:1)
+	fn withdraw_paymaster_stake() -> Weight {
 		Weight::from_parts(70_000_000, 0)
 			.saturating_add(Weight::from_parts(0, 3500))
 			.saturating_add(T::DbWeight::get().reads(2))
@@ -157,13 +259,45 @@ impl WeightInfo for () {
 	fn update_token_decimals() -> Weight {
 		Weight::from_parts(75_000_000, 0)
 	}
-	fn set_phantom_order_config() -> Weight {
+	fn set_phantom_order_config(c: u32) -> Weight {
+		Weight::from_parts(20_000_000, 0)
+			.saturating_add(Weight::from_parts(4_000_000, 0).saturating_mul(c.into()))
+	}
+	fn remove_phantom_order_config() -> Weight {
 		Weight::from_parts(20_000_000, 0)
 	}
 	fn set_phantom_bid_window() -> Weight {
 		Weight::from_parts(10_000_000, 0)
 	}
+	fn generate_phantom_order(p: u32) -> Weight {
+		Weight::from_parts(30_000_000, 0)
+			.saturating_add(Weight::from_parts(200_000, 0).saturating_mul(p.into()))
+	}
 	fn upgrade_gateway() -> Weight {
+		Weight::from_parts(70_000_000, 0)
+	}
+	fn add_paymaster_deployment() -> Weight {
+		Weight::from_parts(30_000_000, 0)
+	}
+	fn upgrade_paymaster() -> Weight {
+		Weight::from_parts(70_000_000, 0)
+	}
+	fn update_paymaster_params() -> Weight {
+		Weight::from_parts(70_000_000, 0)
+	}
+	fn register_paymaster_token() -> Weight {
+		Weight::from_parts(70_000_000, 0)
+	}
+	fn deactivate_paymaster_token() -> Weight {
+		Weight::from_parts(70_000_000, 0)
+	}
+	fn withdraw_paymaster_assets() -> Weight {
+		Weight::from_parts(70_000_000, 0)
+	}
+	fn unlock_paymaster_stake() -> Weight {
+		Weight::from_parts(70_000_000, 0)
+	}
+	fn withdraw_paymaster_stake() -> Weight {
 		Weight::from_parts(70_000_000, 0)
 	}
 }

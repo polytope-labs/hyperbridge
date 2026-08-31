@@ -1,8 +1,15 @@
 import { encodePacked, erc20Abi, type PublicClient } from "viem"
 import type { HexString } from "@hyperbridge/sdk"
 import type { FillerConfigService } from "@/services/FillerConfigService"
-import { RECOMMENDED_AMOUNT_USD, THRESHOLD_USD, VERIFICATION_GAS_LIMIT_CIRCLE, POST_OP_GAS_LIMIT, type PaymasterResult } from "../types"
+import {
+	RECOMMENDED_AMOUNT_USD,
+	THRESHOLD_USD,
+	VERIFICATION_GAS_LIMIT_CIRCLE,
+	POST_OP_GAS_LIMIT_CIRCLE,
+	type PaymasterResult,
+} from "../types"
 import { signEip2612Permit } from "../permit"
+import type { Signer } from "@/services/wallet/types"
 
 /**
  * Builds the paymaster fields for a PackedUserOperation using Circle Paymaster v0.8.
@@ -19,7 +26,7 @@ import { signEip2612Permit } from "../permit"
  */
 export async function buildCirclePaymasterData(
 	client: PublicClient,
-	signer: { signTypedData: (typedData: unknown, chainId?: number) => Promise<HexString> },
+	signer: Pick<Signer, "signTypedData">,
 	solverAccount: HexString,
 	paymasterAddress: HexString,
 	chain: string,
@@ -29,6 +36,12 @@ export async function buildCirclePaymasterData(
 	 * Circle-recommended {@link VERIFICATION_GAS_LIMIT_CIRCLE}. A caller can pass a
 	 * tighter value for a known, cheap op (e.g. a re-delegation) so the bundler's
 	 * verification-gas-limit efficiency policy accepts it — see the delegation path.
+	 *
+	 * Only honored when the existing allowance covers the threshold. The permit path
+	 * alone burns ~113k gas during validation (EIP-2612 permit resolved via ERC-1271
+	 * through the delegated account, plus the upfront transferFrom), so a tightened
+	 * limit would make the paymaster frame run out of gas and the bundler reject the
+	 * op with AA33.
 	 */
 	paymasterVerificationGasLimit: bigint = VERIFICATION_GAS_LIMIT_CIRCLE,
 ): Promise<PaymasterResult> {
@@ -55,7 +68,7 @@ export async function buildCirclePaymasterData(
 			paymaster: paymasterAddress,
 			paymasterData,
 			paymasterVerificationGasLimit,
-			paymasterPostOpGasLimit: POST_OP_GAS_LIMIT,
+			paymasterPostOpGasLimit: POST_OP_GAS_LIMIT_CIRCLE,
 		}
 	}
 
@@ -78,7 +91,9 @@ export async function buildCirclePaymasterData(
 	return {
 		paymaster: paymasterAddress,
 		paymasterData,
-		paymasterVerificationGasLimit,
-		paymasterPostOpGasLimit: POST_OP_GAS_LIMIT,
+		// Executing the permit needs the full Circle default — a caller's tightened
+		// limit only applies to the cheap allowance-reuse branch above.
+		paymasterVerificationGasLimit: VERIFICATION_GAS_LIMIT_CIRCLE,
+		paymasterPostOpGasLimit: POST_OP_GAS_LIMIT_CIRCLE,
 	}
 }

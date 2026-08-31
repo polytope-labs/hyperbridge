@@ -150,6 +150,18 @@ struct FillOptions {
     uint256 relayerFee;
     /// @dev The fee paid in native tokens for cross-chain dispatch.
     uint256 nativeDispatchFee;
+    /// @dev Last block number at which this fill may be executed. Zero means no bound.
+    ///
+    /// @dev A solver bidding through the coprocessor signs this calldata and then has no
+    /// further say in when it is used: the order's `deadline` is chosen by the placer with
+    /// no upper limit, and retracting the bid on Hyperbridge does not reach this chain. The
+    /// placer holds the session key, so without a bound here they may sit on a signed bid
+    /// and execute it whenever the price has moved in their favour. Setting this caps how
+    /// long the quoted price stands.
+    ///
+    /// @dev Denominated in blocks, matching `order.deadline`, so both are read against the
+    /// same clock (`_blockNumber()`, which is the L2 block number where that differs).
+    uint256 validUntil;
     /// @dev The output tokens with amounts the solver is willing to give
     /// @dev Must be strictly >= the amounts requested in order.output.assets
     TokenInfo[] outputs;
@@ -209,6 +221,11 @@ interface IIntentGatewayV2 {
     /// @notice Thrown when an action is attempted on an expired order.
     error Expired();
 
+    /// @notice The fill's own validity window has passed (`options.validUntil`).
+    /// @dev Distinct from {Expired}, which is the order's deadline. This one means the
+    ///      solver's quote has gone stale, not that the order has.
+    error FillExpired();
+
     /// @notice Thrown when there are insufficient native tokens to complete an action.
     error InsufficientNativeToken();
 
@@ -227,6 +244,13 @@ interface IIntentGatewayV2 {
     /// @notice Thrown when an action is attempted on an unknown order.
     error UnknownOrder();
 
+    /// @notice Thrown when the cross-chain peer is unknown.
+    error UnknownInstance();
+
+    /// @notice Thrown when a solver attempts to partially fill an order that carries output
+    ///         calldata. Such orders must be filled completely in a single fill.
+    error PartialFillNotAllowed();
+
     // ============================================
     // Events
     // ============================================
@@ -244,6 +268,9 @@ interface IIntentGatewayV2 {
      * @param predispatch The predispatch assets for the order
      * @param inputs The tokens that are escrowed for the filler (amounts reflect values after protocol fee deduction)
      * @param outputs The tokens that the filler will provide
+     * @param predispatchCall The calldata executed via the CallDispatcher before escrow
+     * @param outputCall The calldata executed on the destination chain during the fill
+     * @param graffiti The attribution tag supplied by the order placer
      */
     event OrderPlaced(
         bytes32 user,
@@ -256,27 +283,55 @@ interface IIntentGatewayV2 {
         bytes32 beneficiary,
         TokenInfo[] predispatch,
         TokenInfo[] inputs,
-        TokenInfo[] outputs
+        TokenInfo[] outputs,
+        bytes predispatchCall,
+        bytes outputCall,
+        bytes32 graffiti
     );
 
     /**
-     * @notice Emitted when an order is filled.
+     * @notice Emitted when an order is fully filled.
      * @param commitment The unique identifier of the order
      * @param filler The address of the entity that filled the order
+     * @param outputs The output token amounts provided by the filler
+     * @param inputs The escrowed input tokens released to the filler
      */
-    event OrderFilled(bytes32 indexed commitment, address filler);
+    event OrderFilled(bytes32 indexed commitment, address filler, TokenInfo[] outputs, TokenInfo[] inputs);
 
     /**
-     * @notice Emitted when an escrow is released.
+     * @notice Emitted when an order is partially filled. Only same-chain orders
+     *         support incremental fills.
      * @param commitment The unique identifier of the order
+     * @param filler The address of the entity that provided this partial fill
+     * @param outputs The output token amounts provided in this fill
+     * @param inputs The proportional escrowed input tokens released to the filler
      */
-    event EscrowReleased(bytes32 indexed commitment);
+    event PartialFill(bytes32 indexed commitment, address filler, TokenInfo[] outputs, TokenInfo[] inputs);
 
     /**
-     * @notice Emitted when an escrow is refunded.
+     * @notice Emitted when an order's cancellation is initiated, on the chain it is
+     *         initiated from. `EscrowRefunded` remains the terminal event: it follows in
+     *         the same transaction for a same-chain cancel, and on the source chain once
+     *         the cancellation has travelled through Hyperbridge for a cross-chain one.
      * @param commitment The unique identifier of the order
+     * @param canceller The account that initiated the cancellation. The destination-side
+     *        route is permissionless after expiry, so this is not necessarily the creator.
      */
-    event EscrowRefunded(bytes32 indexed commitment);
+    event OrderCancelled(bytes32 indexed commitment, address canceller);
+
+    /**
+     * @notice Emitted when an escrow is released to the filler.
+     * @param commitment The unique identifier of the order
+     * @param tokens The tokens and amounts released
+     */
+    event EscrowReleased(bytes32 indexed commitment, TokenInfo[] tokens);
+
+    /**
+     * @notice Emitted when an escrow is refunded to the original user.
+     * @param commitment The unique identifier of the order
+     * @param tokens The tokens and amounts refunded
+     */
+    event EscrowRefunded(bytes32 indexed commitment, TokenInfo[] tokens);
 
     /**
      * @notice Emitted when parameters are updated.
@@ -286,11 +341,11 @@ interface IIntentGatewayV2 {
     event ParamsUpdated(Params previous, Params current);
 
     /**
-     * @notice Emitted when a new deployment is added.
-     * @param stateMachineId The state machine identifier
-     * @param gateway The gateway identifier
+     * @notice Emitted when a gateway instance is registered for a remote state machine.
+     * @param chain The state machine identifier for the new deployment
+     * @param gateway The address of the deployed gateway on that chain
      */
-    event NewDeploymentAdded(bytes stateMachineId, address gateway);
+    event DeploymentAdded(string chain, address gateway);
 
     /**
      * @notice Emitted when dust is collected.
@@ -306,6 +361,13 @@ interface IIntentGatewayV2 {
      * @param beneficiary The beneficiary of the funds
      */
     event DustSwept(address token, uint256 amount, address beneficiary);
+
+    /**
+     * @notice Emitted when a destination-specific protocol fee override is set via governance.
+     * @param chain The destination state machine identifier
+     * @param feeBps The protocol fee in basis points for orders targeting this destination
+     */
+    event DestinationProtocolFeeUpdated(string chain, uint256 feeBps);
 
     // ============================================
     // Constants

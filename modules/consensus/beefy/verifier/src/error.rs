@@ -35,6 +35,17 @@ pub enum Error {
 		/// Unknown authority set id from the commitment.
 		id: u64,
 	},
+	/// The proof carries an mmr leaf other than the one appended at the commitment's block.
+	/// An MMR is append-only, so historical leaves also prove against the commitment's root;
+	/// accepting one would let a proof advance the height while replaying an old
+	/// `beefy_next_authority_set` and suppressing the authority set rotation.
+	#[error("Stale mmr leaf: leaf parent number {parent_number} is not {block_number} - 1")]
+	StaleMmrLeaf {
+		/// Parent block number carried by the proof's mmr leaf.
+		parent_number: u32,
+		/// Block number reported by the commitment.
+		block_number: u32,
+	},
 	/// The signed commitment payload is missing its MMR root hash entry.
 	#[error("MMR root hash is missing from commitment payload")]
 	MmrRootHashMissing,

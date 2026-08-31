@@ -42,6 +42,7 @@ pallet-call-decompressor = { workspace = true }
 pallet-fishermen = { workspace = true }
 pallet-state-coprocessor = { workspace = true }
 pallet-bandwidth = { workspace = true }
+pallet-hyper-fungible-token = { workspace = true }
 pallet-mmr-tree = { workspace = true }
 pallet-mmr-runtime-api = { workspace = true }
 mmr-primitives = { workspace = true }
@@ -153,6 +154,7 @@ std = [
     "simnode-runtime-api/std",
     "anyhow/std",
     "pallet-bandwidth/std",
+    "pallet-hyper-fungible-token/std",
     "pallet-fishermen/std",
     "pallet-state-coprocessor/std",
     "ismp-grandpa/std",
@@ -182,6 +184,7 @@ runtime-benchmarks = [
     "pallet-messaging-incentives/runtime-benchmarks",
     "pallet-beefy-consensus-proofs/runtime-benchmarks",
     "pallet-call-decompressor/runtime-benchmarks",
+    "pallet-hyper-fungible-token/runtime-benchmarks",
 ]
 try-runtime = [
     "polkadot-sdk/try-runtime",

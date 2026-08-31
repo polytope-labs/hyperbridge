@@ -74,7 +74,7 @@ function validateConfig(config: unknown): ConfigObject {
  * @throws {z.ZodError} If the configuration is invalid
  * @throws {Error} If the configuration file cannot be read
  */
-function loadConfig(env: Environment): ConfigObject {
+export function loadConfig(env: Environment): ConfigObject {
 	const root = process.cwd()
 	dotenv.config({ path: path.resolve(root, `../../.env.${env}`) })
 

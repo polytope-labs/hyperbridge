@@ -159,9 +159,9 @@ pub mod signer {
 	/// `inject_account_nonce_and_block`). On a parachain, finality trails the best chain by
 	/// several blocks, so a submitter that only waits for in-block (not finalization) before its
 	/// next submission reuses an already-spent nonce and the node rejects it as
-	/// `InvalidTransaction::Stale`. Passing a pool-aware nonce (e.g. from `system_accountNextIndex`)
-	/// avoids that. This uses `create_partial_offline`, which — unlike `create_signed` — does not
-	/// overwrite the nonce we set.
+	/// `InvalidTransaction::Stale`. Passing a pool-aware nonce (e.g. from
+	/// `system_accountNextIndex`) avoids that. This uses `create_partial_offline`, which — unlike
+	/// `create_signed` — does not overwrite the nonce we set.
 	pub async fn send_extrinsic_with_nonce<T, Tx: Payload>(
 		client: &OnlineClient<T>,
 		signer: &InMemorySigner<T>,
@@ -335,6 +335,17 @@ pub fn state_machine_commitment_storage_key(height: StateMachineHeight) -> Vec<u
 
 	[pallet_prefix, storage_prefix, key_1, height.id.encode(), key_2, height.height.encode()]
 		.concat()
+}
+
+/// Storage key for `pallet_ismp_parachain::SlotDurations` at `para_id` — the aura slot duration
+/// (in milliseconds) hyperbridge uses to derive block timestamps for parachains that don't run
+/// `pallet-ismp` and so never deposit the ISMP timestamp digest. The map hashes with `Identity`,
+/// which leaves the encoded key untouched.
+pub fn parachain_slot_duration_storage_key(para_id: u32) -> Vec<u8> {
+	let pallet_prefix = twox_128(b"IsmpParachain").to_vec();
+	let storage_prefix = twox_128(b"SlotDurations").to_vec();
+
+	[pallet_prefix, storage_prefix, para_id.encode()].concat()
 }
 
 pub fn host_params_storage_key(state_machine: StateMachine) -> Vec<u8> {

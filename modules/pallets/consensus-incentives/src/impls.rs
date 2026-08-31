@@ -46,6 +46,10 @@ where
 		if let Some(block_cost) = StateMachinesCostPerBlock::<T>::get(state_machine_id) {
 			let reward = Self::calculate_reward(&state_machine_id, block_cost)?;
 
+			if reward.is_zero() {
+				return Ok(());
+			}
+
 			T::Currency::transfer(
 				&T::TreasuryAccount::get().into_account_truncating(),
 				&relayer_account,
@@ -62,6 +66,10 @@ where
 
 			T::ReputationAsset::mint_into(&relayer_account, reward.saturated_into())
 				.map_err(|_| Error::<T>::ReputationMintFailed)?;
+
+			LastRewardedHeight::<T>::mutate(state_machine_id, |watermark| {
+				*watermark = Some(watermark.unwrap_or_default().max(state_machine_height.height));
+			});
 		}
 		Ok(())
 	}
@@ -78,7 +86,12 @@ where
 		let previous_height =
 			host.previous_commitment_height(state_machine_id.clone()).unwrap_or_default();
 
-		let blocks = latest_height.saturating_sub(previous_height);
+		// Use the rewarded watermark as the baseline and fall back to the previous height until
+		// the first reward is recorded for this chain. The watermark only moves forward, so a
+		// height that is rolled back and later resubmitted is not paid for a second time.
+		let baseline = LastRewardedHeight::<T>::get(state_machine_id).unwrap_or(previous_height);
+
+		let blocks = latest_height.saturating_sub(baseline);
 
 		let blocks_as_balance: <T as pallet_ismp::Config>::Balance = blocks.saturated_into();
 		let reward = blocks_as_balance.saturating_mul(block_cost);
@@ -132,10 +145,8 @@ where
 			}
 
 			for (state_machine_id, latest_height) in highest_per_state_machine {
-				let state_machine_height = StateMachineHeight {
-					id: state_machine_id.clone(),
-					height: latest_height,
-				};
+				let state_machine_height =
+					StateMachineHeight { id: state_machine_id.clone(), height: latest_height };
 
 				let _ = Self::process_message(
 					state_machine_height,

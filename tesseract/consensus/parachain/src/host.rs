@@ -371,8 +371,8 @@ async fn query_latest_known_relay_height(
 /// Storage key for `pallet_ismp_parachain::KnownRelayHeights` — `twox_128("IsmpParachain")
 /// ++ twox_128("KnownRelayHeights")`.
 fn known_relay_heights_storage_key() -> Vec<u8> {
-	let mut key = sp_core::twox_128(b"IsmpParachain").to_vec();
-	key.extend_from_slice(&sp_core::twox_128(b"KnownRelayHeights"));
+	let mut key = sp_crypto_hashing::twox_128(b"IsmpParachain").to_vec();
+	key.extend_from_slice(&sp_crypto_hashing::twox_128(b"KnownRelayHeights"));
 	key
 }
 

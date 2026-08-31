@@ -1,5 +1,6 @@
 mod child_trie_proof_check;
 mod pallet_bandwidth;
+mod pallet_beefy_consensus_proofs;
 mod pallet_call_decompressor;
 mod pallet_fishermen;
 mod pallet_ismp;
@@ -8,6 +9,7 @@ mod pallet_ismp_relayer;
 mod pallet_state_coprocessor;
 
 mod common;
+mod ismp_parachain;
 mod ismp_pharos;
 mod pallet_collator_manager;
 mod pallet_consensus_incentives;

@@ -196,6 +196,10 @@ struct AuthoritySetCommitment {
 - Verifies ZK proofs instead of individual signatures
 - More gas-efficient for large authority sets
 - Same security guarantees as EcdsaBeefy
+- Requires the mmr leaf to be the one appended at the commitment's block
+  (`parentNumber + 1 == blockNumber`). The zkVM proves only that the leaf is *in* the mmr,
+  and an mmr is append-only, so this is enforced on-chain — otherwise a proof could advance
+  the trusted height while replaying an older leaf's `nextAuthoritySet`
 - Location: `SP1Beefy.sol`
 
 ### `ConsensusRouter`

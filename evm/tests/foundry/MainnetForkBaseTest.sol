@@ -52,6 +52,17 @@ contract MainnetForkBaseTest is Test {
 
     uint256 internal mainnetFork;
 
+    /// @dev `makeAddr`, then strip any code the address carries on the live fork. Foundry's
+    ///      deterministic test keys are public (the private key is `keccak256(name)`), and
+    ///      bots install EIP-7702 sweeper delegations on them on mainnet — ETH sent to such
+    ///      an address is forwarded to the sweeper's collector in its receive hook, zeroing
+    ///      balances mid-test. Etching empty code restores plain-EOA behavior. Only valid
+    ///      after the fork is selected (i.e. after this contract's setUp has run).
+    function makeCleanAddr(string memory name) internal returns (address addr) {
+        addr = makeAddr(name);
+        vm.etch(addr, "");
+    }
+
     function setUp() public virtual {
         usdc = IERC20(0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48);
         dai = IERC20(0x6B175474E89094C44Da98b954EedeAC495271d0F);

@@ -89,7 +89,9 @@ impl<
 			.to_consensus_proof()
 			.map_err(|e| ismp::error::Error::Custom(e.to_string()))?;
 
-		let trusted_state: TrustedState = consensus_state.clone().tendermint_state.into();
+		let trusted_state: TrustedState =
+			TrustedState::try_from(consensus_state.clone().tendermint_state)
+				.map_err(ismp::error::Error::Custom)?;
 
 		let time = host.timestamp().as_secs();
 
@@ -173,12 +175,12 @@ impl<
 		if consensus_proof_1.signed_header.header.hash() ==
 			consensus_proof_2.signed_header.header.hash()
 		{
-			return Err(Error::Custom(
-				"Fraud proofs commit to the same block header".to_string(),
-			));
+			return Err(Error::Custom("Fraud proofs commit to the same block header".to_string()));
 		}
 
-		let trusted_state: TrustedState = consensus_state.clone().tendermint_state.into();
+		let trusted_state: TrustedState =
+			TrustedState::try_from(consensus_state.clone().tendermint_state)
+				.map_err(ismp::error::Error::Custom)?;
 
 		let time = host.timestamp().as_secs();
 

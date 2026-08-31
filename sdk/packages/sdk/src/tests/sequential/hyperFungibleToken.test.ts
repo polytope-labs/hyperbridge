@@ -290,7 +290,8 @@ async function runBridgeFlow(params: {
 	return { commitment, statuses }
 }
 
-describe("HyperFungibleToken SDK", () => {
+// Skipped: state proofs are currently broken on BNB testnet RPCs
+describe.skip("HyperFungibleToken SDK", () => {
 	it("should detect WrappedHFT on BSC", async () => {
 		console.log("[test:detect-bsc] start — BSC_WRAPPED_HFT=", BSC_WRAPPED_HFT)
 		console.log("[test:detect-bsc] creating BSC->Polygon chains")

@@ -60,7 +60,8 @@ const HYPER_GET_ABI = [
 
 const has = (v?: string) => typeof v === "string" && v.length > 0
 
-describe("GET self-delivery — BSC Chapel → Polygon Amoy (live)", () => {
+// Skipped: state proofs are currently broken on BNB testnet RPCs
+describe.skip("GET self-delivery — BSC Chapel → Polygon Amoy (live)", () => {
 	it.skipIf(!has(process.env.PRIVATE_KEY) || !has(process.env.BSC_CHAPEL))(
 		"reads WMATIC.balanceOf on Amoy via GET and drives it to completion on the source (onGetResponse)",
 		async () => {

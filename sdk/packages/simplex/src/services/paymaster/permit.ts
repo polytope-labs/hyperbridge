@@ -1,6 +1,7 @@
 import { maxUint256, getContract, type PublicClient } from "viem"
 import type { HexString } from "@hyperbridge/sdk"
 import { EIP2612_ABI } from "@/config/abis/EIP2612"
+import type { Signer } from "@/services/wallet/types"
 
 /**
  * Signs an EIP-2612 permit for USDC, granting a spending allowance to the
@@ -11,7 +12,7 @@ import { EIP2612_ABI } from "@/config/abis/EIP2612"
  */
 export async function signEip2612Permit(
 	client: PublicClient,
-	signer: { signTypedData: (typedData: unknown, chainId?: number) => Promise<HexString> },
+	signer: Pick<Signer, "signTypedData">,
 	owner: HexString,
 	spender: HexString,
 	tokenAddress: HexString,
@@ -62,5 +63,5 @@ export async function signEip2612Permit(
 		},
 	}
 
-	return signer.signTypedData(typedData, chainId)
+	return signer.signTypedData(typedData)
 }

@@ -25,15 +25,14 @@ use crate::evm_host::EvmHost::{
 use alloc::{vec, vec::Vec};
 use alloy_sol_types::SolValue;
 use codec::{Decode, DecodeWithMemTracking, Encode};
-use polkadot_sdk::{frame_support, sp_runtime};
+use polkadot_sdk::frame_support;
 use primitive_types::{H160, U256};
-use sp_runtime::RuntimeDebug;
 
 use frame_support::{pallet_prelude::ConstU32, BoundedVec};
 
 /// The host parameters of all connected chains.
 #[derive(
-	Clone, Encode, Decode, DecodeWithMemTracking, scale_info::TypeInfo, PartialEq, Eq, RuntimeDebug,
+	Clone, Encode, Decode, DecodeWithMemTracking, scale_info::TypeInfo, PartialEq, Eq, Debug,
 )]
 pub enum HostParam {
 	/// Host params for evm-based hosts
@@ -42,7 +41,7 @@ pub enum HostParam {
 
 /// Struct for modifying the host parameters of all connected chains.
 #[derive(
-	Clone, Encode, Decode, DecodeWithMemTracking, scale_info::TypeInfo, PartialEq, Eq, RuntimeDebug,
+	Clone, Encode, Decode, DecodeWithMemTracking, scale_info::TypeInfo, PartialEq, Eq, Debug,
 )]
 pub enum HostParamUpdate {
 	/// Host params updates for evm-based hosts
@@ -58,7 +57,7 @@ pub enum HostParamUpdate {
 	scale_info::TypeInfo,
 	PartialEq,
 	Eq,
-	RuntimeDebug,
+	Debug,
 	Default,
 )]
 pub struct EvmHostParam {
@@ -138,7 +137,7 @@ impl EvmHostParam {
 	scale_info::TypeInfo,
 	PartialEq,
 	Eq,
-	RuntimeDebug,
+	Debug,
 	Default,
 )]
 pub struct EvmHostParamUpdate {

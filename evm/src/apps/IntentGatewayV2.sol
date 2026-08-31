@@ -20,7 +20,6 @@ import {ExtrinsicIntents} from "./intentsv2/ExtrinsicIntents.sol";
 
 import {ICallDispatcher, Call} from "@hyperbridge/core/interfaces/ICallDispatcher.sol";
 import {IDispatcher} from "@hyperbridge/core/interfaces/IDispatcher.sol";
-import {IIntentPriceOracle} from "@hyperbridge/core/apps/IntentPriceOracle.sol";
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
@@ -104,10 +103,7 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardT
     function initialize(Params memory p, bytes[] memory peerChains) public initializer {
         uint256 peersLength = peerChains.length;
         for (uint256 i = 0; i < peersLength; i++) {
-            Deployment memory deployment = Deployment({
-                chain: peerChains[i],
-                gateway: address(this)
-            });
+            Deployment memory deployment = Deployment({chain: peerChains[i], gateway: address(this)});
             _addDeployment(deployment);
         }
         _validateParams(p);
@@ -157,12 +153,12 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardT
      *    fee token — swapping from native token via Uniswap V2 if necessary.
      *
      * @param order The order struct. `user`, `source`, and `nonce` are overwritten by this function.
-     * @param graffiti Unused on-chain; available for off-chain indexing or solver metadata.
+     * @param graffiti Attribution tag emitted in the OrderPlaced event for off-chain indexers.
      */
     function placeOrder(Order memory order, bytes32 graffiti) public payable nonReentrant {
         if (order.inputs.length == 0) revert InvalidInput();
 
-        // Reject duplicate output tokens 
+        // Reject duplicate output tokens
         uint256 outputsLen_ = order.output.assets.length;
         for (uint256 i; i < outputsLen_;) {
             bytes32 token = order.output.assets[i].token;
@@ -378,7 +374,10 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardT
             predispatch: order.predispatch.assets,
             inputs: reducedInputs,
             beneficiary: order.output.beneficiary,
-            outputs: order.output.assets
+            outputs: order.output.assets,
+            predispatchCall: order.predispatch.call,
+            outputCall: order.output.call,
+            graffiti: graffiti
         });
     }
 
@@ -405,13 +404,17 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardT
      *    solver stored in transient storage (set by a prior `select` call).
      * 4. Validates input/output array length consistency.
      *
-     * After fill completion, records the price spread with the oracle if configured.
-     *
      * @param order The order to fill. Must match the exact order that was placed.
      * @param options Fill options including output token amounts and fee parameters.
      */
     function fillOrder(Order calldata order, FillOptions calldata options) public payable nonReentrant {
-        if (order.deadline < block.number) revert Expired();
+        uint256 blockNumber = _blockNumber();
+        if (order.deadline < blockNumber) revert Expired();
+        // The solver's own bound on how long its quoted price stands. Zero means unbounded,
+        // which is the right default for a solver filling directly — it is only at risk from
+        // its own staleness. It matters for a bid signed through the coprocessor, where the
+        // order placer chooses the moment of execution and nothing else caps the wait.
+        if (options.validUntil != 0 && blockNumber > options.validUntil) revert FillExpired();
         bytes32 commitment = keccak256(abi.encode(order));
 
         address hostAddr = host();
@@ -444,11 +447,6 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardT
         } else {
             _fillCrossChain(order, options, commitment);
         }
-
-        if (_params.priceOracle != address(0)) {
-            IIntentPriceOracle(_params.priceOracle)
-                .recordSpread(commitment, order.source, order.inputs, options.outputs);
-        }
     }
 
     /**
@@ -464,6 +462,10 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardT
      *
      * Reverts if the order has already been filled or if called from the wrong chain.
      *
+     * Emits `OrderCancelled` on whichever chain the cancellation is initiated from. `EscrowRefunded`
+     * remains the terminal event: same transaction for a same-chain cancel, on the source chain
+     * after a Hyperbridge round trip for a cross-chain one.
+     *
      * @param order The order to cancel. Must match the exact order that was placed.
      * @param options Cancel options including proof height and relayer fee for cross-chain cancels.
      */
@@ -478,7 +480,19 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardT
         bytes32 orderDest = keccak256(order.destination);
         bool isSameChain = orderSource == orderDest;
 
+        // Emitted here, once, rather than from each of the three routes below. Every check those
+        // routes make — Unauthorized, NotExpired, UnknownOrder — reverts, and a revert discards
+        // logs, so an early emit can never announce a cancellation that did not happen. Emitting
+        // before the branch also keeps `EscrowRefunded` the last log on the same-chain route, where
+        // the refund is processed in this same transaction. Three emit sites cost bytecode this
+        // contract does not have: it sits within ~100 bytes of the EIP-170 limit.
+        emit OrderCancelled({commitment: commitment, canceller: msg.sender});
+
         if (isSameChain) {
+            // Checked here rather than inside `_cancelSameChain`, which used to re-read `host()`,
+            // re-query the host's state machine id and re-hash `order.source` to reach the same
+            // answer this function already has. Same check, one external call fewer.
+            if (currentChain != orderSource) revert WrongChain();
             _cancelSameChain(order, commitment);
         } else if (currentChain == orderSource) {
             _cancelFromSource(order, options, commitment);

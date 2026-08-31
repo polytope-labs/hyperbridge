@@ -3,6 +3,9 @@ title: Consensus Proofs
 description: Consensus proofs are the foundation of trust-free bridges. In this article, we explore the technical definition of consensus proofs, review their vulnerabilities, and examine the mitigations for these vulnerabilities.
 ---
 
+import eclipseAttack from "./images/Untitled_eclipse_(1).svg";
+import longRangeAttack from "./images/Untitled_Diagram_(4).svg";
+
 # Consensus Proofs
 
 In this section we will explore the technical definition of consensus proofs, review their vulnerabilities, and examine the mitigations for these vulnerabilities. We'll then see how these mitigations enable consensus proofs to be safely used on-chain, allowing for the first-of-its-kind byzantine fault-tolerant cross-chain bridges.
@@ -86,7 +89,7 @@ Although 51% attacks are relatively rare, they can be extremely devastating in a
 
 This is a hard problem to solve and there have been no papers published addressing this major issue with consensus-verifying bridges. In order to build a **truly secure consensus-verifying bridge**, on-chain consensus clients must be resilient to 51% attacks.
 
-![51% (1).svg](/consensus/51_(1).svg)
+![51% (1).svg](./images/51_(1).svg)
 
 ### Eclipse Attacks
 
@@ -103,7 +106,7 @@ On-chain consensus clients however do not participate in the p2p network and can
 Now that the consensus client has been eclipsed, the byzantine authority set can send state proofs of cross-chain messages associated with the forged chain allowing them to bridge tokens that simply don’t exist to the counterparty blockchain and swap them for other assets, bridging them back and destroying the peg of these assets on the counterparty.
 
 <figure>
-  <img src="/consensus/Untitled_eclipse_(1).svg" alt="Eclipse attacks are cheap to perform and have no risks associated with them" />
+  <img src={eclipseAttack.src} alt="Eclipse attacks are cheap to perform and have no risks associated with them" />
   <figcaption style={{ textAlign: "center" }}>Eclipse attacks are cheap to perform and have no risks associated with them.</figcaption>
 </figure>
 
@@ -113,7 +116,7 @@ The attack involves a consensus client that hasn't been updated in some period *
 
 
 <figure>
-  <img src="/consensus/Untitled_Diagram_(4).svg" alt="Damn those time traveling validators" />
+  <img src={longRangeAttack.src} alt="Damn those time traveling validators" />
   <figcaption style={{ textAlign: "center" }}>Damn those time traveling validators.</figcaption>
 </figure>
 
@@ -128,7 +131,7 @@ This attack is virtually undetectable by consensus-only clients. While full clie
 
 So we’ve explored all the ways in which naive consensus-verifying bridges are vulnerable to a byzantine counterparty chain. **This is because consensus proofs rely only on cryptographic assumptions and does not include game theoretical ones**. However, to achieve safety in consensus-based bridges, cryptographic soundness alone is insufficient, and game theory must be introduced. **Recall that there is no safety in POS consensus systems without the risk of slashing.**
 
-![Screenshot 2023-03-20 at 9.31.23 AM.png](/consensus/Screenshot_2023-03-20_at_9.31.23_AM.png)
+![Screenshot 2023-03-20 at 9.31.23 AM.png](./images/Screenshot_2023-03-20_at_9.31.23_AM.png)
 
 Given this lets introduce some game theoretical mitigations for these vulnerabilities
 

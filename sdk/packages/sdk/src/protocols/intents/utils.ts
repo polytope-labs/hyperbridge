@@ -136,6 +136,15 @@ export function orderCommitment(order: Order): HexString {
 	return keccak256(encoded)
 }
 
+/** Applies an integer percentage bump, rounding up so the requested margin is never understated. */
+export function bumpGasPrice(gasPrice: bigint, bumpPercent: bigint): bigint {
+	if (bumpPercent < 0n) {
+		throw new Error("Gas price bump percent cannot be negative")
+	}
+
+	return (gasPrice * (100n + bumpPercent) + 99n) / 100n
+}
+
 /**
  * Converts a gas estimate (in gas units) on a given chain into the
  * equivalent amount of that chain's fee token (e.g. USDC).
@@ -150,6 +159,7 @@ export function orderCommitment(order: Order): HexString {
  * @param gasEstimateIn - Which chain side the gas estimate belongs to (`"source"` or `"dest"`).
  * @param evmChainID - State-machine ID of the chain on which gas is consumed.
  * @param gasPriceOverride - Optional gas price in wei; fetched on-chain if omitted.
+ * @param gasPriceBumpPercent - Optional integer percentage applied to the selected gas price.
  * @returns Resolves with the fee-token-denominated cost as a bigint, scaled to
  *   the fee token's decimal precision.
  */
@@ -159,6 +169,7 @@ export async function convertGasToFeeToken(
 	gasEstimateIn: "source" | "dest",
 	evmChainID: string,
 	gasPriceOverride?: bigint,
+	gasPriceBumpPercent = 0n,
 ): Promise<bigint> {
 	// Treat gas as effectively free on testnets so fills are always profitable,
 	// and skip the CoinGecko fallback that has no testnet listings and rate-limits
@@ -167,12 +178,13 @@ export async function convertGasToFeeToken(
 
 	const chain = ctx[gasEstimateIn]
 	const client = chain.client
-	const gasPrice =
+	const baseGasPrice =
 		gasPriceOverride ??
 		((await retryPromise(() => client.getGasPrice(), {
 			maxRetries: 3,
 			backoffMs: 250,
 		})) as bigint)
+	const gasPrice = bumpGasPrice(baseGasPrice, gasPriceBumpPercent)
 	const gasCostInWei = gasEstimate * gasPrice
 	const wethAddr = chain.configService.getWrappedNativeAssetWithDecimals(evmChainID).asset
 	const feeToken = await getFeeToken(ctx, evmChainID, chain)

@@ -493,7 +493,8 @@ async fn fisherman_task_spawns_against_simnode_and_mock_l2_rpcs() -> Result<()> 
 /// Storage key for `frame_system::Events` (a `StorageValue`, so the key is
 /// just `twox_128("System") || twox_128("Events")`).
 fn system_events_storage_key() -> Vec<u8> {
-	[sp_core::twox_128(b"System").to_vec(), sp_core::twox_128(b"Events").to_vec()].concat()
+	[sp_io::hashing::twox_128(b"System").to_vec(), sp_io::hashing::twox_128(b"Events").to_vec()]
+		.concat()
 }
 
 /// Hand-roll the SCALE encoding of a `Vec<EventRecord<RuntimeEvent, H256>>`

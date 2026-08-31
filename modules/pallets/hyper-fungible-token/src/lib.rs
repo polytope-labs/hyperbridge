@@ -24,6 +24,8 @@
 
 extern crate alloc;
 
+#[cfg(feature = "runtime-benchmarks")]
+mod benchmarking;
 pub mod error;
 pub mod impls;
 pub mod module;
@@ -101,6 +103,12 @@ pub mod pallet {
 
 		/// Weight information for extrinsics in this pallet
 		type WeightInfo: WeightInfo;
+
+		/// Creates and funds the asset used by the benchmarks. [`Config::Assets`] only provides
+		/// [`fungibles::Mutate`], which cannot bring an asset into existence, so the runtime
+		/// supplies that here.
+		#[cfg(feature = "runtime-benchmarks")]
+		type BenchmarkHelper: types::BenchmarkHelper<Self>;
 	}
 
 	/// Maps (StateMachine, AssetId) → EVM contract address of the token on that chain.
@@ -369,7 +377,10 @@ pub mod pallet {
 
 		/// Updates chain configuration for an existing token
 		#[pallet::call_index(2)]
-		#[pallet::weight(T::WeightInfo::update_token(update.add_chains.len() as u32))]
+		#[pallet::weight(T::WeightInfo::update_token(
+			update.add_chains.len() as u32,
+			update.remove_chains.len() as u32,
+		))]
 		pub fn update_token(
 			origin: OriginFor<T>,
 			update: TokenUpdate<AssetId<T>>,

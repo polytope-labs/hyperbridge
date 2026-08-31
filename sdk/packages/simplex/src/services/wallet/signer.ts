@@ -1,28 +1,20 @@
-import { SignerType, type SignerConfig, type SigningAccount } from "./types"
-import { createMpcVaultSigningAccount } from "./accounts/mpc"
-import { createPrivateKeySigningAccount } from "./accounts/privatekey"
-import { createTurnkeySigningAccount } from "./accounts/turnkey"
-import { getLogger } from "@/services/Logger"
+import { SignerType, type SignerConfig, type Signer } from "./types"
+import { mpcVaultSigner } from "./accounts/mpc"
+import { privateKeySigner } from "./accounts/privatekey"
+import { turnkeySigner } from "./accounts/turnkey"
 
-const logger = getLogger("signer")
-
-export async function createSimplexSigner(config: SignerConfig): Promise<SigningAccount> {
-	let account: SigningAccount
-	if (config.type === SignerType.PrivateKey) {
-		account = await createPrivateKeySigningAccount(config.key)
-	} else if (config.type === SignerType.MpcVault) {
-		account = await createMpcVaultSigningAccount(config)
-	} else if (config.type === SignerType.Turnkey) {
-		account = await createTurnkeySigningAccount(config)
-	} else {
-		throw new Error(`Unsupported signer mode: ${(config as { type?: string }).type ?? "unknown"}`)
-	}
-
-	logger.info(
-		{ signingStrategy: account.mode, address: account.account.address },
-		`EVM signing strategy: ${account.mode}`,
-	)
-	return account
+/**
+ * Builds the signer a `[simplex.signer]` TOML block describes.
+ *
+ * This is the bridge from the binary's config file to the {@link Signer}
+ * interface `Simplex.start` takes — call it yourself if you load simplex TOML,
+ * or call the backend factory directly if you do not.
+ */
+export async function createSigner(config: SignerConfig): Promise<Signer> {
+	if (config.type === SignerType.PrivateKey) return privateKeySigner(config.key)
+	if (config.type === SignerType.MpcVault) return mpcVaultSigner(config)
+	if (config.type === SignerType.Turnkey) return turnkeySigner(config)
+	throw new Error(`Unsupported signer mode: ${(config as { type?: string }).type ?? "unknown"}`)
 }
 
 export function validateSignerConfig(config: SignerConfig): void {
@@ -54,8 +46,12 @@ export function validateSignerConfig(config: SignerConfig): void {
 	throw new Error(`Unsupported signer mode: ${(config as { type?: string }).type ?? "unknown"}`)
 }
 
-export async function initializeSignerFromToml(signerTomlConfig?: SignerConfig): Promise<SigningAccount | undefined> {
-	if (!signerTomlConfig) return undefined
-	validateSignerConfig(signerTomlConfig)
-	return createSimplexSigner(signerTomlConfig)
+/**
+ * Validates a `[simplex.signer]` block and builds it. Returns undefined when
+ * there is no block — a watch-only solver signs nothing.
+ */
+export async function signerFromToml(config?: SignerConfig): Promise<Signer | undefined> {
+	if (!config) return undefined
+	validateSignerConfig(config)
+	return createSigner(config)
 }

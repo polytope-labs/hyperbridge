@@ -281,7 +281,7 @@ fn should_receive_asset_with_calldata() {
 		let (pair, ..) = sp_core::sr25519::Pair::generate();
 		let beneficiary_bytes = pair.public().0;
 		let payload = (0u64, runtime_call.clone()).encode();
-		let message_hash = sp_core::keccak_256(&payload);
+		let message_hash = sp_io::hashing::keccak_256(&payload);
 		let raw_signature = pair.sign(&message_hash);
 		let multisignature = MultiSignature::Sr25519(raw_signature).encode();
 

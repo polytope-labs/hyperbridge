@@ -1,6 +1,13 @@
 import type { ChainConfig, HexString } from "@hyperbridge/sdk"
+import { defaultLoggerContext, type LoggerContext } from "./Logger"
 import { ChainConfigService, bytes32ToBytes20 } from "@hyperbridge/sdk"
-import { LogLevel } from "./Logger"
+import type { LogLevel } from "./Logger"
+
+/** Block-scanner poll period in seconds when `simplex.blockScanIntervalSeconds` is not set. */
+export const DEFAULT_BLOCK_SCAN_INTERVAL_SECONDS = 3
+
+/** Below this the scanner would hammer the RPC faster than any chain produces blocks. */
+export const MIN_BLOCK_SCAN_INTERVAL_SECONDS = 0.1
 
 export interface UserProvidedChainConfig {
 	/** One or more RPC URLs. When multiple are provided, event scans use quorum consensus. */
@@ -54,6 +61,10 @@ export async function fetchChainId(rpcUrl: string): Promise<number> {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify({ jsonrpc: "2.0", method: "eth_chainId", params: [], id: 1 }),
+		// Bounded: undici waits ~300s for headers from a socket that accepted and went
+		// silent, and OrderScanner.close() awaits any edit suspended on this probe —
+		// an unbounded probe turns one dead endpoint into a stuck shutdown.
+		signal: AbortSignal.timeout(10_000),
 	})
 	if (!response.ok) {
 		throw new Error(`Failed to fetch chainId from ${rpcUrl}: HTTP ${response.status}`)
@@ -121,7 +132,6 @@ export interface FillerConfig {
 	hyperbridgeWsUrl?: string
 	substratePrivateKey?: string
 	entryPointAddress?: string
-	dataDir?: string
 	/**
 	 * Optional gas fee bump configuration for UserOperation gas estimation.
 	 * If not provided, defaults will be used (8% for priority fee, 10% for max fee).
@@ -134,6 +144,11 @@ export interface FillerConfig {
 	 */
 	targetGasUnits?: number
 	/**
+	 * Seconds a signed bid stays executable. Defaults to 300 (5 minutes).
+	 * See `bidValiditySeconds` in filler-toml for why this bound matters.
+	 */
+	bidValiditySeconds?: number
+	/**
 	 * Overfill protection knobs. If omitted, defaults are used
 	 * (maxOverfillBps=500, maxConsecutiveClamps=3).
 	 */
@@ -144,6 +159,13 @@ export interface FillerConfig {
 	 * accepted; a chain whose merged set is empty rejects every order.
 	 */
 	allowlist?: AllowlistConfig
+	/**
+	 * How often the block scanner polls each chain, in seconds. Defaults to 3.
+	 * Each tick costs one `eth_blockNumber` plus one `eth_getLogs` per chain per
+	 * endpoint, so raising it is the main lever for staying inside a
+	 * rate-limited RPC's budget — at the cost of seeing orders that much later.
+	 */
+	blockScanIntervalSeconds?: number
 }
 
 /**
@@ -151,6 +173,12 @@ export interface FillerConfig {
  * and only requires minimal user configuration (RPC URLs, private keys, etc.)
  */
 export class FillerConfigService {
+	/**
+	 * This filler's logging destination. Services resolve their module loggers
+	 * from here rather than from the process-wide context, which is what keeps
+	 * two fillers in one process from writing into each other's sinks.
+	 */
+	readonly loggers: LoggerContext
 	private chainConfigService: ChainConfigService
 	private rpcOverrides: Map<number, string[]> = new Map()
 	private bundlerUrls: Map<number, string> = new Map()
@@ -160,7 +188,8 @@ export class FillerConfigService {
 	/** Lowercased per-source allowlist users keyed by state machine id, or undefined when no per-source list is configured. */
 	private allowlistBySource?: Map<string, Set<string>>
 
-	constructor(chainConfigs: ResolvedChainConfig[], fillerConfig?: FillerConfig) {
+	constructor(chainConfigs: ResolvedChainConfig[], fillerConfig?: FillerConfig, loggers?: LoggerContext) {
+		this.loggers = loggers ?? defaultLoggerContext()
 		chainConfigs.forEach((config) => {
 			if (config.rpcUrls && config.rpcUrls.length > 0) {
 				// Re-validate in case the caller constructed a ResolvedChainConfig directly
@@ -191,6 +220,71 @@ export class FillerConfigService {
 
 	getAllowlist(): AllowlistConfig | undefined {
 		return this.fillerConfig?.allowlist
+	}
+
+	/**
+	 * Registers a chain at runtime. `getConfiguredChainIds` derives from the RPC
+	 * override map, so this is what makes a chain "configured" — every address
+	 * lookup already resolves through the SDK's chain registry, which knows the
+	 * chain whether or not this filler was started with it.
+	 *
+	 * Rejects a chain that is already registered: silently replacing its
+	 * endpoints would leave the event monitor scanning the old ones. Use
+	 * {@link setRpcUrls} for that.
+	 */
+	addChain(chain: ResolvedChainConfig): void {
+		if (this.rpcOverrides.has(chain.chainId)) {
+			throw new Error(`Chain ${chain.chainId} is already configured — use setRpcUrls to change its endpoints`)
+		}
+		this.rpcOverrides.set(chain.chainId, validateRpcUrls(chain.rpcUrls))
+		if (chain.bundlerUrl) this.bundlerUrls.set(chain.chainId, chain.bundlerUrl)
+	}
+
+	/** Drops a chain from the configured set. */
+	removeChain(chainId: number): void {
+		this.rpcOverrides.delete(chainId)
+		this.bundlerUrls.delete(chainId)
+	}
+
+	/**
+	 * Replaces a chain's RPC endpoints. Callers must invalidate the cached viem
+	 * clients (`ChainClientManager.invalidate`) and rebuild the chain's scanner
+	 * afterwards — a client bakes its transport in at construction, so this
+	 * change is invisible to anything already holding one.
+	 */
+	setRpcUrls(chainId: number, rpcUrls: string[]): void {
+		if (!this.rpcOverrides.has(chainId)) {
+			throw new Error(`Chain ${chainId} is not configured`)
+		}
+		this.rpcOverrides.set(chainId, validateRpcUrls(rpcUrls))
+	}
+
+	setBundlerUrl(chainId: number, bundlerUrl: string): void {
+		if (!this.rpcOverrides.has(chainId)) {
+			throw new Error(`Chain ${chainId} is not configured`)
+		}
+		this.bundlerUrls.set(chainId, bundlerUrl)
+	}
+
+	/** Replaces the rebalancing config at runtime; trigger checks read it live. */
+	setRebalancing(rebalancing: RebalancingConfig | undefined): void {
+		if (this.fillerConfig) this.fillerConfig.rebalancing = rebalancing
+	}
+
+	/** Replaces the allowlist at runtime; takes effect on the next order. */
+	setAllowlist(allowlist: AllowlistConfig | undefined): void {
+		if (this.fillerConfig) this.fillerConfig.allowlist = allowlist
+		this.allowlistGlobal = allowlist?.users
+			? new Set(allowlist.users.map((u) => bytes32ToBytes20(u).toLowerCase()))
+			: undefined
+		this.allowlistBySource = allowlist?.bySource
+			? new Map(
+					Object.entries(allowlist.bySource).map(([chain, users]) => [
+						chain,
+						new Set(users.map((u) => bytes32ToBytes20(u).toLowerCase())),
+					]),
+				)
+			: undefined
 	}
 
 	/**
@@ -252,8 +346,25 @@ export class FillerConfigService {
 		return this.chainConfigService.getCirclePaymasterAddress(chain)
 	}
 
+	getSimplexPaymasterAddress(chain: string): HexString | undefined {
+		return this.chainConfigService.getSimplexPaymasterAddress(chain)
+	}
+
 	getUsdtDecimals(chain: string): number {
 		return this.chainConfigService.getUsdtDecimals(chain)
+	}
+
+	/**
+	 * Curated decimals for a token, looked up by address in the SDK's per-chain
+	 * asset table. Returns `undefined` for any token not in that table.
+	 *
+	 * This is the safety net for `ContractInteractionService.getTokenDecimals`
+	 * when the on-chain `decimals()` read fails: the registry already carries the
+	 * correct value for every supported asset (verified on-chain at curation
+	 * time), so a failed read has no business guessing.
+	 */
+	getAssetDecimalsByAddress(chain: string, address: HexString): number | undefined {
+		return this.chainConfigService.getAssetMetadataByAddress(chain, address)?.decimals
 	}
 
 	getChainId(chain: string): number {
@@ -353,6 +464,10 @@ export class FillerConfigService {
 		return this.chainConfigService.getCNgnAsset(chain)
 	}
 
+	getAssetBySymbol(chain: string, symbol: string): HexString | undefined {
+		return this.chainConfigService.getAssetBySymbol(chain, symbol)
+	}
+
 	getCNgnDecimals(chain: string): number | undefined {
 		return this.chainConfigService.getCNgnDecimals(chain)
 	}
@@ -391,10 +506,6 @@ export class FillerConfigService {
 
 	getSolverAccountContractAddress(chain: string): HexString | undefined {
 		return this.chainConfigService.getSolverAccountAddress(chain) as HexString | undefined
-	}
-
-	getDataDir(): string | undefined {
-		return this.fillerConfig?.dataDir
 	}
 
 	getBundlerUrl(chain: string): string | undefined {
@@ -485,6 +596,17 @@ export class FillerConfigService {
 	 */
 	getTargetGasUnits(): bigint {
 		return BigInt(this.fillerConfig?.targetGasUnits ?? 3_000_000)
+	}
+
+	/**
+	 * How long a signed bid remains executable, in seconds. Defaults to 300 (5 minutes).
+	 *
+	 * A bid is a firm price the placer may take up at a moment of their choosing; this is the
+	 * only thing bounding that window, since the order deadline is placer-controlled and
+	 * Hyperbridge-side retraction does not reach the destination chain.
+	 */
+	getBidValiditySeconds(): number {
+		return this.fillerConfig?.bidValiditySeconds ?? 300
 	}
 
 	/** Ceiling bps above user-requested output. Default 500 (5%). */

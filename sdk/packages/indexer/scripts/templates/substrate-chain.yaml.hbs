@@ -67,6 +67,11 @@ dataSources:
           filter:
             module: bandwidth
             method: TierSet
+        - handler: handleBidPlaced
+          kind: substrate/EventHandler
+          filter:
+            module: intentsCoprocessor
+            method: BidPlaced
         - handler: handleBridgeTokenSupplyIndexing
           kind: substrate/BlockHandler
           filter:

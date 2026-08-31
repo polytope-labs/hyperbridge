@@ -17,20 +17,25 @@
 
 use polkadot_sdk::sp_runtime::Weight;
 
+/// Weight functions needed by `pallet-hyper-fungible-token`.
 pub trait WeightInfo {
+	/// Weight of `send`.
 	fn send() -> Weight;
+	/// Weight of `register_token`, over the number of chains registered.
 	fn register_token(c: u32) -> Weight;
-	fn update_token(c: u32) -> Weight;
+	/// Weight of `update_token`, over the number of chains added (`a`) and removed (`r`).
+	fn update_token(a: u32, r: u32) -> Weight;
 }
 
+/// No-op [`WeightInfo`] for tests and genesis bootstrap.
 impl WeightInfo for () {
 	fn send() -> Weight {
-		Weight::from_parts(100_000_000, 0)
+		Weight::zero()
 	}
 	fn register_token(_c: u32) -> Weight {
-		Weight::from_parts(100_000_000, 0)
+		Weight::zero()
 	}
-	fn update_token(_c: u32) -> Weight {
-		Weight::from_parts(100_000_000, 0)
+	fn update_token(_a: u32, _r: u32) -> Weight {
+		Weight::zero()
 	}
 }

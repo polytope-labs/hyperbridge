@@ -1,28 +1,20 @@
 import { encodeFunctionData, toHex, pad, maxUint256, concat, keccak256, isHex, hexToString } from "viem"
 import { generatePrivateKey, privateKeyToAccount, privateKeyToAddress } from "viem/accounts"
 import { ABI as IntentGatewayV2ABI } from "@/abis/IntentGatewayV2"
+import { encodeFillOrder, getFillOptionsVersion } from "./fillOrderCodec"
 import {
 	ADDRESS_ZERO,
 	bytes32ToBytes20,
 	bytes20ToBytes32,
 	ERC20Method,
 	adjustDecimals,
-	constructRedeemEscrowRequestBody,
-	MOCK_ADDRESS,
 	getOrFetchStorageSlot,
 	EvmLanguage,
 	normalizeAddressForEvmBytes32,
 } from "@/utils"
 import { orderCommitment } from "./utils"
 import { calculateBalanceMappingLocation } from "@/utils"
-import type {
-	PackedUserOperation,
-	EstimateFillOrderParams,
-	FillOrderEstimate,
-	FillOptions,
-	IPostRequest,
-	Order,
-} from "@/types"
+import type { PackedUserOperation, EstimateFillOrderParams, FillOrderEstimate, FillOptions } from "@/types"
 import type { HexString } from "@/types"
 import type { IntentGatewayContext } from "./types"
 import { BundlerMethod } from "./types"
@@ -37,12 +29,59 @@ import { CryptoUtils } from "./CryptoUtils"
  * When a bundler URL is configured, estimation uses
  * `eth_estimateUserOperationGas` with realistic state overrides (token
  * balances, allowances, EntryPoint deposits, and optional solver account
- * bytecode). Without a bundler, it falls back to `estimateContractGas`.
+ * bytecode). Without a bundler, a fixed gas budget
+ * ({@link NO_BUNDLER_FILL_GAS_BASE} plus a per-output increment) is used
+ * instead of a live estimate.
  * Bundler-specific gas-price refinement is applied automatically:
  * Pimlico (`pimlico_getUserOperationGasPrice`) when the URL contains
  * `pimlico.io`, and Alchemy (`rundler_maxPriorityFeePerGas`) when the
  * URL contains `alchemy.com`.
  */
+/**
+ * Gas budget assumed for delivering and executing the cross-chain RedeemEscrow
+ * POST message on the SOURCE chain (the message a cross-chain `fillOrder`
+ * dispatches back to release escrow to the filler). The relayer fee carried by
+ * that dispatch — and the amount a filler's `order.fees` must cover — is this
+ * gas priced on the source chain. Sized conservatively so the relayer is
+ * reliably incentivised to deliver.
+ *
+ * TODO: replace this flat budget with a measured estimate via
+ * `EvmChain.estimateGas(postRequest)` (a `handlePostRequests` simulation plus
+ * its ~600k consensus-verification adder, as the TokenGateway flow does) —
+ * the RedeemEscrow postRequest would need to be reconstructed in
+ * `estimateCrossChainFees` (`constructRedeemEscrowRequestBody` + host nonce),
+ * as the native-dispatch removal deleted that plumbing. A flat number can't
+ * track per-chain differences like L1 data costs.
+ */
+export const RELAYER_MESSAGE_GAS = 1_000_000n
+
+/**
+ * Gas budget for `fillOrder` when no bundler is configured. Live estimation
+ * would need `eth_estimateGas` with state overrides, which public RPCs don't
+ * reliably support, so the budget is fixed: a base sized for a fill that
+ * unlocks and redeems a vault position plus the cross-chain dispatch, and a
+ * per-output-leg increment for each token approval + transfer. Out-of-gas is
+ * the expensive failure (a reverted op still bills the paymaster), so both
+ * numbers err high; the EntryPoint refunds unused limit less its 10% penalty.
+ */
+export const NO_BUNDLER_FILL_GAS_BASE = 700_000n
+export const NO_BUNDLER_FILL_GAS_PER_OUTPUT = 150_000n
+
+/**
+ * Paymaster gas assumed on the no-bundler path. The executing UserOp carries
+ * its real limits inside `paymasterAndData`; these mirror them (up to ~250k
+ * verification for a permit executed during validation, 100k postOp) so the
+ * cost quote covers what a paymaster-sponsored fill is actually charged.
+ */
+export const NO_BUNDLER_PAYMASTER_VERIFICATION_GAS = 250_000n
+export const NO_BUNDLER_PAYMASTER_POST_OP_GAS = 100_000n
+
+/** Internal pricing policy used by SDK order-fee quotes. */
+interface GasEstimationPricingOptions {
+	/** Percentage added to gas prices used for fee-token conversion. Defaults to 0. */
+	orderFeeGasPriceBumpPercent?: bigint
+}
+
 export class GasEstimator {
 	/**
 	 * @param ctx - Shared IntentsV2 context providing the source and destination
@@ -62,7 +101,12 @@ export class GasEstimator {
 	 *
 	 * **Cross-chain orders:** also estimates the ISMP POST request fee required
 	 * for the solver to trigger source-chain escrow redemption after filling, and
-	 * includes it in `fillOptions.relayerFee` and `fillOptions.nativeDispatchFee`.
+	 * includes it in `fillOptions.relayerFee`. The dispatch is always paid in the
+	 * fee token — `nativeDispatchFee` is fixed at 0. The native rail would draw
+	 * from the solver account's native balance, which nothing guarantees, and a
+	 * shortfall is invisible to estimation (the account balance is overridden
+	 * during simulation) — it would only surface as a reverted execution that
+	 * still bills the paymaster.
 	 *
 	 * **Bundler path:** constructs a mock `PackedUserOperation` signed by an
 	 * ephemeral keypair, applies state overrides, and calls
@@ -70,17 +114,25 @@ export class GasEstimator {
 	 * headroom. If the bundler is Pimlico, gas prices are refined with
 	 * `pimlico_getUserOperationGasPrice`.
 	 *
-	 * **Fallback path (no bundler):** calls `estimateContractGas` directly on
-	 * `fillOrder` with state overrides.
+	 * **Fallback path (no bundler):** uses a fixed budget
+	 * ({@link NO_BUNDLER_FILL_GAS_BASE} plus {@link NO_BUNDLER_FILL_GAS_PER_OUTPUT}
+	 * per output leg) — public RPCs don't reliably support estimation with
+	 * state overrides.
 	 *
 	 * @param params - Parameters including the order to estimate and optional
 	 *   percentage bumps for `maxPriorityFeePerGas` and `maxFeePerGas`.
+	 * @param pricingOptions - Internal fee-pricing policy. Direct estimates use
+	 *   the default zero gas-price bump; SDK order-fee quotes opt into headroom.
 	 * @returns A {@link FillOrderEstimate} containing all gas components,
 	 *   EIP-1559 fee values, total cost in wei, and total cost in the source
 	 *   chain's fee token.
 	 */
-	async estimateFillOrder(params: EstimateFillOrderParams): Promise<FillOrderEstimate> {
+	async estimateFillOrder(
+		params: EstimateFillOrderParams,
+		pricingOptions: GasEstimationPricingOptions = {},
+	): Promise<FillOrderEstimate> {
 		const { order } = params
+		const orderFeeGasPriceBumpPercent = pricingOptions.orderFeeGasPriceBumpPercent ?? 0n
 		const solverPrivateKey = generatePrivateKey()
 		const solverAccountAddress = privateKeyToAddress(solverPrivateKey)
 		const souceStateMachineId = isHex(order.source) ? hexToString(order.source) : order.source
@@ -109,38 +161,46 @@ export class GasEstimator {
 
 		const isSameChain = souceStateMachineId === destStateMachineId
 
+		// State overrides only feed the bundler estimate; without a bundler the
+		// gas budget is flat, so skip the storage-slot resolution entirely.
 		const [stateOverridesResult, crossChainFees] = await Promise.all([
-			this.buildStateOverride({
-				accountAddress: solverAccountAddress,
-				chain: destStateMachineId,
-				outputAssets: assetsForOverrides,
-				spenderAddress: intentGatewayV2Address,
-				intentGatewayV2Address,
-				entryPointAddress,
-			}),
+			this.ctx.bundlerUrl
+				? this.buildStateOverride({
+						accountAddress: solverAccountAddress,
+						chain: destStateMachineId,
+						outputAssets: assetsForOverrides,
+						spenderAddress: intentGatewayV2Address,
+						intentGatewayV2Address,
+						entryPointAddress,
+					})
+				: Promise.resolve({ viem: [], bundler: {} }),
 			isSameChain
-				? Promise.resolve({ postRequestFee: 0n, protocolFee: 0n })
+				? Promise.resolve({ postRequestFee: 0n, relayerFeeInSourceFeeToken: 0n })
 				: this.estimateCrossChainFees(
 						sourceFeeToken,
 						destFeeToken,
 						souceStateMachineId,
-						destStateMachineId,
-						order,
+						orderFeeGasPriceBumpPercent,
 					),
 		])
 
-		const { viem: stateOverrides, bundler: bundlerStateOverrides } = stateOverridesResult
+		const { bundler: bundlerStateOverrides } = stateOverridesResult
 
 		const fillOptions: FillOptions = {
 			relayerFee: crossChainFees.postRequestFee,
-			nativeDispatchFee: crossChainFees.protocolFee,
+			// Always dispatch with the fee token (see the method docs).
+			nativeDispatchFee: 0n,
+			// Unbounded for estimation: this call is simulated, never submitted, and a real
+			// bound here would only risk the estimate reverting on a slow bundler round trip.
+			// The caller sets the real one on the options it actually signs.
+			validUntil: 0n,
 			outputs: order.output.assets.map((asset) => ({
 				...asset,
 				token: normalizeAddressForEvmBytes32(asset.token),
 			})),
 		}
 
-		const totalNativeValue = totalEthValue + fillOptions.nativeDispatchFee
+		const totalNativeValue = totalEthValue
 
 		const priorityFeeBumpPercent = params.maxPriorityFeePerGasBumpPercent ?? 8
 		const maxFeeBumpPercent = params.maxFeePerGasBumpPercent ?? 10
@@ -150,11 +210,14 @@ export class GasEstimator {
 		const orderForEstimation = { ...order, session: solverAccountAddress }
 		const commitment = orderCommitment(orderForEstimation)
 
-		const fillOrderCalldata = encodeFunctionData({
-			abi: IntentGatewayV2ABI,
-			functionName: "fillOrder",
-			args: [transformOrderForContract(orderForEstimation), fillOptions],
-		}) as HexString
+		// The gateway may predate `FillOptions.validUntil`; the two shapes have different
+		// selectors, so encoding the wrong one makes the estimate revert on a missing function.
+		const fillOptionsVersion = await getFillOptionsVersion(this.ctx.dest.client as any, intentGatewayV2Address)
+		const fillOrderCalldata = encodeFillOrder(
+			transformOrderForContract(orderForEstimation) as any,
+			fillOptions,
+			fillOptionsVersion,
+		)
 
 		let callGasLimit: bigint = 500_000n
 		let verificationGasLimit: bigint = 100_000n
@@ -296,20 +359,10 @@ export class GasEstimator {
 				console.warn("Bundler gas estimation failed, using fallback values:", e)
 			}
 		} else {
-			try {
-				const estimatedGas = await this.ctx.dest.client.estimateContractGas({
-					abi: IntentGatewayV2ABI,
-					address: intentGatewayV2Address,
-					functionName: "fillOrder",
-					args: [transformOrderForContract(order), fillOptions],
-					account: solverAccountAddress,
-					value: totalNativeValue,
-					stateOverride: stateOverrides as any,
-				})
-				callGasLimit = (estimatedGas * 105n) / 100n
-			} catch (e) {
-				console.warn("fillOrder gas estimation failed, using fallback:", e)
-			}
+			callGasLimit =
+				NO_BUNDLER_FILL_GAS_BASE + NO_BUNDLER_FILL_GAS_PER_OUTPUT * BigInt(order.output.assets.length)
+			paymasterVerificationGasLimit = NO_BUNDLER_PAYMASTER_VERIFICATION_GAS
+			paymasterPostOpGasLimit = NO_BUNDLER_PAYMASTER_POST_OP_GAS
 		}
 
 		const totalGas =
@@ -326,6 +379,7 @@ export class GasEstimator {
 			"dest",
 			destStateMachineId,
 			gasPrice,
+			orderFeeGasPriceBumpPercent,
 		)
 		const totalGasInSourceFeeToken = isSameChain
 			? totalGasInDestFeeToken
@@ -345,53 +399,45 @@ export class GasEstimator {
 			maxPriorityFeePerGas,
 			totalGasCostWei,
 			totalGasInFeeToken: totalGasInSourceFeeToken,
+			relayerFeeInSourceFeeToken: crossChainFees.relayerFeeInSourceFeeToken,
 			fillOptions,
 		}
 	}
 
 	/**
-	 * Estimates cross-chain ISMP POST request fees by running the gas-to-fee-token
-	 * conversion and host nonce fetch in parallel, then quoting the native dispatch cost.
+	 * Estimates the cross-chain ISMP POST request fee (the relayer fee for the
+	 * RedeemEscrow message), in both the source and destination fee tokens.
+	 * The dispatch is always paid in the fee token — the native rail was
+	 * removed because it silently drew on a native balance nothing guarantees.
 	 */
 	private async estimateCrossChainFees(
 		sourceFeeToken: { address: HexString; decimals: number },
 		destFeeToken: { address: HexString; decimals: number },
 		sourceChainId: string,
-		destChainId: string,
-		order: Order,
-	): Promise<{ postRequestFee: bigint; protocolFee: bigint }> {
-		const postRequestGas = 400_000n
+		orderFeeGasPriceBumpPercent: bigint,
+	): Promise<{ postRequestFee: bigint; relayerFeeInSourceFeeToken: bigint }> {
+		// RELAYER_MESSAGE_GAS (1M) already carries generous gas-unit headroom.
+		// Direct solver estimates price it at the live gas price, while SDK order
+		// quotes explicitly opt into gas-price headroom through the pricing policy.
+		const postRequestFeeInSourceFeeToken = await convertGasToFeeToken(
+			this.ctx,
+			RELAYER_MESSAGE_GAS,
+			"source",
+			sourceChainId,
+			undefined,
+			orderFeeGasPriceBumpPercent,
+		)
 
-		const [postRequestFeeInSourceFeeToken, nonce] = await Promise.all([
-			convertGasToFeeToken(this.ctx, postRequestGas, "source", sourceChainId),
-			this.ctx.dest.getHostNonce(),
-		])
-
-		let postRequestFeeInDestFeeToken = adjustDecimals(
+		const postRequestFeeInDestFeeToken = adjustDecimals(
 			postRequestFeeInSourceFeeToken,
 			sourceFeeToken.decimals,
 			destFeeToken.decimals,
 		)
 
-		const postRequest: IPostRequest = {
-			source: destChainId,
-			dest: sourceChainId,
-			body: constructRedeemEscrowRequestBody({ ...order, id: orderCommitment(order) }, MOCK_ADDRESS),
-			timeoutTimestamp: 0n,
-			nonce,
-			from: this.ctx.source.configService.getIntentGatewayAddress(destChainId),
-			to: this.ctx.source.configService.getIntentGatewayAddress(sourceChainId),
+		return {
+			postRequestFee: postRequestFeeInDestFeeToken,
+			relayerFeeInSourceFeeToken: postRequestFeeInSourceFeeToken,
 		}
-
-		postRequestFeeInDestFeeToken = (postRequestFeeInDestFeeToken * 1005n) / 1000n
-
-		let protocolFeeInNativeToken = await this.ctx.dest
-			.quoteNative(postRequest, postRequestFeeInDestFeeToken)
-			.catch(() => 0n)
-
-		protocolFeeInNativeToken = (protocolFeeInNativeToken * 1005n) / 1000n
-
-		return { postRequestFee: postRequestFeeInDestFeeToken, protocolFee: protocolFeeInNativeToken }
 	}
 
 	/**

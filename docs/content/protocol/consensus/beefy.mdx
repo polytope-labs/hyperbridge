@@ -41,7 +41,7 @@ The `BeefyNextAuthoritySet` struct holds identifier, length and merkle root (`ke
 Validators are essentially signing the latest mmr root. These signatures can be found in the [justifications](https://spec.polkadot.network/sect-finality#defn-grandpa-justification) portion of the relay chain block. With signatures over the latest mmr root, consensus clients must:
 
  - Verify that that the signatures are from a known authority set (either current ot next) using the authority set commitment.
- - Verify the latest leaf in the mmr tree, so they can be aware of the latest finalized block number and hash.
+ - Verify the latest leaf in the mmr tree, so they can be aware of the latest finalized block number and hash. It must be the *latest* leaf: an mmr is append-only, so every historical leaf also has a valid inclusion proof against the signed root, and a client that accepts an older one can be advanced in height while its authority set is held back. The leaf is pinned by requiring `parent_number + 1 == block_number`.
  - Optionally verify the merkle proofs any parachain headers that they are interested in, using the `leaf_extra` field.
  - Optionally rotate the authority set commitment to the next authority set commitment, if the authority set has changed.
 

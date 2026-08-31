@@ -1,0 +1,457 @@
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http"
+import { createPublicClient, http as viemHttp } from "viem"
+import { base } from "viem/chains"
+import { afterAll, afterEach, describe, expect, it, vi } from "vitest"
+import {
+	QuorumPublicClient,
+	RATE_LIMIT_SUSPENSION_MS,
+	isRateLimited,
+	isSuspendableRateLimit,
+} from "@/services/QuorumPublicClient"
+
+/**
+ * 429 detection tests that exercise viem's REAL error objects, not synthetic ones.
+ *
+ * The unit tests in quorum-public-client.test.ts throw `new Error("429 …")` and
+ * assert we skip it — which is circular: it passes even if viem's actual error
+ * shape for an HTTP 429 changed. Here we run genuine HTTP servers that answer
+ * with real 429/500 responses, let viem produce whatever it produces, and assert
+ * `isRateLimited` classifies it correctly — both directly and end-to-end through
+ * `QuorumPublicClient`'s skip-vs-pause policy.
+ *
+ * The last suite goes further and floods a real public RPC until it rate-limits
+ * us, then asserts we detect the provider's actual 429. That deliberately abuses
+ * a keyless endpoint, so it is opt-in. `eth.meowrpc.com` throttles ~a few
+ * hundred requests/sec/IP, so it trips reliably:
+ *
+ *   SPAM_RPC_429=https://eth.meowrpc.com pnpm vitest run src/tests/rate-limit-detection.test.ts
+ */
+
+const BASE_CHAIN_ID = 8453
+
+type Mode = "ok" | "limited" | "broken" | "logcap"
+
+// Distinct loopback IPs so validateRpcUrls' distinct-hostname rule is satisfied.
+const HOSTS = ["127.0.0.1", "127.0.0.2", "127.0.0.3", "127.0.0.4", "127.0.0.5"] as const
+
+const servers: Server[] = []
+afterAll(async () => {
+	await Promise.all(servers.map((s) => new Promise((resolve) => s.close(resolve))))
+})
+
+/** Requests each server has actually received, keyed by the URL rpcServer resolved. */
+const hits = new Map<string, number>()
+function hitCount(url: string): number {
+	return hits.get(url) ?? 0
+}
+
+/** Real HTTP server speaking just enough JSON-RPC for eth_blockNumber. */
+function rpcServer(host: string, mode: Mode, opts: { retryAfter?: string | null } = {}): Promise<string> {
+	let url = ""
+	const server = createServer((req: IncomingMessage, res: ServerResponse) => {
+		hits.set(url, (hits.get(url) ?? 0) + 1)
+		let body = ""
+		req.on("data", (chunk) => {
+			body += chunk
+		})
+		req.on("end", () => {
+			if (mode === "limited") {
+				// Retry-After: 0 keeps viem's internal retries instant, so the
+				// exhausted-retries 429 surfaces to our policy without slow backoff.
+				// Suspension tests pass `retryAfter: null` to omit the header —
+				// the bench honours Retry-After, and a 0 would bench for only 1s.
+				const headers: Record<string, string> = { "Content-Type": "text/plain" }
+				if (opts.retryAfter !== null) headers["Retry-After"] = opts.retryAfter ?? "0"
+				res.writeHead(429, headers)
+				res.end("Too Many Requests")
+				return
+			}
+			if (mode === "broken") {
+				res.writeHead(500, { "Content-Type": "text/plain", "Retry-After": "0" })
+				res.end("internal error")
+				return
+			}
+			const { id, method } = (() => {
+				try {
+					const parsed = JSON.parse(body)
+					return { id: parsed.id ?? 1, method: parsed.method as string | undefined }
+				} catch {
+					return { id: 1, method: undefined }
+				}
+			})()
+			if (mode === "logcap") {
+				// Infura's deterministic eth_getLogs result cap: EIP-1474 -32005
+				// "limit exceeded" with no throttle semantics whatsoever.
+				res.writeHead(200, { "Content-Type": "application/json" })
+				res.end(
+					JSON.stringify({
+						jsonrpc: "2.0",
+						id,
+						error: { code: -32005, message: "query returned more than 10000 results" },
+					}),
+				)
+				return
+			}
+			res.writeHead(200, { "Content-Type": "application/json" })
+			// eth_getLogs answers an empty batch; everything else block 100.
+			const result = method === "eth_getLogs" ? [] : "0x64"
+			res.end(JSON.stringify({ jsonrpc: "2.0", id, result })) // block 100
+		})
+	})
+	servers.push(server)
+	return new Promise((resolve, reject) => {
+		server.once("error", reject)
+		server.listen(0, host, () => {
+			const address = server.address()
+			if (address && typeof address === "object") {
+				url = `http://${host}:${address.port}`
+				resolve(url)
+			} else {
+				reject(new Error("no server address"))
+			}
+		})
+	})
+}
+
+/**
+ * A no-header 429 server: the bench takes the full suspension window (the bench
+ * honours Retry-After, and the default "0" would bench for only 1s), and viem's
+ * own retry ladder means the rejection lands within a few seconds.
+ */
+function limitedServer(host: string) {
+	return rpcServer(host, "limited", { retryAfter: null })
+}
+
+describe("isRateLimited against real HTTP responses (local server)", () => {
+	it("classifies viem's actual error for a genuine HTTP 429", async () => {
+		const url = await rpcServer(HOSTS[0], "limited")
+		const client = createPublicClient({ chain: base, transport: viemHttp(url, { retryCount: 0, timeout: 10_000 }) })
+
+		let thrown: unknown
+		try {
+			await client.getBlockNumber()
+		} catch (error) {
+			thrown = error
+		}
+		expect(thrown).toBeInstanceOf(Error)
+		// The property under test: whatever shape viem wraps the 429 in, we detect it.
+		expect(isRateLimited(thrown)).toBe(true)
+	}, 30_000)
+
+	it("does NOT classify a genuine HTTP 500 as rate limiting", async () => {
+		const url = await rpcServer(HOSTS[0], "broken")
+		const client = createPublicClient({ chain: base, transport: viemHttp(url, { retryCount: 0, timeout: 10_000 }) })
+
+		let thrown: unknown
+		try {
+			await client.getBlockNumber()
+		} catch (error) {
+			thrown = error
+		}
+		expect(thrown).toBeInstanceOf(Error)
+		expect(isRateLimited(thrown)).toBe(false)
+	}, 30_000)
+
+	it("end-to-end: a really-429ing (or really-broken) endpoint is excluded; the quorum still succeeds", async () => {
+		// 4 endpoints, threshold 3. One genuinely 429s — excluded — but the three
+		// healthy endpoints still form the quorum.
+		const [ok1, ok2, ok3, bad] = await Promise.all([
+			rpcServer(HOSTS[0], "ok"),
+			rpcServer(HOSTS[1], "ok"),
+			rpcServer(HOSTS[2], "ok"),
+			limitedServer(HOSTS[3]),
+		])
+		const client = new QuorumPublicClient(BASE_CHAIN_ID, [ok1, ok2, ok3, bad])
+		await expect(client.getBlockNumber()).resolves.toBe(100n)
+
+		// With a 500 endpoint instead: still three healthy endpoints.
+		const broken = await rpcServer(HOSTS[3], "broken")
+		const client2 = new QuorumPublicClient(BASE_CHAIN_ID, [ok1, ok2, ok3, broken])
+		await expect(client2.getBlockNumber()).resolves.toBe(100n)
+
+		// But if a 429 drops the responders below the threshold, the call fails.
+		const client3 = new QuorumPublicClient(BASE_CHAIN_ID, [ok1, ok2, bad])
+		await expect(client3.getBlockNumber()).rejects.toThrow(/Quorum not reached/)
+	}, 60_000)
+})
+
+describe("rate-limit suspension", () => {
+	beforeEach(() => {
+		// The bench is shared state keyed by URL (scanner and filler instances
+		// must see each other's benches); tests start from a clean slate.
+		QuorumPublicClient.clearAllSuspensions()
+	})
+	afterEach(() => {
+		vi.restoreAllMocks()
+	})
+
+	/** The 429 endpoint's rejection can settle after the call already decided; suspension lands then. */
+	async function waitSuspended(client: QuorumPublicClient, url: string) {
+		await vi.waitFor(() => expect(client.suspended()).toContain(url), { timeout: 20_000 })
+	}
+
+	it("suspends a genuinely 429ing endpoint and stops querying it while the quorum can spare it", async () => {
+		// 4 endpoints, threshold 3: the three healthy ones can carry the quorum alone.
+		const [ok1, ok2, ok3, bad] = await Promise.all([
+			rpcServer(HOSTS[0], "ok"),
+			rpcServer(HOSTS[1], "ok"),
+			rpcServer(HOSTS[2], "ok"),
+			limitedServer(HOSTS[3]),
+		])
+		const client = new QuorumPublicClient(BASE_CHAIN_ID, [ok1, ok2, ok3, bad])
+
+		await expect(client.getBlockNumber()).resolves.toBe(100n)
+		await waitSuspended(client, bad)
+
+		// Suspended: further calls succeed without a single request reaching it.
+		// getLogs, not getBlockNumber — viem caches eth_blockNumber per client
+		// for 4s, so repeat getBlockNumber calls would resolve from cache without
+		// any HTTP traffic and this test would pass even with suspension skipping
+		// broken. getLogs is uncached: the healthy endpoints' counters MUST rise,
+		// which proves these calls produced real traffic before we assert the
+		// benched endpoint saw none of it.
+		const hitsWhenSuspended = hitCount(bad)
+		const healthyHits = () => hitCount(ok1) + hitCount(ok2) + hitCount(ok3)
+		const healthyBefore = healthyHits()
+		await expect(client.getLogs({ fromBlock: 1n, toBlock: 1n })).resolves.toEqual([])
+		await expect(client.getLogs({ fromBlock: 2n, toBlock: 2n })).resolves.toEqual([])
+		await vi.waitFor(() => expect(healthyHits()).toBeGreaterThanOrEqual(healthyBefore + 6))
+		expect(hitCount(bad)).toBe(hitsWhenSuspended)
+		expect(client.suspended()).toEqual([bad])
+	}, 30_000)
+
+	it("re-queries after the suspension window, and re-suspends if still limited", async () => {
+		const [ok1, ok2, ok3, bad] = await Promise.all([
+			rpcServer(HOSTS[0], "ok"),
+			rpcServer(HOSTS[1], "ok"),
+			rpcServer(HOSTS[2], "ok"),
+			limitedServer(HOSTS[3]),
+		])
+		const client = new QuorumPublicClient(BASE_CHAIN_ID, [ok1, ok2, ok3, bad])
+		await expect(client.getBlockNumber()).resolves.toBe(100n)
+		await waitSuspended(client, bad)
+		const hitsWhenSuspended = hitCount(bad)
+
+		// Only Date.now is mocked — viem's timeouts run on real timers.
+		const realNow = Date.now()
+		vi.spyOn(Date, "now").mockReturnValue(realNow + RATE_LIMIT_SUSPENSION_MS + 1_000)
+
+		expect(client.suspended()).toEqual([])
+		await expect(client.getBlockNumber()).resolves.toBe(100n)
+		await vi.waitFor(() => expect(hitCount(bad)).toBeGreaterThan(hitsWhenSuspended))
+		// Still limited: benched again for the next window.
+		await waitSuspended(client, bad)
+	}, 30_000)
+
+	it("drops a suspended endpoint from the bar: the remaining endpoints keep serving reads", async () => {
+		// 2 endpoints. The first call needs both (threshold 2) and fails on the
+		// 429 — but instead of five minutes of guaranteed failures, the healthy
+		// endpoint alone (threshold 1) carries reads for the suspension window.
+		// A throttled endpoint answers nothing either way; counting it would
+		// only make the solver miss events.
+		const [ok1, bad] = await Promise.all([rpcServer(HOSTS[0], "ok"), limitedServer(HOSTS[1])])
+		const client = new QuorumPublicClient(BASE_CHAIN_ID, [ok1, bad])
+
+		await expect(client.getBlockNumber()).rejects.toThrow(/Quorum not reached/)
+		await waitSuspended(client, bad)
+
+		const hitsAfterFirst = hitCount(bad)
+		await expect(client.getLogs({ fromBlock: 1n, toBlock: 1n })).resolves.toEqual([])
+		expect(hitCount(bad)).toBe(hitsAfterFirst)
+	}, 30_000)
+
+	it("recomputes the bar over the endpoints actually queried", async () => {
+		// 5 endpoints, threshold 4. First call: 3 ok + 1 broken + 1 limited =
+		// 3 responders < 4, fails, and the limited endpoint is benched. Second
+		// call queries the 4 unsuspended with a bar of quorumThreshold(4) = 3 —
+		// the 3 healthy responders now suffice. The bar always matches who was
+		// asked, so a benched endpoint cannot fail calls the rest agree on.
+		const [ok1, ok2, ok3, flaky, bad] = await Promise.all([
+			rpcServer(HOSTS[0], "ok"),
+			rpcServer(HOSTS[1], "ok"),
+			rpcServer(HOSTS[2], "ok"),
+			rpcServer(HOSTS[3], "broken"),
+			limitedServer(HOSTS[4]),
+		])
+		const client = new QuorumPublicClient(BASE_CHAIN_ID, [ok1, ok2, ok3, flaky, bad])
+
+		await expect(client.getBlockNumber()).rejects.toThrow(/Quorum not reached/)
+		await waitSuspended(client, bad)
+
+		await expect(client.getLogs({ fromBlock: 1n, toBlock: 1n })).resolves.toEqual([])
+		expect(client.suspended()).toEqual([bad])
+	}, 30_000)
+
+	it("does not suspend an endpoint for a -32005 getLogs result cap", async () => {
+		// Infura's cap is a property of the query, not a throttle: the loose
+		// classifier may LABEL it rate-limit-ish, but benching on it would
+		// suspend a healthy endpoint on every busy catch-up range.
+		const [ok1, ok2, ok3, capped] = await Promise.all([
+			rpcServer(HOSTS[0], "ok"),
+			rpcServer(HOSTS[1], "ok"),
+			rpcServer(HOSTS[2], "ok"),
+			rpcServer(HOSTS[3], "logcap"),
+		])
+		const client = new QuorumPublicClient(BASE_CHAIN_ID, [ok1, ok2, ok3, capped])
+
+		await expect(client.getLogs({ fromBlock: 1n, toBlock: 1n })).resolves.toEqual([])
+		const afterFirst = hitCount(capped)
+		await expect(client.getLogs({ fromBlock: 2n, toBlock: 2n })).resolves.toEqual([])
+		// Still queried on the next call: -32005 alone never benches.
+		await vi.waitFor(() => expect(hitCount(capped)).toBeGreaterThan(afterFirst))
+		expect(client.suspended()).toEqual([])
+	}, 30_000)
+
+	it("isSuspendableRateLimit is stricter than the diagnostic label", () => {
+		const rpcError = (code: number, message: string) => Object.assign(new Error(message), { code })
+
+		// Deterministic result caps: labelled, never benched.
+		const cap = rpcError(-32005, "query returned more than 10000 results")
+		expect(isSuspendableRateLimit(cap)).toBe(false)
+
+		// The same code with throttle text IS a throttle.
+		expect(isSuspendableRateLimit(rpcError(-32005, "too many requests"))).toBe(true)
+		// Throttle-specific codes qualify on their own.
+		expect(isSuspendableRateLimit(rpcError(-32016, "limit"))).toBe(true)
+		expect(isSuspendableRateLimit(rpcError(-32097, "limit"))).toBe(true)
+		expect(isSuspendableRateLimit(Object.assign(new Error("x"), { status: 429 }))).toBe(true)
+
+		// viem folds metaMessages — the request URL included — into `message`,
+		// so the guard must skip `message` whenever metaMessages exist. Shape
+		// matches what viem actually builds (verified in the end-to-end test
+		// below with a real server; this pins the unit-level contract).
+		const urlish = Object.assign(new Error("HTTP request failed.\n\nURL: https://rpc.example/ratelimit-key\n"), {
+			metaMessages: ["URL: https://rpc.example/ratelimit-key"],
+		})
+		expect(isSuspendableRateLimit(urlish)).toBe(false)
+	})
+
+	it("does not bench an endpoint whose URL contains throttle words when it fails for other reasons", async () => {
+		// The review's probe, kept as a test: a plain HTTP 500 from an endpoint
+		// whose PATH contains "ratelimit". viem folds the URL into the error
+		// message, and the first cut of the guard read message — benching a
+		// healthy endpoint for five minutes on a non-throttle failure.
+		const [ok1, ok2, ok3, brokenBase] = await Promise.all([
+			rpcServer(HOSTS[0], "ok"),
+			rpcServer(HOSTS[1], "ok"),
+			rpcServer(HOSTS[2], "ok"),
+			rpcServer(HOSTS[3], "broken"),
+		])
+		const brokenWithScaryUrl = `${brokenBase}/team-ratelimit-key`
+		const client = new QuorumPublicClient(BASE_CHAIN_ID, [ok1, ok2, ok3, brokenWithScaryUrl])
+
+		await expect(client.getBlockNumber()).resolves.toBe(100n)
+		// Let the 500's retries settle so a late noteFailure cannot slip in
+		// after the assertion.
+		await vi.waitFor(() => expect(hitCount(brokenBase)).toBeGreaterThanOrEqual(4))
+		expect(client.suspended()).toEqual([])
+	}, 30_000)
+
+	it("honours the provider's Retry-After for the bench duration", async () => {
+		const [ok1, ok2, ok3, briefly] = await Promise.all([
+			rpcServer(HOSTS[0], "ok"),
+			rpcServer(HOSTS[1], "ok"),
+			rpcServer(HOSTS[2], "ok"),
+			rpcServer(HOSTS[3], "limited", { retryAfter: "2" }),
+		])
+		const client = new QuorumPublicClient(BASE_CHAIN_ID, [ok1, ok2, ok3, briefly])
+
+		await expect(client.getBlockNumber()).resolves.toBe(100n)
+		await waitSuspended(client, briefly)
+
+		// A 2-second limiter costs 2 seconds, not five minutes.
+		const realNow = Date.now()
+		vi.spyOn(Date, "now").mockReturnValue(realNow + 3_000)
+		expect(client.suspended()).toEqual([])
+	}, 30_000)
+
+	it("does not suspend an endpoint for non-rate-limit failures", async () => {
+		const [ok1, ok2, ok3, broken] = await Promise.all([
+			rpcServer(HOSTS[0], "ok"),
+			rpcServer(HOSTS[1], "ok"),
+			rpcServer(HOSTS[2], "ok"),
+			rpcServer(HOSTS[3], "broken"),
+		])
+		const client = new QuorumPublicClient(BASE_CHAIN_ID, [ok1, ok2, ok3, broken])
+
+		await expect(client.getBlockNumber()).resolves.toBe(100n)
+		// Let the first call's retries finish before measuring: the transport
+		// retries 3 times, so call 1 lands 4 hits — capturing earlier would let
+		// its own stragglers satisfy the greater-than below.
+		await vi.waitFor(() => expect(hitCount(broken)).toBeGreaterThanOrEqual(4))
+		const afterFirst = hitCount(broken)
+		// getLogs: uncached, so the second call really goes to the network.
+		await expect(client.getLogs({ fromBlock: 1n, toBlock: 1n })).resolves.toEqual([])
+		// A 500 stays stateless: the endpoint is asked again every call.
+		await vi.waitFor(() => expect(hitCount(broken)).toBeGreaterThan(afterFirst))
+		expect(client.suspended()).toEqual([])
+	}, 30_000)
+})
+
+// ---------------------------------------------------------------------------
+// Opt-in: flood a real public RPC until IT rate-limits us, then verify we
+// detect the provider's actual 429 shape. Not for CI — it hammers a shared
+// keyless endpoint on purpose.
+// ---------------------------------------------------------------------------
+
+const SPAM_TARGET = process.env.SPAM_RPC_429
+const describeIfSpam = SPAM_TARGET ? describe : describe.skip
+
+describeIfSpam(`live 429 induction against ${SPAM_TARGET}`, () => {
+	it("spams until rate limited and detects the provider's real 429", async (ctx) => {
+		const client = createPublicClient({
+			chain: base,
+			transport: viemHttp(SPAM_TARGET!, { retryCount: 0, timeout: 10_000 }),
+		})
+
+		// Test-local evidence check, deliberately separate from the production
+		// detector so the assertion below isn't circular: we SELECT the sample by
+		// raw evidence of a 429, then assert the production classifier agrees.
+		const looksLike429 = (error: unknown): boolean => {
+			let current: unknown = error
+			for (let depth = 0; depth < 6 && current instanceof Error; depth++) {
+				if ((current as { status?: number }).status === 429) return true
+				current = (current as { cause?: unknown }).cause
+			}
+			return /\b429\b/.test(String(error))
+		}
+
+		// Rate limits are per-second windows, so concurrency matters more than
+		// total volume: escalate burst size until the endpoint throttles. Use the
+		// raw EIP-1193 request, NOT getBlockNumber — viem's block-number action
+		// dedupes concurrent calls into a single HTTP request, so a burst of them
+		// would never actually reach the provider's rate limiter.
+		const BURSTS = [50, 100, 200, 400, 800, 800, 800, 800]
+		let real429: unknown
+		let sampleRejection: unknown
+		let sent = 0
+		outer: for (const burstSize of BURSTS) {
+			sent += burstSize
+			const burst = await Promise.allSettled(
+				Array.from({ length: burstSize }, () => client.request({ method: "eth_blockNumber" })),
+			)
+			for (const result of burst) {
+				if (result.status !== "rejected") continue
+				sampleRejection ??= result.reason
+				if (looksLike429(result.reason)) {
+					real429 = result.reason
+					break outer
+				}
+			}
+		}
+
+		if (!real429) {
+			// Endpoint absorbed everything up to 800-way concurrency (generous
+			// tier or a CDN soaking the burst) — inconclusive, not a failure.
+			console.warn(
+				`No 429 induced from ${SPAM_TARGET} after ${sent} requests (bursts up to 800); sample rejection:`,
+				sampleRejection ? String(sampleRejection) : "(none)",
+			)
+			ctx.skip()
+			return
+		}
+
+		console.log("Real provider 429:", (real429 as Error).constructor.name, String(real429).slice(0, 300))
+		expect(isRateLimited(real429)).toBe(true)
+	}, 180_000)
+})

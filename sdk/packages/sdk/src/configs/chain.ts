@@ -19,7 +19,7 @@ import {
 } from "viem/chains"
 import { defineChain } from "viem"
 import { TronWeb } from "tronweb"
-import { HexString } from "@/types"
+import type { HexString } from "@/types"
 
 /** Convert a Tron base58 address to a 0x-prefixed 20-byte EVM hex address */
 function tronAddress(base58: string): HexString {
@@ -113,13 +113,39 @@ export const tronNile = defineChain({
 // Known Tron chain IDs (mainnet + Nile testnet)
 export const tronChainIds = new Set([728126428, 3448148188])
 
-export type ConfiguredAssetSymbol = "WETH" | "DAI" | "USDC" | "USDT" | "cNGN" | "EXT"
+export type ConfiguredAssetSymbol =
+	| "WETH"
+	| "DAI"
+	| "USDC"
+	| "USDT"
+	| "cNGN"
+	| "EXT"
+	| "ZARP"
+	| "EURC"
+	| "XSGD"
+	| "TRYB"
+	| "USDR"
+
+/** A configured asset symbol in its canonical, lowercase, or uppercase form. */
+export type ConfiguredAssetSymbolInput =
+	| ConfiguredAssetSymbol
+	| Lowercase<ConfiguredAssetSymbol>
+	| Uppercase<ConfiguredAssetSymbol>
 
 export interface UniswapV4PoolConfigData {
 	tokens: readonly [ConfiguredAssetSymbol, ConfiguredAssetSymbol]
 	fee: number
 	tickSpacing: number
 	hooks?: `0x${string}`
+}
+
+/** A known ERC-4626 vault fillers can use as a stablecoin treasury. */
+export interface Erc4626VaultConfigData {
+	/** Display label, e.g. "Aave stataUSDC" */
+	label: string
+	address: `0x${string}`
+	/** Underlying asset symbol; the on-chain vault resolves the address. */
+	asset: ConfiguredAssetSymbol
 }
 
 export interface ChainConfigData {
@@ -134,18 +160,38 @@ export interface ChainConfigData {
 		USDT: string
 		cNGN?: string
 		EXT?: string
+		// Curated stablecoin deployments; addresses taken from the issuer's
+		// official documentation (ZARP Stablecoin, Circle, StraitsX, BiLira,
+		// DollarCoin) and verified on-chain (symbol() + decimals()) before
+		// inclusion.
+		ZARP?: string
+		EURC?: string
+		XSGD?: string
+		TRYB?: string
+		USDR?: string
 	}
 	tokenDecimals?: {
 		USDC: number
 		USDT: number
 		cNGN?: number
 		EXT?: number
+		ZARP?: number
+		EURC?: number
+		XSGD?: number
+		TRYB?: number
+		USDR?: number
 	}
 	tokenStorageSlots?: {
 		USDT?: { balanceSlot: number; allowanceSlot: number }
 		USDC?: { balanceSlot: number; allowanceSlot: number }
 		WETH?: { balanceSlot: number; allowanceSlot: number }
 		DAI?: { balanceSlot: number; allowanceSlot: number }
+		cNGN?: { balanceSlot: number; allowanceSlot: number }
+		ZARP?: { balanceSlot: number; allowanceSlot: number }
+		EURC?: { balanceSlot: number; allowanceSlot: number }
+		XSGD?: { balanceSlot: number; allowanceSlot: number }
+		TRYB?: { balanceSlot: number; allowanceSlot: number }
+		USDR?: { balanceSlot: number; allowanceSlot: number }
 	}
 	addresses: {
 		IntentGateway?: `0x${string}`
@@ -175,6 +221,8 @@ export interface ChainConfigData {
 		UniswapV4StateView?: `0x${string}`
 		/** Circle Paymaster contract address (USDC-based ERC-4337 paymaster) */
 		CirclePaymaster?: `0x${string}`
+		/** SimplexPaymaster contract address (ERC-4337 paymaster accepting USDC/USDT via Chainlink pricing) */
+		SimplexPaymaster?: `0x${string}`
 	}
 	rpcEnvKey?: string
 	defaultRpcUrl?: string
@@ -182,6 +230,8 @@ export interface ChainConfigData {
 	coingeckoId: string
 	popularTokens?: string[]
 	uniswapV4Pools?: UniswapV4PoolConfigData[]
+	/** Known ERC-4626 treasury vaults on this chain */
+	erc4626Vaults?: Erc4626VaultConfigData[]
 	/** LayerZero Endpoint ID for cross-chain messaging */
 	layerZeroEid?: number
 }
@@ -218,7 +268,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			UniswapV3Quoter: "0x0000000000000000000000000000000000000000",
 			UniswapV4Quoter: "0x0000000000000000000000000000000000000000",
 			EntryPointV08: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
-			SolverAccount: "0x07FeC66d967800998060194EaECDd7C66dA4a1B1",
+			SolverAccount: "0x110C7E1814c923127469Ca8939a12dAa70B96a17",
 		},
 		rpcEnvKey: "BSC_CHAPEL",
 		defaultRpcUrl: "https://bnb-testnet.api.onfinality.io/public",
@@ -312,21 +362,37 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			USDC: "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
 			USDT: "0xdac17f958d2ee523a2206206994597c13d831ec7",
 			cNGN: "0x17CDB2a01e7a34CbB3DD4b83260B05d0274C8dab",
+			ZARP: "0xb755506531786C8aC63B756BaB1ac387bACB0C04",
+			EURC: "0x1aBaEA1f7C830bD89Acc67eC4af516284b1bC33c",
+			XSGD: "0x70e8dE73cE538DA2bEEd35d14187F6959a8ecA96",
+			TRYB: "0x2C537E5624e4af88A7ae4060C022609376C8D0EB",
+			USDR: "0x9623DfB044D5612Ce0c0F1606973CCAEFd03CD05",
 		},
 		tokenDecimals: {
 			USDC: 6,
 			USDT: 6,
 			cNGN: 6,
+			ZARP: 18,
+			EURC: 6,
+			XSGD: 6,
+			TRYB: 6,
+			USDR: 6,
 		},
 		tokenStorageSlots: {
 			USDT: { balanceSlot: 2, allowanceSlot: 5 },
 			USDC: { balanceSlot: 9, allowanceSlot: 10 },
 			WETH: { balanceSlot: 3, allowanceSlot: 4 },
 			DAI: { balanceSlot: 0, allowanceSlot: 0 },
+			cNGN: { balanceSlot: 201, allowanceSlot: 202 }, // custom upgradeable layout
+			ZARP: { balanceSlot: 51, allowanceSlot: 52 },
+			EURC: { balanceSlot: 9, allowanceSlot: 10 }, // Circle FiatToken layout
+			XSGD: { balanceSlot: 7, allowanceSlot: 8 },
+			TRYB: { balanceSlot: 9, allowanceSlot: 10 },
+			USDR: { balanceSlot: 51, allowanceSlot: 52 },
 		},
 		addresses: {
 			IntentGateway: "0xAe041F7B0CB581876832830baeB6a2Aa2a3C9716",
-			SolverAccount: "0x975e80B476cB1d4Cd06c292ce36898f2bE4159ea",
+			SolverAccount: "0xfCd233b937D7622AAc63ced3C9A1A12F4a6B64E3",
 			TokenGateway: "0xFd413e3AFe560182C4471F4d143A96d3e259B6dE",
 			Host: "0x620128E2B19193d6Bd244a3AC8D3bBa0541B19c3",
 			UniswapRouter02: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D",
@@ -342,6 +408,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			Permit2: "0x000000000022D473030F116dDEE9F6B43aC78BA3",
 			EntryPointV08: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
 			CirclePaymaster: "0x0578cFB241215b77442a541325d6A4E6dFE700Ec",
+			SimplexPaymaster: "0xD4340d7466e040626383cb9cda9307ba8E081149",
 			Usdt0Oft: "0x6C96dE32CEa08842dcc4058c14d3aaAD7Fa41dee",
 		},
 		rpcEnvKey: "ETH_MAINNET",
@@ -349,6 +416,10 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 		consensusStateId: "ETH0",
 		coingeckoId: "ethereum",
 		layerZeroEid: 30101,
+		erc4626Vaults: [
+			{ label: "Aave stataUSDC", address: "0xD4fa2D31b7968E448877f69A96DE69f5de8cD23E", asset: "USDC" },
+			{ label: "Aave stataUSDT", address: "0x7Bc3485026Ac48b6cf9BaF0A377477Fff5703Af8", asset: "USDT" },
+		],
 		popularTokens: [
 			"0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
 			"0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
@@ -367,10 +438,15 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			USDC: "0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d",
 			USDT: "0x55d398326f99059ff775485246999027b3197955",
 			EXT: "0x7C8c11ADb8EF7cd3CFa718008Ea048445C6E7209",
+			cNGN: "0xa8AEA66B361a8d53e8865c62D142167Af28Af058",
 		},
 		tokenDecimals: {
 			USDC: 18,
 			USDT: 18,
+			// 6, not 18 — cNGN keeps the same decimals it has on every other chain, unlike the
+			// Binance-pegged stables above. Every phantom standard_amount and pool rate divides
+			// by this, so the divergence from its neighbours here is load-bearing, not a typo.
+			cNGN: 6,
 			EXT: 18,
 		},
 		tokenStorageSlots: {
@@ -378,10 +454,11 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			USDC: { balanceSlot: 1, allowanceSlot: 2 },
 			WETH: { balanceSlot: 3, allowanceSlot: 4 },
 			DAI: { balanceSlot: 0, allowanceSlot: 0 },
+			cNGN: { balanceSlot: 201, allowanceSlot: 202 }, // custom upgradeable layout, as on Base
 		},
 		addresses: {
 			IntentGateway: "0xAe041F7B0CB581876832830baeB6a2Aa2a3C9716",
-			SolverAccount: "0x975e80B476cB1d4Cd06c292ce36898f2bE4159ea",
+			SolverAccount: "0xfCd233b937D7622AAc63ced3C9A1A12F4a6B64E3",
 			TokenGateway: "0xFd413e3AFe560182C4471F4d143A96d3e259B6dE",
 			Host: "0x620128E2B19193d6Bd244a3AC8D3bBa0541B19c3",
 			UniswapRouter02: "0x10ED43C718714eb63d5aA57B78B54704E256024E",
@@ -396,12 +473,17 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			Calldispatcher: "0xc71251c8b3e7b02697a84363eef6dce8dfbdf333",
 			Permit2: "0x000000000022D473030F116dDEE9F6B43aC78BA3",
 			EntryPointV08: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
+			SimplexPaymaster: "0xeD02f9f0df8F562B89cC5b25867Ad3C2d61252A9",
 			// "Usdt0Oft": Not available on BSC
 		},
 		rpcEnvKey: "BSC_MAINNET",
-		defaultRpcUrl: "https://binance.llamarpc.com",
+		defaultRpcUrl: "https://bsc-rpc.publicnode.com",
 		consensusStateId: "BSC0",
 		coingeckoId: "binance-smart-chain",
+		erc4626Vaults: [
+			{ label: "Aave stataUSDC", address: "0x3906cDdfb781f02B21f21BD81ed7Fd8DC37075E1", asset: "USDC" },
+			{ label: "Aave stataUSDT", address: "0x0471D185cc7Be61E154277cAB2396cD397663da6", asset: "USDT" },
+		],
 		popularTokens: [
 			"0x0E09FaBB73Bd3Ade0a17ECC321fD13a19e81cE82",
 			"0x000Ae314E2A2172a039B26378814C252734f556A",
@@ -437,7 +519,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 		},
 		addresses: {
 			IntentGateway: "0xAe041F7B0CB581876832830baeB6a2Aa2a3C9716",
-			SolverAccount: "0x975e80B476cB1d4Cd06c292ce36898f2bE4159ea",
+			SolverAccount: "0xfCd233b937D7622AAc63ced3C9A1A12F4a6B64E3",
 			TokenGateway: "0xFd413e3AFe560182C4471F4d143A96d3e259B6dE",
 			Host: "0x620128E2B19193d6Bd244a3AC8D3bBa0541B19c3",
 			UniswapRouter02: "0x4752ba5DBc23f44D87826276BF6Fd6b1C372aD24",
@@ -453,6 +535,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			Permit2: "0x000000000022D473030F116dDEE9F6B43aC78BA3",
 			EntryPointV08: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
 			CirclePaymaster: "0x0578cFB241215b77442a541325d6A4E6dFE700Ec",
+			SimplexPaymaster: "0x7281Bccb4f0BCE44F3B8542d1fC5e51c2F5fC08C",
 			Usdt0Oft: "0x14E4A1B13bf7F943c8ff7C51fb60FA964A298D92",
 		},
 		rpcEnvKey: "ARBITRUM_MAINNET",
@@ -460,6 +543,10 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 		consensusStateId: "ETH0",
 		coingeckoId: "arbitrum-one",
 		layerZeroEid: 30110,
+		erc4626Vaults: [
+			{ label: "Aave stataUSDC", address: "0x7F6501d3B98eE91f9b9535E4b0ac710Fb0f9e0bc", asset: "USDC" },
+			{ label: "Aave stataUSDT", address: "0xa6D12574eFB239FC1D2099732bd8b5dC6306897F", asset: "USDT" },
+		],
 		popularTokens: [
 			"0x82aF49447D8a07e3bd95BD0d56f35241523fBab1",
 			"0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
@@ -479,22 +566,32 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			USDT: "0xfde4c96c8593536e31f229ea8f37b2ada2699bb2",
 			EXT: "0x0e668E5127087e236578893a0e01E41837A28469",
 			cNGN: "0x46C85152bFe9f96829aA94755D9f915F9B10EF5F",
+			ZARP: "0xb755506531786C8aC63B756BaB1ac387bACB0C04",
+			EURC: "0x60a3E35Cc302bFA44Cb288Bc5a4F316Fdb1adb42",
+			USDR: "0x3B5F2810fB2168FfA9C73160F97BF9f2461fFa5c",
 		},
 		tokenDecimals: {
 			USDC: 6,
 			USDT: 6,
 			cNGN: 6,
 			EXT: 18,
+			ZARP: 18,
+			EURC: 6,
+			USDR: 6,
 		},
 		tokenStorageSlots: {
 			USDT: { balanceSlot: 0, allowanceSlot: 1 },
 			USDC: { balanceSlot: 9, allowanceSlot: 10 },
 			WETH: { balanceSlot: 3, allowanceSlot: 4 },
 			DAI: { balanceSlot: 0, allowanceSlot: 0 },
+			cNGN: { balanceSlot: 201, allowanceSlot: 202 }, // custom upgradeable layout
+			ZARP: { balanceSlot: 51, allowanceSlot: 52 },
+			EURC: { balanceSlot: 9, allowanceSlot: 10 }, // Circle FiatToken layout
+			USDR: { balanceSlot: 51, allowanceSlot: 52 },
 		},
 		addresses: {
 			IntentGateway: "0xAe041F7B0CB581876832830baeB6a2Aa2a3C9716",
-			SolverAccount: "0x975e80B476cB1d4Cd06c292ce36898f2bE4159ea",
+			SolverAccount: "0xfCd233b937D7622AAc63ced3C9A1A12F4a6B64E3",
 			TokenGateway: "0xFd413e3AFe560182C4471F4d143A96d3e259B6dE",
 			Host: "0x620128E2B19193d6Bd244a3AC8D3bBa0541B19c3",
 			UniswapRouter02: "0x4752ba5DBc23f44D87826276BF6Fd6b1C372aD24",
@@ -507,6 +604,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			Permit2: "0x000000000022D473030F116dDEE9F6B43aC78BA3",
 			EntryPointV08: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
 			CirclePaymaster: "0x0578cFB241215b77442a541325d6A4E6dFE700Ec",
+			SimplexPaymaster: "0x15b3B03C870c7ef252029c35A12d3b339F5c8d7f",
 			AerodromeRouter: "0xcF77a3Ba9A5CA399B7c97c74d54e5b1Beb874E43",
 			UniswapV4PositionManager: "0x7c5f5a4bbd8fd63184577525326123b519429bdc",
 			UniswapV4PoolManager: "0x498581ff718922c3f8e6a244956af099b2652b2b",
@@ -519,6 +617,10 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 		coingeckoId: "base",
 		layerZeroEid: 30184,
 		uniswapV4Pools: [{ tokens: ["USDC", "cNGN"], fee: 1500, tickSpacing: 30 }],
+		erc4626Vaults: [
+			{ label: "Aave stataUSDC", address: "0xC768c589647798a6EE01A91FdE98EF2ed046DBD6", asset: "USDC" },
+			{ label: "Yield Bearing cNGN", address: "0xa82A3531021317240Fb32E67f9c7bC091F737D3b", asset: "cNGN" },
+		],
 		popularTokens: [
 			"0x4200000000000000000000000000000000000006",
 			"0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
@@ -538,22 +640,32 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			USDT: "0xc2132d05d31c914a87c6611c10748aeb04b58e8f",
 			EXT: "0x7C8c11ADb8EF7cd3CFa718008Ea048445C6E7209",
 			cNGN: "0x52828daa48C1a9A06F37500882b42daf0bE04C3B",
+			ZARP: "0xb755506531786C8aC63B756BaB1ac387bACB0C04",
+			XSGD: "0xDC3326e71D45186F113a2F448984CA0e8D201995",
+			USDR: "0x3B5F2810fB2168FfA9C73160F97BF9f2461fFa5c",
 		},
 		tokenDecimals: {
 			USDC: 6,
 			USDT: 6,
 			EXT: 18,
 			cNGN: 6,
+			ZARP: 18,
+			XSGD: 6,
+			USDR: 6,
 		},
 		tokenStorageSlots: {
 			USDT: { balanceSlot: 0, allowanceSlot: 1 },
 			USDC: { balanceSlot: 9, allowanceSlot: 10 },
 			WETH: { balanceSlot: 3, allowanceSlot: 4 },
 			DAI: { balanceSlot: 0, allowanceSlot: 0 },
+			cNGN: { balanceSlot: 201, allowanceSlot: 202 }, // custom upgradeable layout
+			ZARP: { balanceSlot: 51, allowanceSlot: 52 },
+			XSGD: { balanceSlot: 7, allowanceSlot: 8 },
+			USDR: { balanceSlot: 51, allowanceSlot: 52 },
 		},
 		addresses: {
 			IntentGateway: "0xAe041F7B0CB581876832830baeB6a2Aa2a3C9716",
-			SolverAccount: "0x975e80B476cB1d4Cd06c292ce36898f2bE4159ea",
+			SolverAccount: "0xfCd233b937D7622AAc63ced3C9A1A12F4a6B64E3",
 			TokenGateway: "0x8b536105b6Fae2aE9199f5146D3C57Dfe53b614E",
 			Host: "0x620128E2B19193d6Bd244a3AC8D3bBa0541B19c3",
 			UniswapRouter02: "0xd2f9496824951D5237cC71245D659E48d0d5f9E8",
@@ -569,6 +681,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			Permit2: "0x000000000022D473030F116dDEE9F6B43aC78BA3",
 			EntryPointV08: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
 			CirclePaymaster: "0x0578cFB241215b77442a541325d6A4E6dFE700Ec",
+			SimplexPaymaster: "0xe99acFe0f5fC4C8ea54A187D8D3b05f136150095",
 			Usdt0Oft: "0x6BA10300f0DC58B7a1e4c0e41f5daBb7D7829e13",
 		},
 		rpcEnvKey: "POLYGON_MAINNET",
@@ -576,6 +689,10 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 		consensusStateId: "POLY",
 		coingeckoId: "polygon-pos",
 		layerZeroEid: 30109,
+		erc4626Vaults: [
+			{ label: "Aave stataUSDC", address: "0x79261231698B26Ed9085b59ae89d59843Ae925a8", asset: "USDC" },
+			{ label: "Aave stataUSDT", address: "0x2eaD203C5C1C00612B1DdbBb20e4180dA822d6ff", asset: "USDT" },
+		],
 		popularTokens: [
 			"0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270",
 			"0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359",
@@ -621,7 +738,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 		assets: {
 			WETH: "0x360ad4f9a9A8EFe9A8DCB5f461c4Cc1047E1Dcf9", //wmatic, change it to wpol
 			DAI: "0x0000000000000000000000000000000000000000",
-			USDC: "0x693b854d6965ffeaae21c74049dea644b56fcacb",
+			USDC: "0xBE97E73126D66188d72fbF99029126D0340a7f18",
 			USDT: "0x0000000000000000000000000000000000000000",
 		},
 		tokenDecimals: {
@@ -630,7 +747,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 		},
 		tokenStorageSlots: {
 			USDT: { balanceSlot: 0, allowanceSlot: 1 },
-			USDC: { balanceSlot: 1, allowanceSlot: 2 },
+			USDC: { balanceSlot: 0, allowanceSlot: 1 },
 		},
 		addresses: {
 			IntentGateway: "0x6CF42FA9BecbC5b6a26884964956b113530f7cFA",
@@ -639,7 +756,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			Calldispatcher: "0x876F1891982E260026630c233A4897160A281Fb8",
 			Permit2: "0x000000000022D473030F116dDEE9F6B43aC78BA3",
 			EntryPointV08: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
-			SolverAccount: "0x07FeC66d967800998060194EaECDd7C66dA4a1B1",
+			SolverAccount: "0x110C7E1814c923127469Ca8939a12dAa70B96a17",
 		},
 		rpcEnvKey: "POLYGON_AMOY",
 		defaultRpcUrl: "https://rpc-amoy.polygon.technology",
@@ -663,7 +780,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 		},
 		addresses: {
 			IntentGateway: "0xAe041F7B0CB581876832830baeB6a2Aa2a3C9716",
-			SolverAccount: "0x975e80B476cB1d4Cd06c292ce36898f2bE4159ea",
+			SolverAccount: "0xfCd233b937D7622AAc63ced3C9A1A12F4a6B64E3",
 			TokenGateway: "0xFd413e3AFe560182C4471F4d143A96d3e259B6dE",
 			Host: "0x620128E2B19193d6Bd244a3AC8D3bBa0541B19c3",
 			UniswapRouter02: "0x4A7b5Da61326A6379179b40d00F57E5bbDC962c2",
@@ -697,7 +814,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 		},
 		addresses: {
 			IntentGateway: "0xAe041F7B0CB581876832830baeB6a2Aa2a3C9716",
-			SolverAccount: "0x975e80B476cB1d4Cd06c292ce36898f2bE4159ea",
+			SolverAccount: "0xfCd233b937D7622AAc63ced3C9A1A12F4a6B64E3",
 			TokenGateway: "0xFd413e3AFe560182C4471F4d143A96d3e259B6dE",
 			Host: "0x620128E2B19193d6Bd244a3AC8D3bBa0541B19c3",
 			UniswapRouter02: "0xB2e26652e4BAd1e56055A051f922E06760cA0BFE", // Mocked
@@ -840,8 +957,9 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 		assets: {
 			WETH: "0x0000000000000000000000000000000000000000",
 			DAI: "0x0000000000000000000000000000000000000000",
+			// Asset Hub assets at their asset-id precompile addresses: 0x539 = 1337, 0x7c0 = 1984.
 			USDC: "0x0000053900000000000000000000000001200000",
-			USDT: "0x0000000000000000000000000000000000000000",
+			USDT: "0x000007c000000000000000000000000001200000",
 		},
 		tokenDecimals: {
 			USDC: 6,
@@ -849,7 +967,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 		},
 		addresses: {
 			IntentGateway: "0xAe041F7B0CB581876832830baeB6a2Aa2a3C9716",
-			SolverAccount: "0x975e80B476cB1d4Cd06c292ce36898f2bE4159ea",
+			SolverAccount: "0xfCd233b937D7622AAc63ced3C9A1A12F4a6B64E3",
 			Host: "0x620128E2B19193d6Bd244a3AC8D3bBa0541B19c3",
 			Calldispatcher: "0xE2C7e576E26E0bE7aC97c6fE925bcDAbD87c4bEd",
 		},
@@ -888,7 +1006,8 @@ const configsByStateMachineId = Object.fromEntries(
 	Object.values(chainConfigs).map((c) => [c.stateMachineId, c]),
 ) as Record<Chains, ChainConfigData>
 
-export const getConfigByStateMachineId = (id: Chains): ChainConfigData | undefined => configsByStateMachineId[id]
+export const getConfigByStateMachineId = (id: string): ChainConfigData | undefined =>
+	configsByStateMachineId[id as Chains]
 
 export const getChainId = (stateMachineId: string): number | undefined =>
 	configsByStateMachineId[stateMachineId as Chains]?.chainId

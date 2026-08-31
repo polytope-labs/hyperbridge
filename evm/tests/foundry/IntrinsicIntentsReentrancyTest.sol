@@ -50,10 +50,10 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 contract ReentrantBeneficiary {
     IntentGatewayV2 public immutable gateway;
 
-    Order       private storedOrder;
+    Order private storedOrder;
     FillOptions private storedOptions;
-    bool        private armed;
-    bool        private reentered;
+    bool private armed;
+    bool private reentered;
 
     constructor(address payable _gateway) {
         gateway = IntentGatewayV2(_gateway);
@@ -66,9 +66,9 @@ contract ReentrantBeneficiary {
 
     /// @notice Load the reentrant payload before the outer fill is triggered.
     function arm(Order calldata order, FillOptions calldata options) external {
-        storedOrder   = order;
+        storedOrder = order;
         storedOptions = options;
-        armed         = true;
+        armed = true;
     }
 
     /// @notice Triggered by the ETH transfer inside the fill loop.
@@ -102,24 +102,22 @@ contract ReentrantBeneficiary {
 contract IntrinsicIntentsReentrancyTest is MainnetForkBaseTest {
     // ── constants ────────────────────────────────────────────────────────────
 
-    uint256 constant INPUT_USDC = 1_000 * 1e6;  // 1 000 USDC
-    uint256 constant INPUT_DAI  = 1_000 * 1e18; // 1 000 DAI
+    uint256 constant INPUT_USDC = 1_000 * 1e6; // 1 000 USDC
+    uint256 constant INPUT_DAI = 1_000 * 1e18; // 1 000 DAI
     uint256 constant OUTPUT_ETH = 1 ether;
-    uint256 constant TX_FEES    = 10 * 1e18;    // 10 DAI (fee token)
+    uint256 constant TX_FEES = 10 * 1e18; // 10 DAI (fee token)
 
     /// @dev Sentinel address used by the gateway to key escrowed tx fees.
-    address internal constant TRANSACTION_FEES =
-        address(uint160(uint256(keccak256("txFees"))));
+    address internal constant TRANSACTION_FEES = address(uint160(uint256(keccak256("txFees"))));
 
     /// @dev 4-byte selector for the custom error thrown when a re-entered ETH
     ///      transfer returns false (the upstream Filled() revert is swallowed by
     ///      the .call return value, but then InsufficientNativeToken is thrown).
-    bytes4 internal constant ERR_INSUFFICIENT_NATIVE =
-        bytes4(keccak256("InsufficientNativeToken()"));
+    bytes4 internal constant ERR_INSUFFICIENT_NATIVE = bytes4(keccak256("InsufficientNativeToken()"));
 
     // ── state ─────────────────────────────────────────────────────────────────
 
-    IntentGatewayV2      public intentGateway;
+    IntentGatewayV2 public intentGateway;
     ReentrantBeneficiary public maliciousBeneficiary;
 
     address public attacker;
@@ -136,18 +134,18 @@ contract IntrinsicIntentsReentrancyTest is MainnetForkBaseTest {
     function setUp() public override {
         super.setUp();
 
-        attacker         = makeAddr("attacker");
+        attacker = makeAddr("attacker");
         legitimateSolver = makeAddr("legitimateSolver");
 
         intentGateway = _deployGatewayProxy();
         intentGateway.initialize(
             Params({
-                host:            address(host),
-                dispatcher:      address(dispatcher),
+                host: address(host),
+                dispatcher: address(dispatcher),
                 solverSelection: false,
                 surplusShareBps: 0,
-                protocolFeeBps:  0,
-                priceOracle:     address(0)
+                protocolFeeBps: 0,
+                priceOracle: address(0)
             }),
             new bytes[](0)
         );
@@ -155,32 +153,32 @@ contract IntrinsicIntentsReentrancyTest is MainnetForkBaseTest {
         maliciousBeneficiary = new ReentrantBeneficiary(payable(address(intentGateway)));
 
         deal(address(usdc), attacker, INPUT_USDC + 1_000 * 1e6);
-        deal(address(dai),  attacker, INPUT_DAI  + TX_FEES);
+        deal(address(dai), attacker, INPUT_DAI + TX_FEES);
         vm.deal(legitimateSolver, OUTPUT_ETH * 2);
     }
 
     // ── helpers ───────────────────────────────────────────────────────────────
 
     /// @dev Builds a same-chain order (source == destination == current chain).
-    function _sameChainOrder(
-        TokenInfo[] memory inputs,
-        TokenInfo[] memory outputs,
-        uint256 fees
-    ) internal view returns (Order memory) {
+    function _sameChainOrder(TokenInfo[] memory inputs, TokenInfo[] memory outputs, uint256 fees)
+        internal
+        view
+        returns (Order memory)
+    {
         return Order({
-            user:        bytes32(0),     // stamped by placeOrder
-            source:      "",             // stamped by placeOrder
-            destination: host.host(),   // same chain
-            deadline:    block.number + 100,
-            nonce:       0,
-            fees:        fees,
-            session:     address(0),
+            user: bytes32(0), // stamped by placeOrder
+            source: "", // stamped by placeOrder
+            destination: host.host(), // same chain
+            deadline: block.number + 100,
+            nonce: 0,
+            fees: fees,
+            session: address(0),
             predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
-            inputs:      inputs,
-            output:      PaymentInfo({
+            inputs: inputs,
+            output: PaymentInfo({
                 beneficiary: bytes32(uint256(uint160(address(maliciousBeneficiary)))),
-                assets:      outputs,
-                call:        ""
+                assets: outputs,
+                call: ""
             })
         });
     }
@@ -189,24 +187,25 @@ contract IntrinsicIntentsReentrancyTest is MainnetForkBaseTest {
     ///      No placeOrder needed — the source-chain escrow is out of scope for the
     ///      destination-side fill, which only transfers output tokens and dispatches
     ///      a RedeemEscrow message back.
-    function _crossChainOrder(
-        TokenInfo[] memory inputs,
-        TokenInfo[] memory outputs
-    ) internal view returns (Order memory) {
+    function _crossChainOrder(TokenInfo[] memory inputs, TokenInfo[] memory outputs)
+        internal
+        view
+        returns (Order memory)
+    {
         return Order({
-            user:        bytes32(uint256(uint160(attacker))),
-            source:      "EVM-2",       // remote source chain (not current)
-            destination: host.host(),  // current chain (where fill happens)
-            deadline:    block.number + 100,
-            nonce:       0,
-            fees:        0,
-            session:     address(0),
+            user: bytes32(uint256(uint160(attacker))),
+            source: "EVM-2", // remote source chain (not current)
+            destination: host.host(), // current chain (where fill happens)
+            deadline: block.number + 100,
+            nonce: 0,
+            fees: 0,
+            session: address(0),
             predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
-            inputs:      inputs,
-            output:      PaymentInfo({
+            inputs: inputs,
+            output: PaymentInfo({
                 beneficiary: bytes32(uint256(uint160(address(maliciousBeneficiary)))),
-                assets:      outputs,
-                call:        ""
+                assets: outputs,
+                call: ""
             })
         });
     }
@@ -229,10 +228,7 @@ contract IntrinsicIntentsReentrancyTest is MainnetForkBaseTest {
         // ── 1. Place a same-chain order (input=USDC, output=ETH, fees=DAI) ───
 
         TokenInfo[] memory inputs = new TokenInfo[](1);
-        inputs[0] = TokenInfo({
-            token:  bytes32(uint256(uint160(address(usdc)))),
-            amount: INPUT_USDC
-        });
+        inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: INPUT_USDC});
 
         TokenInfo[] memory outputAssets = new TokenInfo[](1);
         outputAssets[0] = TokenInfo({token: bytes32(0), amount: OUTPUT_ETH});
@@ -246,9 +242,9 @@ contract IntrinsicIntentsReentrancyTest is MainnetForkBaseTest {
         vm.stopPrank();
 
         // Reconstruct the stamped order for commitment computation.
-        order.user   = bytes32(uint256(uint160(attacker)));
+        order.user = bytes32(uint256(uint160(attacker)));
         order.source = host.host();
-        order.nonce  = 0;
+        order.nonce = 0;
 
         bytes32 commitment = keccak256(abi.encode(order));
 
@@ -265,8 +261,7 @@ contract IntrinsicIntentsReentrancyTest is MainnetForkBaseTest {
         reentrantOutputs[0] = TokenInfo({token: bytes32(0), amount: 0});
 
         maliciousBeneficiary.arm(
-            order,
-            FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: reentrantOutputs})
+            order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: reentrantOutputs})
         );
 
         // ── 3. Fill attempt reverts — reentrancy is blocked ──────────────────
@@ -274,32 +269,17 @@ contract IntrinsicIntentsReentrancyTest is MainnetForkBaseTest {
         vm.expectRevert(ERR_INSUFFICIENT_NATIVE);
         vm.prank(legitimateSolver);
         intentGateway.fillOrder{value: OUTPUT_ETH}(
-            order,
-            FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: outputAssets})
+            order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: outputAssets})
         );
 
         // ── 4. State is completely rolled back ───────────────────────────────
 
         assertEq(
-            intentGateway._orders(commitment, TRANSACTION_FEES),
-            TX_FEES,
-            "fees must still be escrowed after revert"
+            intentGateway._orders(commitment, TRANSACTION_FEES), TX_FEES, "fees must still be escrowed after revert"
         );
-        assertEq(
-            intentGateway._filled(commitment),
-            address(0),
-            "order must not be marked filled after revert"
-        );
-        assertEq(
-            dai.balanceOf(address(maliciousBeneficiary)),
-            0,
-            "malicious beneficiary must not receive stolen fees"
-        );
-        assertEq(
-            usdc.balanceOf(legitimateSolver),
-            0,
-            "solver must not have received any escrow"
-        );
+        assertEq(intentGateway._filled(commitment), address(0), "order must not be marked filled after revert");
+        assertEq(dai.balanceOf(address(maliciousBeneficiary)), 0, "malicious beneficiary must not receive stolen fees");
+        assertEq(usdc.balanceOf(legitimateSolver), 0, "solver must not have received any escrow");
     }
 
     /**
@@ -321,10 +301,10 @@ contract IntrinsicIntentsReentrancyTest is MainnetForkBaseTest {
 
         TokenInfo[] memory inputs = new TokenInfo[](2);
         inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: INPUT_USDC});
-        inputs[1] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))),  amount: INPUT_DAI});
+        inputs[1] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: INPUT_DAI});
 
         TokenInfo[] memory outputAssets = new TokenInfo[](2);
-        outputAssets[0] = TokenInfo({token: bytes32(0),                                           amount: OUTPUT_ETH});
+        outputAssets[0] = TokenInfo({token: bytes32(0), amount: OUTPUT_ETH});
         outputAssets[1] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: outputUSDC});
 
         Order memory order = _sameChainOrder(inputs, outputAssets, 0);
@@ -335,9 +315,9 @@ contract IntrinsicIntentsReentrancyTest is MainnetForkBaseTest {
         intentGateway.placeOrder(order, bytes32(0));
         vm.stopPrank();
 
-        order.user   = bytes32(uint256(uint160(attacker)));
+        order.user = bytes32(uint256(uint160(attacker)));
         order.source = host.host();
-        order.nonce  = 0;
+        order.nonce = 0;
 
         bytes32 commitment = keccak256(abi.encode(order));
 
@@ -351,12 +331,11 @@ contract IntrinsicIntentsReentrancyTest is MainnetForkBaseTest {
         maliciousBeneficiary.approveGateway(address(usdc), outputUSDC);
 
         TokenInfo[] memory reentrantOutputs = new TokenInfo[](2);
-        reentrantOutputs[0] = TokenInfo({token: bytes32(0),                                           amount: 0});
+        reentrantOutputs[0] = TokenInfo({token: bytes32(0), amount: 0});
         reentrantOutputs[1] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: outputUSDC});
 
         maliciousBeneficiary.arm(
-            order,
-            FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: reentrantOutputs})
+            order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: reentrantOutputs})
         );
 
         // ── 3. Fill attempt reverts — reentrancy is blocked ──────────────────
@@ -364,31 +343,22 @@ contract IntrinsicIntentsReentrancyTest is MainnetForkBaseTest {
         vm.expectRevert(ERR_INSUFFICIENT_NATIVE);
         vm.prank(legitimateSolver);
         intentGateway.fillOrder{value: OUTPUT_ETH}(
-            order,
-            FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: outputAssets})
+            order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: outputAssets})
         );
 
         // ── 4. State is completely rolled back ───────────────────────────────
 
         assertEq(
-            intentGateway._orders(commitment, address(dai)),
-            INPUT_DAI,
-            "DAI escrow must still be intact after revert"
+            intentGateway._orders(commitment, address(dai)), INPUT_DAI, "DAI escrow must still be intact after revert"
         );
         assertEq(
             intentGateway._orders(commitment, address(usdc)),
             INPUT_USDC,
             "USDC escrow must still be intact after revert"
         );
+        assertEq(intentGateway._filled(commitment), address(0), "order must not be marked filled after revert");
         assertEq(
-            intentGateway._filled(commitment),
-            address(0),
-            "order must not be marked filled after revert"
-        );
-        assertEq(
-            dai.balanceOf(address(maliciousBeneficiary)),
-            0,
-            "malicious beneficiary must not receive stolen DAI escrow"
+            dai.balanceOf(address(maliciousBeneficiary)), 0, "malicious beneficiary must not receive stolen DAI escrow"
         );
     }
 
@@ -419,10 +389,7 @@ contract IntrinsicIntentsReentrancyTest is MainnetForkBaseTest {
         // ── 1. Build a cross-chain order (no placeOrder required) ────────────
 
         TokenInfo[] memory inputs = new TokenInfo[](1);
-        inputs[0] = TokenInfo({
-            token:  bytes32(uint256(uint160(address(usdc)))),
-            amount: INPUT_USDC
-        });
+        inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: INPUT_USDC});
 
         TokenInfo[] memory outputAssets = new TokenInfo[](1);
         outputAssets[0] = TokenInfo({token: bytes32(0), amount: OUTPUT_ETH});
@@ -436,8 +403,7 @@ contract IntrinsicIntentsReentrancyTest is MainnetForkBaseTest {
         reentrantOutputs[0] = TokenInfo({token: bytes32(0), amount: 0});
 
         maliciousBeneficiary.arm(
-            order,
-            FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: reentrantOutputs})
+            order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: reentrantOutputs})
         );
 
         // ── 3. Fill attempt reverts — reentrancy is blocked ──────────────────
@@ -445,17 +411,12 @@ contract IntrinsicIntentsReentrancyTest is MainnetForkBaseTest {
         vm.expectRevert(ERR_INSUFFICIENT_NATIVE);
         vm.prank(legitimateSolver);
         intentGateway.fillOrder{value: OUTPUT_ETH}(
-            order,
-            FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: outputAssets})
+            order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: outputAssets})
         );
 
         // ── 4. _filled is rolled back — order remains fillable ───────────────
 
-        assertEq(
-            intentGateway._filled(commitment),
-            address(0),
-            "cross-chain: _filled must be 0 after revert"
-        );
+        assertEq(intentGateway._filled(commitment), address(0), "cross-chain: _filled must be 0 after revert");
     }
 
     /**
@@ -473,10 +434,10 @@ contract IntrinsicIntentsReentrancyTest is MainnetForkBaseTest {
 
         TokenInfo[] memory inputs = new TokenInfo[](2);
         inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: INPUT_USDC});
-        inputs[1] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))),  amount: INPUT_DAI});
+        inputs[1] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: INPUT_DAI});
 
         TokenInfo[] memory outputAssets = new TokenInfo[](2);
-        outputAssets[0] = TokenInfo({token: bytes32(0),                                           amount: OUTPUT_ETH});
+        outputAssets[0] = TokenInfo({token: bytes32(0), amount: OUTPUT_ETH});
         outputAssets[1] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: outputUSDC});
 
         Order memory order = _crossChainOrder(inputs, outputAssets);
@@ -488,12 +449,11 @@ contract IntrinsicIntentsReentrancyTest is MainnetForkBaseTest {
         maliciousBeneficiary.approveGateway(address(usdc), outputUSDC);
 
         TokenInfo[] memory reentrantOutputs = new TokenInfo[](2);
-        reentrantOutputs[0] = TokenInfo({token: bytes32(0),                                           amount: 0});
+        reentrantOutputs[0] = TokenInfo({token: bytes32(0), amount: 0});
         reentrantOutputs[1] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: outputUSDC});
 
         maliciousBeneficiary.arm(
-            order,
-            FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: reentrantOutputs})
+            order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: reentrantOutputs})
         );
 
         // ── 3. Fill attempt reverts — reentrancy is blocked ──────────────────
@@ -501,21 +461,14 @@ contract IntrinsicIntentsReentrancyTest is MainnetForkBaseTest {
         vm.expectRevert(ERR_INSUFFICIENT_NATIVE);
         vm.prank(legitimateSolver);
         intentGateway.fillOrder{value: OUTPUT_ETH}(
-            order,
-            FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: outputAssets})
+            order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: outputAssets})
         );
 
         // ── 4. _filled is rolled back — no state was mutated ─────────────────
 
         assertEq(
-            intentGateway._filled(commitment),
-            address(0),
-            "cross-chain multi-output: _filled must be 0 after revert"
+            intentGateway._filled(commitment), address(0), "cross-chain multi-output: _filled must be 0 after revert"
         );
-        assertEq(
-            dai.balanceOf(address(maliciousBeneficiary)),
-            0,
-            "malicious beneficiary must not receive any DAI"
-        );
+        assertEq(dai.balanceOf(address(maliciousBeneficiary)), 0, "malicious beneficiary must not receive any DAI");
     }
 }

@@ -237,6 +237,95 @@ query OrderStatus($commitment: String!) {
   }
 }`
 
+export const LATEST_PHANTOM_ORDER_PRICE_SNAPSHOT = `
+query LatestPhantomOrderPriceSnapshot($tokenA: String!, $tokenB: String!) {
+  phantomOrderPriceSnapshots(
+    filter: {
+      and: [
+        { tokenA: { equalTo: $tokenA } }
+        { tokenB: { equalTo: $tokenB } }
+        { medianPrice: { isNull: false } }
+      ]
+    }
+    orderBy: BLOCK_NUMBER_DESC
+    first: 1
+  ) {
+    nodes {
+      commitment
+      tokenA
+      tokenB
+      standardAmount
+      blockNumber
+      medianPrice
+      lowestPrice
+      highestPrice
+      bidCount
+      snapshotTime
+    }
+  }
+}`
+
+export const AVAILABLE_LIQUIDITY = `
+query AvailableLiquidity(
+  $poolId: String!
+  $sourceChain: String!
+  $destinationChain: String!
+  $direction: String!
+) {
+  poolChainLiquidities(
+    filter: {
+      and: [
+        { poolId: { equalToInsensitive: $poolId } }
+        { chain: { equalTo: $destinationChain } }
+        { direction: { equalTo: $direction } }
+      ]
+    }
+    first: 1
+  ) {
+    nodes {
+      depth
+      bidCount
+      unrestrictedDepth
+      unrestrictedBidCount
+      lastUpdatedAt
+    }
+  }
+  poolRoutes(
+    filter: {
+      and: [
+        { poolId: { equalToInsensitive: $poolId } }
+        { sourceChain: { equalTo: $sourceChain } }
+        { chain: { equalTo: $destinationChain } }
+        { direction: { equalTo: $direction } }
+      ]
+    }
+    first: 1
+  ) {
+    nodes {
+      depth
+      bidCount
+      lastUpdatedAt
+    }
+  }
+}`
+
+export const BUY_AND_SELL_RATES = `
+query GetLiquidityPoolRate($poolId: String!) {
+  liquidityPools(
+    first: 1
+    filter: { id: { equalToInsensitive: $poolId } }
+  ) {
+    nodes {
+      id
+      token0Symbol
+      token1Symbol
+      sellRate
+      buyRate
+      lastUpdatedAt
+    }
+  }
+}`
+
 export const TOKEN_GATEWAY_ASSET_TELEPORTED_STATUS = `
 query TokenGatewayAssetTeleportedStatus($commitment: String!) {
   tokenGatewayAssetTeleportedV2s(

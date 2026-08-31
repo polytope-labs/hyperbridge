@@ -15,9 +15,10 @@ use polkadot_sdk::{
 		},
 	},
 	frame_system, pallet_assets,
+	sp_io::hashing::keccak_256,
 	sp_runtime::{traits::Dispatchable, Weight},
 };
-use sp_core::{crypto::AccountId32, keccak_256, sr25519, ByteArray, Pair};
+use sp_core::{crypto::AccountId32, sr25519, ByteArray, Pair};
 
 use ismp::{
 	consensus::{StateMachineHeight, StateMachineId},

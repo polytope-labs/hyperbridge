@@ -38,7 +38,7 @@ use ismp::{
 };
 use primitive_types::H256;
 use serde::Serialize;
-use sp_core::keccak_256;
+use sp_crypto_hashing::keccak_256;
 use tesseract_primitives::{Hasher, Query, TxReceipt, TxResult};
 
 use crate::{

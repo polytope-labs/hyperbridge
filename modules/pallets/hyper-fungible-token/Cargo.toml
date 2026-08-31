@@ -1,6 +1,6 @@
 [package]
 name = "pallet-hyper-fungible-token"
-version = "2512.0.0"
+version = "2606.0.0"
 edition = "2021"
 description = "A substrate pallet for cross-chain token transfers via HyperFungibleToken contracts"
 authors = ["Polytope Labs <hello@polytope.technology>"]

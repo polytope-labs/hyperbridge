@@ -19,7 +19,7 @@ use alloc::{vec, vec::Vec};
 use alloy_sol_types::SolValue;
 use codec::{Decode, DecodeWithMemTracking, Encode};
 use ismp::consensus::StateMachineId;
-use polkadot_sdk::frame_support::{traits::ConstU32, BoundedVec};
+use polkadot_sdk::frame_support::{traits::ConstU32, BoundedBTreeMap, BoundedVec};
 use primitive_types::{H160, H256, U256};
 use scale_info::TypeInfo;
 use sp_io;
@@ -50,6 +50,23 @@ pub struct IntentGatewayParams {
 	pub protocol_fee_bps: U256,
 	/// The address of the price oracle contract
 	pub price_oracle: H160,
+}
+
+/// Pricing and treasury parameters for a SimplexPaymaster instance. Mirrors the
+/// `Params` struct in `SimplexPaymaster.sol`; the contract replaces these wholesale
+/// on `UpdateParams` (no merge semantics).
+#[derive(Clone, Debug, Encode, Decode, DecodeWithMemTracking, TypeInfo, PartialEq, Eq)]
+pub struct PaymasterParams {
+	/// Native asset / USD Chainlink feed
+	pub native_oracle: H160,
+	/// Markup in basis points applied on top of the oracle price (10000 = 100%)
+	pub markup_bps: U256,
+	/// Receives markup surplus and EntryPoint deposit withdrawals
+	pub treasury: H160,
+	/// Maximum Chainlink oracle staleness, in seconds
+	pub max_oracle_age: U256,
+	/// Slippage tolerance in basis points for fee-recycling swaps
+	pub swap_slippage_bps: U256,
 }
 
 /// Destination fee configuration for a specific chain
@@ -137,9 +154,19 @@ pub struct GatewayInfo {
 	pub params: IntentGatewayParams,
 }
 
-/// Upper bound on the token pairs a single config may probe, and therefore on the number
-/// of phantom orders active at once.
+/// Upper bound on the token pairs a single chain's config may probe. Every pair rides in the
+/// same phantom order, so this also bounds that order's asset lists and the size of the
+/// encoded body written to offchain storage.
 pub const MAX_PHANTOM_TOKEN_PAIRS: u32 = 64;
+
+/// Upper bound on the chains that may carry a phantom order configuration at once. Bounds the
+/// `PhantomChains` set the hook walks, and with it `CurrentPhantomOrder` and the work
+/// `on_initialize` performs on a generation block.
+pub const MAX_PHANTOM_CHAINS: u32 = 16;
+
+/// Upper bound on the directed legs of one phantom order: every configured pair contributes
+/// its configured direction plus the reverse.
+pub const MAX_PHANTOM_ORDER_LEGS: u32 = MAX_PHANTOM_TOKEN_PAIRS * 2;
 
 /// Tracks a phantom order recognised by the pallet.
 #[derive(Clone, Debug, Encode, Decode, DecodeWithMemTracking, TypeInfo, PartialEq, Eq)]
@@ -160,35 +187,109 @@ pub struct PhantomTokenPair {
 	pub token_a: H160,
 	/// The output token (tokenB) the price is quoted in.
 	pub token_b: H160,
-	/// ┌─────────────────────────────────────────────────────────────────────────────────┐
-	/// │  ⚠  EXACTLY ONE (1) UNIT OF THE INPUT TOKEN. NO MORE. NO LESS. NON-NEGOTIABLE.  ⚠  │
-	/// └─────────────────────────────────────────────────────────────────────────────────┘
+	/// ┌──────────────────────────────────────────────────────────────────────────────────┐
+	/// │  ⚠  A WHOLE NUMBER OF UNITS OF THE INPUT TOKEN: `n * 10^decimals(token_a)`.  ⚠  │
+	/// └──────────────────────────────────────────────────────────────────────────────────┘
 	///
-	/// This MUST be **one whole unit of `token_a`, denominated in the token's smallest unit**
-	/// — that is, `10^decimals(token_a)`:
-	///   • 6-decimal USDC  →  `1_000_000`
-	///   • 18-decimal DAI  →  `1_000_000_000_000_000_000`
+	/// This MUST be a whole multiple of one unit of `token_a`, denominated in the token's
+	/// smallest unit — that is, `n * 10^decimals(token_a)` for a whole `n`. With `n = 1000`:
+	///   • 6-decimal USDC  →  `1_000_000_000`
+	///   • 18-decimal DAI  →  `1_000_000_000_000_000_000_000`
 	///
-	/// WHY THERE IS ZERO WIGGLE ROOM:
+	/// WHY THE SHAPE MATTERS:
 	///   Every exchange rate the indexer publishes is `medianPrice / standard_amount`. This number
-	///   is the DENOMINATOR OF THE TRUTH. Put `2` units here and every downstream rate is silently
-	///   HALVED; put half a unit and every rate silently DOUBLES. It will not revert. It will not
-	///   warn. It will simply poison every price snapshot for this pair with an integer-factor
-	///   error until a human eventually notices the feed has drifted — and then has to backfill it.
+	///   is the DENOMINATOR OF THE TRUTH. Set it to a value that is not a whole number of units
+	///   and every downstream rate is silently off by that factor. It will not revert. It will not
+	///   warn on chain. It will simply poison every price snapshot for this pair until a human
+	///   notices the feed has drifted — and then has to backfill it. The indexer refuses pool
+	///   attribution for a leg whose standard amount is not a whole number of units, or is
+	///   absurdly large, which is the only backstop; treat it as a tripwire, not a validator.
 	///
-	/// So set it to one unit. `10^decimals(token_a)`. Not a round dollar. Not a "nice" number.
-	/// Not two. Not a half. ONE. UNIT.
+	/// WHY `n` IS NOT ALWAYS 1:
+	///   A leg's quoted output integer IS the published price, to whatever precision the OUTPUT
+	///   token's decimals afford. One whole cNGN priced into 6-decimal USDC quotes ~715 base
+	///   units, so the price grid is `1/715` ≈ 0.14% coarse and a curve of 1398 cNGN/USDC cannot
+	///   be expressed more finely than 1398.6014. Raising `n` buys digits: at `n = 1000` the same
+	///   quote is ~715_307 and the grid is 0.00014%. Raise it only in step across the whole config
+	///   — a filler's per-pair size caps are consumed at the probe's notional, and a probe larger
+	///   than a pair's cap is quoted short and publishes a badly wrong price.
+	pub standard_amount: u128,
+	/// The same WHOLE-UNITS rule as [`standard_amount`](PhantomTokenPair::standard_amount), for
+	/// the REVERSE leg: `n * 10^decimals(token_b)`, the benchmark quantity when `token_b` is the
+	/// input. Everything written above applies verbatim — a wrong value silently poisons every
+	/// reverse-direction rate. Keep `n` the same as the forward leg's so both directions of a pair
+	/// are probed at a comparable size. Unused (but still required non-zero for uniformity) when
+	/// `token_a == token_b`, since a same-token pair has no distinct reverse.
+	pub standard_amount_b: u128,
+}
+
+/// One directed leg of the bundled phantom order: `standard_amount` of `token_a` quoted in
+/// `token_b`. Field names deliberately mirror [`PhantomTokenPair`] — downstream decoders read
+/// legs and configured pairs with the same shape.
+#[derive(Clone, Debug, Encode, Decode, DecodeWithMemTracking, TypeInfo, PartialEq, Eq)]
+pub struct PhantomOrderLeg {
+	/// The input token being priced.
+	pub token_a: H160,
+	/// The output token the price is quoted in.
+	pub token_b: H160,
+	/// One whole unit of `token_a` in its smallest denomination.
 	pub standard_amount: u128,
 }
 
-/// Governance-settable configuration for autonomous phantom order generation.
-/// Stored in `PhantomOrderConfig`; the pallet hook reads it every block. The
-/// `chain` carries the consensus state id so the hook can look up the latest
-/// confirmed height directly instead of scanning every state machine.
+impl PhantomTokenPair {
+	/// The directed legs this pair contributes to the bundled order: the configured direction and
+	/// its reverse, so both sides of a pair are priced from a single config entry. A same-token
+	/// pair's reverse is the identical leg, so it contributes only one.
+	pub fn legs(&self) -> Vec<PhantomOrderLeg> {
+		let forward = PhantomOrderLeg {
+			token_a: self.token_a,
+			token_b: self.token_b,
+			standard_amount: self.standard_amount,
+		};
+		if self.token_a == self.token_b {
+			vec![forward]
+		} else {
+			vec![
+				forward,
+				PhantomOrderLeg {
+					token_a: self.token_b,
+					token_b: self.token_a,
+					standard_amount: self.standard_amount_b,
+				},
+			]
+		}
+	}
+}
+
+/// Expands the configured pairs into the phantom order's directed legs, preserving pair order:
+/// pair `i`'s forward leg precedes its reverse.
+pub fn phantom_order_legs(pairs: &[PhantomTokenPair]) -> Vec<PhantomOrderLeg> {
+	pairs.iter().flat_map(PhantomTokenPair::legs).collect()
+}
+
+/// The token pairs probed on one chain — every pair here rides in that chain's single bundled
+/// phantom order.
+///
+/// Stored per chain in the `PhantomOrderConfig` map, keyed by the chain's `StateMachineId`,
+/// whose consensus state id lets the hook look up the latest confirmed height directly instead
+/// of scanning every state machine.
+pub type PhantomTokenPairs = BoundedVec<PhantomTokenPair, ConstU32<MAX_PHANTOM_TOKEN_PAIRS>>;
+
+/// Governance-settable phantom order configuration, as `set_phantom_order_config` takes it.
+///
+/// The chains are a map so each one's pairs are addressed by its state machine id and land in
+/// their own `PhantomOrderConfig` entry: a call carries only the chains it means to configure
+/// and leaves every other chain's entry alone. `interval_blocks` is the one exception — it is a
+/// single value shared by every configured chain, so they all generate on the same block and
+/// their bid windows close together, and a call therefore sets it for all of them.
 #[derive(Clone, Debug, Encode, Decode, DecodeWithMemTracking, TypeInfo, PartialEq, Eq)]
 pub struct PhantomOrderConfiguration {
-	pub chain: StateMachineId,
-	pub token_pairs: BoundedVec<PhantomTokenPair, ConstU32<MAX_PHANTOM_TOKEN_PAIRS>>,
+	/// The token pairs — and their standard amounts — to probe on each chain, keyed by the
+	/// chain's state machine id. The consensus state id it carries lets the generator look up
+	/// that chain's latest confirmed height directly.
+	pub chains: BoundedBTreeMap<StateMachineId, PhantomTokenPairs, ConstU32<MAX_PHANTOM_CHAINS>>,
+	/// Blocks between generations, shared by every configured chain. Zero means generate once
+	/// and never regenerate.
 	pub interval_blocks: u32,
 }
 
@@ -247,6 +348,40 @@ pub enum RequestKind {
 		/// Optional migration calldata run atomically against the proxy on upgrade
 		init_data: Vec<u8>,
 	},
+	/// Upgrade the SimplexPaymaster implementation behind its ERC-1967 proxy
+	PaymasterUpgrade {
+		/// The new implementation contract address
+		new_impl: H160,
+		/// Optional migration calldata run atomically against the proxy on upgrade
+		init_data: Vec<u8>,
+	},
+	/// Replace the SimplexPaymaster pricing and treasury parameters
+	PaymasterUpdateParams(PaymasterParams),
+	/// Register or update a supported token and its token/USD feed on the paymaster
+	PaymasterRegisterToken {
+		/// The ERC-20 token to support
+		token: H160,
+		/// The token/USD Chainlink feed
+		oracle: H160,
+	},
+	/// Deactivate a token on the paymaster (kill-switch)
+	PaymasterDeactivateToken {
+		/// The ERC-20 token to deactivate
+		token: H160,
+	},
+	/// Sweep paymaster assets to its treasury (ERC-20 surplus, or the EntryPoint
+	/// deposit when `token` is the zero address)
+	PaymasterWithdrawAssets {
+		/// The ERC-20 token to sweep, or the zero address for the native deposit
+		token: H160,
+		/// The amount to withdraw
+		amount: U256,
+	},
+	/// Start the EntryPoint unstake timer for the paymaster. `PaymasterWithdrawStake`
+	/// becomes effective once the configured `unstakeDelaySec` has elapsed.
+	PaymasterUnlockStake,
+	/// Sweep the paymaster's unlocked EntryPoint stake to its treasury
+	PaymasterWithdrawStake,
 }
 
 // Solidity type definitions for cross-chain encoding
@@ -328,28 +463,40 @@ pub(crate) mod sol_types {
 			bytes sourceChain;
 			TokenDecimal[] tokens;
 		}
+
+		/// Solidity representation of SimplexPaymaster.Params
+		struct PaymasterParams {
+			address nativeOracle;
+			uint256 markupBps;
+			address treasury;
+			uint256 maxOracleAge;
+			uint256 swapSlippageBps;
+		}
 	}
 }
 
-/// Builds the IntentGatewayV2 `Order` for a phantom order and returns both the
+/// Builds the IntentGatewayV2 `Order` carrying every directed leg and returns both the
 /// ABI-encoded bytes and its `keccak256` commitment.
+///
+/// Legs are positional: leg `i` is `inputs[i]` against `output.assets[i]`, which is how
+/// fillers already walk an order's legs. Each input carries its leg's standard amount while
+/// the matching output is left at zero, since the output amount is what fillers quote.
 ///
 /// `deadline` is the EVM block number beyond which the gateway treats the order
 /// as expired (`order.deadline < block.number` reverts).
 pub fn phantom_order_commitment(
 	block: u64,
 	chain: &[u8],
-	token_a: &H160,
-	token_b: &H160,
-	standard_amount: u128,
+	legs: &[PhantomOrderLeg],
 	deadline: u64,
 ) -> (H256, Vec<u8>) {
 	use alloy_primitives::{Bytes, FixedBytes, U256 as AlloyU256};
 
-	let mut token_a_bytes = [0u8; 32];
-	token_a_bytes[12..].copy_from_slice(token_a.as_bytes());
-	let mut token_b_bytes = [0u8; 32];
-	token_b_bytes[12..].copy_from_slice(token_b.as_bytes());
+	fn to_word(token: &H160) -> FixedBytes<32> {
+		let mut bytes = [0u8; 32];
+		bytes[12..].copy_from_slice(token.as_bytes());
+		FixedBytes::from(bytes)
+	}
 
 	let order = sol_types::Order {
 		user: FixedBytes::from([0u8; 32]),
@@ -360,16 +507,22 @@ pub fn phantom_order_commitment(
 		fees: AlloyU256::ZERO,
 		session: alloy_primitives::Address::ZERO,
 		predispatch: sol_types::DispatchInfo { assets: vec![], call: Bytes::new() },
-		inputs: vec![sol_types::TokenInfo {
-			token: FixedBytes::from(token_a_bytes),
-			amount: AlloyU256::from(standard_amount),
-		}],
+		inputs: legs
+			.iter()
+			.map(|leg| sol_types::TokenInfo {
+				token: to_word(&leg.token_a),
+				amount: AlloyU256::from(leg.standard_amount),
+			})
+			.collect(),
 		output: sol_types::PaymentInfo {
 			beneficiary: FixedBytes::from([0u8; 32]),
-			assets: vec![sol_types::TokenInfo {
-				token: FixedBytes::from(token_b_bytes),
-				amount: AlloyU256::ZERO,
-			}],
+			assets: legs
+				.iter()
+				.map(|leg| sol_types::TokenInfo {
+					token: to_word(&leg.token_b),
+					amount: AlloyU256::ZERO,
+				})
+				.collect(),
 			call: Bytes::new(),
 		},
 	};
@@ -420,6 +573,19 @@ impl From<TokenDecimal> for sol_types::TokenDecimal {
 	}
 }
 
+impl From<PaymasterParams> for sol_types::PaymasterParams {
+	fn from(params: PaymasterParams) -> Self {
+		use alloy_primitives::{Address, U256 as AlloyU256};
+		sol_types::PaymasterParams {
+			nativeOracle: Address::from_slice(&params.native_oracle.0),
+			markupBps: AlloyU256::from_limbs(params.markup_bps.0),
+			treasury: Address::from_slice(&params.treasury.0),
+			maxOracleAge: AlloyU256::from_limbs(params.max_oracle_age.0),
+			swapSlippageBps: AlloyU256::from_limbs(params.swap_slippage_bps.0),
+		}
+	}
+}
+
 /// Mirrors the `RequestKind` enum in `IntentsBase.sol`.
 #[repr(u8)]
 enum IntentGatewayRequestKind {
@@ -435,6 +601,20 @@ enum IntentGatewayRequestKind {
 #[repr(u8)]
 enum VWAPOracleRequestKind {
 	UpdateTokenDecimals = 0,
+}
+
+/// Mirrors the `RequestKind` enum in `SimplexPaymaster.sol`. Note the
+/// discriminators differ from `IntentGatewayRequestKind` (e.g. UpgradeContract
+/// is 0 here, 5 there), so this must not be conflated with it.
+#[repr(u8)]
+enum SimplexPaymasterRequestKind {
+	UpgradeContract = 0,
+	UpdateParams = 1,
+	RegisterToken = 2,
+	DeactivateToken = 3,
+	WithdrawAssets = 4,
+	UnlockStake = 5,
+	WithdrawStake = 6,
 }
 
 impl RequestKind {
@@ -499,12 +679,62 @@ impl RequestKind {
 				use alloy_primitives::{Address, Bytes};
 				// Mirrors the Solidity `abi.decode(body[1:], (address, bytes))` in
 				// `ExtrinsicIntents.onAccept`. `abi_encode_params` emits the two values as bare
-				// ABI parameters (no outer tuple wrapper), matching `abi.encode(newImpl, initData)`.
+				// ABI parameters (no outer tuple wrapper), matching `abi.encode(newImpl,
+				// initData)`.
 				let payload = (Address::from_slice(&new_impl.0), Bytes::from(init_data.clone()));
 
 				let mut body = vec![IntentGatewayRequestKind::UpgradeContract as u8];
 				body.extend_from_slice(&payload.abi_encode_params());
 				body
+			},
+			RequestKind::PaymasterUpgrade { new_impl, init_data } => {
+				use alloy_primitives::{Address, Bytes};
+				// Matches `abi.decode(payload, (address, bytes))` in `SimplexPaymaster.onAccept`.
+				let payload = (Address::from_slice(&new_impl.0), Bytes::from(init_data.clone()));
+
+				let mut body = vec![SimplexPaymasterRequestKind::UpgradeContract as u8];
+				body.extend_from_slice(&payload.abi_encode_params());
+				body
+			},
+			RequestKind::PaymasterUpdateParams(params) => {
+				let params_sol: sol_types::PaymasterParams = params.clone().into();
+
+				let mut body = vec![SimplexPaymasterRequestKind::UpdateParams as u8];
+				// Single struct: `abi_encode` is tuple-wrapped, matching `abi.decode(payload,
+				// (Params))`.
+				body.extend_from_slice(&params_sol.abi_encode());
+				body
+			},
+			RequestKind::PaymasterRegisterToken { token, oracle } => {
+				use alloy_primitives::Address;
+				let payload = (Address::from_slice(&token.0), Address::from_slice(&oracle.0));
+
+				let mut body = vec![SimplexPaymasterRequestKind::RegisterToken as u8];
+				body.extend_from_slice(&payload.abi_encode_params());
+				body
+			},
+			RequestKind::PaymasterDeactivateToken { token } => {
+				use alloy_primitives::Address;
+
+				let mut body = vec![SimplexPaymasterRequestKind::DeactivateToken as u8];
+				// Single value: matches `abi.decode(payload, (address))`.
+				body.extend_from_slice(&Address::from_slice(&token.0).abi_encode());
+				body
+			},
+			RequestKind::PaymasterWithdrawAssets { token, amount } => {
+				use alloy_primitives::{Address, U256 as AlloyU256};
+				let payload = (Address::from_slice(&token.0), AlloyU256::from_limbs(amount.0));
+
+				let mut body = vec![SimplexPaymasterRequestKind::WithdrawAssets as u8];
+				body.extend_from_slice(&payload.abi_encode_params());
+				body
+			},
+			// Both take no arguments: the destination is always the paymaster's treasury.
+			RequestKind::PaymasterUnlockStake => {
+				vec![SimplexPaymasterRequestKind::UnlockStake as u8]
+			},
+			RequestKind::PaymasterWithdrawStake => {
+				vec![SimplexPaymasterRequestKind::WithdrawStake as u8]
 			},
 		}
 	}
@@ -556,5 +786,95 @@ mod request_kind_tests {
 			<(Address, Bytes)>::abi_decode_params(&body[1..]).expect("decodes as (address, bytes)");
 		assert_eq!(decoded_impl.as_slice(), &new_impl.0);
 		assert_eq!(decoded_data.as_ref(), init_data.as_slice());
+	}
+
+	// SimplexPaymaster discriminators differ from IntentGateway's; pin each one.
+	#[test]
+	fn paymaster_upgrade_matches_solidity_two_param_abi() {
+		let new_impl = H160::repeat_byte(0x22);
+		let init_data = vec![0x01, 0x02];
+		let body =
+			RequestKind::PaymasterUpgrade { new_impl, init_data: init_data.clone() }.encode_body();
+
+		assert_eq!(body[0], 0, "SimplexPaymaster.RequestKind.UpgradeContract == 0");
+		let (decoded_impl, decoded_data) =
+			<(Address, Bytes)>::abi_decode_params(&body[1..]).expect("decodes as (address, bytes)");
+		assert_eq!(decoded_impl.as_slice(), &new_impl.0);
+		assert_eq!(decoded_data.as_ref(), init_data.as_slice());
+	}
+
+	#[test]
+	fn paymaster_update_params_matches_solidity_struct_abi() {
+		use alloy_primitives::U256 as AlloyU256;
+		let params = PaymasterParams {
+			native_oracle: H160::repeat_byte(0x33),
+			markup_bps: U256::from(200),
+			treasury: H160::repeat_byte(0x44),
+			max_oracle_age: U256::from(90_000),
+			swap_slippage_bps: U256::from(300),
+		};
+		let body = RequestKind::PaymasterUpdateParams(params.clone()).encode_body();
+
+		assert_eq!(body[0], 1, "SimplexPaymaster.RequestKind.UpdateParams == 1");
+		// Decodes as a single tuple-wrapped struct, matching `abi.decode(payload, (Params))`.
+		let decoded =
+			sol_types::PaymasterParams::abi_decode(&body[1..]).expect("decodes as Params");
+		assert_eq!(decoded.nativeOracle.as_slice(), &params.native_oracle.0);
+		assert_eq!(decoded.markupBps, AlloyU256::from(200));
+		assert_eq!(decoded.treasury.as_slice(), &params.treasury.0);
+		assert_eq!(decoded.maxOracleAge, AlloyU256::from(90_000));
+		assert_eq!(decoded.swapSlippageBps, AlloyU256::from(300));
+	}
+
+	#[test]
+	fn paymaster_register_token_matches_solidity_two_address_abi() {
+		let token = H160::repeat_byte(0x55);
+		let oracle = H160::repeat_byte(0x66);
+		let body = RequestKind::PaymasterRegisterToken { token, oracle }.encode_body();
+
+		assert_eq!(body[0], 2, "SimplexPaymaster.RequestKind.RegisterToken == 2");
+		let (dt, dor) =
+			<(Address, Address)>::abi_decode_params(&body[1..]).expect("(address, address)");
+		assert_eq!(dt.as_slice(), &token.0);
+		assert_eq!(dor.as_slice(), &oracle.0);
+	}
+
+	#[test]
+	fn paymaster_deactivate_token_matches_solidity_single_address_abi() {
+		let token = H160::repeat_byte(0x77);
+		let body = RequestKind::PaymasterDeactivateToken { token }.encode_body();
+
+		assert_eq!(body[0], 3, "SimplexPaymaster.RequestKind.DeactivateToken == 3");
+		let decoded = Address::abi_decode(&body[1..]).expect("decodes as address");
+		assert_eq!(decoded.as_slice(), &token.0);
+	}
+
+	#[test]
+	fn paymaster_withdraw_assets_matches_solidity_address_uint_abi() {
+		use alloy_primitives::U256 as AlloyU256;
+		let token = H160::repeat_byte(0x88);
+		let amount = U256::from(1_000_000u64);
+		let body = RequestKind::PaymasterWithdrawAssets { token, amount }.encode_body();
+
+		assert_eq!(body[0], 4, "SimplexPaymaster.RequestKind.WithdrawAssets == 4");
+		let (dt, da) =
+			<(Address, AlloyU256)>::abi_decode_params(&body[1..]).expect("(address, uint256)");
+		assert_eq!(dt.as_slice(), &token.0);
+		assert_eq!(da, AlloyU256::from(1_000_000u64));
+	}
+
+	/// Both stake requests carry no payload: `onAccept` reads only the kind byte and sends
+	/// the stake to the paymaster's own treasury.
+	#[test]
+	fn paymaster_stake_requests_are_bare_kind_bytes() {
+		let unlock = RequestKind::PaymasterUnlockStake.encode_body();
+		assert_eq!(unlock, vec![5], "SimplexPaymaster.RequestKind.UnlockStake == 5, empty payload");
+
+		let withdraw = RequestKind::PaymasterWithdrawStake.encode_body();
+		assert_eq!(
+			withdraw,
+			vec![6],
+			"SimplexPaymaster.RequestKind.WithdrawStake == 6, empty payload"
+		);
 	}
 }

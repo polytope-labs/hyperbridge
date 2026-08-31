@@ -71,6 +71,22 @@ mod benchmarks {
 		Ok(())
 	}
 
+	/// Benchmark for the set_slot_duration extrinsic
+	#[benchmark]
+	fn set_slot_duration() -> Result<(), BenchmarkError> {
+		let origin =
+			T::AdminOrigin::try_successful_origin().map_err(|_| BenchmarkError::Weightless)?;
+
+		#[block]
+		{
+			Pallet::<T>::set_slot_duration(origin, ASSET_HUB_PARA_ID, 24_000)?;
+		}
+
+		assert_eq!(SlotDurations::<T>::get(ASSET_HUB_PARA_ID), Some(24_000));
+
+		Ok(())
+	}
+
 	/// Steady-state `on_finalize`: map already at the cap, evict the oldest
 	/// then insert the new height. Mirrors the order used in the hook.
 	#[benchmark]
@@ -99,24 +115,6 @@ mod benchmarks {
 		let heights = KnownRelayHeights::<T>::get();
 		assert_eq!(heights.len() as u32, crate::MAX_RELAY_STATE_COMMITMENTS);
 		assert!(*heights.iter().next().expect("set is non-empty") > oldest);
-
-		Ok(())
-	}
-
-	/// One v1 → v2 `SteppedMigration::step` that removes a single
-	/// `RelayChainStateCommitments` entry.
-	#[benchmark]
-	fn migrate_relay_state_commitments_step() -> Result<(), BenchmarkError> {
-		for i in 0u32..16u32 {
-			RelayChainStateCommitments::<T>::insert(i, H256::repeat_byte(0xef));
-		}
-
-		#[block]
-		{
-			let _ = RelayChainStateCommitments::<T>::clear(1, None);
-		}
-
-		assert!(RelayChainStateCommitments::<T>::iter_values().count() < 16);
 
 		Ok(())
 	}

@@ -45,7 +45,7 @@ use polkadot_sdk::{pallet_session::disabling::UpToLimitDisablingStrategy, *};
 use scale_info::TypeInfo;
 use smallvec::smallvec;
 use sp_api::impl_runtime_apis;
-use sp_core::{crypto::KeyTypeId, OpaqueMetadata, RuntimeDebug, H256};
+use sp_core::{crypto::KeyTypeId, OpaqueMetadata, H256};
 use sp_runtime::{
 	generic, impl_opaque_keys,
 	traits::{AccountIdLookup, Block as BlockT, IdentifyAccount, Keccak256, Verify},
@@ -176,6 +176,8 @@ pub type Migrations = (
 	pallet_beefy_consensus_proofs::migrations::ClearAcceptedProofHashes<Runtime>,
 	pallet_collator_manager::migrations::MigrateBondsToReserves<Runtime>,
 	pallet_collator_manager::migrations::ReserveUnreservedBonds<Runtime>,
+	pallet_ismp::migrations::SeedCommitmentCaps<Runtime>,
+	pallet_intents_coprocessor::migrations::MigrateConfigToStorageMap<Runtime>,
 );
 
 /// Handles converting a weight scalar to a fee value, based on the scale and granularity of the
@@ -238,7 +240,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	spec_name: Cow::Borrowed("nexus"),
 	impl_name: Cow::Borrowed("nexus"),
 	authoring_version: 1,
-	spec_version: 7_800,
+	spec_version: 8_400,
 	impl_version: 0,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,
@@ -483,6 +485,7 @@ impl cumulus_pallet_parachain_system::Config for Runtime {
 	type WeightInfo = weights::cumulus_pallet_parachain_system::WeightInfo<Runtime>;
 	type ConsensusHook = ConsensusHook;
 	type RelayParentOffset = ConstU32<0>;
+	type SchedulingSignatureVerifier = ();
 }
 
 type ConsensusHook = cumulus_pallet_aura_ext::FixedVelocityConsensusHook<
@@ -894,7 +897,7 @@ parameter_types! {
 	Encode,
 	Decode,
 	DecodeWithMemTracking,
-	RuntimeDebug,
+	Debug,
 	MaxEncodedLen,
 	scale_info::TypeInfo,
 )]
@@ -1144,6 +1147,8 @@ mod runtime {
 	pub type Bandwidth = pallet_bandwidth;
 	#[runtime::pallet_index(97)]
 	pub type BeefyConsensusProofs = pallet_beefy_consensus_proofs;
+	#[runtime::pallet_index(98)]
+	pub type HyperFungibleToken = pallet_hyper_fungible_token;
 
 	// consensus clients
 	#[runtime::pallet_index(254)]
@@ -1190,6 +1195,7 @@ mod benches {
 		[pallet_vesting, Vesting]
 		[pallet_tx_pause, TxPause]
 		[pallet_beefy_consensus_proofs, BeefyConsensusProofs]
+		[pallet_hyper_fungible_token, HyperFungibleToken]
 	);
 }
 
@@ -1279,8 +1285,8 @@ impl_runtime_apis! {
 	}
 
 	impl sp_session::SessionKeys<Block> for Runtime {
-		fn generate_session_keys(seed: Option<Vec<u8>>) -> Vec<u8> {
-			SessionKeys::generate(seed)
+		fn generate_session_keys(owner: Vec<u8>, seed: Option<Vec<u8>>) -> sp_session::OpaqueGeneratedSessionKeys {
+			SessionKeys::generate(&owner, seed).into()
 		}
 
 		fn decode_session_keys(
@@ -1409,7 +1415,7 @@ impl_runtime_apis! {
 
 		/// Return the timestamp this client was last updated in seconds
 		fn state_machine_update_time(height: StateMachineHeight) -> Option<u64> {
-			Ismp::state_machine_update_time(height)
+			Ismp::state_machine_update_time(height.id, height.height)
 		}
 
 		/// Return the latest height of the state machine
@@ -1441,6 +1447,13 @@ impl_runtime_apis! {
 	impl cumulus_primitives_core::CollectCollationInfo<Block> for Runtime {
 		fn collect_collation_info(header: &<Block as BlockT>::Header) -> cumulus_primitives_core::CollationInfo {
 			ParachainSystem::collect_collation_info(header)
+		}
+	}
+
+	impl cumulus_primitives_core::KeyToIncludeInRelayProof<Block> for Runtime {
+		fn keys_to_prove() -> cumulus_primitives_core::RelayProofRequest {
+			// This runtime reads no extra relay chain storage, so no keys need proving.
+			Default::default()
 		}
 	}
 
@@ -1500,7 +1513,19 @@ impl_runtime_apis! {
 
 
 			use cumulus_pallet_session_benchmarking::Pallet as SessionBench;
-			impl cumulus_pallet_session_benchmarking::Config for Runtime {}
+			impl cumulus_pallet_session_benchmarking::Config for Runtime {
+				fn generate_session_keys_and_proof(
+					owner: AccountId,
+				) -> (SessionKeys, sp_std::vec::Vec<u8>) {
+					use codec::Encode;
+					// Mirror the session-keys runtime API: generate the keys in the
+					// keystore and a proof-of-possession over the owner account.
+					let generated =
+						owner.using_encoded(|owner| SessionKeys::generate(owner, None));
+					(generated.keys, generated.proof.encode())
+				}
+			}
+			impl pallet_transaction_payment::BenchmarkConfig for Runtime {}
 
 			use frame_support::traits::WhitelistedStorageKeys;
 			let whitelist = AllPalletsWithSystem::whitelisted_storage_keys();

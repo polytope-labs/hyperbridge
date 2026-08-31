@@ -103,6 +103,7 @@ frame_support::construct_runtime!(
 		IsmpParachain: ismp_parachain,
 		Bandwidth: pallet_bandwidth,
 		StateCoprocessor: pallet_state_coprocessor,
+		BeefyConsensusProofs: pallet_beefy_consensus_proofs,
 	}
 );
 
@@ -273,7 +274,6 @@ impl pallet_ismp::Config for Test {
 			true,
 		>,
 	);
-	type MigrationWeightInfo = ();
 }
 
 impl pallet_bandwidth::Config for Test {
@@ -498,6 +498,27 @@ impl pallet_consensus_incentives::Config for Test {
 impl pallet_messaging_incentives::Config for Test {
 	type ReputationAsset = ReputationAsset;
 	type AdminOrigin = EnsureRoot<AccountId32>;
+}
+
+parameter_types! {
+	pub const BeefyProofsTreasury: PalletId = PalletId(*b"bf/proof");
+	pub const BeefyConsensusStateId: ismp::consensus::ConsensusStateId = *b"BEEF";
+	/// Deliberately small so a test can fill the ring and drive eviction without
+	/// authoring hundreds of proofs.
+	pub const MaxStoredBeefyProofs: u32 = 4;
+}
+
+impl pallet_beefy_consensus_proofs::Config for Test {
+	type AdminOrigin = EnsureRoot<AccountId32>;
+	type Currency = Balances;
+	type TreasuryPalletId = BeefyProofsTreasury;
+	type MaxProofSize = ConstU32<1024>;
+	type MaxStoredProofs = MaxStoredBeefyProofs;
+	type ConsensusStateId = BeefyConsensusStateId;
+	type UnbondingPeriod = ConstU64<10>;
+	type MaxUncleProvers = ConstU32<5>;
+	type ReputationAsset = ReputationAsset;
+	type WeightInfo = ();
 }
 
 parameter_types! {

@@ -1,16 +1,16 @@
 import { ERC20_ABI } from "@/config/abis/ERC20"
 import { ERC4626_ABI } from "@/config/abis/Erc4626"
+import { validateVaultToml } from "@/config/filler-toml"
 import { VaultLiquidityState } from "@/funding/vault/VaultLiquidityState"
 import type { VaultOutputFundingConfig, FundingPlanResult, FundingVenue } from "@/funding/types"
 import type { ChainClientManager } from "@/services/ChainClientManager"
 import type { UserOpSender } from "@/services/UserOpSender"
-import { getLogger } from "@/services/Logger"
+import { type Logger , moduleLogger} from "@/services/Logger"
 import { encodeERC7821ExecuteBatch, type ERC7821Call, type HexString } from "@hyperbridge/sdk"
 import { Mutex } from "async-mutex"
 import type { Decimal } from "decimal.js"
 import { encodeFunctionData } from "viem"
 
-const logger = getLogger("vault-funding")
 
 /** Default sweep cadence when the config omits `sweepIntervalMs`. */
 const DEFAULT_SWEEP_INTERVAL_MS = 5 * 60 * 1000
@@ -29,6 +29,8 @@ const DEFAULT_SWEEP_INTERVAL_MS = 5 * 60 * 1000
  * exotic tokens: {@link getExoticTokenPrice} always returns null.
  */
 export class VaultFundingPlanner implements FundingVenue {
+	private readonly logger: Logger
+
 	name = "Vault"
 	private stateByChain = new Map<string, VaultLiquidityState>()
 	private mutexByChain = new Map<string, Mutex>()
@@ -36,6 +38,7 @@ export class VaultFundingPlanner implements FundingVenue {
 	private sweepMutexByChain = new Map<string, Mutex>()
 	private solver: HexString | null = null
 	private sweepInterval?: NodeJS.Timeout
+	private initialSweepTimer?: NodeJS.Timeout
 
 	/**
 	 * @param userOpSender When provided, sweep/redeem batches are sent as Circle-
@@ -44,9 +47,46 @@ export class VaultFundingPlanner implements FundingVenue {
 	 */
 	constructor(
 		private readonly clientManager: ChainClientManager,
-		private readonly config: VaultOutputFundingConfig,
+		private config: VaultOutputFundingConfig,
 		private readonly userOpSender?: UserOpSender,
-	) {}
+	) {
+		this.logger = moduleLogger(clientManager.loggers, "vault-funding")
+	}
+
+	/** Invoked after each submitted sweep/redeem batch so wallet history can record it. */
+	onTx?: (tx: { chain: string; kind: "sweep" | "redeem"; txHash: HexString; sponsored: boolean }) => void
+
+	/**
+	 * Replaces the vault set at runtime and re-hydrates. The instance is shared
+	 * with every strategy's funding-venue list, so an in-place swap takes effect
+	 * on the next fill/sweep without re-wiring. Sweeping restarts if it was on.
+	 */
+	async reconfigure(config: VaultOutputFundingConfig): Promise<void> {
+		const solver = this.solver
+		if (!solver) throw new Error("Vault venue is not initialised yet")
+
+		const wasSweeping = this.sweepInterval !== undefined
+		this.stopSweeping()
+
+		const stateByChain = new Map<string, VaultLiquidityState>()
+		for (const [chain, vaults] of Object.entries(config.vaultsByChain)) {
+			const state = new VaultLiquidityState(chain, vaults, solver, this.clientManager)
+			await state.hydrate()
+			stateByChain.set(chain, state)
+		}
+
+		// Swap only after every chain hydrated, so a bad address leaves the old set live.
+		this.config = config
+		this.stateByChain.clear()
+		for (const [chain, state] of stateByChain) {
+			this.stateByChain.set(chain, state)
+			if (!this.mutexByChain.has(chain)) this.mutexByChain.set(chain, new Mutex())
+			if (!this.sweepMutexByChain.has(chain)) this.sweepMutexByChain.set(chain, new Mutex())
+		}
+
+		if (wasSweeping) this.startSweeping()
+		this.logger.info({ chains: Object.keys(config.vaultsByChain) }, "Vault venue reconfigured")
+	}
 
 	/**
 	 * Validates raw TOML vault entries before constructing the planner.
@@ -55,31 +95,7 @@ export class VaultFundingPlanner implements FundingVenue {
 	static validateConfig(
 		vaults: { chain?: string; vault?: string; threshold?: string; minBalance?: string; redeemOnShutdown?: boolean }[],
 	): void {
-		const positiveNumber = (v: string) => /^\d+(\.\d+)?$/.test(v.trim()) && Number(v) > 0
-		for (const v of vaults) {
-			if (!v.chain?.trim()) {
-				throw new Error("Each vault must have a non-empty 'chain' (e.g. EVM-8453)")
-			}
-			if (!v.vault?.trim()) {
-				throw new Error("Each vault entry must include a 'vault' address")
-			}
-			if (v.threshold !== undefined && !positiveNumber(v.threshold)) {
-				throw new Error(`Vault ${v.vault} 'threshold' must be a positive number`)
-			}
-			if (v.minBalance !== undefined && !positiveNumber(v.minBalance)) {
-				throw new Error(`Vault ${v.vault} 'minBalance' must be a positive number`)
-			}
-			// Sweeping needs a floor to keep gas/paymaster funds, and a trigger
-			// strictly above it so a sweep never tries to deposit ≤ 0.
-			if (v.threshold !== undefined) {
-				if (v.minBalance === undefined) {
-					throw new Error(`Vault ${v.vault} sets 'threshold' so it must also set 'minBalance'`)
-				}
-				if (Number(v.threshold) <= Number(v.minBalance)) {
-					throw new Error(`Vault ${v.vault} 'threshold' must be greater than 'minBalance'`)
-				}
-			}
-		}
+		validateVaultToml(vaults)
 	}
 
 	// =========================================================================
@@ -92,7 +108,7 @@ export class VaultFundingPlanner implements FundingVenue {
 		if (this.solver) return
 		this.solver = solver
 		for (const [chain, vaults] of Object.entries(this.config.vaultsByChain)) {
-			logger.info({ chain, vaultCount: vaults.length, solver }, "Vault venue initialising chain")
+			this.logger.info({ chain, vaultCount: vaults.length, solver }, "Vault venue initialising chain")
 
 			const state = new VaultLiquidityState(chain, vaults, solver, this.clientManager)
 			await state.hydrate()
@@ -179,7 +195,7 @@ export class VaultFundingPlanner implements FundingVenue {
 
 			state.consume(vault.asset, amount)
 
-			logger.debug(
+			this.logger.debug(
 				{
 					destChain,
 					vault: vault.vault,
@@ -208,18 +224,24 @@ export class VaultFundingPlanner implements FundingVenue {
 		const intervalMs = this.config.sweepIntervalMs ?? DEFAULT_SWEEP_INTERVAL_MS
 
 		// Initial sweep shortly after start (lets the filler settle first).
-		setTimeout(() => {
-			this.sweepExcessToVault().catch((err) => logger.error({ err }, "Vault initial sweep failed"))
+		this.initialSweepTimer = setTimeout(() => {
+			this.sweepExcessToVault().catch((err) => this.logger.error({ err }, "Vault initial sweep failed"))
 		}, 30_000)
 
 		this.sweepInterval = setInterval(() => {
-			this.sweepExcessToVault().catch((err) => logger.error({ err }, "Vault periodic sweep failed"))
+			this.sweepExcessToVault().catch((err) => this.logger.error({ err }, "Vault periodic sweep failed"))
 		}, intervalMs)
 
-		logger.info({ intervalMs }, "Vault periodic sweep started")
+		this.logger.info({ intervalMs }, "Vault periodic sweep started")
 	}
 
 	stopSweeping(): void {
+		// Tracked as well as the interval: the first sweep is a one-shot timer, and
+		// an untracked one fires after stop() has already resolved.
+		if (this.initialSweepTimer) {
+			clearTimeout(this.initialSweepTimer)
+			this.initialSweepTimer = undefined
+		}
 		if (this.sweepInterval) {
 			clearInterval(this.sweepInterval)
 			this.sweepInterval = undefined
@@ -298,7 +320,7 @@ export class VaultFundingPlanner implements FundingVenue {
 					}) as HexString,
 				})
 
-				logger.info(
+				this.logger.info(
 					{ chain, vault: vault.vault, asset: vault.asset, excess: excess.toString(), depositAmount: depositAmount.toString() },
 					"Vault sweeping excess in",
 				)
@@ -307,7 +329,8 @@ export class VaultFundingPlanner implements FundingVenue {
 			if (calls.length === 0) return
 
 			const { txHash, sponsored } = await this.submitBatch(chain, solver, calls)
-			logger.info({ chain, tx: txHash, sponsored, pairs: calls.length / 2 }, "Vault sweep submitted")
+			this.logger.info({ chain, tx: txHash, sponsored, pairs: calls.length / 2 }, "Vault sweep submitted")
+			this.onTx?.({ chain, kind: "sweep", txHash, sponsored })
 		})
 	}
 
@@ -343,7 +366,7 @@ export class VaultFundingPlanner implements FundingVenue {
 				paymasterVerificationGasLimit: 140_000n,
 			})
 			if (result) return { txHash: result.txHash, sponsored: true }
-			logger.warn({ chain }, "Sponsored batch unavailable, sending native tx")
+			this.logger.warn({ chain }, "Sponsored batch unavailable, sending native tx")
 		}
 
 		const walletClient = this.clientManager.getWalletClient(chain)
@@ -375,7 +398,7 @@ export class VaultFundingPlanner implements FundingVenue {
 		const chains = Array.from(this.stateByChain.keys())
 		await Promise.all(
 			chains.map((c) =>
-				this.redeemChain(c).catch((err) => logger.error({ err, chain: c }, "Vault shutdown redeem failed")),
+				this.redeemChain(c).catch((err) => this.logger.error({ err, chain: c }, "Vault shutdown redeem failed")),
 			),
 		)
 	}
@@ -411,7 +434,7 @@ export class VaultFundingPlanner implements FundingVenue {
 					}) as HexString,
 				})
 
-				logger.info(
+				this.logger.info(
 					{ chain, vault: vault.vault, asset: vault.asset, shares: shares.toString() },
 					"Vault redeeming full position",
 				)
@@ -420,7 +443,8 @@ export class VaultFundingPlanner implements FundingVenue {
 			if (calls.length === 0) return
 
 			const { txHash, sponsored } = await this.submitBatch(chain, solver, calls)
-			logger.info({ chain, tx: txHash, sponsored, vaults: calls.length }, "Vault shutdown redeem submitted")
+			this.logger.info({ chain, tx: txHash, sponsored, vaults: calls.length }, "Vault shutdown redeem submitted")
+			this.onTx?.({ chain, kind: "redeem", txHash, sponsored })
 		})
 	}
 }

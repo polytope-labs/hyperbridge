@@ -1,4 +1,4 @@
-import { decodeFunctionData, concat, keccak256 } from "viem"
+import { decodeFunctionData, concat } from "viem"
 import { ABI as IntentGatewayV2ABI } from "@/abis/IntentGatewayV2"
 import { ADDRESS_ZERO, bytes32ToBytes20 } from "@/utils"
 import type {
@@ -14,6 +14,7 @@ import type {
 } from "@/types"
 import type { IntentGatewayContext } from "./types"
 import { CryptoUtils } from "./CryptoUtils"
+import { decodeFillOrder } from "./fillOrderCodec"
 import { BidImpl } from "./Bid"
 import Decimal from "decimal.js"
 
@@ -47,9 +48,12 @@ export class BidManager {
 	 * Constructs a signed `PackedUserOperation` that a solver can submit to the
 	 * Hyperbridge coprocessor as a bid to fill an order.
 	 *
-	 * The solver's signature covers a hash that binds the UserOperation to the
-	 * order commitment and the session key address, so the IntentGatewayV2
-	 * contract can verify the solver's intent on-chain.
+	 * The solver signs the operation as EntryPoint v0.8 EIP-712 typed data,
+	 * whose digest is the plain userOpHash. The binding to the order lives in
+	 * the operation itself: the 4337 nonce key must be the lower 192 bits of
+	 * the order commitment (`SolverAccount` enforces this during validation),
+	 * and the callData carries the order. This keeps the signed payload fully
+	 * transparent to signing infrastructure instead of an opaque digest.
 	 *
 	 * @param options - Parameters describing the solver account, gas limits, fee
 	 *   market values, and pre-built `callData` for the fill operation.
@@ -91,11 +95,18 @@ export class BidManager {
 			signature: "0x" as HexString,
 		}
 
-		const userOpHash = CryptoUtils.computeUserOpHash(userOp, entryPointAddress, chainId)
-		const sessionKey = order.session
-
-		const messageHash = keccak256(concat([userOpHash, order.id as HexString, sessionKey as HexString]))
-		const solverSignature = await solverSigner.signMessage(messageHash, Number(chainId))
+		// SolverAccount validates this signature against the plain userOpHash and
+		// requires the nonce key to bind the order commitment and session key.
+		const nonceKey = BigInt(nonce) >> 64n
+		const expectedKey = CryptoUtils.bidNonceKey(order.id as HexString, order.session as HexString)
+		if (nonceKey !== expectedKey) {
+			console.warn(
+				`[BidManager] bid nonce key does not bind the order commitment and session key; on-chain validation will fail (order=${order.id})`,
+			)
+		}
+		const solverSignature = await solverSigner.signTypedData(
+			CryptoUtils.packedUserOpTypedData(userOp, entryPointAddress, chainId),
+		)
 
 		const signature = concat([order.id as HexString, solverSignature as HexString]) as HexString
 
@@ -162,14 +173,14 @@ export class BidManager {
 
 	/**
 	 * Autopilot bid selection: sorts the given bids by output value, simulates
-	 * each in order until one passes, then executes that bid. For consumers that
-	 * do not need custom selection logic.
+	 * each in order and attempts execution. Any bid that fails simulation or
+	 * execution is skipped once so the next ranked bid can be attempted in the
+	 * same round. For consumers that do not need custom selection logic.
 	 *
 	 * @param order - The placed order to fill.
 	 * @param bids - Candidate bids (from {@link buildBids}).
 	 * @returns A {@link SelectBidResult} for the executed bid.
-	 * @throws If no valid bids exist, all simulations fail, or the bundler rejects
-	 *   the UserOperation.
+	 * @throws If no valid bids exist or every bid fails simulation/execution.
 	 */
 	async selectAndExecuteBest(order: Order, bids: Bid[]): Promise<SelectBidResult> {
 		const commitment = order.id as HexString
@@ -189,6 +200,8 @@ export class BidManager {
 		}
 
 		console.log(`[BidManager] Simulating ${sortedBids.length} sorted bid(s) to find a valid one`)
+		let simulationFailures = 0
+		let executionFailures = 0
 		for (let idx = 0; idx < sortedBids.length; idx++) {
 			const bid = sortedBids[idx]
 			console.log(`[BidManager] Simulating bid ${idx + 1}/${sortedBids.length} from solver=${bid.solverAddress}`)
@@ -196,6 +209,7 @@ export class BidManager {
 			try {
 				await bid.simulate()
 			} catch (err) {
+				simulationFailures += 1
 				console.warn(
 					`[BidManager] Bid ${idx + 1} from solver=${bid.solverAddress}: simulation FAILED: ` +
 						`${err instanceof Error ? err.message : String(err)}`,
@@ -204,11 +218,22 @@ export class BidManager {
 			}
 
 			console.log(`[BidManager] Bid ${idx + 1} from solver=${bid.solverAddress}: simulation PASSED`)
-			return bid.execute()
+			try {
+				return await bid.execute()
+			} catch (err) {
+				executionFailures += 1
+				console.warn(
+					`[BidManager] Bid ${idx + 1} from solver=${bid.solverAddress}: execution FAILED: ` +
+						`${err instanceof Error ? err.message : String(err)}; trying next bid`,
+				)
+			}
 		}
 
-		console.error(`[BidManager] All ${sortedBids.length} bid(s) failed simulation for commitment=${commitment}`)
-		throw new Error("No bids passed simulation")
+		console.error(
+			`[BidManager] No executable bids for commitment=${commitment}: ` +
+				`${simulationFailures} simulation failure(s), ${executionFailures} execution failure(s)`,
+		)
+		throw new Error("No bids passed simulation and execution")
 	}
 
 	/**
@@ -260,19 +285,12 @@ export class BidManager {
 			if (!innerCalls || innerCalls.length === 0) return null
 
 			for (const call of innerCalls) {
-				try {
-					const decoded = decodeFunctionData({
-						abi: IntentGatewayV2ABI,
-						data: call.data,
-					})
-					if (decoded?.functionName === "fillOrder" && decoded.args && decoded.args.length >= 2) {
-						const fillOptions = decoded.args[1] as FillOptions
-						if (fillOptions?.outputs?.length > 0) {
-							return fillOptions
-						}
-					}
-				} catch {
-					continue
+				// Bids may be built against either FillOptions shape depending on the gateway
+				// the bidder targeted, so decode tries both. A v1 payload reports validUntil
+				// as 0n, which is accurate: that fill genuinely carries no bound.
+				const decoded = decodeFillOrder(call.data as HexString)
+				if (decoded && decoded.options?.outputs?.length > 0) {
+					return decoded.options
 				}
 			}
 		} catch {

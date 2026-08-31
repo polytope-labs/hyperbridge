@@ -176,6 +176,13 @@ abstract contract IntentsBase is EIP712 {
     error Expired();
 
     /**
+     * @notice The fill's own validity window has passed (`options.validUntil`)
+     * @dev Distinct from {Expired}: that one means the order is dead, this one means the
+     *      solver's quote is stale.
+     */
+    error FillExpired();
+
+    /**
      * @dev Thrown when insufficient native token (ETH) is provided or a transfer fails.
      */
     error InsufficientNativeToken();
@@ -282,6 +289,17 @@ abstract contract IntentsBase is EIP712 {
      * @param tokens The tokens and amounts refunded.
      */
     event EscrowRefunded(bytes32 indexed commitment, TokenInfo[] tokens);
+
+    /**
+     * @dev Emitted when an order's cancellation is initiated, on the chain it is initiated from.
+     * For same-chain orders the refund is processed in the same transaction and `EscrowRefunded`
+     * follows; for cross-chain orders `EscrowRefunded` follows on the source chain once the
+     * cancellation has travelled through Hyperbridge.
+     * @param commitment The order commitment hash.
+     * @param canceller The account that initiated the cancellation. The destination-side route is
+     * permissionless after expiry, so this is not necessarily the order's creator.
+     */
+    event OrderCancelled(bytes32 indexed commitment, address canceller);
 
     /**
      * @dev Emitted when the gateway's configuration parameters are updated via governance.

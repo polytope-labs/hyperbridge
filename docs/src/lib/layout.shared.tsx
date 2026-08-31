@@ -1,5 +1,7 @@
 import type { BaseLayoutProps } from "fumadocs-ui/layouts/shared";
 import Image from "next/image";
+import logoBlack from "@/assets/logo_black.svg";
+import logoWhite from "@/assets/logo_white.svg";
 
 export function baseOptions(): BaseLayoutProps {
     return {
@@ -11,14 +13,14 @@ export function baseOptions(): BaseLayoutProps {
             title: (
                 <div className="px-2">
                     <Image
-                        src={"/logo_black.svg"}
+                        src={logoBlack}
                         alt="Hyperbridge Logo"
                         width={149}
                         height={32}
                         className="min-h-8 dark:hidden"
                     />
                     <Image
-                        src={"/logo_white.svg"}
+                        src={logoWhite}
                         alt="Hyperbridge Logo"
                         width={149}
                         height={32}

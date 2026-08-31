@@ -43,6 +43,96 @@ also anchors the brand gradient to the top edge and centers all states in a max-
 Files: `ui/src/App.tsx`, `ui/src/styles.css`, `ui/src/wizard/Wizard.tsx`,
 `ui/src/assets/hyperbridge-logo.svg`, `ui/src/assets/fonts/*.woff2`, `docs/ai/{ChangeLog,Decisions,Flow}.md`.
 
+## 2026-08-27 — Phantom orders are validated against the pallet's shape before they are quoted
+
+`IntentFiller.preparePhantomBid` now refuses any phantom order that does not look like one
+`phantom_order_commitment` built: a non-zero `session`, a non-zero output amount, or a
+`source`/`destination` that is not the announced chain. Those checks are pure field comparisons —
+no RPC. On top of them, the destination head is read and an order that is still fillable is
+refused; that read is best-effort, and a failure warns and continues rather than stopping the
+filler bidding.
+
+The reason any of it is needed: `quotePhantomFill` deliberately runs with no budget, no
+wallet-balance read and neither profit gate, so the amounts signed are bounded only by the order
+body. The body is read from a single Hyperbridge node's offchain storage, and `fetchPhantomOrder`
+assigns `id` from the event rather than re-deriving the commitment from the bytes — so it is
+unauthenticated. A forged body would have turned that unbounded quote into a signed, executable
+authorization to fill an order of someone else's choosing, paying out to a beneficiary named in
+the same body.
+
+Each invariant independently breaks that. `session` is the direct one: `_select` recovers a key
+with `ECDSA.recover`, which can never return the zero address, so a genuine phantom order can
+never have a solver selected at all.
+
+Found by the scheduled IntentGateway/Simplex security audit.
+
+The unit tests now also rebuild an order the way `phantom_order_commitment` does, encode it with
+the real `placeOrder` ABI and decode it the way `fetchPhantomOrder` does, before running the guard
+over it. The hand-built fixtures otherwise bake in the assumption the guard depends on — that a
+pallet-generated order presents `source`/`destination` as the same string the event carries in
+`chain` — and getting that wrong would refuse every genuine phantom order and silently stop the
+filler bidding, which only the simnode E2E would have caught.
+
+The simnode E2E was seeding `LatestStateMachineHeight` with `createType("u64", h).toHex()`.
+polkadot-js renders integers big-endian in hex while SCALE stores them little-endian, so the
+runtime read `0x00000000000f4240` back as 4.6e18: every phantom order in that suite carried a
+far-future deadline and was, contrary to the entire point of a phantom order, genuinely fillable.
+Nothing noticed until this guard refused to quote them. Fixed to seed `toU8a()`.
+
+Files: `src/core/filler.ts`, `src/tests/core/phantom-order-validation.test.ts`,
+`src/tests/phantom-filler.e2e.simnode.test.ts`.
+
+## 2026-08-27 — Bids carry an on-chain expiry (`bidValiditySeconds`)
+
+Every bid this filler signs now sets `FillOptions.validUntil`, so `fillOrder` reverts `FillExpired` once the quote
+has gone stale. Configured as `simplex.bidValiditySeconds`, default 300 (5 minutes).
+
+A bid is a firm price the order placer takes up whenever they choose, and nothing bounded that window:
+`order.deadline` is placer-chosen with no ceiling, and `enqueueRetraction` only clears the bid on Hyperbridge, which
+has no effect on the destination chain. A bid signed at one rate stayed executable indefinitely and was exercised only
+if the rate moved against us — a written option on this filler's inventory, at no premium. Volatile pairs
+(USDC/CNGN) are the worst case, since the naira reprices in steps rather than drifting.
+
+Operators configure seconds because that is the unit the risk is in; the contract compares block numbers, so the
+value is converted per destination chain from the chain's nominal block time (`Chain.blockTime`, milliseconds in
+viem), with a 30-second discovery allowance added before the conversion and the result rounded up — seconds rather
+than a block count, because the lag between reading the head and the fill landing is wall-clock and does not scale
+with block time.
+
+`buildApprovalAndFillCalldata` encodes through the SDK's version-aware codec, since gateways predating the field take
+a differently-selectored `fillOrder`. On such a chain the bound is dropped — there is nowhere to put it — and the
+filler warns once per chain rather than silently believing itself protected.
+
+Found by the scheduled IntentGateway/Simplex security audit.
+
+Files: `src/services/ContractInteractionService.ts`, `src/services/FillerConfigService.ts`,
+`src/config/filler-toml.ts`, `src/config/abis/IntentGatewayV2.ts`, `src/core/boot.ts`,
+`filler-config-example.toml`, `src/tests/services/bid-validity-config.test.ts`.
+
+## 2026-08-26 — `decimals()` read failures fall back to the asset registry instead of guessing 18
+
+`ContractInteractionService.getTokenDecimals` previously swallowed a failed on-chain `decimals()`
+read and returned a hardcoded 18. That value flows into `computeLegPolicyOutput`, which scales
+`policyMaxOutput` by `10 ** decimals` — so a 6-decimal token (USDC/USDT/cNGN) misread as 18
+inflates the computed payout by 10^12. Since the overfill clamp is disabled, nothing bounds the
+result back to the user's requested output, and the filler would size the leg against its whole
+wallet balance.
+
+The correct values were already in the tree: `chain.ts` carries a per-chain `tokenDecimals` table
+and `ChainConfigService.getAssetMetadataByAddress` resolves it by address. Nothing in simplex
+consulted it — `CacheService.tokenDecimals` starts empty and its only writer is the success path
+of the very read that just failed. The catch branch now consults the registry through a new
+`FillerConfigService.getAssetDecimalsByAddress` delegator, and raises a hard error when neither
+the RPC nor the registry can supply a value — there is no safe guess, so the order is skipped
+instead. Every caller was audited to confirm a throw skips one order rather than escaping:
+`initCache` runs unawaited from the constructor and now swallows its own failures, so a boot-time
+RPC hiccup cannot become an unhandled rejection.
+
+Found by the scheduled IntentGateway/Simplex security audit.
+
+Files: `src/services/ContractInteractionService.ts`, `src/services/FillerConfigService.ts`,
+`src/tests/services/ContractInteractionService.decimals.test.ts`.
+
 ## 2026-08-26 — Final-review fixes: cause-chain probe classification, batching guards (#1071)
 
 Second review round on the 08-24 fixes; the transport-error fix (F4) did not survive contact with viem, and the new batching/zero-first code had gaps.
@@ -217,6 +307,35 @@ it is now `accepts an omitted maxOrderSize, and rejects a malformed one`.
 
 Files: src/strategies/fx.ts, src/config/pairs.ts, src/core/boot.ts, src/simplex.ts,
 src/tests/pairs.test.ts.
+
+## 2026-08-20 — pairs.test.ts catches up with the probe and paymaster changes, and CI now runs it
+
+`src/tests/pairs.test.ts` failed 12 of its 55 tests on main, unnoticed because no CI script ran
+the file. Both failure groups were stale test expectations, not product regressions — each was
+verified against the intent recorded in the 2026-08-19 entries before editing:
+
+- Three phantom-probe tests still expected `quotePhantomFill` to cap its quote at the pair's
+  `maxOrderSize`. The cap no longer rations probes (see "A phantom probe is no longer rationed by
+  the pair's exposure cap", and the Decisions entry "The exposure cap governs fills, never
+  probes") — that change updated `fx.one-sided-lp.test.ts` only and left this file behind. The
+  assertions now expect the full unrationed quotes (e.g. 200,000 ZARP × 100 = 20,000,000 CNGN
+  where the old cap produced 10,000,000), and the test names/comments no longer claim probes are
+  capped.
+- Nine profit-gates tests scored 0 where they expected a positive result (or the partial-fill
+  flag). The leg loop now calls `paymasterReserveForToken` (see "Fill sizing reserves the
+  paymaster's gas pull"), whose `hasPaymaster` check calls
+  `configService.getCirclePaymasterAddress` / `getSimplexPaymasterAddress` — absent on the
+  suite's `cfg` mock, so every evaluation threw `TypeError` into `calculateProfitability`'s catch
+  and returned 0. Root cause pinned with a throwaway probe test against the exact mock shape. The
+  mock now defines both getters as `() => undefined` (no paymaster configured → zero reserve),
+  which restores the suite's exact spread/fee arithmetic.
+
+`test:filler` now includes `src/tests/pairs.test.ts`, so the file runs in CI (the "Run simplex
+test" step of `.github/workflows/test-sdk.yml`). It is pure-unit — no network, no env. Verified:
+55/55 pass via `pnpm vitest run --maxConcurrency=1 src/tests/pairs.test.ts`, biome lint clean on
+the file, and `vitest list` collects all four `test:filler` files after codegen.
+
+Files: `src/tests/pairs.test.ts`, `package.json`, `docs/ai/{ChangeLog,Decisions}.md`.
 
 ## 2026-08-19 — A phantom probe is no longer rationed by the pair's exposure cap
 

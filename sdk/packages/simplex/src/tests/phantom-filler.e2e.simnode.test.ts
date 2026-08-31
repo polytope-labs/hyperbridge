@@ -30,7 +30,7 @@
 import { stubOrderScanner } from "./helpers/stub-scanner"
 import { HyperbridgeScanner } from "@/scanner/hyperbridge-scanner"
 import { ApiPromise, WsProvider, Keyring } from "@polkadot/api"
-import { hexToU8a, u8aToString } from "@polkadot/util"
+import { hexToU8a, u8aToHex, u8aToString } from "@polkadot/util"
 import { keccakAsU8a } from "@polkadot/util-crypto"
 import { encodeAbiParameters, keccak256, toHex } from "viem"
 import { privateKeyToAccount } from "viem/accounts"
@@ -178,7 +178,11 @@ async function sudoAndSeal(api: ApiPromise, call: any): Promise<void> {
 async function seedStateMachineHeight(api: ApiPromise, chainId: number, height: bigint): Promise<void> {
 	const id = { state_id: { Evm: chainId }, consensus_state_id: ETH0_CONSENSUS_ID }
 	const key = api.query.ismp.latestStateMachineHeight.key(id)
-	await sudoAndSeal(api, api.tx.system.setStorage([[key, api.createType("u64", height).toHex()]]))
+	// `toU8a()` and not `toHex()`: polkadot-js renders integers big-endian in hex, while SCALE
+	// stores them little-endian. Seeding the hex form wrote 0x00000000000f4240, which the runtime
+	// decoded as 4.6e18 — so every phantom order carried a far-future deadline and was, contrary
+	// to the point of a phantom order, genuinely fillable on-chain.
+	await sudoAndSeal(api, api.tx.system.setStorage([[key, u8aToHex(api.createType("u64", height).toU8a())]]))
 }
 // Two pairs per chain: both stables against cNGN. Each pair expands into its forward and
 // reverse legs, so every chain's order carries four legs.

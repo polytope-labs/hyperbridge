@@ -23,7 +23,7 @@ beefy-verifier-primitives = { workspace = true, default-features = false }
 
 # ABI
 alloy-sol-types = { workspace = true, default-features = false }
-ismp-abi = { workspace = true, default-features = false }
+ismp-abi = { workspace = true, default-features = false, features = ["substrate"] }
 
 # misc
 anyhow = { workspace = true, default-features = false }

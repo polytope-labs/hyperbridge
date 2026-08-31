@@ -144,6 +144,11 @@ export interface FillerConfig {
 	 */
 	targetGasUnits?: number
 	/**
+	 * Seconds a signed bid stays executable. Defaults to 300 (5 minutes).
+	 * See `bidValiditySeconds` in filler-toml for why this bound matters.
+	 */
+	bidValiditySeconds?: number
+	/**
 	 * Overfill protection knobs. If omitted, defaults are used
 	 * (maxOverfillBps=500, maxConsecutiveClamps=3).
 	 */
@@ -347,6 +352,19 @@ export class FillerConfigService {
 
 	getUsdtDecimals(chain: string): number {
 		return this.chainConfigService.getUsdtDecimals(chain)
+	}
+
+	/**
+	 * Curated decimals for a token, looked up by address in the SDK's per-chain
+	 * asset table. Returns `undefined` for any token not in that table.
+	 *
+	 * This is the safety net for `ContractInteractionService.getTokenDecimals`
+	 * when the on-chain `decimals()` read fails: the registry already carries the
+	 * correct value for every supported asset (verified on-chain at curation
+	 * time), so a failed read has no business guessing.
+	 */
+	getAssetDecimalsByAddress(chain: string, address: HexString): number | undefined {
+		return this.chainConfigService.getAssetMetadataByAddress(chain, address)?.decimals
 	}
 
 	getChainId(chain: string): number {
@@ -578,6 +596,17 @@ export class FillerConfigService {
 	 */
 	getTargetGasUnits(): bigint {
 		return BigInt(this.fillerConfig?.targetGasUnits ?? 3_000_000)
+	}
+
+	/**
+	 * How long a signed bid remains executable, in seconds. Defaults to 300 (5 minutes).
+	 *
+	 * A bid is a firm price the placer may take up at a moment of their choosing; this is the
+	 * only thing bounding that window, since the order deadline is placer-controlled and
+	 * Hyperbridge-side retraction does not reach the destination chain.
+	 */
+	getBidValiditySeconds(): number {
+		return this.fillerConfig?.bidValiditySeconds ?? 300
 	}
 
 	/** Ceiling bps above user-requested output. Default 500 (5%). */

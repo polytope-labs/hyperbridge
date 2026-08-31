@@ -13,6 +13,7 @@ import {
 	bytes32ToBytes20,
 	type TokenInfo,
 	type PhantomBid,
+	ADDRESS_ZERO,
 } from "@hyperbridge/sdk"
 import { parseChainKey } from "@/config/interpolated-curve"
 import { INTENT_GATEWAY_V2_ABI } from "@/config/abis/IntentGatewayV2"
@@ -1201,6 +1202,75 @@ export class IntentFiller {
 				"Phantom order not found in offchain storage — node may not be an offchain worker or order expired",
 			)
 			return null
+		}
+
+		// Everything below establishes that this order body really is the pallet's.
+		//
+		// It arrives from a single Hyperbridge node's offchain storage, and `fetchPhantomOrder`
+		// assigns the commitment from the event rather than re-deriving it from the bytes, so the
+		// body is unauthenticated. That matters because `quotePhantomFill` deliberately runs with
+		// no budget, no wallet-balance read and neither profit gate — the amounts we sign are
+		// bounded only by the body. A forged body would turn that unbounded quote into a signed,
+		// executable authorization to fill an order of someone else's choosing.
+		//
+		// `phantom_order_commitment` fixes every one of these fields, so each check is free and
+		// each one independently makes the bid unexecutable. `session` is the load-bearing one:
+		// `_select` recovers a session key with `ECDSA.recover`, which can never return the zero
+		// address, so a genuine phantom order can never have a solver selected at all.
+		const invariant =
+			phantomOrder.session?.toLowerCase() !== ADDRESS_ZERO.toLowerCase()
+				? "session key is not the zero address"
+				: phantomOrder.output.assets.some((asset) => asset.amount !== 0n)
+					? "an output leg requests a non-zero amount"
+					: phantomOrder.source !== event.chain || phantomOrder.destination !== event.chain
+						? "source/destination do not both match the announced chain"
+						: null
+		if (invariant) {
+			this.logger.error(
+				{
+					commitment: event.commitment,
+					chain: event.chain,
+					source: phantomOrder.source,
+					destination: phantomOrder.destination,
+					session: phantomOrder.session,
+					reason: invariant,
+				},
+				"Phantom order does not match the shape the pallet generates — refusing to quote. The " +
+					"order body did not come from the pallet.",
+			)
+			return null
+		}
+
+		// Defence in depth on top of the structural checks: the pallet stamps the chain's latest
+		// *confirmed* height as the deadline precisely so the order "can never be executed for
+		// real", and `fillOrder` reverts `Expired()` once `deadline < block.number`. A body that is
+		// still fillable is not the pallet's whatever else it looks like.
+		//
+		// Best-effort: a failed head read only costs this cross-check, and the invariants above
+		// already carry the security property without touching an RPC. Hard-failing here would let
+		// one flaky endpoint stop this filler bidding altogether — and this runs inside the
+		// on-chain bid window, so it must not become a latency cliff either.
+		try {
+			const currentBlock = await this.chainClientManager.getPublicClient(event.chain).getBlockNumber()
+			if (phantomOrder.deadline >= currentBlock) {
+				this.logger.error(
+					{
+						commitment: event.commitment,
+						chain: event.chain,
+						deadline: phantomOrder.deadline.toString(),
+						currentBlock: currentBlock.toString(),
+					},
+					"Phantom order is still fillable — refusing to quote. A genuine phantom order carries a " +
+						"past confirmed height as its deadline.",
+				)
+				return null
+			}
+		} catch (err) {
+			this.logger.warn(
+				{ err, commitment: event.commitment, chain: event.chain },
+				"Could not read the current block to cross-check the phantom order deadline; " +
+					"continuing on the structural checks alone",
+			)
 		}
 
 		// Every leg of every configured pair rides in this one order, so quote leg by leg —

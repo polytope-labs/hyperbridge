@@ -22,6 +22,143 @@ buttons would diverge from the sibling apps' higher-contrast white action treatm
 editors keep their config semantics, while the wizard shell now owns navigation and requirement
 gating so disabled progress always has an actionable explanation.
 
+## 2026-08-27 — Phantom orders are gated on the pallet's structural invariants, not on a re-derived commitment
+
+Chosen: `preparePhantomBid` checks `session == 0`, all output amounts zero, and
+`source == destination == event.chain` — all RPC-free — and then cross-checks the deadline against
+the destination head as defence in depth.
+
+The obvious alternative is to re-derive the commitment from the fetched bytes and compare it to the
+event's. Rejected as the gate: a node that serves a forged body also serves the
+`PhantomOrderRegistered` event, so it can publish a matching commitment. And `filler.ts` already
+documents why the commitment comes from the event — re-deriving risks parity divergence if the
+encode round-trip does not reproduce the pallet's bytes exactly, which would break every honest bid
+to defend against a dishonest node the check does not stop.
+
+The structural checks have neither problem. They are comparisons against constants the pallet fixes
+at construction, and each independently makes a forged bid unexecutable — `session == 0` most
+directly, since `ECDSA.recover` can never return the zero address, so `_select` can never stage a
+selection.
+
+**Why the deadline check is not the primary gate.** It was, initially. Two things argued against
+leaning on it alone. It needs a live `eth_blockNumber`, and this code runs inside the on-chain bid
+window (as few as 5 blocks), so it is the wrong place to add a mandatory round trip. And it
+compares a Hyperbridge-confirmed height against a destination-chain head — two clocks whose
+relationship holds in production but is an environment property, not an invariant, which makes a
+hard failure on it brittle in exactly the environments (dev, simnode, forks) where the heights are
+seeded by hand. Keeping it as a cross-check preserves the signal without either cost.
+
+**Why its RPC failure is non-fatal.** Failing closed reopens nothing, because the structural checks
+do not depend on the EVM RPC — and the threat here is a dishonest Hyperbridge node, not a dishonest
+EVM endpoint. Hard-failing would let one flaky endpoint stop this filler bidding altogether, which
+trades a risk that is already covered for a certain outage.
+
+Not adopted: applying the real bid's ceilings to phantom quotes. Wrong layer — the quote is meant to
+be unbounded, because it is a price advertisement rather than a fill. Constraining it would distort
+what the filler publishes to fix a problem that is really about trusting the order body.
+
+## 2026-08-27 — The surplus split is a helper because `_fillSameChain` sits on the via-ir stack limit
+
+Chosen: the overpayment split in `_fillSameChain` moved into a `private view` `_splitSurplus`.
+
+This is not a readability change. Removing the `recordSpread` call from the end of `fillOrder`
+broke compilation with "Variable var_protocolShare_1 is 1 too deep in the stack" — and bisecting
+showed the `validUntil` check was not the cause. That oracle call had been keeping `commitment`
+and the order's fields live past the fill, which happened to give the optimizer a stack layout
+that fit; taking it out took the slack with it.
+
+So the function was already one slot from the limit and only compiled by accident of an unrelated
+call site. Extracting the split gives the two share variables their own frame and restores the
+headroom, without touching the fill arithmetic — the helper is a literal transcription of the
+branch it replaces.
+
+Worth knowing for anyone editing `_fillSameChain`: it has essentially no stack budget left, and
+changes elsewhere in `fillOrder` can push it over from a distance.
+
+## 2026-08-27 — Bid tenor is configured in seconds and written in blocks
+
+Chosen: `bidValiditySeconds` (default 300) is converted to a block height per destination chain in
+`ContractInteractionService.bidValidUntilBlock()`.
+
+The on-chain field has to be blocks: `fillOrder` compares it against `_blockNumber()`, the same clock as
+`order.deadline`, and having the two disagree about what "expired" means would be a trap. But blocks are the wrong
+unit for an operator — 5 minutes is 25 blocks on Ethereum and 150 on Base, so a single configured block count would
+mean something different on every chain, and price risk is denominated in time, not blocks. Converting at the edge
+keeps both sides in their natural unit. Rounding is deliberately up: erring long costs a slightly stale quote, erring
+short silently drops bids we would have won.
+
+300 seconds is chosen to cover the quote-to-fill path and little more: cross-chain confirmation waits reach roughly
+180s on the deepest default policies, so 5 minutes clears the mechanical part of the round trip while keeping the
+window over which the quoted price is a firm commitment short. On a volatile pair that is the number that matters —
+optionality handed to the placer scales with time, and USDC/CNGN reprices in steps rather than drifting.
+
+The cost is on the other side and worth watching. A bid is not consumed when signed: it waits in the coprocessor
+until the placer selects a solver, so an expiry shorter than the selection window is lost revenue rather than lost
+money. `BID_TTL_MS` (the 1-hour retraction sweep) is the only stated expectation in the tree for how long selection
+takes, and 5 minutes sits well inside it — if bids are observed lapsing unselected, this is the knob, and raising it
+is a pricing decision rather than a correctness one.
+
+It is deliberately not tied to `BID_TTL_MS`: that TTL governs reclaiming a deposit, this governs how long we are
+short an option, and the two should not be assumed to move together.
+
+The window carries a 30-second discovery allowance on top of the configured validity, added before the conversion so
+the rounding happens once. The head is read before the bid is built, signed, submitted to Hyperbridge and finally
+discovered and selected, so it is already behind by the time a fill lands, and `Chain.blockTime` is nominal rather
+than exact.
+
+It is denominated in seconds rather than blocks because that lag is wall-clock and does not scale with block time —
+a flat block count would be worth 60s on Ethereum and 1.25s on Arbitrum for the same real delay, which is backwards.
+The asymmetry decides the direction: overshooting costs a marginally staler quote, undershooting silently throws
+away bids that were about to be won.
+
+Alternatives rejected:
+
+- *Derive it from the order's own deadline.* Placer-controlled with no ceiling — the input being defended against.
+- *Reuse the 1-hour bid TTL.* Conflates deposit housekeeping with price risk; an hour of free optionality on a naira
+  pair is worth real money.
+- *Per-pair tenors.* Right in the long run — a stablecoin pair could safely carry a longer expiry — but one
+  conservative global default fixes the exposure now without adding a config surface to get wrong.
+
+On a gateway predating the field the bound is dropped rather than the fill refused. Refusing would take the filler
+off any chain not yet upgraded, which trades a bounded risk for a certain outage; the one-per-chain warning is there
+so the gap is visible rather than assumed away.
+
+## 2026-08-26 — The asset registry is a fallback for `decimals()`, not the source of truth
+
+Chosen: `getTokenDecimals` reads `decimals()` on-chain first, falls back to
+`FillerConfigService.getAssetDecimalsByAddress` when that read throws, and **throws** if neither
+source can supply a value. The registry value is **not** written into `CacheService`.
+
+The on-chain value is the real one — the registry is curated data that can drift from a
+redeployed or migrated token. Keeping the read authoritative means the registry only ever covers a
+transient RPC failure. Not caching the fallback is the load-bearing half: `CacheService.tokenDecimals`
+has no TTL, so caching a registry value during an outage would pin it for the lifetime of the
+process and silently outlive the failure that justified it. Leaving the cache empty means the next
+call retries the read and caches the real answer.
+
+Alternatives rejected:
+
+- *Registry first, on-chain only for unregistered tokens.* Fewer RPC calls, and it would make the
+  bad path unreachable rather than merely survivable. Rejected because it inverts which value is
+  authoritative: a stale registry entry would then silently override the live token on every fill,
+  and the registry is edited by hand.
+- *Return 18 when the registry has no entry either.* What this replaced. `decimals` scales
+  `policyMaxOutput` by `10 ** decimals`, so a wrong value does not degrade a fill — it changes its
+  size by orders of magnitude. There is no safe guess, so the function now throws and the order is
+  skipped.
+
+Making it throw required auditing every caller, since `getTokenDecimals` had never thrown:
+
+- `calculateProfitability` and `sizeOrder` reach `IntentFiller.evaluateOrder`, inside the
+  `try/catch` opened at `core/filler.ts:604` — the order is logged and skipped.
+- `quotePhantomFill` is wrapped at `core/filler.ts:1134` — the leg goes unquoted.
+- `getOrderUsdValue` is wrapped at `core/filler.ts:688` — sizing falls back to `baseInputUsd`.
+- `initCache` was the one real hazard: it runs **unawaited** from the constructor, so a rejection
+  would have been an unhandled rejection and killed the process rather than skipping an order. It
+  now swallows its own failures (and the call site adds a `.catch`), so strictness applies where a
+  single order can be dropped, not at boot. Note this hazard pre-existed via
+  `getFeeTokenWithDecimals`, which could already throw there.
+
 ## 2026-08-26 — Probe failures classified by cause chain; only zero allowances batch (#1147 review 2)
 
 Chosen: `paymasterSupportsPermit2` decides "unsupported" by walking the error's cause chain for `ContractFunctionRevertedError`/`ContractFunctionZeroDataError`, not by the thrown type. The 08-24 attempt checked `instanceof ContractFunctionExecutionError`, but viem wraps every `readContract` failure — transport errors included — in exactly that type (verified by constructing both failure shapes against the installed viem 2.47.6: a 429 arrives as `ContractFunctionExecutionError(cause: HttpRequestError)`, a revert as `ContractFunctionExecutionError(cause: ContractFunctionRevertedError)`). The thrown type therefore carries zero signal; the cause chain carries all of it. `ContractFunctionZeroDataError` counts as "unsupported" too: it means the address returned no data (no code), which is a deterministic contract-state answer, not a transport blip. Alternative — catching everything but only caching on a message-string match — rejected as brittle across RPC providers.
@@ -223,6 +360,25 @@ curve) measures `policyMaxOutput - output.amount` and calls the difference "ours
 now paid out that term is structurally zero on uncapped legs. It is report-only telemetry — it
 never rejects an order or feeds the execute score — so it under-reports rather than mis-fills, and
 re-basing it on the opposite curve was left out of this change.
+
+## 2026-08-20 — pairs.test.ts rides in test:filler, not a new unit-test script
+
+Chosen: append `src/tests/pairs.test.ts` to the existing `test:filler` script, which CI's "Run
+simplex test" step already executes on every simplex PR.
+
+Alternatives rejected:
+
+- *A dedicated `test:unit` script plus a new workflow step.* Cleaner taxonomy (the file is
+  pure-unit while most of its neighbours in `test:filler` need RPC secrets), but it adds a script
+  and a CI step to maintain for one ~3s file, and the oversized `--testTimeout` it inherits is
+  harmless for unit tests. `fx.curve-payout.test.ts` set the precedent independently: it is also
+  pure-unit and was wired into `test:filler` the same way.
+- *Leave it unwired.* That is exactly how 12 stale failures sat on main unnoticed.
+
+Known gap, deliberately out of scope here: several other pure-unit files (`book-crossed`,
+`confirmation-policy`, `fx.one-sided-lp`, `fx.price-guard`, `paymaster-reserve`, …) still run in
+no CI script. If they are ever wired up, a `test:unit` aggregate becomes worth its keep — move
+`pairs.test.ts` into it then.
 
 ## 2026-08-19 — The exposure cap governs fills, never probes
 

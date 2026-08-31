@@ -11,6 +11,7 @@ import {
 	splitBidSignature,
 	weightedMedian,
 	applyUniswapQuoteHaircut,
+	applyPhantomQuoteHaircut,
 	encodeAcceptedSourceChains,
 	encodePhantomBidDeclaration,
 	AGGREGATION_ATTEMPTS,
@@ -55,9 +56,44 @@ function fillOptions() {
 	return {
 		relayerFee: 0n,
 		nativeDispatchFee: 0n,
+		validUntil: 0n,
 		outputs: [{ token: USDT_BYTES32, amount: SOLVER_AMOUNT }],
 	}
 }
+
+/** The pre-`validUntil` FillOptions shape, still on the wire from older gateways' solvers. */
+function legacyFillOptions() {
+	const { relayerFee, nativeDispatchFee, outputs } = fillOptions()
+	return { relayerFee, nativeDispatchFee, outputs }
+}
+
+const LEGACY_FILL_ORDER_ABI = [
+	{
+		type: "function",
+		name: "fillOrder",
+		stateMutability: "payable",
+		outputs: [],
+		inputs: [
+			(FILL_ORDER_ABI as readonly any[]).find((e) => e.type === "function" && e.name === "fillOrder")!.inputs[0],
+			{
+				name: "options",
+				type: "tuple",
+				components: [
+					{ name: "relayerFee", type: "uint256" },
+					{ name: "nativeDispatchFee", type: "uint256" },
+					{
+						name: "outputs",
+						type: "tuple[]",
+						components: [
+							{ name: "token", type: "bytes32" },
+							{ name: "amount", type: "uint256" },
+						],
+					},
+				],
+			},
+		],
+	},
+] as const
 
 // Encodes a fillOrder call wrapped in an ERC-7821 execute batch, the way a solver's bid arrives.
 function bidCalldata(target: string = GATEWAY): HexString {
@@ -66,6 +102,17 @@ function bidCalldata(target: string = GATEWAY): HexString {
 		abi: FILL_ORDER_ABI,
 		functionName: "fillOrder",
 		args: [phantomOrder(), fillOptions()],
+	}) as HexString
+	return encodeERC7821ExecuteBatch([{ target: target as HexString, value: 0n, data: fillCalldata }])
+}
+
+/** The same bid encoded in the pre-`validUntil` shape, as an older gateway's solver would send it. */
+function legacyBidCalldata(target: string = GATEWAY): HexString {
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	const fillCalldata = (encodeFunctionData as any)({
+		abi: LEGACY_FILL_ORDER_ABI,
+		functionName: "fillOrder",
+		args: [phantomOrder(), legacyFillOptions()],
 	}) as HexString
 	return encodeERC7821ExecuteBatch([{ target: target as HexString, value: 0n, data: fillCalldata }])
 }
@@ -117,6 +164,16 @@ describe("extractFillData", () => {
 	it("returns null when no inner call targets the gateway", () => {
 		const other = "0x9999999999999999999999999999999999999999"
 		expect(extractFillData(bidCalldata(other), GATEWAY)).toBeNull()
+	})
+
+	it("decodes a bid encoded in the pre-validUntil FillOptions shape", () => {
+		// Gateways are upgraded per chain, so both shapes are on the wire at once. A solver
+		// bidding against an older gateway must still be priced into the aggregate, not dropped.
+		const result = extractFillData(legacyBidCalldata(), GATEWAY)
+
+		expect(result).not.toBeNull()
+		expect(result!.legs[0].solverAmount).toBe(SOLVER_AMOUNT)
+		expect(result!.legs[0].outputToken.toLowerCase()).toBe(USDT_BYTES32.toLowerCase())
 	})
 
 	it("returns null for calldata that is not an ERC-7821 batch", () => {
@@ -344,7 +401,7 @@ describe("aggregatePhantomBids bid verification", () => {
 		expect(result!.legs).toHaveLength(1)
 		expect(result!.legs[0].legIndex).toBe(0)
 		expect(result!.legs[0].bidCount).toBe(1)
-		expect(result!.legs[0].medianPrice).toBe(SOLVER_AMOUNT)
+		expect(result!.legs[0].medianPrice).toBe(applyPhantomQuoteHaircut(SOLVER_AMOUNT))
 	})
 
 	it("drops a bid whose sender is a plain EOA with no delegation", async () => {
@@ -730,8 +787,8 @@ describe("aggregatePhantomBids bid verification", () => {
 
 		// A pool price is what a trade gets before the pool takes its fee, so a bid quoting off one
 		// names more than it clears. The snapshot prices it net of that fee rather than letting a
-		// pool-priced quote outbid a wallet-funded one on 30bps it never had.
-		it("haircuts a pool-priced quote by 30bps before it reaches the median", async () => {
+		// pool-priced quote outbid a wallet-funded one on 10bps it never had.
+		it("haircuts a pool-priced quote by 10bps before it reaches the median", async () => {
 			const userOp = await signedBidUserOp({
 				signingKey: SOLVER_KEY,
 				paymasterAndData: encodePhantomBidDeclaration({ uniswapV4Positions: [TOKEN_ID] }),
@@ -740,7 +797,7 @@ describe("aggregatePhantomBids bid verification", () => {
 
 			const result = await aggregateWithV4(solverAddress)
 
-			expect(result!.legs[0].medianPrice).toBe((SOLVER_AMOUNT * 9_970n) / 10_000n)
+			expect(result!.legs[0].medianPrice).toBe((SOLVER_AMOUNT * 9_990n) / 10_000n)
 			expect(result!.legs[0].medianPrice).toBe(applyUniswapQuoteHaircut(SOLVER_AMOUNT))
 			// The haircut is on the price only: the position still backs the leg at full size.
 			expect(result!.legs[0].bidders[0].weight).toBe(
@@ -748,9 +805,10 @@ describe("aggregatePhantomBids bid verification", () => {
 			)
 		})
 
-		// Only a pool-priced bid pays it — a solver quoting off wallet inventory has already paid
-		// its cost of goods, and a source-chain-only declaration says nothing about a pool.
-		it("leaves a bid that declares no position unhaircut", async () => {
+		// Only a pool-priced bid pays the pool-fee haircut — a solver quoting off wallet inventory
+		// has already paid its cost of goods, and a source-chain-only declaration says nothing
+		// about a pool. Such a bid pays the smaller base haircut instead, never both.
+		it("charges a bid that declares no position the base haircut, not the pool one", async () => {
 			const userOp = await signedBidUserOp({
 				signingKey: SOLVER_KEY,
 				paymasterAndData: encodeAcceptedSourceChains([CHAIN]),
@@ -768,7 +826,8 @@ describe("aggregatePhantomBids bid verification", () => {
 				uniswapV4: { [CHAIN]: { positionManager: POSITION_MANAGER, stateView: STATE_VIEW } },
 			})
 
-			expect(result!.legs[0].medianPrice).toBe(SOLVER_AMOUNT)
+			expect(result!.legs[0].medianPrice).toBe((SOLVER_AMOUNT * 9_995n) / 10_000n)
+			expect(result!.legs[0].medianPrice).toBe(applyPhantomQuoteHaircut(SOLVER_AMOUNT))
 		})
 
 		// The sweep is where a provider's inventory is reported, so a position missing from it makes

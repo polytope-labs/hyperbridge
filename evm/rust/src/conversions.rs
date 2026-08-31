@@ -43,6 +43,7 @@ impl ToU256 for usize {
 	}
 }
 
+#[cfg(feature = "substrate")]
 mod beefy {
 	use super::ToU256;
 	use crate::{

@@ -17,6 +17,8 @@ import {
 	type ERC7821Call,
 	transformOrderForContract,
 	type TokenInfo,
+	encodeFillOrder,
+	getFillOptionsVersion,
 } from "@hyperbridge/sdk"
 import { ERC20_ABI } from "@/config/abis/ERC20"
 import type { ChainClientManager } from "./ChainClientManager"
@@ -35,10 +37,26 @@ Decimal.config({ precision: 28, rounding: 4 })
 /**
  * Handles contract interactions for tokens and other contracts
  */
+/**
+ * Allowance added to every bid's validity window, in seconds, for bid discovery.
+ *
+ * The head is read before the bid is built, signed, submitted to Hyperbridge and finally
+ * discovered and selected — all wall-clock time that has passed by the time a fill lands.
+ * It is denominated in seconds precisely because that lag does not scale with block time: a
+ * flat block count would be worth 60s on Ethereum and 1.25s on Arbitrum for the same delay.
+ *
+ * The asymmetry decides the direction: overshooting costs a marginally staler quote,
+ * undershooting silently throws away bids that were about to be won.
+ */
+const BID_DISCOVERY_PAD_SECONDS = 30
+
 export class ContractInteractionService {
 	private configService: FillerConfigService
 	public cacheService: CacheService
 	private logger: Logger
+
+	/** Chains already warned about a gateway with no validUntil support. */
+	private readonly warnedNoValidUntil = new Set<string>()
 	private sdkHelperCache: Map<string, IntentGateway> = new Map()
 	private solverAccountAddress: HexString
 	private signer: Signer
@@ -54,7 +72,9 @@ export class ContractInteractionService {
 		this.cacheService = sharedCacheService || new CacheService()
 		this.signer = signer
 		this.solverAccountAddress = this.signer.address
-		this.initCache()
+		// `initCache` swallows its own failures; the guard is belt-and-braces so a future
+		// change there can never become an unhandled rejection from an unawaited call.
+		void this.initCache().catch((err) => this.logger.warn({ err }, "Token cache prewarm failed"))
 	}
 
 	/**
@@ -111,18 +131,39 @@ export class ContractInteractionService {
 		return helper
 	}
 
+	/**
+	 * Best-effort cache warm-up. Deliberately never rejects: this runs unawaited from the
+	 * constructor, so a rejection would surface as an unhandled rejection and take the
+	 * process down. A failed prewarm only means the value is fetched on first use, where
+	 * `getTokenDecimals` is strict — which is the right place for strictness, because
+	 * there it can skip a single order instead of killing the filler at boot.
+	 */
 	async initCache(): Promise<void> {
-		const chainIds = this.configService.getConfiguredChainIds()
-		const chainNames = chainIds.map((id) => `EVM-${id}`)
-		for (const chainName of chainNames) {
-			await this.getFeeTokenWithDecimals(chainName)
-		}
+		try {
+			const chainIds = this.configService.getConfiguredChainIds()
+			const chainNames = chainIds.map((id) => `EVM-${id}`)
+			for (const chainName of chainNames) {
+				try {
+					await this.getFeeTokenWithDecimals(chainName)
+				} catch (err) {
+					this.logger.warn({ err, chain: chainName }, "Could not prewarm fee token decimals")
+				}
+			}
 
-		for (const destChain of chainNames) {
-			const usdc = this.configService.getUsdcAsset(destChain)
-			const usdt = this.configService.getUsdtAsset(destChain)
-			await this.getTokenDecimals(usdc, destChain)
-			await this.getTokenDecimals(usdt, destChain)
+			for (const destChain of chainNames) {
+				for (const token of [
+					this.configService.getUsdcAsset(destChain),
+					this.configService.getUsdtAsset(destChain),
+				]) {
+					try {
+						await this.getTokenDecimals(token, destChain)
+					} catch (err) {
+						this.logger.warn({ err, chain: destChain, token }, "Could not prewarm token decimals")
+					}
+				}
+			}
+		} catch (err) {
+			this.logger.warn({ err }, "Token cache prewarm failed")
 		}
 	}
 
@@ -165,8 +206,39 @@ export class ContractInteractionService {
 			this.cacheService.setTokenDecimals(chain, bytes20Address as HexString, decimals)
 			return decimals
 		} catch (error) {
-			this.logger.warn({ err: error }, "Error getting token decimals, defaulting to 18")
-			return 18 // Default to 18 if we can't determine
+			// The on-chain read is authoritative, but when it fails the SDK's per-chain asset
+			// table already carries the curated value for every supported token — so fall back
+			// to that rather than guessing. Guessing is what makes this dangerous: `decimals`
+			// scales `policyMaxOutput` by `10 ** decimals`, so assuming 18 for a 6-decimal token
+			// inflates the computed payout by 10^12, and the payout is no longer clamped to the
+			// user's requested output.
+			//
+			// Deliberately not cached: the registry is a safety net, not the source of truth, so
+			// a transient RPC failure must not pin this value for the lifetime of the process.
+			// The next call retries the read and caches the real value.
+			const configured = this.configService.getAssetDecimalsByAddress(chain, bytes20Address as HexString)
+			if (configured !== undefined) {
+				this.logger.warn(
+					{ err: error, chain, token: bytes20Address, decimals: configured },
+					"Error getting token decimals; using configured decimals from the asset registry",
+				)
+				return configured
+			}
+
+			// Hard error rather than a guess. `decimals` scales `policyMaxOutput` by
+			// `10 ** decimals`, so a wrong value does not degrade the fill — it changes
+			// its size by orders of magnitude. Every caller on the fill path treats a
+			// throw as "skip this order" (`IntentFiller.evaluateOrder` is wrapped in a
+			// try/catch, as are the phantom-quote and USD-sizing paths), which is the
+			// outcome we want when the value is unknowable.
+			this.logger.error(
+				{ err: error, chain, token: bytes20Address },
+				"Could not determine token decimals from RPC or configuration",
+			)
+			throw new Error(
+				`Unable to determine decimals for token ${bytes20Address} on ${chain}: ` +
+					`the on-chain decimals() read failed and the token is not in the asset registry`,
+			)
 		}
 	}
 
@@ -624,6 +696,9 @@ export class ContractInteractionService {
 			// billed the paymaster (estimation overrides the balance, so it
 			// could never catch it).
 			nativeDispatchFee: 0n,
+			// Caps how long this quote stands. Without it the placer holds a free option:
+			// they choose the moment of execution and we are committed to the old price.
+			validUntil: await this.bidValidUntilBlock(order.destination),
 			outputs: cachedFillerOutputs,
 		}
 
@@ -685,6 +760,33 @@ export class ContractInteractionService {
 	}
 
 	/**
+	 * Last block on the destination chain at which a bid signed now may still execute.
+	 *
+	 * A bid is a firm quote the order placer takes up whenever they like, and nothing else
+	 * bounds that window — `order.deadline` is placer-chosen with no ceiling, and retracting
+	 * on Hyperbridge leaves the destination-chain calldata untouched. An unbounded bid is a
+	 * free option on this filler's inventory, exercised only once the rate has moved against
+	 * us. This caps its tenor.
+	 *
+	 * Operators configure seconds because that is the unit the risk is actually in, but the
+	 * contract compares against block numbers so `order.deadline` and this read the same
+	 * clock. The conversion uses the chain's nominal block time; it is deliberately rounded
+	 * up, since erring long costs a slightly stale quote while erring short silently drops
+	 * winnable bids.
+	 */
+	private async bidValidUntilBlock(chain: string): Promise<bigint> {
+		const client = this.clientManager.getPublicClient(chain)
+		const currentBlock = await client.getBlockNumber()
+		// viem documents `Chain.blockTime` in milliseconds (Ethereum 12000, Base 2000,
+		// Arbitrum 250), hence the conversion; the fallback is already in seconds.
+		const blockTimeMs = client.chain?.blockTime
+		const blockTimeSec = blockTimeMs ? blockTimeMs / 1000 : 2
+		// Converted once, so the rounding happens in one place rather than twice.
+		const windowSec = this.configService.getBidValiditySeconds() + BID_DISCOVERY_PAD_SECONDS
+		return currentBlock + BigInt(Math.ceil(windowSec / blockTimeSec))
+	}
+
+	/**
 	 * Builds a PackedUserOperation for a phantom (expired same-chain) order bid.
 	 * Uses zero relayer fees and default gas values — no estimation needed since
 	 * the order will never execute; the indexer only reads the proposed fill amounts.
@@ -705,7 +807,14 @@ export class ContractInteractionService {
 		const sdkHelper = await this.getIntentGateway(order.source, order.destination)
 		const client = this.clientManager.getPublicClient(order.destination)
 
-		const fillOptions: FillOptions = { relayerFee: 0n, nativeDispatchFee: 0n, outputs: fillerOutputs }
+		// A phantom order is already expired, so this bid can never execute regardless — the
+		// bound is set anyway so every signed artefact carries one.
+		const fillOptions: FillOptions = {
+			relayerFee: 0n,
+			nativeDispatchFee: 0n,
+			validUntil: await this.bidValidUntilBlock(order.destination),
+			outputs: fillerOutputs,
+		}
 		const callData = await this.buildApprovalAndFillCalldata(order, fillerOutputs, fillOptions, 0n)
 
 		const commitment = orderCommitment(order)
@@ -818,14 +927,22 @@ export class ContractInteractionService {
 			.filter((asset) => bytes32ToBytes20(asset.token) === ADDRESS_ZERO)
 			.reduce((sum, asset) => sum + asset.amount, 0n)
 
+		// Gateways predating `FillOptions.validUntil` take a differently-shaped (and
+		// differently-selectored) fillOrder, so the encoding has to match the deployment.
+		const fillOptionsVersion = await getFillOptionsVersion(destClient as any, intentGatewayV2Address)
+		if (fillOptionsVersion === 1 && fillOptions.validUntil !== 0n && !this.warnedNoValidUntil.has(chain)) {
+			this.warnedNoValidUntil.add(chain)
+			this.logger.warn(
+				{ chain, gateway: intentGatewayV2Address },
+				"IntentGateway predates FillOptions.validUntil — bids on this chain carry no expiry and stay " +
+					"executable until the order's own deadline. Upgrade the gateway to bound them.",
+			)
+		}
+
 		calls.push({
 			target: intentGatewayV2Address,
 			value: nativeOutputValue,
-			data: encodeFunctionData({
-				abi: INTENT_GATEWAY_V2_ABI,
-				functionName: "fillOrder",
-				args: [transformOrderForContract(order) as any, fillOptions as any],
-			}) as HexString,
+			data: encodeFillOrder(transformOrderForContract(order) as any, fillOptions, fillOptionsVersion),
 		})
 
 		return encodeERC7821ExecuteBatch(calls)

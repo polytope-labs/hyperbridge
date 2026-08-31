@@ -28,23 +28,20 @@ function describe(event: ActivityEventDto): string {
 	}
 }
 
+// SSE frames can land while the initial fetch is in flight; merge by id so
+// neither source overwrites the other and cap long-running sessions.
+function mergeEvents(current: ActivityEventDto[], incoming: ActivityEventDto[]): ActivityEventDto[] {
+	const byId = new Map<number, ActivityEventDto>()
+	for (const event of [...current, ...incoming]) byId.set(event.id, event)
+	return [...byId.values()].sort((a, b) => b.id - a.id).slice(0, 1000)
+}
+
 export function Activity() {
 	const [events, setEvents] = useState<ActivityEventDto[]>([])
 	const [bids, setBids] = useState<BidDto[]>([])
 	const [stats, setStats] = useState<BidStatsDto | null>(null)
 	const [live, setLive] = useState(false)
 	const [error, setError] = useState<string>()
-
-	// SSE frames can land while the initial fetch is in flight; every state
-	// update merges by id so neither source overwrites the other.
-	const mergeEvents = (current: ActivityEventDto[], incoming: ActivityEventDto[]): ActivityEventDto[] => {
-		const byId = new Map<number, ActivityEventDto>()
-		for (const event of [...current, ...incoming]) byId.set(event.id, event)
-		// cap high enough that "Load older" pages are never cut, low enough to bound very long sessions
-		return [...byId.values()]
-			.sort((a, b) => b.id - a.id)
-			.slice(0, 1000)
-	}
 
 	const load = useCallback(async () => {
 		try {
@@ -86,13 +83,38 @@ export function Activity() {
 	}
 
 	return (
-		<div>
-			<div className="card">
-				<div className="spread">
-					<h2>Order activity</h2>
+		<div className="operator-page-content">
+			{stats ? (
+				<section className="operator-metrics" aria-label="Bid summary">
+					<div>
+						<span>Total bids</span>
+						<strong>{stats.total}</strong>
+					</div>
+					<div>
+						<span>Successful</span>
+						<strong>{stats.successful}</strong>
+					</div>
+					<div>
+						<span>Failed</span>
+						<strong>{stats.failed}</strong>
+					</div>
+					<div>
+						<span>Retracted</span>
+						<strong>{stats.retracted}</strong>
+					</div>
+				</section>
+			) : null}
+			<section className="operator-section">
+				<div className="operator-section-heading">
+					<div>
+						<span className="eyebrow">Orders</span>
+						<h2>Order activity</h2>
+					</div>
 					<span className={`badge ${live ? "ok" : "warn"}`}>{live ? "live" : "reconnecting…"}</span>
 				</div>
-				{events.length === 0 && <p className="hint">No activity yet — events appear as orders are detected.</p>}
+				{events.length === 0 && (
+					<p className="operator-empty">No activity yet. Events appear as orders are detected.</p>
+				)}
 				{events.length > 0 && (
 					<table>
 						<thead>
@@ -120,17 +142,19 @@ export function Activity() {
 						Load older
 					</button>
 				)}
-			</div>
+			</section>
 
-			<div className="card">
-				<h2>Bids</h2>
-				{stats && (
-					<p className="hint">
-						{stats.total} total · {stats.successful} successful · {stats.failed} failed · {stats.retracted}{" "}
-						retracted · {stats.pendingRetraction} pending retraction
-					</p>
-				)}
-				{bids.length === 0 && <p className="hint">No bids recorded.</p>}
+			<section className="operator-section">
+				<div className="operator-section-heading">
+					<div>
+						<span className="eyebrow">Hyperbridge</span>
+						<h2>Submitted bids</h2>
+					</div>
+					{stats?.pendingRetraction ? (
+						<span className="badge warn">{stats.pendingRetraction} pending</span>
+					) : null}
+				</div>
+				{bids.length === 0 && <p className="operator-empty">No bids recorded.</p>}
 				{bids.length > 0 && (
 					<table>
 						<thead>
@@ -161,7 +185,7 @@ export function Activity() {
 						</tbody>
 					</table>
 				)}
-			</div>
+			</section>
 			{error && <p className="error">{error}</p>}
 		</div>
 	)

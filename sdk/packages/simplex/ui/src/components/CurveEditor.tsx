@@ -1,22 +1,6 @@
-import { useMemo } from "react"
-import type { CurvePoint, PricePoint } from "../types"
-
-export interface EditorPoint {
-	amount: string
-	value: string
-}
-
-export function fromPricePoints(points: PricePoint[] | undefined): EditorPoint[] {
-	return (points ?? []).map((p) => ({ amount: p.amount, value: p.price }))
-}
-
-export function toPricePoints(points: EditorPoint[]): PricePoint[] {
-	return points.filter((p) => p.amount.trim() && p.value.trim()).map((p) => ({ amount: p.amount.trim(), price: p.value.trim() }))
-}
-
-export function toCurvePoints(points: EditorPoint[]): CurvePoint[] {
-	return points.filter((p) => p.amount.trim() && p.value.trim()).map((p) => ({ amount: p.amount.trim(), value: Number(p.value) }))
-}
+import { useId, useMemo } from "react"
+import { createCurvePreview, type EditorPoint } from "./curveModel"
+import { ChartLineIcon, CloseIcon } from "./InterfaceIcons"
 
 /**
  * Table editor for (amount, value) curve points with a live piecewise-linear
@@ -30,39 +14,58 @@ export function CurveEditor(props: {
 	minPoints?: number
 }) {
 	const { points, onChange, amountLabel, valueLabel, minPoints = 1 } = props
+	const gradientId = useId()
 
 	const update = (index: number, key: keyof EditorPoint, value: string) => {
 		const next = points.map((p, i) => (i === index ? { ...p, [key]: value } : p))
 		onChange(next)
 	}
 
-	const preview = useMemo(() => {
-		const parsed = points
-			.map((p) => ({ x: Number(p.amount), y: Number(p.value) }))
-			.filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y))
-			.sort((a, b) => a.x - b.x)
-		if (parsed.length < 2) return null
-		const xs = parsed.map((p) => p.x)
-		const ys = parsed.map((p) => p.y)
-		const minX = Math.min(...xs)
-		const maxX = Math.max(...xs)
-		const minY = Math.min(...ys)
-		const maxY = Math.max(...ys)
-		const spanX = maxX - minX || 1
-		const spanY = maxY - minY || 1
-		const d = parsed
-			.map((p, i) => {
-				const x = 8 + ((p.x - minX) / spanX) * 264
-				const y = 52 - ((p.y - minY) / spanY) * 44
-				return `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`
-			})
-			.join(" ")
-		return { d, minY, maxY }
-	}, [points])
+	const preview = useMemo(() => createCurvePreview(points), [points])
 
 	return (
-		<div>
-			<table>
+		<div className="curve-editor">
+			<div className="curve-editor-visual">
+				<div className="curve-editor-visual-heading">
+					<span>Price curve</span>
+					<small>
+						{preview
+							? `${preview.plotted.length} ${preview.plotted.length === 1 ? "point" : "points"}`
+							: "Add a price below"}
+					</small>
+				</div>
+				{preview ? (
+					<svg viewBox="0 0 360 148" role="img" aria-label="Price by order size preview">
+						<defs>
+							<linearGradient id={gradientId} x1="0" x2="0" y1="0" y2="1">
+								<stop offset="0%" stopColor="var(--focus)" stopOpacity="0.22" />
+								<stop offset="100%" stopColor="var(--focus)" stopOpacity="0" />
+							</linearGradient>
+						</defs>
+						<g className="curve-grid-lines" aria-hidden="true">
+							<path d="M42 24H334 M42 66H334 M42 108H334" />
+							<path d="M42 24V122 M188 24V122 M334 24V122" />
+						</g>
+						<path d={preview.area} fill={`url(#${gradientId})`} />
+						<path className="curve-preview-line" d={preview.line} />
+						{preview.plotted.map((point) => (
+							<circle key={point.index} className="curve-preview-point" cx={point.x} cy={point.y} r="4" />
+						))}
+						<text x="42" y="140">
+							{preview.minX}
+						</text>
+						<text x="334" y="140" textAnchor="end">
+							{preview.maxX}
+						</text>
+					</svg>
+				) : (
+					<div className="curve-editor-empty">
+						<ChartLineIcon aria-hidden="true" />
+						<p>Your curve will appear as prices are entered.</p>
+					</div>
+				)}
+			</div>
+			<table className="curve-editor-table">
 				<thead>
 					<tr>
 						<th>{amountLabel}</th>
@@ -72,36 +75,46 @@ export function CurveEditor(props: {
 				</thead>
 				<tbody>
 					{points.map((point, index) => (
-						// biome-ignore lint/suspicious/noArrayIndexKey: rows are positional
 						<tr key={index}>
 							<td>
-								<input type="text" value={point.amount} onChange={(e) => update(index, "amount", e.target.value)} />
+								<input
+									type="text"
+									aria-label={`${amountLabel}, point ${index + 1}`}
+									value={point.amount}
+									onChange={(e) => update(index, "amount", e.target.value)}
+								/>
 							</td>
 							<td>
-								<input type="text" value={point.value} onChange={(e) => update(index, "value", e.target.value)} />
+								<input
+									type="text"
+									aria-label={`${valueLabel}, point ${index + 1}`}
+									value={point.value}
+									onChange={(e) => update(index, "value", e.target.value)}
+								/>
 							</td>
 							<td>
 								<button
 									type="button"
+									className="curve-point-remove"
+									aria-label={`Remove curve point ${index + 1}`}
 									disabled={points.length <= minPoints}
 									onClick={() => onChange(points.filter((_, i) => i !== index))}
 								>
-									✕
+									<CloseIcon aria-hidden="true" />
 								</button>
 							</td>
 						</tr>
 					))}
 				</tbody>
 			</table>
-			<div className="row" style={{ marginTop: "0.5rem" }}>
-				<button type="button" onClick={() => onChange([...points, { amount: "", value: "" }])}>
-					+ Add point
+			<div className="curve-editor-footer">
+				<button
+					className="curve-editor-add"
+					type="button"
+					onClick={() => onChange([...points, { amount: "", value: "" }])}
+				>
+					Add point
 				</button>
-				{preview && (
-					<svg width="280" height="60" role="img" aria-label="curve preview">
-						<path d={preview.d} fill="none" stroke="var(--accent)" strokeWidth="2" />
-					</svg>
-				)}
 			</div>
 		</div>
 	)

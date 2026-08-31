@@ -2,7 +2,7 @@
 	"name": "@hyperbridge/simplex",
 	"version": "0.12.0",
 	"license": "Apache-2.0",
-	"description": "Automated intent filler for the Hyperbridge IntentGateway \u2014 run it as a binary or embed it as a library",
+	"description": "Automated intent filler for the Hyperbridge IntentGateway — run it as a binary or embed it as a library",
 	"main": "dist/index.js",
 	"types": "dist/index.d.ts",
 	"type": "module",
@@ -54,6 +54,7 @@
 		"lint:fix": "pnpm run codegen && biome lint --write src/bin src/cli src/config src/core src/data src/services src/strategies src/tests src/index.ts src/simplex.ts",
 		"format": "pnpm run codegen && prettier --write \"src/**/*.ts\"",
 		"ui:build": "vite build --config ui/vite.config.ts",
+		"ui:check": "biome check ui/src && vite build --config ui/vite.config.ts",
 		"ui:dev": "vite --config ui/vite.config.ts",
 		"cli": "pnpm run codegen && NODE_NO_WARNINGS=1 tsx src/bin/simplex.ts",
 		"cli:dev": "pnpm run codegen && nodemon --watch src --ext ts --exec tsx src/bin/simplex.ts",
@@ -67,6 +68,7 @@
 		"@types/react-dom": "^19.2.3",
 		"@vitejs/plugin-react": "^6.0.2",
 		"@vitest/coverage-v8": "^3.0.7",
+		"better-sqlite3": "^13.0.3",
 		"nodemon": "^3.1.0",
 		"react": "^19.2.7",
 		"react-dom": "^19.2.7",
@@ -77,8 +79,7 @@
 		"typescript": "^5.7.3",
 		"vite": "^8.0.16",
 		"vite-tsconfig-paths": "^5.1.4",
-		"vitest": "^3.0.7",
-		"better-sqlite3": "^13.0.3"
+		"vitest": "^3.0.7"
 	},
 	"publishConfig": {
 		"access": "public"
@@ -97,6 +98,9 @@
 		"@polkadot/api": "^16.5.6",
 		"@polkadot/util": "^14.0.3",
 		"@polkadot/util-crypto": "^14.0.3",
+		"@radix-ui/react-collapsible": "^1.1.20",
+		"@radix-ui/react-dialog": "^1.1.23",
+		"@radix-ui/react-select": "^2.3.7",
 		"@safe-global/api-kit": "^3.0.1",
 		"@safe-global/protocol-kit": "^6.0.4",
 		"@safe-global/types-kit": "^2.0.1",
@@ -114,6 +118,7 @@
 		"pino": "~10.3.1",
 		"pino-pretty": "^11.3.0",
 		"scale-ts": "^1.6.1",
+		"sonner": "^2.0.7",
 		"toml": "^3.0.0",
 		"viem": "2.47.6"
 	},
@@ -140,7 +145,7 @@
 		"src/bin/quiet.ts"
 	],
 	"optionalDependencies": {
-		"better-sqlite3": "^13.0.3",
-		"@types/better-sqlite3": "^7.6.13"
+		"@types/better-sqlite3": "^7.6.13",
+		"better-sqlite3": "^13.0.3"
 	}
 }

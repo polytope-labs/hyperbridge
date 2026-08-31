@@ -2,6 +2,19 @@
 
 AI-maintained map of how code paths in `sdk/packages/simplex` actually execute, so that when something breaks you can tell whether the fault is upstream or downstream of where the symptom appears. Only flows that have been read and verified are documented; coverage grows as areas of the package are touched.
 
+## Setup wizard presentation and navigation
+
+`ui/src/App.tsx` owns the page shell for every UI state. It places the animated brand line at the
+viewport's top edge and centers the active view inside `.app-container`; setup mode renders
+`Wizard`, while loading, error, and operator states use the same shell.
+
+`ui/src/wizard/Wizard.tsx` owns the setup draft, active step, per-step requirements, and forward/back
+navigation. It maps the active step to its editor and derives completed/active/upcoming rail states,
+display numbering, and percentage progress. At desktop widths the rail and active step form a
+two-column grid; below 900px the rail moves above the form and scrolls horizontally. Continue stays
+disabled while the current step has unresolved requirements, and the footer lists every blocker so
+the operator can see what must be fixed without guessing.
+
 ## Paymaster selection for a sponsored UserOp
 
 Entry points: `UserOpSender.trySendSponsored` (delegation, vault sweeps/redeems, token sends) and `ContractInteractionService.prepareBidUserOp` (bids). Both call `buildPaymasterAndData` in `src/services/paymaster/index.ts`.

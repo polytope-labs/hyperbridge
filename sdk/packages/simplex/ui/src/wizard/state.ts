@@ -1,5 +1,5 @@
 import { isRegistrySymbol, normalizeSymbol } from "@/config/asset-registry"
-import { fromPricePoints, toPricePoints, type EditorPoint } from "../components/CurveEditor"
+import { fromPricePoints, toPricePoints, type EditorPoint } from "../components/curveModel"
 import { vaultRowsToToml, type VaultRowDraft } from "../lib/vault-rows"
 import type { ChainDefault, CurvePoint, FillerConfig, Network, PairConfig, SetupDefaults } from "../types"
 
@@ -62,7 +62,13 @@ export interface WizardState {
 	signerType: SignerType
 	signerKey: string
 	signerAddress?: string
-	mpcVault: { apiToken: string; vaultUuid: string; accountAddress: string; callbackClientSignerPublicKey: string; grpcTarget: string }
+	mpcVault: {
+		apiToken: string
+		vaultUuid: string
+		accountAddress: string
+		callbackClientSignerPublicKey: string
+		grpcTarget: string
+	}
 	turnkey: { organizationId: string; apiPublicKey: string; apiPrivateKey: string; signWith: string }
 	substrateKey: string
 	substrateAddress?: string
@@ -156,7 +162,13 @@ export function initialState(defaults: SetupDefaults): WizardState {
 		network: "mainnet",
 		signerType: "privateKey",
 		signerKey: "",
-		mpcVault: { apiToken: "", vaultUuid: "", accountAddress: "", callbackClientSignerPublicKey: "", grpcTarget: "" },
+		mpcVault: {
+			apiToken: "",
+			vaultUuid: "",
+			accountAddress: "",
+			callbackClientSignerPublicKey: "",
+			grpcTarget: "",
+		},
 		turnkey: { organizationId: "", apiPublicKey: "", apiPrivateKey: "", signWith: "" },
 		substrateKey: "",
 		hyperbridgeWsUrl: defaults.hyperbridgeWs.mainnet,
@@ -290,18 +302,19 @@ export function assembleConfig(state: WizardState, defaults: SetupDefaults): Fil
 				)
 			: undefined
 
-	const uniswapV4 = usingPool && state.fxPositions.length > 0
-		? {
-				positions: state.fxPositions.map((p) => ({
-					chain: p.chain,
-					tokenId: p.tokenId.trim(),
-					...(p.referencePrice.trim() ? { referencePrice: p.referencePrice.trim() } : {}),
-					...(p.maxDeviationBps.trim() ? { maxDeviationBps: Number(p.maxDeviationBps) } : {}),
-				})),
-				...(state.fxSide ? { side: state.fxSide } : {}),
-				...(state.fxSpreadBps.trim() ? { spreadBps: Number(state.fxSpreadBps) } : {}),
-			}
-		: undefined
+	const uniswapV4 =
+		usingPool && state.fxPositions.length > 0
+			? {
+					positions: state.fxPositions.map((p) => ({
+						chain: p.chain,
+						tokenId: p.tokenId.trim(),
+						...(p.referencePrice.trim() ? { referencePrice: p.referencePrice.trim() } : {}),
+						...(p.maxDeviationBps.trim() ? { maxDeviationBps: Number(p.maxDeviationBps) } : {}),
+					})),
+					...(state.fxSide ? { side: state.fxSide } : {}),
+					...(state.fxSpreadBps.trim() ? { spreadBps: Number(state.fxSpreadBps) } : {}),
+				}
+			: undefined
 
 	const vaultRows = vaultRowsToToml(state.vaults)
 	const vaults = vaultRows.length > 0 ? vaultRows : undefined

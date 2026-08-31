@@ -819,4 +819,4 @@ jobs:
 
             - name: Run Arc integration tests
               run: |
-                  cargo test -p arc-prover -- --nocapture --ignored
+                  ARC_RPC_URL=${{ secrets.ARC_RPC_URL }} ARC_CERT_RPC_URL=${{ secrets.ARC_CERT_RPC_URL }} cargo test -p arc-prover -- --nocapture --ignored

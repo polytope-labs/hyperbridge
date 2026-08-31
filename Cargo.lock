@@ -1070,11 +1070,11 @@ dependencies = [
  "reqwest 0.11.27",
  "serde",
  "serde_json",
- "sp-core",
+ "sp-crypto-hashing",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
- "tracing-subscriber 0.3.22",
+ "tracing-subscriber 0.3.19",
 ]
 
 [[package]]
@@ -15638,6 +15638,8 @@ dependencies = [
  "alloy-rlp",
  "alloy-sol-types 1.5.7",
  "anyhow",
+ "arc-primitives",
+ "arc-prover",
  "beefy-prover",
  "beefy-verifier-primitives",
  "bls_on_arkworks",
@@ -15653,6 +15655,7 @@ dependencies = [
  "hex",
  "ismp",
  "ismp-abi",
+ "ismp-arc",
  "ismp-beefy",
  "ismp-bsc",
  "ismp-grandpa",

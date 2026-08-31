@@ -256,6 +256,7 @@ impl pallet_ismp::Config for Test {
 		ismp_grandpa::consensus::GrandpaConsensusClient<Test>,
 		ismp_parachain::ParachainConsensusClient<Test, IsmpParachain>,
 		ismp_pharos::PharosClient<Ismp, Test, pharos_primitives::Testnet>,
+		ismp_arc::ArcClient<Ismp, Test>,
 		ismp_beefy::consensus::BeefyConsensusClient<
 			Ismp,
 			Test,

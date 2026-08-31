@@ -47,7 +47,7 @@ use primitive_types::{H256, U256};
 use rpc::{hex_to_bytes, ArcRpcClient, RpcAccountProof};
 use std::{collections::BTreeSet, sync::Arc, time::Duration};
 
-/// Keccak256 hasher for the prover, backed by sp-core.
+/// Keccak256 hasher for the prover.
 pub struct Keccak256Hasher;
 
 impl Keccak256 for Keccak256Hasher {
@@ -55,7 +55,7 @@ impl Keccak256 for Keccak256Hasher {
 	where
 		Self: Sized,
 	{
-		sp_core::keccak_256(bytes).into()
+		sp_crypto_hashing::keccak_256(bytes).into()
 	}
 }
 

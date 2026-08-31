@@ -17,10 +17,10 @@
 //!
 //! Configuration:
 //! - `ARC_RPC_URL`: execution JSON-RPC for headers/proofs/storage (defaults to the public drpc
-//!   endpoint — the official rpc.testnet.arc.network no longer serves `eth_getProof`, and
-//!   providers like Alchemy don't proxy `arc_getCertificate`).
-//! - `ARC_CERT_RPC_URL`: endpoint serving `arc_getCertificate` (defaults to the same drpc
-//!   endpoint, which proxies the consensus node).
+//!   endpoint — the official rpc.testnet.arc.network no longer serves `eth_getProof`, and providers
+//!   like Alchemy don't proxy `arc_getCertificate`).
+//! - `ARC_CERT_RPC_URL`: endpoint serving `arc_getCertificate` (defaults to the same drpc endpoint,
+//!   which proxies the consensus node).
 
 use crate::{header_hash, ArcProver, Keccak256Hasher};
 use arc_verifier::verify_arc_update;
@@ -33,12 +33,18 @@ const DEFAULT_ARC_TESTNET_RPC: &str = "https://arc-testnet.drpc.org";
 /// How many consecutive updates to follow.
 const UPDATES_TO_FOLLOW: u64 = 5;
 
+/// Read an endpoint override, treating an unset or empty variable as absent so
+/// that CI passing through an unconfigured secret still falls back to the
+/// public endpoint.
+fn endpoint(var: &str) -> String {
+	std::env::var(var)
+		.ok()
+		.filter(|url| !url.trim().is_empty())
+		.unwrap_or_else(|| DEFAULT_ARC_TESTNET_RPC.to_string())
+}
+
 fn prover() -> Result<ArcProver, anyhow::Error> {
-	let primary =
-		std::env::var("ARC_RPC_URL").unwrap_or_else(|_| DEFAULT_ARC_TESTNET_RPC.to_string());
-	let certificates =
-		std::env::var("ARC_CERT_RPC_URL").unwrap_or_else(|_| DEFAULT_ARC_TESTNET_RPC.to_string());
-	Ok(ArcProver::with_certificate_endpoint(primary, certificates)?)
+	Ok(ArcProver::with_certificate_endpoint(endpoint("ARC_RPC_URL"), endpoint("ARC_CERT_RPC_URL"))?)
 }
 
 fn init_tracing() {

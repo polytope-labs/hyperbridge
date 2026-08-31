@@ -15,7 +15,7 @@ thiserror = { workspace = true }
 reqwest = { workspace = true, features = ["json", "rustls-tls"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { package = "serde_json", version = "1.0.99" }
-sp-core = { workspace = true }
+sp-crypto-hashing = { workspace = true }
 hex = { workspace = true }
 base64 = { version = "0.22.1" }
 log = { workspace = true }

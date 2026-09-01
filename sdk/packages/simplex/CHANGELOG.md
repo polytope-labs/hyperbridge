@@ -1,5 +1,11 @@
 # @hyperbridge/filler
 
+## 0.12.2
+
+### Patch Changes
+
+- Paymaster selection now skips any candidate whose EntryPoint deposit cannot cover the operation's max prefund with 150% headroom, falling through Circle to Simplex and reporting per-candidate reasons when none qualifies. Previously the Circle paymaster was chosen on solver balance alone, so a drained deposit (as happened on Base) meant every bid was signed against a paymaster the bundler was bound to reject at precheck. Deposit reads fail open so a transient RPC error degrades to the bundler's own check.
+
 ## 0.12.1
 
 ### Patch Changes

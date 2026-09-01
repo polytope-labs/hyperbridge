@@ -12,4 +12,6 @@ fn write_bytes_to_lower_hex<T: AsRef<[u8]>>(f: &mut fmt::Formatter<'_>, data: T)
 }
 
 pub use bls_utils::ByteVector;
+mod uint256;
+pub use uint256::U256;
 pub use byte_list::ByteList;

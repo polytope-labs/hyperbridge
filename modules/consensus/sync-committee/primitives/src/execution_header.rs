@@ -32,7 +32,7 @@ pub struct ExecutionHeader {
 	pub transactions_root: B256,
 	pub receipts_root: B256,
 	pub logs_bloom: Bloom,
-	pub difficulty: U256,
+	pub difficulty: alloy_primitives::U256,
 	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::as_hex_quantity"))]
 	pub number: u64,
 	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::as_hex_quantity"))]

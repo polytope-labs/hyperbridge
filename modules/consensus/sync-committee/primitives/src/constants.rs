@@ -1,12 +1,13 @@
+use tree_hash::Hash256;
 use crate::domains::DomainType;
-use ssz_rs::Node;
+
 
 pub type BlsPublicKey = ByteVector<BLS_PUBLIC_KEY_BYTES_LEN>;
 pub type BlsSignature = ByteVector<BLS_SIGNATURE_BYTES_LEN>;
 
 pub type Epoch = u64;
 pub type Slot = u64;
-pub type Root = Node;
+pub type Root = Bytes32;
 pub type ParticipationFlags = u8;
 
 pub type CommitteeIndex = u64;
@@ -19,13 +20,13 @@ pub type Version = [u8; 4];
 pub type ForkDigest = [u8; 4];
 pub type Domain = [u8; 32];
 
-pub type ExecutionAddress = ByteVector<20>;
+pub type ExecutionAddress = ByteVector<ssz_types::typenum::U20>;
 
 pub type ChainId = usize;
 pub type NetworkId = usize;
 
 pub type RandaoReveal = BlsSignature;
-pub type Bytes32 = ByteVector<32>;
+pub type Bytes32 = ByteVector<ssz_types::typenum::U32>;
 
 pub const BLS_PUBLIC_KEY_BYTES_LEN: usize = 48;
 pub const BLS_SECRET_KEY_BYTES_LEN: usize = 32;
@@ -95,6 +96,57 @@ pub const FAR_FUTURE_EPOCH: Epoch = u64::MAX;
 /// the way PROPOSER_LOOK_AHEAD_LIMIT is when it schedules the fork.
 pub const BUILDER_PENDING_PAYMENTS_LIMIT: usize = 64;
 pub const PTC_WINDOW_LIMIT: usize = 96;
+
+
+/// Type level counterparts of the SSZ bounds above.
+///
+/// `ssz_types` takes its capacities as type level integers rather than `const` values, so every
+/// bound needs a type as well as a constant. Rust keeps types and values in separate namespaces,
+/// so these deliberately reuse the constants' names: `VariableList<T, MAX_DEPOSITS>` picks up the
+/// type and `vec![0; MAX_DEPOSITS]` picks up the constant, and no use site has to change.
+pub mod bounds {
+	use ssz_types::typenum::*;
+
+	pub type BLS_PUBLIC_KEY_BYTES_LEN = U48;
+	pub type BLS_SECRET_KEY_BYTES_LEN = U32;
+	pub type BLS_SIGNATURE_BYTES_LEN = U96;
+	pub type SYNC_COMMITTEE_SIZE = U512;
+	pub type MAX_WITHDRAWALS_PER_PAYLOAD = U16;
+	pub type MAX_BLS_TO_EXECUTION_CHANGES = U16;
+	pub type MAX_VALIDATORS_PER_WITHDRAWALS_SWEEP = U16384;
+	pub type MAX_COMMITTEES_PER_SLOT = U64;
+	pub type MAX_VALIDATORS_PER_COMMITTEE = U131072;
+	pub type SLOTS_PER_HISTORICAL_ROOT = U8192;
+	pub type EPOCHS_PER_HISTORICAL_VECTOR = U65536;
+	pub type EPOCHS_PER_SLASHINGS_VECTOR = U8192;
+	pub type HISTORICAL_ROOTS_LIMIT = U16777216;
+	pub type VALIDATOR_REGISTRY_LIMIT = U1099511627776;
+	pub type MAX_PROPOSER_SLASHINGS = U16;
+	pub type MAX_ATTESTER_SLASHINGS = U1;
+	pub type MAX_ATTESTATIONS = U8;
+	pub type MAX_DEPOSITS = U16;
+	pub type MAX_VOLUNTARY_EXITS = U16;
+	pub type JUSTIFICATION_BITS_LENGTH = U4;
+	pub type MAX_BYTES_PER_TRANSACTION = U1073741824;
+	pub type MAX_TRANSACTIONS_PER_PAYLOAD = U1048576;
+	pub type BYTES_PER_LOGS_BLOOM = U256;
+	pub type MAX_EXTRA_DATA_BYTES = U32;
+	pub type DEPOSIT_PROOF_LENGTH = U33;
+	pub type ETH1_DATA_VOTES_BOUND_ETH = U2048;
+	pub type ETH1_DATA_VOTES_BOUND_GNO = U1024;
+	pub type MAX_DEPOSIT_REQUESTS_PER_PAYLOAD = U8192;
+	pub type MAX_WITHDRAWAL_REQUESTS_PER_PAYLOAD = U65536;
+	pub type MAX_CONSOLIDATION_REQUESTS_PER_PAYLOAD = U8;
+	pub type PENDING_DEPOSITS_LIMIT = U134217728;
+	pub type PENDING_PARTIAL_WITHDRAWALS_LIMIT = U134217728;
+	pub type PENDING_CONSOLIDATIONS_LIMIT = U262144;
+	pub type PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM = U64;
+	pub type PROPOSER_LOOK_AHEAD_LIMIT_GNO = U32;
+	pub type BUILDER_PENDING_PAYMENTS_LIMIT = U64;
+	pub type PTC_WINDOW_LIMIT = U96;
+}
+
+pub use bounds::*;
 
 pub trait Config {
 	const SLOTS_PER_EPOCH: Slot;

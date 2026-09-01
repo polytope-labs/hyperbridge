@@ -14,7 +14,7 @@ use crate::{
 	deneb::KzgCommitment,
 };
 use alloc::{vec, vec::Vec};
-use ssz_rs::{prelude::*, Deserialize, ProgressiveList};
+use ssz_types::{typenum::Unsigned, BitVector, FixedVector, VariableList};
 
 /// Index into the builder registry.
 pub type BuilderIndex = u64;
@@ -28,7 +28,7 @@ pub const MAX_PAYLOAD_ATTESTATIONS: usize = 4;
 pub const BUILDER_REGISTRY_LIMIT: usize = 2usize.saturating_pow(40);
 pub const BUILDER_PENDING_WITHDRAWALS_LIMIT: usize = 2usize.saturating_pow(20);
 
-#[derive(Default, Debug, SimpleSerialize, codec::Encode, codec::Decode, Clone, PartialEq, Eq)]
+#[derive(Default, Debug, ssz_derive::Encode, ssz_derive::Decode, tree_hash_derive::TreeHash, codec::Encode, codec::Decode, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct Builder {
 	#[cfg_attr(feature = "std", serde(rename = "pubkey"))]
@@ -44,7 +44,7 @@ pub struct Builder {
 	pub withdrawable_epoch: Epoch,
 }
 
-#[derive(Default, Debug, SimpleSerialize, codec::Encode, codec::Decode, Clone, PartialEq, Eq)]
+#[derive(Default, Debug, ssz_derive::Encode, ssz_derive::Decode, tree_hash_derive::TreeHash, codec::Encode, codec::Decode, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct BuilderPendingWithdrawal {
 	pub fee_recipient: ExecutionAddress,
@@ -54,7 +54,7 @@ pub struct BuilderPendingWithdrawal {
 	pub builder_index: BuilderIndex,
 }
 
-#[derive(Default, Debug, SimpleSerialize, codec::Encode, codec::Decode, Clone, PartialEq, Eq)]
+#[derive(Default, Debug, ssz_derive::Encode, ssz_derive::Decode, tree_hash_derive::TreeHash, codec::Encode, codec::Decode, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct BuilderPendingPayment {
 	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::as_string"))]
@@ -66,10 +66,10 @@ pub struct BuilderPendingPayment {
 
 /// A builder's commitment to produce an execution payload with a given `block_hash`. The payload
 /// itself, and with it the execution state root, is revealed later and out of band.
-#[derive(Default, Debug, SimpleSerialize, codec::Encode, codec::Decode, Clone, PartialEq, Eq)]
+#[derive(Default, Debug, ssz_derive::Encode, ssz_derive::Decode, tree_hash_derive::TreeHash, codec::Encode, codec::Decode, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 #[ssz(progressive_container)]
-pub struct ExecutionPayloadBid<const MAX_BLOB_COMMITMENTS_PER_BLOCK: usize> {
+pub struct ExecutionPayloadBid<MAX_BLOB_COMMITMENTS_PER_BLOCK: Unsigned> {
 	pub parent_block_hash: Hash32,
 	pub parent_block_root: Root,
 	pub block_hash: Hash32,
@@ -89,14 +89,14 @@ pub struct ExecutionPayloadBid<const MAX_BLOB_COMMITMENTS_PER_BLOCK: usize> {
 	pub execution_requests_root: Root,
 }
 
-#[derive(Default, Debug, SimpleSerialize, codec::Encode, codec::Decode, Clone, PartialEq, Eq)]
+#[derive(Default, Debug, ssz_derive::Encode, ssz_derive::Decode, tree_hash_derive::TreeHash, codec::Encode, codec::Decode, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
-pub struct SignedExecutionPayloadBid<const MAX_BLOB_COMMITMENTS_PER_BLOCK: usize> {
+pub struct SignedExecutionPayloadBid<MAX_BLOB_COMMITMENTS_PER_BLOCK: Unsigned> {
 	pub message: ExecutionPayloadBid<MAX_BLOB_COMMITMENTS_PER_BLOCK>,
 	pub signature: BlsSignature,
 }
 
-#[derive(Default, Debug, SimpleSerialize, codec::Encode, codec::Decode, Clone, PartialEq, Eq)]
+#[derive(Default, Debug, ssz_derive::Encode, ssz_derive::Decode, tree_hash_derive::TreeHash, codec::Encode, codec::Decode, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct PayloadAttestationData {
 	pub beacon_block_root: Root,
@@ -108,10 +108,10 @@ pub struct PayloadAttestationData {
 
 /// The payload timeliness committee's vote on whether a payload was revealed in time. It says
 /// nothing about the payload's contents, which is why this client does not rely on it.
-#[derive(Default, Debug, SimpleSerialize, codec::Encode, codec::Decode, Clone, PartialEq, Eq)]
+#[derive(Default, Debug, ssz_derive::Encode, ssz_derive::Decode, tree_hash_derive::TreeHash, codec::Encode, codec::Decode, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct PayloadAttestation {
-	pub aggregation_bits: Bitvector<PTC_SIZE>,
+	pub aggregation_bits: BitVector<PTC_SIZE>,
 	pub data: PayloadAttestationData,
 	pub signature: BlsSignature,
 }

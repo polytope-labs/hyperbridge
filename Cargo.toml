@@ -160,6 +160,11 @@ lto = "thin"
 strip = true
 
 [workspace.dependencies]
+ssz = { package = "ethereum_ssz", version = "0.10", default-features = false }
+ssz_derive = { package = "ethereum_ssz_derive", version = "0.10" }
+tree_hash = { version = "0.12", default-features = false }
+tree_hash_derive = { version = "0.12" }
+ssz_types = { version = "0.14", default-features = false }
 polkadot-sdk = { version = "=2512.3.2", default-features = false }
 
 rocksdb = { version = "0.24.0", features = ["bindgen-runtime"] }

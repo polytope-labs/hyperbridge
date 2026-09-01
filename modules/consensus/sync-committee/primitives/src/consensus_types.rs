@@ -11,8 +11,8 @@ use crate::{
 };
 use alloc::{vec, vec::Vec};
 #[cfg(feature = "glamsterdam")]
-use ssz_rs::ProgressiveList;
-use ssz_rs::{prelude::*, Deserialize, List, Vector};
+use ssz_types::ProgressiveList;
+use ssz_types::{typenum::Unsigned, BitList, BitVector, FixedVector, VariableList};
 
 /// The state lists EIP-7688 made progressive at Gloas.
 ///
@@ -20,9 +20,9 @@ use ssz_rs::{prelude::*, Deserialize, List, Vector};
 /// From Gloas they grow with the data instead, so the bound goes away and only the element type
 /// carries over. The alias keeps both shapes on one field declaration.
 #[cfg(not(feature = "glamsterdam"))]
-pub type StateList<T, const N: usize> = List<T, N>;
+pub type StateList<T, N> = VariableList<T, N>;
 #[cfg(feature = "glamsterdam")]
-pub type StateList<T, const N: usize> = ProgressiveList<T>;
+pub type StateList<T, N> = ProgressiveList<T>;
 
 #[cfg(feature = "glamsterdam")]
 use crate::{
@@ -35,7 +35,7 @@ use crate::{
 	},
 };
 
-#[derive(Default, Debug, SimpleSerialize, Clone, PartialEq, Eq, codec::Encode, codec::Decode)]
+#[derive(Default, Debug, ssz_derive::Encode, ssz_derive::Decode, tree_hash_derive::TreeHash, Clone, PartialEq, Eq, codec::Encode, codec::Decode)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct BeaconBlockHeader {
 	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::as_string"))]
@@ -47,7 +47,7 @@ pub struct BeaconBlockHeader {
 	pub body_root: Root,
 }
 
-#[derive(Default, Clone, Debug, SimpleSerialize, PartialEq, Eq, codec::Encode, codec::Decode)]
+#[derive(Default, Clone, Debug, ssz_derive::Encode, ssz_derive::Decode, tree_hash_derive::TreeHash, PartialEq, Eq, codec::Encode, codec::Decode)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct Checkpoint {
 	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::as_string"))]
@@ -55,7 +55,7 @@ pub struct Checkpoint {
 	pub root: Root,
 }
 
-#[derive(Default, Debug, SimpleSerialize, Clone, PartialEq, Eq, codec::Encode, codec::Decode)]
+#[derive(Default, Debug, ssz_derive::Encode, ssz_derive::Decode, tree_hash_derive::TreeHash, Clone, PartialEq, Eq, codec::Encode, codec::Decode)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct Eth1Data {
 	pub deposit_root: Root,
@@ -64,7 +64,7 @@ pub struct Eth1Data {
 	pub block_hash: Hash32,
 }
 
-#[derive(Default, Debug, SimpleSerialize, Clone, PartialEq, Eq, codec::Encode, codec::Decode)]
+#[derive(Default, Debug, ssz_derive::Encode, ssz_derive::Decode, tree_hash_derive::TreeHash, Clone, PartialEq, Eq, codec::Encode, codec::Decode)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct Validator {
 	#[cfg_attr(feature = "std", serde(rename = "pubkey"))]
@@ -84,30 +84,30 @@ pub struct Validator {
 	pub withdrawable_epoch: Epoch,
 }
 
-#[derive(Default, Debug, SimpleSerialize, Clone, PartialEq, Eq, codec::Encode, codec::Decode)]
+#[derive(Default, Debug, ssz_derive::Encode, ssz_derive::Decode, tree_hash_derive::TreeHash, Clone, PartialEq, Eq, codec::Encode, codec::Decode)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct ProposerSlashing {
 	pub signed_header_1: SignedBeaconBlockHeader,
 	pub signed_header_2: SignedBeaconBlockHeader,
 }
 
-#[derive(Default, Debug, SimpleSerialize, Clone, PartialEq, Eq, codec::Encode, codec::Decode)]
+#[derive(Default, Debug, ssz_derive::Encode, ssz_derive::Decode, tree_hash_derive::TreeHash, Clone, PartialEq, Eq, codec::Encode, codec::Decode)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct SignedBeaconBlockHeader {
 	pub message: BeaconBlockHeader,
 	pub signature: BlsSignature,
 }
 
-#[derive(Default, Debug, SimpleSerialize, Clone, PartialEq, Eq, codec::Encode, codec::Decode)]
+#[derive(Default, Debug, ssz_derive::Encode, ssz_derive::Decode, tree_hash_derive::TreeHash, Clone, PartialEq, Eq, codec::Encode, codec::Decode)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
-pub struct IndexedAttestation<const MAX_VALIDATORS_PER_COMMITTEE: usize> {
+pub struct IndexedAttestation<MAX_VALIDATORS_PER_COMMITTEE: Unsigned> {
 	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::seq_of_str"))]
-	pub attesting_indices: List<u64, MAX_VALIDATORS_PER_COMMITTEE>,
+	pub attesting_indices: VariableList<u64, MAX_VALIDATORS_PER_COMMITTEE>,
 	pub data: AttestationData,
 	pub signature: BlsSignature,
 }
 
-#[derive(Default, Clone, Debug, SimpleSerialize, PartialEq, Eq, codec::Encode, codec::Decode)]
+#[derive(Default, Clone, Debug, ssz_derive::Encode, ssz_derive::Decode, tree_hash_derive::TreeHash, PartialEq, Eq, codec::Encode, codec::Decode)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct AttestationData {
 	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::as_string"))]
@@ -119,33 +119,33 @@ pub struct AttestationData {
 	pub target: Checkpoint,
 }
 
-#[derive(Default, Debug, SimpleSerialize, Clone, PartialEq, Eq, codec::Encode, codec::Decode)]
+#[derive(Default, Debug, ssz_derive::Encode, ssz_derive::Decode, tree_hash_derive::TreeHash, Clone, PartialEq, Eq, codec::Encode, codec::Decode)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
-pub struct AttesterSlashing<const MAX_VALIDATORS_PER_COMMITTEE: usize> {
+pub struct AttesterSlashing<MAX_VALIDATORS_PER_COMMITTEE: Unsigned> {
 	pub attestation_1: IndexedAttestation<MAX_VALIDATORS_PER_COMMITTEE>,
 	pub attestation_2: IndexedAttestation<MAX_VALIDATORS_PER_COMMITTEE>,
 }
 
-#[derive(Default, Debug, SimpleSerialize, codec::Encode, codec::Decode, Clone, PartialEq, Eq)]
+#[derive(Default, Debug, ssz_derive::Encode, ssz_derive::Decode, tree_hash_derive::TreeHash, codec::Encode, codec::Decode, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct Attestation<
-	const MAX_VALIDATORS_PER_COMMITTEE: usize,
-	const MAX_COMMITTEES_PER_SLOT: usize,
+	MAX_VALIDATORS_PER_COMMITTEE: Unsigned,
+	MAX_COMMITTEES_PER_SLOT: Unsigned,
 > {
-	pub aggregation_bits: Bitlist<MAX_VALIDATORS_PER_COMMITTEE>,
+	pub aggregation_bits: BitList<MAX_VALIDATORS_PER_COMMITTEE>,
 	pub data: AttestationData,
 	pub signature: BlsSignature,
-	pub committee_bits: Bitvector<MAX_COMMITTEES_PER_SLOT>,
+	pub committee_bits: BitVector<MAX_COMMITTEES_PER_SLOT>,
 }
 
-#[derive(Default, Debug, SimpleSerialize, codec::Encode, codec::Decode, Clone, PartialEq, Eq)]
+#[derive(Default, Debug, ssz_derive::Encode, ssz_derive::Decode, tree_hash_derive::TreeHash, codec::Encode, codec::Decode, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct Deposit {
-	pub proof: Vector<Hash32, DEPOSIT_PROOF_LENGTH>,
+	pub proof: FixedVector<Hash32, DEPOSIT_PROOF_LENGTH>,
 	pub data: DepositData,
 }
 
-#[derive(Default, Debug, Clone, SimpleSerialize, codec::Encode, codec::Decode, PartialEq, Eq)]
+#[derive(Default, Debug, Clone, ssz_derive::Encode, ssz_derive::Decode, tree_hash_derive::TreeHash, codec::Encode, codec::Decode, PartialEq, Eq)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct DepositData {
 	#[cfg_attr(feature = "std", serde(rename = "pubkey"))]
@@ -156,7 +156,7 @@ pub struct DepositData {
 	pub signature: BlsSignature,
 }
 
-#[derive(Default, Debug, SimpleSerialize, codec::Encode, codec::Decode, Clone, PartialEq, Eq)]
+#[derive(Default, Debug, ssz_derive::Encode, ssz_derive::Decode, tree_hash_derive::TreeHash, codec::Encode, codec::Decode, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct VoluntaryExit {
 	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::as_string"))]
@@ -165,30 +165,30 @@ pub struct VoluntaryExit {
 	pub validator_index: u64,
 }
 
-#[derive(Default, Debug, SimpleSerialize, codec::Encode, codec::Decode, Clone, PartialEq, Eq)]
+#[derive(Default, Debug, ssz_derive::Encode, ssz_derive::Decode, tree_hash_derive::TreeHash, codec::Encode, codec::Decode, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct SignedVoluntaryExit {
 	pub message: VoluntaryExit,
 	pub signature: BlsSignature,
 }
 
-#[derive(Default, Debug, Clone, SimpleSerialize, codec::Encode, codec::Decode, PartialEq, Eq)]
+#[derive(Default, Debug, Clone, ssz_derive::Encode, ssz_derive::Decode, tree_hash_derive::TreeHash, codec::Encode, codec::Decode, PartialEq, Eq)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
-pub struct SyncAggregate<const SYNC_COMMITTEE_SIZE: usize> {
-	pub sync_committee_bits: Bitvector<SYNC_COMMITTEE_SIZE>,
+pub struct SyncAggregate<SYNC_COMMITTEE_SIZE: Unsigned> {
+	pub sync_committee_bits: BitVector<SYNC_COMMITTEE_SIZE>,
 	pub sync_committee_signature: BlsSignature,
 }
 
-#[derive(Default, Debug, SimpleSerialize, Clone, PartialEq, Eq, codec::Encode, codec::Decode)]
+#[derive(Default, Debug, ssz_derive::Encode, ssz_derive::Decode, tree_hash_derive::TreeHash, Clone, PartialEq, Eq, codec::Encode, codec::Decode)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
-pub struct SyncCommittee<const SYNC_COMMITTEE_SIZE: usize> {
+pub struct SyncCommittee<SYNC_COMMITTEE_SIZE: Unsigned> {
 	#[cfg_attr(feature = "std", serde(rename = "pubkeys"))]
-	pub public_keys: Vector<BlsPublicKey, SYNC_COMMITTEE_SIZE>,
+	pub public_keys: FixedVector<BlsPublicKey, SYNC_COMMITTEE_SIZE>,
 	#[cfg_attr(feature = "std", serde(rename = "aggregate_pubkey"))]
 	pub aggregate_public_key: BlsPublicKey,
 }
 
-#[derive(Default, Debug, Clone, SimpleSerialize, PartialEq, Eq, codec::Encode, codec::Decode)]
+#[derive(Default, Debug, Clone, ssz_derive::Encode, ssz_derive::Decode, tree_hash_derive::TreeHash, PartialEq, Eq, codec::Encode, codec::Decode)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct Withdrawal {
 	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::as_string"))]
@@ -200,7 +200,7 @@ pub struct Withdrawal {
 	pub amount: Gwei,
 }
 
-#[derive(Default, Debug, Clone, SimpleSerialize, PartialEq, Eq, codec::Encode, codec::Decode)]
+#[derive(Default, Debug, Clone, ssz_derive::Encode, ssz_derive::Decode, tree_hash_derive::TreeHash, PartialEq, Eq, codec::Encode, codec::Decode)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct BlsToExecutionChange {
 	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::as_string"))]
@@ -210,23 +210,23 @@ pub struct BlsToExecutionChange {
 	pub to_execution_address: ExecutionAddress,
 }
 
-#[derive(Default, Debug, Clone, SimpleSerialize, PartialEq, Eq, codec::Encode, codec::Decode)]
+#[derive(Default, Debug, Clone, ssz_derive::Encode, ssz_derive::Decode, tree_hash_derive::TreeHash, PartialEq, Eq, codec::Encode, codec::Decode)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct SignedBlsToExecutionChange {
 	message: BlsToExecutionChange,
 	signature: BlsSignature,
 }
 
-pub type Transaction<const MAX_BYTES_PER_TRANSACTION: usize> = ByteList<MAX_BYTES_PER_TRANSACTION>;
+pub type Transaction<MAX_BYTES_PER_TRANSACTION: Unsigned> = ByteList<MAX_BYTES_PER_TRANSACTION>;
 
-#[derive(Default, Debug, Clone, SimpleSerialize, PartialEq, Eq, codec::Encode, codec::Decode)]
+#[derive(Default, Debug, Clone, ssz_derive::Encode, ssz_derive::Decode, tree_hash_derive::TreeHash, PartialEq, Eq, codec::Encode, codec::Decode)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct ExecutionPayload<
-	const BYTES_PER_LOGS_BLOOM: usize,
-	const MAX_EXTRA_DATA_BYTES: usize,
-	const MAX_BYTES_PER_TRANSACTION: usize,
-	const MAX_TRANSACTIONS_PER_PAYLOAD: usize,
-	const MAX_WITHDRAWALS_PER_PAYLOAD: usize,
+	BYTES_PER_LOGS_BLOOM: Unsigned,
+	MAX_EXTRA_DATA_BYTES: Unsigned,
+	MAX_BYTES_PER_TRANSACTION: Unsigned,
+	MAX_TRANSACTIONS_PER_PAYLOAD: Unsigned,
+	MAX_WITHDRAWALS_PER_PAYLOAD: Unsigned,
 > {
 	pub parent_hash: Hash32,
 	pub fee_recipient: ExecutionAddress,
@@ -243,21 +243,21 @@ pub struct ExecutionPayload<
 	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::as_string"))]
 	pub timestamp: u64,
 	pub extra_data: ByteList<MAX_EXTRA_DATA_BYTES>,
-	pub base_fee_per_gas: U256,
+	pub base_fee_per_gas: crate::ssz::U256,
 	pub block_hash: Hash32,
-	pub transactions: List<Transaction<MAX_BYTES_PER_TRANSACTION>, MAX_TRANSACTIONS_PER_PAYLOAD>,
-	pub withdrawals: List<Withdrawal, MAX_WITHDRAWALS_PER_PAYLOAD>,
+	pub transactions: VariableList<Transaction<MAX_BYTES_PER_TRANSACTION>, MAX_TRANSACTIONS_PER_PAYLOAD>,
+	pub withdrawals: VariableList<Withdrawal, MAX_WITHDRAWALS_PER_PAYLOAD>,
 	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::as_string"))]
 	pub blob_gas_used: u64,
 	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::as_string"))]
 	pub excess_blob_gas: u64,
 }
 
-#[derive(Default, Debug, Clone, SimpleSerialize, PartialEq, Eq, codec::Encode, codec::Decode)]
+#[derive(Default, Debug, Clone, ssz_derive::Encode, ssz_derive::Decode, tree_hash_derive::TreeHash, PartialEq, Eq, codec::Encode, codec::Decode)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct ExecutionPayloadHeader<
-	const BYTES_PER_LOGS_BLOOM: usize,
-	const MAX_EXTRA_DATA_BYTES: usize,
+	BYTES_PER_LOGS_BLOOM: Unsigned,
+	MAX_EXTRA_DATA_BYTES: Unsigned,
 > {
 	pub parent_hash: Hash32,
 	pub fee_recipient: ExecutionAddress,
@@ -274,7 +274,7 @@ pub struct ExecutionPayloadHeader<
 	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::as_string"))]
 	pub timestamp: u64,
 	pub extra_data: ByteList<MAX_EXTRA_DATA_BYTES>,
-	pub base_fee_per_gas: U256,
+	pub base_fee_per_gas: crate::ssz::U256,
 	pub block_hash: Hash32,
 	pub transactions_root: Root,
 	pub withdrawals_root: Root,
@@ -284,38 +284,38 @@ pub struct ExecutionPayloadHeader<
 	pub excess_blob_gas: u64,
 }
 
-#[derive(Default, Debug, Clone, SimpleSerialize, PartialEq, Eq, codec::Encode, codec::Decode)]
+#[derive(Default, Debug, Clone, ssz_derive::Encode, ssz_derive::Decode, tree_hash_derive::TreeHash, PartialEq, Eq, codec::Encode, codec::Decode)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct BeaconBlockBody<
-	const MAX_PROPOSER_SLASHINGS: usize,
-	const MAX_VALIDATORS_PER_COMMITTEE: usize,
-	const MAX_ATTESTER_SLASHINGS: usize,
-	const MAX_ATTESTATIONS: usize,
-	const MAX_DEPOSITS: usize,
-	const MAX_VOLUNTARY_EXITS: usize,
-	const SYNC_COMMITTEE_SIZE: usize,
-	const BYTES_PER_LOGS_BLOOM: usize,
-	const MAX_EXTRA_DATA_BYTES: usize,
-	const MAX_BYTES_PER_TRANSACTION: usize,
-	const MAX_TRANSACTIONS_PER_PAYLOAD: usize,
-	const MAX_WITHDRAWALS_PER_PAYLOAD: usize,
-	const MAX_BLS_TO_EXECUTION_CHANGES: usize,
-	const MAX_BLOB_COMMITMENTS_PER_BLOCK: usize,
-	const MAX_COMMITTEES_PER_SLOT: usize,
-	const MAX_DEPOSIT_REQUESTS_PER_PAYLOAD: usize,
-	const MAX_WITHDRAWAL_REQUESTS_PER_PAYLOAD: usize,
-	const MAX_CONSOLIDATION_REQUESTS_PER_PAYLOAD: usize,
+	MAX_PROPOSER_SLASHINGS: Unsigned,
+	MAX_VALIDATORS_PER_COMMITTEE: Unsigned,
+	MAX_ATTESTER_SLASHINGS: Unsigned,
+	MAX_ATTESTATIONS: Unsigned,
+	MAX_DEPOSITS: Unsigned,
+	MAX_VOLUNTARY_EXITS: Unsigned,
+	SYNC_COMMITTEE_SIZE: Unsigned,
+	BYTES_PER_LOGS_BLOOM: Unsigned,
+	MAX_EXTRA_DATA_BYTES: Unsigned,
+	MAX_BYTES_PER_TRANSACTION: Unsigned,
+	MAX_TRANSACTIONS_PER_PAYLOAD: Unsigned,
+	MAX_WITHDRAWALS_PER_PAYLOAD: Unsigned,
+	MAX_BLS_TO_EXECUTION_CHANGES: Unsigned,
+	MAX_BLOB_COMMITMENTS_PER_BLOCK: Unsigned,
+	MAX_COMMITTEES_PER_SLOT: Unsigned,
+	MAX_DEPOSIT_REQUESTS_PER_PAYLOAD: Unsigned,
+	MAX_WITHDRAWAL_REQUESTS_PER_PAYLOAD: Unsigned,
+	MAX_CONSOLIDATION_REQUESTS_PER_PAYLOAD: Unsigned,
 > {
 	pub randao_reveal: BlsSignature,
 	pub eth1_data: Eth1Data,
 	pub graffiti: Bytes32,
-	pub proposer_slashings: List<ProposerSlashing, MAX_PROPOSER_SLASHINGS>,
+	pub proposer_slashings: VariableList<ProposerSlashing, MAX_PROPOSER_SLASHINGS>,
 	pub attester_slashings:
-		List<AttesterSlashing<MAX_VALIDATORS_PER_COMMITTEE>, MAX_ATTESTER_SLASHINGS>,
+		VariableList<AttesterSlashing<MAX_VALIDATORS_PER_COMMITTEE>, MAX_ATTESTER_SLASHINGS>,
 	pub attestations:
-		List<Attestation<MAX_VALIDATORS_PER_COMMITTEE, MAX_COMMITTEES_PER_SLOT>, MAX_ATTESTATIONS>,
-	pub deposits: List<Deposit, MAX_DEPOSITS>,
-	pub voluntary_exits: List<SignedVoluntaryExit, MAX_VOLUNTARY_EXITS>,
+		VariableList<Attestation<MAX_VALIDATORS_PER_COMMITTEE, MAX_COMMITTEES_PER_SLOT>, MAX_ATTESTATIONS>,
+	pub deposits: VariableList<Deposit, MAX_DEPOSITS>,
+	pub voluntary_exits: VariableList<SignedVoluntaryExit, MAX_VOLUNTARY_EXITS>,
 	pub sync_aggregate: SyncAggregate<SYNC_COMMITTEE_SIZE>,
 	#[cfg(not(feature = "glamsterdam"))]
 	pub execution_payload: ExecutionPayload<
@@ -325,9 +325,9 @@ pub struct BeaconBlockBody<
 		MAX_TRANSACTIONS_PER_PAYLOAD,
 		MAX_WITHDRAWALS_PER_PAYLOAD,
 	>,
-	pub bls_to_execution_changes: List<SignedBlsToExecutionChange, MAX_BLS_TO_EXECUTION_CHANGES>,
+	pub bls_to_execution_changes: VariableList<SignedBlsToExecutionChange, MAX_BLS_TO_EXECUTION_CHANGES>,
 	#[cfg(not(feature = "glamsterdam"))]
-	pub blob_kzg_commitments: List<KzgCommitment, MAX_BLOB_COMMITMENTS_PER_BLOCK>,
+	pub blob_kzg_commitments: VariableList<KzgCommitment, MAX_BLOB_COMMITMENTS_PER_BLOCK>,
 	#[cfg(not(feature = "glamsterdam"))]
 	pub execution_requests: ExecutionRequests<
 		MAX_DEPOSIT_REQUESTS_PER_PAYLOAD,
@@ -339,7 +339,7 @@ pub struct BeaconBlockBody<
 	#[cfg(feature = "glamsterdam")]
 	pub signed_execution_payload_bid: SignedExecutionPayloadBid<MAX_BLOB_COMMITMENTS_PER_BLOCK>,
 	#[cfg(feature = "glamsterdam")]
-	pub payload_attestations: List<PayloadAttestation, MAX_PAYLOAD_ATTESTATIONS>,
+	pub payload_attestations: VariableList<PayloadAttestation, MAX_PAYLOAD_ATTESTATIONS>,
 	#[cfg(feature = "glamsterdam")]
 	pub parent_execution_requests: ExecutionRequests<
 		MAX_DEPOSIT_REQUESTS_PER_PAYLOAD,
@@ -348,27 +348,27 @@ pub struct BeaconBlockBody<
 	>,
 }
 
-#[derive(Default, Debug, Clone, PartialEq, Eq, SimpleSerialize, codec::Encode, codec::Decode)]
+#[derive(Default, Debug, Clone, PartialEq, Eq, ssz_derive::Encode, ssz_derive::Decode, tree_hash_derive::TreeHash, codec::Encode, codec::Decode)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct BeaconBlock<
-	const MAX_PROPOSER_SLASHINGS: usize,
-	const MAX_VALIDATORS_PER_COMMITTEE: usize,
-	const MAX_ATTESTER_SLASHINGS: usize,
-	const MAX_ATTESTATIONS: usize,
-	const MAX_DEPOSITS: usize,
-	const MAX_VOLUNTARY_EXITS: usize,
-	const SYNC_COMMITTEE_SIZE: usize,
-	const BYTES_PER_LOGS_BLOOM: usize,
-	const MAX_EXTRA_DATA_BYTES: usize,
-	const MAX_BYTES_PER_TRANSACTION: usize,
-	const MAX_TRANSACTIONS_PER_PAYLOAD: usize,
-	const MAX_WITHDRAWALS_PER_PAYLOAD: usize,
-	const MAX_BLS_TO_EXECUTION_CHANGES: usize,
-	const MAX_BLOB_COMMITMENTS_PER_BLOCK: usize,
-	const MAX_COMMITTEES_PER_SLOT: usize,
-	const MAX_DEPOSIT_REQUESTS_PER_PAYLOAD: usize,
-	const MAX_WITHDRAWAL_REQUESTS_PER_PAYLOAD: usize,
-	const MAX_CONSOLIDATION_REQUESTS_PER_PAYLOAD: usize,
+	MAX_PROPOSER_SLASHINGS: Unsigned,
+	MAX_VALIDATORS_PER_COMMITTEE: Unsigned,
+	MAX_ATTESTER_SLASHINGS: Unsigned,
+	MAX_ATTESTATIONS: Unsigned,
+	MAX_DEPOSITS: Unsigned,
+	MAX_VOLUNTARY_EXITS: Unsigned,
+	SYNC_COMMITTEE_SIZE: Unsigned,
+	BYTES_PER_LOGS_BLOOM: Unsigned,
+	MAX_EXTRA_DATA_BYTES: Unsigned,
+	MAX_BYTES_PER_TRANSACTION: Unsigned,
+	MAX_TRANSACTIONS_PER_PAYLOAD: Unsigned,
+	MAX_WITHDRAWALS_PER_PAYLOAD: Unsigned,
+	MAX_BLS_TO_EXECUTION_CHANGES: Unsigned,
+	MAX_BLOB_COMMITMENTS_PER_BLOCK: Unsigned,
+	MAX_COMMITTEES_PER_SLOT: Unsigned,
+	MAX_DEPOSIT_REQUESTS_PER_PAYLOAD: Unsigned,
+	MAX_WITHDRAWAL_REQUESTS_PER_PAYLOAD: Unsigned,
+	MAX_CONSOLIDATION_REQUESTS_PER_PAYLOAD: Unsigned,
 > {
 	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::as_string"))]
 	pub slot: Slot,
@@ -397,7 +397,7 @@ pub struct BeaconBlock<
 		MAX_CONSOLIDATION_REQUESTS_PER_PAYLOAD,
 	>,
 }
-#[derive(Default, Debug, SimpleSerialize, Clone, PartialEq, Eq, codec::Encode, codec::Decode)]
+#[derive(Default, Debug, ssz_derive::Encode, ssz_derive::Decode, tree_hash_derive::TreeHash, Clone, PartialEq, Eq, codec::Encode, codec::Decode)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct Fork {
 	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::as_hex"))]
@@ -408,7 +408,7 @@ pub struct Fork {
 	pub epoch: Epoch,
 }
 
-#[derive(Default, Debug, SimpleSerialize, Clone, codec::Encode, codec::Decode)]
+#[derive(Default, Debug, ssz_derive::Encode, ssz_derive::Decode, tree_hash_derive::TreeHash, Clone, codec::Encode, codec::Decode)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct ForkData {
 	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::as_hex"))]
@@ -416,32 +416,32 @@ pub struct ForkData {
 	pub genesis_validators_root: Root,
 }
 
-#[derive(Default, Debug, SimpleSerialize, Clone, PartialEq, Eq, codec::Encode, codec::Decode)]
+#[derive(Default, Debug, ssz_derive::Encode, ssz_derive::Decode, tree_hash_derive::TreeHash, Clone, PartialEq, Eq, codec::Encode, codec::Decode)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct HistoricalSummary {
 	pub block_summary_root: Root,
 	pub state_summary_root: Root,
 }
 
-#[derive(Default, Debug, SimpleSerialize, Clone, PartialEq, Eq, codec::Encode, codec::Decode)]
+#[derive(Default, Debug, ssz_derive::Encode, ssz_derive::Decode, tree_hash_derive::TreeHash, Clone, PartialEq, Eq, codec::Encode, codec::Decode)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 // [Modified in Gloas:EIP7688] the state hashes as a progressive container, which is what keeps a
 // field's generalized index from moving when a later fork adds or drops one.
 #[cfg_attr(feature = "glamsterdam", ssz(progressive_container))]
 pub struct BeaconState<
-	const SLOTS_PER_HISTORICAL_ROOT: usize,
-	const HISTORICAL_ROOTS_LIMIT: usize,
-	const ETH1_DATA_VOTES_BOUND: usize,
-	const VALIDATOR_REGISTRY_LIMIT: usize,
-	const EPOCHS_PER_HISTORICAL_VECTOR: usize,
-	const EPOCHS_PER_SLASHINGS_VECTOR: usize,
-	const SYNC_COMMITTEE_SIZE: usize,
-	const BYTES_PER_LOGS_BLOOM: usize,
-	const MAX_EXTRA_DATA_BYTES: usize,
-	const PENDING_DEPOSITS_LIMIT: usize,
-	const PENDING_CONSOLIDATIONS_LIMIT: usize,
-	const PENDING_PARTIAL_WITHDRAWALS_LIMIT: usize,
-	const PROPOSER_LOOK_AHEAD_LIMIT: usize,
+	SLOTS_PER_HISTORICAL_ROOT: Unsigned,
+	HISTORICAL_ROOTS_LIMIT: Unsigned,
+	ETH1_DATA_VOTES_BOUND: Unsigned,
+	VALIDATOR_REGISTRY_LIMIT: Unsigned,
+	EPOCHS_PER_HISTORICAL_VECTOR: Unsigned,
+	EPOCHS_PER_SLASHINGS_VECTOR: Unsigned,
+	SYNC_COMMITTEE_SIZE: Unsigned,
+	BYTES_PER_LOGS_BLOOM: Unsigned,
+	MAX_EXTRA_DATA_BYTES: Unsigned,
+	PENDING_DEPOSITS_LIMIT: Unsigned,
+	PENDING_CONSOLIDATIONS_LIMIT: Unsigned,
+	PENDING_PARTIAL_WITHDRAWALS_LIMIT: Unsigned,
+	PROPOSER_LOOK_AHEAD_LIMIT: Unsigned,
 > {
 	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::as_string"))]
 	pub genesis_time: u64,
@@ -450,24 +450,24 @@ pub struct BeaconState<
 	pub slot: Slot,
 	pub fork: Fork,
 	pub latest_block_header: BeaconBlockHeader,
-	pub block_roots: Vector<Root, SLOTS_PER_HISTORICAL_ROOT>,
-	pub state_roots: Vector<Root, SLOTS_PER_HISTORICAL_ROOT>,
-	pub historical_roots: List<Root, HISTORICAL_ROOTS_LIMIT>,
+	pub block_roots: FixedVector<Root, SLOTS_PER_HISTORICAL_ROOT>,
+	pub state_roots: FixedVector<Root, SLOTS_PER_HISTORICAL_ROOT>,
+	pub historical_roots: VariableList<Root, HISTORICAL_ROOTS_LIMIT>,
 	pub eth1_data: Eth1Data,
-	pub eth1_data_votes: List<Eth1Data, ETH1_DATA_VOTES_BOUND>,
+	pub eth1_data_votes: VariableList<Eth1Data, ETH1_DATA_VOTES_BOUND>,
 	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::as_string"))]
 	pub eth1_deposit_index: u64,
 	pub validators: StateList<Validator, VALIDATOR_REGISTRY_LIMIT>,
 	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::seq_of_str"))]
 	pub balances: StateList<Gwei, VALIDATOR_REGISTRY_LIMIT>,
-	pub randao_mixes: Vector<Bytes32, EPOCHS_PER_HISTORICAL_VECTOR>,
+	pub randao_mixes: FixedVector<Bytes32, EPOCHS_PER_HISTORICAL_VECTOR>,
 	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::seq_of_str"))]
-	pub slashings: Vector<Gwei, EPOCHS_PER_SLASHINGS_VECTOR>,
+	pub slashings: FixedVector<Gwei, EPOCHS_PER_SLASHINGS_VECTOR>,
 	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::seq_of_u8_str_or_hex"))]
 	pub previous_epoch_participation: StateList<ParticipationFlags, VALIDATOR_REGISTRY_LIMIT>,
 	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::seq_of_u8_str_or_hex"))]
 	pub current_epoch_participation: StateList<ParticipationFlags, VALIDATOR_REGISTRY_LIMIT>,
-	pub justification_bits: Bitvector<JUSTIFICATION_BITS_LENGTH>,
+	pub justification_bits: BitVector<JUSTIFICATION_BITS_LENGTH>,
 	pub previous_justified_checkpoint: Checkpoint,
 	pub current_justified_checkpoint: Checkpoint,
 	pub finalized_checkpoint: Checkpoint,
@@ -486,7 +486,7 @@ pub struct BeaconState<
 	pub next_withdrawal_index: WithdrawalIndex,
 	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::as_string"))]
 	pub next_withdrawal_validator_index: ValidatorIndex,
-	pub historical_summaries: List<HistoricalSummary, HISTORICAL_ROOTS_LIMIT>,
+	pub historical_summaries: VariableList<HistoricalSummary, HISTORICAL_ROOTS_LIMIT>,
 	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::as_string"))]
 	pub deposit_requests_start_index: u64,
 	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::as_string"))]
@@ -505,7 +505,7 @@ pub struct BeaconState<
 	pending_consolidations: StateList<PendingConsolidation, PENDING_CONSOLIDATIONS_LIMIT>,
 	//  [New in Fulu:EIP7917]
 	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::seq_of_str"))]
-	proposer_lookahead: Vector<ValidatorIndex, PROPOSER_LOOK_AHEAD_LIMIT>,
+	proposer_lookahead: FixedVector<ValidatorIndex, PROPOSER_LOOK_AHEAD_LIMIT>,
 	// [New in Gloas:EIP7732] the builder registry and payload timeliness bookkeeping. Nothing
 	// here is proven, but the fields are part of the container, so they have to be present for
 	// the state to hash to the root the sync committee signed over.
@@ -515,9 +515,9 @@ pub struct BeaconState<
 	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::as_string"))]
 	next_withdrawal_builder_index: BuilderIndex,
 	#[cfg(feature = "glamsterdam")]
-	execution_payload_availability: Bitvector<SLOTS_PER_HISTORICAL_ROOT>,
+	execution_payload_availability: BitVector<SLOTS_PER_HISTORICAL_ROOT>,
 	#[cfg(feature = "glamsterdam")]
-	builder_pending_payments: Vector<BuilderPendingPayment, BUILDER_PENDING_PAYMENTS_LIMIT>,
+	builder_pending_payments: FixedVector<BuilderPendingPayment, BUILDER_PENDING_PAYMENTS_LIMIT>,
 	#[cfg(feature = "glamsterdam")]
 	builder_pending_withdrawals: ProgressiveList<BuilderPendingWithdrawal>,
 	#[cfg(feature = "glamsterdam")]
@@ -526,5 +526,5 @@ pub struct BeaconState<
 	payload_expected_withdrawals: ProgressiveList<Withdrawal>,
 	#[cfg(feature = "glamsterdam")]
 	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::seq_of_seq_of_str"))]
-	ptc_window: Vector<Vector<ValidatorIndex, PTC_SIZE>, PTC_WINDOW_LIMIT>,
+	ptc_window: FixedVector<FixedVector<ValidatorIndex, PTC_SIZE>, PTC_WINDOW_LIMIT>,
 }

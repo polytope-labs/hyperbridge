@@ -4,6 +4,77 @@ AI-maintained record of non-obvious choices made in `sdk/packages/indexer`: what
 
 Entry format: heading with the decision, then alternatives considered and the reasoning. Newest first.
 
+## 2026-09-01 — Declared V4 positions get their own table, re-read rather than carried forward (#1159)
+
+Chosen: a `LiquidityProviderV4Position` row per (chain, tokenId), written from the bid declarations the
+aggregation verified, and re-read on every refresh.
+
+Alternative rejected — carry the last sweep's position VALUE forward on `PoolBidder`. No new table and no extra
+reads, and wrong in the one case that matters: simplex funds fills out of these positions, so a V4-funded fill
+drains the position inside the fill transaction while wallet and vault balances barely move. A carried value
+would keep advertising precisely the inventory the fill just spent — the overstatement this whole issue exists
+to remove.
+
+Alternative rejected — add the tokenIds to `PoolBidder` or `LiquidityProviderBalanceV2`. Both are live tables, so
+it is a migration; and neither has the right shape: a position backs a solver across every pool it bids in and
+every token in its pool's pair, so it belongs to (provider, chain), not to a pool row.
+
+Keyed by (chain, tokenId) rather than (provider, chain, tokenId): a position that changes hands then moves to its
+new owner instead of being recorded under both, and the ownership re-check has one row to correct.
+
+Reconciliation is per solver, not per chain: the solvers that bid have their rows replaced wholesale (a
+declaration is per bid, and what this window's bid omits the weights already ignore), while a solver that did not
+bid keeps what it last declared — silence is not a withdrawal. A row also goes when the re-read finds the
+position burned or under another owner, which is the only signal available for a solver that has stopped bidding
+entirely.
+
+## 2026-09-01 — Escrow releases and vault events refresh by provider, and depths re-sum from the store (#1159)
+
+Chosen: `refreshProviderLiquidity(chain, provider, tokens)` beside the pool-scoped entry point, for the events
+that move a solver's inventory without naming a pool.
+
+Alternative rejected — resolve those events to pools and reuse the pool-scoped path. An escrow release names the
+order, so its pools are resolvable, but a vault event names only a token; and re-reading every bidder of every
+pool the solver touches costs an RPC per bidder to learn what one solver's balance did.
+
+That entry point forced one change to the shared core, worth knowing about: the (pool, chain) depths are now
+re-summed from the STORED bidder rows after the writes, not from the rows the refresh happened to re-read.
+Summing the re-read subset was correct only because the pool-scoped path re-reads every bidder; with one solver's
+rows in hand it would have erased everyone else's contribution.
+
+Chosen: the escrow release resolves its filler from the gateway's `_filled(commitment)` mapping with one
+`eth_call` at the event's block. `_withdraw` writes the beneficiary in the same call that emits the event, so the
+mapping is authoritative from that block onwards, and the source chain's node never has to wait for the
+destination chain's node to have indexed the fill.
+
+Chosen: the vault refresh hangs off the end of `YieldVaultService.recordLedger` rather than off the handlers. The
+"is this one of our solvers" gate and the duplicate-log guard already live there, and both are exactly the gates
+the refresh wants.
+
+## 2026-09-01 — Per-event reads are pinned to the event's block (#1159)
+
+Chosen: the balance and position reads a refresh performs are pinned to the block of the event that triggered
+them, via the SDK's `blockTag` parameter, and the read memo is keyed by that block so several events in one block
+share one set of reads.
+
+Alternative rejected — read at the chain head, as the periodic sweep does. It is what the first cut did, and it
+is not replayable: reindexing an old fill would stamp today's balance onto it. The pool guard (skip a pool whose
+last snapshot postdates the event) hid that by making the refresh a no-op during a resync; pinning the reads
+makes the guard a cost optimization rather than the only thing standing between a replay and wrong data.
+
+Only the event's own chain is pinned. Block numbers are per chain and a refresh reaches across every chain the
+pool is quoted on, so the others stay at the head — the correct reading available for them.
+
+## 2026-09-01 — The balance series keeps its shape; #1159 §3 is left as a comment (#1159)
+
+Not done, deliberately: the `trigger` enum, the nullable `transactionHash`, the
+`{chain}-{token}-{solver}-{blockNumber}` id shape for event-triggered rows, and ordering "current liquidity" by
+`snapshotTime` rather than `blockNumber`. All four change `LiquidityProviderBalanceV2`, which is live, and the
+value is provenance metadata rather than correctness. Event-triggered rows therefore keep borrowing Hyperbridge's
+head block, and the design is recorded as a comment on `recordProviderBalances` so a later migration has it to
+hand. `LiquidityProviderV4Position` is additive — a new table, not a change to an existing one — which is why it
+is in this change and §3 is not.
+
 ## 2026-09-01 — The fill refresh re-reads balances, publishes no provenance of its own, and skips replayed fills
 
 Chosen: on `OrderFilled`, re-read every recorded bidder's balance for the pools the fill traded through and

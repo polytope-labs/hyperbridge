@@ -2442,6 +2442,60 @@ type LiquidityProvider @entity {
 	Pools this provider currently backs, one row per (pool, chain, direction, output token).
 	"""
 	poolPositions: [PoolBidder] @derivedFrom(field: "provider")
+
+	"""
+	Uniswap V4 positions this provider declared in its phantom bids and still owned when they were
+	verified, one row per (chain, tokenId).
+	"""
+	uniswapV4Positions: [LiquidityProviderV4Position] @derivedFrom(field: "provider")
+}
+
+"""
+A Uniswap V4 position a solver funds fills from, learned from the `paymasterAndData` declaration of
+its phantom bid and verified on-chain as owned by that solver when the bid window closed.
+
+This table exists because a bid is the ONLY place a position is ever named. The aggregation values
+the declared positions while it has them in hand, but between bid windows nothing else knows the
+tokenIds, so a balance re-read triggered by a fill could not see that inventory at all — and
+carrying the last window's value forward is worse than not seeing it, because simplex funds fills
+out of these positions: such a fill drains the position inside the fill transaction while wallet and
+vault balances barely move, so a carried value keeps advertising exactly the inventory that was just
+spent. Persisting the tokenIds lets the fill path re-read the position instead of guessing.
+"""
+type LiquidityProviderV4Position @entity @compositeIndexes(fields: [["provider", "chain"]]) {
+	"""
+	Composite identifier: {chain}-{tokenId}. Keyed by the position rather than by the solver, so a
+	position that changes hands moves to its new owner instead of being recorded under both.
+	"""
+	id: ID!
+
+	"""
+	The solver that declared this position and owned it at verification time. Ownership is re-checked
+	whenever the position is re-read; a position found under another owner is no longer this
+	provider's inventory and its row is removed.
+	"""
+	provider: LiquidityProvider! @index
+
+	"""
+	State machine ID of the chain the position lives on. A bid is per chain, so a position is only
+	ever visible to reads on the chain whose bid declared it.
+	"""
+	chain: String! @index
+
+	"""
+	The Uniswap V4 PositionManager tokenId.
+	"""
+	tokenId: BigInt! @index
+
+	"""
+	Hyperbridge block of the bid window that last declared and verified this position.
+	"""
+	lastDeclaredBlock: BigInt! @index
+
+	"""
+	Timestamp of that bid window.
+	"""
+	lastDeclaredAt: Date! @index
 }
 
 """

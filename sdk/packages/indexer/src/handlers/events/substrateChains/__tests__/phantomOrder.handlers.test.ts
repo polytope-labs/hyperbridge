@@ -188,6 +188,7 @@ describe("handlePhantomOrderPrices", () => {
 				]),
 			],
 			lpBalances: [],
+			positions: [],
 		})
 
 		await handlePhantomOrderPrices(windowClosedEvent())
@@ -210,6 +211,7 @@ describe("handlePhantomOrderPrices", () => {
 		aggregatePhantomBids.mockResolvedValue({
 			legs: [leg(1, USDC, 660n)],
 			lpBalances: [],
+			positions: [],
 		})
 
 		await handlePhantomOrderPrices(windowClosedEvent())
@@ -225,6 +227,7 @@ describe("handlePhantomOrderPrices", () => {
 		aggregatePhantomBids.mockResolvedValue({
 			legs: [leg(0, CNGN, 1n)],
 			lpBalances: [],
+			positions: [],
 		})
 
 		await handlePhantomOrderPrices(windowClosedEvent())
@@ -239,6 +242,7 @@ describe("handlePhantomOrderPrices", () => {
 		aggregatePhantomBids.mockResolvedValue({
 			legs: [leg(4, CNGN, 1n)],
 			lpBalances: [],
+			positions: [],
 		})
 
 		await handlePhantomOrderPrices(windowClosedEvent())
@@ -251,6 +255,7 @@ describe("handlePhantomOrderPrices", () => {
 		aggregatePhantomBids.mockResolvedValue({
 			legs: [leg(0, CNGN, 1n), leg(1, USDC, 2n)],
 			lpBalances: [{ solver: "0xsolver", chain: CHAIN, tokenAddress: CNGN, balance: 42n }],
+			positions: [],
 		})
 
 		await handlePhantomOrderPrices(windowClosedEvent())
@@ -267,6 +272,7 @@ describe("handlePhantomOrderPrices", () => {
 		aggregatePhantomBids.mockResolvedValue({
 			legs: [leg(0, CNGN, 1n)],
 			lpBalances: [{ solver: "0xsolver", chain: CHAIN, tokenAddress: CNGN, balance: 42n }],
+			positions: [],
 		})
 
 		await handlePhantomOrderPrices(windowClosedEvent(11n))
@@ -283,6 +289,69 @@ describe("handlePhantomOrderPrices", () => {
 		await handlePhantomOrderPrices(windowClosedEvent(33n))
 		expect([...table("LiquidityProviderBalanceV2").values()]).toHaveLength(2)
 		expect(aggregatePhantomBids.mock.calls[2][0].getBalance).not.toBe(readers[0])
+	})
+
+	// A bid is the only place a Uniswap V4 position is ever named, so the tokenIds have to be stored
+	// here or the fill path cannot re-value them — and a carried value is worse than none, because
+	// simplex funds fills out of these positions.
+	describe("declared Uniswap V4 positions", () => {
+		const withPositions = (positions: { solver: string; chain: string; tokenId: bigint }[]) =>
+			aggregatePhantomBids.mockResolvedValue({
+				legs: [leg(0, CNGN, 1n)],
+				lpBalances: [{ solver: "0xs1", chain: CHAIN, tokenAddress: CNGN, balance: 42n }],
+				positions,
+			})
+
+		it("writes one row per verified position, keyed by position rather than by solver", async () => {
+			await register([pair(USDC, CNGN, 1_000_000n)])
+			withPositions([
+				{ solver: "0xs1", chain: CHAIN, tokenId: 7n },
+				{ solver: "0xs1", chain: CHAIN, tokenId: 9n },
+			])
+
+			await handlePhantomOrderPrices(windowClosedEvent())
+
+			expect([...table("LiquidityProviderV4Position").values()]).toHaveLength(2)
+			expect(table("LiquidityProviderV4Position").get(`${CHAIN}-7`)).toMatchObject({
+				providerId: "0xs1",
+				chain: CHAIN,
+				tokenId: 7n,
+				lastDeclaredBlock: 11n,
+			})
+		})
+
+		// A declaration is per bid, so what this window's bid omits is no longer advertised — the
+		// weights already treat it that way, and a row left behind would be valued forever.
+		it("drops a position the same solver no longer declares", async () => {
+			await register([pair(USDC, CNGN, 1_000_000n)])
+			withPositions([
+				{ solver: "0xs1", chain: CHAIN, tokenId: 7n },
+				{ solver: "0xs1", chain: CHAIN, tokenId: 9n },
+			])
+			await handlePhantomOrderPrices(windowClosedEvent(11n))
+
+			withPositions([{ solver: "0xs1", chain: CHAIN, tokenId: 7n }])
+			await handlePhantomOrderPrices(windowClosedEvent(12n))
+
+			expect([...table("LiquidityProviderV4Position").keys()]).toEqual([`${CHAIN}-7`])
+		})
+
+		// Silence is not a withdrawal: a solver that skipped this window keeps what it last declared,
+		// exactly as its PoolBidder rows on other chains survive a window it did not bid in.
+		it("keeps the positions of a solver that did not bid this window", async () => {
+			await register([pair(USDC, CNGN, 1_000_000n)])
+			withPositions([{ solver: "0xs1", chain: CHAIN, tokenId: 7n }])
+			await handlePhantomOrderPrices(windowClosedEvent(11n))
+
+			aggregatePhantomBids.mockResolvedValue({
+				legs: [leg(0, CNGN, 1n)],
+				lpBalances: [{ solver: "0xs2", chain: CHAIN, tokenAddress: CNGN, balance: 42n }],
+				positions: [],
+			})
+			await handlePhantomOrderPrices(windowClosedEvent(12n))
+
+			expect(table("LiquidityProviderV4Position").get(`${CHAIN}-7`)).toMatchObject({ providerId: "0xs1" })
+		})
 	})
 })
 
@@ -304,6 +373,7 @@ describe("handlePhantomOrderPrices pool pipeline", () => {
 				leg(1, CNGN, 1_500n, [{ solver: "0xa", weight: 40n, acceptedSources: null }]),
 			],
 			lpBalances: [],
+			positions: [],
 		})
 
 		await handlePhantomOrderPrices(windowClosedEvent())
@@ -336,6 +406,7 @@ describe("handlePhantomOrderPrices pool pipeline", () => {
 		aggregatePhantomBids.mockResolvedValue({
 			legs: [leg(0, USDC, 660n, [{ solver: "0xa", weight: 5n, acceptedSources: null }])],
 			lpBalances: [],
+			positions: [],
 		})
 
 		await handlePhantomOrderPrices(windowClosedEvent())
@@ -352,6 +423,7 @@ describe("handlePhantomOrderPrices pool pipeline", () => {
 		aggregatePhantomBids.mockResolvedValue({
 			legs: [leg(0, USDC, 660n)],
 			lpBalances: [],
+			positions: [],
 		})
 
 		await handlePhantomOrderPrices(windowClosedEvent())
@@ -370,6 +442,7 @@ describe("handlePhantomOrderPrices pool pipeline", () => {
 		aggregatePhantomBids.mockResolvedValue({
 			legs: [leg(0, USDC, 660n)],
 			lpBalances: [],
+			positions: [],
 		})
 
 		await handlePhantomOrderPrices(windowClosedEvent())
@@ -388,6 +461,7 @@ describe("handlePhantomOrderPrices pool pipeline", () => {
 				]),
 			],
 			lpBalances: [],
+			positions: [],
 		})
 		await handlePhantomOrderPrices(windowClosedEvent(11n))
 
@@ -406,6 +480,7 @@ describe("handlePhantomOrderPrices pool pipeline", () => {
 		aggregatePhantomBids.mockResolvedValue({
 			legs: [leg(0, USDC, 700n, [{ solver: "0xa", weight: 15n, acceptedSources: ["EVM-1"] }])],
 			lpBalances: [],
+			positions: [],
 		})
 		await handlePhantomOrderPrices(windowClosedEvent(22n))
 
@@ -428,6 +503,7 @@ describe("handlePhantomOrderPrices pool pipeline", () => {
 				]),
 			],
 			lpBalances: [],
+			positions: [],
 		})
 		await handlePhantomOrderPrices(windowClosedEvent(11n))
 
@@ -462,6 +538,7 @@ describe("handlePhantomOrderPrices pool pipeline", () => {
 		aggregatePhantomBids.mockResolvedValue({
 			legs: [leg(0, USDC, 660n, [{ solver: "0xb", weight: 20n, acceptedSources: ["EVM-56"] }])],
 			lpBalances: [],
+			positions: [],
 		})
 		await handlePhantomOrderPrices(windowClosedEvent(22n))
 
@@ -483,12 +560,14 @@ describe("handlePhantomOrderPrices pool pipeline", () => {
 		aggregatePhantomBids.mockResolvedValueOnce({
 			legs: [leg(0, USDT, 990_000n, [{ solver: "0xa", weight: 100n, acceptedSources: ["EVM-1"] }])],
 			lpBalances: [],
+			positions: [],
 		})
 		await handlePhantomOrderPrices(windowClosedEvent(11n))
 
 		aggregatePhantomBids.mockResolvedValueOnce({
 			legs: [leg(0, USDT_OP, 1_010_000n, [{ solver: "0xb", weight: 300n, acceptedSources: null }])],
 			lpBalances: [],
+			positions: [],
 		})
 		await handlePhantomOrderPrices(windowClosedEvent(22n, COMMITMENT2))
 
@@ -519,6 +598,7 @@ describe("handlePhantomOrderPrices pool pipeline", () => {
 		aggregatePhantomBids.mockResolvedValueOnce({
 			legs: [leg(0, USDT_OP, 1_010_000n, [{ solver: "0xc", weight: 60n, acceptedSources: ["EVM-8453"] }])],
 			lpBalances: [],
+			positions: [],
 		})
 		await handlePhantomOrderPrices(windowClosedEvent(33n, COMMITMENT2))
 
@@ -550,6 +630,7 @@ describe("handlePhantomOrderPrices pool pipeline", () => {
 		aggregatePhantomBids.mockResolvedValue({
 			legs: [leg(0, USDC, 660n, [{ solver: "0xa", weight: 10n, acceptedSources: null }])],
 			lpBalances: [],
+			positions: [],
 		})
 		await handlePhantomOrderPrices(windowClosedEvent(11n))
 
@@ -557,6 +638,7 @@ describe("handlePhantomOrderPrices pool pipeline", () => {
 		aggregatePhantomBids.mockResolvedValue({
 			legs: [leg(4, USDC, 1n)],
 			lpBalances: [],
+			positions: [],
 		})
 		await handlePhantomOrderPrices(windowClosedEvent(22n))
 

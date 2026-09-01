@@ -7,13 +7,15 @@ import {
 	LiquidityPool,
 	LiquidityProvider,
 	LiquidityProviderBalanceV2,
+	LiquidityProviderV4Position,
 	PoolBidder,
 	PoolChainLiquidity,
 	PoolRoute,
 } from "@/configs/src/types"
 import { readAllPages } from "@/utils/store.helpers"
 import { bytes32ToBytes20 } from "@/utils/transfer.helpers"
-import type { PhantomLegAggregation, SolverBalanceReader } from "@hyperbridge/sdk/intents-helpers"
+import { positionAmountOfToken } from "@hyperbridge/sdk/intents-helpers"
+import type { PhantomLegAggregation, SolverBalanceReader, V4PositionState } from "@hyperbridge/sdk/intents-helpers"
 
 export const SELL = "SELL"
 export const BUY = "BUY"
@@ -543,81 +545,140 @@ export function poolsForFill(params: {
 }
 
 /**
- * Re-reads the on-chain inventory of every LP recorded as backing `poolIds` and republishes the
- * pools' depths from it. Called when a fill has just consumed some of that inventory, so the
- * depth a taker reads reflects what the solvers still hold rather than what they held when the
- * last phantom bid window closed.
+ * Everything a refresh needs from outside the store: how to reach each chain, how to read a
+ * balance and a position there, and what clock to file the balance rows under.
  *
- * Only depths, bid counts and the bidder rows themselves move. `lastUpdatedBlock` and
- * `lastUpdatedAt` are left exactly as the snapshot wrote them everywhere: they record which
- * Hyperbridge block priced the pool, and a fill carries an EVM block number of another chain
- * entirely, which is not comparable with them (writing one would make every row look
- * astronomically fresh or stale to `MAX_SAMPLE_AGE_BLOCKS`). Rates are not re-derived either —
- * nothing here observes a new quote — though a pool's merged rate can still shift, because the
- * chains are weighted by the depths this refresh just changed.
- *
- * Known blind spot: the balance read here is wallet ERC-20 plus redeemable ERC-4626 positions,
- * while a snapshot's weight can also include Uniswap V4 positions a bid declared. Only a bid names
- * those positions, so between windows they are invisible and a V4-funded bidder's row shrinks to
- * its liquid inventory until the next snapshot restores it. That errs downward — understating
- * depth costs a quote, overstating it costs a failed fill — but if V4-funded solvers become
- * material, the fix is to persist the position share on `PoolBidder` so it can be carried forward.
+ * The readers are injected rather than built here so the caller can pin them to the block of the
+ * event that triggered the refresh — a balance read at the event's own block is the same value on
+ * a replay as it was live, which a read at the chain head is not.
  */
-export async function refreshPoolLiquidity(params: {
-	poolIds: string[]
-	/**
-	 * Wall-clock time of the fill. A pool whose last snapshot already postdates it is left alone:
-	 * that snapshot read balances this fill had already moved, so re-reading at the chain head
-	 * would only replace fresher data with a partial view of it. This is also what keeps a
-	 * historical resync free — every replayed fill is older than the pools' current samples.
-	 */
-	filledAt: Date
+export interface LiquidityRefreshContext {
 	/** HTTP RPC per state machine id; a chain absent here is left as the snapshot wrote it. */
 	evmRpcUrls: Record<string, string>
 	getBalance: SolverBalanceReader
+	/**
+	 * Reads one declared Uniswap V4 position, or null when it no longer exists. Chains with no
+	 * configured V4 deployment always read null, which is simply a solver with no position value.
+	 */
+	readPosition: V4PositionReader
 	/**
 	 * Hyperbridge's head block, the clock `LiquidityProviderBalanceV2` is keyed by. Null skips the
 	 * balance rows — the pool entities are the ones consumers size orders against, so they are
 	 * refreshed whether or not the series can be extended.
 	 */
 	headBlock: () => Promise<bigint | null>
-}): Promise<void> {
-	const { filledAt, evmRpcUrls, getBalance, headBlock } = params
+	/**
+	 * Wall-clock time of the event that moved the inventory. A pool whose last snapshot already
+	 * postdates it is left alone: that snapshot read balances this event had already moved, so
+	 * re-reading would replace fresher data with a partial view of it. This is also what keeps a
+	 * historical resync cheap — every replayed event is older than the pools' current samples.
+	 */
+	observedAt: Date
+}
 
+/** Reads one Uniswap V4 position on a chain; null when it does not exist (burned, or never minted). */
+export type V4PositionReader = (chain: string, tokenId: bigint) => Promise<V4PositionState | null>
+
+/**
+ * Re-reads the on-chain inventory of every LP recorded as backing `poolIds` and republishes the
+ * pools' depths from it. Called when a fill has just consumed some of that inventory, so the depth
+ * a taker reads reflects what the solvers still hold rather than what they held when the last
+ * phantom bid window closed.
+ */
+export async function refreshPoolLiquidity(params: { poolIds: string[] } & LiquidityRefreshContext): Promise<void> {
+	// Bidder rows scale with the number of solvers, which nothing bounds, and a truncated read
+	// would look exactly like the missing solvers having withdrawn.
+	const bidders: PoolBidder[] = []
 	for (const poolId of new Set(params.poolIds)) {
+		bidders.push(
+			...(await readAllPages((limit, offset) =>
+				PoolBidder.getByFields([["poolId", "=", poolId]], {
+					limit,
+					offset,
+					orderBy: "id",
+					orderDirection: "ASC",
+				}),
+			)),
+		)
+	}
+	await refreshBidders(bidders, params)
+}
+
+/**
+ * The same refresh, selected by provider instead of by pool: every pool this solver backs on
+ * `chain` with one of `tokens` as its output token.
+ *
+ * This is the entry point for the events that move a solver's inventory without naming a pool — an
+ * escrow release paying a filler back on the source chain, or a vault deposit or withdrawal moving
+ * inventory between the raw and vault halves of the same total (and changing that total outright
+ * when the counterparty is someone else).
+ */
+export async function refreshProviderLiquidity(
+	params: {
+		chain: string
+		provider: string
+		/** Token addresses whose inventory moved; rows for any other output token are untouched. */
+		tokens: string[]
+	} & LiquidityRefreshContext,
+): Promise<void> {
+	const wanted = new Set(params.tokens.map((token) => token.toLowerCase()))
+	if (wanted.size === 0) return
+
+	// Rows per solver per chain are bounded by the pools it backs, but nothing declares that bound.
+	const rows = await readAllPages((limit, offset) =>
+		PoolBidder.getByFields(
+			[
+				["providerId", "=", params.provider],
+				["chain", "=", params.chain],
+			],
+			{ limit, offset, orderBy: "id", orderDirection: "ASC" },
+		),
+	)
+	await refreshBidders(
+		rows.filter((row) => wanted.has(row.outputToken.toLowerCase())),
+		params,
+	)
+}
+
+/**
+ * Re-reads `bidders`, writes what they now hold, and republishes every pool row derived from them.
+ *
+ * Only depths, bid counts and the bidder rows themselves move. `lastUpdatedBlock` and
+ * `lastUpdatedAt` are left exactly as the snapshot wrote them everywhere: they record which
+ * Hyperbridge block priced the pool, and an EVM block number of another chain is not comparable
+ * with them (writing one would make every row look astronomically fresh or stale to
+ * `MAX_SAMPLE_AGE_BLOCKS`). Rates are not re-derived either — nothing here observes a new quote —
+ * though a pool's merged rate can still shift, because the chains are weighted by the depths this
+ * refresh just changed.
+ *
+ * `bidders` may be a subset of a pool-chain's bidders (the provider-scoped entry point passes one
+ * solver's rows), so the depths are always re-summed from the stored rows rather than from the
+ * subset that was re-read.
+ */
+async function refreshBidders(bidders: PoolBidder[], ctx: LiquidityRefreshContext): Promise<void> {
+	// Group by pool, then by chain: a chain is the unit that can fail, since its RPC is one
+	// endpoint and a partially read chain must not be republished — the unread bidders would look
+	// departed — while a pool is the unit that gets re-merged at the end.
+	const byPool = new Map<string, Map<string, PoolBidder[]>>()
+	for (const row of bidders) {
+		const chains = byPool.get(row.poolId) ?? new Map<string, PoolBidder[]>()
+		byPool.set(row.poolId, chains)
+		chains.set(row.chain, [...(chains.get(row.chain) ?? []), row])
+	}
+
+	for (const [poolId, chains] of byPool) {
 		const pool = await LiquidityPool.get(poolId)
 		if (!pool) continue
-		if (pool.lastUpdatedAt > filledAt) continue
-
-		// Bidder rows scale with the number of solvers, which nothing bounds, and a truncated read
-		// would look exactly like the missing solvers having withdrawn.
-		const bidders = await readAllPages((limit, offset) =>
-			PoolBidder.getByFields([["poolId", "=", poolId]], {
-				limit,
-				offset,
-				orderBy: "id",
-				orderDirection: "ASC",
-			}),
-		)
-		if (bidders.length === 0) continue
-
-		// Chain by chain, because a chain is the unit that can fail: its RPC is one endpoint, and
-		// a partially read chain must not be republished — the unread bidders would look departed.
-		const byChain = new Map<string, PoolBidder[]>()
-		for (const row of bidders) {
-			const rows = byChain.get(row.chain) ?? []
-			rows.push(row)
-			byChain.set(row.chain, rows)
-		}
+		if (pool.lastUpdatedAt > ctx.observedAt) continue
 
 		let refreshed = false
-		for (const [chain, rows] of byChain) {
-			const readings = await readChainLiquidity(chain, rows, evmRpcUrls[chain], getBalance)
-			if (!readings) continue
-			await writeChainLiquidity(poolId, chain, rows, readings)
+		for (const [chain, rows] of chains) {
+			const reading = await readChainLiquidity(chain, rows, ctx)
+			if (!reading) continue
+			await writeChainLiquidity(poolId, chain, reading)
 			// The balance series is secondary to the pool rows and keyed on another chain's clock,
 			// so it is extended after them and never in their way.
-			await recordProviderBalances(chain, rows, readings, await headBlock(), filledAt)
+			await recordProviderBalances(chain, rows, reading.readings, await ctx.headBlock(), ctx.observedAt)
 			refreshed = true
 		}
 		if (!refreshed) continue
@@ -641,19 +702,67 @@ interface BidderReading {
 	liquidity: bigint
 }
 
+interface ChainReading {
+	readings: Map<string, BidderReading>
+	/** Position rows that no longer back their provider, to be dropped with the same write. */
+	stalePositions: string[]
+}
+
 /**
  * Each bidder row's current inventory on one chain, or null when the chain cannot be read in full.
  * Null is deliberately all-or-nothing: a bidder whose balance failed to read is indistinguishable
  * from one holding zero, so a partial result would publish a depth that is short by however many
  * reads happened to fail.
+ *
+ * Inventory here is the same total the phantom sweep weights a bid by — wallet ERC-20, redeemable
+ * ERC-4626 vault positions, and the Uniswap V4 positions the solver declared. The positions come
+ * from `LiquidityProviderV4Position`, persisted precisely because a bid is the only place they are
+ * ever named; they are re-read rather than carried forward because simplex funds fills out of
+ * them, so a carried value would keep advertising the inventory a fill just spent.
  */
 async function readChainLiquidity(
 	chain: string,
 	rows: PoolBidder[],
-	evmRpcUrl: string | undefined,
-	getBalance: SolverBalanceReader,
-): Promise<Map<string, BidderReading> | null> {
+	ctx: LiquidityRefreshContext,
+): Promise<ChainReading | null> {
+	const evmRpcUrl = ctx.evmRpcUrls[chain]
 	if (!evmRpcUrl) return null
+
+	const stalePositions: string[] = []
+	const positionsByProvider = new Map<string, V4PositionState[]>()
+	for (const provider of new Set(rows.map((row) => row.providerId))) {
+		// Positions per solver per chain are bounded by what the solver declares, which nothing caps.
+		const declared = await readAllPages((limit, offset) =>
+			LiquidityProviderV4Position.getByFields(
+				[
+					["providerId", "=", provider],
+					["chain", "=", chain],
+				],
+				{ limit, offset, orderBy: "id", orderDirection: "ASC" },
+			),
+		)
+		const live: V4PositionState[] = []
+		for (const position of declared) {
+			let state: V4PositionState | null
+			try {
+				state = await ctx.readPosition(chain, position.tokenId)
+			} catch (err) {
+				logger.warn(
+					{ err, chain, tokenId: position.tokenId.toString() },
+					"Failed to re-read a declared Uniswap V4 position, leaving the chain's liquidity as indexed",
+				)
+				return null
+			}
+			// Burned, or sold to someone else: either way it is no longer this solver's inventory,
+			// and the row would otherwise keep valuing it on every later refresh.
+			if (!state || state.owner.toLowerCase() !== provider.toLowerCase()) {
+				stalePositions.push(position.id)
+				continue
+			}
+			live.push(state)
+		}
+		positionsByProvider.set(provider, live)
+	}
 
 	const readings = new Map<string, BidderReading>()
 	for (const row of rows) {
@@ -665,9 +774,9 @@ async function readChainLiquidity(
 			)
 			return null
 		}
+		let balance: bigint
 		try {
-			const balance = await getBalance(evmRpcUrl, chain, row.outputToken, row.providerId)
-			readings.set(row.id, { balance, liquidity: balance * 10n ** BigInt(POOL_RATE_DECIMALS - token.decimals) })
+			balance = await ctx.getBalance(evmRpcUrl, chain, row.outputToken, row.providerId)
 		} catch (err) {
 			logger.warn(
 				{ err, chain, solver: row.providerId, outputToken: row.outputToken },
@@ -675,23 +784,43 @@ async function readChainLiquidity(
 			)
 			return null
 		}
+		// A position pays out in whichever of its two currencies this leg delivers; one that has
+		// moved entirely onto the other side of the price is worth zero here, which is ordinary.
+		const inPositions = (positionsByProvider.get(row.providerId) ?? []).reduce(
+			(total, state) =>
+				total +
+				positionAmountOfToken({
+					info: state.info,
+					liquidity: state.liquidity,
+					sqrtPriceX96: state.sqrtPriceX96,
+					outputToken: row.outputToken,
+				}),
+			0n,
+		)
+		const total = balance + inPositions
+		readings.set(row.id, { balance: total, liquidity: total * 10n ** BigInt(POOL_RATE_DECIMALS - token.decimals) })
 	}
-	return readings
+	return { readings, stalePositions }
 }
 
 /**
  * Extends the `LiquidityProviderBalanceV2` series with what this refresh just read, so a provider's
  * latest balance row does not keep reporting inventory the pool rows already know is spent.
  *
- * Rows are keyed by Hyperbridge block because that is the clock the phantom sweep writes on; a fill
- * borrows Hyperbridge's head, which keeps the series monotonic and "greatest blockNumber is the
- * current balance" true. A zero balance is not a row, matching the sweep, which skips tokens a
+ * Rows are keyed by Hyperbridge block because that is the clock the phantom sweep writes on; an
+ * event borrows Hyperbridge's head, which keeps the series monotonic and "greatest blockNumber is
+ * the current balance" true. A zero balance is not a row, matching the sweep, which skips tokens a
  * solver does not hold.
  *
- * An existing row for the same key is only ever raised, never lowered — the convention the sweep
- * itself follows, because a reading that missed a solver's Uniswap V4 positions is the incomplete
- * one and a refresh always misses them. The cost is that a second fill while Hyperbridge is still
- * on the same block does not lower the row; one block later it does.
+ * An existing row for the same key is only ever raised, never lowered, matching the sweep's own
+ * rule for two readings landing on one key. The cost is that a second event while Hyperbridge is
+ * still on the same block does not lower the row; one block later it does.
+ *
+ * Future improvement (#1159 §3, deliberately not done because it changes the schema of a live
+ * entity): give the entity a `trigger` enum and a nullable `transactionHash`, key event-triggered
+ * rows `{chain}-{token}-{solver}-{blockNumber}` on the EVM block the event was read at, and order
+ * "current liquidity" by `snapshotTime` rather than `blockNumber`, since the two block spaces are
+ * not comparable. That removes the borrowed clock and makes each row say what produced it.
  */
 async function recordProviderBalances(
 	chain: string,
@@ -732,31 +861,54 @@ async function recordProviderBalances(
  * reconciliation `updateLiquidityPools` performs on a snapshot: a bidder holding nothing loses its
  * row (every row is a bidder with capacity, so the row set can be counted as well as summed), and
  * a route keeps only the bidders that survived.
+ *
+ * The reading need not cover every bidder on this (pool, chain) — the provider-scoped entry point
+ * re-reads one solver's rows — so the depths are re-summed over all of them, with the rows this
+ * refresh did not touch contributing exactly what they already did.
  */
-async function writeChainLiquidity(
-	poolId: string,
-	chain: string,
-	rows: PoolBidder[],
-	readings: Map<string, BidderReading>,
-): Promise<void> {
+async function writeChainLiquidity(poolId: string, chain: string, reading: ChainReading): Promise<void> {
+	for (const id of reading.stalePositions) {
+		await LiquidityProviderV4Position.remove(id)
+	}
+
+	// Everything backing this (pool, chain), read BEFORE the writes below: the published depth is a
+	// sum over all of them, not just the rows this refresh re-read (the provider-scoped entry point
+	// re-reads one solver's), and reading it back afterwards would rest on the store reflecting an
+	// in-block removal.
+	const all = await readAllPages((limit, offset) =>
+		PoolBidder.getByFields(
+			[
+				["poolId", "=", poolId],
+				["chain", "=", chain],
+			],
+			{ limit, offset, orderBy: "id", orderDirection: "ASC" },
+		),
+	)
+
 	const survivors: PoolBidder[] = []
-	for (const row of rows) {
-		const current = readings.get(row.id)?.liquidity ?? 0n
-		if (current === 0n) {
+	for (const row of all) {
+		const current = reading.readings.get(row.id)
+		// Not re-read this time: whatever the last snapshot or refresh left it at still stands.
+		if (!current) {
+			survivors.push(row)
+			continue
+		}
+		if (current.liquidity === 0n) {
 			await PoolBidder.remove(row.id)
 			continue
 		}
-		if (current !== row.liquidity) {
-			row.liquidity = current
+		if (current.liquidity !== row.liquidity) {
+			row.liquidity = current.liquidity
 			await row.save()
 		}
 		survivors.push(row)
 	}
 
-	// Only the directions this chain had bidders on. A direction whose rows all just vanished is
-	// zeroed here rather than skipped — that is the same "registered but unbacked" state a
-	// snapshot writes, keeping the last known rate with no depth behind it.
-	for (const direction of new Set(rows.map((row) => row.direction))) {
+	// The directions this chain had bidders on before the refresh, so a direction whose rows all
+	// just vanished is zeroed rather than skipped — that is the same "registered but unbacked" state
+	// a snapshot writes, keeping the last known rate with no depth behind it.
+	const directions = new Set(all.map((row) => row.direction))
+	for (const direction of directions) {
 		const chainRow = await PoolChainLiquidity.get(`${poolId}-${chain}-${direction}`)
 		if (!chainRow) continue
 		const directionBidders = survivors.filter((row) => row.direction === direction)

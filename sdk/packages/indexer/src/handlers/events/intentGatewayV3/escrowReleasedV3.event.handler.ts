@@ -42,4 +42,25 @@ export const handleEscrowReleasedEventV3 = wrap(async (event: EscrowReleasedLog)
 		blockNumber,
 		timestamp,
 	})
+
+	// The release just paid the filler the order's inputs back on this chain, so its inventory here
+	// rose and every pool it backs in those tokens is understating depth. The event names no filler;
+	// the gateway recorded the beneficiary in the same call that emitted this. Best-effort: it reads
+	// external RPCs, and stale depth is recoverable — the next phantom bid window republishes it.
+	try {
+		const beneficiary = await IntentGatewayV3Service.filledBeneficiary(commitment, blockNumber)
+		if (beneficiary) {
+			await IntentGatewayV3Service.refreshLiquidityAfterEscrowRelease({
+				provider: beneficiary,
+				tokens: tokens.map((token) => ({
+					token: token.token as Hex,
+					amount: BigInt(token.amount.toString()),
+				})),
+				timestamp,
+				blockNumber,
+			})
+		}
+	} catch (e: any) {
+		logger.error(`Failed to refresh pool liquidity for released escrow ${commitment}: ${e.message}`)
+	}
 })

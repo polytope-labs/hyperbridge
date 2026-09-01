@@ -12,6 +12,8 @@ import {
 import { YIELD_VAULT_ADDRESSES } from "@/yield-vault-addresses"
 import { SOLVER_ACCOUNT_ADDRESSES } from "@/solver-account-addresses"
 import { timestampToDate } from "@/utils/date.helpers"
+import { refreshProviderLiquidity } from "@/services/liquidityPool.service"
+import { liquidityRefreshContext } from "@/utils/solverBalance"
 
 const SECONDS_PER_DAY = 86400n
 
@@ -172,6 +174,23 @@ export class YieldVaultService {
 		position.lastUpdatedAt = eventTime
 
 		await position.save()
+
+		// The LP's inventory in this token just moved: its own principal only shifted between the
+		// raw and vault halves of one total, which the re-read confirms rather than changes, but the
+		// total does move when the counterparty is someone else (a treasury funding the solver, or
+		// inventory leaving it) and no order event reports that at all. Best-effort — this reads
+		// external RPCs, and the ledger row above must not be lost to a refresh failure.
+		try {
+			await refreshProviderLiquidity({
+				chain: input.chain,
+				provider: lp,
+				tokens: [underlyingToken],
+				...liquidityRefreshContext(input.chain, input.blockNumber, input.timestamp),
+			})
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error)
+			logger.error(`[yield-vault] Liquidity refresh failed for ${lp} on ${input.chain}: ${message}`)
+		}
 	}
 
 	/**

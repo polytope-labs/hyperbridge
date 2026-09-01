@@ -37,7 +37,8 @@ const rowsOf = (entity: string) =>
 const page = (rows: any[], options: { limit?: number; offset?: number }) =>
 	rows.slice(options.offset ?? 0, (options.offset ?? 0) + (options.limit ?? rows.length))
 
-import { poolsForFill, refreshPoolLiquidity } from "@/services/liquidityPool.service"
+import { poolsForFill, refreshPoolLiquidity, refreshProviderLiquidity } from "@/services/liquidityPool.service"
+import type { V4PositionState } from "@hyperbridge/sdk/intents-helpers"
 
 const BASE = "EVM-8453"
 const ETHEREUM = "EVM-1"
@@ -136,8 +137,19 @@ function plantBidder(solver: string, rawBalance: bigint, acceptedSources: string
 const HEAD_BLOCK = SNAPSHOT_BLOCK + 12n
 const headBlock = jest.fn(async () => HEAD_BLOCK as bigint | null)
 
-const refresh = (filledAt = FILL_TIME) =>
-	refreshPoolLiquidity({ poolIds: [POOL], filledAt, evmRpcUrls: RPC_URLS, getBalance, headBlock })
+/** Declared V4 positions the reader will resolve, keyed `chain|tokenId`. */
+let positions: Map<string, V4PositionState | null>
+const readPosition = jest.fn(async (chain: string, tokenId: bigint) => positions.get(`${chain}|${tokenId}`) ?? null)
+
+const context = (observedAt = FILL_TIME) => ({
+	observedAt,
+	evmRpcUrls: RPC_URLS,
+	getBalance,
+	readPosition,
+	headBlock,
+})
+
+const refresh = (observedAt = FILL_TIME) => refreshPoolLiquidity({ poolIds: [POOL], ...context(observedAt) })
 
 const read = (entity: string, id: string) => records.get(`${entity}:${id}`)
 
@@ -199,8 +211,10 @@ describe("refreshPoolLiquidity", () => {
 	beforeEach(() => {
 		records.clear()
 		balances = new Map()
+		positions = new Map()
 		unreadable = new Set()
 		getBalance.mockClear()
+		readPosition.mockClear()
 		headBlock.mockClear()
 		headBlock.mockResolvedValue(HEAD_BLOCK)
 		plantPool()
@@ -311,13 +325,7 @@ describe("refreshPoolLiquidity", () => {
 	it("does nothing for a pool the indexer has never sampled", async () => {
 		records.delete(`LiquidityPool:${POOL}`)
 
-		await refreshPoolLiquidity({
-			poolIds: [POOL],
-			filledAt: FILL_TIME,
-			evmRpcUrls: RPC_URLS,
-			getBalance,
-			headBlock,
-		})
+		await refreshPoolLiquidity({ poolIds: [POOL], ...context() })
 
 		expect(getBalance).not.toHaveBeenCalled()
 	})
@@ -330,8 +338,10 @@ describe("refreshPoolLiquidity balance series", () => {
 	beforeEach(() => {
 		records.clear()
 		balances = new Map()
+		positions = new Map()
 		unreadable = new Set()
 		getBalance.mockClear()
+		readPosition.mockClear()
 		headBlock.mockClear()
 		headBlock.mockResolvedValue(HEAD_BLOCK)
 		plantPool()
@@ -404,5 +414,169 @@ describe("refreshPoolLiquidity balance series", () => {
 
 		expect(balanceRow(SOLVER_A)).toBeUndefined()
 		expect(balanceRow(SOLVER_B)).toBeUndefined()
+	})
+})
+
+// The blind spot this closes: a bid is the only place a Uniswap V4 position is named, so before the
+// tokenIds were persisted a refresh could not see that inventory — and simplex funds fills out of
+// those positions, draining them inside the fill transaction while wallet and vault barely move.
+describe("refreshPoolLiquidity with declared Uniswap V4 positions", () => {
+	// A position holding 300 USDC-equivalent, priced entirely on the USDC side of its range.
+	const positionState = (owner: string, amount: bigint): V4PositionState => ({
+		owner,
+		liquidity: amount,
+		sqrtPriceX96: 1n << 96n,
+		info: {
+			currency0: USDC_BASE as `0x${string}`,
+			currency1: CNGN_BASE as `0x${string}`,
+			poolKeyEncoded: "0x" as `0x${string}`,
+			tickLower: -60,
+			tickUpper: 60,
+		},
+	})
+
+	const plantPosition = (solver: string, tokenId: bigint) =>
+		records.set(`LiquidityProviderV4Position:${BASE}-${tokenId}`, {
+			id: `${BASE}-${tokenId}`,
+			providerId: solver,
+			chain: BASE,
+			tokenId,
+			lastDeclaredBlock: SNAPSHOT_BLOCK,
+			lastDeclaredAt: SNAPSHOT_TIME,
+		})
+
+	beforeEach(() => {
+		records.clear()
+		balances = new Map()
+		positions = new Map()
+		unreadable = new Set()
+		getBalance.mockClear()
+		readPosition.mockClear()
+		headBlock.mockClear()
+		headBlock.mockResolvedValue(HEAD_BLOCK)
+		plantPool()
+	})
+
+	it("counts a declared position's withdrawable amount on top of the wallet and vault balance", async () => {
+		balances.set(`${BASE}|${USDC_BASE}|${SOLVER_A}`, usdc(600n))
+		plantPosition(SOLVER_A, 77n)
+		positions.set(`${BASE}|77`, positionState(SOLVER_A, usdc(400n)))
+
+		await refresh()
+
+		const bidder = read("PoolBidder", `${POOL}-${BASE}-SELL-${USDC_BASE}-${SOLVER_A}`)
+		// The exact position amount is Uniswap's arithmetic, not ours; what matters is that it is
+		// counted, so the row exceeds the wallet balance alone.
+		expect(bidder.liquidity).toBeGreaterThan(usdc(600n) * SCALE)
+		expect(read("LiquidityPool", POOL).sellDepth).toBe(bidder.liquidity + usdc(500n) * SCALE)
+	})
+
+	// The whole point of re-reading rather than carrying the last window's value forward: a fill
+	// funded from the position drains it, and the refresh must see that.
+	it("keeps only the wallet balance once the position has been drained", async () => {
+		balances.set(`${BASE}|${USDC_BASE}|${SOLVER_A}`, usdc(600n))
+		plantPosition(SOLVER_A, 77n)
+		positions.set(`${BASE}|77`, positionState(SOLVER_A, 0n))
+
+		await refresh()
+
+		expect(read("PoolBidder", `${POOL}-${BASE}-SELL-${USDC_BASE}-${SOLVER_A}`).liquidity).toBe(usdc(600n) * SCALE)
+	})
+
+	// Burned or sold, the position is no longer this solver's inventory, and a row left behind would
+	// be re-valued on every later refresh.
+	it("drops a position row that no longer exists", async () => {
+		balances.set(`${BASE}|${USDC_BASE}|${SOLVER_A}`, usdc(600n))
+		plantPosition(SOLVER_A, 77n)
+		positions.set(`${BASE}|77`, null)
+
+		await refresh()
+
+		expect(read("LiquidityProviderV4Position", `${BASE}-77`)).toBeUndefined()
+		expect(read("PoolBidder", `${POOL}-${BASE}-SELL-${USDC_BASE}-${SOLVER_A}`).liquidity).toBe(usdc(600n) * SCALE)
+	})
+
+	it("drops a position row the solver no longer owns", async () => {
+		balances.set(`${BASE}|${USDC_BASE}|${SOLVER_A}`, usdc(600n))
+		plantPosition(SOLVER_A, 77n)
+		positions.set(`${BASE}|77`, positionState(SOLVER_B, usdc(400n)))
+
+		await refresh()
+
+		expect(read("LiquidityProviderV4Position", `${BASE}-77`)).toBeUndefined()
+		expect(read("PoolBidder", `${POOL}-${BASE}-SELL-${USDC_BASE}-${SOLVER_A}`).liquidity).toBe(usdc(600n) * SCALE)
+	})
+
+	// A position that cannot be read is not a position worth zero, exactly as a balance that cannot
+	// be read is not a balance of zero.
+	it("leaves the chain as indexed when a position cannot be read", async () => {
+		balances.set(`${BASE}|${USDC_BASE}|${SOLVER_A}`, usdc(600n))
+		plantPosition(SOLVER_A, 77n)
+		readPosition.mockRejectedValueOnce(new Error("RPC unreachable"))
+
+		await refresh()
+
+		expect(read("PoolBidder", `${POOL}-${BASE}-SELL-${USDC_BASE}-${SOLVER_A}`).liquidity).toBe(usdc(1000n) * SCALE)
+		expect(read("LiquidityProviderV4Position", `${BASE}-77`)).toBeDefined()
+	})
+})
+
+// Escrow releases and vault ledger events name a solver and a token, never a pool. They reach the
+// same refresh through the provider-scoped entry point.
+describe("refreshProviderLiquidity", () => {
+	beforeEach(() => {
+		records.clear()
+		balances = new Map()
+		positions = new Map()
+		unreadable = new Set()
+		getBalance.mockClear()
+		readPosition.mockClear()
+		headBlock.mockClear()
+		headBlock.mockResolvedValue(HEAD_BLOCK)
+		plantPool()
+	})
+
+	// The depth must be re-summed from every bidder on the pool-chain, not just the one re-read, or
+	// refreshing one solver would erase the others' contribution.
+	it("re-reads one solver and keeps the other bidders' depth intact", async () => {
+		balances.set(`${BASE}|${USDC_BASE}|${SOLVER_A}`, usdc(1400n))
+
+		await refreshProviderLiquidity({ chain: BASE, provider: SOLVER_A, tokens: [USDC_BASE], ...context() })
+
+		expect(read("PoolBidder", `${POOL}-${BASE}-SELL-${USDC_BASE}-${SOLVER_A}`).liquidity).toBe(usdc(1400n) * SCALE)
+		expect(read("PoolBidder", `${POOL}-${BASE}-SELL-${USDC_BASE}-${SOLVER_B}`).liquidity).toBe(usdc(500n) * SCALE)
+		expect(read("PoolChainLiquidity", `${POOL}-${BASE}-SELL`).depth).toBe(usdc(1900n) * SCALE)
+		expect(read("LiquidityPool", POOL).sellDepth).toBe(usdc(1900n) * SCALE)
+		// Only the named solver's balance was read; the others cost nothing.
+		expect(getBalance).toHaveBeenCalledTimes(1)
+	})
+
+	// An escrow release pays the solver back, so this direction is as important as a fill's.
+	it("raises depth when the solver's inventory has grown", async () => {
+		balances.set(`${BASE}|${USDC_BASE}|${SOLVER_B}`, usdc(900n))
+
+		await refreshProviderLiquidity({ chain: BASE, provider: SOLVER_B, tokens: [USDC_BASE], ...context() })
+
+		expect(read("PoolChainLiquidity", `${POOL}-${BASE}-SELL`).depth).toBe(usdc(1900n) * SCALE)
+		expect(read("PoolChainLiquidity", `${POOL}-${BASE}-SELL`).unrestrictedDepth).toBe(usdc(900n) * SCALE)
+	})
+
+	it("touches nothing for a token the solver backs no pool in", async () => {
+		await refreshProviderLiquidity({ chain: BASE, provider: SOLVER_A, tokens: [CNGN_BASE], ...context() })
+
+		expect(getBalance).not.toHaveBeenCalled()
+		expect(read("PoolChainLiquidity", `${POOL}-${BASE}-SELL`).depth).toBe(usdc(1500n) * SCALE)
+	})
+
+	it("touches nothing for an address that backs no pool", async () => {
+		await refreshProviderLiquidity({
+			chain: BASE,
+			provider: `0x${"ab".repeat(20)}`,
+			tokens: [USDC_BASE],
+			...context(),
+		})
+
+		expect(getBalance).not.toHaveBeenCalled()
+		expect(read("PoolChainLiquidity", `${POOL}-${BASE}-SELL`).depth).toBe(usdc(1500n) * SCALE)
 	})
 })

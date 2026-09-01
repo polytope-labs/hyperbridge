@@ -11,12 +11,13 @@ import { SOLVER_ACCOUNT_ADDRESSES } from "@/solver-account-addresses"
 import {
 	LiquidityProvider,
 	LiquidityProviderBalanceV2,
+	LiquidityProviderV4Position,
 	PhantomOrderLeg,
 	PhantomOrderPriceSnapshotV2,
 	PhantomOrderV2,
 } from "@/configs/src/types"
 import { aggregatePhantomBids } from "@hyperbridge/sdk/intents-helpers"
-import { blockBalanceReader, evmRpcUrls } from "@/utils/solverBalance"
+import { blockReaders, evmRpcUrls } from "@/utils/solverBalance"
 import {
 	bidNonceKeyVm2,
 	extractFillDataVm2,
@@ -116,7 +117,7 @@ export const handlePhantomOrderPrices = wrap(async (event: SubstrateEvent): Prom
 			// ownership check are read on-chain, so the bid only points at what to look at.
 			uniswapV4: UNISWAP_V4_ADDRESSES,
 			keccak: keccakVm2,
-			getBalance: blockBalanceReader(`${host}-${blockNumber}`),
+			getBalance: blockReaders(`${host}-${blockNumber}`).getBalance,
 			logger,
 		})
 	} catch (err) {
@@ -164,6 +165,51 @@ export const handlePhantomOrderPrices = wrap(async (event: SubstrateEvent): Prom
 			balance: lp.balance,
 			snapshotTime,
 		}).save()
+	}
+
+	// A bid is the only place a Uniswap V4 position is ever named, so this window's declarations are
+	// the whole truth for the solvers that bid: their rows are replaced wholesale. A solver that did
+	// not bid keeps whatever it last declared — silence is not a withdrawal — and one that bid
+	// without declaring anything loses its rows, exactly as this window's weights already treat it.
+	const declaredBySolver = new Map<string, Set<bigint>>()
+	for (const position of aggregate.positions) {
+		const declared = declaredBySolver.get(position.solver) ?? new Set<bigint>()
+		declared.add(position.tokenId)
+		declaredBySolver.set(position.solver, declared)
+	}
+	// Every verified bid sweeps balances, so lpBalances names the bidders — except one holding
+	// nothing anywhere, whose only trace is the position it declared.
+	const bidders = new Set([...aggregate.lpBalances.map((lp) => lp.solver), ...declaredBySolver.keys()])
+	for (const solver of bidders) {
+		const declared = declaredBySolver.get(solver) ?? new Set<bigint>()
+		if (declared.size > 0 && !(await LiquidityProvider.get(solver))) {
+			await LiquidityProvider.create({ id: solver }).save()
+		}
+		// Positions per solver per chain are bounded by what it declares, which nothing caps.
+		const existing = await readAllPages((limit, offset) =>
+			LiquidityProviderV4Position.getByFields(
+				[
+					["providerId", "=", solver],
+					["chain", "=", phantom.chain],
+				],
+				{ limit, offset, orderBy: "id", orderDirection: "ASC" },
+			),
+		)
+		for (const row of existing) {
+			if (!declared.has(row.tokenId)) await LiquidityProviderV4Position.remove(row.id)
+		}
+		for (const tokenId of declared) {
+			// Keyed by position, not by solver, so one that changed hands moves to its new owner
+			// rather than being recorded under both.
+			await LiquidityProviderV4Position.create({
+				id: `${phantom.chain}-${tokenId}`,
+				providerId: solver,
+				chain: phantom.chain,
+				tokenId,
+				lastDeclaredBlock: blockNumber,
+				lastDeclaredAt: snapshotTime,
+			}).save()
+		}
 	}
 
 	// Each registered leg converted to 20-byte addresses and resolved against the registry ONCE;

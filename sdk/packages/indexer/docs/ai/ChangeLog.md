@@ -16,15 +16,15 @@ Newest entries first.
 
 Follow-up to #1192, which refreshed a pool's LPs on `OrderFilled`/`PartialFill`. Four things were still missing.
 
-**Uniswap V4 positions are valued again.** A bid's `paymasterAndData` is the only place a position is ever
-named, so a balance re-read could not see that inventory at all — and carrying the last sweep's value forward
-would be worse, because simplex funds fills out of these positions: such a fill drains the position inside the
-fill transaction while wallet and vault balances barely move. The declarations are already in the database:
-`FillerBid.bidData` stores every bid's raw SCALE-encoded userOp. `declaredV4Positions(chain, solver)` decodes the
-solver's newest bid on that chain and returns its tokenIds; the refresh re-reads each position at the event's
-block and adds its withdrawable amount of the row's output token. Nothing is persisted and nothing has to be
-reconciled: a position that is burned, sold, or simply dropped from the next bid stops counting on its own. The
-on-chain owner check is what makes reading the stored bid raw safe — a declaration is a pointer, not a claim.
+**Uniswap V4 positions are recorded and re-read.** A bid's `paymasterAndData` is the only place a position is
+ever named, so a balance re-read could not see that inventory at all — and carrying the last sweep's VALUE
+forward would be worse, because simplex funds fills out of these positions: such a fill drains the position
+inside the fill transaction while wallet and vault balances barely move. The aggregation now reports the
+tokenIds it verified, and `handlePhantomOrderPrices` records them in a new `SolverV4Positions` entity: one row
+per solver, keyed by its address, replaced wholesale each time that solver bids. The refresh reads that one row
+and re-values each position at the event's block. A solver that bids without declaring has its row emptied; one
+that skips a window keeps its row, and a position it has since burned or sold reads back as no longer owned,
+which is the check every consumer applies before valuing one.
 
 **Reads are pinned to the event's block.** `getTotalSolverBalance` is exported from the SDK with a block tag and
 `memoizedSolverBalance` takes a per-chain map of them, so an event's re-read returns the same value on a replay
@@ -48,18 +48,20 @@ Those last two name a solver and a token, never a pool, so they reach the refres
 the shared core: depths are now re-summed from the stored bidder rows of each (pool, chain) rather than from the
 rows that were re-read, so refreshing one solver leaves the others contributing exactly what they were.
 
-No schema change at all. Deliberately not done, per #1159 §3, because it changes the schema of a live entity: the
-`trigger` enum, the nullable `transactionHash`, the `{chain}-{token}-{solver}-{blockNumber}` id shape for
-event-triggered rows, and ordering "current liquidity" by `snapshotTime` instead of `blockNumber`. Event rows keep
-borrowing Hyperbridge's head block, and the reasoning is recorded as a comment on `recordProviderBalances` for
-whenever a migration is on the table. The V4 positions were going to need a table of their own until the indexed
-bids turned out to already carry them.
+The only schema change is the new `SolverV4Positions` entity — additive, and with no `@derivedFrom` field added
+to `LiquidityProvider`, so nothing about an existing entity changes. Deliberately not done, per #1159 §3, for
+that same reason: the `trigger` enum, the nullable `transactionHash`, the
+`{chain}-{token}-{solver}-{blockNumber}` id shape for event-triggered rows, and ordering "current liquidity" by
+`snapshotTime` instead of `blockNumber` all alter a live entity. Event rows keep borrowing Hyperbridge's head
+block, and the design is left as a comment on `recordProviderBalances` for whenever a migration is on the table.
 
-Files: `src/services/liquidityPool.service.ts`, `src/services/phantomBid.service.ts` (new),
-`src/services/intentGatewayV3.service.ts`, `src/services/yieldVault.service.ts`, `src/utils/solverBalance.ts`,
+Files: `src/configs/schema.graphql`, `src/services/liquidityPool.service.ts`,
+`src/services/solverPositions.service.ts` (new), `src/services/intentGatewayV3.service.ts`,
+`src/services/yieldVault.service.ts`, `src/utils/solverBalance.ts`,
 `src/handlers/events/intentGatewayV3/escrowReleasedV3.event.handler.ts`,
 `src/handlers/events/substrateChains/handlePhantomOrderPrices.handler.ts`,
-`src/services/__tests__/liquidityPoolRefresh.service.test.ts`.
+`src/services/__tests__/liquidityPoolRefresh.service.test.ts`,
+`src/handlers/events/substrateChains/__tests__/phantomOrder.handlers.test.ts`.
 
 ## 2026-09-01 — Refresh a pool's LP balances on every order fill
 

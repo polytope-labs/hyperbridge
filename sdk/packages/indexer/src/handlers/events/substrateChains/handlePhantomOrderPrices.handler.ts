@@ -26,6 +26,7 @@ import {
 } from "@/utils/phantom-decode"
 import { UNISWAP_V4_ADDRESSES } from "@/addresses/uniswap-v4.addresses"
 import { resolvePoolLeg, updateLiquidityPools, type AttributedLeg } from "@/services/liquidityPool.service"
+import { recordDeclaredPositions } from "@/services/solverPositions.service"
 import { readAllPages } from "@/utils/store.helpers"
 
 // Triggered by PhantomBidWindowExhausted once a phantom order's bid window closes, so every bid is
@@ -165,6 +166,17 @@ export const handlePhantomOrderPrices = wrap(async (event: SubstrateEvent): Prom
 			snapshotTime,
 		}).save()
 	}
+
+	// What this window's bidders declared, recorded so a later fill can re-read those positions: the
+	// bid is the only place they are named. Every verified bid sweeps balances, so lpBalances names
+	// the bidders — except one holding nothing anywhere, whose only trace is its declaration.
+	await recordDeclaredPositions({
+		chain: phantom.chain,
+		bidders: [...aggregate.lpBalances.map((lp) => lp.solver), ...aggregate.positions.map((p) => p.solver)],
+		positions: aggregate.positions,
+		blockNumber,
+		declaredAt: snapshotTime,
+	})
 
 	// Each registered leg converted to 20-byte addresses and resolved against the registry ONCE;
 	// both the snapshot writes and the pool upsert consume this.

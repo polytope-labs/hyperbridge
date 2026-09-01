@@ -49,12 +49,7 @@ const sort = (rows: any[], options: { orderBy?: string; orderDirection?: string 
 }
 
 import { poolsForFill, refreshPoolLiquidity, refreshProviderLiquidity } from "@/services/liquidityPool.service"
-import {
-	encodePhantomBidDeclaration,
-	encodeUserOpScale,
-	type HexString,
-	type V4PositionState,
-} from "@hyperbridge/sdk/intents-helpers"
+import type { V4PositionState } from "@hyperbridge/sdk/intents-helpers"
 
 const BASE = "EVM-8453"
 const ETHEREUM = "EVM-1"
@@ -62,7 +57,6 @@ const CNGN_BASE = "0x46c85152bfe9f96829aa94755d9f915f9b10ef5f"
 const USDC_BASE = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913"
 const USDC_ETHEREUM = "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
 const POOL = "cNGN-USDC"
-const COMMITMENT = `0x${"aa".repeat(32)}`
 const SOLVER_A = "0x1111111111111111111111111111111111111111"
 const SOLVER_B = "0x2222222222222222222222222222222222222222"
 
@@ -452,28 +446,16 @@ describe("refreshPoolLiquidity with declared Uniswap V4 positions", () => {
 		},
 	})
 
-	// A bid as the indexer stores it: the raw SCALE-encoded userOp, whose paymasterAndData carries
-	// the declaration. Encoded for real so the test exercises the decode the refresh performs.
-	const plantBid = (solver: string, tokenIds: bigint[], block = SNAPSHOT_BLOCK, commitment = COMMITMENT) => {
-		records.set(`PhantomOrderV2:${commitment}`, { id: commitment, chain: BASE, createdAtBlock: block })
-		records.set(`FillerBid:${commitment}-${solver}-${block}`, {
-			id: `${commitment}-${solver}-${block}`,
-			commitment,
-			filler: `filler-of-${solver}`,
-			blockNumber: block,
-			bidData: encodeUserOpScale({
-				sender: solver as HexString,
-				nonce: 0n,
-				initCode: "0x",
-				callData: "0x",
-				accountGasLimits: `0x${"00".repeat(32)}`,
-				preVerificationGas: 0n,
-				gasFees: `0x${"00".repeat(32)}`,
-				paymasterAndData: encodePhantomBidDeclaration({ uniswapV4Positions: tokenIds }),
-				signature: "0x",
-			}),
+	// What the phantom snapshot recorded from the solver's last bid: one row, the live declaration.
+	const plantDeclaration = (solver: string, tokenIds: bigint[], chain = BASE) =>
+		records.set(`SolverV4Positions:${solver}`, {
+			id: solver,
+			providerId: solver,
+			chain,
+			tokenIds,
+			lastDeclaredBlock: SNAPSHOT_BLOCK,
+			lastDeclaredAt: SNAPSHOT_TIME,
 		})
-	}
 
 	beforeEach(() => {
 		records.clear()
@@ -489,7 +471,7 @@ describe("refreshPoolLiquidity with declared Uniswap V4 positions", () => {
 
 	it("counts a declared position's withdrawable amount on top of the wallet and vault balance", async () => {
 		balances.set(`${BASE}|${USDC_BASE}|${SOLVER_A}`, usdc(600n))
-		plantBid(SOLVER_A, [77n])
+		plantDeclaration(SOLVER_A, [77n])
 		positions.set(`${BASE}|77`, positionState(SOLVER_A, usdc(400n)))
 
 		await refresh()
@@ -505,7 +487,7 @@ describe("refreshPoolLiquidity with declared Uniswap V4 positions", () => {
 	// funded from the position drains it, and the refresh must see that.
 	it("keeps only the wallet balance once the position has been drained", async () => {
 		balances.set(`${BASE}|${USDC_BASE}|${SOLVER_A}`, usdc(600n))
-		plantBid(SOLVER_A, [77n])
+		plantDeclaration(SOLVER_A, [77n])
 		positions.set(`${BASE}|77`, positionState(SOLVER_A, 0n))
 
 		await refresh()
@@ -517,7 +499,7 @@ describe("refreshPoolLiquidity with declared Uniswap V4 positions", () => {
 	// up — the declaration lives in the bid — so it simply stops counting.
 	it("counts nothing for a position that no longer exists", async () => {
 		balances.set(`${BASE}|${USDC_BASE}|${SOLVER_A}`, usdc(600n))
-		plantBid(SOLVER_A, [77n])
+		plantDeclaration(SOLVER_A, [77n])
 		positions.set(`${BASE}|77`, null)
 
 		await refresh()
@@ -527,7 +509,7 @@ describe("refreshPoolLiquidity with declared Uniswap V4 positions", () => {
 
 	it("counts nothing for a position the solver no longer owns", async () => {
 		balances.set(`${BASE}|${USDC_BASE}|${SOLVER_A}`, usdc(600n))
-		plantBid(SOLVER_A, [77n])
+		plantDeclaration(SOLVER_A, [77n])
 		positions.set(`${BASE}|77`, positionState(SOLVER_B, usdc(400n)))
 
 		await refresh()
@@ -535,13 +517,23 @@ describe("refreshPoolLiquidity with declared Uniswap V4 positions", () => {
 		expect(read("PoolBidder", `${POOL}-${BASE}-SELL-${USDC_BASE}-${SOLVER_A}`).liquidity).toBe(usdc(600n) * SCALE)
 	})
 
-	// The declaration is whatever the solver last said, so a later bid that drops a position stops
-	// it counting — no stored copy to reconcile, which is the point of reading the bid rather than
-	// persisting the tokenIds.
-	it("reads the declaration from the solver's newest bid", async () => {
+	// The row is the live declaration, so a solver that stopped declaring reads as declaring nothing
+	// without anything having to be cleaned up.
+	it("counts nothing when the solver's row declares no position", async () => {
 		balances.set(`${BASE}|${USDC_BASE}|${SOLVER_A}`, usdc(600n))
-		plantBid(SOLVER_A, [77n], SNAPSHOT_BLOCK - 300n, `0x${"bb".repeat(32)}`)
-		plantBid(SOLVER_A, [], SNAPSHOT_BLOCK)
+		plantDeclaration(SOLVER_A, [])
+
+		await refresh()
+
+		expect(readPosition).not.toHaveBeenCalled()
+		expect(read("PoolBidder", `${POOL}-${BASE}-SELL-${USDC_BASE}-${SOLVER_A}`).liquidity).toBe(usdc(600n) * SCALE)
+	})
+
+	// A bid is per chain, so a declaration made on one chain is invisible to every other — otherwise
+	// a refresh would credit a solver on Base with liquidity that only exists elsewhere.
+	it("ignores a declaration recorded on another chain", async () => {
+		balances.set(`${BASE}|${USDC_BASE}|${SOLVER_A}`, usdc(600n))
+		plantDeclaration(SOLVER_A, [77n], ETHEREUM)
 		positions.set(`${BASE}|77`, positionState(SOLVER_A, usdc(400n)))
 
 		await refresh()
@@ -550,23 +542,23 @@ describe("refreshPoolLiquidity with declared Uniswap V4 positions", () => {
 		expect(read("PoolBidder", `${POOL}-${BASE}-SELL-${USDC_BASE}-${SOLVER_A}`).liquidity).toBe(usdc(600n) * SCALE)
 	})
 
-	// A bid is keyed by its substrate filler, but a declaration belongs to the EVM solver that
-	// signed it — which only the payload names, so the wrong solver's positions must not leak in.
-	it("ignores another solver's declaration in the same window", async () => {
+	// One read per solver, whatever the shape of the pool rows: the declaration is a single keyed
+	// row, which is the point of keying it by the LP.
+	it("reads one declaration per solver, not one per bidder row", async () => {
 		balances.set(`${BASE}|${USDC_BASE}|${SOLVER_A}`, usdc(600n))
-		plantBid(SOLVER_B, [77n])
-		positions.set(`${BASE}|77`, positionState(SOLVER_B, usdc(400n)))
+		plantDeclaration(SOLVER_A, [77n])
+		positions.set(`${BASE}|77`, positionState(SOLVER_A, usdc(400n)))
 
 		await refresh()
 
-		expect(read("PoolBidder", `${POOL}-${BASE}-SELL-${USDC_BASE}-${SOLVER_A}`).liquidity).toBe(usdc(600n) * SCALE)
+		expect(readPosition).toHaveBeenCalledTimes(1)
 	})
 
 	// A position that cannot be read is not a position worth zero, exactly as a balance that cannot
 	// be read is not a balance of zero.
 	it("leaves the chain as indexed when a position cannot be read", async () => {
 		balances.set(`${BASE}|${USDC_BASE}|${SOLVER_A}`, usdc(600n))
-		plantBid(SOLVER_A, [77n])
+		plantDeclaration(SOLVER_A, [77n])
 		readPosition.mockRejectedValueOnce(new Error("RPC unreachable"))
 
 		await refresh()

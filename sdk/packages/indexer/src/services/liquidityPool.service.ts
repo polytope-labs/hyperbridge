@@ -11,7 +11,7 @@ import {
 	PoolChainLiquidity,
 	PoolRoute,
 } from "@/configs/src/types"
-import { declaredV4Positions } from "@/services/phantomBid.service"
+import { declaredV4Positions } from "@/services/solverPositions.service"
 import { readAllPages } from "@/utils/store.helpers"
 import { bytes32ToBytes20 } from "@/utils/transfer.helpers"
 import { positionAmountOfToken } from "@hyperbridge/sdk/intents-helpers"
@@ -709,11 +709,11 @@ interface BidderReading {
  * reads happened to fail.
  *
  * Inventory here is the same total the phantom sweep weights a bid by — wallet ERC-20, redeemable
- * ERC-4626 vault positions, and the Uniswap V4 positions the solver declared. The declaration comes
- * from the solver's own latest indexed bid, since a bid is the only place a position is ever named;
- * each one is then re-read on-chain rather than carried forward at its last value, because simplex
- * funds fills out of these positions and a carried value would keep advertising the inventory a
- * fill just spent.
+ * ERC-4626 vault positions, and the Uniswap V4 positions the solver declared. The declaration is the
+ * solver's `SolverV4Positions` row, recorded when it last bid, since a bid is the only place a
+ * position is ever named; each tokenId is then re-read on-chain rather than carried forward at its
+ * last value, because simplex funds fills out of these positions and a carried value would keep
+ * advertising the inventory a fill just spent.
  */
 async function readChainLiquidity(
 	chain: string,
@@ -737,8 +737,8 @@ async function readChainLiquidity(
 				)
 				return null
 			}
-			// Burned, or sold to someone else: either way it is no longer this solver's inventory.
-			// The declaration is a pointer, and this is the check that makes reading it raw safe.
+			// Burned, or sold to someone else: either way it is no longer this solver's inventory —
+			// and the recorded declaration cannot know that, so the owner check is what carries it.
 			if (!state || state.owner.toLowerCase() !== provider.toLowerCase()) continue
 			live.push(state)
 		}

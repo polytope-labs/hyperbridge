@@ -111,12 +111,13 @@ recoverable, so a failure must never stall indexing:
 5. Nothing here writes `lastUpdatedBlock` or `lastUpdatedAt`, and nothing re-derives a rate. A pool's merged
    rate can still move, because the per-chain samples are depth-weighted and the depths just changed.
 
-Where the V4 positions come from: `declaredV4Positions` (`src/services/phantomBid.service.ts`) walks the newest
-`PhantomOrderV2` rows for the chain, reads their `FillerBid` rows newest-first, decodes each `bidData` (the raw
-SCALE-encoded userOp the bid handler stored) and returns the tokenIds declared by the first bid whose sender is
-this solver. A bid is the only place a position is ever named, and nothing is persisted — a position dropped from
-the next bid stops counting on its own. The bids are keyed by their substrate filler, so the EVM solver is only
-knowable from the payload, which is why the match happens after decoding.
+Where the V4 positions come from: `handlePhantomOrderPrices` calls `recordDeclaredPositions`
+(`src/services/solverPositions.service.ts`), which writes one `SolverV4Positions` row per bidding solver — keyed
+by the solver's address, holding the tokenIds `aggregatePhantomBids` verified and the chain the bid was for. A
+bid is the only place a position is ever named. The refresh reads that row with a single keyed `get`
+(`declaredV4Positions`), and a row recorded on another chain reads as none. A solver that bids without declaring
+has its row emptied; one that skips a window keeps it. One row per solver assumes one V4 chain, and the writer
+warns rather than overwriting a row from a different one.
 
 ## Phantom bid calldata decoding (`extractFillDataVm2`)
 

@@ -42,6 +42,7 @@ export {
 	type PhantomLegBidder,
 	type RecoverBidSigner,
 	type SolverBalanceReader,
+	type SolverV4Position,
 	type RpcBidInfo,
 	type UniswapV4Contracts,
 	type V4PositionState,

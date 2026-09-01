@@ -883,6 +883,37 @@ describe("aggregatePhantomBids bid verification", () => {
 			expect(warnings.some((w) => w.includes("StateView"))).toBe(true)
 		})
 
+		// A bid is the only place a position is named, so a consumer that wants to re-value one after a
+		// fill has to learn the tokenId here — the run already verified it, and nothing downstream can
+		// rediscover it.
+		it("reports the verified position's tokenId so it can be recorded", async () => {
+			const userOp = await signedBidUserOp({
+				signingKey: SOLVER_KEY,
+				paymasterAndData: encodePhantomBidDeclaration({ uniswapV4Positions: [TOKEN_ID] }),
+			})
+			setAggregationFetch(v4Rpc([userOp], solverAddress))
+
+			const result = await aggregateWithV4(solverAddress)
+
+			expect(result!.positions).toEqual([
+				{ solver: solverAddress.toLowerCase(), chain: CHAIN, tokenId: TOKEN_ID },
+			])
+		})
+
+		// Reported positions carry the same ownership guarantee the leg weights do; recording an
+		// unowned one would hand the fill path a position to value that the solver cannot spend.
+		it("reports no position when the declared one is owned by someone else", async () => {
+			const userOp = await signedBidUserOp({
+				signingKey: SOLVER_KEY,
+				paymasterAndData: encodePhantomBidDeclaration({ uniswapV4Positions: [TOKEN_ID] }),
+			})
+			setAggregationFetch(v4Rpc([userOp], `0x${"99".repeat(20)}`))
+
+			const result = await aggregateWithV4(`0x${"99".repeat(20)}`)
+
+			expect(result!.positions).toEqual([])
+		})
+
 		// The declaration is a pointer, not a claim — pointing at liquidity you do not own is the
 		// obvious way to fake depth, so ownership is checked against the signer on-chain.
 		it("ignores a declared position owned by someone else", async () => {

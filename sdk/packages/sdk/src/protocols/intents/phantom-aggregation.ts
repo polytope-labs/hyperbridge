@@ -358,6 +358,21 @@ export interface PhantomLegAggregation {
 	bidders: PhantomLegBidder[]
 }
 
+/**
+ * A Uniswap V4 position a bid declared, after the on-chain ownership check — i.e. one this solver
+ * really holds and can fund a fill from.
+ *
+ * A bid is the only place a position is ever named, so a consumer that wants to value these between
+ * bid windows (an order fill drains a position inside the fill transaction, while wallet and vault
+ * balances barely move) has to take them from here.
+ */
+export interface SolverV4Position {
+	solver: HexString
+	/** The chain the bid was for. A bid is per chain, so no other chain's reads can see it. */
+	chain: string
+	tokenId: bigint
+}
+
 /** The aggregated result for a single phantom order's bid window. */
 export interface PhantomAggregation {
 	/**
@@ -367,6 +382,11 @@ export interface PhantomAggregation {
 	 */
 	legs: PhantomLegAggregation[]
 	lpBalances: LpBalance[]
+	/**
+	 * Every declared position that passed the ownership check, across all bids in this window.
+	 * Empty when the chain has no configured V4 deployment, since nothing is read there.
+	 */
+	positions: SolverV4Position[]
 }
 
 export interface AggregationLogger {
@@ -1060,6 +1080,7 @@ async function runAggregation(
 		}
 	>()
 	const lpBalances: LpBalance[] = []
+	const verifiedPositions: SolverV4Position[] = []
 	// Bids are stored per substrate filler, but weight is a property of the EVM solver. Without this
 	// one solver's bid, copied under N funded fillers, would count N times in the weighted median.
 	const countedSolvers = new Set<string>()
@@ -1157,6 +1178,11 @@ async function runAggregation(
 				return true
 			})
 			const positions = ownedPositions.map((entry) => entry.state)
+			// Reported alongside the balances so a consumer can record which positions back this
+			// solver: nothing outside a bid names them, so this is the only place they are knowable.
+			for (const entry of ownedPositions) {
+				verifiedPositions.push({ solver: normalizedSolver as HexString, chain, tokenId: entry.tokenId })
+			}
 
 			const weights = await Promise.all(
 				// Price influence: the solver's liquidity in THIS leg's output token on the destination
@@ -1244,5 +1270,5 @@ async function runAggregation(
 			]
 		})
 
-	return { legs, lpBalances }
+	return { legs, lpBalances, positions: verifiedPositions }
 }

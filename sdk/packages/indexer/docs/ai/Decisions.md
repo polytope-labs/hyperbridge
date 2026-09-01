@@ -4,30 +4,34 @@ AI-maintained record of non-obvious choices made in `sdk/packages/indexer`: what
 
 Entry format: heading with the decision, then alternatives considered and the reasoning. Newest first.
 
-## 2026-09-01 — V4 declarations are read back out of the indexed bids, not persisted (#1159)
+## 2026-09-01 — Declared V4 positions live in one row per solver (#1159)
 
-Chosen: `declaredV4Positions(chain, solver)` decodes the solver's newest `FillerBid` on that chain and returns
-the tokenIds its `paymasterAndData` declares. Nothing about positions is stored.
+Chosen: `SolverV4Positions`, keyed by the solver's address, holding the tokenIds from its latest bid and the
+chain that bid was for. Written by the phantom snapshot, read by the refresh with a single keyed `get`.
 
-Alternative rejected — a `LiquidityProviderV4Position` table written from the aggregation. It was the first
-implementation and it was redundant: `FillerBid.bidData` already holds every bid's raw SCALE-encoded userOp,
-stored undecoded precisely so a bid stays re-interpretable, and the declaration rides inside it. A table would
-have been a decoded copy of data the database already has, with reconciliation to keep the copy honest (whose
-rows to replace when a solver bids, whose to leave when it does not) and a new entity on a live schema.
+Alternative rejected — a row per (chain, tokenId). It was implemented first and is the wrong grain: the refresh
+asks "what does this solver declare", so a per-position table makes that a filtered scan per provider per chain,
+and a position that changes hands or disappears needs its own reconciliation. One row answers the question the
+readers actually ask, and replacing it wholesale each window is the reconciliation.
 
-Alternative rejected — carry the last sweep's position VALUE forward on `PoolBidder`. Wrong in the one case that
-matters: simplex funds fills out of these positions, so a V4-funded fill drains the position inside the fill
+Alternative rejected — no storage at all, decoding the declaration back out of `FillerBid.bidData` (which does
+hold every bid's raw userOp). It was implemented too, and it needs no schema, but the read is a walk over recent
+phantom orders, then their bids, SCALE-decoding each one to find the sender — per solver, per refresh. The
+declaration is a small, current fact; storing it decoded is what makes reading it cheap.
+
+Alternative rejected — carry the last sweep's position VALUE forward instead of the tokenIds. Wrong in the case
+that matters: simplex funds fills out of these positions, so a fill drains the position inside the fill
 transaction while wallet and vault balances barely move, and a carried value keeps advertising precisely the
-inventory the fill just spent.
+inventory the fill just spent. The tokenIds are stable; the value is not, so the value is always re-read.
 
-Reading a stored bid skips the aggregation's signature and delegation checks, which is acceptable because the
-declaration is only ever a pointer: every tokenId is read on-chain and its owner compared against the provider
-before it is worth anything, which is the same guarantee the aggregation applies. An unsigned bid naming someone
-else's position values nothing.
+One row per solver assumes a solver declares on one chain, which holds while Uniswap V4 is configured for a
+single chain (Base). That assumption is load-bearing, so the writer refuses to overwrite a row recorded on
+another chain and warns instead — the key has to grow to (chain, solver) the day a second V4 chain is
+configured, and a silent overwrite would have deleted real inventory in the meantime.
 
-The lookup walks back a few windows (`RECENT_PHANTOM_ORDERS`) rather than only the newest order. A bidder row
-only survives a window the solver bid in, so its bid is normally in the newest order; the extra windows cover a
-window whose aggregation failed and left the rows standing on an older one.
+Positions are recorded after the aggregation's ownership check, not as declared — a declaration is a pointer,
+not a claim — and the refresh checks the owner again when it re-reads, because a row recorded last window cannot
+know the position has since been sold.
 
 ## 2026-09-01 — Escrow releases and vault events refresh by provider, and depths re-sum from the store (#1159)
 
@@ -73,8 +77,8 @@ Not done, deliberately: the `trigger` enum, the nullable `transactionHash`, the
 `snapshotTime` rather than `blockNumber`. All four change `LiquidityProviderBalanceV2`, which is live, and the
 value is provenance metadata rather than correctness. Event-triggered rows therefore keep borrowing Hyperbridge's
 head block, and the design is recorded as a comment on `recordProviderBalances` so a later migration has it to
-hand. This change adds no entity and alters no existing one: the V4 declarations it needs turned out to be
-recoverable from the bids the indexer already stores.
+hand. `SolverV4Positions` is additive — a new table, and no `@derivedFrom` field on `LiquidityProvider` either —
+which is why it is in this change and §3 is not.
 
 ## 2026-09-01 — The fill refresh re-reads balances, publishes no provenance of its own, and skips replayed fills
 

@@ -2445,6 +2445,63 @@ type LiquidityProvider @entity {
 }
 
 """
+The Uniswap V4 positions one solver funds fills from, as named in its latest phantom bid.
+
+A bid's `paymasterAndData` is the only place a position is ever named. The aggregation values the
+declared positions while it has them in hand, but between bid windows nothing else knows the
+tokenIds, so a balance re-read triggered by a fill could not see that inventory at all — and
+carrying the last window's VALUE forward is worse than not seeing it, because simplex funds fills
+out of these positions: such a fill drains the position inside the fill transaction while wallet and
+vault balances barely move, so a carried value keeps advertising exactly what was just spent.
+Recording the tokenIds lets the fill path re-read the positions instead of guessing.
+
+One row per solver, replaced wholesale each time that solver bids, so the row is always the live
+declaration and never a history to reconcile. A solver that stops bidding keeps its last row —
+silence is not a withdrawal — and a position it has since burned or sold simply reads back as no
+longer owned, which is the check every consumer applies before valuing one.
+"""
+type SolverV4Positions @entity {
+	"""
+	The solver's lowercase EVM address. One instance per LP by construction: the declaration is a
+	single current fact about that solver, not a per-position or per-window record.
+	"""
+	id: ID!
+
+	"""
+	The liquidity provider these positions belong to. Same address as `id`; the link is what makes
+	them reachable from a provider query.
+	"""
+	provider: LiquidityProvider!
+
+	"""
+	State machine ID of the chain the declaring bid was for — the only chain these positions are
+	visible to, since a bid is per chain.
+
+	This row assumes a solver declares on ONE chain, which holds while Uniswap V4 is configured for a
+	single chain (see `src/addresses/uniswap-v4.addresses.ts`). If a second chain is ever configured,
+	the writer warns rather than silently overwriting the other chain's declaration, and the key has
+	to grow to (chain, solver).
+	"""
+	chain: String! @index
+
+	"""
+	PositionManager tokenIds the solver declared, verified on-chain as owned by it when the bid
+	window closed. Empty when the solver bid without declaring any.
+	"""
+	tokenIds: [BigInt!]!
+
+	"""
+	Hyperbridge block of the bid window this declaration came from.
+	"""
+	lastDeclaredBlock: BigInt! @index
+
+	"""
+	Timestamp of that bid window.
+	"""
+	lastDeclaredAt: Date! @index
+}
+
+"""
 Per-provider, per-chain, per-token liquidity balance recorded when phantom bid windows close.
 For every valid bidder, the provider's liquidity is swept across every configured yield-vault token
 on every supported chain — so one entity is written per (provider, chain, token) the provider

@@ -15,13 +15,8 @@ import {
 	PhantomOrderPriceSnapshotV2,
 	PhantomOrderV2,
 } from "@/configs/src/types"
-import {
-	aggregatePhantomBids,
-	memoizedSolverBalance,
-	setAggregationFetch,
-	type SolverBalanceReader,
-} from "@hyperbridge/sdk/intents-helpers"
-import { safeFetch } from "@/utils/safeFetch"
+import { aggregatePhantomBids } from "@hyperbridge/sdk/intents-helpers"
+import { blockBalanceReader, evmRpcUrls } from "@/utils/solverBalance"
 import {
 	bidNonceKeyVm2,
 	extractFillDataVm2,
@@ -32,26 +27,6 @@ import {
 import { UNISWAP_V4_ADDRESSES } from "@/addresses/uniswap-v4.addresses"
 import { resolvePoolLeg, updateLiquidityPools, type AttributedLeg } from "@/services/liquidityPool.service"
 import { readAllPages } from "@/utils/store.helpers"
-
-// The aggregation's RPC helpers run inside the SubQuery VM2 sandbox, which has no global `fetch`.
-// Inject the indexer's sandbox-safe HTTP client so its JSON-RPC calls work here.
-setAggregationFetch(safeFetch)
-
-// Every configured chain's phantom order shares one generation interval, so all their bid windows
-// close on the same Hyperbridge block and this handler runs once per order back to back. Balances
-// are point-in-time reads that cannot differ within a block, so one memo serves every aggregation
-// on it — without this, the full liquidity sweep (every chain, every vault token, every solver)
-// would repeat identically per order. Blocks are processed in order, so keeping only the current
-// block's memo is enough.
-let balanceReaderBlock: bigint | null = null
-let balanceReader: SolverBalanceReader | null = null
-function blockBalanceReader(blockNumber: bigint, yieldVaults: Parameters<typeof memoizedSolverBalance>[0]) {
-	if (balanceReaderBlock !== blockNumber || !balanceReader) {
-		balanceReader = memoizedSolverBalance(yieldVaults)
-		balanceReaderBlock = blockNumber
-	}
-	return balanceReader
-}
 
 // Triggered by PhantomBidWindowExhausted once a phantom order's bid window closes, so every bid is
 // already in. The order prices several directed legs at once, so its bids aggregate into one
@@ -106,14 +81,9 @@ export const handlePhantomOrderPrices = wrap(async (event: SubstrateEvent): Prom
 
 	// RPC per supported EVM chain — the aggregation sweeps every LP's liquidity across all of them,
 	// not just the phantom order's destination chain.
-	const evmRpcUrls: Record<string, string> = {}
-	for (const [stateMachineId, url] of Object.entries(ENV_CONFIG)) {
-		if (!stateMachineId.startsWith("EVM-")) continue
-		const http = replaceWebsocketWithHttp(url ?? "")
-		if (http) evmRpcUrls[stateMachineId] = http
-	}
+	const rpcUrls = evmRpcUrls()
 	const gatewayAddress = INTENT_GATEWAY_V3_ADDRESSES[phantom.chain as keyof typeof INTENT_GATEWAY_V3_ADDRESSES]
-	if (!evmRpcUrls[phantom.chain] || !gatewayAddress) return
+	if (!rpcUrls[phantom.chain] || !gatewayAddress) return
 
 	// A bid only counts if its sender delegates to this, so with no configured address there is
 	// nothing to verify against and no snapshot to write. Worth a warning rather than a silent skip:
@@ -131,7 +101,7 @@ export const handlePhantomOrderPrices = wrap(async (event: SubstrateEvent): Prom
 	try {
 		aggregate = await aggregatePhantomBids({
 			nodeUrl,
-			evmRpcUrls,
+			evmRpcUrls: rpcUrls,
 			chain: phantom.chain,
 			gatewayAddress,
 			commitment,
@@ -146,7 +116,7 @@ export const handlePhantomOrderPrices = wrap(async (event: SubstrateEvent): Prom
 			// ownership check are read on-chain, so the bid only points at what to look at.
 			uniswapV4: UNISWAP_V4_ADDRESSES,
 			keccak: keccakVm2,
-			getBalance: blockBalanceReader(blockNumber, YIELD_VAULT_ADDRESSES),
+			getBalance: blockBalanceReader(`${host}-${blockNumber}`),
 			logger,
 		})
 	} catch (err) {

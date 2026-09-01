@@ -5,7 +5,8 @@
 import { getPoolToken, poolSlug, sortPoolSymbols } from "@/addresses/pool-tokens.addresses"
 import { LiquidityPool, LiquidityProvider, PoolBidder, PoolChainLiquidity, PoolRoute } from "@/configs/src/types"
 import { readAllPages } from "@/utils/store.helpers"
-import type { PhantomLegAggregation } from "@hyperbridge/sdk/intents-helpers"
+import { bytes32ToBytes20 } from "@/utils/transfer.helpers"
+import type { PhantomLegAggregation, SolverBalanceReader } from "@hyperbridge/sdk/intents-helpers"
 
 export const SELL = "SELL"
 export const BUY = "BUY"
@@ -151,6 +152,40 @@ function weightedRate(samples: { rate: bigint; depth: bigint }[]): bigint {
 	return depth > 0n
 		? samples.reduce((acc, sample) => acc + sample.rate * sample.depth, 0n) / depth
 		: samples.reduce((acc, sample) => acc + sample.rate, 0n) / BigInt(samples.length)
+}
+
+/** One bidder's contribution to a (chain, direction)'s published depth. */
+interface BidderLiquidity {
+	liquidity: bigint
+	/** Null or undefined for a bidder whose bid carried no accepted-source declaration. */
+	acceptedSources?: string[] | null
+}
+
+/**
+ * The depth a set of bidders on one (chain, direction) publishes, and the slice of it behind
+ * bidders with no accepted-source declaration — reported separately because those bidders have no
+ * PoolRoute rows for consumers to find their capacity under.
+ *
+ * The one home for that split: `updateLiquidityPools` derives it from a snapshot's bidders and
+ * `refreshPoolLiquidity` from the stored rows, and a disagreement between the two would show up as
+ * depth stepping between two numbers as fills and snapshots alternate.
+ */
+function bidderDepths(bidders: BidderLiquidity[]): {
+	depth: bigint
+	unrestrictedDepth: bigint
+	unrestrictedBidCount: number
+} {
+	let depth = 0n
+	let unrestrictedDepth = 0n
+	let unrestrictedBidCount = 0
+	for (const bidder of bidders) {
+		depth += bidder.liquidity
+		if (bidder.acceptedSources == null) {
+			unrestrictedDepth += bidder.liquidity
+			unrestrictedBidCount += 1
+		}
+	}
+	return { depth, unrestrictedDepth, unrestrictedBidCount }
 }
 
 interface PoolBidderSample {
@@ -354,18 +389,8 @@ export async function updateLiquidityPools(params: {
 		for (const [direction, entry] of directions) {
 			const id = `${poolId}-${chain}-${direction}`
 			if (entry.quoted) {
-				const depth = entry.samples.reduce((acc, sample) => acc + sample.depth, 0n)
 				const rate = weightedRate(entry.samples)
-				// The slice of depth behind no-declaration bidders, reported separately because
-				// they have no PoolRoute rows for consumers to find it under.
-				let unrestrictedDepth = 0n
-				let unrestrictedBidCount = 0
-				for (const bidder of entry.bidders.values()) {
-					if (bidder.acceptedSources === null) {
-						unrestrictedDepth += bidder.liquidity
-						unrestrictedBidCount += 1
-					}
-				}
+				const { depth, unrestrictedDepth, unrestrictedBidCount } = bidderDepths([...entry.bidders.values()])
 				const row = await PoolChainLiquidity.get(id)
 				if (row) {
 					row.rate = rate
@@ -410,36 +435,48 @@ export async function updateLiquidityPools(params: {
 
 	for (const [poolId, pool] of poolRows) {
 		const rows = await PoolChainLiquidity.getByPoolId(poolId, { limit: CHAIN_ROWS_LIMIT })
-
-		for (const direction of [SELL, BUY]) {
-			const directionRows = rows.filter((row) => row.direction === direction)
-			if (directionRows.length === 0) continue
-
-			// Blocks are processed in order, so the difference is non-negative in practice; a row
-			// from a "future" block would simply count as fresh, which is the right reading anyway.
-			const fresh = directionRows.filter((row) => blockNumber - row.lastUpdatedBlock <= MAX_SAMPLE_AGE_BLOCKS)
-			const merged = fresh.length > 0 ? fresh : directionRows
-
-			warnOnDivergentSample(poolId, direction, merged)
-
-			const depth = merged.reduce((acc, row) => acc + row.depth, 0n)
-			const rate = weightedRate(merged)
-			const bidCount = merged.reduce((acc, row) => acc + row.bidCount, 0)
-
-			if (direction === SELL) {
-				pool.sellRate = rate
-				pool.sellDepth = depth
-				pool.sellBidCount = bidCount
-			} else {
-				pool.buyRate = rate
-				pool.buyDepth = depth
-				pool.buyBidCount = bidCount
-			}
-		}
+		mergeChainRowsIntoPool(pool, rows, blockNumber)
 
 		pool.lastUpdatedBlock = blockNumber
 		pool.lastUpdatedAt = snapshotTime
 		await pool.save()
+	}
+}
+
+/**
+ * Collapses a pool's per-(chain, direction) rows into its single buy/sell rate, depth and bid
+ * count, in place. `referenceBlock` is the Hyperbridge block the sample ages are measured
+ * against — the block being processed when a snapshot writes, the freshest row when a fill
+ * refresh does, which is the same reading either way.
+ *
+ * Does not touch the pool's own `lastUpdatedBlock`/`lastUpdatedAt` or save it: those record which
+ * snapshot last priced the pool, and a caller that is not a snapshot must leave them alone.
+ */
+function mergeChainRowsIntoPool(pool: LiquidityPool, rows: PoolChainLiquidity[], referenceBlock: bigint): void {
+	for (const direction of [SELL, BUY]) {
+		const directionRows = rows.filter((row) => row.direction === direction)
+		if (directionRows.length === 0) continue
+
+		// Blocks are processed in order, so the difference is non-negative in practice; a row
+		// from a "future" block would simply count as fresh, which is the right reading anyway.
+		const fresh = directionRows.filter((row) => referenceBlock - row.lastUpdatedBlock <= MAX_SAMPLE_AGE_BLOCKS)
+		const merged = fresh.length > 0 ? fresh : directionRows
+
+		warnOnDivergentSample(pool.id, direction, merged)
+
+		const depth = merged.reduce((acc, row) => acc + row.depth, 0n)
+		const rate = weightedRate(merged)
+		const bidCount = merged.reduce((acc, row) => acc + row.bidCount, 0)
+
+		if (direction === SELL) {
+			pool.sellRate = rate
+			pool.sellDepth = depth
+			pool.sellBidCount = bidCount
+		} else {
+			pool.buyRate = rate
+			pool.buyDepth = depth
+			pool.buyBidCount = bidCount
+		}
 	}
 }
 
@@ -462,5 +499,240 @@ function warnOnDivergentSample(
 				"Pool chain sample diverges >5x from the other chains — check the token registry decimals",
 			)
 		}
+	}
+}
+
+/**
+ * The pools an order's fill traded through: every input token's symbol on the source chain paired
+ * with every output token's symbol on the destination chain. A token the registry does not track
+ * contributes no pool, so an order in unrelated assets resolves to nothing and costs nothing.
+ *
+ * The pair is resolved from the two chains separately because that is where the addresses live —
+ * the inputs are escrowed on the source chain, the outputs delivered on the destination one — and
+ * a symbol's decimals differ per chain. Same-symbol pairs are the same-asset pool, exactly as
+ * `resolvePoolLeg` treats them.
+ */
+export function poolsForFill(params: {
+	sourceChain: string
+	inputTokens: string[]
+	destChain: string
+	outputTokens: string[]
+}): string[] {
+	const symbols = (chain: string, tokens: string[]) => [
+		...new Set(
+			tokens
+				.map((token) => getPoolToken(chain, bytes32ToBytes20(token))?.symbol)
+				.filter((symbol): symbol is string => !!symbol),
+		),
+	]
+	const inputs = symbols(params.sourceChain, params.inputTokens)
+	const outputs = symbols(params.destChain, params.outputTokens)
+
+	const pools = new Set<string>()
+	for (const input of inputs) {
+		for (const output of outputs) pools.add(poolSlug(input, output))
+	}
+	return [...pools]
+}
+
+/**
+ * Re-reads the on-chain inventory of every LP recorded as backing `poolIds` and republishes the
+ * pools' depths from it. Called when a fill has just consumed some of that inventory, so the
+ * depth a taker reads reflects what the solvers still hold rather than what they held when the
+ * last phantom bid window closed.
+ *
+ * Only depths, bid counts and the bidder rows themselves move. `lastUpdatedBlock` and
+ * `lastUpdatedAt` are left exactly as the snapshot wrote them everywhere: they record which
+ * Hyperbridge block priced the pool, and a fill carries an EVM block number of another chain
+ * entirely, which is not comparable with them (writing one would make every row look
+ * astronomically fresh or stale to `MAX_SAMPLE_AGE_BLOCKS`). Rates are not re-derived either —
+ * nothing here observes a new quote — though a pool's merged rate can still shift, because the
+ * chains are weighted by the depths this refresh just changed.
+ *
+ * Known blind spot: the balance read here is wallet ERC-20 plus redeemable ERC-4626 positions,
+ * while a snapshot's weight can also include Uniswap V4 positions a bid declared. Only a bid names
+ * those positions, so between windows they are invisible and a V4-funded bidder's row shrinks to
+ * its liquid inventory until the next snapshot restores it. That errs downward — understating
+ * depth costs a quote, overstating it costs a failed fill — but if V4-funded solvers become
+ * material, the fix is to persist the position share on `PoolBidder` so it can be carried forward.
+ */
+export async function refreshPoolLiquidity(params: {
+	poolIds: string[]
+	/**
+	 * Wall-clock time of the fill. A pool whose last snapshot already postdates it is left alone:
+	 * that snapshot read balances this fill had already moved, so re-reading at the chain head
+	 * would only replace fresher data with a partial view of it. This is also what keeps a
+	 * historical resync free — every replayed fill is older than the pools' current samples.
+	 */
+	filledAt: Date
+	/** HTTP RPC per state machine id; a chain absent here is left as the snapshot wrote it. */
+	evmRpcUrls: Record<string, string>
+	getBalance: SolverBalanceReader
+}): Promise<void> {
+	const { filledAt, evmRpcUrls, getBalance } = params
+
+	for (const poolId of new Set(params.poolIds)) {
+		const pool = await LiquidityPool.get(poolId)
+		if (!pool) continue
+		if (pool.lastUpdatedAt > filledAt) continue
+
+		// Bidder rows scale with the number of solvers, which nothing bounds, and a truncated read
+		// would look exactly like the missing solvers having withdrawn.
+		const bidders = await readAllPages((limit, offset) =>
+			PoolBidder.getByFields([["poolId", "=", poolId]], {
+				limit,
+				offset,
+				orderBy: "id",
+				orderDirection: "ASC",
+			}),
+		)
+		if (bidders.length === 0) continue
+
+		// Chain by chain, because a chain is the unit that can fail: its RPC is one endpoint, and
+		// a partially read chain must not be republished — the unread bidders would look departed.
+		const byChain = new Map<string, PoolBidder[]>()
+		for (const row of bidders) {
+			const rows = byChain.get(row.chain) ?? []
+			rows.push(row)
+			byChain.set(row.chain, rows)
+		}
+
+		let refreshed = false
+		for (const [chain, rows] of byChain) {
+			const liquidity = await readChainLiquidity(chain, rows, evmRpcUrls[chain], getBalance)
+			if (!liquidity) continue
+			await writeChainLiquidity(poolId, chain, rows, liquidity)
+			refreshed = true
+		}
+		if (!refreshed) continue
+
+		const chainRows = await PoolChainLiquidity.getByPoolId(poolId, { limit: CHAIN_ROWS_LIMIT })
+		if (chainRows.length === 0) continue
+		// The freshest row defines "now" for the staleness window. The block being processed
+		// cannot: it belongs to an EVM chain, and these rows are stamped with Hyperbridge blocks.
+		const referenceBlock = chainRows.reduce(
+			(newest, row) => (row.lastUpdatedBlock > newest ? row.lastUpdatedBlock : newest),
+			0n,
+		)
+		mergeChainRowsIntoPool(pool, chainRows, referenceBlock)
+		await pool.save()
+	}
+}
+
+/**
+ * Each bidder row's current liquidity on one chain, 18-decimal normalized, or null when the chain
+ * cannot be read in full. Null is deliberately all-or-nothing: a bidder whose balance failed to
+ * read is indistinguishable from one holding zero, so a partial result would publish a depth that
+ * is short by however many reads happened to fail.
+ */
+async function readChainLiquidity(
+	chain: string,
+	rows: PoolBidder[],
+	evmRpcUrl: string | undefined,
+	getBalance: SolverBalanceReader,
+): Promise<Map<string, bigint> | null> {
+	if (!evmRpcUrl) return null
+
+	const liquidity = new Map<string, bigint>()
+	for (const row of rows) {
+		const token = getPoolToken(chain, row.outputToken)
+		if (!token || token.decimals > POOL_RATE_DECIMALS) {
+			logger.warn(
+				{ chain, outputToken: row.outputToken },
+				"Pool bidder's output token is no longer registry-tracked, leaving the chain's liquidity as indexed",
+			)
+			return null
+		}
+		try {
+			const balance = await getBalance(evmRpcUrl, chain, row.outputToken, row.providerId)
+			liquidity.set(row.id, balance * 10n ** BigInt(POOL_RATE_DECIMALS - token.decimals))
+		} catch (err) {
+			logger.warn(
+				{ err, chain, solver: row.providerId, outputToken: row.outputToken },
+				"Failed to re-read a pool bidder's balance, leaving the chain's liquidity as indexed",
+			)
+			return null
+		}
+	}
+	return liquidity
+}
+
+/**
+ * Writes one chain's re-read liquidity through the rows derived from it, mirroring the
+ * reconciliation `updateLiquidityPools` performs on a snapshot: a bidder holding nothing loses its
+ * row (every row is a bidder with capacity, so the row set can be counted as well as summed), and
+ * a route keeps only the bidders that survived.
+ */
+async function writeChainLiquidity(
+	poolId: string,
+	chain: string,
+	rows: PoolBidder[],
+	liquidity: Map<string, bigint>,
+): Promise<void> {
+	const survivors: PoolBidder[] = []
+	for (const row of rows) {
+		const current = liquidity.get(row.id) ?? 0n
+		if (current === 0n) {
+			await PoolBidder.remove(row.id)
+			continue
+		}
+		if (current !== row.liquidity) {
+			row.liquidity = current
+			await row.save()
+		}
+		survivors.push(row)
+	}
+
+	// Only the directions this chain had bidders on. A direction whose rows all just vanished is
+	// zeroed here rather than skipped — that is the same "registered but unbacked" state a
+	// snapshot writes, keeping the last known rate with no depth behind it.
+	for (const direction of new Set(rows.map((row) => row.direction))) {
+		const chainRow = await PoolChainLiquidity.get(`${poolId}-${chain}-${direction}`)
+		if (!chainRow) continue
+		const directionBidders = survivors.filter((row) => row.direction === direction)
+		const { depth, unrestrictedDepth, unrestrictedBidCount } = bidderDepths(directionBidders)
+		chainRow.depth = depth
+		// Counting rows, which is what the snapshot's bid count also amounts to: it counts backed
+		// quotes, and every backed quote wrote exactly one of these rows.
+		chainRow.bidCount = directionBidders.length
+		chainRow.unrestrictedDepth = unrestrictedDepth
+		chainRow.unrestrictedBidCount = unrestrictedBidCount
+		await chainRow.save()
+	}
+
+	// Routes are derived from declarations, which no balance read can change, so the surviving
+	// bidders can only shrink the set the snapshot wrote. Existing rows are therefore updated or
+	// removed and never created: a route with no row is one no snapshot published, and inventing
+	// it here would date it to a bid window this indexer never saw.
+	const desired = new Map<string, { depth: bigint; bidCount: number }>()
+	for (const bidder of survivors) {
+		if (!bidder.acceptedSources) continue
+		for (const sourceChain of new Set(bidder.acceptedSources)) {
+			const id = `${poolId}-${chain}-${bidder.direction}-${sourceChain}`
+			const route = desired.get(id) ?? { depth: 0n, bidCount: 0 }
+			route.depth += bidder.liquidity
+			route.bidCount += 1
+			desired.set(id, route)
+		}
+	}
+	// Route rows scale with bidders times declared sources, which nothing bounds.
+	const existingRoutes = await readAllPages((limit, offset) =>
+		PoolRoute.getByFields(
+			[
+				["poolId", "=", poolId],
+				["chain", "=", chain],
+			],
+			{ limit, offset, orderBy: "id", orderDirection: "ASC" },
+		),
+	)
+	for (const row of existingRoutes) {
+		const route = desired.get(row.id)
+		if (!route) {
+			await PoolRoute.remove(row.id)
+			continue
+		}
+		row.depth = route.depth
+		row.bidCount = route.bidCount
+		await row.save()
 	}
 }

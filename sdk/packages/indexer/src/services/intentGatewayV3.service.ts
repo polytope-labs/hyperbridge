@@ -39,7 +39,13 @@ import { LiquidityPool } from "@/configs/src/types/models/LiquidityPool"
 import { timestampToDate } from "@/utils/date.helpers"
 import { getHostStateMachine } from "@/utils/substrate.helpers"
 import { canonicalPoolSymbol, poolSlug } from "@/addresses/pool-tokens.addresses"
-import { orientedPoolRates, POOL_RATE_DECIMALS } from "@/services/liquidityPool.service"
+import {
+	orientedPoolRates,
+	poolsForFill,
+	POOL_RATE_DECIMALS,
+	refreshPoolLiquidity,
+} from "@/services/liquidityPool.service"
+import { blockBalanceReader, evmRpcUrls } from "@/utils/solverBalance"
 
 import { PointsService } from "./points.service"
 import { VolumeService, toScaledUsd } from "./volume.service"
@@ -741,6 +747,48 @@ export class IntentGatewayV3Service {
 				filler,
 			})}`,
 		)
+	}
+
+	/**
+	 * Re-reads the liquidity behind the pools this fill traded through, so their published depth
+	 * stops advertising inventory the filler has just spent. The pool pair spans two chains — the
+	 * inputs are escrowed on the source chain, the outputs delivered here — so the order row is
+	 * what makes the pair resolvable; a fill indexed before its `OrderPlaced` has no source chain
+	 * to resolve against and is left to the next phantom snapshot.
+	 *
+	 * Balances are read at the chain head, as the snapshot path also reads them. That is only
+	 * meaningful for a fill at the tip, which is why `refreshPoolLiquidity` skips any pool already
+	 * sampled after this fill — during a resync that is every pool, and this costs nothing.
+	 */
+	static async refreshPoolLiquidityAfterFill(params: {
+		commitment: string
+		inputs: TokenInfo[]
+		outputs: TokenInfo[]
+		timestamp: bigint
+		blockNumber: number
+	}): Promise<void> {
+		const { commitment, inputs, outputs, timestamp, blockNumber } = params
+		const destChain = getHostStateMachine(chainId)
+
+		const order = await OrderV3Placed.get(commitment)
+		if (!order) return
+
+		const poolIds = poolsForFill({
+			sourceChain: decodeChain(order.sourceChain),
+			inputTokens: inputs.map((input) => input.token),
+			destChain,
+			outputTokens: outputs.map((output) => output.token),
+		})
+		if (poolIds.length === 0) return
+
+		await refreshPoolLiquidity({
+			poolIds,
+			filledAt: timestampToDate(timestamp),
+			evmRpcUrls: evmRpcUrls(),
+			// Several fills can land in one block, and a balance is one value per block, so they
+			// share a read. The key is block-scoped because the next block's balances differ.
+			getBalance: blockBalanceReader(`${destChain}-${blockNumber}`),
+		})
 	}
 
 	static async recordFill(

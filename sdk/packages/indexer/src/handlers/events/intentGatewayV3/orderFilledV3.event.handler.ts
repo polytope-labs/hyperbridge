@@ -27,22 +27,17 @@ export const handleOrderFilledEventV3 = wrap(async (event: OrderFilledLog): Prom
 		token: token.token as Hex,
 		amount: BigInt(token.amount.toString()),
 	}))
+	const mappedInputs = inputs.map((token) => ({
+		token: token.token as Hex,
+		amount: BigInt(token.amount.toString()),
+	}))
 
-	await IntentGatewayV3Service.recordFill(
-		commitment,
-		filler,
-		mappedOutputs,
-		inputs.map((token) => ({
-			token: token.token as Hex,
-			amount: BigInt(token.amount.toString()),
-		})),
-		{
-			transactionHash,
-			blockNumber,
-			timestamp,
-			logIndex,
-		},
-	)
+	await IntentGatewayV3Service.recordFill(commitment, filler, mappedOutputs, mappedInputs, {
+		transactionHash,
+		blockNumber,
+		timestamp,
+		logIndex,
+	})
 
 	await IntentGatewayV3Service.updateOrderStatus(
 		commitment,
@@ -60,5 +55,21 @@ export const handleOrderFilledEventV3 = wrap(async (event: OrderFilledLog): Prom
 		await IntentGatewayV3Service.recordOrderVolume("FILLED", mappedOutputs, timestamp)
 	} catch (e: any) {
 		logger.error(`Failed to record FILLED volume for order ${commitment}: ${e.message}`)
+	}
+
+	// The fill just spent the filler's output-token inventory, which is what the pool's published
+	// depth is a sum of, so re-read the LPs backing those pools. Best-effort for the same reason as
+	// above, and doubly so here: it reads external RPCs, and stale depth is recoverable — the next
+	// phantom bid window republishes it from scratch.
+	try {
+		await IntentGatewayV3Service.refreshPoolLiquidityAfterFill({
+			commitment,
+			inputs: mappedInputs,
+			outputs: mappedOutputs,
+			timestamp,
+			blockNumber,
+		})
+	} catch (e: any) {
+		logger.error(`Failed to refresh pool liquidity for order ${commitment}: ${e.message}`)
 	}
 })

@@ -105,6 +105,20 @@ There are two entry points, and they meet at `bootFiller`.
 - **`address`.** Read directly everywhere the solver's identity is needed (`fillerAddress`, delegation authority, balance lookups, vault initialisation).
 - **`mode`.** Logs only: the boot line and the two delegation log lines.
 
+### MPCVault's two-RPC ceremony
+
+Every `mpcVaultSigner` operation is two gRPC calls in `MpcVaultService`: `createSigningRequest`
+returns a signing-request uuid, then `executeSigningRequests` triggers MPCVault's policy checks,
+the callback co-signer approval and the MPC ceremony. The callback server is only contacted during
+execute — a failure before that step leaves no callback log at all. Execute retries
+INVALID_ARGUMENT/NOT_FOUND twice with short backoff because MPCVault intermittently rejects a uuid
+its own create just returned; when execute fails terminally the created request is best-effort
+rejected in the vault so it does not stay pending as a signable stale payload. Any failure
+propagates as an error naming the RPC, the uuid and MPCVault's x-request-id, and both RPCs also
+fail on app-level errors that carry only a non-zero code with an empty message (zero is
+UNSPECIFIED, not an error). Lifecycle logs default to the process-wide logger context, which an
+embedded filler's `SimplexOptions.logger` never sees — `MpcVaultClientConfig.logger` injects one.
+
 ### The viem boundary
 
 `Signer` names no viem type. `accountFor(signer)` (`src/services/wallet/account.ts`) builds the `LocalAccount` viem wants from one, and `ChainClientManager` derives it once in its constructor and hands it to every wallet client. The mapping is:

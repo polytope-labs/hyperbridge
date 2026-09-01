@@ -4,29 +4,30 @@ AI-maintained record of non-obvious choices made in `sdk/packages/indexer`: what
 
 Entry format: heading with the decision, then alternatives considered and the reasoning. Newest first.
 
-## 2026-09-01 — Declared V4 positions get their own table, re-read rather than carried forward (#1159)
+## 2026-09-01 — V4 declarations are read back out of the indexed bids, not persisted (#1159)
 
-Chosen: a `LiquidityProviderV4Position` row per (chain, tokenId), written from the bid declarations the
-aggregation verified, and re-read on every refresh.
+Chosen: `declaredV4Positions(chain, solver)` decodes the solver's newest `FillerBid` on that chain and returns
+the tokenIds its `paymasterAndData` declares. Nothing about positions is stored.
 
-Alternative rejected — carry the last sweep's position VALUE forward on `PoolBidder`. No new table and no extra
-reads, and wrong in the one case that matters: simplex funds fills out of these positions, so a V4-funded fill
-drains the position inside the fill transaction while wallet and vault balances barely move. A carried value
-would keep advertising precisely the inventory the fill just spent — the overstatement this whole issue exists
-to remove.
+Alternative rejected — a `LiquidityProviderV4Position` table written from the aggregation. It was the first
+implementation and it was redundant: `FillerBid.bidData` already holds every bid's raw SCALE-encoded userOp,
+stored undecoded precisely so a bid stays re-interpretable, and the declaration rides inside it. A table would
+have been a decoded copy of data the database already has, with reconciliation to keep the copy honest (whose
+rows to replace when a solver bids, whose to leave when it does not) and a new entity on a live schema.
 
-Alternative rejected — add the tokenIds to `PoolBidder` or `LiquidityProviderBalanceV2`. Both are live tables, so
-it is a migration; and neither has the right shape: a position backs a solver across every pool it bids in and
-every token in its pool's pair, so it belongs to (provider, chain), not to a pool row.
+Alternative rejected — carry the last sweep's position VALUE forward on `PoolBidder`. Wrong in the one case that
+matters: simplex funds fills out of these positions, so a V4-funded fill drains the position inside the fill
+transaction while wallet and vault balances barely move, and a carried value keeps advertising precisely the
+inventory the fill just spent.
 
-Keyed by (chain, tokenId) rather than (provider, chain, tokenId): a position that changes hands then moves to its
-new owner instead of being recorded under both, and the ownership re-check has one row to correct.
+Reading a stored bid skips the aggregation's signature and delegation checks, which is acceptable because the
+declaration is only ever a pointer: every tokenId is read on-chain and its owner compared against the provider
+before it is worth anything, which is the same guarantee the aggregation applies. An unsigned bid naming someone
+else's position values nothing.
 
-Reconciliation is per solver, not per chain: the solvers that bid have their rows replaced wholesale (a
-declaration is per bid, and what this window's bid omits the weights already ignore), while a solver that did not
-bid keeps what it last declared — silence is not a withdrawal. A row also goes when the re-read finds the
-position burned or under another owner, which is the only signal available for a solver that has stopped bidding
-entirely.
+The lookup walks back a few windows (`RECENT_PHANTOM_ORDERS`) rather than only the newest order. A bidder row
+only survives a window the solver bid in, so its bid is normally in the newest order; the extra windows cover a
+window whose aggregation failed and left the rows standing on an older one.
 
 ## 2026-09-01 — Escrow releases and vault events refresh by provider, and depths re-sum from the store (#1159)
 
@@ -72,8 +73,8 @@ Not done, deliberately: the `trigger` enum, the nullable `transactionHash`, the
 `snapshotTime` rather than `blockNumber`. All four change `LiquidityProviderBalanceV2`, which is live, and the
 value is provenance metadata rather than correctness. Event-triggered rows therefore keep borrowing Hyperbridge's
 head block, and the design is recorded as a comment on `recordProviderBalances` so a later migration has it to
-hand. `LiquidityProviderV4Position` is additive — a new table, not a change to an existing one — which is why it
-is in this change and §3 is not.
+hand. This change adds no entity and alters no existing one: the V4 declarations it needs turned out to be
+recoverable from the bids the indexer already stores.
 
 ## 2026-09-01 — The fill refresh re-reads balances, publishes no provenance of its own, and skips replayed fills
 

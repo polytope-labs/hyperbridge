@@ -7,11 +7,11 @@ import {
 	LiquidityPool,
 	LiquidityProvider,
 	LiquidityProviderBalanceV2,
-	LiquidityProviderV4Position,
 	PoolBidder,
 	PoolChainLiquidity,
 	PoolRoute,
 } from "@/configs/src/types"
+import { declaredV4Positions } from "@/services/phantomBid.service"
 import { readAllPages } from "@/utils/store.helpers"
 import { bytes32ToBytes20 } from "@/utils/transfer.helpers"
 import { positionAmountOfToken } from "@hyperbridge/sdk/intents-helpers"
@@ -673,12 +673,12 @@ async function refreshBidders(bidders: PoolBidder[], ctx: LiquidityRefreshContex
 
 		let refreshed = false
 		for (const [chain, rows] of chains) {
-			const reading = await readChainLiquidity(chain, rows, ctx)
-			if (!reading) continue
-			await writeChainLiquidity(poolId, chain, reading)
+			const readings = await readChainLiquidity(chain, rows, ctx)
+			if (!readings) continue
+			await writeChainLiquidity(poolId, chain, readings)
 			// The balance series is secondary to the pool rows and keyed on another chain's clock,
 			// so it is extended after them and never in their way.
-			await recordProviderBalances(chain, rows, reading.readings, await ctx.headBlock(), ctx.observedAt)
+			await recordProviderBalances(chain, rows, readings, await ctx.headBlock(), ctx.observedAt)
 			refreshed = true
 		}
 		if (!refreshed) continue
@@ -702,12 +702,6 @@ interface BidderReading {
 	liquidity: bigint
 }
 
-interface ChainReading {
-	readings: Map<string, BidderReading>
-	/** Position rows that no longer back their provider, to be dropped with the same write. */
-	stalePositions: string[]
-}
-
 /**
  * Each bidder row's current inventory on one chain, or null when the chain cannot be read in full.
  * Null is deliberately all-or-nothing: a bidder whose balance failed to read is indistinguishable
@@ -715,50 +709,37 @@ interface ChainReading {
  * reads happened to fail.
  *
  * Inventory here is the same total the phantom sweep weights a bid by — wallet ERC-20, redeemable
- * ERC-4626 vault positions, and the Uniswap V4 positions the solver declared. The positions come
- * from `LiquidityProviderV4Position`, persisted precisely because a bid is the only place they are
- * ever named; they are re-read rather than carried forward because simplex funds fills out of
- * them, so a carried value would keep advertising the inventory a fill just spent.
+ * ERC-4626 vault positions, and the Uniswap V4 positions the solver declared. The declaration comes
+ * from the solver's own latest indexed bid, since a bid is the only place a position is ever named;
+ * each one is then re-read on-chain rather than carried forward at its last value, because simplex
+ * funds fills out of these positions and a carried value would keep advertising the inventory a
+ * fill just spent.
  */
 async function readChainLiquidity(
 	chain: string,
 	rows: PoolBidder[],
 	ctx: LiquidityRefreshContext,
-): Promise<ChainReading | null> {
+): Promise<Map<string, BidderReading> | null> {
 	const evmRpcUrl = ctx.evmRpcUrls[chain]
 	if (!evmRpcUrl) return null
 
-	const stalePositions: string[] = []
 	const positionsByProvider = new Map<string, V4PositionState[]>()
 	for (const provider of new Set(rows.map((row) => row.providerId))) {
-		// Positions per solver per chain are bounded by what the solver declares, which nothing caps.
-		const declared = await readAllPages((limit, offset) =>
-			LiquidityProviderV4Position.getByFields(
-				[
-					["providerId", "=", provider],
-					["chain", "=", chain],
-				],
-				{ limit, offset, orderBy: "id", orderDirection: "ASC" },
-			),
-		)
 		const live: V4PositionState[] = []
-		for (const position of declared) {
+		for (const tokenId of await declaredV4Positions(chain, provider)) {
 			let state: V4PositionState | null
 			try {
-				state = await ctx.readPosition(chain, position.tokenId)
+				state = await ctx.readPosition(chain, tokenId)
 			} catch (err) {
 				logger.warn(
-					{ err, chain, tokenId: position.tokenId.toString() },
+					{ err, chain, tokenId: tokenId.toString() },
 					"Failed to re-read a declared Uniswap V4 position, leaving the chain's liquidity as indexed",
 				)
 				return null
 			}
-			// Burned, or sold to someone else: either way it is no longer this solver's inventory,
-			// and the row would otherwise keep valuing it on every later refresh.
-			if (!state || state.owner.toLowerCase() !== provider.toLowerCase()) {
-				stalePositions.push(position.id)
-				continue
-			}
+			// Burned, or sold to someone else: either way it is no longer this solver's inventory.
+			// The declaration is a pointer, and this is the check that makes reading it raw safe.
+			if (!state || state.owner.toLowerCase() !== provider.toLowerCase()) continue
 			live.push(state)
 		}
 		positionsByProvider.set(provider, live)
@@ -800,7 +781,7 @@ async function readChainLiquidity(
 		const total = balance + inPositions
 		readings.set(row.id, { balance: total, liquidity: total * 10n ** BigInt(POOL_RATE_DECIMALS - token.decimals) })
 	}
-	return { readings, stalePositions }
+	return readings
 }
 
 /**
@@ -866,11 +847,7 @@ async function recordProviderBalances(
  * re-reads one solver's rows — so the depths are re-summed over all of them, with the rows this
  * refresh did not touch contributing exactly what they already did.
  */
-async function writeChainLiquidity(poolId: string, chain: string, reading: ChainReading): Promise<void> {
-	for (const id of reading.stalePositions) {
-		await LiquidityProviderV4Position.remove(id)
-	}
-
+async function writeChainLiquidity(poolId: string, chain: string, readings: Map<string, BidderReading>): Promise<void> {
 	// Everything backing this (pool, chain), read BEFORE the writes below: the published depth is a
 	// sum over all of them, not just the rows this refresh re-read (the provider-scoped entry point
 	// re-reads one solver's), and reading it back afterwards would rest on the store reflecting an
@@ -887,7 +864,7 @@ async function writeChainLiquidity(poolId: string, chain: string, reading: Chain
 
 	const survivors: PoolBidder[] = []
 	for (const row of all) {
-		const current = reading.readings.get(row.id)
+		const current = readings.get(row.id)
 		// Not re-read this time: whatever the last snapshot or refresh left it at still stands.
 		if (!current) {
 			survivors.push(row)

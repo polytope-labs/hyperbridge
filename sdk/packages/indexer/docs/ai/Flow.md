@@ -87,13 +87,13 @@ recoverable, so a failure must never stall indexing:
    - reads every `PoolBidder` row of the pool (all chains, paged to exhaustion) and groups them by chain.
    - per chain, re-reads each bidder's inventory of that row's `outputToken` and scales it to 1e18. Inventory
      is the sweep's definition — wallet ERC-20 plus ERC-4626 `maxWithdraw` (`getTotalSolverBalance`) — PLUS the
-     solver's `LiquidityProviderV4Position` rows, each re-read and valued in that output token. Reads are pinned
-     to the triggering event's block on its own chain, so a replay sees what the event left behind; other chains
-     read at the head, where that block number would mean nothing. **If any read fails, or the chain has no
-     configured RPC, the whole chain is abandoned untouched** — a failed read looks exactly like a zero balance,
-     so a partial write would report the unread bidders as departed.
-   - a position that no longer exists, or is found under another owner, loses its row: it is not this solver's
-     inventory any more, and the row would otherwise be re-valued on every later refresh.
+     Uniswap V4 positions the solver declared, each read on-chain and valued in that output token. Reads are
+     pinned to the triggering event's block on its own chain, so a replay sees what the event left behind; other
+     chains read at the head, where that block number would mean nothing. **If any read fails, or the chain has
+     no configured RPC, the whole chain is abandoned untouched** — a failed read looks exactly like a zero
+     balance, so a partial write would report the unread bidders as departed.
+   - a position that no longer exists, or is found under another owner, contributes nothing: the declaration is
+     a pointer, and this owner check is the guarantee behind it.
    - writes the survivors: a row whose balance is now zero is removed (every row is a bidder with capacity),
      then the chain's `PoolChainLiquidity` depth/bidCount/unrestricted slice and its `PoolRoute` rows are
      recomputed by re-reading **every** stored bidder row of that (pool, chain) — not just the ones re-read, so a
@@ -111,10 +111,12 @@ recoverable, so a failure must never stall indexing:
 5. Nothing here writes `lastUpdatedBlock` or `lastUpdatedAt`, and nothing re-derives a rate. A pool's merged
    rate can still move, because the per-chain samples are depth-weighted and the depths just changed.
 
-Where the V4 positions come from: `handlePhantomOrderPrices` writes a `LiquidityProviderV4Position` row per
-(chain, tokenId) from the declarations `aggregatePhantomBids` verified — a bid is the only place a position is
-ever named. Rows are replaced wholesale for the solvers that bid (a declaration is per bid); a solver that
-skipped the window keeps what it last declared.
+Where the V4 positions come from: `declaredV4Positions` (`src/services/phantomBid.service.ts`) walks the newest
+`PhantomOrderV2` rows for the chain, reads their `FillerBid` rows newest-first, decodes each `bidData` (the raw
+SCALE-encoded userOp the bid handler stored) and returns the tokenIds declared by the first bid whose sender is
+this solver. A bid is the only place a position is ever named, and nothing is persisted — a position dropped from
+the next bid stops counting on its own. The bids are keyed by their substrate filler, so the EVM solver is only
+knowable from the payload, which is why the match happens after decoding.
 
 ## Phantom bid calldata decoding (`extractFillDataVm2`)
 

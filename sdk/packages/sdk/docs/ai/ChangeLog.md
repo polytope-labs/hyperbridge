@@ -25,12 +25,12 @@ today's balance onto a historical row. `memoizedSolverBalance` takes a per-chain
 reason — block numbers are per chain, so an event handler can pin its own chain and leave the rest of the sweep
 at the head, where a number from another chain would mean nothing.
 
-`readV4Position` is exported (now taking a params object, with a `blockTag`), and `aggregatePhantomBids` reports
-the positions it verified as `PhantomAggregation.positions` — solver, chain, tokenId, after the ownership check.
-A bid is the only place a Uniswap V4 position is ever named, so without this a consumer cannot re-value one
-between windows; and carrying the last window's value forward is worse than not seeing it, because simplex funds
-fills from these positions and such a fill drains the position while wallet and vault balances barely move.
-`positionAmountOfToken` is re-exported from `intents-helpers` so the same arithmetic values them downstream.
+`readV4Position` is exported, now taking a params object with a `blockTag`, and `positionAmountOfToken` is
+re-exported from `intents-helpers`. A bid is the only place a Uniswap V4 position is ever named, so a consumer
+re-valuing one between bid windows — the indexer, decoding the declaration back out of the bids it already
+stores — needs the same reads and the same arithmetic the aggregation weights a leg with. Nothing is added to
+`PhantomAggregation`: the declarations are recoverable from the stored bids, so reporting them here would have
+been a second source for the same fact.
 
 Files: `src/protocols/intents/phantom-aggregation.ts`, `src/intents-helpers.ts`, `src/tests/phantomAggregation.test.ts`.
 

@@ -45,7 +45,7 @@ import {
 	POOL_RATE_DECIMALS,
 	refreshPoolLiquidity,
 } from "@/services/liquidityPool.service"
-import { blockBalanceReader, evmRpcUrls } from "@/utils/solverBalance"
+import { blockBalanceReader, evmRpcUrls, hyperbridgeHeadBlock } from "@/utils/solverBalance"
 
 import { PointsService } from "./points.service"
 import { VolumeService, toScaledUsd } from "./volume.service"
@@ -788,6 +788,7 @@ export class IntentGatewayV3Service {
 			// Several fills can land in one block, and a balance is one value per block, so they
 			// share a read. The key is block-scoped because the next block's balances differ.
 			getBalance: blockBalanceReader(`${destChain}-${blockNumber}`),
+			headBlock: () => hyperbridgeHeadBlock(`${destChain}-${blockNumber}`),
 		})
 	}
 

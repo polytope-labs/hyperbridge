@@ -3,7 +3,14 @@
 // chain's sample only differs in depth, and the pool's single buy/sell number is the
 // depth-weighted merge of the chains' latest samples.
 import { getPoolToken, poolSlug, sortPoolSymbols } from "@/addresses/pool-tokens.addresses"
-import { LiquidityPool, LiquidityProvider, PoolBidder, PoolChainLiquidity, PoolRoute } from "@/configs/src/types"
+import {
+	LiquidityPool,
+	LiquidityProvider,
+	LiquidityProviderBalanceV2,
+	PoolBidder,
+	PoolChainLiquidity,
+	PoolRoute,
+} from "@/configs/src/types"
 import { readAllPages } from "@/utils/store.helpers"
 import { bytes32ToBytes20 } from "@/utils/transfer.helpers"
 import type { PhantomLegAggregation, SolverBalanceReader } from "@hyperbridge/sdk/intents-helpers"
@@ -568,8 +575,14 @@ export async function refreshPoolLiquidity(params: {
 	/** HTTP RPC per state machine id; a chain absent here is left as the snapshot wrote it. */
 	evmRpcUrls: Record<string, string>
 	getBalance: SolverBalanceReader
+	/**
+	 * Hyperbridge's head block, the clock `LiquidityProviderBalanceV2` is keyed by. Null skips the
+	 * balance rows — the pool entities are the ones consumers size orders against, so they are
+	 * refreshed whether or not the series can be extended.
+	 */
+	headBlock: () => Promise<bigint | null>
 }): Promise<void> {
-	const { filledAt, evmRpcUrls, getBalance } = params
+	const { filledAt, evmRpcUrls, getBalance, headBlock } = params
 
 	for (const poolId of new Set(params.poolIds)) {
 		const pool = await LiquidityPool.get(poolId)
@@ -599,9 +612,12 @@ export async function refreshPoolLiquidity(params: {
 
 		let refreshed = false
 		for (const [chain, rows] of byChain) {
-			const liquidity = await readChainLiquidity(chain, rows, evmRpcUrls[chain], getBalance)
-			if (!liquidity) continue
-			await writeChainLiquidity(poolId, chain, rows, liquidity)
+			const readings = await readChainLiquidity(chain, rows, evmRpcUrls[chain], getBalance)
+			if (!readings) continue
+			await writeChainLiquidity(poolId, chain, rows, readings)
+			// The balance series is secondary to the pool rows and keyed on another chain's clock,
+			// so it is extended after them and never in their way.
+			await recordProviderBalances(chain, rows, readings, await headBlock(), filledAt)
 			refreshed = true
 		}
 		if (!refreshed) continue
@@ -619,21 +635,27 @@ export async function refreshPoolLiquidity(params: {
 	}
 }
 
+/** One bidder row's re-read inventory: raw token units, and the same value 18-decimal normalized. */
+interface BidderReading {
+	balance: bigint
+	liquidity: bigint
+}
+
 /**
- * Each bidder row's current liquidity on one chain, 18-decimal normalized, or null when the chain
- * cannot be read in full. Null is deliberately all-or-nothing: a bidder whose balance failed to
- * read is indistinguishable from one holding zero, so a partial result would publish a depth that
- * is short by however many reads happened to fail.
+ * Each bidder row's current inventory on one chain, or null when the chain cannot be read in full.
+ * Null is deliberately all-or-nothing: a bidder whose balance failed to read is indistinguishable
+ * from one holding zero, so a partial result would publish a depth that is short by however many
+ * reads happened to fail.
  */
 async function readChainLiquidity(
 	chain: string,
 	rows: PoolBidder[],
 	evmRpcUrl: string | undefined,
 	getBalance: SolverBalanceReader,
-): Promise<Map<string, bigint> | null> {
+): Promise<Map<string, BidderReading> | null> {
 	if (!evmRpcUrl) return null
 
-	const liquidity = new Map<string, bigint>()
+	const readings = new Map<string, BidderReading>()
 	for (const row of rows) {
 		const token = getPoolToken(chain, row.outputToken)
 		if (!token || token.decimals > POOL_RATE_DECIMALS) {
@@ -645,7 +667,7 @@ async function readChainLiquidity(
 		}
 		try {
 			const balance = await getBalance(evmRpcUrl, chain, row.outputToken, row.providerId)
-			liquidity.set(row.id, balance * 10n ** BigInt(POOL_RATE_DECIMALS - token.decimals))
+			readings.set(row.id, { balance, liquidity: balance * 10n ** BigInt(POOL_RATE_DECIMALS - token.decimals) })
 		} catch (err) {
 			logger.warn(
 				{ err, chain, solver: row.providerId, outputToken: row.outputToken },
@@ -654,7 +676,55 @@ async function readChainLiquidity(
 			return null
 		}
 	}
-	return liquidity
+	return readings
+}
+
+/**
+ * Extends the `LiquidityProviderBalanceV2` series with what this refresh just read, so a provider's
+ * latest balance row does not keep reporting inventory the pool rows already know is spent.
+ *
+ * Rows are keyed by Hyperbridge block because that is the clock the phantom sweep writes on; a fill
+ * borrows Hyperbridge's head, which keeps the series monotonic and "greatest blockNumber is the
+ * current balance" true. A zero balance is not a row, matching the sweep, which skips tokens a
+ * solver does not hold.
+ *
+ * An existing row for the same key is only ever raised, never lowered — the convention the sweep
+ * itself follows, because a reading that missed a solver's Uniswap V4 positions is the incomplete
+ * one and a refresh always misses them. The cost is that a second fill while Hyperbridge is still
+ * on the same block does not lower the row; one block later it does.
+ */
+async function recordProviderBalances(
+	chain: string,
+	rows: PoolBidder[],
+	readings: Map<string, BidderReading>,
+	blockNumber: bigint | null,
+	snapshotTime: Date,
+): Promise<void> {
+	if (blockNumber === null) return
+
+	for (const row of rows) {
+		const balance = readings.get(row.id)?.balance ?? 0n
+		if (balance === 0n) continue
+
+		const id = `${chain}-${row.outputToken}-${blockNumber}-${row.providerId}`
+		const existing = await LiquidityProviderBalanceV2.get(id)
+		if (existing) {
+			if (balance > existing.balance) {
+				existing.balance = balance
+				await existing.save()
+			}
+			continue
+		}
+		await LiquidityProviderBalanceV2.create({
+			id,
+			providerId: row.providerId,
+			chain,
+			blockNumber,
+			tokenAddress: row.outputToken,
+			balance,
+			snapshotTime,
+		}).save()
+	}
 }
 
 /**
@@ -667,11 +737,11 @@ async function writeChainLiquidity(
 	poolId: string,
 	chain: string,
 	rows: PoolBidder[],
-	liquidity: Map<string, bigint>,
+	readings: Map<string, BidderReading>,
 ): Promise<void> {
 	const survivors: PoolBidder[] = []
 	for (const row of rows) {
-		const current = liquidity.get(row.id) ?? 0n
+		const current = readings.get(row.id)?.liquidity ?? 0n
 		if (current === 0n) {
 			await PoolBidder.remove(row.id)
 			continue

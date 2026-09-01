@@ -49,9 +49,26 @@ Cross-chain fills are all-or-nothing (`ExtrinsicIntents` emits only `OrderFilled
 every fill that moves inventory now triggers a refresh. The per-block balance memo means a partial fill and the
 full fill that follows it in the same block read balances once.
 
-Not changed, deliberately: `LiquidityProviderBalanceV2` is not written by a refresh. That series is keyed by
-Hyperbridge block number, which a fill does not have, so a refresh has no row to write there without inventing a
-key.
+Chosen: a refresh extends `LiquidityProviderBalanceV2` too, stamping its rows with Hyperbridge's head block read
+live from the configured node. The series is keyed by Hyperbridge block and a fill has none of its own, so
+something has to supply one, and the head is the only number that keeps the series monotonic — which is the single
+property consumers read it for ("greatest blockNumber is the current balance").
+
+Alternative rejected — leave the series to snapshots. It is what the first cut did, and it leaves the pool rows
+and the balance rows disagreeing between windows: the depth knows the inventory is spent while the newest balance
+row still reports it, and those two are meant to be the same measurement.
+
+Alternative rejected — overwrite the newest existing row in place. No RPC and no new key, but it rewrites history:
+that row claims to be the balance at its Hyperbridge block, and after the overwrite it is not.
+
+Alternative rejected — a fill-shaped key (`…-fill-{evmBlock}-…`). Append-only and honest about provenance, but it
+puts two unrelated block sequences in one column, so the greatest-blockNumber rule stops meaning "latest".
+
+The stamp is a borrowed clock, not a claim: the balance was read at the EVM chain's head, not reconstructed at
+that Hyperbridge block, and the schema description now says so. Two readings landing on one key resolve to the
+larger, the rule the sweep already follows — a refresh is always the V4-blind reading, so it must not replace a
+complete one. The cost is that a second fill while Hyperbridge is still on the same block does not lower the row;
+one block later it does.
 
 ## 2026-08-28 — The VM2 decoder tries both `fillOrder` shapes, and the new test avoids the SDK root import
 

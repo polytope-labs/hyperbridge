@@ -39,6 +39,13 @@ replaying history triggers no RPC at all. And a chain whose balances cannot be r
 indexed rather than partially republished: a failed read is indistinguishable from a zero balance, so half a
 chain would report the unread bidders as departed.
 
+The refresh also extends `LiquidityProviderBalanceV2` with what it read, so a provider's latest balance row does
+not keep reporting inventory the pool rows already know is spent. That series is keyed by Hyperbridge block and a
+fill has none, so it borrows Hyperbridge's head via `chain_getHeader` on the configured node — one read per
+indexed block, shared by every fill in it. Two readings on one key resolve to the larger, the same rule the sweep
+follows, because a refresh can never see a solver's Uniswap V4 positions and the smaller reading is the
+incomplete one. An unreachable Hyperbridge node costs the data point, not the refresh.
+
 `lastUpdatedBlock`/`lastUpdatedAt` are deliberately not moved anywhere. They date the snapshot that priced the
 pool, in Hyperbridge blocks; a fill carries an EVM block number of another chain, which is not comparable with
 them and would wreck the `MAX_SAMPLE_AGE_BLOCKS` staleness filter.
@@ -61,6 +68,7 @@ Files: `src/services/liquidityPool.service.ts`, `src/services/intentGatewayV3.se
 `src/handlers/events/intentGatewayV3/orderFilledV3.event.handler.ts`,
 `src/handlers/events/intentGatewayV3/partialFilledV3.event.handler.ts`,
 `src/handlers/events/substrateChains/handlePhantomOrderPrices.handler.ts`, `src/utils/solverBalance.ts` (new),
+`src/configs/schema.graphql` (descriptions only),
 `src/services/__tests__/liquidityPoolRefresh.service.test.ts` (new),
 `src/handlers/events/substrateChains/__tests__/phantomOrder.handlers.test.ts`.
 

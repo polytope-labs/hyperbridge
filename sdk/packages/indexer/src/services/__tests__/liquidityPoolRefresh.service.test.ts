@@ -132,8 +132,12 @@ function plantBidder(solver: string, rawBalance: bigint, acceptedSources: string
 	balances.set(`${BASE}|${USDC_BASE}|${solver}`, rawBalance)
 }
 
+// Hyperbridge's head when the fill lands: the block a refresh's balance rows are stamped with.
+const HEAD_BLOCK = SNAPSHOT_BLOCK + 12n
+const headBlock = jest.fn(async () => HEAD_BLOCK as bigint | null)
+
 const refresh = (filledAt = FILL_TIME) =>
-	refreshPoolLiquidity({ poolIds: [POOL], filledAt, evmRpcUrls: RPC_URLS, getBalance })
+	refreshPoolLiquidity({ poolIds: [POOL], filledAt, evmRpcUrls: RPC_URLS, getBalance, headBlock })
 
 const read = (entity: string, id: string) => records.get(`${entity}:${id}`)
 
@@ -197,6 +201,8 @@ describe("refreshPoolLiquidity", () => {
 		balances = new Map()
 		unreadable = new Set()
 		getBalance.mockClear()
+		headBlock.mockClear()
+		headBlock.mockResolvedValue(HEAD_BLOCK)
 		plantPool()
 	})
 
@@ -305,8 +311,98 @@ describe("refreshPoolLiquidity", () => {
 	it("does nothing for a pool the indexer has never sampled", async () => {
 		records.delete(`LiquidityPool:${POOL}`)
 
-		await refreshPoolLiquidity({ poolIds: [POOL], filledAt: FILL_TIME, evmRpcUrls: RPC_URLS, getBalance })
+		await refreshPoolLiquidity({
+			poolIds: [POOL],
+			filledAt: FILL_TIME,
+			evmRpcUrls: RPC_URLS,
+			getBalance,
+			headBlock,
+		})
 
 		expect(getBalance).not.toHaveBeenCalled()
+	})
+})
+
+// The pool rows are what a taker sizes against, but LiquidityProviderBalanceV2 is the series a
+// provider's own liquidity is read from, and it would otherwise keep reporting inventory the pool
+// rows already know is spent. A fill has no Hyperbridge block of its own, so it borrows the head.
+describe("refreshPoolLiquidity balance series", () => {
+	beforeEach(() => {
+		records.clear()
+		balances = new Map()
+		unreadable = new Set()
+		getBalance.mockClear()
+		headBlock.mockClear()
+		headBlock.mockResolvedValue(HEAD_BLOCK)
+		plantPool()
+	})
+
+	const balanceRow = (solver: string, block = HEAD_BLOCK) =>
+		read("LiquidityProviderBalanceV2", `${BASE}-${USDC_BASE}-${block}-${solver}`)
+
+	it("records the re-read balance at Hyperbridge's head block, in raw token units", async () => {
+		balances.set(`${BASE}|${USDC_BASE}|${SOLVER_A}`, usdc(600n))
+
+		await refresh()
+
+		// Raw units, not the 1e18-normalized depth the pool rows carry.
+		expect(balanceRow(SOLVER_A).balance).toBe(usdc(600n))
+		expect(balanceRow(SOLVER_A).chain).toBe(BASE)
+		expect(balanceRow(SOLVER_A).tokenAddress).toBe(USDC_BASE)
+		expect(balanceRow(SOLVER_A).providerId).toBe(SOLVER_A)
+		expect(balanceRow(SOLVER_A).snapshotTime).toEqual(FILL_TIME)
+		expect(balanceRow(SOLVER_B).balance).toBe(usdc(500n))
+	})
+
+	// The sweep skips tokens a solver does not hold, so a zero is an absent row there and here.
+	it("writes no row for a solver that now holds nothing", async () => {
+		balances.set(`${BASE}|${USDC_BASE}|${SOLVER_A}`, 0n)
+
+		await refresh()
+
+		expect(balanceRow(SOLVER_A)).toBeUndefined()
+		expect(balanceRow(SOLVER_B)).toBeDefined()
+	})
+
+	// The sweep's own convention for a key two readings land on: the larger one is the complete
+	// one, because the smaller is the one that could not see a solver's Uniswap V4 positions — and
+	// a refresh never can.
+	it("does not lower a reading already recorded at that block", async () => {
+		records.set(`LiquidityProviderBalanceV2:${BASE}-${USDC_BASE}-${HEAD_BLOCK}-${SOLVER_A}`, {
+			id: `${BASE}-${USDC_BASE}-${HEAD_BLOCK}-${SOLVER_A}`,
+			providerId: SOLVER_A,
+			chain: BASE,
+			blockNumber: HEAD_BLOCK,
+			tokenAddress: USDC_BASE,
+			balance: usdc(900n),
+			snapshotTime: SNAPSHOT_TIME,
+		})
+		balances.set(`${BASE}|${USDC_BASE}|${SOLVER_A}`, usdc(600n))
+
+		await refresh()
+
+		expect(balanceRow(SOLVER_A).balance).toBe(usdc(900n))
+		// The pool rows still take the fresh reading — they are not keyed by that block.
+		expect(read("PoolBidder", `${POOL}-${BASE}-SELL-${USDC_BASE}-${SOLVER_A}`).liquidity).toBe(usdc(600n) * SCALE)
+	})
+
+	// The series is secondary: an unreachable Hyperbridge node costs a data point, not the refresh.
+	it("still refreshes the pool when Hyperbridge's head cannot be read", async () => {
+		headBlock.mockResolvedValue(null)
+		balances.set(`${BASE}|${USDC_BASE}|${SOLVER_A}`, usdc(600n))
+
+		await refresh()
+
+		expect(balanceRow(SOLVER_A)).toBeUndefined()
+		expect(read("LiquidityPool", POOL).sellDepth).toBe(usdc(1100n) * SCALE)
+	})
+
+	it("records nothing for a chain whose balances could not be read", async () => {
+		unreadable.add(BASE)
+
+		await refresh()
+
+		expect(balanceRow(SOLVER_A)).toBeUndefined()
+		expect(balanceRow(SOLVER_B)).toBeUndefined()
 	})
 })

@@ -2457,9 +2457,15 @@ type LiquidityProviderBalanceV2 @entity {
 	Composite identifier: {chain}-{tokenAddress}-{blockNumber}-{providerAddress}. One row per
 	provider per (chain, token) per Hyperbridge block, so liquidity is a time series rather than a
 	single overwritten latest value. Every phantom order whose bid window closes on a block shares
-	that block's rows — balances are point-in-time reads, identical across the block's snapshots —
-	so rows correlate to snapshots via blockNumber. For a provider's current liquidity, take the
-	row with the greatest blockNumber for that (provider, chain, tokenAddress).
+	that block's rows — balances are point-in-time reads, identical across the block's snapshots.
+	For a provider's current liquidity, take the row with the greatest blockNumber for that
+	(provider, chain, tokenAddress).
+
+	Most rows come from a bid window closing, but an order fill also appends one: it re-reads the
+	balances backing the pools it traded through and stamps them with Hyperbridge's head block at
+	that moment, since a fill has no Hyperbridge block of its own. A row therefore does not imply a
+	snapshot at that block, and the two kinds are not distinguishable from the row — what they share
+	is the property this series is read for, that a greater blockNumber is a later reading.
 	"""
 	id: ID!
 
@@ -2490,6 +2496,10 @@ type LiquidityProviderBalanceV2 @entity {
 	V4 share is only visible on the chain whose bid declared it — a bid is per chain, so no other
 	chain's sweep can see those positions — and only for a token some yield-vault entry tracks,
 	since the sweep has no row to attach it to otherwise.
+
+	A row written by a fill refresh never carries the V4 share at all: only a bid names those
+	positions, and a fill has no bid to read. Two readings landing on one key resolve to the larger,
+	which is the rule that keeps the V4-blind one from replacing a complete one.
 	"""
 	balance: BigInt! @index
 

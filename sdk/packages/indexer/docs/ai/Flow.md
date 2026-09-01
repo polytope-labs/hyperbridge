@@ -83,7 +83,13 @@ fills have spent some of the inventory it is a sum of.
    - re-merges the pool's chain rows into `sellDepth`/`buyDepth` through the same `mergeChainRowsIntoPool`
      the snapshot writer uses, with the freshest row's block as the staleness reference (the fill's own EVM
      block number is not comparable with the Hyperbridge blocks these rows are stamped with).
-4. Nothing here writes `lastUpdatedBlock` or `lastUpdatedAt`, and nothing re-derives a rate. A pool's merged
+4. Each chain that was written also extends `LiquidityProviderBalanceV2` with the raw balances just read,
+   keyed by Hyperbridge's head block (`chain_getHeader` on the configured Hyperbridge node, memoized per
+   indexed block). A zero balance is not a row, matching the sweep; an existing row for that key is only ever
+   raised, never lowered, because a refresh cannot see declared Uniswap V4 positions and the sweep's rule is
+   that the larger of two readings is the complete one. A null head (no Hyperbridge RPC, or unreachable) skips
+   the row and nothing else.
+5. Nothing here writes `lastUpdatedBlock` or `lastUpdatedAt`, and nothing re-derives a rate. A pool's merged
    rate can still move, because the per-chain samples are depth-weighted and the depths just changed.
 
 Blind spot to know about when reading a depth that dropped right after a fill: the balance read covers wallet

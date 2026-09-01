@@ -132,7 +132,21 @@ export class UserOpSender {
 
 		let pm: PaymasterDataResult
 		let auth: Eip7702Authorization | undefined
+		let fees: { maxFeePerGas: bigint; maxPriorityFeePerGas: bigint }
 		try {
+			// Fetched before paymaster selection so the deposit gate can price the op's
+			// max prefund; a failure here means nothing was submitted, safe to fall back.
+			fees = await this.getGasPrice(bundlerUrl, publicClient, chainId)
+
+			// Without explicit limits the fallbacks (~1.9M gas) over-require the deposit;
+			// a false skip degrades to the caller's native fallback, which is safe —
+			// under-requiring would sign an op the bundler is bound to reject.
+			const gasForPrefund = gas ?? {
+				verificationGasLimit: FALLBACK_VERIFICATION_GAS_LIMIT,
+				callGasLimit: FALLBACK_CALL_GAS_LIMIT,
+				preVerificationGas: FALLBACK_PRE_VERIFICATION_GAS,
+			}
+
 			pm = await buildPaymasterAndData({
 				chain,
 				solverAccount,
@@ -142,6 +156,12 @@ export class UserOpSender {
 				configService: this.configService,
 				paymasterVerificationGasLimit,
 				skipPermit,
+				prefund: {
+					baseGas:
+						gasForPrefund.callGasLimit + gasForPrefund.verificationGasLimit + gasForPrefund.preVerificationGas,
+					maxFeePerGas: fees.maxFeePerGas,
+				},
+				logger: this.logger,
 			})
 			if (pm.type === "none") {
 				this.logger.warn(
@@ -163,8 +183,7 @@ export class UserOpSender {
 		}
 		this.logger.info({ chain, paymaster: pm.address, type: pm.type, token: pm.token }, "Paymaster selected")
 		const paymasterAndData = pm.paymasterAndData
-
-		const { maxFeePerGas, maxPriorityFeePerGas } = await this.getGasPrice(bundlerUrl, publicClient, chainId)
+		const { maxFeePerGas, maxPriorityFeePerGas } = fees
 
 		const nonce = (await publicClient.readContract({
 			address: entryPoint,

@@ -4,6 +4,35 @@ AI-maintained record of non-obvious choices made in `sdk/packages/sdk`: what was
 
 Entry format: heading with the decision, then alternatives considered and the reasoning. Newest first.
 
+## 2026-09-01 — Verified V4 positions are reported out of the aggregation, not re-derivable downstream (#1159)
+
+Chosen: `aggregatePhantomBids` returns the tokenIds it verified, alongside the balances it swept.
+
+Alternative rejected — let the consumer decode the bids itself. Everything it would need is already done here
+once (fetch the bids, verify each signature and delegation, decode `paymasterAndData`, check ownership on-chain);
+redoing it downstream duplicates the security-relevant half of this module, and the two copies would drift.
+
+Alternative rejected — have the consumer carry the last window's position VALUE forward instead of the tokenId.
+It needs no new plumbing and is wrong in exactly the case that matters: simplex funds fills out of these
+positions, so a fill drains the position inside the fill transaction while wallet and vault balances barely move,
+and a carried value keeps advertising precisely the inventory the fill just spent.
+
+Positions are reported after the ownership check, not as declared. A declaration is a pointer, not a claim, and
+persisting an unowned one downstream would hand the fill path a position to value that the solver cannot spend.
+
+## 2026-09-01 — `blockTag` is a parameter of the balance read, and a per-chain map on the memo (#1159)
+
+Chosen: `getTotalSolverBalance` takes a `blockTag` defaulting to `"latest"`, and `memoizedSolverBalance` takes a
+`Record<chain, blockTag>`.
+
+Alternative rejected — a single `blockTag` on the memo. A refresh reaches across every chain a pool is quoted on,
+while the event that triggered it happened on one; block numbers are per chain, so one tag applied to all of them
+would read some other chain at an arbitrary point in its history. The map pins the event's chain and leaves the
+rest at the head, which is the only correct reading available.
+
+Alternative rejected — leave every read at the head. Simpler, and it is what a periodic sweep wants, but a
+per-event re-read at the head is not replayable: reindexing an old fill would stamp today's balance onto it.
+
 ## 2026-08-28 — The legacy `fillOrder` ABI is exported, not re-declared downstream
 
 The indexer needs the v1 shape to decode bids with ethers. Two ways to give it one:

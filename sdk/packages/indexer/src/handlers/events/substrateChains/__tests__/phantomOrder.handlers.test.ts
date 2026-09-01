@@ -2,13 +2,15 @@
 // token pair into a single order: one registration writes a row per directed leg, and one bid
 // window closing writes a price snapshot per leg.
 //
-// The SDK is mocked rather than imported. Its CJS bundle pulls in ESM-only packages that jest's
-// runtime cannot require, and the aggregation itself is already covered by the SDK's own tests; what
-// matters here is what the handlers do with its result.
+// The aggregation is stubbed rather than run: it is already covered by the SDK's own tests, and what
+// matters here is what the handlers do with its result. Only the entry points the handlers call are
+// replaced — the rest of the module is kept, because the pool-token registry re-exports its symbol
+// ordering from here, and a mock that drops those exports makes every pool attribution throw.
 
 const aggregatePhantomBids = jest.fn()
 
 jest.mock("@hyperbridge/sdk/intents-helpers", () => ({
+	...jest.requireActual("@hyperbridge/sdk/intents-helpers"),
 	aggregatePhantomBids: (...args: unknown[]) => aggregatePhantomBids(...args),
 	memoizedSolverBalance: jest.fn(() => jest.fn()),
 	setAggregationFetch: jest.fn(),

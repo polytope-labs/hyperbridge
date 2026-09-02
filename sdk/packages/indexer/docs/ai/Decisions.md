@@ -33,6 +33,12 @@ Positions are recorded after the aggregation's ownership check, not as declared 
 not a claim — and the refresh checks the owner again when it re-reads, because a row recorded last window cannot
 know the position has since been sold.
 
+The reconciliation is driven by the aggregation's `solvers` — every verified bidder — and not by the solvers
+appearing in `lpBalances` or `positions`. Both of those are filtered by what the solver turned out to hold or
+declare, so a bidder holding nothing anywhere and declaring nothing appears in neither, and its previous
+declaration would never be emptied. That bidder is precisely the V4-funded profile whose whole inventory sits in
+the positions it just stopped offering, so it is the case that matters most (review of #1194).
+
 ## 2026-09-01 — Escrow releases and vault events refresh by provider, and depths re-sum from the store (#1159)
 
 Chosen: `refreshProviderLiquidity(chain, provider, tokens)` beside the pool-scoped entry point, for the events

@@ -545,6 +545,40 @@ describe("aggregatePhantomBids bid verification", () => {
 		expect(result!.legs).toEqual([])
 	})
 
+	// Every other field is filtered by what the solver turned out to hold, so a bidder with nothing
+	// anywhere vanishes from all of them. A consumer reconciling per-solver state — "this solver bid
+	// and declared no positions, so empty its row" — cannot see that solver at all without this.
+	it("reports a verified solver that holds nothing and declared nothing", async () => {
+		const solver = privateKeyToAccount(SOLVER_KEY).address.toLowerCase()
+		const userOp = await signedBidUserOp({ signingKey: SOLVER_KEY })
+
+		const result = await aggregate([userOp], delegatedTo(SOLVER_ACCOUNT), () => 0n)
+
+		expect(result!.lpBalances).toEqual([])
+		expect(result!.positions).toEqual([])
+		expect(result!.solvers).toEqual([solver])
+	})
+
+	// One solver behind several funded fillers is one bidder, in this list as in the median.
+	it("reports a solver once however many of its bids were seen", async () => {
+		const solver = privateKeyToAccount(SOLVER_KEY).address.toLowerCase()
+		const userOp = await signedBidUserOp({ signingKey: SOLVER_KEY })
+
+		const result = await aggregate([userOp, userOp], delegatedTo(SOLVER_ACCOUNT))
+
+		expect(result!.solvers).toEqual([solver])
+	})
+
+	// Verification is what the list means: an unverified bid is not a bid, so its sender is not a
+	// solver that bid, and a consumer must not treat it as one.
+	it("does not report a solver whose bid failed verification", async () => {
+		const userOp = await signedBidUserOp({ signingKey: SOLVER_KEY })
+
+		const result = await aggregate([userOp], delegatedTo(`0x${"ee".repeat(20)}`))
+
+		expect(result).toBeNull()
+	})
+
 	// A zero-inventory co-bidder is excluded outright, not merely down-weighted: counting it would
 	// overstate how many solvers stand behind the price, and carrying it into `bidders` would mint
 	// a zero-capacity PoolBidder row and, through its declaration, a PoolRoute advertising a

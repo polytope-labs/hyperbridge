@@ -189,6 +189,7 @@ describe("handlePhantomOrderPrices", () => {
 			],
 			lpBalances: [],
 			positions: [],
+			solvers: [],
 		})
 
 		await handlePhantomOrderPrices(windowClosedEvent())
@@ -212,6 +213,7 @@ describe("handlePhantomOrderPrices", () => {
 			legs: [leg(1, USDC, 660n)],
 			lpBalances: [],
 			positions: [],
+			solvers: [],
 		})
 
 		await handlePhantomOrderPrices(windowClosedEvent())
@@ -228,6 +230,7 @@ describe("handlePhantomOrderPrices", () => {
 			legs: [leg(0, CNGN, 1n)],
 			lpBalances: [],
 			positions: [],
+			solvers: [],
 		})
 
 		await handlePhantomOrderPrices(windowClosedEvent())
@@ -243,6 +246,7 @@ describe("handlePhantomOrderPrices", () => {
 			legs: [leg(4, CNGN, 1n)],
 			lpBalances: [],
 			positions: [],
+			solvers: [],
 		})
 
 		await handlePhantomOrderPrices(windowClosedEvent())
@@ -256,6 +260,7 @@ describe("handlePhantomOrderPrices", () => {
 			legs: [leg(0, CNGN, 1n), leg(1, USDC, 2n)],
 			lpBalances: [{ solver: "0xsolver", chain: CHAIN, tokenAddress: CNGN, balance: 42n }],
 			positions: [],
+			solvers: [],
 		})
 
 		await handlePhantomOrderPrices(windowClosedEvent())
@@ -273,6 +278,7 @@ describe("handlePhantomOrderPrices", () => {
 			legs: [leg(0, CNGN, 1n)],
 			lpBalances: [{ solver: "0xsolver", chain: CHAIN, tokenAddress: CNGN, balance: 42n }],
 			positions: [],
+			solvers: [],
 		})
 
 		await handlePhantomOrderPrices(windowClosedEvent(11n))
@@ -300,6 +306,7 @@ describe("handlePhantomOrderPrices", () => {
 				legs: [leg(0, CNGN, 1n)],
 				lpBalances: [{ solver, chain: CHAIN, tokenAddress: CNGN, balance: 42n }],
 				positions,
+				solvers: [solver],
 			})
 
 		it("records one row per solver holding every tokenId it declared", async () => {
@@ -350,6 +357,26 @@ describe("handlePhantomOrderPrices", () => {
 			expect(table("SolverV4Positions").get("0xs1").tokenIds).toEqual([])
 		})
 
+		// The gap review caught: `lpBalances` skips tokens a solver does not hold and `positions` only
+		// lists what it declared, so a solver holding nothing anywhere that stops declaring appears in
+		// neither — and that is exactly the V4-funded profile, whose whole inventory is in the
+		// positions it just stopped offering. Only the aggregation's verified solver set sees it.
+		it("empties the row of a bidder that swept no balance and declared nothing", async () => {
+			await register([pair(USDC, CNGN, 1_000_000n)])
+			withPositions([{ solver: "0xs1", chain: CHAIN, tokenId: 7n }])
+			await handlePhantomOrderPrices(windowClosedEvent(11n))
+
+			aggregatePhantomBids.mockResolvedValue({
+				legs: [leg(0, CNGN, 1n)],
+				lpBalances: [],
+				positions: [],
+				solvers: ["0xs1"],
+			})
+			await handlePhantomOrderPrices(windowClosedEvent(12n))
+
+			expect(table("SolverV4Positions").get("0xs1").tokenIds).toEqual([])
+		})
+
 		// Silence is not a withdrawal: a solver that skipped this window keeps what it last declared,
 		// exactly as its PoolBidder rows on a chain it did not bid on survive.
 		it("keeps the row of a solver that did not bid this window", async () => {
@@ -377,6 +404,7 @@ describe("handlePhantomOrderPrices", () => {
 				legs: [leg(0, USDT_OP, 1n)],
 				lpBalances: [{ solver: "0xs1", chain: CHAIN2, tokenAddress: USDT_OP, balance: 42n }],
 				positions: [{ solver: "0xs1", chain: CHAIN2, tokenId: 8n }],
+				solvers: ["0xs1"],
 			})
 			await handlePhantomOrderPrices(windowClosedEvent(12n, COMMITMENT2))
 
@@ -405,6 +433,7 @@ describe("handlePhantomOrderPrices pool pipeline", () => {
 			],
 			lpBalances: [],
 			positions: [],
+			solvers: [],
 		})
 
 		await handlePhantomOrderPrices(windowClosedEvent())
@@ -438,6 +467,7 @@ describe("handlePhantomOrderPrices pool pipeline", () => {
 			legs: [leg(0, USDC, 660n, [{ solver: "0xa", weight: 5n, acceptedSources: null }])],
 			lpBalances: [],
 			positions: [],
+			solvers: [],
 		})
 
 		await handlePhantomOrderPrices(windowClosedEvent())
@@ -455,6 +485,7 @@ describe("handlePhantomOrderPrices pool pipeline", () => {
 			legs: [leg(0, USDC, 660n)],
 			lpBalances: [],
 			positions: [],
+			solvers: [],
 		})
 
 		await handlePhantomOrderPrices(windowClosedEvent())
@@ -474,6 +505,7 @@ describe("handlePhantomOrderPrices pool pipeline", () => {
 			legs: [leg(0, USDC, 660n)],
 			lpBalances: [],
 			positions: [],
+			solvers: [],
 		})
 
 		await handlePhantomOrderPrices(windowClosedEvent())
@@ -493,6 +525,7 @@ describe("handlePhantomOrderPrices pool pipeline", () => {
 			],
 			lpBalances: [],
 			positions: [],
+			solvers: [],
 		})
 		await handlePhantomOrderPrices(windowClosedEvent(11n))
 
@@ -512,6 +545,7 @@ describe("handlePhantomOrderPrices pool pipeline", () => {
 			legs: [leg(0, USDC, 700n, [{ solver: "0xa", weight: 15n, acceptedSources: ["EVM-1"] }])],
 			lpBalances: [],
 			positions: [],
+			solvers: [],
 		})
 		await handlePhantomOrderPrices(windowClosedEvent(22n))
 
@@ -535,6 +569,7 @@ describe("handlePhantomOrderPrices pool pipeline", () => {
 			],
 			lpBalances: [],
 			positions: [],
+			solvers: [],
 		})
 		await handlePhantomOrderPrices(windowClosedEvent(11n))
 
@@ -570,6 +605,7 @@ describe("handlePhantomOrderPrices pool pipeline", () => {
 			legs: [leg(0, USDC, 660n, [{ solver: "0xb", weight: 20n, acceptedSources: ["EVM-56"] }])],
 			lpBalances: [],
 			positions: [],
+			solvers: [],
 		})
 		await handlePhantomOrderPrices(windowClosedEvent(22n))
 
@@ -592,6 +628,7 @@ describe("handlePhantomOrderPrices pool pipeline", () => {
 			legs: [leg(0, USDT, 990_000n, [{ solver: "0xa", weight: 100n, acceptedSources: ["EVM-1"] }])],
 			lpBalances: [],
 			positions: [],
+			solvers: [],
 		})
 		await handlePhantomOrderPrices(windowClosedEvent(11n))
 
@@ -599,6 +636,7 @@ describe("handlePhantomOrderPrices pool pipeline", () => {
 			legs: [leg(0, USDT_OP, 1_010_000n, [{ solver: "0xb", weight: 300n, acceptedSources: null }])],
 			lpBalances: [],
 			positions: [],
+			solvers: [],
 		})
 		await handlePhantomOrderPrices(windowClosedEvent(22n, COMMITMENT2))
 
@@ -630,6 +668,7 @@ describe("handlePhantomOrderPrices pool pipeline", () => {
 			legs: [leg(0, USDT_OP, 1_010_000n, [{ solver: "0xc", weight: 60n, acceptedSources: ["EVM-8453"] }])],
 			lpBalances: [],
 			positions: [],
+			solvers: [],
 		})
 		await handlePhantomOrderPrices(windowClosedEvent(33n, COMMITMENT2))
 
@@ -662,6 +701,7 @@ describe("handlePhantomOrderPrices pool pipeline", () => {
 			legs: [leg(0, USDC, 660n, [{ solver: "0xa", weight: 10n, acceptedSources: null }])],
 			lpBalances: [],
 			positions: [],
+			solvers: [],
 		})
 		await handlePhantomOrderPrices(windowClosedEvent(11n))
 
@@ -670,6 +710,7 @@ describe("handlePhantomOrderPrices pool pipeline", () => {
 			legs: [leg(4, USDC, 1n)],
 			lpBalances: [],
 			positions: [],
+			solvers: [],
 		})
 		await handlePhantomOrderPrices(windowClosedEvent(22n))
 

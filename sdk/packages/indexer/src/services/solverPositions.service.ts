@@ -20,11 +20,13 @@ export async function declaredV4Positions(chain: string, solver: string): Promis
 /**
  * Records what this bid window's solvers declared: one row per solver, replaced wholesale.
  *
- * `bidders` is every solver that bid, not just the ones with positions, so a solver that bid
- * without declaring anything has its row emptied rather than left standing on a stale declaration —
- * which is exactly how this window's leg weights already treat it. A solver absent from the window
- * keeps its last row: silence is not a withdrawal, and a position it has since parted with reads
- * back as no longer owned when the refresh values it.
+ * `bidders` must be every solver whose bid was verified — the aggregation's `solvers`, not the
+ * solvers that swept a balance or declared something. A solver that bid without declaring has its
+ * row emptied rather than left standing on a stale declaration, which is exactly how this window's
+ * leg weights already treat it, and the one holding nothing anywhere is precisely the V4-funded
+ * profile this matters most for. A solver absent from the window keeps its last row: silence is not
+ * a withdrawal, and a position it has since parted with reads back as no longer owned when the
+ * refresh values it.
  */
 export async function recordDeclaredPositions(params: {
 	chain: string
@@ -42,7 +44,6 @@ export async function recordDeclaredPositions(params: {
 		declared.set(solver, [...(declared.get(solver) ?? []), position.tokenId])
 	}
 
-	// A solver holding nothing anywhere sweeps no balances, so its only trace is what it declared.
 	for (const solver of new Set([...params.bidders].map((address) => address.toLowerCase()))) {
 		const tokenIds = declared.get(solver) ?? []
 		const existing = await SolverV4Positions.get(solver)

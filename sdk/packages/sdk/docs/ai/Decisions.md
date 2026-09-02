@@ -23,6 +23,11 @@ and a carried value keeps advertising precisely the inventory the fill just spen
 Positions are reported after the ownership check, not as declared. A declaration is a pointer, not a claim, and
 recording an unowned one downstream would hand the fill path a position to value that the solver cannot spend.
 
+`solvers` is reported for the opposite reason: every other field is filtered by what the solver turned out to
+hold or declare, so a verified bidder holding nothing anywhere is absent from all of them. A consumer
+reconciling per-solver state ("this solver bid and declared nothing, so empty its row") cannot see it otherwise,
+and that bidder is exactly the one whose inventory is all in positions it may have just stopped offering.
+
 ## 2026-09-01 — `blockTag` is a parameter of the balance read, and a per-chain map on the memo (#1159)
 
 Chosen: `getTotalSolverBalance` takes a `blockTag` defaulting to `"latest"`, and `memoizedSolverBalance` takes a

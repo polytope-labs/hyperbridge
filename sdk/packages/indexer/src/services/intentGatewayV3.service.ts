@@ -73,7 +73,6 @@ const POOL_RATE_SCALE = new Decimal(10).pow(POOL_RATE_DECIMALS)
 const decodeChain = (value: string): string =>
 	value.startsWith("0x") ? ethers.utils.toUtf8String(value) : value
 
-
 export interface DispatchInfo {
 	assets: TokenInfo[]
 	call: Hex
@@ -829,29 +828,6 @@ export class IntentGatewayV3Service {
 			chain,
 			provider: provider.toLowerCase(),
 			tokens: tokens.map((token) => bytes32ToBytes20(token.token).toLowerCase()),
-			...liquidityRefreshContext(chain, blockNumber, timestamp),
-		})
-	}
-
-	/**
-	 * The same refresh for a vault deposit or withdrawal. An LP moving its own principal only
-	 * shifts inventory between the raw and vault halves of one total, which the re-read confirms
-	 * rather than changes; the total does move when the counterparty is someone else (a treasury
-	 * funding the solver, or inventory leaving it), and no order event reports that at all.
-	 */
-	static async refreshLiquidityAfterVaultEvent(params: {
-		provider: string
-		token: string
-		timestamp: bigint
-		blockNumber: number
-	}): Promise<void> {
-		const { provider, token, timestamp, blockNumber } = params
-		const chain = getHostStateMachine(chainId)
-
-		await refreshProviderLiquidity({
-			chain,
-			provider: provider.toLowerCase(),
-			tokens: [token.toLowerCase()],
 			...liquidityRefreshContext(chain, blockNumber, timestamp),
 		})
 	}

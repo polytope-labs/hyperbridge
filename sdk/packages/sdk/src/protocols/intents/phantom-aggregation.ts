@@ -387,6 +387,16 @@ export interface PhantomAggregation {
 	 * Empty when the chain has no configured V4 deployment, since nothing is read there.
 	 */
 	positions: SolverV4Position[]
+	/**
+	 * Every solver whose bid passed verification in this window, whether or not it ended up backing
+	 * a leg, holding any inventory, or declaring anything.
+	 *
+	 * The other three fields are all filtered — `legs` drops unbacked quotes, `lpBalances` skips
+	 * tokens a solver does not hold, and `positions` only lists what was declared — so a solver that
+	 * bid while holding nothing anywhere appears in none of them. This is the only complete answer
+	 * to "who bid this window", which is what a consumer reconciling per-solver state needs.
+	 */
+	solvers: HexString[]
 }
 
 export interface AggregationLogger {
@@ -1270,5 +1280,5 @@ async function runAggregation(
 			]
 		})
 
-	return { legs, lpBalances, positions: verifiedPositions }
+	return { legs, lpBalances, positions: verifiedPositions, solvers: [...countedSolvers] as HexString[] }
 }

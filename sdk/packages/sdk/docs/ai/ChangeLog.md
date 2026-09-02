@@ -27,7 +27,10 @@ at the head, where a number from another chain would mean nothing.
 
 `readV4Position` is exported (now taking a params object, with a `blockTag`), `positionAmountOfToken` is
 re-exported from `intents-helpers`, and `aggregatePhantomBids` reports the positions it verified as
-`PhantomAggregation.positions` — solver, chain, tokenId, after the ownership check. A bid is the only place a
+`PhantomAggregation.positions` — solver, chain, tokenId, after the ownership check — alongside `solvers`, every
+solver whose bid passed verification. `legs`, `lpBalances` and `positions` are each filtered by what a solver
+turned out to hold or declare, so `solvers` is the only complete answer to "who bid this window", which is what
+a consumer reconciling per-solver state needs. A bid is the only place a
 Uniswap V4 position is ever named, so without this a consumer cannot re-value one between windows; and carrying
 the last window's value forward is worse than not seeing it, because simplex funds fills from these positions
 and such a fill drains the position while wallet and vault balances barely move.

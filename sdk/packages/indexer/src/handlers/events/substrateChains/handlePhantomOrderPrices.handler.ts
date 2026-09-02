@@ -168,11 +168,12 @@ export const handlePhantomOrderPrices = wrap(async (event: SubstrateEvent): Prom
 	}
 
 	// What this window's bidders declared, recorded so a later fill can re-read those positions: the
-	// bid is the only place they are named. Every verified bid sweeps balances, so lpBalances names
-	// the bidders — except one holding nothing anywhere, whose only trace is its declaration.
+	// bid is the only place they are named. `solvers` is every verified bidder — not the ones that
+	// swept a balance or declared something, which would miss a solver holding nothing anywhere, and
+	// leave its previous declaration standing after it stopped offering those positions.
 	await recordDeclaredPositions({
 		chain: phantom.chain,
-		bidders: [...aggregate.lpBalances.map((lp) => lp.solver), ...aggregate.positions.map((p) => p.solver)],
+		bidders: aggregate.solvers,
 		positions: aggregate.positions,
 		blockNumber,
 		declaredAt: snapshotTime,

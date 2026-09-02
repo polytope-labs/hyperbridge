@@ -401,7 +401,7 @@ impl<C: Config, ETH1_DATA_VOTES_BOUND: Unsigned, PROPOSER_LOOK_AHEAD_LIMIT: Unsi
 
 		#[cfg(feature = "glamsterdam")]
 		let execution_payload_proof = {
-			let block_hash = H256::from_slice(finalized_state.latest_block_hash.as_slice());
+			let block_hash = H256::from_slice(finalized_state.latest_block_hash.as_ref());
 			let header = self.fetch_execution_header(block_hash).await?;
 			prove_execution_payload::<C, ETH1_DATA_VOTES_BOUND, PROPOSER_LOOK_AHEAD_LIMIT>(
 				&mut finalized_state,
@@ -514,7 +514,7 @@ impl<C: Config, ETH1_DATA_VOTES_BOUND: Unsigned, PROPOSER_LOOK_AHEAD_LIMIT: Unsi
 
 		#[cfg(feature = "glamsterdam")]
 		let execution_payload_proof = {
-			let block_hash = H256::from_slice(finalized_state.latest_block_hash.as_slice());
+			let block_hash = H256::from_slice(finalized_state.latest_block_hash.as_ref());
 			let header = self.fetch_execution_header(block_hash).await?;
 			prove_execution_payload::<C, ETH1_DATA_VOTES_BOUND, PROPOSER_LOOK_AHEAD_LIMIT>(
 				&mut finalized_state,
@@ -608,11 +608,11 @@ pub fn prove_execution_payload<
 
 	// A mismatch here means our rlp layout has drifted from the chain's, which would produce a
 	// proof no verifier can accept. Fail now, with something a reader can act on.
-	if block_hash.as_slice() != beacon_state.latest_block_hash.as_slice() {
+	if block_hash.as_slice() != beacon_state.latest_block_hash.as_ref() {
 		return Err(anyhow!(
 			"Encoded execution header hashes to {:?}, but the beacon state committed to {:?}",
 			H256::from_slice(&block_hash),
-			H256::from_slice(beacon_state.latest_block_hash.as_slice()),
+			H256::from_slice(beacon_state.latest_block_hash.as_ref()),
 		));
 	}
 

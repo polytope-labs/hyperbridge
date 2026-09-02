@@ -44,7 +44,7 @@ async fn beacon_state_hashes_to_the_signed_header() {
 	let mut state = prover.fetch_beacon_state("finalized").await.unwrap();
 	let header = prover.fetch_header(&state.slot.to_string()).await.unwrap();
 
-	assert_eq!(state.tree_hash_root(), header.state_root);
+	assert_eq!(state.tree_hash_root(), Hash256::from(&header.state_root));
 }
 
 /// The execution state root is no longer proven directly, so this walks the path that replaces it:
@@ -57,7 +57,7 @@ async fn execution_header_recovers_the_execution_state_root() {
 	let mut finalized_state = prover.fetch_beacon_state("finalized").await.unwrap();
 	let finalized_header = prover.fetch_header(&finalized_state.slot.to_string()).await.unwrap();
 
-	let block_hash = H256::from_slice(finalized_state.latest_block_hash.as_slice());
+	let block_hash = H256::from_slice(finalized_state.latest_block_hash.as_ref());
 	let header = prover.fetch_execution_header(block_hash).await.unwrap();
 
 	let proof = prove_execution_payload::<
@@ -73,12 +73,13 @@ async fn execution_header_recovers_the_execution_state_root() {
 	assert_eq!(execution_block_hash(execution_header), block_hash.0);
 
 	// and that block hash really does sit inside the state the sync committee signed over
+	let payload_branch: Vec<Hash256> =
+		proof.execution_payload_branch.iter().map(Into::into).collect();
 	assert!(is_valid_merkle_branch(
-		&Node::from_bytes(execution_block_hash(execution_header)),
-		proof.execution_payload_branch.iter(),
-		GlamsterdamDevnet::EXECUTION_PAYLOAD_INDEX_LOG2 as usize,
-		GlamsterdamDevnet::EXECUTION_PAYLOAD_INDEX as usize,
-		&finalized_header.state_root,
+		Hash256::from(execution_block_hash(execution_header)),
+		&payload_branch,
+		GlamsterdamDevnet::EXECUTION_PAYLOAD_INDEX,
+		Hash256::from(&finalized_header.state_root),
 	));
 
 	// so the fields the bridge consumes can be read straight off the header
@@ -97,10 +98,10 @@ async fn bootstrap_trusted_state_and_update(
 		PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM,
 	>,
 ) -> anyhow::Result<(VerifierState, VerifierStateUpdate)> {
-	let block_id = |root: Root| format!("0x{}", hex::encode(root.0));
+	let block_id = |root: Root| format!("0x{}", hex::encode(root.as_ref()));
 
 	let current = prover.fetch_finalized_checkpoint(None).await?.finalized;
-	let current_header = prover.fetch_header(&block_id(current.root)).await?;
+	let current_header = prover.fetch_header(&block_id(current.root.clone())).await?;
 
 	// A few epochs back, comfortably inside the same sync committee period.
 	let trusted_slot = current_header.slot.saturating_sub(3 * GlamsterdamDevnet::SLOTS_PER_EPOCH);

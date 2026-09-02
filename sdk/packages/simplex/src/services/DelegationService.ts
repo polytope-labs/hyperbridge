@@ -236,6 +236,13 @@ export class DelegationService {
 			// from an older SolverAccount), the Circle builder ignores the override and
 			// keeps its 200k default: the permit executed during validation needs ~113k
 			// on its own and would OOG the paymaster frame (bundler AA33) at 110k.
+			//
+			// None of this reaches the Simplex paymaster, which ignores the override and
+			// packs its own mode-specific limits — a permit costs it VERIFICATION_GAS_LIMIT_PERMIT
+			// (250k), charged to the paymaster frame rather than the account limits fixed
+			// here. So its PERMIT mode stays enabled: it is the only mode that needs no
+			// native-funded bootstrap approve, and a solver holding zero native cannot send
+			// one, which otherwise leaves delegation with no sponsored path at all.
 			const code = await this.clientManager.getPublicClient(chain).getCode({
 				address: this.signer.address as HexString,
 			})
@@ -254,7 +261,6 @@ export class DelegationService {
 					? { verificationGasLimit: 150_000n, callGasLimit: 50_000n, preVerificationGas: 100_000n }
 					: { verificationGasLimit: 80_000n, callGasLimit: 50_000n, preVerificationGas: 100_000n },
 				paymasterVerificationGasLimit: isFreshEoa ? undefined : 110_000n,
-				skipPermit: true,
 			})
 
 			if (result) {

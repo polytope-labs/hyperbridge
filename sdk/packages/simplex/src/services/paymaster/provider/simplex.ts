@@ -26,11 +26,6 @@ import { randomPermit2Nonce, signPermit2Transfer } from "../permit2"
 import { SIMPLEX_PAYMASTER_ABI } from "@/config/abis/SimplexPaymaster"
 import type { Signer } from "@/services/wallet/types"
 
-export interface SimplexPaymasterOptions {
-	/** Skip EIP-2612 permit detection (PERMIT2 and APPROVE stay available). */
-	skipPermit?: boolean
-}
-
 interface TokenOption {
 	address: HexString
 	decimals: number
@@ -63,7 +58,6 @@ export async function buildSimplexPaymasterData(
 	paymasterAddress: HexString,
 	chain: string,
 	configService: FillerConfigService,
-	options: SimplexPaymasterOptions = {},
 ): Promise<(PaymasterResult & { token: HexString }) | null> {
 	const chainId = configService.getChainId(chain)
 
@@ -87,7 +81,7 @@ export async function buildSimplexPaymasterData(
 	const { address: tokenAddress, decimals: tokenDecimals } = selected
 	const recommended = RECOMMENDED_AMOUNT_USD * 10n ** BigInt(tokenDecimals)
 
-	const hasPermit = !options.skipPermit && (await tokenSupportsPermit(client, tokenAddress))
+	const hasPermit = await tokenSupportsPermit(client, tokenAddress)
 
 	if (hasPermit) {
 		const pm = await buildPermitMode(

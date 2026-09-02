@@ -172,10 +172,8 @@ function approveCall(writeContract: ReturnType<typeof vi.fn>) {
 	return call
 }
 
-const build = (client: PublicClient, walletClient: WalletClient, signer = mockSigner().signer, skipPermit = true) =>
-	buildSimplexPaymasterData(client, walletClient, signer, SOLVER, PAYMASTER, CHAIN, configService, {
-		skipPermit,
-	})
+const build = (client: PublicClient, walletClient: WalletClient, signer = mockSigner().signer) =>
+	buildSimplexPaymasterData(client, walletClient, signer, SOLVER, PAYMASTER, CHAIN, configService)
 
 describe("buildSimplexPaymasterData mode selection (no-permit token)", () => {
 	it("uses PERMIT2 mode with no tx once the token is approved to Permit2", async () => {
@@ -260,15 +258,10 @@ describe("buildSimplexPaymasterData mode selection (no-permit token)", () => {
 		expect(slice(pm!.paymasterData, 0, 1)).toBe("0x02")
 	})
 
-	it("still prefers EIP-2612 PERMIT mode when the token supports it and permits are not skipped", async () => {
+	it("prefers EIP-2612 PERMIT mode over Permit2 when the token supports it", async () => {
 		const { walletClient, writeContract } = mockWalletClient()
 
-		const pm = await build(
-			mockClient({ permit: true, permit2Allowance: maxUint256, native: 0n }),
-			walletClient,
-			mockSigner().signer,
-			false,
-		)
+		const pm = await build(mockClient({ permit: true, permit2Allowance: maxUint256, native: 0n }), walletClient)
 
 		expect(writeContract).not.toHaveBeenCalled()
 		expect(slice(pm!.paymasterData, 0, 1)).toBe("0x00")
@@ -287,7 +280,6 @@ describe("buildSimplexPaymasterData mode selection (no-permit token)", () => {
 			legacyPaymaster,
 			CHAIN,
 			configService,
-			{ skipPermit: true },
 		)
 
 		expect(writeContract).toHaveBeenCalledOnce()
@@ -308,7 +300,6 @@ describe("buildSimplexPaymasterData mode selection (no-permit token)", () => {
 			stalePaymaster,
 			CHAIN,
 			configService,
-			{ skipPermit: true },
 		)
 
 		// approve(Permit2, 0) then approve(Permit2, max) — never a non-zero → non-zero change.
@@ -334,7 +325,6 @@ describe("buildSimplexPaymasterData mode selection (no-permit token)", () => {
 				flakyPaymaster,
 				CHAIN,
 				configService,
-				{ skipPermit: true },
 			),
 		).rejects.toThrow(/HTTP request failed/)
 
@@ -349,7 +339,6 @@ describe("buildSimplexPaymasterData mode selection (no-permit token)", () => {
 			flakyPaymaster,
 			CHAIN,
 			configService,
-			{ skipPermit: true },
 		)
 		expect(retryWrite).not.toHaveBeenCalled()
 		expect(slice(pm!.paymasterData, 0, 1)).toBe("0x02")
@@ -370,7 +359,6 @@ describe("buildSimplexPaymasterData mode selection (no-permit token)", () => {
 				PAYMASTER,
 				CHAIN,
 				configService,
-				{ skipPermit: false },
 			),
 		).rejects.toThrow(/HTTP request failed/)
 		expect(writeContract).not.toHaveBeenCalled()
@@ -387,7 +375,6 @@ describe("buildSimplexPaymasterData mode selection (no-permit token)", () => {
 			PAYMASTER,
 			CHAIN,
 			makeConfigService("0x"),
-			{ skipPermit: true },
 		)
 
 		expect(writeContract).toHaveBeenCalledOnce()

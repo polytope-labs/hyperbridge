@@ -45,13 +45,6 @@ export interface PaymasterOptions {
 	 */
 	paymasterVerificationGasLimit?: bigint
 	/**
-	 * Skips EIP-2612 permit detection for the Simplex paymaster (PERMIT2 and APPROVE
-	 * modes stay available). Delegation UserOps rely on fixed, measured gas limits;
-	 * executing a permit during paymaster validation adds tens of thousands of
-	 * verification gas and would invalidate them.
-	 */
-	skipPermit?: boolean
-	/**
 	 * When set, each candidate paymaster is skipped unless its EntryPoint deposit
 	 * covers this op's max prefund with {@link DEPOSIT_HEADROOM_PERCENT} headroom.
 	 * Omitted (or with no EntryPoint configured), selection is balance-only.

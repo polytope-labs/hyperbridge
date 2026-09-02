@@ -411,3 +411,12 @@ features = ["derive"]
 [workspace.dependencies.reconnecting-jsonrpsee-ws-client]
 version = "0.5.0"
 default-features = false
+
+[patch.crates-io]
+ethereum_ssz = { git = "https://github.com/polytope-labs/ethereum_ssz", rev = "be67c8cf3fb9ad34597db52d242f213536eca9a6" }
+ethereum_ssz_derive = { git = "https://github.com/polytope-labs/ethereum_ssz", rev = "be67c8cf3fb9ad34597db52d242f213536eca9a6" }
+tree_hash = { git = "https://github.com/polytope-labs/tree_hash", rev = "9b143d975233e99c19b7dca680b28074d0a35fad" }
+tree_hash_derive = { git = "https://github.com/polytope-labs/tree_hash", rev = "9b143d975233e99c19b7dca680b28074d0a35fad" }
+ssz_types = { git = "https://github.com/polytope-labs/ssz_types", rev = "16e1e2a2a50952283af74b6fe2c6f8af8367199f" }
+ethereum_serde_utils = { git = "https://github.com/polytope-labs/ethereum_serde_utils", rev = "b67233cce50833e2082ebcb16a9971df063c7ecb" }
+ethereum_hashing = { git = "https://github.com/polytope-labs/ethereum_hashing", rev = "777b16da793573d5a0dd37d33d77f24ce4b624e7" }

@@ -26,11 +26,6 @@ import { randomPermit2Nonce, signPermit2Transfer } from "../permit2"
 import { SIMPLEX_PAYMASTER_ABI } from "@/config/abis/SimplexPaymaster"
 import type { Signer } from "@/services/wallet/types"
 
-export interface SimplexPaymasterOptions {
-	/** Skip EIP-2612 permit detection (PERMIT2 and APPROVE stay available). */
-	skipPermit?: boolean
-}
-
 interface TokenOption {
 	address: HexString
 	decimals: number
@@ -63,7 +58,6 @@ export async function buildSimplexPaymasterData(
 	paymasterAddress: HexString,
 	chain: string,
 	configService: FillerConfigService,
-	options: SimplexPaymasterOptions = {},
 ): Promise<(PaymasterResult & { token: HexString }) | null> {
 	const chainId = configService.getChainId(chain)
 
@@ -87,7 +81,7 @@ export async function buildSimplexPaymasterData(
 	const { address: tokenAddress, decimals: tokenDecimals } = selected
 	const recommended = RECOMMENDED_AMOUNT_USD * 10n ** BigInt(tokenDecimals)
 
-	const hasPermit = !options.skipPermit && (await tokenSupportsPermit(client, tokenAddress))
+	const hasPermit = await tokenSupportsPermit(client, tokenAddress)
 
 	if (hasPermit) {
 		const pm = await buildPermitMode(
@@ -454,7 +448,15 @@ async function tokenSupportsPermit(client: PublicClient, tokenAddress: HexString
 			functionName: "version",
 		})
 		return true
-	} catch {
-		return false
+	} catch (error) {
+		// Same discrimination as paymasterSupportsPermit2: only a contract revert /
+		// empty return proves the token has no version() — a transport error must
+		// propagate, or a 429 would masquerade as "no permit" and route a fresh
+		// solver into a native-funded Permit2 max approve.
+		const isRevert =
+			error instanceof BaseError &&
+			error.walk((e) => e instanceof ContractFunctionRevertedError || e instanceof ContractFunctionZeroDataError)
+		if (isRevert) return false
+		throw error
 	}
 }

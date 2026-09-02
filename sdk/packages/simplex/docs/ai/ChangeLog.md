@@ -12,6 +12,21 @@ Files: list of files touched.
 
 Newest entries first.
 
+## 2026-09-02 — Remove `skipPermit`; delegation ops may use Simplex PERMIT mode
+
+Deleted the `skipPermit` flag end to end: `SponsoredUserOpRequest.skipPermit`, `PaymasterOptions.skipPermit`, the `SimplexPaymasterOptions` interface and `buildSimplexPaymasterData`'s trailing options parameter, and the `skipPermit: true` that `DelegationService.setupDelegationViaBundler` passed. `hasPermit` is now just `await tokenSupportsPermit(client, tokenAddress)`. Delegation ops therefore reach EIP-2612 PERMIT mode on permit-capable tokens instead of being routed past it into the PERMIT2/APPROVE branch, whose bootstrap needs a native-funded `approve` — unsendable by a solver holding zero native, which left delegation with no sponsored path at all (observed on Base and Arbitrum). Test call sites drop the argument; every one of them already mocked a no-permit token, so mode selection is unchanged there.
+Files: `src/services/DelegationService.ts`, `src/services/UserOpSender.ts`, `src/services/paymaster/index.ts`, `src/services/paymaster/types.ts`, `src/services/paymaster/provider/simplex.ts`, `src/tests/services/SimplexPaymaster.test.ts`, `src/tests/services/UserOpSender.test.ts`, `src/tests/services/SimplexPaymasterPermit2.probe.test.ts`, `docs/ai/Flow.md`, `docs/ai/Decisions.md`, `CHANGELOG.md`.
+
+## 2026-09-02 — Harden Simplex-first selection (PR #1196 review)
+
+Wrapped the `buildSimplexPaymasterData` call in `buildPaymasterAndData` in try/catch: a builder failure warns, joins `skipReasons` as `simplex: <message>`, and falls through to Circle instead of aborting selection (previously a throw lost the bid on the `prepareBidUserOp` path). `tokenSupportsPermit` now discriminates contract reverts from transport errors like `paymasterSupportsPermit2` — a transport error propagates (and demotes to Circle) instead of reading as "no permit". Test mock for `version()` updated to throw viem-shaped errors; added selection-level throw tests and a permit-probe transport test.
+Files: `src/services/paymaster/index.ts`, `src/services/paymaster/provider/simplex.ts`, `src/tests/services/PaymasterSelection.test.ts`, `src/tests/services/SimplexPaymaster.test.ts`, `docs/ai/Decisions.md`, `CHANGELOG.md`.
+
+## 2026-09-02 — Prefer Simplex paymaster over Circle in selection
+
+Flipped the candidate order in `buildPaymasterAndData`: Simplex is evaluated first (deposit gate, then builder — the gate still precedes the builder because of its bootstrap approve tx), Circle second (USDC balance, then gate, then builder), `type: "none"` fallthrough unchanged. Each branch's internal gate semantics, the 150% headroom, and the fail-open deposit reads are untouched; only the order and the order-describing docs changed. `paymasterVerificationGasLimit` stays Circle-only, so it now only bites when Circle is the survivor (see Decisions).
+Files: `src/services/paymaster/index.ts`, `src/services/paymaster/types.ts`, `src/services/UserOpSender.ts`, `src/services/ContractInteractionService.ts`, `src/services/DelegationService.ts`, `src/core/boot.ts`, `src/cli/init/help-text.ts`, `src/tests/services/PaymasterSelection.test.ts`, `docs/ai/Flow.md`, `docs/ai/Decisions.md`.
+
 ## 2026-09-01 — Paymaster selection gated on EntryPoint deposit
 
 `buildPaymasterAndData` now skips a candidate paymaster whose EntryPoint deposit cannot cover the

@@ -75,6 +75,8 @@ function mockClient(opts: {
 	permit2Capable?: boolean
 	/** Set false to make PERMIT2() throw a transport (non-contract) error. */
 	permit2Transport?: boolean
+	/** Set true to make the token's version() probe throw a transport error. */
+	permitTransport?: boolean
 }): PublicClient {
 	return {
 		readContract: async ({ functionName, args }: { functionName: string; args?: unknown[] }) => {
@@ -118,8 +120,28 @@ function mockClient(opts: {
 					return opts.paymasterAllowance ?? 0n
 				}
 				case "version":
+					if (opts.permitTransport) {
+						throw new ContractFunctionExecutionError(
+							new HttpRequestError({
+								url: "https://rpc.example",
+								status: 429,
+								details: "Too Many Requests",
+							}),
+							{ abi: [], functionName: "version" } as never,
+						)
+					}
 					if (opts.permit) return "2"
-					throw new Error("no version()")
+					// A token without version() reverts the read; viem wraps it the same
+					// way as the PERMIT2 probe above, and only the revert in the cause
+					// chain lets tokenSupportsPermit treat it as "no permit".
+					throw new ContractFunctionExecutionError(
+						new ContractFunctionRevertedError({
+							abi: [],
+							functionName: "version",
+							message: "execution reverted",
+						}),
+						{ abi: [], functionName: "version" } as never,
+					)
 				case "name":
 					return "USD Coin"
 				case "nonces":
@@ -150,10 +172,8 @@ function approveCall(writeContract: ReturnType<typeof vi.fn>) {
 	return call
 }
 
-const build = (client: PublicClient, walletClient: WalletClient, signer = mockSigner().signer, skipPermit = true) =>
-	buildSimplexPaymasterData(client, walletClient, signer, SOLVER, PAYMASTER, CHAIN, configService, {
-		skipPermit,
-	})
+const build = (client: PublicClient, walletClient: WalletClient, signer = mockSigner().signer) =>
+	buildSimplexPaymasterData(client, walletClient, signer, SOLVER, PAYMASTER, CHAIN, configService)
 
 describe("buildSimplexPaymasterData mode selection (no-permit token)", () => {
 	it("uses PERMIT2 mode with no tx once the token is approved to Permit2", async () => {
@@ -238,15 +258,10 @@ describe("buildSimplexPaymasterData mode selection (no-permit token)", () => {
 		expect(slice(pm!.paymasterData, 0, 1)).toBe("0x02")
 	})
 
-	it("still prefers EIP-2612 PERMIT mode when the token supports it and permits are not skipped", async () => {
+	it("prefers EIP-2612 PERMIT mode over Permit2 when the token supports it", async () => {
 		const { walletClient, writeContract } = mockWalletClient()
 
-		const pm = await build(
-			mockClient({ permit: true, permit2Allowance: maxUint256, native: 0n }),
-			walletClient,
-			mockSigner().signer,
-			false,
-		)
+		const pm = await build(mockClient({ permit: true, permit2Allowance: maxUint256, native: 0n }), walletClient)
 
 		expect(writeContract).not.toHaveBeenCalled()
 		expect(slice(pm!.paymasterData, 0, 1)).toBe("0x00")
@@ -265,7 +280,6 @@ describe("buildSimplexPaymasterData mode selection (no-permit token)", () => {
 			legacyPaymaster,
 			CHAIN,
 			configService,
-			{ skipPermit: true },
 		)
 
 		expect(writeContract).toHaveBeenCalledOnce()
@@ -286,7 +300,6 @@ describe("buildSimplexPaymasterData mode selection (no-permit token)", () => {
 			stalePaymaster,
 			CHAIN,
 			configService,
-			{ skipPermit: true },
 		)
 
 		// approve(Permit2, 0) then approve(Permit2, max) — never a non-zero → non-zero change.
@@ -312,7 +325,6 @@ describe("buildSimplexPaymasterData mode selection (no-permit token)", () => {
 				flakyPaymaster,
 				CHAIN,
 				configService,
-				{ skipPermit: true },
 			),
 		).rejects.toThrow(/HTTP request failed/)
 
@@ -327,10 +339,29 @@ describe("buildSimplexPaymasterData mode selection (no-permit token)", () => {
 			flakyPaymaster,
 			CHAIN,
 			configService,
-			{ skipPermit: true },
 		)
 		expect(retryWrite).not.toHaveBeenCalled()
 		expect(slice(pm!.paymasterData, 0, 1)).toBe("0x02")
+	})
+
+	it("propagates a transport error from the token permit probe rather than treating it as no-permit", async () => {
+		const { walletClient, writeContract } = mockWalletClient()
+
+		// A 429/timeout on version() must not masquerade as "token has no permit" —
+		// that would route a fresh solver into a native-funded approve(Permit2, max)
+		// instead of the txless PERMIT mode a healthy probe would have picked.
+		await expect(
+			buildSimplexPaymasterData(
+				mockClient({ permitTransport: true, native: 10n ** 18n }),
+				walletClient,
+				mockSigner().signer,
+				SOLVER,
+				PAYMASTER,
+				CHAIN,
+				configService,
+			),
+		).rejects.toThrow(/HTTP request failed/)
+		expect(writeContract).not.toHaveBeenCalled()
 	})
 
 	it("falls back to the capped approve(paymaster) bootstrap on chains without Permit2", async () => {
@@ -344,7 +375,6 @@ describe("buildSimplexPaymasterData mode selection (no-permit token)", () => {
 			PAYMASTER,
 			CHAIN,
 			makeConfigService("0x"),
-			{ skipPermit: true },
 		)
 
 		expect(writeContract).toHaveBeenCalledOnce()

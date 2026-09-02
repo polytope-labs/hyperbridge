@@ -1,6 +1,6 @@
 {
 	"name": "@hyperbridge/simplex",
-	"version": "0.12.2",
+	"version": "0.12.3",
 	"license": "Apache-2.0",
 	"description": "Automated intent filler for the Hyperbridge IntentGateway \u2014 run it as a binary or embed it as a library",
 	"main": "dist/index.js",

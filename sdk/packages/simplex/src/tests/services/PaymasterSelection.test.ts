@@ -48,10 +48,13 @@ const SIMPLEX_REQUIRED = requiredFor(VERIFICATION_GAS_LIMIT_PERMIT + POST_OP_GAS
 
 const AMPLE = CIRCLE_REQUIRED + SIMPLEX_REQUIRED
 
-function configService(entryPoint: HexString | null = ENTRY_POINT): FillerConfigService {
+function configService(
+	entryPoint: HexString | null = ENTRY_POINT,
+	opts: { simplexConfigured?: boolean } = {},
+): FillerConfigService {
 	return {
 		getCirclePaymasterAddress: () => CIRCLE,
-		getSimplexPaymasterAddress: () => SIMPLEX,
+		getSimplexPaymasterAddress: () => (opts.simplexConfigured === false ? undefined : SIMPLEX),
 		getUsdcAsset: () => USDC,
 		getUsdcDecimals: () => 6,
 		getEntryPointAddress: () => entryPoint ?? undefined,
@@ -94,22 +97,47 @@ beforeEach(() => {
 })
 
 describe("buildPaymasterAndData deposit-aware selection", () => {
-	it("picks Circle when its deposit and the solver USDC balance suffice", async () => {
+	it("picks Simplex when its deposit suffices", async () => {
 		const result = await buildPaymasterAndData(options(client({})))
-		expect(result.type).toBe("circle")
-		expect(result.address).toBe(CIRCLE)
-		expect(buildSimplexPaymasterData).not.toHaveBeenCalled()
-	})
-
-	it("falls through to Simplex when the Circle deposit is one wei short", async () => {
-		const logger = { warn: vi.fn() }
-		const result = await buildPaymasterAndData(
-			options(client({ circleDeposit: CIRCLE_REQUIRED - 1n }), { logger }),
-		)
 		expect(result.type).toBe("simplex")
 		expect(result.address).toBe(SIMPLEX)
 		expect(buildCirclePaymasterData).not.toHaveBeenCalled()
+	})
+
+	it("falls through to Circle when the Simplex deposit is one wei short", async () => {
+		const logger = { warn: vi.fn() }
+		const result = await buildPaymasterAndData(
+			options(client({ simplexDeposit: SIMPLEX_REQUIRED - 1n }), { logger }),
+		)
+		expect(result.type).toBe("circle")
+		expect(result.address).toBe(CIRCLE)
+		expect(buildSimplexPaymasterData).not.toHaveBeenCalled()
 		expect(logger.warn).toHaveBeenCalledOnce()
+	})
+
+	it("falls through to Circle when the Simplex builder throws", async () => {
+		vi.mocked(buildSimplexPaymasterData).mockRejectedValueOnce(new Error("SimplexPaymaster needs a one-time funded approval"))
+		const logger = { warn: vi.fn() }
+		const result = await buildPaymasterAndData(options(client({}), { logger }))
+		expect(result.type).toBe("circle")
+		expect(result.address).toBe(CIRCLE)
+		expect(logger.warn).toHaveBeenCalledOnce()
+	})
+
+	it("returns none carrying the thrown reason when Circle is also ineligible", async () => {
+		vi.mocked(buildSimplexPaymasterData).mockRejectedValueOnce(new Error("rpc down"))
+		const result = await buildPaymasterAndData(options(client({ solverUsdc: 0n })))
+		expect(result.type).toBe("none")
+		expect(result.reason).toContain("simplex: rpc down")
+		expect(result.reason).toContain("circle: solver USDC balance 0 < 1000000")
+	})
+
+	it("falls through to Circle when Simplex has no eligible stablecoin", async () => {
+		vi.mocked(buildSimplexPaymasterData).mockResolvedValueOnce(null)
+		const result = await buildPaymasterAndData(options(client({})))
+		expect(result.type).toBe("circle")
+		expect(result.address).toBe(CIRCLE)
+		expect(buildSimplexPaymasterData).toHaveBeenCalledOnce()
 	})
 
 	it("returns none, naming both shortfalls, without invoking either builder", async () => {
@@ -117,8 +145,8 @@ describe("buildPaymasterAndData deposit-aware selection", () => {
 			options(client({ circleDeposit: CIRCLE_REQUIRED - 1n, simplexDeposit: SIMPLEX_REQUIRED - 1n })),
 		)
 		expect(result.type).toBe("none")
-		expect(result.reason).toContain(`circle: EntryPoint deposit ${CIRCLE_REQUIRED - 1n} < ${CIRCLE_REQUIRED}`)
 		expect(result.reason).toContain(`simplex: EntryPoint deposit ${SIMPLEX_REQUIRED - 1n} < ${SIMPLEX_REQUIRED}`)
+		expect(result.reason).toContain(`circle: EntryPoint deposit ${CIRCLE_REQUIRED - 1n} < ${CIRCLE_REQUIRED}`)
 		expect(buildCirclePaymasterData).not.toHaveBeenCalled()
 		expect(buildSimplexPaymasterData).not.toHaveBeenCalled()
 	})
@@ -126,48 +154,66 @@ describe("buildPaymasterAndData deposit-aware selection", () => {
 	it("skips the deposit check entirely when no prefund is given", async () => {
 		const publicClient = client({ circleDeposit: 0n, simplexDeposit: 0n })
 		const result = await buildPaymasterAndData(options(publicClient, { prefund: undefined }))
-		expect(result.type).toBe("circle")
+		expect(result.type).toBe("simplex")
 		const entryPointReads = publicClient.readContract.mock.calls.filter(
 			(call) => (call[0] as { address: HexString }).address === ENTRY_POINT,
 		)
 		expect(entryPointReads).toHaveLength(0)
 	})
 
-	it("still gates Circle on the solver USDC balance before the deposit", async () => {
-		const result = await buildPaymasterAndData(options(client({ solverUsdc: 999_999n })))
-		expect(result.type).toBe("simplex")
+	it("still gates Circle on the solver USDC balance before its deposit when Simplex is skipped", async () => {
+		const publicClient = client({ simplexDeposit: SIMPLEX_REQUIRED - 1n, solverUsdc: 999_999n, circleDeposit: 0n })
+		const result = await buildPaymasterAndData(options(publicClient))
+		expect(result.type).toBe("none")
+		expect(result.reason).toContain("circle: solver USDC balance 999999 < 1000000")
 		expect(buildCirclePaymasterData).not.toHaveBeenCalled()
+		// Circle's deposit is never read: the balance gate rejects first
+		const circleDepositReads = publicClient.readContract.mock.calls.filter(
+			(call) =>
+				(call[0] as { address: HexString; args: unknown[] }).address === ENTRY_POINT &&
+				(call[0] as { args: unknown[] }).args[0] === CIRCLE,
+		)
+		expect(circleDepositReads).toHaveLength(0)
 	})
 
 	it("fails open when the deposit read errors", async () => {
 		const logger = { warn: vi.fn() }
 		const result = await buildPaymasterAndData(options(client({ depositError: true }), { logger }))
-		expect(result.type).toBe("circle")
+		expect(result.type).toBe("simplex")
 		expect(logger.warn).toHaveBeenCalledOnce()
 	})
 
 	it("accepts a deposit exactly at the headroom boundary", async () => {
-		const result = await buildPaymasterAndData(options(client({ circleDeposit: CIRCLE_REQUIRED })))
-		expect(result.type).toBe("circle")
+		const result = await buildPaymasterAndData(options(client({ simplexDeposit: SIMPLEX_REQUIRED, circleDeposit: 0n })))
+		expect(result.type).toBe("simplex")
 	})
 
 	it("skips the deposit check when no EntryPoint is configured", async () => {
-		const publicClient = client({ circleDeposit: 0n })
+		const publicClient = client({ simplexDeposit: 0n })
 		const result = await buildPaymasterAndData(
 			options(publicClient, { configService: configService(null) }),
 		)
-		expect(result.type).toBe("circle")
+		expect(result.type).toBe("simplex")
 		const entryPointReads = publicClient.readContract.mock.calls.filter(
 			(call) => (call[0] as { address: HexString }).address === ENTRY_POINT,
 		)
 		expect(entryPointReads).toHaveLength(0)
+	})
+
+	it("picks Circle on a chain with no Simplex paymaster configured", async () => {
+		const result = await buildPaymasterAndData(
+			options(client({}), { configService: configService(ENTRY_POINT, { simplexConfigured: false }) }),
+		)
+		expect(result.type).toBe("circle")
+		expect(result.address).toBe(CIRCLE)
+		expect(buildSimplexPaymasterData).not.toHaveBeenCalled()
 	})
 
 	it("reports both balance and deposit skip reasons when nothing is eligible", async () => {
 		vi.mocked(buildSimplexPaymasterData).mockResolvedValueOnce(null)
 		const result = await buildPaymasterAndData(options(client({ solverUsdc: 0n })))
 		expect(result.type).toBe("none")
-		expect(result.reason).toContain("circle: solver USDC balance 0 < 1000000")
 		expect(result.reason).toContain("simplex: insufficient stablecoin balance")
+		expect(result.reason).toContain("circle: solver USDC balance 0 < 1000000")
 	})
 })

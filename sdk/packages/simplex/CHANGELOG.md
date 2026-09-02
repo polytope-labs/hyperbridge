@@ -1,5 +1,13 @@
 # @hyperbridge/filler
 
+## 0.12.3
+
+### Patch Changes
+
+- Paymaster selection now prefers the Simplex paymaster and falls back to Circle, inverting the previous Circle-first order. Simplex accepts USDC or USDT and its fees recycle through the keeper; Circle remains the fallback where Simplex is unconfigured or fails the deposit/balance gates. Circle-specific `paymasterVerificationGasLimit` overrides now only apply when Circle is the selected paymaster.
+- A Simplex builder failure (RPC error, bootstrap approve failure, missing native dust) now demotes Simplex to a skip reason and falls through to Circle instead of aborting selection, and the token permit probe no longer treats transport errors as "no permit support".
+- Removed the `skipPermit` option. Delegation UserOps can now use the Simplex paymaster's EIP-2612 PERMIT mode on permit-capable tokens, instead of being routed into the PERMIT2/APPROVE bootstrap that needs a native-funded `approve` — which a solver holding no native cannot send, leaving delegation unsponsored.
+
 ## 0.12.2
 
 ### Patch Changes

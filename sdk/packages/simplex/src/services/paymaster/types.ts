@@ -36,19 +36,14 @@ export interface PaymasterOptions {
 	configService: FillerConfigService
 	/**
 	 * Override for the Circle paymaster verification gas limit (default 200k).
-	 * Only honored when the paymaster allowance is already in place — a permit
+	 * Only applies when the Circle paymaster is selected — which, with Simplex
+	 * preferred first, means only when Simplex is unconfigured or skipped. Only
+	 * honored when the paymaster allowance is already in place — a permit
 	 * executed during validation needs the full default. Ignored when the Simplex
 	 * paymaster is selected — its limits are mode-specific
 	 * ({@link VERIFICATION_GAS_LIMIT_PERMIT} / {@link VERIFICATION_GAS_LIMIT_APPROVE}).
 	 */
 	paymasterVerificationGasLimit?: bigint
-	/**
-	 * Skips EIP-2612 permit detection for the Simplex paymaster (PERMIT2 and APPROVE
-	 * modes stay available). Delegation UserOps rely on fixed, measured gas limits;
-	 * executing a permit during paymaster validation adds tens of thousands of
-	 * verification gas and would invalidate them.
-	 */
-	skipPermit?: boolean
 	/**
 	 * When set, each candidate paymaster is skipped unless its EntryPoint deposit
 	 * covers this op's max prefund with {@link DEPOSIT_HEADROOM_PERCENT} headroom.

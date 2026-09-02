@@ -54,15 +54,10 @@ export interface SponsoredUserOpRequest {
 	 * accepts the op (e.g. re-delegation). Only honored when the paymaster allowance
 	 * is already in place — a permit executed during validation needs the full
 	 * default. Ignored when the Simplex paymaster is selected; its limits are
-	 * mode-specific.
+	 * mode-specific. With Simplex preferred first, this only bites when Simplex
+	 * is unconfigured or skipped and Circle is the survivor.
 	 */
 	paymasterVerificationGasLimit?: bigint
-	/**
-	 * Skips the Simplex paymaster's EIP-2612 permit mode. Delegation ops pass fixed,
-	 * measured gas limits that a permit executed during paymaster validation
-	 * would exceed; PERMIT2 and APPROVE modes stay available.
-	 */
-	skipPermit?: boolean
 }
 
 // Generous fallbacks used only when bundler gas estimation fails. The paymaster
@@ -116,7 +111,6 @@ export class UserOpSender {
 			nonceKey = 0n,
 			gas,
 			paymasterVerificationGasLimit,
-			skipPermit,
 		} = req
 
 		const entryPoint = this.configService.getEntryPointAddress(chain)
@@ -155,7 +149,6 @@ export class UserOpSender {
 				signer: this.signer,
 				configService: this.configService,
 				paymasterVerificationGasLimit,
-				skipPermit,
 				prefund: {
 					baseGas:
 						gasForPrefund.callGasLimit + gasForPrefund.verificationGasLimit + gasForPrefund.preVerificationGas,

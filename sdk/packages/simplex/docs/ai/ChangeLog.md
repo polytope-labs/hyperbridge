@@ -12,6 +12,11 @@ Files: list of files touched.
 
 Newest entries first.
 
+## 2026-09-02 — Prefer Simplex paymaster over Circle in selection
+
+Flipped the candidate order in `buildPaymasterAndData`: Simplex is evaluated first (deposit gate, then builder — the gate still precedes the builder because of its bootstrap approve tx), Circle second (USDC balance, then gate, then builder), `type: "none"` fallthrough unchanged. Each branch's internal gate semantics, the 150% headroom, and the fail-open deposit reads are untouched; only the order and the order-describing docs changed. `paymasterVerificationGasLimit` stays Circle-only, so it now only bites when Circle is the survivor (see Decisions).
+Files: `src/services/paymaster/index.ts`, `src/services/paymaster/types.ts`, `src/services/UserOpSender.ts`, `src/services/ContractInteractionService.ts`, `src/services/DelegationService.ts`, `src/core/boot.ts`, `src/cli/init/help-text.ts`, `src/tests/services/PaymasterSelection.test.ts`, `docs/ai/Flow.md`, `docs/ai/Decisions.md`.
+
 ## 2026-09-01 — Paymaster selection gated on EntryPoint deposit
 
 `buildPaymasterAndData` now skips a candidate paymaster whose EntryPoint deposit cannot cover the

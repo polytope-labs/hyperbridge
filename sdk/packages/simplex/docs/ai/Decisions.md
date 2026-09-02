@@ -4,6 +4,12 @@ AI-maintained record of non-obvious choices made in `sdk/packages/simplex`: what
 
 Entry format: heading with the decision, then alternatives considered and the reasoning. Newest first.
 
+## 2026-09-02 — Paymaster preference order: Simplex before Circle
+
+`buildPaymasterAndData` now evaluates the Simplex paymaster first and falls through to Circle, inverting the original Circle-first order (which had no recorded rationale). Simplex is the in-house paymaster: it accepts USDC or USDT (Circle is USDC-only), its fees recycle back through the keeper, and preferring it keeps sponsorship on infrastructure we operate. Circle remains the fallback for chains where Simplex is unconfigured (e.g. Optimism) or its deposit/balances fail the gate.
+
+Accepted consequence: `paymasterVerificationGasLimit` overrides are Circle-only, so the tuned values passed by DelegationService (110k), TokenSender (140k) and VaultFundingPlanner (140k) no longer apply on chains where Simplex now wins — those ops carry Simplex's per-mode limits instead (250k permit / 200k permit2 / 150k approve). Extending the override to Simplex was considered and rejected for now: the limits are mode-specific constants and the override's rundler-efficiency tuning was measured against Circle's validation path, so blindly capping Simplex with it risks underestimating a permit validation. Retune against Simplex modes if rundler's verification-efficiency floor starts rejecting these ops.
+
 ## 2026-09-01 — Paymaster deposit gate: 150% headroom, fail-open reads, checked at selection time
 
 Chosen: a candidate paymaster is skipped unless `EntryPoint.balanceOf(paymaster)` covers the op's

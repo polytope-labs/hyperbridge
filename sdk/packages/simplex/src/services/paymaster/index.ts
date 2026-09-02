@@ -28,10 +28,10 @@ export function hasPaymaster(chain: string, configService: FillerConfigService):
  * Unified paymaster data builder.
  *
  * Selection:
- * 1. Circle Paymaster — when configured AND solver has ≥1 USDC balance AND its
- *    EntryPoint deposit covers the op's max prefund
- * 2. Simplex Paymaster — when configured AND its EntryPoint deposit covers the op's
+ * 1. Simplex Paymaster — when configured AND its EntryPoint deposit covers the op's
  *    max prefund AND solver has ≥1 balance in USDC or USDT
+ * 2. Circle Paymaster — when configured AND solver has ≥1 USDC balance AND its
+ *    EntryPoint deposit covers the op's max prefund
  * 3. None — returns "0x" with a reason (caller falls back to EntryPoint deposit)
  *
  * The deposit gate only runs when the caller passes `prefund` and the chain has an
@@ -57,6 +57,40 @@ export async function buildPaymasterAndData(options: PaymasterOptions): Promise<
 	}
 
 	const skipReasons: string[] = []
+
+	if (simplexAddr) {
+		// Checked before the builder: buildSimplexPaymasterData can send a bootstrap
+		// approve tx, which must not happen for a paymaster that cannot sponsor.
+		const shortfall = await depositShortfall(
+			options,
+			simplexAddr,
+			VERIFICATION_GAS_LIMIT_PERMIT + POST_OP_GAS_LIMIT_SIMPLEX,
+			"simplex",
+		)
+		if (!shortfall) {
+			const pm = await buildSimplexPaymasterData(
+				publicClient,
+				walletClient,
+				signer,
+				solverAccount,
+				simplexAddr,
+				chain,
+				configService,
+				{ skipPermit },
+			)
+			if (pm) {
+				return {
+					paymasterAndData: packPaymasterAndData(pm),
+					type: "simplex",
+					address: simplexAddr,
+					token: pm.token,
+				}
+			}
+			skipReasons.push("simplex: insufficient stablecoin balance")
+		} else {
+			skipReasons.push(shortfall)
+		}
+	}
 
 	if (circleAddr) {
 		const usdcAddress = configService.getUsdcAsset(chain)
@@ -99,40 +133,6 @@ export async function buildPaymasterAndData(options: PaymasterOptions): Promise<
 			} else {
 				skipReasons.push(`circle: solver USDC balance ${balance} < ${required}`)
 			}
-		}
-	}
-
-	if (simplexAddr) {
-		// Checked before the builder: buildSimplexPaymasterData can send a bootstrap
-		// approve tx, which must not happen for a paymaster that cannot sponsor.
-		const shortfall = await depositShortfall(
-			options,
-			simplexAddr,
-			VERIFICATION_GAS_LIMIT_PERMIT + POST_OP_GAS_LIMIT_SIMPLEX,
-			"simplex",
-		)
-		if (!shortfall) {
-			const pm = await buildSimplexPaymasterData(
-				publicClient,
-				walletClient,
-				signer,
-				solverAccount,
-				simplexAddr,
-				chain,
-				configService,
-				{ skipPermit },
-			)
-			if (pm) {
-				return {
-					paymasterAndData: packPaymasterAndData(pm),
-					type: "simplex",
-					address: simplexAddr,
-					token: pm.token,
-				}
-			}
-			skipReasons.push("simplex: insufficient stablecoin balance")
-		} else {
-			skipReasons.push(shortfall)
 		}
 	}
 

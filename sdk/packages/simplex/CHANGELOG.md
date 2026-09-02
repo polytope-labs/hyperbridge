@@ -1,5 +1,11 @@
 # @hyperbridge/filler
 
+## 0.12.3
+
+### Patch Changes
+
+- Paymaster selection now prefers the Simplex paymaster and falls back to Circle, inverting the previous Circle-first order. Simplex accepts USDC or USDT and its fees recycle through the keeper; Circle remains the fallback where Simplex is unconfigured or fails the deposit/balance gates. Circle-specific `paymasterVerificationGasLimit` overrides now only apply when Circle is the selected paymaster.
+
 ## 0.12.2
 
 ### Patch Changes

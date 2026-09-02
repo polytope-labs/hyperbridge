@@ -54,7 +54,8 @@ export interface SponsoredUserOpRequest {
 	 * accepts the op (e.g. re-delegation). Only honored when the paymaster allowance
 	 * is already in place — a permit executed during validation needs the full
 	 * default. Ignored when the Simplex paymaster is selected; its limits are
-	 * mode-specific.
+	 * mode-specific. With Simplex preferred first, this only bites when Simplex
+	 * is unconfigured or skipped and Circle is the survivor.
 	 */
 	paymasterVerificationGasLimit?: bigint
 	/**

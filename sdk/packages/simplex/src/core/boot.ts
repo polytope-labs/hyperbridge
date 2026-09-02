@@ -378,7 +378,8 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 	const bidStore = options.data.bids
 
 	// Sponsors self-initiated UserOps (delegation, vault sweep/redeem) via the
-	// Circle paymaster so gas is paid in USDC instead of native token.
+	// configured paymaster (Simplex preferred, Circle fallback) so gas is paid
+	// in stablecoins instead of native token.
 	const userOpSender = new UserOpSender(chainClientManager, configService, runtimeSigner)
 
 	// Build the shared vault venue (withdraw sourcing + threshold sweeping).

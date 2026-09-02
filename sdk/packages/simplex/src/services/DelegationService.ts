@@ -203,7 +203,8 @@ export class DelegationService {
 
 	/**
 	 * Sets up EIP-7702 delegation via the bundler with a no-op UserOp.
-	 * Uses the Circle Paymaster (USDC permit) when available and filler has USDC balance.
+	 * Uses the configured paymaster (Simplex preferred, Circle fallback) when available
+	 * and the filler has a sufficient stablecoin balance.
 	 */
 	private async setupDelegationViaBundler(chain: string): Promise<boolean> {
 		const solverAccountContract = this.configService.getSolverAccountContractAddress(chain)

@@ -713,7 +713,7 @@ export class ContractInteractionService {
 
 		const commitment = orderCommitment(order)
 
-		// Build paymasterAndData — Circle (USDC permit) → Simplex → EntryPoint deposit
+		// Build paymasterAndData — Simplex → Circle (USDC permit) → EntryPoint deposit
 		const pmResult = await buildPaymasterAndData({
 			chain: order.destination,
 			solverAccount: solverAccountAddress,

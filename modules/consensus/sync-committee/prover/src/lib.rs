@@ -7,7 +7,11 @@ use primitive_types::H256;
 use reqwest::{Client, Url};
 use reqwest_chain::ChainMiddleware;
 use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
-use ssz_rs::{Merkleized, Node};
+use ssz_types::typenum::Unsigned;
+use tree_hash::{
+	proof::{generate_multiproof, ContainerFields, TreeHashFields},
+	TreeHash,
+};
 use tracing::instrument;
 
 #[cfg(feature = "glamsterdam")]
@@ -58,8 +62,8 @@ mod test;
 mod gloas_test;
 
 pub type BeaconStateType<
-	const ETH1_DATA_VOTES_BOUND: usize,
-	const PROPOSER_LOOK_AHEAD_LIMIT: usize,
+	ETH1_DATA_VOTES_BOUND: Unsigned,
+	PROPOSER_LOOK_AHEAD_LIMIT: Unsigned,
 > = BeaconState<
 	SLOTS_PER_HISTORICAL_ROOT,
 	HISTORICAL_ROOTS_LIMIT,
@@ -78,8 +82,8 @@ pub type BeaconStateType<
 
 pub struct SyncCommitteeProver<
 	C: Config,
-	const ETH1_DATA_VOTES_BOUND: usize,
-	const PROPOSER_LOOK_AHEAD_LIMIT: usize,
+	ETH1_DATA_VOTES_BOUND: Unsigned,
+	PROPOSER_LOOK_AHEAD_LIMIT: Unsigned,
 > {
 	pub primary_url: String,
 	pub providers: Vec<String>,
@@ -88,10 +92,10 @@ pub struct SyncCommitteeProver<
 	/// through the beacon state.
 	#[cfg(feature = "glamsterdam")]
 	pub el_rpc_url: String,
-	pub phantom: PhantomData<C>,
+	pub phantom: PhantomData<(C, ETH1_DATA_VOTES_BOUND, PROPOSER_LOOK_AHEAD_LIMIT)>,
 }
 
-impl<C: Config, const ETH1_DATA_VOTES_BOUND: usize, const PROPOSER_LOOK_AHEAD_LIMIT: usize> Clone
+impl<C: Config, ETH1_DATA_VOTES_BOUND: Unsigned, PROPOSER_LOOK_AHEAD_LIMIT: Unsigned> Clone
 	for SyncCommitteeProver<C, ETH1_DATA_VOTES_BOUND, PROPOSER_LOOK_AHEAD_LIMIT>
 {
 	fn clone(&self) -> Self {
@@ -106,7 +110,7 @@ impl<C: Config, const ETH1_DATA_VOTES_BOUND: usize, const PROPOSER_LOOK_AHEAD_LI
 	}
 }
 
-impl<C: Config, const ETH1_DATA_VOTES_BOUND: usize, const PROPOSER_LOOK_AHEAD_LIMIT: usize>
+impl<C: Config, ETH1_DATA_VOTES_BOUND: Unsigned, PROPOSER_LOOK_AHEAD_LIMIT: Unsigned>
 	SyncCommitteeProver<C, ETH1_DATA_VOTES_BOUND, PROPOSER_LOOK_AHEAD_LIMIT>
 {
 	pub fn new(providers: Vec<String>, #[cfg(feature = "glamsterdam")] el_rpc_url: String) -> Self {
@@ -323,7 +327,7 @@ impl<C: Config, const ETH1_DATA_VOTES_BOUND: usize, const PROPOSER_LOOK_AHEAD_LI
 		finality_checkpoint: Checkpoint,
 		latest_block_id: Option<&str>,
 	) -> Result<Option<VerifierStateUpdate>, anyhow::Error> {
-		if finality_checkpoint.root == Node::default() ||
+		if finality_checkpoint.root == Root::default() ||
 			client_state.latest_finalized_epoch >= finality_checkpoint.epoch
 		{
 			trace!(target: "sync-committee-prover", "No new epoch finalized yet {}", finality_checkpoint.epoch);
@@ -333,9 +337,9 @@ impl<C: Config, const ETH1_DATA_VOTES_BOUND: usize, const PROPOSER_LOOK_AHEAD_LI
 		trace!(target: "sync-committee-prover", "A new epoch has been finalized {}", finality_checkpoint.epoch);
 		// Find the highest block with the a threshhold number of sync committee signatures
 		let latest_header = self.fetch_header(latest_block_id.unwrap_or("head")).await?;
-		let latest_root = latest_header.clone().hash_tree_root()?;
+		let latest_root = latest_header.clone().tree_hash_root().into();
 		let get_block_id = |root: Root| {
-			let mut block_id = hex::encode(root.0.to_vec());
+			let mut block_id = hex::encode(root.as_ref());
 			block_id.insert_str(0, "0x");
 			block_id
 		};
@@ -344,10 +348,10 @@ impl<C: Config, const ETH1_DATA_VOTES_BOUND: usize, const PROPOSER_LOOK_AHEAD_LI
 		let state_period = client_state.state_period;
 		loop {
 			// Some checks on the epoch finalized by the signature block
-			let parent_root = block.parent_root;
+			let parent_root = block.parent_root.clone();
 			let parent_block_id = get_block_id(parent_root);
 			let parent_block = self.fetch_block(&parent_block_id).await?;
-			let parent_state_id = get_block_id(parent_block.state_root);
+			let parent_state_id = get_block_id(parent_block.state_root.clone());
 			let parent_block_finality_checkpoint =
 				self.fetch_finalized_checkpoint(Some(&parent_state_id)).await?.finalized;
 			if parent_block_finality_checkpoint.epoch <= client_state.latest_finalized_epoch {
@@ -355,7 +359,7 @@ impl<C: Config, const ETH1_DATA_VOTES_BOUND: usize, const PROPOSER_LOOK_AHEAD_LI
 				return Ok(None);
 			}
 
-			let num_signatures = block.body.sync_aggregate.sync_committee_bits.count_ones();
+			let num_signatures = block.body.sync_aggregate.sync_committee_bits.num_set_bits();
 
 			let signature_period = compute_sync_committee_period_at_slot::<C>(block.slot);
 
@@ -371,11 +375,11 @@ impl<C: Config, const ETH1_DATA_VOTES_BOUND: usize, const PROPOSER_LOOK_AHEAD_LI
 		let attested_block_id = get_block_id(block.parent_root);
 		let attested_header = self.fetch_header(&attested_block_id).await?;
 		let mut attested_state =
-			self.fetch_beacon_state(&get_block_id(attested_header.state_root)).await?;
-		if attested_state.finalized_checkpoint.root == Node::default() {
+			self.fetch_beacon_state(&get_block_id(attested_header.state_root.clone())).await?;
+		if attested_state.finalized_checkpoint.root == Root::default() {
 			return Ok(None);
 		}
-		let finalized_block_id = get_block_id(attested_state.finalized_checkpoint.root);
+		let finalized_block_id = get_block_id(attested_state.finalized_checkpoint.root.clone());
 		let finalized_header = self.fetch_header(&finalized_block_id).await?;
 		// Fetch the finalized state by slot rather than by state root.
 		let mut finalized_state =
@@ -406,10 +410,10 @@ impl<C: Config, const ETH1_DATA_VOTES_BOUND: usize, const PROPOSER_LOOK_AHEAD_LI
 		};
 
 		let signature_period = compute_sync_committee_period_at_slot::<C>(block.slot);
-		let client_state_next_sync_committee_root =
-			client_state.next_sync_committee.hash_tree_root()?;
-		let attested_state_current_sync_committee_root =
-			attested_state.current_sync_committee.hash_tree_root()?;
+		let client_state_next_sync_committee_root: Root =
+			client_state.next_sync_committee.tree_hash_root().into();
+		let attested_state_current_sync_committee_root: Root =
+			attested_state.current_sync_committee.tree_hash_root().into();
 		let sync_committee_update =
             // We must make sure we switch the sync comittee only when the finalized header has changed sync committees
             if should_have_sync_committee_update(state_period, signature_period) && client_state_next_sync_committee_root == attested_state_current_sync_committee_root {
@@ -466,17 +470,17 @@ impl<C: Config, const ETH1_DATA_VOTES_BOUND: usize, const PROPOSER_LOOK_AHEAD_LI
 		};
 		let min_signatures = ((2 * SYNC_COMMITTEE_SIZE) / 3) + 1;
 		let get_block_id = |root: Root| {
-			let mut block_id = hex::encode(root.0.to_vec());
+			let mut block_id = hex::encode(root.as_ref());
 			block_id.insert_str(0, "0x");
 			block_id
 		};
 		loop {
-			let num_signatures = block.body.sync_aggregate.sync_committee_bits.count_ones();
+			let num_signatures = block.body.sync_aggregate.sync_committee_bits.num_set_bits();
 			if num_signatures >= min_signatures {
 				break;
 			}
 
-			let parent_root = block.parent_root;
+			let parent_root = block.parent_root.clone();
 			let parent_block_id = get_block_id(parent_root);
 			let parent_block = self.fetch_block(&parent_block_id).await?;
 
@@ -487,8 +491,8 @@ impl<C: Config, const ETH1_DATA_VOTES_BOUND: usize, const PROPOSER_LOOK_AHEAD_LI
 
 		let attested_header = self.fetch_header(&attested_block_id).await?;
 		let mut attested_state =
-			self.fetch_beacon_state(&get_block_id(attested_header.state_root)).await?;
-		let finalized_block_id = get_block_id(attested_state.finalized_checkpoint.root);
+			self.fetch_beacon_state(&get_block_id(attested_header.state_root.clone())).await?;
+		let finalized_block_id = get_block_id(attested_state.finalized_checkpoint.root.clone());
 		let finalized_header = self.fetch_header(&finalized_block_id).await?;
 		// Fetch the finalized state by slot rather than by state root.
 		let mut finalized_state =
@@ -548,33 +552,33 @@ impl<C: Config, const ETH1_DATA_VOTES_BOUND: usize, const PROPOSER_LOOK_AHEAD_LI
 #[instrument(level = "trace", target = "sync-committee-prover", skip_all)]
 pub fn prove_execution_payload<
 	C: Config,
-	const ETH1_DATA_VOTES_BOUND: usize,
-	const PROPOSER_LOOK_AHEAD_LIMIT: usize,
+	ETH1_DATA_VOTES_BOUND: Unsigned,
+	PROPOSER_LOOK_AHEAD_LIMIT: Unsigned,
 >(
 	beacon_state: &mut BeaconStateType<ETH1_DATA_VOTES_BOUND, PROPOSER_LOOK_AHEAD_LIMIT>,
 ) -> anyhow::Result<ExecutionPayloadProof> {
 	trace!(target: "sync-committee-prover", "Proving execution payload");
 	let indices = [
-		C::EXECUTION_PAYLOAD_STATE_ROOT_INDEX as usize,
-		C::EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX as usize,
-		C::EXECUTION_PAYLOAD_TIMESTAMP_INDEX as usize,
+		C::EXECUTION_PAYLOAD_STATE_ROOT_INDEX,
+		C::EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX,
+		C::EXECUTION_PAYLOAD_TIMESTAMP_INDEX,
 	];
 	// generate multi proofs
-	let multi_proof = ssz_rs::generate_proof(
-		&mut beacon_state.latest_execution_payload_header,
-		indices.as_slice(),
-	)?;
+	let multi_proof: Vec<Root> = generate_multiproof(
+		&beacon_state.latest_execution_payload_header.field_roots(),
+		&indices,
+	)?
+	.into_iter()
+	.map(Into::into)
+	.collect();
 
 	trace!(target: "sync-committee-prover", "finished proving execution payload");
 
 	Ok(ExecutionPayloadProof {
-		execution_payload_branch: ssz_rs::generate_proof(
-			beacon_state,
-			&[C::EXECUTION_PAYLOAD_INDEX as usize],
-		)?,
+		execution_payload_branch: prove_state_field(beacon_state, C::EXECUTION_PAYLOAD_INDEX)?,
 		proof: ExecutionProof::Legacy {
 			state_root: H256::from_slice(
-				beacon_state.latest_execution_payload_header.state_root.as_slice(),
+				beacon_state.latest_execution_payload_header.state_root.as_ref(),
 			),
 			block_number: beacon_state.latest_execution_payload_header.block_number,
 			timestamp: beacon_state.latest_execution_payload_header.timestamp,
@@ -591,8 +595,8 @@ pub fn prove_execution_payload<
 #[instrument(level = "trace", target = "sync-committee-prover", skip_all)]
 pub fn prove_execution_payload<
 	C: Config,
-	const ETH1_DATA_VOTES_BOUND: usize,
-	const PROPOSER_LOOK_AHEAD_LIMIT: usize,
+	ETH1_DATA_VOTES_BOUND: Unsigned,
+	PROPOSER_LOOK_AHEAD_LIMIT: Unsigned,
 >(
 	beacon_state: &mut BeaconStateType<ETH1_DATA_VOTES_BOUND, PROPOSER_LOOK_AHEAD_LIMIT>,
 	header: ExecutionHeader,
@@ -615,40 +619,50 @@ pub fn prove_execution_payload<
 	trace!(target: "sync-committee-prover", "finished proving execution payload");
 
 	Ok(ExecutionPayloadProof {
-		execution_payload_branch: ssz_rs::generate_proof(
-			beacon_state,
-			&[C::EXECUTION_PAYLOAD_INDEX as usize],
-		)?,
+		execution_payload_branch: prove_state_field(beacon_state, C::EXECUTION_PAYLOAD_INDEX)?,
 		proof: ExecutionProof::Gloas { execution_header },
 	})
+}
+
+
+/// Prove a single beacon state field, addressed by generalized index.
+///
+/// The state is a plain container before Gloas and a progressive one from Gloas, and the two
+/// merkleize differently, so the branch has to be built the matching way.
+fn prove_state_field<ETH1_DATA_VOTES_BOUND: Unsigned, PROPOSER_LOOK_AHEAD_LIMIT: Unsigned>(
+	state: &BeaconStateType<ETH1_DATA_VOTES_BOUND, PROPOSER_LOOK_AHEAD_LIMIT>,
+	gindex: u64,
+) -> anyhow::Result<Vec<Root>> {
+	#[cfg(feature = "glamsterdam")]
+	let branch = state.prove_gindex(gindex)?.1;
+	#[cfg(not(feature = "glamsterdam"))]
+	let branch = generate_multiproof(&state.field_roots(), &[gindex])?;
+
+	Ok(branch.into_iter().map(Into::into).collect())
 }
 
 #[instrument(level = "trace", target = "sync-committee-prover", skip_all)]
 pub fn prove_sync_committee_update<
 	C: Config,
-	const ETH1_DATA_VOTES_BOUND: usize,
-	const PROPOSER_LOOK_AHEAD_LIMIT: usize,
+	ETH1_DATA_VOTES_BOUND: Unsigned,
+	PROPOSER_LOOK_AHEAD_LIMIT: Unsigned,
 >(
 	state: &mut BeaconStateType<ETH1_DATA_VOTES_BOUND, PROPOSER_LOOK_AHEAD_LIMIT>,
-) -> anyhow::Result<Vec<Node>> {
+) -> anyhow::Result<Vec<Root>> {
 	trace!(target: "sync-committee-prover", "Proving sync committee update");
-	let proof = ssz_rs::generate_proof(state, &[C::NEXT_SYNC_COMMITTEE_INDEX as usize])?;
-	Ok(proof)
+	prove_state_field(state, C::NEXT_SYNC_COMMITTEE_INDEX)
 }
 
 #[instrument(level = "trace", target = "sync-committee-prover", skip_all)]
 pub fn prove_finalized_header<
 	C: Config,
-	const ETH1_DATA_VOTES_BOUND: usize,
-	const PROPOSER_LOOK_AHEAD_LIMIT: usize,
+	ETH1_DATA_VOTES_BOUND: Unsigned,
+	PROPOSER_LOOK_AHEAD_LIMIT: Unsigned,
 >(
 	state: &mut BeaconStateType<ETH1_DATA_VOTES_BOUND, PROPOSER_LOOK_AHEAD_LIMIT>,
-) -> anyhow::Result<Vec<Node>> {
+) -> anyhow::Result<Vec<Root>> {
 	trace!(target: "sync-committee-prover", "Proving finalized head");
-	let indices = [C::FINALIZED_ROOT_INDEX as usize];
-	let proof = ssz_rs::generate_proof(state, indices.as_slice())?;
-
-	Ok(proof)
+	prove_state_field(state, C::FINALIZED_ROOT_INDEX)
 }
 
 pub fn eth_aggregate_public_keys(points: &[BlsPublicKey]) -> anyhow::Result<BlsPublicKey> {

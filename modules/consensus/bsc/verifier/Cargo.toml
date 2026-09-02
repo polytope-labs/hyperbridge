@@ -21,7 +21,8 @@ geth-primitives = { workspace = true, default-features = false }
 bls-utils = { workspace = true, default-features = false }
 sync-committee-primitives = { workspace = true, default-features = false }
 bls = { workspace = true }
-ssz-rs = { git = "https://github.com/polytope-labs/ssz-rs", rev = "b1ed9f44d68a70e16793d99a75ee47f83b1aab95", default-features = false }
+ssz = { workspace = true, features = ["scale"] }
+ssz_types = { workspace = true, features = ["scale"] }
 
 [dependencies.polkadot-sdk]
 workspace = true
@@ -42,5 +43,6 @@ std = [
     "bls-utils/std",
     "sync-committee-primitives/std",
     "geth-primitives/std",
-    "ssz-rs/std",
+    "ssz/std",
+    "ssz_types/std",
 ]

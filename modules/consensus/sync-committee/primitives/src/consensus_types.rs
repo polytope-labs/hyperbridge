@@ -22,7 +22,7 @@ use ssz_types::{typenum::Unsigned, BitList, BitVector, FixedVector, VariableList
 #[cfg(not(feature = "glamsterdam"))]
 pub type StateList<T, N> = VariableList<T, N>;
 #[cfg(feature = "glamsterdam")]
-pub type StateList<T, N> = ProgressiveList<T>;
+pub use crate::ssz::StateList;
 
 #[cfg(feature = "glamsterdam")]
 use crate::{
@@ -100,6 +100,7 @@ pub struct SignedBeaconBlockHeader {
 
 #[derive(Default, Debug, ssz_derive::Encode, ssz_derive::Decode, tree_hash_derive::TreeHash, Clone, PartialEq, Eq, codec::Encode, codec::Decode)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "std", serde(bound = ""))]
 pub struct IndexedAttestation<MAX_VALIDATORS_PER_COMMITTEE: Unsigned> {
 	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::seq_of_str"))]
 	pub attesting_indices: VariableList<u64, MAX_VALIDATORS_PER_COMMITTEE>,
@@ -121,6 +122,7 @@ pub struct AttestationData {
 
 #[derive(Default, Debug, ssz_derive::Encode, ssz_derive::Decode, tree_hash_derive::TreeHash, Clone, PartialEq, Eq, codec::Encode, codec::Decode)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "std", serde(bound = ""))]
 pub struct AttesterSlashing<MAX_VALIDATORS_PER_COMMITTEE: Unsigned> {
 	pub attestation_1: IndexedAttestation<MAX_VALIDATORS_PER_COMMITTEE>,
 	pub attestation_2: IndexedAttestation<MAX_VALIDATORS_PER_COMMITTEE>,
@@ -128,6 +130,7 @@ pub struct AttesterSlashing<MAX_VALIDATORS_PER_COMMITTEE: Unsigned> {
 
 #[derive(Default, Debug, ssz_derive::Encode, ssz_derive::Decode, tree_hash_derive::TreeHash, codec::Encode, codec::Decode, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "std", serde(bound = ""))]
 pub struct Attestation<
 	MAX_VALIDATORS_PER_COMMITTEE: Unsigned,
 	MAX_COMMITTEES_PER_SLOT: Unsigned,
@@ -174,6 +177,7 @@ pub struct SignedVoluntaryExit {
 
 #[derive(Default, Debug, Clone, ssz_derive::Encode, ssz_derive::Decode, tree_hash_derive::TreeHash, codec::Encode, codec::Decode, PartialEq, Eq)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "std", serde(bound = ""))]
 pub struct SyncAggregate<SYNC_COMMITTEE_SIZE: Unsigned> {
 	pub sync_committee_bits: BitVector<SYNC_COMMITTEE_SIZE>,
 	pub sync_committee_signature: BlsSignature,
@@ -181,6 +185,7 @@ pub struct SyncAggregate<SYNC_COMMITTEE_SIZE: Unsigned> {
 
 #[derive(Default, Debug, ssz_derive::Encode, ssz_derive::Decode, tree_hash_derive::TreeHash, Clone, PartialEq, Eq, codec::Encode, codec::Decode)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "std", serde(bound = ""))]
 pub struct SyncCommittee<SYNC_COMMITTEE_SIZE: Unsigned> {
 	#[cfg_attr(feature = "std", serde(rename = "pubkeys"))]
 	pub public_keys: FixedVector<BlsPublicKey, SYNC_COMMITTEE_SIZE>,
@@ -221,6 +226,7 @@ pub type Transaction<MAX_BYTES_PER_TRANSACTION: Unsigned> = ByteList<MAX_BYTES_P
 
 #[derive(Default, Debug, Clone, ssz_derive::Encode, ssz_derive::Decode, tree_hash_derive::TreeHash, PartialEq, Eq, codec::Encode, codec::Decode)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "std", serde(bound = ""))]
 pub struct ExecutionPayload<
 	BYTES_PER_LOGS_BLOOM: Unsigned,
 	MAX_EXTRA_DATA_BYTES: Unsigned,
@@ -255,6 +261,7 @@ pub struct ExecutionPayload<
 
 #[derive(Default, Debug, Clone, ssz_derive::Encode, ssz_derive::Decode, tree_hash_derive::TreeHash, PartialEq, Eq, codec::Encode, codec::Decode)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "std", serde(bound = ""))]
 pub struct ExecutionPayloadHeader<
 	BYTES_PER_LOGS_BLOOM: Unsigned,
 	MAX_EXTRA_DATA_BYTES: Unsigned,
@@ -286,6 +293,7 @@ pub struct ExecutionPayloadHeader<
 
 #[derive(Default, Debug, Clone, ssz_derive::Encode, ssz_derive::Decode, tree_hash_derive::TreeHash, PartialEq, Eq, codec::Encode, codec::Decode)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "std", serde(bound = ""))]
 pub struct BeaconBlockBody<
 	MAX_PROPOSER_SLASHINGS: Unsigned,
 	MAX_VALIDATORS_PER_COMMITTEE: Unsigned,
@@ -337,7 +345,7 @@ pub struct BeaconBlockBody<
 	// [New in Gloas:EIP7732] the payload is no longer in the body. The builder's bid commits to
 	// the execution block hash and the payload itself is revealed separately.
 	#[cfg(feature = "glamsterdam")]
-	pub signed_execution_payload_bid: SignedExecutionPayloadBid<MAX_BLOB_COMMITMENTS_PER_BLOCK>,
+	pub signed_execution_payload_bid: SignedExecutionPayloadBid,
 	#[cfg(feature = "glamsterdam")]
 	pub payload_attestations: VariableList<PayloadAttestation, MAX_PAYLOAD_ATTESTATIONS>,
 	#[cfg(feature = "glamsterdam")]
@@ -346,10 +354,28 @@ pub struct BeaconBlockBody<
 		MAX_WITHDRAWAL_REQUESTS_PER_PAYLOAD,
 		MAX_CONSOLIDATION_REQUESTS_PER_PAYLOAD,
 	>,
+	/// Gloas moves the execution payload out of the block body, so the payload bounds no longer
+	/// appear in any field. An unused type parameter is an error where an unused const parameter
+	/// was not, so they are parked here. Every derive skips this field, so it never reaches the
+	/// wire and does not affect the hash tree root.
+	#[cfg(feature = "glamsterdam")]
+	#[ssz(skip_serializing, skip_deserializing)]
+	#[tree_hash(skip_hashing)]
+	#[codec(skip)]
+	#[cfg_attr(feature = "std", serde(skip))]
+	pub phantom: core::marker::PhantomData<(
+		BYTES_PER_LOGS_BLOOM,
+		MAX_EXTRA_DATA_BYTES,
+		MAX_BYTES_PER_TRANSACTION,
+		MAX_TRANSACTIONS_PER_PAYLOAD,
+		MAX_WITHDRAWALS_PER_PAYLOAD,
+		MAX_BLOB_COMMITMENTS_PER_BLOCK,
+	)>,
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Eq, ssz_derive::Encode, ssz_derive::Decode, tree_hash_derive::TreeHash, codec::Encode, codec::Decode)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "std", serde(bound = ""))]
 pub struct BeaconBlock<
 	MAX_PROPOSER_SLASHINGS: Unsigned,
 	MAX_VALIDATORS_PER_COMMITTEE: Unsigned,
@@ -396,6 +422,23 @@ pub struct BeaconBlock<
 		MAX_WITHDRAWAL_REQUESTS_PER_PAYLOAD,
 		MAX_CONSOLIDATION_REQUESTS_PER_PAYLOAD,
 	>,
+	/// Gloas moves the execution payload out of the block body, so the payload bounds no longer
+	/// appear in any field. An unused type parameter is an error where an unused const parameter
+	/// was not, so they are parked here. Every derive skips this field, so it never reaches the
+	/// wire and does not affect the hash tree root.
+	#[cfg(feature = "glamsterdam")]
+	#[ssz(skip_serializing, skip_deserializing)]
+	#[tree_hash(skip_hashing)]
+	#[codec(skip)]
+	#[cfg_attr(feature = "std", serde(skip))]
+	pub phantom: core::marker::PhantomData<(
+		BYTES_PER_LOGS_BLOOM,
+		MAX_EXTRA_DATA_BYTES,
+		MAX_BYTES_PER_TRANSACTION,
+		MAX_TRANSACTIONS_PER_PAYLOAD,
+		MAX_WITHDRAWALS_PER_PAYLOAD,
+		MAX_BLOB_COMMITMENTS_PER_BLOCK,
+	)>,
 }
 #[derive(Default, Debug, ssz_derive::Encode, ssz_derive::Decode, tree_hash_derive::TreeHash, Clone, PartialEq, Eq, codec::Encode, codec::Decode)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
@@ -425,9 +468,13 @@ pub struct HistoricalSummary {
 
 #[derive(Default, Debug, ssz_derive::Encode, ssz_derive::Decode, tree_hash_derive::TreeHash, Clone, PartialEq, Eq, codec::Encode, codec::Decode)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "std", serde(bound = ""))]
 // [Modified in Gloas:EIP7688] the state hashes as a progressive container, which is what keeps a
 // field's generalized index from moving when a later fork adds or drops one.
-#[cfg_attr(feature = "glamsterdam", ssz(progressive_container))]
+#[cfg_attr(
+	feature = "glamsterdam",
+	tree_hash(struct_behaviour = "progressive_container", active_fields(1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1))
+)]
 pub struct BeaconState<
 	SLOTS_PER_HISTORICAL_ROOT: Unsigned,
 	HISTORICAL_ROOTS_LIMIT: Unsigned,
@@ -521,10 +568,19 @@ pub struct BeaconState<
 	#[cfg(feature = "glamsterdam")]
 	builder_pending_withdrawals: ProgressiveList<BuilderPendingWithdrawal>,
 	#[cfg(feature = "glamsterdam")]
-	latest_execution_payload_bid: ExecutionPayloadBid<MAX_BLOB_COMMITMENTS_PER_BLOCK>,
+	latest_execution_payload_bid: ExecutionPayloadBid,
 	#[cfg(feature = "glamsterdam")]
 	payload_expected_withdrawals: ProgressiveList<Withdrawal>,
 	#[cfg(feature = "glamsterdam")]
 	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::seq_of_seq_of_str"))]
 	ptc_window: FixedVector<FixedVector<ValidatorIndex, PTC_SIZE>, PTC_WINDOW_LIMIT>,
+	/// Gloas replaces the execution payload header with a block hash, so the payload bounds no
+	/// longer appear in any field. Skipped by every derive, so it does not reach the wire and the
+	/// progressive `active_fields` count is unaffected.
+	#[cfg(feature = "glamsterdam")]
+	#[ssz(skip_serializing, skip_deserializing)]
+	#[tree_hash(skip_hashing)]
+	#[codec(skip)]
+	#[cfg_attr(feature = "std", serde(skip))]
+	pub phantom: core::marker::PhantomData<(BYTES_PER_LOGS_BLOOM, MAX_EXTRA_DATA_BYTES)>,
 }

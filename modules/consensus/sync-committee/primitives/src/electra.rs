@@ -36,6 +36,7 @@ pub struct ConsolidationRequest {
 
 #[derive(Default, Debug, ssz_derive::Encode, ssz_derive::Decode, tree_hash_derive::TreeHash, codec::Encode, codec::Decode, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "std", serde(bound = ""))]
 pub struct ExecutionRequests<
 	MAX_DEPOSIT_REQUESTS_PER_PAYLOAD: Unsigned,
 	MAX_WITHDRAWAL_REQUESTS_PER_PAYLOAD: Unsigned,

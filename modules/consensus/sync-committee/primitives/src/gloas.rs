@@ -14,7 +14,7 @@ use crate::{
 	deneb::KzgCommitment,
 };
 use alloc::{vec, vec::Vec};
-use ssz_types::{typenum::Unsigned, BitVector, FixedVector, VariableList};
+use ssz_types::{typenum::Unsigned, BitVector, FixedVector, ProgressiveList, VariableList};
 
 /// Index into the builder registry.
 pub type BuilderIndex = u64;
@@ -27,6 +27,17 @@ pub const MAX_PAYLOAD_ATTESTATIONS: usize = 4;
 
 pub const BUILDER_REGISTRY_LIMIT: usize = 2usize.saturating_pow(40);
 pub const BUILDER_PENDING_WITHDRAWALS_LIMIT: usize = 2usize.saturating_pow(20);
+
+/// Type level counterparts of the bounds above, sharing their names. See `constants::bounds`.
+#[allow(non_camel_case_types)]
+mod bounds {
+	pub type PTC_SIZE = ssz_types::typenum::U512;
+	pub type MAX_PAYLOAD_ATTESTATIONS = ssz_types::typenum::U4;
+	pub type BUILDER_REGISTRY_LIMIT = ssz_types::typenum::U1099511627776;
+	pub type BUILDER_PENDING_WITHDRAWALS_LIMIT = ssz_types::typenum::U1048576;
+}
+
+pub use bounds::*;
 
 #[derive(Default, Debug, ssz_derive::Encode, ssz_derive::Decode, tree_hash_derive::TreeHash, codec::Encode, codec::Decode, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
@@ -68,8 +79,9 @@ pub struct BuilderPendingPayment {
 /// itself, and with it the execution state root, is revealed later and out of band.
 #[derive(Default, Debug, ssz_derive::Encode, ssz_derive::Decode, tree_hash_derive::TreeHash, codec::Encode, codec::Decode, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
-#[ssz(progressive_container)]
-pub struct ExecutionPayloadBid<MAX_BLOB_COMMITMENTS_PER_BLOCK: Unsigned> {
+#[cfg_attr(feature = "std", serde(bound = ""))]
+#[tree_hash(struct_behaviour = "progressive_container", active_fields(1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1))]
+pub struct ExecutionPayloadBid {
 	pub parent_block_hash: Hash32,
 	pub parent_block_root: Root,
 	pub block_hash: Hash32,
@@ -91,8 +103,9 @@ pub struct ExecutionPayloadBid<MAX_BLOB_COMMITMENTS_PER_BLOCK: Unsigned> {
 
 #[derive(Default, Debug, ssz_derive::Encode, ssz_derive::Decode, tree_hash_derive::TreeHash, codec::Encode, codec::Decode, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
-pub struct SignedExecutionPayloadBid<MAX_BLOB_COMMITMENTS_PER_BLOCK: Unsigned> {
-	pub message: ExecutionPayloadBid<MAX_BLOB_COMMITMENTS_PER_BLOCK>,
+#[cfg_attr(feature = "std", serde(bound = ""))]
+pub struct SignedExecutionPayloadBid {
+	pub message: ExecutionPayloadBid,
 	pub signature: BlsSignature,
 }
 

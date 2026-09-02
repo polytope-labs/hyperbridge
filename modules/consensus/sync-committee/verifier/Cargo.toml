@@ -12,14 +12,18 @@ primitive-types = { workspace = true, default-features = false }
 log = { workspace = true, default-features = false }
 anyhow = { workspace = true, default-features = false }
 thiserror = { workspace = true }
-ssz-rs = { git = "https://github.com/polytope-labs/ssz-rs", rev = "b1ed9f44d68a70e16793d99a75ee47f83b1aab95", default-features = false }
+ssz = { workspace = true, features = ["scale"] }
+ssz_types = { workspace = true, features = ["scale"] }
+tree_hash = { workspace = true, features = ["sha2"] }
 bls = { workspace = true }
 ark-ec = { workspace = true }
 
 [features]
 default = ["std"]
 std = [
-    "ssz-rs/std",
+    "ssz/std",
+    "ssz_types/std",
+    "tree_hash/std",
     "log/std",
     "sync-committee-primitives/std",
     "primitive-types/std",

@@ -11,9 +11,12 @@ use alloc::vec::Vec;
 use ark_ec::CurveGroup;
 use crypto::subtract_points_from_aggregate;
 use primitive_types::H256;
-use ssz_rs::{
-	calculate_multi_merkle_root, get_helper_indices, prelude::is_valid_merkle_branch,
-	GeneralizedIndex, Merkleized, Node,
+use tree_hash::{
+	proof::{
+		is_valid_merkle_branch,
+		multiproof::{calculate_multi_merkle_root, get_helper_indices},
+	},
+	Hash256, TreeHash,
 };
 use sync_committee_primitives::{
 	consensus_types::Checkpoint,
@@ -106,13 +109,13 @@ pub fn verify_sync_committee_attestation<C: Config>(
 	if sync_committee_bits
 		.iter()
 		.enumerate()
-		.any(|(i, bit)| i >= committee_size && *bit)
+		.any(|(i, bit)| i >= committee_size && bit)
 	{
 		Err(Error::InvalidUpdate("Sync committee bits set beyond committee size".into()))?
 	}
 
 	let sync_aggregate_participants: u64 =
-		sync_committee_bits.iter().take(committee_size).filter(|b| **b).count() as u64;
+		sync_committee_bits.iter().take(committee_size).filter(|b| *b).count() as u64;
 
 	if sync_aggregate_participants < ((2 * committee_size as u64) / 3) + 1 {
 		Err(Error::SyncCommitteeParticipantsTooLow)?
@@ -121,7 +124,7 @@ pub fn verify_sync_committee_attestation<C: Config>(
 	let non_participant_pubkeys = sync_committee_bits
 		.iter()
 		.zip(sync_committee_pubkeys.iter())
-		.filter_map(|(bit, key)| if !(*bit) { Some(key.clone()) } else { None })
+		.filter_map(|(bit, key)| if !bit { Some(key.clone()) } else { None })
 		.collect::<Vec<_>>();
 
 	let fork_version = compute_fork_version::<C>(compute_epoch_at_slot::<C>(update.signature_slot));
@@ -129,7 +132,7 @@ pub fn verify_sync_committee_attestation<C: Config>(
 	let domain = compute_domain(
 		DOMAIN_SYNC_COMMITTEE,
 		Some(fork_version),
-		Some(Root::from_bytes(C::GENESIS_VALIDATORS_ROOT.try_into().expect("Infallible"))),
+		Some(Root::try_from(C::GENESIS_VALIDATORS_ROOT.as_slice()).expect("Infallible")),
 		C::GENESIS_FORK_VERSION,
 	)
 	.map_err(|_| Error::InvalidUpdate("Failed to compute domain".into()))?;
@@ -144,8 +147,8 @@ pub fn verify_sync_committee_attestation<C: Config>(
 
 	let verify = bls::verify(
 		&bls::point_to_pubkey(aggregate.into_affine()),
-		&signing_root.as_bytes().to_vec(),
-		&update.sync_aggregate.sync_committee_signature,
+		&signing_root.to_vec(),
+		&update.sync_aggregate.sync_committee_signature.to_vec(),
 		&bls::DST_ETHEREUM.as_bytes().to_vec(),
 	);
 
@@ -156,22 +159,18 @@ pub fn verify_sync_committee_attestation<C: Config>(
 	// Verify that the `finality_branch` confirms `finalized_header`
 	// to match the finalized checkpoint root saved in the state of `attested_header`.
 	// Note that the genesis finalized checkpoint root is represented as a zero hash.
-	let mut finalized_checkpoint = Checkpoint {
+	let finalized_checkpoint = Checkpoint {
 		epoch: update.finality_proof.epoch,
-		root: update
-			.finalized_header
-			.hash_tree_root()
-			.map_err(|_| Error::MerkleizationError("Error hashing finalized header".into()))?,
+		root: update.finalized_header.tree_hash_root().into(),
 	};
 
+	let finality_branch: Vec<Hash256> =
+		update.finality_proof.finality_branch.iter().map(Into::into).collect();
 	let is_merkle_branch_valid = is_valid_merkle_branch(
-		&finalized_checkpoint
-			.hash_tree_root()
-			.map_err(|_| Error::MerkleizationError("Failed to hash finality checkpoint".into()))?,
-		update.finality_proof.finality_branch.iter(),
-		C::FINALIZED_ROOT_INDEX_LOG2 as usize,
-		C::FINALIZED_ROOT_INDEX as usize,
-		&update.attested_header.state_root,
+		finalized_checkpoint.tree_hash_root(),
+		&finality_branch,
+		C::FINALIZED_ROOT_INDEX,
+		(&update.attested_header.state_root).into(),
 	);
 
 	if !is_merkle_branch_valid {
@@ -194,9 +193,9 @@ pub fn verify_sync_committee_attestation<C: Config>(
 				ExecutionProof::Legacy { state_root, block_number, timestamp, multi_proof },
 			) => {
 				let execution_payload_indices = [
-					GeneralizedIndex(C::EXECUTION_PAYLOAD_STATE_ROOT_INDEX as usize),
-					GeneralizedIndex(C::EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX as usize),
-					GeneralizedIndex(C::EXECUTION_PAYLOAD_TIMESTAMP_INDEX as usize),
+					C::EXECUTION_PAYLOAD_STATE_ROOT_INDEX,
+					C::EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX,
+					C::EXECUTION_PAYLOAD_TIMESTAMP_INDEX,
 				];
 				// `calculate_multi_merkle_root` panics on a short `multi_proof` because its final
 				// `objects.get(&GeneralizedIndex(1)).unwrap()` cannot reconstruct the root. Reject
@@ -206,28 +205,28 @@ pub fn verify_sync_committee_attestation<C: Config>(
 				if multi_proof.len() != get_helper_indices(&execution_payload_indices).len() {
 					Err(Error::InvalidMerkleBranch("Execution payload multiproof length".into()))?;
 				}
-				let mut block_number_leaf = *block_number;
-				let mut timestamp_leaf = *timestamp;
+				let multi_proof_nodes: Vec<Hash256> =
+					multi_proof.iter().map(Into::into).collect();
 				let execution_payload_root = calculate_multi_merkle_root(
 					&[
-						Node::from_bytes(state_root.as_ref().try_into().expect("Infallible")),
-						block_number_leaf.hash_tree_root().map_err(|_| {
-							Error::MerkleizationError("Failed to hash execution payload".into())
-						})?,
-						timestamp_leaf.hash_tree_root().map_err(|_| {
-							Error::MerkleizationError("Failed to hash timestamp".into())
-						})?,
+						Hash256::from_slice(state_root.as_ref()),
+						block_number.tree_hash_root(),
+						timestamp.tree_hash_root(),
 					],
-					multi_proof,
+					&multi_proof_nodes,
 					&execution_payload_indices,
-				);
+				)
+				.map_err(|_| {
+					Error::InvalidMerkleBranch("Execution payload multiproof".into())
+				})?;
 
+				let payload_branch: Vec<Hash256> =
+					execution_payload.execution_payload_branch.iter().map(Into::into).collect();
 				let is_merkle_branch_valid = is_valid_merkle_branch(
-					&execution_payload_root,
-					execution_payload.execution_payload_branch.iter(),
-					C::EXECUTION_PAYLOAD_INDEX_LOG2 as usize,
-					C::EXECUTION_PAYLOAD_INDEX as usize,
-					&update.finalized_header.state_root,
+					execution_payload_root,
+					&payload_branch,
+					C::EXECUTION_PAYLOAD_INDEX,
+					(&update.finalized_header.state_root).into(),
 				);
 
 				if !is_merkle_branch_valid {
@@ -248,11 +247,14 @@ pub fn verify_sync_committee_attestation<C: Config>(
 				let block_hash = execution_block_hash(execution_header);
 
 				let is_merkle_branch_valid = is_valid_merkle_branch(
-					&Node::from_bytes(block_hash),
-					execution_payload.execution_payload_branch.iter(),
-					C::EXECUTION_PAYLOAD_INDEX_LOG2 as usize,
-					C::EXECUTION_PAYLOAD_INDEX as usize,
-					&update.finalized_header.state_root,
+					Hash256::from(block_hash),
+					&execution_payload
+						.execution_payload_branch
+						.iter()
+						.map(Into::into)
+						.collect::<Vec<Hash256>>(),
+					C::EXECUTION_PAYLOAD_INDEX,
+					(&update.finalized_header.state_root).into(),
 				);
 
 				if !is_merkle_branch_valid {
@@ -274,18 +276,16 @@ pub fn verify_sync_committee_attestation<C: Config>(
 			))?,
 		};
 
-	if let Some(mut sync_committee_update) = update.sync_committee_update.clone() {
-		let sync_root = sync_committee_update
-			.next_sync_committee
-			.hash_tree_root()
-			.map_err(|_| Error::MerkleizationError("Failed to hash next sync committee".into()))?;
+	if let Some(sync_committee_update) = update.sync_committee_update.clone() {
+		let sync_root = sync_committee_update.next_sync_committee.tree_hash_root();
 
+		let sync_branch: Vec<Hash256> =
+			sync_committee_update.next_sync_committee_branch.iter().map(Into::into).collect();
 		let is_merkle_branch_valid = is_valid_merkle_branch(
-			&sync_root,
-			sync_committee_update.next_sync_committee_branch.iter(),
-			C::NEXT_SYNC_COMMITTEE_INDEX_LOG2 as usize,
-			C::NEXT_SYNC_COMMITTEE_INDEX as usize,
-			&update.attested_header.state_root,
+			sync_root,
+			&sync_branch,
+			C::NEXT_SYNC_COMMITTEE_INDEX,
+			(&update.attested_header.state_root).into(),
 		);
 
 		if !is_merkle_branch_valid {
@@ -356,10 +356,10 @@ mod supermajority_tests {
 				// finality-branch length check passes; the node contents don't matter for
 				// these tests because the supermajority gate fires before any merkle
 				// verification.
-				finality_branch: vec![Node::default(); Sepolia::FINALIZED_ROOT_INDEX_LOG2 as usize],
+				finality_branch: vec![Root::default(); Sepolia::FINALIZED_ROOT_INDEX.ilog2() as usize],
 			},
 			sync_aggregate: SyncAggregate {
-				sync_committee_bits: ssz_rs::Bitvector::default(),
+				sync_committee_bits: Default::default(),
 				sync_committee_signature: BlsSignature::try_from(vec![
 					0u8;
 					BLS_SIGNATURE_BYTES_LEN

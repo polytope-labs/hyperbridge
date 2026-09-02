@@ -25,5 +25,6 @@ features = ["sp-core"]
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros"] }
 dotenv = "0.15.0"
-ssz-rs = { git = "https://github.com/polytope-labs/ssz-rs", rev = "b1ed9f44d68a70e16793d99a75ee47f83b1aab95", default-features = false, features = ["std"] }
+ssz = { workspace = true, features = ["scale"] }
+ssz_types = { workspace = true, features = ["scale"] }
 futures = { workspace = true }

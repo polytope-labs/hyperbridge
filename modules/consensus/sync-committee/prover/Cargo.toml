@@ -16,7 +16,9 @@ hex = { workspace = true, default-features = true }
 json = { workspace = true, default-features = true }
 primitive-types = { workspace = true, default-features = true, features = ["serde_no_std", "impl-codec"] }
 
-ssz-rs = { git = "https://github.com/polytope-labs/ssz-rs", rev = "b1ed9f44d68a70e16793d99a75ee47f83b1aab95" }
+ssz = { workspace = true, features = ["scale"] }
+ssz_types = { workspace = true, features = ["scale"] }
+tree_hash = { workspace = true, features = ["sha2"] }
 reqwest = { version="0.11.14", features=["json"]}
 reqwest-middleware = "0.2.4"
 reqwest-chain = "0.1.0"

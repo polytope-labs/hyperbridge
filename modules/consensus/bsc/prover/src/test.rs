@@ -19,7 +19,8 @@ use bsc_verifier::{
 };
 use ismp::messaging::Keccak256;
 use polkadot_sdk::*;
-use ssz_rs::{Bitvector, Deserialize};
+use ssz::Decode;
+use ssz_types::BitVector;
 use std::time::Duration;
 
 use crate::{get_rotation_block, BscPosProver, UpdateParams};
@@ -130,7 +131,7 @@ async fn verify_bsc_pos_headers() {
 		// Reject updates with insufficient BLS participation from the current set.
 		let extra_data = parse_extra::<Host, Testnet>(&update.attested_header)
 			.expect("infallible: prover already parsed extra data");
-		let validators_bit_set = Bitvector::<VALIDATOR_BIT_SET_SIZE>::deserialize(
+		let validators_bit_set = BitVector::<ssz_types::typenum::U64>::from_ssz_bytes(
 			extra_data.vote_address_set.to_le_bytes().to_vec().as_slice(),
 		)
 		.expect("infallible: prover already parsed extra data");
@@ -233,7 +234,7 @@ async fn verify_bsc_pos_headers() {
 
 		let extra_data = parse_extra::<Host, Testnet>(&update.attested_header)
 			.expect("infallible: prover already parsed extra data");
-		let validators_bit_set = Bitvector::<VALIDATOR_BIT_SET_SIZE>::deserialize(
+		let validators_bit_set = BitVector::<ssz_types::typenum::U64>::from_ssz_bytes(
 			extra_data.vote_address_set.to_le_bytes().to_vec().as_slice(),
 		)
 		.expect("infallible: prover already parsed extra data");

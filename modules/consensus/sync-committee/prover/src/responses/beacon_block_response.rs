@@ -18,7 +18,10 @@ pub struct Response {
 	execution_optimistic: bool,
 }
 
+// The bounds inside `BeaconBlock` are type level integers, so serde's derived bounds on them are
+// spurious.
 #[derive(Default, Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(bound = "")]
 pub struct ResponseData {
 	pub(crate) message: BeaconBlock<
 		MAX_PROPOSER_SLASHINGS,

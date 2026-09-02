@@ -3,7 +3,10 @@
 //! preset, and run with `--features glamsterdam --ignored`.
 
 use super::*;
-use ssz_rs::{is_valid_merkle_branch, Merkleized};
+use tree_hash::{
+	proof::{is_valid_merkle_branch, TreeHashFields},
+	Hash256, TreeHash,
+};
 use sync_committee_primitives::{
 	constants::{
 		devnet::GlamsterdamDevnet, ETH1_DATA_VOTES_BOUND_ETH, PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM,
@@ -41,7 +44,7 @@ async fn beacon_state_hashes_to_the_signed_header() {
 	let mut state = prover.fetch_beacon_state("finalized").await.unwrap();
 	let header = prover.fetch_header(&state.slot.to_string()).await.unwrap();
 
-	assert_eq!(state.hash_tree_root().unwrap(), header.state_root);
+	assert_eq!(state.tree_hash_root(), header.state_root);
 }
 
 /// The execution state root is no longer proven directly, so this walks the path that replaces it:

@@ -176,3 +176,25 @@ impl<N: Unsigned> DerefMut for ByteVector<N> {
 		&mut self.0
 	}
 }
+
+/// Conversions to and from `tree_hash`'s root type.
+///
+/// Merkleization deals in `Hash256`, while the consensus types carry 32 byte roots that also need
+/// SCALE, so the two representations meet here rather than at every call site.
+impl From<tree_hash::Hash256> for ByteVector<ssz_types::typenum::U32> {
+	fn from(hash: tree_hash::Hash256) -> Self {
+		Self(FixedVector::new(hash.as_slice().to_vec()).expect("a hash is exactly 32 bytes"))
+	}
+}
+
+impl From<&ByteVector<ssz_types::typenum::U32>> for tree_hash::Hash256 {
+	fn from(bytes: &ByteVector<ssz_types::typenum::U32>) -> Self {
+		tree_hash::Hash256::from_slice(bytes.as_ref())
+	}
+}
+
+impl From<ByteVector<ssz_types::typenum::U32>> for tree_hash::Hash256 {
+	fn from(bytes: ByteVector<ssz_types::typenum::U32>) -> Self {
+		tree_hash::Hash256::from_slice(bytes.as_ref())
+	}
+}

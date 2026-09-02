@@ -1,7 +1,10 @@
 use super::*;
 use reqwest_eventsource::EventSource;
 
-use ssz_rs::{calculate_multi_merkle_root, is_valid_merkle_branch, GeneralizedIndex, Merkleized};
+use tree_hash::{
+	proof::{is_valid_merkle_branch, multiproof::calculate_multi_merkle_root, TreeHashFields},
+	Hash256, TreeHash,
+};
 use sync_committee_primitives::{
 	constants::{Root, ETH1_DATA_VOTES_BOUND_ETH, PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM},
 	types::VerifierState,
@@ -81,25 +84,16 @@ async fn test_finalized_header() {
 	let sync_committee_prover = setup_prover();
 	let mut state = sync_committee_prover.fetch_beacon_state("head").await.unwrap();
 
-	let proof =
-		ssz_rs::generate_proof(&mut state, &vec![KurtosisDevnet::FINALIZED_ROOT_INDEX as usize])
-			.unwrap();
+	let (_, proof) = state.prove_gindex(KurtosisDevnet::FINALIZED_ROOT_INDEX).unwrap();
 
-	let leaves = vec![Node::from_bytes(
-		state
-			.finalized_checkpoint
-			.hash_tree_root()
-			.unwrap()
-			.as_ref()
-			.try_into()
-			.unwrap(),
-	)];
+	let leaves = vec![state.finalized_checkpoint.tree_hash_root()];
 	let root = calculate_multi_merkle_root(
 		&leaves,
 		&proof,
-		&[GeneralizedIndex(KurtosisDevnet::FINALIZED_ROOT_INDEX as usize)],
-	);
-	assert_eq!(root, state.hash_tree_root().unwrap());
+		&[KurtosisDevnet::FINALIZED_ROOT_INDEX],
+	)
+	.unwrap();
+	assert_eq!(root, state.tree_hash_root());
 }
 
 #[allow(non_snake_case)]
@@ -129,23 +123,22 @@ async fn test_execution_payload_proof() {
 	let (mut block_number, mut timestamp) = (block_number, timestamp);
 	let execution_payload_root = calculate_multi_merkle_root(
 		&[
-			Node::from_bytes(state_root.as_ref().try_into().unwrap()),
-			block_number.hash_tree_root().unwrap(),
-			timestamp.hash_tree_root().unwrap(),
+			Hash256::from_slice(state_root.as_ref()),
+			block_number.tree_hash_root(),
+			timestamp.tree_hash_root(),
 		],
 		&multi_proof,
 		&[
-			GeneralizedIndex(KurtosisDevnet::EXECUTION_PAYLOAD_STATE_ROOT_INDEX as usize),
-			GeneralizedIndex(KurtosisDevnet::EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX as usize),
-			GeneralizedIndex(KurtosisDevnet::EXECUTION_PAYLOAD_TIMESTAMP_INDEX as usize),
+			KurtosisDevnet::EXECUTION_PAYLOAD_STATE_ROOT_INDEX,
+			KurtosisDevnet::EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX,
+			KurtosisDevnet::EXECUTION_PAYLOAD_TIMESTAMP_INDEX,
 		],
 	);
 
 	let execution_payload_hash_tree_root = finalized_state
 		.latest_execution_payload_header
 		.clone()
-		.hash_tree_root()
-		.unwrap();
+		.tree_hash_root();
 
 	assert_eq!(execution_payload_root, execution_payload_hash_tree_root);
 
@@ -184,15 +177,15 @@ async fn test_sync_committee_update_proof() {
 	let mut sync_committee = finalized_state.next_sync_committee;
 
 	let calculated_finalized_root = calculate_multi_merkle_root(
-		&[sync_committee.hash_tree_root().unwrap()],
+		&[sync_committee.tree_hash_root()],
 		&sync_committee_proof,
-		&[GeneralizedIndex(KurtosisDevnet::NEXT_SYNC_COMMITTEE_INDEX as usize)],
+		&[KurtosisDevnet::NEXT_SYNC_COMMITTEE_INDEX],
 	);
 
 	assert_eq!(calculated_finalized_root.as_bytes(), finalized_header.state_root.as_bytes());
 
 	let is_merkle_branch_valid = is_valid_merkle_branch(
-		&sync_committee.hash_tree_root().unwrap(),
+		&sync_committee.tree_hash_root(),
 		sync_committee_proof.iter(),
 		KurtosisDevnet::NEXT_SYNC_COMMITTEE_INDEX_LOG2 as usize,
 		KurtosisDevnet::NEXT_SYNC_COMMITTEE_INDEX as usize,

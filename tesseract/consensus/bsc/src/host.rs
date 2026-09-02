@@ -28,7 +28,8 @@ use std::{cmp::max, sync::Arc, time::Duration};
 
 use crate::{notification::consensus_notification, BscPosHost, KeccakHasher};
 use bsc_prover::get_rotation_block;
-use ssz_rs::{Bitvector, Deserialize};
+use ssz::Decode;
+use ssz_types::BitVector;
 use tesseract_primitives::{IsmpHost, IsmpProvider};
 
 #[async_trait::async_trait]
@@ -187,7 +188,7 @@ impl<C: Config> IsmpHost for BscPosHost<C> {
 										);
 
 									let validators_bit_set =
-										Bitvector::<VALIDATOR_BIT_SET_SIZE>::deserialize(
+										BitVector::<ssz_types::typenum::U64>::from_ssz_bytes(
 											extra_data
 												.vote_address_set
 												.to_le_bytes()
@@ -303,7 +304,7 @@ impl<C: Config> IsmpHost for BscPosHost<C> {
 										);
 
 									let validators_bit_set =
-										Bitvector::<VALIDATOR_BIT_SET_SIZE>::deserialize(
+										BitVector::<ssz_types::typenum::U64>::from_ssz_bytes(
 											extra_data
 												.vote_address_set
 												.to_le_bytes()

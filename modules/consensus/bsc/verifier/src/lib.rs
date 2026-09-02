@@ -24,7 +24,8 @@ use geth_primitives::{CodecHeader, Header};
 use ismp::messaging::Keccak256;
 use primitives::{parse_extra, BscClientUpdate, Config, VALIDATOR_BIT_SET_SIZE};
 use sp_core::H256;
-use ssz_rs::{Bitvector, Deserialize};
+use ssz::Decode;
+use ssz_types::BitVector;
 use sync_committee_primitives::constants::BlsPublicKey;
 
 pub mod error;
@@ -60,7 +61,7 @@ pub fn verify_bsc_header<H: Keccak256, C: Config>(
 		Err(Error::EmptyVoteData)?
 	}
 
-	let validators_bit_set = Bitvector::<VALIDATOR_BIT_SET_SIZE>::deserialize(
+	let validators_bit_set = BitVector::<ssz_types::typenum::U64>::from_ssz_bytes(
 		extra_data.vote_address_set.to_le_bytes().to_vec().as_slice(),
 	)
 	.map_err(|_| Error::DeserializeVoteAddressSet)?;
@@ -73,7 +74,7 @@ pub fn verify_bsc_header<H: Keccak256, C: Config>(
 	if validators_bit_set
 		.iter()
 		.enumerate()
-		.any(|(i, bit)| i >= current_validators.len() && *bit)
+		.any(|(i, bit)| i >= current_validators.len() && bit)
 	{
 		Err(Error::VoteAddressSetBeyondValidatorCount)?
 	}
@@ -83,7 +84,7 @@ pub fn verify_bsc_header<H: Keccak256, C: Config>(
 	let participant_count = validators_bit_set
 		.iter()
 		.take(current_validators.len())
-		.filter(|bit| **bit)
+		.filter(|bit| *bit)
 		.count();
 	if participant_count < ((2 * current_validators.len()) / 3) {
 		Err(Error::NotEnoughParticipants)?
@@ -113,7 +114,7 @@ pub fn verify_bsc_header<H: Keccak256, C: Config>(
 	let participants: Vec<BlsPublicKey> = current_validators
 		.iter()
 		.zip(validators_bit_set.iter())
-		.filter_map(|(validator, bit)| if *bit { Some(validator.clone()) } else { None })
+		.filter_map(|(validator, bit)| if bit { Some(validator.clone()) } else { None })
 		.collect();
 
 	let aggregate_public_key = aggregate_public_keys(&participants)

@@ -39,13 +39,15 @@ import { LiquidityPool } from "@/configs/src/types/models/LiquidityPool"
 import { timestampToDate } from "@/utils/date.helpers"
 import { getHostStateMachine } from "@/utils/substrate.helpers"
 import { canonicalPoolSymbol, poolSlug } from "@/addresses/pool-tokens.addresses"
+import { INTENT_GATEWAY_V3_ADDRESSES } from "@/intent-gateway-v3-addresses"
 import {
 	orientedPoolRates,
 	poolsForFill,
 	POOL_RATE_DECIMALS,
 	refreshPoolLiquidity,
+	refreshProviderLiquidity,
 } from "@/services/liquidityPool.service"
-import { blockBalanceReader, evmRpcUrls, hyperbridgeHeadBlock } from "@/utils/solverBalance"
+import { liquidityRefreshContext } from "@/utils/solverBalance"
 
 import { PointsService } from "./points.service"
 import { VolumeService, toScaledUsd } from "./volume.service"
@@ -755,10 +757,6 @@ export class IntentGatewayV3Service {
 	 * inputs are escrowed on the source chain, the outputs delivered here — so the order row is
 	 * what makes the pair resolvable; a fill indexed before its `OrderPlaced` has no source chain
 	 * to resolve against and is left to the next phantom snapshot.
-	 *
-	 * Balances are read at the chain head, as the snapshot path also reads them. That is only
-	 * meaningful for a fill at the tip, which is why `refreshPoolLiquidity` skips any pool already
-	 * sampled after this fill — during a resync that is every pool, and this costs nothing.
 	 */
 	static async refreshPoolLiquidityAfterFill(params: {
 		commitment: string
@@ -783,12 +781,54 @@ export class IntentGatewayV3Service {
 
 		await refreshPoolLiquidity({
 			poolIds,
-			filledAt: timestampToDate(timestamp),
-			evmRpcUrls: evmRpcUrls(),
-			// Several fills can land in one block, and a balance is one value per block, so they
-			// share a read. The key is block-scoped because the next block's balances differ.
-			getBalance: blockBalanceReader(`${destChain}-${blockNumber}`),
-			headBlock: () => hyperbridgeHeadBlock(`${destChain}-${blockNumber}`),
+			...liquidityRefreshContext(destChain, blockNumber, timestamp),
+		})
+	}
+
+	/**
+	 * The filler an escrow release paid, read from the gateway's `_filled` mapping at the event's
+	 * own block. The event itself names no filler, and `_withdraw` writes the beneficiary in the
+	 * same call that emits it, so the mapping is authoritative from that block on — and reading it
+	 * here never depends on the destination chain's node having indexed the fill first.
+	 */
+	static async filledBeneficiary(commitment: string, blockNumber: number): Promise<string | null> {
+		const chain = getHostStateMachine(chainId)
+		const gateway = INTENT_GATEWAY_V3_ADDRESSES[chain as keyof typeof INTENT_GATEWAY_V3_ADDRESSES]
+		if (!gateway) return null
+
+		const selector = ethers.utils.id("_filled(bytes32)").slice(0, 10)
+		const result: string = await (api as any).call(
+			{ to: gateway, data: `${selector}${commitment.replace(/^0x/, "").padStart(64, "0")}` },
+			blockNumber,
+		)
+		if (!result || result === "0x") return null
+		const beneficiary = `0x${result.slice(-40)}`.toLowerCase()
+		return beneficiary === ZERO_ADDRESS ? null : beneficiary
+	}
+
+	/**
+	 * The same refresh for an escrow release: the solver has just been paid the order's inputs back
+	 * on the SOURCE chain, so its inventory there rose and every pool it backs in those tokens is
+	 * understating depth.
+	 *
+	 * The event names no filler — the gateway records the beneficiary when `_withdraw` finalizes —
+	 * so the caller resolves it, and a release whose beneficiary is not a known provider refreshes
+	 * nothing.
+	 */
+	static async refreshLiquidityAfterEscrowRelease(params: {
+		provider: string
+		tokens: TokenInfo[]
+		timestamp: bigint
+		blockNumber: number
+	}): Promise<void> {
+		const { provider, tokens, timestamp, blockNumber } = params
+		const chain = getHostStateMachine(chainId)
+
+		await refreshProviderLiquidity({
+			chain,
+			provider: provider.toLowerCase(),
+			tokens: tokens.map((token) => bytes32ToBytes20(token.token).toLowerCase()),
+			...liquidityRefreshContext(chain, blockNumber, timestamp),
 		})
 	}
 

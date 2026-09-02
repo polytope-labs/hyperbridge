@@ -58,11 +58,23 @@ Verified 2026-09-01 by unit test against a mocked store; the RPC read itself is 
 The snapshot flow measures a pool's depth once per bid window. This flow keeps it honest in between, when
 fills have spent some of the inventory it is a sum of.
 
-1. `handleOrderFilledEventV3` and `handlePartialFilledEventV3` both call
-   `IntentGatewayV3Service.refreshPoolLiquidityAfterFill` in their own try/catch — it reads external RPCs, and
-   stale depth is recoverable, so a failure must never stall indexing. `PartialFill` only ever comes from the
-   same-chain path (`IntrinsicIntents`); cross-chain fills are all-or-nothing and emit only `OrderFilled`
-   (`ExtrinsicIntents`), so between the two handlers every fill that spends inventory reaches this flow.
+Four events reach this flow, each in its own try/catch — they read external RPCs, and stale depth is
+recoverable, so a failure must never stall indexing:
+
+1. `handleOrderFilledEventV3` and `handlePartialFilledEventV3` call
+   `IntentGatewayV3Service.refreshPoolLiquidityAfterFill`, which resolves the pools from the order's two sides
+   (`poolsForFill`) and refreshes every LP backing them. `PartialFill` only ever comes from the same-chain path
+   (`IntrinsicIntents`); cross-chain fills are all-or-nothing and emit only `OrderFilled` (`ExtrinsicIntents`).
+1b. `handleEscrowReleasedEventV3` (source chain) calls `refreshLiquidityAfterEscrowRelease`: the solver was just
+   paid the order's inputs back, so its inventory there ROSE. The event names no filler, so the handler first
+   reads the gateway's `_filled(commitment)` at that block — `_withdraw` writes the beneficiary in the same call
+   that emits the event.
+1c. `YieldVaultService.recordLedger` (vault `Deposit`/`Withdraw`) ends with a refresh for (chain, lp, underlying
+   token), after its own known-solver gate and duplicate-log guard. An LP's own deposit only shifts inventory
+   between the raw and vault halves of one total; the total moves when the counterparty is someone else, and no
+   order event reports that.
+   These last two name a solver and a token but no pool, so they enter through `refreshProviderLiquidity`
+   instead — same core, different selection.
 2. That method loads the order row for its **source** chain (a fill event carries the inputs' addresses but
    not the chain they live on) and calls `poolsForFill`, which pairs the input symbols on the source chain
    with the output symbols on the destination chain through the same token registry `resolvePoolLeg` uses.
@@ -73,12 +85,19 @@ fills have spent some of the inventory it is a sum of.
      balances this fill had moved. During a resync this is true of every replayed fill, so backfilling costs
      no RPC at all.
    - reads every `PoolBidder` row of the pool (all chains, paged to exhaustion) and groups them by chain.
-   - per chain, re-reads each bidder's balance of that row's `outputToken` and scales it to 1e18. **If any
-     read fails, or the chain has no configured RPC, the whole chain is abandoned untouched** — a failed
-     read looks exactly like a zero balance, so a partial write would report the unread bidders as departed.
+   - per chain, re-reads each bidder's inventory of that row's `outputToken` and scales it to 1e18. Inventory
+     is the sweep's definition — wallet ERC-20 plus ERC-4626 `maxWithdraw` (`getTotalSolverBalance`) — PLUS the
+     Uniswap V4 positions the solver declared, each read on-chain and valued in that output token. Reads are
+     pinned to the triggering event's block on its own chain, so a replay sees what the event left behind; other
+     chains read at the head, where that block number would mean nothing. **If any read fails, or the chain has
+     no configured RPC, the whole chain is abandoned untouched** — a failed read looks exactly like a zero
+     balance, so a partial write would report the unread bidders as departed.
+   - a position that no longer exists, or is found under another owner, contributes nothing: the declaration is
+     a pointer, and this owner check is the guarantee behind it.
    - writes the survivors: a row whose balance is now zero is removed (every row is a bidder with capacity),
-     the chain's `PoolChainLiquidity` depth/bidCount/unrestricted slice is recomputed from the survivors, and
-     `PoolRoute` rows are updated or removed. Routes are never *created* here: declarations only come from
+     then the chain's `PoolChainLiquidity` depth/bidCount/unrestricted slice and its `PoolRoute` rows are
+     recomputed by re-reading **every** stored bidder row of that (pool, chain) — not just the ones re-read, so a
+     provider-scoped refresh leaves the other bidders contributing what they were. Routes are never *created* here: declarations only come from
      bids, so the surviving set can only shrink.
    - re-merges the pool's chain rows into `sellDepth`/`buyDepth` through the same `mergeChainRowsIntoPool`
      the snapshot writer uses, with the freshest row's block as the staleness reference (the fill's own EVM
@@ -92,9 +111,13 @@ fills have spent some of the inventory it is a sum of.
 5. Nothing here writes `lastUpdatedBlock` or `lastUpdatedAt`, and nothing re-derives a rate. A pool's merged
    rate can still move, because the per-chain samples are depth-weighted and the depths just changed.
 
-Blind spot to know about when reading a depth that dropped right after a fill: the balance read covers wallet
-ERC-20 and redeemable ERC-4626 positions, not the Uniswap V4 positions a bid can declare (only a bid names
-them). A V4-funded bidder therefore reads low until the next bid window restores it.
+Where the V4 positions come from: `handlePhantomOrderPrices` calls `recordDeclaredPositions`
+(`src/services/solverPositions.service.ts`), which writes one `SolverV4Positions` row per bidding solver — keyed
+by the solver's address, holding the tokenIds `aggregatePhantomBids` verified and the chain the bid was for. A
+bid is the only place a position is ever named. The refresh reads that row with a single keyed `get`
+(`declaredV4Positions`), and a row recorded on another chain reads as none. A solver that bids without declaring
+has its row emptied; one that skips a window keeps it. One row per solver assumes one V4 chain, and the writer
+warns rather than overwriting a row from a different one.
 
 ## Phantom bid calldata decoding (`extractFillDataVm2`)
 

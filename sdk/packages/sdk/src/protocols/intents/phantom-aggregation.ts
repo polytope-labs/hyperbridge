@@ -358,6 +358,21 @@ export interface PhantomLegAggregation {
 	bidders: PhantomLegBidder[]
 }
 
+/**
+ * A Uniswap V4 position a bid declared, after the on-chain ownership check — i.e. one this solver
+ * really holds and can fund a fill from.
+ *
+ * A bid is the only place a position is ever named, so a consumer that wants to value these between
+ * bid windows (an order fill drains a position inside the fill transaction, while wallet and vault
+ * balances barely move) has to take them from here.
+ */
+export interface SolverV4Position {
+	solver: HexString
+	/** The chain the bid was for. A bid is per chain, so no other chain's reads can see it. */
+	chain: string
+	tokenId: bigint
+}
+
 /** The aggregated result for a single phantom order's bid window. */
 export interface PhantomAggregation {
 	/**
@@ -367,6 +382,21 @@ export interface PhantomAggregation {
 	 */
 	legs: PhantomLegAggregation[]
 	lpBalances: LpBalance[]
+	/**
+	 * Every declared position that passed the ownership check, across all bids in this window.
+	 * Empty when the chain has no configured V4 deployment, since nothing is read there.
+	 */
+	positions: SolverV4Position[]
+	/**
+	 * Every solver whose bid passed verification in this window, whether or not it ended up backing
+	 * a leg, holding any inventory, or declaring anything.
+	 *
+	 * The other three fields are all filtered — `legs` drops unbacked quotes, `lpBalances` skips
+	 * tokens a solver does not hold, and `positions` only lists what was declared — so a solver that
+	 * bid while holding nothing anywhere appears in none of them. This is the only complete answer
+	 * to "who bid this window", which is what a consumer reconciling per-solver state needs.
+	 */
+	solvers: HexString[]
 }
 
 export interface AggregationLogger {
@@ -696,12 +726,12 @@ export async function fetchBidsForOrder(nodeUrl: string, commitment: string): Pr
 // snapshot entirely, so swallowing the failure would delete real liquidity on an RPC blip and
 // leave a pool reporting depth it has. Only "0x" — the call reverted or there is no code at the
 // address, i.e. the node did answer — is a genuine zero; everything else propagates.
-async function ethCallUint(evmRpcUrl: string, to: string, data: string): Promise<bigint> {
+async function ethCallUint(evmRpcUrl: string, to: string, data: string, blockTag = "latest"): Promise<bigint> {
 	const result = await rpcCall(evmRpcUrl, {
 		id: 1,
 		jsonrpc: "2.0",
 		method: "eth_call",
-		params: [{ to, data }, "latest"],
+		params: [{ to, data }, blockTag],
 	})
 	if (result.result === "0x") return 0n
 	if (typeof result.result !== "string") {
@@ -710,20 +740,32 @@ async function ethCallUint(evmRpcUrl: string, to: string, data: string): Promise
 	return BigInt(result.result)
 }
 
-// Sums the solver's redeemable balance of a single token on its destination chain: the raw ERC-20
-// balance plus any ERC-4626 vault positions wrapping it.
-async function getTotalSolverBalance(
+/**
+ * Sums the solver's redeemable balance of a single token on one chain: the raw ERC-20 balance plus
+ * any ERC-4626 vault positions wrapping it.
+ *
+ * This is THE definition of "a solver's balance" — the periodic sweep and any per-event re-read
+ * must use it rather than a bare `balanceOf`, because simplex funds fills straight out of a vault
+ * inside the fill transaction: the wallet ends the block roughly where it started while
+ * `maxWithdraw` is what actually moved, so a wallet-only read misses such a fill entirely.
+ *
+ * `blockTag` reads the balance as of a specific block ("0x..." or a tag), so a caller replaying an
+ * event records the balance as of that event rather than stamping today's balance onto a
+ * historical row. It defaults to the chain head, which is what a periodic sweep wants.
+ */
+export async function getTotalSolverBalance(
 	evmRpcUrl: string,
 	chain: string,
 	token: string,
 	solver: string,
 	yieldVaults: YieldVaultMap,
+	blockTag = "latest",
 ): Promise<bigint> {
 	const padded = solver.replace("0x", "").padStart(64, "0")
-	const raw = await ethCallUint(evmRpcUrl, token, `0x70a08231${padded}`) // balanceOf(address)
+	const raw = await ethCallUint(evmRpcUrl, token, `0x70a08231${padded}`, blockTag) // balanceOf(address)
 	const vaults = yieldVaults[chain]?.[token.toLowerCase()] ?? []
 	const vaultBalances = await Promise.all(
-		vaults.map((v) => ethCallUint(evmRpcUrl, v, `0xce96cb77${padded}`)), // maxWithdraw(address)
+		vaults.map((v) => ethCallUint(evmRpcUrl, v, `0xce96cb77${padded}`, blockTag)), // maxWithdraw(address)
 	)
 	return vaultBalances.reduce((acc, b) => acc + b, raw)
 }
@@ -735,7 +777,7 @@ export interface UniswapV4Contracts {
 }
 
 /** Everything a declared position's contribution depends on, read once and reused across legs. */
-interface V4PositionState {
+export interface V4PositionState {
 	/** Current on-chain owner. Compared against the bid's signer, never trusted from the bid. */
 	owner: string
 	info: PoolAndPositionInfo
@@ -754,20 +796,27 @@ const uint256Arg = (value: bigint) => value.toString(16).padStart(64, "0")
  * Reads a declared position: who owns it, how much liquidity it holds, and the price its pool is
  * currently at. Null when the position does not exist — a solver may name a burned tokenId, which
  * is not an RPC failure and must not sink the run.
+ *
+ * Exported because a bid is the only place a position is ever named: a consumer that persists the
+ * tokenIds this run verified can re-value them later (at `blockTag`) with exactly these reads, and
+ * `owner` is what tells it a position has since been transferred away.
  */
-async function readV4Position(
-	evmRpcUrl: string,
-	contracts: UniswapV4Contracts,
-	tokenId: bigint,
-	keccak: (hex: HexString) => HexString,
-	logger?: AggregationLogger,
-): Promise<V4PositionState | null> {
+export async function readV4Position(params: {
+	evmRpcUrl: string
+	contracts: UniswapV4Contracts
+	tokenId: bigint
+	keccak: (hex: HexString) => HexString
+	/** Block to read at; defaults to the chain head. */
+	blockTag?: string
+	logger?: AggregationLogger
+}): Promise<V4PositionState | null> {
+	const { evmRpcUrl, contracts, tokenId, keccak, blockTag = "latest", logger } = params
 	const call = async (to: string, data: string): Promise<string | null> => {
 		const result = await rpcCall(evmRpcUrl, {
 			id: 1,
 			jsonrpc: "2.0",
 			method: "eth_call",
-			params: [{ to, data }, "latest"],
+			params: [{ to, data }, blockTag],
 		})
 		if (result.result === "0x") return null
 		if (typeof result.result !== "string") {
@@ -823,7 +872,7 @@ function memoizedV4Position(keccak: (hex: HexString) => HexString, logger?: Aggr
 		const key = `${chain}|${tokenId}`
 		let pending = cache.get(key)
 		if (!pending) {
-			pending = readV4Position(evmRpcUrl, contracts, tokenId, keccak, logger).catch((err) => {
+			pending = readV4Position({ evmRpcUrl, contracts, tokenId, keccak, logger }).catch((err) => {
 				cache.delete(key)
 				throw err
 			})
@@ -843,7 +892,16 @@ export type SolverBalanceReader = (evmRpcUrl: string, chain: string, token: stri
 // is a point-in-time read either way). Exported so a caller aggregating several orders whose bid
 // windows close on the same block (one bundled order per configured chain) can share one memo
 // across the runs instead of re-reading identical balances per order.
-export function memoizedSolverBalance(yieldVaults: YieldVaultMap): SolverBalanceReader {
+export function memoizedSolverBalance(
+	yieldVaults: YieldVaultMap,
+	/**
+	 * Block to read each chain at, keyed by state machine id; anything absent reads the head. Block
+	 * numbers are per chain, so a caller handling an event on one chain can pin that chain to the
+	 * event's block while the rest of its sweep stays at the head, where the numbers would mean
+	 * nothing.
+	 */
+	blockTags: Record<string, string> = {},
+): SolverBalanceReader {
 	const cache = new Map<string, Promise<bigint>>()
 	return (evmRpcUrl: string, chain: string, token: string, solver: string): Promise<bigint> => {
 		const key = `${chain}|${token.toLowerCase()}|${solver.toLowerCase()}`
@@ -852,7 +910,7 @@ export function memoizedSolverBalance(yieldVaults: YieldVaultMap): SolverBalance
 			// Evict on rejection. Caching a failure would make it permanent for the memo's lifetime —
 			// every retry would replay the same failed read, and a block-scoped memo would carry one
 			// blip across every order closing on that block.
-			pending = getTotalSolverBalance(evmRpcUrl, chain, token, solver, yieldVaults).catch((err) => {
+			pending = getTotalSolverBalance(evmRpcUrl, chain, token, solver, yieldVaults, blockTags[chain]).catch((err) => {
 				cache.delete(key)
 				throw err
 			})
@@ -1032,6 +1090,7 @@ async function runAggregation(
 		}
 	>()
 	const lpBalances: LpBalance[] = []
+	const verifiedPositions: SolverV4Position[] = []
 	// Bids are stored per substrate filler, but weight is a property of the EVM solver. Without this
 	// one solver's bid, copied under N funded fillers, would count N times in the weighted median.
 	const countedSolvers = new Set<string>()
@@ -1110,21 +1169,30 @@ async function runAggregation(
 			// the positions; ownership is checked against the signer here and the amounts come off
 			// the chain, so naming more, or naming someone else's, buys nothing.
 			const declaredPositions = v4Contracts ? declaration.uniswapV4Positions : []
-			const positions = (
+			const ownedPositions = (
 				await Promise.all(
-					declaredPositions.map((tokenId) => readPosition(destUrl, chain, v4Contracts!, tokenId)),
+					declaredPositions.map(async (tokenId) => ({
+						tokenId,
+						state: await readPosition(destUrl, chain, v4Contracts!, tokenId),
+					})),
 				)
-			).filter((state, index): state is V4PositionState => {
-				if (!state) return false
-				if (state.owner !== normalizedSolver) {
+			).filter((entry): entry is { tokenId: bigint; state: V4PositionState } => {
+				if (!entry.state) return false
+				if (entry.state.owner !== normalizedSolver) {
 					logger?.warn(
-						{ solver, commitment, tokenId: declaredPositions[index].toString(), owner: state.owner },
+						{ solver, commitment, tokenId: entry.tokenId.toString(), owner: entry.state.owner },
 						"Ignoring declared Uniswap V4 position: not owned by the bidding solver",
 					)
 					return false
 				}
 				return true
 			})
+			const positions = ownedPositions.map((entry) => entry.state)
+			// Reported alongside the balances so a consumer can record which positions back this
+			// solver: nothing outside a bid names them, so this is the only place they are knowable.
+			for (const entry of ownedPositions) {
+				verifiedPositions.push({ solver: normalizedSolver as HexString, chain, tokenId: entry.tokenId })
+			}
 
 			const weights = await Promise.all(
 				// Price influence: the solver's liquidity in THIS leg's output token on the destination
@@ -1212,5 +1280,5 @@ async function runAggregation(
 			]
 		})
 
-	return { legs, lpBalances }
+	return { legs, lpBalances, positions: verifiedPositions, solvers: [...countedSolvers] as HexString[] }
 }

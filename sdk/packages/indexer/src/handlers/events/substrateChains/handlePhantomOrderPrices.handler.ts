@@ -16,7 +16,7 @@ import {
 	PhantomOrderV2,
 } from "@/configs/src/types"
 import { aggregatePhantomBids } from "@hyperbridge/sdk/intents-helpers"
-import { blockBalanceReader, evmRpcUrls } from "@/utils/solverBalance"
+import { blockReaders, evmRpcUrls } from "@/utils/solverBalance"
 import {
 	bidNonceKeyVm2,
 	extractFillDataVm2,
@@ -26,6 +26,7 @@ import {
 } from "@/utils/phantom-decode"
 import { UNISWAP_V4_ADDRESSES } from "@/addresses/uniswap-v4.addresses"
 import { resolvePoolLeg, updateLiquidityPools, type AttributedLeg } from "@/services/liquidityPool.service"
+import { recordDeclaredPositions } from "@/services/solverPositions.service"
 import { readAllPages } from "@/utils/store.helpers"
 
 // Triggered by PhantomBidWindowExhausted once a phantom order's bid window closes, so every bid is
@@ -116,7 +117,7 @@ export const handlePhantomOrderPrices = wrap(async (event: SubstrateEvent): Prom
 			// ownership check are read on-chain, so the bid only points at what to look at.
 			uniswapV4: UNISWAP_V4_ADDRESSES,
 			keccak: keccakVm2,
-			getBalance: blockBalanceReader(`${host}-${blockNumber}`),
+			getBalance: blockReaders(`${host}-${blockNumber}`).getBalance,
 			logger,
 		})
 	} catch (err) {
@@ -165,6 +166,18 @@ export const handlePhantomOrderPrices = wrap(async (event: SubstrateEvent): Prom
 			snapshotTime,
 		}).save()
 	}
+
+	// What this window's bidders declared, recorded so a later fill can re-read those positions: the
+	// bid is the only place they are named. `solvers` is every verified bidder — not the ones that
+	// swept a balance or declared something, which would miss a solver holding nothing anywhere, and
+	// leave its previous declaration standing after it stopped offering those positions.
+	await recordDeclaredPositions({
+		chain: phantom.chain,
+		bidders: aggregate.solvers,
+		positions: aggregate.positions,
+		blockNumber,
+		declaredAt: snapshotTime,
+	})
 
 	// Each registered leg converted to 20-byte addresses and resolved against the registry ONCE;
 	// both the snapshot writes and the pool upsert consume this.

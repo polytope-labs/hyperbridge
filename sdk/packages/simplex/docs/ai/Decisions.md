@@ -4,6 +4,12 @@ AI-maintained record of non-obvious choices made in `sdk/packages/simplex`: what
 
 Entry format: heading with the decision, then alternatives considered and the reasoning. Newest first.
 
+## 2026-09-02 — Simplex builder errors demote to a skip reason, not a selection failure
+
+With Simplex evaluated first, every throwing path in `buildSimplexPaymasterData` (RPC failure in `selectToken`, the deliberate transport rethrow in `paymasterSupportsPermit2`, the native-dust throw in `sendFundedApprove`) would have aborted `buildPaymasterAndData` before Circle was tried — and on the bid path (`prepareBidUserOp` → `submitBid`, which has no catch until `executeOrder`) that loses the bid. The Simplex builder call is now wrapped in try/catch: a failure logs a warn, lands in `skipReasons` as `simplex: <message>`, and selection falls through to Circle. The deposit gate stays outside the catch — it already fails open internally. `tokenSupportsPermit` also now separates contract reverts from transport errors exactly like `paymasterSupportsPermit2`, so an RPC blip surfaces (and demotes to Circle) instead of masquerading as "no permit" and routing a fresh solver into a native-funded `approve(Permit2, max)` mid-bid.
+
+Review finding on rundler's 0.4 verification-efficiency floor (Circle-tuned `paymasterVerificationGasLimit` overrides no longer applying when Simplex wins) was assessed and left as-is: the claimed 99k/310k ≈ 0.32 holds the usage numerator constant across paymasters, but ~75k of it is Circle's own validation — Simplex PERMIT mode executes the permit during validation (~113k+), putting the ratio near 0.44. No measured actual-usage figure exists for Simplex modes; a floor rejection degrades to a native tx with a "Bundler rejected UserOp" warn, so this is monitored rather than pre-emptively retuned.
+
 ## 2026-09-02 — Paymaster preference order: Simplex before Circle
 
 `buildPaymasterAndData` now evaluates the Simplex paymaster first and falls through to Circle, inverting the original Circle-first order (which had no recorded rationale). Simplex is the in-house paymaster: it accepts USDC or USDT (Circle is USDC-only), its fees recycle back through the keeper, and preferring it keeps sponsorship on infrastructure we operate. Circle remains the fallback for chains where Simplex is unconfigured (e.g. Optimism) or its deposit/balances fail the gate.

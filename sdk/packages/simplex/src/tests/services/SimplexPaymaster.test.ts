@@ -75,6 +75,8 @@ function mockClient(opts: {
 	permit2Capable?: boolean
 	/** Set false to make PERMIT2() throw a transport (non-contract) error. */
 	permit2Transport?: boolean
+	/** Set true to make the token's version() probe throw a transport error. */
+	permitTransport?: boolean
 }): PublicClient {
 	return {
 		readContract: async ({ functionName, args }: { functionName: string; args?: unknown[] }) => {
@@ -118,8 +120,28 @@ function mockClient(opts: {
 					return opts.paymasterAllowance ?? 0n
 				}
 				case "version":
+					if (opts.permitTransport) {
+						throw new ContractFunctionExecutionError(
+							new HttpRequestError({
+								url: "https://rpc.example",
+								status: 429,
+								details: "Too Many Requests",
+							}),
+							{ abi: [], functionName: "version" } as never,
+						)
+					}
 					if (opts.permit) return "2"
-					throw new Error("no version()")
+					// A token without version() reverts the read; viem wraps it the same
+					// way as the PERMIT2 probe above, and only the revert in the cause
+					// chain lets tokenSupportsPermit treat it as "no permit".
+					throw new ContractFunctionExecutionError(
+						new ContractFunctionRevertedError({
+							abi: [],
+							functionName: "version",
+							message: "execution reverted",
+						}),
+						{ abi: [], functionName: "version" } as never,
+					)
 				case "name":
 					return "USD Coin"
 				case "nonces":
@@ -331,6 +353,27 @@ describe("buildSimplexPaymasterData mode selection (no-permit token)", () => {
 		)
 		expect(retryWrite).not.toHaveBeenCalled()
 		expect(slice(pm!.paymasterData, 0, 1)).toBe("0x02")
+	})
+
+	it("propagates a transport error from the token permit probe rather than treating it as no-permit", async () => {
+		const { walletClient, writeContract } = mockWalletClient()
+
+		// A 429/timeout on version() must not masquerade as "token has no permit" —
+		// that would route a fresh solver into a native-funded approve(Permit2, max)
+		// instead of the txless PERMIT mode a healthy probe would have picked.
+		await expect(
+			buildSimplexPaymasterData(
+				mockClient({ permitTransport: true, native: 10n ** 18n }),
+				walletClient,
+				mockSigner().signer,
+				SOLVER,
+				PAYMASTER,
+				CHAIN,
+				configService,
+				{ skipPermit: false },
+			),
+		).rejects.toThrow(/HTTP request failed/)
+		expect(writeContract).not.toHaveBeenCalled()
 	})
 
 	it("falls back to the capped approve(paymaster) bootstrap on chains without Permit2", async () => {

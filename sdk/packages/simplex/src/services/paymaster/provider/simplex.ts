@@ -454,7 +454,15 @@ async function tokenSupportsPermit(client: PublicClient, tokenAddress: HexString
 			functionName: "version",
 		})
 		return true
-	} catch {
-		return false
+	} catch (error) {
+		// Same discrimination as paymasterSupportsPermit2: only a contract revert /
+		// empty return proves the token has no version() — a transport error must
+		// propagate, or a 429 would masquerade as "no permit" and route a fresh
+		// solver into a native-funded Permit2 max approve.
+		const isRevert =
+			error instanceof BaseError &&
+			error.walk((e) => e instanceof ContractFunctionRevertedError || e instanceof ContractFunctionZeroDataError)
+		if (isRevert) return false
+		throw error
 	}
 }

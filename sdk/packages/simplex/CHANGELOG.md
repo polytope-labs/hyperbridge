@@ -5,6 +5,7 @@
 ### Patch Changes
 
 - Paymaster selection now prefers the Simplex paymaster and falls back to Circle, inverting the previous Circle-first order. Simplex accepts USDC or USDT and its fees recycle through the keeper; Circle remains the fallback where Simplex is unconfigured or fails the deposit/balance gates. Circle-specific `paymasterVerificationGasLimit` overrides now only apply when Circle is the selected paymaster.
+- A Simplex builder failure (RPC error, bootstrap approve failure, missing native dust) now demotes Simplex to a skip reason and falls through to Circle instead of aborting selection, and the token permit probe no longer treats transport errors as "no permit support".
 
 ## 0.12.2
 

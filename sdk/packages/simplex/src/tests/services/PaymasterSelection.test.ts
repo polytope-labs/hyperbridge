@@ -115,6 +115,23 @@ describe("buildPaymasterAndData deposit-aware selection", () => {
 		expect(logger.warn).toHaveBeenCalledOnce()
 	})
 
+	it("falls through to Circle when the Simplex builder throws", async () => {
+		vi.mocked(buildSimplexPaymasterData).mockRejectedValueOnce(new Error("SimplexPaymaster needs a one-time funded approval"))
+		const logger = { warn: vi.fn() }
+		const result = await buildPaymasterAndData(options(client({}), { logger }))
+		expect(result.type).toBe("circle")
+		expect(result.address).toBe(CIRCLE)
+		expect(logger.warn).toHaveBeenCalledOnce()
+	})
+
+	it("returns none carrying the thrown reason when Circle is also ineligible", async () => {
+		vi.mocked(buildSimplexPaymasterData).mockRejectedValueOnce(new Error("rpc down"))
+		const result = await buildPaymasterAndData(options(client({ solverUsdc: 0n })))
+		expect(result.type).toBe("none")
+		expect(result.reason).toContain("simplex: rpc down")
+		expect(result.reason).toContain("circle: solver USDC balance 0 < 1000000")
+	})
+
 	it("falls through to Circle when Simplex has no eligible stablecoin", async () => {
 		vi.mocked(buildSimplexPaymasterData).mockResolvedValueOnce(null)
 		const result = await buildPaymasterAndData(options(client({})))

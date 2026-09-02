@@ -68,25 +68,34 @@ export async function buildPaymasterAndData(options: PaymasterOptions): Promise<
 			"simplex",
 		)
 		if (!shortfall) {
-			const pm = await buildSimplexPaymasterData(
-				publicClient,
-				walletClient,
-				signer,
-				solverAccount,
-				simplexAddr,
-				chain,
-				configService,
-				{ skipPermit },
-			)
-			if (pm) {
-				return {
-					paymasterAndData: packPaymasterAndData(pm),
-					type: "simplex",
-					address: simplexAddr,
-					token: pm.token,
+			// A builder failure (RPC error, bootstrap approve revert, missing native
+			// dust) demotes Simplex to a skip reason instead of aborting selection —
+			// Circle must still get its chance.
+			try {
+				const pm = await buildSimplexPaymasterData(
+					publicClient,
+					walletClient,
+					signer,
+					solverAccount,
+					simplexAddr,
+					chain,
+					configService,
+					{ skipPermit },
+				)
+				if (pm) {
+					return {
+						paymasterAndData: packPaymasterAndData(pm),
+						type: "simplex",
+						address: simplexAddr,
+						token: pm.token,
+					}
 				}
+				skipReasons.push("simplex: insufficient stablecoin balance")
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error)
+				options.logger?.warn({ chain, error }, "Simplex paymaster builder failed; trying next candidate")
+				skipReasons.push(`simplex: ${message}`)
 			}
-			skipReasons.push("simplex: insufficient stablecoin balance")
 		} else {
 			skipReasons.push(shortfall)
 		}

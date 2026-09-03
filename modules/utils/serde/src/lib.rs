@@ -756,6 +756,7 @@ mod test {
 		assert_eq!(strings, expected);
 		assert_eq!(integers, expected);
 		assert_eq!(wrapped, expected);
+	}
 
 	// `as_utf8_string` deserializes into a fixed `[u8; 4]`. It used to `copy_from_slice`
 	// straight from the input, which panics on any length mismatch — and it runs on

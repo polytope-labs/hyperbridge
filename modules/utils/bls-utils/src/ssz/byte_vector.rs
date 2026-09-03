@@ -204,6 +204,8 @@ impl From<&ByteVector<ssz_types::typenum::U32>> for tree_hash::Hash256 {
 impl From<ByteVector<ssz_types::typenum::U32>> for tree_hash::Hash256 {
 	fn from(bytes: ByteVector<ssz_types::typenum::U32>) -> Self {
 		tree_hash::Hash256::from_slice(bytes.as_ref())
+	}
+}
 
 #[cfg(test)]
 mod decode_length_tests {

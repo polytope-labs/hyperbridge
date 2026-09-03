@@ -175,7 +175,6 @@ export function MarketRow(props: {
 					<input
 						type="text"
 						value={pair.maxOrderSize}
-						placeholder="uncapped"
 						onChange={(e) => onPatch({ maxOrderSize: e.target.value })}
 					/>
 				</label>

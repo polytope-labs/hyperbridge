@@ -196,7 +196,12 @@ export function Operator(props: { status: StatusOperator; refresh: () => void })
 					{tab === "activity" ? <Activity /> : null}
 					{tab === "wallet" ? <Wallet chainLabels={status.chainLabels} /> : null}
 					{tab === "operations" ? (
-						<Operations chains={status.chains} chainLabels={status.chainLabels} />
+						<Operations
+							chains={status.chains}
+							chainLabels={status.chainLabels}
+							balances={balances}
+							onBalancesChanged={load}
+						/>
 					) : null}
 					{(error ?? loadError) ? <p className="error">{error ?? loadError}</p> : null}
 				</main>

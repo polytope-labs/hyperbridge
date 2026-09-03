@@ -4,6 +4,128 @@ AI-maintained record of non-obvious choices made in `sdk/packages/simplex`: what
 
 Entry format: heading with the decision, then alternatives considered and the reasoning. Newest first.
 
+## 2026-09-03 — Send funds reuses the canonical balance snapshot
+
+Chosen: pass the dashboard's already-polled `BalanceSnapshot` into Operations and derive the selected
+asset display by chain plus token address. ERC-20 sends show `available`, which accounts for the wallet
+reserve and currently withdrawable vault assets; native sends show the chain's native wallet amount.
+Unknown custom tokens and failed reads show Unavailable instead of an inferred zero. Refresh the shared
+snapshot after a successful send rather than introducing a second polling loop in the drawer.
+
+Alternative rejected: fetching balances independently in `SendCard` would duplicate polling and allow
+the drawer to disagree with the dashboard; displaying `total` would include vault ownership that may
+not currently be withdrawable and would overstate operational liquidity.
+
+## 2026-09-03 — Remove BSC native-gas messaging from every Simplex UI surface
+
+Chosen: remove the shared chain-note field and its warning renderers from setup and operator chain
+screens, and make the setup review use paymaster coverage without a BNB exception. The CLI funding
+help remains unchanged because this request targets the Simplex UI.
+
+Alternative rejected: hiding only the onboarding warning would leave the same obsolete message in
+operator settings or review, which is inconsistent now that BSC has a paymaster.
+
+## 2026-09-03 — Drive operator sheet motion from Radix state
+
+Chosen: keep `components/ui/Sheet.tsx` as the shared shadcn-style sheet composition over Radix Dialog,
+and bind its panel and overlay animations to Radix's `data-state="open"` and `data-state="closed"`.
+This lets Radix retain the portal until the close animation finishes, gives every operator drawer the
+same full-width slide and overlay fade, and preserves the native focus trap, Escape handling, outside
+click behavior, and accessibility semantics. Reduced-motion preferences disable both animations.
+
+Alternative rejected: the previous unconditional mount animation could only animate opening and
+moved the panel just two rem instead of from off canvas, so closing felt like an abrupt unmount.
+Replacing Radix with a second drawer dependency would duplicate an existing shadcn-compatible
+primitive without improving the right-side sheet interaction.
+
+## 2026-09-03 — Show configured prices without inventing venue prices
+
+Chosen: derive buy and sell labels from the first valid bid and ask curve points already present in
+the operator strategy DTO, and include the `token1/token0` unit. Hide a side when it has no valid
+configured curve, and hide all values for venue-priced or reference-only markets because the list API
+does not provide a live venue quote.
+
+Alternative rejected: displaying a zero, dash, or stale-looking value for missing/venue prices would
+imply a quote the operator list cannot substantiate.
+
+## 2026-09-03 — Seed a second stablecoin quote for CNGN
+
+Chosen: the web setup wizard seeds USDC/CNGN first and USDT/CNGN second when both CNGN and USDT are
+available. The shared draft factory accepts an optional quote symbol, while its existing USDC default
+keeps newly created markets unchanged. If the catalog does not expose CNGN or USDT, setup keeps the
+single-market fallback rather than creating a pair that cannot resolve on the selected chains.
+
+Alternative rejected: seeding USDT against whichever non-stable token happens to sort first would make
+the default vary by network and could silently produce an unintended market.
+
+## 2026-09-03 — Make setup market rows summarize prices instead of order limits
+
+Chosen: after a Buy or Sell curve has a configured point, show its first configured price in the
+market row with the shared `token1/token0` unit. Hide the maximum-order summary from the row while
+keeping the cap field in the Configure editor, so the list emphasizes the market's pricing behavior
+without removing risk controls.
+
+Alternatives rejected: showing every curve breakpoint would make a compact row behave like an editor;
+showing a price before both amount and value are present would expose incomplete input while the user
+is typing. Reference-only feeds and venue-priced markets have no Buy/Sell curve summary to render.
+
+## 2026-09-03 — Operator market drawers use an open editorial hierarchy
+
+Chosen: keep the market drawer wide, but organize it vertically by operator task: market identity,
+order risk, pricing directions, then commit or delete actions. Those regions remain visually open and
+use typography, whitespace, and single hairline separators—the same language as onboarding—instead
+of nested cards, pills, or dashed callout boxes. Each direction uses the full width; its quiet chart
+canvas and editable points sit side by side on desktop and stack only when the drawer is narrow.
+Shared sheet padding provides consistent separation after every drawer header, while market-specific
+styling remains scoped under `operator-market-editor`.
+
+Alternatives rejected: placing explanatory copy, input, and save action in one three-column row
+created uneven baselines and made the help text compete with the control; keeping two direction
+columns left a one-sided market stranded in half an otherwise empty drawer; wrapping every task in a
+rounded surface produced a repetitive, box-heavy hierarchy; solving spacing only in the market
+component would leave other operator drawers flush against the shared header.
+
+## 2026-09-03 — New web markets default to no order cap
+
+Chosen: initialize the operator and setup-wizard maximum-order fields as empty strings. Both web paths
+already omit blank `maxOrderSize` values when assembling or persisting a market, and the config model
+defines an omitted cap as uncapped. Existing markets retain their configured limits.
+
+Alternative rejected: keeping a numeric default would silently impose an exposure limit on every new
+market, despite the field being optional.
+
+## 2026-09-03 — Keep BSC paymaster guidance out of network selection
+
+Chosen: remove the BSC and BSC Chapel `note` values from the shared initialization catalog. The web
+onboarding chain step renders those values as a native-gas warning, and that stale paymaster caveat is
+not needed while selecting networks. Keep the separate review and CLI funding guidance because this
+change is presentation-only.
+
+Alternative rejected: changing paymaster selection or native-gas funding logic would broaden a small
+onboarding copy fix into runtime behavior.
+
+## 2026-09-03 — Token balance cards emphasize usable liquidity without hiding ownership
+
+Chosen: reuse the existing `TokenIcon` asset mapping in each dashboard balance card and give total,
+wallet, vault, and available-to-fill values distinct visual roles. Token-specific accents aid
+scanning, while partial and unavailable cards switch to the warning treatment. Native gas belongs in
+the network header because it funds the chain rather than representing fill inventory.
+
+Alternative rejected: using token tickers alone makes a multi-asset dashboard harder to scan;
+presenting wallet, vault, and available values with equal prominence repeats the ambiguity that led
+operators to question whether vault funds were included.
+
+## 2026-09-03 — Keep delegation failure fatal, but make setup recovery actionable
+
+Chosen: preserve the filler's failed-start state when EIP-7702 delegation fails on every enabled
+chain, while translating the internal chain identifiers and restart wording into network labels and
+checks the operator can perform: stablecoin funding, RPC/bundler availability, retry, and image
+version. The configuration remains saved and the primary action becomes Retry startup.
+
+Alternative rejected: entering the dashboard after every delegation attempt fails would present an
+apparently healthy solver that cannot bid. Showing only the internal shutdown message was also
+rejected because the browser setup process remains available for recovery and needs actionable copy.
+
 ## 2026-09-03 — Dashboard liquidity distinguishes ownership from immediate availability
 
 Chosen: expose the funding planner's hydrated ERC-4626 state through a narrow read-only snapshot and

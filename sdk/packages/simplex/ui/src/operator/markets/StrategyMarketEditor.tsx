@@ -1,4 +1,5 @@
 import { CurveEditor } from "../../components/CurveEditor"
+import { TokenIcon, TokenPairIcons } from "../../components/TokenIcon"
 import type { AdminStrategyDto } from "../../types"
 import { useStrategyEditor } from "./useStrategyEditor"
 
@@ -11,104 +12,107 @@ export function StrategyMarketEditor(props: {
 	const { strategy, onApplied, removable, hasVaults } = props
 	const editor = useStrategyEditor({ strategy, onApplied, hasVaults })
 	const { draft, status, token0, token1 } = editor
+	const hasBid = Boolean(strategy.bid || draft.enableBid)
+	const hasAsk = Boolean(strategy.ask || draft.enableAsk)
+	const directionLabel = hasBid && hasAsk ? "Two-way market" : hasBid ? "Buy side only" : "Sell side only"
 
 	if (strategy.pricingMode === "venue") {
 		return (
 			<section className="market-editor operator-market-editor">
-				<div className="market-editor-heading">
+				<div className="operator-market-summary operator-market-summary-venue">
 					<div>
 						<span className="markets-kicker">Uniswap V4 pricing</span>
 						<h3>{editor.title}</h3>
+						<p>Rates follow the configured on-chain liquidity position.</p>
 					</div>
 				</div>
-				<p className="market-editor-note">
-					Prices come from the configured on-chain position and cannot be edited here.
-				</p>
 			</section>
 		)
 	}
 
 	return (
 		<section className="market-editor operator-market-editor">
-			<div className="market-editor-heading">
+			<div className="operator-market-summary">
+				<TokenPairIcons tokenA={token0} tokenB={token1} />
 				<div>
-					<span className="markets-kicker">Live market</span>
-					<h3>{editor.title}</h3>
-				</div>
-			</div>
-			{strategy.sameToken ? (
-				<p className="hint">
-					Ask-only: the price is the fraction of the input paid back out. Keep every point strictly below 1 —
-					the gap to 1 is the spread on each fill.
-				</p>
-			) : null}
-			{strategy.referenceOnly ? (
-				<p className="hint">
-					Price feed only: edits update the USD anchor rate for confirmation sizing. This market never fills
-					orders.
-				</p>
-			) : null}
-			{!strategy.sameToken && !strategy.referenceOnly ? (
-				<p className="hint">
-					Prices are {token1} per {token0}: the bid is the {token1} you receive per {token0} paid out when
-					buying, the ask is the {token1} you pay out per {token0} received when selling. Keep the bid above
-					the ask everywhere — the gap is your spread. Delete every point on a side and Apply to close that
-					direction (one-sided LP).
-				</p>
-			) : null}
-			{editor.crossedAt !== null ? (
-				<p className="hint">
-					⚠ The book is crossed at order size {editor.crossedAt} (bid at or below ask) — both sides still
-					fill at their own curve, but a full round trip at these prices loses money. Leave it only if
-					deliberate.
-				</p>
-			) : null}
-			{!strategy.referenceOnly ? (
-				<div className="market-asset-grid operator-market-cap-editor">
-					<label className="field market-limit-field">
-						<span>Maximum order in {token0} [Optional]</span>
-						<input
-							type="text"
-							value={draft.maxOrderSize}
-							placeholder="uncapped"
-							onChange={(event) => editor.patch({ maxOrderSize: event.target.value })}
-						/>
-					</label>
-					<button
-						type="button"
-						disabled={!editor.capChanged || status.busy}
-						onClick={editor.applyMaxOrderSize}
-					>
-						{editor.capCleared ? "Remove cap" : "Save cap"}
-					</button>
-					<span className="market-editor-note">
-						Per-order cap on the {token0} notional — orders needing more than the cap allows are skipped.
-						Leave it empty to remove the cap and fill every order at its full notional. Either change binds
-						from the next order.
+					<span className="markets-kicker">
+						{strategy.referenceOnly ? "Reference pricing" : "Manual pricing"}
 					</span>
-				</div>
-			) : null}
-			<div className="market-curves">
-				<div className="market-pricing-heading">
-					<div>
-						<span className="markets-kicker">Price settings</span>
-						<h3>Set a price for each direction</h3>
-					</div>
-					<p className="market-editor-note">
-						Rates are shown as {token1} per {token0}.
+					<h3>{token1} per {token0}</h3>
+					<p>
+						{strategy.sameToken
+							? "Keep every return below 1; the difference is the spread earned on each fill."
+							: strategy.referenceOnly
+								? "This rate anchors confirmation sizing and does not fill customer orders."
+								: `The buy rate is ${token1} received by Simplex; the sell rate is ${token1} paid out. Keep buy above sell to preserve your spread.`}
 					</p>
 				</div>
+				<span className="operator-market-side-status">{directionLabel}</span>
+			</div>
+			{editor.crossedAt !== null ? (
+				<div className="operator-market-warning" role="alert">
+					<strong>Spread crosses at order size {editor.crossedAt}</strong>
+					<span>The buy rate is at or below the sell rate, so a round trip at this size loses money.</span>
+				</div>
+			) : null}
+			{!strategy.referenceOnly ? (
+				<section className="operator-market-panel operator-market-cap-panel" aria-labelledby="order-limit-title">
+					<header className="operator-market-panel-heading">
+						<div>
+							<span className="markets-kicker">Risk limit</span>
+							<h3 id="order-limit-title">Maximum order size</h3>
+						</div>
+						<span className="operator-market-panel-value">
+							{editor.capCleared ? "No limit" : `${draft.maxOrderSize} ${token0}`}
+						</span>
+					</header>
+					<p className="operator-market-panel-description">
+						Orders above this {token0} amount are skipped. Leave the field empty to accept orders of any size.
+					</p>
+					<div className="operator-market-cap-controls">
+						<label className="field market-limit-field">
+							<span>Amount in {token0} <small>Optional</small></span>
+							<input
+								type="text"
+								value={draft.maxOrderSize}
+								placeholder="No limit"
+								onChange={(event) => editor.patch({ maxOrderSize: event.target.value })}
+							/>
+						</label>
+						<button
+							type="button"
+							className="secondary"
+							disabled={!editor.capChanged || status.busy}
+							onClick={editor.applyMaxOrderSize}
+						>
+							{editor.capCleared ? "Remove limit" : "Save limit"}
+						</button>
+					</div>
+				</section>
+			) : null}
+			<section className="operator-market-panel operator-market-pricing-panel" aria-labelledby="pricing-title">
+				<header className="operator-market-panel-heading">
+					<div>
+						<span className="markets-kicker">Price settings</span>
+						<h3 id="pricing-title">Set a price for each direction</h3>
+					</div>
+					<span className="operator-market-panel-value">{token1} per {token0}</span>
+				</header>
 				<div className="market-curve-grid">
-					{strategy.bid || draft.enableBid ? (
+					{hasBid ? (
 						<section className="market-curve">
-							<div className="market-curve-toggle">
-								<span>
-									<strong>Simplex buys {token1}</strong>
-									<small>
-										Customers send {token1} and receive {token0}.
-									</small>
+							<header className="market-curve-toggle">
+								<span className="operator-market-direction-icon">
+									<TokenIcon symbol={token1} size="md" />
 								</span>
-							</div>
+								<span className="operator-market-direction-copy">
+									<small>Buy side</small>
+									<strong>Simplex buys {token1}</strong>
+									<p>
+										Customers send {token1} and receive {token0}.
+									</p>
+								</span>
+							</header>
 							<CurveEditor
 								points={draft.bid}
 								onChange={(bid) => editor.patch({ bid })}
@@ -118,20 +122,24 @@ export function StrategyMarketEditor(props: {
 							/>
 						</section>
 					) : null}
-					{strategy.ask || draft.enableAsk ? (
+					{hasAsk ? (
 						<section className="market-curve">
-							<div className="market-curve-toggle">
-								<span>
+							<header className="market-curve-toggle">
+								<span className="operator-market-direction-icon">
+									<TokenIcon symbol={token1} size="md" />
+								</span>
+								<span className="operator-market-direction-copy">
+									<small>{strategy.sameToken ? "Delivery side" : "Sell side"}</small>
 									<strong>
 										{strategy.sameToken ? `Deliver ${token0}` : `Simplex sells ${token1}`}
 									</strong>
-									<small>
+									<p>
 										{strategy.sameToken
 											? "Keep the return below 1; the difference is your spread."
 											: `Customers send ${token0} and receive ${token1}.`}
-									</small>
+									</p>
 								</span>
-							</div>
+							</header>
 							<CurveEditor
 								points={draft.ask}
 								onChange={(ask) => editor.patch({ ask })}
@@ -142,27 +150,38 @@ export function StrategyMarketEditor(props: {
 						</section>
 					) : null}
 				</div>
-			</div>
-			{!strategy.sameToken && !strategy.referenceOnly && !strategy.bid && !draft.enableBid ? (
-				<button
-					type="button"
-					onClick={() => editor.patch({ bid: [{ amount: "1", value: "" }], enableBid: true })}
-				>
-					Enable bid side (one-sided LP → both directions)
-				</button>
-			) : null}
-			{!strategy.sameToken && !strategy.referenceOnly && !strategy.ask && !draft.enableAsk ? (
-				<button
-					type="button"
-					onClick={() => editor.patch({ ask: [{ amount: "1", value: "" }], enableAsk: true })}
-				>
-					Enable ask side (one-sided LP → both directions)
-				</button>
-			) : null}
+				{!strategy.sameToken && !strategy.referenceOnly && !hasBid ? (
+					<div className="operator-market-add-side">
+						<div>
+							<strong>Buy side is off</strong>
+							<span>Add a buy curve to quote this market in both directions.</span>
+						</div>
+						<button
+							type="button"
+							className="secondary"
+							onClick={() => editor.patch({ bid: [{ amount: "1", value: "" }], enableBid: true })}
+						>
+							Add buy side
+						</button>
+					</div>
+				) : null}
+				{!strategy.sameToken && !strategy.referenceOnly && !hasAsk ? (
+					<div className="operator-market-add-side">
+						<div>
+							<strong>Sell side is off</strong>
+							<span>Add a sell curve to quote this market in both directions.</span>
+						</div>
+						<button
+							type="button"
+							className="secondary"
+							onClick={() => editor.patch({ ask: [{ amount: "1", value: "" }], enableAsk: true })}
+						>
+							Add sell side
+						</button>
+					</div>
+				) : null}
+			</section>
 			<div className="operator-market-actions">
-				<button type="button" className="primary" onClick={editor.applyCurves} disabled={status.busy}>
-					{status.busy ? "Applying…" : "Apply"}
-				</button>
 				{removable ? (
 					<button
 						type="button"
@@ -173,8 +192,13 @@ export function StrategyMarketEditor(props: {
 						Stop and delete market
 					</button>
 				) : null}
-				{status.message ? <span className="badge ok">{status.message}</span> : null}
-				{status.error ? <span className="badge err">{status.error}</span> : null}
+				<div className="operator-market-action-status" aria-live="polite">
+					{status.message ? <span className="badge ok">{status.message}</span> : null}
+					{status.error ? <span className="badge err">{status.error}</span> : null}
+				</div>
+				<button type="button" className="primary" onClick={editor.applyCurves} disabled={status.busy}>
+					{status.busy ? "Applying…" : "Apply price changes"}
+				</button>
 			</div>
 		</section>
 	)

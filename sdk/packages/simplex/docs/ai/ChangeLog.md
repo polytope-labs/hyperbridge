@@ -12,6 +12,110 @@ Files: list of files touched.
 
 Newest entries first.
 
+## 2026-09-03 — Show selected-asset liquidity in Send funds
+
+The Send funds form now displays the selected chain and asset's available balance beside the Amount
+label. ERC-20 values reuse the canonical wallet-reserve and vault-aware balance snapshot, native gas
+uses the chain's native balance, unavailable reads remain explicit, and a successful transfer triggers
+an immediate dashboard refresh.
+
+Files: `ui/src/operator/{Operator,Operations}.tsx`, `ui/src/styles/operator.css`, and
+`docs/ai/{ChangeLog,Decisions,Flow}.md`.
+
+## 2026-09-03 — Remove obsolete BSC gas warnings from the Simplex UI
+
+Removed the chain-card warning renderer from setup and operator network screens, deleted the obsolete
+chain-note metadata, and removed the BNB-specific native-gas text from the setup review. BSC paymaster
+support is now represented consistently throughout the Simplex UI; runtime paymaster behavior is
+unchanged.
+
+Files: `src/cli/init/chains.ts`, `ui/src/{operator/Chains.tsx,wizard/steps/{Chains,Review}.tsx}`, and
+`docs/ai/{ChangeLog,Decisions,Flow}.md`.
+
+## 2026-09-03 — Give the shared operator sheet complete motion
+
+Kept the shared shadcn-style Radix sheet used by every operator drawer and replaced its mount-only
+effect with state-aware motion. The panel now enters from fully off canvas, exits before Radix removes
+the portal, and coordinates both directions with an overlay fade; reduced-motion users receive the
+same state change without animation.
+
+Files: `ui/src/styles/operator.css` and `docs/ai/{ChangeLog,Decisions,Flow}.md`.
+
+## 2026-09-03 — Show current market prices in the operator list
+
+Operator market rows now show the first valid configured buy and sell prices with their price unit.
+Missing sides, venue-priced markets, and reference-only entries remain free of fabricated values; the
+underlying market data and pricing behavior are unchanged.
+
+Files: `ui/src/operator/OperatorMarkets.tsx`, `ui/src/styles/{operator,responsive}.css`, and
+`docs/ai/{ChangeLog,Decisions,Flow}.md`.
+
+## 2026-09-03 — Seed USDC and USDT markets for CNGN
+
+The setup wizard now seeds both USDC/CNGN and USDT/CNGN markets when CNGN and USDT are available in
+the selected network's token catalog. Networks without that catalog combination retain the existing
+single-market default, and user-created or existing markets are unchanged.
+
+Files: `ui/src/wizard/state.ts`, `ui/src/wizard/strategies/useStrategiesModel.ts`, and
+`docs/ai/{ChangeLog,Decisions,Flow}.md`.
+
+## 2026-09-03 — Recompose operator market drawers
+
+Reworked the shared drawer spacing and live-market editor around the onboarding UI's open editorial
+hierarchy. Market identity, risk limits, pricing directions, and actions now flow as flat sections
+separated by restrained rules instead of nested cards; only the price chart retains a quiet visual
+canvas. Order-limit controls align on one baseline, each direction uses the full width, previews and
+point inputs share a balanced desktop row, and disabled sides use an inline action. Create-market and
+standard operator drawers inherit the same header spacing and overflow-safe shell.
+
+Files: `ui/src/operator/markets/StrategyMarketEditor.tsx`,
+`ui/src/styles/{operator,responsive}.css`, and `docs/ai/{ChangeLog,Decisions,Flow}.md`.
+
+## 2026-09-03 — Make new web markets uncapped by default
+
+New markets created from the operator form or setup wizard now leave the optional maximum-order field
+blank, which emits no `maxOrderSize` and therefore creates an uncapped market.
+
+Files: `ui/src/operator/markets/{CreateMarketForm.tsx,useCreateMarket.ts}`, `ui/src/wizard/state.ts`, and
+`docs/ai/{ChangeLog,Decisions,Flow}.md`.
+
+## 2026-09-03 — Show configured market prices in setup summaries
+
+Updated setup-wizard market rows to show the first configured Buy and Sell prices, including their
+`token1/token0` unit, as soon as either curve has a value. The order-cap summary was removed from the
+row while the cap input remains available in the Configure editor.
+
+Files: `ui/src/wizard/steps/Strategies.tsx`, `ui/src/styles/{markets,responsive}.css`, and
+`docs/ai/{ChangeLog,Decisions,Flow}.md`.
+
+## 2026-09-03 — Remove the BSC paymaster warning from network setup
+
+Removed the stale BSC and BSC Chapel paymaster caveats from the onboarding chain catalog so selecting
+those networks no longer displays the native-gas warning in the network setup step. Runtime and review
+funding behavior remain unchanged.
+
+Files: `src/cli/init/chains.ts` and `docs/ai/{ChangeLog,Decisions,Flow}.md`.
+
+## 2026-09-03 — Improve dashboard token balance cards
+
+Reworked each network's token balances into image-led cards using the existing Simplex token asset
+library. The new hierarchy separates total ownership from wallet and vault balances, highlights the
+amount currently available to fill, and keeps partial or unavailable data visibly distinct without
+presenting it as zero. Network gas remains visible in a compact network header.
+
+Files: `ui/src/operator/OperatorOverview.tsx`, `ui/src/styles/{operator,responsive}.css`, and
+`docs/ai/{ChangeLog,Decisions,Flow}.md`.
+
+## 2026-09-03 — Clarify setup delegation failures
+
+Setup now translates the internal all-chain EIP-7702 shutdown message into network-aware funding,
+RPC/bundler, retry, and image-version guidance while retaining raw messages for unrelated startup
+failures. The failed-state action is labelled Retry startup and makes clear that the configuration
+was already saved.
+
+Files: `ui/src/wizard/startError.ts`, `ui/src/wizard/steps/Review.tsx`,
+`src/tests/setup-completion.test.ts`, and `docs/ai/{ChangeLog,Decisions,Flow}.md`.
+
 ## 2026-09-03 — Installable offline UI and complete dashboard liquidity accounting
 
 Made the Simplex UI installable as a desktop PWA with a manifest, branded FX icons, an offline app

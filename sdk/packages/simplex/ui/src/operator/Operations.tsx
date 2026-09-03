@@ -9,9 +9,14 @@ import { VaultRowsEditor } from "../components/VaultRowsEditor"
 import { Chains } from "./Chains"
 import { useAction, usePolling } from "../lib/hooks"
 import { vaultRowsToToml, type VaultRowDraft } from "../lib/vault-rows"
-import type { ConfigDto, SendTokenOption } from "../types"
+import type { BalanceSnapshot, ConfigDto, SendTokenOption } from "../types"
 
-export function Operations(props: { chains: number[]; chainLabels?: Record<string, string> }) {
+export function Operations(props: {
+	chains: number[]
+	chainLabels?: Record<string, string>
+	balances?: BalanceSnapshot
+	onBalancesChanged: () => Promise<void> | void
+}) {
 	const [config, setConfig] = useState<ConfigDto>()
 	const [allowlist, setAllowlist] = useState<string[]>([])
 	const [vaultRows, setVaultRows] = useState<VaultRowDraft[]>()
@@ -104,7 +109,13 @@ export function Operations(props: { chains: number[]; chainLabels?: Record<strin
 				title="Send funds"
 				description="Transfer assets from the filler wallet. Confirm the recipient and network carefully."
 			>
-				<SendCard chains={props.chains} chainLabel={chainLabel} sendTokens={config?.sendTokens} />
+				<SendCard
+					chains={props.chains}
+					chainLabel={chainLabel}
+					sendTokens={config?.sendTokens}
+					balances={props.balances}
+					onSent={props.onBalancesChanged}
+				/>
 			</OperatorSheet>
 
 			<OperatorSheet
@@ -117,7 +128,8 @@ export function Operations(props: { chains: number[]; chainLabels?: Record<strin
 				<div className="operator-panel-form">
 					<h2>Vault treasury</h2>
 					<p className="hint">
-						ERC-4626 vaults per chain (one per asset). Threshold and min balance are USD-denominated. Edits
+						ERC-4626 vaults per chain (one per asset). Threshold and min balance use each vault's underlying token.
+						Edits
 						re-hydrate the running venue{config && !config.vaultConfigured && " after a restart"} and are
 						saved to the config.
 					</p>
@@ -213,6 +225,8 @@ function SendCard(props: {
 	chains: number[]
 	chainLabel: (id: number | string) => string
 	sendTokens?: Record<string, SendTokenOption[]>
+	balances?: BalanceSnapshot
+	onSent: () => Promise<void> | void
 }) {
 	const [chain, setChain] = useState<string>()
 	const [token, setToken] = useState("native")
@@ -228,6 +242,7 @@ function SendCard(props: {
 	const tokenAddress = token === "custom" ? customToken.trim() : token
 	const selected = options.find((o) => o.address === token)
 	const symbol = selected?.symbol ?? (token === "custom" ? "tokens" : token)
+	const balance = selectedSendBalance(props.balances, selectedChain, tokenAddress)
 	const ready = Boolean(amount.trim()) && /^0x[0-9a-fA-F]{40}$/.test(to.trim()) && tokenAddress !== ""
 
 	const send = () => {
@@ -250,6 +265,7 @@ function SendCard(props: {
 				})
 				setResult(res)
 				setAmount("")
+				await props.onSent()
 			} finally {
 				setSending(false)
 			}
@@ -303,7 +319,12 @@ function SendCard(props: {
 					</label>
 				)}
 				<label className="field">
-					<span>Amount</span>
+					<span className="field-label">
+						<span>Amount</span>
+						<small className="operator-send-balance" data-status={balance.status} aria-live="polite">
+							Available <strong>{balance.label}</strong>
+						</small>
+					</span>
 					<input type="text" placeholder="0.00" value={amount} onChange={(e) => setAmount(e.target.value)} />
 				</label>
 				<label className="field operator-send-wide">
@@ -326,4 +347,35 @@ function SendCard(props: {
 			{error && <p className="error">{error}</p>}
 		</div>
 	)
+}
+
+function selectedSendBalance(
+	balances: BalanceSnapshot | undefined,
+	chain: string,
+	token: string,
+): { label: string; status: "loading" | "available" | "unavailable" } {
+	if (!balances || balances.status === "loading") return { label: "Loading…", status: "loading" }
+
+	const chainId = parseChainKey(chain)
+	const chainBalance = balances.chains.find((row) => row.chainId === chainId)
+	if (!chainBalance) return { label: "Unavailable", status: "unavailable" }
+
+	if (token === "native") {
+		return chainBalance.native
+			? {
+					label: `${formatSendBalance(chainBalance.native.amount)} ${chainBalance.native.symbol}`,
+					status: "available",
+				}
+			: { label: "Unavailable", status: "unavailable" }
+	}
+
+	if (!token) return { label: "—", status: "loading" }
+	const asset = chainBalance.assets.find((row) => row.address.toLowerCase() === token.toLowerCase())
+	return asset?.available !== null && asset?.available !== undefined
+		? { label: `${formatSendBalance(asset.available)} ${asset.symbol}`, status: "available" }
+		: { label: "Unavailable", status: "unavailable" }
+}
+
+function formatSendBalance(value: number): string {
+	return value.toLocaleString(undefined, { maximumFractionDigits: 4 })
 }

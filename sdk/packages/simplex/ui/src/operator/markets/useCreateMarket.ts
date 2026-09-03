@@ -25,7 +25,7 @@ export function useCreateMarket(options: { symbols: string[]; onAdded: () => Pro
 		customSymbol: "",
 		customAddresses: {},
 		verified: {},
-		maxOrderSize: "50000",
+		maxOrderSize: "",
 		bidEnabled: true,
 		askEnabled: true,
 		bid: [{ amount: "1", value: "" }],

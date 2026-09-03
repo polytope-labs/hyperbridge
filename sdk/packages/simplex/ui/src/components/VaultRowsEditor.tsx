@@ -17,12 +17,15 @@ const CURATED_VAULT_DEFAULTS = new Map([
 	["Yield Bearing cNGN", { threshold: "1000", minBalance: "1", redeemOnShutdown: false }],
 ])
 
-const VAULT_FIELD_HELP = {
-	threshold:
-		"When the wallet balance reaches this USD value, Simplex sweeps the funds above the minimum wallet balance into this vault.",
-	minBalance:
-		"The USD value Simplex keeps in the wallet after a sweep so liquidity remains immediately available for fills.",
-} as const
+function vaultFieldLabel(field: "threshold" | "minBalance", asset: string) {
+	return `${field === "threshold" ? "Sweep threshold" : "Minimum wallet balance"} (${asset})`
+}
+
+function vaultFieldHelp(field: "threshold" | "minBalance", asset: string) {
+	return field === "threshold"
+		? `When the wallet balance reaches this ${asset} amount, Simplex sweeps the funds above the minimum wallet balance into this vault.`
+		: `The ${asset} amount Simplex keeps in the wallet after a sweep so liquidity remains immediately available for fills.`
+}
 
 export interface VaultChainOption {
 	/** State machine id, e.g. "EVM-8453" — the value stored in the row's `chain`. */
@@ -94,19 +97,23 @@ function VaultAmountField(props: {
 	)
 }
 
-function VaultSettings(props: { row: VaultRowDraft; onChange: (changes: Partial<VaultRowDraft>) => void }) {
-	const { row, onChange } = props
+function VaultSettings(props: {
+	row: VaultRowDraft
+	asset: string
+	onChange: (changes: Partial<VaultRowDraft>) => void
+}) {
+	const { row, asset, onChange } = props
 	return (
 		<div className="vault-settings-grid">
 			<VaultAmountField
-				label="Sweep threshold (USD)"
-				help={VAULT_FIELD_HELP.threshold}
+				label={vaultFieldLabel("threshold", asset)}
+				help={vaultFieldHelp("threshold", asset)}
 				value={row.threshold}
 				onChange={(threshold) => onChange({ threshold })}
 			/>
 			<VaultAmountField
-				label="Minimum wallet balance (USD)"
-				help={VAULT_FIELD_HELP.minBalance}
+				label={vaultFieldLabel("minBalance", asset)}
+				help={vaultFieldHelp("minBalance", asset)}
 				value={row.minBalance}
 				onChange={(minBalance) => onChange({ minBalance })}
 			/>
@@ -177,7 +184,7 @@ function CuratedVaultRow(props: {
 				</div>
 			</div>
 			<Collapsible.Content className="vault-settings-collapsible">
-				{row && <VaultSettings row={row} onChange={onChange} />}
+				{row && <VaultSettings row={row} asset={known.asset} onChange={onChange} />}
 			</Collapsible.Content>
 		</Collapsible.Root>
 	)
@@ -272,14 +279,14 @@ function CustomVaultDialog(props: {
 					</div>
 					<div className="vault-custom-balance-fields">
 						<VaultAmountField
-							label="Sweep threshold (USD)"
-							help={VAULT_FIELD_HELP.threshold}
+							label={vaultFieldLabel("threshold", "underlying token")}
+							help={vaultFieldHelp("threshold", "underlying token")}
 							value={draft.threshold}
 							onChange={(threshold) => onChange({ ...draft, threshold })}
 						/>
 						<VaultAmountField
-							label="Minimum wallet balance (USD)"
-							help={VAULT_FIELD_HELP.minBalance}
+							label={vaultFieldLabel("minBalance", "underlying token")}
+							help={vaultFieldHelp("minBalance", "underlying token")}
 							value={draft.minBalance}
 							onChange={(minBalance) => onChange({ ...draft, minBalance })}
 						/>

@@ -78,12 +78,17 @@
 		padding-inline: 2rem;
 	}
 
-	.operator-balance-row {
-		grid-template-columns: minmax(9rem, 0.7fr) minmax(6rem, 0.4fr) minmax(18rem, 2fr);
-	}
-
 	.operator-asset-balances {
 		grid-template-columns: 1fr;
+	}
+
+	.operator-market-editor .curve-editor {
+		grid-template-columns: minmax(0, 1fr);
+		grid-template-rows: auto;
+	}
+
+	.operator-market-editor .curve-editor-visual {
+		grid-row: auto;
 	}
 }
 
@@ -250,7 +255,7 @@
 		min-width: calc(100% - 4.25rem);
 	}
 
-	.market-overview-limit {
+	.market-overview-prices {
 		margin-left: 4.15rem;
 	}
 
@@ -452,16 +457,25 @@
 		flex-direction: column;
 	}
 
-	.operator-balance-row {
-		grid-template-columns: minmax(0, 1fr) minmax(4rem, 0.55fr);
+	.operator-balance-network,
+	.operator-asset-header,
+	.operator-asset-available {
+		align-items: flex-start;
+		flex-direction: column;
 	}
 
-	.operator-asset-balances {
-		grid-column: 1 / -1;
+	.operator-asset-total {
+		text-align: left;
 	}
 
 	button.operator-market-row {
 		grid-template-columns: 3.25rem minmax(0, 1fr) 1rem;
+	}
+
+	.operator-market-prices {
+		grid-column: 2;
+		grid-row: 2;
+		margin-top: 0.15rem;
 	}
 
 	.operator-market-mode,
@@ -497,6 +511,37 @@
 
 	.sheet-header,
 	.sheet-body {
+		padding-right: 1rem;
+		padding-left: 1rem;
+	}
+
+	.operator-market-summary {
+		grid-template-columns: auto minmax(0, 1fr);
+	}
+
+	.operator-market-side-status {
+		grid-column: 2;
+	}
+
+	.operator-market-panel-heading,
+	.operator-market-add-side {
+		align-items: flex-start;
+		flex-direction: column;
+	}
+
+	.operator-market-cap-controls {
+		grid-template-columns: minmax(0, 1fr);
+	}
+
+	.operator-market-cap-controls button,
+	.operator-market-add-side button,
+	.operator-market-actions .primary {
+		width: 100%;
+	}
+
+	.operator-market-actions {
+		margin-right: -1rem;
+		margin-left: -1rem;
 		padding-right: 1rem;
 		padding-left: 1rem;
 	}

@@ -2,6 +2,29 @@
 
 AI-maintained map of how code paths in `sdk/packages/simplex` actually execute, so that when something breaks you can tell whether the fault is upstream or downstream of where the symptom appears. Only flows that have been read and verified are documented; coverage grows as areas of the package are touched.
 
+## Operator market list prices
+
+`Operator` loads `/api/strategies`, whose `AdminStrategyDto` rows include the current bid and ask curve
+points. `OperatorMarkets` selects the first valid configured price from each side and renders it with
+the `token1/token0` unit. Venue-priced, reference-only, and sides without a valid curve render no
+price value; clicking a row still opens the existing editor.
+
+## BSC paymaster messaging
+
+The setup and operator chain screens render the shared initialization catalog without chain-specific
+warning metadata. The setup review presents paymaster-covered gas uniformly, so BSC no longer gets a
+native-gas exception anywhere in the Simplex UI; paymaster selection and funding execution are
+unchanged.
+
+## Setup completion failures
+
+`Review.tsx` posts the validated config to `/api/setup/save-and-start`; `setup-api.ts` atomically
+writes it, returns immediately, and boots the filler while the browser polls start status. A failed
+all-chain EIP-7702 delegation remains a real failed start, but `formatSetupStartError` replaces the
+internal restart wording with the affected network labels and explicit stablecoin, endpoint, retry,
+and image-version checks. The configuration remains on disk, the action changes to Retry startup,
+and unrelated failures pass through unchanged.
+
 ## Dashboard balance collection
 
 `boot.ts` hydrates `VaultFundingPlanner` before constructing `BalanceProvider`, passes that planner
@@ -21,6 +44,35 @@ If a token read or the vault snapshot fails, the affected aggregate is `null` an
 marked `partial` or `unavailable` with contextual issues. `OperatorOverview` therefore displays an
 unavailable state instead of summing known values into a misleading total. Its headline stablecoin
 metric sums only non-null available USDC/USDT values.
+
+Within each network section, `OperatorOverview` sends every asset through `AssetBalanceCard`. The
+card resolves its artwork through the shared `TokenIcon` mapping, presents total ownership first,
+then wallet and vault sources, and isolates `available` as the operational amount available to fill.
+The network's native balance stays in the section header. Partial and unavailable asset states keep
+their null values explicit and use the warning accent instead of inheriting the token colour.
+
+`Operator` passes the same snapshot to the Operations screen. `SendCard` matches the selected chain
+and token address, displays the asset's canonical `available` value beside Amount, and uses the native
+wallet row for native gas. After `/api/send` succeeds, it invokes the parent load path so the shared
+balance snapshot, strategies, and configuration refresh immediately.
+
+## Operator market drawer
+
+Selecting a row in `OperatorMarkets` opens the shared wide `OperatorSheet` and mounts
+`StrategyMarketEditor` for that strategy. The editor derives its visible buy/sell sides from the
+persisted strategy plus unsaved enable-side state, then renders market identity, maximum-order risk,
+and price controls as one flat, divider-led sequence. `CurveEditor` remains the canonical point
+editor; inside an operator drawer its preview is the only dedicated visual surface and sits beside
+the point table on desktop without changing the curve data model or API payloads.
+
+The maximum-order action still calls `applyMaxOrderSize` independently. The drawer's final action
+bar calls `applyCurves`, while disabled directions first become local draft curves through Add buy
+side or Add sell side. No mutation occurs until the matching save/apply action is used.
+
+Every operator drawer is rendered through the local shadcn-style `Sheet`, composed from Radix Dialog
+Root, Portal, Overlay, Content, Title, Description, and Close primitives. Radix applies open and closed
+state attributes to the overlay and content; `operator.css` uses those states for paired fade and
+full-width slide animations, so closing completes before the portal is removed.
 
 ## Desktop PWA installation and offline shell
 
@@ -50,14 +102,21 @@ liquidity retained in the wallet after that sweep.
 ## Market setup and curve editing
 
 `Wizard` initializes the strategies step with no transfer prefabs. `useStrategiesModel` seeds one
-cross-asset draft on first entry; `MarketRow` edits that draft or a reference-only feed, and
-`assembleConfig` emits the selected pair's bid/ask curves without same-token branching. The operator
-`CreateMarketForm` follows the same cross-asset path and rejects identical resolved symbols before
-calling `POST /api/strategies`.
+cross-asset draft on first entry, plus a USDT/CNGN draft when the selected catalog exposes CNGN and
+USDT; `MarketRow` edits those drafts or a reference-only feed, and `assembleConfig` emits the selected
+pair's bid/ask curves without same-token branching. The operator `CreateMarketForm` follows the same
+cross-asset path and rejects identical resolved symbols before calling `POST /api/strategies`.
 
-Both setup paths initialize a new market cap to `50000`. `CurveEditor` initializes every row created
-by its Add point action with amount `1`; one-sided operator activation uses the same amount. Reference
-feeds remain anchored at amount `0` because they are fixed-price feeds rather than order-size curves.
+The operator and setup-wizard web market editors initialize the optional cap as blank, and their
+assembly/API paths omit blank `maxOrderSize`, so new web markets are uncapped by default. Existing
+configured caps round-trip unchanged. `CurveEditor` initializes every row created by its Add point
+action with amount `1`; one-sided operator activation uses the same amount. Reference feeds remain
+anchored at amount `0` because they are fixed-price feeds rather than order-size curves.
+
+The setup market overview derives Buy and Sell summaries from enabled, non-reference draft curves.
+Each side uses its first point with both an amount and price; incomplete sides remain hidden while the
+user edits them. The order-cap input remains in `MarketRow`, but its summary is not rendered in the
+overview row.
 
 ## Simplex UI branding and static assets
 

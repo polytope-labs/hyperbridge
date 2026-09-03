@@ -182,17 +182,6 @@ export function StepChains({ state, setState }: StepProps) {
 							<span>Enable fills</span>
 						</label>
 					</div>
-					{chain.meta.note && (
-						<div className="chain-warning" role="note" aria-label="Warning">
-							<span className="chain-warning-icon" aria-hidden="true">
-								!
-							</span>
-							<span>
-								<strong>Native gas required</strong>
-								<small>{chain.meta.note}</small>
-							</span>
-						</div>
-					)}
 					<Collapsible.Content className="chain-collapsible-content">
 						<div className="chain-configuration-fields">
 							{chain.rpcUrls.map((url, index) => (

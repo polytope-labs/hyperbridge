@@ -3,6 +3,7 @@ import { api } from "../../api"
 import { CopyHash } from "../../components/CopyHash"
 import { CheckIcon } from "../../components/InterfaceIcons"
 import { assembleConfig, chainLabels, enabledChains } from "../state"
+import { formatSetupStartError } from "../startError"
 import type { StepProps } from "../Wizard"
 
 type Phase = "review" | "saving" | "starting" | "failed"
@@ -70,6 +71,7 @@ export function StepReview({ state, defaults }: StepProps) {
 				setStartError(err instanceof Error ? err.message : String(err))
 			})
 	}
+	const enabled = enabledChains(state)
 
 	if (phase === "starting") {
 		return (
@@ -91,8 +93,9 @@ export function StepReview({ state, defaults }: StepProps) {
 			: state.signerType === "mpcVault"
 				? state.mpcVault.accountAddress
 				: state.turnkey.signWith
-	const enabled = enabledChains(state)
-	const needsNativeBnb = enabled.some((chain) => /bnb|bsc/i.test(chain.meta.label))
+	const displayStartError = startError
+		? formatSetupStartError(startError, new Map(enabled.map((chain) => [chain.meta.chainId, chain.meta.label])))
+		: undefined
 	const pathSeparator = defaults.configPath.lastIndexOf("/")
 	const configDirectory = pathSeparator >= 0 ? defaults.configPath.slice(0, pathSeparator + 1) : ""
 	const configFilename = pathSeparator >= 0 ? defaults.configPath.slice(pathSeparator + 1) : defaults.configPath
@@ -121,9 +124,7 @@ export function StepReview({ state, defaults }: StepProps) {
 							</div>
 							<p>
 								Fund with USDC or USDT on every enabled chain.
-								{needsNativeBnb
-									? " Keep native BNB available for gas on BNB Chain."
-									: " Gas is covered by the paymaster."}
+								 Gas is covered by the paymaster.
 							</p>
 							<div className="review-account-value">
 								<CopyHash value={evmAddress} chars={42} copyLabel="Copy filler wallet address" />
@@ -207,11 +208,10 @@ export function StepReview({ state, defaults }: StepProps) {
 			</section>
 
 			{phase === "failed" && (
-				<div className="card">
-					<p className="error">The filler failed to start: {startError}</p>
+				<div className="card" role="alert">
+					<p className="error">{displayStartError}</p>
 					<p className="hint">
-						The config file was written — fix the problem (funding, endpoints) and try again, or edit the
-						file and run `simplex run` manually.
+						Your configuration is already saved. Correct the checks above, then retry startup.
 					</p>
 				</div>
 			)}
@@ -223,7 +223,11 @@ export function StepReview({ state, defaults }: StepProps) {
 					disabled={!toml || phase === "saving"}
 					onClick={saveAndStart}
 				>
-					{phase === "saving" ? "Saving configuration…" : "Save config & start Simplex"}
+					{phase === "saving"
+						? "Saving configuration…"
+						: phase === "failed"
+							? "Retry startup"
+							: "Save config & start Simplex"}
 					{phase !== "saving" && <span aria-hidden="true">→</span>}
 				</button>
 				<p>The dashboard opens automatically when the solver is ready.</p>

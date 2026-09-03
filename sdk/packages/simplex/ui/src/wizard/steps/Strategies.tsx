@@ -4,12 +4,57 @@ import { pickAnchorStable } from "@/config/pairs"
 import uniswapIcon from "../../assets/networks/uniswap.svg"
 import { TokenPairIcons } from "../../components/TokenIcon"
 import { WizardDialog } from "../../components/WizardDialog"
-import { newCrossAssetDraft, newReferenceDraft, normSymbol, removeAt } from "../state"
+import { newCrossAssetDraft, newReferenceDraft, normSymbol, removeAt, type PairDraft } from "../state"
 import { MarketRow } from "../strategies/MarketRow"
 import { PricingMethodSection } from "../strategies/PricingMethodSection"
 import { UniswapPositionsDialog } from "../strategies/UniswapPositionsDialog"
 import { prefillCurves, useStrategiesModel } from "../strategies/useStrategiesModel"
 import type { StepProps } from "../Wizard"
+
+function firstConfiguredPrice(points: PairDraft["bid"]): string | undefined {
+	return points.find((point) => {
+		const amount = Number(point.amount)
+		const price = Number(point.value)
+		return (
+			point.amount.trim() &&
+			point.value.trim() &&
+			Number.isFinite(amount) &&
+			amount >= 0 &&
+			Number.isFinite(price) &&
+			price > 0
+		)
+	})?.value.trim()
+}
+
+function MarketPrices({ pair }: { pair: PairDraft }) {
+	if (pair.referenceOnly) return null
+
+	const buyPrice = pair.bidEnabled ? firstConfiguredPrice(pair.bid) : undefined
+	const sellPrice = pair.askEnabled ? firstConfiguredPrice(pair.ask) : undefined
+	if (!buyPrice && !sellPrice) return null
+
+	const unit = `${pair.token1 || "token1"}/${pair.token0 || "token0"}`
+	return (
+		<div className="market-overview-prices" aria-label={`Configured prices in ${unit}`}>
+			{buyPrice ? (
+				<span className="market-overview-price">
+					<small>Buy</small>
+					<strong>
+						{buyPrice} <em>{unit}</em>
+					</strong>
+				</span>
+			) : null}
+			{sellPrice ? (
+				<span className="market-overview-price">
+					<small>Sell</small>
+					<strong>
+						{sellPrice} <em>{unit}</em>
+					</strong>
+				</span>
+			) : null}
+		</div>
+	)
+}
 
 export function StepStrategies({ state, setState, defaults }: StepProps) {
 	const [editingPairIndex, setEditingPairIndex] = useState<number | null>(null)
@@ -62,11 +107,7 @@ export function StepStrategies({ state, setState, defaults }: StepProps) {
 											: "Priced from Uniswap v4"}
 								</small>
 							</div>
-							{pair.maxOrderSize.trim() && (
-								<span className="market-overview-limit">
-									Up to {pair.maxOrderSize} {pair.token0}
-								</span>
-							)}
+							<MarketPrices pair={pair} />
 							<button
 								type="button"
 								className="market-configure-button"

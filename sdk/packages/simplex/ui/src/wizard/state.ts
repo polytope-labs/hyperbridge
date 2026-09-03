@@ -84,12 +84,12 @@ export interface WizardState {
 	logging: string
 }
 
-export function newCrossAssetDraft(token1: string): PairDraft {
+export function newCrossAssetDraft(token1: string, token0 = "USDC"): PairDraft {
 	return {
 		enabled: true,
-		token0: "USDC",
+		token0,
 		token1,
-		maxOrderSize: "50000",
+		maxOrderSize: "",
 		bidEnabled: true,
 		askEnabled: true,
 		bid: [{ amount: "1", value: "" }],

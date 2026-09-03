@@ -15,6 +15,51 @@ interface OperatorMarketsProps {
 	onChanged: () => Promise<void> | void
 }
 
+function firstConfiguredPrice(points: AdminStrategyDto["bid"]): string | undefined {
+	return points?.find((point) => {
+		const amount = Number(point.amount)
+		const price = Number(point.price)
+		return (
+			point.amount.trim() &&
+			point.price.trim() &&
+			Number.isFinite(amount) &&
+			amount >= 0 &&
+			Number.isFinite(price) &&
+			price > 0
+		)
+	})?.price.trim()
+}
+
+function MarketPrices({ strategy }: { strategy: AdminStrategyDto }) {
+	if (strategy.referenceOnly) return null
+
+	const buyPrice = firstConfiguredPrice(strategy.bid)
+	const sellPrice = firstConfiguredPrice(strategy.ask)
+	if (!buyPrice && !sellPrice) return null
+
+	const unit = `${strategy.token1 || "token1"}/${strategy.token0 || "token0"}`
+	return (
+		<span className="operator-market-prices" aria-label={`Current prices in ${unit}`}>
+			{buyPrice ? (
+				<span className="operator-market-price">
+					<small>Buy</small>
+					<strong>
+						{buyPrice} <em>{unit}</em>
+					</strong>
+				</span>
+			) : null}
+			{sellPrice ? (
+				<span className="operator-market-price">
+					<small>Sell</small>
+					<strong>
+						{sellPrice} <em>{unit}</em>
+					</strong>
+				</span>
+			) : null}
+		</span>
+	)
+}
+
 export function OperatorMarkets(props: OperatorMarketsProps) {
 	const { strategies, config, chains, chainLabels, onChanged } = props
 	const [showAddMarket, setShowAddMarket] = useState(false)
@@ -51,6 +96,7 @@ export function OperatorMarkets(props: OperatorMarketsProps) {
 							<span className="operator-market-mode">
 								{strategy.pricingMode === "venue" ? "Uniswap V4" : "Manual curve"}
 							</span>
+							<MarketPrices strategy={strategy} />
 							<span className="operator-market-cap">
 								{strategy.maxOrderSize
 									? `Max ${strategy.maxOrderSize} ${strategy.token0}`

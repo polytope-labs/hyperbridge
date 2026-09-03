@@ -60,25 +60,29 @@ export function useStrategiesModel(options: {
 				hasCurve: draftHasCurve(pair, state.fxPricing),
 			})),
 	)
-	const defaultToken1 = availableSymbols.find((symbol) => !defaults.usdStables.includes(symbol)) ?? "USDT"
+	const defaultToken1 =
+		availableSymbols.find((symbol) => normSymbol(symbol) === "CNGN") ??
+		availableSymbols.find((symbol) => !defaults.usdStables.includes(normSymbol(symbol))) ??
+		"USDT"
+	const hasUsdt = availableSymbols.some((symbol) => normSymbol(symbol) === "USDT")
 
 	useEffect(() => {
 		setState((current) => {
 			if (current.fxSeeded) return current
-			const draft = newCrossAssetDraft(defaultToken1)
+			const drafts = [newCrossAssetDraft(defaultToken1)]
+			if (normSymbol(defaultToken1) === "CNGN" && hasUsdt) {
+				drafts.push(newCrossAssetDraft(defaultToken1, "USDT"))
+			}
 			return {
 				...current,
 				fxSeeded: true,
 				pairs: [
 					...current.pairs,
-					{
-						...draft,
-						...prefillCurves(draft, defaults.usdStables),
-					},
+					...drafts.map((draft) => ({ ...draft, ...prefillCurves(draft, defaults.usdStables) })),
 				],
 			}
 		})
-	}, [defaultToken1, defaults.usdStables, setState])
+	}, [defaultToken1, defaults.usdStables, hasUsdt, setState])
 
 	const patchPair = (index: number, patch: Partial<PairDraft>) =>
 		setState((current) => ({ ...current, pairs: patchAt(current.pairs, index, patch) }))

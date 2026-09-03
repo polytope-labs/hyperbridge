@@ -570,10 +570,36 @@
 	font-size: 0.75rem;
 }
 
-.market-overview-limit {
+.market-overview-prices {
+	display: flex;
+	align-items: center;
+	gap: 1.1rem;
+	flex: 0 0 auto;
+}
+
+.market-overview-price {
+	display: grid;
+	gap: 0.12rem;
+}
+
+.market-overview-price small {
 	color: var(--muted);
+	font-size: 0.625rem;
+}
+
+.market-overview-price strong {
 	font-family: var(--font-mono);
 	font-size: 0.6875rem;
+	font-weight: 500;
+	white-space: nowrap;
+}
+
+.market-overview-price em {
+	color: var(--muted);
+	font-family: var(--font-sans);
+	font-size: 0.625rem;
+	font-style: normal;
+	font-weight: 400;
 }
 
 .market-configure-button {

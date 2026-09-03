@@ -1,4 +1,5 @@
 import { ChainLogo } from "../components/ChainLogo"
+import { TokenIcon } from "../components/TokenIcon"
 import type { AdminStrategyDto, BalanceSnapshot, ConfigDto, StatusOperator } from "../types"
 import { OperatorMarkets } from "./OperatorMarkets"
 
@@ -69,32 +70,24 @@ export function OperatorOverview(props: {
 						const label = status.chainLabels?.[String(row.chainId)] ?? `Chain ${row.chainId}`
 						return (
 							<div className="operator-balance-row" key={row.chainId}>
-								<div className="operator-chain-name">
-									<ChainLogo label={label} />
-									<span>
-										<strong>{label}</strong>
-										<small>
-											{status.watchOnly[row.chainId] ? "Observe only" : "Filling enabled"}
-										</small>
-									</span>
+								<div className="operator-balance-network">
+									<div className="operator-chain-name">
+										<ChainLogo label={label} />
+										<span>
+											<strong>{label}</strong>
+											<small>
+												{status.watchOnly[row.chainId] ? "Observe only" : "Filling enabled"}
+											</small>
+										</span>
+									</div>
+									<BalanceValue
+										label="Network gas"
+										value={row.native ? `${row.native.amount.toFixed(4)} ${row.native.symbol}` : "Unavailable"}
+									/>
 								</div>
-								<BalanceValue
-									label="Gas"
-									value={row.native ? `${row.native.amount.toFixed(4)} ${row.native.symbol}` : "—"}
-								/>
 								<div className="operator-asset-balances" aria-label={`${label} token balances`}>
 									{row.assets.map((asset) => (
-										<div className="operator-asset-balance" key={asset.address}>
-											<div className="operator-asset-total">
-												<span>{asset.symbol}</span>
-												<strong>{asset.total === null ? "Unavailable" : formatAmount(asset.total)}</strong>
-											</div>
-											<dl>
-												<BalancePart label="Wallet" value={asset.wallet} />
-												<BalancePart label="In vault" value={asset.vaultPosition} />
-												<BalancePart label="Available" value={asset.available} emphasized />
-											</dl>
-										</div>
+										<AssetBalanceCard asset={asset} key={asset.address} />
 									))}
 									{row.assets.length === 0 ? <span className="operator-balance-missing">No tracked tokens</span> : null}
 								</div>
@@ -136,11 +129,57 @@ function BalanceValue(props: { label: string; value: string }) {
 	)
 }
 
-function BalancePart(props: { label: string; value: number | null; emphasized?: boolean }) {
+type AssetBalance = BalanceSnapshot["chains"][number]["assets"][number]
+
+function AssetBalanceCard({ asset }: { asset: AssetBalance }) {
+	const token = asset.symbol.trim().toLowerCase()
+	const statusLabel =
+		asset.status === "fresh" ? "Live balance" : asset.status === "partial" ? "Partial data" : "Unavailable"
+
 	return (
-		<div data-emphasized={props.emphasized || undefined}>
+		<article
+			className="operator-asset-balance"
+			data-token={token}
+			data-status={asset.status}
+			aria-label={`${asset.symbol} balance`}
+		>
+			<header className="operator-asset-header">
+				<div className="operator-token-identity">
+					<span className="operator-token-icon">
+						<TokenIcon symbol={asset.symbol} size="lg" />
+					</span>
+					<span>
+						<strong>{asset.symbol}</strong>
+						<small>{statusLabel}</small>
+					</span>
+				</div>
+				<div className="operator-asset-total">
+					<span>Total balance</span>
+					<strong>{asset.total === null ? "—" : formatAmount(asset.total)}</strong>
+				</div>
+			</header>
+
+			<dl className="operator-asset-breakdown">
+				<BalancePart label="In wallet" value={asset.wallet} />
+				<BalancePart label="In vault" value={asset.vaultPosition} />
+			</dl>
+
+			<div className="operator-asset-available">
+				<span>
+					<i aria-hidden="true" />
+					Available to fill
+				</span>
+				<strong>{asset.available === null ? "Unavailable" : `${formatAmount(asset.available)} ${asset.symbol}`}</strong>
+			</div>
+		</article>
+	)
+}
+
+function BalancePart(props: { label: string; value: number | null }) {
+	return (
+		<div>
 			<dt>{props.label}</dt>
-			<dd>{props.value === null ? "—" : formatAmount(props.value)}</dd>
+			<dd>{props.value === null ? "Unavailable" : formatAmount(props.value)}</dd>
 		</div>
 	)
 }

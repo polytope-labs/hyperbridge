@@ -88,17 +88,16 @@ Sepolia, Arbitrum Sepolia, Base Sepolia, Polygon Amoy, and BSC Chapel.
 
 Entry points: `UserOpSender.trySendSponsored` (delegation, vault sweeps/redeems, token sends) and `ContractInteractionService.prepareBidUserOp` (bids). Both call `buildPaymasterAndData` in `src/services/paymaster/index.ts`.
 
-1. `buildPaymasterAndData` tries the Circle paymaster first when it is configured and the solver holds at least 1 USDC (`provider/circle.ts`), then the Simplex paymaster (`provider/simplex.ts`), else returns `type: "none"` and the caller falls back to native / the EntryPoint deposit.
+1. `buildPaymasterAndData` tries the Simplex paymaster first when it is configured (`provider/simplex.ts`), then the Circle paymaster when it is configured and the solver holds at least 1 USDC (`provider/circle.ts`), else returns `type: "none"` and the caller falls back to native / the EntryPoint deposit. When the caller passes `prefund` (both do) and the chain has an EntryPoint configured, each candidate is additionally gated on its own EntryPoint deposit: `EntryPoint.balanceOf(paymaster)` must cover `(baseGas + candidate's worst-case verification + postOp gas) * maxFeePerGas * DEPOSIT_HEADROOM_PERCENT / 100` or the candidate is skipped with a warn and a per-candidate reason accumulated into the `type: "none"` result. The Simplex gate runs *before* `buildSimplexPaymasterData`, which may send a bootstrap approve tx that must not happen for a paymaster that cannot sponsor. A failed deposit read fails open (candidate kept) — a transient RPC error degrades to the bundler's own precheck, never worse.
 
 2. `buildSimplexPaymasterData` picks the first configured stablecoin (USDC, then USDT) with a balance of at least one whole token, then the authorization mode:
+   - `tokenSupportsPermit` (probes `version()`): `buildPermitMode` — if the allowance to the paymaster already covers the $5 permit amount, APPROVE mode; else sign an EIP-2612 permit (`permit.ts`, `deadline = maxUint256`) and pack mode `0x00` (150 bytes).
+   - Otherwise resolve `permit2 = configService.getPermit2Address(chain)` and require `paymasterSupportsPermit2` (a cached `PERMIT2()` read on the paymaster). Read the solver's allowances to the paymaster and to Permit2 in parallel, then:
+     - Permit2 allowance at or above $5: `buildPermit2Mode` — random nonce, `deadline = now + PERMIT2_DEADLINE_SECONDS`, `signPermit2Transfer` (`permit2.ts`, canonical v4 typed data, 65-byte signature) and pack mode `0x02` (182 bytes) with `VERIFICATION_GAS_LIMIT_PERMIT2`.
+     - Paymaster allowance at or above $2: APPROVE mode `0x01`, no tx.
+     - Else bootstrap with `sendFundedApprove`: pre-check the native balance against the whole sequence, reset a stale non-zero allowance to zero first (USDT rule), then `approve` from the solver EOA — up to two txs, each waiting two confirmations. `approve(Permit2, max)` then PERMIT2 when Permit2 is usable, else `approve(paymaster, $5)` then APPROVE.
 
-    - `tokenSupportsPermit` (probes `version()`) and not `skipPermit`: `buildPermitMode` — if the allowance to the paymaster already covers the $5 permit amount, APPROVE mode; else sign an EIP-2612 permit (`permit.ts`, `deadline = maxUint256`) and pack mode `0x00` (150 bytes).
-    - Otherwise resolve `permit2 = configService.getPermit2Address(chain)` and require `paymasterSupportsPermit2` (a cached `PERMIT2()` read on the paymaster). Read the solver's allowances to the paymaster and to Permit2 in parallel, then:
-        - Permit2 allowance at or above $5: `buildPermit2Mode` — random nonce, `deadline = now + PERMIT2_DEADLINE_SECONDS`, `signPermit2Transfer` (`permit2.ts`, canonical v4 typed data, 65-byte signature) and pack mode `0x02` (182 bytes) with `VERIFICATION_GAS_LIMIT_PERMIT2`.
-        - Paymaster allowance at or above $2: APPROVE mode `0x01`, no tx.
-        - Else bootstrap with `sendFundedApprove`: pre-check the native balance against the whole sequence, reset a stale non-zero allowance to zero first (USDT rule), then `approve` from the solver EOA — up to two txs, each waiting two confirmations. `approve(Permit2, max)` then PERMIT2 when Permit2 is usable, else `approve(paymaster, $5)` then APPROVE.
-
-3. Back in `UserOpSender.trySendSponsored`, the EIP-7702 authorization thunk is resolved only after paymaster data is built, because the bootstrap approve is a tx from the same EOA and an authorization signed earlier would carry a stale nonce (bundler reject). Then bundler gas price, `EntryPoint.getNonce`, estimation (or the caller's fixed limits), signing of the packed userOp typed data, `eth_sendUserOperation`, and receipt polling.
+3. Back in `UserOpSender.trySendSponsored`, the bundler gas price is fetched *before* paymaster selection so the deposit gate can price the op's max prefund (from the caller's fixed limits, or the generous fallbacks when estimating later). The EIP-7702 authorization thunk is still resolved only after paymaster data is built, because the bootstrap approve is a tx from the same EOA and an authorization signed earlier would carry a stale nonce (bundler reject). Then `EntryPoint.getNonce`, estimation (or the caller's fixed limits), signing of the packed userOp typed data, `eth_sendUserOperation`, and receipt polling.
 
 4. On chain (`evm/src/utils/SimplexPaymaster.sol`): `_fetchDetails` validates the mode byte and token registry and, for mode 2, returns the permit deadline as `validUntil`; `_prefund` pulls the prefund through `Permit2.permitTransferFrom` (owner = `userOp.sender`, to = paymaster, requestedAmount = oracle-derived prefund, capped by the signed amount) and postOp refunds the unused part to the sender.
 
@@ -156,7 +155,7 @@ That is what `paymasterReserveForToken` exists to absorb. Without it, a balance-
 
 ### Which token the paymaster charges
 
-Decided at submit time, not at sizing time, by `buildPaymasterAndData` (`src/services/paymaster/index.ts`): the Circle paymaster if configured and USDC balance >= 1 USDC, else the Simplex paymaster over the first of `[USDC, USDT]` with a balance >= 1 token (`selectToken`), else no paymaster. Because the sizing decision feeds the balances that decide this, the reserve covers both eligible tokens instead of predicting one.
+Decided at submit time, not at sizing time, by `buildPaymasterAndData` (`src/services/paymaster/index.ts`): the Simplex paymaster if configured and its EntryPoint deposit covers the op's max prefund with headroom, over the first of `[USDC, USDT]` with a balance >= 1 token (`selectToken`); else the Circle paymaster if configured, USDC balance >= 1 USDC, and its deposit covers; else no paymaster. Because the sizing decision feeds the balances that decide this, the reserve covers both eligible tokens instead of predicting one.
 
 ## Signing: from construction to each signature
 
@@ -190,6 +189,20 @@ There are two entry points, and they meet at `bootFiller`.
 - **`signTransaction`.** Every transaction the solver sends: the type-0x04 delegation tx, rebalancing transfers, operator sends. It returns signed RLP, so the backend owns serialisation — MPCVault's vault API and Turnkey's transaction payloads both keep the transaction legible to their policy engines, and `digestSigner` serialises with viem and signs the hash.
 - **`address`.** Read directly everywhere the solver's identity is needed (`fillerAddress`, delegation authority, balance lookups, vault initialisation).
 - **`mode`.** Logs only: the boot line and the two delegation log lines.
+
+### MPCVault's two-RPC ceremony
+
+Every `mpcVaultSigner` operation is two gRPC calls in `MpcVaultService`: `createSigningRequest`
+returns a signing-request uuid, then `executeSigningRequests` triggers MPCVault's policy checks,
+the callback co-signer approval and the MPC ceremony. The callback server is only contacted during
+execute — a failure before that step leaves no callback log at all. Execute retries
+INVALID_ARGUMENT/NOT_FOUND twice with short backoff because MPCVault intermittently rejects a uuid
+its own create just returned; when execute fails terminally the created request is best-effort
+rejected in the vault so it does not stay pending as a signable stale payload. Any failure
+propagates as an error naming the RPC, the uuid and MPCVault's x-request-id, and both RPCs also
+fail on app-level errors that carry only a non-zero code with an empty message (zero is
+UNSPECIFIED, not an error). Lifecycle logs default to the process-wide logger context, which an
+embedded filler's `SimplexOptions.logger` never sees — `MpcVaultClientConfig.logger` injects one.
 
 ### The viem boundary
 

@@ -1,6 +1,7 @@
 import { encodePacked, type PublicClient, type WalletClient } from "viem"
 import type { HexString } from "@hyperbridge/sdk"
 import type { FillerConfigService } from "@/services/FillerConfigService"
+import type { Logger } from "@/services/Logger"
 import type { Signer } from "@/services/wallet/types"
 
 // ── Shared paymaster result type ────────────────────────────────────
@@ -14,6 +15,18 @@ export interface PaymasterResult {
 
 // ── Unified orchestration types ─────────────────────────────────────
 
+/**
+ * Gas terms of the UserOp being sponsored, used to check a candidate paymaster's
+ * EntryPoint deposit against the op's max prefund before selecting it. The
+ * paymaster's own gas limits are not included — selection adds each candidate's
+ * worst-case limits, since they are only known once a candidate is chosen.
+ */
+export interface PaymasterPrefund {
+	/** callGasLimit + verificationGasLimit + preVerificationGas */
+	baseGas: bigint
+	maxFeePerGas: bigint
+}
+
 export interface PaymasterOptions {
 	chain: string
 	solverAccount: HexString
@@ -23,19 +36,22 @@ export interface PaymasterOptions {
 	configService: FillerConfigService
 	/**
 	 * Override for the Circle paymaster verification gas limit (default 200k).
-	 * Only honored when the paymaster allowance is already in place — a permit
+	 * Only applies when the Circle paymaster is selected — which, with Simplex
+	 * preferred first, means only when Simplex is unconfigured or skipped. Only
+	 * honored when the paymaster allowance is already in place — a permit
 	 * executed during validation needs the full default. Ignored when the Simplex
 	 * paymaster is selected — its limits are mode-specific
 	 * ({@link VERIFICATION_GAS_LIMIT_PERMIT} / {@link VERIFICATION_GAS_LIMIT_APPROVE}).
 	 */
 	paymasterVerificationGasLimit?: bigint
 	/**
-	 * Skips EIP-2612 permit detection for the Simplex paymaster (PERMIT2 and APPROVE
-	 * modes stay available). Delegation UserOps rely on fixed, measured gas limits;
-	 * executing a permit during paymaster validation adds tens of thousands of
-	 * verification gas and would invalidate them.
+	 * When set, each candidate paymaster is skipped unless its EntryPoint deposit
+	 * covers this op's max prefund with {@link DEPOSIT_HEADROOM_PERCENT} headroom.
+	 * Omitted (or with no EntryPoint configured), selection is balance-only.
 	 */
-	skipPermit?: boolean
+	prefund?: PaymasterPrefund
+	/** Receives a warning for every candidate skipped or deposit read that fails. */
+	logger?: Pick<Logger, "warn">
 }
 
 export interface PaymasterDataResult {
@@ -89,6 +105,16 @@ export const POST_OP_GAS_LIMIT_CIRCLE = 100_000n
  * and both USDC and USDT execute postOp at 30k.
  */
 export const POST_OP_GAS_LIMIT_SIMPLEX = 40_000n
+
+/**
+ * A candidate paymaster needs its EntryPoint deposit to cover the op's max prefund
+ * times this percentage. The bundler checks deposit >= exact prefund at execution,
+ * which for a bid is minutes after selection, and concurrent in-flight ops draw on
+ * the same deposit — 150% buys roughly one other op's share. Healthy deposits are
+ * orders of magnitude above one prefund, so the headroom only bites near-empty,
+ * exactly when skipping the paymaster is right.
+ */
+export const DEPOSIT_HEADROOM_PERCENT = 150n
 
 // ── Shared helpers ──────────────────────────────────────────────────
 

@@ -17,7 +17,8 @@ import { privateKeySigner } from "@/services/wallet/accounts/privatekey"
  * covered by the fork tests in `evm/`; this suite answers the bundler-policy question
  * against a live deployment (see `evm/script/SimplexPaymasterPermit2Probe.s.sol`).
  *
- * Two ops, both sponsored in mode 0x02 with `skipPermit`:
+ * Two ops, both sponsored in mode 0x02 (the probe token has no EIP-2612 permit, so
+ * PERMIT mode is never selected):
  *   1. an EIP-7702 delegation of a fresh EOA (Permit2 verifies the ECDSA path, then the
  *      account has code), bootstrapping the one funded approve(Permit2, max) on the way
  *   2. a plain no-op from the now-delegated account (Permit2 takes the ERC-1271 path)
@@ -132,7 +133,6 @@ describe.skipIf(skipSuite)("SimplexPaymaster PERMIT2 mode — live bundler probe
 			const result = await ctx.userOpSender.trySendSponsored({
 				chain: CHAIN,
 				callData: "0x" as HexString,
-				skipPermit: true,
 			})
 			if (!result && ctx.bundlerError()) throw ctx.bundlerError()
 			expect(result?.txHash).toBeTruthy()

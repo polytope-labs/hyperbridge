@@ -1,5 +1,26 @@
 # @hyperbridge/filler
 
+## 0.12.3
+
+### Patch Changes
+
+- Paymaster selection now prefers the Simplex paymaster and falls back to Circle, inverting the previous Circle-first order. Simplex accepts USDC or USDT and its fees recycle through the keeper; Circle remains the fallback where Simplex is unconfigured or fails the deposit/balance gates. Circle-specific `paymasterVerificationGasLimit` overrides now only apply when Circle is the selected paymaster.
+- A Simplex builder failure (RPC error, bootstrap approve failure, missing native dust) now demotes Simplex to a skip reason and falls through to Circle instead of aborting selection, and the token permit probe no longer treats transport errors as "no permit support".
+- Removed the `skipPermit` option. Delegation UserOps can now use the Simplex paymaster's EIP-2612 PERMIT mode on permit-capable tokens, instead of being routed into the PERMIT2/APPROVE bootstrap that needs a native-funded `approve` — which a solver holding no native cannot send, leaving delegation unsponsored.
+
+## 0.12.2
+
+### Patch Changes
+
+- Paymaster selection now skips any candidate whose EntryPoint deposit cannot cover the operation's max prefund with 150% headroom, falling through Circle to Simplex and reporting per-candidate reasons when none qualifies. Previously the Circle paymaster was chosen on solver balance alone, so a drained deposit (as happened on Base) meant every bid was signed against a paymaster the bundler was bound to reject at precheck. Deposit reads fail open so a transient RPC error degrades to the bundler's own check.
+
+## 0.12.1
+
+### Patch Changes
+
+- MPCVault signing failures now name the failing RPC, the signing-request uuid and MPCVault's x-request-id, and the error guard defensively trips on errors that carry only a non-zero code with an empty message. `executeSigningRequests` retries INVALID_ARGUMENT/NOT_FOUND twice with short backoff: MPCVault intermittently rejects a uuid its own createSigningRequest just returned, which failed live fills with `3 INVALID_ARGUMENT: Invalid uuid` before the callback co-signer was contacted.
+- A signing request whose execute fails terminally is best-effort rejected in the vault instead of staying pending forever, and `MpcVaultClientConfig` accepts an injected `logger` (embedded fillers passing `SimplexOptions.logger` otherwise never see MPCVault retry warnings) and channel `credentials`.
+
 ## 0.12.0
 
 ### Minor Changes

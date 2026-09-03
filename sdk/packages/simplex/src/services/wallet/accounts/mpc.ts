@@ -24,6 +24,8 @@ export function mpcVaultSigner(config: MpcVaultSignerConfig): Signer {
 		accountAddress: config.accountAddress,
 		callbackClientSignerPublicKey: config.callbackClientSignerPublicKey,
 		grpcTarget: config.grpcTarget,
+		logger: config.logger,
+		credentials: config.credentials,
 	})
 
 	return {

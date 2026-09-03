@@ -97,6 +97,82 @@ Alternatives rejected: keeping the Hyperbridge mark leaves the operator UI incon
 using a CSS inversion would also invert the blue `FX` accent; using the website's larger alternate
 wordmark would introduce unnecessary transparent padding.
 
+## 2026-09-02 — `skipPermit` removed: delegation ops may use Simplex PERMIT mode
+
+Supersedes *2026-08-18 — `forceApproveMode` renamed to `skipPermit` (#1071)*. That entry kept the flag because delegation ops pass fixed, measured account-side gas limits; its own reasoning is what retires it. The Simplex builder sets its paymaster verification limit per mode and the permit executes in the paymaster frame under `VERIFICATION_GAS_LIMIT_PERMIT` (250k) — so, exactly as argued there for PERMIT2, PERMIT does not disturb the account limits either. The flag was guarding the wrong frame.
+
+What forced the change: skipping PERMIT sends a permit-capable token down the PERMIT2/APPROVE branch, and when neither a Permit2 nor a paymaster allowance exists that branch bootstraps with a native-funded `approve`. A solver holding zero native cannot send it, so `sendFundedApprove` throws, the sponsored delegation is abandoned, and the direct EIP-7702 fallback needs native too — delegation dead on the chain. Seen on Base (`0x15b3…`, a deployment predating `PERMIT2()`, so mode 2 was unavailable and it fell to `approve(paymaster, $5)`) and Arbitrum. PERMIT mode is the only Simplex mode that needs no bootstrap tx, which makes it the right default for exactly the solver that cannot bootstrap.
+
+Accepted consequence: rundler's `actual / (accountVerif + paymasterVerif)` floor of 0.4 is tighter in PERMIT mode than in PERMIT2. Re-delegation runs ~24k account + ~113k permit against 80k + 250k ≈ 0.42; PERMIT2's measured ~135k against 200k sits at ~0.68. It clears, but with little margin, so a bundler rejection here degrades to a native tx with a "Bundler rejected UserOp" warn rather than anything silent. Not new risk in kind: APPROVE mode (150k) was already reachable for delegation ops through the PERMIT2 branch whenever a legacy allowance existed. Alternative considered and rejected: keep the flag and fix the trap by funding native dust on every chain — that is an operational workaround for a code path that should not have needed native in the first place, and it has to be repeated per chain and per fresh solver.
+
+## 2026-09-02 — Simplex builder errors demote to a skip reason, not a selection failure
+
+With Simplex evaluated first, every throwing path in `buildSimplexPaymasterData` (RPC failure in `selectToken`, the deliberate transport rethrow in `paymasterSupportsPermit2`, the native-dust throw in `sendFundedApprove`) would have aborted `buildPaymasterAndData` before Circle was tried — and on the bid path (`prepareBidUserOp` → `submitBid`, which has no catch until `executeOrder`) that loses the bid. The Simplex builder call is now wrapped in try/catch: a failure logs a warn, lands in `skipReasons` as `simplex: <message>`, and selection falls through to Circle. The deposit gate stays outside the catch — it already fails open internally. `tokenSupportsPermit` also now separates contract reverts from transport errors exactly like `paymasterSupportsPermit2`, so an RPC blip surfaces (and demotes to Circle) instead of masquerading as "no permit" and routing a fresh solver into a native-funded `approve(Permit2, max)` mid-bid.
+
+Review finding on rundler's 0.4 verification-efficiency floor (Circle-tuned `paymasterVerificationGasLimit` overrides no longer applying when Simplex wins) was assessed and left as-is: the claimed 99k/310k ≈ 0.32 holds the usage numerator constant across paymasters, but ~75k of it is Circle's own validation — Simplex PERMIT mode executes the permit during validation (~113k+), putting the ratio near 0.44. No measured actual-usage figure exists for Simplex modes; a floor rejection degrades to a native tx with a "Bundler rejected UserOp" warn, so this is monitored rather than pre-emptively retuned.
+
+## 2026-09-02 — Paymaster preference order: Simplex before Circle
+
+`buildPaymasterAndData` now evaluates the Simplex paymaster first and falls through to Circle, inverting the original Circle-first order (which had no recorded rationale). Simplex is the in-house paymaster: it accepts USDC or USDT (Circle is USDC-only), its fees recycle back through the keeper, and preferring it keeps sponsorship on infrastructure we operate. Circle remains the fallback for chains where Simplex is unconfigured (e.g. Optimism) or its deposit/balances fail the gate.
+
+Accepted consequence: `paymasterVerificationGasLimit` overrides are Circle-only, so the tuned values passed by DelegationService (110k), TokenSender (140k) and VaultFundingPlanner (140k) no longer apply on chains where Simplex now wins — those ops carry Simplex's per-mode limits instead (250k permit / 200k permit2 / 150k approve). Extending the override to Simplex was considered and rejected for now: the limits are mode-specific constants and the override's rundler-efficiency tuning was measured against Circle's validation path, so blindly capping Simplex with it risks underestimating a permit validation. Retune against Simplex modes if rundler's verification-efficiency floor starts rejecting these ops.
+
+## 2026-09-01 — Paymaster deposit gate: 150% headroom, fail-open reads, checked at selection time
+
+Chosen: a candidate paymaster is skipped unless `EntryPoint.balanceOf(paymaster)` covers the op's
+max prefund times `DEPOSIT_HEADROOM_PERCENT` (150%), computed from the caller-supplied base gas
+plus the candidate's worst-case verification and postOp constants.
+
+Exact-prefund (100%) was rejected because the bundler applies its exact check at execution — for a
+bid, minutes after selection — and concurrent in-flight ops draw on the same deposit; passing the
+exact check at selection and failing it at execution reproduces the original failure. A larger
+multiplier (2x+) was rejected as arbitrary: healthy keeper-maintained deposits exceed one prefund
+by orders of magnitude, so any near-1 multiplier only bites when the deposit is effectively empty,
+and 150% buys roughly one concurrent op's share without rejecting a merely modest deposit.
+
+The deposit read fails open (candidate kept, warn logged). Fail-closed would turn every transient
+RPC error into a lost bid or a native-gas fallback; failing open degrades to exactly the status quo
+— the bundler's own precheck — and never worse. The check is skipped entirely when the caller
+passes no `prefund` or the chain has no EntryPoint, preserving balance-only selection for callers
+that cannot price the op.
+
+Known gap, deliberately left: `filler.ts` skips solver EntryPoint deposit top-ups whenever
+`hasPaymaster(chain)` is true, so a chain whose paymasters are all deposit-drained now produces
+`type: "none"` bids that draw on a solver deposit nothing maintains. The durable fix is the
+paymaster keeper maintaining the deposits, not the filler funding a fallback it was configured to
+avoid.
+
+## 2026-08-31 — createSigningRequest gets no retry
+
+Chosen: only execute retries; a create failure propagates immediately. Review asked whether create
+should retry symmetrically, since the production timing alone did not prove which RPC failed.
+
+Rejected because the retry exists to absorb a read-after-write race on a freshly issued uuid, and
+create references nothing freshly issued — its only uuid is the constant vault uuid, so an
+INVALID_ARGUMENT there is deterministic and three attempts just triple the latency of a real config
+error. Retrying create on ambiguous errors is actively harmful: each ambiguous failure may have
+created a request, so retries would leak pending signing requests — the exact orphaning the
+abandoned-request cleanup exists to prevent. If the create-is-fine assumption is wrong, failures now
+name their RPC, so the next live failure identifies create and the decision gets revisited with
+evidence.
+
+## 2026-08-31 — MPCVault execute retries the create/execute race instead of pausing before execute
+
+Chosen: `executeSigningRequest` retries INVALID_ARGUMENT and NOT_FOUND up to twice (300ms, then
+600ms) before failing. MPCVault's backend intermittently does not recognise a signing-request uuid
+its own `createSigningRequest` just returned: live fills failed with
+`3 INVALID_ARGUMENT: Invalid uuid` and no callback-server contact, and since MPCVault only contacts
+the callback co-signer during execute, the rejection precedes any approval step — the request
+exists but the execute handler cannot see it yet.
+
+Alternatives. An unconditional sleep between create and execute taxes every signature to paper over
+a fault that shows up in a small minority of calls. Retrying every gRPC error is unsafe: after an
+ambiguous failure (DEADLINE_EXCEEDED, UNAVAILABLE mid-call) the ceremony may already be running,
+whereas INVALID_ARGUMENT/NOT_FOUND mean the server did nothing, so re-sending is idempotent. The
+retry lives inside `executeSigningRequest` rather than in callers because the uuid is what is being
+retried — recreating the request instead would orphan one pending signing request per attempt in
+the vault.
+
 ## 2026-08-27 — Simplex setup uses the shared Hyperbridge brand system with its own operator-focused composition
 
 Chosen: reuse the exact Hyperbridge foundations already present in `hyperbridge-ui` and

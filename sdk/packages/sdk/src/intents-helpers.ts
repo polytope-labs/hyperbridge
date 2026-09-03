@@ -16,7 +16,9 @@ export {
 	encodePhantomBidDeclaration,
 	extractFillData,
 	fetchBidsForOrder,
+	getTotalSolverBalance,
 	memoizedSolverBalance,
+	readV4Position,
 	orderCommitmentFromDecoded,
 	recoverBidSignerViem,
 	setAggregationFetch,
@@ -40,6 +42,12 @@ export {
 	type PhantomLegBidder,
 	type RecoverBidSigner,
 	type SolverBalanceReader,
+	type SolverV4Position,
 	type RpcBidInfo,
+	type UniswapV4Contracts,
+	type V4PositionState,
 	type YieldVaultMap,
 } from "@/protocols/intents/phantom-aggregation"
+// Pure position arithmetic, so a consumer re-valuing persisted positions between bid windows uses
+// the same maths the aggregation weights them with.
+export { positionAmountOfToken, type PoolAndPositionInfo } from "@/protocols/intents/uniswap-v4-position"

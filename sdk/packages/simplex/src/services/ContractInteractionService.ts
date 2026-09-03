@@ -713,7 +713,7 @@ export class ContractInteractionService {
 
 		const commitment = orderCommitment(order)
 
-		// Build paymasterAndData — Circle (USDC permit) → Simplex → EntryPoint deposit
+		// Build paymasterAndData — Simplex → Circle (USDC permit) → EntryPoint deposit
 		const pmResult = await buildPaymasterAndData({
 			chain: order.destination,
 			solverAccount: solverAccountAddress,
@@ -721,10 +721,18 @@ export class ContractInteractionService {
 			walletClient: this.clientManager.getWalletClient(order.destination),
 			signer: this.signer,
 			configService: this.configService,
+			prefund: {
+				baseGas:
+					cachedEstimate.callGasLimit + cachedEstimate.verificationGasLimit + cachedEstimate.preVerificationGas,
+				maxFeePerGas: cachedEstimate.maxFeePerGas,
+			},
+			logger: this.logger,
 		})
 		const paymasterAndData = pmResult.paymasterAndData
 		if (pmResult.type !== "none") {
 			this.logger.info({ paymaster: pmResult.address, type: pmResult.type }, "Using paymaster for bid UserOp")
+		} else {
+			this.logger.warn({ reason: pmResult.reason }, "No paymaster for bid UserOp; relying on EntryPoint deposit")
 		}
 
 		const userOp = await sdkHelper.prepareSubmitBid({

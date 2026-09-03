@@ -97,6 +97,68 @@ Files: `ui/src/{operator/Operator,wizard/Wizard}.tsx`, `ui/src/styles/{operator,
 `ui/src/{assets/hyperfx-logo.webp,vite-env.d.ts}`, `ui/index.html`, `ui/public/favicon.ico`,
 `src/services/server/static.ts`.
 
+## 2026-09-02 — Remove `skipPermit`; delegation ops may use Simplex PERMIT mode
+
+Deleted the `skipPermit` flag end to end: `SponsoredUserOpRequest.skipPermit`, `PaymasterOptions.skipPermit`, the `SimplexPaymasterOptions` interface and `buildSimplexPaymasterData`'s trailing options parameter, and the `skipPermit: true` that `DelegationService.setupDelegationViaBundler` passed. `hasPermit` is now just `await tokenSupportsPermit(client, tokenAddress)`. Delegation ops therefore reach EIP-2612 PERMIT mode on permit-capable tokens instead of being routed past it into the PERMIT2/APPROVE branch, whose bootstrap needs a native-funded `approve` — unsendable by a solver holding zero native, which left delegation with no sponsored path at all (observed on Base and Arbitrum). Test call sites drop the argument; every one of them already mocked a no-permit token, so mode selection is unchanged there.
+Files: `src/services/DelegationService.ts`, `src/services/UserOpSender.ts`, `src/services/paymaster/index.ts`, `src/services/paymaster/types.ts`, `src/services/paymaster/provider/simplex.ts`, `src/tests/services/SimplexPaymaster.test.ts`, `src/tests/services/UserOpSender.test.ts`, `src/tests/services/SimplexPaymasterPermit2.probe.test.ts`, `docs/ai/Flow.md`, `docs/ai/Decisions.md`, `CHANGELOG.md`.
+
+## 2026-09-02 — Harden Simplex-first selection (PR #1196 review)
+
+Wrapped the `buildSimplexPaymasterData` call in `buildPaymasterAndData` in try/catch: a builder failure warns, joins `skipReasons` as `simplex: <message>`, and falls through to Circle instead of aborting selection (previously a throw lost the bid on the `prepareBidUserOp` path). `tokenSupportsPermit` now discriminates contract reverts from transport errors like `paymasterSupportsPermit2` — a transport error propagates (and demotes to Circle) instead of reading as "no permit". Test mock for `version()` updated to throw viem-shaped errors; added selection-level throw tests and a permit-probe transport test.
+Files: `src/services/paymaster/index.ts`, `src/services/paymaster/provider/simplex.ts`, `src/tests/services/PaymasterSelection.test.ts`, `src/tests/services/SimplexPaymaster.test.ts`, `docs/ai/Decisions.md`, `CHANGELOG.md`.
+
+## 2026-09-02 — Prefer Simplex paymaster over Circle in selection
+
+Flipped the candidate order in `buildPaymasterAndData`: Simplex is evaluated first (deposit gate, then builder — the gate still precedes the builder because of its bootstrap approve tx), Circle second (USDC balance, then gate, then builder), `type: "none"` fallthrough unchanged. Each branch's internal gate semantics, the 150% headroom, and the fail-open deposit reads are untouched; only the order and the order-describing docs changed. `paymasterVerificationGasLimit` stays Circle-only, so it now only bites when Circle is the survivor (see Decisions).
+Files: `src/services/paymaster/index.ts`, `src/services/paymaster/types.ts`, `src/services/UserOpSender.ts`, `src/services/ContractInteractionService.ts`, `src/services/DelegationService.ts`, `src/core/boot.ts`, `src/cli/init/help-text.ts`, `src/tests/services/PaymasterSelection.test.ts`, `docs/ai/Flow.md`, `docs/ai/Decisions.md`.
+
+## 2026-09-01 — Paymaster selection gated on EntryPoint deposit
+
+`buildPaymasterAndData` now skips a candidate paymaster whose EntryPoint deposit cannot cover the
+op's max prefund with 150% headroom, falling through Circle to Simplex to `type: "none"` with a
+per-candidate reason. Motivated by a live incident: on Base the Circle paymaster's deposit was
+drained (5.04e12 wei against a 1.49e13 prefund) and the Simplex paymaster's deposit was zero, so
+every bid was signed against a paymaster the bundler was bound to reject
+("precheck failed: paymaster deposit is X but must be at least Y") — the paymaster is baked into
+the signed bid UserOp, so nothing could re-select at execution. Callers pass the op's gas terms:
+`prepareBidUserOp` from the cached estimate, `trySendSponsored` from the caller's fixed limits or
+the fallbacks — for which `getGasPrice` moved above paymaster selection (also turning a gas-price
+failure into the safe never-submitted null). The Simplex gate runs before its builder, which can
+send a bootstrap approve tx. Deposit-read failures fail open. Skips are warn-logged with deposit
+and required figures.
+Files: src/services/paymaster/types.ts, src/services/paymaster/index.ts,
+src/services/UserOpSender.ts, src/services/ContractInteractionService.ts,
+src/tests/services/PaymasterSelection.test.ts.
+
+## 2026-08-31 — Review fixes: zero-code guard, abandoned-request cleanup, logger and credentials injection, unit tests
+
+Four fixes from review of the MPCVault retry change. `apiErrorText` no longer treats enum value 0
+as an error — both code fields define 0 as UNSPECIFIED, so the previous `!== undefined` check would
+have failed every signature against a server that sends an explicit zero; the guard is also now
+framed as defensive, since the observed `{"code":16,"message":""}` was a gRPC status envelope, not
+the in-band `Error` message. A signing request whose execute fails terminally is best-effort
+rejected in the vault (`rejectSigningRequest`) instead of staying pending forever — a pending
+request nobody will execute is a standing authorization to sign a stale payload. `MpcVaultClientConfig`
+and `MpcVaultSignerConfig` accept an injected `logger` (the default process-wide context is
+invisible to embedded fillers that pass `SimplexOptions.logger`) and `credentials` (the TLS
+hardcoding left no test seam). New unit tests run `MpcVaultService` against an in-process gRPC
+server: retry-then-sign, retries-exhausted with reject and error naming, code-only errors,
+UNSPECIFIED-zero, and create-failure naming. Create deliberately gets no retry — see Decisions.md.
+Files: src/services/wallet/mpcvault.ts, src/services/wallet/types.ts,
+src/services/wallet/accounts/mpc.ts, src/tests/wallet/mpcvault.test.ts.
+
+## 2026-08-31 — MPCVault RPC failures name their call, and execute retries the create/execute race
+
+`MpcVaultService` rethrows gRPC failures naming the RPC, the signing-request uuid and MPCVault's
+x-request-id (previously the bare grpc-js error propagated, so a production
+`3 INVALID_ARGUMENT: Invalid uuid` could not be attributed to create vs execute from the order
+log). The app-level error guard now also trips on code-only errors — MPCVault sends `message: ""`
+with only a code set. `executeSigningRequest` retries INVALID_ARGUMENT/NOT_FOUND twice with short
+backoff because MPCVault intermittently rejects a uuid its own createSigningRequest just returned,
+before the callback co-signer is contacted. Created uuids are logged at debug for dashboard
+correlation.
+Files: src/services/wallet/mpcvault.ts.
+
 ## 2026-08-31 — Simplex UI cleanup and operator-market module
 
 Reviewed the onboarding and operator UI against the agreed design system and extracted live market

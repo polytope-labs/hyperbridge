@@ -21,16 +21,13 @@ Alternative rejected — bid anyway and let the pallet reject it. It does not re
 the deposit is reserved, and the aggregation simply never reads that bid because it read the order's bids when
 the window closed. That is what made this invisible — the filler's own logs said "Phantom bids submitted".
 
-Chosen: skipping is opt-in in the SDK, off by default. `pollPhantomOrders` deliberately advances only past blocks
-it really read, so an outage delays orders rather than dropping them, and a consumer reading the feed as history
-wants exactly that. Only a consumer that BIDS knows the backlog is worthless, so that consumer asks for the skip.
-
 Chosen: a failed head read bids on everything rather than nothing. Refusing to bid without a head would let one
 flaky endpoint stop the filler entirely, which is the worse failure of the two — the age gate exists to catch a
 systematic lag, not to be the last word on a single tick.
 
-The two constants (60 blocks, 40 blocks) are sized off the bid window, which the pallet owns and governance can
-change. They are deliberately generous: too tight and an ordinary slow bid is thrown away before it is tried.
+The two limits (60 blocks in the SDK's poll, 40 here) are sized off the bid window, which the pallet owns and
+governance can change. Both are deliberately generous: too tight and an ordinary slow bid is thrown away before
+it is tried.
 
 ## 2026-09-02 — `skipPermit` removed: delegation ops may use Simplex PERMIT mode
 

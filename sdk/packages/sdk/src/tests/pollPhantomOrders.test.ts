@@ -8,7 +8,8 @@ import { IntentsCoprocessor, type PhantomOrderEvent } from "@/chains/intentsCopr
 // subscriptions, and anything emitted while disconnected was gone. The property that makes a block
 // cursor an actual fix, rather than a different way to lose orders, is that it advances only past
 // blocks whose events were really read, so an outage delays orders instead of dropping them. That is
-// what most of these assert.
+// what most of these assert — bounded by the lag limit, past which the backlog is deliberately
+// abandoned, because an order that far behind can no longer be bid on by anyone.
 
 const COMMITMENT_A = `0x${"aa".repeat(32)}`
 const COMMITMENT_B = `0x${"bb".repeat(32)}`
@@ -387,11 +388,11 @@ describe("pollPhantomOrders", () => {
 	// rate limiting and never recovered, because the cursor gains at most `maxBlocksPerPoll` a tick.
 	// It kept bidding — on orders three thousand blocks old, whose window had closed hours before —
 	// so it looked alive, reserved a deposit per bid, and was counted in no pool for nine hours.
-	describe("maxLagBlocks", () => {
-		it("abandons a backlog it cannot use and returns to the head", async () => {
+	describe("abandoning a backlog too old to bid on", () => {
+		it("skips ahead to the head and reports the range it dropped", async () => {
 			const h = harness(100)
 			const onSkip = vi.fn()
-			const stop = h.coprocessor.pollPhantomOrders(() => {}, { intervalMs: 1000, maxLagBlocks: 20, onSkip })
+			const stop = h.coprocessor.pollPhantomOrders(() => {}, { intervalMs: 1000, onSkip })
 
 			await tick(0)
 			expect(h.scanned).toEqual([100])
@@ -405,10 +406,11 @@ describe("pollPhantomOrders", () => {
 			expect(onSkip).toHaveBeenCalledWith({ from: 101, to: 199, head: 200 })
 		})
 
-		it("catches up normally while the backlog is still within the window", async () => {
+		// Short of the limit the cursor still walks every block, so an ordinary hiccup loses nothing.
+		it("catches up block by block while the backlog is still biddable", async () => {
 			const h = harness(100)
 			const onSkip = vi.fn()
-			const stop = h.coprocessor.pollPhantomOrders(() => {}, { intervalMs: 1000, maxLagBlocks: 20, onSkip })
+			const stop = h.coprocessor.pollPhantomOrders(() => {}, { intervalMs: 1000, onSkip })
 
 			await tick(0)
 			h.setHead(105)
@@ -419,30 +421,16 @@ describe("pollPhantomOrders", () => {
 			expect(onSkip).not.toHaveBeenCalled()
 		})
 
-		// A consumer reading this feed as history wants the opposite trade, so nothing skips unless
-		// it asks. The default-cap test above pins the same property from the other side.
-		it("never skips when no lag limit is given", async () => {
-			const h = harness(100)
-			const stop = h.coprocessor.pollPhantomOrders(() => {}, { intervalMs: 1000, maxBlocksPerPoll: 3 })
-
-			await tick(0)
-			h.setHead(200)
-			await tick(1000)
-			stop()
-
-			expect(h.scanned).toEqual([100, 101, 102, 103])
-		})
-
 		// A cold start lands exactly one block behind the head, which must never read as a backlog.
 		it("does not mistake a cold start for a backlog", async () => {
-			const h = harness(100)
+			const h = harness(1000)
 			const onSkip = vi.fn()
-			const stop = h.coprocessor.pollPhantomOrders(() => {}, { intervalMs: 1000, maxLagBlocks: 0, onSkip })
+			const stop = h.coprocessor.pollPhantomOrders(() => {}, { intervalMs: 1000, onSkip })
 
 			await tick(0)
 			stop()
 
-			expect(h.scanned).toEqual([100])
+			expect(h.scanned).toEqual([1000])
 			expect(onSkip).not.toHaveBeenCalled()
 		})
 	})
@@ -587,24 +575,17 @@ describe("pollPhantomOrders", () => {
 			await tick(1000)
 			stop()
 
-			expect(h.issued).toEqual([
-				"hash:101",
-				"hash:102",
-				"hash:103",
-				"events:101",
-				"events:102",
-				"events:103",
-			])
+			expect(h.issued).toEqual(["hash:101", "hash:102", "hash:103", "events:101", "events:102", "events:103"])
 		})
-
 	})
 
+	// A backlog inside the lag limit, so this is about the per-tick cap and nothing else.
 	it("caps a catch-up at 10 blocks by default", async () => {
 		const h = harness(100)
 		const stop = h.coprocessor.pollPhantomOrders(() => {}, { intervalMs: 1000 })
 
 		await tick(0)
-		h.setHead(200)
+		h.setHead(140)
 		await tick(1000)
 		stop()
 

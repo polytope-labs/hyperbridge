@@ -28,8 +28,8 @@ already dead: the bid window is tens of blocks.
 
 Two fixes, at the two places the delay can come from:
 
-- The scanner now passes `maxLagBlocks: 60` (a few bid windows) and logs when the poll skips ahead. Catching up
-  on a backlog this feed cannot bid on buys nothing.
+- The SDK's poll now abandons a backlog more than 60 blocks (a few bid windows) old rather than walking it, and
+  the scanner logs each skip: a filler that keeps skipping is one falling behind the chain.
 - `handlePhantomOrders` drops events older than `MAX_PHANTOM_ORDER_AGE_BLOCKS` (40) against one Hyperbridge head
   read per batch. That also covers the delay the scanner cannot see — the global queue this runs on, and the
   quoting inside `preparePhantomBid` — and turns a silent outage into a warning naming the lag. A failed head

@@ -85,6 +85,22 @@ const DEFAULT_RPC_MAX_RPS = 8
  */
 const DEFAULT_MAX_BLOCKS_PER_POLL = 10
 
+/**
+ * How far the cursor may fall behind the head before it abandons the backlog and jumps to the head.
+ *
+ * A phantom order can only be bid on inside its own window — tens of blocks — so once the cursor is
+ * further behind than that, every order it delivers is already dead and the bids that follow reserve
+ * a deposit for nothing. The lag is also self-sustaining: the cursor gains at most
+ * `maxBlocksPerPoll` per tick, so a deficit accumulated while ticks were lost (a scan overrunning
+ * the interval, or a rate-limit backoff sitting them out) is never repaid unless the sustained rate
+ * exceeds the chain's. A filler can sit hours behind indefinitely while looking healthy — which is
+ * exactly what happened on mainnet.
+ *
+ * Sized at a few bid windows, so an ordinary hiccup still recovers every order it can and only a lag
+ * no bid could survive is skipped.
+ */
+const MAX_LAG_BLOCKS = 60
+
 /** Ticks to sit out after a 429, doubling per consecutive rejection. */
 const MAX_RATE_LIMIT_BACKOFF_TICKS = 8
 
@@ -357,27 +373,11 @@ export interface PollPhantomOrdersOptions {
 	 * node and the requests the per-block fallback queues ahead of a bid submission.
 	 */
 	maxBlocksPerPoll?: number
-	/**
-	 * How far the cursor may fall behind the head before it abandons the backlog and jumps to the
-	 * head. Off by default: the cursor otherwise advances only past blocks it really read, so an
-	 * outage delays orders rather than dropping them, which is what a consumer reading this feed as
-	 * history wants.
-	 *
-	 * A consumer that BIDS wants the opposite. A phantom order can only be bid on inside its own
-	 * window — tens of blocks — so once the cursor is further behind than that, every order it
-	 * delivers is already dead, and the bids that follow reserve a deposit for nothing. Worse, the
-	 * lag is self-sustaining: the cursor gains at most `maxBlocksPerPoll` per tick, so a deficit
-	 * accumulated while ticks were lost (a scan overrunning the interval, or a rate-limit backoff
-	 * sitting them out) is never repaid unless the sustained rate exceeds the chain's, and a filler
-	 * can sit hours behind indefinitely while looking healthy. Set this to a small multiple of the
-	 * bid window to trade a gap in history — which a bidder has no use for — for a return to live.
-	 */
-	maxLagBlocks?: number
 	/** Notified when a poll fails; polling continues regardless. */
 	onError?: (err: unknown) => void
 	/**
-	 * Notified when `maxLagBlocks` forced the cursor forward, with the range that was never scanned.
-	 * Nothing else reports it, and a bidder skipping blocks is worth a line in the log.
+	 * Notified when the cursor was forced forward past a backlog too old to bid on, with the range
+	 * that was never scanned. Nothing else reports it, and skipping blocks is worth a line in the log.
 	 */
 	onSkip?: (skipped: { from: number; to: number; head: number }) => void
 }
@@ -1357,7 +1357,6 @@ export class IntentsCoprocessor {
 		const {
 			intervalMs,
 			maxBlocksPerPoll = DEFAULT_MAX_BLOCKS_PER_POLL,
-			maxLagBlocks,
 			onError,
 			onSkip,
 		} = options
@@ -1390,7 +1389,7 @@ export class IntentsCoprocessor {
 					// process that restarts mid-window misses that window rather than reaching back
 					// for it: the orders it would find are the ones it already had no time to bid on.
 					cursor = Math.max(head - 1, -1)
-				} else if (maxLagBlocks !== undefined && head - cursor > maxLagBlocks) {
+				} else if (head - cursor > MAX_LAG_BLOCKS) {
 					// Too far behind to be worth catching up on. Only reachable once the cursor is
 					// established, so a cold start — which lands exactly one block behind — is never
 					// mistaken for a backlog.

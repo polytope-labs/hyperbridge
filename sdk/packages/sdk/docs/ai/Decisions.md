@@ -4,21 +4,20 @@ AI-maintained record of non-obvious choices made in `sdk/packages/sdk`: what was
 
 Entry format: heading with the decision, then alternatives considered and the reasoning. Newest first.
 
-## 2026-09-03 — Skipping a phantom-order backlog is opt-in, not the default
+## 2026-09-03 — The phantom-order lag limit is a constant, not an option
 
-Chosen: `maxLagBlocks` defaults to undefined, and the poll behaves exactly as before unless a caller sets it.
+Chosen: `MAX_LAG_BLOCKS` (60) lives beside the poll and always applies.
 
-The existing behaviour is deliberate and tested: the cursor advances only past blocks whose events were really
-read, so an outage delays orders instead of losing them. That is the property that made the cursor a fix for the
-dropped-subscription bug in the first place, and a consumer treating this feed as history depends on it.
+Alternative rejected — a `maxLagBlocks` option, off by default. It was written that way first, to preserve the
+cursor's existing property: it advances only past blocks whose events were really read, so an outage delays
+orders instead of losing them, which is what made the cursor a fix for the dropped-subscription bug and what a
+consumer reading the feed as history would want. But no such consumer exists, and the feed is not history: a
+phantom order is a standing invitation to bid that expires with its window. Past that window there is no caller
+for whom walking the backlog is right, so the option only offered every caller a way to get it wrong — and the
+one that got it wrong on mainnet would have had to opt in to be fixed.
 
-But it is the wrong trade for a bidder, and a bidder is what this feed has: an order outside its window cannot be
-bid on, so walking the backlog spends requests to produce bids that reserve a deposit and are counted by nobody —
-and the cursor, gaining `maxBlocksPerPoll` a tick, can stay behind indefinitely once it slips. Rather than pick
-one policy for both, the knob makes the caller say which it is; simplex's scanner sets it, and nothing else does.
-
-Alternative rejected — always skip beyond some internal threshold. Simpler API, and it would silently break any
-consumer that is reading history, including the outage test that pins the current property.
+The property is bounded rather than abandoned: inside the limit an outage still delays orders instead of dropping
+them, and the tests pin both halves.
 
 Alternative rejected — expose the lag and let the caller reset the poll. It moves the same decision one layer out
 while making every caller reimplement the jump, and the poll would still need the head it already reads.

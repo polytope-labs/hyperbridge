@@ -19,11 +19,15 @@ never skips, so a deficit accumulated while ticks were lost is only repaid if th
 chain's. It kept delivering orders 3,448 blocks old, whose bid window had closed hours before, and the filler
 dutifully bid on every one.
 
-New `maxLagBlocks` option: once the cursor is further behind than that, it jumps to the head and reports the
-range it abandoned through `onSkip`. **Off by default** — the cursor's existing property (advance only past
-blocks really read, so an outage delays orders rather than dropping them) is what a consumer reading this feed as
-history wants. Only a bidder knows the backlog is worthless, so only a bidder asks. The check runs only once the
-cursor is established, so a cold start — exactly one block behind — is never read as a backlog.
+The cursor now abandons a backlog it cannot use: once it is more than `MAX_LAG_BLOCKS` (60, a few bid windows)
+behind the head it jumps to the head and reports the range it dropped through `onSkip`. Not configurable — this
+feed exists to be bid on, and an order that far behind cannot be bid on by anyone, so there is no caller for whom
+walking that backlog is the right answer. The check runs only once the cursor is established, so a cold start —
+exactly one block behind — is never read as a backlog.
+
+That bounds the property the cursor was built for. It still advances only past blocks whose events were really
+read, so an outage delays orders rather than dropping them — up to the point where the delayed orders are dead
+anyway.
 
 `lookbackBlocks` is gone with it. It existed so a restarting process could reach back and still bid on a window
 already open, which is the same late bid this change is removing: by the time the process is up, that window has

@@ -339,7 +339,7 @@ async fn next_consensus_update<C: Config>(
 					)
 					.expect("Infallible, was parsed before update was generated");
 
-					if validators_bit_set.iter().as_bitslice().count_ones() <
+					if validators_bit_set.num_set_bits() <
 						(2 * next_validators.validators.len() / 3)
 					{
 						log::trace!(
@@ -440,7 +440,7 @@ async fn next_consensus_update<C: Config>(
 					)
 					.expect("Infallible, was parsed before update was generated");
 
-					if validators_bit_set.iter().as_bitslice().count_ones() <
+					if validators_bit_set.num_set_bits() <
 						(2 * consensus_state.current_validators.len() / 3)
 					{
 						log::trace!(

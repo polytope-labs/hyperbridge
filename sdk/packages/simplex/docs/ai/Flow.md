@@ -99,6 +99,13 @@ Both numeric labels use the shared `@hyperbridge/ui` tooltip components. Their i
 hover or keyboard focus and explain that `threshold` triggers a sweep while `minBalance` is the
 liquidity retained in the wallet after that sweep.
 
+In the operator drawer, Save sends the current draft to `PUT /api/vault`, then refreshes the config.
+If another edit is followed by Save while that request is pending, Operations records one queued
+retry and reads the newest rows when the prior request finishes; repeated clicks coalesce to that
+latest draft rather than running concurrent vault hydrations. A response only reaches the success
+state when `persisted` is true. Persistence failures and restart-required results are rendered inside
+the still-open vault drawer.
+
 ## Market setup and curve editing
 
 `Wizard` initializes the strategies step with no transfer prefabs. `useStrategiesModel` seeds one

@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react"
+import { useCallback, useLayoutEffect, useRef, useState } from "react"
 import { formatChainKey, parseChainKey } from "@/config/interpolated-curve"
 import { api } from "../api"
 import { AddressListEditor } from "../components/AddressListEditor"
@@ -22,6 +22,12 @@ export function Operations(props: {
 	const [vaultRows, setVaultRows] = useState<VaultRowDraft[]>()
 	const [panel, setPanel] = useState<"send" | "vaults" | "allowlist" | "chains">()
 	const { run: act, message, error } = useAction()
+	const latestVaultRows = useRef<VaultRowDraft[] | undefined>(undefined)
+	const vaultSaveActive = useRef(false)
+	const vaultSaveQueued = useRef(false)
+	useLayoutEffect(() => {
+		latestVaultRows.current = vaultRows
+	}, [vaultRows])
 
 	const chainLabel = (id: number | string) => props.chainLabels?.[String(id)] ?? `chain ${id}`
 
@@ -44,15 +50,49 @@ export function Operations(props: {
 	}, [])
 	usePolling(useCallback(() => act(load, undefined, "poll"), [act, load]))
 
-	const saveVaults = () =>
-		act(async () => {
-			const res = await api.put<{ applied: boolean; restartNeeded: boolean }>("/api/vault", {
-				vaults: vaultRowsToToml(vaultRows ?? []),
-			})
-			await load()
-			if (res.restartNeeded)
-				throw new Error("Saved to config — restart the filler to activate the vault treasury")
-		}, "Vault treasury updated")
+	const saveVaults = () => {
+		// A save may finish after the operator has made another edit. Remember a
+		// second click and drain the latest draft instead of silently discarding it.
+		vaultSaveQueued.current = true
+		if (vaultSaveActive.current) return
+		vaultSaveActive.current = true
+		return act(
+			async () => {
+				try {
+					let result: { applied: boolean; restartNeeded: boolean; persisted: boolean } | undefined
+					let failed = false
+					let failure: unknown
+					do {
+						vaultSaveQueued.current = false
+						failed = false
+						try {
+							result = await api.put("/api/vault", {
+								vaults: vaultRowsToToml(latestVaultRows.current ?? []),
+							})
+							await load()
+						} catch (saveError) {
+							failed = true
+							failure = saveError
+						}
+					} while (vaultSaveQueued.current)
+
+					if (failed) throw failure
+					if (!result) throw new Error("Vault save did not return a result")
+					if (!result.persisted) {
+						throw new Error("Vault changes were applied for this session but could not be saved to the config file")
+					}
+					if (result.restartNeeded) {
+						throw new Error("Saved to config — restart the filler to activate the vault treasury")
+					}
+				} finally {
+					vaultSaveActive.current = false
+					vaultSaveQueued.current = false
+				}
+			},
+			"Vault treasury updated",
+			"vault-save",
+		)
+	}
 
 	return (
 		<div className="operator-page-content">
@@ -165,6 +205,8 @@ export function Operations(props: {
 							</span>
 						)}
 					</div>
+					{message && <p className="hint">✓ {message}</p>}
+					{error && <p className="error">{error}</p>}
 				</div>
 			</OperatorSheet>
 

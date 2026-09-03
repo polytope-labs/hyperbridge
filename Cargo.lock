@@ -29748,7 +29748,7 @@ dependencies = [
 [[package]]
 name = "tree_hash"
 version = "0.12.1"
-source = "git+https://github.com/polytope-labs/tree_hash?rev=bfafe4353d04c94fbf842b0fe14c2d499ebed1ad#bfafe4353d04c94fbf842b0fe14c2d499ebed1ad"
+source = "git+https://github.com/polytope-labs/tree_hash?rev=a22ca828bfa199585b0e2f8275a8214305fc336f#a22ca828bfa199585b0e2f8275a8214305fc336f"
 dependencies = [
  "alloy-primitives 1.5.7",
  "ethereum_hashing",
@@ -29760,7 +29760,7 @@ dependencies = [
 [[package]]
 name = "tree_hash_derive"
 version = "0.12.1"
-source = "git+https://github.com/polytope-labs/tree_hash?rev=bfafe4353d04c94fbf842b0fe14c2d499ebed1ad#bfafe4353d04c94fbf842b0fe14c2d499ebed1ad"
+source = "git+https://github.com/polytope-labs/tree_hash?rev=a22ca828bfa199585b0e2f8275a8214305fc336f#a22ca828bfa199585b0e2f8275a8214305fc336f"
 dependencies = [
  "darling 0.23.0",
  "proc-macro2",

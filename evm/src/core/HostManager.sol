@@ -50,8 +50,27 @@ contract HostManager is HyperApp, ERC165 {
 
     HostManagerParams private _params;
 
+    /**
+     * @dev The only relayer whose deliveries `onAccept` accepts. Governance messages are the one
+     * kind of traffic this contract receives, and they can replace the host's handler, which is
+     * what every app trusts to report the relayer address; so a forged governance message must
+     * not be deliverable by an arbitrary relayer even when the consensus proof behind it verifies.
+     * Zero authorises nobody. Set by the host admin, the key that can already freeze the host.
+     */
+    address private _relayer;
+
     // @dev Action is unauthorized
     error UnauthorizedAction();
+
+    // @dev The message was delivered by a relayer other than `_relayer`
+    error UnauthorizedRelayer();
+
+    /**
+     * @dev Emitted when the authorised relayer is replaced
+     * @param previous The relayer authorised before this change
+     * @param current The relayer authorised from now on
+     */
+    event RelayerUpdated(address previous, address current);
 
     // @dev restricts call to the provided `caller`
     modifier restrict(address caller) {
@@ -92,7 +111,29 @@ contract HostManager is HyperApp, ERC165 {
         _params.admin = address(0);
     }
 
+    /**
+     * @notice The relayer authorised to deliver governance messages, zero if none
+     */
+    function relayer() public view returns (address) {
+        return _relayer;
+    }
+
+    /**
+     * @notice Restricts `onAccept` to deliveries submitted by `newRelayer`
+     * @dev Only the host admin may call this. Ordinary relaying is unaffected: this contract
+     * never receives user traffic, only governance requests from Hyperbridge. The host records a
+     * refused delivery as undelivered, so a rejected message can still be submitted by the
+     * authorised relayer afterwards.
+     * @param newRelayer The relayer to authorise. Zero rejects every delivery.
+     */
+    function setRelayer(address newRelayer) external {
+        if (msg.sender != IHost(_params.host).admin()) revert UnauthorizedAction();
+        emit RelayerUpdated({previous: _relayer, current: newRelayer});
+        _relayer = newRelayer;
+    }
+
     function onAccept(IncomingPostRequest calldata incoming) external override restrict(_params.host) {
+        if (incoming.relayer == address(0) || incoming.relayer != _relayer) revert UnauthorizedRelayer();
         PostRequest calldata request = incoming.request;
         // Only the Hyperbridge parachain can send requests to this module.
         if (!request.source.equals(IHost(_params.host).hyperbridge())) revert UnauthorizedAction();

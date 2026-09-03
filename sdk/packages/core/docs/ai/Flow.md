@@ -46,6 +46,14 @@ So a delivery from anyone but the authorised relayer never decodes the body, nev
 takes the normal path. A gateway whose `_relayer` is zero refuses everything, since step 1 always
 supplies a real address.
 
+The address checked in step 3 is only as trustworthy as the contract in step 1, and that contract
+is `_hostParams.handler`, which `HostManager.onAccept` can replace through a `SetHostParam`
+request from Hyperbridge (`evm/src/core/HostManager.sol`, then `EvmHost.updateHostParams`). The
+HostManager therefore runs the same relayer check before decoding any governance action, against a
+relayer the host admin set with `setRelayer`; `testForgedHandlerSwapIsRefused` in
+`evm/tests/foundry/HostManagerTest.sol` plays the swap through the real host and shows it refused.
+The HostManager sees no user traffic, so this leaves ordinary relaying open.
+
 `setRelayer` has two callers. `_owner` calls it directly. The host reaches it when governance
 sends `UpgradeContract` with `abi.encodeCall(setRelayer, (relayer))` as migration calldata:
 `ERC1967Utils.upgradeToAndCall` delegatecalls that calldata into the new implementation with

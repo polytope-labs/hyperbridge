@@ -17,12 +17,247 @@ pragma solidity ^0.8.17;
 import "forge-std/Test.sol";
 
 import {BaseTest} from "./BaseTest.sol";
-import {PostRequest} from "@hyperbridge/core/libraries/Message.sol";
+import {PostRequest, Message} from "@hyperbridge/core/libraries/Message.sol";
 import {IncomingPostRequest} from "@hyperbridge/core/interfaces/IApp.sol";
+import {IHandlerV2} from "@hyperbridge/core/interfaces/IHandlerV2.sol";
+import {ERC165} from "@openzeppelin/contracts/utils/introspection/ERC165.sol";
 import {HostManagerParams, HostManager} from "../../src/core/HostManager.sol";
 import {HostParams, EvmHost} from "../../src/core/EvmHost.sol";
 
+/// @dev What an attacker would install as the host's handler: it passes the host's interface
+/// check, verifies nothing, and reports whatever relayer address it is told to.
+contract MaliciousHandler is ERC165 {
+    function supportsInterface(bytes4 interfaceId) public view override returns (bool) {
+        return interfaceId == type(IHandlerV2).interfaceId || super.supportsInterface(interfaceId);
+    }
+
+    function deliver(EvmHost host, PostRequest memory request, address claimedRelayer) external {
+        host.dispatchIncoming(request, claimedRelayer);
+    }
+}
+
 contract HostManagerTest is BaseTest {
+    using Message for PostRequest;
+
+    address internal constant OUTSIDER = address(0xD00D);
+
+    // ---------- relayer gate ----------
+
+    /// @dev A SetHostParam governance request carrying `params`, addressed to the live HostManager.
+    function _setHostParamRequest(HostParams memory params) internal view returns (PostRequest memory) {
+        return PostRequest({
+            source: host.hyperbridge(),
+            dest: host.host(),
+            nonce: 0,
+            from: new bytes(0),
+            to: abi.encodePacked(host.hostParams().hostManager),
+            timeoutTimestamp: 0,
+            body: bytes.concat(bytes1(uint8(HostManager.OnAcceptActions.SetHostParam)), abi.encode(params))
+        });
+    }
+
+    function testRelayerIsSetInSetup() public view {
+        assertEq(manager.relayer(), address(this));
+    }
+
+    function testSetRelayerOnlyHostAdmin() public {
+        assertEq(host.admin(), address(this), "precondition: this contract is the host admin");
+
+        vm.prank(OUTSIDER);
+        vm.expectRevert(HostManager.UnauthorizedAction.selector);
+        manager.setRelayer(OUTSIDER);
+
+        // The host delivers governance messages but does not administer the manager.
+        vm.prank(address(host));
+        vm.expectRevert(HostManager.UnauthorizedAction.selector);
+        manager.setRelayer(OUTSIDER);
+
+        assertEq(manager.relayer(), address(this), "relayer unchanged");
+    }
+
+    function testOnAcceptRejectsUnlistedRelayer() public {
+        HostParams memory params = host.hostParams();
+        uint256 previousPeriod = params.challengePeriod;
+        params.challengePeriod = previousPeriod + 1234;
+        PostRequest memory request = _setHostParamRequest(params);
+
+        vm.prank(address(host));
+        vm.expectRevert(HostManager.UnauthorizedRelayer.selector);
+        manager.onAccept(IncomingPostRequest(request, OUTSIDER));
+        assertEq(host.hostParams().challengePeriod, previousPeriod, "params unchanged");
+
+        // The relayer as reported by the host is never zero, and zero must not match an unset slot.
+        vm.prank(address(host));
+        vm.expectRevert(HostManager.UnauthorizedRelayer.selector);
+        manager.onAccept(IncomingPostRequest(request, address(0)));
+
+        // The same message goes through from the authorised relayer.
+        vm.prank(address(host));
+        manager.onAccept(IncomingPostRequest(request, address(this)));
+        assertEq(host.hostParams().challengePeriod, previousPeriod + 1234, "params applied");
+    }
+
+    function testFreshManagerRejectsEveryoneUntilRelayerSet() public {
+        HostManager fresh = new HostManager(HostManagerParams({admin: address(this), host: address(0)}));
+        fresh.setIsmpHost(address(host));
+        assertEq(fresh.relayer(), address(0));
+        PostRequest memory request = _setHostParamRequest(host.hostParams());
+
+        vm.prank(address(host));
+        vm.expectRevert(HostManager.UnauthorizedRelayer.selector);
+        fresh.onAccept(IncomingPostRequest(request, address(this)));
+        vm.prank(address(host));
+        vm.expectRevert(HostManager.UnauthorizedRelayer.selector);
+        fresh.onAccept(IncomingPostRequest(request, OUTSIDER));
+
+        // Once set, the gate passes and the call reaches the host, which rejects this manager
+        // because it is not the one the host is bound to: the gate was the only thing in the way.
+        fresh.setRelayer(address(this));
+        vm.prank(address(host));
+        vm.expectRevert(EvmHost.UnauthorizedAction.selector);
+        fresh.onAccept(IncomingPostRequest(request, address(this)));
+    }
+
+    function testSetRelayerRotates() public {
+        address next = makeAddr("nextRelayer");
+        HostParams memory params = host.hostParams();
+        params.challengePeriod += 1;
+        PostRequest memory request = _setHostParamRequest(params);
+
+        vm.expectEmit(true, true, true, true, address(manager));
+        emit HostManager.RelayerUpdated(address(this), next);
+        manager.setRelayer(next);
+        assertEq(manager.relayer(), next);
+
+        vm.prank(address(host));
+        vm.expectRevert(HostManager.UnauthorizedRelayer.selector);
+        manager.onAccept(IncomingPostRequest(request, address(this)));
+
+        vm.prank(address(host));
+        manager.onAccept(IncomingPostRequest(request, next));
+        assertEq(host.hostParams().challengePeriod, params.challengePeriod);
+    }
+
+    function testSetRelayerToZeroFailsClosed() public {
+        manager.setRelayer(address(0));
+        PostRequest memory request = _setHostParamRequest(host.hostParams());
+
+        vm.prank(address(host));
+        vm.expectRevert(HostManager.UnauthorizedRelayer.selector);
+        manager.onAccept(IncomingPostRequest(request, address(this)));
+        vm.prank(address(host));
+        vm.expectRevert(HostManager.UnauthorizedRelayer.selector);
+        manager.onAccept(IncomingPostRequest(request, address(0)));
+    }
+
+    /// Through the real host: a refused governance delivery leaves no receipt, so the authorised
+    /// relayer can deliver the same message afterwards.
+    function testRejectedDeliveryStaysRetryableThroughHost() public {
+        HostParams memory params = host.hostParams();
+        uint256 previousPeriod = params.challengePeriod;
+        params.challengePeriod = previousPeriod + 99;
+        PostRequest memory request = _setHostParamRequest(params);
+        bytes32 commitment = request.hash();
+
+        vm.prank(address(handler));
+        host.dispatchIncoming(request, OUTSIDER);
+        assertEq(host.requestReceipts(commitment), address(0), "refused delivery leaves no receipt");
+        assertEq(host.hostParams().challengePeriod, previousPeriod, "params unchanged");
+
+        vm.prank(address(handler));
+        host.dispatchIncoming(request, address(this));
+        assertEq(host.requestReceipts(commitment), address(this), "delivery recorded");
+        assertEq(host.hostParams().challengePeriod, previousPeriod + 99, "params applied");
+    }
+
+    /// The attack the gate exists for: a forged SetHostParam that swaps the host's handler for a
+    /// contract that will report any relayer address. With the gate, an arbitrary relayer cannot
+    /// deliver the swap, so the handler stays honest and the attacker's contract never becomes
+    /// able to call the host.
+    function testForgedHandlerSwapIsRefused() public {
+        MaliciousHandler malicious = new MaliciousHandler();
+        HostParams memory params = host.hostParams();
+        address honestHandler = params.handler;
+        params.handler = address(malicious);
+        PostRequest memory swap = _setHostParamRequest(params);
+
+        // Delivered by the attacker (through the honest handler, proof assumed forged).
+        vm.prank(address(handler));
+        host.dispatchIncoming(swap, OUTSIDER);
+        assertEq(host.hostParams().handler, honestHandler, "handler unchanged");
+
+        // The attacker's contract is not the handler, so it cannot inject a relayer address.
+        PostRequest memory forged = _setHostParamRequest(host.hostParams());
+        vm.expectRevert(EvmHost.UnauthorizedAction.selector);
+        malicious.deliver(EvmHost(payable(address(host))), forged, address(this));
+    }
+
+    // ---------- manager rotation ----------
+
+    /// @dev A SetHostParam request carrying `params`, addressed to `to` rather than the live manager.
+    function _setHostParamRequestTo(HostParams memory params, address to) internal view returns (PostRequest memory) {
+        PostRequest memory request = _setHostParamRequest(params);
+        request.to = abi.encodePacked(to);
+        return request;
+    }
+
+    /// @dev A replacement manager, bound to the host and armed with this contract as relayer.
+    function _deployNextManager() internal returns (HostManager next) {
+        next = new HostManager(HostManagerParams({admin: address(this), host: address(0)}));
+        next.setIsmpHost(address(host));
+        next.setRelayer(address(this));
+    }
+
+    /// The host authorises `updateHostParams` only from the manager it currently knows, so the
+    /// request that installs a new manager has to be delivered through the current one. This is
+    /// the rotation the host-executive pallet dispatches; the pallet test pins its recipient.
+    function testRotationDeliveredThroughCurrentManagerSucceeds() public {
+        HostManager next = _deployNextManager();
+        HostParams memory params = host.hostParams();
+        params.hostManager = address(next);
+        PostRequest memory rotation = _setHostParamRequestTo(params, address(manager));
+
+        vm.prank(address(handler));
+        host.dispatchIncoming(rotation, address(this));
+        assertEq(host.requestReceipts(rotation.hash()), address(this), "rotation delivered");
+        assertEq(host.hostParams().hostManager, address(next), "host now bound to the new manager");
+
+        // Governance after the rotation goes through the new manager and no longer through the old.
+        HostParams memory afterwards = host.hostParams();
+        afterwards.challengePeriod += 7;
+        PostRequest memory viaNext = _setHostParamRequestTo(afterwards, address(next));
+        vm.prank(address(handler));
+        host.dispatchIncoming(viaNext, address(this));
+        assertEq(host.hostParams().challengePeriod, afterwards.challengePeriod, "new manager applies params");
+
+        afterwards.challengePeriod += 7;
+        PostRequest memory viaOld = _setHostParamRequestTo(afterwards, address(manager));
+        vm.prank(address(handler));
+        host.dispatchIncoming(viaOld, address(this));
+        assertEq(host.requestReceipts(viaOld.hash()), address(0), "old manager is refused by the host");
+        assertNotEq(host.hostParams().challengePeriod, afterwards.challengePeriod, "old manager applies nothing");
+    }
+
+    /// The same payload addressed to the manager it installs cannot land: that manager is not yet
+    /// authorised, so the host refuses it and stays bound to the current one.
+    function testRotationDeliveredToNewManagerIsRefused() public {
+        HostManager next = _deployNextManager();
+        HostParams memory params = host.hostParams();
+        params.hostManager = address(next);
+        PostRequest memory misaddressed = _setHostParamRequestTo(params, address(next));
+
+        vm.prank(address(host));
+        vm.expectRevert(EvmHost.UnauthorizedAction.selector);
+        next.onAccept(IncomingPostRequest(misaddressed, address(this)));
+
+        vm.prank(address(handler));
+        host.dispatchIncoming(misaddressed, address(this));
+        assertEq(host.requestReceipts(misaddressed.hash()), address(0), "no receipt");
+        assertEq(host.hostParams().hostManager, address(manager), "host still bound to the current manager");
+    }
+
+    // ---------- pre-existing helpers and tests ----------
+
     function HostManagerWithdraw(PostRequest memory request) public {
         // add balance to the host
         feeToken.mint(address(host), 1000e18);

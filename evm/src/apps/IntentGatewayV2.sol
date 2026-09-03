@@ -60,7 +60,7 @@ import {
 contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardTransient, Initializable {
     using SafeERC20 for IERC20;
 
-    /// @dev Privileged admin for future upgrade-gated actions (e.g. pausing). Immutable, so it must
+    /// @dev Privileged admin; rotates the authorised relayer via `setRelayer`. Immutable, so it must
     /// be identical across chains or the deterministic proxy address diverges. Does not gate
     /// `initialize`; atomic CREATE2 deployment already binds the init data to the canonical address.
     address public immutable _owner;
@@ -108,6 +108,23 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardT
         }
         _validateParams(p);
         _params = p;
+    }
+
+    /**
+     * @dev Replaces the relayer authorised to deliver cross-chain messages to this gateway.
+     * Callable by `_owner` directly, and by the host so that a governance `UpgradeContract`
+     * request can carry this call as its migration calldata and have the new implementation and
+     * the relayer take effect in the same transaction: `upgradeToAndCall` runs that calldata as a
+     * delegatecall, which keeps `msg.sender` as the host that invoked `onAccept`. The host never
+     * calls this contract with anything but the `IApp` callback selectors, so the host branch is
+     * reachable only through that migration calldata, behind the hyperbridge-source check and
+     * the relayer gate.
+     * @param relayer The account whose deliveries are accepted from now on. Zero rejects all.
+     */
+    function setRelayer(address relayer) external {
+        if (msg.sender != _owner && msg.sender != host()) revert Unauthorized();
+        emit RelayerUpdated({previous: _relayer, current: relayer});
+        _relayer = relayer;
     }
 
     /**

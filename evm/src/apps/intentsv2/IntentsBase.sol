@@ -158,7 +158,15 @@ abstract contract IntentsBase is EIP712 {
     mapping(bytes32 => uint256) public _destinationProtocolFees;
 
     /// @dev Appended last to preserve existing storage slots.
-    bool public _paused;
+    bool internal _paused;
+
+    /**
+     * @dev The only relayer whose deliveries `onAccept` and `onGetResponse` accept. Every other
+     * delivery reverts, which the host treats as a failed dispatch and leaves retryable by this
+     * relayer. Zero authorises nobody. Appended after `_paused`, with which it shares slot 13;
+     * `_params` cannot grow because `_orders` sits directly behind it.
+     */
+    address public _relayer;
 
     /**
      * @dev Thrown when the caller is not authorized to perform the action.
@@ -338,6 +346,13 @@ abstract contract IntentsBase is EIP712 {
      * @param feeBps The protocol fee in basis points for orders targeting this destination.
      */
     event DestinationProtocolFeeUpdated(string chain, uint256 feeBps);
+
+    /**
+     * @dev Emitted when the authorised relayer is replaced.
+     * @param previous The relayer that was authorised before this change.
+     * @param current The relayer authorised from now on.
+     */
+    event RelayerUpdated(address previous, address current);
 
     /**
      * @dev Returns the address of the Hyperbridge host contract. This function is virtual

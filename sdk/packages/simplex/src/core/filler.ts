@@ -31,6 +31,18 @@ import { Decimal } from "decimal.js"
 /** How long to wait for a Hyperbridge connection before giving up on it. */
 const HYPERBRIDGE_CONNECT_TIMEOUT_MS = 30_000
 
+/**
+ * Blocks of slack allowed on top of the pallet's own bid window when ageing a phantom order.
+ *
+ * The pallet accepts a bid while `block_number <= created_at + window`, and the block it lands in
+ * is a block or two past the head this gate reads. Erring a little permissive is the cheaper
+ * mistake: a bid that arrives one block late is bounced with `PhantomOrderBidWindowClosed`, which
+ * costs fees and a log line, while erring tight throws away a bid that would have landed. The
+ * pallet stays the authority on the edge — this gate is here for the systematic lag, where the
+ * order is thousands of blocks old and no margin makes any difference.
+ */
+const PHANTOM_BID_AGE_MARGIN_BLOCKS = 2
+
 /** One chain's phantom bid, quoted and built, waiting to ride in the interval's batch. */
 interface PreparedPhantomBid {
 	chain: string
@@ -1327,6 +1339,63 @@ export class IntentFiller {
 	}
 
 	/**
+	 * The orders whose bid window can still be open, dropping the rest.
+	 *
+	 * Everything upstream of here can add delay — the poll cursor falling behind, the global queue
+	 * this runs on, the quoting inside `preparePhantomBid` — and none of it is visible in the event
+	 * itself, which carries the block it was registered at and no clock. Bidding anyway is not a
+	 * harmless no-op: the extrinsic is accepted, reserves a deposit, and is counted by nothing,
+	 * because the aggregation read that order's bids when its window closed. A filler in that state
+	 * looks perfectly healthy — bids land, no errors — while backing no pool at all, which is
+	 * exactly how it went unnoticed on mainnet for nine hours.
+	 *
+	 * The window comes from the chain rather than a constant here, because it is governance-set and
+	 * has already moved: Nexus runs 15 where the runtime constant behind it says 25, and Gargantua
+	 * says 5. Anything fixed is wrong in one direction or the other — too tight and this drops live
+	 * orders, too loose and it waves through bids the pallet will bounce.
+	 *
+	 * One head read per batch, not per order, and a failed read of either value keeps every event: a
+	 * flaky endpoint must not be able to stop this filler bidding.
+	 */
+	private async dropExpiredPhantomOrders(
+		events: PhantomOrderEvent[],
+		coprocessor: IntentsCoprocessor,
+	): Promise<PhantomOrderEvent[]> {
+		let head: number
+		let bidWindowBlocks: number
+		try {
+			;[head, { bidWindowBlocks }] = await Promise.all([
+				coprocessor.latestBlockNumber(),
+				coprocessor.phantomTimings(),
+			])
+		} catch (err) {
+			this.logger.warn(
+				{ err },
+				"Could not read the Hyperbridge head or bid window to age phantom orders; bidding on all of them",
+			)
+			return events
+		}
+
+		const maxAge = bidWindowBlocks + PHANTOM_BID_AGE_MARGIN_BLOCKS
+		const live = events.filter((event) => head - event.createdAt <= maxAge)
+		if (live.length < events.length) {
+			const expired = events.filter((event) => !live.includes(event))
+			this.logger.warn(
+				{
+					head,
+					bidWindowBlocks,
+					dropped: expired.length,
+					oldestLagBlocks: Math.max(...expired.map((event) => head - event.createdAt)),
+					chains: expired.map((event) => event.chain),
+				},
+				"Skipping phantom orders whose bid window has closed — bidding on them would reserve a " +
+					"deposit for a bid nothing can count. Persistent, and this filler is falling behind the chain.",
+			)
+		}
+		return live
+	}
+
+	/**
 	 * Bids on every phantom order registered in one block, in a single extrinsic.
 	 *
 	 * The pallet registers one order per configured chain in the same block, so this is the whole
@@ -1336,7 +1405,10 @@ export class IntentFiller {
 	 * many blocks behind the first, against a bid window measured in tens of blocks.
 	 */
 	private async handlePhantomOrders(events: PhantomOrderEvent[], coprocessor: IntentsCoprocessor): Promise<void> {
-		const prepared = (await Promise.all(events.map((event) => this.preparePhantomBid(event, coprocessor)))).filter(
+		const live = await this.dropExpiredPhantomOrders(events, coprocessor)
+		if (live.length === 0) return
+
+		const prepared = (await Promise.all(live.map((event) => this.preparePhantomBid(event, coprocessor)))).filter(
 			(entry): entry is PreparedPhantomBid => entry !== null,
 		)
 		if (prepared.length === 0) return

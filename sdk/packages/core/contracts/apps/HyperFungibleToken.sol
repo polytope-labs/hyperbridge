@@ -104,6 +104,9 @@ contract HyperFungibleToken is ERC20, ERC165, HyperApp, Ownable, Pausable {
      */
     error UnauthorizedSource();
 
+    /// @notice Thrown when a delivery comes from a relayer other than the authorised one
+    error UnauthorizedRelayer();
+
     /// @notice Address of the ISMP host contract on this chain
     address internal _host;
 
@@ -115,6 +118,12 @@ contract HyperFungibleToken is ERC20, ERC165, HyperApp, Ownable, Pausable {
      * An empty value means the chain is not supported.
      */
     mapping(bytes => bytes) internal _supportedChains;
+
+    /**
+     * @notice The relayer whose `onAccept` and `onPostRequestTimeout` deliveries are accepted.
+     * Zero leaves deliveries open to any relayer; see `_checkRelayer`.
+     */
+    address internal _relayer;
 
     /**
      * @notice Emitted when tokens are burned and a cross-chain transfer is dispatched
@@ -141,6 +150,13 @@ contract HyperFungibleToken is ERC20, ERC165, HyperApp, Ownable, Pausable {
      * @param amount The amount of tokens refunded
      */
     event Refunded(address to, uint256 amount);
+
+    /**
+     * @notice Emitted when the authorised relayer is replaced
+     * @param previous The relayer authorised before this change
+     * @param current The relayer authorised from now on
+     */
+    event RelayerUpdated(address previous, address current);
 
     /**
      * @notice Initializes the token with a name, symbol, and owner
@@ -204,6 +220,36 @@ contract HyperFungibleToken is ERC20, ERC165, HyperApp, Ownable, Pausable {
      */
     function removeChain(bytes calldata chainId) external onlyOwner {
         delete _supportedChains[chainId];
+    }
+
+    /**
+     * @notice Returns the relayer authorised to deliver cross-chain messages, zero if unrestricted
+     * @return The authorised relayer address
+     */
+    function relayer() public view returns (address) {
+        return _relayer;
+    }
+
+    /**
+     * @notice Restricts `onAccept` and `onPostRequestTimeout` to deliveries submitted by `newRelayer`
+     * @dev Only callable by the contract owner. The host records a refused delivery as undelivered,
+     * so a message rejected here can still be submitted by the authorised relayer afterwards.
+     * @param newRelayer The relayer to authorise. Zero lifts the restriction in this contract;
+     * derived contracts may treat zero as "nobody" by overriding `_checkRelayer`.
+     */
+    function setRelayer(address newRelayer) external onlyOwner {
+        emit RelayerUpdated({previous: _relayer, current: newRelayer});
+        _relayer = newRelayer;
+    }
+
+    /**
+     * @dev Reverts with `UnauthorizedRelayer` when `incomingRelayer` may not deliver to this token.
+     * Unrestricted while no relayer is set, so existing deployments keep working until their
+     * owner opts in. Override to fail closed instead.
+     * @param incomingRelayer The account that submitted the message to the handler
+     */
+    function _checkRelayer(address incomingRelayer) internal view virtual {
+        if (_relayer != address(0) && incomingRelayer != _relayer) revert UnauthorizedRelayer();
     }
 
     /**
@@ -289,6 +335,7 @@ contract HyperFungibleToken is ERC20, ERC165, HyperApp, Ownable, Pausable {
      * @param incoming The incoming POST request containing the token transfer message
      */
     function onAccept(IncomingPostRequest calldata incoming) external override onlyHost whenNotPaused {
+        _checkRelayer(incoming.relayer);
         PostRequest calldata request = incoming.request;
 
         bytes memory expectedSource = _supportedChains[request.source];
@@ -318,6 +365,7 @@ contract HyperFungibleToken is ERC20, ERC165, HyperApp, Ownable, Pausable {
      * @param incoming The timed-out POST request and the relayer that submitted the timeout proof
      */
     function onPostRequestTimeout(PostRequestTimeout memory incoming) external override onlyHost whenNotPaused {
+        _checkRelayer(incoming.relayer);
         Message memory message = abi.decode(incoming.request.body, (Message));
         address refundee = _toAddr(message.from);
         _mint(refundee, message.amount);

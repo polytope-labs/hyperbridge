@@ -56,6 +56,14 @@ fn host_manager_set_ismp_host(addr: Address) -> Vec<u8> {
 	calldata
 }
 
+fn host_manager_set_relayer(addr: Address) -> Vec<u8> {
+	let selector: [u8; 4] =
+		alloy_primitives::keccak256(b"setRelayer(address)").0[..4].try_into().unwrap();
+	let mut calldata = selector.to_vec();
+	calldata.extend_from_slice(&addr.abi_encode());
+	calldata
+}
+
 // ---------------------------------------------------------------------------
 // Constructor param types
 // ---------------------------------------------------------------------------
@@ -194,8 +202,10 @@ impl TestEnv {
 		);
 		env.evm.ctx.block.timestamp = U256::from(1);
 
-		// 8. Configure: setIsmpHost on HostManager
+		// 8. Configure: setIsmpHost on HostManager, then authorise `sender` (the host admin and
+		// the relayer every test delivers as) to deliver governance messages.
 		env.call(env.manager, host_manager_set_ismp_host(env.host));
+		env.call(env.manager, host_manager_set_relayer(env.sender));
 
 		// 9. Token approvals
 		env.call(

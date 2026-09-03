@@ -42,11 +42,14 @@ import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUn
 import {ISwapRouter} from "@uniswap/v3-periphery/contracts/interfaces/ISwapRouter.sol";
 import {IQuoter} from "@uniswap/v3-periphery/contracts/interfaces/IQuoter.sol";
 import {IncomingPostRequest, IncomingGetResponse} from "@hyperbridge/core/interfaces/IApp.sol";
-import {PostRequest} from "@hyperbridge/core/interfaces/IDispatcher.sol";
-import {GetRequest, GetResponse} from "@hyperbridge/core/libraries/Message.sol";
+import {PostRequest, IDispatcher} from "@hyperbridge/core/interfaces/IDispatcher.sol";
+import {GetRequest, GetResponse, Message} from "@hyperbridge/core/libraries/Message.sol";
+import {StateMachine} from "@hyperbridge/core/libraries/StateMachine.sol";
 import {StorageValue} from "@polytope-labs/solidity-merkle-trees/src/trie/Node.sol";
 
 contract IntentGatewayV2Test is MainnetForkBaseTest {
+    using Message for PostRequest;
+
     IntentGatewayV2 public intentGateway;
 
     // Mainnet addresses
@@ -57,6 +60,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
     // Test users
     address public user;
     address public filler;
+    // The only account whose deliveries the gateway accepts (see `_deployGatewayProxy`).
+    address public relayer;
 
     // Protocol fee in BPS (30 BPS = 0.3%)
     uint256 public constant PROTOCOL_FEE_BPS = 30;
@@ -70,6 +75,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         // Setup test accounts
         user = makeCleanAddr("user");
         filler = makeCleanAddr("filler");
+        relayer = makeCleanAddr("relayer");
 
         // Deploy IntentGatewayV2
         intentGateway = _deployGatewayProxy();
@@ -96,11 +102,15 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
     }
 
     /// @dev Proxy with empty init data so each test calls `initialize` with its own params and
-    /// peers. Production initializes atomically (see `testAtomicInitialization`).
+    /// peers. Production initializes atomically (see `testAtomicInitialization`). The relayer is
+    /// set here because a gateway with no relayer refuses every cross-chain delivery; this test
+    /// contract is `_owner`, so it may set it directly.
     function _deployGatewayProxy() internal returns (IntentGatewayV2) {
         IntentGatewayV2 implementation = new IntentGatewayV2(address(this));
         ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), "");
-        return IntentGatewayV2(payable(address(proxy)));
+        IntentGatewayV2 gateway = IntentGatewayV2(payable(address(proxy)));
+        gateway.setRelayer(relayer);
+        return gateway;
     }
 
     function _fundTestAccounts() internal {
@@ -811,7 +821,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         // Execute dust sweep
         vm.prank(address(host));
-        intentGateway.onAccept(IncomingPostRequest({relayer: address(0), request: request}));
+        intentGateway.onAccept(IncomingPostRequest({relayer: relayer, request: request}));
 
         // Verify dust was transferred
         assertEq(usdc.balanceOf(treasury) - treasuryBalanceBefore, feeAmount, "Treasury should receive protocol fees");
@@ -857,7 +867,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         assertEq(address(intentGateway).balance, feeAmount, "Gateway should have ETH before sweep");
 
         vm.prank(address(host));
-        intentGateway.onAccept(IncomingPostRequest({relayer: address(0), request: request}));
+        intentGateway.onAccept(IncomingPostRequest({relayer: relayer, request: request}));
 
         assertEq(treasury.balance - treasuryBalanceBefore, feeAmount, "Treasury should receive ETH dust");
         assertEq(address(intentGateway).balance, 0, "Gateway should have no ETH left");
@@ -905,7 +915,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         assertEq(address(intentGateway).balance, ethAmount, "Gateway should have ETH");
 
         vm.prank(address(host));
-        intentGateway.onAccept(IncomingPostRequest({relayer: address(0), request: request}));
+        intentGateway.onAccept(IncomingPostRequest({relayer: relayer, request: request}));
 
         // Verify all dust was swept
         assertEq(usdc.balanceOf(treasury) - usdcBalanceBefore, usdcAmount, "Treasury should receive USDC");
@@ -1263,7 +1273,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         vm.prank(address(host));
         vm.expectRevert(IntentsBase.Unauthorized.selector);
-        intentGateway.onAccept(IncomingPostRequest({relayer: address(0), request: request}));
+        intentGateway.onAccept(IncomingPostRequest({relayer: relayer, request: request}));
     }
 
     function testFillOrderWithNoPostdispatch() public {
@@ -2281,7 +2291,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         uint256 fillerBalanceBefore = usdc.balanceOf(filler);
 
         vm.prank(address(host));
-        intentGateway.onAccept(IncomingPostRequest({relayer: address(0), request: request}));
+        intentGateway.onAccept(IncomingPostRequest({relayer: relayer, request: request}));
 
         assertEq(usdc.balanceOf(filler) - fillerBalanceBefore, inputAmount, "Filler should receive escrowed tokens");
     }
@@ -2339,7 +2349,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         uint256 userBalanceBefore = usdc.balanceOf(user);
 
         vm.prank(address(host));
-        intentGateway.onAccept(IncomingPostRequest({relayer: address(0), request: request}));
+        intentGateway.onAccept(IncomingPostRequest({relayer: relayer, request: request}));
 
         assertEq(usdc.balanceOf(user) - userBalanceBefore, inputAmount, "User should receive refunded tokens");
     }
@@ -2645,7 +2655,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         emit IntentsBase.EscrowRefunded(commitment, inputs);
 
         vm.prank(address(host));
-        intentGateway.onAccept(IncomingPostRequest({relayer: address(0), request: request}));
+        intentGateway.onAccept(IncomingPostRequest({relayer: relayer, request: request}));
 
         assertEq(usdc.balanceOf(user) - userBalanceBefore, inputAmount, "User should receive refunded tokens");
         assertEq(intentGateway._filled(commitment), user, "Order should be marked as refunded with user as beneficiary");
@@ -2756,7 +2766,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         vm.recordLogs();
 
         vm.prank(address(host));
-        intentGateway.onAccept(IncomingPostRequest({relayer: address(0), request: request}));
+        intentGateway.onAccept(IncomingPostRequest({relayer: relayer, request: request}));
 
         // Check DeploymentAdded event
         Vm.Log[] memory entries = vm.getRecordedLogs();
@@ -2803,7 +2813,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         vm.recordLogs();
 
         vm.prank(address(host));
-        intentGateway.onAccept(IncomingPostRequest({relayer: address(0), request: request}));
+        intentGateway.onAccept(IncomingPostRequest({relayer: relayer, request: request}));
 
         // Check ParamsUpdated event
         Vm.Log[] memory entries = vm.getRecordedLogs();
@@ -2866,7 +2876,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         vm.recordLogs();
 
         vm.prank(address(host));
-        intentGateway.onAccept(IncomingPostRequest({relayer: address(0), request: request}));
+        intentGateway.onAccept(IncomingPostRequest({relayer: relayer, request: request}));
 
         // Check events
         Vm.Log[] memory entries = vm.getRecordedLogs();
@@ -2927,7 +2937,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         vm.recordLogs();
 
         vm.prank(address(host));
-        intentGateway.onAccept(IncomingPostRequest({relayer: address(0), request: request}));
+        intentGateway.onAccept(IncomingPostRequest({relayer: relayer, request: request}));
 
         // Check events
         Vm.Log[] memory entries = vm.getRecordedLogs();
@@ -2980,7 +2990,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         emit IntentsBase.DestinationProtocolFeeUpdated(string(arbitrumStateMachineId), feeBps);
 
         vm.prank(address(host));
-        intentGateway.onAccept(IncomingPostRequest({relayer: address(0), request: request}));
+        intentGateway.onAccept(IncomingPostRequest({relayer: relayer, request: request}));
     }
 
     function testPlaceOrderWithDestinationSpecificFee() public {
@@ -3020,7 +3030,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         });
 
         vm.prank(address(host));
-        customGateway.onAccept(IncomingPostRequest({relayer: address(0), request: request}));
+        customGateway.onAccept(IncomingPostRequest({relayer: relayer, request: request}));
 
         // Place an order to the destination with specific fee
         uint256 inputAmount = 1000 * 1e6; // 1000 USDC
@@ -3162,7 +3172,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         });
 
         vm.prank(address(host));
-        intentGateway.onAccept(IncomingPostRequest({relayer: address(0), request: request}));
+        intentGateway.onAccept(IncomingPostRequest({relayer: relayer, request: request}));
 
         // Now should return the stored gateway
         address instance = intentGateway.instance(stateMachineId);
@@ -3255,7 +3265,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         GetResponse memory getResponse = GetResponse({request: getRequest, values: values});
 
-        IncomingGetResponse memory incoming = IncomingGetResponse({response: getResponse, relayer: address(0)});
+        IncomingGetResponse memory incoming = IncomingGetResponse({response: getResponse, relayer: relayer});
 
         uint256 userBalanceBefore = usdc.balanceOf(user);
 
@@ -3389,7 +3399,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         uint256 fillerBalanceBefore = usdc.balanceOf(filler);
         vm.prank(address(host));
-        customGateway.onAccept(IncomingPostRequest({relayer: address(0), request: request}));
+        customGateway.onAccept(IncomingPostRequest({relayer: relayer, request: request}));
 
         // Filler receives the REDUCED amount (after protocol fees)
         assertEq(
@@ -3900,7 +3910,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         vm.prank(address(host));
         vm.expectRevert(IntentsBase.InvalidInput.selector);
-        intentGateway.onAccept(IncomingPostRequest({relayer: address(0), request: request}));
+        intentGateway.onAccept(IncomingPostRequest({relayer: relayer, request: request}));
     }
 
     // ============================================================
@@ -4013,7 +4023,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         PostRequest memory request = _upgradeRequest(host.hyperbridge(), address(newImpl), "");
 
         vm.prank(address(host));
-        intentGateway.onAccept(IncomingPostRequest({relayer: address(0), request: request}));
+        intentGateway.onAccept(IncomingPostRequest({relayer: relayer, request: request}));
 
         // The proxy now points at the new implementation and its new logic is reachable.
         assertEq(_implementationOf(address(intentGateway)), address(newImpl), "implementation slot updated");
@@ -4072,7 +4082,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         vm.prank(address(host));
         vm.expectRevert(IntentsBase.Unauthorized.selector);
-        intentGateway.onAccept(IncomingPostRequest({relayer: address(0), request: request}));
+        intentGateway.onAccept(IncomingPostRequest({relayer: relayer, request: request}));
 
         assertEq(_implementationOf(address(intentGateway)), implBefore, "implementation must be unchanged");
     }
@@ -4085,7 +4095,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         vm.prank(address(host));
         vm.expectRevert(abi.encodeWithSelector(ERC1967Utils.ERC1967InvalidImplementation.selector, noCode));
-        intentGateway.onAccept(IncomingPostRequest({relayer: address(0), request: request}));
+        intentGateway.onAccept(IncomingPostRequest({relayer: relayer, request: request}));
 
         assertEq(_implementationOf(address(intentGateway)), implBefore, "implementation must be unchanged");
     }
@@ -4117,6 +4127,397 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         });
         vm.expectRevert(Initializable.InvalidInitialization.selector);
         intentGateway.initialize(p, new bytes[](0));
+    }
+
+    // ============================================================
+    // Relayer allowlist Tests
+    // ============================================================
+
+    /// @dev Places a same-chain order so its input sits in escrow, and returns the RedeemEscrow
+    /// request a peer gateway would send to release that escrow to `filler`.
+    function _escrowedRedeemRequest()
+        internal
+        returns (PostRequest memory request, bytes32 commitment, uint256 amount)
+    {
+        amount = 1000 * 1e6;
+        Order memory order = _sameChainOrder(amount, 1000 * 1e18, 0);
+        vm.startPrank(user);
+        usdc.approve(address(intentGateway), amount);
+        intentGateway.placeOrder(order, bytes32(0));
+        vm.stopPrank();
+        commitment = keccak256(abi.encode(order));
+
+        bytes memory body = bytes.concat(
+            bytes1(uint8(IntentsBase.RequestKind.RedeemEscrow)),
+            abi.encode(
+                WithdrawalRequest({
+                    commitment: commitment,
+                    tokens: order.inputs,
+                    beneficiary: bytes32(uint256(uint160(filler)))
+                })
+            )
+        );
+        request = PostRequest({
+            source: host.host(),
+            dest: host.host(),
+            nonce: 0,
+            from: abi.encodePacked(address(intentGateway)),
+            to: abi.encodePacked(address(intentGateway)),
+            body: body,
+            timeoutTimestamp: 0
+        });
+    }
+
+    /// @dev Places a same-chain order and returns the GET response a source-chain cancel receives
+    /// when the destination reports the order unfilled.
+    function _cancelResponse() internal returns (GetResponse memory response, bytes32 commitment, uint256 amount) {
+        amount = 1000 * 1e6;
+        Order memory order = _sameChainOrder(amount, 1000 * 1e18, 0);
+        vm.startPrank(user);
+        usdc.approve(address(intentGateway), amount);
+        intentGateway.placeOrder(order, bytes32(0));
+        vm.stopPrank();
+        commitment = keccak256(abi.encode(order));
+
+        StorageValue[] memory values = new StorageValue[](1);
+        values[0] = StorageValue({key: new bytes(0), value: new bytes(0)});
+        GetRequest memory getRequest = GetRequest({
+            source: host.host(),
+            dest: order.destination,
+            nonce: 0,
+            from: abi.encodePacked(address(intentGateway)),
+            keys: new bytes[](0),
+            height: 0,
+            timeoutTimestamp: 0,
+            context: abi.encode(
+                WithdrawalRequest({commitment: commitment, tokens: order.inputs, beneficiary: order.user})
+            )
+        });
+        response = GetResponse({request: getRequest, values: values});
+    }
+
+    function _newDeploymentRequest(bytes memory chain, address gateway) internal view returns (PostRequest memory) {
+        return PostRequest({
+            source: host.hyperbridge(),
+            dest: host.host(),
+            nonce: 0,
+            from: abi.encodePacked(address(intentGateway)),
+            to: abi.encodePacked(address(intentGateway)),
+            body: bytes.concat(
+                bytes1(uint8(IntentsBase.RequestKind.NewDeployment)),
+                abi.encode(Deployment({chain: chain, gateway: gateway}))
+            ),
+            timeoutTimestamp: 0
+        });
+    }
+
+    /// @dev `_paused` (bool) sits at slot 13 offset 0 and `_relayer` packs behind it at offset 1.
+    function _packedRelayerSlot(address r) internal pure returns (bytes32) {
+        return bytes32(uint256(uint160(r)) << 8);
+    }
+
+    function testRelayerSharesSlotThirteenWithPaused() public view {
+        assertEq(intentGateway._relayer(), relayer, "getter");
+        assertEq(
+            vm.load(address(intentGateway), bytes32(uint256(13))),
+            _packedRelayerSlot(relayer),
+            "_relayer must sit at slot 13 offset 1, leaving the _paused byte zero"
+        );
+        assertEq(vm.load(address(intentGateway), bytes32(uint256(14))), bytes32(0), "slot 14 unused");
+    }
+
+    function testSetRelayerRejectsNonOwner() public {
+        vm.prank(user);
+        vm.expectRevert(IntentsBase.Unauthorized.selector);
+        intentGateway.setRelayer(user);
+
+        // The handler talks to the host, never to the gateway.
+        vm.prank(address(handler));
+        vm.expectRevert(IntentsBase.Unauthorized.selector);
+        intentGateway.setRelayer(user);
+
+        assertEq(intentGateway._relayer(), relayer, "relayer unchanged");
+    }
+
+    function testSetRelayerRotates() public {
+        address next = makeCleanAddr("nextRelayer");
+        (PostRequest memory request,, uint256 amount) = _escrowedRedeemRequest();
+
+        vm.expectEmit(true, true, true, true, address(intentGateway));
+        emit IntentsBase.RelayerUpdated(relayer, next);
+        intentGateway.setRelayer(next);
+        assertEq(intentGateway._relayer(), next);
+
+        // The previous relayer is locked out immediately.
+        vm.prank(address(host));
+        vm.expectRevert(IntentsBase.Unauthorized.selector);
+        intentGateway.onAccept(IncomingPostRequest({relayer: relayer, request: request}));
+
+        uint256 before = usdc.balanceOf(filler);
+        vm.prank(address(host));
+        intentGateway.onAccept(IncomingPostRequest({relayer: next, request: request}));
+        assertEq(usdc.balanceOf(filler) - before, amount, "new relayer releases escrow");
+    }
+
+    function testSetRelayerToZeroFailsClosed() public {
+        (PostRequest memory request, bytes32 commitment, uint256 amount) = _escrowedRedeemRequest();
+        intentGateway.setRelayer(address(0));
+
+        vm.prank(address(host));
+        vm.expectRevert(IntentsBase.Unauthorized.selector);
+        intentGateway.onAccept(IncomingPostRequest({relayer: relayer, request: request}));
+        assertEq(intentGateway._orders(commitment, address(usdc)), amount, "escrow untouched");
+    }
+
+    function testOnAcceptRejectsUnlistedRelayer() public {
+        (PostRequest memory request, bytes32 commitment, uint256 amount) = _escrowedRedeemRequest();
+
+        vm.prank(address(host));
+        vm.expectRevert(IntentsBase.Unauthorized.selector);
+        intentGateway.onAccept(IncomingPostRequest({relayer: filler, request: request}));
+        assertEq(intentGateway._orders(commitment, address(usdc)), amount, "escrow untouched");
+        assertEq(intentGateway._filled(commitment), address(0), "order not finalised");
+
+        // The very same message goes through once the authorised relayer submits it.
+        uint256 before = usdc.balanceOf(filler);
+        vm.prank(address(host));
+        intentGateway.onAccept(IncomingPostRequest({relayer: relayer, request: request}));
+        assertEq(usdc.balanceOf(filler) - before, amount, "authorised relayer releases escrow");
+        assertEq(intentGateway._filled(commitment), filler, "order finalised");
+    }
+
+    function testOnAcceptGovernanceRejectsUnlistedRelayer() public {
+        // UpgradeContract: a forged upgrade cannot land unless the relayer submits it.
+        address implBefore = _implementationOf(address(intentGateway));
+        IntentGatewayV2Upgraded newImpl = new IntentGatewayV2Upgraded(address(this));
+        PostRequest memory upgrade = _upgradeRequest(host.hyperbridge(), address(newImpl), "");
+
+        vm.prank(address(host));
+        vm.expectRevert(IntentsBase.Unauthorized.selector);
+        intentGateway.onAccept(IncomingPostRequest({relayer: filler, request: upgrade}));
+        assertEq(_implementationOf(address(intentGateway)), implBefore, "implementation unchanged");
+
+        // NewDeployment: the gate runs before the body is decoded, so every kind is covered.
+        PostRequest memory deployment = _newDeploymentRequest(bytes("NEW_CHAIN"), address(0xBEEF));
+        vm.prank(address(host));
+        vm.expectRevert(IntentsBase.Unauthorized.selector);
+        intentGateway.onAccept(IncomingPostRequest({relayer: filler, request: deployment}));
+        vm.expectRevert(IntentsBase.UnknownInstance.selector);
+        intentGateway.instance(bytes("NEW_CHAIN"));
+
+        vm.prank(address(host));
+        intentGateway.onAccept(IncomingPostRequest({relayer: relayer, request: deployment}));
+        assertEq(intentGateway.instance(bytes("NEW_CHAIN")), address(0xBEEF), "relayer-submitted governance applies");
+    }
+
+    function testOnGetResponseRejectsUnlistedRelayer() public {
+        (GetResponse memory response, bytes32 commitment, uint256 amount) = _cancelResponse();
+
+        vm.prank(address(host));
+        vm.expectRevert(IntentsBase.Unauthorized.selector);
+        intentGateway.onGetResponse(IncomingGetResponse({response: response, relayer: user}));
+        assertEq(intentGateway._orders(commitment, address(usdc)), amount, "escrow untouched");
+
+        uint256 before = usdc.balanceOf(user);
+        vm.prank(address(host));
+        intentGateway.onGetResponse(IncomingGetResponse({response: response, relayer: relayer}));
+        assertEq(usdc.balanceOf(user) - before, amount, "authorised relayer refunds escrow");
+    }
+
+    function testFreshProxyRejectsEveryDeliveryUntilRelayerSet() public {
+        IntentGatewayV2 implementation = new IntentGatewayV2(address(this));
+        ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), "");
+        IntentGatewayV2 gateway = IntentGatewayV2(payable(address(proxy)));
+        Params memory p = Params({
+            host: address(host),
+            dispatcher: address(dispatcher),
+            solverSelection: false,
+            surplusShareBps: 10000,
+            protocolFeeBps: 0,
+            priceOracle: address(0)
+        });
+        gateway.initialize(p, new bytes[](0));
+        assertEq(gateway._relayer(), address(0), "no relayer after initialize");
+
+        PostRequest memory deployment = _newDeploymentRequest(bytes("NEW_CHAIN"), address(0xBEEF));
+        deployment.from = abi.encodePacked(address(gateway));
+        deployment.to = abi.encodePacked(address(gateway));
+
+        vm.prank(address(host));
+        vm.expectRevert(IntentsBase.Unauthorized.selector);
+        gateway.onAccept(IncomingPostRequest({relayer: relayer, request: deployment}));
+        vm.prank(address(host));
+        vm.expectRevert(IntentsBase.Unauthorized.selector);
+        gateway.onAccept(IncomingPostRequest({relayer: filler, request: deployment}));
+
+        gateway.setRelayer(relayer);
+        vm.prank(address(host));
+        gateway.onAccept(IncomingPostRequest({relayer: relayer, request: deployment}));
+        assertEq(gateway.instance(bytes("NEW_CHAIN")), address(0xBEEF));
+    }
+
+    function testUpgradeWithInitDataSetsRelayerAtomically() public {
+        (bytes32 filledCommitment, bytes32 escrowedCommitment, address inputToken, uint256 escrowedAmount) =
+            _seedUpgradeState();
+        address next = makeCleanAddr("nextRelayer");
+        IntentGatewayV2Upgraded newImpl = new IntentGatewayV2Upgraded(address(this));
+        bytes memory initData = abi.encodeCall(IntentGatewayV2.setRelayer, (next));
+        PostRequest memory request = _upgradeRequest(host.hyperbridge(), address(newImpl), initData);
+
+        // The upgrade itself must arrive through the relayer authorised at the time.
+        vm.prank(address(host));
+        vm.expectRevert(IntentsBase.Unauthorized.selector);
+        intentGateway.onAccept(IncomingPostRequest({relayer: next, request: request}));
+
+        // `upgradeToAndCall` delegatecalls the migration calldata with the host still as
+        // `msg.sender`, so `_owner` is not involved.
+        vm.recordLogs();
+        vm.prank(address(host));
+        intentGateway.onAccept(IncomingPostRequest({relayer: relayer, request: request}));
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        bool sawRelayerUpdated;
+        for (uint256 i; i < logs.length; i++) {
+            bool ours = logs[i].emitter == address(intentGateway);
+            if (ours && logs[i].topics[0] == IntentsBase.RelayerUpdated.selector) {
+                sawRelayerUpdated = true;
+                assertEq(logs[i].data, abi.encode(relayer, next), "RelayerUpdated(previous, current)");
+            }
+        }
+        assertTrue(sawRelayerUpdated, "RelayerUpdated emitted from the upgrade transaction");
+
+        assertEq(_implementationOf(address(intentGateway)), address(newImpl), "implementation slot updated");
+        assertEq(intentGateway._relayer(), next, "relayer set in the upgrade transaction");
+        assertEq(intentGateway._nonce(), 2, "_nonce preserved");
+        assertEq(intentGateway._filled(filledCommitment), filler, "_filled preserved");
+        assertEq(intentGateway._orders(escrowedCommitment, inputToken), escrowedAmount, "_orders preserved");
+
+        // From here on only the new relayer is accepted.
+        PostRequest memory deployment = _newDeploymentRequest(bytes("NEW_CHAIN"), address(0xBEEF));
+        vm.prank(address(host));
+        vm.expectRevert(IntentsBase.Unauthorized.selector);
+        intentGateway.onAccept(IncomingPostRequest({relayer: relayer, request: deployment}));
+        vm.prank(address(host));
+        intentGateway.onAccept(IncomingPostRequest({relayer: next, request: deployment}));
+        assertEq(intentGateway.instance(bytes("NEW_CHAIN")), address(0xBEEF));
+    }
+
+    function testUpgradeWithoutInitDataKeepsExistingRelayer() public {
+        IntentGatewayV2Upgraded newImpl = new IntentGatewayV2Upgraded(address(this));
+        PostRequest memory request = _upgradeRequest(host.hyperbridge(), address(newImpl), "");
+        vm.prank(address(host));
+        intentGateway.onAccept(IncomingPostRequest({relayer: relayer, request: request}));
+
+        assertEq(_implementationOf(address(intentGateway)), address(newImpl));
+        assertEq(intentGateway._relayer(), relayer, "relayer survives an implementation swap");
+    }
+
+    /// @dev Through the real host: a delivery the gateway refuses is recorded as undelivered, so
+    /// the authorised relayer can submit the same message afterwards.
+    function testRejectedDeliveryStaysRetryableThroughHost() public {
+        (PostRequest memory request, bytes32 commitment, uint256 amount) = _escrowedRedeemRequest();
+        bytes32 requestCommitment = request.hash();
+
+        vm.prank(address(handler));
+        host.dispatchIncoming(request, filler);
+        assertEq(host.requestReceipts(requestCommitment), address(0), "refused delivery leaves no receipt");
+        assertEq(intentGateway._orders(commitment, address(usdc)), amount, "escrow untouched");
+
+        uint256 before = usdc.balanceOf(filler);
+        vm.prank(address(handler));
+        host.dispatchIncoming(request, relayer);
+        assertEq(host.requestReceipts(requestCommitment), relayer, "delivery recorded");
+        assertEq(usdc.balanceOf(filler) - before, amount, "escrow released");
+    }
+
+    // ============================================================
+    // Live mainnet proxy upgrade
+    // ============================================================
+
+    /// @dev The IntentGatewayV2 proxy deployed on Ethereum mainnet (identical address on every chain).
+    address internal constant LIVE_GATEWAY = 0xAe041F7B0CB581876832830baeB6a2Aa2a3C9716;
+
+    function _livePeers() internal pure returns (bytes[] memory peers) {
+        uint256[9] memory ids = [uint256(1), 10, 42161, 8453, 56, 100, 137, 1868, 420420419];
+        peers = new bytes[](ids.length);
+        for (uint256 i; i < ids.length; i++) {
+            peers[i] = StateMachine.evm(ids[i]);
+        }
+    }
+
+    /// @dev Upgrades the proxy that is actually live on mainnet, on the fork, and checks that every
+    /// readable piece of state is identical afterwards and that the relayer gate is armed.
+    function testLiveProxyUpgradeKeepsStateAndArmsRelayer() public {
+        IntentGatewayV2 live = IntentGatewayV2(payable(LIVE_GATEWAY));
+        assertGt(LIVE_GATEWAY.code.length, 0, "live gateway present on the fork");
+        address implBefore = _implementationOf(LIVE_GATEWAY);
+
+        uint256 nonce = live._nonce();
+        Params memory p = live.params();
+        address owner = live._owner();
+        bytes32 domain = live.DOMAIN_SEPARATOR();
+        address liveHost = live.host();
+        bytes[] memory peers = _livePeers();
+        address[] memory instances = new address[](peers.length);
+        uint256[] memory fees = new uint256[](peers.length);
+        for (uint256 i; i < peers.length; i++) {
+            instances[i] = live._instances(keccak256(peers[i]));
+            fees[i] = live._destinationProtocolFees(keccak256(peers[i]));
+        }
+        assertEq(vm.load(LIVE_GATEWAY, bytes32(uint256(13))), bytes32(0), "slot 13 holds only an unset _paused");
+
+        IntentGatewayV2 newImpl = new IntentGatewayV2(owner);
+        PostRequest memory request = PostRequest({
+            source: IDispatcher(liveHost).hyperbridge(),
+            dest: IDispatcher(liveHost).host(),
+            nonce: 0,
+            from: abi.encodePacked(LIVE_GATEWAY),
+            to: abi.encodePacked(LIVE_GATEWAY),
+            body: bytes.concat(
+                bytes1(uint8(IntentsBase.RequestKind.UpgradeContract)),
+                abi.encode(address(newImpl), abi.encodeCall(IntentGatewayV2.setRelayer, (relayer)))
+            ),
+            timeoutTimestamp: 0
+        });
+        // The implementation being replaced has no relayer gate, so any relayer may carry the upgrade.
+        vm.prank(liveHost);
+        live.onAccept(IncomingPostRequest({relayer: filler, request: request}));
+
+        assertEq(_implementationOf(LIVE_GATEWAY), address(newImpl), "implementation slot updated");
+        assertTrue(implBefore != address(newImpl), "implementation actually changed");
+        assertEq(live._relayer(), relayer, "relayer armed in the upgrade transaction");
+        assertEq(
+            vm.load(LIVE_GATEWAY, bytes32(uint256(13))), _packedRelayerSlot(relayer), "relayer packed into slot 13"
+        );
+
+        assertEq(live._nonce(), nonce, "_nonce preserved");
+        Params memory q = live.params();
+        assertEq(q.host, p.host, "params.host preserved");
+        assertEq(q.dispatcher, p.dispatcher, "params.dispatcher preserved");
+        assertEq(q.solverSelection, p.solverSelection, "params.solverSelection preserved");
+        assertEq(q.surplusShareBps, p.surplusShareBps, "params.surplusShareBps preserved");
+        assertEq(q.protocolFeeBps, p.protocolFeeBps, "params.protocolFeeBps preserved");
+        assertEq(q.priceOracle, p.priceOracle, "params.priceOracle preserved");
+        assertEq(live._owner(), owner, "_owner preserved");
+        assertEq(live.DOMAIN_SEPARATOR(), domain, "EIP-712 domain preserved");
+        assertEq(live.host(), liveHost, "host preserved");
+        for (uint256 i; i < peers.length; i++) {
+            assertEq(live._instances(keccak256(peers[i])), instances[i], "peer instance preserved");
+            assertEq(live._destinationProtocolFees(keccak256(peers[i])), fees[i], "destination fee preserved");
+        }
+
+        // The gate is live on the real state: governance through anyone else is refused, and the
+        // same message goes through from the relayer.
+        request.body = bytes.concat(
+            bytes1(uint8(IntentsBase.RequestKind.UpdateParams)),
+            abi.encode(ParamsUpdate({params: p, destinationFees: new DestinationFee[](0)}))
+        );
+        vm.prank(liveHost);
+        vm.expectRevert(IntentsBase.Unauthorized.selector);
+        live.onAccept(IncomingPostRequest({relayer: filler, request: request}));
+
+        vm.prank(liveHost);
+        live.onAccept(IncomingPostRequest({relayer: relayer, request: request}));
+        assertEq(live.params().host, p.host, "relayer-submitted governance applies");
     }
 }
 

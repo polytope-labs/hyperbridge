@@ -8,7 +8,8 @@ import { IntentsCoprocessor, type PhantomOrderEvent } from "@/chains/intentsCopr
 // subscriptions, and anything emitted while disconnected was gone. The property that makes a block
 // cursor an actual fix, rather than a different way to lose orders, is that it advances only past
 // blocks whose events were really read, so an outage delays orders instead of dropping them. That is
-// what most of these assert.
+// what most of these assert — bounded by the lag limit, past which the backlog is deliberately
+// abandoned, because an order that far behind can no longer be bid on by anyone.
 
 const COMMITMENT_A = `0x${"aa".repeat(32)}`
 const COMMITMENT_B = `0x${"bb".repeat(32)}`
@@ -85,6 +86,8 @@ interface Harness {
 	setSpecVersion: (n: number) => void
 	/** How many times the runtime version has been read from the node. */
 	runtimeVersionReads: () => number
+	/** How many times the pallet's bid window has been read from the node. */
+	bidWindowReads: () => number
 	/** True once anything has touched the websocket api — polling never should. */
 	touchedWebsocket: () => boolean
 }
@@ -103,7 +106,13 @@ const blockOf = (hash: string) => Number(hash.replace("0xblock", ""))
 
 function harness(
 	initialHead: number,
-	{ specName = "nexus", rangeQueries = true }: { specName?: string; rangeQueries?: boolean } = {},
+	{
+		specName = "nexus",
+		rangeQueries = true,
+		// Nexus's live values: a 15-block window inside a 55-block generation interval.
+		bidWindow = 15,
+		interval = 55,
+	}: { specName?: string; rangeQueries?: boolean; bidWindow?: number; interval?: number } = {},
 ): Harness {
 	let head = initialHead
 	let headFailures = 0
@@ -142,6 +151,11 @@ function harness(
 		versionReads += 1
 		return runtimeVersion(specName, specVersion)
 	})
+
+	// The pallet's timings, as the poll reads them: a storage value each, with a runtime constant
+	// behind the window for when that value is zero.
+	const phantomBidWindow = vi.fn(async () => ({ toString: () => String(bidWindow) }))
+	const phantomOrderInterval = vi.fn(async () => ({ toString: () => String(interval) }))
 
 	/**
 	 * Stands in for `state_queryStorage.raw`, which answers with the node's own JSON: one change set
@@ -214,6 +228,8 @@ function harness(
 				chain: { getHeader, getBlockHash },
 				state: { getRuntimeVersion, queryStorage: Object.assign(vi.fn(), { raw: queryStorageRaw }) },
 			},
+			query: { intentsCoprocessor: { phantomBidWindow, phantomOrderInterval } },
+			consts: { intentsCoprocessor: { phantomOrderBidWindowBlocks: { toString: () => "25" } } },
 			registry: { createType },
 			at,
 			runtimeVersion: runtimeVersion(specName, specVersion),
@@ -246,6 +262,7 @@ function harness(
 			specVersion = n
 		},
 		runtimeVersionReads: () => versionReads,
+		bidWindowReads: () => phantomBidWindow.mock.calls.length,
 		touchedWebsocket: () => websocketTouched,
 	}
 }
@@ -383,20 +400,153 @@ describe("pollPhantomOrders", () => {
 		expect(h.scanned).toEqual([100, 101, 102, 103, 104])
 	})
 
-	it("starts lookbackBlocks behind the head so a restart mid-window still bids", async () => {
+	// The failure this prevents, seen on mainnet: a filler's cursor slipped behind during a spell of
+	// rate limiting and never recovered, because the cursor gains at most `maxBlocksPerPoll` a tick.
+	// It kept bidding — on orders three thousand blocks old, whose window had closed hours before —
+	// so it looked alive, reserved a deposit per bid, and was counted in no pool for nine hours.
+	// The threshold is the chain's own: a window (15 on Nexus) inside a generation interval (55), so
+	// a backlog longer than 70 blocks holds nothing that can still be bid on.
+	describe("abandoning a backlog too old to bid on", () => {
+		it("skips to one window behind the head and reports the range it dropped", async () => {
+			const h = harness(100)
+			const onSkip = vi.fn()
+			const stop = h.coprocessor.pollPhantomOrders(() => {}, { intervalMs: 1000, onSkip })
+
+			await tick(0)
+			expect(h.scanned).toEqual([100])
+
+			h.setHead(200)
+			await tick(1000)
+			stop()
+
+			// 101 to 184 is dropped; 185 onwards is kept, because an order registered inside the
+			// last window can still be bid on. The per-tick cap then covers 185-194 this tick.
+			expect(h.scanned).toEqual([100, ...Array.from({ length: 10 }, (_, i) => 185 + i)])
+			expect(onSkip).toHaveBeenCalledWith({ from: 101, to: 184, head: 200 })
+		})
+
+		// Landing one window behind must put the cursor back inside the threshold, or every tick
+		// would skip again and the poll would never scan anything but its own jumps.
+		it("resumes scanning after a skip instead of skipping again", async () => {
+			const h = harness(100)
+			const onSkip = vi.fn()
+			const stop = h.coprocessor.pollPhantomOrders(() => {}, { intervalMs: 1000, onSkip })
+
+			await tick(0)
+			h.setHead(200)
+			await tick(1000)
+			await tick(1000)
+			stop()
+
+			expect(onSkip).toHaveBeenCalledTimes(1)
+			expect(h.scanned).toEqual([100, ...Array.from({ length: 16 }, (_, i) => 185 + i)])
+		})
+
+		// Short of the threshold the cursor still walks every block, so an ordinary hiccup loses
+		// nothing — the property the cursor was built for, bounded rather than abandoned.
+		it("catches up block by block while the backlog is still biddable", async () => {
+			const h = harness(100)
+			const onSkip = vi.fn()
+			const stop = h.coprocessor.pollPhantomOrders(() => {}, { intervalMs: 1000, onSkip })
+
+			await tick(0)
+			h.setHead(105)
+			await tick(1000)
+			stop()
+
+			expect(h.scanned).toEqual([100, 101, 102, 103, 104, 105])
+			expect(onSkip).not.toHaveBeenCalled()
+		})
+
+		// A cold start lands exactly one block behind the head, which must never read as a backlog.
+		it("does not mistake a cold start for a backlog", async () => {
+			const h = harness(1000)
+			const onSkip = vi.fn()
+			const stop = h.coprocessor.pollPhantomOrders(() => {}, { intervalMs: 1000, onSkip })
+
+			await tick(0)
+			stop()
+
+			expect(h.scanned).toEqual([1000])
+			expect(onSkip).not.toHaveBeenCalled()
+		})
+
+		// Both are governance-set and neither is derivable, so a hard-coded threshold is wrong in one
+		// direction or the other. A short window means a smaller backlog is already unsalvageable.
+		it("follows the chain's window and interval", async () => {
+			const h = harness(100, { bidWindow: 5, interval: 10 })
+			const onSkip = vi.fn()
+			const stop = h.coprocessor.pollPhantomOrders(() => {}, { intervalMs: 1000, onSkip })
+
+			await tick(0)
+			h.setHead(120) // 20 behind: inside 70, but past this chain's 5 + 10
+			await tick(1000)
+			stop()
+
+			expect(onSkip).toHaveBeenCalledWith({ from: 101, to: 114, head: 120 })
+		})
+
+		// Zero is the pallet's "generate once and never regenerate", not an unset value, so there is
+		// no constant behind it — the window alone has to carry the threshold.
+		it("handles an interval of zero", async () => {
+			const h = harness(100, { bidWindow: 5, interval: 0 })
+			const onSkip = vi.fn()
+			const stop = h.coprocessor.pollPhantomOrders(() => {}, { intervalMs: 1000, onSkip })
+
+			await tick(0)
+			h.setHead(120) // past 5 + 5
+			await tick(1000)
+			stop()
+
+			expect(onSkip).toHaveBeenCalledWith({ from: 101, to: 114, head: 120 })
+		})
+
+		// The pallet falls back to its runtime constant when the storage value is zero; so must this,
+		// or a chain that has never set the window reads it as no window at all.
+		it("falls back to the runtime constant when the stored window is zero", async () => {
+			const h = harness(100, { bidWindow: 0, interval: 55 })
+			const onSkip = vi.fn()
+			const stop = h.coprocessor.pollPhantomOrders(() => {}, { intervalMs: 1000, onSkip })
+
+			await tick(0)
+			h.setHead(200)
+			await tick(1000)
+			stop()
+
+			// The constant is 25, so 80 is the threshold and the cursor lands 25 behind the head.
+			expect(onSkip).toHaveBeenCalledWith({ from: 101, to: 174, head: 200 })
+		})
+
+		// A request per tick forever, for a value governance changes about never.
+		it("reads the timings once, not once per tick", async () => {
+			const h = harness(100)
+			const stop = h.coprocessor.pollPhantomOrders(() => {}, { intervalMs: 1000 })
+
+			await tick(0)
+			h.setHead(103)
+			await tick(1000)
+			h.setHead(106)
+			await tick(1000)
+			stop()
+
+			expect(h.bidWindowReads()).toBe(1)
+		})
+	})
+
+	// A restart starts at the head and reaches back for nothing. The window of an order registered
+	// before it came up has all but closed, so the only bids it could still place are the late ones
+	// this poll now exists to avoid.
+	it("starts at the head, ignoring orders registered before it came up", async () => {
 		const h = harness(100)
 		h.putOrder(98, COMMITMENT_A)
 		const seen: PhantomOrderEvent[] = []
 
-		const stop = h.coprocessor.pollPhantomOrders((orders) => seen.push(...orders), {
-			intervalMs: 1000,
-			lookbackBlocks: 3,
-		})
+		const stop = h.coprocessor.pollPhantomOrders((orders) => seen.push(...orders), { intervalMs: 1000 })
 		await tick(0)
 		stop()
 
-		expect(h.scanned).toEqual([97, 98, 99, 100])
-		expect(seen.map((e) => e.commitment)).toEqual([COMMITMENT_A])
+		expect(h.scanned).toEqual([100])
+		expect(seen).toEqual([])
 	})
 
 	it("stops scanning once stopped", async () => {
@@ -523,24 +673,17 @@ describe("pollPhantomOrders", () => {
 			await tick(1000)
 			stop()
 
-			expect(h.issued).toEqual([
-				"hash:101",
-				"hash:102",
-				"hash:103",
-				"events:101",
-				"events:102",
-				"events:103",
-			])
+			expect(h.issued).toEqual(["hash:101", "hash:102", "hash:103", "events:101", "events:102", "events:103"])
 		})
-
 	})
 
+	// A backlog inside the lag limit, so this is about the per-tick cap and nothing else.
 	it("caps a catch-up at 10 blocks by default", async () => {
 		const h = harness(100)
 		const stop = h.coprocessor.pollPhantomOrders(() => {}, { intervalMs: 1000 })
 
 		await tick(0)
-		h.setHead(200)
+		h.setHead(140)
 		await tick(1000)
 		stop()
 

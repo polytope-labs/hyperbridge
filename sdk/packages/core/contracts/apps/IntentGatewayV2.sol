@@ -369,6 +369,13 @@ interface IIntentGatewayV2 {
      */
     event DestinationProtocolFeeUpdated(string chain, uint256 feeBps);
 
+    /**
+     * @notice Emitted when the relayer authorised to deliver cross-chain messages is replaced.
+     * @param previous The relayer that was authorised before this change
+     * @param current The relayer authorised from now on
+     */
+    event RelayerUpdated(address previous, address current);
+
     // ============================================
     // Constants
     // ============================================
@@ -411,6 +418,14 @@ interface IIntentGatewayV2 {
      * @return Params A struct containing the module's current parameters
      */
     function params() external view returns (Params memory);
+
+    /**
+     * @notice Replaces the only relayer whose `onAccept` and `onGetResponse` deliveries are
+     *         accepted. Callable by the gateway owner, or by the host as the migration calldata
+     *         of a governance upgrade so that the relayer is armed in the upgrade transaction.
+     * @param relayer The relayer authorised from now on. Zero rejects every delivery.
+     */
+    function setRelayer(address relayer) external;
 
     /**
      * @notice Calculates the commitment slot hash for storage proof verification.

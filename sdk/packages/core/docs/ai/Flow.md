@@ -23,3 +23,57 @@ That split is the whole reason the events drift: nothing in the repo compiles ag
 wrong signature is silent locally and only wrong for whoever depends on the package. The
 declaration lists in this file and in `IntentsBase.sol` are kept identical; diffing them is the
 only check that exists.
+
+## How a cross-chain delivery reaches the gateway, and where the relayer gate sits
+
+Verified against `evm/src/core/HandlerV2.sol`, `evm/src/core/EvmHost.sol` and
+`evm/src/apps/intentsv2/ExtrinsicIntents.sol`, and exercised by
+`testRejectedDeliveryStaysRetryableThroughHost` in `evm/tests/foundry/IntentGatewayV2Test.sol`.
+
+1. A relayer calls `HandlerV2.handlePostRequests` (or `handleGetResponses`). After proof
+   verification the handler calls `host.dispatchIncoming(request, _msgSender())`. `_msgSender()` is
+   plain `msg.sender`; the handler has no trusted forwarder.
+2. `EvmHost.dispatchIncoming` (restricted to the handler) writes a receipt for the request
+   commitment, then low-level calls the module with `IApp.onAccept(IncomingPostRequest(request,
+   relayer))`. If that call fails the host deletes the receipt and returns without reverting, so the
+   rest of the batch proceeds and the message stays deliverable.
+3. `ExtrinsicIntents.onAccept` runs `onlyHost`, then `_checkRelayer(incoming.relayer)`, which reverts
+   with `Unauthorized` unless the relayer equals `_relayer`. Only then is the first body byte read as
+   a `RequestKind`. `onGetResponse` has the same two steps before touching the response.
+
+So a delivery from anyone but the authorised relayer never decodes the body, never runs
+`_authenticate`, and leaves no receipt. The authorised relayer submitting the same message later
+takes the normal path. A gateway whose `_relayer` is zero refuses everything, since step 1 always
+supplies a real address.
+
+`setRelayer` has two callers. `_owner` calls it directly. The host reaches it when governance
+sends `UpgradeContract` with `abi.encodeCall(setRelayer, (relayer))` as migration calldata:
+`ERC1967Utils.upgradeToAndCall` delegatecalls that calldata into the new implementation with
+`msg.sender` still the host from step 2, so the relayer is set in the same transaction as the
+implementation swap. The upgrade message itself must already pass the relayer gate of the
+implementation being replaced.
+
+## The same gate on `HyperFungibleToken`, and how the BRIDGE token tightens it
+
+Verified against `contracts/apps/HyperFungibleToken.sol` and `evm/src/apps/BridgeToken.sol`, and
+exercised by the relayer tests in `evm/tests/foundry/HyperFungibleTokenTest.sol` and
+`evm/tests/foundry/BridgeTokenTest.t.sol`.
+
+Steps 1 and 2 above are identical; the token is just another `IApp`. Timeouts take a parallel route:
+`HandlerV2.handlePostRequestTimeouts` calls `host.dispatchTimeOut(PostRequestTimeout(request,
+_msgSender()), ...)`, and the host calls `onPostRequestTimeout` on the module.
+
+3. `onAccept` and `onPostRequestTimeout` run `onlyHost`, `whenNotPaused`, then
+   `_checkRelayer(incoming.relayer)`. Only after that is the source checked against
+   `_supportedChains` or the body decoded, and only then does anything mint.
+
+`_checkRelayer` is virtual. In `HyperFungibleToken` it reverts with `UnauthorizedRelayer` only when
+`_relayer` is set and differs from the incoming relayer, so a token that never called `setRelayer`
+accepts every relayer. `BridgeToken` overrides it to revert whenever the two differ, so with
+`_relayer` unset nothing can mint; the deploy script therefore calls `setRelayer` before
+`configure`, and before `configure` the token cannot be reached at all since `onlyHost` compares
+against an unset `_host`.
+
+`setRelayer` is `onlyOwner` in both. The host is not the owner and never calls the token with
+anything but the callback selectors, so there is no equivalent of the gateway's host branch, and
+none is needed: the token is not behind a proxy, so there is no upgrade transaction to arm it in.

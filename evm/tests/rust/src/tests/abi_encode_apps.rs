@@ -115,7 +115,7 @@ fn test_hft_message_encoding_parity() {
 	// Rust encodes — exactly as `pallets/hyper-fungible-token/src/lib.rs:296` does.
 	let rust_encoded = HftMessage::abi_encode(&msg);
 
-	// Solidity encodes — exactly as `HyperFungibleToken.sol:242` does.
+	// Solidity encodes — exactly as `HyperFungibleToken.sol:288` does.
 	let result = env.call(codec, encodeHftMessageCall { m: msg.clone() }.abi_encode());
 	let sol_encoded = Bytes::abi_decode(&result).unwrap().to_vec();
 

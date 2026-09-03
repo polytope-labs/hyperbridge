@@ -67,6 +67,17 @@ abstract contract ExtrinsicIntents is IntentsBase, HyperApp {
     }
 
     /**
+     * @dev Rejects any delivery not submitted by `_relayer`. Runs before the message body is
+     * looked at, so it covers escrow redemptions and refunds as well as every governance action,
+     * including implementation upgrades. The host records a reverted dispatch as undelivered, so
+     * a rejected message can still be submitted later by the authorised relayer.
+     * @param relayer The account that submitted the message to the handler.
+     */
+    function _checkRelayer(address relayer) internal view {
+        if (relayer != _relayer) revert Unauthorized();
+    }
+
+    /**
      * @dev Fills a cross-chain order on the destination chain. The solver provides output
      * tokens directly to the beneficiary, and a Hyperbridge post request is dispatched
      * back to the source chain to release the escrowed input tokens to the solver.
@@ -295,6 +306,7 @@ abstract contract ExtrinsicIntents is IntentsBase, HyperApp {
      * @param incoming The incoming post request from Hyperbridge.
      */
     function onAccept(IncomingPostRequest calldata incoming) external override onlyHost {
+        _checkRelayer(incoming.relayer);
         RequestKind kind = RequestKind(uint8(incoming.request.body[0]));
         if (kind == RequestKind.RedeemEscrow || kind == RequestKind.RefundEscrow) {
             _authenticate(incoming.request);
@@ -325,6 +337,7 @@ abstract contract ExtrinsicIntents is IntentsBase, HyperApp {
      * @param incoming The incoming GET response from Hyperbridge containing the storage proof.
      */
     function onGetResponse(IncomingGetResponse calldata incoming) external override onlyHost {
+        _checkRelayer(incoming.relayer);
         if (incoming.response.values[0].value.length != 0) revert Filled();
 
         WithdrawalRequest memory body = abi.decode(incoming.response.request.context, (WithdrawalRequest));

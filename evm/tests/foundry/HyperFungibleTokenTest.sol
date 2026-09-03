@@ -362,6 +362,97 @@ contract HyperFungibleTokenTest is BaseTest {
 
     // ========== Helpers ==========
 
+    // ========== Relayer allowlist Tests ==========
+
+    function _timedOutSend() internal returns (PostRequest memory request) {
+        hft.send(HyperFungibleToken.SendParams({
+            dest: destChain,
+            to: abi.encodePacked(address(0xCAFE)),
+            amount: SEND_AMOUNT,
+            timeout: 3600,
+            relayerFee: 0,
+            data: ""
+        }));
+        request = PostRequest({
+            source: StateMachine.evm(1),
+            dest: destChain,
+            nonce: 0,
+            from: abi.encodePacked(address(hft)),
+            to: abi.encodePacked(remoteContract),
+            timeoutTimestamp: 3600,
+            body: abi.encode(HyperFungibleToken.Message({
+                from: abi.encodePacked(address(this)),
+                to: abi.encodePacked(address(0xCAFE)),
+                amount: SEND_AMOUNT,
+                data: ""
+            }))
+        });
+    }
+
+    /// The base token is unrestricted until its owner opts in, so existing deployments keep working.
+    function testRelayerUnrestrictedByDefault() public {
+        assertEq(hft.relayer(), address(0));
+        PostRequest memory request = _makeIncomingRequest(address(0xCAFE), 50 ether, "");
+
+        vm.prank(address(host));
+        hft.onAccept(IncomingPostRequest({request: request, relayer: address(0xD00D)}));
+        assertEq(hft.balanceOf(address(0xCAFE)), 50 ether);
+    }
+
+    function testSetRelayerOnlyOwner() public {
+        vm.prank(address(0xBEEF));
+        vm.expectRevert();
+        hft.setRelayer(address(0xBEEF));
+        assertEq(hft.relayer(), address(0));
+    }
+
+    function testSetRelayerRestrictsOnAccept() public {
+        address relayer = address(0xAAA1);
+        vm.expectEmit(true, true, true, true, address(hft));
+        emit HyperFungibleToken.RelayerUpdated(address(0), relayer);
+        hft.setRelayer(relayer);
+        assertEq(hft.relayer(), relayer);
+
+        PostRequest memory request = _makeIncomingRequest(address(0xCAFE), 50 ether, "");
+        vm.prank(address(host));
+        vm.expectRevert(HyperFungibleToken.UnauthorizedRelayer.selector);
+        hft.onAccept(IncomingPostRequest({request: request, relayer: address(0xD00D)}));
+        assertEq(hft.balanceOf(address(0xCAFE)), 0, "nothing minted");
+
+        vm.prank(address(host));
+        hft.onAccept(IncomingPostRequest({request: request, relayer: relayer}));
+        assertEq(hft.balanceOf(address(0xCAFE)), 50 ether, "authorised relayer mints");
+    }
+
+    function testSetRelayerRestrictsTimeoutRefunds() public {
+        address relayer = address(0xAAA1);
+        hft.setRelayer(relayer);
+        PostRequest memory request = _timedOutSend();
+        uint256 balanceAfterSend = hft.balanceOf(address(this));
+
+        vm.prank(address(host));
+        vm.expectRevert(HyperFungibleToken.UnauthorizedRelayer.selector);
+        hft.onPostRequestTimeout(PostRequestTimeout(request, address(0xD00D)));
+        assertEq(hft.balanceOf(address(this)), balanceAfterSend, "no refund minted");
+
+        vm.prank(address(host));
+        hft.onPostRequestTimeout(PostRequestTimeout(request, relayer));
+        assertEq(hft.balanceOf(address(this)), balanceAfterSend + SEND_AMOUNT, "authorised relayer refunds");
+    }
+
+    /// Setting zero lifts the restriction again in the base token.
+    function testSetRelayerToZeroLiftsRestriction() public {
+        hft.setRelayer(address(0xAAA1));
+        vm.expectEmit(true, true, true, true, address(hft));
+        emit HyperFungibleToken.RelayerUpdated(address(0xAAA1), address(0));
+        hft.setRelayer(address(0));
+
+        PostRequest memory request = _makeIncomingRequest(address(0xCAFE), 50 ether, "");
+        vm.prank(address(host));
+        hft.onAccept(IncomingPostRequest({request: request, relayer: address(0xD00D)}));
+        assertEq(hft.balanceOf(address(0xCAFE)), 50 ether);
+    }
+
     function _makeIncomingRequest(address recipient, uint256 amount, bytes memory data)
         internal
         view

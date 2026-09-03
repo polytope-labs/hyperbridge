@@ -44,8 +44,8 @@ contract BridgeToken is HyperFungibleToken {
     /**
      * @notice Deploys the token with nexus already registered as a peer
      * @param initialOwner The address that will own this contract. It can register further peers,
-     * pause cross chain operations, and change the dispatcher, so it should be a multisig or a
-     * governance controlled account.
+     * pause cross chain operations, change the dispatcher, and set the relayer, so it should be a
+     * multisig or a governance controlled account.
      */
     constructor(address initialOwner) HyperFungibleToken("Hyperbridge", "BRIDGE", initialOwner) {
         _supportedChains[nexus()] = abi.encodePacked(NEXUS_MODULE_ID);
@@ -57,5 +57,17 @@ contract BridgeToken is HyperFungibleToken {
      */
     function nexus() public pure returns (bytes memory) {
         return StateMachine.polkadot(NEXUS_PARA_ID);
+    }
+
+    /**
+     * @dev Fails closed: every mint, whether from an incoming transfer or a timeout refund, must be
+     * delivered by the relayer the owner set with `setRelayer`, and with none set nobody may deliver.
+     * The base contract treats zero as unrestricted for the benefit of third-party tokens; the
+     * supply of this token is backed by the nexus escrow, so it must not mint on the strength of a
+     * consensus proof alone. The handler always forwards a real `msg.sender`, so zero never matches.
+     * @param incomingRelayer The account that submitted the message to the handler
+     */
+    function _checkRelayer(address incomingRelayer) internal view override {
+        if (incomingRelayer != _relayer) revert UnauthorizedRelayer();
     }
 }

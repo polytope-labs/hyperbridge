@@ -363,8 +363,29 @@ export interface PollPhantomOrdersOptions {
 	 * whose window is still open.
 	 */
 	lookbackBlocks?: number
+	/**
+	 * How far the cursor may fall behind the head before it abandons the backlog and jumps to the
+	 * head. Off by default: the cursor otherwise advances only past blocks it really read, so an
+	 * outage delays orders rather than dropping them, which is what a consumer reading this feed as
+	 * history wants.
+	 *
+	 * A consumer that BIDS wants the opposite. A phantom order can only be bid on inside its own
+	 * window — tens of blocks — so once the cursor is further behind than that, every order it
+	 * delivers is already dead, and the bids that follow reserve a deposit for nothing. Worse, the
+	 * lag is self-sustaining: the cursor gains at most `maxBlocksPerPoll` per tick, so a deficit
+	 * accumulated while ticks were lost (a scan overrunning the interval, or a rate-limit backoff
+	 * sitting them out) is never repaid unless the sustained rate exceeds the chain's, and a filler
+	 * can sit hours behind indefinitely while looking healthy. Set this to a small multiple of the
+	 * bid window to trade a gap in history — which a bidder has no use for — for a return to live.
+	 */
+	maxLagBlocks?: number
 	/** Notified when a poll fails; polling continues regardless. */
 	onError?: (err: unknown) => void
+	/**
+	 * Notified when `maxLagBlocks` forced the cursor forward, with the range that was never scanned.
+	 * Nothing else reports it, and a bidder skipping blocks is worth a line in the log.
+	 */
+	onSkip?: (skipped: { from: number; to: number; head: number }) => void
 }
 
 /**
@@ -1342,8 +1363,10 @@ export class IntentsCoprocessor {
 		const {
 			intervalMs,
 			maxBlocksPerPoll = DEFAULT_MAX_BLOCKS_PER_POLL,
+			maxLagBlocks,
 			lookbackBlocks = 0,
 			onError,
+			onSkip,
 		} = options
 
 		// Last block whose events have been delivered. Null until the first successful head read.
@@ -1372,6 +1395,12 @@ export class IntentsCoprocessor {
 				if (cursor === null) {
 					// Start just below the head so the head itself is scanned, less any lookback.
 					cursor = Math.max(head - 1 - lookbackBlocks, -1)
+				} else if (maxLagBlocks !== undefined && head - cursor > maxLagBlocks) {
+					// Too far behind to be worth catching up on. Checked only once the cursor is
+					// established, so it can never fight the lookback a cold start just applied.
+					const from = cursor + 1
+					cursor = Math.max(head - 1 - lookbackBlocks, -1)
+					onSkip?.({ from, to: cursor, head })
 				}
 				if (head <= cursor) return
 
@@ -1444,6 +1473,18 @@ export class IntentsCoprocessor {
 			stopped = true
 			if (timer) clearInterval(timer)
 		}
+	}
+
+	/**
+	 * The Hyperbridge head, over HTTP like every other read here.
+	 *
+	 * Exposed for callers that have to know how old something is: a phantom order carries the block
+	 * it was registered at, and only against the head does that become "still biddable" or "long
+	 * expired".
+	 */
+	async latestBlockNumber(): Promise<number> {
+		const api = await this.http()
+		return (await api.rpc.chain.getHeader()).number.toNumber()
 	}
 
 	/**

@@ -12,6 +12,24 @@ Files: list of files touched.
 
 Newest entries first.
 
+## 2026-09-03 — `pollPhantomOrders` can skip a backlog it will never use
+
+A mainnet filler fell behind the head and stayed there: the cursor gains at most `maxBlocksPerPoll` per tick and
+never skips, so a deficit accumulated while ticks were lost is only repaid if the sustained rate beats the
+chain's. It kept delivering orders 3,448 blocks old, whose bid window had closed hours before, and the filler
+dutifully bid on every one.
+
+New `maxLagBlocks` option: once the cursor is further behind than that, it jumps to the head and reports the
+range it abandoned through `onSkip`. **Off by default** — the cursor's existing property (advance only past
+blocks really read, so an outage delays orders rather than dropping them) is what a consumer reading this feed as
+history wants. Only a bidder knows the backlog is worthless, so only a bidder asks. The check runs after the
+cursor is established, so it cannot undo the lookback a cold start just applied.
+
+Also adds `latestBlockNumber()`. A phantom order carries the block it was registered at and no clock, so a
+consumer deciding whether one is still biddable has to read the head, and nothing public exposed it.
+
+Files: `src/chains/intentsCoprocessor.ts`, `src/tests/pollPhantomOrders.test.ts`.
+
 ## 2026-09-01 — Block-tagged balance reads, and declared V4 positions reported out of the aggregation (#1159)
 
 The indexer refreshes a solver's liquidity on every event that moves it, not only when a phantom bid window

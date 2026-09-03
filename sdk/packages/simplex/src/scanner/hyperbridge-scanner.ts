@@ -9,6 +9,16 @@ import type { HyperbridgeScanner as HyperbridgeScannerContract, HyperbridgeScann
 const CONNECT_TIMEOUT_MS = 30_000
 
 /**
+ * How far behind the head phantom order polling may fall before it gives up on the backlog.
+ *
+ * A phantom order's bid window is tens of blocks, so anything older is unbiddable: catching up on
+ * it costs requests and produces bids that reserve a deposit and are counted by nobody. Sized at a
+ * few windows so an ordinary hiccup still recovers every order it can, and only a lag no bid could
+ * survive is skipped.
+ */
+const MAX_PHANTOM_LAG_BLOCKS = 60
+
+/**
  * One phantom-order poll per Hyperbridge endpoint, feeding any number of fillers.
  *
  * This is the heavier of the two shared scanners. Every filler used to run
@@ -141,6 +151,17 @@ export class HyperbridgeScanner implements HyperbridgeScannerContract {
 				this.stopPolling = this.coprocessor.pollPhantomOrders(
 					(orders) => this.phantom.publish(orders),
 					{
+						// This feed exists to be bid on, and a bid only counts inside the order's own
+						// window. Once the cursor is further behind than a few windows there is nothing
+						// left to win by walking the backlog — and the cursor gains only
+						// `maxBlocksPerPoll` a tick, so without this it can stay behind indefinitely
+						// after one spell of rate limiting, bidding on orders that expired hours ago.
+						maxLagBlocks: MAX_PHANTOM_LAG_BLOCKS,
+						onSkip: ({ from, to, head }) =>
+							this.logger.warn(
+								{ from, to, head, blocks: to - from + 1 },
+								"Phantom order polling fell too far behind to bid; skipping ahead to the head",
+							),
 						onError: (err) => {
 							this.logger.warn({ err }, "Phantom order poll failed, will retry")
 							for (const entry of this.errors) {

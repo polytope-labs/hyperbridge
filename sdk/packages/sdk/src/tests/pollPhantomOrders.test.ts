@@ -383,6 +383,76 @@ describe("pollPhantomOrders", () => {
 		expect(h.scanned).toEqual([100, 101, 102, 103, 104])
 	})
 
+	// The failure this prevents, seen on mainnet: a filler's cursor slipped behind during a spell of
+	// rate limiting and never recovered, because the cursor gains at most `maxBlocksPerPoll` a tick.
+	// It kept bidding — on orders three thousand blocks old, whose window had closed hours before —
+	// so it looked alive, reserved a deposit per bid, and was counted in no pool for nine hours.
+	describe("maxLagBlocks", () => {
+		it("abandons a backlog it cannot use and returns to the head", async () => {
+			const h = harness(100)
+			const onSkip = vi.fn()
+			const stop = h.coprocessor.pollPhantomOrders(() => {}, { intervalMs: 1000, maxLagBlocks: 20, onSkip })
+
+			await tick(0)
+			expect(h.scanned).toEqual([100])
+
+			h.setHead(200)
+			await tick(1000)
+			stop()
+
+			// Nothing from 101 to 199 is scanned: those orders can no longer be bid on.
+			expect(h.scanned).toEqual([100, 200])
+			expect(onSkip).toHaveBeenCalledWith({ from: 101, to: 199, head: 200 })
+		})
+
+		it("catches up normally while the backlog is still within the window", async () => {
+			const h = harness(100)
+			const onSkip = vi.fn()
+			const stop = h.coprocessor.pollPhantomOrders(() => {}, { intervalMs: 1000, maxLagBlocks: 20, onSkip })
+
+			await tick(0)
+			h.setHead(105)
+			await tick(1000)
+			stop()
+
+			expect(h.scanned).toEqual([100, 101, 102, 103, 104, 105])
+			expect(onSkip).not.toHaveBeenCalled()
+		})
+
+		// A consumer reading this feed as history wants the opposite trade, so nothing skips unless
+		// it asks. The default-cap test above pins the same property from the other side.
+		it("never skips when no lag limit is given", async () => {
+			const h = harness(100)
+			const stop = h.coprocessor.pollPhantomOrders(() => {}, { intervalMs: 1000, maxBlocksPerPoll: 3 })
+
+			await tick(0)
+			h.setHead(200)
+			await tick(1000)
+			stop()
+
+			expect(h.scanned).toEqual([100, 101, 102, 103])
+		})
+
+		// The cold-start lookback deliberately puts the cursor behind the head; the skip must not
+		// read its own lookback as a backlog and undo it.
+		it("does not fight the cold-start lookback", async () => {
+			const h = harness(100)
+			h.putOrder(96, COMMITMENT_A)
+			const seen: PhantomOrderEvent[] = []
+			const stop = h.coprocessor.pollPhantomOrders((orders) => seen.push(...orders), {
+				intervalMs: 1000,
+				lookbackBlocks: 5,
+				maxLagBlocks: 2,
+			})
+
+			await tick(0)
+			stop()
+
+			expect(h.scanned).toEqual([95, 96, 97, 98, 99, 100])
+			expect(seen.map((e) => e.commitment)).toEqual([COMMITMENT_A])
+		})
+	})
+
 	it("starts lookbackBlocks behind the head so a restart mid-window still bids", async () => {
 		const h = harness(100)
 		h.putOrder(98, COMMITMENT_A)

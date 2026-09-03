@@ -4,6 +4,34 @@ AI-maintained record of non-obvious choices made in `sdk/packages/simplex`: what
 
 Entry format: heading with the decision, then alternatives considered and the reasoning. Newest first.
 
+## 2026-09-03 — A stale phantom order is dropped, not bid on, and the drop is loud
+
+Chosen: two independent guards — the poll skips a backlog it cannot bid on (`maxLagBlocks`), and the filler
+refuses events whose window has closed (`MAX_PHANTOM_ORDER_AGE_BLOCKS`), warning each time.
+
+Alternative rejected — only fix the poll. It stops the backlog forming but not every source of delay: this
+handler runs on the global queue behind up to `maxConcurrentOrders` other jobs, and `preparePhantomBid` quotes
+every leg before signing. The age check sits at the last point before submission, where all of that has already
+happened.
+
+Alternative rejected — only fix the filler. It stops the wasted deposits but leaves the poll walking a backlog
+forever, so the filler keeps skipping every order and never returns to live.
+
+Alternative rejected — bid anyway and let the pallet reject it. It does not reject: the extrinsic is accepted,
+the deposit is reserved, and the aggregation simply never reads that bid because it read the order's bids when
+the window closed. That is what made this invisible — the filler's own logs said "Phantom bids submitted".
+
+Chosen: skipping is opt-in in the SDK, off by default. `pollPhantomOrders` deliberately advances only past blocks
+it really read, so an outage delays orders rather than dropping them, and a consumer reading the feed as history
+wants exactly that. Only a consumer that BIDS knows the backlog is worthless, so that consumer asks for the skip.
+
+Chosen: a failed head read bids on everything rather than nothing. Refusing to bid without a head would let one
+flaky endpoint stop the filler entirely, which is the worse failure of the two — the age gate exists to catch a
+systematic lag, not to be the last word on a single tick.
+
+The two constants (60 blocks, 40 blocks) are sized off the bid window, which the pallet owns and governance can
+change. They are deliberately generous: too tight and an ordinary slow bid is thrown away before it is tried.
+
 ## 2026-09-02 — `skipPermit` removed: delegation ops may use Simplex PERMIT mode
 
 Supersedes *2026-08-18 — `forceApproveMode` renamed to `skipPermit` (#1071)*. That entry kept the flag because delegation ops pass fixed, measured account-side gas limits; its own reasoning is what retires it. The Simplex builder sets its paymaster verification limit per mode and the permit executes in the paymaster frame under `VERIFICATION_GAS_LIMIT_PERMIT` (250k) — so, exactly as argued there for PERMIT2, PERMIT does not disturb the account limits either. The flag was guarding the wrong frame.

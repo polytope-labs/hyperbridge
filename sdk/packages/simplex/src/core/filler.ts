@@ -31,6 +31,16 @@ import { Decimal } from "decimal.js"
 /** How long to wait for a Hyperbridge connection before giving up on it. */
 const HYPERBRIDGE_CONNECT_TIMEOUT_MS = 30_000
 
+/**
+ * How old a phantom order may be, in Hyperbridge blocks, and still be worth bidding on.
+ *
+ * The pallet closes an order's bid window tens of blocks after registering it, so this is that
+ * window plus room for the delay between the poll seeing the block and this bid being signed. Set
+ * it too high and the filler burns deposits on windows that already closed; too low and a slow but
+ * still useful bid is thrown away before it is tried.
+ */
+const MAX_PHANTOM_ORDER_AGE_BLOCKS = 40
+
 /** One chain's phantom bid, quoted and built, waiting to ride in the interval's batch. */
 interface PreparedPhantomBid {
 	chain: string
@@ -1327,6 +1337,49 @@ export class IntentFiller {
 	}
 
 	/**
+	 * The orders whose bid window can still be open, dropping the rest.
+	 *
+	 * Everything upstream of here can add delay — the poll cursor falling behind, the global queue
+	 * this runs on, the quoting inside `preparePhantomBid` — and none of it is visible in the event
+	 * itself, which carries the block it was registered at and no clock. Bidding anyway is not a
+	 * harmless no-op: the extrinsic is accepted, reserves a deposit, and is counted by nothing,
+	 * because the aggregation read that order's bids when its window closed. A filler in that state
+	 * looks perfectly healthy — bids land, no errors — while backing no pool at all, which is
+	 * exactly how it went unnoticed on mainnet for nine hours.
+	 *
+	 * One head read per batch, not per order, and a failed read keeps every event: a flaky endpoint
+	 * must not be able to stop this filler bidding.
+	 */
+	private async dropExpiredPhantomOrders(
+		events: PhantomOrderEvent[],
+		coprocessor: IntentsCoprocessor,
+	): Promise<PhantomOrderEvent[]> {
+		let head: number
+		try {
+			head = await coprocessor.latestBlockNumber()
+		} catch (err) {
+			this.logger.warn({ err }, "Could not read the Hyperbridge head to age phantom orders; bidding on all of them")
+			return events
+		}
+
+		const live = events.filter((event) => head - event.createdAt <= MAX_PHANTOM_ORDER_AGE_BLOCKS)
+		if (live.length < events.length) {
+			const expired = events.filter((event) => !live.includes(event))
+			this.logger.warn(
+				{
+					head,
+					dropped: expired.length,
+					oldestLagBlocks: Math.max(...expired.map((event) => head - event.createdAt)),
+					chains: expired.map((event) => event.chain),
+				},
+				"Skipping phantom orders whose bid window has closed — bidding on them would reserve a " +
+					"deposit for a bid nothing can count. Persistent, and this filler is falling behind the chain.",
+			)
+		}
+		return live
+	}
+
+	/**
 	 * Bids on every phantom order registered in one block, in a single extrinsic.
 	 *
 	 * The pallet registers one order per configured chain in the same block, so this is the whole
@@ -1336,7 +1389,10 @@ export class IntentFiller {
 	 * many blocks behind the first, against a bid window measured in tens of blocks.
 	 */
 	private async handlePhantomOrders(events: PhantomOrderEvent[], coprocessor: IntentsCoprocessor): Promise<void> {
-		const prepared = (await Promise.all(events.map((event) => this.preparePhantomBid(event, coprocessor)))).filter(
+		const live = await this.dropExpiredPhantomOrders(events, coprocessor)
+		if (live.length === 0) return
+
+		const prepared = (await Promise.all(live.map((event) => this.preparePhantomBid(event, coprocessor)))).filter(
 			(entry): entry is PreparedPhantomBid => entry !== null,
 		)
 		if (prepared.length === 0) return

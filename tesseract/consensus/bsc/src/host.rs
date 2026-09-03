@@ -29,7 +29,7 @@ use std::{cmp::max, sync::Arc, time::Duration};
 
 use crate::{notification::consensus_notification, BscPosHost, KeccakHasher};
 use bsc_prover::get_rotation_block;
-use ssz::Decode;
+use ssz::Decode as _;
 use ssz_types::BitVector;
 use tesseract_primitives::{IsmpHost, IsmpProvider};
 

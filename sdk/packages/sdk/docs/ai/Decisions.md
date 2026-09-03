@@ -4,9 +4,10 @@ AI-maintained record of non-obvious choices made in `sdk/packages/sdk`: what was
 
 Entry format: heading with the decision, then alternatives considered and the reasoning. Newest first.
 
-## 2026-09-03 — The phantom-order lag limit is a constant, not an option
+## 2026-09-03 — The phantom-order lag limit is read from the chain, and always applies
 
-Chosen: `MAX_LAG_BLOCKS` (60) lives beside the poll and always applies.
+Chosen: the poll derives its threshold from `phantomTimings()` — the pallet's `PhantomBidWindow` (or the
+`PhantomOrderBidWindowBlocks` constant behind it) and `PhantomOrderInterval` — and applies it unconditionally.
 
 Alternative rejected — a `maxLagBlocks` option, off by default. It was written that way first, to preserve the
 cursor's existing property: it advances only past blocks whose events were really read, so an outage delays
@@ -21,6 +22,15 @@ them, and the tests pin both halves.
 
 Alternative rejected — expose the lag and let the caller reset the poll. It moves the same decision one layer out
 while making every caller reimplement the jump, and the poll would still need the head it already reads.
+
+Alternative rejected — a fixed number of blocks. It was 60 for one commit and it was already wrong: Nexus's
+window is 15 inside a 55-block interval, so the real threshold is 70, and on Gargantua (window 5) it is 10. Both
+values are governance-set and neither is derivable from the other, so any constant is wrong on some chain or
+after some referendum.
+
+The timings are read once per instance rather than per tick: a governance change to either is rare, a request per
+tick forever is not free, and the cost of caching is that a change lands on the next restart. A failed read is
+not cached, so it retries, and it fails the tick rather than guessing — leaving the cursor exactly where it was.
 
 Removed in the same breath: `lookbackBlocks`, which started a cold cursor some blocks behind the head so a
 restarting process could still bid on a window already open. That is the same late bid the age gate downstream

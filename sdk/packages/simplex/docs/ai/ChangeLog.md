@@ -28,10 +28,10 @@ already dead: the bid window is tens of blocks.
 
 Two fixes, at the two places the delay can come from:
 
-- The SDK's poll now abandons a backlog more than 60 blocks (a few bid windows) old rather than walking it, and
-  the scanner logs each skip: a filler that keeps skipping is one falling behind the chain.
-- `handlePhantomOrders` drops events older than `MAX_PHANTOM_ORDER_AGE_BLOCKS` (40) against one Hyperbridge head
-  read per batch. That also covers the delay the scanner cannot see — the global queue this runs on, and the
+- The SDK's poll now abandons a backlog older than one generation cycle rather than walking it, and the scanner
+  logs each skip: a filler that keeps skipping is one falling behind the chain.
+- `handlePhantomOrders` drops events older than the pallet's own bid window (read from chain, plus a 2-block
+  margin) against one head read per batch. That also covers the delay the scanner cannot see — the global queue this runs on, and the
   quoting inside `preparePhantomBid` — and turns a silent outage into a warning naming the lag. A failed head
   read keeps every event: one flaky endpoint must not stop the filler bidding.
 

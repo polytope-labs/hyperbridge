@@ -32,14 +32,16 @@ import { Decimal } from "decimal.js"
 const HYPERBRIDGE_CONNECT_TIMEOUT_MS = 30_000
 
 /**
- * How old a phantom order may be, in Hyperbridge blocks, and still be worth bidding on.
+ * Blocks of slack allowed on top of the pallet's own bid window when ageing a phantom order.
  *
- * The pallet closes an order's bid window tens of blocks after registering it, so this is that
- * window plus room for the delay between the poll seeing the block and this bid being signed. Set
- * it too high and the filler burns deposits on windows that already closed; too low and a slow but
- * still useful bid is thrown away before it is tried.
+ * The pallet accepts a bid while `block_number <= created_at + window`, and the block it lands in
+ * is a block or two past the head this gate reads. Erring a little permissive is the cheaper
+ * mistake: a bid that arrives one block late is bounced with `PhantomOrderBidWindowClosed`, which
+ * costs fees and a log line, while erring tight throws away a bid that would have landed. The
+ * pallet stays the authority on the edge — this gate is here for the systematic lag, where the
+ * order is thousands of blocks old and no margin makes any difference.
  */
-const MAX_PHANTOM_ORDER_AGE_BLOCKS = 40
+const PHANTOM_BID_AGE_MARGIN_BLOCKS = 2
 
 /** One chain's phantom bid, quoted and built, waiting to ride in the interval's batch. */
 interface PreparedPhantomBid {
@@ -1347,27 +1349,41 @@ export class IntentFiller {
 	 * looks perfectly healthy — bids land, no errors — while backing no pool at all, which is
 	 * exactly how it went unnoticed on mainnet for nine hours.
 	 *
-	 * One head read per batch, not per order, and a failed read keeps every event: a flaky endpoint
-	 * must not be able to stop this filler bidding.
+	 * The window comes from the chain rather than a constant here, because it is governance-set and
+	 * has already moved: Nexus runs 15 where the runtime constant behind it says 25, and Gargantua
+	 * says 5. Anything fixed is wrong in one direction or the other — too tight and this drops live
+	 * orders, too loose and it waves through bids the pallet will bounce.
+	 *
+	 * One head read per batch, not per order, and a failed read of either value keeps every event: a
+	 * flaky endpoint must not be able to stop this filler bidding.
 	 */
 	private async dropExpiredPhantomOrders(
 		events: PhantomOrderEvent[],
 		coprocessor: IntentsCoprocessor,
 	): Promise<PhantomOrderEvent[]> {
 		let head: number
+		let bidWindowBlocks: number
 		try {
-			head = await coprocessor.latestBlockNumber()
+			;[head, { bidWindowBlocks }] = await Promise.all([
+				coprocessor.latestBlockNumber(),
+				coprocessor.phantomTimings(),
+			])
 		} catch (err) {
-			this.logger.warn({ err }, "Could not read the Hyperbridge head to age phantom orders; bidding on all of them")
+			this.logger.warn(
+				{ err },
+				"Could not read the Hyperbridge head or bid window to age phantom orders; bidding on all of them",
+			)
 			return events
 		}
 
-		const live = events.filter((event) => head - event.createdAt <= MAX_PHANTOM_ORDER_AGE_BLOCKS)
+		const maxAge = bidWindowBlocks + PHANTOM_BID_AGE_MARGIN_BLOCKS
+		const live = events.filter((event) => head - event.createdAt <= maxAge)
 		if (live.length < events.length) {
 			const expired = events.filter((event) => !live.includes(event))
 			this.logger.warn(
 				{
 					head,
+					bidWindowBlocks,
 					dropped: expired.length,
 					oldestLagBlocks: Math.max(...expired.map((event) => head - event.createdAt)),
 					chains: expired.map((event) => event.chain),

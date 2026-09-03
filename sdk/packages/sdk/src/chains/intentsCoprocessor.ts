@@ -85,22 +85,6 @@ const DEFAULT_RPC_MAX_RPS = 8
  */
 const DEFAULT_MAX_BLOCKS_PER_POLL = 10
 
-/**
- * How far the cursor may fall behind the head before it abandons the backlog and jumps to the head.
- *
- * A phantom order can only be bid on inside its own window — tens of blocks — so once the cursor is
- * further behind than that, every order it delivers is already dead and the bids that follow reserve
- * a deposit for nothing. The lag is also self-sustaining: the cursor gains at most
- * `maxBlocksPerPoll` per tick, so a deficit accumulated while ticks were lost (a scan overrunning
- * the interval, or a rate-limit backoff sitting them out) is never repaid unless the sustained rate
- * exceeds the chain's. A filler can sit hours behind indefinitely while looking healthy — which is
- * exactly what happened on mainnet.
- *
- * Sized at a few bid windows, so an ordinary hiccup still recovers every order it can and only a lag
- * no bid could survive is skipped.
- */
-const MAX_LAG_BLOCKS = 60
-
 /** Ticks to sit out after a 429, doubling per consecutive rejection. */
 const MAX_RATE_LIMIT_BACKOFF_TICKS = 8
 
@@ -315,6 +299,21 @@ export interface PhantomOrderEvent {
 	legs: PhantomOrderLeg[]
 }
 
+/** The pallet's phantom order timings, as the chain currently has them. */
+export interface PhantomTimings {
+	/**
+	 * Blocks after registration during which the pallet accepts a bid: the `PhantomBidWindow`
+	 * storage value, or the `PhantomOrderBidWindowBlocks` runtime constant when that value is zero,
+	 * which is the same fallback the pallet's own `phantom_bid_window()` applies.
+	 */
+	bidWindowBlocks: number
+	/**
+	 * Blocks between generations (`PhantomOrderInterval`). Zero is meaningful rather than unset —
+	 * the pallet generates once and never regenerates — so there is no constant to fall back to.
+	 */
+	intervalBlocks: number
+}
+
 /** One phantom bid to place, and the bid it replaces on the same chain. */
 export interface PhantomBid {
 	/** The phantom order commitment being bid on. */
@@ -391,6 +390,9 @@ export interface PollPhantomOrdersOptions {
 export class IntentsCoprocessor {
 	/** Cached result of whether the node exposes intents_* RPC methods */
 	private hasIntentsRpc: boolean | null = null
+
+	/** The pallet's phantom timings, read once. Cleared on failure so the read retries. */
+	private phantomTimingsRead: Promise<PhantomTimings> | null = null
 
 	/** The HTTP-backed api, connected on first use. Cleared after a failed attempt so it retries. */
 	private httpApi: Promise<ApiPromise> | null = null
@@ -1389,13 +1391,23 @@ export class IntentsCoprocessor {
 					// process that restarts mid-window misses that window rather than reaching back
 					// for it: the orders it would find are the ones it already had no time to bid on.
 					cursor = Math.max(head - 1, -1)
-				} else if (head - cursor > MAX_LAG_BLOCKS) {
-					// Too far behind to be worth catching up on. Only reachable once the cursor is
-					// established, so a cold start — which lands exactly one block behind — is never
-					// mistaken for a backlog.
-					const from = cursor + 1
-					cursor = Math.max(head - 1, -1)
-					onSkip?.({ from, to: cursor, head })
+				} else {
+					// A backlog longer than a whole generation cycle is beyond saving: the cursor
+					// gains at most `maxBlocksPerPoll` a tick, so a deficit accumulated while ticks
+					// were lost (a scan overrunning the interval, a rate-limit backoff sitting them
+					// out) is never repaid unless the sustained rate beats the chain's — a filler can
+					// sit hours behind while looking healthy, which is what happened on mainnet.
+					//
+					// The cursor jumps to one window behind the head rather than to the head itself,
+					// so every order that can still be bid on is kept and only the dead ones are
+					// dropped. That also lands the cursor inside the threshold, so the next tick
+					// resumes scanning instead of skipping again.
+					const { bidWindowBlocks, intervalBlocks } = await this.phantomTimings()
+					if (head - cursor > bidWindowBlocks + Math.max(intervalBlocks, bidWindowBlocks)) {
+						const from = cursor + 1
+						cursor = Math.max(head - 1 - bidWindowBlocks, -1)
+						onSkip?.({ from, to: cursor, head })
+					}
 				}
 				if (head <= cursor) return
 
@@ -1480,6 +1492,42 @@ export class IntentsCoprocessor {
 	async latestBlockNumber(): Promise<number> {
 		const api = await this.http()
 		return (await api.rpc.chain.getHeader()).number.toNumber()
+	}
+
+	/**
+	 * The pallet's phantom timings, read from chain state.
+	 *
+	 * Both are governance-settable and neither is derivable: on Nexus today the window is 15 while
+	 * the runtime constant behind it is 25, so anything hard-coded is wrong in one direction or the
+	 * other — too tight and live orders are dropped, too loose and bids are sent into a closed
+	 * window for the pallet to reject.
+	 *
+	 * Read once per instance and cached, because a governance change to either is rare and a read
+	 * per poll tick would be a request per tick forever. The cost is that a change is picked up on
+	 * the next restart rather than immediately. A failed read is not cached, so it retries.
+	 */
+	async phantomTimings(): Promise<PhantomTimings> {
+		if (!this.phantomTimingsRead) {
+			this.phantomTimingsRead = this.readPhantomTimings().catch((err) => {
+				this.phantomTimingsRead = null
+				throw err
+			})
+		}
+		return this.phantomTimingsRead
+	}
+
+	private async readPhantomTimings(): Promise<PhantomTimings> {
+		const api = await this.http()
+		const [window, interval] = await Promise.all([
+			api.query.intentsCoprocessor.phantomBidWindow(),
+			api.query.intentsCoprocessor.phantomOrderInterval(),
+		])
+		const stored = Number(window.toString())
+		return {
+			bidWindowBlocks:
+				stored === 0 ? Number(api.consts.intentsCoprocessor.phantomOrderBidWindowBlocks.toString()) : stored,
+			intervalBlocks: Number(interval.toString()),
+		}
 	}
 
 	/**

@@ -4,7 +4,7 @@
 
 ### Patch Changes
 
-- Phantom bids are no longer placed on orders whose bid window has closed. A filler whose poll cursor fell behind the head kept bidding on orders thousands of blocks old: the extrinsic is accepted and reserves a deposit, but the aggregation read that order's bids when its window closed, so nothing counted them — the filler backed no pool for hours while its own logs reported bids submitted. Phantom order polling now abandons a backlog it cannot bid on and returns to the head, and any order older than the bid window is dropped before it is quoted, with a warning naming the lag.
+- Phantom bids are no longer placed on orders whose bid window has closed. A filler whose poll cursor fell behind the head kept bidding on orders thousands of blocks old: the extrinsic is accepted and reserves a deposit, but the aggregation read that order's bids when its window closed, so nothing counted them — the filler backed no pool for hours while its own logs reported bids submitted. Phantom order polling now abandons a backlog it cannot bid on and resumes one bid window behind the head, and any order older than the pallet's bid window is dropped before it is quoted, with a warning naming the lag. Both limits are read from chain state (`PhantomBidWindow`, falling back to the runtime constant, and `PhantomOrderInterval`) rather than hard-coded, because the window is governance-set and already differs from the constant behind it.
 
 ## 0.12.3
 

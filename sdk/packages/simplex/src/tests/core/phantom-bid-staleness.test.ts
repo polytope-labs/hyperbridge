@@ -28,7 +28,10 @@ const event = (createdAt: number, commitment: string): PhantomOrderEvent => ({
 const FRESH = `0x${"11".repeat(32)}`
 const STALE = `0x${"22".repeat(32)}`
 
-function build(head: number | Error) {
+/** Nexus's live values: a 15-block window inside a 55-block generation interval. */
+const BID_WINDOW = 15
+
+function build(head: number | Error, bidWindowBlocks: number | Error = BID_WINDOW) {
 	const configService = {
 		getConfiguredChainIds: () => [CHAIN_ID],
 		getEntryPointAddress: () => ENTRY_POINT,
@@ -54,8 +57,12 @@ function build(head: number | Error) {
 		if (head instanceof Error) throw head
 		return head
 	})
+	const phantomTimings = vi.fn(async () => {
+		if (bidWindowBlocks instanceof Error) throw bidWindowBlocks
+		return { bidWindowBlocks, intervalBlocks: 55 }
+	})
 	const submitPhantomBids = vi.fn()
-	const coprocessor = { fetchPhantomOrder, latestBlockNumber, submitPhantomBids } as any
+	const coprocessor = { fetchPhantomOrder, latestBlockNumber, phantomTimings, submitPhantomBids } as any
 
 	const handle = (events: PhantomOrderEvent[]) => (filler as any).handlePhantomOrders(events, coprocessor)
 
@@ -90,6 +97,37 @@ describe("phantom order staleness", () => {
 		await handle([event(990, FRESH)])
 
 		expect(fetchPhantomOrder).toHaveBeenCalledTimes(1)
+	})
+
+	// The window is governance-set and has already moved — Nexus runs 15 against a runtime constant
+	// of 25 — so the gate follows the chain rather than a constant compiled in here. At 15 an order
+	// 30 blocks old is long dead; at 40 the same order is still bid on.
+	it("ages orders against the chain's window, not a fixed number", async () => {
+		const tight = build(1_000, 15)
+		await tight.handle([event(970, STALE)])
+		expect(tight.fetchPhantomOrder).not.toHaveBeenCalled()
+
+		const wide = build(1_000, 40)
+		await wide.handle([event(970, FRESH)])
+		expect(wide.fetchPhantomOrder).toHaveBeenCalledTimes(1)
+	})
+
+	// Right at the boundary the pallet is the authority, not this gate: a bid lands a block or two
+	// past the head read here, so the margin errs permissive and lets the pallet bounce the edge.
+	it("allows a small margin past the window rather than shaving it", async () => {
+		const { handle, fetchPhantomOrder } = build(1_000, 15)
+
+		await handle([event(1_000 - 17, FRESH)])
+
+		expect(fetchPhantomOrder).toHaveBeenCalledTimes(1)
+	})
+
+	it("bids on everything when the window cannot be read", async () => {
+		const { handle, fetchPhantomOrder } = build(1_000, new Error("rpc unavailable"))
+
+		await handle([event(1, STALE), event(2, FRESH)])
+
+		expect(fetchPhantomOrder).toHaveBeenCalledTimes(2)
 	})
 
 	// One flaky endpoint must not be able to stop this filler bidding altogether: without a head

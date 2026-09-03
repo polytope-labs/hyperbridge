@@ -144,7 +144,14 @@ export type {
 } from "@/services/wallet/types"
 
 export type { AllowlistConfig, UserProvidedChainConfig, ResolvedChainConfig } from "@/services/FillerConfigService"
-export type { BalanceSnapshot, ChainBalanceRow, HyperbridgeBalance } from "@/services/BalanceProvider"
+export type {
+	AssetBalanceRow,
+	BalanceIssue,
+	BalanceSnapshot,
+	ChainBalanceRow,
+	HyperbridgeBalance,
+	VaultBalanceRow,
+} from "@/services/BalanceProvider"
 
 // ─── Shared scanners ────────────────────────────────────────────────────────
 // Scanning a chain is identical work for every filler, so the default sources

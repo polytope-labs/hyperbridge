@@ -35,6 +35,14 @@ export function CloseIcon(props: IconProps) {
 	)
 }
 
+export function DownloadIcon(props: IconProps) {
+	return (
+		<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" {...props}>
+			<path d="M10 3v9m0 0 3.25-3.25M10 12 6.75 8.75M4 15.5v1h12v-1" strokeLinecap="round" strokeLinejoin="round" />
+		</svg>
+	)
+}
+
 export function CopyIcon(props: IconProps) {
 	return (
 		<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" {...props}>

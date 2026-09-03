@@ -2,16 +2,19 @@ import { ERC20_ABI } from "@/config/abis/ERC20"
 import { ERC4626_ABI } from "@/config/abis/Erc4626"
 import { validateVaultToml } from "@/config/filler-toml"
 import { VaultLiquidityState } from "@/funding/vault/VaultLiquidityState"
-import type { VaultOutputFundingConfig, FundingPlanResult, FundingVenue } from "@/funding/types"
+import type {
+	FundingPlanResult,
+	FundingVenue,
+	VaultBalancePosition,
+	VaultOutputFundingConfig,
+} from "@/funding/types"
 import type { ChainClientManager } from "@/services/ChainClientManager"
 import type { UserOpSender } from "@/services/UserOpSender"
-import { type Logger , moduleLogger} from "@/services/Logger"
+import { type Logger, moduleLogger } from "@/services/Logger"
 import { encodeERC7821ExecuteBatch, type ERC7821Call, type HexString } from "@hyperbridge/sdk"
 import { Mutex } from "async-mutex"
 import type { Decimal } from "decimal.js"
 import { encodeFunctionData } from "viem"
-
-
 /** Default sweep cadence when the config omits `sweepIntervalMs`. */
 const DEFAULT_SWEEP_INTERVAL_MS = 5 * 60 * 1000
 
@@ -125,6 +128,38 @@ export class VaultFundingPlanner implements FundingVenue {
 		} else {
 			await Promise.all(Array.from(this.stateByChain.values()).map((s) => s.refresh()))
 		}
+	}
+
+	/**
+	 * Returns a coherent read-only view of every configured vault. Refreshing
+	 * under the same per-chain mutex used by withdrawal planning ensures the
+	 * displayed availability includes all live pending-fill reservations.
+	 */
+	async getBalanceSnapshot(requestedChain?: string): Promise<VaultBalancePosition[]> {
+		const snapshots = await Promise.all(
+			Array.from(this.stateByChain.entries())
+				.filter(([chain]) => requestedChain === undefined || chain === requestedChain)
+				.map(async ([chain, state]) => {
+				const mutex = this.mutexByChain.get(chain)
+				if (!mutex || !state.isHydrated()) return []
+
+				return mutex.runExclusive(async () => {
+					await state.refresh()
+					return state.allVaults().map((vault) => ({
+						chain,
+						vault: vault.vault,
+						asset: vault.asset,
+						symbol: vault.symbol,
+						decimals: vault.decimals,
+						positionAssets: vault.positionAssets,
+						availableAssets: vault.remaining,
+						walletReserve: vault.minBalanceScaled,
+					}))
+				})
+				}),
+		)
+
+		return snapshots.flat()
 	}
 
 	// =========================================================================

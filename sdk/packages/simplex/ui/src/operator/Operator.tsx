@@ -4,6 +4,7 @@ import hyperfxLogo from "../assets/hyperfx-logo.webp"
 import { CopyHash } from "../components/CopyHash"
 import { ActivityIcon, OperationsIcon, OverviewIcon, SettingsIcon, WalletIcon } from "../components/InterfaceIcons"
 import { OperatorSheet } from "../components/OperatorSheet"
+import { InstallAppButton } from "../components/InstallAppButton"
 import { useAction, usePolling } from "../lib/hooks"
 import type { AdminStrategyDto, BalanceSnapshot, ConfigDto, StatusOperator } from "../types"
 import { Activity } from "./Activity"
@@ -159,6 +160,7 @@ export function Operator(props: { status: StatusOperator; refresh: () => void })
 								</button>
 							)
 						})}
+						<InstallAppButton variant="nav" />
 					</nav>
 					<div className="operator-sidebar-footer">
 						<span>Version {status.version}</span>

@@ -127,7 +127,7 @@ function baseOperator(overrides: Partial<OperatorContext> = {}): TestOperator {
 		loggers,
 		strategies: [],
 		filler: fakePauseControl(),
-		balances: { getSnapshot: () => ({ updatedAt: null, chains: [] }) },
+		balances: { getSnapshot: () => ({ updatedAt: null, status: "loading", chains: [], issues: [] }) },
 		haltControls: [],
 		config: fakeConfig(),
 		stop: vi.fn().mockResolvedValue(undefined),
@@ -202,7 +202,14 @@ describe("UiServer (operator mode)", () => {
 				{ index: 3, pairIndex: 3, exotic: "USDC/ZARP", token0: "USDC", token1: "ZARP", ask: askOnly, sameToken: false, maxOrderSize: "5000" }, // one-sided LP
 			],
 			filler,
-			balances: { getSnapshot: () => ({ updatedAt: 123, chains: [{ chainId: 8453, usdc: 1500 }] }) },
+			balances: {
+				getSnapshot: () => ({
+					updatedAt: 123,
+					status: "fresh",
+					chains: [{ chainId: 8453, usdc: 1500, assets: [] }],
+					issues: [],
+				}),
+			},
 			...overrides,
 		})
 		server = new UiServer({ mode: "operator", operator, deps })
@@ -242,7 +249,12 @@ describe("UiServer (operator mode)", () => {
 		expect(payload.strategyTypes).toEqual(["USDC/CNGN"])
 
 		const balances = await fetch(`${base}/api/balances`)
-		expect(await balances.json()).toEqual({ updatedAt: 123, chains: [{ chainId: 8453, usdc: 1500 }] })
+		expect(await balances.json()).toEqual({
+			updatedAt: 123,
+			status: "fresh",
+			chains: [{ chainId: 8453, usdc: 1500, assets: [] }],
+			issues: [],
+		})
 	})
 
 	it("rejects mutating requests without the X-Simplex-UI header", async () => {
@@ -1060,6 +1072,8 @@ describe("UiServer (operator mode)", () => {
 	it("serves static SPA files with an index.html fallback", async () => {
 		const uiDistDir = mkdtempSync(join(tmpdir(), "simplex-dist-"))
 		writeFileSync(join(uiDistDir, "index.html"), "<html>spa</html>")
+		writeFileSync(join(uiDistDir, "manifest.webmanifest"), "{}")
+		writeFileSync(join(uiDistDir, "sw.js"), "self.addEventListener('fetch', () => {})")
 		mkdirSync(join(uiDistDir, "assets"))
 		writeFileSync(join(uiDistDir, "assets", "app.js"), "console.log(1)")
 
@@ -1070,6 +1084,10 @@ describe("UiServer (operator mode)", () => {
 		expect(await (await fetch(base)).text()).toBe("<html>spa</html>")
 		const js = await fetch(`${base}/assets/app.js`)
 		expect(js.headers.get("content-type")).toContain("text/javascript")
+		const manifest = await fetch(`${base}/manifest.webmanifest`)
+		expect(manifest.headers.get("content-type")).toContain("application/manifest+json")
+		const serviceWorker = await fetch(`${base}/sw.js`)
+		expect(serviceWorker.headers.get("content-type")).toContain("text/javascript")
 		// client-routed path falls back to the SPA shell
 		expect(await (await fetch(`${base}/setup/step-2`)).text()).toBe("<html>spa</html>")
 		// traversal is blocked (fetch normalizes ../, so send the raw path over a socket)

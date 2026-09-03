@@ -164,6 +164,8 @@ export interface HydratedVault {
 	vault: HexString
 	/** Underlying asset from `vault.asset()`. */
 	asset: HexString
+	/** Underlying asset symbol, resolved on-chain during hydration. */
+	symbol: string
 	/** Underlying asset decimals. */
 	decimals: number
 	/** High-water sweep trigger scaled to token units, or null when sweeping is disabled. */
@@ -180,6 +182,25 @@ export interface HydratedVault {
 	maxWithdrawable: bigint
 	/** Sourceable amount after consume() accounting for pending fills this round. */
 	remaining: bigint
+}
+
+/**
+ * Read-only vault balance projection consumed by operator-facing services.
+ * Amounts remain in base units so formatting and aggregation happen once at
+ * the API boundary, with no loss of precision inside the funding domain.
+ */
+export interface VaultBalancePosition {
+	chain: string
+	vault: HexString
+	asset: HexString
+	symbol: string
+	decimals: number
+	/** Solver-owned vault position in underlying-asset terms. */
+	positionAssets: bigint
+	/** Immediately withdrawable amount after pending-fill reservations. */
+	availableAssets: bigint
+	/** Underlying amount deliberately kept liquid in the solver wallet. */
+	walletReserve: bigint
 }
 
 /**

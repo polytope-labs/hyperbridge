@@ -1,6 +1,7 @@
 import { formatUnits } from "viem"
 import type { IntentsCoprocessor } from "@hyperbridge/sdk"
 import { ERC20_ABI } from "@/config/abis/ERC20"
+import type { VaultBalancePosition } from "@/funding/types"
 import type { ChainClientManager } from "./ChainClientManager"
 import type { FillerConfigService } from "./FillerConfigService"
 import { moduleLogger, type Logger } from "./Logger"
@@ -27,7 +28,47 @@ export interface ChainBalanceRow {
 	usdc?: number
 	usdt?: number
 	exotics?: Array<{ symbol: string; amount: number }>
+	/** Canonical token balances, including funds held in configured ERC-4626 vaults. */
+	assets: AssetBalanceRow[]
 }
+
+export type AssetBalanceStatus = "fresh" | "partial" | "unavailable"
+
+export interface VaultBalanceRow {
+	address: string
+	position: number
+	available: number
+}
+
+export interface AssetBalanceRow {
+	address: string
+	symbol: string
+	/** Direct underlying balance held by the solver account. Null when its RPC read failed. */
+	wallet: number | null
+	/** Configured wallet floor that must remain liquid. */
+	walletReserve: number
+	/** Total solver-owned underlying represented by vault shares. */
+	vaultPosition: number
+	/** Vault assets that can be withdrawn now, after pending-fill reservations. */
+	vaultAvailable: number
+	/** Wallet plus vault position. Null when any required source was unavailable. */
+	total: number | null
+	/** Spendable wallet above reserve plus currently withdrawable vault assets. */
+	available: number | null
+	vaults: VaultBalanceRow[]
+	status: AssetBalanceStatus
+}
+
+export type BalanceIssueSource = "chain" | "native" | "token" | "vault"
+
+export interface BalanceIssue {
+	chainId?: number
+	source: BalanceIssueSource
+	asset?: string
+	message: string
+}
+
+export type BalanceSnapshotStatus = "loading" | "fresh" | "partial" | "unavailable"
 
 export interface HyperbridgeBalance {
 	address: string
@@ -36,10 +77,17 @@ export interface HyperbridgeBalance {
 }
 
 export interface BalanceSnapshot {
-	/** null until the first successful refresh */
+	/** null until the first refresh attempt completes. */
 	updatedAt: number | null
+	status: BalanceSnapshotStatus
 	chains: ChainBalanceRow[]
+	issues: BalanceIssue[]
 	hyperbridge?: HyperbridgeBalance
+}
+
+/** Narrow read-only seam implemented by the vault funding planner. */
+export interface VaultBalanceSource {
+	getBalanceSnapshot(chain?: string): Promise<VaultBalancePosition[]>
 }
 
 export interface BalanceProviderOptions {
@@ -56,6 +104,7 @@ export interface BalanceProviderOptions {
 	hyperbridge?: Promise<IntentsCoprocessor>
 	substratePrivateKey?: string
 	refreshIntervalMs?: number
+	vaultBalances?: VaultBalanceSource
 }
 
 /**
@@ -64,9 +113,8 @@ export interface BalanceProviderOptions {
  * consumed by the UI JSON API and `wallet.balances()`.
  */
 export class BalanceProvider {
-	private snapshot: BalanceSnapshot = { updatedAt: null, chains: [] }
+	private snapshot: BalanceSnapshot = { updatedAt: null, status: "loading", chains: [], issues: [] }
 	private stopped = false
-	private initialTimeout?: NodeJS.Timeout
 	private refreshInterval?: NodeJS.Timeout
 	private hyperbridgeInterval?: NodeJS.Timeout
 	private logger: Logger
@@ -79,8 +127,10 @@ export class BalanceProvider {
 		this.intervalMs = options.refreshIntervalMs ?? 60_000
 	}
 
-	start(): void {
-		this.initialTimeout = setTimeout(() => void this.refresh(), 5_000)
+	async start(): Promise<void> {
+		this.stopped = false
+		await this.refresh()
+		if (this.stopped) return
 		this.refreshInterval = setInterval(() => void this.refresh(), this.intervalMs)
 
 		if (this.options.hyperbridge && this.options.substratePrivateKey) {
@@ -92,7 +142,6 @@ export class BalanceProvider {
 
 	stop(): void {
 		this.stopped = true
-		if (this.initialTimeout) clearTimeout(this.initialTimeout)
 		if (this.refreshInterval) clearInterval(this.refreshInterval)
 		if (this.hyperbridgeInterval) clearInterval(this.hyperbridgeInterval)
 		// The Hyperbridge connection belongs to the filler; it is not ours to close.
@@ -104,6 +153,24 @@ export class BalanceProvider {
 
 	async refresh(): Promise<BalanceSnapshot> {
 		const chainIds = this.options.configService.getConfiguredChainIds()
+		const issues: BalanceIssue[] = []
+		const vaultPositionsByChain = new Map<number, VaultBalancePosition[]>()
+		const unavailableVaultChains = new Set<number>()
+
+		if (this.options.vaultBalances) {
+			await Promise.all(
+				chainIds.map(async (chainId) => {
+					try {
+						const positions = await this.options.vaultBalances!.getBalanceSnapshot(`EVM-${chainId}`)
+						vaultPositionsByChain.set(chainId, positions)
+					} catch (err) {
+						unavailableVaultChains.add(chainId)
+						issues.push({ chainId, source: "vault", message: errorMessage(err) })
+						this.logger.warn({ err, chainId }, "Failed to refresh vault balances")
+					}
+				}),
+			)
+		}
 
 		const fxExoticByChain = new Map<number, string[]>()
 		for (const [chainKey, addrs] of Object.entries(this.options.token1)) {
@@ -111,84 +178,202 @@ export class BalanceProvider {
 			if (!isNaN(id)) fxExoticByChain.set(id, addrs)
 		}
 
-		const rows = await Promise.all(chainIds.map((chainId) => this.collectChain(chainId, fxExoticByChain)))
+		const results = await Promise.all(
+			chainIds.map(async (chainId) => {
+				try {
+					return await this.collectChain(
+						chainId,
+						fxExoticByChain,
+						vaultPositionsByChain.get(chainId) ?? [],
+						!unavailableVaultChains.has(chainId),
+					)
+				} catch (err) {
+					return {
+						row: { chainId, assets: [] },
+						issues: [{ chainId, source: "chain" as const, message: errorMessage(err) }],
+					}
+				}
+			}),
+		)
+		const rows = results.map((result) => result.row)
+		issues.push(...results.flatMap((result) => result.issues))
+		const hasData =
+			Array.from(vaultPositionsByChain.values()).some((positions) => positions.length > 0) ||
+			rows.some((row) => row.native !== undefined || row.assets.some((asset) => asset.wallet !== null))
 
 		this.snapshot = {
 			updatedAt: Date.now(),
+			status: issues.length === 0 ? "fresh" : hasData ? "partial" : "unavailable",
 			chains: rows,
+			issues,
 			hyperbridge: this.snapshot.hyperbridge,
 		}
 		this.logger.debug({ chains: chainIds.length }, "Balances refreshed")
 		return this.snapshot
 	}
 
-	private async collectChain(chainId: number, fxExoticByChain: Map<number, string[]>): Promise<ChainBalanceRow> {
+	private async collectChain(
+		chainId: number,
+		fxExoticByChain: Map<number, string[]>,
+		vaultPositions: VaultBalancePosition[],
+		vaultDataAvailable: boolean,
+	): Promise<{ row: ChainBalanceRow; issues: BalanceIssue[] }> {
 		const chain = `EVM-${chainId}`
 		const client = this.options.chainClientManager.getPublicClient(chain)
 		const fillerAddr = this.options.fillerAddress as `0x${string}`
-		const row: ChainBalanceRow = { chainId }
+		const row: ChainBalanceRow = { chainId, assets: [] }
+		const issues: BalanceIssue[] = []
 
 		try {
 			const native = await client.getBalance({ address: fillerAddr })
 			const symbol = CHAIN_NATIVE_SYMBOLS[chainId] ?? "ETH"
 			row.native = { symbol, amount: Number.parseFloat(formatUnits(native, 18)) }
-		} catch {}
-
-		try {
-			const usdcAddr = this.options.configService.getUsdcAsset(chain)
-			const usdcDecimals = this.options.configService.getUsdcDecimals(chain)
-			const balance = await client.readContract({
-				address: usdcAddr as `0x${string}`,
-				abi: ERC20_ABI,
-				functionName: "balanceOf",
-				args: [fillerAddr],
-			})
-			row.usdc = Number.parseFloat(formatUnits(balance as bigint, usdcDecimals))
-		} catch {}
-
-		try {
-			const usdtAddr = this.options.configService.getUsdtAsset(chain)
-			const usdtDecimals = this.options.configService.getUsdtDecimals(chain)
-			const balance = await client.readContract({
-				address: usdtAddr as `0x${string}`,
-				abi: ERC20_ABI,
-				functionName: "balanceOf",
-				args: [fillerAddr],
-			})
-			row.usdt = Number.parseFloat(formatUnits(balance as bigint, usdtDecimals))
-		} catch {}
-
-		for (const fxAddr of fxExoticByChain.get(chainId) ?? []) {
-			try {
-				let symbol = "EXOTIC"
-				try {
-					symbol = (await client.readContract({
-						address: fxAddr as `0x${string}`,
-						abi: ERC20_ABI,
-						functionName: "symbol",
-						args: [],
-					})) as string
-				} catch {}
-				let decimals = 18
-				try {
-					decimals = (await client.readContract({
-						address: fxAddr as `0x${string}`,
-						abi: ERC20_ABI,
-						functionName: "decimals",
-						args: [],
-					})) as number
-				} catch {}
-				const balance = await client.readContract({
-					address: fxAddr as `0x${string}`,
-					abi: ERC20_ABI,
-					functionName: "balanceOf",
-					args: [fillerAddr],
-				})
-				;(row.exotics ??= []).push({ symbol, amount: Number.parseFloat(formatUnits(balance as bigint, decimals)) })
-			} catch {}
+		} catch (err) {
+			issues.push({ chainId, source: "native", message: errorMessage(err) })
 		}
 
-		return row
+		const definitions = new Map<string, TokenDefinition>()
+		this.addConfiguredStable(definitions, chainId, "USDC", () => ({
+			address: this.options.configService.getUsdcAsset(chain),
+			decimals: this.options.configService.getUsdcDecimals(chain),
+		}), issues)
+		this.addConfiguredStable(definitions, chainId, "USDT", () => ({
+			address: this.options.configService.getUsdtAsset(chain),
+			decimals: this.options.configService.getUsdtDecimals(chain),
+		}), issues)
+
+		for (const fxAddr of new Set(fxExoticByChain.get(chainId) ?? [])) {
+			if (!isConfiguredAddress(fxAddr)) {
+				if (!isUnsetAddress(fxAddr)) {
+					issues.push({ chainId, source: "token", asset: fxAddr, message: "Invalid token address" })
+				}
+				continue
+			}
+			if (definitions.has(fxAddr.toLowerCase())) continue
+
+			let symbol = "EXOTIC"
+			let decimals: number | null = null
+			try {
+				symbol = (await client.readContract({
+					address: fxAddr as `0x${string}`,
+					abi: ERC20_ABI,
+					functionName: "symbol",
+					args: [],
+				})) as string
+			} catch (err) {
+				issues.push({ chainId, source: "token", asset: fxAddr, message: `Symbol read failed: ${errorMessage(err)}` })
+			}
+			try {
+				decimals = (await client.readContract({
+					address: fxAddr as `0x${string}`,
+					abi: ERC20_ABI,
+					functionName: "decimals",
+					args: [],
+				})) as number
+			} catch (err) {
+				issues.push({ chainId, source: "token", asset: fxAddr, message: `Decimals read failed: ${errorMessage(err)}` })
+			}
+			definitions.set(fxAddr.toLowerCase(), { address: fxAddr, symbol, decimals, kind: "exotic" })
+		}
+
+		for (const position of vaultPositions) {
+			const key = position.asset.toLowerCase()
+			const existing = definitions.get(key)
+			if (existing) {
+				if (existing.decimals === null) existing.decimals = position.decimals
+				if (existing.symbol === "EXOTIC") existing.symbol = position.symbol
+			} else {
+				definitions.set(key, {
+					address: position.asset,
+					symbol: position.symbol,
+					decimals: position.decimals,
+					kind: "vault",
+				})
+			}
+		}
+
+		row.assets = await Promise.all(
+			Array.from(definitions.values()).map(async (definition) => {
+				let wallet: number | null = null
+				if (definition.decimals !== null) {
+					try {
+						const balance = await client.readContract({
+							address: definition.address as `0x${string}`,
+							abi: ERC20_ABI,
+							functionName: "balanceOf",
+							args: [fillerAddr],
+						})
+						wallet = Number.parseFloat(formatUnits(balance as bigint, definition.decimals))
+					} catch (err) {
+						issues.push({
+							chainId,
+							source: "token",
+							asset: definition.symbol,
+							message: errorMessage(err),
+						})
+					}
+				}
+
+				const positions = vaultPositions.filter(
+					(position) => position.asset.toLowerCase() === definition.address.toLowerCase(),
+				)
+				const walletReserve = sumFormatted(positions, "walletReserve")
+				const vaultPosition = sumFormatted(positions, "positionAssets")
+				const vaultAvailable = sumFormatted(positions, "availableAssets")
+				const complete = wallet !== null && vaultDataAvailable
+				const asset: AssetBalanceRow = {
+					address: definition.address,
+					symbol: definition.symbol,
+					wallet,
+					walletReserve,
+					vaultPosition,
+					vaultAvailable,
+					total: wallet !== null && vaultDataAvailable ? wallet + vaultPosition : null,
+					available:
+						wallet !== null && vaultDataAvailable ? Math.max(wallet - walletReserve, 0) + vaultAvailable : null,
+					vaults: positions.map((position) => ({
+						address: position.vault,
+						position: Number.parseFloat(formatUnits(position.positionAssets, position.decimals)),
+						available: Number.parseFloat(formatUnits(position.availableAssets, position.decimals)),
+					})),
+					status: complete ? "fresh" : wallet !== null || positions.length > 0 ? "partial" : "unavailable",
+				}
+
+				if (definition.kind === "usdc" && wallet !== null) row.usdc = wallet
+				if (definition.kind === "usdt" && wallet !== null) row.usdt = wallet
+				if (definition.kind === "exotic" && wallet !== null) {
+					;(row.exotics ??= []).push({ symbol: definition.symbol, amount: wallet })
+				}
+				return asset
+			}),
+		)
+
+		return { row, issues }
+	}
+
+	private addConfiguredStable(
+		definitions: Map<string, TokenDefinition>,
+		chainId: number,
+		symbol: "USDC" | "USDT",
+		resolve: () => { address: string; decimals: number },
+		issues: BalanceIssue[],
+	): void {
+		try {
+			const { address, decimals } = resolve()
+			if (isUnsetAddress(address)) return
+			if (!isConfiguredAddress(address)) {
+				issues.push({ chainId, source: "token", asset: symbol, message: "Invalid token address" })
+				return
+			}
+			definitions.set(address.toLowerCase(), {
+				address,
+				symbol,
+				decimals,
+				kind: symbol.toLowerCase() as "usdc" | "usdt",
+			})
+		} catch (err) {
+			issues.push({ chainId, source: "token", asset: symbol, message: errorMessage(err) })
+		}
 	}
 
 	private async trackHyperbridgeBalance(): Promise<void> {
@@ -201,7 +386,6 @@ export class BalanceProvider {
 				// Queried over HTTP, so a websocket outage does not stall the balance read; a failed
 				// request leaves the last snapshot in place and the next tick picks it up.
 				const api = await coprocessor.queryApi()
-				// biome-ignore lint/suspicious/noExplicitAny: polkadot API type
 				const account = (await api.query.system.account(address)) as any
 				const decimals = (api.registry.chainDecimals as number[])[0] ?? 12
 
@@ -221,4 +405,33 @@ export class BalanceProvider {
 		this.hyperbridgeInterval = setInterval(fetchBalance, this.intervalMs)
 		this.logger.info({ address }, "Hyperbridge balance tracking initialized")
 	}
+}
+
+interface TokenDefinition {
+	address: string
+	symbol: string
+	decimals: number | null
+	kind: "usdc" | "usdt" | "exotic" | "vault"
+}
+
+function isUnsetAddress(address: string): boolean {
+	return /^0x0*$/i.test(address)
+}
+
+function isConfiguredAddress(address: string): boolean {
+	return /^0x[0-9a-f]{40}$/i.test(address) && !isUnsetAddress(address)
+}
+
+function sumFormatted(
+	positions: VaultBalancePosition[],
+	field: "walletReserve" | "positionAssets" | "availableAssets",
+): number {
+	return positions.reduce(
+		(total, position) => total + Number.parseFloat(formatUnits(position[field], position.decimals)),
+		0,
+	)
+}
+
+function errorMessage(error: unknown): string {
+	return error instanceof Error ? error.message : String(error)
 }

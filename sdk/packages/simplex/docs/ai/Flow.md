@@ -2,6 +2,39 @@
 
 AI-maintained map of how code paths in `sdk/packages/simplex` actually execute, so that when something breaks you can tell whether the fault is upstream or downstream of where the symptom appears. Only flows that have been read and verified are documented; coverage grows as areas of the package are touched.
 
+## Dashboard balance collection
+
+`boot.ts` hydrates `VaultFundingPlanner` before constructing `BalanceProvider`, passes that planner
+through the narrow `VaultBalanceSource` interface, and awaits `BalanceProvider.start()`. Startup now
+performs the first refresh before boot returns; later refreshes run on the configured interval.
+
+For each chain, `BalanceProvider` resolves configured USDC/USDT and unique exotic assets, reads the
+solver's native and token wallet balances, then merges the planner's vault rows by underlying asset.
+`VaultFundingPlanner.getBalanceSnapshot()` takes the same per-chain mutex as fill planning, refreshes
+`VaultLiquidityState`, and returns base-unit position, remaining withdrawable assets, and wallet
+reserve. The API boundary formats those once and derives:
+
+- `total = wallet + vaultPosition`
+- `available = max(wallet - walletReserve, 0) + vaultAvailable`
+
+If a token read or the vault snapshot fails, the affected aggregate is `null` and the response is
+marked `partial` or `unavailable` with contextual issues. `OperatorOverview` therefore displays an
+unavailable state instead of summing known values into a misleading total. Its headline stablecoin
+metric sums only non-null available USDC/USDT values.
+
+## Desktop PWA installation and offline shell
+
+`ui/index.html` links `public/manifest.webmanifest`; `ui/src/main.tsx` registers `public/sw.js` in
+production. The worker pre-caches only versioned static shell assets and uses navigation fallback so
+the setup/dashboard interface can open offline without persisting live `/api` balance or activity
+responses.
+
+`InstallAppProvider` owns the captured `beforeinstallprompt` event, standalone detection, install
+dialog state, and toast feedback. `InstallAppButton` renders in the setup brandbar and permanently in
+the operator navigation. Both open the same desktop-only `InstallGuidePanel`: identify the install
+icon, confirm Install, then open Simplex from the desktop/app list. Native prompt cancellation closes
+nothing and writes no inline state; Sonner displays the retry message.
+
 ## Vault selection and balance defaults
 
 `VaultRowsEditor` renders curated vaults from the server catalog. Selecting one directly or through

@@ -294,12 +294,100 @@ button.operator-text-button:hover:not(:disabled) {
 
 .operator-balance-row {
 	display: grid;
-	grid-template-columns: minmax(10rem, 1.4fr) repeat(4, minmax(5rem, 0.75fr));
+	grid-template-columns: minmax(10rem, 0.8fr) minmax(7rem, 0.45fr) minmax(20rem, 2fr);
 	gap: 1rem;
 	align-items: center;
 	min-height: 4.8rem;
 	padding: 0.75rem 0;
 	border-bottom: 1px solid var(--border);
+}
+
+.operator-balance-notice {
+	display: flex;
+	align-items: baseline;
+	gap: 0.65rem;
+	margin-bottom: 1rem;
+	padding: 0.75rem 0.9rem;
+	border-left: 2px solid var(--warn);
+	background: color-mix(in srgb, var(--warn) 5%, transparent);
+	font-size: 0.75rem;
+}
+
+.operator-balance-notice strong {
+	font-weight: 500;
+}
+
+.operator-balance-notice span,
+.operator-balance-missing {
+	color: var(--muted);
+}
+
+.operator-asset-balances {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+	gap: 0.6rem;
+	min-width: 0;
+}
+
+.operator-asset-balance {
+	min-width: 0;
+	padding: 0.65rem 0.75rem;
+	border: 1px solid var(--border);
+	border-radius: 0.65rem;
+	background: color-mix(in srgb, var(--surface) 65%, transparent);
+}
+
+.operator-asset-total {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: 0.75rem;
+	margin-bottom: 0.55rem;
+}
+
+.operator-asset-total span {
+	color: var(--muted);
+	font-size: 0.6875rem;
+}
+
+.operator-asset-total strong {
+	overflow: hidden;
+	font-size: 0.875rem;
+	font-weight: 500;
+	text-overflow: ellipsis;
+}
+
+.operator-asset-balance dl {
+	display: grid;
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+	gap: 0.55rem;
+	margin: 0;
+	padding-top: 0.5rem;
+	border-top: 1px solid var(--border);
+}
+
+.operator-asset-balance dl > div {
+	display: grid;
+	gap: 0.16rem;
+	min-width: 0;
+}
+
+.operator-asset-balance dt {
+	color: var(--muted);
+	font-size: 0.5625rem;
+}
+
+.operator-asset-balance dd {
+	overflow: hidden;
+	margin: 0;
+	color: var(--text-secondary);
+	font-family: var(--font-mono);
+	font-size: 0.6875rem;
+	text-overflow: ellipsis;
+}
+
+.operator-asset-balance [data-emphasized] dd {
+	color: var(--text);
 }
 
 .operator-chain-name {

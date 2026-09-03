@@ -2,11 +2,9 @@ import { ERC20_ABI } from "@/config/abis/ERC20"
 import { ERC4626_ABI } from "@/config/abis/Erc4626"
 import type { VaultConfig, HydratedVault } from "@/funding/types"
 import type { ChainClientManager } from "@/services/ChainClientManager"
-import { type Logger , moduleLogger} from "@/services/Logger"
+import { type Logger, moduleLogger } from "@/services/Logger"
 import type { HexString } from "@hyperbridge/sdk"
 import { parseUnits } from "viem"
-
-
 /**
  * Backstop expiry for a reservation whose bid never executes (lost auction,
  * abandoned) — without it, `remaining` would drift to 0 and disable sourcing.
@@ -79,6 +77,16 @@ export class VaultLiquidityState {
 				abi: ERC20_ABI,
 				functionName: "decimals",
 			})) as number
+			let symbol = "TOKEN"
+			try {
+				symbol = (await client.readContract({
+					address: asset,
+					abi: ERC20_ABI,
+					functionName: "symbol",
+				})) as string
+			} catch (err) {
+				this.logger.warn({ err, chain: this.chain, asset }, "Could not resolve vault asset symbol")
+			}
 
 			// Vaults are keyed by underlying asset — a second same-asset vault would
 			// silently shadow the first (its shares invisible to sourcing, sweeping
@@ -94,6 +102,7 @@ export class VaultLiquidityState {
 			this.vaults.set(asset.toLowerCase(), {
 				vault: cfg.vault,
 				asset,
+				symbol,
 				decimals,
 				thresholdScaled: cfg.threshold ? parseUnits(cfg.threshold, decimals) : null,
 				minBalanceScaled: cfg.minBalance ? parseUnits(cfg.minBalance, decimals) : 0n,

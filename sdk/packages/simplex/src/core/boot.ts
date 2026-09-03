@@ -591,6 +591,7 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		configService,
 		fillerAddress: runtimeSigner.address,
 		token1,
+		vaultBalances: vaultVenue,
 		hyperbridge: intentFiller.hyperbridgeConnection,
 		substratePrivateKey: config.simplex.substratePrivateKey,
 	})
@@ -621,7 +622,7 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 	vaultVenue?.startSweeping()
 
 	started.push(() => balanceProvider.stop())
-	balanceProvider.start()
+	await balanceProvider.start()
 
 	const watchOnlyChains = watchOnlyConfig
 		? Object.entries(watchOnlyConfig)

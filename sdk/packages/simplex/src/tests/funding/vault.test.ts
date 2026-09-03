@@ -45,6 +45,7 @@ function makeWithdrawPlanner(
 		}) {
 			if (functionName === "asset") return USDC
 			if (functionName === "decimals") return 6
+			if (functionName === "symbol") return "USDC"
 			if (functionName === "maxWithdraw") return balances.maxWithdrawable
 			// Shares are 1:1 with assets in this mock.
 			if (functionName === "previewRedeem") return args?.[0] as bigint
@@ -92,6 +93,7 @@ function makeSweepPlanner(
 		}) {
 			if (functionName === "asset") return assetOf[address.toLowerCase()]
 			if (functionName === "decimals") return 6
+			if (functionName === "symbol") return address.toLowerCase() === USDT.toLowerCase() ? "USDT" : "USDC"
 			if (functionName === "maxWithdraw") return 10_000_000_000n
 			if (functionName === "maxDeposit") return maxDeposit
 			// Shares are 1:1 with assets in this mock.
@@ -125,6 +127,28 @@ function makeSweepPlanner(
 const u = (n: string) => parseUnits(n, 6)
 
 describe("VaultFundingPlanner", () => {
+	it("exposes owned, available and reserved vault liquidity as one coherent snapshot", async () => {
+		const planner = makeWithdrawPlanner(
+			{ positionAssets: u("4200"), maxWithdrawable: u("3500") },
+			{ vault: VAULT_USDC, minBalance: "300" },
+		)
+		await planner.initialise(SOLVER)
+
+		await planner.planWithdrawalForToken(CHAIN, SOLVER, USDC.toLowerCase(), u("500"))
+		const [position] = await planner.getBalanceSnapshot()
+
+		expect(position).toEqual({
+			chain: CHAIN,
+			vault: VAULT_USDC,
+			asset: USDC,
+			symbol: "USDC",
+			decimals: 6,
+			positionAssets: u("4200"),
+			availableAssets: u("3000"),
+			walletReserve: u("300"),
+		})
+	})
+
 	it("plans a withdraw call for the full deficit when liquidity is ample", async () => {
 		const planner = makeWithdrawPlanner({ positionAssets: 1_000_000n, maxWithdrawable: 1_000_000n })
 		await planner.initialise(SOLVER)

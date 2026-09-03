@@ -11,8 +11,7 @@ export function OperatorOverview(props: {
 	onMarketsChanged: () => Promise<void>
 }) {
 	const { status, balances, strategies, config, onResetHalt, onMarketsChanged } = props
-	const stablecoinLiquidity =
-		balances?.chains.reduce((total, chain) => total + (chain.usdc ?? 0) + (chain.usdt ?? 0), 0) ?? 0
+	const stablecoinLiquidity = availableStablecoinLiquidity(balances)
 
 	return (
 		<div className="operator-overview">
@@ -37,7 +36,10 @@ export function OperatorOverview(props: {
 					label="Active markets"
 					value={String(strategies.filter((strategy) => !strategy.referenceOnly).length)}
 				/>
-				<Metric label="Stablecoin liquidity" value={`$${stablecoinLiquidity.toLocaleString()}`} />
+				<Metric
+					label="Available liquidity"
+					value={stablecoinLiquidity === null ? "—" : `$${formatAmount(stablecoinLiquidity)}`}
+				/>
 				<Metric label="BRIDGE available" value={balances?.hyperbridge?.free.toLocaleString() ?? "—"} />
 			</section>
 
@@ -53,6 +55,15 @@ export function OperatorOverview(props: {
 							: "Awaiting first refresh"}
 					</small>
 				</div>
+				{balances && balances.status !== "fresh" && balances.issues.length > 0 ? (
+					<div className="operator-balance-notice" role="status">
+						<strong>Some balances are unavailable</strong>
+						<span>
+							Simplex did not estimate missing values. The next refresh will retry {balances.issues.length}{" "}
+							failed {balances.issues.length === 1 ? "read" : "reads"}.
+						</span>
+					</div>
+				) : null}
 				<div className="operator-balance-list">
 					{balances?.chains.map((row) => {
 						const label = status.chainLabels?.[String(row.chainId)] ?? `Chain ${row.chainId}`
@@ -71,16 +82,22 @@ export function OperatorOverview(props: {
 									label="Gas"
 									value={row.native ? `${row.native.amount.toFixed(4)} ${row.native.symbol}` : "—"}
 								/>
-								<BalanceValue label="USDC" value={row.usdc?.toLocaleString() ?? "—"} />
-								<BalanceValue label="USDT" value={row.usdt?.toLocaleString() ?? "—"} />
-								<BalanceValue
-									label="Other"
-									value={
-										row.exotics
-											?.map((asset) => `${asset.amount.toLocaleString()} ${asset.symbol}`)
-											.join(", ") || "—"
-									}
-								/>
+								<div className="operator-asset-balances" aria-label={`${label} token balances`}>
+									{row.assets.map((asset) => (
+										<div className="operator-asset-balance" key={asset.address}>
+											<div className="operator-asset-total">
+												<span>{asset.symbol}</span>
+												<strong>{asset.total === null ? "Unavailable" : formatAmount(asset.total)}</strong>
+											</div>
+											<dl>
+												<BalancePart label="Wallet" value={asset.wallet} />
+												<BalancePart label="In vault" value={asset.vaultPosition} />
+												<BalancePart label="Available" value={asset.available} emphasized />
+											</dl>
+										</div>
+									))}
+									{row.assets.length === 0 ? <span className="operator-balance-missing">No tracked tokens</span> : null}
+								</div>
 							</div>
 						)
 					})}
@@ -117,4 +134,27 @@ function BalanceValue(props: { label: string; value: string }) {
 			<strong>{props.value}</strong>
 		</div>
 	)
+}
+
+function BalancePart(props: { label: string; value: number | null; emphasized?: boolean }) {
+	return (
+		<div data-emphasized={props.emphasized || undefined}>
+			<dt>{props.label}</dt>
+			<dd>{props.value === null ? "—" : formatAmount(props.value)}</dd>
+		</div>
+	)
+}
+
+function availableStablecoinLiquidity(balances: BalanceSnapshot | undefined): number | null {
+	if (!balances || balances.status === "loading") return null
+	const stables = balances.chains.flatMap((chain) =>
+		chain.assets.filter((asset) => asset.symbol.toUpperCase() === "USDC" || asset.symbol.toUpperCase() === "USDT"),
+	)
+	if (stables.length === 0) return balances.status === "fresh" ? 0 : null
+	if (stables.some((asset) => asset.available === null)) return null
+	return stables.reduce((total, asset) => total + (asset.available ?? 0), 0)
+}
+
+function formatAmount(value: number): string {
+	return value.toLocaleString(undefined, { maximumFractionDigits: 4 })
 }

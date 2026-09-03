@@ -79,11 +79,11 @@
 	}
 
 	.operator-balance-row {
-		grid-template-columns: minmax(9rem, 1.4fr) repeat(3, minmax(4.5rem, 0.75fr));
+		grid-template-columns: minmax(9rem, 0.7fr) minmax(6rem, 0.4fr) minmax(18rem, 2fr);
 	}
 
-	.operator-balance-row .operator-balance-value:last-child {
-		display: none;
+	.operator-asset-balances {
+		grid-template-columns: 1fr;
 	}
 }
 
@@ -402,7 +402,7 @@
 	}
 
 	.operator-sidebar nav {
-		grid-template-columns: repeat(4, minmax(0, 1fr));
+		grid-template-columns: repeat(5, minmax(0, 1fr));
 	}
 
 	button.operator-nav-item {
@@ -453,12 +453,11 @@
 	}
 
 	.operator-balance-row {
-		grid-template-columns: minmax(0, 1fr) repeat(2, minmax(4rem, 0.55fr));
+		grid-template-columns: minmax(0, 1fr) minmax(4rem, 0.55fr);
 	}
 
-	.operator-balance-row .operator-balance-value:nth-of-type(4),
-	.operator-balance-row .operator-balance-value:nth-of-type(5) {
-		display: none;
+	.operator-asset-balances {
+		grid-column: 1 / -1;
 	}
 
 	button.operator-market-row {

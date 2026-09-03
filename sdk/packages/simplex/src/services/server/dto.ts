@@ -7,6 +7,7 @@
 import type { InitChainMeta, InitNetwork } from "@/cli/init/chains"
 import type { VaultToml } from "@/config/filler-toml"
 import type { CurvePoint, PriceCurvePoint } from "@/config/interpolated-curve"
+import type { BalanceSnapshot as RuntimeBalanceSnapshot } from "@/services/BalanceProvider"
 
 export const LOG_LEVELS = ["trace", "debug", "info", "warn", "error"] as const
 
@@ -60,18 +61,8 @@ export interface StatusOperator {
 
 export type Status = StatusInit | StatusOperator
 
-/** GET /api/balances */
-export interface BalanceSnapshot {
-	updatedAt: number | null
-	chains: Array<{
-		chainId: number
-		native?: { symbol: string; amount: number }
-		usdc?: number
-		usdt?: number
-		exotics?: Array<{ symbol: string; amount: number }>
-	}>
-	hyperbridge?: { address: string; free: number; reserved: number }
-}
+/** GET /api/balances — shared with the runtime collector to prevent contract drift. */
+export type BalanceSnapshot = RuntimeBalanceSnapshot
 
 /** GET /api/strategies rows; PUT /api/strategies/:index(/curves) response */
 export interface AdminStrategyDto {

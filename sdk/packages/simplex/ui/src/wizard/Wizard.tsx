@@ -11,6 +11,7 @@ import { StepTreasury } from "./steps/Treasury"
 import { StepAdvanced } from "./steps/Advanced"
 import { StepReview } from "./steps/Review"
 import hyperfxLogo from "../assets/hyperfx-logo.webp"
+import { InstallAppButton } from "../components/InstallAppButton"
 
 export interface StepProps {
 	state: WizardState
@@ -188,9 +189,12 @@ export function Wizard(props: { defaults: SetupDefaults }) {
 					<img className="hyperfx-logo" src={hyperfxLogo} alt="HyperFX" />
 					<span className="wizard-product-name">Simplex</span>
 				</div>
-				<div className="wizard-local-status">
-					<span aria-hidden="true" />
-					Local setup
+				<div className="wizard-brand-actions">
+					<InstallAppButton />
+					<div className="wizard-local-status">
+						<span aria-hidden="true" />
+						Local setup
+					</div>
 				</div>
 			</header>
 

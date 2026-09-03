@@ -222,8 +222,8 @@ mod decode_length_tests {
 
 	#[test]
 	fn accepts_exactly_n_bytes_and_round_trips() {
-		let original = ByteVector<N>::try_from(vec![7u8; 48]).expect("N bytes is valid");
-		let decoded = ByteVector<N>::decode(&mut &original.encode()[..]).expect("round trip");
+		let original = ByteVector::<N>::try_from(vec![7u8; 48]).expect("N bytes is valid");
+		let decoded = ByteVector::<N>::decode(&mut &original.encode()[..]).expect("round trip");
 		assert_eq!(decoded, original);
 		assert_eq!(decoded.as_ref().len(), 48);
 	}
@@ -232,7 +232,7 @@ mod decode_length_tests {
 	/// decode boundary is the only place this can be caught.
 	#[test]
 	fn rejects_one_byte_over() {
-		assert!(ByteVector<N>::decode(&mut &encoded(49)[..]).is_err());
+		assert!(ByteVector::<N>::decode(&mut &encoded(49)[..]).is_err());
 	}
 
 	/// Every length up to the next chunk boundary shares the 48-byte root, so each one has to
@@ -241,7 +241,7 @@ mod decode_length_tests {
 	fn rejects_every_length_sharing_the_hash_root() {
 		for len in 49..=64 {
 			assert!(
-				ByteVector<N>::decode(&mut &encoded(len)[..]).is_err(),
+				ByteVector::<N>::decode(&mut &encoded(len)[..]).is_err(),
 				"over-length value of {len} bytes was accepted",
 			);
 		}
@@ -251,7 +251,7 @@ mod decode_length_tests {
 	fn rejects_under_length() {
 		for len in [0usize, 1, 47] {
 			assert!(
-				ByteVector<N>::decode(&mut &encoded(len)[..]).is_err(),
+				ByteVector::<N>::decode(&mut &encoded(len)[..]).is_err(),
 				"under-length value of {len} bytes was accepted",
 			);
 		}

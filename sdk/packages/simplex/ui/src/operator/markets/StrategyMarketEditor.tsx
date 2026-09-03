@@ -66,9 +66,7 @@ export function StrategyMarketEditor(props: {
 			{!strategy.referenceOnly ? (
 				<div className="market-asset-grid operator-market-cap-editor">
 					<label className="field market-limit-field">
-						<span>
-							Maximum order in {token0} <em>Optional</em>
-						</span>
+						<span>Maximum order in {token0} [Optional]</span>
 						<input
 							type="text"
 							value={draft.maxOrderSize}
@@ -148,7 +146,7 @@ export function StrategyMarketEditor(props: {
 			{!strategy.sameToken && !strategy.referenceOnly && !strategy.bid && !draft.enableBid ? (
 				<button
 					type="button"
-					onClick={() => editor.patch({ bid: [{ amount: "0", value: "" }], enableBid: true })}
+					onClick={() => editor.patch({ bid: [{ amount: "1", value: "" }], enableBid: true })}
 				>
 					Enable bid side (one-sided LP → both directions)
 				</button>
@@ -156,7 +154,7 @@ export function StrategyMarketEditor(props: {
 			{!strategy.sameToken && !strategy.referenceOnly && !strategy.ask && !draft.enableAsk ? (
 				<button
 					type="button"
-					onClick={() => editor.patch({ ask: [{ amount: "0", value: "" }], enableAsk: true })}
+					onClick={() => editor.patch({ ask: [{ amount: "1", value: "" }], enableAsk: true })}
 				>
 					Enable ask side (one-sided LP → both directions)
 				</button>

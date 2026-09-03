@@ -31,9 +31,10 @@
 	font-weight: 500;
 }
 
-.operator-brand img {
-	width: 1.9rem;
-	height: 1.9rem;
+.operator-brand img.hyperfx-logo {
+	width: 7rem;
+	height: auto;
+	object-fit: contain;
 }
 
 .operator-environment-trigger {

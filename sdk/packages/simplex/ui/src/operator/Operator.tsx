@@ -1,6 +1,6 @@
 import { useCallback, useState, type ComponentType, type SVGProps } from "react"
 import { api } from "../api"
-import hyperbridgeLogo from "../assets/hyperbridge-logo.svg"
+import hyperfxLogo from "../assets/hyperfx-logo.webp"
 import { CopyHash } from "../components/CopyHash"
 import { ActivityIcon, OperationsIcon, OverviewIcon, SettingsIcon, WalletIcon } from "../components/InterfaceIcons"
 import { OperatorSheet } from "../components/OperatorSheet"
@@ -128,7 +128,7 @@ export function Operator(props: { status: StatusOperator; refresh: () => void })
 		<div className="operator-shell">
 			<header className="operator-brandbar">
 				<div className="operator-brand">
-					<img src={hyperbridgeLogo} alt="Hyperbridge" />
+					<img className="hyperfx-logo" src={hyperfxLogo} alt="HyperFX" />
 					<span>Simplex</span>
 				</div>
 				<button type="button" className="operator-environment-trigger" onClick={() => setShowEnvironment(true)}>

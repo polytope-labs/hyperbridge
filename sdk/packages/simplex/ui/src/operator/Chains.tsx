@@ -7,9 +7,10 @@ export function Chains() {
 	const {
 		dto,
 		chains,
+		loaded,
 		patch,
 		alchemyKey,
-		setAlchemyKey,
+		updateAlchemyKey,
 		alchemy,
 		saved,
 		message,
@@ -34,10 +35,7 @@ export function Chains() {
 						aria-label="Alchemy API key"
 						placeholder="Alchemy API key (optional)"
 						value={alchemyKey}
-						onChange={(e) => {
-							setAlchemyKey(e.target.value)
-							setAlchemy({})
-						}}
+						onChange={(e) => updateAlchemyKey(e.target.value)}
 					/>
 					<button type="button" onClick={applyAlchemyKey} disabled={alchemy.busy || !alchemyKey.trim()}>
 						{alchemy.busy ? "Checking…" : "Validate & prefill"}
@@ -197,7 +195,7 @@ export function Chains() {
 
 			<div className="operator-chain-save">
 				<div className="row">
-					<button type="button" className="primary" disabled={drafts === undefined} onClick={save}>
+					<button type="button" className="primary" disabled={!loaded} onClick={save}>
 						Save chain settings
 					</button>
 					{saved ? <span className="badge warn">Restart Simplex to apply</span> : null}

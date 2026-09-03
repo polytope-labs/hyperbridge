@@ -157,8 +157,7 @@
 }
 
 .market-editor > .error,
-.market-curves > .error,
-.transfer-market-config > .error {
+.market-curves > .error {
 	margin: 0.8rem 0 0;
 }
 
@@ -176,10 +175,6 @@
 	border-top: 1px solid var(--border);
 }
 
-.market-single-curve {
-	max-width: 38rem;
-}
-
 .market-curve-grid {
 	display: grid;
 	grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -190,8 +185,7 @@
 	min-width: 0;
 }
 
-.market-curve-toggle,
-.transfer-market-toggle {
+.market-curve-toggle {
 	display: flex;
 	align-items: flex-start;
 	gap: 0.7rem;
@@ -202,26 +196,22 @@
 	margin-bottom: 0.85rem;
 }
 
-.market-curve-toggle input,
-.transfer-market-toggle input {
+.market-curve-toggle input {
 	margin-top: 0.2rem;
 }
 
-.market-curve-toggle span,
-.transfer-market-title {
+.market-curve-toggle span {
 	display: grid;
 	gap: 0.1rem;
 }
 
-.market-curve-toggle strong,
-.transfer-market-title strong {
+.market-curve-toggle strong {
 	color: var(--text-secondary);
 	font-size: 0.8125rem;
 	font-weight: 500;
 }
 
-.market-curve-toggle small,
-.transfer-market-title small {
+.market-curve-toggle small {
 	color: var(--muted);
 	font-size: 0.75rem;
 	line-height: 1.45;
@@ -316,40 +306,6 @@
 	gap: 0.8rem;
 	align-items: end;
 	margin-top: 1rem;
-}
-
-.transfer-market-list {
-	margin-top: 1.25rem;
-	border-top: 1px solid var(--border);
-}
-
-.transfer-market {
-	padding: 1rem 0;
-	border-bottom: 1px solid var(--border);
-}
-
-.transfer-market-toggle {
-	align-items: center;
-}
-
-.transfer-market-toggle input {
-	margin-top: 0;
-}
-
-.transfer-market[data-enabled="true"] .transfer-market-title strong {
-	color: var(--text);
-}
-
-.transfer-market-config {
-	max-width: 38rem;
-	margin: 1rem 0 0 1.75rem;
-	padding-top: 1rem;
-	border-top: 1px solid var(--border);
-}
-
-.transfer-market-config .field {
-	max-width: 17rem;
-	margin: 0 0 1rem;
 }
 
 .market-reference-grid {
@@ -650,25 +606,6 @@
 .liquidity-summary strong {
 	font-size: 0.875rem;
 	font-weight: 500;
-}
-
-.transfer-market-main {
-	flex: 1;
-	min-width: 0;
-}
-
-.transfer-market-main input {
-	margin-left: auto;
-}
-
-.transfer-market {
-	display: flex;
-	align-items: center;
-	gap: 1rem;
-}
-
-.transfer-market-title {
-	flex: 1;
 }
 
 .token-select-trigger {

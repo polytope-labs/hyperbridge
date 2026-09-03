@@ -12,6 +12,73 @@ Files: list of files touched.
 
 Newest entries first.
 
+## 2026-09-03 — Explain vault balance controls and seed curated defaults
+
+Added focusable info icons beside the sweep-threshold and minimum-wallet-balance labels using the
+shared `@hyperbridge/ui` tooltip primitives. Newly selected Aave stataUSDC vaults now start at
+`20`/`10`, and Yield Bearing cNGN starts at `1000`/`1`, matching the supplied reference; custom and
+unknown vaults retain the generic fallback values.
+
+Files: `ui/src/components/VaultRowsEditor.tsx`, `ui/src/styles/treasury.css`, `package.json`,
+`../../pnpm-lock.yaml`, `docs/ai/{ChangeLog,Decisions,Flow}.md`.
+
+## 2026-09-03 — Simplify market setup defaults and remove transfer-market setup
+
+Removed the setup wizard's dedicated same-token transfer section and its prefab, state, prefill, and
+stylesheet plumbing. Setup and operator market creation now use the normal cross-asset editor, reject
+same-asset creation, default new order caps to `50000`, and prefill newly added curve-point sizes with
+`1`. Optional field labels now use brackets for clarity.
+
+Files: `ui/src/{components/CurveEditor,operator/markets/{CreateMarketForm,StrategyMarketEditor,useCreateMarket},wizard/state,wizard/steps/Strategies,wizard/strategies/{MarketRow,UniswapPositionsDialog,useStrategiesModel}}`,
+`ui/src/styles/{markets,responsive}.css`, `src/cli/init/steps/strategies.ts`,
+`src/services/server/{dto,setup-api}.ts`, `docs/ai/{ChangeLog,Decisions,Flow}.md`.
+
+## 2026-09-03 — Prevent the Uniswap pricing view from crashing
+
+Restored the missing Uniswap icon import used by the selected-position summary. Added UI typechecking
+to the standard check command so unresolved runtime identifiers fail before the bundle reaches a
+browser, and repaired two stale identifiers in the live chain editor uncovered by that check.
+
+Files: `ui/src/wizard/steps/Strategies.tsx`, `ui/src/operator/{Chains.tsx,chains/useChainSettings.ts}`,
+`package.json`, `docs/ai/ChangeLog.md`.
+
+## 2026-09-03 — Display Hyperbridge accounts in Polkadot's unified format
+
+Configured the shared Substrate keyring to encode every derived account with Polkadot's unified
+SS58 prefix. Setup, review, operator status, copied addresses, balance snapshots, and logs now all
+receive the same unified account string without component-specific conversion.
+
+Files: `src/services/substrate-key.ts`, `src/tests/balance-provider.test.ts`,
+`docs/ai/{ChangeLog,Decisions}.md`.
+
+## 2026-09-03 — Clarify testnet terminology
+
+Replaced the inaccurate “Sepolia-family” wording in the CLI initializer and web setup wizard with
+“EVM test networks”. The supported testnet catalog also includes Polygon Amoy and BSC Chapel, which
+are EVM-compatible but are not Sepolia-family chains.
+
+Files: `src/cli/init/steps/chains.ts`, `ui/src/wizard/steps/Signer.tsx`,
+`docs/ai/{ChangeLog,Decisions,Flow}.md`.
+
+## 2026-09-03 — Simplify the filler wallet guidance
+
+Shortened the onboarding explanation for the filler wallet and replaced the Unix-specific
+`permissions 600` wording with a plain-language assurance that credentials stay private on the
+operator's machine.
+
+Files: `ui/src/wizard/steps/Signer.tsx`, `docs/ai/ChangeLog.md`.
+
+## 2026-09-03 — Rebrand the Simplex UI header as HyperFX
+
+Replaced the Hyperbridge mark beside the Simplex product name in both the setup wizard and live
+operator dashboard with the supplied white HyperFX wordmark. The transparent wordmark now sits
+directly on the dark UI without a backing surface. Added the HyperFX website favicon to the UI build
+and taught the local static server to serve bundled WebP assets with the correct MIME type.
+
+Files: `ui/src/{operator/Operator,wizard/Wizard}.tsx`, `ui/src/styles/{operator,foundations,responsive}.css`,
+`ui/src/{assets/hyperfx-logo.webp,vite-env.d.ts}`, `ui/index.html`, `ui/public/favicon.ico`,
+`src/services/server/static.ts`.
+
 ## 2026-08-31 — Simplex UI cleanup and operator-market module
 
 Reviewed the onboarding and operator UI against the agreed design system and extracted live market
@@ -137,7 +204,7 @@ Files: `src/services/ContractInteractionService.ts`, `src/services/FillerConfigS
 
 Second review round on the 08-24 fixes; the transport-error fix (F4) did not survive contact with viem, and the new batching/zero-first code had gaps.
 
-- **Probe classification actually works now.** viem 2.47.6's `readContract` wraps *every* failure — HTTP 429/timeout included — in `ContractFunctionExecutionError` (verified empirically against the installed package), so the 08-24 `instanceof` check still cached transport errors as "unsupported". `paymasterSupportsPermit2` now classifies by the cause chain: `error.walk(e => e instanceof ContractFunctionRevertedError || e instanceof ContractFunctionZeroDataError)` marks a genuine revert; everything else propagates uncached. Both unit-test mocks were reshaped to throw what viem actually throws (the old transport mock threw a bare `Error`, which real viem never does — the test was validating a fantasy), and the transport test now also proves the negative was not cached by probing again with a healthy client.
+- **Probe classification actually works now.** viem 2.47.6's `readContract` wraps _every_ failure — HTTP 429/timeout included — in `ContractFunctionExecutionError` (verified empirically against the installed package), so the 08-24 `instanceof` check still cached transport errors as "unsupported". `paymasterSupportsPermit2` now classifies by the cause chain: `error.walk(e => e instanceof ContractFunctionRevertedError || e instanceof ContractFunctionZeroDataError)` marks a genuine revert; everything else propagates uncached. Both unit-test mocks were reshaped to throw what viem actually throws (the old transport mock threw a bare `Error`, which real viem never does — the test was validating a fantasy), and the transport test now also proves the negative was not cached by probing again with a healthy client.
 - **Zero-only batching.** `resolvePendingPermit2Approval` returns null for any non-zero allowance, not just one at the recommendation: the batched delegation tx approves max directly and skips simulation (explicit gas), so a stale partial allowance on a USDT-rule token was a deterministic on-chain revert. Stale-allowance cases defer to `sendFundedApprove`'s zero-first path.
 - **Delegation retry checks `isDelegated` first.** EIP-7702 applies authorization tuples before execution and keeps them applied when execution reverts, so a batched tx that reverted on the approve usually still delegated — the retry now costs one `eth_getCode` instead of a full second tx.
 - **Pre-check budgets the whole sequence.** `sendFundedApprove` reads the allowance up front and requires native for two txs when a zero-first reset is needed; previously dust for exactly one tx passed the check, landed the reset, and died mid-sequence with the allowance stuck at zero.
@@ -190,6 +257,7 @@ The Simplex paymaster client gained mode `0x02 PERMIT2`. On chains whose fee tok
 Live probe on Base Sepolia through Alchemy's bundler (deployment script `evm/script/SimplexPaymasterPermit2Probe.s.sol`, env-gated suite `src/tests/services/SimplexPaymasterPermit2.probe.test.ts`): a fresh EOA's sponsored EIP-7702 delegation and a follow-up no-op from the delegated account were both accepted in mode 2 (`Permit2Executed` on-chain), answering the ERC-7562 question for that bundler. The very first op right after the bootstrap approve was rejected `AA33` twice in a row until the approve was one more block old, so `sendFundedApprove` now waits for two confirmations.
 
 Files: `src/services/paymaster/permit2.ts` (new), `src/services/paymaster/provider/simplex.ts`, `src/services/paymaster/types.ts`, `src/services/paymaster/index.ts`, `src/services/UserOpSender.ts`, `src/services/DelegationService.ts`, `src/config/abis/SimplexPaymaster.ts`, `src/tests/services/SimplexPaymaster.test.ts`, `src/tests/services/UserOpSender.test.ts`, `src/tests/services/SimplexPaymasterPermit2.probe.test.ts` (new).
+
 ## 2026-08-20 — The filler only takes single-leg orders
 
 `EventMonitor.handleOrder` now forwards an order only when it has exactly one input asset and one
@@ -291,7 +359,7 @@ at all — and it forces the partial-fill eligibility gate. With the payout no l
 `desiredOutput`, a curve running far enough above the order's rate can cover the whole ask out of a
 capped slice; that is a full fill and gating it as a partial would reject cross-chain and calldata
 orders the filler can actually serve. The condition is now `capFraction.lt(1) && policyMaxOutput <
-output.amount` — the cap is active *and* it actually shortens the fill.
+output.amount` — the cap is active _and_ it actually shortens the fill.
 
 **`maxOrderSize` is now optional.** `TradingPair.maxOrderSize` is `Decimal | undefined`; absent
 means uncapped, and the pair fills every order at its full notional. `validatePairConfigs` no
@@ -394,7 +462,8 @@ An operator running only Base saw `ERROR: [intent-filler]: Shared cache is not i
 `handleNewOrder` now checks the destination first: not a configured chain, or configured but watch-only → debug-level skip, cache untouched. The "Shared cache is not initialized" error survives for what it actually means now — a configured, filling destination with a genuinely absent entry, which is an initialization bug. Pinned by `order-destination.test.ts`: unconfigured / non-EVM / watch-only destinations never touch the cache, a filling destination proceeds to the allowlist, and the configured-but-uncached case still errors.
 
 Files: `src/core/filler.ts`, `src/tests/core/order-destination.test.ts` (new).
-## 2026-08-19 — The binary silences @polkadot/* startup noise; the library still never touches the console
+
+## 2026-08-19 — The binary silences @polkadot/\* startup noise; the library still never touches the console
 
 Every start of the bundled CLI printed a wall of `@polkadot/util has multiple versions` warnings, `REGISTRY: Unknown signed extensions` / `API/INIT: RPC methods not decorated` logger chatter, and Node's punycode deprecation. `src/bin/quiet.ts` — the entry's first import, since most of this fires during `@polkadot/*` module init — sets polkadot's official `POLKADOTJS_DISABLE_ESM_CJS_WARNING=1` (silencing the same-version dual-instantiation the single-file bundle necessarily produces), sets `process.noDeprecation`, and wraps `console.warn` with a narrow filter for the remaining known patterns. Only `console.warn` is touched (both noise sources write there); `console.error` is untouched, and real polkadot output — connection failures included — passes through, pinned by test.
 
@@ -405,6 +474,7 @@ Two gotchas worth recording: `package.json`'s `"sideEffects": false` silently tr
 The genuine version skew is fixed at the source in the same change, at the maintainer's call: the sdk's `@polkadot/api: "latest"` (and its `types`/`util`/`util-crypto`/`keyring` "latest" pins) became concrete `^16.5.6`/`^14.0.3` ranges, simplex's direct `@polkadot/util{,-crypto} ^13.5.6` moved to `^14.0.3` to match what api 16.x requires, and both packages' `resolutions` blocks — which pnpm warned were ineffective — are deleted rather than moved (they were doing nothing; nothing changed by removing them). Verified structurally, not just by silence: the rebuilt binary's bundle contains zero `13.5.9` occurrences where it previously carried both versions, `pnpm why @polkadot/util` resolves a single 14.0.3 in both package trees, and substrate key derivation (`balance-provider.test.ts`) passes on util-crypto 14.
 
 Files: `src/bin/quiet.ts` (new), `src/bin/simplex.ts`, `package.json`, `sdk/packages/sdk/package.json`, `src/tests/cli/quiet.test.ts` (new).
+
 ## 2026-08-19 — Quorum client suspends rate-limited endpoints for 5 minutes
 
 `QuorumPublicClient` previously re-queried a 429ing endpoint on every call — `isRateLimited` existed but only labelled diagnostics — which both wastes the call and deepens the provider's throttle. An endpoint whose failure is unambiguously a request-rate limit (`isSuspendableRateLimit` — stricter than the diagnostic `isRateLimited` label: `-32005` alone never benches, since Infura returns it for deterministic getLogs result caps, and the free-text match excludes URL-bearing metaMessages) is now suspended for `RATE_LIMIT_SUSPENSION_MS` (5 minutes) and dropped by `participants()` — from the query set and from the quorum bar both: each call's threshold is `quorumThreshold(endpoints actually queried)`, so the remaining endpoints keep serving reads while a provider throttles (first shipped with a fixed full-set threshold; reversed by the maintainer — a throttled endpoint answers nothing either way, and counting it only makes the scanner miss orders). With every endpoint benched, all are queried again. Suspension is recorded even from stragglers that settle after a call already decided, `suspended()` exposes the benched URLs, and QuorumError messages carry `responders: N/M queried (K/S suspended for rate limiting)` — the skipped count snapshotted at endpoint selection, not re-sampled at throw time (a long call can outlive a suspension window). `settleUntilQuorum` now takes `{ idx, task }` pairs so failures map to real endpoint indices (`getTransactionConfirmations` previously reported `unknown` URLs in failure detail).
@@ -425,7 +495,7 @@ A six-dimension adversarial audit of the signer branch confirmed 21 distinct iss
 
 Two code defects. `digestSigner` now validates the backend's signature once for every operation — most HSM docs return the legacy v (27/28), viem encodes any truthy `yParity` as parity 1, and EIP-7702 skips an invalid tuple without reverting, so an unguarded 27 meant "Delegation successful" in the logs and an undelegated solver on chain; `DelegationService.buildAuthorization` carries the same guard so hand-written signers are covered. And a signerless boot is now recorded (`FillerRuntime.signerless`) and enforced: boot's new per-chain watch-only exemption had made it possible to start an observer and later flip it into filling with the generated throwaway key via `chains.add`/`setWatchOnly(false)` — both now refuse, and `add` defaults new chains to watch-only. The setup API's gate also stops crashing on a signerless watch-only config (`TypeError` on an absent block) and instead mirrors run's rule.
 
-Test integrity. `assertSignsForItsAddress`'s transaction leg asserted shape only — a signer signing the digest of a *different* transaction passed — and now parses the signed bytes and recovers the signer, matching the gated integration tests. The refactor had migrated the code but not several fixtures: `UserOpSender`, `ContractInteractionService.rpc`, `pairs`, `fx.price-guard` and `fx.one-sided-lp` tests still stubbed `{ account: { address } }`, so the paths under test ran with the solver address `undefined` (hidden by `as unknown as Signer` casts); all swept to `{ address }`, and the UserOp tests now assert `op.sender`. The deleted `validateConfig` signer-requirement tests are replaced at the layer that owns the rule now: `boot-signer.test.ts` pins the boot rejection through a mock RPC, unit-tests `allChainsWatchOnly` (exported for the purpose), and pins the signerless guards. The shared `TYPED_DATA` fixture lists `EIP712Domain`, honouring the branch's own contract; one ungated assertion now recovers an authorization against the hand-built `keccak256(0x05 ‖ rlp(...))` preimage, so sign and verify no longer share viem's hasher; and a persist-roundtrip test asserts the `[simplex.signer]` block survives a dashboard rewrite — the regression the `FillerConfigFile` split exists to prevent.
+Test integrity. `assertSignsForItsAddress`'s transaction leg asserted shape only — a signer signing the digest of a _different_ transaction passed — and now parses the signed bytes and recovers the signer, matching the gated integration tests. The refactor had migrated the code but not several fixtures: `UserOpSender`, `ContractInteractionService.rpc`, `pairs`, `fx.price-guard` and `fx.one-sided-lp` tests still stubbed `{ account: { address } }`, so the paths under test ran with the solver address `undefined` (hidden by `as unknown as Signer` casts); all swept to `{ address }`, and the UserOp tests now assert `op.sender`. The deleted `validateConfig` signer-requirement tests are replaced at the layer that owns the rule now: `boot-signer.test.ts` pins the boot rejection through a mock RPC, unit-tests `allChainsWatchOnly` (exported for the purpose), and pins the signerless guards. The shared `TYPED_DATA` fixture lists `EIP712Domain`, honouring the branch's own contract; one ungated assertion now recovers an authorization against the hand-built `keccak256(0x05 ‖ rlp(...))` preimage, so sign and verify no longer share viem's hasher; and a persist-roundtrip test asserts the `[simplex.signer]` block survives a dashboard rewrite — the regression the `FillerConfigFile` split exists to prevent.
 
 Docs drift from the design's three iterations corrected across both packages' `docs/ai` (final interface shape, `signRawHash`'s removal, `validateConfig` does not read the signer block, `UserOpSender.buildSignedUserOp`), the README's quick-start now compiles, and the `digestSigner` docs state the split-signature contract and the new yParity rejection. The API reference documents the signerless one-way door.
 

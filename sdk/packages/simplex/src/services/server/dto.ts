@@ -26,7 +26,6 @@ export interface SetupDefaults {
 	chains: InitChainMeta[]
 	hyperbridgeWs: Record<InitNetwork, string>
 	usdStables: string[]
-	sameAssetAskCurve: PriceCurvePoint[]
 	testnetConfirmationPoints: CurvePoint[]
 	maxConcurrentOrders: number
 	configPath: string

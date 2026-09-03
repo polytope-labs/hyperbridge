@@ -74,6 +74,10 @@ export function useChainSettings() {
 	const patch = (chainId: number, changes: Partial<ChainDraft>) =>
 		setDrafts((rows) => rows?.map((row) => (row.meta.chainId === chainId ? { ...row, ...changes } : row)))
 	const chains = drafts ?? []
+	const updateAlchemyKey = (key: string) => {
+		setAlchemyKey(key)
+		setAlchemy({})
+	}
 
 	const applyAlchemyKey = async () => {
 		if (alchemyBusyRef.current || !alchemyKey.trim() || !dto) return
@@ -206,9 +210,10 @@ export function useChainSettings() {
 	return {
 		dto,
 		chains,
+		loaded: drafts !== undefined,
 		patch,
 		alchemyKey,
-		setAlchemyKey,
+		updateAlchemyKey,
 		alchemy,
 		saved,
 		message,

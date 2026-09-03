@@ -46,9 +46,7 @@ export function CreateMarketForm(props: {
 				{symbolSelect(draft.token0, "First asset", "token0")}
 				{symbolSelect(draft.token1, "Second asset", "token1")}
 				<label className="field market-limit-field">
-					<span>
-						Maximum order in {resolved0 || "the first asset"} <em>Optional</em>
-					</span>
+					<span>Maximum order in {resolved0 || "the first asset"} [Optional]</span>
 					<input
 						type="text"
 						value={draft.maxOrderSize}
@@ -99,60 +97,39 @@ export function CreateMarketForm(props: {
 					})}
 				</div>
 			) : null}
-			{market.sameToken ? (
-				<div className="market-curves market-single-curve">
-					<div className="market-pricing-heading">
-						<div>
-							<span className="markets-kicker">Transfer price</span>
-							<h3>How much {resolved0} should be delivered?</h3>
-						</div>
+			<div className="market-curves">
+				<div className="market-pricing-heading">
+					<div>
+						<span className="markets-kicker">Price settings</span>
+						<h3>Set a price for each direction</h3>
 					</div>
 					<p className="market-editor-note">
-						Same-asset transfer market: ask-only, every price strictly below 1 — the gap to 1 is the spread
-						on each fill.
+						Rates are shown as {resolved1 || "second asset"} per {resolved0 || "first asset"}.
 					</p>
-					<CurveEditor
+				</div>
+				<div className="market-curve-grid">
+					<MarketDirection
+						enabled={draft.bidEnabled}
+						onEnabledChange={(bidEnabled) => patch({ bidEnabled })}
+						title={`Simplex buys ${resolved1 || "the second asset"}`}
+						description={`Customers send ${resolved1 || "the second asset"} and receive ${resolved0 || "the first asset"}.`}
+						points={draft.bid}
+						onPointsChange={(bid) => patch({ bid })}
+						amountLabel={`Order size (${resolved0 || "first asset"})`}
+						valueLabel={`${resolved1 || "Second asset"} received per ${resolved0 || "first asset"}`}
+					/>
+					<MarketDirection
+						enabled={draft.askEnabled}
+						onEnabledChange={(askEnabled) => patch({ askEnabled })}
+						title={`Simplex sells ${resolved1 || "the second asset"}`}
+						description={`Customers send ${resolved0 || "the first asset"} and receive ${resolved1 || "the second asset"}.`}
 						points={draft.ask}
-						onChange={(ask) => patch({ ask })}
-						amountLabel={`Order size (${resolved0})`}
-						valueLabel="Price (below 1)"
+						onPointsChange={(ask) => patch({ ask })}
+						amountLabel={`Order size (${resolved0 || "first asset"})`}
+						valueLabel={`${resolved1 || "Second asset"} paid per ${resolved0 || "first asset"}`}
 					/>
 				</div>
-			) : (
-				<div className="market-curves">
-					<div className="market-pricing-heading">
-						<div>
-							<span className="markets-kicker">Price settings</span>
-							<h3>Set a price for each direction</h3>
-						</div>
-						<p className="market-editor-note">
-							Rates are shown as {resolved1 || "second asset"} per {resolved0 || "first asset"}.
-						</p>
-					</div>
-					<div className="market-curve-grid">
-						<MarketDirection
-							enabled={draft.bidEnabled}
-							onEnabledChange={(bidEnabled) => patch({ bidEnabled })}
-							title={`Simplex buys ${resolved1 || "the second asset"}`}
-							description={`Customers send ${resolved1 || "the second asset"} and receive ${resolved0 || "the first asset"}.`}
-							points={draft.bid}
-							onPointsChange={(bid) => patch({ bid })}
-							amountLabel={`Order size (${resolved0 || "first asset"})`}
-							valueLabel={`${resolved1 || "Second asset"} received per ${resolved0 || "first asset"}`}
-						/>
-						<MarketDirection
-							enabled={draft.askEnabled}
-							onEnabledChange={(askEnabled) => patch({ askEnabled })}
-							title={`Simplex sells ${resolved1 || "the second asset"}`}
-							description={`Customers send ${resolved0 || "the first asset"} and receive ${resolved1 || "the second asset"}.`}
-							points={draft.ask}
-							onPointsChange={(ask) => patch({ ask })}
-							amountLabel={`Order size (${resolved0 || "first asset"})`}
-							valueLabel={`${resolved1 || "Second asset"} paid per ${resolved0 || "first asset"}`}
-						/>
-					</div>
-				</div>
-			)}
+			</div>
 			{market.crossedAt !== null ? (
 				<p className="hint">
 					⚠ The book is crossed at order size {market.crossedAt} (bid at or below ask) — both sides still

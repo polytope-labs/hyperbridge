@@ -258,9 +258,10 @@ select:focus-visible {
 	gap: 0.75rem;
 }
 
-.wizard-brand img {
-	width: 2rem;
-	height: 2rem;
+.wizard-brand img.hyperfx-logo {
+	width: 7rem;
+	height: auto;
+	object-fit: contain;
 }
 
 .wizard-brand > div {

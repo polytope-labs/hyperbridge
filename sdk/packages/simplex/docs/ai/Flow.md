@@ -2,6 +2,38 @@
 
 AI-maintained map of how code paths in `sdk/packages/simplex` actually execute, so that when something breaks you can tell whether the fault is upstream or downstream of where the symptom appears. Only flows that have been read and verified are documented; coverage grows as areas of the package are touched.
 
+## Vault selection and balance defaults
+
+`VaultRowsEditor` renders curated vaults from the server catalog. Selecting one directly or through
+Select all creates a `VaultRowDraft` with product-specific balance defaults: Aave stataUSDC uses
+`threshold=20` and `minBalance=10`, while Yield Bearing cNGN uses `1000` and `1`. Custom and unknown
+vaults use the generic `5000`/`3000` fallback. Existing rows are never rewritten, so saved operator
+settings survive reopening the editor.
+
+Both numeric labels use the shared `@hyperbridge/ui` tooltip components. Their icon buttons open on
+hover or keyboard focus and explain that `threshold` triggers a sweep while `minBalance` is the
+liquidity retained in the wallet after that sweep.
+
+## Market setup and curve editing
+
+`Wizard` initializes the strategies step with no transfer prefabs. `useStrategiesModel` seeds one
+cross-asset draft on first entry; `MarketRow` edits that draft or a reference-only feed, and
+`assembleConfig` emits the selected pair's bid/ask curves without same-token branching. The operator
+`CreateMarketForm` follows the same cross-asset path and rejects identical resolved symbols before
+calling `POST /api/strategies`.
+
+Both setup paths initialize a new market cap to `50000`. `CurveEditor` initializes every row created
+by its Add point action with amount `1`; one-sided operator activation uses the same amount. Reference
+feeds remain anchored at amount `0` because they are fixed-price feeds rather than order-size curves.
+
+## Simplex UI branding and static assets
+
+`ui/src/operator/Operator.tsx` and `ui/src/wizard/Wizard.tsx` import the shared
+`ui/src/assets/hyperfx-logo.webp` asset for their brandbars. The brandbar styles provide a compact
+white surface around the transparent dark-lettered wordmark, with a narrower width at mobile sizes.
+`ui/index.html` references `./favicon.ico`; Vite copies `ui/public/favicon.ico` into `dist/ui`, and
+`src/services/server/static.ts` serves both the favicon and bundled WebP assets with image MIME types.
+
 ## Setup wizard presentation and navigation
 
 `ui/src/App.tsx` owns the page shell for every UI state. It places the animated brand line at the
@@ -15,6 +47,10 @@ two-column grid; below 900px the rail moves above the form and scrolls horizonta
 disabled while the current step has unresolved requirements, and the footer lists every blocker so
 the operator can see what must be fixed without guessing.
 
+The network choice is rendered by `ui/src/wizard/steps/Signer.tsx` and uses the same `testnet` bucket
+as `src/cli/init/steps/chains.ts`. Its copy says “EVM test networks” because that bucket contains
+Sepolia, Arbitrum Sepolia, Base Sepolia, Polygon Amoy, and BSC Chapel.
+
 ## Paymaster selection for a sponsored UserOp
 
 Entry points: `UserOpSender.trySendSponsored` (delegation, vault sweeps/redeems, token sends) and `ContractInteractionService.prepareBidUserOp` (bids). Both call `buildPaymasterAndData` in `src/services/paymaster/index.ts`.
@@ -22,15 +58,17 @@ Entry points: `UserOpSender.trySendSponsored` (delegation, vault sweeps/redeems,
 1. `buildPaymasterAndData` tries the Circle paymaster first when it is configured and the solver holds at least 1 USDC (`provider/circle.ts`), then the Simplex paymaster (`provider/simplex.ts`), else returns `type: "none"` and the caller falls back to native / the EntryPoint deposit.
 
 2. `buildSimplexPaymasterData` picks the first configured stablecoin (USDC, then USDT) with a balance of at least one whole token, then the authorization mode:
-   - `tokenSupportsPermit` (probes `version()`) and not `skipPermit`: `buildPermitMode` — if the allowance to the paymaster already covers the $5 permit amount, APPROVE mode; else sign an EIP-2612 permit (`permit.ts`, `deadline = maxUint256`) and pack mode `0x00` (150 bytes).
-   - Otherwise resolve `permit2 = configService.getPermit2Address(chain)` and require `paymasterSupportsPermit2` (a cached `PERMIT2()` read on the paymaster). Read the solver's allowances to the paymaster and to Permit2 in parallel, then:
-     - Permit2 allowance at or above $5: `buildPermit2Mode` — random nonce, `deadline = now + PERMIT2_DEADLINE_SECONDS`, `signPermit2Transfer` (`permit2.ts`, canonical v4 typed data, 65-byte signature) and pack mode `0x02` (182 bytes) with `VERIFICATION_GAS_LIMIT_PERMIT2`.
-     - Paymaster allowance at or above $2: APPROVE mode `0x01`, no tx.
-     - Else bootstrap with `sendFundedApprove`: pre-check the native balance against the whole sequence, reset a stale non-zero allowance to zero first (USDT rule), then `approve` from the solver EOA — up to two txs, each waiting two confirmations. `approve(Permit2, max)` then PERMIT2 when Permit2 is usable, else `approve(paymaster, $5)` then APPROVE.
+
+    - `tokenSupportsPermit` (probes `version()`) and not `skipPermit`: `buildPermitMode` — if the allowance to the paymaster already covers the $5 permit amount, APPROVE mode; else sign an EIP-2612 permit (`permit.ts`, `deadline = maxUint256`) and pack mode `0x00` (150 bytes).
+    - Otherwise resolve `permit2 = configService.getPermit2Address(chain)` and require `paymasterSupportsPermit2` (a cached `PERMIT2()` read on the paymaster). Read the solver's allowances to the paymaster and to Permit2 in parallel, then:
+        - Permit2 allowance at or above $5: `buildPermit2Mode` — random nonce, `deadline = now + PERMIT2_DEADLINE_SECONDS`, `signPermit2Transfer` (`permit2.ts`, canonical v4 typed data, 65-byte signature) and pack mode `0x02` (182 bytes) with `VERIFICATION_GAS_LIMIT_PERMIT2`.
+        - Paymaster allowance at or above $2: APPROVE mode `0x01`, no tx.
+        - Else bootstrap with `sendFundedApprove`: pre-check the native balance against the whole sequence, reset a stale non-zero allowance to zero first (USDT rule), then `approve` from the solver EOA — up to two txs, each waiting two confirmations. `approve(Permit2, max)` then PERMIT2 when Permit2 is usable, else `approve(paymaster, $5)` then APPROVE.
 
 3. Back in `UserOpSender.trySendSponsored`, the EIP-7702 authorization thunk is resolved only after paymaster data is built, because the bootstrap approve is a tx from the same EOA and an authorization signed earlier would carry a stale nonce (bundler reject). Then bundler gas price, `EntryPoint.getNonce`, estimation (or the caller's fixed limits), signing of the packed userOp typed data, `eth_sendUserOperation`, and receipt polling.
 
 4. On chain (`evm/src/utils/SimplexPaymaster.sol`): `_fetchDetails` validates the mode byte and token registry and, for mode 2, returns the permit deadline as `validUntil`; `_prefund` pulls the prefund through `Permit2.permitTransferFrom` (owner = `userOp.sender`, to = paymaster, requestedAmount = oracle-derived prefund, capped by the signed amount) and postOp refunds the unused part to the sender.
+
 ## Order intake: what reaches the filler at all
 
 `ChainScanner` polls `eth_getLogs`, rebuilds each `OrderPlaced` log into an `Order` via
@@ -79,7 +117,7 @@ The outputs and the funding calls are cached against the order id (`setFillerOut
 
 `callData` is an ERC-7821 batch: the funding calls first (for V4, `PositionManager.multicall(modifyLiquidities)` encoding DECREASE_LIQUIDITY + TAKE_PAIR), then `approve` for the fill amount, then `IntentGateway.fillOrder`, which does the `transferFrom` that moves the output token to the user.
 
-What matters is what happens *before* any of that. The EntryPoint runs paymaster validation first, and `SimplexPaymaster` prefunds by pulling the EntryPoint's worst-case gas cost out of the solver's wallet with `transferFrom`, in whichever stablecoin `selectToken` picked — refunding the unused part in `_postOp`, long after the batch has already run or reverted. So the balance the batch sees is always lower than the balance the sizing saw, by the prefund.
+What matters is what happens _before_ any of that. The EntryPoint runs paymaster validation first, and `SimplexPaymaster` prefunds by pulling the EntryPoint's worst-case gas cost out of the solver's wallet with `transferFrom`, in whichever stablecoin `selectToken` picked — refunding the unused part in `_postOp`, long after the batch has already run or reverted. So the balance the batch sees is always lower than the balance the sizing saw, by the prefund.
 
 That is what `paymasterReserveForToken` exists to absorb. Without it, a balance-limited fill — `walletContribution == usableWallet == balance` — is sized to the last unit and reverts by exactly the prefund: 28,993 units of USDC against a 14,808,699,383 fill, where 14,377,624,370 (wallet) + 431,075,013 (V4 credit) reproduces the bid amount exactly.
 
@@ -96,7 +134,7 @@ There are two entry points, and they meet at `bootFiller`.
 1. **Library.** The consumer builds a `Signer` (`privateKeySigner`, `turnkeySigner`, `mpcVaultSigner`, `viemSigner`, or their own) and passes it as `Simplex.start({ signer })` (`src/simplex.ts`). Before anything else, `start` rejects an object that carries a `simplex.signer` block without a `signer` argument. `SimplexConfig` has no such field, so this is a runtime property read: what it catches is a parsed config file.
 2. **Binary.** `src/bin/simplex.ts` parses the TOML as `FillerConfigFile` (the library's `FillerTomlConfig` plus the `[simplex.signer]` block), checks the block is present unless watch-only, and calls `signerFromToml` → `validateSignerConfig` → `createSigner`, which dispatches on `type` to one of the three bundled factories. The resolved instance goes into the same `Simplex.start({ signer })` call. The `paymaster-keeper` command does the same thing without a Simplex.
 
-   The parsed object keeps its signer block on the way in — the library ignores the extra key, and `UiServer.persistConfig` regenerates the config file from that same object, so removing it would delete `[simplex.signer]` from the operator's file on the next dashboard edit.
+    The parsed object keeps its signer block on the way in — the library ignores the extra key, and `UiServer.persistConfig` regenerates the config file from that same object, so removing it would delete `[simplex.signer]` from the operator's file on the next dashboard edit.
 
 `bootFiller` (`src/core/boot.ts`) then:
 
@@ -108,11 +146,13 @@ There are two entry points, and they meet at `bootFiller`.
 ### Which method signs what
 
 - **`signTypedData` — the hot path.** Two callers:
-  - `ContractInteractionService` builds a bid and calls `sdkHelper.prepareSubmitBid({ solverSigner: sdkSigningAccount(this.signer), … })`; the SDK's `BidManager` signs `CryptoUtils.packedUserOpTypedData(userOp, entryPoint, chainId)`. Signing the typed data rather than the digest yields the same signature the `SolverAccount` recovers, while leaving the payload legible to a policy engine.
-  - `UserOpSender.buildSignedUserOp` does the same for self-initiated UserOps — delegation-via-bundler, vault sweep and redeem.
-  - `paymaster/permit.ts` signs the EIP-2612 permit that lets the Circle or Simplex paymaster pull USDC/USDT for gas. It takes `Pick<Signer, "signTypedData">`, not the whole signer.
 
-  No caller passes a chain id: every payload carries `domain.chainId`, which is what the digest covers and what MPCVault reads for its request envelope.
+    - `ContractInteractionService` builds a bid and calls `sdkHelper.prepareSubmitBid({ solverSigner: sdkSigningAccount(this.signer), … })`; the SDK's `BidManager` signs `CryptoUtils.packedUserOpTypedData(userOp, entryPoint, chainId)`. Signing the typed data rather than the digest yields the same signature the `SolverAccount` recovers, while leaving the payload legible to a policy engine.
+    - `UserOpSender.buildSignedUserOp` does the same for self-initiated UserOps — delegation-via-bundler, vault sweep and redeem.
+    - `paymaster/permit.ts` signs the EIP-2612 permit that lets the Circle or Simplex paymaster pull USDC/USDT for gas. It takes `Pick<Signer, "signTypedData">`, not the whole signer.
+
+    No caller passes a chain id: every payload carries `domain.chainId`, which is what the digest covers and what MPCVault reads for its request envelope.
+
 - **`signAuthorization`.** `DelegationService.buildAuthorization` calls it for every delegation, with no branching — the signer owns the encoding. Turnkey uses its structured path; MPCVault and any digest-only backend hash `keccak256(0x05 ‖ rlp([chainId, contractAddress, nonce]))` themselves (`viem/utils`' `hashAuthorization`).
 - **`signTransaction`.** Every transaction the solver sends: the type-0x04 delegation tx, rebalancing transfers, operator sends. It returns signed RLP, so the backend owns serialisation — MPCVault's vault API and Turnkey's transaction payloads both keep the transaction legible to their policy engines, and `digestSigner` serialises with viem and signs the hash.
 - **`address`.** Read directly everywhere the solver's identity is needed (`fillerAddress`, delegation authority, balance lookups, vault initialisation).
@@ -190,7 +230,7 @@ verbatim, and inventory in the wrong token buys no influence on that leg.
 
 ### Precision budget
 
-The output integer *is* the price, to whatever resolution the output token's decimals allow. One
+The output integer _is_ the price, to whatever resolution the output token's decimals allow. One
 whole cNGN priced into 6-decimal USDC quotes ~715 base units, so the grid is `1/715` = 0.14%.
 Chains whose output token has 18 decimals carry full precision on the same leg — which is why
 EVM-56 publishes `716845878136200` where Base publishes a bare `715`. The lever is the pallet's

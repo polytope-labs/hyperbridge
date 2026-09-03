@@ -111,7 +111,7 @@ export function CurveEditor(props: {
 				<button
 					className="curve-editor-add"
 					type="button"
-					onClick={() => onChange([...points, { amount: "", value: "" }])}
+					onClick={() => onChange([...points, { amount: "1", value: "" }])}
 				>
 					Add point
 				</button>

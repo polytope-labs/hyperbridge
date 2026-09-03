@@ -10,7 +10,7 @@ import { StepStrategies } from "./steps/Strategies"
 import { StepTreasury } from "./steps/Treasury"
 import { StepAdvanced } from "./steps/Advanced"
 import { StepReview } from "./steps/Review"
-import hyperbridgeLogo from "../assets/hyperbridge-logo.svg"
+import hyperfxLogo from "../assets/hyperfx-logo.webp"
 
 export interface StepProps {
 	state: WizardState
@@ -76,6 +76,9 @@ function marketRequirements(state: WizardState, defaults: SetupDefaults): string
 	)
 	const enabledChainIds = new Set(enabledChainDrafts.map((chain) => chain.meta.stateMachineId))
 	for (const pair of enabled) {
+		if (pair.token0.trim() && normSymbol(pair.token0) === normSymbol(pair.token1)) {
+			return ["Choose two different assets for every market."]
+		}
 		for (const symbol of [pair.token0, pair.token1]) {
 			if (!symbol.trim()) return ["Choose both assets for every enabled market."]
 			if (isRegistrySymbol(symbol)) {
@@ -182,7 +185,7 @@ export function Wizard(props: { defaults: SetupDefaults }) {
 		<div className="wizard-shell">
 			<header className="wizard-brandbar">
 				<div className="wizard-brand">
-					<img src={hyperbridgeLogo} alt="Hyperbridge" />
+					<img className="hyperfx-logo" src={hyperfxLogo} alt="HyperFX" />
 					<span className="wizard-product-name">Simplex</span>
 				</div>
 				<div className="wizard-local-status">

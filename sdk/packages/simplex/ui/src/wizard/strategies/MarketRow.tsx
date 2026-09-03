@@ -5,7 +5,7 @@ import { api } from "../../api"
 import { CurveEditor } from "../../components/CurveEditor"
 import { toPricePoints } from "../../components/curveModel"
 import { TokenSelect } from "../../components/TokenSelect"
-import { isSameTokenDraft, normSymbol, type ChainDraft, type PairDraft } from "../state"
+import { normSymbol, type ChainDraft, type PairDraft } from "../state"
 
 function SymbolPicker(props: {
 	label: string
@@ -82,13 +82,13 @@ export function MarketRow(props: {
 	// Picker mode lives on the draft (not component state) so it survives row deletion/reordering.
 	const custom0 = pair.custom0 ?? false
 	const custom1 = pair.custom1 ?? false
-	const sameToken = isSameTokenDraft(pair)
-	const venueNeedsStable = pricing === "uniswapV4" && !sameToken && !usdStables.includes(normSymbol(pair.token0))
+	const samePair = normSymbol(pair.token0) !== "" && normSymbol(pair.token0) === normSymbol(pair.token1)
+	const venueNeedsStable = pricing === "uniswapV4" && !usdStables.includes(normSymbol(pair.token0))
 	const shadowed = [pair.token0, pair.token1].filter(
 		(symbol, i) => (i === 0 ? custom0 : custom1) && symbol && isRegistrySymbol(symbol),
 	)
 	const crossedAt =
-		!sameToken && pricing === "curves" && pair.bidEnabled && pair.askEnabled
+		pricing === "curves" && pair.bidEnabled && pair.askEnabled
 			? (bookCrossedAt(toPricePoints(pair.bid), toPricePoints(pair.ask))?.amount ?? null)
 			: null
 
@@ -171,9 +171,7 @@ export function MarketRow(props: {
 					}}
 				/>
 				<label className="field market-limit-field">
-					<span>
-						Maximum order in {pair.token0 || "the first asset"} <em>Optional</em>
-					</span>
+					<span>Maximum order in {pair.token0 || "the first asset"} [Optional]</span>
 					<input
 						type="text"
 						value={pair.maxOrderSize}
@@ -192,6 +190,11 @@ export function MarketRow(props: {
 				<p className="error">
 					Uniswap pricing needs the first asset to be a USD stablecoin. Choose USDC, USDT, or DAI first, or
 					switch to manual prices.
+				</p>
+			)}
+			{samePair && (
+				<p className="error">
+					Choose two different assets. Same-asset transfer markets are not supported here.
 				</p>
 			)}
 			{shadowed.length > 0 && (
@@ -220,28 +223,7 @@ export function MarketRow(props: {
 				/>
 			))}
 
-			{sameToken && (
-				<div className="market-curves market-single-curve">
-					<div className="market-pricing-heading">
-						<div>
-							<span className="markets-kicker">Transfer price</span>
-							<h3>How much {pair.token0} should be delivered?</h3>
-						</div>
-						<p className="market-editor-note">Keep the return below 1. The difference is your spread.</p>
-					</div>
-					<CurveEditor
-						points={pair.ask}
-						onChange={(points) => onPatch({ ask: points })}
-						amountLabel={`Customer sends (${pair.token0})`}
-						valueLabel={`${pair.token0} returned per 1 ${pair.token0}`}
-					/>
-					{pair.ask.some((p) => p.value.trim() && Number(p.value) >= 1) && (
-						<p className="error">Prices at or above 1 give back at least what was received — no spread.</p>
-					)}
-				</div>
-			)}
-
-			{!sameToken && pricing === "curves" && (
+			{pricing === "curves" && (
 				<div className="market-curves">
 					<div className="market-pricing-heading">
 						<div>

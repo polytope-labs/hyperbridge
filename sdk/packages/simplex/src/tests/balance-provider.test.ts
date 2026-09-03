@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from "vitest"
 import { BalanceProvider } from "@/services/BalanceProvider"
 import type { ChainClientManager } from "@/services/ChainClientManager"
 import type { FillerConfigService } from "@/services/FillerConfigService"
-import { deriveSubstrateKeyPair } from "@/services/substrate-key"
+import { deriveSubstrateKeyPair, POLKADOT_UNIFIED_SS58_PREFIX } from "@/services/substrate-key"
 
 const USDC = "0xaaaa000000000000000000000000000000000001"
 const USDT = "0xaaaa000000000000000000000000000000000002"
@@ -104,8 +104,9 @@ describe("substrate-key", () => {
 		const mnemonic = "bottom drive obey lake curtain smoke basket hold race lonely fit walk"
 		const fromMnemonic = await deriveSubstrateKeyPair(mnemonic)
 		const fromUri = await deriveSubstrateKeyPair("//Alice")
-		expect(fromMnemonic.address).toMatch(/^5/)
-		expect(fromUri.address).toMatch(/^5/)
+		const { encodeAddress } = await import("@polkadot/util-crypto")
+		expect(fromMnemonic.address).toBe(encodeAddress(fromMnemonic.publicKey, POLKADOT_UNIFIED_SS58_PREFIX))
+		expect(fromUri.address).toBe(encodeAddress(fromUri.publicKey, POLKADOT_UNIFIED_SS58_PREFIX))
 		expect(fromMnemonic.address).not.toBe(fromUri.address)
 	})
 })

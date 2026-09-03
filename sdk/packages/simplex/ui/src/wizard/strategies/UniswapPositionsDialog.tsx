@@ -87,9 +87,7 @@ export function UniswapPositionsDialog(props: {
 								/>
 							</label>
 							<label className="field">
-								<span>
-									Reference price <em>Optional</em>
-								</span>
+								<span>Reference price [Optional]</span>
 								<input
 									type="text"
 									value={position.referencePrice}
@@ -104,9 +102,7 @@ export function UniswapPositionsDialog(props: {
 								/>
 							</label>
 							<label className="field">
-								<span>
-									Max deviation (bps) <em>Optional</em>
-								</span>
+								<span>Max deviation (bps) [Optional]</span>
 								<input
 									type="text"
 									value={position.maxDeviationBps}
@@ -166,8 +162,8 @@ export function UniswapPositionsDialog(props: {
 				</div>
 				{state.fxSide !== "" && curveMarketExists ? (
 					<p className="error">
-						A one-way fill direction requires every market to use Uniswap pricing. Disable transfer markets
-						and reference feeds, or choose Buy and sell.
+						A one-way fill direction requires every market to use Uniswap pricing. Disable curve-priced
+						markets and reference feeds, or choose Buy and sell.
 					</p>
 				) : null}
 			</div>

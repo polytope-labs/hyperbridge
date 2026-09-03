@@ -113,6 +113,11 @@
 		color: var(--text);
 	}
 
+	.wizard-brand img.hyperfx-logo,
+	.operator-brand img.hyperfx-logo {
+		width: 6.25rem;
+	}
+
 	.wizard-sidebar {
 		padding: 1.5rem 1rem 1rem;
 	}
@@ -253,15 +258,6 @@
 		margin-left: auto;
 	}
 
-	.transfer-market {
-		align-items: stretch;
-		flex-direction: column;
-	}
-
-	.transfer-market .market-configure-button {
-		align-self: flex-end;
-	}
-
 	.market-dialog {
 		width: calc(100% - 1rem);
 		max-height: calc(100dvh - 1rem);
@@ -296,17 +292,12 @@
 
 	.market-limit-field,
 	.market-custom-symbol-field,
-	.transfer-market-config .field,
 	.market-reference-grid {
 		max-width: none;
 	}
 
 	.uniswap-position .market-remove-button {
 		margin-bottom: 0;
-	}
-
-	.transfer-market-config {
-		margin-left: 0;
 	}
 
 	.substrate-account-options {

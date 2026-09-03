@@ -1,11 +1,10 @@
 import { useEffect } from "react"
 import { unanchoredToken0Symbols } from "@/config/pairs"
-import { fromPricePoints, type EditorPoint } from "../../components/curveModel"
+import type { EditorPoint } from "../../components/curveModel"
 import type { SetupDefaults } from "../../types"
 import {
 	draftHasCurve,
 	enabledChains,
-	isSameTokenDraft,
 	newCrossAssetDraft,
 	normSymbol,
 	patchAt,
@@ -17,10 +16,7 @@ function curvesAreUntouched(points: EditorPoint[]): boolean {
 	return points.every((point) => !point.value.trim())
 }
 
-export function prefillCurves(draft: PairDraft, usdStables: string[], sameAssetAsk: EditorPoint[]): Partial<PairDraft> {
-	if (isSameTokenDraft(draft)) {
-		return curvesAreUntouched(draft.ask) ? { ask: sameAssetAsk.map((point) => ({ ...point })) } : {}
-	}
+export function prefillCurves(draft: PairDraft, usdStables: string[]): Partial<PairDraft> {
 	const bothStable = usdStables.includes(normSymbol(draft.token0)) && usdStables.includes(normSymbol(draft.token1))
 	if (!bothStable) return {}
 	const patch: Partial<PairDraft> = {}
@@ -45,8 +41,7 @@ export function useStrategiesModel(options: {
 		),
 	].sort((a, b) => Number(defaults.usdStables.includes(b)) - Number(defaults.usdStables.includes(a)))
 	const rows = state.pairs.map((pair, index) => ({ pair, index }))
-	const sameAssetRows = rows.filter(({ pair }) => pair.kind === "sameAsset")
-	const marketRows = rows.filter(({ pair }) => pair.kind === "crossAsset")
+	const marketRows = rows
 	const enabled = state.pairs.filter((pair) => pair.enabled)
 	const duplicateKeys = new Set<string>()
 	const seen = new Set<string>()
@@ -78,12 +73,12 @@ export function useStrategiesModel(options: {
 					...current.pairs,
 					{
 						...draft,
-						...prefillCurves(draft, defaults.usdStables, fromPricePoints(defaults.sameAssetAskCurve)),
+						...prefillCurves(draft, defaults.usdStables),
 					},
 				],
 			}
 		})
-	}, [defaultToken1, defaults.sameAssetAskCurve, defaults.usdStables, setState])
+	}, [defaultToken1, defaults.usdStables, setState])
 
 	const patchPair = (index: number, patch: Partial<PairDraft>) =>
 		setState((current) => ({ ...current, pairs: patchAt(current.pairs, index, patch) }))
@@ -91,7 +86,6 @@ export function useStrategiesModel(options: {
 	return {
 		chains,
 		availableSymbols,
-		sameAssetRows,
 		marketRows,
 		enabled,
 		duplicateKeys,

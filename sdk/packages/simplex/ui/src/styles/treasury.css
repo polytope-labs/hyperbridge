@@ -302,6 +302,71 @@
 	margin: 0;
 }
 
+.field.vault-amount-field > .vault-field-label {
+	display: flex;
+	align-items: center;
+	justify-content: flex-start;
+	gap: 0.35rem;
+	margin-bottom: 0.45rem;
+	color: var(--text-secondary);
+	font-size: 0.8125rem;
+	font-weight: 500;
+	line-height: 1.4;
+}
+
+.vault-info-trigger,
+.vault-info-trigger:hover:not(:disabled),
+.vault-info-trigger:active:not(:disabled) {
+	min-height: 1rem;
+	width: 1rem;
+	height: 1rem;
+	padding: 0;
+	border: 0;
+	border-radius: 50%;
+	background: transparent;
+	color: var(--muted);
+	transform: none;
+}
+
+.vault-info-trigger:hover:not(:disabled),
+.vault-info-trigger:focus-visible {
+	background: transparent;
+	color: var(--text);
+}
+
+.vault-info-trigger:focus-visible {
+	outline: 2px solid var(--focus);
+	outline-offset: 2px;
+}
+
+.vault-info-trigger svg {
+	width: 1rem;
+	height: 1rem;
+}
+
+.simplex-tooltip-content {
+	z-index: 1200;
+	max-width: 18rem;
+	padding: 0.6rem 0.75rem;
+	border: 1px solid var(--border-strong);
+	border-radius: 0.55rem;
+	background: var(--card-raised);
+	box-shadow: 0 0.75rem 2rem rgba(0, 0, 0, 0.35);
+	color: var(--text-secondary);
+	font-family: var(--font-sans);
+	font-size: 0.75rem;
+	line-height: 1.45;
+}
+
+.simplex-tooltip-content p {
+	margin: 0;
+}
+
+.simplex-tooltip-content > svg {
+	color: var(--card-raised);
+	fill: var(--card-raised);
+}
+
 .vault-redeem-toggle {
 	display: flex;
 	align-items: center;

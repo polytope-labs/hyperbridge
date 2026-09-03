@@ -1,5 +1,5 @@
 import { isRegistrySymbol, normalizeSymbol } from "@/config/asset-registry"
-import { fromPricePoints, toPricePoints, type EditorPoint } from "../components/curveModel"
+import { toPricePoints, type EditorPoint } from "../components/curveModel"
 import { vaultRowsToToml, type VaultRowDraft } from "../lib/vault-rows"
 import type { ChainDefault, CurvePoint, FillerConfig, Network, PairConfig, SetupDefaults } from "../types"
 
@@ -27,14 +27,8 @@ export interface V4PositionDraft {
 	maxDeviationBps: string
 }
 
-/**
- * One trading market. The USDC/USDT transfer markets are fixed prefab rows
- * toggled by `enabled`; user-added rows may pair any two registry symbols —
- * picking the same symbol on both sides makes the row a same-token transfer
- * market (ask-only, prices below par), exactly as the engine treats it.
- */
+/** One cross-asset trading market or reference-only price feed. */
 export interface PairDraft {
-	kind: "sameAsset" | "crossAsset"
 	enabled: boolean
 	token0: string
 	token1: string
@@ -51,11 +45,6 @@ export interface PairDraft {
 }
 
 export const normSymbol = normalizeSymbol
-
-/** Whether a draft quotes the same asset on both sides (transfer market: ask-only, below par). */
-export function isSameTokenDraft(draft: PairDraft): boolean {
-	return normSymbol(draft.token0) !== "" && normSymbol(draft.token0) === normSymbol(draft.token1)
-}
 
 export interface WizardState {
 	network: Network
@@ -84,7 +73,7 @@ export interface WizardState {
 	fxSeeded?: boolean
 	/** `[assets]` entries for custom token symbols: symbol → state machine id → address. */
 	customAssets: Record<string, Record<string, string>>
-	/** Price source for the cross-asset pairs; same-asset markets always use their ask curve. */
+	/** Price source for the cross-asset pairs. */
 	fxPricing: "curves" | "uniswapV4"
 	fxSpreadBps: string
 	fxPositions: V4PositionDraft[]
@@ -95,31 +84,16 @@ export interface WizardState {
 	logging: string
 }
 
-function sameAssetPrefabs(defaults: SetupDefaults): PairDraft[] {
-	return ["USDC", "USDT"].map((symbol) => ({
-		kind: "sameAsset" as const,
-		enabled: false,
-		token0: symbol,
-		token1: symbol,
-		maxOrderSize: "100000",
-		bidEnabled: false,
-		askEnabled: true,
-		bid: [],
-		ask: fromPricePoints(defaults.sameAssetAskCurve),
-	}))
-}
-
 export function newCrossAssetDraft(token1: string): PairDraft {
 	return {
-		kind: "crossAsset",
 		enabled: true,
 		token0: "USDC",
 		token1,
-		maxOrderSize: "5000",
+		maxOrderSize: "50000",
 		bidEnabled: true,
 		askEnabled: true,
-		bid: [{ amount: "100", value: "" }],
-		ask: [{ amount: "100", value: "" }],
+		bid: [{ amount: "1", value: "" }],
+		ask: [{ amount: "1", value: "" }],
 	}
 }
 
@@ -136,7 +110,6 @@ export function curveFilled(points: EditorPoint[], check: (v: number) => boolean
  */
 export function draftHasCurve(draft: PairDraft, pricing: "curves" | "uniswapV4"): boolean {
 	if (draft.referenceOnly) return curveFilled(draft.ask)
-	if (draft.kind === "sameAsset" || isSameTokenDraft(draft)) return curveFilled(draft.ask)
 	if (pricing !== "curves") return false
 	return (draft.bidEnabled && curveFilled(draft.bid)) || (draft.askEnabled && curveFilled(draft.ask))
 }
@@ -144,7 +117,6 @@ export function draftHasCurve(draft: PairDraft, pricing: "curves" | "uniswapV4")
 /** A reference-only <stable>/<symbol> price feed, inserted by the anchor helper. */
 export function newReferenceDraft(token1: string, token0: string): PairDraft {
 	return {
-		kind: "crossAsset",
 		enabled: true,
 		token0,
 		token1,
@@ -183,7 +155,7 @@ export function initialState(defaults: SetupDefaults): WizardState {
 				viaAlchemy: false,
 				watchOnly: false,
 			})),
-		pairs: sameAssetPrefabs(defaults),
+		pairs: [],
 		customAssets: {},
 		fxPricing: "curves",
 		fxSpreadBps: "",
@@ -212,7 +184,7 @@ export function switchNetwork(state: WizardState, defaults: SetupDefaults, netwo
 				watchOnly: false,
 			})),
 		// Everything keyed by the previous network's chain ids must reset with it.
-		pairs: sameAssetPrefabs(defaults),
+		pairs: [],
 		fxSeeded: false,
 		customAssets: {},
 		vaults: [],
@@ -265,10 +237,8 @@ export function assembleConfig(state: WizardState, defaults: SetupDefaults): Fil
 				askPriceCurve: toPricePoints(draft.ask),
 			}
 		}
-		// Same-token markets (prefab or user-built) are ask-only by engine rule.
-		const sameToken = draft.kind === "sameAsset" || isSameTokenDraft(draft)
-		const withBid = !sameToken && !usingPool && draft.bidEnabled
-		const withAsk = sameToken || (!usingPool && draft.askEnabled)
+		const withBid = !usingPool && draft.bidEnabled
+		const withAsk = !usingPool && draft.askEnabled
 		return {
 			token0: draft.token0,
 			token1: draft.token1,

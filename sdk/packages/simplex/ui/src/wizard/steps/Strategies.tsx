@@ -1,8 +1,8 @@
 import { useState } from "react"
 import { isRegistrySymbol } from "@/config/asset-registry"
 import { pickAnchorStable } from "@/config/pairs"
-import { fromPricePoints } from "../../components/curveModel"
-import { TokenIcon, TokenPairIcons } from "../../components/TokenIcon"
+import uniswapIcon from "../../assets/networks/uniswap.svg"
+import { TokenPairIcons } from "../../components/TokenIcon"
 import { WizardDialog } from "../../components/WizardDialog"
 import { newCrossAssetDraft, newReferenceDraft, normSymbol, removeAt } from "../state"
 import { MarketRow } from "../strategies/MarketRow"
@@ -15,17 +15,7 @@ export function StepStrategies({ state, setState, defaults }: StepProps) {
 	const [editingPairIndex, setEditingPairIndex] = useState<number | null>(null)
 	const [positionsOpen, setPositionsOpen] = useState(false)
 	const model = useStrategiesModel({ state, setState, defaults })
-	const {
-		chains,
-		availableSymbols,
-		sameAssetRows,
-		marketRows,
-		enabled,
-		duplicateKeys,
-		unanchored,
-		defaultToken1,
-		patchPair,
-	} = model
+	const { chains, availableSymbols, marketRows, enabled, duplicateKeys, unanchored, defaultToken1, patchPair } = model
 
 	const editingPair = editingPairIndex === null ? null : state.pairs[editingPairIndex]
 
@@ -172,61 +162,15 @@ export function StepStrategies({ state, setState, defaults }: StepProps) {
 				</section>
 			)}
 
-			<section className="card market-flow-section markets-transfer-section">
-				<div className="market-flow-heading">
-					<div>
-						<span className="market-flow-step">Optional · Cross-chain transfers</span>
-						<h2>Fill the same token across chains</h2>
-						<p className="hint">Enable a token, then set how much is returned after the transfer spread.</p>
-					</div>
-				</div>
-				<div className="transfer-market-list">
-					{sameAssetRows.map(({ pair, index }) => (
-						<div className="transfer-market" data-enabled={pair.enabled} key={pair.token0}>
-							<label className="transfer-market-toggle transfer-market-main">
-								<TokenIcon symbol={pair.token0} size="lg" />
-								<span className="transfer-market-title">
-									<strong>{pair.token0} cross-chain transfers</strong>
-									<small>Accept {pair.token0} on one chain and deliver it on another</small>
-								</span>
-								<input
-									type="checkbox"
-									checked={pair.enabled}
-									onChange={(e) => {
-										patchPair(index, { enabled: e.target.checked })
-										if (e.target.checked) setEditingPairIndex(index)
-									}}
-								/>
-							</label>
-							{pair.enabled && (
-								<button
-									type="button"
-									className="market-configure-button"
-									onClick={() => setEditingPairIndex(index)}
-								>
-									Set transfer price
-								</button>
-							)}
-						</div>
-					))}
-				</div>
-			</section>
-
 			<WizardDialog
 				open={editingPair !== null}
 				onClose={() => setEditingPairIndex(null)}
 				title={
 					editingPair
-						? editingPair.kind === "sameAsset"
-							? `Set ${editingPair.token0} transfer pricing`
-							: `${editingPair.token0 || "New"} ↔ ${editingPair.token1 || "market"}`
+						? `${editingPair.token0 || "New"} ↔ ${editingPair.token1 || "market"}`
 						: "Configure market"
 				}
-				description={
-					editingPair?.kind === "sameAsset"
-						? "Choose the maximum order and the amount returned after your spread."
-						: "Choose the token pair, order limit, and how each direction should be priced."
-				}
+				description="Choose the token pair, order limit, and how each direction should be priced."
 			>
 				{editingPair && editingPairIndex !== null && (
 					<>
@@ -245,11 +189,7 @@ export function StepStrategies({ state, setState, defaults }: StepProps) {
 								const next = { ...editingPair, ...patch }
 								patchPair(editingPairIndex, {
 									...patch,
-									...prefillCurves(
-										next,
-										defaults.usdStables,
-										fromPricePoints(defaults.sameAssetAskCurve),
-									),
+									...prefillCurves(next, defaults.usdStables),
 								})
 							}}
 							onRenameAsset={(from, to) =>
@@ -284,15 +224,11 @@ export function StepStrategies({ state, setState, defaults }: StepProps) {
 								type="button"
 								className="market-delete-button"
 								onClick={() => {
-									if (editingPair.kind === "sameAsset") {
-										patchPair(editingPairIndex, { enabled: false })
-									} else {
-										setState((s) => ({ ...s, pairs: removeAt(s.pairs, editingPairIndex) }))
-									}
+									setState((s) => ({ ...s, pairs: removeAt(s.pairs, editingPairIndex) }))
 									setEditingPairIndex(null)
 								}}
 							>
-								{editingPair.kind === "sameAsset" ? "Disable transfers" : "Delete market"}
+								Delete market
 							</button>
 							<button type="button" className="primary" onClick={() => setEditingPairIndex(null)}>
 								Done

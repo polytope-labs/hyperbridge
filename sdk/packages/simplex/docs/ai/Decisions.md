@@ -4,6 +4,68 @@ AI-maintained record of non-obvious choices made in `sdk/packages/simplex`: what
 
 Entry format: heading with the decision, then alternatives considered and the reasoning. Newest first.
 
+## 2026-09-03 — Curated vault defaults follow the vault product, with a safe generic fallback
+
+Chosen: seed Aave stataUSDC with a `20` USD sweep threshold and `10` USD wallet floor, and Yield
+Bearing cNGN with `1000` and `1`. The mapping is applied whenever a curated row is selected,
+including Select all; custom and unrecognised catalog entries keep the existing `5000`/`3000`
+defaults because the UI has no product-specific basis for choosing their liquidity profile.
+
+Alternative rejected: replacing the single generic defaults globally would give one of the two
+curated products the wrong values and would silently impose reference-specific settings on custom
+vaults.
+
+## 2026-09-03 — Keep transfer-market removal at the setup boundary
+
+Chosen: remove the dedicated same-token transfer experience from setup and new-market creation,
+including its prefab rows, state model, curve branch, defaults payload, and CSS, while preserving
+runtime and operator read/edit compatibility for markets already present in an existing config.
+New setup markets are cross-asset only and reject identical symbols with a clear UI error.
+
+Alternative rejected: deleting same-token support from the runtime engine and config validator would
+make existing operators unable to start or safely migrate configurations that still contain those
+markets, which is a broader behavioral change than removing the irrelevant setup section.
+
+## 2026-09-03 — Use stable curve-point and market-cap defaults
+
+Chosen: use `1` as the amount for newly inserted curve rows and `50000` as the default cap for new
+markets in both the web and CLI setup paths. Existing configured caps remain unchanged, and optional
+caps continue to be represented by an empty field.
+
+Alternative rejected: changing existing config values would silently alter an operator's risk limit;
+the request concerns defaults for newly created markets and rows.
+
+## 2026-09-03 — Encode Substrate accounts once at the keyring boundary
+
+Chosen: configure the shared sr25519 `Keyring` with SS58 prefix `0`, Polkadot's unified account
+format. Every Simplex path derives its pair through this service, so wizard responses, review and
+operator UI, clipboard values, balance snapshots, and runtime logs all use one canonical display
+without changing the underlying public key or signing identity.
+
+Alternative rejected: converting addresses separately in React components would leave server-side
+responses and logs inconsistent, duplicate formatting logic, and add Polkadot crypto code to the
+browser bundle.
+
+## 2026-09-03 — Describe the testnet lane as EVM test networks
+
+Chosen: use “EVM test networks” in both the interactive CLI and web setup wizard. The catalog groups
+Ethereum Sepolia, Arbitrum Sepolia, Base Sepolia, Polygon Amoy, and BSC Chapel under `testnet`; only
+the first three are Sepolia-family networks.
+
+Alternative rejected: “Sepolia-family networks” was narrower than the actual catalog and could make
+operators incorrectly assume Polygon Amoy or BSC Chapel are Sepolia deployments.
+
+## 2026-09-03 — Use the HyperFX wordmark with a light surface in the dark Simplex shell
+
+Chosen: import the supplied HyperFX WebP wordmark in both Simplex brandbars and render it inside a
+small white surface. The source asset has dark lettering on transparency, while the Simplex shell is
+dark; rendering it directly would make the wordmark disappear. The favicon is copied from the local
+HyperFX website so browser chrome uses the same established brand asset.
+
+Alternatives rejected: keeping the Hyperbridge mark leaves the operator UI inconsistently branded;
+using a CSS inversion would also invert the blue `FX` accent; using the website's larger alternate
+wordmark would introduce unnecessary transparent padding.
+
 ## 2026-08-27 — Simplex setup uses the shared Hyperbridge brand system with its own operator-focused composition
 
 Chosen: reuse the exact Hyperbridge foundations already present in `hyperbridge-ui` and
@@ -113,10 +175,10 @@ away bids that were about to be won.
 
 Alternatives rejected:
 
-- *Derive it from the order's own deadline.* Placer-controlled with no ceiling — the input being defended against.
-- *Reuse the 1-hour bid TTL.* Conflates deposit housekeeping with price risk; an hour of free optionality on a naira
+- _Derive it from the order's own deadline._ Placer-controlled with no ceiling — the input being defended against.
+- _Reuse the 1-hour bid TTL._ Conflates deposit housekeeping with price risk; an hour of free optionality on a naira
   pair is worth real money.
-- *Per-pair tenors.* Right in the long run — a stablecoin pair could safely carry a longer expiry — but one
+- _Per-pair tenors._ Right in the long run — a stablecoin pair could safely carry a longer expiry — but one
   conservative global default fixes the exposure now without adding a config surface to get wrong.
 
 On a gateway predating the field the bound is dropped rather than the fill refused. Refusing would take the filler
@@ -138,11 +200,11 @@ call retries the read and caches the real answer.
 
 Alternatives rejected:
 
-- *Registry first, on-chain only for unregistered tokens.* Fewer RPC calls, and it would make the
+- _Registry first, on-chain only for unregistered tokens._ Fewer RPC calls, and it would make the
   bad path unreachable rather than merely survivable. Rejected because it inverts which value is
   authoritative: a stale registry entry would then silently override the live token on every fill,
   and the registry is edited by hand.
-- *Return 18 when the registry has no entry either.* What this replaced. `decimals` scales
+- _Return 18 when the registry has no entry either._ What this replaced. `decimals` scales
   `policyMaxOutput` by `10 ** decimals`, so a wrong value does not degrade a fill — it changes its
   size by orders of magnitude. There is no safe guess, so the function now throws and the order is
   skipped.
@@ -163,7 +225,7 @@ Making it throw required auditing every caller, since `getTokenDecimals` had nev
 
 Chosen: `paymasterSupportsPermit2` decides "unsupported" by walking the error's cause chain for `ContractFunctionRevertedError`/`ContractFunctionZeroDataError`, not by the thrown type. The 08-24 attempt checked `instanceof ContractFunctionExecutionError`, but viem wraps every `readContract` failure — transport errors included — in exactly that type (verified by constructing both failure shapes against the installed viem 2.47.6: a 429 arrives as `ContractFunctionExecutionError(cause: HttpRequestError)`, a revert as `ContractFunctionExecutionError(cause: ContractFunctionRevertedError)`). The thrown type therefore carries zero signal; the cause chain carries all of it. `ContractFunctionZeroDataError` counts as "unsupported" too: it means the address returned no data (no code), which is a deterministic contract-state answer, not a transport blip. Alternative — catching everything but only caching on a message-string match — rejected as brittle across RPC providers.
 
-Chosen: `resolvePendingPermit2Approval` batches only from a clean zero allowance. The batched delegation tx approves max in one shot and is sent with explicit gas (no simulation), so a stale non-zero allowance on a USDT-rule token made it a *deterministic* on-chain revert — knowable in advance from the allowance the resolver had already read. Alternative — teach the batched path a zero-first reset — rejected: a type-0x04 tx has one payload, so the reset would need a second tx anyway, which is exactly `sendFundedApprove`'s job. The retry after a failed batched tx now checks `isDelegated` first, because EIP-7702 keeps authorization tuples applied even when execution reverts — the delegation usually landed and only the approve died.
+Chosen: `resolvePendingPermit2Approval` batches only from a clean zero allowance. The batched delegation tx approves max in one shot and is sent with explicit gas (no simulation), so a stale non-zero allowance on a USDT-rule token made it a _deterministic_ on-chain revert — knowable in advance from the allowance the resolver had already read. Alternative — teach the batched path a zero-first reset — rejected: a type-0x04 tx has one payload, so the reset would need a second tx anyway, which is exactly `sendFundedApprove`'s job. The retry after a failed batched tx now checks `isDelegated` first, because EIP-7702 keeps authorization tuples applied even when execution reverts — the delegation usually landed and only the approve died.
 
 ## 2026-08-24 — Review fixes: robust bootstrap, chain-keyed probe, no dead config (#1147 review)
 
@@ -185,11 +247,11 @@ Chosen (review request): the `approve(Permit2, max)` bootstrap is folded into th
 
 Chosen: the SDK sends `POST_OP_GAS_LIMIT_SIMPLEX = 40_000` (a per-paymaster constant), while the contract keeps `MAX_POST_OP_GAS_LIMIT = 100_000` and adds `MIN_POST_OP_GAS_LIMIT = 30_000`.
 
-**Why the contract ceiling stays 100k (review, F1):** the margin win comes entirely from the *client* sending 40k — the contract only needs to *accept* it. Lowering the contract ceiling to 40k would break backward compatibility: recovering the stake stuck on the live proxies needs an in-place `UpgradeContract`, and a 40k ceiling on an existing proxy would reject every client still sending the old 100k limit (`InvalidPostOpGasLimit` → AA33 → the filler silently drops to native gas). Keeping the ceiling at 100k makes in-place upgrades safe and still realises the full margin. The only thing given up is a marginal anti-grief tightening — a griefer inflating postOp to 100k forfeits ~8.85k gas of penalty out of the cushion the op already pays — which can be revisited once every integrator is on a 40k client. The `MIN_POST_OP_GAS_LIMIT = 30_000` floor (closing the refund-underflow window) is safe on an in-place upgrade because every existing client sends 100k ≥ 30k.
+**Why the contract ceiling stays 100k (review, F1):** the margin win comes entirely from the _client_ sending 40k — the contract only needs to _accept_ it. Lowering the contract ceiling to 40k would break backward compatibility: recovering the stake stuck on the live proxies needs an in-place `UpgradeContract`, and a 40k ceiling on an existing proxy would reject every client still sending the old 100k limit (`InvalidPostOpGasLimit` → AA33 → the filler silently drops to native gas). Keeping the ceiling at 100k makes in-place upgrades safe and still realises the full margin. The only thing given up is a marginal anti-grief tightening — a griefer inflating postOp to 100k forfeits ~8.85k gas of penalty out of the cushion the op already pays — which can be revisited once every integrator is on a 40k client. The `MIN_POST_OP_GAS_LIMIT = 30_000` floor (closing the refund-underflow window) is safe on an in-place upgrade because every existing client sends 100k ≥ 30k.
 
-40,000 is not a tuned figure. The EntryPoint waives its unused-gas penalty while `gasLimit <= gasUsed + PENALTY_GAS_THRESHOLD`, and that threshold is 40,000 — so any cap at or below 40,000 is penalty-free for *any* postOp cost, with no assumption about the token. A measured per-token value (postOp is ~8-12k for USDC and USDT) would be tighter but would silently start leaking margin the day a more expensive token is registered. The floor of 30,000 is the lowest value both tokens were observed to execute at, and it exists because `innerHandleOp` overhead outside every gas limit can otherwise push `actualGasCost` past the `maxCost` the prefund was sized against, underflowing the refund subtraction.
+40,000 is not a tuned figure. The EntryPoint waives its unused-gas penalty while `gasLimit <= gasUsed + PENALTY_GAS_THRESHOLD`, and that threshold is 40,000 — so any cap at or below 40,000 is penalty-free for _any_ postOp cost, with no assumption about the token. A measured per-token value (postOp is ~8-12k for USDC and USDT) would be tighter but would silently start leaking margin the day a more expensive token is registered. The floor of 30,000 is the lowest value both tokens were observed to execute at, and it exists because `innerHandleOp` overhead outside every gas limit can otherwise push `actualGasCost` past the `maxCost` the prefund was sized against, underflowing the refund subtraction.
 
-The SDK constant was shared with the Circle paymaster. Lowering it in place would have applied a bound derived from *this* contract's postOp to a different contract whose postOp was never measured, so it split into `POST_OP_GAS_LIMIT_SIMPLEX` and `POST_OP_GAS_LIMIT_CIRCLE`.
+The SDK constant was shared with the Circle paymaster. Lowering it in place would have applied a bound derived from _this_ contract's postOp to a different contract whose postOp was never measured, so it split into `POST_OP_GAS_LIMIT_SIMPLEX` and `POST_OP_GAS_LIMIT_CIRCLE`.
 
 Lowering the on-chain cap (not just the client constant) is safe despite older solvers pinning 100k, because new proxy addresses ship in the same `chain.ts` release as the new SDK: an old solver keeps using the old deployment and never meets the new bound.
 
@@ -230,6 +292,7 @@ Permit2's `nonceBitmap[owner][word]` and the token's `allowance[owner][Permit2]`
 ## 2026-08-18 — Bootstrap approve waits for two confirmations (#1071)
 
 Chosen: `sendFundedApprove` waits for `confirmations: 2`. On Base Sepolia the first sponsored op right after a one-confirmation approve was rejected `AA33` (Permit2 `TRANSFER_FROM_FAILED`: the bundler's simulation node had not seen the approve yet) twice in a row, and the identical op seconds later was accepted; with two confirmations a fresh EOA went through first try. Alternative: retry the op on `AA33` — more code for a once-per-token-lifetime event that costs one extra block.
+
 ## 2026-08-20 — Multi-leg orders are rejected at the monitor, not deeper in the fill path
 
 Chosen: `EventMonitor` filters on leg count, so an order with more than one input or output asset
@@ -242,12 +305,12 @@ rejected order stays at one debug log.
 
 Alternatives rejected:
 
-- *Reject in `FXFiller.evaluateOrder`.* It already refuses an order whose input and output counts
+- _Reject in `FXFiller.evaluateOrder`._ It already refuses an order whose input and output counts
   disagree, but a balanced multi-leg order would still be priced, quoted and possibly bid. The
   work is wasted, and a second strategy would need its own copy of the rule.
-- *Filter in the scanner.* The scanner is shared between fillers; a filler that wants multi-leg
+- _Filter in the scanner._ The scanner is shared between fillers; a filler that wants multi-leg
   orders could not opt back in. Per-filler intake policy belongs to the per-filler event bus.
-- *Strip extra legs and fill the first one.* Silently changes what the user asked for. An order is
+- _Strip extra legs and fill the first one._ Silently changes what the user asked for. An order is
   filled whole or not at all.
 
 ## 2026-08-20 — Removing a cap is its own endpoint, not a null on the update
@@ -257,7 +320,7 @@ Chosen: `DELETE /api/strategies/:index/max-order-size`, with `AdminStrategy.clea
 value.
 
 The obvious alternative — accept `maxOrderSize: null` (or `""`) on the PUT — is one fewer endpoint
-and was rejected on blast radius. `DELETE /api/strategies/:index` already removes the *market*. A
+and was rejected on blast radius. `DELETE /api/strategies/:index` already removes the _market_. A
 scheme where a cap removal and a market removal differ by a path suffix is bad enough; one where a
 cap removal is a field value that a serialization bug, a form default, or a stray `undefined` can
 produce is worse, because the failure is silent and the fix is a re-add. An explicit verb on an
@@ -270,11 +333,11 @@ no reason to have.
 
 Alternatives rejected:
 
-- *`PATCH` with `maxOrderSize: null`.* See above.
-- *A `capped: boolean` toggle beside the value.* Two controls for one setting, and it forces a
+- _`PATCH` with `maxOrderSize: null`._ See above.
+- _A `capped: boolean` toggle beside the value._ Two controls for one setting, and it forces a
   decision about what the value field holds while the toggle is off — remembered, cleared, or
   ignored. A blank field is the same information with nothing to keep in sync.
-- *Reuse `PUT /api/strategies/:index` with an empty body.* Ambiguous with a no-op update, and the
+- _Reuse `PUT /api/strategies/:index` with an empty body._ Ambiguous with a no-op update, and the
   handler already rejects unknown/absent fields to catch exactly that class of mistake.
 
 In the UI the field itself is the control: blank means uncapped, the button relabels to "Remove
@@ -298,9 +361,9 @@ without it ever binding below the order.
 
 Alternatives rejected:
 
-- *Keep it required and let operators write a very large number.* Works, but "uncapped" then has no
+- _Keep it required and let operators write a very large number._ Works, but "uncapped" then has no
   representation, only an approximation, and the log line reads as a cap that happens not to bind.
-- *Default an absent cap to `Infinity`.* Same behaviour, but `Decimal(Infinity)` propagates into
+- _Default an absent cap to `Infinity`._ Same behaviour, but `Decimal(Infinity)` propagates into
   `capFraction` division and into every log that stringifies the cap. `undefined` makes each
   consumer state what it does when there is no cap.
 
@@ -342,13 +405,13 @@ can serve.
 
 Alternatives rejected:
 
-- *Clamp to `desiredOutput` on capped legs only.* What this replaced. It keeps the escrow draw
+- _Clamp to `desiredOutput` on capped legs only._ What this replaced. It keeps the escrow draw
   exactly proportional to the cap, but at the cost of quoting one price and filling another on
   every capped order — the same defect as the unconditional clamp, just rarer and harder to see.
-- *Keep the clamp and stop publishing `policyMaxOutput` from `quotePhantomFill`.* Makes the quote
+- _Keep the clamp and stop publishing `policyMaxOutput` from `quotePhantomFill`._ Makes the quote
   match the fill, but by degrading the quote to the order's own rate — which is the counterparty's
   number, not ours. The price feed would stop carrying any information about the operator's curve.
-- *Re-enable `maxOverfillBps` as part of this change.* Deliberately left alone. The clamp at the
+- _Re-enable `maxOverfillBps` as part of this change._ Deliberately left alone. The clamp at the
   overfill-ceiling block is still a no-op assignment (`const policyMaxOutput = rawPolicyMaxOutput`)
   and `recordOrderOutcome` is still always called with `false`, so `maxOverfillBps` and the halt
   subsystem remain dormant config. Restoring the payout makes that ceiling meaningful again and it
@@ -368,12 +431,12 @@ simplex test" step already executes on every simplex PR.
 
 Alternatives rejected:
 
-- *A dedicated `test:unit` script plus a new workflow step.* Cleaner taxonomy (the file is
+- _A dedicated `test:unit` script plus a new workflow step._ Cleaner taxonomy (the file is
   pure-unit while most of its neighbours in `test:filler` need RPC secrets), but it adds a script
   and a CI step to maintain for one ~3s file, and the oversized `--testTimeout` it inherits is
   harmless for unit tests. `fx.curve-payout.test.ts` set the precedent independently: it is also
   pure-unit and was wired into `test:filler` the same way.
-- *Leave it unwired.* That is exactly how 12 stale failures sat on main unnoticed.
+- _Leave it unwired._ That is exactly how 12 stale failures sat on main unnoticed.
 
 Known gap, deliberately out of scope here: several other pure-unit files (`book-crossed`,
 `confirmation-policy`, `fx.one-sided-lp`, `fx.price-guard`, `paymaster-reserve`, …) still run in
@@ -387,20 +450,20 @@ passes `null`. The pair's `maxOrderSize` budget rations real fills only.
 
 The two paths are not the same kind of number. On a fill the output is an amount to pay out, and
 `maxOrderSize` is a real exposure limit — clamping is the point. On a probe the output is a
-*price*: the leg is quoted against a fixed standard amount and every consumer recovers the rate as
+_price_: the leg is quoted against a fixed standard amount and every consumer recovers the rate as
 `medianPrice / standardAmount`. Clamping the quantity there does not reduce exposure (there is
 none), it just makes the numerator smaller than the denominator assumes, and the published rate is
 wrong by exactly the clamp ratio — silently, with no error and no warning.
 
 Alternatives rejected:
 
-- *Skip the leg when the probe exceeds the pair's cap.* Honest, but it removes the pair from the
+- _Skip the leg when the probe exceeds the pair's cap._ Honest, but it removes the pair from the
   price feed entirely and zeroes its depth downstream. A correct price for a size the filler
   would cap is more useful than no price, and the warning covers the operator's need to know.
-- *Clamp, then scale the output back up.* Identical to not clamping for a linear curve, and
+- _Clamp, then scale the output back up._ Identical to not clamping for a linear curve, and
   actively misleading on a sloped one, since the scaled figure would not be a price the curve ever
   produced.
-- *Leave it and raise `maxOrderSize` in operator config.* This is a code bug that produces a wrong
+- _Leave it and raise `maxOrderSize` in operator config._ This is a code bug that produces a wrong
   published number; requiring every operator to know that would guarantee someone does not.
 
 ## 2026-08-19 — The filler floors its quoted output, and that must stay
@@ -434,7 +497,7 @@ already receives a post-fee input and must not net it again. Phantom orders neve
 `placeOrder`, so their standard amount is un-netted and the published price is the gross rate.
 
 This does not break quoting: `PhantomSnapshotQuoter` calls `deductProtocolFee` before applying the
-rate, mirroring the gateway's floored arithmetic exactly. Any *other* consumer reading
+rate, mirroring the gateway's floored arithmetic exactly. Any _other_ consumer reading
 `medianPrice / standardAmount` as an executable rate is ~0.3% optimistic at the deployed 30 bps.
 Netting it inside `quotePhantomFill` would need the strategy to read a gateway parameter it does
 not currently know about; left open pending a decision on whether the published surface should be
@@ -448,7 +511,7 @@ Alternatives considered: (a) rounding the percentage up so the removal covers wh
 
 Why (a) loses: rounding up removes more liquidity than the planner reserved against `remainingLiquidity`, so concurrent plans over one position would over-commit it, and at 100% it cannot round up at all — the case that has to stay exact. Truncating and telling the truth about it is strictly safer than removing more than intended. (b) shrinks the error without removing it, and the error is unbounded in the wrong direction: the credit stays an estimate the chain is not obliged to honour, which is exactly what makes it revert. Fixing the arithmetic and fixing the honesty are separate; only the second one closes the failure mode.
 
-What this does NOT close: `credited` is still the amount the position yields at the *plan-time* `sqrtPriceX96`. Normally the planner's slippage buffer absorbs drift — it targets `remaining × (1 + slippageBps)` and `finalOutputAmount` is capped at `targetOutput`, so the overshoot stays in the wallet as headroom. A drained position (`cappedLiq === availLiq`) has no overshoot and therefore no headroom, which is the exact shape of the fill that failed. Anyone able to move the pool price between bid and execution, by less than the min-amounts tolerance so the withdrawal still succeeds, can make it yield less than was credited and revert the fill. It is griefing rather than theft — `amount0Min`/`amount1Min` prevent a genuinely bad payout, so the cost is a wasted revert that still bills the paymaster. The fix would be to credit `burnAmountsWithSlippage` (the minimum the calldata will accept) instead of the expected amounts, at the price of a systematic under-fill of one slippage tolerance on every drained withdrawal; that trade-off was left to the operator rather than taken here.
+What this does NOT close: `credited` is still the amount the position yields at the _plan-time_ `sqrtPriceX96`. Normally the planner's slippage buffer absorbs drift — it targets `remaining × (1 + slippageBps)` and `finalOutputAmount` is capped at `targetOutput`, so the overshoot stays in the wallet as headroom. A drained position (`cappedLiq === availLiq`) has no overshoot and therefore no headroom, which is the exact shape of the fill that failed. Anyone able to move the pool price between bid and execution, by less than the min-amounts tolerance so the withdrawal still succeeds, can make it yield less than was credited and revert the fill. It is griefing rather than theft — `amount0Min`/`amount1Min` prevent a genuinely bad payout, so the cost is a wasted revert that still bills the paymaster. The fix would be to credit `burnAmountsWithSlippage` (the minimum the calldata will accept) instead of the expected amounts, at the price of a systematic under-fill of one slippage tolerance on every drained withdrawal; that trade-off was left to the operator rather than taken here.
 
 The zero guard belongs on the product, not the percentage. Both floors collapse independently: for a 3,441,646,880,004-unit position a single unit of liquidity gives a percentage of 290,558/1e18, which is non-zero, and a decrease of zero — which is what the SDK's ZERO_LIQUIDITY invariant throws on. Guarding the percentage looks equivalent and is not.
 
@@ -514,7 +577,6 @@ Why this shape: the class's trust model is that the operator provisioned n-way B
 
 Also chosen: suspension is recorded in `settleUntilQuorum`'s rejection handler unconditionally, including stragglers settling after the call already decided early — a rate limit learned late still spares the endpoint on the next call.
 
-
 ## 2026-08-18 — The signer block lives on a separate `FillerConfigFile` type, not on `SimplexConfig`
 
 Chosen: `FillerTomlConfig` drops `simplex.signer`; a new `FillerConfigFile extends FillerTomlConfig` adds it back for the binary's file format. The CLI, setup API, TOML writer, wizard state and `UiServer`'s operator context are typed with the file shape; the library never is.
@@ -561,7 +623,7 @@ Note what required-ness deleted: with both structural methods guaranteed, `signR
 
 Chosen: no viem type anywhere on `Signer`. (This pass first shipped `address` + `signTypedData` + `signRawHash` with the rest optional; the entry above tightened that to the final all-required shape and deleted `signRawHash` — the viem-free property is what this entry decided, and it survived unchanged.) `accountFor(signer)` (`services/wallet/account.ts`) builds the viem `LocalAccount` wallet clients run on, and `ChainClientManager` derives it once.
 
-Alternatives considered: keeping `account: LocalAccount` on the interface (what the first cut did); going the other way and making `Signer` *be* a viem `LocalAccount`, deleting the abstraction entirely.
+Alternatives considered: keeping `account: LocalAccount` on the interface (what the first cut did); going the other way and making `Signer` _be_ a viem `LocalAccount`, deleting the abstraction entirely.
 
 Why: the `account` field was the expensive viem type on the published surface — `types.ts` used to carry a warning that consumers must keep viem on this workspace's version or the field would not typecheck, because a `LocalAccount` from a different viem resolves to a different type. Removing it means implementing a signer needs no viem at all. The package's `dist/index.d.ts` still imports viem, for `viemSigner`'s parameter and for the scanner and client-manager surfaces (`PublicClient`, `WalletClient`, `QuorumPublicClient`), which were viem-typed before this change and are unaffected by it; the point is that the signing contract is not among them. Going the other way (Signer = LocalAccount) would have deleted more code, but it pins consumers to viem's account shape permanently and drags `publicKey` — required by `LocalAccount`, never set by viem's own `toAccount` — into every hand-written implementation.
 

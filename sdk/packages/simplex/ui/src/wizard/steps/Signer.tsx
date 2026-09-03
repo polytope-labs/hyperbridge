@@ -79,9 +79,6 @@ export function StepSigner({ state, setState, defaults }: StepProps) {
 				<div className="card-heading">
 					<h2 id="network-title">Network</h2>
 				</div>
-				<p className="hint">
-					Mainnet fills real orders with real funds; testnet uses the Sepolia-family chains.
-				</p>
 				<div className="network-options">
 					{(["mainnet", "testnet"] as const).map((network) => (
 						<label key={network} className="network-option" data-active={state.network === network}>
@@ -95,7 +92,7 @@ export function StepSigner({ state, setState, defaults }: StepProps) {
 							<span className="network-option-copy">
 								<strong>{network === "mainnet" ? "Mainnet" : "Testnet"}</strong>
 								<span>
-									{network === "mainnet" ? "Live funds and orders" : "Sepolia-family networks"}
+									{network === "mainnet" ? "Live funds and orders" : "EVM test networks"}
 								</span>
 							</span>
 							<span className={`badge ${network === "mainnet" ? "ok" : ""}`}>
@@ -111,9 +108,8 @@ export function StepSigner({ state, setState, defaults }: StepProps) {
 					<h2 id="signer-title">Filler wallet</h2>
 				</div>
 				<p className="hint">
-					This wallet signs every fill and holds your stablecoin float on each chain — it is the identity of
-					your filler. Holding USDC/USDT is enough: gas is covered by the paymaster. Credentials are written
-					only into the local config file (permissions 600).
+					This wallet signs fills and holds the funds used for orders. Its credentials stay private on this
+					machine.
 				</p>
 				<PillTabs
 					options={SIGNER_TABS}

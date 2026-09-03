@@ -1,5 +1,7 @@
 import * as Collapsible from "@radix-ui/react-collapsible"
-import { useState } from "react"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@hyperbridge/ui"
+import { CircleInfo } from "@hyperbridge/ui/icons"
+import { useId, useState } from "react"
 import { INIT_CHAINS } from "@/cli/init/chains"
 import type { VaultRowDraft } from "../lib/vault-rows"
 import type { KnownVault } from "../types"
@@ -10,6 +12,17 @@ import { WizardDialog } from "./WizardDialog"
 
 const EXPLORER_BY_CHAIN = new Map(INIT_CHAINS.map((meta) => [meta.stateMachineId, meta.explorerUrl]))
 const ROW_DEFAULTS = { threshold: "5000", minBalance: "3000", redeemOnShutdown: false }
+const CURATED_VAULT_DEFAULTS = new Map([
+	["Aave stataUSDC", { threshold: "20", minBalance: "10", redeemOnShutdown: false }],
+	["Yield Bearing cNGN", { threshold: "1000", minBalance: "1", redeemOnShutdown: false }],
+])
+
+const VAULT_FIELD_HELP = {
+	threshold:
+		"When the wallet balance reaches this USD value, Simplex sweeps the funds above the minimum wallet balance into this vault.",
+	minBalance:
+		"The USD value Simplex keeps in the wallet after a sweep so liquidity remains immediately available for fills.",
+} as const
 
 export interface VaultChainOption {
 	/** State machine id, e.g. "EVM-8453" — the value stored in the row's `chain`. */
@@ -48,26 +61,55 @@ function CopyAddressButton({ address }: { address: string }) {
 	)
 }
 
+function defaultsForKnownVault(known: KnownVault) {
+	return CURATED_VAULT_DEFAULTS.get(known.label) ?? ROW_DEFAULTS
+}
+
+function VaultAmountField(props: {
+	label: string
+	help: string
+	value: string
+	onChange: (value: string) => void
+}) {
+	const { label, help, value, onChange } = props
+	const inputId = useId()
+
+	return (
+		<div className="field vault-amount-field">
+			<div className="field-label vault-field-label">
+				<label htmlFor={inputId}>{label}</label>
+				<Tooltip>
+					<TooltipTrigger asChild>
+						<button type="button" className="vault-info-trigger" aria-label={`About ${label}`}>
+							<CircleInfo aria-hidden="true" />
+						</button>
+					</TooltipTrigger>
+					<TooltipContent className="simplex-tooltip-content" sideOffset={7}>
+						<p>{help}</p>
+					</TooltipContent>
+				</Tooltip>
+			</div>
+			<input id={inputId} type="text" inputMode="decimal" value={value} onChange={(event) => onChange(event.target.value)} />
+		</div>
+	)
+}
+
 function VaultSettings(props: { row: VaultRowDraft; onChange: (changes: Partial<VaultRowDraft>) => void }) {
 	const { row, onChange } = props
 	return (
 		<div className="vault-settings-grid">
-			<label className="field">
-				<span>Sweep threshold (USD)</span>
-				<input
-					type="text"
-					value={row.threshold}
-					onChange={(event) => onChange({ threshold: event.target.value })}
-				/>
-			</label>
-			<label className="field">
-				<span>Minimum wallet balance (USD)</span>
-				<input
-					type="text"
-					value={row.minBalance}
-					onChange={(event) => onChange({ minBalance: event.target.value })}
-				/>
-			</label>
+			<VaultAmountField
+				label="Sweep threshold (USD)"
+				help={VAULT_FIELD_HELP.threshold}
+				value={row.threshold}
+				onChange={(threshold) => onChange({ threshold })}
+			/>
+			<VaultAmountField
+				label="Minimum wallet balance (USD)"
+				help={VAULT_FIELD_HELP.minBalance}
+				value={row.minBalance}
+				onChange={(minBalance) => onChange({ minBalance })}
+			/>
 			<label className="vault-redeem-toggle">
 				<input
 					type="checkbox"
@@ -229,22 +271,18 @@ function CustomVaultDialog(props: {
 						</label>
 					</div>
 					<div className="vault-custom-balance-fields">
-						<label className="field">
-							<span>Sweep threshold (USD)</span>
-							<input
-								type="text"
-								value={draft.threshold}
-								onChange={(event) => onChange({ ...draft, threshold: event.target.value })}
-							/>
-						</label>
-						<label className="field">
-							<span>Minimum wallet balance (USD)</span>
-							<input
-								type="text"
-								value={draft.minBalance}
-								onChange={(event) => onChange({ ...draft, minBalance: event.target.value })}
-							/>
-						</label>
+						<VaultAmountField
+							label="Sweep threshold (USD)"
+							help={VAULT_FIELD_HELP.threshold}
+							value={draft.threshold}
+							onChange={(threshold) => onChange({ ...draft, threshold })}
+						/>
+						<VaultAmountField
+							label="Minimum wallet balance (USD)"
+							help={VAULT_FIELD_HELP.minBalance}
+							value={draft.minBalance}
+							onChange={(minBalance) => onChange({ ...draft, minBalance })}
+						/>
 					</div>
 					<label className="vault-redeem-toggle vault-custom-redeem">
 						<input
@@ -299,7 +337,7 @@ export function VaultRowsEditor(props: {
 	}, [])
 	const unselectedCatalogRows = catalog.reduce<VaultRowDraft[]>((list, { chain, known }) => {
 		if (rowIndexOf(chain.key, known.address) < 0) {
-			list.push({ chain: chain.key, vault: known.address, ...ROW_DEFAULTS })
+			list.push({ chain: chain.key, vault: known.address, ...defaultsForKnownVault(known) })
 		}
 		return list
 	}, [])
@@ -355,7 +393,7 @@ export function VaultRowsEditor(props: {
 							onToggle={(selected) =>
 								onChange(
 									selected
-										? [...rows, { chain: chain.key, vault: known.address, ...ROW_DEFAULTS }]
+										? [...rows, { chain: chain.key, vault: known.address, ...defaultsForKnownVault(known) }]
 										: withoutVaultRow(rows, chain.key, known.address),
 								)
 							}

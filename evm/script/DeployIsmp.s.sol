@@ -134,6 +134,9 @@ contract DeployScript is BaseScript {
         host.initialize(params);
         // set the host address on the host manager
         manager.setIsmpHost(address(host));
+        // Governance messages may only be delivered by this relayer; the broadcaster is the host
+        // admin at this point, which is what `setRelayer` requires.
+        manager.setRelayer(vm.envAddress("GOVERNANCE_RELAYER"));
 
         // Set the consensus state
         EvmHost(payable(address(host)))

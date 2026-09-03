@@ -9,6 +9,14 @@ points. `OperatorMarkets` selects the first valid configured price from each sid
 the `token1/token0` unit. Venue-priced, reference-only, and sides without a valid curve render no
 price value; clicking a row still opens the existing editor.
 
+## Send transaction explorer link
+
+Before posting to `/api/send`, `SendCard` resolves the selected chain through the canonical
+initialization catalog. A successful response stores that explorer URL alongside its transaction hash,
+and the success row exposes the truncated hash plus external-link icon as one anchor that opens the
+chain's `/tx/<hash>` page in a new tab. The captured URL remains paired with the completed transaction
+even if the operator subsequently changes the form's network selection.
+
 ## BSC paymaster messaging
 
 The setup and operator chain screens render the shared initialization catalog without chain-specific
@@ -104,7 +112,8 @@ If another edit is followed by Save while that request is pending, Operations re
 retry and reads the newest rows when the prior request finishes; repeated clicks coalesce to that
 latest draft rather than running concurrent vault hydrations. A response only reaches the success
 state when `persisted` is true. Persistence failures are rendered inside the still-open vault drawer;
-the UI does not convert the response's `restartNeeded` advisory into a restart instruction.
+after the queued-save loop drains, a persisted final draft emits one success toast. The UI does not
+convert the response's `restartNeeded` advisory into a restart instruction.
 
 ## Market setup and curve editing
 

@@ -1,9 +1,10 @@
 import { useCallback, useLayoutEffect, useRef, useState } from "react"
+import { toast } from "sonner"
+import { chainByChainId } from "@/cli/init/chains"
 import { formatChainKey, parseChainKey } from "@/config/interpolated-curve"
 import { api } from "../api"
 import { AddressListEditor } from "../components/AddressListEditor"
-import { CopyHash } from "../components/CopyHash"
-import { ChevronRightIcon } from "../components/InterfaceIcons"
+import { ChevronRightIcon, ExternalLinkIcon } from "../components/InterfaceIcons"
 import { OperatorSheet } from "../components/OperatorSheet"
 import { VaultRowsEditor } from "../components/VaultRowsEditor"
 import { Chains } from "./Chains"
@@ -81,6 +82,7 @@ export function Operations(props: {
 					if (!result.persisted) {
 						throw new Error("Vault changes were applied for this session but could not be saved to the config file")
 					}
+					toast.success("Vault settings saved")
 				} finally {
 					vaultSaveActive.current = false
 					vaultSaveQueued.current = false
@@ -270,7 +272,7 @@ function SendCard(props: {
 	const [customToken, setCustomToken] = useState("")
 	const [amount, setAmount] = useState("")
 	const [to, setTo] = useState("")
-	const [result, setResult] = useState<{ txHash: string; redeemed: boolean }>()
+	const [result, setResult] = useState<{ txHash: string; redeemed: boolean; explorerUrl?: string }>()
 	const [sending, setSending] = useState(false)
 	const { run: act, message, error } = useAction()
 
@@ -283,6 +285,8 @@ function SendCard(props: {
 	const ready = Boolean(amount.trim()) && /^0x[0-9a-fA-F]{40}$/.test(to.trim()) && tokenAddress !== ""
 
 	const send = () => {
+		const chainId = parseChainKey(selectedChain)
+		const explorerUrl = chainId === null ? undefined : chainByChainId(chainId)?.explorerUrl
 		if (
 			!window.confirm(
 				`Send ${amount} ${symbol} on ${props.chainLabel(parseChainKey(selectedChain) ?? selectedChain)} to ${to.trim()}?`,
@@ -300,7 +304,7 @@ function SendCard(props: {
 					amount: amount.trim(),
 					to: to.trim(),
 				})
-				setResult(res)
+				setResult({ ...res, explorerUrl })
 				setAmount("")
 				await props.onSent()
 			} finally {
@@ -377,7 +381,23 @@ function SendCard(props: {
 			{result && (
 				<p className="hint">
 					✓ Sent{result.redeemed && " (topped up from the vault)"} — tx{" "}
-					<CopyHash value={result.txHash} chars={18} />
+					{result.explorerUrl ? (
+						<a
+							className="operator-send-tx-link"
+							href={`${result.explorerUrl}/tx/${result.txHash}`}
+							target="_blank"
+							rel="noreferrer"
+							title={result.txHash}
+							aria-label={`Open transaction ${result.txHash} on the block explorer in a new tab`}
+						>
+							<span className="mono">{result.txHash.slice(0, 18)}…</span>
+							<ExternalLinkIcon aria-hidden="true" />
+						</a>
+					) : (
+						<span className="mono" title={result.txHash}>
+							{result.txHash.slice(0, 18)}…
+						</span>
+					)}
 				</p>
 			)}
 			{message && !result && <p className="hint">✓ {message}</p>}

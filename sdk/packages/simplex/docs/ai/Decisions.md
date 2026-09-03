@@ -4,11 +4,21 @@ AI-maintained record of non-obvious choices made in `sdk/packages/simplex`: what
 
 Entry format: heading with the decision, then alternatives considered and the reasoning. Newest first.
 
+## 2026-09-04 — Bind send explorer links to completed transaction state
+
+Chosen: resolve the canonical block explorer when a send starts and store that URL with the successful
+transaction result. Render the truncated hash and external-link icon inside one native anchor that
+opens in a new tab. Networks without configured explorer metadata retain a non-interactive hash.
+
+Alternative rejected: resolving the URL from the live network selector during render could send an
+already-completed transaction hash to the wrong chain after the operator changes the form selection.
+
 ## 2026-09-03 — Treat a persisted vault save as UI success
 
-Chosen: after a vault update persists successfully, show the normal success state and do not turn the
-server's `restartNeeded` advisory into a vault-editor error. Keep the API response shape intact and
-leave all runtime and server behavior unchanged.
+Chosen: after a vault update persists successfully, emit a success toast and do not turn the server's
+`restartNeeded` advisory into a vault-editor error. Emit the toast after the queued-save loop drains so
+one operator action receives one confirmation for its final saved draft. Keep the API response shape
+intact and leave all runtime and server behavior unchanged.
 
 Alternative rejected: presenting `restartNeeded` as a failed save incorrectly tells the operator to
 restart the filler even though the vault edit was accepted and saved.

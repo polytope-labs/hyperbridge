@@ -12,11 +12,22 @@ Files: list of files touched.
 
 Newest entries first.
 
-## 2026-09-03 — Remove incorrect vault restart guidance
+## 2026-09-04 — Link successful sends to their block explorer
+
+The Send funds success row now renders the transaction hash and an external-link icon as one link
+that opens the selected network's block explorer in a new tab. The explorer URL is captured with the
+completed send so changing the form's network afterward cannot redirect the prior hash to the wrong
+chain.
+
+Files: `ui/src/operator/Operations.tsx`, `ui/src/styles/operator.css`, and
+`docs/ai/{ChangeLog,Decisions,Flow}.md`.
+
+## 2026-09-03 — Correct vault save feedback
 
 Vault saves no longer turn a successful persisted response into an error instructing the operator to
-restart the filler. The vault editor now limits its explanatory copy to the configuration persistence
-it can accurately promise; runtime, server, and vault lifecycle behavior are unchanged.
+restart the filler. A persisted save now emits a clear success toast, while the vault editor limits
+its explanatory copy to the configuration persistence it can accurately promise. Runtime, server,
+and vault lifecycle behavior are unchanged.
 
 Files: `ui/src/operator/Operations.tsx` and `docs/ai/{ChangeLog,Decisions,Flow}.md`.
 

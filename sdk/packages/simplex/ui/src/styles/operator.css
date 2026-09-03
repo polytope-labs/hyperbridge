@@ -1337,6 +1337,31 @@ button.operator-tool-row {
 	padding-top: 0.35rem;
 }
 
+.operator-send-tx-link {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.35rem;
+	padding: 0.1rem 0.2rem;
+	border-radius: 0.25rem;
+	color: inherit;
+	text-decoration: none;
+}
+
+.operator-send-tx-link:hover {
+	color: var(--text);
+}
+
+.operator-send-tx-link:focus-visible {
+	outline: none;
+	box-shadow: 0 0 0 3px rgba(74, 222, 255, 0.14);
+}
+
+.operator-send-tx-link svg {
+	width: 0.95rem;
+	height: 0.95rem;
+	flex: 0 0 auto;
+}
+
 .sheet-content .card {
 	margin: 0;
 	padding: 1.5rem 0;

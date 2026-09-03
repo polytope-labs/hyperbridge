@@ -22,8 +22,12 @@ dutifully bid on every one.
 New `maxLagBlocks` option: once the cursor is further behind than that, it jumps to the head and reports the
 range it abandoned through `onSkip`. **Off by default** — the cursor's existing property (advance only past
 blocks really read, so an outage delays orders rather than dropping them) is what a consumer reading this feed as
-history wants. Only a bidder knows the backlog is worthless, so only a bidder asks. The check runs after the
-cursor is established, so it cannot undo the lookback a cold start just applied.
+history wants. Only a bidder knows the backlog is worthless, so only a bidder asks. The check runs only once the
+cursor is established, so a cold start — exactly one block behind — is never read as a backlog.
+
+`lookbackBlocks` is gone with it. It existed so a restarting process could reach back and still bid on a window
+already open, which is the same late bid this change is removing: by the time the process is up, that window has
+all but closed. Nothing passed it, and a cold start now begins at the head.
 
 Also adds `latestBlockNumber()`. A phantom order carries the block it was registered at and no clock, so a
 consumer deciding whether one is still biddable has to read the head, and nothing public exposed it.

@@ -433,40 +433,34 @@ describe("pollPhantomOrders", () => {
 			expect(h.scanned).toEqual([100, 101, 102, 103])
 		})
 
-		// The cold-start lookback deliberately puts the cursor behind the head; the skip must not
-		// read its own lookback as a backlog and undo it.
-		it("does not fight the cold-start lookback", async () => {
+		// A cold start lands exactly one block behind the head, which must never read as a backlog.
+		it("does not mistake a cold start for a backlog", async () => {
 			const h = harness(100)
-			h.putOrder(96, COMMITMENT_A)
-			const seen: PhantomOrderEvent[] = []
-			const stop = h.coprocessor.pollPhantomOrders((orders) => seen.push(...orders), {
-				intervalMs: 1000,
-				lookbackBlocks: 5,
-				maxLagBlocks: 2,
-			})
+			const onSkip = vi.fn()
+			const stop = h.coprocessor.pollPhantomOrders(() => {}, { intervalMs: 1000, maxLagBlocks: 0, onSkip })
 
 			await tick(0)
 			stop()
 
-			expect(h.scanned).toEqual([95, 96, 97, 98, 99, 100])
-			expect(seen.map((e) => e.commitment)).toEqual([COMMITMENT_A])
+			expect(h.scanned).toEqual([100])
+			expect(onSkip).not.toHaveBeenCalled()
 		})
 	})
 
-	it("starts lookbackBlocks behind the head so a restart mid-window still bids", async () => {
+	// A restart starts at the head and reaches back for nothing. The window of an order registered
+	// before it came up has all but closed, so the only bids it could still place are the late ones
+	// this poll now exists to avoid.
+	it("starts at the head, ignoring orders registered before it came up", async () => {
 		const h = harness(100)
 		h.putOrder(98, COMMITMENT_A)
 		const seen: PhantomOrderEvent[] = []
 
-		const stop = h.coprocessor.pollPhantomOrders((orders) => seen.push(...orders), {
-			intervalMs: 1000,
-			lookbackBlocks: 3,
-		})
+		const stop = h.coprocessor.pollPhantomOrders((orders) => seen.push(...orders), { intervalMs: 1000 })
 		await tick(0)
 		stop()
 
-		expect(h.scanned).toEqual([97, 98, 99, 100])
-		expect(seen.map((e) => e.commitment)).toEqual([COMMITMENT_A])
+		expect(h.scanned).toEqual([100])
+		expect(seen).toEqual([])
 	})
 
 	it("stops scanning once stopped", async () => {

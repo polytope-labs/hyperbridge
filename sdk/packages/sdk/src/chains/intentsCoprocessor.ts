@@ -358,12 +358,6 @@ export interface PollPhantomOrdersOptions {
 	 */
 	maxBlocksPerPoll?: number
 	/**
-	 * How many blocks before the current head to start from on the first poll. Defaults to 0 (start
-	 * at the head). Set this to the runtime's bid window to have a restarting process pick up orders
-	 * whose window is still open.
-	 */
-	lookbackBlocks?: number
-	/**
 	 * How far the cursor may fall behind the head before it abandons the backlog and jumps to the
 	 * head. Off by default: the cursor otherwise advances only past blocks it really read, so an
 	 * outage delays orders rather than dropping them, which is what a consumer reading this feed as
@@ -1364,7 +1358,6 @@ export class IntentsCoprocessor {
 			intervalMs,
 			maxBlocksPerPoll = DEFAULT_MAX_BLOCKS_PER_POLL,
 			maxLagBlocks,
-			lookbackBlocks = 0,
 			onError,
 			onSkip,
 		} = options
@@ -1393,13 +1386,16 @@ export class IntentsCoprocessor {
 				const head = (await api.rpc.chain.getHeader()).number.toNumber()
 
 				if (cursor === null) {
-					// Start just below the head so the head itself is scanned, less any lookback.
-					cursor = Math.max(head - 1 - lookbackBlocks, -1)
+					// Start just below the head, so the head itself is the first block scanned. A
+					// process that restarts mid-window misses that window rather than reaching back
+					// for it: the orders it would find are the ones it already had no time to bid on.
+					cursor = Math.max(head - 1, -1)
 				} else if (maxLagBlocks !== undefined && head - cursor > maxLagBlocks) {
-					// Too far behind to be worth catching up on. Checked only once the cursor is
-					// established, so it can never fight the lookback a cold start just applied.
+					// Too far behind to be worth catching up on. Only reachable once the cursor is
+					// established, so a cold start — which lands exactly one block behind — is never
+					// mistaken for a backlog.
 					const from = cursor + 1
-					cursor = Math.max(head - 1 - lookbackBlocks, -1)
+					cursor = Math.max(head - 1, -1)
 					onSkip?.({ from, to: cursor, head })
 				}
 				if (head <= cursor) return

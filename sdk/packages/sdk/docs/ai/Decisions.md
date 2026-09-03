@@ -23,6 +23,11 @@ consumer that is reading history, including the outage test that pins the curren
 Alternative rejected — expose the lag and let the caller reset the poll. It moves the same decision one layer out
 while making every caller reimplement the jump, and the poll would still need the head it already reads.
 
+Removed in the same breath: `lookbackBlocks`, which started a cold cursor some blocks behind the head so a
+restarting process could still bid on a window already open. That is the same late bid the age gate downstream
+now refuses — a process that has just come up is, by definition, near the end of any window it reaches back for —
+so the option was buying exactly the behaviour this change exists to stop. No caller set it.
+
 ## 2026-09-01 — Verified V4 positions are reported out of the aggregation (#1159)
 
 Chosen: `aggregatePhantomBids` returns the tokenIds it verified alongside the balances it swept, and

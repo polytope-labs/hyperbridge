@@ -1,5 +1,11 @@
 # @hyperbridge/filler
 
+## 0.12.4
+
+### Patch Changes
+
+- Phantom bids are no longer placed on orders whose bid window has closed. A filler whose poll cursor fell behind the head kept bidding on orders thousands of blocks old: the extrinsic is accepted and reserves a deposit, but the aggregation read that order's bids when its window closed, so nothing counted them — the filler backed no pool for hours while its own logs reported bids submitted. Phantom order polling now abandons a backlog it cannot bid on and returns to the head, and any order older than the bid window is dropped before it is quoted, with a warning naming the lag.
+
 ## 0.12.3
 
 ### Patch Changes

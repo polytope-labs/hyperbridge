@@ -19,6 +19,9 @@ pub enum Error {
 	/// Converting the codec-wrapped tendermint proof into its native form failed.
 	#[error("Cannot convert tendermint consensus proof: {0}")]
 	ConvertTendermintProof(String),
+	/// Converting the stored codec trusted state into its native form failed.
+	#[error("Cannot convert tendermint trusted state: {0}")]
+	ConvertTrustedState(String),
 	/// `verify_header_update` rejected the tendermint header update.
 	#[error("Tendermint header update verification failed: {0}")]
 	VerifyHeaderUpdate(String),

@@ -16,7 +16,6 @@ pragma solidity ^0.8.24;
 
 import {IntentsBase} from "./IntentsBase.sol";
 import {TokenInfo, Order, Params, WithdrawalRequest, FillOptions} from "@hyperbridge/core/apps/IntentGatewayV2.sol";
-import {IDispatcher} from "@hyperbridge/core/interfaces/IDispatcher.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
@@ -51,6 +50,25 @@ abstract contract IntrinsicIntents is IntentsBase {
      * @param options The fill options containing the solver's output token amounts.
      * @param commitment The keccak256 hash of the ABI-encoded order.
      */
+    /**
+     * @dev Splits overpayment between the protocol and the beneficiary. An order carrying
+     * output calldata takes no beneficiary share, since the surplus is not the caller's to give.
+     *
+     * Extracted from `_fillSameChain` rather than inlined: that function sits one slot from
+     * the via-ir stack limit, and it only fit before because the `recordSpread` call at the
+     * end of `fillOrder` kept values live past the fill and happened to give the optimizer a
+     * layout that worked. Removing that call took the slack with it.
+     */
+    function _splitSurplus(uint256 dust, bool hasOutputCall)
+        private
+        view
+        returns (uint256 protocolShare, uint256 beneficiaryShare)
+    {
+        if (hasOutputCall) return (dust, 0);
+        protocolShare = (dust * _params.surplusShareBps) / 10_000;
+        beneficiaryShare = dust - protocolShare;
+    }
+
     function _fillSameChain(Order calldata order, FillOptions calldata options, bytes32 commitment) internal {
         uint256 outputsLen = order.output.assets.length;
 
@@ -83,13 +101,8 @@ abstract contract IntrinsicIntents is IntentsBase {
             uint256 protocolShare = 0;
             if (alreadyFilled == 0 && solverAmount > totalRequired) {
                 fillAmount = totalRequired;
-                uint256 dust = solverAmount - totalRequired;
-                if (order.output.call.length > 0) {
-                    protocolShare = dust;
-                } else {
-                    protocolShare = (dust * _params.surplusShareBps) / 10_000;
-                    beneficiaryShare = dust - protocolShare;
-                }
+                (protocolShare, beneficiaryShare) =
+                    _splitSurplus(solverAmount - totalRequired, order.output.call.length > 0);
             } else {
                 fillAmount = solverAmount > remaining ? remaining : solverAmount;
             }
@@ -129,7 +142,9 @@ abstract contract IntrinsicIntents is IntentsBase {
         if (order.output.call.length > 0 && !isFullyFilled) revert PartialFillNotAllowed();
 
         WithdrawalRequest memory body = WithdrawalRequest({
-            commitment: commitment, tokens: escrowedInputs, beneficiary: bytes32(uint256(uint160(msg.sender)))
+            commitment: commitment,
+            tokens: escrowedInputs,
+            beneficiary: bytes32(uint256(uint160(msg.sender)))
         });
         _withdraw(body, false, isFullyFilled);
 
@@ -151,20 +166,19 @@ abstract contract IntrinsicIntents is IntentsBase {
     /**
      * @dev Cancels a same-chain order and refunds the remaining escrowed tokens to the user.
      *
-     * Only the original order creator (order.user) may cancel. Verifies the order
-     * was placed on this chain, collects all remaining escrow balances (which may be
-     * reduced by prior partial fills), and issues a full refund via `_withdraw`.
+     * Only the original order creator (order.user) may cancel. Collects all remaining escrow
+     * balances (which may be reduced by prior partial fills) and issues a full refund via
+     * `_withdraw`. `cancelOrder` is the only caller and has already established that this chain
+     * is the order's source.
+     *
+     * `cancelOrder` has already emitted `OrderCancelled`; the `EscrowRefunded` of this refund
+     * follows it in the same transaction.
      *
      * @param order The order to cancel.
      * @param commitment The keccak256 hash of the ABI-encoded order.
      */
     function _cancelSameChain(Order calldata order, bytes32 commitment) internal {
         if (order.user != bytes32(uint256(uint160(msg.sender)))) revert Unauthorized();
-
-        address hostAddr = host();
-        bytes32 currentChain = keccak256(IDispatcher(hostAddr).host());
-        bytes32 orderSource = keccak256(order.source);
-        if (orderSource != currentChain) revert WrongChain();
 
         uint256 inputsLen = order.inputs.length;
         TokenInfo[] memory remainingTokens = new TokenInfo[](inputsLen);

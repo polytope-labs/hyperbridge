@@ -24,7 +24,7 @@ hex-literal = { workspace = true }
 ethabi = { workspace = true }
 hash256-std-hasher = { version = "0.15.2", default-features = false }
 codec = { workspace = true, default-features = false }
-polkadot-sdk = { workspace = true, features = ["sp-crypto-hashing", "sp-trie", "sp-runtime"] }
+polkadot-sdk = { workspace = true, features = ["sp-io", "sp-trie", "sp-runtime"] }
 sp-core = { workspace = true, default-features = false }
 primitive-types = { workspace = true }
 ibc-core-commitment-types = { workspace = true, default-features = false }

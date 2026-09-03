@@ -1,18 +1,63 @@
 export { IntentGateway } from "./IntentGateway"
+export {
+	InvalidLiquidityIndexerResponseError,
+	UnsupportedLiquidityAssetError,
+	UnsupportedLiquidityChainError,
+} from "./LiquidityEngine"
+export { poolSlug, sortPoolSymbols } from "./liquidity-pool"
 export { OrderStatusChecker } from "./OrderStatusChecker"
-export { UnsupportedIntentQuotePairError, UnsupportedIntentQuoteStrategyError } from "./quote"
+export {
+	InvalidIndexedRateError,
+	InvalidPhantomSnapshotError,
+	IndexedRateUnavailableError,
+	PhantomSnapshotUnavailableError,
+	UnsupportedIntentQuotePairError,
+	UnsupportedIntentQuoteStrategyError,
+} from "./quote"
 export type {
+	IndexedRateIntentQuoteMetadata,
+	IndexedRateQuoteIntentResult,
+	IndexedRateSide,
 	IntentQuoteStrategy,
-	IntentQuoteToken,
 	IntentQuoteTradeType,
 	QuoteIntentParams,
 	QuoteIntentResult,
+	PhantomSnapshotIntentQuoteMetadata,
+	PhantomSnapshotQuoteIntentResult,
 	UniswapV4IntentQuoteMetadata,
 	UniswapV4IntentQuoteOptions,
 	UniswapV4PoolKey,
+	UniswapV4QuoteIntentResult,
 } from "./quote"
-export { encodeERC7821ExecuteBatch, decodeERC7821ExecuteBatch, transformOrderForContract, fetchSourceProof, orderCommitment } from "./utils"
+export {
+	encodeERC7821ExecuteBatch,
+	decodeERC7821ExecuteBatch,
+	transformOrderForContract,
+	fetchSourceProof,
+	orderCommitment,
+} from "./utils"
 export { CryptoUtils, SELECT_SOLVER_TYPEHASH, PACKED_USEROP_TYPEHASH, DOMAIN_TYPEHASH } from "./CryptoUtils"
+export {
+	encodeFillOrder,
+	decodeFillOrder,
+	getFillOptionsVersion,
+	resetFillOptionsVersionCache,
+	LEGACY_FILL_OPTIONS_IMPLEMENTATIONS,
+	CHAINS_WITHOUT_VALID_UNTIL,
+	FILL_ORDER_V1_ABI,
+} from "./fillOrderCodec"
+export type { FillOptionsVersion } from "./fillOrderCodec"
+export {
+	encodeAcceptedSourceChains,
+	decodeAcceptedSourceChains,
+	encodePhantomBidDeclaration,
+	decodePhantomBidDeclaration,
+	applyUniswapQuoteHaircut,
+	applyPhantomQuoteHaircut,
+	UNISWAP_QUOTE_HAIRCUT_BPS,
+	PHANTOM_QUOTE_HAIRCUT_BPS,
+	type PhantomBidDeclaration,
+} from "./phantom-aggregation"
 export {
 	DEFAULT_GRAFFITI,
 	ERC7821_BATCH_MODE,

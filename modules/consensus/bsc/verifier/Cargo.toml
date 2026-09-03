@@ -26,7 +26,7 @@ ssz_types = { workspace = true, features = ["scale"] }
 
 [dependencies.polkadot-sdk]
 workspace = true
-features = ["sp-runtime", "sp-core"]
+features = ["sp-runtime", "sp-core", "sp-io"]
 
 [features]
 default = ["std"]

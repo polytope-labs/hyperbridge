@@ -1,5 +1,5 @@
 use core::time::Duration;
-use prost::alloc::{format, string::ToString};
+use prost::alloc::{collections::BTreeSet, format, string::ToString};
 
 use cometbft::{block::Height, chain::Id, trust_threshold::TrustThresholdFraction, Hash, Time};
 use cometbft_light_client_verifier::{
@@ -214,6 +214,20 @@ fn convert_timestamp(timestamp: u64) -> Result<Time, VerificationError> {
 		.map_err(|e| VerificationError::Invalid(e.to_string()))
 }
 
+/// Rejects a validator set that reuses the same address twice. Each address is a
+/// hash of its public key, so a duplicate signals a set that was not built honestly.
+fn ensure_unique_addresses(
+	validators: &[cometbft::validator::Info],
+) -> Result<(), VerificationError> {
+	let unique = validators.iter().map(|v| v.address).collect::<BTreeSet<_>>();
+	if unique.len() != validators.len() {
+		return Err(VerificationError::ValidatorSetError(
+			"duplicate validator address in set".to_string(),
+		));
+	}
+	Ok(())
+}
+
 fn create_updated_trusted_state(
 	old_trusted_state: &TrustedState,
 	consensus_proof: &ConsensusProof,
@@ -223,11 +237,29 @@ fn create_updated_trusted_state(
 	// Promote next_validators to validators
 	let validators = old_trusted_state.next_validators.clone();
 
-	// Use new next_validators if present, else keep old
-	let next_validators = consensus_proof
-		.next_validators
-		.clone()
-		.unwrap_or_else(|| old_trusted_state.next_validators.clone());
+	// Only a signalled rotation may replace the stored next set, and only with a list
+	// that hashes to the new signed next_validators_hash. When the interval is unchanged
+	// we keep the trusted set and ignore any list the proof happened to carry.
+	let old_next_hash = Hash::Sha256(old_trusted_state.next_validators_hash);
+	let rotates =
+		!header.next_validators_hash.is_empty() && header.next_validators_hash != old_next_hash;
+	let next_validators = if rotates {
+		let provided = consensus_proof.next_validators.as_ref().ok_or_else(|| {
+			VerificationError::ValidatorSetError(
+				"next validator set rotated but the proof carried no next validators".to_string(),
+			)
+		})?;
+		ensure_unique_addresses(provided)?;
+		validate_validator_set_hash(
+			&ValidatorSet::new(provided.clone(), None),
+			header.next_validators_hash,
+			true,
+		)
+		.map_err(|e| VerificationError::ValidatorSetError(e.to_string()))?;
+		provided.clone()
+	} else {
+		old_trusted_state.next_validators.clone()
+	};
 
 	// Use new next_validators_hash if present, else keep old
 	let next_validators_hash =
@@ -259,4 +291,43 @@ fn create_updated_trusted_state(
 		consensus_proof.height(),
 		consensus_proof.timestamp(),
 	))
+}
+
+#[cfg(test)]
+mod tests {
+	use super::ensure_unique_addresses;
+	use cometbft::{
+		validator::{Info, ProposerPriority},
+		vote::Power,
+		PublicKey,
+	};
+	use tendermint_primitives::account_id_from_public_key;
+
+	// A valid ed25519 public key (RFC 8032 test vector 1).
+	const ED25519_PUBKEY: [u8; 32] = [
+		0xd7, 0x5a, 0x98, 0x01, 0x82, 0xb1, 0x0a, 0xb7, 0xd5, 0x4b, 0xfe, 0xd3, 0xc9, 0x64, 0x07,
+		0x3a, 0x0e, 0xe1, 0x72, 0xf3, 0xda, 0xa6, 0x23, 0x25, 0xaf, 0x02, 0x1a, 0x68, 0xf7, 0x07,
+		0x51, 0x1a,
+	];
+
+	fn validator() -> Info {
+		let pub_key = PublicKey::from_raw_ed25519(&ED25519_PUBKEY).unwrap();
+		Info {
+			address: account_id_from_public_key(&pub_key).unwrap(),
+			pub_key,
+			power: Power::try_from(10u64).unwrap(),
+			name: None,
+			proposer_priority: ProposerPriority::from(0i64),
+		}
+	}
+
+	#[test]
+	fn accepts_unique_addresses() {
+		assert!(ensure_unique_addresses(&[validator()]).is_ok());
+	}
+
+	#[test]
+	fn rejects_duplicate_addresses() {
+		assert!(ensure_unique_addresses(&[validator(), validator()]).is_err());
+	}
 }

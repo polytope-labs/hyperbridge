@@ -16,11 +16,13 @@ pragma solidity ^0.8.17;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {IWETH} from "@hyperbridge/core/interfaces/IWETH.sol";
 
 contract GnosisUniswapV2Interface {
     using SafeERC20 for IERC20;
 
     error DepositFailed();
+    error WithdrawFailed();
     error MsgValueLessThanExactAmount();
 
     /**
@@ -52,6 +54,25 @@ contract GnosisUniswapV2Interface {
     }
 
     /**
+     * @dev The native token for Gnosis is xDAI, so this simply unwraps the
+     * supplied WXDAI and forwards the native token to the recipient.
+     */
+    function swapExactTokensForETH(uint256 amountIn, uint256, address[] calldata, address to, uint256)
+        external
+        returns (uint256[] memory)
+    {
+        IERC20(WETH()).safeTransferFrom(msg.sender, address(this), amountIn);
+        IWETH(WETH()).withdraw(amountIn);
+
+        (bool sent,) = to.call{value: amountIn}("");
+        if (!sent) revert WithdrawFailed();
+
+        uint256[] memory out = new uint256[](1);
+        out[0] = amountIn;
+        return out;
+    }
+
+    /**
      * @dev Returns the quoted amount for the dispatch.
      */
     function getAmountsIn(uint256 amountOut, address[] calldata) external pure returns (uint256[] memory) {
@@ -59,4 +80,7 @@ contract GnosisUniswapV2Interface {
         out[0] = amountOut;
         return out;
     }
+
+    /// @notice Accepts native xDAI from WXDAI during withdraw.
+    receive() external payable {}
 }

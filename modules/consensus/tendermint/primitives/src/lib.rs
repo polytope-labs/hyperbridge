@@ -1,6 +1,9 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 extern crate alloc;
 
+pub mod address;
+pub use address::account_id_from_public_key;
+
 pub mod verifier;
 pub use cometbft::{
 	PublicKey as PubKey,

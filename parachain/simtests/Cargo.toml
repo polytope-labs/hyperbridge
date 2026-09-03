@@ -34,6 +34,7 @@ pallet-ismp-rpc = { workspace = true }
 pallet-intents-rpc = { workspace = true }
 pallet-intents-coprocessor = { workspace = true, default-features = true }
 ismp-parachain = { workspace = true, default-features = true }
+pallet-beefy-consensus-proofs = { workspace = true, default-features = true }
 beefy-prover = { workspace = true }
 beefy-verifier-primitives = { workspace = true, default-features = true }
 ismp-abi = { workspace = true, default-features = true }

@@ -44,7 +44,9 @@ import {
  *
  * @dev The verification key is set at construction time as an immutable. Stale proofs
  * (where the commitment block number <= the trusted latest height) are treated as no-ops
- * and return the existing state with no intermediates.
+ * and return the existing state with no intermediates. The mmr leaf must be the leaf
+ * appended at the commitment's block (`parentNumber + 1 == blockNumber`); proofs carrying
+ * an older leaf are rejected with {StaleMmrLeaf}.
  */
 contract SP1Beefy is IConsensusV2, ERC165 {
     using HeaderImpl for Header;
@@ -57,6 +59,9 @@ contract SP1Beefy is IConsensusV2, ERC165 {
 
     // Provided authority set id was unknown
     error UnknownAuthoritySet();
+
+    // Provided mmr leaf is not the leaf appended at the commitment's block
+    error StaleMmrLeaf();
 
     // Genesis block should not be provided
     error IllegalGenesisBlock();
@@ -116,6 +121,8 @@ contract SP1Beefy is IConsensusV2, ERC165 {
         if (trustedState.latestHeight >= commitment.blockNumber) {
             return (trustedState, new IntermediateState[](0));
         }
+
+        if (uint256(proof.mmrLeaf.parentNumber) + 1 != commitment.blockNumber) revert StaleMmrLeaf();
 
         AuthoritySetCommitment memory authority;
         if (commitment.validatorSetId == trustedState.nextAuthoritySet.id) {

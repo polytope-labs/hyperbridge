@@ -23,6 +23,14 @@ use core::{
 };
 use ssz_types::{typenum::Unsigned, FixedVector};
 
+/// SCALE decoding is length checked.
+///
+/// The derived `Decode` delegates to `FixedVector`, whose own `Decode` rejects any value that is
+/// not exactly `N` elements. That check matters: the SSZ hash root is not sensitive to trailing
+/// zero bytes, since a value packs into `ceil(N / 32)` chunks whose tail is already zero padded.
+/// An over-length value therefore hashes identically and a consumer authenticating only by
+/// `hash_tree_root` would accept it, with the length going unnoticed until some later operation.
+/// `decode_length_tests` below pins the behaviour here, where it is relied upon.
 #[derive(Default, Clone, codec::Encode, codec::Decode)]
 pub struct ByteVector<N: Unsigned>(FixedVector<u8, N>);
 
@@ -196,5 +204,79 @@ impl From<&ByteVector<ssz_types::typenum::U32>> for tree_hash::Hash256 {
 impl From<ByteVector<ssz_types::typenum::U32>> for tree_hash::Hash256 {
 	fn from(bytes: ByteVector<ssz_types::typenum::U32>) -> Self {
 		tree_hash::Hash256::from_slice(bytes.as_ref())
+
+#[cfg(test)]
+mod decode_length_tests {
+	use super::*;
+	use codec::{Decode, Encode};
+
+	/// BLS public keys are the case that motivated this: 48 bytes, i.e. two SSZ chunks whose
+	/// second is half padding.
+	type N = ssz_types::typenum::U48;
+
+	fn encoded(len: usize) -> Vec<u8> {
+		vec![7u8; len].encode()
+	}
+
+	#[test]
+	fn accepts_exactly_n_bytes_and_round_trips() {
+		let original = ByteVector<N>::try_from(vec![7u8; 48]).expect("N bytes is valid");
+		let decoded = ByteVector<N>::decode(&mut &original.encode()[..]).expect("round trip");
+		assert_eq!(decoded, original);
+		assert_eq!(decoded.as_ref().len(), 48);
+	}
+
+	/// The reported vector: one trailing byte past `N`. The SSZ root is unchanged by it, so the
+	/// decode boundary is the only place this can be caught.
+	#[test]
+	fn rejects_one_byte_over() {
+		assert!(ByteVector<N>::decode(&mut &encoded(49)[..]).is_err());
+	}
+
+	/// Every length up to the next chunk boundary shares the 48-byte root, so each one has to
+	/// be rejected — not just the first.
+	#[test]
+	fn rejects_every_length_sharing_the_hash_root() {
+		for len in 49..=64 {
+			assert!(
+				ByteVector<N>::decode(&mut &encoded(len)[..]).is_err(),
+				"over-length value of {len} bytes was accepted",
+			);
+		}
+	}
+
+	#[test]
+	fn rejects_under_length() {
+		for len in [0usize, 1, 47] {
+			assert!(
+				ByteVector<N>::decode(&mut &encoded(len)[..]).is_err(),
+				"under-length value of {len} bytes was accepted",
+			);
+		}
+	}
+
+	/// An over-length value must not survive as a field of a larger SCALE struct either, since
+	/// that is how it arrives in a consensus update.
+	#[test]
+	fn rejects_when_nested_in_a_struct() {
+		#[derive(Encode)]
+		struct Wire {
+			key: Vec<u8>,
+			tail: u32,
+		}
+
+		#[derive(Decode)]
+		struct Parsed {
+			#[allow(dead_code)]
+			key: ByteVector<N>,
+			#[allow(dead_code)]
+			tail: u32,
+		}
+
+		let good = Wire { key: vec![7u8; 48], tail: 1 }.encode();
+		assert!(Parsed::decode(&mut &good[..]).is_ok());
+
+		let bad = Wire { key: vec![7u8; N + 1], tail: 1 }.encode();
+		assert!(Parsed::decode(&mut &bad[..]).is_err());
 	}
 }

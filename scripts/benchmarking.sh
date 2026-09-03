@@ -21,6 +21,8 @@ declare -a nexus=(
 "pallet_timestamp"
 "pallet_treasury"
 "pallet_utility"
+"pallet_hyper_fungible_token"
+"pallet_intents_coprocessor"
 )
 
 cargo build -rp hyperbridge -F=runtime-benchmarks
@@ -59,6 +61,7 @@ declare -a gargantua=(
 "pallet_treasury"
 "pallet_utility"
 "pallet_intents_coprocessor"
+"pallet_hyper_fungible_token"
 )
 
 # gargantua runtime

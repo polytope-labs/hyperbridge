@@ -173,7 +173,7 @@ The Casper FFG consensus protocol defines the finality rule for the Ethereum bea
 
 An epoch according to the protocol goes through three stages: unjustified, justified, and finalized. The genesis block is a special case, as it is already finalized by the protocol rules. Moreover, an epoch (source) can only be considered finalized if there exists a direct descendant epoch (target) that has been justified by a supermajority of the authority set.
 
-![Blocks b1 & b2 are finalized, while b3 is only justified.](/Screenshot_2023-05-09_at_3.12.19_PM.png)
+![Blocks b1 & b2 are finalized, while b3 is only justified.](./images/Screenshot_2023-05-09_at_3.12.19_PM.png)
 
 Blocks b1 & b2 are finalized, while b3 is only justified.
 
@@ -215,7 +215,7 @@ After verifying the aggregated public key SNARK proof $\pi$, the verifier can si
 
 The SNARK circuit itself simply performs elliptic curve affine additions of the BLS public keys and constrains these additions using a custom PLONK gate.
 
-![Screenshot 2023-05-10 at 11.52.59 AM.png](/sudoku.png)
+![Screenshot 2023-05-10 at 11.52.59 AM.png](../images/sudoku.png)
 
 The SNARK requires a pair of pairing-friendly elliptic curves: one for the BLS signature (the inner curve) and one for the SNARK itself (the outer curve). The paper recommends using the curves BLS12-377 and BW6-761. However, for the BLS12-381 keys used in the Casper FFG protocol, we must use the BW6-767 curve for the outer curve to avoid non-native field arithmetic that would significantly increase the number of constraints and, consequently, proving times. The protocol for aggregated public key proofs is formally defined below:
 

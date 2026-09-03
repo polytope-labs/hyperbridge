@@ -112,6 +112,15 @@ pub struct SubstrateCalldata {
 	pub runtime_call: Vec<u8>,
 }
 
+/// Setup the runtime provides so this pallet's benchmarks can work with a bridged asset.
+#[cfg(feature = "runtime-benchmarks")]
+pub trait BenchmarkHelper<T: Config> {
+	/// Creates an asset with the given metadata `decimals`, mints `amount` of it to `who` and
+	/// returns its id. `who` pays any asset creation and metadata deposits, so it must already
+	/// be funded with the native currency.
+	fn create_asset(decimals: u8, who: &T::AccountId, amount: u128) -> AssetId<T>;
+}
+
 /// Converts an EVM address to a substrate AccountId
 pub trait EvmToSubstrate<T: frame_system::Config> {
 	fn convert(addr: H160) -> T::AccountId;

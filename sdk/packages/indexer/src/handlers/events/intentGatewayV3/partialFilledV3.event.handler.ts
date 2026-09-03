@@ -23,22 +23,34 @@ export const handlePartialFilledEventV3 = wrap(async (event: PartialFillLog): Pr
 		})} by ${stringify({ filler })}`,
 	)
 
-	await IntentGatewayV3Service.recordPartialFill(
-		commitment,
-		filler as Hex,
-		outputs.map((token) => ({
-			token: token.token as Hex,
-			amount: BigInt(token.amount.toString()),
-		})),
-		inputs.map((token) => ({
-			token: token.token as Hex,
-			amount: BigInt(token.amount.toString()),
-		})),
-		{
-			transactionHash,
-			blockNumber,
+	const mappedOutputs = outputs.map((token) => ({
+		token: token.token as Hex,
+		amount: BigInt(token.amount.toString()),
+	}))
+	const mappedInputs = inputs.map((token) => ({
+		token: token.token as Hex,
+		amount: BigInt(token.amount.toString()),
+	}))
+
+	await IntentGatewayV3Service.recordPartialFill(commitment, filler as Hex, mappedOutputs, mappedInputs, {
+		transactionHash,
+		blockNumber,
+		timestamp,
+		logIndex,
+	})
+
+	// A partial fill spends the filler's output-token inventory exactly as a full one does, so the
+	// pools it drew on are re-read the same way. Best-effort: it reads external RPCs, and stale
+	// depth is recoverable — the next phantom bid window republishes it from scratch.
+	try {
+		await IntentGatewayV3Service.refreshPoolLiquidityAfterFill({
+			commitment,
+			inputs: mappedInputs,
+			outputs: mappedOutputs,
 			timestamp,
-			logIndex,
-		},
-	)
+			blockNumber,
+		})
+	} catch (e: any) {
+		logger.error(`Failed to refresh pool liquidity for partially filled order ${commitment}: ${e.message}`)
+	}
 })

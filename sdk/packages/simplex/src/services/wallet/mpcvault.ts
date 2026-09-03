@@ -1,6 +1,5 @@
-import { type HexString } from "@hyperbridge/sdk"
+import type { HexString } from "@hyperbridge/sdk"
 import { concatHex, keccak256, padHex, toHex } from "viem"
-import { toAccount, type Account } from "viem/accounts"
 import * as grpc from "@grpc/grpc-js"
 import {
 	PlatformAPIClient,
@@ -10,13 +9,54 @@ import {
 	type CreateSigningRequestResponse,
 	type ExecuteSigningRequestsRequest,
 	type ExecuteSigningRequestsResponse,
+	type RejectSigningRequestRequest,
+	type RejectSigningRequestResponse,
 	type SignatureContainer_ECDSASignature,
 } from "../../proto/mpcvault/platform/v1/api"
-import type { MpcVaultClientConfig, MpcVaultSignerConfig } from "./types"
+import { getLogger, type Logger } from "../Logger"
+import type { MpcVaultClientConfig } from "./types"
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+const EXECUTE_RETRY_ATTEMPTS = 2
+const EXECUTE_RETRY_BASE_DELAY_MS = 300
+
+function delay(ms: number): Promise<void> {
+	return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function isServiceError(err: unknown): err is grpc.ServiceError {
+	return typeof (err as grpc.ServiceError | undefined)?.code === "number"
+}
+
+/** Names the RPC, the signing request and MPCVault's x-request-id, so a failure is attributable from the order log alone. */
+function rpcFailure(rpc: string, err: unknown, uuid?: string): Error {
+	const context: string[] = []
+	if (uuid) context.push(`signing request ${uuid}`)
+	if (isServiceError(err)) {
+		const requestId = err.metadata?.get("x-request-id")?.[0]
+		if (requestId) context.push(`x-request-id ${requestId}`)
+	}
+	const detail = err instanceof Error ? err.message : String(err)
+	const failure = new Error(`MPCVault ${rpc} failed${context.length ? ` (${context.join(", ")})` : ""}: ${detail}`)
+	;(failure as { cause?: unknown }).cause = err
+	return failure
+}
+
+type MpcVaultApiError = NonNullable<CreateSigningRequestResponse["error"]>
+
+// Defensive: an Error carrying only a non-zero code with an empty message is
+// still a failure. Zero is UNSPECIFIED on both enums, not an error.
+function apiErrorText(error: MpcVaultApiError): string | undefined {
+	if (error.message) return error.message
+	if (error.serviceErrorCode) return `service error code ${error.serviceErrorCode}`
+	if (error.executeSigningRequestsErrorCode) {
+		return `execute error code ${error.executeSigningRequestsErrorCode}`
+	}
+	return undefined
+}
 
 function promisifyUnary<TReq, TRes>(
 	method: (
@@ -45,6 +85,7 @@ export class MpcVaultService {
 	private readonly callbackClientSignerPublicKey: string
 	private readonly client: PlatformAPIClient
 	private readonly metadata: grpc.Metadata
+	private readonly logger: Logger
 
 	constructor(config: MpcVaultClientConfig) {
 		this.vaultUuid = config.vaultUuid
@@ -52,7 +93,8 @@ export class MpcVaultService {
 		this.callbackClientSignerPublicKey = config.callbackClientSignerPublicKey
 
 		const grpcTarget = config.grpcTarget ?? "api.mpcvault.com:443"
-		this.client = new PlatformAPIClient(grpcTarget, grpc.credentials.createSsl())
+		this.client = new PlatformAPIClient(grpcTarget, config.credentials ?? grpc.credentials.createSsl())
+		this.logger = config.logger ?? getLogger("mpc-vault")
 
 		this.metadata = new grpc.Metadata()
 		this.metadata.add("x-mtoken", config.apiToken)
@@ -72,34 +114,84 @@ export class MpcVaultService {
 	// -----------------------------------------------------------------------
 
 	private async createSigningRequest(request: CreateSigningRequestRequest): Promise<string> {
-		const response = await promisifyUnary<CreateSigningRequestRequest, CreateSigningRequestResponse>(
-			this.client.createSigningRequest.bind(this.client),
-			request,
-			this.metadata,
-		)
+		let response: CreateSigningRequestResponse
+		try {
+			response = await promisifyUnary<CreateSigningRequestRequest, CreateSigningRequestResponse>(
+				this.client.createSigningRequest.bind(this.client),
+				request,
+				this.metadata,
+			)
+		} catch (err) {
+			throw rpcFailure("createSigningRequest", err)
+		}
 
-		if (response.error?.message) {
-			throw new Error(`MPCVault createSigningRequest error: ${response.error.message}`)
+		const errorText = response.error && apiErrorText(response.error)
+		if (errorText) {
+			throw new Error(`MPCVault createSigningRequest error: ${errorText}`)
 		}
 
 		const uuid = response.signingRequest?.uuid
 		if (!uuid) {
 			throw new Error("MPCVault createSigningRequest response did not include signing request uuid")
 		}
+		this.logger.debug({ uuid }, "MPCVault signing request created")
 		return uuid
 	}
 
+	// MPCVault intermittently rejects a uuid its own create just returned
+	// (INVALID_ARGUMENT "Invalid uuid"), before the callback co-signer is
+	// contacted. Those codes mean the server did nothing, so re-sending is safe
+	// and a short retry absorbs the lag.
 	private async executeSigningRequest(uuid: string): Promise<ExecuteSigningRequestsResponse> {
-		const response = await promisifyUnary<ExecuteSigningRequestsRequest, ExecuteSigningRequestsResponse>(
-			this.client.executeSigningRequests.bind(this.client),
-			{ uuid },
-			this.metadata,
-		)
+		for (let attempt = 0; ; attempt++) {
+			let response: ExecuteSigningRequestsResponse
+			try {
+				response = await promisifyUnary<ExecuteSigningRequestsRequest, ExecuteSigningRequestsResponse>(
+					this.client.executeSigningRequests.bind(this.client),
+					{ uuid },
+					this.metadata,
+				)
+			} catch (err) {
+				const retryable =
+					isServiceError(err) &&
+					(err.code === grpc.status.INVALID_ARGUMENT || err.code === grpc.status.NOT_FOUND)
+				if (retryable && attempt < EXECUTE_RETRY_ATTEMPTS) {
+					this.logger.warn(
+						{ uuid, attempt: attempt + 1, code: err.code, details: err.details },
+						"MPCVault rejected a just-created signing request; retrying",
+					)
+					await delay(EXECUTE_RETRY_BASE_DELAY_MS * (attempt + 1))
+					continue
+				}
+				await this.rejectAbandonedRequest(uuid)
+				throw rpcFailure("executeSigningRequests", err, uuid)
+			}
 
-		if (response.error?.message) {
-			throw new Error(`MPCVault executeSigningRequests error: ${response.error.message}`)
+			const errorText = response.error && apiErrorText(response.error)
+			if (errorText) {
+				throw new Error(`MPCVault executeSigningRequests error: ${errorText}`)
+			}
+			return response
 		}
-		return response
+	}
+
+	// A request that will never be executed stays PENDING in the vault — dead
+	// weight and a standing authorization to sign a stale payload. Best-effort:
+	// the original failure is what propagates.
+	private async rejectAbandonedRequest(uuid: string): Promise<void> {
+		try {
+			await promisifyUnary<RejectSigningRequestRequest, RejectSigningRequestResponse>(
+				this.client.rejectSigningRequest.bind(this.client),
+				{ uuid },
+				this.metadata,
+			)
+			this.logger.debug({ uuid }, "Rejected abandoned signing request")
+		} catch (err) {
+			this.logger.warn(
+				{ uuid, err },
+				"Could not reject abandoned signing request; it stays pending in the vault",
+			)
+		}
 	}
 
 	// -----------------------------------------------------------------------
@@ -268,68 +360,4 @@ export class MpcVaultService {
 		}
 		return this.normalizeHex(result.signedTransaction)
 	}
-}
-
-// ---------------------------------------------------------------------------
-// Account factory
-// ---------------------------------------------------------------------------
-
-function requireChainId(value: unknown, context: string): number {
-	if (typeof value === "number" && Number.isFinite(value)) return value
-	if (typeof value === "bigint") return Number(value)
-	throw new Error(`Missing chainId for MPCVault ${context}`)
-}
-
-export function createMpcVaultAccount(config: MpcVaultSignerConfig): { account: Account; service: MpcVaultService } {
-	const service = new MpcVaultService({
-		apiToken: config.apiToken,
-		vaultUuid: config.vaultUuid,
-		accountAddress: config.accountAddress,
-		callbackClientSignerPublicKey: config.callbackClientSignerPublicKey,
-		grpcTarget: config.grpcTarget,
-	})
-
-	const account = toAccount({
-		address: config.accountAddress,
-		async signMessage({ message }): Promise<HexString> {
-			const raw = typeof message === "object" && "raw" in message ? (message.raw as HexString) : undefined
-			if (!raw) {
-				throw new Error("MPCVault signer requires message.raw for signMessage")
-			}
-			throw new Error(
-				"MPCVault does not support signMessage without chain context. Use the top-level signMessage(messageHash, chainId).",
-			)
-		},
-		async signTransaction(transaction): Promise<HexString> {
-			const params = transaction as {
-				chainId?: number | bigint
-				to?: HexString
-				value?: bigint
-				data?: HexString
-				nonce?: number
-				gas?: bigint
-				maxFeePerGas?: bigint
-				maxPriorityFeePerGas?: bigint
-			}
-			return service.signTransaction({
-				chainId: requireChainId(params.chainId, "transaction signing"),
-				to: params.to,
-				value: params.value,
-				data: params.data,
-				nonce: params.nonce,
-				gasLimit: params.gas,
-				maxFeePerGas: params.maxFeePerGas,
-				maxPriorityFeePerGas: params.maxPriorityFeePerGas,
-			})
-		},
-		async signTypedData(typedDataDefinition): Promise<HexString> {
-			const typedData = typedDataDefinition as {
-				domain?: { chainId?: number | bigint }
-			}
-			const chainId = requireChainId(typedData.domain?.chainId, "typed-data signing")
-			return service.signTypedData(JSON.stringify(typedDataDefinition), chainId)
-		},
-	})
-
-	return { account, service }
 }

@@ -509,6 +509,11 @@ export const INTENT_GATEWAY_V2_ABI = [
 						internalType: "uint256",
 					},
 					{
+						name: "validUntil",
+						type: "uint256",
+						internalType: "uint256",
+					},
+					{
 						name: "outputs",
 						type: "tuple[]",
 						internalType: "struct TokenInfo[]",
@@ -1535,6 +1540,24 @@ export const INTENT_GATEWAY_V2_ABI = [
 						internalType: "uint256",
 					},
 				],
+			},
+			{
+				name: "predispatchCall",
+				type: "bytes",
+				indexed: false,
+				internalType: "bytes",
+			},
+			{
+				name: "outputCall",
+				type: "bytes",
+				indexed: false,
+				internalType: "bytes",
+			},
+			{
+				name: "graffiti",
+				type: "bytes32",
+				indexed: false,
+				internalType: "bytes32",
 			},
 		],
 		anonymous: false,

@@ -155,9 +155,11 @@ pub struct CodecTrustedState {
 	pub verification_options: VerificationOptions,
 }
 
-impl From<CodecTrustedState> for TrustedState {
-	fn from(codec_state: CodecTrustedState) -> Self {
-		Self {
+impl TryFrom<CodecTrustedState> for TrustedState {
+	type Error = String;
+
+	fn try_from(codec_state: CodecTrustedState) -> Result<Self, Self::Error> {
+		Ok(Self {
 			chain_id: codec_state.chain_id,
 			height: codec_state.height,
 			timestamp: codec_state.timestamp,
@@ -165,17 +167,17 @@ impl From<CodecTrustedState> for TrustedState {
 			validators: codec_state
 				.validators
 				.into_iter()
-				.map(|v| v.to_validator().expect("Failed to convert CodecValidator to Validator"))
-				.collect(),
+				.map(|v| v.to_validator())
+				.collect::<Result<Vec<_>, _>>()?,
 			next_validators: codec_state
 				.next_validators
 				.into_iter()
-				.map(|v| v.to_validator().expect("Failed to convert CodecValidator to Validator"))
-				.collect(),
+				.map(|v| v.to_validator())
+				.collect::<Result<Vec<_>, _>>()?,
 			next_validators_hash: codec_state.next_validators_hash,
 			trusting_period: codec_state.trusting_period,
 			verification_options: codec_state.verification_options,
-		}
+		})
 	}
 }
 
@@ -537,12 +539,24 @@ impl CodecCommitSig {
 
 impl CodecValidator {
 	/// Convert back to Validator
+	///
+	/// The address is only ever a function of the public key, so we recompute it
+	/// and reject anything that does not match. Without this a caller could keep a
+	/// genuine key and power while swapping in an address of their choosing, which
+	/// the signed validator set hash does not commit to.
 	pub fn to_validator(&self) -> Result<Validator, String> {
 		let address = cometbft::account::Id::try_from(self.address.to_vec())
 			.map_err(|e| format!("Invalid validator address: {}", e))?;
 		let pub_key = self.pub_key.to_public_key()?;
 		let power = cometbft::vote::Power::try_from(self.power)
 			.map_err(|e| format!("Invalid validator power: {}", e))?;
+
+		let derived = crate::address::account_id_from_public_key(&pub_key)
+			.ok_or_else(|| "Unsupported validator public key type".to_string())?;
+		if address != derived {
+			return Err("Validator address is not derived from its public key".to_string());
+		}
+
 		Ok(Validator {
 			address,
 			pub_key,
@@ -894,4 +908,39 @@ pub enum VerificationError {
 	/// Configuration error
 	#[error("Configuration error: {0}")]
 	ConfigurationError(String),
+}
+
+#[cfg(test)]
+mod tests {
+	use super::{CodecPublicKey, CodecValidator};
+	use crate::address::account_id_from_public_key;
+	use alloc::{vec, vec::Vec};
+
+	// A valid ed25519 public key (RFC 8032 test vector 1).
+	const ED25519_PUBKEY: [u8; 32] = [
+		0xd7, 0x5a, 0x98, 0x01, 0x82, 0xb1, 0x0a, 0xb7, 0xd5, 0x4b, 0xfe, 0xd3, 0xc9, 0x64, 0x07,
+		0x3a, 0x0e, 0xe1, 0x72, 0xf3, 0xda, 0xa6, 0x23, 0x25, 0xaf, 0x02, 0x1a, 0x68, 0xf7, 0x07,
+		0x51, 0x1a,
+	];
+
+	fn codec_validator(address: Vec<u8>) -> CodecValidator {
+		CodecValidator {
+			address,
+			pub_key: CodecPublicKey::Ed25519(ED25519_PUBKEY.to_vec()),
+			power: 10,
+			name: None,
+		}
+	}
+
+	#[test]
+	fn accepts_address_derived_from_public_key() {
+		let pub_key = CodecPublicKey::Ed25519(ED25519_PUBKEY.to_vec()).to_public_key().unwrap();
+		let derived = account_id_from_public_key(&pub_key).unwrap();
+		assert!(codec_validator(derived.as_bytes().to_vec()).to_validator().is_ok());
+	}
+
+	#[test]
+	fn rejects_address_not_derived_from_public_key() {
+		assert!(codec_validator(vec![0x42u8; 20]).to_validator().is_err());
+	}
 }

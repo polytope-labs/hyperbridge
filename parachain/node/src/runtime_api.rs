@@ -80,6 +80,7 @@ pub trait BaseHostRuntimeApis:
 	+ OffchainWorkerApi<opaque::Block>
 	+ SessionKeys<opaque::Block>
 	+ CollectCollationInfo<opaque::Block>
+	+ cumulus_primitives_core::KeyToIncludeInRelayProof<opaque::Block>
 	+ TransactionPaymentRuntimeApi<opaque::Block, opaque::Balance>
 	+ ismp_parachain_runtime_api::IsmpParachainApi<opaque::Block>
 	+ pallet_ismp_runtime_api::IsmpRuntimeApi<opaque::Block, H256>
@@ -107,6 +108,7 @@ impl<Api> BaseHostRuntimeApis for Api where
 		+ OffchainWorkerApi<opaque::Block>
 		+ SessionKeys<opaque::Block>
 		+ CollectCollationInfo<opaque::Block>
+		+ cumulus_primitives_core::KeyToIncludeInRelayProof<opaque::Block>
 		+ TransactionPaymentRuntimeApi<opaque::Block, opaque::Balance>
 		+ ismp_parachain_runtime_api::IsmpParachainApi<opaque::Block>
 		+ pallet_ismp_runtime_api::IsmpRuntimeApi<opaque::Block, H256>

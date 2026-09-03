@@ -142,6 +142,87 @@ export class CryptoUtils {
 	}
 
 	/**
+	 * Derives the ERC-4337 nonce key that binds a bid UserOperation to its
+	 * order and session key: the lower 192 bits of
+	 * `keccak256(commitment ‖ sessionKey)`. `SolverAccount` rejects bid
+	 * operations whose nonce key differs — this is what lets the solver sign
+	 * the plain userOpHash while staying committed to the order and to the
+	 * session key it bid against.
+	 *
+	 * @param commitment - The order commitment (`order.id`).
+	 * @param sessionKey - The order's session key address (`order.session`).
+	 * @returns The 192-bit nonce key as a bigint (pass to `EntryPoint.getNonce`).
+	 */
+	static bidNonceKey(commitment: HexString, sessionKey: HexString): bigint {
+		return BigInt(keccak256(encodePacked(["bytes32", "address"], [commitment, sessionKey]))) & ((1n << 192n) - 1n)
+	}
+
+	/**
+	 * Builds the EIP-712 typed-data payload whose digest is the EntryPoint v0.8
+	 * `userOpHash` (i.e. `hashTypedData(packedUserOpTypedData(...)) ===
+	 * computeUserOpHash(...)`). Signing this typed data is bit-identical to
+	 * signing the raw userOpHash, but keeps the full operation visible to
+	 * signing infrastructure (hardware wallets, MPC/TEE policy engines) instead
+	 * of an opaque 32-byte digest.
+	 *
+	 * The payload must be a standard self-describing `eth_signTypedData_v4`
+	 * payload — `EIP712Domain` listed in `types`, `chainId` as a JSON number —
+	 * because some signing backends (e.g. MPC Vault) hash it server-side from
+	 * the JSON rather than locally via viem. viem ignores both details when
+	 * hashing, so the digest is unchanged for local signers.
+	 *
+	 * @param userOp - The packed UserOperation to sign (signature field ignored).
+	 * @param entryPoint - Address of the EntryPoint v0.8 contract.
+	 * @param chainId - Chain ID of the network on which the operation will execute.
+	 * @returns A viem `TypedDataDefinition` for the operation.
+	 */
+	static packedUserOpTypedData(userOp: PackedUserOperation, entryPoint: Hex, chainId: bigint) {
+		return {
+			domain: {
+				name: "ERC4337",
+				version: "1",
+				// Runtime number so JSON.stringify emits a canonical v4 numeric chainId for
+				// server-side hashers; viem's uint256 type mapping wants bigint but its
+				// runtime accepts numbers, hence the cast.
+				chainId: Number(chainId) as unknown as bigint,
+				verifyingContract: entryPoint,
+			},
+			// `as const`: viem derives the domain's TYPE from `types.EIP712Domain`, so the
+			// entries must stay string literals — widened `string` fields make viem's
+			// typed-data generics reject the payload at every call site.
+			types: {
+				EIP712Domain: [
+					{ name: "name", type: "string" },
+					{ name: "version", type: "string" },
+					{ name: "chainId", type: "uint256" },
+					{ name: "verifyingContract", type: "address" },
+				],
+				PackedUserOperation: [
+					{ name: "sender", type: "address" },
+					{ name: "nonce", type: "uint256" },
+					{ name: "initCode", type: "bytes" },
+					{ name: "callData", type: "bytes" },
+					{ name: "accountGasLimits", type: "bytes32" },
+					{ name: "preVerificationGas", type: "uint256" },
+					{ name: "gasFees", type: "bytes32" },
+					{ name: "paymasterAndData", type: "bytes" },
+				],
+			} as const,
+			primaryType: "PackedUserOperation" as const,
+			message: {
+				sender: userOp.sender,
+				nonce: userOp.nonce,
+				initCode: userOp.initCode,
+				callData: userOp.callData,
+				accountGasLimits: userOp.accountGasLimits,
+				preVerificationGas: userOp.preVerificationGas,
+				gasFees: userOp.gasFees,
+				paymasterAndData: userOp.paymasterAndData,
+			},
+		}
+	}
+
+	/**
 	 * Computes the EIP-712 struct hash of a `PackedUserOperation`.
 	 *
 	 * Hashes dynamic fields (`initCode`, `callData`, `paymasterAndData`) before

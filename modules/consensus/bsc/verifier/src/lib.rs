@@ -22,7 +22,7 @@ use alloc::vec::Vec;
 use bls_utils::aggregate_public_keys;
 use geth_primitives::{CodecHeader, Header};
 use ismp::messaging::Keccak256;
-use primitives::{parse_extra, BscClientUpdate, Config, VALIDATOR_BIT_SET_SIZE};
+use primitives::{compute_epoch, parse_extra, BscClientUpdate, Config, VALIDATOR_BIT_SET_SIZE};
 use sp_core::H256;
 use ssz::Decode;
 use ssz_types::BitVector;
@@ -212,6 +212,38 @@ pub fn verify_bsc_header<H: Keccak256, C: Config>(
 	})
 }
 
+/// Enforce that `finalized_height` never runs ahead of the validator set the client holds.
+///
+/// A BSC epoch-N validator set signs for `current_epoch` and remains valid into the first half of
+/// `current_epoch + 1` (until the mid-epoch rotation block), so an update finalizing a header early
+/// in the next epoch verifies fine against it. But the client may only *rely* on that overlap once
+/// the next set has been staged (`next_validators_staged`) so the rotation can subsequently be
+/// enacted. An update that finalizes a header in a new epoch without staging that rotation leaves
+/// `current_epoch`/`current_validators` a full epoch behind `finalized_height`; the relayer derives
+/// its sync target from `max(epoch(finalized_height), current_epoch)`, so it would skip the
+/// un-staged epoch forever and the client would be permanently stuck (also a griefing vector).
+///
+/// The finalized height may therefore cross an epoch boundary only via a validator-set-staging
+/// (sync) update, and by at most one epoch: `epoch(finalized_height) <= current_epoch +
+/// next_validators_staged`.
+pub fn ensure_finalized_epoch_consistent(
+	finalized_height: u64,
+	current_epoch: u64,
+	next_validators_staged: bool,
+	epoch_length: u64,
+) -> Result<(), Error> {
+	let finalized_epoch = compute_epoch(finalized_height, epoch_length);
+	let max_finalized_epoch = current_epoch + next_validators_staged as u64;
+	if finalized_epoch > max_finalized_epoch {
+		return Err(Error::StaleValidatorSet {
+			finalized_epoch,
+			current_epoch,
+			next_validators_staged,
+		});
+	}
+	Ok(())
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -221,11 +253,11 @@ mod tests {
 	use primitive_types::{H160, H256, U256};
 	use primitives::{Testnet, VoteAttestationData, VoteData};
 
-	/// `sp_core::keccak_256` host wired into the `Keccak256` trait.
+	/// `sp_io::hashing::keccak_256` host wired into the `Keccak256` trait.
 	struct TestHost;
 	impl Keccak256 for TestHost {
 		fn keccak256(bytes: &[u8]) -> H256 {
-			sp_core::keccak_256(bytes).into()
+			sp_io::hashing::keccak_256(bytes).into()
 		}
 	}
 

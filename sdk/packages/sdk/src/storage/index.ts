@@ -13,6 +13,7 @@ import {
 import type { IGetRequest, HexString } from "@/types"
 import type { IProof } from "@/chain"
 import type { CancellationStorageOptions, SessionKeyStorageOptions, StorageDriverKey } from "@/storage/types"
+import { normalizeStateMachineId } from "@/utils"
 
 /**
  * Encode IGetRequest to hex string using scale codec
@@ -76,6 +77,8 @@ export function createCancellationStorage(options: CancellationStorageOptions = 
 			return decoded as T
 		}
 
+		if (key.includes("postCommitment")) return value as T
+
 		throw new Error(`Unknown storage key type: ${key}`)
 	}
 
@@ -89,6 +92,11 @@ export function createCancellationStorage(options: CancellationStorageOptions = 
 		if (key.includes("Proof") && value && typeof value === "object") {
 			const encoded = encodeIProof(value as IProof)
 			await baseStorage.setItem(key, encoded)
+			return
+		}
+
+		if (key.includes("postCommitment") && typeof value === "string") {
+			await baseStorage.setItem(key, value)
 			return
 		}
 
@@ -108,11 +116,42 @@ export function createCancellationStorage(options: CancellationStorageOptions = 
 }
 
 export const STORAGE_KEYS = Object.freeze({
-	destProof: (orderId: string) => `cancel-order:${orderId}:destProof`,
-	getRequest: (orderId: string) => `cancel-order:${orderId}:getRequest`,
-	sourceProof: (orderId: string) => `cancel-order:${orderId}:sourceProof`,
-	postCommitment: (orderId: string) => `cancel-order:${orderId}:postCommitment`,
+	destProof: (orderId: string, source?: string, destination?: string) =>
+		`cancel-order:${cancellationScope(orderId, source, destination)}:destProof`,
+	getRequest: (orderId: string, source?: string, destination?: string) =>
+		`cancel-order:${cancellationScope(orderId, source, destination)}:getRequest`,
+	sourceProof: (orderId: string, source?: string, destination?: string) =>
+		`cancel-order:${cancellationScope(orderId, source, destination)}:sourceProof`,
+	postCommitment: (orderId: string, source?: string, destination?: string) =>
+		`cancel-order:${cancellationScope(orderId, source, destination)}:postCommitment`,
 })
+
+/** Storage key shapes written by SDK versions before state-machine IDs were normalized. */
+export const LEGACY_STORAGE_KEYS = Object.freeze({
+	destProof: (orderId: string, source?: string, destination?: string) =>
+		`cancel-order:${legacyCancellationScope(orderId, source, destination)}:destProof`,
+	getRequest: (orderId: string, source?: string, destination?: string) =>
+		`cancel-order:${legacyCancellationScope(orderId, source, destination)}:getRequest`,
+	sourceProof: (orderId: string, source?: string, destination?: string) =>
+		`cancel-order:${legacyCancellationScope(orderId, source, destination)}:sourceProof`,
+	postCommitment: (orderId: string, source?: string, destination?: string) =>
+		`cancel-order:${legacyCancellationScope(orderId, source, destination)}:postCommitment`,
+})
+
+/**
+ * An order id is not sufficient storage scope when the same id is observed on
+ * more than one chain pair. Keep the legacy unscoped shape when callers do not
+ * provide a pair so existing consumers can migrate incrementally.
+ */
+function cancellationScope(orderId: string, source?: string, destination?: string): string {
+	if (!source || !destination) return orderId
+	return `${orderId}:${encodeURIComponent(normalizeStateMachineId(source))}:${encodeURIComponent(normalizeStateMachineId(destination))}`
+}
+
+function legacyCancellationScope(orderId: string, source?: string, destination?: string): string {
+	if (!source || !destination) return orderId
+	return `${orderId}:${encodeURIComponent(source)}:${encodeURIComponent(destination)}`
+}
 
 /**
  * Creates a simple string-based storage for tracking used user operations per commitment.

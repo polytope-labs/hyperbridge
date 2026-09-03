@@ -11,6 +11,9 @@ importers:
       '@hyperbridge/core':
         specifier: file:../sdk/packages/core
         version: file:../sdk/packages/core
+      '@openzeppelin/community-contracts':
+        specifier: github:OpenZeppelin/openzeppelin-community-contracts#9e1baed
+        version: https://codeload.github.com/OpenZeppelin/openzeppelin-community-contracts/tar.gz/9e1baed
       '@openzeppelin/contracts':
         specifier: ^5.4.0
         version: 5.4.0
@@ -205,6 +208,10 @@ packages:
   '@nomicfoundation/solidity-analyzer@0.1.2':
     resolution: {integrity: sha512-q4n32/FNKIhQ3zQGGw5CvPF6GTvDCpYwIf7bEY/dZTZbgfDsHyjJwURxUJf3VQuuJj+fDIFl4+KkBVbw4Ef6jA==}
     engines: {node: '>= 12'}
+
+  '@openzeppelin/community-contracts@https://codeload.github.com/OpenZeppelin/openzeppelin-community-contracts/tar.gz/9e1baed':
+    resolution: {tarball: https://codeload.github.com/OpenZeppelin/openzeppelin-community-contracts/tar.gz/9e1baed}
+    version: 0.0.1
 
   '@openzeppelin/contracts-upgradeable@5.6.1':
     resolution: {integrity: sha512-n4a/vfRs114lXyUdYg7pyY8LvFKWvCDF5lEcRRAVxap8g6ZEdLqm+9tmt2zTtRHcNMxTYp9y5t6KBof4tHp7Og==}
@@ -1188,6 +1195,8 @@ snapshots:
       '@nomicfoundation/solidity-analyzer-linux-x64-gnu': 0.1.2
       '@nomicfoundation/solidity-analyzer-linux-x64-musl': 0.1.2
       '@nomicfoundation/solidity-analyzer-win32-x64-msvc': 0.1.2
+
+  '@openzeppelin/community-contracts@https://codeload.github.com/OpenZeppelin/openzeppelin-community-contracts/tar.gz/9e1baed': {}
 
   '@openzeppelin/contracts-upgradeable@5.6.1(@openzeppelin/contracts@5.4.0)':
     dependencies:

@@ -1,6 +1,6 @@
+import { OrderScanner } from "@/scanner/order-scanner"
 import { IntentFiller } from "@/core/filler"
 import {
-	BidStorageService,
 	CacheService,
 	ChainClientManager,
 	ContractInteractionService,
@@ -8,8 +8,11 @@ import {
 	type ResolvedChainConfig,
 	type FillerConfig as FillerServiceConfig,
 } from "@/services"
-import { createSimplexSigner, SignerType } from "@/services/wallet"
-import { FXFiller } from "@/strategies/fx"
+import { SqliteDataStore } from "@/data/sqlite"
+import { createSigner, SignerType } from "@/services/wallet"
+import { FXFiller, type TradingPair } from "@/strategies/fx"
+import { AssetRegistry } from "@/config/asset-registry"
+import { Decimal } from "decimal.js"
 import {
 	type ChainConfig,
 	type FillerConfig,
@@ -22,12 +25,18 @@ import {
 	IntentGateway,
 	IntentsCoprocessor,
 	DEFAULT_GRAFFITI,
+	ChainConfigService,
 } from "@hyperbridge/sdk"
-import { describe, it, expect } from "vitest"
+import { beforeAll, describe, it, expect } from "vitest"
 import { ConfirmationPolicy, FillerPricePolicy } from "@/config/interpolated-curve"
 import {
+	createPublicClient,
+	createWalletClient,
+	formatUnits,
 	getContract,
+	http,
 	maxUint256,
+	parseAbi,
 	parseUnits,
 	type PublicClient,
 	type WalletClient,
@@ -35,11 +44,111 @@ import {
 	keccak256,
 	toHex,
 } from "viem"
+import { bscTestnet, polygonAmoy } from "viem/chains"
 import { INTENT_GATEWAY_V2_ABI } from "@/config/abis/IntentGatewayV2"
 import { privateKeyToAccount } from "viem/accounts"
 import "../setup"
 import { pimlicoBundlerUrlForChain as bundlerUrl } from "../pimlicoBundler"
 import { ERC20_ABI } from "@/config/abis/ERC20"
+
+/** Builds an exotic-pair set + registry for tests: `token1` addresses traded against USDC and USDT. */
+function exoticPairs(
+	resolver: FillerConfigService,
+	token1: Record<string, HexString>,
+	maxOrderSize: number,
+	bidPricePolicy?: FillerPricePolicy,
+	askPricePolicy?: FillerPricePolicy,
+): { pairs: TradingPair[]; registry: AssetRegistry } {
+	const registry = new AssetRegistry(resolver, { EXOTIC: token1 })
+	const pairs: TradingPair[] = ["USDC", "USDT"].map((token0) => ({
+		token0,
+		token1: "EXOTIC",
+		maxOrderSize: new Decimal(maxOrderSize),
+		bidPricePolicy,
+		askPricePolicy,
+	}))
+	return { pairs, registry }
+}
+
+
+// ── Self-funding ─────────────────────────────────────────────────────────────
+//
+// Each run burns USD.h from the CI wallet on BOTH sides of the trade: ~0.1 on
+// BSC Chapel placing the order (fees + escrow) and ~0.006 on Polygon Amoy
+// paying the exotic output. Both tokens are per-chain USD.h deployments with a
+// TokenFaucet holding their MINTER role — note the faucet GENERATION differs
+// per chain (Chapel runs the current faucet, Amoy still the previous one; both
+// verified on-chain). Each faucet mints 1000 USD.h per address per day, so the
+// suite tops itself up instead of dying mid-flow with an opaque ERC20 revert
+// ("transfer amount exceeds balance" at placeOrder, or a silent skip with
+// "insufficient balance for full fill" on the fill side).
+const FUNDING_TARGETS = [
+	{
+		chainId: "EVM-97",
+		viemChain: bscTestnet,
+		rpcEnvKey: "BSC_CHAPEL",
+		faucet: "0x1794aB22388303ce9Cb798bE966eeEBeFe59C3a3" as HexString,
+		/** Refill threshold — ~100 runs' worth of placements. */
+		min: parseUnits("10", 18),
+		/** Below one run's worth, a failed drip is fatal. */
+		runnable: parseUnits("1", 18),
+	},
+	{
+		chainId: "EVM-80002",
+		viemChain: polygonAmoy,
+		rpcEnvKey: "POLYGON_AMOY",
+		faucet: "0xcb00f5b86aac5E2fdCa9dC7f34d9bFe00b967c18" as HexString,
+		min: parseUnits("10", 18),
+		runnable: parseUnits("0.01", 18),
+	},
+] as const
+
+beforeAll(async () => {
+	const key = process.env.PRIVATE_KEY as HexString | undefined
+	if (!key) return // env-less runs surface their own errors below
+	const account = privateKeyToAccount(key)
+	const configService = new ChainConfigService(process.env)
+
+	for (const target of FUNDING_TARGETS) {
+		const rpcUrl = process.env[target.rpcEnvKey]
+		if (!rpcUrl) continue
+		const token = configService.getUsdcAsset(target.chainId)
+		const transport = http(rpcUrl)
+		const publicClient = createPublicClient({ chain: target.viemChain, transport })
+		const balance = (await publicClient.readContract({
+			address: token,
+			abi: ERC20_ABI,
+			functionName: "balanceOf",
+			args: [account.address],
+		})) as bigint
+		if (balance >= target.min) continue
+
+		try {
+			const walletClient = createWalletClient({ chain: target.viemChain, transport, account })
+			const hash = await walletClient.writeContract({
+				chain: target.viemChain,
+				account,
+				address: target.faucet,
+				abi: parseAbi(["function drip(address token)"]),
+				functionName: "drip",
+				args: [token],
+			})
+			await publicClient.waitForTransactionReceipt({ hash, timeout: 90_000 })
+			console.log(`[self-funding] dripped 1000 USD.h to ${account.address} on ${target.chainId} (${hash})`)
+		} catch (err) {
+			// Each faucet drips once per address per day — a cooldown revert is
+			// fine as long as the balance still covers this run.
+			if (balance < target.runnable) {
+				throw new Error(
+					`CI wallet ${account.address} holds ${formatUnits(balance, 18)} USD.h on ${target.chainId} and the ` +
+						`faucet drip failed (daily cooldown?). Fund it manually: drip(${token}) on TokenFaucet ` +
+						`${target.faucet}. Cause: ${err instanceof Error ? err.message : String(err)}`,
+				)
+			}
+			console.warn(`[self-funding] drip unavailable on ${target.chainId}; existing balance still covers this run`)
+		}
+	}
+}, 240_000)
 
 // ============================================================================
 // Test Suites
@@ -64,7 +173,12 @@ describe("Filler V2 FX - USDC -> Exotic (BSC Chapel -> Polygon Amoy)", () => {
 			contractService,
 		} = await setUp()
 
-		const intentFiller = await createFxIntentFiller(chainConfigs, fillerConfig, chainConfigService, polygonAmoyId)
+		const { filler: intentFiller, orderScanner } = await createFxIntentFiller(
+			chainConfigs,
+			fillerConfig,
+			chainConfigService,
+			polygonAmoyId,
+		)
 		await intentFiller.initialize()
 		intentFiller.start()
 
@@ -88,7 +202,7 @@ describe("Filler V2 FX - USDC -> Exotic (BSC Chapel -> Polygon Amoy)", () => {
 		const beneficiaryAddress = privateKeyToAccount(privateKey).address
 		const beneficiary = bytes20ToBytes32(beneficiaryAddress)
 
-		let order: Order = {
+		const order: Order = {
 			user: bytes20ToBytes32(beneficiaryAddress),
 			source: toHex(bscChapelId),
 			destination: toHex(polygonAmoyId),
@@ -143,9 +257,13 @@ describe("Filler V2 FX - USDC -> Exotic (BSC Chapel -> Polygon Amoy)", () => {
 		}
 		let userOpHash: HexString | undefined
 		let selectedSolver: HexString | undefined
+		let finalizedOrder: Order | undefined
 		while (!result.done) {
 			if (result.value && "status" in result.value) {
 				const status = result.value
+				if (status.status === "ORDER_PLACED") {
+					finalizedOrder = status.order
+				}
 				if (status.status === "BID_SELECTED") {
 					selectedSolver = status.selectedSolver as HexString
 					userOpHash = status.userOpHash as HexString
@@ -166,15 +284,18 @@ describe("Filler V2 FX - USDC -> Exotic (BSC Chapel -> Polygon Amoy)", () => {
 		}
 		expect(userOpHash).toBeDefined()
 		expect(selectedSolver).toBeDefined()
+		const finalizedOrderId = finalizedOrder?.id
+		expect(finalizedOrderId).toBeDefined()
 
 		const isFilled = await pollForOrderFilled(
-			order.id as HexString,
+			finalizedOrderId as HexString,
 			polygonAmoyPublicClient,
 			chainConfigService.getIntentGatewayAddress(polygonAmoyId),
 		)
 		expect(isFilled).toBe(true)
 
 		await intentFiller.stop()
+		await orderScanner.close()
 		await intentsCoprocessor.disconnect()
 	}, 600_000)
 
@@ -192,7 +313,12 @@ describe("Filler V2 FX - USDC -> Exotic (BSC Chapel -> Polygon Amoy)", () => {
 			contractService,
 		} = await setUp()
 
-		const intentFiller = await createFxIntentFiller(chainConfigs, fillerConfig, chainConfigService, polygonAmoyId)
+		const { filler: intentFiller, orderScanner } = await createFxIntentFiller(
+			chainConfigs,
+			fillerConfig,
+			chainConfigService,
+			polygonAmoyId,
+		)
 		await intentFiller.initialize()
 		intentFiller.start()
 
@@ -215,7 +341,7 @@ describe("Filler V2 FX - USDC -> Exotic (BSC Chapel -> Polygon Amoy)", () => {
 		const beneficiaryAddress = privateKeyToAccount(privateKey).address
 		const beneficiary = bytes20ToBytes32(beneficiaryAddress)
 
-		let order: Order = {
+		const order: Order = {
 			user: bytes20ToBytes32(beneficiaryAddress),
 			source: toHex(bscChapelId),
 			destination: toHex(polygonAmoyId),
@@ -272,16 +398,21 @@ describe("Filler V2 FX - USDC -> Exotic (BSC Chapel -> Polygon Amoy)", () => {
 		let userOpHash: HexString | undefined
 		let selectedSolver: HexString | undefined
 		let inspectedBid = false
+		let finalizedOrder: Order | undefined
 
 		while (!result.done) {
 			let feedback: SelectBidResult | undefined
 			if (result.value && "status" in result.value) {
 				const status = result.value
+				if (status.status === "ORDER_PLACED") {
+					finalizedOrder = status.order
+				}
 
 				if (status.status === "BIDS_RECEIVED") {
+					if (!finalizedOrder) throw new Error("Order was not finalized")
 					expect(status.bids.length).toBeGreaterThan(0)
 
-					const ranked = await userSdkHelper.sortBids(order, status.bids)
+					const ranked = await userSdkHelper.sortBids(finalizedOrder, status.bids)
 					expect(ranked.length).toBeGreaterThan(0)
 					const chosen = ranked[0]
 
@@ -323,15 +454,18 @@ describe("Filler V2 FX - USDC -> Exotic (BSC Chapel -> Polygon Amoy)", () => {
 		expect(inspectedBid).toBe(true)
 		expect(userOpHash).toBeDefined()
 		expect(selectedSolver).toBeDefined()
+		const finalizedOrderId = finalizedOrder?.id
+		expect(finalizedOrderId).toBeDefined()
 
 		const isFilled = await pollForOrderFilled(
-			order.id as HexString,
+			finalizedOrderId as HexString,
 			polygonAmoyPublicClient,
 			chainConfigService.getIntentGatewayAddress(polygonAmoyId),
 		)
 		expect(isFilled).toBe(true)
 
 		await intentFiller.stop()
+		await orderScanner.close()
 		await intentsCoprocessor.disconnect()
 	}, 600_000)
 })
@@ -345,14 +479,17 @@ async function createFxIntentFiller(
 	fillerConfig: FillerConfig,
 	chainConfigService: FillerConfigService,
 	exoticChainId: string,
-): Promise<IntentFiller> {
+): Promise<{ filler: IntentFiller; orderScanner: OrderScanner }> {
 	const privateKey = process.env.PRIVATE_KEY as HexString
-	const signer = await createSimplexSigner({ type: SignerType.PrivateKey, key: privateKey })
+	const signer = await createSigner({ type: SignerType.PrivateKey, key: privateKey })
 	const cacheService = new CacheService()
 	const chainClientManager = new ChainClientManager(chainConfigService, signer)
 	const contractService = new ContractInteractionService(chainClientManager, chainConfigService, signer, cacheService)
 
-	// Exotic ≈ $1 (Polygon USDC stand-in), so price is 1 exotic token per USD.
+	// Exotic ≈ $1 (Polygon USDC stand-in). The book must carry a real spread:
+	// the profit gate requires the FX margin to be strictly positive, so a
+	// bid == ask (zero-spread) config makes the filler refuse to bid and the
+	// E2E flow time out. 50 bps: buy exotic at 1, sell at 0.995 per USD.
 	const bidPricePolicy = new FillerPricePolicy({
 		points: [
 			{ amount: "1", price: "1" },
@@ -361,8 +498,8 @@ async function createFxIntentFiller(
 	})
 	const askPricePolicy = new FillerPricePolicy({
 		points: [
-			{ amount: "1", price: "1" },
-			{ amount: "10000", price: "1" },
+			{ amount: "1", price: "0.995" },
+			{ amount: "10000", price: "0.995" },
 		],
 	})
 
@@ -385,17 +522,27 @@ async function createFxIntentFiller(
 		[exoticChainId]: chainConfigService.getUsdcAsset(exoticChainId),
 	}
 
+	const legacy = exoticPairs(chainConfigService, token1, 5000, bidPricePolicy, askPricePolicy)
 	const strategies = [
-		new FXFiller(signer, chainConfigService, chainClientManager, contractService, 5000, token1, {
-			bidPricePolicy,
-			askPricePolicy,
+		new FXFiller(signer, chainConfigService, chainClientManager, contractService, legacy.pairs, legacy.registry, {
 			confirmationPolicy,
 		}),
 	]
 
-	const bidStorage = new BidStorageService(chainConfigService.getDataDir())
+	const bidStorage = new SqliteDataStore(".simplex-data").bids
 
-	return new IntentFiller(
+	// A real scanner: this E2E places a real order on-chain and the whole point
+	// is that the filler DETECTS it by scanning. A stub here blinds the filler
+	// and the test times out waiting for a fill that can never start.
+	const orderScanner = await OrderScanner.create({
+		chains: chainConfigs.map((chain) => ({
+			chainId: chain.chainId,
+			rpcUrls: [chain.rpcUrl],
+			gateway: chain.intentGatewayAddress as HexString,
+		})),
+	})
+
+	const filler = new IntentFiller(
 		chainConfigs,
 		strategies,
 		fillerConfig,
@@ -403,9 +550,11 @@ async function createFxIntentFiller(
 		chainClientManager,
 		contractService,
 		signer,
+		{ orders: orderScanner },
 		undefined,
 		bidStorage,
 	)
+	return { filler, orderScanner }
 }
 
 async function pollForOrderFilled(
@@ -457,7 +606,7 @@ async function setUp() {
 	}
 
 	const privateKey = process.env.PRIVATE_KEY as HexString
-	const signer = await createSimplexSigner({ type: SignerType.PrivateKey, key: privateKey })
+	const signer = await createSigner({ type: SignerType.PrivateKey, key: privateKey })
 	const cacheService = new CacheService()
 	const chainClientManager = new ChainClientManager(chainConfigService, signer)
 	const contractService = new ContractInteractionService(chainClientManager, chainConfigService, signer, cacheService)

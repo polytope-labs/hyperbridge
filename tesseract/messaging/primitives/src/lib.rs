@@ -36,15 +36,25 @@ pub struct ProofAccepted {
 	pub new_set_id: Option<u64>,
 }
 
-/// Pulls the raw `payload.proof` bytes for an accepted BEEFY consensus proof
-/// (keyed by the parachain height it advanced HB to). Implementations live
-/// downstream — the relayer binary reads from HB's offchain storage via RPC,
-/// but tests mock it. Callers wrap the returned bytes in a
+/// Names the slot an accepted BEEFY proof was stored under. The pallet keeps mandatory
+/// and messaging proofs in separate offchain namespaces because a rotation may finalize a
+/// head an earlier messaging proof already covered, so height alone is ambiguous.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProofKey {
+	/// A messaging proof, keyed by the parachain height it advanced Hyperbridge to.
+	Messaging(u64),
+	/// A mandatory proof, keyed by the authority set id it rotated to.
+	Rotation(u64),
+}
+
+/// Pulls the raw `payload.proof` bytes for an accepted BEEFY consensus proof.
+/// Implementations live downstream: the relayer binary reads from HB's offchain
+/// storage via RPC, but tests mock it. Callers wrap the returned bytes in a
 /// [`ConsensusMessage`](ismp::messaging::ConsensusMessage).
 #[async_trait::async_trait]
 pub trait ConsensusProofSource: Send + Sync {
-	/// Fetch the proof bytes that advanced the parachain to `height`.
-	async fn fetch(&self, height: u64) -> Result<Vec<u8>, anyhow::Error>;
+	/// Fetch the proof bytes stored under `key`.
+	async fn fetch(&self, key: ProofKey) -> Result<Vec<u8>, anyhow::Error>;
 
 	/// Return every stored rotation proof with `set_id > from_set_id`,
 	/// ordered ascending by set_id. Used by outbound to catch a lagging EVM
@@ -144,7 +154,7 @@ pub use pallet_ismp_relayer::withdrawal::{Signature, WithdrawalProof};
 use pallet_state_coprocessor::impls::GetRequestsWithProof;
 use parity_scale_codec::{Decode, Encode};
 use primitive_types::{H160, H256, U256};
-use sp_core::keccak_256;
+use sp_crypto_hashing::keccak_256;
 use std::{
 	fmt::{Debug, Display, Formatter},
 	ops::{Add, Mul},
@@ -385,6 +395,18 @@ pub trait IsmpProvider: ByzantineHandler + Send + Sync {
 		keys: Vec<Query>,
 		counterparty: StateMachine,
 	) -> Result<Vec<u8>, anyhow::Error>;
+
+	/// Query a membership proof for a batch of GetResponse commitments. Mirrors
+	/// [`IsmpProvider::query_requests_proof`] but over the response mmr leaves.
+	/// Only the coprocessor commits GetResponses, so other backends return an error.
+	async fn query_responses_proof(
+		&self,
+		_at: u64,
+		_commitments: Vec<H256>,
+		_counterparty: StateMachine,
+	) -> Result<Vec<u8>, anyhow::Error> {
+		Err(anyhow!("query_responses_proof is not supported on {}", self.name()))
+	}
 
 	/// Query state proof for some keys, return scaled encoded proof
 	async fn query_state_proof(

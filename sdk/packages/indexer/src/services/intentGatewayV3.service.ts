@@ -33,12 +33,25 @@ import { IOrderV3EscrowRelease } from "@/configs/src/types/models/IOrderV3Escrow
 import { IOrderV3EscrowReleaseToken } from "@/configs/src/types/models/IOrderV3EscrowReleaseToken"
 import { IOrderV3EscrowRefund } from "@/configs/src/types/models/IOrderV3EscrowRefund"
 import { IOrderV3EscrowRefundToken } from "@/configs/src/types/models/IOrderV3EscrowRefundToken"
+import { IntentGatewayTokenVolume } from "@/configs/src/types/models/IntentGatewayTokenVolume"
+import { CumulativeIntentGatewayVolumeUSD } from "@/configs/src/types/models/CumulativeIntentGatewayVolumeUSD"
+import { LiquidityPool } from "@/configs/src/types/models/LiquidityPool"
 import { timestampToDate } from "@/utils/date.helpers"
+import { getHostStateMachine } from "@/utils/substrate.helpers"
+import { canonicalPoolSymbol, poolSlug } from "@/addresses/pool-tokens.addresses"
+import { INTENT_GATEWAY_V3_ADDRESSES } from "@/intent-gateway-v3-addresses"
+import {
+	orientedPoolRates,
+	poolsForFill,
+	POOL_RATE_DECIMALS,
+	refreshPoolLiquidity,
+	refreshProviderLiquidity,
+} from "@/services/liquidityPool.service"
+import { liquidityRefreshContext } from "@/utils/solverBalance"
 
 import { PointsService } from "./points.service"
-import { VolumeService } from "./volume.service"
+import { VolumeService, toScaledUsd } from "./volume.service"
 import PriceHelper from "@/utils/price.helpers"
-import { TokenPriceService } from "./token-price.service"
 import stringify from "safe-stable-stringify"
 import { getOrCreateUser } from "./userActivity.services"
 export interface TokenInfo {
@@ -47,6 +60,15 @@ export interface TokenInfo {
 }
 
 const ENTITY_TYPE = "IOrderV3"
+
+export type IntentVolumeType = "PLACED" | "FILLED"
+
+// USDC and USDT are assumed to be worth exactly $1.
+const STABLE_SYMBOLS = ["USDC", "USDT"]
+
+const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000"
+
+const POOL_RATE_SCALE = new Decimal(10).pow(POOL_RATE_DECIMALS)
 
 const decodeChain = (value: string): string =>
 	value.startsWith("0x") ? ethers.utils.toUtf8String(value) : value
@@ -329,17 +351,10 @@ export class IntentGatewayV3Service {
 		const valuesUSD = await Promise.all(
 			tokens.map(async (token) => {
 				const tokenAddress = bytes32ToBytes20(token.token)
-				let decimals = 18
-				let symbol = "eth"
+				const { symbol, decimals } = await this.getTokenMetadata(tokenAddress)
 
-				if (tokenAddress != "0x0000000000000000000000000000000000000000") {
-					const tokenContract = ERC6160Ext20Abi__factory.connect(tokenAddress, api)
-					decimals = await tokenContract.decimals()
-					symbol = await tokenContract.symbol()
-				}
-
-				const price = await TokenPriceService.getPrice(symbol)
-				return PriceHelper.getAmountValueInUSD(token.amount, decimals, price)
+				const price = await this.getTokenUsdPriceWithFx(symbol)
+				return PriceHelper.getAmountValueInUSD(token.amount, decimals, price ? price.toFixed(18) : "0")
 			}),
 		)
 
@@ -351,6 +366,130 @@ export class IntentGatewayV3Service {
 			total: total.toFixed(18),
 			values: valuesUSD.map((value) => value.amountValueInUSD),
 		}
+	}
+
+	/**
+	 * Record intent gateway volume for a list of order tokens: cumulative raw amounts per
+	 * chain-token, plus a per-chain USD rollup priced at $1 for stables and via the
+	 * token's LiquidityPool rate for FX tokens.
+	 */
+	static async recordOrderVolume(
+		volumeType: IntentVolumeType,
+		tokens: { token: string; amount: bigint }[],
+		timestamp: bigint,
+	): Promise<void> {
+		const chain = getHostStateMachine(chainId)
+
+		const amountByToken = new Map<string, bigint>()
+		for (const { token, amount } of tokens) {
+			const tokenAddress = bytes32ToBytes20(token).toLowerCase()
+			amountByToken.set(tokenAddress, (amountByToken.get(tokenAddress) ?? 0n) + amount)
+		}
+
+		const values = await Promise.all(
+			Array.from(amountByToken, async ([tokenAddress, amount]) => {
+				const id = `${chain}-${tokenAddress}-${volumeType}`
+				let tokenVolume = await IntentGatewayTokenVolume.get(id)
+				let symbol: string
+				let decimals: number
+
+				if (tokenVolume) {
+					symbol = tokenVolume.tokenSymbol
+					decimals = tokenVolume.decimals
+					tokenVolume.amount = tokenVolume.amount + amount
+					tokenVolume.lastUpdatedAt = timestamp
+				} else {
+					;({ symbol, decimals } = await this.getTokenMetadata(tokenAddress))
+					tokenVolume = IntentGatewayTokenVolume.create({
+						id,
+						chain,
+						tokenAddress,
+						tokenSymbol: symbol,
+						decimals,
+						volumeType,
+						amount,
+						lastUpdatedAt: timestamp,
+					})
+				}
+				await tokenVolume.save()
+
+				const price = await this.getTokenUsdPriceWithFx(symbol)
+				if (!price) {
+					logger.warn(
+						`[IntentGatewayV3Service.recordOrderVolume] No USD price for ${symbol} (${tokenAddress}) on ${chain}; skipping USD rollup, raw amount retained`,
+					)
+					return new Decimal(0)
+				}
+
+				return new Decimal(PriceHelper.getAmountValueInUSD(amount, decimals, price.toFixed(18)).amountValueInUSD)
+			}),
+		)
+
+		const usdDelta = values.reduce((acc, curr) => acc.plus(curr), new Decimal(0))
+		if (usdDelta.isZero()) return
+
+		const cumulativeId = `${chain}-${volumeType}`
+		const scaled = toScaledUsd(usdDelta.toFixed(18))
+		let cumulative = await CumulativeIntentGatewayVolumeUSD.get(cumulativeId)
+		if (!cumulative) {
+			cumulative = CumulativeIntentGatewayVolumeUSD.create({
+				id: cumulativeId,
+				chain,
+				volumeType,
+				volumeUSD: scaled,
+				lastUpdatedAt: timestamp,
+			})
+		} else {
+			cumulative.volumeUSD = cumulative.volumeUSD + scaled
+			cumulative.lastUpdatedAt = timestamp
+		}
+		await cumulative.save()
+	}
+
+	private static async getTokenMetadata(tokenAddress: string): Promise<{ symbol: string; decimals: number }> {
+		if (tokenAddress === ZERO_ADDRESS) {
+			return { symbol: "ETH", decimals: 18 }
+		}
+
+		const tokenContract = ERC6160Ext20Abi__factory.connect(tokenAddress, api)
+		const symbol = await tokenContract.symbol()
+		const decimals = await tokenContract.decimals()
+		return { symbol, decimals }
+	}
+
+	private static async getTokenUsdPriceWithFx(symbol: string): Promise<Decimal | null> {
+		if (STABLE_SYMBOLS.includes(symbol.toUpperCase())) {
+			return new Decimal(1)
+		}
+
+		return this.getFxPriceFromPools(symbol)
+	}
+
+	/**
+	 * Price an FX token in USD from its liquidity pool against a $1 stable. Pool rates are
+	 * decimals-free (output per 1 whole input, 1e18-scaled) and already merged across chains, so
+	 * no address or decimals context is needed — any chain's representation prices identically.
+	 * Prefers the direct FX -> stable side; falls back to the reciprocal of the stable -> FX side
+	 * when only that direction is registered. Null when no pool has priced the symbol yet.
+	 */
+	private static async getFxPriceFromPools(symbol: string): Promise<Decimal | null> {
+		const canonical = canonicalPoolSymbol(symbol)
+		if (!canonical) return null
+
+		for (const quote of STABLE_SYMBOLS) {
+			const pool = await LiquidityPool.get(poolSlug(canonical, quote))
+			if (!pool) continue
+
+			const { direct, inverse } = orientedPoolRates(pool, canonical)
+
+			if (direct && direct > 0n) {
+				return new Decimal(direct.toString()).div(POOL_RATE_SCALE)
+			}
+			if (inverse && inverse > 0n) {
+				return POOL_RATE_SCALE.div(new Decimal(inverse.toString()))
+			}
+		}
+		return null
 	}
 
 	static async updateOrderStatus(
@@ -411,7 +550,21 @@ export class IntentGatewayV3Service {
 				// Volume
 				let outputUSD = await this.getOutputValuesUSD(outputAssets)
 
+				// Seed before this fill's own updates so the seed never counts it. A failed seed
+				// must not cost the fill's status/points below, and must skip the gateway update:
+				// that leaves the marker uncreated, so the retry on the next fill re-seeds from
+				// the filler daily rows — which include this fill — losing nothing.
+				let gatewaySeeded = true
+				try {
+					await VolumeService.seedAggregateVolume(`IntentGatewayV3.FILLED`, `IntentGatewayV3.FILLER.`)
+				} catch (error) {
+					gatewaySeeded = false
+					logger.error(`Failed to seed IntentGatewayV3.FILLED volume, skipping gateway update for this fill: ${error}`)
+				}
 				await VolumeService.updateVolume(`IntentGatewayV3.FILLER.${filler}`, outputUSD.total, timestamp)
+				if (gatewaySeeded) {
+					await VolumeService.updateVolume(`IntentGatewayV3.FILLED`, outputUSD.total, timestamp)
+				}
 
 				const orderValue = new Decimal(orderPlaced.inputUSD.toString())
 				const pointsToAward = orderValue.floor().toNumber()
@@ -596,6 +749,87 @@ export class IntentGatewayV3Service {
 				filler,
 			})}`,
 		)
+	}
+
+	/**
+	 * Re-reads the liquidity behind the pools this fill traded through, so their published depth
+	 * stops advertising inventory the filler has just spent. The pool pair spans two chains — the
+	 * inputs are escrowed on the source chain, the outputs delivered here — so the order row is
+	 * what makes the pair resolvable; a fill indexed before its `OrderPlaced` has no source chain
+	 * to resolve against and is left to the next phantom snapshot.
+	 */
+	static async refreshPoolLiquidityAfterFill(params: {
+		commitment: string
+		inputs: TokenInfo[]
+		outputs: TokenInfo[]
+		timestamp: bigint
+		blockNumber: number
+	}): Promise<void> {
+		const { commitment, inputs, outputs, timestamp, blockNumber } = params
+		const destChain = getHostStateMachine(chainId)
+
+		const order = await OrderV3Placed.get(commitment)
+		if (!order) return
+
+		const poolIds = poolsForFill({
+			sourceChain: decodeChain(order.sourceChain),
+			inputTokens: inputs.map((input) => input.token),
+			destChain,
+			outputTokens: outputs.map((output) => output.token),
+		})
+		if (poolIds.length === 0) return
+
+		await refreshPoolLiquidity({
+			poolIds,
+			...liquidityRefreshContext(destChain, blockNumber, timestamp),
+		})
+	}
+
+	/**
+	 * The filler an escrow release paid, read from the gateway's `_filled` mapping at the event's
+	 * own block. The event itself names no filler, and `_withdraw` writes the beneficiary in the
+	 * same call that emits it, so the mapping is authoritative from that block on — and reading it
+	 * here never depends on the destination chain's node having indexed the fill first.
+	 */
+	static async filledBeneficiary(commitment: string, blockNumber: number): Promise<string | null> {
+		const chain = getHostStateMachine(chainId)
+		const gateway = INTENT_GATEWAY_V3_ADDRESSES[chain as keyof typeof INTENT_GATEWAY_V3_ADDRESSES]
+		if (!gateway) return null
+
+		const selector = ethers.utils.id("_filled(bytes32)").slice(0, 10)
+		const result: string = await (api as any).call(
+			{ to: gateway, data: `${selector}${commitment.replace(/^0x/, "").padStart(64, "0")}` },
+			blockNumber,
+		)
+		if (!result || result === "0x") return null
+		const beneficiary = `0x${result.slice(-40)}`.toLowerCase()
+		return beneficiary === ZERO_ADDRESS ? null : beneficiary
+	}
+
+	/**
+	 * The same refresh for an escrow release: the solver has just been paid the order's inputs back
+	 * on the SOURCE chain, so its inventory there rose and every pool it backs in those tokens is
+	 * understating depth.
+	 *
+	 * The event names no filler — the gateway records the beneficiary when `_withdraw` finalizes —
+	 * so the caller resolves it, and a release whose beneficiary is not a known provider refreshes
+	 * nothing.
+	 */
+	static async refreshLiquidityAfterEscrowRelease(params: {
+		provider: string
+		tokens: TokenInfo[]
+		timestamp: bigint
+		blockNumber: number
+	}): Promise<void> {
+		const { provider, tokens, timestamp, blockNumber } = params
+		const chain = getHostStateMachine(chainId)
+
+		await refreshProviderLiquidity({
+			chain,
+			provider: provider.toLowerCase(),
+			tokens: tokens.map((token) => bytes32ToBytes20(token.token).toLowerCase()),
+			...liquidityRefreshContext(chain, blockNumber, timestamp),
+		})
 	}
 
 	static async recordFill(

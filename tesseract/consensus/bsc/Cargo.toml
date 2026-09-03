@@ -29,6 +29,7 @@ alloy = { workspace = true, features = ["providers", "reqwest-default-tls"] }
 sp-core = { workspace = true }
 ssz = { workspace = true, features = ["scale"] }
 ssz_types = { workspace = true, features = ["scale"] }
+sp-crypto-hashing = { workspace = true }
 
 
 tesseract-primitives = { workspace = true  }

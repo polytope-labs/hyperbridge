@@ -1,11 +1,12 @@
 import { CryptoUtils, BundlerMethod, type PackedUserOperation, type HexString } from "@hyperbridge/sdk"
-import { concat, toHex, type PublicClient } from "viem"
+import { toHex, type PublicClient } from "viem"
 import { ENTRYPOINT_ABI } from "@/config/abis/Entrypoint"
-import { ChainClientManager } from "./ChainClientManager"
-import { FillerConfigService } from "./FillerConfigService"
-import { getLogger } from "./Logger"
-import type { SigningAccount } from "./wallet"
-import { buildPaymasterAndData, getUsdcBalanceStatus, hasPaymaster } from "./paymaster"
+import type { ChainClientManager } from "./ChainClientManager"
+import type { FillerConfigService } from "./FillerConfigService"
+import { type Logger , moduleLogger} from "./Logger"
+import type { Signer } from "./wallet"
+import { buildPaymasterAndData, hasPaymaster } from "./paymaster"
+import type { PaymasterDataResult } from "./paymaster"
 
 /**
  * Raw EIP-7702 authorization, as produced by the delegation flow. Attached to the
@@ -30,8 +31,14 @@ export interface SponsoredUserOpRequest {
 	chain: string
 	/** ERC-7821 batch (or "0x" for a no-op, e.g. delegation). */
 	callData: HexString
-	/** Attach when the EOA still needs delegating in this op. */
-	eip7702Auth?: Eip7702Authorization
+	/**
+	 * Attach when the EOA still needs delegating in this op. Pass a factory rather
+	 * than a pre-signed tuple: building paymaster data can send an approve tx from
+	 * the authority EOA (Simplex approve mode), and an authorization signed before
+	 * that tx embeds a stale nonce the bundler will reject. The factory runs only
+	 * after paymaster data is built.
+	 */
+	eip7702Auth?: Eip7702Authorization | (() => Promise<Eip7702Authorization>)
 	/** EntryPoint nonce key. Defaults to 0. */
 	nonceKey?: bigint
 	/**
@@ -44,7 +51,11 @@ export interface SponsoredUserOpRequest {
 	 * Override for the Circle paymaster verification gas limit (default 200k).
 	 * Lower it for a known cheap op so rundler's verification-gas-limit efficiency
 	 * policy — which divides actual usage by `accountVerif + paymasterVerif` —
-	 * accepts the op (e.g. re-delegation).
+	 * accepts the op (e.g. re-delegation). Only honored when the paymaster allowance
+	 * is already in place — a permit executed during validation needs the full
+	 * default. Ignored when the Simplex paymaster is selected; its limits are
+	 * mode-specific. With Simplex preferred first, this only bites when Simplex
+	 * is unconfigured or skipped and Circle is the survivor.
 	 */
 	paymasterVerificationGasLimit?: bigint
 }
@@ -58,27 +69,30 @@ const FALLBACK_CALL_GAS_LIMIT = 1_500_000n
 const FALLBACK_PRE_VERIFICATION_GAS = 150_000n
 
 /**
- * Submits self-initiated, Circle-Paymaster-sponsored UserOperations through the
- * bundler, so the solver pays gas in USDC rather than native token. Shared by the
+ * Submits self-initiated, paymaster-sponsored UserOperations through the bundler,
+ * so the solver pays gas in stablecoins rather than native token. Shared by the
  * delegation setup and the vault sweep/redeem paths.
  *
  * Submission contract (so callers can safely fall back to a native tx without
  * risking a double-execution):
  * - Returns `null` when the op was **never submitted** — paymaster/bundler not
- *   configured, insufficient USDC, or the bundler rejected `eth_sendUserOperation`
- *   outright (it never entered the mempool). The caller may fall back to native.
+ *   configured, insufficient USDC, preparation failed (approve tx or signing), or
+ *   the bundler rejected `eth_sendUserOperation` outright (it never entered the
+ *   mempool). The caller may fall back to native.
  * - Returns `{ txHash }` once a receipt is observed.
  * - **Throws** only when the op **was submitted** but no receipt arrived. The
  *   caller must NOT fall back (the op may still land) — retry on the next cycle.
  */
 export class UserOpSender {
-	private logger = getLogger("userop-sender")
+	private logger: Logger
 
 	constructor(
 		private readonly clientManager: ChainClientManager,
 		private readonly configService: FillerConfigService,
-		private readonly signer: SigningAccount,
-	) {}
+		private readonly signer: Signer,
+	) {
+		this.logger = moduleLogger(clientManager.loggers, "userop-sender")
+	}
 
 	/** True when a sponsored UserOp is even possible on this chain (paymaster + bundler configured). */
 	canSponsor(chain: string): boolean {
@@ -90,7 +104,14 @@ export class UserOpSender {
 	}
 
 	async trySendSponsored(req: SponsoredUserOpRequest): Promise<{ txHash: HexString } | null> {
-		const { chain, callData, eip7702Auth, nonceKey = 0n, gas, paymasterVerificationGasLimit } = req
+		const {
+			chain,
+			callData,
+			eip7702Auth,
+			nonceKey = 0n,
+			gas,
+			paymasterVerificationGasLimit,
+		} = req
 
 		const entryPoint = this.configService.getEntryPointAddress(chain)
 		const bundlerUrl = this.configService.getBundlerUrl(chain)
@@ -100,41 +121,62 @@ export class UserOpSender {
 
 		const publicClient = this.clientManager.getPublicClient(chain)
 		const walletClient = this.clientManager.getWalletClient(chain)
-		const solverAccount = this.signer.account.address as HexString
+		const solverAccount = this.signer.address as HexString
 		const chainId = this.configService.getChainId(chain)
 
-		// The paymaster sponsors gas in USDC; without enough USDC it can't pay.
-		const usdcDecimals = this.configService.getUsdcDecimals(chain)
-		const usdc = await getUsdcBalanceStatus(
-			publicClient,
-			solverAccount,
-			this.configService.getUsdcAsset(chain),
-			usdcDecimals,
-		)
-		if (!usdc.sufficient) {
-			this.logger.warn(
-				{ chain, solverAccount, usdcBalance: usdc.balance.toString(), required: usdc.required.toString() },
-				"Insufficient USDC to sponsor UserOp via paymaster; caller should fall back to native",
-			)
-			return null
-		}
+		let pm: PaymasterDataResult
+		let auth: Eip7702Authorization | undefined
+		let fees: { maxFeePerGas: bigint; maxPriorityFeePerGas: bigint }
+		try {
+			// Fetched before paymaster selection so the deposit gate can price the op's
+			// max prefund; a failure here means nothing was submitted, safe to fall back.
+			fees = await this.getGasPrice(bundlerUrl, publicClient, chainId)
 
-		const pm = await buildPaymasterAndData({
-			chain,
-			solverAccount,
-			publicClient,
-			walletClient,
-			signer: this.signer,
-			configService: this.configService,
-			paymasterVerificationGasLimit,
-		})
-		if (pm.type === "none") {
-			this.logger.warn({ chain }, "Paymaster data unavailable; caller should fall back to native")
+			// Without explicit limits the fallbacks (~1.9M gas) over-require the deposit;
+			// a false skip degrades to the caller's native fallback, which is safe —
+			// under-requiring would sign an op the bundler is bound to reject.
+			const gasForPrefund = gas ?? {
+				verificationGasLimit: FALLBACK_VERIFICATION_GAS_LIMIT,
+				callGasLimit: FALLBACK_CALL_GAS_LIMIT,
+				preVerificationGas: FALLBACK_PRE_VERIFICATION_GAS,
+			}
+
+			pm = await buildPaymasterAndData({
+				chain,
+				solverAccount,
+				publicClient,
+				walletClient,
+				signer: this.signer,
+				configService: this.configService,
+				paymasterVerificationGasLimit,
+				prefund: {
+					baseGas:
+						gasForPrefund.callGasLimit + gasForPrefund.verificationGasLimit + gasForPrefund.preVerificationGas,
+					maxFeePerGas: fees.maxFeePerGas,
+				},
+				logger: this.logger,
+			})
+			if (pm.type === "none") {
+				this.logger.warn(
+					{ chain, solverAccount, reason: pm.reason },
+					"No paymaster can sponsor this UserOp; caller should fall back to native",
+				)
+				return null
+			}
+
+			// Sign the EIP-7702 authorization only after paymaster data is built —
+			// bootstrapping an approval (to Permit2 or the paymaster) sends a tx from the
+			// authority EOA, and an authorization signed before it embeds a stale nonce.
+			auth = typeof eip7702Auth === "function" ? await eip7702Auth() : eip7702Auth
+		} catch (error) {
+			// Preparation failures (approve tx, permit/authorization signing) happen
+			// before anything reaches the bundler — never submitted, safe to fall back.
+			this.logger.warn({ chain, error }, "Failed to prepare sponsored UserOp; caller should fall back to native")
 			return null
 		}
+		this.logger.info({ chain, paymaster: pm.address, type: pm.type, token: pm.token }, "Paymaster selected")
 		const paymasterAndData = pm.paymasterAndData
-
-		const { maxFeePerGas, maxPriorityFeePerGas } = await this.getGasPrice(bundlerUrl, publicClient, chainId)
+		const { maxFeePerGas, maxPriorityFeePerGas } = fees
 
 		const nonce = (await publicClient.readContract({
 			address: entryPoint,
@@ -143,14 +185,14 @@ export class UserOpSender {
 			args: [solverAccount, nonceKey],
 		})) as bigint
 
-		const formattedAuth = eip7702Auth
+		const formattedAuth = auth
 			? {
-					address: eip7702Auth.address,
-					chainId: toHex(eip7702Auth.chainId),
-					nonce: toHex(eip7702Auth.nonce),
-					r: eip7702Auth.r,
-					s: eip7702Auth.s,
-					yParity: toHex(eip7702Auth.yParity),
+					address: auth.address,
+					chainId: toHex(auth.chainId),
+					nonce: toHex(auth.nonce),
+					r: auth.r,
+					s: auth.s,
+					yParity: toHex(auth.yParity),
 				}
 			: undefined
 
@@ -304,10 +346,12 @@ export class UserOpSender {
 		}
 
 		// SolverAccount._rawSignatureValidation expects ECDSA.recover(userOpHash, sig) == account.
-		const userOpHash = CryptoUtils.computeUserOpHash(userOp, p.entryPoint, BigInt(p.chainId))
-		const { r, s, yParity } = await this.signer.signRawHash(userOpHash as HexString)
-		const v = yParity === 0 ? 27 : 28
-		userOp.signature = concat([r, s, toHex(v)]) as HexString
+		// The v0.8 userOpHash is the EIP-712 digest of the operation, so signing the typed
+		// data yields the same signature while keeping the payload visible to the signing
+		// backend (e.g. Turnkey's policy engine) instead of an opaque 32-byte digest.
+		userOp.signature = await this.signer.signTypedData(
+			CryptoUtils.packedUserOpTypedData(userOp, p.entryPoint, BigInt(p.chainId)),
+		)
 		return userOp
 	}
 

@@ -101,6 +101,32 @@ contract UniV3UniswapV2WrapperTest is MainnetForkBaseTest {
         console.log("ETH spent:", amounts[0]);
     }
 
+    function testSwapExactTokensForETH() public {
+        // Fund the whale with DAI to sell.
+        uint256 amountIn = 1000e18;
+        deal(DAI, WHALE, amountIn);
+
+        address[] memory path = new address[](2);
+        path[0] = DAI;
+        path[1] = WETH;
+
+        uint256[] memory quote = wrapper.getAmountsOut(amountIn, path);
+        uint256 amountOutMin = (quote[1] * 9950) / 10_000; // 0.5% slippage
+
+        uint256 initialEth = WHALE.balance;
+        uint256 deadline = block.timestamp + 1 hours;
+
+        vm.startPrank(WHALE);
+        IERC20(DAI).approve(address(wrapper), amountIn);
+        uint256[] memory amounts = wrapper.swapExactTokensForETH(amountIn, amountOutMin, path, WHALE, deadline);
+        vm.stopPrank();
+
+        assertEq(amounts[0], amountIn, "Amount in should match");
+        assertGe(amounts[1], amountOutMin, "ETH out should meet the minimum");
+        assertEq(WHALE.balance - initialEth, amounts[1], "WHALE should receive the native output");
+        assertEq(IERC20(DAI).balanceOf(WHALE), 0, "DAI should be fully spent");
+    }
+
     // Required to receive ETH refunds
     receive() external payable {}
 }

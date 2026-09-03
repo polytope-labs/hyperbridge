@@ -21,7 +21,7 @@ import type { HexString, PackedUserOperation } from "@hyperbridge/sdk"
 
 const SIMNODE_URL = process.env.SIMNODE_URL || "ws://127.0.0.1:9990"
 
-function makeUserOp(callData: string = "0x"): HexString {
+function makeUserOp(callData = "0x"): HexString {
 	const userOp: PackedUserOperation = {
 		sender: "0x0000000000000000000000000000000000000001" as HexString,
 		nonce: 0n,
@@ -100,26 +100,34 @@ async function seedStateMachineHeight(api: ApiPromise, chainId: number, height: 
  * Uses a single token pair of zero-address tokens as a probe.
  */
 async function setPhantomOrderConfig(api: ApiPromise, chainId: number, intervalBlocks: number): Promise<void> {
+	const chain = { state_id: { Evm: chainId }, consensus_state_id: ETH0_CONSENSUS_ID }
 	const config = {
-		chain: { state_id: { Evm: chainId }, consensus_state_id: ETH0_CONSENSUS_ID },
-		token_pairs: [
-			{
-				token_a: "0x0101010101010101010101010101010101010101",
-				token_b: "0x0202020202020202020202020202020202020202",
-				standard_amount: 1_000_000_000_000_000_000n,
-			},
-		],
+		// `chains` is a map from state machine id to that chain's token pairs.
+		chains: new Map([
+			[
+				chain,
+				[
+					{
+						token_a: "0x0101010101010101010101010101010101010101",
+						token_b: "0x0202020202020202020202020202020202020202",
+						standard_amount: 1_000_000_000_000_000_000n,
+						standard_amount_b: 1_000_000_000_000_000_000n,
+					},
+				],
+			],
+		]),
 		interval_blocks: intervalBlocks,
 	}
 	await sudoAndSeal(api, api.tx.intentsCoprocessor.setPhantomOrderConfig(config))
 }
 
 /**
- * Reads the first active phantom commitment from `CurrentPhantomOrder` storage at
- * the latest block. Returns null when the storage slot is empty.
+ * Reads the active phantom commitment from `CurrentPhantomOrder` storage at the latest block.
+ * Returns null when the storage slot is empty.
  *
- * `CurrentPhantomOrder` is a `BoundedVec<(H256, PhantomOrderInfo), _>`, so the bytes start
- * with a one byte compact length before the first entry's H256 commitment.
+ * `CurrentPhantomOrder` is a `BoundedVec<(H256, PhantomOrderInfo)>` with one entry per configured
+ * chain; every test here configures a single chain, so the commitment is the 32 bytes after the
+ * vec's one-byte compact length prefix.
  */
 async function getActivePhantomCommitment(api: ApiPromise): Promise<HexString | null> {
 	const storageKey = api.query.intentsCoprocessor.currentPhantomOrder.key()
@@ -182,12 +190,12 @@ describe("Phantom Order E2E (simnode)", () => {
 		expect(raw).not.toBeNull()
 
 		const hex: string = raw.toHex()
-		expect(hex.length).toBeGreaterThanOrEqual(68)
+		expect(hex.length).toBeGreaterThanOrEqual(66)
 
-		// BoundedVec: [compact len (1)] [H256 (32)] [u32 LE (4)] [compact chain len] [chain bytes]
+		// (H256 (32)) (u32 LE (4)) (compact chain len) (chain bytes)
 		const bytes = Buffer.from(hex.slice(2), "hex")
-		const chainLen = bytes[37] >> 2
-		const storedChain = bytes.slice(38, 38 + chainLen).toString("utf8")
+		const chainLen = bytes[36] >> 2
+		const storedChain = bytes.slice(37, 37 + chainLen).toString("utf8")
 		expect(storedChain).toBe("EVM-8453")
 	}, 30_000)
 
@@ -329,5 +337,54 @@ describe("Phantom Order E2E (simnode)", () => {
 		const bids = await coprocessor.getBidsForOrder(commitment!)
 		console.log("All bids count:", bids.length, bids.map((b) => b.filler))
 		expect(bids.length).toBe(3)
+	}, 60_000)
+
+	it("PhantomOrderRegistered carries both directions of every configured pair, decoded through the SDK", async () => {
+		// The only check on how polkadot-js decodes the leg list off the runtime metadata. The SDK
+		// extraction and the indexer handler both read `tokenA` / `tokenB` / `standardAmount`, which
+		// assumes polkadot-js camelCases the pallet's `token_a` / `token_b` / `standard_amount`
+		// fields. Unit tests cannot catch a mismatch there because their fixtures were written from
+		// the same assumption; only a real runtime can. Reading it through
+		// getPhantomOrdersInBlock rather than by hand keeps this honest.
+		const pairs = [
+			{
+				token_a: "0x0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
+				token_b: "0x0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b",
+				standard_amount: 1_000_000n,
+				standard_amount_b: 1_000_000_000_000_000_000n,
+			},
+			{
+				token_a: "0x0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c",
+				token_b: "0x0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d",
+				standard_amount: 1_000_000_000n,
+				standard_amount_b: 1_000_000n,
+			},
+		]
+		await sudoAndSeal(
+			api,
+			api.tx.intentsCoprocessor.setPhantomOrderConfig({
+				chains: new Map([[{ state_id: { Evm: 8453 }, consensus_state_id: ETH0_CONSENSUS_ID }, pairs]]),
+				interval_blocks: 10,
+			}),
+		)
+
+		// Generation happens in on_initialize of the next block.
+		await createBlock(api)
+		const generatedAt = (await api.rpc.chain.getHeader()).number.toNumber()
+
+		const orders = await coprocessor.getPhantomOrdersInBlock(generatedAt)
+		expect(orders).toHaveLength(1)
+
+		const order = orders[0]
+		expect(order.chain).toBe("EVM-8453")
+		expect(order.commitment).toBe(await getActivePhantomCommitment(api))
+
+		// The pallet expands each configured pair into its forward and reverse legs, positionally:
+		// index i here is leg i of the order's asset lists.
+		const expectedLegs = pairs.flatMap((pair) => [
+			{ tokenA: pair.token_a, tokenB: pair.token_b, standardAmount: pair.standard_amount },
+			{ tokenA: pair.token_b, tokenB: pair.token_a, standardAmount: pair.standard_amount_b },
+		])
+		expect(order.legs).toEqual(expectedLegs)
 	}, 60_000)
 })

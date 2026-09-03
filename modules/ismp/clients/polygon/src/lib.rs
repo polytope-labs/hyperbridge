@@ -236,7 +236,9 @@ impl<H: IsmpHost + Send + Sync + Default + 'static, T: HostExecutiveConfig> Cons
 			.to_consensus_proof()
 			.map_err(|e| PolygonError::ConvertTendermintProof(e.to_string()))?;
 
-		let trusted_state: TrustedState = consensus_state.clone().tendermint_state.into();
+		let trusted_state: TrustedState =
+			TrustedState::try_from(consensus_state.clone().tendermint_state)
+				.map_err(PolygonError::ConvertTrustedState)?;
 
 		let time = host.timestamp().as_secs();
 
@@ -380,7 +382,9 @@ impl<H: IsmpHost + Send + Sync + Default + 'static, T: HostExecutiveConfig> Cons
 			return Err(PolygonError::FraudProofsIdentical.into());
 		}
 
-		let trusted_state: TrustedState = consensus_state.clone().tendermint_state.into();
+		let trusted_state: TrustedState =
+			TrustedState::try_from(consensus_state.clone().tendermint_state)
+				.map_err(PolygonError::ConvertTrustedState)?;
 
 		let time = host.timestamp().as_secs();
 

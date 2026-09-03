@@ -125,6 +125,37 @@ impl From<router::GetRequest> for GetRequest {
 	}
 }
 
+impl From<router::GetRequest> for ismp_abi::handler::handler_v2::HandlerV2::GetRequest {
+	fn from(value: router::GetRequest) -> Self {
+		Self {
+			source: value.source.to_string().into_bytes().into(),
+			dest: value.dest.to_string().into_bytes().into(),
+			nonce: value.nonce,
+			from: value.from.into(),
+			keys: value.keys.into_iter().map(Into::into).collect(),
+			context: value.context.into(),
+			timeoutTimestamp: value.timeout_timestamp,
+			height: value.height,
+		}
+	}
+}
+
+impl From<router::GetResponse> for ismp_abi::handler::handler_v2::HandlerV2::GetResponse {
+	fn from(value: router::GetResponse) -> Self {
+		Self {
+			request: value.get.into(),
+			values: value
+				.values
+				.into_iter()
+				.map(|storage_value| ismp_abi::handler::handler_v2::HandlerV2::StorageValue {
+					key: storage_value.key.into(),
+					value: storage_value.value.unwrap_or_default().into(),
+				})
+				.collect(),
+		}
+	}
+}
+
 impl From<router::GetResponse> for GetResponse {
 	fn from(value: router::GetResponse) -> Self {
 		GetResponse {

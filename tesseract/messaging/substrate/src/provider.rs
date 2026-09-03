@@ -290,6 +290,27 @@ where
 		}
 	}
 
+	async fn query_responses_proof(
+		&self,
+		at: u64,
+		commitments: Vec<H256>,
+		counterparty: StateMachine,
+	) -> Result<Vec<u8>, anyhow::Error> {
+		if commitments.is_empty() {
+			Err(anyhow!("No commitments provided"))?
+		}
+		match counterparty {
+			s if s.is_evm() => {
+				let keys = ProofKeys::Responses(commitments);
+				let params = rpc_params![at, keys];
+				let response: pallet_ismp_rpc::Proof =
+					self.rpc_client.request("mmr_queryProof", params).await?;
+				Ok(response.proof)
+			},
+			s => Err(anyhow::anyhow!("query_responses_proof is unsupported for {s:?}")),
+		}
+	}
+
 	async fn query_state_proof(
 		&self,
 		at: u64,
@@ -1017,8 +1038,8 @@ where
 
 // The storage key needed to access events.
 pub fn system_events_key() -> StorageKey {
-	let mut storage_key = sp_core::twox_128(b"System").to_vec();
-	storage_key.extend(sp_core::twox_128(b"Events").to_vec());
+	let mut storage_key = sp_crypto_hashing::twox_128(b"System").to_vec();
+	storage_key.extend(sp_crypto_hashing::twox_128(b"Events").to_vec());
 	StorageKey(storage_key)
 }
 
@@ -1036,10 +1057,33 @@ fn encode_message(msg: &Message) -> Option<[u8; 32]> {
 #[cfg(test)]
 mod tests {
 	use ismp::host::StateMachine;
+	use subxt::{config::Header, ext::subxt_rpcs::rpc_params};
 	use subxt_utils::Hyperbridge;
 	use tesseract_primitives::ProofAccepted;
 
-	use crate::{SubstrateClient, SubstrateConfig};
+	use crate::{system_events_key, SubstrateClient, SubstrateConfig};
+
+	const GARGANTUA_WS: &str = "wss://gargantua.rpc.polytope.technology";
+
+	fn gargantua_config(rpc_ws: &str) -> SubstrateConfig {
+		SubstrateConfig {
+			state_machine: Some(StateMachine::Kusama(4009)),
+			hashing: None,
+			// `SubstrateClient::new` reads this unconditionally, so the helper stands in for
+			// what `SubstrateConfig::resolve` would have derived for a Kusama parachain.
+			consensus_state_id: Some("PAS0".to_string()),
+			rpc_ws: rpc_ws.to_string(),
+			max_rpc_payload_size: None,
+			// Dummy seed — the test never signs or submits anything.
+			signer: Some(
+				"0x0000000000000000000000000000000000000000000000000000000000000001".to_string(),
+			),
+			initial_height: None,
+			max_concurent_queries: None,
+			poll_interval: None,
+			fee_token_decimals: None,
+		}
+	}
 
 	/// Drives the per-window body of `proof_accepted_notification` against
 	/// parachain blocks 8753269..=8753274 on live Gargantua and asserts the
@@ -1056,21 +1100,7 @@ mod tests {
 		const EXPECTED_HEIGHT: u64 = 8753260;
 		const EXPECTED_SET_ID: u64 = 19044;
 
-		let config = SubstrateConfig {
-			state_machine: Some(StateMachine::Kusama(4009)),
-			hashing: None,
-			consensus_state_id: None,
-			rpc_ws: "ws://localhost:9944".to_string(),
-			max_rpc_payload_size: None,
-			// Dummy seed — the test never signs or submits anything.
-			signer: Some(
-				"0x0000000000000000000000000000000000000000000000000000000000000001".to_string(),
-			),
-			initial_height: None,
-			max_concurent_queries: None,
-			poll_interval: None,
-			fee_token_decimals: None,
-		};
+		let config = gargantua_config("ws://localhost:9944");
 
 		let client =
 			SubstrateClient::<Hyperbridge>::new(config).await.expect("connect to gargantua");
@@ -1111,5 +1141,60 @@ mod tests {
 	#[allow(dead_code)]
 	fn _proof_accepted_shape(p: ProofAccepted) -> (u64, Option<u64>) {
 		(p.height, p.new_set_id)
+	}
+
+	/// Drives a client against live Gargantua and touches every shape of traffic the relayer
+	/// relies on: the metadata download and header read that `SubstrateClient::new` performs,
+	/// a raw custom rpc, a storage read through the online client, all of which travel over
+	/// the derived http endpoint, and a finalized head subscription over the websocket.
+	///
+	/// Hits a remote RPC — gated with `#[ignore]` so CI skips it. Run with
+	/// `cargo test -p tesseract-substrate -- --ignored http_transport`.
+	#[tokio::test]
+	#[ignore]
+	async fn http_transport_serves_queries_and_subscriptions() {
+		let client = SubstrateClient::<Hyperbridge>::new(gargantua_config(GARGANTUA_WS))
+			.await
+			.expect("connect to gargantua");
+
+		let header = client
+			.rpc
+			.chain_get_header(None)
+			.await
+			.expect("chain_getHeader over http")
+			.expect("gargantua always has a head");
+		assert!(header.number() > 0);
+
+		let chain: String = client
+			.rpc_client
+			.request("system_chain", rpc_params![])
+			.await
+			.expect("raw custom rpc over http");
+		assert!(chain.contains("Gargantua"), "unexpected chain name {chain}");
+
+		let block_hash = client
+			.rpc
+			.chain_get_block_hash(Some(header.number().into()))
+			.await
+			.expect("chain_getBlockHash over http")
+			.expect("hash for the head we just read");
+		client
+			.client
+			.storage()
+			.at(block_hash)
+			.fetch_raw(system_events_key().0)
+			.await
+			.expect("storage read over http");
+
+		let mut heads = client
+			.rpc
+			.chain_subscribe_finalized_heads()
+			.await
+			.expect("subscription over the websocket");
+		heads
+			.next()
+			.await
+			.expect("a finalized head within the block time")
+			.expect("a well formed header");
 	}
 }

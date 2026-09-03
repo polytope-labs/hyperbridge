@@ -176,7 +176,7 @@ pub mod pallet {
 	/// strictly increasing because every accepted proof advances the proven height,
 	/// so `vec[0]` is always the oldest — FIFO eviction via `remove(0)` when full.
 	/// The proof bytes live in offchain storage under
-	/// [`offchain_key(latest_height)`](types::offchain_key).
+	/// [`messaging_offchain_key(latest_height)`](types::messaging_offchain_key).
 	#[pallet::storage]
 	pub type MessagingProofs<T: Config> =
 		StorageValue<_, BoundedVec<u64, T::MaxStoredProofs>, ValueQuery>;
@@ -184,8 +184,8 @@ pub mod pallet {
 	/// Map of `set_id → latest_height` for rotation proofs. Lets relayers catch a lagging
 	/// EVM destination up across multiple epochs: given the last-known authority set id,
 	/// walk entries forward, fetching each rotation proof from offchain storage under
-	/// [`offchain_key(latest_height)`](types::offchain_key). BEEFY set ids are monotone,
-	/// so `iter().next()` gives FIFO eviction on overflow.
+	/// [`rotation_offchain_key(set_id)`](types::rotation_offchain_key). BEEFY set ids are
+	/// monotone, so `keys().next()` gives FIFO eviction on overflow.
 	#[pallet::storage]
 	pub type RotationProofs<T: Config> =
 		StorageValue<_, BoundedBTreeMap<u64, u64, T::MaxStoredProofs>, ValueQuery>;
@@ -225,8 +225,11 @@ pub mod pallet {
 	pub enum Error<T> {
 		/// Consensus state has not been initialized yet.
 		NotInitialized,
-		/// Proof is stale: `latest_height ≤ latest_state_machine_height`, or the proof rotated to
-		/// an unexpected authority set.
+		/// Proof is stale: the BEEFY verifier rejected its commitment as at or below
+		/// `latest_beefy_height`, or it is a messaging proof whose parachain height is
+		/// `≤ latest_state_machine_height`. Rotation proofs are exempt from the latter — see
+		/// [`Pallet::verify_and_apply`]. For SP1 proofs this is the legitimate-uncle case and
+		/// dispatch retries through [`Pallet::settle_uncle_proof`].
 		StaleProof,
 		/// First proof byte is not a recognized proof type.
 		UnknownProofType,
@@ -518,7 +521,11 @@ pub mod pallet {
 		///
 		/// `account` is the committed nonce (== signer) for SP1 proofs, and `None` for naive
 		/// proofs (which are ineligible for uncle rewards).
-		fn settle_first_proof(
+		///
+		/// Public so tests can drive the settlement paths with a synthetic [`VerifyOutcome`],
+		/// which is the only way to construct a rotation and a messaging proof at one height
+		/// without minting real BEEFY proofs.
+		pub fn settle_first_proof(
 			submitter: T::AccountId,
 			proof: Vec<u8>,
 			account: Option<H256>,
@@ -531,34 +538,83 @@ pub mod pallet {
 			}
 
 			// Record uncle metadata for SP1 proofs only. Naive proofs are ineligible.
+			//
+			// A rotation may land on a height a messaging proof already filled, and the slots
+			// are bounded, so this can fail. Uncle bookkeeping only decides who gets paid,
+			// while the caller has already applied the authority-set rotation, so a hard error
+			// here would roll that rotation back. The mandatory justification is the only one
+			// obtainable for that session, so every retry would fail identically and the
+			// consensus state would sit on the old set forever. Log and carry on instead.
+			// Skipping the record cannot mint a second reward: `ProverCount` is already at the
+			// cap, so `settle_uncle_proof` rejects on position before it reads `AcceptedProvers`.
 			if proof_type == types::PROOF_TYPE_SP1 {
 				let account = account.ok_or(Error::<T>::UnknownProofType)?;
-				Self::record_uncle_metadata(outcome.latest_height, prev_state_bytes, account)?;
+				if let Err(e) =
+					Self::record_uncle_metadata(outcome.latest_height, prev_state_bytes, account)
+				{
+					log::warn!(
+						target: "ismp",
+						"[beefy-consensus-proofs] uncle metadata skipped at height {}: {e:?}",
+						outcome.latest_height,
+					);
+				}
 			}
 
-			let reward_paid = Self::pay_position_reward(&submitter, 0)?;
+			// Same reasoning as the uncle bookkeeping above: the caller has already applied the
+			// authority-set rotation, so a hard error here rolls it back, and since the mandatory
+			// justification is the only one obtainable for that session every retry fails
+			// identically until someone tops the treasury up — leaving the consensus state on the
+			// old set in the meantime. A missed reward is the cheaper loss, so log and carry on.
+			// Messaging proofs keep the hard error: reverting one is recoverable, because the work
+			// is re-attempted by the next proof once the treasury can pay.
+			let reward_paid = match Self::pay_position_reward(&submitter, 0) {
+				Ok(reward) => reward,
+				Err(e) if outcome.rotated => {
+					log::warn!(
+						target: "ismp",
+						"[beefy-consensus-proofs] reward skipped for rotation to set {}: {e:?}",
+						outcome.current_set_id,
+					);
+					BalanceOf::<T>::default()
+				},
+				Err(e) => Err(e)?,
+			};
 
-			sp_io::offchain_index::set(&types::offchain_key(outcome.latest_height), &proof);
-			let evicted_height = if outcome.rotated {
+			// Mandatory proofs are keyed by the set id they rotated to, messaging proofs by the
+			// height they advanced to, so the two never write over each other even when a
+			// rotation lands on a head an earlier messaging proof already finalized.
+			let evicted = if outcome.rotated {
+				sp_io::offchain_index::set(
+					&types::rotation_offchain_key(outcome.current_set_id),
+					&proof,
+				);
 				RotationProofs::<T>::mutate(|map| {
 					let evicted = (map.len() as u32 == T::MaxStoredProofs::get())
-						.then(|| map.iter().next().map(|(k, _)| *k))
+						.then(|| map.keys().next().copied())
 						.flatten()
-						.and_then(|set_id| map.remove(&set_id));
+						.and_then(|set_id| {
+							map.remove(&set_id)
+								.map(|height| (types::rotation_offchain_key(set_id), height))
+						});
 					let _ = map.try_insert(outcome.current_set_id, outcome.latest_height);
 					evicted
 				})
 			} else {
+				sp_io::offchain_index::set(
+					&types::messaging_offchain_key(outcome.latest_height),
+					&proof,
+				);
 				MessagingProofs::<T>::mutate(|vec| {
-					let evicted =
-						(vec.len() as u32 == T::MaxStoredProofs::get()).then(|| vec.remove(0));
+					let evicted = (vec.len() as u32 == T::MaxStoredProofs::get())
+						.then(|| vec.remove(0))
+						.map(|height| (types::messaging_offchain_key(height), height));
 					let _ = vec.try_push(outcome.latest_height);
 					evicted
 				})
 			};
 
-			if let Some(height) = evicted_height {
-				sp_io::offchain_index::clear(&types::offchain_key(height));
+			if let Some((key, height)) = evicted {
+				sp_io::offchain_index::clear(&key);
 				ProofContext::<T>::remove(height);
 				ProverCount::<T>::remove(height);
 				AcceptedProvers::<T>::remove(height);
@@ -823,7 +879,31 @@ pub mod pallet {
 			let coprocessor = T::Coprocessor::get().ok_or(Error::<T>::NotInitialized)?;
 			let latest_height = Self::latest_height()?;
 
-			if latest_height <= prev_height {
+			// Read post-update consensus state to derive the new set id.
+			let new_state_bytes = host
+				.consensus_state(ismp_beefy::BEEFY_CONSENSUS_ID)
+				.map_err(|_| Error::<T>::VerificationFailed)?;
+			let new_state: beefy_verifier_primitives::ConsensusState =
+				Decode::decode(&mut &new_state_bytes[..])
+					.map_err(|_| Error::<T>::VerificationFailed)?;
+
+			// BEEFY invariant: `next` is always `current + 1`.
+			if new_state.next_authorities.id != new_state.current_authorities.id.saturating_add(1) {
+				Err(Error::<T>::UnexpectedAuthoritySet)?;
+			}
+
+			let rotated = new_state.current_authorities.id > prev_state.current_authorities.id;
+
+			// Messaging proofs must finalize a parachain head we haven't seen; one that doesn't
+			// carries no new work and is rejected. Rotation proofs are exempt: the session
+			// boundary justification carries whatever head the relay chain held at that block,
+			// and if the parachain stalled for a session it is byte-for-byte the head the
+			// previous proof already finalized. Failing here is a dispatch error, so it would
+			// roll back the authority-set rotation `handle_incoming_message` just applied,
+			// pinning the consensus state on the old set forever — the mandatory-block
+			// justification is the only one a prover can obtain for that session, so every
+			// retry fails identically.
+			if !rotated && latest_height <= prev_height {
 				Err(Error::<T>::StaleProof)?
 			}
 
@@ -842,20 +922,6 @@ pub mod pallet {
 				pallet_ismp::Pallet::<T>::deposit_event(ev.into());
 			}
 
-			// Read post-update consensus state to derive the new set id.
-			let new_state_bytes = host
-				.consensus_state(ismp_beefy::BEEFY_CONSENSUS_ID)
-				.map_err(|_| Error::<T>::VerificationFailed)?;
-			let new_state: beefy_verifier_primitives::ConsensusState =
-				Decode::decode(&mut &new_state_bytes[..])
-					.map_err(|_| Error::<T>::VerificationFailed)?;
-
-			// BEEFY invariant: `next` is always `current + 1`.
-			if new_state.next_authorities.id != new_state.current_authorities.id.saturating_add(1) {
-				Err(Error::<T>::UnexpectedAuthoritySet)?;
-			}
-
-			let rotated = new_state.current_authorities.id > prev_state.current_authorities.id;
 			let child_trie_root =
 				state_commitment.overlay_root.ok_or_else(|| Error::<T>::MissingChildTrieRoot)?;
 

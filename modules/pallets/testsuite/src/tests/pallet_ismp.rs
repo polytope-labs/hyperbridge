@@ -15,12 +15,18 @@
 
 #![cfg(test)]
 
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::{
+	collections::BTreeMap,
+	time::{Duration, SystemTime, UNIX_EPOCH},
+};
 
 use codec::Encode;
-use frame_support::traits::{
-	fungible::{Inspect, Mutate},
-	Time,
+use frame_support::{
+	assert_noop,
+	traits::{
+		fungible::{Inspect, Mutate},
+		Time,
+	},
 };
 use frame_system::Origin;
 use polkadot_sdk::{sp_crypto_hashing::keccak_256, *};
@@ -28,7 +34,7 @@ use sp_core::{crypto::AccountId32, ByteArray, Pair, H256};
 use sp_runtime::traits::AccountIdConversion;
 
 use ismp::{
-	consensus::{StateMachineHeight, StateMachineId},
+	consensus::{StateCommitment, StateMachineHeight, StateMachineId},
 	dispatcher::{DispatchGet, DispatchRequest, FeeMetadata, IsmpDispatcher},
 	host::{IsmpHost, StateMachine},
 	messaging::{hash_request, Message, Proof, RequestMessage, ResponseMessage, TimeoutMessage},
@@ -43,7 +49,8 @@ use ismp_testsuite::{
 use pallet_ismp::{
 	child_trie::{RequestCommitments, RequestReceipts},
 	offchain::Leaf,
-	FundMessageParams, MessageCommitment, RELAYER_FEE_ACCOUNT,
+	CommitmentQueueState, CommitmentQueueStates, FundMessageParams, MessageCommitment,
+	StateCommitmentQueue, StateMachineCommitmentCap, RELAYER_FEE_ACCOUNT,
 };
 use pallet_ismp_relayer::withdrawal::Signature;
 
@@ -659,4 +666,275 @@ fn should_charge_fee_for_request() {
 		assert_eq!(final_signer_balance, initial_balance - expected_fee);
 		assert_eq!(final_treasury_balance, initial_treasury_balance + expected_fee);
 	});
+}
+
+
+fn queue_test_state_machine() -> StateMachineId {
+	StateMachineId { state_id: StateMachine::Evm(97), consensus_state_id: *b"mock" }
+}
+
+fn queue_test_commitment() -> StateCommitment {
+	StateCommitment { timestamp: 0, overlay_root: None, state_root: H256::random() }
+}
+
+#[test]
+fn commitment_queue_evicts_oldest_when_cap_is_reached() {
+	let mut ext = new_test_ext();
+	ext.execute_with(|| {
+		let host = Ismp::default();
+		let id = queue_test_state_machine();
+
+		pallet_ismp::Pallet::<Test>::update_commitment_caps(
+			RuntimeOrigin::root(),
+			BTreeMap::from([(id, 3)]),
+		)
+		.unwrap();
+
+		for height in 1..=5u64 {
+			let at = StateMachineHeight { id, height };
+			host.store_state_machine_commitment(at, queue_test_commitment()).unwrap();
+			host.store_state_machine_update_time(at, Duration::from_secs(height)).unwrap();
+		}
+
+		for height in 1..=2u64 {
+			let at = StateMachineHeight { id, height };
+			assert!(host.state_machine_commitment(at).is_err());
+			assert!(host.state_machine_update_time(at).is_err());
+		}
+		for height in 3..=5u64 {
+			let at = StateMachineHeight { id, height };
+			assert!(host.state_machine_commitment(at).is_ok());
+			assert!(host.state_machine_update_time(at).is_ok());
+		}
+		assert_eq!(
+			CommitmentQueueStates::<Test>::get(id),
+			CommitmentQueueState { head: 2, tail: 5 }
+		);
+	})
+}
+
+#[test]
+fn lowering_the_cap_drains_the_queue_gradually() {
+	let mut ext = new_test_ext();
+	ext.execute_with(|| {
+		let host = Ismp::default();
+		let id = queue_test_state_machine();
+		let store = |height: u64| {
+			host.store_state_machine_commitment(
+				StateMachineHeight { id, height },
+				queue_test_commitment(),
+			)
+			.unwrap();
+		};
+
+		pallet_ismp::Pallet::<Test>::update_commitment_caps(
+			RuntimeOrigin::root(),
+			BTreeMap::from([(id, 8)]),
+		)
+		.unwrap();
+		for height in 1..=8u64 {
+			store(height);
+		}
+		assert_eq!(
+			CommitmentQueueStates::<Test>::get(id),
+			CommitmentQueueState { head: 0, tail: 8 }
+		);
+
+		pallet_ismp::Pallet::<Test>::update_commitment_caps(
+			RuntimeOrigin::root(),
+			BTreeMap::from([(id, 2)]),
+		)
+		.unwrap();
+
+		// 9 live vs cap 2: only MAX_COMMITMENT_EVICTIONS_PER_INSERT entries are
+		// evicted per insertion, so the excess drains over several insertions.
+		store(9);
+		assert_eq!(
+			CommitmentQueueStates::<Test>::get(id),
+			CommitmentQueueState { head: 4, tail: 9 }
+		);
+		store(10);
+		assert_eq!(
+			CommitmentQueueStates::<Test>::get(id),
+			CommitmentQueueState { head: 8, tail: 10 }
+		);
+		store(11);
+		assert_eq!(
+			CommitmentQueueStates::<Test>::get(id),
+			CommitmentQueueState { head: 9, tail: 11 }
+		);
+		// At the cap: steady state, one eviction per insertion.
+		store(12);
+		assert_eq!(
+			CommitmentQueueStates::<Test>::get(id),
+			CommitmentQueueState { head: 10, tail: 12 }
+		);
+		assert!(host.state_machine_commitment(StateMachineHeight { id, height: 10 }).is_err());
+		assert!(host.state_machine_commitment(StateMachineHeight { id, height: 11 }).is_ok());
+		assert!(host.state_machine_commitment(StateMachineHeight { id, height: 12 }).is_ok());
+	})
+}
+
+// A height below the latest can never be resubmitted — the consensus handler skips
+// anything at or below `previous_latest_height` — so its stale queue entry has no
+// live twin and evicting it touches nothing.
+#[test]
+fn vetoed_height_that_cannot_be_resubmitted_evicts_as_a_noop() {
+	let mut ext = new_test_ext();
+	ext.execute_with(|| {
+		let host = Ismp::default();
+		let id = queue_test_state_machine();
+		let store = |height: u64| {
+			host.store_state_machine_commitment(
+				StateMachineHeight { id, height },
+				queue_test_commitment(),
+			)
+			.unwrap();
+			host.store_latest_commitment_height(StateMachineHeight { id, height }).unwrap();
+		};
+
+		pallet_ismp::Pallet::<Test>::update_commitment_caps(
+			RuntimeOrigin::root(),
+			BTreeMap::from([(id, 2)]),
+		)
+		.unwrap();
+
+		store(10);
+		store(11);
+
+		// Veto a height below the latest: the commitment goes away immediately while
+		// its queue entry stays behind as a stale index. The latest height is
+		// untouched, so 10 stays permanently unsubmittable.
+		host.delete_state_commitment(StateMachineHeight { id, height: 10 }).unwrap();
+		assert!(host.state_machine_commitment(StateMachineHeight { id, height: 10 }).is_err());
+		assert_eq!(host.latest_commitment_height(id).unwrap(), 11);
+		assert_eq!(
+			CommitmentQueueStates::<Test>::get(id),
+			CommitmentQueueState { head: 0, tail: 2 }
+		);
+		assert_eq!(StateCommitmentQueue::<Test>::get(id, 0), Some(10));
+
+		// The stale index is evicted as a no-op on the next insertion.
+		store(12);
+		assert_eq!(
+			CommitmentQueueStates::<Test>::get(id),
+			CommitmentQueueState { head: 1, tail: 3 }
+		);
+		assert!(StateCommitmentQueue::<Test>::get(id, 0).is_none());
+		assert!(host.state_machine_commitment(StateMachineHeight { id, height: 11 }).is_ok());
+		assert!(host.state_machine_commitment(StateMachineHeight { id, height: 12 }).is_ok());
+	})
+}
+
+// Vetoing the *latest* height resets the latest pointer, which re-opens that height
+// for honest resubmission. The resubmission gets a second queue entry, and the stale
+// twin ahead of it evicts the live commitment one insertion early. This pins that
+// wart: it costs the height one insertion of retention and burns one queue slot,
+// which is negligible against the configured caps but is not a no-op.
+#[test]
+fn vetoed_latest_height_that_is_resubmitted_evicts_one_insertion_early() {
+	let mut ext = new_test_ext();
+	ext.execute_with(|| {
+		let host = Ismp::default();
+		let id = queue_test_state_machine();
+		let store = |height: u64| {
+			host.store_state_machine_commitment(
+				StateMachineHeight { id, height },
+				queue_test_commitment(),
+			)
+			.unwrap();
+			host.store_latest_commitment_height(StateMachineHeight { id, height }).unwrap();
+		};
+
+		pallet_ismp::Pallet::<Test>::update_commitment_caps(
+			RuntimeOrigin::root(),
+			BTreeMap::from([(id, 2)]),
+		)
+		.unwrap();
+
+		store(10);
+		store(11);
+
+		// Vetoing the latest height rolls the latest pointer back to 10, so the
+		// consensus handler would accept 11 again: it is not below the latest and
+		// its commitment is now absent.
+		host.delete_state_commitment(StateMachineHeight { id, height: 11 }).unwrap();
+		assert_eq!(host.latest_commitment_height(id).unwrap(), 10);
+
+		store(11);
+		assert!(host.state_machine_commitment(StateMachineHeight { id, height: 11 }).is_ok());
+		// Two queue entries now point at height 11: the stale one and the live one.
+		assert_eq!(StateCommitmentQueue::<Test>::get(id, 1), Some(11));
+		assert_eq!(StateCommitmentQueue::<Test>::get(id, 2), Some(11));
+
+		// Evicting the stale entry at index 1 deletes the live commitment for 11,
+		// one insertion before the entry at index 2 would have.
+		store(12);
+		assert!(host.state_machine_commitment(StateMachineHeight { id, height: 11 }).is_err());
+		assert!(host.state_machine_commitment(StateMachineHeight { id, height: 12 }).is_ok());
+		// The queue still counts index 2 as live, so the burnt slot leaves this
+		// chain retaining one fewer commitment than its cap of 2.
+		assert_eq!(
+			CommitmentQueueStates::<Test>::get(id),
+			CommitmentQueueState { head: 2, tail: 4 }
+		);
+		assert_eq!(StateCommitmentQueue::<Test>::get(id, 2), Some(11));
+	})
+}
+
+#[test]
+fn update_commitment_caps_checks_origin_and_rejects_zero() {
+	let mut ext = new_test_ext();
+	ext.execute_with(|| {
+		let id = queue_test_state_machine();
+
+		assert_noop!(
+			pallet_ismp::Pallet::<Test>::update_commitment_caps(
+				RuntimeOrigin::signed(AccountId32::new([0u8; 32])),
+				BTreeMap::from([(id, 5)]),
+			),
+			sp_runtime::DispatchError::BadOrigin,
+		);
+
+		assert_noop!(
+			pallet_ismp::Pallet::<Test>::update_commitment_caps(
+				RuntimeOrigin::root(),
+				BTreeMap::from([(id, 0)]),
+			),
+			pallet_ismp::Error::<Test>::InvalidCommitmentCap,
+		);
+
+		pallet_ismp::Pallet::<Test>::update_commitment_caps(
+			RuntimeOrigin::root(),
+			BTreeMap::from([(id, 192_000)]),
+		)
+		.unwrap();
+		assert_eq!(StateMachineCommitmentCap::<Test>::get(id), Some(192_000));
+	})
+}
+
+#[test]
+fn seed_commitment_caps_migration_sets_caps_without_clobbering_overrides() {
+	use frame_support::traits::OnRuntimeUpgrade;
+
+	let bsc = StateMachineId { state_id: StateMachine::Evm(56), consensus_state_id: *b"BSC0" };
+	let polygon = StateMachineId { state_id: StateMachine::Evm(137), consensus_state_id: *b"POLY" };
+
+	let mut ext = new_test_ext();
+	ext.execute_with(|| {
+		pallet_ismp::migrations::SeedCommitmentCaps::<Test>::on_runtime_upgrade();
+		// Six hours of blocks at each chain's cadence: 450ms for BSC, 2s for Polygon.
+		assert_eq!(StateMachineCommitmentCap::<Test>::get(bsc), Some(48_000));
+		assert_eq!(StateMachineCommitmentCap::<Test>::get(polygon), Some(10_800));
+
+		// A cap set by governance survives the migration re-running.
+		pallet_ismp::Pallet::<Test>::update_commitment_caps(
+			RuntimeOrigin::root(),
+			BTreeMap::from([(bsc, 300_000)]),
+		)
+		.unwrap();
+		pallet_ismp::migrations::SeedCommitmentCaps::<Test>::on_runtime_upgrade();
+		assert_eq!(StateMachineCommitmentCap::<Test>::get(bsc), Some(300_000));
+		assert_eq!(StateMachineCommitmentCap::<Test>::get(polygon), Some(10_800));
+	})
 }

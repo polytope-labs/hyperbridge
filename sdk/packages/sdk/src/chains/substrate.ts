@@ -25,7 +25,11 @@ import {
 	replaceWebsocketWithHttp,
 	parseStateMachineId,
 } from "@/utils"
-import { ExpectedError } from "@/utils/exceptions"
+import {
+	ExpectedError,
+	MissingConsensusUpdateTimeError,
+	MISSING_CONSENSUS_UPDATE_TIME_MESSAGE,
+} from "@/utils/exceptions"
 import { keccakAsU8a } from "@polkadot/util-crypto"
 import { ISMP_PREFIX } from "@/configs/constants"
 
@@ -387,25 +391,32 @@ export class SubstrateChain implements IChain {
 	}
 
 	/**
-	 * Get the state machine update time for a given state machine height.
+	 * Get the state machine update time for a given state machine height. Reads the
+	 * `BoundedStateMachineUpdateTime` map in pallet-ismp directly, so the height is either
+	 * still retained on-chain or it has been evicted — there's no intermediate RPC to
+	 * reinterpret the absence.
 	 * @param {StateMachineHeight} stateMachineHeight - The state machine height.
 	 * @returns {Promise<bigint>} The statemachine update time in seconds.
 	 */
 	async stateMachineUpdateTime(stateMachineHeight: StateMachineHeight): Promise<bigint> {
-		const state_id = convertStateIdToStateMachineId(stateMachineHeight.id.stateId)
+		if (!this.api) throw new Error("API not initialized")
 
-		const stateMachineId = {
-			state_id,
-			consensus_state_id: stateMachineHeight.id.consensusStateId,
+		const id = {
+			stateId: stateMachineHeight.id.stateId,
+			// on-chain StateMachineId encodes consensusStateId as [u8; 4]
+			consensusStateId: toHex(toBytes(stateMachineHeight.id.consensusStateId)),
 		}
 
-		const payload = {
-			id: stateMachineId,
-			height: Number(stateMachineHeight.height),
+		const updateTime = await this.api.query.ismp.boundedStateMachineUpdateTime(
+			id,
+			Number(stateMachineHeight.height),
+		)
+
+		if ((updateTime as any).isNone) {
+			throw new MissingConsensusUpdateTimeError(MISSING_CONSENSUS_UPDATE_TIME_MESSAGE)
 		}
 
-		const updateTime: number = await this.rpcClient.call("ismp_queryStateMachineUpdateTime", [payload])
-		return BigInt(updateTime)
+		return BigInt((updateTime as any).unwrap().toString())
 	}
 
 	/**
@@ -476,24 +487,40 @@ export class SubstrateChain implements IChain {
 
 		const proofs: HexString[] = []
 
-		// The rotation map is keyed by the epoch that was current when the proof
-		// was generated — the proof itself is signed by set (key + 1). The handler's
-		// currentEpoch equals the destination's nextAuthoritySet.id. We start from
-		// currentEpoch - 1 (the destination's currentAuthoritySet.id) so the first
-		// proof is signed by a set the destination already knows.
-		let epoch = currentEpoch - 1n
+		// The map is keyed by the set each proof rotated *to*, and HandlerV2 records
+		// `nextAuthoritySetId - 1`, so `currentEpoch` is the destination's current set. The
+		// first proof it still needs is therefore the one rotating to currentEpoch + 1. This
+		// matches `rotation_proofs_from`, which walks from `from_set_id + 1`.
+		let epoch = currentEpoch + 1n
 		while (rotationMap.has(epoch)) {
-			const height = rotationMap.get(epoch)!
-			const key = beefyOffchainKey(height)
-			const proof = await this.rpcClient.call("offchain_localStorageGet", ["PERSISTENT", key])
+			const key = rotationOffchainKey(epoch)
+			let proof = await this.rpcClient.call("offchain_localStorageGet", ["PERSISTENT", key])
+			if (!proof) {
+				// Rotations recorded before the namespace split are still under the messaging
+				// key at their height. Drop this once every destination is past the upgrade.
+				const legacyKey = messagingOffchainKey(rotationMap.get(epoch)!)
+				proof = await this.rpcClient.call("offchain_localStorageGet", ["PERSISTENT", legacyKey])
+			}
 			if (!proof) return undefined
 			proofs.push(proof as HexString)
 			epoch++
 		}
 
-		// Fetch the final messaging proof at lastProvenHeight
-		const messagingKey = beefyOffchainKey(lastProvenHeight)
-		const messagingProof = await this.rpcClient.call("offchain_localStorageGet", ["PERSISTENT", messagingKey])
+		// Fetch the final messaging proof at lastProvenHeight. A rotation advances the proven
+		// height without writing a messaging blob, so when nothing is there, resolve the
+		// height through the rotation index instead.
+		const messagingKey = messagingOffchainKey(lastProvenHeight)
+		let messagingProof = await this.rpcClient.call("offchain_localStorageGet", ["PERSISTENT", messagingKey])
+		if (!messagingProof) {
+			for (const [setId, height] of rotationMap) {
+				if (height !== lastProvenHeight) continue
+				messagingProof = await this.rpcClient.call("offchain_localStorageGet", [
+					"PERSISTENT",
+					rotationOffchainKey(setId),
+				])
+				break
+			}
+		}
 		if (!messagingProof) return undefined
 		proofs.push(messagingProof as HexString)
 
@@ -516,16 +543,29 @@ export class SubstrateChain implements IChain {
 	}
 }
 
+function beefyOffchainKey(prefix: string, id: bigint): HexString {
+	const prefixBytes = new TextEncoder().encode(prefix)
+	const idBytes = new Uint8Array(8)
+	new DataView(idBytes.buffer).setBigUint64(0, id, false)
+	return toHex(new Uint8Array([...prefixBytes, ...idBytes]))
+}
+
 /**
- * Constructs the offchain storage key for a verified consensus proof keyed by
- * proven parachain height. Matches Rust's `offchain_key(proven_height)` in
- * pallet-beefy-consensus-proofs: `OFFCHAIN_PREFIX || u64_be(proven_height)`.
+ * Offchain key for a messaging proof, keyed by the parachain height it advanced to.
+ * Mirrors `messaging_offchain_key` in pallet-beefy-consensus-proofs.
  */
-function beefyOffchainKey(provenHeight: bigint): HexString {
-	const prefix = new TextEncoder().encode("beefy_consensus_proofs::")
-	const heightBytes = new Uint8Array(8)
-	new DataView(heightBytes.buffer).setBigUint64(0, provenHeight, false)
-	return toHex(new Uint8Array([...prefix, ...heightBytes]))
+function messagingOffchainKey(provenHeight: bigint): HexString {
+	return beefyOffchainKey("beefy_consensus_proofs::", provenHeight)
+}
+
+/**
+ * Offchain key for a mandatory proof, keyed by the authority set id it rotated to.
+ * Mirrors `rotation_offchain_key` in pallet-beefy-consensus-proofs. Mandatory proofs sit in
+ * their own namespace because a rotation can finalize a head a messaging proof already
+ * covered, so height alone would let one overwrite the other.
+ */
+function rotationOffchainKey(setId: bigint): HexString {
+	return beefyOffchainKey("beefy_consensus_proofs::rotation::", setId)
 }
 
 function requestCommitmentStorageKey(key: HexString): number[] {

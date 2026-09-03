@@ -1,3 +1,4 @@
+import { stubOrderScanner } from "../helpers/stub-scanner"
 import { IntentFiller } from "@/core/filler"
 import {
 	CacheService,
@@ -7,8 +8,10 @@ import {
 	type ResolvedChainConfig,
 	type FillerConfig as FillerServiceConfig,
 } from "@/services"
-import { createSimplexSigner, SignerType } from "@/services/wallet"
-import { StableFiller } from "@/strategies/stable"
+import { createSigner, SignerType } from "@/services/wallet"
+import { FXFiller, type TradingPair } from "@/strategies/fx"
+import { AssetRegistry } from "@/config/asset-registry"
+import { Decimal } from "decimal.js"
 import {
 	type ChainConfig,
 	type FillerConfig,
@@ -22,7 +25,7 @@ import {
 	DEFAULT_GRAFFITI,
 } from "@hyperbridge/sdk"
 import { describe, it, expect } from "vitest"
-import { ConfirmationPolicy, FillerBpsPolicy } from "@/config/interpolated-curve"
+import { ConfirmationPolicy, FillerPricePolicy } from "@/config/interpolated-curve"
 import {
 	getContract,
 	maxUint256,
@@ -38,6 +41,17 @@ import { privateKeyToAccount } from "viem/accounts"
 import "../setup"
 import { pimlicoBundlerUrlForChain as bundlerUrl } from "../pimlicoBundler"
 import { ERC20_ABI } from "@/config/abis/ERC20"
+
+/** Same-token USDC/USDC + USDT/USDT pairs at a flat 50 bps spread (ask price 0.995). */
+function sameTokenPairs(maxOrderSize: number): TradingPair[] {
+	return ["USDC", "USDT"].map((symbol) => ({
+		token0: symbol,
+		token1: symbol,
+		maxOrderSize: new Decimal(maxOrderSize),
+		askPricePolicy: new FillerPricePolicy({ points: [{ amount: "0", price: "0.995" }] }),
+	}))
+}
+
 
 // ============================================================================
 // Test Suites
@@ -81,7 +95,7 @@ describe("Filler V2 - Solver Selection ON", () => {
 		const beneficiaryAddress = privateKeyToAccount(privateKey).address
 		const beneficiary = bytes20ToBytes32(beneficiaryAddress)
 
-		let order: Order = {
+		const order: Order = {
 			user: bytes20ToBytes32(beneficiaryAddress),
 			source: toHex(bscChapelId),
 			destination: toHex(polygonAmoyId),
@@ -182,17 +196,10 @@ async function createIntentFiller(
 	chainConfigService: FillerConfigService,
 ): Promise<IntentFiller> {
 	const privateKey = process.env.PRIVATE_KEY as HexString
-	const signer = await createSimplexSigner({ type: SignerType.PrivateKey, key: privateKey })
+	const signer = await createSigner({ type: SignerType.PrivateKey, key: privateKey })
 	const cacheService = new CacheService()
 	const chainClientManager = new ChainClientManager(chainConfigService, signer)
 	const contractService = new ContractInteractionService(chainClientManager, chainConfigService, signer, cacheService)
-
-	const bpsPolicy = new FillerBpsPolicy({
-		points: [
-			{ amount: "1", value: 50 },
-			{ amount: "10000", value: 50 },
-		],
-	})
 
 	const confirmationPolicy = new ConfirmationPolicy({
 		"97": {
@@ -210,7 +217,15 @@ async function createIntentFiller(
 	})
 
 	const strategies = [
-		new StableFiller(signer, chainConfigService, chainClientManager, contractService, bpsPolicy, confirmationPolicy),
+		new FXFiller(
+			signer,
+			chainConfigService,
+			chainClientManager,
+			contractService,
+			sameTokenPairs(10000),
+			new AssetRegistry(chainConfigService),
+			{ confirmationPolicy },
+		),
 	]
 
 	return new IntentFiller(
@@ -221,6 +236,7 @@ async function createIntentFiller(
 		chainClientManager,
 		contractService,
 		signer,
+		{ orders: stubOrderScanner() },
 	)
 }
 
@@ -273,7 +289,7 @@ async function setUp() {
 	}
 
 	const privateKey = process.env.PRIVATE_KEY as HexString
-	const signer = await createSimplexSigner({ type: SignerType.PrivateKey, key: privateKey })
+	const signer = await createSigner({ type: SignerType.PrivateKey, key: privateKey })
 	const cacheService = new CacheService()
 	const chainClientManager = new ChainClientManager(chainConfigService, signer)
 	const contractService = new ContractInteractionService(chainClientManager, chainConfigService, signer, cacheService)

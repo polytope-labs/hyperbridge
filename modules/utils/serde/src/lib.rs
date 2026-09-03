@@ -116,6 +116,10 @@ pub mod as_utf8_string {
 	}
 
 	/// Deserialize a string into utf8 bytes
+	///
+	/// The string must be exactly 4 bytes long (bytes, not chars — a 4-char string of
+	/// multi-byte codepoints is rejected). Anything else is a deserialization error; this
+	/// runs on untrusted RPC input, so it must never panic.
 	pub fn deserialize<'de, D, T>(deserializer: D) -> Result<T, D::Error>
 	where
 		D: serde::Deserializer<'de>,
@@ -123,8 +127,11 @@ pub mod as_utf8_string {
 	{
 		let s = <String>::deserialize(deserializer)?;
 
-		let mut bytes = [0u8; 4];
-		bytes.copy_from_slice(s.as_bytes());
+		// `s.len()` is the utf-8 byte length, which is what the `[u8; 4]` needs to match.
+		let bytes: [u8; 4] = s
+			.as_bytes()
+			.try_into()
+			.map_err(|_| serde::de::Error::invalid_length(s.len(), &"a 4-byte utf-8 string"))?;
 		Ok(bytes.into())
 	}
 }
@@ -563,7 +570,7 @@ pub mod seq_of_u8_str_or_hex {
 
 #[cfg(test)]
 mod test {
-	use super::{as_string, seq_of_u8_str_or_hex};
+	use super::{as_string, as_utf8_string, seq_of_u8_str_or_hex};
 	use ismp::router::{GetRequest, GetResponse, PostRequest, StorageValue};
 	use primitive_types::{H256, H512};
 	use serde::Deserialize;
@@ -749,5 +756,77 @@ mod test {
 		assert_eq!(strings, expected);
 		assert_eq!(integers, expected);
 		assert_eq!(wrapped, expected);
+
+	// `as_utf8_string` deserializes into a fixed `[u8; 4]`. It used to `copy_from_slice`
+	// straight from the input, which panics on any length mismatch — and it runs on
+	// untrusted RPC input (`consensus_state_id`), so the panic aborted the node's `rpc`
+	// worker thread and took the process down. Wrong lengths must be serde errors.
+	#[test]
+	fn as_utf8_string_rejects_non_four_byte_input() {
+		#[derive(Deserialize, Debug, PartialEq, Eq)]
+		struct TestData {
+			#[serde(with = "as_utf8_string")]
+			id: [u8; 4],
+		}
+
+		for s in [
+			"",          // 0 bytes
+			"AB",        // 2 bytes
+			"ABC",       // 3 bytes
+			"ABCDE",     // 5 bytes
+			"CERE0",     // 5 bytes — the value that crashed the production node
+			"ABC\u{e9}", // 4 chars, 5 bytes: length is counted in bytes, not chars
+		] {
+			let json = serde_json::json!({ "id": s }).to_string();
+			assert!(
+				serde_json::from_str::<TestData>(&json).is_err(),
+				"expected a deserialization error for {s:?}"
+			);
+		}
+
+		// Exactly 4 bytes still round-trips, whether ascii or multi-byte utf-8.
+		assert_eq!(serde_json::from_str::<TestData>(r#"{"id":"ETH0"}"#).unwrap().id, *b"ETH0");
+		assert_eq!(
+			serde_json::from_str::<TestData>(&serde_json::json!({ "id": "h\u{e9}y" }).to_string())
+				.unwrap()
+				.id,
+			[b'h', 0xc3, 0xa9, b'y'],
+		);
+	}
+
+	// End-to-end regression for the RPC payload that crashed the node: a `StateMachineId`
+	// (the argument to `ismp_queryChallengePeriod` / `ismp_queryStateMachineLatestHeight`)
+	// carrying an over-long `consensus_state_id`.
+	#[test]
+	fn state_machine_id_rejects_non_four_byte_consensus_state_id() {
+		use ismp::consensus::StateMachineId;
+
+		let err = serde_json::from_str::<StateMachineId>(
+			r#"{"state_id":"EVM-11155111","consensus_state_id":"CERE0"}"#,
+		)
+		.unwrap_err();
+		// The caller gets a useful message back rather than a dropped connection.
+		assert!(
+			err.to_string().contains("invalid length 5") &&
+				err.to_string().contains("a 4-byte utf-8 string"),
+			"unhelpful error: {err}"
+		);
+
+		assert!(serde_json::from_str::<StateMachineId>(
+			r#"{"state_id":"EVM-11155111","consensus_state_id":"AB"}"#
+		)
+		.is_err());
+
+		// The well-formed request still works.
+		assert_eq!(
+			serde_json::from_str::<StateMachineId>(
+				r#"{"state_id":"EVM-11155111","consensus_state_id":"ETH0"}"#
+			)
+			.unwrap(),
+			StateMachineId {
+				state_id: ismp::host::StateMachine::Evm(11155111),
+				consensus_state_id: *b"ETH0"
+			}
+		);
 	}
 }

@@ -372,6 +372,7 @@ pub fn fetch_overlay_root_and_timestamp(
 	slot_duration: u64,
 ) -> Result<DigestResult, Error> {
 	let mut digest_result = DigestResult::default();
+	let mut slot = None;
 
 	for digest in digest.logs.iter() {
 		match digest {
@@ -386,17 +387,19 @@ pub fn fetch_overlay_root_and_timestamp(
 			DigestItem::PreRuntime(consensus_engine_id, value)
 				if *consensus_engine_id == AURA_ENGINE_ID =>
 			{
-				let slot = Slot::decode(&mut &value[..])
-					.map_err(|e| Error::Custom(format!("Cannot slot: {e:?}")))?;
-				digest_result.timestamp = Duration::from_millis(*slot * slot_duration).as_secs();
+				slot = Some(
+					Slot::decode(&mut &value[..])
+						.map_err(|e| Error::Custom(format!("Cannot slot: {e:?}")))?,
+				);
 			},
 			DigestItem::PreRuntime(consensus_engine_id, value)
 				if *consensus_engine_id == BABE_ENGINE_ID =>
 			{
-				let slot = PreDigest::decode(&mut &value[..])
-					.map_err(|e| Error::Custom(format!("Cannot slot: {e:?}")))?
-					.slot();
-				digest_result.timestamp = Duration::from_millis(*slot * slot_duration).as_secs();
+				slot = Some(
+					PreDigest::decode(&mut &value[..])
+						.map_err(|e| Error::Custom(format!("Cannot slot: {e:?}")))?
+						.slot(),
+				);
 			},
 			DigestItem::Consensus(consensus_engine_id, value)
 				if *consensus_engine_id == ISMP_ID =>
@@ -409,6 +412,18 @@ pub fn fetch_overlay_root_and_timestamp(
 			// don't really care about the rest
 			_ => {},
 		};
+	}
+
+	// chains without pallet-ismp never deposit the timestamp digest, so their block time can
+	// only come from the slot they were authored in
+	if digest_result.timestamp == 0 {
+		digest_result.timestamp = slot
+			.map(|slot| Duration::from_millis((*slot).saturating_mul(slot_duration)).as_secs())
+			.unwrap_or_default();
+	}
+
+	if digest_result.timestamp == 0 {
+		Err(Error::Custom("Timestamp not found".into()))?
 	}
 
 	Ok(digest_result)

@@ -341,6 +341,8 @@ async fn handle_update(
 		.iter()
 		.chunk_by(|event| match event {
 			ismp::events::Event::PostRequest(req) => req.dest,
+			// A GetResponse is delivered back to the chain that made the request.
+			ismp::events::Event::GetResponse(res) => res.get.source,
 			event => {
 				unreachable!("Only application messages filtered; qed. Unexpected event: {event:?}")
 			},

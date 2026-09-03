@@ -10,6 +10,7 @@ export {
 	bytes32ToBytes20,
 	bytes20ToBytes32,
 	normalizeAddressForEvmBytes32,
+	normalizeEvmAddress,
 	normalizeAddressForStateMachine,
 	hexToString,
 	normalizeEvmChainId,

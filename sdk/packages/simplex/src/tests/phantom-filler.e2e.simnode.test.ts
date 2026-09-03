@@ -2,10 +2,17 @@
  * Extended phantom-order E2E — exercises the REAL simplex IntentFiller end to end.
  *
  * Several real `IntentFiller` instances (one per solver, each with its own FX price policy) connect
- * to the simnode, WATCH for the phantom order via their own phantom-bidding subscription, quote
- * USDC→cNGN with the FX strategy, build a fillOrder UserOp through the full ContractInteractionService
- * pipeline, and submit a bid — i.e. the complete simplex bid-submission path, not a hand-rolled
- * UserOp. The test then asserts every bid landed and is discoverable via `intents_getBidsForOrder`.
+ * to the simnode, WATCH for the phantom orders via their own phantom-bidding subscription, quote
+ * every leg with the FX strategy, build a fillOrder UserOp through the full
+ * ContractInteractionService pipeline, and submit a bid per chain — i.e. the complete simplex
+ * bid-submission path, not a hand-rolled UserOp. The pallet is configured with TWO chains carrying
+ * TWO token pairs each, so the test asserts the whole surface: per-chain orders, per-leg quotes,
+ * per-leg liquidity weights, and the accepted-source route declarations.
+ *
+ * The second chain is another anvil fork of Base whose chain id is overridden to Optimism's. That
+ * works because the protocol contracts (IntentGateway, SolverAccount, EntryPoint) are deployed via
+ * CREATE2 at the same address on every chain, so the forked Base state has them where the EVM-10
+ * config expects them; the token addresses are overridden per chain in the test's AssetRegistry.
  *
  * Gated out of the default run (`*.simnode.test.ts`); run with `pnpm --filter @hyperbridge/simplex test:phantom-filler-e2e`.
  *
@@ -15,17 +22,21 @@
  *         --rpc-methods=unsafe --rpc-cors=all --pool-type=single-state
  *   - anvil forking Base mainnet (real IntentGateway + USDC + cNGN + eth_simulateV1):
  *       anvil --fork-url https://base-mainnet.g.alchemy.com/v2/<KEY> --port 8545
+ *   - a second anvil forking Base presented as EVM-10:
+ *       anvil --fork-url https://base-mainnet.g.alchemy.com/v2/<KEY> --port 8546 --chain-id 10
  *
- * Override endpoints via SIMNODE_URL / ANVIL_URL.
+ * Override endpoints via SIMNODE_URL / ANVIL_URL / ANVIL2_URL.
  */
+import { stubOrderScanner } from "./helpers/stub-scanner"
+import { HyperbridgeScanner } from "@/scanner/hyperbridge-scanner"
 import { ApiPromise, WsProvider, Keyring } from "@polkadot/api"
+import { hexToU8a, u8aToHex, u8aToString } from "@polkadot/util"
 import { keccakAsU8a } from "@polkadot/util-crypto"
 import { encodeAbiParameters, keccak256, toHex } from "viem"
 import { privateKeyToAccount } from "viem/accounts"
 import { describe, it, expect, beforeAll, afterAll } from "vitest"
 import { IntentFiller } from "@/core/filler"
 import {
-	BidStorageService,
 	CacheService,
 	ChainClientManager,
 	ContractInteractionService,
@@ -33,10 +44,19 @@ import {
 	type ResolvedChainConfig,
 	type FillerConfig as FillerServiceConfig,
 } from "@/services"
-import { createSimplexSigner, SignerType } from "@/services/wallet"
-import { FXFiller } from "@/strategies/fx"
+import { SqliteDataStore } from "@/data/sqlite"
+import { createSigner, SignerType } from "@/services/wallet"
+import { FXFiller, type TradingPair } from "@/strategies/fx"
+import { AssetRegistry } from "@/config/asset-registry"
+import { Decimal } from "decimal.js"
 import { FillerPricePolicy } from "@/config/interpolated-curve"
-import { IntentsCoprocessor, type ChainConfig, type FillerConfig, type HexString } from "@hyperbridge/sdk"
+import {
+	ChainConfigService,
+	IntentsCoprocessor,
+	type ChainConfig,
+	type FillerConfig,
+	type HexString,
+} from "@hyperbridge/sdk"
 import {
 	aggregatePhantomBids,
 	fetchBidsForOrder,
@@ -44,26 +64,98 @@ import {
 	extractFillData,
 } from "@hyperbridge/sdk/intents-helpers"
 
+/**
+ * Builds the exotic-pair set + registry for the fillers: cNGN traded against USDC and USDT on
+ * both chains. The EVM-10 fork carries Base state, so its tokens live at the Base addresses —
+ * the user asset layer overrides the SDK registry's real Optimism addresses per chain.
+ */
+function exoticPairs(
+	resolver: FillerConfigService,
+	maxOrderSize: number,
+	bidPricePolicy?: FillerPricePolicy,
+	askPricePolicy?: FillerPricePolicy,
+): { pairs: TradingPair[]; registry: AssetRegistry } {
+	const registry = new AssetRegistry(resolver, {
+		EXOTIC: { [BASE_STATE_MACHINE]: CNGN_BASE, [CHAIN2_STATE_MACHINE]: CNGN_BASE },
+		USDC: { [CHAIN2_STATE_MACHINE]: USDC_BASE },
+		USDT: { [CHAIN2_STATE_MACHINE]: USDT_BASE },
+	})
+	const pairs: TradingPair[] = ["USDC", "USDT"].map((token0) => ({
+		token0,
+		token1: "EXOTIC",
+		maxOrderSize: new Decimal(maxOrderSize),
+		bidPricePolicy,
+		askPricePolicy,
+	}))
+	return { pairs, registry }
+}
+
 const SIMNODE_URL = process.env.SIMNODE_URL || "ws://127.0.0.1:9990"
 const ANVIL_URL = process.env.ANVIL_URL || "http://127.0.0.1:8545"
+const ANVIL2_URL = process.env.ANVIL2_URL || "http://127.0.0.1:8546"
 
 const BASE_STATE_MACHINE = "EVM-8453"
 const BASE_CHAIN_ID = 8453
+const CHAIN2_STATE_MACHINE = "EVM-10"
+const CHAIN2_CHAIN_ID = 10
 const USDC_BASE = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913" as HexString
+const USDT_BASE = "0xfde4c96c8593536e31f229ea8f37b2ada2699bb2" as HexString
 const CNGN_BASE = "0x46C85152bFe9f96829aA94755D9f915F9B10EF5F" as HexString
 const CNGN_BALANCE_SLOT = 201n // cNGN _balances slot on Base (see indexer TOKEN_SLOT_OVERRIDES)
+const USDC_BALANCE_SLOT = 9n // FiatTokenProxy layout (see chain.ts tokenStorageSlots)
+const USDT_BALANCE_SLOT = 0n
 const ETH0_CONSENSUS_ID = "0x45544830"
-const STANDARD_AMOUNT = 1_000_000n // 1 USDC (6 decimals)
+const STANDARD_AMOUNT = 1_000_000n // 1 whole unit of any of the three 6-decimal tokens
+// The real SolverAccount, already deployed in the forks; solvers delegate to it and the
+// aggregation only counts bids from senders that do. CREATE2 puts it at the same address on
+// every chain, which is also what lets the EVM-10 fork reuse Base state.
+const SOLVER_ACCOUNT = new ChainConfigService().getSolverAccountAddress(BASE_STATE_MACHINE)!
+
+// Both anvil forks carry identical Base state, so token addresses and balance slots are the same
+// on each; what differs is the chain id the fork reports and the state machine id the pallet and
+// fillers use for it.
+const CHAINS = [
+	{ stateMachine: BASE_STATE_MACHINE, chainId: BASE_CHAIN_ID, anvilUrl: ANVIL_URL },
+	{ stateMachine: CHAIN2_STATE_MACHINE, chainId: CHAIN2_CHAIN_ID, anvilUrl: ANVIL2_URL },
+]
 
 // One IntentFiller per solver. Distinct substrate keys (to place independent bids) and EVM keys
 // (distinct solver addresses/liquidity), and distinct FX prices so there is a real range to reduce.
 // //Alice is reserved for the driver's sudo/sealing, so fillers use other dev accounts to avoid
 // nonce contention.
+//
+// Each filler declares a different accepted-source-chains state so the aggregation must surface
+// all three route semantics per bidder: an explicit list, an explicit empty list (accepts
+// nothing), and no declaration at all (null — the legacy "all covered chains" default).
 const FILLERS = [
-	{ suri: "//Bob", evmKey: "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d" as HexString, cngnPerUsd: "1500" },
-	{ suri: "//Charlie", evmKey: "0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a" as HexString, cngnPerUsd: "1510" },
-	{ suri: "//Dave", evmKey: "0x7c852118294e51e653712a81e05800f419141751be58f605c371e15141b007a6" as HexString, cngnPerUsd: "1520" },
+	{
+		suri: "//Bob",
+		evmKey: "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d" as HexString,
+		cngnPerUsd: "1500",
+		declaredSources: ["EVM-1", "EVM-8453"] as string[] | undefined,
+	},
+	{
+		suri: "//Charlie",
+		evmKey: "0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a" as HexString,
+		cngnPerUsd: "1510",
+		declaredSources: [] as string[] | undefined,
+	},
+	{
+		suri: "//Dave",
+		evmKey: "0x7c852118294e51e653712a81e05800f419141751be58f605c371e15141b007a6" as HexString,
+		cngnPerUsd: "1520",
+		declaredSources: undefined as string[] | undefined,
+	},
 ]
+
+// What decodeAcceptedSourceChains must yield for each solver's bid: the declared list survives
+// the ride verbatim, an empty declaration stays [] (not null), and no declaration decodes to null.
+const EXPECTED_SOURCES = new Map(
+	FILLERS.map((f) => [
+		privateKeyToAccount(f.evmKey).address.toLowerCase(),
+		f.declaredSources ?? null,
+	]),
+)
 
 // ─── simnode driving (manual seal) ──────────────────────────────────────────────────────────────
 
@@ -86,57 +178,71 @@ async function sudoAndSeal(api: ApiPromise, call: any): Promise<void> {
 async function seedStateMachineHeight(api: ApiPromise, chainId: number, height: bigint): Promise<void> {
 	const id = { state_id: { Evm: chainId }, consensus_state_id: ETH0_CONSENSUS_ID }
 	const key = api.query.ismp.latestStateMachineHeight.key(id)
-	await sudoAndSeal(api, api.tx.system.setStorage([[key, api.createType("u64", height).toHex()]]))
+	// `toU8a()` and not `toHex()`: polkadot-js renders integers big-endian in hex, while SCALE
+	// stores them little-endian. Seeding the hex form wrote 0x00000000000f4240, which the runtime
+	// decoded as 4.6e18 — so every phantom order carried a far-future deadline and was, contrary
+	// to the point of a phantom order, genuinely fillable on-chain.
+	await sudoAndSeal(api, api.tx.system.setStorage([[key, u8aToHex(api.createType("u64", height).toU8a())]]))
 }
+// Two pairs per chain: both stables against cNGN. Each pair expands into its forward and
+// reverse legs, so every chain's order carries four legs.
 async function setPhantomOrderConfig(api: ApiPromise): Promise<void> {
+	const tokenPairs = [USDC_BASE, USDT_BASE].map((stable) => ({
+		token_a: stable,
+		token_b: CNGN_BASE,
+		standard_amount: STANDARD_AMOUNT,
+		// 1 cNGN (6 decimals) — the reverse leg's benchmark quantity.
+		standard_amount_b: 1_000_000n,
+	}))
+	// `chains` maps each state machine id to its own token pairs; the interval is shared.
 	const config = {
-		chain: { state_id: { Evm: BASE_CHAIN_ID }, consensus_state_id: ETH0_CONSENSUS_ID },
-		token_pairs: [{ token_a: USDC_BASE, token_b: CNGN_BASE, standard_amount: STANDARD_AMOUNT }],
+		chains: new Map(
+			CHAINS.map((c) => [{ state_id: { Evm: c.chainId }, consensus_state_id: ETH0_CONSENSUS_ID }, tokenPairs]),
+		),
 		interval_blocks: 10,
 	}
 	await sudoAndSeal(api, api.tx.intentsCoprocessor.setPhantomOrderConfig(config))
 }
-async function getActivePhantomCommitment(api: ApiPromise): Promise<HexString | null> {
-	const raw: any = await api.rpc.state.getStorage(api.query.intentsCoprocessor.currentPhantomOrder.key())
-	const hex: string | undefined = raw?.toHex()
-	if (!hex || hex === "0x" || hex.length < 68) return null
-	return `0x${hex.slice(4, 68)}` as HexString
-}
-// Configures two pairs on the same chain (USDC→cNGN and cNGN→USDC) so the pallet generates two
-// phantom orders per interval — exercises the filler bidding on multiple phantom orders at once.
-async function setBothPhantomPairs(api: ApiPromise): Promise<void> {
-	const config = {
-		chain: { state_id: { Evm: BASE_CHAIN_ID }, consensus_state_id: ETH0_CONSENSUS_ID },
-		token_pairs: [
-			{ token_a: USDC_BASE, token_b: CNGN_BASE, standard_amount: STANDARD_AMOUNT },
-			{ token_a: CNGN_BASE, token_b: USDC_BASE, standard_amount: STANDARD_AMOUNT },
-		],
-		interval_blocks: 10,
+/**
+ * The active phantom commitments keyed by state machine id ("EVM-8453"), decoded off the runtime
+ * metadata: `CurrentPhantomOrder` holds one `(commitment, info)` entry per configured chain.
+ */
+async function getActivePhantomCommitments(api: ApiPromise): Promise<Map<string, HexString>> {
+	const raw: any = await api.query.intentsCoprocessor.currentPhantomOrder()
+	const entries = (raw?.toJSON() as [string, { chain: string }][] | null) ?? []
+	const byChain = new Map<string, HexString>()
+	for (const [commitment, info] of entries) {
+		byChain.set(u8aToString(hexToU8a(info.chain)), commitment as HexString)
 	}
-	await sudoAndSeal(api, api.tx.intentsCoprocessor.setPhantomOrderConfig(config))
-}
-// All active phantom commitments. CurrentPhantomOrder is a BoundedVec<(H256, PhantomOrderInfo)>
-// (commitment + created_at + chain), so toJSON gives [[commitment, info], ...]; take each commitment.
-async function getActivePhantomCommitments(api: ApiPromise): Promise<HexString[]> {
-	const active = await api.query.intentsCoprocessor.currentPhantomOrder()
-	const entries = active.toJSON() as Array<[HexString, unknown]> | null
-	return Array.isArray(entries) ? entries.map((entry) => entry[0]) : []
+	return byChain
 }
 
 // ─── anvil ──────────────────────────────────────────────────────────────────────────────────────
 
-async function fundCngn(holder: HexString, amount: bigint): Promise<void> {
-	const slot = keccak256(encodeAbiParameters([{ type: "address" }, { type: "uint256" }], [holder, CNGN_BALANCE_SLOT]))
-	await fetch(ANVIL_URL, {
+async function anvilRpc(anvilUrl: string, method: string, params: unknown[]): Promise<void> {
+	await fetch(anvilUrl, {
 		method: "POST",
 		headers: { "content-type": "application/json" },
-		body: JSON.stringify({
-			id: 1,
-			jsonrpc: "2.0",
-			method: "anvil_setStorageAt",
-			params: [CNGN_BASE, slot, toHex(amount, { size: 32 })],
-		}),
+		body: JSON.stringify({ id: 1, jsonrpc: "2.0", method, params }),
 	})
+}
+
+async function fundToken(
+	anvilUrl: string,
+	token: HexString,
+	balanceSlot: bigint,
+	holder: HexString,
+	amount: bigint,
+): Promise<void> {
+	const slot = keccak256(encodeAbiParameters([{ type: "address" }, { type: "uint256" }], [holder, balanceSlot]))
+	await anvilRpc(anvilUrl, "anvil_setStorageAt", [token, slot, toHex(amount, { size: 32 })])
+}
+
+// Writes the EIP-7702 delegation indicator our solvers carry in production, pointing at the real
+// SolverAccount already deployed on the forked Base. aggregatePhantomBids only counts a bid whose
+// sender delegates to it, so without this every filler's bid is (correctly) rejected as a stranger's.
+async function delegateToSolverAccount(anvilUrl: string, solver: HexString): Promise<void> {
+	await anvilRpc(anvilUrl, "anvil_setCode", [solver, `0xef0100${SOLVER_ACCOUNT.slice(2)}`])
 }
 
 // ─── real IntentFiller bootstrap (mirrors createFxOnlyIntentFiller, redirected at simnode + anvil) ─
@@ -145,40 +251,61 @@ async function buildPhantomFiller(opts: {
 	suri: string
 	evmKey: HexString
 	cngnPerUsd: string
+	declaredSources: string[] | undefined
+	phantomScanner: HyperbridgeScanner
 }): Promise<{ filler: IntentFiller; solver: HexString; gateway: HexString }> {
-	const resolvedChains: ResolvedChainConfig[] = [
-		{ chainId: BASE_CHAIN_ID, rpcUrls: [ANVIL_URL], bundlerUrl: `${ANVIL_URL}/bundler` },
-	]
+	const { phantomScanner } = opts
+	const resolvedChains: ResolvedChainConfig[] = CHAINS.map((c) => ({
+		chainId: c.chainId,
+		rpcUrls: [c.anvilUrl],
+		bundlerUrl: `${c.anvilUrl}/bundler`,
+	}))
 	const serviceConfig: FillerServiceConfig = {
 		maxConcurrentOrders: 5,
 		hyperbridgeWsUrl: SIMNODE_URL,
 		substratePrivateKey: opts.suri,
 	}
 	const configService = new FillerConfigService(resolvedChains, serviceConfig)
-	const chainConfigs: ChainConfig[] = [configService.getChainConfig(BASE_STATE_MACHINE)]
+	const chainConfigs: ChainConfig[] = CHAINS.map((c) => configService.getChainConfig(c.stateMachine))
 	const fillerConfig: FillerConfig = {
 		maxConcurrentOrders: 5,
 		pendingQueueConfig: { maxRechecks: 10, recheckDelayMs: 30_000 },
+		acceptedSourceChains: opts.declaredSources,
 	}
 
-	const signer = await createSimplexSigner({ type: SignerType.PrivateKey, key: opts.evmKey })
+	const signer = await createSigner({ type: SignerType.PrivateKey, key: opts.evmKey })
 	const chainClientManager = new ChainClientManager(configService, signer)
-	const contractService = new ContractInteractionService(chainClientManager, configService, signer, new CacheService())
+	const contractService = new ContractInteractionService(
+		chainClientManager,
+		configService,
+		signer,
+		new CacheService(),
+	)
 
-	const pricePolicy = new FillerPricePolicy({
+	// Phantom quoting uses the ask, so each filler's competitive rate stays
+	// exactly opts.cngnPerUsd; the bid sits 2% above it because a crossed or
+	// zero-spread book (bid ≤ ask) is rejected at construction.
+	const askPricePolicy = new FillerPricePolicy({
 		points: [
 			{ amount: "1", price: opts.cngnPerUsd },
 			{ amount: "10000", price: opts.cngnPerUsd },
 		],
 	})
+	const bidPrice = (Number(opts.cngnPerUsd) * 1.02).toString()
+	const bidPricePolicy = new FillerPricePolicy({
+		points: [
+			{ amount: "1", price: bidPrice },
+			{ amount: "10000", price: bidPrice },
+		],
+	})
+	const legacy = exoticPairs(configService, 5000, bidPricePolicy, askPricePolicy)
 	const fxStrategy = new FXFiller(
 		signer,
 		configService,
 		chainClientManager,
 		contractService,
-		5000,
-		{ [BASE_STATE_MACHINE]: CNGN_BASE },
-		{ bidPricePolicy: pricePolicy, askPricePolicy: pricePolicy },
+		legacy.pairs,
+		legacy.registry,
 	)
 
 	const filler = new IntentFiller(
@@ -189,14 +316,19 @@ async function buildPhantomFiller(opts: {
 		chainClientManager,
 		contractService,
 		signer,
+		// Orders stay stubbed — this suite drives phantom orders, which arrive via
+		// the Hyperbridge scanner, and phantom bids need no gateway scanning. The
+		// hyperbridge scanner must be REAL: without one the filler never sees a
+		// phantom order and every "expected 3 bids" assertion reads 0.
+		{ orders: stubOrderScanner(), hyperbridge: phantomScanner },
 		undefined,
-		new BidStorageService(configService.getDataDir()),
+		new SqliteDataStore(".simplex-data").bids,
 	)
 	await filler.initialize()
 	filler.start()
 	return {
 		filler,
-		solver: signer.account.address as HexString,
+		solver: signer.address as HexString,
 		// The gateway the filler targets in its fillOrder call — the aggregation must filter on the same one.
 		gateway: configService.getIntentGatewayAddress(BASE_STATE_MACHINE) as HexString,
 	}
@@ -209,8 +341,13 @@ describe("Phantom filler E2E (real IntentFillers + simnode + anvil-forked Base)"
 	let driver: IntentsCoprocessor
 	let gateway: HexString
 	const fillers: IntentFiller[] = []
+	let phantomScanner: HyperbridgeScanner
 
 	beforeAll(async () => {
+		// One shared phantom feed for every filler — the pattern the scanners were
+		// built for, and the only way a directly-constructed IntentFiller sees
+		// phantom orders at all.
+		phantomScanner = await HyperbridgeScanner.create(SIMNODE_URL)
 		api = await ApiPromise.create({
 			provider: new WsProvider(SIMNODE_URL),
 			typesBundle: { spec: { gargantua: { hasher: keccakAsU8a } } },
@@ -227,15 +364,25 @@ describe("Phantom filler E2E (real IntentFillers + simnode + anvil-forked Base)"
 
 		// Bid window must be shorter than the config's interval_blocks (10), enforced on-chain.
 		await sudoAndSeal(api, api.tx.intentsCoprocessor.setPhantomBidWindow(5))
-		await seedStateMachineHeight(api, BASE_CHAIN_ID, 1_000_000n)
+		for (const c of CHAINS) {
+			await seedStateMachineHeight(api, c.chainId, 1_000_000n)
+		}
 
-		// Each solver needs forked cNGN liquidity — that is what they pay out and what the snapshot records.
-		for (const f of FILLERS) {
-			await fundCngn(privateKeyToAccount(f.evmKey).address as HexString, 1_000_000_000_000n)
+		// Each solver needs forked liquidity in every leg's output token on every chain — that is
+		// what they pay out and what the snapshot weighs — and the delegation that marks its bid
+		// as ours rather than a stranger's.
+		for (const c of CHAINS) {
+			for (const f of FILLERS) {
+				const solver = privateKeyToAccount(f.evmKey).address as HexString
+				await fundToken(c.anvilUrl, CNGN_BASE, CNGN_BALANCE_SLOT, solver, 1_000_000_000_000n)
+				await fundToken(c.anvilUrl, USDC_BASE, USDC_BALANCE_SLOT, solver, 1_000_000_000_000n)
+				await fundToken(c.anvilUrl, USDT_BASE, USDT_BALANCE_SLOT, solver, 1_000_000_000_000n)
+				await delegateToSolverAccount(c.anvilUrl, solver)
+			}
 		}
 
 		for (const f of FILLERS) {
-			const { filler, gateway: gw } = await buildPhantomFiller(f)
+			const { filler, gateway: gw } = await buildPhantomFiller({ ...f, phantomScanner })
 			fillers.push(filler)
 			gateway = gw
 		}
@@ -243,98 +390,141 @@ describe("Phantom filler E2E (real IntentFillers + simnode + anvil-forked Base)"
 
 	afterAll(async () => {
 		await Promise.all(fillers.map((f) => f.stop().catch(() => {})))
+		await phantomScanner?.close().catch(() => {})
 		await api?.disconnect()
-	})
+	}, 60_000)
 
-	it("real fillers watch + submit USDC→cNGN bids that the SDK aggregation reduces to a snapshot", async () => {
-		// Register the phantom order; the fillers' subscriptions pick it up and submit bids.
+	/**
+	 * Seals blocks until every commitment has `expected` bids or the deadline
+	 * passes. The fill pipeline (offchain-storage fetch → quote against the
+	 * fork → UserOp build → submit) is bounded by upstream RPC latency, so a
+	 * fixed sleep races it; polling keeps the assertions strict without the race.
+	 */
+	async function waitForBids(commitments: HexString[], expected: number, timeoutMs = 120_000): Promise<void> {
+		const deadline = Date.now() + timeoutMs
+		for (;;) {
+			await new Promise((r) => setTimeout(r, 2_000))
+			await createBlock(api)
+			const counts = await Promise.all(commitments.map((c) => driver.getBidsForOrder(c).then((b) => b.length)))
+			if (counts.every((n) => n >= expected) || Date.now() > deadline) return
+		}
+	}
+
+	it("real fillers bid on every chain's order and the SDK aggregation reduces each to a snapshot", async () => {
+		// Register the phantom orders; the fillers' subscriptions pick them up and submit one bid
+		// per chain.
 		await setPhantomOrderConfig(api)
 		await createBlock(api)
 
-		const commitment = (await getActivePhantomCommitment(api))!
-		expect(commitment).toBeTruthy()
+		const commitments = await getActivePhantomCommitments(api)
+		expect([...commitments.keys()].sort()).toEqual(CHAINS.map((c) => c.stateMachine).sort())
 
-		// Give the fillers time to fetch the order, quote, build the UserOp, and submit, then seal the
-		// block that includes their bids.
-		await new Promise((r) => setTimeout(r, 6_000))
-		await createBlock(api)
-		await new Promise((r) => setTimeout(r, 2_000))
-		await createBlock(api)
+		// Seal blocks until every filler's bid lands for every chain's order (or
+		// the deadline passes and the assertions below report the shortfall).
+		await waitForBids([...commitments.values()], FILLERS.length)
 
-		// Submission half: every filler's bid landed on-chain.
-		const bids = await driver.getBidsForOrder(commitment)
-		expect(bids.length).toBe(FILLERS.length)
-
-		// Log each solver's quoted cNGN output (decoded from the submitted UserOp).
 		const nodeUrl = SIMNODE_URL.replace(/^ws/, "http")
-		const rawBids = await fetchBidsForOrder(nodeUrl, commitment)
-		console.log(`\n[phantom-e2e] ${rawBids.length} bids for ${commitment}:`)
-		for (const b of rawBids) {
-			const decoded = decodeUserOpScale(b.user_op as HexString)
-			const fd = extractFillData(decoded.callData as HexString, gateway)
-			console.log(`[phantom-e2e]   solver ${decoded.sender} quoted ${fd?.solverAmount} cNGN`)
+		// Two pairs per chain expand into four positional legs, in config order; the output token
+		// of each is what that leg's liquidity is measured in.
+		const expectedOutputs = [CNGN_BASE, USDC_BASE, CNGN_BASE, USDT_BASE].map((t) => t.toLowerCase())
+
+		for (const c of CHAINS) {
+			const commitment = commitments.get(c.stateMachine)!
+
+			// Submission half: every filler's bid landed on-chain for this chain's order.
+			const bids = await driver.getBidsForOrder(commitment)
+			expect(bids.length).toBe(FILLERS.length)
+
+			// Aggregation half: the SDK's aggregatePhantomBids (same code the indexer runs) measures
+			// each solver's liquidity against this chain's fork and reduces the quotes to a snapshot.
+			const result = await aggregatePhantomBids({
+				nodeUrl,
+				evmRpcUrls: { [c.stateMachine]: c.anvilUrl },
+				chain: c.stateMachine,
+				gatewayAddress: gateway,
+				commitment,
+				// Liquidity is swept per configured token per chain, with no vaults => raw balances
+				// only (the funded amounts); proves balances come from the config sweep, not the
+				// bid output.
+				yieldVaults: {
+					[c.stateMachine]: {
+						[CNGN_BASE.toLowerCase()]: [],
+						[USDC_BASE.toLowerCase()]: [],
+						[USDT_BASE.toLowerCase()]: [],
+					},
+				},
+				solverAccount: SOLVER_ACCOUNT,
+			})
+
+			console.log(`\n[phantom-e2e] ${c.stateMachine} aggregation snapshot for ${commitment}:`)
+			for (const leg of result?.legs ?? []) {
+				console.log(
+					`[phantom-e2e]   leg ${leg.legIndex} bids ${leg.bidCount} prices ${leg.lowestPrice}/${leg.medianPrice}/${leg.highestPrice}`,
+				)
+			}
+			for (const lp of result?.lpBalances ?? []) {
+				console.log(`[phantom-e2e]   LP ${lp.solver} token ${lp.tokenAddress}: ${lp.balance}`)
+			}
+
+			expect(result).not.toBeNull()
+			// Both configured pairs expand into forward and reverse legs, positionally.
+			expect(result!.legs).toHaveLength(4)
+			for (const leg of result!.legs) {
+				expect(leg.bidCount).toBe(FILLERS.length)
+				// Real quotes on every leg — guards against the fillers quoting 0 (e.g. the overfill
+				// cap collapsing to the phantom order's zero requested output).
+				expect(leg.lowestPrice).toBeGreaterThan(0n)
+				expect(leg.lowestPrice).toBeLessThanOrEqual(leg.medianPrice)
+				expect(leg.medianPrice).toBeLessThanOrEqual(leg.highestPrice)
+				// Every filler's per-leg weight is its funded balance in that leg's output token.
+				expect(leg.bidders).toHaveLength(FILLERS.length)
+				for (const bidder of leg.bidders) {
+					expect(bidder.weight).toBeGreaterThan(0n)
+					// Route indexing: each solver's accepted-source declaration rode inside its
+					// bid's paymasterAndData — covered by the solver's signature — and survived
+					// SCALE encoding and aggregation with all three semantics intact (explicit
+					// list, explicit empty list, null for no declaration).
+					expect(EXPECTED_SOURCES.has(bidder.solver.toLowerCase())).toBe(true)
+					expect(bidder.acceptedSources).toEqual(EXPECTED_SOURCES.get(bidder.solver.toLowerCase()))
+				}
+			}
+			// One swept balance per filler per configured token on this chain.
+			expect(result!.lpBalances.length).toBe(FILLERS.length * 3)
+			for (const lp of result!.lpBalances) {
+				expect(lp.chain).toBe(c.stateMachine)
+				expect(expectedOutputs).toContain(lp.tokenAddress.toLowerCase())
+				expect(lp.balance).toBeGreaterThan(0n)
+			}
 		}
+	}, 300_000)
 
-		// Aggregation half: the SDK's aggregatePhantomBids (same code the indexer runs) measures each
-		// solver's cNGN liquidity against the forked Base and reduces the quotes to a weighted snapshot.
-		const result = await aggregatePhantomBids({
-			nodeUrl,
-			evmRpcUrls: { [BASE_STATE_MACHINE]: ANVIL_URL },
-			chain: BASE_STATE_MACHINE,
-			gatewayAddress: gateway,
-			commitment,
-			// Liquidity is swept per configured token per chain. cNGN with no vaults => raw balance
-			// only (the funded amount); proves balances come from the config sweep, not the bid output.
-			yieldVaults: { [BASE_STATE_MACHINE]: { [CNGN_BASE.toLowerCase()]: [] } },
-		})
-
-		console.log("\n[phantom-e2e] aggregation snapshot:")
-		console.log(`[phantom-e2e]   bidCount:     ${result?.bidCount}`)
-		console.log(`[phantom-e2e]   lowestPrice:  ${result?.lowestPrice}`)
-		console.log(`[phantom-e2e]   medianPrice:  ${result?.medianPrice}  (liquidity-weighted)`)
-		console.log(`[phantom-e2e]   highestPrice: ${result?.highestPrice}`)
-		for (const lp of result?.lpBalances ?? []) {
-			console.log(`[phantom-e2e]   LP ${lp.solver} on ${lp.chain} token ${lp.tokenAddress}: ${lp.balance}`)
-		}
-
-		expect(result).not.toBeNull()
-		expect(result!.bidCount).toBe(FILLERS.length)
-		// Real cNGN quotes — guards against the fillers quoting 0 (e.g. the overfill cap collapsing
-		// to the phantom order's zero requested output).
-		expect(result!.lowestPrice).toBeGreaterThan(0n)
-		expect(result!.lowestPrice).toBeLessThanOrEqual(result!.medianPrice)
-		expect(result!.medianPrice).toBeLessThanOrEqual(result!.highestPrice)
-		// One swept balance per filler: cNGN on Base (the single configured token/chain).
-		expect(result!.lpBalances.length).toBe(FILLERS.length)
-		for (const lp of result!.lpBalances) {
-			expect(lp.chain).toBe(BASE_STATE_MACHINE)
-			expect(lp.tokenAddress.toLowerCase()).toBe(CNGN_BASE.toLowerCase())
-			expect(lp.balance).toBeGreaterThan(0n)
-		}
-	}, 180_000)
-
-	it("submits and keeps a bid for every phantom order pair (no cross-pair retraction)", async () => {
-		// Two pairs on the same chain (USDC→cNGN and cNGN→USDC) => two phantom orders per interval.
-		await setBothPhantomPairs(api)
+	it("quotes every leg of each chain's expanded phantom order in one bid", async () => {
+		// Two configured pairs per chain; the pallet expands them into four legs per order.
+		await setPhantomOrderConfig(api)
 		await createBlock(api)
 
 		const commitments = await getActivePhantomCommitments(api)
-		expect(commitments.length).toBe(2)
+		expect(commitments.size).toBe(CHAINS.length)
 
-		// Let the fillers quote + submit bids for BOTH pairs, then seal the blocks carrying their bids.
-		await new Promise((r) => setTimeout(r, 6_000))
-		await createBlock(api)
-		await new Promise((r) => setTimeout(r, 2_000))
-		await createBlock(api)
+		// Seal blocks until the fillers' bids land for every chain's order.
+		await waitForBids([...commitments.values()], FILLERS.length)
 
-		// Regression guard for the per-chain retraction bug: the filler tracked its last phantom bid
-		// per chain, so bidding on the second pair retracted the first pair's bid via
-		// submitBidWithRetraction — leaving one pair with no live bids. Keyed by (chain, token pair),
-		// every pair keeps a full set of bids.
-		for (const commitment of commitments) {
+		const nodeUrl = SIMNODE_URL.replace(/^ws/, "http")
+		for (const c of CHAINS) {
+			const commitment = commitments.get(c.stateMachine)!
 			const bids = await driver.getBidsForOrder(commitment)
-			console.log(`[phantom-multi] ${bids.length} bids for ${commitment}`)
+			console.log(`[phantom-multi] ${c.stateMachine}: ${bids.length} bids for ${commitment}`)
 			expect(bids.length).toBe(FILLERS.length)
+
+			// The point of bundling: one bid carries a quote per leg, so every pair gets priced in
+			// both directions from the single order rather than any of them being dropped.
+			for (const bid of await fetchBidsForOrder(nodeUrl, commitment)) {
+				const decoded = decodeUserOpScale(bid.user_op as HexString)
+				const fillData = extractFillData(decoded.callData as HexString, gateway)
+				expect(fillData).not.toBeNull()
+				expect(fillData!.legs).toHaveLength(4)
+				expect(fillData!.legs.every((leg) => leg.solverAmount > 0n)).toBe(true)
+			}
 		}
-	}, 180_000)
+	}, 300_000)
 })

@@ -1,4 +1,4 @@
-import { HexString } from "@hyperbridge/sdk"
+import type { HexString } from "@hyperbridge/sdk"
 
 export type RebalanceMethod = "cctp" | "usdt0" | "cex"
 

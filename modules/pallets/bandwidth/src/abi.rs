@@ -8,6 +8,7 @@
 use alloc::{format, string::ToString, vec::Vec};
 use alloy_sol_types::SolType;
 use core::str::{self, FromStr};
+use crate::types::AppKey;
 use ismp::host::StateMachine;
 
 pub use ismp_abi::bandwidth_manager::{BandwidthPurchaseMsg, Tier, Withdrawal};
@@ -18,7 +19,7 @@ pub use ismp_abi::bandwidth_manager::{BandwidthPurchaseMsg, Tier, Withdrawal};
 /// at decode time rather than reaching storage.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PurchaseMessage {
-	/// Recipient app on the credit chain. Truncated to `AppKey` later.
+	/// Recipient app on the credit chain. Rejected at decode time if it does not fit `AppKey`.
 	pub app: Vec<u8>,
 	/// Tier discriminant; must map to a `TierIndex` variant.
 	pub tier: u32,
@@ -44,6 +45,18 @@ impl TryFrom<&[u8]> for PurchaseMessage {
 		if months == 0 {
 			return Err(anyhow::anyhow!("months must be >= 1"));
 		}
+		// The app identifier is stored as an `AppKey`, so anything longer is not a longer
+		// identifier — it is bytes that silently disappear. Rejecting here keeps the decoded
+		// message equal to what gets stored, and stops a purchase from carrying payload that
+		// serves no purpose in the subscription it pays for.
+		if abi.app.is_empty() || abi.app.len() > AppKey::bound() {
+			return Err(anyhow::anyhow!(format!(
+				"app identifier must be 1..={} bytes, got {}",
+				AppKey::bound(),
+				abi.app.len()
+			)));
+		}
+
 		let chain_str = str::from_utf8(&abi.chain)
 			.map_err(|err| anyhow::anyhow!(format!("chain is not utf-8: {err}")))?;
 		let chain = StateMachine::from_str(chain_str)

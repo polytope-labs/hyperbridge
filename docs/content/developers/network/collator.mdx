@@ -3,6 +3,13 @@ title: Collators (Block Producer)
 description: This guide outlines the complete process of leveraging your work as a Relayer or Prover to become a Collator on the Hyperbridge network.
 ---
 
+import assetAccountBalance from "./images/asset_account_balance.png";
+import sampleSubscanGenerated from "./images/sample_subscan_generated.png";
+import rotateKeys from "./images/rotate_keys.png";
+import setCollatorKeys from "./images/set_collator_keys.png";
+import registerController from "./images/register_controller.png";
+import registerAsCandidateWithStash from "./images/register_as_candidate_with_stash.png";
+
 # Becoming a Collator
 
 This guide outlines the complete process of becoming a Collator on the Hyperbridge network.
@@ -85,7 +92,7 @@ This is the foundation of the entire system. The primary goal is to be an active
 **Outcome**: For every `$BRIDGE` reward your Controller account receives, the corresponding pallet (`pallet-messaging-incentives`, `pallet-consensus-incentives`, or `pallet-beefy-consensus-proofs`) automatically mints an equivalent amount of Reputation Asset to that same Controller account. You can check your Reputation Asset balance in the Polkadot-JS UI by going to `Developer > Chain State > Assets > Account`.
 
 <figure>
-  <img src="/asset_account_balance.png" alt="Reputation Asset Account Balance   " />
+  <img src={assetAccountBalance.src} alt="Reputation Asset Account Balance   " />
   <figcaption style={{ textAlign: "center" }}>How to check Reputation Asset Account Balance</figcaption>
 </figure>
 
@@ -116,7 +123,7 @@ subkey generate --scheme sr25519
 ```
 
 <figure>
-  <img src="/sample_subscan_generated.png" alt="Sample Key Generation with subscan  " />
+  <img src={sampleSubscanGenerated.src} alt="Sample Key Generation with subscan  " />
   <figcaption style={{ textAlign: "center" }}>How to generate controller account key</figcaption>
 </figure>
 
@@ -213,22 +220,39 @@ delivery_endpoints = [
 **Action 1: Set up a Collator Node**: You must have a fully synced node running the hyperbridge binary with --collator flag.
 Ensure it is stable and has a reliable network connection.
 
-**Action 2: Generate Session Keys**: On your running collator node, you will need to generate your session keys by making an `author_rotateKeys` RPC call.
-You can do this with a curl command:
+**Action 2: Generate Session Keys**: On your running collator node, generate your session keys by making an
+`author_rotateKeysWithOwner` RPC call. The keys are created inside the node's own keystore, so the secret never
+leaves the machine.
 
+The single parameter is your **Controller** account's public key as raw hex — not its SS58 address. If you only
+have the SS58 address, run `subkey inspect <ss58-address>` and use the `Public key (hex)` field.
 
 ```bash lineNumbers
-curl -H "Content-Type: application/json" -d '{"id":1, "jsonrpc":"2.0", "method": "author_rotateKeys", "params":[]}' http://localhost:9990
+curl -H "Content-Type: application/json" \
+  -d '{"id":1, "jsonrpc":"2.0", "method": "author_rotateKeysWithOwner", "params":["0xYOUR_CONTROLLER_PUBLIC_KEY_HEX"]}' \
+  http://localhost:9990
 ```
 
+Note: Replace 9990 with your node's RPC port if it is different.
+
+The response contains two hex strings, and you need both in the next step:
+
+```json
+{"jsonrpc":"2.0","id":1,"result":{"keys":"0x...","proof":"0x..."}}
+```
+
+- `keys` is your session key public key.
+- `proof` is a proof of possession: a signature by the freshly generated session key over your Controller
+  account, demonstrating that the node holds the matching secret.
+
 <figure>
-  <img src="/rotate_keys.png" alt="Author rotate keys" />
-  <figcaption style={{ textAlign: "center" }}>Result showing when you rotate keys</figcaption>
+  <img src={rotateKeys.src} alt="Author rotate keys" />
+  <figcaption style={{ textAlign: "center" }}>Making the rotate keys RPC call</figcaption>
 </figure>
 
-
-Note: Replace 9990 with your node's RPC port if it is different.
-This command will return a long hex string. This is your session key public key.
+**Do not use `author_rotateKeys`.** The older, parameterless call still exists, but it generates its proof of
+possession against an empty owner and then discards it, returning the keys alone. Keys obtained that way cannot
+be registered — `session.setKeys` rejects them with `InvalidProof`.
 
 **Action 3: Link your keys**: You must now tell the blockchain that your Controller account (`AccountId`) will use these new session keys for collating.
 You do this by calling the `session.setKeys` extrinsic from your Controller account.
@@ -237,9 +261,28 @@ You do this by calling the `session.setKeys` extrinsic from your Controller acco
 - Select your Controller account (the one with the reputation score).
     Note that this must be the same account configured as the `signer` in your relayer or prover setup — the account that has been accruing reputation.
 - Choose the `session` pallet and the `setKeys` extrinsic.
-- Paste the entire hex string from the previous step into the `keys` field.
-- Leave the `proof` field empty (0x0).
+- Paste the `keys` hex string from the previous step into the `keys` field.
+- Paste the `proof` hex string from the previous step into the `proof` field.
 - Sign and submit the transaction.
+
+The `proof` field is verified on chain: the secret behind each session key must have signed your Controller
+account. An empty `0x` proof — the Polkadot-JS UI default, and what earlier revisions of this guide told you to
+use — is rejected with `session.InvalidProof`. If you see that error, you almost certainly generated your keys
+with `author_rotateKeys` instead of `author_rotateKeysWithOwner`, or registered them from an account other than
+the one you passed as `owner`.
+
+`setKeys` also places a hold on your Controller's `$BRIDGE` balance for the session key deposit (ten times the
+existential deposit), so the Controller needs a little free balance beyond transaction fees. The hold is
+returned when you call `session.purgeKeys`.
+
+**Verify the node holds the keys you just registered:**
+
+```bash
+curl -H "Content-Type: application/json" -d '{"id":1, "jsonrpc":"2.0", "method": "author_hasSessionKeys", "params":["0xYOUR_SESSION_KEYS_HEX"]}' http://localhost:9990
+```
+
+A `true` result means this node can author blocks with those keys. Anything else means the keystore and the
+on-chain registration disagree, and the node will silently miss every slot it is assigned.
 
 **Action 4: Provide a Tesseract Config for the Fisherman Task**:
 
@@ -334,7 +377,7 @@ After you have successfully registered as a candidate, you should restart your n
 brings the fisherman task online so the node is contributing to L2 fraud detection from the moment it joins the set.
 
 <figure>
-  <img src="/set_collator_keys.png" alt="Setting session keys" />
+  <img src={setCollatorKeys.src} alt="Setting session keys" />
   <figcaption style={{ textAlign: "center" }}>How to set Session Keys</figcaption>
 </figure>
 
@@ -368,7 +411,7 @@ This records a single-use, on-chain consent saying: "I am the Controller and I a
 - Sign and submit. The transaction will consume the matching approval from Step 3a and fail with `ControllerApprovalMissing` if no approval is on record for this `(stash, controller)` pair.
 
 <figure>
-  <img src="/register_controller.png" alt="Registering Your Controller" />
+  <img src={registerController.src} alt="Registering Your Controller" />
   <figcaption style={{ textAlign: "center" }}>How to register your Controller Account</figcaption>
 </figure>
 
@@ -391,7 +434,7 @@ Now that the node is ready, your keys are linked, and your controller is registe
 - Sign and submit the transaction.
 
 <figure>
-  <img src="/register_as_candidate_with_stash.png" alt="Registering as candidate using Stash Account" />
+  <img src={registerAsCandidateWithStash.src} alt="Registering as candidate using Stash Account" />
   <figcaption style={{ textAlign: "center" }}>How to register as candidate using your Stash Account</figcaption>
 </figure>
 
@@ -421,6 +464,60 @@ If you are not selected:
 - Continue operating your relayer or prover to increase your Reputation Asset balance and improve your chances of being selected in the next session.
 
 This creates a dynamic and meritocratic system where the most active and successful participants are rewarded with the responsibility of securing the network.
+
+## Moving Your Collator to a New Machine
+
+Your on-chain registration binds your Controller account to a session key, not to a host. Moving to new
+hardware therefore needs no on-chain transaction at all, provided the new node ends up holding the same aura
+key. There are two ways to do it.
+
+### Option A: Move the existing key
+
+Insert the same aura key into the new node's keystore with `author_insertKey`, verify it, then shut the old
+machine down.
+
+```bash
+curl -H "Content-Type: application/json" -d '{"id":1, "jsonrpc":"2.0", "method": "author_insertKey", "params":["aura", "YOUR_AURA_SECRET_SEED_OR_MNEMONIC", "0xYOUR_AURA_PUBLIC_KEY"]}' http://localhost:9990
+```
+
+Be aware that **`author_insertKey` cannot fail**. A successful call returns `{"result":null}` — and so does a
+call that wrote a completely unusable key. The node writes your seed to a file named after the `public` value
+you supplied, without ever checking that the seed derives to it. A typo in either argument, a wrong `keyType`,
+or an RPC connection that quietly reached some other node all look exactly like success. The verification step
+below is not optional.
+
+### Option B: Generate a fresh key on the new machine
+
+Run Action 2 and Action 3 above against the new node: `author_rotateKeysWithOwner`, then `session.setKeys` from
+your Controller account. This avoids ever copying a secret between machines, at the cost of an on-chain
+transaction. The new keys only take effect two sessions after that transaction is included, so keep the old
+machine running and authoring until the switch-over has happened, then shut it down.
+
+### Verify before shutting down the old machine
+
+`author_hasSessionKeys` asks a specific node whether it holds the secret for a given session key. Point it at
+the **new** machine, passing the session keys currently registered on chain for your Controller (visible under
+`Developer > Chain State > session > nextKeys`):
+
+```bash
+curl -H "Content-Type: application/json" -d '{"id":1, "jsonrpc":"2.0", "method": "author_hasSessionKeys", "params":["0xYOUR_SESSION_KEYS_HEX"]}' http://localhost:9990
+```
+
+If this returns `false` after an `author_insertKey` call that returned `null`, work through the following, in
+order:
+
+- The `public` argument did not match the seed you passed. Confirm the pair with
+  `subkey inspect "<your seed>"` and compare its `Public key (hex)` against what you sent.
+- The `keyType` was not exactly `aura`.
+- Your RPC call did not reach the machine you think it did. A reverse proxy or load balancer in front of the
+  RPC port may still be routing to the old node.
+- The keystore is not on persistent storage. Under Docker without a volume mounted at `--base-path`, the
+  keystore is wiped on every restart, so a key inserted before a restart is gone after it.
+- The node is running with a different `--base-path` or `--chain` than you expect. On disk, the key lives at
+  `<base-path>/chains/<chain-id>/keystore/61757261<public-key-hex>`, where `61757261` is `aura` in hex.
+
+Finally, confirm the new node runs with `--collator` and `--tesseract-config`. Without `--collator` the block
+production worker is never started, and a correctly installed key will do nothing at all.
 
 ## Exiting as a Collator
 

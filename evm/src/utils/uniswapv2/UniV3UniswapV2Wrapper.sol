@@ -156,6 +156,58 @@ contract UniV3UniswapV2Wrapper {
     }
 
     /**
+     * @notice Swaps an exact amount of tokens for native ETH through V3 with deadline protection.
+     * @param amountIn The exact amount of input tokens to swap
+     * @param amountOutMin The minimum amount of native ETH to receive
+     * @param path Array of token addresses [tokenIn, WETH]
+     * @param to Address that will receive the native ETH
+     * @param deadline Unix timestamp deadline by which the transaction must confirm
+     * @return amounts Array of amounts [tokensSpent, ethReceived]
+     */
+    function swapExactTokensForETH(
+        uint256 amountIn,
+        uint256 amountOutMin,
+        address[] calldata path,
+        address to,
+        uint256 deadline
+    ) external returns (uint256[] memory) {
+        address weth = _params.WETH;
+        if (path[1] != weth) revert InvalidWethAddress();
+        address token = path[0];
+
+        IERC20(token).safeTransferFrom(msg.sender, address(this), amountIn);
+        IERC20(token).forceApprove(_params.swapRouter, amountIn);
+
+        IV3SwapRouter.ExactInputSingleParams memory params = IV3SwapRouter.ExactInputSingleParams({
+            tokenIn: token,
+            tokenOut: weth,
+            fee: _params.maxFee,
+            recipient: address(this),
+            amountIn: amountIn,
+            amountOutMinimum: amountOutMin,
+            sqrtPriceLimitX96: 0
+        });
+
+        bytes memory swapCall = abi.encodeWithSelector(IV3SwapRouter.exactInputSingle.selector, params);
+
+        bytes[] memory data = new bytes[](1);
+        data[0] = swapCall;
+
+        bytes[] memory results = IMulticallExtended(_params.swapRouter).multicall(deadline, data);
+        uint256 amountOut = abi.decode(results[0], (uint256));
+
+        IWETH(weth).withdraw(amountOut);
+        (bool sent,) = to.call{value: amountOut}("");
+        if (!sent) revert RefundFailed();
+
+        uint256[] memory amounts = new uint256[](2);
+        amounts[0] = amountIn;
+        amounts[1] = amountOut;
+
+        return amounts;
+    }
+
+    /**
      * @notice Given an output amount of an asset and a path, returns the input amounts required.
      * @param amountOut The amount of the asset you want to receive.
      * @param path An array of token addresses representing the path of the swap.

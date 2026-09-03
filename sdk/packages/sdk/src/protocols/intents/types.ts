@@ -116,9 +116,9 @@ export interface PimlicoGasPriceEstimate {
  * - `AWAITING_CANCEL_TRANSACTION` – the caller must sign and submit the cancel tx.
  * - `CANCEL_STARTED` – the cancel transaction was confirmed on-chain.
  * - `SOURCE_FINALIZED` – the cancel request has been finalised on the source chain.
- * - `HYPERBRIDGE_DELIVERED` – the cancel message has been delivered to Hyperbridge.
- * - `HYPERBRIDGE_FINALIZED` – the cancel message has been finalised on Hyperbridge.
- * - `CANCELLATION_COMPLETE` – the escrow has been refunded; cancellation is done.
+	* - `HYPERBRIDGE_DELIVERED` – the cancel message has been delivered to Hyperbridge.
+	* - `HYPERBRIDGE_FINALIZED` – the cancel message has been finalised on Hyperbridge.
+	* - `CANCELLATION_COMPLETE` – the escrow has been refunded; cancellation is done.
  */
 export type CancelEvent =
 	| { status: "DESTINATION_FINALIZED"; proof: IProof }

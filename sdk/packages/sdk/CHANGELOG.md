@@ -1,5 +1,79 @@
 # @hyperbridge/sdk
 
+## 2.8.8
+
+### Patch Changes
+
+- `IntentGateway.quoteIntent()` now uses the indexer's depth-weighted aggregate pool buy and sell rates by default, including configured token decimals and the source gateway protocol fee. Reverse sell rates round conservatively so quotes do not overpromise output. Legacy Phantom snapshot and Uniswap V4 quotes remain available as explicit strategies.
+- Replaced the non-resolving default BSC RPC with the publicnode endpoint.
+
+## 2.8.5
+
+### Patch Changes
+
+- Source-initiated cross-chain cancellation GET responses now quote a 1M source-chain gas budget. Destination-initiated refund POSTs retain their existing 800k budget.
+
+## 2.8.2
+
+### Patch Changes
+
+- Autopilot bid selection now attempts each ranked bid once per selection round. Any bid that fails simulation or execution—including an `already known` bundler response—is skipped immediately so the next bid can be attempted instead of restarting the polling round on the same bid.
+
+## 2.8.1
+
+### Patch Changes
+
+- Recorded balance/allowance storage slots and decimals for cNGN, ZARP, EURC, XSGD, TRYB and USDR on Ethereum, Base and Polygon, so `GasEstimator` state overrides for these tokens resolve from config instead of requiring an RPC with `debug_traceCall`.
+
+## 2.8.0
+
+### Minor Changes
+
+- BREAKING: the `IntentGatewayV2` `OrderPlaced` event now carries the complete order — `bytes predispatchCall`, `bytes outputCall`, and the `bytes32 graffiti` attribution tag are appended — so an order's commitment is computable from the log alone. This changes the event signature and therefore its topic0: this SDK version only recognises logs from upgraded IntentGatewayV2 deployments, and older SDK versions cannot see the new logs. Upgrade the SDK in lockstep with the gateway deployment — against a mismatched pair, `OrderPlacer.placeOrder` throws "OrderPlaced event not found in transaction receipt" after the placement transaction has already escrowed funds. The order commitment itself (`keccak256(abi.encode(order))`) is unchanged.
+- `DecodedOrderPlacedLog` gains `predispatchCall`, `outputCall` and `graffiti` (optional — absent when the type is used for V1-gateway logs).
+- `deriveCanonicalPlacedOrder` reads the two call payloads from the event when present instead of retaining them from the submitted order.
+
+## 2.7.2
+
+### Patch Changes
+
+- SDK-generated cross-chain order fees now price destination fill gas and settlement gas with 10% gas-price headroom before fee-token conversion. Same-chain quotes and direct `estimateFillOrder` calls remain unbumped, so Simplex solver pricing and UserOperation gas fields are unchanged.
+
+## 2.7.0
+
+### Minor Changes
+
+- `IntentGateway.quoteOrderFees(order, options?)`: public quote for the solver fee, using the same policy `execute()`/`executeBest()` apply when `order.fees` is `0n`. Returns `{ fees, nativeValue, feeToken, estimate }` (`OrderFeesQuote` is exported) so integrators can check a user's fee-token balance and allowance, or native balance, before placing — instead of re-implementing the fee formula from `estimateFillOrder` components. `execute()` now derives its automatic fee from the same method.
+- `AWAITING_PLACE_ORDER` now separates the placement transaction's native components: `value` carries the order's native-token input amounts (previously it carried the auto-quoted fee), and the new `nativeFee` field carries the native amount that funds `order.fees` (`0n` when the caller set `order.fees`). Sign with `value + nativeFee` to pay the fee in native token — the sum is also correct on the fee-token rail. The update also carries `feeTokenAmount`/`feeTokenAddress`: the exact fee encoded in the calldata and the source-chain token it is charged in.
+- Cross-chain cancellation relayer fees (source and destination routes) are now sized from an 800k source-chain gas budget, up from 400k, so refund deliveries clear on expensive source chains. Same-chain cancellations remain free of relayer fees.
+
+## 2.6.2
+
+### Patch Changes
+
+- Mandatory (rotation) BEEFY proofs are read from their own offchain namespace, keyed by the authority set the proof rotated to rather than by parachain height. A rotation that finalizes a head an earlier messaging proof already covered no longer resolves to the wrong blob. The rotation walk now starts at the destination's current authority set id + 1 (it previously started two epochs low), and a proven height produced by a rotation is resolved through the rotation index instead of returning no proof. Proofs written under the previous shared key are still readable via a legacy fallback, so this requires no coordinated upgrade.
+
+## 2.6.1
+
+### Patch Changes
+
+- `SubstrateChain.stateMachineUpdateTime` reads pallet-ismp's `BoundedStateMachineUpdateTime` storage map directly instead of the `ismp_queryStateMachineUpdateTime` RPC. An evicted height now surfaces as a `MissingConsensusUpdateTimeError` from the absent storage entry rather than from matching an RPC error message.
+
+## 2.6.0
+
+### Minor Changes
+
+- Cross-chain `order.fees` now attaches (fill gas + a `RELAYER_MESSAGE_GAS` (1M) settlement uplift) with a 5% buffer over the whole sum, while the solver-side requirement carries no padding — SDK-placed orders always clear a solver's fee gate, including expensive-source/cheap-destination routes that were previously refused. `RELAYER_MESSAGE_GAS` is exported.
+- The cross-chain dispatch is always paid in the fee token: `estimateFillOrder` no longer quotes the native payment rail and always sets `fillOptions.nativeDispatchFee = 0` (the field remains in the on-chain struct; the native rail drew on a solver native balance nothing guaranteed). The estimate gains a `relayerFeeInSourceFeeToken` field for solver-side cost accounting.
+- `ChainConfigService.getAssetBySymbol(chain, symbol)`: case-insensitive lookup into the per-chain asset table, which now ships curated mainnet deployments of ZARP, EURC, XSGD and TRYB (issuer-documented addresses, verified on-chain).
+
+## 2.5.0
+
+### Minor Changes
+
+- `ORDER_PLACED` now returns the finalized canonical order without changing the order object passed to `execute()` or `placeOrder()`. Store and use `update.order` for the commitment, nonce, and session key; do not read those fields from the submitted object after placement.
+- Source-side GET cancellation recovery now automatically clears stale recovery state and retries once with fresh proofs when Hyperbridge has pruned a required consensus update.
+
 ## 1.6.3
 
 ### Patch Changes

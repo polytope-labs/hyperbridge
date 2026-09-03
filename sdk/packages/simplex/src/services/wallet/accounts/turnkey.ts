@@ -1,10 +1,15 @@
-import type { HexString } from "@hyperbridge/sdk"
 import { Turnkey } from "@turnkey/sdk-server"
 import { createAccount } from "@turnkey/viem"
-import { parseSignature } from "viem"
-import type { TurnkeySignerConfig, SigningAccount } from "../types"
+import type { TurnkeySignerConfig, Signer } from "../types"
+import { viemSigner } from "./viem"
 
-export async function createTurnkeySigningAccount(config: TurnkeySignerConfig): Promise<SigningAccount> {
+/**
+ * Signs through Turnkey. Its viem account already implements everything the
+ * interface asks for structurally — transactions and EIP-7702 authorizations
+ * both, so the policy engine sees the tuple rather than a digest — which leaves
+ * this as the adapter plus a name for the logs.
+ */
+export async function turnkeySigner(config: TurnkeySignerConfig): Promise<Signer> {
 	const turnkey = new Turnkey({
 		defaultOrganizationId: config.organizationId,
 		apiBaseUrl: "https://api.turnkey.com",
@@ -18,34 +23,5 @@ export async function createTurnkeySigningAccount(config: TurnkeySignerConfig): 
 		signWith: config.signWith,
 	})
 
-	return {
-		mode: "turnkey",
-		account,
-		signMessage: (messageHash: HexString, _chainId: number) =>
-			account.signMessage({ message: { raw: messageHash } }),
-		signTypedData: (typedData: unknown, _chainId?: number) =>
-			account.signTypedData(typedData as Parameters<typeof account.signTypedData>[0]) as Promise<HexString>,
-		signRawHash: async (hash: HexString) => {
-			const raw = await account.sign!({ hash })
-			const sig = parseSignature(raw)
-			const yParity =
-				sig.yParity ?? (sig.v !== undefined ? Number(sig.v >= 27n ? sig.v - 27n : sig.v) : undefined)
-			if (yParity !== 0 && yParity !== 1) {
-				throw new Error("Failed to derive yParity from Turnkey signature")
-			}
-			return {
-				r: sig.r as HexString,
-				s: sig.s as HexString,
-				yParity,
-			}
-		},
-		sendEip7702DelegationTransaction: async (args) =>
-			(await args.walletClient.sendTransaction({
-				to: args.authorityAddress,
-				value: 0n,
-				authorizationList: [args.authorization],
-				chain: args.walletClient.chain,
-				gas: args.gasFloor,
-			})) as HexString,
-	}
+	return { ...viemSigner(account), mode: "turnkey" }
 }

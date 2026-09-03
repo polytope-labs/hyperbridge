@@ -192,6 +192,70 @@ contract HostManagerTest is BaseTest {
         malicious.deliver(EvmHost(payable(address(host))), forged, address(this));
     }
 
+    // ---------- manager rotation ----------
+
+    /// @dev A SetHostParam request carrying `params`, addressed to `to` rather than the live manager.
+    function _setHostParamRequestTo(HostParams memory params, address to) internal view returns (PostRequest memory) {
+        PostRequest memory request = _setHostParamRequest(params);
+        request.to = abi.encodePacked(to);
+        return request;
+    }
+
+    /// @dev A replacement manager, bound to the host and armed with this contract as relayer.
+    function _deployNextManager() internal returns (HostManager next) {
+        next = new HostManager(HostManagerParams({admin: address(this), host: address(0)}));
+        next.setIsmpHost(address(host));
+        next.setRelayer(address(this));
+    }
+
+    /// The host authorises `updateHostParams` only from the manager it currently knows, so the
+    /// request that installs a new manager has to be delivered through the current one. This is
+    /// the rotation the host-executive pallet dispatches; the pallet test pins its recipient.
+    function testRotationDeliveredThroughCurrentManagerSucceeds() public {
+        HostManager next = _deployNextManager();
+        HostParams memory params = host.hostParams();
+        params.hostManager = address(next);
+        PostRequest memory rotation = _setHostParamRequestTo(params, address(manager));
+
+        vm.prank(address(handler));
+        host.dispatchIncoming(rotation, address(this));
+        assertEq(host.requestReceipts(rotation.hash()), address(this), "rotation delivered");
+        assertEq(host.hostParams().hostManager, address(next), "host now bound to the new manager");
+
+        // Governance after the rotation goes through the new manager and no longer through the old.
+        HostParams memory afterwards = host.hostParams();
+        afterwards.challengePeriod += 7;
+        PostRequest memory viaNext = _setHostParamRequestTo(afterwards, address(next));
+        vm.prank(address(handler));
+        host.dispatchIncoming(viaNext, address(this));
+        assertEq(host.hostParams().challengePeriod, afterwards.challengePeriod, "new manager applies params");
+
+        afterwards.challengePeriod += 7;
+        PostRequest memory viaOld = _setHostParamRequestTo(afterwards, address(manager));
+        vm.prank(address(handler));
+        host.dispatchIncoming(viaOld, address(this));
+        assertEq(host.requestReceipts(viaOld.hash()), address(0), "old manager is refused by the host");
+        assertNotEq(host.hostParams().challengePeriod, afterwards.challengePeriod, "old manager applies nothing");
+    }
+
+    /// The same payload addressed to the manager it installs cannot land: that manager is not yet
+    /// authorised, so the host refuses it and stays bound to the current one.
+    function testRotationDeliveredToNewManagerIsRefused() public {
+        HostManager next = _deployNextManager();
+        HostParams memory params = host.hostParams();
+        params.hostManager = address(next);
+        PostRequest memory misaddressed = _setHostParamRequestTo(params, address(next));
+
+        vm.prank(address(host));
+        vm.expectRevert(EvmHost.UnauthorizedAction.selector);
+        next.onAccept(IncomingPostRequest(misaddressed, address(this)));
+
+        vm.prank(address(handler));
+        host.dispatchIncoming(misaddressed, address(this));
+        assertEq(host.requestReceipts(misaddressed.hash()), address(0), "no receipt");
+        assertEq(host.hostParams().hostManager, address(manager), "host still bound to the current manager");
+    }
+
     // ---------- pre-existing helpers and tests ----------
 
     function HostManagerWithdraw(PostRequest memory request) public {

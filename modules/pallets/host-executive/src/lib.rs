@@ -194,6 +194,9 @@ pub mod pallet {
 
 			let (HostParam::EvmHostParam(mut inner), HostParamUpdate::EvmHostParam(update)) =
 				(params.clone(), update);
+			// The destination host only accepts `updateHostParams` from the manager it currently
+			// knows, so a manager rotation must be delivered through the outgoing manager.
+			let current_manager = inner.host_manager;
 			inner.update(update);
 
 			let body = inner.abi_encode_with_variant().map_err(|_| Error::<T>::DispatchFailed)?;
@@ -201,7 +204,7 @@ pub mod pallet {
 			let post = DispatchPost {
 				dest: state_machine,
 				from: PALLET_ID.to_bytes(),
-				to: inner.host_manager.0.to_vec(),
+				to: current_manager.0.to_vec(),
 				timeout: 0,
 				body,
 			};

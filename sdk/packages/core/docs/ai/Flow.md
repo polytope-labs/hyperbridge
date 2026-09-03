@@ -54,6 +54,18 @@ relayer the host admin set with `setRelayer`; `testForgedHandlerSwapIsRefused` i
 `evm/tests/foundry/HostManagerTest.sol` plays the swap through the real host and shows it refused.
 The HostManager sees no user traffic, so this leaves ordinary relaying open.
 
+Replacing the HostManager itself follows the same route. `update_host_params` on Hyperbridge
+(`modules/pallets/host-executive/src/lib.rs`) reads the stored params, remembers the current
+manager, applies the update, and dispatches the encoded result addressed to the manager it
+remembered. That manager's `onAccept` calls `EvmHost.updateHostParams`, which is restricted to
+`_hostParams.hostManager`, so the host swaps to the new manager only because the call arrived
+through the old one. Hyperbridge records the new manager as soon as the request is dispatched, and
+every later `update_host_params` and `withdraw` is addressed to it. The two rotation tests in
+`evm/tests/foundry/HostManagerTest.sol` play both addressings through the real host, and
+`test_manager_rotation_is_addressed_to_the_current_manager` in the pallet testsuite pins the
+recipient the runtime chooses. Because the new manager's relayer gate applies to everything after
+the swap, the host admin sets its relayer before the rotation is dispatched.
+
 `setRelayer` has two callers. `_owner` calls it directly. The host reaches it when governance
 sends `UpgradeContract` with `abi.encodeCall(setRelayer, (relayer))` as migration calldata:
 `ERC1967Utils.upgradeToAndCall` delegatecalls that calldata into the new implementation with

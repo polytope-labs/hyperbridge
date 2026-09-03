@@ -12,6 +12,14 @@ Files: list of files touched.
 
 Newest entries first.
 
+## 2026-09-03 — Remove incorrect vault restart guidance
+
+Vault saves no longer turn a successful persisted response into an error instructing the operator to
+restart the filler. The vault editor now limits its explanatory copy to the configuration persistence
+it can accurately promise; runtime, server, and vault lifecycle behavior are unchanged.
+
+Files: `ui/src/operator/Operations.tsx` and `docs/ai/{ChangeLog,Decisions,Flow}.md`.
+
 ## 2026-09-03 — Preserve vault edits made during a save
 
 Vault saving now queues one latest-draft retry when the operator clicks Save again while an earlier

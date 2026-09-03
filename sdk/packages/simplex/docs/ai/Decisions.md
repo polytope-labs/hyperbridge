@@ -4,6 +4,15 @@ AI-maintained record of non-obvious choices made in `sdk/packages/simplex`: what
 
 Entry format: heading with the decision, then alternatives considered and the reasoning. Newest first.
 
+## 2026-09-03 — Treat a persisted vault save as UI success
+
+Chosen: after a vault update persists successfully, show the normal success state and do not turn the
+server's `restartNeeded` advisory into a vault-editor error. Keep the API response shape intact and
+leave all runtime and server behavior unchanged.
+
+Alternative rejected: presenting `restartNeeded` as a failed save incorrectly tells the operator to
+restart the filler even though the vault edit was accepted and saved.
+
 ## 2026-09-03 — Coalesce overlapping vault saves to the latest draft
 
 Chosen: when a vault save is already active, remember a subsequent Save click and send the latest

@@ -81,9 +81,6 @@ export function Operations(props: {
 					if (!result.persisted) {
 						throw new Error("Vault changes were applied for this session but could not be saved to the config file")
 					}
-					if (result.restartNeeded) {
-						throw new Error("Saved to config — restart the filler to activate the vault treasury")
-					}
 				} finally {
 					vaultSaveActive.current = false
 					vaultSaveQueued.current = false
@@ -169,9 +166,7 @@ export function Operations(props: {
 					<h2>Vault treasury</h2>
 					<p className="hint">
 						ERC-4626 vaults per chain (one per asset). Threshold and min balance use each vault's underlying token.
-						Edits
-						re-hydrate the running venue{config && !config.vaultConfigured && " after a restart"} and are
-						saved to the config.
+						Edits are saved to the config.
 					</p>
 					<VaultRowsEditor
 						chains={props.chains.map((id) => ({ key: formatChainKey(id), label: chainLabel(id) }))}

@@ -103,8 +103,8 @@ In the operator drawer, Save sends the current draft to `PUT /api/vault`, then r
 If another edit is followed by Save while that request is pending, Operations records one queued
 retry and reads the newest rows when the prior request finishes; repeated clicks coalesce to that
 latest draft rather than running concurrent vault hydrations. A response only reaches the success
-state when `persisted` is true. Persistence failures and restart-required results are rendered inside
-the still-open vault drawer.
+state when `persisted` is true. Persistence failures are rendered inside the still-open vault drawer;
+the UI does not convert the response's `restartNeeded` advisory into a restart instruction.
 
 ## Market setup and curve editing
 

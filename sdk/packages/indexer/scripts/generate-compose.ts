@@ -7,7 +7,7 @@ import Handlebars from "handlebars"
 import { getEnv, getValidChains } from "../src/configs"
 
 const EVM_IMAGE = "subquerynetwork/subql-node-ethereum:v6.5.0"
-const SUBSTRATE_IMAGE = "polytopelabs/subql-node-substrate:v6.4.7-0"
+const SUBSTRATE_IMAGE = "polytopelabs/subql-node-substrate:v6.4.8-0"
 
 // Setup paths
 const root = process.cwd()
@@ -40,6 +40,9 @@ const generateNodeServices = () => {
 		const serviceData = {
 			chainName,
 			image: config.type === "substrate" ? SUBSTRATE_IMAGE : EVM_IMAGE,
+			// Only the substrate node (the fork image) applies in-place schema migrations; it is the
+			// health-gated leader every EVM node waits on, so it owns the shared schema's DDL.
+			allowSchemaMigration: config.type === "substrate",
 			unfinalizedBlocks: config.type === "evm" && config.unfinalizedBlocks !== false,
 			blockConfirmations: config.blockConfirmations, // Pass block confirmations from config
 			config,

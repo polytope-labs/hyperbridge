@@ -4226,6 +4226,11 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         assertEq(vm.load(address(intentGateway), bytes32(uint256(14))), bytes32(0), "slot 14 unused");
     }
 
+    function testConstructorRejectsZeroOwner() public {
+        vm.expectRevert(IntentsBase.InvalidInput.selector);
+        new IntentGatewayV2(address(0));
+    }
+
     function testSetRelayerRejectsNonOwner() public {
         vm.prank(user);
         vm.expectRevert(IntentsBase.Unauthorized.selector);

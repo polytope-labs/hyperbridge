@@ -2,18 +2,65 @@ import { ERC20_ABI } from "@/config/abis/ERC20"
 import { ERC4626_ABI } from "@/config/abis/Erc4626"
 import { validateVaultToml } from "@/config/filler-toml"
 import { VaultLiquidityState } from "@/funding/vault/VaultLiquidityState"
-import type { VaultOutputFundingConfig, FundingPlanResult, FundingVenue } from "@/funding/types"
+import type {
+	FundingPlanResult,
+	FundingVenue,
+	HydratedVault,
+	VaultBalancePosition,
+	VaultOutputFundingConfig,
+} from "@/funding/types"
 import type { ChainClientManager } from "@/services/ChainClientManager"
 import type { UserOpSender } from "@/services/UserOpSender"
-import { type Logger , moduleLogger} from "@/services/Logger"
+import { type Logger, moduleLogger } from "@/services/Logger"
 import { encodeERC7821ExecuteBatch, type ERC7821Call, type HexString } from "@hyperbridge/sdk"
 import { Mutex } from "async-mutex"
 import type { Decimal } from "decimal.js"
 import { encodeFunctionData } from "viem"
-
-
 /** Default sweep cadence when the config omits `sweepIntervalMs`. */
 const DEFAULT_SWEEP_INTERVAL_MS = 5 * 60 * 1000
+
+/**
+ * Why a sweep pass left a configured vault alone. `deposits-closed` is the one an operator needs
+ * to see: the wallet is over its trigger but the vault reports `maxDeposit(solver) == 0`.
+ */
+export type VaultSweepSkipReason = "sweeping-disabled" | "below-threshold" | "deposits-closed"
+
+export interface VaultSweepSkip {
+	chain: string
+	vault: HexString
+	asset: HexString
+	symbol: string
+	decimals: number
+	reason: VaultSweepSkipReason
+	/** Solver wallet balance of the underlying, base units. Not read when sweeping is disabled. */
+	walletBalance?: bigint
+	/** High-water trigger, base units. Absent when sweeping is disabled. */
+	threshold?: bigint
+	/** `maxDeposit(solver)` at the time of the pass. Only read once the threshold is met. */
+	maxDeposit?: bigint
+}
+
+export interface VaultSweepDeposit {
+	vault: HexString
+	asset: HexString
+	symbol: string
+	decimals: number
+	/** Amount deposited, base units. */
+	amount: bigint
+}
+
+export interface VaultSweepSubmission {
+	chain: string
+	txHash: HexString
+	sponsored: boolean
+	deposits: VaultSweepDeposit[]
+}
+
+/** Outcome of one sweep pass: what was submitted, and why every other vault was left alone. */
+export interface VaultSweepResult {
+	submitted: VaultSweepSubmission[]
+	skipped: VaultSweepSkip[]
+}
 
 /**
  * Funding venue that sources output tokens by withdrawing the solver's own
@@ -39,6 +86,12 @@ export class VaultFundingPlanner implements FundingVenue {
 	private solver: HexString | null = null
 	private sweepInterval?: NodeJS.Timeout
 	private initialSweepTimer?: NodeJS.Timeout
+	/**
+	 * `chain:vault` keys whose closed-deposit state has been warned about. The periodic sweep runs
+	 * every few minutes and a streaming-yield vault is closed for most of the day; one warn per
+	 * closure (and debug thereafter) keeps the log readable without hiding the cause.
+	 */
+	private depositsClosedWarned = new Set<string>()
 
 	/**
 	 * @param userOpSender When provided, sweep/redeem batches are sent as Circle-
@@ -78,6 +131,7 @@ export class VaultFundingPlanner implements FundingVenue {
 		// Swap only after every chain hydrated, so a bad address leaves the old set live.
 		this.config = config
 		this.stateByChain.clear()
+		this.depositsClosedWarned.clear()
 		for (const [chain, state] of stateByChain) {
 			this.stateByChain.set(chain, state)
 			if (!this.mutexByChain.has(chain)) this.mutexByChain.set(chain, new Mutex())
@@ -125,6 +179,39 @@ export class VaultFundingPlanner implements FundingVenue {
 		} else {
 			await Promise.all(Array.from(this.stateByChain.values()).map((s) => s.refresh()))
 		}
+	}
+
+	/**
+	 * Returns a coherent read-only view of every configured vault. Refreshing
+	 * under the same per-chain mutex used by withdrawal planning ensures the
+	 * displayed availability includes all live pending-fill reservations.
+	 */
+	async getBalanceSnapshot(requestedChain?: string): Promise<VaultBalancePosition[]> {
+		const snapshots = await Promise.all(
+			Array.from(this.stateByChain.entries())
+				.filter(([chain]) => requestedChain === undefined || chain === requestedChain)
+				.map(async ([chain, state]) => {
+				const mutex = this.mutexByChain.get(chain)
+				if (!mutex || !state.isHydrated()) return []
+
+				return mutex.runExclusive(async () => {
+					await state.refresh()
+					return state.allVaults().map((vault) => ({
+						chain,
+						vault: vault.vault,
+						asset: vault.asset,
+						symbol: vault.symbol,
+						decimals: vault.decimals,
+						positionAssets: vault.positionAssets,
+						availableAssets: vault.remaining,
+						walletReserve: vault.minBalanceScaled,
+						acceptsDeposits: vault.maxDeposit > 0n,
+					}))
+				})
+				}),
+		)
+
+		return snapshots.flat()
 	}
 
 	// =========================================================================
@@ -255,23 +342,33 @@ export class VaultFundingPlanner implements FundingVenue {
 	 * `approve + deposit` pair and sending them as a single ERC-7821 batch to the
 	 * solver account — atomic, leaving no residual allowance.
 	 */
-	async sweepExcessToVault(chain?: string): Promise<void> {
+	async sweepExcessToVault(chain?: string): Promise<VaultSweepResult> {
 		const chains = chain ? [chain] : Array.from(this.stateByChain.keys())
-		await Promise.all(chains.map((c) => this.sweepChain(c)))
+		const passes = await Promise.all(chains.map((c) => this.sweepChain(c)))
+		return {
+			submitted: passes.flatMap((pass) => (pass.submitted ? [pass.submitted] : [])),
+			skipped: passes.flatMap((pass) => pass.skipped),
+		}
 	}
 
-	private async sweepChain(chain: string): Promise<void> {
+	private async sweepChain(chain: string): Promise<{ submitted?: VaultSweepSubmission; skipped: VaultSweepSkip[] }> {
 		const state = this.stateByChain.get(chain)
 		const solver = this.solver
-		if (!state || !state.isHydrated() || !solver) return
+		if (!state || !state.isHydrated() || !solver) return { skipped: [] }
 
 		const mutex = this.sweepMutexByChain.get(chain)!
-		await mutex.runExclusive(async () => {
+		return mutex.runExclusive(async () => {
 			const publicClient = this.clientManager.getPublicClient(chain)
 			const calls: ERC7821Call[] = []
+			const deposits: VaultSweepDeposit[] = []
+			const skipped: VaultSweepSkip[] = []
 
 			for (const vault of state.allVaults()) {
-				if (vault.thresholdScaled === null) continue // sweeping disabled for this vault
+				const identity = { chain, vault: vault.vault, asset: vault.asset, symbol: vault.symbol, decimals: vault.decimals }
+				if (vault.thresholdScaled === null) {
+					skipped.push({ ...identity, reason: "sweeping-disabled" })
+					continue
+				}
 
 				const walletBalance = (await publicClient.readContract({
 					abi: ERC20_ABI,
@@ -283,15 +380,19 @@ export class VaultFundingPlanner implements FundingVenue {
 				// Hysteresis: only act once the balance reaches the high-water
 				// trigger, then deposit everything down to minBalance. The
 				// threshold→minBalance gap is the implicit minimum sweep size.
-				if (walletBalance < vault.thresholdScaled) continue
+				if (walletBalance < vault.thresholdScaled) {
+					skipped.push({ ...identity, reason: "below-threshold", walletBalance, threshold: vault.thresholdScaled })
+					continue
+				}
 				const excess = walletBalance - vault.minBalanceScaled
 
 				// Clamp to the vault's deposit cap — ERC-4626 requires deposit to
 				// revert when assets > maxDeposit(receiver) (e.g. an Aave stataToken
-				// at its supply cap, or a paused market). Without this the sweep tx
-				// reverts every tick once the cap is hit. `excess` is read here and
-				// deposited in a later tx; if a fill consumes wallet balance in the
-				// interim the batch reverts atomically, leaving no stale allowance.
+				// at its supply cap, a paused market, or a StreamingYieldVault while a
+				// tranche vests). Without this the sweep tx reverts every tick once
+				// the cap is hit. `excess` is read here and deposited in a later tx;
+				// if a fill consumes wallet balance in the interim the batch reverts
+				// atomically, leaving no stale allowance.
 				const maxDeposit = (await publicClient.readContract({
 					abi: ERC4626_ABI,
 					address: vault.vault,
@@ -299,7 +400,21 @@ export class VaultFundingPlanner implements FundingVenue {
 					args: [solver],
 				})) as bigint
 				const depositAmount = excess < maxDeposit ? excess : maxDeposit
-				if (depositAmount <= 0n) continue
+				if (depositAmount <= 0n) {
+					// The wallet is over its trigger and the vault refuses the deposit.
+					// Silently skipping here made a closed vault indistinguishable from
+					// a wallet that never reached its threshold.
+					this.noteDepositsClosed(chain, vault, walletBalance, maxDeposit)
+					skipped.push({
+						...identity,
+						reason: "deposits-closed",
+						walletBalance,
+						threshold: vault.thresholdScaled,
+						maxDeposit,
+					})
+					continue
+				}
+				this.depositsClosedWarned.delete(closedKey(chain, vault))
 
 				calls.push({
 					target: vault.asset,
@@ -319,6 +434,7 @@ export class VaultFundingPlanner implements FundingVenue {
 						args: [depositAmount, solver],
 					}) as HexString,
 				})
+				deposits.push({ ...identity, amount: depositAmount })
 
 				this.logger.info(
 					{ chain, vault: vault.vault, asset: vault.asset, excess: excess.toString(), depositAmount: depositAmount.toString() },
@@ -326,12 +442,42 @@ export class VaultFundingPlanner implements FundingVenue {
 				)
 			}
 
-			if (calls.length === 0) return
+			if (calls.length === 0) return { skipped }
 
 			const { txHash, sponsored } = await this.submitBatch(chain, solver, calls)
 			this.logger.info({ chain, tx: txHash, sponsored, pairs: calls.length / 2 }, "Vault sweep submitted")
 			this.onTx?.({ chain, kind: "sweep", txHash, sponsored })
+			return { submitted: { chain, txHash, sponsored, deposits }, skipped }
 		})
+	}
+
+	/**
+	 * Warns the first time a vault turns a due sweep away, debug on every repeat until a deposit
+	 * goes through (or the venue is reconfigured). The fields name what an operator needs to
+	 * decide whether to wait or intervene: how far over the trigger the wallet is, and that the
+	 * vault — not the solver — is the side saying no.
+	 */
+	private noteDepositsClosed(chain: string, vault: HydratedVault, walletBalance: bigint, maxDeposit: bigint): void {
+		const key = closedKey(chain, vault)
+		const fields = {
+			chain,
+			vault: vault.vault,
+			asset: vault.asset,
+			symbol: vault.symbol,
+			walletBalance: walletBalance.toString(),
+			threshold: vault.thresholdScaled?.toString(),
+			minBalance: vault.minBalanceScaled.toString(),
+			maxDeposit: maxDeposit.toString(),
+		}
+		if (this.depositsClosedWarned.has(key)) {
+			this.logger.debug(fields, "Vault sweep skipped: vault still not accepting deposits")
+			return
+		}
+		this.depositsClosedWarned.add(key)
+		this.logger.warn(
+			fields,
+			"Vault sweep skipped: wallet balance is above its sweep threshold but the vault is not accepting deposits (maxDeposit is 0); retrying every cycle",
+		)
 	}
 
 	/**
@@ -447,4 +593,8 @@ export class VaultFundingPlanner implements FundingVenue {
 			this.onTx?.({ chain, kind: "redeem", txHash, sponsored })
 		})
 	}
+}
+
+function closedKey(chain: string, vault: HydratedVault): string {
+	return `${chain}:${vault.vault.toLowerCase()}`
 }

@@ -183,11 +183,11 @@ async function tuneVault(state: WizardState): Promise<void> {
 			// notation (1e21) would not survive as a valid TOML decimal.
 			const plainDecimal = (n: number): string | undefined =>
 				/^\d+(\.\d+)?$/.test(String(n)) ? undefined : "Enter a plain decimal number"
-			const threshold = await askNumber("Sweep when wallet balance reaches (USD)", 5000, (n) =>
+			const threshold = await askNumber("Sweep when wallet balance reaches (underlying token units)", 5000, (n) =>
 				n > 0 ? plainDecimal(n) : "Must be positive",
 			)
 			const minBalance = await askNumber(
-				"Sweep down to (USD; cover fill float + gas spend)",
+				"Sweep down to (underlying token units; cover fill float + gas spend)",
 				Math.max(1, Math.min(3000, threshold - 1)),
 				(n) => (n > 0 && n < threshold ? plainDecimal(n) : `Must be positive and below ${threshold}`),
 			)

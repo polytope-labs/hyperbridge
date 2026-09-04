@@ -127,7 +127,7 @@ function baseOperator(overrides: Partial<OperatorContext> = {}): TestOperator {
 		loggers,
 		strategies: [],
 		filler: fakePauseControl(),
-		balances: { getSnapshot: () => ({ updatedAt: null, chains: [] }) },
+		balances: { getSnapshot: () => ({ updatedAt: null, status: "loading", chains: [], issues: [] }) },
 		haltControls: [],
 		config: fakeConfig(),
 		stop: vi.fn().mockResolvedValue(undefined),
@@ -202,7 +202,14 @@ describe("UiServer (operator mode)", () => {
 				{ index: 3, pairIndex: 3, exotic: "USDC/ZARP", token0: "USDC", token1: "ZARP", ask: askOnly, sameToken: false, maxOrderSize: "5000" }, // one-sided LP
 			],
 			filler,
-			balances: { getSnapshot: () => ({ updatedAt: 123, chains: [{ chainId: 8453, usdc: 1500 }] }) },
+			balances: {
+				getSnapshot: () => ({
+					updatedAt: 123,
+					status: "fresh",
+					chains: [{ chainId: 8453, usdc: 1500, assets: [] }],
+					issues: [],
+				}),
+			},
 			...overrides,
 		})
 		server = new UiServer({ mode: "operator", operator, deps })
@@ -242,7 +249,12 @@ describe("UiServer (operator mode)", () => {
 		expect(payload.strategyTypes).toEqual(["USDC/CNGN"])
 
 		const balances = await fetch(`${base}/api/balances`)
-		expect(await balances.json()).toEqual({ updatedAt: 123, chains: [{ chainId: 8453, usdc: 1500 }] })
+		expect(await balances.json()).toEqual({
+			updatedAt: 123,
+			status: "fresh",
+			chains: [{ chainId: 8453, usdc: 1500, assets: [] }],
+			issues: [],
+		})
 	})
 
 	it("rejects mutating requests without the X-Simplex-UI header", async () => {
@@ -545,12 +557,39 @@ describe("UiServer (operator mode)", () => {
 		expect((await fetch(`${none.base}/api/vault/sweep`, { method: "POST", headers: CSRF })).status).toBe(409)
 		server?.stop()
 
-		const sweepNow = vi.fn().mockResolvedValue(undefined)
+		const vault = "0x00000000000000000000000000000000000000aa"
+		const asset = "0x00000000000000000000000000000000000000bb"
+		const sweepNow = vi.fn().mockResolvedValue({
+			submitted: [],
+			skipped: [
+				{
+					chain: "EVM-8453",
+					vault,
+					asset,
+					symbol: "USDC",
+					decimals: 6,
+					reason: "deposits-closed",
+					walletBalance: 8_000_000_000n,
+					threshold: 5_000_000_000n,
+					maxDeposit: 0n,
+				},
+			],
+		})
 		const redeemAll = vi.fn().mockResolvedValue(undefined)
 		const reconfigure = vi.fn().mockResolvedValue(undefined)
 		const { base } = await startServer({ vault: { sweepNow, redeemAll, reconfigure } })
-		expect((await fetch(`${base}/api/vault/sweep`, { method: "POST", headers: CSRF })).status).toBe(200)
+		const sweep = await fetch(`${base}/api/vault/sweep`, { method: "POST", headers: CSRF })
+		expect(sweep.status).toBe(200)
 		expect(sweepNow).toHaveBeenCalledTimes(1)
+		// The pass's outcome reaches the dashboard with amounts already formatted, so an empty
+		// sweep can say whether the wallet or the vault is the reason.
+		expect(await sweep.json()).toEqual({
+			ok: true,
+			submitted: [],
+			skipped: [
+				{ chain: "EVM-8453", vault, symbol: "USDC", reason: "deposits-closed", walletBalance: "8000", threshold: "5000" },
+			],
+		})
 		expect((await fetch(`${base}/api/vault/redeem`, { method: "POST", headers: CSRF })).status).toBe(200)
 		expect(redeemAll).toHaveBeenCalledTimes(1)
 	})
@@ -1060,6 +1099,8 @@ describe("UiServer (operator mode)", () => {
 	it("serves static SPA files with an index.html fallback", async () => {
 		const uiDistDir = mkdtempSync(join(tmpdir(), "simplex-dist-"))
 		writeFileSync(join(uiDistDir, "index.html"), "<html>spa</html>")
+		writeFileSync(join(uiDistDir, "manifest.webmanifest"), "{}")
+		writeFileSync(join(uiDistDir, "sw.js"), "self.addEventListener('fetch', () => {})")
 		mkdirSync(join(uiDistDir, "assets"))
 		writeFileSync(join(uiDistDir, "assets", "app.js"), "console.log(1)")
 
@@ -1070,6 +1111,10 @@ describe("UiServer (operator mode)", () => {
 		expect(await (await fetch(base)).text()).toBe("<html>spa</html>")
 		const js = await fetch(`${base}/assets/app.js`)
 		expect(js.headers.get("content-type")).toContain("text/javascript")
+		const manifest = await fetch(`${base}/manifest.webmanifest`)
+		expect(manifest.headers.get("content-type")).toContain("application/manifest+json")
+		const serviceWorker = await fetch(`${base}/sw.js`)
+		expect(serviceWorker.headers.get("content-type")).toContain("text/javascript")
 		// client-routed path falls back to the SPA shell
 		expect(await (await fetch(`${base}/setup/step-2`)).text()).toBe("<html>spa</html>")
 		// traversal is blocked (fetch normalizes ../, so send the raw path over a socket)

@@ -1,4 +1,5 @@
 import { EventEmitter } from "node:events"
+import type { VaultSweepResult } from "@/funding/vault/VaultFundingPlanner"
 import { Decimal } from "decimal.js"
 import type { HexString, Order } from "@hyperbridge/sdk"
 import { adminStrategyFor, bootFiller, tradingPairFrom, type FillerRuntime } from "@/core/boot"
@@ -666,8 +667,12 @@ export class VaultController {
 		await this.persist()
 	}
 
-	/** Deposits wallet balance above each vault's threshold, down to its floor. */
-	sweepNow(): Promise<void> {
+	/**
+	 * Deposits wallet balance above each vault's threshold, down to its floor. The result says what
+	 * was submitted and, for every vault left alone, why — `deposits-closed` means the wallet is
+	 * over its trigger but the vault reports `maxDeposit(solver) == 0`.
+	 */
+	sweepNow(): Promise<VaultSweepResult> {
 		const venue = this.runtime.vaultVenue
 		if (!venue) throw new Error("This filler was started without a vault treasury")
 		return venue.sweepExcessToVault()

@@ -391,7 +391,9 @@ drains in-flight fills first, then stops scanning the chain.
 // Validate against chain state, change nothing.
 await simplex.vaults.preflight(vaults)
 await simplex.vaults.set(vaults)
-await simplex.vaults.sweepNow()
+// Reports what was deposited and, per vault, why nothing was — e.g. "deposits-closed"
+// when the wallet is over its threshold but the vault's maxDeposit is 0.
+const sweep = await simplex.vaults.sweepNow()
 await simplex.vaults.redeemAll()
 
 await simplex.assets.add({ BRZ: { "EVM-137": "0x…" } })

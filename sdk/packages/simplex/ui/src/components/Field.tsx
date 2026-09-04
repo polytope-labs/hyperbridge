@@ -9,14 +9,19 @@ export function Field(props: {
 	placeholder?: string
 	style?: CSSProperties
 	onBlur?: () => void
+	required?: boolean
 }) {
 	return (
 		<label className="field" style={props.style}>
-			<span>{props.label}</span>
+			<span className="field-label">
+				{props.label}
+				{props.required ? <span className="field-required">Required</span> : null}
+			</span>
 			<input
 				type={props.type ?? "text"}
 				value={props.value}
 				placeholder={props.placeholder}
+				required={props.required}
 				onChange={(e) => props.onChange(e.target.value)}
 				onBlur={props.onBlur}
 			/>

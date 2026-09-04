@@ -1,48 +1,27 @@
-import { useCallback, useEffect, useState } from "react"
-import { api } from "./api"
-import { Operator } from "./operator/Operator"
-import type { SetupDefaults, Status } from "./types"
-import { Wizard } from "./wizard/Wizard"
+import { Toaster } from "sonner"
+import { AppScreen } from "./app/AppScreen"
+import { useAppBootstrap } from "./app/useAppBootstrap"
+import { ScreenErrorBoundary } from "./components/ScreenErrorBoundary"
+import { InstallAppProvider } from "./components/InstallAppButton"
 
 export function App() {
-	const [status, setStatus] = useState<Status>()
-	const [defaults, setDefaults] = useState<SetupDefaults>()
-	const [error, setError] = useState<string>()
+	const { state, refresh } = useAppBootstrap()
 
-	const refresh = useCallback(async () => {
-		try {
-			const next = await api.get<Status>("/api/status")
-			setStatus(next)
-			setError(undefined)
-		} catch (err) {
-			setError(err instanceof Error ? err.message : String(err))
-		}
-	}, [])
-
-	useEffect(() => {
-		refresh()
-	}, [refresh])
-
-	useEffect(() => {
-		if (status?.mode !== "init") return
-		api.get<SetupDefaults>("/api/setup/defaults").then(setDefaults).catch((err) => setError(String(err)))
-	}, [status?.mode])
-
-	if (error) {
-		return (
-			<div className="card">
-				<p className="error">Cannot reach the simplex process: {error}</p>
-				<button type="button" onClick={refresh}>
-					Retry
-				</button>
+	return (
+		<InstallAppProvider>
+			<div className="app-shell">
+				<HeaderGradient />
+				<main className={`app-container ${state.kind === "operator" ? "operator-container" : ""}`}>
+					<ScreenErrorBoundary>
+						<AppScreen state={state} refresh={refresh} />
+					</ScreenErrorBoundary>
+				</main>
 			</div>
-		)
-	}
-	if (!status) return <p className="hint">Connecting…</p>
+			<Toaster className="simplex-toaster" position="top-right" theme="dark" closeButton richColors />
+		</InstallAppProvider>
+	)
+}
 
-	if (status.mode === "operator") {
-		return <Operator status={status} refresh={refresh} />
-	}
-	if (!defaults) return <p className="hint">Loading setup…</p>
-	return <Wizard defaults={defaults} />
+function HeaderGradient() {
+	return <div className="header-gradient bg-gradient-brand-animated" />
 }

@@ -3,13 +3,13 @@ import { Decimal } from "decimal.js"
 import { FillerPricePolicy, formatChainKey, parseChainKey, type PriceCurvePoint } from "@/config/interpolated-curve"
 import { AssetRegistry, registrySymbols, validateAssetDefinitions, type AssetDefinition } from "@/config/asset-registry"
 import { assertPairSymbolsResolve, validatePairConfigs, type PairConfig } from "@/config/pairs"
-import { VaultFundingPlanner } from "@/funding/vault/VaultFundingPlanner"
+import { VaultFundingPlanner, type VaultSweepResult } from "@/funding/vault/VaultFundingPlanner"
 import { chainsForNetwork, INIT_CHAINS, type InitNetwork } from "@/cli/init/chains"
 import { TESTNET_CONFIRMATION_POINTS } from "@/cli/init/state"
 import { ChainConfigService } from "@hyperbridge/sdk"
 import { assertConfirmationCoverage, type FillerConfigFile, type FillerTomlConfig, type VaultToml } from "@/config/filler-toml"
 import { emitFillerToml, writeConfigFileAtomic } from "@/cli/init/emit-toml"
-import { isAddress } from "viem"
+import { formatUnits, isAddress } from "viem"
 import { validateRpcUrls, type AllowlistConfig } from "@/services/FillerConfigService"
 import { withTimeout, PROBE_TIMEOUT_MS } from "@/cli/init/prompt-utils"
 import type { ActivityRecorder } from "@/data/recorder"
@@ -38,6 +38,7 @@ import {
 	type StatusInit,
 	type StatusOperator,
 	type WalletTxDto,
+	type VaultSweepDto,
 } from "./dto"
 
 /**
@@ -131,7 +132,8 @@ export interface OperatorContext {
 	 */
 	setLogLevel(level: LogLevel): void
 	vault?: {
-		sweepNow(): Promise<void>
+		/** Runs one sweep pass now and reports what it did — and, per vault, why it did nothing. */
+		sweepNow(): Promise<VaultSweepResult>
 		redeemAll(): Promise<void>
 		/** Re-hydrates the shared venue with a new vault set; rejects on bad vaults. */
 		reconfigure(vaults: VaultToml[], sweepIntervalMs?: number): Promise<void>
@@ -559,8 +561,8 @@ export class UiServer {
 			const vault = this.operator!.vault
 			if (!vault) return sendJson(res, 409, { error: "No vault configured" })
 			try {
-				if (path === "/api/vault/sweep") await vault.sweepNow()
-				else await vault.redeemAll()
+				if (path === "/api/vault/sweep") return sendJson(res, 200, vaultSweepDto(await vault.sweepNow()))
+				await vault.redeemAll()
 				return sendJson(res, 200, { ok: true })
 			} catch (err) {
 				return sendJson(res, 500, { error: err instanceof Error ? err.message : String(err) })
@@ -1478,4 +1480,25 @@ function validateCurveUpdateShape(body: unknown): string | null {
 		}
 	}
 	return null
+}
+
+/** Wire shape of a sweep pass: base units formatted once here so the dashboard never sees bigints. */
+function vaultSweepDto(result: VaultSweepResult): VaultSweepDto {
+	return {
+		ok: true,
+		submitted: result.submitted.map((tx) => ({
+			chain: tx.chain,
+			txHash: tx.txHash,
+			sponsored: tx.sponsored,
+			deposits: tx.deposits.map((d) => ({ vault: d.vault, symbol: d.symbol, amount: formatUnits(d.amount, d.decimals) })),
+		})),
+		skipped: result.skipped.map((skip) => ({
+			chain: skip.chain,
+			vault: skip.vault,
+			symbol: skip.symbol,
+			reason: skip.reason,
+			...(skip.walletBalance !== undefined ? { walletBalance: formatUnits(skip.walletBalance, skip.decimals) } : {}),
+			...(skip.threshold !== undefined ? { threshold: formatUnits(skip.threshold, skip.decimals) } : {}),
+		})),
+	}
 }

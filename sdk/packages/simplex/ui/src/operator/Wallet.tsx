@@ -46,43 +46,47 @@ export function Wallet(props: { chainLabels?: Record<string, string> }) {
 	}, [])
 	usePolling(load, 30_000)
 
-	const chainLabel = (id: number | null) =>
-		id === null ? "—" : (props.chainLabels?.[String(id)] ?? `chain ${id}`)
+	const chainLabel = (id: number | null) => (id === null ? "—" : (props.chainLabels?.[String(id)] ?? `chain ${id}`))
 
 	return (
-		<div className="card">
-			<h2>Wallet history</h2>
-			<p className="hint">
-				Transactions the filler wallet has submitted: operator sends, vault sweeps and redeems, and order fills.
-			</p>
-			{txs?.length === 0 && <p className="hint">No transactions recorded yet.</p>}
-			{txs && txs.length > 0 && (
-				<table>
-					<thead>
-						<tr>
-							<th>Time</th>
-							<th>Chain</th>
-							<th>Action</th>
-							<th>Tx</th>
-						</tr>
-					</thead>
-					<tbody>
-						{txs.map((tx) => (
-							<tr key={tx.id}>
-								<td>{new Date(tx.ts).toLocaleString()}</td>
-								<td>{chainLabel(tx.chainId)}</td>
-								<td>
-									{describe(tx)}
-									{tx.sponsored && <span className="badge"> sponsored</span>}
-								</td>
-								<td>
-									<TxLink tx={tx} />
-								</td>
+		<div className="operator-page-content">
+			<section className="operator-section">
+				<div className="operator-section-heading">
+					<div>
+						<span className="eyebrow">Ledger</span>
+						<h2>Transaction history</h2>
+					</div>
+					<small>{txs ? `${txs.length} recorded` : "Loading"}</small>
+				</div>
+				{txs?.length === 0 && <p className="operator-empty">No transactions recorded yet.</p>}
+				{txs && txs.length > 0 && (
+					<table>
+						<thead>
+							<tr>
+								<th>Time</th>
+								<th>Chain</th>
+								<th>Action</th>
+								<th>Tx</th>
 							</tr>
-						))}
-					</tbody>
-				</table>
-			)}
+						</thead>
+						<tbody>
+							{txs.map((tx) => (
+								<tr key={tx.id}>
+									<td>{new Date(tx.ts).toLocaleString()}</td>
+									<td>{chainLabel(tx.chainId)}</td>
+									<td>
+										{describe(tx)}
+										{tx.sponsored && <span className="badge"> sponsored</span>}
+									</td>
+									<td>
+										<TxLink tx={tx} />
+									</td>
+								</tr>
+							))}
+						</tbody>
+					</table>
+				)}
+			</section>
 			{error && <p className="error">{error}</p>}
 		</div>
 	)

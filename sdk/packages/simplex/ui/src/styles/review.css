@@ -1,0 +1,256 @@
+/* Review: funding identities, local output, and launch readiness. */
+.review-section-heading h2 {
+	margin: 0 0 0.3rem;
+	font-size: 1.05rem !important;
+}
+
+.review-section-heading > p {
+	margin: 0;
+	color: var(--muted);
+	font-size: 0.8125rem;
+	line-height: 1.5;
+}
+
+.review-account-list {
+	margin-top: 1.35rem;
+	border-top: 1px solid var(--border);
+}
+
+.review-account-row {
+	padding: 1.15rem 0;
+	border-bottom: 1px solid var(--border);
+}
+
+.review-account-heading {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 1rem;
+}
+
+.review-account-heading h3 {
+	margin: 0;
+	font-size: 0.9375rem;
+	font-weight: 500;
+}
+
+.review-account-heading div > span,
+.review-account-row > p {
+	color: var(--muted);
+	font-size: 0.75rem;
+}
+
+.review-account-heading div > span {
+	display: block;
+	margin-top: 0.15rem;
+}
+
+.review-account-network {
+	flex: 0 0 auto;
+	padding: 0.3rem 0.5rem;
+	border: 1px solid var(--border);
+	border-radius: 999px;
+	color: var(--text-secondary);
+	font-family: var(--font-mono);
+	font-size: 0.625rem;
+	letter-spacing: 0.06em;
+}
+
+.review-account-row > p {
+	max-width: 46rem;
+	margin: 0.7rem 0 0;
+	line-height: 1.5;
+}
+
+.review-account-value {
+	margin-top: 0.8rem;
+}
+
+.review-account-value .copy-value,
+.review-config-path .copy-value {
+	width: 100%;
+	justify-content: space-between;
+	padding: 0.7rem 0.75rem 0.7rem 0.9rem;
+	border: 1px solid var(--border);
+	border-radius: 0.75rem;
+	background: var(--control);
+}
+
+.review-account-value .copy-value-text {
+	color: var(--text);
+	font-size: 0.875rem;
+	overflow-wrap: anywhere;
+	text-overflow: clip;
+	white-space: normal;
+}
+
+.review-config-path {
+	margin-top: 1.2rem;
+}
+
+.review-config-path-label {
+	display: block;
+	margin-bottom: 0.4rem;
+	color: var(--text-secondary);
+	font-size: 0.75rem;
+	font-weight: 500;
+}
+
+.review-config-path .copy-value {
+	align-items: center;
+	min-height: 3rem;
+	padding: 0.4rem 0.55rem 0.4rem 0.75rem;
+}
+
+.review-config-path .copy-value-text {
+	display: flex;
+	align-items: baseline;
+	width: 100%;
+	color: var(--text-secondary);
+	font-size: 0.8125rem;
+	line-height: 1.55;
+	white-space: nowrap;
+}
+
+.review-path-directory {
+	min-width: 0;
+	overflow: hidden;
+	color: var(--muted);
+	text-overflow: ellipsis;
+}
+
+.review-config-path strong {
+	flex: 0 0 auto;
+	color: var(--text);
+	font-weight: 500;
+}
+
+.review-config-security {
+	display: flex;
+	align-items: flex-start;
+	gap: 0.55rem;
+	margin: 0.75rem 0 0;
+	color: var(--muted);
+	font-size: 0.75rem;
+	line-height: 1.5;
+}
+
+.review-config-security > span {
+	margin-top: 0.15rem;
+	color: var(--focus);
+	font-size: 0.5rem;
+}
+
+.review-validation {
+	display: flex;
+	align-items: flex-start;
+	gap: 0.75rem;
+	margin-top: 1.25rem;
+	padding: 0.85rem 0.95rem;
+	border-left: 2px solid var(--border-strong);
+	background: rgba(255, 255, 255, 0.018);
+}
+
+.review-validation[data-state="ready"] {
+	border-left-color: var(--ok);
+	background: rgba(116, 233, 152, 0.035);
+}
+
+.review-validation[data-state="error"] {
+	border-left-color: var(--err);
+	background: rgba(255, 122, 137, 0.035);
+}
+
+.review-validation-icon {
+	display: grid;
+	place-items: center;
+	width: 1.25rem;
+	height: 1.25rem;
+	flex: 0 0 auto;
+	margin-top: 0.05rem;
+	border: 1px solid currentColor;
+	border-radius: 50%;
+	color: var(--muted);
+	font-family: var(--font-mono);
+	font-size: 0.6875rem;
+}
+
+.review-validation[data-state="ready"] .review-validation-icon {
+	color: var(--ok);
+}
+
+.review-validation[data-state="error"] .review-validation-icon {
+	color: var(--err);
+}
+
+.review-validation-icon svg {
+	width: 0.8rem;
+	height: 0.8rem;
+}
+
+.review-validation-spinner {
+	border-color: var(--border-strong);
+	border-top-color: var(--focus);
+	animation: review-spin 700ms linear infinite;
+}
+
+@keyframes review-spin {
+	to {
+		transform: rotate(360deg);
+	}
+}
+
+.review-validation strong {
+	display: block;
+	color: var(--text-secondary);
+	font-size: 0.8125rem;
+	font-weight: 500;
+}
+
+.review-validation p {
+	margin: 0.2rem 0 0;
+	color: var(--muted);
+	font-size: 0.75rem;
+	line-height: 1.45;
+	overflow-wrap: anywhere;
+}
+
+.review-validation[data-state="error"] p {
+	color: var(--err);
+}
+
+.review-launch-row {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 1.25rem;
+	margin-top: 1.75rem;
+}
+
+.review-start-button {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 0.65rem;
+	margin: 0;
+}
+
+.review-launch-row > p {
+	max-width: 18rem;
+	margin: 0;
+	color: var(--muted);
+	font-size: 0.75rem;
+	line-height: 1.45;
+	text-align: right;
+}
+
+.card-heading {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 1rem;
+}
+
+.card-heading h2 {
+	margin-bottom: 0;
+}

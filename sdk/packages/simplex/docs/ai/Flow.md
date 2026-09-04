@@ -2,6 +2,201 @@
 
 AI-maintained map of how code paths in `sdk/packages/simplex` actually execute, so that when something breaks you can tell whether the fault is upstream or downstream of where the symptom appears. Only flows that have been read and verified are documented; coverage grows as areas of the package are touched.
 
+## Operator market list prices
+
+`Operator` loads `/api/strategies`, whose `AdminStrategyDto` rows include the current bid and ask curve
+points. `OperatorMarkets` selects the first valid configured price from each side and renders it with
+the `token1/token0` unit. Venue-priced, reference-only, and sides without a valid curve render no
+price value; clicking a row still opens the existing editor.
+
+## Send transaction explorer link
+
+Before posting to `/api/send`, `SendCard` resolves the selected chain through the canonical
+initialization catalog. A successful response stores that explorer URL alongside its transaction hash,
+and the success row exposes the truncated hash plus external-link icon as one anchor that opens the
+chain's `/tx/<hash>` page in a new tab. The captured URL remains paired with the completed transaction
+even if the operator subsequently changes the form's network selection.
+
+## BSC paymaster messaging
+
+The setup and operator chain screens render the shared initialization catalog without chain-specific
+warning metadata. The setup review presents paymaster-covered gas uniformly, so BSC no longer gets a
+native-gas exception anywhere in the Simplex UI; paymaster selection and funding execution are
+unchanged.
+
+## Setup completion failures
+
+`Review.tsx` posts the validated config to `/api/setup/save-and-start`; `setup-api.ts` atomically
+writes it, returns immediately, and boots the filler while the browser polls start status. A failed
+all-chain EIP-7702 delegation remains a real failed start, but `formatSetupStartError` replaces the
+internal restart wording with the affected network labels and explicit stablecoin, endpoint, retry,
+and image-version checks. The configuration remains on disk, the action changes to Retry startup,
+and unrelated failures pass through unchanged.
+
+## Dashboard balance collection
+
+`boot.ts` hydrates `VaultFundingPlanner` before constructing `BalanceProvider`, passes that planner
+through the narrow `VaultBalanceSource` interface, and awaits `BalanceProvider.start()`. Startup now
+performs the first refresh before boot returns; later refreshes run on the configured interval.
+
+For each chain, `BalanceProvider` resolves configured USDC/USDT and unique exotic assets, reads the
+solver's native and token wallet balances, then merges the planner's vault rows by underlying asset.
+`VaultFundingPlanner.getBalanceSnapshot()` takes the same per-chain mutex as fill planning, refreshes
+`VaultLiquidityState`, and returns base-unit position, remaining withdrawable assets, and wallet
+reserve. The API boundary formats those once and derives:
+
+- `total = wallet + vaultPosition`
+- `available = max(wallet - walletReserve, 0) + vaultAvailable`
+
+If a token read or the vault snapshot fails, the affected aggregate is `null` and the response is
+marked `partial` or `unavailable` with contextual issues. `OperatorOverview` therefore displays an
+unavailable state instead of summing known values into a misleading total. Its headline stablecoin
+metric sums only non-null available USDC/USDT values.
+
+Within each network section, `OperatorOverview` sends every asset through `AssetBalanceCard`. The
+card resolves its artwork through the shared `TokenIcon` mapping, presents total ownership first,
+then wallet and vault sources, and isolates `available` as the operational amount available to fill.
+The network's native balance stays in the section header. Partial and unavailable asset states keep
+their null values explicit and use the warning accent instead of inheriting the token colour.
+
+`Operator` passes the same snapshot to the Operations screen. `SendCard` matches the selected chain
+and token address, displays the asset's canonical `available` value beside Amount, and uses the native
+wallet row for native gas. After `/api/send` succeeds, it invokes the parent load path so the shared
+balance snapshot, strategies, and configuration refresh immediately.
+
+## Vault sweep pass
+
+Verified 2026-09-04 against a running solver and `src/tests/funding/vault.test.ts`.
+
+```
+startSweeping()                       boot.ts after venue initialise; reconfigure() restarts it
+  30s one-shot, then every sweepIntervalMs (default 5m)
+    -> sweepExcessToVault()            also POST /api/vault/sweep and simplex.vaults.sweepNow()
+         per chain, under sweepMutexByChain:
+           thresholdScaled null        -> skip "sweeping-disabled" (no RPC)
+           asset.balanceOf(solver)
+           balance < threshold         -> skip "below-threshold"
+           excess = balance - minBalance
+           vault.maxDeposit(solver)
+           min(excess, maxDeposit) <= 0 -> skip "deposits-closed"; warn once per closure, then debug
+           else approve + deposit calls -> submitBatch (sponsored UserOp or native tx)
+         returns { submitted?, skipped[] }; the pass merges chains into VaultSweepResult
+```
+
+`UiServer` formats the result into `VaultSweepDto` (token units) and `Operations.tsx` renders one
+sentence from it; an empty pass is a warning only when a vault refused a due deposit. Independently,
+`VaultLiquidityState.refresh` (balance snapshot, fill planning) reads `maxDeposit` and the overview
+shows "Deposits closed" under In vault when it is zero.
+
+Why a `StreamingYieldVault` refuses: `maxDeposit` is 0 while a tranche vests (`VEST`, 22h) and
+opens only between `vestedAt` and the next `addYield` (at least `MIN_WINDOW`, 2h). A sweep tick
+inside that window deposits; the rest silently skipped before this change.
+
+## Vault save from the dashboard
+
+`PUT /api/vault` validates the rows, then branches on whether the boot config produced a venue
+(`op.vault`). With a venue: `reconfigure` re-hydrates every vault on-chain and swaps the set
+atomically, the config is persisted, response `applied: true`. Without one: `vaultPreflight`
+validates, the rows are persisted, response `applied: false, restartNeeded: true` — the venue is
+wired into every strategy's funding list at boot and cannot be created later. `Operations.tsx`
+shows a warning notice and toast for `restartNeeded`; `vaultConfigured` (which gates the Sweep and
+Redeem buttons and the "Configured" badge) reflects the venue, not the file, until the restart.
+
+## Operator market drawer
+
+Selecting a row in `OperatorMarkets` opens the shared wide `OperatorSheet` and mounts
+`StrategyMarketEditor` for that strategy. The editor derives its visible buy/sell sides from the
+persisted strategy plus unsaved enable-side state, then renders market identity, maximum-order risk,
+and price controls as one flat, divider-led sequence. `CurveEditor` remains the canonical point
+editor; inside an operator drawer its preview is the only dedicated visual surface and sits beside
+the point table on desktop without changing the curve data model or API payloads.
+
+The maximum-order action still calls `applyMaxOrderSize` independently. The drawer's final action
+bar calls `applyCurves`, while disabled directions first become local draft curves through Add buy
+side or Add sell side. No mutation occurs until the matching save/apply action is used.
+
+Every operator drawer is rendered through the local shadcn-style `Sheet`, composed from Radix Dialog
+Root, Portal, Overlay, Content, Title, Description, and Close primitives. Radix applies open and closed
+state attributes to the overlay and content; `operator.css` uses those states for paired fade and
+full-width slide animations, so closing completes before the portal is removed.
+
+## Desktop PWA installation and offline shell
+
+`ui/index.html` links `public/manifest.webmanifest`; `ui/src/main.tsx` registers `public/sw.js` in
+production. The worker pre-caches only versioned static shell assets and uses navigation fallback so
+the setup/dashboard interface can open offline without persisting live `/api` balance or activity
+responses.
+
+`InstallAppProvider` owns the captured `beforeinstallprompt` event, standalone detection, install
+dialog state, and toast feedback. `InstallAppButton` renders in the setup brandbar and permanently in
+the operator navigation. Both open the same desktop-only `InstallGuidePanel`: identify the install
+icon, confirm Install, then open Simplex from the desktop/app list. Native prompt cancellation closes
+nothing and writes no inline state; Sonner displays the retry message.
+
+## Vault selection and balance defaults
+
+`VaultRowsEditor` renders curated vaults from the server catalog. Selecting one directly or through
+Select all creates a `VaultRowDraft` with product-specific balance defaults: Aave stataUSDC uses
+`threshold=20` and `minBalance=10`, while Yield Bearing cNGN uses `1000` and `1`. Custom and unknown
+vaults use the generic `5000`/`3000` fallback. Existing rows are never rewritten, so saved operator
+settings survive reopening the editor.
+
+Both numeric labels use the shared `@hyperbridge/ui` tooltip components. Their icon buttons open on
+hover or keyboard focus and explain that `threshold` triggers a sweep while `minBalance` is the
+liquidity retained in the wallet after that sweep.
+
+In the operator drawer, Save sends the current draft to `PUT /api/vault`, then refreshes the config.
+If another edit is followed by Save while that request is pending, Operations records one queued
+retry and reads the newest rows when the prior request finishes; repeated clicks coalesce to that
+latest draft rather than running concurrent vault hydrations. A response only reaches the success
+state when `persisted` is true. Persistence failures are rendered inside the still-open vault drawer;
+after the queued-save loop drains, a persisted final draft emits one success toast. The UI does not
+convert the response's `restartNeeded` advisory into a restart instruction.
+
+## Market setup and curve editing
+
+`Wizard` initializes the strategies step with no transfer prefabs. `useStrategiesModel` seeds one
+cross-asset draft on first entry, plus a USDT/CNGN draft when the selected catalog exposes CNGN and
+USDT; `MarketRow` edits those drafts or a reference-only feed, and `assembleConfig` emits the selected
+pair's bid/ask curves without same-token branching. The operator `CreateMarketForm` follows the same
+cross-asset path and rejects identical resolved symbols before calling `POST /api/strategies`.
+
+The operator and setup-wizard web market editors initialize the optional cap as blank, and their
+assembly/API paths omit blank `maxOrderSize`, so new web markets are uncapped by default. Existing
+configured caps round-trip unchanged. `CurveEditor` initializes every row created by its Add point
+action with amount `1`; one-sided operator activation uses the same amount. Reference feeds remain
+anchored at amount `0` because they are fixed-price feeds rather than order-size curves.
+
+The setup market overview derives Buy and Sell summaries from enabled, non-reference draft curves.
+Each side uses its first point with both an amount and price; incomplete sides remain hidden while the
+user edits them. The order-cap input remains in `MarketRow`, but its summary is not rendered in the
+overview row.
+
+## Simplex UI branding and static assets
+
+`ui/src/operator/Operator.tsx` and `ui/src/wizard/Wizard.tsx` import the shared
+`ui/src/assets/hyperfx-logo.webp` asset for their brandbars. The brandbar styles provide a compact
+white surface around the transparent dark-lettered wordmark, with a narrower width at mobile sizes.
+`ui/index.html` references `./favicon.ico`; Vite copies `ui/public/favicon.ico` into `dist/ui`, and
+`src/services/server/static.ts` serves both the favicon and bundled WebP assets with image MIME types.
+
+## Setup wizard presentation and navigation
+
+`ui/src/App.tsx` owns the page shell for every UI state. It places the animated brand line at the
+viewport's top edge and centers the active view inside `.app-container`; setup mode renders
+`Wizard`, while loading, error, and operator states use the same shell.
+
+`ui/src/wizard/Wizard.tsx` owns the setup draft, active step, per-step requirements, and forward/back
+navigation. It maps the active step to its editor and derives completed/active/upcoming rail states,
+display numbering, and percentage progress. At desktop widths the rail and active step form a
+two-column grid; below 900px the rail moves above the form and scrolls horizontally. Continue stays
+disabled while the current step has unresolved requirements, and the footer lists every blocker so
+the operator can see what must be fixed without guessing.
+
+The network choice is rendered by `ui/src/wizard/steps/Signer.tsx` and uses the same `testnet` bucket
+as `src/cli/init/steps/chains.ts`. Its copy says “EVM test networks” because that bucket contains
+Sepolia, Arbitrum Sepolia, Base Sepolia, Polygon Amoy, and BSC Chapel.
+
 ## Paymaster selection for a sponsored UserOp
 
 Entry points: `UserOpSender.trySendSponsored` (delegation, vault sweeps/redeems, token sends) and `ContractInteractionService.prepareBidUserOp` (bids). Both call `buildPaymasterAndData` in `src/services/paymaster/index.ts`.
@@ -18,6 +213,7 @@ Entry points: `UserOpSender.trySendSponsored` (delegation, vault sweeps/redeems,
 3. Back in `UserOpSender.trySendSponsored`, the bundler gas price is fetched *before* paymaster selection so the deposit gate can price the op's max prefund (from the caller's fixed limits, or the generous fallbacks when estimating later). The EIP-7702 authorization thunk is still resolved only after paymaster data is built, because the bootstrap approve is a tx from the same EOA and an authorization signed earlier would carry a stale nonce (bundler reject). Then `EntryPoint.getNonce`, estimation (or the caller's fixed limits), signing of the packed userOp typed data, `eth_sendUserOperation`, and receipt polling.
 
 4. On chain (`evm/src/utils/SimplexPaymaster.sol`): `_fetchDetails` validates the mode byte and token registry and, for mode 2, returns the permit deadline as `validUntil`; `_prefund` pulls the prefund through `Permit2.permitTransferFrom` (owner = `userOp.sender`, to = paymaster, requestedAmount = oracle-derived prefund, capped by the signed amount) and postOp refunds the unused part to the sender.
+
 ## Order intake: what reaches the filler at all
 
 `ChainScanner` polls `eth_getLogs`, rebuilds each `OrderPlaced` log into an `Order` via
@@ -66,7 +262,7 @@ The outputs and the funding calls are cached against the order id (`setFillerOut
 
 `callData` is an ERC-7821 batch: the funding calls first (for V4, `PositionManager.multicall(modifyLiquidities)` encoding DECREASE_LIQUIDITY + TAKE_PAIR), then `approve` for the fill amount, then `IntentGateway.fillOrder`, which does the `transferFrom` that moves the output token to the user.
 
-What matters is what happens *before* any of that. The EntryPoint runs paymaster validation first, and `SimplexPaymaster` prefunds by pulling the EntryPoint's worst-case gas cost out of the solver's wallet with `transferFrom`, in whichever stablecoin `selectToken` picked — refunding the unused part in `_postOp`, long after the batch has already run or reverted. So the balance the batch sees is always lower than the balance the sizing saw, by the prefund.
+What matters is what happens _before_ any of that. The EntryPoint runs paymaster validation first, and `SimplexPaymaster` prefunds by pulling the EntryPoint's worst-case gas cost out of the solver's wallet with `transferFrom`, in whichever stablecoin `selectToken` picked — refunding the unused part in `_postOp`, long after the batch has already run or reverted. So the balance the batch sees is always lower than the balance the sizing saw, by the prefund.
 
 That is what `paymasterReserveForToken` exists to absorb. Without it, a balance-limited fill — `walletContribution == usableWallet == balance` — is sized to the last unit and reverts by exactly the prefund: 28,993 units of USDC against a 14,808,699,383 fill, where 14,377,624,370 (wallet) + 431,075,013 (V4 credit) reproduces the bid amount exactly.
 
@@ -83,7 +279,7 @@ There are two entry points, and they meet at `bootFiller`.
 1. **Library.** The consumer builds a `Signer` (`privateKeySigner`, `turnkeySigner`, `mpcVaultSigner`, `viemSigner`, or their own) and passes it as `Simplex.start({ signer })` (`src/simplex.ts`). Before anything else, `start` rejects an object that carries a `simplex.signer` block without a `signer` argument. `SimplexConfig` has no such field, so this is a runtime property read: what it catches is a parsed config file.
 2. **Binary.** `src/bin/simplex.ts` parses the TOML as `FillerConfigFile` (the library's `FillerTomlConfig` plus the `[simplex.signer]` block), checks the block is present unless watch-only, and calls `signerFromToml` → `validateSignerConfig` → `createSigner`, which dispatches on `type` to one of the three bundled factories. The resolved instance goes into the same `Simplex.start({ signer })` call. The `paymaster-keeper` command does the same thing without a Simplex.
 
-   The parsed object keeps its signer block on the way in — the library ignores the extra key, and `UiServer.persistConfig` regenerates the config file from that same object, so removing it would delete `[simplex.signer]` from the operator's file on the next dashboard edit.
+    The parsed object keeps its signer block on the way in — the library ignores the extra key, and `UiServer.persistConfig` regenerates the config file from that same object, so removing it would delete `[simplex.signer]` from the operator's file on the next dashboard edit.
 
 `bootFiller` (`src/core/boot.ts`) then:
 
@@ -95,11 +291,13 @@ There are two entry points, and they meet at `bootFiller`.
 ### Which method signs what
 
 - **`signTypedData` — the hot path.** Two callers:
-  - `ContractInteractionService` builds a bid and calls `sdkHelper.prepareSubmitBid({ solverSigner: sdkSigningAccount(this.signer), … })`; the SDK's `BidManager` signs `CryptoUtils.packedUserOpTypedData(userOp, entryPoint, chainId)`. Signing the typed data rather than the digest yields the same signature the `SolverAccount` recovers, while leaving the payload legible to a policy engine.
-  - `UserOpSender.buildSignedUserOp` does the same for self-initiated UserOps — delegation-via-bundler, vault sweep and redeem.
-  - `paymaster/permit.ts` signs the EIP-2612 permit that lets the Circle or Simplex paymaster pull USDC/USDT for gas. It takes `Pick<Signer, "signTypedData">`, not the whole signer.
 
-  No caller passes a chain id: every payload carries `domain.chainId`, which is what the digest covers and what MPCVault reads for its request envelope.
+    - `ContractInteractionService` builds a bid and calls `sdkHelper.prepareSubmitBid({ solverSigner: sdkSigningAccount(this.signer), … })`; the SDK's `BidManager` signs `CryptoUtils.packedUserOpTypedData(userOp, entryPoint, chainId)`. Signing the typed data rather than the digest yields the same signature the `SolverAccount` recovers, while leaving the payload legible to a policy engine.
+    - `UserOpSender.buildSignedUserOp` does the same for self-initiated UserOps — delegation-via-bundler, vault sweep and redeem.
+    - `paymaster/permit.ts` signs the EIP-2612 permit that lets the Circle or Simplex paymaster pull USDC/USDT for gas. It takes `Pick<Signer, "signTypedData">`, not the whole signer.
+
+    No caller passes a chain id: every payload carries `domain.chainId`, which is what the digest covers and what MPCVault reads for its request envelope.
+
 - **`signAuthorization`.** `DelegationService.buildAuthorization` calls it for every delegation, with no branching — the signer owns the encoding. Turnkey uses its structured path; MPCVault and any digest-only backend hash `keccak256(0x05 ‖ rlp([chainId, contractAddress, nonce]))` themselves (`viem/utils`' `hashAuthorization`).
 - **`signTransaction`.** Every transaction the solver sends: the type-0x04 delegation tx, rebalancing transfers, operator sends. It returns signed RLP, so the backend owns serialisation — MPCVault's vault API and Turnkey's transaction payloads both keep the transaction legible to their policy engines, and `digestSigner` serialises with viem and signs the hash.
 - **`address`.** Read directly everywhere the solver's identity is needed (`fillerAddress`, delegation authority, balance lookups, vault initialisation).
@@ -191,7 +389,7 @@ verbatim, and inventory in the wrong token buys no influence on that leg.
 
 ### Precision budget
 
-The output integer *is* the price, to whatever resolution the output token's decimals allow. One
+The output integer _is_ the price, to whatever resolution the output token's decimals allow. One
 whole cNGN priced into 6-decimal USDC quotes ~715 base units, so the grid is `1/715` = 0.14%.
 Chains whose output token has 18 decimals carry full precision on the same leg — which is why
 EVM-56 publishes `716845878136200` where Base publishes a bare `715`. The lever is the pallet's

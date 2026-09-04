@@ -1,313 +1,167 @@
-import { useCallback, useState } from "react"
-import { api } from "../api"
-import { useAction, usePolling } from "../lib/hooks"
-import type { ChainDefault, ChainsDto } from "../types"
+import * as Collapsible from "@radix-ui/react-collapsible"
+import { ChainLogo } from "../components/ChainLogo"
+import { useChainSettings } from "./chains/useChainSettings"
 
-interface AlchemyChainRow {
-	chainId: number
-	rpcUrl: string | null
-	bundlerUrl: string | null
-}
-
-/**
- * Same draft shape the setup wizard edits chains with, plus `running` — false
- * for a chain the operator selected since boot, which the filler only picks up
- * on the next start.
- */
-interface ChainDraft {
-	meta: ChainDefault
-	enabled: boolean
-	rpcUrls: string[]
-	bundlerUrl: string
-	viaAlchemy: boolean
-	watchOnly: boolean
-	running: boolean
-	rpcStatus?: "ok" | "err" | "checking"
-	rpcError?: string
-	bundlerWarning?: string
-	bundlerOk?: boolean
-}
-
-/**
- * Seeds one draft per catalog chain, enabled where the running config already
- * has it. A configured chain outside the catalog (hand-written chain id) keeps
- * its own card so an edit here can never silently drop it.
- */
-function seedDrafts(dto: ChainsDto): ChainDraft[] {
-	const configured = new Map(dto.chains.map((row) => [row.chainId, row]))
-	const drafts = dto.catalog.map((meta) => {
-		const row = configured.get(meta.chainId)
-		return {
-			meta,
-			enabled: Boolean(row),
-			rpcUrls: row ? [...row.rpcUrls] : [""],
-			bundlerUrl: row?.bundlerUrl ?? "",
-			viaAlchemy: false,
-			watchOnly: row?.watchOnly ?? false,
-			running: row?.running ?? false,
-		}
-	})
-	for (const row of dto.chains) {
-		if (dto.catalog.some((meta) => meta.chainId === row.chainId)) continue
-		drafts.push({
-			meta: { chainId: row.chainId, stateMachineId: row.stateMachineId, label: row.label, network: dto.network },
-			enabled: true,
-			rpcUrls: [...row.rpcUrls],
-			bundlerUrl: row.bundlerUrl,
-			viaAlchemy: false,
-			watchOnly: row.watchOnly,
-			running: row.running,
-		})
-	}
-	return drafts
-}
-
-/**
- * Chain selection and endpoints for a running filler — the setup wizard's chain
- * step, against the live config. Chain topology is wired at boot (clients, event
- * monitors, balance tracking), so saves are validated and persisted here and
- * take effect on the next start.
- */
 export function Chains() {
-	const [dto, setDto] = useState<ChainsDto>()
-	const [drafts, setDrafts] = useState<ChainDraft[]>()
-	const [alchemyKey, setAlchemyKey] = useState("")
-	const [alchemy, setAlchemy] = useState<{ status?: "ok" | "err"; error?: string; busy?: boolean }>({})
-	const [saved, setSaved] = useState(false)
-	const { run, message, error } = useAction()
-
-	const load = useCallback(async () => {
-		const next = await api.get<ChainsDto>("/api/chains")
-		setDto(next)
-		// Seed the editor once; later edits stay local until saved.
-		setDrafts((current) => current ?? seedDrafts(next))
-	}, [])
-	usePolling(useCallback(() => run(load), [run, load]))
-
-	const patch = (chainId: number, changes: Partial<ChainDraft>) =>
-		setDrafts((rows) => rows?.map((row) => (row.meta.chainId === chainId ? { ...row, ...changes } : row)))
-
-	const chains = drafts ?? []
-
-	const applyAlchemyKey = async () => {
-		if (!alchemyKey.trim() || !dto) return
-		setAlchemy({ busy: true })
-		try {
-			const res = await api.post<{ valid: boolean; error?: string; chains: AlchemyChainRow[] }>(
-				"/api/setup/validate-alchemy-key",
-				{ apiKey: alchemyKey.trim(), network: dto.network },
-			)
-			setAlchemy({ status: res.valid ? "ok" : "err", error: res.error })
-			if (!res.valid) return
-			setDrafts((rows) =>
-				rows?.map((row) => {
-					const filled = res.chains.find((r) => r.chainId === row.meta.chainId)
-					if (!filled?.rpcUrl) return row
-					return {
-						...row,
-						rpcUrls: [filled.rpcUrl, ...row.rpcUrls.slice(1)],
-						bundlerUrl: filled.bundlerUrl ?? row.bundlerUrl,
-						viaAlchemy: true,
-						rpcStatus: undefined,
-					}
-				}),
-			)
-		} catch (err) {
-			setAlchemy({ status: "err", error: err instanceof Error ? err.message : String(err) })
-		}
-	}
-
-	const verifyChain = async (chain: ChainDraft) => {
-		patch(chain.meta.chainId, { rpcStatus: "checking", rpcError: undefined, bundlerWarning: undefined })
-		const urls = chain.rpcUrls.map((u) => u.trim()).filter(Boolean)
-		try {
-			const rpc = await api.post<{ ok: boolean; results: Array<{ error?: string }>; error?: string }>(
-				"/api/setup/validate-rpc",
-				{ urls, expectedChainId: chain.meta.chainId },
-			)
-			if (!rpc.ok) {
-				const firstError = rpc.error ?? rpc.results.find((r) => r.error)?.error ?? "RPC check failed"
-				patch(chain.meta.chainId, { rpcStatus: "err", rpcError: firstError })
-				return
-			}
-			patch(chain.meta.chainId, { rpcStatus: "ok" })
-		} catch (err) {
-			patch(chain.meta.chainId, { rpcStatus: "err", rpcError: err instanceof Error ? err.message : String(err) })
-			return
-		}
-
-		if (chain.bundlerUrl.trim()) {
-			try {
-				const bundler = await api.post<{ ok: boolean; warning?: string }>("/api/setup/validate-bundler", {
-					url: chain.bundlerUrl.trim(),
-					chainId: chain.meta.chainId,
-				})
-				patch(chain.meta.chainId, { bundlerWarning: bundler.warning, bundlerOk: !bundler.warning })
-			} catch (err) {
-				patch(chain.meta.chainId, {
-					bundlerWarning: `Bundler check failed: ${err instanceof Error ? err.message : err}`,
-					bundlerOk: false,
-				})
-			}
-		}
-	}
-
-	/** Dropping a chain the filler is trading is worth a beat the wizard doesn't need. */
-	const toggleChain = (chain: ChainDraft, enabled: boolean) => {
-		if (
-			!enabled &&
-			chain.running &&
-			!window.confirm(`Stop filling on ${chain.meta.label}? It keeps trading until you restart the filler.`)
-		) {
-			return
-		}
-		patch(chain.meta.chainId, { enabled })
-	}
-
-	const save = () => {
-		setSaved(false)
-		return run(async () => {
-			await api.put("/api/chains", {
-				chains: chains
-					.filter((chain) => chain.enabled)
-					.map((chain) => ({
-						chainId: chain.meta.chainId,
-						rpcUrls: chain.rpcUrls.map((url) => url.trim()).filter(Boolean),
-						bundlerUrl: chain.bundlerUrl.trim(),
-						watchOnly: chain.watchOnly,
-					})),
-			})
-			setSaved(true)
-			const next = await api.get<ChainsDto>("/api/chains")
-			setDto(next)
-			setDrafts(seedDrafts(next))
-		}, "Chains saved")
-	}
+	const model = useChainSettings()
+	const {
+		dto,
+		chains,
+		loaded,
+		patch,
+		alchemyKey,
+		updateAlchemyKey,
+		alchemy,
+		saved,
+		message,
+		error,
+		applyAlchemyKey,
+		verifyChain,
+		toggleChain,
+		save,
+	} = model
 
 	return (
-		<div>
-			<h2 style={{ marginTop: "1.5rem" }}>Chains & endpoints</h2>
-			<p className="hint">
-				The chains this filler watches and fills on, and the endpoints it reaches them through — the setup
-				wizard's chain step against the running config.
-			</p>
-
+		<div className="wizard-sections chains-step operator-chain-settings">
 			<div className="card">
 				<h2>Provider key</h2>
 				<p className="hint">
-					One Alchemy API key can fill in the RPC and bundler URL for every supported chain — Alchemy serves
-					ERC-4337 bundler methods on the same endpoint. Use premium endpoints with archive access; free tiers
-					rate-limit and break event scanning. Every field stays editable if you prefer other providers (e.g. a
-					Pimlico bundler).
+					Use one Alchemy key to fill supported RPC and bundler endpoints, or enter providers manually below.
+					Premium endpoints with archive access are recommended for reliable event scanning.
 				</p>
-				<div className="row">
+				<div className="chain-provider-controls">
 					<input
 						type="password"
-						style={{ maxWidth: "24rem" }}
+						aria-label="Alchemy API key"
 						placeholder="Alchemy API key (optional)"
 						value={alchemyKey}
-						onChange={(e) => {
-							setAlchemyKey(e.target.value)
-							setAlchemy({})
-						}}
+						onChange={(e) => updateAlchemyKey(e.target.value)}
 					/>
 					<button type="button" onClick={applyAlchemyKey} disabled={alchemy.busy || !alchemyKey.trim()}>
-						Validate & prefill
+						{alchemy.busy ? "Checking…" : "Validate & prefill"}
 					</button>
-					{alchemy.status === "ok" && <span className="badge ok">key valid — URLs prefilled</span>}
-					{alchemy.status === "err" && <span className="badge err">{alchemy.error}</span>}
 				</div>
 			</div>
 
 			{chains.map((chain) => (
-				<div className="card" key={chain.meta.chainId}>
-					<div className="spread">
-						<h2>
-							{chain.meta.label} <span className="badge">chainId {chain.meta.chainId}</span>{" "}
-							{chain.viaAlchemy && <span className="badge ok">via Alchemy</span>}{" "}
-							{chain.enabled && !chain.running && <span className="badge warn">pending restart</span>}
-						</h2>
-						<label className="row">
+				<Collapsible.Root
+					className="card chain-configuration"
+					data-enabled={chain.enabled}
+					key={chain.meta.chainId}
+					open={chain.enabled}
+				>
+					<div className="chain-configuration-header">
+						<div className="chain-identity">
+							<ChainLogo label={chain.meta.label} />
+							<div>
+								<h2>{chain.meta.label}</h2>
+								{chain.viaAlchemy ? (
+									<span className="chain-source">Configured with Alchemy</span>
+								) : null}
+								{chain.enabled && !chain.running ? (
+									<span className="chain-source">Applies after restart</span>
+								) : null}
+							</div>
+						</div>
+						<label className="chain-enable-toggle">
 							<input
 								type="checkbox"
 								checked={chain.enabled}
 								onChange={(e) => toggleChain(chain, e.target.checked)}
 							/>
-							fill on this chain
+							<span className="chain-enable-switch" aria-hidden="true" />
+							<span>Enable fills</span>
 						</label>
 					</div>
-					{chain.meta.note && <p className="hint">Note: {chain.meta.note}</p>}
-					{chain.enabled && (
-						<div>
+					<Collapsible.Content className="chain-collapsible-content">
+						<div className="chain-configuration-fields">
 							{chain.rpcUrls.map((url, index) => (
-								// biome-ignore lint/suspicious/noArrayIndexKey: positional quorum rows
 								<label className="field" key={index}>
-									<span>{index === 0 ? "RPC URL" : "Additional RPC (different provider)"}</span>
+									<span className="field-label">
+										{index === 0 ? "RPC endpoint" : "Backup RPC endpoint"}
+										{index === 0 ? <span className="field-required">Required</span> : null}
+									</span>
+									<small>
+										{index === 0
+											? "Used to read the chain and find orders."
+											: "A second provider protects against unavailable or incorrect data."}
+									</small>
 									<div className="row">
 										<input
 											type="text"
-											style={{ flex: 1 }}
 											value={url}
+											required={index === 0}
 											onChange={(e) =>
 												patch(chain.meta.chainId, {
-													rpcUrls: chain.rpcUrls.map((u, i) => (i === index ? e.target.value : u)),
+													rpcUrls: chain.rpcUrls.map((item, itemIndex) =>
+														itemIndex === index ? e.target.value : item,
+													),
 													rpcStatus: undefined,
 													viaAlchemy: index === 0 ? false : chain.viaAlchemy,
 												})
 											}
 										/>
-										{index > 0 && (
+										{index > 0 ? (
 											<button
 												type="button"
+												aria-label="Remove backup RPC"
 												onClick={() =>
 													patch(chain.meta.chainId, {
-														rpcUrls: chain.rpcUrls.filter((_, i) => i !== index),
+														rpcUrls: chain.rpcUrls.filter(
+															(_, itemIndex) => itemIndex !== index,
+														),
 													})
 												}
 											>
 												✕
 											</button>
-										)}
+										) : null}
 									</div>
 								</label>
 							))}
-							<div className="row">
+							<div className="chain-backup-rpc">
 								<button
+									className="chain-add-backup-button"
 									type="button"
-									title="Order scans require a quorum of providers to agree, so one lying RPC can't feed you fake orders. The quorum is exactly the URLs you list here — add at least two organisationally independent providers; four or more to tolerate a faulty one."
 									onClick={() => patch(chain.meta.chainId, { rpcUrls: [...chain.rpcUrls, ""] })}
 								>
-									+ quorum RPC
+									<span aria-hidden="true">+</span> Add backup RPC
 								</button>
+								<p className="chain-info-text">
+									<span className="chain-info-icon" aria-hidden="true">
+										i
+									</span>
+									<span>A backup lets Simplex compare providers before it acts on chain data.</span>
+								</p>
 							</div>
-
 							<label className="field">
-								<span>Bundler URL</span>
+								<span className="field-label">
+									Bundler endpoint <span className="field-required">Required</span>
+								</span>
+								<small>Used to submit sponsored fills on this chain.</small>
 								<input
 									type="text"
 									value={chain.bundlerUrl}
-									onChange={(e) => patch(chain.meta.chainId, { bundlerUrl: e.target.value, bundlerOk: false })}
+									required
+									onChange={(e) =>
+										patch(chain.meta.chainId, { bundlerUrl: e.target.value, bundlerOk: false })
+									}
 									placeholder="https://api.pimlico.io/v2/<chainId>/rpc?apikey=…"
 								/>
 							</label>
-
-							<div className="row">
+							<div className="chain-configuration-actions">
 								<button
 									type="button"
 									disabled={!chain.rpcUrls[0]?.trim() || chain.rpcStatus === "checking"}
 									onClick={() => verifyChain(chain)}
 								>
-									{chain.rpcStatus === "checking" ? "Verifying…" : "Verify"}
+									{chain.rpcStatus === "checking" ? "Verifying…" : "Verify endpoints"}
 								</button>
-								{chain.rpcStatus === "ok" && <span className="badge ok">RPC verified</span>}
-								{chain.rpcStatus === "err" && <span className="badge err">{chain.rpcError}</span>}
-								{chain.bundlerOk && <span className="badge ok">bundler ok</span>}
-								{chain.bundlerWarning && <span className="badge warn">{chain.bundlerWarning}</span>}
 								<label
-									className="row"
+									className="chain-watch-toggle"
 									title={
 										dto?.globalWatchOnly
-											? "[simplex].watchOnly is set globally — edit the config to change it"
+											? "Observe-only mode is set globally in the config file."
 											: undefined
 									}
 								>
@@ -317,28 +171,29 @@ export function Chains() {
 										disabled={dto?.globalWatchOnly}
 										onChange={(e) => patch(chain.meta.chainId, { watchOnly: e.target.checked })}
 									/>
-									watch-only (observe orders, never fill)
+									<span>
+										<strong>Observe only</strong>
+										<small>Monitor orders without filling them.</small>
+									</span>
 								</label>
 							</div>
 						</div>
-					)}
-				</div>
+					</Collapsible.Content>
+				</Collapsible.Root>
 			))}
 
-			<div className="card">
+			<div className="operator-chain-save">
 				<div className="row">
-					<button type="button" className="primary" disabled={drafts === undefined} onClick={save}>
-						Save chains
+					<button type="button" className="primary" disabled={!loaded} onClick={save}>
+						Save chain settings
 					</button>
-					{saved && <span className="badge warn">restart the filler to apply</span>}
-					{message && <span className="badge ok">{message}</span>}
-					{error && <span className="badge err">{error}</span>}
+					{saved ? <span className="badge warn">Restart Simplex to apply</span> : null}
+					{message ? <span className="badge ok">{message}</span> : null}
+					{error ? <span className="badge err">{error}</span> : null}
 				</div>
 				<p className="hint">
-					Saving validates every new endpoint against the chain it claims to serve and writes the config; the
-					filler picks the changes up on the next start. Dropping a chain is refused while a market symbol or a
-					funding venue still depends on it. A newly selected chain needs funding — the filler wallet must hold
-					the assets it quotes there before it can fill.
+					Changes are validated and written to the local config. A newly enabled chain must be funded before
+					it can fill.
 				</p>
 			</div>
 		</div>

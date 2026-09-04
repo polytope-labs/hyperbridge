@@ -1,0 +1,449 @@
+/* Treasury: curated choices first, detailed controls only after selection. */
+.treasury-heading,
+.vault-editor-heading,
+.vault-editor-actions,
+.vault-row,
+.vault-selection,
+.vault-row-actions {
+	display: flex;
+	align-items: center;
+}
+
+.treasury-heading,
+.vault-editor-heading {
+	justify-content: space-between;
+	gap: 1.25rem;
+}
+
+.treasury-heading {
+	align-items: flex-start;
+}
+
+.treasury-heading h2 {
+	margin: 0.3rem 0 0.25rem;
+	font-size: 1.05rem;
+	font-weight: 500;
+	letter-spacing: -0.02em;
+}
+
+.treasury-heading .hint {
+	margin: 0;
+}
+
+.treasury-selected-count {
+	flex: 0 0 auto;
+	padding: 0.35rem 0.55rem;
+	border: 1px solid rgba(74, 222, 255, 0.24);
+	border-radius: 999px;
+	background: rgba(74, 222, 255, 0.055);
+	color: var(--focus);
+	font-family: var(--font-mono);
+	font-size: 0.625rem;
+	letter-spacing: 0.035em;
+}
+
+.treasury-flow {
+	display: grid;
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+	margin-top: 1.4rem;
+	padding: 1rem 0;
+	border-top: 1px solid var(--border);
+	border-bottom: 1px solid var(--border);
+}
+
+.treasury-flow > div {
+	display: grid;
+	grid-template-columns: auto 1fr;
+	gap: 0.12rem 0.65rem;
+	padding: 0 1rem;
+	border-left: 1px solid var(--border);
+}
+
+.treasury-flow > div:first-child {
+	padding-left: 0;
+	border-left: 0;
+}
+
+.treasury-flow > div:last-child {
+	padding-right: 0;
+}
+
+.treasury-flow span {
+	grid-row: 1 / 3;
+	color: var(--muted);
+	font-family: var(--font-mono);
+	font-size: 0.625rem;
+	line-height: 1.6;
+}
+
+.treasury-flow strong {
+	color: var(--text-secondary);
+	font-size: 0.8125rem;
+	font-weight: 500;
+}
+
+.treasury-flow small {
+	color: var(--muted);
+	font-size: 0.6875rem;
+	line-height: 1.4;
+}
+
+.vault-editor {
+	margin-top: 1.6rem;
+}
+
+.vault-editor-heading {
+	align-items: flex-end;
+}
+
+.vault-editor-heading h3 {
+	margin: 0;
+	font-size: 0.9375rem;
+	font-weight: 500;
+}
+
+.vault-editor-heading p {
+	margin: 0.2rem 0 0;
+	color: var(--muted);
+	font-size: 0.75rem;
+	line-height: 1.45;
+}
+
+.vault-editor-actions {
+	flex: 0 0 auto;
+	gap: 0.75rem;
+}
+
+.vault-list {
+	margin-top: 1rem;
+	border-top: 1px solid var(--border);
+}
+
+.vault-item {
+	border-bottom: 1px solid var(--border);
+	transition: background-color 180ms var(--ease-out);
+}
+
+.vault-item[data-selected="true"] {
+	background: linear-gradient(90deg, rgba(74, 222, 255, 0.045), transparent 74%);
+}
+
+.vault-row {
+	min-height: 4.75rem;
+	justify-content: space-between;
+	gap: 1rem;
+	padding: 0.7rem 1rem;
+}
+
+.vault-selection {
+	position: relative;
+	flex: 1;
+	min-width: 0;
+	gap: 0.8rem;
+	cursor: pointer;
+}
+
+.vault-selection > input {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	opacity: 0;
+	pointer-events: none;
+}
+
+.vault-selection-indicator {
+	display: grid;
+	place-items: center;
+	width: 1.15rem;
+	height: 1.15rem;
+	flex: 0 0 auto;
+	border: 1px solid var(--border-strong);
+	border-radius: 0.35rem;
+	background: var(--control);
+	color: transparent;
+	transition:
+		border-color 180ms var(--ease-out),
+		background-color 180ms var(--ease-out),
+		color 180ms var(--ease-out);
+}
+
+.vault-selection-indicator svg {
+	width: 0.75rem;
+	height: 0.75rem;
+}
+
+.vault-selection > input:focus-visible + .vault-selection-indicator {
+	border-color: var(--focus);
+	box-shadow: 0 0 0 3px rgba(74, 222, 255, 0.14);
+}
+
+.vault-selection > input:checked + .vault-selection-indicator {
+	border-color: var(--focus);
+	background: var(--focus);
+	color: #081115;
+}
+
+.vault-logo-stack {
+	position: relative;
+	display: block;
+	width: 2.65rem;
+	height: 2.25rem;
+	flex: 0 0 auto;
+}
+
+.vault-logo-stack .chain-logo {
+	width: 2.1rem;
+	height: 2.1rem;
+}
+
+.vault-logo-stack .token-icon {
+	position: absolute;
+	right: 0;
+	bottom: 0;
+	width: 1.2rem;
+	height: 1.2rem;
+	box-shadow: 0 0 0 2px var(--bg);
+}
+
+.vault-row-copy {
+	display: grid;
+	min-width: 0;
+	gap: 0.16rem;
+}
+
+.vault-row-copy strong {
+	overflow: hidden;
+	color: var(--text);
+	font-size: 0.875rem;
+	font-weight: 500;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.vault-row-copy small {
+	color: var(--muted);
+	font-size: 0.75rem;
+}
+
+.vault-row-actions {
+	flex: 0 0 auto;
+	gap: 0.25rem;
+}
+
+.vault-icon-action {
+	display: grid !important;
+	place-items: center;
+	width: 2rem;
+	height: 2rem;
+	min-height: 2rem !important;
+	padding: 0 !important;
+	border: 1px solid transparent !important;
+	border-radius: 50%;
+	background: transparent !important;
+	color: var(--muted);
+	text-decoration: none;
+}
+
+.vault-icon-action:hover {
+	border-color: var(--border-strong) !important;
+	background: var(--card-raised) !important;
+	color: var(--text);
+}
+
+.vault-icon-action svg {
+	width: 0.95rem;
+	height: 0.95rem;
+}
+
+.vault-settings-collapsible {
+	overflow: hidden;
+}
+
+.vault-settings-collapsible[data-state="open"] {
+	animation: vault-settings-open 200ms var(--ease-out);
+}
+
+.vault-settings-collapsible[data-state="closed"] {
+	animation: vault-settings-close 160ms var(--ease-out);
+}
+
+@keyframes vault-settings-open {
+	from {
+		height: 0;
+		opacity: 0;
+	}
+	to {
+		height: var(--radix-collapsible-content-height);
+		opacity: 1;
+	}
+}
+
+@keyframes vault-settings-close {
+	from {
+		height: var(--radix-collapsible-content-height);
+		opacity: 1;
+	}
+	to {
+		height: 0;
+		opacity: 0;
+	}
+}
+
+.vault-settings-grid {
+	display: grid;
+	grid-template-columns: minmax(10rem, 12rem) minmax(12rem, 15rem) minmax(14rem, 1fr);
+	gap: 0.9rem;
+	align-items: end;
+	margin: 0 1rem;
+	padding: 0.2rem 0 1rem 5.3rem;
+}
+
+.vault-settings-grid .field {
+	margin: 0;
+}
+
+.field.vault-amount-field > .vault-field-label {
+	display: flex;
+	align-items: center;
+	justify-content: flex-start;
+	gap: 0.35rem;
+	margin-bottom: 0.45rem;
+	color: var(--text-secondary);
+	font-size: 0.8125rem;
+	font-weight: 500;
+	line-height: 1.4;
+}
+
+.vault-info-trigger,
+.vault-info-trigger:hover:not(:disabled),
+.vault-info-trigger:active:not(:disabled) {
+	min-height: 1rem;
+	width: 1rem;
+	height: 1rem;
+	padding: 0;
+	border: 0;
+	border-radius: 50%;
+	background: transparent;
+	color: var(--muted);
+	transform: none;
+}
+
+.vault-info-trigger:hover:not(:disabled),
+.vault-info-trigger:focus-visible {
+	background: transparent;
+	color: var(--text);
+}
+
+.vault-info-trigger:focus-visible {
+	outline: 2px solid var(--focus);
+	outline-offset: 2px;
+}
+
+.vault-info-trigger svg {
+	width: 1rem;
+	height: 1rem;
+}
+
+.simplex-tooltip-content {
+	z-index: 1200;
+	max-width: 18rem;
+	padding: 0.6rem 0.75rem;
+	border: 1px solid var(--border-strong);
+	border-radius: 0.55rem;
+	background: var(--card-raised);
+	box-shadow: 0 0.75rem 2rem rgba(0, 0, 0, 0.35);
+	color: var(--text-secondary);
+	font-family: var(--font-sans);
+	font-size: 0.75rem;
+	line-height: 1.45;
+}
+
+.simplex-tooltip-content p {
+	margin: 0;
+}
+
+.simplex-tooltip-content > svg {
+	color: var(--card-raised);
+	fill: var(--card-raised);
+}
+
+.vault-redeem-toggle {
+	display: flex;
+	align-items: center;
+	gap: 0.65rem;
+	min-height: 3rem;
+	color: var(--text-secondary);
+	cursor: pointer;
+}
+
+.vault-redeem-toggle input {
+	width: 1rem;
+	height: 1rem;
+	margin: 0;
+	accent-color: var(--focus);
+}
+
+.vault-redeem-toggle > span {
+	display: grid;
+	gap: 0.12rem;
+}
+
+.vault-redeem-toggle strong {
+	font-size: 0.75rem;
+	font-weight: 500;
+}
+
+.vault-redeem-toggle small {
+	color: var(--muted);
+	font-size: 0.6875rem;
+	line-height: 1.35;
+}
+
+.vault-custom-identity {
+	cursor: default;
+}
+
+.vault-custom-actions {
+	gap: 0.45rem;
+}
+
+.vault-empty-state {
+	padding: 1.2rem 0.3rem;
+}
+
+.vault-empty-state strong {
+	color: var(--text-secondary);
+	font-size: 0.8125rem;
+	font-weight: 500;
+}
+
+.vault-empty-state p {
+	margin: 0.2rem 0 0;
+	color: var(--muted);
+	font-size: 0.75rem;
+}
+
+.vault-custom-modal {
+	padding-top: 1.2rem;
+}
+
+.vault-custom-primary-fields,
+.vault-custom-balance-fields {
+	display: grid;
+	grid-template-columns: minmax(10rem, 0.75fr) minmax(14rem, 1.25fr);
+	gap: 0.8rem;
+}
+
+.vault-custom-balance-fields {
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.vault-custom-primary-fields .field,
+.vault-custom-balance-fields .field {
+	margin: 0 0 1rem;
+}
+
+.vault-custom-redeem {
+	padding: 0.85rem 0;
+	border-top: 1px solid var(--border);
+}

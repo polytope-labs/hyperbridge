@@ -9,7 +9,7 @@ export interface InitChainMeta {
 	alchemySubdomain?: string
 	/** Block explorer base URL (no trailing slash) for transaction links. */
 	explorerUrl?: string
-	/** Extra caveat surfaced next to the chain in prompts. */
+	/** Short operator-facing caveat shown beside the chain in the wizards (e.g. a paymaster limitation). */
 	note?: string
 }
 
@@ -53,7 +53,6 @@ export const INIT_CHAINS: InitChainMeta[] = [
 		network: "mainnet",
 		alchemySubdomain: "bnb-mainnet",
 		explorerUrl: "https://bscscan.com",
-		note: "no Circle paymaster — the filler wallet also needs native BNB for gas",
 	},
 	{
 		chainId: 11155111,
@@ -94,7 +93,6 @@ export const INIT_CHAINS: InitChainMeta[] = [
 		network: "testnet",
 		alchemySubdomain: "bnb-testnet",
 		explorerUrl: "https://testnet.bscscan.com",
-		note: "no Circle paymaster — the filler wallet also needs native tBNB for gas",
 	},
 ]
 

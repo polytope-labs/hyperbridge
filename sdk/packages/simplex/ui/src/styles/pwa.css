@@ -1,0 +1,516 @@
+.wizard-brand-actions {
+	display: flex;
+	align-items: center;
+	gap: 0.7rem;
+}
+
+.pwa-install-control {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 0.45rem;
+	min-height: 2.35rem;
+	padding: 0.4rem 0.7rem;
+	border-color: var(--border-strong);
+	background: rgba(255, 255, 255, 0.025);
+	color: var(--text-secondary);
+	font-size: 0.75rem;
+	white-space: nowrap;
+}
+
+.pwa-install-control:hover:not(:disabled) {
+	border-color: rgba(74, 222, 255, 0.52);
+	background: var(--card-raised);
+	color: var(--text);
+}
+
+.pwa-install-control[data-state="installed"] {
+	border-color: rgba(116, 233, 152, 0.28);
+	background: rgba(116, 233, 152, 0.05);
+	color: var(--ok);
+}
+
+.pwa-install-control svg,
+.operator-install-nav > svg {
+	width: 1.05rem;
+	height: 1.05rem;
+}
+
+button.operator-install-nav {
+	margin-top: 0.85rem;
+	border-color: rgba(74, 222, 255, 0.14);
+	background:
+		linear-gradient(135deg, rgba(74, 222, 255, 0.055), rgba(255, 53, 235, 0.035)),
+		rgba(255, 255, 255, 0.012);
+	color: var(--text-secondary);
+}
+
+button.operator-install-nav:hover:not(:disabled) {
+	border-color: rgba(74, 222, 255, 0.3);
+	background:
+		linear-gradient(135deg, rgba(74, 222, 255, 0.08), rgba(255, 53, 235, 0.05)),
+		var(--card-raised);
+	color: var(--text);
+}
+
+.install-dialog-overlay {
+	position: fixed;
+	inset: 0;
+	z-index: 80;
+	background: rgba(5, 6, 9, 0.78);
+	backdrop-filter: blur(0.7rem);
+	animation: install-overlay-in 180ms ease-out;
+}
+
+.install-dialog {
+	position: fixed;
+	top: 50%;
+	left: 50%;
+	z-index: 81;
+	display: flex;
+	width: min(48rem, calc(100vw - 2rem));
+	max-height: calc(100dvh - 2rem);
+	flex-direction: column;
+	padding: 0;
+	border: 1px solid rgba(255, 255, 255, 0.13);
+	border-radius: 1.35rem;
+	outline: none;
+	background:
+		radial-gradient(circle at 4% 0%, rgba(74, 222, 255, 0.07), transparent 22rem),
+		radial-gradient(circle at 96% 0%, rgba(255, 53, 235, 0.055), transparent 24rem),
+		#17191e;
+	box-shadow: 0 2rem 7rem rgba(0, 0, 0, 0.62);
+	color: var(--text);
+	transform: translate(-50%, -50%);
+	animation: install-dialog-in 220ms var(--ease-out);
+	overflow: hidden;
+}
+
+.install-dialog-header {
+	display: grid;
+	grid-template-columns: 3.5rem minmax(0, 1fr) auto;
+	gap: 1rem;
+	align-items: center;
+	padding: 1.4rem 1.5rem;
+	border-bottom: 1px solid var(--border);
+	background: rgba(255, 255, 255, 0.012);
+}
+
+.install-dialog-header > img {
+	width: 3.5rem;
+	height: 3.5rem;
+	border-radius: 0.9rem;
+	box-shadow: 0 0.7rem 1.8rem rgba(0, 0, 0, 0.28);
+}
+
+.install-dialog-header > div {
+	min-width: 0;
+}
+
+.install-dialog-header h2 {
+	margin: 0.25rem 0 0.2rem;
+	font-size: clamp(1.35rem, 3vw, 1.85rem);
+	font-weight: 500;
+	letter-spacing: -0.035em;
+}
+
+.install-dialog-header p {
+	margin: 0;
+	color: var(--muted);
+	font-size: 0.8125rem;
+	line-height: 1.45;
+}
+
+.install-dialog-close {
+	display: grid;
+	place-items: center;
+	width: 2.35rem;
+	height: 2.35rem;
+	min-height: 2.35rem;
+	padding: 0;
+	border-color: transparent;
+	border-radius: 50%;
+	background: transparent;
+	color: var(--muted);
+}
+
+.install-dialog-close:hover:not(:disabled) {
+	border-color: var(--border-strong);
+	background: var(--card-raised);
+	color: var(--text);
+}
+
+.install-dialog-close svg {
+	width: 1.1rem;
+	height: 1.1rem;
+}
+
+.install-guide-content {
+	min-height: 0;
+	flex: 1 1 auto;
+	overflow-y: auto;
+}
+
+.install-guide-panel {
+	padding: 1.5rem;
+}
+
+.install-guide-panel > header {
+	margin-bottom: 1.25rem;
+}
+
+.install-guide-panel h2 {
+	margin: 0.35rem 0 0.3rem;
+	font-size: 1.35rem;
+	font-weight: 500;
+	letter-spacing: -0.025em;
+}
+
+.install-guide-panel > header p {
+	margin: 0;
+	color: var(--muted);
+	font-size: 0.8125rem;
+}
+
+.install-step-list {
+	display: grid;
+	gap: 0.75rem;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.install-step {
+	display: grid;
+	grid-template-columns: 2rem minmax(0, 1fr) 15rem;
+	gap: 0.9rem;
+	align-items: center;
+	padding: 0.9rem;
+	border: 1px solid rgba(255, 255, 255, 0.09);
+	border-radius: 0.9rem;
+	background: rgba(255, 255, 255, 0.018);
+}
+
+.install-step-number {
+	display: grid;
+	place-items: center;
+	width: 1.75rem;
+	height: 1.75rem;
+	border: 1px solid rgba(74, 222, 255, 0.25);
+	border-radius: 50%;
+	background: rgba(74, 222, 255, 0.04);
+	color: var(--focus);
+	font-family: var(--font-mono);
+	font-size: 0.65rem;
+}
+
+.install-step-copy {
+	min-width: 0;
+}
+
+.install-step-copy strong {
+	font-size: 0.8125rem;
+	font-weight: 500;
+}
+
+.install-step-copy p {
+	margin: 0.25rem 0 0;
+	color: var(--muted);
+	font-size: 0.75rem;
+	line-height: 1.45;
+}
+
+.install-visual {
+	min-width: 0;
+	border: 1px solid rgba(255, 255, 255, 0.1);
+	border-radius: 0.7rem;
+	background: #202227;
+	color: #d5d9df;
+	font-size: 0.58rem;
+	box-shadow: 0 0.45rem 1.3rem rgba(0, 0, 0, 0.18);
+}
+
+.install-toolbar-visual {
+	display: grid;
+	grid-template-columns: auto minmax(0, 1fr) auto;
+	gap: 0.4rem;
+	align-items: center;
+	padding: 0.55rem;
+}
+
+.install-window-controls {
+	display: flex;
+	gap: 0.15rem;
+}
+
+.install-window-controls span {
+	width: 0.28rem;
+	height: 0.28rem;
+	border-radius: 50%;
+	background: #59616d;
+}
+
+.install-window-address {
+	overflow: hidden;
+	padding: 0.4rem 0.65rem;
+	border-radius: 1rem;
+	background: #15171b;
+	color: #929aa5;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.install-target-icon {
+	display: grid;
+	place-items: center;
+	width: 1.65rem;
+	height: 1.65rem;
+	border: 1px solid rgba(74, 222, 255, 0.45);
+	border-radius: 50%;
+	background: rgba(74, 222, 255, 0.13);
+	color: var(--focus);
+	box-shadow: 0 0 0 0.2rem rgba(74, 222, 255, 0.055);
+}
+
+.install-target-icon svg {
+	width: 0.95rem;
+	height: 0.95rem;
+}
+
+.install-toolbar-visual small {
+	grid-column: 3;
+	color: var(--focus);
+	text-align: center;
+}
+
+.install-confirm-visual {
+	display: grid;
+	grid-template-columns: 2rem minmax(0, 1fr) auto;
+	gap: 0.5rem;
+	align-items: center;
+	padding: 0.65rem;
+}
+
+.install-confirm-visual img {
+	width: 2rem;
+	height: 2rem;
+	border-radius: 0.45rem;
+}
+
+.install-confirm-visual > span {
+	display: grid;
+	min-width: 0;
+	gap: 0.1rem;
+}
+
+.install-confirm-visual strong {
+	font-size: 0.625rem;
+	font-weight: 500;
+}
+
+.install-confirm-visual b {
+	padding: 0.3rem 0.5rem;
+	border-radius: 0.35rem;
+	background: white;
+	color: #15171b;
+	font-size: 0.55rem;
+	font-weight: 500;
+}
+
+.install-desktop-visual {
+	display: grid;
+	justify-items: center;
+	gap: 0.35rem;
+	padding: 0.6rem;
+	background: linear-gradient(145deg, #282b32, #1b1d22);
+}
+
+.install-desktop-visual > div {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+}
+
+.install-desktop-visual img {
+	width: 2rem;
+	height: 2rem;
+	border-radius: 0.45rem;
+}
+
+.install-desktop-visual > div span {
+	font-size: 0.68rem;
+	font-weight: 500;
+}
+
+.install-desktop-visual small {
+	color: #929aa5;
+}
+
+.install-dialog-footer {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 1rem;
+	padding: 1rem 1.5rem;
+	border-top: 1px solid var(--border);
+	background: rgba(19, 20, 23, 0.96);
+}
+
+.install-dialog-footer > span {
+	color: var(--muted);
+	font-size: 0.6875rem;
+}
+
+.install-dialog-footer > div {
+	display: flex;
+	align-items: center;
+	justify-content: flex-end;
+	gap: 0.6rem;
+}
+
+.install-dialog-footer button {
+	min-height: 2.5rem;
+}
+
+.install-dialog-footer button svg {
+	width: 1rem;
+	height: 1rem;
+}
+
+.install-success {
+	display: grid;
+	justify-items: center;
+	padding: clamp(3rem, 10vh, 7rem) 1.5rem;
+	text-align: center;
+}
+
+.install-success-icon {
+	display: grid;
+	place-items: center;
+	width: 4rem;
+	height: 4rem;
+	border: 1px solid rgba(116, 233, 152, 0.3);
+	border-radius: 50%;
+	background: rgba(116, 233, 152, 0.07);
+	color: var(--ok);
+}
+
+.install-success-icon svg {
+	width: 1.75rem;
+	height: 1.75rem;
+}
+
+.install-success h2 {
+	margin: 1.25rem 0 0.4rem;
+	font-size: 1.65rem;
+	font-weight: 500;
+	letter-spacing: -0.035em;
+}
+
+.install-success p {
+	max-width: 31rem;
+	margin: 0 0 1.5rem;
+	color: var(--muted);
+	font-size: 0.875rem;
+	line-height: 1.55;
+}
+
+@keyframes install-overlay-in {
+	from {
+		opacity: 0;
+	}
+}
+
+@keyframes install-dialog-in {
+	from {
+		opacity: 0;
+		transform: translate(-50%, calc(-50% + 0.75rem)) scale(0.985);
+	}
+}
+
+@media (max-width: 900px) {
+	button.operator-install-nav {
+		grid-template-columns: 1fr;
+		place-items: center;
+	}
+
+	.operator-install-nav > span {
+		display: none;
+	}
+
+	.install-step {
+		grid-template-columns: 2rem minmax(0, 1fr);
+	}
+
+	.install-step .install-visual {
+		grid-column: 2;
+		width: min(100%, 22rem);
+	}
+}
+
+@media (max-width: 600px) {
+	.wizard-brand-actions {
+		gap: 0.25rem;
+	}
+
+	.pwa-install-label {
+		display: none;
+	}
+
+	.pwa-install-control {
+		width: 2.35rem;
+		padding-inline: 0;
+	}
+
+	.install-dialog {
+		width: calc(100vw - 1rem);
+		max-height: calc(100dvh - 1rem);
+		border-radius: 1rem;
+	}
+
+	.install-dialog-header {
+		grid-template-columns: 2.7rem minmax(0, 1fr) auto;
+		gap: 0.7rem;
+		padding: 1rem;
+	}
+
+	.install-dialog-header > img {
+		width: 2.7rem;
+		height: 2.7rem;
+		border-radius: 0.65rem;
+	}
+
+	.install-dialog-header p {
+		display: none;
+	}
+
+	.install-guide-panel {
+		padding: 1rem;
+	}
+
+	.install-dialog-footer {
+		align-items: stretch;
+		flex-direction: column;
+		padding: 0.8rem 1rem;
+	}
+
+	.install-dialog-footer > span {
+		display: none;
+	}
+
+	.install-dialog-footer > div {
+		width: 100%;
+	}
+
+	.install-dialog-footer button {
+		flex: 1;
+	}
+
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.install-dialog-overlay,
+	.install-dialog {
+		animation: none;
+	}
+}

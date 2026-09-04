@@ -6,6 +6,9 @@
 - --timeout=${SUBQL_TIMEOUT:-1800}
 - --multi-chain
 - --disable-multichain-rewind-lock
+{{#if allowSchemaMigration}}
+- --allow-schema-migration
+{{/if}}
 - --unsafe
 - --log-level=info
 {{#if unfinalizedBlocks}}

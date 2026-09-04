@@ -71,7 +71,9 @@ sends `UpgradeContract` with `abi.encodeCall(setRelayer, (relayer))` as migratio
 `ERC1967Utils.upgradeToAndCall` delegatecalls that calldata into the new implementation with
 `msg.sender` still the host from step 2, so the relayer is set in the same transaction as the
 implementation swap. The upgrade message itself must already pass the relayer gate of the
-implementation being replaced.
+implementation being replaced, which is why a fresh proxy cannot be armed that way:
+`DeployIntentGateway.s.sol` calls `setRelayer` from the admin key immediately after deploying the
+proxy, before anything can be escrowed into it.
 
 ## The same gate on `HyperFungibleToken`, and how the BRIDGE token tightens it
 

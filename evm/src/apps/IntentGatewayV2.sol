@@ -69,6 +69,7 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardT
     /// implementation against direct initialization.
     /// @param owner The privileged admin address.
     constructor(address owner) EIP712("IntentGateway", "2") {
+        if (owner == address(0)) revert InvalidInput();
         _owner = owner;
         _disableInitializers();
     }

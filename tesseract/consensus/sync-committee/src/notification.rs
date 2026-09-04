@@ -52,7 +52,13 @@ pub async fn consensus_notification<
 		return Ok(None);
 	};
 
-	if consensus_update.execution_payload.block_number <= execution_layer_height &&
+	let Some(claimed_block_number) = consensus_update.execution_payload.claimed_block_number()
+	else {
+		trace!(target: "sync-committee-prover", "could not read an execution block number out of the update's payload proof");
+		return Ok(None);
+	};
+
+	if claimed_block_number <= execution_layer_height &&
 		consensus_update.sync_committee_update.is_none() ||
 		consensus_update.attested_header.slot <= light_client_state.finalized_header.slot
 	{

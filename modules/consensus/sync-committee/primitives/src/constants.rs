@@ -1,12 +1,13 @@
+use tree_hash::Hash256;
 use crate::domains::DomainType;
-use ssz_rs::Node;
+
 
 pub type BlsPublicKey = ByteVector<BLS_PUBLIC_KEY_BYTES_LEN>;
 pub type BlsSignature = ByteVector<BLS_SIGNATURE_BYTES_LEN>;
 
 pub type Epoch = u64;
 pub type Slot = u64;
-pub type Root = Node;
+pub type Root = Bytes32;
 pub type ParticipationFlags = u8;
 
 pub type CommitteeIndex = u64;
@@ -19,13 +20,13 @@ pub type Version = [u8; 4];
 pub type ForkDigest = [u8; 4];
 pub type Domain = [u8; 32];
 
-pub type ExecutionAddress = ByteVector<20>;
+pub type ExecutionAddress = ByteVector<ssz_types::typenum::U20>;
 
 pub type ChainId = usize;
 pub type NetworkId = usize;
 
 pub type RandaoReveal = BlsSignature;
-pub type Bytes32 = ByteVector<32>;
+pub type Bytes32 = ByteVector<ssz_types::typenum::U32>;
 
 pub const BLS_PUBLIC_KEY_BYTES_LEN: usize = 48;
 pub const BLS_SECRET_KEY_BYTES_LEN: usize = 32;
@@ -85,6 +86,68 @@ pub const PENDING_CONSOLIDATIONS_LIMIT: usize = 2usize.saturating_pow(18);
 pub const PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM: usize = 64;
 pub const PROPOSER_LOOK_AHEAD_LIMIT_GNO: usize = 32;
 
+/// Marks a fork that has not been scheduled yet.
+pub const FAR_FUTURE_EPOCH: Epoch = u64::MAX;
+
+/// `builder_pending_payments` holds `2 * SLOTS_PER_EPOCH` entries and `ptc_window` holds
+/// `(2 + MIN_SEED_LOOKAHEAD) * SLOTS_PER_EPOCH`, with MIN_SEED_LOOKAHEAD of 1. Both are sized for
+/// the ethereum preset, which is every network Gloas runs on today; gnosis halves SLOTS_PER_EPOCH
+/// and has not published a gloas preset, so it will need these threaded through as const generics
+/// the way PROPOSER_LOOK_AHEAD_LIMIT is when it schedules the fork.
+pub const BUILDER_PENDING_PAYMENTS_LIMIT: usize = 64;
+pub const PTC_WINDOW_LIMIT: usize = 96;
+
+
+/// Type level counterparts of the SSZ bounds above.
+///
+/// `ssz_types` takes its capacities as type level integers rather than `const` values, so every
+/// bound needs a type as well as a constant. Rust keeps types and values in separate namespaces,
+/// so these deliberately reuse the constants' names: `VariableList<T, MAX_DEPOSITS>` picks up the
+/// type and `vec![0; MAX_DEPOSITS]` picks up the constant, and no use site has to change.
+pub mod bounds {
+	use ssz_types::typenum::*;
+
+	pub type BLS_PUBLIC_KEY_BYTES_LEN = U48;
+	pub type BLS_SECRET_KEY_BYTES_LEN = U32;
+	pub type BLS_SIGNATURE_BYTES_LEN = U96;
+	pub type SYNC_COMMITTEE_SIZE = U512;
+	pub type MAX_WITHDRAWALS_PER_PAYLOAD = U16;
+	pub type MAX_BLS_TO_EXECUTION_CHANGES = U16;
+	pub type MAX_VALIDATORS_PER_WITHDRAWALS_SWEEP = U16384;
+	pub type MAX_COMMITTEES_PER_SLOT = U64;
+	pub type MAX_VALIDATORS_PER_COMMITTEE = U131072;
+	pub type SLOTS_PER_HISTORICAL_ROOT = U8192;
+	pub type EPOCHS_PER_HISTORICAL_VECTOR = U65536;
+	pub type EPOCHS_PER_SLASHINGS_VECTOR = U8192;
+	pub type HISTORICAL_ROOTS_LIMIT = U16777216;
+	pub type VALIDATOR_REGISTRY_LIMIT = U1099511627776;
+	pub type MAX_PROPOSER_SLASHINGS = U16;
+	pub type MAX_ATTESTER_SLASHINGS = U1;
+	pub type MAX_ATTESTATIONS = U8;
+	pub type MAX_DEPOSITS = U16;
+	pub type MAX_VOLUNTARY_EXITS = U16;
+	pub type JUSTIFICATION_BITS_LENGTH = U4;
+	pub type MAX_BYTES_PER_TRANSACTION = U1073741824;
+	pub type MAX_TRANSACTIONS_PER_PAYLOAD = U1048576;
+	pub type BYTES_PER_LOGS_BLOOM = U256;
+	pub type MAX_EXTRA_DATA_BYTES = U32;
+	pub type DEPOSIT_PROOF_LENGTH = U33;
+	pub type ETH1_DATA_VOTES_BOUND_ETH = U2048;
+	pub type ETH1_DATA_VOTES_BOUND_GNO = U1024;
+	pub type MAX_DEPOSIT_REQUESTS_PER_PAYLOAD = U8192;
+	pub type MAX_WITHDRAWAL_REQUESTS_PER_PAYLOAD = U65536;
+	pub type MAX_CONSOLIDATION_REQUESTS_PER_PAYLOAD = U8;
+	pub type PENDING_DEPOSITS_LIMIT = U134217728;
+	pub type PENDING_PARTIAL_WITHDRAWALS_LIMIT = U134217728;
+	pub type PENDING_CONSOLIDATIONS_LIMIT = U262144;
+	pub type PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM = U64;
+	pub type PROPOSER_LOOK_AHEAD_LIMIT_GNO = U32;
+	pub type BUILDER_PENDING_PAYMENTS_LIMIT = U64;
+	pub type PTC_WINDOW_LIMIT = U96;
+}
+
+pub use bounds::*;
+
 pub trait Config {
 	const SLOTS_PER_EPOCH: Slot;
 	const GENESIS_VALIDATORS_ROOT: [u8; 32];
@@ -111,6 +174,12 @@ pub trait Config {
 	const ELECTRA_FORK_EPOCH: Epoch;
 	const FULU_FORK_VERSION: Version;
 	const FULU_FORK_EPOCH: Epoch;
+	/// Gloas has not been scheduled on mainnet or any public testnet. Until it is, the epoch is
+	/// [`FAR_FUTURE_EPOCH`] and the version is a placeholder continuing the network's sequence,
+	/// so it is never selected by `compute_fork_version`. Both must be set once the fork is
+	/// announced.
+	const GLOAS_FORK_VERSION: Version;
+	const GLOAS_FORK_EPOCH: Epoch;
 	const ID: [u8; 4];
 }
 
@@ -150,6 +219,8 @@ pub mod sepolia {
 		const ELECTRA_FORK_EPOCH: Epoch = 222464;
 		const FULU_FORK_EPOCH: Epoch = 272640;
 		const FULU_FORK_VERSION: Version = hex_literal::hex!("90000075");
+		const GLOAS_FORK_EPOCH: Epoch = FAR_FUTURE_EPOCH;
+		const GLOAS_FORK_VERSION: Version = hex_literal::hex!("90000076");
 		const ID: [u8; 4] = BEACON_CONSENSUS_ID;
 	}
 }
@@ -187,6 +258,8 @@ pub mod mainnet {
 		const ELECTRA_FORK_EPOCH: Epoch = 364032;
 		const FULU_FORK_EPOCH: Epoch = 411392;
 		const FULU_FORK_VERSION: Version = hex_literal::hex!("06000000");
+		const GLOAS_FORK_EPOCH: Epoch = FAR_FUTURE_EPOCH;
+		const GLOAS_FORK_VERSION: Version = hex_literal::hex!("07000000");
 		const ID: [u8; 4] = BEACON_CONSENSUS_ID;
 	}
 }
@@ -224,6 +297,8 @@ pub mod gnosis {
 		const ELECTRA_FORK_EPOCH: Epoch = 1337856;
 		const FULU_FORK_EPOCH: Epoch = 1714688;
 		const FULU_FORK_VERSION: Version = hex_literal::hex!("06000064");
+		const GLOAS_FORK_EPOCH: Epoch = FAR_FUTURE_EPOCH;
+		const GLOAS_FORK_VERSION: Version = hex_literal::hex!("07000064");
 		const ID: [u8; 4] = GNOSIS_CONSENSUS_ID;
 	}
 
@@ -257,6 +332,8 @@ pub mod gnosis {
 		const ELECTRA_FORK_EPOCH: Epoch = 948224;
 		const FULU_FORK_EPOCH: Epoch = 1353216;
 		const FULU_FORK_VERSION: Version = hex_literal::hex!("0600006f");
+		const GLOAS_FORK_EPOCH: Epoch = FAR_FUTURE_EPOCH;
+		const GLOAS_FORK_VERSION: Version = hex_literal::hex!("0700006f");
 		const ID: [u8; 4] = GNOSIS_CONSENSUS_ID;
 	}
 }
@@ -289,6 +366,8 @@ pub mod devnet {
 		const DENEB_FORK_EPOCH: Epoch = 0;
 		const ELECTRA_FORK_EPOCH: Epoch = 0;
 		const FULU_FORK_EPOCH: Epoch = 0;
+		const GLOAS_FORK_VERSION: Version = hex!("80000038");
+		const GLOAS_FORK_EPOCH: Epoch = FAR_FUTURE_EPOCH;
 		const EPOCHS_PER_SYNC_COMMITTEE_PERIOD: Epoch = 256;
 		const EXECUTION_PAYLOAD_STATE_ROOT_INDEX: u64 = 34;
 		const EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX: u64 = 38;
@@ -299,6 +378,51 @@ pub mod devnet {
 		const FINALIZED_ROOT_INDEX_LOG2: u64 = 6;
 		const EXECUTION_PAYLOAD_INDEX_LOG2: u64 = 6;
 		const NEXT_SYNC_COMMITTEE_INDEX_LOG2: u64 = 6;
+		const ID: [u8; 4] = BEACON_CONSENSUS_ID;
+	}
+
+	/// Config for the ethpandaops glamsterdam devnets, the only networks running Gloas today. The
+	/// genesis root and fork versions come from the devnet's `/eth/v1/beacon/genesis` and
+	/// `/eth/v1/config/spec`. Gloas activates at epoch 30 rather than genesis, and the
+	/// generalized indices are unchanged from Electra because `latest_block_hash` reuses the
+	/// field slot the payload header gave up.
+	#[cfg(feature = "glamsterdam")]
+	#[derive(Default)]
+	pub struct GlamsterdamDevnet;
+
+	#[cfg(feature = "glamsterdam")]
+	impl Config for GlamsterdamDevnet {
+		const SLOTS_PER_EPOCH: Slot = 32;
+		const GENESIS_VALIDATORS_ROOT: [u8; 32] =
+			hex_literal::hex!("bb4a1a9e3f7f4e10edcd734e4acc3b5ffd4f830efe0af2748fa458cfee5d2658");
+		const GENESIS_FORK_VERSION: Version = hex!("10733183");
+		const ALTAIR_FORK_VERSION: Version = hex!("20733183");
+		const BELLATRIX_FORK_VERSION: Version = hex!("30733183");
+		const CAPELLA_FORK_VERSION: Version = hex!("40733183");
+		const DENEB_FORK_VERSION: Version = hex!("50733183");
+		const ELECTRA_FORK_VERSION: Version = hex!("60733183");
+		const FULU_FORK_VERSION: Version = hex!("70733183");
+		const GLOAS_FORK_VERSION: Version = hex!("80733183");
+		const ALTAIR_FORK_EPOCH: Epoch = 0;
+		const BELLATRIX_FORK_EPOCH: Epoch = 0;
+		const CAPELLA_FORK_EPOCH: Epoch = 0;
+		const DENEB_FORK_EPOCH: Epoch = 0;
+		const ELECTRA_FORK_EPOCH: Epoch = 0;
+		const FULU_FORK_EPOCH: Epoch = 0;
+		const GLOAS_FORK_EPOCH: Epoch = 1536;
+		const EPOCHS_PER_SYNC_COMMITTEE_PERIOD: Epoch = 256;
+		const EXECUTION_PAYLOAD_STATE_ROOT_INDEX: u64 = 34;
+		const EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX: u64 = 38;
+		const EXECUTION_PAYLOAD_TIMESTAMP_INDEX: u64 = 41;
+		// The state is a progressive container from Gloas, so a field sits at the index its
+		// position on the spine gives it rather than at `64 + position` in a padded tree, and the
+		// branches are no longer all the same length.
+		const EXECUTION_PAYLOAD_INDEX: u64 = 2947;
+		const NEXT_SYNC_COMMITTEE_INDEX: u64 = 2946;
+		const FINALIZED_ROOT_INDEX: u64 = 367;
+		const FINALIZED_ROOT_INDEX_LOG2: u64 = 8;
+		const EXECUTION_PAYLOAD_INDEX_LOG2: u64 = 11;
+		const NEXT_SYNC_COMMITTEE_INDEX_LOG2: u64 = 11;
 		const ID: [u8; 4] = BEACON_CONSENSUS_ID;
 	}
 }

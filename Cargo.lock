@@ -1693,12 +1693,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "as-any"
-version = "0.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b0f477b951e452a0b6b4a10b53ccd569042d1d01729b519e02074a9c0958a063"
-
-[[package]]
 name = "ascii"
 version = "0.9.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3237,10 +3231,14 @@ name = "bls-utils"
 version = "0.1.0"
 dependencies = [
  "bls_on_arkworks",
+ "ethereum_ssz",
+ "ethereum_ssz_derive",
  "parity-scale-codec",
  "serde",
  "serde-hex-utils",
- "ssz-rs",
+ "ssz_types",
+ "tree_hash",
+ "tree_hash_derive",
 ]
 
 [[package]]
@@ -3608,12 +3606,13 @@ dependencies = [
  "anyhow",
  "bsc-verifier",
  "dotenv",
+ "ethereum_ssz",
  "futures",
  "geth-primitives",
  "ismp",
  "polkadot-sdk",
  "primitive-types 0.13.1",
- "ssz-rs",
+ "ssz_types",
  "sync-committee-primitives",
  "tokio",
  "tracing",
@@ -3629,13 +3628,14 @@ dependencies = [
  "anyhow",
  "bls-utils",
  "bls_on_arkworks",
+ "ethereum_ssz",
  "geth-primitives",
  "ismp",
  "log",
  "parity-scale-codec",
  "polkadot-sdk",
  "primitive-types 0.13.1",
- "ssz-rs",
+ "ssz_types",
  "sync-committee-primitives",
  "thiserror 2.0.18",
 ]
@@ -5859,6 +5859,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "darling"
+version = "0.23.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "25ae13da2f202d56bd7f91c25fba009e7717a1e4a1cc98a76d844b65ae912e9d"
+dependencies = [
+ "darling_core 0.23.0",
+ "darling_macro 0.23.0",
+]
+
+[[package]]
 name = "darling_core"
 version = "0.13.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5902,6 +5912,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "darling_core"
+version = "0.23.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9865a50f7c335f53564bb694ef660825eb8610e0a53d3e11bf1b0d3df31e03b0"
+dependencies = [
+ "ident_case",
+ "proc-macro2",
+ "quote",
+ "strsim 0.11.1",
+ "syn 2.0.116",
+]
+
+[[package]]
 name = "darling_macro"
 version = "0.13.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5930,6 +5953,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d38308df82d1080de0afee5d069fa14b0326a88c14f15c5ccda35b4a6c414c81"
 dependencies = [
  "darling_core 0.21.3",
+ "quote",
+ "syn 2.0.116",
+]
+
+[[package]]
+name = "darling_macro"
+version = "0.23.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ac3984ec7bd6cfa798e62b4a642426a5be0e68f9401cfc2a01e3fa9ea2fcdb8d"
+dependencies = [
+ "darling_core 0.23.0",
  "quote",
  "syn 2.0.116",
 ]
@@ -7164,6 +7198,54 @@ dependencies = [
  "primitive-types 0.13.1",
  "scale-info",
  "uint 0.10.0",
+]
+
+[[package]]
+name = "ethereum_hashing"
+version = "0.8.0"
+source = "git+https://github.com/polytope-labs/ethereum_hashing?rev=777b16da793573d5a0dd37d33d77f24ce4b624e7#777b16da793573d5a0dd37d33d77f24ce4b624e7"
+dependencies = [
+ "cpufeatures 0.2.17",
+ "sha2 0.10.9",
+ "spin 0.9.8",
+]
+
+[[package]]
+name = "ethereum_serde_utils"
+version = "0.8.1"
+source = "git+https://github.com/polytope-labs/ethereum_serde_utils?rev=b67233cce50833e2082ebcb16a9971df063c7ecb#b67233cce50833e2082ebcb16a9971df063c7ecb"
+dependencies = [
+ "alloy-primitives 1.5.7",
+ "hex",
+ "serde",
+ "serde_derive",
+ "serde_json",
+]
+
+[[package]]
+name = "ethereum_ssz"
+version = "0.10.4"
+source = "git+https://github.com/polytope-labs/ethereum_ssz?rev=be67c8cf3fb9ad34597db52d242f213536eca9a6#be67c8cf3fb9ad34597db52d242f213536eca9a6"
+dependencies = [
+ "alloy-primitives 1.5.7",
+ "ethereum_serde_utils",
+ "itertools 0.14.0",
+ "parity-scale-codec",
+ "serde",
+ "serde_derive",
+ "smallvec",
+ "typenum",
+]
+
+[[package]]
+name = "ethereum_ssz_derive"
+version = "0.10.4"
+source = "git+https://github.com/polytope-labs/ethereum_ssz?rev=be67c8cf3fb9ad34597db52d242f213536eca9a6#be67c8cf3fb9ad34597db52d242f213536eca9a6"
+dependencies = [
+ "darling 0.23.0",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.116",
 ]
 
 [[package]]
@@ -26952,29 +27034,19 @@ dependencies = [
 ]
 
 [[package]]
-name = "ssz-rs"
-version = "0.8.0"
-source = "git+https://github.com/polytope-labs/ssz-rs?branch=main#428ee5ea7fcf5895f43c52921b815f6082ecc3ea"
+name = "ssz_types"
+version = "0.14.1"
+source = "git+https://github.com/polytope-labs/ssz_types?rev=16e1e2a2a50952283af74b6fe2c6f8af8367199f#16e1e2a2a50952283af74b6fe2c6f8af8367199f"
 dependencies = [
- "as-any",
- "bitvec",
- "hex",
- "itertools 0.10.5",
- "num-bigint 0.4.6",
+ "ethereum_serde_utils",
+ "ethereum_ssz",
+ "itertools 0.14.0",
  "parity-scale-codec",
  "serde",
- "sha2 0.9.9",
- "ssz-rs-derive",
-]
-
-[[package]]
-name = "ssz-rs-derive"
-version = "0.8.0"
-source = "git+https://github.com/polytope-labs/ssz-rs?branch=main#428ee5ea7fcf5895f43c52921b815f6082ecc3ea"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 1.0.109",
+ "serde_derive",
+ "smallvec",
+ "tree_hash",
+ "typenum",
 ]
 
 [[package]]
@@ -27987,15 +28059,22 @@ dependencies = [
 name = "sync-committee-primitives"
 version = "0.1.1"
 dependencies = [
+ "alloy-primitives 1.5.7",
+ "alloy-rlp",
+ "alloy-rlp-derive",
  "anyhow",
  "bls-utils",
+ "ethereum_ssz",
+ "ethereum_ssz_derive",
  "hex",
  "hex-literal 0.4.1",
  "parity-scale-codec",
  "primitive-types 0.13.1",
  "serde",
  "serde-hex-utils",
- "ssz-rs",
+ "ssz_types",
+ "tree_hash",
+ "tree_hash_derive",
 ]
 
 [[package]]
@@ -28008,6 +28087,7 @@ dependencies = [
  "bls_on_arkworks",
  "dotenv",
  "env_logger 0.10.2",
+ "ethereum_ssz",
  "hex",
  "log",
  "parity-scale-codec",
@@ -28018,12 +28098,13 @@ dependencies = [
  "reqwest-middleware 0.2.5",
  "serde",
  "serde_json",
- "ssz-rs",
+ "ssz_types",
  "sync-committee-primitives",
  "sync-committee-verifier",
  "tokio",
  "tokio-stream",
  "tracing",
+ "tree_hash",
 ]
 
 [[package]]
@@ -28033,13 +28114,16 @@ dependencies = [
  "anyhow",
  "ark-ec 0.4.2",
  "bls_on_arkworks",
+ "ethereum_ssz",
  "hex",
  "hex-literal 0.4.1",
  "ismp",
  "log",
- "ssz-rs",
+ "primitive-types 0.13.1",
+ "ssz_types",
  "sync-committee-primitives",
  "thiserror 2.0.18",
+ "tree_hash",
 ]
 
 [[package]]
@@ -28519,6 +28603,7 @@ dependencies = [
  "bsc-prover",
  "bsc-verifier",
  "dotenv",
+ "ethereum_ssz",
  "futures",
  "geth-primitives",
  "hex",
@@ -28533,7 +28618,7 @@ dependencies = [
  "serde_json",
  "sp-core",
  "sp-crypto-hashing",
- "ssz-rs",
+ "ssz_types",
  "tesseract-evm",
  "tesseract-primitives",
  "tokio",
@@ -30037,6 +30122,29 @@ checksum = "1ad61aed86bc3faea4300c7aee358b4c6d0c8d6ccc36524c96e4c92ccf26e77e"
 dependencies = [
  "num-integer",
  "strength_reduce",
+]
+
+[[package]]
+name = "tree_hash"
+version = "0.12.1"
+source = "git+https://github.com/polytope-labs/tree_hash?rev=a22ca828bfa199585b0e2f8275a8214305fc336f#a22ca828bfa199585b0e2f8275a8214305fc336f"
+dependencies = [
+ "alloy-primitives 1.5.7",
+ "ethereum_hashing",
+ "ethereum_ssz",
+ "smallvec",
+ "typenum",
+]
+
+[[package]]
+name = "tree_hash_derive"
+version = "0.12.1"
+source = "git+https://github.com/polytope-labs/tree_hash?rev=a22ca828bfa199585b0e2f8275a8214305fc336f#a22ca828bfa199585b0e2f8275a8214305fc336f"
+dependencies = [
+ "darling 0.23.0",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.116",
 ]
 
 [[package]]

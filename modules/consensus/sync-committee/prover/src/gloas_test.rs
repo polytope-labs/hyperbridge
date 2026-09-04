@@ -1,0 +1,200 @@
+//! Tests against a beacon chain that has already forked to Gloas. Point `CONSENSUS_NODE_URL` and
+//! `EXECUTION_NODE_URL` at an ethpandaops glamsterdam devnet, or a local devnet running the same
+//! preset, and run with `--features glamsterdam --ignored`.
+
+use super::*;
+use tree_hash::{
+	proof::{is_valid_merkle_branch, TreeHashFields},
+	Hash256, TreeHash,
+};
+use sync_committee_primitives::{
+	constants::{
+		devnet::GlamsterdamDevnet, ETH1_DATA_VOTES_BOUND_ETH, PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM,
+	},
+	execution_header::{execution_block_hash, ExecutionHeader},
+	util::compute_epoch_at_slot,
+};
+use sync_committee_verifier::{error::Error, verify_sync_committee_attestation};
+
+fn setup_prover() -> SyncCommitteeProver<
+	GlamsterdamDevnet,
+	ETH1_DATA_VOTES_BOUND_ETH,
+	PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM,
+> {
+	dotenv::dotenv().ok();
+	let consensus_url =
+		std::env::var("CONSENSUS_NODE_URL").unwrap_or("http://localhost:53001".to_string());
+	let execution_url =
+		std::env::var("EXECUTION_NODE_URL").unwrap_or("http://localhost:8545".to_string());
+
+	SyncCommitteeProver::<
+		GlamsterdamDevnet,
+		ETH1_DATA_VOTES_BOUND_ETH,
+		PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM,
+	>::new(vec![consensus_url], execution_url)
+}
+
+/// The whole point of this one is the container layout. If a single field of the Gloas
+/// `BeaconState` is out of order, wrongly sized or missing, the root will not match and every
+/// proof the prover generates would be rejected on chain.
+#[tokio::test]
+#[ignore]
+async fn beacon_state_hashes_to_the_signed_header() {
+	let prover = setup_prover();
+	let mut state = prover.fetch_beacon_state("finalized").await.unwrap();
+	let header = prover.fetch_header(&state.slot.to_string()).await.unwrap();
+
+	assert_eq!(state.tree_hash_root(), Hash256::from(&header.state_root));
+}
+
+/// The execution state root is no longer proven directly, so this walks the path that replaces it:
+/// the beacon state commits to a block hash, the block hash is the keccak of the header, and the
+/// header carries the state root.
+#[tokio::test]
+#[ignore]
+async fn execution_header_recovers_the_execution_state_root() {
+	let prover = setup_prover();
+	let mut finalized_state = prover.fetch_beacon_state("finalized").await.unwrap();
+	let finalized_header = prover.fetch_header(&finalized_state.slot.to_string()).await.unwrap();
+
+	let block_hash = H256::from_slice(finalized_state.latest_block_hash.as_ref());
+	let header = prover.fetch_execution_header(block_hash).await.unwrap();
+
+	let proof = prove_execution_payload::<
+		GlamsterdamDevnet,
+		ETH1_DATA_VOTES_BOUND_ETH,
+		PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM,
+	>(&mut finalized_state, header.clone())
+	.unwrap();
+
+	let execution_header = proof.execution_header().expect("gloas proof carries the rlp header");
+
+	// the header we ship is the preimage of the block hash the beacon state committed to
+	assert_eq!(execution_block_hash(execution_header), block_hash.0);
+
+	// and that block hash really does sit inside the state the sync committee signed over
+	let payload_branch: Vec<Hash256> =
+		proof.execution_payload_branch.iter().map(Into::into).collect();
+	assert!(is_valid_merkle_branch(
+		Hash256::from(execution_block_hash(execution_header)),
+		&payload_branch,
+		GlamsterdamDevnet::EXECUTION_PAYLOAD_INDEX,
+		Hash256::from(&finalized_header.state_root),
+	));
+
+	// so the fields the bridge consumes can be read straight off the header
+	let decoded = ExecutionHeader::decode(execution_header).unwrap();
+	assert_eq!(decoded, header);
+}
+
+/// Bootstrap a trusted state from a finalized checkpoint a few epochs back and produce the real
+/// update that advances to the current finalized checkpoint. The older checkpoint is looked up via
+/// the state endpoint, which tolerates skipped slots, and its block is fetched by root, which does
+/// not 404, so this is one shot rather than polling for a fresh finalization.
+async fn bootstrap_trusted_state_and_update(
+	prover: &SyncCommitteeProver<
+		GlamsterdamDevnet,
+		ETH1_DATA_VOTES_BOUND_ETH,
+		PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM,
+	>,
+) -> anyhow::Result<(VerifierState, VerifierStateUpdate)> {
+	let block_id = |root: Root| format!("0x{}", hex::encode(root.as_ref()));
+
+	let current = prover.fetch_finalized_checkpoint(None).await?.finalized;
+	let current_header = prover.fetch_header(&block_id(current.root.clone())).await?;
+
+	// A few epochs back, comfortably inside the same sync committee period.
+	let trusted_slot = current_header.slot.saturating_sub(3 * GlamsterdamDevnet::SLOTS_PER_EPOCH);
+	let trusted = prover
+		.fetch_finalized_checkpoint(Some(&trusted_slot.to_string()))
+		.await?
+		.finalized;
+	let trusted_header = prover.fetch_header(&block_id(trusted.root)).await?;
+	let trusted_state_state = prover.fetch_beacon_state(&trusted_header.slot.to_string()).await?;
+
+	let trusted_state = VerifierState {
+		finalized_header: trusted_header.clone(),
+		latest_finalized_epoch: compute_epoch_at_slot::<GlamsterdamDevnet>(trusted_header.slot),
+		current_sync_committee: trusted_state_state.current_sync_committee,
+		next_sync_committee: trusted_state_state.next_sync_committee,
+		state_period: compute_sync_committee_period_at_slot::<GlamsterdamDevnet>(
+			trusted_header.slot,
+		),
+	};
+
+	let update = prover
+		.fetch_light_client_update(trusted_state.clone(), current, None)
+		.await?
+		.ok_or_else(|| {
+			anyhow::anyhow!("no update produced between the two finalized checkpoints")
+		})?;
+
+	Ok((trusted_state, update))
+}
+
+/// The one that runs the code that actually ships. The two tests above check the pieces in
+/// isolation; this drives a real Gloas update through `verify_sync_committee_attestation`, which
+/// is where the block hash branch and the keccak preimage check run on chain.
+#[tokio::test]
+#[ignore]
+async fn verifier_accepts_a_real_gloas_update() -> anyhow::Result<()> {
+	let prover = setup_prover();
+	let (trusted_state, update) = bootstrap_trusted_state_and_update(&prover).await?;
+
+	let (new_state, execution_payload) =
+		verify_sync_committee_attestation::<GlamsterdamDevnet>(trusted_state, update.clone())
+			.map_err(|e| anyhow::anyhow!("verifier rejected a valid gloas update: {e:?}"))?;
+
+	assert_eq!(new_state.finalized_header, update.finalized_header);
+
+	// the fields the caller gets back are the header's own
+	let header =
+		ExecutionHeader::decode(update.execution_payload.execution_header().expect("gloas proof"))?;
+	assert_eq!(execution_payload.state_root.as_bytes(), header.state_root.as_slice());
+	assert_eq!(execution_payload.block_number, header.number);
+	assert_eq!(execution_payload.timestamp, header.timestamp);
+	Ok(())
+}
+
+/// The security of the whole approach rests on keccak binding the execution header to the block
+/// hash the sync committee signed. This tampers with a real, otherwise valid update to make sure
+/// that binding rejects, both for a header that no longer decodes and for a well formed one that
+/// describes a different block.
+#[tokio::test]
+#[ignore]
+async fn verifier_rejects_tampered_gloas_updates() -> anyhow::Result<()> {
+	let prover = setup_prover();
+	let (trusted_state, update) = bootstrap_trusted_state_and_update(&prover).await?;
+
+	// Flipping a byte of the header changes its keccak, so it no longer matches the block hash the
+	// branch proves against.
+	let mut tampered_header = update.clone();
+	tampered_header.execution_payload.execution_header_mut().expect("gloas proof")[0] ^= 0xff;
+	assert!(
+		matches!(
+			verify_sync_committee_attestation::<GlamsterdamDevnet>(
+				trusted_state.clone(),
+				tampered_header,
+			),
+			Err(Error::InvalidMerkleBranch(_))
+		),
+		"a header whose keccak does not match the block hash must be rejected",
+	);
+
+	// Lying about the state root means re-encoding the header. The bytes still decode, but they
+	// hash to a different block, so the branch catches it.
+	let mut tampered_root = update.clone();
+	let header_bytes = tampered_root.execution_payload.execution_header_mut().expect("gloas proof");
+	let mut header = ExecutionHeader::decode(&header_bytes[..])?;
+	header.state_root = Default::default();
+	*header_bytes = header.encode();
+	assert!(
+		matches!(
+			verify_sync_committee_attestation::<GlamsterdamDevnet>(trusted_state, tampered_root),
+			Err(Error::InvalidMerkleBranch(_))
+		),
+		"a state root that disagrees with the block hash must be rejected",
+	);
+
+	Ok(())
+}

@@ -11,5 +11,11 @@ fn write_bytes_to_lower_hex<T: AsRef<[u8]>>(f: &mut fmt::Formatter<'_>, data: T)
 	Ok(())
 }
 
-pub use byte_list::ByteList;
 pub use bls_utils::ByteVector;
+#[cfg(feature = "glamsterdam")]
+mod state_list;
+#[cfg(feature = "glamsterdam")]
+pub use state_list::StateList;
+mod uint256;
+pub use uint256::U256;
+pub use byte_list::ByteList;

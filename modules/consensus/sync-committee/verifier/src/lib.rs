@@ -10,14 +10,19 @@ use crate::error::Error;
 use alloc::vec::Vec;
 use ark_ec::CurveGroup;
 use crypto::subtract_points_from_aggregate;
-use ssz_rs::{
-	GeneralizedIndex, Merkleized, Node, calculate_multi_merkle_root, get_helper_indices,
-	prelude::is_valid_merkle_branch,
+use primitive_types::H256;
+use tree_hash::{
+	proof::{
+		is_valid_merkle_branch,
+		multiproof::{calculate_multi_merkle_root, get_helper_indices},
+	},
+	Hash256, TreeHash,
 };
 use sync_committee_primitives::{
 	consensus_types::Checkpoint,
-	constants::{Config, DOMAIN_SYNC_COMMITTEE, Root},
-	types::{VerifierState, VerifierStateUpdate},
+	constants::{Config, Root, DOMAIN_SYNC_COMMITTEE},
+	execution_header::{execution_block_hash, ExecutionHeader},
+	types::{ExecutionProof, VerifiedExecutionPayload, VerifierState, VerifierStateUpdate},
 	util::{
 		compute_domain, compute_epoch_at_slot, compute_fork_version, compute_signing_root,
 		compute_sync_committee_period_at_slot, should_have_sync_committee_update,
@@ -25,10 +30,11 @@ use sync_committee_primitives::{
 };
 
 /// This function simply verifies a sync committee's attestation & it's finalized counterpart.
+/// Returns the new verifier state alongside the execution fields the proof established.
 pub fn verify_sync_committee_attestation<C: Config>(
 	trusted_state: VerifierState,
 	mut update: VerifierStateUpdate,
-) -> Result<VerifierState, Error> {
+) -> Result<(VerifierState, VerifiedExecutionPayload), Error> {
 	// The finality branch is always required; validate it independently of the optional
 	// sync-committee update. The previous combined `&&` chain only triggered when ALL three
 	// subconditions held, so a malformed finality branch was accepted whenever the update
@@ -68,7 +74,8 @@ pub fn verify_sync_committee_attestation<C: Config>(
 	// Accepting such an update would stage the previous-period committee again and brick
 	// future updates once the chain enters `state_period + 2`.
 	if should_have_sync_committee_update(state_period, update_signature_period) {
-		let attested_period = compute_sync_committee_period_at_slot::<C>(update.attested_header.slot);
+		let attested_period =
+			compute_sync_committee_period_at_slot::<C>(update.attested_header.slot);
 		if attested_period != update_signature_period {
 			Err(Error::InvalidUpdate(
 				"Attested header is not in the same sync-committee period as the signature".into(),
@@ -102,13 +109,13 @@ pub fn verify_sync_committee_attestation<C: Config>(
 	if sync_committee_bits
 		.iter()
 		.enumerate()
-		.any(|(i, bit)| i >= committee_size && *bit)
+		.any(|(i, bit)| i >= committee_size && bit)
 	{
 		Err(Error::InvalidUpdate("Sync committee bits set beyond committee size".into()))?
 	}
 
 	let sync_aggregate_participants: u64 =
-		sync_committee_bits.iter().take(committee_size).filter(|b| **b).count() as u64;
+		sync_committee_bits.iter().take(committee_size).filter(|b| *b).count() as u64;
 
 	if sync_aggregate_participants < ((2 * committee_size as u64) / 3) + 1 {
 		Err(Error::SyncCommitteeParticipantsTooLow)?
@@ -117,7 +124,7 @@ pub fn verify_sync_committee_attestation<C: Config>(
 	let non_participant_pubkeys = sync_committee_bits
 		.iter()
 		.zip(sync_committee_pubkeys.iter())
-		.filter_map(|(bit, key)| if !(*bit) { Some(key.clone()) } else { None })
+		.filter_map(|(bit, key)| if !bit { Some(key.clone()) } else { None })
 		.collect::<Vec<_>>();
 
 	let fork_version = compute_fork_version::<C>(compute_epoch_at_slot::<C>(update.signature_slot));
@@ -125,7 +132,7 @@ pub fn verify_sync_committee_attestation<C: Config>(
 	let domain = compute_domain(
 		DOMAIN_SYNC_COMMITTEE,
 		Some(fork_version),
-		Some(Root::from_bytes(C::GENESIS_VALIDATORS_ROOT.try_into().expect("Infallible"))),
+		Some(Root::try_from(C::GENESIS_VALIDATORS_ROOT.as_slice()).expect("Infallible")),
 		C::GENESIS_FORK_VERSION,
 	)
 	.map_err(|_| Error::InvalidUpdate("Failed to compute domain".into()))?;
@@ -140,8 +147,8 @@ pub fn verify_sync_committee_attestation<C: Config>(
 
 	let verify = bls::verify(
 		&bls::point_to_pubkey(aggregate.into_affine()),
-		&signing_root.as_bytes().to_vec(),
-		&update.sync_aggregate.sync_committee_signature,
+		&signing_root.to_vec(),
+		&update.sync_aggregate.sync_committee_signature.to_vec(),
 		&bls::DST_ETHEREUM.as_bytes().to_vec(),
 	);
 
@@ -152,83 +159,133 @@ pub fn verify_sync_committee_attestation<C: Config>(
 	// Verify that the `finality_branch` confirms `finalized_header`
 	// to match the finalized checkpoint root saved in the state of `attested_header`.
 	// Note that the genesis finalized checkpoint root is represented as a zero hash.
-	let mut finalized_checkpoint = Checkpoint {
+	let finalized_checkpoint = Checkpoint {
 		epoch: update.finality_proof.epoch,
-		root: update
-			.finalized_header
-			.hash_tree_root()
-			.map_err(|_| Error::MerkleizationError("Error hashing finalized header".into()))?,
+		root: update.finalized_header.tree_hash_root().into(),
 	};
 
+	let finality_branch: Vec<Hash256> =
+		update.finality_proof.finality_branch.iter().map(Into::into).collect();
 	let is_merkle_branch_valid = is_valid_merkle_branch(
-		&finalized_checkpoint
-			.hash_tree_root()
-			.map_err(|_| Error::MerkleizationError("Failed to hash finality checkpoint".into()))?,
-		update.finality_proof.finality_branch.iter(),
-		C::FINALIZED_ROOT_INDEX_LOG2 as usize,
-		C::FINALIZED_ROOT_INDEX as usize,
-		&update.attested_header.state_root,
+		finalized_checkpoint.tree_hash_root(),
+		&finality_branch,
+		C::FINALIZED_ROOT_INDEX,
+		(&update.attested_header.state_root).into(),
 	);
 
 	if !is_merkle_branch_valid {
 		Err(Error::InvalidMerkleBranch("Finality branch".into()))?;
 	}
 
-	// verify the associated execution header of the finalized beacon header.
-	let mut execution_payload = update.execution_payload;
-	let execution_payload_indices = [
-		GeneralizedIndex(C::EXECUTION_PAYLOAD_STATE_ROOT_INDEX as usize),
-		GeneralizedIndex(C::EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX as usize),
-		GeneralizedIndex(C::EXECUTION_PAYLOAD_TIMESTAMP_INDEX as usize),
-	];
-	// `calculate_multi_merkle_root` panics on a short `multi_proof` because its final
-	// `objects.get(&GeneralizedIndex(1)).unwrap()` cannot reconstruct the root. Reject
-	// proofs whose helper-node count does not match what the algorithm requires so an
-	// attacker-controlled `multi_proof` cannot panic the runtime via the public unsigned
-	// consensus update path.
-	if execution_payload.multi_proof.len() != get_helper_indices(&execution_payload_indices).len()
-	{
-		Err(Error::InvalidMerkleBranch("Execution payload multiproof length".into()))?;
-	}
-	let execution_payload_root = calculate_multi_merkle_root(
-		&[
-			Node::from_bytes(execution_payload.state_root.as_ref().try_into().expect("Infallible")),
-			execution_payload.block_number.hash_tree_root().map_err(|_| {
-				Error::MerkleizationError("Failed to hash execution payload".into())
-			})?,
-			execution_payload
-				.timestamp
-				.hash_tree_root()
-				.map_err(|_| Error::MerkleizationError("Failed to hash timestamp".into()))?,
-		],
-		&execution_payload.multi_proof,
-		&execution_payload_indices,
-	);
+	// Verify the associated execution header of the finalized beacon header. Which proof shape is
+	// valid is decided by the fork the finalized header belongs to, not by the variant the update
+	// happens to carry, so an update cannot select its own code path: the slot the sync committee
+	// signed over is the arbiter. Both paths are compiled into every binary, so one verifier
+	// handles either side of the fork without a rebuild.
+	let execution_payload = &update.execution_payload;
+	let finalized_epoch = compute_epoch_at_slot::<C>(update.finalized_header.slot);
+	let verified_execution_payload =
+		match (finalized_epoch >= C::GLOAS_FORK_EPOCH, &execution_payload.proof) {
+			// Pre-Gloas: the execution payload header lives in the beacon state, so its state_root,
+			// block_number and timestamp are proven directly by an ssz multi proof.
+			(
+				false,
+				ExecutionProof::Legacy { state_root, block_number, timestamp, multi_proof },
+			) => {
+				let execution_payload_indices = [
+					C::EXECUTION_PAYLOAD_STATE_ROOT_INDEX,
+					C::EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX,
+					C::EXECUTION_PAYLOAD_TIMESTAMP_INDEX,
+				];
+				// `calculate_multi_merkle_root` panics on a short `multi_proof` because its final
+				// `objects.get(&GeneralizedIndex(1)).unwrap()` cannot reconstruct the root. Reject
+				// proofs whose helper-node count does not match what the algorithm requires so an
+				// attacker-controlled `multi_proof` cannot panic the runtime via the public
+				// unsigned consensus update path.
+				if multi_proof.len() != get_helper_indices(&execution_payload_indices).len() {
+					Err(Error::InvalidMerkleBranch("Execution payload multiproof length".into()))?;
+				}
+				let multi_proof_nodes: Vec<Hash256> =
+					multi_proof.iter().map(Into::into).collect();
+				let execution_payload_root = calculate_multi_merkle_root(
+					&[
+						Hash256::from_slice(state_root.as_ref()),
+						block_number.tree_hash_root(),
+						timestamp.tree_hash_root(),
+					],
+					&multi_proof_nodes,
+					&execution_payload_indices,
+				)
+				.map_err(|_| {
+					Error::InvalidMerkleBranch("Execution payload multiproof".into())
+				})?;
 
-	let is_merkle_branch_valid = is_valid_merkle_branch(
-		&execution_payload_root,
-		execution_payload.execution_payload_branch.iter(),
-		C::EXECUTION_PAYLOAD_INDEX_LOG2 as usize,
-		C::EXECUTION_PAYLOAD_INDEX as usize,
-		&update.finalized_header.state_root,
-	);
+				let payload_branch: Vec<Hash256> =
+					execution_payload.execution_payload_branch.iter().map(Into::into).collect();
+				let is_merkle_branch_valid = is_valid_merkle_branch(
+					execution_payload_root,
+					&payload_branch,
+					C::EXECUTION_PAYLOAD_INDEX,
+					(&update.finalized_header.state_root).into(),
+				);
 
-	if !is_merkle_branch_valid {
-		Err(Error::InvalidMerkleBranch("Execution payload branch".into()))?;
-	}
+				if !is_merkle_branch_valid {
+					Err(Error::InvalidMerkleBranch("Execution payload branch".into()))?;
+				}
 
-	if let Some(mut sync_committee_update) = update.sync_committee_update.clone() {
-		let sync_root = sync_committee_update
-			.next_sync_committee
-			.hash_tree_root()
-			.map_err(|_| Error::MerkleizationError("Failed to hash next sync committee".into()))?;
+				VerifiedExecutionPayload {
+					state_root: *state_root,
+					block_number: *block_number,
+					timestamp: *timestamp,
+				}
+			},
+			// Gloas leaves only the execution block hash in the beacon state, so the state root is
+			// recovered from the block header instead of being proven directly. Keccak binds the
+			// header to the hash one for one, which makes the header's contents as trustworthy as
+			// the hash the sync committee signed over.
+			(true, ExecutionProof::Gloas { execution_header }) => {
+				let block_hash = execution_block_hash(execution_header);
 
+				let is_merkle_branch_valid = is_valid_merkle_branch(
+					Hash256::from(block_hash),
+					&execution_payload
+						.execution_payload_branch
+						.iter()
+						.map(Into::into)
+						.collect::<Vec<Hash256>>(),
+					C::EXECUTION_PAYLOAD_INDEX,
+					(&update.finalized_header.state_root).into(),
+				);
+
+				if !is_merkle_branch_valid {
+					Err(Error::InvalidMerkleBranch("Execution block hash branch".into()))?;
+				}
+
+				let header = ExecutionHeader::decode(execution_header)
+					.map_err(|_| Error::InvalidUpdate("Malformed execution header".into()))?;
+
+				VerifiedExecutionPayload {
+					state_root: H256::from(header.state_root.0),
+					block_number: header.number,
+					timestamp: header.timestamp,
+				}
+			},
+			// The proof variant does not match the fork the finalized header belongs to.
+			_ => Err(Error::InvalidUpdate(
+				"Execution proof variant does not match the fork at the finalized header".into(),
+			))?,
+		};
+
+	if let Some(sync_committee_update) = update.sync_committee_update.clone() {
+		let sync_root = sync_committee_update.next_sync_committee.tree_hash_root();
+
+		let sync_branch: Vec<Hash256> =
+			sync_committee_update.next_sync_committee_branch.iter().map(Into::into).collect();
 		let is_merkle_branch_valid = is_valid_merkle_branch(
-			&sync_root,
-			sync_committee_update.next_sync_committee_branch.iter(),
-			C::NEXT_SYNC_COMMITTEE_INDEX_LOG2 as usize,
-			C::NEXT_SYNC_COMMITTEE_INDEX as usize,
-			&update.attested_header.state_root,
+			sync_root,
+			&sync_branch,
+			C::NEXT_SYNC_COMMITTEE_INDEX,
+			(&update.attested_header.state_root).into(),
 		);
 
 		if !is_merkle_branch_valid {
@@ -257,7 +314,7 @@ pub fn verify_sync_committee_attestation<C: Config>(
 		}
 	};
 
-	Ok(verifier_state)
+	Ok((verifier_state, verified_execution_payload))
 }
 
 #[cfg(test)]
@@ -265,7 +322,7 @@ mod supermajority_tests {
 	use super::*;
 	use sync_committee_primitives::{
 		consensus_types::{BeaconBlockHeader, SyncAggregate, SyncCommittee},
-		constants::{BLS_SIGNATURE_BYTES_LEN, BlsSignature, SYNC_COMMITTEE_SIZE, sepolia::Sepolia},
+		constants::{sepolia::Sepolia, BlsSignature, BLS_SIGNATURE_BYTES_LEN, SYNC_COMMITTEE_SIZE},
 		types::{ExecutionPayloadProof, FinalityProof, VerifierState, VerifierStateUpdate},
 	};
 
@@ -299,10 +356,10 @@ mod supermajority_tests {
 				// finality-branch length check passes; the node contents don't matter for
 				// these tests because the supermajority gate fires before any merkle
 				// verification.
-				finality_branch: vec![Node::default(); Sepolia::FINALIZED_ROOT_INDEX_LOG2 as usize],
+				finality_branch: vec![Root::default(); Sepolia::FINALIZED_ROOT_INDEX.ilog2() as usize],
 			},
 			sync_aggregate: SyncAggregate {
-				sync_committee_bits: ssz_rs::Bitvector::default(),
+				sync_committee_bits: Default::default(),
 				sync_committee_signature: BlsSignature::try_from(vec![
 					0u8;
 					BLS_SIGNATURE_BYTES_LEN

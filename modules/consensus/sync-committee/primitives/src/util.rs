@@ -1,3 +1,4 @@
+use tree_hash::TreeHash;
 use crate::{
 	consensus_types::ForkData,
 	constants::{Config, Domain, Root, Version},
@@ -5,7 +6,7 @@ use crate::{
 };
 use alloc::{vec, vec::Vec};
 use anyhow::anyhow;
-use ssz_rs::prelude::*;
+use ssz_types::{typenum::Unsigned, FixedVector, VariableList};
 
 /// Returns true if sync committee update is required
 pub fn should_have_sync_committee_update(state_period: u64, signature_period: u64) -> bool {
@@ -24,6 +25,13 @@ pub fn compute_epoch_at_slot<C: Config>(slot: u64) -> u64 {
 
 /// Return the fork version at the given ``epoch``.
 pub fn compute_fork_version<C: Config>(epoch: u64) -> [u8; 4] {
+	// The verifier resolves the fork version for any slot it is handed, including post-Gloas ones,
+	// so this branch is always compiled. Pre-Gloas networks set `GLOAS_FORK_EPOCH` to the far
+	// future, which keeps this inert until the fork is actually scheduled.
+	if epoch >= C::GLOAS_FORK_EPOCH {
+		return C::GLOAS_FORK_VERSION;
+	}
+
 	if epoch >= C::FULU_FORK_EPOCH {
 		C::FULU_FORK_VERSION
 	} else if epoch >= C::ELECTRA_FORK_EPOCH {
@@ -56,29 +64,32 @@ pub fn compute_domain(
 	Ok(domain)
 }
 
-#[derive(Default, Debug, SimpleSerialize)]
+#[derive(Default, Debug, ssz_derive::Encode, ssz_derive::Decode, tree_hash_derive::TreeHash)]
 pub struct SigningData {
 	pub object_root: Root,
 	pub domain: Domain,
 }
 
-pub fn compute_signing_root<T: SimpleSerialize>(
+pub fn compute_signing_root<T: tree_hash::TreeHash>(
 	ssz_object: &mut T,
 	domain: Domain,
 ) -> Result<Root, anyhow::Error> {
-	let object_root = ssz_object.hash_tree_root().map_err(|e| anyhow!("{:?}", e))?;
+	// `tree_hash_root` is infallible, where ssz-rs's `hash_tree_root` returned a `Result`.
+	let object_root = Root::try_from(ssz_object.tree_hash_root().as_slice())
+		.map_err(|e| anyhow!("{:?}", e))?;
 
-	let mut s = SigningData { object_root, domain };
-	s.hash_tree_root().map_err(|e| anyhow!("{:?}", e))
+	let s = SigningData { object_root, domain };
+	Root::try_from(s.tree_hash_root().as_slice()).map_err(|e| anyhow!("{:?}", e))
 }
 
 pub fn compute_fork_data_root(
 	current_version: Version,
 	genesis_validators_root: Root,
 ) -> Result<Root, anyhow::Error> {
-	ForkData { current_version, genesis_validators_root }
-		.hash_tree_root()
-		.map_err(|e| anyhow!("{:?}", e))
+	Root::try_from(
+		ForkData { current_version, genesis_validators_root }.tree_hash_root().as_slice(),
+	)
+	.map_err(|e| anyhow!("{:?}", e))
 }
 
 /// Return the sync committee period at ``slot``

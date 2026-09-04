@@ -10,7 +10,7 @@ import { VaultRowsEditor } from "../components/VaultRowsEditor"
 import { Chains } from "./Chains"
 import { useAction, usePolling } from "../lib/hooks"
 import { vaultRowsToToml, type VaultRowDraft } from "../lib/vault-rows"
-import type { BalanceSnapshot, ConfigDto, SendTokenOption } from "../types"
+import type { BalanceSnapshot, ConfigDto, SendTokenOption, VaultSweepDto } from "../types"
 
 export function Operations(props: {
 	chains: number[]
@@ -22,6 +22,9 @@ export function Operations(props: {
 	const [allowlist, setAllowlist] = useState<string[]>([])
 	const [vaultRows, setVaultRows] = useState<VaultRowDraft[]>()
 	const [panel, setPanel] = useState<"send" | "vaults" | "allowlist" | "chains">()
+	// Outcome of the last vault action that is not a plain success: a save that
+	// needs a restart, or a sweep that found nothing it could deposit and why.
+	const [vaultNotice, setVaultNotice] = useState<VaultNotice>()
 	const { run: act, message, error } = useAction()
 	const latestVaultRows = useRef<VaultRowDraft[] | undefined>(undefined)
 	const vaultSaveActive = useRef(false)
@@ -59,6 +62,7 @@ export function Operations(props: {
 		vaultSaveActive.current = true
 		return act(
 			async () => {
+				setVaultNotice(undefined)
 				try {
 					let result: { applied: boolean; restartNeeded: boolean; persisted: boolean } | undefined
 					let failed = false
@@ -82,7 +86,20 @@ export function Operations(props: {
 					if (!result.persisted) {
 						throw new Error("Vault changes were applied for this session but could not be saved to the config file")
 					}
-					toast.success("Vault settings saved")
+					if (result.restartNeeded) {
+						// The server only says this when the filler booted without a vault
+						// venue: the rows are in the config file, but nothing in this
+						// process sweeps into or sources from them until it restarts.
+						setVaultNotice({
+							tone: "warn",
+							text: "Saved to config — restart the filler to activate the vault treasury",
+						})
+						toast.warning("Vault settings saved", {
+							description: "Restart the filler to activate the vault treasury.",
+						})
+					} else {
+						toast.success("Vault settings saved")
+					}
 				} finally {
 					vaultSaveActive.current = false
 					vaultSaveQueued.current = false
@@ -168,7 +185,8 @@ export function Operations(props: {
 					<h2>Vault treasury</h2>
 					<p className="hint">
 						ERC-4626 vaults per chain (one per asset). Threshold and min balance use each vault's underlying token.
-						Edits are saved to the config.
+						Edits re-hydrate the running venue{config && !config.vaultConfigured && " after a restart"} and are
+						saved to the config.
 					</p>
 					<VaultRowsEditor
 						chains={props.chains.map((id) => ({ key: formatChainKey(id), label: chainLabel(id) }))}
@@ -189,7 +207,18 @@ export function Operations(props: {
 							<span style={{ marginLeft: "auto" }} className="row">
 								<button
 									type="button"
-									onClick={() => act(() => api.post("/api/vault/sweep"), "Sweep executed")}
+									onClick={() =>
+										act(
+											async () => {
+												setVaultNotice(undefined)
+												const result = await api.post<VaultSweepDto>("/api/vault/sweep")
+												setVaultNotice(describeSweep(result, chainLabel))
+												await props.onBalancesChanged()
+											},
+											undefined,
+											"vault-sweep",
+										)
+									}
 								>
 									Sweep now
 								</button>
@@ -202,6 +231,12 @@ export function Operations(props: {
 							</span>
 						)}
 					</div>
+					{vaultNotice && (
+						<p className={vaultNotice.tone === "warn" ? "warning" : "hint"}>
+							{vaultNotice.tone === "ok" && "✓ "}
+							{vaultNotice.text}
+						</p>
+					)}
 					{message && <p className="hint">✓ {message}</p>}
 					{error && <p className="error">{error}</p>}
 				</div>
@@ -245,6 +280,42 @@ export function Operations(props: {
 			{error && <p className="error">{error}</p>}
 		</div>
 	)
+}
+
+type VaultNotice = { tone: "ok" | "warn"; text: string }
+
+/**
+ * Turns a sweep pass into one sentence the operator can act on. An empty pass is
+ * only a warning when a vault turned a due deposit away; a wallet that has not
+ * reached its threshold is the sweep working as configured.
+ */
+function describeSweep(result: VaultSweepDto, chainLabel: (id: number | string) => string): VaultNotice {
+	const where = (chain: string) => chainLabel(parseChainKey(chain) ?? chain)
+	if (result.submitted.length > 0) {
+		const legs = result.submitted.map(
+			(tx) => `${tx.deposits.map((d) => `${d.amount} ${d.symbol}`).join(", ")} on ${where(tx.chain)}`,
+		)
+		return { tone: "ok", text: `Sweep submitted: ${legs.join("; ")}` }
+	}
+	const closed = result.skipped.filter((skip) => skip.reason === "deposits-closed")
+	if (closed.length > 0) {
+		const legs = closed.map(
+			(skip) =>
+				`the ${skip.symbol} vault on ${where(skip.chain)} is not accepting deposits right now (wallet ${skip.walletBalance} ${skip.symbol} is above its ${skip.threshold} threshold)`,
+		)
+		return {
+			tone: "warn",
+			text: `Nothing swept — ${legs.join("; ")}. The periodic sweep keeps retrying and deposits as soon as the vault reopens.`,
+		}
+	}
+	const below = result.skipped.filter((skip) => skip.reason === "below-threshold")
+	if (below.length > 0) {
+		const legs = below.map(
+			(skip) => `${skip.symbol} on ${where(skip.chain)} is at ${skip.walletBalance} of its ${skip.threshold} threshold`,
+		)
+		return { tone: "ok", text: `Nothing to sweep — ${legs.join("; ")}` }
+	}
+	return { tone: "ok", text: "Nothing to sweep — no vault has a sweep threshold configured" }
 }
 
 function OperationLink(props: { title: string; description: string; meta: string; onClick: () => void }) {

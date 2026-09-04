@@ -479,6 +479,15 @@ button.operator-text-button:hover:not(:disabled) {
 	font-size: 0.625rem;
 }
 
+/* Vault-side state that explains an idle sweep, shown under the "In vault" amount. */
+.operator-balance-note {
+	display: block;
+	margin-top: 0.2rem;
+	color: var(--warn);
+	font-family: var(--font-sans);
+	font-size: 0.625rem;
+}
+
 .operator-asset-breakdown dd {
 	overflow: hidden;
 	margin: 0;

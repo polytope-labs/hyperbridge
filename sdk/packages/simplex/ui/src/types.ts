@@ -23,5 +23,6 @@ export type {
 	Status,
 	StatusInit,
 	StatusOperator,
+	VaultSweepDto,
 	WalletTxDto,
 } from "@/services/server/dto"

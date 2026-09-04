@@ -557,12 +557,39 @@ describe("UiServer (operator mode)", () => {
 		expect((await fetch(`${none.base}/api/vault/sweep`, { method: "POST", headers: CSRF })).status).toBe(409)
 		server?.stop()
 
-		const sweepNow = vi.fn().mockResolvedValue(undefined)
+		const vault = "0x00000000000000000000000000000000000000aa"
+		const asset = "0x00000000000000000000000000000000000000bb"
+		const sweepNow = vi.fn().mockResolvedValue({
+			submitted: [],
+			skipped: [
+				{
+					chain: "EVM-8453",
+					vault,
+					asset,
+					symbol: "USDC",
+					decimals: 6,
+					reason: "deposits-closed",
+					walletBalance: 8_000_000_000n,
+					threshold: 5_000_000_000n,
+					maxDeposit: 0n,
+				},
+			],
+		})
 		const redeemAll = vi.fn().mockResolvedValue(undefined)
 		const reconfigure = vi.fn().mockResolvedValue(undefined)
 		const { base } = await startServer({ vault: { sweepNow, redeemAll, reconfigure } })
-		expect((await fetch(`${base}/api/vault/sweep`, { method: "POST", headers: CSRF })).status).toBe(200)
+		const sweep = await fetch(`${base}/api/vault/sweep`, { method: "POST", headers: CSRF })
+		expect(sweep.status).toBe(200)
 		expect(sweepNow).toHaveBeenCalledTimes(1)
+		// The pass's outcome reaches the dashboard with amounts already formatted, so an empty
+		// sweep can say whether the wallet or the vault is the reason.
+		expect(await sweep.json()).toEqual({
+			ok: true,
+			submitted: [],
+			skipped: [
+				{ chain: "EVM-8453", vault, symbol: "USDC", reason: "deposits-closed", walletBalance: "8000", threshold: "5000" },
+			],
+		})
 		expect((await fetch(`${base}/api/vault/redeem`, { method: "POST", headers: CSRF })).status).toBe(200)
 		expect(redeemAll).toHaveBeenCalledTimes(1)
 	})

@@ -9,6 +9,8 @@ export interface InitChainMeta {
 	alchemySubdomain?: string
 	/** Block explorer base URL (no trailing slash) for transaction links. */
 	explorerUrl?: string
+	/** Short operator-facing caveat shown beside the chain in the wizards (e.g. a paymaster limitation). */
+	note?: string
 }
 
 export const INIT_CHAINS: InitChainMeta[] = [

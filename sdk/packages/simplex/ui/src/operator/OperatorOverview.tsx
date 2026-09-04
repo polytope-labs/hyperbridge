@@ -161,7 +161,11 @@ function AssetBalanceCard({ asset }: { asset: AssetBalance }) {
 
 			<dl className="operator-asset-breakdown">
 				<BalancePart label="In wallet" value={asset.wallet} />
-				<BalancePart label="In vault" value={asset.vaultPosition} />
+				<BalancePart
+					label="In vault"
+					value={asset.vaultPosition}
+					note={asset.vaults.some((vault) => !vault.acceptsDeposits) ? "Deposits closed" : undefined}
+				/>
 			</dl>
 
 			<div className="operator-asset-available">
@@ -175,11 +179,14 @@ function AssetBalanceCard({ asset }: { asset: AssetBalance }) {
 	)
 }
 
-function BalancePart(props: { label: string; value: number | null }) {
+function BalancePart(props: { label: string; value: number | null; note?: string }) {
 	return (
 		<div>
 			<dt>{props.label}</dt>
-			<dd>{props.value === null ? "Unavailable" : formatAmount(props.value)}</dd>
+			<dd>
+				{props.value === null ? "Unavailable" : formatAmount(props.value)}
+				{props.note && <small className="operator-balance-note">{props.note}</small>}
+			</dd>
 		</div>
 	)
 }

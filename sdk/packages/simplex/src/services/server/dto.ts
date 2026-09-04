@@ -8,6 +8,7 @@ import type { InitChainMeta, InitNetwork } from "@/cli/init/chains"
 import type { VaultToml } from "@/config/filler-toml"
 import type { CurvePoint, PriceCurvePoint } from "@/config/interpolated-curve"
 import type { BalanceSnapshot as RuntimeBalanceSnapshot } from "@/services/BalanceProvider"
+import type { VaultSweepSkipReason } from "@/funding/vault/VaultFundingPlanner"
 
 export const LOG_LEVELS = ["trace", "debug", "info", "warn", "error"] as const
 
@@ -63,6 +64,29 @@ export type Status = StatusInit | StatusOperator
 
 /** GET /api/balances — shared with the runtime collector to prevent contract drift. */
 export type BalanceSnapshot = RuntimeBalanceSnapshot
+
+/**
+ * POST /api/vault/sweep response. `submitted` is empty when the pass found nothing it could
+ * deposit; `skipped` says why per vault, so the dashboard can tell a wallet below its threshold
+ * from a vault that is refusing deposits. Amounts are in the underlying token's display units.
+ */
+export interface VaultSweepDto {
+	ok: true
+	submitted: {
+		chain: string
+		txHash: string
+		sponsored: boolean
+		deposits: { vault: string; symbol: string; amount: string }[]
+	}[]
+	skipped: {
+		chain: string
+		vault: string
+		symbol: string
+		reason: VaultSweepSkipReason
+		walletBalance?: string
+		threshold?: string
+	}[]
+}
 
 /** GET /api/strategies rows; PUT /api/strategies/:index(/curves) response */
 export interface AdminStrategyDto {

@@ -38,6 +38,8 @@ export interface VaultBalanceRow {
 	address: string
 	position: number
 	available: number
+	/** False while the vault reports `maxDeposit(solver) == 0`; sweeps into it are idle until it reopens. */
+	acceptsDeposits: boolean
 }
 
 export interface AssetBalanceRow {
@@ -335,6 +337,7 @@ export class BalanceProvider {
 						address: position.vault,
 						position: Number.parseFloat(formatUnits(position.positionAssets, position.decimals)),
 						available: Number.parseFloat(formatUnits(position.availableAssets, position.decimals)),
+						acceptsDeposits: position.acceptsDeposits,
 					})),
 					status: complete ? "fresh" : wallet !== null || positions.length > 0 ? "partial" : "unavailable",
 				}

@@ -109,6 +109,7 @@ export class VaultLiquidityState {
 				redeemOnShutdown: cfg.redeemOnShutdown ?? false,
 				positionAssets: 0n,
 				maxWithdrawable: 0n,
+				maxDeposit: 0n,
 				remaining: 0n,
 			})
 		}
@@ -151,7 +152,7 @@ export class VaultLiquidityState {
 				args: [this.solver],
 			})) as bigint
 
-			const [positionAssets, maxWithdrawable] = await Promise.all([
+			const [positionAssets, maxWithdrawable, maxDeposit] = await Promise.all([
 				client.readContract({
 					address: v.vault,
 					abi: ERC4626_ABI,
@@ -162,6 +163,12 @@ export class VaultLiquidityState {
 					address: v.vault,
 					abi: ERC4626_ABI,
 					functionName: "maxWithdraw",
+					args: [this.solver],
+				}) as Promise<bigint>,
+				client.readContract({
+					address: v.vault,
+					abi: ERC4626_ABI,
+					functionName: "maxDeposit",
 					args: [this.solver],
 				}) as Promise<bigint>,
 			])
@@ -181,6 +188,7 @@ export class VaultLiquidityState {
 
 			v.positionAssets = positionAssets
 			v.maxWithdrawable = maxWithdrawable
+			v.maxDeposit = maxDeposit
 			v.remaining = maxWithdrawable > reserved ? maxWithdrawable - reserved : 0n
 
 			this.logger.debug(
@@ -190,6 +198,7 @@ export class VaultLiquidityState {
 					asset: v.asset,
 					positionAssets: positionAssets.toString(),
 					maxWithdrawable: maxWithdrawable.toString(),
+					maxDeposit: maxDeposit.toString(),
 					reserved: reserved.toString(),
 					remaining: v.remaining.toString(),
 				},

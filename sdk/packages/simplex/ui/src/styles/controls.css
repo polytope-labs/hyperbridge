@@ -259,3 +259,11 @@ pre.toml {
 	font-size: 0.8125rem;
 	line-height: 1.5;
 }
+
+/* A completed action that still needs the operator to do something (e.g. restart). */
+.warning {
+	margin: 0.65rem 0;
+	color: var(--warn);
+	font-size: 0.8125rem;
+	line-height: 1.5;
+}

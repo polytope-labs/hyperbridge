@@ -4,6 +4,49 @@ AI-maintained record of non-obvious choices made in `sdk/packages/simplex`: what
 
 Entry format: heading with the decision, then alternatives considered and the reasoning. Newest first.
 
+## 2026-09-04 — A sweep pass reports its outcome instead of resolving to void
+
+Chosen: `sweepExcessToVault` returns `VaultSweepResult` — submissions plus a `skipped` entry per
+vault with a reason and the numbers behind it — and the UI endpoint forwards it formatted. The
+result is the contract; logging is a side channel for the periodic timer.
+
+Alternatives rejected: logging alone (the dashboard's Sweep now button would still say "executed"
+for a no-op, and the library consumer has nothing to branch on); a boolean "did anything" (cannot
+distinguish a wallet under its trigger from a vault refusing deposits, which is the whole diagnosis).
+
+## 2026-09-04 — Warn once per closed-deposit window, debug thereafter
+
+Chosen: the first `deposits-closed` skip for a `chain:vault` logs at warn with wallet balance,
+threshold, floor and `maxDeposit`; repeats log at debug until a deposit succeeds or the venue is
+reconfigured, which clears the memo.
+
+Alternative rejected: warn on every tick. The sweep runs every five minutes and a
+`StreamingYieldVault` is closed ~22 hours a day, so that is ~260 identical warnings per vault per
+day; the dashboard's "Deposits closed" flag and the sweep result cover "is it still closed".
+Silence (the previous behaviour) was the bug.
+
+## 2026-09-04 — `maxDeposit` is read on every vault refresh
+
+Chosen: `VaultLiquidityState.refresh` reads `maxDeposit(solver)` next to `previewRedeem` and
+`maxWithdraw`, and the balance snapshot exposes it as `acceptsDeposits`.
+
+Alternative rejected: reading it only inside the sweep. That leaves the overview unable to explain
+an idle sweep without the operator pressing Sweep now. One extra view call per vault per refresh
+(once a minute, and per fill plan) is cheap next to the two already made.
+
+## 2026-09-04 — `restartNeeded` on a vault save is shown, not swallowed
+
+Chosen: a persisted vault save with `restartNeeded: true` shows a warning notice in the panel and a
+warning toast; `false` keeps the plain success toast. The hint copy names the restart when no venue
+exists. This supersedes the 2026-09-03 "Treat a persisted vault save as UI success" decision.
+
+Why: that decision called the restart advisory incorrect. It is not: `boot.ts` only constructs the
+vault venue when the boot config has vaults, `handleVaultUpdate` only sets `restartNeeded` when
+`op.vault` is absent, and in that case nothing in the process sweeps into or sources from the saved
+rows. Reporting plain success turned a real restart requirement into a silent no-op — reproduced on a
+running solver. What was wrong before was the presentation (an error for a successful save), so it
+is a warning now, with the save still reported as saved.
+
 ## 2026-09-04 — Bind send explorer links to completed transaction state
 
 Chosen: resolve the canonical block explorer when a send starts and store that URL with the successful

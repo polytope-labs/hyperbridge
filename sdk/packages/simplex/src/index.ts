@@ -152,6 +152,13 @@ export type {
 	HyperbridgeBalance,
 	VaultBalanceRow,
 } from "@/services/BalanceProvider"
+export type {
+	VaultSweepDeposit,
+	VaultSweepResult,
+	VaultSweepSkip,
+	VaultSweepSkipReason,
+	VaultSweepSubmission,
+} from "@/funding/vault/VaultFundingPlanner"
 
 // ─── Shared scanners ────────────────────────────────────────────────────────
 // Scanning a chain is identical work for every filler, so the default sources

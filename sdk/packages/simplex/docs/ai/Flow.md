@@ -64,6 +64,44 @@ and token address, displays the asset's canonical `available` value beside Amoun
 wallet row for native gas. After `/api/send` succeeds, it invokes the parent load path so the shared
 balance snapshot, strategies, and configuration refresh immediately.
 
+## Vault sweep pass
+
+Verified 2026-09-04 against a running solver and `src/tests/funding/vault.test.ts`.
+
+```
+startSweeping()                       boot.ts after venue initialise; reconfigure() restarts it
+  30s one-shot, then every sweepIntervalMs (default 5m)
+    -> sweepExcessToVault()            also POST /api/vault/sweep and simplex.vaults.sweepNow()
+         per chain, under sweepMutexByChain:
+           thresholdScaled null        -> skip "sweeping-disabled" (no RPC)
+           asset.balanceOf(solver)
+           balance < threshold         -> skip "below-threshold"
+           excess = balance - minBalance
+           vault.maxDeposit(solver)
+           min(excess, maxDeposit) <= 0 -> skip "deposits-closed"; warn once per closure, then debug
+           else approve + deposit calls -> submitBatch (sponsored UserOp or native tx)
+         returns { submitted?, skipped[] }; the pass merges chains into VaultSweepResult
+```
+
+`UiServer` formats the result into `VaultSweepDto` (token units) and `Operations.tsx` renders one
+sentence from it; an empty pass is a warning only when a vault refused a due deposit. Independently,
+`VaultLiquidityState.refresh` (balance snapshot, fill planning) reads `maxDeposit` and the overview
+shows "Deposits closed" under In vault when it is zero.
+
+Why a `StreamingYieldVault` refuses: `maxDeposit` is 0 while a tranche vests (`VEST`, 22h) and
+opens only between `vestedAt` and the next `addYield` (at least `MIN_WINDOW`, 2h). A sweep tick
+inside that window deposits; the rest silently skipped before this change.
+
+## Vault save from the dashboard
+
+`PUT /api/vault` validates the rows, then branches on whether the boot config produced a venue
+(`op.vault`). With a venue: `reconfigure` re-hydrates every vault on-chain and swaps the set
+atomically, the config is persisted, response `applied: true`. Without one: `vaultPreflight`
+validates, the rows are persisted, response `applied: false, restartNeeded: true` — the venue is
+wired into every strategy's funding list at boot and cannot be created later. `Operations.tsx`
+shows a warning notice and toast for `restartNeeded`; `vaultConfigured` (which gates the Sweep and
+Redeem buttons and the "Configured" badge) reflects the venue, not the file, until the restart.
+
 ## Operator market drawer
 
 Selecting a row in `OperatorMarkets` opens the shared wide `OperatorSheet` and mounts

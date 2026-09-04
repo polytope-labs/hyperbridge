@@ -180,6 +180,12 @@ export interface HydratedVault {
 	positionAssets: bigint
 	/** Vault's authoritative withdraw cap (`maxWithdraw(solver)`). */
 	maxWithdrawable: bigint
+	/**
+	 * Vault's deposit cap for the solver (`maxDeposit(solver)`). Zero while the vault refuses new
+	 * capital — a streaming-yield vault mid-tranche, a supply cap, a paused market — which is when a
+	 * sweep has nothing it can do.
+	 */
+	maxDeposit: bigint
 	/** Sourceable amount after consume() accounting for pending fills this round. */
 	remaining: bigint
 }
@@ -201,6 +207,8 @@ export interface VaultBalancePosition {
 	availableAssets: bigint
 	/** Underlying amount deliberately kept liquid in the solver wallet. */
 	walletReserve: bigint
+	/** False while `maxDeposit(solver)` is zero, so a dashboard can say why sweeps are idle. */
+	acceptsDeposits: boolean
 }
 
 /**

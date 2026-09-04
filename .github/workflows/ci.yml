@@ -66,6 +66,7 @@ jobs:
         if: github.event.pull_request.draft != true
         outputs:
             pharos: ${{ steps.filter.outputs.pharos }}
+            arc: ${{ steps.filter.outputs.arc }}
             sync-committee: ${{ steps.filter.outputs.sync-committee }}
             tendermint: ${{ steps.filter.outputs.tendermint }}
             bsc: ${{ steps.filter.outputs.bsc }}
@@ -86,6 +87,10 @@ jobs:
                         - 'modules/ismp/state-machines/pharos/**'
                         - 'tesseract/consensus/pharos/**'
                         - 'tesseract/messaging/pharos-evm/**'
+                      arc:
+                        - 'modules/consensus/arc/**'
+                        - 'modules/ismp/clients/arc/**'
+                        - 'tesseract/consensus/arc/**'
                       sync-committee:
                         - 'modules/consensus/sync-committee/**'
                         - 'modules/ismp/clients/sync-committee/**'
@@ -763,3 +768,55 @@ jobs:
             - name: Run Pharos integration tests
               run: |
                   PHAROS_ATLANTIC_RPC=${{ secrets.PHAROS_ATLANTIC_RPC }} cargo test -p pallet-ismp-testsuite "pharos" -- --nocapture --ignored
+
+    arc-tests:
+        name: Arc Tests
+        needs: detect-changes
+        runs-on: ubuntu-22.04
+        if: github.event.pull_request.draft != true && needs.detect-changes.outputs.arc == 'true'
+        steps:
+            - name: Get User Permission
+              id: checkAccess
+              uses: actions-cool/check-user-permission@v2
+              with:
+                  require: write
+                  username: ${{ github.triggering_actor }}
+
+            - name: Check User Permission
+              if: steps.checkAccess.outputs.require-result == 'false'
+              run: |
+                  echo "${{ github.triggering_actor }} does not have permissions on this repo."
+                  echo "Current permission level is ${{ steps.checkAccess.outputs.user-permission }}"
+                  echo "Job originally triggered by ${{ github.actor }}"
+                  exit 1
+
+            - uses: actions/checkout@v3
+              with:
+                  ref: ${{  github.event.pull_request.head.sha }}
+                  token: ${{ secrets.GH_TOKEN }}
+                  submodules: recursive
+
+            - name: Install toolchain
+              uses: dtolnay/rust-toolchain@nightly
+              with:
+                  toolchain: stable
+
+            - name: Install Dependencies
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y clang netcat wget curl libssl-dev llvm libclang-dev libudev-dev make libprotobuf-dev protobuf-compiler pkg-config
+                  echo "LIBCLANG_PATH=/usr/lib/llvm-14/lib" >> $GITHUB_ENV
+
+            - uses: webfactory/ssh-agent@v0.7.0
+              with:
+                  ssh-private-key: ${{ secrets.SSH_KEY }}
+
+            - uses: Swatinem/rust-cache@v2
+
+            - name: Run Arc unit tests
+              run: |
+                  cargo test -p arc-primitives -p arc-verifier -- --nocapture
+
+            - name: Run Arc integration tests
+              run: |
+                  cargo test -p arc-prover -- --nocapture --ignored

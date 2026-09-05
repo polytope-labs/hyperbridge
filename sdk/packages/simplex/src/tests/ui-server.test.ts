@@ -274,8 +274,15 @@ describe("UiServer (operator mode)", () => {
 		expect(await rawRequest(port, "/api/status", "evil.example.com")).toContain("403")
 		expect(await rawRequest(port, "/api/status", "evil.example.com:1234")).toContain("403")
 		expect(await rawRequest(port, "/health", "evil.example.com")).toContain("403")
+		// DNS names that a "startsWith(127.)" prefix test would have accepted: a
+		// leading-digit label is a legal hostname, so these must all be rejected.
+		expect(await rawRequest(port, "/api/status", "127.0.0.1.evil.example.com")).toContain("403")
+		expect(await rawRequest(port, "/api/status", "127.evil.example.com")).toContain("403")
+		expect(await rawRequest(port, "/api/status", `127.0.0.1.nip.io:${port}`)).toContain("403")
+		expect(await rawRequest(port, "/api/status", "127.")).toContain("403")
 		// Legitimate local access keeps working.
 		expect(await rawRequest(port, "/api/status", `127.0.0.1:${port}`)).toContain("200")
+		expect(await rawRequest(port, "/api/status", `127.0.0.2:${port}`)).toContain("200")
 		expect(await rawRequest(port, "/api/status", "localhost")).toContain("200")
 	})
 

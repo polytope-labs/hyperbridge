@@ -107,14 +107,14 @@ contract HostManagerTest is BaseTest {
         PostRequest memory request = _setHostParamRequest(params);
 
         vm.prank(address(host));
-        vm.expectRevert(HostManager.UnauthorizedRelayer.selector);
+        vm.expectRevert(HostManager.UnauthorizedAction.selector);
         manager.onAccept(IncomingPostRequest(request, OUTSIDER));
         assertEq(host.hostParams().challengePeriod, previousPeriod, "params unchanged");
 
         // The relayer as reported by the host is never zero, and the admin is never zero either, so
         // zero matches nothing.
         vm.prank(address(host));
-        vm.expectRevert(HostManager.UnauthorizedRelayer.selector);
+        vm.expectRevert(HostManager.UnauthorizedAction.selector);
         manager.onAccept(IncomingPostRequest(request, address(0)));
 
         // The same message goes through from the authorised relayer.
@@ -129,10 +129,10 @@ contract HostManagerTest is BaseTest {
         PostRequest memory request = _setHostParamRequest(host.hostParams());
 
         vm.prank(address(host));
-        vm.expectRevert(HostManager.UnauthorizedRelayer.selector);
+        vm.expectRevert(HostManager.UnauthorizedAction.selector);
         fresh.onAccept(IncomingPostRequest(request, address(this)));
         vm.prank(address(host));
-        vm.expectRevert(HostManager.UnauthorizedRelayer.selector);
+        vm.expectRevert(HostManager.UnauthorizedAction.selector);
         fresh.onAccept(IncomingPostRequest(request, OUTSIDER));
 
         // From its admin the gate passes and the call reaches the host, which rejects this manager
@@ -159,7 +159,7 @@ contract HostManagerTest is BaseTest {
 
         // The outgoing admin is locked out immediately.
         vm.prank(address(host));
-        vm.expectRevert(HostManager.UnauthorizedRelayer.selector);
+        vm.expectRevert(HostManager.UnauthorizedAction.selector);
         manager.onAccept(IncomingPostRequest(request, address(this)));
 
         vm.prank(address(host));
@@ -182,7 +182,7 @@ contract HostManagerTest is BaseTest {
         PostRequest memory request = _setAdminRequest(next);
 
         vm.prank(address(host));
-        vm.expectRevert(HostManager.UnauthorizedRelayer.selector);
+        vm.expectRevert(HostManager.UnauthorizedAction.selector);
         manager.onAccept(IncomingPostRequest(request, next));
 
         request.source = bytes("EVM-1");

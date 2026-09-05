@@ -55,9 +55,6 @@ contract HostManager is HyperApp, ERC165 {
     // @dev Action is unauthorized
     error UnauthorizedAction();
 
-    // @dev The message was delivered by a relayer other than the admin
-    error UnauthorizedRelayer();
-
     // @dev The host is already bound
     error AlreadyInitialized();
 
@@ -73,8 +70,8 @@ contract HostManager is HyperApp, ERC165 {
     event AdminUpdated(address previous, address current);
 
     // @dev restricts call to the provided `caller`
-    modifier restrict(address caller) {
-        if (msg.sender != caller) revert UnauthorizedAction();
+    modifier restrict(address who, address caller) {
+        if (who != caller) revert UnauthorizedAction();
         _;
     }
 
@@ -120,7 +117,7 @@ contract HostManager is HyperApp, ERC165 {
      * re-point the host later would let that key cut the host off from its own governance.
      * @param hostAddr The host this contract accepts `onAccept` calls from and acts upon
      */
-    function init(address hostAddr) external restrict(_params.admin) {
+    function init(address hostAddr) external restrict(msg.sender, _params.admin) {
         if (_params.host != address(0)) revert AlreadyInitialized();
         _params.host = hostAddr;
     }
@@ -134,9 +131,12 @@ contract HostManager is HyperApp, ERC165 {
      * back.
      * @param incoming The verified request and the relayer that submitted it
      */
-    function onAccept(IncomingPostRequest calldata incoming) external override restrict(_params.host) {
-        // Only the admin may deliver here.
-        if (incoming.relayer != _params.admin) revert UnauthorizedRelayer();
+    function onAccept(IncomingPostRequest calldata incoming)
+        external
+        override
+        restrict(msg.sender, _params.host)
+        restrict(incoming.relayer, _params.admin)
+    {
         PostRequest calldata request = incoming.request;
         // Only the Hyperbridge parachain can send requests to this module.
         if (!request.source.equals(IHost(_params.host).hyperbridge())) revert UnauthorizedAction();

@@ -254,12 +254,13 @@ fn test_host_manager_set_admin() {
 	assert_eq!(params.admin, next);
 	assert_eq!(params.host, env.host, "the host binding is untouched");
 
-	// The outgoing admin is locked out: UnauthorizedRelayer().
+	// The outgoing admin is locked out: UnauthorizedAction(), the same error as any other wrong
+	// party.
 	let rotate_back = set_admin(1, env.sender);
 	let err = env
 		.call_as_may_revert(host_addr, manager, onaccept_calldata(rotate_back.clone(), env.sender))
 		.expect_err("expected revert");
-	let selector = &alloy_primitives::keccak256(b"UnauthorizedRelayer()").0[..4];
+	let selector = &alloy_primitives::keccak256(b"UnauthorizedAction()").0[..4];
 	assert_eq!(&err[..4], selector);
 
 	// The new admin can deliver, here rotating back.

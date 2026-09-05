@@ -157,7 +157,7 @@ virtual `_checkRelayer` that `onAccept` and `onPostRequestTimeout` call before a
 callbacks mint, so both are gated. In the base the check is opt-in: zero leaves deliveries open, so
 tokens already deployed from this package behave as before until their owner sets a relayer.
 `evm/src/apps/BridgeToken.sol` overrides `_checkRelayer` to fail closed, and its deploy script sets
-the relayer from `BRIDGE_RELAYER` before `configure`, so the token is never live without one.
+the relayer from `GOVERNANCE_RELAYER` before `configure`, so the token is never live without one.
 `IHyperFungibleToken` is unchanged: `supportsInterface` keys on its `interfaceId`, so adding the
 new functions there would change what every existing deployment reports.
 

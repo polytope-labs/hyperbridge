@@ -29,8 +29,9 @@ FROM node:24.19.0 AS builder
 # path for native modules (better-sqlite3) on an arch with no matching prebuild.
 RUN apt-get update && apt-get install -y python3 make g++ git curl protobuf-compiler libprotobuf-dev --no-install-recommends && rm -rf /var/lib/apt/lists/*
 
-# Install pnpm
-RUN npm install -g pnpm
+# Install pnpm, pinned to the major the workspace's packageManager field names: pnpm 12
+# refuses to resolve pnpm@11.0.0 as a trust downgrade, so an unpinned install broke the image.
+RUN npm install -g pnpm@11
 
 # Set working directory
 WORKDIR /app

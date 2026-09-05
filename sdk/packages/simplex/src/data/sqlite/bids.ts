@@ -196,6 +196,17 @@ export class SqliteBidStore implements BidStore {
 		return (rows as any[]).map((row) => this.toStoredBid(row))
 	}
 
+	async byCommitments(commitments: string[]): Promise<StoredBid[]> {
+		if (commitments.length === 0) return []
+		const rows = this.db
+			.prepare(
+				`SELECT ${BID_COLUMNS} FROM bids WHERE commitment IN (${commitments.map(() => "?").join(",")}) ORDER BY id DESC`,
+			)
+			.all(...commitments)
+		// biome-ignore lint/suspicious/noExplicitAny: raw sqlite row
+		return (rows as any[]).map((row) => this.toStoredBid(row))
+	}
+
 	async recent(limit = 100): Promise<StoredBid[]> {
 		const rows = this.db
 			.prepare(`SELECT ${BID_COLUMNS} FROM bids ORDER BY id DESC LIMIT ?`)

@@ -2,7 +2,7 @@ import { VaultRowsEditor } from "../../components/VaultRowsEditor"
 import { enabledChains } from "../state"
 import type { StepProps } from "../Wizard"
 
-export function StepTreasury({ state, setState, defaults }: StepProps) {
+export function StepTreasury({ state, setState, defaults, goToStep }: StepProps) {
 	const chains = enabledChains(state)
 
 	return (
@@ -42,6 +42,8 @@ export function StepTreasury({ state, setState, defaults }: StepProps) {
 				<VaultRowsEditor
 					chains={chains.map((c) => ({ key: c.meta.stateMachineId, label: c.meta.label }))}
 					knownVaults={defaults.knownVaults}
+					network={state.network}
+					onEnableChain={() => goToStep("chains")}
 					rows={state.vaults}
 					onChange={(vaults) => setState((s) => ({ ...s, vaults }))}
 				/>

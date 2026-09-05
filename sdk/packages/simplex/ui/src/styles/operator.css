@@ -1418,3 +1418,309 @@ button.operator-tool-row {
 		background-position: 100% 50%;
 	}
 }
+
+/* Order history: one row per order, HyperFX-style — referrer, status, legs, user, time. */
+.history-table th,
+.history-table td {
+	padding: 0.85rem 0.75rem;
+	vertical-align: middle;
+}
+
+.history-table th:first-child,
+.history-table td:first-child {
+	padding-left: 0;
+}
+
+.history-table tbody tr {
+	transition: background-color 160ms var(--ease-out);
+}
+
+.history-table tbody tr:hover {
+	background: rgba(255, 255, 255, 0.018);
+}
+
+.history-referrer {
+	color: var(--text);
+	font-family: var(--font-mono);
+	font-size: 0.8125rem;
+}
+
+.history-referrer[data-empty="true"] {
+	color: var(--muted);
+}
+
+.history-status {
+	display: grid;
+	gap: 0.3rem;
+	justify-items: start;
+}
+
+.history-status .badge {
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+}
+
+.history-status small {
+	max-width: 16rem;
+	overflow: hidden;
+	color: var(--muted);
+	font-size: 0.6875rem;
+	line-height: 1.4;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.history-leg {
+	display: flex;
+	align-items: center;
+	gap: 0.6rem;
+	min-width: 0;
+}
+
+.history-leg-icon {
+	position: relative;
+	display: block;
+	width: 1.6rem;
+	height: 1.6rem;
+	flex: 0 0 auto;
+}
+
+.history-leg-icon .token-icon {
+	width: 1.6rem;
+	height: 1.6rem;
+}
+
+.history-leg-icon .chain-logo {
+	position: absolute;
+	right: -0.15rem;
+	bottom: -0.15rem;
+	width: 0.85rem;
+	height: 0.85rem;
+	box-shadow: 0 0 0 2px var(--bg);
+}
+
+.history-leg-copy {
+	display: grid;
+	min-width: 0;
+	gap: 0.1rem;
+}
+
+.history-leg-copy strong {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0 0.35rem;
+	color: var(--text);
+	font-family: var(--font-mono);
+	font-size: 0.8125rem;
+	font-weight: 500;
+	font-variant-numeric: tabular-nums;
+}
+
+.history-leg-copy small {
+	color: var(--muted);
+	font-size: 0.6875rem;
+}
+
+.history-user {
+	font-family: var(--font-mono);
+	font-size: 0.8125rem;
+}
+
+.history-time {
+	display: grid;
+	gap: 0.1rem;
+	white-space: nowrap;
+}
+
+.history-time strong {
+	color: var(--text);
+	font-family: var(--font-mono);
+	font-size: 0.8125rem;
+	font-weight: 500;
+}
+
+.history-time small {
+	color: var(--muted);
+	font-family: var(--font-mono);
+	font-size: 0.6875rem;
+}
+
+.history-links {
+	display: flex;
+	gap: 0.15rem;
+	justify-content: flex-end;
+}
+
+.history-links a {
+	display: grid;
+	place-items: center;
+	width: 1.9rem;
+	height: 1.9rem;
+	border: 1px solid transparent;
+	border-radius: 50%;
+	color: var(--muted);
+	text-decoration: none;
+	transition:
+		border-color 160ms var(--ease-out),
+		background-color 160ms var(--ease-out),
+		color 160ms var(--ease-out);
+}
+
+.history-links a:hover {
+	border-color: var(--border-strong);
+	background: var(--card-raised);
+	color: var(--text);
+}
+
+.history-links svg {
+	width: 0.9rem;
+	height: 0.9rem;
+}
+
+.history-misc {
+	margin-top: 1rem;
+	display: grid;
+	gap: 0.35rem;
+}
+
+.history-misc li {
+	display: flex;
+	align-items: center;
+	gap: 0.75rem;
+	list-style: none;
+	color: var(--muted);
+	font-size: 0.75rem;
+}
+
+.history-misc ul {
+	margin: 0;
+	padding: 0;
+}
+
+/* Bids folded into the order row. */
+.history-bids {
+	display: grid;
+	gap: 0.15rem;
+	white-space: nowrap;
+}
+
+.history-bids strong {
+	color: var(--text);
+	font-family: var(--font-mono);
+	font-size: 0.8125rem;
+	font-weight: 500;
+}
+
+.history-bids small {
+	color: var(--muted);
+	font-size: 0.6875rem;
+}
+
+.history-bids small[data-tone="ok"] {
+	color: var(--ok);
+}
+
+.history-bids small[data-tone="err"] {
+	color: var(--err);
+}
+
+/* Pager under the history table. */
+.history-pager {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 1rem;
+	margin-top: 1rem;
+}
+
+.history-pager > small {
+	color: var(--muted);
+	font-family: var(--font-mono);
+	font-size: 0.6875rem;
+	letter-spacing: 0.035em;
+}
+
+.history-pager-pages {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.25rem;
+}
+
+.history-pager-pages button {
+	min-width: 2.25rem;
+	min-height: 2.25rem;
+	padding: 0.35rem 0.6rem;
+	border-color: transparent;
+	background: transparent;
+	color: var(--muted);
+	font-family: var(--font-mono);
+	font-size: 0.75rem;
+}
+
+.history-pager-pages button:hover:not(:disabled) {
+	border-color: transparent;
+	background: rgba(255, 255, 255, 0.035);
+	color: var(--text);
+}
+
+.history-pager-pages button[data-active="true"] {
+	background: var(--card-raised);
+	box-shadow: inset 0 0 0 1px var(--border);
+	color: var(--text);
+}
+
+.history-pager-pages button:disabled {
+	background: transparent;
+	color: #4d5560;
+}
+
+.history-pager-pages span {
+	padding: 0 0.25rem;
+	color: var(--muted);
+	font-family: var(--font-mono);
+	font-size: 0.75rem;
+}
+
+/* Bid / retraction extrinsic links under their time. */
+a.history-extrinsic {
+	color: var(--focus);
+	font-family: var(--font-mono);
+	font-size: 0.6875rem;
+	text-decoration: none;
+}
+
+a.history-extrinsic:hover {
+	color: var(--text);
+	text-decoration: underline;
+}
+
+/* Runtime controls, inline on the overview: state on the left, actions on the right. */
+.operator-runtime {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 1.5rem;
+}
+
+.operator-runtime .operator-runtime-state {
+	padding: 0;
+	border-bottom: 0;
+}
+
+.operator-runtime-actions {
+	display: flex;
+	align-items: center;
+	gap: 0.75rem;
+	flex: 0 0 auto;
+}
+
+button.operator-runtime-stop {
+	border-color: rgba(255, 122, 137, 0.25);
+	background: rgba(255, 122, 137, 0.06);
+	color: var(--err);
+}
+
+button.operator-runtime-stop:hover:not(:disabled) {
+	border-color: rgba(255, 122, 137, 0.45);
+	background: rgba(255, 122, 137, 0.12);
+}

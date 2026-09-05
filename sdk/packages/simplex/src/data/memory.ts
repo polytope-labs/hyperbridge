@@ -2,6 +2,8 @@ import type {
 	ActivityEvent,
 	ActivityInsert,
 	ActivityStore,
+	OrderHistoryPage,
+	OrderSummary,
 	BidInsert,
 	BidStats,
 	BidStore,
@@ -121,6 +123,14 @@ class MemoryBidStore implements BidStore {
 			.map((row) => ({ ...row }))
 	}
 
+	async byCommitments(commitments: string[]): Promise<StoredBid[]> {
+		const wanted = new Set(commitments)
+		return this.rows
+			.filter((row) => wanted.has(row.commitment))
+			.reverse()
+			.map((row) => ({ ...row }))
+	}
+
 	async failed(limit = 100): Promise<StoredBid[]> {
 		return this.rows
 			.filter((row) => !row.success)
@@ -168,6 +178,7 @@ class MemoryActivityStore implements ActivityStore {
 			volumeUsd: event.volumeUsd ?? null,
 			profitUsd: event.profitUsd ?? null,
 			txHash: event.txHash ?? null,
+			order: event.order ?? null,
 		}
 		this.events.push(row)
 		if (this.events.length > MAX_ROWS) this.events.splice(0, this.events.length - MAX_ROWS)
@@ -188,6 +199,82 @@ class MemoryActivityStore implements ActivityStore {
 			.slice(-capLimit(limit))
 			.reverse()
 			.map((row) => ({ ...row }))
+	}
+
+	async orderIdsMissingSummary(limit = 500): Promise<string[]> {
+		const ids: string[] = []
+		for (let i = this.events.length - 1; i >= 0 && ids.length < capLimit(limit); i--) {
+			const row = this.events[i]
+			if (row.orderId && row.order === null && !ids.includes(row.orderId)) ids.push(row.orderId)
+		}
+		return ids
+	}
+
+	async attachOrder(orderId: string, order: OrderSummary): Promise<ActivityEvent[]> {
+		const changed: ActivityEvent[] = []
+		for (const row of this.events) {
+			if (row.orderId === orderId && row.order === null) {
+				row.order = order
+				changed.push({ ...row })
+			}
+		}
+		return changed
+	}
+
+	async knowsOrder(orderId: string): Promise<boolean> {
+		return this.events.some((row) => row.orderId === orderId)
+	}
+
+	async unsettledOrders(limit = 500): Promise<string[]> {
+		const isBid = (row: ActivityEvent) => row.type === "bid" || (row.type === "filled" && row.volumeUsd !== null)
+		const isSettled = (row: ActivityEvent) => row.type === "lost" || (row.type === "filled" && row.volumeUsd === null)
+		const ids: string[] = []
+		for (let i = this.events.length - 1; i >= 0 && ids.length < capLimit(limit); i--) {
+			const orderId = this.events[i].orderId
+			if (!orderId || ids.includes(orderId)) continue
+			const rows = this.events.filter((row) => row.orderId === orderId)
+			if (rows.some(isBid) && !rows.some(isSettled)) ids.push(orderId)
+		}
+		return ids
+	}
+
+	async retypeLegacyBid(orderId: string): Promise<ActivityEvent[]> {
+		const changed: ActivityEvent[] = []
+		for (const row of this.events) {
+			if (row.orderId === orderId && row.type === "filled" && row.volumeUsd !== null) {
+				row.type = "bid"
+				changed.push({ ...row })
+			}
+		}
+		return changed
+	}
+
+	async orderHistory(page: number, pageSize: number): Promise<OrderHistoryPage> {
+		const size = capLimit(pageSize)
+		const current = Math.max(1, Math.floor(page))
+		// Distinct order ids by newest activity, then the page's slice.
+		const ordered: string[] = []
+		const seen = new Set<string>()
+		for (let i = this.events.length - 1; i >= 0; i--) {
+			const orderId = this.events[i].orderId
+			if (orderId && !seen.has(orderId)) {
+				seen.add(orderId)
+				ordered.push(orderId)
+			}
+		}
+		const ids = ordered.slice((current - 1) * size, current * size)
+		return {
+			page: current,
+			pageSize: size,
+			total: ordered.length,
+			orders: ids.map((orderId) => ({
+				orderId,
+				events: this.events
+					.filter((row) => row.orderId === orderId)
+					.reverse()
+					.map((row) => ({ ...row })),
+			})),
+		}
 	}
 
 	async recordWalletTx(tx: Omit<WalletTx, "id" | "ts">): Promise<void> {

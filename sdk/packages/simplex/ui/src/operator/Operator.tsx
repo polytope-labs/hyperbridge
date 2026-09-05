@@ -8,7 +8,7 @@ import { InstallAppButton } from "../components/InstallAppButton"
 import { useAction, usePolling } from "../lib/hooks"
 import type { AdminStrategyDto, BalanceSnapshot, ConfigDto, StatusOperator } from "../types"
 import { Activity } from "./Activity"
-import { Operations } from "./Operations"
+import { Operations, type OperationsPanel } from "./Operations"
 import { OperatorOverview } from "./OperatorOverview"
 import { Wallet } from "./Wallet"
 
@@ -22,8 +22,8 @@ const PAGE_TABS: Array<{
 }> = [
 	{ value: "overview", label: "Overview", description: "Health and liquidity", icon: OverviewIcon },
 	{ value: "activity", label: "Activity", description: "Orders and bids", icon: ActivityIcon },
-	{ value: "wallet", label: "Wallet", description: "Transaction history", icon: WalletIcon },
-	{ value: "operations", label: "Operations", description: "Funds and configuration", icon: OperationsIcon },
+	{ value: "wallet", label: "Wallet", description: "Funds and history", icon: WalletIcon },
+	{ value: "operations", label: "Operations", description: "Live configuration", icon: OperationsIcon },
 ]
 
 const PAGE_COPY: Record<Tab, { eyebrow: string; title: string; description: string }> = {
@@ -38,14 +38,14 @@ const PAGE_COPY: Record<Tab, { eyebrow: string; title: string; description: stri
 		description: "Follow orders from detection through bidding and execution.",
 	},
 	wallet: {
-		eyebrow: "Treasury ledger",
+		eyebrow: "Treasury",
 		title: "Wallet",
-		description: "Review transactions submitted by the filler wallet.",
+		description: "Move funds, put idle liquidity to work, and review what the filler wallet has submitted.",
 	},
 	operations: {
 		eyebrow: "Operator tools",
 		title: "Operations",
-		description: "Move funds and maintain live configuration without crowding the dashboard.",
+		description: "Maintain live configuration without crowding the dashboard.",
 	},
 }
 
@@ -58,11 +58,12 @@ function formatUptime(seconds: number): string {
 export function Operator(props: { status: StatusOperator; refresh: () => void }) {
 	const { status, refresh } = props
 	const [tab, setTab] = useState<Tab>("overview")
+	// Set when another page sends the operator to a specific Operations sheet.
+	const [operationsPanel, setOperationsPanel] = useState<OperationsPanel>()
 	const [balances, setBalances] = useState<BalanceSnapshot>()
 	const [strategies, setStrategies] = useState<AdminStrategyDto[]>([])
 	const [config, setConfig] = useState<ConfigDto>()
 	const [showEnvironment, setShowEnvironment] = useState(false)
-	const [showRuntime, setShowRuntime] = useState(false)
 	const [loadError, setLoadError] = useState<string>()
 	const [stopped, setStopped] = useState(false)
 	const { run, pending, error } = useAction()
@@ -175,11 +176,6 @@ export function Operator(props: { status: StatusOperator; refresh: () => void })
 							<h1>{page.title}</h1>
 							<p>{page.description}</p>
 						</div>
-						{tab === "overview" ? (
-							<button type="button" className="secondary" onClick={() => setShowRuntime(true)}>
-								Runtime controls
-							</button>
-						) : null}
 					</header>
 
 					{tab === "overview" ? (
@@ -190,17 +186,28 @@ export function Operator(props: { status: StatusOperator; refresh: () => void })
 							config={config}
 							onResetHalt={resetHalt}
 							onMarketsChanged={load}
+							runtime={{ pending, onTogglePause: togglePause, onStop: stopFiller }}
 						/>
 					) : null}
 
-					{tab === "activity" ? <Activity /> : null}
-					{tab === "wallet" ? <Wallet chainLabels={status.chainLabels} /> : null}
-					{tab === "operations" ? (
-						<Operations
+					{tab === "activity" ? <Activity chainLabels={status.chainLabels} /> : null}
+					{tab === "wallet" ? (
+						<Wallet
 							chains={status.chains}
 							chainLabels={status.chainLabels}
 							balances={balances}
 							onBalancesChanged={load}
+							onOpenChains={() => {
+								setOperationsPanel("chains")
+								setTab("operations")
+							}}
+						/>
+					) : null}
+					{tab === "operations" ? (
+						<Operations
+							chains={status.chains}
+							initialPanel={operationsPanel}
+							onInitialPanelShown={() => setOperationsPanel(undefined)}
 						/>
 					) : null}
 					{(error ?? loadError) ? <p className="error">{error ?? loadError}</p> : null}
@@ -241,38 +248,6 @@ export function Operator(props: { status: StatusOperator; refresh: () => void })
 				) : null}
 			</OperatorSheet>
 
-			<OperatorSheet
-				open={showRuntime}
-				onClose={() => setShowRuntime(false)}
-				title="Runtime controls"
-				description="Pause new fills or safely stop the current Simplex process."
-			>
-				<div className="operator-runtime-state">
-					<span className={`operator-status-dot ${status.paused ? "warn" : ""}`} />
-					<div>
-						<strong>{status.paused ? "New fills are paused" : "Filling is active"}</strong>
-						<p>
-							{status.paused
-								? "Order monitoring continues, but new fills are not analysed."
-								: "Simplex is monitoring and filling eligible orders."}
-						</p>
-					</div>
-				</div>
-				<div className="operator-action-section">
-					<h3>{status.paused ? "Resume filling" : "Pause filling"}</h3>
-					<p>In-flight fills complete. The pause state persists across restarts.</p>
-					<button type="button" className="primary" onClick={togglePause} disabled={pending}>
-						{status.paused ? "Resume filling" : "Pause new fills"}
-					</button>
-				</div>
-				<div className="operator-action-section danger">
-					<h3>Stop Simplex</h3>
-					<p>Drain in-flight fills, unwind eligible vault positions, and exit the process.</p>
-					<button type="button" onClick={stopFiller} disabled={pending}>
-						Stop filler
-					</button>
-				</div>
-			</OperatorSheet>
 		</div>
 	)
 }

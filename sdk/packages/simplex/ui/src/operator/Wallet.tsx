@@ -3,7 +3,8 @@ import { chainByChainId } from "@/cli/init/chains"
 import { api } from "../api"
 import { CopyHash } from "../components/CopyHash"
 import { usePolling } from "../lib/hooks"
-import type { WalletTxDto } from "../types"
+import type { BalanceSnapshot, WalletTxDto } from "../types"
+import { WalletTools } from "./WalletTools"
 
 const KIND_LABEL: Record<WalletTxDto["kind"], string> = {
 	send: "send",
@@ -31,7 +32,13 @@ function TxLink(props: { tx: WalletTxDto }) {
 	)
 }
 
-export function Wallet(props: { chainLabels?: Record<string, string> }) {
+export function Wallet(props: {
+	chains: number[]
+	chainLabels?: Record<string, string>
+	balances?: BalanceSnapshot
+	onBalancesChanged: () => Promise<void> | void
+	onOpenChains: () => void
+}) {
 	const [txs, setTxs] = useState<WalletTxDto[]>()
 	const [error, setError] = useState<string>()
 
@@ -50,6 +57,13 @@ export function Wallet(props: { chainLabels?: Record<string, string> }) {
 
 	return (
 		<div className="operator-page-content">
+			<WalletTools
+				chains={props.chains}
+				chainLabels={props.chainLabels}
+				balances={props.balances}
+				onBalancesChanged={props.onBalancesChanged}
+				onOpenChains={props.onOpenChains}
+			/>
 			<section className="operator-section">
 				<div className="operator-section-heading">
 					<div>

@@ -259,6 +259,13 @@ jobs:
             - name: Publish to npm
               run: |
                   cd packages/simplex
+                  VERSION="$(node -p "require('./package.json').version")"
+                  # A re-fired tag (say, after an image build failure) must not fail here on
+                  # the version it already published; skipping lets the image and release finish.
+                  if npm view "@hyperbridge/simplex@${VERSION}" version >/dev/null 2>&1; then
+                    echo "@hyperbridge/simplex@${VERSION} is already on npm; skipping publish."
+                    exit 0
+                  fi
                   pnpm pack --pack-destination /tmp/npm-pkg
                   npm publish /tmp/npm-pkg/*.tgz --access public
 

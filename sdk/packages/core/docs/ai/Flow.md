@@ -38,19 +38,21 @@ Verified against `evm/src/core/HandlerV2.sol`, `evm/src/core/EvmHost.sol` and
    relayer))`. If that call fails the host deletes the receipt and returns without reverting, so the
    rest of the batch proceeds and the message stays deliverable.
 3. `ExtrinsicIntents.onAccept` runs `onlyHost`, then `_checkRelayer(incoming.relayer)`, which reverts
-   with `Unauthorized` unless the relayer equals `_relayer`. Only then is the first body byte read as
-   a `RequestKind`. `onGetResponse` has the same two steps before touching the response.
+   with `Unauthorized` when a relayer is set and the delivery is from anyone else. Only then is the
+   first body byte read as a `RequestKind`. `onGetResponse` has the same two steps before touching
+   the response.
 
 So a delivery from anyone but the authorised relayer never decodes the body, never runs
 `_authenticate`, and leaves no receipt. The authorised relayer submitting the same message later
-takes the normal path. A gateway whose `_relayer` is zero refuses everything, since step 1 always
-supplies a real address.
+takes the normal path. A gateway whose `_relayer` is zero accepts every relayer: that is the state
+a fresh proxy is in until governance arms it, below.
 
 The address checked in step 3 is only as trustworthy as the contract in step 1, and that contract
 is `_hostParams.handler`, which `HostManager.onAccept` can replace through a `SetHostParam`
 request from Hyperbridge (`evm/src/core/HostManager.sol`, then `EvmHost.updateHostParams`). The
-HostManager therefore runs the same relayer check before decoding any governance action, against a
-relayer the host admin set with `setRelayer`; `testForgedHandlerSwapIsRefused` in
+HostManager therefore runs the same relayer check before decoding any governance action, against
+its admin: the account named in its constructor, which is also the only one allowed to bind the
+host with `init` when the host was not known at construction. `testForgedHandlerSwapIsRefused` in
 `evm/tests/foundry/HostManagerTest.sol` plays the swap through the real host and shows it refused.
 The HostManager sees no user traffic, so this leaves ordinary relaying open.
 
@@ -63,39 +65,66 @@ through the old one. Hyperbridge records the new manager as soon as the request 
 every later `update_host_params` and `withdraw` is addressed to it. The two rotation tests in
 `evm/tests/foundry/HostManagerTest.sol` play both addressings through the real host, and
 `test_manager_rotation_is_addressed_to_the_current_manager` in the pallet testsuite pins the
-recipient the runtime chooses. Because the new manager's relayer gate applies to everything after
-the swap, the host admin sets its relayer before the rotation is dispatched.
+recipient the runtime chooses. The new manager is constructed with the governance relayer as its
+admin, so its gate is armed before the rotation is dispatched.
 
-`setRelayer` has two callers. `_owner` calls it directly. The host reaches it when governance
-sends `UpgradeContract` with `abi.encodeCall(setRelayer, (relayer))` as migration calldata:
-`ERC1967Utils.upgradeToAndCall` delegatecalls that calldata into the new implementation with
-`msg.sender` still the host from step 2, so the relayer is set in the same transaction as the
-implementation swap. The upgrade message itself must already pass the relayer gate of the
-implementation being replaced, which is why a fresh proxy cannot be armed that way:
-`DeployIntentGateway.s.sol` calls `setRelayer` from the admin key immediately after deploying the
-proxy, before anything can be escrowed into it.
+Rotating the relayer itself is the `SetAdmin` action. `set_host_manager_admin` on Hyperbridge
+reads the manager on record, refuses a zero admin, and dispatches `[2] ++ abi.encode(admin)`
+(`encode_set_admin` in `evm/rust/src/host_params.rs`) addressed to that manager. On delivery
+`onAccept` runs the relayer gate and the Hyperbridge-source check as for any action, then decodes
+the address, refuses zero, emits `AdminUpdated` and stores it; the outgoing admin delivers it and
+is locked out from the next message on. `testSetAdminRotates` plays it in Solidity,
+`test_host_manager_set_admin` in `evm/tests/rust/src/tests/host_manager.rs` delivers the pallet's
+encoding to the compiled contract, and `test_set_host_manager_admin_is_addressed_to_the_manager`
+pins the recipient and body the runtime dispatches.
 
-## The same gate on `HyperFungibleToken`, and how the BRIDGE token tightens it
+`setRelayer` (`evm/src/apps/intentsv2/ExtrinsicIntents.sol`) rotates the relayer; it,
+`initialize` and `migrate` are the callers of `_setRelayer`, the only writer of `_relayer`.
+Governance reaches every host-only function through one action, `Execute` (discriminator 5):
+`onAccept` delegatecalls the proxy's current implementation with `body[1:]` as calldata, so
+`msg.sender` is still the host from step 2 and `onlyHost` passes. `setRelayer(next)` as that
+calldata is a rotation, `upgradeToAndCall(newImpl, initData)` is an upgrade, and inside the latter
+`ERC1967Utils.upgradeToAndCall` delegatecalls `initData` into the new implementation, still with
+the host as `msg.sender`, which is how `migrate(relayer)` arms a proxy in the same transaction as
+the swap. A revert anywhere inside bubbles out of `onAccept`, so the host records the message
+undelivered. The pallet's `execute_on_gateway` sends `Execute`; `upgrade_gateway` sends the older
+`UpgradeContract` body under the same discriminator, which only a pre-`Execute` implementation
+reads (on this one it selects no function and reverts, `testLegacyUpgradeBodyIsRefused`), so it
+is used once per chain to install this implementation and not after. The message itself must pass
+the relayer gate of the implementation it reaches, which is why an unset relayer gates nothing: a
+proxy from before the gate accepts every relayer until the `migrate` upgrade arms it, and
+`testFreshProxyIsOpenUntilGovernanceArmsIt` plays both halves on a proxy initialized with a zero
+relayer. `testExecuteRotatesRelayerWithoutUpgrade` and the live-fork test's rotation after the
+migration pin the `Execute` path. `_owner` plays no part in any of
+this. A fresh proxy is armed by its init data: `initialize` takes the relayer, writes it through
+`_setRelayer`, and lands at `VERSION` (2) under `reinitializer`, emitting `RelayerUpdated` then
+`Initialized(2)`; it is refused on any proxy already at a version. A proxy from before this
+implementation sits at 1 with an open gate until the upgrade whose migration calldata is
+`abi.encodeCall(migrate, (relayer))`, host-only and under the same `reinitializer(VERSION)`, arms
+it and takes it to 2, and that is the only way up for it: an upgrade that forgot the calldata
+leaves nobody able to `initialize` the proxy. A `setRelayer` rotation leaves the version
+alone. A revert from `version()` means an implementation from before the gate.
+`testInitializeArmsTheGate` pins the fresh path, `testMigrateArmsAndBumpsTheVersion` and
+`testMigrateRunsOnce` the migration, and the live-fork upgrade test reads 2 on the mainnet proxy
+after it.
+
+## The BRIDGE token's relayer gate, and why the base token has none
 
 Verified against `contracts/apps/HyperFungibleToken.sol` and `evm/src/apps/BridgeToken.sol`, and
-exercised by the relayer tests in `evm/tests/foundry/HyperFungibleTokenTest.sol` and
-`evm/tests/foundry/BridgeTokenTest.t.sol`.
+exercised by `evm/tests/foundry/BridgeTokenTest.t.sol`.
 
 Steps 1 and 2 above are identical; the token is just another `IApp`. Timeouts take a parallel route:
 `HandlerV2.handlePostRequestTimeouts` calls `host.dispatchTimeOut(PostRequestTimeout(request,
 _msgSender()), ...)`, and the host calls `onPostRequestTimeout` on the module.
 
-3. `onAccept` and `onPostRequestTimeout` run `onlyHost`, `whenNotPaused`, then
-   `_checkRelayer(incoming.relayer)`. Only after that is the source checked against
-   `_supportedChains` or the body decoded, and only then does anything mint.
+3. `HyperFungibleToken.onAccept` and `onPostRequestTimeout` are `public virtual`, run `onlyHost`
+   and `whenNotPaused`, then check the source against `_supportedChains`, decode the body, and
+   mint. The base token knows nothing about relayers: a third-party token accepts every relayer.
 
-`_checkRelayer` is virtual. In `HyperFungibleToken` it reverts with `UnauthorizedRelayer` only when
-`_relayer` is set and differs from the incoming relayer, so a token that never called `setRelayer`
-accepts every relayer. `BridgeToken` overrides it to revert whenever the two differ, so with
-`_relayer` unset nothing can mint; the deploy script therefore calls `setRelayer` before
-`configure`, and before `configure` the token cannot be reached at all since `onlyHost` compares
-against an unset `_host`.
-
-`setRelayer` is `onlyOwner` in both. The host is not the owner and never calls the token with
-anything but the callback selectors, so there is no equivalent of the gateway's host branch, and
-none is needed: the token is not behind a proxy, so there is no upgrade transaction to arm it in.
+`BridgeToken` overrides both callbacks: `onlyHost`, then `_checkRelayer(incoming.relayer)`, then
+`super`. `_checkRelayer` reverts with `BridgeToken.UnauthorizedRelayer` whenever the incoming relayer
+differs from `_relayer`, so with none set nothing can mint; the deploy script calls `setRelayer`
+before `configure`, and before `configure` the token cannot be reached at all since `onlyHost`
+compares against an unset `_host`. `setRelayer` is `onlyOwner`; the host is not the owner and
+never calls the token with anything but the callback selectors. The token is not behind a proxy,
+so there is no upgrade transaction to arm it in and no host-only setter like the gateway's.

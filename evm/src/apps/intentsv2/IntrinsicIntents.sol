@@ -50,25 +50,6 @@ abstract contract IntrinsicIntents is IntentsBase {
      * @param options The fill options containing the solver's output token amounts.
      * @param commitment The keccak256 hash of the ABI-encoded order.
      */
-    /**
-     * @dev Splits overpayment between the protocol and the beneficiary. An order carrying
-     * output calldata takes no beneficiary share, since the surplus is not the caller's to give.
-     *
-     * Extracted from `_fillSameChain` rather than inlined: that function sits one slot from
-     * the via-ir stack limit, and it only fit before because the `recordSpread` call at the
-     * end of `fillOrder` kept values live past the fill and happened to give the optimizer a
-     * layout that worked. Removing that call took the slack with it.
-     */
-    function _splitSurplus(uint256 dust, bool hasOutputCall)
-        private
-        view
-        returns (uint256 protocolShare, uint256 beneficiaryShare)
-    {
-        if (hasOutputCall) return (dust, 0);
-        protocolShare = (dust * _params.surplusShareBps) / 10_000;
-        beneficiaryShare = dust - protocolShare;
-    }
-
     function _fillSameChain(Order calldata order, FillOptions calldata options, bytes32 commitment) internal {
         uint256 outputsLen = order.output.assets.length;
 
@@ -114,6 +95,7 @@ abstract contract IntrinsicIntents is IntentsBase {
             if (token == address(0)) {
                 if (msgValue < beneficiaryTotal + protocolShare) revert InsufficientNativeToken();
                 msgValue -= (beneficiaryTotal + protocolShare);
+                // Inline, not `_sendValue`: this loop is at the via-ir stack limit.
                 (bool sent,) = beneficiary.call{value: beneficiaryTotal}("");
                 if (!sent) revert InsufficientNativeToken();
             } else {
@@ -142,9 +124,7 @@ abstract contract IntrinsicIntents is IntentsBase {
         if (order.output.call.length > 0 && !isFullyFilled) revert PartialFillNotAllowed();
 
         WithdrawalRequest memory body = WithdrawalRequest({
-            commitment: commitment,
-            tokens: escrowedInputs,
-            beneficiary: bytes32(uint256(uint160(msg.sender)))
+            commitment: commitment, tokens: escrowedInputs, beneficiary: bytes32(uint256(uint160(msg.sender)))
         });
         _withdraw(body, false, isFullyFilled);
 
@@ -158,8 +138,7 @@ abstract contract IntrinsicIntents is IntentsBase {
 
         // Refund any unspent native tokens to the solver.
         if (msgValue > 0) {
-            (bool sent,) = msg.sender.call{value: msgValue}("");
-            if (!sent) revert InsufficientNativeToken();
+            _sendValue(msg.sender, msgValue);
         }
     }
 

@@ -128,7 +128,11 @@ attempt necessary.
    `extractFill`. The SDK's own `extractFillData` is not used here: it decodes with viem, whose byte handling
    throws inside SubQuery's VM2 sandbox.
 2. A bid's `callData` is the solver account's ERC-7821 `execute(mode, executionData)` batch. The batch is decoded,
-   and each call whose `target` is the gateway is a `fillOrder` candidate.
+   and each call whose `target` is the gateway is a `fillOrder` candidate. The bid's sender must be
+   EIP-7702-delegated to one of the chain's `SOLVER_ACCOUNT_ADDRESSES`; the list carries the current
+   SolverAccount and, during a redeployment, the one it replaced. The bid's sender must be
+   EIP-7702-delegated to one of the chain's `SOLVER_ACCOUNT_ADDRESSES`; the list carries the current
+   SolverAccount and, during a redeployment, the one it replaced.
 3. `decodeFillOrderEither` tries the v2 interface (`FILL_ORDER_ABI`, with `validUntil`, selector `0xa5470064`)
    and then the v1 one (`FILL_ORDER_V1_ABI`, selector `0x5cfb1ea5`). ethers validates the selector before
    decoding, so exactly one can match and there is no payload that could be mis-decoded as the other shape.

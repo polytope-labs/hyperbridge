@@ -74,16 +74,16 @@ export class YieldVaultService {
 		)
 	}
 
-	/** Whether `lp` is EIP-7702-delegated to the chain's SolverAccount contract. Fails closed. */
+	/** Whether `lp` is EIP-7702-delegated to one of the chain's SolverAccount contracts. Fails closed. */
 	static async isDelegatedSolver(chain: string, lp: string): Promise<boolean> {
-		const solverAccount = SOLVER_ACCOUNT_ADDRESSES[chain]
-		if (!solverAccount) return false
+		const solverAccounts = SOLVER_ACCOUNT_ADDRESSES[chain]
+		if (!solverAccounts?.length) return false
 
 		try {
 			const code: string = await (api as any).getCode(lp)
 			if (!code || !code.toLowerCase().startsWith(DELEGATION_INDICATOR_PREFIX)) return false
-			const delegatedTo = "0x" + code.slice(DELEGATION_INDICATOR_PREFIX.length)
-			return delegatedTo.toLowerCase() === solverAccount.toLowerCase()
+			const delegatedTo = ("0x" + code.slice(DELEGATION_INDICATOR_PREFIX.length)).toLowerCase()
+			return solverAccounts.some((solverAccount) => solverAccount.toLowerCase() === delegatedTo)
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error)
 			logger.warn(`[yield-vault] Delegation check failed for ${lp} on ${chain}: ${message}`)

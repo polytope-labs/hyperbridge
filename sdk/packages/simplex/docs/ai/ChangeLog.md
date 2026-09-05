@@ -12,6 +12,13 @@ Files: list of files touched.
 
 Newest entries first.
 
+## 2026-09-05 — Rename the Activity page to Orders
+
+The sidebar tab, page title and component are now "Orders" (`ui/src/operator/Orders.tsx`, tab
+value `orders`); the API paths under `/api/activity/*` and the `ActivityRecorder` are unchanged.
+Earlier entries below refer to the file by its new name.
+Files: `ui/src/operator/{Operator,Orders}.tsx`, `docs/ai/{ChangeLog,Decisions,Flow}.md`.
+
 ## 2026-09-05 — Runtime controls live on the Overview page
 
 The "Runtime controls" header button and its sheet are gone; the Overview renders the state line
@@ -41,7 +48,7 @@ A bid the pallet no longer holds (`BidNotFound`: our fill consumed it, or it nev
 marked retracted with a null extrinsic hash; the Retracted column showed a bare time for it. It now
 shows a dash unless `retractExtrinsicHash` is set, so every entry in that column links to a real
 retraction on Statescan.
-Files: `ui/src/operator/Activity.tsx`, `docs/ai/{ChangeLog,Flow}.md`.
+Files: `ui/src/operator/Orders.tsx`, `docs/ai/{ChangeLog,Flow}.md`.
 
 ## 2026-09-05 — Bid placed and Retracted columns link to the Hyperbridge explorer
 
@@ -55,7 +62,7 @@ settlement pass added to `backfillOrderSummaries`, keyed on `volumeUsd` being se
 rows), using `ActivityStore.unsettledOrders` / `retypeLegacyBid`.
 Files: `src/services/server/{UiServer,dto}.ts`, `src/data/{backfill,types,memory}.ts`,
 `src/data/sqlite/activity.ts`, `src/core/boot.ts`, `src/tests/{ui-server,activity-backfill}.test.ts`,
-`ui/src/operator/Activity.tsx`, `ui/src/lib/format.ts`, `ui/src/styles/operator.css`,
+`ui/src/operator/Orders.tsx`, `ui/src/lib/format.ts`, `ui/src/styles/operator.css`,
 `docs/ai/{ChangeLog,Flow}.md`.
 
 ## 2026-09-05 — A bid is not a fill: settle orders from the on-chain OrderFilled log
@@ -76,7 +83,7 @@ Rows recorded before this change keep their bid-time "filled" rows.
 Files: `src/scanner/{types,chain-scanner}.ts`, `src/core/{event-monitor,filler}.ts`,
 `src/simplex.ts`, `src/data/{types,recorder,memory}.ts`, `src/data/sqlite/activity.ts`,
 `src/services/server/dto.ts`, `src/tests/activity-recorder.test.ts`,
-`ui/src/operator/Activity.tsx`, `docs/ai/{ChangeLog,Decisions,Flow}.md`.
+`ui/src/operator/Orders.tsx`, `docs/ai/{ChangeLog,Decisions,Flow}.md`.
 
 ## 2026-09-05 — Watch-only orders are recorded as skipped at intake
 
@@ -91,7 +98,7 @@ Files: `src/core/filler.ts`, `docs/ai/{ChangeLog,Flow}.md`.
 
 The Filled badge no longer carries "$1 · +$0.01" beneath it; the amount columns already show what
 was filled and the maintainer asked for the line to go. Skips and failures keep their reason.
-Files: `ui/src/operator/Activity.tsx`, `docs/ai/{ChangeLog,Flow}.md`.
+Files: `ui/src/operator/Orders.tsx`, `docs/ai/{ChangeLog,Flow}.md`.
 
 ## 2026-09-05 — Paginate the order history and fold each order's bids into its row
 
@@ -100,7 +107,7 @@ activity first, each with its rows and the Hyperbridge bids submitted for its co
 `commitment` equals the order id), plus the newest order-less events (rebalances) for the first
 page's footer. Backed by `ActivityStore.orderHistory(page, pageSize)` (SQLite: `GROUP BY order_id
 ORDER BY MAX(id)` with `COUNT(DISTINCT order_id)`; memory mirrors it) and `BidStore.byCommitments`.
-`Activity.tsx` now pages (20 per page, numbered pager with ellipses, "Showing x–y of n"), re-reads
+`Orders.tsx` now pages (20 per page, numbered pager with ellipses, "Showing x–y of n"), re-reads
 the current page on SSE activity (400 ms coalesced) instead of merging rows client-side, and shows a
 Bids column ("2 bids · 1 accepted · 1 retracted", tooltip listing each bid) in place of the separate
 Submitted bids table; the bid metrics strip stays, with pending retractions as a badge. `OperatorContext.bids`
@@ -108,7 +115,7 @@ gains `byCommitments`; the test operator now wires `bids`. Added a ui-server tes
 bid folding.
 Files: `src/data/{types,memory,recorder}.ts`, `src/data/sqlite/{activity,bids}.ts`,
 `src/services/server/{UiServer,dto}.ts`, `src/tests/ui-server.test.ts`,
-`ui/src/operator/Activity.tsx`, `ui/src/types.ts`, `ui/src/styles/operator.css`,
+`ui/src/operator/Orders.tsx`, `ui/src/types.ts`, `ui/src/styles/operator.css`,
 `docs/ai/{ChangeLog,Decisions,Flow}.md`.
 
 ## 2026-09-05 — Backfill order details on old activity rows from the indexer; decode referrer names
@@ -129,7 +136,7 @@ attached to every row, unknown order left alone, indexer failure touches nothing
 Files: `src/data/{backfill,recorder,types,memory}.ts`, `src/data/sqlite/activity.ts`,
 `src/core/boot.ts`, `src/config/filler-toml.ts`, `src/cli/init/emit-toml.ts`,
 `src/tests/{activity-backfill,activity-recorder}.test.ts`, `ui/src/lib/format.ts`,
-`ui/src/operator/Activity.tsx`, `docs/ai/{ChangeLog,Decisions,Flow}.md`.
+`ui/src/operator/Orders.tsx`, `docs/ai/{ChangeLog,Decisions,Flow}.md`.
 
 ## 2026-09-05 — Order history: amounts, tokens, chains, user, referrer, and links per order
 

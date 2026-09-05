@@ -456,7 +456,7 @@ is cached per order id (2,000 entries) and attached to that order's later `fille
 `skipped` rows. `SqliteActivityStore` persists it as `order_json` (column added by a
 `PRAGMA table_info` migration on open); `/api/activity/orders` and the SSE stream return it as
 `ActivityEventDto.order`. Because the detection write awaits token lookups, a `skipped` row can
-land before its `detected` row; `Activity.tsx` therefore groups events by order id and derives the
+land before its `detected` row; `Orders.tsx` therefore groups events by order id and derives the
 status by precedence (filled > executed > skipped > detected), not by row order. Each order renders
 one row: referrer, status badge with detail (the strategy, or the skip/failure reason; a fill carries
 no detail), amount in and out (token icon with a chain badge, amount formatted from decimals by
@@ -472,7 +472,7 @@ open dashboards. Orders the indexer does not know keep `order: null`. The referr
 32-byte tag; `describeReferrer` shows padded-ASCII tags as text ("HyperFX"), zero-prefixed tags as
 a short address, and other values as short hex.
 
-Paging: `Activity.tsx` requests `/api/activity/history?page=N&pageSize=20`. `UiServer` calls
+Paging: `Orders.tsx` requests `/api/activity/history?page=N&pageSize=20`. `UiServer` calls
 `activity.orderHistory(page, pageSize)` — SQLite groups `events` by `order_id`, orders groups by
 their newest row id, counts distinct orders for `total`, then loads the page's rows in one `IN`
 query — and `bids.byCommitments(orderIds)` (bid `commitment` is the order id), returning each order
@@ -498,7 +498,7 @@ With solver selection, `IntentFiller` "executing" an order submits a bid: `order
 `transactionHash` in `ScannedFill`; `EventMonitor.handleFill` emits `orderFillObserved` for every
 fill with `ours` (filler address match), then the existing `orderFilledOnChain` for ours only. The
 recorder's `settle` records `filled` (ours) or `lost` (reason = winner) for orders it knows
-(summary cache or `ActivityStore.knowsOrder`). `Activity.tsx` ranks Filled > Lost > Bid placed /
+(summary cache or `ActivityStore.knowsOrder`). `Orders.tsx` ranks Filled > Lost > Bid placed /
 Bid retracted (latest bid) > Executed/Failed > Skipped > Detected, shows the latest bid's standing
 in the Bids cell, and links the fill from the observed fill's tx hash (or a direct attempt's UserOp
 hash), never from a bid's extrinsic hash. `fills()` (wallet ledger) now lists real fills only.

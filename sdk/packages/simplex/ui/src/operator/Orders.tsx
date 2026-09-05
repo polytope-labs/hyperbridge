@@ -323,7 +323,7 @@ function Pager(props: { page: number; pageSize: number; total: number; onPage: (
 	)
 }
 
-export function Activity(props: { chainLabels?: Record<string, string> }) {
+export function Orders(props: { chainLabels?: Record<string, string> }) {
 	const [page, setPage] = useState(1)
 	const [history, setHistory] = useState<OrderHistoryDto>()
 	const [stats, setStats] = useState<BidStatsDto | null>(null)

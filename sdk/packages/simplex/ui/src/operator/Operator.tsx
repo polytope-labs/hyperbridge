@@ -7,12 +7,12 @@ import { OperatorSheet } from "../components/OperatorSheet"
 import { InstallAppButton } from "../components/InstallAppButton"
 import { useAction, usePolling } from "../lib/hooks"
 import type { AdminStrategyDto, BalanceSnapshot, ConfigDto, StatusOperator } from "../types"
-import { Activity } from "./Activity"
+import { Orders } from "./Orders"
 import { Operations, type OperationsPanel } from "./Operations"
 import { OperatorOverview } from "./OperatorOverview"
 import { Wallet } from "./Wallet"
 
-type Tab = "overview" | "activity" | "wallet" | "operations"
+type Tab = "overview" | "orders" | "wallet" | "operations"
 
 const PAGE_TABS: Array<{
 	value: Tab
@@ -21,7 +21,7 @@ const PAGE_TABS: Array<{
 	icon: ComponentType<SVGProps<SVGSVGElement>>
 }> = [
 	{ value: "overview", label: "Overview", description: "Health and liquidity", icon: OverviewIcon },
-	{ value: "activity", label: "Activity", description: "Orders and bids", icon: ActivityIcon },
+	{ value: "orders", label: "Orders", description: "History and bids", icon: ActivityIcon },
 	{ value: "wallet", label: "Wallet", description: "Funds and history", icon: WalletIcon },
 	{ value: "operations", label: "Operations", description: "Live configuration", icon: OperationsIcon },
 ]
@@ -32,9 +32,9 @@ const PAGE_COPY: Record<Tab, { eyebrow: string; title: string; description: stri
 		title: "Overview",
 		description: "Monitor liquidity, market coverage, and the health of your running filler.",
 	},
-	activity: {
+	orders: {
 		eyebrow: "Execution feed",
-		title: "Activity",
+		title: "Orders",
 		description: "Follow orders from detection through bidding and execution.",
 	},
 	wallet: {
@@ -190,7 +190,7 @@ export function Operator(props: { status: StatusOperator; refresh: () => void })
 						/>
 					) : null}
 
-					{tab === "activity" ? <Activity chainLabels={status.chainLabels} /> : null}
+					{tab === "orders" ? <Orders chainLabels={status.chainLabels} /> : null}
 					{tab === "wallet" ? (
 						<Wallet
 							chains={status.chains}

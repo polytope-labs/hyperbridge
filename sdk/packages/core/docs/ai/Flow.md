@@ -90,9 +90,11 @@ until the `migrate` upgrade arms it, and `testFreshProxyIsOpenUntilGovernanceArm
 halves on a proxy initialized with a zero relayer. `_owner` plays no part in any of
 this. A fresh proxy is armed by its init data: `initialize` takes the relayer, writes it through
 `_setRelayer`, and lands at `VERSION` (2) under `reinitializer`, emitting `RelayerUpdated` then
-`Initialized(2)`. A proxy from before this implementation sits at 1 with an open gate until the
-upgrade whose calldata is `abi.encodeCall(migrate, (relayer))`, host-only and under the same
-`reinitializer(VERSION)`, arms it and takes it to 2. A `setRelayer` rotation leaves the version
+`Initialized(2)`; it is refused on any proxy already at a version. A proxy from before this
+implementation sits at 1 with an open gate until the upgrade whose calldata is
+`abi.encodeCall(migrate, (relayer))`, host-only and under the same `reinitializer(VERSION)`, arms
+it and takes it to 2, and that is the only way up for it: an upgrade that forgot the calldata
+leaves nobody able to `initialize` the proxy. A `setRelayer` rotation leaves the version
 alone. A revert from `version()` means an implementation from before the gate.
 `testInitializeArmsTheGate` pins the fresh path, `testMigrateArmsAndBumpsTheVersion` and
 `testMigrateRunsOnce` the migration, and the live-fork upgrade test reads 2 on the mainnet proxy

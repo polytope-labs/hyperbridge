@@ -4284,6 +4284,26 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         assertEq(intentGateway.version(), 2, "version unchanged");
     }
 
+    /// A proxy an upgrade left at version 1 cannot be re-initialized by anyone; only the host-only
+    /// `migrate` takes it to `VERSION`.
+    function testInitializeRefusedOnLegacyProxy() public {
+        IntentGatewayV2 gateway = _legacyGateway();
+        Params memory p = _openParams();
+
+        vm.expectRevert(Initializable.InvalidInitialization.selector);
+        gateway.initialize(p, new bytes[](0), user);
+        vm.prank(user);
+        vm.expectRevert(Initializable.InvalidInitialization.selector);
+        gateway.initialize(p, new bytes[](0), user);
+        assertEq(gateway.version(), 1, "still at version 1");
+        assertEq(gateway.relayer(), address(0), "still open");
+
+        vm.prank(address(host));
+        gateway.migrate(relayer);
+        assertEq(gateway.version(), 2);
+        assertEq(gateway.relayer(), relayer);
+    }
+
     /// A proxy at version 1 is open, so `onlyHost` is what stops a stranger arming it first.
     function testMigrateRejectsEveryoneButHost() public {
         IntentGatewayV2 gateway = _legacyGateway();

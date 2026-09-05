@@ -426,6 +426,23 @@ interface IIntentGatewayV2 {
     function relayer() external view returns (address);
 
     /**
+     * @notice Rotates the only relayer whose `onAccept` and `onGetResponse` deliveries are
+     *         accepted. Host-only, delivered as the migration calldata of a governance upgrade.
+     *         Leaves `version()` unchanged; a gateway is first armed by `initialize` or `migrate`.
+     * @param relayer The relayer authorised from now on. Zero reopens the gate to every relayer.
+     */
+    function setRelayer(address relayer) external;
+
+    /**
+     * @notice Migration for a proxy deployed before this implementation: arms the relayer gate
+     *         and takes the proxy to version 2, where `initialize` puts a fresh one. Host-only and
+     *         one-shot; emits `RelayerUpdated` then `Initialized(2)`. It is the only way up for a
+     *         proxy already at a version: `initialize` is refused on anything but a bare proxy.
+     * @param relayer The relayer authorised from now on.
+     */
+    function migrate(address relayer) external;
+
+    /**
      * @notice The `Initializable` version: 2 once `initialize` or `migrate` has run, 1 on a proxy
      *         from before this implementation. Reverts on implementations that predate the gate.
      * @return uint64 The initialized version

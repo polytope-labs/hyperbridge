@@ -95,15 +95,27 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardT
     /// or `migrate`. Bumped by the next implementation that needs a migration.
     uint64 private constant VERSION = 2;
 
+    /// @dev `initialize` is for a bare proxy only. A proxy that an upgrade left below `VERSION` is
+    /// taken there by the host-only `migrate`; without this, anyone could `initialize` it.
+    modifier onlyFresh() {
+        if (_getInitializedVersion() != 0) revert InvalidInitialization();
+        _;
+    }
+
     /**
-     * @dev One-time init of a fresh proxy: registers the peers, each bound to `address(this)`,
-     * stores the params, arms the relayer gate, and lands at `VERSION`.
+     * @dev One-time init of a bare proxy: registers the peers, each bound to `address(this)`,
+     * stores the params, arms the relayer gate, and lands at `VERSION`. Refused on any proxy
+     * already at a version, see `onlyFresh`.
      * @param p The initial gateway configuration parameters.
      * @param peerChains State-machine ids of the cross-chain peers to register, each bound to this
      * gateway's own address so no peer address is carried in the proxy's init data.
      * @param relayer The only relayer whose deliveries are accepted. Zero leaves the gate open.
      */
-    function initialize(Params memory p, bytes[] memory peerChains, address relayer) public reinitializer(VERSION) {
+    function initialize(Params memory p, bytes[] memory peerChains, address relayer)
+        public
+        onlyFresh
+        reinitializer(VERSION)
+    {
         uint256 peersLength = peerChains.length;
         for (uint256 i = 0; i < peersLength; i++) {
             Deployment memory deployment = Deployment({chain: peerChains[i], gateway: address(this)});

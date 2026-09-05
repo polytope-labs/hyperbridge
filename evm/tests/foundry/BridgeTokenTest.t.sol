@@ -182,10 +182,10 @@ contract BridgeTokenTest is BaseTest {
         request.to = abi.encodePacked(address(fresh));
 
         vm.prank(address(host));
-        vm.expectRevert(HyperFungibleToken.UnauthorizedRelayer.selector);
+        vm.expectRevert(BridgeToken.UnauthorizedRelayer.selector);
         fresh.onAccept(IncomingPostRequest({request: request, relayer: relayer}));
         vm.prank(address(host));
-        vm.expectRevert(HyperFungibleToken.UnauthorizedRelayer.selector);
+        vm.expectRevert(BridgeToken.UnauthorizedRelayer.selector);
         fresh.onAccept(IncomingPostRequest({request: request, relayer: address(0xD00D)}));
         assertEq(fresh.totalSupply(), 0);
 
@@ -199,7 +199,7 @@ contract BridgeTokenTest is BaseTest {
         PostRequest memory request = _fromNexus(palletId, RECIPIENT, MINT_AMOUNT);
 
         vm.prank(address(host));
-        vm.expectRevert(HyperFungibleToken.UnauthorizedRelayer.selector);
+        vm.expectRevert(BridgeToken.UnauthorizedRelayer.selector);
         bridge.onAccept(IncomingPostRequest({request: request, relayer: address(0xD00D)}));
         assertEq(bridge.totalSupply(), 0, "nothing minted");
 
@@ -244,7 +244,7 @@ contract BridgeTokenTest is BaseTest {
         });
 
         vm.prank(address(host));
-        vm.expectRevert(HyperFungibleToken.UnauthorizedRelayer.selector);
+        vm.expectRevert(BridgeToken.UnauthorizedRelayer.selector);
         bridge.onPostRequestTimeout(PostRequestTimeout(timedOut, address(0xD00D)));
         assertEq(bridge.totalSupply(), 0, "no refund minted");
 
@@ -270,13 +270,13 @@ contract BridgeTokenTest is BaseTest {
     function testSetRelayerRotates() public {
         address next = makeAddr("nextRelayer");
         vm.expectEmit(true, true, true, true, address(bridge));
-        emit HyperFungibleToken.RelayerUpdated(relayer, next);
+        emit BridgeToken.RelayerUpdated(relayer, next);
         bridge.setRelayer(next);
         assertEq(bridge.relayer(), next);
 
         PostRequest memory request = _fromNexus(palletId, RECIPIENT, MINT_AMOUNT);
         vm.prank(address(host));
-        vm.expectRevert(HyperFungibleToken.UnauthorizedRelayer.selector);
+        vm.expectRevert(BridgeToken.UnauthorizedRelayer.selector);
         bridge.onAccept(IncomingPostRequest({request: request, relayer: relayer}));
 
         vm.prank(address(host));
@@ -290,10 +290,10 @@ contract BridgeTokenTest is BaseTest {
         PostRequest memory request = _fromNexus(palletId, RECIPIENT, MINT_AMOUNT);
 
         vm.prank(address(host));
-        vm.expectRevert(HyperFungibleToken.UnauthorizedRelayer.selector);
+        vm.expectRevert(BridgeToken.UnauthorizedRelayer.selector);
         bridge.onAccept(IncomingPostRequest({request: request, relayer: relayer}));
         vm.prank(address(host));
-        vm.expectRevert(HyperFungibleToken.UnauthorizedRelayer.selector);
+        vm.expectRevert(BridgeToken.UnauthorizedRelayer.selector);
         bridge.onAccept(IncomingPostRequest({request: request, relayer: address(0xD00D)}));
         assertEq(bridge.totalSupply(), 0);
     }

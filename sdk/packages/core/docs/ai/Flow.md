@@ -98,28 +98,23 @@ alone. A revert from `version()` means an implementation from before the gate.
 `testMigrateRunsOnce` the migration, and the live-fork upgrade test reads 2 on the mainnet proxy
 after it.
 
-## The same gate on `HyperFungibleToken`, and how the BRIDGE token tightens it
+## The BRIDGE token's relayer gate, and why the base token has none
 
 Verified against `contracts/apps/HyperFungibleToken.sol` and `evm/src/apps/BridgeToken.sol`, and
-exercised by the relayer tests in `evm/tests/foundry/HyperFungibleTokenTest.sol` and
-`evm/tests/foundry/BridgeTokenTest.t.sol`.
+exercised by `evm/tests/foundry/BridgeTokenTest.t.sol`.
 
 Steps 1 and 2 above are identical; the token is just another `IApp`. Timeouts take a parallel route:
 `HandlerV2.handlePostRequestTimeouts` calls `host.dispatchTimeOut(PostRequestTimeout(request,
 _msgSender()), ...)`, and the host calls `onPostRequestTimeout` on the module.
 
-3. `onAccept` and `onPostRequestTimeout` run `onlyHost`, `whenNotPaused`, then
-   `_checkRelayer(incoming.relayer)`. Only after that is the source checked against
-   `_supportedChains` or the body decoded, and only then does anything mint.
+3. `HyperFungibleToken.onAccept` and `onPostRequestTimeout` are `public virtual`, run `onlyHost`
+   and `whenNotPaused`, then check the source against `_supportedChains`, decode the body, and
+   mint. The base token knows nothing about relayers: a third-party token accepts every relayer.
 
-`_checkRelayer` is virtual. In `HyperFungibleToken` it reverts with `UnauthorizedRelayer` only when
-`_relayer` is set and differs from the incoming relayer, so a token that never called `setRelayer`
-accepts every relayer. `BridgeToken` overrides it to revert whenever the two differ, so with
-`_relayer` unset nothing can mint; the deploy script therefore calls `setRelayer` before
-`configure`, and before `configure` the token cannot be reached at all since `onlyHost` compares
-against an unset `_host`.
-
-`setRelayer` is `onlyOwner` in both. The host is not the owner and never calls the token with
-anything but the callback selectors, so there is no equivalent of the gateway's host-only
-`setRelayer`, and none is needed: the token is not behind a proxy, so there is no upgrade
-transaction to arm it in.
+`BridgeToken` overrides both callbacks: `onlyHost`, then `_checkRelayer(incoming.relayer)`, then
+`super`. `_checkRelayer` reverts with `BridgeToken.UnauthorizedRelayer` whenever the incoming relayer
+differs from `_relayer`, so with none set nothing can mint; the deploy script calls `setRelayer`
+before `configure`, and before `configure` the token cannot be reached at all since `onlyHost`
+compares against an unset `_host`. `setRelayer` is `onlyOwner`; the host is not the owner and
+never calls the token with anything but the callback selectors. The token is not behind a proxy,
+so there is no upgrade transaction to arm it in and no host-only setter like the gateway's.

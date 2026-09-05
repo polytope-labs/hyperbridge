@@ -18,20 +18,37 @@ contract DeployScript is BaseScript {
     /// @notice Main deployment logic - called by BaseScript's run() functions
     /// @dev This function is called within a broadcast context
     function deploy() internal override {
-        // Deploy implementation and proxy via CREATE2 with the same salt. The proxy is initialized
-        // atomically through its init data. The cross-chain peer registry is passed in by chain id
-        // only — `initialize` binds each to `address(this)` — so no peer address is embedded in the
-        // init data. The address depends on (impl address, salt, params, peer chain ids), all of
-        // which are identical across chains, keeping the proxy address identical everywhere.
-        // The gateway refuses every delivery until `setRelayer` is called, and only `_owner` can
-        // call it, so the deploy key must be the admin and the relayer is read here rather than in
-        // BaseScript so the other scripts do not require it.
+        // The implementation is always new. The proxy is deployed only on a chain that has none
+        // yet: where `INTENT_GATEWAY_V2` is already in the config, governance moves that proxy to
+        // this implementation with an `UpgradeContract`, and only the solver account is redeployed
+        // alongside.
+        IntentGatewayV2 implementation = new IntentGatewayV2{salt: salt}(admin);
+        IntentGatewayV2 intentGateway;
+        if (config.exists("INTENT_GATEWAY_V2")) {
+            intentGateway = IntentGatewayV2(payable(config.get("INTENT_GATEWAY_V2").toAddress()));
+        } else {
+            intentGateway = _deployProxy(implementation);
+        }
+        SolverAccount solverAccount = new SolverAccount{salt: salt}(address(intentGateway));
+
+        vm.stopBroadcast();
+
+        console.log("IntentGateway implementation deployed at:", address(implementation));
+        console.log("IntentGateway proxy at:", address(intentGateway));
+        console.log("SolverAccount deployed at:", address(solverAccount));
+
+        config.set("INTENT_GATEWAY_V2", address(intentGateway));
+        config.set("INTENT_GATEWAY_V2_IMPL", address(implementation));
+        config.set("SOLVER_ACCOUNT", address(solverAccount));
+    }
+
+    /// @dev Proxy via CREATE2 with the same salt, initialized atomically through its init data,
+    /// which arms the relayer gate from `GATEWAY_RELAYER`. The peer registry is passed by chain id
+    /// only, since `initialize` binds each to `address(this)`, so the address depends on (impl
+    /// address, salt, params, peer chain ids, relayer), all identical across chains.
+    function _deployProxy(IntentGatewayV2 implementation) internal returns (IntentGatewayV2) {
         address relayer = vm.envAddress("GATEWAY_RELAYER");
         require(relayer != address(0), "GATEWAY_RELAYER is unset");
-        require(vm.addr(uint256(privateKey)) == admin, "deploy key must be ADMIN to arm the relayer");
-
-        address priceOracle = address(0);
-        IntentGatewayV2 implementation = new IntentGatewayV2{salt: salt}(admin);
         bytes[] memory peerChains;
         if (config.get("is_mainnet").toBool()) {
             peerChains = new bytes[](9);
@@ -57,29 +74,16 @@ contract DeployScript is BaseScript {
                     host: HOST_ADDRESS,
                     dispatcher: config.get("CALL_DISPATCHER").toAddress(),
                     solverSelection: config.get("7702").toBool(),
-                    surplusShareBps: 5_000, // 50%
-                    protocolFeeBps: 30, // 0.3%
-                    priceOracle: priceOracle
+                    surplusShareBps: 6_000, // 60%
+                    protocolFeeBps: 5, // 0.05%
+                    priceOracle: address(0)
                 }),
-                peerChains
+                peerChains,
+                relayer
             )
         );
         ERC1967Proxy proxy = new ERC1967Proxy{salt: salt}(address(implementation), initData);
-        IntentGatewayV2 intentGateway = IntentGatewayV2(payable(address(proxy)));
-        intentGateway.setRelayer(relayer);
-        SolverAccount solverAccount = new SolverAccount{salt: salt}(address(intentGateway));
-
-        vm.stopBroadcast();
-
-        require(intentGateway._relayer() == relayer, "relayer not armed");
-
-        console.log("IntentGateway implementation deployed at:", address(implementation));
-        console.log("IntentGateway proxy deployed at:", address(intentGateway));
         console.log("IntentGateway relayer:", relayer);
-        console.log("SolverAccount deployed at:", address(solverAccount));
-
-        config.set("INTENT_GATEWAY_V2", address(intentGateway));
-        config.set("SOLVER_ACCOUNT", address(solverAccount));
-        config.set("PRICE_ORACLE", address(priceOracle));
+        return IntentGatewayV2(payable(address(proxy)));
     }
 }

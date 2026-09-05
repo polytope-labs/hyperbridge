@@ -154,6 +154,93 @@ fn test_manager_rotation_is_addressed_to_the_current_manager() {
 	})
 }
 
+/// `set_host_manager_admin` is addressed to the manager on record, whose current admin is the only
+/// relayer able to deliver it, and carries the `SetAdmin` body that manager decodes.
+#[test]
+fn test_set_host_manager_admin_is_addressed_to_the_manager() {
+	use ismp::{
+		messaging::hash_request,
+		router::{PostRequest, Request},
+	};
+	use pallet_ismp_host_executive::{encode_set_admin, Error, PALLET_ID};
+
+	new_test_ext().execute_with(|| {
+		let chain = StateMachine::Evm(1);
+		let manager = H160::random();
+		let admin = H160::random();
+
+		assert_eq!(
+			pallet_ismp_host_executive::Pallet::<Test>::set_host_manager_admin(
+				RuntimeOrigin::root(),
+				chain,
+				admin,
+			),
+			Err(Error::<Test>::UnknownStateMachine.into()),
+			"no host params recorded for the chain yet"
+		);
+
+		let mut params = EvmHostParam::default();
+		params.host_manager = manager;
+		let mut map = BTreeMap::new();
+		map.insert(chain, HostParam::EvmHostParam(params));
+		pallet_ismp_host_executive::Pallet::<Test>::set_host_params(RuntimeOrigin::root(), map)
+			.unwrap();
+
+		let account: AccountId32 = H256::random().0.into();
+		assert_eq!(
+			pallet_ismp_host_executive::Pallet::<Test>::set_host_manager_admin(
+				RuntimeOrigin::signed(account),
+				chain,
+				admin,
+			),
+			Err(DispatchError::BadOrigin)
+		);
+		assert_eq!(
+			pallet_ismp_host_executive::Pallet::<Test>::set_host_manager_admin(
+				RuntimeOrigin::root(),
+				chain,
+				H160::zero(),
+			),
+			Err(Error::<Test>::InvalidHostManagerAdmin.into()),
+			"the manager would refuse a zero admin"
+		);
+
+		pallet_ismp_host_executive::Pallet::<Test>::set_host_manager_admin(
+			RuntimeOrigin::root(),
+			chain,
+			admin,
+		)
+		.unwrap();
+
+		let (commitment, nonce) = last_dispatched_request();
+		assert_eq!(
+			commitment,
+			hash_request::<Ismp>(&Request::Post(PostRequest {
+				source: <Test as pallet_ismp::Config>::HostStateMachine::get(),
+				dest: chain,
+				nonce,
+				from: PALLET_ID.to_bytes(),
+				to: manager.0.to_vec(),
+				timeout_timestamp: 0,
+				body: encode_set_admin(admin),
+			})),
+			"addressed to the manager on record with the SetAdmin body"
+		);
+
+		let RuntimeEvent::HostExecutive(
+			pallet_ismp_host_executive::Event::<Test>::HostManagerAdminUpdated {
+				state_machine,
+				admin: emitted,
+			},
+		) = last_event::<Test>()
+		else {
+			panic!("HostManagerAdminUpdated not emitted")
+		};
+		assert_eq!(state_machine, chain);
+		assert_eq!(emitted, admin);
+	})
+}
+
 /// Commitment and nonce of the most recently dispatched ISMP request.
 fn last_dispatched_request() -> (H256, u64) {
 	frame_system::Pallet::<Test>::events()

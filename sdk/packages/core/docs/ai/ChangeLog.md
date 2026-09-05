@@ -12,6 +12,85 @@ Files: list of files touched.
 
 Newest entries first.
 
+## 2026-09-05 — Gateway `initialize` takes the relayer and lands at version 2; `migrate` for older proxies
+
+`IntentGatewayV2.initialize(Params, bytes[] peerChains, address relayer)` now arms the relayer
+gate from the init data and runs under `reinitializer(VERSION)` with `VERSION = 2`, so a fresh
+proxy comes out armed and at the version of the code it runs. `migrate(address relayer)`, host-only
+and under the same `reinitializer(VERSION)`, is for proxies deployed before this implementation:
+it arms them and takes them from 1 to 2, and reverts on a proxy `initialize` already took there.
+`setRelayer` stays a plain host-only rotation that leaves the version alone; all three write
+through `_setRelayer` in `ExtrinsicIntents`. The next implementation that needs a migration bumps
+`VERSION` once. The interface documents `migrate` and `version` accordingly.
+
+`DeployIntentGateway.s.sol` always deploys the implementation and the solver account, deploys the
+proxy only where `INTENT_GATEWAY_V2` is absent from the chain's config, reads the relayer from
+`GATEWAY_RELAYER` for the init data, and records `INTENT_GATEWAY_V2_IMPL`. The relayer is now part
+of what fixes a new proxy's address, as the implementation address already was.
+
+The reinitializer cost more than the 71 bytes of EIP-170 headroom, and every gateway getter and
+event has a consumer in `sdk`, `simplex` or the indexer, so the room came from deduplicating
+internal code with no behaviour change: `_sendValue` in `IntentsBase` for the native
+send-and-check (the same-chain fill loop keeps its inline copy, being at the via-ir stack limit),
+`_splitSurplus` moved to `IntentsBase` and used by the cross-chain fill, `_withdrawalBody` and
+`_postToSource` in `ExtrinsicIntents` for the escrow messages, and `placeOrder` reusing its
+`feeToken` read and hashing the order once.
+
+Tests: every `initialize` call gains the relayer argument, `address(0)` outside `setUp` so those
+gateways stay open as before; `testInitializeArmsTheGate` pins the events and version; the
+`migrate` tests run on a proxy written back to version 1 through the `Initializable` slot, since
+this implementation cannot produce one; the live mainnet-fork upgrade migrates the real one.
+`HostManager.onAccept` gained NatSpec.
+
+Files: `contracts/apps/IntentGatewayV2.sol`, `docs/ai/ChangeLog.md`, `docs/ai/Decisions.md`,
+`docs/ai/Flow.md`. Outside the package: `evm/src/apps/IntentGatewayV2.sol`,
+`evm/src/apps/intentsv2/ExtrinsicIntents.sol`, `evm/src/apps/intentsv2/IntrinsicIntents.sol`,
+`evm/src/apps/intentsv2/IntentsBase.sol`, `evm/src/core/HostManager.sol`,
+`evm/script/DeployIntentGateway.s.sol`, `evm/tests/foundry/IntentGatewayV2Test.sol`,
+`evm/tests/foundry/IntentGatewayV2SameChainTest.sol`,
+`evm/tests/foundry/IntrinsicIntentsReentrancyTest.sol`,
+`evm/tests/foundry/account/SolverAccountTest.sol`.
+
+## 2026-09-05 — `HostManager` admin is the governance relayer; gateway `setRelayer` is host-only
+
+`HostManager` no longer has a separate relayer. Its `admin` survives initialization and is the only
+relayer whose `onAccept` deliveries are accepted, so `_relayer`, `relayer()` and `setRelayer` are
+gone. `setIsmpHost` is now `init`: admin-only, one-shot, and unnecessary when the host is passed to
+the constructor. A new `SetAdmin` action (variant `2`, body `abi.encode(address)`) rotates the admin
+through governance, delivered by the outgoing admin like every other message; zero is refused there
+and in the constructor, since a manager with no admin could never be reached again.
+`pallet-ismp-host-executive` gains `set_host_manager_admin`, which dispatches that action to the
+manager on record, and `ismp-abi` gains `encode_set_admin`. `evm/rust/abi/HostManager.json` was
+regenerated; it had not been since before the relayer gate.
+
+On the gateway, `setRelayer` moved from `IntentGatewayV2` to `ExtrinsicIntents` and is `onlyHost`,
+so `_owner` can no longer rotate the relayer; the host reaches it only as `UpgradeContract`
+migration calldata, and nothing else writes the relayer. `initialize` is unchanged, so a fresh
+proxy starts with no relayer, and an unset relayer now gates nothing: the governance upgrade that
+arms it has to be delivered first. `setRelayer(address(0))` reopens the gate rather than closing
+it. `DeployIntentGateway.s.sol` no longer reads `GATEWAY_RELAYER` or calls `setRelayer`.
+`DeployIsmp.s.sol` constructs the host before the manager and binds the manager at construction,
+with `GOVERNANCE_RELAYER` as its admin; `DeployHostManager.s.sol` does the same for a replacement
+manager. Both contracts expose `relayer()`, and the gateway exposes `version()`, the
+`Initializable` version the proxy has reached (1 after `initialize`, higher only after a
+`reinitializer` migration), so tooling can tell which relayer a deployment accepts and whether it
+has the gate at all (a revert means it predates it). The gateway's `_relayer` and `_instances`
+became internal to pay for the getters under EIP-170; `instance(bytes)` already covered the
+latter. The interface in this package declares the two getters and updates its `setRelayer`
+NatSpec.
+
+Files: `contracts/apps/IntentGatewayV2.sol`, `package.json`, `docs/ai/ChangeLog.md`,
+`docs/ai/Decisions.md`, `docs/ai/Flow.md`. Outside the package: `evm/src/core/HostManager.sol`,
+`evm/src/apps/IntentGatewayV2.sol`, `evm/src/apps/intentsv2/ExtrinsicIntents.sol`,
+`evm/script/DeployIsmp.s.sol`, `evm/script/DeployHostManager.s.sol`,
+`evm/script/DeployIntentGateway.s.sol`, `evm/tron/migrations/2_deploy_ismp.js`,
+`evm/tron/README.md`, `evm/rust/src/host_params.rs`, `evm/rust/abi/HostManager.json`,
+`evm/tests/foundry/HostManagerTest.sol`, `evm/tests/foundry/IntentGatewayV2Test.sol`,
+`evm/tests/foundry/IntentGatewayV2SameChainTest.sol`, the foundry test setups that construct a
+`HostManager` or initialize a gateway, `evm/tests/rust/src/tests/utils.rs`,
+`evm/tests/rust/src/tests/host_manager.rs`, `modules/pallets/host-executive/src/lib.rs`,
+`modules/pallets/testsuite/src/tests/pallet_ismp_host_executive.rs`.
+
 ## 2026-09-04 — Fresh gateway deployments arm the relayer in the deploy script
 
 `DeployIntentGateway.s.sol` deployed the gated gateway with `_relayer` unset, so a proxy on a new

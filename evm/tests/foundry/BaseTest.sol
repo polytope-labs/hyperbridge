@@ -88,9 +88,9 @@ contract BaseTest is Test {
         feeToken.grantMinterRole(address(this));
         feeToken.grantBurnerRole(address(this));
 
-        manager.setIsmpHost(address(host));
-        // This contract is the host admin, and the relayer the HostManager tests deliver as.
-        manager.setRelayer(address(this));
+        // This contract is the manager's admin: the only account that may bind the host, and the
+        // only relayer whose governance deliveries the manager accepts.
+        manager.init(address(host));
 
         mockUSDC.superApprove(tx.origin, address(host));
         mockUSDC.superApprove(address(this), address(host));

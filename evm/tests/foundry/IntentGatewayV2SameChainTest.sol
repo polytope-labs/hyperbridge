@@ -90,7 +90,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
             protocolFeeBps: 0, // No protocol fees for most tests
             priceOracle: address(0)
         });
-        intentGateway.initialize(intentParams, new bytes[](0));
+        intentGateway.initialize(intentParams, new bytes[](0), address(0));
 
         // Fund test accounts
         _fundTestAccounts();
@@ -321,7 +321,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
             protocolFeeBps: PROTOCOL_FEE_BPS,
             priceOracle: address(0)
         });
-        gatewayWithFees.initialize(intentParams, new bytes[](0));
+        gatewayWithFees.initialize(intentParams, new bytes[](0), address(0));
 
         uint256 inputAmount = 1000 * 1e6; // 1000 USDC
         uint256 outputAmount = 900 * 1e18; // 900 DAI
@@ -1582,7 +1582,8 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
                 protocolFeeBps: PROTOCOL_FEE_BPS,
                 priceOracle: address(0)
             }),
-            new bytes[](0)
+            new bytes[](0),
+            address(0)
         );
 
         uint256 inputAmount = 1000 * 1e6;
@@ -1660,9 +1661,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
 
         Call[] memory calls = new Call[](1);
         calls[0] = Call({
-            to: address(dai),
-            value: 0,
-            data: abi.encodeWithSelector(IERC20.approve.selector, address(intentGateway), 1)
+            to: address(dai), value: 0, data: abi.encodeWithSelector(IERC20.approve.selector, address(intentGateway), 1)
         });
 
         Order memory order = Order({
@@ -1676,9 +1675,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
             predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
             inputs: inputs,
             output: PaymentInfo({
-                beneficiary: bytes32(uint256(uint160(user))),
-                assets: outputAssets,
-                call: abi.encode(calls)
+                beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: abi.encode(calls)
             })
         });
 
@@ -2161,7 +2158,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
             protocolFeeBps: PROTOCOL_FEE_BPS,
             priceOracle: address(0)
         });
-        gatewayWithFees.initialize(intentParams, new bytes[](0));
+        gatewayWithFees.initialize(intentParams, new bytes[](0), address(0));
 
         TokenInfo[] memory inputs = new TokenInfo[](2);
         inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: 600 * 1e6});
@@ -2507,7 +2504,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
             protocolFeeBps: PROTOCOL_FEE_BPS, // 30 bps
             priceOracle: address(0)
         });
-        gatewayWithFees.initialize(intentParams, new bytes[](0));
+        gatewayWithFees.initialize(intentParams, new bytes[](0), address(0));
 
         FeeOnTransferToken fot = new FeeOnTransferToken(100); // 1% transfer fee
         fot.mint(user, 10000 * 1e18);

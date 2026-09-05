@@ -27,9 +27,10 @@ import {HostParams, IHostManager, WithdrawParams} from "./EvmHost.sol";
 
 /// Host manager params
 struct HostManagerParams {
-    /// admin for setting the host address
+    /// The only relayer whose deliveries `onAccept` accepts, and the only account that may call
+    /// `init`. Never zero. Rotated by a `SetAdmin` request from Hyperbridge.
     address admin;
-    /// Local ismp host
+    /// Local ismp host. Zero until `init` binds it.
     address host;
 }
 
@@ -45,32 +46,31 @@ contract HostManager is HyperApp, ERC165 {
 
     enum OnAcceptActions {
         Withdraw,
-        SetHostParam
+        SetHostParam,
+        SetAdmin
     }
 
     HostManagerParams private _params;
 
-    /**
-     * @dev The only relayer whose deliveries `onAccept` accepts. Governance messages are the one
-     * kind of traffic this contract receives, and they can replace the host's handler, which is
-     * what every app trusts to report the relayer address; so a forged governance message must
-     * not be deliverable by an arbitrary relayer even when the consensus proof behind it verifies.
-     * Zero authorises nobody. Set by the host admin, the key that can already freeze the host.
-     */
-    address private _relayer;
-
     // @dev Action is unauthorized
     error UnauthorizedAction();
 
-    // @dev The message was delivered by a relayer other than `_relayer`
+    // @dev The message was delivered by a relayer other than the admin
     error UnauthorizedRelayer();
 
+    // @dev The host is already bound
+    error AlreadyInitialized();
+
+    // @dev The admin may not be zero. It is the only account able to deliver governance here, so
+    // a zero admin would leave no way to reach this contract again, rotation included.
+    error InvalidAdmin();
+
     /**
-     * @dev Emitted when the authorised relayer is replaced
-     * @param previous The relayer authorised before this change
-     * @param current The relayer authorised from now on
+     * @dev Emitted when a `SetAdmin` request replaces the admin
+     * @param previous The admin before this change
+     * @param current The admin from now on
      */
-    event RelayerUpdated(address previous, address current);
+    event AdminUpdated(address previous, address current);
 
     // @dev restricts call to the provided `caller`
     modifier restrict(address caller) {
@@ -79,6 +79,7 @@ contract HostManager is HyperApp, ERC165 {
     }
 
     constructor(HostManagerParams memory managerParams) {
+        if (managerParams.admin == address(0)) revert InvalidAdmin();
         _params = managerParams;
     }
 
@@ -104,36 +105,38 @@ contract HostManager is HyperApp, ERC165 {
         return _params.host;
     }
 
-    // This function can only be called once by the admin to set the IsmpHost.
-    // This exists to seal the cyclic dependency between this contract & the ismp host.
-    function setIsmpHost(address hostAddr) public restrict(_params.admin) {
+    /**
+     * @notice The only relayer whose deliveries `onAccept` accepts: the admin
+     */
+    function relayer() external view returns (address) {
+        return _params.admin;
+    }
+
+    /**
+     * @notice Binds this contract to the ISMP host
+     * @dev Exists to seal the cyclic dependency between this contract and the host when the host
+     * is not known at construction; a manager constructed with its host set needs no `init`. Only
+     * the admin may call it, and only once: the admin is the governance relayer key, and letting it
+     * re-point the host later would let that key cut the host off from its own governance.
+     * @param hostAddr The host this contract accepts `onAccept` calls from and acts upon
+     */
+    function init(address hostAddr) external restrict(_params.admin) {
+        if (_params.host != address(0)) revert AlreadyInitialized();
         _params.host = hostAddr;
-        _params.admin = address(0);
     }
 
     /**
-     * @notice The relayer authorised to deliver governance messages, zero if none
+     * @notice Applies a governance action from Hyperbridge to the host
+     * @dev Only the host may call, only the admin may deliver, and only the Hyperbridge parachain
+     * may send; any other relayer's delivery reverts and stays retryable by the admin. The first
+     * byte of the body selects the action: `Withdraw` pays out fees, `SetHostParam` replaces the
+     * host params, `SetAdmin` rotates the admin, refusing zero since it could never be rotated
+     * back.
+     * @param incoming The verified request and the relayer that submitted it
      */
-    function relayer() public view returns (address) {
-        return _relayer;
-    }
-
-    /**
-     * @notice Restricts `onAccept` to deliveries submitted by `newRelayer`
-     * @dev Only the host admin may call this. Ordinary relaying is unaffected: this contract
-     * never receives user traffic, only governance requests from Hyperbridge. The host records a
-     * refused delivery as undelivered, so a rejected message can still be submitted by the
-     * authorised relayer afterwards.
-     * @param newRelayer The relayer to authorise. Zero rejects every delivery.
-     */
-    function setRelayer(address newRelayer) external {
-        if (msg.sender != IHost(_params.host).admin()) revert UnauthorizedAction();
-        emit RelayerUpdated({previous: _relayer, current: newRelayer});
-        _relayer = newRelayer;
-    }
-
     function onAccept(IncomingPostRequest calldata incoming) external override restrict(_params.host) {
-        if (incoming.relayer == address(0) || incoming.relayer != _relayer) revert UnauthorizedRelayer();
+        // Only the admin may deliver here.
+        if (incoming.relayer != _params.admin) revert UnauthorizedRelayer();
         PostRequest calldata request = incoming.request;
         // Only the Hyperbridge parachain can send requests to this module.
         if (!request.source.equals(IHost(_params.host).hyperbridge())) revert UnauthorizedAction();
@@ -146,6 +149,12 @@ contract HostManager is HyperApp, ERC165 {
         } else if (action == OnAcceptActions.SetHostParam) {
             HostParams memory hostParams = abi.decode(request.body[1:], (HostParams));
             IHostManager(_params.host).updateHostParams(hostParams);
+        } else if (action == OnAcceptActions.SetAdmin) {
+            // Rotates the governance relayer.
+            address newAdmin = abi.decode(request.body[1:], (address));
+            if (newAdmin == address(0)) revert InvalidAdmin();
+            emit AdminUpdated({previous: _params.admin, current: newAdmin});
+            _params.admin = newAdmin;
         }
     }
 }

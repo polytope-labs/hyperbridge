@@ -33,7 +33,6 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ERC1967Utils} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Utils.sol";
 
-
 /**
  * @title ExtrinsicIntents
  * @author Polytope Labs (hello@polytope.technology)
@@ -67,14 +66,68 @@ abstract contract ExtrinsicIntents is IntentsBase, HyperApp {
     }
 
     /**
-     * @dev Rejects any delivery not submitted by `_relayer`. Runs before the message body is
-     * looked at, so it covers escrow redemptions and refunds as well as every governance action,
-     * including implementation upgrades. The host records a reverted dispatch as undelivered, so
-     * a rejected message can still be submitted later by the authorised relayer.
+     * @dev Once a relayer is set, rejects deliveries from anyone else before the body is read. The
+     * host records the revert as undelivered, so the authorised relayer can resubmit. While unset,
+     * every delivery passes: a proxy from before the gate stays open until `migrate` arms it.
      * @param relayer The account that submitted the message to the handler.
      */
     function _checkRelayer(address relayer) internal view {
-        if (relayer != _relayer) revert Unauthorized();
+        address authorised = _relayer;
+        if (authorised != address(0) && relayer != authorised) revert Unauthorized();
+    }
+
+    /**
+     * @dev Rotates the authorised relayer. Host-only, so reachable only as `UpgradeContract`
+     * migration calldata: `upgradeToAndCall` delegatecalls it with the host still `msg.sender`.
+     * Leaves `version()` alone; `initialize` and `migrate` arm a proxy on its way to `VERSION`.
+     * @param relayer The account whose deliveries are accepted from now on. Zero reopens the gate.
+     */
+    function setRelayer(address relayer) external onlyHost {
+        _setRelayer(relayer);
+    }
+
+    /// @dev The only writer of `_relayer`, behind `initialize`, `migrate` and `setRelayer`.
+    function _setRelayer(address relayer) internal {
+        emit RelayerUpdated({previous: _relayer, current: relayer});
+        _relayer = relayer;
+    }
+
+    /**
+     * @notice The only relayer whose `onAccept` and `onGetResponse` deliveries are accepted, or
+     * zero while the gate is open
+     */
+    function relayer() external view returns (address) {
+        return _relayer;
+    }
+
+    /// @dev `kind` followed by the ABI-encoded `WithdrawalRequest`.
+    function _body(RequestKind kind, bytes32 commitment, TokenInfo[] calldata tokens, bytes32 beneficiary)
+        internal
+        pure
+        returns (bytes memory)
+    {
+        return bytes.concat(
+            bytes1(uint8(kind)),
+            abi.encode(WithdrawalRequest({commitment: commitment, tokens: tokens, beneficiary: beneficiary}))
+        );
+    }
+
+    /// @dev Posts `body` to the gateway on the order's source chain, paying `nativeFee` in native
+    /// tokens when non-zero and in the fee token otherwise.
+    function _post(Order calldata order, bytes memory body, uint256 relayerFee, uint256 nativeFee) internal {
+        DispatchPost memory request = DispatchPost({
+            dest: order.source,
+            to: abi.encodePacked(_instance(order.source)),
+            body: body,
+            timeout: 0,
+            fee: relayerFee,
+            payer: msg.sender
+        });
+        if (nativeFee > 0) {
+            IDispatcher(host()).dispatch{value: nativeFee}(request);
+        } else {
+            dispatchWithFeeToken(request);
+        }
     }
 
     /**
@@ -116,24 +169,13 @@ abstract contract ExtrinsicIntents is IntentsBase, HyperApp {
 
             if (solverAmount < totalRequired) revert InvalidInput();
 
-            uint256 dust = solverAmount - totalRequired;
-            uint256 beneficiaryShare = 0;
-            uint256 protocolShare = 0;
-
-            if (dust > 0) {
-                if (order.output.call.length > 0) {
-                    protocolShare = dust;
-                } else {
-                    protocolShare = (dust * _params.surplusShareBps) / 10_000;
-                    beneficiaryShare = dust - protocolShare;
-                }
-            }
+            (uint256 protocolShare, uint256 beneficiaryShare) =
+                _splitSurplus(solverAmount - totalRequired, order.output.call.length > 0);
 
             if (token == address(0)) {
                 if (msgValue < solverAmount) revert InsufficientNativeToken();
                 uint256 beneficiaryTotal = totalRequired + beneficiaryShare;
-                (bool sent,) = beneficiary.call{value: beneficiaryTotal}("");
-                if (!sent) revert InsufficientNativeToken();
+                _sendValue(beneficiary, beneficiaryTotal);
                 msgValue -= (beneficiaryTotal + protocolShare);
             } else {
                 IERC20(token).safeTransferFrom(msg.sender, beneficiary, totalRequired + beneficiaryShare);
@@ -147,35 +189,20 @@ abstract contract ExtrinsicIntents is IntentsBase, HyperApp {
 
         _execute(order, outputsLen);
 
-        address hostAddr = host();
-        bytes memory body = bytes.concat(
-            bytes1(uint8(RequestKind.RedeemEscrow)),
-            abi.encode(
-                WithdrawalRequest({
-                    commitment: commitment, tokens: order.inputs, beneficiary: bytes32(uint256(uint160(msg.sender)))
-                })
-            )
+        // Native dispatch fee only if the solver sent enough to cover it; else the fee token.
+        uint256 nativeFee = options.nativeDispatchFee;
+        if (nativeFee > msgValue) nativeFee = 0;
+        msgValue -= nativeFee;
+        _post(
+            order,
+            _body(RequestKind.RedeemEscrow, commitment, order.inputs, bytes32(uint256(uint160(msg.sender)))),
+            options.relayerFee,
+            nativeFee
         );
-        DispatchPost memory request = DispatchPost({
-            dest: order.source,
-            to: abi.encodePacked(_instance(order.source)),
-            body: body,
-            timeout: 0,
-            fee: options.relayerFee,
-            payer: msg.sender
-        });
-
-        if (options.nativeDispatchFee > 0 && msgValue >= options.nativeDispatchFee) {
-            IDispatcher(hostAddr).dispatch{value: options.nativeDispatchFee}(request);
-            msgValue -= options.nativeDispatchFee;
-        } else {
-            dispatchWithFeeToken(request);
-        }
 
         // Refund any unspent native tokens to the solver.
         if (msgValue > 0) {
-            (bool sent,) = msg.sender.call{value: msgValue}("");
-            if (!sent) revert InsufficientNativeToken();
+            _sendValue(msg.sender, msgValue);
         }
 
         emit OrderFilled({commitment: commitment, filler: msg.sender, outputs: outputFills, inputs: order.inputs});
@@ -263,26 +290,9 @@ abstract contract ExtrinsicIntents is IntentsBase, HyperApp {
 
         _filled[commitment] = address(uint160(uint256(order.user)));
 
-        bytes memory body = bytes.concat(
-            bytes1(uint8(RequestKind.RefundEscrow)),
-            abi.encode(WithdrawalRequest({commitment: commitment, tokens: order.inputs, beneficiary: order.user}))
+        _post(
+            order, _body(RequestKind.RefundEscrow, commitment, order.inputs, order.user), options.relayerFee, msg.value
         );
-
-        DispatchPost memory request = DispatchPost({
-            dest: order.source,
-            to: abi.encodePacked(_instance(order.source)),
-            body: body,
-            timeout: 0,
-            fee: options.relayerFee,
-            payer: msg.sender
-        });
-
-        address hostAddr = host();
-        if (msg.value > 0) {
-            IDispatcher(hostAddr).dispatch{value: msg.value}(request);
-        } else {
-            dispatchWithFeeToken(request);
-        }
     }
 
     /**

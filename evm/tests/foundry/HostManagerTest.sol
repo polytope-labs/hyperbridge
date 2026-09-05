@@ -56,23 +56,48 @@ contract HostManagerTest is BaseTest {
         });
     }
 
-    function testRelayerIsSetInSetup() public view {
-        assertEq(manager.relayer(), address(this));
+    /// @dev A SetAdmin governance request installing `newAdmin`, addressed to the live HostManager.
+    function _setAdminRequest(address newAdmin) internal view returns (PostRequest memory) {
+        PostRequest memory request = _setHostParamRequest(host.hostParams());
+        request.body = bytes.concat(bytes1(uint8(HostManager.OnAcceptActions.SetAdmin)), abi.encode(newAdmin));
+        return request;
     }
 
-    function testSetRelayerOnlyHostAdmin() public {
-        assertEq(host.admin(), address(this), "precondition: this contract is the host admin");
+    function testAdminIsTheRelayerInSetup() public view {
+        assertEq(manager.params().admin, address(this));
+        assertEq(manager.relayer(), address(this), "relayer() reads the admin");
+        assertEq(manager.host(), address(host));
+    }
+
+    function testConstructorRejectsZeroAdmin() public {
+        vm.expectRevert(HostManager.InvalidAdmin.selector);
+        new HostManager(HostManagerParams({admin: address(0), host: address(host)}));
+    }
+
+    function testInitOnlyAdminAndOnlyOnce() public {
+        HostManager fresh = new HostManager(HostManagerParams({admin: address(this), host: address(0)}));
 
         vm.prank(OUTSIDER);
         vm.expectRevert(HostManager.UnauthorizedAction.selector);
-        manager.setRelayer(OUTSIDER);
+        fresh.init(address(host));
 
         // The host delivers governance messages but does not administer the manager.
         vm.prank(address(host));
         vm.expectRevert(HostManager.UnauthorizedAction.selector);
-        manager.setRelayer(OUTSIDER);
+        fresh.init(address(host));
 
-        assertEq(manager.relayer(), address(this), "relayer unchanged");
+        fresh.init(address(host));
+        assertEq(fresh.host(), address(host));
+        assertEq(fresh.params().admin, address(this), "init keeps the admin");
+
+        // Bound once; the admin key cannot re-point it afterwards.
+        vm.expectRevert(HostManager.AlreadyInitialized.selector);
+        fresh.init(OUTSIDER);
+
+        // A manager constructed with its host set is bound already.
+        HostManager bound = new HostManager(HostManagerParams({admin: address(this), host: address(host)}));
+        vm.expectRevert(HostManager.AlreadyInitialized.selector);
+        bound.init(address(host));
     }
 
     function testOnAcceptRejectsUnlistedRelayer() public {
@@ -86,7 +111,8 @@ contract HostManagerTest is BaseTest {
         manager.onAccept(IncomingPostRequest(request, OUTSIDER));
         assertEq(host.hostParams().challengePeriod, previousPeriod, "params unchanged");
 
-        // The relayer as reported by the host is never zero, and zero must not match an unset slot.
+        // The relayer as reported by the host is never zero, and the admin is never zero either, so
+        // zero matches nothing.
         vm.prank(address(host));
         vm.expectRevert(HostManager.UnauthorizedRelayer.selector);
         manager.onAccept(IncomingPostRequest(request, address(0)));
@@ -97,10 +123,9 @@ contract HostManagerTest is BaseTest {
         assertEq(host.hostParams().challengePeriod, previousPeriod + 1234, "params applied");
     }
 
-    function testFreshManagerRejectsEveryoneUntilRelayerSet() public {
-        HostManager fresh = new HostManager(HostManagerParams({admin: address(this), host: address(0)}));
-        fresh.setIsmpHost(address(host));
-        assertEq(fresh.relayer(), address(0));
+    function testFreshManagerAcceptsOnlyItsAdmin() public {
+        address freshAdmin = makeAddr("freshAdmin");
+        HostManager fresh = new HostManager(HostManagerParams({admin: freshAdmin, host: address(host)}));
         PostRequest memory request = _setHostParamRequest(host.hostParams());
 
         vm.prank(address(host));
@@ -110,25 +135,29 @@ contract HostManagerTest is BaseTest {
         vm.expectRevert(HostManager.UnauthorizedRelayer.selector);
         fresh.onAccept(IncomingPostRequest(request, OUTSIDER));
 
-        // Once set, the gate passes and the call reaches the host, which rejects this manager
+        // From its admin the gate passes and the call reaches the host, which rejects this manager
         // because it is not the one the host is bound to: the gate was the only thing in the way.
-        fresh.setRelayer(address(this));
         vm.prank(address(host));
         vm.expectRevert(EvmHost.UnauthorizedAction.selector);
-        fresh.onAccept(IncomingPostRequest(request, address(this)));
+        fresh.onAccept(IncomingPostRequest(request, freshAdmin));
     }
 
-    function testSetRelayerRotates() public {
-        address next = makeAddr("nextRelayer");
+    function testSetAdminRotates() public {
+        address next = makeAddr("nextAdmin");
         HostParams memory params = host.hostParams();
         params.challengePeriod += 1;
         PostRequest memory request = _setHostParamRequest(params);
 
+        PostRequest memory rotation = _setAdminRequest(next);
         vm.expectEmit(true, true, true, true, address(manager));
-        emit HostManager.RelayerUpdated(address(this), next);
-        manager.setRelayer(next);
+        emit HostManager.AdminUpdated(address(this), next);
+        vm.prank(address(host));
+        manager.onAccept(IncomingPostRequest(rotation, address(this)));
+        assertEq(manager.params().admin, next);
         assertEq(manager.relayer(), next);
+        assertEq(manager.host(), address(host), "host binding untouched");
 
+        // The outgoing admin is locked out immediately.
         vm.prank(address(host));
         vm.expectRevert(HostManager.UnauthorizedRelayer.selector);
         manager.onAccept(IncomingPostRequest(request, address(this)));
@@ -138,16 +167,35 @@ contract HostManagerTest is BaseTest {
         assertEq(host.hostParams().challengePeriod, params.challengePeriod);
     }
 
-    function testSetRelayerToZeroFailsClosed() public {
-        manager.setRelayer(address(0));
-        PostRequest memory request = _setHostParamRequest(host.hostParams());
+    function testSetAdminRejectsZero() public {
+        PostRequest memory request = _setAdminRequest(address(0));
+        vm.prank(address(host));
+        vm.expectRevert(HostManager.InvalidAdmin.selector);
+        manager.onAccept(IncomingPostRequest(request, address(this)));
+        assertEq(manager.params().admin, address(this), "admin unchanged");
+    }
+
+    /// The rotation is governance like everything else here: refused unless it comes from
+    /// Hyperbridge, through the host, delivered by the current admin.
+    function testSetAdminIsGovernanceOnly() public {
+        address next = makeAddr("nextAdmin");
+        PostRequest memory request = _setAdminRequest(next);
 
         vm.prank(address(host));
         vm.expectRevert(HostManager.UnauthorizedRelayer.selector);
-        manager.onAccept(IncomingPostRequest(request, address(this)));
+        manager.onAccept(IncomingPostRequest(request, next));
+
+        request.source = bytes("EVM-1");
         vm.prank(address(host));
-        vm.expectRevert(HostManager.UnauthorizedRelayer.selector);
-        manager.onAccept(IncomingPostRequest(request, address(0)));
+        vm.expectRevert(HostManager.UnauthorizedAction.selector);
+        manager.onAccept(IncomingPostRequest(request, address(this)));
+
+        // Only the host may call `onAccept` at all.
+        request = _setAdminRequest(next);
+        vm.expectRevert(HostManager.UnauthorizedAction.selector);
+        manager.onAccept(IncomingPostRequest(request, address(this)));
+
+        assertEq(manager.params().admin, address(this), "admin unchanged");
     }
 
     /// Through the real host: a refused governance delivery leaves no receipt, so the authorised
@@ -201,11 +249,10 @@ contract HostManagerTest is BaseTest {
         return request;
     }
 
-    /// @dev A replacement manager, bound to the host and armed with this contract as relayer.
+    /// @dev A replacement manager, bound to the host at construction and administered by this
+    /// contract, so this contract is the relayer it accepts deliveries from.
     function _deployNextManager() internal returns (HostManager next) {
-        next = new HostManager(HostManagerParams({admin: address(this), host: address(0)}));
-        next.setIsmpHost(address(host));
-        next.setRelayer(address(this));
+        next = new HostManager(HostManagerParams({admin: address(this), host: address(host)}));
     }
 
     /// The host authorises `updateHostParams` only from the manager it currently knows, so the

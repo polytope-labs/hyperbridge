@@ -10,7 +10,7 @@
  *   6. IntentGatewayV2    (intent-based bridging)
  *
  * After deployment the script wires everything together:
- *   - HostManager.setIsmpHost(tronHost)
+ *   - HostManager.init(tronHost)
  *   - TronHost.setConsensusState(...)   [if CONSENSUS_STATE env is set]
  *   - IntentGatewayV2.setParams(...)
  */
@@ -134,7 +134,11 @@ module.exports = async function (deployer, network, accounts) {
     // ═════════════════════════════════════════════════════════════════════
     //  4. Deploy HostManager
     //     The host address is initially zero; it will be set after TronHost
-    //     is deployed, sealing the cyclic dependency.
+    //     is deployed, sealing the cyclic dependency. The admin is the only
+    //     account allowed to bind the host and the only relayer whose
+    //     governance deliveries the manager accepts, so the deployer is the
+    //     governance relayer for TRON until a `SetAdmin` request from
+    //     Hyperbridge rotates it.
     // ═════════════════════════════════════════════════════════════════════
     console.log("→ Deploying HostManager ...");
     await deployer.deploy(HostManager, [admin, ZERO_ADDRESS_HEX]);
@@ -178,8 +182,8 @@ module.exports = async function (deployer, network, accounts) {
     await sleep(BLOCK_TIME);
 
     console.log("→ Linking HostManager → TronHost ...");
-    await hostManager.setIsmpHost(tronHost.address);
-    console.log("  ✓ HostManager.setIsmpHost done");
+    await hostManager.init(tronHost.address);
+    console.log("  ✓ HostManager.init done");
 
     // ═════════════════════════════════════════════════════════════════════
     //  5b. Set initial consensus state (if provided)

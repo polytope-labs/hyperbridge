@@ -420,12 +420,17 @@ interface IIntentGatewayV2 {
     function params() external view returns (Params memory);
 
     /**
-     * @notice Replaces the only relayer whose `onAccept` and `onGetResponse` deliveries are
-     *         accepted. Callable by the gateway owner, or by the host as the migration calldata
-     *         of a governance upgrade so that the relayer is armed in the upgrade transaction.
-     * @param relayer The relayer authorised from now on. Zero rejects every delivery.
+     * @notice The only relayer whose `onAccept` and `onGetResponse` deliveries are accepted.
+     * @return address The authorised relayer, or zero while every relayer is accepted
      */
-    function setRelayer(address relayer) external;
+    function relayer() external view returns (address);
+
+    /**
+     * @notice The `Initializable` version: 2 once `initialize` or `migrate` has run, 1 on a proxy
+     *         from before this implementation. Reverts on implementations that predate the gate.
+     * @return uint64 The initialized version
+     */
+    function version() external view returns (uint64);
 
     /**
      * @notice Calculates the commitment slot hash for storage proof verification.

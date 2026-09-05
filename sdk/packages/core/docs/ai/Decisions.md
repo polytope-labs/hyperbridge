@@ -4,6 +4,167 @@ AI-maintained record of non-obvious choices made in `sdk/packages/core`: what wa
 
 Entry format: heading with the decision, then alternatives considered and the reasoning. Newest first.
 
+## 2026-09-05 — `Execute` delegatecalls the implementation; an upgrade is one such call
+
+Chosen: one governance action that delegatecalls the proxy's current implementation with the
+body as calldata. `msg.sender` stays the host, so the existing `onlyHost` guards are the whole
+access model, and `upgradeToAndCall` becomes an ordinary host-only function. A rotation no longer
+has to be dressed up as an upgrade to the same implementation.
+
+Alternative rejected — an external self-call, `address(this).call(data)`. It makes the gateway
+its own caller, so every governance target would need an `onlySelf` guard in place of
+`onlyHost`, and the gateway as caller holds the escrow, which the host as caller does not.
+
+Alternative rejected — a `SetRelayer` action next to `UpgradeContract`. One more variant to
+mirror in the pallet for one function; `Execute` covers it and anything host-only added later.
+
+Kept — `UpgradeContract` in the pallet, under the same discriminator. The live implementation
+understands only that body, so it is the one message that can install this code; afterwards it
+selects no function here and reverts, which `testLegacyUpgradeBodyIsRefused` pins so the mistake
+is loud rather than silent.
+
+Cost accepted — `Execute` can call any function of the implementation with the host as sender,
+not only the host-only ones. Governance can already install arbitrary code through an upgrade,
+so this widens nothing.
+
+## 2026-09-05 — `initialize` only on a bare proxy, rather than a version check in the upgrade path
+
+Chosen: `initialize` is refused unless the proxy is at version 0. `migrate` is the only entry to
+`VERSION` for a proxy that already has one, and it is host-only.
+
+The hole both options close: `initialize` has no caller restriction, because a bare proxy is
+initialized atomically in its constructor. An `UpgradeContract` that installs this implementation
+on a version-1 proxy without `migrate` calldata would leave the proxy below `VERSION` with
+`initialize` callable by anyone, who could then set the params and the relayer.
+
+Alternative rejected — require the version to have risen after `upgradeToAndCall`. It forces
+every upgrade to carry a migration, so a same-implementation upgrade carrying only `setRelayer`,
+the rotation path, would be refused; scoping the check to implementation changes fixes that but
+adds a branch and an implementation-slot read to every upgrade. And it cannot protect the first
+upgrade off the live pre-gate implementation, whose `onAccept` has no such check. The `initialize`
+guard covers that case too, since it is the new implementation's code that runs `initialize`.
+
+## 2026-09-05 — The relayer gate belongs to the token that needs it, not to `HyperFungibleToken`
+
+Chosen: `HyperFungibleToken` has no relayer state, setter, event, error or hook. Its two delivery
+callbacks are `public virtual`, and `BridgeToken` wraps them with its own gate. A token that wants
+a gate writes one; a token that does not gets nothing to configure and no extra storage slot.
+
+The opt-in gate in the base contract (zero means open, override to fail closed) was two policies
+in one place: third-party tokens saw a setter they had no reason to call, and the one token that
+needed the gate had to override the hook to invert its default. Moving the whole thing into
+`BridgeToken` leaves one policy per contract.
+
+Alternative rejected — keep an empty `_checkRelayer` hook in the base for derived tokens to fill
+in. It still names a relayer in a contract that has no opinion about one, and wrapping the
+callbacks costs the derived token nothing more than a `super` call.
+
+## 2026-09-05 — `version()` is the implementation's `VERSION`; `initialize` arms, `migrate` catches up
+
+Chosen: one constant, `VERSION = 2`, that both `initialize` and `migrate` land on. `initialize`
+takes the relayer in the init data, so a fresh proxy is armed from its first block and reports
+the version of the code it runs. `migrate`, host-only and one-shot, exists for proxies deployed
+before this implementation and reverts on any proxy already at `VERSION`. `setRelayer` is a
+rotation and never touches the version. `onlyHost` on `migrate` is load-bearing: a proxy at 1 is
+open, and without it anyone could arm it first.
+
+This reverses the earlier decision (below, same day) to keep the relayer out of the init data.
+The reason given there, that the relayer would become part of what fixes the proxy's CREATE2
+address, still holds but no longer bites: the implementation address is already an input to
+that address, so every new implementation changes it for chains deployed afterwards anyway, and
+the deploy script now deploys a proxy only where none exists. Landing fresh proxies at 1 with an
+open gate, the state before this change, left them reporting an older version than their code.
+
+Alternative rejected — `setRelayer` under `reinitializer(_getInitializedVersion() + 1)`, built
+and tested first. It makes `version()` count key rotations, which says nothing about what code a
+proxy has migrated to.
+
+Alternative rejected — a fixed `reinitializer(2)` on `setRelayer` itself: the second rotation
+reverts until an implementation with `reinitializer(3)` ships.
+
+Alternative rejected — a separate `bumpVersion()` next to a plain `setRelayer`: an
+`UpgradeContract` carries one migration call, so arming a fresh chain would take two deliveries.
+
+The bytes came from deduplicating internal code, not from dropping anything off-chain reads. The
+one place `_sendValue` is not used is the `_fillSameChain` loop, which is at the via-ir stack
+limit.
+
+## 2026-09-05 — The `HostManager` admin is the relayer, rotated only by governance
+
+Chosen: `HostManagerParams.admin` survives `init` and is the address `onAccept` compares the
+relayer against. There is no separate relayer slot and no local setter; a `SetAdmin` request from
+Hyperbridge, delivered by the outgoing admin, replaces it.
+
+The previous design gave the host admin a `setRelayer` on the manager. That key could re-route
+governance at will, from a local transaction nobody on Hyperbridge sees. Folding the relayer into
+the admin removes that path: the only way to change who may deliver governance is governance, and
+the manager's admin has exactly one power after `init`, which is to deliver.
+
+Alternative rejected — keep `setRelayer` but restrict it to the manager's own admin. Same local
+override, different key.
+
+Alternative rejected — a zero admin as a kill switch, as a zero relayer was. A zero admin can never
+be rotated away: the rotation is itself a delivery the manager would refuse, and the host cannot be
+re-pointed at a new manager except through the current one. Zero is refused in the constructor and
+in `SetAdmin`, and the pallet refuses to dispatch it; the cost is a comparison each, the failure
+they prevent is permanent.
+
+## 2026-09-05 — `init` is one-shot, and the EVM deploy scripts do not call it
+
+Chosen: `init` binds the host only while it is unset; a manager constructed with its host set is
+bound already.
+
+With the admin surviving `init`, a repeatable `init` would let the governance relayer key re-point
+the host and cut it off from its own governance. One-shot closes that. `DeployIsmp.s.sol`
+therefore constructs the host first, which works because `EvmHost` takes its params in
+`initialize` rather than its constructor, and passes the host to the manager's constructor, so the
+relayer key never has to sign a deploy transaction. `TronHost` takes its params in the constructor,
+so the Tron migration keeps the `init` route with the deployer as admin until governance rotates
+it.
+
+Alternative rejected — precompute the host's CREATE2 address in the script. Works, but couples the
+script to the CREATE2 deployer and the host's creation code for no gain over reordering.
+
+## 2026-09-05 — Gateway `setRelayer` is host-only and the only writer; unset means open
+
+Chosen: `setRelayer` lives in `ExtrinsicIntents` behind `onlyHost`, `initialize` does not touch the
+relayer, and `_checkRelayer` passes every delivery while `_relayer` is zero. This supersedes the
+2026-09-03 decision below that zero fails closed.
+
+The owner branch existed so a fresh proxy could be armed locally; it also let the owner key
+redirect every cross-chain delivery without a governance message. Removing it leaves the host as
+the only caller, reachable solely from `UpgradeContract` migration calldata. Carrying the relayer
+in the init data was tried and rejected: the relayer is operational state that governance owns,
+not part of what fixes a proxy's address. With no local or init-time arming left, the message that
+arms a fresh proxy is a governance delivery, so the unarmed proxy has to accept it; an unset
+relayer therefore gates nothing, and `setRelayer(address(0))` reopens the gate. The window is the
+one between deployment and the `upgrade_gateway` that arms it, and closing it is governance's
+first act on a new chain.
+
+Alternative rejected — a `RequestKind.SetRelayer` governance action instead of the host-only
+function. Simpler to invoke, but it needs the `intents-coprocessor` pallet mirrored, and the
+migration-calldata route already exists and is tested.
+
+`_owner` stays as the placeholder it was before the relayer work, with nothing to do.
+
+## 2026-09-05 — `relayer()` on both contracts, `version()` on the gateway from `Initializable`
+
+Chosen: the manager and the gateway both answer `relayer()`. The gateway's `version()` returns
+`_getInitializedVersion()` from OpenZeppelin's `Initializable`: 1 once `initialize` has run, and
+raised only by a `reinitializer(n)` migration, so it tracks the storage-level migrations a proxy
+has been through rather than a number someone has to remember to bump. Implementations from
+before the gate have no `version()` at all and revert. The manager is not upgradeable and gets no
+`version()`; a manager without `relayer()` is one from before the admin became the relayer.
+
+The underscore-public convention in `IntentsBase` (`_filled`, `_orders`, ...) would have given
+`_relayer()` for free, but a named getter is what the interface should publish, and the gateway
+had 26 bytes of headroom: `relayer()` only fits once the auto-generated getter is dropped, and
+`version()` needed the `_instances` getter dropped as well. That getter duplicated
+`instance(bytes)` and nothing off-chain called it.
+
+Alternative rejected — a hand-maintained version constant, as a semver string or a number. The
+string cost 82 bytes and did not fit; both would drift from what is actually deployed.
+
 ## 2026-09-03 — `HostManager` deliveries are gated too, and that does not touch permissionless relaying
 
 Chosen: `HostManager.onAccept` refuses any relayer but the one the host admin set, zero included.
@@ -77,6 +238,8 @@ rotate the relayer through `UpgradeContract` migration calldata when it wants to
 covers the case where it cannot.
 
 ## 2026-09-03 — Zero relayer fails closed, and the upgrade arms it atomically
+
+Superseded on 2026-09-05: an unset relayer gates nothing, see above.
 
 Chosen: an unset `_relayer` matches no delivery, because the handler always forwards a real
 `msg.sender`. The rollout sets it in the upgrade transaction via `upgradeToAndCall` calldata.

@@ -245,6 +245,8 @@ pub mod pallet {
 		PhantomBidWindowExhausted { commitment: H256, created_at: BlockNumberFor<T> },
 		/// A gateway implementation upgrade was initiated
 		GatewayUpgradeInitiated { state_machine: StateMachine, new_impl: H160 },
+		/// A call on the gateway was dispatched through `Execute`
+		GatewayCallDispatched { state_machine: StateMachine },
 		/// A SimplexPaymaster deployment address was registered
 		PaymasterDeploymentAdded { state_machine: StateMachine, paymaster: H160 },
 		/// A paymaster implementation upgrade was initiated
@@ -765,6 +767,10 @@ pub mod pallet {
 		/// governance. The upgrade is authorized on the gateway by `source == hyperbridge`, the
 		/// same authority used for `update_params`/`sweep_dust`.
 		///
+		/// Understood only by gateway implementations from before the `Execute` action; on later
+		/// ones the body selects no function and reverts. Use it once per chain to install an
+		/// `Execute`-capable implementation, then `execute_on_gateway` for every upgrade after.
+		///
 		/// # Parameters
 		/// - `state_machine`: The state machine where the gateway is deployed
 		/// - `new_impl`: The address of the new implementation contract
@@ -793,6 +799,41 @@ pub mod pallet {
 			Self::dispatch(state_machine, gateway_info.gateway, body)?;
 
 			Self::deposit_event(Event::GatewayUpgradeInitiated { state_machine, new_impl });
+
+			Ok(())
+		}
+
+		/// Delegatecall the Intent Gateway's current implementation with `data` via cross-chain
+		/// governance, the host still the caller on the gateway. This is governance's door to
+		/// the gateway's host-only functions: `upgradeToAndCall(newImpl, initData)` for upgrades,
+		/// `setRelayer(relayer)` for rotations. Only gateway implementations with the `Execute`
+		/// action understand it; a proxy still on an older implementation is moved first with
+		/// `upgrade_gateway`. Weighed as `upgrade_gateway`, the same lookup and dispatch.
+		///
+		/// # Parameters
+		/// - `state_machine`: The state machine where the gateway is deployed
+		/// - `data`: ABI-encoded calldata for the gateway
+		///
+		/// # Errors
+		/// - `GatewayNotFound`: If no gateway exists for the state machine
+		/// - `DispatchFailed`: If cross-chain dispatch fails
+		#[pallet::call_index(19)]
+		#[pallet::weight(T::WeightInfo::upgrade_gateway())]
+		pub fn execute_on_gateway(
+			origin: OriginFor<T>,
+			state_machine: StateMachine,
+			data: Vec<u8>,
+		) -> DispatchResult {
+			T::GovernanceOrigin::ensure_origin(origin)?;
+
+			let gateway_info =
+				Gateways::<T>::get(state_machine).ok_or(Error::<T>::GatewayNotFound)?;
+
+			let body = RequestKind::Execute { data }.encode_body();
+
+			Self::dispatch(state_machine, gateway_info.gateway, body)?;
+
+			Self::deposit_event(Event::GatewayCallDispatched { state_machine });
 
 			Ok(())
 		}

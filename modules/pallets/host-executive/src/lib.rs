@@ -25,7 +25,7 @@ extern crate alloc;
 // their ABI counterparts so the cross-format conversions live in one place.
 // Re-exported here for backwards compatibility with existing call sites.
 pub use ismp_abi::{
-	encode_host_params,
+	encode_host_params, encode_set_admin,
 	evm_host::EvmHost::{HostParams as EvmHostParamsAbi, WithdrawParams as WithdrawParamsAbi},
 	EvmHostParam, EvmHostParamUpdate, HostParam, HostParamUpdate, WithdrawalParams,
 };
@@ -141,6 +141,14 @@ pub mod pallet {
 			/// Amount withdrawn
 			amount: U256,
 		},
+		/// `HostExecutiveOrigin` has dispatched a rotation of the host manager's admin, the only
+		/// relayer whose governance deliveries that manager accepts
+		HostManagerAdminUpdated {
+			/// State machine whose host manager is being rotated
+			state_machine: StateMachine,
+			/// The admin from now on
+			admin: H160,
+		},
 	}
 
 	#[pallet::error]
@@ -155,6 +163,9 @@ pub mod pallet {
 		UnsupportedStateMachine,
 		/// The beneficiary address in `WithdrawalParams` was not a valid 20-byte EVM address
 		InvalidBeneficiaryAddress,
+		/// The host manager admin may not be zero: the manager refuses it, since a zero admin
+		/// would leave nobody able to deliver governance to it
+		InvalidHostManagerAdmin,
 	}
 
 	#[pallet::call]
@@ -317,6 +328,45 @@ pub mod pallet {
 				state_machine,
 				amount: withdrawal_params.amount,
 			});
+
+			Ok(())
+		}
+
+		/// Rotates the admin of an evm chain's host manager: the only relayer whose governance
+		/// deliveries that manager accepts. Addressed to the manager on record, whose current
+		/// admin has to deliver it.
+		#[pallet::weight(T::DbWeight::get().writes(1))]
+		#[pallet::call_index(5)]
+		pub fn set_host_manager_admin(
+			origin: OriginFor<T>,
+			state_machine: StateMachine,
+			admin: H160,
+		) -> DispatchResult {
+			T::HostExecutiveOrigin::ensure_origin(origin)?;
+
+			ensure!(state_machine.is_evm(), Error::<T>::UnsupportedStateMachine);
+			ensure!(!admin.is_zero(), Error::<T>::InvalidHostManagerAdmin);
+
+			let HostParam::EvmHostParam(params) = HostParams::<T>::get(state_machine)
+				.ok_or_else(|| Error::<T>::UnknownStateMachine)?;
+
+			let post = DispatchPost {
+				dest: state_machine,
+				from: PALLET_ID.to_bytes(),
+				to: params.host_manager.0.to_vec(),
+				timeout: 0,
+				body: encode_set_admin(admin),
+			};
+
+			let dispatcher = <T as Config>::IsmpHost::default();
+			dispatcher
+				.dispatch_request(
+					DispatchRequest::Post(post),
+					FeeMetadata { payer: [0u8; 32].into(), fee: Default::default() },
+				)
+				.map_err(|_| Error::<T>::DispatchFailed)?;
+
+			Self::deposit_event(Event::<T>::HostManagerAdminUpdated { state_machine, admin });
 
 			Ok(())
 		}

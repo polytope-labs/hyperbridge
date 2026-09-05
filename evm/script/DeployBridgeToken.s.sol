@@ -11,7 +11,7 @@ contract DeployBridgeToken is BaseScript {
         address dispatcher = config.get("CALL_DISPATCHER").toAddress();
         // The only account allowed to deliver messages to the token, on every chain. Read here rather
         // than in BaseScript so the other scripts do not require it.
-        address relayer = vm.envAddress("BRIDGE_RELAYER");
+        address relayer = vm.envAddress("GOVERNANCE_RELAYER");
         BridgeToken bridge = new BridgeToken{salt: salt}(admin);
 
         // Set before `configure`: until the host is set nothing can reach `onAccept`, so the token

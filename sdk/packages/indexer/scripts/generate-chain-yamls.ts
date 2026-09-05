@@ -296,19 +296,22 @@ const generateYieldVaultAddresses = () => {
 }
 
 const generateSolverAccountAddresses = () => {
-	const solverAccounts: Record<string, string> = {}
+	const solverAccounts: Record<string, string[]> = {}
 
 	validChains.forEach((config) => {
 		if (config.type === "evm" && config.contracts?.solverAccount) {
-			solverAccounts[config.stateMachineId] = config.contracts.solverAccount
+			const configured = config.contracts.solverAccount
+			solverAccounts[config.stateMachineId] = Array.isArray(configured) ? configured : [configured]
 		}
 	})
 
 	const value = `// Auto-generated, DO NOT EDIT
-// SolverAccount contract address per chain (EIP-7702 delegation target for our solver EOAs).
+// SolverAccount contract addresses per chain (EIP-7702 delegation targets for our solver EOAs).
+// A bid or vault position counts when its account delegates to any of them, so a replaced
+// SolverAccount can stay listed until every solver has re-delegated.
 // To add or update entries, edit the "solverAccount" field in the relevant chain entry
 // in src/configs/config-mainnet.json (or config-testnet.json) and re-run codegen.
-export const SOLVER_ACCOUNT_ADDRESSES: Record<string, string> = ${JSON.stringify(solverAccounts, null, 2)}`
+export const SOLVER_ACCOUNT_ADDRESSES: Record<string, string[]> = ${JSON.stringify(solverAccounts, null, 2)}`
 
 	fs.writeFileSync(root + "/src/solver-account-addresses.ts", value)
 	console.log("Generated solver-account-addresses.ts")

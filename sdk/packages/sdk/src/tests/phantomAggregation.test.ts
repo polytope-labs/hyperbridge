@@ -238,7 +238,7 @@ describe("weightedMedian", () => {
 
 const CHAIN = "EVM-8453"
 const CHAIN_ID = 8453n
-const SOLVER_ACCOUNT = "0xfCd233b937D7622AAc63ced3C9A1A12F4a6B64E3"
+const SOLVER_ACCOUNT = "0x7cb55539d1144F62422099c3FA3405092022c88C"
 const SOLVER_KEY = "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d" as HexString
 const IMPOSTOR_KEY = "0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a" as HexString
 // The real commitment of `phantomOrder()`, i.e. keccak256(abi.encode(order)) — the same value
@@ -475,6 +475,30 @@ describe("aggregatePhantomBids bid verification", () => {
 		})
 
 		expect(result).toBeNull()
+	})
+
+	it("counts a bid whose sender delegates to any of several configured SolverAccounts", async () => {
+		const previousSolverAccount = "0xfCd233b937D7622AAc63ced3C9A1A12F4a6B64E3"
+		const userOp = await signedBidUserOp({ signingKey: SOLVER_KEY })
+		// The solver still delegates to the SolverAccount that was replaced.
+		setAggregationFetch(mockRpc([userOp], delegatedTo(previousSolverAccount)))
+
+		const result = await aggregatePhantomBids({
+			nodeUrl: NODE_URL,
+			evmRpcUrls: { [CHAIN]: "http://base.test" },
+			chain: CHAIN,
+			gatewayAddress: GATEWAY,
+			commitment: COMMITMENT,
+			yieldVaults: { [CHAIN]: { [USDT]: [] } },
+			solverAccount: [SOLVER_ACCOUNT, previousSolverAccount],
+		})
+
+		expect(result).not.toBeNull()
+		expect(result!.legs[0].bidCount).toBe(1)
+
+		// With only the current account configured the same bid is not ours.
+		setAggregationFetch(mockRpc([userOp], delegatedTo(previousSolverAccount)))
+		expect(await aggregate([userOp], delegatedTo(previousSolverAccount))).toBeNull()
 	})
 
 	it("prices only the verified bids when unverified ones are mixed in", async () => {

@@ -102,7 +102,7 @@ contract MainnetForkBaseTest is Test {
 
         host = new TestHost(params);
 
-        manager.setIsmpHost(address(host));
+        manager.init(address(host));
     }
 
 }

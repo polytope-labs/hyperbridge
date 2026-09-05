@@ -341,12 +341,22 @@ pub enum RequestKind {
 	SweepDust(SweepDust),
 	/// Update token decimals in VWAP Oracle
 	UpdateTokenDecimals(Vec<TokenDecimalsUpdate>),
-	/// Upgrade the Intent Gateway implementation behind its ERC-1967 proxy
+	/// Upgrade the Intent Gateway implementation behind its ERC-1967 proxy. Understood only by
+	/// gateway implementations from before the `Execute` action; its body shares the
+	/// discriminator with `Execute` and selects no function on later ones. Use it once per chain
+	/// to install an `Execute`-capable implementation, then `Execute`.
 	UpgradeContract {
 		/// The new implementation contract address
 		new_impl: H160,
 		/// Optional migration calldata run atomically against the proxy on upgrade
 		init_data: Vec<u8>,
+	},
+	/// Delegatecall the Intent Gateway's current implementation with `data`, the host still the
+	/// caller on the gateway: governance's door to its host-only functions, `upgradeToAndCall`
+	/// for upgrades and `setRelayer` for rotations.
+	Execute {
+		/// ABI-encoded calldata for the gateway
+		data: Vec<u8>,
 	},
 	/// Upgrade the SimplexPaymaster implementation behind its ERC-1967 proxy
 	PaymasterUpgrade {
@@ -594,7 +604,8 @@ enum IntentGatewayRequestKind {
 	UpdateParams = 2,
 	SweepDust = 3,
 	RefundEscrow = 4,
-	UpgradeContract = 5,
+	/// `UpgradeContract` on implementations from before the action; same discriminator.
+	Execute = 5,
 }
 
 /// Mirrors the `RequestKind` enum in `VWAPOracle.sol`.
@@ -683,8 +694,16 @@ impl RequestKind {
 				// initData)`.
 				let payload = (Address::from_slice(&new_impl.0), Bytes::from(init_data.clone()));
 
-				let mut body = vec![IntentGatewayRequestKind::UpgradeContract as u8];
+				// Same discriminator as `Execute`: the pre-`Execute` implementation reads it as
+				// `UpgradeContract`.
+				let mut body = vec![IntentGatewayRequestKind::Execute as u8];
 				body.extend_from_slice(&payload.abi_encode_params());
+				body
+			},
+			RequestKind::Execute { data } => {
+				// The gateway delegatecalls its implementation with `body[1:]` verbatim.
+				let mut body = vec![IntentGatewayRequestKind::Execute as u8];
+				body.extend_from_slice(data);
 				body
 			},
 			RequestKind::PaymasterUpgrade { new_impl, init_data } => {
@@ -751,8 +770,9 @@ mod request_kind_tests {
 		let new_impl = H160::repeat_byte(0x11);
 		let body = RequestKind::UpgradeContract { new_impl, init_data: Vec::new() }.encode_body();
 
-		// Discriminator byte must equal the EVM enum value (UpgradeContract = 5).
-		assert_eq!(body[0], 5, "discriminator must match IntentsBase.RequestKind.UpgradeContract");
+		// Discriminator byte must equal the EVM enum value (5: `UpgradeContract` on the
+		// pre-`Execute` implementation, `Execute` since).
+		assert_eq!(body[0], 5, "discriminator must match IntentsBase.RequestKind.Execute");
 
 		// Hand-computed `abi.encode(address, bytes)` for (0x11 * 20, "") — exactly 96 bytes:
 		//   word0: address right-aligned in 32 bytes
@@ -786,6 +806,15 @@ mod request_kind_tests {
 			<(Address, Bytes)>::abi_decode_params(&body[1..]).expect("decodes as (address, bytes)");
 		assert_eq!(decoded_impl.as_slice(), &new_impl.0);
 		assert_eq!(decoded_data.as_ref(), init_data.as_slice());
+	}
+
+	// `Execute` is the discriminator followed by the calldata, nothing else.
+	#[test]
+	fn execute_encode_is_discriminator_then_raw_calldata() {
+		let data = vec![0xAA, 0xBB, 0xCC, 0xDD, 0x01];
+		let body = RequestKind::Execute { data: data.clone() }.encode_body();
+		assert_eq!(body[0], 5, "must match IntentsBase.RequestKind.Execute");
+		assert_eq!(&body[1..], data.as_slice(), "calldata must follow verbatim");
 	}
 
 	// SimplexPaymaster discriminators differ from IntentGateway's; pin each one.

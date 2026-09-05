@@ -89,8 +89,8 @@ export const handlePhantomOrderPrices = wrap(async (event: SubstrateEvent): Prom
 	// A bid only counts if its sender delegates to this, so with no configured address there is
 	// nothing to verify against and no snapshot to write. Worth a warning rather than a silent skip:
 	// the chain is otherwise fully configured, so this is a gap in config-{mainnet,testnet}.json.
-	const solverAccount = SOLVER_ACCOUNT_ADDRESSES[phantom.chain]
-	if (!solverAccount) {
+	const solverAccounts = SOLVER_ACCOUNT_ADDRESSES[phantom.chain]
+	if (!solverAccounts?.length) {
 		logger.warn(
 			{ chain: phantom.chain, commitment },
 			"No SolverAccount configured for chain, skipping price snapshot",
@@ -107,7 +107,7 @@ export const handlePhantomOrderPrices = wrap(async (event: SubstrateEvent): Prom
 			gatewayAddress,
 			commitment,
 			yieldVaults: YIELD_VAULT_ADDRESSES,
-			solverAccount,
+			solverAccount: solverAccounts,
 			// viem's keccak throws in the VM2 sandbox; inject the indexer's ethers-based equivalents.
 			extractFill: extractFillDataVm2,
 			recoverSigner: recoverBidSignerVm2,

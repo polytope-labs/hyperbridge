@@ -60,7 +60,7 @@ import {
 contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardTransient, Initializable {
     using SafeERC20 for IERC20;
 
-    /// @dev Privileged admin; rotates the authorised relayer via `setRelayer`. Immutable, so it must
+    /// @dev Privileged admin for future upgrade-gated actions (e.g. pausing). Immutable, so it must
     /// be identical across chains or the deterministic proxy address diverges. Does not gate
     /// `initialize`; atomic CREATE2 deployment already binds the init data to the canonical address.
     address public immutable _owner;
@@ -91,17 +91,31 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardT
         return _params.host;
     }
 
+    /// @dev The `Initializable` version this implementation lands a proxy on, through `initialize`
+    /// or `migrate`. Bumped by the next implementation that needs a migration.
+    uint64 private constant VERSION = 2;
+
+    /// @dev `initialize` is for a bare proxy only. A proxy that an upgrade left below `VERSION` is
+    /// taken there by the host-only `migrate`; without this, anyone could `initialize` it.
+    modifier onlyFresh() {
+        if (_getInitializedVersion() != 0) revert InvalidInitialization();
+        _;
+    }
+
     /**
-     * @dev One-time init (the `initializer` modifier caps it to a single call). Registers the
-     * initial cross-chain peers, each bound to `address(this)`; `_instance` reverts with
-     * `UnknownInstance` for any chain not registered here or later via `onAccept` governance.
-     *
+     * @dev One-time init of a bare proxy: registers the peers, each bound to `address(this)`,
+     * stores the params, arms the relayer gate, and lands at `VERSION`. Refused on any proxy
+     * already at a version, see `onlyFresh`.
      * @param p The initial gateway configuration parameters.
-     * @param peerChains State-machine ids of the cross-chain peers to register. Each is bound to
-     * this gateway's own address, identical across chains under deterministic CREATE2, so no peer
-     * address is carried in the proxy's init data.
+     * @param peerChains State-machine ids of the cross-chain peers to register, each bound to this
+     * gateway's own address so no peer address is carried in the proxy's init data.
+     * @param relayer The only relayer whose deliveries are accepted. Zero leaves the gate open.
      */
-    function initialize(Params memory p, bytes[] memory peerChains) public initializer {
+    function initialize(Params memory p, bytes[] memory peerChains, address relayer)
+        public
+        onlyFresh
+        reinitializer(VERSION)
+    {
         uint256 peersLength = peerChains.length;
         for (uint256 i = 0; i < peersLength; i++) {
             Deployment memory deployment = Deployment({chain: peerChains[i], gateway: address(this)});
@@ -109,23 +123,27 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardT
         }
         _validateParams(p);
         _params = p;
+        _setRelayer(relayer);
     }
 
     /**
-     * @dev Replaces the relayer authorised to deliver cross-chain messages to this gateway.
-     * Callable by `_owner` directly, and by the host so that a governance `UpgradeContract`
-     * request can carry this call as its migration calldata and have the new implementation and
-     * the relayer take effect in the same transaction: `upgradeToAndCall` runs that calldata as a
-     * delegatecall, which keeps `msg.sender` as the host that invoked `onAccept`. The host never
-     * calls this contract with anything but the `IApp` callback selectors, so the host branch is
-     * reachable only through that migration calldata, behind the hyperbridge-source check and
-     * the relayer gate.
-     * @param relayer The account whose deliveries are accepted from now on. Zero rejects all.
+     * @dev Migration for a proxy from before this implementation: arms the gate and lands at
+     * `VERSION`. Host-only, so nobody can arm it before governance does, and one-shot; delivered as
+     * the migration calldata of the upgrade that installs this implementation. Reverts on a proxy
+     * `initialize` already took there.
+     * @param relayer The account whose deliveries are accepted from now on.
      */
-    function setRelayer(address relayer) external {
-        if (msg.sender != _owner && msg.sender != host()) revert Unauthorized();
-        emit RelayerUpdated({previous: _relayer, current: relayer});
-        _relayer = relayer;
+    function migrate(address relayer) external onlyHost reinitializer(VERSION) {
+        _setRelayer(relayer);
+    }
+
+    /**
+     * @dev The `Initializable` version: 0 on a bare proxy, 1 on one from before this
+     * implementation, `VERSION` once `initialize` or `migrate` has run. The raw implementation is
+     * locked at the maximum.
+     */
+    function version() external view returns (uint64) {
+        return _getInitializedVersion();
     }
 
     /**
@@ -227,8 +245,7 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardT
                     if (amount > msgValue) revert InsufficientNativeToken();
                     msgValue -= amount;
 
-                    (bool sent,) = dispatcher.call{value: amount}("");
-                    if (!sent) revert InsufficientNativeToken();
+                    _sendValue(dispatcher, amount);
                 } else {
                     IERC20(token).safeTransferFrom(msg.sender, dispatcher, amount);
                 }
@@ -338,11 +355,10 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardT
             }
 
             order.inputs = reducedInputs;
-            commitment = keccak256(abi.encode(order));
         } else {
             reducedInputs = order.inputs;
-            commitment = keccak256(abi.encode(order));
         }
+        commitment = keccak256(abi.encode(order));
 
         // Phase 3: Credit escrow.
         for (uint256 i; i < inputsLen;) {
@@ -363,7 +379,7 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardT
                 address WETH = IUniswapV2Router02(uniswapV2).WETH();
                 address[] memory path = new address[](2);
                 path[0] = WETH;
-                path[1] = IDispatcher(hostAddr).feeToken();
+                path[1] = feeToken;
                 uint256[] memory amounts = IUniswapV2Router02(uniswapV2).swapETHForExactTokens{value: msgValue}(
                     order.fees, path, address(this), block.timestamp
                 );
@@ -377,8 +393,7 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardT
 
         // Refund any unspent native tokens to the user.
         if (msgValue > 0) {
-            (bool sent,) = msg.sender.call{value: msgValue}("");
-            if (!sent) revert InsufficientNativeToken();
+            _sendValue(msg.sender, msgValue);
         }
 
         emit OrderPlaced({

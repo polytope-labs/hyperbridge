@@ -58,7 +58,7 @@ contract SolverAccountTest is Test {
             protocolFeeBps: 0,
             priceOracle: address(0)
         });
-        intentGateway.initialize(params, new bytes[](0));
+        intentGateway.initialize(params, new bytes[](0), address(0));
 
         // Deploy SolverAccount at a temporary address to get bytecode
         SolverAccount tempAccount = new SolverAccount(address(intentGateway));
@@ -158,9 +158,7 @@ contract SolverAccountTest is Test {
 
         Execution[] memory calls = new Execution[](1);
         calls[0] = Execution({
-            target: address(intentGateway),
-            value: 0,
-            callData: abi.encodeWithSelector(intentGateway.fillOrder.selector)
+            target: address(intentGateway), value: 0, callData: abi.encodeWithSelector(intentGateway.fillOrder.selector)
         });
 
         PackedUserOperation memory op = _standardOp(_executeCalldata(calls), _signUserOpHash(userOpHash));
@@ -201,9 +199,7 @@ contract SolverAccountTest is Test {
 
         Execution[] memory calls = new Execution[](1);
         calls[0] = Execution({
-            target: address(0xBEEF),
-            value: 0,
-            callData: abi.encodeWithSelector(intentGateway.fillOrder.selector)
+            target: address(0xBEEF), value: 0, callData: abi.encodeWithSelector(intentGateway.fillOrder.selector)
         });
 
         PackedUserOperation memory op = _standardOp(_executeCalldata(calls), _signUserOpHash(userOpHash));
@@ -264,9 +260,7 @@ contract SolverAccountTest is Test {
 
         Execution[] memory calls = new Execution[](1);
         calls[0] = Execution({
-            target: address(intentGateway),
-            value: 0,
-            callData: abi.encodeWithSelector(intentGateway.fillOrder.selector)
+            target: address(intentGateway), value: 0, callData: abi.encodeWithSelector(intentGateway.fillOrder.selector)
         });
 
         PackedUserOperation memory op = PackedUserOperation({

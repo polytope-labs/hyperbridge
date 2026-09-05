@@ -477,6 +477,30 @@ describe("aggregatePhantomBids bid verification", () => {
 		expect(result).toBeNull()
 	})
 
+	it("counts a bid whose sender delegates to any of several configured SolverAccounts", async () => {
+		const previousSolverAccount = "0xfCd233b937D7622AAc63ced3C9A1A12F4a6B64E3"
+		const userOp = await signedBidUserOp({ signingKey: SOLVER_KEY })
+		// The solver still delegates to the SolverAccount that was replaced.
+		setAggregationFetch(mockRpc([userOp], delegatedTo(previousSolverAccount)))
+
+		const result = await aggregatePhantomBids({
+			nodeUrl: NODE_URL,
+			evmRpcUrls: { [CHAIN]: "http://base.test" },
+			chain: CHAIN,
+			gatewayAddress: GATEWAY,
+			commitment: COMMITMENT,
+			yieldVaults: { [CHAIN]: { [USDT]: [] } },
+			solverAccount: [SOLVER_ACCOUNT, previousSolverAccount],
+		})
+
+		expect(result).not.toBeNull()
+		expect(result!.legs[0].bidCount).toBe(1)
+
+		// With only the current account configured the same bid is not ours.
+		setAggregationFetch(mockRpc([userOp], delegatedTo(previousSolverAccount)))
+		expect(await aggregate([userOp], delegatedTo(previousSolverAccount))).toBeNull()
+	})
+
 	it("prices only the verified bids when unverified ones are mixed in", async () => {
 		const solver = await signedBidUserOp({ signingKey: SOLVER_KEY })
 		const impostor = await signedBidUserOp({ signingKey: IMPOSTOR_KEY })

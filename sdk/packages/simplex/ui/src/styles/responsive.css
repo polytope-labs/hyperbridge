@@ -212,6 +212,18 @@
 		justify-content: space-between;
 	}
 
+	.vault-panel-summary,
+	.operator-runtime {
+		align-items: flex-start;
+		flex-direction: column;
+	}
+
+	.vault-group-head,
+	button.vault-others-trigger {
+		align-items: flex-start;
+		flex-direction: column;
+	}
+
 	.vault-settings-grid {
 		padding-left: 0.3rem;
 	}

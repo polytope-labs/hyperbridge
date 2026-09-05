@@ -7,7 +7,7 @@ import { VaultFundingPlanner } from "@/funding/vault/VaultFundingPlanner"
 import { VaultLiquidityState } from "@/funding/vault/VaultLiquidityState"
 import { TokenSender } from "@/services/TokenSender"
 import { FillerPricePolicy, parseChainKey } from "@/config/interpolated-curve"
-import { AssetRegistry, normalizeSymbol } from "@/config/asset-registry"
+import { AssetRegistry, normalizeSymbol, registrySymbols } from "@/config/asset-registry"
 import { assertPairSymbolsResolve, type PairConfig } from "@/config/pairs"
 import type { ChainConfig, FillerConfig, HexString } from "@hyperbridge/sdk"
 import {
@@ -26,7 +26,9 @@ import { RebalancingService } from "@/services/RebalancingService"
 import { getLogger, moduleLogger, type Logger, type LogLevel, type LoggerContext } from "@/services/Logger"
 import { CacheService } from "@/services/CacheService"
 import { BalanceProvider } from "@/services/BalanceProvider"
-import { ActivityRecorder } from "@/data/recorder"
+import { ActivityRecorder, type TokenDescriber } from "@/data/recorder"
+import { backfillOrderSummaries, DEFAULT_INDEXER_URLS } from "@/data/backfill"
+import { chainByChainId } from "@/cli/init/chains"
 import type { SimplexDataStore } from "@/data/types"
 import type { HyperbridgeScanner, OrderScanner } from "@/scanner/types"
 import type { AdminStrategy, HaltControl } from "@/services/server/UiServer"
@@ -541,6 +543,7 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		options.scanners,
 		rebalancingService,
 		bidStore,
+		options.data.state,
 	)
 
 	started.push(() => intentFiller.stop())
@@ -553,9 +556,40 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		throw error
 	}
 
-	// Order-activity feed for the operator UI
-	const activity = new ActivityRecorder(options.data.activity, options.loggers)
+	// Order-activity feed for the operator UI. Legs are described with the
+	// registry's symbol (built-in or user-defined) and on-chain decimals so the
+	// feed can show token amounts; either lookup may fail and the row still lands.
+	const knownSymbols = [...new Set([...registrySymbols(), ...Object.keys(config.assets ?? {})])]
+	const describeToken: TokenDescriber = async (chain, token) => {
+		const symbol =
+			knownSymbols.find((candidate) => assetRegistry.getAddress(candidate, chain)?.toLowerCase() === token) ?? null
+		let decimals: number | null = null
+		try {
+			decimals = await contractService.getTokenDecimals(token, chain)
+		} catch {
+			decimals = null
+		}
+		return { symbol, decimals }
+	}
+	const activity = new ActivityRecorder(options.data.activity, options.loggers, { describeToken })
 	activity.attach(intentFiller.monitor)
+	// Rows from before order details were captured get them from the indexer.
+	// Fire-and-forget: the feed is observability, and a slow or absent indexer
+	// must not hold up the boot. Updated rows are re-emitted so open dashboards
+	// refresh in place.
+	const network = resolvedChains.some((chain) => chainByChainId(chain.chainId)?.network === "testnet")
+		? "testnet"
+		: "mainnet"
+	void backfillOrderSummaries({
+		store: options.data.activity,
+		indexerUrl: config.simplex.indexerUrl ?? DEFAULT_INDEXER_URLS[network],
+		fillerAddress: runtimeSigner.address,
+		describeToken,
+		onUpdated: (rows) => {
+			for (const row of rows) activity.emit("event", row)
+		},
+		logger: moduleLogger(options.loggers, "activity"),
+	})
 	if (vaultVenue) {
 		vaultVenue.onTx = ({ chain, kind, txHash, sponsored }) => {
 			options.data.activity
@@ -607,6 +641,10 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		await unwind()
 		throw error
 	}
+
+	// Phantom bids the previous run left live: the first batch retracts them,
+	// reclaiming deposits that used to be stranded by every restart.
+	intentFiller.restorePhantomBids(restoredState.phantomBids)
 
 	// Start the filler
 	intentFiller.start()

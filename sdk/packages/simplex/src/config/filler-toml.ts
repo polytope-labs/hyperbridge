@@ -129,6 +129,12 @@ export interface FillerTomlConfig {
 		watchOnly?: boolean | Record<string, boolean>
 		substratePrivateKey: string
 		hyperbridgeWsUrl: string
+		/**
+		 * Hyperbridge indexer GraphQL endpoint, used to backfill order details on
+		 * activity rows recorded before they were captured. Defaults per network
+		 * (nexus for mainnet, gargantua for testnet).
+		 */
+		indexerUrl?: string
 		/** Accepted and ignored. Contract addresses come from the SDK chain registry. */
 		entryPointAddress?: string
 		/** Accepted and ignored. Contract addresses come from the SDK chain registry. */

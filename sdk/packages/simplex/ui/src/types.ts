@@ -9,6 +9,9 @@ export type { CurvePoint, PriceCurvePoint as PricePoint } from "@/config/interpo
 export type { PairConfig } from "@/config/pairs"
 export type {
 	ActivityEventDto,
+	OrderHistoryDto,
+	OrderLeg,
+	OrderSummary,
 	AdminStrategyDto,
 	BalanceSnapshot,
 	BidDto,

@@ -304,6 +304,123 @@ the first three are Sepolia-family networks.
 Alternative rejected: “Sepolia-family networks” was narrower than the actual catalog and could make
 operators incorrectly assume Polygon Amoy or BSC Chapel are Sepolia deployments.
 
+## 2026-09-05 — Live phantom bids live in the runtime state record, not the bid store
+
+Chosen: the last phantom commitment per chain is persisted in `RuntimeState.phantomBids` and
+restored before the filler starts. Measured on chain: every restart left one phantom deposit
+(0.01 BRIDGE per chain) unretracted, and the retraction sweep could not recover them because
+phantom bids are never written to the bid store.
+
+Alternatives rejected: writing phantom bids into the bid store would put a bid per interval per
+chain (hundreds a day) through the retraction sweep and its TTL logic, which is built around real
+orders; retracting live phantom bids on graceful stop does nothing for crashes, which are the
+restarts that matter. Reading this account's live bids back from the pallet would also recover the
+deposits already stranded, but needs a storage query the SDK does not expose yet; it is the natural
+follow-up.
+
+## 2026-09-05 — Orders settle from observed on-chain fills; the filler's `orderFilled` stays as is
+
+Chosen: keep emitting `orderFilled` on an accepted bid (the library's `order:filled` event and its
+consumers are unchanged) but tag it with the commitment, and derive the order's real outcome from
+the OrderFilled log via a new `orderFillObserved` event. The maintainer saw a rival-filled order
+shown as Filled.
+
+Alternatives rejected: renaming or suppressing `orderFilled` for bids changes a public event that
+integrators may count on; treating the bid's extrinsic hash as a fill tx (the old behaviour) sent
+the fill link to a hash no EVM explorer knows. Rival fills are recorded only for orders this filler
+already has rows for, because every fill on the chain passes through the monitor and a feed of
+other lanes' fills would bury this filler's own history.
+
+## 2026-09-05 — Order history pages server-side by order, not by event
+
+Chosen: a dedicated history endpoint groups events per order in SQL and pages over distinct orders,
+joining bids by commitment on the way out. The maintainer asked for pagination and for bids to be
+folded into the order rows.
+
+Alternatives rejected: paging the raw event feed by id (the old `before` cursor) and grouping in
+the browser gives pages of uneven order counts and can split an order across pages; keeping a
+separate bids table repeats the commitment the order row already shows. The live stream now
+triggers a re-read of the current page rather than a client-side merge, because a merged row
+cannot know whether it still belongs on the page being viewed.
+
+## 2026-09-05 — Old activity rows are backfilled from the indexer with a local query, not the SDK's
+
+Chosen: a one-shot boot-time backfill queries the Hyperbridge indexer's `iOrderV3s` entity directly
+with `fetch` and writes summaries onto rows that predate capture. The maintainer found the fresh
+history table sparse because every existing row was recorded before summaries existed.
+
+Alternatives rejected: the SDK's `_queryOrderInternal` was tried first, but its `ORDER_STATUS` query
+selects `orders` while its response type reads `orderPlaceds`, and the live mainnet indexer serves
+neither (only `iOrderV3s`), so it cannot return this data today; fixing the SDK query is a separate
+change with its own consumers. Reading the source chain's `OrderPlaced` log per commitment would
+need the placement block, which the rows do not have. Backfilling lazily on `/api/activity/orders`
+would make the first dashboard load wait on the indexer.
+
+Also chosen: the referrer is stored as the whole 32-byte graffiti and decoded for display, after
+the indexer showed HyperFX's tag is the ASCII name padded to 32 bytes rather than an address. The
+earlier 20-byte truncation would have turned "HyperFX" into a meaningless address.
+
+## 2026-09-05 — Order summaries are captured at detection and denormalised onto every event
+
+Chosen: the recorder builds an `OrderSummary` when an order is detected and attaches the same
+object to that order's later events, stored as JSON per row. The maintainer asked for the activity
+feed to match the HyperFX history page (amounts, tokens, chains, user, referrer, links).
+
+Alternatives rejected: looking the order up from the indexer at render time would make the local
+dashboard depend on a remote GraphQL service and lag it; storing the summary only on the
+detection row would leave a filled row without its order whenever paging split the two; reading
+token decimals in the UI would need per-chain RPC access from the browser. The referrer is shown as
+the raw 20-byte tag rather than a name: the HyperFX app's referrer names are not in this
+repository, so there is nothing to map from.
+
+## 2026-09-05 — Money-moving tools live on the Wallet page, configuration on Operations
+
+Chosen: Send funds and Vault treasury moved from Operations to the Wallet page, above the ledger
+they write to, as `WalletTools`; Operations keeps the allowlist and chain editors. Requested by the
+maintainer: the tools that move funds belong with the wallet's balances and history.
+
+Alternatives rejected: leaving them on Operations kept "funds and configuration" as one grab-bag
+page; duplicating the links on both pages would have two entry points to the same sheet state.
+Cross-page navigation (the vault editor's Enable chain link) goes through `Operator` state rather
+than a global router, since the dashboard has no URL routing today.
+
+## 2026-09-05 — Treasury editor groups vaults per chain and folds non-enabled chains
+
+Chosen: the maintainer reviewed three mocked layouts (grouped by chain; grouped with the non-enabled
+chains folded into one "Other networks" block; one chain at a time behind chain tabs) and picked the
+folded one. Enabled chains render as groups with a status pill; the rest sit behind a single
+collapsed row that opens into the same groups, each with an "Enable chain" link.
+
+Alternatives rejected: the flat list (previous behaviour) buried the two actionable rows under eight
+locked ones repeating the same hint; showing every chain's group open at once (option A) is an
+equally long scroll; chain tabs (option C) lose the single view of everything connected across
+chains, which is what an operator running several chains checks first.
+
+## 2026-09-05 — Treasury editor shows curated vaults for every chain, locked when the chain is off
+
+Chosen: the operator `/api/config` catalog and the wizard's Treasury step list the registry's Aave
+stata (and other curated) vaults for every chain on the running network, and rows whose chain is
+not enabled render locked with a hint pointing at the chain editor. The maintainer asked to see the
+stata tokens for every chain in the Vault treasury section so operators discover what exists before
+enabling a chain.
+
+Alternatives rejected: making locked rows selectable would let a save reach `vaultPreflight`, which
+hydrates each vault through `ChainClientManager.getPublicClient` and fails for a chain with no RPC,
+so the row would error on save instead of explaining up front; listing both networks in the
+operator catalog was rejected because a filler runs one network and testnet vaults on a mainnet
+dashboard are noise; hiding disabled-chain rows (the previous behaviour) hides the catalog.
+
+## 2026-09-05 — Browser favicon is the Hyperbridge mark, not the HyperFX wordmark
+
+Chosen: `ui/public/favicon.ico` is a byte-for-byte copy of `docs/public/favicon.ico`, the Hyperbridge
+mark used by the docs site. The brandbars keep the HyperFX wordmark; only browser chrome changes.
+Requested by the maintainer after reviewing the redesign. The service worker cache name was bumped
+so installed PWAs drop the precached HyperFX icon on their next activation.
+
+Alternatives rejected: rendering `docs/public/favicon.svg` into a new `.ico` would produce a
+different (white-on-transparent) look from the mark the docs site already ships; keeping the
+HyperFX favicon (the 2026-09-03 decision below) was overridden by the maintainer.
+
 ## 2026-09-03 — Use the HyperFX wordmark with a light surface in the dark Simplex shell
 
 Chosen: import the supplied HyperFX WebP wordmark in both Simplex brandbars and render it inside a

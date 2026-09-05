@@ -132,6 +132,7 @@ function baseOperator(overrides: Partial<OperatorContext> = {}): TestOperator {
 		config: fakeConfig(),
 		stop: vi.fn().mockResolvedValue(undefined),
 		activity: new ActivityRecorder(data.activity),
+		bids: data.bids,
 		setPaused: (paused: boolean) => data.state.set({ paused }),
 		setLogLevel: (level: LogLevel) => loggers.setLevel(level),
 		applyAllowlist: vi.fn(),
@@ -471,6 +472,36 @@ describe("UiServer (operator mode)", () => {
 		await vi.waitFor(() => expect(operator.stop).toHaveBeenCalledTimes(1))
 	})
 
+	it("serves order history one page at a time with each order's bids folded in", async () => {
+		const { base, operator } = await startServer()
+		const activity = operator.data.activity
+		await activity.record({ type: "detected", orderId: "order-1" })
+		await activity.record({ type: "skipped", orderId: "order-1", reason: "No profitable strategy" })
+		await activity.record({ type: "rebalance", success: true, reason: "1/1 transfers executed" })
+		await activity.record({ type: "detected", orderId: "order-2" })
+		await activity.record({ type: "filled", orderId: "order-2", volumeUsd: 120, profitUsd: 1.2, chainId: 8453 })
+		await operator.data.bids.store({ commitment: "order-2", success: false, error: "InsufficientDeposit" })
+		await operator.data.bids.store({ commitment: "order-2", success: true, extrinsicHash: "0xext" })
+
+		const first = await (await fetch(`${base}/api/activity/history?page=1&pageSize=1`)).json()
+		expect(first.page).toBe(1)
+		expect(first.network).toBe("mainnet")
+		expect(first.total).toBe(2)
+		expect(first.orders).toHaveLength(1)
+		expect(first.orders[0].orderId).toBe("order-2")
+		expect(first.orders[0].events.map((e: { type: string }) => e.type)).toEqual(["filled", "detected"])
+		expect(first.orders[0].bids.map((b: { success: boolean }) => b.success)).toEqual([true, false])
+		expect(first.other.map((e: { type: string }) => e.type)).toEqual(["rebalance"])
+
+		const second = await (await fetch(`${base}/api/activity/history?page=2&pageSize=1`)).json()
+		expect(second.orders.map((o: { orderId: string }) => o.orderId)).toEqual(["order-1"])
+		expect(second.orders[0].bids).toEqual([])
+
+		const beyond = await (await fetch(`${base}/api/activity/history?page=9&pageSize=1`)).json()
+		expect(beyond.orders).toEqual([])
+		expect(beyond.total).toBe(2)
+	})
+
 	it("serves the order activity feed with paging", async () => {
 		const { base, operator } = await startServer()
 		const activity = operator.data.activity
@@ -783,6 +814,17 @@ describe("UiServer (operator mode)", () => {
 		expect(tokens[0]).toEqual({ symbol: "native", address: "native" })
 		expect(tokens.some((t) => t.address.toLowerCase() === vaultAddress.toLowerCase())).toBe(false)
 		expect(configDto.knownVaults["EVM-8453"].length).toBeGreaterThan(0)
+	})
+
+	it("lists curated vaults for every chain on the running network, not only the running ones", async () => {
+		const { base } = await startServer()
+		const configDto = await (await fetch(`${base}/api/config`)).json()
+		const chains = Object.keys(configDto.knownVaults)
+		// Running chain plus the other mainnet chains that ship Aave stata vaults.
+		expect(chains).toEqual(expect.arrayContaining(["EVM-8453", "EVM-1", "EVM-42161", "EVM-137", "EVM-56"]))
+		expect(chains.some((key) => key === "EVM-11155111")).toBe(false)
+		const ethereum = configDto.knownVaults["EVM-1"] as Array<{ label: string; asset: string }>
+		expect(ethereum.map((v) => v.asset)).toEqual(expect.arrayContaining(["USDC", "USDT"]))
 	})
 
 	it("records operator sends in the wallet history and merges fill txs", async () => {

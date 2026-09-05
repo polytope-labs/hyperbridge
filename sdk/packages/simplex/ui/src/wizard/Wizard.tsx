@@ -17,6 +17,8 @@ export interface StepProps {
 	state: WizardState
 	setState: React.Dispatch<React.SetStateAction<WizardState>>
 	defaults: SetupDefaults
+	/** Jumps to another step by id (e.g. "chains"); unknown ids are ignored. */
+	goToStep: (id: string) => void
 }
 
 function signerRequirements(state: WizardState): string[] {
@@ -177,6 +179,10 @@ export function Wizard(props: { defaults: SetupDefaults }) {
 
 	const step = STEPS[stepIndex]
 	const StepComponent = step.component
+	const goToStep = (id: string) => {
+		const index = STEPS.findIndex((candidate) => candidate.id === id)
+		if (index >= 0) setStepIndex(index)
+	}
 	const requirements = step.requirements(state, props.defaults)
 	const canNext = requirements.length === 0
 	const requirementsId = `wizard-${step.id}-requirements`
@@ -263,7 +269,7 @@ export function Wizard(props: { defaults: SetupDefaults }) {
 					</header>
 
 					<div className="wizard-step-content">
-						<StepComponent state={state} setState={setState} defaults={props.defaults} />
+						<StepComponent state={state} setState={setState} defaults={props.defaults} goToStep={goToStep} />
 					</div>
 
 					<footer className="footer-nav">

@@ -59,7 +59,7 @@ then wallet and vault sources, and isolates `available` as the operational amoun
 The network's native balance stays in the section header. Partial and unavailable asset states keep
 their null values explicit and use the warning accent instead of inheriting the token colour.
 
-`Operator` passes the same snapshot to the Operations screen. `SendCard` matches the selected chain
+`Operator` passes the same snapshot to the Wallet page (`WalletTools`). `SendCard` matches the selected chain
 and token address, displays the asset's canonical `available` value beside Amount, and uses the native
 wallet row for native gas. After `/api/send` succeeds, it invokes the parent load path so the shared
 balance snapshot, strategies, and configuration refresh immediately.
@@ -83,7 +83,7 @@ startSweeping()                       boot.ts after venue initialise; reconfigur
          returns { submitted?, skipped[] }; the pass merges chains into VaultSweepResult
 ```
 
-`UiServer` formats the result into `VaultSweepDto` (token units) and `Operations.tsx` renders one
+`UiServer` formats the result into `VaultSweepDto` (token units) and `WalletTools.tsx` renders one
 sentence from it; an empty pass is a warning only when a vault refused a due deposit. Independently,
 `VaultLiquidityState.refresh` (balance snapshot, fill planning) reads `maxDeposit` and the overview
 shows "Deposits closed" under In vault when it is zero.
@@ -98,7 +98,7 @@ inside that window deposits; the rest silently skipped before this change.
 (`op.vault`). With a venue: `reconfigure` re-hydrates every vault on-chain and swaps the set
 atomically, the config is persisted, response `applied: true`. Without one: `vaultPreflight`
 validates, the rows are persisted, response `applied: false, restartNeeded: true` — the venue is
-wired into every strategy's funding list at boot and cannot be created later. `Operations.tsx`
+wired into every strategy's funding list at boot and cannot be created later. `WalletTools.tsx`
 shows a warning notice and toast for `restartNeeded`; `vaultConfigured` (which gates the Sweep and
 Redeem buttons and the "Configured" badge) reflects the venue, not the file, until the restart.
 
@@ -135,18 +135,40 @@ nothing and writes no inline state; Sonner displays the retry message.
 
 ## Vault selection and balance defaults
 
-`VaultRowsEditor` renders curated vaults from the server catalog. Selecting one directly or through
-Select all creates a `VaultRowDraft` with product-specific balance defaults: Aave stataUSDC uses
+`VaultRowsEditor` groups the server catalog per chain. `UiServer.knownVaultCatalog` (operator) keys
+the registry's `erc4626Vaults` by state machine id for every `INIT_CHAINS` entry on the running
+network (testnet if any running chain is testnet, else mainnet), plus every running chain; the setup
+`defaults` endpoint already covered all `INIT_CHAINS`, so the wizard passes `network={state.network}`
+to filter. `chainGroups` puts the enabled chains (the `chains` prop) first, then every other chain
+with vaults in catalog order. Each enabled chain renders as a `VaultChainGroup`: a header with the
+chain logo, name, vault count and an "Enabled" pill, then compact rows (token icon only, no chain
+logo) and any custom vaults on that chain. The other chains fold into one `OtherNetworks`
+collapsible (stacked logos, chain names, vault count, "Not enabled" pill, chevron; closed by
+default) whose content is the same per-chain groups, each header carrying a "Not enabled" pill and,
+when `onEnableChain` is given, an "Enable chain" link — the dashboard opens the Chains & endpoints
+sheet, the wizard jumps to the Chains step via the new `goToStep` in `StepProps`. Rows in a locked
+group have a disabled checkbox and `data-disabled`; a row already saved for a chain that is no
+longer enabled stays unlocked so it can be deselected. Select all and its "all selected" state only
+consider enabled groups. The dashboard drawer shows one summary line ("2 vaults connected · Base,
+Arbitrum", from the saved config) with Sweep now / Redeem all beside it, the editor, then Save; the
+duplicate inner heading is gone and the restart caveat appears only when the filler booted without a
+vault venue. Send funds and Vault treasury live on the Wallet page (`ui/src/operator/WalletTools.tsx`,
+rendered above the ledger by `Wallet.tsx`); Operations keeps the allowlist and chain editors. The
+vault editor's "Enable chain" link closes its sheet and calls `onOpenChains`, which `Operator` turns
+into `setTab("operations")` plus an `initialPanel="chains"` prop that `Operations` opens once and
+acknowledges through `onInitialPanelShown`. Selecting a curated vault directly or
+through Select all creates a `VaultRowDraft` with product-specific balance defaults: Aave stataUSDC uses
 `threshold=20` and `minBalance=10`, while Yield Bearing cNGN uses `1000` and `1`. Custom and unknown
 vaults use the generic `5000`/`3000` fallback. Existing rows are never rewritten, so saved operator
 settings survive reopening the editor.
 
 Both numeric labels use the shared `@hyperbridge/ui` tooltip components. Their icon buttons open on
 hover or keyboard focus and explain that `threshold` triggers a sweep while `minBalance` is the
-liquidity retained in the wallet after that sweep.
+amount Simplex never sweeps below; for USDC and USDT the help adds that the token also pays
+paymaster gas.
 
 In the operator drawer, Save sends the current draft to `PUT /api/vault`, then refreshes the config.
-If another edit is followed by Save while that request is pending, Operations records one queued
+If another edit is followed by Save while that request is pending, `WalletTools` records one queued
 retry and reads the newest rows when the prior request finishes; repeated clicks coalesce to that
 latest draft rather than running concurrent vault hydrations. A response only reaches the success
 state when `persisted` is true. Persistence failures are rendered inside the still-open vault drawer;
@@ -177,7 +199,9 @@ overview row.
 `ui/src/operator/Operator.tsx` and `ui/src/wizard/Wizard.tsx` import the shared
 `ui/src/assets/hyperfx-logo.webp` asset for their brandbars. The brandbar styles provide a compact
 white surface around the transparent dark-lettered wordmark, with a narrower width at mobile sizes.
-`ui/index.html` references `./favicon.ico`; Vite copies `ui/public/favicon.ico` into `dist/ui`, and
+`ui/index.html` references `./favicon.ico` (the Hyperbridge mark, a copy of `docs/public/favicon.ico`);
+Vite copies `ui/public/favicon.ico` into `dist/ui`, `ui/public/sw.js` precaches it under a versioned
+cache name that must be bumped whenever a precached static asset changes, and
 `src/services/server/static.ts` serves both the favicon and bundled WebP assets with image MIME types.
 
 ## Setup wizard presentation and navigation
@@ -417,3 +441,90 @@ and there is no size or impact term — `computeLegPolicyOutput` extends the mid
 whole priced quantity. `checkPriceGuard` is the only defense on this path, and it checks deviation
 from a static reference, not execution cost. A venue-priced pair that has to swap through its own
 pool to source inventory pays a fee tier it never quoted against.
+
+## Order history on the Activity page
+
+`OrderPlaced` logs decode with `args.graffiti`; `reconstructOrdersFromLogs` copies it onto
+`ReconstructedOrder`, the chain scanner spreads it into `ScannedOrder`, and `EventMonitor.handleOrder`
+emits `newOrder` as `{ order, transactionHash, graffiti }`. `ActivityRecorder` subscribes and, before
+writing the `detected` row, builds an `OrderSummary`: 20-byte user, source/destination state machine
+ids, the placement tx hash, the referrer (graffiti's last 20 bytes, or null when zero or equal to
+the user), each input/output leg as `{ token, amount, symbol, decimals }` via the injected
+`describeToken` (registry symbol match over built-in plus `[assets]` symbols, decimals from
+`ContractInteractionService.getTokenDecimals`; failures leave nulls), and the deadline. The summary
+is cached per order id (2,000 entries) and attached to that order's later `filled`, `executed` and
+`skipped` rows. `SqliteActivityStore` persists it as `order_json` (column added by a
+`PRAGMA table_info` migration on open); `/api/activity/orders` and the SSE stream return it as
+`ActivityEventDto.order`. Because the detection write awaits token lookups, a `skipped` row can
+land before its `detected` row; `Orders.tsx` therefore groups events by order id and derives the
+status by precedence (filled > executed > skipped > detected), not by row order. Each order renders
+one row: referrer, status badge with detail (the strategy, or the skip/failure reason; a fill carries
+no detail), amount in and out (token icon with a chain badge, amount formatted from decimals by
+`ui/src/lib/format.ts`, chain label from `chainLabels` or the init catalog), user, placed time and
+date, and links to the HyperFX order page, the placement tx and the fill tx on the chains'
+explorers. Rows written before this change start with `order: null` and show the id; at boot
+`backfillOrderSummaries` (`src/data/backfill.ts`) lists up to 500 such order ids
+(`ActivityStore.orderIdsMissingSummary`), queries the network's indexer (`simplex.indexerUrl`, else
+nexus/gargantua by whether any resolved chain is testnet) for each with four parallel workers,
+builds the summary with the same `describeToken`, writes it onto every row of the order
+(`attachOrder`), and re-emits those rows as recorder `event`s so the SSE stream replaces them in
+open dashboards. Orders the indexer does not know keep `order: null`. The referrer is the full
+32-byte tag; `describeReferrer` shows padded-ASCII tags as text ("HyperFX"), zero-prefixed tags as
+a short address, and other values as short hex.
+
+Paging: `Orders.tsx` requests `/api/activity/history?page=N&pageSize=20`. `UiServer` calls
+`activity.orderHistory(page, pageSize)` — SQLite groups `events` by `order_id`, orders groups by
+their newest row id, counts distinct orders for `total`, then loads the page's rows in one `IN`
+query — and `bids.byCommitments(orderIds)` (bid `commitment` is the order id), returning each order
+with its rows (newest first) and bids (newest first), plus the newest order-less events for page
+one's footer. The status, legs, user and links derive from the rows as before; the Bids cell counts
+accepted (successful, unretracted), retracted and failed bids with a tooltip per bid. An SSE frame
+of any kind schedules a re-read of the current page after 400 ms.
+
+## Watch-only orders in the activity feed
+
+`IntentFiller` drops an order for a watch-only destination in its intake queue (before
+`evaluateOrder`), and records it there as `orderSkipped` with reason "watch-only" so the history
+row reads "Skipped — watch-only". `evaluateOrder` keeps its own identical check for callers that
+reach it directly. Orders for chains that are not configured at all are still dropped silently at
+intake: they are other lanes' traffic, and recording each would flood the feed.
+
+## Order outcome: bids, fills, and losses
+
+With solver selection, `IntentFiller` "executing" an order submits a bid: `orderFilled` (now with
+`commitment`) and `orderExecuted` (with `commitment`) fire on acceptance. `ActivityRecorder` skips
+`orderFilled` when it carries a commitment and records `orderExecuted` with a commitment and
+`success` as a `bid` row (txHash = extrinsic hash). `ChainScanner` passes each OrderFilled log's
+`transactionHash` in `ScannedFill`; `EventMonitor.handleFill` emits `orderFillObserved` for every
+fill with `ours` (filler address match), then the existing `orderFilledOnChain` for ours only. The
+recorder's `settle` records `filled` (ours) or `lost` (reason = winner) for orders it knows
+(summary cache or `ActivityStore.knowsOrder`). `Orders.tsx` ranks Filled > Lost > Bid placed /
+Bid retracted (latest bid) > Executed/Failed > Skipped > Detected, shows the latest bid's standing
+in the Bids cell, and links the fill from the observed fill's tx hash (or a direct attempt's UserOp
+hash), never from a bid's extrinsic hash. `fills()` (wallet ledger) now lists real fills only.
+The latest bid's extrinsic and, when a retraction extrinsic exists, the retraction render as time +
+short hash linking to Statescan for the running network (`OrderHistoryDto.network`); a bid closed
+out by `BidNotFound` (retracted with no hash) shows a dash in the Retracted column. At boot the
+backfill's second pass lists `unsettledOrders` (a `bid` row or a legacy bid-time `filled` row — those
+carry `volumeUsd` — with no `lost` or observed `filled` row), fetches each from the indexer with its
+`statusMetadata`, retypes legacy rows to `bid`, and records `filled`/`lost` from the FILLED entry's
+filler and transaction hash.
+
+## Phantom bid deposits across restarts
+
+`IntentFiller.handlePhantomOrders` submits one `forceBatch` per interval carrying each configured
+chain's `placeBid` and, when `lastPhantomCommitmentByChain` has a previous bid for the chain, its
+`retractBid` (refunding the 0.01 BRIDGE storage deposit). `rememberPhantomBid` updates that map on a
+landed or pooled bid and persists it as `RuntimeState.phantomBids` through `patchRuntimeState`
+(read-modify-write; `Simplex.pause/resume` and the CLI's `setPaused` use the same helper so they
+never drop the key). `bootFiller` reads the state before starting and calls
+`restorePhantomBids`, so the first batch of a new process retracts the bid the previous process
+left live. A chain already remembered by the running process is not overwritten by the restore.
+
+## Runtime controls on the Overview
+
+`Operator` owns `togglePause` and `stopFiller` (they call `/api/pause`, `/api/resume`, `/api/stop`
+through `useAction`) and passes them with `pending` to `OperatorOverview` as `runtime`. The
+overview renders them inline between the metrics strip and the balances: a status dot and copy on
+the left, Pause new fills / Resume filling (primary) and Stop filler (destructive styling) on the
+right. There is no runtime sheet any more.

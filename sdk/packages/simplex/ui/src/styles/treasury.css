@@ -447,3 +447,219 @@
 	padding: 0.85rem 0;
 	border-top: 1px solid var(--border);
 }
+
+/* Curated vaults grouped per chain: the header carries identity and state, rows stay compact. */
+.vault-groups {
+	margin-top: 1rem;
+}
+
+.vault-group,
+.vault-others {
+	margin-top: 0.9rem;
+	overflow: hidden;
+	border: 1px solid var(--border);
+	border-radius: 0.9rem;
+}
+
+.vault-group-head,
+button.vault-others-trigger {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 1rem;
+	min-height: 3.5rem;
+	padding: 0.6rem 1rem;
+	background: rgba(255, 255, 255, 0.02);
+}
+
+.vault-group-identity {
+	display: flex;
+	align-items: center;
+	gap: 0.75rem;
+	min-width: 0;
+	text-align: left;
+}
+
+.vault-group-identity .chain-logo {
+	width: 2rem;
+	height: 2rem;
+}
+
+.vault-group-identity strong {
+	display: block;
+	color: var(--text);
+	font-size: 0.875rem;
+	font-weight: 500;
+}
+
+.vault-group-identity small {
+	display: block;
+	margin-top: 0.1rem;
+	color: var(--muted);
+	font-size: 0.75rem;
+}
+
+.vault-group[data-locked="true"] .vault-group-identity {
+	opacity: 0.6;
+}
+
+.vault-group-status {
+	display: flex;
+	align-items: center;
+	gap: 0.75rem;
+	flex: 0 0 auto;
+}
+
+.vault-status-pill {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.4rem;
+	padding: 0.3rem 0.6rem;
+	border: 1px solid var(--border-strong);
+	border-radius: 999px;
+	background: var(--control);
+	color: var(--muted);
+	font-family: var(--font-mono);
+	font-size: 0.625rem;
+	letter-spacing: 0.035em;
+	text-transform: uppercase;
+	white-space: nowrap;
+}
+
+.vault-status-pill[data-tone="ok"] {
+	border-color: rgba(116, 233, 152, 0.3);
+	background: rgba(116, 233, 152, 0.06);
+	color: var(--ok);
+}
+
+.vault-status-dot {
+	width: 0.45rem;
+	height: 0.45rem;
+	border-radius: 50%;
+	background: currentColor;
+}
+
+button.vault-enable-link {
+	gap: 0.3rem;
+	min-height: 2rem;
+	padding: 0;
+	border: 0;
+	background: transparent !important;
+	color: var(--focus);
+	font-size: 0.75rem;
+	font-weight: 500;
+}
+
+button.vault-enable-link:hover:not(:disabled) {
+	color: var(--text);
+}
+
+button.vault-enable-link svg {
+	width: 0.75rem;
+	height: 0.75rem;
+}
+
+.vault-group .vault-item:last-child {
+	border-bottom: 0;
+}
+
+.vault-group .vault-row {
+	min-height: 4rem;
+}
+
+.vault-logo-token {
+	display: grid;
+	place-items: center;
+	width: 2rem;
+	height: 2rem;
+	flex: 0 0 auto;
+}
+
+.vault-logo-token .token-icon {
+	width: 1.7rem;
+	height: 1.7rem;
+}
+
+.vault-item[data-disabled="true"] .vault-selection {
+	cursor: not-allowed;
+}
+
+.vault-item[data-disabled="true"] .vault-logo-token,
+.vault-item[data-disabled="true"] .vault-selection-indicator,
+.vault-item[data-disabled="true"] .vault-row-copy strong {
+	opacity: 0.5;
+}
+
+/* Chains the filler does not run, folded behind one row. */
+button.vault-others-trigger {
+	width: 100%;
+	min-height: 4.25rem;
+	border: 0;
+	border-radius: 0;
+	background: rgba(255, 255, 255, 0.02) !important;
+	color: var(--text);
+}
+
+button.vault-others-trigger:hover:not(:disabled) {
+	background: rgba(255, 255, 255, 0.04) !important;
+}
+
+.vault-others-logos {
+	display: flex;
+	align-items: center;
+	padding-left: 0.45rem;
+}
+
+.vault-others-logos .chain-logo {
+	width: 1.6rem;
+	height: 1.6rem;
+	margin-left: -0.45rem;
+	box-shadow: 0 0 0 2px var(--bg);
+}
+
+.vault-others-chevron {
+	display: grid;
+	place-items: center;
+	width: 2rem;
+	height: 2rem;
+	color: var(--muted);
+	transition: transform 180ms var(--ease-out);
+}
+
+.vault-others-chevron svg {
+	width: 1rem;
+	height: 1rem;
+}
+
+.vault-others-trigger[data-state="open"] .vault-others-chevron {
+	transform: rotate(180deg);
+}
+
+.vault-others .vault-group {
+	margin: 0;
+	border: 0;
+	border-top: 1px solid var(--border);
+	border-radius: 0;
+}
+
+/* Operator drawer frame: one summary line with the treasury actions beside it. */
+.vault-panel-summary {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 1rem;
+	margin-top: 0.5rem;
+}
+
+.vault-panel-stat {
+	color: var(--muted);
+	font-family: var(--font-mono);
+	font-size: 0.6875rem;
+	letter-spacing: 0.035em;
+}
+
+button.vault-panel-action {
+	min-height: 2.25rem;
+	padding: 0.4rem 0.75rem;
+	font-size: 0.75rem;
+}

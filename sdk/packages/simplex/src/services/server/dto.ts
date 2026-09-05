@@ -9,6 +9,7 @@ import type { VaultToml } from "@/config/filler-toml"
 import type { CurvePoint, PriceCurvePoint } from "@/config/interpolated-curve"
 import type { BalanceSnapshot as RuntimeBalanceSnapshot } from "@/services/BalanceProvider"
 import type { VaultSweepSkipReason } from "@/funding/vault/VaultFundingPlanner"
+import type { ActivityType, OrderSummary } from "@/data/types"
 
 export const LOG_LEVELS = ["trace", "debug", "info", "warn", "error"] as const
 
@@ -132,7 +133,7 @@ export interface ChainsDto {
 export interface ActivityEventDto {
 	id: number
 	ts: number
-	type: "detected" | "filled" | "executed" | "skipped" | "rebalance"
+	type: ActivityType
 	orderId: string | null
 	chainId: number | null
 	strategy: string | null
@@ -141,6 +142,27 @@ export interface ActivityEventDto {
 	volumeUsd: number | null
 	profitUsd: number | null
 	txHash: string | null
+	order: OrderSummary | null
+}
+
+export type { ActivityType, OrderLeg, OrderSummary } from "@/data/types"
+
+/** GET /api/activity/history — one page of orders, each with its rows and Hyperbridge bids. */
+export interface OrderHistoryDto {
+	page: number
+	pageSize: number
+	total: number
+	/** Network the running chains belong to; picks the Hyperbridge explorer for bid extrinsics. */
+	network: InitNetwork
+	orders: Array<{
+		orderId: string
+		/** Newest first. */
+		events: ActivityEventDto[]
+		/** Bids submitted for this order's commitment, newest first. */
+		bids: BidDto[]
+	}>
+	/** Newest events with no order (rebalances), for the footer of the first page. */
+	other: ActivityEventDto[]
 }
 
 /** GET /api/activity/bids rows */
@@ -150,8 +172,11 @@ export interface BidDto {
 	extrinsicHash: string | null
 	success: boolean
 	error: string | null
+	/** SQLite-style "YYYY-MM-DD HH:MM:SS" in UTC. */
 	createdAt: string
 	retracted: boolean
+	retractedAt: string | null
+	retractExtrinsicHash: string | null
 }
 
 export interface BidStatsDto {
@@ -191,6 +216,10 @@ export interface ConfigDto {
 	allowlistUsers: string[]
 	vaults: VaultToml[]
 	sendTokens: Record<string, SendTokenOption[]>
-	/** Registry vault catalog per running chain (state machine id), for selection UIs. */
+	/**
+	 * Registry vault catalog per chain (state machine id) for every chain on the
+	 * running network, not only the running ones; the editor disables rows for
+	 * chains that are not enabled. Running chains are always present, possibly empty.
+	 */
 	knownVaults: Record<string, KnownVault[]>
 }

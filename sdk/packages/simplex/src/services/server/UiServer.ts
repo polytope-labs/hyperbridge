@@ -4,7 +4,7 @@ import { FillerPricePolicy, formatChainKey, parseChainKey, type PriceCurvePoint 
 import { AssetRegistry, registrySymbols, validateAssetDefinitions, type AssetDefinition } from "@/config/asset-registry"
 import { assertPairSymbolsResolve, validatePairConfigs, type PairConfig } from "@/config/pairs"
 import { VaultFundingPlanner, type VaultSweepResult } from "@/funding/vault/VaultFundingPlanner"
-import { chainsForNetwork, INIT_CHAINS, type InitNetwork } from "@/cli/init/chains"
+import { chainByChainId, chainsForNetwork, INIT_CHAINS, type InitNetwork } from "@/cli/init/chains"
 import { TESTNET_CONFIRMATION_POINTS } from "@/cli/init/state"
 import { ChainConfigService } from "@hyperbridge/sdk"
 import { assertConfirmationCoverage, type FillerConfigFile, type FillerTomlConfig, type VaultToml } from "@/config/filler-toml"
@@ -39,6 +39,7 @@ import {
 	type StatusOperator,
 	type WalletTxDto,
 	type VaultSweepDto,
+	type OrderHistoryDto,
 } from "./dto"
 
 /**
@@ -121,8 +122,8 @@ export interface OperatorContext {
 	config: FillerConfigFile
 	/** Drains the filler and exits the process (the UI's graceful Stop). */
 	stop(): Promise<void>
-	activity: Pick<ActivityRecorder, "recent" | "on" | "off" | "record" | "recordWalletTx" | "walletTxs" | "fills">
-	bids?: Pick<BidStore, "recent" | "stats">
+	activity: Pick<ActivityRecorder, "recent" | "on" | "off" | "record" | "recordWalletTx" | "walletTxs" | "fills" | "orderHistory">
+	bids?: Pick<BidStore, "recent" | "stats" | "byCommitments">
 	/** Persists an operator pause so it survives a restart. */
 	setPaused(paused: boolean): Promise<void>
 	/**
@@ -449,6 +450,33 @@ export class UiServer {
 			const limit = Number(params.get("limit") ?? 100)
 			const before = params.get("before") ? Number(params.get("before")) : undefined
 			return sendJson(res, 200, { events: await this.operator!.activity.recent(limit, before) })
+		}
+
+		if (path === "/api/activity/history") {
+			if (this.mode !== "operator") return sendJson(res, 409, { error: "Filler is not running" })
+			if (method !== "GET") return sendJson(res, 405, { error: "Method not allowed" })
+			const params = new URL(req.url ?? "/", "http://localhost").searchParams
+			const page = Math.max(1, Number(params.get("page") ?? 1) || 1)
+			const pageSize = Math.min(Math.max(Number(params.get("pageSize") ?? 20) || 20, 1), 100)
+			const activity = this.operator!.activity
+			const [history, newest] = await Promise.all([activity.orderHistory(page, pageSize), activity.recent(100)])
+			const commitments = history.orders.map((order) => order.orderId)
+			const bids = this.operator!.bids ? await this.operator!.bids.byCommitments(commitments) : []
+			const bidsByOrder = new Map<string, typeof bids>()
+			for (const bid of bids) {
+				const list = bidsByOrder.get(bid.commitment) ?? []
+				list.push(bid)
+				bidsByOrder.set(bid.commitment, list)
+			}
+			const dto: OrderHistoryDto = {
+				page: history.page,
+				pageSize: history.pageSize,
+				total: history.total,
+				network: runningNetwork(this.operator!.chains),
+				orders: history.orders.map((order) => ({ ...order, bids: bidsByOrder.get(order.orderId) ?? [] })),
+				other: newest.filter((event) => event.orderId === null),
+			}
+			return sendJson(res, 200, dto)
 		}
 
 		if (path === "/api/wallet/history") {
@@ -1251,13 +1279,21 @@ export class UiServer {
 		return options
 	}
 
-	/** Registry vault catalog for the running chains, same source as the setup wizard's. */
+	/**
+	 * Registry vault catalog for every chain on the running network (mainnet or
+	 * testnet), same source as the setup wizard's. Chains the filler is not
+	 * running are included so the treasury editor can show what becomes
+	 * available once a chain is enabled; the UI keeps those rows unselectable.
+	 */
 	private knownVaultCatalog(op: OperatorContext): ConfigDto["knownVaults"] {
 		const chainRegistry = new ChainConfigService({})
 		const catalog: ConfigDto["knownVaults"] = {}
-		for (const chainId of op.chains) {
-			const stateMachineId = formatChainKey(chainId)
-			catalog[stateMachineId] = chainRegistry.getKnownVaults(stateMachineId)
+		const network = runningNetwork(op.chains)
+		const running = new Set(op.chains.map((chainId) => formatChainKey(chainId)))
+		const stateMachineIds = new Set([...running, ...chainsForNetwork(network).map((meta) => meta.stateMachineId)])
+		for (const stateMachineId of stateMachineIds) {
+			const vaults = chainRegistry.getKnownVaults(stateMachineId)
+			if (vaults.length > 0 || running.has(stateMachineId)) catalog[stateMachineId] = vaults
 		}
 		return catalog
 	}
@@ -1483,6 +1519,11 @@ function validateCurveUpdateShape(body: unknown): string | null {
 }
 
 /** Wire shape of a sweep pass: base units formatted once here so the dashboard never sees bigints. */
+/** One network per filler: testnet if any running chain is a testnet, else mainnet. */
+function runningNetwork(chains: number[]): InitNetwork {
+	return chains.some((chainId) => chainByChainId(chainId)?.network === "testnet") ? "testnet" : "mainnet"
+}
+
 function vaultSweepDto(result: VaultSweepResult): VaultSweepDto {
 	return {
 		ok: true,

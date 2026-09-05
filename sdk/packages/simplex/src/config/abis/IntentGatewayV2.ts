@@ -1263,6 +1263,24 @@ export const INTENT_GATEWAY_V2_ABI = [
 	},
 	{
 		type: "function",
+		name: "upgradeToAndCall",
+		inputs: [
+			{
+				name: "newImplementation",
+				type: "address",
+				internalType: "address",
+			},
+			{
+				name: "data",
+				type: "bytes",
+				internalType: "bytes",
+			},
+		],
+		outputs: [],
+		stateMutability: "nonpayable",
+	},
+	{
+		type: "function",
 		name: "version",
 		inputs: [],
 		outputs: [

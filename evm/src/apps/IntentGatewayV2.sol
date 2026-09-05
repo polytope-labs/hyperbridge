@@ -129,7 +129,8 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardT
     /**
      * @dev Migration for a proxy from before this implementation: arms the gate and lands at
      * `VERSION`. Host-only, so nobody can arm it before governance does, and one-shot; delivered as
-     * `UpgradeContract` migration calldata. Reverts on a proxy `initialize` already took there.
+     * the migration calldata of the upgrade that installs this implementation. Reverts on a proxy
+     * `initialize` already took there.
      * @param relayer The account whose deliveries are accepted from now on.
      */
     function migrate(address relayer) external onlyHost reinitializer(VERSION) {

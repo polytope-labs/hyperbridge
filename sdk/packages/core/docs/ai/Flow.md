@@ -79,19 +79,27 @@ encoding to the compiled contract, and `test_set_host_manager_admin_is_addressed
 pins the recipient and body the runtime dispatches.
 
 `setRelayer` (`evm/src/apps/intentsv2/ExtrinsicIntents.sol`) rotates the relayer; it,
-`initialize` and `migrate` are the callers of `_setRelayer`, the only writer of `_relayer`. The
-host reaches `setRelayer` when governance sends `UpgradeContract` with
-`abi.encodeCall(setRelayer, (relayer))` as migration calldata: `ERC1967Utils.upgradeToAndCall`
-delegatecalls that calldata into the new implementation with `msg.sender` still the host from
-step 2, so `onlyHost` passes and the relayer is set in the same transaction as the implementation
-swap. The upgrade message itself must pass the relayer gate of the implementation being replaced,
-which is why an unset relayer gates nothing: a proxy from before the gate accepts every relayer
-until the `migrate` upgrade arms it, and `testFreshProxyIsOpenUntilGovernanceArmsIt` plays both
-halves on a proxy initialized with a zero relayer. `_owner` plays no part in any of
+`initialize` and `migrate` are the callers of `_setRelayer`, the only writer of `_relayer`.
+Governance reaches every host-only function through one action, `Execute` (discriminator 5):
+`onAccept` delegatecalls the proxy's current implementation with `body[1:]` as calldata, so
+`msg.sender` is still the host from step 2 and `onlyHost` passes. `setRelayer(next)` as that
+calldata is a rotation, `upgradeToAndCall(newImpl, initData)` is an upgrade, and inside the latter
+`ERC1967Utils.upgradeToAndCall` delegatecalls `initData` into the new implementation, still with
+the host as `msg.sender`, which is how `migrate(relayer)` arms a proxy in the same transaction as
+the swap. A revert anywhere inside bubbles out of `onAccept`, so the host records the message
+undelivered. The pallet's `execute_on_gateway` sends `Execute`; `upgrade_gateway` sends the older
+`UpgradeContract` body under the same discriminator, which only a pre-`Execute` implementation
+reads (on this one it selects no function and reverts, `testLegacyUpgradeBodyIsRefused`), so it
+is used once per chain to install this implementation and not after. The message itself must pass
+the relayer gate of the implementation it reaches, which is why an unset relayer gates nothing: a
+proxy from before the gate accepts every relayer until the `migrate` upgrade arms it, and
+`testFreshProxyIsOpenUntilGovernanceArmsIt` plays both halves on a proxy initialized with a zero
+relayer. `testExecuteRotatesRelayerWithoutUpgrade` and the live-fork test's rotation after the
+migration pin the `Execute` path. `_owner` plays no part in any of
 this. A fresh proxy is armed by its init data: `initialize` takes the relayer, writes it through
 `_setRelayer`, and lands at `VERSION` (2) under `reinitializer`, emitting `RelayerUpdated` then
 `Initialized(2)`; it is refused on any proxy already at a version. A proxy from before this
-implementation sits at 1 with an open gate until the upgrade whose calldata is
+implementation sits at 1 with an open gate until the upgrade whose migration calldata is
 `abi.encodeCall(migrate, (relayer))`, host-only and under the same `reinitializer(VERSION)`, arms
 it and takes it to 2, and that is the only way up for it: an upgrade that forgot the calldata
 leaves nobody able to `initialize` the proxy. A `setRelayer` rotation leaves the version

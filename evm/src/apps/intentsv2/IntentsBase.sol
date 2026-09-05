@@ -110,9 +110,13 @@ abstract contract IntentsBase is EIP712 {
          */
         RefundEscrow,
         /**
-         * @dev Upgrade the gateway implementation behind its ERC-1967 proxy.
+         * @dev Delegatecall the current implementation with the rest of the body as calldata, the
+         * host still `msg.sender`. Governance's one door to the host-only functions:
+         * `upgradeToAndCall` for upgrades, `setRelayer` for rotations. Same discriminator as the
+         * `UpgradeContract` action of earlier implementations, whose `(address, bytes)` body
+         * selects no function here and reverts.
          */
-        UpgradeContract
+        Execute
     }
 
     /**

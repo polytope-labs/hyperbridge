@@ -3983,21 +3983,83 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         escrowedCommitment = keccak256(abi.encode(orderB));
     }
 
-    /// @dev Builds an UpgradeContract onAccept request originating from `source`.
-    function _upgradeRequest(bytes memory source, address newImpl, bytes memory initData)
-        internal
-        view
-        returns (PostRequest memory)
-    {
+    /// @dev Builds an Execute onAccept request from `source` carrying `data` for the current
+    /// implementation.
+    function _executeRequest(bytes memory source, bytes memory data) internal view returns (PostRequest memory) {
         return PostRequest({
             source: source,
             dest: host.host(),
             nonce: 0,
             from: abi.encodePacked(address(intentGateway)),
             to: abi.encodePacked(address(intentGateway)),
-            body: bytes.concat(bytes1(uint8(IntentsBase.RequestKind.UpgradeContract)), abi.encode(newImpl, initData)),
+            body: bytes.concat(bytes1(uint8(IntentsBase.RequestKind.Execute)), data),
             timeoutTimestamp: 0
         });
+    }
+
+    /// @dev An upgrade is an Execute request calling `upgradeToAndCall(newImpl, initData)`.
+    function _upgradeRequest(bytes memory source, address newImpl, bytes memory initData)
+        internal
+        view
+        returns (PostRequest memory)
+    {
+        return _executeRequest(source, abi.encodeCall(ExtrinsicIntents.upgradeToAndCall, (newImpl, initData)));
+    }
+
+    /// Governance rotates the relayer with a plain call: no implementation change, version unchanged.
+    function testExecuteRotatesRelayerWithoutUpgrade() public {
+        address implBefore = _implementationOf(address(intentGateway));
+        address next = makeCleanAddr("nextRelayer");
+        PostRequest memory request =
+            _executeRequest(host.hyperbridge(), abi.encodeCall(ExtrinsicIntents.setRelayer, (next)));
+
+        vm.expectEmit(true, true, true, true, address(intentGateway));
+        emit IntentsBase.RelayerUpdated(relayer, next);
+        vm.prank(address(host));
+        intentGateway.onAccept(IncomingPostRequest({relayer: relayer, request: request}));
+
+        assertEq(intentGateway.relayer(), next);
+        assertEq(intentGateway.version(), 2, "no migration ran");
+        assertEq(_implementationOf(address(intentGateway)), implBefore, "implementation unchanged");
+    }
+
+    function testExecuteRejectsNonHyperbridgeSource() public {
+        PostRequest memory request =
+            _executeRequest(bytes("SOURCE_CHAIN"), abi.encodeCall(ExtrinsicIntents.setRelayer, (user)));
+        vm.prank(address(host));
+        vm.expectRevert(IntentsBase.Unauthorized.selector);
+        intentGateway.onAccept(IncomingPostRequest({relayer: relayer, request: request}));
+        assertEq(intentGateway.relayer(), relayer, "relayer unchanged");
+    }
+
+    /// A revert inside the call surfaces unchanged, so the host records the message undelivered.
+    function testExecuteBubblesReverts() public {
+        PostRequest memory request =
+            _executeRequest(host.hyperbridge(), abi.encodeCall(IntentGatewayV2.migrate, (user)));
+        vm.prank(address(host));
+        vm.expectRevert(Initializable.InvalidInitialization.selector);
+        intentGateway.onAccept(IncomingPostRequest({relayer: relayer, request: request}));
+    }
+
+    /// The `(address, bytes)` body of the previous implementation's `UpgradeContract` shares the
+    /// discriminator; here it selects no function and reverts rather than doing anything.
+    function testLegacyUpgradeBodyIsRefused() public {
+        address implBefore = _implementationOf(address(intentGateway));
+        IntentGatewayV2Upgraded newImpl = new IntentGatewayV2Upgraded(address(this));
+        PostRequest memory request = _executeRequest(host.hyperbridge(), abi.encode(address(newImpl), bytes("")));
+        vm.prank(address(host));
+        vm.expectRevert();
+        intentGateway.onAccept(IncomingPostRequest({relayer: relayer, request: request}));
+        assertEq(_implementationOf(address(intentGateway)), implBefore, "implementation unchanged");
+    }
+
+    function testUpgradeToAndCallRejectsEveryoneButHost() public {
+        IntentGatewayV2Upgraded newImpl = new IntentGatewayV2Upgraded(address(this));
+        vm.expectRevert(HyperApp.UnauthorizedCall.selector);
+        intentGateway.upgradeToAndCall(address(newImpl), "");
+        vm.prank(user);
+        vm.expectRevert(HyperApp.UnauthorizedCall.selector);
+        intentGateway.upgradeToAndCall(address(newImpl), "");
     }
 
     function _implementationOf(address proxy) internal view returns (address) {
@@ -4604,9 +4666,10 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             nonce: 0,
             from: abi.encodePacked(LIVE_GATEWAY),
             to: abi.encodePacked(LIVE_GATEWAY),
+            // Discriminator 5 with an `(address, bytes)` body: the `UpgradeContract` action the
+            // live implementation understands, which shares its discriminator with `Execute`.
             body: bytes.concat(
-                bytes1(uint8(IntentsBase.RequestKind.UpgradeContract)),
-                abi.encode(address(newImpl), abi.encodeCall(IntentGatewayV2.migrate, (relayer)))
+                bytes1(uint8(5)), abi.encode(address(newImpl), abi.encodeCall(IntentGatewayV2.migrate, (relayer)))
             ),
             timeoutTimestamp: 0
         });
@@ -4651,12 +4714,33 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         vm.prank(liveHost);
         live.onAccept(IncomingPostRequest({relayer: relayer, request: request}));
         assertEq(live.params().host, p.host, "relayer-submitted governance applies");
+        // From here on the migrated proxy takes governance through `Execute`.
+        _rotateLiveThroughExecute(liveHost, live);
+
+    }
+
+    /// @dev An Execute request on the live proxy rotating the relayer, delivered by the relayer
+    /// the migration just armed; the version stays where the migration left it.
+    function _rotateLiveThroughExecute(address liveHost, IntentGatewayV2 live) internal {
+        address next = makeCleanAddr("liveNextRelayer");
+        PostRequest memory rotate = PostRequest({
+            source: IDispatcher(liveHost).hyperbridge(),
+            dest: IDispatcher(liveHost).host(),
+            nonce: 1,
+            from: abi.encodePacked(address(live)),
+            to: abi.encodePacked(address(live)),
+            body: bytes.concat(
+                bytes1(uint8(IntentsBase.RequestKind.Execute)), abi.encodeCall(ExtrinsicIntents.setRelayer, (next))
+            ),
+            timeoutTimestamp: 0
+        });
+        vm.prank(liveHost);
+        live.onAccept(IncomingPostRequest({relayer: relayer, request: rotate}));
+        assertEq(live.relayer(), next, "rotated through Execute");
+        assertEq(live.version(), 2, "a rotation leaves the version alone");
     }
 }
 
-/// @dev Minimal upgraded implementation used by the governance-upgrade tests. It appends no
-/// storage variables (append-only layout) and only adds new logic, so swapping to it must
-/// leave existing storage intact.
 contract IntentGatewayV2Upgraded is IntentGatewayV2 {
     constructor(address deployer) IntentGatewayV2(deployer) {}
 

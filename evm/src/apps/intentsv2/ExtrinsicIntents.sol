@@ -32,6 +32,7 @@ import {
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ERC1967Utils} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Utils.sol";
+import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 
 /**
  * @title ExtrinsicIntents
@@ -77,13 +78,23 @@ abstract contract ExtrinsicIntents is IntentsBase, HyperApp {
     }
 
     /**
-     * @dev Rotates the authorised relayer. Host-only, so reachable only as `UpgradeContract`
-     * migration calldata: `upgradeToAndCall` delegatecalls it with the host still `msg.sender`.
+     * @dev Rotates the authorised relayer. Host-only, so reachable only through an `Execute`
+     * request, which delegatecalls it with the host still `msg.sender`.
      * Leaves `version()` alone; `initialize` and `migrate` arm a proxy on its way to `VERSION`.
      * @param relayer The account whose deliveries are accepted from now on. Zero reopens the gate.
      */
     function setRelayer(address relayer) external onlyHost {
         _setRelayer(relayer);
+    }
+
+    /**
+     * @dev Points the proxy at `newImplementation` and delegatecalls `data` on it in the same
+     * transaction, e.g. `migrate(relayer)`. Host-only, so reachable only through `Execute`.
+     * @param newImplementation The implementation to install; must have code.
+     * @param data Migration calldata run against the new implementation, or empty.
+     */
+    function upgradeToAndCall(address newImplementation, bytes calldata data) external onlyHost {
+        ERC1967Utils.upgradeToAndCall(newImplementation, data);
     }
 
     /// @dev The only writer of `_relayer`, behind `initialize`, `migrate` and `setRelayer`.
@@ -310,8 +321,9 @@ abstract contract ExtrinsicIntents is IntentsBase, HyperApp {
      *   protocol fees. Only Hyperbridge may dispatch this request.
      * - SweepDust: Transfers accumulated protocol dust to a specified beneficiary.
      *   Only Hyperbridge may dispatch this request.
-     * - UpgradeContract: Points the ERC-1967 proxy at a new implementation, optionally
-     *   running migration calldata atomically. Only Hyperbridge may dispatch this request.
+     * - Execute: Delegatecalls the current implementation with the rest of the body, the host
+     *   still `msg.sender`, so the host-only functions (`upgradeToAndCall`, `setRelayer`) are
+     *   reachable. Reverts bubble up unchanged. Only Hyperbridge may dispatch this request.
      *
      * @param incoming The incoming post request from Hyperbridge.
      */
@@ -332,9 +344,8 @@ abstract contract ExtrinsicIntents is IntentsBase, HyperApp {
             _updateParams(abi.decode(incoming.request.body[1:], (ParamsUpdate)));
         } else if (kind == RequestKind.SweepDust) {
             _sweepDust(abi.decode(incoming.request.body[1:], (SweepDust)));
-        } else if (kind == RequestKind.UpgradeContract) {
-            (address newImpl, bytes memory initData) = abi.decode(incoming.request.body[1:], (address, bytes));
-            ERC1967Utils.upgradeToAndCall(newImpl, initData);
+        } else if (kind == RequestKind.Execute) {
+            Address.functionDelegateCall(ERC1967Utils.getImplementation(), incoming.request.body[1:]);
         }
     }
 

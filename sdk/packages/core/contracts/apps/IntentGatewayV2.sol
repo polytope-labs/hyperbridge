@@ -443,6 +443,14 @@ interface IIntentGatewayV2 {
     function migrate(address relayer) external;
 
     /**
+     * @notice Points the proxy at `newImplementation` and runs `data` against it in the same
+     *         transaction. Host-only, reached through an `Execute` governance request.
+     * @param newImplementation The implementation to install
+     * @param data Migration calldata for the new implementation, or empty
+     */
+    function upgradeToAndCall(address newImplementation, bytes calldata data) external;
+
+    /**
      * @notice The `Initializable` version: 2 once `initialize` or `migrate` has run, 1 on a proxy
      *         from before this implementation. Reverts on implementations that predate the gate.
      * @return uint64 The initialized version

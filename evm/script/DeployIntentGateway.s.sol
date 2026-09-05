@@ -20,8 +20,9 @@ contract DeployScript is BaseScript {
     function deploy() internal override {
         // The implementation is always new. The proxy is deployed only on a chain that has none
         // yet: where `INTENT_GATEWAY_V2` is already in the config, governance moves that proxy to
-        // this implementation with an `UpgradeContract`, and only the solver account is redeployed
-        // alongside.
+        // this implementation (`upgrade_gateway` for a proxy still on the pre-`Execute` code,
+        // `execute_on_gateway` with `upgradeToAndCall` calldata afterwards), and only the solver
+        // account is redeployed alongside.
         IntentGatewayV2 implementation = new IntentGatewayV2{salt: salt}(admin);
         IntentGatewayV2 intentGateway;
         if (config.exists("INTENT_GATEWAY_V2")) {

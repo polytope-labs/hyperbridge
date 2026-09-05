@@ -9,8 +9,9 @@ import {BaseScript} from "./BaseScript.sol";
 
 /// @notice Deploys a new IntentGatewayV2 implementation only. The live ERC-1967 proxy
 /// keeps its deterministic CREATE2 address; Hyperbridge governance points it at this
-/// implementation via an UpgradeContract request (intents-coprocessor pallet's
-/// upgrade_gateway extrinsic).
+/// implementation through the intents-coprocessor pallet: `upgrade_gateway` for a proxy still
+/// on the pre-`Execute` implementation, `execute_on_gateway` carrying `upgradeToAndCall`
+/// calldata afterwards.
 contract DeployScript is BaseScript {
     using strings for *;
 

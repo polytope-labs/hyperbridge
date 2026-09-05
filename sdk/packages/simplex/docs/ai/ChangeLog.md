@@ -12,6 +12,202 @@ Files: list of files touched.
 
 Newest entries first.
 
+## 2026-09-05 — Runtime controls live on the Overview page
+
+The "Runtime controls" header button and its sheet are gone; the Overview renders the state line
+("Filling is active" / "New fills are paused") with the Pause/Resume and Stop buttons beside it,
+directly under the metrics strip. `OperatorOverview` takes a `runtime` prop from `Operator`.
+Files: `ui/src/operator/{Operator,OperatorOverview}.tsx`, `ui/src/styles/{operator,responsive}.css`,
+`docs/ai/{ChangeLog,Flow}.md`.
+
+## 2026-09-05 — Persist live phantom bids so a restart retracts them
+
+Each phantom interval's batch retracts the previous interval's bid on that chain, refunding its
+0.01 BRIDGE deposit — but the previous commitment lived only in `IntentFiller`'s memory, so the
+first batch after every restart carried no retraction and stranded a deposit (the account had
+0.5 BRIDGE reserved from fifty of them). `RuntimeState` gains `phantomBids` (chain → commitment);
+the filler takes a `StateStore` and persists the map whenever a phantom bid lands or is pooled
+(`rememberPhantomBid`), boot seeds it with `restorePhantomBids(restoredState.phantomBids)` before
+`start()`, and `livePhantomBids()` exposes it. `StateStore.set` replaces the whole record, so all
+writers now go through `patchRuntimeState` (`src/data/state.ts`), including pause/resume in
+`Simplex` and the CLI's `setPaused` — a pause no longer wipes the phantom bids. Added tests for
+persistence, restore precedence and merge-safe pauses.
+Files: `src/data/{state,types}.ts`, `src/core/{filler,boot}.ts`, `src/simplex.ts`,
+`src/bin/simplex.ts`, `src/tests/phantom-bid-persistence.test.ts`, `docs/ai/{ChangeLog,Decisions,Flow}.md`.
+
+## 2026-09-05 — Retracted column only for retractions that went on chain
+
+A bid the pallet no longer holds (`BidNotFound`: our fill consumed it, or it never landed) is
+marked retracted with a null extrinsic hash; the Retracted column showed a bare time for it. It now
+shows a dash unless `retractExtrinsicHash` is set, so every entry in that column links to a real
+retraction on Statescan.
+Files: `ui/src/operator/Activity.tsx`, `docs/ai/{ChangeLog,Flow}.md`.
+
+## 2026-09-05 — Bid placed and Retracted columns link to the Hyperbridge explorer
+
+The Bids summary cell became two columns: "Bid placed" (time of the latest bid and its extrinsic
+hash linking to `https://<nexus|gargantua>.statescan.io/#/extrinsics/<hash>`; a failed bid shows
+"Failed" with its error) and "Retracted" (retraction time and its extrinsic link, or a dash).
+`OrderHistoryDto` gains `network` (from a shared `runningNetwork` helper in `UiServer`) so the UI
+picks the explorer; `BidDto` declares the `retractedAt` and `retractExtrinsicHash` fields the API
+already returned. Also settles bids and retypes legacy bid-time "filled" rows at boot (the
+settlement pass added to `backfillOrderSummaries`, keyed on `volumeUsd` being set only on bid-time
+rows), using `ActivityStore.unsettledOrders` / `retypeLegacyBid`.
+Files: `src/services/server/{UiServer,dto}.ts`, `src/data/{backfill,types,memory}.ts`,
+`src/data/sqlite/activity.ts`, `src/core/boot.ts`, `src/tests/{ui-server,activity-backfill}.test.ts`,
+`ui/src/operator/Activity.tsx`, `ui/src/lib/format.ts`, `ui/src/styles/operator.css`,
+`docs/ai/{ChangeLog,Flow}.md`.
+
+## 2026-09-05 — A bid is not a fill: settle orders from the on-chain OrderFilled log
+
+Under solver selection the filler emits `orderFilled` when Hyperbridge accepts its bid, so the
+history called every bid "Filled" — including one a rival then filled. `orderFilled` now carries
+`commitment`; the recorder ignores it for bids and records the accepted bid from `orderExecuted`
+as a new `bid` activity type (txHash = extrinsic hash). `EventMonitor.handleFill` emits a new
+`orderFillObserved` `{ commitment, filler, chainId, txHash, ours }` for every OrderFilled log on a
+configured chain (`ScannedFill.transactionHash` added, from the log); the recorder records `filled`
+when `ours`, and `lost` (reason = the winner's address) when not, but only for orders it has rows
+for (`ActivityStore.knowsOrder`). Public `Simplex` events gain `order:fill-observed`. The UI status
+now reads Filled > Lost ("filled by 0x…") > Bid placed / Bid retracted > Executed/Failed > Skipped >
+Detected; the Bids cell shows the latest bid's standing (Accepted / Retracted / Failed, no counts)
+with its extrinsic hash or error; the fill link uses the observed fill's tx hash (or a direct
+attempt's UserOp hash, which the explorer's /tx page resolves) and never a bid's extrinsic hash.
+Rows recorded before this change keep their bid-time "filled" rows.
+Files: `src/scanner/{types,chain-scanner}.ts`, `src/core/{event-monitor,filler}.ts`,
+`src/simplex.ts`, `src/data/{types,recorder,memory}.ts`, `src/data/sqlite/activity.ts`,
+`src/services/server/dto.ts`, `src/tests/activity-recorder.test.ts`,
+`ui/src/operator/Activity.tsx`, `docs/ai/{ChangeLog,Decisions,Flow}.md`.
+
+## 2026-09-05 — Watch-only orders are recorded as skipped at intake
+
+`IntentFiller`'s intake queue checks the destination's watch-only flag before `evaluateOrder` and
+returned after a debug log, so a watch-only order reached the activity feed as "detected" with no
+reason; `evaluateOrder`'s own watch-only check, which records `orderSkipped` with reason
+"watch-only", never ran for it. The intake check now logs at info and emits the same skip. Found
+while explaining why a paused-then-resumed watch-only instance never bid on a Base order.
+Files: `src/core/filler.ts`, `docs/ai/{ChangeLog,Flow}.md`.
+
+## 2026-09-05 — Drop the volume/profit line under a Filled status
+
+The Filled badge no longer carries "$1 · +$0.01" beneath it; the amount columns already show what
+was filled and the maintainer asked for the line to go. Skips and failures keep their reason.
+Files: `ui/src/operator/Activity.tsx`, `docs/ai/{ChangeLog,Flow}.md`.
+
+## 2026-09-05 — Paginate the order history and fold each order's bids into its row
+
+Added `GET /api/activity/history?page&pageSize` (`OrderHistoryDto`): one page of orders, newest
+activity first, each with its rows and the Hyperbridge bids submitted for its commitment (bid
+`commitment` equals the order id), plus the newest order-less events (rebalances) for the first
+page's footer. Backed by `ActivityStore.orderHistory(page, pageSize)` (SQLite: `GROUP BY order_id
+ORDER BY MAX(id)` with `COUNT(DISTINCT order_id)`; memory mirrors it) and `BidStore.byCommitments`.
+`Activity.tsx` now pages (20 per page, numbered pager with ellipses, "Showing x–y of n"), re-reads
+the current page on SSE activity (400 ms coalesced) instead of merging rows client-side, and shows a
+Bids column ("2 bids · 1 accepted · 1 retracted", tooltip listing each bid) in place of the separate
+Submitted bids table; the bid metrics strip stays, with pending retractions as a badge. `OperatorContext.bids`
+gains `byCommitments`; the test operator now wires `bids`. Added a ui-server test for paging and
+bid folding.
+Files: `src/data/{types,memory,recorder}.ts`, `src/data/sqlite/{activity,bids}.ts`,
+`src/services/server/{UiServer,dto}.ts`, `src/tests/ui-server.test.ts`,
+`ui/src/operator/Activity.tsx`, `ui/src/types.ts`, `ui/src/styles/operator.css`,
+`docs/ai/{ChangeLog,Decisions,Flow}.md`.
+
+## 2026-09-05 — Backfill order details on old activity rows from the indexer; decode referrer names
+
+Rows recorded before order summaries existed showed only an id. `src/data/backfill.ts` now runs at
+boot (fire-and-forget) and, for the newest 500 distinct order ids without a summary, queries the
+Hyperbridge indexer's `iOrderV3s` entity (the SDK's `ORDER_STATUS` query targets `orders`/
+`orderPlaceds`, which this indexer no longer serves), builds the same `OrderSummary` the recorder
+would have, attaches it to every row of that order (`ActivityStore.attachOrder`, new alongside
+`orderIdsMissingSummary`; SQLite and memory implementations), and re-emits the rows through the
+recorder so open dashboards refresh over SSE. The endpoint defaults per network
+(`DEFAULT_INDEXER_URLS`: nexus for mainnet, gargantua for testnet) and can be overridden with
+`simplex.indexerUrl`, which `emit-toml` preserves. The referrer is now stored as the full 32-byte
+graffiti tag: apps write their name as padded ASCII (the live indexer returns "HyperFX" that way),
+so `ui/src/lib/format.ts` `describeReferrer` renders printable tags as text, address-shaped tags as
+a short address, and anything else as short hex. Added tests for the backfill (indexed order
+attached to every row, unknown order left alone, indexer failure touches nothing).
+Files: `src/data/{backfill,recorder,types,memory}.ts`, `src/data/sqlite/activity.ts`,
+`src/core/boot.ts`, `src/config/filler-toml.ts`, `src/cli/init/emit-toml.ts`,
+`src/tests/{activity-backfill,activity-recorder}.test.ts`, `ui/src/lib/format.ts`,
+`ui/src/operator/Activity.tsx`, `docs/ai/{ChangeLog,Decisions,Flow}.md`.
+
+## 2026-09-05 — Order history: amounts, tokens, chains, user, referrer, and links per order
+
+The Activity page's order feed showed only a time, a truncated id and an event badge. Each activity
+event now carries an `order` summary (`OrderSummary` in `src/data/types.ts`): user, source and
+destination chain, placement tx hash, referrer (the order's graffiti tag, 20 bytes, null when
+absent or equal to the placer, mirroring the indexer's rule), input and output legs (token address,
+raw amount, symbol, decimals) and deadline. The scanner passes `graffiti` from the `OrderPlaced`
+log through `ScannedOrder` and the monitor's `newOrder` event; `ActivityRecorder` builds the
+summary on detection (token symbol from the asset registry, decimals via
+`ContractInteractionService.getTokenDecimals`, both injected from `boot.ts` as `describeToken`),
+caches it per order id, and attaches it to the order's later filled/executed/skipped rows. SQLite
+gains an `order_json` column by migration; the memory store mirrors it. The UI groups events per
+order and renders a HyperFX-style history table (referrer, status with detail, amount in/out with
+token icon + chain badge, user, placed time and date, links to the HyperFX order page and to the
+placement and fill transactions on the block explorers). Rebalance events list below the table.
+Files: `src/scanner/{reconstruct,types}.ts`, `src/core/{event-monitor,boot}.ts`,
+`src/data/{types,recorder,memory}.ts`, `src/data/sqlite/activity.ts`, `src/services/server/dto.ts`,
+`ui/src/operator/{Activity,Operator}.tsx`, `ui/src/lib/format.ts`, `ui/src/types.ts`,
+`ui/src/styles/operator.css`, `docs/ai/{ChangeLog,Decisions,Flow}.md`.
+
+## 2026-09-05 — Move Send funds and Vault treasury to the Wallet page
+
+Split `Operations.tsx`: the Send sheet, the vault treasury sheet, their save/sweep logic and
+helpers now live in `ui/src/operator/WalletTools.tsx`, rendered by `Wallet.tsx` above the
+transaction history under a "Funds" heading; `OperationLink` moved to
+`ui/src/components/OperationLink.tsx` so both pages share it. Operations keeps the allowlist and
+chain sheets and accepts `initialPanel`/`onInitialPanelShown`, which `Operator` uses to open the
+Chains sheet when the vault editor's Enable chain link is clicked from the Wallet page. Nav and
+page copy updated (Wallet: "Funds and history"; Operations: "Live configuration").
+Files: `ui/src/operator/{Operator,Operations,Wallet,WalletTools}.tsx`,
+`ui/src/components/OperationLink.tsx`, `docs/ai/{ChangeLog,Decisions,Flow}.md`.
+
+## 2026-09-05 — Group the treasury editor per chain, fold chains that are not enabled
+
+Rebuilt `VaultRowsEditor` around per-chain groups: enabled chains first, each with a header (chain
+logo, vault count, "Enabled" pill) and compact token-only rows; custom vaults live inside their
+chain's group. Chains the filler does not run fold into one "Other networks" collapsible whose
+groups carry a "Not enabled" pill and an "Enable chain" link (`onEnableChain`; the dashboard opens
+the Chains & endpoints sheet, the wizard jumps to the Chains step through a new `goToStep` on
+`StepProps`). The per-row disabled hint and the `disabledHint` prop are gone. The dashboard drawer
+lost its duplicate heading; it now shows a summary line of connected vaults with Sweep now / Redeem
+all beside it, and the restart caveat only when the filler booted without a vault venue. Layout
+chosen from a design canvas of three options.
+Files: `ui/src/components/VaultRowsEditor.tsx`, `ui/src/operator/Operations.tsx`,
+`ui/src/wizard/{Wizard.tsx,steps/Treasury.tsx}`, `ui/src/styles/{treasury,responsive}.css`,
+`docs/ai/{ChangeLog,Decisions,Flow}.md`.
+
+## 2026-09-05 — Show curated vaults for every chain in the treasury editors
+
+The dashboard's Vault treasury drawer and the wizard's Treasury step now list the registry's Aave
+stata (and other curated) vaults for every chain on the running network. `UiServer.knownVaultCatalog`
+returns the catalog for all `INIT_CHAINS` on that network instead of only running chains;
+`VaultRowsEditor` orders enabled chains first and renders the others locked (disabled checkbox,
+`data-disabled`, hint naming where to enable the chain: Chains & endpoints, or the wizard's Chains
+step). Select all only covers selectable rows. The minimum-balance tooltip's paymaster note now
+covers USDT as well as USDC. Added a ui-server test for the widened catalog. Cross-checked the
+registry against the indexer's `yieldVaults` (identical where they overlap) and the Aave address
+book: Aave v3 Base lists no USDT, so there is no Base stataUSDT to add.
+Files: `src/services/server/{UiServer,dto}.ts`, `ui/src/components/VaultRowsEditor.tsx`,
+`ui/src/operator/Operations.tsx`, `ui/src/wizard/steps/Treasury.tsx`, `ui/src/styles/treasury.css`,
+`src/tests/ui-server.test.ts`, `docs/ai/{ChangeLog,Decisions,Flow}.md`.
+
+## 2026-09-05 — Reword the vault "Minimum wallet balance" tooltip
+
+The tooltip claimed the wallet float keeps liquidity available for fills, but fills draw from the
+vault position atomically; the float is simply what Simplex never sweeps into the vault. Rewrote it
+to say that, and added a USDC-only sentence noting USDC also pays paymaster gas, since that is the
+real reason to hold USDC back. Requested by the maintainer while reviewing the redesign.
+Files: `ui/src/components/VaultRowsEditor.tsx`, `docs/ai/ChangeLog.md`.
+
+## 2026-09-05 — Use the Hyperbridge favicon in the Simplex web UI
+
+Replaced the HyperFX favicon with a copy of the docs site's Hyperbridge favicon so the browser tab
+shows the Hyperbridge mark. Bumped the service worker precache name (`simplex-shell-v4` →
+`simplex-shell-v5`) so existing installs refetch `favicon.ico` instead of serving the old icon.
+Files: `ui/public/favicon.ico`, `ui/public/sw.js`, `docs/ai/{ChangeLog,Decisions,Flow}.md`.
+
 ## 2026-09-04 — Say why a vault sweep did nothing, and restore the restart notice for vault saves
 
 Diagnosed on a running solver: the periodic sweep ran every five minutes against a wallet holding

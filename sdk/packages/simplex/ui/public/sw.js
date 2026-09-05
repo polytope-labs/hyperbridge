@@ -1,4 +1,4 @@
-const CACHE_NAME = "simplex-shell-v4"
+const CACHE_NAME = "simplex-shell-v5"
 const PRECACHE_URLS = [
 	"./",
 	"./index.html",

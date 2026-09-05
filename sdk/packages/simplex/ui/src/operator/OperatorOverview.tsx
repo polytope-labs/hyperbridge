@@ -10,8 +10,10 @@ export function OperatorOverview(props: {
 	config: ConfigDto | undefined
 	onResetHalt: () => void
 	onMarketsChanged: () => Promise<void>
+	/** Pause/resume and stop, rendered inline so the page that shows health also controls it. */
+	runtime: { pending: boolean; onTogglePause: () => void; onStop: () => void }
 }) {
-	const { status, balances, strategies, config, onResetHalt, onMarketsChanged } = props
+	const { status, balances, strategies, config, onResetHalt, onMarketsChanged, runtime } = props
 	const stablecoinLiquidity = availableStablecoinLiquidity(balances)
 
 	return (
@@ -42,6 +44,34 @@ export function OperatorOverview(props: {
 					value={stablecoinLiquidity === null ? "—" : `$${formatAmount(stablecoinLiquidity)}`}
 				/>
 				<Metric label="BRIDGE available" value={balances?.hyperbridge?.free.toLocaleString() ?? "—"} />
+			</section>
+
+			<section className="operator-section operator-runtime" aria-label="Runtime controls">
+				<div className="operator-runtime-state">
+					<span className={`operator-status-dot ${status.paused ? "warn" : ""}`} />
+					<div>
+						<strong>{status.paused ? "New fills are paused" : "Filling is active"}</strong>
+						<p>
+							{status.paused
+								? "Order monitoring continues, but new fills are not analysed. The pause persists across restarts."
+								: "Simplex is monitoring and filling eligible orders. Pausing lets in-flight fills complete."}
+						</p>
+					</div>
+				</div>
+				<div className="operator-runtime-actions">
+					<button type="button" className="primary" onClick={runtime.onTogglePause} disabled={runtime.pending}>
+						{status.paused ? "Resume filling" : "Pause new fills"}
+					</button>
+					<button
+						type="button"
+						className="operator-runtime-stop"
+						onClick={runtime.onStop}
+						disabled={runtime.pending}
+						title="Drain in-flight fills, unwind eligible vault positions, and exit the process"
+					>
+						Stop filler
+					</button>
+				</div>
 			</section>
 
 			<section className="operator-section">

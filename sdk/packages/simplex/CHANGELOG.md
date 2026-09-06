@@ -1,5 +1,14 @@
 # @hyperbridge/filler
 
+## 0.13.2
+
+### Patch Changes
+
+- Orders page (renamed from Activity): every sidebar page has its own URL that survives a reload; orders another solver filled read "Outbid" with the winner beneath; the bid and its retraction are one column of arrow links to the Hyperbridge explorer (green up for the bid, red down for the retraction); amounts round to a precision that fits their size; the order row links only to HyperFX.
+- Wallet ledger: rows lead with an action icon (receipt for fills, arrows for vault sweeps and redeems, send), then Amount in and Amount out with token logos — a fill shows the order's input received and output paid, a sweep the underlying out and the vault shares in (share tokens carry a bank badge over the underlying's logo), a redeem the reverse. Sweeps and redeems now record their amounts, and rows from before that are backfilled from their receipts at startup.
+- Solver links: an FX market's sheet has a "Get link" entry that builds a HyperFX swap page locked to this filler, the pair and its current curve prices, with a copy button.
+- The dashboard container widens to 150rem.
+
 ## 0.13.0
 
 ### Minor Changes

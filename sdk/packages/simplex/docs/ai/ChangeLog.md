@@ -12,6 +12,13 @@ Files: list of files touched.
 
 Newest entries first.
 
+## 2026-09-05 — Widen the dashboard container to 150rem
+
+`.app-container` capped the whole UI at 80rem (1280px), leaving the order history about 900px of
+usable width on wide screens after the 16rem sidebar and column padding. The cap is now 150rem
+(2400px); the setup wizard shares the container and widens with it.
+Files: `ui/src/styles/foundations.css`, `docs/ai/ChangeLog.md`.
+
 ## 2026-09-05 — 0.13.1: pick up the 2026-09-05 mainnet SolverAccount from sdk 2.8.11
 
 No code change in this package. The filler reads the SolverAccount per chain from the sdk chain

@@ -15,7 +15,9 @@ import { type Logger, moduleLogger } from "@/services/Logger"
 import { encodeERC7821ExecuteBatch, type ERC7821Call, type HexString } from "@hyperbridge/sdk"
 import { Mutex } from "async-mutex"
 import type { Decimal } from "decimal.js"
-import { encodeFunctionData } from "viem"
+import { encodeFunctionData, formatUnits } from "viem"
+import type { DescribedMovement } from "@/data/ledger-backfill"
+import { vaultMovementsFromLogs } from "@/funding/vault/ledger"
 /** Default sweep cadence when the config omits `sweepIntervalMs`. */
 const DEFAULT_SWEEP_INTERVAL_MS = 5 * 60 * 1000
 
@@ -49,6 +51,20 @@ export interface VaultSweepDeposit {
 	amount: bigint
 }
 
+/** One vault's part of a sweep or redeem transaction: the underlying side and the share side. */
+export interface VaultMovement {
+	vault: HexString
+	asset: HexString
+	symbol: string
+	decimals: number
+	/** Base units of the underlying asset. */
+	amount: bigint
+	/** Vault shares given (sweep) or burned (redeem), base units; absent when the vault would not quote them. */
+	shares?: bigint
+	shareSymbol: string
+	shareDecimals: number
+}
+
 export interface VaultSweepSubmission {
 	chain: string
 	txHash: HexString
@@ -80,6 +96,8 @@ export class VaultFundingPlanner implements FundingVenue {
 
 	name = "Vault"
 	private stateByChain = new Map<string, VaultLiquidityState>()
+	/** ERC-20 metadata of each vault's share token, read once per vault. */
+	private shareMeta = new Map<string, { symbol: string; decimals: number }>()
 	private mutexByChain = new Map<string, Mutex>()
 	/** Per-chain mutex serialising sweeps so a slow supply tx can't overlap the next tick. */
 	private sweepMutexByChain = new Map<string, Mutex>()
@@ -107,7 +125,14 @@ export class VaultFundingPlanner implements FundingVenue {
 	}
 
 	/** Invoked after each submitted sweep/redeem batch so wallet history can record it. */
-	onTx?: (tx: { chain: string; kind: "sweep" | "redeem"; txHash: HexString; sponsored: boolean }) => void
+	onTx?: (tx: {
+		chain: string
+		kind: "sweep" | "redeem"
+		txHash: HexString
+		sponsored: boolean
+		/** What moved, per vault: deposits for a sweep, redeemed assets for a redeem. */
+		movements: VaultMovement[]
+	}) => void
 
 	/**
 	 * Replaces the vault set at runtime and re-hydrates. The instance is shared
@@ -361,6 +386,7 @@ export class VaultFundingPlanner implements FundingVenue {
 			const publicClient = this.clientManager.getPublicClient(chain)
 			const calls: ERC7821Call[] = []
 			const deposits: VaultSweepDeposit[] = []
+			const movements: VaultMovement[] = []
 			const skipped: VaultSweepSkip[] = []
 
 			for (const vault of state.allVaults()) {
@@ -435,6 +461,15 @@ export class VaultFundingPlanner implements FundingVenue {
 					}) as HexString,
 				})
 				deposits.push({ ...identity, amount: depositAmount })
+				movements.push({
+					vault: vault.vault,
+					asset: vault.asset,
+					symbol: vault.symbol,
+					decimals: vault.decimals,
+					amount: depositAmount,
+					shares: await this.quoteShares(vault.vault, depositAmount, publicClient),
+					...(await this.shareTokenMeta(vault.vault, publicClient)),
+				})
 
 				this.logger.info(
 					{ chain, vault: vault.vault, asset: vault.asset, excess: excess.toString(), depositAmount: depositAmount.toString() },
@@ -446,7 +481,7 @@ export class VaultFundingPlanner implements FundingVenue {
 
 			const { txHash, sponsored } = await this.submitBatch(chain, solver, calls)
 			this.logger.info({ chain, tx: txHash, sponsored, pairs: calls.length / 2 }, "Vault sweep submitted")
-			this.onTx?.({ chain, kind: "sweep", txHash, sponsored })
+			this.onTx?.({ chain, kind: "sweep", txHash, sponsored, movements })
 			return { submitted: { chain, txHash, sponsored, deposits }, skipped }
 		})
 	}
@@ -558,6 +593,7 @@ export class VaultFundingPlanner implements FundingVenue {
 		await mutex.runExclusive(async () => {
 			const publicClient = this.clientManager.getPublicClient(chain)
 			const calls: ERC7821Call[] = []
+			const movements: VaultMovement[] = []
 
 			for (const vault of state.allVaults()) {
 				if (!vault.redeemOnShutdown) continue // operator opted to keep this position
@@ -569,6 +605,22 @@ export class VaultFundingPlanner implements FundingVenue {
 					args: [solver],
 				})) as bigint
 				if (shares === 0n) continue
+				// For the ledger: what those shares are worth in the underlying, per the vault itself.
+				const assets = (await publicClient.readContract({
+					abi: ERC4626_ABI,
+					address: vault.vault,
+					functionName: "previewRedeem",
+					args: [shares],
+				})) as bigint
+				movements.push({
+					vault: vault.vault,
+					asset: vault.asset,
+					symbol: vault.symbol,
+					decimals: vault.decimals,
+					amount: assets,
+					shares,
+					...(await this.shareTokenMeta(vault.vault, publicClient)),
+				})
 
 				calls.push({
 					target: vault.vault,
@@ -590,8 +642,74 @@ export class VaultFundingPlanner implements FundingVenue {
 
 			const { txHash, sponsored } = await this.submitBatch(chain, solver, calls)
 			this.logger.info({ chain, tx: txHash, sponsored, vaults: calls.length }, "Vault shutdown redeem submitted")
-			this.onTx?.({ chain, kind: "redeem", txHash, sponsored })
+			this.onTx?.({ chain, kind: "redeem", txHash, sponsored, movements })
 		})
+	}
+
+	/**
+	 * What a sweep or redeem transaction did, read back from its receipt: one
+	 * entry per configured vault it deposited into or withdrew from. Empty until
+	 * the chain's vaults are hydrated, or when the receipt touches none of them.
+	 */
+	async describeTransaction(chain: string, txHash: HexString): Promise<DescribedMovement[]> {
+		const state = this.stateByChain.get(chain)
+		if (!state) return []
+		const client = this.clientManager.getPublicClient(chain)
+		const receipt = await client.getTransactionReceipt({ hash: txHash })
+		const vaults = new Map(state.allVaults().map((vault) => [vault.vault.toLowerCase(), vault]))
+		const out: DescribedMovement[] = []
+		for (const move of vaultMovementsFromLogs(receipt.logs, vaults.keys())) {
+			const vault = vaults.get(move.vault.toLowerCase())
+			if (!vault) continue
+			const share = await this.shareTokenMeta(vault.vault, client)
+			out.push({
+				kind: move.kind,
+				vault: vault.vault,
+				symbol: vault.symbol,
+				amount: formatUnits(move.assets, vault.decimals),
+				shareSymbol: share.shareSymbol,
+				shares: formatUnits(move.shares, share.shareDecimals),
+			})
+		}
+		return out
+	}
+
+	/** Symbol and decimals of a vault's share token (e.g. stataUSDC), cached per vault. */
+	private async shareTokenMeta(
+		vault: HexString,
+		client: ReturnType<ChainClientManager["getPublicClient"]>,
+	): Promise<{ shareSymbol: string; shareDecimals: number }> {
+		const cached = this.shareMeta.get(vault)
+		if (cached) return { shareSymbol: cached.symbol, shareDecimals: cached.decimals }
+		let symbol = "shares"
+		let decimals = 18
+		try {
+			symbol = (await client.readContract({ abi: ERC20_ABI, address: vault, functionName: "symbol" })) as string
+			decimals = Number(await client.readContract({ abi: ERC20_ABI, address: vault, functionName: "decimals" }))
+		} catch (err) {
+			this.logger.debug({ err, vault }, "Could not read vault share token metadata")
+		}
+		this.shareMeta.set(vault, { symbol, decimals })
+		return { shareSymbol: symbol, shareDecimals: decimals }
+	}
+
+	/** Shares the vault would mint for `assets`, for the ledger; undefined when it will not say. */
+	private async quoteShares(
+		vault: HexString,
+		assets: bigint,
+		client: ReturnType<ChainClientManager["getPublicClient"]>,
+	): Promise<bigint | undefined> {
+		try {
+			return (await client.readContract({
+				abi: ERC4626_ABI,
+				address: vault,
+				functionName: "previewDeposit",
+				args: [assets],
+			})) as bigint
+		} catch (err) {
+			this.logger.debug({ err, vault }, "Vault would not quote shares for the deposit")
+			return undefined
+		}
 	}
 }
 

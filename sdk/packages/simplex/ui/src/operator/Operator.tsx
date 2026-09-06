@@ -1,5 +1,6 @@
 import { useCallback, useState, type ComponentType, type SVGProps } from "react"
 import { api } from "../api"
+import { type OperatorTab, useTabRoute } from "../lib/route"
 import hyperfxLogo from "../assets/hyperfx-logo.webp"
 import { CopyHash } from "../components/CopyHash"
 import { ActivityIcon, OperationsIcon, OverviewIcon, SettingsIcon, WalletIcon } from "../components/InterfaceIcons"
@@ -12,7 +13,7 @@ import { Operations, type OperationsPanel } from "./Operations"
 import { OperatorOverview } from "./OperatorOverview"
 import { Wallet } from "./Wallet"
 
-type Tab = "overview" | "orders" | "wallet" | "operations"
+type Tab = OperatorTab
 
 const PAGE_TABS: Array<{
 	value: Tab
@@ -57,7 +58,7 @@ function formatUptime(seconds: number): string {
 
 export function Operator(props: { status: StatusOperator; refresh: () => void }) {
 	const { status, refresh } = props
-	const [tab, setTab] = useState<Tab>("overview")
+	const [tab, setTab] = useTabRoute()
 	// Set when another page sends the operator to a specific Operations sheet.
 	const [operationsPanel, setOperationsPanel] = useState<OperationsPanel>()
 	const [balances, setBalances] = useState<BalanceSnapshot>()

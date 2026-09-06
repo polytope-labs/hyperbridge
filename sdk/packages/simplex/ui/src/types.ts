@@ -21,6 +21,7 @@ export type {
 	ConfigDto,
 	KnownToken,
 	KnownVault,
+	LedgerLeg,
 	SendTokenOption,
 	SetupDefaults,
 	Status,

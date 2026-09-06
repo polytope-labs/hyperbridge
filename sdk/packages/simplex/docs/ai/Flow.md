@@ -498,13 +498,14 @@ With solver selection, `IntentFiller` "executing" an order submits a bid: `order
 `transactionHash` in `ScannedFill`; `EventMonitor.handleFill` emits `orderFillObserved` for every
 fill with `ours` (filler address match), then the existing `orderFilledOnChain` for ours only. The
 recorder's `settle` records `filled` (ours) or `lost` (reason = winner) for orders it knows
-(summary cache or `ActivityStore.knowsOrder`). `Orders.tsx` ranks Filled > Lost > Bid placed /
+(summary cache or `ActivityStore.knowsOrder`). `Orders.tsx` ranks Filled > Outbid (neutral badge, winner address beneath) > Bid placed /
 Bid retracted (latest bid) > Executed/Failed > Skipped > Detected, shows the latest bid's standing
-in the Bids cell, and links the fill from the observed fill's tx hash (or a direct attempt's UserOp
-hash), never from a bid's extrinsic hash. `fills()` (wallet ledger) now lists real fills only.
-The latest bid's extrinsic and, when a retraction extrinsic exists, the retraction render as time +
-short hash linking to Statescan for the running network (`OrderHistoryDto.network`); a bid closed
-out by `BidNotFound` (retracted with no hash) shows a dash in the Retracted column. At boot the
+in the Bids cell; the row's only external link is the HyperFX order page (explorer links for the
+placement and fill transactions were removed). `fills()` (wallet ledger) now lists real fills only.
+The latest bid renders in one Bids cell as two icon links to Statescan for the running network
+(`OrderHistoryDto.network`): up for the bid extrinsic, down for the retraction; either is a dimmed
+arrow when absent (a bid closed out by `BidNotFound` has no retraction extrinsic), and a failed bid
+shows "Failed" with its error on hover. At boot the
 backfill's second pass lists `unsettledOrders` (a `bid` row or a legacy bid-time `filled` row — those
 carry `volumeUsd` — with no `lost` or observed `filled` row), fetches each from the indexer with its
 `statusMetadata`, retypes legacy rows to `bid`, and records `filled`/`lost` from the FILLED entry's
@@ -528,3 +529,35 @@ through `useAction`) and passes them with `pending` to `OperatorOverview` as `ru
 overview renders them inline between the metrics strip and the balances: a status dot and copy on
 the left, Pause new fills / Resume filling (primary) and Stop filler (destructive styling) on the
 right. There is no runtime sheet any more.
+
+## Page routes
+
+`useTabRoute` (`ui/src/lib/route.ts`) maps the sidebar pages to `/`, `/orders`, `/wallet` and
+`/operations`. The active tab is initialised from `location.pathname`, navigation calls
+`history.pushState` and `popstate` updates it, so reloads and back/forward keep the page. The
+server needs nothing: `serveStatic` falls back to `index.html` for any non-file path, and the
+service worker fetches navigations from the network first. Routes are single-segment because
+`index.html` references its assets as `./assets/…`.
+
+## Wallet ledger
+
+`/api/wallet/history` merges `walletTxs` (sends from the dashboard; sweeps and redeems from
+`VaultFundingPlanner.onTx`, one row per vault movement: `token`/`amount` = what left, `tokenIn`/
+`amountIn` = what came back, `to` = vault) with `fills()` (observed on-chain fills by this filler).
+The server maps each row to `in` and `out` `LedgerLeg`s — for fills from the order summary (input
+received, output paid, raw base units + decimals); for vault rows from the decimal strings, with
+`vault: true` and `icon` = the underlying's symbol for share tokens — and adds `label`, the
+registry's vault name for `to`. `Wallet.tsx` renders an action icon per kind, Amount in (green)
+and Amount out (red) with token logos (a vault badge on share tokens; sends show the recipient,
+vault rows nothing more), the chain with its logo, the explorer link and the time.
+Rows recorded before amounts existed are backfilled at boot: `backfillVaultLedger` reads each
+receipt via `VaultFundingPlanner.describeTransaction` (ERC-4626 Deposit/Withdraw logs from
+configured vaults, share metadata from the cached ERC-20 reads) and updates the row.
+
+## Solver links
+
+`OperatorMarkets` shows "Get link" at the top of an FX market's sheet. `SolverLinkDialog` calls
+`planSolverLink(strategy, chainId, status.addresses.evm, name)`: it takes the first configured
+ask as the token0 → token1 rate and the first bid as `reverse_rate` (both token1 per token0, the
+app's unit), or, for a bid-only market, sells token1 → token0 at the reciprocal bid; `buildSolverLink`
+writes the app's `/swap?wl=1&wlv=1&…` query. Copy goes through `navigator.clipboard` with a toast.

@@ -9,6 +9,10 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 import {SimplexPaymaster, AggregatorV3Interface} from "../../src/utils/SimplexPaymaster.sol";
 import {SimplexPaymasterHarness} from "./SimplexPaymasterTest.t.sol";
 
+interface IPermit2Domain {
+    function DOMAIN_SEPARATOR() external view returns (bytes32);
+}
+
 interface IEntryPointGas {
     function handleOps(PackedUserOperation[] calldata ops, address payable beneficiary) external;
 
@@ -28,6 +32,11 @@ interface IEntryPointGas {
 ///         caps the latter. Runs against the real EntryPoint v0.8 on a fork.
 contract SimplexPaymasterGasGriefTest is Test {
     IEntryPointGas constant ENTRY_POINT = IEntryPointGas(address(ERC4337Utils.ENTRYPOINT_V08));
+    IPermit2Domain constant PERMIT2 = IPermit2Domain(0x000000000022D473030F116dDEE9F6B43aC78BA3);
+    bytes32 constant TOKEN_PERMISSIONS_TYPEHASH = keccak256("TokenPermissions(address token,uint256 amount)");
+    bytes32 constant PERMIT_TRANSFER_FROM_TYPEHASH = keccak256(
+        "PermitTransferFrom(TokenPermissions permitted,address spender,uint256 nonce,uint256 deadline)TokenPermissions(address token,uint256 amount)"
+    );
 
     address constant HOST = 0x620128E2B19193d6Bd244a3AC8D3bBa0541B19c3;
     address constant ETH_USD = 0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419;
@@ -70,18 +79,20 @@ contract SimplexPaymasterGasGriefTest is Test {
                     swapSlippageBps: 200
                 }),
                 tokens,
-                oracles
+                oracles,
+                address(0)
             )
         );
         paymaster = SimplexPaymasterHarness(payable(address(new ERC1967Proxy(address(implementation), initData))));
 
+        // Raw call: Tether's approve returns no bool.
         deal(USDT, solver, 1_000_000e6);
         vm.prank(solver);
-        (bool ok,) = USDT.call(abi.encodeWithSelector(IERC20.approve.selector, address(paymaster), type(uint256).max));
+        (bool ok,) = USDT.call(abi.encodeWithSelector(IERC20.approve.selector, address(PERMIT2), type(uint256).max));
         require(ok, "approve failed");
         deal(USDC, solver, 1_000_000e6);
         vm.prank(solver);
-        IERC20(USDC).approve(address(paymaster), type(uint256).max);
+        IERC20(USDC).approve(address(PERMIT2), type(uint256).max);
 
         vm.deal(address(this), 100 ether);
         ENTRY_POINT.depositTo{value: 10 ether}(address(paymaster));
@@ -223,9 +234,37 @@ contract SimplexPaymasterGasGriefTest is Test {
         op.preVerificationGas = 60_000;
         uint256 maxFee = block.basefee + 1 gwei;
         op.gasFees = bytes32((uint256(1 gwei) << 128) | maxFee);
-        op.paymasterAndData =
-            abi.encodePacked(address(paymaster), uint128(300_000), postOpGasLimit, abi.encodePacked(uint8(1), token));
+        // Permit2 mode. The account nonce doubles as the Permit2 nonce: unique per executed op and
+        // sequential, so the bitmap word stays warm across the runs the margin assertions compare.
+        uint256 deadline = block.timestamp + 1 hours;
+        bytes memory permitSig = _signPermit2(token, 1_000e6, op.nonce, deadline);
+        op.paymasterAndData = abi.encodePacked(
+            address(paymaster),
+            uint128(300_000),
+            postOpGasLimit,
+            abi.encodePacked(uint8(2), token, uint256(1_000e6), op.nonce, deadline, permitSig)
+        );
         op.signature = _sign(solverKey, ENTRY_POINT.getUserOpHash(op));
+    }
+
+    /// @dev v ‖ r ‖ s, the layout mode 0x02 expects.
+    function _signPermit2(address token, uint256 amount, uint256 nonce, uint256 deadline)
+        internal
+        view
+        returns (bytes memory)
+    {
+        bytes32 structHash = keccak256(
+            abi.encode(
+                PERMIT_TRANSFER_FROM_TYPEHASH,
+                keccak256(abi.encode(TOKEN_PERMISSIONS_TYPEHASH, token, amount)),
+                address(paymaster),
+                nonce,
+                deadline
+            )
+        );
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", PERMIT2.DOMAIN_SEPARATOR(), structHash));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(solverKey, digest);
+        return abi.encodePacked(v, r, s);
     }
 
     function _sign(uint256 key, bytes32 digest) internal pure returns (bytes memory) {

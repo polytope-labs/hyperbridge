@@ -1,5 +1,13 @@
 # @hyperbridge/filler
 
+## 0.14.0
+
+### Minor Changes
+
+- The Simplex paymaster's APPROVE mode is gone. A fee token with EIP-2612 always pays by permit; a token without it pays through Permit2, bootstrapped once with `approve(Permit2, max)`. A standing allowance to the paymaster is no longer read or created, and when Permit2 is unavailable on a chain, or the paymaster deployment does not expose `PERMIT2()`, the Simplex paymaster is skipped for that operation with the reason logged. Release after the live paymaster proxies are upgraded: against a paymaster from before PERMIT2 mode, a solver holding only a no-permit token (Ethereum USDT) is not sponsored by Simplex.
+- The paymaster contract now accepts governance deliveries from one authorised relayer only (rotated by the new `set_paymaster_relayer` extrinsic), and refuses mode byte `0x01`.
+- On a chain whose fee token has no EIP-2612 permit, first-time delegation now sends one native transaction that delegates and approves Permit2 together, instead of a native approve followed by a sponsored operation, whenever the solver holds native for it.
+
 ## 0.13.2
 
 ### Patch Changes
@@ -8,6 +16,11 @@
 - Wallet ledger: rows lead with an action icon (receipt for fills, arrows for vault sweeps and redeems, send), then Amount in and Amount out with token logos — a fill shows the order's input received and output paid, a sweep the underlying out and the vault shares in (share tokens carry a bank badge over the underlying's logo), a redeem the reverse. Sweeps and redeems now record their amounts, and rows from before that are backfilled from their receipts at startup.
 - Solver links: an FX market's sheet has a "Get link" entry that builds a HyperFX swap page locked to this filler, the pair and its current curve prices, with a copy button.
 - The dashboard container widens to 150rem.
+## 0.13.1
+
+### Patch Changes
+
+- Picks up the sdk chain config with the current mainnet SolverAccount.
 
 ## 0.13.0
 

@@ -1,6 +1,6 @@
 services:
     subquery-node-hyperbridge-gargantua-local:
-        image: polytopelabs/subql-node-substrate:v6.4.7-0
+        image: polytopelabs/subql-node-substrate:v6.4.8-0
         restart: always
         network_mode: host
         environment:
@@ -25,6 +25,7 @@ services:
             - --batch-size=${SUBQL_BATCH_SIZE:-10}
             - --multi-chain
             - --disable-multichain-rewind-lock
+            - --allow-schema-migration
             - --unsafe
             - --log-level=${LOG_LEVEL:-info}
             - --store-cache-async=false

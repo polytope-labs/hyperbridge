@@ -90,7 +90,8 @@ abstract contract SimplexPaymasterPermit2ForkTest is Test {
                     swapSlippageBps: 200
                 }),
                 tokens,
-                oracles
+                oracles,
+                address(0)
             )
         );
         paymaster = SimplexPaymasterHarness(payable(address(new ERC1967Proxy(address(implementation), initData))));

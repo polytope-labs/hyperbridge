@@ -414,16 +414,6 @@ export interface AggregationLogger {
  */
 export const UNISWAP_QUOTE_HAIRCUT_BPS = 10n
 
-/**
- * Haircut applied to every phantom quote that is NOT priced off a Uniswap V4 pool, in basis points.
- *
- * A wallet-funded quote is still the best case the solver sees at bid time; the published rate is
- * what the protocol tells takers they can trade against, so it is shaded by this margin rather
- * than being the most optimistic number any bidder named. Pool-priced quotes pay
- * {@link UNISWAP_QUOTE_HAIRCUT_BPS} instead of this — not on top of it.
- */
-export const PHANTOM_QUOTE_HAIRCUT_BPS = 5n
-
 function haircut(amount: bigint, bps: bigint): bigint {
 	return (amount * (10_000n - bps)) / 10_000n
 }
@@ -433,9 +423,47 @@ export function applyUniswapQuoteHaircut(amount: bigint): bigint {
 	return haircut(amount, UNISWAP_QUOTE_HAIRCUT_BPS)
 }
 
-/** Applies {@link PHANTOM_QUOTE_HAIRCUT_BPS} to a quoted output amount, rounding down. */
-export function applyPhantomQuoteHaircut(amount: bigint): bigint {
-	return haircut(amount, PHANTOM_QUOTE_HAIRCUT_BPS)
+/** `IntentGateway.params()` — `keccak256("params()")[0:4]`. */
+const SELECTOR_GATEWAY_PARAMS = "0xcff0ab96"
+/** `params()` returns a struct of six static words; `protocolFeeBps` is the fifth. */
+const GATEWAY_PARAMS_WORDS = 6
+const GATEWAY_PARAMS_FEE_WORD = 4
+
+/**
+ * The protocol fee haircut: the fee the IntentGateway at `gatewayAddress` charges on order inputs,
+ * in basis points, read live from its `params()`.
+ *
+ * A wallet-funded quote is shaded by exactly this, so the published rate is the one a taker
+ * actually realizes after the gateway takes its cut, and it moves with governance rather than
+ * with a constant someone has to remember to keep in step. Read on the phantom order's own chain,
+ * which is the chain whose gateway will collect the fee on the fills this rate is published for.
+ *
+ * Fails loudly rather than defaulting: a gateway that returns no code, or a fee at or above 100%,
+ * is a misconfiguration, and pricing a window unhaircut on the back of it would publish a rate
+ * nobody can trade at. The `PhantomRpcError` lets the run's retry loop have another go first.
+ */
+export async function readProtocolFeeHaircutBps(evmRpcUrl: string, gatewayAddress: string): Promise<bigint> {
+	const result = await rpcCall(evmRpcUrl, {
+		id: 1,
+		jsonrpc: "2.0",
+		method: "eth_call",
+		params: [{ to: gatewayAddress, data: SELECTOR_GATEWAY_PARAMS }, "latest"],
+	})
+	const hex = result.result
+	if (typeof hex !== "string" || hex.length < 2 + 64 * GATEWAY_PARAMS_WORDS) {
+		throw new PhantomRpcError(`IntentGateway.params() returned no usable result from ${gatewayAddress} on ${evmRpcUrl}`)
+	}
+	const start = 2 + 64 * GATEWAY_PARAMS_FEE_WORD
+	const protocolFeeBps = BigInt(`0x${hex.slice(start, start + 64)}`)
+	if (protocolFeeBps >= 10_000n) {
+		throw new PhantomRpcError(`IntentGateway ${gatewayAddress} reports an implausible protocol fee: ${protocolFeeBps} bps`)
+	}
+	return protocolFeeBps
+}
+
+/** Applies the protocol fee haircut (see {@link readProtocolFeeHaircutBps}) to a quoted output amount, rounding down. */
+export function applyProtocolFeeHaircut(amount: bigint, protocolFeeBps: bigint): bigint {
+	return haircut(amount, protocolFeeBps)
 }
 
 // Liquidity-weighted median of solver quotes. Each quote's influence is proportional to `weight` —
@@ -1088,6 +1116,11 @@ async function runAggregation(
 	const bids = await fetchBidsForOrder(nodeUrl, commitment)
 	if (bids.length === 0) return null
 
+	// One read per run, after the bids so an empty window costs no call: the haircut every
+	// wallet-funded quote in this window pays. A failed read aborts the run (and is retried) rather
+	// than pricing the window unhaircut — see readProtocolFeeHaircutBps.
+	const protocolFeeHaircutBps = await readProtocolFeeHaircutBps(destUrl, gatewayAddress)
+
 	// One set of reads per declared position, reused by every leg it backs.
 	const v4Contracts = params.uniswapV4?.[chain]
 	const readPosition = memoizedV4Position(params.keccak ?? keccak256, logger)
@@ -1168,12 +1201,14 @@ async function runAggregation(
 			// Every quote is haircut before anything downstream reads it — the median, the bidder
 			// rows, and the zero-check right here, which then treats a quote the haircut rounds
 			// away exactly as it treats a declined one. A bid that names V4 positions is priced
-			// off those pools and pays the larger pool-fee haircut; every other bid pays the base
-			// one. The declaration drives that choice rather than the positions that survive the
-			// ownership check below, so the quote is haircut on the same basis the solver priced
-			// it on, whether or not this chain has V4 contracts configured.
+			// off those pools and pays the pool-fee haircut; every other bid pays the protocol fee
+			// haircut, the gateway's own fee read above. One or the other, never both. The
+			// declaration drives that choice rather than the positions that survive the ownership
+			// check below, so the quote is haircut on the same basis the solver priced it on,
+			// whether or not this chain has V4 contracts configured.
 			const poolPriced = declaration.uniswapV4Positions.length > 0
-			const applyHaircut = poolPriced ? applyUniswapQuoteHaircut : applyPhantomQuoteHaircut
+			const applyHaircut = (amount: bigint) =>
+				poolPriced ? applyUniswapQuoteHaircut(amount) : applyProtocolFeeHaircut(amount, protocolFeeHaircutBps)
 			const quotedLegs = [...fillData.legs.entries()]
 				.map(([legIndex, leg]): [number, FillLeg] => [
 					legIndex,

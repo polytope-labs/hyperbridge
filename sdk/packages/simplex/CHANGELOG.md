@@ -1,5 +1,18 @@
 # @hyperbridge/filler
 
+## 0.14.0
+
+### Minor Changes
+
+- The Simplex paymaster's APPROVE mode is gone. A fee token with EIP-2612 always pays by permit; a token without it pays through Permit2, bootstrapped once with `approve(Permit2, max)`. A standing allowance to the paymaster is no longer read or created, and when Permit2 is unavailable on a chain, or the paymaster deployment does not expose `PERMIT2()`, the Simplex paymaster is skipped for that operation with the reason logged. Release after the live paymaster proxies are upgraded: against a paymaster from before PERMIT2 mode, a solver holding only a no-permit token (Ethereum USDT) is not sponsored by Simplex.
+- The paymaster contract now accepts governance deliveries from one authorised relayer only (rotated by the new `set_paymaster_relayer` extrinsic), and refuses mode byte `0x01`.
+
+## 0.13.1
+
+### Patch Changes
+
+- Picks up the sdk chain config with the current mainnet SolverAccount.
+
 ## 0.13.0
 
 ### Minor Changes

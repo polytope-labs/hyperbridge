@@ -392,6 +392,12 @@ pub enum RequestKind {
 	PaymasterUnlockStake,
 	/// Sweep the paymaster's unlocked EntryPoint stake to its treasury
 	PaymasterWithdrawStake,
+	/// Replace the only relayer whose governance deliveries the paymaster accepts. The paymaster
+	/// refuses zero, since zero would reopen it to every relayer.
+	PaymasterSetRelayer {
+		/// The relayer whose deliveries are accepted from now on
+		relayer: H160,
+	},
 }
 
 // Solidity type definitions for cross-chain encoding
@@ -626,6 +632,7 @@ enum SimplexPaymasterRequestKind {
 	WithdrawAssets = 4,
 	UnlockStake = 5,
 	WithdrawStake = 6,
+	SetRelayer = 7,
 }
 
 impl RequestKind {
@@ -754,6 +761,14 @@ impl RequestKind {
 			},
 			RequestKind::PaymasterWithdrawStake => {
 				vec![SimplexPaymasterRequestKind::WithdrawStake as u8]
+			},
+			RequestKind::PaymasterSetRelayer { relayer } => {
+				use alloy_primitives::Address;
+
+				let mut body = vec![SimplexPaymasterRequestKind::SetRelayer as u8];
+				// Single value: matches `abi.decode(payload, (address))`.
+				body.extend_from_slice(&Address::from_slice(&relayer.0).abi_encode());
+				body
 			},
 		}
 	}
@@ -890,6 +905,19 @@ mod request_kind_tests {
 			<(Address, AlloyU256)>::abi_decode_params(&body[1..]).expect("(address, uint256)");
 		assert_eq!(dt.as_slice(), &token.0);
 		assert_eq!(da, AlloyU256::from(1_000_000u64));
+	}
+
+	#[test]
+	fn paymaster_set_relayer_matches_solidity_single_address_abi() {
+		let relayer = H160::repeat_byte(0x55);
+		let body = RequestKind::PaymasterSetRelayer { relayer }.encode_body();
+
+		assert_eq!(body[0], 7, "SimplexPaymaster.RequestKind.SetRelayer == 7");
+		// One left-padded ABI word, never a packed 20-byte address: the contract decodes it
+		// with `abi.decode(payload, (address))`.
+		assert_eq!(body.len(), 1 + 32);
+		assert_eq!(&body[1..13], &[0u8; 12]);
+		assert_eq!(&body[13..], relayer.as_bytes());
 	}
 
 	/// Both stake requests carry no payload: `onAccept` reads only the kind byte and sends

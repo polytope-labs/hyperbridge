@@ -1730,58 +1730,213 @@ button.operator-runtime-stop:hover:not(:disabled) {
 }
 
 /* Remote access panel */
-.tunnel-status {
+.tunnel-panel {
 	display: grid;
-	gap: 0.5rem;
-	padding: 0.75rem 1rem;
-	border: 1px solid var(--border, rgba(0, 0, 0, 0.12));
-	border-radius: 0.75rem;
+	gap: 1rem;
 }
-.tunnel-status .row {
-	justify-content: space-between;
+
+.tunnel-card {
+	margin-bottom: 0;
 }
-.pill {
-	padding: 0.15rem 0.6rem;
-	border-radius: 999px;
-	font-size: 0.85rem;
-	border: 1px solid currentColor;
+
+.tunnel-card .card-heading h2 {
+	margin: 0.35rem 0 0;
+	font-size: 1.05rem;
+	font-weight: 500;
+	letter-spacing: -0.02em;
 }
-.pill.tunnel-state-connected {
-	color: var(--success, #1d9e75);
+
+.tunnel-card > .hint {
+	margin: 0.9rem 0 0;
+	font-size: 0.8125rem;
+	line-height: 1.55;
 }
-.pill.tunnel-state-error {
-	color: var(--danger, #e24b4a);
-}
-.pill.tunnel-state-connecting,
-.pill.tunnel-state-reconnecting {
-	color: var(--warning, #ba7517);
-}
-.tunnel-new-device {
+
+.tunnel-toggle {
 	margin-top: 1.25rem;
-	padding: 1rem;
-	border: 1px solid var(--border, rgba(0, 0, 0, 0.12));
-	border-radius: 0.75rem;
-	display: grid;
-	gap: 0.75rem;
 }
-.tunnel-new-device img {
-	border-radius: 0.5rem;
+
+.tunnel-facts {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 1rem 1.5rem;
+	margin: 1.25rem 0 0;
+	padding-top: 1.25rem;
+	border-top: 1px solid var(--border);
+}
+
+.tunnel-facts > div {
+	display: grid;
+	gap: 0.3rem;
+	min-width: 0;
+}
+
+.tunnel-facts dt {
+	color: var(--muted);
+	font-family: var(--font-mono);
+	font-size: 0.625rem;
+	font-weight: 500;
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+}
+
+.tunnel-facts dd {
+	margin: 0;
+	min-width: 0;
+	font-size: 0.8125rem;
+	overflow-wrap: anywhere;
+}
+
+.tunnel-facts-pending {
+	color: var(--muted);
+	font-size: 0.8125rem;
+}
+
+.tunnel-alert {
+	margin-top: 1.25rem;
+	padding-right: 1rem;
+}
+
+.tunnel-advanced {
+	margin-top: 1.25rem;
+	padding-top: 1rem;
+	border-top: 1px solid var(--border);
+}
+
+.tunnel-advanced summary {
+	color: var(--text-secondary);
+	font-size: 0.8125rem;
+	font-weight: 500;
+	cursor: pointer;
+}
+
+.tunnel-relay-row {
+	display: flex;
+	gap: 0.6rem;
+	margin-top: 0.85rem;
+}
+
+.tunnel-relay-row input {
+	flex: 1;
+	min-width: 0;
+}
+
+.tunnel-advanced .hint {
+	display: block;
+	margin-top: 0.6rem;
+	font-size: 0.75rem;
+}
+
+.tunnel-count {
+	color: var(--muted);
+	font-family: var(--font-mono);
+	font-size: 0.625rem;
+}
+
+.tunnel-device-list {
+	margin: 1rem 0 0;
+	padding: 0;
+	list-style: none;
+	border-top: 1px solid var(--border);
+}
+
+.tunnel-device {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 1rem;
+	padding: 0.9rem 0;
+	border-bottom: 1px solid var(--border);
+}
+
+.tunnel-device > div {
+	display: grid;
+	gap: 0.2rem;
+	min-width: 0;
+}
+
+.tunnel-device strong {
+	font-size: 0.875rem;
+	font-weight: 500;
+}
+
+.tunnel-device small {
+	color: var(--muted);
+	font-size: 0.75rem;
+	overflow-wrap: anywhere;
+}
+
+.tunnel-card .steps {
+	margin: 1rem 0 0.25rem;
+}
+
+.tunnel-card .field {
+	margin-top: 1rem;
+}
+
+.tunnel-key-input {
+	width: 100%;
+	padding: 0.7rem 0.9rem;
+	border: 1px solid var(--border);
+	border-radius: 0.75rem;
+	background: var(--control);
+	color: var(--text);
+	font-size: 0.75rem;
+	line-height: 1.5;
+	resize: vertical;
+}
+
+.tunnel-key-input::placeholder {
+	color: #68717e;
+}
+
+.tunnel-actions {
+	display: flex;
+	align-items: center;
+	justify-content: flex-end;
+	gap: 1rem;
+	margin-top: 1.25rem;
+}
+
+.tunnel-ack {
+	display: flex;
+	align-items: center;
+	gap: 0.55rem;
+	color: var(--text-secondary);
+	font-size: 0.8125rem;
+	cursor: pointer;
+}
+
+.tunnel-secret {
+	display: flex;
+	align-items: flex-start;
+	gap: 1.25rem;
+	margin-top: 1.25rem;
+}
+
+.tunnel-secret img {
+	flex: 0 0 auto;
+	border-radius: 0.75rem;
 	background: #fff;
 }
-.tunnel-new-device pre {
-	white-space: pre-wrap;
-	word-break: break-all;
-	font-size: 0.85rem;
-}
-.tunnel-connection {
+
+.tunnel-secret-text {
 	display: grid;
-	grid-template-columns: max-content 1fr;
-	gap: 0.25rem 1rem;
-	margin: 0;
+	gap: 0.6rem;
+	flex: 1;
+	min-width: 0;
 }
-.tunnel-connection dd {
-	margin: 0;
-	word-break: break-all;
+
+.tunnel-command {
+	margin: 0.75rem 0 0;
+	padding: 0.8rem 0.9rem;
+	border: 1px solid var(--border);
+	border-radius: 0.75rem;
+	background: var(--control);
+	font-size: 0.75rem;
+	line-height: 1.5;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
 }
 
 /* Bids column: bid (up, green) and retraction (down, red) as explorer links; a grey arrow stands in when absent. */

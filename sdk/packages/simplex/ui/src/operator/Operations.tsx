@@ -111,6 +111,7 @@ export function Operations(props: {
 			<OperatorSheet
 				open={panel === "remote"}
 				onClose={() => setPanel(undefined)}
+				wide
 				title="Remote access"
 				description="Pair a phone and open this dashboard from anywhere."
 			>

@@ -518,6 +518,27 @@
 		width: 100%;
 	}
 
+	/* Remote access: a phone reads this panel through the tunnel it describes. */
+	.tunnel-facts {
+		grid-template-columns: minmax(0, 1fr);
+	}
+
+	.tunnel-secret {
+		flex-direction: column;
+	}
+
+	.tunnel-relay-row {
+		flex-wrap: wrap;
+	}
+
+	.tunnel-relay-row input {
+		flex-basis: 100%;
+	}
+
+	.tunnel-actions {
+		flex-wrap: wrap;
+	}
+
 	.sheet-header,
 	.sheet-body {
 		padding-right: 1rem;

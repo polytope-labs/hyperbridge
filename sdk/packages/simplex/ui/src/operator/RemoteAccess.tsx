@@ -2,24 +2,39 @@ import QRCode from "qrcode"
 import { useCallback, useEffect, useState } from "react"
 import { api } from "../api"
 import { CopyHash } from "../components/CopyHash"
-import { Field } from "../components/Field"
+import { PillTabs } from "../components/PillTabs"
 import { useAction, usePolling } from "../lib/hooks"
 import type { TunnelNewDeviceDto, TunnelStatusDto } from "../types"
 
 const STATE_LABEL: Record<TunnelStatusDto["state"], string> = {
 	disabled: "Off",
-	connecting: "Connecting…",
+	connecting: "Connecting",
 	connected: "Connected",
-	reconnecting: "Reconnecting…",
+	reconnecting: "Reconnecting",
 	disconnected: "Disconnected",
 	error: "Error",
 }
 
+const STATE_BADGE: Record<TunnelStatusDto["state"], string> = {
+	disabled: "",
+	connecting: "warn",
+	connected: "ok",
+	reconnecting: "warn",
+	disconnected: "warn",
+	error: "err",
+}
+
+type PairMode = "paste" | "generate"
+
+const PAIR_MODES: ReadonlyArray<{ value: PairMode; label: string }> = [
+	{ value: "paste", label: "Paste a public key" },
+	{ value: "generate", label: "Generate a key pair" },
+]
+
 /**
  * Remote access panel: turns the relay tunnel on or off, pairs phones, and
- * shows what a phone needs to connect. Nothing here touches funds directly,
- * but a paired device key opens the whole UI, so the private key is shown
- * exactly once and never stored.
+ * shows what a phone needs to connect. A paired device key opens the whole
+ * UI, so a generated private key is shown exactly once and never stored.
  */
 export function RemoteAccess() {
 	const [status, setStatus] = useState<TunnelStatusDto>()
@@ -29,7 +44,7 @@ export function RemoteAccess() {
 	const [publicKey, setPublicKey] = useState("")
 	// Paste is the default: the phone's app makes the key and the private half
 	// never leaves it. Generating here is the fallback for apps that cannot.
-	const [mode, setMode] = useState<"paste" | "generate">("paste")
+	const [mode, setMode] = useState<PairMode>("paste")
 	const [fresh, setFresh] = useState<TunnelNewDeviceDto>()
 	const { run: act, message, error, isPending } = useAction()
 
@@ -49,56 +64,43 @@ export function RemoteAccess() {
 	)
 
 	if (unavailable) {
-		return <p className="hint">Remote access is not available for this filler.</p>
+		return <p className="operator-empty">Remote access is not available for this filler.</p>
 	}
-	if (!status) return <p className="hint">Loading…</p>
+	if (!status) return <p className="operator-empty">Loading…</p>
 
+	const relayHost = status.relay.split(":")[0]
 	const relayChanged = relayDraft !== undefined && relayDraft.trim() !== status.relay
+	const canPair = Boolean(label.trim()) && (mode === "generate" || Boolean(publicKey.trim()))
+
+	const pair = () =>
+		act(
+			async () => {
+				const body =
+					mode === "paste" ? { label: label.trim(), publicKey: publicKey.trim() } : { label: label.trim() }
+				setFresh(await api.post<TunnelNewDeviceDto>("/api/tunnel/devices", body))
+				setLabel("")
+				setPublicKey("")
+			},
+			undefined,
+			"pair",
+		)
 
 	return (
-		<div className="operator-panel-form">
-			<h2>Remote access</h2>
-			<p className="hint">
-				Opens an outbound SSH tunnel to a relay so your phone's SSH client can reach this UI from anywhere. The
-				relay only carries encrypted bytes: your phone's session terminates here, in Simplex.
-			</p>
-
-			<section className="tunnel-status">
-				<div className="row">
-					<strong>Status</strong>
-					<span className={`pill tunnel-state-${status.state}`}>{STATE_LABEL[status.state]}</span>
+		<div className="tunnel-panel">
+			<section className="card tunnel-card">
+				<div className="card-heading">
+					<div>
+						<span className="eyebrow">Tunnel</span>
+						<h2>Relay connection</h2>
+					</div>
+					<span className={`badge ${STATE_BADGE[status.state]}`}>{STATE_LABEL[status.state]}</span>
 				</div>
-				{status.port ? (
-					<div className="row">
-						<span>Public endpoint</span>
-						<CopyHash
-							value={`${status.relay.split(":")[0]}:${status.port}`}
-							chars={64}
-							copyLabel="Copy endpoint"
-						/>
-					</div>
-				) : null}
-				<div className="row">
-					<span>Host key (pin this on your phone)</span>
-					<CopyHash value={status.hostFingerprint} chars={18} copyLabel="Copy host key fingerprint" />
-				</div>
-				{status.relayFingerprint ? (
-					<div className="row">
-						<span>Relay host key</span>
-						<CopyHash value={status.relayFingerprint} chars={18} copyLabel="Copy relay fingerprint" />
-					</div>
-				) : null}
-				{status.activeConnections ? (
-					<div className="row">
-						<span>Open device sessions</span>
-						<span>{status.activeConnections}</span>
-					</div>
-				) : null}
-				{status.lastError ? <p className="error">{status.lastError}</p> : null}
-			</section>
+				<p className="hint">
+					An outbound SSH tunnel to a relay gives this dashboard a public address your phone's SSH app can
+					reach. The relay only carries encrypted bytes: your phone's session ends here, in Simplex.
+				</p>
 
-			<div className="row" style={{ marginTop: "1rem" }}>
-				<label className="row" style={{ gap: "0.5rem" }}>
+				<label className="chain-enable-toggle tunnel-toggle">
 					<input
 						type="checkbox"
 						checked={status.enabled}
@@ -115,98 +117,156 @@ export function RemoteAccess() {
 							)
 						}
 					/>
-					<span>Enable remote access</span>
+					<span className="chain-enable-switch" aria-hidden="true" />
+					<span>{status.enabled ? "Remote access is on" : "Remote access is off"}</span>
 				</label>
-			</div>
 
-			<Field label="Relay" value={relayDraft ?? status.relay} onChange={setRelayDraft} placeholder="host:port" />
-			{relayChanged ? (
-				<div className="row">
-					<button
-						type="button"
-						disabled={isPending("relay")}
-						onClick={() =>
-							act(
-								async () => {
-									setStatus(
-										await api.put<TunnelStatusDto>("/api/tunnel", { relay: relayDraft!.trim() }),
-									)
-								},
-								"Relay updated",
-								"relay",
-							)
-						}
-					>
-						Save relay
-					</button>
-					<button type="button" onClick={() => setRelayDraft(status.relay)}>
-						Cancel
-					</button>
+				<dl className="tunnel-facts">
+					<div>
+						<dt>Public endpoint</dt>
+						<dd>
+							{status.port ? (
+								<CopyHash value={`${relayHost}:${status.port}`} chars={48} copyLabel="Copy endpoint" />
+							) : (
+								<span className="tunnel-facts-pending">
+									{status.enabled ? "Assigned once connected" : "Turn remote access on"}
+								</span>
+							)}
+						</dd>
+					</div>
+					<div>
+						<dt>Host key to pin on the phone</dt>
+						<dd>
+							<CopyHash value={status.hostFingerprint} chars={22} copyLabel="Copy host key fingerprint" />
+						</dd>
+					</div>
+					<div>
+						<dt>Relay</dt>
+						<dd className="mono">{status.relay}</dd>
+					</div>
+					<div>
+						<dt>Relay host key</dt>
+						<dd>
+							{status.relayFingerprint ? (
+								<CopyHash
+									value={status.relayFingerprint}
+									chars={22}
+									copyLabel="Copy relay fingerprint"
+								/>
+							) : (
+								<span className="tunnel-facts-pending">Pinned on first contact</span>
+							)}
+						</dd>
+					</div>
+					{status.activeConnections ? (
+						<div>
+							<dt>Open device sessions</dt>
+							<dd>{status.activeConnections}</dd>
+						</div>
+					) : null}
+				</dl>
+				{status.lastError ? (
+					<div className="operator-alert tunnel-alert">
+						<div>
+							<strong>Tunnel problem</strong>
+							<p>{status.lastError}</p>
+						</div>
+					</div>
+				) : null}
+
+				<details className="tunnel-advanced">
+					<summary>Relay address</summary>
+					<div className="tunnel-relay-row">
+						<input
+							type="text"
+							aria-label="Relay address"
+							placeholder="host:port"
+							value={relayDraft ?? status.relay}
+							onChange={(e) => setRelayDraft(e.target.value)}
+						/>
+						<button
+							type="button"
+							className="primary"
+							disabled={!relayChanged || isPending("relay")}
+							onClick={() =>
+								act(
+									async () => {
+										setStatus(
+											await api.put<TunnelStatusDto>("/api/tunnel", {
+												relay: relayDraft!.trim(),
+											}),
+										)
+									},
+									"Relay updated",
+									"relay",
+								)
+							}
+						>
+							Save
+						</button>
+						<button
+							type="button"
+							className="secondary"
+							disabled={!relayChanged}
+							onClick={() => setRelayDraft(status.relay)}
+						>
+							Reset
+						</button>
+					</div>
+					<small className="hint">
+						The hosted relay is the default. A self-hosted one is pinned on first contact unless{" "}
+						<code>relayHostKey</code> names it in the config.
+					</small>
+				</details>
+			</section>
+
+			<section className="card tunnel-card">
+				<div className="card-heading">
+					<div>
+						<span className="eyebrow">Devices</span>
+						<h2>Paired devices</h2>
+					</div>
+					<small className="tunnel-count">{status.devices.length} paired</small>
 				</div>
-			) : null}
-
-			<h3 style={{ marginTop: "1.5rem" }}>Paired devices</h3>
-			{status.devices.length === 0 ? <p className="hint">No devices yet. Pair one below.</p> : null}
-			{status.devices.map((device) => (
-				<div className="row" key={device.fingerprint} style={{ marginBottom: "0.35rem" }}>
-					<span style={{ flex: 1 }}>
-						{device.label}
-						<br />
-						<small className="mono">{device.fingerprint}</small>
-					</span>
-					<button
-						type="button"
-						aria-label={`Revoke ${device.label}`}
-						onClick={() => {
-							if (!window.confirm(`Revoke "${device.label}"? It will no longer be able to open this UI.`))
-								return
-							void act(async () => {
-								await api.post("/api/tunnel/devices/revoke", { fingerprint: device.fingerprint })
-								await load()
-							}, "Device revoked")
-						}}
-					>
-						Revoke
-					</button>
-				</div>
-			))}
-
-			<h3 style={{ marginTop: "1rem" }}>Pair a device</h3>
-			<p className="hint">
-				{mode === "paste"
-					? "Create a key in the phone's SSH app, then paste its public key here. The private key stays on the phone."
-					: "Simplex will generate a key pair and show the private key once, for apps that cannot create their own."}
-			</p>
-			<div className="row">
-				<input
-					type="text"
-					aria-label="Device label"
-					style={{ flex: 1 }}
-					placeholder="e.g. Seun's iPhone"
-					value={label}
-					maxLength={64}
-					onChange={(e) => setLabel(e.target.value)}
-				/>
-			</div>
-			{mode === "paste" ? (
-				<textarea
-					aria-label="Device public key"
-					className="mono"
-					rows={3}
-					style={{ width: "100%" }}
-					placeholder="ssh-ed25519 AAAA… (the .pub line from the phone's SSH app)"
-					value={publicKey}
-					onChange={(e) => setPublicKey(e.target.value)}
-				/>
-			) : null}
-			<div className="row">
-				<button type="button" disabled={!canPair() || isPending("pair")} onClick={() => void pair()}>
-					{mode === "paste" ? "Pair with this public key" : "Generate a key pair"}
-				</button>
-				<button type="button" onClick={() => setMode(mode === "paste" ? "generate" : "paste")}>
-					{mode === "paste" ? "Generate a key pair instead" : "Paste a public key instead"}
-				</button>
-			</div>
+				{status.devices.length === 0 ? (
+					<p className="operator-empty">No devices yet. Pair one below.</p>
+				) : (
+					<ul className="tunnel-device-list">
+						{status.devices.map((device) => (
+							<li key={device.fingerprint} className="tunnel-device">
+								<div>
+									<strong>{device.label}</strong>
+									<small className="mono">{device.fingerprint}</small>
+									{device.addedAt ? (
+										<small>Paired {new Date(device.addedAt).toLocaleDateString()}</small>
+									) : null}
+								</div>
+								<button
+									type="button"
+									className="secondary"
+									aria-label={`Revoke ${device.label}`}
+									onClick={() => {
+										if (
+											!window.confirm(
+												`Revoke "${device.label}"? It will no longer be able to open this UI.`,
+											)
+										)
+											return
+										void act(async () => {
+											await api.post("/api/tunnel/devices/revoke", {
+												fingerprint: device.fingerprint,
+											})
+											await load()
+										}, "Device revoked")
+									}}
+								>
+									Revoke
+								</button>
+							</li>
+						))}
+					</ul>
+				)}
+			</section>
 
 			{fresh ? (
 				<NewDevice
@@ -216,31 +276,59 @@ export function RemoteAccess() {
 						void load()
 					}}
 				/>
-			) : null}
+			) : (
+				<section className="card tunnel-card">
+					<div className="card-heading">
+						<div>
+							<span className="eyebrow">Pairing</span>
+							<h2>Pair a device</h2>
+						</div>
+					</div>
+					<PillTabs options={PAIR_MODES} value={mode} onChange={setMode} ariaLabel="Pairing method" />
+					<p className="hint">
+						{mode === "paste"
+							? "Create a key in the phone's SSH app and paste its public key here. The private key never leaves the phone."
+							: "Simplex generates the key pair and shows the private key once, for apps that cannot create their own."}
+					</p>
+					<label className="field">
+						<span className="field-label">Device name</span>
+						<input
+							type="text"
+							placeholder="e.g. Seun's iPhone"
+							value={label}
+							maxLength={64}
+							onChange={(e) => setLabel(e.target.value)}
+						/>
+					</label>
+					{mode === "paste" ? (
+						<label className="field">
+							<span className="field-label">Public key</span>
+							<textarea
+								className="mono tunnel-key-input"
+								rows={3}
+								placeholder="ssh-ed25519 AAAA… (the .pub line from the phone's SSH app)"
+								value={publicKey}
+								onChange={(e) => setPublicKey(e.target.value)}
+							/>
+						</label>
+					) : null}
+					<div className="tunnel-actions">
+						<button
+							type="button"
+							className="primary"
+							disabled={!canPair || isPending("pair")}
+							onClick={() => void pair()}
+						>
+							{mode === "paste" ? "Pair device" : "Generate and pair"}
+						</button>
+					</div>
+				</section>
+			)}
 
 			{message && <p className="hint">✓ {message}</p>}
 			{error && <p className="error">{error}</p>}
 		</div>
 	)
-
-	function canPair() {
-		return Boolean(label.trim()) && (mode === "generate" || Boolean(publicKey.trim()))
-	}
-
-	function pair() {
-		return act(
-			async () => {
-				const body =
-					mode === "paste" ? { label: label.trim(), publicKey: publicKey.trim() } : { label: label.trim() }
-				const created = await api.post<TunnelNewDeviceDto>("/api/tunnel/devices", body)
-				setFresh(created)
-				setLabel("")
-				setPublicKey("")
-			},
-			undefined,
-			"pair",
-		)
-	}
 }
 
 /** Everything the phone needs, shown once. */
@@ -251,7 +339,7 @@ function NewDevice(props: { device: TunnelNewDeviceDto; onDone: () => void }) {
 	useEffect(() => {
 		if (!device.privateKey) return
 		let cancelled = false
-		QRCode.toDataURL(device.privateKey, { errorCorrectionLevel: "M", margin: 1, width: 240 })
+		QRCode.toDataURL(device.privateKey, { errorCorrectionLevel: "M", margin: 1, width: 220 })
 			.then((url) => {
 				if (!cancelled) setQr(url)
 			})
@@ -261,80 +349,107 @@ function NewDevice(props: { device: TunnelNewDeviceDto; onDone: () => void }) {
 		}
 	}, [device.privateKey])
 
-	const endpoint = device.connection.port
-		? `${device.connection.host}:${device.connection.port}`
-		: `${device.connection.host}:<port shown here once the tunnel connects>`
+	const { connection } = device
+	const endpoint = connection.port ? `${connection.host}:${connection.port}` : `${connection.host}:<port>`
 	const command = [
 		"ssh",
 		"-i",
 		"<key file>",
 		"-N",
 		"-L",
-		device.connection.localForward,
+		connection.localForward,
 		"-p",
-		device.connection.port ? String(device.connection.port) : "<port>",
-		`${device.connection.username}@${device.connection.host}`,
+		connection.port ? String(connection.port) : "<port>",
+		`${connection.username}@${connection.host}`,
 	].join(" ")
+	const localPort = connection.localForward.split(":")[0]
 
 	return (
-		<section className="tunnel-new-device" role="note">
-			<h3>{device.device.label} is paired</h3>
+		<section className="card tunnel-card" role="note">
+			<div className="card-heading">
+				<div>
+					<span className="eyebrow">Paired</span>
+					<h2>{device.device.label}</h2>
+				</div>
+				<span className="badge ok">Ready</span>
+			</div>
+
 			{device.privateKey ? (
 				<>
-					<p className="error">
-						<strong>This private key is shown once and not stored.</strong> Anyone holding it can open this
-						UI, including its Send and treasury tools. Keep it on the device; avoid key stores that sync to
-						a cloud.
-					</p>
-					<div className="row" style={{ alignItems: "flex-start", gap: "1rem" }}>
-						{qr ? <img src={qr} alt="Private key as a QR code" width={240} height={240} /> : null}
-						<div style={{ flex: 1 }}>
-							<textarea
-								readOnly
-								rows={8}
-								className="mono"
-								style={{ width: "100%" }}
-								value={device.privateKey}
-							/>
-							<div className="row">
-								<CopyHash value={device.privateKey} copyLabel="Copy private key">
-									Copy private key
-								</CopyHash>
-							</div>
+					<div className="operator-alert tunnel-alert">
+						<div>
+							<strong>This private key is shown once and not stored.</strong>
+							<p>
+								Anyone holding it can open this dashboard, including Send and the treasury tools. Keep
+								it on the device and avoid key stores that sync to a cloud.
+							</p>
+						</div>
+					</div>
+					<div className="tunnel-secret">
+						{qr ? <img src={qr} alt="Private key as a QR code" width={220} height={220} /> : null}
+						<div className="tunnel-secret-text">
+							<textarea readOnly rows={7} className="mono tunnel-key-input" value={device.privateKey} />
+							<CopyHash value={device.privateKey} copyLabel="Copy private key">
+								Copy private key
+							</CopyHash>
 						</div>
 					</div>
 				</>
 			) : (
 				<p className="hint">
-					The phone keeps its private key. Anyone holding it can open this UI, including its Send and treasury
-					tools, so revoke this device here if the phone is lost.
+					The phone keeps its private key. Anyone holding it can open this dashboard, including Send and the
+					treasury tools, so revoke this device here if the phone is lost.
 				</p>
 			)}
-			<dl className="tunnel-connection">
-				<dt>Host and port</dt>
-				<dd className="mono">{endpoint}</dd>
-				<dt>Username</dt>
-				<dd className="mono">{device.connection.username}</dd>
-				<dt>Host key fingerprint</dt>
-				<dd className="mono">{device.connection.hostFingerprint}</dd>
-				<dt>Local forward</dt>
-				<dd className="mono">{device.connection.localForward}</dd>
+
+			<dl className="tunnel-facts">
+				<div>
+					<dt>Host and port</dt>
+					<dd>
+						<CopyHash value={endpoint} chars={48} copyLabel="Copy endpoint" />
+					</dd>
+				</div>
+				<div>
+					<dt>Username</dt>
+					<dd className="mono">{connection.username}</dd>
+				</div>
+				<div>
+					<dt>Host key fingerprint</dt>
+					<dd>
+						<CopyHash value={connection.hostFingerprint} chars={22} copyLabel="Copy host key fingerprint" />
+					</dd>
+				</div>
+				<div>
+					<dt>Local port forward</dt>
+					<dd>
+						<CopyHash value={connection.localForward} chars={32} copyLabel="Copy local forward" />
+					</dd>
+				</div>
 			</dl>
-			<p className="hint">
-				In your SSH app, add the key, save a connection to the host and port above, and add a local port forward
-				of <code>{device.connection.localForward}</code>. Then open <code>http://localhost:8686</code> in the
-				phone's browser while connected. Equivalent command line:
-			</p>
-			<pre className="mono">{command}</pre>
-			{device.privateKey ? (
-				<label className="row" style={{ gap: "0.5rem" }}>
-					<input type="checkbox" checked={saved} onChange={(e) => setSaved(e.target.checked)} />
-					<span>I have saved the key on the device</span>
-				</label>
+			{!connection.port ? (
+				<p className="hint">The port appears here once the tunnel is connected; check the Tunnel card above.</p>
 			) : null}
-			<button type="button" disabled={Boolean(device.privateKey) && !saved} onClick={props.onDone}>
-				Done
-			</button>
+			<p className="hint">
+				In the SSH app: add the key, save a connection to the host and port above, add the local port forward,
+				connect, and open <code>http://localhost:{localPort}</code> in the phone's browser. Equivalent command:
+			</p>
+			<pre className="tunnel-command mono">{command}</pre>
+			<div className="tunnel-actions">
+				{device.privateKey ? (
+					<label className="tunnel-ack">
+						<input type="checkbox" checked={saved} onChange={(e) => setSaved(e.target.checked)} />
+						<span>I have saved the key on the device</span>
+					</label>
+				) : null}
+				<button
+					type="button"
+					className="primary"
+					disabled={Boolean(device.privateKey) && !saved}
+					onClick={props.onDone}
+				>
+					Done
+				</button>
+			</div>
 		</section>
 	)
 }

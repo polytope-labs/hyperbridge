@@ -12,6 +12,14 @@ Files: list of files touched.
 
 Newest entries first.
 
+## 2026-09-07 — Fix the double rule under the device list
+
+`.sheet-content .card` gives every panel section its own bottom rule, and the last `.tunnel-device`
+row drew one too, so two lines sat 25px apart between the device list and the pairing section. The
+last row no longer draws its border.
+
+Files: `ui/src/styles/operator.css`, `docs/ai/ChangeLog.md`.
+
 ## 2026-09-07 — Show the SSH connection fields in the Relay connection card
 
 The card showed a public endpoint, a host key and a session count; only the first two were useful and

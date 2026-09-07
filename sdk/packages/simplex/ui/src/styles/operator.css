@@ -1825,6 +1825,11 @@ button.operator-runtime-stop:hover:not(:disabled) {
 	min-width: 0;
 }
 
+/* The card's own bottom rule closes the section, so the last row must not draw one too. */
+.tunnel-device:last-child {
+	border-bottom: 0;
+}
+
 .tunnel-device strong {
 	font-size: 0.875rem;
 	font-weight: 500;

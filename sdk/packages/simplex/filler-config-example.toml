@@ -315,7 +315,7 @@ points = [
 # [simplex.tunnel]
 # enabled = true
 # relay = "simplex.tunnel.polytope.technology:443"   # host[:port], port defaults to 443
-# relayHostKey = "SHA256:..."                          # optional pin; otherwise pinned on first contact
+# relayHostKey = "SHA256:..."                          # pin for a self-hosted relay; the hosted one is built in
 
 # Chain configuration - RPC and bundler URLs are required
 # Chain IDs are resolved automatically from the RPC endpoints.

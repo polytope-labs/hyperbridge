@@ -127,6 +127,9 @@ JuiceSSH on Android). A paired key opens the whole dashboard, including the
 Send and treasury tools, so keep it on the device and revoke it from the same panel if the
 device is lost. Keys live under `<data-dir>/tunnel/` in plain OpenSSH formats.
 
+The hosted relay's host key is pinned in the binary, so first contact is verified. A self-hosted
+relay is pinned on first contact unless `relayHostKey` in `[simplex.tunnel]` names its fingerprint.
+
 The tunnel is best-effort: it retries with backoff and never affects filling. It only runs in
 operator mode, never while the setup wizard holds secrets.
 

@@ -11,6 +11,29 @@ const { Client: SshClient } = ssh2
 /** The hosted relay every simplex uses unless `[simplex.tunnel] relay` says otherwise. */
 export const DEFAULT_TUNNEL_RELAY = "simplex.tunnel.polytope.technology:443"
 
+/**
+ * Host key of the hosted relay, verified against the deployment on 2026-09-07.
+ * Pinned whenever the default relay is in use and no `relayHostKey` is set, so
+ * first contact is checked rather than trusted. A self-hosted relay is still
+ * pinned on first contact unless its fingerprint is configured.
+ */
+export const DEFAULT_TUNNEL_RELAY_HOST_KEY = "SHA256:L6LT8Zu6Ke+k4cZLiDcUO/3EYWtH5vJXsVMPVnCy3ts"
+
+/**
+ * The fingerprint a relay must present: the configured pin, else the built-in
+ * one for the hosted relay, else whatever was remembered on first contact.
+ */
+export function expectedRelayFingerprint(
+	config: TunnelConfig,
+	relay: string,
+	known: { relay: string; fingerprint: string } | undefined,
+): string | undefined {
+	const configured = config.relayHostKey?.trim()
+	if (configured) return configured
+	if (relay === DEFAULT_TUNNEL_RELAY) return DEFAULT_TUNNEL_RELAY_HOST_KEY
+	return known?.relay === relay ? known.fingerprint : undefined
+}
+
 /** Port the phone forwards to locally; matches the CLI's default UI port so the docs read the same everywhere. */
 const LOCAL_FORWARD_PORT = 8686
 
@@ -140,7 +163,8 @@ export class TunnelService implements TunnelControls {
 			enabled: this.enabled,
 			state: this.state,
 			relay: this.relay,
-			relayFingerprint: this.relayFingerprint ?? this.config.relayHostKey ?? this.keys.knownRelay()?.fingerprint,
+			relayFingerprint:
+				this.relayFingerprint ?? expectedRelayFingerprint(this.config, this.relay, this.keys.knownRelay()),
 			port: this.port,
 			connectedAt: this.connectedAt,
 			lastError: this.lastError,
@@ -276,9 +300,7 @@ export class TunnelService implements TunnelControls {
 	 */
 	private verifyRelay(relay: string, key: Buffer): boolean {
 		const seen = fingerprintOf(key)
-		const expected =
-			this.config.relayHostKey?.trim() ||
-			(this.keys.knownRelay()?.relay === relay ? this.keys.knownRelay()?.fingerprint : undefined)
+		const expected = expectedRelayFingerprint(this.config, relay, this.keys.knownRelay())
 		if (expected && expected !== seen) {
 			this.pinMismatch = true
 			this.lastError = `Relay host key mismatch: expected ${expected}, got ${seen}. Set [simplex.tunnel] relayHostKey or delete tunnel/known_relay if the relay was rebuilt.`

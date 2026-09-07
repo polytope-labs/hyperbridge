@@ -10,7 +10,13 @@ import ssh2, {
 	type Connection,
 	type Server as SshServerType,
 } from "ssh2"
-import { TunnelService, parseRelayAddress, DEFAULT_TUNNEL_RELAY } from "@/services/tunnel/TunnelService"
+import {
+	TunnelService,
+	parseRelayAddress,
+	expectedRelayFingerprint,
+	DEFAULT_TUNNEL_RELAY,
+	DEFAULT_TUNNEL_RELAY_HOST_KEY,
+} from "@/services/tunnel/TunnelService"
 import { TunnelKeyStore, fingerprintOf, fingerprintOfKeyText, normalizePublicKey } from "@/services/tunnel/keys"
 
 const { Client: SshClient, Server: SshServer, utils } = ssh2
@@ -158,6 +164,20 @@ describe("parseRelayAddress", () => {
 		expect(() => parseRelayAddress("")).toThrow(/required/)
 		expect(() => parseRelayAddress("host:99999")).toThrow(/out of range/)
 		expect(() => parseRelayAddress("user@host")).toThrow(/host\[:port\]/)
+	})
+})
+
+describe("expectedRelayFingerprint", () => {
+	it("pins the hosted relay by default, lets config override, and falls back to first contact", () => {
+		const known = { relay: "other:443", fingerprint: "SHA256:known" }
+		expect(expectedRelayFingerprint({}, DEFAULT_TUNNEL_RELAY, undefined)).toBe(DEFAULT_TUNNEL_RELAY_HOST_KEY)
+		expect(expectedRelayFingerprint({}, DEFAULT_TUNNEL_RELAY, known)).toBe(DEFAULT_TUNNEL_RELAY_HOST_KEY)
+		expect(expectedRelayFingerprint({ relayHostKey: " SHA256:mine " }, DEFAULT_TUNNEL_RELAY, undefined)).toBe(
+			"SHA256:mine",
+		)
+		expect(expectedRelayFingerprint({}, "other:443", known)).toBe("SHA256:known")
+		expect(expectedRelayFingerprint({}, "other:443", undefined)).toBeUndefined()
+		expect(expectedRelayFingerprint({}, "third:443", known)).toBeUndefined()
 	})
 })
 

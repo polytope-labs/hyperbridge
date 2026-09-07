@@ -34,8 +34,10 @@ relay on 2026-09-07.
    doubling, capped at 60s), state `reconnecting`, until `stop()` or `configure({enabled:false})`.
 8. `UiServer`: `GET /api/tunnel` returns `status()`; `PUT /api/tunnel` validates, rewrites
    `config.simplex.tunnel`, persists the file, then `configure()`s the live service;
-   `POST /api/tunnel/devices` mints a key via `TunnelKeyStore.addDevice` and returns the private
-   key once; `POST /api/tunnel/devices/revoke` deletes the line. `RemoteAccess.tsx` polls the
+   `POST /api/tunnel/devices` with `publicKey` normalises and authorizes the phone's own key
+   (`normalizePublicKey` → `TunnelKeyStore.addDevice`) and returns no private key; without it,
+   `addDevice` mints a pair and returns the private key once; `POST /api/tunnel/devices/revoke`
+   deletes the line. `RemoteAccess.tsx` polls the
    status every 3s while the sheet is open and renders the private key as a QR code with `qrcode`.
 
 ## Operator market list prices

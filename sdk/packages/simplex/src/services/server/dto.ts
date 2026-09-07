@@ -258,11 +258,15 @@ export interface TunnelStatusDto {
 	activeConnections: number
 }
 
-/** POST /api/tunnel/devices: the private key is returned here once and never stored. */
+/**
+ * POST /api/tunnel/devices. When the request carried the phone's own public
+ * key there is no private key here; when simplex generated the pair, the
+ * private key is returned once and never stored.
+ */
 export interface TunnelNewDeviceDto {
 	device: TunnelDeviceDto
-	/** OpenSSH-format private key for the phone. */
-	privateKey: string
+	/** OpenSSH-format private key for the phone; absent for a pasted public key. */
+	privateKey?: string
 	publicKey: string
 	connection: {
 		host: string

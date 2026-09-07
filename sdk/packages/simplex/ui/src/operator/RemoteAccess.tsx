@@ -26,6 +26,10 @@ export function RemoteAccess() {
 	const [unavailable, setUnavailable] = useState(false)
 	const [relayDraft, setRelayDraft] = useState<string>()
 	const [label, setLabel] = useState("")
+	const [publicKey, setPublicKey] = useState("")
+	// Paste is the default: the phone's app makes the key and the private half
+	// never leaves it. Generating here is the fallback for apps that cannot.
+	const [mode, setMode] = useState<"paste" | "generate">("paste")
 	const [fresh, setFresh] = useState<TunnelNewDeviceDto>()
 	const { run: act, message, error, isPending } = useAction()
 
@@ -167,7 +171,13 @@ export function RemoteAccess() {
 				</div>
 			))}
 
-			<div className="row" style={{ marginTop: "0.75rem" }}>
+			<h3 style={{ marginTop: "1rem" }}>Pair a device</h3>
+			<p className="hint">
+				{mode === "paste"
+					? "Create a key in the phone's SSH app, then paste its public key here. The private key stays on the phone."
+					: "Simplex will generate a key pair and show the private key once, for apps that cannot create their own."}
+			</p>
+			<div className="row">
 				<input
 					type="text"
 					aria-label="Device label"
@@ -176,15 +186,25 @@ export function RemoteAccess() {
 					value={label}
 					maxLength={64}
 					onChange={(e) => setLabel(e.target.value)}
-					onKeyDown={(e) => {
-						if (e.key === "Enter" && label.trim()) {
-							e.preventDefault()
-							void pair()
-						}
-					}}
 				/>
-				<button type="button" disabled={!label.trim() || isPending("pair")} onClick={() => void pair()}>
-					+ Pair device
+			</div>
+			{mode === "paste" ? (
+				<textarea
+					aria-label="Device public key"
+					className="mono"
+					rows={3}
+					style={{ width: "100%" }}
+					placeholder="ssh-ed25519 AAAA… (the .pub line from the phone's SSH app)"
+					value={publicKey}
+					onChange={(e) => setPublicKey(e.target.value)}
+				/>
+			) : null}
+			<div className="row">
+				<button type="button" disabled={!canPair() || isPending("pair")} onClick={() => void pair()}>
+					{mode === "paste" ? "Pair with this public key" : "Generate a key pair"}
+				</button>
+				<button type="button" onClick={() => setMode(mode === "paste" ? "generate" : "paste")}>
+					{mode === "paste" ? "Generate a key pair instead" : "Paste a public key instead"}
 				</button>
 			</div>
 
@@ -203,12 +223,19 @@ export function RemoteAccess() {
 		</div>
 	)
 
+	function canPair() {
+		return Boolean(label.trim()) && (mode === "generate" || Boolean(publicKey.trim()))
+	}
+
 	function pair() {
 		return act(
 			async () => {
-				const created = await api.post<TunnelNewDeviceDto>("/api/tunnel/devices", { label: label.trim() })
+				const body =
+					mode === "paste" ? { label: label.trim(), publicKey: publicKey.trim() } : { label: label.trim() }
+				const created = await api.post<TunnelNewDeviceDto>("/api/tunnel/devices", body)
 				setFresh(created)
 				setLabel("")
+				setPublicKey("")
 			},
 			undefined,
 			"pair",
@@ -222,6 +249,7 @@ function NewDevice(props: { device: TunnelNewDeviceDto; onDone: () => void }) {
 	const [qr, setQr] = useState<string>()
 	const [saved, setSaved] = useState(false)
 	useEffect(() => {
+		if (!device.privateKey) return
 		let cancelled = false
 		QRCode.toDataURL(device.privateKey, { errorCorrectionLevel: "M", margin: 1, width: 240 })
 			.then((url) => {
@@ -251,21 +279,37 @@ function NewDevice(props: { device: TunnelNewDeviceDto; onDone: () => void }) {
 	return (
 		<section className="tunnel-new-device" role="note">
 			<h3>{device.device.label} is paired</h3>
-			<p className="error">
-				<strong>This private key is shown once and not stored.</strong> Anyone holding it can open this UI,
-				including its Send and treasury tools. Keep it on the device; avoid key stores that sync to a cloud.
-			</p>
-			<div className="row" style={{ alignItems: "flex-start", gap: "1rem" }}>
-				{qr ? <img src={qr} alt="Private key as a QR code" width={240} height={240} /> : null}
-				<div style={{ flex: 1 }}>
-					<textarea readOnly rows={8} className="mono" style={{ width: "100%" }} value={device.privateKey} />
-					<div className="row">
-						<CopyHash value={device.privateKey} copyLabel="Copy private key">
-							Copy private key
-						</CopyHash>
+			{device.privateKey ? (
+				<>
+					<p className="error">
+						<strong>This private key is shown once and not stored.</strong> Anyone holding it can open this
+						UI, including its Send and treasury tools. Keep it on the device; avoid key stores that sync to
+						a cloud.
+					</p>
+					<div className="row" style={{ alignItems: "flex-start", gap: "1rem" }}>
+						{qr ? <img src={qr} alt="Private key as a QR code" width={240} height={240} /> : null}
+						<div style={{ flex: 1 }}>
+							<textarea
+								readOnly
+								rows={8}
+								className="mono"
+								style={{ width: "100%" }}
+								value={device.privateKey}
+							/>
+							<div className="row">
+								<CopyHash value={device.privateKey} copyLabel="Copy private key">
+									Copy private key
+								</CopyHash>
+							</div>
+						</div>
 					</div>
-				</div>
-			</div>
+				</>
+			) : (
+				<p className="hint">
+					The phone keeps its private key. Anyone holding it can open this UI, including its Send and treasury
+					tools, so revoke this device here if the phone is lost.
+				</p>
+			)}
 			<dl className="tunnel-connection">
 				<dt>Host and port</dt>
 				<dd className="mono">{endpoint}</dd>
@@ -282,11 +326,13 @@ function NewDevice(props: { device: TunnelNewDeviceDto; onDone: () => void }) {
 				phone's browser while connected. Equivalent command line:
 			</p>
 			<pre className="mono">{command}</pre>
-			<label className="row" style={{ gap: "0.5rem" }}>
-				<input type="checkbox" checked={saved} onChange={(e) => setSaved(e.target.checked)} />
-				<span>I have saved the key on the device</span>
-			</label>
-			<button type="button" disabled={!saved} onClick={props.onDone}>
+			{device.privateKey ? (
+				<label className="row" style={{ gap: "0.5rem" }}>
+					<input type="checkbox" checked={saved} onChange={(e) => setSaved(e.target.checked)} />
+					<span>I have saved the key on the device</span>
+				</label>
+			) : null}
+			<button type="button" disabled={Boolean(device.privateKey) && !saved} onClick={props.onDone}>
 				Done
 			</button>
 		</section>

@@ -29,7 +29,8 @@ export interface TunnelControls {
 	status(): TunnelStatusDto
 	/** Applies a new enabled flag and/or relay address; reconnects as needed. */
 	configure(update: { enabled?: boolean; relay?: string }): Promise<void>
-	addDevice(label: string): TunnelNewDeviceDto
+	/** Pairs a device: with `publicKey` the phone keeps its own private key; without, one is minted and returned once. */
+	addDevice(label: string, publicKey?: string): TunnelNewDeviceDto
 	removeDevice(fingerprint: string): boolean
 }
 
@@ -173,10 +174,10 @@ export class TunnelService implements TunnelControls {
 		}
 	}
 
-	addDevice(label: string): TunnelNewDeviceDto {
-		const { device, privateKey } = this.keys.addDevice(label)
+	addDevice(label: string, publicKey?: string): TunnelNewDeviceDto {
+		const { device, privateKey } = this.keys.addDevice(label, publicKey)
 		this.logger.info(
-			{ label: device.label, fingerprint: device.fingerprint },
+			{ label: device.label, fingerprint: device.fingerprint, generated: privateKey !== undefined },
 			"Paired a new device for remote access",
 		)
 		const { host } = parseRelayAddress(this.relay)

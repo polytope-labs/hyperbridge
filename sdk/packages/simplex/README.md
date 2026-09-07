@@ -118,10 +118,12 @@ the devices paired in the UI and `direct-tcpip` channels to the UI bind, and not
 shell, exec, PTY or other destinations.
 
 It is off by default. Turn it on and pair devices under **Operations > Remote access** in the UI;
-the choice is written to `[simplex.tunnel]` in the config. Pairing mints an ed25519 key per device
-and shows the private key exactly once, as text and as a QR code, together with the host, port,
-username, host-key fingerprint and local forward to enter in the SSH app (Blink and Termius on
-iOS, ConnectBot and JuiceSSH on Android). A paired key opens the whole dashboard, including the
+the choice is written to `[simplex.tunnel]` in the config. To pair, create a key in the phone's SSH
+app and paste its public key into the panel, so the private key never leaves the phone; for apps
+that cannot make their own, simplex can generate a pair instead and shows the private key exactly
+once, as text and as a QR code. Either way the panel shows the host, port, username, host-key
+fingerprint and local forward to enter in the SSH app (Blink and Termius on iOS, ConnectBot and
+JuiceSSH on Android). A paired key opens the whole dashboard, including the
 Send and treasury tools, so keep it on the device and revoke it from the same panel if the
 device is lost. Keys live under `<data-dir>/tunnel/` in plain OpenSSH formats.
 

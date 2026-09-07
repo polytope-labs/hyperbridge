@@ -1,5 +1,5 @@
 export { TunnelService, DEFAULT_TUNNEL_RELAY, parseRelayAddress } from "./TunnelService"
 export type { TunnelConfig, TunnelControls, TunnelServiceOptions } from "./TunnelService"
-export { TunnelKeyStore, fingerprintOf, fingerprintOfKeyText } from "./keys"
+export { TunnelKeyStore, fingerprintOf, fingerprintOfKeyText, normalizePublicKey } from "./keys"
 export type { DeviceRecord, StoredKey } from "./keys"
 export { EmbeddedSshServer } from "./EmbeddedSshServer"

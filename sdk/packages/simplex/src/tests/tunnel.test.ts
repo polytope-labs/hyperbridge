@@ -11,7 +11,7 @@ import ssh2, {
 	type Server as SshServerType,
 } from "ssh2"
 import { TunnelService, parseRelayAddress, DEFAULT_TUNNEL_RELAY } from "@/services/tunnel/TunnelService"
-import { TunnelKeyStore, fingerprintOf, fingerprintOfKeyText } from "@/services/tunnel/keys"
+import { TunnelKeyStore, fingerprintOf, fingerprintOfKeyText, normalizePublicKey } from "@/services/tunnel/keys"
 
 const { Client: SshClient, Server: SshServer, utils } = ssh2
 
@@ -172,7 +172,7 @@ describe("TunnelKeyStore", () => {
 
 		const { device, privateKey } = store.addDevice("Seun's phone")
 		expect(privateKey).toContain("OPENSSH PRIVATE KEY")
-		expect(fingerprintOfKeyText(privateKey)).toBe(device.fingerprint)
+		expect(fingerprintOfKeyText(privateKey!)).toBe(device.fingerprint)
 		expect(store.isAuthorized(device.fingerprint)).toBe(true)
 		expect(store.devices()).toEqual([device])
 		// The file is plain authorized_keys: one key per line, label in the comment.
@@ -188,6 +188,25 @@ describe("TunnelKeyStore", () => {
 		expect(store.knownRelay()).toBeUndefined()
 		store.rememberRelay("relay:443", "SHA256:abc")
 		expect(store.knownRelay()).toEqual({ relay: "relay:443", fingerprint: "SHA256:abc" })
+	})
+
+	it("pairs a pasted public key without ever holding the private half", () => {
+		const dir = mkdtempSync(join(tmpdir(), "simplex-tunnel-paste-"))
+		const store = new TunnelKeyStore(dir)
+		const own = utils.generateKeyPairSync("ed25519", { comment: "from the phone app" })
+		const { device, privateKey } = store.addDevice("own key", `  ${own.public}\n`)
+		expect(privateKey).toBeUndefined()
+		expect(device.publicKey).toBe(normalizePublicKey(own.public))
+		expect(device.publicKey).not.toContain("from the phone app")
+		expect(fingerprintOfKeyText(own.private)).toBe(device.fingerprint)
+		expect(store.isAuthorized(device.fingerprint)).toBe(true)
+		// The same key cannot be paired twice, and private keys are refused.
+		expect(() => store.addDevice("again", own.public)).toThrow(/already paired/)
+		expect(() => store.addDevice("oops", own.private)).toThrow(/private key/)
+		expect(() => store.addDevice("junk", "ssh-ed25519 notbase64")).toThrow(/Not a valid SSH public key/)
+		expect(() => store.addDevice("empty", "   ")).toThrow(/Paste the device/)
+		const rsa = utils.generateKeyPairSync("rsa", { bits: 2048 })
+		expect(store.addDevice("rsa", rsa.public).device.publicKey).toMatch(/^ssh-rsa /)
 	})
 })
 
@@ -255,7 +274,7 @@ describe("TunnelService", () => {
 
 		const phone = await phoneConnect({
 			port: status.port!,
-			privateKey: paired.privateKey,
+			privateKey: paired.privateKey!,
 			expectHostFingerprint: status.hostFingerprint,
 		})
 		phones.push(phone)
@@ -271,9 +290,21 @@ describe("TunnelService", () => {
 			),
 		).rejects.toThrow()
 
+		// A phone that generated its own key and pasted the public half works the same way.
+		const own = utils.generateKeyPairSync("ed25519")
+		const pasted = service.addDevice("own", own.public)
+		expect(pasted.privateKey).toBeUndefined()
+		const ownPhone = await phoneConnect({
+			port: status.port!,
+			privateKey: own.private,
+			expectHostFingerprint: status.hostFingerprint,
+		})
+		phones.push(ownPhone)
+		expect(await httpThrough(ownPhone, "127.0.0.1", ui.port)).toContain("ui ok")
+
 		// A revoked device cannot come back.
 		expect(service.removeDevice(paired.device.fingerprint)).toBe(true)
-		await expect(phoneConnect({ port: status.port!, privateKey: paired.privateKey })).rejects.toThrow()
+		await expect(phoneConnect({ port: status.port!, privateKey: paired.privateKey! })).rejects.toThrow()
 		// Neither can a key simplex never issued.
 		const stranger = utils.generateKeyPairSync("ed25519")
 		await expect(phoneConnect({ port: status.port!, privateKey: stranger.private })).rejects.toThrow()

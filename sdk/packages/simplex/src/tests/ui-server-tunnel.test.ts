@@ -38,13 +38,17 @@ function fakeTunnel(): TunnelControls & { calls: unknown[]; enabled: boolean; re
 			if (update.enabled !== undefined) state.enabled = update.enabled
 			if (update.relay !== undefined) state.relay = update.relay
 		}),
-		addDevice: vi.fn((label: string) => {
+		addDevice: vi.fn((label: string, publicKey?: string) => {
+			if (publicKey === "bad") throw new Error("Not a valid SSH public key")
 			state.devices.push(label)
 			const device = status().devices.at(-1)!
 			return {
 				device,
-				privateKey: "-----BEGIN OPENSSH PRIVATE KEY-----\nfake\n-----END OPENSSH PRIVATE KEY-----\n",
-				publicKey: "ssh-ed25519 AAAA",
+				privateKey:
+					publicKey === undefined
+						? "-----BEGIN OPENSSH PRIVATE KEY-----\nfake\n-----END OPENSSH PRIVATE KEY-----\n"
+						: undefined,
+				publicKey: publicKey ?? "ssh-ed25519 AAAA",
 				connection: {
 					host: "simplex.tunnel.polytope.technology",
 					port: 24567,
@@ -199,5 +203,32 @@ describe("UiServer remote-access routes", () => {
 		})
 		expect(again.status).toBe(404)
 		expect((await (await fetch(`${base}/api/tunnel`)).json()).devices).toHaveLength(0)
+
+		// Pasting a public key returns no private key. (The fake indexes devices by
+		// position, so this runs after the revoke checks.)
+		const pasted = await fetch(`${base}/api/tunnel/devices`, {
+			method: "POST",
+			headers: CSRF,
+			body: JSON.stringify({ label: "own", publicKey: "ssh-ed25519 AAAAown" }),
+		})
+		expect(pasted.status).toBe(201)
+		const pastedBody = (await pasted.json()) as { privateKey?: string; publicKey: string }
+		expect(pastedBody.privateKey).toBeUndefined()
+		expect(pastedBody.publicKey).toBe("ssh-ed25519 AAAAown")
+		expect(tunnel.addDevice).toHaveBeenLastCalledWith("own", "ssh-ed25519 AAAAown")
+		const wrongType = await fetch(`${base}/api/tunnel/devices`, {
+			method: "POST",
+			headers: CSRF,
+			body: JSON.stringify({ label: "x", publicKey: 42 }),
+		})
+		expect(wrongType.status).toBe(400)
+		const invalid = await fetch(`${base}/api/tunnel/devices`, {
+			method: "POST",
+			headers: CSRF,
+			body: JSON.stringify({ label: "x", publicKey: "bad" }),
+		})
+		expect(invalid.status).toBe(400)
+		expect(((await invalid.json()) as { error: string }).error).toMatch(/Not a valid/)
+		expect((await (await fetch(`${base}/api/tunnel`)).json()).devices).toHaveLength(1)
 	})
 })

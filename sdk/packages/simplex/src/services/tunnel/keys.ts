@@ -97,27 +97,32 @@ export class TunnelKeyStore {
 		return this.devices().some((d) => d.fingerprint === fingerprint)
 	}
 
-	/** Mints a device key pair and authorizes its public half. The private half is returned once and never stored. */
-	addDevice(label: string): { device: DeviceRecord; privateKey: string } {
+	/**
+	 * Authorizes a device. With `publicKey` (the phone generated its own pair and
+	 * pasted the `.pub` line) nothing secret is ever seen here. Without it a key
+	 * pair is minted and the private half returned once, never stored.
+	 */
+	addDevice(label: string, publicKey?: string): { device: DeviceRecord; privateKey?: string } {
 		const cleanLabel = label.trim()
 		if (!cleanLabel) throw new Error("Device label is required")
 		if (cleanLabel.length > 64) throw new Error("Device label must be 64 characters or fewer")
 		const addedAt = Date.now()
 		const comment = `${DEVICE_COMMENT_PREFIX}${encodeURIComponent(cleanLabel)}:${addedAt}`
-		const pair = utils.generateKeyPairSync("ed25519", { comment })
-		const fingerprint = fingerprintOfKeyText(pair.public)
-		const lines = this.devices().map(deviceLine)
-		lines.push(pair.public.trim())
-		this.writePrivate("authorized_keys", `${lines.join("\n")}\n`)
-		return {
-			device: {
-				fingerprint,
-				label: cleanLabel,
-				publicKey: pair.public.trim().split(/\s+/).slice(0, 2).join(" "),
-				addedAt,
-			},
-			privateKey: pair.private,
+		let publicLine: string
+		let privateKey: string | undefined
+		if (publicKey !== undefined) {
+			publicLine = normalizePublicKey(publicKey)
+		} else {
+			const pair = utils.generateKeyPairSync("ed25519", { comment })
+			publicLine = pair.public.trim().split(/\s+/).slice(0, 2).join(" ")
+			privateKey = pair.private
 		}
+		const fingerprint = fingerprintOfKeyText(publicLine)
+		if (this.isAuthorized(fingerprint)) throw new Error(`That key is already paired (${fingerprint})`)
+		const lines = this.devices().map(deviceLine)
+		lines.push(`${publicLine} ${comment}`)
+		this.writePrivate("authorized_keys", `${lines.join("\n")}\n`)
+		return { device: { fingerprint, label: cleanLabel, publicKey: publicLine, addedAt }, privateKey }
 	}
 
 	removeDevice(fingerprint: string): boolean {
@@ -188,4 +193,23 @@ function parseDeviceComment(comment: string): { label: string; addedAt: number }
 	}
 	// A line added by hand: the comment is the label, as OpenSSH treats it.
 	return { label: comment || "unnamed device", addedAt: 0 }
+}
+
+/**
+ * Validates a pasted public key and returns it as `<type> <base64>`, dropping
+ * whatever comment the phone's app attached. Refuses private keys outright:
+ * the whole point of pasting is that the private half stays on the phone.
+ */
+export function normalizePublicKey(text: string): string {
+	const trimmed = text.trim()
+	if (!trimmed) throw new Error("Paste the device's public key")
+	if (/PRIVATE KEY/i.test(trimmed)) {
+		throw new Error(
+			"That is a private key. Paste the public key instead (the .pub line starting with ssh-ed25519, ecdsa-sha2-… or ssh-rsa)",
+		)
+	}
+	const parsed = utils.parseKey(trimmed)
+	if (parsed instanceof Error) throw new Error(`Not a valid SSH public key: ${parsed.message}`)
+	if (parsed.isPrivateKey()) throw new Error("That is a private key. Paste the public key instead")
+	return `${parsed.type} ${parsed.getPublicSSH().toString("base64")}`
 }

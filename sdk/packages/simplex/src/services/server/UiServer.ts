@@ -634,7 +634,7 @@ export class UiServer {
 			if (method !== "POST") return sendJson(res, 405, { error: "Method not allowed" })
 			const tunnel = this.operator!.tunnel
 			if (!tunnel) return sendJson(res, 404, { error: "Remote access is not available in this filler" })
-			let body: { label?: string; fingerprint?: string }
+			let body: { label?: unknown; fingerprint?: unknown; publicKey?: unknown }
 			try {
 				body = JSON.parse(await readBody(req))
 			} catch {
@@ -642,8 +642,11 @@ export class UiServer {
 			}
 			if (path === "/api/tunnel/devices") {
 				if (typeof body.label !== "string" || !body.label.trim()) return sendJson(res, 400, { error: "label is required" })
+				if (body.publicKey !== undefined && typeof body.publicKey !== "string") {
+					return sendJson(res, 400, { error: "publicKey must be a string" })
+				}
 				try {
-					return sendJson(res, 201, tunnel.addDevice(body.label))
+					return sendJson(res, 201, tunnel.addDevice(body.label, body.publicKey))
 				} catch (err) {
 					return sendJson(res, 400, { error: err instanceof Error ? err.message : String(err) })
 				}

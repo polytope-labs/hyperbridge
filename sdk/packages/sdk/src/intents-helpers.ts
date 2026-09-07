@@ -8,8 +8,9 @@ export { poolSlug, sortPoolSymbols } from "@/protocols/intents/liquidity-pool"
 export { FILL_ORDER_V1_ABI } from "@/protocols/intents/fillOrderCodec"
 export {
 	aggregatePhantomBids,
-	applyPhantomQuoteHaircut,
+	applyProtocolFeeHaircut,
 	applyUniswapQuoteHaircut,
+	readProtocolFeeHaircutBps,
 	decodeAcceptedSourceChains,
 	decodePhantomBidDeclaration,
 	encodeAcceptedSourceChains,
@@ -26,7 +27,6 @@ export {
 	weightedMedian,
 	zipFillLegs,
 	ENTRY_POINT_V08_ADDRESS,
-	PHANTOM_QUOTE_HAIRCUT_BPS,
 	UNISWAP_QUOTE_HAIRCUT_BPS,
 	FILL_ORDER_ABI,
 	type AggregationLogger,

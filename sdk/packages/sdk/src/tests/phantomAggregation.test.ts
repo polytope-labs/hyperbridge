@@ -10,8 +10,8 @@ import {
 	setAggregationFetch,
 	splitBidSignature,
 	weightedMedian,
+	applyProtocolFeeHaircut,
 	applyUniswapQuoteHaircut,
-	applyPhantomQuoteHaircut,
 	encodeAcceptedSourceChains,
 	encodePhantomBidDeclaration,
 	AGGREGATION_ATTEMPTS,
@@ -291,6 +291,17 @@ async function signedBidUserOp(opts: {
 // The account a `balanceOf(address)` eth_call is asking about, lowercased.
 const balanceOfSubject = (data: string) => `0x${data.slice(-40)}`.toLowerCase()
 
+// What the gateway under test charges, unless a test says otherwise: the same 5bps mainnet does.
+const PROTOCOL_FEE_BPS = 5n
+const SELECTOR_GATEWAY_PARAMS = "0xcff0ab96"
+// ABI-encoded `IntentGateway.params()`: six static words, protocolFeeBps the fifth.
+const gatewayParamsResult = (feeBps: bigint) =>
+	`0x${"0".repeat(64 * 4)}${feeBps.toString(16).padStart(64, "0")}${"0".repeat(64)}`
+const isGatewayParamsCall = (payload: any) =>
+	payload.method === "eth_call" &&
+	payload.params[0].to?.toLowerCase() === GATEWAY.toLowerCase() &&
+	payload.params[0].data === SELECTOR_GATEWAY_PARAMS
+
 // Stands in for the Hyperbridge node and the destination chain's RPC: serves the given bids, the
 // given account code, and an ERC-20 balance for any eth_call — fixed by default, or per-holder
 // when a `balanceFor` is supplied.
@@ -298,6 +309,7 @@ function mockRpc(
 	bids: PackedUserOperation[],
 	codeFor: (account: string) => string,
 	balanceFor: (holder: string) => bigint = () => SOLVER_BALANCE,
+	protocolFeeBps: bigint = PROTOCOL_FEE_BPS,
 ): FetchLike {
 	return async (_url, init) => {
 		const payload = JSON.parse(init.body)
@@ -310,7 +322,9 @@ function mockRpc(
 					}))
 				: payload.method === "eth_getCode"
 					? codeFor(payload.params[0])
-					: toHex(balanceFor(balanceOfSubject(payload.params[0].data)), { size: 32 })
+					: isGatewayParamsCall(payload)
+						? gatewayParamsResult(protocolFeeBps)
+						: toHex(balanceFor(balanceOfSubject(payload.params[0].data)), { size: 32 })
 		return { json: async () => ({ id: payload.id, jsonrpc: "2.0", result }) }
 	}
 }
@@ -321,8 +335,9 @@ function aggregate(
 	bids: PackedUserOperation[],
 	codeFor: (account: string) => string,
 	balanceFor?: (holder: string) => bigint,
+	protocolFeeBps?: bigint,
 ) {
-	setAggregationFetch(mockRpc(bids, codeFor, balanceFor))
+	setAggregationFetch(mockRpc(bids, codeFor, balanceFor, protocolFeeBps))
 	return aggregatePhantomBids({
 		nodeUrl: NODE_URL,
 		evmRpcUrls: { [CHAIN]: "http://base.test" },
@@ -401,8 +416,52 @@ describe("aggregatePhantomBids bid verification", () => {
 		expect(result!.legs).toHaveLength(1)
 		expect(result!.legs[0].legIndex).toBe(0)
 		expect(result!.legs[0].bidCount).toBe(1)
-		expect(result!.legs[0].medianPrice).toBe(applyPhantomQuoteHaircut(SOLVER_AMOUNT))
+		expect(result!.legs[0].medianPrice).toBe(applyProtocolFeeHaircut(SOLVER_AMOUNT, PROTOCOL_FEE_BPS))
 	})
+
+	// The wallet-funded haircut is not a constant: it is whatever the gateway on the order's chain
+	// charges, read from `params()` on every run, so a governance change moves the published rate.
+	it("haircuts a wallet-funded quote by the protocol fee read from the gateway", async () => {
+		const userOp = await signedBidUserOp({ signingKey: SOLVER_KEY })
+
+		const result = await aggregate([userOp], delegatedTo(SOLVER_ACCOUNT), undefined, 25n)
+
+		expect(result!.legs[0].medianPrice).toBe((SOLVER_AMOUNT * 9_975n) / 10_000n)
+	})
+
+	it("publishes a wallet-funded quote as named when the gateway charges no fee", async () => {
+		const userOp = await signedBidUserOp({ signingKey: SOLVER_KEY })
+
+		const result = await aggregate([userOp], delegatedTo(SOLVER_ACCOUNT), undefined, 0n)
+
+		expect(result!.legs[0].medianPrice).toBe(SOLVER_AMOUNT)
+	})
+
+	// A gateway address with no code answers "0x". That is a misconfiguration, not a zero fee, and
+	// pricing the window unhaircut on it would publish a rate nobody realizes — so the run fails.
+	it("gives up rather than pricing unhaircut when the gateway's fee cannot be read", async () => {
+		const userOp = await signedBidUserOp({ signingKey: SOLVER_KEY })
+		const healthy = mockRpc([userOp], delegatedTo(SOLVER_ACCOUNT))
+		setAggregationFetch(async (url, init) => {
+			const payload = JSON.parse(init.body)
+			if (isGatewayParamsCall(payload)) {
+				return { json: async () => ({ id: payload.id, jsonrpc: "2.0", result: "0x" }) }
+			}
+			return healthy(url, init)
+		})
+
+		await expect(
+			aggregatePhantomBids({
+				nodeUrl: NODE_URL,
+				evmRpcUrls: { [CHAIN]: "http://base.test" },
+				chain: CHAIN,
+				gatewayAddress: GATEWAY,
+				commitment: COMMITMENT,
+				yieldVaults: { [CHAIN]: { [USDT]: [] } },
+				solverAccount: SOLVER_ACCOUNT,
+			}),
+		).rejects.toThrow(/params\(\) returned no usable result/)
+	}, 30_000)
 
 	it("drops a bid whose sender is a plain EOA with no delegation", async () => {
 		const userOp = await signedBidUserOp({ signingKey: SOLVER_KEY })
@@ -639,7 +698,9 @@ describe("aggregatePhantomBids bid verification", () => {
 			const result =
 				payload.method === "intents_getBidsForOrder"
 					? [{ commitment: COMMITMENT, filler: `0x${"ab".repeat(32)}`, user_op: encodeUserOpScale(userOp) }]
-					: toHex(SOLVER_BALANCE, { size: 32 })
+					: isGatewayParamsCall(payload)
+						? gatewayParamsResult(PROTOCOL_FEE_BPS)
+						: toHex(SOLVER_BALANCE, { size: 32 })
 			return { json: async () => ({ id: payload.id, jsonrpc: "2.0", result }) }
 		})
 
@@ -676,7 +737,9 @@ describe("aggregatePhantomBids bid verification", () => {
 						}))
 					: payload.method === "eth_getCode"
 						? delegatedTo(SOLVER_ACCOUNT)()
-						: toHex(SOLVER_BALANCE, { size: 32 })
+						: isGatewayParamsCall(payload)
+							? gatewayParamsResult(PROTOCOL_FEE_BPS)
+							: toHex(SOLVER_BALANCE, { size: 32 })
 			return { json: async () => ({ id: payload.id, jsonrpc: "2.0", result }) }
 		})
 
@@ -703,7 +766,7 @@ describe("aggregatePhantomBids bid verification", () => {
 			if (payload.method === "intents_getBidsForOrder") runs += 1
 			if (payload.method === "eth_getCode") getCodeCalls += 1
 			// The first run dies on a balance read, long after delegation was settled.
-			if (payload.method === "eth_call" && runs < 2) {
+			if (payload.method === "eth_call" && !isGatewayParamsCall(payload) && runs < 2) {
 				return { json: async () => ({ id: payload.id, jsonrpc: "2.0", error: { code: -32005 } }) }
 			}
 			const result =
@@ -711,7 +774,9 @@ describe("aggregatePhantomBids bid verification", () => {
 					? [{ commitment: COMMITMENT, filler: `0x${"ab".repeat(32)}`, user_op: encodeUserOpScale(userOp) }]
 					: payload.method === "eth_getCode"
 						? delegatedTo(SOLVER_ACCOUNT)()
-						: toHex(SOLVER_BALANCE, { size: 32 })
+						: isGatewayParamsCall(payload)
+							? gatewayParamsResult(PROTOCOL_FEE_BPS)
+							: toHex(SOLVER_BALANCE, { size: 32 })
 			return { json: async () => ({ id: payload.id, jsonrpc: "2.0", result }) }
 		})
 
@@ -738,7 +803,7 @@ describe("aggregatePhantomBids bid verification", () => {
 			const payload = JSON.parse(init.body)
 			if (payload.method === "intents_getBidsForOrder") attempts += 1
 			// First run's balance reads fail outright; later runs are healthy.
-			if (payload.method === "eth_call" && attempts < 2) {
+			if (payload.method === "eth_call" && !isGatewayParamsCall(payload) && attempts < 2) {
 				return { json: async () => ({ id: payload.id, jsonrpc: "2.0", error: { code: -32005 } }) }
 			}
 			const result =
@@ -746,7 +811,9 @@ describe("aggregatePhantomBids bid verification", () => {
 					? [{ commitment: COMMITMENT, filler: `0x${"ab".repeat(32)}`, user_op: encodeUserOpScale(userOp) }]
 					: payload.method === "eth_getCode"
 						? delegatedTo(SOLVER_ACCOUNT)()
-						: toHex(SOLVER_BALANCE, { size: 32 })
+						: isGatewayParamsCall(payload)
+							? gatewayParamsResult(PROTOCOL_FEE_BPS)
+							: toHex(SOLVER_BALANCE, { size: 32 })
 			return { json: async () => ({ id: payload.id, jsonrpc: "2.0", result }) }
 		})
 
@@ -805,7 +872,8 @@ describe("aggregatePhantomBids bid verification", () => {
 				const { to, data } = payload.params[0]
 				const selector = data.slice(0, 10)
 				let result: string
-				if (to === POSITION_MANAGER && selector === "0x6352211e") result = `0x${addrWord(owner)}`
+				if (isGatewayParamsCall(payload)) result = gatewayParamsResult(PROTOCOL_FEE_BPS)
+				else if (to === POSITION_MANAGER && selector === "0x6352211e") result = `0x${addrWord(owner)}`
 				else if (to === POSITION_MANAGER && selector === "0x1efeed33") result = `0x${w(LIQUIDITY)}`
 				else if (to === POSITION_MANAGER && selector === "0x7ba03aad")
 					// PoolKey(currency0=USDT, currency1=other, fee, tickSpacing, hooks) ‖ packed info
@@ -865,8 +933,8 @@ describe("aggregatePhantomBids bid verification", () => {
 
 		// Only a pool-priced bid pays the pool-fee haircut — a solver quoting off wallet inventory
 		// has already paid its cost of goods, and a source-chain-only declaration says nothing
-		// about a pool. Such a bid pays the smaller base haircut instead, never both.
-		it("charges a bid that declares no position the base haircut, not the pool one", async () => {
+		// about a pool. Such a bid pays the gateway's protocol fee instead, never both.
+		it("charges a bid that declares no position the protocol fee haircut, not the pool one", async () => {
 			const userOp = await signedBidUserOp({
 				signingKey: SOLVER_KEY,
 				paymasterAndData: encodeAcceptedSourceChains([CHAIN]),
@@ -885,7 +953,7 @@ describe("aggregatePhantomBids bid verification", () => {
 			})
 
 			expect(result!.legs[0].medianPrice).toBe((SOLVER_AMOUNT * 9_995n) / 10_000n)
-			expect(result!.legs[0].medianPrice).toBe(applyPhantomQuoteHaircut(SOLVER_AMOUNT))
+			expect(result!.legs[0].medianPrice).toBe(applyProtocolFeeHaircut(SOLVER_AMOUNT, PROTOCOL_FEE_BPS))
 		})
 
 		// The sweep is where a provider's inventory is reported, so a position missing from it makes
@@ -995,8 +1063,16 @@ describe("aggregatePhantomBids bid verification", () => {
 		let balanceCalls = 0
 		const rpc = mockRpc([userOp], delegatedTo(SOLVER_ACCOUNT))
 		setAggregationFetch(async (url, init) => {
-			const method = JSON.parse((init as { body: string }).body).method
-			if (method !== "intents_getBidsForOrder" && method !== "eth_getCode") balanceCalls++
+			const payload = JSON.parse((init as { body: string }).body)
+			// The gateway fee is deliberately re-read every run (it is governance state, not a
+			// balance), so it is not what this memo is meant to spare.
+			if (
+				payload.method !== "intents_getBidsForOrder" &&
+				payload.method !== "eth_getCode" &&
+				!isGatewayParamsCall(payload)
+			) {
+				balanceCalls++
+			}
 			return rpc(url, init)
 		})
 

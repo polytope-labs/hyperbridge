@@ -12,7 +12,7 @@ import {
 	VERIFICATION_GAS_LIMIT_CIRCLE,
 	VERIFICATION_GAS_LIMIT_PERMIT,
 } from "./types"
-import type { PaymasterOptions, PaymasterDataResult } from "./types"
+import type { FeeTokenBalance, PaymasterOptions, PaymasterDataResult } from "./types"
 
 export type { PaymasterOptions, PaymasterDataResult, PaymasterPrefund } from "./types"
 
@@ -80,7 +80,7 @@ export async function buildPaymasterAndData(options: PaymasterOptions): Promise<
 					chain,
 					configService,
 				)
-				if (pm) {
+				if ("paymaster" in pm) {
 					return {
 						paymasterAndData: packPaymasterAndData(pm),
 						type: "simplex",
@@ -88,7 +88,7 @@ export async function buildPaymasterAndData(options: PaymasterOptions): Promise<
 						token: pm.token,
 					}
 				}
-				skipReasons.push("simplex: insufficient stablecoin balance")
+				skipReasons.push(`simplex: ${describeShortfall(pm.insufficient)}`)
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error)
 				options.logger?.warn({ chain, error }, "Simplex paymaster builder failed; trying next candidate")
@@ -247,6 +247,15 @@ function isConfiguredAsset(address: HexString | undefined): address is HexString
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────
+
+/**
+ * Skip reason for a Simplex builder that found no fee token to charge: one clause per
+ * token it read, in the Circle branch's `solver USDC balance X < Y` form.
+ */
+function describeShortfall(balances: FeeTokenBalance[]): string {
+	if (balances.length === 0) return "no fee token configured"
+	return `solver ${balances.map((b) => `${b.symbol} balance ${b.balance} < ${b.required}`).join(", ")}`
+}
 
 /**
  * Reads `account`'s token balance and reports it against the 1-token minimum the paymaster

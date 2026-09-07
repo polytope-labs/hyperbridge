@@ -3,6 +3,7 @@ import { toast } from "sonner"
 import { chainByChainId } from "@/cli/init/chains"
 import { formatChainKey, parseChainKey } from "@/config/interpolated-curve"
 import { api } from "../api"
+import { SendConfirmDialog, type SendSummary } from "../components/SendConfirmDialog"
 import { ExternalLinkIcon } from "../components/InterfaceIcons"
 import { OperationLink } from "../components/OperationLink"
 import { OperatorSheet } from "../components/OperatorSheet"
@@ -98,7 +99,9 @@ export function WalletTools(props: {
 					if (failed) throw failure
 					if (!result) throw new Error("Vault save did not return a result")
 					if (!result.persisted) {
-						throw new Error("Vault changes were applied for this session but could not be saved to the config file")
+						throw new Error(
+							"Vault changes were applied for this session but could not be saved to the config file",
+						)
 					}
 					if (result.restartNeeded) {
 						// The server only says this when the filler booted without a vault
@@ -173,12 +176,14 @@ export function WalletTools(props: {
 				<div className="operator-panel-form vault-panel">
 					{config && !config.vaultConfigured && (
 						<p className="hint">
-							The filler started without a vault treasury. Vaults saved here are written to the config and activate
-							after a restart.
+							The filler started without a vault treasury. Vaults saved here are written to the config and
+							activate after a restart.
 						</p>
 					)}
 					<div className="vault-panel-summary">
-						<span className="vault-panel-stat">{describeConnectedVaults(config?.vaults ?? [], chainLabel)}</span>
+						<span className="vault-panel-stat">
+							{describeConnectedVaults(config?.vaults ?? [], chainLabel)}
+						</span>
 						{config?.vaultConfigured && (
 							<div className="vault-editor-actions">
 								<button
@@ -278,7 +283,8 @@ function describeSweep(result: VaultSweepDto, chainLabel: (id: number | string) 
 	const below = result.skipped.filter((skip) => skip.reason === "below-threshold")
 	if (below.length > 0) {
 		const legs = below.map(
-			(skip) => `${skip.symbol} on ${where(skip.chain)} is at ${skip.walletBalance} of its ${skip.threshold} threshold`,
+			(skip) =>
+				`${skip.symbol} on ${where(skip.chain)} is at ${skip.walletBalance} of its ${skip.threshold} threshold`,
 		)
 		return { tone: "ok", text: `Nothing to sweep — ${legs.join("; ")}` }
 	}
@@ -299,6 +305,7 @@ function SendCard(props: {
 	const [to, setTo] = useState("")
 	const [result, setResult] = useState<{ txHash: string; redeemed: boolean; explorerUrl?: string }>()
 	const [sending, setSending] = useState(false)
+	const [review, setReview] = useState<SendSummary>()
 	const { run: act, message, error } = useAction()
 
 	const selectedChain = chain ?? formatChainKey(props.chains[0] ?? "")
@@ -309,16 +316,30 @@ function SendCard(props: {
 	const balance = selectedSendBalance(props.balances, selectedChain, tokenAddress)
 	const ready = Boolean(amount.trim()) && /^0x[0-9a-fA-F]{40}$/.test(to.trim()) && tokenAddress !== ""
 
+	const network = props.chainLabel(parseChainKey(selectedChain) ?? selectedChain)
+
+	/** Opens the review; nothing is submitted until it is confirmed. */
+	const openReview = () => {
+		const requested = Number.parseFloat(amount.trim())
+		const wallet = balance.wallet
+		const covered = wallet === null || !Number.isFinite(requested) ? null : Math.min(requested, wallet)
+		setReview({
+			amount: amount.trim(),
+			symbol,
+			chainLabel: network,
+			to: to.trim(),
+			wallet,
+			available: balance.available,
+			fromWallet: covered,
+			fromVault: covered === null ? null : Math.max(0, requested - covered),
+			largestVault: balance.largestVault,
+		})
+	}
+
 	const send = () => {
 		const chainId = parseChainKey(selectedChain)
 		const explorerUrl = chainId === null ? undefined : chainByChainId(chainId)?.explorerUrl
-		if (
-			!window.confirm(
-				`Send ${amount} ${symbol} on ${props.chainLabel(parseChainKey(selectedChain) ?? selectedChain)} to ${to.trim()}?`,
-			)
-		) {
-			return
-		}
+		setReview(undefined)
 		setResult(undefined)
 		setSending(true)
 		return act(async () => {
@@ -398,7 +419,7 @@ function SendCard(props: {
 					<input type="text" placeholder="0x…" value={to} onChange={(e) => setTo(e.target.value)} />
 				</label>
 				<div className="operator-send-actions operator-send-wide">
-					<button type="button" className="primary" disabled={!ready || sending} onClick={send}>
+					<button type="button" className="primary" disabled={!ready || sending} onClick={openReview}>
 						{sending ? "Sending…" : "Review transfer"}
 					</button>
 				</div>
@@ -427,35 +448,64 @@ function SendCard(props: {
 			)}
 			{message && !result && <p className="hint">✓ {message}</p>}
 			{error && <p className="error">{error}</p>}
+			{review && (
+				<SendConfirmDialog
+					open
+					summary={review}
+					sending={sending}
+					onConfirm={() => void send()}
+					onCancel={() => setReview(undefined)}
+				/>
+			)}
 		</div>
 	)
 }
 
-function selectedSendBalance(
-	balances: BalanceSnapshot | undefined,
-	chain: string,
-	token: string,
-): { label: string; status: "loading" | "available" | "unavailable" } {
-	if (!balances || balances.status === "loading") return { label: "Loading…", status: "loading" }
+interface SendBalance {
+	label: string
+	status: "loading" | "available" | "unavailable"
+	/** Underlying held directly by the wallet; null when unknown. */
+	wallet: number | null
+	/** Spendable wallet plus withdrawable vault assets; null when unknown. */
+	available: number | null
+	/** Largest single vault that could cover a shortfall — withdrawals draw on one vault, not several. */
+	largestVault: number
+}
+
+const UNKNOWN_BALANCE = { wallet: null, available: null, largestVault: 0 } as const
+
+function selectedSendBalance(balances: BalanceSnapshot | undefined, chain: string, token: string): SendBalance {
+	if (!balances || balances.status === "loading") return { label: "Loading…", status: "loading", ...UNKNOWN_BALANCE }
 
 	const chainId = parseChainKey(chain)
 	const chainBalance = balances.chains.find((row) => row.chainId === chainId)
-	if (!chainBalance) return { label: "Unavailable", status: "unavailable" }
+	if (!chainBalance) return { label: "Unavailable", status: "unavailable", ...UNKNOWN_BALANCE }
 
 	if (token === "native") {
+		// Native has no vault behind it: the wallet is the whole balance.
 		return chainBalance.native
 			? {
 					label: `${formatSendBalance(chainBalance.native.amount)} ${chainBalance.native.symbol}`,
 					status: "available",
+					wallet: chainBalance.native.amount,
+					available: chainBalance.native.amount,
+					largestVault: 0,
 				}
-			: { label: "Unavailable", status: "unavailable" }
+			: { label: "Unavailable", status: "unavailable", ...UNKNOWN_BALANCE }
 	}
 
-	if (!token) return { label: "—", status: "loading" }
+	if (!token) return { label: "—", status: "loading", ...UNKNOWN_BALANCE }
 	const asset = chainBalance.assets.find((row) => row.address.toLowerCase() === token.toLowerCase())
-	return asset?.available !== null && asset?.available !== undefined
-		? { label: `${formatSendBalance(asset.available)} ${asset.symbol}`, status: "available" }
-		: { label: "Unavailable", status: "unavailable" }
+	if (asset?.available === null || asset?.available === undefined) {
+		return { label: "Unavailable", status: "unavailable", ...UNKNOWN_BALANCE }
+	}
+	return {
+		label: `${formatSendBalance(asset.available)} ${asset.symbol}`,
+		status: "available",
+		wallet: asset.wallet,
+		available: asset.available,
+		largestVault: asset.vaults.reduce((most, vault) => Math.max(most, vault.available), 0),
+	}
 }
 
 function formatSendBalance(value: number): string {

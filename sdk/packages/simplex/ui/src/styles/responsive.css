@@ -531,6 +531,10 @@
 		flex-wrap: wrap;
 	}
 
+	.send-review-facts {
+		grid-template-columns: minmax(0, 1fr);
+	}
+
 	.sheet-header,
 	.sheet-body {
 		padding-right: 1rem;

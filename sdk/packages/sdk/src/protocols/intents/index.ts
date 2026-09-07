@@ -52,7 +52,9 @@ export {
 	decodeAcceptedSourceChains,
 	encodePhantomBidDeclaration,
 	decodePhantomBidDeclaration,
+	applyProtocolFeeHaircut,
 	applyUniswapQuoteHaircut,
+	readProtocolFeeHaircutBps,
 	UNISWAP_QUOTE_HAIRCUT_BPS,
 	type PhantomBidDeclaration,
 } from "./phantom-aggregation"

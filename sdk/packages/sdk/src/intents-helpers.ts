@@ -8,7 +8,9 @@ export { poolSlug, sortPoolSymbols } from "@/protocols/intents/liquidity-pool"
 export { FILL_ORDER_V1_ABI } from "@/protocols/intents/fillOrderCodec"
 export {
 	aggregatePhantomBids,
+	applyProtocolFeeHaircut,
 	applyUniswapQuoteHaircut,
+	readProtocolFeeHaircutBps,
 	decodeAcceptedSourceChains,
 	decodePhantomBidDeclaration,
 	encodeAcceptedSourceChains,

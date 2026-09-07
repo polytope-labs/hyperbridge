@@ -680,6 +680,72 @@ bundlerUrl = "https://polygon-mainnet.g.alchemy.com/v2/YOUR_ALCHEMY_KEY"
 </Tab>
 </Tabs>
 
+## Accessing the dashboard
+
+The web UI is unauthenticated by design — the bind address is the boundary. It defaults to `127.0.0.1:8686`, so only the machine running the solver can reach it, and it refuses any request whose `Host` header is a DNS name rather than a loopback literal, which closes the DNS-rebinding path into it. Move it with `--ui <[host:]port>`, or turn it off with `--no-ui`.
+
+<Callout type="warn">
+    Anyone who reaches the dashboard can pause filling, edit price curves, move treasury funds and
+    send tokens out of the wallet. Do not bind it to a public interface, and do not publish its
+    Docker port past `127.0.0.1`. The two options below reach it from elsewhere without exposing it.
+</Callout>
+
+### On the machine running Simplex
+
+Open `http://localhost:8686`. Under Docker the container binds `0.0.0.0` inside its own network namespace — Docker Desktop on macOS and Windows offers no `--network host` — so the published port is what keeps it private. Keep the prefix:
+
+```bash lineNumbers
+-p 127.0.0.1:8686:8686
+```
+
+### From somewhere else
+
+On a VPS, a home server, or any host you are not sitting at, the dashboard is still bound to that machine's loopback. Two ways in, neither of which opens a port to the internet:
+
+<Tabs items={["SSH port forwarding", "Remote access tunnel"]}>
+<Tab value="SSH port forwarding">
+
+If you already have SSH access to the host, forward the port. Nothing in Simplex changes:
+
+```bash lineNumbers
+ssh -N -L 8686:127.0.0.1:8686 operator@your-server
+```
+
+Open `http://localhost:8686` on your own machine while that session is up. The traffic rides inside SSH, and the dashboard stays on the server's loopback.
+
+This works from a tablet or phone too, with any SSH client that does local port forwarding: Blink or Termius on iOS, ConnectBot or JuiceSSH on Android. Point the forward at the same `8686:127.0.0.1:8686`, connect, then open `http://localhost:8686` in the device's browser.
+
+It needs a reachable SSH server, so it is the right choice for a host with a public address and the wrong one for a machine behind NAT.
+</Tab>
+<Tab value="Remote access tunnel">
+
+Simplex can open an **outbound** SSH tunnel to a rendezvous relay, which leases it a stable public port. The host needs no public IP, no inbound port, and no `sshd` — useful for a solver running on a laptop or a box behind NAT.
+
+```toml lineNumbers
+[simplex.tunnel]
+enabled = true
+# relay        = "simplex.tunnel.polytope.technology:443"  # the default, hosted by Polytope
+# relayHostKey = "SHA256:..."                              # pin a self-hosted relay
+```
+
+It is off unless `enabled = true`, and it only runs once the solver is up — never while the setup wizard holds private keys. A tunnel failure is retried with backoff and never affects filling.
+
+The relay never sees your dashboard traffic. Your device's SSH session terminates inside Simplex, in an embedded SSH server that accepts only paired device keys and only a port forward to the UI: no shell, no command execution, no other destination. The relay just moves the encrypted bytes between the two.
+
+**Pairing a device.** Open **Operations → Remote access** in the dashboard and turn it on. Create a key in the device's SSH app, then paste its public key with a name — the private key never leaves the device. For apps that cannot generate keys, Simplex can generate the pair and show the private key once, with a QR code. The panel then lists everything the SSH app needs: host, port, username, host key fingerprint, and the local port forward.
+
+In the SSH app, save a connection to that host and port, add the local forward, accept the host key after checking it against the fingerprint shown, and open `http://localhost:8686` in the device's browser.
+
+<Callout type="warn">
+    A paired device key opens the whole dashboard, Send and the treasury tools included. Keep it on
+    the device rather than in a key store that syncs to a cloud, and revoke it from the same panel
+    if the device is lost — revocation takes effect immediately.
+</Callout>
+
+Keys live under `<data-dir>/tunnel/` in plain OpenSSH formats: the operator key that identifies this solver to the relay, the host key your devices pin, and `authorized_keys` for the paired devices. The relay is [open source](https://github.com/polytope-labs/simplex-tunnel) if you would rather run your own; point `relay` at it and pin its fingerprint with `relayHostKey`.
+</Tab>
+</Tabs>
+
 ## Requirements
 
 You need an EVM wallet (configured via `[simplex.signer]`) funded with native tokens for gas and stablecoins to fill orders with — minimum $10,000 equivalent per chain is a reasonable starting point. For cross-asset pairs, also hold the non-USD token on each chain, plus a Substrate account with BRIDGE tokens for Hyperbridge extrinsic fees. A successful bid also locks a deposit, reclaimed by retracting the bid. Simplex retracts automatically when it sees the order filled, and a periodic sweep retries anything that failed — but **stopping the solver does not sweep**, so a bid still unretracted at shutdown stays locked until the next run picks it up. That is why the bid store must be durable.

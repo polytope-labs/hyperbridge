@@ -4,6 +4,28 @@ AI-maintained record of non-obvious choices made in `sdk/packages/simplex`: what
 
 Entry format: heading with the decision, then alternatives considered and the reasoning. Newest first.
 
+## 2026-09-07 — A phantom bid's accepted sources are derived from the chain set, not configured
+
+Chosen: drop the optional `simplex.acceptedSourceChains` key and derive the declaration in `IntentFiller` at bid
+time as every configured chain that is not watch-only. `preparePhantomBidUserOp` always encodes a declaration.
+
+Why: a filler can only be paid on a chain it fills on, and watch-only is the one flag that says "never fill
+here", so the set of accepted sources is already fully determined by configuration the operator maintains for
+other reasons. Keeping a second, hand-typed list of the same chains meant it drifted or, as on mainnet, was never
+set at all — and an absent declaration is read downstream as "any chain", which advertised routes the filler had
+never agreed to and produced no `PoolRoute` rows for the depth it did offer.
+
+Alternatives considered:
+
+- **Default the key to the derived list but keep it overridable.** Rejected: there is no case where a filler
+  wants to accept payment on a chain it does not fill on (escrow releases to it there), nor refuse payment on
+  one it does; an override can only make the declaration wrong.
+- **Derive once at boot.** Rejected: chains are added and removed and watch-only is toggled from the dashboard
+  while the filler runs, and every path that changes them already goes through state the bid can read.
+- **Include watch-only chains.** Rejected: watch-only means the filler holds no fill inventory there and refuses
+  every order, so it cannot be paid there either. The boot-time comment that orders may be *sourced* on a
+  watch-only chain is about which chains emit events, not where the filler collects.
+
 ## 2026-09-06 — The Simplex builder returns the balances it read instead of `null`
 
 Chosen: when no configured fee token reaches one whole unit, `buildSimplexPaymasterData` returns

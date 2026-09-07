@@ -173,6 +173,17 @@ export class IntentFiller {
 	}
 
 	/**
+	 * The source chains this filler accepts payment from, declared in every phantom bid: each
+	 * configured chain that is not watch-only. Derived at bid time rather than at boot because both
+	 * inputs move while the filler runs — chains are added and removed, and watch-only is toggled
+	 * from the dashboard — and a declaration that lagged them would advertise a route the filler
+	 * no longer serves, or hide one it does.
+	 */
+	private acceptedSourceChains(): string[] {
+		return acceptedSourceChainsFor(this.configService.getConfiguredChainIds(), this.config.watchOnly)
+	}
+
+	/**
 	 * Opens the bidding connection to Hyperbridge, owned by this filler.
 	 *
 	 * Built like HyperbridgeScanner.start: our WsProvider, raced against a
@@ -1321,7 +1332,7 @@ export class IntentFiller {
 				entryPointAddress,
 				solverAccountAddress,
 				fillerOutputs,
-				this.config.acceptedSourceChains,
+				this.acceptedSourceChains(),
 				// Positions are declared per chain because the bid is: the tokenIds that back a quote
 				// on this chain are the ones held here.
 				this.config.uniswapV4PositionsByChain?.[event.chain],
@@ -1504,4 +1515,24 @@ export class IntentFiller {
 			landed.length > 0 ? "Phantom bids submitted" : "Phantom bid batch landed no bids",
 		)
 	}
+}
+
+/**
+ * The accepted-source declaration for a filler that fills on `configuredChainIds`: every one of
+ * them that is not marked watch-only, as state machine ids in ascending chain-id order so the same
+ * configuration always encodes to the same bytes.
+ *
+ * A filler can only be paid on a chain it fills on — escrow is released to it there — and a
+ * watch-only chain is one it observes without ever filling, so the two together are exactly the
+ * set it can accept payment from. An all-watch-only filler declares the empty set, which is the
+ * truthful reading; it also never bids, so the case is academic.
+ */
+export function acceptedSourceChainsFor(
+	configuredChainIds: readonly number[],
+	watchOnly: Record<number, boolean> | undefined,
+): string[] {
+	return [...new Set(configuredChainIds)]
+		.filter((chainId) => watchOnly?.[chainId] !== true)
+		.sort((a, b) => a - b)
+		.map((chainId) => `EVM-${chainId}`)
 }

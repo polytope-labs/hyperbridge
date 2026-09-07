@@ -124,38 +124,28 @@ const CHAINS = [
 // //Alice is reserved for the driver's sudo/sealing, so fillers use other dev accounts to avoid
 // nonce contention.
 //
-// Each filler declares a different accepted-source-chains state so the aggregation must surface
-// all three route semantics per bidder: an explicit list, an explicit empty list (accepts
-// nothing), and no declaration at all (null — the legacy "all covered chains" default).
 const FILLERS = [
 	{
 		suri: "//Bob",
 		evmKey: "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d" as HexString,
 		cngnPerUsd: "1500",
-		declaredSources: ["EVM-1", "EVM-8453"] as string[] | undefined,
 	},
 	{
 		suri: "//Charlie",
 		evmKey: "0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a" as HexString,
 		cngnPerUsd: "1510",
-		declaredSources: [] as string[] | undefined,
 	},
 	{
 		suri: "//Dave",
 		evmKey: "0x7c852118294e51e653712a81e05800f419141751be58f605c371e15141b007a6" as HexString,
 		cngnPerUsd: "1520",
-		declaredSources: undefined as string[] | undefined,
 	},
 ]
 
-// What decodeAcceptedSourceChains must yield for each solver's bid: the declared list survives
-// the ride verbatim, an empty declaration stays [] (not null), and no declaration decodes to null.
-const EXPECTED_SOURCES = new Map(
-	FILLERS.map((f) => [
-		privateKeyToAccount(f.evmKey).address.toLowerCase(),
-		f.declaredSources ?? null,
-	]),
-)
+// What decodeAcceptedSourceChains must yield for every solver's bid: the filler declares the
+// chains it fills on — every configured chain that is not watch-only — in ascending chain-id
+// order, and none of these fillers marks a chain watch-only, so all three declare both chains.
+const EXPECTED_SOURCES = [...CHAINS].sort((a, b) => a.chainId - b.chainId).map((c) => c.stateMachine)
 
 // ─── simnode driving (manual seal) ──────────────────────────────────────────────────────────────
 
@@ -251,7 +241,6 @@ async function buildPhantomFiller(opts: {
 	suri: string
 	evmKey: HexString
 	cngnPerUsd: string
-	declaredSources: string[] | undefined
 	phantomScanner: HyperbridgeScanner
 }): Promise<{ filler: IntentFiller; solver: HexString; gateway: HexString }> {
 	const { phantomScanner } = opts
@@ -270,7 +259,6 @@ async function buildPhantomFiller(opts: {
 	const fillerConfig: FillerConfig = {
 		maxConcurrentOrders: 5,
 		pendingQueueConfig: { maxRechecks: 10, recheckDelayMs: 30_000 },
-		acceptedSourceChains: opts.declaredSources,
 	}
 
 	const signer = await createSigner({ type: SignerType.PrivateKey, key: opts.evmKey })
@@ -482,10 +470,8 @@ describe("Phantom filler E2E (real IntentFillers + simnode + anvil-forked Base)"
 					expect(bidder.weight).toBeGreaterThan(0n)
 					// Route indexing: each solver's accepted-source declaration rode inside its
 					// bid's paymasterAndData — covered by the solver's signature — and survived
-					// SCALE encoding and aggregation with all three semantics intact (explicit
-					// list, explicit empty list, null for no declaration).
-					expect(EXPECTED_SOURCES.has(bidder.solver.toLowerCase())).toBe(true)
-					expect(bidder.acceptedSources).toEqual(EXPECTED_SOURCES.get(bidder.solver.toLowerCase()))
+					// SCALE encoding and aggregation as the explicit list of chains it fills on.
+					expect(bidder.acceptedSources).toEqual(EXPECTED_SOURCES)
 				}
 			}
 			// One swept balance per filler per configured token on this chain.

@@ -12,6 +12,11 @@ Files: list of files touched.
 
 Newest entries first.
 
+## 2026-09-07 — `FillerConfig.acceptedSourceChains` removed
+
+The optional field is gone from `FillerConfig`: simplex now derives a bid's accepted sources from its configured chains and watch-only flags at bid time, so nothing reads it. `encodePhantomBidDeclaration` and the decoder are unchanged.
+Files: `src/types/index.ts`.
+
 ## 2026-09-05 — Mainnet SolverAccount moves to the 2026-09-05 deployment; 2.8.11
 
 Every mainnet chain config points `SolverAccount` at `0x7cb55539d1144F62422099c3FA3405092022c88C`,

@@ -5,6 +5,7 @@ import { ERC4626_ABI } from "@/config/abis/Erc4626"
 import type { VaultOutputFundingConfig } from "@/funding/types"
 import type { ChainClientManager } from "@/services/ChainClientManager"
 import type { UserOpSender } from "@/services/UserOpSender"
+import { addLogSink } from "@/services/Logger"
 import type { HexString } from "@hyperbridge/sdk"
 
 const CHAIN = "EVM-8453"
@@ -45,7 +46,9 @@ function makeWithdrawPlanner(
 		}) {
 			if (functionName === "asset") return USDC
 			if (functionName === "decimals") return 6
+			if (functionName === "symbol") return "USDC"
 			if (functionName === "maxWithdraw") return balances.maxWithdrawable
+			if (functionName === "maxDeposit") return 10_000_000_000n
 			// Shares are 1:1 with assets in this mock.
 			if (functionName === "previewRedeem") return args?.[0] as bigint
 			if (functionName === "balanceOf") {
@@ -92,6 +95,7 @@ function makeSweepPlanner(
 		}) {
 			if (functionName === "asset") return assetOf[address.toLowerCase()]
 			if (functionName === "decimals") return 6
+			if (functionName === "symbol") return address.toLowerCase() === USDT.toLowerCase() ? "USDT" : "USDC"
 			if (functionName === "maxWithdraw") return 10_000_000_000n
 			if (functionName === "maxDeposit") return maxDeposit
 			// Shares are 1:1 with assets in this mock.
@@ -125,6 +129,41 @@ function makeSweepPlanner(
 const u = (n: string) => parseUnits(n, 6)
 
 describe("VaultFundingPlanner", () => {
+	it("exposes owned, available and reserved vault liquidity as one coherent snapshot", async () => {
+		const planner = makeWithdrawPlanner(
+			{ positionAssets: u("4200"), maxWithdrawable: u("3500") },
+			{ vault: VAULT_USDC, minBalance: "300" },
+		)
+		await planner.initialise(SOLVER)
+
+		await planner.planWithdrawalForToken(CHAIN, SOLVER, USDC.toLowerCase(), u("500"))
+		const [position] = await planner.getBalanceSnapshot()
+
+		expect(position).toEqual({
+			chain: CHAIN,
+			vault: VAULT_USDC,
+			asset: USDC,
+			symbol: "USDC",
+			decimals: 6,
+			positionAssets: u("4200"),
+			availableAssets: u("3000"),
+			walletReserve: u("300"),
+			acceptsDeposits: true,
+		})
+	})
+
+	it("reports a vault that refuses deposits so the dashboard can explain an idle sweep", async () => {
+		const { planner } = makeSweepPlanner(
+			{ [USDC.toLowerCase()]: u("8000") },
+			[{ vault: VAULT_USDC, threshold: "5000", minBalance: "3000" }],
+			{},
+			0n,
+		)
+		await planner.initialise(SOLVER)
+		const [position] = await planner.getBalanceSnapshot()
+		expect(position.acceptsDeposits).toBe(false)
+	})
+
 	it("plans a withdraw call for the full deficit when liquidity is ample", async () => {
 		const planner = makeWithdrawPlanner({ positionAssets: 1_000_000n, maxWithdrawable: 1_000_000n })
 		await planner.initialise(SOLVER)
@@ -278,12 +317,16 @@ describe("VaultFundingPlanner.sweepExcessToVault", () => {
 			{ vault: VAULT_USDC, threshold: "5000", minBalance: "3000" },
 		])
 		await planner.initialise(SOLVER)
-		await planner.sweepExcessToVault(CHAIN)
+		const result = await planner.sweepExcessToVault(CHAIN)
 
 		expect(sendTransaction).toHaveBeenCalledOnce()
 		expect(sendTransaction.mock.calls[0][0].to.toLowerCase()).toBe(SOLVER.toLowerCase())
 		// The deposit leg should encode 3000 (6000 − minBalance), not the full balance.
 		expect(sendTransaction.mock.calls[0][0].data.toLowerCase()).toContain(u("3000").toString(16))
+		expect(result.skipped).toEqual([])
+		expect(result.submitted).toMatchObject([
+			{ chain: CHAIN, txHash: "0xtx", sponsored: false, deposits: [{ vault: VAULT_USDC, symbol: "USDC", amount: u("3000") }] },
+		])
 	})
 
 	it("does nothing when balance is below the threshold trigger", async () => {
@@ -291,9 +334,13 @@ describe("VaultFundingPlanner.sweepExcessToVault", () => {
 			{ vault: VAULT_USDC, threshold: "5000", minBalance: "3000" },
 		])
 		await planner.initialise(SOLVER)
-		await planner.sweepExcessToVault(CHAIN)
+		const result = await planner.sweepExcessToVault(CHAIN)
 
 		expect(sendTransaction).not.toHaveBeenCalled()
+		expect(result.submitted).toEqual([])
+		expect(result.skipped).toMatchObject([
+			{ vault: VAULT_USDC, reason: "below-threshold", walletBalance: u("4000"), threshold: u("5000") },
+		])
 	})
 
 	it("does not sweep a vault with no threshold (withdraw-only)", async () => {
@@ -323,7 +370,7 @@ describe("VaultFundingPlanner.sweepExcessToVault", () => {
 		expect(data.toLowerCase()).toContain(u("1000").toString(16))
 	})
 
-	it("skips the sweep when the vault's maxDeposit headroom is zero", async () => {
+	it("skips the sweep when the vault's maxDeposit headroom is zero, and says so", async () => {
 		const { planner, sendTransaction } = makeSweepPlanner(
 			{ [USDC.toLowerCase()]: u("8000") },
 			[{ vault: VAULT_USDC, threshold: "5000", minBalance: "3000" }],
@@ -331,9 +378,41 @@ describe("VaultFundingPlanner.sweepExcessToVault", () => {
 			0n,
 		)
 		await planner.initialise(SOLVER)
-		await planner.sweepExcessToVault(CHAIN)
 
-		expect(sendTransaction).not.toHaveBeenCalled()
+		const lines: string[] = []
+		const removeSink = addLogSink({ write: (line) => lines.push(line) })
+		try {
+			const first = await planner.sweepExcessToVault(CHAIN)
+			const second = await planner.sweepExcessToVault(CHAIN)
+
+			expect(sendTransaction).not.toHaveBeenCalled()
+			// The result names the vault as the side refusing, with the numbers an operator needs.
+			expect(first.submitted).toEqual([])
+			expect(first.skipped).toMatchObject([
+				{
+					chain: CHAIN,
+					vault: VAULT_USDC,
+					symbol: "USDC",
+					reason: "deposits-closed",
+					walletBalance: u("8000"),
+					threshold: u("5000"),
+					maxDeposit: 0n,
+				},
+			])
+			expect(second.skipped[0].reason).toBe("deposits-closed")
+
+			// A closed vault is warned once per closure; a five-minute timer must not fill the log.
+			const closed = lines.filter((line) => line.includes("not accepting deposits"))
+			const warned = closed.filter((line) => JSON.parse(line).level === 40)
+			expect(warned).toHaveLength(1)
+			expect(JSON.parse(warned[0])).toMatchObject({
+				vault: VAULT_USDC,
+				walletBalance: u("8000").toString(),
+				maxDeposit: "0",
+			})
+		} finally {
+			removeSink()
+		}
 	})
 
 	it("batches both vaults' excess into a single transaction", async () => {

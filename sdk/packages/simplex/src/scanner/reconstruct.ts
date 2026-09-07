@@ -19,6 +19,8 @@ export interface ReconstructDeps {
 export interface ReconstructedOrder {
 	order: Order
 	transactionHash: string
+	/** Attribution tag the placer supplied; absent on pre-#1092 logs. */
+	graffiti?: HexString
 	blockNumber: bigint
 	blockHash: string
 	logIndex: number
@@ -76,6 +78,7 @@ export function reconstructOrdersFromLogs(
 			out.push({
 				order,
 				transactionHash: decodedLog.transactionHash as string,
+				graffiti: decodedLog.args.graffiti,
 				blockNumber: coords.blockNumber ?? 0n,
 				blockHash: coords.blockHash ?? "",
 				logIndex: coords.logIndex ?? 0,

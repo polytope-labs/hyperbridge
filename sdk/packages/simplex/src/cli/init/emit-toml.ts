@@ -58,6 +58,7 @@ export function emitFillerToml(config: FillerConfigFile, options: EmitOptions = 
 	push(kv("substratePrivateKey", config.simplex.substratePrivateKey))
 	push("# Hyperbridge WebSocket endpoint used to submit solver bids.")
 	push(kv("hyperbridgeWsUrl", config.simplex.hyperbridgeWsUrl))
+	if (config.simplex.indexerUrl) push(kv("indexerUrl", config.simplex.indexerUrl))
 	if (config.simplex.blockScanIntervalSeconds !== undefined) {
 		push("# Seconds between block scans per chain. Default 3, minimum 0.1.")
 		push(kv("blockScanIntervalSeconds", config.simplex.blockScanIntervalSeconds))

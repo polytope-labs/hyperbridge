@@ -3,6 +3,7 @@
 // First import, deliberately: silences @polkadot/* init noise, which fires
 // while the imports below are still evaluating.
 import "./quiet"
+import { patchRuntimeState } from "@/data/state"
 import { Command } from "commander"
 import { readFileSync } from "fs"
 import { resolve, dirname } from "path"
@@ -169,7 +170,7 @@ async function operatorContextFrom(simplex: Simplex, stopAll: () => Promise<neve
 		stop: () => stopAll(),
 		activity: runtime.activity,
 		bids: runtime.data.bids,
-		setPaused: (paused) => runtime.data.state.set({ paused }),
+		setPaused: (paused) => patchRuntimeState(runtime.data.state, { paused }),
 		setLogLevel: (level) => runtime.loggers.setLevel(level),
 		vault: runtime.vaultVenue
 			? {

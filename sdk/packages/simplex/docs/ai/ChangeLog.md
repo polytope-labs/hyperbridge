@@ -12,6 +12,606 @@ Files: list of files touched.
 
 Newest entries first.
 
+## 2026-09-07 — The dashboard fills the viewport
+
+The operator view sat in a rounded, bordered card inside a padded page, capped at 150rem, so on a
+wide monitor it floated with dark margins on every side. `App` now marks the shell with
+`app-shell-operator` when the dashboard is showing; that strips the page padding and the width cap,
+and `.operator-shell` becomes the viewport itself (100dvh, no border, radius or shadow; the tinted
+background and blur stay). The layout height drops the 5rem the padding used to take
+(`100dvh - 4.5rem` brandbar). The setup wizard keeps its card. The mobile override that removed the
+card's border is gone since it is the default now. The side sheet (`.sheet-content`, shared by the
+Environment drawer and the market sheets) widens from 32rem to 40rem so a Hyperbridge SS58 account
+fits on one line beside its copy button; the wide variant stays at 58rem and mobile stays full width.
+Files: `ui/src/App.tsx`, `ui/src/styles/{foundations,operator,responsive}.css`, `docs/ai/ChangeLog.md`.
+
+## 2026-09-06 — Copy a HyperFX solver link from a market
+
+Each FX market's sheet on the Overview gets a "Get link" entry that opens a dialog building the
+HyperFX white-label "solver link" from the running settings: the filler's EVM address
+(`status.addresses.evm`), the chosen chain, the market's first curve prices (ask as `rate` for
+token0 → token1, bid as `reverse_rate`; a bid-only market flips direction with the reciprocal),
+and a solver name (max 24, remembered in localStorage). The format was read from the app's bundle
+(`app.hyperfx.finance/swap?wl=1&wlv=1&source&destination&from&to&rate_base&rate_quote&rate&reverse_rate&solver&solver_name`;
+`from`/`to` must equal `rate_base`/`rate_quote`, path must be `/swap`). `ui/src/lib/solver-link.ts`
+holds the builder and the per-market plan; `SolverLinkDialog` shows the summary and URL and copies
+it. Same-asset, reference and venue-priced markets are refused with a reason. Unit-tested.
+Files: `ui/src/lib/solver-link.ts`, `ui/src/components/SolverLinkDialog.tsx`,
+`ui/src/operator/{OperatorMarkets,OperatorOverview}.tsx`, `ui/src/styles/operator.css`,
+`src/tests/solver-link.test.ts`, `docs/ai/{ChangeLog,Flow}.md`.
+
+## 2026-09-06 — Simplex skip reason names each fee token's balance
+
+Selection logged a bare `simplex: insufficient stablecoin balance` when the solver held under one
+whole token of every fee token, while the Circle branch already logged `circle: solver USDC balance
+0 < 1000000`. Diagnosing a delegation that fell back to a native tx on Ethereum meant reading the
+balances by hand. `buildSimplexPaymasterData` now returns the balances `selectToken` already read —
+`{ insufficient: [{ symbol, balance, required }] }` in selection order — instead of `null`, and
+`buildPaymasterAndData` records them as `simplex: solver USDC balance 0 < 1000000, USDT balance
+0 < 1000000` (or `simplex: no fee token configured` when the chain lists neither). The builder and
+`resolvePendingPermit2Approval` share a new `configuredFeeTokens` helper, which is where the token
+symbols now live.
+
+Files: `src/services/paymaster/index.ts`, `src/services/paymaster/provider/simplex.ts`, `src/services/paymaster/types.ts`, `src/tests/services/{PaymasterSelection,SimplexPaymaster}.test.ts`, `docs/ai/{ChangeLog,Decisions,Flow}.md`.
+
+## 2026-09-05 — Backfill vault amounts on legacy ledger rows from their receipts
+
+Sweep and redeem rows recorded before the ledger carried amounts showed dashes. At boot (15 s
+after start, once vault states have hydrated), `backfillVaultLedger` (`src/data/ledger-backfill.ts`)
+lists such rows (`ActivityStore.walletTxsWithoutAmounts`), reads each transaction's receipt through
+`VaultFundingPlanner.describeTransaction`, which parses ERC-4626 `Deposit`/`Withdraw` events
+(added to the ABI) from configured vaults (`vaultMovementsFromLogs` in `src/funding/vault/ledger.ts`),
+and writes the underlying and share amounts back (`updateWalletTx`); a receipt touching several
+vaults adds a row per extra vault. Best effort like the order backfill.
+Files: `src/config/abis/Erc4626.ts`, `src/funding/vault/{VaultFundingPlanner,ledger}.ts`,
+`src/data/{ledger-backfill,types,memory}.ts`, `src/data/sqlite/activity.ts`, `src/core/boot.ts`,
+`src/tests/ledger-backfill.test.ts`, `docs/ai/{ChangeLog,Flow}.md`.
+
+## 2026-09-05 — Wallet ledger: action icon, Amount in and Amount out with token logos
+
+The transaction history was time / chain / "order fill" / hash. Each row now leads with an action
+icon coloured by kind (fill green, vault sweep and redeem blue, send amber), then Amount in (green, "+") and Amount out (red, "−") with token logos: a fill shows
+the order's input received and output paid; a sweep shows the underlying out and the vault shares
+in (share tokens wear a vault badge over the underlying's logo, e.g. stataUSDC over USDC; the share
+symbol names the vault, so no counterparty text); a redeem the reverse; a send the token out to
+the address. The sweep icon points up (sent into the vault), the redeem icon down. Chain gets its logo, the transaction is an open-in-explorer icon (hash on hover), time is clock + date. Backing this:
+`VaultMovement` carries `shares`/`shareSymbol`/`shareDecimals` (`previewDeposit` for a sweep,
+`previewRedeem` for a redeem; share-token ERC-20 metadata cached per vault; `previewDeposit` added
+to the ERC-4626 ABI), `WalletTx` gains `tokenIn`/`amountIn` (SQLite migration adds `token_in`,
+`amount_in`), boot records one row per movement, and `/api/wallet/history` returns `in`/`out`
+`LedgerLeg`s plus `label`. Rows recorded before this keep the plain action label.
+Files: `src/config/abis/Erc4626.ts`, `src/funding/vault/VaultFundingPlanner.ts`, `src/core/boot.ts`,
+`src/data/{types,sqlite/activity}.ts`, `src/services/server/{UiServer,dto}.ts`,
+`ui/src/operator/Wallet.tsx`, `ui/src/types.ts`, `ui/src/styles/operator.css`,
+`docs/ai/{ChangeLog,Flow}.md`.
+
+## 2026-09-05 — Token amounts round to a precision that fits their size
+
+`formatTokenAmount` picked four fraction digits regardless of magnitude, so 19,990.9995 USDC and
+27,393,956.4843 CNGN filled the amount cells. It now rounds half-up to 0 places at 10,000 and above,
+2 places at 100 and above, and 4 below that (an explicit `maxFraction` still overrides), and the
+order row's leg carries the full-precision amount as a tooltip.
+Files: `ui/src/lib/format.ts`, `ui/src/operator/Orders.tsx`, `docs/ai/ChangeLog.md`.
+
+## 2026-09-05 — Orders another solver filled read "Outbid", not "Lost"
+
+The amber "Lost · filled by 0x…" status read as a fault. It is now a neutral "Outbid" badge (same
+tone as Detected) with the winner's short address beneath in mono, full address on hover. Chosen
+from three mocked options; the maintainer declined a link on the winner.
+Files: `ui/src/operator/Orders.tsx`, `ui/src/styles/operator.css`, `docs/ai/{ChangeLog,Flow}.md`.
+
+## 2026-09-05 — Sidebar pages have URLs that survive a reload
+
+Each dashboard page has a path (`/`, `/orders`, `/wallet`, `/operations`). `ui/src/lib/route.ts`
+holds the map and a `useTabRoute` hook that reads the path on load, pushes a history entry on
+navigation and follows back/forward; `Operator` uses it in place of its tab state. No server change:
+`serveStatic` already returns index.html for any path that is not a file. Paths stay single-segment
+because index.html loads assets relatively.
+Files: `ui/src/lib/route.ts`, `ui/src/operator/Operator.tsx`, `docs/ai/{ChangeLog,Flow}.md`.
+
+## 2026-09-05 — Bids as one column of arrow links; referrer without a copy button
+
+The "Bid placed" and "Retracted" columns became a single "Bids" column holding two icon links for
+the latest bid: an up arrow to the bid extrinsic and a down arrow to the retraction extrinsic on
+Statescan (green and red respectively), each with time and short hash in the tooltip; a missing one
+renders as a grey arrow, a failed bid as "Failed" with its error on hover. The referrer cell is plain text (full tag on hover)
+instead of a copy control.
+Files: `ui/src/operator/Orders.tsx`, `ui/src/styles/operator.css`, `docs/ai/{ChangeLog,Flow}.md`.
+
+## 2026-09-05 — Order rows link only to HyperFX
+
+Dropped the placement- and fill-transaction explorer links from each order row; the HyperFX order
+page already shows both, and the two extra arrow icons crowded the row. The links cell keeps the
+single HyperFX link. `explorerTxUrl` and the per-row fill lookup are gone with them.
+Files: `ui/src/operator/Orders.tsx`, `docs/ai/{ChangeLog,Flow}.md`.
+
+## 2026-09-05 — Widen the dashboard container to 150rem
+
+Two nested caps limited the UI: `.app-container` at 80rem (1280px) for everything, and inside it
+`.operator-container` at 96rem for the dashboard, which is the one that bound on wide screens and
+left the order history about 900px of usable width after the 16rem sidebar and column padding.
+Both are now 150rem (2400px); the setup wizard shares the outer container and widens with it.
+Files: `ui/src/styles/{foundations,operator}.css`, `docs/ai/ChangeLog.md`.
+
+## 2026-09-05 — 0.13.1: pick up the 2026-09-05 mainnet SolverAccount from sdk 2.8.11
+
+No code change in this package. The filler reads the SolverAccount per chain from the sdk chain
+config, which now points every mainnet chain at `0x7cb55539d1144F62422099c3FA3405092022c88C`
+(PR #1207). Bumped together with the sdk so the published simplex resolves the matching sdk.
+
+Files: `package.json`, `docs/ai/ChangeLog.md`.
+
+## 2026-09-05 — Close the DNS-rebinding bypass in the UI server's loopback Host check
+
+`isLoopbackHost` decided loopback with `host.startsWith("127.")`, a string-prefix test on a
+hostname. A leading-digit DNS label is legal, so `127.0.0.1.evil.com` (and `127.evil.com`,
+`127.0.0.1.nip.io`, the bare `127.`) passed it. That predicate is the whole of the UI server's
+auth — `hostHeaderAllowed` delegates to it on the `boundLoopback` path, and there is no
+Origin/CORS check — so a page an operator visits could rebind DNS to `127.0.0.1`, become
+same-origin, and reach `POST /api/send` (drains the solver wallet + vault positions) and the
+unmasked keys in `GET /api/chains`. Now the host must parse as an IPv4 literal via `node:net`
+`isIP` before its `127.` octet is trusted; `localhost`, `::1`, and the IPv4-mapped `::ffff:127.0.0.1`
+stay allowed. The same change fixes the `--ui 127.x.evil.com` bind-gate bypass (same function) and
+replaces the non-loopback branch's `hostname.includes(":")` IPv6 test with `isIP`, which also
+rejects a stray non-numeric port like `evil.com:abc`. Extended the rebinding test with the bypass
+vectors; it fails on the old prefix code and passes now (60/60).
+Files: src/services/server/http-util.ts, src/tests/ui-server.test.ts.
+
+## 2026-09-05 — Rename the Activity page to Orders
+
+The sidebar tab, page title and component are now "Orders" (`ui/src/operator/Orders.tsx`, tab
+value `orders`); the API paths under `/api/activity/*` and the `ActivityRecorder` are unchanged.
+Earlier entries below refer to the file by its new name.
+Files: `ui/src/operator/{Operator,Orders}.tsx`, `docs/ai/{ChangeLog,Decisions,Flow}.md`.
+
+## 2026-09-05 — Runtime controls live on the Overview page
+
+The "Runtime controls" header button and its sheet are gone; the Overview renders the state line
+("Filling is active" / "New fills are paused") with the Pause/Resume and Stop buttons beside it,
+directly under the metrics strip. `OperatorOverview` takes a `runtime` prop from `Operator`.
+Files: `ui/src/operator/{Operator,OperatorOverview}.tsx`, `ui/src/styles/{operator,responsive}.css`,
+`docs/ai/{ChangeLog,Flow}.md`.
+
+## 2026-09-05 — Persist live phantom bids so a restart retracts them
+
+Each phantom interval's batch retracts the previous interval's bid on that chain, refunding its
+0.01 BRIDGE deposit — but the previous commitment lived only in `IntentFiller`'s memory, so the
+first batch after every restart carried no retraction and stranded a deposit (the account had
+0.5 BRIDGE reserved from fifty of them). `RuntimeState` gains `phantomBids` (chain → commitment);
+the filler takes a `StateStore` and persists the map whenever a phantom bid lands or is pooled
+(`rememberPhantomBid`), boot seeds it with `restorePhantomBids(restoredState.phantomBids)` before
+`start()`, and `livePhantomBids()` exposes it. `StateStore.set` replaces the whole record, so all
+writers now go through `patchRuntimeState` (`src/data/state.ts`), including pause/resume in
+`Simplex` and the CLI's `setPaused` — a pause no longer wipes the phantom bids. Added tests for
+persistence, restore precedence and merge-safe pauses.
+Files: `src/data/{state,types}.ts`, `src/core/{filler,boot}.ts`, `src/simplex.ts`,
+`src/bin/simplex.ts`, `src/tests/phantom-bid-persistence.test.ts`, `docs/ai/{ChangeLog,Decisions,Flow}.md`.
+
+## 2026-09-05 — Retracted column only for retractions that went on chain
+
+A bid the pallet no longer holds (`BidNotFound`: our fill consumed it, or it never landed) is
+marked retracted with a null extrinsic hash; the Retracted column showed a bare time for it. It now
+shows a dash unless `retractExtrinsicHash` is set, so every entry in that column links to a real
+retraction on Statescan.
+Files: `ui/src/operator/Orders.tsx`, `docs/ai/{ChangeLog,Flow}.md`.
+
+## 2026-09-05 — Bid placed and Retracted columns link to the Hyperbridge explorer
+
+The Bids summary cell became two columns: "Bid placed" (time of the latest bid and its extrinsic
+hash linking to `https://<nexus|gargantua>.statescan.io/#/extrinsics/<hash>`; a failed bid shows
+"Failed" with its error) and "Retracted" (retraction time and its extrinsic link, or a dash).
+`OrderHistoryDto` gains `network` (from a shared `runningNetwork` helper in `UiServer`) so the UI
+picks the explorer; `BidDto` declares the `retractedAt` and `retractExtrinsicHash` fields the API
+already returned. Also settles bids and retypes legacy bid-time "filled" rows at boot (the
+settlement pass added to `backfillOrderSummaries`, keyed on `volumeUsd` being set only on bid-time
+rows), using `ActivityStore.unsettledOrders` / `retypeLegacyBid`.
+Files: `src/services/server/{UiServer,dto}.ts`, `src/data/{backfill,types,memory}.ts`,
+`src/data/sqlite/activity.ts`, `src/core/boot.ts`, `src/tests/{ui-server,activity-backfill}.test.ts`,
+`ui/src/operator/Orders.tsx`, `ui/src/lib/format.ts`, `ui/src/styles/operator.css`,
+`docs/ai/{ChangeLog,Flow}.md`.
+
+## 2026-09-05 — A bid is not a fill: settle orders from the on-chain OrderFilled log
+
+Under solver selection the filler emits `orderFilled` when Hyperbridge accepts its bid, so the
+history called every bid "Filled" — including one a rival then filled. `orderFilled` now carries
+`commitment`; the recorder ignores it for bids and records the accepted bid from `orderExecuted`
+as a new `bid` activity type (txHash = extrinsic hash). `EventMonitor.handleFill` emits a new
+`orderFillObserved` `{ commitment, filler, chainId, txHash, ours }` for every OrderFilled log on a
+configured chain (`ScannedFill.transactionHash` added, from the log); the recorder records `filled`
+when `ours`, and `lost` (reason = the winner's address) when not, but only for orders it has rows
+for (`ActivityStore.knowsOrder`). Public `Simplex` events gain `order:fill-observed`. The UI status
+now reads Filled > Lost ("filled by 0x…") > Bid placed / Bid retracted > Executed/Failed > Skipped >
+Detected; the Bids cell shows the latest bid's standing (Accepted / Retracted / Failed, no counts)
+with its extrinsic hash or error; the fill link uses the observed fill's tx hash (or a direct
+attempt's UserOp hash, which the explorer's /tx page resolves) and never a bid's extrinsic hash.
+Rows recorded before this change keep their bid-time "filled" rows.
+Files: `src/scanner/{types,chain-scanner}.ts`, `src/core/{event-monitor,filler}.ts`,
+`src/simplex.ts`, `src/data/{types,recorder,memory}.ts`, `src/data/sqlite/activity.ts`,
+`src/services/server/dto.ts`, `src/tests/activity-recorder.test.ts`,
+`ui/src/operator/Orders.tsx`, `docs/ai/{ChangeLog,Decisions,Flow}.md`.
+
+## 2026-09-05 — Watch-only orders are recorded as skipped at intake
+
+`IntentFiller`'s intake queue checks the destination's watch-only flag before `evaluateOrder` and
+returned after a debug log, so a watch-only order reached the activity feed as "detected" with no
+reason; `evaluateOrder`'s own watch-only check, which records `orderSkipped` with reason
+"watch-only", never ran for it. The intake check now logs at info and emits the same skip. Found
+while explaining why a paused-then-resumed watch-only instance never bid on a Base order.
+Files: `src/core/filler.ts`, `docs/ai/{ChangeLog,Flow}.md`.
+
+## 2026-09-05 — Drop the volume/profit line under a Filled status
+
+The Filled badge no longer carries "$1 · +$0.01" beneath it; the amount columns already show what
+was filled and the maintainer asked for the line to go. Skips and failures keep their reason.
+Files: `ui/src/operator/Orders.tsx`, `docs/ai/{ChangeLog,Flow}.md`.
+
+## 2026-09-05 — Paginate the order history and fold each order's bids into its row
+
+Added `GET /api/activity/history?page&pageSize` (`OrderHistoryDto`): one page of orders, newest
+activity first, each with its rows and the Hyperbridge bids submitted for its commitment (bid
+`commitment` equals the order id), plus the newest order-less events (rebalances) for the first
+page's footer. Backed by `ActivityStore.orderHistory(page, pageSize)` (SQLite: `GROUP BY order_id
+ORDER BY MAX(id)` with `COUNT(DISTINCT order_id)`; memory mirrors it) and `BidStore.byCommitments`.
+`Orders.tsx` now pages (20 per page, numbered pager with ellipses, "Showing x–y of n"), re-reads
+the current page on SSE activity (400 ms coalesced) instead of merging rows client-side, and shows a
+Bids column ("2 bids · 1 accepted · 1 retracted", tooltip listing each bid) in place of the separate
+Submitted bids table; the bid metrics strip stays, with pending retractions as a badge. `OperatorContext.bids`
+gains `byCommitments`; the test operator now wires `bids`. Added a ui-server test for paging and
+bid folding.
+Files: `src/data/{types,memory,recorder}.ts`, `src/data/sqlite/{activity,bids}.ts`,
+`src/services/server/{UiServer,dto}.ts`, `src/tests/ui-server.test.ts`,
+`ui/src/operator/Orders.tsx`, `ui/src/types.ts`, `ui/src/styles/operator.css`,
+`docs/ai/{ChangeLog,Decisions,Flow}.md`.
+
+## 2026-09-05 — Backfill order details on old activity rows from the indexer; decode referrer names
+
+Rows recorded before order summaries existed showed only an id. `src/data/backfill.ts` now runs at
+boot (fire-and-forget) and, for the newest 500 distinct order ids without a summary, queries the
+Hyperbridge indexer's `iOrderV3s` entity (the SDK's `ORDER_STATUS` query targets `orders`/
+`orderPlaceds`, which this indexer no longer serves), builds the same `OrderSummary` the recorder
+would have, attaches it to every row of that order (`ActivityStore.attachOrder`, new alongside
+`orderIdsMissingSummary`; SQLite and memory implementations), and re-emits the rows through the
+recorder so open dashboards refresh over SSE. The endpoint defaults per network
+(`DEFAULT_INDEXER_URLS`: nexus for mainnet, gargantua for testnet) and can be overridden with
+`simplex.indexerUrl`, which `emit-toml` preserves. The referrer is now stored as the full 32-byte
+graffiti tag: apps write their name as padded ASCII (the live indexer returns "HyperFX" that way),
+so `ui/src/lib/format.ts` `describeReferrer` renders printable tags as text, address-shaped tags as
+a short address, and anything else as short hex. Added tests for the backfill (indexed order
+attached to every row, unknown order left alone, indexer failure touches nothing).
+Files: `src/data/{backfill,recorder,types,memory}.ts`, `src/data/sqlite/activity.ts`,
+`src/core/boot.ts`, `src/config/filler-toml.ts`, `src/cli/init/emit-toml.ts`,
+`src/tests/{activity-backfill,activity-recorder}.test.ts`, `ui/src/lib/format.ts`,
+`ui/src/operator/Orders.tsx`, `docs/ai/{ChangeLog,Decisions,Flow}.md`.
+
+## 2026-09-05 — Order history: amounts, tokens, chains, user, referrer, and links per order
+
+The Activity page's order feed showed only a time, a truncated id and an event badge. Each activity
+event now carries an `order` summary (`OrderSummary` in `src/data/types.ts`): user, source and
+destination chain, placement tx hash, referrer (the order's graffiti tag, 20 bytes, null when
+absent or equal to the placer, mirroring the indexer's rule), input and output legs (token address,
+raw amount, symbol, decimals) and deadline. The scanner passes `graffiti` from the `OrderPlaced`
+log through `ScannedOrder` and the monitor's `newOrder` event; `ActivityRecorder` builds the
+summary on detection (token symbol from the asset registry, decimals via
+`ContractInteractionService.getTokenDecimals`, both injected from `boot.ts` as `describeToken`),
+caches it per order id, and attaches it to the order's later filled/executed/skipped rows. SQLite
+gains an `order_json` column by migration; the memory store mirrors it. The UI groups events per
+order and renders a HyperFX-style history table (referrer, status with detail, amount in/out with
+token icon + chain badge, user, placed time and date, links to the HyperFX order page and to the
+placement and fill transactions on the block explorers). Rebalance events list below the table.
+Files: `src/scanner/{reconstruct,types}.ts`, `src/core/{event-monitor,boot}.ts`,
+`src/data/{types,recorder,memory}.ts`, `src/data/sqlite/activity.ts`, `src/services/server/dto.ts`,
+`ui/src/operator/{Activity,Operator}.tsx`, `ui/src/lib/format.ts`, `ui/src/types.ts`,
+`ui/src/styles/operator.css`, `docs/ai/{ChangeLog,Decisions,Flow}.md`.
+
+## 2026-09-05 — Move Send funds and Vault treasury to the Wallet page
+
+Split `Operations.tsx`: the Send sheet, the vault treasury sheet, their save/sweep logic and
+helpers now live in `ui/src/operator/WalletTools.tsx`, rendered by `Wallet.tsx` above the
+transaction history under a "Funds" heading; `OperationLink` moved to
+`ui/src/components/OperationLink.tsx` so both pages share it. Operations keeps the allowlist and
+chain sheets and accepts `initialPanel`/`onInitialPanelShown`, which `Operator` uses to open the
+Chains sheet when the vault editor's Enable chain link is clicked from the Wallet page. Nav and
+page copy updated (Wallet: "Funds and history"; Operations: "Live configuration").
+Files: `ui/src/operator/{Operator,Operations,Wallet,WalletTools}.tsx`,
+`ui/src/components/OperationLink.tsx`, `docs/ai/{ChangeLog,Decisions,Flow}.md`.
+
+## 2026-09-05 — Group the treasury editor per chain, fold chains that are not enabled
+
+Rebuilt `VaultRowsEditor` around per-chain groups: enabled chains first, each with a header (chain
+logo, vault count, "Enabled" pill) and compact token-only rows; custom vaults live inside their
+chain's group. Chains the filler does not run fold into one "Other networks" collapsible whose
+groups carry a "Not enabled" pill and an "Enable chain" link (`onEnableChain`; the dashboard opens
+the Chains & endpoints sheet, the wizard jumps to the Chains step through a new `goToStep` on
+`StepProps`). The per-row disabled hint and the `disabledHint` prop are gone. The dashboard drawer
+lost its duplicate heading; it now shows a summary line of connected vaults with Sweep now / Redeem
+all beside it, and the restart caveat only when the filler booted without a vault venue. Layout
+chosen from a design canvas of three options.
+Files: `ui/src/components/VaultRowsEditor.tsx`, `ui/src/operator/Operations.tsx`,
+`ui/src/wizard/{Wizard.tsx,steps/Treasury.tsx}`, `ui/src/styles/{treasury,responsive}.css`,
+`docs/ai/{ChangeLog,Decisions,Flow}.md`.
+
+## 2026-09-05 — Show curated vaults for every chain in the treasury editors
+
+The dashboard's Vault treasury drawer and the wizard's Treasury step now list the registry's Aave
+stata (and other curated) vaults for every chain on the running network. `UiServer.knownVaultCatalog`
+returns the catalog for all `INIT_CHAINS` on that network instead of only running chains;
+`VaultRowsEditor` orders enabled chains first and renders the others locked (disabled checkbox,
+`data-disabled`, hint naming where to enable the chain: Chains & endpoints, or the wizard's Chains
+step). Select all only covers selectable rows. The minimum-balance tooltip's paymaster note now
+covers USDT as well as USDC. Added a ui-server test for the widened catalog. Cross-checked the
+registry against the indexer's `yieldVaults` (identical where they overlap) and the Aave address
+book: Aave v3 Base lists no USDT, so there is no Base stataUSDT to add.
+Files: `src/services/server/{UiServer,dto}.ts`, `ui/src/components/VaultRowsEditor.tsx`,
+`ui/src/operator/Operations.tsx`, `ui/src/wizard/steps/Treasury.tsx`, `ui/src/styles/treasury.css`,
+`src/tests/ui-server.test.ts`, `docs/ai/{ChangeLog,Decisions,Flow}.md`.
+
+## 2026-09-05 — Reword the vault "Minimum wallet balance" tooltip
+
+The tooltip claimed the wallet float keeps liquidity available for fills, but fills draw from the
+vault position atomically; the float is simply what Simplex never sweeps into the vault. Rewrote it
+to say that, and added a USDC-only sentence noting USDC also pays paymaster gas, since that is the
+real reason to hold USDC back. Requested by the maintainer while reviewing the redesign.
+Files: `ui/src/components/VaultRowsEditor.tsx`, `docs/ai/ChangeLog.md`.
+
+## 2026-09-05 — Use the Hyperbridge favicon in the Simplex web UI
+
+Replaced the HyperFX favicon with a copy of the docs site's Hyperbridge favicon so the browser tab
+shows the Hyperbridge mark. Bumped the service worker precache name (`simplex-shell-v4` →
+`simplex-shell-v5`) so existing installs refetch `favicon.ico` instead of serving the old icon.
+Files: `ui/public/favicon.ico`, `ui/public/sw.js`, `docs/ai/{ChangeLog,Decisions,Flow}.md`.
+
+## 2026-09-04 — Say why a vault sweep did nothing, and restore the restart notice for vault saves
+
+Diagnosed on a running solver: the periodic sweep ran every five minutes against a wallet holding
+165k cNGN over a threshold of 10, and never deposited. The ycNGN vault is a `StreamingYieldVault`,
+whose `maxDeposit` returns 0 while a tranche vests (22h of every 24h cycle); the sweep clamped the
+deposit to 0 and `continue`d with no log line, and the dashboard's Sweep now button reported
+"Sweep executed" on the same silent path.
+
+`VaultFundingPlanner.sweepExcessToVault` now returns a `VaultSweepResult`: the batches it submitted
+(with per-vault deposit amounts) and every vault it skipped with a reason — `sweeping-disabled`,
+`below-threshold`, or `deposits-closed` with the wallet balance, threshold and `maxDeposit` it saw.
+A `deposits-closed` skip logs a warning the first time per closure and debug on every repeat until
+a deposit goes through or the venue is reconfigured. `VaultLiquidityState.refresh` reads
+`maxDeposit(solver)` alongside `maxWithdraw`, so the balance snapshot carries `acceptsDeposits` per
+vault and the overview shows "Deposits closed" under the asset's In vault figure.
+
+`POST /api/vault/sweep` returns the pass as `VaultSweepDto` with amounts formatted in token units.
+The vault panel turns that into one sentence — what was deposited, or which vault refused and how
+far over its threshold the wallet is, or that balances are simply below their triggers.
+
+Vault saves: the 2026-09-03 change that dropped the `restartNeeded` handling is reverted in
+substance. The server sends `restartNeeded: true` only when the filler booted without a vault venue;
+the rows are persisted but nothing in the process uses them until a restart, so the panel now shows a
+warning notice and toast saying so, and the hint copy once again says edits re-hydrate the running
+venue "after a restart" when no venue exists.
+
+Also fixed the branch's declaration build: `InitChainMeta` gained the optional `note` the setup API
+and terminal wizard were already reading.
+
+Files: `src/funding/types.ts`, `src/funding/vault/{VaultFundingPlanner,VaultLiquidityState}.ts`,
+`src/services/BalanceProvider.ts`, `src/services/server/{UiServer,dto}.ts`, `src/simplex.ts`,
+`src/index.ts`, `src/cli/init/chains.ts`, `ui/src/types.ts`,
+`ui/src/operator/{Operations,OperatorOverview}.tsx`, `ui/src/styles/{controls,operator}.css`.
+Tests: `src/tests/funding/vault.test.ts`, `src/tests/ui-server.test.ts`. Docs:
+`docs/content/developers/sdk/{simplex,api/simplex}.mdx`, `docs/ai/{ChangeLog,Decisions,Flow}.md`.
+
+## 2026-09-04 — Link successful sends to their block explorer
+
+The Send funds success row now renders the transaction hash and an external-link icon as one link
+that opens the selected network's block explorer in a new tab. The explorer URL is captured with the
+completed send so changing the form's network afterward cannot redirect the prior hash to the wrong
+chain.
+
+Files: `ui/src/operator/Operations.tsx`, `ui/src/styles/operator.css`, and
+`docs/ai/{ChangeLog,Decisions,Flow}.md`.
+
+## 2026-09-03 — Correct vault save feedback
+
+Vault saves no longer turn a successful persisted response into an error instructing the operator to
+restart the filler. A persisted save now emits a clear success toast, while the vault editor limits
+its explanatory copy to the configuration persistence it can accurately promise. Runtime, server,
+and vault lifecycle behavior are unchanged.
+
+Files: `ui/src/operator/Operations.tsx` and `docs/ai/{ChangeLog,Decisions,Flow}.md`.
+
+## 2026-09-03 — Preserve vault edits made during a save
+
+Vault saving now queues one latest-draft retry when the operator clicks Save again while an earlier
+request is still in flight, so the shared action guard cannot silently discard newer values. The UI
+also treats `persisted: false` as a save failure and renders the result inside the open vault drawer.
+
+Files: `ui/src/operator/{Operations.tsx,Operations.test.tsx}` and
+`docs/ai/{ChangeLog,Decisions,Flow}.md`.
+
+## 2026-09-03 — Show selected-asset liquidity in Send funds
+
+The Send funds form now displays the selected chain and asset's available balance beside the Amount
+label. ERC-20 values reuse the canonical wallet-reserve and vault-aware balance snapshot, native gas
+uses the chain's native balance, unavailable reads remain explicit, and a successful transfer triggers
+an immediate dashboard refresh.
+
+Files: `ui/src/operator/{Operator,Operations}.tsx`, `ui/src/styles/operator.css`, and
+`docs/ai/{ChangeLog,Decisions,Flow}.md`.
+
+## 2026-09-03 — Remove obsolete BSC gas warnings from the Simplex UI
+
+Removed the chain-card warning renderer from setup and operator network screens, deleted the obsolete
+chain-note metadata, and removed the BNB-specific native-gas text from the setup review. BSC paymaster
+support is now represented consistently throughout the Simplex UI; runtime paymaster behavior is
+unchanged.
+
+Files: `src/cli/init/chains.ts`, `ui/src/{operator/Chains.tsx,wizard/steps/{Chains,Review}.tsx}`, and
+`docs/ai/{ChangeLog,Decisions,Flow}.md`.
+
+## 2026-09-03 — Give the shared operator sheet complete motion
+
+Kept the shared shadcn-style Radix sheet used by every operator drawer and replaced its mount-only
+effect with state-aware motion. The panel now enters from fully off canvas, exits before Radix removes
+the portal, and coordinates both directions with an overlay fade; reduced-motion users receive the
+same state change without animation.
+
+Files: `ui/src/styles/operator.css` and `docs/ai/{ChangeLog,Decisions,Flow}.md`.
+
+## 2026-09-03 — Show current market prices in the operator list
+
+Operator market rows now show the first valid configured buy and sell prices with their price unit.
+Missing sides, venue-priced markets, and reference-only entries remain free of fabricated values; the
+underlying market data and pricing behavior are unchanged.
+
+Files: `ui/src/operator/OperatorMarkets.tsx`, `ui/src/styles/{operator,responsive}.css`, and
+`docs/ai/{ChangeLog,Decisions,Flow}.md`.
+
+## 2026-09-03 — Seed USDC and USDT markets for CNGN
+
+The setup wizard now seeds both USDC/CNGN and USDT/CNGN markets when CNGN and USDT are available in
+the selected network's token catalog. Networks without that catalog combination retain the existing
+single-market default, and user-created or existing markets are unchanged.
+
+Files: `ui/src/wizard/state.ts`, `ui/src/wizard/strategies/useStrategiesModel.ts`, and
+`docs/ai/{ChangeLog,Decisions,Flow}.md`.
+
+## 2026-09-03 — Recompose operator market drawers
+
+Reworked the shared drawer spacing and live-market editor around the onboarding UI's open editorial
+hierarchy. Market identity, risk limits, pricing directions, and actions now flow as flat sections
+separated by restrained rules instead of nested cards; only the price chart retains a quiet visual
+canvas. Order-limit controls align on one baseline, each direction uses the full width, previews and
+point inputs share a balanced desktop row, and disabled sides use an inline action. Create-market and
+standard operator drawers inherit the same header spacing and overflow-safe shell.
+
+Files: `ui/src/operator/markets/StrategyMarketEditor.tsx`,
+`ui/src/styles/{operator,responsive}.css`, and `docs/ai/{ChangeLog,Decisions,Flow}.md`.
+
+## 2026-09-03 — Make new web markets uncapped by default
+
+New markets created from the operator form or setup wizard now leave the optional maximum-order field
+blank, which emits no `maxOrderSize` and therefore creates an uncapped market.
+
+Files: `ui/src/operator/markets/{CreateMarketForm.tsx,useCreateMarket.ts}`, `ui/src/wizard/state.ts`, and
+`docs/ai/{ChangeLog,Decisions,Flow}.md`.
+
+## 2026-09-03 — Show configured market prices in setup summaries
+
+Updated setup-wizard market rows to show the first configured Buy and Sell prices, including their
+`token1/token0` unit, as soon as either curve has a value. The order-cap summary was removed from the
+row while the cap input remains available in the Configure editor.
+
+Files: `ui/src/wizard/steps/Strategies.tsx`, `ui/src/styles/{markets,responsive}.css`, and
+`docs/ai/{ChangeLog,Decisions,Flow}.md`.
+
+## 2026-09-03 — Remove the BSC paymaster warning from network setup
+
+Removed the stale BSC and BSC Chapel paymaster caveats from the onboarding chain catalog so selecting
+those networks no longer displays the native-gas warning in the network setup step. Runtime and review
+funding behavior remain unchanged.
+
+Files: `src/cli/init/chains.ts` and `docs/ai/{ChangeLog,Decisions,Flow}.md`.
+
+## 2026-09-03 — Improve dashboard token balance cards
+
+Reworked each network's token balances into image-led cards using the existing Simplex token asset
+library. The new hierarchy separates total ownership from wallet and vault balances, highlights the
+amount currently available to fill, and keeps partial or unavailable data visibly distinct without
+presenting it as zero. Network gas remains visible in a compact network header.
+
+Files: `ui/src/operator/OperatorOverview.tsx`, `ui/src/styles/{operator,responsive}.css`, and
+`docs/ai/{ChangeLog,Decisions,Flow}.md`.
+
+## 2026-09-03 — Clarify setup delegation failures
+
+Setup now translates the internal all-chain EIP-7702 shutdown message into network-aware funding,
+RPC/bundler, retry, and image-version guidance while retaining raw messages for unrelated startup
+failures. The failed-state action is labelled Retry startup and makes clear that the configuration
+was already saved.
+
+Files: `ui/src/wizard/startError.ts`, `ui/src/wizard/steps/Review.tsx`,
+`src/tests/setup-completion.test.ts`, and `docs/ai/{ChangeLog,Decisions,Flow}.md`.
+
+## 2026-09-03 — Installable offline UI and complete dashboard liquidity accounting
+
+Made the Simplex UI installable as a desktop PWA with a manifest, branded FX icons, an offline app
+shell, and a permanent install entry in both setup and the operator dashboard. The desktop-only
+guide now walks through one generic three-step flow with visual examples; cancelled or unavailable
+native prompts report through toasts rather than altering dialog layout.
+
+Replaced the dashboard's wallet-only stablecoin total with an explicit liquidity model. The vault
+planner now exposes a mutex-consistent read-only snapshot, and the balance API reports wallet,
+vault position, vault availability, wallet reserve, total holdings, and actual available liquidity
+per asset. Initial balances are loaded during startup instead of after a five-second timer, failed
+reads are surfaced as partial/unavailable state rather than silently rendered as zero or a dash,
+and the dashboard presents the full breakdown per network.
+
+Files: `src/{core/boot,funding/types,funding/vault/{VaultFundingPlanner,VaultLiquidityState},index,services/BalanceProvider,services/server/{dto,static}}.ts`,
+`src/tests/{balance-provider,funding/vault,ui-server}.test.ts`, `ui/{index.html,public,src}`, and
+`docs/ai/{ChangeLog,Decisions,Flow}.md`.
+
+## 2026-09-03 — Explain vault balance controls and seed curated defaults
+
+Added focusable info icons beside the sweep-threshold and minimum-wallet-balance labels using the
+shared `@hyperbridge/ui` tooltip primitives. Newly selected Aave stataUSDC vaults now start at
+`20`/`10`, and Yield Bearing cNGN starts at `1000`/`1`, matching the supplied reference; custom and
+unknown vaults retain the generic fallback values.
+
+Files: `ui/src/components/VaultRowsEditor.tsx`, `ui/src/styles/treasury.css`, `package.json`,
+`../../pnpm-lock.yaml`, `docs/ai/{ChangeLog,Decisions,Flow}.md`.
+
+## 2026-09-03 — Simplify market setup defaults and remove transfer-market setup
+
+Removed the setup wizard's dedicated same-token transfer section and its prefab, state, prefill, and
+stylesheet plumbing. Setup and operator market creation now use the normal cross-asset editor, reject
+same-asset creation, default new order caps to `50000`, and prefill newly added curve-point sizes with
+`1`. Optional field labels now use brackets for clarity.
+
+Files: `ui/src/{components/CurveEditor,operator/markets/{CreateMarketForm,StrategyMarketEditor,useCreateMarket},wizard/state,wizard/steps/Strategies,wizard/strategies/{MarketRow,UniswapPositionsDialog,useStrategiesModel}}`,
+`ui/src/styles/{markets,responsive}.css`, `src/cli/init/steps/strategies.ts`,
+`src/services/server/{dto,setup-api}.ts`, `docs/ai/{ChangeLog,Decisions,Flow}.md`.
+
+## 2026-09-03 — Prevent the Uniswap pricing view from crashing
+
+Restored the missing Uniswap icon import used by the selected-position summary. Added UI typechecking
+to the standard check command so unresolved runtime identifiers fail before the bundle reaches a
+browser, and repaired two stale identifiers in the live chain editor uncovered by that check.
+
+Files: `ui/src/wizard/steps/Strategies.tsx`, `ui/src/operator/{Chains.tsx,chains/useChainSettings.ts}`,
+`package.json`, `docs/ai/ChangeLog.md`.
+
+## 2026-09-03 — Display Hyperbridge accounts in Polkadot's unified format
+
+Configured the shared Substrate keyring to encode every derived account with Polkadot's unified
+SS58 prefix. Setup, review, operator status, copied addresses, balance snapshots, and logs now all
+receive the same unified account string without component-specific conversion.
+
+Files: `src/services/substrate-key.ts`, `src/tests/balance-provider.test.ts`,
+`docs/ai/{ChangeLog,Decisions}.md`.
+
+## 2026-09-03 — Clarify testnet terminology
+
+Replaced the inaccurate “Sepolia-family” wording in the CLI initializer and web setup wizard with
+“EVM test networks”. The supported testnet catalog also includes Polygon Amoy and BSC Chapel, which
+are EVM-compatible but are not Sepolia-family chains.
+
+Files: `src/cli/init/steps/chains.ts`, `ui/src/wizard/steps/Signer.tsx`,
+`docs/ai/{ChangeLog,Decisions,Flow}.md`.
+
+## 2026-09-03 — Simplify the filler wallet guidance
+
+Shortened the onboarding explanation for the filler wallet and replaced the Unix-specific
+`permissions 600` wording with a plain-language assurance that credentials stay private on the
+operator's machine.
+
+Files: `ui/src/wizard/steps/Signer.tsx`, `docs/ai/ChangeLog.md`.
+
+## 2026-09-03 — Rebrand the Simplex UI header as HyperFX
+
+Replaced the Hyperbridge mark beside the Simplex product name in both the setup wizard and live
+operator dashboard with the supplied white HyperFX wordmark. The transparent wordmark now sits
+directly on the dark UI without a backing surface. Added the HyperFX website favicon to the UI build
+and taught the local static server to serve bundled WebP assets with the correct MIME type.
+
+Files: `ui/src/{operator/Operator,wizard/Wizard}.tsx`, `ui/src/styles/{operator,foundations,responsive}.css`,
+`ui/src/{assets/hyperfx-logo.webp,vite-env.d.ts}`, `ui/index.html`, `ui/public/favicon.ico`,
+`src/services/server/static.ts`.
 ## 2026-09-03 — Stop bidding on phantom orders whose window has closed
 
 A mainnet filler (`0xb98306ac…`, Hyperbridge `12KyapjPpm2fK62gepzZKEEk3xP9vzEJdWBspagx8DxZaj2k`) spent nine hours
@@ -101,6 +701,37 @@ backoff because MPCVault intermittently rejects a uuid its own createSigningRequ
 before the callback co-signer is contacted. Created uuids are logged at debug for dashboard
 correlation.
 Files: src/services/wallet/mpcvault.ts.
+
+## 2026-08-31 — Simplex UI cleanup and operator-market module
+
+Reviewed the onboarding and operator UI against the agreed design system and extracted live market
+administration from the dashboard shell into a dedicated module. Runtime market mutations now reject
+duplicate submissions synchronously, token selection uses the shared image-rich control, mobile
+operator navigation remains fixed in view, and the wizard lists every unresolved requirement instead
+of hiding additional blockers. The live chain editor now shares the onboarding logos, collapsibles,
+plain-language endpoint labels, and toast feedback. Added a clean UI check command and corrected the
+setup flow notes to match the current navigation and validation ownership.
+
+Follow-up cleanup moved application boot state into a discriminated-state hook, extracted the render
+error boundary, replaced native dashboard drawers and wizard dialogs with Radix-backed shadcn-style
+Sheet/Dialog primitives, split the monolithic stylesheet into ordered domain files, and separated
+market and chain business logic from their view modules.
+
+Files: `ui/src/app/`, `ui/src/operator/`, `ui/src/wizard/{steps,strategies}/`,
+`ui/src/components/{ui/,OperatorSheet,ScreenErrorBoundary}.tsx`, `ui/src/lib/hooks.ts`,
+`ui/src/styles/`, `package.json`, `docs/ai/{ChangeLog,Decisions,Flow}.md`.
+
+## 2026-08-27 — Hyperbridge-branded Simplex onboarding
+
+Restyled the setup wizard around the shared Hyperbridge visual language: Aeonik and Aeonik Mono,
+the Hyperbridge mark and spectrum accent, the `#131417` canvas, blue-black surface layers, muted
+`#929daa` copy, white primary actions, and rounded controls. The wizard now presents a persistent
+desktop journey rail, a compact horizontally scrollable mobile rail, a step-level progress header,
+and a local-credentials reassurance without changing any setup state or API behavior. The app shell
+also anchors the brand gradient to the top edge and centers all states in a max-width container.
+
+Files: `ui/src/App.tsx`, `ui/src/styles.css`, `ui/src/wizard/Wizard.tsx`,
+`ui/src/assets/hyperbridge-logo.svg`, `ui/src/assets/fonts/*.woff2`, `docs/ai/{ChangeLog,Decisions,Flow}.md`.
 
 ## 2026-08-27 — Phantom orders are validated against the pallet's shape before they are quoted
 
@@ -196,7 +827,7 @@ Files: `src/services/ContractInteractionService.ts`, `src/services/FillerConfigS
 
 Second review round on the 08-24 fixes; the transport-error fix (F4) did not survive contact with viem, and the new batching/zero-first code had gaps.
 
-- **Probe classification actually works now.** viem 2.47.6's `readContract` wraps *every* failure — HTTP 429/timeout included — in `ContractFunctionExecutionError` (verified empirically against the installed package), so the 08-24 `instanceof` check still cached transport errors as "unsupported". `paymasterSupportsPermit2` now classifies by the cause chain: `error.walk(e => e instanceof ContractFunctionRevertedError || e instanceof ContractFunctionZeroDataError)` marks a genuine revert; everything else propagates uncached. Both unit-test mocks were reshaped to throw what viem actually throws (the old transport mock threw a bare `Error`, which real viem never does — the test was validating a fantasy), and the transport test now also proves the negative was not cached by probing again with a healthy client.
+- **Probe classification actually works now.** viem 2.47.6's `readContract` wraps _every_ failure — HTTP 429/timeout included — in `ContractFunctionExecutionError` (verified empirically against the installed package), so the 08-24 `instanceof` check still cached transport errors as "unsupported". `paymasterSupportsPermit2` now classifies by the cause chain: `error.walk(e => e instanceof ContractFunctionRevertedError || e instanceof ContractFunctionZeroDataError)` marks a genuine revert; everything else propagates uncached. Both unit-test mocks were reshaped to throw what viem actually throws (the old transport mock threw a bare `Error`, which real viem never does — the test was validating a fantasy), and the transport test now also proves the negative was not cached by probing again with a healthy client.
 - **Zero-only batching.** `resolvePendingPermit2Approval` returns null for any non-zero allowance, not just one at the recommendation: the batched delegation tx approves max directly and skips simulation (explicit gas), so a stale partial allowance on a USDT-rule token was a deterministic on-chain revert. Stale-allowance cases defer to `sendFundedApprove`'s zero-first path.
 - **Delegation retry checks `isDelegated` first.** EIP-7702 applies authorization tuples before execution and keeps them applied when execution reverts, so a batched tx that reverted on the approve usually still delegated — the retry now costs one `eth_getCode` instead of a full second tx.
 - **Pre-check budgets the whole sequence.** `sendFundedApprove` reads the allowance up front and requires native for two txs when a zero-first reset is needed; previously dust for exactly one tx passed the check, landed the reset, and died mid-sequence with the allowance stuck at zero.
@@ -249,6 +880,7 @@ The Simplex paymaster client gained mode `0x02 PERMIT2`. On chains whose fee tok
 Live probe on Base Sepolia through Alchemy's bundler (deployment script `evm/script/SimplexPaymasterPermit2Probe.s.sol`, env-gated suite `src/tests/services/SimplexPaymasterPermit2.probe.test.ts`): a fresh EOA's sponsored EIP-7702 delegation and a follow-up no-op from the delegated account were both accepted in mode 2 (`Permit2Executed` on-chain), answering the ERC-7562 question for that bundler. The very first op right after the bootstrap approve was rejected `AA33` twice in a row until the approve was one more block old, so `sendFundedApprove` now waits for two confirmations.
 
 Files: `src/services/paymaster/permit2.ts` (new), `src/services/paymaster/provider/simplex.ts`, `src/services/paymaster/types.ts`, `src/services/paymaster/index.ts`, `src/services/UserOpSender.ts`, `src/services/DelegationService.ts`, `src/config/abis/SimplexPaymaster.ts`, `src/tests/services/SimplexPaymaster.test.ts`, `src/tests/services/UserOpSender.test.ts`, `src/tests/services/SimplexPaymasterPermit2.probe.test.ts` (new).
+
 ## 2026-08-20 — The filler only takes single-leg orders
 
 `EventMonitor.handleOrder` now forwards an order only when it has exactly one input asset and one
@@ -350,7 +982,7 @@ at all — and it forces the partial-fill eligibility gate. With the payout no l
 `desiredOutput`, a curve running far enough above the order's rate can cover the whole ask out of a
 capped slice; that is a full fill and gating it as a partial would reject cross-chain and calldata
 orders the filler can actually serve. The condition is now `capFraction.lt(1) && policyMaxOutput <
-output.amount` — the cap is active *and* it actually shortens the fill.
+output.amount` — the cap is active _and_ it actually shortens the fill.
 
 **`maxOrderSize` is now optional.** `TradingPair.maxOrderSize` is `Decimal | undefined`; absent
 means uncapped, and the pair fills every order at its full notional. `validatePairConfigs` no
@@ -453,7 +1085,8 @@ An operator running only Base saw `ERROR: [intent-filler]: Shared cache is not i
 `handleNewOrder` now checks the destination first: not a configured chain, or configured but watch-only → debug-level skip, cache untouched. The "Shared cache is not initialized" error survives for what it actually means now — a configured, filling destination with a genuinely absent entry, which is an initialization bug. Pinned by `order-destination.test.ts`: unconfigured / non-EVM / watch-only destinations never touch the cache, a filling destination proceeds to the allowlist, and the configured-but-uncached case still errors.
 
 Files: `src/core/filler.ts`, `src/tests/core/order-destination.test.ts` (new).
-## 2026-08-19 — The binary silences @polkadot/* startup noise; the library still never touches the console
+
+## 2026-08-19 — The binary silences @polkadot/\* startup noise; the library still never touches the console
 
 Every start of the bundled CLI printed a wall of `@polkadot/util has multiple versions` warnings, `REGISTRY: Unknown signed extensions` / `API/INIT: RPC methods not decorated` logger chatter, and Node's punycode deprecation. `src/bin/quiet.ts` — the entry's first import, since most of this fires during `@polkadot/*` module init — sets polkadot's official `POLKADOTJS_DISABLE_ESM_CJS_WARNING=1` (silencing the same-version dual-instantiation the single-file bundle necessarily produces), sets `process.noDeprecation`, and wraps `console.warn` with a narrow filter for the remaining known patterns. Only `console.warn` is touched (both noise sources write there); `console.error` is untouched, and real polkadot output — connection failures included — passes through, pinned by test.
 
@@ -464,6 +1097,7 @@ Two gotchas worth recording: `package.json`'s `"sideEffects": false` silently tr
 The genuine version skew is fixed at the source in the same change, at the maintainer's call: the sdk's `@polkadot/api: "latest"` (and its `types`/`util`/`util-crypto`/`keyring` "latest" pins) became concrete `^16.5.6`/`^14.0.3` ranges, simplex's direct `@polkadot/util{,-crypto} ^13.5.6` moved to `^14.0.3` to match what api 16.x requires, and both packages' `resolutions` blocks — which pnpm warned were ineffective — are deleted rather than moved (they were doing nothing; nothing changed by removing them). Verified structurally, not just by silence: the rebuilt binary's bundle contains zero `13.5.9` occurrences where it previously carried both versions, `pnpm why @polkadot/util` resolves a single 14.0.3 in both package trees, and substrate key derivation (`balance-provider.test.ts`) passes on util-crypto 14.
 
 Files: `src/bin/quiet.ts` (new), `src/bin/simplex.ts`, `package.json`, `sdk/packages/sdk/package.json`, `src/tests/cli/quiet.test.ts` (new).
+
 ## 2026-08-19 — Quorum client suspends rate-limited endpoints for 5 minutes
 
 `QuorumPublicClient` previously re-queried a 429ing endpoint on every call — `isRateLimited` existed but only labelled diagnostics — which both wastes the call and deepens the provider's throttle. An endpoint whose failure is unambiguously a request-rate limit (`isSuspendableRateLimit` — stricter than the diagnostic `isRateLimited` label: `-32005` alone never benches, since Infura returns it for deterministic getLogs result caps, and the free-text match excludes URL-bearing metaMessages) is now suspended for `RATE_LIMIT_SUSPENSION_MS` (5 minutes) and dropped by `participants()` — from the query set and from the quorum bar both: each call's threshold is `quorumThreshold(endpoints actually queried)`, so the remaining endpoints keep serving reads while a provider throttles (first shipped with a fixed full-set threshold; reversed by the maintainer — a throttled endpoint answers nothing either way, and counting it only makes the scanner miss orders). With every endpoint benched, all are queried again. Suspension is recorded even from stragglers that settle after a call already decided, `suspended()` exposes the benched URLs, and QuorumError messages carry `responders: N/M queried (K/S suspended for rate limiting)` — the skipped count snapshotted at endpoint selection, not re-sampled at throw time (a long call can outlive a suspension window). `settleUntilQuorum` now takes `{ idx, task }` pairs so failures map to real endpoint indices (`getTransactionConfirmations` previously reported `unknown` URLs in failure detail).
@@ -484,7 +1118,7 @@ A six-dimension adversarial audit of the signer branch confirmed 21 distinct iss
 
 Two code defects. `digestSigner` now validates the backend's signature once for every operation — most HSM docs return the legacy v (27/28), viem encodes any truthy `yParity` as parity 1, and EIP-7702 skips an invalid tuple without reverting, so an unguarded 27 meant "Delegation successful" in the logs and an undelegated solver on chain; `DelegationService.buildAuthorization` carries the same guard so hand-written signers are covered. And a signerless boot is now recorded (`FillerRuntime.signerless`) and enforced: boot's new per-chain watch-only exemption had made it possible to start an observer and later flip it into filling with the generated throwaway key via `chains.add`/`setWatchOnly(false)` — both now refuse, and `add` defaults new chains to watch-only. The setup API's gate also stops crashing on a signerless watch-only config (`TypeError` on an absent block) and instead mirrors run's rule.
 
-Test integrity. `assertSignsForItsAddress`'s transaction leg asserted shape only — a signer signing the digest of a *different* transaction passed — and now parses the signed bytes and recovers the signer, matching the gated integration tests. The refactor had migrated the code but not several fixtures: `UserOpSender`, `ContractInteractionService.rpc`, `pairs`, `fx.price-guard` and `fx.one-sided-lp` tests still stubbed `{ account: { address } }`, so the paths under test ran with the solver address `undefined` (hidden by `as unknown as Signer` casts); all swept to `{ address }`, and the UserOp tests now assert `op.sender`. The deleted `validateConfig` signer-requirement tests are replaced at the layer that owns the rule now: `boot-signer.test.ts` pins the boot rejection through a mock RPC, unit-tests `allChainsWatchOnly` (exported for the purpose), and pins the signerless guards. The shared `TYPED_DATA` fixture lists `EIP712Domain`, honouring the branch's own contract; one ungated assertion now recovers an authorization against the hand-built `keccak256(0x05 ‖ rlp(...))` preimage, so sign and verify no longer share viem's hasher; and a persist-roundtrip test asserts the `[simplex.signer]` block survives a dashboard rewrite — the regression the `FillerConfigFile` split exists to prevent.
+Test integrity. `assertSignsForItsAddress`'s transaction leg asserted shape only — a signer signing the digest of a _different_ transaction passed — and now parses the signed bytes and recovers the signer, matching the gated integration tests. The refactor had migrated the code but not several fixtures: `UserOpSender`, `ContractInteractionService.rpc`, `pairs`, `fx.price-guard` and `fx.one-sided-lp` tests still stubbed `{ account: { address } }`, so the paths under test ran with the solver address `undefined` (hidden by `as unknown as Signer` casts); all swept to `{ address }`, and the UserOp tests now assert `op.sender`. The deleted `validateConfig` signer-requirement tests are replaced at the layer that owns the rule now: `boot-signer.test.ts` pins the boot rejection through a mock RPC, unit-tests `allChainsWatchOnly` (exported for the purpose), and pins the signerless guards. The shared `TYPED_DATA` fixture lists `EIP712Domain`, honouring the branch's own contract; one ungated assertion now recovers an authorization against the hand-built `keccak256(0x05 ‖ rlp(...))` preimage, so sign and verify no longer share viem's hasher; and a persist-roundtrip test asserts the `[simplex.signer]` block survives a dashboard rewrite — the regression the `FillerConfigFile` split exists to prevent.
 
 Docs drift from the design's three iterations corrected across both packages' `docs/ai` (final interface shape, `signRawHash`'s removal, `validateConfig` does not read the signer block, `UserOpSender.buildSignedUserOp`), the README's quick-start now compiles, and the `digestSigner` docs state the split-signature contract and the new yParity rejection. The API reference documents the signerless one-way door.
 

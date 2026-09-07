@@ -285,6 +285,7 @@ export class ChainScanner {
 					blockNumber: coords.blockNumber ?? 0n,
 					blockHash: coords.blockHash ?? "",
 					logIndex: coords.logIndex ?? 0,
+					transactionHash: (log as { transactionHash?: string }).transactionHash,
 				})
 			} catch (error) {
 				this.logger.error({ err: error, log }, "Error parsing OrderFilled log")

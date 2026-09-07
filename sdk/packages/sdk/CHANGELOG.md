@@ -1,5 +1,11 @@
 # @hyperbridge/sdk
 
+## 2.8.10
+
+### Patch Changes
+
+- Increased the gas-price headroom used by SDK-generated cross-chain Intent Gateway order-fee quotes from 10% to 50% when Ethereum mainnet is the source chain. Other source chains remain at 10%; same-chain quotes and direct solver estimates remain unchanged.
+
 ## 2.8.8
 
 ### Patch Changes

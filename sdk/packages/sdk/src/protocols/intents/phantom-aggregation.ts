@@ -575,8 +575,16 @@ export const recoverBidSignerViem: RecoverBidSigner = async (userOp, entryPoint,
 // An EOA that has delegated with EIP-7702 has code `0xef0100 ‖ delegate`.
 const DELEGATION_INDICATOR_PREFIX = "0xef0100"
 
-/** Whether `account` is an EOA EIP-7702-delegated to `solverAccount` on the given chain. */
-async function isDelegatedToSolverAccount(evmRpcUrl: string, account: string, solverAccount: string): Promise<boolean> {
+/**
+ * Whether `account` is an EOA EIP-7702-delegated to one of `solverAccounts` on the given chain.
+ * Several are accepted so a SolverAccount redeployment does not unseat solvers still delegated to
+ * the previous one.
+ */
+async function isDelegatedToSolverAccount(
+	evmRpcUrl: string,
+	account: string,
+	solverAccounts: readonly string[],
+): Promise<boolean> {
 	const response = await rpcCall(evmRpcUrl, {
 		id: 1,
 		jsonrpc: "2.0",
@@ -593,11 +601,12 @@ async function isDelegatedToSolverAccount(evmRpcUrl: string, account: string, so
 	const code = response.result.toLowerCase()
 	if (!code.startsWith(DELEGATION_INDICATOR_PREFIX)) return false
 
-	return `0x${code.slice(DELEGATION_INDICATOR_PREFIX.length)}` === solverAccount.toLowerCase()
+	const delegate = `0x${code.slice(DELEGATION_INDICATOR_PREFIX.length)}`
+	return solverAccounts.some((solverAccount) => solverAccount.toLowerCase() === delegate)
 }
 
 /** Promise-caching delegation reader produced by {@link memoizedDelegationCheck}. */
-type DelegationReader = (evmRpcUrl: string, account: string, solverAccount: string) => Promise<boolean>
+type DelegationReader = (evmRpcUrl: string, account: string, solverAccounts: readonly string[]) => Promise<boolean>
 
 /**
  * Caches the delegation check for the life of one aggregation, retries included.
@@ -614,11 +623,12 @@ type DelegationReader = (evmRpcUrl: string, account: string, solverAccount: stri
  */
 function memoizedDelegationCheck(): DelegationReader {
 	const cache = new Map<string, Promise<boolean>>()
-	return (evmRpcUrl: string, account: string, solverAccount: string): Promise<boolean> => {
-		const key = `${evmRpcUrl}|${account.toLowerCase()}|${solverAccount.toLowerCase()}`
+	return (evmRpcUrl: string, account: string, solverAccounts: readonly string[]): Promise<boolean> => {
+		const targets = solverAccounts.map((a) => a.toLowerCase()).sort().join(",")
+		const key = `${evmRpcUrl}|${account.toLowerCase()}|${targets}`
 		let pending = cache.get(key)
 		if (!pending) {
-			pending = isDelegatedToSolverAccount(evmRpcUrl, account, solverAccount).catch((err) => {
+			pending = isDelegatedToSolverAccount(evmRpcUrl, account, solverAccounts).catch((err) => {
 				cache.delete(key)
 				throw err
 			})
@@ -649,7 +659,7 @@ async function isVerifiedSolverBid(params: {
 	commitment: string
 	sessionKey: HexString
 	chainId: bigint
-	solverAccount: string
+	solverAccounts: readonly string[]
 	evmRpcUrl: string
 	recoverSigner: RecoverBidSigner
 	bidNonceKey: BidNonceKeyFn
@@ -662,7 +672,7 @@ async function isVerifiedSolverBid(params: {
 		commitment,
 		sessionKey,
 		chainId,
-		solverAccount,
+		solverAccounts,
 		evmRpcUrl,
 		recoverSigner,
 		bidNonceKey,
@@ -704,8 +714,8 @@ async function isVerifiedSolverBid(params: {
 		return false
 	}
 
-	if (!(await isDelegated(evmRpcUrl, solver, solverAccount))) {
-		logger?.warn({ solver, commitment, solverAccount }, "Rejecting phantom bid: sender is not a delegated solver")
+	if (!(await isDelegated(evmRpcUrl, solver, solverAccounts))) {
+		logger?.warn({ solver, commitment, solverAccounts }, "Rejecting phantom bid: sender is not a delegated solver")
 		return false
 	}
 
@@ -1026,8 +1036,12 @@ async function runAggregation(
 		gatewayAddress: string
 		commitment: string
 		yieldVaults: YieldVaultMap
-		/** SolverAccount on `chain` that our solvers delegate to; bids from anyone else are dropped. */
-		solverAccount: string
+		/**
+		 * SolverAccount on `chain` that our solvers delegate to; bids from anyone else are dropped.
+		 * Several may be given, e.g. the current deployment and the one it replaced, and a bid is
+		 * counted when its sender delegates to any of them.
+		 */
+		solverAccount: string | readonly string[]
 		extractFill?: (callData: HexString, gatewayAddress: string) => FillData | null
 		recoverSigner?: RecoverBidSigner
 		bidNonceKey?: BidNonceKeyFn
@@ -1050,7 +1064,10 @@ async function runAggregation(
 	},
 	isDelegated: DelegationReader,
 ): Promise<PhantomAggregation | null> {
-	const { nodeUrl, evmRpcUrls, chain, gatewayAddress, commitment, yieldVaults, solverAccount, logger } = params
+	const { nodeUrl, evmRpcUrls, chain, gatewayAddress, commitment, yieldVaults, logger } = params
+	const solverAccounts = (Array.isArray(params.solverAccount) ? params.solverAccount : [params.solverAccount]).filter(
+		(a): a is string => typeof a === "string" && a.length > 0,
+	)
 	const extractFill = params.extractFill ?? extractFillData
 	const recoverSigner = params.recoverSigner ?? recoverBidSignerViem
 	const bidNonceKey = params.bidNonceKey ?? CryptoUtils.bidNonceKey
@@ -1063,7 +1080,7 @@ async function runAggregation(
 	// the price, so a chain we can't resolve them for produces no snapshot at all. solverAccount is
 	// typed as required but comes from a config lookup that can miss, so it is re-checked here.
 	const chainId = evmChainId(chain)
-	if (!solverAccount || chainId === null) {
+	if (solverAccounts.length === 0 || chainId === null) {
 		logger?.warn({ chain, commitment }, "Cannot verify phantom bids: no SolverAccount or chain id for chain")
 		return null
 	}
@@ -1123,7 +1140,7 @@ async function runAggregation(
 				commitment,
 				sessionKey,
 				chainId,
-				solverAccount,
+				solverAccounts,
 				evmRpcUrl: destUrl,
 				recoverSigner,
 				bidNonceKey,

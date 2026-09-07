@@ -16,6 +16,7 @@ pragma solidity ^0.8.17;
 
 import {HyperFungibleToken} from "@hyperbridge/core/apps/HyperFungibleToken.sol";
 import {StateMachine} from "@hyperbridge/core/libraries/StateMachine.sol";
+import {IncomingPostRequest, PostRequestTimeout} from "@hyperbridge/core/interfaces/IApp.sol";
 
 /**
  * @title BridgeToken
@@ -41,6 +42,15 @@ contract BridgeToken is HyperFungibleToken {
     /// @notice The module id of `pallet-hyper-fungible-token`, its 8 byte `pall_hft` PalletId
     bytes8 public constant NEXUS_MODULE_ID = bytes8("pall_hft");
 
+    /// @notice The only relayer whose deliveries mint; zero means nobody
+    address internal _relayer;
+
+    /// @notice Emitted when the authorised relayer is replaced
+    event RelayerUpdated(address previous, address current);
+
+    /// @notice Thrown when a delivery comes from a relayer other than the authorised one
+    error UnauthorizedRelayer();
+
     /**
      * @notice Deploys the token with nexus already registered as a peer
      * @param initialOwner The address that will own this contract. It can register further peers,
@@ -59,15 +69,40 @@ contract BridgeToken is HyperFungibleToken {
         return StateMachine.polkadot(NEXUS_PARA_ID);
     }
 
+    /// @notice The relayer authorised to deliver to this token
+    function relayer() external view returns (address) {
+        return _relayer;
+    }
+
     /**
-     * @dev Fails closed: every mint, whether from an incoming transfer or a timeout refund, must be
-     * delivered by the relayer the owner set with `setRelayer`, and with none set nobody may deliver.
-     * The base contract treats zero as unrestricted for the benefit of third-party tokens; the
-     * supply of this token is backed by the nexus escrow, so it must not mint on the strength of a
-     * consensus proof alone. The handler always forwards a real `msg.sender`, so zero never matches.
-     * @param incomingRelayer The account that submitted the message to the handler
+     * @notice Sets the only relayer whose `onAccept` and `onPostRequestTimeout` deliveries mint
+     * @dev Owner-only. The host records a refused delivery as undelivered, so a rejected message can
+     * be resubmitted by the authorised relayer.
+     * @param newRelayer The relayer to authorise. Zero closes the token to every relayer.
      */
-    function _checkRelayer(address incomingRelayer) internal view override {
+    function setRelayer(address newRelayer) external onlyOwner {
+        emit RelayerUpdated({previous: _relayer, current: newRelayer});
+        _relayer = newRelayer;
+    }
+
+    /// @dev Gated on the relayer before the base token mints. See `_checkRelayer`.
+    function onAccept(IncomingPostRequest calldata incoming) public override onlyHost {
+        _checkRelayer(incoming.relayer);
+        super.onAccept(incoming);
+    }
+
+    /// @dev Gated on the relayer before the base token refunds. See `_checkRelayer`.
+    function onPostRequestTimeout(PostRequestTimeout memory incoming) public override onlyHost {
+        _checkRelayer(incoming.relayer);
+        super.onPostRequestTimeout(incoming);
+    }
+
+    /**
+     * @dev Fails closed: with no relayer set nobody may deliver. The supply of this token is backed
+     * by the nexus escrow, so it must not mint on the strength of a consensus proof alone. The
+     * handler always forwards a real `msg.sender`, so zero never matches.
+     */
+    function _checkRelayer(address incomingRelayer) private view {
         if (incomingRelayer != _relayer) revert UnauthorizedRelayer();
     }
 }

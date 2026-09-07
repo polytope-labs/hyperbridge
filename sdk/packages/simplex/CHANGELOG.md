@@ -1,5 +1,24 @@
 # @hyperbridge/filler
 
+## 0.13.2
+
+### Patch Changes
+
+- Orders page (renamed from Activity): every sidebar page has its own URL that survives a reload; orders another solver filled read "Outbid" with the winner beneath; the bid and its retraction are one column of arrow links to the Hyperbridge explorer (green up for the bid, red down for the retraction); amounts round to a precision that fits their size; the order row links only to HyperFX.
+- Wallet ledger: rows lead with an action icon (receipt for fills, arrows for vault sweeps and redeems, send), then Amount in and Amount out with token logos — a fill shows the order's input received and output paid, a sweep the underlying out and the vault shares in (share tokens carry a bank badge over the underlying's logo), a redeem the reverse. Sweeps and redeems now record their amounts, and rows from before that are backfilled from their receipts at startup.
+- Solver links: an FX market's sheet has a "Get link" entry that builds a HyperFX swap page locked to this filler, the pair and its current curve prices, with a copy button.
+- The dashboard container widens to 150rem.
+
+## 0.13.0
+
+### Minor Changes
+
+- The dashboard's activity feed is now an order history: one row per order with the referrer decoded from the graffiti tag, amounts in and out with token and chain, user, placed time, the latest bid and its retraction as links to the Hyperbridge explorer, and links to HyperFX and the placement and fill transactions. Pages are served by `GET /api/activity/history`. Order details are captured at detection and, for rows recorded before that, backfilled from the Hyperbridge indexer (`simplex.indexerUrl` overrides the per-network default).
+- A bid is no longer reported as a fill. Under solver selection an accepted bid records a `bid` row and the order settles from the on-chain `OrderFilled` log as `filled` or `lost` (with the winning filler). A new `order:fill-observed` event reports every fill on a configured chain; `order:filled` now carries the bid's commitment. Legacy bid-time rows are retyped and settled from the indexer at boot.
+- Phantom bid deposits no longer leak on restart. The live phantom commitment per chain is persisted in the runtime state and retracted by the first batch of the next process; previously every restart stranded one 0.01 BRIDGE deposit per chain. All runtime-state writers merge, so a pause no longer discards it.
+- The vault treasury editor groups curated vaults per chain, folds chains the filler does not run behind one row with an "Enable chain" link, and lists every chain on the running network. Send funds and Vault treasury moved to the Wallet page, Runtime controls onto the Overview, and the Activity page is now Orders.
+- Watch-only orders are recorded as skipped instead of silently dropped, and `ScannedFill` carries the fill transaction hash.
+
 ## 0.12.4
 
 ### Patch Changes

@@ -426,14 +426,33 @@ door there: filling would burn bids from an address nobody controls.
 list(): VaultToml[]
 preflight(vaults: VaultToml[]): Promise<void>
 set(vaults: VaultToml[], options?: { sweepIntervalMs?: number }): Promise<void>
-sweepNow(): Promise<void>
+sweepNow(): Promise<VaultSweepResult>
 redeemAll(): Promise<void>
 ```
 
 `preflight` hydrates a prospective set against chain state without touching the live venue, so
 unconfigured chains, same-asset duplicates and non-vault addresses surface before you commit to
-`set`. `sweepNow` deposits wallet balance above each vault's threshold down to its floor;
-`redeemAll` unwinds every position flagged `redeemOnShutdown` back to its underlying asset; positions without the flag are left in place.
+`set`. `sweepNow` deposits wallet balance above each vault's threshold down to its floor and
+returns what happened: `submitted` lists each batch with its deposits, and `skipped` names every
+vault the pass left alone with a reason — `below-threshold` (the wallet has not reached its trigger),
+`sweeping-disabled` (no threshold configured) or `deposits-closed` (the wallet is over its trigger
+but the vault reports `maxDeposit(solver) == 0`, as a `StreamingYieldVault` does while a tranche
+vests). The periodic sweep uses the same pass and logs a warning the first time a vault turns a
+due deposit away. `redeemAll` unwinds every position flagged `redeemOnShutdown` back to its
+underlying asset; positions without the flag are left in place.
+
+```typescript lineNumbers
+interface VaultSweepResult {
+  submitted: { chain: string; txHash: HexString; sponsored: boolean; deposits: VaultSweepDeposit[] }[]
+  skipped: VaultSweepSkip[]
+}
+interface VaultSweepDeposit { vault: HexString; asset: HexString; symbol: string; decimals: number; amount: bigint }
+interface VaultSweepSkip {
+  chain: string; vault: HexString; asset: HexString; symbol: string; decimals: number
+  reason: "sweeping-disabled" | "below-threshold" | "deposits-closed"
+  walletBalance?: bigint; threshold?: bigint; maxDeposit?: bigint   // base units
+}
+```
 
 **Throws:** `set`, `sweepNow` and `redeemAll` throw if the solver was started without a vault treasury. `list` returns `[]` and `preflight` does not require one.
 

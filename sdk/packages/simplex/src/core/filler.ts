@@ -20,7 +20,8 @@ import { INTENT_GATEWAY_V2_ABI } from "@/config/abis/IntentGatewayV2"
 import type { Address } from "viem"
 import pQueue from "p-queue"
 import { type ChainClientManager, type ContractInteractionService, DelegationService, type RebalancingService } from "@/services"
-import type { BidStore } from "@/data/types"
+import { patchRuntimeState } from "@/data/state"
+import type { BidStore, StateStore } from "@/data/types"
 import type { HyperbridgeScanner, OrderScanner, Subscription } from "@/scanner/types"
 import type { FillerConfigService } from "@/services/FillerConfigService"
 import { type Logger , moduleLogger} from "@/services/Logger"
@@ -62,6 +63,7 @@ export class IntentFiller {
 	private delegationService?: DelegationService
 	private rebalancingService?: RebalancingService
 	private bidStorage?: BidStore
+	private stateStore?: StateStore
 	private retractionQueue: pQueue
 	private paused = false
 	private stopping = false
@@ -106,6 +108,7 @@ export class IntentFiller {
 		scanners: { orders: OrderScanner; hyperbridge?: HyperbridgeScanner },
 		rebalancingService?: RebalancingService,
 		bidStorage?: BidStore,
+		stateStore?: StateStore,
 	) {
 		this.logger = moduleLogger(configService.loggers, "intent-filler")
 		this.configService = configService
@@ -115,6 +118,7 @@ export class IntentFiller {
 		this.contractService = contractService
 		this.rebalancingService = rebalancingService
 		this.bidStorage = bidStorage
+		this.stateStore = stateStore
 		this.monitor = new EventMonitor(chainConfigs, configService, this.fillerAddress, scanners.orders)
 		this.hyperbridgeScanner = scanners.hyperbridge
 		this.strategies = strategies
@@ -632,10 +636,14 @@ export class IntentFiller {
 					return
 				}
 				if (this.isChainWatchOnly(destinationChainId)) {
-					this.logger.debug(
+					this.logger.info(
 						{ orderId: order.id, destination: order.destination },
 						"Order destination is watch-only, skipping",
 					)
+					// Same skip `evaluateOrder` records for its own watch-only check; this
+					// intake check runs first, so without it the feed showed watch-only
+					// orders as merely "detected" with no reason.
+					this.monitor.emit("orderSkipped", { orderId: order.id, reason: "watch-only" })
 					return
 				}
 
@@ -976,6 +984,9 @@ export class IntentFiller {
 						volumeUsd: inputUsdValue.toNumber(),
 						profitUsd,
 						chainId: getChainId(order.source),
+						// Under solver selection "success" means the bid was accepted by
+						// Hyperbridge, not that the order is filled; the commitment says which.
+						commitment: result.commitment,
 					})
 				}
 				this.monitor.emit("orderExecuted", {
@@ -1396,6 +1407,41 @@ export class IntentFiller {
 	}
 
 	/**
+	 * Seeds the per-chain phantom commitments from a previous run, so the first
+	 * batch after a restart retracts the bid that run left live. Chains already
+	 * known to this run are not overwritten.
+	 */
+	restorePhantomBids(bids: Record<string, string> | undefined): void {
+		for (const [chain, commitment] of Object.entries(bids ?? {})) {
+			if (!this.lastPhantomCommitmentByChain.has(chain)) {
+				this.lastPhantomCommitmentByChain.set(chain, commitment as HexString)
+			}
+		}
+		if (bids && Object.keys(bids).length > 0) {
+			this.logger.info({ chains: Object.keys(bids) }, "Restored live phantom bids from the previous run")
+		}
+	}
+
+	/** The last phantom commitment per chain that may still hold a deposit. */
+	livePhantomBids(): Record<string, string> {
+		return Object.fromEntries(this.lastPhantomCommitmentByChain)
+	}
+
+	/**
+	 * Records a phantom bid as the chain's live one and persists the set. The
+	 * write is best-effort: a failed persist costs one deposit on the next
+	 * restart, which is exactly the situation it exists to prevent, so it is
+	 * logged rather than allowed to fail the interval.
+	 */
+	private rememberPhantomBid(chain: string, commitment: HexString): void {
+		this.lastPhantomCommitmentByChain.set(chain, commitment)
+		if (!this.stateStore) return
+		patchRuntimeState(this.stateStore, { phantomBids: this.livePhantomBids() }).catch((err) =>
+			this.logger.warn({ err, chain }, "Could not persist the live phantom bid"),
+		)
+	}
+
+	/**
 	 * Bids on every phantom order registered in one block, in a single extrinsic.
 	 *
 	 * The pallet registers one order per configured chain in the same block, so this is the whole
@@ -1420,14 +1466,14 @@ export class IntentFiller {
 			const outcome = result.bids[index]
 			if (outcome?.success) {
 				landed.push(entry.chain)
-				this.lastPhantomCommitmentByChain.set(entry.chain, entry.bid.commitment)
+				this.rememberPhantomBid(entry.chain, entry.bid.commitment)
 				return
 			}
 			if (result.pending) {
 				// The extrinsic reached the tx pool but inclusion wasn't observed — it will almost
 				// certainly land. Record the commitment so the next interval's batch retracts it;
 				// if it never lands, that retraction degrades to a harmless trailing BidNotFound.
-				this.lastPhantomCommitmentByChain.set(entry.chain, entry.bid.commitment)
+				this.rememberPhantomBid(entry.chain, entry.bid.commitment)
 				return
 			}
 			this.logger.warn(

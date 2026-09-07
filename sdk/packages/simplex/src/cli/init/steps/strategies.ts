@@ -299,7 +299,7 @@ async function buildMarketPair(
 	why(WHY.maxOrderSize)
 	const maxOrderSize = await askNumber(
 		`Maximum ${token0} per order`,
-		Number(existing?.maxOrderSize ?? 5000),
+		Number(existing?.maxOrderSize ?? 50000),
 		(n) => (n > 0 ? undefined : "Enter a positive number"),
 	)
 

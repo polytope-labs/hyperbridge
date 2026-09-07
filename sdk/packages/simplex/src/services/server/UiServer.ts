@@ -3,17 +3,17 @@ import { Decimal } from "decimal.js"
 import { FillerPricePolicy, formatChainKey, parseChainKey, type PriceCurvePoint } from "@/config/interpolated-curve"
 import { AssetRegistry, registrySymbols, validateAssetDefinitions, type AssetDefinition } from "@/config/asset-registry"
 import { assertPairSymbolsResolve, validatePairConfigs, type PairConfig } from "@/config/pairs"
-import { VaultFundingPlanner } from "@/funding/vault/VaultFundingPlanner"
-import { chainsForNetwork, INIT_CHAINS, type InitNetwork } from "@/cli/init/chains"
+import { VaultFundingPlanner, type VaultSweepResult } from "@/funding/vault/VaultFundingPlanner"
+import { chainByChainId, chainsForNetwork, INIT_CHAINS, type InitNetwork } from "@/cli/init/chains"
 import { TESTNET_CONFIRMATION_POINTS } from "@/cli/init/state"
 import { ChainConfigService } from "@hyperbridge/sdk"
 import { assertConfirmationCoverage, type FillerConfigFile, type FillerTomlConfig, type VaultToml } from "@/config/filler-toml"
 import { emitFillerToml, writeConfigFileAtomic } from "@/cli/init/emit-toml"
-import { isAddress } from "viem"
+import { formatUnits, isAddress } from "viem"
 import { validateRpcUrls, type AllowlistConfig } from "@/services/FillerConfigService"
 import { withTimeout, PROBE_TIMEOUT_MS } from "@/cli/init/prompt-utils"
 import type { ActivityRecorder } from "@/data/recorder"
-import type { ActivityEvent, BidStore } from "@/data/types"
+import type { ActivityEvent, BidStore, OrderLeg } from "@/data/types"
 import type { BalanceProvider } from "../BalanceProvider"
 import { getLogger, type LogLevel } from "../Logger"
 import { readBody, sendJson, isLoopbackHost, isContainerized, hostHeaderAllowed } from "./http-util"
@@ -38,6 +38,9 @@ import {
 	type StatusInit,
 	type StatusOperator,
 	type WalletTxDto,
+	type VaultSweepDto,
+	type OrderHistoryDto,
+	type LedgerLeg,
 } from "./dto"
 
 /**
@@ -120,8 +123,8 @@ export interface OperatorContext {
 	config: FillerConfigFile
 	/** Drains the filler and exits the process (the UI's graceful Stop). */
 	stop(): Promise<void>
-	activity: Pick<ActivityRecorder, "recent" | "on" | "off" | "record" | "recordWalletTx" | "walletTxs" | "fills">
-	bids?: Pick<BidStore, "recent" | "stats">
+	activity: Pick<ActivityRecorder, "recent" | "on" | "off" | "record" | "recordWalletTx" | "walletTxs" | "fills" | "orderHistory">
+	bids?: Pick<BidStore, "recent" | "stats" | "byCommitments">
 	/** Persists an operator pause so it survives a restart. */
 	setPaused(paused: boolean): Promise<void>
 	/**
@@ -131,7 +134,8 @@ export interface OperatorContext {
 	 */
 	setLogLevel(level: LogLevel): void
 	vault?: {
-		sweepNow(): Promise<void>
+		/** Runs one sweep pass now and reports what it did — and, per vault, why it did nothing. */
+		sweepNow(): Promise<VaultSweepResult>
 		redeemAll(): Promise<void>
 		/** Re-hydrates the shared venue with a new vault set; rejects on bad vaults. */
 		reconfigure(vaults: VaultToml[], sweepIntervalMs?: number): Promise<void>
@@ -449,6 +453,33 @@ export class UiServer {
 			return sendJson(res, 200, { events: await this.operator!.activity.recent(limit, before) })
 		}
 
+		if (path === "/api/activity/history") {
+			if (this.mode !== "operator") return sendJson(res, 409, { error: "Filler is not running" })
+			if (method !== "GET") return sendJson(res, 405, { error: "Method not allowed" })
+			const params = new URL(req.url ?? "/", "http://localhost").searchParams
+			const page = Math.max(1, Number(params.get("page") ?? 1) || 1)
+			const pageSize = Math.min(Math.max(Number(params.get("pageSize") ?? 20) || 20, 1), 100)
+			const activity = this.operator!.activity
+			const [history, newest] = await Promise.all([activity.orderHistory(page, pageSize), activity.recent(100)])
+			const commitments = history.orders.map((order) => order.orderId)
+			const bids = this.operator!.bids ? await this.operator!.bids.byCommitments(commitments) : []
+			const bidsByOrder = new Map<string, typeof bids>()
+			for (const bid of bids) {
+				const list = bidsByOrder.get(bid.commitment) ?? []
+				list.push(bid)
+				bidsByOrder.set(bid.commitment, list)
+			}
+			const dto: OrderHistoryDto = {
+				page: history.page,
+				pageSize: history.pageSize,
+				total: history.total,
+				network: runningNetwork(this.operator!.chains),
+				orders: history.orders.map((order) => ({ ...order, bids: bidsByOrder.get(order.orderId) ?? [] })),
+				other: newest.filter((event) => event.orderId === null),
+			}
+			return sendJson(res, 200, dto)
+		}
+
 		if (path === "/api/wallet/history") {
 			if (this.mode !== "operator") return sendJson(res, 409, { error: "Filler is not running" })
 			if (method !== "GET") return sendJson(res, 405, { error: "Method not allowed" })
@@ -456,8 +487,29 @@ export class UiServer {
 			const limit = Math.min(Math.max(Number(params.get("limit") ?? 100), 1), 500)
 			const activity = this.operator!.activity
 			const [walletTxs, fillTxs] = await Promise.all([activity.walletTxs(limit), activity.fills(limit)])
+			const chainRegistry = new ChainConfigService({})
+			const vaultLabel = (chainId: number | null, address: string | null): string | null => {
+				if (chainId === null || !address) return null
+				const known = chainRegistry.getKnownVaults(formatChainKey(chainId))
+				return known.find((vault) => vault.address.toLowerCase() === address.toLowerCase())?.label ?? null
+			}
+			// Share tokens are named after their underlying (stataUSDC, ycNGN): the logo
+			// comes from the underlying's symbol, and the vault badge says it is a share.
+			const legOf = (symbol: string | null | undefined, amount: string | null | undefined, vault: boolean): LedgerLeg | null =>
+				symbol && amount ? { symbol, amount, decimals: null, icon: vault ? underlyingOf(symbol) : symbol, vault } : null
+			const orderLeg = (leg: OrderLeg | undefined): LedgerLeg | null =>
+				leg ? { symbol: leg.symbol ?? leg.token, amount: leg.amount, decimals: leg.decimals, icon: leg.symbol ?? "", vault: false } : null
 			const txs: WalletTxDto[] = [
-				...walletTxs.map((tx) => ({ ...tx, id: `wallet-${tx.id}` })),
+				...walletTxs.map(({ tokenIn, amountIn, ...tx }) => {
+					const vaultTx = tx.kind === "sweep" || tx.kind === "redeem"
+					return {
+						...tx,
+						id: `wallet-${tx.id}`,
+						label: vaultTx ? vaultLabel(tx.chainId, tx.to) : null,
+						in: legOf(tokenIn, amountIn, tx.kind === "sweep"),
+						out: legOf(tx.token, tx.amount, tx.kind === "redeem"),
+					}
+				}),
 				...fillTxs.map((event) => ({
 					id: `fill-${event.id}`,
 					ts: event.ts,
@@ -468,6 +520,9 @@ export class UiServer {
 					to: null,
 					txHash: event.txHash as string,
 					sponsored: null,
+					label: null,
+					in: orderLeg(event.order?.inputs[0]),
+					out: orderLeg(event.order?.outputs[0]),
 				})),
 			]
 				.sort((a, b) => b.ts - a.ts)
@@ -559,8 +614,8 @@ export class UiServer {
 			const vault = this.operator!.vault
 			if (!vault) return sendJson(res, 409, { error: "No vault configured" })
 			try {
-				if (path === "/api/vault/sweep") await vault.sweepNow()
-				else await vault.redeemAll()
+				if (path === "/api/vault/sweep") return sendJson(res, 200, vaultSweepDto(await vault.sweepNow()))
+				await vault.redeemAll()
 				return sendJson(res, 200, { ok: true })
 			} catch (err) {
 				return sendJson(res, 500, { error: err instanceof Error ? err.message : String(err) })
@@ -1249,13 +1304,21 @@ export class UiServer {
 		return options
 	}
 
-	/** Registry vault catalog for the running chains, same source as the setup wizard's. */
+	/**
+	 * Registry vault catalog for every chain on the running network (mainnet or
+	 * testnet), same source as the setup wizard's. Chains the filler is not
+	 * running are included so the treasury editor can show what becomes
+	 * available once a chain is enabled; the UI keeps those rows unselectable.
+	 */
 	private knownVaultCatalog(op: OperatorContext): ConfigDto["knownVaults"] {
 		const chainRegistry = new ChainConfigService({})
 		const catalog: ConfigDto["knownVaults"] = {}
-		for (const chainId of op.chains) {
-			const stateMachineId = formatChainKey(chainId)
-			catalog[stateMachineId] = chainRegistry.getKnownVaults(stateMachineId)
+		const network = runningNetwork(op.chains)
+		const running = new Set(op.chains.map((chainId) => formatChainKey(chainId)))
+		const stateMachineIds = new Set([...running, ...chainsForNetwork(network).map((meta) => meta.stateMachineId)])
+		for (const stateMachineId of stateMachineIds) {
+			const vaults = chainRegistry.getKnownVaults(stateMachineId)
+			if (vaults.length > 0 || running.has(stateMachineId)) catalog[stateMachineId] = vaults
 		}
 		return catalog
 	}
@@ -1478,4 +1541,38 @@ function validateCurveUpdateShape(body: unknown): string | null {
 		}
 	}
 	return null
+}
+
+/** Wire shape of a sweep pass: base units formatted once here so the dashboard never sees bigints. */
+/** One network per filler: testnet if any running chain is a testnet, else mainnet. */
+function runningNetwork(chains: number[]): InitNetwork {
+	return chains.some((chainId) => chainByChainId(chainId)?.network === "testnet") ? "testnet" : "mainnet"
+}
+
+/** The token a vault share token wraps, by naming convention: stataUSDC → USDC, ycNGN → cNGN, aUSDT → USDT. */
+function underlyingOf(shareSymbol: string): string {
+	for (const known of ["USDC", "USDT", "CNGN", "DAI", "EURC", "ZARP"]) {
+		if (shareSymbol.toUpperCase().includes(known)) return known
+	}
+	return shareSymbol
+}
+
+function vaultSweepDto(result: VaultSweepResult): VaultSweepDto {
+	return {
+		ok: true,
+		submitted: result.submitted.map((tx) => ({
+			chain: tx.chain,
+			txHash: tx.txHash,
+			sponsored: tx.sponsored,
+			deposits: tx.deposits.map((d) => ({ vault: d.vault, symbol: d.symbol, amount: formatUnits(d.amount, d.decimals) })),
+		})),
+		skipped: result.skipped.map((skip) => ({
+			chain: skip.chain,
+			vault: skip.vault,
+			symbol: skip.symbol,
+			reason: skip.reason,
+			...(skip.walletBalance !== undefined ? { walletBalance: formatUnits(skip.walletBalance, skip.decimals) } : {}),
+			...(skip.threshold !== undefined ? { threshold: formatUnits(skip.threshold, skip.decimals) } : {}),
+		})),
+	}
 }

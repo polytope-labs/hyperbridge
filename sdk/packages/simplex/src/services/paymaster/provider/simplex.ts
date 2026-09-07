@@ -19,6 +19,7 @@ import {
 	VERIFICATION_GAS_LIMIT_PERMIT2,
 	PERMIT2_DEADLINE_SECONDS,
 	POST_OP_GAS_LIMIT_SIMPLEX,
+	type FeeTokenBalance,
 	type PaymasterResult,
 } from "../types"
 import { signEip2612Permit } from "../permit"
@@ -27,6 +28,7 @@ import { SIMPLEX_PAYMASTER_ABI } from "@/config/abis/SimplexPaymaster"
 import type { Signer } from "@/services/wallet/types"
 
 interface TokenOption {
+	symbol: FeeTokenBalance["symbol"]
 	address: HexString
 	decimals: number
 }
@@ -47,8 +49,9 @@ const APPROVE_TX_GAS = 60_000n
  *   the paymaster deployment supports it (then PERMIT2 for the account's lifetime),
  *   else a capped approve(paymaster)
  *
- * Returns null when the solver has no balance in any configured token — the caller
- * decides whether to fall back to another paymaster or to the EntryPoint deposit.
+ * Returns the balances it read instead, in selection order, when the solver holds less
+ * than one whole unit of every configured token — the caller decides whether to fall
+ * back to another paymaster or to the EntryPoint deposit, and can name each shortfall.
  */
 export async function buildSimplexPaymasterData(
 	client: PublicClient,
@@ -58,24 +61,12 @@ export async function buildSimplexPaymasterData(
 	paymasterAddress: HexString,
 	chain: string,
 	configService: FillerConfigService,
-): Promise<(PaymasterResult & { token: HexString }) | null> {
+): Promise<(PaymasterResult & { token: HexString }) | { insufficient: FeeTokenBalance[] }> {
 	const chainId = configService.getChainId(chain)
 
-	const tokens: TokenOption[] = []
-
-	const usdcAddress = configService.getUsdcAsset(chain)
-	if (isConfigured(usdcAddress)) {
-		tokens.push({ address: usdcAddress, decimals: configService.getUsdcDecimals(chain) })
-	}
-
-	const usdtAddress = configService.getUsdtAsset(chain)
-	if (isConfigured(usdtAddress)) {
-		tokens.push({ address: usdtAddress, decimals: configService.getUsdtDecimals(chain) })
-	}
-
-	const selected = await selectToken(client, solverAccount, tokens)
+	const { selected, balances } = await selectToken(client, solverAccount, configuredFeeTokens(chain, configService))
 	if (!selected) {
-		return null
+		return { insufficient: balances }
 	}
 
 	const { address: tokenAddress, decimals: tokenDecimals } = selected
@@ -163,13 +154,7 @@ export async function resolvePendingPermit2Approval(
 	if (!isConfigured(permit2)) return null
 	if (!(await paymasterSupportsPermit2(client, configService.getChainId(chain), paymasterAddress))) return null
 
-	const tokens: TokenOption[] = []
-	const usdc = configService.getUsdcAsset(chain)
-	if (isConfigured(usdc)) tokens.push({ address: usdc, decimals: configService.getUsdcDecimals(chain) })
-	const usdt = configService.getUsdtAsset(chain)
-	if (isConfigured(usdt)) tokens.push({ address: usdt, decimals: configService.getUsdtDecimals(chain) })
-
-	const selected = await selectToken(client, solverAccount, tokens)
+	const { selected } = await selectToken(client, solverAccount, configuredFeeTokens(chain, configService))
 	if (!selected) return null
 	// A permit-capable token uses PERMIT mode, never Permit2.
 	if (await tokenSupportsPermit(client, selected.address)) return null
@@ -191,11 +176,31 @@ function isConfigured(address: HexString): boolean {
 	return !!address && address !== "0x" && address !== "0x0000000000000000000000000000000000000000"
 }
 
+/** The paymaster's fee tokens on `chain` in selection order, USDC then USDT, skipping unconfigured ones. */
+function configuredFeeTokens(chain: string, configService: FillerConfigService): TokenOption[] {
+	const tokens: TokenOption[] = []
+	const usdc = configService.getUsdcAsset(chain)
+	if (isConfigured(usdc)) {
+		tokens.push({ symbol: "USDC", address: usdc, decimals: configService.getUsdcDecimals(chain) })
+	}
+	const usdt = configService.getUsdtAsset(chain)
+	if (isConfigured(usdt)) {
+		tokens.push({ symbol: "USDT", address: usdt, decimals: configService.getUsdtDecimals(chain) })
+	}
+	return tokens
+}
+
+/**
+ * First token the solver holds at least one whole unit of, reading balances in order and
+ * stopping at the first hit. `balances` carries every read that fell short, so a caller
+ * left with no token can say how short each one was instead of a bare "insufficient".
+ */
 async function selectToken(
 	client: PublicClient,
 	solverAccount: HexString,
 	tokens: TokenOption[],
-): Promise<TokenOption | null> {
+): Promise<{ selected: TokenOption | null; balances: FeeTokenBalance[] }> {
+	const balances: FeeTokenBalance[] = []
 	for (const token of tokens) {
 		const balance = (await client.readContract({
 			address: token.address,
@@ -204,12 +209,13 @@ async function selectToken(
 			args: [solverAccount],
 		})) as bigint
 
-		const minBalance = 10n ** BigInt(token.decimals)
-		if (balance >= minBalance) {
-			return token
+		const required = 10n ** BigInt(token.decimals)
+		if (balance >= required) {
+			return { selected: token, balances }
 		}
+		balances.push({ symbol: token.symbol, balance, required })
 	}
-	return null
+	return { selected: null, balances }
 }
 
 async function buildPermitMode(

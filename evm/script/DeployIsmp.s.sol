@@ -109,8 +109,17 @@ contract DeployScript is BaseScript {
 
         // handler
         HandlerV2 handler = new HandlerV2{salt: salt}();
-        // Host manager
-        HostManager manager = new HostManager{salt: salt}(HostManagerParams({admin: admin, host: address(0)}));
+        // EvmHost. Constructed before the HostManager so the manager can be bound to it at
+        // construction: the manager's `init` is admin-only and its admin is the governance relayer,
+        // not the deploy key. The host itself is only initialized once the manager exists.
+        EvmHost host = isMainnet
+            ? new EvmHost{salt: salt}(admin)
+            : EvmHost(payable(address(new TestnetHost{salt: salt}(admin))));
+        // Host manager. Its admin is the only relayer whose governance deliveries it accepts; a
+        // `SetAdmin` request from Hyperbridge rotates it later.
+        HostManager manager = new HostManager{salt: salt}(
+            HostManagerParams({admin: vm.envAddress("GOVERNANCE_RELAYER"), host: address(host)})
+        );
         uint256[] memory stateMachines = new uint256[](1);
         stateMachines[0] = paraId;
 
@@ -128,15 +137,7 @@ contract DeployScript is BaseScript {
             stateMachines: stateMachines
         });
 
-        EvmHost host = isMainnet
-            ? new EvmHost{salt: salt}(admin)
-            : EvmHost(payable(address(new TestnetHost{salt: salt}(admin))));
         host.initialize(params);
-        // set the host address on the host manager
-        manager.setIsmpHost(address(host));
-        // Governance messages may only be delivered by this relayer; the broadcaster is the host
-        // admin at this point, which is what `setRelayer` requires.
-        manager.setRelayer(vm.envAddress("GOVERNANCE_RELAYER"));
 
         // Set the consensus state
         EvmHost(payable(address(host)))

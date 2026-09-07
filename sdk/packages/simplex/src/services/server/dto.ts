@@ -7,6 +7,9 @@
 import type { InitChainMeta, InitNetwork } from "@/cli/init/chains"
 import type { VaultToml } from "@/config/filler-toml"
 import type { CurvePoint, PriceCurvePoint } from "@/config/interpolated-curve"
+import type { BalanceSnapshot as RuntimeBalanceSnapshot } from "@/services/BalanceProvider"
+import type { VaultSweepSkipReason } from "@/funding/vault/VaultFundingPlanner"
+import type { ActivityType, OrderSummary } from "@/data/types"
 
 export const LOG_LEVELS = ["trace", "debug", "info", "warn", "error"] as const
 
@@ -26,7 +29,6 @@ export interface SetupDefaults {
 	chains: InitChainMeta[]
 	hyperbridgeWs: Record<InitNetwork, string>
 	usdStables: string[]
-	sameAssetAskCurve: PriceCurvePoint[]
 	testnetConfirmationPoints: CurvePoint[]
 	maxConcurrentOrders: number
 	configPath: string
@@ -61,17 +63,30 @@ export interface StatusOperator {
 
 export type Status = StatusInit | StatusOperator
 
-/** GET /api/balances */
-export interface BalanceSnapshot {
-	updatedAt: number | null
-	chains: Array<{
-		chainId: number
-		native?: { symbol: string; amount: number }
-		usdc?: number
-		usdt?: number
-		exotics?: Array<{ symbol: string; amount: number }>
-	}>
-	hyperbridge?: { address: string; free: number; reserved: number }
+/** GET /api/balances — shared with the runtime collector to prevent contract drift. */
+export type BalanceSnapshot = RuntimeBalanceSnapshot
+
+/**
+ * POST /api/vault/sweep response. `submitted` is empty when the pass found nothing it could
+ * deposit; `skipped` says why per vault, so the dashboard can tell a wallet below its threshold
+ * from a vault that is refusing deposits. Amounts are in the underlying token's display units.
+ */
+export interface VaultSweepDto {
+	ok: true
+	submitted: {
+		chain: string
+		txHash: string
+		sponsored: boolean
+		deposits: { vault: string; symbol: string; amount: string }[]
+	}[]
+	skipped: {
+		chain: string
+		vault: string
+		symbol: string
+		reason: VaultSweepSkipReason
+		walletBalance?: string
+		threshold?: string
+	}[]
 }
 
 /** GET /api/strategies rows; PUT /api/strategies/:index(/curves) response */
@@ -118,7 +133,7 @@ export interface ChainsDto {
 export interface ActivityEventDto {
 	id: number
 	ts: number
-	type: "detected" | "filled" | "executed" | "skipped" | "rebalance"
+	type: ActivityType
 	orderId: string | null
 	chainId: number | null
 	strategy: string | null
@@ -127,6 +142,27 @@ export interface ActivityEventDto {
 	volumeUsd: number | null
 	profitUsd: number | null
 	txHash: string | null
+	order: OrderSummary | null
+}
+
+export type { ActivityType, OrderLeg, OrderSummary } from "@/data/types"
+
+/** GET /api/activity/history — one page of orders, each with its rows and Hyperbridge bids. */
+export interface OrderHistoryDto {
+	page: number
+	pageSize: number
+	total: number
+	/** Network the running chains belong to; picks the Hyperbridge explorer for bid extrinsics. */
+	network: InitNetwork
+	orders: Array<{
+		orderId: string
+		/** Newest first. */
+		events: ActivityEventDto[]
+		/** Bids submitted for this order's commitment, newest first. */
+		bids: BidDto[]
+	}>
+	/** Newest events with no order (rebalances), for the footer of the first page. */
+	other: ActivityEventDto[]
 }
 
 /** GET /api/activity/bids rows */
@@ -136,8 +172,11 @@ export interface BidDto {
 	extrinsicHash: string | null
 	success: boolean
 	error: string | null
+	/** SQLite-style "YYYY-MM-DD HH:MM:SS" in UTC. */
 	createdAt: string
 	retracted: boolean
+	retractedAt: string | null
+	retractExtrinsicHash: string | null
 }
 
 export interface BidStatsDto {
@@ -165,6 +204,23 @@ export interface WalletTxDto {
 	to: string | null
 	txHash: string
 	sponsored: boolean | null
+	/** Curated vault name when `to` is a known vault (sweep/redeem), else null. */
+	label: string | null
+	/** What came into the wallet (fill: the order's input; sweep: vault shares; redeem: the underlying). */
+	in: LedgerLeg | null
+	/** What left the wallet (fill: the order's output; sweep: the underlying; redeem: shares; send: the token). */
+	out: LedgerLeg | null
+}
+
+/** One side of a ledger row. `decimals` null means `amount` is already a decimal string. */
+export interface LedgerLeg {
+	symbol: string
+	amount: string
+	decimals: number | null
+	/** Symbol whose logo to show; for vault shares this is the underlying (stataUSDC → USDC). */
+	icon: string
+	/** True for vault share tokens, which render with a vault badge over the underlying's logo. */
+	vault: boolean
 }
 
 /** GET /api/config */
@@ -177,6 +233,10 @@ export interface ConfigDto {
 	allowlistUsers: string[]
 	vaults: VaultToml[]
 	sendTokens: Record<string, SendTokenOption[]>
-	/** Registry vault catalog per running chain (state machine id), for selection UIs. */
+	/**
+	 * Registry vault catalog per chain (state machine id) for every chain on the
+	 * running network, not only the running ones; the editor disables rows for
+	 * chains that are not enabled. Running chains are always present, possibly empty.
+	 */
 	knownVaults: Record<string, KnownVault[]>
 }

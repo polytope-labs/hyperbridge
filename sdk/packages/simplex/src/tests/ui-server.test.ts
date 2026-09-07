@@ -127,11 +127,12 @@ function baseOperator(overrides: Partial<OperatorContext> = {}): TestOperator {
 		loggers,
 		strategies: [],
 		filler: fakePauseControl(),
-		balances: { getSnapshot: () => ({ updatedAt: null, chains: [] }) },
+		balances: { getSnapshot: () => ({ updatedAt: null, status: "loading", chains: [], issues: [] }) },
 		haltControls: [],
 		config: fakeConfig(),
 		stop: vi.fn().mockResolvedValue(undefined),
 		activity: new ActivityRecorder(data.activity),
+		bids: data.bids,
 		setPaused: (paused: boolean) => data.state.set({ paused }),
 		setLogLevel: (level: LogLevel) => loggers.setLevel(level),
 		applyAllowlist: vi.fn(),
@@ -202,7 +203,14 @@ describe("UiServer (operator mode)", () => {
 				{ index: 3, pairIndex: 3, exotic: "USDC/ZARP", token0: "USDC", token1: "ZARP", ask: askOnly, sameToken: false, maxOrderSize: "5000" }, // one-sided LP
 			],
 			filler,
-			balances: { getSnapshot: () => ({ updatedAt: 123, chains: [{ chainId: 8453, usdc: 1500 }] }) },
+			balances: {
+				getSnapshot: () => ({
+					updatedAt: 123,
+					status: "fresh",
+					chains: [{ chainId: 8453, usdc: 1500, assets: [] }],
+					issues: [],
+				}),
+			},
 			...overrides,
 		})
 		server = new UiServer({ mode: "operator", operator, deps })
@@ -242,7 +250,12 @@ describe("UiServer (operator mode)", () => {
 		expect(payload.strategyTypes).toEqual(["USDC/CNGN"])
 
 		const balances = await fetch(`${base}/api/balances`)
-		expect(await balances.json()).toEqual({ updatedAt: 123, chains: [{ chainId: 8453, usdc: 1500 }] })
+		expect(await balances.json()).toEqual({
+			updatedAt: 123,
+			status: "fresh",
+			chains: [{ chainId: 8453, usdc: 1500, assets: [] }],
+			issues: [],
+		})
 	})
 
 	it("rejects mutating requests without the X-Simplex-UI header", async () => {
@@ -262,8 +275,15 @@ describe("UiServer (operator mode)", () => {
 		expect(await rawRequest(port, "/api/status", "evil.example.com")).toContain("403")
 		expect(await rawRequest(port, "/api/status", "evil.example.com:1234")).toContain("403")
 		expect(await rawRequest(port, "/health", "evil.example.com")).toContain("403")
+		// DNS names that a "startsWith(127.)" prefix test would have accepted: a
+		// leading-digit label is a legal hostname, so these must all be rejected.
+		expect(await rawRequest(port, "/api/status", "127.0.0.1.evil.example.com")).toContain("403")
+		expect(await rawRequest(port, "/api/status", "127.evil.example.com")).toContain("403")
+		expect(await rawRequest(port, "/api/status", `127.0.0.1.nip.io:${port}`)).toContain("403")
+		expect(await rawRequest(port, "/api/status", "127.")).toContain("403")
 		// Legitimate local access keeps working.
 		expect(await rawRequest(port, "/api/status", `127.0.0.1:${port}`)).toContain("200")
+		expect(await rawRequest(port, "/api/status", `127.0.0.2:${port}`)).toContain("200")
 		expect(await rawRequest(port, "/api/status", "localhost")).toContain("200")
 	})
 
@@ -452,6 +472,36 @@ describe("UiServer (operator mode)", () => {
 		await vi.waitFor(() => expect(operator.stop).toHaveBeenCalledTimes(1))
 	})
 
+	it("serves order history one page at a time with each order's bids folded in", async () => {
+		const { base, operator } = await startServer()
+		const activity = operator.data.activity
+		await activity.record({ type: "detected", orderId: "order-1" })
+		await activity.record({ type: "skipped", orderId: "order-1", reason: "No profitable strategy" })
+		await activity.record({ type: "rebalance", success: true, reason: "1/1 transfers executed" })
+		await activity.record({ type: "detected", orderId: "order-2" })
+		await activity.record({ type: "filled", orderId: "order-2", volumeUsd: 120, profitUsd: 1.2, chainId: 8453 })
+		await operator.data.bids.store({ commitment: "order-2", success: false, error: "InsufficientDeposit" })
+		await operator.data.bids.store({ commitment: "order-2", success: true, extrinsicHash: "0xext" })
+
+		const first = await (await fetch(`${base}/api/activity/history?page=1&pageSize=1`)).json()
+		expect(first.page).toBe(1)
+		expect(first.network).toBe("mainnet")
+		expect(first.total).toBe(2)
+		expect(first.orders).toHaveLength(1)
+		expect(first.orders[0].orderId).toBe("order-2")
+		expect(first.orders[0].events.map((e: { type: string }) => e.type)).toEqual(["filled", "detected"])
+		expect(first.orders[0].bids.map((b: { success: boolean }) => b.success)).toEqual([true, false])
+		expect(first.other.map((e: { type: string }) => e.type)).toEqual(["rebalance"])
+
+		const second = await (await fetch(`${base}/api/activity/history?page=2&pageSize=1`)).json()
+		expect(second.orders.map((o: { orderId: string }) => o.orderId)).toEqual(["order-1"])
+		expect(second.orders[0].bids).toEqual([])
+
+		const beyond = await (await fetch(`${base}/api/activity/history?page=9&pageSize=1`)).json()
+		expect(beyond.orders).toEqual([])
+		expect(beyond.total).toBe(2)
+	})
+
 	it("serves the order activity feed with paging", async () => {
 		const { base, operator } = await startServer()
 		const activity = operator.data.activity
@@ -545,12 +595,39 @@ describe("UiServer (operator mode)", () => {
 		expect((await fetch(`${none.base}/api/vault/sweep`, { method: "POST", headers: CSRF })).status).toBe(409)
 		server?.stop()
 
-		const sweepNow = vi.fn().mockResolvedValue(undefined)
+		const vault = "0x00000000000000000000000000000000000000aa"
+		const asset = "0x00000000000000000000000000000000000000bb"
+		const sweepNow = vi.fn().mockResolvedValue({
+			submitted: [],
+			skipped: [
+				{
+					chain: "EVM-8453",
+					vault,
+					asset,
+					symbol: "USDC",
+					decimals: 6,
+					reason: "deposits-closed",
+					walletBalance: 8_000_000_000n,
+					threshold: 5_000_000_000n,
+					maxDeposit: 0n,
+				},
+			],
+		})
 		const redeemAll = vi.fn().mockResolvedValue(undefined)
 		const reconfigure = vi.fn().mockResolvedValue(undefined)
 		const { base } = await startServer({ vault: { sweepNow, redeemAll, reconfigure } })
-		expect((await fetch(`${base}/api/vault/sweep`, { method: "POST", headers: CSRF })).status).toBe(200)
+		const sweep = await fetch(`${base}/api/vault/sweep`, { method: "POST", headers: CSRF })
+		expect(sweep.status).toBe(200)
 		expect(sweepNow).toHaveBeenCalledTimes(1)
+		// The pass's outcome reaches the dashboard with amounts already formatted, so an empty
+		// sweep can say whether the wallet or the vault is the reason.
+		expect(await sweep.json()).toEqual({
+			ok: true,
+			submitted: [],
+			skipped: [
+				{ chain: "EVM-8453", vault, symbol: "USDC", reason: "deposits-closed", walletBalance: "8000", threshold: "5000" },
+			],
+		})
 		expect((await fetch(`${base}/api/vault/redeem`, { method: "POST", headers: CSRF })).status).toBe(200)
 		expect(redeemAll).toHaveBeenCalledTimes(1)
 	})
@@ -737,6 +814,17 @@ describe("UiServer (operator mode)", () => {
 		expect(tokens[0]).toEqual({ symbol: "native", address: "native" })
 		expect(tokens.some((t) => t.address.toLowerCase() === vaultAddress.toLowerCase())).toBe(false)
 		expect(configDto.knownVaults["EVM-8453"].length).toBeGreaterThan(0)
+	})
+
+	it("lists curated vaults for every chain on the running network, not only the running ones", async () => {
+		const { base } = await startServer()
+		const configDto = await (await fetch(`${base}/api/config`)).json()
+		const chains = Object.keys(configDto.knownVaults)
+		// Running chain plus the other mainnet chains that ship Aave stata vaults.
+		expect(chains).toEqual(expect.arrayContaining(["EVM-8453", "EVM-1", "EVM-42161", "EVM-137", "EVM-56"]))
+		expect(chains.some((key) => key === "EVM-11155111")).toBe(false)
+		const ethereum = configDto.knownVaults["EVM-1"] as Array<{ label: string; asset: string }>
+		expect(ethereum.map((v) => v.asset)).toEqual(expect.arrayContaining(["USDC", "USDT"]))
 	})
 
 	it("records operator sends in the wallet history and merges fill txs", async () => {
@@ -1060,6 +1148,8 @@ describe("UiServer (operator mode)", () => {
 	it("serves static SPA files with an index.html fallback", async () => {
 		const uiDistDir = mkdtempSync(join(tmpdir(), "simplex-dist-"))
 		writeFileSync(join(uiDistDir, "index.html"), "<html>spa</html>")
+		writeFileSync(join(uiDistDir, "manifest.webmanifest"), "{}")
+		writeFileSync(join(uiDistDir, "sw.js"), "self.addEventListener('fetch', () => {})")
 		mkdirSync(join(uiDistDir, "assets"))
 		writeFileSync(join(uiDistDir, "assets", "app.js"), "console.log(1)")
 
@@ -1070,6 +1160,10 @@ describe("UiServer (operator mode)", () => {
 		expect(await (await fetch(base)).text()).toBe("<html>spa</html>")
 		const js = await fetch(`${base}/assets/app.js`)
 		expect(js.headers.get("content-type")).toContain("text/javascript")
+		const manifest = await fetch(`${base}/manifest.webmanifest`)
+		expect(manifest.headers.get("content-type")).toContain("application/manifest+json")
+		const serviceWorker = await fetch(`${base}/sw.js`)
+		expect(serviceWorker.headers.get("content-type")).toContain("text/javascript")
 		// client-routed path falls back to the SPA shell
 		expect(await (await fetch(`${base}/setup/step-2`)).text()).toBe("<html>spa</html>")
 		// traversal is blocked (fetch normalizes ../, so send the raw path over a socket)

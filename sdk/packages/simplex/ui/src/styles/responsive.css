@@ -527,14 +527,6 @@
 		flex-direction: column;
 	}
 
-	.tunnel-relay-row {
-		flex-wrap: wrap;
-	}
-
-	.tunnel-relay-row input {
-		flex-basis: 100%;
-	}
-
 	.tunnel-actions {
 		flex-wrap: wrap;
 	}

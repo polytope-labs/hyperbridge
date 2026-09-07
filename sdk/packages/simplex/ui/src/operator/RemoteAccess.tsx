@@ -39,7 +39,6 @@ const PAIR_MODES: ReadonlyArray<{ value: PairMode; label: string }> = [
 export function RemoteAccess() {
 	const [status, setStatus] = useState<TunnelStatusDto>()
 	const [unavailable, setUnavailable] = useState(false)
-	const [relayDraft, setRelayDraft] = useState<string>()
 	const [label, setLabel] = useState("")
 	const [publicKey, setPublicKey] = useState("")
 	// Paste is the default: the phone's app makes the key and the private half
@@ -50,9 +49,7 @@ export function RemoteAccess() {
 
 	const load = useCallback(async () => {
 		try {
-			const next = await api.get<TunnelStatusDto>("/api/tunnel")
-			setStatus(next)
-			setRelayDraft((draft) => draft ?? next.relay)
+			setStatus(await api.get<TunnelStatusDto>("/api/tunnel"))
 		} catch (err) {
 			if ((err as { status?: number }).status === 404) setUnavailable(true)
 			else throw err
@@ -69,7 +66,6 @@ export function RemoteAccess() {
 	if (!status) return <p className="operator-empty">Loading…</p>
 
 	const relayHost = status.relay.split(":")[0]
-	const relayChanged = relayDraft !== undefined && relayDraft.trim() !== status.relay
 	const canPair = Boolean(label.trim()) && (mode === "generate" || Boolean(publicKey.trim()))
 
 	const pair = () =>
@@ -140,24 +136,6 @@ export function RemoteAccess() {
 							<CopyHash value={status.hostFingerprint} chars={22} copyLabel="Copy host key fingerprint" />
 						</dd>
 					</div>
-					<div>
-						<dt>Relay</dt>
-						<dd className="mono">{status.relay}</dd>
-					</div>
-					<div>
-						<dt>Relay host key</dt>
-						<dd>
-							{status.relayFingerprint ? (
-								<CopyHash
-									value={status.relayFingerprint}
-									chars={22}
-									copyLabel="Copy relay fingerprint"
-								/>
-							) : (
-								<span className="tunnel-facts-pending">Pinned on first contact</span>
-							)}
-						</dd>
-					</div>
 					{status.activeConnections ? (
 						<div>
 							<dt>Open device sessions</dt>
@@ -173,51 +151,6 @@ export function RemoteAccess() {
 						</div>
 					</div>
 				) : null}
-
-				<details className="tunnel-advanced">
-					<summary>Relay address</summary>
-					<div className="tunnel-relay-row">
-						<input
-							type="text"
-							aria-label="Relay address"
-							placeholder="host:port"
-							value={relayDraft ?? status.relay}
-							onChange={(e) => setRelayDraft(e.target.value)}
-						/>
-						<button
-							type="button"
-							className="primary"
-							disabled={!relayChanged || isPending("relay")}
-							onClick={() =>
-								act(
-									async () => {
-										setStatus(
-											await api.put<TunnelStatusDto>("/api/tunnel", {
-												relay: relayDraft!.trim(),
-											}),
-										)
-									},
-									"Relay updated",
-									"relay",
-								)
-							}
-						>
-							Save
-						</button>
-						<button
-							type="button"
-							className="secondary"
-							disabled={!relayChanged}
-							onClick={() => setRelayDraft(status.relay)}
-						>
-							Reset
-						</button>
-					</div>
-					<small className="hint">
-						The hosted relay is the default. A self-hosted one is pinned on first contact unless{" "}
-						<code>relayHostKey</code> names it in the config.
-					</small>
-				</details>
 			</section>
 
 			<section className="card tunnel-card">

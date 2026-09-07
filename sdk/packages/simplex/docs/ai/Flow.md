@@ -246,7 +246,9 @@ cache name that must be bumped whenever a precached static asset changes, and
 
 `ui/src/App.tsx` owns the page shell for every UI state. It places the animated brand line at the
 viewport's top edge and centers the active view inside `.app-container`; setup mode renders
-`Wizard`, while loading, error, and operator states use the same shell.
+`Wizard`, while loading, error, and operator states use the same shell. In the operator state the
+shell carries `app-shell-operator`, which removes the page padding and width cap so the dashboard
+fills the viewport edge to edge; the wizard keeps the padded, card-style presentation.
 
 `ui/src/wizard/Wizard.tsx` owns the setup draft, active step, per-step requirements, and forward/back
 navigation. It maps the active step to its editor and derives completed/active/upcoming rail states,
@@ -265,7 +267,7 @@ Entry points: `UserOpSender.trySendSponsored` (delegation, vault sweeps/redeems,
 
 1. `buildPaymasterAndData` tries the Simplex paymaster first when it is configured (`provider/simplex.ts`), then the Circle paymaster when it is configured and the solver holds at least 1 USDC (`provider/circle.ts`), else returns `type: "none"` and the caller falls back to native / the EntryPoint deposit. When the caller passes `prefund` (both do) and the chain has an EntryPoint configured, each candidate is additionally gated on its own EntryPoint deposit: `EntryPoint.balanceOf(paymaster)` must cover `(baseGas + candidate's worst-case verification + postOp gas) * maxFeePerGas * DEPOSIT_HEADROOM_PERCENT / 100` or the candidate is skipped with a warn and a per-candidate reason accumulated into the `type: "none"` result. The Simplex gate runs *before* `buildSimplexPaymasterData`, which may send a bootstrap approve tx that must not happen for a paymaster that cannot sponsor. A failed deposit read fails open (candidate kept) — a transient RPC error degrades to the bundler's own precheck, never worse.
 
-2. `buildSimplexPaymasterData` picks the first configured stablecoin (USDC, then USDT) with a balance of at least one whole token, then the authorization mode:
+2. `buildSimplexPaymasterData` picks the first configured stablecoin (USDC, then USDT — `configuredFeeTokens`) with a balance of at least one whole token (`selectToken`). When none qualifies it returns the balances it read instead of paymaster data, and step 1 records them as `simplex: solver USDC balance 0 < 1000000, USDT balance 0 < 1000000` — the Circle branch's own form — or `simplex: no fee token configured`. Otherwise, the authorization mode:
    - `tokenSupportsPermit` (probes `version()`): `buildPermitMode` — if the allowance to the paymaster already covers the $5 permit amount, APPROVE mode; else sign an EIP-2612 permit (`permit.ts`, `deadline = maxUint256`) and pack mode `0x00` (150 bytes).
    - Otherwise resolve `permit2 = configService.getPermit2Address(chain)` and require `paymasterSupportsPermit2` (a cached `PERMIT2()` read on the paymaster). Read the solver's allowances to the paymaster and to Permit2 in parallel, then:
      - Permit2 allowance at or above $5: `buildPermit2Mode` — random nonce, `deadline = now + PERMIT2_DEADLINE_SECONDS`, `signPermit2Transfer` (`permit2.ts`, canonical v4 typed data, 65-byte signature) and pack mode `0x02` (182 bytes) with `VERIFICATION_GAS_LIMIT_PERMIT2`.
@@ -536,13 +538,14 @@ With solver selection, `IntentFiller` "executing" an order submits a bid: `order
 `transactionHash` in `ScannedFill`; `EventMonitor.handleFill` emits `orderFillObserved` for every
 fill with `ours` (filler address match), then the existing `orderFilledOnChain` for ours only. The
 recorder's `settle` records `filled` (ours) or `lost` (reason = winner) for orders it knows
-(summary cache or `ActivityStore.knowsOrder`). `Orders.tsx` ranks Filled > Lost > Bid placed /
+(summary cache or `ActivityStore.knowsOrder`). `Orders.tsx` ranks Filled > Outbid (neutral badge, winner address beneath) > Bid placed /
 Bid retracted (latest bid) > Executed/Failed > Skipped > Detected, shows the latest bid's standing
-in the Bids cell, and links the fill from the observed fill's tx hash (or a direct attempt's UserOp
-hash), never from a bid's extrinsic hash. `fills()` (wallet ledger) now lists real fills only.
-The latest bid's extrinsic and, when a retraction extrinsic exists, the retraction render as time +
-short hash linking to Statescan for the running network (`OrderHistoryDto.network`); a bid closed
-out by `BidNotFound` (retracted with no hash) shows a dash in the Retracted column. At boot the
+in the Bids cell; the row's only external link is the HyperFX order page (explorer links for the
+placement and fill transactions were removed). `fills()` (wallet ledger) now lists real fills only.
+The latest bid renders in one Bids cell as two icon links to Statescan for the running network
+(`OrderHistoryDto.network`): up for the bid extrinsic, down for the retraction; either is a dimmed
+arrow when absent (a bid closed out by `BidNotFound` has no retraction extrinsic), and a failed bid
+shows "Failed" with its error on hover. At boot the
 backfill's second pass lists `unsettledOrders` (a `bid` row or a legacy bid-time `filled` row — those
 carry `volumeUsd` — with no `lost` or observed `filled` row), fetches each from the indexer with its
 `statusMetadata`, retypes legacy rows to `bid`, and records `filled`/`lost` from the FILLED entry's
@@ -566,3 +569,35 @@ through `useAction`) and passes them with `pending` to `OperatorOverview` as `ru
 overview renders them inline between the metrics strip and the balances: a status dot and copy on
 the left, Pause new fills / Resume filling (primary) and Stop filler (destructive styling) on the
 right. There is no runtime sheet any more.
+
+## Page routes
+
+`useTabRoute` (`ui/src/lib/route.ts`) maps the sidebar pages to `/`, `/orders`, `/wallet` and
+`/operations`. The active tab is initialised from `location.pathname`, navigation calls
+`history.pushState` and `popstate` updates it, so reloads and back/forward keep the page. The
+server needs nothing: `serveStatic` falls back to `index.html` for any non-file path, and the
+service worker fetches navigations from the network first. Routes are single-segment because
+`index.html` references its assets as `./assets/…`.
+
+## Wallet ledger
+
+`/api/wallet/history` merges `walletTxs` (sends from the dashboard; sweeps and redeems from
+`VaultFundingPlanner.onTx`, one row per vault movement: `token`/`amount` = what left, `tokenIn`/
+`amountIn` = what came back, `to` = vault) with `fills()` (observed on-chain fills by this filler).
+The server maps each row to `in` and `out` `LedgerLeg`s — for fills from the order summary (input
+received, output paid, raw base units + decimals); for vault rows from the decimal strings, with
+`vault: true` and `icon` = the underlying's symbol for share tokens — and adds `label`, the
+registry's vault name for `to`. `Wallet.tsx` renders an action icon per kind, Amount in (green)
+and Amount out (red) with token logos (a vault badge on share tokens; sends show the recipient,
+vault rows nothing more), the chain with its logo, the explorer link and the time.
+Rows recorded before amounts existed are backfilled at boot: `backfillVaultLedger` reads each
+receipt via `VaultFundingPlanner.describeTransaction` (ERC-4626 Deposit/Withdraw logs from
+configured vaults, share metadata from the cached ERC-20 reads) and updates the row.
+
+## Solver links
+
+`OperatorMarkets` shows "Get link" at the top of an FX market's sheet. `SolverLinkDialog` calls
+`planSolverLink(strategy, chainId, status.addresses.evm, name)`: it takes the first configured
+ask as the token0 → token1 rate and the first bid as `reverse_rate` (both token1 per token0, the
+app's unit), or, for a bid-only market, sells token1 → token0 at the reciprocal bid; `buildSolverLink`
+writes the app's `/swap?wl=1&wlv=1&…` query. Copy goes through `navigator.clipboard` with a toast.

@@ -1,6 +1,7 @@
 import { useState } from "react"
 import { ChevronRightIcon } from "../components/InterfaceIcons"
 import { OperatorSheet } from "../components/OperatorSheet"
+import { SolverLinkDialog } from "../components/SolverLinkDialog"
 import { TokenPairIcons } from "../components/TokenIcon"
 import type { AdminStrategyDto, ConfigDto } from "../types"
 import { CreateMarketForm } from "./markets/CreateMarketForm"
@@ -12,6 +13,8 @@ interface OperatorMarketsProps {
 	config: ConfigDto | undefined
 	chains: number[]
 	chainLabels?: Record<string, string>
+	/** The filler's EVM address, which a solver link binds the swap to. */
+	solverAddress?: string
 	onChanged: () => Promise<void> | void
 }
 
@@ -61,9 +64,11 @@ function MarketPrices({ strategy }: { strategy: AdminStrategyDto }) {
 }
 
 export function OperatorMarkets(props: OperatorMarketsProps) {
-	const { strategies, config, chains, chainLabels, onChanged } = props
+	const { strategies, config, chains, chainLabels, solverAddress, onChanged } = props
 	const [showAddMarket, setShowAddMarket] = useState(false)
 	const [selectedStrategy, setSelectedStrategy] = useState<number>()
+	const [linkStrategy, setLinkStrategy] = useState<number>()
+	const linkMarket = strategies.find((strategy) => strategy.index === linkStrategy)
 	const selectedMarket = strategies.find((strategy) => strategy.index === selectedStrategy)
 
 	return (
@@ -116,6 +121,17 @@ export function OperatorMarkets(props: OperatorMarketsProps) {
 				title={selectedMarket ? `${selectedMarket.token0} ↔ ${selectedMarket.token1}` : "Market"}
 				description="Review and update this market without leaving the operator workspace."
 			>
+				{selectedMarket && !selectedMarket.sameToken && !selectedMarket.referenceOnly ? (
+					<div className="operator-panel-form solver-link-entry">
+						<div>
+							<h3>Solver link</h3>
+							<p className="hint">Share a HyperFX swap page locked to this filler and this pair's prices.</p>
+						</div>
+						<button type="button" onClick={() => setLinkStrategy(selectedMarket.index)}>
+							Get link
+						</button>
+					</div>
+				) : null}
 				{selectedMarket ? (
 					<StrategyMarketEditor
 						key={selectedMarket.index}
@@ -126,6 +142,18 @@ export function OperatorMarkets(props: OperatorMarketsProps) {
 					/>
 				) : null}
 			</OperatorSheet>
+
+			{linkMarket ? (
+				<SolverLinkDialog
+					key={linkMarket.index}
+					open
+					onClose={() => setLinkStrategy(undefined)}
+					strategy={linkMarket}
+					chains={chains}
+					chainLabel={(id) => chainLabels?.[String(id)] ?? `Chain ${id}`}
+					solverAddress={solverAddress}
+				/>
+			) : null}
 
 			<OperatorSheet
 				open={showAddMarket}

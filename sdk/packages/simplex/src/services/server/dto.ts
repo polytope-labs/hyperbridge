@@ -204,6 +204,23 @@ export interface WalletTxDto {
 	to: string | null
 	txHash: string
 	sponsored: boolean | null
+	/** Curated vault name when `to` is a known vault (sweep/redeem), else null. */
+	label: string | null
+	/** What came into the wallet (fill: the order's input; sweep: vault shares; redeem: the underlying). */
+	in: LedgerLeg | null
+	/** What left the wallet (fill: the order's output; sweep: the underlying; redeem: shares; send: the token). */
+	out: LedgerLeg | null
+}
+
+/** One side of a ledger row. `decimals` null means `amount` is already a decimal string. */
+export interface LedgerLeg {
+	symbol: string
+	amount: string
+	decimals: number | null
+	/** Symbol whose logo to show; for vault shares this is the underlying (stataUSDC → USDC). */
+	icon: string
+	/** True for vault share tokens, which render with a vault badge over the underlying's logo. */
+	vault: boolean
 }
 
 /** GET /api/config */

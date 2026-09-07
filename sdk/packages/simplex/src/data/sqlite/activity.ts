@@ -86,6 +86,15 @@ export class SqliteActivityStore implements ActivityStore {
 			this.db.exec("ALTER TABLE events ADD COLUMN order_json TEXT")
 			this.logger.info({ column: "order_json" }, "Migrated activity schema")
 		}
+		// Added with the ledger's amount columns: the side that came back (vault shares, redeemed assets).
+		const walletColumns = new Set(
+			(this.db.prepare("PRAGMA table_info(wallet_txs)").all() as any[]).map((c) => c.name),
+		)
+		for (const column of ["token_in", "amount_in"]) {
+			if (walletColumns.has(column)) continue
+			this.db.exec(`ALTER TABLE wallet_txs ADD COLUMN ${column} TEXT`)
+			this.logger.info({ column }, "Migrated wallet ledger schema")
+		}
 	}
 
 	async record(event: ActivityInsert): Promise<ActivityEvent> {
@@ -252,8 +261,8 @@ export class SqliteActivityStore implements ActivityStore {
 	async recordWalletTx(tx: Omit<WalletTx, "id" | "ts">): Promise<void> {
 		this.db
 			.prepare(`
-				INSERT INTO wallet_txs (ts, kind, chain_id, token, amount, to_address, tx_hash, sponsored)
-				VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+				INSERT INTO wallet_txs (ts, kind, chain_id, token, amount, to_address, tx_hash, sponsored, token_in, amount_in)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			`)
 			.run(
 				Date.now(),
@@ -264,22 +273,50 @@ export class SqliteActivityStore implements ActivityStore {
 				tx.to,
 				tx.txHash,
 				tx.sponsored === null ? null : tx.sponsored ? 1 : 0,
+				tx.tokenIn ?? null,
+				tx.amountIn ?? null,
 			)
+	}
+
+	async walletTxsWithoutAmounts(limit = 200): Promise<WalletTx[]> {
+		const rows = this.db
+			.prepare(
+				"SELECT * FROM wallet_txs WHERE kind IN ('sweep', 'redeem') AND token IS NULL ORDER BY id DESC LIMIT ?",
+			)
+			.all(capLimit(limit))
+		// biome-ignore lint/suspicious/noExplicitAny: raw sqlite row
+		return (rows as any[]).map(toWalletTx)
+	}
+
+	async updateWalletTx(
+		id: number,
+		patch: Pick<WalletTx, "token" | "amount" | "to" | "tokenIn" | "amountIn">,
+	): Promise<void> {
+		this.db
+			.prepare("UPDATE wallet_txs SET token = ?, amount = ?, to_address = ?, token_in = ?, amount_in = ? WHERE id = ?")
+			.run(patch.token, patch.amount, patch.to, patch.tokenIn ?? null, patch.amountIn ?? null, id)
 	}
 
 	async walletTxs(limit = 100): Promise<WalletTx[]> {
 		const rows = this.db.prepare("SELECT * FROM wallet_txs ORDER BY id DESC LIMIT ?").all(capLimit(limit))
 		// biome-ignore lint/suspicious/noExplicitAny: raw sqlite row
-		return (rows as any[]).map((row) => ({
-			id: row.id,
-			ts: row.ts,
-			kind: row.kind,
-			chainId: row.chain_id,
-			token: row.token,
-			amount: row.amount,
-			to: row.to_address,
-			txHash: row.tx_hash,
-			sponsored: row.sponsored === null ? null : row.sponsored === 1,
-		}))
+		return (rows as any[]).map(toWalletTx)
+	}
+}
+
+// biome-ignore lint/suspicious/noExplicitAny: raw sqlite row
+function toWalletTx(row: any): WalletTx {
+	return {
+		id: row.id,
+		ts: row.ts,
+		kind: row.kind,
+		chainId: row.chain_id,
+		token: row.token,
+		amount: row.amount,
+		to: row.to_address,
+		txHash: row.tx_hash,
+		sponsored: row.sponsored === null ? null : row.sponsored === 1,
+		tokenIn: row.token_in ?? null,
+		amountIn: row.amount_in ?? null,
 	}
 }

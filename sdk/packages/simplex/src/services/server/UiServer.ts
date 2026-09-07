@@ -13,7 +13,7 @@ import { formatUnits, isAddress } from "viem"
 import { validateRpcUrls, type AllowlistConfig } from "@/services/FillerConfigService"
 import { withTimeout, PROBE_TIMEOUT_MS } from "@/cli/init/prompt-utils"
 import type { ActivityRecorder } from "@/data/recorder"
-import type { ActivityEvent, BidStore } from "@/data/types"
+import type { ActivityEvent, BidStore, OrderLeg } from "@/data/types"
 import type { BalanceProvider } from "../BalanceProvider"
 import { getLogger, type LogLevel } from "../Logger"
 import { readBody, sendJson, isLoopbackHost, isContainerized, hostHeaderAllowed } from "./http-util"
@@ -40,6 +40,7 @@ import {
 	type WalletTxDto,
 	type VaultSweepDto,
 	type OrderHistoryDto,
+	type LedgerLeg,
 } from "./dto"
 
 /**
@@ -486,8 +487,29 @@ export class UiServer {
 			const limit = Math.min(Math.max(Number(params.get("limit") ?? 100), 1), 500)
 			const activity = this.operator!.activity
 			const [walletTxs, fillTxs] = await Promise.all([activity.walletTxs(limit), activity.fills(limit)])
+			const chainRegistry = new ChainConfigService({})
+			const vaultLabel = (chainId: number | null, address: string | null): string | null => {
+				if (chainId === null || !address) return null
+				const known = chainRegistry.getKnownVaults(formatChainKey(chainId))
+				return known.find((vault) => vault.address.toLowerCase() === address.toLowerCase())?.label ?? null
+			}
+			// Share tokens are named after their underlying (stataUSDC, ycNGN): the logo
+			// comes from the underlying's symbol, and the vault badge says it is a share.
+			const legOf = (symbol: string | null | undefined, amount: string | null | undefined, vault: boolean): LedgerLeg | null =>
+				symbol && amount ? { symbol, amount, decimals: null, icon: vault ? underlyingOf(symbol) : symbol, vault } : null
+			const orderLeg = (leg: OrderLeg | undefined): LedgerLeg | null =>
+				leg ? { symbol: leg.symbol ?? leg.token, amount: leg.amount, decimals: leg.decimals, icon: leg.symbol ?? "", vault: false } : null
 			const txs: WalletTxDto[] = [
-				...walletTxs.map((tx) => ({ ...tx, id: `wallet-${tx.id}` })),
+				...walletTxs.map(({ tokenIn, amountIn, ...tx }) => {
+					const vaultTx = tx.kind === "sweep" || tx.kind === "redeem"
+					return {
+						...tx,
+						id: `wallet-${tx.id}`,
+						label: vaultTx ? vaultLabel(tx.chainId, tx.to) : null,
+						in: legOf(tokenIn, amountIn, tx.kind === "sweep"),
+						out: legOf(tx.token, tx.amount, tx.kind === "redeem"),
+					}
+				}),
 				...fillTxs.map((event) => ({
 					id: `fill-${event.id}`,
 					ts: event.ts,
@@ -498,6 +520,9 @@ export class UiServer {
 					to: null,
 					txHash: event.txHash as string,
 					sponsored: null,
+					label: null,
+					in: orderLeg(event.order?.inputs[0]),
+					out: orderLeg(event.order?.outputs[0]),
 				})),
 			]
 				.sort((a, b) => b.ts - a.ts)
@@ -1522,6 +1547,14 @@ function validateCurveUpdateShape(body: unknown): string | null {
 /** One network per filler: testnet if any running chain is a testnet, else mainnet. */
 function runningNetwork(chains: number[]): InitNetwork {
 	return chains.some((chainId) => chainByChainId(chainId)?.network === "testnet") ? "testnet" : "mainnet"
+}
+
+/** The token a vault share token wraps, by naming convention: stataUSDC → USDC, ycNGN → cNGN, aUSDT → USDT. */
+function underlyingOf(shareSymbol: string): string {
+	for (const known of ["USDC", "USDT", "CNGN", "DAI", "EURC", "ZARP"]) {
+		if (shareSymbol.toUpperCase().includes(known)) return known
+	}
+	return shareSymbol
 }
 
 function vaultSweepDto(result: VaultSweepResult): VaultSweepDto {

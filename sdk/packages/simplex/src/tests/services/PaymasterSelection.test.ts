@@ -133,7 +133,9 @@ describe("buildPaymasterAndData deposit-aware selection", () => {
 	})
 
 	it("falls through to Circle when Simplex has no eligible stablecoin", async () => {
-		vi.mocked(buildSimplexPaymasterData).mockResolvedValueOnce(null)
+		vi.mocked(buildSimplexPaymasterData).mockResolvedValueOnce({
+			insufficient: [{ symbol: "USDC", balance: 0n, required: 1_000_000n }],
+		})
 		const result = await buildPaymasterAndData(options(client({})))
 		expect(result.type).toBe("circle")
 		expect(result.address).toBe(CIRCLE)
@@ -209,11 +211,23 @@ describe("buildPaymasterAndData deposit-aware selection", () => {
 		expect(buildSimplexPaymasterData).not.toHaveBeenCalled()
 	})
 
-	it("reports both balance and deposit skip reasons when nothing is eligible", async () => {
-		vi.mocked(buildSimplexPaymasterData).mockResolvedValueOnce(null)
+	it("reports each Simplex fee token's balance alongside Circle's when nothing is eligible", async () => {
+		vi.mocked(buildSimplexPaymasterData).mockResolvedValueOnce({
+			insufficient: [
+				{ symbol: "USDC", balance: 999_999n, required: 1_000_000n },
+				{ symbol: "USDT", balance: 0n, required: 1_000_000n },
+			],
+		})
 		const result = await buildPaymasterAndData(options(client({ solverUsdc: 0n })))
 		expect(result.type).toBe("none")
-		expect(result.reason).toContain("simplex: insufficient stablecoin balance")
+		expect(result.reason).toContain("simplex: solver USDC balance 999999 < 1000000, USDT balance 0 < 1000000")
 		expect(result.reason).toContain("circle: solver USDC balance 0 < 1000000")
+	})
+
+	it("names the missing fee token config when the Simplex builder had nothing to read", async () => {
+		vi.mocked(buildSimplexPaymasterData).mockResolvedValueOnce({ insufficient: [] })
+		const result = await buildPaymasterAndData(options(client({ solverUsdc: 0n })))
+		expect(result.type).toBe("none")
+		expect(result.reason).toContain("simplex: no fee token configured")
 	})
 })

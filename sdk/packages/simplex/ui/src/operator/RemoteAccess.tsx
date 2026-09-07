@@ -75,8 +75,8 @@ const PAIR_MODES: ReadonlyArray<{ value: PairMode; label: string }> = [
 ]
 
 /**
- * Remote access panel: turns the relay tunnel on or off, pairs phones, and
- * shows what a phone needs to connect. A paired device key opens the whole
+ * Remote access panel: turns the relay tunnel on or off, pairs devices, and
+ * shows what a device needs to connect. A paired device key opens the whole
  * UI, so a generated private key is shown exactly once and never stored.
  */
 export function RemoteAccess() {
@@ -84,7 +84,7 @@ export function RemoteAccess() {
 	const [unavailable, setUnavailable] = useState(false)
 	const [label, setLabel] = useState("")
 	const [publicKey, setPublicKey] = useState("")
-	// Paste is the default: the phone's app makes the key and the private half
+	// Paste is the default: the device's app makes the key and the private half
 	// never leaves it. Generating here is the fallback for apps that cannot.
 	const [mode, setMode] = useState<PairMode>("paste")
 	// What the switch shows while a toggle is in flight. The dashboard shares an
@@ -145,7 +145,7 @@ export function RemoteAccess() {
 					<span className={`badge ${STATE_BADGE[state]}`}>{STATE_LABEL[state]}</span>
 				</div>
 				<p className="hint">
-					The relay only carries encrypted bytes; your phone's session ends here, in Simplex.
+					The relay only carries encrypted bytes; your device's session ends here, in Simplex.
 				</p>
 
 				<label className="chain-enable-toggle tunnel-toggle">
@@ -256,7 +256,7 @@ export function RemoteAccess() {
 					<PillTabs options={PAIR_MODES} value={mode} onChange={setMode} ariaLabel="Pairing method" />
 					<p className="hint">
 						{mode === "paste"
-							? "Create a key in the phone's SSH app and paste its public key here. The private key never leaves the phone."
+							? "Create a key in the device's SSH app and paste its public key here. The private key never leaves the device."
 							: "Simplex generates the key pair and shows the private key once, for apps that cannot create their own."}
 					</p>
 					<label className="field">
@@ -275,7 +275,7 @@ export function RemoteAccess() {
 							<textarea
 								className="mono tunnel-key-input"
 								rows={3}
-								placeholder="ssh-ed25519 AAAA… (the .pub line from the phone's SSH app)"
+								placeholder="ssh-ed25519 AAAA… (the .pub line from the device's SSH app)"
 								value={publicKey}
 								onChange={(e) => setPublicKey(e.target.value)}
 							/>
@@ -300,7 +300,7 @@ export function RemoteAccess() {
 	)
 }
 
-/** Everything the phone needs, shown once. */
+/** Everything the device needs, shown once. */
 function NewDevice(props: { device: TunnelNewDeviceDto; onDone: () => void }) {
 	const { device } = props
 	const [qr, setQr] = useState<string>()
@@ -365,14 +365,14 @@ function NewDevice(props: { device: TunnelNewDeviceDto; onDone: () => void }) {
 				</>
 			) : (
 				<p className="hint">
-					The phone keeps its private key. Anyone holding it can open this dashboard, including Send and the
-					treasury tools, so revoke this device here if the phone is lost.
+					The device keeps its private key. Anyone holding it can open this dashboard, including Send and the
+					treasury tools, so revoke it here if the device is lost.
 				</p>
 			)}
 
 			<p className="hint">
 				In the SSH app: add the key, save a connection using the host, port, username and host key above, add
-				the local port forward, connect, then open <code>http://localhost:{localPort}</code> in the phone's
+				the local port forward, connect, then open <code>http://localhost:{localPort}</code> in the device's
 				browser. Equivalent command:
 			</p>
 			<pre className="tunnel-command mono">{command}</pre>

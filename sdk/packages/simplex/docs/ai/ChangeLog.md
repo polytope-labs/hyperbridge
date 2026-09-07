@@ -12,6 +12,12 @@ Files: list of files touched.
 
 Newest entries first.
 
+## 2026-09-07 — Remote access copy says "device", not "phone"
+
+Tablets and laptops pair the same way, so the panel and the Operations row now say device throughout.
+
+Files: `ui/src/operator/{RemoteAccess,Operations}.tsx`, `docs/ai/ChangeLog.md`.
+
 ## 2026-09-07 — Make the remote-access switch move on click, not on the round trip
 
 The switch was controlled by the server's `enabled` flag and only moved once `PUT /api/tunnel`

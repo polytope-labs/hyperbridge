@@ -66,8 +66,14 @@ export function Operations(props: {
 					/>
 					<OperationLink
 						title="Remote access"
-						description="Reach this dashboard from your phone through an SSH tunnel."
-						meta={config?.tunnel ? (config.tunnel.enabled ? `On · ${config.tunnel.devices} device${config.tunnel.devices === 1 ? "" : "s"}` : "Off") : "Unavailable"}
+						description="Reach this dashboard from another device through an SSH tunnel."
+						meta={
+							config?.tunnel
+								? config.tunnel.enabled
+									? `On · ${config.tunnel.devices} device${config.tunnel.devices === 1 ? "" : "s"}`
+									: "Off"
+								: "Unavailable"
+						}
 						onClick={() => setPanel("remote")}
 					/>
 				</div>
@@ -113,7 +119,7 @@ export function Operations(props: {
 				onClose={() => setPanel(undefined)}
 				wide
 				title="Remote access"
-				description="Pair a phone and open this dashboard from anywhere."
+				description="Pair a device and open this dashboard from anywhere."
 			>
 				<RemoteAccess />
 			</OperatorSheet>

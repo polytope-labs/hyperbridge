@@ -1,5 +1,11 @@
 # @hyperbridge/filler
 
+## 0.13.3
+
+### Patch Changes
+
+- Phantom bids now declare every configured chain as an accepted source, so the indexer can publish routes for the filler's depth. The optional `simplex.acceptedSourceChains` config key is removed; a TOML that still has it is ignored, not rejected.
+
 ## 0.13.2
 
 ### Patch Changes

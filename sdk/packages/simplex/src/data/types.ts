@@ -182,11 +182,15 @@ export interface WalletTx {
 	ts: number
 	kind: WalletTxKind
 	chainId: number | null
+	/** What left the wallet: symbol and decimal amount (sends, sweeps, redeems). */
 	token: string | null
 	amount: string | null
 	to: string | null
 	txHash: string
 	sponsored: boolean | null
+	/** What came back: vault shares for a sweep, the underlying for a redeem. */
+	tokenIn?: string | null
+	amountIn?: string | null
 }
 
 /**
@@ -205,6 +209,10 @@ export interface ActivityStore {
 	fills(limit?: number): Promise<ActivityEvent[]>
 	recordWalletTx(tx: Omit<WalletTx, "id" | "ts">): Promise<void>
 	walletTxs(limit?: number): Promise<WalletTx[]>
+	/** Sweep and redeem rows recorded without amounts (before the ledger carried them). Newest first. */
+	walletTxsWithoutAmounts(limit?: number): Promise<WalletTx[]>
+	/** Fills in the amount fields of one ledger row. */
+	updateWalletTx(id: number, patch: Pick<WalletTx, "token" | "amount" | "to" | "tokenIn" | "amountIn">): Promise<void>
 	/**
 	 * Distinct order ids among the newest rows that carry no order summary —
 	 * rows written before summaries existed. Newest first, at most `limit`.

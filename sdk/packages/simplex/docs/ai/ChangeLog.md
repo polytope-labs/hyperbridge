@@ -12,6 +12,34 @@ Files: list of files touched.
 
 Newest entries first.
 
+## 2026-09-07 — The dashboard fills the viewport
+
+The operator view sat in a rounded, bordered card inside a padded page, capped at 150rem, so on a
+wide monitor it floated with dark margins on every side. `App` now marks the shell with
+`app-shell-operator` when the dashboard is showing; that strips the page padding and the width cap,
+and `.operator-shell` becomes the viewport itself (100dvh, no border, radius or shadow; the tinted
+background and blur stay). The layout height drops the 5rem the padding used to take
+(`100dvh - 4.5rem` brandbar). The setup wizard keeps its card. The mobile override that removed the
+card's border is gone since it is the default now. The side sheet (`.sheet-content`, shared by the
+Environment drawer and the market sheets) widens from 32rem to 40rem so a Hyperbridge SS58 account
+fits on one line beside its copy button; the wide variant stays at 58rem and mobile stays full width.
+Files: `ui/src/App.tsx`, `ui/src/styles/{foundations,operator,responsive}.css`, `docs/ai/ChangeLog.md`.
+
+## 2026-09-06 — Copy a HyperFX solver link from a market
+
+Each FX market's sheet on the Overview gets a "Get link" entry that opens a dialog building the
+HyperFX white-label "solver link" from the running settings: the filler's EVM address
+(`status.addresses.evm`), the chosen chain, the market's first curve prices (ask as `rate` for
+token0 → token1, bid as `reverse_rate`; a bid-only market flips direction with the reciprocal),
+and a solver name (max 24, remembered in localStorage). The format was read from the app's bundle
+(`app.hyperfx.finance/swap?wl=1&wlv=1&source&destination&from&to&rate_base&rate_quote&rate&reverse_rate&solver&solver_name`;
+`from`/`to` must equal `rate_base`/`rate_quote`, path must be `/swap`). `ui/src/lib/solver-link.ts`
+holds the builder and the per-market plan; `SolverLinkDialog` shows the summary and URL and copies
+it. Same-asset, reference and venue-priced markets are refused with a reason. Unit-tested.
+Files: `ui/src/lib/solver-link.ts`, `ui/src/components/SolverLinkDialog.tsx`,
+`ui/src/operator/{OperatorMarkets,OperatorOverview}.tsx`, `ui/src/styles/operator.css`,
+`src/tests/solver-link.test.ts`, `docs/ai/{ChangeLog,Flow}.md`.
+
 ## 2026-09-06 — Simplex skip reason names each fee token's balance
 
 Selection logged a bare `simplex: insufficient stablecoin balance` when the solver held under one
@@ -25,6 +53,85 @@ balances by hand. `buildSimplexPaymasterData` now returns the balances `selectTo
 symbols now live.
 
 Files: `src/services/paymaster/index.ts`, `src/services/paymaster/provider/simplex.ts`, `src/services/paymaster/types.ts`, `src/tests/services/{PaymasterSelection,SimplexPaymaster}.test.ts`, `docs/ai/{ChangeLog,Decisions,Flow}.md`.
+
+## 2026-09-05 — Backfill vault amounts on legacy ledger rows from their receipts
+
+Sweep and redeem rows recorded before the ledger carried amounts showed dashes. At boot (15 s
+after start, once vault states have hydrated), `backfillVaultLedger` (`src/data/ledger-backfill.ts`)
+lists such rows (`ActivityStore.walletTxsWithoutAmounts`), reads each transaction's receipt through
+`VaultFundingPlanner.describeTransaction`, which parses ERC-4626 `Deposit`/`Withdraw` events
+(added to the ABI) from configured vaults (`vaultMovementsFromLogs` in `src/funding/vault/ledger.ts`),
+and writes the underlying and share amounts back (`updateWalletTx`); a receipt touching several
+vaults adds a row per extra vault. Best effort like the order backfill.
+Files: `src/config/abis/Erc4626.ts`, `src/funding/vault/{VaultFundingPlanner,ledger}.ts`,
+`src/data/{ledger-backfill,types,memory}.ts`, `src/data/sqlite/activity.ts`, `src/core/boot.ts`,
+`src/tests/ledger-backfill.test.ts`, `docs/ai/{ChangeLog,Flow}.md`.
+
+## 2026-09-05 — Wallet ledger: action icon, Amount in and Amount out with token logos
+
+The transaction history was time / chain / "order fill" / hash. Each row now leads with an action
+icon coloured by kind (fill green, vault sweep and redeem blue, send amber), then Amount in (green, "+") and Amount out (red, "−") with token logos: a fill shows
+the order's input received and output paid; a sweep shows the underlying out and the vault shares
+in (share tokens wear a vault badge over the underlying's logo, e.g. stataUSDC over USDC; the share
+symbol names the vault, so no counterparty text); a redeem the reverse; a send the token out to
+the address. The sweep icon points up (sent into the vault), the redeem icon down. Chain gets its logo, the transaction is an open-in-explorer icon (hash on hover), time is clock + date. Backing this:
+`VaultMovement` carries `shares`/`shareSymbol`/`shareDecimals` (`previewDeposit` for a sweep,
+`previewRedeem` for a redeem; share-token ERC-20 metadata cached per vault; `previewDeposit` added
+to the ERC-4626 ABI), `WalletTx` gains `tokenIn`/`amountIn` (SQLite migration adds `token_in`,
+`amount_in`), boot records one row per movement, and `/api/wallet/history` returns `in`/`out`
+`LedgerLeg`s plus `label`. Rows recorded before this keep the plain action label.
+Files: `src/config/abis/Erc4626.ts`, `src/funding/vault/VaultFundingPlanner.ts`, `src/core/boot.ts`,
+`src/data/{types,sqlite/activity}.ts`, `src/services/server/{UiServer,dto}.ts`,
+`ui/src/operator/Wallet.tsx`, `ui/src/types.ts`, `ui/src/styles/operator.css`,
+`docs/ai/{ChangeLog,Flow}.md`.
+
+## 2026-09-05 — Token amounts round to a precision that fits their size
+
+`formatTokenAmount` picked four fraction digits regardless of magnitude, so 19,990.9995 USDC and
+27,393,956.4843 CNGN filled the amount cells. It now rounds half-up to 0 places at 10,000 and above,
+2 places at 100 and above, and 4 below that (an explicit `maxFraction` still overrides), and the
+order row's leg carries the full-precision amount as a tooltip.
+Files: `ui/src/lib/format.ts`, `ui/src/operator/Orders.tsx`, `docs/ai/ChangeLog.md`.
+
+## 2026-09-05 — Orders another solver filled read "Outbid", not "Lost"
+
+The amber "Lost · filled by 0x…" status read as a fault. It is now a neutral "Outbid" badge (same
+tone as Detected) with the winner's short address beneath in mono, full address on hover. Chosen
+from three mocked options; the maintainer declined a link on the winner.
+Files: `ui/src/operator/Orders.tsx`, `ui/src/styles/operator.css`, `docs/ai/{ChangeLog,Flow}.md`.
+
+## 2026-09-05 — Sidebar pages have URLs that survive a reload
+
+Each dashboard page has a path (`/`, `/orders`, `/wallet`, `/operations`). `ui/src/lib/route.ts`
+holds the map and a `useTabRoute` hook that reads the path on load, pushes a history entry on
+navigation and follows back/forward; `Operator` uses it in place of its tab state. No server change:
+`serveStatic` already returns index.html for any path that is not a file. Paths stay single-segment
+because index.html loads assets relatively.
+Files: `ui/src/lib/route.ts`, `ui/src/operator/Operator.tsx`, `docs/ai/{ChangeLog,Flow}.md`.
+
+## 2026-09-05 — Bids as one column of arrow links; referrer without a copy button
+
+The "Bid placed" and "Retracted" columns became a single "Bids" column holding two icon links for
+the latest bid: an up arrow to the bid extrinsic and a down arrow to the retraction extrinsic on
+Statescan (green and red respectively), each with time and short hash in the tooltip; a missing one
+renders as a grey arrow, a failed bid as "Failed" with its error on hover. The referrer cell is plain text (full tag on hover)
+instead of a copy control.
+Files: `ui/src/operator/Orders.tsx`, `ui/src/styles/operator.css`, `docs/ai/{ChangeLog,Flow}.md`.
+
+## 2026-09-05 — Order rows link only to HyperFX
+
+Dropped the placement- and fill-transaction explorer links from each order row; the HyperFX order
+page already shows both, and the two extra arrow icons crowded the row. The links cell keeps the
+single HyperFX link. `explorerTxUrl` and the per-row fill lookup are gone with them.
+Files: `ui/src/operator/Orders.tsx`, `docs/ai/{ChangeLog,Flow}.md`.
+
+## 2026-09-05 — Widen the dashboard container to 150rem
+
+Two nested caps limited the UI: `.app-container` at 80rem (1280px) for everything, and inside it
+`.operator-container` at 96rem for the dashboard, which is the one that bound on wide screens and
+left the order history about 900px of usable width after the 16rem sidebar and column padding.
+Both are now 150rem (2400px); the setup wizard shares the outer container and widens with it.
+Files: `ui/src/styles/{foundations,operator}.css`, `docs/ai/ChangeLog.md`.
 
 ## 2026-09-05 — 0.13.1: pick up the 2026-09-05 mainnet SolverAccount from sdk 2.8.11
 

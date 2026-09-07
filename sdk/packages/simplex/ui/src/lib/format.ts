@@ -3,17 +3,46 @@
  * most `maxFraction` fractional digits and grouping thousands. Falls back to the
  * raw integer when decimals are unknown, so a row never shows the wrong scale.
  */
-export function formatTokenAmount(raw: string, decimals: number | null, maxFraction = 4): string {
+/**
+ * Fraction digits that suit the size of the number: 19,990.9995 reads as 19,991
+ * while 0.9995 keeps its four places. Pass `maxFraction` to override (e.g. the
+ * token's full precision for a tooltip).
+ */
+function fractionDigitsFor(whole: string): number {
+	const magnitude = whole.replace(/^0+/, "").length
+	if (magnitude >= 5) return 0
+	if (magnitude >= 3) return 2
+	return 4
+}
+
+export function formatTokenAmount(raw: string, decimals: number | null, maxFraction?: number): string {
 	if (!/^\d+$/.test(raw)) return raw
 	if (decimals === null) return groupThousands(raw)
 	if (decimals === 0) return groupThousands(raw)
 	const padded = raw.padStart(decimals + 1, "0")
-	const whole = padded.slice(0, padded.length - decimals)
-	let fraction = padded.slice(padded.length - decimals)
-	fraction = fraction.slice(0, maxFraction).replace(/0+$/, "")
+	const digits = maxFraction ?? fractionDigitsFor(padded.slice(0, padded.length - decimals))
+	// Round half up at the chosen precision rather than truncating, so 19,990.9995 becomes 19,991.
+	const keep = Math.min(digits, decimals)
+	const drop = decimals - keep
+	let scaled = BigInt(raw)
+	if (drop > 0) {
+		const unit = 10n ** BigInt(drop)
+		scaled = (scaled + unit / 2n) / unit
+	}
+	const text = scaled.toString().padStart(keep + 1, "0")
+	const whole = text.slice(0, text.length - keep)
+	const fraction = keep > 0 ? text.slice(text.length - keep).replace(/0+$/, "") : ""
 	// A dust amount that rounds to nothing still deserves a sign of life.
-	if (fraction === "" && whole === "0" && raw !== "0") return `<0.${"0".repeat(Math.max(maxFraction - 1, 0))}1`
+	if (fraction === "" && whole === "0" && raw !== "0") return `<0.${"0".repeat(Math.max(digits - 1, 0))}1`
 	return fraction ? `${groupThousands(whole)}.${fraction}` : groupThousands(whole)
+}
+
+/** Same rounding as `formatTokenAmount`, for an amount already written as a decimal string ("178.21999"). */
+export function formatDecimalAmount(value: string, maxFraction?: number): string {
+	const match = /^(\d+)(?:\.(\d+))?$/.exec(value.trim())
+	if (!match) return value
+	const fraction = match[2] ?? ""
+	return formatTokenAmount(match[1] + fraction, fraction.length, maxFraction)
 }
 
 function groupThousands(integer: string): string {

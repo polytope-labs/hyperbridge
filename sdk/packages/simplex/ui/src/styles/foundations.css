@@ -202,8 +202,17 @@ select:focus-visible {
 }
 
 .app-container {
-	width: min(100%, 80rem);
+	width: min(100%, 150rem);
 	margin-inline: auto;
+}
+
+/* The dashboard fills the viewport: no page padding, no width cap. */
+.app-shell-operator {
+	padding: 0;
+}
+
+.app-shell-operator .app-container {
+	width: 100%;
 }
 
 .screen-error,

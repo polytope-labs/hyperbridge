@@ -9,7 +9,7 @@ export function App() {
 
 	return (
 		<InstallAppProvider>
-			<div className="app-shell">
+			<div className={`app-shell ${state.kind === "operator" ? "app-shell-operator" : ""}`}>
 				<HeaderGradient />
 				<main className={`app-container ${state.kind === "operator" ? "operator-container" : ""}`}>
 					<ScreenErrorBoundary>

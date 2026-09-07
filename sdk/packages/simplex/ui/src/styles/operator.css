@@ -1,16 +1,13 @@
 /* Operator dashboard: a focused workspace, not a page of interchangeable cards. */
 .operator-container {
-	width: min(100%, 96rem);
+	width: 100%;
 }
 
 .operator-shell {
-	height: calc(100dvh - 5rem);
-	min-height: calc(100dvh - 5rem);
+	height: 100dvh;
+	min-height: 100dvh;
 	overflow: hidden;
-	border: 1px solid var(--border);
-	border-radius: 1.5rem;
 	background: rgba(19, 20, 23, 0.88);
-	box-shadow: 0 1.5rem 5rem rgba(3, 5, 12, 0.24);
 	backdrop-filter: blur(1rem);
 }
 
@@ -73,7 +70,7 @@
 .operator-layout {
 	display: grid;
 	grid-template-columns: 16rem minmax(0, 1fr);
-	height: calc(100dvh - 9.5rem);
+	height: calc(100dvh - 4.5rem);
 	min-height: 0;
 }
 
@@ -755,7 +752,7 @@ button.operator-tool-row {
 	z-index: 51;
 	display: flex;
 	flex-direction: column;
-	width: min(100%, 32rem);
+	width: min(100%, 40rem);
 	height: 100dvh;
 	color: var(--text);
 	border-left: 1px solid var(--border-strong);
@@ -1470,6 +1467,13 @@ button.operator-tool-row {
 	white-space: nowrap;
 }
 
+/* The solver that outbid us: an address, so mono and a shade brighter than a reason. */
+.history-status small[data-kind="winner"] {
+	color: var(--text-secondary);
+	font-family: var(--font-mono);
+	letter-spacing: 0.02em;
+}
+
 .history-leg {
 	display: flex;
 	align-items: center;
@@ -1723,4 +1727,260 @@ button.operator-runtime-stop {
 button.operator-runtime-stop:hover:not(:disabled) {
 	border-color: rgba(255, 122, 137, 0.45);
 	background: rgba(255, 122, 137, 0.12);
+}
+
+/* Bids column: bid (up, green) and retraction (down, red) as explorer links; a grey arrow stands in when absent. */
+.history-bid-links {
+	justify-content: flex-start;
+}
+
+.history-bid-links a[data-kind="bid"] {
+	color: var(--ok);
+}
+
+.history-bid-links a[data-kind="retraction"] {
+	color: var(--err);
+}
+
+.history-bid-links a:hover {
+	color: var(--text);
+}
+
+.history-link-placeholder {
+	display: grid;
+	place-items: center;
+	width: 1.9rem;
+	height: 1.9rem;
+	color: #3a4049;
+}
+
+.history-link-placeholder svg {
+	width: 0.9rem;
+	height: 0.9rem;
+}
+
+/* Wallet ledger: an action icon coloured by kind, then what moved with token icons. */
+.ledger-action {
+	display: flex;
+	align-items: center;
+	gap: 0.7rem;
+}
+
+.ledger-icon {
+	display: grid;
+	place-items: center;
+	width: 2rem;
+	height: 2rem;
+	flex: 0 0 auto;
+	border: 1px solid var(--border);
+	border-radius: 50%;
+	background: var(--control);
+	color: var(--text-secondary);
+}
+
+.ledger-icon svg {
+	width: 0.95rem;
+	height: 0.95rem;
+}
+
+.ledger-action[data-kind="fill"] .ledger-icon {
+	border-color: rgba(116, 233, 152, 0.24);
+	background: rgba(116, 233, 152, 0.08);
+	color: var(--ok);
+}
+
+.ledger-action[data-kind="sweep"] .ledger-icon,
+.ledger-action[data-kind="redeem"] .ledger-icon {
+	border-color: rgba(74, 222, 255, 0.24);
+	background: rgba(74, 222, 255, 0.08);
+	color: var(--focus);
+}
+
+.ledger-action[data-kind="send"] .ledger-icon {
+	border-color: rgba(255, 219, 105, 0.24);
+	background: rgba(255, 219, 105, 0.08);
+	color: var(--warn);
+}
+
+.ledger-action-copy {
+	display: grid;
+	gap: 0.1rem;
+}
+
+.ledger-action-copy strong {
+	color: var(--text);
+	font-size: 0.8125rem;
+	font-weight: 500;
+	white-space: nowrap;
+}
+
+.ledger-action-copy small {
+	color: var(--ok);
+	font-family: var(--font-mono);
+	font-size: 0.625rem;
+	letter-spacing: 0.035em;
+	text-transform: uppercase;
+}
+
+.ledger-move {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 0.4rem 1.1rem;
+}
+
+.ledger-delta {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.45rem;
+	color: var(--text-secondary);
+	font-family: var(--font-mono);
+	font-size: 0.8125rem;
+	white-space: nowrap;
+}
+
+.ledger-delta .token-icon {
+	width: 1.25rem;
+	height: 1.25rem;
+}
+
+.ledger-delta[data-sign="in"] {
+	color: var(--ok);
+}
+
+.ledger-delta[data-sign="out"] {
+	color: var(--err);
+}
+
+.ledger-token {
+	position: relative;
+	display: inline-block;
+	width: 1.25rem;
+	height: 1.25rem;
+	flex: 0 0 auto;
+}
+
+.ledger-token .token-icon {
+	display: block;
+}
+
+.ledger-vault-badge {
+	position: absolute;
+	right: -0.3rem;
+	bottom: -0.3rem;
+	width: 0.8rem;
+	height: 0.8rem;
+	padding: 0.1rem;
+	border-radius: 50%;
+	background: var(--focus);
+	color: #081115;
+	box-shadow: 0 0 0 2px var(--bg);
+}
+
+.ledger-delta-sign {
+	display: inline-block;
+	min-width: 0.7rem;
+}
+
+.ledger-counterparty,
+.ledger-quiet {
+	color: var(--muted);
+	font-size: 0.75rem;
+	white-space: nowrap;
+}
+
+.ledger-chain {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.5rem;
+	font-size: 0.8125rem;
+}
+
+.ledger-chain .chain-logo {
+	width: 1.35rem;
+	height: 1.35rem;
+}
+
+.ledger-links {
+	justify-content: flex-start;
+}
+
+/* Solver link: entry row in the market sheet, and the dialog that builds the URL. */
+.solver-link-entry {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 1.5rem;
+}
+
+.solver-link-entry h3 {
+	margin: 0;
+	font-size: 0.875rem;
+	font-weight: 500;
+}
+
+.solver-link-entry .hint {
+	margin: 0.2rem 0 0;
+}
+
+.solver-link-form {
+	display: grid;
+	gap: 1rem;
+	padding-top: 1rem;
+}
+
+.solver-link-fields {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+	gap: 0.8rem;
+}
+
+.solver-link-fields .field {
+	margin: 0;
+}
+
+.solver-link-summary {
+	display: grid;
+	gap: 0.5rem;
+	margin: 0;
+	padding: 0.9rem 1rem;
+	border: 1px solid var(--border);
+	border-radius: 0.75rem;
+	background: var(--card-raised);
+}
+
+.solver-link-summary div {
+	display: grid;
+	grid-template-columns: 5rem minmax(0, 1fr);
+	gap: 0.75rem;
+	font-size: 0.8125rem;
+}
+
+.solver-link-summary dt {
+	color: var(--muted);
+}
+
+.solver-link-summary dd {
+	margin: 0;
+	color: var(--text);
+	font-family: var(--font-mono);
+}
+
+.solver-link-url {
+	display: block;
+	padding: 0.75rem 0.9rem;
+	border: 1px solid var(--border);
+	border-radius: 0.6rem;
+	background: var(--control);
+	color: var(--text-secondary);
+	font-size: 0.6875rem;
+	line-height: 1.5;
+	word-break: break-all;
+	user-select: all;
+}
+
+.solver-link-form .primary svg {
+	width: 0.9rem;
+	height: 0.9rem;
+	margin-right: 0.4rem;
 }

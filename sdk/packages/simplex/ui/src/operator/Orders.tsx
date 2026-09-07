@@ -24,7 +24,7 @@ const CHAIN_META = new Map(INIT_CHAINS.map((meta) => [meta.stateMachineId, meta]
 
 type OrderRow = OrderHistoryDto["orders"][number]
 
-type Status = { label: string; tone: "" | "ok" | "warn" | "err"; detail?: string }
+type Status = { label: string; tone: "" | "ok" | "warn" | "err"; detail?: string; detailKind?: "winner" }
 
 /**
  * The order's outcome so far. Precedence, not recency: a detection row can be
@@ -36,7 +36,10 @@ function statusOf(events: ActivityEventDto[], bids: BidDto[]): Status {
 	// The amount columns already say what was filled; no volume or profit line here.
 	if (find("filled")) return { label: "Filled", tone: "ok" }
 	const lost = find("lost")
-	if (lost) return { label: "Lost", tone: "warn", detail: lost.reason ? `filled by ${shortAddress(lost.reason)}` : undefined }
+	// Losing an auction is a market outcome, not a fault: neutral badge, the winner as data.
+	if (lost) {
+		return { label: "Outbid", tone: "", detail: lost.reason ? `by ${shortAddress(lost.reason)}` : undefined, detailKind: "winner" }
+	}
 	if (find("bid")) {
 		// Awaiting the on-chain outcome, unless the bid has since been pulled.
 		const latest = bids[0]
@@ -58,25 +61,69 @@ function hyperbridgeExplorer(network: OrderHistoryDto["network"]): string {
 	return network === "testnet" ? "https://gargantua.statescan.io" : "https://nexus.statescan.io"
 }
 
-/** A Hyperbridge extrinsic as a time plus a short hash linking to the explorer. */
-function ExtrinsicCell(props: { at: string; hash: string | null; explorer: string; label: string; title?: string }) {
-	const { at, hash, explorer, label, title } = props
-	const ms = sqliteUtcToMs(at)
+function ArrowIcon({ direction }: { direction: "up" | "down" }) {
 	return (
-		<span className="history-time" title={title}>
-			<strong>{Number.isNaN(ms) ? at : formatClockTime(ms)}</strong>
-			{hash ? (
+		<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
+			{direction === "up" ? <path d="M8 13.5v-11M3.5 7 8 2.5 12.5 7" /> : <path d="M8 2.5v11M3.5 9 8 13.5 12.5 9" />}
+		</svg>
+	)
+}
+
+/** Time of a SQLite-style UTC timestamp for a tooltip, falling back to the raw value. */
+function clockOf(at: string): string {
+	const ms = sqliteUtcToMs(at)
+	return Number.isNaN(ms) ? at : formatClockTime(ms)
+}
+
+/**
+ * The order's latest bid as two explorer links: up for the bid extrinsic, down
+ * for its retraction. Re-bids after a retraction replace earlier ones. A failed
+ * bid has no extrinsic to link, so it shows as text with the error on hover.
+ */
+function BidLinks(props: { bid: BidDto | undefined; explorer: string }) {
+	const { bid, explorer } = props
+	if (!bid) return <Empty />
+	if (!bid.success) {
+		return (
+			<span className="history-bids" title={bid.error ?? undefined}>
+				<strong>Failed</strong>
+			</span>
+		)
+	}
+	const retraction = bid.retracted && bid.retractExtrinsicHash ? bid.retractExtrinsicHash : null
+	return (
+		<span className="history-links history-bid-links">
+			{bid.extrinsicHash ? (
 				<a
-					className="history-extrinsic"
-					href={`${explorer}/#/extrinsics/${hash}`}
+					href={`${explorer}/#/extrinsics/${bid.extrinsicHash}`}
+					data-kind="bid"
 					target="_blank"
 					rel="noreferrer"
-					aria-label={`${label} on the Hyperbridge explorer`}
+					title={`Bid placed ${clockOf(bid.createdAt)} · ${shortAddress(bid.extrinsicHash, 8, 4)}`}
+					aria-label="Bid extrinsic on the Hyperbridge explorer"
 				>
-					{shortAddress(hash, 8, 4)}
+					<ArrowIcon direction="up" />
 				</a>
 			) : (
-				<small>{label}</small>
+				<span className="history-link-placeholder" title={`Bid placed ${clockOf(bid.createdAt)}`} aria-hidden="true">
+					<ArrowIcon direction="up" />
+				</span>
+			)}
+			{retraction ? (
+				<a
+					href={`${explorer}/#/extrinsics/${retraction}`}
+					data-kind="retraction"
+					target="_blank"
+					rel="noreferrer"
+					title={`Retracted ${clockOf(bid.retractedAt ?? bid.createdAt)} · ${shortAddress(retraction, 8, 4)}`}
+					aria-label="Retraction extrinsic on the Hyperbridge explorer"
+				>
+					<ArrowIcon direction="down" />
+				</a>
+			) : (
+				<span className="history-link-placeholder" title="Not retracted" aria-hidden="true">
+					<ArrowIcon direction="down" />
+				</span>
 			)}
 		</span>
 	)
@@ -86,12 +133,6 @@ function chainLabelFor(stateMachineId: string, chainLabels?: Record<string, stri
 	const chainId = parseChainKey(stateMachineId)
 	if (chainId !== null && chainLabels?.[String(chainId)]) return chainLabels[String(chainId)]
 	return CHAIN_META.get(stateMachineId)?.label ?? stateMachineId
-}
-
-function explorerTxUrl(stateMachineId: string | null, txHash: string | null): string | undefined {
-	if (!stateMachineId || !txHash) return undefined
-	const explorer = CHAIN_META.get(stateMachineId)?.explorerUrl
-	return explorer ? `${explorer}/tx/${txHash}` : undefined
 }
 
 function Empty() {
@@ -109,7 +150,7 @@ function LegCell(props: { leg: OrderLeg | undefined; chain: string | undefined; 
 	const symbol =
 		leg.symbol ?? (leg.token === "0x0000000000000000000000000000000000000000" ? "native" : shortAddress(leg.token))
 	return (
-		<span className="history-leg">
+		<span className="history-leg" title={`${formatTokenAmount(leg.amount, leg.decimals, leg.decimals ?? 0)} ${symbol}`}>
 			<span className="history-leg-icon" aria-hidden="true">
 				<TokenIcon symbol={leg.symbol ?? ""} />
 				<ChainLogo label={label} />
@@ -132,25 +173,13 @@ function OrderHistoryRow(props: { row: OrderRow; chainLabels?: Record<string, st
 	const bid: BidDto | undefined = row.bids[0]
 	const summary: OrderSummary | null = row.events.find((event) => event.order)?.order ?? null
 	const detectedAt = row.events.reduce((earliest, event) => Math.min(earliest, event.ts), Number.POSITIVE_INFINITY)
-	// The fill's tx hash: from the on-chain fill when observed, else from a direct
-	// fill attempt (a UserOp hash resolves on the explorer's /tx page too). A bid's
-	// hash is a Hyperbridge extrinsic, which no EVM explorer knows.
-	const filled = row.events.find(
-		(event) => (event.type === "filled" || event.type === "lost" || event.type === "executed") && event.txHash,
-	)
-	const fillChain =
-		filled?.chainId !== null && filled?.chainId !== undefined ? `EVM-${filled.chainId}` : (summary?.destination ?? null)
-	const placedUrl = explorerTxUrl(summary?.source ?? null, summary?.placedTxHash ?? null)
-	const fillUrl = explorerTxUrl(fillChain, filled?.txHash ?? null)
 
 	return (
 		<tr>
 			<td>
 				{summary?.referrer ? (
-					<span className="history-referrer">
-						<CopyHash value={summary.referrer} copyLabel="Copy referrer tag">
-							{describeReferrer(summary.referrer)}
-						</CopyHash>
+					<span className="history-referrer" title={summary.referrer}>
+						{describeReferrer(summary.referrer)}
 					</span>
 				) : (
 					<Empty />
@@ -159,7 +188,11 @@ function OrderHistoryRow(props: { row: OrderRow; chainLabels?: Record<string, st
 			<td>
 				<span className="history-status">
 					<span className={`badge ${status.tone}`}>{status.label}</span>
-					{status.detail && <small title={status.detail}>{status.detail}</small>}
+					{status.detail && (
+						<small data-kind={status.detailKind} title={status.detailKind === "winner" ? (row.events.find((event) => event.type === "lost")?.reason ?? status.detail) : status.detail}>
+							{status.detail}
+						</small>
+					)}
 					{/* Rows recorded before order summaries existed: keep the id visible. */}
 					{!summary && <small title={row.orderId}>order {shortAddress(row.orderId, 8, 4)}</small>}
 				</span>
@@ -171,33 +204,7 @@ function OrderHistoryRow(props: { row: OrderRow; chainLabels?: Record<string, st
 				<LegCell leg={summary?.outputs[0]} chain={summary?.destination} chainLabels={chainLabels} />
 			</td>
 			<td>
-				{bid ? (
-					bid.success ? (
-						<ExtrinsicCell at={bid.createdAt} hash={bid.extrinsicHash} explorer={explorer} label="Bid" />
-					) : (
-						<span className="history-bids" title={bid.error ?? undefined}>
-							<strong>Failed</strong>
-							<small data-tone="err">{bid.error ?? ""}</small>
-						</span>
-					)
-				) : (
-					<Empty />
-				)}
-			</td>
-			<td>
-				{/* Only a retraction that went on chain. A bid closed out because the pallet no
-				    longer had it (our fill consumed it, or it never landed) is marked retracted
-				    without an extrinsic, and there is nothing to link. */}
-				{bid?.retracted && bid.retractExtrinsicHash ? (
-					<ExtrinsicCell
-						at={bid.retractedAt ?? bid.createdAt}
-						hash={bid.retractExtrinsicHash}
-						explorer={explorer}
-						label="Retraction"
-					/>
-				) : (
-					<Empty />
-				)}
+				<BidLinks bid={bid} explorer={explorer} />
 			</td>
 			<td>
 				{summary ? (
@@ -227,46 +234,6 @@ function OrderHistoryRow(props: { row: OrderRow; chainLabels?: Record<string, st
 					>
 						<ExternalLinkIcon aria-hidden="true" />
 					</a>
-					{placedUrl && (
-						<a
-							href={placedUrl}
-							target="_blank"
-							rel="noreferrer"
-							title="Placement transaction on the block explorer"
-							aria-label="Placement transaction on the block explorer"
-						>
-							<svg
-								viewBox="0 0 16 16"
-								fill="none"
-								stroke="currentColor"
-								strokeWidth="1.5"
-								strokeLinecap="round"
-								aria-hidden="true"
-							>
-								<path d="M8 2.5v11M3.5 7 8 2.5 12.5 7" />
-							</svg>
-						</a>
-					)}
-					{fillUrl && (
-						<a
-							href={fillUrl}
-							target="_blank"
-							rel="noreferrer"
-							title="Fill transaction on the block explorer"
-							aria-label="Fill transaction on the block explorer"
-						>
-							<svg
-								viewBox="0 0 16 16"
-								fill="none"
-								stroke="currentColor"
-								strokeWidth="1.5"
-								strokeLinecap="round"
-								aria-hidden="true"
-							>
-								<path d="M8 13.5v-11M3.5 9 8 13.5 12.5 9" />
-							</svg>
-						</a>
-					)}
 				</span>
 			</td>
 		</tr>
@@ -417,8 +384,7 @@ export function Orders(props: { chainLabels?: Record<string, string> }) {
 									<th>Status</th>
 									<th>Amount in</th>
 									<th>Amount out</th>
-									<th>Bid placed</th>
-									<th>Retracted</th>
+									<th>Bids</th>
 									<th>User</th>
 									<th>Placed</th>
 									<th aria-label="Links" />

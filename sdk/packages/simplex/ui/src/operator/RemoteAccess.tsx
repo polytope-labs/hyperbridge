@@ -87,6 +87,11 @@ export function RemoteAccess() {
 	// Paste is the default: the phone's app makes the key and the private half
 	// never leaves it. Generating here is the fallback for apps that cannot.
 	const [mode, setMode] = useState<PairMode>("paste")
+	// What the switch shows while a toggle is in flight. The dashboard shares an
+	// event loop with the filler, so a status write takes a few hundred
+	// milliseconds under load; waiting for it before moving the switch reads as
+	// a broken control, and a poll landing mid-flight would flip it back.
+	const [pendingEnabled, setPendingEnabled] = useState<boolean>()
 	const [fresh, setFresh] = useState<TunnelNewDeviceDto>()
 	const { run: act, message, error, isPending } = useAction()
 
@@ -98,9 +103,12 @@ export function RemoteAccess() {
 			else throw err
 		}
 	}, [])
+	// Faster only while the tunnel is mid-transition, when the badge is the
+	// thing being watched; idle polling stays cheap.
+	const settling = status?.state === "connecting" || status?.state === "reconnecting"
 	usePolling(
 		useCallback(() => act(load, undefined, "poll"), [act, load]),
-		3000,
+		settling ? 1000 : 3000,
 	)
 
 	if (unavailable) {
@@ -108,6 +116,9 @@ export function RemoteAccess() {
 	}
 	if (!status) return <p className="operator-empty">Loading…</p>
 
+	// The optimistic switch position, and a badge that agrees with it.
+	const enabled = pendingEnabled ?? status.enabled
+	const state = pendingEnabled === undefined ? status.state : pendingEnabled ? "connecting" : "disabled"
 	const canPair = Boolean(label.trim()) && (mode === "generate" || Boolean(publicKey.trim()))
 
 	const pair = () =>
@@ -131,7 +142,7 @@ export function RemoteAccess() {
 						<span className="eyebrow">Tunnel</span>
 						<h2>Relay connection</h2>
 					</div>
-					<span className={`badge ${STATE_BADGE[status.state]}`}>{STATE_LABEL[status.state]}</span>
+					<span className={`badge ${STATE_BADGE[state]}`}>{STATE_LABEL[state]}</span>
 				</div>
 				<p className="hint">
 					An outbound SSH tunnel to a relay gives this dashboard a public address your phone's SSH app can
@@ -141,25 +152,31 @@ export function RemoteAccess() {
 				<label className="chain-enable-toggle tunnel-toggle">
 					<input
 						type="checkbox"
-						checked={status.enabled}
+						checked={enabled}
 						disabled={isPending("toggle")}
-						onChange={(e) =>
-							act(
+						onChange={(e) => {
+							const next = e.target.checked
+							setPendingEnabled(next)
+							void act(
 								async () => {
-									setStatus(
-										await api.put<TunnelStatusDto>("/api/tunnel", { enabled: e.target.checked }),
-									)
+									try {
+										setStatus(await api.put<TunnelStatusDto>("/api/tunnel", { enabled: next }))
+									} finally {
+										// Whatever the server said, or did not say, the switch
+										// goes back to following it.
+										setPendingEnabled(undefined)
+									}
 								},
-								e.target.checked ? "Remote access enabled" : "Remote access disabled",
+								next ? "Remote access enabled" : "Remote access disabled",
 								"toggle",
 							)
-						}
+						}}
 					/>
 					<span className="chain-enable-switch" aria-hidden="true" />
-					<span>{status.enabled ? "Remote access is on" : "Remote access is off"}</span>
+					<span>{enabled ? "Remote access is on" : "Remote access is off"}</span>
 				</label>
 
-				<ConnectionFields connection={status.connection} enabled={status.enabled} />
+				<ConnectionFields connection={status.connection} enabled={enabled} />
 				{status.lastError ? (
 					<div className="operator-alert tunnel-alert">
 						<div>

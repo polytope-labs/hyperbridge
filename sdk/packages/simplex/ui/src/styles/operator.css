@@ -1,16 +1,13 @@
 /* Operator dashboard: a focused workspace, not a page of interchangeable cards. */
 .operator-container {
-	width: min(100%, 150rem);
+	width: 100%;
 }
 
 .operator-shell {
-	height: calc(100dvh - 5rem);
-	min-height: calc(100dvh - 5rem);
+	height: 100dvh;
+	min-height: 100dvh;
 	overflow: hidden;
-	border: 1px solid var(--border);
-	border-radius: 1.5rem;
 	background: rgba(19, 20, 23, 0.88);
-	box-shadow: 0 1.5rem 5rem rgba(3, 5, 12, 0.24);
 	backdrop-filter: blur(1rem);
 }
 
@@ -73,7 +70,7 @@
 .operator-layout {
 	display: grid;
 	grid-template-columns: 16rem minmax(0, 1fr);
-	height: calc(100dvh - 9.5rem);
+	height: calc(100dvh - 4.5rem);
 	min-height: 0;
 }
 
@@ -755,7 +752,7 @@ button.operator-tool-row {
 	z-index: 51;
 	display: flex;
 	flex-direction: column;
-	width: min(100%, 32rem);
+	width: min(100%, 40rem);
 	height: 100dvh;
 	color: var(--text);
 	border-left: 1px solid var(--border-strong);

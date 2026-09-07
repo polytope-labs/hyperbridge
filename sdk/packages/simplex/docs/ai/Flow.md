@@ -208,7 +208,9 @@ cache name that must be bumped whenever a precached static asset changes, and
 
 `ui/src/App.tsx` owns the page shell for every UI state. It places the animated brand line at the
 viewport's top edge and centers the active view inside `.app-container`; setup mode renders
-`Wizard`, while loading, error, and operator states use the same shell.
+`Wizard`, while loading, error, and operator states use the same shell. In the operator state the
+shell carries `app-shell-operator`, which removes the page padding and width cap so the dashboard
+fills the viewport edge to edge; the wizard keeps the padded, card-style presentation.
 
 `ui/src/wizard/Wizard.tsx` owns the setup draft, active step, per-step requirements, and forward/back
 navigation. It maps the active step to its editor and derives completed/active/upcoming rail states,

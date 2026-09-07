@@ -286,8 +286,11 @@ export class DelegationService {
 	/**
 	 * Sets up EIP-7702 delegation from the filler's EOA to the SolverAccount contract.
 	 *
-	 * Tries bundler path first (paymaster pays gas in ERC-20).
-	 * Falls back to direct type-0x04 tx if bundler path fails.
+	 * A no-permit fee token with no Permit2 allowance cannot be sponsored until a funded
+	 * approve has landed, so the sponsored path would cost a native approve tx and then the
+	 * op. When that approval is pending and the EOA holds native, one direct type-0x04 tx
+	 * batching the approve does both, so it goes first. Otherwise the bundler path goes
+	 * first (paymaster pays gas in ERC-20) and a plain direct tx is the fallback.
 	 */
 	async setupDelegation(chain: string): Promise<boolean> {
 		const solverAccountContract = this.configService.getSolverAccountContractAddress(chain)
@@ -302,52 +305,20 @@ export class DelegationService {
 			return true
 		}
 
-		// Try bundler path first (paymaster pays gas)
-		if (hasPaymaster(chain, this.configService)) {
-			const success = await this.setupDelegationViaBundler(chain)
-			if (success) return true
-			this.logger.info({ chain }, "Falling back to direct delegation tx")
-		}
-
-		// Fallback: direct type-0x04 transaction (requires native token)
-		const publicClient = this.clientManager.getPublicClient(chain)
 		const authority = this.signer.address as HexString
 
-		// The direct tx pays gas in native ETH. If the EOA can't cover it, delegation fails
-		// outright (the paymaster path already failed too) — surface the deficit explicitly.
-		const [nativeBalance, gasPrice] = await Promise.all([
-			publicClient.getBalance({ address: authority }),
-			publicClient.getGasPrice(),
-		])
-		const requiredNative = DELEGATION_TX_GAS_FLOOR * gasPrice
-		if (nativeBalance < requiredNative) {
-			this.logger.error(
-				{
-					chain,
-					authority,
-					nativeBalance: formatEther(nativeBalance),
-					requiredNative: formatEther(requiredNative),
-				},
-				"Delegation failed: insufficient native balance for direct EIP-7702 tx and paymaster path unavailable",
-			)
-			return false
-		}
-
-		this.logger.info(
-			{ chain, authority, solverAccountContract, mode: this.signer.mode ?? "custom" },
-			"Setting up EIP-7702 delegation via direct tx",
-		)
-
-		// Fold the one-time Permit2 approval into this native tx when the chain needs it, so
-		// a no-permit fee token costs one native tx (delegate + approve) rather than two.
 		// The approve is the tx payload, so a token that rejects it (a blacklist, insufficient
 		// batched gas) reverts the whole tx with it. The batched attempt is best-effort: a
 		// reverted tx usually still delegated (EIP-7702 applies authorization tuples before
 		// execution and keeps them applied when execution reverts), and only a genuinely
-		// undelegated account retries as a plain self-call; the approval then defers to the
-		// first sponsored op's own funded approve.
+		// undelegated account carries on to the sponsored path; the approval then defers to
+		// the first sponsored op's own funded approve.
 		const pendingApproval = await this.resolvePendingPermit2Approval(chain)
-		if (pendingApproval) {
+		if (pendingApproval && (await this.nativeCoversDirectTx(chain, authority)).covered) {
+			this.logger.info(
+				{ chain, authority, solverAccountContract, token: pendingApproval.token },
+				"Setting up EIP-7702 delegation via direct tx with the Permit2 approve batched in",
+			)
 			if (await this.trySendDelegation(chain, solverAccountContract, pendingApproval)) {
 				return true
 			}
@@ -358,9 +329,51 @@ export class DelegationService {
 				)
 				return true
 			}
-			this.logger.warn({ chain }, "Batched delegate+approve failed; retrying delegation without the approve")
+			this.logger.warn({ chain }, "Batched delegate+approve failed; trying the sponsored path")
 		}
+
+		if (hasPaymaster(chain, this.configService)) {
+			const success = await this.setupDelegationViaBundler(chain)
+			if (success) return true
+			this.logger.info({ chain }, "Falling back to direct delegation tx")
+		}
+
+		// Fallback: direct type-0x04 transaction (requires native token). If the EOA can't
+		// cover it, delegation fails outright (the paymaster path already failed too), so
+		// surface the deficit explicitly.
+		const native = await this.nativeCoversDirectTx(chain, authority)
+		if (!native.covered) {
+			this.logger.error(
+				{
+					chain,
+					authority,
+					nativeBalance: formatEther(native.nativeBalance),
+					requiredNative: formatEther(native.requiredNative),
+				},
+				"Delegation failed: insufficient native balance for direct EIP-7702 tx and paymaster path unavailable",
+			)
+			return false
+		}
+
+		this.logger.info(
+			{ chain, authority, solverAccountContract, mode: this.signer.mode ?? "custom" },
+			"Setting up EIP-7702 delegation via direct tx",
+		)
 		return this.trySendDelegation(chain, solverAccountContract, undefined)
+	}
+
+	/** Whether the EOA can pay for one direct set-code tx at the current gas price. */
+	private async nativeCoversDirectTx(
+		chain: string,
+		authority: HexString,
+	): Promise<{ covered: boolean; nativeBalance: bigint; requiredNative: bigint }> {
+		const publicClient = this.clientManager.getPublicClient(chain)
+		const [nativeBalance, gasPrice] = await Promise.all([
+			publicClient.getBalance({ address: authority }),
+			publicClient.getGasPrice(),
+		])
+		const requiredNative = DELEGATION_TX_GAS_FLOOR * gasPrice
+		return { covered: nativeBalance >= requiredNative, nativeBalance, requiredNative }
 	}
 
 	/**

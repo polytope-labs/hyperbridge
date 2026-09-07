@@ -26,6 +26,11 @@ Version 2.8.11; simplex 0.13.1 goes with it.
 Files: `src/configs/chain.ts`, `src/protocols/intents/phantom-aggregation.ts`,
 `src/tests/phantomAggregation.test.ts`, `package.json`, `docs/ai/ChangeLog.md`.
 
+## 2026-09-07 — Wallet-funded phantom bids are no longer haircut; only pool-priced bids pay 10bps
+
+The 5bps `PHANTOM_QUOTE_HAIRCUT_BPS` introduced on 2026-08-27 is removed, along with `applyPhantomQuoteHaircut` and both exports. `aggregatePhantomBids` now haircuts a bid only when its declaration names Uniswap V4 positions, by the unchanged `UNISWAP_QUOTE_HAIRCUT_BPS` of 10bps; a bid with no declared positions is published exactly as quoted. The haircut still lands on the individual quote before the zero-check, the weighted median, and the bidder rows.
+Files: `src/protocols/intents/phantom-aggregation.ts`, `src/protocols/intents/index.ts`, `src/intents-helpers.ts`, `src/tests/phantomAggregation.test.ts`, `docs/ai/Flow.md`, `docs/ai/Decisions.md`.
+
 ## 2026-09-03 — `pollPhantomOrders` can skip a backlog it will never use
 
 A mainnet filler fell behind the head and stayed there: the cursor gains at most `maxBlocksPerPoll` per tick and

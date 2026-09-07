@@ -414,16 +414,6 @@ export interface AggregationLogger {
  */
 export const UNISWAP_QUOTE_HAIRCUT_BPS = 10n
 
-/**
- * Haircut applied to every phantom quote that is NOT priced off a Uniswap V4 pool, in basis points.
- *
- * A wallet-funded quote is still the best case the solver sees at bid time; the published rate is
- * what the protocol tells takers they can trade against, so it is shaded by this margin rather
- * than being the most optimistic number any bidder named. Pool-priced quotes pay
- * {@link UNISWAP_QUOTE_HAIRCUT_BPS} instead of this — not on top of it.
- */
-export const PHANTOM_QUOTE_HAIRCUT_BPS = 5n
-
 function haircut(amount: bigint, bps: bigint): bigint {
 	return (amount * (10_000n - bps)) / 10_000n
 }
@@ -431,11 +421,6 @@ function haircut(amount: bigint, bps: bigint): bigint {
 /** Applies {@link UNISWAP_QUOTE_HAIRCUT_BPS} to a quoted output amount, rounding down. */
 export function applyUniswapQuoteHaircut(amount: bigint): bigint {
 	return haircut(amount, UNISWAP_QUOTE_HAIRCUT_BPS)
-}
-
-/** Applies {@link PHANTOM_QUOTE_HAIRCUT_BPS} to a quoted output amount, rounding down. */
-export function applyPhantomQuoteHaircut(amount: bigint): bigint {
-	return haircut(amount, PHANTOM_QUOTE_HAIRCUT_BPS)
 }
 
 // Liquidity-weighted median of solver quotes. Each quote's influence is proportional to `weight` —
@@ -1165,19 +1150,19 @@ async function runAggregation(
 			// Weights are fetched concurrently: the memo caches promises, so identical output tokens
 			// across legs still collapse to a single RPC round trip.
 			//
-			// Every quote is haircut before anything downstream reads it — the median, the bidder
-			// rows, and the zero-check right here, which then treats a quote the haircut rounds
-			// away exactly as it treats a declined one. A bid that names V4 positions is priced
-			// off those pools and pays the larger pool-fee haircut; every other bid pays the base
-			// one. The declaration drives that choice rather than the positions that survive the
-			// ownership check below, so the quote is haircut on the same basis the solver priced
-			// it on, whether or not this chain has V4 contracts configured.
+			// A bid that names V4 positions is priced off those pools, so its quote is haircut by
+			// the pool fee before anything downstream reads it — the median, the bidder rows, and
+			// the zero-check right here, which then treats a quote the haircut rounds away exactly
+			// as it treats a declined one. A wallet-funded bid is published as quoted: its
+			// inventory has already paid its cost of goods, and the number it names is the number
+			// it clears. The declaration drives the choice rather than the positions that survive
+			// the ownership check below, so the quote is haircut on the same basis the solver
+			// priced it on, whether or not this chain has V4 contracts configured.
 			const poolPriced = declaration.uniswapV4Positions.length > 0
-			const applyHaircut = poolPriced ? applyUniswapQuoteHaircut : applyPhantomQuoteHaircut
 			const quotedLegs = [...fillData.legs.entries()]
 				.map(([legIndex, leg]): [number, FillLeg] => [
 					legIndex,
-					{ ...leg, solverAmount: applyHaircut(leg.solverAmount) },
+					{ ...leg, solverAmount: poolPriced ? applyUniswapQuoteHaircut(leg.solverAmount) : leg.solverAmount },
 				])
 				.filter(([, leg]) => leg.solverAmount !== 0n)
 

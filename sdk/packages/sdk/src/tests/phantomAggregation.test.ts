@@ -11,7 +11,6 @@ import {
 	splitBidSignature,
 	weightedMedian,
 	applyUniswapQuoteHaircut,
-	applyPhantomQuoteHaircut,
 	encodeAcceptedSourceChains,
 	encodePhantomBidDeclaration,
 	AGGREGATION_ATTEMPTS,
@@ -401,7 +400,7 @@ describe("aggregatePhantomBids bid verification", () => {
 		expect(result!.legs).toHaveLength(1)
 		expect(result!.legs[0].legIndex).toBe(0)
 		expect(result!.legs[0].bidCount).toBe(1)
-		expect(result!.legs[0].medianPrice).toBe(applyPhantomQuoteHaircut(SOLVER_AMOUNT))
+		expect(result!.legs[0].medianPrice).toBe(SOLVER_AMOUNT)
 	})
 
 	it("drops a bid whose sender is a plain EOA with no delegation", async () => {
@@ -865,8 +864,8 @@ describe("aggregatePhantomBids bid verification", () => {
 
 		// Only a pool-priced bid pays the pool-fee haircut — a solver quoting off wallet inventory
 		// has already paid its cost of goods, and a source-chain-only declaration says nothing
-		// about a pool. Such a bid pays the smaller base haircut instead, never both.
-		it("charges a bid that declares no position the base haircut, not the pool one", async () => {
+		// about a pool. Such a bid is published exactly as quoted.
+		it("publishes a bid that declares no position unhaircut", async () => {
 			const userOp = await signedBidUserOp({
 				signingKey: SOLVER_KEY,
 				paymasterAndData: encodeAcceptedSourceChains([CHAIN]),
@@ -884,8 +883,7 @@ describe("aggregatePhantomBids bid verification", () => {
 				uniswapV4: { [CHAIN]: { positionManager: POSITION_MANAGER, stateView: STATE_VIEW } },
 			})
 
-			expect(result!.legs[0].medianPrice).toBe((SOLVER_AMOUNT * 9_995n) / 10_000n)
-			expect(result!.legs[0].medianPrice).toBe(applyPhantomQuoteHaircut(SOLVER_AMOUNT))
+			expect(result!.legs[0].medianPrice).toBe(SOLVER_AMOUNT)
 		})
 
 		// The sweep is where a provider's inventory is reported, so a position missing from it makes

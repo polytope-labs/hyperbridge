@@ -4,6 +4,24 @@ AI-maintained record of non-obvious choices made in `sdk/packages/sdk`: what was
 
 Entry format: heading with the decision, then alternatives considered and the reasoning. Newest first.
 
+## 2026-09-07 — Wallet-funded phantom quotes are published unhaircut; only the pool tier remains
+
+Chosen: drop `PHANTOM_QUOTE_HAIRCUT_BPS` (5bps) and `applyPhantomQuoteHaircut`. A bid that declares Uniswap V4
+positions still pays `UNISWAP_QUOTE_HAIRCUT_BPS` (10bps); every other bid is published at the amount it named.
+This reverses the 2026-08-27 decision below.
+
+Why: the 10bps pool haircut nets out a real cost — the pool fee a pool-priced quote has not yet paid. The 5bps
+wallet haircut netted out nothing: a wallet-funded solver has already paid its cost of goods and names the amount
+it will actually clear, so the shade only moved the published rate 5bps off the executable one and made the
+snapshot disagree with what fills at.
+
+Alternatives considered:
+
+- **Keep a smaller wallet haircut (1–2bps).** Rejected: any nonzero value re-raises the question of what cost it
+  represents, and there is none; the margin between quote and fill belongs to the solver's own pricing.
+- **Fold the two into one constant applied to every bid.** Rejected: it would either charge wallet bids a pool
+  fee they never pay or under-charge pool bids, and the two tiers exist precisely because the costs differ.
+
 ## 2026-09-03 — The phantom-order lag limit is read from the chain, and always applies
 
 Chosen: the poll derives its threshold from `phantomTimings()` — the pallet's `PhantomBidWindow` (or the

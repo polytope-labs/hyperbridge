@@ -210,7 +210,9 @@ describe("TunnelKeyStore", () => {
 	})
 })
 
-describe("TunnelService", () => {
+// Real SSH handshakes over loopback: a few seconds normally, longer on a cold
+// or loaded runner, so the default 5s budget is not enough.
+describe("TunnelService", { timeout: 30_000 }, () => {
 	let relay: FakeRelay
 	let ui: { server: HttpServer; port: number }
 	let tunnel: TunnelService | undefined

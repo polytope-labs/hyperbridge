@@ -145,8 +145,7 @@ export function RemoteAccess() {
 					<span className={`badge ${STATE_BADGE[state]}`}>{STATE_LABEL[state]}</span>
 				</div>
 				<p className="hint">
-					An outbound SSH tunnel to a relay gives this dashboard a public address your phone's SSH app can
-					reach. The relay only carries encrypted bytes: your phone's session ends here, in Simplex.
+					The relay only carries encrypted bytes; your phone's session ends here, in Simplex.
 				</p>
 
 				<label className="chain-enable-toggle tunnel-toggle">

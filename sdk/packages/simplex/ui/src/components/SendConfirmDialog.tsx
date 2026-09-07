@@ -53,15 +53,18 @@ export function SendConfirmDialog(props: {
 		>
 			<div className="send-review">
 				<div className="send-review-headline">
-					<TokenIcon symbol={summary.symbol} size="lg" />
+					{/* The network rides on the token as a badge, the way wallets show it. */}
+					<span className="send-review-asset">
+						<TokenIcon symbol={summary.symbol} size="lg" />
+						<span className="send-review-chain-badge">
+							<ChainLogo label={summary.chainLabel} />
+						</span>
+					</span>
 					<div>
 						<strong>
 							{summary.amount} {summary.symbol}
 						</strong>
-						<span className="send-review-network">
-							<ChainLogo label={summary.chainLabel} />
-							{summary.chainLabel}
-						</span>
+						<span className="send-review-network">on {summary.chainLabel}</span>
 					</div>
 				</div>
 

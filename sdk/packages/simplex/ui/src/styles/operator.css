@@ -2184,7 +2184,37 @@ button.operator-runtime-stop:hover:not(:disabled) {
 .send-review {
 	display: grid;
 	gap: 1.25rem;
-	padding-top: 0.5rem;
+	/* The dialog body has horizontal padding only, so the review supplies its own. */
+	padding: 0.5rem 0 1.5rem;
+}
+
+.send-review-asset {
+	position: relative;
+	display: inline-block;
+	width: 2rem;
+	height: 2rem;
+	flex: 0 0 auto;
+}
+
+.send-review-asset .token-icon {
+	display: block;
+}
+
+.send-review-chain-badge {
+	position: absolute;
+	right: -0.3rem;
+	bottom: -0.3rem;
+	display: block;
+	width: 1.05rem;
+	height: 1.05rem;
+	border-radius: 50%;
+	box-shadow: 0 0 0 2px var(--card);
+}
+
+.send-review-chain-badge .chain-logo {
+	width: 100%;
+	height: 100%;
+	font-size: 0.45rem;
 }
 
 .send-review-headline {

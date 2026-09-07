@@ -273,6 +273,24 @@ export interface TunnelStatusDto {
 	devices: TunnelDeviceDto[]
 	/** Device sessions open right now. */
 	activeConnections: number
+	/**
+	 * The connection an operator types into their SSH app. Overlaps `port` and
+	 * `hostFingerprint` on purpose: this is the block the dashboard renders, so
+	 * it stays one shape whether it comes from here or from pairing.
+	 */
+	connection: TunnelConnectionDto
+}
+
+/** Everything a phone's SSH app needs to reach this dashboard. */
+export interface TunnelConnectionDto {
+	host: string
+	/** Absent until the relay has leased a port. */
+	port?: number
+	username: string
+	/** The embedded SSH server's host key, which the phone pins. */
+	hostFingerprint: string
+	/** `-L` argument: local port to the UI bind. */
+	localForward: string
 }
 
 /**
@@ -285,13 +303,5 @@ export interface TunnelNewDeviceDto {
 	/** OpenSSH-format private key for the phone; absent for a pasted public key. */
 	privateKey?: string
 	publicKey: string
-	connection: {
-		host: string
-		/** Absent while the tunnel is down; the UI says to check back. */
-		port?: number
-		username: string
-		hostFingerprint: string
-		/** `-L` argument: local port to the UI bind. */
-		localForward: string
-	}
+	connection: TunnelConnectionDto
 }

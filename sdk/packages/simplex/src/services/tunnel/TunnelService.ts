@@ -1,6 +1,12 @@
 import ssh2, { type ClientChannel, type Client as SshClientType } from "ssh2"
 import { getLogger } from "../Logger"
-import type { TunnelDeviceDto, TunnelNewDeviceDto, TunnelStatusDto, TunnelState } from "../server/dto"
+import type {
+	TunnelConnectionDto,
+	TunnelDeviceDto,
+	TunnelNewDeviceDto,
+	TunnelState,
+	TunnelStatusDto,
+} from "../server/dto"
 import { EmbeddedSshServer } from "./EmbeddedSshServer"
 import { fingerprintOf, TunnelKeyStore, type StoredKey } from "./keys"
 
@@ -36,6 +42,9 @@ export function expectedRelayFingerprint(
 
 /** Port the phone forwards to locally; matches the CLI's default UI port so the docs read the same everywhere. */
 const LOCAL_FORWARD_PORT = 8686
+
+/** The relay ignores it and the embedded server authenticates by key, but SSH apps demand one. */
+const TUNNEL_USERNAME = "simplex"
 
 /** `[simplex.tunnel]` in the config file. */
 export interface TunnelConfig {
@@ -172,6 +181,25 @@ export class TunnelService implements TunnelControls {
 			operatorFingerprint: this.operatorKey.fingerprint,
 			devices: this.keys.devices().map(toDeviceDto),
 			activeConnections: this.server.connections,
+			connection: this.connection(),
+		}
+	}
+
+	/** What a phone's SSH app needs; the same shape whether read from status or returned by pairing. */
+	private connection(): TunnelConnectionDto {
+		let host = this.relay
+		try {
+			host = parseRelayAddress(this.relay).host
+		} catch {
+			// A malformed relay in the config still shows something readable;
+			// connecting reports the parse error separately.
+		}
+		return {
+			host,
+			port: this.port,
+			username: TUNNEL_USERNAME,
+			hostFingerprint: this.hostKey.fingerprint,
+			localForward: `${LOCAL_FORWARD_PORT}:127.0.0.1:${this.opts.uiTarget().port}`,
 		}
 	}
 
@@ -204,18 +232,11 @@ export class TunnelService implements TunnelControls {
 			{ label: device.label, fingerprint: device.fingerprint, generated: privateKey !== undefined },
 			"Paired a new device for remote access",
 		)
-		const { host } = parseRelayAddress(this.relay)
 		return {
 			device: toDeviceDto(device),
 			privateKey,
 			publicKey: device.publicKey,
-			connection: {
-				host,
-				port: this.port,
-				username: "simplex",
-				hostFingerprint: this.hostKey.fingerprint,
-				localForward: `${LOCAL_FORWARD_PORT}:127.0.0.1:${this.opts.uiTarget().port}`,
-			},
+			connection: this.connection(),
 		}
 	}
 
@@ -284,7 +305,7 @@ export class TunnelService implements TunnelControls {
 		client.connect({
 			host: target.host,
 			port: target.port,
-			username: "simplex",
+			username: TUNNEL_USERNAME,
 			privateKey: this.operatorKey.privateKey,
 			keepaliveInterval: 15_000,
 			keepaliveCountMax: 3,

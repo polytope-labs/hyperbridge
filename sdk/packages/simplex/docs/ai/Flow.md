@@ -34,6 +34,9 @@ relay on 2026-09-07.
    doubling, capped at 60s), state `reconnecting`, until `stop()` or `configure({enabled:false})`.
 8. `UiServer`: `GET /api/tunnel` returns `status()`; `PUT /api/tunnel` validates, rewrites
    `config.simplex.tunnel`, persists the file, then `configure()`s the live service;
+   `status()` carries a `connection` block (host, port, username, host-key fingerprint, local
+   forward) built by `TunnelService.connection()`, which pairing returns too, so the dashboard renders
+   the SSH fields whether or not a device was just paired.
    `POST /api/tunnel/devices` with `publicKey` normalises and authorizes the phone's own key
    (`normalizePublicKey` → `TunnelKeyStore.addDevice`) and returns no private key; without it,
    `addDevice` mints a pair and returns the private key once; `POST /api/tunnel/devices/revoke`

@@ -4,7 +4,7 @@ import { api } from "../api"
 import { CopyHash } from "../components/CopyHash"
 import { PillTabs } from "../components/PillTabs"
 import { useAction, usePolling } from "../lib/hooks"
-import type { TunnelNewDeviceDto, TunnelStatusDto } from "../types"
+import type { TunnelConnectionDto, TunnelNewDeviceDto, TunnelStatusDto } from "../types"
 
 const STATE_LABEL: Record<TunnelStatusDto["state"], string> = {
 	disabled: "Off",
@@ -25,6 +25,49 @@ const STATE_BADGE: Record<TunnelStatusDto["state"], string> = {
 }
 
 type PairMode = "paste" | "generate"
+
+/** The fields an operator types into their SSH app, ready to copy one at a time. */
+function ConnectionFields(props: { connection: TunnelConnectionDto; enabled: boolean }) {
+	const { connection, enabled } = props
+	return (
+		<dl className="tunnel-facts">
+			<div>
+				<dt>Host</dt>
+				<dd>
+					<CopyHash value={connection.host} chars={48} copyLabel="Copy host" />
+				</dd>
+			</div>
+			<div>
+				<dt>Port</dt>
+				<dd>
+					{connection.port ? (
+						<CopyHash value={String(connection.port)} chars={8} copyLabel="Copy port" />
+					) : (
+						<span className="tunnel-facts-pending">
+							{enabled ? "Assigned once connected" : "Turn remote access on"}
+						</span>
+					)}
+				</dd>
+			</div>
+			<div>
+				<dt>Username</dt>
+				<dd className="mono">{connection.username}</dd>
+			</div>
+			<div>
+				<dt>Host key fingerprint</dt>
+				<dd>
+					<CopyHash value={connection.hostFingerprint} chars={22} copyLabel="Copy host key fingerprint" />
+				</dd>
+			</div>
+			<div>
+				<dt>Local port forward</dt>
+				<dd>
+					<CopyHash value={connection.localForward} chars={32} copyLabel="Copy local forward" />
+				</dd>
+			</div>
+		</dl>
+	)
+}
 
 const PAIR_MODES: ReadonlyArray<{ value: PairMode; label: string }> = [
 	{ value: "paste", label: "Paste a public key" },
@@ -65,7 +108,6 @@ export function RemoteAccess() {
 	}
 	if (!status) return <p className="operator-empty">Loading…</p>
 
-	const relayHost = status.relay.split(":")[0]
 	const canPair = Boolean(label.trim()) && (mode === "generate" || Boolean(publicKey.trim()))
 
 	const pair = () =>
@@ -117,32 +159,7 @@ export function RemoteAccess() {
 					<span>{status.enabled ? "Remote access is on" : "Remote access is off"}</span>
 				</label>
 
-				<dl className="tunnel-facts">
-					<div>
-						<dt>Public endpoint</dt>
-						<dd>
-							{status.port ? (
-								<CopyHash value={`${relayHost}:${status.port}`} chars={48} copyLabel="Copy endpoint" />
-							) : (
-								<span className="tunnel-facts-pending">
-									{status.enabled ? "Assigned once connected" : "Turn remote access on"}
-								</span>
-							)}
-						</dd>
-					</div>
-					<div>
-						<dt>Host key to pin on the phone</dt>
-						<dd>
-							<CopyHash value={status.hostFingerprint} chars={22} copyLabel="Copy host key fingerprint" />
-						</dd>
-					</div>
-					{status.activeConnections ? (
-						<div>
-							<dt>Open device sessions</dt>
-							<dd>{status.activeConnections}</dd>
-						</div>
-					) : null}
-				</dl>
+				<ConnectionFields connection={status.connection} enabled={status.enabled} />
 				{status.lastError ? (
 					<div className="operator-alert tunnel-alert">
 						<div>
@@ -159,7 +176,10 @@ export function RemoteAccess() {
 						<span className="eyebrow">Devices</span>
 						<h2>Paired devices</h2>
 					</div>
-					<small className="tunnel-count">{status.devices.length} paired</small>
+					<small className="tunnel-count">
+						{status.devices.length} paired
+						{status.activeConnections ? ` · ${status.activeConnections} connected` : ""}
+					</small>
 				</div>
 				{status.devices.length === 0 ? (
 					<p className="operator-empty">No devices yet. Pair one below.</p>
@@ -283,7 +303,6 @@ function NewDevice(props: { device: TunnelNewDeviceDto; onDone: () => void }) {
 	}, [device.privateKey])
 
 	const { connection } = device
-	const endpoint = connection.port ? `${connection.host}:${connection.port}` : `${connection.host}:<port>`
 	const command = [
 		"ssh",
 		"-i",
@@ -335,36 +354,10 @@ function NewDevice(props: { device: TunnelNewDeviceDto; onDone: () => void }) {
 				</p>
 			)}
 
-			<dl className="tunnel-facts">
-				<div>
-					<dt>Host and port</dt>
-					<dd>
-						<CopyHash value={endpoint} chars={48} copyLabel="Copy endpoint" />
-					</dd>
-				</div>
-				<div>
-					<dt>Username</dt>
-					<dd className="mono">{connection.username}</dd>
-				</div>
-				<div>
-					<dt>Host key fingerprint</dt>
-					<dd>
-						<CopyHash value={connection.hostFingerprint} chars={22} copyLabel="Copy host key fingerprint" />
-					</dd>
-				</div>
-				<div>
-					<dt>Local port forward</dt>
-					<dd>
-						<CopyHash value={connection.localForward} chars={32} copyLabel="Copy local forward" />
-					</dd>
-				</div>
-			</dl>
-			{!connection.port ? (
-				<p className="hint">The port appears here once the tunnel is connected; check the Tunnel card above.</p>
-			) : null}
 			<p className="hint">
-				In the SSH app: add the key, save a connection to the host and port above, add the local port forward,
-				connect, and open <code>http://localhost:{localPort}</code> in the phone's browser. Equivalent command:
+				In the SSH app: add the key, save a connection using the host, port, username and host key above, add
+				the local port forward, connect, then open <code>http://localhost:{localPort}</code> in the phone's
+				browser. Equivalent command:
 			</p>
 			<pre className="tunnel-command mono">{command}</pre>
 			<div className="tunnel-actions">

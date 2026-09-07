@@ -27,6 +27,7 @@ export type {
 	Status,
 	StatusInit,
 	StatusOperator,
+	TunnelConnectionDto,
 	TunnelDeviceDto,
 	TunnelNewDeviceDto,
 	TunnelStatusDto,

@@ -30,6 +30,13 @@ function fakeTunnel(): TunnelControls & { calls: unknown[]; enabled: boolean; re
 		operatorFingerprint: "SHA256:operator",
 		devices: state.devices.map((label, i) => ({ fingerprint: `SHA256:dev${i}`, label, addedAt: 1 })),
 		activeConnections: 0,
+		connection: {
+			host: state.relay.split(":")[0],
+			port: state.enabled ? 24567 : undefined,
+			username: "simplex",
+			hostFingerprint: "SHA256:host",
+			localForward: "8686:127.0.0.1:8686",
+		},
 	})
 	return Object.assign(state, {
 		status,
@@ -49,13 +56,7 @@ function fakeTunnel(): TunnelControls & { calls: unknown[]; enabled: boolean; re
 						? "-----BEGIN OPENSSH PRIVATE KEY-----\nfake\n-----END OPENSSH PRIVATE KEY-----\n"
 						: undefined,
 				publicKey: publicKey ?? "ssh-ed25519 AAAA",
-				connection: {
-					host: "simplex.tunnel.polytope.technology",
-					port: 24567,
-					username: "simplex",
-					hostFingerprint: "SHA256:host",
-					localForward: "8686:127.0.0.1:8686",
-				},
+				connection: status().connection,
 			}
 		}),
 		removeDevice: vi.fn((fingerprint: string) => {

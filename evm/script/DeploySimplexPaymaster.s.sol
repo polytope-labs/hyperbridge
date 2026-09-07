@@ -20,7 +20,7 @@ contract DeployScript is BaseScript {
         uint256 maxOracleAge = vm.envOr("MAX_ORACLE_AGE", uint256(90_000));
         uint256 swapSlippageBps = vm.envOr("SWAP_SLIPPAGE_BPS", uint256(200)); // default 2%
         address relayer = vm.envAddress("GOVERNANCE_RELAYER");
-        require(relayer != address(0), "PAYMASTER_RELAYER is unset");
+        require(relayer != address(0), "GOVERNANCE_RELAYER is unset");
 
         bool hasUsdt = config.exists("USDT_TOKEN") && config.exists("USDT_ORACLE");
         uint256 tokenCount = hasUsdt ? 2 : 1;

@@ -55,11 +55,12 @@ availability risk. When a no-permit token meets an unusable Permit2 (unconfigure
 that does not expose `PERMIT2()`), the builder throws instead of sending a native-funded approve;
 `buildPaymasterAndData` already demotes a throw to a skip reason and Circle or the deposit follow.
 
-## 2026-09-07 — `PAYMASTER_RELAYER` env, and the release order behind it
+## 2026-09-07 — The paymaster relayer is `GOVERNANCE_RELAYER`, and the release order behind it
 
-Chosen: a dedicated `PAYMASTER_RELAYER` for `DeploySimplexPaymaster.s.sol` (the gateway reads
-`GATEWAY_RELAYER`, the HostManager `GOVERNANCE_RELAYER`), refused when zero. Operators may point
-it at the gateway relayer; both receive requests from the same pallet.
+Chosen: `DeploySimplexPaymaster.s.sol` reads `GOVERNANCE_RELAYER`, the same key the HostManager and
+BridgeToken deploy scripts arm, refused when zero. A dedicated `PAYMASTER_RELAYER` was considered
+and dropped in review: paymaster governance is delivered by the same relayer as the rest of
+Hyperbridge governance, so a separate env only added a way to misconfigure it.
 
 Release order: live Ethereum, Base and Polygon proxies predate `PERMIT2()`, and the configured BSC
 and Arbitrum addresses have no code. The filler never funds an EntryPoint deposit on a chain with a

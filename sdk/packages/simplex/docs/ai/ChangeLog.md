@@ -33,7 +33,7 @@ a skip reason. `VERIFICATION_GAS_LIMIT_APPROVE` is gone.
 
 Runtime: `pallet-intents-coprocessor` gains `RequestKind::PaymasterSetRelayer` and the
 `set_paymaster_relayer` extrinsic (call index 20, refuses zero, weighed as `upgrade_paymaster`).
-Deploy: `DeploySimplexPaymaster.s.sol` reads `PAYMASTER_RELAYER` and asserts the arm; new
+Deploy: `DeploySimplexPaymaster.s.sol` reads `GOVERNANCE_RELAYER` and asserts the arm; new
 `DeploySimplexPaymasterImpl.s.sol` deploys an implementation only, for the governance upgrade of
 the live proxies. Release ordering: publish this version only after the live proxies are upgraded
 (see Decisions).

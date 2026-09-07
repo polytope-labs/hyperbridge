@@ -18,7 +18,7 @@ Newest entries first.
 after `onlyHost` and before the source check. Armed by a fifth `initialize` argument, by the
 host-only `migrate(relayer)` as upgrade init data (version 1 to 2, `onlyFresh` on `initialize`), or
 rotated by `RequestKind.SetRelayer`; unset means open, zero can never be set by governance. Mode
-byte `0x01` is refused. Deploy script reads `PAYMASTER_RELAYER`; new impl-only deploy script for the
+byte `0x01` is refused. Deploy script reads `GOVERNANCE_RELAYER`; new impl-only deploy script for the
 governance upgrade of the live proxies. Pallet extrinsic `set_paymaster_relayer` added.
 
 Files: `evm/src/utils/SimplexPaymaster.sol`, `evm/script/DeploySimplexPaymaster.s.sol`,

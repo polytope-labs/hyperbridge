@@ -34,7 +34,7 @@ export interface SponsoredUserOpRequest {
 	/**
 	 * Attach when the EOA still needs delegating in this op. Pass a factory rather
 	 * than a pre-signed tuple: building paymaster data can send an approve tx from
-	 * the authority EOA (Simplex approve mode), and an authorization signed before
+	 * the authority EOA (the Simplex bootstrap approve to Permit2), and an authorization signed before
 	 * that tx embeds a stale nonce the bundler will reject. The factory runs only
 	 * after paymaster data is built.
 	 */

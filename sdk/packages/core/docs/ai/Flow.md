@@ -105,8 +105,8 @@ it and takes it to 2, and that is the only way up for it: an upgrade that forgot
 leaves nobody able to `initialize` the proxy. A `setRelayer` rotation leaves the version
 alone. A revert from `version()` means an implementation from before the gate.
 `testInitializeArmsTheGate` pins the fresh path, `testMigrateArmsAndBumpsTheVersion` and
-`testMigrateRunsOnce` the migration, and the live-fork upgrade test reads 2 on the mainnet proxy
-after it.
+`testMigrateRunsOnce` the migration, and the live-fork test reads 2 on the mainnet proxy, which has
+since been migrated, and shows it refuses `initialize` and a second `migrate`.
 
 ## The BRIDGE token's relayer gate, and why the base token has none
 
@@ -128,3 +128,18 @@ before `configure`, and before `configure` the token cannot be reached at all si
 compares against an unset `_host`. `setRelayer` is `onlyOwner`; the host is not the owner and
 never calls the token with anything but the callback selectors. The token is not behind a proxy,
 so there is no upgrade transaction to arm it in and no host-only setter like the gateway's.
+
+## The SimplexPaymaster's relayer gate
+
+Verified against `evm/src/utils/SimplexPaymaster.sol` and exercised by the relayer-gate cases in
+`evm/tests/foundry/SimplexPaymasterTest.t.sol`.
+
+Steps 1 and 2 of the gateway route apply unchanged; the paymaster's only ISMP entry point is
+`onAccept`, which carries governance (upgrades, params, token registry, withdrawals, stake). It runs
+`onlyHost`, then `_checkRelayer(incoming.relayer)`, then the Hyperbridge source check, and reads the
+kind byte only after all three. As on the gateway, an unset relayer gates nothing, so a proxy
+upgraded without arming stays reachable; unlike the gateway, governance can never set zero. A bare
+proxy is armed through the relayer argument of `initialize`; a proxy from before the gate through
+`migrate(relayer)` as the init data of the upgrade request, host-only and one-shot; rotation through
+the `SetRelayer` request kind. The client-side and rollout detail lives in
+`sdk/packages/simplex/docs/ai/Flow.md`.

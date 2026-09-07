@@ -4,6 +4,87 @@ AI-maintained record of non-obvious choices made in `sdk/packages/simplex`: what
 
 Entry format: heading with the decision, then alternatives considered and the reasoning. Newest first.
 
+## 2026-09-07 — Paymaster relayer gate: open while unset, never settable to zero
+
+Chosen: `SimplexPaymaster.onAccept` accepts every relayer while `_relayer` is zero and only the
+authorised one afterwards; `migrate` and the `SetRelayer` request refuse zero (`initialize` still
+takes zero so tests can deploy an open paymaster; the deploy script refuses it).
+
+Open-while-unset mirrors the gateway rather than the fail-closed BRIDGE token because the paymaster
+has no owner key: a proxy upgraded without `migrate` under a closed gate could never be governed
+again, and it holds the EntryPoint deposit, the stake and the fee surplus. Never-zero afterwards
+follows the HostManager: a `SetRelayer(0)` can only be delivered by the current relayer, who could
+deliver `SetRelayer(newKey)` instead, so zero has no recovery value and would only reopen the
+contract to forged deliveries.
+
+Accepted and not mitigated: once armed, every recovery path sits behind the gate, so a lost or
+withholding relayer key strands the deposit, stake and surplus for good. A second key was rejected
+because it reintroduces the privileged role the contract was designed without. Operational bounds:
+the relayer is a plain EOA (the check is the handler's raw `msg.sender`, so an account executing
+third-party calldata would let anyone through); sweep surplus and keep the deposit small with
+`WithdrawAssets`; `swapAndDeposit` stays treasury-gated and is the one lockout-proof use of surplus;
+never dispatch a second `SetRelayer` or `UpgradeContract` while one is undelivered, since requests
+never expire and the relayer picks delivery order, so a superseded `SetRelayer(A)` delivered last
+hands A the sole key. Confirm delivery with `requestReceipts(commitment)` first.
+
+## 2026-09-07 — `SetRelayer` request kind plus `migrate`, not an `Execute` kind
+
+Chosen: rotation is `RequestKind.SetRelayer` (one ABI word), and the live proxies are armed by
+`migrate(relayer)` carried as the `init_data` of the existing `upgrade_paymaster` extrinsic, so no
+runtime release is needed for the upgrade itself. The gateway's `Execute` (raw delegatecall of
+governance calldata) was not copied: the paymaster's whole admin surface is already enum
+dispatch, and one more kind is smaller and easier to audit than an arbitrary-calldata door.
+
+## 2026-09-07 — APPROVE mode removed, on chain and in the client
+
+Chosen: mode `0x01` is refused by the contract and the client never reads or creates an allowance
+to the paymaster. Supersedes the 2026-08-18 entries "Permit2 before a legacy paymaster allowance,
+bootstrap approves Permit2" (APPROVE was kept while a legacy allowance drained), "`forceApproveMode`
+renamed to `skipPermit`" (APPROVE stayed available) and "Known: PERMIT2 mode is not
+ERC-7562-clean" (APPROVE was the fallback for a spec-enforcing bundler).
+
+Why: a standing allowance to the paymaster is exactly the exposure the security model bounds by
+keeping amounts small; Permit2 gives a per-op, single-use authorisation with nothing at rest, and
+a permit token leaves at most the permit residue. Consequences accepted: a permit token now always
+signs a permit, so a solver who kept a manual $5 allowance loses the one case where concurrent bids
+on a chain did not share the sequential EIP-2612 nonce (every other solver already did); a
+front-run permit still loses the bid, and no allowance fallback was added to `_executePermit`
+because that would be APPROVE by the back door; the ERC-7562 fallback no longer exists (mode 0 was
+never clean either: it reads `block.timestamp` and executes an external permit), accepted as
+availability risk. When a no-permit token meets an unusable Permit2 (unconfigured, or a paymaster
+that does not expose `PERMIT2()`), the builder throws instead of sending a native-funded approve;
+`buildPaymasterAndData` already demotes a throw to a skip reason and Circle or the deposit follow.
+
+## 2026-09-07 — Batched delegate+approve goes first when a Permit2 approval is pending
+
+Chosen: `setupDelegation` tries the direct set-code tx with `approve(Permit2, max)` batched in
+before the sponsored path, whenever `resolvePendingPermit2Approval` reports a pending approval
+and the EOA holds native for one tx. Supersedes the 2026-08-20 "delegation-batched approve is
+native-fallback only" scoping. Reason (review request): on a chain whose fee token has no permit,
+the sponsored path cannot use the paymaster until the Permit2 approve has landed, so it sent a
+native-funded approve and then the sponsored op, two transactions, where the batched direct tx
+does both in one. The approve cannot ride inside the sponsored op itself because the paymaster
+prefunds during validation, before the op's calldata runs. When native is short the order is
+unchanged: the bundler path still gets its chance (Circle may sponsor), and the plain direct tx
+stays the last fallback with the same deficit log.
+
+## 2026-09-07 — The paymaster relayer is `GOVERNANCE_RELAYER`, and the release order behind it
+
+Chosen: `DeploySimplexPaymaster.s.sol` reads `GOVERNANCE_RELAYER`, the same key the HostManager and
+BridgeToken deploy scripts arm, refused when zero. A dedicated `PAYMASTER_RELAYER` was considered
+and dropped in review: paymaster governance is delivered by the same relayer as the rest of
+Hyperbridge governance, so a separate env only added a way to misconfigure it.
+
+Release order: live Ethereum, Base and Polygon proxies predate `PERMIT2()`, and the configured BSC
+and Arbitrum addresses have no code. The filler never funds an EntryPoint deposit on a chain with a
+Simplex address configured and `prepareBidUserOp` still submits a bid when selection ends with no
+paymaster, so a USDT-only solver on those chains is unsponsored in either ordering: this client
+before the proxy upgrade throws in the builder, the previous client after the upgrade sends mode 1
+and fails validation. USDC has permit on all three, so it is USDT-only solvers either way. Rule:
+deploy the implementation with `DeploySimplexPaymasterImpl.s.sol`, `upgrade_paymaster` with
+`migrate(relayer)` init data on the three proxies, fresh deploys on BSC and Arbitrum, and only then
+tag `simplex-v0.14.0`. A guard that skips the bid when no paymaster is usable was left out as a
+separate behaviour change.
 ## 2026-09-06 — The Simplex builder returns the balances it read instead of `null`
 
 Chosen: when no configured fee token reaches one whole unit, `buildSimplexPaymasterData` returns

@@ -1,3 +1,4 @@
+import type { TunnelConfig } from "@/services/tunnel/TunnelService"
 import { isAddress } from "viem"
 import type { HexString } from "@hyperbridge/sdk"
 import { ConfirmationPolicy, DEFAULT_CONFIRMATION_POLICIES } from "@/config/interpolated-curve"
@@ -184,6 +185,12 @@ export interface FillerTomlConfig {
 		 * Ignored on gateways predating `FillOptions.validUntil` — there is nowhere to put it.
 		 */
 		bidValiditySeconds?: number
+		/**
+		 * Remote access: an outbound SSH tunnel to a rendezvous relay so a phone's
+		 * SSH client can reach the local web UI. Off unless `enabled = true`; the
+		 * relay defaults to the hosted one. Devices are paired from the UI.
+		 */
+		tunnel?: TunnelConfig
 	}
 	chains: UserProvidedChainConfig[]
 	rebalancing?: RebalancingConfig

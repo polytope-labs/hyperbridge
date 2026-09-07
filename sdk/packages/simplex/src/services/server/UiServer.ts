@@ -16,6 +16,7 @@ import type { ActivityRecorder } from "@/data/recorder"
 import type { ActivityEvent, BidStore } from "@/data/types"
 import type { BalanceProvider } from "../BalanceProvider"
 import { getLogger, type LogLevel } from "../Logger"
+import { parseRelayAddress, type TunnelControls } from "../tunnel/TunnelService"
 import { readBody, sendJson, isLoopbackHost, isContainerized, hostHeaderAllowed } from "./http-util"
 import { serveStatic } from "./static"
 import {
@@ -169,6 +170,8 @@ export interface OperatorContext {
 		sponsored: boolean
 		redeemed: boolean
 	}>
+	/** Remote-access tunnel controls; absent when the binary runs without a data dir for keys (embedded fillers). */
+	tunnel?: TunnelControls
 	version: string
 	startedAt: number
 	/** Where runtime config edits are written back. Absent for a config-object filler. */
@@ -545,6 +548,7 @@ export class UiServer {
 				vaults: op.config.vault?.vaults ?? [],
 				sendTokens: this.sendTokenOptions(op),
 				knownVaults: this.knownVaultCatalog(op),
+				tunnel: op.tunnel ? { enabled: op.tunnel.status().enabled, devices: op.tunnel.status().devices.length } : undefined,
 			}
 			return sendJson(res, 200, configDto)
 		}
@@ -614,6 +618,39 @@ export class UiServer {
 			} catch (err) {
 				return sendJson(res, 500, { error: err instanceof Error ? err.message : String(err) })
 			}
+		}
+
+		if (path === "/api/tunnel") {
+			if (this.mode !== "operator") return sendJson(res, 409, { error: "Filler is not running" })
+			const tunnel = this.operator!.tunnel
+			if (!tunnel) return sendJson(res, 404, { error: "Remote access is not available in this filler" })
+			if (method === "GET") return sendJson(res, 200, tunnel.status())
+			if (method === "PUT") return this.handleTunnelUpdate(req, res, tunnel)
+			return sendJson(res, 405, { error: "Method not allowed" })
+		}
+
+		if (path === "/api/tunnel/devices" || path === "/api/tunnel/devices/revoke") {
+			if (this.mode !== "operator") return sendJson(res, 409, { error: "Filler is not running" })
+			if (method !== "POST") return sendJson(res, 405, { error: "Method not allowed" })
+			const tunnel = this.operator!.tunnel
+			if (!tunnel) return sendJson(res, 404, { error: "Remote access is not available in this filler" })
+			let body: { label?: string; fingerprint?: string }
+			try {
+				body = JSON.parse(await readBody(req))
+			} catch {
+				return sendJson(res, 400, { error: "Invalid JSON body" })
+			}
+			if (path === "/api/tunnel/devices") {
+				if (typeof body.label !== "string" || !body.label.trim()) return sendJson(res, 400, { error: "label is required" })
+				try {
+					return sendJson(res, 201, tunnel.addDevice(body.label))
+				} catch (err) {
+					return sendJson(res, 400, { error: err instanceof Error ? err.message : String(err) })
+				}
+			}
+			if (typeof body.fingerprint !== "string" || !body.fingerprint) return sendJson(res, 400, { error: "fingerprint is required" })
+			const removed = tunnel.removeDevice(body.fingerprint)
+			return sendJson(res, removed ? 200 : 404, removed ? { removed: true } : { error: "No device with that fingerprint" })
 		}
 
 		if (path === "/api/reset-halt") {
@@ -1232,6 +1269,50 @@ export class UiServer {
 				}
 			}),
 		)
+	}
+
+	/**
+	 * Enables/disables the tunnel or points it at another relay. The config
+	 * block is rewritten so the choice survives a restart; the tunnel applies
+	 * it live either way.
+	 */
+	private async handleTunnelUpdate(req: IncomingMessage, res: ServerResponse, tunnel: TunnelControls): Promise<void> {
+		let body: { enabled?: unknown; relay?: unknown }
+		try {
+			body = JSON.parse(await readBody(req))
+		} catch {
+			return sendJson(res, 400, { error: "Invalid JSON body" })
+		}
+		if (body.enabled !== undefined && typeof body.enabled !== "boolean") {
+			return sendJson(res, 400, { error: "enabled must be a boolean" })
+		}
+		if (body.relay !== undefined && typeof body.relay !== "string") {
+			return sendJson(res, 400, { error: "relay must be a string" })
+		}
+		if (typeof body.relay === "string") {
+			try {
+				parseRelayAddress(body.relay)
+			} catch (err) {
+				return sendJson(res, 400, { error: err instanceof Error ? err.message : String(err) })
+			}
+		}
+		const update = {
+			enabled: body.enabled as boolean | undefined,
+			relay: typeof body.relay === "string" ? body.relay.trim() : undefined,
+		}
+		const op = this.operator!
+		const block = { ...(op.config.simplex.tunnel ?? {}) }
+		if (update.enabled !== undefined) block.enabled = update.enabled
+		if (update.relay !== undefined) block.relay = update.relay
+		op.config.simplex.tunnel = block
+		const persisted = this.persistConfig()
+		try {
+			await tunnel.configure(update)
+		} catch (err) {
+			return sendJson(res, 500, { error: err instanceof Error ? err.message : String(err) })
+		}
+		this.logger.warn({ ...update }, "Remote access settings changed from the UI")
+		return sendJson(res, 200, { ...tunnel.status(), persisted })
 	}
 
 	private async handleLogLevel(req: IncomingMessage, res: ServerResponse): Promise<void> {

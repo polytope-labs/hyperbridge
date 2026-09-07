@@ -4,6 +4,45 @@ AI-maintained record of non-obvious choices made in `sdk/packages/simplex`: what
 
 Entry format: heading with the decision, then alternatives considered and the reasoning. Newest first.
 
+## 2026-09-07 — Remote access terminates the phone's SSH session inside simplex, not sshd
+
+The phone's SSH session ends in an `ssh2` server embedded in the process, fed by the relay's
+forwarded channels through `injectSocket`, so no port is opened and the host's sshd is never
+exposed. Alternatives: exposing sshd (off by default on macOS/Windows, and a full shell on the
+operator's box for whoever holds the key) or having the relay terminate the session (then the
+relay sees the UI traffic, which moves funds). The embedded server accepts only paired keys and
+`direct-tcpip` to the UI bind; the UI's loopback binding and Host guard stay as they are.
+
+## 2026-09-07 — Off by default, enabled from the UI only
+
+Enabling remote access makes the embedded SSH server reachable by anyone who scans the relay, so
+it is opt-in, and pairing lives in the operator UI rather than the `simplex init` wizard (Seun's
+call: the wizard stays focused on the filler config). The UI writes `[simplex.tunnel]` back to
+the config file so the choice survives restarts.
+
+## 2026-09-07 — Relay host key: configured pin wins, else trust on first use
+
+`relayHostKey` pins explicitly; without it the key seen on first contact with that relay address
+is stored in `tunnel/known_relay` and enforced afterwards. A mismatch is refused and reported in
+the UI, not retried silently. A relay is zero-trust by construction (it only sees ciphertext), so
+this pin protects availability rather than confidentiality, which is why TOFU is acceptable as
+the default.
+
+## 2026-09-07 — `ssh2` is imported as a default export
+
+`ssh2` is CommonJS. `import { Client } from "ssh2"` type-checks and passes under vitest (vite's
+CJS interop) but the shipped ESM binary throws "does not provide an export named" at load, which
+the smoke test against the real relay caught. The tunnel modules destructure from the default
+import; types come from `import type`. `ssh2` is also external in tsup because it probes for an
+optional native crypto binding relative to its package directory.
+
+## 2026-09-07 — Device keys live in a plain `authorized_keys`
+
+One OpenSSH line per device with the label URL-encoded in the comment (`simplex-device:<label>:<ms>`),
+so an operator can read or edit the file with tools they already know, and a hand-added line still
+works (its comment becomes the label). The private half is returned once from pairing and never
+written anywhere by simplex.
+
 ## 2026-09-05 — Loopback Host detection parses the address instead of prefix-matching the string
 
 Chosen: `isLoopbackHost` returns true only for `localhost`, `::1`, `::ffff:127.0.0.1`, or a string

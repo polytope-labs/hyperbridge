@@ -26,6 +26,9 @@ export type {
 	Status,
 	StatusInit,
 	StatusOperator,
+	TunnelDeviceDto,
+	TunnelNewDeviceDto,
+	TunnelStatusDto,
 	VaultSweepDto,
 	WalletTxDto,
 } from "@/services/server/dto"

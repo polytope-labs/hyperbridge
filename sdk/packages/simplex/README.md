@@ -104,6 +104,30 @@ hygiene), and both the wizard and the operator UI bind loopback unless told othe
 another interface (e.g. `--ui 0.0.0.0:8686`, which the docker image does inside its own network
 namespace) on a trusted network.
 
+## Remote access from a phone
+
+The UI is loopback-only, and most operator machines sit behind NAT. Remote access keeps an
+outbound SSH tunnel from simplex to a relay ([polytope-labs/simplex-tunnel](https://github.com/polytope-labs/simplex-tunnel),
+hosted at `simplex.tunnel.polytope.technology`) that leases this simplex a stable public port.
+A phone's SSH client connects to that port with a local port forward, and the browser opens
+`http://localhost:8686`.
+
+The phone's SSH session terminates in an SSH server embedded in simplex, not in sshd and not in
+the relay, so the relay only ever carries ciphertext. That server accepts public-key auth against
+the devices paired in the UI and `direct-tcpip` channels to the UI bind, and nothing else: no
+shell, exec, PTY or other destinations.
+
+It is off by default. Turn it on and pair devices under **Operations > Remote access** in the UI;
+the choice is written to `[simplex.tunnel]` in the config. Pairing mints an ed25519 key per device
+and shows the private key exactly once, as text and as a QR code, together with the host, port,
+username, host-key fingerprint and local forward to enter in the SSH app (Blink and Termius on
+iOS, ConnectBot and JuiceSSH on Android). A paired key opens the whole dashboard, including the
+Send and treasury tools, so keep it on the device and revoke it from the same panel if the
+device is lost. Keys live under `<data-dir>/tunnel/` in plain OpenSSH formats.
+
+The tunnel is best-effort: it retries with backoff and never affects filling. It only runs in
+operator mode, never while the setup wizard holds secrets.
+
 ## Development
 
 ```bash

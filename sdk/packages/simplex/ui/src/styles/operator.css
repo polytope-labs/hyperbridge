@@ -1724,3 +1724,58 @@ button.operator-runtime-stop:hover:not(:disabled) {
 	border-color: rgba(255, 122, 137, 0.45);
 	background: rgba(255, 122, 137, 0.12);
 }
+
+/* Remote access panel */
+.tunnel-status {
+	display: grid;
+	gap: 0.5rem;
+	padding: 0.75rem 1rem;
+	border: 1px solid var(--border, rgba(0, 0, 0, 0.12));
+	border-radius: 0.75rem;
+}
+.tunnel-status .row {
+	justify-content: space-between;
+}
+.pill {
+	padding: 0.15rem 0.6rem;
+	border-radius: 999px;
+	font-size: 0.85rem;
+	border: 1px solid currentColor;
+}
+.pill.tunnel-state-connected {
+	color: var(--success, #1d9e75);
+}
+.pill.tunnel-state-error {
+	color: var(--danger, #e24b4a);
+}
+.pill.tunnel-state-connecting,
+.pill.tunnel-state-reconnecting {
+	color: var(--warning, #ba7517);
+}
+.tunnel-new-device {
+	margin-top: 1.25rem;
+	padding: 1rem;
+	border: 1px solid var(--border, rgba(0, 0, 0, 0.12));
+	border-radius: 0.75rem;
+	display: grid;
+	gap: 0.75rem;
+}
+.tunnel-new-device img {
+	border-radius: 0.5rem;
+	background: #fff;
+}
+.tunnel-new-device pre {
+	white-space: pre-wrap;
+	word-break: break-all;
+	font-size: 0.85rem;
+}
+.tunnel-connection {
+	display: grid;
+	grid-template-columns: max-content 1fr;
+	gap: 0.25rem 1rem;
+	margin: 0;
+}
+.tunnel-connection dd {
+	margin: 0;
+	word-break: break-all;
+}

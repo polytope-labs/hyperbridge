@@ -222,4 +222,55 @@ export interface ConfigDto {
 	 * chains that are not enabled. Running chains are always present, possibly empty.
 	 */
 	knownVaults: Record<string, KnownVault[]>
+	/** Remote-access summary for the Operations list; absent when the filler has no tunnel. */
+	tunnel?: { enabled: boolean; devices: number }
+}
+
+/** Where the remote-access tunnel is in its lifecycle. */
+export type TunnelState = "disabled" | "connecting" | "connected" | "reconnecting" | "disconnected" | "error"
+
+export interface TunnelDeviceDto {
+	/** `SHA256:…` of the device's public key. */
+	fingerprint: string
+	label: string
+	/** Unix milliseconds; 0 for a line added to `authorized_keys` by hand. */
+	addedAt: number
+}
+
+/** GET /api/tunnel */
+export interface TunnelStatusDto {
+	enabled: boolean
+	state: TunnelState
+	/** `host:port` of the relay in use. */
+	relay: string
+	/** Pinned relay host key, once known. */
+	relayFingerprint?: string
+	/** Public port the relay leased to this simplex; what the phone connects to. */
+	port?: number
+	connectedAt?: number
+	lastError?: string
+	/** The embedded SSH server's host key, which the phone must pin. */
+	hostFingerprint: string
+	/** This simplex's identity toward the relay. */
+	operatorFingerprint: string
+	devices: TunnelDeviceDto[]
+	/** Device sessions open right now. */
+	activeConnections: number
+}
+
+/** POST /api/tunnel/devices: the private key is returned here once and never stored. */
+export interface TunnelNewDeviceDto {
+	device: TunnelDeviceDto
+	/** OpenSSH-format private key for the phone. */
+	privateKey: string
+	publicKey: string
+	connection: {
+		host: string
+		/** Absent while the tunnel is down; the UI says to check back. */
+		port?: number
+		username: string
+		hostFingerprint: string
+		/** `-L` argument: local port to the UI bind. */
+		localForward: string
+	}
 }

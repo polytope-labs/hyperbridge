@@ -4638,13 +4638,22 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         }
     }
 
-    /// @dev Upgrades the proxy that is actually live on mainnet, on the fork, and checks that every
-    /// readable piece of state is identical afterwards and that the relayer gate is armed.
-    function testLiveProxyUpgradeKeepsStateAndArmsRelayer() public {
+    /// @dev The proxy that is actually live on mainnet, on the fork: armed and migrated, closed to
+    /// re-initialisation, and governed only by its own relayer, including the next upgrade, which
+    /// must keep every readable piece of state, and a rotation.
+    function testLiveProxyIsArmedAndGovernedOnlyByItsRelayer() public {
         IntentGatewayV2 live = IntentGatewayV2(payable(LIVE_GATEWAY));
         assertGt(LIVE_GATEWAY.code.length, 0, "live gateway present on the fork");
-        address implBefore = _implementationOf(LIVE_GATEWAY);
+        address liveRelayer = live.relayer();
+        assertTrue(liveRelayer != address(0), "live proxy is armed");
+        assertEq(live.version(), 2, "live proxy has been migrated");
+        assertEq(
+            vm.load(LIVE_GATEWAY, bytes32(uint256(13))),
+            _packedRelayerSlot(liveRelayer),
+            "relayer packed behind an unset _paused in slot 13"
+        );
 
+        address implBefore = _implementationOf(LIVE_GATEWAY);
         uint256 nonce = live._nonce();
         Params memory p = live.params();
         address owner = live._owner();
@@ -4657,34 +4666,41 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             instances[i] = live.instance(peers[i]);
             fees[i] = live._destinationProtocolFees(keccak256(peers[i]));
         }
-        assertEq(vm.load(LIVE_GATEWAY, bytes32(uint256(13))), bytes32(0), "slot 13 holds only an unset _paused");
 
+        // Nobody can initialise it again, and the migration cannot re-run even from the host.
+        vm.expectRevert(Initializable.InvalidInitialization.selector);
+        live.initialize(p, peers, filler);
+        vm.prank(liveHost);
+        vm.expectRevert(Initializable.InvalidInitialization.selector);
+        live.migrate(filler);
+
+        // The next upgrade is an Execute request. Anyone but the relayer is refused before the
+        // body is read...
         IntentGatewayV2 newImpl = new IntentGatewayV2(owner);
-        PostRequest memory request = PostRequest({
+        PostRequest memory upgrade = PostRequest({
             source: IDispatcher(liveHost).hyperbridge(),
             dest: IDispatcher(liveHost).host(),
             nonce: 0,
             from: abi.encodePacked(LIVE_GATEWAY),
             to: abi.encodePacked(LIVE_GATEWAY),
-            // Discriminator 5 with an `(address, bytes)` body: the `UpgradeContract` action the
-            // live implementation understands, which shares its discriminator with `Execute`.
             body: bytes.concat(
-                bytes1(uint8(5)), abi.encode(address(newImpl), abi.encodeCall(IntentGatewayV2.migrate, (relayer)))
+                bytes1(uint8(IntentsBase.RequestKind.Execute)),
+                abi.encodeCall(ExtrinsicIntents.upgradeToAndCall, (address(newImpl), bytes("")))
             ),
             timeoutTimestamp: 0
         });
-        // The implementation being replaced has no relayer gate, so any relayer may carry the upgrade.
         vm.prank(liveHost);
-        live.onAccept(IncomingPostRequest({relayer: filler, request: request}));
+        vm.expectRevert(IntentsBase.Unauthorized.selector);
+        live.onAccept(IncomingPostRequest({relayer: filler, request: upgrade}));
+        assertEq(_implementationOf(LIVE_GATEWAY), implBefore, "refused upgrade leaves the implementation alone");
 
+        // ...and the relayer's delivery installs it with every readable piece of state intact.
+        vm.prank(liveHost);
+        live.onAccept(IncomingPostRequest({relayer: liveRelayer, request: upgrade}));
         assertEq(_implementationOf(LIVE_GATEWAY), address(newImpl), "implementation slot updated");
         assertTrue(implBefore != address(newImpl), "implementation actually changed");
-        assertEq(live.relayer(), relayer, "relayer armed in the upgrade transaction");
-        assertEq(live.version(), 2, "arming is the live proxy's first migration");
-        assertEq(
-            vm.load(LIVE_GATEWAY, bytes32(uint256(13))), _packedRelayerSlot(relayer), "relayer packed into slot 13"
-        );
-
+        assertEq(live.relayer(), liveRelayer, "relayer survives the upgrade");
+        assertEq(live.version(), 2, "no migration ran, so the version is unchanged");
         assertEq(live._nonce(), nonce, "_nonce preserved");
         Params memory q = live.params();
         assertEq(q.host, p.host, "params.host preserved");
@@ -4701,43 +4717,20 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             assertEq(live._destinationProtocolFees(keccak256(peers[i])), fees[i], "destination fee preserved");
         }
 
-        // The gate is live on the real state: governance through anyone else is refused, and the
-        // same message goes through from the relayer.
-        request.body = bytes.concat(
-            bytes1(uint8(IntentsBase.RequestKind.UpdateParams)),
-            abi.encode(ParamsUpdate({params: p, destinationFees: new DestinationFee[](0)}))
+        // A rotation is an Execute request from the current relayer; afterwards that relayer is out.
+        address next = makeCleanAddr("liveNextRelayer");
+        PostRequest memory rotate = upgrade;
+        rotate.nonce = 1;
+        rotate.body = bytes.concat(
+            bytes1(uint8(IntentsBase.RequestKind.Execute)), abi.encodeCall(ExtrinsicIntents.setRelayer, (next))
         );
         vm.prank(liveHost);
-        vm.expectRevert(IntentsBase.Unauthorized.selector);
-        live.onAccept(IncomingPostRequest({relayer: filler, request: request}));
-
-        vm.prank(liveHost);
-        live.onAccept(IncomingPostRequest({relayer: relayer, request: request}));
-        assertEq(live.params().host, p.host, "relayer-submitted governance applies");
-        // From here on the migrated proxy takes governance through `Execute`.
-        _rotateLiveThroughExecute(liveHost, live);
-
-    }
-
-    /// @dev An Execute request on the live proxy rotating the relayer, delivered by the relayer
-    /// the migration just armed; the version stays where the migration left it.
-    function _rotateLiveThroughExecute(address liveHost, IntentGatewayV2 live) internal {
-        address next = makeCleanAddr("liveNextRelayer");
-        PostRequest memory rotate = PostRequest({
-            source: IDispatcher(liveHost).hyperbridge(),
-            dest: IDispatcher(liveHost).host(),
-            nonce: 1,
-            from: abi.encodePacked(address(live)),
-            to: abi.encodePacked(address(live)),
-            body: bytes.concat(
-                bytes1(uint8(IntentsBase.RequestKind.Execute)), abi.encodeCall(ExtrinsicIntents.setRelayer, (next))
-            ),
-            timeoutTimestamp: 0
-        });
-        vm.prank(liveHost);
-        live.onAccept(IncomingPostRequest({relayer: relayer, request: rotate}));
+        live.onAccept(IncomingPostRequest({relayer: liveRelayer, request: rotate}));
         assertEq(live.relayer(), next, "rotated through Execute");
         assertEq(live.version(), 2, "a rotation leaves the version alone");
+        vm.prank(liveHost);
+        vm.expectRevert(IntentsBase.Unauthorized.selector);
+        live.onAccept(IncomingPostRequest({relayer: liveRelayer, request: rotate}));
     }
 }
 

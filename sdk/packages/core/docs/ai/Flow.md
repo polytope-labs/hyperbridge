@@ -105,8 +105,8 @@ it and takes it to 2, and that is the only way up for it: an upgrade that forgot
 leaves nobody able to `initialize` the proxy. A `setRelayer` rotation leaves the version
 alone. A revert from `version()` means an implementation from before the gate.
 `testInitializeArmsTheGate` pins the fresh path, `testMigrateArmsAndBumpsTheVersion` and
-`testMigrateRunsOnce` the migration, and the live-fork upgrade test reads 2 on the mainnet proxy
-after it.
+`testMigrateRunsOnce` the migration, and the live-fork test reads 2 on the mainnet proxy, which has
+since been migrated, and shows it refuses `initialize` and a second `migrate`.
 
 ## The BRIDGE token's relayer gate, and why the base token has none
 

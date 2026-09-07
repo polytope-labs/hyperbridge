@@ -135,6 +135,7 @@ export function OperatorOverview(props: {
 				config={config}
 				chains={status.chains}
 				chainLabels={status.chainLabels}
+				solverAddress={status.addresses?.evm}
 				onChanged={onMarketsChanged}
 			/>
 		</div>

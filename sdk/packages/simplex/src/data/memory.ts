@@ -278,8 +278,25 @@ class MemoryActivityStore implements ActivityStore {
 	}
 
 	async recordWalletTx(tx: Omit<WalletTx, "id" | "ts">): Promise<void> {
-		this.walletRows.push({ ...tx, id: this.nextWalletId++, ts: Date.now() })
+		// Mirror SQLite: the optional inbound fields read back as null, never undefined.
+		this.walletRows.push({ ...tx, tokenIn: tx.tokenIn ?? null, amountIn: tx.amountIn ?? null, id: this.nextWalletId++, ts: Date.now() })
 		if (this.walletRows.length > MAX_ROWS) this.walletRows.splice(0, this.walletRows.length - MAX_ROWS)
+	}
+
+	async walletTxsWithoutAmounts(limit = 200): Promise<WalletTx[]> {
+		return this.walletRows
+			.filter((row) => (row.kind === "sweep" || row.kind === "redeem") && row.token === null)
+			.slice(-capLimit(limit))
+			.reverse()
+			.map((row) => ({ ...row }))
+	}
+
+	async updateWalletTx(
+		id: number,
+		patch: Pick<WalletTx, "token" | "amount" | "to" | "tokenIn" | "amountIn">,
+	): Promise<void> {
+		const row = this.walletRows.find((candidate) => candidate.id === id)
+		if (row) Object.assign(row, patch)
 	}
 
 	async walletTxs(limit = 100): Promise<WalletTx[]> {

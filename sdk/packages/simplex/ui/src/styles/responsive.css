@@ -386,9 +386,6 @@
 
 	.operator-shell {
 		height: auto;
-		min-height: 100dvh;
-		border: 0;
-		border-radius: 0;
 	}
 
 	.operator-brandbar {

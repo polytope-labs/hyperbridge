@@ -13,6 +13,13 @@ export interface PaymasterResult {
 	paymasterPostOpGasLimit: bigint
 }
 
+/** One paymaster fee token's balance against the whole-token minimum sponsorship needs. */
+export interface FeeTokenBalance {
+	symbol: "USDC" | "USDT"
+	balance: bigint
+	required: bigint
+}
+
 // ── Unified orchestration types ─────────────────────────────────────
 
 /**

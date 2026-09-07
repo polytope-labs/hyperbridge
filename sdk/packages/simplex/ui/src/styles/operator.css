@@ -289,6 +289,16 @@ button.operator-text-button:hover:not(:disabled) {
 	border-top: 1px solid var(--border);
 }
 
+/*
+ * Each of these lists ends its section, and the section draws its own bottom
+ * rule, so a last row that draws one too leaves two lines a padding apart.
+ */
+.operator-balance-list > *:last-child,
+.operator-market-list > *:last-child,
+.operator-tool-list > *:last-child {
+	border-bottom: 0;
+}
+
 .operator-balance-row {
 	padding: 1.25rem 0 1.5rem;
 	border-bottom: 1px solid var(--border);

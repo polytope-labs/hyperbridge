@@ -173,14 +173,13 @@ export class IntentFiller {
 	}
 
 	/**
-	 * The source chains this filler accepts payment from, declared in every phantom bid: each
-	 * configured chain that is not watch-only. Derived at bid time rather than at boot because both
-	 * inputs move while the filler runs — chains are added and removed, and watch-only is toggled
-	 * from the dashboard — and a declaration that lagged them would advertise a route the filler
-	 * no longer serves, or hide one it does.
+	 * The source chains this filler accepts payment from, declared in every phantom bid: every
+	 * configured chain. Derived at bid time rather than at boot because chains are added and
+	 * removed while the filler runs, and a declaration that lagged them would advertise a route
+	 * the filler no longer serves, or hide one it does.
 	 */
 	private acceptedSourceChains(): string[] {
-		return acceptedSourceChainsFor(this.configService.getConfiguredChainIds(), this.config.watchOnly)
+		return acceptedSourceChainsFor(this.configService.getConfiguredChainIds())
 	}
 
 	/**
@@ -1518,21 +1517,14 @@ export class IntentFiller {
 }
 
 /**
- * The accepted-source declaration for a filler that fills on `configuredChainIds`: every one of
- * them that is not marked watch-only, as state machine ids in ascending chain-id order so the same
- * configuration always encodes to the same bytes.
+ * The accepted-source declaration for a filler configured on `configuredChainIds`: all of them, as
+ * state machine ids in ascending chain-id order so the same configuration always encodes to the
+ * same bytes.
  *
- * A filler can only be paid on a chain it fills on — escrow is released to it there — and a
- * watch-only chain is one it observes without ever filling, so the two together are exactly the
- * set it can accept payment from. An all-watch-only filler declares the empty set, which is the
- * truthful reading; it also never bids, so the case is academic.
+ * Watch-only chains are included. Watch-only governs where the filler commits inventory as a fill
+ * destination; it says nothing about where it is willing to be paid, and an order sourced on a
+ * watch-only chain is still filled on a live one with the escrow released to the filler there.
  */
-export function acceptedSourceChainsFor(
-	configuredChainIds: readonly number[],
-	watchOnly: Record<number, boolean> | undefined,
-): string[] {
-	return [...new Set(configuredChainIds)]
-		.filter((chainId) => watchOnly?.[chainId] !== true)
-		.sort((a, b) => a - b)
-		.map((chainId) => `EVM-${chainId}`)
+export function acceptedSourceChainsFor(configuredChainIds: readonly number[]): string[] {
+	return [...new Set(configuredChainIds)].sort((a, b) => a - b).map((chainId) => `EVM-${chainId}`)
 }

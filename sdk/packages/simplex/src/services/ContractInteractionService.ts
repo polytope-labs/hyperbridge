@@ -855,8 +855,8 @@ export class ContractInteractionService {
 			maxPriorityFeePerGas: gasPrice / 10n,
 			callData,
 			// Every phantom bid carries a declaration. The accepted sources are the chains this filler
-			// fills on, so a bid with none to declare says so explicitly ([]), rather than leaving the
-			// field empty for consumers to read as "any chain".
+			// is configured on, so a bid with none to declare says so explicitly ([]), rather than
+			// leaving the field empty for consumers to read as "any chain".
 			paymasterAndData: encodePhantomBidDeclaration({
 				acceptedSourceChains,
 				uniswapV4Positions: uniswapV4PositionIds?.map((id) => BigInt(id)),

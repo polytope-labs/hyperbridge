@@ -142,9 +142,8 @@ const FILLERS = [
 	},
 ]
 
-// What decodeAcceptedSourceChains must yield for every solver's bid: the filler declares the
-// chains it fills on — every configured chain that is not watch-only — in ascending chain-id
-// order, and none of these fillers marks a chain watch-only, so all three declare both chains.
+// What decodeAcceptedSourceChains must yield for every solver's bid: the filler declares every
+// configured chain in ascending chain-id order, so all three declare both chains.
 const EXPECTED_SOURCES = [...CHAINS].sort((a, b) => a.chainId - b.chainId).map((c) => c.stateMachine)
 
 // ─── simnode driving (manual seal) ──────────────────────────────────────────────────────────────

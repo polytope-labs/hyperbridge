@@ -115,7 +115,7 @@ EVM nodes publish readings for it to fold.
 **Hyperbridge side — fold (`foldInventoryReadings` in `src/services/liquidityPool.service.ts`)**
 
 5. `handleInventoryFold` (`src/handlers/events/liquidity/inventoryFold.block.handler.ts`) runs on every Hyperbridge
-   block, registered inside the `enablePriceIndexing` block of the substrate manifest template so only the
+   block, registered inside the `enableLiquidityIndexing` block of the substrate manifest template so only the
    Hyperbridge node runs it.
 6. It pages the whole reading table (the store has no range operators) and drops readings an in-process memo has
    already folded at that observation time. A quiet block ends here after one page.

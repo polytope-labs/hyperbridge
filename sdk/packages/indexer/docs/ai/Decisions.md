@@ -47,7 +47,7 @@ Bidder rows are matched to a reading by provider, chain and output token in memo
 index on `outputToken` was added.
 
 Chosen: the fold runs on every Hyperbridge block. The Hyperbridge manifest uses no dictionary, so the node already
-fetches every block, and the handler sits inside the `enablePriceIndexing` block of the substrate template —
+fetches every block, and the handler sits inside the `enableLiquidityIndexing` block of the substrate template —
 placing it beside `handlePendingStatusFlush` would have run it on every substrate chain.
 
 Chosen: balance-series rows are keyed by the fold's own Hyperbridge block with the reading's observation time as

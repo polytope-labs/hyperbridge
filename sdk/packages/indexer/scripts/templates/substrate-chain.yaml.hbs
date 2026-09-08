@@ -77,7 +77,7 @@ dataSources:
           filter:
             modulo: 3600 # Indexings 1 block every 6 hours (6 seconds per block indexing).
 {{/if}}
-{{#if enablePriceIndexing}}
+{{#if enableLiquidityIndexing}}
         - handler: handlePhantomOrderRegistered
           kind: substrate/EventHandler
           filter:

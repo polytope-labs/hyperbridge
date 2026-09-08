@@ -257,14 +257,9 @@ pub async fn translate_events_to_messages(
 	// we gate each one for profitability and then batch the survivors into
 	// chunked `handleGetResponses` calls the same way post requests are batched.
 	if source.state_machine_id().state_id == coprocessor {
-		let (response_messages, response_queries, responses) = build_get_response_candidates(
-			&source,
-			&sink,
-			&events,
-			&config,
-			state_machine_height,
-		)
-		.await?;
+		let (response_messages, response_queries, responses) =
+			build_get_response_candidates(&source, &sink, &events, &config, state_machine_height)
+				.await?;
 
 		if !response_messages.is_empty() {
 			let profitability = return_successful_queries(
@@ -584,18 +579,25 @@ fn is_allowed_module(config: &RelayerConfig, module: &[u8]) -> bool {
 	match config.module_filter {
 		Some(ref filters) =>
 			if !filters.is_empty() {
-				return filters
-					.iter()
-					.find(|filter| {
-						hex::decode(filter.replace("0x", ""))
-							.expect("Module identifier should be valid hex") ==
-							module
-					})
-					.is_some();
+				return is_explicitly_filtered(config, module);
 			},
 		// if no filter is provided, allow all modules
 		_ => {},
 	};
 
 	true
+}
+
+/// Whether `module` was explicitly named in the operator's `module_filter`.
+///
+/// Distinct from [`is_allowed_module`], where an absent or empty filter permits
+/// every module. Here it names none, which is what callers that need "the
+/// operator asked for this module by name" want.
+pub fn is_explicitly_filtered(config: &RelayerConfig, module: &[u8]) -> bool {
+	config.module_filter.as_ref().map_or(false, |filters| {
+		filters.iter().any(|filter| {
+			hex::decode(filter.replace("0x", "")).expect("Module identifier should be valid hex") ==
+				module
+		})
+	})
 }

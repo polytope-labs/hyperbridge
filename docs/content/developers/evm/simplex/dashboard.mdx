@@ -5,7 +5,16 @@ description: The web UI is unauthenticated by design — reach it from the same 
 
 # Accessing the dashboard
 
-The web UI is unauthenticated by design — the bind address is the boundary. It defaults to `127.0.0.1:8686`, so only the machine running the solver can reach it, and it refuses any request whose `Host` header is a DNS name rather than a loopback literal, which closes the DNS-rebinding path into it. Move it with `--ui <[host:]port>`, or turn it off with `--no-ui`.
+The dashboard is where a running solver is watched and steered: balances per chain, the markets it quotes, price curves edited live, order history, and the treasury tools.
+
+<figure style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+
+![The Simplex dashboard, showing balances by network and the configured markets](./images/dashboard-overview.png)
+
+<figcaption>The Overview page: liquidity per chain and per token, the filling switch, and every market the solver quotes.</figcaption>
+</figure>
+
+It is unauthenticated by design — the bind address is the boundary. It defaults to `127.0.0.1:8686`, so only the machine running the solver can reach it, and it refuses any request whose `Host` header is a DNS name rather than a loopback literal, which closes the DNS-rebinding path into it. Move it with `--ui <[host:]port>`, or turn it off with `--no-ui`.
 
 <Callout type="warn">
     Anyone who reaches the dashboard can pause filling, edit price curves, move treasury funds and
@@ -21,12 +30,9 @@ Open `http://localhost:8686`. Under Docker the container binds `0.0.0.0` inside 
 -p 127.0.0.1:8686:8686
 ```
 
-## From somewhere else
+On a VPS, a home server, or any host you are not sitting at, the dashboard is still bound to that machine's loopback. The two sections below reach it from elsewhere, neither of which opens a port to the internet.
 
-On a VPS, a home server, or any host you are not sitting at, the dashboard is still bound to that machine's loopback. Two ways in, neither of which opens a port to the internet:
-
-<Tabs items={["SSH port forwarding", "Remote access tunnel"]}>
-<Tab value="SSH port forwarding">
+## Over SSH port forwarding
 
 If you already have SSH access to the host, forward the port. Nothing in Simplex changes:
 
@@ -39,8 +45,8 @@ Open `http://localhost:8686` on your own machine while that session is up. The t
 This works from a tablet or phone too, with any SSH client that does local port forwarding: Blink or Termius on iOS, ConnectBot or JuiceSSH on Android. Point the forward at the same `8686:127.0.0.1:8686`, connect, then open `http://localhost:8686` in the device's browser.
 
 It needs a reachable SSH server, so it is the right choice for a host with a public address and the wrong one for a machine behind NAT.
-</Tab>
-<Tab value="Remote access tunnel">
+
+## Through the remote access tunnel
 
 Simplex can open an **outbound** SSH tunnel to a rendezvous relay, which leases it a stable public port. The host needs no public IP, no inbound port, and no `sshd` — useful for a solver running on a laptop or a box behind NAT.
 
@@ -55,7 +61,18 @@ It is off unless `enabled = true`, and it only runs once the solver is up — ne
 
 The relay never sees your dashboard traffic. Your device's SSH session terminates inside Simplex, in an embedded SSH server that accepts only paired device keys and only a port forward to the UI: no shell, no command execution, no other destination. The relay just moves the encrypted bytes between the two.
 
-**Pairing a device.** Open **Operations → Remote access** in the dashboard and turn it on. Create a key in the device's SSH app, then paste its public key with a name — the private key never leaves the device. For apps that cannot generate keys, Simplex can generate the pair and show the private key once, with a QR code. The panel then lists everything the SSH app needs: host, port, username, host key fingerprint, and the local port forward.
+### Pairing a device
+
+Open **Operations → Remote access** in the dashboard and turn it on.
+
+<figure style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+
+![The Remote access panel, showing the relay connection details and one paired device](./images/remote-access-drawer.png)
+
+<figcaption>The Remote access panel: the tunnel switch, everything an SSH app needs to connect, the paired devices, and the pairing form.</figcaption>
+</figure>
+
+Create a key in the device's SSH app, then paste its public key with a name — the private key never leaves the device. For apps that cannot generate keys, Simplex can generate the pair and show the private key once, with a QR code. The panel then lists everything the SSH app needs: host, port, username, host key fingerprint, and the local port forward.
 
 In the SSH app, save a connection to that host and port, add the local forward, accept the host key after checking it against the fingerprint shown, and open `http://localhost:8686` in the device's browser.
 
@@ -66,5 +83,3 @@ In the SSH app, save a connection to that host and port, add the local forward, 
 </Callout>
 
 Keys live under `<data-dir>/tunnel/` in plain OpenSSH formats: the operator key that identifies this solver to the relay, the host key your devices pin, and `authorized_keys` for the paired devices. The relay is [open source](https://github.com/polytope-labs/simplex-tunnel) if you would rather run your own; point `relay` at it and pin its fingerprint with `relayHostKey`.
-</Tab>
-</Tabs>

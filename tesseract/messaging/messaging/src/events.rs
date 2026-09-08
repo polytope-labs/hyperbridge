@@ -12,10 +12,7 @@ use ismp::{
 	router::{GetResponse, PostRequest, Request},
 };
 use sp_core::{H160, U256};
-use std::{
-	collections::{BTreeSet, HashMap},
-	sync::Arc,
-};
+use std::{collections::HashMap, sync::Arc};
 use tesseract_primitives::{config::RelayerConfig, Cost, Hasher, IsmpProvider, Query};
 use tokio_stream::StreamExt;
 
@@ -79,12 +76,6 @@ impl From<IsmpEvent> for Event {
 /// misestimate or fail the success check. Callers that don't submit a
 /// consensus message alongside (inbound pipeline) pass `None`.
 ///
-/// `incentivized` is the on-chain reward allowlist snapshot for this cycle. It
-/// is unioned with the operator's `module_filter` when deciding which modules
-/// to relay, so a relayer that scopes itself to a handful of modules still
-/// delivers everything it can earn a reward on. Callers with no snapshot to
-/// hand (the inbound pipeline) pass `None`.
-///
 /// Returns a tuple where the first item are messages to be submitted to the sink
 /// and the second tuple are currently unprofitable messages.
 pub async fn translate_events_to_messages(
@@ -93,7 +84,6 @@ pub async fn translate_events_to_messages(
 	events: Vec<IsmpEvent>,
 	state_machine_height: StateMachineHeight,
 	config: RelayerConfig,
-	incentivized: Option<Arc<BTreeSet<Vec<u8>>>>,
 	coprocessor: StateMachine,
 	client_map: &HashMap<StateMachine, Arc<dyn IsmpProvider>>,
 	consensus_prelude: Option<Message>,
@@ -116,7 +106,6 @@ pub async fn translate_events_to_messages(
 				let event = event.clone();
 				let sink = sink.clone();
 				let config = config.clone();
-				let incentivized = incentivized.clone();
 				async move {
 					match event {
 						IsmpEvent::PostRequest(post) => {
@@ -132,7 +121,7 @@ pub async fn translate_events_to_messages(
 								return Ok::<_, anyhow::Error>(None);
 							}
 
-							if !is_allowed_module(&config, incentivized.as_deref(), &post.from) {
+							if !is_allowed_module(&config, &post.from) {
 								tracing::trace!(
 									target: crate::LOG_TARGET, "Request from module {}, filtered by module filter",
 									hex::encode(&post.from),
@@ -268,15 +257,9 @@ pub async fn translate_events_to_messages(
 	// we gate each one for profitability and then batch the survivors into
 	// chunked `handleGetResponses` calls the same way post requests are batched.
 	if source.state_machine_id().state_id == coprocessor {
-		let (response_messages, response_queries, responses) = build_get_response_candidates(
-			&source,
-			&sink,
-			&events,
-			&config,
-			incentivized.as_deref(),
-			state_machine_height,
-		)
-		.await?;
+		let (response_messages, response_queries, responses) =
+			build_get_response_candidates(&source, &sink, &events, &config, state_machine_height)
+				.await?;
 
 		if !response_messages.is_empty() {
 			let profitability = return_successful_queries(
@@ -338,7 +321,6 @@ async fn build_get_response_candidates(
 	sink: &Arc<dyn IsmpProvider>,
 	events: &[IsmpEvent],
 	config: &RelayerConfig,
-	incentivized: Option<&BTreeSet<Vec<u8>>>,
 	state_machine_height: StateMachineHeight,
 ) -> Result<(Vec<Message>, Vec<Query>, Vec<GetResponse>), anyhow::Error> {
 	let sink_state_machine = sink.state_machine_id().state_id;
@@ -359,7 +341,7 @@ async fn build_get_response_candidates(
 			// regardless of the request's timeout for the same reason. A response that
 			// exists is always deliverable.
 
-			if !is_allowed_module(config, incentivized, &res.get.from) {
+			if !is_allowed_module(config, &res.get.from) {
 				tracing::trace!(
 					target: crate::LOG_TARGET, "Get response for module {}, filtered by module filter",
 					hex::encode(&res.get.from),
@@ -424,18 +406,15 @@ async fn build_get_response_candidates(
 ///
 /// Events are gated by `module_filter` via `is_allowed_module`, so operators
 /// can scope which modules they deliver. With no `module_filter` configured,
-/// `is_allowed_module` permits every module. `incentivized` is the on-chain
-/// reward allowlist (`pallet_ismp_relayer::OutboundRequestDeliveryReward`)
-/// snapshot, which widens a configured `module_filter` rather than narrowing
-/// it: modules the relayer earns a reward on are always allowed through.
-/// Callers with no snapshot pass `None`.
+/// `is_allowed_module` permits every module. The on-chain reward allowlist
+/// (`pallet_ismp_relayer::OutboundRequestDeliveryReward`) is applied
+/// separately by the outbound task.
 ///
 /// When the counterparty is the coprocessor, every post request flows through
 /// regardless of its final destination or the module filter — the coprocessor
 /// needs to ingest all requests so it can process and forward them.
 pub fn filter_events(
 	config: &RelayerConfig,
-	incentivized: Option<&BTreeSet<Vec<u8>>>,
 	counterparty: StateMachine,
 	coprocessor: StateMachine,
 	ev: &IsmpEvent,
@@ -445,12 +424,12 @@ pub fn filter_events(
 			if counterparty == coprocessor {
 				return true;
 			}
-			post.dest == counterparty && is_allowed_module(config, incentivized, &post.from)
+			post.dest == counterparty && is_allowed_module(config, &post.from)
 		},
 		// GetResponses only originate on the coprocessor and are delivered back to the
 		// chain that made the request, so `get.source` is their destination.
 		IsmpEvent::GetResponse(res) =>
-			res.get.source == counterparty && is_allowed_module(config, incentivized, &res.get.from),
+			res.get.source == counterparty && is_allowed_module(config, &res.get.from),
 		_ => false,
 	}
 }
@@ -596,26 +575,11 @@ pub async fn return_successful_queries(
 	Ok(ProfitabilityResult { queries: queries_to_be_relayed, retriable_messages })
 }
 
-/// Whether the relayer will deliver requests dispatched by `module`.
-///
-/// The operator's `module_filter` and the on-chain reward allowlist are
-/// additive: a module passes if it appears in either. An absent or empty
-/// `module_filter` places no restriction at all, so every module passes and
-/// the snapshot is irrelevant.
-///
-/// The union is what makes a scoped relayer usable. `module_filter` on its own
-/// is a hard allowlist, so an operator who adds one module to unblock it would
-/// otherwise stop relaying every module they were being paid for.
-fn is_allowed_module(
-	config: &RelayerConfig,
-	incentivized: Option<&BTreeSet<Vec<u8>>>,
-	module: &[u8],
-) -> bool {
+fn is_allowed_module(config: &RelayerConfig, module: &[u8]) -> bool {
 	match config.module_filter {
 		Some(ref filters) =>
 			if !filters.is_empty() {
-				return is_explicitly_filtered(config, module) ||
-					incentivized.map_or(false, |set| set.contains(module));
+				return is_explicitly_filtered(config, module);
 			},
 		// if no filter is provided, allow all modules
 		_ => {},
@@ -626,11 +590,9 @@ fn is_allowed_module(
 
 /// Whether `module` was explicitly named in the operator's `module_filter`.
 ///
-/// Distinct from [`is_allowed_module`]: an absent or empty filter means the
-/// operator listed nothing, so this returns false, where `is_allowed_module`
-/// would permit everything. Callers that need "the operator asked for this
-/// module by name" — such as the outbound reward-allowlist filter — want this
-/// one.
+/// Distinct from [`is_allowed_module`], where an absent or empty filter permits
+/// every module. Here it names none, which is what callers that need "the
+/// operator asked for this module by name" want.
 pub fn is_explicitly_filtered(config: &RelayerConfig, module: &[u8]) -> bool {
 	config.module_filter.as_ref().map_or(false, |filters| {
 		filters.iter().any(|filter| {
@@ -638,87 +600,4 @@ pub fn is_explicitly_filtered(config: &RelayerConfig, module: &[u8]) -> bool {
 				module
 		})
 	})
-}
-
-#[cfg(test)]
-mod tests {
-	use super::*;
-
-	/// `pallet-hyper-fungible-token`'s module id. It has no delivery reward
-	/// registered on hyperbridge, so it only ever passes because an operator
-	/// named it explicitly.
-	const HFT_MODULE: &[u8] = b"pall_hft";
-	const REWARDED_MODULE: &[u8] = b"pall_hst";
-	const UNKNOWN_MODULE: &[u8] = b"pall_xyz";
-
-	fn config_filtering(modules: &[&[u8]]) -> RelayerConfig {
-		RelayerConfig {
-			module_filter: Some(modules.iter().map(|m| hex::encode(m)).collect()),
-			..Default::default()
-		}
-	}
-
-	fn rewards(modules: &[&[u8]]) -> BTreeSet<Vec<u8>> {
-		modules.iter().map(|m| m.to_vec()).collect()
-	}
-
-	#[test]
-	fn no_module_filter_permits_everything() {
-		let config = RelayerConfig::default();
-		let incentivized = rewards(&[REWARDED_MODULE]);
-		// An empty filter is "no restriction", so the reward snapshot is
-		// irrelevant and even an unknown module passes.
-		assert!(is_allowed_module(&config, Some(&incentivized), UNKNOWN_MODULE));
-		assert!(is_allowed_module(&config, None, UNKNOWN_MODULE));
-	}
-
-	#[test]
-	fn empty_module_filter_permits_everything() {
-		let config = RelayerConfig { module_filter: Some(vec![]), ..Default::default() };
-		assert!(is_allowed_module(&config, None, UNKNOWN_MODULE));
-	}
-
-	#[test]
-	fn module_filter_and_rewards_are_additive() {
-		// The operator listed only HFT. Without the union that would silence
-		// every module they were being paid for; with it, both pass.
-		let config = config_filtering(&[HFT_MODULE]);
-		let incentivized = rewards(&[REWARDED_MODULE]);
-
-		assert!(is_allowed_module(&config, Some(&incentivized), HFT_MODULE));
-		assert!(is_allowed_module(&config, Some(&incentivized), REWARDED_MODULE));
-		assert!(!is_allowed_module(&config, Some(&incentivized), UNKNOWN_MODULE));
-	}
-
-	#[test]
-	fn module_filter_without_snapshot_stays_exclusive() {
-		// Snapshot fetch failed this cycle: fall back to the operator's list
-		// alone rather than widening to everything.
-		let config = config_filtering(&[HFT_MODULE]);
-		assert!(is_allowed_module(&config, None, HFT_MODULE));
-		assert!(!is_allowed_module(&config, None, REWARDED_MODULE));
-	}
-
-	#[test]
-	fn module_filter_accepts_hex_with_or_without_prefix() {
-		let prefixed = RelayerConfig {
-			module_filter: Some(vec![format!("0x{}", hex::encode(HFT_MODULE))]),
-			..Default::default()
-		};
-		assert!(is_allowed_module(&prefixed, None, HFT_MODULE));
-		assert!(is_explicitly_filtered(&prefixed, HFT_MODULE));
-	}
-
-	#[test]
-	fn explicitly_filtered_is_false_when_nothing_is_listed() {
-		// The distinction `retain_incentivized_requests` relies on: an empty
-		// filter permits everything in `is_allowed_module`, but names nothing.
-		assert!(!is_explicitly_filtered(&RelayerConfig::default(), HFT_MODULE));
-		assert!(!is_explicitly_filtered(
-			&RelayerConfig { module_filter: Some(vec![]), ..Default::default() },
-			HFT_MODULE
-		));
-		assert!(is_explicitly_filtered(&config_filtering(&[HFT_MODULE]), HFT_MODULE));
-		assert!(!is_explicitly_filtered(&config_filtering(&[HFT_MODULE]), REWARDED_MODULE));
-	}
 }

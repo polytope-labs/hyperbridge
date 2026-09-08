@@ -347,15 +347,7 @@ async fn submit_for_dest(
 	// so the filter keeps every event routed to this destination.
 	let mut events = events
 		.into_iter()
-		.filter(|ev| {
-			filter_events(
-				&relayer_config,
-				incentivized.as_deref(),
-				dest_state_machine,
-				coprocessor,
-				ev,
-			)
-		})
+		.filter(|ev| filter_events(&relayer_config, dest_state_machine, coprocessor, ev))
 		.collect::<Vec<_>>();
 
 	retain_incentivized_requests(
@@ -407,7 +399,6 @@ async fn submit_for_dest(
 			events,
 			state_machine_height,
 			relayer_config,
-			incentivized.clone(),
 			coprocessor,
 			&client_map,
 			// Pass the consensus update as the gas-estimation prelude so EVM
@@ -472,7 +463,6 @@ async fn submit_for_dest(
 		coprocessor,
 		&batch_requests,
 		&result.receipts,
-		incentivized.as_deref(),
 		&claim_tx_payment,
 	)
 	.await;
@@ -549,16 +539,16 @@ async fn submit_for_dest(
 }
 
 /// Drop hyperbridge-originated requests whose `source_module` is neither on the
-/// on-chain reward allowlist nor explicitly named in the operator's
-/// `module_filter`. User-originated requests and non-request events pass
-/// through. `None` means the snapshot fetch failed this cycle; deliver
-/// everything as a no-op fallback.
+/// on-chain reward allowlist nor named in the operator's `module_filter`.
+/// User-originated requests and non-request events pass through. `None` means
+/// the snapshot fetch failed this cycle; deliver everything as a no-op
+/// fallback.
 ///
-/// The reward allowlist decides what the relayer gets *paid* for; the
-/// `module_filter` decides what the operator is *willing* to deliver. A module
-/// on neither list is dropped, which is what kept hyperbridge-originated
-/// transfers from `pallet-hyper-fungible-token` from being relayed at all
-/// while no reward was configured for it.
+/// The reward allowlist decides what the relayer is paid for, the
+/// `module_filter` decides what the operator is willing to deliver, and a
+/// module on either list is delivered. Modules with no reward configured, such
+/// as `pallet-hyper-fungible-token`, are otherwise dropped here before a batch
+/// is ever built.
 fn retain_incentivized_requests(
 	events: &mut Vec<Event>,
 	config: &RelayerConfig,
@@ -614,15 +604,13 @@ async fn forward_request_delivery_claims(
 	coprocessor: StateMachine,
 	batch_requests: &[PostRequest],
 	receipts: &[TxReceipt],
-	incentivized: Option<&BTreeSet<Vec<u8>>>,
 	claim_tx_payment: &Option<Arc<TransactionPayment>>,
 ) {
 	let Some(tx_payment) = claim_tx_payment else {
 		return;
 	};
 
-	let claims =
-		collect_hyperbridge_request_claims(coprocessor, batch_requests, receipts, incentivized);
+	let claims = collect_hyperbridge_request_claims(coprocessor, batch_requests, receipts);
 	if claims.is_empty() {
 		return;
 	}
@@ -648,18 +636,10 @@ async fn forward_request_delivery_claims(
 /// Filters receipts to those originating from the hyperbridge coprocessor and
 /// pairs each one with its source request. Returns an empty vec when nothing
 /// in the batch is hyperbridge-originated.
-///
-/// Requests from a module that isn't on the reward allowlist are skipped:
-/// they can only be here because the operator named the module in their
-/// `module_filter`, and `process_outbound_request_delivery_claim` would reject
-/// the claim with `OutboundRequestNoRewardConfigured`. `None` means the
-/// snapshot fetch failed this cycle, so every hyperbridge-originated receipt is
-/// kept and the claim task sorts it out.
 fn collect_hyperbridge_request_claims(
 	coprocessor: StateMachine,
 	batch_requests: &[PostRequest],
 	receipts: &[TxReceipt],
-	incentivized: Option<&BTreeSet<Vec<u8>>>,
 ) -> Vec<PendingRequestDeliveryClaim> {
 	// Index every PostRequest in the batch by its commitment so receipts
 	// can be paired back to their source request. BTreeMap keeps iteration
@@ -675,7 +655,6 @@ fn collect_hyperbridge_request_claims(
 			(query.source_chain == coprocessor)
 				.then(|| by_commitment.get(&query.commitment).cloned())
 				.flatten()
-				.filter(|request| incentivized.map_or(true, |set| set.contains(&request.from)))
 				.map(|request| PendingRequestDeliveryClaim { request, delivery_height: *height })
 		})
 		.collect()
@@ -1200,7 +1179,7 @@ mod tests {
 			request_receipt_for(&hb_req_b, 102),
 		];
 
-		let claims = collect_hyperbridge_request_claims(HB, &batch_requests, &receipts, None);
+		let claims = collect_hyperbridge_request_claims(HB, &batch_requests, &receipts);
 
 		assert_eq!(claims.len(), 2, "only hyperbridge-originated requests forwarded");
 		assert!(claims.iter().all(|c| c.request.source == HB));
@@ -1212,7 +1191,7 @@ mod tests {
 	#[test]
 	fn collect_claims_empty_receipts_is_empty() {
 		let hb_req = build_post(HB, 0x11);
-		let claims = collect_hyperbridge_request_claims(HB, &[hb_req], &[], None);
+		let claims = collect_hyperbridge_request_claims(HB, &[hb_req], &[]);
 		assert!(claims.is_empty());
 	}
 
@@ -1220,7 +1199,7 @@ mod tests {
 	fn collect_claims_no_hyperbridge_requests_is_empty() {
 		let user_req = build_post(DEST_B, 0x11);
 		let receipts = vec![request_receipt_for(&user_req, 100)];
-		let claims = collect_hyperbridge_request_claims(HB, &[user_req], &receipts, None);
+		let claims = collect_hyperbridge_request_claims(HB, &[user_req], &receipts);
 		assert!(claims.is_empty());
 	}
 
@@ -1256,6 +1235,43 @@ mod tests {
 	}
 
 	#[test]
+	fn retain_incentivized_keeps_modules_named_in_the_module_filter() {
+		// `pallet-hyper-fungible-token` has no reward registered, so it only
+		// survives because the operator named it in `module_filter`.
+		let hft_module = b"pall_hft".to_vec();
+		let rewarded_module = vec![0xAA, 0xBB];
+		let allowlist: BTreeSet<Vec<u8>> = [rewarded_module.clone()].into_iter().collect();
+		let config = RelayerConfig {
+			module_filter: Some(vec![hex::encode(&hft_module)]),
+			..Default::default()
+		};
+
+		let mut rewarded = post_req(HB, DEST_A, 1);
+		rewarded.from = rewarded_module;
+		let mut hft = post_req(HB, DEST_A, 2);
+		hft.from = hft_module;
+		let mut unlisted = post_req(HB, DEST_A, 3);
+		unlisted.from = vec![0xCC, 0xDD];
+
+		let mut events = vec![
+			Event::PostRequest(rewarded),
+			Event::PostRequest(hft),
+			Event::PostRequest(unlisted),
+		];
+
+		retain_incentivized_requests(&mut events, &config, HB, Some(&allowlist));
+
+		let nonces: Vec<u64> = events
+			.iter()
+			.filter_map(|ev| match ev {
+				Event::PostRequest(p) => Some(p.nonce),
+				_ => None,
+			})
+			.collect();
+		assert_eq!(nonces, vec![1, 2], "reward allowlist and module_filter are additive");
+	}
+
+	#[test]
 	fn retain_incentivized_none_is_noop() {
 		let mut events = vec![
 			Event::PostRequest(post_req(HB, DEST_A, 1)),
@@ -1278,72 +1294,6 @@ mod tests {
 		assert_eq!(events.len(), 1);
 	}
 
-	/// `pallet-hyper-fungible-token`'s module id, the real case this filter
-	/// was widened for: HFT dispatches with `ModuleId::Pallet(PalletId(*b"pall_hft"))`
-	/// and has no delivery reward registered, so the reward allowlist alone
-	/// dropped every BRIDGE transfer out of hyperbridge.
-	const HFT_MODULE: &[u8] = b"pall_hft";
-
-	fn config_filtering(modules: &[&[u8]]) -> RelayerConfig {
-		RelayerConfig {
-			module_filter: Some(modules.iter().map(|m| hex::encode(m)).collect()),
-			..Default::default()
-		}
-	}
-
-	#[test]
-	fn retain_incentivized_keeps_modules_named_in_the_module_filter() {
-		// The reward allowlist pays for `rewarded`; the operator additionally
-		// asked for HFT by name. Both survive, an unlisted third module doesn't.
-		let rewarded = vec![0xAA, 0xBB];
-		let allowlist: BTreeSet<Vec<u8>> = [rewarded.clone()].into_iter().collect();
-		let config = config_filtering(&[HFT_MODULE]);
-
-		let mut incentivized_req = post_req(HB, DEST_A, 1);
-		incentivized_req.from = rewarded;
-		let mut hft_req = post_req(HB, DEST_A, 2);
-		hft_req.from = HFT_MODULE.to_vec();
-		let mut unlisted = post_req(HB, DEST_A, 3);
-		unlisted.from = vec![0xCC, 0xDD];
-
-		let mut events = vec![
-			Event::PostRequest(incentivized_req),
-			Event::PostRequest(hft_req),
-			Event::PostRequest(unlisted),
-		];
-
-		retain_incentivized_requests(&mut events, &config, HB, Some(&allowlist));
-
-		let nonces: Vec<u64> = events
-			.iter()
-			.filter_map(|ev| match ev {
-				Event::PostRequest(p) => Some(p.nonce),
-				_ => None,
-			})
-			.collect();
-		assert_eq!(nonces, vec![1, 2], "reward allowlist and module_filter are additive");
-	}
-
-	#[test]
-	fn collect_claims_skips_modules_with_no_reward() {
-		// An HFT delivery only reached the wire because the operator named it
-		// in `module_filter`. Claiming for it would be rejected on chain with
-		// `OutboundRequestNoRewardConfigured`, so no row is persisted.
-		let rewarded_module = vec![0x77; 8];
-		let allowlist: BTreeSet<Vec<u8>> = [rewarded_module].into_iter().collect();
-
-		let rewarded = build_post(HB, 0x11);
-		let mut hft = build_post(HB, 0x22);
-		hft.from = HFT_MODULE.to_vec();
-		let batch = vec![rewarded.clone(), hft.clone()];
-		let receipts = vec![request_receipt_for(&rewarded, 100), request_receipt_for(&hft, 101)];
-
-		let claims = collect_hyperbridge_request_claims(HB, &batch, &receipts, Some(&allowlist));
-
-		assert_eq!(claims.len(), 1, "only the rewarded module is claimable");
-		assert_eq!(claims[0].delivery_height, 100);
-	}
-
 	#[test]
 	fn collect_claims_drops_receipts_with_no_matching_batch_request() {
 		// A receipt whose commitment is HB-sourced but whose request wasn't in
@@ -1351,7 +1301,7 @@ mod tests {
 		let orphan = build_post(HB, 0x11);
 		let receipts = vec![request_receipt_for(&orphan, 100)];
 		// orphan is NOT in batch_requests.
-		let claims = collect_hyperbridge_request_claims(HB, &[], &receipts, None);
+		let claims = collect_hyperbridge_request_claims(HB, &[], &receipts);
 		assert!(claims.is_empty());
 	}
 }

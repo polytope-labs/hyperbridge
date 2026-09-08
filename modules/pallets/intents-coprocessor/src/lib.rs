@@ -263,6 +263,8 @@ pub mod pallet {
 		PaymasterStakeUnlockInitiated { state_machine: StateMachine },
 		/// A paymaster stake withdrawal was initiated
 		PaymasterStakeWithdrawalInitiated { state_machine: StateMachine },
+		/// A rotation of the paymaster's authorised relayer was initiated
+		PaymasterRelayerUpdateInitiated { state_machine: StateMachine, relayer: H160 },
 	}
 
 	#[pallet::error]
@@ -277,6 +279,9 @@ pub mod pallet {
 		GatewayNotFound,
 		/// Paymaster not found for the specified state machine
 		PaymasterNotFound,
+		/// The paymaster relayer may not be zero: the paymaster refuses it, since zero would
+		/// reopen its governance to every relayer
+		InvalidPaymasterRelayer,
 		/// Invalid user operation data
 		InvalidUserOp,
 		/// Failed to dispatch cross-chain request
@@ -859,6 +864,9 @@ pub mod pallet {
 
 		/// Upgrade the SimplexPaymaster implementation behind its ERC-1967 proxy via
 		/// cross-chain governance. Authorized on the paymaster by `source == hyperbridge`.
+		/// `init_data` is delegatecalled on the new implementation in the same transaction;
+		/// `migrate(relayer)` there arms the paymaster's relayer gate atomically with the
+		/// upgrade on a proxy from before the gate.
 		#[pallet::call_index(11)]
 		#[pallet::weight(T::WeightInfo::upgrade_paymaster())]
 		pub fn upgrade_paymaster(
@@ -1012,6 +1020,34 @@ pub mod pallet {
 			)?;
 
 			Self::deposit_event(Event::PaymasterStakeWithdrawalInitiated { state_machine });
+
+			Ok(())
+		}
+
+		/// Rotate the only relayer whose governance deliveries the paymaster accepts. The request
+		/// itself has to be delivered by the relayer on record, so verify the previous rotation
+		/// landed before dispatching another. Weighed as `upgrade_paymaster`, the same lookup and
+		/// dispatch.
+		#[pallet::call_index(20)]
+		#[pallet::weight(T::WeightInfo::upgrade_paymaster())]
+		pub fn set_paymaster_relayer(
+			origin: OriginFor<T>,
+			state_machine: StateMachine,
+			relayer: H160,
+		) -> DispatchResult {
+			T::GovernanceOrigin::ensure_origin(origin)?;
+			ensure!(!relayer.is_zero(), Error::<T>::InvalidPaymasterRelayer);
+
+			let paymaster =
+				Paymasters::<T>::get(state_machine).ok_or(Error::<T>::PaymasterNotFound)?;
+
+			Self::dispatch(
+				state_machine,
+				paymaster,
+				RequestKind::PaymasterSetRelayer { relayer }.encode_body(),
+			)?;
+
+			Self::deposit_event(Event::PaymasterRelayerUpdateInitiated { state_machine, relayer });
 
 			Ok(())
 		}

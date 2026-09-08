@@ -12,6 +12,32 @@ Files: list of files touched.
 
 Newest entries first.
 
+## 2026-09-07 — Live-fork gateway test asserts the armed mainnet proxy instead of replaying its migration
+
+The mainnet IntentGatewayV2 proxy has been upgraded and armed (relayer set, version 2), so the
+fork test that rehearsed that migration failed on its first precondition. It is replaced by
+`testLiveProxyIsArmedAndGovernedOnlyByItsRelayer`: the live proxy reads armed and migrated with
+the relayer packed behind an unset `_paused` in slot 13, refuses `initialize` and a second
+`migrate`, refuses an `Execute` upgrade from anyone but its relayer, installs it with every
+readable piece of state intact when the relayer delivers it, and rotates through `Execute`, after
+which the previous relayer is out.
+
+Files: `evm/tests/foundry/IntentGatewayV2Test.sol`, `docs/ai/Flow.md`.
+
+## 2026-09-07 — SimplexPaymaster governance deliveries gated on one relayer; APPROVE mode removed
+
+`SimplexPaymaster.onAccept` checks `incoming.relayer` against a new `_relayer` (slot 8, gap 48)
+after `onlyHost` and before the source check. Armed by a fifth `initialize` argument, by the
+host-only `migrate(relayer)` as upgrade init data (version 1 to 2, `onlyFresh` on `initialize`), or
+rotated by `RequestKind.SetRelayer`; unset means open, zero can never be set by governance. Mode
+byte `0x01` is refused. Deploy script reads `GOVERNANCE_RELAYER`; new impl-only deploy script for the
+governance upgrade of the live proxies. Pallet extrinsic `set_paymaster_relayer` added.
+
+Files: `evm/src/utils/SimplexPaymaster.sol`, `evm/script/DeploySimplexPaymaster.s.sol`,
+`evm/script/DeploySimplexPaymasterImpl.s.sol`, `evm/script/SimplexPaymasterPermit2Probe.s.sol`,
+`evm/tests/foundry/SimplexPaymaster*.t.sol`, `modules/pallets/intents-coprocessor/src/*.rs`,
+`docs/ai/Flow.md`.
+
 ## 2026-09-05 — `HostManager.onAccept` checks caller and relayer through one modifier
 
 `restrict` takes the address to check and the address it must equal, and `onAccept` carries it

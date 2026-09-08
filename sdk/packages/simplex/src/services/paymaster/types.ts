@@ -48,7 +48,7 @@ export interface PaymasterOptions {
 	 * honored when the paymaster allowance is already in place — a permit
 	 * executed during validation needs the full default. Ignored when the Simplex
 	 * paymaster is selected — its limits are mode-specific
-	 * ({@link VERIFICATION_GAS_LIMIT_PERMIT} / {@link VERIFICATION_GAS_LIMIT_APPROVE}).
+	 * ({@link VERIFICATION_GAS_LIMIT_PERMIT} / {@link VERIFICATION_GAS_LIMIT_PERMIT2}).
 	 */
 	paymasterVerificationGasLimit?: bigint
 	/**
@@ -87,8 +87,6 @@ export const THRESHOLD_USD = 2n
 export const VERIFICATION_GAS_LIMIT_CIRCLE = 200_000n
 /** Simplex paymaster verification gas when executing an EIP-2612 permit during validation. */
 export const VERIFICATION_GAS_LIMIT_PERMIT = 250_000n
-/** Simplex paymaster verification gas when relying on an existing approval. */
-export const VERIFICATION_GAS_LIMIT_APPROVE = 150_000n
 /**
  * Simplex paymaster verification gas when prefunding through Permit2. Measured at
  * ~135k on Ethereum and BSC forks (EOA and delegated senders).

@@ -13,9 +13,7 @@ import type { HexString } from "@hyperbridge/sdk"
 import type { FillerConfigService } from "@/services/FillerConfigService"
 import {
 	RECOMMENDED_AMOUNT_USD,
-	THRESHOLD_USD,
 	VERIFICATION_GAS_LIMIT_PERMIT,
-	VERIFICATION_GAS_LIMIT_APPROVE,
 	VERIFICATION_GAS_LIMIT_PERMIT2,
 	PERMIT2_DEADLINE_SECONDS,
 	POST_OP_GAS_LIMIT_SIMPLEX,
@@ -42,16 +40,16 @@ const APPROVE_TX_GAS = 60_000n
  * Selects the first configured stablecoin (USDC, then USDT) with a balance of at
  * least one token, then picks the authorization mode:
  * - PERMIT (0x00) when the token supports EIP-2612: a permit executed during validation
- * - PERMIT2 (0x02) when the token is already approved to Permit2: a per-op, single-use
- *   Permit2 signature; nothing is exposed to the paymaster at rest
- * - APPROVE (0x01) while a legacy allowance to the paymaster is still in place
- * - otherwise one funded bootstrap tx: approve(Permit2, max) where Permit2 exists and
- *   the paymaster deployment supports it (then PERMIT2 for the account's lifetime),
- *   else a capped approve(paymaster)
+ * - PERMIT2 (0x02) otherwise: a per-op, single-use Permit2 signature; nothing is exposed
+ *   to the paymaster at rest. A token not yet approved to Permit2 costs one funded
+ *   bootstrap tx, approve(Permit2, max), for the account's lifetime.
  *
  * Returns the balances it read instead, in selection order, when the solver holds less
- * than one whole unit of every configured token — the caller decides whether to fall
- * back to another paymaster or to the EntryPoint deposit, and can name each shortfall.
+ * than one whole unit of every configured token, so the caller can name each shortfall,
+ * and throws when the selected token has no permit and Permit2 is unusable (not
+ * configured on the chain, or the paymaster deployment does not expose PERMIT2()). The
+ * caller decides whether to fall back to another paymaster or to the EntryPoint deposit;
+ * a standing allowance to the paymaster is never used or created.
  */
 export async function buildSimplexPaymasterData(
 	client: PublicClient,
@@ -87,20 +85,28 @@ export async function buildSimplexPaymasterData(
 		return { ...pm, token: tokenAddress }
 	}
 
-	const permit2Address = configService.getPermit2Address(chain)
-	const permit2 =
-		isConfigured(permit2Address) && (await paymasterSupportsPermit2(client, chainId, paymasterAddress))
-			? permit2Address
-			: undefined
+	const permit2 = configService.getPermit2Address(chain)
+	if (!isConfigured(permit2)) {
+		throw new Error(
+			`SimplexPaymaster cannot sponsor ${tokenAddress} on ${chain}: the token has no EIP-2612 permit ` +
+				`and Permit2 is not configured for this chain`,
+		)
+	}
+	if (!(await paymasterSupportsPermit2(client, chainId, paymasterAddress))) {
+		throw new Error(
+			`SimplexPaymaster cannot sponsor ${tokenAddress} on ${chain}: the token has no EIP-2612 permit ` +
+				`and the paymaster at ${paymasterAddress} does not expose PERMIT2() (predates PERMIT2 mode or is not deployed)`,
+		)
+	}
 
-	const [paymasterAllowance, permit2Allowance] = await Promise.all([
-		readAllowance(client, tokenAddress, solverAccount, paymasterAddress),
-		permit2 ? readAllowance(client, tokenAddress, solverAccount, permit2) : Promise.resolve(0n),
-	])
+	const permit2Allowance = await readAllowance(client, tokenAddress, solverAccount, permit2)
+	if (permit2Allowance < recommended) {
+		await sendFundedApprove(client, walletClient, solverAccount, tokenAddress, permit2, maxUint256)
+	}
 
-	const permit2Mode = async () => ({
+	return {
 		...(await buildPermit2Mode(signer, {
-			permit2: permit2!,
+			permit2,
 			chainId,
 			token: tokenAddress,
 			amount: recommended,
@@ -108,30 +114,7 @@ export async function buildSimplexPaymasterData(
 			deadlineSeconds: PERMIT2_DEADLINE_SECONDS,
 		})),
 		token: tokenAddress,
-	})
-	const approveMode = () => ({
-		paymaster: paymasterAddress,
-		paymasterData: encodePacked(["uint8", "address"], [1, tokenAddress]) as HexString,
-		paymasterVerificationGasLimit: VERIFICATION_GAS_LIMIT_APPROVE,
-		paymasterPostOpGasLimit: POST_OP_GAS_LIMIT_SIMPLEX,
-		token: tokenAddress,
-	})
-
-	if (permit2 && permit2Allowance >= recommended) {
-		return permit2Mode()
 	}
-
-	if (paymasterAllowance >= THRESHOLD_USD * 10n ** BigInt(tokenDecimals)) {
-		return approveMode()
-	}
-
-	if (permit2) {
-		await sendFundedApprove(client, walletClient, solverAccount, tokenAddress, permit2, maxUint256)
-		return permit2Mode()
-	}
-
-	await sendFundedApprove(client, walletClient, solverAccount, tokenAddress, paymasterAddress, recommended)
-	return approveMode()
 }
 
 /**
@@ -227,24 +210,6 @@ async function buildPermitMode(
 	permitAmount: bigint,
 	chainId: number,
 ): Promise<PaymasterResult> {
-	// An existing allowance makes the permit redundant — use the cheaper approve mode.
-	const existingAllowance = (await client.readContract({
-		address: tokenAddress,
-		abi: erc20Abi,
-		functionName: "allowance",
-		args: [solverAccount, paymasterAddress],
-	})) as bigint
-
-	if (existingAllowance >= permitAmount) {
-		const paymasterData = encodePacked(["uint8", "address"], [1, tokenAddress]) as HexString
-		return {
-			paymaster: paymasterAddress,
-			paymasterData,
-			paymasterVerificationGasLimit: VERIFICATION_GAS_LIMIT_APPROVE,
-			paymasterPostOpGasLimit: POST_OP_GAS_LIMIT_SIMPLEX,
-		}
-	}
-
 	const permitSignature = await signEip2612Permit(
 		client,
 		signer,
@@ -307,7 +272,7 @@ async function paymasterSupportsPermit2(
 		// in ContractFunctionExecutionError, so the thrown type cannot separate a revert from
 		// a transport error; only the cause chain can (ContractFunctionRevertedError for a
 		// revert, HttpRequestError for transport). A transport error must propagate uncached
-		// — caching it would silently drop a migrated solver back to a native-funded APPROVE.
+		// — caching it would make the builder refuse a healthy paymaster for the TTL.
 		const isRevert =
 			error instanceof BaseError &&
 			error.walk((e) => e instanceof ContractFunctionRevertedError || e instanceof ContractFunctionZeroDataError)

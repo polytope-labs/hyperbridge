@@ -308,7 +308,15 @@ async fn handle_update(
 			events
 				.into_iter()
 				.filter(|ev| {
-					filter_events(&config, chain_a.state_machine_id().state_id, coprocessor, ev)
+					// The inbound pipeline has no reward-allowlist snapshot to
+					// widen the module filter with; the outbound task owns that.
+					filter_events(
+						&config,
+						None,
+						chain_a.state_machine_id().state_id,
+						coprocessor,
+						ev,
+					)
 				})
 				.collect::<Vec<_>>()
 		},
@@ -363,6 +371,7 @@ async fn handle_update(
 		events,
 		state_machine_height.clone(),
 		config.clone(),
+		None,
 		coprocessor,
 		&client_map,
 		// Inbound pipeline doesn't batch a consensus message alongside — the

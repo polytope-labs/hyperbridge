@@ -173,6 +173,16 @@ export class IntentFiller {
 	}
 
 	/**
+	 * The source chains this filler accepts payment from, declared in every phantom bid: every
+	 * configured chain. Derived at bid time rather than at boot because chains are added and
+	 * removed while the filler runs, and a declaration that lagged them would advertise a route
+	 * the filler no longer serves, or hide one it does.
+	 */
+	private acceptedSourceChains(): string[] {
+		return acceptedSourceChainsFor(this.configService.getConfiguredChainIds())
+	}
+
+	/**
 	 * Opens the bidding connection to Hyperbridge, owned by this filler.
 	 *
 	 * Built like HyperbridgeScanner.start: our WsProvider, raced against a
@@ -1321,7 +1331,7 @@ export class IntentFiller {
 				entryPointAddress,
 				solverAccountAddress,
 				fillerOutputs,
-				this.config.acceptedSourceChains,
+				this.acceptedSourceChains(),
 				// Positions are declared per chain because the bid is: the tokenIds that back a quote
 				// on this chain are the ones held here.
 				this.config.uniswapV4PositionsByChain?.[event.chain],
@@ -1504,4 +1514,17 @@ export class IntentFiller {
 			landed.length > 0 ? "Phantom bids submitted" : "Phantom bid batch landed no bids",
 		)
 	}
+}
+
+/**
+ * The accepted-source declaration for a filler configured on `configuredChainIds`: all of them, as
+ * state machine ids in ascending chain-id order so the same configuration always encodes to the
+ * same bytes.
+ *
+ * Watch-only chains are included. Watch-only governs where the filler commits inventory as a fill
+ * destination; it says nothing about where it is willing to be paid, and an order sourced on a
+ * watch-only chain is still filled on a live one with the escrow released to the filler there.
+ */
+export function acceptedSourceChainsFor(configuredChainIds: readonly number[]): string[] {
+	return [...new Set(configuredChainIds)].sort((a, b) => a - b).map((chainId) => `EVM-${chainId}`)
 }

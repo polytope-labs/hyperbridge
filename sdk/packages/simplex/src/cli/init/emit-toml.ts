@@ -63,10 +63,6 @@ export function emitFillerToml(config: FillerConfigFile, options: EmitOptions = 
 		push("# Seconds between block scans per chain. Default 3, minimum 0.1.")
 		push(kv("blockScanIntervalSeconds", config.simplex.blockScanIntervalSeconds))
 	}
-	if (config.simplex.acceptedSourceChains !== undefined) {
-		push("# Source chains (state machine ids) accepted for payment, declared in phantom bids.")
-		push(kv("acceptedSourceChains", config.simplex.acceptedSourceChains))
-	}
 	if (config.simplex.targetGasUnits !== undefined) {
 		push("# Gas units to keep deposited at the ERC-4337 EntryPoint on chains without a paymaster.")
 		push(kv("targetGasUnits", config.simplex.targetGasUnits))

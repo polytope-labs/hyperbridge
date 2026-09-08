@@ -814,14 +814,6 @@ export interface FillerConfig {
 	watchOnly?: Record<number, boolean>
 
 	/**
-	 * Source chains (state machine ids, e.g. "EVM-8453") this filler accepts payment from when
-	 * filling cross-chain orders, declared inside its phantom bids' paymasterAndData. Omit to
-	 * declare nothing, which downstream consumers read as "accepts all CCTP/USDT0-covered
-	 * chains"; an empty array declares that no source chain is accepted.
-	 */
-	acceptedSourceChains?: string[]
-
-	/**
 	 * Uniswap V4 position tokenIds this filler holds, per chain (state machine id -> tokenIds as
 	 * decimal strings), declared inside its phantom bids' paymasterAndData for the bid's own chain.
 	 *

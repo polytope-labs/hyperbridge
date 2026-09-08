@@ -225,6 +225,11 @@ Files: `src/services/tunnel/{TunnelService,EmbeddedSshServer,keys,index}.ts`,
 `README.md`, `ui/src/operator/{RemoteAccess,Operations}.tsx`, `ui/src/types.ts`,
 `ui/src/styles/operator.css`, `src/tests/{tunnel,ui-server-tunnel}.test.ts`, `sdk/pnpm-workspace.yaml`
 (ssh2/cpu-features build scripts declined), `sdk/pnpm-lock.yaml`.
+## 2026-09-07 — Phantom bids declare the chains the filler fills on; `acceptedSourceChains` config removed
+
+Every phantom bid now carries an accepted-source declaration derived at bid time: every configured chain, watch-only ones included, as `EVM-<id>` in ascending chain-id order (`acceptedSourceChainsFor` in `src/core/filler.ts`). The optional `simplex.acceptedSourceChains` TOML key is gone from the config type, its validation, the wizard's emitter, and the SDK's `FillerConfig`; `preparePhantomBidUserOp` now requires the list and always encodes a declaration, so a bid never leaves the field empty for consumers to read as "any chain". Motivated by a mainnet filler whose bids carried no declaration because the key was never set, so the indexer had no route rows for its depth.
+Files: `src/core/filler.ts`, `src/services/ContractInteractionService.ts`, `src/core/boot.ts`, `src/config/filler-toml.ts`, `src/cli/init/emit-toml.ts`, `src/tests/core/accepted-source-chains.test.ts` (new), `src/tests/cli/update-run-preservation.test.ts`, `src/tests/phantom-filler.e2e.simnode.test.ts`, `../sdk/src/types/index.ts`, `docs/ai/Decisions.md`, `docs/ai/Flow.md`.
+
 ## 2026-09-07 — Delegation batches the Permit2 approve into a direct tx before trying the bundler
 
 `DelegationService.setupDelegation` now resolves the pending Permit2 approval up front and, when

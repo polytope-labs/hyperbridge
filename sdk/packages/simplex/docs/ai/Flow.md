@@ -446,6 +446,8 @@ The integer then travels unchanged:
 ```
 outputs[i].amount                   e.g. 715
   -> fillOrder calldata outputs[i]  uint256, covered by userOpHash
+  -> paymasterAndData               declaration: accepted sources = every configured chain
+                                    (acceptedSourceChainsFor), plus declared V4 positions
   -> bid submitted to the coprocessor
   -> aggregatePhantomBids           quotes.push({ price, weight })
   -> weightedMedian(backedQuotes)   SELECTION — returns an input element verbatim

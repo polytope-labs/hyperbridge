@@ -58,11 +58,12 @@ export const handleOrderFilledEventV3 = wrap(async (event: OrderFilledLog): Prom
 	}
 
 	// The fill just spent the filler's output-token inventory, which is what the pool's published
-	// depth is a sum of, so re-read the LPs backing those pools. Best-effort for the same reason as
-	// above, and doubly so here: it reads external RPCs, and stale depth is recoverable — the next
-	// phantom bid window republishes it from scratch.
+	// depth is a sum of, so re-read the LPs backing those pools and publish the readings for the
+	// Hyperbridge node to fold in. Best-effort for the same reason as above, and doubly so here: it
+	// reads external RPCs, and stale depth is recoverable — the next phantom bid window republishes
+	// it from scratch.
 	try {
-		await IntentGatewayV3Service.refreshPoolLiquidityAfterFill({
+		await IntentGatewayV3Service.publishInventoryAfterFill({
 			commitment,
 			inputs: mappedInputs,
 			outputs: mappedOutputs,
@@ -70,6 +71,6 @@ export const handleOrderFilledEventV3 = wrap(async (event: OrderFilledLog): Prom
 			blockNumber,
 		})
 	} catch (e: any) {
-		logger.error(`Failed to refresh pool liquidity for order ${commitment}: ${e.message}`)
+		logger.error(`Failed to publish pool inventory for order ${commitment}: ${e.message}`)
 	}
 })

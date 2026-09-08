@@ -5,14 +5,14 @@ description: Embed a Simplex intent solver in your own Node application — star
 
 # Simplex
 
-[Simplex](/developers/evm/intent-gateway/simplex) is an automated solver for the Intent Gateway. It
+[Simplex](/developers/evm/simplex/overview) is an automated solver for the Intent Gateway. It
 ships as a binary, and as `@hyperbridge/simplex` — the same engine, running inside your own process.
 No TOML file, no separate service, and every runtime control the web dashboard offers is a method on
 the object you get back.
 
 Reach for the library when the solver is one component of a larger system: you already have a
 database, a dashboard, an alerting pipeline, or pricing logic that needs to move curves as the market
-does. If you just want a solver running, the [binary](/developers/evm/intent-gateway/simplex) is
+does. If you just want a solver running, the [binary](/developers/evm/simplex/overview) is
 less work.
 
 ```bash lineNumbers
@@ -78,7 +78,7 @@ marked `redeemOnShutdown`, and never calls `process.exit`.
 <Callout type="warn">
     The config object is the shape the binary's `filler-config.toml` parses into, minus
     `[simplex.signer]` — signing is an argument, not config. The
-    [configuration reference](/developers/evm/intent-gateway/simplex#configuration) documents every
+    [configuration reference](/developers/evm/simplex/configuration) documents every
     other field; read the TOML tables there as object keys.
 </Callout>
 

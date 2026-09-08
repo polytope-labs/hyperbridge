@@ -1,0 +1,131 @@
+---
+title: Configuration
+description: The [simplex] block, signer backends, EIP-7702 delegation and gas payment, allowlists, and scan intervals.
+---
+
+# Configuration
+
+Everything here lives in `filler-config.toml`. Only the `[simplex]` block and its signer are required — the rest tunes behaviour that has a working default.
+
+## `[simplex]`
+
+```toml lineNumbers
+[simplex]
+# Optional — defaults to 5
+maxConcurrentOrders = 5
+# How often each chain is scanned for gateway events, in seconds.
+# Optional — defaults to 3. Minimum 0.1.
+blockScanIntervalSeconds = 3
+# trace | debug | info | warn | error
+logging             = "info"
+
+# Required for solver selection
+# Hex seed or mnemonic for Hyperbridge extrinsics
+substratePrivateKey = "0x.."
+# Hyperbridge WebSocket endpoint
+hyperbridgeWsUrl    = "wss://nexus.rpc.polytope.technology"
+
+```
+
+## Signer Configuration
+
+The `[simplex.signer]` section defines how the binary signs EVM transactions. Three backends are supported:
+
+The signer is a tagged union — set `type` to select the variant, then add the variant's fields directly under `[simplex.signer]`:
+
+**Private Key** — Signs transactions locally using a raw private key:
+
+```toml lineNumbers
+[simplex.signer]
+type = "privateKey"
+key  = "0x..."
+```
+
+**MPC Vault** — Signs transactions via [MPC Vault](https://mpcvault.com), an institutional custody service that uses MPC for signing ceremonies:
+
+```toml lineNumbers
+[simplex.signer]
+type                          = "mpcVault"
+apiToken                      = "your-api-token"
+vaultUuid                     = "your-vault-uuid"
+accountAddress                = "0xYourWalletAddress"
+callbackClientSignerPublicKey = "ssh-ed25519 AAAA..."
+# grpcTarget = "api.mpcvault.com:443"  # optional, this is the default
+```
+
+<Callout type="info">
+MPC Vault requires an Ed25519 keypair registered in the MPC Vault console and a running client-signer container (<code>ghcr.io/mpcvault/client-signer:latest</code>). See the <a href="https://docs.mpcvault.com">MPC Vault documentation</a> for setup instructions.
+</Callout>
+
+**Turnkey** — Signs transactions via [Turnkey](https://turnkey.com), a key management platform with HD wallet support. Create a wallet in the Turnkey Dashboard and use `signWith` to reference your existing Ethereum address:
+
+```toml lineNumbers
+[simplex.signer]
+type             = "turnkey"
+organizationId   = "your-org-id"
+apiPublicKey     = "your-api-public-key"
+apiPrivateKey    = "your-api-private-key"
+signWith         = "0xYourWalletAddress"
+```
+
+<Callout type="info">
+Create an API keypair in the Turnkey Dashboard under user details. The <code>signWith</code> field is any Ethereum address from your Turnkey wallet. See the <a href="https://docs.turnkey.com">Turnkey documentation</a> for setup instructions.
+</Callout>
+
+## Delegation & Gas Payment
+
+Simplex always uses the solver selection path: it submits a signed bid to Hyperbridge via `IntentsCoprocessor` rather than calling `fillOrder` directly. This requires `substratePrivateKey` and `hyperbridgeWsUrl` in `[simplex]`, plus a `bundlerUrl` on each `[[chains]]` entry.
+
+Solver selection requires each solver's EOA to be delegated to the `SolverAccount` contract. Simplex performs this automatically at startup via EIP-7702:
+
+- **Primary path** — builds a no-op UserOperation with an attached EIP-7702 authorization and submits it through the configured bundler. When a paymaster is deployed on the chain — Circle Paymaster (USDC) preferred, then the `SimplexPaymaster` (USDC or USDT), live on Ethereum, Arbitrum, Base, Polygon and BSC — see [Mainnet Contract Addresses](/developers/evm/contract-addresses/mainnet) — and the solver holds at least one whole token of a supported stablecoin, the paymaster pays gas in that stablecoin so the solver never needs native gas for delegation. Tokens with EIP-2612 are authorized by permit; tokens without it (such as BSC stables) need a one-time funded `approve(Permit2, max)` from the solver EOA, after which every operation carries a per-op Permit2 signature and no native gas is needed again.
+- **Fallback** — if the bundler path fails or the chain has no paymaster, Simplex sends a direct type-0x04 delegation tx using the solver's native balance. On paymaster-less chains it also keeps the ERC-4337 EntryPoint deposit topped up to cover `targetGasUnits` (default 3,000,000) at the current gas price.
+
+No manual steps are required — delegation is idempotent and skipped if the EOA is already delegated to the correct contract.
+
+## Allowlist
+
+The optional `[allowlist]` section restricts which order `user` addresses the solver will process. Omit the section entirely to accept orders from all users (the default). When present, only listed users are accepted; address comparisons are case-insensitive.
+
+```toml lineNumbers
+[allowlist]
+# Users eligible across all source chains
+users = [
+    "0x1111111111111111111111111111111111111111",
+]
+
+# Per-source-chain overrides, keyed by state-machine ID.
+# Merged with the global list.
+[allowlist.bySource]
+# Ethereum-only partner
+"EVM-1"     = ["0x2222222222222222222222222222222222222222"]
+# Arbitrum-only partner
+"EVM-42161" = ["0x3333333333333333333333333333333333333333"]
+```
+
+A source chain whose merged set (global `users` + its `bySource` override) is empty rejects every order from that chain.
+
+## Gas Fee Bump
+
+UserOperation gas prices are bumped above the base `gasPrice` by configurable percentages. Defaults are `8%` for the priority fee and `10%` for the max fee. Override under `[simplex.gasFeeBump]`:
+
+```toml lineNumbers
+[simplex.gasFeeBump]
+# added to base gasPrice for the priority fee
+maxPriorityFeePerGasBumpPercent = 8
+maxFeePerGasBumpPercent         = 10   # added to base gasPrice for the max fee
+```
+
+## Block scan interval
+
+Each configured chain is polled for gateway events on its own interval, set by **`blockScanIntervalSeconds`** under `[simplex]`. It defaults to **3 seconds** and must be at least `0.1` — a zero or negative value would spin the scanner as fast as the event loop allows and exhaust an RPC budget in minutes, so it is rejected at startup rather than left for `setInterval` to coerce.
+
+The interval is the main lever on RPC spend. Each tick costs one `eth_blockNumber` plus one `eth_getLogs` per chain, per endpoint in that chain's quorum — so halving the interval doubles the request rate against every provider. Lower it if you are losing orders to faster solvers; raise it if you are being rate-limited.
+
+```toml lineNumbers
+[simplex]
+# Poll twice a second — faster pickup, ~6x the requests of the default.
+blockScanIntervalSeconds = 0.5
+```
+
+Orders are still evaluated against the confirmation policy after they are seen, so a shorter interval brings detection forward but does not change how long a cross-chain order waits before it can be filled.

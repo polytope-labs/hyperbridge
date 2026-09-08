@@ -1,0 +1,84 @@
+---
+title: Confirmations and RPC
+description: How long a cross-chain order waits before Simplex bids, and why every consensus-relevant read is quorum-checked.
+---
+
+# Confirmations and RPC
+
+A cross-chain fill commits capital on one chain because of something the solver read on another. Two settings decide how much that reading is trusted: how many confirmations an order waits for, and how many independent endpoints have to agree on what they saw.
+
+## Confirmation Policy
+
+Before processing a cross-chain order, Simplex waits for enough block confirmations to guard against chain reorganizations. The number of confirmations scales with order value using a curve — small orders are processed quickly, large orders wait longer. Same-chain orders always proceed without additional confirmation delay.
+
+### Built-in Defaults
+
+Simplex ships with default confirmation policies for common chains. These apply automatically when no user-configured policy exists for a chain. User-configured policies override the default for that chain. Every configured chain must be covered by a built-in default or a custom entry — a chain with neither fails at startup rather than silently dropping that chain's cross-chain orders at fill time.
+
+| Chain | Chain ID | Min ($1,000) | Max ($100,000) | Block Time |
+|---|---|---|---|---|
+| Ethereum | 1 | 2 blocks (~24s) | 15 blocks (~3m) | ~12s |
+| BNB Chain | 56 | 2 blocks (~6s) | 3 blocks (~9s) | ~3s |
+| Polygon | 137 | 2 blocks (~4s) | 32 blocks (~1m) | ~2s |
+| Base | 8453 | 2 blocks (~4s) | 90 blocks (~3m) | ~2s |
+| Arbitrum | 42161 | 8 blocks (~2s) | 720 blocks (~3m) | ~0.25s |
+| Unichain | 130 | 2 blocks (~2s) | 180 blocks (~3m) | ~1s |
+
+Values between the min and max order amounts are linearly interpolated.
+
+### Custom Overrides
+
+Confirmation policies are configured at the top level under `[confirmationPolicies."<chainId>"]`. Unlisted chains keep their defaults. The curve's `amount` axis is the order's USD value, computed from your pair curves via the USD anchors — honest for non-USD pairs too, so one curve per chain is correctly calibrated for every market on it:
+
+```toml lineNumbers
+[confirmationPolicies."1"]     # Ethereum Mainnet (~12s blocks)
+points = [
+    { amount = "1000",   value = 3  },   # $1k → 3 blocks (~36s)
+    { amount = "50000",  value = 15 },   # $50k → 15 blocks (~3m)
+    { amount = "100000", value = 20 },   # $100k → 20 blocks (~4m)
+]
+
+[confirmationPolicies."56"]    # BSC (~3s blocks)
+points = [
+    { amount = "1000",   value = 2  },
+    { amount = "100000", value = 5  },
+]
+```
+
+<Callout type="info">
+Confirmation policies are optional — built-in defaults cover Ethereum, BNB Chain, Base, Arbitrum, Polygon, and Unichain. Custom <code>[confirmationPolicies."&lt;chainId&gt;"]</code> entries override the default for that chain only.
+</Callout>
+
+## RPC Quorum
+
+Each `[[chains]]` entry declares its RPC endpoints as a non-empty array in `rpcUrls`. Simplex validates the array at startup and rejects it if any two URLs share a hostname, so a "quorum" of aliases pointing at the same upstream is caught before the solver starts.
+
+```toml lineNumbers
+[[chains]]  # Ethereum
+rpcUrls = [
+    "https://eth-mainnet.g.alchemy.com/v2/YOUR_KEY",
+    "https://mainnet.infura.io/v3/YOUR_KEY",
+    "https://rpc.ankr.com/eth/YOUR_KEY",
+]
+bundlerUrl = "https://..."
+```
+
+When you configure more than one URL, every quorum-checked read (`eth_getLogs`, `eth_blockNumber`, receipt during confirmation counting) is accepted only when a **BFT quorum** of your endpoints — `floor(2N/3) + 1` of them — agree on the result. If the quorum can't be formed — endpoints down, throttled, or disagreeing — the call fails loudly with a `QuorumError` and the scan cursor does not advance. There is no pausing or ejection state: each call independently queries every endpoint and resolves the moment the quorum is met, so a chronically slow or hung endpoint settles out of band and never stalls the confirmation hot path, let alone shrinks the quorum. A provider that *answers with divergent data* is never special-cased away; it simply fails to join the agreeing group, which is what keeps a lying or reorged endpoint detectable rather than authoritative.
+
+Log agreement compares only the consensus-relevant JSON-RPC fields (`address`, `blockHash`, `blockNumber`, `data`, `logIndex`, `removed`, `topics`, `transactionHash`, `transactionIndex`), sorted by `(blockNumber, logIndex, transactionHash)`; provider-added extras like `blockTimestamp` are dropped so debug metadata can't manufacture a disagreement. `getBlockNumber` returns the highest block that a full quorum has indexed, so the scanner never runs ahead of quorum-supported state.
+
+The quorum is exactly the endpoints you configure — Simplex never adds third-party endpoints of its own. **To tolerate a faulty provider you need at least four endpoints** — with three, the threshold is still three and any single failure halts scanning. Quorum reads are the only multi-endpoint path; latency-sensitive and write paths (gas estimation, balance reads, transaction submission) use your first healthy endpoint.
+
+### Quorum-checked confirmations
+
+Cross-chain orders wait for source-chain confirmations (per the confirmation policy) before a bid is submitted. That count is computed with the same quorum: every endpoint is asked for the transaction receipt and its chain head, and the transaction is confirmed only when a quorum agrees on the *inclusion block* — the receipt's `(blockHash, blockNumber)`. The depth is the quorum head of that agreeing group. Crucially, an endpoint answering **"receipt not found"** is a valid *no* vote — it's responsive but doesn't see the transaction — not a failure: so if the transaction is reorged out, the honest endpoints report not-found, no group reaches quorum, and the count does not advance. A minority still serving a stale or fabricated receipt can never reach the quorum.
+
+### Why this matters for cross-chain orders
+
+On a cross-chain fill, Simplex observes an `OrderPlaced` (or `PartialFill` / `OrderFilled`) event on the source chain and then commits capital on the destination chain. Unlike same-chain fills — where the destination `fillOrder` call will revert if the source-chain order does not exist — cross-chain bids submitted through Hyperbridge are evaluated from the solver's own reading of source-chain state. A single RPC is therefore both an availability and an integrity choke point: if it lies about which orders were placed, the solver can be induced to pay out against events that never happened, and there is no on-chain safety net to catch it after the fact.
+
+<Callout type="warn">
+Co-opted RPC nodes are not hypothetical. LayerZero has publicly disclosed an incident where an RPC endpoint serving part of their relaying path was compromised — see [LayerZero's post-mortem thread](https://x.com/LayerZero_Core/status/2046081551574983137?s=20). Quorum queries turn that failure mode from "one bad node silently succeeds" into "one bad node fails the batch and halts the scan".
+</Callout>
+
+The practical guidance is to configure **at least two organisationally independent providers** (e.g. Alchemy **and** Infura, not two Alchemy regions) for every chain that can act as a source of a cross-chain order. Each additional independent provider raises the bar for an attacker from "compromise one vendor" to "compromise all of them simultaneously for the duration of the fill window". The cost is a slightly higher RPC bill and the tail latency of the slowest provider in each batch; the benefit is that event-driven bids are only acted on when every independent provider agrees on what the source chain actually emitted.

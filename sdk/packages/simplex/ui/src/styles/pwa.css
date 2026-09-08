@@ -317,6 +317,35 @@ button.operator-install-nav:hover:not(:disabled) {
 	font-weight: 500;
 }
 
+.install-mobile-action-visual {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	gap: 0.35rem 0.55rem;
+	align-items: center;
+	padding: 0.55rem 0.65rem;
+}
+
+.install-mobile-action-visual > span {
+	color: #929aa5;
+}
+
+.install-mobile-action-visual b {
+	display: grid;
+	place-items: center;
+	width: 1.35rem;
+	height: 1.35rem;
+	border: 1px solid rgba(74, 222, 255, 0.32);
+	border-radius: 0.4rem;
+	color: var(--focus);
+	font-size: 0.9rem;
+	line-height: 1;
+}
+
+.install-mobile-action-visual small {
+	grid-column: 1 / -1;
+	color: var(--focus);
+}
+
 .install-desktop-visual {
 	display: grid;
 	justify-items: center;

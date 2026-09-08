@@ -6,6 +6,7 @@ import {
 	DEPOSIT_HEADROOM_PERCENT,
 	packPaymasterAndData,
 	POST_OP_GAS_LIMIT_SIMPLEX,
+	VERIFICATION_GAS_LIMIT_PERMIT,
 	VERIFICATION_GAS_LIMIT_PERMIT2,
 } from "./types"
 import type { FeeTokenBalance, PaymasterOptions, PaymasterDataResult } from "./types"
@@ -26,13 +27,14 @@ export function hasPaymaster(chain: string, configService: FillerConfigService):
  * The Simplex paymaster is the only sponsor: it is used when configured AND its
  * EntryPoint deposit covers the op's max prefund AND the solver holds ≥1 whole unit
  * of USDC or USDT. Otherwise this returns "0x" with a reason and the caller falls
- * back to the EntryPoint deposit.
+ * back to the EntryPoint deposit. Authorization is Permit2 unless the caller sets
+ * `permitBootstrap` — see {@link PaymasterOptions.permitBootstrap}.
  *
  * The deposit gate only runs when the caller passes `prefund` and the chain has an
  * EntryPoint configured; without either, selection is balance-only.
  */
 export async function buildPaymasterAndData(options: PaymasterOptions): Promise<PaymasterDataResult> {
-	const { chain, solverAccount, publicClient, walletClient, signer, configService } = options
+	const { chain, solverAccount, publicClient, walletClient, signer, configService, permitBootstrap } = options
 
 	const simplexAddr = configService.getSimplexPaymasterAddress(chain)
 	if (!simplexAddr) {
@@ -40,11 +42,13 @@ export async function buildPaymasterAndData(options: PaymasterOptions): Promise<
 	}
 
 	// Checked before the builder: buildSimplexPaymasterData can send a bootstrap
-	// approve tx, which must not happen for a paymaster that cannot sponsor.
+	// approve tx, which must not happen for a paymaster that cannot sponsor. A
+	// bootstrap op may end up in PERMIT mode, whose higher verification limit is the
+	// worst case the deposit has to cover for it.
 	const shortfall = await depositShortfall(
 		options,
 		simplexAddr,
-		VERIFICATION_GAS_LIMIT_PERMIT2 + POST_OP_GAS_LIMIT_SIMPLEX,
+		(permitBootstrap ? VERIFICATION_GAS_LIMIT_PERMIT : VERIFICATION_GAS_LIMIT_PERMIT2) + POST_OP_GAS_LIMIT_SIMPLEX,
 	)
 	if (shortfall) {
 		return { paymasterAndData: "0x" as HexString, type: "none", reason: shortfall }
@@ -61,6 +65,7 @@ export async function buildPaymasterAndData(options: PaymasterOptions): Promise<
 			simplexAddr,
 			chain,
 			configService,
+			permitBootstrap,
 		)
 		if ("paymaster" in pm) {
 			return {

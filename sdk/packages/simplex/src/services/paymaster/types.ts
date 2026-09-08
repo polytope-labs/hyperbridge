@@ -47,6 +47,16 @@ export interface PaymasterOptions {
 	 * Omitted (or with no EntryPoint configured), selection is balance-only.
 	 */
 	prefund?: PaymasterPrefund
+	/**
+	 * Lets this op fall back to an EIP-2612 permit (mode 0x00) when the fee token has
+	 * no Permit2 allowance yet and does implement `permit`. Set only by a first-time
+	 * delegation, which carries the `approve(Permit2, max)` in its own callData: the
+	 * permit pays for the op that installs the allowance every later op relies on, so
+	 * a solver holding zero native can bootstrap a chain. Everything else leaves this
+	 * unset and authorizes through Permit2, whose unordered nonces do not serialize
+	 * concurrent ops the way 2612's single counter would.
+	 */
+	permitBootstrap?: boolean
 	/** Receives a warning for every candidate skipped or deposit read that fails. */
 	logger?: Pick<Logger, "warn">
 }
@@ -74,10 +84,17 @@ export const THRESHOLD_USD = 2n
 // ── Gas limit constants ─────────────────────────────────────────────
 
 /**
- * Simplex paymaster verification gas. Every sponsored op prefunds through Permit2;
- * measured at ~135k on Ethereum and BSC forks (EOA and delegated senders).
+ * Simplex paymaster verification gas when prefunding through Permit2 — the mode every
+ * op but a first-time delegation uses. Measured at ~135k on Ethereum and BSC forks
+ * (EOA and delegated senders).
  */
 export const VERIFICATION_GAS_LIMIT_PERMIT2 = 200_000n
+/**
+ * Simplex paymaster verification gas when executing an EIP-2612 permit during
+ * validation — the bootstrap mode, reachable only via `permitBootstrap`. Higher than
+ * the Permit2 limit: the permit itself costs ~113k before the prefund transferFrom.
+ */
+export const VERIFICATION_GAS_LIMIT_PERMIT = 250_000n
 /**
  * Permit2 signatures use unordered nonces, so an unspent one (a losing bid) stays
  * valid until its deadline; keep that window short but well past bid-to-execution

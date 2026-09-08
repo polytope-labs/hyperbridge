@@ -6,6 +6,7 @@ import { buildPaymasterAndData } from "@/services/paymaster"
 import {
 	DEPOSIT_HEADROOM_PERCENT,
 	POST_OP_GAS_LIMIT_SIMPLEX,
+	VERIFICATION_GAS_LIMIT_PERMIT,
 	VERIFICATION_GAS_LIMIT_PERMIT2,
 } from "@/services/paymaster/types"
 import { buildSimplexPaymasterData } from "@/services/paymaster/provider/simplex"
@@ -31,6 +32,7 @@ const PREFUND = { baseGas: BASE_GAS, maxFeePerGas: MAX_FEE }
 
 const requiredFor = (pmGas: bigint) => ((BASE_GAS + pmGas) * MAX_FEE * DEPOSIT_HEADROOM_PERCENT) / 100n
 const SIMPLEX_REQUIRED = requiredFor(VERIFICATION_GAS_LIMIT_PERMIT2 + POST_OP_GAS_LIMIT_SIMPLEX)
+const BOOTSTRAP_REQUIRED = requiredFor(VERIFICATION_GAS_LIMIT_PERMIT + POST_OP_GAS_LIMIT_SIMPLEX)
 
 const AMPLE = SIMPLEX_REQUIRED * 2n
 
@@ -65,9 +67,11 @@ function options(
 		prefund?: typeof PREFUND
 		configService?: FillerConfigService
 		logger?: { warn: ReturnType<typeof vi.fn> }
+		permitBootstrap?: boolean
 	} = {},
 ) {
 	return {
+		permitBootstrap: overrides.permitBootstrap,
 		chain: "EVM-8453",
 		solverAccount: SOLVER,
 		publicClient,
@@ -97,6 +101,31 @@ describe("buildPaymasterAndData deposit-aware selection", () => {
 			`simplex: EntryPoint deposit ${SIMPLEX_REQUIRED - 1n} < ${SIMPLEX_REQUIRED} required`,
 		)
 		expect(buildSimplexPaymasterData).not.toHaveBeenCalled()
+	})
+
+	it("prices a bootstrap op against the higher PERMIT limit and passes the flag on", async () => {
+		// A bootstrap op may end up in PERMIT mode, so the deposit has to cover 250k
+		// verification, not 200k — a deposit that clears the Permit2 bar can still miss.
+		const result = await buildPaymasterAndData(
+			options(client({ simplexDeposit: BOOTSTRAP_REQUIRED - 1n }), { permitBootstrap: true }),
+		)
+		expect(result.type).toBe("none")
+		expect(result.reason).toBe(
+			`simplex: EntryPoint deposit ${BOOTSTRAP_REQUIRED - 1n} < ${BOOTSTRAP_REQUIRED} required`,
+		)
+		expect(BOOTSTRAP_REQUIRED).toBeGreaterThan(SIMPLEX_REQUIRED)
+
+		vi.clearAllMocks()
+		const ok = await buildPaymasterAndData(
+			options(client({ simplexDeposit: BOOTSTRAP_REQUIRED }), { permitBootstrap: true }),
+		)
+		expect(ok.type).toBe("simplex")
+		expect(vi.mocked(buildSimplexPaymasterData).mock.calls[0]?.[7]).toBe(true)
+	})
+
+	it("leaves the bootstrap flag off for an ordinary op", async () => {
+		await buildPaymasterAndData(options(client({})))
+		expect(vi.mocked(buildSimplexPaymasterData).mock.calls[0]?.[7]).toBeFalsy()
 	})
 
 	it("returns none carrying the reason when the builder throws", async () => {

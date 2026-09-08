@@ -47,6 +47,13 @@ export interface SponsoredUserOpRequest {
 	 * simulate so estimation is unreliable. When omitted, limits are estimated.
 	 */
 	gas?: UserOpGasLimits
+	/**
+	 * Lets the paymaster fall back to an EIP-2612 permit when the fee token has no
+	 * Permit2 allowance yet. Only a first-time delegation sets this — it carries the
+	 * `approve(Permit2, max)` in its own callData, so the permit buys the one op that
+	 * makes every later Permit2 op possible without native.
+	 */
+	permitBootstrap?: boolean
 }
 
 // Generous fallbacks used only when bundler gas estimation fails. The paymaster
@@ -93,7 +100,7 @@ export class UserOpSender {
 	}
 
 	async trySendSponsored(req: SponsoredUserOpRequest): Promise<{ txHash: HexString } | null> {
-		const { chain, callData, eip7702Auth, nonceKey = 0n, gas } = req
+		const { chain, callData, eip7702Auth, nonceKey = 0n, gas, permitBootstrap } = req
 
 		const entryPoint = this.configService.getEntryPointAddress(chain)
 		const bundlerUrl = this.configService.getBundlerUrl(chain)
@@ -130,6 +137,7 @@ export class UserOpSender {
 				walletClient,
 				signer: this.signer,
 				configService: this.configService,
+				permitBootstrap,
 				prefund: {
 					baseGas:
 						gasForPrefund.callGasLimit + gasForPrefund.verificationGasLimit + gasForPrefund.preVerificationGas,

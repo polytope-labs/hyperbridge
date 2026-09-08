@@ -9,10 +9,14 @@ import type { FillerConfigService } from "@/services/FillerConfigService"
 import type { Signer } from "@/services/wallet"
 
 /**
- * Which delegation path `setupDelegation` tries first. A no-permit fee token with no
- * Permit2 allowance cannot be sponsored until a funded approve lands, so when that
- * approval is pending and the EOA can pay for one set-code tx, the direct tx with the
- * approve batched in must go before the bundler; otherwise the bundler goes first.
+ * Which delegation path `setupDelegation` tries first, and what the sponsored op carries.
+ *
+ * A pending Permit2 approval on a token with no EIP-2612 permit can only ride a native
+ * set-code tx, so that goes first when the EOA covers it. A permit-capable token instead
+ * bootstraps through the bundler — the op pays for itself with a permit and installs the
+ * approval in its own callData — which is preferred even when native is available,
+ * because it spends stablecoins rather than native. With nothing pending, the bundler
+ * goes first and the op is a plain no-op.
  */
 
 const { trySendSponsored } = vi.hoisted(() => ({ trySendSponsored: vi.fn() }))
@@ -33,6 +37,7 @@ const SOLVER = "0x13E41CdE1D55880cbe031c69f206C2E9BC3c94C2" as HexString
 const SOLVER_ACCOUNT = "0x00000000000000000000000000000000000000cc" as HexString
 const PAYMASTER = "0x00000000000000000000000000000000000000aa" as HexString
 const USDT = "0x55d398326f99059fF775485246999027B3197955" as HexString
+const USDC = "0xaf88d065e77c8cC2239327C5EDb3A432268e5831" as HexString
 const PERMIT2 = "0x000000000022D473030F116dDEE9F6B43aC78BA3" as HexString
 const GAS_PRICE = 1_000_000_000n
 const DIRECT_TX_COST = 650_000n * GAS_PRICE
@@ -76,7 +81,11 @@ beforeEach(() => {
 
 describe("setupDelegation ordering", () => {
 	it("sends the batched delegate+approve first when a Permit2 approval is pending and native covers it", async () => {
-		vi.mocked(resolvePendingPermit2Approval).mockResolvedValue({ token: USDT, spender: PERMIT2 })
+		vi.mocked(resolvePendingPermit2Approval).mockResolvedValue({
+			token: USDT,
+			spender: PERMIT2,
+			permitCapable: false,
+		})
 		const { service, sendTransaction } = build({ native: DIRECT_TX_COST })
 
 		expect(await service.setupDelegation(CHAIN)).toBe(true)
@@ -89,7 +98,11 @@ describe("setupDelegation ordering", () => {
 	})
 
 	it("still tries the bundler first when the approval is pending but native is short", async () => {
-		vi.mocked(resolvePendingPermit2Approval).mockResolvedValue({ token: USDT, spender: PERMIT2 })
+		vi.mocked(resolvePendingPermit2Approval).mockResolvedValue({
+			token: USDT,
+			spender: PERMIT2,
+			permitCapable: false,
+		})
 		trySendSponsored.mockResolvedValue({ txHash: "0x" + "cd".repeat(32) })
 		const { service, sendTransaction } = build({ native: DIRECT_TX_COST - 1n })
 
@@ -110,8 +123,63 @@ describe("setupDelegation ordering", () => {
 		expect(sendTransaction).not.toHaveBeenCalled()
 	})
 
+	it("bootstraps a permit-capable token through the bundler even when native covers a direct tx", async () => {
+		vi.mocked(resolvePendingPermit2Approval).mockResolvedValue({
+			token: USDC,
+			spender: PERMIT2,
+			permitCapable: true,
+		})
+		trySendSponsored.mockResolvedValue({ txHash: "0x" + "cd".repeat(32) })
+		const { service, sendTransaction } = build({ native: DIRECT_TX_COST })
+
+		expect(await service.setupDelegation(CHAIN)).toBe(true)
+
+		// No native spent: the permit pays for the op that installs the allowance.
+		expect(sendTransaction).not.toHaveBeenCalled()
+		expect(trySendSponsored).toHaveBeenCalledOnce()
+
+		const [req] = trySendSponsored.mock.calls[0] as unknown as [{ callData: HexString; permitBootstrap: boolean }]
+		expect(req.permitBootstrap).toBe(true)
+		// The approve rides in the op's own callData, as an ERC-7821 batch.
+		expect(req.callData).toContain(PERMIT2.slice(2).toLowerCase())
+		expect(req.callData).toContain(USDC.slice(2).toLowerCase())
+		expect(req.callData).not.toBe("0x")
+	})
+
+	it("sends a plain no-op op, with no permit bootstrap, once the allowance is in place", async () => {
+		vi.mocked(resolvePendingPermit2Approval).mockResolvedValue(null)
+		trySendSponsored.mockResolvedValue({ txHash: "0x" + "cd".repeat(32) })
+		const { service } = build({ native: DIRECT_TX_COST })
+
+		expect(await service.setupDelegation(CHAIN)).toBe(true)
+
+		const [req] = trySendSponsored.mock.calls[0] as unknown as [{ callData: HexString; permitBootstrap: boolean }]
+		expect(req.callData).toBe("0x")
+		expect(req.permitBootstrap).toBe(false)
+	})
+
+	it("does not ask for a permit bootstrap on a no-permit token", async () => {
+		vi.mocked(resolvePendingPermit2Approval).mockResolvedValue({
+			token: USDT,
+			spender: PERMIT2,
+			permitCapable: false,
+		})
+		trySendSponsored.mockResolvedValue({ txHash: "0x" + "cd".repeat(32) })
+		const { service } = build({ native: DIRECT_TX_COST - 1n })
+
+		expect(await service.setupDelegation(CHAIN)).toBe(true)
+
+		const [req] = trySendSponsored.mock.calls[0] as unknown as [{ callData: HexString; permitBootstrap: boolean }]
+		expect(req.callData).toBe("0x")
+		expect(req.permitBootstrap).toBe(false)
+	})
+
 	it("falls through to the bundler when the batched tx reverts without delegating", async () => {
-		vi.mocked(resolvePendingPermit2Approval).mockResolvedValue({ token: USDT, spender: PERMIT2 })
+		vi.mocked(resolvePendingPermit2Approval).mockResolvedValue({
+			token: USDT,
+			spender: PERMIT2,
+			permitCapable: false,
+		})
 		trySendSponsored.mockResolvedValue({ txHash: "0x" + "cd".repeat(32) })
 		const { service, sendTransaction } = build({ native: DIRECT_TX_COST, receiptStatus: "reverted" })
 

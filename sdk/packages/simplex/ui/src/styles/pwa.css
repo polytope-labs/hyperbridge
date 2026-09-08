@@ -99,7 +99,6 @@ button.operator-install-nav:hover:not(:disabled) {
 .install-dialog-header > img {
 	width: 3.5rem;
 	height: 3.5rem;
-	border-radius: 0.9rem;
 	box-shadow: 0 0.7rem 1.8rem rgba(0, 0, 0, 0.28);
 }
 

@@ -32,7 +32,6 @@ export { handleSubstrateGetRequestHandledEvent } from "@/handlers/events/substra
 export { handleSubstrateGetRequestTimeoutHandledEvent } from "@/handlers/events/substrateChains/handleGetRequestTimeoutHandledEvent.handler"
 
 // Price Handlers
-export { handlePriceIndexing } from "@/handlers/events/price/handlePriceIndexing.event.handler"
 export { handleBridgeTokenSupplyIndexing } from "@/handlers/events/supply/handleBridgeTokenSupplyIndexing.event.handler"
 
 // Liquidity Handlers

@@ -3,8 +3,9 @@
 // inventory — and both must read balances exactly the same way, or a refresh would republish depth
 // on a different basis than the snapshot it is correcting.
 import { UNISWAP_V4_ADDRESSES } from "@/addresses/uniswap-v4.addresses"
-import type { LiquidityRefreshContext } from "@/services/liquidityPool.service"
-import { ENV_CONFIG, HYPERBRIDGE } from "@/constants"
+import type { InventoryReadContext } from "@/services/inventoryReading.service"
+import type { InventoryReadingTrigger } from "@/configs/src/types"
+import { ENV_CONFIG } from "@/constants"
 import { timestampToDate } from "@/utils/date.helpers"
 import { keccakVm2 } from "@/utils/phantom-decode"
 import { replaceWebsocketWithHttp } from "@/utils/rpc.helpers"
@@ -23,9 +24,9 @@ import {
 setAggregationFetch(safeFetch)
 
 /**
- * HTTP RPC per supported EVM chain. Both callers sweep balances across every chain, not just the
- * one whose event they are handling, so a chain missing from here is simply one whose balances
- * cannot be read.
+ * HTTP RPC per supported EVM chain. The phantom sweep reads balances across every chain; an
+ * event-driven read uses only its own chain's entry. A chain missing from here is simply one
+ * whose balances cannot be read.
  */
 export function evmRpcUrls(): Record<string, string> {
 	const urls: Record<string, string> = {}
@@ -56,8 +57,7 @@ let memo: BlockReaders | null = null
  * run in separate processes, so the key only has to be unique within one).
  *
  * `blockTags` pins a chain to a specific block, so an event's re-read returns the same value on a
- * replay as it did live. Only the chain the event is on can be pinned: block numbers are per chain,
- * and a refresh reaches across every chain the pool is quoted on.
+ * replay as it did live. The phantom sweep pins nothing and reads every chain at its head.
  */
 export function blockReaders(key: string, blockTags: Record<string, string> = {}): BlockReaders {
 	if (memoKey !== key || !memo) {
@@ -113,70 +113,30 @@ function positionReader(blockTags: Record<string, string>): BlockReaders["readPo
 	}
 }
 
-// Hyperbridge's head is read once per block of the chain being indexed, for the same reason
-// balances are: several fills can land in one block, and they all record the same head.
-let headKey: string | null = null
-let head: Promise<bigint | null> | null = null
-
 /**
- * Hyperbridge's current head block number, or null when there is no Hyperbridge RPC configured or
- * it cannot be read.
- *
- * Balance rows are keyed by Hyperbridge block, because that is the clock the phantom snapshots
- * write on. A balance re-read on an EVM fill has no such block of its own, so it borrows the one
- * Hyperbridge is on at that moment: the number stays monotonic with the rest of the series, which
- * is what keeps "greatest blockNumber is the current balance" true. It is a stamp, not a proof —
- * the balance was read at the EVM chain's head, not reconstructed at this Hyperbridge block.
- */
-export function hyperbridgeHeadBlock(key: string): Promise<bigint | null> {
-	if (headKey !== key || !head) {
-		// Evict on rejection so one unreachable moment does not pin null for the whole block.
-		head = readHyperbridgeHead().catch((err) => {
-			logger.warn({ err }, "Could not read Hyperbridge's head block, skipping the LP balance row")
-			return null
-		})
-		headKey = key
-	}
-	return head
-}
-
-async function readHyperbridgeHead(): Promise<bigint | null> {
-	// Whichever Hyperbridge this deployment indexes; only one of them is ever configured.
-	const host = [HYPERBRIDGE.mainnet, HYPERBRIDGE.testnet, HYPERBRIDGE.local].find((id) => ENV_CONFIG[id])
-	if (!host) return null
-	const url = replaceWebsocketWithHttp(ENV_CONFIG[host] ?? "")
-	if (!url) return null
-
-	const response = await safeFetch(url, {
-		method: "POST",
-		headers: { accept: "application/json", "content-type": "application/json" },
-		body: JSON.stringify({ id: 1, jsonrpc: "2.0", method: "chain_getHeader", params: [] }),
-	})
-	const number = (await response.json())?.result?.number
-	if (typeof number !== "string") return null
-	return BigInt(number)
-}
-
-/**
- * The reads and the clock a liquidity refresh triggered by an event on `chain` runs against.
+ * The reads and the clock an inventory publication triggered by an event on `chain` runs against.
  *
  * Everything is scoped to the event's block: the balance and position reads are pinned to it, so a
  * replay records what the event actually left behind rather than today's state, and the memo is
  * keyed by it, so several events in one block share one set of reads instead of repeating them.
- * Only this chain is pinned — a pool spans chains, and a block number means nothing on any other.
+ * Only this chain is read — the node handling the event has this chain's RPC and this chain's
+ * events, and any other chain's inventory is that chain's node's to publish.
  */
-export function liquidityRefreshContext(
+export function inventoryReadContext(
 	chain: string,
 	blockNumber: number | bigint,
 	timestamp: bigint,
-): LiquidityRefreshContext {
+	trigger: InventoryReadingTrigger,
+): InventoryReadContext {
 	const key = `${chain}-${blockNumber}`
 	const readers = blockReaders(key, { [chain]: `0x${blockNumber.toString(16)}` })
 	return {
-		evmRpcUrls: evmRpcUrls(),
+		chain,
+		evmRpcUrl: evmRpcUrls()[chain],
 		getBalance: readers.getBalance,
 		readPosition: readers.readPosition,
-		headBlock: () => hyperbridgeHeadBlock(key),
+		blockNumber: BigInt(blockNumber),
 		observedAt: timestampToDate(timestamp),
+		trigger,
 	}
 }

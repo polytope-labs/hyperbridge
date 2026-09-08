@@ -16,7 +16,13 @@ const ORDER_TUPLE_TYPE: AbiParameter = (() => {
 	return order as AbiParameter
 })()
 
-import { OrderStatus, PendingStatusMetadata, ProtocolParticipantType, PointsActivityType } from "@/configs/src/types"
+import {
+	InventoryReadingTrigger,
+	OrderStatus,
+	PendingStatusMetadata,
+	ProtocolParticipantType,
+	PointsActivityType,
+} from "@/configs/src/types"
 import { ERC6160Ext20Abi__factory } from "@/configs/src/types/contracts"
 import { IOrderV3 as OrderV3Placed } from "@/configs/src/types/models/IOrderV3"
 import { IOrderV3StatusMetadata } from "@/configs/src/types/models/IOrderV3StatusMetadata"
@@ -40,14 +46,9 @@ import { timestampToDate } from "@/utils/date.helpers"
 import { getHostStateMachine } from "@/utils/substrate.helpers"
 import { canonicalPoolSymbol, poolSlug } from "@/addresses/pool-tokens.addresses"
 import { INTENT_GATEWAY_V3_ADDRESSES } from "@/intent-gateway-v3-addresses"
-import {
-	orientedPoolRates,
-	poolsForFill,
-	POOL_RATE_DECIMALS,
-	refreshPoolLiquidity,
-	refreshProviderLiquidity,
-} from "@/services/liquidityPool.service"
-import { liquidityRefreshContext } from "@/utils/solverBalance"
+import { orientedPoolRates, poolsForFill, POOL_RATE_DECIMALS } from "@/services/liquidityPool.service"
+import { publishPoolInventory, publishProviderInventory } from "@/services/inventoryReading.service"
+import { inventoryReadContext } from "@/utils/solverBalance"
 
 import { PointsService } from "./points.service"
 import { VolumeService, toScaledUsd } from "./volume.service"
@@ -752,13 +753,14 @@ export class IntentGatewayV3Service {
 	}
 
 	/**
-	 * Re-reads the liquidity behind the pools this fill traded through, so their published depth
-	 * stops advertising inventory the filler has just spent. The pool pair spans two chains — the
-	 * inputs are escrowed on the source chain, the outputs delivered here — so the order row is
-	 * what makes the pair resolvable; a fill indexed before its `OrderPlaced` has no source chain
-	 * to resolve against and is left to the next phantom snapshot.
+	 * Re-reads the liquidity behind the pools this fill traded through and publishes it, so their
+	 * depth stops advertising inventory the filler has just spent once the Hyperbridge node folds
+	 * the readings in. The pool pair spans two chains — the inputs are escrowed on the source
+	 * chain, the outputs delivered here — so the order row is what makes the pair resolvable; a
+	 * fill indexed before its `OrderPlaced` has no source chain to resolve against and is left to
+	 * the next phantom snapshot.
 	 */
-	static async refreshPoolLiquidityAfterFill(params: {
+	static async publishInventoryAfterFill(params: {
 		commitment: string
 		inputs: TokenInfo[]
 		outputs: TokenInfo[]
@@ -779,9 +781,9 @@ export class IntentGatewayV3Service {
 		})
 		if (poolIds.length === 0) return
 
-		await refreshPoolLiquidity({
+		await publishPoolInventory({
 			poolIds,
-			...liquidityRefreshContext(destChain, blockNumber, timestamp),
+			...inventoryReadContext(destChain, blockNumber, timestamp, InventoryReadingTrigger.FILL),
 		})
 	}
 
@@ -807,15 +809,15 @@ export class IntentGatewayV3Service {
 	}
 
 	/**
-	 * The same refresh for an escrow release: the solver has just been paid the order's inputs back
-	 * on the SOURCE chain, so its inventory there rose and every pool it backs in those tokens is
-	 * understating depth.
+	 * The same publication for an escrow release: the solver has just been paid the order's inputs
+	 * back on the SOURCE chain, so its inventory there rose and every pool it backs in those tokens
+	 * is understating depth.
 	 *
 	 * The event names no filler — the gateway records the beneficiary when `_withdraw` finalizes —
-	 * so the caller resolves it, and a release whose beneficiary is not a known provider refreshes
+	 * so the caller resolves it, and a release whose beneficiary is not a known provider publishes
 	 * nothing.
 	 */
-	static async refreshLiquidityAfterEscrowRelease(params: {
+	static async publishInventoryAfterEscrowRelease(params: {
 		provider: string
 		tokens: TokenInfo[]
 		timestamp: bigint
@@ -824,11 +826,10 @@ export class IntentGatewayV3Service {
 		const { provider, tokens, timestamp, blockNumber } = params
 		const chain = getHostStateMachine(chainId)
 
-		await refreshProviderLiquidity({
-			chain,
+		await publishProviderInventory({
 			provider: provider.toLowerCase(),
 			tokens: tokens.map((token) => bytes32ToBytes20(token.token).toLowerCase()),
-			...liquidityRefreshContext(chain, blockNumber, timestamp),
+			...inventoryReadContext(chain, blockNumber, timestamp, InventoryReadingTrigger.ESCROW_RELEASE),
 		})
 	}
 

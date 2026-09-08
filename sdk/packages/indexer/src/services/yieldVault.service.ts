@@ -2,6 +2,7 @@ import { ethers } from "ethers"
 
 import Erc4626Abi from "@/configs/abis/Erc4626.abi.json"
 import {
+	InventoryReadingTrigger,
 	LiquidityProvider,
 	VaultLedgerEvent,
 	VaultLedgerEventType,
@@ -12,8 +13,8 @@ import {
 import { YIELD_VAULT_ADDRESSES } from "@/yield-vault-addresses"
 import { SOLVER_ACCOUNT_ADDRESSES } from "@/solver-account-addresses"
 import { timestampToDate } from "@/utils/date.helpers"
-import { refreshProviderLiquidity } from "@/services/liquidityPool.service"
-import { liquidityRefreshContext } from "@/utils/solverBalance"
+import { publishProviderInventory } from "@/services/inventoryReading.service"
+import { inventoryReadContext } from "@/utils/solverBalance"
 
 const SECONDS_PER_DAY = 86400n
 
@@ -179,17 +180,16 @@ export class YieldVaultService {
 		// raw and vault halves of one total, which the re-read confirms rather than changes, but the
 		// total does move when the counterparty is someone else (a treasury funding the solver, or
 		// inventory leaving it) and no order event reports that at all. Best-effort — this reads
-		// external RPCs, and the ledger row above must not be lost to a refresh failure.
+		// external RPCs, and the ledger row above must not be lost to a publication failure.
 		try {
-			await refreshProviderLiquidity({
-				chain: input.chain,
+			await publishProviderInventory({
 				provider: lp,
 				tokens: [underlyingToken],
-				...liquidityRefreshContext(input.chain, input.blockNumber, input.timestamp),
+				...inventoryReadContext(input.chain, input.blockNumber, input.timestamp, InventoryReadingTrigger.VAULT),
 			})
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error)
-			logger.error(`[yield-vault] Liquidity refresh failed for ${lp} on ${input.chain}: ${message}`)
+			logger.error(`[yield-vault] Inventory publication failed for ${lp} on ${input.chain}: ${message}`)
 		}
 	}
 

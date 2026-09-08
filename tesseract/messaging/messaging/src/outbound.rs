@@ -463,6 +463,7 @@ async fn submit_for_dest(
 		coprocessor,
 		&batch_requests,
 		&result.receipts,
+		incentivized.as_deref(),
 		&claim_tx_payment,
 	)
 	.await;
@@ -604,13 +605,15 @@ async fn forward_request_delivery_claims(
 	coprocessor: StateMachine,
 	batch_requests: &[PostRequest],
 	receipts: &[TxReceipt],
+	incentivized: Option<&BTreeSet<Vec<u8>>>,
 	claim_tx_payment: &Option<Arc<TransactionPayment>>,
 ) {
 	let Some(tx_payment) = claim_tx_payment else {
 		return;
 	};
 
-	let claims = collect_hyperbridge_request_claims(coprocessor, batch_requests, receipts);
+	let claims =
+		collect_hyperbridge_request_claims(coprocessor, batch_requests, receipts, incentivized);
 	if claims.is_empty() {
 		return;
 	}
@@ -636,10 +639,20 @@ async fn forward_request_delivery_claims(
 /// Filters receipts to those originating from the hyperbridge coprocessor and
 /// pairs each one with its source request. Returns an empty vec when nothing
 /// in the batch is hyperbridge-originated.
+///
+/// Requests from a module that is not on the reward allowlist are skipped:
+/// they can only be here because the operator named the module in their
+/// `module_filter`, and `process_outbound_request_delivery_claim` would reject
+/// the claim with `OutboundRequestNoRewardConfigured`. A row persisted for one
+/// is never deleted, since the claim task only removes rows on success, so it
+/// would be retried on every claim cycle for good. `None` means the snapshot
+/// fetch failed this cycle, so every hyperbridge-originated receipt is kept and
+/// the claim task sorts it out.
 fn collect_hyperbridge_request_claims(
 	coprocessor: StateMachine,
 	batch_requests: &[PostRequest],
 	receipts: &[TxReceipt],
+	incentivized: Option<&BTreeSet<Vec<u8>>>,
 ) -> Vec<PendingRequestDeliveryClaim> {
 	// Index every PostRequest in the batch by its commitment so receipts
 	// can be paired back to their source request. BTreeMap keeps iteration
@@ -655,6 +668,7 @@ fn collect_hyperbridge_request_claims(
 			(query.source_chain == coprocessor)
 				.then(|| by_commitment.get(&query.commitment).cloned())
 				.flatten()
+				.filter(|request| incentivized.map_or(true, |set| set.contains(&request.from)))
 				.map(|request| PendingRequestDeliveryClaim { request, delivery_height: *height })
 		})
 		.collect()
@@ -1179,7 +1193,7 @@ mod tests {
 			request_receipt_for(&hb_req_b, 102),
 		];
 
-		let claims = collect_hyperbridge_request_claims(HB, &batch_requests, &receipts);
+		let claims = collect_hyperbridge_request_claims(HB, &batch_requests, &receipts, None);
 
 		assert_eq!(claims.len(), 2, "only hyperbridge-originated requests forwarded");
 		assert!(claims.iter().all(|c| c.request.source == HB));
@@ -1191,7 +1205,7 @@ mod tests {
 	#[test]
 	fn collect_claims_empty_receipts_is_empty() {
 		let hb_req = build_post(HB, 0x11);
-		let claims = collect_hyperbridge_request_claims(HB, &[hb_req], &[]);
+		let claims = collect_hyperbridge_request_claims(HB, &[hb_req], &[], None);
 		assert!(claims.is_empty());
 	}
 
@@ -1199,7 +1213,7 @@ mod tests {
 	fn collect_claims_no_hyperbridge_requests_is_empty() {
 		let user_req = build_post(DEST_B, 0x11);
 		let receipts = vec![request_receipt_for(&user_req, 100)];
-		let claims = collect_hyperbridge_request_claims(HB, &[user_req], &receipts);
+		let claims = collect_hyperbridge_request_claims(HB, &[user_req], &receipts, None);
 		assert!(claims.is_empty());
 	}
 
@@ -1295,13 +1309,34 @@ mod tests {
 	}
 
 	#[test]
+	fn collect_claims_skips_modules_with_no_reward() {
+		// An HFT delivery only reached the wire because the operator named it
+		// in `module_filter`. Claiming for it would be rejected on chain with
+		// `OutboundRequestNoRewardConfigured` and the row retried forever, so
+		// no row is persisted.
+		let rewarded_module = vec![0x77; 8];
+		let allowlist: BTreeSet<Vec<u8>> = [rewarded_module].into_iter().collect();
+
+		let rewarded = build_post(HB, 0x11);
+		let mut hft = build_post(HB, 0x22);
+		hft.from = b"pall_hft".to_vec();
+		let batch = vec![rewarded.clone(), hft.clone()];
+		let receipts = vec![request_receipt_for(&rewarded, 100), request_receipt_for(&hft, 101)];
+
+		let claims = collect_hyperbridge_request_claims(HB, &batch, &receipts, Some(&allowlist));
+
+		assert_eq!(claims.len(), 1, "only the rewarded module is claimable");
+		assert_eq!(claims[0].delivery_height, 100);
+	}
+
+	#[test]
 	fn collect_claims_drops_receipts_with_no_matching_batch_request() {
 		// A receipt whose commitment is HB-sourced but whose request wasn't in
 		// the batch produces no claim (shouldn't happen in practice).
 		let orphan = build_post(HB, 0x11);
 		let receipts = vec![request_receipt_for(&orphan, 100)];
 		// orphan is NOT in batch_requests.
-		let claims = collect_hyperbridge_request_claims(HB, &[], &receipts);
+		let claims = collect_hyperbridge_request_claims(HB, &[], &receipts, None);
 		assert!(claims.is_empty());
 	}
 }

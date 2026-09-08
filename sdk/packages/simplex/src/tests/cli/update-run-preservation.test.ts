@@ -28,7 +28,6 @@ describe("CLI wizard update run", () => {
 			// dead knob must be stripped, the live knobs must survive emission.
 			queue: { maxRechecks: 10, recheckDelayMs: 30000 },
 			blockScanIntervalSeconds: 5,
-			acceptedSourceChains: ["EVM-8453"],
 			gasFeeBump: { maxPriorityFeePerGasBumpPercent: 12, maxFeePerGasBumpPercent: 15 },
 			overfillProtection: { maxOverfillBps: 300, maxConsecutiveClamps: 2 },
 		},
@@ -99,7 +98,6 @@ describe("CLI wizard update run", () => {
 		expect(assembled.simplex.solverAccountContractAddress).toBeUndefined()
 		expect(assembled.simplex.queue).toBeUndefined()
 		expect(assembled.simplex.blockScanIntervalSeconds).toBe(5)
-		expect(assembled.simplex.acceptedSourceChains).toEqual(["EVM-8453"])
 		expect(assembled.simplex.watchOnly).toEqual({ "56": true })
 		expect(assembled.simplex.logging).toBe("warn")
 		expect(assembled.simplex.gasFeeBump).toEqual(existing.simplex.gasFeeBump)

@@ -8,6 +8,10 @@
 - The paymaster contract now accepts governance deliveries from one authorised relayer only (rotated by the new `set_paymaster_relayer` extrinsic), and refuses mode byte `0x01`.
 - On a chain whose fee token has no EIP-2612 permit, first-time delegation now sends one native transaction that delegates and approves Permit2 together, instead of a native approve followed by a sponsored operation, whenever the solver holds native for it.
 
+### Patch Changes
+
+- Phantom bids now declare every configured chain as an accepted source, so the indexer can publish routes for the filler's depth. The optional `simplex.acceptedSourceChains` config key is removed; a TOML that still has it is ignored, not rejected.
+
 ## 0.13.2
 
 ### Patch Changes

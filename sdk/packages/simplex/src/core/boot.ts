@@ -332,7 +332,6 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 	const fillerConfig: FillerConfig = {
 		maxConcurrentOrders: config.simplex.maxConcurrentOrders ?? DEFAULT_MAX_CONCURRENT_ORDERS,
 		watchOnly: watchOnlyConfig,
-		acceptedSourceChains: config.simplex.acceptedSourceChains,
 		// Same list the V4 funding venue is built from, so a position can never back a fill without
 		// also being declared to the snapshot that measures the depth behind it.
 		uniswapV4PositionsByChain: (config.vault?.uniswapV4?.positions ?? []).reduce<Record<string, string[]>>(

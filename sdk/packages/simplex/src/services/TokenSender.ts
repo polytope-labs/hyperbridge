@@ -87,8 +87,14 @@ export class TokenSender {
 					data: encodeFunctionData({ abi: ERC4626_ABI, functionName: "redeem", args: [units, to, this.solver] }),
 				})
 			} else {
+				// Withdrawing exactly `units - balance` leaves the wallet at zero, so
+				// anything that spends from it between building this batch and
+				// executing it makes the transfer revert. The sponsored path does
+				// exactly that: the paymaster debits its gas from this same token
+				// during validation, before the batch runs. Asking for the vault's
+				// configured wallet floor on top leaves that headroom.
 				if (balance < units) {
-					const withdrawal = await this.vaultWithdrawalCall(chain, token as HexString, units - balance)
+					const withdrawal = await this.vaultWithdrawalCall(chain, token as HexString, decimals, units - balance)
 					if (!withdrawal) throw new Error(`Insufficient token balance: have ${balance}, need ${units}`)
 					redeemed = true
 					calls.push(withdrawal)
@@ -111,7 +117,23 @@ export class TokenSender {
 	 * this chain whose underlying is the token being sent and that can cover the
 	 * shortfall, or null when no vault can.
 	 */
-	private async vaultWithdrawalCall(chain: string, token: HexString, shortfall: bigint): Promise<ERC7821Call | null> {
+	/**
+	 * A withdrawal that funds the transfer and, where the vault can afford it,
+	 * leaves the wallet at its floor rather than at zero.
+	 *
+	 * `shortfall` is what the transfer cannot do without. The vault's
+	 * `minBalance` is what the sweep leaves in the wallet, so it is the
+	 * operator's own statement of the working balance this token keeps, and a
+	 * send that is already going to the vault takes it along. A vault that can
+	 * only cover the shortfall still funds the send: the floor is a preference,
+	 * not a reason to refuse a transfer the operator asked for.
+	 */
+	private async vaultWithdrawalCall(
+		chain: string,
+		token: HexString,
+		decimals: number,
+		shortfall: bigint,
+	): Promise<ERC7821Call | null> {
 		const publicClient = this.clientManager.getPublicClient(chain)
 		for (const vault of this.getVaults()) {
 			if (vault.chain !== chain) continue
@@ -128,13 +150,19 @@ export class TokenSender {
 				args: [this.solver],
 			})) as bigint
 			if (available < shortfall) continue
+			// Withdraw-only vaults declare no floor, and there a send behaves as it
+			// always did.
+			const floor = vault.minBalance === undefined ? 0n : parseUnits(vault.minBalance, decimals)
+			const wanted = shortfall + floor
+			const amount = available >= wanted ? wanted : shortfall
+			if (amount <= 0n) return null
 			return {
 				target: vault.vault,
 				value: 0n,
 				data: encodeFunctionData({
 					abi: ERC4626_ABI,
 					functionName: "withdraw",
-					args: [shortfall, this.solver, this.solver],
+					args: [amount, this.solver, this.solver],
 				}),
 			}
 		}

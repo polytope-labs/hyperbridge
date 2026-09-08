@@ -5,7 +5,7 @@ import { FillerPricePolicy, formatChainKey, parseChainKey, type PriceCurvePoint 
 import { AssetRegistry, registrySymbols, validateAssetDefinitions, type AssetDefinition } from "@/config/asset-registry"
 import { assertPairSymbolsResolve, validatePairConfigs, type PairConfig } from "@/config/pairs"
 import { VaultFundingPlanner, type VaultSweepResult } from "@/funding/vault/VaultFundingPlanner"
-import { chainByChainId, chainsForNetwork, INIT_CHAINS, type InitNetwork } from "@/cli/init/chains"
+import { chainByChainId, chainsForNetwork, INIT_CHAINS, nativeTokenSymbol, type InitNetwork } from "@/cli/init/chains"
 import { TESTNET_CONFIRMATION_POINTS } from "@/cli/init/state"
 import { ChainConfigService } from "@hyperbridge/sdk"
 import { assertConfirmationCoverage, type FillerConfigFile, type FillerTomlConfig, type VaultToml } from "@/config/filler-toml"
@@ -1407,7 +1407,7 @@ export class UiServer {
 		const options: Record<string, SendTokenOption[]> = {}
 		for (const chainId of op.chains) {
 			const stateMachineId = formatChainKey(chainId)
-			const tokens: SendTokenOption[] = [{ symbol: "native", address: "native" }]
+			const tokens: SendTokenOption[] = [{ symbol: nativeTokenSymbol(chainId), address: "native" }]
 			for (const symbol of symbols) {
 				const address = registry.getAddress(symbol, stateMachineId)
 				if (address) tokens.push({ symbol, address })

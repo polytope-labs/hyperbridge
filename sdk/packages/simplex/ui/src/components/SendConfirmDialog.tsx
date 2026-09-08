@@ -7,6 +7,7 @@ export interface SendSummary {
 	/** As typed, so the review shows exactly what will be submitted. */
 	amount: string
 	symbol: string
+	native: boolean
 	chainLabel: string
 	to: string
 	/** Underlying held directly by the wallet; null when the balance could not be read. */
@@ -63,6 +64,7 @@ export function SendConfirmDialog(props: {
 					<div>
 						<strong>
 							{summary.amount} {summary.symbol}
+							{summary.native && " (native)"}
 						</strong>
 						<span className="send-review-network">on {summary.chainLabel}</span>
 					</div>

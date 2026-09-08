@@ -521,8 +521,154 @@
 		overflow-x: auto;
 	}
 
-	.operator-section table {
+	.operator-section table:not(.history-table) {
 		min-width: 38rem;
+	}
+
+	.history-table-scroll {
+		overflow: visible;
+	}
+
+	.operator-section table.history-table {
+		display: block;
+		min-width: 0;
+		border-top: 0;
+	}
+
+	.history-table thead {
+		display: none;
+	}
+
+	.history-table tbody {
+		display: grid;
+		gap: 0.75rem;
+	}
+
+	.history-table tbody tr {
+		display: grid;
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+		grid-template-areas:
+			"referrer status"
+			"amount-in amount-out"
+			"bids user"
+			"placed links";
+		overflow: hidden;
+		border: 1px solid var(--border);
+		border-radius: 0.75rem;
+		background: rgba(255, 255, 255, 0.012);
+	}
+
+	.history-table.ledger-table tbody tr {
+		grid-template-areas:
+			"action chain"
+			"amount-in amount-out"
+			"tx time";
+	}
+
+	.history-table tbody tr:hover {
+		background: rgba(255, 255, 255, 0.018);
+	}
+
+	.history-table td,
+	.history-table td:first-child {
+		display: grid;
+		align-content: start;
+		gap: 0.4rem;
+		min-width: 0;
+		padding: 0.75rem;
+		border: 0;
+		border-bottom: 1px solid var(--border);
+	}
+
+	.history-table td:nth-child(even) {
+		border-left: 1px solid var(--border);
+	}
+
+	.history-table td:nth-last-child(-n + 2) {
+		border-bottom: 0;
+	}
+
+	.history-table td::before {
+		content: attr(data-label);
+		color: var(--muted);
+		font-family: var(--font-mono);
+		font-size: 0.625rem;
+		font-weight: 500;
+		letter-spacing: 0.09em;
+		line-height: 1.2;
+		text-transform: uppercase;
+	}
+
+	.history-table td[data-field="referrer"] {
+		grid-area: referrer;
+	}
+
+	.history-table td[data-field="status"] {
+		grid-area: status;
+	}
+
+	.history-table td[data-field="amount-in"] {
+		grid-area: amount-in;
+	}
+
+	.history-table td[data-field="amount-out"] {
+		grid-area: amount-out;
+	}
+
+	.history-table td[data-field="bids"] {
+		grid-area: bids;
+	}
+
+	.history-table td[data-field="user"] {
+		grid-area: user;
+	}
+
+	.history-table td[data-field="placed"] {
+		grid-area: placed;
+	}
+
+	.history-table td[data-field="links"] {
+		grid-area: links;
+	}
+
+	.history-table td[data-field="action"] {
+		grid-area: action;
+	}
+
+	.history-table td[data-field="chain"] {
+		grid-area: chain;
+	}
+
+	.history-table td[data-field="tx"] {
+		grid-area: tx;
+	}
+
+	.history-table td[data-field="time"] {
+		grid-area: time;
+	}
+
+	.history-table .history-user,
+	.history-table .copy-value-text {
+		white-space: nowrap;
+	}
+
+	.history-table .history-links {
+		justify-content: flex-start;
+	}
+
+	.history-table td[data-field="links"] .history-links a {
+		display: inline-flex;
+		gap: 0.4rem;
+		width: auto;
+		padding-inline: 0.35rem;
+		border-radius: 0.4rem;
+	}
+
+	.history-table .history-link-label {
+		display: inline;
+		font-family: var(--font-sans);
+		font-size: 0.75rem;
+		white-space: nowrap;
 	}
 
 	.sheet-content,

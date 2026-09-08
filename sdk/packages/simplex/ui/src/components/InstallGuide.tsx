@@ -88,7 +88,7 @@ function HomeScreenVisual() {
 	return (
 		<div className="install-visual install-desktop-visual" aria-hidden="true">
 			<div>
-				<img src="./icons/simplex-192.png" alt="" />
+				<img src="./icons/mobile-logo.svg" alt="" />
 				<span>Simplex</span>
 			</div>
 			<small>Home screen</small>
@@ -116,7 +116,7 @@ function ToolbarVisual() {
 function ConfirmVisual() {
 	return (
 		<div className="install-visual install-confirm-visual" aria-hidden="true">
-			<img src="./icons/simplex-192.png" alt="" />
+			<img src="./icons/mobile-logo.svg" alt="" />
 			<span>
 				<strong>Install Simplex?</strong>
 				<small>Opens in its own window</small>
@@ -130,7 +130,7 @@ function DesktopVisual() {
 	return (
 		<div className="install-visual install-desktop-visual" aria-hidden="true">
 			<div>
-				<img src="./icons/simplex-192.png" alt="" />
+				<img src="./icons/mobile-logo.svg" alt="" />
 				<span>Simplex</span>
 			</div>
 			<small>Desktop · Dock · App list</small>

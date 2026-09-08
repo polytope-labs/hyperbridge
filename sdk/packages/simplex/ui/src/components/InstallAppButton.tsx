@@ -171,7 +171,7 @@ function InstallAppDialog(props: {
 				ariaDescribedBy="install-dialog-description"
 			>
 					<header className="install-dialog-header">
-						<img src="./icons/simplex-192.png" alt="" />
+						<img src="./icons/mobile-logo.svg" alt="" />
 						<div>
 							<span className="eyebrow">Simplex {mobile ? "mobile" : "desktop"} app</span>
 							<ResponsiveDialogTitle>

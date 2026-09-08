@@ -1440,6 +1440,10 @@ button.operator-tool-row {
 }
 
 /* Order history: one row per order, HyperFX-style — referrer, status, legs, user, time. */
+.history-table-scroll {
+	overflow-x: auto;
+}
+
 .history-table th,
 .history-table td {
 	padding: 0.85rem 0.75rem;
@@ -1602,6 +1606,10 @@ button.operator-tool-row {
 .history-links svg {
 	width: 0.9rem;
 	height: 0.9rem;
+}
+
+.history-link-label {
+	display: none;
 }
 
 .history-misc {

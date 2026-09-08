@@ -1,26 +1,12 @@
 import { formatUnits } from "viem"
 import type { IntentsCoprocessor } from "@hyperbridge/sdk"
+import { nativeTokenSymbol } from "@/cli/init/chains"
 import { ERC20_ABI } from "@/config/abis/ERC20"
 import type { VaultBalancePosition } from "@/funding/types"
 import type { ChainClientManager } from "./ChainClientManager"
 import type { FillerConfigService } from "./FillerConfigService"
 import { moduleLogger, type Logger } from "./Logger"
 import { deriveSubstrateKeyPair } from "./substrate-key"
-
-export const CHAIN_NATIVE_SYMBOLS: Record<number, string> = {
-	1: "ETH",
-	56: "BNB",
-	137: "MATIC",
-	42161: "ETH",
-	8453: "ETH",
-	10: "ETH",
-	43114: "AVAX",
-	250: "FTM",
-	130: "ETH",
-	100: "xDAI",
-	97: "BNB",
-	11155111: "ETH",
-}
 
 export interface ChainBalanceRow {
 	chainId: number
@@ -228,7 +214,7 @@ export class BalanceProvider {
 
 		try {
 			const native = await client.getBalance({ address: fillerAddr })
-			const symbol = CHAIN_NATIVE_SYMBOLS[chainId] ?? "ETH"
+			const symbol = nativeTokenSymbol(chainId)
 			row.native = { symbol, amount: Number.parseFloat(formatUnits(native, 18)) }
 		} catch (err) {
 			issues.push({ chainId, source: "native", message: errorMessage(err) })

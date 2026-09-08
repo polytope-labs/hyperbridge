@@ -14,7 +14,7 @@ The dashboard is where a running solver is watched and steered: balances per cha
 <figcaption>The Overview page: liquidity per chain and per token, the filling switch, and every market the solver quotes.</figcaption>
 </figure>
 
-It is unauthenticated by design — the bind address is the boundary. It defaults to `127.0.0.1:8686`, so only the machine running the solver can reach it, and it refuses any request whose `Host` header is a DNS name rather than a loopback literal, which closes the DNS-rebinding path into it. Move it with `--ui <[host:]port>`, or turn it off with `--no-ui`.
+It is unauthenticated by design — the bind address is the boundary. It defaults to `127.0.0.1:8686`, so only the machine running the solver can reach it, and it refuses any request whose `Host` header is a DNS name rather than a loopback literal, which closes the DNS-rebinding path into it. Move it with `--ui`, or turn it off with `--no-ui` — see [Command-line flags](#command-line-flags) below.
 
 <Callout type="warn">
     Anyone who reaches the dashboard can pause filling, edit price curves, move treasury funds and
@@ -24,15 +24,57 @@ It is unauthenticated by design — the bind address is the boundary. It default
 
 ## On the machine running Simplex
 
-Open `http://localhost:8686`. Under Docker the container binds `0.0.0.0` inside its own network namespace — Docker Desktop on macOS and Windows offers no `--network host` — so the published port is what keeps it private. Keep the prefix:
+Open `http://localhost:8686`. That is the whole setup for a solver running on your own machine — the UI is already listening when the filler starts.
+
+## Command-line flags
+
+The bind address is set on `simplex run`, which is the default command (`simplex` and `simplex run` are the same thing):
+
+| Flag | Default | What it does |
+|---|---|---|
+| `--ui <[host:]port>` | `127.0.0.1:8686` | Where the dashboard listens. A bare number keeps the host at `127.0.0.1`, so `--ui 9000` means `127.0.0.1:9000`. |
+| `--no-ui` | off | Runs the filler headless — no dashboard, no port. |
+| `-c, --config <path>` | `./filler-config.toml`, then `$SIMPLEX_HOME/config.toml` | The TOML config. When neither exists, `run` starts the browser setup wizard instead of the filler. |
+| `-d, --data-dir <path>` | `./.simplex-data` | Bid database, runtime state, and the tunnel's keys under `tunnel/`. |
+| `--watch-only` | off | Watches and prices orders without filling them. |
+
+```bash lineNumbers
+simplex run --ui 9000                  # 127.0.0.1:9000
+simplex run --ui 192.168.1.50:8686     # one LAN interface
+simplex run --ui 0.0.0.0:8686          # every interface — see the warning above
+simplex run --no-ui                    # headless
+```
+
+A port outside 1–65535 is not fatal: Simplex logs the bad value and falls back to `127.0.0.1:8686`. A port already in use is handled differently on each side of the split — the **setup wizard** retries on an ephemeral port and prints the URL it actually got, while a **running filler** treats the filler as the workload and the dashboard as the optional part: it logs `UI server failed to start` and carries on filling without a UI.
+
+Two guards ride along with the bind, and neither is configurable:
+
+- **The setup wizard only binds loopback.** It collects private keys, so a non-loopback `--ui` is refused outright — unless Simplex is running in a container, where the network namespace is the boundary and the published port is what matters.
+- **Requests must carry an IP `Host` header.** A DNS name is refused, which closes DNS rebinding. Bound to loopback, the `Host` must itself be a loopback literal (or `localhost`); bound anywhere else, any IP literal is accepted.
+
+### Under Docker
+
+The image fixes the binary as its entrypoint and passes `run --data-dir /data --ui 0.0.0.0:8686` as the default command. The container binds every interface **inside its own network namespace** — Docker Desktop on macOS and Windows runs the daemon in a VM and offers no `--network host`, and loopback inside the container would be unreachable — so the published port is what keeps the dashboard private. Keep the `127.0.0.1:` prefix:
 
 ```bash lineNumbers
 -p 127.0.0.1:8686:8686
 ```
 
-On a VPS, a home server, or any host you are not sitting at, the dashboard is still bound to that machine's loopback. The two sections below reach it from elsewhere, neither of which opens a port to the internet.
+Arguments after the image name replace that default command, so pass the whole list when you change one part of it:
+
+```bash lineNumbers
+docker run -d --name simplex --restart unless-stopped \
+    -p 127.0.0.1:9000:9000 \
+    -v simplex-data:/data \
+    polytopelabs/simplex:latest \
+    run --data-dir /data --ui 0.0.0.0:9000
+```
+
+Changing the container's own port means changing both halves — the `--ui` port and the right half of `-p`. Leaving `--ui` at `8686` and publishing `-p 127.0.0.1:9000:8686` works too, and moves only the port you browse to.
 
 ## Over SSH port forwarding
+
+On a VPS, a home server, or any host you are not sitting at, the dashboard is still bound to that machine's loopback. This section and the next reach it from elsewhere, and neither opens a port to the internet.
 
 If you already have SSH access to the host, forward the port. Nothing in Simplex changes:
 

@@ -202,7 +202,6 @@ export class TokenSender {
 					callGasLimit: 450_000n * BigInt(calls.length),
 					preVerificationGas: 150_000n,
 				},
-				paymasterVerificationGasLimit: 140_000n,
 			})
 			if (result) return { txHash: result.txHash, sponsored: true }
 			this.logger.warn({ chain }, "Sponsored send unavailable, sending native tx")

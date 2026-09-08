@@ -13,14 +13,12 @@ import type { HexString } from "@hyperbridge/sdk"
 import type { FillerConfigService } from "@/services/FillerConfigService"
 import {
 	RECOMMENDED_AMOUNT_USD,
-	VERIFICATION_GAS_LIMIT_PERMIT,
 	VERIFICATION_GAS_LIMIT_PERMIT2,
 	PERMIT2_DEADLINE_SECONDS,
 	POST_OP_GAS_LIMIT_SIMPLEX,
 	type FeeTokenBalance,
 	type PaymasterResult,
 } from "../types"
-import { signEip2612Permit } from "../permit"
 import { randomPermit2Nonce, signPermit2Transfer } from "../permit2"
 import { SIMPLEX_PAYMASTER_ABI } from "@/config/abis/SimplexPaymaster"
 import type { Signer } from "@/services/wallet/types"
@@ -37,19 +35,19 @@ const APPROVE_TX_GAS = 60_000n
 /**
  * Builds the paymaster fields for a PackedUserOperation using the SimplexPaymaster.
  *
- * Selects the first configured stablecoin (USDC, then USDT) with a balance of at
- * least one token, then picks the authorization mode:
- * - PERMIT (0x00) when the token supports EIP-2612: a permit executed during validation
- * - PERMIT2 (0x02) otherwise: a per-op, single-use Permit2 signature; nothing is exposed
- *   to the paymaster at rest. A token not yet approved to Permit2 costs one funded
- *   bootstrap tx, approve(Permit2, max), for the account's lifetime.
+ * Selects the first configured stablecoin (USDC, then USDT) with a balance of at least
+ * one token and authorizes it in PERMIT2 mode (0x02): a per-op, single-use Permit2
+ * signature, so nothing is exposed to the paymaster at rest. Permit2 nonces are an
+ * unordered bitmap, so concurrent ops on one chain each carry their own permit without
+ * coordinating on a shared counter — the reason this is the only mode used. A token not
+ * yet approved to Permit2 costs one funded bootstrap tx, approve(Permit2, max), for the
+ * account's lifetime.
  *
  * Returns the balances it read instead, in selection order, when the solver holds less
  * than one whole unit of every configured token, so the caller can name each shortfall,
- * and throws when the selected token has no permit and Permit2 is unusable (not
- * configured on the chain, or the paymaster deployment does not expose PERMIT2()). The
- * caller decides whether to fall back to another paymaster or to the EntryPoint deposit;
- * a standing allowance to the paymaster is never used or created.
+ * and throws when Permit2 is unusable (not configured on the chain, or the paymaster
+ * deployment does not expose PERMIT2()). The caller decides whether to fall back to the
+ * EntryPoint deposit; a standing allowance to the paymaster is never used or created.
  */
 export async function buildSimplexPaymasterData(
 	client: PublicClient,
@@ -70,32 +68,16 @@ export async function buildSimplexPaymasterData(
 	const { address: tokenAddress, decimals: tokenDecimals } = selected
 	const recommended = RECOMMENDED_AMOUNT_USD * 10n ** BigInt(tokenDecimals)
 
-	const hasPermit = await tokenSupportsPermit(client, tokenAddress)
-
-	if (hasPermit) {
-		const pm = await buildPermitMode(
-			client,
-			signer,
-			solverAccount,
-			paymasterAddress,
-			tokenAddress,
-			recommended,
-			chainId,
-		)
-		return { ...pm, token: tokenAddress }
-	}
-
 	const permit2 = configService.getPermit2Address(chain)
 	if (!isConfigured(permit2)) {
 		throw new Error(
-			`SimplexPaymaster cannot sponsor ${tokenAddress} on ${chain}: the token has no EIP-2612 permit ` +
-				`and Permit2 is not configured for this chain`,
+			`SimplexPaymaster cannot sponsor ${tokenAddress} on ${chain}: Permit2 is not configured for this chain`,
 		)
 	}
 	if (!(await paymasterSupportsPermit2(client, chainId, paymasterAddress))) {
 		throw new Error(
-			`SimplexPaymaster cannot sponsor ${tokenAddress} on ${chain}: the token has no EIP-2612 permit ` +
-				`and the paymaster at ${paymasterAddress} does not expose PERMIT2() (predates PERMIT2 mode or is not deployed)`,
+			`SimplexPaymaster cannot sponsor ${tokenAddress} on ${chain}: the paymaster at ${paymasterAddress} ` +
+				`does not expose PERMIT2() (predates PERMIT2 mode or is not deployed)`,
 		)
 	}
 
@@ -119,12 +101,14 @@ export async function buildSimplexPaymasterData(
 
 /**
  * The fee token a native EIP-7702 delegation can approve to Permit2 in the same transaction,
- * so a no-permit chain's one-time bootstrap rides the delegation rather than costing a
- * separate native tx. Returns null when nothing batchable is pending: a permit-capable token,
- * any existing non-zero allowance (at the recommendation PERMIT2 mode already works; below it
- * the USDT rule needs a zero-first reset the batched tx cannot carry), no Permit2 configured,
- * a paymaster without PERMIT2 mode, or the solver holding no fee token yet. Deferred cases
- * are handled by the first sponsored op's own funded approve.
+ * so the account's one-time bootstrap rides the delegation rather than costing a separate
+ * native tx. Every fee token needs this approval — sponsorship is Permit2-only — so it is
+ * the main way a fresh solver reaches a sponsored op without a second funded tx. Returns
+ * null when nothing batchable is pending: any existing non-zero allowance (at the
+ * recommendation PERMIT2 mode already works; below it the USDT rule needs a zero-first reset
+ * the batched tx cannot carry), no Permit2 configured, a paymaster without PERMIT2 mode, or
+ * the solver holding no fee token yet. Deferred cases are handled by the first sponsored
+ * op's own funded approve.
  */
 export async function resolvePendingPermit2Approval(
 	client: PublicClient,
@@ -139,8 +123,6 @@ export async function resolvePendingPermit2Approval(
 
 	const { selected } = await selectToken(client, solverAccount, configuredFeeTokens(chain, configService))
 	if (!selected) return null
-	// A permit-capable token uses PERMIT mode, never Permit2.
-	if (await tokenSupportsPermit(client, selected.address)) return null
 
 	// Only a clean zero allowance is batchable. At or above the recommendation PERMIT2
 	// mode already works; a stale non-zero allowance below it cannot ride the delegation
@@ -199,45 +181,6 @@ async function selectToken(
 		balances.push({ symbol: token.symbol, balance, required })
 	}
 	return { selected: null, balances }
-}
-
-async function buildPermitMode(
-	client: PublicClient,
-	signer: Pick<Signer, "signTypedData">,
-	solverAccount: HexString,
-	paymasterAddress: HexString,
-	tokenAddress: HexString,
-	permitAmount: bigint,
-	chainId: number,
-): Promise<PaymasterResult> {
-	const permitSignature = await signEip2612Permit(
-		client,
-		signer,
-		solverAccount,
-		paymasterAddress,
-		tokenAddress,
-		permitAmount,
-		chainId,
-	)
-
-	const r = `0x${permitSignature.slice(2, 66)}` as HexString
-	const s = `0x${permitSignature.slice(66, 130)}` as HexString
-	const v = Number.parseInt(permitSignature.slice(130, 132), 16)
-
-	// mode(1) + token(20) + permitAmount(32) + deadline(32) + v(1) + r(32) + s(32) = 150 bytes,
-	// matching SimplexPaymaster._executePermit. Deadline is maxUint256 because paymasters
-	// cannot read block.timestamp under ERC-4337 validation rules.
-	const paymasterData = encodePacked(
-		["uint8", "address", "uint256", "uint256", "uint8", "bytes32", "bytes32"],
-		[0, tokenAddress, permitAmount, maxUint256, v, r, s],
-	) as HexString
-
-	return {
-		paymaster: paymasterAddress,
-		paymasterData,
-		paymasterVerificationGasLimit: VERIFICATION_GAS_LIMIT_PERMIT,
-		paymasterPostOpGasLimit: POST_OP_GAS_LIMIT_SIMPLEX,
-	}
 }
 
 const PERMIT2_SUPPORT_NEGATIVE_TTL_MS = 5 * 60_000
@@ -326,7 +269,7 @@ async function buildPermit2Mode(
 		deadline,
 	})
 
-	// Split into explicit v, r, s (mode 0x02 layout mirrors the EIP-2612 mode 0x00 fields).
+	// Split into explicit v, r, s: the packed mode 0x02 layout carries them as separate fields.
 	const r = `0x${signature.slice(2, 66)}` as HexString
 	const s = `0x${signature.slice(66, 130)}` as HexString
 	const v = Number.parseInt(signature.slice(130, 132), 16)
@@ -370,7 +313,7 @@ async function sendFundedApprove(
 	const requiredNative = APPROVE_TX_GAS * gasPrice * (needsReset ? 2n : 1n)
 	if (nativeBalance < requiredNative) {
 		throw new Error(
-			`SimplexPaymaster needs a one-time funded approval on this chain — the fee token has no permit; ` +
+			`SimplexPaymaster needs a one-time Permit2 approval for the fee token on this chain; ` +
 				`send native dust (>= ${formatEther(requiredNative)}) to ${solverAccount}`,
 		)
 	}
@@ -400,34 +343,4 @@ async function sendApproveTx(
 	// Bundlers simulate on their own nodes; one confirmation after the approve is not
 	// always visible there yet, and the very next op would fail validation.
 	await client.waitForTransactionReceipt({ hash, confirmations: 2 })
-}
-
-/** Probes for EIP-2612 support via the version() getter permit tokens expose. */
-async function tokenSupportsPermit(client: PublicClient, tokenAddress: HexString): Promise<boolean> {
-	try {
-		await client.readContract({
-			address: tokenAddress,
-			abi: [
-				{
-					inputs: [],
-					name: "version",
-					outputs: [{ type: "string" }],
-					stateMutability: "view",
-					type: "function",
-				},
-			] as const,
-			functionName: "version",
-		})
-		return true
-	} catch (error) {
-		// Same discrimination as paymasterSupportsPermit2: only a contract revert /
-		// empty return proves the token has no version() — a transport error must
-		// propagate, or a 429 would masquerade as "no permit" and route a fresh
-		// solver into a native-funded Permit2 max approve.
-		const isRevert =
-			error instanceof BaseError &&
-			error.walk((e) => e instanceof ContractFunctionRevertedError || e instanceof ContractFunctionZeroDataError)
-		if (isRevert) return false
-		throw error
-	}
 }

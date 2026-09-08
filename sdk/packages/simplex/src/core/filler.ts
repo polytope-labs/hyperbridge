@@ -281,7 +281,7 @@ export class IntentFiller {
 		}
 
 		// Ensure EntryPoint deposit covers target gas units on chains
-		// that do NOT have any paymaster (Circle or Simplex) configured.
+		// that do NOT have the Simplex paymaster configured.
 		// Chains with a paymaster pay gas in stablecoins instead.
 		// Paymaster authorization is handled per-order inside buildPaymasterAndData.
 		const targetGasUnits = this.configService.getTargetGasUnits()

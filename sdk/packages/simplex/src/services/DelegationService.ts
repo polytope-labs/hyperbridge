@@ -23,10 +23,15 @@ const BATCHED_APPROVE_GAS = 60_000n
  * Service for managing EIP-7702 delegation of the filler's EOA to the SolverAccount contract.
  * This enables the filler to participate in solver selection mode.
  *
- * When a paymaster (Circle or Simplex) is configured and the filler holds stablecoins,
- * delegation is performed via a no-op UserOp sent through the bundler — the paymaster
- * pays gas in stablecoins, so the solver never needs native tokens. Falls back to a
- * direct type-0x04 tx if the bundler path is unavailable.
+ * When the Simplex paymaster is configured and the filler holds stablecoins already
+ * approved to Permit2, delegation is performed via a no-op UserOp sent through the
+ * bundler — the paymaster pays gas in stablecoins. Falls back to a direct type-0x04 tx
+ * if the bundler path is unavailable.
+ *
+ * The paymaster prefunds through Permit2, which needs a standing token approval to the
+ * Permit2 contract, so a solver on a chain it has never used still needs native dust
+ * once — either for the type-0x04 tx that batches the approve in, or for a standalone
+ * approve sent by the first sponsored op. Every op after that is native-free.
  */
 export class DelegationService {
 	private logger: Logger
@@ -203,8 +208,8 @@ export class DelegationService {
 
 	/**
 	 * Sets up EIP-7702 delegation via the bundler with a no-op UserOp.
-	 * Uses the configured paymaster (Simplex preferred, Circle fallback) when available
-	 * and the filler has a sufficient stablecoin balance.
+	 * Uses the Simplex paymaster when configured and the filler has a sufficient
+	 * stablecoin balance already approved to Permit2.
 	 */
 	private async setupDelegationViaBundler(chain: string): Promise<boolean> {
 		const solverAccountContract = this.configService.getSolverAccountContractAddress(chain)
@@ -224,25 +229,15 @@ export class DelegationService {
 			// ops is unreliable (Alchemy echoes the input limits rather than simulating).
 			//
 			// A FRESH delegation (EOA has no code) burns far more verification gas on
-			// first-time cold storage, so the proven 150k account + default 200k paymaster
-			// limits clear rundler's verification-efficiency policy. A RE-delegation
-			// (EOA already delegated) uses much less (warm slots, paymaster allowance
-			// reused) — actual ~96k — so those loose limits fall below the 0.4 floor
-			// (`actual / (accountVerif + paymasterVerif)`). Tighten both verification
-			// limits for that case so the ratio clears 0.4 while still covering usage.
+			// first-time cold storage, so the proven 150k account limit clears rundler's
+			// verification-efficiency policy. A RE-delegation (EOA already delegated) uses
+			// much less (warm slots) — actual ~96k — so a loose limit falls below the 0.4
+			// floor (`actual / (accountVerif + paymasterVerif)`). Tighten the account
+			// verification limit for that case so the ratio clears 0.4 while still covering
+			// usage.
 			//
-			// The tightened paymaster limit assumes the allowance is still in place. When
-			// it has been depleted (or was never set on this chain — e.g. re-delegating
-			// from an older SolverAccount), the Circle builder ignores the override and
-			// keeps its 200k default: the permit executed during validation needs ~113k
-			// on its own and would OOG the paymaster frame (bundler AA33) at 110k.
-			//
-			// None of this reaches the Simplex paymaster, which ignores the override and
-			// packs its own mode-specific limits — a permit costs it VERIFICATION_GAS_LIMIT_PERMIT
-			// (250k), charged to the paymaster frame rather than the account limits fixed
-			// here. So its PERMIT mode stays enabled: it is the only mode that needs no
-			// native-funded bootstrap approve, and a solver holding zero native cannot send
-			// one, which otherwise leaves delegation with no sponsored path at all.
+			// Only the account side is tuned here: the paymaster packs its own limit
+			// (VERIFICATION_GAS_LIMIT_PERMIT2, 200k), charged to the paymaster frame.
 			const code = await this.clientManager.getPublicClient(chain).getCode({
 				address: this.signer.address as HexString,
 			})
@@ -260,7 +255,6 @@ export class DelegationService {
 				gas: isFreshEoa
 					? { verificationGasLimit: 150_000n, callGasLimit: 50_000n, preVerificationGas: 100_000n }
 					: { verificationGasLimit: 80_000n, callGasLimit: 50_000n, preVerificationGas: 100_000n },
-				paymasterVerificationGasLimit: isFreshEoa ? undefined : 110_000n,
 			})
 
 			if (result) {
@@ -286,11 +280,12 @@ export class DelegationService {
 	/**
 	 * Sets up EIP-7702 delegation from the filler's EOA to the SolverAccount contract.
 	 *
-	 * A no-permit fee token with no Permit2 allowance cannot be sponsored until a funded
-	 * approve has landed, so the sponsored path would cost a native approve tx and then the
-	 * op. When that approval is pending and the EOA holds native, one direct type-0x04 tx
-	 * batching the approve does both, so it goes first. Otherwise the bundler path goes
-	 * first (paymaster pays gas in ERC-20) and a plain direct tx is the fallback.
+	 * Sponsorship is Permit2-only, so a fee token with no Permit2 allowance cannot be
+	 * sponsored until a funded approve has landed — the sponsored path would cost a native
+	 * approve tx and then the op. When that approval is pending and the EOA holds native,
+	 * one direct type-0x04 tx batching the approve does both, so it goes first. Otherwise
+	 * the bundler path goes first (paymaster pays gas in ERC-20) and a plain direct tx is
+	 * the fallback.
 	 */
 	async setupDelegation(chain: string): Promise<boolean> {
 		const solverAccountContract = this.configService.getSolverAccountContractAddress(chain)

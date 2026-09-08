@@ -3,6 +3,7 @@ import { toast } from "sonner"
 import { chainByChainId } from "@/cli/init/chains"
 import { formatChainKey, parseChainKey } from "@/config/interpolated-curve"
 import { api } from "../api"
+import { SelectField } from "../components/AppSelect"
 import { ExternalLinkIcon } from "../components/InterfaceIcons"
 import { OperationLink } from "../components/OperationLink"
 import { OperatorSheet } from "../components/OperatorSheet"
@@ -346,33 +347,24 @@ function SendCard(props: {
 				are redeemed to cover the difference. Native gas is required on networks without a paymaster.
 			</p>
 			<div className="operator-send-grid">
-				<label className="field">
-					<span>Network</span>
-					<select
-						value={selectedChain}
-						onChange={(e) => {
-							setChain(e.target.value)
-							setToken("native")
-						}}
-					>
-						{props.chains.map((id) => (
-							<option key={id} value={formatChainKey(id)}>
-								{props.chainLabel(id)}
-							</option>
-						))}
-					</select>
-				</label>
-				<label className="field">
-					<span>Asset</span>
-					<select value={token} onChange={(e) => setToken(e.target.value)}>
-						{options.map((o) => (
-							<option key={o.address} value={o.address}>
-								{o.symbol}
-							</option>
-						))}
-						<option value="custom">custom address…</option>
-					</select>
-				</label>
+				<SelectField
+					label="Network"
+					value={selectedChain}
+					options={props.chains.map((id) => ({ value: formatChainKey(id), label: props.chainLabel(id) }))}
+					onValueChange={(nextChain) => {
+						setChain(nextChain)
+						setToken("native")
+					}}
+				/>
+				<SelectField
+					label="Asset"
+          value={token}
+					options={[
+						...options.map((option) => ({ value: option.address, label: option.symbol })),
+						{ value: "custom", label: "Custom address…", separatorBefore: true, muted: true },
+					]}
+					onValueChange={setToken}
+				/>
 				{token === "custom" && (
 					<label className="field operator-send-wide">
 						<span>Token contract</span>

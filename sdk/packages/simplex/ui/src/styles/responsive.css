@@ -581,6 +581,28 @@
 		flex-direction: column;
 	}
 
+	.operator-market-cap-panel .operator-market-panel-heading {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) max-content;
+		align-items: end;
+	}
+
+	.operator-market-cap-panel .operator-market-panel-value {
+		align-self: end;
+		justify-self: end;
+		text-align: right;
+	}
+
+	.solver-link-entry {
+		align-items: stretch;
+		flex-direction: column;
+		gap: 1rem;
+	}
+
+	.solver-link-entry > button {
+		width: 100%;
+	}
+
 	.operator-market-cap-controls {
 		grid-template-columns: minmax(0, 1fr);
 	}

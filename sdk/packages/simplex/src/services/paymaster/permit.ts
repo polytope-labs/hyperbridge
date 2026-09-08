@@ -1,6 +1,7 @@
 import { maxUint256, getContract, type PublicClient } from "viem"
 import type { HexString } from "@hyperbridge/sdk"
 import { EIP2612_ABI } from "@/config/abis/EIP2612"
+import { normalizeSignature65 } from "./permit2"
 import type { Signer } from "@/services/wallet/types"
 
 /**
@@ -68,5 +69,8 @@ export async function signEip2612Permit(
 		},
 	}
 
-	return signer.signTypedData(typedData)
+	// Same normalization the Permit2 signer applies: a backend may return a 64-byte EIP-2098
+	// compact signature or v in {0,1}, and `buildPermitMode` splits v straight out of the hex
+	// for a contract that expects {27,28}. A correct 65-byte signature passes through unchanged.
+	return normalizeSignature65(await signer.signTypedData(typedData))
 }

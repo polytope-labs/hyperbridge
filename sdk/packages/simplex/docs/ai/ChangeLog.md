@@ -40,13 +40,19 @@ two addresses appeared somewhere in the payload; it passed with the approve amou
 1 wei, which would have stranded the chain permanently (`resolvePendingPermit2Approval` refuses
 any non-zero allowance). It now asserts the exact bytes, and was checked against that mutation.
 
+The completeness critic also flagged that `signEip2612Permit` returned the signer's bytes raw
+while `signPermit2Transfer` ran through `normalizeSignature65`, even though `buildPermitMode`
+splits v straight out of the hex for a contract expecting v in {27,28}. Pre-existing — identical
+at `ebe157c70` — but this change makes that path the sole bootstrap for every solver, so it is
+normalized now too. A correct 65-byte signature passes through unchanged.
+
 Audit findings accepted without a code change: Optimism has a `CirclePaymaster` and no
 `SimplexPaymaster`, so it degrades to native gas and an EntryPoint deposit — the intended
 consequence of dropping Circle, already recorded below. A stale non-zero Permit2 allowance below
 $5 still has no bootstrap route. `THRESHOLD_USD` is now dead. The `PERMIT2_DEADLINE_SECONDS`
 (3600) bid expiry is not reconciled with the operator-configurable bid tenor.
 
-Files: `src/services/DelegationService.ts`, `src/services/paymaster/provider/simplex.ts`.
+Files: `src/services/DelegationService.ts`, `src/services/paymaster/{permit,provider/simplex}.ts`.
 Tests: `src/tests/services/DelegationService.ordering.test.ts` (4 new cases; the regression guard
 was verified to fail against the pre-fix early return). Docs: `docs/ai/{ChangeLog,Flow}.md`.
 

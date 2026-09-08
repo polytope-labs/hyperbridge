@@ -26,6 +26,24 @@ export const DEFAULT_TUNNEL_RELAY = "simplex.tunnel.polytope.technology:443"
 export const DEFAULT_TUNNEL_RELAY_HOST_KEY = "SHA256:L6LT8Zu6Ke+k4cZLiDcUO/3EYWtH5vJXsVMPVnCy3ts"
 
 /**
+ * One relay address, in the one spelling everything else keys on.
+ *
+ * `[simplex.tunnel] relay` documents that the port defaults to 443, so the
+ * hosted relay can be written with or without it, and hostnames are
+ * case-insensitive. Comparing the raw string meant the port-less spelling of
+ * the hosted relay missed the built-in pin and silently fell back to trusting
+ * whatever answered first.
+ */
+export function relayKey(relay: string): string {
+	try {
+		const { host, port } = parseRelayAddress(relay)
+		return `${host.toLowerCase().replace(/\.$/, "")}:${port}`
+	} catch {
+		return relay.trim().toLowerCase()
+	}
+}
+
+/**
  * The fingerprint a relay must present: the configured pin, else the built-in
  * one for the hosted relay, else whatever was remembered on first contact.
  */
@@ -36,8 +54,9 @@ export function expectedRelayFingerprint(
 ): string | undefined {
 	const configured = config.relayHostKey?.trim()
 	if (configured) return configured
-	if (relay === DEFAULT_TUNNEL_RELAY) return DEFAULT_TUNNEL_RELAY_HOST_KEY
-	return known?.relay === relay ? known.fingerprint : undefined
+	const key = relayKey(relay)
+	if (key === relayKey(DEFAULT_TUNNEL_RELAY)) return DEFAULT_TUNNEL_RELAY_HOST_KEY
+	return known && relayKey(known.relay) === key ? known.fingerprint : undefined
 }
 
 /** Port the phone forwards to locally; matches the CLI's default UI port so the docs read the same everywhere. */
@@ -127,6 +146,8 @@ export class TunnelService implements TunnelControls {
 	private stopped = false
 	/** Set by `verifyRelay` so the generic "verification failed" error does not replace the specific message. */
 	private pinMismatch = false
+	/** A first-contact fingerprint seen during key exchange, written only once the handshake succeeds. */
+	private pendingPin?: string
 
 	constructor(private readonly opts: TunnelServiceOptions) {
 		this.config = { ...opts.config }
@@ -173,7 +194,7 @@ export class TunnelService implements TunnelControls {
 			state: this.state,
 			relay: this.relay,
 			relayFingerprint:
-				this.relayFingerprint ?? expectedRelayFingerprint(this.config, this.relay, this.keys.knownRelay(this.relay)),
+				this.relayFingerprint ?? expectedRelayFingerprint(this.config, this.relay, this.knownRelayFor(this.relay)),
 			port: this.port,
 			connectedAt: this.connectedAt,
 			lastError: this.lastError,
@@ -194,21 +215,36 @@ export class TunnelService implements TunnelControls {
 			// A malformed relay in the config still shows something readable;
 			// connecting reports the parse error separately.
 		}
+		// The forward has to name the address the embedded server will accept, which
+		// is the address the UI is actually bound to. Hard-coding 127.0.0.1 told the
+		// operator to open a forward that `isTarget` then refused, on every bind
+		// that was not loopback.
+		const ui = this.opts.uiTarget()
 		return {
 			host,
 			port: this.port,
 			username: TUNNEL_USERNAME,
 			hostFingerprint: this.hostKey.fingerprint,
-			localForward: `${LOCAL_FORWARD_PORT}:127.0.0.1:${this.opts.uiTarget().port}`,
+			localForward: `${LOCAL_FORWARD_PORT}:${ui.host}:${ui.port}`,
 		}
 	}
 
 	async configure(update: { enabled?: boolean; relay?: string }): Promise<void> {
 		if (update.relay !== undefined) parseRelayAddress(update.relay)
-		const relayChanged = update.relay !== undefined && update.relay.trim() !== this.relay
+		const relayChanged = update.relay !== undefined && relayKey(update.relay) !== relayKey(this.relay)
 		const next: TunnelConfig = { ...this.config }
 		if (update.enabled !== undefined) next.enabled = update.enabled
 		if (update.relay !== undefined) next.relay = update.relay.trim()
+		// A configured pin belongs to the relay it was written for. Carrying it to
+		// a new relay makes every connection fail the check, with an error telling
+		// the operator to delete a file that is not even consulted on that path.
+		if (relayChanged && next.relayHostKey) {
+			this.logger.warn(
+				{ relay: next.relay, pin: next.relayHostKey },
+				"Relay changed; dropping the host key pin set for the previous relay",
+			)
+			next.relayHostKey = undefined
+		}
 		this.config = next
 		if (!this.enabled) {
 			this.clearReconnect()
@@ -267,6 +303,7 @@ export class TunnelService implements TunnelControls {
 		const relay = this.relay
 
 		client.on("ready", () => {
+			this.pinOnReady(relay)
 			client.forwardIn("0.0.0.0", 0, (err, port) => {
 				if (err) {
 					this.lastError = `Relay refused the port forward: ${err.message}`
@@ -325,19 +362,35 @@ export class TunnelService implements TunnelControls {
 	 */
 	private verifyRelay(relay: string, key: Buffer): boolean {
 		const seen = fingerprintOf(key)
-		const expected = expectedRelayFingerprint(this.config, relay, this.keys.knownRelay(relay))
+		const expected = expectedRelayFingerprint(this.config, relay, this.knownRelayFor(relay))
 		if (expected && expected !== seen) {
 			this.pinMismatch = true
 			this.lastError = `Relay host key mismatch: expected ${expected}, got ${seen}. Set [simplex.tunnel] relayHostKey or delete tunnel/known_relay if the relay was rebuilt.`
 			this.logger.error({ relay, expected, seen }, "Relay host key mismatch, refusing to connect")
 			return false
 		}
-		if (!expected) {
-			this.keys.rememberRelay(relay, seen)
-			this.logger.info({ relay, fingerprint: seen }, "Pinned the relay host key on first contact")
-		}
+		// Nothing is written here. ssh2 calls this while handling KEXDH_REPLY,
+		// before the host key's signature over the exchange hash is checked, so a
+		// key pinned at this point is only a key someone claimed — an injected
+		// reply would be trusted for good even though the handshake then fails.
+		// The pin is committed once the session is up, in `pinOnReady`.
+		if (!expected) this.pendingPin = seen
 		this.relayFingerprint = seen
 		return true
+	}
+
+	/** Commits a first-contact pin, now that the relay has proved it holds the key. */
+	private pinOnReady(relay: string): void {
+		const seen = this.pendingPin
+		this.pendingPin = undefined
+		if (!seen) return
+		this.keys.rememberRelay(relayKey(relay), seen)
+		this.logger.info({ relay, fingerprint: seen }, "Pinned the relay host key on first contact")
+	}
+
+	/** A stored pin for this relay, by normalised address, falling back to the raw spelling files written before normalisation used. */
+	private knownRelayFor(relay: string): { relay: string; fingerprint: string } | undefined {
+		return this.keys.knownRelay(relayKey(relay)) ?? this.keys.knownRelay(relay.trim())
 	}
 
 	private scheduleReconnect(): void {

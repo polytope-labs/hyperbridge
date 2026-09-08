@@ -16,7 +16,7 @@ import type { ActivityRecorder } from "@/data/recorder"
 import type { ActivityEvent, BidStore, OrderLeg } from "@/data/types"
 import type { BalanceProvider } from "../BalanceProvider"
 import { getLogger, type LogLevel } from "../Logger"
-import { parseRelayAddress, type TunnelControls } from "../tunnel/TunnelService"
+import { DEFAULT_TUNNEL_RELAY, parseRelayAddress, relayKey, type TunnelControls } from "../tunnel/TunnelService"
 import { readBody, sendJson, isLoopbackHost, isContainerized, hostHeaderAllowed } from "./http-util"
 import { serveStatic } from "./static"
 import {
@@ -1331,7 +1331,14 @@ export class UiServer {
 		const op = this.operator!
 		const block = { ...(op.config.simplex.tunnel ?? {}) }
 		if (update.enabled !== undefined) block.enabled = update.enabled
-		if (update.relay !== undefined) block.relay = update.relay
+		if (update.relay !== undefined) {
+			// The pin belongs to the relay it was set for; keeping it across a relay
+			// change locks remote access out entirely.
+			if (block.relayHostKey && relayKey(update.relay) !== relayKey(block.relay ?? DEFAULT_TUNNEL_RELAY)) {
+				block.relayHostKey = undefined
+			}
+			block.relay = update.relay
+		}
 		op.config.simplex.tunnel = block
 		const persisted = this.persistConfig()
 		try {

@@ -159,7 +159,19 @@ export function RemoteAccess() {
 							void act(
 								async () => {
 									try {
-										setStatus(await api.put<TunnelStatusDto>("/api/tunnel", { enabled: next }))
+										const result = await api.put<TunnelStatusDto & { persisted?: boolean }>(
+											"/api/tunnel",
+											{ enabled: next },
+										)
+										setStatus(result)
+										// The running tunnel changed either way, but an unwritten
+										// config comes back as it was on the next start — and
+										// turning remote access off is when that matters most.
+										if (result.persisted === false) {
+											throw new Error(
+												`Remote access is ${next ? "on" : "off"} for this run only: the config file could not be written, so it reverts on restart.`,
+											)
+										}
 									} finally {
 										// Whatever the server said, or did not say, the switch
 										// goes back to following it.

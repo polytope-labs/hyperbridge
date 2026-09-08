@@ -30,7 +30,6 @@ import { PaymasterKeeperService } from "@/services/PaymasterKeeperService"
 import { signerFromToml, type Signer } from "@/services/wallet"
 import { UiServer, type OperatorContext } from "@/services/server/UiServer"
 import { TunnelService } from "@/services/tunnel/TunnelService"
-import { isLoopbackHost } from "@/services/server/http-util"
 import { deriveSubstrateKeyPair } from "@/services/substrate-key"
 
 // ASCII art header
@@ -304,9 +303,11 @@ program
 			 * workload, and the key store is the only thing that can throw.
 			 */
 			const createTunnel = (config: FillerConfigFile): TunnelService | undefined => {
-				// A wildcard UI bind is reached on loopback; a specific address as-is.
-				const uiHost =
-					isLoopbackHost(uiBind.host) || uiBind.host === "0.0.0.0" || uiBind.host === "::" ? "127.0.0.1" : uiBind.host
+				// A wildcard bind is reached on loopback; every specific address is kept
+				// as given. Collapsing loopback addresses too sent the tunnel to
+				// 127.0.0.1 when the UI was listening on, say, 127.0.0.2 — the channel
+				// opened and the connection behind it was refused.
+				const uiHost = uiBind.host === "0.0.0.0" || uiBind.host === "::" ? "127.0.0.1" : uiBind.host
 				try {
 					return new TunnelService({
 						dataDir: resolveDataDir(options.dataDir),

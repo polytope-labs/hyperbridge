@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach, beforeAll, vi } from "vitest"
 import { createServer as createHttpServer, type Server as HttpServer } from "node:http"
 import { createServer as createTcpServer, type Server as TcpServer } from "node:net"
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
+import { Duplex, PassThrough } from "node:stream"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import ssh2, {
@@ -14,9 +15,11 @@ import {
 	TunnelService,
 	parseRelayAddress,
 	expectedRelayFingerprint,
+	relayKey,
 	DEFAULT_TUNNEL_RELAY,
 	DEFAULT_TUNNEL_RELAY_HOST_KEY,
 } from "@/services/tunnel/TunnelService"
+import { EmbeddedSshServer } from "@/services/tunnel/EmbeddedSshServer"
 import {
 	TunnelKeyStore,
 	fingerprintOf,
@@ -141,6 +144,35 @@ function phoneConnect(opts: {
 	})
 }
 
+/** An in-memory stand-in for a relay-forwarded channel, which is what inject() really receives. */
+function pipePair(): { clientSide: Duplex; serverSide: Duplex } {
+	const a2b = new PassThrough()
+	const b2a = new PassThrough()
+	const clientSide = Duplex.from({ readable: b2a, writable: a2b })
+	const serverSide = Duplex.from({ readable: a2b, writable: b2a })
+	// Destroying a Duplex.from composite aborts the streams underneath it, and an
+	// unheard 'error' there fails the run. A real relay channel is one stream.
+	for (const stream of [a2b, b2a, clientSide, serverSide]) stream.on("error", () => {})
+	return { clientSide, serverSide }
+}
+
+/** A peer that ignores the server's polite close, the way a hostile one would. */
+function stubborn(stream: Duplex): never {
+	const proxy: unknown = new Proxy(stream, {
+		get(target, key, receiver) {
+			if (key === "end") return () => proxy
+			const value = Reflect.get(target, key, receiver)
+			return typeof value === "function" ? value.bind(target) : value
+		},
+	})
+	return proxy as never
+}
+
+/** Hands a stream to the service's embedded server, as the relay client does. */
+function injectInto(service: TunnelService, stream: Duplex, origin: { ip: string; port: number }): void {
+	;(service as unknown as { server: EmbeddedSshServer }).server.inject(stream, origin)
+}
+
 /** Sends one raw HTTP request through a direct-tcpip channel and returns the response text. */
 function httpThrough(client: SshClientType, host: string, port: number): Promise<string> {
 	return new Promise((resolve, reject) => {
@@ -156,6 +188,26 @@ function httpThrough(client: SshClientType, host: string, port: number): Promise
 		})
 	})
 }
+
+describe("relayKey", () => {
+	it("treats every spelling of one relay as the same relay", () => {
+		// The hosted relay's pin used to be keyed on the exact default string, so
+		// writing it without the port — which the config explicitly allows —
+		// skipped the shipped pin and trusted whatever answered first.
+		expect(relayKey("simplex.tunnel.polytope.technology")).toBe(relayKey(DEFAULT_TUNNEL_RELAY))
+		expect(relayKey("SIMPLEX.Tunnel.Polytope.Technology:443")).toBe(relayKey(DEFAULT_TUNNEL_RELAY))
+		expect(relayKey("simplex.tunnel.polytope.technology.:443")).toBe(relayKey(DEFAULT_TUNNEL_RELAY))
+		expect(relayKey("other.example:443")).not.toBe(relayKey(DEFAULT_TUNNEL_RELAY))
+		expect(relayKey("other.example:2222")).not.toBe(relayKey("other.example"))
+	})
+
+	it("applies the built-in pin to the port-less spelling of the hosted relay", () => {
+		expect(expectedRelayFingerprint({}, "simplex.tunnel.polytope.technology", undefined)).toBe(
+			DEFAULT_TUNNEL_RELAY_HOST_KEY,
+		)
+		expect(expectedRelayFingerprint({}, DEFAULT_TUNNEL_RELAY, undefined)).toBe(DEFAULT_TUNNEL_RELAY_HOST_KEY)
+	})
+})
 
 describe("parseRelayAddress", () => {
 	it("defaults the port to 443 and understands IPv6 brackets", () => {
@@ -517,6 +569,165 @@ describe("TunnelService", { timeout: 30_000 }, () => {
 		const phone = await phoneConnect({ port, privateKey: paired.privateKey! })
 		phones.push(phone)
 		expect(await httpThrough(phone, "127.0.0.1", ui.port)).toContain("ui ok")
+	})
+
+	it("tells the device to forward to the address the UI is actually bound to", async () => {
+		relay = new FakeRelay()
+		await relay.start()
+		// A UI on a specific non-loopback address: isTarget accepts only that
+		// address, so a forward naming 127.0.0.1 is refused. The panel used to
+		// advertise 127.0.0.1 regardless, which broke every such bind.
+		const lan = await new Promise<{ server: HttpServer; port: number; host: string }>((resolve) => {
+			const server = createHttpServer((_req, res) => res.end("lan ui ok"))
+			server.listen(0, "0.0.0.0", () => {
+				const port = (server.address() as { port: number }).port
+				resolve({ server, port, host: "127.0.0.1" })
+			})
+		})
+		try {
+			const dir = mkdtempSync(join(tmpdir(), "simplex-bind-"))
+			const service = new TunnelService({
+				dataDir: dir,
+				config: { enabled: true, relay: `127.0.0.1:${relay.port}` },
+				// Stand-in for `--ui <specific-address>`: whatever host is given here
+				// is the only one isTarget will accept.
+				uiTarget: () => ({ host: lan.host, port: lan.port }),
+				maxBackoffMs: 200,
+			})
+			tunnel = service
+			service.start()
+			await waitFor(() => service.status().state === "connected")
+			const paired = service.addDevice("phone")
+			expect(paired.connection.localForward).toBe(`8686:${lan.host}:${lan.port}`)
+			const phone = await phoneConnect({ port: service.status().port!, privateKey: paired.privateKey! })
+			phones.push(phone)
+			// What the panel shows is what the server accepts.
+			const [, forwardHost, forwardPort] = paired.connection.localForward.split(":")
+			expect(await httpThrough(phone, forwardHost, Number(forwardPort))).toContain("lan ui ok")
+		} finally {
+			lan.server.close()
+		}
+	})
+
+	it("destroys the stream of a peer that fails auth and ignores the disconnect", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "simplex-hangup-"))
+		const keys = new TunnelKeyStore(dir)
+		const embedded = new EmbeddedSshServer({
+			hostKey: keys.hostKey().privateKey,
+			isAuthorized: () => false,
+			target: () => ({ host: "127.0.0.1", port: ui.port }),
+			maxAuthFailures: 1,
+			authTimeoutMs: 60_000, // long, so only the failure limit can end this
+		})
+		const { clientSide, serverSide } = pipePair()
+		embedded.inject(serverSide, { ip: "203.0.113.7", port: 40000 })
+		const stranger = generateKeyPair()
+		const client = new SshClient()
+		client.on("error", () => {})
+		// conn.end() closes our write side only; a peer whose stream ignores end()
+		// used to keep the session, its protocol state and its slot in the
+		// connection count alive for as long as it liked.
+		client.connect({
+			sock: stubborn(clientSide),
+			username: "simplex",
+			privateKey: stranger.private,
+			hostVerifier: () => true,
+		} as never)
+		await waitFor(() => (serverSide as unknown as { destroyed: boolean }).destroyed, 8000)
+		await waitFor(() => embedded.connections === 0, 8000)
+		clientSide.destroy()
+		embedded.close()
+	})
+
+	it("reaps a peer that never finishes the SSH identification line", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "simplex-ident-"))
+		const keys = new TunnelKeyStore(dir)
+		const embedded = new EmbeddedSshServer({
+			hostKey: keys.hostKey().privateKey,
+			isAuthorized: () => false,
+			target: () => ({ host: "127.0.0.1", port: 1 }),
+			authTimeoutMs: 300,
+		})
+		const { clientSide, serverSide } = pipePair()
+		embedded.inject(serverSide, { ip: "203.0.113.8", port: 40001 })
+		// A partial ident line: ssh2 raises no connection event for it, so this
+		// stream reaches none of the per-connection timers.
+		clientSide.write("SSH-2.0-evil")
+		await waitFor(() => (serverSide as unknown as { destroyed: boolean }).destroyed, 5000)
+		clientSide.destroy()
+		embedded.close()
+	})
+
+	it("refuses a client that will only do an expensive key exchange", async () => {
+		relay = new FakeRelay()
+		await relay.start()
+		const service = startTunnel()
+		await waitFor(() => service.status().state === "connected")
+		const paired = service.addDevice("phone")
+		// group18 is an 8192-bit modulus: ~107ms of synchronous CPU per handshake
+		// on the loop that fills orders, chosen by the client. It is no longer
+		// offered, so a client that insists on it cannot connect at all.
+		await expect(
+			new Promise((resolve, reject) => {
+				const client = new SshClient()
+				client.on("ready", () => resolve(undefined))
+				client.on("error", reject)
+				client.connect({
+					host: "127.0.0.1",
+					port: service.status().port!,
+					username: "simplex",
+					privateKey: paired.privateKey!,
+					readyTimeout: 5000,
+					hostVerifier: () => true,
+					algorithms: { kex: ["diffie-hellman-group18-sha512"] },
+				} as never)
+			}),
+		).rejects.toThrow(/kex|algorithm|handshake/i)
+		// A normal client is unaffected.
+		const phone = await phoneConnect({ port: service.status().port!, privateKey: paired.privateKey! })
+		phones.push(phone)
+		expect(await httpThrough(phone, "127.0.0.1", ui.port)).toContain("ui ok")
+	})
+
+	it("does not pin a relay key until the handshake proves the relay holds it", async () => {
+		relay = new FakeRelay()
+		await relay.start()
+		const dir = mkdtempSync(join(tmpdir(), "simplex-pin-order-"))
+		const service = new TunnelService({
+			dataDir: dir,
+			config: { enabled: true, relay: `127.0.0.1:${relay.port}` },
+			uiTarget: () => ({ host: "127.0.0.1", port: ui.port }),
+			maxBackoffMs: 200,
+		})
+		tunnel = service
+		service.start()
+		await waitFor(() => service.status().state === "connected")
+		// Written only once the session is up. ssh2 calls hostVerifier while
+		// handling KEXDH_REPLY, before the signature over the exchange hash is
+		// checked, so anything pinned there is only a claim.
+		expect(new TunnelKeyStore(dir).knownRelay(`127.0.0.1:${relay.port}`)).toEqual({
+			relay: `127.0.0.1:${relay.port}`,
+			fingerprint: relay.hostFingerprint,
+		})
+	})
+
+	it("drops a configured host key pin when the relay changes", async () => {
+		relay = new FakeRelay()
+		await relay.start()
+		const other = new FakeRelay()
+		await other.start()
+		try {
+			// A pin set for one relay applied to every relay, so moving to another
+			// one failed the check forever — with an error telling the operator to
+			// delete a file that path never reads.
+			const service = startTunnel({ relayHostKey: relay.hostFingerprint })
+			await waitFor(() => service.status().state === "connected")
+			await service.configure({ relay: `127.0.0.1:${other.port}` })
+			await waitFor(() => service.status().state === "connected")
+			expect(service.status().relayFingerprint).toBe(other.hostFingerprint)
+		} finally {
+			other.stop()
+		}
 	})
 
 	it("surfaces a relay that refuses the forward", async () => {

@@ -35,6 +35,53 @@ const MAX_TRACKED_SOURCES = 10_000
 /** How often the failed-login table is swept for entries that aged out. */
 const FAILURE_SWEEP_INTERVAL_MS = 60_000
 
+/**
+ * Key exchange this server will accept.
+ *
+ * ssh2's default list includes diffie-hellman-group16/17/18-sha512, and it
+ * negotiates by the *client's* preference order — so an unauthenticated peer
+ * picks the algorithm. group18 costs ~107ms of synchronous CPU per handshake
+ * on the event loop that also prices and fills orders, and a peer can force a
+ * fresh one by renegotiating without ever attempting to log in. Curve25519 and
+ * the ECDH groups are what every SSH app actually offers; group14 stays as the
+ * floor for older ones, at ~2ms.
+ */
+const KEX_ALGORITHMS = [
+	"curve25519-sha256@libssh.org",
+	"curve25519-sha256",
+	"ecdh-sha2-nistp256",
+	"ecdh-sha2-nistp384",
+	"ecdh-sha2-nistp521",
+	"diffie-hellman-group14-sha256",
+] as const
+
+/**
+ * Plain `zlib` starts compressing at NEWKEYS — before authentication — which
+ * hands an unauthenticated peer a decompression amplifier. `zlib@openssh.com`
+ * only starts once a session is authenticated, so it stays.
+ */
+const COMPRESSION_ALGORITHMS = ["none", "zlib@openssh.com"] as const
+
+/**
+ * How long a DISCONNECT is given to reach a well-behaved peer before the
+ * stream is destroyed under it. Long enough for the reason to arrive, short
+ * enough that a peer ignoring it holds nothing for long.
+ */
+const HANGUP_GRACE_MS = 250
+
+/**
+ * The deadline armed over one injected stream. ssh2 only tells us about a
+ * connection once the peer has sent a complete SSH identification line, so a
+ * peer that sends a partial line (or nothing) would otherwise never be seen,
+ * never be timed out, and never be counted.
+ */
+interface StreamGuard {
+	stream: Duplex
+	origin: Origin
+	timer?: NodeJS.Timeout
+	authenticated: boolean
+}
+
 /** Where a forwarded connection originally came from, as the relay reports it. */
 export interface Origin {
 	ip: string
@@ -61,6 +108,13 @@ export class EmbeddedSshServer {
 	private readonly failuresBySource = new Map<string, number[]>()
 	/** Live authenticated connections per device fingerprint, so revoking one can hang up on it. */
 	private readonly connectionsByDevice = new Map<string, Set<Connection>>()
+	/** Streams awaiting authentication, so their deadlines can be disarmed together. */
+	private readonly pending = new Set<StreamGuard>()
+	/** Injected stream → its guard, and ssh2 connection → the same guard. */
+	private readonly guardByStream = new WeakMap<Duplex, StreamGuard>()
+	private readonly guardByConnection = new WeakMap<Connection, StreamGuard>()
+	/** Set if ssh2 ever stops handing back the stream we injected; deadlines are then disarmed rather than risk reaping a live session. */
+	private correlationBroken = false
 	private lastFailureSweep = 0
 	private live = 0
 
@@ -70,7 +124,13 @@ export class EmbeddedSshServer {
 		this.maxFailuresPerSource = opts.maxFailuresPerSource ?? 10
 		this.sourceWindowMs = opts.sourceWindowMs ?? 10 * 60 * 1000
 		this.server = new SshServer(
-			{ hostKeys: [opts.hostKey], ident: "SSH-2.0-simplex", keepaliveInterval: 15_000, keepaliveCountMax: 3 },
+			{
+				hostKeys: [opts.hostKey],
+				ident: "SSH-2.0-simplex",
+				keepaliveInterval: 15_000,
+				keepaliveCountMax: 3,
+				algorithms: { kex: [...KEX_ALGORITHMS], compress: [...COMPRESSION_ALGORITHMS] },
+			},
 			(conn, info) => this.onConnection(conn, info.ip, info.port),
 		)
 	}
@@ -91,12 +151,97 @@ export class EmbeddedSshServer {
 			return
 		}
 		const socket = stream as Duplex & Partial<Socket>
-		Object.assign(socket, {
-			remoteAddress: origin.ip,
-			remotePort: origin.port,
-			remoteFamily: origin.ip.includes(":") ? "IPv6" : "IPv4",
+		// defineProperty, not assign: on a real net.Socket these are getter-only
+		// and assigning throws. The relay always hands us an ssh2 channel today,
+		// but inject() takes a Duplex and should not care which one.
+		Object.defineProperties(socket, {
+			remoteAddress: { value: origin.ip, configurable: true },
+			remotePort: { value: origin.port, configurable: true },
+			remoteFamily: { value: origin.ip.includes(":") ? "IPv6" : "IPv4", configurable: true },
 		})
+		this.arm(stream, origin)
 		this.server.injectSocket(socket as Socket)
+	}
+
+	/**
+	 * Puts a deadline on a stream that has not authenticated. ssh2 raises its
+	 * connection event only after a complete identification line, so a peer that
+	 * never sends one reaches no other timer in this class: it would sit there
+	 * holding a stream, invisible to `connections`, for as long as it liked.
+	 */
+	private arm(stream: Duplex, origin: Origin): void {
+		if (this.correlationBroken) return
+		const guard: StreamGuard = { stream, origin, authenticated: false }
+		guard.timer = setTimeout(() => {
+			if (guard.authenticated) return
+			this.logger.debug({ origin }, "Dropping tunnel connection: not authenticated in time")
+			this.destroyQuietly(stream, origin)
+		}, this.authTimeoutMs)
+		guard.timer.unref?.()
+		this.pending.add(guard)
+		this.guardByStream.set(stream, guard)
+		// Destroying a stream can raise 'error' on it; without a listener that is
+		// an uncaught exception in the filler process.
+		stream.on("error", (err) => this.logger.debug({ origin, err: err.message }, "Tunnel stream error"))
+		stream.once("close", () => this.disarm(guard))
+	}
+
+	private disarm(guard: StreamGuard): void {
+		if (guard.timer) clearTimeout(guard.timer)
+		this.pending.delete(guard)
+	}
+
+	/**
+	 * The stream ssh2 is running this connection over. ssh2 keeps the socket we
+	 * injected on the connection; a miss means that internal changed, in which
+	 * case every armed deadline is dropped — reaping nothing is a leak, reaping
+	 * the wrong stream would cut a live operator session.
+	 */
+	private guardFor(conn: Connection): StreamGuard | undefined {
+		const sock = (conn as unknown as { _sock?: Duplex })._sock
+		const guard = sock ? this.guardByStream.get(sock) : undefined
+		if (guard) {
+			this.guardByConnection.set(conn, guard)
+			return guard
+		}
+		if (!this.correlationBroken) {
+			this.correlationBroken = true
+			for (const pending of [...this.pending]) this.disarm(pending)
+			this.logger.error(
+				"Cannot match a tunnel connection to the stream it arrived on; unauthenticated connections will not be reaped",
+			)
+		}
+		return undefined
+	}
+
+	/**
+	 * Ends a connection and means it.
+	 *
+	 * `conn.end()` sends DISCONNECT and closes our write side only, so a peer
+	 * that ignores it keeps the session, the protocol state and the connection
+	 * count alive indefinitely. Destroying the stream is what reclaims them; the
+	 * grace period is there so a well-behaved peer still gets the reason.
+	 */
+	private hangUp(conn: Connection): void {
+		conn.end()
+		const stream = this.guardByConnection.get(conn)?.stream
+		if (!stream) return
+		const origin = this.guardByConnection.get(conn)?.origin
+		const timer = setTimeout(() => this.destroyQuietly(stream, origin), HANGUP_GRACE_MS)
+		timer.unref?.()
+	}
+
+	/**
+	 * Destroys a stream from a timer. Both callers run outside any request, so a
+	 * stream whose `destroy()` throws synchronously would take the filler process
+	 * with it — the one thing remote access must never do.
+	 */
+	private destroyQuietly(stream: Duplex, origin?: Origin): void {
+		try {
+			stream.destroy()
+		} catch (err) {
+			this.logger.debug({ origin, err }, "Tunnel stream refused to close")
+		}
 	}
 
 	/**
@@ -109,7 +254,7 @@ export class EmbeddedSshServer {
 		const open = this.connectionsByDevice.get(fingerprint)
 		if (!open) return 0
 		const count = open.size
-		for (const conn of open) conn.end()
+		for (const conn of open) this.hangUp(conn)
 		this.connectionsByDevice.delete(fingerprint)
 		if (count > 0) this.logger.warn({ fingerprint, count }, "Closed live tunnel sessions for a revoked device")
 		return count
@@ -126,10 +271,13 @@ export class EmbeddedSshServer {
 		let authenticated = false
 		/** The device key this connection authenticated with, once it has. */
 		let deviceFingerprint: string | undefined
+		// The deadline armed in inject() covers this connection too; resolving the
+		// guard here is also what lets a hang-up destroy the stream.
+		const guard = this.guardFor(conn)
 		const authTimer = setTimeout(() => {
 			if (!authenticated) {
 				this.logger.debug({ origin }, "Dropping tunnel connection: not authenticated in time")
-				conn.end()
+				this.hangUp(conn)
 			}
 		}, this.authTimeoutMs)
 
@@ -139,7 +287,7 @@ export class EmbeddedSshServer {
 				this.recordFailure(ip)
 				this.logger.warn({ origin, reason, failures }, "Tunnel login refused")
 				ctx.reject(["publickey"])
-				if (failures >= this.maxAuthFailures) conn.end()
+				if (failures >= this.maxAuthFailures) this.hangUp(conn)
 			}
 			// Every client opens with `none` to ask which methods the server wants;
 			// refusing that is the handshake, not a failed login. Anything else —
@@ -156,6 +304,7 @@ export class EmbeddedSshServer {
 			if (ctx.signature === undefined || ctx.blob === undefined) return ctx.accept()
 			if (!key.verify(ctx.blob, ctx.signature, ctx.hashAlgo)) return fail("bad signature")
 			authenticated = true
+			if (guard) guard.authenticated = true
 			deviceFingerprint = fingerprint
 			const open = this.connectionsByDevice.get(fingerprint) ?? new Set<Connection>()
 			open.add(conn)

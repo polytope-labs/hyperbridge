@@ -4,6 +4,33 @@ AI-maintained record of non-obvious choices made in `sdk/packages/simplex`: what
 
 Entry format: heading with the decision, then alternatives considered and the reasoning. Newest first.
 
+## 2026-09-08 — The pre-auth deadline lives on the stream, not on the ssh2 connection
+
+ssh2 raises its connection event from `onHeader`, after a complete SSH identification line. A
+peer that sends a partial line reaches no handler in `EmbeddedSshServer` at all, so the 30s auth
+timer never armed and the stream was held for as long as the peer liked — invisible, because
+`live` is also incremented there. The timer therefore moved into `inject()`, which sees every
+stream.
+
+Cancelling it needs the reverse link, connection → stream, and ssh2 gives the connection handler
+only `(conn, info)`. The options were to parse packets, to wrap every stream in a proxy (which
+does not help — the correlation problem is identical), or to read `conn._sock`, which ssh2 sets
+in its Connection constructor. We read `_sock`, with a guard: the first time the lookup misses,
+every armed deadline is disarmed and an error is logged. Failing to reap connections is a leak;
+reaping the wrong stream would cut a live operator session. Two tests drive the paths that
+depend on the correlation, so an ssh2 upgrade that renames the field fails loudly.
+
+## 2026-09-08 — The key exchange list is ours, not the client's
+
+ssh2 offers diffie-hellman-group16/17/18-sha512 by default and negotiates by the client's
+preference order, which makes the algorithm an unauthenticated peer's choice. Measured on this
+machine: group14 2.2ms, group16 14.4ms, group18 107.2ms of synchronous server-side DH — on the
+same event loop that prices and fills orders, and repeatable via rekey without ever attempting
+to log in. Rate-limiting was the alternative, but the failure counter only sees login attempts,
+and a per-source connection cap would still leave the first handshake expensive. Restricting the
+offer removes the lever instead of policing it: curve25519 and the ECDH groups cover every SSH
+app anyone pairs, and group14 stays as a floor at ~2ms.
+
 ## 2026-09-08 — Every generated ed25519 pair is parsed before it is stored
 
 ssh2's `generateKeyPairSync("ed25519")` returns a pair its own `parseKey` rejects about once in

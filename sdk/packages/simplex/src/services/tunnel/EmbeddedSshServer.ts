@@ -25,6 +25,16 @@ export interface EmbeddedSshServerOptions {
 	sourceWindowMs?: number
 }
 
+/**
+ * Ceiling on the failed-login table. Each entry is one source address, so a
+ * scanner walking a /64 could otherwise add one forever. Eviction is
+ * oldest-touched-first, which drops the addresses that stopped trying.
+ */
+const MAX_TRACKED_SOURCES = 10_000
+
+/** How often the failed-login table is swept for entries that aged out. */
+const FAILURE_SWEEP_INTERVAL_MS = 60_000
+
 /** Where a forwarded connection originally came from, as the relay reports it. */
 export interface Origin {
 	ip: string
@@ -49,6 +59,9 @@ export class EmbeddedSshServer {
 	private readonly maxFailuresPerSource: number
 	private readonly sourceWindowMs: number
 	private readonly failuresBySource = new Map<string, number[]>()
+	/** Live authenticated connections per device fingerprint, so revoking one can hang up on it. */
+	private readonly connectionsByDevice = new Map<string, Set<Connection>>()
+	private lastFailureSweep = 0
 	private live = 0
 
 	constructor(private readonly opts: EmbeddedSshServerOptions) {
@@ -86,6 +99,22 @@ export class EmbeddedSshServer {
 		this.server.injectSocket(socket as Socket)
 	}
 
+	/**
+	 * Hangs up on every live session holding this device key. Revoking a device
+	 * blocks its next login, but a session opened a minute earlier would
+	 * otherwise keep the dashboard open for as long as it stayed connected —
+	 * and a lost phone is exactly when that matters.
+	 */
+	disconnectDevice(fingerprint: string): number {
+		const open = this.connectionsByDevice.get(fingerprint)
+		if (!open) return 0
+		const count = open.size
+		for (const conn of open) conn.end()
+		this.connectionsByDevice.delete(fingerprint)
+		if (count > 0) this.logger.warn({ fingerprint, count }, "Closed live tunnel sessions for a revoked device")
+		return count
+	}
+
 	close(): void {
 		this.server.close()
 	}
@@ -95,6 +124,8 @@ export class EmbeddedSshServer {
 		const origin = `${ip}:${port}`
 		let failures = 0
 		let authenticated = false
+		/** The device key this connection authenticated with, once it has. */
+		let deviceFingerprint: string | undefined
 		const authTimer = setTimeout(() => {
 			if (!authenticated) {
 				this.logger.debug({ origin }, "Dropping tunnel connection: not authenticated in time")
@@ -110,7 +141,12 @@ export class EmbeddedSshServer {
 				ctx.reject(["publickey"])
 				if (failures >= this.maxAuthFailures) conn.end()
 			}
-			if (ctx.method !== "publickey") return ctx.reject(["publickey"])
+			// Every client opens with `none` to ask which methods the server wants;
+			// refusing that is the handshake, not a failed login. Anything else —
+			// password, keyboard-interactive, hostbased — is someone trying a door
+			// that does not exist, and counts like any other refusal.
+			if (ctx.method === "none") return ctx.reject(["publickey"])
+			if (ctx.method !== "publickey") return fail(`unsupported authentication method ${ctx.method}`)
 			const key = utils.parseKey(ctx.key.data)
 			if (key instanceof Error) return fail("unreadable key")
 			const fingerprint = fingerprintOf(ctx.key.data)
@@ -120,6 +156,10 @@ export class EmbeddedSshServer {
 			if (ctx.signature === undefined || ctx.blob === undefined) return ctx.accept()
 			if (!key.verify(ctx.blob, ctx.signature, ctx.hashAlgo)) return fail("bad signature")
 			authenticated = true
+			deviceFingerprint = fingerprint
+			const open = this.connectionsByDevice.get(fingerprint) ?? new Set<Connection>()
+			open.add(conn)
+			this.connectionsByDevice.set(fingerprint, open)
 			this.logger.info({ origin, fingerprint }, "Device connected through the tunnel")
 			ctx.accept()
 		})
@@ -133,6 +173,13 @@ export class EmbeddedSshServer {
 			conn.on("openssh.streamlocal", (_accept, reject) => reject())
 			conn.on("request", (_accept, reject) => reject?.())
 			conn.on("tcpip", (accept, reject, info) => {
+				// Authorization is re-read per channel, not just per login: a device
+				// revoked mid-session opens nothing further, even before the hang-up
+				// below lands.
+				if (!deviceFingerprint || !this.opts.isAuthorized(deviceFingerprint)) {
+					this.logger.warn({ origin, fingerprint: deviceFingerprint }, "Refused a forward for a revoked device")
+					return reject()
+				}
 				const target = this.opts.target()
 				if (!this.isTarget(info.destIP, info.destPort, target)) {
 					this.logger.warn(
@@ -164,6 +211,11 @@ export class EmbeddedSshServer {
 		conn.on("close", () => {
 			clearTimeout(authTimer)
 			this.live--
+			if (deviceFingerprint) {
+				const open = this.connectionsByDevice.get(deviceFingerprint)
+				open?.delete(conn)
+				if (open?.size === 0) this.connectionsByDevice.delete(deviceFingerprint)
+			}
 		})
 	}
 
@@ -175,9 +227,31 @@ export class EmbeddedSshServer {
 	}
 
 	private recordFailure(ip: string): void {
+		const now = Date.now()
+		if (now - this.lastFailureSweep >= FAILURE_SWEEP_INTERVAL_MS) {
+			this.pruneFailures(now)
+			this.lastFailureSweep = now
+		}
 		const hits = this.failuresBySource.get(ip) ?? []
-		hits.push(Date.now())
+		hits.push(now)
+		// Delete before set so Map order stays oldest-touched first — that is what
+		// makes the eviction below drop a stale address rather than an active one.
+		this.failuresBySource.delete(ip)
 		this.failuresBySource.set(ip, hits)
+		if (this.failuresBySource.size > MAX_TRACKED_SOURCES) {
+			const oldest = this.failuresBySource.keys().next().value
+			if (oldest !== undefined && oldest !== ip) this.failuresBySource.delete(oldest)
+		}
+	}
+
+	/** Drops sources whose failures have all aged out of the window. */
+	private pruneFailures(now: number): void {
+		const cutoff = now - this.sourceWindowMs
+		for (const [ip, hits] of this.failuresBySource) {
+			const kept = hits.filter((t) => t > cutoff)
+			if (kept.length === 0) this.failuresBySource.delete(ip)
+			else this.failuresBySource.set(ip, kept)
+		}
 	}
 
 	private recentFailures(ip: string): number {

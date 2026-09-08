@@ -7,6 +7,31 @@ import ssh2 from "ssh2"
 // the ESM binary, where Node cannot see them statically.
 const { utils } = ssh2
 
+/** How many times a rejected generated pair is retried before giving up. */
+const KEYGEN_ATTEMPTS = 8
+
+/**
+ * Generates an ed25519 pair that ssh2 can read back.
+ *
+ * ssh2's generator emits a key its own parser refuses roughly once in 256 —
+ * measured at 0.4–0.6% over thousands of pairs, which is the signature of a
+ * dropped leading zero byte. For a key that is written to disk and loaded on
+ * every boot that is not a transient error: remote access stays broken until
+ * someone deletes the file. So every pair is parsed before it is used, and a
+ * bad one is thrown away rather than stored.
+ */
+export function generateKeyPair(comment?: string): { public: string; private: string } {
+	for (let attempt = 0; attempt < KEYGEN_ATTEMPTS; attempt++) {
+		const pair = comment === undefined
+			? utils.generateKeyPairSync("ed25519")
+			: utils.generateKeyPairSync("ed25519", { comment })
+		if (utils.parseKey(pair.private) instanceof Error) continue
+		if (utils.parseKey(pair.public) instanceof Error) continue
+		return pair
+	}
+	throw new Error(`Could not generate a usable ed25519 key pair in ${KEYGEN_ATTEMPTS} attempts`)
+}
+
 /** A key pair on disk: the OpenSSH private key text, its public line, and the SHA256 fingerprint. */
 export interface StoredKey {
 	privateKey: string
@@ -113,7 +138,7 @@ export class TunnelKeyStore {
 		if (publicKey !== undefined) {
 			publicLine = normalizePublicKey(publicKey)
 		} else {
-			const pair = utils.generateKeyPairSync("ed25519", { comment })
+			const pair = generateKeyPair(comment)
 			publicLine = pair.public.trim().split(/\s+/).slice(0, 2).join(" ")
 			privateKey = pair.private
 		}
@@ -133,21 +158,40 @@ export class TunnelKeyStore {
 		return true
 	}
 
-	knownRelay(): KnownRelay | undefined {
-		const path = join(this.dir, "known_relay")
-		if (!existsSync(path)) return undefined
-		const [relay, fingerprint] = readFileSync(path, "utf8").trim().split(/\s+/)
-		return relay && fingerprint ? { relay, fingerprint } : undefined
+	/**
+	 * The fingerprint pinned for one relay address. Keyed by address rather than
+	 * held as a single line: an operator who moves from relay A to B and back
+	 * would otherwise return to A with no pin at all and trust whatever key it
+	 * presents next — the pin has to survive the trip.
+	 */
+	knownRelay(relay: string): KnownRelay | undefined {
+		for (const line of this.relayLines()) {
+			const [storedRelay, fingerprint] = line.split(/\s+/)
+			if (storedRelay === relay && fingerprint) return { relay: storedRelay, fingerprint }
+		}
+		return undefined
 	}
 
 	rememberRelay(relay: string, fingerprint: string): void {
-		this.writePrivate("known_relay", `${relay} ${fingerprint}\n`)
+		const kept = this.relayLines().filter((line) => line.split(/\s+/)[0] !== relay)
+		kept.push(`${relay} ${fingerprint}`)
+		this.writePrivate("known_relay", `${kept.join("\n")}\n`)
+	}
+
+	/** Non-empty lines of `known_relay`; a pre-per-relay file is one such line. */
+	private relayLines(): string[] {
+		const path = join(this.dir, "known_relay")
+		if (!existsSync(path)) return []
+		return readFileSync(path, "utf8")
+			.split("\n")
+			.map((line) => line.trim())
+			.filter(Boolean)
 	}
 
 	private loadOrCreate(name: string, comment: string): StoredKey {
 		const privatePath = join(this.dir, name)
 		if (!existsSync(privatePath)) {
-			const pair = utils.generateKeyPairSync("ed25519", { comment })
+			const pair = generateKeyPair(comment)
 			this.writePrivate(name, pair.private)
 			writeFileSync(`${privatePath}.pub`, `${pair.public.trim()}\n`, { mode: 0o644 })
 		}

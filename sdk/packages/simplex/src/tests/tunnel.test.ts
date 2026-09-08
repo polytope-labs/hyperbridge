@@ -1,7 +1,7 @@
-import { describe, it, expect, afterEach, beforeAll } from "vitest"
+import { describe, it, expect, afterEach, beforeAll, vi } from "vitest"
 import { createServer as createHttpServer, type Server as HttpServer } from "node:http"
 import { createServer as createTcpServer, type Server as TcpServer } from "node:net"
-import { mkdtempSync, readFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import ssh2, {
@@ -17,7 +17,13 @@ import {
 	DEFAULT_TUNNEL_RELAY,
 	DEFAULT_TUNNEL_RELAY_HOST_KEY,
 } from "@/services/tunnel/TunnelService"
-import { TunnelKeyStore, fingerprintOf, fingerprintOfKeyText, normalizePublicKey } from "@/services/tunnel/keys"
+import {
+	TunnelKeyStore,
+	fingerprintOf,
+	fingerprintOfKeyText,
+	generateKeyPair,
+	normalizePublicKey,
+} from "@/services/tunnel/keys"
 
 const { Client: SshClient, Server: SshServer, utils } = ssh2
 
@@ -28,7 +34,7 @@ const { Client: SshClient, Server: SshServer, utils } = ssh2
  * address echoed verbatim (which is what ssh2 matches channels on).
  */
 class FakeRelay {
-	readonly hostKey = utils.generateKeyPairSync("ed25519")
+	readonly hostKey = generateKeyPair()
 	readonly hostFingerprint = fingerprintOfKeyText(this.hostKey.public)
 	private server: SshServerType
 	private listeners = new Set<TcpServer>()
@@ -205,9 +211,67 @@ describe("TunnelKeyStore", () => {
 		expect(store.removeDevice(device.fingerprint)).toBe(false)
 		expect(store.isAuthorized(device.fingerprint)).toBe(false)
 
-		expect(store.knownRelay()).toBeUndefined()
+		expect(store.knownRelay("relay:443")).toBeUndefined()
 		store.rememberRelay("relay:443", "SHA256:abc")
-		expect(store.knownRelay()).toEqual({ relay: "relay:443", fingerprint: "SHA256:abc" })
+		expect(store.knownRelay("relay:443")).toEqual({ relay: "relay:443", fingerprint: "SHA256:abc" })
+	})
+
+	it("pins each relay address separately, so moving away and back keeps the old pin", () => {
+		const dir = mkdtempSync(join(tmpdir(), "simplex-tunnel-pins-"))
+		const store = new TunnelKeyStore(dir)
+		store.rememberRelay("a:443", "SHA256:aaa")
+		store.rememberRelay("b:443", "SHA256:bbb")
+		// The second relay does not evict the first: coming back to A still has a
+		// pin to check its key against, instead of trusting whatever it presents.
+		expect(store.knownRelay("a:443")).toEqual({ relay: "a:443", fingerprint: "SHA256:aaa" })
+		expect(store.knownRelay("b:443")).toEqual({ relay: "b:443", fingerprint: "SHA256:bbb" })
+		expect(store.knownRelay("c:443")).toBeUndefined()
+		// Re-pinning one address rewrites that line only.
+		store.rememberRelay("a:443", "SHA256:zzz")
+		expect(store.knownRelay("a:443")).toEqual({ relay: "a:443", fingerprint: "SHA256:zzz" })
+		expect(store.knownRelay("b:443")).toEqual({ relay: "b:443", fingerprint: "SHA256:bbb" })
+		expect(readFileSync(join(dir, "tunnel", "known_relay"), "utf8").trim().split("\n")).toHaveLength(2)
+	})
+
+	it("reads a pre-per-relay known_relay file written as a single line", () => {
+		const dir = mkdtempSync(join(tmpdir(), "simplex-tunnel-legacy-pin-"))
+		mkdirSync(join(dir, "tunnel"), { recursive: true })
+		writeFileSync(join(dir, "tunnel", "known_relay"), "old:443 SHA256:old\n", { mode: 0o600 })
+		expect(new TunnelKeyStore(dir).knownRelay("old:443")).toEqual({ relay: "old:443", fingerprint: "SHA256:old" })
+	})
+
+	it("throws away a key pair ssh2 generates but cannot read back", () => {
+		// ssh2 emits an unparseable pair roughly once in 256. A stored key that
+		// cannot be read back breaks remote access on every subsequent boot, so
+		// generation retries rather than persisting the bad one.
+		// A pair known to parse, taken before the spy is installed — asking ssh2 for
+		// a fresh one inside the mock would reintroduce the very 1-in-256 flake
+		// this test exists to cover.
+		const usable = generateKeyPair("usable")
+		const broken = {
+			public: "ssh-ed25519 not-a-key",
+			private: "-----BEGIN OPENSSH PRIVATE KEY-----\nAAAA\n-----END OPENSSH PRIVATE KEY-----\n",
+		}
+		let calls = 0
+		const spy = vi.spyOn(ssh2.utils, "generateKeyPairSync").mockImplementation((() => {
+			calls++
+			return calls <= 2 ? broken : usable
+		}) as typeof ssh2.utils.generateKeyPairSync)
+		try {
+			const pair = generateKeyPair("retry me")
+			expect(calls).toBe(3)
+			expect(ssh2.utils.parseKey(pair.private)).not.toBeInstanceOf(Error)
+			// Nothing usable at all is an error, not an infinite loop.
+			calls = 0
+			spy.mockImplementation((() => {
+				calls++
+				return broken
+			}) as typeof ssh2.utils.generateKeyPairSync)
+			expect(() => generateKeyPair("never works")).toThrow(/Could not generate/)
+			expect(calls).toBe(8)
+		} finally {
+			spy.mockRestore()
+		}
 	})
 
 	it("pairs a pasted public key without ever holding the private half", () => {
@@ -349,7 +413,7 @@ describe("TunnelService", { timeout: 30_000 }, () => {
 		tunnel = new TunnelService({ ...opts, config: { enabled: true, relay: `127.0.0.1:${relay.port}` } })
 		tunnel.start()
 		await waitFor(() => tunnel!.status().state === "connected")
-		expect(new TunnelKeyStore(dir).knownRelay()).toEqual({
+		expect(new TunnelKeyStore(dir).knownRelay(`127.0.0.1:${relay.port}`)).toEqual({
 			relay: `127.0.0.1:${relay.port}`,
 			fingerprint: relay.hostFingerprint,
 		})
@@ -394,6 +458,65 @@ describe("TunnelService", { timeout: 30_000 }, () => {
 		await service.configure({ enabled: true })
 		await waitFor(() => service.status().state === "connected")
 		await expect(service.configure({ relay: "nope:abc" })).rejects.toThrow(/out of range/)
+	})
+
+	it("hangs up on a live session when its device is revoked", async () => {
+		relay = new FakeRelay()
+		await relay.start()
+		const service = startTunnel()
+		await waitFor(() => service.status().state === "connected")
+		const paired = service.addDevice("phone")
+		const phone = await phoneConnect({
+			port: service.status().port!,
+			privateKey: paired.privateKey!,
+		})
+		phones.push(phone)
+		expect(await httpThrough(phone, "127.0.0.1", ui.port)).toContain("ui ok")
+		await waitFor(() => service.status().activeConnections === 1)
+
+		const closed = new Promise<void>((resolve) => phone.on("close", () => resolve()))
+		expect(service.removeDevice(paired.device.fingerprint)).toBe(true)
+		// Revoking a lost device has to end the session it is already holding open,
+		// not just refuse its next login.
+		await closed
+		await waitFor(() => service.status().activeConnections === 0)
+		await expect(
+			phoneConnect({ port: service.status().port!, privateKey: paired.privateKey! }),
+		).rejects.toThrow()
+	})
+
+	it("counts a password attempt as a failed login but not the client's method probe", async () => {
+		relay = new FakeRelay()
+		await relay.start()
+		const service = startTunnel()
+		await waitFor(() => service.status().state === "connected")
+		const port = service.status().port!
+
+		// Three password attempts is the per-connection limit; a client that only
+		// ever offers passwords is trying a door that does not exist.
+		await expect(
+			new Promise((resolve, reject) => {
+				const client = new SshClient()
+				client.on("ready", () => resolve(undefined))
+				client.on("error", reject)
+				client.connect({
+					host: "127.0.0.1",
+					port,
+					username: "simplex",
+					password: "hunter2",
+					readyTimeout: 5000,
+					hostVerifier: () => true,
+				})
+			}),
+		).rejects.toThrow()
+
+		// The `none` probe every client opens with is part of the handshake, so a
+		// paired device still connects afterwards rather than being rate-limited
+		// out by its own greeting.
+		const paired = service.addDevice("phone")
+		const phone = await phoneConnect({ port, privateKey: paired.privateKey! })
+		phones.push(phone)
+		expect(await httpThrough(phone, "127.0.0.1", ui.port)).toContain("ui ok")
 	})
 
 	it("surfaces a relay that refuses the forward", async () => {

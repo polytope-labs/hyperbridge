@@ -173,7 +173,7 @@ export class TunnelService implements TunnelControls {
 			state: this.state,
 			relay: this.relay,
 			relayFingerprint:
-				this.relayFingerprint ?? expectedRelayFingerprint(this.config, this.relay, this.keys.knownRelay()),
+				this.relayFingerprint ?? expectedRelayFingerprint(this.config, this.relay, this.keys.knownRelay(this.relay)),
 			port: this.port,
 			connectedAt: this.connectedAt,
 			lastError: this.lastError,
@@ -242,8 +242,12 @@ export class TunnelService implements TunnelControls {
 
 	removeDevice(fingerprint: string): boolean {
 		const removed = this.keys.removeDevice(fingerprint)
-		if (removed) this.logger.warn({ fingerprint }, "Revoked a remote-access device")
-		return removed
+		if (!removed) return false
+		// Revoking blocks the next login; this ends the sessions already open on
+		// that key, which is the point of revoking a device you no longer hold.
+		const closed = this.server.disconnectDevice(fingerprint)
+		this.logger.warn({ fingerprint, closedSessions: closed }, "Revoked a remote-access device")
+		return true
 	}
 
 	private connect(): void {
@@ -321,7 +325,7 @@ export class TunnelService implements TunnelControls {
 	 */
 	private verifyRelay(relay: string, key: Buffer): boolean {
 		const seen = fingerprintOf(key)
-		const expected = expectedRelayFingerprint(this.config, relay, this.keys.knownRelay())
+		const expected = expectedRelayFingerprint(this.config, relay, this.keys.knownRelay(relay))
 		if (expected && expected !== seen) {
 			this.pinMismatch = true
 			this.lastError = `Relay host key mismatch: expected ${expected}, got ${seen}. Set [simplex.tunnel] relayHostKey or delete tunnel/known_relay if the relay was rebuilt.`

@@ -4,6 +4,27 @@ AI-maintained record of non-obvious choices made in `sdk/packages/simplex`: what
 
 Entry format: heading with the decision, then alternatives considered and the reasoning. Newest first.
 
+## 2026-09-08 — Every generated ed25519 pair is parsed before it is stored
+
+ssh2's `generateKeyPairSync("ed25519")` returns a pair its own `parseKey` rejects about once in
+256 — 28 of 5,000 in a direct measurement, which is the rate you get from a dropped leading zero
+byte. The alternative was to treat it as a rare transient and let the caller retry, but the
+operator and host keys are written to disk on first boot and re-read on every start: a bad one is
+not transient, it is remote access permanently broken with "Malformed OpenSSH private key" until
+someone deletes the file by hand. Generating our own keys with `node:crypto` and encoding the
+OpenSSH format ourselves would remove the dependency on ssh2's generator entirely, but that is a
+lot of format code to own for a bug a round-trip check catches. `generateKeyPair` therefore
+generates, parses both halves, and retries up to 8 times; 8 consecutive failures is (1/256)^8.
+
+## 2026-09-08 — `none` is not a failed login, every other non-publickey method is
+
+Routing all non-publickey attempts through the failure counter was the review's suggestion, and
+it is right for password and keyboard-interactive. It is wrong for `none`: that is the probe
+every SSH client opens with to ask which methods the server accepts, so counting it would spend
+one of three per-connection failures on the handshake itself and, worse, would push a device that
+reconnects ten times in ten minutes past the per-source limit and lock it out. `none` is refused
+without being counted; everything else counts.
+
 ## 2026-09-07 — Pairing pastes the phone's public key by default; generation is the fallback
 
 The first cut generated every device key in simplex and showed the private half on the desktop

@@ -291,18 +291,42 @@ program
 					watchOnly: options.watchOnly,
 				})
 				runtime = simplex.internals
-				// Remote access rides on the operator-mode UI only: it starts here,
-				// after the filler is up, never while the setup wizard holds secrets.
+				return simplex
+			}
+
+			/**
+			 * Builds the tunnel, without connecting it. Remote access rides on the
+			 * operator-mode UI only, so the caller connects it once the UI has
+			 * actually bound: `--no-ui` or a lost race for the port would otherwise
+			 * point the tunnel at whatever else answers on that port.
+			 *
+			 * A failure here costs remote access, never filling — the filler is the
+			 * workload, and the key store is the only thing that can throw.
+			 */
+			const createTunnel = (config: FillerConfigFile): TunnelService | undefined => {
 				// A wildcard UI bind is reached on loopback; a specific address as-is.
 				const uiHost =
 					isLoopbackHost(uiBind.host) || uiBind.host === "0.0.0.0" || uiBind.host === "::" ? "127.0.0.1" : uiBind.host
-				tunnel = new TunnelService({
-					dataDir: resolveDataDir(options.dataDir),
-					config: config.simplex.tunnel,
-					uiTarget: () => ({ host: uiHost, port: uiBoundPort }),
-				})
-				tunnel.start()
-				return simplex
+				try {
+					return new TunnelService({
+						dataDir: resolveDataDir(options.dataDir),
+						config: config.simplex.tunnel,
+						uiTarget: () => ({ host: uiHost, port: uiBoundPort }),
+					})
+				} catch (err) {
+					logger.error({ err }, "Remote access unavailable; filling continues without it")
+					return undefined
+				}
+			}
+
+			/** Connects the tunnel if there is one. Same rule: never fatal. */
+			const startTunnel = (): void => {
+				try {
+					tunnel?.start()
+				} catch (err) {
+					logger.error({ err }, "Remote access failed to start; filling continues without it")
+					tunnel = undefined
+				}
 			}
 
 			// Registered once, up front: during init mode there is no runtime yet
@@ -336,7 +360,10 @@ program
 
 				// Local web UI (status, pause/resume, inflight price curve updates).
 				// On by default at 127.0.0.1; disable with --no-ui.
+				// No UI, no tunnel: the tunnel exists to carry devices to this dashboard,
+				// and with nothing bound it would forward to whatever else holds the port.
 				if (uiEnabled) {
+					tunnel = createTunnel(config)
 					uiServer = new UiServer({
 						mode: "operator",
 						uiDistDir: resolveUiDistDir(),
@@ -344,11 +371,14 @@ program
 					})
 					try {
 						uiBoundPort = await uiServer.start(uiBind.port, uiBind.host)
+						startTunnel()
 					} catch (err) {
 						// The filler is the primary workload; a bind failure (e.g. port in use)
 						// costs the UI, not the process.
 						logger.error({ err, bind: `${uiBind.host}:${uiBind.port}` }, "UI server failed to start")
 						uiServer = undefined
+						await tunnel?.stop()
+						tunnel = undefined
 					}
 				}
 				return
@@ -372,7 +402,11 @@ program
 					configPath: outputPath,
 					onSaveAndStart: async (config, _toml, path) => {
 						await startFiller(config, path)
+						// The wizard's own server is already bound, so the tunnel has a UI
+						// to point at the moment it comes up.
+						tunnel = createTunnel(config)
 						server.enterOperatorMode(await operatorContextFrom(simplex!, () => shutdown("UI"), tunnel))
+						startTunnel()
 					},
 				},
 			})

@@ -21,7 +21,7 @@ export function AppScreen(props: { state: AppBootstrapState; refresh: () => Prom
 		case "loading-setup":
 			return <p className="hint">Loading setup…</p>
 		case "operator":
-			return <Operator status={state.status} refresh={() => void refresh()} />
+			return <Operator status={state.status} refresh={refresh} />
 		case "setup":
 			return <Wizard defaults={state.defaults} />
 	}

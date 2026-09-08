@@ -1,7 +1,9 @@
 import { defineConfig } from "tsup"
 
 /** Native and worker-spawning modules that must never be inlined into a bundle. */
-const ALWAYS_EXTERNAL = ["better-sqlite3", "@solana/spl-token", "@solana/web3.js", "pino", "pino-pretty", "thread-stream"]
+// ssh2 probes for an optional native crypto binding relative to its own package
+// directory, so it stays external like better-sqlite3.
+const ALWAYS_EXTERNAL = ["better-sqlite3", "@solana/spl-token", "@solana/web3.js", "pino", "pino-pretty", "thread-stream", "ssh2"]
 
 /**
  * Dependencies inlined into the library build despite the general rule.

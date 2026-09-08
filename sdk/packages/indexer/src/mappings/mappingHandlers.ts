@@ -32,8 +32,10 @@ export { handleSubstrateGetRequestHandledEvent } from "@/handlers/events/substra
 export { handleSubstrateGetRequestTimeoutHandledEvent } from "@/handlers/events/substrateChains/handleGetRequestTimeoutHandledEvent.handler"
 
 // Price Handlers
-export { handlePriceIndexing } from "@/handlers/events/price/handlePriceIndexing.event.handler"
 export { handleBridgeTokenSupplyIndexing } from "@/handlers/events/supply/handleBridgeTokenSupplyIndexing.event.handler"
+
+// Liquidity Handlers
+export { handleInventoryFold } from "@/handlers/events/liquidity/inventoryFold.block.handler"
 
 // Pending Status Flush Handler
 export { handlePendingStatusFlush } from "@/handlers/events/pendingStatus/handlePendingStatusFlush.event.handler"

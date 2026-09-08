@@ -294,6 +294,16 @@ button.operator-text-button:hover:not(:disabled) {
 	border-top: 1px solid var(--border);
 }
 
+/*
+ * Each of these lists ends its section, and the section draws its own bottom
+ * rule, so a last row that draws one too leaves two lines a padding apart.
+ */
+.operator-balance-list > *:last-child,
+.operator-market-list > *:last-child,
+.operator-tool-list > *:last-child {
+	border-bottom: 0;
+}
+
 .operator-balance-row {
 	padding: 1.25rem 0 1.5rem;
 	border-bottom: 1px solid var(--border);
@@ -1742,6 +1752,191 @@ button.operator-runtime-stop:hover:not(:disabled) {
 	background: rgba(255, 122, 137, 0.12);
 }
 
+/* Remote access panel */
+.tunnel-panel {
+	display: grid;
+	gap: 1rem;
+}
+
+.tunnel-card {
+	margin-bottom: 0;
+}
+
+.tunnel-card .card-heading h2 {
+	margin: 0.35rem 0 0;
+	font-size: 1.05rem;
+	font-weight: 500;
+	letter-spacing: -0.02em;
+}
+
+.tunnel-card > .hint {
+	margin: 0.9rem 0 0;
+	font-size: 0.8125rem;
+	line-height: 1.55;
+}
+
+.tunnel-toggle {
+	margin-top: 1.25rem;
+}
+
+.tunnel-facts {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 1rem 1.5rem;
+	margin: 1.25rem 0 0;
+	padding-top: 1.25rem;
+	border-top: 1px solid var(--border);
+}
+
+.tunnel-facts > div {
+	display: grid;
+	gap: 0.3rem;
+	min-width: 0;
+}
+
+.tunnel-facts dt {
+	color: var(--muted);
+	font-family: var(--font-mono);
+	font-size: 0.625rem;
+	font-weight: 500;
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+}
+
+.tunnel-facts dd {
+	margin: 0;
+	min-width: 0;
+	font-size: 0.8125rem;
+	overflow-wrap: anywhere;
+}
+
+.tunnel-facts-pending {
+	color: var(--muted);
+	font-size: 0.8125rem;
+}
+
+.tunnel-alert {
+	margin-top: 1.25rem;
+	padding-right: 1rem;
+}
+
+.tunnel-count {
+	color: var(--muted);
+	font-family: var(--font-mono);
+	font-size: 0.625rem;
+}
+
+.tunnel-device-list {
+	margin: 1rem 0 0;
+	padding: 0;
+	list-style: none;
+	border-top: 1px solid var(--border);
+}
+
+.tunnel-device {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 1rem;
+	padding: 0.9rem 0;
+	border-bottom: 1px solid var(--border);
+}
+
+.tunnel-device > div {
+	display: grid;
+	gap: 0.2rem;
+	min-width: 0;
+}
+
+/* The card's own bottom rule closes the section, so the last row must not draw one too. */
+.tunnel-device:last-child {
+	border-bottom: 0;
+}
+
+.tunnel-device strong {
+	font-size: 0.875rem;
+	font-weight: 500;
+}
+
+.tunnel-device small {
+	color: var(--muted);
+	font-size: 0.75rem;
+	overflow-wrap: anywhere;
+}
+
+.tunnel-card .steps {
+	margin: 1rem 0 0.25rem;
+}
+
+.tunnel-card .field {
+	margin-top: 1rem;
+}
+
+.tunnel-key-input {
+	width: 100%;
+	padding: 0.7rem 0.9rem;
+	border: 1px solid var(--border);
+	border-radius: 0.75rem;
+	background: var(--control);
+	color: var(--text);
+	font-size: 0.75rem;
+	line-height: 1.5;
+	resize: vertical;
+}
+
+.tunnel-key-input::placeholder {
+	color: #68717e;
+}
+
+.tunnel-actions {
+	display: flex;
+	align-items: center;
+	justify-content: flex-end;
+	gap: 1rem;
+	margin-top: 1.25rem;
+}
+
+.tunnel-ack {
+	display: flex;
+	align-items: center;
+	gap: 0.55rem;
+	color: var(--text-secondary);
+	font-size: 0.8125rem;
+	cursor: pointer;
+}
+
+.tunnel-secret {
+	display: flex;
+	align-items: flex-start;
+	gap: 1.25rem;
+	margin-top: 1.25rem;
+}
+
+.tunnel-secret img {
+	flex: 0 0 auto;
+	border-radius: 0.75rem;
+	background: #fff;
+}
+
+.tunnel-secret-text {
+	display: grid;
+	gap: 0.6rem;
+	flex: 1;
+	min-width: 0;
+}
+
+.tunnel-command {
+	margin: 0.75rem 0 0;
+	padding: 0.8rem 0.9rem;
+	border: 1px solid var(--border);
+	border-radius: 0.75rem;
+	background: var(--control);
+	font-size: 0.75rem;
+	line-height: 1.5;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+
 /* Bids column: bid (up, green) and retraction (down, red) as explorer links; a grey arrow stands in when absent. */
 .history-bid-links {
 	justify-content: flex-start;
@@ -1996,4 +2191,115 @@ button.operator-runtime-stop:hover:not(:disabled) {
 	width: 0.9rem;
 	height: 0.9rem;
 	margin-right: 0.4rem;
+}
+
+/* Send review dialog */
+.send-review {
+	display: grid;
+	gap: 1.25rem;
+	/* The dialog body has horizontal padding only, so the review supplies its own. */
+	padding: 0.5rem 0 1.5rem;
+}
+
+.send-review-asset {
+	position: relative;
+	display: inline-block;
+	width: 2rem;
+	height: 2rem;
+	flex: 0 0 auto;
+}
+
+.send-review-asset .token-icon {
+	display: block;
+}
+
+.send-review-chain-badge {
+	position: absolute;
+	right: -0.3rem;
+	bottom: -0.3rem;
+	display: block;
+	width: 1.05rem;
+	height: 1.05rem;
+	border-radius: 50%;
+	box-shadow: 0 0 0 2px var(--card);
+}
+
+.send-review-chain-badge .chain-logo {
+	width: 100%;
+	height: 100%;
+	font-size: 0.45rem;
+}
+
+.send-review-headline {
+	display: flex;
+	align-items: center;
+	gap: 0.9rem;
+}
+
+.send-review-headline > div {
+	display: grid;
+	gap: 0.3rem;
+	min-width: 0;
+}
+
+.send-review-headline strong {
+	font-size: 1.35rem;
+	font-weight: 500;
+	letter-spacing: -0.02em;
+}
+
+.send-review-network {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.4rem;
+	color: var(--muted);
+	font-size: 0.8125rem;
+}
+
+.send-review-facts {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 0.9rem 1.5rem;
+	margin: 0;
+	padding-top: 1.15rem;
+	border-top: 1px solid var(--border);
+}
+
+.send-review-facts > div {
+	display: grid;
+	gap: 0.3rem;
+	min-width: 0;
+}
+
+.send-review-wide {
+	grid-column: 1 / -1;
+}
+
+.send-review-facts dt {
+	color: var(--muted);
+	font-family: var(--font-mono);
+	font-size: 0.625rem;
+	font-weight: 500;
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+}
+
+.send-review-facts dd {
+	margin: 0;
+	font-size: 0.875rem;
+}
+
+.send-review-address {
+	overflow-wrap: anywhere;
+}
+
+.send-review-alert {
+	margin-top: 0;
+	padding-right: 1rem;
+}
+
+.send-review-actions {
+	display: flex;
+	justify-content: flex-end;
+	gap: 0.75rem;
 }

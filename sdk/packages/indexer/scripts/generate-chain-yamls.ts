@@ -80,8 +80,9 @@ const generateSubstrateYaml = async (chain: string, config: Configuration) => {
 	// Check if this is a Hyperbridge chain (stateMachineId is KUSAMA-4009 or POLKADOT-3367)
 	const isHyperbridgeChain = ["KUSAMA-4009", "POLKADOT-3367"].includes(config.stateMachineId)
 
-	// Check if price indexing should be enabled (Hyperbridge chain but not testnet)
-	const enablePriceIndexing = isHyperbridgeChain && currentEnv !== "testnet"
+	// Liquidity indexing — the phantom order handlers and the inventory fold that produce the pool
+	// rows — runs on the Hyperbridge chain only, and not on testnet.
+	const enableLiquidityIndexing = isHyperbridgeChain && currentEnv !== "testnet"
 
 	const templateData = {
 		name: `${chain}-chain`,
@@ -97,7 +98,7 @@ const generateSubstrateYaml = async (chain: string, config: Configuration) => {
 		chainTypesConfig,
 		blockNumber,
 		isHyperbridgeChain,
-		enablePriceIndexing,
+		enableLiquidityIndexing,
 		handlerKind: "substrate/EventHandler",
 		handlers: [
 			{ handler: "handleIsmpStateMachineUpdatedEvent", module: "ismp", method: "StateMachineUpdated" },

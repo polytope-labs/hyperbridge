@@ -2,6 +2,8 @@ import { useCallback, useState } from "react"
 import { chainByChainId } from "@/cli/init/chains"
 import { api } from "../api"
 import { ChainLogo } from "../components/ChainLogo"
+import { Pager } from "../components/Pager"
+import { PillTabs } from "../components/PillTabs"
 import { CopyHash } from "../components/CopyHash"
 import { ExternalLinkIcon } from "../components/InterfaceIcons"
 import { TokenIcon } from "../components/TokenIcon"
@@ -17,6 +19,19 @@ const KIND_LABEL: Record<WalletTxDto["kind"], string> = {
 	fill: "Order fill",
 }
 
+type ActionFilter = WalletTxDto["kind"] | "all"
+
+const ACTION_FILTERS: ReadonlyArray<{ value: ActionFilter; label: string }> = [
+	{ value: "all", label: "All" },
+	{ value: "fill", label: "Fills" },
+	{ value: "send", label: "Sends" },
+	{ value: "sweep", label: "Sweeps" },
+	{ value: "redeem", label: "Redeems" },
+]
+
+/** Rows per page, matching the order history. */
+const PAGE_SIZE = 20
+
 /** One stroke icon per action; the colour comes from the cell's data-kind. */
 function KindIcon({ kind }: { kind: WalletTxDto["kind"] }) {
 	const paths: Record<WalletTxDto["kind"], string> = {
@@ -30,7 +45,15 @@ function KindIcon({ kind }: { kind: WalletTxDto["kind"] }) {
 		send: "M3.5 12.5 12.5 3.5m0 0H6m6.5 0V10",
 	}
 	return (
-		<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+		<svg
+			viewBox="0 0 16 16"
+			fill="none"
+			stroke="currentColor"
+			strokeWidth="1.5"
+			strokeLinecap="round"
+			strokeLinejoin="round"
+			aria-hidden="true"
+		>
 			<path d={paths[kind]} />
 		</svg>
 	)
@@ -47,7 +70,15 @@ function Leg(props: { leg: LedgerLeg; sign: "in" | "out" }) {
 				<TokenIcon symbol={leg.icon} size="sm" />
 				{/* A bank: the vault the shares represent. */}
 				{leg.vault && (
-					<svg className="ledger-vault-badge" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+					<svg
+						className="ledger-vault-badge"
+						viewBox="0 0 16 16"
+						fill="none"
+						stroke="currentColor"
+						strokeWidth="1.8"
+						strokeLinecap="round"
+						strokeLinejoin="round"
+					>
 						<path d="M2.5 6.5 8 3l5.5 3.5H2.5ZM4 6.5v5M8 6.5v5M12 6.5v5M2.5 13.5h11" />
 					</svg>
 				)}
@@ -105,6 +136,8 @@ export function Wallet(props: {
 }) {
 	const [txs, setTxs] = useState<WalletTxDto[]>()
 	const [error, setError] = useState<string>()
+	const [kind, setKind] = useState<ActionFilter>("all")
+	const [page, setPage] = useState(1)
 
 	const load = useCallback(async () => {
 		try {
@@ -118,6 +151,14 @@ export function Wallet(props: {
 	usePolling(load, 30_000)
 
 	const chainLabel = (id: number | null) => (id === null ? "—" : (props.chainLabels?.[String(id)] ?? `chain ${id}`))
+
+	// Filtering and paging happen here: the endpoint returns one merged, sorted
+	// page of recent activity rather than a queryable table.
+	const filtered = (txs ?? []).filter((tx) => kind === "all" || tx.kind === kind)
+	const lastPage = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+	const current = Math.min(page, lastPage)
+	const visible = filtered.slice((current - 1) * PAGE_SIZE, current * PAGE_SIZE)
+	const showFilter = (txs?.length ?? 0) > 0
 
 	return (
 		<div className="operator-page-content">
@@ -134,10 +175,32 @@ export function Wallet(props: {
 						<span className="eyebrow">Ledger</span>
 						<h2>Transaction history</h2>
 					</div>
-					<small>{txs ? `${txs.length} recorded` : "Loading"}</small>
+					<small>
+						{txs
+							? kind === "all"
+								? `${txs.length} recorded`
+								: `${filtered.length} of ${txs.length} recorded`
+							: "Loading"}
+					</small>
 				</div>
+				{showFilter && (
+					<PillTabs
+						options={ACTION_FILTERS}
+						value={kind}
+						ariaLabel="Filter by action"
+						onChange={(next) => {
+							setKind(next)
+							setPage(1)
+						}}
+					/>
+				)}
 				{txs?.length === 0 && <p className="operator-empty">No transactions recorded yet.</p>}
-				{txs && txs.length > 0 && (
+				{txs && txs.length > 0 && filtered.length === 0 && (
+					<p className="operator-empty">
+						No {ACTION_FILTERS.find((f) => f.value === kind)?.label.toLowerCase()} recorded yet.
+					</p>
+				)}
+				{filtered.length > 0 && (
 					<div style={{ overflowX: "auto" }}>
 						<table className="history-table ledger-table">
 							<thead>
@@ -151,7 +214,7 @@ export function Wallet(props: {
 								</tr>
 							</thead>
 							<tbody>
-								{txs.map((tx) => (
+								{visible.map((tx) => (
 									<tr key={tx.id}>
 										<td>
 											<span className="ledger-action" data-kind={tx.kind}>
@@ -164,10 +227,18 @@ export function Wallet(props: {
 											</span>
 										</td>
 										<td>
-											<AmountCell leg={tx.in} sign="in" note={tx.kind === "redeem" ? counterpartyOf(tx) : null} />
+											<AmountCell
+												leg={tx.in}
+												sign="in"
+												note={tx.kind === "redeem" ? counterpartyOf(tx) : null}
+											/>
 										</td>
 										<td>
-											<AmountCell leg={tx.out} sign="out" note={tx.kind === "redeem" ? null : counterpartyOf(tx)} />
+											<AmountCell
+												leg={tx.out}
+												sign="out"
+												note={tx.kind === "redeem" ? null : counterpartyOf(tx)}
+											/>
 										</td>
 										<td>
 											{tx.chainId !== null ? (
@@ -193,6 +264,15 @@ export function Wallet(props: {
 							</tbody>
 						</table>
 					</div>
+				)}
+				{filtered.length > 0 && (
+					<Pager
+						page={current}
+						pageSize={PAGE_SIZE}
+						total={filtered.length}
+						noun="transactions"
+						onPage={setPage}
+					/>
 				)}
 			</section>
 			{error && <p className="error">{error}</p>}

@@ -29,6 +29,7 @@ import { ChainClientManager } from "@/services/ChainClientManager"
 import { PaymasterKeeperService } from "@/services/PaymasterKeeperService"
 import { signerFromToml, type Signer } from "@/services/wallet"
 import { UiServer, type OperatorContext } from "@/services/server/UiServer"
+import { TunnelService } from "@/services/tunnel/TunnelService"
 import { deriveSubstrateKeyPair } from "@/services/substrate-key"
 
 // ASCII art header
@@ -122,7 +123,11 @@ function resolveUiDistDir(): string | undefined {
 	return candidates.find((dir) => existsSync(dir))
 }
 
-async function operatorContextFrom(simplex: Simplex, stopAll: () => Promise<never>): Promise<OperatorContext> {
+async function operatorContextFrom(
+	simplex: Simplex,
+	stopAll: () => Promise<never>,
+	tunnel?: TunnelService,
+): Promise<OperatorContext> {
 	const runtime = simplex.internals
 	const substrateAddress = await deriveSubstrateKeyPair(runtime.config.simplex.substratePrivateKey)
 		.then((pair) => pair.address)
@@ -202,6 +207,7 @@ async function operatorContextFrom(simplex: Simplex, stopAll: () => Promise<neve
 			return runtime.resolvedChains.find((c) => c.chainId === chainId)?.rpcUrls[0]
 		},
 		send: (params) => runtime.tokenSender.send(params),
+		tunnel,
 		version: packageJson.version,
 		startedAt: runtime.startedAt,
 		configPath: runtime.configPath,
@@ -265,6 +271,9 @@ program
 			let dataStore: Awaited<ReturnType<typeof openDataStore>> | undefined
 			let runtime: FillerRuntime | undefined
 			let uiServer: UiServer | undefined
+			let tunnel: TunnelService | undefined
+			// The port the UI actually bound; the setup wizard may fall back to an ephemeral one.
+			let uiBoundPort = uiBind.port
 
 			/** Starts the filler and everything the CLI layers on top of it. */
 			const startFiller = async (config: FillerConfigFile, path: string) => {
@@ -284,11 +293,52 @@ program
 				return simplex
 			}
 
+			/**
+			 * Builds the tunnel, without connecting it. Remote access rides on the
+			 * operator-mode UI only, so the caller connects it once the UI has
+			 * actually bound: `--no-ui` or a lost race for the port would otherwise
+			 * point the tunnel at whatever else answers on that port.
+			 *
+			 * A failure here costs remote access, never filling — the filler is the
+			 * workload, and the key store is the only thing that can throw.
+			 */
+			const createTunnel = (config: FillerConfigFile): TunnelService | undefined => {
+				// A wildcard bind is reached on loopback; every specific address is kept
+				// as given. Collapsing loopback addresses too sent the tunnel to
+				// 127.0.0.1 when the UI was listening on, say, 127.0.0.2 — the channel
+				// opened and the connection behind it was refused.
+				const uiHost = uiBind.host === "0.0.0.0" || uiBind.host === "::" ? "127.0.0.1" : uiBind.host
+				try {
+					return new TunnelService({
+						dataDir: resolveDataDir(options.dataDir),
+						config: config.simplex.tunnel,
+						uiTarget: () => ({ host: uiHost, port: uiBoundPort }),
+						// Late-bound: the UI server is built after this, and no channel
+						// can arrive before the tunnel is started, which is later still.
+						deliver: (socket) => uiServer?.accept(socket) ?? false,
+					})
+				} catch (err) {
+					logger.error({ err }, "Remote access unavailable; filling continues without it")
+					return undefined
+				}
+			}
+
+			/** Connects the tunnel if there is one. Same rule: never fatal. */
+			const startTunnel = (): void => {
+				try {
+					tunnel?.start()
+				} catch (err) {
+					logger.error({ err }, "Remote access failed to start; filling continues without it")
+					tunnel = undefined
+				}
+			}
+
 			// Registered once, up front: during init mode there is no runtime yet
 			// (ctrl-c just closes the server); once save-and-start assigns `runtime`,
 			// the same handler drains the filler. Nothing is re-registered on transition.
 			const shutdown = async (signal: string): Promise<never> => {
 				uiServer?.stop()
+				await tunnel?.stop()
 				if (simplex) await simplex.stop()
 				// Ours to close: the library no longer closes a caller-supplied store.
 				await dataStore?.close?.()
@@ -314,19 +364,25 @@ program
 
 				// Local web UI (status, pause/resume, inflight price curve updates).
 				// On by default at 127.0.0.1; disable with --no-ui.
+				// No UI, no tunnel: the tunnel exists to carry devices to this dashboard,
+				// and with nothing bound it would forward to whatever else holds the port.
 				if (uiEnabled) {
+					tunnel = createTunnel(config)
 					uiServer = new UiServer({
 						mode: "operator",
 						uiDistDir: resolveUiDistDir(),
-						operator: await operatorContextFrom(simplex!, () => shutdown("UI")),
+						operator: await operatorContextFrom(simplex!, () => shutdown("UI"), tunnel),
 					})
 					try {
-						await uiServer.start(uiBind.port, uiBind.host)
+						uiBoundPort = await uiServer.start(uiBind.port, uiBind.host)
+						startTunnel()
 					} catch (err) {
 						// The filler is the primary workload; a bind failure (e.g. port in use)
 						// costs the UI, not the process.
 						logger.error({ err, bind: `${uiBind.host}:${uiBind.port}` }, "UI server failed to start")
 						uiServer = undefined
+						await tunnel?.stop()
+						tunnel = undefined
 					}
 				}
 				return
@@ -350,7 +406,11 @@ program
 					configPath: outputPath,
 					onSaveAndStart: async (config, _toml, path) => {
 						await startFiller(config, path)
-						server.enterOperatorMode(await operatorContextFrom(simplex!, () => shutdown("UI")))
+						// The wizard's own server is already bound, so the tunnel has a UI
+						// to point at the moment it comes up.
+						tunnel = createTunnel(config)
+						server.enterOperatorMode(await operatorContextFrom(simplex!, () => shutdown("UI"), tunnel))
+						startTunnel()
 					},
 				},
 			})
@@ -363,6 +423,7 @@ program
 				logger.warn({ err, bind: `${uiBind.host}:${uiBind.port}` }, "Preferred UI port unavailable, retrying")
 				boundPort = await server.start(0, uiBind.host)
 			}
+			uiBoundPort = boundPort
 			// A wildcard bind is not an address to browse to — Safari refuses 0.0.0.0
 			// outright. The operator reaches it on localhost, via whatever they published.
 			const browsableHost = uiBind.host === "0.0.0.0" || uiBind.host === "::" ? "localhost" : uiBind.host

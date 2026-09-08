@@ -2518,11 +2518,12 @@ type LiquidityProviderBalanceV2 @entity {
 	For a provider's current liquidity, take the row with the greatest blockNumber for that
 	(provider, chain, tokenAddress).
 
-	Most rows come from a bid window closing, but an order fill also appends one: it re-reads the
-	balances backing the pools it traded through and stamps them with Hyperbridge's head block at
-	that moment, since a fill has no Hyperbridge block of its own. A row therefore does not imply a
-	snapshot at that block, and the two kinds are not distinguishable from the row — what they share
-	is the property this series is read for, that a greater blockNumber is a later reading.
+	Most rows come from a bid window closing, but an event on an EVM chain that moves a solver's
+	inventory (a fill, an escrow release, a vault deposit or withdrawal) appends one too: that
+	chain's node publishes a SolverInventoryReading, and the Hyperbridge node folds it in on one of
+	its own blocks, which is the block the row is keyed by. A row therefore does not imply a snapshot
+	at that block, and the two kinds are not distinguishable from the row — what they share is the
+	property this series is read for, that a greater blockNumber is a later reading.
 	"""
 	id: ID!
 
@@ -2554,9 +2555,9 @@ type LiquidityProviderBalanceV2 @entity {
 	chain's sweep can see those positions — and only for a token some yield-vault entry tracks,
 	since the sweep has no row to attach it to otherwise.
 
-	A row written by a fill refresh never carries the V4 share at all: only a bid names those
-	positions, and a fill has no bid to read. Two readings landing on one key resolve to the larger,
-	which is the rule that keeps the V4-blind one from replacing a complete one.
+	A row folded from an inventory reading carries the V4 share of the positions the solver
+	declared in its last bid on that chain and still owns, re-read at the event's block. Two
+	readings landing on one key resolve to the larger.
 	"""
 	balance: BigInt! @index
 
@@ -2797,6 +2798,73 @@ type PoolBidder @entity @compositeIndexes(fields: [["pool", "chain"]]) {
 	Timestamp of the confirming snapshot.
 	"""
 	lastUpdatedAt: Date!
+
+	"""
+	Time of the newest SolverInventoryReading folded into `liquidity`, or null if no reading has
+	been applied since the confirming snapshot. A reading is applied only when it postdates both
+	this and lastUpdatedAt, which is what makes the fold safe to repeat.
+	"""
+	refreshedAt: Date
+}
+
+enum InventoryReadingTrigger {
+	FILL
+	ESCROW_RELEASE
+	VAULT
+}
+
+"""
+A solver's on-chain inventory of one token on one chain, re-read by that chain's indexer node
+after an event moved it (an order fill or partial fill, an escrow release, a yield-vault deposit
+or withdrawal). One row per (chain, token, solver), overwritten by each newer event; the pool rows
+are recomputed from these by the Hyperbridge node, which is the only writer of the pool family.
+That split is what keeps the chains' nodes from overwriting each other's view of a pool.
+
+A zero balance is a real row: it is what tells the fold to drop the bidder.
+"""
+type SolverInventoryReading @entity @compositeIndexes(fields: [["chain", "provider"]]) {
+	"""
+	Composite identifier: {chain}-{tokenAddress}-{provider}.
+	"""
+	id: ID!
+
+	"""
+	State machine ID of the chain the balance was read on; also the node that wrote the row.
+	"""
+	chain: String! @index
+
+	"""
+	Lowercased EVM address of the solver.
+	"""
+	provider: String! @index
+
+	"""
+	Lowercased EVM address of the token, the output token of the pool legs this backs.
+	"""
+	tokenAddress: String! @index
+
+	"""
+	Inventory in raw token units: wallet ERC-20, redeemable ERC-4626 vault positions, and the
+	withdrawable amount of the Uniswap V4 positions the solver declared in its last bid on this
+	chain and still owns.
+	"""
+	balance: BigInt!
+
+	"""
+	Block of `chain` the read was pinned to, so a replay records what the event left behind.
+	"""
+	blockNumber: BigInt!
+
+	"""
+	Timestamp of that block. The fold compares this with the bidder rows' snapshot and refresh
+	times, so a reading older than the pool's current sample is ignored.
+	"""
+	observedAt: Date! @index
+
+	"""
+	The event that prompted the read.
+	"""
+	trigger: InventoryReadingTrigger!
 }
 
 """

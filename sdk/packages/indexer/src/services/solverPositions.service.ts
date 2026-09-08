@@ -1,5 +1,5 @@
-// The one home for `SolverV4Positions`: the phantom snapshot writes it, the liquidity refresh reads
-// it. A bid's declaration is the only place a Uniswap V4 position is ever named, so this entity is
+// The one home for `SolverV4Positions`: the phantom snapshot writes it, the inventory publication
+// on the EVM nodes reads it. A bid's declaration is the only place a Uniswap V4 position is ever named, so this entity is
 // the whole bridge between "a solver said it funds fills from these" and any later re-read of them.
 import { LiquidityProvider, SolverV4Positions } from "@/configs/src/types"
 import type { SolverV4Position } from "@hyperbridge/sdk/intents-helpers"
@@ -7,12 +7,19 @@ import type { SolverV4Position } from "@hyperbridge/sdk/intents-helpers"
 /**
  * The tokenIds `solver` declared in its latest bid on `chain`, or none.
  *
- * One keyed read, no scan: the row is the solver's current declaration, replaced whole each time it
- * bids. A row recorded on another chain reads as none here — a bid is per chain, and no other
- * chain's reads can see its positions.
+ * The row is the solver's current declaration, replaced whole each time it bids. A row recorded on
+ * another chain reads as none here — a bid is per chain, and no other chain's reads can see its
+ * positions.
+ *
+ * Read through a field query rather than `get`: the row is written by the Hyperbridge node and
+ * read by the EVM nodes, and `get` serves a process-local cache that no other node's write
+ * invalidates, so it would keep returning a declaration the solver has since replaced. The
+ * provider link is the same address as the id and, unlike the id, is indexed in every store mode.
  */
 export async function declaredV4Positions(chain: string, solver: string): Promise<bigint[]> {
-	const declaration = await SolverV4Positions.get(solver.toLowerCase())
+	const [declaration] = await SolverV4Positions.getByFields([["providerId", "=", solver.toLowerCase()]], {
+		limit: 1,
+	})
 	if (!declaration || declaration.chain !== chain) return []
 	return declaration.tokenIds
 }

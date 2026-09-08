@@ -27,6 +27,18 @@ export function sendJson(res: ServerResponse, status: number, payload: unknown):
 	res.end(JSON.stringify(payload))
 }
 
+/**
+ * Marks a connection handed to the UI server by the remote-access tunnel,
+ * rather than one dialled from the local network. A symbol, and set on a socket
+ * this process created, so nothing a device sends can forge it.
+ */
+export const VIA_TUNNEL = Symbol.for("simplex.tunnel.connection")
+
+/** Whether this request arrived through the remote-access tunnel. */
+export function isTunnelled(socket: unknown): boolean {
+	return (socket as Record<symbol, unknown> | null | undefined)?.[VIA_TUNNEL] === true
+}
+
 export function isLoopbackHost(host: string): boolean {
 	const normalized = host.toLowerCase()
 	if (normalized === "localhost") return true

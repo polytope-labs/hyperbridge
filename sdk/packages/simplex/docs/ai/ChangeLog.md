@@ -12,6 +12,323 @@ Files: list of files touched.
 
 Newest entries first.
 
+## 2026-09-08 — Sends leave the wallet at the vault's floor, not at zero
+
+A send on Base reverted with `ERC20: transfer amount exceeds balance` inside a UserOp that the
+outer transaction reported as successful (tx `0x737bdede…`, block 51039630). The batch was
+`withdraw(3990.010227)` then `transfer(4000)`, against a wallet holding 9.989773 USDC — sized to
+leave exactly zero. The SimplexPaymaster then debited 0.031564 USDC of gas from that same wallet
+during validation, before the batch ran, so the transfer was short by exactly that and the whole
+batch rolled back. The vault position was untouched (share balance identical either side of the
+block), the paymaster still kept ~0.0097 USDC net, and a retry would fail the same way from a
+slightly smaller wallet.
+
+`vaultWithdrawalCall` now takes the token's decimals and leaves headroom on top of the shortfall:
+the larger of the matched vault's `minBalance` and `paymasterReserveForToken`, the helper the fill
+path already uses for exactly this hazard — its own doc comment says the paymaster "pulls it from
+the same wallet during validatePaymasterUserOp — before the UserOp's callData runs". TokenSender
+never imported it. The reserve applies only when `userOpSender.canSponsor(chain)` is true, so an
+unsponsored chain and the native-tx fallback are unaffected, and it covers the case a floor alone
+cannot reach: a wallet that already covers the transfer but would be left with nothing for
+validation to take. That send skipped the vault branch entirely and reverted the same way. A vault that cannot cover shortfall-plus-floor still funds the send with the bare
+shortfall: a floor is a preference, not a reason to refuse a transfer the operator asked for. A
+send the wallet already covers is unchanged — it does not start pulling from the vault to top
+itself up. Withdraw-only vaults declare no `minBalance` and behave exactly as before, which means
+they keep the original failure mode; the treasury docs now say so.
+
+Files: src/services/TokenSender.ts, src/tests/token-sender.test.ts (9 tests, 4 new — the first
+replays the numbers from the reverted transaction), docs/content/developers/evm/simplex/treasury.mdx.
+
+## 2026-09-08 — A paired device can no longer manage remote access
+
+A second review pointed out that a tunnelled request is indistinguishable from one the operator
+made at the keyboard: the embedded server dialled the UI on loopback, so `UiServer.handle` saw an
+ordinary local request, and the only guards — the Host header and the constant `X-Simplex-UI`
+header — are ones any client sets. A device holder could therefore `POST /api/tunnel/devices` and
+pair a second key, which survives revoking the first: the revocation work from the last review
+was defeated in one request. It could also repoint the relay at one it runs.
+
+The tunnel now hands the SSH channel straight to the UI server in-process — `deliver` on
+`EmbeddedSshServer`, `UiServer.accept`, and `server.emit("connection", channel)` — instead of
+dialling 127.0.0.1. The channel carries a `VIA_TUNNEL` symbol that nothing off the wire can
+forge, so `handle` refuses any non-GET `/api/tunnel*` from a device, and `GET /api/tunnel`
+reports `readOnly: true` so the panel renders itself read-only rather than failing on the first
+click. This also removes a loopback TCP hop, and the device's real origin now reaches the HTTP
+layer as `req.socket.remoteAddress`.
+
+Everything else a device can do is unchanged — Send, the treasury tools, pause, curve edits —
+which is the documented model and Seun's call: the fix is that revoking a lost device now
+actually takes everything away.
+
+Files: src/services/tunnel/EmbeddedSshServer.ts, src/services/tunnel/TunnelService.ts,
+src/services/server/{UiServer,http-util,dto}.ts, src/bin/simplex.ts,
+ui/src/operator/RemoteAccess.tsx, src/tests/tunnel.test.ts (25 tests).
+
+## 2026-09-08 — Audit fixes on the embedded SSH server
+
+An audit of the tunnel code (nine finder agents, then hand-verification with reproductions)
+turned up eleven issues. No critical ones: nothing lets an unpaired key reach the dashboard.
+Auth, the forward restriction, the CSRF header and the DNS-rebinding guard all held up, and the
+claim that a revoked device keeps its live session was refuted by reproduction. What was wrong
+was availability.
+
+- **`--ui <non-loopback>` broke remote access completely.** The panel hard-coded
+  `8686:127.0.0.1:<port>` as the forward while `isTarget` accepted only the bound address, so
+  the device was told to open the one channel the server refuses. `connection()` now names the
+  real target host.
+- **A UI on a non-`.1` loopback address was unreachable.** `createTunnel` collapsed every
+  loopback bind to 127.0.0.1 while `UiServer` bound exactly what it was given. Only wildcard
+  binds collapse now.
+- **Three teardown paths did not hang up.** `conn.end()` sends DISCONNECT and closes our write
+  side only; a peer that ignores it kept the session, its protocol state and its slot in the
+  connection count. The auth timeout, the failure limit and `disconnectDevice` now destroy the
+  stream after a short grace.
+- **A peer that never finished the SSH identification line was invisible and immortal.** ssh2
+  raises its connection event at `onHeader`, so no per-connection timer ever armed. `inject()`
+  now puts the deadline on the stream itself, before ssh2 sees it.
+- **The client chose the key exchange.** ssh2 offers group16/17/18 by default and negotiates by
+  the client's preference; group18 costs ~107ms of synchronous CPU per handshake, measured, on
+  the loop that fills orders — and a rekey flood needs no login at all. The server now offers
+  curve25519, the ECDH groups and group14.
+- **Plain `zlib` was offered pre-authentication.** It starts compressing at NEWKEYS, before
+  auth. Only `none` and `zlib@openssh.com` are offered now.
+- **`relayHostKey` was not scoped to a relay.** Changing relays carried the old pin over and
+  locked remote access out for good, with an error pointing at a file that path never reads.
+  Both the runtime config and the persisted block drop it when the relay changes.
+- **The built-in relay pin matched one exact spelling.** Writing the hosted relay without its
+  port — which the config documents — skipped the shipped pin and fell back to trusting
+  whatever answered. Pins are keyed by normalised `host:port` now.
+- **The first-contact pin was written before the relay proved it held the key.** ssh2 calls
+  `hostVerifier` during KEXDH_REPLY, before the signature over the exchange hash is checked.
+  The pin is committed on `ready`.
+- **The panel ignored `persisted`.** Turning remote access off against an unwritable config
+  reported success and came back on restart — the lost-device path.
+- **`inject()` assumed its stream was not a real socket.** `Object.assign` over getter-only
+  `remoteAddress` throws; it uses `defineProperty` now, and timer-driven destroys are wrapped
+  so a stream that refuses to close cannot take the process down.
+
+Files: src/services/tunnel/EmbeddedSshServer.ts, src/services/tunnel/TunnelService.ts,
+src/services/server/UiServer.ts, src/bin/simplex.ts, ui/src/operator/RemoteAccess.tsx,
+src/tests/tunnel.test.ts (24 tests, 8 new).
+
+## 2026-09-08 — Review fixes on the remote-access PR (#1217)
+
+Six review comments from @ddboy19912, plus one bug found while re-running the tests.
+
+- **The tunnel now connects only after the UI binds.** It used to start inside `startFiller`,
+  so `--no-ui` or a lost race for port 8686 left it forwarding devices to whatever else
+  answered on that port. `createTunnel` builds it (no network) and `startTunnel` connects it
+  after `uiServer.start()` resolves; a bind failure stops and drops it.
+- **Neither building nor starting the tunnel can stop filling.** Both are wrapped: a failure
+  logs and leaves `tunnel` undefined.
+- **Revoking a device now ends its live sessions.** `EmbeddedSshServer` tracks authenticated
+  connections per fingerprint and `disconnectDevice` hangs up on them; `tcpip` also re-checks
+  authorization per channel, so a revoked device opens nothing even before the hang-up lands.
+- **Password and keyboard-interactive attempts count as failed logins.** They previously
+  bypassed `fail()` entirely. The `none` method is excluded — it is the probe every client
+  opens with, and counting it would have rate-limited legitimate devices out.
+- **The failed-login table is swept and capped** (60s sweep, 10k sources, oldest-touched
+  evicted), so one-off scanner addresses cannot accumulate.
+- **`known_relay` holds one line per relay address.** A single line meant moving from relay A
+  to B and back left A with no pin, trusting its next key blind.
+- **Generated key pairs are parsed before use.** ssh2's ed25519 generator emits a pair its own
+  parser refuses roughly once in 256 (measured 0.4–0.6% over 5,000 pairs — a dropped leading
+  zero byte). For `operator_key` and `host_key` that is permanent breakage, not a transient
+  error, since the bad key is written to disk and reloaded every boot. `generateKeyPair`
+  retries up to 8 times. This was showing up as a ~1-in-3 flake across full runs of
+  tunnel.test.ts.
+
+Files: src/bin/simplex.ts, src/services/tunnel/EmbeddedSshServer.ts,
+src/services/tunnel/TunnelService.ts, src/services/tunnel/keys.ts, src/tests/tunnel.test.ts.
+
+## 2026-09-08 — Polygon's confirmation ceiling drops from 32 blocks to 5
+
+Seun reports Polygon finalizes in ~5s on average, so the built-in default's 32-block ceiling
+(~64s at ~2s blocks) held $100k orders far longer than the chain needs. The max point is now 5
+blocks, ~10s, which leaves headroom over the observed finality without the old minute-long wait.
+The min point (2 blocks at $1k) is unchanged, and every value between the two still interpolates.
+Only the built-in default moved; a user `[confirmationPolicies."137"]` entry still overrides it.
+Files: src/config/interpolated-curve.ts, docs/content/developers/evm/simplex/confirmations.mdx.
+
+## 2026-09-07 — 0.15.0, not 0.14.0: main took that version
+
+Merged `origin/main`, which released 0.14.0 for the relayer-gated paymaster work while this branch
+was also sitting on 0.14.0 — both sides wrote the same string, so git merged it without a conflict
+and the collision was only visible by comparing against main. Remote access ships as 0.15.0. The
+only real conflicts were `docs/ai/ChangeLog.md` and `docs/ai/Decisions.md`, where both sides had
+prepended entries; both sets are kept.
+
+Files: `package.json`, `docs/ai/{ChangeLog,Decisions}.md`.
+
+## 2026-09-07 — Send review: chain badge on the token, and its own bottom padding
+
+`.market-dialog-body` pads horizontally only, so the review's buttons sat flush against the dialog's
+bottom edge; the review now supplies its own vertical padding rather than changing the shared body,
+which every other dialog already compensates for in its own way. The network logo moved from a line
+of its own onto the token icon as a bottom-right badge, the way wallets show it, leaving the network
+as plain text beside the amount.
+
+Files: `ui/src/components/SendConfirmDialog.tsx`, `ui/src/styles/operator.css`, `docs/ai/ChangeLog.md`.
+
+## 2026-09-07 — Fix the double rule under the operator lists
+
+`.operator-section` draws a bottom rule and each of the tool, balance and market lists ends its
+section, so a last row drawing its own border left two lines a section-padding apart — visible on
+the Wallet page under Vault treasury, and on the Overview under both the balances and the markets.
+Pre-existing; the last row in those lists no longer draws a border. Same defect as the remote-access
+device list fixed earlier.
+
+Files: `ui/src/styles/operator.css`, `docs/ai/ChangeLog.md`.
+
+## 2026-09-07 — Action filters and pagination on the wallet ledger
+
+The ledger rendered up to 200 rows in one table. It now has the order history's pager and a pill row
+filtering by action (all, fills, sends, sweeps, redeems), 20 rows a page, with the page resetting
+when the filter changes. Both are client-side because `/api/wallet/history` returns one merged,
+sorted page of wallet transactions and fills rather than a queryable table; the endpoint is
+unchanged. `Pager` and `pageNumbers` moved out of `Orders.tsx` into `ui/src/components/Pager.tsx`
+with a `noun` prop, so the two pages cannot drift, and it now says "1 order" rather than "1 orders".
+
+Files: `ui/src/components/Pager.tsx`, `ui/src/operator/{Wallet,Orders}.tsx`, `docs/ai/ChangeLog.md`.
+
+## 2026-09-07 — Review a transfer in a dialog instead of a browser confirm
+
+Send funds asked for confirmation through `window.confirm` with a one-line string, which the button
+("Review transfer") had already promised more than. It now opens a summary: the token with its logo
+and the amount, the network with its logo, the full recipient, the wallet balance, what is available,
+and the split the sender will actually make — the wallet covers what it can and the vault covers the
+rest, which is what `TokenSender` does. The vault line is a real check, not a restatement: a
+withdrawal draws on one vault rather than several, so when the shortfall exceeds the largest single
+vault the dialog says the transfer will fail before it is submitted. Everything is read from the
+balance snapshot the dashboard already polls, so the review costs no extra call.
+
+Files: `ui/src/components/SendConfirmDialog.tsx`, `ui/src/operator/WalletTools.tsx`,
+`ui/src/styles/{operator,responsive}.css`, `docs/ai/ChangeLog.md`.
+
+## 2026-09-07 — Remote access copy says "device", not "phone"
+
+Tablets and laptops pair the same way, so the panel and the Operations row now say device throughout.
+
+Files: `ui/src/operator/{RemoteAccess,Operations}.tsx`, `docs/ai/ChangeLog.md`.
+
+## 2026-09-07 — Make the remote-access switch move on click, not on the round trip
+
+The switch was controlled by the server's `enabled` flag and only moved once `PUT /api/tunnel`
+returned. The dashboard shares an event loop with the filler, so any request queues behind block
+scanning and vault polling: measured on a running filler, even `/health` answered in 88-328ms with
+outliers over a second, and `/api/tunnel` and `/api/status` sit in the same band. The switch now
+moves optimistically (1ms measured) and reconciles when the response lands; a poll arriving
+mid-flight can no longer flip it back. The badge follows the same optimistic value, and polling
+tightens to 1s while the state is `connecting`/`reconnecting` so it settles quickly.
+
+The underlying latency is process-wide and pre-existing, not specific to these routes.
+
+Files: `ui/src/operator/RemoteAccess.tsx`, `docs/ai/ChangeLog.md`.
+
+## 2026-09-07 — Fix the double rule under the device list
+
+`.sheet-content .card` gives every panel section its own bottom rule, and the last `.tunnel-device`
+row drew one too, so two lines sat 25px apart between the device list and the pairing section. The
+last row no longer draws its border.
+
+Files: `ui/src/styles/operator.css`, `docs/ai/ChangeLog.md`.
+
+## 2026-09-07 — Show the SSH connection fields in the Relay connection card
+
+The card showed a public endpoint, a host key and a session count; only the first two were useful and
+they were half of what an SSH app asks for. It now renders the whole connection — host, port,
+username, host key fingerprint, local port forward — each copyable on its own, which is how Termius
+and friends want them entered. `TunnelConnectionDto` is a new shared shape returned by both
+`GET /api/tunnel` (`connection`) and pairing, built once in `TunnelService.connection()`. The
+post-pairing card no longer repeats the fields, keeping the key material and the app instructions;
+the open-session count moved next to the device count ("2 paired · 1 connected").
+
+Files: `src/services/server/dto.ts`, `src/services/tunnel/TunnelService.ts`,
+`ui/src/operator/RemoteAccess.tsx`, `ui/src/types.ts`, `src/tests/ui-server-tunnel.test.ts`,
+`docs/ai/ChangeLog.md`, `docs/ai/Flow.md`.
+
+## 2026-09-07 — Drop the relay rows from the Remote access panel
+
+The relay address and its host key were shown as facts alongside an editable disclosure. Neither is
+something an operator acts on: the hosted relay is the default, its key is pinned in the binary, and
+a self-hosted relay is configured in `[simplex.tunnel]`. The panel now shows only what a phone needs
+(public endpoint, host key to pin) plus open sessions; the `PUT /api/tunnel` relay field is untouched
+for config and API use. Removed the `.tunnel-advanced` and `.tunnel-relay-row` styles with it.
+
+Files: `ui/src/operator/RemoteAccess.tsx`, `ui/src/styles/{operator,responsive}.css`, `docs/ai/ChangeLog.md`.
+
+## 2026-09-07 — Remote access panel redesign, merged with main (0.13.2)
+
+Merged `origin/main` (UI improvements 0.13.2, paymaster skip reasons) into the branch; conflicts were
+both-sides-appended docs, the version line (kept 0.14.0) and `operator.css`, where the merge dropped
+one closing brace. The Remote access sheet is now `wide` and rebuilt on the dashboard's own pieces:
+`card` sections with eyebrow/heading and a state `badge`, the `chain-enable-switch` toggle, a
+two-column `tunnel-facts` definition list with copy buttons, the relay address behind a `details`
+disclosure, a device list, and `PillTabs` for paste-vs-generate. Phone-width rules in `responsive.css`
+collapse the grid and the QR/key row. Verified in a browser against the live relay: toggling on from the
+panel connected and showed the leased public endpoint.
+
+Files: `ui/src/operator/{RemoteAccess,Operations}.tsx`, `ui/src/styles/{operator,responsive}.css`,
+`docs/ai/ChangeLog.md`.
+
+## 2026-09-07 — Pin the hosted relay's host key by default
+
+`DEFAULT_TUNNEL_RELAY_HOST_KEY` (`SHA256:L6LT8Zu6Ke+k4cZLiDcUO/3EYWtH5vJXsVMPVnCy3ts`, read off the
+deployed relay with `ssh-keyscan` and matched against the operator's record) is used whenever the
+relay is the default and no `relayHostKey` is configured; `expectedRelayFingerprint` centralises
+the precedence (config pin, built-in pin, first-contact pin). Verified end to end against the live
+relay: OpenSSH operator got port 21047 and kept it across a reconnect, `TunnelService` connected
+with the pin, an OpenSSH phone reached the local UI through `simplex.tunnel.polytope.technology`
+with strict host-key checking, and a shell attempt was refused.
+
+Files: `src/services/tunnel/{TunnelService,index}.ts`, `src/tests/tunnel.test.ts`, `README.md`,
+`filler-config-example.toml`, `docs/ai/*`.
+
+## 2026-09-07 — Remote access pairing: paste the phone's public key by default
+
+`TunnelKeyStore.addDevice(label, publicKey?)` accepts a pasted OpenSSH public-key line
+(`normalizePublicKey`: rejects private keys and unparsable text, drops the app's comment, refuses a
+key already paired) and returns no private key in that case; generation stays as the fallback.
+`POST /api/tunnel/devices` takes an optional `publicKey`; `TunnelNewDeviceDto.privateKey` is now
+optional. The Remote access sheet opens in paste mode with a "Generate a key pair instead" switch,
+and the post-pairing panel omits the key/QR/acknowledgement when nothing secret was shown.
+
+Files: `src/services/tunnel/{keys,TunnelService,index}.ts`, `src/services/server/{UiServer,dto}.ts`,
+`ui/src/operator/RemoteAccess.tsx`, `src/tests/{tunnel,ui-server-tunnel}.test.ts`, `README.md`, `docs/ai/*`.
+
+## 2026-09-07 — 0.15.0: remote access from a device through the simplex-tunnel relay
+
+New `[simplex.tunnel]` feature. `TunnelService` keeps an outbound `ssh2` session to the relay
+(default `simplex.tunnel.polytope.technology:443`), requests a remote forward, and injects every
+connection the relay hands back into `EmbeddedSshServer`: public-key auth against the paired
+devices in `<data-dir>/tunnel/authorized_keys`, `direct-tcpip` only to the UI bind, everything
+else refused, per-connection and per-source failure limits, 30s pre-auth timeout. The relay host
+key is pinned from `relayHostKey` or on first contact (`tunnel/known_relay`). Reconnects with
+backoff; never runs in init mode; a tunnel failure never touches filling.
+
+UI: `Operations > Remote access` sheet (`ui/src/operator/RemoteAccess.tsx`): status, enable
+toggle, relay address, device list with revoke, pairing that shows the private key once with a
+QR code and the connection details. Routes: `GET/PUT /api/tunnel`, `POST /api/tunnel/devices`,
+`POST /api/tunnel/devices/revoke`; `ConfigDto.tunnel` summary. Config emission for the block.
+`ssh2` added as a dependency and to tsup's external list (it probes for an optional native
+binding); it is CommonJS, so the code uses default imports — named imports only work under
+vitest. `qrcode` added for the UI. Not added to the CLI wizard by request.
+
+Verified: 13 new tests (`tunnel.test.ts` with an in-process fake relay, `ui-server-tunnel.test.ts`),
+plus a smoke test against the real Rust relay with a stock OpenSSH client as the phone: page
+served through `-L`, host key pinned matched, shell/other-port/stranger-key refused.
+
+Files: `src/services/tunnel/{TunnelService,EmbeddedSshServer,keys,index}.ts`,
+`src/services/server/{UiServer,dto}.ts`, `src/bin/simplex.ts`, `src/config/filler-toml.ts`,
+`src/cli/init/emit-toml.ts`, `tsup.config.ts`, `package.json`, `filler-config-example.toml`,
+`README.md`, `ui/src/operator/{RemoteAccess,Operations}.tsx`, `ui/src/types.ts`,
+`ui/src/styles/operator.css`, `src/tests/{tunnel,ui-server-tunnel}.test.ts`, `sdk/pnpm-workspace.yaml`
+(ssh2/cpu-features build scripts declined), `sdk/pnpm-lock.yaml`.
+## 2026-09-07 — Phantom bids declare the chains the filler fills on; `acceptedSourceChains` config removed
+
+Every phantom bid now carries an accepted-source declaration derived at bid time: every configured chain, watch-only ones included, as `EVM-<id>` in ascending chain-id order (`acceptedSourceChainsFor` in `src/core/filler.ts`). The optional `simplex.acceptedSourceChains` TOML key is gone from the config type, its validation, the wizard's emitter, and the SDK's `FillerConfig`; `preparePhantomBidUserOp` now requires the list and always encodes a declaration, so a bid never leaves the field empty for consumers to read as "any chain". Motivated by a mainnet filler whose bids carried no declaration because the key was never set, so the indexer had no route rows for its depth.
+Files: `src/core/filler.ts`, `src/services/ContractInteractionService.ts`, `src/core/boot.ts`, `src/config/filler-toml.ts`, `src/cli/init/emit-toml.ts`, `src/tests/core/accepted-source-chains.test.ts` (new), `src/tests/cli/update-run-preservation.test.ts`, `src/tests/phantom-filler.e2e.simnode.test.ts`, `../sdk/src/types/index.ts`, `docs/ai/Decisions.md`, `docs/ai/Flow.md`.
+
 ## 2026-09-07 — Delegation batches the Permit2 approve into a direct tx before trying the bundler
 
 `DelegationService.setupDelegation` now resolves the pending Permit2 approval up front and, when

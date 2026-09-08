@@ -1,3 +1,4 @@
+import type { TunnelConfig } from "@/services/tunnel/TunnelService"
 import { isAddress } from "viem"
 import type { HexString } from "@hyperbridge/sdk"
 import { ConfirmationPolicy, DEFAULT_CONFIRMATION_POLICIES } from "@/config/interpolated-curve"
@@ -166,12 +167,6 @@ export interface FillerTomlConfig {
 			maxConsecutiveClamps?: number
 		}
 		/**
-		 * Source chains (state machine ids, e.g. "EVM-8453") this filler accepts payment from,
-		 * declared inside its phantom bids. Omit to declare nothing (read downstream as "all
-		 * CCTP/USDT0-covered chains"); an empty array declares no accepted sources.
-		 */
-		acceptedSourceChains?: string[]
-		/**
 		 * How long a signed bid stays executable, in seconds. Defaults to 300 (5 minutes).
 		 *
 		 * Written into `FillOptions.validUntil` and enforced by `fillOrder`, which reverts
@@ -184,6 +179,12 @@ export interface FillerTomlConfig {
 		 * Ignored on gateways predating `FillOptions.validUntil` — there is nowhere to put it.
 		 */
 		bidValiditySeconds?: number
+		/**
+		 * Remote access: an outbound SSH tunnel to a rendezvous relay so a phone's
+		 * SSH client can reach the local web UI. Off unless `enabled = true`; the
+		 * relay defaults to the hosted one. Devices are paired from the UI.
+		 */
+		tunnel?: TunnelConfig
 	}
 	chains: UserProvidedChainConfig[]
 	rebalancing?: RebalancingConfig
@@ -335,17 +336,6 @@ export function validateConfig(config: FillerTomlConfig, cliWatchOnly = false): 
 		if (!Number.isFinite(scanInterval) || scanInterval < MIN_BLOCK_SCAN_INTERVAL_SECONDS) {
 			throw new Error(
 				`simplex.blockScanIntervalSeconds must be a number >= ${MIN_BLOCK_SCAN_INTERVAL_SECONDS} (seconds); got ${scanInterval}`,
-			)
-		}
-	}
-
-	if (config.simplex.acceptedSourceChains !== undefined) {
-		if (
-			!Array.isArray(config.simplex.acceptedSourceChains) ||
-			config.simplex.acceptedSourceChains.some((chain) => typeof chain !== "string" || !chain.trim())
-		) {
-			throw new Error(
-				"simplex.acceptedSourceChains must be an array of state machine ids (e.g. \"EVM-8453\")",
 			)
 		}
 	}

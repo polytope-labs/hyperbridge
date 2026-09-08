@@ -50,7 +50,7 @@ export const handleEscrowReleasedEventV3 = wrap(async (event: EscrowReleasedLog)
 	try {
 		const beneficiary = await IntentGatewayV3Service.filledBeneficiary(commitment, blockNumber)
 		if (beneficiary) {
-			await IntentGatewayV3Service.refreshLiquidityAfterEscrowRelease({
+			await IntentGatewayV3Service.publishInventoryAfterEscrowRelease({
 				provider: beneficiary,
 				tokens: tokens.map((token) => ({
 					token: token.token as Hex,
@@ -61,6 +61,6 @@ export const handleEscrowReleasedEventV3 = wrap(async (event: EscrowReleasedLog)
 			})
 		}
 	} catch (e: any) {
-		logger.error(`Failed to refresh pool liquidity for released escrow ${commitment}: ${e.message}`)
+		logger.error(`Failed to publish pool inventory for released escrow ${commitment}: ${e.message}`)
 	}
 })

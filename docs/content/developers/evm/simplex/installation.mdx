@@ -1,0 +1,170 @@
+---
+title: Installation
+description: Pull the Simplex image, run the setup wizard, and write a filler-config.toml.
+---
+
+# Installation
+
+Simplex ships as a Docker image and as an npm package. Either way the first run is a wizard that writes the config for you; the reference config at the bottom is there if you would rather write it yourself.
+
+## Docker (Recommended)
+
+The image is a multi-arch manifest covering `linux/amd64` and `linux/arm64`, so Linux, macOS (Intel and Apple Silicon) and Windows (Docker Desktop / WSL2) hosts all pull a natively-built image — no emulation, no per-host build.
+
+```bash lineNumbers
+docker pull polytopelabs/simplex:latest
+docker run --rm -it polytopelabs/simplex:latest --help
+```
+
+Starting with no config puts the container into the setup wizard. Publish the UI port and give it a volume to write the generated config into:
+
+```bash lineNumbers
+docker volume create simplex-data
+docker run -d --name simplex --restart unless-stopped \
+    -p 127.0.0.1:8686:8686 \
+    -v simplex-data:/data \
+    polytopelabs/simplex:latest
+```
+
+Then open `http://localhost:8686`. The wizard writes `filler-config.toml` into `/data` and transitions straight into running the solver; on restart the container finds that config and runs directly. Mount a config you already have with `-v /path/to/filler-config.toml:/data/filler-config.toml:ro` to skip the wizard, or run it in the terminal instead with `docker run --rm -it -v simplex-data:/data polytopelabs/simplex:latest init -o /data/filler-config.toml`.
+
+The command works verbatim in PowerShell on Windows (use a backtick instead of `\` for line continuations, or put it on one line). Ports have to be published — the container binds `0.0.0.0` internally because Docker Desktop on macOS and Windows runs the daemon inside a VM and offers no `--network host`. The container's network namespace is the boundary there, so keep the `127.0.0.1:` prefix on the published ports: the UI is unauthenticated, and the wizard handles private keys.
+
+## Building a config file
+
+The fastest way to produce a working `filler-config.toml` is one of the interactive wizards:
+
+```bash lineNumbers
+simplex          # browser wizard: opens automatically when no config exists
+simplex init     # the same flow in the terminal
+```
+
+Both ask only for the minimum needed to run (chains, RPCs, bundler, signer, Hyperbridge account, markets), explain what each value is for as they ask, derive sibling RPC and bundler URLs from a single Alchemy or Pimlico API key, and validate every endpoint live before writing the file. The browser wizard can also generate the Substrate account for bids and check its BRIDGE balance; when it finishes, the same process transitions straight into running the solver — no restart. A local web UI (status, pause/resume, balances, inflight price-curve edits) stays available at `127.0.0.1:8686` while the solver runs (`--no-ui` for headless). Prefer a file-first workflow? Use the reference config below.
+
+<Tabs items={["docker-compose.yml", "config.toml"]}>
+<Tab value="docker-compose.yml">
+```yaml lineNumbers
+# Identical on Linux, macOS and Windows: `docker compose up -d`
+services:
+    simplex:
+        image: polytopelabs/simplex:latest
+        container_name: simplex
+        restart: unless-stopped
+        command:
+            ["run",
+             "--config", "/data/filler-config.toml",
+             "--data-dir", "/data",
+             "--ui", "0.0.0.0:8686"]
+        ports:
+            # web UI (unauthenticated — keep it on loopback)
+            - "127.0.0.1:8686:8686"
+        volumes:
+            - simplex-data:/data # bids database + runtime state
+            - ./filler-config.toml:/data/filler-config.toml:ro
+        logging:
+            driver: "json-file"
+            options:
+                max-size: "10m"
+                max-file: "3"
+
+volumes:
+    simplex-data:
+```
+</Tab>
+<Tab value="config.toml">
+```toml lineNumbers
+[simplex]
+maxConcurrentOrders      = 5
+blockScanIntervalSeconds = 3
+logging                  = "info"
+hyperbridgeWsUrl         = "wss://nexus.rpc.polytope.technology"
+substratePrivateKey      = ""
+
+[simplex.signer]
+type                          = "mpcVault"
+apiToken                      = ""
+vaultUuid                     = ""
+accountAddress                = "0x..."
+callbackClientSignerPublicKey = "ssh-ed25519 AAAA..."
+
+# Optional solver-wide ERC-4626 stablecoin treasury
+# (sourcing + sweeping + shutdown)
+[vault]
+sweepIntervalMs = 300000   # optional, default 5 min
+
+# Aave stataUSDC on Base
+[[vault.vaults]]
+chain      = "EVM-8453"
+vault      = "0xC768c589647798a6EE01A91FdE98EF2ed046DBD6"
+threshold  = "5000"
+minBalance = "3000"
+
+# Aave stataUSDT on Arbitrum
+[[vault.vaults]]
+chain      = "EVM-42161"
+vault      = "0xa6D12574eFB239FC1D2099732bd8b5dC6306897F"
+threshold  = "5000"
+minBalance = "3000"
+
+# Same-asset cross-chain markets (USDC→USDC, USDT→USDT): ask below par = spread
+[[pairs]]
+token0 = "USDC"
+token1 = "USDC"
+maxOrderSize = "100000"
+askPriceCurve = [
+    { amount = "100",    price = "0.99"  },
+    { amount = "100000", price = "0.999" },
+]
+
+[[pairs]]
+token0 = "USDT"
+token1 = "USDT"
+maxOrderSize = "100000"
+askPriceCurve = [
+    { amount = "100",    price = "0.99"  },
+    { amount = "100000", price = "0.999" },
+]
+
+# Cross-asset market (USDC ↔ cNGN), priced from the Uniswap V4 pool below
+[[pairs]]
+token0 = "USDC"
+token1 = "CNGN"
+maxOrderSize = "50000"
+
+[vault.uniswapV4]
+positions = [
+    { chain = "EVM-8453", tokenId = "2087350" },
+]
+
+# rpcUrls is always an array. Listing more than one independent endpoint
+# activates quorum log scanning — see the Confirmations and RPC page.
+[[chains]]  # Ethereum
+rpcUrls = [
+    "https://eth-mainnet.g.alchemy.com/v2/YOUR_ALCHEMY_KEY",
+    "https://mainnet.infura.io/v3/YOUR_INFURA_KEY",
+]
+bundlerUrl = "https://eth-mainnet.g.alchemy.com/v2/YOUR_ALCHEMY_KEY"
+
+[[chains]]  # Base
+rpcUrls = [
+    "https://base-mainnet.g.alchemy.com/v2/YOUR_ALCHEMY_KEY",
+    "https://base-mainnet.infura.io/v3/YOUR_INFURA_KEY",
+]
+bundlerUrl = "https://base-mainnet.g.alchemy.com/v2/YOUR_ALCHEMY_KEY"
+
+[[chains]]  # Arbitrum
+rpcUrls = [
+    "https://arb-mainnet.g.alchemy.com/v2/YOUR_ALCHEMY_KEY",
+    "https://arbitrum-mainnet.infura.io/v3/YOUR_INFURA_KEY",
+]
+bundlerUrl = "https://arb-mainnet.g.alchemy.com/v2/YOUR_ALCHEMY_KEY"
+
+[[chains]]  # Polygon
+rpcUrls = [
+    "https://polygon-mainnet.g.alchemy.com/v2/YOUR_ALCHEMY_KEY",
+    "https://polygon-mainnet.infura.io/v3/YOUR_INFURA_KEY",
+]
+bundlerUrl = "https://polygon-mainnet.g.alchemy.com/v2/YOUR_ALCHEMY_KEY"
+```
+</Tab>
+</Tabs>

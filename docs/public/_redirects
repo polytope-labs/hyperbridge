@@ -8,3 +8,8 @@
 
 # /protocol/ismp is a directory with no index page
 /protocol/ismp /protocol/ismp/introduction/ 301!
+
+# Simplex moved out of the Intent Gateway section into its own
+/developers/evm/intent-gateway/simplex /developers/evm/simplex/overview/ 301!
+# /developers/evm/simplex is a directory with no index page
+/developers/evm/simplex /developers/evm/simplex/overview/ 301!

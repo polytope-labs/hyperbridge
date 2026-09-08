@@ -27,7 +27,7 @@ const GUIDES: Record<InstallPlatform, InstallGuide> = {
 		description: "Use your browser’s install or share menu to save Simplex for quicker access and offline startup.",
 		steps: [
 			{ title: "Open your browser menu", description: "Look for the menu or Share control in the browser you use.", visual: "browser-menu" },
-			{ title: "Choose Install or Add to Home Screen", description: "Select the available install option.", visual: "confirm" },
+			{ title: "Choose Add to Home Screen or Install", description: "Choose Add to Home Screen or Install app depending on the platform", visual: "confirm" },
 			{ title: "Confirm, then open Simplex", description: "Simplex is added to your home screen and opens as its own app.", visual: "home-screen" },
 		],
 	},

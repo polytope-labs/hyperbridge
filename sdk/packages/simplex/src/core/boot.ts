@@ -751,6 +751,7 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 			runtimeSigner.address as HexString,
 			() => config.vault?.vaults ?? [],
 			userOpSender,
+			configService,
 		),
 		vaultPreflight: async (vaults) => {
 			const byChain: Record<string, VaultConfig[]> = {}

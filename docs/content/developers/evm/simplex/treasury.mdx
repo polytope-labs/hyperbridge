@@ -23,6 +23,13 @@ One vault list drives three behaviours:
 
 Omit `threshold`/`minBalance` on a vault to make it **withdraw-only** (sourcing + shutdown, no sweeping) for that token.
 
+<Callout type="warn">
+    A vault with no `minBalance` also has no floor for sends. A send that draws on it withdraws
+    exactly what the transfer is short by, so the wallet ends at zero — and on the sponsored path
+    the paymaster debits its gas from that same token during validation, before the transfer runs.
+    Set `minBalance` on any vault whose asset the paymaster charges in.
+</Callout>
+
 ```toml lineNumbers
 [vault]
 sweepIntervalMs = 300000   # optional, default 5 min
@@ -47,7 +54,7 @@ minBalance = "3000"
 | `chain` | yes | State-machine ID the vault lives on (e.g. `"EVM-8453"`) |
 | `vault` | yes | ERC-4626 vault address |
 | `threshold` | no | High-water balance (human units) that triggers a sweep down to `minBalance`. Omit to disable sweeping (withdraw-only). |
-| `minBalance` | conditional | Wallet floor (human units) the sweep deposits down to. Required when `threshold` is set, and must be less than it. |
+| `minBalance` | conditional | Wallet floor (human units). The sweep deposits down to it, and an operator send that draws on this vault withdraws it on top of the shortfall, so the wallet is left at the floor rather than at zero. Required when `threshold` is set, and must be less than it. |
 | `redeemOnShutdown` | no | Redeem this position back to the underlying asset on shutdown. Defaults to `false` (the position is kept across restarts). |
 
 ## Rebalancing

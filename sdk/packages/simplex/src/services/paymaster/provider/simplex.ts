@@ -111,7 +111,7 @@ export async function buildSimplexPaymasterData(
 			)
 			return { ...pm, token: tokenAddress }
 		}
-		await sendFundedApprove(client, walletClient, solverAccount, tokenAddress, permit2, maxUint256)
+		await ensureFundedApprove(client, walletClient, chainId, solverAccount, tokenAddress, permit2)
 	}
 
 	return {
@@ -369,6 +369,40 @@ async function buildPermitMode(
 		paymasterVerificationGasLimit: VERIFICATION_GAS_LIMIT_PERMIT,
 		paymasterPostOpGasLimit: POST_OP_GAS_LIMIT_SIMPLEX,
 	}
+}
+
+/**
+ * In-flight `approve(spender, max)` per (chain, token, owner). The bid path and the vault /
+ * token-send path are scheduled independently, so both can find a missing allowance at once;
+ * two concurrent `writeContract` calls would resolve the same pending nonce and one tx would
+ * be dropped or replaced. A second caller rides the first call's promise instead.
+ */
+const approvalsInFlight = new Map<string, Promise<void>>()
+
+/**
+ * Deduplicating wrapper around {@link sendFundedApprove}. Rethrows the in-flight call's error
+ * to a rider — both callers are blocked on the same missing allowance for the same reason, so
+ * they should fail identically rather than pile a second tx onto a failure.
+ */
+async function ensureFundedApprove(
+	client: PublicClient,
+	walletClient: WalletClient,
+	chainId: number,
+	solverAccount: HexString,
+	tokenAddress: HexString,
+	spender: HexString,
+): Promise<void> {
+	const key = `${chainId}:${tokenAddress.toLowerCase()}:${solverAccount.toLowerCase()}`
+	const inFlight = approvalsInFlight.get(key)
+	if (inFlight) return inFlight
+
+	const pending = sendFundedApprove(client, walletClient, solverAccount, tokenAddress, spender, maxUint256).finally(
+		() => {
+			approvalsInFlight.delete(key)
+		},
+	)
+	approvalsInFlight.set(key, pending)
+	return pending
 }
 
 /**

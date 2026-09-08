@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { encodeFunctionData, erc20Abi, maxUint256 } from "viem"
-import type { HexString } from "@hyperbridge/sdk"
+import { encodeERC7821ExecuteBatch, type HexString } from "@hyperbridge/sdk"
 
 import { DelegationService } from "@/services/DelegationService"
 import { resolvePendingPermit2Approval } from "@/services/paymaster/provider/simplex"
@@ -55,10 +55,11 @@ const signer = {
 	signAuthorization: async () => ({ r: "0x01" as HexString, s: "0x02" as HexString, yParity: 0 }),
 } as unknown as Signer
 
-function build(opts: { native: bigint; receiptStatus?: "success" | "reverted" }) {
+function build(opts: { native: bigint; receiptStatus?: "success" | "reverted"; delegatedTo?: HexString }) {
 	const sendTransaction = vi.fn(async () => ("0x" + "ab".repeat(32)) as HexString)
 	const publicClient = {
-		getCode: async () => "0x",
+		// A delegated EOA carries the EIP-7702 indicator followed by the delegate address.
+		getCode: async () => (opts.delegatedTo ? `0xef0100${opts.delegatedTo.slice(2)}` : "0x"),
 		getBalance: async () => opts.native,
 		getGasPrice: async () => GAS_PRICE,
 		getTransactionCount: async () => 0,
@@ -73,6 +74,15 @@ function build(opts: { native: bigint; receiptStatus?: "success" | "reverted" })
 }
 
 const batchedApprove = encodeFunctionData({ abi: erc20Abi, functionName: "approve", args: [PERMIT2, maxUint256] })
+
+/** The exact ERC-7821 payload the bootstrap op must carry — every byte, not just the addresses. */
+const bootstrapCallData = encodeERC7821ExecuteBatch([
+	{
+		target: USDC,
+		value: 0n,
+		data: encodeFunctionData({ abi: erc20Abi, functionName: "approve", args: [PERMIT2, maxUint256] }),
+	},
+])
 
 beforeEach(() => {
 	trySendSponsored.mockReset()
@@ -140,10 +150,11 @@ describe("setupDelegation ordering", () => {
 
 		const [req] = trySendSponsored.mock.calls[0] as unknown as [{ callData: HexString; permitBootstrap: boolean }]
 		expect(req.permitBootstrap).toBe(true)
-		// The approve rides in the op's own callData, as an ERC-7821 batch.
-		expect(req.callData).toContain(PERMIT2.slice(2).toLowerCase())
-		expect(req.callData).toContain(USDC.slice(2).toLowerCase())
-		expect(req.callData).not.toBe("0x")
+		// Exact bytes, not a substring match: both addresses appear in the encoding however the
+		// call is mis-assembled, so `toContain` would pass on a wrong approve amount, a wrong
+		// target, or a missing ERC-7821 wrapper. A 1-wei allowance in particular would strand
+		// the chain forever — resolvePendingPermit2Approval refuses any non-zero allowance.
+		expect(req.callData).toBe(bootstrapCallData)
 	})
 
 	it("sends a plain no-op op, with no permit bootstrap, once the allowance is in place", async () => {
@@ -172,6 +183,69 @@ describe("setupDelegation ordering", () => {
 		const [req] = trySendSponsored.mock.calls[0] as unknown as [{ callData: HexString; permitBootstrap: boolean }]
 		expect(req.callData).toBe("0x")
 		expect(req.permitBootstrap).toBe(false)
+	})
+
+	it("installs the Permit2 allowance on an already-delegated account instead of returning early", async () => {
+		// The regression this guards: an account delegated by a release that charged EIP-2612
+		// permits has NO Permit2 allowance, and setupDelegation used to return the moment
+		// isDelegated held — stranding every upgraded solver on a native-funded approve.
+		vi.mocked(resolvePendingPermit2Approval).mockResolvedValue({
+			token: USDC,
+			spender: PERMIT2,
+			permitCapable: true,
+		})
+		trySendSponsored.mockResolvedValue({ txHash: "0x" + "cd".repeat(32) })
+		const { service, sendTransaction } = build({ native: 0n, delegatedTo: SOLVER_ACCOUNT })
+
+		expect(await service.setupDelegation(CHAIN)).toBe(true)
+
+		expect(sendTransaction).not.toHaveBeenCalled()
+		expect(trySendSponsored).toHaveBeenCalledOnce()
+		const [req] = trySendSponsored.mock.calls[0] as unknown as [
+			{ callData: HexString; permitBootstrap: boolean; eip7702Auth?: unknown },
+		]
+		expect(req.permitBootstrap).toBe(true)
+		expect(req.callData).toBe(bootstrapCallData)
+		// Already delegated, so the op carries no authorization — only the approve.
+		expect(req.eip7702Auth).toBeUndefined()
+	})
+
+	it("sends nothing on an already-delegated account whose allowance is already in place", async () => {
+		vi.mocked(resolvePendingPermit2Approval).mockResolvedValue(null)
+		const { service, sendTransaction } = build({ native: 0n, delegatedTo: SOLVER_ACCOUNT })
+
+		expect(await service.setupDelegation(CHAIN)).toBe(true)
+
+		expect(trySendSponsored).not.toHaveBeenCalled()
+		expect(sendTransaction).not.toHaveBeenCalled()
+	})
+
+	it("leaves a no-permit token on an already-delegated account to the funded approve", async () => {
+		vi.mocked(resolvePendingPermit2Approval).mockResolvedValue({
+			token: USDT,
+			spender: PERMIT2,
+			permitCapable: false,
+		})
+		const { service, sendTransaction } = build({ native: 0n, delegatedTo: SOLVER_ACCOUNT })
+
+		expect(await service.setupDelegation(CHAIN)).toBe(true)
+
+		// Nothing to pay the op with, so no op — the first sponsored op sends the approve.
+		expect(trySendSponsored).not.toHaveBeenCalled()
+		expect(sendTransaction).not.toHaveBeenCalled()
+	})
+
+	it("still reports the account delegated when the allowance op fails", async () => {
+		vi.mocked(resolvePendingPermit2Approval).mockResolvedValue({
+			token: USDC,
+			spender: PERMIT2,
+			permitCapable: true,
+		})
+		trySendSponsored.mockRejectedValue(new Error("bundler down"))
+		const { service } = build({ native: 0n, delegatedTo: SOLVER_ACCOUNT })
+
+		// Best-effort: a failed bootstrap must not turn a delegated account into a setup failure.
+		expect(await service.setupDelegation(CHAIN)).toBe(true)
 	})
 
 	it("falls through to the bundler when the batched tx reverts without delegating", async () => {

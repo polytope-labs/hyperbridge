@@ -20,8 +20,27 @@ const DELEGATION_TX_GAS_FLOOR = 650_000n
 /** Extra gas for an ERC-20 approve folded into the delegation tx. */
 const BATCHED_APPROVE_GAS = 60_000n
 
-/** callGasLimit for a delegation op carrying `approve(Permit2, max)` through ERC-7821. */
+/** callGasLimit for an op carrying `approve(Permit2, max)` through ERC-7821. */
 const BOOTSTRAP_CALL_GAS_LIMIT = 150_000n
+
+/**
+ * The ERC-7821 batch that installs the Permit2 allowance. Shared by the first-time delegation
+ * op and by {@link DelegationService.ensurePermit2Allowance}, so the two carriers can never
+ * drift into approving different amounts or spenders.
+ */
+function bootstrapCallData(approval: { token: HexString; spender: HexString }): HexString {
+	return encodeERC7821ExecuteBatch([
+		{
+			target: approval.token,
+			value: 0n,
+			data: encodeFunctionData({
+				abi: erc20Abi,
+				functionName: "approve",
+				args: [approval.spender, maxUint256],
+			}),
+		},
+	])
+}
 
 /**
  * Service for managing EIP-7702 delegation of the filler's EOA to the SolverAccount contract.
@@ -263,19 +282,7 @@ export class DelegationService {
 			// then make this op's callData a non-zero → non-zero change the USDT rule
 			// rejects. Those chains stay on the no-op op and the native fallbacks.
 			const bootstrap = !!pendingApproval?.permitCapable
-			const callData = bootstrap
-				? encodeERC7821ExecuteBatch([
-						{
-							target: pendingApproval!.token,
-							value: 0n,
-							data: encodeFunctionData({
-								abi: erc20Abi,
-								functionName: "approve",
-								args: [pendingApproval!.spender, maxUint256],
-							}),
-						},
-					])
-				: ("0x" as HexString)
+			const callData = bootstrap ? bootstrapCallData(pendingApproval!) : ("0x" as HexString)
 
 			// The EIP-7702 authorization rides inside the UserOp so a not-yet-delegated
 			// EOA is delegated in the op (bundler submits the tx, so it uses the current
@@ -317,6 +324,68 @@ export class DelegationService {
 	}
 
 	/**
+	 * Installs `approve(Permit2, max)` on an account that is ALREADY delegated, using the same
+	 * permit-funded op the first-time delegation carries — minus the authorization, which it
+	 * does not need.
+	 *
+	 * This exists because delegation and bootstrap are separate facts. An account delegated by
+	 * an earlier release has no Permit2 allowance (that release charged EIP-2612 permits and
+	 * never touched Permit2), and `setupDelegation` returns before the bootstrap once
+	 * `isDelegated` holds. Leaving it there strands every upgraded solver on the native-funded
+	 * approve path.
+	 *
+	 * Best-effort and never throws: on failure the first sponsored op still falls back to
+	 * `sendFundedApprove`, which works for a solver holding native.
+	 */
+	private async ensurePermit2Allowance(chain: string): Promise<void> {
+		if (!this.userOpSender.canSponsor(chain)) return
+
+		const pending = await this.resolvePendingPermit2Approval(chain)
+		if (!pending) return
+		if (!pending.permitCapable) {
+			// No permit means no way to pay for this op without native, and a solver that holds
+			// native can let the first sponsored op send the approve itself.
+			this.logger.info(
+				{ chain, token: pending.token },
+				"Fee token has no permit; its Permit2 approval defers to the first sponsored op's funded approve",
+			)
+			return
+		}
+
+		this.logger.info(
+			{ chain, token: pending.token },
+			"Installing the Permit2 allowance with a permit-funded UserOp",
+		)
+		try {
+			const result = await this.userOpSender.trySendSponsored({
+				chain,
+				callData: bootstrapCallData(pending),
+				// No authorization and warm account storage, so the account side is the
+				// re-delegation figure; the paymaster packs its own PERMIT limit.
+				gas: {
+					verificationGasLimit: 80_000n,
+					callGasLimit: BOOTSTRAP_CALL_GAS_LIMIT,
+					preVerificationGas: 100_000n,
+				},
+				permitBootstrap: true,
+			})
+			if (result) {
+				this.logger.info({ chain, txHash: result.txHash }, "Permit2 allowance installed — paymaster paid gas")
+				return
+			}
+			this.logger.warn(
+				{ chain },
+				"Permit-funded Permit2 approval unavailable; the first sponsored op will need a native-funded approve",
+			)
+		} catch (error) {
+			this.logger.warn(
+				{ chain, error },
+				"Permit-funded Permit2 approval failed; the first sponsored op will need a native-funded approve",
+			)
+		}
+	}
+
+	/**
 	 * Sets up EIP-7702 delegation from the filler's EOA to the SolverAccount contract.
 	 *
 	 * A fee token with no Permit2 allowance yet cannot be charged through Permit2, so the
@@ -342,6 +411,12 @@ export class DelegationService {
 
 		if (await this.isDelegated(chain)) {
 			this.logger.info({ chain }, "EOA already delegated to SolverAccount")
+			// Delegated does NOT imply bootstrapped. An account delegated by a release that
+			// charged EIP-2612 permits has no Permit2 allowance at all, and the delegation op
+			// that would have installed one never runs again. Without this, the first sponsored
+			// op falls into a native-funded approve — the exact trap the 2026-09-02 `skipPermit`
+			// entry in docs/ai/Decisions.md records hitting on Base and Arbitrum.
+			await this.ensurePermit2Allowance(chain)
 			return true
 		}
 

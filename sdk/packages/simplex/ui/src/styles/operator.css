@@ -294,6 +294,12 @@ button.operator-text-button:hover:not(:disabled) {
 	border-bottom: 1px solid var(--border);
 }
 
+.operator-balance-row:last-child,
+button.operator-market-row:last-child,
+button.operator-tool-row:last-child {
+	border-bottom: 0;
+}
+
 .operator-balance-network {
 	display: flex;
 	align-items: center;

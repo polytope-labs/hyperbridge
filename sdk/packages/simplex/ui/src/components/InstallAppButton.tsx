@@ -1,4 +1,3 @@
-import * as Dialog from "@radix-ui/react-dialog"
 import {
 	createContext,
 	useCallback,
@@ -11,6 +10,13 @@ import {
 import { toast } from "sonner"
 import { InstallGuidePanel } from "./InstallGuide"
 import { CheckIcon, CloseIcon, DownloadIcon } from "./InterfaceIcons"
+import {
+	ResponsiveDialog,
+	ResponsiveDialogClose,
+	ResponsiveDialogContent,
+	ResponsiveDialogDescription,
+	ResponsiveDialogTitle,
+} from "./ui/ResponsiveDialog"
 
 interface BeforeInstallPromptEvent extends Event {
 	prompt(): Promise<void>
@@ -154,26 +160,30 @@ function InstallAppDialog(props: {
 }) {
 	const installed = props.status === "installed"
 	return (
-		<Dialog.Root open={props.open} onOpenChange={props.onOpenChange}>
-			<Dialog.Portal>
-				<Dialog.Overlay className="install-dialog-overlay" />
-				<Dialog.Content className="install-dialog" aria-describedby="install-dialog-description">
+		<ResponsiveDialog open={props.open} onOpenChange={props.onOpenChange}>
+			<ResponsiveDialogContent
+				className="install-dialog"
+				overlayClassName="install-dialog-overlay"
+				ariaDescribedBy="install-dialog-description"
+			>
 					<header className="install-dialog-header">
 						<img src="./icons/simplex-192.png" alt="" />
 						<div>
 							<span className="eyebrow">Simplex desktop app</span>
-							<Dialog.Title>{installed ? "Simplex is installed" : "Install Simplex"}</Dialog.Title>
-							<Dialog.Description id="install-dialog-description">
+							<ResponsiveDialogTitle>
+								{installed ? "Simplex is installed" : "Install Simplex"}
+							</ResponsiveDialogTitle>
+							<ResponsiveDialogDescription id="install-dialog-description">
 								{installed
 									? "You’re running Simplex as a standalone app."
 									: "Save Simplex to your desktop for quicker access and a dedicated app window."}
-							</Dialog.Description>
+							</ResponsiveDialogDescription>
 						</div>
-						<Dialog.Close asChild>
+						<ResponsiveDialogClose>
 							<button type="button" className="install-dialog-close" aria-label="Close install guide">
 								<CloseIcon aria-hidden="true" />
 							</button>
-						</Dialog.Close>
+						</ResponsiveDialogClose>
 					</header>
 
 					{installed ? (
@@ -183,11 +193,11 @@ function InstallAppDialog(props: {
 							</span>
 							<h2>You’re all set</h2>
 							<p>Open Simplex from your desktop, Dock, taskbar, Start menu, or Applications folder.</p>
-							<Dialog.Close asChild>
+							<ResponsiveDialogClose>
 								<button type="button" className="primary">
 									Done
 								</button>
-							</Dialog.Close>
+							</ResponsiveDialogClose>
 						</div>
 					) : (
 						<>
@@ -198,11 +208,11 @@ function InstallAppDialog(props: {
 							<footer className="install-dialog-footer">
 								<span>Usually takes less than a minute.</span>
 								<div>
-									<Dialog.Close asChild>
+									<ResponsiveDialogClose>
 										<button type="button" className="secondary">
 											Maybe later
 										</button>
-									</Dialog.Close>
+									</ResponsiveDialogClose>
 									<button type="button" className="primary" onClick={() => void props.onInstall()}>
 										<DownloadIcon aria-hidden="true" />
 										Install Simplex
@@ -211,8 +221,7 @@ function InstallAppDialog(props: {
 							</footer>
 						</>
 					)}
-				</Dialog.Content>
-			</Dialog.Portal>
-		</Dialog.Root>
+			</ResponsiveDialogContent>
+		</ResponsiveDialog>
 	)
 }

@@ -1,0 +1,158 @@
+---
+title: Markets
+description: Every market Simplex serves is a [[pairs]] entry priced by its own bid/ask curves — cross-asset, same-asset cross-chain, or one-sided.
+---
+
+# Markets
+
+Simplex is a single pair engine. Every market it serves — cross-asset swaps like USDC/cNGN and same-asset cross-chain transfers like USDC→USDC — is a **`[[pairs]]`** entry in your TOML config, priced by its own bid/ask curves. Pairs reference assets by symbol from the built-in [asset registry](#the-asset-registry), and an LP can declare any number of them. Both **same-chain** and **cross-chain** orders are supported.
+
+Same-chain orders (`source == destination`) are filled immediately without waiting for additional confirmations. Cross-chain orders wait per the configured [confirmation policy](/developers/evm/simplex/confirmations#confirmation-policy) before bidding.
+
+An order is filled only when **two independent checks both pass**:
+
+1. **Fees cover execution.** `order.fees` must cover the fill gas and, for a cross-chain order, the **relayer fee** for delivering the escrow-release message back to the source chain (a ~1M-gas cost priced on the source chain; zero for same-chain fills). The swap spread is never credited toward this — fees must stand on their own.
+2. **Every same-token leg nets a positive spread.** A same-asset cross-chain transfer must leave the solver holding more of the asset than it sent, measured in that asset's own units. Legs are never summed across pairs — margins in different quote assets share no unit, and a winning leg in one currency must not mask a losing leg in another.
+
+Cross-asset and one-sided legs are deliberately **not** gated on margin: they fill at the operator's own curve, which is the price the operator declared acceptable. Their margin is computed and logged, but never used to reject an order. A crossed book (bid at or below ask) is allowed for the same reason — each side is quoted and filled independently at its own curve, so crossing only means a full round trip loses money. The wizards surface it as a warning, not a startup error. Skew both curves to manage inventory, or use a one-sided pair for a deliberate directional position.
+
+The solver holds inventory on both sides of its pairs. When a user swaps token0→token1 the solver sells token1 at the pair's ask price; when the user swaps token1→token0 the solver buys at the bid price. The spread between the two curves is the solver's margin per trade.
+
+Curves are expressed in **token1 per 1 token0** and keyed by the order's token0 notional. A higher bid means the solver owes less token0 per token1 received (it profits more buying token1). A lower ask means the solver sends fewer token1 per token0 received (it profits more selling token1).
+
+Each pair's **`maxOrderSize`** caps the solver's exposure per order, denominated in that pair's token0. An order larger than the cap is **partially filled** down to it: the IntentGateway releases escrow strictly in proportion to the outputs provided, so filling a quarter of an order takes on a quarter of the exposure. An order the solver declines because its own curve yields less than the user asked for is a different case — that one is skipped outright, logged with `limiter: "price"`, since filling a smaller slice of a bad rate loses the same per unit and costs the same gas.
+
+The pair list is the whole market definition:
+
+```toml lineNumbers
+# Trading pairs — assets are referenced by symbol from Simplex's built-in
+# registry; declare as many pairs as you like, one FX engine serves them all.
+[[pairs]]
+token0 = "USDC"
+token1 = "CNGN"
+maxOrderSize = "5000"       # per-order cap, in token0 units (5000 USDC)
+# Bid: CNGN per USDC when *buying* CNGN from a user (CNGN→USDC leg).
+bidPriceCurve = [
+    { amount = "100",  price = "1580" },
+    { amount = "1000", price = "1575" },
+    { amount = "5000", price = "1570" },
+]
+# Ask: CNGN per USDC when *selling* CNGN to a user (USDC→CNGN leg).
+askPriceCurve = [
+    { amount = "100",  price = "1560" },
+    { amount = "1000", price = "1555" },
+    { amount = "5000", price = "1550" },
+]
+
+[[pairs]]
+token0 = "USDT"
+token1 = "CNGN"
+maxOrderSize = "5000"
+bidPriceCurve = [ { amount = "0", price = "1578" } ]
+askPriceCurve = [ { amount = "0", price = "1552" } ]
+
+# A rand/naira book — no USD asset involved; sized entirely in ZARP:
+[[pairs]]
+token0 = "ZARP"
+token1 = "CNGN"
+maxOrderSize = "90000"      # 90,000 ZARP per order
+bidPriceCurve = [ { amount = "0", price = "86" } ]   # CNGN per ZARP
+askPriceCurve = [ { amount = "0", price = "84" } ]
+
+# A same-asset cross-chain market (USDC→USDC):
+# the ask price below par IS the spread.
+[[pairs]]
+token0 = "USDC"
+token1 = "USDC"
+maxOrderSize = "100000"
+askPriceCurve = [
+    { amount = "100",    price = "0.99"  },   # small orders: 1% spread
+    { amount = "100000", price = "0.999" },   # large orders: 0.1%
+]
+```
+
+## Partial fills
+
+A partial fill collects **no `order.fees`** — the gateway releases those only to whoever completes the order — while the solver still pays the gas. What pays for that gas is the margin already built into the pair's own curve, which the engine cannot measure. So partial fills are exempt from the profitability floor that every other order must clear: configuring a curve is the decision to fill at it.
+
+Three cases are still skipped outright, because the fill would revert or be mispriced rather than merely be unprofitable:
+
+- **Cross-chain.** That path reverts on any under-fill, so an oversized cross-chain order is skipped.
+- **Orders carrying output calldata.** The attached call runs only on a full fill, and the gateway rejects a partial that would skip it.
+- **Orders another solver has already partially filled.** Their escrow is drawn down, so Simplex cannot price the remainder from the order alone.
+
+One-sided and venue-priced pairs partially fill on the same terms. They have no opposite curve to mark the open side against, so the reported profit for such a fill is only the surplus over the solver's own quote — often zero — but that figure no longer decides whether the fill happens.
+
+## The asset registry
+
+Pairs reference assets purely by symbol — no address configuration. Every shipped symbol resolves per chain from the **SDK chain registry** (`chain.ts`), the single source of truth for token addresses shared with the rest of the SDK: **USDC, USDT, DAI, cNGN** (testnets included) plus curated stablecoin deployments on the supported mainnets — **USDR** (DollarCoin US dollar — Ethereum, Base, Polygon), **ZARP** (South African rand — Ethereum, Polygon, Base), **EURC** (Circle euro — Ethereum, Base), **XSGD** (StraitsX Singapore dollar — Ethereum, Polygon) and **TRYB** (BiLira Turkish lira — Ethereum). Curated addresses are taken from the issuer's official documentation and verified on-chain (`symbol()`/`decimals()`) before inclusion, and a new asset is added once in the SDK registry — there is no parallel table in Simplex to drift out of sync. Symbols are case-insensitive; a pair simply doesn't trade on chains where an asset isn't deployed.
+
+The registry holds addresses only — it carries no prices. Every quantity that sizes a pair is denominated in the pair's own `token0`: the curve `amount` axis and the per-order `maxOrderSize` cap. The curves are the only price source — including for confirmation sizing, where the order's USD value is derived from them (see below).
+
+For assets the registry doesn't ship — or to override an address for your deployment — the optional **`[assets]`** table is the escape hatch, a bare symbol → chain → address map:
+
+```toml lineNumbers
+# Only needed for assets the registry does not ship (or overrides):
+[assets.BRZ]
+"EVM-137" = "0xBrzOnPolygon"
+
+[[pairs]]
+token0 = "USDC"
+token1 = "BRZ"
+maxOrderSize = "5000"
+askPriceCurve = [ { amount = "0", price = "5.4" } ]
+```
+
+## Trading pairs
+
+Each **`[[pairs]]`** entry is one market: `token0`/`token1` symbols, a per-order **`maxOrderSize`** cap in token0 units, and bid/ask curves in **token1 per token0** keyed by token0 notional. Every pair is priced, capped, and sized independently — USDC/cNGN and USDT/cNGN can carry different rates, so a USDT depeg is handled by adjusting one pair's curves (live, from the local web dashboard the `run` command serves on `--ui`) instead of being silently absorbed. Orders whose legs match no configured pair are rejected, so the pair list doubles as an allowlist of the markets the LP serves.
+
+Cross-chain confirmation policies are sized with the order's **USD value**, derived entirely from your own curves: USDC/USDT/DAI are $1 anchors, and every curve-priced cross-asset pair is an FX edge between its two symbols. That makes an anchor a startup requirement — every pair's `token0` must be a USD stable or connect to one through your curve-priced pairs, directly or transitively (USDC/cNGN plus ZARP/cNGN anchors ZARP through cNGN). A config with an unanchorable `token0` refuses to start. An anchoring pair can be declared `referenceOnly = true` to contribute its rate without opening a tradeable market.
+
+## Same-token markets
+
+A pair may quote the **same symbol on both sides** — the same-asset cross-chain market (USDC on one chain in, USDC on another out). Same-token pairs are **ask-only** (both directions are one market) and their ask prices sit **strictly below par**: the price is the fraction of the input paid back out, so `0.9995` keeps 5 bps of every fill. Prices at or above 1 are rejected at startup — par is a zero spread that can never fill, and above par pays out more than received.
+
+Same-token markets are **cross-chain only** — a same-chain order (source == destination) would be a pay-more-get-less self-swap and is rejected. Any registry asset works, USD-stable or not (e.g. a cNGN/cNGN transfer market across chains): the profit gate checks that each same-token leg comes out ahead **in its own asset** (a unit-independent sign check on input − output), and `order.fees` separately covers execution in the source fee token. The USD-anchor startup rule still applies, and a same-token pair contributes no FX edge of its own — a non-USD same-token market therefore needs a curve-priced USD pair for the asset alongside it (e.g. USDC/cNGN next to cNGN/cNGN) so confirmation depth can be sized in USD. Declare that anchoring pair **`referenceOnly = true`** to supply the rate without opening a market: a reference pair feeds the anchor graph but never matches orders, and needs no `maxOrderSize`.
+
+Unlike cross-asset fills, the same-token spread is **realized in-kind on the fill itself**. It is not credited toward the fee gate, though: `order.fees` must cover execution on their own, and an order whose fees fall short is skipped no matter how wide the spread is. The realized spread only ranks orders that already passed both gates. Pre-position the asset on each destination chain (optionally backed by the [`[vault]` treasury](/developers/evm/simplex/treasury#vault-treasury-erc-4626)).
+
+## One-sided LP
+
+With both curves set a pair fills in both directions. Omitting one curve restricts that pair to a single direction, so the solver keeps accumulating one asset while only giving away the other — and each pair is gated independently:
+
+- **Ask only** (omit `bidPriceCurve`) — the solver only *sells* token1 on that pair, filling orders where the user sends token0 and receives token1. It accumulates token0 and gives away token1 (for example, take USDC, hand out cNGN).
+- **Bid only** (omit `askPriceCurve`) — the solver only *buys* token1 on that pair, filling orders where the user sends token1 and receives token0.
+
+Orders in the disabled direction are rejected before bidding (an order with mixed-direction legs is rejected as a whole, since the IntentGateway settles all legs atomically).
+
+```toml lineNumbers
+# Ask curve only — keep accumulating USDC by only selling cNGN
+[[pairs]]
+token0 = "USDC"
+token1 = "CNGN"
+maxOrderSize = "5000"
+askPriceCurve = [
+    { amount = "100",  price = "1560" },
+    { amount = "1000", price = "1555" },
+    { amount = "5000", price = "1550" },
+]
+```
+
+When pricing from a [Uniswap V4 pool](/developers/evm/simplex/pricing#pool-based-pricing) (no curves), there is no curve to omit, so set **`side`** on the `[vault.uniswapV4]` block instead — `"ask"` to only sell token1 (accumulate the quote asset) or `"bid"` to only buy token1. Omit `side` to fill both directions. `side` cannot be combined with static curves.
+
+```toml lineNumbers
+[assets.CNGN]
+"EVM-8453" = "0x46C85152bFe9f96829aA94755D9f915F9B10EF5F"
+
+[[pairs]]
+token0 = "USDC"
+token1 = "CNGN"
+maxOrderSize = "5000"       # pool-priced: no curves
+
+[vault.uniswapV4]
+side = "ask"  # only sell CNGN; keep accumulating USDC
+positions = [
+    { chain = "EVM-8453", tokenId = "2087350" },
+]
+```

@@ -239,4 +239,71 @@ export interface ConfigDto {
 	 * chains that are not enabled. Running chains are always present, possibly empty.
 	 */
 	knownVaults: Record<string, KnownVault[]>
+	/** Remote-access summary for the Operations list; absent when the filler has no tunnel. */
+	tunnel?: { enabled: boolean; devices: number }
+}
+
+/** Where the remote-access tunnel is in its lifecycle. */
+export type TunnelState = "disabled" | "connecting" | "connected" | "reconnecting" | "disconnected" | "error"
+
+export interface TunnelDeviceDto {
+	/** `SHA256:…` of the device's public key. */
+	fingerprint: string
+	label: string
+	/** Unix milliseconds; 0 for a line added to `authorized_keys` by hand. */
+	addedAt: number
+}
+
+/** GET /api/tunnel */
+export interface TunnelStatusDto {
+	enabled: boolean
+	state: TunnelState
+	/** `host:port` of the relay in use. */
+	relay: string
+	/** Pinned relay host key, once known. */
+	relayFingerprint?: string
+	/** Public port the relay leased to this simplex; what the phone connects to. */
+	port?: number
+	connectedAt?: number
+	lastError?: string
+	/** The embedded SSH server's host key, which the phone must pin. */
+	hostFingerprint: string
+	/** This simplex's identity toward the relay. */
+	operatorFingerprint: string
+	devices: TunnelDeviceDto[]
+	/** Device sessions open right now. */
+	activeConnections: number
+	/**
+	 * The connection an operator types into their SSH app. Overlaps `port` and
+	 * `hostFingerprint` on purpose: this is the block the dashboard renders, so
+	 * it stays one shape whether it comes from here or from pairing.
+	 */
+	connection: TunnelConnectionDto
+	/** True when this status was read through the tunnel, where remote access cannot be changed. */
+	readOnly?: boolean
+}
+
+/** Everything a phone's SSH app needs to reach this dashboard. */
+export interface TunnelConnectionDto {
+	host: string
+	/** Absent until the relay has leased a port. */
+	port?: number
+	username: string
+	/** The embedded SSH server's host key, which the phone pins. */
+	hostFingerprint: string
+	/** `-L` argument: local port to the UI bind. */
+	localForward: string
+}
+
+/**
+ * POST /api/tunnel/devices. When the request carried the phone's own public
+ * key there is no private key here; when simplex generated the pair, the
+ * private key is returned once and never stored.
+ */
+export interface TunnelNewDeviceDto {
+	device: TunnelDeviceDto
+	/** OpenSSH-format private key for the phone; absent for a pasted public key. */
+	privateKey?: string
+	publicKey: string
+	connection: TunnelConnectionDto
 }

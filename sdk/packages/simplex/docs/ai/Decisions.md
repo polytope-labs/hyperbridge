@@ -4,6 +4,121 @@ AI-maintained record of non-obvious choices made in `sdk/packages/simplex`: what
 
 Entry format: heading with the decision, then alternatives considered and the reasoning. Newest first.
 
+## 2026-09-08 — Tunnelled requests are tagged in-process, and only remote-access routes are refused
+
+Two ways to tell a tunnelled request apart were on the table. Dialling the UI from a distinct
+loopback source (`localAddress: "127.0.0.2"`) needs no plumbing, but only Linux hands out
+127.0.0.0/8 freely — it would silently fail to tag on macOS, and a guard that silently stops
+guarding is worse than none. So the channel is handed to the HTTP server directly with
+`server.emit("connection", channel)` and a symbol on the socket. The cost is a few no-op socket
+methods the HTTP server calls (`setTimeout`, `setNoDelay`, `setKeepAlive`, `ref`, `unref`,
+`destroySoon`); the gain is a tag that cannot be forged and one less TCP hop.
+
+What to refuse was Seun's call, and the answer was `/api/tunnel*` only. The alternative was to
+also block the money and lifecycle routes (`/api/send`, `/api/vault/*`, `/api/stop`,
+`/api/config`, `/api/log-level`), which would make a lost phone harmless — but remote access
+exists so an operator can run the filler from their phone, and the UI and docs already say
+plainly that a paired key opens the whole dashboard. The specific defect was narrower than "the
+phone is powerful": pairing a second key over the tunnel outlives revoking the first, so
+revocation did not mean what it says. Reads stay allowed so the panel can render itself
+read-only, which is friendlier than a button that 403s.
+
+## 2026-09-08 — The pre-auth deadline lives on the stream, not on the ssh2 connection
+
+ssh2 raises its connection event from `onHeader`, after a complete SSH identification line. A
+peer that sends a partial line reaches no handler in `EmbeddedSshServer` at all, so the 30s auth
+timer never armed and the stream was held for as long as the peer liked — invisible, because
+`live` is also incremented there. The timer therefore moved into `inject()`, which sees every
+stream.
+
+Cancelling it needs the reverse link, connection → stream, and ssh2 gives the connection handler
+only `(conn, info)`. The options were to parse packets, to wrap every stream in a proxy (which
+does not help — the correlation problem is identical), or to read `conn._sock`, which ssh2 sets
+in its Connection constructor. We read `_sock`, with a guard: the first time the lookup misses,
+every armed deadline is disarmed and an error is logged. Failing to reap connections is a leak;
+reaping the wrong stream would cut a live operator session. Two tests drive the paths that
+depend on the correlation, so an ssh2 upgrade that renames the field fails loudly.
+
+## 2026-09-08 — The key exchange list is ours, not the client's
+
+ssh2 offers diffie-hellman-group16/17/18-sha512 by default and negotiates by the client's
+preference order, which makes the algorithm an unauthenticated peer's choice. Measured on this
+machine: group14 2.2ms, group16 14.4ms, group18 107.2ms of synchronous server-side DH — on the
+same event loop that prices and fills orders, and repeatable via rekey without ever attempting
+to log in. Rate-limiting was the alternative, but the failure counter only sees login attempts,
+and a per-source connection cap would still leave the first handshake expensive. Restricting the
+offer removes the lever instead of policing it: curve25519 and the ECDH groups cover every SSH
+app anyone pairs, and group14 stays as a floor at ~2ms.
+
+## 2026-09-08 — Every generated ed25519 pair is parsed before it is stored
+
+ssh2's `generateKeyPairSync("ed25519")` returns a pair its own `parseKey` rejects about once in
+256 — 28 of 5,000 in a direct measurement, which is the rate you get from a dropped leading zero
+byte. The alternative was to treat it as a rare transient and let the caller retry, but the
+operator and host keys are written to disk on first boot and re-read on every start: a bad one is
+not transient, it is remote access permanently broken with "Malformed OpenSSH private key" until
+someone deletes the file by hand. Generating our own keys with `node:crypto` and encoding the
+OpenSSH format ourselves would remove the dependency on ssh2's generator entirely, but that is a
+lot of format code to own for a bug a round-trip check catches. `generateKeyPair` therefore
+generates, parses both halves, and retries up to 8 times; 8 consecutive failures is (1/256)^8.
+
+## 2026-09-08 — `none` is not a failed login, every other non-publickey method is
+
+Routing all non-publickey attempts through the failure counter was the review's suggestion, and
+it is right for password and keyboard-interactive. It is wrong for `none`: that is the probe
+every SSH client opens with to ask which methods the server accepts, so counting it would spend
+one of three per-connection failures on the handshake itself and, worse, would push a device that
+reconnects ten times in ten minutes past the per-source limit and lock it out. `none` is refused
+without being counted; everything else counts.
+
+## 2026-09-07 — Pairing pastes the phone's public key by default; generation is the fallback
+
+The first cut generated every device key in simplex and showed the private half on the desktop
+screen for the phone to import. That puts a money key on a screen and a clipboard. Seun asked for
+the reverse as the default: the phone's SSH app makes the key and the operator pastes the `.pub`
+line, so the private half never exists anywhere but the phone. Generation stays behind a switch
+for apps that cannot create keys. Pasted keys are normalised to `<type> <base64>` (comment
+dropped, private keys and duplicates refused) so the `authorized_keys` line format stays uniform.
+
+## 2026-09-07 — Remote access terminates the phone's SSH session inside simplex, not sshd
+
+The phone's SSH session ends in an `ssh2` server embedded in the process, fed by the relay's
+forwarded channels through `injectSocket`, so no port is opened and the host's sshd is never
+exposed. Alternatives: exposing sshd (off by default on macOS/Windows, and a full shell on the
+operator's box for whoever holds the key) or having the relay terminate the session (then the
+relay sees the UI traffic, which moves funds). The embedded server accepts only paired keys and
+`direct-tcpip` to the UI bind; the UI's loopback binding and Host guard stay as they are.
+
+## 2026-09-07 — Off by default, enabled from the UI only
+
+Enabling remote access makes the embedded SSH server reachable by anyone who scans the relay, so
+it is opt-in, and pairing lives in the operator UI rather than the `simplex init` wizard (Seun's
+call: the wizard stays focused on the filler config). The UI writes `[simplex.tunnel]` back to
+the config file so the choice survives restarts.
+
+## 2026-09-07 — Relay host key: configured pin, else the built-in pin for the hosted relay, else trust on first use
+
+`relayHostKey` pins explicitly; for the hosted relay the deployed key's fingerprint is compiled in;
+otherwise the key seen on first contact with that relay address is stored in `tunnel/known_relay`
+and enforced afterwards. A mismatch is refused and reported in
+the UI, not retried silently. A relay is zero-trust by construction (it only sees ciphertext), so
+this pin protects availability rather than confidentiality, which is why TOFU is acceptable as
+the default.
+
+## 2026-09-07 — `ssh2` is imported as a default export
+
+`ssh2` is CommonJS. `import { Client } from "ssh2"` type-checks and passes under vitest (vite's
+CJS interop) but the shipped ESM binary throws "does not provide an export named" at load, which
+the smoke test against the real relay caught. The tunnel modules destructure from the default
+import; types come from `import type`. `ssh2` is also external in tsup because it probes for an
+optional native crypto binding relative to its package directory.
+
+## 2026-09-07 — Device keys live in a plain `authorized_keys`
+
+One OpenSSH line per device with the label URL-encoded in the comment (`simplex-device:<label>:<ms>`),
+so an operator can read or edit the file with tools they already know, and a hand-added line still
+works (its comment becomes the label). The private half is returned once from pairing and never
+written anywhere by simplex.
 ## 2026-09-07 — A phantom bid's accepted sources are derived from the chain set, not configured
 
 Chosen: drop the optional `simplex.acceptedSourceChains` key and derive the declaration in `IntentFiller` at bid

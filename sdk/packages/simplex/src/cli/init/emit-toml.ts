@@ -95,6 +95,16 @@ export function emitFillerToml(config: FillerConfigFile, options: EmitOptions = 
 		push()
 	}
 
+	if (config.simplex.tunnel) {
+		push("# Remote access: outbound SSH tunnel to a relay so a phone's SSH client can open the web UI.")
+		push("# Pair devices from the UI (Operations > Remote access). Keys live under <data-dir>/tunnel/.")
+		push("[simplex.tunnel]")
+		for (const [key, value] of Object.entries(config.simplex.tunnel)) {
+			if (value !== undefined) push(kv(key, value))
+		}
+		push()
+	}
+
 	if (config.simplex.overfillProtection) {
 		push("# Bounds per-leg loss when internal pricing is wrong (bug, stale cache, manipulated venue).")
 		push("[simplex.overfillProtection]")

@@ -4,10 +4,11 @@ import { AddressListEditor } from "../components/AddressListEditor"
 import { OperationLink } from "../components/OperationLink"
 import { OperatorSheet } from "../components/OperatorSheet"
 import { Chains } from "./Chains"
+import { RemoteAccess } from "./RemoteAccess"
 import { useAction, usePolling } from "../lib/hooks"
 import type { ConfigDto } from "../types"
 
-export type OperationsPanel = "allowlist" | "chains"
+export type OperationsPanel = "allowlist" | "chains" | "remote"
 
 /**
  * Live configuration tools. Moving funds (Send, Vault treasury) lives on the
@@ -63,6 +64,18 @@ export function Operations(props: {
 						meta={`${props.chains.length} enabled`}
 						onClick={() => setPanel("chains")}
 					/>
+					<OperationLink
+						title="Remote access"
+						description="Reach this dashboard from another device through an SSH tunnel."
+						meta={
+							config?.tunnel
+								? config.tunnel.enabled
+									? `On · ${config.tunnel.devices} device${config.tunnel.devices === 1 ? "" : "s"}`
+									: "Off"
+								: "Unavailable"
+						}
+						onClick={() => setPanel("remote")}
+					/>
 				</div>
 			</section>
 
@@ -99,6 +112,16 @@ export function Operations(props: {
 						}
 					/>
 				</div>
+			</OperatorSheet>
+
+			<OperatorSheet
+				open={panel === "remote"}
+				onClose={() => setPanel(undefined)}
+				wide
+				title="Remote access"
+				description="Pair a device and open this dashboard from anywhere."
+			>
+				<RemoteAccess />
 			</OperatorSheet>
 
 			<OperatorSheet

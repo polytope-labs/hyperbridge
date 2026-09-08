@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { INIT_CHAINS } from "@/cli/init/chains"
 import { parseChainKey } from "@/config/interpolated-curve"
 import { api } from "../api"
+import { Pager } from "../components/Pager"
 import { ChainLogo } from "../components/ChainLogo"
 import { CopyHash } from "../components/CopyHash"
 import { ExternalLinkIcon } from "../components/InterfaceIcons"
@@ -38,7 +39,12 @@ function statusOf(events: ActivityEventDto[], bids: BidDto[]): Status {
 	const lost = find("lost")
 	// Losing an auction is a market outcome, not a fault: neutral badge, the winner as data.
 	if (lost) {
-		return { label: "Outbid", tone: "", detail: lost.reason ? `by ${shortAddress(lost.reason)}` : undefined, detailKind: "winner" }
+		return {
+			label: "Outbid",
+			tone: "",
+			detail: lost.reason ? `by ${shortAddress(lost.reason)}` : undefined,
+			detailKind: "winner",
+		}
 	}
 	if (find("bid")) {
 		// Awaiting the on-chain outcome, unless the bid has since been pulled.
@@ -63,8 +69,19 @@ function hyperbridgeExplorer(network: OrderHistoryDto["network"]): string {
 
 function ArrowIcon({ direction }: { direction: "up" | "down" }) {
 	return (
-		<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
-			{direction === "up" ? <path d="M8 13.5v-11M3.5 7 8 2.5 12.5 7" /> : <path d="M8 2.5v11M3.5 9 8 13.5 12.5 9" />}
+		<svg
+			viewBox="0 0 16 16"
+			fill="none"
+			stroke="currentColor"
+			strokeWidth="1.5"
+			strokeLinecap="round"
+			aria-hidden="true"
+		>
+			{direction === "up" ? (
+				<path d="M8 13.5v-11M3.5 7 8 2.5 12.5 7" />
+			) : (
+				<path d="M8 2.5v11M3.5 9 8 13.5 12.5 9" />
+			)}
 		</svg>
 	)
 }
@@ -105,7 +122,11 @@ function BidLinks(props: { bid: BidDto | undefined; explorer: string }) {
 					<ArrowIcon direction="up" />
 				</a>
 			) : (
-				<span className="history-link-placeholder" title={`Bid placed ${clockOf(bid.createdAt)}`} aria-hidden="true">
+				<span
+					className="history-link-placeholder"
+					title={`Bid placed ${clockOf(bid.createdAt)}`}
+					aria-hidden="true"
+				>
 					<ArrowIcon direction="up" />
 				</span>
 			)}
@@ -143,14 +164,21 @@ function Empty() {
 	)
 }
 
-function LegCell(props: { leg: OrderLeg | undefined; chain: string | undefined; chainLabels?: Record<string, string> }) {
+function LegCell(props: {
+	leg: OrderLeg | undefined
+	chain: string | undefined
+	chainLabels?: Record<string, string>
+}) {
 	const { leg, chain, chainLabels } = props
 	if (!leg || !chain) return <Empty />
 	const label = chainLabelFor(chain, chainLabels)
 	const symbol =
 		leg.symbol ?? (leg.token === "0x0000000000000000000000000000000000000000" ? "native" : shortAddress(leg.token))
 	return (
-		<span className="history-leg" title={`${formatTokenAmount(leg.amount, leg.decimals, leg.decimals ?? 0)} ${symbol}`}>
+		<span
+			className="history-leg"
+			title={`${formatTokenAmount(leg.amount, leg.decimals, leg.decimals ?? 0)} ${symbol}`}
+		>
 			<span className="history-leg-icon" aria-hidden="true">
 				<TokenIcon symbol={leg.symbol ?? ""} />
 				<ChainLogo label={label} />
@@ -189,7 +217,14 @@ function OrderHistoryRow(props: { row: OrderRow; chainLabels?: Record<string, st
 				<span className="history-status">
 					<span className={`badge ${status.tone}`}>{status.label}</span>
 					{status.detail && (
-						<small data-kind={status.detailKind} title={status.detailKind === "winner" ? (row.events.find((event) => event.type === "lost")?.reason ?? status.detail) : status.detail}>
+						<small
+							data-kind={status.detailKind}
+							title={
+								status.detailKind === "winner"
+									? (row.events.find((event) => event.type === "lost")?.reason ?? status.detail)
+									: status.detail
+							}
+						>
 							{status.detail}
 						</small>
 					)}
@@ -237,56 +272,6 @@ function OrderHistoryRow(props: { row: OrderRow; chainLabels?: Record<string, st
 				</span>
 			</td>
 		</tr>
-	)
-}
-
-/** Page numbers with the current page's neighbours, the ends, and ellipses between. */
-function pageNumbers(current: number, last: number): Array<number | "…"> {
-	if (last <= 7) return Array.from({ length: last }, (_, index) => index + 1)
-	const wanted = new Set([1, 2, last - 1, last, current - 1, current, current + 1])
-	const pages = [...wanted].filter((page) => page >= 1 && page <= last).sort((a, b) => a - b)
-	const out: Array<number | "…"> = []
-	for (const page of pages) {
-		const previous = out[out.length - 1]
-		if (typeof previous === "number" && page - previous > 1) out.push("…")
-		out.push(page)
-	}
-	return out
-}
-
-function Pager(props: { page: number; pageSize: number; total: number; onPage: (page: number) => void }) {
-	const { page, pageSize, total, onPage } = props
-	const last = Math.max(1, Math.ceil(total / pageSize))
-	const from = total === 0 ? 0 : (page - 1) * pageSize + 1
-	const to = Math.min(total, page * pageSize)
-	return (
-		<nav className="history-pager" aria-label="Order history pages">
-			<small>{total === 0 ? "No orders" : `Showing ${from}–${to} of ${total.toLocaleString()} orders`}</small>
-			<div className="history-pager-pages">
-				<button type="button" disabled={page <= 1} onClick={() => onPage(page - 1)} aria-label="Previous page">
-					‹
-				</button>
-				{pageNumbers(page, last).map((entry, index) =>
-					entry === "…" ? (
-						// biome-ignore lint/suspicious/noArrayIndexKey: ellipses have no identity beyond their slot
-						<span key={`gap-${index}`}>…</span>
-					) : (
-						<button
-							type="button"
-							key={entry}
-							data-active={entry === page}
-							aria-current={entry === page ? "page" : undefined}
-							onClick={() => onPage(entry)}
-						>
-							{entry}
-						</button>
-					),
-				)}
-				<button type="button" disabled={page >= last} onClick={() => onPage(page + 1)} aria-label="Next page">
-					›
-				</button>
-			</div>
-		</nav>
 	)
 }
 
@@ -372,7 +357,9 @@ export function Orders(props: { chainLabels?: Record<string, string> }) {
 				</div>
 				{history && orders.length === 0 && (
 					<p className="operator-empty">
-						{history.total === 0 ? "No orders yet. Rows appear as orders are detected." : "No orders on this page."}
+						{history.total === 0
+							? "No orders yet. Rows appear as orders are detected."
+							: "No orders on this page."}
 					</p>
 				)}
 				{orders.length > 0 && (
@@ -404,14 +391,22 @@ export function Orders(props: { chainLabels?: Record<string, string> }) {
 					</div>
 				)}
 				{history && history.total > 0 && (
-					<Pager page={history.page} pageSize={history.pageSize} total={history.total} onPage={setPage} />
+					<Pager
+						page={history.page}
+						pageSize={history.pageSize}
+						total={history.total}
+						noun="orders"
+						onPage={setPage}
+					/>
 				)}
 				{page === 1 && other.length > 0 && (
 					<div className="history-misc" aria-label="Other events">
 						<ul>
 							{other.map((event) => (
 								<li key={event.id}>
-									<span className={`badge ${event.success === false ? "err" : ""}`}>{event.type}</span>
+									<span className={`badge ${event.success === false ? "err" : ""}`}>
+										{event.type}
+									</span>
 									<span>{event.reason ?? (event.success ? "ok" : "")}</span>
 									<span>{formatClockTime(event.ts)}</span>
 								</li>

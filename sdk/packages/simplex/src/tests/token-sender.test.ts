@@ -18,6 +18,8 @@ function makeVaultSender(opts: {
 	maxWithdraw: bigint
 	minBalance?: string
 	vaultAsset?: `0x${string}`
+	/** Reserve the paymaster would pull, in token units; implies the sponsored path. */
+	reserve?: bigint
 }) {
 	const sendTransaction = vi.fn().mockResolvedValue("0xhash")
 	const publicClient = {
@@ -36,7 +38,25 @@ function makeVaultSender(opts: {
 		getWalletClient: () => ({ sendTransaction, chain: undefined }),
 	} as unknown as ChainClientManager
 	const vaults = [{ chain: "EVM-8453", vault: VAULT, ...(opts.minBalance ? { minBalance: opts.minBalance } : {}) }]
-	const sender = new TokenSender(clientManager, SOLVER, () => vaults.map((v) => ({ ...v })))
+	// canSponsor decides whether a reserve applies at all; the amount comes from
+	// the config service, which is where paymasterReserveForToken reads it.
+	const userOpSender =
+		opts.reserve === undefined
+			? undefined
+			: ({ canSponsor: () => true, trySendSponsored: async () => null } as never)
+	const configService =
+		opts.reserve === undefined
+			? undefined
+			: ({
+					getPaymasterAddress: () => "0x15b3B03C870c7ef252029c35A12d3b339F5c8d7f",
+					getSimplexPaymasterAddress: () => "0x15b3B03C870c7ef252029c35A12d3b339F5c8d7f",
+					getCirclePaymasterAddress: () => undefined,
+					getUsdcAsset: () => TOKEN,
+					getUsdcDecimals: () => 6,
+					getUsdtAsset: () => "0x",
+					getUsdtDecimals: () => 6,
+				} as never)
+	const sender = new TokenSender(clientManager, SOLVER, () => vaults.map((v) => ({ ...v })), userOpSender, configService)
 	return { sender, sendTransaction }
 }
 
@@ -168,6 +188,36 @@ describe("TokenSender", () => {
 		expect(result.redeemed).toBe(true)
 		const withdrawal = decodeFunctionData({ abi: ERC4626_ABI, data: batchOf(sendTransaction)[0].data })
 		expect(withdrawal.args?.[0]).toBe(4_000_000_000n - 9_989_773n)
+	})
+
+	it("reserves the paymaster's gas when it is larger than the vault floor", async () => {
+		// The floor only helps if it is set and big enough. The reserve is what the
+		// paymaster will actually pull out of this wallet during validation, and it
+		// applies even to a withdraw-only vault with no floor of its own.
+		const { sender, sendTransaction } = makeVaultSender({
+			walletBalance: 9_989_773n,
+			maxWithdraw: 481_970_486_507n,
+			reserve: 2_000_000n,
+		})
+		await sender.send({ chain: "EVM-8453", token: TOKEN, amount: "4000", to: RECIPIENT })
+		const withdrawal = decodeFunctionData({ abi: ERC4626_ABI, data: batchOf(sendTransaction)[0].data })
+		expect(withdrawal.args?.[0]).toBe(4_000_000_000n - 9_989_773n + 2_000_000n)
+	})
+
+	it("tops the wallet up when it covers the transfer but not the paymaster's pull", async () => {
+		// The case a floor alone never reaches: the wallet covers the amount, so the
+		// old code built a lone transfer and left nothing for validation to take.
+		const { sender, sendTransaction } = makeVaultSender({
+			walletBalance: 4_000_000_000n,
+			maxWithdraw: 481_970_486_507n,
+			reserve: 2_000_000n,
+		})
+		const result = await sender.send({ chain: "EVM-8453", token: TOKEN, amount: "4000", to: RECIPIENT })
+		expect(result.redeemed).toBe(true)
+		const calls = batchOf(sendTransaction)
+		expect(calls).toHaveLength(2)
+		const withdrawal = decodeFunctionData({ abi: ERC4626_ABI, data: calls[0].data })
+		expect(withdrawal.args?.[0]).toBe(2_000_000n)
 	})
 
 	it("still refuses when no vault holds the asset at all", async () => {

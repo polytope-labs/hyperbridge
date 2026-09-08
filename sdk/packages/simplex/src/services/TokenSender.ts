@@ -2,6 +2,8 @@ import { ERC20_ABI } from "@/config/abis/ERC20"
 import { ERC4626_ABI } from "@/config/abis/Erc4626"
 import type { VaultToml } from "@/config/filler-toml"
 import type { ChainClientManager } from "@/services/ChainClientManager"
+import type { FillerConfigService } from "@/services/FillerConfigService"
+import { paymasterReserveForToken } from "@/services/paymaster"
 import type { UserOpSender } from "@/services/UserOpSender"
 import { type Logger , moduleLogger} from "@/services/Logger"
 import { encodeERC7821ExecuteBatch, type ERC7821Call, type HexString } from "@hyperbridge/sdk"
@@ -43,6 +45,8 @@ export class TokenSender {
 		/** Live view of the configured vaults so runtime vault edits are honored. */
 		private readonly getVaults: () => VaultToml[],
 		private readonly userOpSender?: UserOpSender,
+		/** Only needed to size the paymaster's gas reserve; without it a send reserves nothing. */
+		private readonly configService?: FillerConfigService,
 	) {
 		this.logger = moduleLogger(clientManager.loggers, "token-sender")
 	}
@@ -87,17 +91,32 @@ export class TokenSender {
 					data: encodeFunctionData({ abi: ERC4626_ABI, functionName: "redeem", args: [units, to, this.solver] }),
 				})
 			} else {
-				// Withdrawing exactly `units - balance` leaves the wallet at zero, so
-				// anything that spends from it between building this batch and
-				// executing it makes the transfer revert. The sponsored path does
-				// exactly that: the paymaster debits its gas from this same token
-				// during validation, before the batch runs. Asking for the vault's
-				// configured wallet floor on top leaves that headroom.
-				if (balance < units) {
-					const withdrawal = await this.vaultWithdrawalCall(chain, token as HexString, decimals, units - balance)
-					if (!withdrawal) throw new Error(`Insufficient token balance: have ${balance}, need ${units}`)
-					redeemed = true
-					calls.push(withdrawal)
+				// Sizing the transfer to the last unit is what makes a send revert on
+				// the sponsored path: the paymaster charges gas in this same token and
+				// pulls it during validation, before the batch runs, so a wallet left
+				// at exactly `units` is always short by that pull. Reserve for it, and
+				// for the vault's own wallet floor, whichever is larger.
+				const reserve =
+					this.userOpSender?.canSponsor(chain) && this.configService
+						? paymasterReserveForToken(chain, tokenLower, this.configService)
+						: 0n
+				if (balance < units + reserve) {
+					const withdrawal = await this.vaultWithdrawalCall(
+						chain,
+						token as HexString,
+						decimals,
+						units - balance,
+						reserve,
+					)
+					// A vault can only decline to top up the headroom; the transfer
+					// itself still has to be funded.
+					if (!withdrawal && balance < units) {
+						throw new Error(`Insufficient token balance: have ${balance}, need ${units}`)
+					}
+					if (withdrawal) {
+						redeemed = true
+						calls.push(withdrawal)
+					}
 				}
 				calls.push({
 					target: token as HexString,
@@ -119,20 +138,22 @@ export class TokenSender {
 	 */
 	/**
 	 * A withdrawal that funds the transfer and, where the vault can afford it,
-	 * leaves the wallet at its floor rather than at zero.
+	 * leaves headroom in the wallet rather than nothing.
 	 *
-	 * `shortfall` is what the transfer cannot do without. The vault's
-	 * `minBalance` is what the sweep leaves in the wallet, so it is the
-	 * operator's own statement of the working balance this token keeps, and a
-	 * send that is already going to the vault takes it along. A vault that can
-	 * only cover the shortfall still funds the send: the floor is a preference,
-	 * not a reason to refuse a transfer the operator asked for.
+	 * `shortfall` is what the transfer cannot do without, and is zero or negative
+	 * when the wallet already covers it. The headroom is the larger of the
+	 * paymaster's gas `reserve` and the vault's `minBalance` — the first is what
+	 * validation will pull out of this wallet, the second is the operator's own
+	 * statement of the working balance this token keeps. A vault that can only
+	 * cover the shortfall still funds the send: headroom is a preference, not a
+	 * reason to refuse a transfer the operator asked for.
 	 */
 	private async vaultWithdrawalCall(
 		chain: string,
 		token: HexString,
 		decimals: number,
 		shortfall: bigint,
+		reserve: bigint,
 	): Promise<ERC7821Call | null> {
 		const publicClient = this.clientManager.getPublicClient(chain)
 		for (const vault of this.getVaults()) {
@@ -149,12 +170,14 @@ export class TokenSender {
 				functionName: "maxWithdraw",
 				args: [this.solver],
 			})) as bigint
-			if (available < shortfall) continue
-			// Withdraw-only vaults declare no floor, and there a send behaves as it
-			// always did.
+			const required = shortfall > 0n ? shortfall : 0n
+			if (available < required) continue
+			// Withdraw-only vaults declare no floor of their own, and fall back to
+			// the paymaster reserve.
 			const floor = vault.minBalance === undefined ? 0n : parseUnits(vault.minBalance, decimals)
-			const wanted = shortfall + floor
-			const amount = available >= wanted ? wanted : shortfall
+			const headroom = reserve > floor ? reserve : floor
+			const wanted = shortfall + headroom
+			const amount = available >= wanted ? wanted : required
 			if (amount <= 0n) return null
 			return {
 				target: vault.vault,

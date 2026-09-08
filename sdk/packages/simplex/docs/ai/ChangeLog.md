@@ -23,9 +23,14 @@ batch rolled back. The vault position was untouched (share balance identical eit
 block), the paymaster still kept ~0.0097 USDC net, and a retry would fail the same way from a
 slightly smaller wallet.
 
-`vaultWithdrawalCall` now takes the token's decimals and adds the matched vault's `minBalance` to
-the shortfall, so a send that is already going to the vault leaves the wallet at its configured
-floor. A vault that cannot cover shortfall-plus-floor still funds the send with the bare
+`vaultWithdrawalCall` now takes the token's decimals and leaves headroom on top of the shortfall:
+the larger of the matched vault's `minBalance` and `paymasterReserveForToken`, the helper the fill
+path already uses for exactly this hazard — its own doc comment says the paymaster "pulls it from
+the same wallet during validatePaymasterUserOp — before the UserOp's callData runs". TokenSender
+never imported it. The reserve applies only when `userOpSender.canSponsor(chain)` is true, so an
+unsponsored chain and the native-tx fallback are unaffected, and it covers the case a floor alone
+cannot reach: a wallet that already covers the transfer but would be left with nothing for
+validation to take. That send skipped the vault branch entirely and reverted the same way. A vault that cannot cover shortfall-plus-floor still funds the send with the bare
 shortfall: a floor is a preference, not a reason to refuse a transfer the operator asked for. A
 send the wallet already covers is unchanged — it does not start pulling from the vault to top
 itself up. Withdraw-only vaults declare no `minBalance` and behave exactly as before, which means

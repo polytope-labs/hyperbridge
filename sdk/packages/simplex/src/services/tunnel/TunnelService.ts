@@ -1,3 +1,4 @@
+import type { Duplex } from "node:stream"
 import ssh2, { type ClientChannel, type Client as SshClientType } from "ssh2"
 import { getLogger } from "../Logger"
 import type {
@@ -91,6 +92,12 @@ export interface TunnelServiceOptions {
 	config?: TunnelConfig
 	/** Where the UI server is bound; the only place device sessions may reach. */
 	uiTarget: () => { host: string; port: number }
+	/**
+	 * Hands an accepted device channel to the UI server in this process. Returns
+	 * false when there is no UI to serve. Without it the tunnel has nowhere to
+	 * deliver, so channels are refused.
+	 */
+	deliver?: (socket: Duplex, origin: { ip: string; port: number }) => boolean
 	/** Test hook: bounds the reconnect delay. */
 	maxBackoffMs?: number
 }
@@ -159,6 +166,7 @@ export class TunnelService implements TunnelControls {
 			hostKey: this.hostKey.privateKey,
 			isAuthorized: (fingerprint) => this.keys.isAuthorized(fingerprint),
 			target: opts.uiTarget,
+			deliver: (socket, origin) => (opts.deliver ? opts.deliver(socket, origin) : false),
 		})
 	}
 

@@ -20,6 +20,7 @@ import {
 	DEFAULT_TUNNEL_RELAY_HOST_KEY,
 } from "@/services/tunnel/TunnelService"
 import { EmbeddedSshServer } from "@/services/tunnel/EmbeddedSshServer"
+import { isTunnelled } from "@/services/server/http-util"
 import {
 	TunnelKeyStore,
 	fingerprintOf,
@@ -174,7 +175,14 @@ function injectInto(service: TunnelService, stream: Duplex, origin: { ip: string
 }
 
 /** Sends one raw HTTP request through a direct-tcpip channel and returns the response text. */
-function httpThrough(client: SshClientType, host: string, port: number): Promise<string> {
+function httpThrough(
+	client: SshClientType,
+	host: string,
+	port: number,
+	request: { method?: string; path?: string } = {},
+): Promise<string> {
+	const method = request.method ?? "GET"
+	const path = request.path ?? "/health"
 	return new Promise((resolve, reject) => {
 		client.forwardOut("127.0.0.1", 0, host, port, (err: Error | undefined, stream: ClientChannel) => {
 			if (err) return reject(err)
@@ -184,7 +192,13 @@ function httpThrough(client: SshClientType, host: string, port: number): Promise
 			})
 			stream.on("close", () => resolve(body))
 			stream.on("error", reject)
-			stream.end(`GET /health HTTP/1.1\r\nHost: localhost:8686\r\nConnection: close\r\n\r\n`)
+			// The UI requires this header on every mutation; a device sets it as
+			// easily as the operator's browser does, which is the point.
+			const headers = method === "GET" || method === "HEAD" ? "" : "X-Simplex-UI: 1\r\nContent-Length: 2\r\n"
+			const payload = method === "GET" || method === "HEAD" ? "" : "{}"
+			stream.end(
+				`${method} ${path} HTTP/1.1\r\nHost: localhost:8686\r\n${headers}Connection: close\r\n\r\n${payload}`,
+			)
 		})
 	})
 }
@@ -371,6 +385,12 @@ describe("TunnelService", { timeout: 30_000 }, () => {
 			dataDir: dir,
 			config: { enabled: true, relay: `127.0.0.1:${relay.port}`, ...overrides },
 			uiTarget: () => ({ host: "127.0.0.1", port: ui.port }),
+			// The real binary hands the channel to its UI server in-process; the
+			// test's UI server takes it the same way.
+			deliver: (socket) => {
+				ui.server.emit("connection", socket)
+				return true
+			},
 			maxBackoffMs: 200,
 		})
 		tunnel.start()
@@ -592,6 +612,10 @@ describe("TunnelService", { timeout: 30_000 }, () => {
 				// Stand-in for `--ui <specific-address>`: whatever host is given here
 				// is the only one isTarget will accept.
 				uiTarget: () => ({ host: lan.host, port: lan.port }),
+				deliver: (socket) => {
+					lan.server.emit("connection", socket)
+					return true
+				},
 				maxBackoffMs: 200,
 			})
 			tunnel = service
@@ -616,6 +640,7 @@ describe("TunnelService", { timeout: 30_000 }, () => {
 			hostKey: keys.hostKey().privateKey,
 			isAuthorized: () => false,
 			target: () => ({ host: "127.0.0.1", port: ui.port }),
+			deliver: () => true,
 			maxAuthFailures: 1,
 			authTimeoutMs: 60_000, // long, so only the failure limit can end this
 		})
@@ -646,6 +671,7 @@ describe("TunnelService", { timeout: 30_000 }, () => {
 			hostKey: keys.hostKey().privateKey,
 			isAuthorized: () => false,
 			target: () => ({ host: "127.0.0.1", port: 1 }),
+			deliver: () => true,
 			authTimeoutMs: 300,
 		})
 		const { clientSide, serverSide } = pipePair()
@@ -697,6 +723,10 @@ describe("TunnelService", { timeout: 30_000 }, () => {
 			dataDir: dir,
 			config: { enabled: true, relay: `127.0.0.1:${relay.port}` },
 			uiTarget: () => ({ host: "127.0.0.1", port: ui.port }),
+			deliver: (socket) => {
+				ui.server.emit("connection", socket)
+				return true
+			},
 			maxBackoffMs: 200,
 		})
 		tunnel = service
@@ -727,6 +757,65 @@ describe("TunnelService", { timeout: 30_000 }, () => {
 			expect(service.status().relayFingerprint).toBe(other.hostFingerprint)
 		} finally {
 			other.stop()
+		}
+	})
+
+	it("refuses to let a paired device manage remote access", async () => {
+		relay = new FakeRelay()
+		await relay.start()
+		// A UI server that answers like the real one: the tunnel guard lives in
+		// UiServer.handle, so this stands in for it with the same rule.
+		const seen: string[] = []
+		const guarded = await new Promise<{ server: HttpServer; port: number }>((resolve) => {
+			const server = createHttpServer((req, res) => {
+				const path = (req.url ?? "/").split("?")[0]
+				const method = req.method ?? "GET"
+				seen.push(`${method} ${path}`)
+				if (path.startsWith("/api/tunnel") && method !== "GET" && method !== "HEAD" && isTunnelled(req.socket)) {
+					res.writeHead(403, { "Content-Type": "application/json" })
+					return res.end(JSON.stringify({ error: "Remote access can only be changed from the machine running Simplex" }))
+				}
+				res.end(JSON.stringify({ ok: true, readOnly: isTunnelled(req.socket) }))
+			})
+			server.listen(0, "127.0.0.1", () => resolve({ server, port: (server.address() as { port: number }).port }))
+		})
+		try {
+			const dir = mkdtempSync(join(tmpdir(), "simplex-guard-"))
+			const service = new TunnelService({
+				dataDir: dir,
+				config: { enabled: true, relay: `127.0.0.1:${relay.port}` },
+				uiTarget: () => ({ host: "127.0.0.1", port: guarded.port }),
+				deliver: (socket) => {
+					guarded.server.emit("connection", socket)
+					return true
+				},
+				maxBackoffMs: 200,
+			})
+			tunnel = service
+			service.start()
+			await waitFor(() => service.status().state === "connected")
+			const paired = service.addDevice("phone")
+			const phone = await phoneConnect({ port: service.status().port!, privateKey: paired.privateKey! })
+			phones.push(phone)
+
+			// Pairing a second key over the tunnel would survive revoking this one.
+			const pair = await httpThrough(phone, "127.0.0.1", guarded.port, {
+				method: "POST",
+				path: "/api/tunnel/devices",
+			})
+			expect(pair).toContain("403")
+			expect(pair).toContain("can only be changed from the machine")
+
+			// Reads still work, and say so, which is what lets the panel render
+			// itself read-only instead of failing on the first click.
+			const status = await httpThrough(phone, "127.0.0.1", guarded.port, { path: "/api/tunnel" })
+			expect(status).toContain('"readOnly":true')
+
+			// Everything else a device is meant to do is untouched.
+			const other = await httpThrough(phone, "127.0.0.1", guarded.port, { method: "POST", path: "/api/send" })
+			expect(other).toContain('"ok":true')
+		} finally {
+			guarded.server.close()
 		}
 	})
 

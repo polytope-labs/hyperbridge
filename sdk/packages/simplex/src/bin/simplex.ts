@@ -313,6 +313,9 @@ program
 						dataDir: resolveDataDir(options.dataDir),
 						config: config.simplex.tunnel,
 						uiTarget: () => ({ host: uiHost, port: uiBoundPort }),
+						// Late-bound: the UI server is built after this, and no channel
+						// can arrive before the tunnel is started, which is later still.
+						deliver: (socket) => uiServer?.accept(socket) ?? false,
 					})
 				} catch (err) {
 					logger.error({ err }, "Remote access unavailable; filling continues without it")

@@ -116,6 +116,10 @@ export function RemoteAccess() {
 	}
 	if (!status) return <p className="operator-empty">Loading…</p>
 
+	// Read through the tunnel itself: a paired device can use the dashboard but
+	// cannot pair another key, revoke one, or point the tunnel at another relay.
+	// Otherwise revoking a lost device would not actually take anything away.
+	const readOnly = status.readOnly === true
 	// The optimistic switch position, and a badge that agrees with it.
 	const enabled = pendingEnabled ?? status.enabled
 	const state = pendingEnabled === undefined ? status.state : pendingEnabled ? "connecting" : "disabled"
@@ -145,14 +149,16 @@ export function RemoteAccess() {
 					<span className={`badge ${STATE_BADGE[state]}`}>{STATE_LABEL[state]}</span>
 				</div>
 				<p className="hint">
-					The relay only carries encrypted bytes; your device's session ends here, in Simplex.
+					{readOnly
+						? "You are viewing this through the tunnel. Remote access is managed from the machine running Simplex."
+						: "The relay only carries encrypted bytes; your device's session ends here, in Simplex."}
 				</p>
 
 				<label className="chain-enable-toggle tunnel-toggle">
 					<input
 						type="checkbox"
 						checked={enabled}
-						disabled={isPending("toggle")}
+						disabled={readOnly || isPending("toggle")}
 						onChange={(e) => {
 							const next = e.target.checked
 							setPendingEnabled(next)
@@ -210,7 +216,7 @@ export function RemoteAccess() {
 					</small>
 				</div>
 				{status.devices.length === 0 ? (
-					<p className="operator-empty">No devices yet. Pair one below.</p>
+					<p className="operator-empty">{readOnly ? "No devices yet." : "No devices yet. Pair one below."}</p>
 				) : (
 					<ul className="tunnel-device-list">
 						{status.devices.map((device) => (
@@ -226,6 +232,7 @@ export function RemoteAccess() {
 									type="button"
 									className="secondary"
 									aria-label={`Revoke ${device.label}`}
+									disabled={readOnly}
 									onClick={() => {
 										if (
 											!window.confirm(
@@ -249,7 +256,7 @@ export function RemoteAccess() {
 				)}
 			</section>
 
-			{fresh ? (
+			{readOnly ? null : fresh ? (
 				<NewDevice
 					device={fresh}
 					onDone={() => {

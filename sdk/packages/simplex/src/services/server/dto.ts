@@ -279,6 +279,8 @@ export interface TunnelStatusDto {
 	 * it stays one shape whether it comes from here or from pairing.
 	 */
 	connection: TunnelConnectionDto
+	/** True when this status was read through the tunnel, where remote access cannot be changed. */
+	readOnly?: boolean
 }
 
 /** Everything a phone's SSH app needs to reach this dashboard. */

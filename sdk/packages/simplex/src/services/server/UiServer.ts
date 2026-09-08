@@ -1,4 +1,5 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http"
+import type { Duplex } from "node:stream"
 import { Decimal } from "decimal.js"
 import { FillerPricePolicy, formatChainKey, parseChainKey, type PriceCurvePoint } from "@/config/interpolated-curve"
 import { AssetRegistry, registrySymbols, validateAssetDefinitions, type AssetDefinition } from "@/config/asset-registry"
@@ -17,7 +18,7 @@ import type { ActivityEvent, BidStore, OrderLeg } from "@/data/types"
 import type { BalanceProvider } from "../BalanceProvider"
 import { getLogger, type LogLevel } from "../Logger"
 import { DEFAULT_TUNNEL_RELAY, parseRelayAddress, relayKey, type TunnelControls } from "../tunnel/TunnelService"
-import { readBody, sendJson, isLoopbackHost, isContainerized, hostHeaderAllowed } from "./http-util"
+import { readBody, sendJson, isLoopbackHost, isContainerized, hostHeaderAllowed, isTunnelled } from "./http-util"
 import { serveStatic } from "./static"
 import {
 	handleSetupRequest,
@@ -261,6 +262,17 @@ export class UiServer {
 		})
 	}
 
+	/**
+	 * Serves one connection handed over by the remote-access tunnel. It never
+	 * touches the network: the device's SSH channel becomes this server's socket
+	 * directly, which is also what lets `handle` tell the two apart.
+	 */
+	accept(socket: Duplex): boolean {
+		if (!this.server.listening) return false
+		this.server.emit("connection", socket)
+		return true
+	}
+
 	/** Resolves with the bound port once listening (pass port 0 for an ephemeral port). */
 	start(port: number, host = "127.0.0.1"): Promise<number> {
 		if (this.mode === "init" && !isLoopbackHost(host)) {
@@ -356,6 +368,16 @@ export class UiServer {
 		// preflight, and no CORS headers are ever emitted.
 		if (method !== "GET" && method !== "HEAD" && req.headers["x-simplex-ui"] !== "1") {
 			return sendJson(res, 403, { error: "Missing X-Simplex-UI header" })
+		}
+
+		// A device on the tunnel reaches this server with exactly the operator's
+		// privileges, so remote access cannot be managed from there: pairing a
+		// second key would otherwise survive revoking the first, and repointing
+		// the relay would move the tunnel to one the holder runs.
+		if (path.startsWith("/api/tunnel") && method !== "GET" && method !== "HEAD" && isTunnelled(req.socket)) {
+			return sendJson(res, 403, {
+				error: "Remote access can only be changed from the machine running Simplex",
+			})
 		}
 
 		if (path === "/health") {
@@ -649,7 +671,7 @@ export class UiServer {
 			if (this.mode !== "operator") return sendJson(res, 409, { error: "Filler is not running" })
 			const tunnel = this.operator!.tunnel
 			if (!tunnel) return sendJson(res, 404, { error: "Remote access is not available in this filler" })
-			if (method === "GET") return sendJson(res, 200, tunnel.status())
+			if (method === "GET") return sendJson(res, 200, { ...tunnel.status(), readOnly: isTunnelled(req.socket) })
 			if (method === "PUT") return this.handleTunnelUpdate(req, res, tunnel)
 			return sendJson(res, 405, { error: "Method not allowed" })
 		}

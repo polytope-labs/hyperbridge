@@ -1,8 +1,8 @@
-import { connect as tcpConnect, type Socket } from "node:net"
+import type { Socket } from "node:net"
 import type { Duplex } from "node:stream"
 import ssh2, { type Connection, type Server as SshServerType } from "ssh2"
 import { getLogger } from "../Logger"
-import { isLoopbackHost } from "../server/http-util"
+import { isLoopbackHost, VIA_TUNNEL } from "../server/http-util"
 import { fingerprintOf } from "./keys"
 
 // ssh2 is CommonJS: named imports resolve under vitest's transform but not in
@@ -16,6 +16,13 @@ export interface EmbeddedSshServerOptions {
 	isAuthorized: (fingerprint: string) => boolean
 	/** Where `direct-tcpip` channels may go: the UI server, and nothing else. Resolved per channel so a late bind still works. */
 	target: () => { host: string; port: number }
+	/**
+	 * Hands an accepted channel to the UI server inside this process. Delivering
+	 * it directly rather than dialling loopback means the UI can tell a tunnelled
+	 * request from one the operator made at the keyboard, which is what keeps a
+	 * paired device from managing remote access itself.
+	 */
+	deliver: (socket: Duplex, origin: Origin) => boolean
 	/** Milliseconds a connection may spend unauthenticated. */
 	authTimeoutMs?: number
 	/** Failed attempts before the connection is dropped. */
@@ -267,6 +274,8 @@ export class EmbeddedSshServer {
 	private onConnection(conn: Connection, ip: string, port: number): void {
 		this.live++
 		const origin = `${ip}:${port}`
+		const originIp = ip
+		const originPort = port
 		let failures = 0
 		let authenticated = false
 		/** The device key this connection authenticated with, once it has. */
@@ -338,21 +347,28 @@ export class EmbeddedSshServer {
 					return reject()
 				}
 				const channel = accept()
-				const upstream = tcpConnect(target.port, target.host)
-				const teardown = () => {
-					upstream.destroy()
+				// The HTTP server reads a socket, not a bare stream: give it the
+				// handful of methods it calls, the device's real origin for logs, and
+				// the marker that says this request came in over the tunnel.
+				Object.defineProperties(channel, {
+					remoteAddress: { value: originIp, configurable: true },
+					remotePort: { value: originPort, configurable: true },
+					remoteFamily: { value: originIp.includes(":") ? "IPv6" : "IPv4", configurable: true },
+					[VIA_TUNNEL]: { value: true, configurable: true },
+				})
+				Object.assign(channel, {
+					setTimeout: () => channel,
+					setNoDelay: () => channel,
+					setKeepAlive: () => channel,
+					ref: () => channel,
+					unref: () => channel,
+					destroySoon: () => channel.end(),
+				})
+				channel.on("error", (err: Error) => this.logger.debug({ origin, err: err.message }, "Tunnel channel error"))
+				if (!this.opts.deliver(channel, { ip: originIp, port: originPort })) {
+					this.logger.warn({ origin }, "No UI to serve behind the tunnel")
 					channel.destroy()
 				}
-				upstream.once("connect", () => {
-					upstream.pipe(channel).pipe(upstream)
-				})
-				upstream.on("error", (err) => {
-					this.logger.warn({ origin, err }, "UI connection failed behind the tunnel")
-					teardown()
-				})
-				upstream.on("close", teardown)
-				channel.on("close", teardown)
-				channel.on("error", teardown)
 			})
 		})
 

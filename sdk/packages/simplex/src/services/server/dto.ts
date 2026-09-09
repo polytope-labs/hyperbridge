@@ -13,6 +13,47 @@ import type { ActivityType, OrderSummary } from "@/data/types"
 
 export const LOG_LEVELS = ["trace", "debug", "info", "warn", "error"] as const
 
+/**
+ * Levels a record can carry, as opposed to the levels an operator can select.
+ * `fatal` is emitted by `Logger.fatal` but is not a capture level, so it is
+ * never offered as a choice — it just has to be displayable.
+ */
+export type LogRecordLevel = (typeof LOG_LEVELS)[number] | "fatal"
+
+/** Ordering for "this level and above"; the same numbers pino writes. */
+export const LOG_LEVEL_RANK: Record<LogRecordLevel, number> = {
+	trace: 10,
+	debug: 20,
+	info: 30,
+	warn: 40,
+	error: 50,
+	fatal: 60,
+}
+
+/** One buffered log record: a row in the Logs page, and a frame of GET /api/logs/stream. */
+export interface LogRecordDto {
+	/** Monotonic per process; the client resumes a stream from the last one it holds. */
+	seq: number
+	/** Milliseconds since epoch, as pino recorded it. */
+	time: number
+	level: LogRecordLevel
+	/** The `[module]` tag, brackets stripped; absent for records logged without one. */
+	module?: string
+	msg: string
+	/** Everything else on the record (error fields, ids, amounts) as JSON, for display and search. */
+	detail?: string
+}
+
+/** GET /api/logs */
+export interface LogsDto {
+	/** The filler's capture level: nothing below this was ever written to the buffer. */
+	level: string
+	/** How many records the buffer holds at most, so the page can say what it is showing. */
+	capacity: number
+	/** Oldest first. */
+	records: LogRecordDto[]
+}
+
 export interface KnownToken {
 	symbol: string
 	address: string

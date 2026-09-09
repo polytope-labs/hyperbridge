@@ -9,6 +9,8 @@ import type { SetupDeps } from "@/services/server/setup-api"
 import { ActivityRecorder } from "@/data/recorder"
 import { MemoryDataStore } from "@/data/memory"
 import { LoggerContext, type LogLevel } from "@/services/Logger"
+import { LogBuffer } from "@/services/server/LogBuffer"
+import type { LogRecordDto } from "@/services/server/dto"
 import { FillerPricePolicy } from "@/config/interpolated-curve"
 import type { FillerConfigFile } from "@/config/filler-toml"
 import { SignerType } from "@/services/wallet"
@@ -17,6 +19,7 @@ import type { AssetDefinition } from "@/config/asset-registry"
 import { describe, it, expect, afterEach, vi } from "vitest"
 import { existsSync, mkdtempSync, readFileSync, writeFileSync, mkdirSync } from "fs"
 import { createConnection } from "net"
+import { get } from "http"
 import { tmpdir } from "os"
 import { dirname, join } from "path"
 import { parse } from "toml"
@@ -1427,6 +1430,147 @@ describe("UiServer (operator mode)", () => {
 
 		expect((await fetch(`${base}/api/setup/defaults`)).status).toBe(410)
 		expect((await fetch(`${base}/api/setup/save-and-start`, { method: "POST", headers: CSRF, body: "{}" })).status).toBe(410)
+	})
+
+	// The dashboard's Logs page: a backfill request, then an SSE tail that
+	// resumes from the last seq the page holds. Both filter identically.
+	describe("logs", () => {
+		/** A buffer wired to its own context, so a test writes records by logging them. */
+		function logSource(level: LogLevel = "trace") {
+			const logs = new LogBuffer()
+			const loggers = new LoggerContext({ level })
+			loggers.addSink(logs.sink())
+			return { logs, log: loggers.get("filler") }
+		}
+
+		/** Opens an SSE tail and resolves the records that arrive within `ms`, then closes it. */
+		function tail(base: string, path: string, ms: number, whileOpen?: () => void): Promise<LogRecordDto[]> {
+			return new Promise((resolve, reject) => {
+				const request = get(`${base}${path}`, (res) => {
+					const records: LogRecordDto[] = []
+					res.setEncoding("utf-8")
+					res.on("data", (chunk: string) => {
+						for (const line of chunk.split("\n")) {
+							if (line.startsWith("data: ")) records.push(JSON.parse(line.slice(6)))
+						}
+					})
+					// The replay is written before the response is readable here, so the
+					// side effect runs once a first chunk has landed.
+					setTimeout(() => whileOpen?.(), 20)
+					setTimeout(() => {
+						request.destroy()
+						resolve(records)
+					}, ms)
+				})
+				request.on("error", (err) => {
+					// destroy() to end the tail surfaces here; the records are already resolved.
+					if ((err as NodeJS.ErrnoException).code !== "ECONNRESET") reject(err)
+				})
+			})
+		}
+
+		it("GET /api/logs reports the capture level, the capacity and the matching records", async () => {
+			const { logs, log } = logSource()
+			log.info({ chain: "EVM-8453" }, "Scanned block")
+			log.error({ reason: "insufficient allowance" }, "Fill reverted")
+			const { base } = await startServer({ logs })
+
+			const dto = await (await fetch(`${base}/api/logs`)).json()
+			// The config is what the filler was told to record, so that is what it reports.
+			expect(dto.level).toBe("info")
+			expect(dto.capacity).toBeGreaterThan(0)
+			expect(dto.records.map((r: LogRecordDto) => r.msg)).toEqual(["Scanned block", "Fill reverted"])
+		})
+
+		it("GET /api/logs filters by level, search and after", async () => {
+			const { logs, log } = logSource()
+			log.debug("Curve quote resolved")
+			log.warn({ endpoint: "https://rpc.example" }, "Provider fell behind")
+			log.error("Fill reverted")
+			const { base } = await startServer({ logs })
+
+			const at = async (query: string) =>
+				(await (await fetch(`${base}/api/logs?${query}`)).json()).records.map((r: LogRecordDto) => r.msg)
+
+			expect(await at("level=warn")).toEqual(["Provider fell behind", "Fill reverted"])
+			expect(await at("q=rpc.example")).toEqual(["Provider fell behind"])
+			expect(await at("after=2")).toEqual(["Fill reverted"])
+			expect(await at("limit=1")).toEqual(["Fill reverted"])
+			// An unknown level is not a 400: it falls back to no level filter.
+			expect(await at("level=nonsense")).toHaveLength(3)
+		})
+
+		it("the log routes report unavailable when nothing registered a buffer", async () => {
+			const { base } = await startServer()
+
+			expect((await fetch(`${base}/api/logs`)).status).toBe(409)
+			expect((await fetch(`${base}/api/logs/stream`)).status).toBe(409)
+		})
+
+		it("GET /api/logs/stream replays the matching backfill, then streams new records", async () => {
+			const { logs, log } = logSource()
+			log.info("Scanned block")
+			log.error("Fill reverted")
+			const { base } = await startServer({ logs })
+
+			const records = await tail(base, "/api/logs/stream?level=info", 250, () => log.warn("Provider fell behind"))
+			expect(records.map((r) => r.msg)).toEqual(["Scanned block", "Fill reverted", "Provider fell behind"])
+		})
+
+		it("after skips the replay without silencing the live tail", async () => {
+			const { logs, log } = logSource()
+			log.info("Scanned block")
+			const { base } = await startServer({ logs })
+
+			const records = await tail(base, "/api/logs/stream?after=1", 250, () => log.info("Order detected"))
+			expect(records.map((r) => r.msg)).toEqual(["Order detected"])
+		})
+
+		it("a stale after — a seq from before the filler restarted — still streams live records", async () => {
+			const { logs, log } = logSource()
+			log.info("Scanned block")
+			const { base } = await startServer({ logs })
+
+			// `after` resumes the replay; applying it to records that have not
+			// happened yet would leave the page permanently blank.
+			const records = await tail(base, "/api/logs/stream?after=99999", 250, () => log.info("Order detected"))
+			expect(records.map((r) => r.msg)).toEqual(["Order detected"])
+		})
+
+		it("the stream's level and search apply to live records too", async () => {
+			const { logs, log } = logSource()
+			const { base } = await startServer({ logs })
+
+			const records = await tail(base, "/api/logs/stream?level=warn&q=quorum", 250, () => {
+				log.info({ module: "quorum" }, "quorum is fine")
+				log.warn("Provider fell behind")
+				log.error({ endpoint: "quorum-rpc" }, "Fill reverted")
+			})
+			expect(records.map((r) => r.msg)).toEqual(["Fill reverted"])
+		})
+
+		it("stop() ends open log tails instead of leaving them hanging", async () => {
+			const { logs } = logSource()
+			const { base } = await startServer({ logs })
+			// Resolves "ended" only if the server actually terminated the response.
+			const ended = new Promise<string>((resolve) => {
+				const request = get(`${base}/api/logs/stream`, (res) => {
+					res.resume()
+					res.on("end", () => resolve("ended"))
+					res.on("close", () => resolve("ended"))
+				})
+				request.on("error", () => resolve("errored"))
+				setTimeout(() => {
+					request.destroy()
+					resolve("still open")
+				}, 2000)
+			})
+			await new Promise((r) => setTimeout(r, 50))
+
+			server!.stop()
+			server = undefined
+			expect(await ended).toBe("ended")
+		})
 	})
 
 })

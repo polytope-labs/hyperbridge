@@ -33,6 +33,7 @@ import {
 	provenanceOf,
 	type Provenance,
 } from "./http-util"
+import { matchesLogQuery, type LogQuery, type LogTail } from "./LogBuffer"
 import { serveStatic } from "./static"
 import {
 	handleSetupRequest,
@@ -46,10 +47,14 @@ import {
 } from "./setup-api"
 import {
 	LOG_LEVELS,
+	LOG_LEVEL_RANK,
 	type AdminStrategyDto,
 	type ChainRowDto,
 	type ChainsDto,
 	type ConfigDto,
+	type LogRecordDto,
+	type LogRecordLevel,
+	type LogsDto,
 	type SendTokenOption,
 	type StatusInit,
 	type StatusOperator,
@@ -162,6 +167,12 @@ export interface OperatorContext {
 	 * leaves this filler's own output untouched.
 	 */
 	setLogLevel(level: LogLevel): void
+	/**
+	 * The in-memory tail the Logs page reads. Absent when nothing registered a
+	 * {@link LogBuffer} — an embedded filler, or a test — and the log routes
+	 * then report the page as unavailable rather than showing an empty feed.
+	 */
+	logs?: LogTail
 	vault?: {
 		/** Runs one sweep pass now and reports what it did — and, per vault, why it did nothing. */
 		sweepNow(): Promise<VaultSweepResult>
@@ -229,6 +240,29 @@ const OPERATOR_PROBES = [
 	"/api/setup/validate-bundler",
 	"/api/setup/validate-alchemy-key",
 ]
+
+const LOGS_UNAVAILABLE = "Log capture is not enabled for this filler"
+
+/** Above this, a log tail is talking to a reader that has stopped reading; frames are dropped instead of queued. */
+const MAX_LOG_STREAM_BACKLOG_BYTES = 1_000_000
+
+/** The most records one `GET /api/logs` will return, whatever the caller asks for. */
+const MAX_LOG_PAGE = 2000
+
+/** `?level=&q=&after=&limit=` for both log routes. Unparseable values fall back rather than 400. */
+function logQueryFrom(url: string | undefined): LogQuery {
+	const params = new URL(url ?? "/", "http://localhost").searchParams
+	const level = params.get("level")
+	const q = params.get("q")?.trim()
+	const after = Number(params.get("after"))
+	const limit = Number(params.get("limit"))
+	return {
+		level: level && level in LOG_LEVEL_RANK ? (level as LogRecordLevel) : undefined,
+		q: q ? q.slice(0, 200) : undefined,
+		after: Number.isFinite(after) && after > 0 ? after : undefined,
+		limit: Number.isFinite(limit) && limit > 0 ? Math.min(limit, MAX_LOG_PAGE) : MAX_LOG_PAGE,
+	}
+}
 
 const UI_NOT_BUILT_HTML = `<!doctype html><meta charset="utf-8"><title>simplex</title>
 <body style="font-family:system-ui;margin:4rem auto;max-width:32rem">
@@ -307,6 +341,8 @@ export class UiServer {
 	private startState: StartState = "idle"
 	private startError?: string
 	private sseClients = new Set<ServerResponse>()
+	/** Open log tails, each mapped to the unsubscribe that detaches it from the buffer. */
+	private logClients = new Map<ServerResponse, () => void>()
 	private activityListener?: (event: ActivityEvent) => void
 	private boundLoopback = true
 	/** How connections this server accepted arrived; stamped onto each socket. */
@@ -589,6 +625,11 @@ export class UiServer {
 		}
 		for (const client of this.sseClients) client.end()
 		this.sseClients.clear()
+		for (const [client, unsubscribe] of this.logClients) {
+			unsubscribe()
+			client.end()
+		}
+		this.logClients.clear()
 		this.server.close()
 		this.unlinkSocket()
 	}
@@ -928,6 +969,26 @@ export class UiServer {
 			if (this.mode !== "operator") return sendJson(res, 409, { error: "Filler is not running" })
 			if (method !== "PUT") return sendJson(res, 405, { error: "Method not allowed" })
 			return this.handleLogLevel(req, res)
+		}
+
+		if (path === "/api/logs") {
+			if (this.mode !== "operator") return sendJson(res, 409, { error: "Filler is not running" })
+			if (method !== "GET") return sendJson(res, 405, { error: "Method not allowed" })
+			const logs = this.operator!.logs
+			if (!logs) return sendJson(res, 409, { error: LOGS_UNAVAILABLE })
+			const dto: LogsDto = {
+				level: this.operator!.config.simplex.logging ?? "info",
+				capacity: logs.capacity,
+				records: logs.recent(logQueryFrom(req.url)),
+			}
+			return sendJson(res, 200, dto)
+		}
+
+		if (path === "/api/logs/stream") {
+			if (this.mode !== "operator") return sendJson(res, 409, { error: "Filler is not running" })
+			if (method !== "GET") return sendJson(res, 405, { error: "Method not allowed" })
+			if (!this.operator!.logs) return sendJson(res, 409, { error: LOGS_UNAVAILABLE })
+			return this.streamLogs(req, res)
 		}
 
 		if (path === "/api/allowlist") {
@@ -1705,6 +1766,57 @@ export class UiServer {
 		const persisted = this.persistConfig()
 		this.logger.warn({ level }, "Log level changed from the UI")
 		return sendJson(res, 200, { level, persisted })
+	}
+
+	/**
+	 * Server-sent tail of the log buffer. The client passes the seq of the last
+	 * record it holds as `after`, so whatever was logged between its `GET
+	 * /api/logs` and this connection is replayed before the live feed starts —
+	 * a plain "live only" stream drops exactly the records an operator was
+	 * watching for.
+	 */
+	private streamLogs(req: IncomingMessage, res: ServerResponse): void {
+		const logs = this.operator!.logs!
+		const query = logQueryFrom(req.url)
+		res.writeHead(200, {
+			"Content-Type": "text/event-stream",
+			"Cache-Control": "no-store",
+			Connection: "keep-alive",
+		})
+		res.write(":ok\n\n")
+
+		const send = (record: LogRecordDto) => {
+			// A stalled reader (a phone that walked out of signal, mid-tunnel)
+			// would otherwise buffer the whole firehose in this process. Dropping
+			// frames costs that client some lines; not dropping them costs the
+			// filler its memory.
+			if (res.writableLength > MAX_LOG_STREAM_BACKLOG_BYTES) return
+			res.write(`data: ${JSON.stringify(record)}\n\n`)
+		}
+
+		let lastReplayed = 0
+		for (const record of logs.recent(query)) {
+			send(record)
+			lastReplayed = record.seq
+		}
+		// `after` resumes the replay; it says nothing about records that have not
+		// happened yet, and applying it to them would silence the whole feed for a
+		// client whose seq outlives the buffer it came from (a filler restart
+		// resets the counter to 1). Level and search still apply, live and replayed
+		// alike.
+		const live: LogQuery = { level: query.level, q: query.q }
+		const unsubscribe = logs.subscribe((record) => {
+			// Nothing can be logged between the replay and this subscription — the
+			// loop above never yields — but ordering by seq costs a comparison and
+			// means that stops being load-bearing.
+			if (record.seq <= lastReplayed) return
+			if (matchesLogQuery(record, live)) send(record)
+		})
+		this.logClients.set(res, unsubscribe)
+		req.on("close", () => {
+			unsubscribe()
+			this.logClients.delete(res)
+		})
 	}
 
 	/**

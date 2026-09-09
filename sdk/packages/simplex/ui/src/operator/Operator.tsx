@@ -3,13 +3,14 @@ import { api } from "../api"
 import { type OperatorTab, useTabRoute } from "../lib/route"
 import hyperfxLogo from "../assets/hyperfx-logo.webp"
 import { CopyHash } from "../components/CopyHash"
-import { ActivityIcon, OperationsIcon, OverviewIcon, SettingsIcon, WalletIcon } from "../components/InterfaceIcons"
+import { ActivityIcon, LogsIcon, OperationsIcon, OverviewIcon, SettingsIcon, WalletIcon } from "../components/InterfaceIcons"
 import { OperatorSheet } from "../components/OperatorSheet"
 import { InstallAppButton } from "../components/InstallAppButton"
 import { useAction, usePolling } from "../lib/hooks"
 import type { AdminStrategyDto, BalanceSnapshot, ConfigDto, StatusOperator } from "../types"
 import { Orders } from "./Orders"
 import { Operations, type OperationsPanel } from "./Operations"
+import { Logs } from "./Logs"
 import { OperatorOverview } from "./OperatorOverview"
 import { Wallet } from "./Wallet"
 
@@ -24,6 +25,7 @@ const PAGE_TABS: Array<{
 	{ value: "overview", label: "Overview", description: "Health and liquidity", icon: OverviewIcon },
 	{ value: "orders", label: "Orders", description: "History and bids", icon: ActivityIcon },
 	{ value: "wallet", label: "Wallet", description: "Funds and history", icon: WalletIcon },
+	{ value: "logs", label: "Logs", description: "Live filler output", icon: LogsIcon },
 	{ value: "operations", label: "Operations", description: "Live configuration", icon: OperationsIcon },
 ]
 
@@ -42,6 +44,11 @@ const PAGE_COPY: Record<Tab, { eyebrow: string; title: string; description: stri
 		eyebrow: "Treasury",
 		title: "Wallet",
 		description: "Move funds, put idle liquidity to work, and review what the filler wallet has submitted.",
+	},
+	logs: {
+		eyebrow: "Diagnostics",
+		title: "Logs",
+		description: "Read what the filler is doing right now, filtered by level and searchable.",
 	},
 	operations: {
 		eyebrow: "Operator tools",
@@ -170,7 +177,7 @@ export function Operator(props: { status: StatusOperator; refresh: () => void })
 					</div>
 				</aside>
 
-				<main className="operator-main">
+				<main className="operator-main" data-tab={tab}>
 					<header className="operator-page-header">
 						<div>
 							<span className="eyebrow">{page.eyebrow}</span>
@@ -192,6 +199,7 @@ export function Operator(props: { status: StatusOperator; refresh: () => void })
 					) : null}
 
 					{tab === "orders" ? <Orders chainLabels={status.chainLabels} /> : null}
+					{tab === "logs" ? <Logs /> : null}
 					{tab === "wallet" ? (
 						<Wallet
 							chains={status.chains}

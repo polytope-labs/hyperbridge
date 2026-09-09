@@ -32,6 +32,7 @@ import { ChainClientManager } from "@/services/ChainClientManager"
 import { PaymasterKeeperService } from "@/services/PaymasterKeeperService"
 import { signerFromToml, type Signer } from "@/services/wallet"
 import { UiServer, type OperatorContext } from "@/services/server/UiServer"
+import { LogBuffer } from "@/services/server/LogBuffer"
 import { TunnelService } from "@/services/tunnel/TunnelService"
 import { deriveSubstrateKeyPair } from "@/services/substrate-key"
 
@@ -100,6 +101,18 @@ if (logFormat === "json") process.stdout.on("error", () => {})
 // reason it is a hazard here: there is no transform in between reassembling
 // anything, and pino writes each record whole.
 addLogSink(consoleSink(logFormat))
+
+/**
+ * What the dashboard's Logs page reads. One buffer for the whole process, fed
+ * from both contexts — the UI server and the config layer log here, the filler
+ * logs to its own — so the page shows the operator one feed rather than making
+ * them know which half of the binary emitted a line.
+ *
+ * Unlike the console sink it is registered here rather than per writer: it
+ * stores parsed records, so interleaving is a non-issue.
+ */
+const logBuffer = new LogBuffer()
+addLogSink(logBuffer.sink())
 
 /**
  * Opens the CLI's persistent store.
@@ -189,6 +202,7 @@ async function operatorContextFrom(
 		stop: () => stopAll(),
 		activity: runtime.activity,
 		bids: runtime.data.bids,
+		logs: logBuffer,
 		setPaused: (paused) => patchRuntimeState(runtime.data.state, { paused }),
 		setLogLevel: (level) => runtime.loggers.setLevel(level),
 		vault: runtime.vaultVenue
@@ -313,6 +327,9 @@ addRunOptions(program.command("run", { isDefault: true }))
 					data: dataStore,
 					watchOnly: options.watchOnly,
 				})
+				// The filler's records go to its own context, so the process-wide
+				// registration above never sees them; the dashboard wants both.
+				simplex.addLogSink(logBuffer.sink())
 				runtime = simplex.internals
 				return simplex
 			}

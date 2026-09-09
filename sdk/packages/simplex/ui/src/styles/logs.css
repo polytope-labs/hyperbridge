@@ -1,0 +1,317 @@
+/* Logs page: a terminal pane with the dashboard's chrome around it.
+   The main column is block layout on every other page — the log stream is the
+   one thing that has to claim the leftover height rather than grow the page, so
+   the shell tags the active tab and only this one flexes. */
+.operator-main[data-tab="logs"] {
+	display: flex;
+	flex-direction: column;
+}
+
+.operator-main[data-tab="logs"] .operator-page-header {
+	flex: 0 0 auto;
+}
+
+.operator-logs {
+	display: flex;
+	flex-direction: column;
+	flex: 1 1 auto;
+	min-height: 0;
+	padding-top: 1.5rem;
+	padding-bottom: 1.5rem;
+}
+
+.log-toolbar {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 0.75rem;
+	padding-bottom: 1rem;
+}
+
+.log-toolbar .steps.log-levels {
+	margin: 0;
+	border-radius: 0.75rem;
+}
+
+.log-toolbar .steps.log-levels .step {
+	min-height: 2.1rem;
+	padding: 0.35rem 0.7rem;
+	font-family: var(--font-mono);
+	font-size: 0.6875rem;
+	letter-spacing: 0.06em;
+}
+
+.log-search {
+	position: relative;
+	flex: 1 1 14rem;
+	min-width: 10rem;
+}
+
+.log-search input {
+	width: 100%;
+	min-height: 2.6rem;
+	padding: 0.5rem 2.25rem 0.5rem 0.85rem;
+	border: 1px solid var(--border);
+	border-radius: 0.75rem;
+	background: var(--control);
+	color: var(--text);
+	font-size: 0.8125rem;
+}
+
+.log-search input::placeholder {
+	color: var(--muted);
+}
+
+/* Safari draws its own clear affordance on type=search; this page has one. */
+.log-search input::-webkit-search-cancel-button {
+	appearance: none;
+}
+
+.log-search button {
+	position: absolute;
+	top: 50%;
+	right: 0.4rem;
+	display: grid;
+	place-items: center;
+	width: 1.7rem;
+	height: 1.7rem;
+	padding: 0;
+	transform: translateY(-50%);
+	border-color: transparent;
+	background: transparent;
+	color: var(--muted);
+}
+
+.log-search button:hover:not(:disabled) {
+	background: var(--card-raised);
+	color: var(--text);
+}
+
+.log-search button svg {
+	width: 0.9rem;
+	height: 0.9rem;
+}
+
+.log-actions {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+}
+
+.log-actions button {
+	min-height: 2.6rem;
+	padding: 0.5rem 0.9rem;
+	font-size: 0.8125rem;
+}
+
+.log-stream {
+	flex: 1 1 auto;
+	min-height: 18rem;
+	padding: 0.35rem 0;
+	border: 1px solid var(--border);
+	border-radius: 0.9rem;
+	background: rgba(0, 0, 0, 0.22);
+	overflow: auto;
+	overscroll-behavior: contain;
+}
+
+.log-stream:focus-visible {
+	border-color: rgba(74, 222, 255, 0.8);
+	box-shadow: 0 0 0 3px rgba(74, 222, 255, 0.14);
+}
+
+.log-stream ul {
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.log-stream .operator-empty {
+	margin: 0;
+	padding: 3rem 1rem;
+	text-align: center;
+}
+
+.log-row {
+	display: grid;
+	grid-template-columns: 5.5rem 3.25rem 7rem minmax(0, 1fr);
+	gap: 0.75rem;
+	padding: 0.2rem 0.9rem;
+	border-left: 2px solid transparent;
+	font-family: var(--font-mono);
+	font-size: 0.75rem;
+	line-height: 1.55;
+}
+
+.log-row:hover {
+	background: rgba(255, 255, 255, 0.02);
+}
+
+.log-row time {
+	color: var(--muted);
+	white-space: nowrap;
+}
+
+.log-level {
+	color: var(--muted);
+	font-size: 0.625rem;
+	letter-spacing: 0.06em;
+	line-height: 1.85;
+	text-transform: uppercase;
+}
+
+.log-module {
+	color: var(--text-secondary);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.log-body {
+	display: grid;
+	gap: 0.1rem;
+	min-width: 0;
+}
+
+.log-msg {
+	color: var(--text);
+	overflow-wrap: anywhere;
+	white-space: pre-wrap;
+}
+
+/* Collapsed to one line: a serialized error is long, and most rows are skimmed. */
+.log-detail {
+	display: block;
+	width: 100%;
+	min-height: 0;
+	padding: 0;
+	border: 0;
+	border-radius: 0;
+	background: transparent;
+	color: var(--muted);
+	font-family: var(--font-mono);
+	font-size: 0.6875rem;
+	line-height: 1.5;
+	text-align: left;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.log-detail:hover:not(:disabled) {
+	border-color: transparent;
+	background: transparent;
+	color: var(--text-secondary);
+}
+
+.log-detail[data-expanded] {
+	overflow: visible;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+
+.log-row[data-level="warn"] {
+	border-left-color: rgba(255, 219, 105, 0.55);
+}
+
+.log-row[data-level="warn"] .log-level {
+	color: var(--warn);
+}
+
+.log-row[data-level="error"],
+.log-row[data-level="fatal"] {
+	border-left-color: rgba(255, 122, 137, 0.6);
+	background: rgba(255, 122, 137, 0.035);
+}
+
+.log-row[data-level="error"] .log-level,
+.log-row[data-level="fatal"] .log-level {
+	color: var(--err);
+}
+
+.log-row[data-level="debug"] .log-msg,
+.log-row[data-level="trace"] .log-msg {
+	color: var(--text-secondary);
+}
+
+.log-row mark {
+	border-radius: 0.2rem;
+	background: rgba(255, 237, 74, 0.28);
+	color: inherit;
+}
+
+.log-footer {
+	display: flex;
+	justify-content: space-between;
+	gap: 1rem;
+	margin: 0.7rem 0 0;
+	color: var(--muted);
+	font-size: 0.6875rem;
+}
+
+.log-footer .error {
+	margin: 0;
+}
+
+.log-capture strong {
+	color: var(--text-secondary);
+	font-family: var(--font-mono);
+	font-weight: 500;
+}
+
+/* The module is the first thing to go: the message carries the meaning. */
+@media (max-width: 60rem) {
+	.log-row {
+		grid-template-columns: 5.5rem 3.25rem minmax(0, 1fr);
+		gap: 0.5rem;
+	}
+
+	.log-module {
+		display: none;
+	}
+}
+
+@media (max-width: 45rem) {
+	/* Two lines per record on a phone: the timestamp and level do not fit
+	   alongside a message that already has to wrap. */
+	.log-row {
+		grid-template-columns: auto minmax(0, 1fr);
+		gap: 0.1rem 0.5rem;
+		padding-block: 0.35rem;
+	}
+
+	.log-row time {
+		grid-column: 1;
+	}
+
+	.log-level {
+		grid-column: 2;
+		justify-self: start;
+		line-height: 1.55;
+	}
+
+	.log-body {
+		grid-column: 1 / -1;
+	}
+
+	.log-toolbar .steps.log-levels {
+		order: 2;
+		width: 100%;
+	}
+
+	.log-search {
+		flex-basis: 100%;
+		order: 1;
+	}
+
+	.log-actions {
+		order: 3;
+		margin-left: auto;
+	}
+
+	.log-stream {
+		/* No flex height to grow into on the stacked mobile layout. */
+		flex: 0 0 auto;
+		height: 60vh;
+	}
+}

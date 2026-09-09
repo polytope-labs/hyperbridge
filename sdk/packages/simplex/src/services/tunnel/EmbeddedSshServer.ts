@@ -321,9 +321,18 @@ export class EmbeddedSshServer {
 			}
 			const fingerprint = fingerprintOf(ctx.key.data)
 			if (!this.opts.isAuthorized(fingerprint)) return fail(`unknown device key ${fingerprint}`)
-			// No signature yet: the client is asking whether this key would be
-			// accepted. Saying yes only tells it to sign.
-			if (ctx.signature === undefined || ctx.blob === undefined) return ctx.accept()
+			// A probe carries neither half: the client is asking whether this key
+			// would be accepted, and saying yes only tells it to sign.
+			if (ctx.signature === undefined && ctx.blob === undefined) return ctx.accept()
+			// Anything else must reach the verification below. `ctx.accept()` is not
+			// neutral: ssh2's PKAuthContext.accept() sends PK_OK only when there is no
+			// signature and authenticates outright when there is one, so treating a
+			// half-populated request as a probe would authenticate it unverified. ssh2
+			// populates both fields together, which is the only reason the previous
+			// `||` was not a bypass; refuse rather than keep resting on that.
+			if (ctx.signature === undefined || ctx.blob === undefined) {
+				return fail("malformed publickey request: a signature without the blob it signs, or the reverse")
+			}
 			// ssh2's key.verify() returns `true` on success and `false` on a normal
 			// bad signature, but an *Error object* on a "more critical failure"
 			// (e.g. an unsupported digest for the key). A loose `!key.verify(...)`

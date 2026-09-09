@@ -21,8 +21,8 @@ geth-primitives = { workspace = true, default-features = false }
 bls-utils = { workspace = true, default-features = false }
 sync-committee-primitives = { workspace = true, default-features = false }
 bls = { workspace = true }
-ssz = { workspace = true, features = ["scale"] }
-ssz_types = { workspace = true, features = ["scale"] }
+ssz = { workspace = true }
+ssz_types = { workspace = true }
 
 [dependencies.polkadot-sdk]
 workspace = true

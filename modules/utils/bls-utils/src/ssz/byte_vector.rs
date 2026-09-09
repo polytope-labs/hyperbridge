@@ -25,14 +25,36 @@ use ssz_types::{typenum::Unsigned, FixedVector};
 
 /// SCALE decoding is length checked.
 ///
-/// The derived `Decode` delegates to `FixedVector`, whose own `Decode` rejects any value that is
-/// not exactly `N` elements. That check matters: the SSZ hash root is not sensitive to trailing
+/// `Decode` below rebuilds the inner `FixedVector`, which rejects any value that is not exactly
+/// `N` elements. That check matters: the SSZ hash root is not sensitive to trailing
 /// zero bytes, since a value packs into `ceil(N / 32)` chunks whose tail is already zero padded.
 /// An over-length value therefore hashes identically and a consumer authenticating only by
 /// `hash_tree_root` would accept it, with the length going unnoticed until some later operation.
 /// `decode_length_tests` below pins the behaviour here, where it is relied upon.
-#[derive(Default, Clone, codec::Encode, codec::Decode)]
+#[derive(Default, Clone)]
 pub struct ByteVector<N: Unsigned>(FixedVector<u8, N>);
+
+// Written out rather than derived so that `FixedVector` itself does not need a SCALE
+// implementation. Keeping codec out of the ssz crates is what lets them track upstream, and the
+// encoding here is byte for byte what the derive produced: the inner vector's, which is a plain
+// `Vec<u8>`.
+impl<N: Unsigned> codec::Encode for ByteVector<N> {
+	fn encode_to<O: codec::Output + ?Sized>(&self, dest: &mut O) {
+		let bytes: &[u8] = &self.0;
+		bytes.encode_to(dest)
+	}
+}
+
+impl<N: Unsigned> codec::Decode for ByteVector<N> {
+	fn decode<I: codec::Input>(input: &mut I) -> Result<Self, codec::Error> {
+		let bytes = alloc::vec::Vec::<u8>::decode(input)?;
+		FixedVector::new(bytes)
+			.map(Self)
+			.map_err(|_| codec::Error::from("ByteVector: wrong number of bytes"))
+	}
+}
+
+impl<N: Unsigned> codec::EncodeLike for ByteVector<N> {}
 
 // Derived `Eq` would demand `N: Eq`, but `N` is a type level integer that never appears in a
 // value, so the bound is spurious.

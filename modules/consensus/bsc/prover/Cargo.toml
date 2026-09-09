@@ -25,6 +25,6 @@ features = ["sp-core", "sp-crypto-hashing"]
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros"] }
 dotenv = "0.15.0"
-ssz = { workspace = true, features = ["scale"] }
-ssz_types = { workspace = true, features = ["scale"] }
+ssz = { workspace = true }
+ssz_types = { workspace = true }
 futures = { workspace = true }

@@ -27,8 +27,8 @@ base2 = "0.3.1"
 primitive-types = { workspace = true, features = ["impl-codec"] }
 alloy = { workspace = true, features = ["providers", "reqwest-default-tls"] }
 sp-core = { workspace = true }
-ssz = { workspace = true, features = ["scale"] }
-ssz_types = { workspace = true, features = ["scale"] }
+ssz = { workspace = true }
+ssz_types = { workspace = true }
 sp-crypto-hashing = { workspace = true }
 
 

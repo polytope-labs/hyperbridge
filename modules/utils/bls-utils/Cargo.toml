@@ -11,9 +11,9 @@ publish = false
 [dependencies]
 codec = { workspace = true }
 serde = { workspace = true, optional = true }
-ssz = { workspace = true, features = ["scale"] }
+ssz = { workspace = true }
 ssz_derive = { workspace = true }
-ssz_types = { workspace = true, features = ["scale"] }
+ssz_types = { workspace = true }
 tree_hash = { workspace = true, features = ["sha2"] }
 tree_hash_derive = { workspace = true }
 serde-hex-utils = { workspace = true, default-features = false }

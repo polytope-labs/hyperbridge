@@ -1,4 +1,4 @@
-import { concat, encodeFunctionData, toHex } from "viem"
+import { concat, encodeFunctionData, encodePacked, toHex } from "viem"
 import { privateKeyToAccount } from "viem/accounts"
 import { encodeERC7821ExecuteBatch } from "@/protocols/intents/decode-utils"
 import {
@@ -14,6 +14,7 @@ import {
 	applyUniswapQuoteHaircut,
 	encodeAcceptedSourceChains,
 	encodePhantomBidDeclaration,
+	encodePhantomBidPaymasterAndData,
 	AGGREGATION_ATTEMPTS,
 	ENTRY_POINT_V08_ADDRESS,
 	FILL_ORDER_ABI,
@@ -286,6 +287,31 @@ async function signedBidUserOp(opts: {
 		CryptoUtils.packedUserOpTypedData(userOp, ENTRY_POINT_V08_ADDRESS, CHAIN_ID),
 	)
 	return { ...userOp, signature: concat([opts.commitment ?? COMMITMENT, solverSignature]) as HexString }
+}
+
+/**
+ * The paymasterAndData a real simplex bid carries: EntryPoint v0.8 header plus the Simplex
+ * paymaster's PERMIT2 mode section, packed field for field as `packPaymasterAndData` and
+ * `buildPermit2Mode` do. The permit signature is a placeholder — the aggregation never checks it.
+ */
+function permit2Sponsorship(): HexString {
+	const paymasterData = encodePacked(
+		["uint8", "address", "uint256", "uint256", "uint256", "uint8", "bytes32", "bytes32"],
+		[
+			2,
+			USDT as HexString,
+			5_000_000n,
+			2n ** 200n + 1n,
+			1_800_000_000n,
+			27,
+			`0x${"aa".repeat(32)}`,
+			`0x${"bb".repeat(32)}`,
+		],
+	)
+	return encodePacked(
+		["address", "uint128", "uint128", "bytes"],
+		["0x0f9c4b1a2d3e4f5061728394a5b6c7d8e9f01234", 200_000n, 40_000n, paymasterData],
+	)
 }
 
 // The account a `balanceOf(address)` eth_call is asking about, lowercased.
@@ -615,6 +641,36 @@ describe("aggregatePhantomBids bid verification", () => {
 		expect(result!.legs[0].bidders[0].acceptedSources).toEqual([])
 	})
 
+	// A bid built on the real-bid path carries the Simplex paymaster's Permit2 payload in
+	// paymasterAndData, with the declaration appended after it. The solver signature covers the
+	// whole field either way, so the bid verifies unchanged and the declaration is read off the tail.
+	it("reads the declaration appended to a Permit2-sponsored bid", async () => {
+		const declared = ["EVM-1", "EVM-42161"]
+		const userOp = await signedBidUserOp({
+			signingKey: SOLVER_KEY,
+			paymasterAndData: encodePhantomBidPaymasterAndData({
+				sponsorship: permit2Sponsorship(),
+				acceptedSourceChains: declared,
+			}),
+		})
+
+		const result = await aggregate([userOp], delegatedTo(SOLVER_ACCOUNT))
+
+		expect(result!.legs[0].bidCount).toBe(1)
+		expect(result!.legs[0].bidders[0].acceptedSources).toEqual(declared)
+	})
+
+	it("counts a Permit2-sponsored bid that appended no declaration, with sources unrestricted", async () => {
+		const userOp = await signedBidUserOp({ signingKey: SOLVER_KEY, paymasterAndData: permit2Sponsorship() })
+
+		const result = await aggregate([userOp], delegatedTo(SOLVER_ACCOUNT))
+
+		expect(result!.legs[0].bidCount).toBe(1)
+		expect(result!.legs[0].bidders[0].acceptedSources).toBeNull()
+		// Wallet-funded, so it pays the protocol fee haircut like any other undeclared bid.
+		expect(result!.legs[0].medianPrice).toBe(applyProtocolFeeHaircut(SOLVER_AMOUNT, PROTOCOL_FEE_BPS))
+	})
+
 	// The weight IS the solver's output-token inventory on the destination chain. When every quote
 	// for a leg carries zero weight there is nothing to weight the median by, and weightedMedian
 	// can only pick by position — so on an even-sized set the highest quote wins and any solver
@@ -909,6 +965,27 @@ describe("aggregatePhantomBids bid verification", () => {
 			// Weighted purely by the position: the balance read returns zero for every token.
 			expect(result!.legs).toHaveLength(1)
 			expect(result!.legs[0].bidders[0].weight).toBeGreaterThan(0n)
+		})
+
+		// The positions section of the declaration reads the same off a sponsored bid's tail, so a
+		// solver that moved its phantom bids onto the real-bid path keeps its pool-backed weight
+		// and the pool-fee haircut that goes with it.
+		it("weights and haircuts a Permit2-sponsored bid by the positions in its appended declaration", async () => {
+			const userOp = await signedBidUserOp({
+				signingKey: SOLVER_KEY,
+				paymasterAndData: encodePhantomBidPaymasterAndData({
+					sponsorship: permit2Sponsorship(),
+					uniswapV4Positions: [TOKEN_ID],
+				}),
+			})
+			setAggregationFetch(v4Rpc([userOp], solverAddress))
+
+			const result = await aggregateWithV4(solverAddress)
+
+			expect(result!.legs).toHaveLength(1)
+			expect(result!.legs[0].bidders[0].weight).toBeGreaterThan(0n)
+			expect(result!.legs[0].medianPrice).toBe(applyUniswapQuoteHaircut(SOLVER_AMOUNT))
+			expect(result!.positions).toEqual([{ solver: solverAddress, chain: CHAIN, tokenId: TOKEN_ID }])
 		})
 
 		// A pool price is what a trade gets before the pool takes its fee, so a bid quoting off one

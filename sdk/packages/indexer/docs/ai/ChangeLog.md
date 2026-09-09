@@ -12,6 +12,11 @@ Files: list of files touched.
 
 Newest entries first.
 
+## 2026-09-09 — Phantom bid aggregation reads Permit2-sponsored bids as well as bare-declaration ones
+
+Simplex authorizes every sponsored UserOp through a per-op Permit2 signature now (#1223), so a phantom bid built on its real-bid path carries the Simplex paymaster's 234-byte PERMIT2-mode paymasterAndData with the declaration appended, where the aggregation previously expected the declaration alone. The decoding lives in the SDK's `aggregatePhantomBids`, which the indexer runs unchanged: `decodePhantomBidPaymasterAndData` now tries the bare declaration first and the sponsored shape second, and a sponsored bid with no tail is counted as having declared nothing. No handler code changed. Two indexer tests pin the parts that are the indexer's own: `recoverBidSignerVm2` (ethers) recovers the solver from a bid whose paymasterAndData is the long sponsored payload exactly as viem does, and the `intents-helpers` sub-path decodes a payload packed with ethers' `solidityPack` the way simplex packs it with viem.
+Files: `src/utils/__tests__/phantom-decode.test.ts`, `src/utils/__tests__/phantom-decode.paymaster.test.ts`, `docs/ai/Decisions.md`, `docs/ai/Flow.md`.
+
 ## 2026-09-08 — Drop the `handlePriceIndexing` block handler; rename its template flag
 
 The Hyperbridge node no longer runs `handlePriceIndexing`, the block handler that every ten blocks called `TokenPriceService.initializePriceIndexing` to refresh every registry token's CoinGecko price. The handler file, its export from `mappingHandlers.ts`, and its entry in the substrate manifest template are removed. Prices are still fetched on demand: `TokenPriceService.getPrice`, which the transfer and volume paths read through, fetches and stores a price when none is held. The template flag that gated it, `enablePriceIndexing`, is renamed `enableLiquidityIndexing`: what it now gates is the phantom order handlers and the inventory fold, the handlers that produce the liquidity pool rows, on the Hyperbridge node outside testnet.

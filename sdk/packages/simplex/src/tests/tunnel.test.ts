@@ -731,6 +731,68 @@ describe("TunnelService", { timeout: 30_000 }, () => {
 		embedded.close()
 	})
 
+	it("refuses a publickey request that carries only half of a signed attempt", async () => {
+		// ssh2 fills ctx.signature and ctx.blob together, so this shape cannot be
+		// produced over the wire against the pinned version — it is asserted
+		// directly because that invariant is the only thing that made the old `||`
+		// safe. ctx.accept() is not neutral: PKAuthContext.accept() sends PK_OK
+		// only when there is no signature and authenticates outright when there is
+		// one, so a half-populated request routed to it would be authenticated
+		// having never been verified.
+		const dir = mkdtempSync(join(tmpdir(), "simplex-halfsig-"))
+		const keys = new TunnelKeyStore(dir)
+		const device = generateKeyPair()
+		const parsedDevice = utils.parseKey(device.public)
+		if (parsedDevice instanceof Error) throw parsedDevice
+		const deviceBlob = parsedDevice.getPublicSSH()
+		const embedded = new EmbeddedSshServer({
+			hostKey: keys.hostKey().privateKey,
+			isAuthorized: (fp) => fp === fingerprintOf(deviceBlob),
+			target: () => ({ host: "127.0.0.1", port: ui.port }),
+			deliver: () => true,
+			authTimeoutMs: 60_000,
+		})
+
+		// The handler under test is registered on the real ssh2 Connection, which is
+		// raised only once a peer completes an identification line.
+		let conn: Connection | undefined
+		;(embedded as unknown as { server: SshServerType }).server.on("connection", (c: Connection) => {
+			conn = c
+		})
+		const { clientSide, serverSide } = pipePair()
+		embedded.inject(serverSide, { ip: "203.0.113.11", port: 40003 })
+		clientSide.write("SSH-2.0-halfsig\r\n")
+		await waitFor(() => conn !== undefined)
+
+		const attempt = (signature: Buffer | undefined, blob: Buffer | undefined) => {
+			const seen = { accepted: false, rejected: false }
+			conn!.emit("authentication", {
+				method: "publickey",
+				key: { algo: "ssh-ed25519", data: deviceBlob },
+				signature,
+				blob,
+				hashAlgo: undefined,
+				accept: () => {
+					seen.accepted = true
+				},
+				reject: () => {
+					seen.rejected = true
+				},
+			} as never)
+			return seen
+		}
+
+		// A signature with nothing to verify it against cannot have been verified.
+		expect(attempt(randomBytes(64), undefined)).toEqual({ accepted: false, rejected: true })
+		// The mirror image is just as malformed.
+		expect(attempt(undefined, randomBytes(32))).toEqual({ accepted: false, rejected: true })
+		// An honest probe still gets its PK_OK.
+		expect(attempt(undefined, undefined)).toEqual({ accepted: true, rejected: false })
+
+		clientSide.destroy()
+		embedded.close()
+	})
+
 	it("reaps a peer that never finishes the SSH identification line", async () => {
 		const dir = mkdtempSync(join(tmpdir(), "simplex-ident-"))
 		const keys = new TunnelKeyStore(dir)

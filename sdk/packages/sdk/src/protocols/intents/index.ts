@@ -52,11 +52,16 @@ export {
 	decodeAcceptedSourceChains,
 	encodePhantomBidDeclaration,
 	decodePhantomBidDeclaration,
+	encodePhantomBidPaymasterAndData,
+	decodePhantomBidPaymasterAndData,
 	applyProtocolFeeHaircut,
 	applyUniswapQuoteHaircut,
 	readProtocolFeeHaircutBps,
 	UNISWAP_QUOTE_HAIRCUT_BPS,
+	PERMIT2_SPONSORSHIP_BYTES,
 	type PhantomBidDeclaration,
+	type PhantomBidPaymasterAndData,
+	type PhantomBidSponsorship,
 } from "./phantom-aggregation"
 export {
 	DEFAULT_GRAFFITI,

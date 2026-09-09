@@ -306,12 +306,30 @@ export class EmbeddedSshServer {
 			if (ctx.method !== "publickey") return fail(`unsupported authentication method ${ctx.method}`)
 			const key = utils.parseKey(ctx.key.data)
 			if (key instanceof Error) return fail("unreadable key")
+			// The signature algorithm the client declared (`ctx.key.algo`, ssh2's
+			// already-normalised form: both rsa-sha2-256 and rsa-sha2-512 arrive as
+			// `ssh-rsa`) must match the key it actually presented. A mismatch is
+			// key-algorithm confusion: offering an ed25519 key blob tagged as an RSA
+			// signature algorithm parses as ed25519 here — so its fingerprint can
+			// match an authorized device — while ssh2 drives verify() with a SHA-2
+			// digest that key cannot compute. verify() then *throws*, which the
+			// strict `!== true` below already rejects; this check refuses it earlier
+			// and with a clear reason, and never rejects an honest client, whose
+			// declared algorithm always matches its own key type.
+			if (key.type !== ctx.key.algo) {
+				return fail(`key type ${key.type} does not match offered algorithm ${ctx.key.algo}`)
+			}
 			const fingerprint = fingerprintOf(ctx.key.data)
 			if (!this.opts.isAuthorized(fingerprint)) return fail(`unknown device key ${fingerprint}`)
 			// No signature yet: the client is asking whether this key would be
 			// accepted. Saying yes only tells it to sign.
 			if (ctx.signature === undefined || ctx.blob === undefined) return ctx.accept()
-			if (!key.verify(ctx.blob, ctx.signature, ctx.hashAlgo)) return fail("bad signature")
+			// ssh2's key.verify() returns `true` on success and `false` on a normal
+			// bad signature, but an *Error object* on a "more critical failure"
+			// (e.g. an unsupported digest for the key). A loose `!key.verify(...)`
+			// treats that Error as falsy and so lets it through — an auth bypass.
+			// Require a strict boolean `true`.
+			if (key.verify(ctx.blob, ctx.signature, ctx.hashAlgo) !== true) return fail("bad signature")
 			authenticated = true
 			if (guard) guard.authenticated = true
 			deviceFingerprint = fingerprint

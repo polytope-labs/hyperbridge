@@ -14,10 +14,10 @@ use tree_hash::{
 };
 use tracing::instrument;
 
-#[cfg(feature = "glamsterdam")]
 use sync_committee_primitives::execution_header::{execution_block_hash, ExecutionHeader};
 use sync_committee_primitives::{
-	consensus_types::{BeaconBlock, BeaconBlockHeader, BeaconState, Checkpoint, Validator},
+	beacon_state::{BeaconBlockSummary, BeaconState},
+	consensus_types::{BeaconBlockHeader, Checkpoint, Validator},
 	constants::{
 		BlsPublicKey, Config, Root, BYTES_PER_LOGS_BLOOM, EPOCHS_PER_HISTORICAL_VECTOR,
 		EPOCHS_PER_SLASHINGS_VECTOR, HISTORICAL_ROOTS_LIMIT, MAX_ATTESTATIONS,
@@ -55,10 +55,10 @@ pub mod routes;
 
 // The ssz layout is fixed at compile time, so the pre Gloas tests and the Gloas ones cannot both
 // be built from the same binary.
-#[cfg(all(test, not(feature = "glamsterdam")))]
+#[cfg(test)]
 mod test;
 
-#[cfg(all(test, feature = "glamsterdam"))]
+#[cfg(test)]
 mod gloas_test;
 
 pub type BeaconStateType<
@@ -90,7 +90,8 @@ pub struct SyncCommitteeProver<
 	pub client: ClientWithMiddleware,
 	/// Execution rpc, needed after Gloas because the execution header no longer reaches us
 	/// through the beacon state.
-	#[cfg(feature = "glamsterdam")]
+	/// Execution rpc. Needed from Gloas, where the payload header is no longer in the state and
+	/// the header has to be fetched to accompany the proof.
 	pub el_rpc_url: String,
 	pub phantom: PhantomData<(C, ETH1_DATA_VOTES_BOUND, PROPOSER_LOOK_AHEAD_LIMIT)>,
 }
@@ -103,7 +104,6 @@ impl<C: Config, ETH1_DATA_VOTES_BOUND: Unsigned, PROPOSER_LOOK_AHEAD_LIMIT: Unsi
 			primary_url: self.primary_url.clone(),
 			client: self.client.clone(),
 			providers: self.providers.clone(),
-			#[cfg(feature = "glamsterdam")]
 			el_rpc_url: self.el_rpc_url.clone(),
 			phantom: PhantomData,
 		}
@@ -113,7 +113,7 @@ impl<C: Config, ETH1_DATA_VOTES_BOUND: Unsigned, PROPOSER_LOOK_AHEAD_LIMIT: Unsi
 impl<C: Config, ETH1_DATA_VOTES_BOUND: Unsigned, PROPOSER_LOOK_AHEAD_LIMIT: Unsigned>
 	SyncCommitteeProver<C, ETH1_DATA_VOTES_BOUND, PROPOSER_LOOK_AHEAD_LIMIT>
 {
-	pub fn new(providers: Vec<String>, #[cfg(feature = "glamsterdam")] el_rpc_url: String) -> Self {
+	pub fn new(providers: Vec<String>, el_rpc_url: String) -> Self {
 		let client = ClientBuilder::new(Client::new())
 			.with(ChainMiddleware::new(SwitchProviderMiddleware::_new(providers.clone())))
 			.build();
@@ -122,7 +122,6 @@ impl<C: Config, ETH1_DATA_VOTES_BOUND: Unsigned, PROPOSER_LOOK_AHEAD_LIMIT: Unsi
 			primary_url: providers.get(0).expect("There must be atleast one provider").clone(),
 			providers,
 			client,
-			#[cfg(feature = "glamsterdam")]
 			el_rpc_url,
 			phantom: PhantomData,
 		}
@@ -131,7 +130,6 @@ impl<C: Config, ETH1_DATA_VOTES_BOUND: Unsigned, PROPOSER_LOOK_AHEAD_LIMIT: Unsi
 	/// Fetch the execution header behind a block hash. Gloas only commits to the block hash in the
 	/// beacon state, and keccak of this header is what ties that hash back to the execution state
 	/// root the bridge actually needs.
-	#[cfg(feature = "glamsterdam")]
 	#[instrument(level = "trace", target = "sync-committee-prover", skip(self))]
 	pub async fn fetch_execution_header(
 		&self,
@@ -207,29 +205,7 @@ impl<C: Config, ETH1_DATA_VOTES_BOUND: Unsigned, PROPOSER_LOOK_AHEAD_LIMIT: Unsi
 	pub async fn fetch_block(
 		&self,
 		block_id: &str,
-	) -> Result<
-		BeaconBlock<
-			MAX_PROPOSER_SLASHINGS,
-			MAX_VALIDATORS_PER_COMMITTEE,
-			MAX_ATTESTER_SLASHINGS,
-			MAX_ATTESTATIONS,
-			MAX_DEPOSITS,
-			MAX_VOLUNTARY_EXITS,
-			SYNC_COMMITTEE_SIZE,
-			BYTES_PER_LOGS_BLOOM,
-			MAX_EXTRA_DATA_BYTES,
-			MAX_BYTES_PER_TRANSACTION,
-			MAX_TRANSACTIONS_PER_PAYLOAD,
-			MAX_WITHDRAWALS_PER_PAYLOAD,
-			MAX_BLS_TO_EXECUTION_CHANGES,
-			MAX_BLOB_COMMITMENTS_PER_BLOCK,
-			MAX_COMMITTEES_PER_SLOT,
-			MAX_DEPOSIT_REQUESTS_PER_PAYLOAD,
-			MAX_WITHDRAWAL_REQUESTS_PER_PAYLOAD,
-			MAX_CONSOLIDATION_REQUESTS_PER_PAYLOAD,
-		>,
-		anyhow::Error,
-	> {
+	) -> Result<BeaconBlockSummary<SYNC_COMMITTEE_SIZE>, anyhow::Error> {
 		trace!(target: "sync-committee-prover", "Fetching block {block_id}");
 		let path = block_route(block_id);
 		let full_url = self.generate_route(&path)?;
@@ -308,9 +284,7 @@ impl<C: Config, ETH1_DATA_VOTES_BOUND: Unsigned, PROPOSER_LOOK_AHEAD_LIMIT: Unsi
 				anyhow!("Failed to fetch beacon state with id {state_id} due to error {e:?}")
 			})?;
 
-		let beacon_state = response_data.data;
-
-		Ok(beacon_state)
+		Ok(response_data.into_state())
 	}
 
 	fn generate_route(&self, path: &str) -> Result<Url, anyhow::Error> {
@@ -376,16 +350,16 @@ impl<C: Config, ETH1_DATA_VOTES_BOUND: Unsigned, PROPOSER_LOOK_AHEAD_LIMIT: Unsi
 		let attested_header = self.fetch_header(&attested_block_id).await?;
 		let mut attested_state =
 			self.fetch_beacon_state(&get_block_id(attested_header.state_root.clone())).await?;
-		if attested_state.finalized_checkpoint.root == Root::default() {
+		if attested_state.finalized_checkpoint().root == Root::default() {
 			return Ok(None);
 		}
-		let finalized_block_id = get_block_id(attested_state.finalized_checkpoint.root.clone());
+		let finalized_block_id = get_block_id(attested_state.finalized_checkpoint().root.clone());
 		let finalized_header = self.fetch_header(&finalized_block_id).await?;
 		// Fetch the finalized state by slot rather than by state root.
 		let mut finalized_state =
 			self.fetch_beacon_state(&finalized_header.slot.to_string()).await?;
 		let finality_proof = FinalityProof {
-			epoch: attested_state.finalized_checkpoint.epoch,
+			epoch: attested_state.finalized_checkpoint().epoch,
 			finality_branch: prove_finalized_header::<
 				C,
 				ETH1_DATA_VOTES_BOUND,
@@ -393,18 +367,17 @@ impl<C: Config, ETH1_DATA_VOTES_BOUND: Unsigned, PROPOSER_LOOK_AHEAD_LIMIT: Unsi
 			>(&mut attested_state)?,
 		};
 
-		#[cfg(not(feature = "glamsterdam"))]
-		let execution_payload_proof =
-			prove_execution_payload::<C, ETH1_DATA_VOTES_BOUND, PROPOSER_LOOK_AHEAD_LIMIT>(
-				&mut finalized_state,
-			)?;
-
-		#[cfg(feature = "glamsterdam")]
 		let execution_payload_proof = {
-			let block_hash = H256::from_slice(finalized_state.latest_block_hash.as_ref());
-			let header = self.fetch_execution_header(block_hash).await?;
+			// Only the Gloas shape needs the execution header, and only it knows the block hash to
+			// ask for, so the fetch happens inside the branch rather than unconditionally.
+			let header = if finalized_state.is_gloas() {
+				let block_hash = H256::from_slice(finalized_state.execution_block_hash().as_ref());
+				Some(self.fetch_execution_header(block_hash).await?)
+			} else {
+				None
+			};
 			prove_execution_payload::<C, ETH1_DATA_VOTES_BOUND, PROPOSER_LOOK_AHEAD_LIMIT>(
-				&mut finalized_state,
+				&finalized_state,
 				header,
 			)?
 		};
@@ -413,13 +386,13 @@ impl<C: Config, ETH1_DATA_VOTES_BOUND: Unsigned, PROPOSER_LOOK_AHEAD_LIMIT: Unsi
 		let client_state_next_sync_committee_root: Root =
 			client_state.next_sync_committee.tree_hash_root().into();
 		let attested_state_current_sync_committee_root: Root =
-			attested_state.current_sync_committee.tree_hash_root().into();
+			attested_state.current_sync_committee().tree_hash_root().into();
 		let sync_committee_update =
             // We must make sure we switch the sync comittee only when the finalized header has changed sync committees
             if should_have_sync_committee_update(state_period, signature_period) && client_state_next_sync_committee_root == attested_state_current_sync_committee_root {
                 let sync_committee_proof = prove_sync_committee_update::<C, ETH1_DATA_VOTES_BOUND, PROPOSER_LOOK_AHEAD_LIMIT>(&mut attested_state)?;
                 Some(SyncCommitteeUpdate {
-                    next_sync_committee: attested_state.next_sync_committee,
+                    next_sync_committee: attested_state.next_sync_committee().clone(),
                     next_sync_committee_branch: sync_committee_proof,
                 })
             } else {
@@ -492,13 +465,13 @@ impl<C: Config, ETH1_DATA_VOTES_BOUND: Unsigned, PROPOSER_LOOK_AHEAD_LIMIT: Unsi
 		let attested_header = self.fetch_header(&attested_block_id).await?;
 		let mut attested_state =
 			self.fetch_beacon_state(&get_block_id(attested_header.state_root.clone())).await?;
-		let finalized_block_id = get_block_id(attested_state.finalized_checkpoint.root.clone());
+		let finalized_block_id = get_block_id(attested_state.finalized_checkpoint().root.clone());
 		let finalized_header = self.fetch_header(&finalized_block_id).await?;
 		// Fetch the finalized state by slot rather than by state root.
 		let mut finalized_state =
 			self.fetch_beacon_state(&finalized_header.slot.to_string()).await?;
 		let finality_proof = FinalityProof {
-			epoch: attested_state.finalized_checkpoint.epoch,
+			epoch: attested_state.finalized_checkpoint().epoch,
 			finality_branch: prove_finalized_header::<
 				C,
 				ETH1_DATA_VOTES_BOUND,
@@ -506,18 +479,17 @@ impl<C: Config, ETH1_DATA_VOTES_BOUND: Unsigned, PROPOSER_LOOK_AHEAD_LIMIT: Unsi
 			>(&mut attested_state)?,
 		};
 
-		#[cfg(not(feature = "glamsterdam"))]
-		let execution_payload_proof =
-			prove_execution_payload::<C, ETH1_DATA_VOTES_BOUND, PROPOSER_LOOK_AHEAD_LIMIT>(
-				&mut finalized_state,
-			)?;
-
-		#[cfg(feature = "glamsterdam")]
 		let execution_payload_proof = {
-			let block_hash = H256::from_slice(finalized_state.latest_block_hash.as_ref());
-			let header = self.fetch_execution_header(block_hash).await?;
+			// Only the Gloas shape needs the execution header, and only it knows the block hash to
+			// ask for, so the fetch happens inside the branch rather than unconditionally.
+			let header = if finalized_state.is_gloas() {
+				let block_hash = H256::from_slice(finalized_state.execution_block_hash().as_ref());
+				Some(self.fetch_execution_header(block_hash).await?)
+			} else {
+				None
+			};
 			prove_execution_payload::<C, ETH1_DATA_VOTES_BOUND, PROPOSER_LOOK_AHEAD_LIMIT>(
-				&mut finalized_state,
+				&finalized_state,
 				header,
 			)?
 		};
@@ -528,7 +500,7 @@ impl<C: Config, ETH1_DATA_VOTES_BOUND: Unsigned, PROPOSER_LOOK_AHEAD_LIMIT: Unsi
 					&mut attested_state,
 				)?;
 			Some(SyncCommitteeUpdate {
-				next_sync_committee: attested_state.next_sync_committee,
+				next_sync_committee: attested_state.next_sync_committee().clone(),
 				next_sync_committee_branch: sync_committee_proof,
 			})
 		};
@@ -548,80 +520,73 @@ impl<C: Config, ETH1_DATA_VOTES_BOUND: Unsigned, PROPOSER_LOOK_AHEAD_LIMIT: Unsi
 	}
 }
 
-#[cfg(not(feature = "glamsterdam"))]
+/// Prove the execution payload, whichever shape the state has.
+///
+/// Pre-Gloas the payload header is in the state, so its state root, block number and timestamp are
+/// proven directly by a multiproof. From Gloas the header is gone and the state commits only to a
+/// block hash, so the relayer supplies the header and the verifier recovers the fields from its
+/// rlp. The state itself says which case this is; `header` must be present for the Gloas one.
 #[instrument(level = "trace", target = "sync-committee-prover", skip_all)]
 pub fn prove_execution_payload<
 	C: Config,
 	ETH1_DATA_VOTES_BOUND: Unsigned,
 	PROPOSER_LOOK_AHEAD_LIMIT: Unsigned,
 >(
-	beacon_state: &mut BeaconStateType<ETH1_DATA_VOTES_BOUND, PROPOSER_LOOK_AHEAD_LIMIT>,
+	beacon_state: &BeaconStateType<ETH1_DATA_VOTES_BOUND, PROPOSER_LOOK_AHEAD_LIMIT>,
+	header: Option<ExecutionHeader>,
 ) -> anyhow::Result<ExecutionPayloadProof> {
 	trace!(target: "sync-committee-prover", "Proving execution payload");
-	let indices = [
-		C::EXECUTION_PAYLOAD_STATE_ROOT_INDEX,
-		C::EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX,
-		C::EXECUTION_PAYLOAD_TIMESTAMP_INDEX,
-	];
-	// generate multi proofs
-	let multi_proof: Vec<Root> = generate_multiproof(
-		&beacon_state.latest_execution_payload_header.field_roots(),
-		&indices,
-	)?
-	.into_iter()
-	.map(Into::into)
-	.collect();
 
-	trace!(target: "sync-committee-prover", "finished proving execution payload");
+	let execution_payload_branch = prove_state_field(beacon_state, C::EXECUTION_PAYLOAD_INDEX)?;
 
-	Ok(ExecutionPayloadProof {
-		execution_payload_branch: prove_state_field(beacon_state, C::EXECUTION_PAYLOAD_INDEX)?,
-		proof: ExecutionProof::Legacy {
-			state_root: H256::from_slice(
-				beacon_state.latest_execution_payload_header.state_root.as_ref(),
-			),
-			block_number: beacon_state.latest_execution_payload_header.block_number,
-			timestamp: beacon_state.latest_execution_payload_header.timestamp,
-			multi_proof,
+	let proof = match beacon_state {
+		BeaconState::Gloas(_) => {
+			let header = header.ok_or_else(|| {
+				anyhow!("a gloas state needs the execution header to prove its payload")
+			})?;
+			let execution_header = header.encode();
+			let block_hash = execution_block_hash(&execution_header);
+
+			// A mismatch here means our rlp layout has drifted from the chain's, which would
+			// produce a proof no verifier can accept. Fail now, with something a reader can act on.
+			if block_hash.as_slice() != beacon_state.execution_block_hash().as_ref() {
+				return Err(anyhow!(
+					"Encoded execution header hashes to {:?}, but the beacon state committed to {:?}",
+					H256::from_slice(&block_hash),
+					H256::from_slice(beacon_state.execution_block_hash().as_ref()),
+				));
+			}
+
+			ExecutionProof::Gloas { execution_header }
 		},
-	})
-}
+		BeaconState::Electra(state) => {
+			let indices = [
+				C::EXECUTION_PAYLOAD_STATE_ROOT_INDEX,
+				C::EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX,
+				C::EXECUTION_PAYLOAD_TIMESTAMP_INDEX,
+			];
+			let multi_proof: Vec<Root> = generate_multiproof(
+				&state.latest_execution_payload_header.field_roots(),
+				&indices,
+			)?
+			.into_iter()
+			.map(Into::into)
+			.collect();
 
-/// After Gloas the beacon state holds the execution block hash rather than the payload header, so
-/// the proof carries the header itself and the verifier recovers the state root from it. The
-/// branch is still taken at the same generalized index, because `latest_block_hash` took over the
-/// slot the payload header vacated.
-#[cfg(feature = "glamsterdam")]
-#[instrument(level = "trace", target = "sync-committee-prover", skip_all)]
-pub fn prove_execution_payload<
-	C: Config,
-	ETH1_DATA_VOTES_BOUND: Unsigned,
-	PROPOSER_LOOK_AHEAD_LIMIT: Unsigned,
->(
-	beacon_state: &mut BeaconStateType<ETH1_DATA_VOTES_BOUND, PROPOSER_LOOK_AHEAD_LIMIT>,
-	header: ExecutionHeader,
-) -> anyhow::Result<ExecutionPayloadProof> {
-	trace!(target: "sync-committee-prover", "Proving execution payload");
-
-	let execution_header = header.encode();
-	let block_hash = execution_block_hash(&execution_header);
-
-	// A mismatch here means our rlp layout has drifted from the chain's, which would produce a
-	// proof no verifier can accept. Fail now, with something a reader can act on.
-	if block_hash.as_slice() != beacon_state.latest_block_hash.as_ref() {
-		return Err(anyhow!(
-			"Encoded execution header hashes to {:?}, but the beacon state committed to {:?}",
-			H256::from_slice(&block_hash),
-			H256::from_slice(beacon_state.latest_block_hash.as_ref()),
-		));
-	}
+			ExecutionProof::Legacy {
+				state_root: H256::from_slice(
+					state.latest_execution_payload_header.state_root.as_ref(),
+				),
+				block_number: state.latest_execution_payload_header.block_number,
+				timestamp: state.latest_execution_payload_header.timestamp,
+				multi_proof,
+			}
+		},
+	};
 
 	trace!(target: "sync-committee-prover", "finished proving execution payload");
 
-	Ok(ExecutionPayloadProof {
-		execution_payload_branch: prove_state_field(beacon_state, C::EXECUTION_PAYLOAD_INDEX)?,
-		proof: ExecutionProof::Gloas { execution_header },
-	})
+	Ok(ExecutionPayloadProof { execution_payload_branch, proof })
 }
 
 
@@ -633,12 +598,7 @@ fn prove_state_field<ETH1_DATA_VOTES_BOUND: Unsigned, PROPOSER_LOOK_AHEAD_LIMIT:
 	state: &BeaconStateType<ETH1_DATA_VOTES_BOUND, PROPOSER_LOOK_AHEAD_LIMIT>,
 	gindex: u64,
 ) -> anyhow::Result<Vec<Root>> {
-	#[cfg(feature = "glamsterdam")]
-	let branch = state.prove_gindex(gindex)?.1;
-	#[cfg(not(feature = "glamsterdam"))]
-	let branch = generate_multiproof(&state.field_roots(), &[gindex])?;
-
-	Ok(branch.into_iter().map(Into::into).collect())
+	state.prove_gindex(gindex).map_err(Into::into)
 }
 
 #[instrument(level = "trace", target = "sync-committee-prover", skip_all)]

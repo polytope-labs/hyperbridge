@@ -25,7 +25,7 @@ tree_hash = { workspace = true, features = ["sha2"] }
 tree_hash_derive = { workspace = true }
 
 # Always compiled: the execution header path (`execution_header.rs`) is now part of the
-# fork-agnostic verifier, so these can no longer be gated behind `glamsterdam`.
+# fork-agnostic verifier, so these are always compiled.
 alloy-primitives = { workspace = true }
 alloy-rlp = { workspace = true }
 alloy-rlp-derive = { workspace = true }
@@ -52,4 +52,3 @@ std = [
 # The verifier no longer needs this: it dispatches the execution path at runtime on the enum in
 # `ExecutionPayloadProof`, so only the prover, whose ssz layout is fixed at compile time, still
 # selects the fork here.
-glamsterdam = []

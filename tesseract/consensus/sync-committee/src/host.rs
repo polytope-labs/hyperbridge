@@ -12,6 +12,7 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+use ssz_types::typenum::Unsigned;
 use crate::{GetConsensusStateParams, L2Host, SyncCommitteeHost};
 use alloy::{eips::BlockId, providers::Provider};
 use codec::{Decode, Encode};
@@ -34,8 +35,8 @@ use tesseract_primitives::{IsmpHost, IsmpProvider};
 #[async_trait::async_trait]
 impl<
 		T: Config + Send + Sync + 'static,
-		const ETH1_DATA_VOTES_BOUND: usize,
-		const PROPOSER_LOOK_AHEAD_LIMIT: usize,
+		ETH1_DATA_VOTES_BOUND: Unsigned + Send + Sync + 'static,
+		PROPOSER_LOOK_AHEAD_LIMIT: Unsigned + Send + Sync + 'static,
 	> IsmpHost for SyncCommitteeHost<T, ETH1_DATA_VOTES_BOUND, PROPOSER_LOOK_AHEAD_LIMIT>
 {
 	async fn start_consensus(&self, counterparty: Arc<dyn IsmpProvider>) -> Result<(), Error> {

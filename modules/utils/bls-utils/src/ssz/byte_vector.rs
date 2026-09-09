@@ -278,7 +278,7 @@ mod decode_length_tests {
 		let good = Wire { key: vec![7u8; 48], tail: 1 }.encode();
 		assert!(Parsed::decode(&mut &good[..]).is_ok());
 
-		let bad = Wire { key: vec![7u8; N + 1], tail: 1 }.encode();
+		let bad = Wire { key: vec![7u8; 49], tail: 1 }.encode();
 		assert!(Parsed::decode(&mut &bad[..]).is_err());
 	}
 }

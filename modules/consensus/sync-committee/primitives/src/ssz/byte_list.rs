@@ -145,11 +145,12 @@ mod tests {
 
 	#[test]
 	fn test_byte_list_serde() {
-		let list = ByteList::<32>::try_from([255u8, 255u8].as_ref()).unwrap();
-		let encoding = ssz::serialize(&list).unwrap();
+		let list = ByteList::<ssz_types::typenum::U32>::try_from([255u8, 255u8].as_ref()).unwrap();
+		let encoding = ssz::Encode::as_ssz_bytes(&list);
 		assert_eq!(encoding, [255, 255]);
 
-		let recovered_list = ByteList::<32>::deserialize(&encoding).unwrap();
+		let recovered_list =
+			<ByteList<ssz_types::typenum::U32> as ssz::Decode>::from_ssz_bytes(&encoding).unwrap();
 		assert_eq!(list, recovered_list);
 	}
 }

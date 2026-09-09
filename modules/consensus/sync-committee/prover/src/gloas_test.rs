@@ -1,6 +1,7 @@
 //! Tests against a beacon chain that has already forked to Gloas. Point `CONSENSUS_NODE_URL` and
-//! `EXECUTION_NODE_URL` at an ethpandaops glamsterdam devnet, or a local devnet running the same
-//! preset, and run with `--features glamsterdam --ignored`.
+//! `EXECUTION_NODE_URL` at an ethpandaops glamsterdam devnet, or a local devnet running the
+//! same preset, and run with `--ignored`. No feature flag: the state shape is chosen from the
+//! fork the beacon api reports.
 
 use super::*;
 use tree_hash::{

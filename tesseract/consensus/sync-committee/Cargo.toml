@@ -6,6 +6,7 @@ description = "Sync-committee primitives for ISMP messaging relay"
 authors = ["Polytope Labs <hello@polytope.technology>"]
 
 [dependencies]
+ssz_types = { workspace = true, features = ["scale"] }
 serde = { version = "1.0.164", features = ["derive"] }
 serde_json = "1.0.105"
 hex = "0.4.3"
@@ -50,7 +51,3 @@ anyhow = "1.0.75"
 testing = []
 # Selects the prover's compile-time Gloas `BeaconState` ssz layout. The verifier and ismp client
 # are fork-agnostic and no longer carry this feature.
-glamsterdam = [
-    "sync-committee-prover/glamsterdam",
-    "sync-committee-primitives/glamsterdam",
-]

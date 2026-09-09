@@ -377,7 +377,9 @@ pub mod seq_of_str {
 /// Sequence of sequences of strings, as the beacon api returns the gloas ptc window.
 pub mod seq_of_seq_of_str {
 	use super::*;
-	use alloc::{format, string::String, vec::Vec};
+	// `ToString` is needed by the integer visitors below; without it this module does not build
+	// for a no_std target, which is where the runtime consumes it.
+	use alloc::{format, string::{String, ToString}, vec::Vec};
 	use core::{fmt, str::FromStr};
 	use serde::{
 		de::{Deserialize, Deserializer, Error},

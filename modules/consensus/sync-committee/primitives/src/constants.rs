@@ -7,7 +7,7 @@ pub type BlsSignature = ByteVector<BLS_SIGNATURE_BYTES_LEN>;
 
 pub type Epoch = u64;
 pub type Slot = u64;
-pub type Root = Bytes32;
+pub use crate::ssz::Root;
 pub type ParticipationFlags = u8;
 
 pub type CommitteeIndex = u64;
@@ -386,11 +386,9 @@ pub mod devnet {
 	/// `/eth/v1/config/spec`. Gloas activates at epoch 30 rather than genesis, and the
 	/// generalized indices are unchanged from Electra because `latest_block_hash` reuses the
 	/// field slot the payload header gave up.
-	#[cfg(feature = "glamsterdam")]
 	#[derive(Default)]
 	pub struct GlamsterdamDevnet;
 
-	#[cfg(feature = "glamsterdam")]
 	impl Config for GlamsterdamDevnet {
 		const SLOTS_PER_EPOCH: Slot = 32;
 		const GENESIS_VALIDATORS_ROOT: [u8; 32] =

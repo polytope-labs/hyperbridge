@@ -1,3 +1,4 @@
+use ssz_types::typenum::Unsigned;
 use std::sync::Arc;
 
 use codec::Decode;
@@ -23,8 +24,8 @@ pub struct EventResponse {
 
 pub async fn consensus_notification<
 	T: Config + Send + Sync + 'static,
-	const ETH1_DATA_VOTES_BOUND: usize,
-	const PROPOSER_LOOK_AHEAD_LIMIT: usize,
+	ETH1_DATA_VOTES_BOUND: Unsigned + Send + Sync + 'static,
+	PROPOSER_LOOK_AHEAD_LIMIT: Unsigned + Send + Sync + 'static,
 >(
 	client: &SyncCommitteeHost<T, ETH1_DATA_VOTES_BOUND, PROPOSER_LOOK_AHEAD_LIMIT>,
 	counterparty: Arc<dyn IsmpProvider>,

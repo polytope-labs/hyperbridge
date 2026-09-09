@@ -16,6 +16,7 @@
 /// Log/tracing target for this crate.
 pub const LOG_TARGET: &str = "consensus-sync-committee";
 
+use ssz_types::typenum::Unsigned;
 use alloy::providers::Provider;
 use arb_host::{ArbConfig, ArbHost};
 use ismp::{consensus::ConsensusStateId, host::StateMachine};
@@ -120,8 +121,8 @@ impl SyncCommitteeConfig {
 
 pub struct SyncCommitteeHost<
 	C: Config,
-	const ETH1_DATA_VOTES_BOUND: usize,
-	const PROPOSER_LOOK_AHEAD_LIMIT: usize,
+	ETH1_DATA_VOTES_BOUND: Unsigned + Send + Sync + 'static,
+	PROPOSER_LOOK_AHEAD_LIMIT: Unsigned + Send + Sync + 'static,
 > {
 	/// Consensus state id on counterparty chain
 	pub consensus_state_id: ConsensusStateId,
@@ -145,7 +146,7 @@ pub struct SyncCommitteeHost<
 	pub retry: again::RetryPolicy,
 }
 
-impl<C: Config, const ETH1_DATA_VOTES_BOUND: usize, const PROPOSER_LOOK_AHEAD_LIMIT: usize>
+impl<C: Config, ETH1_DATA_VOTES_BOUND: Unsigned + Send + Sync + 'static, PROPOSER_LOOK_AHEAD_LIMIT: Unsigned + Send + Sync + 'static>
 	SyncCommitteeHost<C, ETH1_DATA_VOTES_BOUND, PROPOSER_LOOK_AHEAD_LIMIT>
 {
 	pub async fn new(
@@ -153,12 +154,10 @@ impl<C: Config, const ETH1_DATA_VOTES_BOUND: usize, const PROPOSER_LOOK_AHEAD_LI
 		evm: &EvmConfig,
 		l2_config: BTreeMap<StateMachine, L2Config>,
 	) -> Result<Self, anyhow::Error> {
-		#[cfg(not(feature = "glamsterdam"))]
-		let prover = SyncCommitteeProver::new(host.beacon_http_urls.clone());
-
-		// Gloas keeps only the execution block hash in the beacon state, so the prover needs an
-		// execution rpc of its own to fetch the header that hash commits to.
-		#[cfg(feature = "glamsterdam")]
+		// The prover serves either side of the Gloas fork, and from Gloas the beacon state keeps
+		// only the execution block hash, so an execution rpc is needed to fetch the header that
+		// hash commits to. Required unconditionally: which fork the chain is on is not known until
+		// a state is fetched, and by then it is too late to go looking for an endpoint.
 		let prover = SyncCommitteeProver::new(
 			host.beacon_http_urls.clone(),
 			evm.rpc_urls
@@ -212,8 +211,8 @@ impl<C: Config, const ETH1_DATA_VOTES_BOUND: usize, const PROPOSER_LOOK_AHEAD_LI
 		let client_state = VerifierState {
 			finalized_header: block_header.clone(),
 			latest_finalized_epoch: compute_epoch_at_slot::<C>(block_header.slot),
-			current_sync_committee: state.current_sync_committee,
-			next_sync_committee: state.next_sync_committee,
+			current_sync_committee: state.current_sync_committee().clone(),
+			next_sync_committee: state.next_sync_committee().clone(),
 			state_period: compute_sync_committee_period_at_slot::<C>(block_header.slot),
 		};
 
@@ -261,7 +260,7 @@ pub enum L2Config {
 	OpStack(OpConfig, EvmConfig),
 }
 
-impl<C: Config, const ETH1_DATA_VOTES_BOUND: usize, const PROPOSER_LOOK_AHEAD_LIMIT: usize> Clone
+impl<C: Config, ETH1_DATA_VOTES_BOUND: Unsigned + Send + Sync + 'static, PROPOSER_LOOK_AHEAD_LIMIT: Unsigned + Send + Sync + 'static> Clone
 	for SyncCommitteeHost<C, ETH1_DATA_VOTES_BOUND, PROPOSER_LOOK_AHEAD_LIMIT>
 {
 	fn clone(&self) -> Self {

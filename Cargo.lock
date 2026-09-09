@@ -29107,6 +29107,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sp-core",
+ "ssz_types",
  "sync-committee-primitives",
  "sync-committee-prover",
  "sync-committee-verifier",

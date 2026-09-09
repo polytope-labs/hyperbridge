@@ -1,6 +1,7 @@
 import { describe, it, expect, afterEach, beforeAll, vi } from "vitest"
 import { createServer as createHttpServer, type Server as HttpServer } from "node:http"
 import { createServer as createTcpServer, type Server as TcpServer } from "node:net"
+import { randomBytes } from "node:crypto"
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
 import { Duplex, PassThrough } from "node:stream"
 import { tmpdir } from "node:os"
@@ -87,6 +88,13 @@ class FakeRelay {
 					(err, channel) => {
 						if (err) return sock.destroy()
 						sock.pipe(channel).pipe(sock)
+						// A rejected handshake (e.g. the kex test) tears one side down
+						// while the other is still writing; the resulting EPIPE has no
+						// listener and would surface as an unhandled error attributed to
+						// whichever test happens to be running. A real relay never crashes
+						// on a client hang-up either.
+						channel.on("error", () => {})
+						sock.on("error", () => {})
 						channel.on("close", () => sock.destroy())
 						sock.on("close", () => channel.destroy())
 					},
@@ -660,6 +668,65 @@ describe("TunnelService", { timeout: 30_000 }, () => {
 		} as never)
 		await waitFor(() => (serverSide as unknown as { destroyed: boolean }).destroyed, 8000)
 		await waitFor(() => embedded.connections === 0, 8000)
+		clientSide.destroy()
+		embedded.close()
+	})
+
+	it("rejects a forged signature from an authorized key blob (algorithm confusion)", async () => {
+		// The whole point of public-key auth is that knowing the public half buys
+		// nothing. This is the regression test for the bypass where it did: ssh2's
+		// key.verify() returns an Error (not false) on a critical failure, so a
+		// loose `!key.verify(...)` accepted it. An attacker who knows a paired
+		// device's *public* key offers that ed25519 blob tagged as an RSA signature
+		// algorithm and a garbage signature — no private key. It must fail.
+		const dir = mkdtempSync(join(tmpdir(), "simplex-forge-"))
+		const keys = new TunnelKeyStore(dir)
+		const victim = generateKeyPair()
+		const victimBlob = utils.parseKey(victim.public).getPublicSSH()
+		const victimFingerprint = fingerprintOf(victimBlob)
+		const embedded = new EmbeddedSshServer({
+			hostKey: keys.hostKey().privateKey,
+			isAuthorized: (fp) => fp === victimFingerprint,
+			target: () => ({ host: "127.0.0.1", port: ui.port }),
+			deliver: () => true,
+			// Let the client exhaust its one forged method and end its own
+			// connection, rather than the server force-destroying the stream
+			// mid-protocol — the latter races a late disconnect write into a dead
+			// pipe (EPIPE) that would surface as an unhandled error in a later test.
+			authTimeoutMs: 60_000,
+		})
+		const { clientSide, serverSide } = pipePair()
+		embedded.inject(serverSide, { ip: "203.0.113.9", port: 40002 })
+
+		// A "parsed key" whose type is ssh-rsa (so ssh2 signs with rsa-sha2-256,
+		// hashAlgo sha256) but whose public blob is the victim's ed25519 key and
+		// whose sign() returns garbage — exactly the exploit shape, no private key.
+		const donor = utils.parseKey(utils.generateKeyPairSync("rsa", { bits: 2048 }).private)
+		const forged = Object.create(Object.getPrototypeOf(donor))
+		for (const sym of Object.getOwnPropertySymbols(donor)) forged[sym] = (donor as never)[sym]
+		Object.assign(forged, {
+			type: "ssh-rsa",
+			getPublicSSH: () => victimBlob,
+			getPublicPEM: () => donor.getPublicPEM(),
+			sign: () => randomBytes(256),
+			isPrivateKey: () => true,
+		})
+
+		const client = new SshClient()
+		const authenticated = await new Promise<boolean>((resolve) => {
+			client.on("ready", () => resolve(true))
+			client.on("error", () => resolve(false))
+			client.on("close", () => resolve(false))
+			client.connect({
+				sock: clientSide,
+				username: "simplex",
+				authHandler: () => ({ type: "publickey", username: "simplex", key: forged }),
+				hostVerifier: () => true,
+			} as never)
+		})
+		expect(authenticated).toBe(false)
+		expect(embedded.connections).toBe(0)
+		client.end()
 		clientSide.destroy()
 		embedded.close()
 	})

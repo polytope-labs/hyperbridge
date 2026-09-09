@@ -18,6 +18,7 @@ import {
 import type { HexString } from "@hyperbridge/sdk"
 
 import { buildSimplexPaymasterData, resolvePendingPermit2Approval } from "@/services/paymaster/provider/simplex"
+import { buildPaymasterAndData } from "@/services/paymaster"
 import { permit2TransferTypedData, normalizeSignature65 } from "@/services/paymaster/permit2"
 import {
 	VERIFICATION_GAS_LIMIT_PERMIT,
@@ -29,13 +30,16 @@ import {
 import type { FillerConfigService } from "@/services/FillerConfigService"
 
 /**
- * Simplex paymaster mode selection on chains whose fee token has no EIP-2612
- * permit (BSC pegged stables). Bootstrap is one funded approve(Permit2, max);
- * afterwards every op carries a per-op Permit2 signature. An unfunded solver
- * must fail fast with one actionable line before any estimateGas round-trip,
- * a solver with a Permit2 allowance must never need native at all, and a
- * standing allowance to the paymaster itself is never used: the contract no
- * longer has a mode that spends one.
+ * Simplex paymaster authorization. Every fee token is charged through Permit2,
+ * whether or not it has an EIP-2612 permit, so each op's nonce is an independent
+ * bitmap slot. The single exception is `permitBootstrap`, which a first-time
+ * delegation sets: with no Permit2 allowance in place and a permit-capable token
+ * it signs a 2612 permit and packs mode 0x00 instead, so the op that installs the
+ * allowance needs no native. Without that flag — every fill, bid and sweep — a
+ * missing allowance means a funded approve, and an unfunded solver must fail fast
+ * with one actionable line before any estimateGas round-trip. A standing allowance
+ * to the paymaster itself is never used: the contract no longer has a mode that
+ * spends one.
  */
 
 const USDC = "0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d" as HexString // BSC pegged, 18 decimals
@@ -71,16 +75,28 @@ function mockClient(opts: {
 	native?: bigint
 	/** Solver balance every configured fee token reports (defaults to 5 whole tokens). */
 	balance?: bigint
-	permit?: boolean
+	/** Per-token values for multi-token selection tests, keyed by lowercase address. */
+	tokens?: Record<string, { balance?: bigint; permit2Allowance?: bigint }>
 	/** Whether the paymaster deployment exposes PERMIT2() (defaults to true). */
 	permit2Capable?: boolean
 	/** Set false to make PERMIT2() throw a transport (non-contract) error. */
 	permit2Transport?: boolean
+	/** Whether the fee token exposes version() — i.e. implements EIP-2612. */
+	permit?: boolean
 	/** Set true to make the token's version() probe throw a transport error. */
 	permitTransport?: boolean
 }): PublicClient {
 	return {
-		readContract: async ({ functionName, args }: { functionName: string; args?: unknown[] }) => {
+		readContract: async ({
+			address,
+			functionName,
+			args,
+		}: {
+			address: HexString
+			functionName: string
+			args?: unknown[]
+		}) => {
+			const token = opts.tokens?.[address.toLowerCase()]
 			switch (functionName) {
 				case "PERMIT2":
 					// Both failure shapes follow viem's readContract wrapping: every failure —
@@ -114,10 +130,10 @@ function mockClient(opts: {
 					}
 					return PERMIT2
 				case "balanceOf":
-					return opts.balance ?? 5n * 10n ** BigInt(DECIMALS)
+					return token?.balance ?? opts.balance ?? 5n * 10n ** BigInt(DECIMALS)
 				case "allowance": {
 					const spender = (args?.[1] as string).toLowerCase()
-					if (spender === PERMIT2.toLowerCase()) return opts.permit2Allowance ?? 0n
+					if (spender === PERMIT2.toLowerCase()) return token?.permit2Allowance ?? opts.permit2Allowance ?? 0n
 					return opts.paymasterAllowance ?? 0n
 				}
 				case "version":
@@ -183,10 +199,26 @@ function sponsored(pm: Built): PaymasterResult & { token: HexString } {
 	return pm
 }
 
-const build = async (client: PublicClient, walletClient: WalletClient, signer = mockSigner().signer) =>
-	sponsored(await buildSimplexPaymasterData(client, walletClient, signer, SOLVER, PAYMASTER, CHAIN, configService))
+const build = async (
+	client: PublicClient,
+	walletClient: WalletClient,
+	signer = mockSigner().signer,
+	permitBootstrap = false,
+) =>
+	sponsored(
+		await buildSimplexPaymasterData(
+			client,
+			walletClient,
+			signer,
+			SOLVER,
+			PAYMASTER,
+			CHAIN,
+			configService,
+			permitBootstrap,
+		),
+	)
 
-describe("buildSimplexPaymasterData mode selection (no-permit token)", () => {
+describe("buildSimplexPaymasterData Permit2 authorization", () => {
 	it("uses PERMIT2 mode with no tx once the token is approved to Permit2", async () => {
 		const { walletClient, writeContract } = mockWalletClient()
 		const { signer, signTypedData } = mockSigner()
@@ -241,7 +273,7 @@ describe("buildSimplexPaymasterData mode selection (no-permit token)", () => {
 		const { walletClient, writeContract } = mockWalletClient()
 
 		await expect(build(mockClient({ native: 0n }), walletClient)).rejects.toThrow(
-			/one-time funded approval .* send native dust/,
+			/one-time Permit2 approval .* send native dust/,
 		)
 		// The pre-check must reject before any tx (and its estimateGas) is attempted.
 		expect(writeContract).not.toHaveBeenCalled()
@@ -269,29 +301,81 @@ describe("buildSimplexPaymasterData mode selection (no-permit token)", () => {
 		expect(slice(pm.paymasterData, 0, 1)).toBe("0x02")
 	})
 
-	it("prefers EIP-2612 PERMIT mode over Permit2 when the token supports it", async () => {
-		const { walletClient, writeContract } = mockWalletClient()
-
-		const pm = await build(mockClient({ permit: true, permit2Allowance: maxUint256, native: 0n }), walletClient)
-
-		expect(writeContract).not.toHaveBeenCalled()
-		expect(slice(pm.paymasterData, 0, 1)).toBe("0x00")
-		expect(pm.paymasterVerificationGasLimit).toBe(VERIFICATION_GAS_LIMIT_PERMIT)
-	})
-
-	it("signs a permit even when a paymaster allowance already covers the amount", async () => {
+	it("bootstraps a permit-capable token in PERMIT mode with no tx", async () => {
 		const { walletClient, writeContract } = mockWalletClient()
 		const { signer, signTypedData } = mockSigner()
 
-		const pm = await build(mockClient({ permit: true, paymasterAllowance: RECOMMENDED, native: 0n }), walletClient, signer)
+		// No Permit2 allowance and no native: exactly the fresh-chain case the flag exists
+		// for. The permit is signed instead, and nothing is sent.
+		const pm = await build(mockClient({ permit: true, native: 0n }), walletClient, signer, true)
 
 		expect(writeContract).not.toHaveBeenCalled()
 		expect(signTypedData).toHaveBeenCalledOnce()
 		expect(slice(pm.paymasterData, 0, 1)).toBe("0x00")
 		expect(size(pm.paymasterData)).toBe(150)
+		expect(pm.paymasterVerificationGasLimit).toBe(VERIFICATION_GAS_LIMIT_PERMIT)
 	})
 
-	it("throws without a tx when the paymaster predates PERMIT2 mode and the token has no permit", async () => {
+	it("stays in PERMIT2 mode under the flag once the allowance is in place", async () => {
+		const { walletClient, writeContract } = mockWalletClient()
+
+		// The flag is a fallback, not a preference: an allowance that already covers the
+		// recommendation means Permit2 works, and its unordered nonce is strictly better.
+		const pm = await build(
+			mockClient({ permit: true, permit2Allowance: maxUint256, native: 0n }),
+			walletClient,
+			mockSigner().signer,
+			true,
+		)
+
+		expect(writeContract).not.toHaveBeenCalled()
+		expect(slice(pm.paymasterData, 0, 1)).toBe("0x02")
+		expect(pm.paymasterVerificationGasLimit).toBe(VERIFICATION_GAS_LIMIT_PERMIT2)
+	})
+
+	it("never signs a permit without the flag, even on a permit-capable token", async () => {
+		const { walletClient, writeContract } = mockWalletClient()
+
+		// A fill on USDC: the token has a permit, but a sequential 2612 nonce would
+		// serialize concurrent ops, so it bootstraps with a funded approve instead.
+		const pm = await build(mockClient({ permit: true, native: 10n ** 18n }), walletClient)
+
+		expect(writeContract).toHaveBeenCalledOnce()
+		expect(approveCall(writeContract).args).toEqual([PERMIT2, maxUint256])
+		expect(slice(pm.paymasterData, 0, 1)).toBe("0x02")
+	})
+
+	it("falls back to the funded approve under the flag when the token has no permit", async () => {
+		const { walletClient, writeContract } = mockWalletClient()
+
+		const pm = await build(mockClient({ native: 10n ** 18n }), walletClient, mockSigner().signer, true)
+
+		expect(writeContract).toHaveBeenCalledOnce()
+		expect(slice(pm.paymasterData, 0, 1)).toBe("0x02")
+	})
+
+	it("propagates a transport error from the permit probe rather than treating it as no-permit", async () => {
+		const { walletClient, writeContract } = mockWalletClient()
+
+		// A 429 on version() must not masquerade as "no permit" — that would send a
+		// solver holding zero native into a funded approve it cannot pay for, instead
+		// of the txless PERMIT mode a healthy probe would have picked.
+		await expect(
+			buildSimplexPaymasterData(
+				mockClient({ permitTransport: true, native: 0n }),
+				walletClient,
+				mockSigner().signer,
+				SOLVER,
+				PAYMASTER,
+				CHAIN,
+				configService,
+				true,
+			),
+		).rejects.toThrow(/HTTP request failed/)
+		expect(writeContract).not.toHaveBeenCalled()
+	})
+
+	it("throws without a tx when the paymaster predates PERMIT2 mode", async () => {
 		const { walletClient, writeContract } = mockWalletClient()
 		// A fresh address: the PERMIT2() probe caches positives for the process lifetime.
 		const legacyPaymaster = "0x1111111111111111111111111111111111111111" as HexString
@@ -371,27 +455,7 @@ describe("buildSimplexPaymasterData mode selection (no-permit token)", () => {
 		expect(slice(pm.paymasterData, 0, 1)).toBe("0x02")
 	})
 
-	it("propagates a transport error from the token permit probe rather than treating it as no-permit", async () => {
-		const { walletClient, writeContract } = mockWalletClient()
-
-		// A 429/timeout on version() must not masquerade as "token has no permit" —
-		// that would route a fresh solver into a native-funded approve(Permit2, max)
-		// instead of the txless PERMIT mode a healthy probe would have picked.
-		await expect(
-			buildSimplexPaymasterData(
-				mockClient({ permitTransport: true, native: 10n ** 18n }),
-				walletClient,
-				mockSigner().signer,
-				SOLVER,
-				PAYMASTER,
-				CHAIN,
-				configService,
-			),
-		).rejects.toThrow(/HTTP request failed/)
-		expect(writeContract).not.toHaveBeenCalled()
-	})
-
-	it("throws without a tx on chains without Permit2 when the token has no permit", async () => {
+	it("throws without a tx on chains without Permit2 configured", async () => {
 		const { walletClient, writeContract } = mockWalletClient()
 
 		await expect(
@@ -438,8 +502,168 @@ describe("buildSimplexPaymasterData mode selection (no-permit token)", () => {
 	})
 })
 
-describe("resolvePendingPermit2Approval (native-delegation batching)", () => {
-	it("returns the fee token to approve when a no-permit token has no Permit2 allowance", async () => {
+describe("fee token selection across balances and Permit2 allowances", () => {
+	// Deliberately different decimals: the readiness threshold belongs to each token.
+	const usdt = "0x00000000000000000000000000000000000000b2" as HexString
+	const usdtUnit = 10n ** 6n
+	const config = {
+		...makeConfigService(),
+		getUsdtAsset: () => usdt,
+		getUsdtDecimals: () => 6,
+		getSimplexPaymasterAddress: () => PAYMASTER,
+	} as unknown as FillerConfigService
+
+	function client(
+		opts: { native?: bigint; usdcAllowance?: bigint; usdtAllowance?: bigint; usdtBalance?: bigint } = {},
+	) {
+		return mockClient({
+			native: opts.native ?? 0n,
+			permit: true,
+			tokens: {
+				[USDC]: { balance: RECOMMENDED, permit2Allowance: opts.usdcAllowance ?? 0n },
+				[usdt]: {
+					balance: opts.usdtBalance ?? 100n * usdtUnit,
+					permit2Allowance: opts.usdtAllowance ?? maxUint256,
+				},
+			},
+		})
+	}
+
+	it.each([0n, 10n ** 18n])(
+		"sponsors with approved USDT instead of approving USDC (native balance %s)",
+		async (native) => {
+			const { walletClient, writeContract } = mockWalletClient()
+			const { signer, signTypedData } = mockSigner()
+			const result = await buildPaymasterAndData({
+				chain: CHAIN,
+				solverAccount: SOLVER,
+				publicClient: client({ native, usdtAllowance: 5n * usdtUnit }),
+				walletClient,
+				signer,
+				configService: config,
+			})
+
+			expect(result.type).toBe("simplex")
+			expect(result.token).toBe(usdt)
+			// Packed paymaster header is 52 bytes; the mode and charged token follow it.
+			expect(slice(result.paymasterAndData, 52, 73)).toBe(encodePacked(["uint8", "address"], [2, usdt]))
+			expect(signTypedData).toHaveBeenCalledWith(
+				expect.objectContaining({
+					primaryType: "PermitTransferFrom",
+					message: expect.objectContaining({ permitted: { token: usdt, amount: 5n * usdtUnit } }),
+				}),
+			)
+			expect(writeContract).not.toHaveBeenCalled()
+		},
+	)
+
+	it("keeps USDC first when both tokens are ready, without reading USDT", async () => {
+		const publicClient = client({ usdcAllowance: RECOMMENDED })
+		const reads = vi.spyOn(publicClient, "readContract")
+		const { walletClient, writeContract } = mockWalletClient()
+		const pm = sponsored(
+			await buildSimplexPaymasterData(
+				publicClient,
+				walletClient,
+				mockSigner().signer,
+				SOLVER,
+				PAYMASTER,
+				CHAIN,
+				config,
+			),
+		)
+		expect(pm.token).toBe(USDC)
+		expect(reads.mock.calls.some(([req]) => req.address?.toLowerCase() === usdt)).toBe(false)
+		expect(writeContract).not.toHaveBeenCalled()
+	})
+
+	it.each([{ usdtBalance: usdtUnit - 1n }, { usdtAllowance: 5n * usdtUnit - 1n }])(
+		"does not treat an underfunded or underapproved USDT as ready: %s",
+		async (opts) => {
+			const { walletClient, writeContract } = mockWalletClient()
+			await expect(
+				buildSimplexPaymasterData(
+					client(opts),
+					walletClient,
+					mockSigner().signer,
+					SOLVER,
+					PAYMASTER,
+					CHAIN,
+					config,
+				),
+			).rejects.toThrow(/send native dust/)
+			expect(writeContract).not.toHaveBeenCalled()
+		},
+	)
+
+	it("approves the first funded token when neither is ready and native is available", async () => {
+		const { walletClient, writeContract } = mockWalletClient()
+		const pm = sponsored(
+			await buildSimplexPaymasterData(
+				client({ usdtAllowance: 0n, native: 10n ** 18n }),
+				walletClient,
+				mockSigner().signer,
+				SOLVER,
+				PAYMASTER,
+				CHAIN,
+				config,
+			),
+		)
+		expect(pm.token).toBe(USDC)
+		expect(slice(pm.paymasterData, 0, 1)).toBe("0x02")
+		expect(writeContract).toHaveBeenCalledExactlyOnceWith(
+			expect.objectContaining({ address: USDC, args: [PERMIT2, maxUint256] }),
+		)
+	})
+
+	it("retains EIP-2612 bootstrap for the first funded token when neither is ready", async () => {
+		const { walletClient, writeContract } = mockWalletClient()
+		const pm = sponsored(
+			await buildSimplexPaymasterData(
+				client({ usdtAllowance: 0n }),
+				walletClient,
+				mockSigner().signer,
+				SOLVER,
+				PAYMASTER,
+				CHAIN,
+				config,
+				true,
+			),
+		)
+		expect(pm.token).toBe(USDC)
+		expect(slice(pm.paymasterData, 0, 1)).toBe("0x00")
+		expect(
+			await resolvePendingPermit2Approval(client({ usdtAllowance: 0n }), SOLVER, PAYMASTER, CHAIN, config),
+		).toEqual({ token: USDC, spender: PERMIT2, permitCapable: true })
+		expect(writeContract).not.toHaveBeenCalled()
+	})
+
+	it("uses ready USDT even when bootstrap is allowed and USDC supports a permit", async () => {
+		const { walletClient, writeContract } = mockWalletClient()
+		const pm = sponsored(
+			await buildSimplexPaymasterData(
+				client(),
+				walletClient,
+				mockSigner().signer,
+				SOLVER,
+				PAYMASTER,
+				CHAIN,
+				config,
+				true,
+			),
+		)
+		expect(pm.token).toBe(usdt)
+		expect(slice(pm.paymasterData, 0, 1)).toBe("0x02")
+		expect(writeContract).not.toHaveBeenCalled()
+	})
+
+	it("does not request a delegation bootstrap while approved USDT can pay gas", async () => {
+		expect(await resolvePendingPermit2Approval(client(), SOLVER, PAYMASTER, CHAIN, config)).toBeNull()
+	})
+})
+
+describe("resolvePendingPermit2Approval (delegation bootstrap)", () => {
+	it("returns the fee token to approve when it has no Permit2 allowance", async () => {
 		const pending = await resolvePendingPermit2Approval(
 			mockClient({ native: 0n }),
 			SOLVER,
@@ -447,7 +671,19 @@ describe("resolvePendingPermit2Approval (native-delegation batching)", () => {
 			CHAIN,
 			configService,
 		)
-		expect(pending).toEqual({ token: USDC, spender: PERMIT2 })
+		// No permit: the approve can only ride a native tx.
+		expect(pending).toEqual({ token: USDC, spender: PERMIT2, permitCapable: false })
+	})
+
+	it("reports permitCapable so the delegation knows the op can pay for itself", async () => {
+		const pending = await resolvePendingPermit2Approval(
+			mockClient({ permit: true, native: 0n }),
+			SOLVER,
+			PAYMASTER,
+			CHAIN,
+			configService,
+		)
+		expect(pending).toEqual({ token: USDC, spender: PERMIT2, permitCapable: true })
 	})
 
 	it("returns null while the solver holds no fee token yet — nothing to batch", async () => {
@@ -477,17 +713,6 @@ describe("resolvePendingPermit2Approval (native-delegation batching)", () => {
 	it("returns null at the recommended allowance — PERMIT2 mode already works, nothing to batch", async () => {
 		const pending = await resolvePendingPermit2Approval(
 			mockClient({ permit2Allowance: RECOMMENDED }),
-			SOLVER,
-			PAYMASTER,
-			CHAIN,
-			configService,
-		)
-		expect(pending).toBeNull()
-	})
-
-	it("returns null for a permit-capable token (PERMIT mode handles it)", async () => {
-		const pending = await resolvePendingPermit2Approval(
-			mockClient({ permit: true }),
 			SOLVER,
 			PAYMASTER,
 			CHAIN,

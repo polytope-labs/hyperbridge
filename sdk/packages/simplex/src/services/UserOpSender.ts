@@ -48,22 +48,18 @@ export interface SponsoredUserOpRequest {
 	 */
 	gas?: UserOpGasLimits
 	/**
-	 * Override for the Circle paymaster verification gas limit (default 200k).
-	 * Lower it for a known cheap op so rundler's verification-gas-limit efficiency
-	 * policy — which divides actual usage by `accountVerif + paymasterVerif` —
-	 * accepts the op (e.g. re-delegation). Only honored when the paymaster allowance
-	 * is already in place — a permit executed during validation needs the full
-	 * default. Ignored when the Simplex paymaster is selected; its limits are
-	 * mode-specific. With Simplex preferred first, this only bites when Simplex
-	 * is unconfigured or skipped and Circle is the survivor.
+	 * Lets the paymaster fall back to an EIP-2612 permit when the fee token has no
+	 * Permit2 allowance yet. Only a first-time delegation sets this — it carries the
+	 * `approve(Permit2, max)` in its own callData, so the permit buys the one op that
+	 * makes every later Permit2 op possible without native.
 	 */
-	paymasterVerificationGasLimit?: bigint
+	permitBootstrap?: boolean
 }
 
 // Generous fallbacks used only when bundler gas estimation fails. The paymaster
-// refunds unused gas in postOp, and the permit ceiling caps the validation-phase
+// refunds unused gas in postOp, and the signed Permit2 amount caps the validation-phase
 // prefund regardless of these, so over-estimating here is safe (it does not pull
-// more USDC than the allowance).
+// more USDC than the solver authorized).
 const FALLBACK_VERIFICATION_GAS_LIMIT = 250_000n
 const FALLBACK_CALL_GAS_LIMIT = 1_500_000n
 const FALLBACK_PRE_VERIFICATION_GAS = 150_000n
@@ -104,14 +100,7 @@ export class UserOpSender {
 	}
 
 	async trySendSponsored(req: SponsoredUserOpRequest): Promise<{ txHash: HexString } | null> {
-		const {
-			chain,
-			callData,
-			eip7702Auth,
-			nonceKey = 0n,
-			gas,
-			paymasterVerificationGasLimit,
-		} = req
+		const { chain, callData, eip7702Auth, nonceKey = 0n, gas, permitBootstrap } = req
 
 		const entryPoint = this.configService.getEntryPointAddress(chain)
 		const bundlerUrl = this.configService.getBundlerUrl(chain)
@@ -148,7 +137,7 @@ export class UserOpSender {
 				walletClient,
 				signer: this.signer,
 				configService: this.configService,
-				paymasterVerificationGasLimit,
+				permitBootstrap,
 				prefund: {
 					baseGas:
 						gasForPrefund.callGasLimit + gasForPrefund.verificationGasLimit + gasForPrefund.preVerificationGas,

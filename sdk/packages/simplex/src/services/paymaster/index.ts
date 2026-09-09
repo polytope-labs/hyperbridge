@@ -1,162 +1,96 @@
-import { erc20Abi } from "viem"
 import type { HexString } from "@hyperbridge/sdk"
 import { ENTRYPOINT_ABI } from "@/config/abis/Entrypoint"
 import type { FillerConfigService } from "@/services/FillerConfigService"
-import { buildCirclePaymasterData } from "./provider/circle"
 import { buildSimplexPaymasterData } from "./provider/simplex"
 import {
 	DEPOSIT_HEADROOM_PERCENT,
 	packPaymasterAndData,
-	POST_OP_GAS_LIMIT_CIRCLE,
 	POST_OP_GAS_LIMIT_SIMPLEX,
-	VERIFICATION_GAS_LIMIT_CIRCLE,
 	VERIFICATION_GAS_LIMIT_PERMIT,
+	VERIFICATION_GAS_LIMIT_PERMIT2,
 } from "./types"
 import type { FeeTokenBalance, PaymasterOptions, PaymasterDataResult } from "./types"
 
 export type { PaymasterOptions, PaymasterDataResult, PaymasterPrefund } from "./types"
 
 /**
- * Returns true if the chain has any paymaster (Circle or Simplex) configured.
- * Used by filler.ts to decide whether to skip EntryPoint deposits.
+ * Returns true if the chain has the Simplex paymaster configured. Used by filler.ts
+ * to decide whether to skip EntryPoint deposits.
  */
 export function hasPaymaster(chain: string, configService: FillerConfigService): boolean {
-	return !!(configService.getCirclePaymasterAddress(chain) || configService.getSimplexPaymasterAddress(chain))
+	return !!configService.getSimplexPaymasterAddress(chain)
 }
 
 /**
- * Unified paymaster data builder.
+ * Paymaster data builder.
  *
- * Selection:
- * 1. Simplex Paymaster — when configured AND its EntryPoint deposit covers the op's
- *    max prefund AND solver has ≥1 balance in USDC or USDT
- * 2. Circle Paymaster — when configured AND solver has ≥1 USDC balance AND its
- *    EntryPoint deposit covers the op's max prefund
- * 3. None — returns "0x" with a reason (caller falls back to EntryPoint deposit)
+ * The Simplex paymaster is the only sponsor: it is used when configured AND its
+ * EntryPoint deposit covers the op's max prefund AND the solver holds ≥1 whole unit
+ * of USDC or USDT. Otherwise this returns "0x" with a reason and the caller falls
+ * back to the EntryPoint deposit. Authorization is Permit2 unless the caller sets
+ * `permitBootstrap` — see {@link PaymasterOptions.permitBootstrap}.
  *
  * The deposit gate only runs when the caller passes `prefund` and the chain has an
- * EntryPoint configured; without either, selection is balance-only as before.
+ * EntryPoint configured; without either, selection is balance-only.
  */
 export async function buildPaymasterAndData(options: PaymasterOptions): Promise<PaymasterDataResult> {
-	const {
-		chain,
-		solverAccount,
-		publicClient,
-		walletClient,
-		signer,
-		configService,
-		paymasterVerificationGasLimit,
-	} = options
+	const { chain, solverAccount, publicClient, walletClient, signer, configService, permitBootstrap } = options
 
-	const circleAddr = configService.getCirclePaymasterAddress(chain)
 	const simplexAddr = configService.getSimplexPaymasterAddress(chain)
-
-	if (!circleAddr && !simplexAddr) {
+	if (!simplexAddr) {
 		return { paymasterAndData: "0x" as HexString, type: "none", reason: "no paymaster configured" }
 	}
 
-	const skipReasons: string[] = []
+	// Checked before the builder: buildSimplexPaymasterData can send a bootstrap
+	// approve tx, which must not happen for a paymaster that cannot sponsor. A
+	// bootstrap op may end up in PERMIT mode, whose higher verification limit is the
+	// worst case the deposit has to cover for it.
+	const shortfall = await depositShortfall(
+		options,
+		simplexAddr,
+		(permitBootstrap ? VERIFICATION_GAS_LIMIT_PERMIT : VERIFICATION_GAS_LIMIT_PERMIT2) + POST_OP_GAS_LIMIT_SIMPLEX,
+	)
+	if (shortfall) {
+		return { paymasterAndData: "0x" as HexString, type: "none", reason: shortfall }
+	}
 
-	if (simplexAddr) {
-		// Checked before the builder: buildSimplexPaymasterData can send a bootstrap
-		// approve tx, which must not happen for a paymaster that cannot sponsor.
-		const shortfall = await depositShortfall(
-			options,
+	// A builder failure (RPC error, bootstrap approve revert, missing native dust)
+	// becomes a reason rather than a throw: the caller falls back to paying native.
+	try {
+		const pm = await buildSimplexPaymasterData(
+			publicClient,
+			walletClient,
+			signer,
+			solverAccount,
 			simplexAddr,
-			VERIFICATION_GAS_LIMIT_PERMIT + POST_OP_GAS_LIMIT_SIMPLEX,
-			"simplex",
+			chain,
+			configService,
+			permitBootstrap,
 		)
-		if (!shortfall) {
-			// A builder failure (RPC error, bootstrap approve revert, missing native
-			// dust) demotes Simplex to a skip reason instead of aborting selection —
-			// Circle must still get its chance.
-			try {
-				const pm = await buildSimplexPaymasterData(
-					publicClient,
-					walletClient,
-					signer,
-					solverAccount,
-					simplexAddr,
-					chain,
-					configService,
-				)
-				if ("paymaster" in pm) {
-					return {
-						paymasterAndData: packPaymasterAndData(pm),
-						type: "simplex",
-						address: simplexAddr,
-						token: pm.token,
-					}
-				}
-				skipReasons.push(`simplex: ${describeShortfall(pm.insufficient)}`)
-			} catch (error) {
-				const message = error instanceof Error ? error.message : String(error)
-				options.logger?.warn({ chain, error }, "Simplex paymaster builder failed; trying next candidate")
-				skipReasons.push(`simplex: ${message}`)
-			}
-		} else {
-			skipReasons.push(shortfall)
-		}
-	}
-
-	if (circleAddr) {
-		const usdcAddress = configService.getUsdcAsset(chain)
-		const usdcDecimals = configService.getUsdcDecimals(chain)
-
-		if (usdcAddress && usdcAddress !== "0x") {
-			const { balance, required, sufficient } = await getUsdcBalanceStatus(
-				publicClient,
-				solverAccount,
-				usdcAddress,
-				usdcDecimals,
-			)
-			if (sufficient) {
-				// The override only ever lowers the signed limit, so the default is the
-				// worst case the deposit must cover.
-				const shortfall = await depositShortfall(
-					options,
-					circleAddr,
-					VERIFICATION_GAS_LIMIT_CIRCLE + POST_OP_GAS_LIMIT_CIRCLE,
-					"circle",
-				)
-				if (!shortfall) {
-					const pm = await buildCirclePaymasterData(
-						publicClient,
-						signer,
-						solverAccount,
-						circleAddr,
-						chain,
-						configService,
-						paymasterVerificationGasLimit,
-					)
-					return {
-						paymasterAndData: packPaymasterAndData(pm),
-						type: "circle",
-						address: circleAddr,
-						token: usdcAddress,
-					}
-				}
-				skipReasons.push(shortfall)
-			} else {
-				skipReasons.push(`circle: solver USDC balance ${balance} < ${required}`)
+		if ("paymaster" in pm) {
+			return {
+				paymasterAndData: packPaymasterAndData(pm),
+				type: "simplex",
+				address: simplexAddr,
+				token: pm.token,
 			}
 		}
-	}
-
-	return {
-		paymasterAndData: "0x" as HexString,
-		type: "none",
-		reason:
-			skipReasons.length > 0
-				? skipReasons.join("; ")
-				: "insufficient stablecoin balance for all configured paymasters",
+		return {
+			paymasterAndData: "0x" as HexString,
+			type: "none",
+			reason: `simplex: ${describeShortfall(pm.insufficient)}`,
+		}
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error)
+		options.logger?.warn({ chain, error }, "Simplex paymaster builder failed; falling back to native gas")
+		return { paymasterAndData: "0x" as HexString, type: "none", reason: `simplex: ${message}` }
 	}
 }
 
 /**
  * Returns a skip reason when `paymaster`'s EntryPoint deposit cannot cover this
  * op's max prefund with {@link DEPOSIT_HEADROOM_PERCENT} headroom, undefined when
- * it can. `pmGas` is the candidate's worst-case verification + postOp gas.
+ * it can. `pmGas` is the paymaster's worst-case verification + postOp gas.
  *
  * Fails open (undefined) when the check cannot run — no prefund info, no
  * EntryPoint configured, or a failed read: a transient RPC error must not disable
@@ -166,7 +100,6 @@ async function depositShortfall(
 	options: PaymasterOptions,
 	paymaster: HexString,
 	pmGas: bigint,
-	label: "circle" | "simplex",
 ): Promise<string | undefined> {
 	const { chain, publicClient, configService, prefund, logger } = options
 	if (!prefund) return undefined
@@ -184,7 +117,10 @@ async function depositShortfall(
 			args: [paymaster],
 		})) as bigint
 	} catch (error) {
-		logger?.warn({ chain, paymaster, error }, `Failed to read ${label} paymaster EntryPoint deposit; assuming sufficient`)
+		logger?.warn(
+			{ chain, paymaster, error },
+			"Failed to read simplex paymaster EntryPoint deposit; assuming sufficient",
+		)
 		return undefined
 	}
 
@@ -192,9 +128,9 @@ async function depositShortfall(
 
 	logger?.warn(
 		{ chain, paymaster, deposit: deposit.toString(), required: required.toString() },
-		`Skipping ${label} paymaster: EntryPoint deposit below required prefund`,
+		"Skipping simplex paymaster: EntryPoint deposit below required prefund",
 	)
-	return `${label}: EntryPoint deposit ${deposit} < ${required} required`
+	return `simplex: EntryPoint deposit ${deposit} < ${required} required`
 }
 
 // ── Wallet reserve ───────────────────────────────────────────────────
@@ -250,31 +186,9 @@ function isConfiguredAsset(address: HexString | undefined): address is HexString
 
 /**
  * Skip reason for a Simplex builder that found no fee token to charge: one clause per
- * token it read, in the Circle branch's `solver USDC balance X < Y` form.
+ * token it read, in the form `solver USDC balance X < Y`.
  */
 function describeShortfall(balances: FeeTokenBalance[]): string {
 	if (balances.length === 0) return "no fee token configured"
 	return `solver ${balances.map((b) => `${b.symbol} balance ${b.balance} < ${b.required}`).join(", ")}`
-}
-
-/**
- * Reads `account`'s token balance and reports it against the 1-token minimum the paymaster
- * needs to sponsor a UserOp. Returns the raw balance and required amount too, so callers can
- * log a precise deficit rather than a bare boolean.
- */
-export async function getUsdcBalanceStatus(
-	publicClient: PaymasterOptions["publicClient"],
-	account: HexString,
-	tokenAddress: HexString,
-	tokenDecimals: number,
-): Promise<{ balance: bigint; required: bigint; sufficient: boolean }> {
-	const balance = (await publicClient.readContract({
-		address: tokenAddress,
-		abi: erc20Abi,
-		functionName: "balanceOf",
-		args: [account],
-	})) as bigint
-
-	const required = 10n ** BigInt(tokenDecimals)
-	return { balance, required, sufficient: balance >= required }
 }

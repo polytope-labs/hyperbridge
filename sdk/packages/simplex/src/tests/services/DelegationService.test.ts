@@ -31,7 +31,7 @@ import { privateKeySigner } from "@/services/wallet/accounts/privatekey"
  *   - The Alchemy variant reuses `BASE_MAINNET` because Alchemy serves bundler RPC at the
  *     same endpoint as the chain RPC. Override with a dedicated URL if needed.
  *   - Each variant `skipIf`s independently on its bundler URL.
- *   - A successful run spends a small amount of USDC via the Circle paymaster.
+ *   - A successful run spends a small amount of USDC via the Simplex paymaster.
  */
 
 const BASE_MAINNET = "EVM-8453"
@@ -111,7 +111,7 @@ const skipSuite = !(RPC_URL && PRIVATE_KEY)
 
 describe.skipIf(skipSuite)("DelegationService — Base mainnet EIP-7702 bundler (live integration)", () => {
 	it.skipIf(!PIMLICO_BUNDLER_URL)(
-		"delegates via Pimlico bundler with Circle paymaster",
+		"delegates via Pimlico bundler with the Simplex paymaster",
 		async () => {
 			const ctx = build(PIMLICO_BUNDLER_URL!)
 			await logPreconditions("pimlico", ctx)
@@ -122,7 +122,7 @@ describe.skipIf(skipSuite)("DelegationService — Base mainnet EIP-7702 bundler 
 	)
 
 	it.skipIf(!ALCHEMY_BUNDLER_URL)(
-		"delegates via Alchemy bundler with Circle paymaster",
+		"delegates via Alchemy bundler with the Simplex paymaster",
 		async () => {
 			const ctx = build(ALCHEMY_BUNDLER_URL!)
 			await logPreconditions("alchemy", ctx)

@@ -737,7 +737,6 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 		// No paymaster on any chain: the leg loop's paymasterReserveForToken
 		// consults these and must reserve nothing here — this suite asserts
 		// exact spread/fee arithmetic with no gas headroom held back.
-		getCirclePaymasterAddress: () => undefined,
 		getSimplexPaymasterAddress: () => undefined,
 	} as any
 	const signer = { address: SOLVER } as any

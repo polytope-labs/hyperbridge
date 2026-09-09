@@ -42,21 +42,21 @@ export interface PaymasterOptions {
 	signer: Pick<Signer, "signTypedData">
 	configService: FillerConfigService
 	/**
-	 * Override for the Circle paymaster verification gas limit (default 200k).
-	 * Only applies when the Circle paymaster is selected — which, with Simplex
-	 * preferred first, means only when Simplex is unconfigured or skipped. Only
-	 * honored when the paymaster allowance is already in place — a permit
-	 * executed during validation needs the full default. Ignored when the Simplex
-	 * paymaster is selected — its limits are mode-specific
-	 * ({@link VERIFICATION_GAS_LIMIT_PERMIT} / {@link VERIFICATION_GAS_LIMIT_PERMIT2}).
-	 */
-	paymasterVerificationGasLimit?: bigint
-	/**
 	 * When set, each candidate paymaster is skipped unless its EntryPoint deposit
 	 * covers this op's max prefund with {@link DEPOSIT_HEADROOM_PERCENT} headroom.
 	 * Omitted (or with no EntryPoint configured), selection is balance-only.
 	 */
 	prefund?: PaymasterPrefund
+	/**
+	 * Lets this op fall back to an EIP-2612 permit (mode 0x00) when the fee token has
+	 * no Permit2 allowance yet and does implement `permit`. Set only by a first-time
+	 * delegation, which carries the `approve(Permit2, max)` in its own callData: the
+	 * permit pays for the op that installs the allowance every later op relies on, so
+	 * a solver holding zero native can bootstrap a chain. Everything else leaves this
+	 * unset and authorizes through Permit2, whose unordered nonces do not serialize
+	 * concurrent ops the way 2612's single counter would.
+	 */
+	permitBootstrap?: boolean
 	/** Receives a warning for every candidate skipped or deposit read that fails. */
 	logger?: Pick<Logger, "warn">
 }
@@ -65,7 +65,7 @@ export interface PaymasterDataResult {
 	/** Packed paymasterAndData bytes, or "0x" when no paymaster is available. */
 	paymasterAndData: HexString
 	/** Which paymaster was selected. */
-	type: "circle" | "simplex" | "none"
+	type: "simplex" | "none"
 	/** Paymaster contract address (undefined when type is "none"). */
 	address?: HexString
 	/** Token the paymaster will charge (undefined when type is "none"). */
@@ -76,30 +76,31 @@ export interface PaymasterDataResult {
 
 // ── Authorization amount constants ──────────────────────────────────
 
-/** Dollar amount to authorize (permit). Safe upper bound — unused gas is refunded. */
+/** Dollar amount to authorize per Permit2 signature. Safe upper bound — unused gas is refunded. */
 export const RECOMMENDED_AMOUNT_USD = 5n
 /** When existing allowance drops below this, re-authorize. */
 export const THRESHOLD_USD = 2n
 
 // ── Gas limit constants ─────────────────────────────────────────────
 
-/** Verification gas limit for Circle Paymaster (recommended by Circle docs). */
-export const VERIFICATION_GAS_LIMIT_CIRCLE = 200_000n
-/** Simplex paymaster verification gas when executing an EIP-2612 permit during validation. */
-export const VERIFICATION_GAS_LIMIT_PERMIT = 250_000n
 /**
- * Simplex paymaster verification gas when prefunding through Permit2. Measured at
- * ~135k on Ethereum and BSC forks (EOA and delegated senders).
+ * Simplex paymaster verification gas when prefunding through Permit2 — the mode every
+ * op but a first-time delegation uses. Measured at ~135k on Ethereum and BSC forks
+ * (EOA and delegated senders).
  */
 export const VERIFICATION_GAS_LIMIT_PERMIT2 = 200_000n
+/**
+ * Simplex paymaster verification gas when executing an EIP-2612 permit during
+ * validation — the bootstrap mode, reachable only via `permitBootstrap`. Higher than
+ * the Permit2 limit: the permit itself costs ~113k before the prefund transferFrom.
+ */
+export const VERIFICATION_GAS_LIMIT_PERMIT = 250_000n
 /**
  * Permit2 signatures use unordered nonces, so an unspent one (a losing bid) stays
  * valid until its deadline; keep that window short but well past bid-to-execution
  * latency and clock skew.
  */
 export const PERMIT2_DEADLINE_SECONDS = 3600n
-/** Post-operation gas limit for the Circle Paymaster (its own contract, its own postOp). */
-export const POST_OP_GAS_LIMIT_CIRCLE = 100_000n
 /**
  * Post-operation gas limit for the Simplex paymaster. The contract accepts the band
  * [MIN_POST_OP_GAS_LIMIT 30k, MAX_POST_OP_GAS_LIMIT 100k] — the ceiling stays at 100k so

@@ -112,9 +112,9 @@ export class VaultFundingPlanner implements FundingVenue {
 	private depositsClosedWarned = new Set<string>()
 
 	/**
-	 * @param userOpSender When provided, sweep/redeem batches are sent as Circle-
-	 * Paymaster-sponsored UserOps (gas paid in USDC) where the chain supports it,
-	 * falling back to a native EOA tx. Omit to always use native txs.
+	 * @param userOpSender When provided, sweep/redeem batches are sent as paymaster-
+	 * sponsored UserOps (gas paid in USDC) where the chain supports it, falling back
+	 * to a native EOA tx. Omit to always use native txs.
 	 */
 	constructor(
 		private readonly clientManager: ChainClientManager,
@@ -516,9 +516,9 @@ export class VaultFundingPlanner implements FundingVenue {
 	}
 
 	/**
-	 * Sends an ERC-7821 batch to the solver account. Prefers a Circle-Paymaster-
-	 * sponsored UserOp (gas paid in USDC) when a sender is wired and the chain
-	 * supports it, falling back to a native EOA tx.
+	 * Sends an ERC-7821 batch to the solver account. Prefers a paymaster-sponsored
+	 * UserOp (gas paid in USDC) when a sender is wired and the chain supports it,
+	 * falling back to a native EOA tx.
 	 *
 	 * The sponsored path only falls back to native when the op was **never
 	 * submitted**; a submitted-but-unconfirmed op throws so a native resend can't
@@ -534,8 +534,8 @@ export class VaultFundingPlanner implements FundingVenue {
 		if (this.userOpSender?.canSponsor(chain)) {
 			// The bundler echoes input gas limits for these ops instead of simulating, so
 			// pass measured fixed limits. Verification efficiency `used / (verif + pmVerif)`
-			// must clear rundler's 0.4 floor — the Circle paymaster verification (~75k) is
-			// the dominant term, account validation only ~24k.
+			// must clear rundler's 0.4 floor — the paymaster's Permit2 verification is the
+			// dominant term, account validation only ~24k.
 			const result = await this.userOpSender.trySendSponsored({
 				chain,
 				callData,
@@ -544,7 +544,6 @@ export class VaultFundingPlanner implements FundingVenue {
 					callGasLimit: 350_000n * BigInt(calls.length) + 100_000n,
 					preVerificationGas: 150_000n,
 				},
-				paymasterVerificationGasLimit: 140_000n,
 			})
 			if (result) return { txHash: result.txHash, sponsored: true }
 			this.logger.warn({ chain }, "Sponsored batch unavailable, sending native tx")

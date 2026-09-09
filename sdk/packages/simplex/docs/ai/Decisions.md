@@ -4,6 +4,124 @@ AI-maintained record of non-obvious choices made in `sdk/packages/simplex`: what
 
 Entry format: heading with the decision, then alternatives considered and the reasoning. Newest first.
 
+## 2026-09-09 — Fee-token readiness takes priority over bootstrap (#1223)
+
+Chosen: scan configured fee tokens in USDC-then-USDT order and select the first with both
+at least one whole token of balance and Permit2 allowance covering the existing $5
+recommendation. Both thresholds use that token's decimals. Stop when a ready token is
+found; otherwise retain the first balance-qualified token as the bootstrap fallback.
+Use the same read-only selector for sponsorship and delegation approval resolution.
+
+Alternatives considered: keep selecting the first funded token and approve it before
+checking another token; or prefer an EIP-2612-capable bootstrap token over one already
+usable through Permit2.
+
+Why: an unapproved USDC balance must not hide funded, approved USDT. Approving USDC in
+that state either unnecessarily spends native gas or prevents sponsorship when native is
+absent. A permit-funded bootstrap is also unnecessary when another token is ready.
+Sharing selection with delegation setup prevents the two paths from disagreeing about
+whether an approval is needed. Approval alone is insufficient: empty or sub-minimum
+balances remain ineligible even with unlimited allowance.
+
+This is a readiness preference, not a new bootstrap policy. USDC still wins when both
+tokens are ready. When neither is ready, the existing first-funded-token fallback and
+its permit/native approval rules remain, including the native-funded zero-first reset
+for stale non-zero allowances. The existing one-token balance minimum and $5 allowance
+recommendation are unchanged; they are selection thresholds, not a guarantee that every
+operation can be sponsored.
+
+## 2026-09-08 — The Permit2 bootstrap keys on the allowance, not on the delegation
+
+Chosen: `setupDelegation` calls `ensurePermit2Allowance(chain)` before its already-delegated
+early return, so the permit-funded `approve(Permit2, max)` op runs whenever the allowance is
+missing — not only on the boot where the account happens to be undelegated.
+
+Alternative considered: leave the bootstrap folded into the first-time delegation op only, and
+tell operators to fund native dust once per chain on upgrade.
+
+Why: that alternative is the workaround the 2026-09-02 `skipPermit` entry already considered and
+rejected, and this time it would be worse. It is not "once per fresh solver" — an account
+delegated by 0.15 has no Permit2 allowance on any chain, because that release short-circuited to
+PERMIT mode before reading one. So every existing deployment would need native everywhere, and
+the zero-native solver the paymaster exists to serve would lose sponsorship entirely, silently,
+on its first order after the upgrade.
+
+The deeper point is that delegation and bootstrap were conflated. Being delegated says the EOA
+has SolverAccount code; it says nothing about whether the fee token is approved to Permit2. Two
+independent facts were being read off one check. Keying the bootstrap on the allowance —
+`resolvePendingPermit2Approval`, which reads it — makes the op idempotent and self-healing: it
+runs on any boot where the allowance is missing and skips otherwise, whatever the delegation
+state.
+
+Kept best-effort rather than fatal: a bundler outage during the bootstrap must not turn a
+correctly delegated account into a setup failure, and the `sendFundedApprove` fallback still
+serves any solver holding native.
+
+## 2026-09-08 — EIP-2612 is the bootstrap authorization, and nothing else
+
+Chosen: the `permitBootstrap` flag, set only by `DelegationService`'s first-time delegation
+op, lets that one op authorize with an EIP-2612 permit when the fee token has no Permit2
+allowance yet. The same op carries `approve(Permit2, max)` in its callData. Every other
+sponsored op — fills, bids, vault sweeps, token sends — authorizes through Permit2 with no
+way to reach the permit path.
+
+Alternatives considered: dropping 2612 outright (the previous entry) and accepting that a
+fresh solver needs native dust per chain; or restoring 2612 as the general preference for
+permit-capable tokens, as it was before.
+
+Why the scoping is the whole design. The objection to 2612 is its nonce: one sequential
+counter per owner, so two permits signed for the same solver carry the same value and only
+one lands. That is fatal for fills, which are the ops that actually run concurrently. It is
+free for the delegation, which happens once per chain and provably has no concurrent
+sibling — the account is not even delegated yet. Confining the permit to that op keeps the
+serialization hazard away from everything that could hit it.
+
+Dropping it outright lost more than it looked. The permit is the only authorization that
+needs no prior on-chain state, so it is the only way an account with stablecoins and zero
+native can pay for anything. Requiring native dust per chain sounds minor until it is the
+operator's first run on a new chain and the failure is "send ETH here" rather than "it
+worked".
+
+Putting the approve in the same op's callData is what makes it worth doing. A permit-only
+delegation would leave the account delegated but still without a Permit2 allowance, so the
+next op would need the native approve anyway — the permit would have bought one op's delay,
+not a bootstrap. Because the paymaster prefunds during validation and callData runs after,
+the permit covers gas without the allowance existing, and the allowance exists by the time
+anything else needs it.
+
+Making it a fallback rather than a preference matters too: with the flag set and an
+allowance already in place, the builder still picks Permit2. The permit is for the state
+where Permit2 cannot work, not for tokens that happen to support it.
+
+## 2026-09-08 — Permit2 `SignatureTransfer` is the only authorization simplex signs
+
+Chosen: every sponsored UserOp carries a per-op Permit2 `PermitTransferFrom` signature, including
+on tokens that implement EIP-2612.
+
+Alternatives considered: keeping the 2612 branch for permit-capable tokens (the status quo), or
+keeping it only as a zero-native bootstrap path for a fresh solver.
+
+Why: 2612 nonces are one sequential counter per owner, so two permits signed for the same solver
+carry the same nonce and only one survives. Nothing in simplex reused an allowance either — mode
+`0x01` was retired from the contract, so `buildPermitMode` signed a fresh permit per op and burned
+a counter slot each time. Permit2's unordered bitmap gives each op an independent nonce for the
+same cost, which is what lets ops on one chain stop running single-file. Two authorization paths
+for the same paymaster also meant two gas profiles, two sets of constants and a `version()` probe
+whose transport errors had to be classified — all of which is now one path.
+
+The bootstrap variant was the tempting one to keep: 2612 is the only mode that needs no
+`approve(Permit2, max)`, so it let a solver with zero native and some USDC delegate and start
+filling. It loses anyway. Keeping it means keeping the whole branch, the probe and the second gas
+limit for a case that arises once per chain in an account's lifetime, and the batched approve in
+`DelegationService.setupDelegation` already folds that approval into the delegation transaction the
+solver has to send. The cost is one-time native dust on a genuinely new chain, stated in the CLI's
+setup guidance.
+
+Dropping the Circle paymaster is downstream of this, not a separate decision: it accepts EIP-2612
+permits and nothing else. Its one remaining edge was Optimism, where the SDK registry has a
+`CirclePaymaster` and no `SimplexPaymaster`; that chain now pays native until a Simplex paymaster
+is deployed on it, which is the same fallback every unconfigured chain uses.
+
 ## 2026-09-08 — Tunnelled requests are tagged in-process, and only remote-access routes are refused
 
 Two ways to tell a tunnelled request apart were on the table. Dialling the UI from a distinct

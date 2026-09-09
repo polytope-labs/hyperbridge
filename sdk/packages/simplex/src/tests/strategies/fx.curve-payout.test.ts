@@ -41,7 +41,6 @@ const configService = {
 	getMaxOverfillBps: () => 500n,
 	getMaxConsecutiveClamps: () => 3,
 	// No paymaster configured → paymasterReserveForToken contributes nothing.
-	getCirclePaymasterAddress: () => undefined,
 	getSimplexPaymasterAddress: () => undefined,
 } as any
 

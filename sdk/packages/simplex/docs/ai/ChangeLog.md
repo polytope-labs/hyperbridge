@@ -12,6 +12,158 @@ Files: list of files touched.
 
 Newest entries first.
 
+## 2026-09-09 — Prefer funded, Permit2-approved fee tokens before bootstrap (#1223)
+
+Fee-token selection now scans USDC then USDT for both a balance of at least one whole
+token and a Permit2 allowance covering the existing $5 recommendation, scaled by each
+token's decimals. Previously, funded but unapproved USDC could block approved, funded
+USDT: a solver without native lost sponsorship, while one with native sent an unnecessary
+USDC approval. Selection is read-only and stops at the first ready token. If neither is
+ready, the first balance-qualified token retains the existing bootstrap path. An approved
+token with no balance is not eligible.
+
+`buildSimplexPaymasterData` and `resolvePendingPermit2Approval` share this selection rule,
+so delegation setup does not request a bootstrap when another funded token is already
+ready. EIP-2612 bootstrap, native-funded approval, and zero-first reset behavior remain
+unchanged when no ready token exists.
+
+Nine regression cases cover the real `buildPaymasterAndData` path with and without native,
+USDC preference when both tokens are ready, balance and allowance boundaries, different
+token decimals, native and permit bootstrap fallback, and delegation approval resolution.
+Four cases failed before the fix; all 102 tests across seven focused files passed after it.
+Lint and whitespace checks passed. Package-wide typechecking still reports unrelated
+dependency/configuration errors; no on-chain testing was performed for this fix.
+
+Files: `src/services/paymaster/provider/simplex.ts`,
+`src/tests/services/SimplexPaymaster.test.ts`, `docs/ai/{ChangeLog,Decisions,Flow}.md`.
+
+## 2026-09-08 — Audit fix: the Permit2 bootstrap has to reach already-delegated accounts
+
+An adversarial audit of the two entries below found the bootstrap unreachable exactly where it
+was most needed. `permitBootstrap` was set in one place — the first-time delegation op — and
+`setupDelegation` returns the moment `isDelegated(chain)` holds. Delegation and bootstrap are
+separate facts: an account delegated by 0.15 has NO Permit2 allowance, because that release
+took the 2612 branch before it ever read one and its `resolvePendingPermit2Approval` explicitly
+skipped permit-capable tokens. So every already-running solver would upgrade into the state the
+bootstrap exists to prevent — and with zero native, every fill, bid and sweep on that chain
+would lose sponsorship with `send native dust`. That is the same trap the 2026-09-02
+`skipPermit` entry in Decisions.md records hitting in production on Base and Arbitrum, which
+explicitly rejected "fund native dust on every chain" as the remedy.
+
+`ensurePermit2Allowance(chain)` now runs before that early return. It sends the same
+permit-funded ERC-7821 `approve(Permit2, max)` op, without the authorization an already-delegated
+account does not need, and both carriers share one `bootstrapCallData` encoder so they cannot
+drift. It is best-effort: a failure logs a warn and leaves the first sponsored op to
+`sendFundedApprove`, so a solver holding native is unaffected.
+
+Two more audit findings fixed. `sendFundedApprove` is now wrapped in `ensureFundedApprove`,
+which dedups in-flight approvals by (chain, token, owner) — the bid path and the vault /
+token-send path are scheduled independently, and routing every chain through Permit2 made the
+missing-allowance state reachable on all of them, so two concurrent `writeContract` calls could
+resolve the same pending nonce and drop one. And the bootstrap callData test asserted only that
+two addresses appeared somewhere in the payload; it passed with the approve amount mutated to
+1 wei, which would have stranded the chain permanently (`resolvePendingPermit2Approval` refuses
+any non-zero allowance). It now asserts the exact bytes, and was checked against that mutation.
+
+The completeness critic also flagged that `signEip2612Permit` returned the signer's bytes raw
+while `signPermit2Transfer` ran through `normalizeSignature65`, even though `buildPermitMode`
+splits v straight out of the hex for a contract expecting v in {27,28}. Pre-existing — identical
+at `ebe157c70` — but this change makes that path the sole bootstrap for every solver, so it is
+normalized now too. A correct 65-byte signature passes through unchanged.
+
+Audit findings accepted without a code change: Optimism has a `CirclePaymaster` and no
+`SimplexPaymaster`, so it degrades to native gas and an EntryPoint deposit — the intended
+consequence of dropping Circle, already recorded below. A stale non-zero Permit2 allowance below
+$5 still has no bootstrap route. `THRESHOLD_USD` is now dead. The `PERMIT2_DEADLINE_SECONDS`
+(3600) bid expiry is not reconciled with the operator-configurable bid tenor.
+
+Files: `src/services/DelegationService.ts`, `src/services/paymaster/{permit,provider/simplex}.ts`.
+Tests: `src/tests/services/DelegationService.ordering.test.ts` (4 new cases; the regression guard
+was verified to fail against the pre-fix early return). Docs: `docs/ai/{ChangeLog,Flow}.md`.
+
+## 2026-09-08 — EIP-2612 comes back, scoped to the first-time delegation on a chain
+
+The Permit2-only change above left a hole: with the 2612 path gone, a solver holding
+stablecoins and zero native could no longer bootstrap a chain at all. Permit2 prefunding
+needs a standing `approve(Permit2, max)`, and installing it took a native tx. The permit
+mode was the only thing that had ever covered that case.
+
+It is back, behind a `permitBootstrap` flag that exactly one caller sets. When
+`DelegationService` finds no Permit2 allowance for the chain's fee token and that token
+implements 2612, the delegation UserOp now does two things at once: it asks the paymaster
+for PERMIT mode (`0x00`), and it carries `approve(Permit2, max)` in its own callData as an
+ERC-7821 batch. The permit pays for the very op that installs the allowance every later op
+authorizes against. One sponsored op, no native, and the account never signs a 2612 permit
+again on that chain.
+
+The flag is a fallback, not a preference. Even with it set, an allowance that already
+covers the recommendation takes the Permit2 path — the unordered nonce is strictly better
+and there is nothing to bootstrap. And without it, a permit-capable token like USDC still
+bootstraps via a funded approve rather than a permit, because a fill's nonce must not be a
+shared counter. That is the whole point of the scoping: the delegation is the one op per
+chain that provably has no concurrent sibling, so a sequential nonce costs nothing there.
+
+`resolvePendingPermit2Approval` now also reports `permitCapable`, which reorders
+`setupDelegation`. A permit-capable token goes to the bundler first even when the EOA holds
+native, since spending stablecoins beats spending native. Only a no-permit token (BNB Chain
+pegged stables) still prefers the direct type-0x04 tx with the approve batched in — a native
+tx is its only carrier. That probe also keeps the two approves from colliding: were the
+callData approve attached on a no-permit token, the paymaster's own funded approve would land
+first and turn it into the non-zero → non-zero change the USDT rule rejects.
+
+The deposit gate prices a bootstrap op against `VERIFICATION_GAS_LIMIT_PERMIT` (250k,
+restored) instead of `VERIFICATION_GAS_LIMIT_PERMIT2` (200k), since the mode is not known
+until the allowance is read.
+
+Files: `src/services/paymaster/permit.ts` and `src/config/abis/EIP2612.ts` (restored),
+`src/services/paymaster/{index,types}.ts`, `src/services/paymaster/provider/simplex.ts`,
+`src/services/{DelegationService,UserOpSender}.ts`, `src/cli/init/help-text.ts`.
+Tests: `src/tests/services/{SimplexPaymaster,PaymasterSelection,DelegationService.ordering}.test.ts`.
+Docs: `docs/ai/{ChangeLog,Decisions,Flow}.md`.
+
+## 2026-09-08 — Every sponsored op is authorized through Permit2; the Circle paymaster is gone
+
+Simplex no longer signs EIP-2612 permits. The Circle paymaster provider, the `permit.ts` signer
+and the `EIP2612` ABI are deleted, and `buildPaymasterAndData` has one candidate left: the Simplex
+paymaster in `PERMIT2` mode (`0x02`). The `tokenSupportsPermit` probe and `buildPermitMode` went
+with them, so a permit-capable token like USDC now takes the same path as a BSC pegged stable.
+
+The reason is nonce shape. EIP-2612 keeps one sequential counter per owner, so two permits signed
+back to back carry the same value and only one can land — a hard serialization point on the
+solver's fee token, made worse by the fact that `buildPermitMode` signed a fresh permit for every
+op (the standing-allowance mode `0x01` was retired from the contract, so nothing reused an
+allowance). Permit2's `SignatureTransfer` nonces are an unordered bitmap: `randomPermit2Nonce`
+draws 256 random bits, `_useUnorderedNonce` flips that one slot, and concurrent ops never collide.
+That is the property worth having as soon as ops stop running single-file.
+
+Dropping Circle follows from the same decision — it is an EIP-2612-only paymaster, so there was
+nothing left for it to do. Its verification/postOp constants and the `paymasterVerificationGasLimit`
+override existed solely to tune it, and are removed from `PaymasterOptions`,
+`SponsoredUserOpRequest` and the three call sites that passed a value. `PaymasterDataResult.type`
+narrows to `"simplex" | "none"`, and `depositShortfall` loses its candidate label. The deposit gate
+now prices against `VERIFICATION_GAS_LIMIT_PERMIT2` (200k) instead of the retired
+`VERIFICATION_GAS_LIMIT_PERMIT` (250k), so a near-empty deposit sponsors slightly more often.
+
+Two consequences worth stating plainly. A solver on a chain it has never used needs native dust
+once per fee token for `approve(Permit2, max)` — the txless 2612 path that used to cover a
+zero-native bootstrap is gone; `resolvePendingPermit2Approval` no longer skips permit-capable
+tokens, so the delegation tx batches that approve in for every token, which is the cheapest way to
+pay it. And Optimism has a `CirclePaymaster` but no `SimplexPaymaster` in the SDK chain registry,
+so it now falls back to native gas / the EntryPoint deposit until a Simplex paymaster is deployed
+there.
+
+`evm/src/utils/SimplexPaymaster.sol` is untouched: mode `0x00` stays on the permissionless
+contract for other integrators, simplex just never sends it.
+
+Files: `src/services/paymaster/{index,types}.ts`, `src/services/paymaster/provider/simplex.ts`,
+deleted `src/services/paymaster/provider/circle.ts`, `src/services/paymaster/permit.ts`,
+`src/config/abis/EIP2612.ts`; `src/services/{DelegationService,UserOpSender,TokenSender,FillerConfigService,ContractInteractionService}.ts`,
+`src/funding/vault/VaultFundingPlanner.ts`, `src/core/{boot,filler}.ts`, `src/cli/init/help-text.ts`.
+Tests: deleted `src/tests/services/CirclePaymaster.test.ts`; rewrote
+`src/tests/services/PaymasterSelection.test.ts`; `src/tests/services/{SimplexPaymaster,SimplexPaymasterPermit2.probe,paymaster-reserve,DelegationService}.test.ts`,
+`src/tests/pairs.test.ts`, `src/tests/strategies/fx.curve-payout.test.ts`.
+Docs: `docs/ai/{ChangeLog,Decisions,Flow}.md`.
+
 ## 2026-09-08 — Sends leave the wallet at the vault's floor, not at zero
 
 A send on Base reverted with `ERC20: transfer amount exceeds balance` inside a UserOp that the

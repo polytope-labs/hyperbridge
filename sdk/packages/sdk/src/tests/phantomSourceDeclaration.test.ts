@@ -250,3 +250,40 @@ describe("phantom bid paymasterAndData — Permit2-sponsored bids", () => {
 		)
 	})
 })
+
+// The chain ids are UTF-8 encoded by hand: the indexer decodes bids inside SubQuery's vm2 sandbox,
+// where TextDecoder is not a global and the `util` fallback rejects a sandbox-created Uint8Array —
+// so a decoder that reached for it threw on every bid that named a source chain. The hand-rolled
+// codec must therefore match TextEncoder/TextDecoder byte for byte, and refuse what they refuse.
+describe("declaration chain ids — hand-rolled UTF-8", () => {
+	const ids = ["EVM-8453", "POLKADOT-3367", "SUBSTRATE-cere", "ké-ø", "日本-1", "𝔼VM-1"]
+
+	it("encodes every chain id exactly as TextEncoder would", () => {
+		const encoded = encodePhantomBidDeclaration({ acceptedSourceChains: ids })
+		const bytes = Buffer.from(encoded.slice(2), "hex")
+		let offset = 2
+		for (const id of ids) {
+			const expected = new TextEncoder().encode(id)
+			expect(bytes[offset]).toBe(expected.length)
+			expect(Buffer.from(bytes.subarray(offset + 1, offset + 1 + expected.length))).toEqual(Buffer.from(expected))
+			offset += 1 + expected.length
+		}
+		expect(offset).toBe(bytes.length)
+	})
+
+	it("decodes multibyte chain ids back to the same strings", () => {
+		expect(decodeAcceptedSourceChains(encodePhantomBidDeclaration({ acceptedSourceChains: ids }))).toEqual(ids)
+	})
+
+	it("treats a chain id that is not well-formed UTF-8 as a malformed declaration", () => {
+		// v1, one chain, length 2: a lead byte promising a continuation that is not one.
+		expect(decodeAcceptedSourceChains("0x010102c041")).toBeNull()
+		// An overlong encoding of "A" (0xc1 0x81), which TextDecoder also rejects.
+		expect(decodeAcceptedSourceChains("0x010102c181")).toBeNull()
+		// A lone continuation byte, and a UTF-16 surrogate encoded directly (0xed 0xa0 0x80).
+		expect(decodeAcceptedSourceChains("0x01010180")).toBeNull()
+		expect(decodeAcceptedSourceChains("0x010103eda080")).toBeNull()
+		// A sequence truncated by the entry's own length prefix.
+		expect(decodeAcceptedSourceChains("0x010102e697")).toBeNull()
+	})
+})

@@ -5,7 +5,7 @@
 // it passes VM2-safe implementations; the viem-based defaults are fine for Node consumers (tests,
 // simplex).
 import { decodeFunctionData, encodeAbiParameters, keccak256, recoverAddress } from "viem"
-import { hexToU8a, isHex, stringToU8a, u8aToHex, u8aToString } from "@polkadot/util"
+import { hexToU8a, isHex, u8aToHex } from "@polkadot/util"
 import { decodeERC7821ExecuteBatch } from "@/protocols/intents/decode-utils"
 import { decodeUserOpScale } from "@/chains/intentsCoprocessor"
 import { CryptoUtils } from "@/protocols/intents/CryptoUtils"
@@ -201,6 +201,79 @@ export interface PhantomBidDeclaration {
 	uniswapV4Positions: bigint[]
 }
 
+// The chain ids in a declaration are UTF-8, encoded and decoded here by hand rather than through
+// TextEncoder/TextDecoder (which is what @polkadot/util's stringToU8a/u8aToString wrap). The
+// indexer runs this decoder inside SubQuery's vm2 sandbox, which exposes neither as a global and
+// whose `util` fallback rejects a sandbox-created Uint8Array as "not an ArrayBufferView" — so every
+// bid carrying a source-chain declaration threw on the first chain name and was dropped as
+// "Failed to process bid", while bids declaring nothing, or only positions, sailed through. Plain
+// arithmetic over the bytes has no realm to be on the wrong side of.
+
+/** UTF-8 bytes of `text`, with no TextEncoder. */
+function utf8Encode(text: string): number[] {
+	const bytes: number[] = []
+	for (const char of text) {
+		const codePoint = char.codePointAt(0)!
+		if (codePoint < 0x80) bytes.push(codePoint)
+		else if (codePoint < 0x800) bytes.push(0xc0 | (codePoint >> 6), 0x80 | (codePoint & 0x3f))
+		else if (codePoint < 0x10000) {
+			bytes.push(0xe0 | (codePoint >> 12), 0x80 | ((codePoint >> 6) & 0x3f), 0x80 | (codePoint & 0x3f))
+		} else {
+			bytes.push(
+				0xf0 | (codePoint >> 18),
+				0x80 | ((codePoint >> 12) & 0x3f),
+				0x80 | ((codePoint >> 6) & 0x3f),
+				0x80 | (codePoint & 0x3f),
+			)
+		}
+	}
+	return bytes
+}
+
+/**
+ * The string `bytes` encode in UTF-8, with no TextDecoder. Null for anything that is not
+ * well-formed UTF-8 — a truncated sequence, a stray continuation byte, an overlong form, a
+ * surrogate, or a code point past U+10FFFF — since a declaration naming an unreadable chain is
+ * malformed as a whole.
+ */
+function utf8Decode(bytes: Uint8Array): string | null {
+	let text = ""
+	for (let offset = 0; offset < bytes.length; ) {
+		const lead = bytes[offset]
+		let codePoint: number
+		let continuations: number
+		if (lead < 0x80) {
+			codePoint = lead
+			continuations = 0
+		} else if ((lead & 0xe0) === 0xc0) {
+			codePoint = lead & 0x1f
+			continuations = 1
+		} else if ((lead & 0xf0) === 0xe0) {
+			codePoint = lead & 0x0f
+			continuations = 2
+		} else if ((lead & 0xf8) === 0xf0) {
+			codePoint = lead & 0x07
+			continuations = 3
+		} else {
+			return null
+		}
+		if (offset + continuations >= bytes.length) return null
+		for (let index = 1; index <= continuations; index++) {
+			const byte = bytes[offset + index]
+			if ((byte & 0xc0) !== 0x80) return null
+			codePoint = (codePoint << 6) | (byte & 0x3f)
+		}
+		const overlong =
+			(continuations === 1 && codePoint < 0x80) ||
+			(continuations === 2 && codePoint < 0x800) ||
+			(continuations === 3 && codePoint < 0x10000)
+		if (overlong || codePoint > 0x10ffff || (codePoint >= 0xd800 && codePoint <= 0xdfff)) return null
+		text += String.fromCodePoint(codePoint)
+		offset += continuations + 1
+	}
+	return text
+}
+
 /** Minimal big-endian bytes of a non-negative tokenId; `[0]` for zero. */
 function tokenIdToBytes(tokenId: bigint): number[] {
 	if (tokenId < 0n) throw new Error(`Uniswap V4 tokenId cannot be negative: ${tokenId}`)
@@ -234,7 +307,7 @@ export function encodePhantomBidDeclaration(declaration: {
 	const version = positions.length > 0 ? DECLARATION_V2 : DECLARATION_V1
 	const bytes: number[] = [version, chains.length]
 	for (const chain of chains) {
-		const encoded = stringToU8a(chain)
+		const encoded = utf8Encode(chain)
 		if (encoded.length === 0 || encoded.length > 255) {
 			throw new Error(`Invalid state machine id in source chain declaration: ${chain}`)
 		}
@@ -272,7 +345,9 @@ function parseDeclaration(bytes: Uint8Array, start: number): PhantomBidDeclarati
 		const length = bytes[offset]
 		offset += 1
 		if (length === 0 || offset + length > bytes.length) return null
-		chains.push(u8aToString(bytes.subarray(offset, offset + length)))
+		const chain = utf8Decode(bytes.subarray(offset, offset + length))
+		if (chain === null) return null
+		chains.push(chain)
 		offset += length
 	}
 

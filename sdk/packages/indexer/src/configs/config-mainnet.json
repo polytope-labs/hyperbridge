@@ -307,6 +307,7 @@
 			"erc6160ext20": "0xe91D153E0b41518A2Ce8Dd3D7944Fa863463a97d",
 			"handlerV1": "0x2a18AB35DEa43474882E05A661e2F20fe89c0535",
 			"intentGatewayV3": "0xAe041F7B0CB581876832830baeB6a2Aa2a3C9716",
+			"solverAccount": ["0x7cb55539d1144F62422099c3FA3405092022c88C", "0xfCd233b937D7622AAc63ced3C9A1A12F4a6B64E3"],
 			"yieldVaults": {
 				"0xe91d153e0b41518a2ce8dd3d7944fa863463a97d": {
 					"description": "WXDAI (carried as DAI) \u2014 listed so the LP balance sweep tracks the raw ERC-20 balance",

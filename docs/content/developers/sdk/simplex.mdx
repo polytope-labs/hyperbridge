@@ -253,9 +253,8 @@ solver that submits bids needs a durable store** — a successful bid locks a de
 that is only reclaimable by retracting it, and the retraction sweep finds what to reclaim by
 querying the bid store. Lose those records and you leak deposits.
 
-The bundled SQLite store is a separate entry point, so nothing native is loaded unless you import
-it. `better-sqlite3` is an optional dependency — installed by default, but free to fail to build
-without breaking the package:
+The bundled SQLite store is a separate entry point. It runs on Node's built-in `node:sqlite`, so
+there is no native module to install or compile — the package just needs Node 22.16 or newer:
 
 ```ts lineNumbers
 import { SqliteDataStore } from "@hyperbridge/simplex/sqlite"

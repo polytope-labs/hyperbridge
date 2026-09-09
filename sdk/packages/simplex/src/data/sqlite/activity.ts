@@ -1,6 +1,7 @@
-import type { Database as DatabaseType } from "better-sqlite3"
+import type { DatabaseSync } from "node:sqlite"
 import { defaultLoggerContext, type Logger, type LoggerContext } from "@/services/Logger"
 import type { ActivityEvent, ActivityInsert, ActivityStore, OrderHistoryPage, OrderSummary, WalletTx } from "@/data/types"
+import { columnNames } from "./schema"
 
 const MAX_ROWS = 10_000
 const PRUNE_EVERY = 500
@@ -49,7 +50,7 @@ export class SqliteActivityStore implements ActivityStore {
 	private insertsSincePrune = 0
 
 	constructor(
-		private db: DatabaseType,
+		private db: DatabaseSync,
 		loggers: LoggerContext = defaultLoggerContext(),
 	) {
 		this.logger = loggers.get("activity")
@@ -81,15 +82,13 @@ export class SqliteActivityStore implements ActivityStore {
 			);
 		`)
 		// Added after the first release: rows written before it have no order summary.
-		const columns = new Set((this.db.prepare("PRAGMA table_info(events)").all() as any[]).map((c) => c.name))
+		const columns = columnNames(this.db, "events")
 		if (!columns.has("order_json")) {
 			this.db.exec("ALTER TABLE events ADD COLUMN order_json TEXT")
 			this.logger.info({ column: "order_json" }, "Migrated activity schema")
 		}
 		// Added with the ledger's amount columns: the side that came back (vault shares, redeemed assets).
-		const walletColumns = new Set(
-			(this.db.prepare("PRAGMA table_info(wallet_txs)").all() as any[]).map((c) => c.name),
-		)
+		const walletColumns = columnNames(this.db, "wallet_txs")
 		for (const column of ["token_in", "amount_in"]) {
 			if (walletColumns.has(column)) continue
 			this.db.exec(`ALTER TABLE wallet_txs ADD COLUMN ${column} TEXT`)
@@ -175,16 +174,27 @@ export class SqliteActivityStore implements ActivityStore {
 
 	async attachOrder(orderId: string, order: OrderSummary): Promise<ActivityEvent[]> {
 		const json = JSON.stringify(order)
-		const changed = this.db.transaction(() => {
-			const ids = this.db
+		// `node:sqlite` has no transaction wrapper, so the boundary is written out.
+		// The SELECT and the UPDATE have to agree on which rows lacked a summary:
+		// without the transaction a concurrent writer could fill one in between
+		// them, and the ids returned here would name rows this call did not change.
+		let changed: number[]
+		this.db.exec("BEGIN")
+		try {
+			const missing = this.db
 				.prepare("SELECT id FROM events WHERE order_id = ? AND order_json IS NULL")
-				.all(orderId)
-				// biome-ignore lint/suspicious/noExplicitAny: raw sqlite row
-				.map((row: any) => row.id as number)
-			if (ids.length === 0) return []
-			this.db.prepare("UPDATE events SET order_json = ? WHERE order_id = ? AND order_json IS NULL").run(json, orderId)
-			return ids
-		})()
+				.all(orderId) as unknown as Array<{ id: number }>
+			changed = missing.map((row) => row.id)
+			if (changed.length > 0) {
+				this.db.prepare("UPDATE events SET order_json = ? WHERE order_id = ? AND order_json IS NULL").run(json, orderId)
+			}
+			this.db.exec("COMMIT")
+		} catch (err) {
+			// A COMMIT that fails has already rolled back, and rolling back twice
+			// throws over the original error — `isTransaction` says which case this is.
+			if (this.db.isTransaction) this.db.exec("ROLLBACK")
+			throw err
+		}
 		if (changed.length === 0) return []
 		const rows = this.db
 			.prepare(`SELECT * FROM events WHERE id IN (${changed.map(() => "?").join(",")}) ORDER BY id`)
@@ -203,7 +213,7 @@ export class SqliteActivityStore implements ActivityStore {
 				    AND SUM(type = 'lost' OR (type = 'filled' AND volume_usd IS NULL)) = 0
 				 ORDER BY MAX(id) DESC LIMIT ?`,
 			)
-			.all(capLimit(limit)) as Array<{ order_id: string }>
+			.all(capLimit(limit)) as unknown as Array<{ order_id: string }>
 		return rows.map((row) => row.order_id)
 	}
 
@@ -211,7 +221,7 @@ export class SqliteActivityStore implements ActivityStore {
 		const ids = (
 			this.db
 				.prepare("SELECT id FROM events WHERE order_id = ? AND type = 'filled' AND volume_usd IS NOT NULL")
-				.all(orderId) as Array<{ id: number }>
+				.all(orderId) as unknown as Array<{ id: number }>
 		).map((row) => row.id)
 		if (ids.length === 0) return []
 		this.db
@@ -232,7 +242,7 @@ export class SqliteActivityStore implements ActivityStore {
 		const size = capLimit(pageSize)
 		const current = Math.max(1, Math.floor(page))
 		const total = (
-			this.db.prepare("SELECT COUNT(DISTINCT order_id) AS n FROM events WHERE order_id IS NOT NULL").get() as {
+			this.db.prepare("SELECT COUNT(DISTINCT order_id) AS n FROM events WHERE order_id IS NOT NULL").get() as unknown as {
 				n: number
 			}
 		).n
@@ -240,7 +250,7 @@ export class SqliteActivityStore implements ActivityStore {
 			.prepare(
 				"SELECT order_id FROM events WHERE order_id IS NOT NULL GROUP BY order_id ORDER BY MAX(id) DESC LIMIT ? OFFSET ?",
 			)
-			.all(size, (current - 1) * size) as Array<{ order_id: string }>
+			.all(size, (current - 1) * size) as unknown as Array<{ order_id: string }>
 		const ids = heads.map((head) => head.order_id)
 		const byOrder = new Map<string, ActivityEvent[]>(ids.map((id) => [id, []]))
 		if (ids.length > 0) {

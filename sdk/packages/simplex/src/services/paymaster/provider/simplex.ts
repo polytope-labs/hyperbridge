@@ -31,14 +31,17 @@ interface TokenOption {
 	decimals: number
 }
 
+type SelectedToken = TokenOption & { permit2Allowance: bigint }
+
 /** Gas ceiling for the one-time ERC-20 approve tx (typical approves need ~45-55k). */
 const APPROVE_TX_GAS = 60_000n
 
 /**
  * Builds the paymaster fields for a PackedUserOperation using the SimplexPaymaster.
  *
- * Selects the first configured stablecoin (USDC, then USDT) with a balance of at least
- * one token and authorizes it in PERMIT2 mode (0x02): a per-op, single-use Permit2
+ * Prefers the first configured stablecoin (USDC, then USDT) with a balance of at least
+ * one token and enough Permit2 allowance. If neither is ready, bootstraps the first
+ * balance-qualified token. Authorizes in PERMIT2 mode (0x02): a per-op, single-use Permit2
  * signature, so nothing is exposed to the paymaster at rest. Permit2 nonces are an
  * unordered bitmap, so concurrent ops on one chain each carry their own permit without
  * coordinating on a shared counter — the reason this is the mode nearly every op uses.
@@ -69,16 +72,21 @@ export async function buildSimplexPaymasterData(
 	permitBootstrap = false,
 ): Promise<(PaymasterResult & { token: HexString }) | { insufficient: FeeTokenBalance[] }> {
 	const chainId = configService.getChainId(chain)
+	const permit2 = configService.getPermit2Address(chain)
 
-	const { selected, balances } = await selectToken(client, solverAccount, configuredFeeTokens(chain, configService))
+	const { selected, balances } = await selectToken(
+		client,
+		solverAccount,
+		configuredFeeTokens(chain, configService),
+		permit2,
+	)
 	if (!selected) {
 		return { insufficient: balances }
 	}
 
-	const { address: tokenAddress, decimals: tokenDecimals } = selected
+	const { address: tokenAddress, decimals: tokenDecimals, permit2Allowance } = selected
 	const recommended = RECOMMENDED_AMOUNT_USD * 10n ** BigInt(tokenDecimals)
 
-	const permit2 = configService.getPermit2Address(chain)
 	if (!isConfigured(permit2)) {
 		throw new Error(
 			`SimplexPaymaster cannot sponsor ${tokenAddress} on ${chain}: Permit2 is not configured for this chain`,
@@ -94,7 +102,6 @@ export async function buildSimplexPaymasterData(
 		)
 	}
 
-	const permit2Allowance = await readAllowance(client, tokenAddress, solverAccount, permit2)
 	if (permit2Allowance < recommended) {
 		// The bootstrap op pays for itself with a permit when the token has one, so the
 		// approve it carries in its own callData needs no native. Only when that is
@@ -138,11 +145,11 @@ export async function buildSimplexPaymasterData(
  * the allowance in its own callData, needing no native at all. Without it the approve can
  * only ride a native type-0x04 tx.
  *
- * Returns null when nothing batchable is pending: any existing non-zero allowance (at the
- * recommendation PERMIT2 mode already works; below it the USDT rule needs a zero-first reset
- * neither carrier can express), no Permit2 configured, a paymaster without PERMIT2 mode, or
- * the solver holding no fee token yet. Deferred cases are handled by the first sponsored
- * op's own funded approve.
+ * Returns null when a funded token already has enough Permit2 allowance, or when nothing
+ * batchable is pending: the fallback token has a non-zero allowance (the USDT rule needs
+ * a zero-first reset neither carrier can express), no Permit2 is configured, the paymaster
+ * has no PERMIT2 mode, or the solver holds no fee token yet. Deferred cases are handled by
+ * the first sponsored op's own funded approve.
  */
 export async function resolvePendingPermit2Approval(
 	client: PublicClient,
@@ -155,15 +162,14 @@ export async function resolvePendingPermit2Approval(
 	if (!isConfigured(permit2)) return null
 	if (!(await paymasterSupportsPermit2(client, configService.getChainId(chain), paymasterAddress))) return null
 
-	const { selected } = await selectToken(client, solverAccount, configuredFeeTokens(chain, configService))
+	const { selected } = await selectToken(client, solverAccount, configuredFeeTokens(chain, configService), permit2)
 	if (!selected) return null
 
 	// Only a clean zero allowance is batchable. At or above the recommendation PERMIT2
 	// mode already works; a stale non-zero allowance below it cannot ride the delegation
 	// either — the batched tx approves max directly, and tokens with the USDT rule revert
 	// a non-zero → non-zero change (deterministically: the delegation tx skips simulation).
-	const allowance = await readAllowance(client, selected.address, solverAccount, permit2)
-	if (allowance !== 0n) return null
+	if (selected.permit2Allowance !== 0n) return null
 
 	return {
 		token: selected.address,
@@ -194,16 +200,19 @@ function configuredFeeTokens(chain: string, configService: FillerConfigService):
 }
 
 /**
- * First token the solver holds at least one whole unit of, reading balances in order and
- * stopping at the first hit. `balances` carries every read that fell short, so a caller
- * left with no token can say how short each one was instead of a bare "insufficient".
+ * First funded token whose Permit2 allowance covers the recommendation, in config order.
+ * Remember the first funded token for bootstrap only if no ready token is found. Selection
+ * is read-only: a missing USDC approval must not trigger a native tx while approved USDT
+ * can pay gas. `balances` carries shortfalls when no token meets the balance minimum.
  */
 async function selectToken(
 	client: PublicClient,
 	solverAccount: HexString,
 	tokens: TokenOption[],
-): Promise<{ selected: TokenOption | null; balances: FeeTokenBalance[] }> {
+	permit2: HexString,
+): Promise<{ selected: SelectedToken | null; balances: FeeTokenBalance[] }> {
 	const balances: FeeTokenBalance[] = []
+	let fallback: SelectedToken | null = null
 	for (const token of tokens) {
 		const balance = (await client.readContract({
 			address: token.address,
@@ -214,11 +223,18 @@ async function selectToken(
 
 		const required = 10n ** BigInt(token.decimals)
 		if (balance >= required) {
-			return { selected: token, balances }
+			// Leave missing-Permit2 handling to the caller, preserving balance shortfalls
+			// without attempting an allowance read against an unconfigured address.
+			if (!isConfigured(permit2)) return { selected: { ...token, permit2Allowance: 0n }, balances }
+			const permit2Allowance = await readAllowance(client, token.address, solverAccount, permit2)
+			const candidate = { ...token, permit2Allowance }
+			if (permit2Allowance >= RECOMMENDED_AMOUNT_USD * required) return { selected: candidate, balances }
+			fallback ??= candidate
+		} else {
+			balances.push({ symbol: token.symbol, balance, required })
 		}
-		balances.push({ symbol: token.symbol, balance, required })
 	}
-	return { selected: null, balances }
+	return { selected: fallback, balances }
 }
 
 const PERMIT2_SUPPORT_NEGATIVE_TTL_MS = 5 * 60_000

@@ -412,6 +412,66 @@ the tunnel's hot path.
 
 `EmbeddedSshServer`'s log line was reworded, though: it said "No UI to serve behind the tunnel" for
 every refusal, which misdescribes the case where the UI exists and is merely unbound.
+## 2026-09-09 — `--log-format` is read from raw argv, and json mode writes straight to stdout (#1237)
+
+Decided: `bin/simplex.ts` calls `logFormatFromArgv(process.argv)` at module scope and builds its
+console sink from the result. Commander declares `--log-format <pretty|json>` on `run` as well, but
+only so that `--help` lists it and a bad value is rejected; the action never reads the parsed value.
+
+Why the scan rather than the parsed option: `addLogSink(consoleSink(...))` runs while the module is
+still evaluating, so that records emitted during parsing and command setup have somewhere to go.
+Commander has not run at that point. The sink has to exist before the parse, so its format has to be
+known before the parse.
+
+Why the action ignores `options.logFormat` even though it is available by then: the sink is already
+writing, and a command line the two readers disagree about (`simplex run -c --log-format json`, where
+commander binds `--log-format` to `-c`) would then put an ASCII banner in the middle of a stream a
+supervisor is parsing as NDJSON. One reader, one answer.
+
+Rejected: moving the `addLogSink` call into each command's action, after the parse. It would remove
+the double read, but the process-wide sink covers `init`, config validation and the keeper command as
+well as `run`, and anything logged during parsing would be lost. That is a real cost paid for a
+cosmetic gain.
+
+Decided: in json mode `consoleSink()` returns `process.stdout` itself. pino hands a destination one
+finished NDJSON record per write, newline included, so there is nothing left to format.
+
+Why not pino-pretty with `colorize: false`: pino-pretty would still reformat, drop fields and reorder
+them. The point of json mode is that a parser downstream sees exactly what pino produced.
+
+This also removes the interleaving hazard that forces one pino-pretty transform per writer on the
+pretty path. Two pino instances sharing one pino-pretty transform interleave their chunks, and it
+echoes the unparseable remainder as raw NDJSON. With no transform in between there is nothing
+reassembling anything, so the process context and a running filler can share one `process.stdout`
+safely. Checked by running two `LoggerContext`s into a shared stdout for 4000 records with 4 KB
+payloads: no partial or interleaved lines.
+
+Decided: in json mode the ASCII banner is not printed and the wizard's URL line becomes a log record
+with a `url` field. Those two are the only writers to stdout outside the logger, and either one would
+break the promise that every line is a JSON object. The URL is more useful as a field than as prose a
+parser would have to scrape.
+
+Rejected: deciding the format by whether stdout is a TTY, the way many tools do. It is the more
+convenient default, but it silently changes what an existing user gets the moment they pipe simplex
+into a file — and `colorize: true` is currently explicit, so today they get colour there on purpose.
+An explicit flag keeps "no flags" meaning exactly what it meant before.
+
+
+## 2026-09-09 — `--no-open` and `--log-format` are flags only, with no env-var equivalent (#1237)
+
+Decided: neither flag has a `SIMPLEX_*` counterpart. The consumer in #1237 is Electron's `spawn`,
+which builds argv directly, so there is nothing to make easier. Docker is the other supervisor, and it
+already passes CLI arguments through `CMD` — the image's default command carries `--ui` for the same
+reason.
+
+Rejected: adding `SIMPLEX_NO_OPEN` / `SIMPLEX_LOG_FORMAT` alongside. Two ways to say one thing needs a
+precedence rule, and that rule needs a test and a place in the docs, all for a caller that does not
+exist yet. `SIMPLEX_HOME` is the package's one env var and it earns its place: config discovery has to
+work before any argument is parsed. These do not have that problem — `--log-format` is read early, but
+it is read from argv, which is available just as early.
+
+If a supervisor that cannot construct argv does turn up, adding an env fallback inside
+`logFormatFromArgv` is a couple of lines and breaks nothing.
 
 
 ## 2026-09-09 — The publickey probe branch requires both halves absent, not either

@@ -1,5 +1,6 @@
-import type { Command } from "commander"
+import { Option, type Command } from "commander"
 import { DEFAULT_CONFIG_FILENAME } from "@/cli/discover-config"
+import { DEFAULT_LOG_FORMAT, LOG_FORMATS } from "@/cli/log-format"
 
 /** Port the local web UI binds when `--ui` names no other one. */
 export const DEFAULT_UI_PORT = 8686
@@ -16,6 +17,17 @@ export interface RunOptions {
 	ui?: string | boolean
 	/** A socket path from `--ui-socket <path>`; absent when the flag is not passed. */
 	uiSocket?: string
+	/** `false` from `--no-open`, otherwise `true`. Only the wizard path reads it. */
+	open?: boolean
+	/**
+	 * `--log-format` is deliberately absent. It is read straight from argv by
+	 * `logFormatFromArgv`, because the console sink is built while `bin/simplex.ts`
+	 * is still evaluating — before commander runs. The sink is already writing by
+	 * the time an action is called, so reading the parsed value too would let the
+	 * two disagree over a malformed command line and put a banner in the middle of
+	 * the NDJSON. It is declared below only so `--help` lists it and a bad value is
+	 * rejected.
+	 */
 }
 
 /**
@@ -40,4 +52,10 @@ export function addRunOptions(command: Command): Command {
 			"Serve the web UI on a Unix domain socket at <path> instead of a TCP port. The socket is created 0600, so no other local user and no web page can reach it. On Windows this is a named pipe, whose default ACL is weaker (see docs/ai/Decisions.md). For embedding simplex in a desktop application",
 		)
 		.option("--no-ui", "Disable the local web UI")
+		.option("--no-open", "Don't launch a browser for the setup wizard; it still starts and reports its URL")
+		.addOption(
+			new Option("--log-format <format>", "How to render this process's logs on stdout")
+				.choices([...LOG_FORMATS])
+				.default(DEFAULT_LOG_FORMAT),
+		)
 }

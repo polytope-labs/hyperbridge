@@ -43,7 +43,7 @@ fn setup_prover() -> SyncCommitteeProver<
 async fn beacon_state_hashes_to_the_signed_header() {
 	let prover = setup_prover();
 	let mut state = prover.fetch_beacon_state("finalized").await.unwrap();
-	let header = prover.fetch_header(&state.slot.to_string()).await.unwrap();
+	let header = prover.fetch_header(&state.slot().to_string()).await.unwrap();
 
 	assert_eq!(state.tree_hash_root(), Hash256::from(&header.state_root));
 }
@@ -56,16 +56,16 @@ async fn beacon_state_hashes_to_the_signed_header() {
 async fn execution_header_recovers_the_execution_state_root() {
 	let prover = setup_prover();
 	let mut finalized_state = prover.fetch_beacon_state("finalized").await.unwrap();
-	let finalized_header = prover.fetch_header(&finalized_state.slot.to_string()).await.unwrap();
+	let finalized_header = prover.fetch_header(&finalized_state.slot().to_string()).await.unwrap();
 
-	let block_hash = H256::from_slice(finalized_state.latest_block_hash.as_ref());
+	let block_hash = H256::from_slice(finalized_state.execution_block_hash().as_ref());
 	let header = prover.fetch_execution_header(block_hash).await.unwrap();
 
 	let proof = prove_execution_payload::<
 		GlamsterdamDevnet,
 		ETH1_DATA_VOTES_BOUND_ETH,
 		PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM,
-	>(&mut finalized_state, header.clone())
+	>(&finalized_state, Some(header.clone()))
 	.unwrap();
 
 	let execution_header = proof.execution_header().expect("gloas proof carries the rlp header");
@@ -116,8 +116,8 @@ async fn bootstrap_trusted_state_and_update(
 	let trusted_state = VerifierState {
 		finalized_header: trusted_header.clone(),
 		latest_finalized_epoch: compute_epoch_at_slot::<GlamsterdamDevnet>(trusted_header.slot),
-		current_sync_committee: trusted_state_state.current_sync_committee,
-		next_sync_committee: trusted_state_state.next_sync_committee,
+		current_sync_committee: trusted_state_state.current_sync_committee().clone(),
+		next_sync_committee: trusted_state_state.next_sync_committee().clone(),
 		state_period: compute_sync_committee_period_at_slot::<GlamsterdamDevnet>(
 			trusted_header.slot,
 		),

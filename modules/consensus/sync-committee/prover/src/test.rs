@@ -62,7 +62,7 @@ async fn state_root_and_block_header_root_matches() {
 	let sync_committee_prover = setup_prover();
 	let mut beacon_state = sync_committee_prover.fetch_beacon_state("head").await.unwrap();
 
-	let block_header = sync_committee_prover.fetch_header(&beacon_state.slot.to_string()).await;
+	let block_header = sync_committee_prover.fetch_header(&beacon_state.slot().to_string()).await;
 	assert!(block_header.is_ok());
 
 	let block_header = block_header.unwrap();
@@ -88,12 +88,12 @@ async fn test_finalized_header() {
 	let mut state = sync_committee_prover.fetch_beacon_state("head").await.unwrap();
 
 	let proof =
-		generate_multiproof(&state.field_roots(), &[KurtosisDevnet::FINALIZED_ROOT_INDEX]).unwrap();
+		state.prove_gindex(KurtosisDevnet::FINALIZED_ROOT_INDEX).unwrap();
 
-	let leaves = vec![state.finalized_checkpoint.tree_hash_root()];
+	let leaves = vec![state.finalized_checkpoint().tree_hash_root()];
 	let root = calculate_multi_merkle_root(
 		&leaves,
-		&proof,
+		&proof.iter().map(Into::into).collect::<Vec<Hash256>>(),
 		&[KurtosisDevnet::FINALIZED_ROOT_INDEX],
 	)
 	.unwrap();
@@ -107,12 +107,12 @@ async fn test_execution_payload_proof() {
 	let sync_committee_prover = setup_prover();
 
 	let mut finalized_state = sync_committee_prover.fetch_beacon_state("head").await.unwrap();
-	let block_id = finalized_state.slot.to_string();
+	let block_id = finalized_state.slot().to_string();
 	let execution_payload_proof = prove_execution_payload::<
 		KurtosisDevnet,
 		ETH1_DATA_VOTES_BOUND_ETH,
 		PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM,
-	>(&mut finalized_state)
+	>(&finalized_state, None)
 	.unwrap();
 
 	let finalized_header = sync_committee_prover.fetch_header(&block_id).await.unwrap();
@@ -139,10 +139,11 @@ async fn test_execution_payload_proof() {
 	)
 	.unwrap();
 
-	let execution_payload_hash_tree_root = finalized_state
-		.latest_execution_payload_header
-		.clone()
-		.tree_hash_root();
+	let BeaconState::Electra(ref electra_state) = finalized_state else {
+		panic!("the kurtosis devnet is pre-gloas")
+	};
+	let execution_payload_hash_tree_root =
+		electra_state.latest_execution_payload_header.clone().tree_hash_root();
 
 	assert_eq!(execution_payload_root, execution_payload_hash_tree_root);
 
@@ -168,7 +169,7 @@ async fn test_sync_committee_update_proof() {
 	let sync_committee_prover = setup_prover();
 
 	let mut finalized_state = sync_committee_prover.fetch_beacon_state("head").await.unwrap();
-	let block_id = finalized_state.slot.to_string();
+	let block_id = finalized_state.slot().to_string();
 	let finalized_header = sync_committee_prover.fetch_header(&block_id).await.unwrap();
 
 	let sync_committee_proof = prove_sync_committee_update::<
@@ -178,7 +179,7 @@ async fn test_sync_committee_update_proof() {
 	>(&mut finalized_state)
 	.unwrap();
 
-	let mut sync_committee = finalized_state.next_sync_committee;
+	let mut sync_committee = finalized_state.next_sync_committee();
 
 	let calculated_finalized_root = calculate_multi_merkle_root(
 		&[sync_committee.tree_hash_root()],
@@ -226,8 +227,8 @@ async fn test_prover() {
 	let mut client_state = VerifierState {
 		finalized_header: block_header.clone(),
 		latest_finalized_epoch: compute_epoch_at_slot::<KurtosisDevnet>(block_header.slot),
-		current_sync_committee: state.current_sync_committee,
-		next_sync_committee: state.next_sync_committee,
+		current_sync_committee: state.current_sync_committee().clone(),
+		next_sync_committee: state.next_sync_committee().clone(),
 		state_period: compute_sync_committee_period_at_slot::<KurtosisDevnet>(block_header.slot),
 	};
 
@@ -310,7 +311,7 @@ async fn test_switch_provider_middleware() {
 		KurtosisDevnet,
 		ETH1_DATA_VOTES_BOUND_ETH,
 		PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM,
-	>::new(providers);
+	>::new(providers, "http://localhost:53002".to_string());
 	let res = prover.fetch_finalized_checkpoint(None).await;
 	assert!(res.is_ok())
 }
@@ -331,9 +332,13 @@ fn setup_prover() -> SyncCommitteeProver<
 	dotenv::dotenv().ok();
 	let consensus_url =
 		std::env::var("CONSENSUS_NODE_URL").unwrap_or("http://localhost:53001".to_string());
+	// Required unconditionally now that the prover picks the fork at runtime; a pre-Gloas chain
+	// never calls it.
+	let execution_url =
+		std::env::var("EXECUTION_NODE_URL").unwrap_or("http://localhost:53002".to_string());
 	SyncCommitteeProver::<
 		KurtosisDevnet,
 		ETH1_DATA_VOTES_BOUND_ETH,
 		PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM,
-	>::new(vec![consensus_url])
+	>::new(vec![consensus_url], execution_url)
 }

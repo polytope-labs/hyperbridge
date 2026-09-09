@@ -1,4 +1,3 @@
-use tree_hash::Hash256;
 use super::write_bytes_to_lower_hex;
 use alloc::{vec, vec::Vec};
 use core::{
@@ -7,6 +6,7 @@ use core::{
 	ops::{Deref, DerefMut},
 };
 use ssz_types::{typenum::Unsigned, FixedVector, VariableList};
+use tree_hash::Hash256;
 
 #[derive(Default, Clone, codec::Encode, codec::Decode)]
 pub struct ByteList<N: Unsigned>(VariableList<u8, N>);

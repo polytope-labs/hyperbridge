@@ -13,7 +13,6 @@ use crate::{
 	},
 	deneb::KzgCommitment,
 };
-use alloc::{vec, vec::Vec};
 use ssz_types::{typenum::Unsigned, BitVector, FixedVector, ProgressiveList, VariableList};
 
 /// Index into the builder registry.
@@ -39,7 +38,18 @@ mod bounds {
 
 pub use bounds::*;
 
-#[derive(Default, Debug, ssz_derive::Encode, ssz_derive::Decode, tree_hash_derive::TreeHash, codec::Encode, codec::Decode, Clone, PartialEq, Eq)]
+#[derive(
+	Default,
+	Debug,
+	ssz_derive::Encode,
+	ssz_derive::Decode,
+	tree_hash_derive::TreeHash,
+	codec::Encode,
+	codec::Decode,
+	Clone,
+	PartialEq,
+	Eq,
+)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct Builder {
 	#[cfg_attr(feature = "std", serde(rename = "pubkey"))]
@@ -55,7 +65,18 @@ pub struct Builder {
 	pub withdrawable_epoch: Epoch,
 }
 
-#[derive(Default, Debug, ssz_derive::Encode, ssz_derive::Decode, tree_hash_derive::TreeHash, codec::Encode, codec::Decode, Clone, PartialEq, Eq)]
+#[derive(
+	Default,
+	Debug,
+	ssz_derive::Encode,
+	ssz_derive::Decode,
+	tree_hash_derive::TreeHash,
+	codec::Encode,
+	codec::Decode,
+	Clone,
+	PartialEq,
+	Eq,
+)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct BuilderPendingWithdrawal {
 	pub fee_recipient: ExecutionAddress,
@@ -65,7 +86,18 @@ pub struct BuilderPendingWithdrawal {
 	pub builder_index: BuilderIndex,
 }
 
-#[derive(Default, Debug, ssz_derive::Encode, ssz_derive::Decode, tree_hash_derive::TreeHash, codec::Encode, codec::Decode, Clone, PartialEq, Eq)]
+#[derive(
+	Default,
+	Debug,
+	ssz_derive::Encode,
+	ssz_derive::Decode,
+	tree_hash_derive::TreeHash,
+	codec::Encode,
+	codec::Decode,
+	Clone,
+	PartialEq,
+	Eq,
+)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct BuilderPendingPayment {
 	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::as_string"))]
@@ -77,10 +109,24 @@ pub struct BuilderPendingPayment {
 
 /// A builder's commitment to produce an execution payload with a given `block_hash`. The payload
 /// itself, and with it the execution state root, is revealed later and out of band.
-#[derive(Default, Debug, ssz_derive::Encode, ssz_derive::Decode, tree_hash_derive::TreeHash, codec::Encode, codec::Decode, Clone, PartialEq, Eq)]
+#[derive(
+	Default,
+	Debug,
+	ssz_derive::Encode,
+	ssz_derive::Decode,
+	tree_hash_derive::TreeHash,
+	codec::Encode,
+	codec::Decode,
+	Clone,
+	PartialEq,
+	Eq,
+)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "std", serde(bound = ""))]
-#[tree_hash(struct_behaviour = "progressive_container", active_fields(1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1))]
+#[tree_hash(
+	struct_behaviour = "progressive_container",
+	active_fields(1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1)
+)]
 pub struct ExecutionPayloadBid {
 	pub parent_block_hash: Hash32,
 	pub parent_block_root: Root,
@@ -101,7 +147,18 @@ pub struct ExecutionPayloadBid {
 	pub execution_requests_root: Root,
 }
 
-#[derive(Default, Debug, ssz_derive::Encode, ssz_derive::Decode, tree_hash_derive::TreeHash, codec::Encode, codec::Decode, Clone, PartialEq, Eq)]
+#[derive(
+	Default,
+	Debug,
+	ssz_derive::Encode,
+	ssz_derive::Decode,
+	tree_hash_derive::TreeHash,
+	codec::Encode,
+	codec::Decode,
+	Clone,
+	PartialEq,
+	Eq,
+)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "std", serde(bound = ""))]
 pub struct SignedExecutionPayloadBid {
@@ -109,7 +166,18 @@ pub struct SignedExecutionPayloadBid {
 	pub signature: BlsSignature,
 }
 
-#[derive(Default, Debug, ssz_derive::Encode, ssz_derive::Decode, tree_hash_derive::TreeHash, codec::Encode, codec::Decode, Clone, PartialEq, Eq)]
+#[derive(
+	Default,
+	Debug,
+	ssz_derive::Encode,
+	ssz_derive::Decode,
+	tree_hash_derive::TreeHash,
+	codec::Encode,
+	codec::Decode,
+	Clone,
+	PartialEq,
+	Eq,
+)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct PayloadAttestationData {
 	pub beacon_block_root: Root,
@@ -121,7 +189,18 @@ pub struct PayloadAttestationData {
 
 /// The payload timeliness committee's vote on whether a payload was revealed in time. It says
 /// nothing about the payload's contents, which is why this client does not rely on it.
-#[derive(Default, Debug, ssz_derive::Encode, ssz_derive::Decode, tree_hash_derive::TreeHash, codec::Encode, codec::Decode, Clone, PartialEq, Eq)]
+#[derive(
+	Default,
+	Debug,
+	ssz_derive::Encode,
+	ssz_derive::Decode,
+	tree_hash_derive::TreeHash,
+	codec::Encode,
+	codec::Decode,
+	Clone,
+	PartialEq,
+	Eq,
+)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct PayloadAttestation {
 	pub aggregation_bits: BitVector<PTC_SIZE>,

@@ -84,10 +84,7 @@ impl ssz::Decode for Root {
 
 	fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
 		if bytes.len() != 32 {
-			return Err(ssz::DecodeError::InvalidByteLength {
-				len: bytes.len(),
-				expected: 32,
-			});
+			return Err(ssz::DecodeError::InvalidByteLength { len: bytes.len(), expected: 32 });
 		}
 		let mut out = [0u8; 32];
 		out.copy_from_slice(bytes);

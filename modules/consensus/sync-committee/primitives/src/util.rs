@@ -1,12 +1,11 @@
-use tree_hash::TreeHash;
 use crate::{
 	consensus_types::ForkData,
 	constants::{Config, Domain, Root, Version},
 	domains::DomainType,
 };
-use alloc::{vec, vec::Vec};
 use anyhow::anyhow;
 use ssz_types::{typenum::Unsigned, FixedVector, VariableList};
+use tree_hash::TreeHash;
 
 /// Returns true if sync committee update is required
 pub fn should_have_sync_committee_update(state_period: u64, signature_period: u64) -> bool {
@@ -75,8 +74,8 @@ pub fn compute_signing_root<T: tree_hash::TreeHash>(
 	domain: Domain,
 ) -> Result<Root, anyhow::Error> {
 	// `tree_hash_root` is infallible, where ssz-rs's `hash_tree_root` returned a `Result`.
-	let object_root = Root::try_from(ssz_object.tree_hash_root().as_slice())
-		.map_err(|e| anyhow!("{:?}", e))?;
+	let object_root =
+		Root::try_from(ssz_object.tree_hash_root().as_slice()).map_err(|e| anyhow!("{:?}", e))?;
 
 	let s = SigningData { object_root, domain };
 	Root::try_from(s.tree_hash_root().as_slice()).map_err(|e| anyhow!("{:?}", e))
@@ -87,7 +86,9 @@ pub fn compute_fork_data_root(
 	genesis_validators_root: Root,
 ) -> Result<Root, anyhow::Error> {
 	Root::try_from(
-		ForkData { current_version, genesis_validators_root }.tree_hash_root().as_slice(),
+		ForkData { current_version, genesis_validators_root }
+			.tree_hash_root()
+			.as_slice(),
 	)
 	.map_err(|e| anyhow!("{:?}", e))
 }

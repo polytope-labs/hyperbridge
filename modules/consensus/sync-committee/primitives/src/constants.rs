@@ -1,6 +1,5 @@
-use tree_hash::Hash256;
 use crate::domains::DomainType;
-
+use tree_hash::Hash256;
 
 pub type BlsPublicKey = ByteVector<BLS_PUBLIC_KEY_BYTES_LEN>;
 pub type BlsSignature = ByteVector<BLS_SIGNATURE_BYTES_LEN>;
@@ -96,7 +95,6 @@ pub const FAR_FUTURE_EPOCH: Epoch = u64::MAX;
 /// the way PROPOSER_LOOK_AHEAD_LIMIT is when it schedules the fork.
 pub const BUILDER_PENDING_PAYMENTS_LIMIT: usize = 64;
 pub const PTC_WINDOW_LIMIT: usize = 96;
-
 
 /// Type level counterparts of the SSZ bounds above.
 ///

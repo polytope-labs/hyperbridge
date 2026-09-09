@@ -18,11 +18,11 @@
 //! committee signed. The accessors below cover the read set, so callers rarely match directly.
 
 use crate::{
-	constants::*,
 	consensus_types::{
 		BeaconBlockHeader, Checkpoint, Eth1Data, ExecutionPayloadHeader, Fork, HistoricalSummary,
 		SyncCommittee, Validator, Withdrawal,
 	},
+	constants::*,
 	electra::{PendingConsolidation, PendingDeposit, PendingPartialWithdrawal},
 	gloas::{
 		Builder, BuilderIndex, BuilderPendingPayment, BuilderPendingWithdrawal,
@@ -38,8 +38,16 @@ use tree_hash::Hash256;
 ///
 /// An ordinary SSZ container: the lists are bounded and merkleization is the balanced tree.
 #[derive(
-	Default, Debug, Clone, PartialEq, Eq, ssz_derive::Encode, ssz_derive::Decode,
-	tree_hash_derive::TreeHash, codec::Encode, codec::Decode,
+	Default,
+	Debug,
+	Clone,
+	PartialEq,
+	Eq,
+	ssz_derive::Encode,
+	ssz_derive::Decode,
+	tree_hash_derive::TreeHash,
+	codec::Encode,
+	codec::Decode,
 )]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "std", serde(bound = ""))]
@@ -125,8 +133,16 @@ pub struct BeaconStateElectra<
 /// what keeps the execution leaf's generalized index where the client expects it. Note this shape
 /// needs no execution payload bounds at all.
 #[derive(
-	Default, Debug, Clone, PartialEq, Eq, ssz_derive::Encode, ssz_derive::Decode,
-	tree_hash_derive::TreeHash, codec::Encode, codec::Decode,
+	Default,
+	Debug,
+	Clone,
+	PartialEq,
+	Eq,
+	ssz_derive::Encode,
+	ssz_derive::Decode,
+	tree_hash_derive::TreeHash,
+	codec::Encode,
+	codec::Decode,
 )]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "std", serde(bound = ""))]

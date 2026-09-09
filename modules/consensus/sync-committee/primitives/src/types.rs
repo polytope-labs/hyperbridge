@@ -1,13 +1,11 @@
-use tree_hash::Hash256;
-use crate::constants::Root;
 use crate::{
 	consensus_types::{BeaconBlockHeader, SyncAggregate, SyncCommittee},
-	constants::{Slot, SYNC_COMMITTEE_SIZE},
+	constants::{Root, Slot, SYNC_COMMITTEE_SIZE},
 	execution_header::ExecutionHeader,
 };
 use alloc::vec::Vec;
 use primitive_types::H256;
-
+use tree_hash::Hash256;
 
 /// This holds the relevant data required to prove the state root in the execution payload.
 ///

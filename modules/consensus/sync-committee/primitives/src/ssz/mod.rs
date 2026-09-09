@@ -15,5 +15,5 @@ pub use bls_utils::ByteVector;
 mod root;
 pub use root::Root;
 mod uint256;
-pub use uint256::U256;
 pub use byte_list::ByteList;
+pub use uint256::U256;

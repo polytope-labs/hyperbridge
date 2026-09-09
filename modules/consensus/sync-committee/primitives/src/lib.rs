@@ -2,6 +2,9 @@
 //! This crate contains code adapted from https://github.com/ralexstokes/ethereum-consensus
 #![cfg_attr(not(feature = "std"), no_std)]
 #![warn(unused_imports)]
+// The ssz containers take their type parameters from the spec constants, so the names are
+// screaming snake case rather than camel case. Renaming them would move every use site.
+#![allow(non_camel_case_types)]
 #[warn(unused_variables)]
 extern crate alloc;
 

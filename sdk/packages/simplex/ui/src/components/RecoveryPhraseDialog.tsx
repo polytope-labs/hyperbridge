@@ -1,5 +1,10 @@
-import * as Dialog from "@radix-ui/react-dialog"
 import { useState } from "react"
+import {
+	ResponsiveDialog,
+	ResponsiveDialogContent,
+	ResponsiveDialogDescription,
+	ResponsiveDialogTitle,
+} from "./ui/ResponsiveDialog"
 
 type CopyStatus = "idle" | "copied" | "failed"
 
@@ -33,21 +38,19 @@ export function RecoveryPhraseDialog(props: { phrase: string; onAcknowledge: () 
 	}
 
 	return (
-		<Dialog.Root open>
-			<Dialog.Portal>
-				<Dialog.Overlay className="dialog-overlay" />
-				<Dialog.Content className="recovery-dialog" onEscapeKeyDown={(event) => event.preventDefault()}>
+		<ResponsiveDialog open dismissible={false}>
+			<ResponsiveDialogContent
+				className="recovery-dialog"
+				overlayClassName="dialog-overlay"
+				preventEscapeKeyDown
+			>
 					<header className="recovery-dialog-header">
 						<span className="eyebrow">New Hyperbridge account</span>
-						<Dialog.Title asChild>
-							<h2>Back up your recovery phrase</h2>
-						</Dialog.Title>
-						<Dialog.Description asChild>
-							<p>
-								Write these words down in order and store them somewhere private. You will need them to
-								recover this account.
-							</p>
-						</Dialog.Description>
+						<ResponsiveDialogTitle>Back up your recovery phrase</ResponsiveDialogTitle>
+						<ResponsiveDialogDescription>
+							Write these words down in order and store them somewhere private. You will need them to recover
+							this account.
+						</ResponsiveDialogDescription>
 					</header>
 
 					<div className="recovery-warning" role="note">
@@ -100,8 +103,7 @@ export function RecoveryPhraseDialog(props: { phrase: string; onAcknowledge: () 
 							I’ve saved it
 						</button>
 					</footer>
-				</Dialog.Content>
-			</Dialog.Portal>
-		</Dialog.Root>
+			</ResponsiveDialogContent>
+		</ResponsiveDialog>
 	)
 }

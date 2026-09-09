@@ -5,6 +5,7 @@ import { type ReactNode, useId, useState } from "react"
 import { INIT_CHAINS, type InitNetwork } from "@/cli/init/chains"
 import type { VaultRowDraft } from "../lib/vault-rows"
 import type { KnownVault } from "../types"
+import { SelectField } from "./AppSelect"
 import { ChainLogo } from "./ChainLogo"
 import { CheckIcon, ChevronDownIcon, ChevronRightIcon, CloseIcon, CopyIcon, ExternalLinkIcon } from "./InterfaceIcons"
 import { TokenIcon } from "./TokenIcon"
@@ -395,19 +396,12 @@ function CustomVaultDialog(props: {
 			{draft && (
 				<div className="vault-custom-modal">
 					<div className="vault-custom-primary-fields">
-						<label className="field">
-							<span>Chain</span>
-							<select
-								value={draft.chain}
-								onChange={(event) => onChange({ ...draft, chain: event.target.value })}
-							>
-								{chains.map((chain) => (
-									<option key={chain.key} value={chain.key}>
-										{chain.label}
-									</option>
-								))}
-							</select>
-						</label>
+						<SelectField
+							label="Chain"
+							value={draft.chain}
+							options={chains.map((chain) => ({ value: chain.key, label: chain.label }))}
+							onValueChange={(chain) => onChange({ ...draft, chain })}
+						/>
 						<label className="field">
 							<span className="field-label field-label-required-mark">
 								Vault address{" "}

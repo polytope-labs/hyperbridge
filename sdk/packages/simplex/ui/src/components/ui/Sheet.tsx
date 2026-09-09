@@ -1,6 +1,12 @@
-import * as Dialog from "@radix-ui/react-dialog"
 import type { ReactNode } from "react"
 import { CloseIcon } from "../InterfaceIcons"
+import {
+	ResponsiveDialog,
+	ResponsiveDialogClose,
+	ResponsiveDialogContent,
+	ResponsiveDialogDescription,
+	ResponsiveDialogTitle,
+} from "./ResponsiveDialog"
 
 interface SheetProps {
 	open: boolean
@@ -15,25 +21,24 @@ interface SheetProps {
 export function Sheet(props: SheetProps) {
 	const { open, onOpenChange, title, description, children, wide = false } = props
 	return (
-		<Dialog.Root open={open} onOpenChange={onOpenChange}>
-			<Dialog.Portal>
-				<Dialog.Overlay className="sheet-overlay" />
-				<Dialog.Content className="sheet-content" data-wide={wide || undefined}>
+		<ResponsiveDialog open={open} onOpenChange={onOpenChange}>
+			<ResponsiveDialogContent className="sheet-content" overlayClassName="sheet-overlay" wide={wide}>
 					<header className="sheet-header">
 						<div>
 							<span className="eyebrow">Simplex operator</span>
-							<Dialog.Title>{title}</Dialog.Title>
-							{description ? <Dialog.Description>{description}</Dialog.Description> : null}
+							<ResponsiveDialogTitle>{title}</ResponsiveDialogTitle>
+							{description ? (
+								<ResponsiveDialogDescription>{description}</ResponsiveDialogDescription>
+							) : null}
 						</div>
-						<Dialog.Close asChild>
+						<ResponsiveDialogClose>
 							<button type="button" className="icon-button" aria-label="Close panel">
 								<CloseIcon aria-hidden="true" />
 							</button>
-						</Dialog.Close>
+						</ResponsiveDialogClose>
 					</header>
 					<div className="sheet-body">{children}</div>
-				</Dialog.Content>
-			</Dialog.Portal>
-		</Dialog.Root>
+			</ResponsiveDialogContent>
+		</ResponsiveDialog>
 	)
 }

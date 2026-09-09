@@ -204,7 +204,7 @@ function OrderHistoryRow(props: { row: OrderRow; chainLabels?: Record<string, st
 
 	return (
 		<tr>
-			<td>
+			<td data-label="Referrer" data-field="referrer">
 				{summary?.referrer ? (
 					<span className="history-referrer" title={summary.referrer}>
 						{describeReferrer(summary.referrer)}
@@ -213,7 +213,7 @@ function OrderHistoryRow(props: { row: OrderRow; chainLabels?: Record<string, st
 					<Empty />
 				)}
 			</td>
-			<td>
+			<td data-label="Status" data-field="status">
 				<span className="history-status">
 					<span className={`badge ${status.tone}`}>{status.label}</span>
 					{status.detail && (
@@ -232,16 +232,16 @@ function OrderHistoryRow(props: { row: OrderRow; chainLabels?: Record<string, st
 					{!summary && <small title={row.orderId}>order {shortAddress(row.orderId, 8, 4)}</small>}
 				</span>
 			</td>
-			<td>
+			<td data-label="Amount in" data-field="amount-in">
 				<LegCell leg={summary?.inputs[0]} chain={summary?.source} chainLabels={chainLabels} />
 			</td>
-			<td>
+			<td data-label="Amount out" data-field="amount-out">
 				<LegCell leg={summary?.outputs[0]} chain={summary?.destination} chainLabels={chainLabels} />
 			</td>
-			<td>
+			<td data-label="Bids" data-field="bids">
 				<BidLinks bid={bid} explorer={explorer} />
 			</td>
-			<td>
+			<td data-label="User" data-field="user">
 				{summary ? (
 					<span className="history-user">
 						<CopyHash value={summary.user} copyLabel="Copy user address">
@@ -252,13 +252,13 @@ function OrderHistoryRow(props: { row: OrderRow; chainLabels?: Record<string, st
 					<Empty />
 				)}
 			</td>
-			<td>
+			<td data-label="Placed" data-field="placed">
 				<span className="history-time">
 					<strong>{formatClockTime(detectedAt)}</strong>
 					<small>{formatDate(detectedAt)}</small>
 				</span>
 			</td>
-			<td>
+			<td data-label="Order" data-field="links">
 				<span className="history-links">
 					<a
 						href={`${HYPERFX_ORDER_URL}${row.orderId}`}
@@ -268,6 +268,7 @@ function OrderHistoryRow(props: { row: OrderRow; chainLabels?: Record<string, st
 						aria-label="Open order on HyperFX"
 					>
 						<ExternalLinkIcon aria-hidden="true" />
+						<span className="history-link-label">View order</span>
 					</a>
 				</span>
 			</td>
@@ -363,7 +364,7 @@ export function Orders(props: { chainLabels?: Record<string, string> }) {
 					</p>
 				)}
 				{orders.length > 0 && (
-					<div style={{ overflowX: "auto" }}>
+					<div className="history-table-scroll">
 						<table className="history-table">
 							<thead>
 								<tr>

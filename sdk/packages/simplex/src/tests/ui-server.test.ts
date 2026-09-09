@@ -811,7 +811,8 @@ describe("UiServer (operator mode)", () => {
 		const { base } = await startServer({ config })
 		const configDto = await (await fetch(`${base}/api/config`)).json()
 		const tokens = configDto.sendTokens["EVM-8453"] as Array<{ address: string; symbol: string }>
-		expect(tokens[0]).toEqual({ symbol: "native", address: "native" })
+		expect(tokens[0]).toEqual({ symbol: "ETH", address: "native" })
+		expect(configDto.sendTokens["EVM-56"][0]).toEqual({ symbol: "BNB", address: "native" })
 		expect(tokens.some((t) => t.address.toLowerCase() === vaultAddress.toLowerCase())).toBe(false)
 		expect(configDto.knownVaults["EVM-8453"].length).toBeGreaterThan(0)
 	})

@@ -1,11 +1,9 @@
-const CACHE_NAME = "simplex-shell-v5"
+const CACHE_NAME = "simplex-shell-v6"
 const PRECACHE_URLS = [
 	"./",
 	"./index.html",
 	"./manifest.webmanifest",
-	"./favicon.ico",
-	"./icons/simplex-192.png",
-	"./icons/simplex-512.png",
+	"./icons/mobile-logo.svg",
 ]
 
 self.addEventListener("install", (event) => {

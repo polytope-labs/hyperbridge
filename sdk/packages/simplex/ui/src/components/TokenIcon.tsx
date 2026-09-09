@@ -1,6 +1,9 @@
 import cngn from "../assets/tokens/cngn.png"
 import dai from "../assets/tokens/dai.png"
 import eurc from "../assets/tokens/eurc.png"
+import bnb from "../assets/networks/bsc.svg"
+import eth from "../assets/networks/ethereum.svg"
+import matic from "../assets/networks/polygon.svg"
 import unknown from "../assets/tokens/unknown.svg"
 import usdc from "../assets/tokens/usdc.png"
 import usdt from "../assets/tokens/usdt.png"
@@ -9,7 +12,10 @@ import zarp from "../assets/tokens/zarp.png"
 const TOKEN_ICONS: Record<string, string> = {
 	CNGN: cngn,
 	DAI: dai,
+	ETH: eth,
 	EURC: eurc,
+	BNB: bnb,
+	MATIC: matic,
 	USDC: usdc,
 	USDT: usdt,
 	ZARP: zarp,

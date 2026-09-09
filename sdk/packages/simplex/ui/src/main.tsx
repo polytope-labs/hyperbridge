@@ -12,6 +12,7 @@ import "./styles/recovery.css"
 import "./styles/operator.css"
 import "./styles/responsive.css"
 import "./styles/pwa.css"
+import "./styles/drawer.css"
 
 if (import.meta.env.PROD && "serviceWorker" in navigator) {
 	navigator.serviceWorker.register("./sw.js", { scope: "./" }).catch(() => {

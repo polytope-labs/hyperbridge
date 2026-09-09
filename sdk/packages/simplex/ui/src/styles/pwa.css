@@ -99,7 +99,6 @@ button.operator-install-nav:hover:not(:disabled) {
 .install-dialog-header > img {
 	width: 3.5rem;
 	height: 3.5rem;
-	border-radius: 0.9rem;
 	box-shadow: 0 0.7rem 1.8rem rgba(0, 0, 0, 0.28);
 }
 
@@ -317,6 +316,35 @@ button.operator-install-nav:hover:not(:disabled) {
 	font-weight: 500;
 }
 
+.install-mobile-action-visual {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	gap: 0.35rem 0.55rem;
+	align-items: center;
+	padding: 0.55rem 0.65rem;
+}
+
+.install-mobile-action-visual > span {
+	color: #929aa5;
+}
+
+.install-mobile-action-visual b {
+	display: grid;
+	place-items: center;
+	width: 1.35rem;
+	height: 1.35rem;
+	border: 1px solid rgba(74, 222, 255, 0.32);
+	border-radius: 0.4rem;
+	color: var(--focus);
+	font-size: 0.9rem;
+	line-height: 1;
+}
+
+.install-mobile-action-visual small {
+	grid-column: 1 / -1;
+	color: var(--focus);
+}
+
 .install-desktop-visual {
 	display: grid;
 	justify-items: center;
@@ -453,6 +481,19 @@ button.operator-install-nav:hover:not(:disabled) {
 		gap: 0.25rem;
 	}
 
+	button.operator-install-nav {
+		margin-top: 0;
+		border-color: transparent;
+		background: transparent;
+		color: var(--muted);
+	}
+
+	button.operator-install-nav:hover:not(:disabled) {
+		border-color: transparent;
+		background: rgba(255, 255, 255, 0.025);
+		color: var(--text-secondary);
+	}
+
 	.pwa-install-label {
 		display: none;
 	}
@@ -463,9 +504,16 @@ button.operator-install-nav:hover:not(:disabled) {
 	}
 
 	.install-dialog {
-		width: calc(100vw - 1rem);
-		max-height: calc(100dvh - 1rem);
-		border-radius: 1rem;
+		top: auto;
+		right: 0;
+		bottom: 0;
+		left: 0;
+		width: 100%;
+		max-height: calc(100dvh - 0.75rem);
+		transform: none;
+		border-bottom: 0;
+		border-radius: 1rem 1rem 0 0;
+		box-shadow: 0 -2rem 7rem rgba(0, 0, 0, 0.62);
 	}
 
 	.install-dialog-header {
@@ -491,7 +539,7 @@ button.operator-install-nav:hover:not(:disabled) {
 	.install-dialog-footer {
 		align-items: stretch;
 		flex-direction: column;
-		padding: 0.8rem 1rem;
+		padding: 0.8rem 1rem max(0.8rem, env(safe-area-inset-bottom));
 	}
 
 	.install-dialog-footer > span {

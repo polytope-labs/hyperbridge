@@ -1,3 +1,4 @@
+import { SelectField } from "../../components/AppSelect"
 import { CloseIcon } from "../../components/InterfaceIcons"
 import { WizardDialog } from "../../components/WizardDialog"
 import { draftHasCurve, patchAt, removeAt, type ChainDraft, type WizardState } from "../state"
@@ -48,26 +49,22 @@ export function UniswapPositionsDialog(props: {
 				<div className="uniswap-position-list">
 					{state.fxPositions.map((position, index) => (
 						<div className="uniswap-position" key={`${position.chain}-${position.tokenId || index}`}>
-							<label className="field">
-								<span>Chain</span>
-								<select
-									value={position.chain}
-									onChange={(event) =>
-										setState((current) => ({
-											...current,
-											fxPositions: patchAt(current.fxPositions, index, {
-												chain: event.target.value,
-											}),
-										}))
-									}
-								>
-									{chains.map((chain) => (
-										<option key={chain.meta.stateMachineId} value={chain.meta.stateMachineId}>
-											{chain.meta.label}
-										</option>
-									))}
-								</select>
-							</label>
+							<SelectField
+								label="Chain"
+								value={position.chain}
+								options={chains.map((chain) => ({
+									value: chain.meta.stateMachineId,
+									label: chain.meta.label,
+								}))}
+								onValueChange={(chain) =>
+									setState((current) => ({
+										...current,
+										fxPositions: patchAt(current.fxPositions, index, {
+											chain,
+										}),
+									}))
+								}
+							/>
 							<label className="field">
 								<span className="field-label">
 									Position token ID <span className="field-required">Required</span>
@@ -133,22 +130,21 @@ export function UniswapPositionsDialog(props: {
 					))}
 				</div>
 				<div className="uniswap-settings">
-					<label className="field">
-						<span>Fill direction</span>
-						<select
-							value={state.fxSide}
-							onChange={(event) =>
-								setState((current) => ({
-									...current,
-									fxSide: event.target.value as "" | "ask" | "bid",
-								}))
-							}
-						>
-							<option value="">Buy and sell</option>
-							<option value="ask">Only sell the market asset</option>
-							<option value="bid">Only buy the market asset</option>
-						</select>
-					</label>
+					<SelectField
+						label="Fill direction"
+						value={state.fxSide}
+						options={[
+							{ value: "", label: "Buy and sell" },
+							{ value: "ask", label: "Only sell the market asset" },
+							{ value: "bid", label: "Only buy the market asset" },
+						]}
+						onValueChange={(fxSide) =>
+							setState((current) => ({
+								...current,
+								fxSide: fxSide as "" | "ask" | "bid",
+							}))
+						}
+					/>
 					<label className="field">
 						<span>Additional spread (bps)</span>
 						<input

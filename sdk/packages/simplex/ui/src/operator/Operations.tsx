@@ -49,7 +49,6 @@ export function Operations(props: {
 						<span className="eyebrow">Workflows</span>
 						<h2>Choose an operation</h2>
 					</div>
-					<small>Each tool opens in a focused side panel.</small>
 				</div>
 				<div className="operator-tool-list">
 					<OperationLink

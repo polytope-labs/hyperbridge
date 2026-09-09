@@ -13,7 +13,7 @@ export function marketSymbols(config: ConfigDto | undefined): string[] {
 	const symbols = new Set<string>()
 	for (const tokens of Object.values(config?.sendTokens ?? {})) {
 		for (const token of tokens) {
-			if (token.symbol !== "native") symbols.add(token.symbol)
+			if (token.address !== "native") symbols.add(token.symbol)
 		}
 	}
 	return [...symbols].sort()

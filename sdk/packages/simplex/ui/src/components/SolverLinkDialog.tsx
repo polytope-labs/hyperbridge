@@ -2,6 +2,7 @@ import { useState } from "react"
 import { toast } from "sonner"
 import { planSolverLink, SOLVER_NAME_MAX } from "../lib/solver-link"
 import type { AdminStrategyDto } from "../types"
+import { SelectField } from "./AppSelect"
 import { CopyIcon } from "./InterfaceIcons"
 import { WizardDialog } from "./WizardDialog"
 
@@ -55,16 +56,12 @@ export function SolverLinkDialog(props: {
 			<div className="solver-link-form">
 				<div className="solver-link-fields">
 					{chains.length > 1 && (
-						<label className="field">
-							<span>Chain</span>
-							<select value={chainId} onChange={(event) => setChainId(Number(event.target.value))}>
-								{chains.map((id) => (
-									<option key={id} value={id}>
-										{chainLabel(id)}
-									</option>
-								))}
-							</select>
-						</label>
+						<SelectField
+							label="Chain"
+							value={String(chainId)}
+							options={chains.map((id) => ({ value: String(id), label: chainLabel(id) }))}
+							onValueChange={(id) => setChainId(Number(id))}
+						/>
 					)}
 					<label className="field">
 						<span>Solver name</span>

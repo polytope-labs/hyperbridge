@@ -1,5 +1,6 @@
 import { LOG_LEVELS } from "@/services/server/dto"
 import { AddressListEditor } from "../../components/AddressListEditor"
+import { SelectField } from "../../components/AppSelect"
 import { Field } from "../../components/Field"
 import type { StepProps } from "../Wizard"
 
@@ -18,17 +19,13 @@ export function StepAdvanced({ state, setState }: StepProps) {
 						value={state.maxConcurrentOrders}
 						onChange={(maxConcurrentOrders) => setState((s) => ({ ...s, maxConcurrentOrders }))}
 					/>
-					<label className="field" style={{ maxWidth: "10rem" }}>
-						<span>Log level</span>
-						<select
-							value={state.logging}
-							onChange={(e) => setState((s) => ({ ...s, logging: e.target.value }))}
-						>
-							{LOG_LEVELS.map((level) => (
-								<option key={level}>{level}</option>
-							))}
-						</select>
-					</label>
+					<SelectField
+						label="Log level"
+						style={{ maxWidth: "10rem" }}
+						value={state.logging}
+						options={LOG_LEVELS.map((level) => ({ value: level, label: level }))}
+						onValueChange={(logging) => setState((state) => ({ ...state, logging }))}
+					/>
 				</div>
 				<p className="section-footnote">
 					Lower concurrency if RPC providers rate-limit. Gas fee bump and overfill protection retain their

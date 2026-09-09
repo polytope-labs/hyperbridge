@@ -257,6 +257,11 @@ button.operator-nav-item[data-active="true"] {
 	margin-bottom: 1rem;
 }
 
+/* A loading section has only its heading; do not retain space intended for content below it. */
+.operator-section-heading:last-child {
+	margin-bottom: 0;
+}
+
 .operator-section-heading h2 {
 	margin: 0.35rem 0 0;
 	font-size: 1.15rem;
@@ -302,6 +307,12 @@ button.operator-text-button:hover:not(:disabled) {
 .operator-balance-row {
 	padding: 1.25rem 0 1.5rem;
 	border-bottom: 1px solid var(--border);
+}
+
+.operator-balance-row:last-child,
+button.operator-market-row:last-child,
+button.operator-tool-row:last-child {
+	border-bottom: 0;
 }
 
 .operator-balance-network {
@@ -696,7 +707,8 @@ button.operator-tool-row:hover:not(:disabled) {
 }
 
 .operator-tools {
-	padding-top: 2rem;
+	/* Tool rows already include their own lower tap-target padding. */
+	padding: 2rem 0 0;
 }
 
 button.operator-tool-row {
@@ -969,6 +981,11 @@ button.operator-tool-row {
 
 .operator-panel-form {
 	border-bottom: 0;
+}
+
+/* The sheet body supplies the inset below its header; do not add it again for a direct form. */
+.sheet-body > .operator-panel-form {
+	padding-top: 0;
 }
 
 .operator-chain-settings {
@@ -1392,10 +1409,6 @@ button.operator-tool-row {
 	border-bottom: 0;
 }
 
-.sheet-body > div > h2:first-child {
-	margin-top: 1.5rem;
-}
-
 @media (prefers-reduced-motion: reduce) {
 	.sheet-overlay[data-state],
 	.sheet-content[data-state] {
@@ -1427,6 +1440,10 @@ button.operator-tool-row {
 }
 
 /* Order history: one row per order, HyperFX-style — referrer, status, legs, user, time. */
+.history-table-scroll {
+	overflow-x: auto;
+}
+
 .history-table th,
 .history-table td {
 	padding: 0.85rem 0.75rem;
@@ -1589,6 +1606,10 @@ button.operator-tool-row {
 .history-links svg {
 	width: 0.9rem;
 	height: 0.9rem;
+}
+
+.history-link-label {
+	display: none;
 }
 
 .history-misc {

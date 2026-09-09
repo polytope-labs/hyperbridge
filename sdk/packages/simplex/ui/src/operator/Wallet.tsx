@@ -201,7 +201,7 @@ export function Wallet(props: {
 					</p>
 				)}
 				{filtered.length > 0 && (
-					<div style={{ overflowX: "auto" }}>
+					<div className="history-table-scroll">
 						<table className="history-table ledger-table">
 							<thead>
 								<tr>
@@ -216,7 +216,7 @@ export function Wallet(props: {
 							<tbody>
 								{visible.map((tx) => (
 									<tr key={tx.id}>
-										<td>
+										<td data-label="Action" data-field="action">
 											<span className="ledger-action" data-kind={tx.kind}>
 												<span className="ledger-icon" aria-hidden="true">
 													<KindIcon kind={tx.kind} />
@@ -226,21 +226,21 @@ export function Wallet(props: {
 												</span>
 											</span>
 										</td>
-										<td>
+										<td data-label="Amount in" data-field="amount-in">
 											<AmountCell
 												leg={tx.in}
 												sign="in"
 												note={tx.kind === "redeem" ? counterpartyOf(tx) : null}
 											/>
 										</td>
-										<td>
+										<td data-label="Amount out" data-field="amount-out">
 											<AmountCell
 												leg={tx.out}
 												sign="out"
 												note={tx.kind === "redeem" ? null : counterpartyOf(tx)}
 											/>
 										</td>
-										<td>
+										<td data-label="Chain" data-field="chain">
 											{tx.chainId !== null ? (
 												<span className="ledger-chain">
 													<ChainLogo label={chainLabel(tx.chainId)} />
@@ -250,10 +250,10 @@ export function Wallet(props: {
 												<span className="ledger-quiet">—</span>
 											)}
 										</td>
-										<td>
+										<td data-label="Transaction" data-field="tx">
 											<TxLink tx={tx} />
 										</td>
-										<td>
+										<td data-label="Time" data-field="time">
 											<span className="history-time">
 												<strong>{formatClockTime(tx.ts)}</strong>
 												<small>{formatDate(tx.ts)}</small>

@@ -386,6 +386,10 @@
 
 	.operator-shell {
 		height: auto;
+		/* A filtered ancestor becomes the containing block for fixed descendants.
+		 * Disable it here so the mobile dock stays pinned to the viewport while
+		 * the document scrolls. */
+		backdrop-filter: none;
 	}
 
 	.operator-brandbar {
@@ -408,10 +412,12 @@
 		position: fixed;
 		inset: auto 0 0;
 		z-index: 20;
-		padding: 0.45rem 0.6rem max(0.45rem, env(safe-area-inset-bottom));
+		width: 100%;
+		padding: 0.55rem 0.6rem max(0.55rem, env(safe-area-inset-bottom));
 		border-top: 1px solid var(--border);
 		border-right: 0;
 		background: rgba(19, 20, 23, 0.94);
+		box-shadow: 0 -0.75rem 2.5rem rgba(0, 0, 0, 0.24);
 		backdrop-filter: blur(1rem);
 	}
 
@@ -420,13 +426,19 @@
 	}
 
 	button.operator-nav-item {
-		min-height: 2.8rem;
-		padding: 0.45rem;
+		min-height: 3.5rem;
+		padding: 0.6rem 0.45rem;
+	}
+
+	button.operator-nav-item > svg {
+		width: 1.3rem;
+		height: 1.3rem;
+		margin-top: 0;
 	}
 
 	.operator-main {
 		flex: 1;
-		padding: 2rem 1rem calc(6rem + env(safe-area-inset-bottom));
+		padding: 2rem 1rem calc(6.5rem + env(safe-area-inset-bottom));
 		overflow: visible;
 	}
 
@@ -509,13 +521,166 @@
 		overflow-x: auto;
 	}
 
-	.operator-section table {
+	.operator-section table:not(.history-table) {
 		min-width: 38rem;
+	}
+
+	.history-table-scroll {
+		overflow: visible;
+	}
+
+	.operator-section table.history-table {
+		display: block;
+		min-width: 0;
+		border-top: 0;
+	}
+
+	.history-table thead {
+		display: none;
+	}
+
+	.history-table tbody {
+		display: grid;
+		gap: 0.75rem;
+	}
+
+	.history-table tbody tr {
+		display: grid;
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+		grid-template-areas:
+			"referrer status"
+			"amount-in amount-out"
+			"bids user"
+			"placed links";
+		overflow: hidden;
+		border: 1px solid var(--border);
+		border-radius: 0.75rem;
+		background: rgba(255, 255, 255, 0.012);
+	}
+
+	.history-table.ledger-table tbody tr {
+		grid-template-areas:
+			"action chain"
+			"amount-in amount-out"
+			"tx time";
+	}
+
+	.history-table tbody tr:hover {
+		background: rgba(255, 255, 255, 0.018);
+	}
+
+	.history-table td,
+	.history-table td:first-child {
+		display: grid;
+		align-content: start;
+		gap: 0.4rem;
+		min-width: 0;
+		padding: 0.75rem;
+		border: 0;
+		border-bottom: 1px solid var(--border);
+	}
+
+	.history-table td:nth-child(even) {
+		border-left: 1px solid var(--border);
+	}
+
+	.history-table td:nth-last-child(-n + 2) {
+		border-bottom: 0;
+	}
+
+	.history-table td::before {
+		content: attr(data-label);
+		color: var(--muted);
+		font-family: var(--font-mono);
+		font-size: 0.625rem;
+		font-weight: 500;
+		letter-spacing: 0.09em;
+		line-height: 1.2;
+		text-transform: uppercase;
+	}
+
+	.history-table td[data-field="referrer"] {
+		grid-area: referrer;
+	}
+
+	.history-table td[data-field="status"] {
+		grid-area: status;
+	}
+
+	.history-table td[data-field="amount-in"] {
+		grid-area: amount-in;
+	}
+
+	.history-table td[data-field="amount-out"] {
+		grid-area: amount-out;
+	}
+
+	.history-table td[data-field="bids"] {
+		grid-area: bids;
+	}
+
+	.history-table td[data-field="user"] {
+		grid-area: user;
+	}
+
+	.history-table td[data-field="placed"] {
+		grid-area: placed;
+	}
+
+	.history-table td[data-field="links"] {
+		grid-area: links;
+	}
+
+	.history-table td[data-field="action"] {
+		grid-area: action;
+	}
+
+	.history-table td[data-field="chain"] {
+		grid-area: chain;
+	}
+
+	.history-table td[data-field="tx"] {
+		grid-area: tx;
+	}
+
+	.history-table td[data-field="time"] {
+		grid-area: time;
+	}
+
+	.history-table .history-user,
+	.history-table .copy-value-text {
+		white-space: nowrap;
+	}
+
+	.history-table .history-links {
+		justify-content: flex-start;
+	}
+
+	.history-table td[data-field="links"] .history-links a {
+		display: inline-flex;
+		gap: 0.4rem;
+		width: auto;
+		padding-inline: 0.35rem;
+		border-radius: 0.4rem;
+	}
+
+	.history-table .history-link-label {
+		display: inline;
+		font-family: var(--font-sans);
+		font-size: 0.75rem;
+		white-space: nowrap;
 	}
 
 	.sheet-content,
 	.sheet-content[data-wide="true"] {
+		inset: auto 0 0;
 		width: 100%;
+		height: auto;
+		max-height: calc(100dvh - 0.75rem);
+		border: 1px solid var(--border-strong);
+		border-bottom: 0;
+		border-radius: 1rem 1rem 0 0;
+		box-shadow: 0 -2rem 6rem rgba(0, 0, 0, 0.46);
 	}
 
 	/* Remote access: a phone reads this panel through the tunnel it describes. */
@@ -541,6 +706,30 @@
 		padding-left: 1rem;
 	}
 
+	.sheet-body {
+		max-height: calc(100dvh - 7rem);
+		padding-bottom: max(1.5rem, env(safe-area-inset-bottom));
+	}
+
+	.market-dialog,
+	.recovery-dialog {
+		top: auto;
+		right: 0;
+		bottom: 0;
+		left: 0;
+		width: 100%;
+		max-height: calc(100dvh - 0.75rem);
+		transform: none;
+		border-bottom: 0;
+		border-radius: 1rem 1rem 0 0;
+		box-shadow: 0 -2rem 6rem rgba(0, 0, 0, 0.46);
+	}
+
+	.market-dialog-footer,
+	.recovery-dialog-footer {
+		padding-bottom: max(1rem, env(safe-area-inset-bottom));
+	}
+
 	.operator-market-summary {
 		grid-template-columns: auto minmax(0, 1fr);
 	}
@@ -553,6 +742,28 @@
 	.operator-market-add-side {
 		align-items: flex-start;
 		flex-direction: column;
+	}
+
+	.operator-market-cap-panel .operator-market-panel-heading {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) max-content;
+		align-items: end;
+	}
+
+	.operator-market-cap-panel .operator-market-panel-value {
+		align-self: end;
+		justify-self: end;
+		text-align: right;
+	}
+
+	.solver-link-entry {
+		align-items: stretch;
+		flex-direction: column;
+		gap: 1rem;
+	}
+
+	.solver-link-entry > button {
+		width: 100%;
 	}
 
 	.operator-market-cap-controls {

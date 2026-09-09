@@ -3,6 +3,7 @@ import { toast } from "sonner"
 import { chainByChainId } from "@/cli/init/chains"
 import { formatChainKey, parseChainKey } from "@/config/interpolated-curve"
 import { api } from "../api"
+import { SelectField } from "../components/AppSelect"
 import { SendConfirmDialog, type SendSummary } from "../components/SendConfirmDialog"
 import { ExternalLinkIcon } from "../components/InterfaceIcons"
 import { OperationLink } from "../components/OperationLink"
@@ -11,6 +12,7 @@ import { VaultRowsEditor } from "../components/VaultRowsEditor"
 import { useAction, usePolling } from "../lib/hooks"
 import { vaultRowsToToml, type VaultRowDraft } from "../lib/vault-rows"
 import type { BalanceSnapshot, ConfigDto, SendTokenOption, VaultSweepDto } from "../types"
+import { sendTokenOptionLabel, sendTokenOptionsForChain } from "./sendModel"
 
 /** "2 vaults connected · Base, Arbitrum" for the drawer's summary line. */
 function describeConnectedVaults(vaults: ConfigDto["vaults"], chainLabel: (id: number | string) => string): string {
@@ -309,14 +311,15 @@ function SendCard(props: {
 	const { run: act, message, error } = useAction()
 
 	const selectedChain = chain ?? formatChainKey(props.chains[0] ?? "")
-	const options = props.sendTokens?.[selectedChain] ?? [{ symbol: "native", address: "native" }]
+	const selectedChainId = parseChainKey(selectedChain)
+	const options = sendTokenOptionsForChain(props.sendTokens?.[selectedChain], selectedChainId)
 	const tokenAddress = token === "custom" ? customToken.trim() : token
 	const selected = options.find((o) => o.address === token)
 	const symbol = selected?.symbol ?? (token === "custom" ? "tokens" : token)
 	const balance = selectedSendBalance(props.balances, selectedChain, tokenAddress)
 	const ready = Boolean(amount.trim()) && /^0x[0-9a-fA-F]{40}$/.test(to.trim()) && tokenAddress !== ""
 
-	const network = props.chainLabel(parseChainKey(selectedChain) ?? selectedChain)
+	const network = props.chainLabel(selectedChainId ?? selectedChain)
 
 	/** Opens the review; nothing is submitted until it is confirmed. */
 	const openReview = () => {
@@ -326,6 +329,7 @@ function SendCard(props: {
 		setReview({
 			amount: amount.trim(),
 			symbol,
+			native: tokenAddress === "native",
 			chainLabel: network,
 			to: to.trim(),
 			wallet,
@@ -367,33 +371,24 @@ function SendCard(props: {
 				are redeemed to cover the difference. Native gas is required on networks without a paymaster.
 			</p>
 			<div className="operator-send-grid">
-				<label className="field">
-					<span>Network</span>
-					<select
-						value={selectedChain}
-						onChange={(e) => {
-							setChain(e.target.value)
-							setToken("native")
-						}}
-					>
-						{props.chains.map((id) => (
-							<option key={id} value={formatChainKey(id)}>
-								{props.chainLabel(id)}
-							</option>
-						))}
-					</select>
-				</label>
-				<label className="field">
-					<span>Asset</span>
-					<select value={token} onChange={(e) => setToken(e.target.value)}>
-						{options.map((o) => (
-							<option key={o.address} value={o.address}>
-								{o.symbol}
-							</option>
-						))}
-						<option value="custom">custom address…</option>
-					</select>
-				</label>
+				<SelectField
+					label="Network"
+					value={selectedChain}
+					options={props.chains.map((id) => ({ value: formatChainKey(id), label: props.chainLabel(id) }))}
+					onValueChange={(nextChain) => {
+						setChain(nextChain)
+						setToken("native")
+					}}
+				/>
+				<SelectField
+					label="Asset"
+          value={token}
+					options={[
+						...options.map((option) => ({ value: option.address, label: sendTokenOptionLabel(option) })),
+						{ value: "custom", label: "Custom address…", separatorBefore: true, muted: true },
+					]}
+					onValueChange={setToken}
+				/>
 				{token === "custom" && (
 					<label className="field operator-send-wide">
 						<span>Token contract</span>

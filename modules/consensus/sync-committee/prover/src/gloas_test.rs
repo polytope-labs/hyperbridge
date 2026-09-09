@@ -4,10 +4,6 @@
 //! fork the beacon api reports.
 
 use super::*;
-use tree_hash::{
-	proof::{is_valid_merkle_branch, TreeHashFields},
-	Hash256, TreeHash,
-};
 use sync_committee_primitives::{
 	constants::{
 		devnet::GlamsterdamDevnet, ETH1_DATA_VOTES_BOUND_ETH, PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM,
@@ -16,6 +12,10 @@ use sync_committee_primitives::{
 	util::compute_epoch_at_slot,
 };
 use sync_committee_verifier::{error::Error, verify_sync_committee_attestation};
+use tree_hash::{
+	proof::{is_valid_merkle_branch, TreeHashFields},
+	Hash256, TreeHash,
+};
 
 fn setup_prover() -> SyncCommitteeProver<
 	GlamsterdamDevnet,

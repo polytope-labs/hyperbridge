@@ -11,13 +11,6 @@ use alloc::vec::Vec;
 use ark_ec::CurveGroup;
 use crypto::subtract_points_from_aggregate;
 use primitive_types::H256;
-use tree_hash::{
-	proof::{
-		is_valid_merkle_branch,
-		multiproof::{calculate_multi_merkle_root, get_helper_indices},
-	},
-	Hash256, TreeHash,
-};
 use sync_committee_primitives::{
 	consensus_types::Checkpoint,
 	constants::{Config, Root, DOMAIN_SYNC_COMMITTEE},
@@ -27,6 +20,13 @@ use sync_committee_primitives::{
 		compute_domain, compute_epoch_at_slot, compute_fork_version, compute_signing_root,
 		compute_sync_committee_period_at_slot, should_have_sync_committee_update,
 	},
+};
+use tree_hash::{
+	proof::{
+		is_valid_merkle_branch,
+		multiproof::{calculate_multi_merkle_root, get_helper_indices},
+	},
+	Hash256, TreeHash,
 };
 
 /// This function simply verifies a sync committee's attestation & it's finalized counterpart.
@@ -205,8 +205,7 @@ pub fn verify_sync_committee_attestation<C: Config>(
 				if multi_proof.len() != get_helper_indices(&execution_payload_indices).len() {
 					Err(Error::InvalidMerkleBranch("Execution payload multiproof length".into()))?;
 				}
-				let multi_proof_nodes: Vec<Hash256> =
-					multi_proof.iter().map(Into::into).collect();
+				let multi_proof_nodes: Vec<Hash256> = multi_proof.iter().map(Into::into).collect();
 				let execution_payload_root = calculate_multi_merkle_root(
 					&[
 						Hash256::from_slice(state_root.as_ref()),
@@ -216,9 +215,7 @@ pub fn verify_sync_committee_attestation<C: Config>(
 					&multi_proof_nodes,
 					&execution_payload_indices,
 				)
-				.map_err(|_| {
-					Error::InvalidMerkleBranch("Execution payload multiproof".into())
-				})?;
+				.map_err(|_| Error::InvalidMerkleBranch("Execution payload multiproof".into()))?;
 
 				let payload_branch: Vec<Hash256> =
 					execution_payload.execution_payload_branch.iter().map(Into::into).collect();
@@ -279,8 +276,11 @@ pub fn verify_sync_committee_attestation<C: Config>(
 	if let Some(sync_committee_update) = update.sync_committee_update.clone() {
 		let sync_root = sync_committee_update.next_sync_committee.tree_hash_root();
 
-		let sync_branch: Vec<Hash256> =
-			sync_committee_update.next_sync_committee_branch.iter().map(Into::into).collect();
+		let sync_branch: Vec<Hash256> = sync_committee_update
+			.next_sync_committee_branch
+			.iter()
+			.map(Into::into)
+			.collect();
 		let is_merkle_branch_valid = is_valid_merkle_branch(
 			sync_root,
 			&sync_branch,
@@ -356,7 +356,10 @@ mod supermajority_tests {
 				// finality-branch length check passes; the node contents don't matter for
 				// these tests because the supermajority gate fires before any merkle
 				// verification.
-				finality_branch: vec![Root::default(); Sepolia::FINALIZED_ROOT_INDEX.ilog2() as usize],
+				finality_branch: vec![
+					Root::default();
+					Sepolia::FINALIZED_ROOT_INDEX.ilog2() as usize
+				],
 			},
 			sync_aggregate: SyncAggregate {
 				sync_committee_bits: Default::default(),

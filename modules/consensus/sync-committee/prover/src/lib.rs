@@ -8,13 +8,12 @@ use reqwest::{Client, Url};
 use reqwest_chain::ChainMiddleware;
 use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
 use ssz_types::typenum::Unsigned;
+use tracing::instrument;
 use tree_hash::{
 	proof::{generate_multiproof, ContainerFields, TreeHashFields},
 	TreeHash,
 };
-use tracing::instrument;
 
-use sync_committee_primitives::execution_header::{execution_block_hash, ExecutionHeader};
 use sync_committee_primitives::{
 	beacon_state::{BeaconBlockSummary, BeaconState},
 	consensus_types::{BeaconBlockHeader, Checkpoint, Validator},
@@ -30,6 +29,7 @@ use sync_committee_primitives::{
 		SLOTS_PER_HISTORICAL_ROOT, SYNC_COMMITTEE_SIZE, VALIDATOR_REGISTRY_LIMIT,
 	},
 	deneb::MAX_BLOB_COMMITMENTS_PER_BLOCK,
+	execution_header::{execution_block_hash, ExecutionHeader},
 	types::{
 		ExecutionPayloadProof, ExecutionProof, FinalityProof, SyncCommitteeUpdate, VerifierState,
 		VerifierStateUpdate,
@@ -61,24 +61,22 @@ mod test;
 #[cfg(test)]
 mod gloas_test;
 
-pub type BeaconStateType<
-	ETH1_DATA_VOTES_BOUND: Unsigned,
-	PROPOSER_LOOK_AHEAD_LIMIT: Unsigned,
-> = BeaconState<
-	SLOTS_PER_HISTORICAL_ROOT,
-	HISTORICAL_ROOTS_LIMIT,
-	ETH1_DATA_VOTES_BOUND,
-	VALIDATOR_REGISTRY_LIMIT,
-	EPOCHS_PER_HISTORICAL_VECTOR,
-	EPOCHS_PER_SLASHINGS_VECTOR,
-	SYNC_COMMITTEE_SIZE,
-	BYTES_PER_LOGS_BLOOM,
-	MAX_EXTRA_DATA_BYTES,
-	PENDING_DEPOSITS_LIMIT,
-	PENDING_CONSOLIDATIONS_LIMIT,
-	PENDING_PARTIAL_WITHDRAWALS_LIMIT,
-	PROPOSER_LOOK_AHEAD_LIMIT,
->;
+pub type BeaconStateType<ETH1_DATA_VOTES_BOUND: Unsigned, PROPOSER_LOOK_AHEAD_LIMIT: Unsigned> =
+	BeaconState<
+		SLOTS_PER_HISTORICAL_ROOT,
+		HISTORICAL_ROOTS_LIMIT,
+		ETH1_DATA_VOTES_BOUND,
+		VALIDATOR_REGISTRY_LIMIT,
+		EPOCHS_PER_HISTORICAL_VECTOR,
+		EPOCHS_PER_SLASHINGS_VECTOR,
+		SYNC_COMMITTEE_SIZE,
+		BYTES_PER_LOGS_BLOOM,
+		MAX_EXTRA_DATA_BYTES,
+		PENDING_DEPOSITS_LIMIT,
+		PENDING_CONSOLIDATIONS_LIMIT,
+		PENDING_PARTIAL_WITHDRAWALS_LIMIT,
+		PROPOSER_LOOK_AHEAD_LIMIT,
+	>;
 
 pub struct SyncCommitteeProver<
 	C: Config,
@@ -348,8 +346,9 @@ impl<C: Config, ETH1_DATA_VOTES_BOUND: Unsigned, PROPOSER_LOOK_AHEAD_LIMIT: Unsi
 
 		let attested_block_id = get_block_id(block.parent_root);
 		let attested_header = self.fetch_header(&attested_block_id).await?;
-		let mut attested_state =
-			self.fetch_beacon_state(&get_block_id(attested_header.state_root.clone())).await?;
+		let mut attested_state = self
+			.fetch_beacon_state(&get_block_id(attested_header.state_root.clone()))
+			.await?;
 		if attested_state.finalized_checkpoint().root == Root::default() {
 			return Ok(None);
 		}
@@ -463,8 +462,9 @@ impl<C: Config, ETH1_DATA_VOTES_BOUND: Unsigned, PROPOSER_LOOK_AHEAD_LIMIT: Unsi
 		let attested_block_id = get_block_id(block.parent_root);
 
 		let attested_header = self.fetch_header(&attested_block_id).await?;
-		let mut attested_state =
-			self.fetch_beacon_state(&get_block_id(attested_header.state_root.clone())).await?;
+		let mut attested_state = self
+			.fetch_beacon_state(&get_block_id(attested_header.state_root.clone()))
+			.await?;
 		let finalized_block_id = get_block_id(attested_state.finalized_checkpoint().root.clone());
 		let finalized_header = self.fetch_header(&finalized_block_id).await?;
 		// Fetch the finalized state by slot rather than by state root.
@@ -588,7 +588,6 @@ pub fn prove_execution_payload<
 
 	Ok(ExecutionPayloadProof { execution_payload_branch, proof })
 }
-
 
 /// Prove a single beacon state field, addressed by generalized index.
 ///

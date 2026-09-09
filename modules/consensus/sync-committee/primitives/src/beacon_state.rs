@@ -46,8 +46,6 @@ use tree_hash::Hash256;
 	ssz_derive::Encode,
 	ssz_derive::Decode,
 	tree_hash_derive::TreeHash,
-	codec::Encode,
-	codec::Decode,
 )]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "std", serde(bound = ""))]
@@ -141,8 +139,6 @@ pub struct BeaconStateElectra<
 	ssz_derive::Encode,
 	ssz_derive::Decode,
 	tree_hash_derive::TreeHash,
-	codec::Encode,
-	codec::Decode,
 )]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "std", serde(bound = ""))]

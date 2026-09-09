@@ -1,6 +1,4 @@
-use sync_committee_primitives::{
-	beacon_state::BeaconBlockSummary, constants::SYNC_COMMITTEE_SIZE,
-};
+use sync_committee_primitives::{beacon_state::BeaconBlockSummary, constants::SYNC_COMMITTEE_SIZE};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Response {

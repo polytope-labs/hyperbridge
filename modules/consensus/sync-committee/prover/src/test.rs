@@ -1,17 +1,17 @@
 use super::*;
 use reqwest_eventsource::EventSource;
 
+use sync_committee_primitives::{
+	constants::{Root, ETH1_DATA_VOTES_BOUND_ETH, PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM},
+	types::VerifierState,
+	util::compute_epoch_at_slot,
+};
 use tree_hash::{
 	proof::{
 		generate_multiproof, is_valid_merkle_branch, multiproof::calculate_multi_merkle_root,
 		ContainerFields,
 	},
 	Hash256, TreeHash,
-};
-use sync_committee_primitives::{
-	constants::{Root, ETH1_DATA_VOTES_BOUND_ETH, PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM},
-	types::VerifierState,
-	util::compute_epoch_at_slot,
 };
 
 use sync_committee_primitives::constants::devnet::KurtosisDevnet;
@@ -87,8 +87,7 @@ async fn test_finalized_header() {
 	let sync_committee_prover = setup_prover();
 	let mut state = sync_committee_prover.fetch_beacon_state("head").await.unwrap();
 
-	let proof =
-		state.prove_gindex(KurtosisDevnet::FINALIZED_ROOT_INDEX).unwrap();
+	let proof = state.prove_gindex(KurtosisDevnet::FINALIZED_ROOT_INDEX).unwrap();
 
 	let leaves = vec![state.finalized_checkpoint().tree_hash_root()];
 	let root = calculate_multi_merkle_root(
@@ -190,8 +189,7 @@ async fn test_sync_committee_update_proof() {
 
 	assert_eq!(calculated_finalized_root, Hash256::from(&finalized_header.state_root));
 
-	let sync_committee_branch: Vec<Hash256> =
-		sync_committee_proof.iter().map(Into::into).collect();
+	let sync_committee_branch: Vec<Hash256> = sync_committee_proof.iter().map(Into::into).collect();
 	let is_merkle_branch_valid = is_valid_merkle_branch(
 		sync_committee.tree_hash_root(),
 		&sync_committee_branch,

@@ -112,8 +112,6 @@ pub struct Validator {
 	Clone,
 	PartialEq,
 	Eq,
-	codec::Encode,
-	codec::Decode,
 )]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct ProposerSlashing {
@@ -130,8 +128,6 @@ pub struct ProposerSlashing {
 	Clone,
 	PartialEq,
 	Eq,
-	codec::Encode,
-	codec::Decode,
 )]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct SignedBeaconBlockHeader {
@@ -148,8 +144,6 @@ pub struct SignedBeaconBlockHeader {
 	Clone,
 	PartialEq,
 	Eq,
-	codec::Encode,
-	codec::Decode,
 )]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "std", serde(bound = ""))]
@@ -169,8 +163,6 @@ pub struct IndexedAttestation<MAX_VALIDATORS_PER_COMMITTEE: Unsigned> {
 	tree_hash_derive::TreeHash,
 	PartialEq,
 	Eq,
-	codec::Encode,
-	codec::Decode,
 )]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct AttestationData {
@@ -192,8 +184,6 @@ pub struct AttestationData {
 	Clone,
 	PartialEq,
 	Eq,
-	codec::Encode,
-	codec::Decode,
 )]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "std", serde(bound = ""))]
@@ -208,8 +198,6 @@ pub struct AttesterSlashing<MAX_VALIDATORS_PER_COMMITTEE: Unsigned> {
 	ssz_derive::Encode,
 	ssz_derive::Decode,
 	tree_hash_derive::TreeHash,
-	codec::Encode,
-	codec::Decode,
 	Clone,
 	PartialEq,
 	Eq,
@@ -229,8 +217,6 @@ pub struct Attestation<MAX_VALIDATORS_PER_COMMITTEE: Unsigned, MAX_COMMITTEES_PE
 	ssz_derive::Encode,
 	ssz_derive::Decode,
 	tree_hash_derive::TreeHash,
-	codec::Encode,
-	codec::Decode,
 	Clone,
 	PartialEq,
 	Eq,
@@ -248,8 +234,6 @@ pub struct Deposit {
 	ssz_derive::Encode,
 	ssz_derive::Decode,
 	tree_hash_derive::TreeHash,
-	codec::Encode,
-	codec::Decode,
 	PartialEq,
 	Eq,
 )]
@@ -269,8 +253,6 @@ pub struct DepositData {
 	ssz_derive::Encode,
 	ssz_derive::Decode,
 	tree_hash_derive::TreeHash,
-	codec::Encode,
-	codec::Decode,
 	Clone,
 	PartialEq,
 	Eq,
@@ -289,8 +271,6 @@ pub struct VoluntaryExit {
 	ssz_derive::Encode,
 	ssz_derive::Decode,
 	tree_hash_derive::TreeHash,
-	codec::Encode,
-	codec::Decode,
 	Clone,
 	PartialEq,
 	Eq,
@@ -308,8 +288,6 @@ pub struct SignedVoluntaryExit {
 	ssz_derive::Encode,
 	ssz_derive::Decode,
 	tree_hash_derive::TreeHash,
-	codec::Encode,
-	codec::Decode,
 	PartialEq,
 	Eq,
 )]
@@ -329,8 +307,6 @@ pub struct SyncAggregate<SYNC_COMMITTEE_SIZE: Unsigned> {
 	Clone,
 	PartialEq,
 	Eq,
-	codec::Encode,
-	codec::Decode,
 )]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "std", serde(bound = ""))]
@@ -373,8 +349,6 @@ pub struct Withdrawal {
 	tree_hash_derive::TreeHash,
 	PartialEq,
 	Eq,
-	codec::Encode,
-	codec::Decode,
 )]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct BlsToExecutionChange {
@@ -394,8 +368,6 @@ pub struct BlsToExecutionChange {
 	tree_hash_derive::TreeHash,
 	PartialEq,
 	Eq,
-	codec::Encode,
-	codec::Decode,
 )]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct SignedBlsToExecutionChange {
@@ -414,8 +386,6 @@ pub type Transaction<MAX_BYTES_PER_TRANSACTION: Unsigned> = ByteList<MAX_BYTES_P
 	tree_hash_derive::TreeHash,
 	PartialEq,
 	Eq,
-	codec::Encode,
-	codec::Decode,
 )]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "std", serde(bound = ""))]
@@ -515,14 +485,7 @@ pub struct Fork {
 }
 
 #[derive(
-	Default,
-	Debug,
-	ssz_derive::Encode,
-	ssz_derive::Decode,
-	tree_hash_derive::TreeHash,
-	Clone,
-	codec::Encode,
-	codec::Decode,
+	Default, Debug, ssz_derive::Encode, ssz_derive::Decode, tree_hash_derive::TreeHash, Clone,
 )]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct ForkData {

@@ -21,6 +21,7 @@ pub mod execution_header;
 // Gloas `BeaconState`/`BeaconBlockBody` component types. Always compiled: the state shape is now
 // chosen at runtime from the fork the beacon api reports, so these can no longer be gated.
 pub mod gloas;
+mod scale;
 mod ssz;
 pub mod types;
 pub mod util;

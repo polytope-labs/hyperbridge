@@ -12,8 +12,8 @@ primitive-types = { workspace = true, default-features = false }
 log = { workspace = true, default-features = false }
 anyhow = { workspace = true, default-features = false }
 thiserror = { workspace = true }
-ssz = { workspace = true, features = ["scale"] }
-ssz_types = { workspace = true, features = ["scale"] }
+ssz = { workspace = true }
+ssz_types = { workspace = true }
 tree_hash = { workspace = true, features = ["sha2"] }
 bls = { workspace = true }
 ark-ec = { workspace = true }

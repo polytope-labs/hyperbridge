@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react"
 
 /** Wraps a mutating API call with the shared message/error surface. */
 export function useAction() {
@@ -41,4 +41,22 @@ export function usePolling(load: () => Promise<void> | void, intervalMs?: number
 		const timer = setInterval(() => void load(), intervalMs)
 		return () => clearInterval(timer)
 	}, [load, intervalMs])
+}
+
+/**
+ * The width at which the dashboard stops being a sidebar-and-canvas layout: the
+ * nav becomes a bottom bar and dialogs become drawers. Shared so "mobile" means
+ * one thing across the app.
+ */
+export const MOBILE_QUERY = "(max-width: 600px)"
+
+export function useIsMobile(): boolean {
+	const subscribe = useCallback((notify: () => void) => {
+		const media = window.matchMedia(MOBILE_QUERY)
+		media.addEventListener("change", notify)
+		return () => media.removeEventListener("change", notify)
+	}, [])
+	const getSnapshot = useCallback(() => window.matchMedia(MOBILE_QUERY).matches, [])
+	// Server snapshot: there is no SSR here, but useSyncExternalStore requires one.
+	return useSyncExternalStore(subscribe, getSnapshot, () => false)
 }

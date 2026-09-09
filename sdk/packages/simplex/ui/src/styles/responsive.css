@@ -422,8 +422,9 @@
 	}
 
 	.operator-sidebar nav {
-		/* One column per page, plus the install button. */
-		grid-template-columns: repeat(6, minmax(0, 1fr));
+		/* One column per page shown here, plus the install button. Logs is
+		   desktop-only, so it is not one of them. */
+		grid-template-columns: repeat(5, minmax(0, 1fr));
 	}
 
 	button.operator-nav-item {

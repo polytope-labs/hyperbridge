@@ -26,7 +26,7 @@ export function tabFromPath(pathname: string): OperatorTab {
  * The active sidebar page, backed by the URL: reads the path on load, pushes a
  * history entry on navigation, and follows the browser's back and forward.
  */
-export function useTabRoute(): [OperatorTab, (tab: OperatorTab) => void] {
+export function useTabRoute(): [OperatorTab, (tab: OperatorTab, options?: { replace?: boolean }) => void] {
 	const [tab, setTab] = useState<OperatorTab>(() => tabFromPath(window.location.pathname))
 
 	useEffect(() => {
@@ -35,9 +35,13 @@ export function useTabRoute(): [OperatorTab, (tab: OperatorTab) => void] {
 		return () => window.removeEventListener("popstate", onPopState)
 	}, [])
 
-	const navigate = useCallback((next: OperatorTab) => {
+	// `replace` is for a redirect rather than a choice: pushing an entry for a
+	// page the app just sent you away from makes Back bounce off it forever.
+	const navigate = useCallback((next: OperatorTab, options?: { replace?: boolean }) => {
 		if (window.location.pathname !== TAB_PATHS[next]) {
-			window.history.pushState(null, "", TAB_PATHS[next] + window.location.search)
+			const url = TAB_PATHS[next] + window.location.search
+			if (options?.replace) window.history.replaceState(null, "", url)
+			else window.history.pushState(null, "", url)
 		}
 		setTab(next)
 	}, [])

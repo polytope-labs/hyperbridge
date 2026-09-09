@@ -271,9 +271,11 @@
 	}
 }
 
+/* The page stops at 600px — the layout's mobile breakpoint — so this is a narrow
+   window or a small tablet, not a phone. */
 @media (max-width: 45rem) {
-	/* Two lines per record on a phone: the timestamp and level do not fit
-	   alongside a message that already has to wrap. */
+	/* Two lines per record: the timestamp and level no longer fit alongside a
+	   message that has started wrapping. */
 	.log-row {
 		grid-template-columns: auto minmax(0, 1fr);
 		gap: 0.1rem 0.5rem;
@@ -307,11 +309,5 @@
 	.log-actions {
 		order: 3;
 		margin-left: auto;
-	}
-
-	.log-stream {
-		/* No flex height to grow into on the stacked mobile layout. */
-		flex: 0 0 auto;
-		height: 60vh;
 	}
 }

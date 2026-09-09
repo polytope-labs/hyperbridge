@@ -1,4 +1,4 @@
-#!/usr/bin/env -S node --enable-source-maps
+#!/usr/bin/env -S node --enable-source-maps --disable-warning=ExperimentalWarning
 
 // First import, deliberately: silences @polkadot/* init noise, which fires
 // while the imports below are still evaluating.

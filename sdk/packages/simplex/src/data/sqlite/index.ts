@@ -12,6 +12,12 @@ export { SqliteBidStore } from "./bids"
 export { FileStateStore } from "./state"
 
 /**
+ * How long a write waits for another connection's lock before giving up.
+ * Matches the default better-sqlite3 applied for us; `node:sqlite` has none.
+ */
+const BUSY_TIMEOUT_MS = 5_000
+
+/**
  * File-backed {@link SimplexDataStore} — the durable default, and what the
  * `simplex` CLI uses.
  *
@@ -36,8 +42,14 @@ export class SqliteDataStore implements SimplexDataStore {
 		this.logger = loggers.get("data-store")
 		if (!existsSync(dataDir)) mkdirSync(dataDir, { recursive: true })
 
-		const bidsDb = new DatabaseSync(join(dataDir, "bids.db"))
-		const activityDb = new DatabaseSync(join(dataDir, "activity.db"))
+		// `timeout` is not a nicety: better-sqlite3 defaulted it to 5000ms and
+		// `node:sqlite` defaults it to 0, so omitting it turns every lock contention
+		// into an instant SQLITE_BUSY throw. Anything holding the file for a moment —
+		// an operator's `sqlite3 bids.db`, a backup, a second process on the same
+		// --data-dir — would fail the write that races it, and a lost bid write is a
+		// deposit the retraction sweep can no longer find.
+		const bidsDb = new DatabaseSync(join(dataDir, "bids.db"), { timeout: BUSY_TIMEOUT_MS })
+		const activityDb = new DatabaseSync(join(dataDir, "activity.db"), { timeout: BUSY_TIMEOUT_MS })
 		// `node:sqlite` has no .pragma(); exec() discards the row this one returns.
 		activityDb.exec("PRAGMA journal_mode = WAL")
 
@@ -50,7 +62,9 @@ export class SqliteDataStore implements SimplexDataStore {
 	}
 
 	/**
-	 * Closes both databases. Called by `Simplex.stop()`.
+	 * Closes both databases. Called by `Simplex.stop()` when Simplex opened the
+	 * store itself, and by whoever passed it in otherwise — `bootFiller` only
+	 * closes a store it owns, since a caller's may be shared with another solver.
 	 *
 	 * Deliberately not wired to a `process.on("exit")` hook: the old services did
 	 * that in their constructors, which leaked a listener per instance and made
@@ -59,11 +73,14 @@ export class SqliteDataStore implements SimplexDataStore {
 	 *
 	 * `isOpen` guards the second call: unlike better-sqlite3's no-op close,
 	 * `DatabaseSync.close()` throws on an already-closed handle, and `stop()`
-	 * being called twice is not an error worth logging.
+	 * being called twice is not an error worth logging. Compared against `false`
+	 * rather than truthiness so a runtime without the property (it landed in
+	 * 22.15, below our engines floor but `engines` is only advisory) still
+	 * attempts the close instead of silently skipping every database.
 	 */
 	async close(): Promise<void> {
 		for (const db of this.databases) {
-			if (!db.isOpen) continue
+			if (db.isOpen === false) continue
 			try {
 				db.close()
 			} catch (err) {

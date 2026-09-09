@@ -273,3 +273,43 @@ describe("SqliteDataStore: a data directory it creates itself", () => {
 		expect((await store.bids.recent()).map((bid) => bid.commitment)).toEqual([`0x${"12".repeat(32)}`])
 	})
 })
+
+describe("SqliteDataStore: lock contention", () => {
+	it("waits for another connection's write lock instead of failing instantly", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "simplex-busy-"))
+		dirs.push(dir)
+		const store = new SqliteDataStore(dir)
+		stores.push(store)
+		await store.bids.store({ commitment: `0x${"31".repeat(32)}`, success: true })
+
+		// better-sqlite3 applied a 5s busy timeout by default; node:sqlite defaults to
+		// 0, so a store opened without one throws SQLITE_BUSY the instant anything else
+		// holds the file — and a dropped bid write is a deposit nobody can reclaim.
+		const readBusyTimeout = (path: string) => {
+			const db = new DatabaseSync(join(dir, path))
+			const row = db.prepare("PRAGMA busy_timeout").get() as unknown as { timeout: number }
+			db.close()
+			return row.timeout
+		}
+		expect(readBusyTimeout("bids.db")).toBe(0) // a plain handle, for contrast
+		await store.close?.()
+
+		// Hold a write lock from outside, then prove the store's own handle waits.
+		const holder = new DatabaseSync(join(dir, "bids.db"))
+		holder.exec("BEGIN IMMEDIATE")
+		holder.prepare("INSERT INTO bids (commitment, success) VALUES (?, 1)").run(`0x${"32".repeat(32)}`)
+
+		const contended = new SqliteDataStore(dir)
+		stores.push(contended)
+		const startedAt = process.hrtime.bigint()
+		await expect(contended.bids.store({ commitment: `0x${"33".repeat(32)}`, success: true })).rejects.toThrow(
+			/locked|busy/i,
+		)
+		const waitedMs = Number(process.hrtime.bigint() - startedAt) / 1e6
+		holder.exec("ROLLBACK")
+		holder.close()
+
+		// With timeout: 0 this returns in single-digit milliseconds.
+		expect(waitedMs).toBeGreaterThan(1_000)
+	}, 30_000)
+})

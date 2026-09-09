@@ -15,8 +15,9 @@ env:
 
 jobs:
     # One job per architecture, each on a runner of that architecture — a QEMU-emulated
-    # arm64 build of this image (pnpm install + tsup + vite + a native sqlite module) is
-    # an order of magnitude slower than a native one. Each job pushes an untagged,
+    # arm64 build of this image (pnpm install + tsup + vite, plus source builds of the
+    # remaining native deps that ship no arm64 prebuild) is an order of magnitude slower
+    # than a native one. Each job pushes an untagged,
     # single-platform image by digest; `merge` stitches the digests into one manifest list
     # per tag, so `docker pull polytopelabs/simplex` resolves natively on Intel and on
     # Apple Silicon / Windows-on-ARM alike.

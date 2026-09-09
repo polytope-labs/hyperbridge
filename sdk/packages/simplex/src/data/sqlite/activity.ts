@@ -192,7 +192,17 @@ export class SqliteActivityStore implements ActivityStore {
 		} catch (err) {
 			// A COMMIT that fails has already rolled back, and rolling back twice
 			// throws over the original error — `isTransaction` says which case this is.
-			if (this.db.isTransaction) this.db.exec("ROLLBACK")
+			// Compared against `false`, not truthiness: the Node 23 line never got the
+			// property, and treating `undefined` as "no transaction" would skip the
+			// ROLLBACK and leave the connection wedged mid-transaction for good. The
+			// inner catch is only for that case; `err` is what propagates either way.
+			if (this.db.isTransaction !== false) {
+				try {
+					this.db.exec("ROLLBACK")
+				} catch {
+					// Nothing to roll back, or the connection is already gone.
+				}
+			}
 			throw err
 		}
 		if (changed.length === 0) return []

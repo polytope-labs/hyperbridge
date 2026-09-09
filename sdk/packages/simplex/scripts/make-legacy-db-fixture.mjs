@@ -24,8 +24,13 @@ import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 
 const OUT = join(dirname(fileURLToPath(import.meta.url)), "..", "src", "tests", "data", "fixtures", "legacy-v0")
-rmSync(OUT, { recursive: true, force: true })
 mkdirSync(OUT, { recursive: true })
+// Only the databases and any WAL sidecars — NOT the directory. It also holds the
+// `.gitignore` whose `!*.db` re-includes these files past the repo-wide `**/*.db`
+// rule, and wiping that silently unstages every fixture added afterwards.
+for (const stale of ["bids.db", "activity.db"]) {
+	for (const suffix of ["", "-wal", "-shm"]) rmSync(join(OUT, stale + suffix), { force: true })
+}
 
 const bids = new Database(join(OUT, "bids.db"))
 bids.exec(`

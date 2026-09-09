@@ -33,13 +33,50 @@ Why not keep the old `[host:]port` nuance, where the *host* half is the optional
 bracket anywhere in the flags string sets commander's `required`, which is the bug being fixed, and
 commander has no notation for "optional value whose host half is also optional". The description
 carries that instead.
+## 2026-09-09 — node:sqlite's defaults are restated explicitly, and its feature guards compare against `false` (#1236)
+
+Decided: pass `{ timeout: 5000 }` to both `DatabaseSync` constructors, and write every
+capability guard as `x === false` / `x !== false` rather than `!x` / `x`.
+
+**The timeout.** Swapping libraries silently swaps defaults, and this one is load-bearing:
+better-sqlite3 sets a 5000ms busy timeout unless told otherwise (`lib/database.js`:
+`'timeout' in options ? options.timeout : 5000`), while `node:sqlite` leaves it at 0. Nothing in
+the diff mentioned locking, which is exactly why it slipped through — the migration was audited
+for return shapes and API equivalence, not for constructor defaults. 5000 is chosen to match what
+the store already had, not because the number is special; the point is not to change locking
+behaviour in a commit that is not about locking.
+
+Rejected: catching `SQLITE_BUSY` and retrying in the store. That reimplements, worse, what
+SQLite's own busy handler does in C, and it would have to be added at ten call sites.
+
+Rejected: leaving it at 0 and treating contention as a caller problem. The callers are the fill
+loop and the retraction sweep; neither has anywhere to put the error, and the bid store is the
+record that makes a locked deposit reclaimable.
+
+**The guards.** `db.isOpen` (Node 22.15+) and `db.isTransaction` (22.16+, and never backported to
+the 23 line) are read to decide whether to close and whether to roll back. Written as `!db.isOpen`
+and `if (db.isTransaction)`, a runtime *missing* the property takes the convenient branch: the
+close is skipped for every database, and a failed transaction is never rolled back — which leaves
+the connection inside an open transaction so nothing commits again for the life of the process.
+Comparing against `false` inverts that: absent means "do the work", and the existing try/catch
+absorbs the outcome. The rollback path additionally swallows a ROLLBACK error, because `err` — the
+original failure — is what propagates either way, and losing it to `cannot rollback - no
+transaction is active` would be strictly worse.
+
+Rejected: relying on `engines.node` to make the missing-property case unreachable. `engines` is
+advisory — npm prints `EBADENGINE` and installs anyway, pnpm likewise by default — so it documents
+intent, it does not enforce it. A guard that is only correct when a manifest field is obeyed is
+not a guard.
+
+
 ## 2026-09-09 — Both tsup entries set `removeNodeProtocol: false`, and the build greps for it (#1236)
 
 Decided: turn tsup's `node:`-prefix stripping off, and verify the bundle afterwards in
 `scripts/build.sh`.
 
-tsup 8 rewrites `import ... from "node:sqlite"` to `from "sqlite"` by default; the option flipped
-to `false` in tsup 9, so this is a default we are stuck with until that upgrade. The rewrite is
+tsup 8 rewrites `import ... from "node:sqlite"` to `from "sqlite"` by default. The flip to `false`
+is announced for the next major but has not shipped — 8.5.1 is the latest release — so this is a
+default to live with, not something an upgrade clears today. The rewrite is
 harmless for most builtins because `fs`, `path` and friends resolve with or without the prefix.
 `node:sqlite` does not: there is no bare `sqlite` builtin, so the import fails with
 `ERR_MODULE_NOT_FOUND: Cannot find package 'sqlite'` the moment the process starts. Both the CLI
@@ -58,7 +95,7 @@ have fixed it, and would have silently changed downleveling for the whole bundle
 
 Rejected: importing `sqlite` through `createRequire` to sidestep specifier rewriting. It defeats
 the rewrite but replaces a plain static import with indirection that no longer type-checks
-naturally, to work around a bundler default that has already been reversed upstream.
+naturally, to work around a bundler default that upstream has already agreed to reverse.
 
 Rejected: relying on the Docker build alone to catch it. That is what caught it this time, but
 only because the image was actually run; a build that merely succeeds proves nothing here, and

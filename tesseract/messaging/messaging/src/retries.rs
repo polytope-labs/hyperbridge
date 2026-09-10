@@ -77,14 +77,38 @@ async fn retry_once(ctx: &RetryContext) -> Result<(), anyhow::Error> {
 		return Ok(());
 	}
 
-	// Every row read here is dropped at the end of the pass; whatever is still
+	// Everything is proved again against the height the destination is on now.
+	// The proof a request was parked with is anchored at a hyperbridge height the
+	// destination may never have received, since the consensus update it rode
+	// along with is exactly what failed to land.
+	let height = StateMachineHeight {
+		id: ctx.hyperbridge.state_machine_id(),
+		height: ctx.dest.query_latest_height(ctx.hyperbridge.state_machine_id()).await? as u64,
+	};
+
+	let (ready, waiting): (Vec<_>, Vec<_>) =
+		parked.into_iter().partition(|(message, _)| provable_at(message, height.height));
+	if !waiting.is_empty() {
+		tracing::trace!(
+			target: crate::LOG_TARGET,
+			dest = %ctx.dest.name(),
+			count = waiting.len(),
+			height = height.height,
+			"Leaving rows parked until the destination catches up",
+		);
+	}
+	if ready.is_empty() {
+		return Ok(());
+	}
+
+	// Every row taken here is dropped at the end of the pass; whatever is still
 	// worth another attempt is written back as a fresh row.
-	let rows = parked.iter().map(|(_, id)| *id).collect::<Vec<_>>();
+	let rows = ready.iter().map(|(_, id)| *id).collect::<Vec<_>>();
 
 	// A request can be parked twice, once on its own and once inside a batch
 	// that failed later, and a batch carrying the same request twice reverts on
 	// the duplicate. Keying by commitment keeps one copy of each.
-	let requests = parked
+	let requests = ready
 		.into_iter()
 		.filter_map(|(message, _)| match message {
 			Message::Request(msg) => Some(msg.requests),
@@ -99,15 +123,6 @@ async fn retry_once(ctx: &RetryContext) -> Result<(), anyhow::Error> {
 		ctx.tx_payment.delete_unprofitable_messages(rows).await?;
 		return Ok(());
 	}
-
-	// The proof a request was parked with is anchored at a hyperbridge height
-	// the destination may never have received, since the consensus update it
-	// rode along with is exactly what failed to land. Prove against the height
-	// the destination is on now instead.
-	let height = StateMachineHeight {
-		id: ctx.hyperbridge.state_machine_id(),
-		height: ctx.dest.query_latest_height(ctx.hyperbridge.state_machine_id()).await? as u64,
-	};
 
 	tracing::trace!(
 		target: crate::LOG_TARGET,
@@ -184,6 +199,19 @@ async fn retry_once(ctx: &RetryContext) -> Result<(), anyhow::Error> {
 	}
 
 	Ok(())
+}
+
+/// Whether hyperbridge can prove this row for a destination sitting at `height`.
+/// A request only enters the mmr at the block it was committed in, so a row
+/// built past where the destination's light client has reached cannot be proved
+/// for it yet and has to wait.
+fn provable_at(message: &Message, height: u64) -> bool {
+	match message {
+		Message::Request(msg) => msg.proof.height.height <= height,
+		// Rows the delivery pipelines never write. Sweeping them up keeps a stale
+		// one from sitting in the table for good.
+		_ => true,
+	}
 }
 
 /// Requests that are still worth submitting.
@@ -286,6 +314,7 @@ async fn batch_requests(
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use ismp::consensus::StateMachineId;
 	use tesseract_primitives::mocks::MockHost;
 
 	const HB: StateMachine = StateMachine::Kusama(4009);
@@ -305,6 +334,40 @@ mod tests {
 
 	fn commitment(post: &PostRequest) -> H256 {
 		hash_request::<Hasher>(&Request::Post(post.clone()))
+	}
+
+	fn parked_row(post: PostRequest, proof_height: u64, id: i32) -> (Message, i32) {
+		let message = Message::Request(RequestMessage {
+			requests: vec![post],
+			proof: Proof {
+				height: StateMachineHeight {
+					id: StateMachineId { state_id: HB, consensus_state_id: *b"BEEF" },
+					height: proof_height,
+				},
+				proof: vec![],
+			},
+			signer: vec![],
+		});
+		(message, id)
+	}
+
+	/// Hyperbridge cannot prove a request at a height before it was committed, so
+	/// a row built past where the destination's light client has reached has to
+	/// wait rather than fail the whole pass.
+	#[test]
+	fn rows_past_the_destination_height_stay_parked() {
+		let dest_height = 100;
+		let parked = vec![
+			parked_row(post(1, 0), 90, 1),
+			parked_row(post(2, 0), 100, 2),
+			parked_row(post(3, 0), 130, 3),
+		];
+
+		let (ready, waiting): (Vec<_>, Vec<_>) =
+			parked.into_iter().partition(|(message, _)| provable_at(message, dest_height));
+
+		assert_eq!(ready.iter().map(|(_, id)| *id).collect::<Vec<_>>(), vec![1, 2]);
+		assert_eq!(waiting.iter().map(|(_, id)| *id).collect::<Vec<_>>(), vec![3]);
 	}
 
 	#[tokio::test]

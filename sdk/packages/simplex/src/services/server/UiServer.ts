@@ -653,6 +653,18 @@ export class UiServer {
 		const path = (req.url ?? "/").split("?")[0]
 		const method = req.method ?? "GET"
 
+		// Framing defense: the API is unauthenticated by design — the bind is the
+		// boundary — so a page that frames this UI never needs to read or script
+		// it. It only needs the operator to tap through an invisible overlay: the
+		// click lands in the real UI, same-origin, with its own X-Simplex-UI header.
+		// That reaches pause, reset-halt and vault sweep/redeem, which are one
+		// click each. `frame-ancestors` is the directive browsers honour today;
+		// X-Frame-Options is the fallback for older WebViews that ignore CSP.
+		// Set here, before anything can return, so 403s carry it too — and via
+		// setHeader so every writeHead downstream merges rather than drops it.
+		res.setHeader("Content-Security-Policy", "frame-ancestors 'none'")
+		res.setHeader("X-Frame-Options", "DENY")
+
 		const provenance = provenanceOf(req.socket)
 
 		// DNS-rebinding defense: an attacker page resolving its own domain to

@@ -287,6 +287,26 @@ describe("UiServer (operator mode)", () => {
 		expect(await rawRequest(port, "/api/status", "localhost")).toContain("200")
 	})
 
+	it("forbids framing on every response, including rejections", async () => {
+		const { base } = await startServer()
+		// A framing page cannot read or script this origin, but it does not need
+		// to: an invisible overlay makes the operator click the real UI's own
+		// buttons. Pause, reset-halt and vault redeem are one click each.
+		const expectFramingDenied = async (path: string, init?: Parameters<typeof fetch>[1]) => {
+			const res = await fetch(`${base}${path}`, init)
+			await res.arrayBuffer()
+			expect(res.headers.get("content-security-policy")).toBe("frame-ancestors 'none'")
+			expect(res.headers.get("x-frame-options")).toBe("DENY")
+			return res
+		}
+		// The HTML an operator's browser loads, and the JSON API behind it.
+		await expectFramingDenied("/")
+		await expectFramingDenied("/api/status")
+		// Rejections carry it too: the headers are set before any route can
+		// return, so every writeHead downstream merges rather than drops them.
+		expect((await expectFramingDenied("/api/pause", { method: "POST" })).status).toBe(403)
+	})
+
 	it("lists strategies with their curves", async () => {
 		const { base } = await startServer()
 		const res = await fetch(`${base}/api/strategies`)

@@ -8,7 +8,7 @@ use ismp::{
 		Event as IsmpEvent, Meta, RequestResponseHandled, StateMachineUpdated, TimeoutHandled,
 	},
 	host::StateMachine,
-	messaging::{hash_request, hash_response, Message, Proof, RequestMessage, ResponseMessage},
+	messaging::{hash_response, Message, Proof, RequestMessage, ResponseMessage},
 	router::{GetResponse, PostRequest, Request},
 };
 use sp_core::{H160, U256};
@@ -129,15 +129,7 @@ pub async fn translate_events_to_messages(
 								return Ok(None);
 							}
 
-							let req = Request::Post(post.clone());
-							let hash = hash_request::<Hasher>(&req);
-
-							let query = Query {
-								source_chain: req.source_chain(),
-								dest_chain: req.dest_chain(),
-								nonce: req.nonce(),
-								commitment: hash,
-							};
+							let query = Query::from(&Request::Post(post.clone()));
 
 							let proof = source
 								.query_requests_proof(
@@ -381,12 +373,7 @@ async fn build_get_response_candidates(
 			// The `Query` describes the origin GetRequest, not the response: its commitment
 			// is the request commitment, which is what the EVM host keys both the fee
 			// metadata and the response receipt on.
-			queries.push(Query {
-				source_chain: res.get.source,
-				dest_chain: res.get.dest,
-				nonce: res.get.nonce,
-				commitment: hash_request::<Hasher>(&Request::Get(res.get.clone())),
-			});
+			queries.push(Query::from(&Request::Get(res.get.clone())));
 			messages.push(Message::Response(ResponseMessage {
 				requests: vec![res.get.clone()],
 				proof: Proof {
@@ -492,8 +479,7 @@ pub async fn return_successful_queries(
 				async move {
 					if !est.successful_execution && !deliver_failed {
 						tracing::info!(target: crate::LOG_TARGET, "Skipping Failed tx");
-						// if msg has not been delivered return the message as retriable
-						let relayer = match &msg {
+						let receipt = match &msg {
 							Message::Request(_) => {
 								sink.query_request_receipt(query.commitment).await?
 							}
@@ -503,7 +489,8 @@ pub async fn return_successful_queries(
 							_ => unreachable!("Relayer should only ever debug trace request or response messages")
 						};
 
-						if relayer == H160::zero().0.to_vec() && coprocessor != sink.state_machine_id().state_id {
+						// Anything the sink has not seen yet is worth another attempt later.
+						if !was_delivered(&receipt) && coprocessor != sink.state_machine_id().state_id {
 							return Ok((None, Some(msg)))
 						} else {
 							return Ok((None, None))
@@ -573,6 +560,13 @@ pub async fn return_successful_queries(
 	}
 
 	Ok(ProfitabilityResult { queries: queries_to_be_relayed, retriable_messages })
+}
+
+/// Whether a commitment has already been delivered. Hosts record the address of
+/// the relayer that delivered a message and hand back the zero address for one
+/// they have not seen.
+pub fn was_delivered(receipt: &[u8]) -> bool {
+	receipt != H160::zero().0.as_slice()
 }
 
 fn is_allowed_module(config: &RelayerConfig, module: &[u8]) -> bool {

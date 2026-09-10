@@ -1,309 +1,328 @@
 use std::{
-	collections::{BTreeSet, HashMap},
+	collections::{BTreeMap, HashMap},
 	sync::Arc,
 	time::Duration,
 };
 
+use futures::stream::FuturesOrdered;
 use ismp::{
 	consensus::StateMachineHeight,
 	host::StateMachine,
 	messaging::{hash_request, Message, Proof, RequestMessage},
-	router::Request,
+	router::{PostRequest, Request},
 };
+use primitive_types::H256;
 use tesseract_primitives::{config::RelayerConfig, Hasher, IsmpProvider, Query, TxResult};
+use tokio_stream::StreamExt;
 use transaction_fees::TransactionPayment;
 
 use crate::{
-	events::{chunk_size, return_successful_queries},
-	FeeAccSender,
+	events::{chunk_size, return_successful_queries, was_delivered},
+	record_deliveries, FeeAccSender,
 };
 
-/// Pull retriable messages from the database periodically and retry them.
-pub async fn retry_unprofitable_messages(
-	dest: Arc<dyn IsmpProvider>,
-	hyperbridge: Arc<dyn IsmpProvider>,
-	client_map: HashMap<StateMachine, Arc<dyn IsmpProvider>>,
-	tx_payment: Arc<TransactionPayment>,
-	config: RelayerConfig,
-	coprocessor: StateMachine,
-	fee_acc_sender: Option<FeeAccSender>,
-) -> Result<(), anyhow::Error> {
+/// How often a pass runs when the operator hasn't set `unprofitable_retry_frequency`.
+const DEFAULT_RETRY_FREQUENCY: Duration = Duration::from_secs(5 * 60);
+
+/// Everything one destination's retry loop needs, assembled once by the caller.
+pub struct RetryContext {
+	/// The chain the parked messages were meant for.
+	pub dest: Arc<dyn IsmpProvider>,
+	/// Where the requests came from, and where their proofs are read from.
+	pub hyperbridge: Arc<dyn IsmpProvider>,
+	pub client_map: HashMap<StateMachine, Arc<dyn IsmpProvider>>,
+	pub tx_payment: Arc<TransactionPayment>,
+	pub config: RelayerConfig,
+	pub coprocessor: StateMachine,
+	pub fee_acc_sender: Option<FeeAccSender>,
+}
+
+/// Redeliver requests from hyperbridge that never landed.
+///
+/// Deliveries out of hyperbridge are gated to a whitelisted relayer, so a batch
+/// this relayer failed to submit is not going to be picked up by anyone else.
+/// The delivery pipelines park those requests in the database and this loop
+/// drains them on a timer.
+pub async fn retry_undelivered_messages(ctx: RetryContext) -> Result<(), anyhow::Error> {
+	let frequency = ctx
+		.config
+		.unprofitable_retry_frequency
+		.map_or(DEFAULT_RETRY_FREQUENCY, Duration::from_secs);
 	tracing::trace!(
-		target: crate::LOG_TARGET, "Starting message retries background task for deliveries to  {:?}",
-		dest.name()
+		target: crate::LOG_TARGET,
+		dest = %ctx.dest.name(),
+		?frequency,
+		"Starting message retries background task",
 	);
-	// Default to every 5 minutes
-	let mut interval = tokio::time::interval(Duration::from_secs(
-		config.unprofitable_retry_frequency.unwrap_or(5 * 60),
-	));
+
+	let mut interval = tokio::time::interval(frequency);
 	loop {
 		interval.tick().await;
-		let unprofitables =
-			match tx_payment.unprofitable_messages(&dest.state_machine_id().state_id).await {
-				Ok(messages) => messages,
-				Err(_) => {
-					continue;
-				},
-			};
-
-		// Find messages that are  bundled as a batch and split them up so they can be reestimated
-		let mut batched_messages = vec![];
-		let mut unbatched_messages = vec![];
-
-		for (msg, id) in unprofitables {
-			match msg {
-				Message::Request(ref req_msg) =>
-					if req_msg.requests.len() > 1 {
-						batched_messages.push((msg, id))
-					} else {
-						unbatched_messages.push((msg, id))
-					},
-				Message::Response(ref resp_msg) =>
-					if resp_msg.requests().len() > 1 {
-						batched_messages.push((msg, id))
-					} else {
-						unbatched_messages.push((msg, id))
-					},
-				_ => {},
-			}
+		if let Err(err) = retry_once(&ctx).await {
+			tracing::error!(
+				target: crate::LOG_TARGET,
+				dest = %ctx.dest.name(),
+				?err,
+				"Retry pass failed",
+			);
 		}
+	}
+}
 
-		// Split batched messages into individual messages
-		for (msg, id) in batched_messages {
-			match msg {
-				Message::Request(req_msg) => {
-					let proof_height = req_msg.proof.height;
-					for post in req_msg.requests {
-						let query = {
-							let req = Request::Post(post.clone());
-							let hash = hash_request::<Hasher>(&req);
+/// One pass over everything parked for this destination.
+async fn retry_once(ctx: &RetryContext) -> Result<(), anyhow::Error> {
+	let dest_state_machine = ctx.dest.state_machine_id().state_id;
+	let parked = ctx.tx_payment.unprofitable_messages(&dest_state_machine).await?;
+	if parked.is_empty() {
+		return Ok(());
+	}
 
-							Query {
-								source_chain: req.source_chain(),
-								dest_chain: req.dest_chain(),
-								nonce: req.nonce(),
-								commitment: hash,
-							}
-						};
+	// Every row read here is dropped at the end of the pass; whatever is still
+	// worth another attempt is written back as a fresh row.
+	let rows = parked.iter().map(|(_, id)| *id).collect::<Vec<_>>();
 
-						let proof = hyperbridge
-							.query_requests_proof(
-								proof_height.height,
-								vec![query],
-								dest.state_machine_id().state_id,
-							)
-							.await?;
+	// A request can be parked twice, once on its own and once inside a batch
+	// that failed later, and a batch carrying the same request twice reverts on
+	// the duplicate. Keying by commitment keeps one copy of each.
+	let requests = parked
+		.into_iter()
+		.filter_map(|(message, _)| match message {
+			Message::Request(msg) => Some(msg.requests),
+			_ => None,
+		})
+		.flatten()
+		.map(|post| (hash_request::<Hasher>(&Request::Post(post.clone())), post))
+		.collect::<BTreeMap<H256, PostRequest>>();
 
-						let _msg = RequestMessage {
-							requests: vec![post.clone()],
-							proof: Proof { height: proof_height, proof },
-							signer: dest.address(),
-						};
+	let deliverable = deliverable_requests(&ctx.dest, requests.into_values().collect()).await?;
+	if deliverable.is_empty() {
+		ctx.tx_payment.delete_unprofitable_messages(rows).await?;
+		return Ok(());
+	}
 
-						unbatched_messages.push((Message::Request(_msg), id))
-					}
-				},
-				_ => {},
-			}
-		}
+	// The proof a request was parked with is anchored at a hyperbridge height
+	// the destination may never have received, since the consensus update it
+	// rode along with is exactly what failed to land. Prove against the height
+	// the destination is on now instead.
+	let height = StateMachineHeight {
+		id: ctx.hyperbridge.state_machine_id(),
+		height: ctx.dest.query_latest_height(ctx.hyperbridge.state_machine_id()).await? as u64,
+	};
 
-		if !unbatched_messages.is_empty() {
-			tracing::trace!(target: crate::LOG_TARGET, "Starting retries of previously unprofitable or failed messages");
-			let mut request_messages = vec![];
-			let mut ids = BTreeSet::new();
-			let mut request_queries = vec![];
-			let mut post_requests = vec![];
-			// Store the highest proof height in this variable
-			let mut state_machine_height: Option<StateMachineHeight> = None;
-			unbatched_messages.into_iter().for_each(|(message, id)| match message {
-				Message::Request(msg) => {
-					let post = msg.requests.get(0).cloned().expect(
-							"Inconsistent Database, withdraw all fees and  restart relayer with a fresh database",
-						);
-					let query = {
-						let req = Request::Post(post.clone());
-						let hash = hash_request::<Hasher>(&req);
+	tracing::trace!(
+		target: crate::LOG_TARGET,
+		dest = %ctx.dest.name(),
+		count = deliverable.len(),
+		height = height.height,
+		"Retrying previously undelivered messages",
+	);
 
-						Query {
-							source_chain: req.source_chain(),
-							dest_chain: req.dest_chain(),
-							nonce: req.nonce(),
-							commitment: hash,
-						}
-					};
-					if let Some(state_machine_height) = state_machine_height.as_mut() {
-						if msg.proof.height.height > state_machine_height.height {
-							*state_machine_height = msg.proof.height
-						}
-					} else {
-						state_machine_height = Some(msg.proof.height)
-					}
-					post_requests.push(post);
-					request_messages.push(Message::Request(msg));
-					request_queries.push(query);
-					ids.insert(id);
-				},
-				_ => panic!(
-					"Inconsistent Db, withdraw all fees and restart relayer with a fresh database"
-				),
-			});
+	let queries = deliverable
+		.iter()
+		.map(|post| Query::from(&Request::Post(post.clone())))
+		.collect::<Vec<_>>();
+	let messages = single_request_messages(ctx, &deliverable, height).await?;
+	let profitability = return_successful_queries(
+		ctx.dest.clone(),
+		messages,
+		queries,
+		ctx.config.minimum_profit_percentage,
+		ctx.coprocessor,
+		&ctx.client_map,
+		ctx.config.deliver_failed.unwrap_or_default(),
+		// No consensus update rides along with a retry, the destination's light
+		// client is already at the height these proofs are built against.
+		None,
+	)
+	.await?;
 
-			let mut outgoing_messages = vec![];
-			let mut new_unprofitable_messages = vec![];
-			match return_successful_queries(
-				dest.clone(),
-				request_messages,
-				request_queries,
-				config.minimum_profit_percentage,
-				coprocessor,
-				&client_map,
-				config.deliver_failed.unwrap_or_default(),
-				// Retry loop doesn't carry a fresh consensus update — by the
-				// time it runs the light client is already at whatever height
-				// the original delivery saw.
-				None,
-			)
-			.await
-			{
-				Ok(request_profitablility) => {
-					let post_requests: Vec<_> =
-						post_requests
-							.into_iter()
-							.zip(request_profitablility.queries.iter())
-							.filter_map(|(current_post, current_query)| {
-								if current_query.is_some() {
-									Some(current_post)
-								} else {
-									None
-								}
-							})
-							.collect();
+	let profitable = deliverable
+		.into_iter()
+		.zip(profitability.queries)
+		.filter_map(|(post, query)| query.map(|query| (post, query)))
+		.collect::<Vec<_>>();
 
-					let successful_queries: Vec<Query> = request_profitablility
-						.queries
-						.into_iter()
-						.filter_map(|query| query)
-						.collect();
+	let mut retriable = profitability.retriable_messages;
+	let outgoing = batch_requests(ctx, &profitable, height).await?;
 
-					if !successful_queries.is_empty() {
-						tracing::trace!(
-							target: crate::LOG_TARGET, "Unprofitable Messages Retries: Querying request proof for batch length {}",
-							successful_queries.len()
-						);
-						let chunks = chunk_size(dest.state_machine_id().state_id);
-						let query_chunks = successful_queries.chunks(chunks);
-						let post_request_chunks = post_requests.chunks(chunks);
-						for (queries, post_requests) in
-							query_chunks.into_iter().zip(post_request_chunks)
-						{
-							if let Some(state_machine_height) = state_machine_height {
-								if let Ok(requests_proof) = hyperbridge
-									.query_requests_proof(
-										state_machine_height.height,
-										queries.to_vec(),
-										dest.state_machine_id().state_id,
-									)
-									.await
-								{
-									let msg = RequestMessage {
-										requests: post_requests.to_vec(),
-										proof: Proof {
-											height: state_machine_height,
-											proof: requests_proof,
-										},
-										signer: dest.address(),
-									};
-									outgoing_messages.push(Message::Request(msg));
-								}
-							}
-						}
-					}
-
-					new_unprofitable_messages.extend(request_profitablility.retriable_messages);
-				},
-				Err(err) => {
-					tracing::error!(target: crate::LOG_TARGET, "Unprofitable Messages Retries: Debug tracing failed: {err:?}")
-				},
-			}
-
-			if !outgoing_messages.is_empty() {
-				tracing::info!(
+	if !outgoing.is_empty() {
+		tracing::info!(
+			target: crate::LOG_TARGET,
+			"🛰️ Retransmitting ismp messages from {} to {}",
+			ctx.hyperbridge.name(),
+			ctx.dest.name(),
+		);
+		match ctx.dest.submit(outgoing.clone(), ctx.coprocessor).await {
+			Ok(TxResult { receipts, unsuccessful, new_epochs: _ }) => {
+				record_deliveries(&ctx.tx_payment, &ctx.fee_acc_sender, receipts, ctx.coprocessor)
+					.await;
+				retriable.extend(unsuccessful);
+			},
+			Err(err) => {
+				tracing::error!(
 					target: crate::LOG_TARGET,
-					"Unprofitable Messages Retries: 🛰️ Transmitting ismp messages from {} to {}", hyperbridge.name(), dest.name()
+					dest = %ctx.dest.name(),
+					?err,
+					"Retry submission failed",
 				);
-				if let Ok(TxResult { receipts, unsuccessful, new_epochs: _ }) =
-					dest.submit(outgoing_messages, coprocessor).await
-				{
-					if let Some(fee_acc_sender) = fee_acc_sender.clone() {
-						if !receipts.is_empty() {
-							// Store receipts in database before auto accumulation
-							tracing::trace!(target: crate::LOG_TARGET, "Persisting {} deliveries from {}->{} to the db", receipts.len(), hyperbridge.name(), dest.name());
-							if let Err(err) = tx_payment.store_messages(receipts.clone()).await {
-								tracing::error!(
-									target: crate::LOG_TARGET, "Failed to persist {} deliveries to database: {err:?}",
-									receipts.len()
-								)
-							}
-							// Send receipts to the fee accumulation task.
-							// `try_send` so this retry path never blocks on a
-							// backed-up consumer; deliveries were already
-							// persisted to the local DB just above, so the
-							// `accumulate-fees` subcommand can recover any
-							// dropped trigger.
-							if let Err(err) = fee_acc_sender.try_send(receipts) {
-								tracing::error!(
-									target: crate::LOG_TARGET,
-									?err,
-									"Fee auto accumulation channel send failed; you can try again manually",
-								);
-							}
-						}
-					}
-
-					if !unsuccessful.is_empty() {
-						tracing::trace!(target: crate::LOG_TARGET, "Unprofitable Messages Retries: Persisting {} unsuccessful messages going to {} to the db", unsuccessful.len(), dest.name());
-						let _ = tx_payment
-							.store_unprofitable_messages(
-								unsuccessful,
-								dest.state_machine_id().state_id,
-							)
-							.await;
-					}
-				}
-			}
-			// Delete previous batch from db
-			if !ids.is_empty() {
-				tracing::trace!(target: crate::LOG_TARGET, "Unprofitable Messages Retries: Deleting some unprofitable messages from the Db");
-				let _ = tx_payment.delete_unprofitable_messages(ids).await;
-			}
-			// Store the new batch
-			if !new_unprofitable_messages.is_empty() {
-				// remove timedout messages from the list
-				let dest_timestamp = dest.query_timestamp().await?;
-				let retriable_msgs = new_unprofitable_messages
-					.into_iter()
-					.filter_map(|msg| match &msg {
-						Message::Request(req_msg) => {
-							let req = Request::Post(req_msg.requests[0].clone());
-							if req.timed_out(dest_timestamp) {
-								None
-							} else {
-								Some(msg.clone())
-							}
-						},
-						_ => None,
-					})
-					.collect::<Vec<_>>();
-				if !retriable_msgs.is_empty() {
-					tracing::trace!(target: crate::LOG_TARGET, "Unprofitable Messages Retries: Persisting {} unprofitable messages going to {} to the db", retriable_msgs.len(), dest.name());
-					let _ = tx_payment
-						.store_unprofitable_messages(
-							retriable_msgs,
-							dest.state_machine_id().state_id,
-						)
-						.await;
-				}
-			}
+				retriable.extend(outgoing);
+			},
 		}
+	}
+
+	ctx.tx_payment.delete_unprofitable_messages(rows).await?;
+	if !retriable.is_empty() {
+		tracing::trace!(
+			target: crate::LOG_TARGET,
+			dest = %ctx.dest.name(),
+			count = retriable.len(),
+			"Parking messages for the next retry",
+		);
+		ctx.tx_payment
+			.store_unprofitable_messages(retriable, dest_state_machine)
+			.await?;
+	}
+
+	Ok(())
+}
+
+/// Requests that are still worth submitting.
+///
+/// A request the destination already has a receipt for was delivered by some
+/// other submission, and one past its timeout is never accepted again. Both
+/// revert on delivery, so neither is carried any further.
+async fn deliverable_requests(
+	dest: &Arc<dyn IsmpProvider>,
+	requests: Vec<PostRequest>,
+) -> Result<Vec<PostRequest>, anyhow::Error> {
+	let timestamp = dest.query_timestamp().await?;
+	let mut deliverable = vec![];
+
+	for chunk in requests.chunks(dest.max_concurrent_queries()) {
+		let checked = chunk
+			.iter()
+			.map(|post| async move {
+				let request = Request::Post(post.clone());
+				if request.timed_out(timestamp) {
+					return Ok::<_, anyhow::Error>(None);
+				}
+
+				let receipt = dest.query_request_receipt(hash_request::<Hasher>(&request)).await?;
+				Ok((!was_delivered(&receipt)).then(|| post.clone()))
+			})
+			.collect::<FuturesOrdered<_>>()
+			.collect::<Result<Vec<_>, _>>()
+			.await?;
+
+		deliverable.extend(checked.into_iter().flatten());
+	}
+
+	Ok(deliverable)
+}
+
+/// One message per request, each with its own proof, which is the shape gas
+/// estimation and the profitability check work on.
+async fn single_request_messages(
+	ctx: &RetryContext,
+	requests: &[PostRequest],
+	height: StateMachineHeight,
+) -> Result<Vec<Message>, anyhow::Error> {
+	let dest_state_machine = ctx.dest.state_machine_id().state_id;
+	let mut messages = vec![];
+
+	for chunk in requests.chunks(ctx.hyperbridge.max_concurrent_queries()) {
+		let built = chunk
+			.iter()
+			.map(|post| async move {
+				let query = Query::from(&Request::Post(post.clone()));
+				let proof = ctx
+					.hyperbridge
+					.query_requests_proof(height.height, vec![query], dest_state_machine)
+					.await?;
+
+				Ok::<_, anyhow::Error>(Message::Request(RequestMessage {
+					requests: vec![post.clone()],
+					proof: Proof { height, proof },
+					signer: ctx.dest.address(),
+				}))
+			})
+			.collect::<FuturesOrdered<_>>()
+			.collect::<Result<Vec<_>, _>>()
+			.await?;
+
+		messages.extend(built);
+	}
+
+	Ok(messages)
+}
+
+/// Regroup the requests that made it through into batches the destination can
+/// take in one call, each proved once for the whole batch.
+async fn batch_requests(
+	ctx: &RetryContext,
+	profitable: &[(PostRequest, Query)],
+	height: StateMachineHeight,
+) -> Result<Vec<Message>, anyhow::Error> {
+	let dest_state_machine = ctx.dest.state_machine_id().state_id;
+	let mut messages = vec![];
+
+	for chunk in profitable.chunks(chunk_size(dest_state_machine)) {
+		let (requests, queries): (Vec<_>, Vec<_>) = chunk.iter().cloned().unzip();
+		let proof = ctx
+			.hyperbridge
+			.query_requests_proof(height.height, queries, dest_state_machine)
+			.await?;
+
+		messages.push(Message::Request(RequestMessage {
+			requests,
+			proof: Proof { height, proof },
+			signer: ctx.dest.address(),
+		}));
+	}
+
+	Ok(messages)
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use tesseract_primitives::mocks::MockHost;
+
+	const HB: StateMachine = StateMachine::Kusama(4009);
+	const DEST: StateMachine = StateMachine::Evm(1);
+
+	fn post(nonce: u64, timeout_timestamp: u64) -> PostRequest {
+		PostRequest {
+			source: HB,
+			dest: DEST,
+			nonce,
+			from: vec![1],
+			to: vec![2],
+			timeout_timestamp,
+			body: vec![],
+		}
+	}
+
+	fn commitment(post: &PostRequest) -> H256 {
+		hash_request::<Hasher>(&Request::Post(post.clone()))
+	}
+
+	#[tokio::test]
+	async fn keeps_only_requests_the_destination_can_still_take() {
+		let pending = post(1, 0);
+		let delivered = post(2, 0);
+		let expired = post(3, 100);
+
+		let dest: Arc<dyn IsmpProvider> = Arc::new(
+			MockHost::new((), 0, DEST)
+				.with_request_receipt(commitment(&delivered), vec![0xab; 20])
+				.with_timestamp(Duration::from_secs(200)),
+		);
+
+		let deliverable = deliverable_requests(&dest, vec![pending.clone(), delivered, expired])
+			.await
+			.unwrap();
+
+		assert_eq!(deliverable, vec![pending]);
 	}
 }

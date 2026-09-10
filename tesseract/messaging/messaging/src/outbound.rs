@@ -382,6 +382,10 @@ async fn submit_for_dest(
 		return Ok(());
 	}
 
+	// Parking is pointless with nothing draining the rows, so it follows the
+	// same toggle the retry task itself does.
+	let retries_enabled = relayer_config.unprofitable_retry_frequency.is_some();
+
 	let consensus_msg = Message::Consensus(ConsensusMessage {
 		consensus_proof: proof_bytes,
 		consensus_state_id: BEEFY_CONSENSUS_STATE_ID,
@@ -409,9 +413,14 @@ async fn submit_for_dest(
 		.await
 		{
 			Ok((deliverable, unprofitable)) => {
-				if !unprofitable.is_empty() {
-					tracing::debug!(target: LOG_TARGET, dropped = unprofitable.len(), "unprofitable messages dropped");
-				}
+				park_undelivered(
+					&dest_name,
+					dest_state_machine,
+					unprofitable,
+					&claim_tx_payment,
+					retries_enabled,
+				)
+				.await;
 				batch.extend(deliverable);
 			},
 			Err(err) => {
@@ -441,9 +450,12 @@ async fn submit_for_dest(
 	} else {
 		tracing::info!(target: "tesseract", msgs = batch.len(), "🛰️ Transmitting ismp messages to {dest_name}");
 	}
-	// Extract the post requests from the batch before submit consumes it,
-	// so the request-claim forwarder can index them by commitment.
-	let batch_requests: Vec<PostRequest> = batch
+	// Keep a copy of the request messages before submit consumes the batch:
+	// the request-claim forwarder indexes them by commitment, and a submission
+	// that never lands parks them for the retry task.
+	let requests: Vec<Message> =
+		batch.iter().filter(|msg| matches!(msg, Message::Request(_))).cloned().collect();
+	let batch_requests: Vec<PostRequest> = requests
 		.iter()
 		.flat_map(|msg| match msg {
 			Message::Request(req_msg) => req_msg.requests.clone(),
@@ -454,7 +466,29 @@ async fn submit_for_dest(
 	// `submit` transparently picks the right transport — EVM destinations
 	// whose handler supports IHandlerV2 dispatch the whole batch as a single
 	// `batchCall(bytes[])` tx; everything else uses the legacy serial path.
-	let result = dest.submit(batch, hb_state_machine_id.state_id).await?;
+	let result = match dest.submit(batch, hb_state_machine_id.state_id).await {
+		Ok(result) => result,
+		Err(err) => {
+			park_undelivered(
+				&dest_name,
+				dest_state_machine,
+				requests,
+				&claim_tx_payment,
+				retries_enabled,
+			)
+			.await;
+			return Err(err);
+		},
+	};
+
+	park_undelivered(
+		&dest_name,
+		dest_state_machine,
+		result.unsuccessful,
+		&claim_tx_payment,
+		retries_enabled,
+	)
+	.await;
 
 	// Forward a claim for every hyperbridge-originated request just delivered.
 	forward_request_delivery_claims(
@@ -537,6 +571,45 @@ async fn submit_for_dest(
 	.await;
 
 	Ok(())
+}
+
+/// Park requests the destination never received so the retry task can try them
+/// again. Deliveries out of hyperbridge are gated to a whitelisted relayer, so
+/// there is no one else to pick them up.
+///
+/// Only requests are parked. The consensus message in a failed batch is
+/// superseded by the next proof that comes along, and a get response is paid
+/// for on delivery rather than claimed, so it carries no reward to recover.
+async fn park_undelivered(
+	dest_name: &str,
+	dest_state_machine: StateMachine,
+	messages: Vec<Message>,
+	tx_payment: &Option<Arc<TransactionPayment>>,
+	retries_enabled: bool,
+) {
+	let Some(tx_payment) = tx_payment.as_ref().filter(|_| retries_enabled) else { return };
+	let requests = messages
+		.into_iter()
+		.filter(|msg| matches!(msg, Message::Request(_)))
+		.collect::<Vec<_>>();
+	if requests.is_empty() {
+		return;
+	}
+
+	tracing::debug!(
+		target: LOG_TARGET,
+		dest = %dest_name,
+		count = requests.len(),
+		"parking undelivered messages for retry",
+	);
+	if let Err(err) = tx_payment.store_unprofitable_messages(requests, dest_state_machine).await {
+		tracing::error!(
+			target: LOG_TARGET,
+			dest = %dest_name,
+			?err,
+			"failed to park undelivered messages",
+		);
+	}
 }
 
 /// Drop hyperbridge-originated requests whose `source_module` is neither on the
@@ -948,6 +1021,40 @@ pub async fn initialize(
 		.instrument(request_claim_span)
 		.boxed(),
 	);
+
+	// One retry loop per destination, draining the requests the fan-out parked
+	// when a batch never landed. Off unless the operator set
+	// `unprofitable_retry_frequency`.
+	if relayer_config.unprofitable_retry_frequency.is_some() {
+		for (state_machine, dest) in &destinations {
+			let ctx = crate::retries::RetryContext {
+				dest: dest.clone(),
+				hyperbridge: hyperbridge_provider.clone(),
+				client_map: provider_clients.clone(),
+				tx_payment: tx_payment.clone(),
+				config: relayer_config.clone(),
+				coprocessor: hyperbridge_provider.state_machine_id().state_id,
+				fee_acc_sender: fee_senders.get(state_machine).cloned(),
+			};
+			let name = format!("retries-{}-{}", hyperbridge_provider.name(), dest.name());
+			let span = tracing::info_span!(
+				"retries",
+				hb = %hyperbridge_provider.name(),
+				chain = %dest.name(),
+			);
+			task_manager.spawn_essential_handle().spawn_blocking(
+				Box::leak(Box::new(name)),
+				"outbound",
+				async move {
+					tracing::trace!(target: LOG_TARGET, "task started");
+					let res = crate::retries::retry_undelivered_messages(ctx).await;
+					tracing::error!(target: LOG_TARGET, ?res, "task terminated");
+				}
+				.instrument(span)
+				.boxed(),
+			);
+		}
+	}
 
 	// Outbound fan-out itself.
 	let outbound_name = format!("outbound-{}", hyperbridge_provider.name());

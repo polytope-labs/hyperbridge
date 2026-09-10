@@ -334,7 +334,11 @@ byte-identical to a default run and launched no browser (checked with a stub `xd
 one shared `process.stdout` for 4000 records and found no interleaved or partial lines.
 
 Files: src/bin/simplex.ts, src/cli/log-format.ts (new), src/tests/cli/log-format.test.ts (new),
-README.md, package.json (0.17.0).
+README.md.
+
+No version bump. Four simplex branches were open against #1237 at once and a bump in each would have
+collided on the same field for nothing — publishing is tag-driven, so the version can be set once on
+whatever lands. This is the exception to the usual "bump inside the feature PR" rule, not a change to it.
 
 
 ## 2026-09-09 — Make the SSH tunnel's publickey guard fail closed

@@ -2,7 +2,7 @@ import type { Socket } from "node:net"
 import type { Duplex } from "node:stream"
 import ssh2, { type Connection, type Server as SshServerType } from "ssh2"
 import { getLogger } from "../Logger"
-import { isLoopbackHost, VIA_TUNNEL } from "../server/http-util"
+import { isLoopbackHost, markProvenance } from "../server/http-util"
 import { fingerprintOf } from "./keys"
 
 // ssh2 is CommonJS: named imports resolve under vitest's transform but not in
@@ -381,8 +381,10 @@ export class EmbeddedSshServer {
 					remoteAddress: { value: originIp, configurable: true },
 					remotePort: { value: originPort, configurable: true },
 					remoteFamily: { value: originIp.includes(":") ? "IPv6" : "IPv4", configurable: true },
-					[VIA_TUNNEL]: { value: true, configurable: true },
 				})
+				// Stamped on a channel this process built, so a device cannot forge its
+				// way out of the tunnel's reduced privileges.
+				markProvenance(channel, "tunnel")
 				Object.assign(channel, {
 					setTimeout: () => channel,
 					setNoDelay: () => channel,
@@ -393,7 +395,9 @@ export class EmbeddedSshServer {
 				})
 				channel.on("error", (err: Error) => this.logger.debug({ origin, err: err.message }, "Tunnel channel error"))
 				if (!this.opts.deliver(channel, { ip: originIp, port: originPort })) {
-					this.logger.warn({ origin }, "No UI to serve behind the tunnel")
+					// Not necessarily "no UI": the server also refuses a channel while it is
+					// not listening, which says nothing about whether the dashboard exists.
+					this.logger.warn({ origin }, "UI server would not accept the tunnelled connection")
 					channel.destroy()
 				}
 			})

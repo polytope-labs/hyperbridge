@@ -1,4 +1,8 @@
+import { chmodSync, existsSync, unlinkSync } from "node:fs"
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http"
+import { connect } from "node:net"
+import { tmpdir } from "node:os"
+import { resolve as resolvePath } from "node:path"
 import type { Duplex } from "node:stream"
 import { Decimal } from "decimal.js"
 import { FillerPricePolicy, formatChainKey, parseChainKey, type PriceCurvePoint } from "@/config/interpolated-curve"
@@ -18,7 +22,17 @@ import type { ActivityEvent, BidStore, OrderLeg } from "@/data/types"
 import type { BalanceProvider } from "../BalanceProvider"
 import { getLogger, type LogLevel } from "../Logger"
 import { DEFAULT_TUNNEL_RELAY, parseRelayAddress, relayKey, type TunnelControls } from "../tunnel/TunnelService"
-import { readBody, sendJson, isLoopbackHost, isContainerized, hostHeaderAllowed, isTunnelled } from "./http-util"
+import {
+	readBody,
+	sendJson,
+	isLoopbackHost,
+	isContainerized,
+	hostHeaderAllowed,
+	isTunnelled,
+	markProvenance,
+	provenanceOf,
+	type Provenance,
+} from "./http-util"
 import { serveStatic } from "./static"
 import {
 	handleSetupRequest,
@@ -94,6 +108,19 @@ export interface AdminStrategy {
 }
 
 export type UiMode = "init" | "operator"
+
+/**
+ * Where the UI server listens.
+ *
+ * A TCP port is the CLI's mode and reaches every local user, so it carries the
+ * host-header defense and the loopback rules below. A `socketPath` binds a Unix
+ * domain socket instead (a named pipe on Windows) — the filesystem decides who
+ * may connect, and no web page can open one at all, which is what lets an
+ * embedding application (the desktop app) expose the API without a port.
+ *
+ * The two are alternatives, not layers: a server listens on one or the other.
+ */
+export type ListenTarget = { host?: string; port: number } | { socketPath: string }
 
 /** Narrow view of the IntentFiller, so tests can stub it. */
 export interface PauseControl {
@@ -210,6 +237,43 @@ Run <code>pnpm ui:build</code> (or a full <code>pnpm build</code>) and restart.<
 <p>The JSON API under <code>/api</code> is unaffected.</p></body>`
 
 /**
+ * `sun_path` in `sockaddr_un` is a fixed-size field: 108 bytes on Linux, 104 on
+ * macOS and the BSDs, terminating NUL included. Past it bind(2) fails with a
+ * message naming neither the limit nor the offending path.
+ *
+ * It bites in practice rather than in theory: a desktop application's natural
+ * home for such a file is its user-data directory, which on macOS is already
+ * `~/Library/Application Support/<app>/` before a filename is added.
+ */
+const SUN_PATH_MAX_BYTES = process.platform === "darwin" ? 103 : 107
+
+/** Windows names a pipe `\\.\pipe\name`, which is not a filesystem path. */
+function isWindowsPipe(path: string): boolean {
+	return /^\\\\[.?]\\pipe\\/i.test(path)
+}
+
+/**
+ * Refuses an over-long socket path up front, with the limit and a way out,
+ * rather than letting bind(2) produce an opaque failure.
+ *
+ * Refusing beats silently relocating to a shorter path: the caller uses this
+ * path to find the daemon again, so moving it would trade a clear error at
+ * startup for a daemon nothing can attach to.
+ */
+function assertSocketPathFits(path: string): void {
+	// A Windows pipe is not a sockaddr_un; its own cap is the 256-character pipe
+	// name, which no plausible path approaches.
+	if (process.platform === "win32") return
+	// Bytes, not characters: a non-ASCII path spends more of the field than it looks.
+	const bytes = Buffer.byteLength(path)
+	if (bytes <= SUN_PATH_MAX_BYTES) return
+	throw new Error(
+		`UI socket path is ${bytes} bytes, over this platform's ${SUN_PATH_MAX_BYTES}-byte limit for a Unix socket: ${path}. ` +
+			`Use a shorter path — a directory under ${tmpdir()} is the usual fallback when the natural location is too long.`,
+	)
+}
+
+/**
  * Loopback HTTP server embedded in the simplex process. Serves the bundled SPA
  * and a JSON API in one of two modes: `init` (setup wizard endpoints, before a
  * config exists) or `operator` (status/pause/balances plus inflight price curve
@@ -228,6 +292,10 @@ export class UiServer {
 	private sseClients = new Set<ServerResponse>()
 	private activityListener?: (event: ActivityEvent) => void
 	private boundLoopback = true
+	/** How connections this server accepted arrived; stamped onto each socket. */
+	private listenProvenance: Provenance = "tcp"
+	/** Set while a Unix socket is bound, so shutdown can take the path back down with it. */
+	private socketPath?: string
 	private deps: Required<SetupDeps>
 	/**
 	 * Chain ids aligned with `config.chains` rows. The TOML records no chain id
@@ -260,6 +328,13 @@ export class UiServer {
 				}
 			})
 		})
+		// Prepended so the stamp lands before http's own connection listener attaches
+		// a parser, which makes `provenanceOf(req.socket)` total by the time `handle`
+		// runs. `accept()` stamps its channels first and `markProvenance` keeps the
+		// first stamp, so an injected connection is never relabelled as a listened-for
+		// one. Tagging the socket, rather than reading what the server happens to be
+		// listening on, is what keeps the rules right for a server serving both.
+		this.server.prependListener("connection", (socket) => markProvenance(socket, this.listenProvenance))
 	}
 
 	/**
@@ -269,12 +344,124 @@ export class UiServer {
 	 */
 	accept(socket: Duplex): boolean {
 		if (!this.server.listening) return false
+		// The tunnel is the only caller, and this is the one place that holds
+		// regardless of how the channel was built — so the tunnel provenance is
+		// settled here, ahead of the listener stamp the emit below would otherwise
+		// apply.
+		markProvenance(socket, "tunnel")
 		this.server.emit("connection", socket)
 		return true
 	}
 
 	/** Resolves with the bound port once listening (pass port 0 for an ephemeral port). */
-	start(port: number, host = "127.0.0.1"): Promise<number> {
+	start(port: number, host?: string): Promise<number>
+	/** Resolves once listening; the bound port for a TCP target, 0 for a Unix socket. */
+	start(target: ListenTarget): Promise<number>
+	async start(target: number | ListenTarget, host = "127.0.0.1"): Promise<number> {
+		if (typeof target === "number") return this.listenOnPort(target, host)
+		if ("socketPath" in target) return this.listenOnSocket(target.socketPath)
+		return this.listenOnPort(target.port, target.host ?? host)
+	}
+
+	/**
+	 * Binds a Unix domain socket (a named pipe on Windows) rather than a port.
+	 * Node's `listen(path)` speaks HTTP over one natively, so the route table,
+	 * the handlers and the SSE stream are the same code either way.
+	 *
+	 * Resolves 0: there is no port to report. A listening TCP server never reports
+	 * 0 either, so the two are not confusable.
+	 */
+	private async listenOnSocket(socketPath: string): Promise<number> {
+		// A named pipe name is not a filesystem path; resolving one would mangle it.
+		const path = isWindowsPipe(socketPath) ? socketPath : resolvePath(socketPath)
+		assertSocketPathFits(path)
+		await this.clearStaleSocket(path)
+		// A socket file is reachable by strictly fewer callers than loopback is, so the
+		// loopback branch of the host rule is the right default for anything that does
+		// consult it — though `handle` skips the check outright for these connections.
+		this.boundLoopback = true
+		this.listenProvenance = "unix"
+		await new Promise<void>((resolve, reject) => {
+			this.server.once("error", reject)
+			this.server.listen(path, () => resolve())
+		})
+		this.socketPath = path
+		this.restrictSocketToOwner(path)
+		this.logger.info({ bind: path }, `Simplex UI available on the socket at ${path}`)
+		return 0
+	}
+
+	/**
+	 * Narrows the socket file to `0600`, which is the access control this listen
+	 * mode exists for. Node binds it `0777 & ~umask` — 0775 under the common
+	 * `umask 002`, letting every member of the operator's group connect and drive
+	 * `/api/send`. Linux and macOS both check write permission on the socket file
+	 * at connect(2), so the mode is enforced rather than advisory.
+	 *
+	 * A window exists between bind and chmod in which the umask mode stands. It
+	 * cannot be closed from Node — libuv takes no mode at bind, and changing the
+	 * process umask would race every other write this process makes — so an
+	 * embedder that cares should place the socket in a directory only it can
+	 * traverse, which closes it from the outside.
+	 */
+	private restrictSocketToOwner(path: string): void {
+		// Windows named pipes are not files and carry no mode. Their DACL is not
+		// owner-only and Node cannot narrow it; see docs/ai/Decisions.md.
+		if (process.platform === "win32") return
+		try {
+			chmodSync(path, 0o600)
+		} catch (err) {
+			this.logger.warn(
+				{ err, path },
+				"Could not restrict the UI socket to this user — other local users may be able to connect",
+			)
+		}
+	}
+
+	/**
+	 * Clears a socket file left behind by a run that was killed before it could
+	 * remove its own; without this a `SIGKILL`ed predecessor makes every later
+	 * start fail with EADDRINUSE.
+	 *
+	 * Existence proves nothing — a live socket has a file too — so the test is to
+	 * dial it. `ECONNREFUSED` means the file outlived its listener and is a corpse.
+	 * Anything that answers belongs to a running instance, and taking its path
+	 * would silently steal its clients, so that is an error instead. That doubles
+	 * as the single-instance lock an embedding application wants.
+	 *
+	 * Windows needs none of it: a named pipe is refcounted by its handles and
+	 * vanishes with the process that made it, so nothing stale can exist and the
+	 * existence check below returns first.
+	 */
+	private async clearStaleSocket(path: string): Promise<void> {
+		if (!existsSync(path)) return
+		const code = await new Promise<string | undefined>((resolve) => {
+			const probe = connect(path)
+			const settle = (result: string | undefined) => {
+				probe.destroy()
+				resolve(result)
+			}
+			probe.once("connect", () => settle(undefined))
+			probe.once("error", (err) => settle((err as NodeJS.ErrnoException).code ?? "UNKNOWN"))
+		})
+		// Vanished between the check and the dial: nothing to clear.
+		if (code === "ENOENT") return
+		if (code === undefined) {
+			throw new Error(`Another simplex is already serving its UI on ${path}`)
+		}
+		if (code !== "ECONNREFUSED") {
+			// EACCES on somebody else's socket, say. Not ours to delete.
+			throw new Error(`Cannot tell whether ${path} is in use (${code}); remove it by hand if no simplex is running`)
+		}
+		try {
+			unlinkSync(path)
+			this.logger.warn({ path }, "Removed a stale UI socket left behind by a previous run")
+		} catch (err) {
+			if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err
+		}
+	}
+
+	private listenOnPort(port: number, host: string): Promise<number> {
 		if (this.mode === "init" && !isLoopbackHost(host)) {
 			// Outside a container the host's interfaces are the real ones, and the wizard
 			// collects private keys — the bind is refused. Inside one, see isContainerized().
@@ -295,6 +482,7 @@ export class UiServer {
 			)
 		}
 		this.boundLoopback = isLoopbackHost(host)
+		this.listenProvenance = "tcp"
 		return new Promise((resolve, reject) => {
 			this.server.once("error", reject)
 			this.server.listen(port, host, () => {
@@ -314,6 +502,27 @@ export class UiServer {
 		for (const client of this.sseClients) client.end()
 		this.sseClients.clear()
 		this.server.close()
+		this.unlinkSocket()
+	}
+
+	/**
+	 * Removes the socket file on the way out, so the next run has nothing to
+	 * recover. `server.close()` unlinks too, but only once it has drained every
+	 * connection; doing it here frees the path the moment we stop serving and
+	 * covers a close that never completes.
+	 */
+	private unlinkSocket(): void {
+		const path = this.socketPath
+		if (!path) return
+		this.socketPath = undefined
+		if (isWindowsPipe(path)) return
+		try {
+			unlinkSync(path)
+		} catch (err) {
+			if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+				this.logger.debug({ err, path }, "Could not remove the UI socket")
+			}
+		}
 	}
 
 	/** Flips a live init-mode server into operator mode; the listener keeps running. */
@@ -356,11 +565,19 @@ export class UiServer {
 		const path = (req.url ?? "/").split("?")[0]
 		const method = req.method ?? "GET"
 
+		const provenance = provenanceOf(req.socket)
+
 		// DNS-rebinding defense: an attacker page resolving its own domain to
 		// this address becomes same-origin and could drive every endpoint,
 		// including /api/send. A rebound origin always carries its DNS name in
 		// Host, so only IP-literal/localhost Hosts are served.
-		if (!hostHeaderAllowed(req.headers.host, this.boundLoopback)) {
+		//
+		// Skipped, not relaxed, for a connection that arrived on a Unix socket:
+		// there is no name to rebind onto one and no browser that can open one, so
+		// the check defends nothing there — while an HTTP client over a socket puts
+		// whatever it likes in Host (node:http sends "localhost", others send the
+		// URL's authority), which would make an arbitrary base URL a 403.
+		if (provenance !== "unix" && !hostHeaderAllowed(req.headers.host, this.boundLoopback)) {
 			return sendJson(res, 403, { error: "Host header is not allowed" })
 		}
 

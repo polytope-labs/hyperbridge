@@ -14,6 +14,8 @@ export interface RunOptions {
 	 * `--no-ui`, and absent when neither flag is passed.
 	 */
 	ui?: string | boolean
+	/** A socket path from `--ui-socket <path>`; absent when the flag is not passed. */
+	uiSocket?: string
 }
 
 /**
@@ -32,6 +34,10 @@ export function addRunOptions(command: Command): Command {
 		.option(
 			"--ui [host:port]",
 			`Bind address for the local web UI (status, pause/resume, price curves); a bare port keeps the host at 127.0.0.1. Unauthenticated; default 127.0.0.1:${DEFAULT_UI_PORT}`,
+		)
+		.option(
+			"--ui-socket <path>",
+			"Serve the web UI on a Unix domain socket at <path> (a named pipe on Windows) instead of a TCP port. Only the user running simplex can connect, and no web page can reach it — for embedding simplex in a desktop application",
 		)
 		.option("--no-ui", "Disable the local web UI")
 }

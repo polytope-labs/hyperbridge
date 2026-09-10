@@ -660,3 +660,41 @@ configured vaults, share metadata from the cached ERC-20 reads) and updates the 
 ask as the token0 → token1 rate and the first bid as `reverse_rate` (both token1 per token0, the
 app's unit), or, for a bid-only market, sells token1 → token0 at the reciprocal bid; `buildSolverLink`
 writes the app's `/swap?wl=1&wlv=1&…` query. Copy goes through `navigator.clipboard` with a toast.
+
+## UI server: choosing a listen mode, and how a request reaches a handler
+
+Read from the source and exercised by `src/tests/ui-server-socket.test.ts`; the Node behaviours noted
+below were measured on Node 24 rather than inferred.
+
+1. `bin/simplex.ts` resolves one listen target before anything binds. `--no-ui` skips the server
+   entirely; `--ui [<[host:]port>]` fills `uiBind` (default `127.0.0.1:8686`); `--ui-socket <path>`
+   selects socket mode. `--ui-socket` with either `--no-ui` or an explicit `--ui <addr>` throws before
+   the filler starts, rather than one silently winning. Note that commander rejects a valueless `--ui`
+   before any of this runs — the declared flags `[<[host:]port>]` contain a `<`, and commander computes
+   `required` as `flags.includes("<")`, so the optional-argument form never took effect. That predates
+   this change and is deliberately not fixed here, since `--ui` had to stay exactly as it was.
+2. `UiServer.start()` dispatches on the argument's shape: `start(port, host)` and `start({host, port})`
+   both reach `listenOnPort`, `start({socketPath})` reaches `listenOnSocket`. The TCP path is
+   unchanged — the init-mode loopback refusal, the operator-mode warning, `boundLoopback`, and the
+   resolved bound port all behave as before, and the ephemeral-port retry in the wizard path still
+   works by passing port 0.
+3. `listenOnSocket` resolves the path (unless it is a `\\.\pipe\` name), checks it against
+   `sun_path` (103 bytes on macOS, 107 on Linux) and connect-tests any file already there:
+   `ECONNREFUSED` means stale, so it is unlinked; anything answering fails the start. It then binds,
+   chmods the file to `0600` — Node creates it `0777 & ~umask`, i.e. 0775 under `umask 002` — and
+   resolves 0, since there is no port to report.
+4. `listenProvenance` is set by whichever of the two ran (`tcp` / `unix`). A listener prepended to the
+   server's `connection` event stamps that value onto every accepted socket, ahead of http's own
+   connection listener, so the tag is in place before any parser exists.
+5. Tunnel connections skip steps 1–4 entirely. `TunnelService` dials the relay outbound; a device's
+   channel is built by `EmbeddedSshServer`, stamped `tunnel` there, and handed to
+   `deliver: (socket) => uiServer?.accept(socket) ?? false`. `accept()` refuses when the server is not
+   listening, stamps `tunnel` itself (first stamp wins, so the two agree), and emits `connection`. No
+   port is involved, which is why a socket-only server serves remote devices exactly as a TCP one does.
+6. `handle` reads `provenanceOf(req.socket)` once, then applies the rules in order: the host-header
+   (DNS-rebinding) check for everything except `unix`; the `X-Simplex-UI` CSRF header on every
+   mutating method regardless of transport; and the refusal to let a `tunnel` connection change remote
+   access. Only the first of the three varies by provenance.
+7. `stop()` ends every SSE client, closes the server and unlinks the socket path. `server.close()`
+   also unlinks after it drains, so the explicit call is what frees the path immediately and covers a
+   close that never completes.

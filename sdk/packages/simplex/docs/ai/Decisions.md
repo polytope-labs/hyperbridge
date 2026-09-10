@@ -202,6 +202,136 @@ database in the test.
 Rejected: skipping the fixture and trusting that SQLite's file format is driver-independent. It is
 — but the migrations, the WAL header on `activity.db`, and the row values are the parts that
 actually break, and none of them are guaranteed by the format.
+## 2026-09-09 — Connection provenance is tagged on the socket, not inferred from the listener
+
+Decided: every socket carries a `PROVENANCE` symbol holding `tcp`, `unix` or `tunnel`. The listener
+stamps what it accepted (prepended to `connection`, so the stamp lands before http attaches a parser),
+`accept()` stamps what the tunnel injected, and `markProvenance` keeps the first stamp so an injected
+channel is never relabelled by the listener's blanket one. `handle` reads `provenanceOf(req.socket)`.
+
+This generalises `VIA_TUNNEL`, which answered one boolean question. A Unix socket makes it three, and
+the request rules genuinely differ per provenance: a socket reaches only the owning user, a tunnel
+connection is an authenticated device with *fewer* rights than a local caller (it cannot manage remote
+access), and a TCP port reaches every local user and every web page on the machine.
+
+Why a symbol set on our own socket, rather than a header or a flag: it is unforgeable by construction.
+The value is set on an object this process created, and nothing a client can put on the wire reaches
+it. That was already the reason `VIA_TUNNEL` was a symbol; widening the value does not weaken it.
+
+Rejected: branching on what the server is listening on (`this.listenProvenance` read at request time,
+with no per-socket tag). It is one field instead of a stamp, and it is right today because each server
+listens one way. But tunnel connections are *injected* and never listened for, so the listening mode is
+already not the truth for them — the tunnel would have to keep its own marker anyway, leaving two
+mechanisms answering the same question. Tagging also makes `provenanceOf` total, so a socket arriving
+by some future path with no stamp is a visible bug rather than one that silently inherits whatever the
+listener happens to be.
+
+Rejected: keeping `VIA_TUNNEL` alongside a new socket flag. Two symbols, two call sites to keep in
+step, and the pair can disagree; `isTunnelled()` is now one line over the single tag and keeps its
+signature, so no caller changed.
+
+
+## 2026-09-09 — The host-header check is skipped for socket connections, not relaxed
+
+Decided: `hostHeaderAllowed` is not consulted at all when `provenanceOf(req.socket) === "unix"`. Its
+signature and its logic are untouched, and the TCP path through it is byte-for-byte what it was — it is
+still the DNS-rebinding defense, and the existing rebinding test still passes unchanged.
+
+Why skip rather than widen the allowed set: the check exists because an attacker page can resolve its
+own domain to a loopback address and become same-origin with the dashboard. Nothing about that applies
+to a Unix socket. A browser cannot open a socket file at all, so there is no origin to rebind and
+nothing for the check to defend; and an HTTP client over a socket puts whatever it likes in `Host`,
+since there is no authority to derive one from. Measured on Node 24: `node:http` with `socketPath`
+sends `Host: localhost`, which the existing rule happens to accept — so the breakage is not universal,
+but it is arbitrary. A client built on any other base URL (`http://simplex/`, `http://unix/`) is a 403
+for a reason that protects nothing, and that is a trap for the embedding app rather than a defense.
+
+Rejected: adding `unix` to the accepted host set, or accepting any Host when the server is
+socket-bound. Both leave a rule running that cannot fail usefully and can still fail wrongly — the
+next client with an unusual base URL hits it again. If a check defends nothing on a transport, not
+running it is clearer than tuning it forever.
+
+Rejected: keying the skip off `this.boundLoopback` or the listen mode instead of the socket's
+provenance. A tunnelled connection arriving at a socket-only server would then also skip the check,
+which is a change to the tunnel's rules made by accident. `boundLoopback` stays `true` in socket mode
+precisely so tunnelled connections keep the behaviour they had.
+
+
+## 2026-09-09 — Windows named pipes are NOT equivalent to a 0600 socket (verified)
+
+Finding, verified rather than assumed, because the security argument for this listen mode rests on it.
+
+`libuv/src/win/pipe.c` `pipe_alloc_accept` makes the pipe with
+`CreateNamedPipeW(..., PIPE_UNLIMITED_INSTANCES, 65536, 65536, 0, NULL)` — the final
+`lpSecurityAttributes` is `NULL`, and there is no libuv or Node API to supply one. Microsoft documents
+what `NULL` means, verbatim: "the named pipe gets a default security descriptor ... The ACLs in the
+default security descriptor for a named pipe grant full control to the LocalSystem account,
+administrators, and the creator owner. They also grant read access to members of the Everyone group and
+the anonymous account."
+
+So the pipe is **not owner-only**. Everyone and anonymous get read access, and Administrators get full
+control, in a machine-global namespace (`\\.\pipe\`) rather than a directory the owner controls.
+
+Practically, driving the HTTP API needs write access to send a request, which Everyone does not get, so
+a non-administrator local user cannot reach `/api/send` over the pipe. Administrators can — but an
+administrator already reads `filler-config.toml` and takes the signing key without touching any API, so
+that is not a boundary this could have held. libuv also passes `FILE_FLAG_FIRST_PIPE_INSTANCE`, so a
+hostile process cannot pre-create the name and impersonate the daemon; our bind fails loudly instead.
+
+The gap cannot be closed from Node. The only pipe-ACL control Node surfaces is `listen({ readableAll,
+writableAll })`, which reaches `uv_pipe_chmod`; that sets an ACE for the Everyone SID and Node invokes
+it only when one of those flags is set, so the single knob available *widens* access and none narrows
+it. `restrictSocketToOwner` therefore returns early on win32 rather than pretending.
+
+Stated plainly so it is not papered over: on Unix the kernel is the access control; on Windows the
+claim is weaker — read-open by any local user, full control for administrators — and an embedder that
+needs owner-only on Windows must supply the pipe from native code, not from Node.
+
+
+## 2026-09-09 — A stale socket is detected by connecting, and an over-long path is an error
+
+Decided: before binding a socket path that exists, dial it. `ECONNREFUSED` means the file outlived its
+listener, so unlink and rebind. Anything that answers is a live instance and the start fails. `ENOENT`
+means it vanished under us; proceed. Any other error (`EACCES` on somebody else's socket) fails with a
+message saying we could not tell, because deleting it would be guessing.
+
+Why not an existence test: a live socket has a file too, so existence cannot distinguish the two and
+the check would either be useless or would steal a running instance's path. Verified against a real
+`SIGKILL`ed process: the file survives, connecting to it gives `ECONNREFUSED`, and binding over it
+gives `EADDRINUSE` — which `start()`'s `once("error", reject)` turns into a rejected start.
+
+Refusing a live socket is deliberate and not merely defensive: the socket file is also the desktop
+app's discovery mechanism and single-instance lock, so "someone is already serving here" is the answer
+it needs, not something to overwrite.
+
+Decided: a socket path over `sun_path` (103 bytes on macOS, 107 on Linux, NUL included) is a clear
+error naming the size, the limit and `$TMPDIR` as a fallback.
+
+Rejected: silently relocating to a short path under `$TMPDIR`. The caller uses this path to find the
+daemon again — it is the discovery mechanism — so moving it trades a legible startup error for a
+daemon nothing can attach to, which is strictly worse. The caller can implement that fallback itself;
+it cannot recover from a socket at an address it was never told about. Without the guard the failure is
+`listen EINVAL: invalid argument <path>`, which names neither the limit nor the reason.
+
+
+## 2026-09-09 — `accept()` keeps its `listening` guard; the coupling is pinned by a test instead
+
+Decided: `accept()` still returns false when `!this.server.listening`, unchanged. A test asserts a
+socket-only server serves tunnelled connections, and that `accept()` refuses them when nothing is bound.
+
+Tunnel connections are dialled outbound to the relay and injected with `server.emit("connection")`;
+nothing listens for them, so the guard tests a condition the path does not logically need. It is
+satisfied by a Unix listener today, so socket-only remote access works and there is no bug to fix —
+which is exactly why it is worth a test: the trap springs later, when someone removes a listener that
+appears unused and silently takes remote access with it.
+
+Rejected: dropping the guard now. It is not dead — it is what stops a channel being handed to a server
+that has been stopped, and `stop()` clears `_handle` synchronously so the check is meaningful. Removing
+it as part of this change would trade a pinned, harmless coupling for an untested behaviour change in
+the tunnel's hot path.
+
+`EmbeddedSshServer`'s log line was reworded, though: it said "No UI to serve behind the tunnel" for
+every refusal, which misdescribes the case where the UI exists and is merely unbound.
 
 
 ## 2026-09-09 — The publickey probe branch requires both halves absent, not either

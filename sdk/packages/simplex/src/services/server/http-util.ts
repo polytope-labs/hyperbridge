@@ -28,15 +28,48 @@ export function sendJson(res: ServerResponse, status: number, payload: unknown):
 }
 
 /**
- * Marks a connection handed to the UI server by the remote-access tunnel,
- * rather than one dialled from the local network. A symbol, and set on a socket
- * this process created, so nothing a device sends can forge it.
+ * How a connection reached the UI server. The three differ in who can open one,
+ * which is what the request rules key off:
+ *
+ * - `tcp` — a listening port. Every local user can reach it, and a browser can
+ *   be pointed at it, so it needs the host-header check below.
+ * - `unix` — a Unix domain socket file, narrowed to the owning user. No browser
+ *   can open one at all, so the host-header check is meaningless there.
+ * - `tunnel` — a channel injected by the remote-access tunnel, already
+ *   authenticated against a paired device key, and holding fewer privileges
+ *   than a local caller (it cannot manage remote access).
  */
-export const VIA_TUNNEL = Symbol.for("simplex.tunnel.connection")
+export type Provenance = "tcp" | "unix" | "tunnel"
+
+/**
+ * Symbol key carrying a socket's {@link Provenance}. A symbol, and only ever set
+ * on sockets this process owns — the listener stamps what it accepted, the
+ * tunnel stamps what it injected — so nothing a client sends can forge it.
+ *
+ * Generalises the older `VIA_TUNNEL` marker, which answered one question
+ * (tunnelled or not) that a Unix socket made into three.
+ */
+export const PROVENANCE = Symbol.for("simplex.connection.provenance")
+
+/**
+ * Records how a socket arrived. The first stamp wins: the tunnel marks a channel
+ * as it builds it, and the listener's blanket stamp must not overwrite that when
+ * the channel is handed to the server.
+ */
+export function markProvenance(socket: object, provenance: Provenance): void {
+	if (provenanceOf(socket) !== undefined) return
+	Object.defineProperty(socket, PROVENANCE, { value: provenance, configurable: true })
+}
+
+/** How this request arrived, or undefined for a socket nothing stamped. */
+export function provenanceOf(socket: unknown): Provenance | undefined {
+	const tag = (socket as Record<symbol, unknown> | null | undefined)?.[PROVENANCE]
+	return tag === "tcp" || tag === "unix" || tag === "tunnel" ? tag : undefined
+}
 
 /** Whether this request arrived through the remote-access tunnel. */
 export function isTunnelled(socket: unknown): boolean {
-	return (socket as Record<symbol, unknown> | null | undefined)?.[VIA_TUNNEL] === true
+	return provenanceOf(socket) === "tunnel"
 }
 
 export function isLoopbackHost(host: string): boolean {

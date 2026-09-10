@@ -7203,7 +7203,7 @@ dependencies = [
 [[package]]
 name = "ethereum_hashing"
 version = "0.8.0"
-source = "git+https://github.com/polytope-labs/ethereum_hashing?rev=7cc907ce12e6dca9c47f44cd92e37eab688c8913#7cc907ce12e6dca9c47f44cd92e37eab688c8913"
+source = "git+https://github.com/polytope-labs/ethereum_hashing?rev=eac8922709d164b48f1717dabb1b702be7682f01#eac8922709d164b48f1717dabb1b702be7682f01"
 dependencies = [
  "cpufeatures 0.2.17",
  "ring 0.17.14",
@@ -7214,7 +7214,7 @@ dependencies = [
 [[package]]
 name = "ethereum_serde_utils"
 version = "0.8.1"
-source = "git+https://github.com/polytope-labs/ethereum_serde_utils?rev=5d953c2f15b1f52c67529b117b4878d946f9295d#5d953c2f15b1f52c67529b117b4878d946f9295d"
+source = "git+https://github.com/polytope-labs/ethereum_serde_utils?rev=bcb95c68ee907bed5c954d7920d57d3e9113d756#bcb95c68ee907bed5c954d7920d57d3e9113d756"
 dependencies = [
  "alloy-primitives 1.5.7",
  "hex",
@@ -7226,7 +7226,7 @@ dependencies = [
 [[package]]
 name = "ethereum_ssz"
 version = "0.10.4"
-source = "git+https://github.com/polytope-labs/ethereum_ssz?rev=29fca57e449a7e0854369716c39a0db91ee7d826#29fca57e449a7e0854369716c39a0db91ee7d826"
+source = "git+https://github.com/polytope-labs/ethereum_ssz?rev=da3aaf05a91d41b8e3a882beebce142beda23b92#da3aaf05a91d41b8e3a882beebce142beda23b92"
 dependencies = [
  "alloy-primitives 1.5.7",
  "ethereum_serde_utils",
@@ -7241,7 +7241,7 @@ dependencies = [
 [[package]]
 name = "ethereum_ssz_derive"
 version = "0.10.4"
-source = "git+https://github.com/polytope-labs/ethereum_ssz?rev=29fca57e449a7e0854369716c39a0db91ee7d826#29fca57e449a7e0854369716c39a0db91ee7d826"
+source = "git+https://github.com/polytope-labs/ethereum_ssz?rev=da3aaf05a91d41b8e3a882beebce142beda23b92#da3aaf05a91d41b8e3a882beebce142beda23b92"
 dependencies = [
  "darling 0.23.0",
  "proc-macro2",
@@ -27037,7 +27037,7 @@ dependencies = [
 [[package]]
 name = "ssz_types"
 version = "0.14.1"
-source = "git+https://github.com/polytope-labs/ssz_types?rev=8ab8ad1bf3796ef5a49efb6beaededcbb34ee61f#8ab8ad1bf3796ef5a49efb6beaededcbb34ee61f"
+source = "git+https://github.com/polytope-labs/ssz_types?rev=b7ee3e6941921a2a54ee41ab3d7a64da6a9a6072#b7ee3e6941921a2a54ee41ab3d7a64da6a9a6072"
 dependencies = [
  "ethereum_serde_utils",
  "ethereum_ssz",
@@ -30129,7 +30129,7 @@ dependencies = [
 [[package]]
 name = "tree_hash"
 version = "0.12.1"
-source = "git+https://github.com/polytope-labs/tree_hash?rev=22d5eb5b5dadf964b0decc0f927101d9294fda2c#22d5eb5b5dadf964b0decc0f927101d9294fda2c"
+source = "git+https://github.com/polytope-labs/tree_hash?rev=afb7e0ee088dd1e2feee7d2b8ac36e875c4b7fb0#afb7e0ee088dd1e2feee7d2b8ac36e875c4b7fb0"
 dependencies = [
  "alloy-primitives 1.5.7",
  "ethereum_hashing",
@@ -30141,7 +30141,7 @@ dependencies = [
 [[package]]
 name = "tree_hash_derive"
 version = "0.12.1"
-source = "git+https://github.com/polytope-labs/tree_hash?rev=22d5eb5b5dadf964b0decc0f927101d9294fda2c#22d5eb5b5dadf964b0decc0f927101d9294fda2c"
+source = "git+https://github.com/polytope-labs/tree_hash?rev=afb7e0ee088dd1e2feee7d2b8ac36e875c4b7fb0#afb7e0ee088dd1e2feee7d2b8ac36e875c4b7fb0"
 dependencies = [
  "darling 0.23.0",
  "proc-macro2",

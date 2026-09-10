@@ -20,7 +20,8 @@ use bsc_verifier::{
 };
 use ismp::messaging::Keccak256;
 use polkadot_sdk::*;
-use ssz_rs::{Bitvector, Deserialize};
+use ssz::Decode;
+use ssz_types::BitVector;
 use std::time::Duration;
 
 use crate::{get_rotation_block, BscPosProver, UpdateParams};
@@ -131,11 +132,11 @@ async fn verify_bsc_pos_headers() {
 		// Reject updates with insufficient BLS participation from the current set.
 		let extra_data = parse_extra::<Host, Testnet>(&update.attested_header)
 			.expect("infallible: prover already parsed extra data");
-		let validators_bit_set = Bitvector::<VALIDATOR_BIT_SET_SIZE>::deserialize(
+		let validators_bit_set = BitVector::<ssz_types::typenum::U64>::from_ssz_bytes(
 			extra_data.vote_address_set.to_le_bytes().to_vec().as_slice(),
 		)
 		.expect("infallible: prover already parsed extra data");
-		if validators_bit_set.iter().as_bitslice().count_ones() < (2 * current_validators.len() / 3)
+		if validators_bit_set.num_set_bits() < (2 * current_validators.len() / 3)
 		{
 			println!("sync: not enough participants at block {block}, skipping");
 			block += 1;
@@ -241,11 +242,11 @@ async fn verify_bsc_pos_headers() {
 
 		let extra_data = parse_extra::<Host, Testnet>(&update.attested_header)
 			.expect("infallible: prover already parsed extra data");
-		let validators_bit_set = Bitvector::<VALIDATOR_BIT_SET_SIZE>::deserialize(
+		let validators_bit_set = BitVector::<ssz_types::typenum::U64>::from_ssz_bytes(
 			extra_data.vote_address_set.to_le_bytes().to_vec().as_slice(),
 		)
 		.expect("infallible: prover already parsed extra data");
-		if validators_bit_set.iter().as_bitslice().count_ones() <
+		if validators_bit_set.num_set_bits() <
 			(2 * next_validators.validators.len() / 3)
 		{
 			println!("enact: not enough participants at block {block}, skipping");

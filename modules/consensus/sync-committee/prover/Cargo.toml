@@ -16,7 +16,9 @@ hex = { workspace = true, default-features = true }
 json = { workspace = true, default-features = true }
 primitive-types = { workspace = true, default-features = true, features = ["serde_no_std", "impl-codec"] }
 
-ssz-rs = { git = "https://github.com/polytope-labs/ssz-rs",  branch = "main" }
+ssz = { workspace = true }
+ssz_types = { workspace = true }
+tree_hash = { workspace = true, features = ["sha2"] }
 reqwest = { version="0.11.14", features=["json"]}
 reqwest-middleware = "0.2.4"
 reqwest-chain = "0.1.0"
@@ -25,6 +27,10 @@ env_logger = "0.10.0"
 bls = { workspace = true, default-features = true }
 async-trait = "0.1.77"
 tracing = "0.1.40"
+
+[features]
+# Selects the prover's compile-time Gloas `BeaconState` ssz layout. The verifier is fork-agnostic
+# and no longer has this feature.
 
 [dev-dependencies]
 env_logger = "0.10.0"

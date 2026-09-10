@@ -26,10 +26,10 @@ pub const BLS_PUBLIC_KEY_BYTES_LEN: usize = 48;
 pub const BLS_SIGNATURE_BYTES_LEN: usize = 96;
 
 /// A BLS12-381 public key (48 bytes compressed).
-pub type BlsPublicKey = ByteVector<BLS_PUBLIC_KEY_BYTES_LEN>;
+pub type BlsPublicKey = ByteVector<ssz_types::typenum::U48>;
 
 /// A BLS12-381 signature (96 bytes compressed).
-pub type BlsSignature = ByteVector<BLS_SIGNATURE_BYTES_LEN>;
+pub type BlsSignature = ByteVector<ssz_types::typenum::U96>;
 
 /// Convert a compressed BLS public key to a projective point.
 pub fn pubkey_to_projective(compressed_key: &BlsPublicKey) -> Result<G1ProjectivePoint, BLSError> {

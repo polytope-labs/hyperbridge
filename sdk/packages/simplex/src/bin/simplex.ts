@@ -239,6 +239,24 @@ addRunOptions(program.command("run", { isDefault: true }))
 
 
 			const uiEnabled = options.ui !== false
+			const uiSocket = options.uiSocket
+			// An empty value would be falsy at every use below, so the UI would quietly
+			// come up on the TCP port the operator was trying to avoid.
+			if (uiSocket !== undefined && uiSocket.trim() === "") {
+				throw new Error("--ui-socket needs a path; it was given an empty value")
+			}
+			// Two listen addresses, or an address and an off switch, are a mistake worth
+			// naming: silently picking one leaves the operator watching a port nothing
+			// is on. Only an explicit `--ui <addr>` conflicts — a bare `--ui` just turns
+			// the UI on and names no address, so it pairs with a socket fine.
+			if (uiSocket && !uiEnabled) {
+				throw new Error("--ui-socket and --no-ui contradict each other: one serves the UI, the other turns it off")
+			}
+			if (uiSocket && typeof options.ui === "string") {
+				throw new Error(
+					`--ui and --ui-socket name two different listen addresses; pass one (got --ui ${options.ui} and --ui-socket ${uiSocket})`,
+				)
+			}
 			let uiBind = { host: "127.0.0.1", port: DEFAULT_UI_PORT }
 			if (typeof options.ui === "string") {
 				const parsed = parseBind(options.ui, "127.0.0.1")
@@ -356,12 +374,17 @@ addRunOptions(program.command("run", { isDefault: true }))
 						operator: await operatorContextFrom(simplex!, () => shutdown("UI"), tunnel),
 					})
 					try {
-						uiBoundPort = await uiServer.start(uiBind.port, uiBind.host)
+						// A socket has no port, so `uiBoundPort` keeps its default — which is
+						// only the address paired devices dial through the tunnel's forward.
+						// Nothing listens there in socket mode and nothing needs to: channels
+						// are injected via `deliver` above, never connected to.
+						if (uiSocket) await uiServer.start({ socketPath: uiSocket })
+						else uiBoundPort = await uiServer.start(uiBind.port, uiBind.host)
 						startTunnel()
 					} catch (err) {
 						// The filler is the primary workload; a bind failure (e.g. port in use)
 						// costs the UI, not the process.
-						logger.error({ err, bind: `${uiBind.host}:${uiBind.port}` }, "UI server failed to start")
+						logger.error({ err, bind: uiSocket ?? `${uiBind.host}:${uiBind.port}` }, "UI server failed to start")
 						uiServer = undefined
 						await tunnel?.stop()
 						tunnel = undefined
@@ -397,6 +420,16 @@ addRunOptions(program.command("run", { isDefault: true }))
 				},
 			})
 			uiServer = server
+
+			if (uiSocket) {
+				// No URL to print and no browser that could open a socket: an embedding
+				// application renders the wizard itself over this socket. A bind failure
+				// here is fatal — there is no other way in.
+				await server.start({ socketPath: uiSocket })
+				console.log(`\n  No config found — the setup wizard is serving on ${uiSocket}\n`)
+				// The server keeps the event loop alive until the wizard completes.
+				return
+			}
 
 			let boundPort: number
 			try {

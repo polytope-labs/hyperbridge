@@ -416,6 +416,7 @@ async fn submit_for_dest(
 				park_undelivered(
 					&dest_name,
 					dest_state_machine,
+					coprocessor,
 					unprofitable,
 					&claim_tx_payment,
 					retries_enabled,
@@ -472,6 +473,7 @@ async fn submit_for_dest(
 			park_undelivered(
 				&dest_name,
 				dest_state_machine,
+				coprocessor,
 				requests,
 				&claim_tx_payment,
 				retries_enabled,
@@ -484,6 +486,7 @@ async fn submit_for_dest(
 	park_undelivered(
 		&dest_name,
 		dest_state_machine,
+		coprocessor,
 		result.unsuccessful,
 		&claim_tx_payment,
 		retries_enabled,
@@ -574,15 +577,18 @@ async fn submit_for_dest(
 }
 
 /// Park requests the destination never received so the retry task can try them
-/// again. Deliveries out of hyperbridge are gated to a whitelisted relayer, so
-/// there is no one else to pick them up.
+/// again.
 ///
-/// Only requests are parked. The consensus message in a failed batch is
-/// superseded by the next proof that comes along, and a get response is paid
-/// for on delivery rather than claimed, so it carries no reward to recover.
+/// Only requests hyperbridge itself dispatched are kept. Those are the ones
+/// gated to a whitelisted relayer, so nobody else is coming for them, while a
+/// user's request merely routed through hyperbridge is still up for grabs and
+/// another relayer will deliver it. Consensus messages are dropped since the
+/// next proof along supersedes them, and so are get responses, which are paid
+/// for on delivery rather than claimed.
 async fn park_undelivered(
 	dest_name: &str,
 	dest_state_machine: StateMachine,
+	coprocessor: StateMachine,
 	messages: Vec<Message>,
 	tx_payment: &Option<Arc<TransactionPayment>>,
 	retries_enabled: bool,
@@ -590,7 +596,13 @@ async fn park_undelivered(
 	let Some(tx_payment) = tx_payment.as_ref().filter(|_| retries_enabled) else { return };
 	let requests = messages
 		.into_iter()
-		.filter(|msg| matches!(msg, Message::Request(_)))
+		.filter_map(|message| match message {
+			Message::Request(mut msg) => {
+				msg.requests.retain(|post| post.source == coprocessor);
+				(!msg.requests.is_empty()).then_some(Message::Request(msg))
+			},
+			_ => None,
+		})
 		.collect::<Vec<_>>();
 	if requests.is_empty() {
 		return;
@@ -1030,6 +1042,7 @@ pub async fn initialize(
 			let ctx = crate::retries::RetryContext {
 				dest: dest.clone(),
 				hyperbridge: hyperbridge_provider.clone(),
+				proof_source: proof_source.clone(),
 				client_map: provider_clients.clone(),
 				tx_payment: tx_payment.clone(),
 				config: relayer_config.clone(),

@@ -8,11 +8,14 @@ use futures::stream::FuturesOrdered;
 use ismp::{
 	consensus::StateMachineHeight,
 	host::StateMachine,
-	messaging::{hash_request, Message, Proof, RequestMessage},
+	messaging::{hash_request, ConsensusMessage, Message, Proof, RequestMessage},
 	router::{PostRequest, Request},
 };
 use primitive_types::H256;
-use tesseract_primitives::{config::RelayerConfig, Hasher, IsmpProvider, Query, TxResult};
+use tesseract_primitives::{
+	config::RelayerConfig, ConsensusProofSource, Hasher, IsmpProvider, ProofKey, Query, TxResult,
+	BEEFY_CONSENSUS_STATE_ID,
+};
 use tokio_stream::StreamExt;
 use transaction_fees::TransactionPayment;
 
@@ -30,6 +33,9 @@ pub struct RetryContext {
 	pub dest: Arc<dyn IsmpProvider>,
 	/// Where the requests came from, and where their proofs are read from.
 	pub hyperbridge: Arc<dyn IsmpProvider>,
+	/// Supplies the beefy proof that carries a destination up to the height a
+	/// parked request needs.
+	pub proof_source: Arc<dyn ConsensusProofSource>,
 	pub client_map: HashMap<StateMachine, Arc<dyn IsmpProvider>>,
 	pub tx_payment: Arc<TransactionPayment>,
 	pub config: RelayerConfig,
@@ -77,46 +83,29 @@ async fn retry_once(ctx: &RetryContext) -> Result<(), anyhow::Error> {
 		return Ok(());
 	}
 
-	// Everything is proved again against the height the destination is on now.
-	// The proof a request was parked with is anchored at a hyperbridge height the
-	// destination may never have received, since the consensus update it rode
-	// along with is exactly what failed to land.
-	let height = StateMachineHeight {
-		id: ctx.hyperbridge.state_machine_id(),
-		height: ctx.dest.query_latest_height(ctx.hyperbridge.state_machine_id()).await? as u64,
-	};
-
-	let (ready, waiting): (Vec<_>, Vec<_>) =
-		parked.into_iter().partition(|(message, _)| provable_at(message, height.height));
-	if !waiting.is_empty() {
-		tracing::trace!(
-			target: crate::LOG_TARGET,
-			dest = %ctx.dest.name(),
-			count = waiting.len(),
-			height = height.height,
-			"Leaving rows parked until the destination catches up",
-		);
-	}
-	if ready.is_empty() {
-		return Ok(());
-	}
-
-	// Every row taken here is dropped at the end of the pass; whatever is still
+	// Every row read here is dropped at the end of the pass; whatever is still
 	// worth another attempt is written back as a fresh row.
-	let rows = ready.iter().map(|(_, id)| *id).collect::<Vec<_>>();
+	let rows = parked.iter().map(|(_, id)| *id).collect::<Vec<_>>();
 
-	// A request can be parked twice, once on its own and once inside a batch
-	// that failed later, and a batch carrying the same request twice reverts on
-	// the duplicate. Keying by commitment keeps one copy of each.
-	let requests = ready
-		.into_iter()
-		.filter_map(|(message, _)| match message {
-			Message::Request(msg) => Some(msg.requests),
-			_ => None,
-		})
-		.flatten()
-		.map(|post| (hash_request::<Hasher>(&Request::Post(post.clone())), post))
-		.collect::<BTreeMap<H256, PostRequest>>();
+	// A request can be parked more than once, on its own and inside a batch that
+	// failed later, and a batch carrying it twice reverts on the duplicate.
+	// Keying by commitment keeps one copy, at the lowest height it was seen,
+	// which is the one the destination is likeliest to already be past.
+	let mut requests: BTreeMap<H256, (PostRequest, u64)> = BTreeMap::new();
+	for (message, _) in parked {
+		let Message::Request(msg) = message else { continue };
+		let parked_at = msg.proof.height.height;
+		// Only what hyperbridge dispatched is this relayer's to redeliver. Rows left
+		// by the inbound pipeline or an older build can carry a user's request, and
+		// another relayer is free to take those.
+		for post in msg.requests.into_iter().filter(|post| post.source == ctx.coprocessor) {
+			let commitment = hash_request::<Hasher>(&Request::Post(post.clone()));
+			requests
+				.entry(commitment)
+				.and_modify(|(_, height)| *height = (*height).min(parked_at))
+				.or_insert((post, parked_at));
+		}
+	}
 
 	let deliverable = deliverable_requests(&ctx.dest, requests.into_values().collect()).await?;
 	if deliverable.is_empty() {
@@ -124,50 +113,84 @@ async fn retry_once(ctx: &RetryContext) -> Result<(), anyhow::Error> {
 		return Ok(());
 	}
 
-	tracing::trace!(
-		target: crate::LOG_TARGET,
-		dest = %ctx.dest.name(),
-		count = deliverable.len(),
-		height = height.height,
-		"Retrying previously undelivered messages",
-	);
+	let dest_height =
+		ctx.dest.query_latest_height(ctx.hyperbridge.state_machine_id()).await? as u64;
 
-	let queries = deliverable
-		.iter()
-		.map(|post| Query::from(&Request::Post(post.clone())))
-		.collect::<Vec<_>>();
-	let messages = single_request_messages(ctx, &deliverable, height).await?;
-	let profitability = return_successful_queries(
-		ctx.dest.clone(),
-		messages,
-		queries,
-		ctx.config.minimum_profit_percentage,
-		ctx.coprocessor,
-		&ctx.client_map,
-		ctx.config.deliver_failed.unwrap_or_default(),
-		// No consensus update rides along with a retry, the destination's light
-		// client is already at the height these proofs are built against.
-		None,
-	)
-	.await?;
+	let mut retriable = vec![];
+	for (target, posts) in group_by_proof_height(deliverable, dest_height) {
+		let height = StateMachineHeight { id: ctx.hyperbridge.state_machine_id(), height: target };
+		let messages = single_request_messages(ctx, &posts, height).await?;
 
-	let profitable = deliverable
-		.into_iter()
-		.zip(profitability.queries)
-		.filter_map(|(post, query)| query.map(|query| (post, query)))
-		.collect::<Vec<_>>();
+		// A height the destination has not reached yet rides with the beefy proof
+		// that takes it there, so the batch verifies now instead of waiting on the
+		// next consensus update. Without that proof there is nothing to submit
+		// against, so the rows go back in the table for the next pass.
+		let prelude = match target > dest_height {
+			true => match ctx.proof_source.fetch(ProofKey::Messaging(target)).await {
+				Ok(consensus_proof) => Some(Message::Consensus(ConsensusMessage {
+					consensus_proof,
+					consensus_state_id: BEEFY_CONSENSUS_STATE_ID,
+					signer: ctx.dest.address(),
+				})),
+				Err(err) => {
+					tracing::warn!(
+						target: crate::LOG_TARGET,
+						dest = %ctx.dest.name(),
+						height = target,
+						?err,
+						"No beefy proof for the parked height, leaving the rows for the next pass",
+					);
+					retriable.extend(messages);
+					continue;
+				},
+			},
+			false => None,
+		};
 
-	let mut retriable = profitability.retriable_messages;
-	let outgoing = batch_requests(ctx, &profitable, height).await?;
+		tracing::trace!(
+			target: crate::LOG_TARGET,
+			dest = %ctx.dest.name(),
+			count = posts.len(),
+			height = target,
+			consensus = prelude.is_some(),
+			"Retrying previously undelivered messages",
+		);
 
-	if !outgoing.is_empty() {
+		let queries = posts
+			.iter()
+			.map(|post| Query::from(&Request::Post(post.clone())))
+			.collect::<Vec<_>>();
+		let profitability = return_successful_queries(
+			ctx.dest.clone(),
+			messages,
+			queries,
+			ctx.config.minimum_profit_percentage,
+			ctx.coprocessor,
+			&ctx.client_map,
+			ctx.config.deliver_failed.unwrap_or_default(),
+			prelude.clone(),
+		)
+		.await?;
+		retriable.extend(profitability.retriable_messages);
+
+		let profitable = posts
+			.into_iter()
+			.zip(profitability.queries)
+			.filter_map(|(post, query)| query.map(|query| (post, query)))
+			.collect::<Vec<_>>();
+		let outgoing = batch_requests(ctx, &profitable, height).await?;
+		if outgoing.is_empty() {
+			continue;
+		}
+
 		tracing::info!(
 			target: crate::LOG_TARGET,
 			"🛰️ Retransmitting ismp messages from {} to {}",
 			ctx.hyperbridge.name(),
 			ctx.dest.name(),
 		);
-		match ctx.dest.submit(outgoing.clone(), ctx.coprocessor).await {
+		let batch = prelude.into_iter().chain(outgoing.iter().cloned()).collect::<Vec<_>>();
+		match ctx.dest.submit(batch, ctx.coprocessor).await {
 			Ok(TxResult { receipts, unsuccessful, new_epochs: _ }) => {
 				record_deliveries(&ctx.tx_payment, &ctx.fee_acc_sender, receipts, ctx.coprocessor)
 					.await;
@@ -201,17 +224,17 @@ async fn retry_once(ctx: &RetryContext) -> Result<(), anyhow::Error> {
 	Ok(())
 }
 
-/// Whether hyperbridge can prove this row for a destination sitting at `height`.
-/// A request only enters the mmr at the block it was committed in, so a row
-/// built past where the destination's light client has reached cannot be proved
-/// for it yet and has to wait.
-fn provable_at(message: &Message, height: u64) -> bool {
-	match message {
-		Message::Request(msg) => msg.proof.height.height <= height,
-		// Rows the delivery pipelines never write. Sweeping them up keeps a stale
-		// one from sitting in the table for good.
-		_ => true,
-	}
+/// Bucket each request by the height its proof should be built at: the height the
+/// destination is already on once it has gone past where the request was parked,
+/// and the parked height otherwise.
+fn group_by_proof_height(
+	deliverable: Vec<(PostRequest, u64)>,
+	dest_height: u64,
+) -> BTreeMap<u64, Vec<PostRequest>> {
+	deliverable.into_iter().fold(BTreeMap::new(), |mut groups, (post, parked_at)| {
+		groups.entry(parked_at.max(dest_height)).or_default().push(post);
+		groups
+	})
 }
 
 /// Requests that are still worth submitting.
@@ -221,22 +244,22 @@ fn provable_at(message: &Message, height: u64) -> bool {
 /// revert on delivery, so neither is carried any further.
 async fn deliverable_requests(
 	dest: &Arc<dyn IsmpProvider>,
-	requests: Vec<PostRequest>,
-) -> Result<Vec<PostRequest>, anyhow::Error> {
+	requests: Vec<(PostRequest, u64)>,
+) -> Result<Vec<(PostRequest, u64)>, anyhow::Error> {
 	let timestamp = dest.query_timestamp().await?;
 	let mut deliverable = vec![];
 
 	for chunk in requests.chunks(dest.max_concurrent_queries()) {
 		let checked = chunk
 			.iter()
-			.map(|post| async move {
+			.map(|(post, height)| async move {
 				let request = Request::Post(post.clone());
 				if request.timed_out(timestamp) {
 					return Ok::<_, anyhow::Error>(None);
 				}
 
 				let receipt = dest.query_request_receipt(hash_request::<Hasher>(&request)).await?;
-				Ok((!was_delivered(&receipt)).then(|| post.clone()))
+				Ok((!was_delivered(&receipt)).then(|| (post.clone(), *height)))
 			})
 			.collect::<FuturesOrdered<_>>()
 			.collect::<Result<Vec<_>, _>>()
@@ -314,7 +337,6 @@ async fn batch_requests(
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use ismp::consensus::StateMachineId;
 	use tesseract_primitives::mocks::MockHost;
 
 	const HB: StateMachine = StateMachine::Kusama(4009);
@@ -336,38 +358,25 @@ mod tests {
 		hash_request::<Hasher>(&Request::Post(post.clone()))
 	}
 
-	fn parked_row(post: PostRequest, proof_height: u64, id: i32) -> (Message, i32) {
-		let message = Message::Request(RequestMessage {
-			requests: vec![post],
-			proof: Proof {
-				height: StateMachineHeight {
-					id: StateMachineId { state_id: HB, consensus_state_id: *b"BEEF" },
-					height: proof_height,
-				},
-				proof: vec![],
-			},
-			signer: vec![],
-		});
-		(message, id)
-	}
-
-	/// Hyperbridge cannot prove a request at a height before it was committed, so
-	/// a row built past where the destination's light client has reached has to
-	/// wait rather than fail the whole pass.
+	/// Requests the destination has already gone past are proved at its own height,
+	/// so they need no consensus proof. One parked beyond it keeps its own height
+	/// and rides with the proof that takes the destination there.
 	#[test]
-	fn rows_past_the_destination_height_stay_parked() {
+	fn requests_group_by_the_height_they_can_be_proved_at() {
 		let dest_height = 100;
-		let parked = vec![
-			parked_row(post(1, 0), 90, 1),
-			parked_row(post(2, 0), 100, 2),
-			parked_row(post(3, 0), 130, 3),
-		];
+		let deliverable =
+			vec![(post(1, 0), 90), (post(2, 0), 100), (post(3, 0), 130), (post(4, 0), 130)];
 
-		let (ready, waiting): (Vec<_>, Vec<_>) =
-			parked.into_iter().partition(|(message, _)| provable_at(message, dest_height));
+		let groups = group_by_proof_height(deliverable, dest_height);
 
-		assert_eq!(ready.iter().map(|(_, id)| *id).collect::<Vec<_>>(), vec![1, 2]);
-		assert_eq!(waiting.iter().map(|(_, id)| *id).collect::<Vec<_>>(), vec![3]);
+		let nonces = |height: u64| {
+			groups
+				.get(&height)
+				.map(|posts| posts.iter().map(|p| p.nonce).collect::<Vec<_>>())
+		};
+		assert_eq!(nonces(100), Some(vec![1, 2]), "proved at the height the destination is on");
+		assert_eq!(nonces(130), Some(vec![3, 4]), "proved at the height they were parked at");
+		assert_eq!(groups.len(), 2);
 	}
 
 	#[tokio::test]
@@ -382,10 +391,13 @@ mod tests {
 				.with_timestamp(Duration::from_secs(200)),
 		);
 
-		let deliverable = deliverable_requests(&dest, vec![pending.clone(), delivered, expired])
-			.await
-			.unwrap();
+		let deliverable = deliverable_requests(
+			&dest,
+			vec![(pending.clone(), 10), (delivered, 10), (expired, 10)],
+		)
+		.await
+		.unwrap();
 
-		assert_eq!(deliverable, vec![pending]);
+		assert_eq!(deliverable, vec![(pending, 10)]);
 	}
 }

@@ -412,6 +412,112 @@ the tunnel's hot path.
 
 `EmbeddedSshServer`'s log line was reworded, though: it said "No UI to serve behind the tunnel" for
 every refusal, which misdescribes the case where the UI exists and is merely unbound.
+## 2026-09-10 — json mode installs its own `error` listener on stdout, and swallows (#1237)
+
+Decided: when the format is `json`, `bin/simplex.ts` registers `process.stdout.on("error", () => {})`
+once at module scope, next to where `logFormat` is resolved.
+
+Why it is needed at all: the thing pino-pretty was providing was not only formatting. Its `build()`
+ends in `pump(source, stream, destination)`, and pump attaches error handling to the destination —
+measurably, `process.stdout.listenerCount("error")` goes from 0 to 2 the moment
+`prettyStream({destination: process.stdout})` is constructed. json mode returns the bare stream, so it
+dropped those listeners along with the transform. A stream with no `error` listener turns the first
+failed write into an unhandled `error` event, and Node turns that into an uncaught exception.
+
+That is not theoretical, and it lands exactly on the case the flag exists for. Spawned the built CLI
+detached with `stdio: ["ignore", "pipe", "pipe"]`, let it bind, then destroyed the read end — the
+parent going away while the filler keeps running, which is the whole point of the detached child in
+[#1237]. `--log-format json` died with exit 1 and `Unhandled 'error' event`, 3/3. The same run without
+the flag survived, 3/3. `simplex run --log-format json | head` is the same failure in a terminal.
+
+Why swallow rather than re-throw non-EPIPE errors: parity with the path this replaces. On the pretty
+path an stdout error tears down pump's chain and logging simply goes quiet; the filler keeps filling.
+`LoggerContext`'s destination already states the principle — "A broken sink is the host's problem, not
+a reason to fail a fill". Re-throwing anything other than EPIPE would make json mode strictly more
+fragile than pretty, which inverts the point of the flag.
+
+Rejected: registering the listener inside `consoleSink()`. It is called once per writer — the
+process-wide sink and again per filler — so that adds a duplicate listener per Simplex and drifts
+toward Node's max-listeners warning. The format is a module-level constant; the listener belongs with it.
+
+Rejected: `process.stdout.on("error")` unconditionally, for both formats. On the pretty path pino-pretty
+already installs its own, and adding a second changes existing behaviour for every current user — which
+the "default behaviour is completely unchanged" requirement rules out.
+
+
+## 2026-09-09 — `--log-format` is read from raw argv, and json mode writes straight to stdout (#1237)
+
+Decided: `bin/simplex.ts` calls `logFormatFromArgv(process.argv)` at module scope and builds its
+console sink from the result. Commander declares `--log-format <pretty|json>` on `run` as well, but
+only so that `--help` lists it and a bad value is rejected; the action never reads the parsed value.
+
+Why the scan rather than the parsed option: `addLogSink(consoleSink(...))` runs while the module is
+still evaluating, so the sink exists before anything can log. Commander has not run at that point. The
+sink has to exist before the parse, so its format has to be known before the parse.
+
+Why the action ignores `options.logFormat` even though it is available by then: the sink is already
+writing, and a command line the two readers disagree about (`simplex run -c --log-format json`, where
+commander binds `--log-format` to `-c`) would then put an ASCII banner in the middle of a stream a
+supervisor is parsing as NDJSON. One reader, one answer. `RunOptions` in `src/cli/run-options.ts`
+therefore omits `logFormat`, with the reason recorded on the field it would have occupied.
+
+Both flags live in `addRunOptions` (`src/cli/run-options.ts`) with the rest of `run`'s options, after
+#1249 split that builder out of the bin. That is also what lets the tests parse the *real* declarations
+rather than a hand-copied mirror that could drift.
+
+Rejected: moving the `addLogSink` call into each command's action, after the parse. It would remove
+the double read, but the process-wide sink is what the setup wizard logs to — `UiServer`'s
+`getLogger("ui")` and `setup-api`'s `getLogger("setup")`, which produce the first record of a wizard
+run — as well as the keeper command, so each would need its own copy of the wiring. That is a real
+cost paid for a cosmetic gain. (`init` is not in that list: nothing under `src/cli/init/**` resolves a
+logger, and it spawns `simplex run` as a child rather than sharing the process.)
+
+Decided: in json mode `consoleSink()` returns `process.stdout` itself. pino hands a destination one
+finished NDJSON record per write, newline included, so there is nothing left to format.
+
+Why not pino-pretty with `colorize: false`: pino-pretty would still reformat, drop fields and reorder
+them. The point of json mode is that a parser downstream sees exactly what pino produced.
+
+This also removes the interleaving hazard that forces one pino-pretty transform per writer on the
+pretty path. Two pino instances sharing one pino-pretty transform interleave their chunks, and it
+echoes the unparseable remainder as raw NDJSON. With no transform in between there is nothing
+reassembling anything, so the process context and a running filler can share one `process.stdout`
+safely. Checked by running two `LoggerContext`s into a shared stdout for 4000 records with 4 KB
+payloads: no partial or interleaved lines.
+
+Decided: in json mode the ASCII banner is not printed and the wizard's URL line becomes a log record
+with a `url` field. Those two are the only writers to stdout outside the logger *in this package*, and
+either one would break the promise that every line is a JSON object. The URL is more useful as a field
+than as prose a parser would have to scrape.
+
+The promise is therefore about what simplex itself writes, not about the process. `@polkadot/util`'s
+logger routes `log` to `console.log`, and `@polkadot/api`'s `Init.js` uses it to announce "Runtime
+version updated to spec=…"; `bin/quiet.ts` patches only `console.warn`, so that one line would reach
+stdout as plain text on a genuine Hyperbridge runtime upgrade. Rejected for now: widening `quiet.ts` to
+redirect that logger's `console.log` to stderr. It is the right fix if json mode ever needs to be
+absolute, but it changes behaviour on the pretty path too, and this change was scoped to two flags.
+
+Rejected: deciding the format by whether stdout is a TTY, the way many tools do. It is the more
+convenient default, but it silently changes what an existing user gets the moment they pipe simplex
+into a file — and `colorize: true` is currently explicit, so today they get colour there on purpose.
+An explicit flag keeps "no flags" meaning exactly what it meant before.
+
+
+## 2026-09-09 — `--no-open` and `--log-format` are flags only, with no env-var equivalent (#1237)
+
+Decided: neither flag has a `SIMPLEX_*` counterpart. The consumer in #1237 is Electron's `spawn`,
+which builds argv directly, so there is nothing to make easier. Docker is the other supervisor, and it
+already passes CLI arguments through `CMD` — the image's default command carries `--ui` for the same
+reason.
+
+Rejected: adding `SIMPLEX_NO_OPEN` / `SIMPLEX_LOG_FORMAT` alongside. Two ways to say one thing needs a
+precedence rule, and that rule needs a test and a place in the docs, all for a caller that does not
+exist yet. `SIMPLEX_HOME` is the package's one env var and it earns its place: config discovery has to
+work before any argument is parsed. These do not have that problem — `--log-format` is read early, but
+it is read from argv, which is available just as early.
+
+If a supervisor that cannot construct argv does turn up, adding an env fallback inside
+`logFormatFromArgv` is a couple of lines and breaks nothing.
 
 
 ## 2026-09-09 — The publickey probe branch requires both halves absent, not either

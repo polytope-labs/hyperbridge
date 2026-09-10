@@ -20,6 +20,7 @@ import { SqliteDataStore } from "@/data/sqlite"
 import { discoverConfigPath, DEFAULT_CONFIG_FILENAME } from "@/cli/discover-config"
 import { addRunOptions, DEFAULT_UI_PORT, type RunOptions } from "@/cli/run-options"
 import { openBrowser } from "@/cli/open-browser"
+import { logFormatFromArgv, type LogFormat } from "@/cli/log-format"
 import { addLogSink, getLogger, configureLogger, type LogLevel, type LogSink } from "@/services/Logger"
 import prettyStream from "pino-pretty"
 import {
@@ -52,14 +53,18 @@ const packageJsonPath = resolve(__dirname, "../../package.json")
 const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf-8"))
 
 /**
- * Sends the library's log records to this process's stdout, pretty-printed.
+ * Sends the library's log records to this process's stdout.
  *
  * The library logs nowhere until something registers a sink — correct for an
  * embedded filler, and the CLI *is* the application, so opting in here is the
  * whole point. Formatting happens in-process rather than through pino's
  * worker-thread transport, which keeps startup off the thread-stream path.
  */
-function consoleSink(): LogSink {
+function consoleSink(format: LogFormat): LogSink {
+	// Nothing to format: pino hands the destination one finished NDJSON record per
+	// write, newline included, so json mode is the *absence* of a transform rather
+	// than a different one — no pino-pretty, and therefore none of its parsing.
+	if (format === "json") return process.stdout
 	// `destination`, not `.pipe(process.stdout)`: piped, pino-pretty echoes each
 	// record's raw NDJSON alongside the formatted line, so every log appears twice.
 	return prettyStream({
@@ -71,12 +76,30 @@ function consoleSink(): LogSink {
 	})
 }
 
+// Read from raw argv, not the parsed options: the sink below is registered while
+// this module is still evaluating, and commander has not run yet.
+const logFormat = logFormatFromArgv(process.argv)
+
+// pino-pretty's pump() chain attaches an `error` listener to whatever destination
+// it is handed; a bare `process.stdout` has none. Without one, the first write
+// after something closes the read end — the desktop app quitting while the filler
+// it spawned keeps running, or a plain `simplex ... | head` — raises an unhandled
+// `error` event and kills the process, which is the opposite of what json mode is
+// for. Swallowing matches the pretty path, where the same error tears the
+// transform chain down and logging simply goes quiet; LoggerContext already treats
+// a broken sink as the host's problem rather than a reason to stop filling.
+// Registered here, once, because consoleSink() is called per writer.
+if (logFormat === "json") process.stdout.on("error", () => {})
+
 // The process-wide context covers everything outside a filler: the setup wizard,
 // config validation, the keeper command. A running filler logs to its own
-// context and gets a stream of its own below — one transform per writer, because
-// two pino instances writing into a single pino-pretty transform interleave
-// their chunks and it echoes the unparseable remainder as raw NDJSON.
-addLogSink(consoleSink())
+// context and gets a sink of its own below — on the pretty path that means one
+// transform per writer, because two pino instances writing into a single
+// pino-pretty transform interleave their chunks and it echoes the unparseable
+// remainder as raw NDJSON. Sharing stdout in json mode is safe for the same
+// reason it is a hazard here: there is no transform in between reassembling
+// anything, and pino writes each record whole.
+addLogSink(consoleSink(logFormat))
 
 /**
  * Opens the CLI's persistent store.
@@ -232,8 +255,9 @@ addRunOptions(program.command("run", { isDefault: true }))
 	.description("Run the intent filler; without a config it starts the browser setup wizard")
 	.action(async (options: RunOptions) => {
 		try {
-			// Display ASCII art header
-			process.stdout.write(ASCII_HEADER)
+			// Decoration for a terminal. In json mode stdout is a log file someone
+			// else is parsing, and a banner is not a record.
+			if (logFormat === "pretty") process.stdout.write(ASCII_HEADER)
 
 			const logger = getLogger("cli")
 
@@ -285,7 +309,7 @@ addRunOptions(program.command("run", { isDefault: true }))
 					config,
 					signer,
 					configPath: path,
-					logger: consoleSink(),
+					logger: consoleSink(logFormat),
 					data: dataStore,
 					watchOnly: options.watchOnly,
 				})
@@ -426,7 +450,10 @@ addRunOptions(program.command("run", { isDefault: true }))
 				// application renders the wizard itself over this socket. A bind failure
 				// here is fatal — there is no other way in.
 				await server.start({ socketPath: uiSocket })
-				console.log(`\n  No config found — the setup wizard is serving on ${uiSocket}\n`)
+				// Same rule as the TCP announcement below: in json mode this is a record,
+				// not prose, or it is the one non-JSON line in a stream someone is parsing.
+				if (logFormat === "json") logger.info({ socket: uiSocket }, "No config found, starting the setup wizard")
+				else console.log(`\n  No config found — the setup wizard is serving on ${uiSocket}\n`)
 				// The server keeps the event loop alive until the wizard completes.
 				return
 			}
@@ -443,8 +470,14 @@ addRunOptions(program.command("run", { isDefault: true }))
 			// outright. The operator reaches it on localhost, via whatever they published.
 			const browsableHost = uiBind.host === "0.0.0.0" || uiBind.host === "::" ? "localhost" : uiBind.host
 			const url = `http://${browsableHost}:${boundPort}/`
-			console.log(`\n  No config found — starting the setup wizard.\n\n  ${url}\n`)
-			openBrowser(url)
+			// The URL is the one thing the operator must see. In json mode it is also
+			// the one thing a supervisor must see, so it goes out as a record with a
+			// `url` field rather than as prose no parser will look at.
+			if (logFormat === "json") logger.info({ url }, "No config found, starting the setup wizard")
+			else console.log(`\n  No config found — starting the setup wizard.\n\n  ${url}\n`)
+			// --no-open: the caller renders the wizard itself (the desktop app puts it
+			// in its own window), so a system browser opening alongside is wrong.
+			if (options.open !== false) openBrowser(url)
 			// The server keeps the event loop alive until the wizard completes.
 		} catch (error) {
 			// Use console.error for initial startup errors since logger might not be configured yet

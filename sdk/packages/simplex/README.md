@@ -86,7 +86,15 @@ Flags:
 simplex run -c filler-config.toml            # UI on 127.0.0.1:8686
 simplex run -c filler-config.toml --ui 9000  # custom port
 simplex run -c filler-config.toml --no-ui    # headless
+simplex run --no-open                        # start the wizard, don't launch a browser
+simplex run --log-format json                # NDJSON on stdout instead of colourised lines
 ```
+
+`--no-open` and `--log-format json` are for running the solver under a supervisor. The wizard still
+starts and still reports its URL under `--no-open`; only the browser launch is skipped. `json` makes
+every line simplex writes to stdout one JSON object, with no ANSI escapes, which is what a captured log
+file needs. (One caveat: `@polkadot/api` prints a plain-text line to stdout if the Hyperbridge runtime
+upgrades while the solver is running, so parse defensively.)
 
 The curve-update API:
 

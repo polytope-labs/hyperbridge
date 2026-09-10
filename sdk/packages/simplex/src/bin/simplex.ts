@@ -80,6 +80,17 @@ function consoleSink(format: LogFormat): LogSink {
 // this module is still evaluating, and commander has not run yet.
 const logFormat = logFormatFromArgv(process.argv)
 
+// pino-pretty's pump() chain attaches an `error` listener to whatever destination
+// it is handed; a bare `process.stdout` has none. Without one, the first write
+// after something closes the read end — the desktop app quitting while the filler
+// it spawned keeps running, or a plain `simplex ... | head` — raises an unhandled
+// `error` event and kills the process, which is the opposite of what json mode is
+// for. Swallowing matches the pretty path, where the same error tears the
+// transform chain down and logging simply goes quiet; LoggerContext already treats
+// a broken sink as the host's problem rather than a reason to stop filling.
+// Registered here, once, because consoleSink() is called per writer.
+if (logFormat === "json") process.stdout.on("error", () => {})
+
 // The process-wide context covers everything outside a filler: the setup wizard,
 // config validation, the keeper command. A running filler logs to its own
 // context and gets a sink of its own below — on the pretty path that means one

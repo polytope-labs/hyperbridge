@@ -92,7 +92,9 @@ simplex run --log-format json                # NDJSON on stdout instead of colou
 
 `--no-open` and `--log-format json` are for running the solver under a supervisor. The wizard still
 starts and still reports its URL under `--no-open`; only the browser launch is skipped. `json` makes
-every line of stdout one JSON object, with no ANSI escapes, which is what a captured log file needs.
+every line simplex writes to stdout one JSON object, with no ANSI escapes, which is what a captured log
+file needs. (One caveat: `@polkadot/api` prints a plain-text line to stdout if the Hyperbridge runtime
+upgrades while the solver is running, so parse defensively.)
 
 The curve-update API:
 

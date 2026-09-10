@@ -174,16 +174,29 @@
 	white-space: nowrap;
 }
 
+/* Message and fields read as one line, the way a console prints them, and wrap
+   together. The clamp lives here rather than on the fields alone, because there
+   is no longer a separate block to clamp. */
 .log-body {
-	display: grid;
-	gap: 0.1rem;
+	display: -webkit-box;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 4;
+	line-clamp: 4;
 	min-width: 0;
+	overflow: hidden;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+
+.log-body[data-expanded] {
+	display: block;
+	-webkit-line-clamp: none;
+	line-clamp: none;
+	overflow: visible;
 }
 
 .log-msg {
 	color: var(--text);
-	overflow-wrap: anywhere;
-	white-space: pre-wrap;
 }
 
 /* Collapsed to one line: a serialized error is long, and most rows are skimmed. */
@@ -193,11 +206,7 @@
    while sitting off the end of it. Only the rare oversized record is clamped, and
    only far enough to keep one error from filling the pane. */
 .log-detail {
-	display: -webkit-box;
-	-webkit-box-orient: vertical;
-	-webkit-line-clamp: 4;
-	line-clamp: 4;
-	width: 100%;
+	display: inline;
 	min-height: 0;
 	padding: 0;
 	border: 0;
@@ -208,22 +217,58 @@
 	font-size: 0.6875rem;
 	line-height: 1.5;
 	text-align: left;
-	overflow: hidden;
-	white-space: pre-wrap;
-	overflow-wrap: anywhere;
+}
+
+/* Field tokens. Three hues and a dim punctuation, deliberately not a rainbow:
+   the row's own level colouring (amber warn, red error) has to stay the loudest
+   thing on the line. Strings keep the body colour, since they are the default
+   case and most of what a record carries. */
+.log-detail .jt-key {
+	color: #7fb5d6;
+}
+
+.log-detail .jt-string {
+	color: var(--text-secondary);
+}
+
+.log-detail .jt-number {
+	color: #74e998;
+}
+
+.log-detail .jt-literal {
+	color: #c792ea;
+}
+
+.log-detail .jt-punct {
+	color: rgba(146, 157, 170, 0.5);
 }
 
 .log-detail:hover:not(:disabled) {
 	border-color: transparent;
 	background: transparent;
-	color: var(--text-secondary);
 }
 
-.log-detail[data-expanded] {
+.log-body[data-expanded] .log-detail {
 	display: block;
-	-webkit-line-clamp: none;
-	line-clamp: none;
-	overflow: visible;
+	margin-top: 0.15rem;
+	margin-left: 0;
+}
+
+/* The level column reads as a severity ramp, so a page of debug does not compete
+   with the one warn sitting in it: trace recedes below the body text, debug and
+   info sit at their own hues, and warn and error keep the palette's own alarm
+   colours. Only warn and error also tint the row — colour in the level column is
+   for telling levels apart, the row treatment is for raising an alarm. */
+.log-row[data-level="trace"] .log-level {
+	color: #79838f;
+}
+
+.log-row[data-level="debug"] .log-level {
+	color: #8a7fb8;
+}
+
+.log-row[data-level="info"] .log-level {
+	color: var(--ok);
 }
 
 .log-row[data-level="warn"] {

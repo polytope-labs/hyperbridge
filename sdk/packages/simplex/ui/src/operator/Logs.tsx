@@ -70,6 +70,100 @@ function Highlight(props: { text: string; term: string }) {
 	)
 }
 
+
+/**
+ * A record's fields, rendered as tokens rather than as the raw JSON string.
+ *
+ * `detail` is a JSON object serialized by the store — but not always a *valid*
+ * one: an oversized record is truncated mid-string and gets an ellipsis, so
+ * every path here has to survive `JSON.parse` throwing.
+ */
+type DetailToken = { text: string; kind: "key" | "string" | "number" | "literal" | "punct" }
+
+/** Tokens for one value. `indent` >= 0 pretty-prints; -1 keeps it on one line. */
+function walkValue(value: unknown, out: DetailToken[], indent: number): void {
+	const push = (text: string, kind: DetailToken["kind"]): void => {
+		out.push({ text, kind })
+	}
+	const pretty = indent >= 0
+	const pad = (depth: number) => (pretty ? "\n" + "  ".repeat(depth) : "")
+
+	if (value === null) return push("null", "literal")
+	if (typeof value === "boolean") return push(String(value), "literal")
+	if (typeof value === "number") return push(String(value), "number")
+	// Round-tripped rather than raw, so quotes and escapes render as they were.
+	if (typeof value === "string") return push(JSON.stringify(value), "string")
+
+	if (Array.isArray(value)) {
+		if (value.length === 0) return push("[]", "punct")
+		push("[", "punct")
+		value.forEach((item, i) => {
+			if (i) push(",", "punct")
+			if (pretty) push(pad(indent + 1), "punct")
+			else if (i) push(" ", "punct")
+			walkValue(item, out, pretty ? indent + 1 : -1)
+		})
+		if (pretty) push(pad(indent), "punct")
+		return push("]", "punct")
+	}
+
+	const entries = Object.entries(value as Record<string, unknown>)
+	if (entries.length === 0) return push("{}", "punct")
+	push("{", "punct")
+	entries.forEach(([key, val], i) => {
+		if (i) push(",", "punct")
+		if (pretty) push(pad(indent + 1), "punct")
+		else push(" ", "punct")
+		push(key, "key")
+		push(": ", "punct")
+		walkValue(val, out, pretty ? indent + 1 : -1)
+	})
+	if (pretty) push(pad(indent), "punct")
+	push(pretty ? "}" : " }", "punct")
+}
+
+/** Top-level fields without the outer braces — they are noise on every record. */
+function tokenizeDetail(detail: string, pretty: boolean): DetailToken[] | null {
+	let parsed: unknown
+	try {
+		parsed = JSON.parse(detail)
+	} catch {
+		return null
+	}
+	if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return null
+	const out: DetailToken[] = []
+	Object.entries(parsed as Record<string, unknown>).forEach(([key, value], i) => {
+		if (i) out.push({ text: pretty ? "\n" : ", ", kind: "punct" })
+		out.push({ text: key, kind: "key" })
+		out.push({ text: ": ", kind: "punct" })
+		walkValue(value, out, pretty ? 0 : -1)
+	})
+	return out
+}
+
+function DetailFields(props: { detail: string; term: string; pretty: boolean }) {
+	const { detail, term, pretty } = props
+	const tokens = useMemo(() => tokenizeDetail(detail, pretty), [detail, pretty])
+	// A search hit that lands across a token boundary would render with nothing
+	// marked — the same "highlighted row with no highlight" the clamp used to
+	// cause. Fall back to the raw string so the match is always visible.
+	const splitsMatch =
+		Boolean(term) &&
+		tokens !== null &&
+		!tokens.some((t) => t.text.toLowerCase().includes(term.toLowerCase()))
+	if (tokens === null || splitsMatch) return <Highlight text={detail} term={term} />
+	return (
+		<>
+			{/* The index is the identity: a position in one serialized record, re-derived whenever it changes. */}
+			{tokens.map((token, index) => (
+				<span key={index} className={`jt-${token.kind}`}>
+					<Highlight text={token.text} term={term} />
+				</span>
+			))}
+		</>
+	)
+}
+
 const LogRow = memo(function LogRow(props: { record: LogRecordDto; term: string }) {
 	const { record, term } = props
 	const [expanded, setExpanded] = useState(false)
@@ -81,19 +175,21 @@ const LogRow = memo(function LogRow(props: { record: LogRecordDto; term: string 
 			<time dateTime={new Date(record.time).toISOString()}>{formatLogTime(record.time)}</time>
 			<span className="log-level">{record.level}</span>
 			<span className="log-module">{record.module ? <Highlight text={record.module} term={term} /> : null}</span>
-			<span className="log-body">
+			<span className="log-body" data-expanded={expanded || matchedInDetail || undefined}>
 				<span className="log-msg">
 					<Highlight text={record.msg} term={term} />
 				</span>
+				{/* A real separator, not just the margin: a copied row has to read the
+				    way it looks, and these get pasted into tickets. */}
+				{record.detail ? "  " : null}
 				{record.detail ? (
 					<button
 						type="button"
 						className="log-detail"
-						data-expanded={expanded || matchedInDetail || undefined}
 						onClick={() => setExpanded((open) => !open)}
 						title={expanded ? "Collapse this record" : "Show the whole record"}
 					>
-						<Highlight text={record.detail} term={term} />
+						<DetailFields detail={record.detail} term={term} pretty={expanded} />
 					</button>
 				) : null}
 			</span>

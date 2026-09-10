@@ -32,7 +32,7 @@ The bind address is set on `simplex run`, which is the default command (`simplex
 
 | Flag | Default | What it does |
 |---|---|---|
-| `--ui <[host:]port>` | `127.0.0.1:8686` | Where the dashboard listens. A bare number keeps the host at `127.0.0.1`, so `--ui 9000` means `127.0.0.1:9000`. |
+| `--ui [host:port]` | `127.0.0.1:8686` | Where the dashboard listens. A bare number keeps the host at `127.0.0.1`, so `--ui 9000` means `127.0.0.1:9000`. The value is optional — a bare `--ui` is the default bind, spelled out. |
 | `--no-ui` | off | Runs the filler headless — no dashboard, no port. |
 | `-c, --config <path>` | `./filler-config.toml`, then `$SIMPLEX_HOME/config.toml` | The TOML config. When neither exists, `run` starts the browser setup wizard instead of the filler. |
 | `-d, --data-dir <path>` | `./.simplex-data` | Bid database, runtime state, and the tunnel's keys under `tunnel/`. |

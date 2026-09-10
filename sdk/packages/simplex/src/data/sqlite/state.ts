@@ -1,53 +1,153 @@
-import { readFileSync, writeFileSync } from "node:fs"
+import { readFileSync, unlinkSync } from "node:fs"
 import { join, resolve } from "node:path"
+import type { DatabaseSync } from "node:sqlite"
+import { defaultLoggerContext, type Logger, type LoggerContext } from "@/services/Logger"
 import type { RuntimeState, StateStore } from "@/data/types"
 
-const STATE_FILE = "runtime-state.json"
-
 /**
- * Where operator state lived before it moved into the data directory. Read once
- * as a fallback so an upgrade does not silently resume a paused filler.
+ * Where operator state lived before it moved into the database, newest first:
+ * beside the databases, then the pre-data-directory location. Imported once and
+ * deleted — a paused filler that silently resumed on upgrade would start
+ * committing capital the operator had stopped.
  */
-const LEGACY_DIR = ".filler-data"
+const RETIRED_STATE_FILE = "runtime-state.json"
+const RETIRED_STATE_DIR = ".filler-data"
 
 /**
- * Operator state in a small JSON file beside the SQLite databases.
+ * SQLite-backed {@link StateStore}, sharing `bids.db` with the bid store.
  *
- * Best-effort by design: both reads and writes swallow their errors. A
- * read-only data directory should degrade to "pause does not survive restart",
- * never to a filler that refuses to pause.
+ * `node:sqlite` is synchronous, so every method resolves immediately — the
+ * promises satisfy the interface, they do not defer work.
+ *
+ * One row per {@link RuntimeState} key, JSON-encoded, so a write touches only
+ * the keys it names. That is what the JSON file this replaces could not do: it
+ * was rewritten whole and non-atomically, so a crash mid-write truncated it and
+ * lost both the operator's pause and the live phantom bids — precisely the two
+ * things it existed to carry across a restart — while two overlapping
+ * read-modify-writes could drop one another's key.
  */
-export class FileStateStore implements StateStore {
-	private path: string
+export class SqliteStateStore implements StateStore {
+	private logger: Logger
 
-	constructor(dataDir: string) {
-		this.path = join(dataDir, STATE_FILE)
+	constructor(
+		private db: DatabaseSync,
+		dataDir: string,
+		loggers: LoggerContext = defaultLoggerContext(),
+	) {
+		this.logger = loggers.get("state-storage")
+		this.initializeSchema()
+		this.importRetiredStateFile(dataDir)
 	}
 
-	async get(): Promise<RuntimeState> {
-		try {
-			return JSON.parse(readFileSync(this.path, "utf-8")) as RuntimeState
-		} catch {
-			// Fall back to the pre-move location, and rewrite it forward so the
-			// migration happens once. A paused filler that silently resumed on
-			// upgrade would start committing capital the operator had stopped.
+	private initializeSchema(): void {
+		this.db.exec(`
+			CREATE TABLE IF NOT EXISTS runtime_state (
+				key TEXT PRIMARY KEY,
+				value TEXT NOT NULL
+			);
+		`)
+	}
+
+	/**
+	 * Moves state out of the JSON file a previous version wrote, then removes
+	 * every copy of it. Runs only against an empty table, so it can never
+	 * overwrite state this database already holds.
+	 */
+	private importRetiredStateFile(dataDir: string): void {
+		const { rows } = this.db.prepare("SELECT COUNT(*) as rows FROM runtime_state").get() as unknown as {
+			rows: number
+		}
+		if (rows > 0) return
+
+		const paths = [join(dataDir, RETIRED_STATE_FILE), resolve(process.cwd(), RETIRED_STATE_DIR, RETIRED_STATE_FILE)]
+		for (const path of paths) {
+			let state: RuntimeState
 			try {
-				const legacy = JSON.parse(
-					readFileSync(resolve(process.cwd(), LEGACY_DIR, STATE_FILE), "utf-8"),
-				) as RuntimeState
-				await this.set(legacy)
-				return legacy
+				state = JSON.parse(readFileSync(path, "utf-8")) as RuntimeState
 			} catch {
-				return {}
+				continue
 			}
+			this.write(state, true)
+			this.logger.info({ path, keys: Object.keys(state) }, "Imported operator state from its retired JSON file")
+			break
+		}
+
+		// Delete every copy, imported or not: one left behind would be read again
+		// by the next empty database, resurrecting a pause the operator has since
+		// lifted. Best-effort — a read-only directory just keeps a dead file.
+		for (const path of paths) {
+			try {
+				unlinkSync(path)
+			} catch {}
 		}
 	}
 
-	async set(state: RuntimeState): Promise<void> {
+	private read(): RuntimeState {
+		const rows = this.db.prepare("SELECT key, value FROM runtime_state").all() as unknown as {
+			key: string
+			value: string
+		}[]
+		const state: Record<string, unknown> = {}
+		for (const row of rows) state[row.key] = JSON.parse(row.value)
+		return state as RuntimeState
+	}
+
+	/**
+	 * Writes the keys `state` names. With `replace`, keys it does not name are
+	 * dropped — the whole-record semantics {@link StateStore.set} promises.
+	 */
+	private write(state: Partial<RuntimeState>, replace: boolean): void {
+		const upsert = this.db.prepare(`
+			INSERT INTO runtime_state (key, value) VALUES (?, ?)
+			ON CONFLICT(key) DO UPDATE SET value = excluded.value
+		`)
+		const remove = this.db.prepare("DELETE FROM runtime_state WHERE key = ?")
+
+		// `node:sqlite` has no transaction helper of its own, so the statements are
+		// bracketed by hand. Without this a `set` could be observed with the old
+		// rows deleted and the new ones not yet written.
+		this.db.exec("BEGIN")
 		try {
-			writeFileSync(this.path, JSON.stringify(state))
-		} catch {
-			// best-effort: a read-only data dir must not break pause/resume
+			if (replace) this.db.exec("DELETE FROM runtime_state")
+			for (const [key, value] of Object.entries(state)) {
+				if (value === undefined) remove.run(key)
+				else upsert.run(key, JSON.stringify(value))
+			}
+			this.db.exec("COMMIT")
+		} catch (err) {
+			this.db.exec("ROLLBACK")
+			throw err
+		}
+	}
+
+	async get(): Promise<RuntimeState> {
+		return this.read()
+	}
+
+	async set(state: RuntimeState): Promise<void> {
+		this.persist(() => this.write(state, true))
+	}
+
+	/**
+	 * Merges `patch` in one transaction, leaving every other key untouched. The
+	 * generic {@link StateStore} fallback reads and writes back the whole record,
+	 * which loses a concurrent writer's key; this cannot.
+	 */
+	async patch(patch: Partial<RuntimeState>): Promise<RuntimeState> {
+		this.persist(() => this.write(patch, false))
+		return this.read()
+	}
+
+	/**
+	 * Runs a write, logging rather than throwing if it fails. A pause that cannot
+	 * be persisted must still pause the filler; only its survival across a
+	 * restart is lost.
+	 */
+	private persist(write: () => void): void {
+		try {
+			write()
+		} catch (err) {
+			this.logger.warn({ err }, "Could not persist operator state")
 		}
 	}
 }

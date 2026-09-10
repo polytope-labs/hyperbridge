@@ -5,11 +5,11 @@ import { defaultLoggerContext, type Logger, type LoggerContext } from "@/service
 import type { ActivityStore, BidStore, SimplexDataStore, StateStore } from "@/data/types"
 import { SqliteActivityStore } from "./activity"
 import { SqliteBidStore } from "./bids"
-import { FileStateStore } from "./state"
+import { SqliteStateStore } from "./state"
 
 export { SqliteActivityStore } from "./activity"
 export { SqliteBidStore } from "./bids"
-export { FileStateStore } from "./state"
+export { SqliteStateStore } from "./state"
 
 /**
  * How long a write waits for another connection's lock before giving up.
@@ -31,7 +31,8 @@ const BUSY_TIMEOUT_MS = 5_000
  *
  * Keeps bids and activity in separate database files (`bids.db`,
  * `activity.db`) so an existing data directory written by an earlier version is
- * picked up unchanged, plus `runtime-state.json` for operator state.
+ * picked up unchanged. Operator state rides in `bids.db` beside the bids; a
+ * `runtime-state.json` from before that is imported once and deleted.
  *
  * Built on `node:sqlite`, so there is nothing to install and nothing to
  * compile — the engine ships inside the Node runtime. That is why the package
@@ -59,7 +60,7 @@ export class SqliteDataStore implements SimplexDataStore {
 		this.databases = [bidsDb, activityDb]
 		this.bids = new SqliteBidStore(bidsDb, loggers)
 		this.activity = new SqliteActivityStore(activityDb, loggers)
-		this.state = new FileStateStore(dataDir)
+		this.state = new SqliteStateStore(bidsDb, dataDir, loggers)
 
 		this.logger.info({ dataDir }, "SQLite data store opened")
 	}

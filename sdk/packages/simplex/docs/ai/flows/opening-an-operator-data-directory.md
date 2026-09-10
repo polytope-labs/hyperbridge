@@ -23,8 +23,10 @@ better-sqlite3-written databases on 2026-09-09.
    absent, then add `order_json TEXT` to `events` and `token_in`/`amount_in TEXT` to
    `wallet_txs` when `columnNames` says they are missing. Rows written before those columns
    existed therefore read back with `order: null` and `tokenIn`/`amountIn: null`.
-5. `FileStateStore` takes the same directory for `runtime-state.json`. It is plain JSON on
-   disk, not SQLite, and is unaffected by any of the above.
+5. `SqliteStateStore` takes the `bids.db` connection and the data directory. It creates
+   `runtime_state` the same additive way, then — only when that table is empty — imports the
+   `runtime-state.json` earlier versions kept here, and deletes every copy it could read. See
+   [operator state on disk](./operator-state-on-disk.md).
 6. Who closes it depends on who opened it. `Simplex.start` sets `ownsData: !options.data`, and
    `core/boot.ts` closes the store on shutdown only `if (options.ownsData)` — so a store the
    caller handed in is the caller's to close, since it may be shared with another solver. The

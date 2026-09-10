@@ -240,6 +240,11 @@ addRunOptions(program.command("run", { isDefault: true }))
 
 			const uiEnabled = options.ui !== false
 			const uiSocket = options.uiSocket
+			// An empty value would be falsy at every use below, so the UI would quietly
+			// come up on the TCP port the operator was trying to avoid.
+			if (uiSocket !== undefined && uiSocket.trim() === "") {
+				throw new Error("--ui-socket needs a path; it was given an empty value")
+			}
 			// Two listen addresses, or an address and an off switch, are a mistake worth
 			// naming: silently picking one leaves the operator watching a port nothing
 			// is on. Only an explicit `--ui <addr>` conflicts — a bare `--ui` just turns

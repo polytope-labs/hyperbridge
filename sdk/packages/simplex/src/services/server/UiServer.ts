@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, unlinkSync } from "node:fs"
+import { lstatSync, unlinkSync, type Stats } from "node:fs"
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http"
 import { connect } from "node:net"
 import { tmpdir } from "node:os"
@@ -247,9 +247,24 @@ Run <code>pnpm ui:build</code> (or a full <code>pnpm build</code>) and restart.<
  */
 const SUN_PATH_MAX_BYTES = process.platform === "darwin" ? 103 : 107
 
-/** Windows names a pipe `\\.\pipe\name`, which is not a filesystem path. */
+/**
+ * Windows names a pipe `\\.\pipe\name`, which is not a filesystem path.
+ *
+ * Gated on the platform as well as the shape: on Linux such a string is just an
+ * oddly-named file, and treating it as a pipe there would skip the path
+ * resolution and the cleanup that every other path gets.
+ */
 function isWindowsPipe(path: string): boolean {
-	return /^\\\\[.?]\\pipe\\/i.test(path)
+	return process.platform === "win32" && /^\\\\[.?]\\pipe\\/i.test(path)
+}
+
+/** Names what is sitting at a socket path, for an error the operator can act on. */
+function describeEntry(entry: Stats): string {
+	if (entry.isSymbolicLink()) return "a symbolic link"
+	if (entry.isDirectory()) return "a directory"
+	if (entry.isFIFO()) return "a FIFO"
+	if (entry.isFile()) return "a regular file"
+	return "not a socket"
 }
 
 /**
@@ -269,7 +284,9 @@ function assertSocketPathFits(path: string): void {
 	if (bytes <= SUN_PATH_MAX_BYTES) return
 	throw new Error(
 		`UI socket path is ${bytes} bytes, over this platform's ${SUN_PATH_MAX_BYTES}-byte limit for a Unix socket: ${path}. ` +
-			`Use a shorter path — a directory under ${tmpdir()} is the usual fallback when the natural location is too long.`,
+			`Use a shorter path in a directory only this user can write — on Linux $XDG_RUNTIME_DIR ` +
+				`(${process.env.XDG_RUNTIME_DIR ?? "/run/user/<uid>"}) is both short and already private. ` +
+				`Avoid a shared directory such as ${tmpdir()}: anything that can create names there can take this address first.`,
 	)
 }
 
@@ -375,45 +392,104 @@ export class UiServer {
 		// A named pipe name is not a filesystem path; resolving one would mangle it.
 		const path = isWindowsPipe(socketPath) ? socketPath : resolvePath(socketPath)
 		assertSocketPathFits(path)
+		// Refused rather than attempted: `listen` throws ERR_SERVER_ALREADY_LISTEN here,
+		// and the provenance set below decides whether the DNS-rebinding check runs.
+		// Setting it for a bind that cannot happen would relabel a live TCP listener's
+		// connections as socket-arrived and switch that check off for them.
+		if (this.server.listening) {
+			throw new Error("This UI server is already listening; build a second UiServer for a second address")
+		}
 		await this.clearStaleSocket(path)
-		// A socket file is reachable by strictly fewer callers than loopback is, so the
-		// loopback branch of the host rule is the right default for anything that does
-		// consult it — though `handle` skips the check outright for these connections.
-		this.boundLoopback = true
-		this.listenProvenance = "unix"
 		await new Promise<void>((resolve, reject) => {
 			this.server.once("error", reject)
-			this.server.listen(path, () => resolve())
+			this.listenPrivate(path, () => {
+				// Assigned here, not before the bind: these describe how requests on this
+				// server are judged, so they must describe a listener that came up. The
+				// callback runs before the loop can deliver a connection, so nothing is
+				// ever served under the previous values.
+				//
+				// A socket file is reachable by strictly fewer callers than loopback is, so
+				// the loopback branch of the host rule is the right default for anything
+				// that consults it — though `handle` skips that check outright here.
+				this.boundLoopback = true
+				this.listenProvenance = "unix"
+				resolve()
+			})
 		})
 		this.socketPath = path
-		this.restrictSocketToOwner(path)
+		try {
+			this.assertSocketIsPrivate(path)
+		} catch (err) {
+			// Never keep serving a fund-moving API on a socket we cannot prove is
+			// owner-only. The bind succeeded, so it has to be taken back down.
+			this.server.close()
+			this.unlinkSocket()
+			throw err
+		}
 		this.logger.info({ bind: path }, `Simplex UI available on the socket at ${path}`)
 		return 0
 	}
 
 	/**
-	 * Narrows the socket file to `0600`, which is the access control this listen
-	 * mode exists for. Node binds it `0777 & ~umask` — 0775 under the common
-	 * `umask 002`, letting every member of the operator's group connect and drive
-	 * `/api/send`. Linux and macOS both check write permission on the socket file
-	 * at connect(2), so the mode is enforced rather than advisory.
+	 * Binds the socket with a umask that makes it `0600` at creation.
 	 *
-	 * A window exists between bind and chmod in which the umask mode stands. It
-	 * cannot be closed from Node — libuv takes no mode at bind, and changing the
-	 * process umask would race every other write this process makes — so an
-	 * embedder that cares should place the socket in a directory only it can
-	 * traverse, which closes it from the outside.
+	 * It cannot be narrowed after the fact instead. libuv creates the file with
+	 * `0777 & ~umask` — 0775 under the common `umask 002` — and Linux checks that
+	 * mode at connect(2) and never again, so a local user who connects in the gap
+	 * before a follow-up chmod keeps a fully privileged, unauthenticated session for
+	 * the life of the daemon: tightening the mode does not revoke a connection that
+	 * already exists. The gap is around a millisecond, which a connect loop wins
+	 * reliably. The mode has to be right before the socket is reachable at all.
+	 *
+	 * `process.umask` is process-wide, which is why this wraps only the synchronous
+	 * `listen` call: libuv binds inside it, and no other JavaScript in this process
+	 * can run in between. It throws on a worker thread, hence the guard.
 	 */
-	private restrictSocketToOwner(path: string): void {
-		// Windows named pipes are not files and carry no mode. Their DACL is not
-		// owner-only and Node cannot narrow it; see docs/ai/Decisions.md.
-		if (process.platform === "win32") return
+	private listenPrivate(path: string, onListening: () => void): void {
+		if (process.platform === "win32" || isWindowsPipe(path)) {
+			// A named pipe carries no file mode; see docs/ai/Decisions.md.
+			this.server.listen(path, onListening)
+			return
+		}
+		let previous: number | undefined
 		try {
-			chmodSync(path, 0o600)
-		} catch (err) {
-			this.logger.warn(
-				{ err, path },
-				"Could not restrict the UI socket to this user — other local users may be able to connect",
+			previous = process.umask(0o177)
+		} catch {
+			previous = undefined
+		}
+		try {
+			this.server.listen(path, onListening)
+		} finally {
+			if (previous !== undefined) process.umask(previous)
+		}
+	}
+
+	/**
+	 * Proves the socket is owner-only, and refuses to serve when it is not.
+	 *
+	 * `listenPrivate` has already made it `0600`; this is purely the post-condition.
+	 * It asserts rather than repairs on purpose: a chmod here would "fix" the mode
+	 * only after the socket had been reachable at the wrong one, which is precisely
+	 * the window `listenPrivate` exists to close — so a repair would hide the very
+	 * regression this checks for, while leaving the vulnerability in place.
+	 *
+	 * `lstat`, not `stat`, so a symlink swapped in at the path is rejected rather
+	 * than followed.
+	 *
+	 * Fails closed deliberately. This mode is the entire access control for the
+	 * socket listen mode, and an earlier version logged a warning and kept serving.
+	 */
+	private assertSocketIsPrivate(path: string): void {
+		if (process.platform === "win32" || isWindowsPipe(path)) return
+		const entry = lstatSync(path)
+		if (!entry.isSocket()) {
+			throw new Error(`${path} is ${describeEntry(entry)}, not the socket just bound — refusing to serve`)
+		}
+		const mode = entry.mode & 0o777
+		if (mode !== 0o600) {
+			throw new Error(
+				`${path} was created mode 0${mode.toString(8)} rather than 0600, so other users could reach the UI. ` +
+					"A default ACL on the containing directory is the usual cause; use a directory without one.",
 			)
 		}
 	}
@@ -434,7 +510,17 @@ export class UiServer {
 	 * existence check below returns first.
 	 */
 	private async clearStaleSocket(path: string): Promise<void> {
-		if (!existsSync(path)) return
+		// `lstat`, not `existsSync`: existsSync follows symlinks, so a dangling one
+		// reads as absent, nothing is cleaned up, and the bind then fails EADDRINUSE.
+		const entry = lstatSync(path, { throwIfNoEntry: false })
+		if (!entry) return
+		// The type test comes before the probe, not after: connect(2) answers
+		// ECONNREFUSED for a regular file, a FIFO and a directory exactly as it does
+		// for an orphaned socket, so probing alone would read an operator's file as a
+		// corpse and delete it. Only a socket is ever a candidate for removal.
+		if (!entry.isSocket()) {
+			throw new Error(`${path} already exists and is ${describeEntry(entry)}; refusing to remove it`)
+		}
 		const code = await new Promise<string | undefined>((resolve) => {
 			const probe = connect(path)
 			const settle = (result: string | undefined) => {
@@ -481,11 +567,13 @@ export class UiServer {
 				"UI server binding a non-loopback address — it is unauthenticated, make sure the network is trusted",
 			)
 		}
-		this.boundLoopback = isLoopbackHost(host)
-		this.listenProvenance = "tcp"
 		return new Promise((resolve, reject) => {
 			this.server.once("error", reject)
 			this.server.listen(port, host, () => {
+				// Set once the listener is actually up: these say how this server judges
+				// requests, so they must never describe a bind that did not happen.
+				this.boundLoopback = isLoopbackHost(host)
+				this.listenProvenance = "tcp"
 				const address = this.server.address()
 				const boundPort = typeof address === "object" && address !== null ? address.port : port
 				this.logger.info({ bind: `${host}:${boundPort}` }, `Simplex UI available at http://${host}:${boundPort}/`)

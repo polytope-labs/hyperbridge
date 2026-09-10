@@ -37,6 +37,24 @@ describe("simplex run flags", () => {
 		expect(parseRun([]).ui).toBeUndefined()
 	})
 
+	it("takes a socket path from --ui-socket, independently of --ui", () => {
+		expect(parseRun(["--ui-socket", "/run/user/1000/simplex.sock"]).uiSocket).toBe("/run/user/1000/simplex.sock")
+		expect(parseRun([]).uiSocket).toBeUndefined()
+		// The two are separate flags. The handler rejects the combinations that name
+		// two listen addresses (`--ui <addr>` with a socket, or `--no-ui` with one);
+		// parsing keeps both so it can tell them apart and say which was meant.
+		expect(parseRun(["--ui", "9000", "--ui-socket", "/tmp/s.sock"])).toMatchObject({
+			ui: "9000",
+			uiSocket: "/tmp/s.sock",
+		})
+		expect(parseRun(["--no-ui", "--ui-socket", "/tmp/s.sock"])).toMatchObject({
+			ui: false,
+			uiSocket: "/tmp/s.sock",
+		})
+		// A bare --ui names no address, so it is not a competing target.
+		expect(parseRun(["--ui", "--ui-socket", "/tmp/s.sock"])).toMatchObject({ ui: true, uiSocket: "/tmp/s.sock" })
+	})
+
 	it("carries the other run flags", () => {
 		const options = parseRun(["-c", "filler-config.toml", "-d", "/data", "--watch-only"])
 		expect(options).toMatchObject({ config: "filler-config.toml", dataDir: "/data", watchOnly: true })

@@ -202,6 +202,82 @@ database in the test.
 Rejected: skipping the fixture and trusting that SQLite's file format is driver-independent. It is
 — but the migrations, the WAL header on `activity.db`, and the row values are the parts that
 actually break, and none of them are guaranteed by the format.
+## 2026-09-09 — The socket is created 0600 by umask, not chmod'ed to 0600 after binding
+
+Decided: `listenPrivate` sets `umask 0177` around the synchronous `listen` call so libuv creates the
+socket file `0600`. The mode is never briefly wider.
+
+Why not bind then chmod, which is the obvious shape and what this change originally did: AF_UNIX
+permissions are checked at connect(2) and never re-checked, so the window is not "a moment of exposure"
+— a connection opened inside it is served for the life of the daemon, and tightening the mode does not
+revoke it. Measured at roughly a millisecond, and won 7 times out of 8 by a connect loop. On an
+unauthenticated API where `/api/send` moves funds and init mode holds private keys, that is a real
+local privilege boundary, not a hardening nicety.
+
+Rejected: documenting the window and telling embedders to use a private parent directory. That was the
+original decision here and it was wrong on the facts — it rested on the claim that the window "cannot be
+closed from Node", which is simply false. A private parent directory is still good advice, but it is
+defence in depth, not the fix, and stating it as the fix is what kept the bug in place.
+
+Rejected: bind to a temporary name in the same directory, chmod it, then rename over the real path.
+Also race-free and it avoids touching a process-wide setting. But libuv records the bound name and
+unlinks *that* on close, so after a rename the real socket file would survive every clean shutdown —
+trading a security bug for a litter bug that the stale-socket path would then have to clean up.
+
+On `process.umask` being process-wide: it wraps only the synchronous `listen` call. libuv binds inside
+that call, so no other JavaScript in this process can run between the set and the restore. It throws on
+a worker thread, hence the guard; the UI server runs on the main thread.
+
+Consequence for `assertSocketIsPrivate`: it asserts the resulting mode and does NOT chmod. A repair
+there would restore the mode only after the socket had been reachable at the wrong one — recreating the
+exact window, while also hiding the regression from the test that is supposed to catch it. A wrong mode
+now refuses to serve (a default ACL on the containing directory is the likely cause, and the error says
+so). Failing closed is the same rule applied to a chmod failure, which an earlier version downgraded to
+a warning while continuing to serve.
+
+
+## 2026-09-09 — A socket path is type-checked with lstat before anything is probed or removed
+
+Decided: `clearStaleSocket` calls `lstatSync` first and refuses anything that is not a socket. Only a
+socket is ever a candidate for the connect probe or for `unlink`.
+
+Why the probe cannot come first: the invariant the previous version rested on — "ECONNREFUSED means the
+file outlived its listener and is a corpse" — is false. connect(2) answers ECONNREFUSED for a regular
+file, a FIFO and a directory exactly as it does for an orphaned socket. So a probe-only test classified
+an operator's file as stale and deleted it; `--ui-socket ~/filler-config.toml` destroyed the config,
+reproduced against a file holding a signer key. Only a live socket is distinguishable by probing, which
+is the one thing `lstat` cannot tell us — so each check does the part the other cannot.
+
+Why `lstat` and not `existsSync`/`stat`: `existsSync` follows symlinks, so a dangling one read as
+absent, nothing was cleaned up, and the bind then failed with a bare `EADDRINUSE` naming no cause — a
+permanent, unrecoverable start failure that the stale-socket recovery was specifically meant to prevent.
+Not following the link also means a symlink planted at the path can never redirect a later operation.
+
+Rejected: unlinking a non-socket after warning. The path is operator-supplied and typo-prone, and the
+value of what might be there (a config with a signing key) is far higher than the convenience of
+auto-clearing it. Refusing costs one manual `rm` in the rare legitimate case.
+
+
+## 2026-09-09 — Listen state is assigned after the bind succeeds, never before
+
+Decided: `boundLoopback` and `listenProvenance` are set inside the `listen` callback in both
+`listenOnPort` and `listenOnSocket`, and `listenOnSocket` refuses outright when the server is already
+listening.
+
+Why: `listenProvenance` decides whether the DNS-rebinding Host check runs at all. Assigned before a
+fallible bind, a rejected socket start on an already-listening server left a live TCP listener with
+every connection tagged `unix`, and therefore exempt from that check — full DNS rebinding re-opened
+against `/api/send`, with `start()` having reported failure. Reproduced against the real class.
+
+Not reachable from the shipped CLI, which selects exactly one transport and constructs one server per
+address — but `UiServer` is an exported class and the desktop app this listen mode exists for is
+precisely an embedder that might retry or attach-or-spawn. A security toggle that is fail-open by
+statement ordering is worth fixing on reachability grounds alone, and the fix is to move two lines.
+
+The callback runs before the event loop can deliver a connection, so there is no interval in which a
+request is served under stale values.
+
+
 ## 2026-09-09 — Connection provenance is tagged on the socket, not inferred from the listener
 
 Decided: every socket carries a `PROVENANCE` symbol holding `tcp`, `unix` or `tunnel`. The listener
@@ -305,7 +381,11 @@ app's discovery mechanism and single-instance lock, so "someone is already servi
 it needs, not something to overwrite.
 
 Decided: a socket path over `sun_path` (103 bytes on macOS, 107 on Linux, NUL included) is a clear
-error naming the size, the limit and `$TMPDIR` as a fallback.
+error naming the size and the limit.
+
+Superseded 2026-09-09 (same day): that error originally suggested `$TMPDIR` as the fallback. On Linux
+`os.tmpdir()` is `/tmp`, mode 1777 — anything on the machine can create names there, and this path is
+the daemon's address. It now points at `$XDG_RUNTIME_DIR` and says to avoid a shared directory.
 
 Rejected: silently relocating to a short path under `$TMPDIR`. The caller uses this path to find the
 daemon again — it is the discovery mechanism — so moving it trades a legible startup error for a

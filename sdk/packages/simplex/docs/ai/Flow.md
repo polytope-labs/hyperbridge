@@ -666,13 +666,12 @@ writes the app's `/swap?wl=1&wlv=1&…` query. Copy goes through `navigator.clip
 Read from the source and exercised by `src/tests/ui-server-socket.test.ts`; the Node behaviours noted
 below were measured on Node 24 rather than inferred.
 
-1. `bin/simplex.ts` resolves one listen target before anything binds. `--no-ui` skips the server
-   entirely; `--ui [<[host:]port>]` fills `uiBind` (default `127.0.0.1:8686`); `--ui-socket <path>`
-   selects socket mode. `--ui-socket` with either `--no-ui` or an explicit `--ui <addr>` throws before
-   the filler starts, rather than one silently winning. Note that commander rejects a valueless `--ui`
-   before any of this runs — the declared flags `[<[host:]port>]` contain a `<`, and commander computes
-   `required` as `flags.includes("<")`, so the optional-argument form never took effect. That predates
-   this change and is deliberately not fixed here, since `--ui` had to stay exactly as it was.
+1. `bin/simplex.ts` resolves one listen target before anything binds. The flags themselves are
+   declared in `src/cli/run-options.ts` (`addRunOptions`), so they can be parsed in tests without
+   importing the bin. `--no-ui` skips the server entirely; `--ui [host:port]` fills `uiBind` (default
+   `127.0.0.1:8686`); `--ui-socket <path>` selects socket mode. `--ui-socket` with either `--no-ui` or
+   an explicit `--ui <addr>` throws before the filler starts, rather than one silently winning. A bare
+   `--ui` is not a conflict: it names no address, it only turns the UI on.
 2. `UiServer.start()` dispatches on the argument's shape: `start(port, host)` and `start({host, port})`
    both reach `listenOnPort`, `start({socketPath})` reaches `listenOnSocket`. The TCP path is
    unchanged — the init-mode loopback refusal, the operator-mode warning, `boundLoopback`, and the
@@ -680,10 +679,15 @@ below were measured on Node 24 rather than inferred.
    works by passing port 0.
 3. `listenOnSocket` resolves the path (unless it is a `\\.\pipe\` name), checks it against
    `sun_path` (103 bytes on macOS, 107 on Linux) and connect-tests any file already there:
-   `ECONNREFUSED` means stale, so it is unlinked; anything answering fails the start. It then binds,
-   chmods the file to `0600` — Node creates it `0777 & ~umask`, i.e. 0775 under `umask 002` — and
-   resolves 0, since there is no port to report.
-4. `listenProvenance` is set by whichever of the two ran (`tcp` / `unix`). A listener prepended to the
+   `ECONNREFUSED` means stale, so it is unlinked; anything answering fails the start. Anything at the
+   path that is not a socket is refused outright rather than removed, and the check is `lstat`, so a
+   dangling symlink is seen rather than read as absent. It then binds through `listenPrivate`, which
+   sets `umask 0177` around the synchronous `listen` so libuv creates the file `0600` — Node would
+   otherwise create it `0777 & ~umask`, i.e. 0775 under `umask 002`. `assertSocketIsPrivate` then
+   asserts the mode (it does not repair it), and resolves 0, since there is no port to report.
+4. `listenProvenance` is set by whichever of the two ran (`tcp` / `unix`), inside the `listen` callback
+   rather than before the bind, so a rejected start never leaves a live listener described by the
+   other mode's rules. A listener prepended to the
    server's `connection` event stamps that value onto every accepted socket, ahead of http's own
    connection listener, so the tag is in place before any parser exists.
 5. Tunnel connections skip steps 1–4 entirely. `TunnelService` dials the relay outbound; a device's

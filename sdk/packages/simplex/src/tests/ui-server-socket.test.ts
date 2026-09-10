@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, vi } from "vitest"
-import { existsSync, linkSync, mkdtempSync, statSync } from "node:fs"
+import { existsSync, linkSync, mkdtempSync, readFileSync, statSync, symlinkSync, writeFileSync } from "node:fs"
 import { request as httpRequest } from "node:http"
 import { createServer as createNetServer, connect as netConnect, createConnection, type Socket } from "node:net"
 import { tmpdir } from "node:os"
@@ -251,6 +251,65 @@ describe("UiServer Unix socket listen mode", () => {
 
 		server.stop()
 		expect(existsSync(socketPath)).toBe(false)
+	})
+
+	it("creates the socket 0600 even under a permissive umask", async () => {
+		// The mode IS the access control here, and it has to be right at creation, not
+		// shortly after: libuv makes the file 0777 & ~umask, and Linux checks that mode
+		// at connect(2) and never again — so a connection won before a later chmod is
+		// served for the life of the daemon. Under `umask 0` the old bind-then-chmod
+		// order left the socket briefly 0777 to every local user.
+		if (process.platform === "win32") return
+		const socketPath = join(tmpDir(), "ui.sock")
+		const { server } = newServer()
+		const previousUmask = process.umask(0o000)
+		try {
+			await server.start({ socketPath })
+			expect((statSync(socketPath).mode & 0o777).toString(8)).toBe("600")
+		} finally {
+			process.umask(previousUmask)
+		}
+		// The process-wide umask is borrowed only for the bind, and handed back.
+		expect(process.umask()).toBe(previousUmask)
+	})
+
+	it("refuses a non-socket at the socket path instead of deleting it", async () => {
+		// connect(2) answers ECONNREFUSED for a regular file exactly as it does for an
+		// orphaned socket, so a probe-only staleness test reads an operator's file as a
+		// corpse and unlinks it. `--ui-socket ~/filler-config.toml` must not eat it.
+		if (process.platform === "win32") return
+		const socketPath = join(tmpDir(), "not-a-socket.toml")
+		writeFileSync(socketPath, "[simplex.signer]\nkey = \"0xdeadbeef\"\n")
+		const { server } = newServer()
+		await expect(server.start({ socketPath })).rejects.toThrow(/exists and is a regular file; refusing to remove it/)
+		expect(readFileSync(socketPath, "utf8")).toContain("0xdeadbeef")
+	})
+
+	it("refuses a dangling symlink at the socket path with an actionable error", async () => {
+		// existsSync follows symlinks, so a broken one reads as absent: nothing gets
+		// cleaned up and the bind then fails with a bare EADDRINUSE naming no cause.
+		if (process.platform === "win32") return
+		const dir = tmpDir()
+		const socketPath = join(dir, "ui.sock")
+		symlinkSync(join(dir, "nowhere"), socketPath)
+		expect(existsSync(socketPath)).toBe(false)
+		const { server } = newServer()
+		await expect(server.start({ socketPath })).rejects.toThrow(/exists and is a symbolic link; refusing to remove it/)
+	})
+
+	it("does not relabel a live TCP listener's connections when a socket start fails", async () => {
+		// `listenProvenance` decides whether the DNS-rebinding check runs. Setting it
+		// before the bind meant a rejected socket start on an already-listening server
+		// left every TCP connection tagged 'unix' — and so exempt from the Host check.
+		const { server } = newServer()
+		const port = await server.start(0)
+		expect(await tcpRequest(port, "/api/status", "evil.example.com")).toContain("403")
+
+		await expect(server.start({ socketPath: join(tmpDir(), "ui.sock") })).rejects.toThrow(/already listening/)
+
+		// Still a TCP listener, so still defended.
+		expect(await tcpRequest(port, "/api/status", "evil.example.com")).toContain("403")
+		expect(await tcpRequest(port, "/api/status", `127.0.0.1:${port}`)).toContain("200")
 	})
 
 	it("recovers a socket file left behind by a killed run", async () => {

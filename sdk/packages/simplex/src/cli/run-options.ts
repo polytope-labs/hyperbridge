@@ -37,7 +37,7 @@ export function addRunOptions(command: Command): Command {
 		)
 		.option(
 			"--ui-socket <path>",
-			"Serve the web UI on a Unix domain socket at <path> (a named pipe on Windows) instead of a TCP port. Only the user running simplex can connect, and no web page can reach it — for embedding simplex in a desktop application",
+			"Serve the web UI on a Unix domain socket at <path> instead of a TCP port. The socket is created 0600, so no other local user and no web page can reach it. On Windows this is a named pipe, whose default ACL is weaker (see docs/ai/Decisions.md). For embedding simplex in a desktop application",
 		)
 		.option("--no-ui", "Disable the local web UI")
 }

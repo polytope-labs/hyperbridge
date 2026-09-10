@@ -1,0 +1,29 @@
+[package]
+name = "kaia-prover"
+version = "0.1.0"
+edition = "2021"
+description = "Prover for Kaia's Istanbul BFT consensus"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+publish = false
+
+[dependencies]
+anyhow = { workspace = true, features = ["std"] }
+serde = { workspace = true, features = ["derive", "std"] }
+json = { workspace = true, features = ["std"] }
+hex = { workspace = true, features = ["std"] }
+futures = "0.3"
+tokio = { workspace = true, features = ["time"] }
+reqwest = { workspace = true }
+primitive-types = { workspace = true, features = ["std", "serde"] }
+ethabi = { workspace = true, features = ["std"] }
+ismp = { workspace = true, features = ["std"] }
+kaia-verifier = { workspace = true, features = ["std"] }
+tracing = "0.1.40"
+
+[dependencies.polkadot-sdk]
+workspace = true
+features = ["sp-core", "sp-io", "std"]
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["full"] }
+codec = { workspace = true, features = ["std"] }

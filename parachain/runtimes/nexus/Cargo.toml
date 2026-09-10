@@ -50,6 +50,7 @@ ismp-arbitrum = { workspace = true }
 ismp-optimism = { workspace = true }
 ismp-polygon = { workspace = true }
 ismp-pharos = { workspace = true }
+ismp-kaia = { workspace = true }
 pallet-consensus-incentives = { workspace = true }
 pallet-messaging-incentives = { workspace = true }
 pallet-collator-manager = { workspace = true }
@@ -161,6 +162,7 @@ std = [
     "ismp-arbitrum/std",
     "ismp-optimism/std",
     "ismp-pharos/std",
+    "ismp-kaia/std",
     "pallet-consensus-incentives/std",
     "polkadot-sdk/std",
     "ismp-polygon/std",

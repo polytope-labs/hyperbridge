@@ -32,6 +32,7 @@ members = [
     "modules/ismp/clients/arbitrum",
     "modules/ismp/clients/optimism",
     "modules/ismp/clients/bsc",
+    "modules/ismp/clients/kaia",
     "modules/ismp/clients/pharos",
     "modules/ismp/clients/grandpa",
     "modules/ismp/testsuite",
@@ -52,6 +53,8 @@ members = [
     "modules/consensus/geth-primitives",
     "modules/consensus/bsc/verifier",
     "modules/consensus/bsc/prover",
+    "modules/consensus/kaia/verifier",
+    "modules/consensus/kaia/prover",
     "modules/consensus/grandpa/prover",
     "modules/consensus/grandpa/primitives",
     "modules/consensus/grandpa/verifier",
@@ -113,6 +116,7 @@ members = [
     "tesseract/consensus/op-host",
     "tesseract/consensus/evm-host",
     "tesseract/consensus/bsc",
+    "tesseract/consensus/kaia",
     "tesseract/consensus/sync-committee",
     "tesseract/consensus/grandpa",
     "tesseract/consensus/integration-tests",
@@ -280,6 +284,8 @@ beefy-prover = { path = "./modules/consensus/beefy/prover" }
 beefy-verifier = { path = "./modules/consensus/beefy/verifier", default-features = false }
 bsc-prover = { path = "./modules/consensus/bsc/prover" }
 bsc-verifier = { path = "./modules/consensus/bsc/verifier", default-features = false }
+kaia-prover = { path = "./modules/consensus/kaia/prover" }
+kaia-verifier = { path = "./modules/consensus/kaia/verifier", default-features = false }
 geth-primitives = { path = "./modules/consensus/geth-primitives", default-features = false }
 sync-committee-primitives = { path = "./modules/consensus/sync-committee/primitives", default-features = false }
 sync-committee-prover = { path = "./modules/consensus/sync-committee/prover" }
@@ -295,6 +301,7 @@ pharos-prover = { path = "./modules/consensus/pharos/prover", default-features =
 
 # consensus clients
 ismp-bsc = { path = "./modules/ismp/clients/bsc", default-features = false }
+ismp-kaia = { path = "./modules/ismp/clients/kaia", default-features = false }
 ismp-pharos = { path = "./modules/ismp/clients/pharos", default-features = false }
 ismp-sync-committee = { path = "./modules/ismp/clients/sync-committee", default-features = false }
 arbitrum-verifier = { path = "./modules/ismp/clients/arbitrum", default-features = false }
@@ -356,6 +363,7 @@ op-host = { path = "tesseract/consensus/op-host" }
 evm-host = { path = "tesseract/consensus/evm-host" }
 tesseract-beefy = { path = "tesseract/consensus/beefy" }
 tesseract-bsc = { path = "tesseract/consensus/bsc" }
+tesseract-kaia = { path = "tesseract/consensus/kaia" }
 tesseract-integration-tests = { path = "tesseract/consensus/integration-tests" }
 tesseract-sync-committee = { path = "tesseract/consensus/sync-committee" }
 tesseract-grandpa = { path = "tesseract/consensus/grandpa" }

@@ -100,6 +100,15 @@ export function OperationsIcon(props: IconProps) {
 	)
 }
 
+export function LogsIcon(props: IconProps) {
+	return (
+		<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" {...props}>
+			<rect x="2.5" y="3.5" width="15" height="13" rx="2" />
+			<path d="M5.5 8.25 7.75 10.5 5.5 12.75M10 12.75h4.5" strokeLinecap="round" strokeLinejoin="round" />
+		</svg>
+	)
+}
+
 export function SettingsIcon(props: IconProps) {
 	return (
 		<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" {...props}>

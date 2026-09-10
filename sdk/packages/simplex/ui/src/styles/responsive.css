@@ -75,7 +75,7 @@
 	}
 
 	.operator-main {
-		padding-inline: 2rem;
+		--page-inset: 2rem;
 	}
 
 	.operator-asset-balances {
@@ -422,6 +422,8 @@
 	}
 
 	.operator-sidebar nav {
+		/* One column per page shown here, plus the install button. Logs is
+		   desktop-only, so it is not one of them. */
 		grid-template-columns: repeat(5, minmax(0, 1fr));
 	}
 
@@ -438,7 +440,8 @@
 
 	.operator-main {
 		flex: 1;
-		padding: 2rem 1rem calc(6.5rem + env(safe-area-inset-bottom));
+		--page-inset: 1rem;
+		padding: 2rem var(--page-inset) calc(6.5rem + env(safe-area-inset-bottom));
 		overflow: visible;
 	}
 

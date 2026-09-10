@@ -6,7 +6,7 @@ import "./quiet"
 import { patchRuntimeState } from "@/data/state"
 import { Command } from "commander"
 import { readFileSync } from "fs"
-import { resolve, dirname } from "path"
+import { resolve, dirname, join } from "path"
 import { fileURLToPath } from "url"
 import { parse } from "toml"
 import { existsSync } from "fs"
@@ -32,6 +32,7 @@ import { ChainClientManager } from "@/services/ChainClientManager"
 import { PaymasterKeeperService } from "@/services/PaymasterKeeperService"
 import { signerFromToml, type Signer } from "@/services/wallet"
 import { UiServer, type OperatorContext } from "@/services/server/UiServer"
+import { LogStore } from "@/services/server/LogStore"
 import { TunnelService } from "@/services/tunnel/TunnelService"
 import { deriveSubstrateKeyPair } from "@/services/substrate-key"
 
@@ -100,6 +101,35 @@ if (logFormat === "json") process.stdout.on("error", () => {})
 // reason it is a hazard here: there is no transform in between reassembling
 // anything, and pino writes each record whole.
 addLogSink(consoleSink(logFormat))
+
+/**
+ * What the dashboard's Logs page reads. One store for the whole process, fed
+ * from both contexts — the UI server and the config layer log here, the filler
+ * logs to its own — so the page shows the operator one feed rather than making
+ * them know which half of the binary emitted a line.
+ *
+ * Registered at module load, before anything has had a chance to log, so the
+ * history really does start at launch. Unlike the console sink it is registered
+ * once rather than per writer: it stores parsed records, so interleaving is a
+ * non-issue. Its file is opened later, once `--data-dir` has been parsed.
+ */
+const logStore = new LogStore()
+addLogSink(logStore.sink())
+
+/** Sends one record to several destinations — the console and the log store, in practice. */
+function fanout(sinks: LogSink[]): LogSink {
+	return {
+		write(line: string) {
+			for (const sink of sinks) {
+				try {
+					sink.write(line)
+				} catch {
+					// One broken destination must not cost the others their record.
+				}
+			}
+		},
+	}
+}
 
 /**
  * Opens the CLI's persistent store.
@@ -190,7 +220,16 @@ async function operatorContextFrom(
 		activity: runtime.activity,
 		bids: runtime.data.bids,
 		setPaused: (paused) => patchRuntimeState(runtime.data.state, { paused }),
-		setLogLevel: (level) => runtime.loggers.setLevel(level),
+		// Both contexts, not just the filler's: the dashboard shows one merged feed
+		// and reports one level for it, so leaving the process-wide context (the UI
+		// server, the config layer) pinned at its default would make that a lie in
+		// both directions — stray info records below a raised floor, and modules
+		// that never follow a lowered one.
+		setLogLevel: (level) => {
+			runtime.loggers.setLevel(level)
+			configureLogger(level)
+		},
+		logs: logStore,
 		vault: runtime.vaultVenue
 			? {
 					sweepNow: () => runtime.vaultVenue!.sweepExcessToVault(),
@@ -259,6 +298,11 @@ addRunOptions(program.command("run", { isDefault: true }))
 			// else is parsing, and a banner is not a record.
 			if (logFormat === "pretty") process.stdout.write(ASCII_HEADER)
 
+			// Now that --data-dir is parsed, give the store somewhere to keep this
+			// launch's history. Records logged before this point are already in the
+			// in-memory tail and get written out with the rest.
+			logStore.openLaunchFile(join(resolveDataDir(options.dataDir), "logs"))
+
 			const logger = getLogger("cli")
 
 
@@ -309,7 +353,10 @@ addRunOptions(program.command("run", { isDefault: true }))
 					config,
 					signer,
 					configPath: path,
-					logger: consoleSink(logFormat),
+					// Handed in rather than added after start() resolves: the filler
+					// builds its context and runs the whole of boot inside start(), so
+					// a sink attached afterwards misses every boot record.
+					logger: fanout([consoleSink(logFormat), logStore.sink()]),
 					data: dataStore,
 					watchOnly: options.watchOnly,
 				})
@@ -366,6 +413,7 @@ addRunOptions(program.command("run", { isDefault: true }))
 				if (simplex) await simplex.stop()
 				// Ours to close: the library no longer closes a caller-supplied store.
 				await dataStore?.close?.()
+				logStore.close()
 				process.exit(0)
 			}
 			process.on("SIGINT", () => void shutdown("SIGINT"))

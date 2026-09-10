@@ -1,26 +1,13 @@
 import * as Dialog from "@radix-ui/react-dialog"
 import {
 	createContext,
-	useCallback,
 	useContext,
-	useSyncExternalStore,
 	type ComponentPropsWithoutRef,
 	type ReactElement,
 	type ReactNode,
 } from "react"
+import { useIsMobile } from "../../lib/hooks"
 import { Drawer, DrawerClose, DrawerContent, DrawerDescription, DrawerTitle } from "./Drawer"
-
-const MOBILE_DRAWER_QUERY = "(max-width: 600px)"
-
-function useIsMobileDrawer() {
-	const subscribe = useCallback((notify: () => void) => {
-		const media = window.matchMedia(MOBILE_DRAWER_QUERY)
-		media.addEventListener("change", notify)
-		return () => media.removeEventListener("change", notify)
-	}, [])
-	const getSnapshot = useCallback(() => window.matchMedia(MOBILE_DRAWER_QUERY).matches, [])
-	return useSyncExternalStore(subscribe, getSnapshot, () => false)
-}
 
 const ResponsiveDialogContext = createContext(false)
 
@@ -30,7 +17,7 @@ export function ResponsiveDialog(props: {
 	children: ReactNode
 	dismissible?: boolean
 }) {
-	const mobile = useIsMobileDrawer()
+	const mobile = useIsMobile()
 	const { open, onOpenChange, children, dismissible = true } = props
 	return (
 		<ResponsiveDialogContext.Provider value={mobile}>

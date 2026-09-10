@@ -33,6 +33,7 @@ import {
 	provenanceOf,
 	type Provenance,
 } from "./http-util"
+import { matchesLogQuery, type LogQuery, type LogTail } from "./LogStore"
 import { serveStatic } from "./static"
 import {
 	handleSetupRequest,
@@ -46,10 +47,14 @@ import {
 } from "./setup-api"
 import {
 	LOG_LEVELS,
+	LOG_LEVEL_RANK,
 	type AdminStrategyDto,
 	type ChainRowDto,
 	type ChainsDto,
 	type ConfigDto,
+	type LogRecordDto,
+	type LogRecordLevel,
+	type LogsDto,
 	type SendTokenOption,
 	type StatusInit,
 	type StatusOperator,
@@ -162,6 +167,12 @@ export interface OperatorContext {
 	 * leaves this filler's own output untouched.
 	 */
 	setLogLevel(level: LogLevel): void
+	/**
+	 * This launch's log history, as read by the Logs page. Absent when nothing
+	 * registered a {@link LogStore} — an embedded filler, or a test — and the log
+	 * routes then report the page as unavailable rather than showing an empty feed.
+	 */
+	logs?: LogTail
 	vault?: {
 		/** Runs one sweep pass now and reports what it did — and, per vault, why it did nothing. */
 		sweepNow(): Promise<VaultSweepResult>
@@ -229,6 +240,53 @@ const OPERATOR_PROBES = [
 	"/api/setup/validate-bundler",
 	"/api/setup/validate-alchemy-key",
 ]
+
+const LOGS_UNAVAILABLE = "Log capture is not enabled for this filler"
+
+/**
+ * Records a log tail will hold for a reader that is behind before it starts
+ * dropping the oldest.
+ *
+ * Counted in records rather than in `res.writableLength`: the replay writes its
+ * whole page without yielding, so socket bytes accumulate monotonically through
+ * it and a byte threshold fires on a *healthy* reader who was simply never given
+ * a chance to drain. Sized above `MAX_LOG_PAGE` so a legitimate replay can never
+ * trip it, leaving it to mean what it says — a reader that has stopped reading.
+ */
+const MAX_LOG_STREAM_QUEUE = 5000
+
+/** The most records one `GET /api/logs` will return, whatever the caller asks for. */
+const MAX_LOG_PAGE = 2000
+
+/** `?level=&q=&after=&limit=` for both log routes. Unparseable values fall back rather than 400. */
+function logQueryFrom(url: string | undefined): LogQuery {
+	const params = new URL(url ?? "/", "http://localhost").searchParams
+	const level = params.get("level")
+	const q = params.get("q")?.trim()
+	const after = Number(params.get("after"))
+	const limit = Number(params.get("limit"))
+	return {
+		level: level && level in LOG_LEVEL_RANK ? (level as LogRecordLevel) : undefined,
+		q: q ? q.slice(0, 200) : undefined,
+		after: Number.isFinite(after) && after > 0 ? after : undefined,
+		limit: Number.isFinite(limit) && limit > 0 ? Math.min(limit, MAX_LOG_PAGE) : MAX_LOG_PAGE,
+	}
+}
+
+/** Resolves on the response's next drain, or as soon as it can no longer drain. */
+function drained(res: ServerResponse): Promise<void> {
+	return new Promise((resolve) => {
+		const done = () => {
+			res.removeListener("drain", done)
+			res.removeListener("close", done)
+			res.removeListener("error", done)
+			resolve()
+		}
+		res.once("drain", done)
+		res.once("close", done)
+		res.once("error", done)
+	})
+}
 
 const UI_NOT_BUILT_HTML = `<!doctype html><meta charset="utf-8"><title>simplex</title>
 <body style="font-family:system-ui;margin:4rem auto;max-width:32rem">
@@ -307,6 +365,8 @@ export class UiServer {
 	private startState: StartState = "idle"
 	private startError?: string
 	private sseClients = new Set<ServerResponse>()
+	/** Open log tails, each mapped to the unsubscribe that detaches it from the buffer. */
+	private logClients = new Map<ServerResponse, () => void>()
 	private activityListener?: (event: ActivityEvent) => void
 	private boundLoopback = true
 	/** How connections this server accepted arrived; stamped onto each socket. */
@@ -589,6 +649,11 @@ export class UiServer {
 		}
 		for (const client of this.sseClients) client.end()
 		this.sseClients.clear()
+		for (const [client, unsubscribe] of this.logClients) {
+			unsubscribe()
+			client.end()
+		}
+		this.logClients.clear()
 		this.server.close()
 		this.unlinkSocket()
 	}
@@ -928,6 +993,30 @@ export class UiServer {
 			if (this.mode !== "operator") return sendJson(res, 409, { error: "Filler is not running" })
 			if (method !== "PUT") return sendJson(res, 405, { error: "Method not allowed" })
 			return this.handleLogLevel(req, res)
+		}
+
+		if (path === "/api/logs") {
+			if (this.mode !== "operator") return sendJson(res, 409, { error: "Filler is not running" })
+			if (method !== "GET") return sendJson(res, 405, { error: "Method not allowed" })
+			const logs = this.operator!.logs
+			if (!logs) return sendJson(res, 409, { error: LOGS_UNAVAILABLE })
+			const stats = logs.stats()
+			const dto: LogsDto = {
+				level: this.operator!.config.simplex.logging ?? "info",
+				capacity: stats.capacity,
+				captured: stats.captured,
+				persisted: stats.persisted,
+				path: stats.path,
+				records: await logs.recent(logQueryFrom(req.url)),
+			}
+			return sendJson(res, 200, dto)
+		}
+
+		if (path === "/api/logs/stream") {
+			if (this.mode !== "operator") return sendJson(res, 409, { error: "Filler is not running" })
+			if (method !== "GET") return sendJson(res, 405, { error: "Method not allowed" })
+			if (!this.operator!.logs) return sendJson(res, 409, { error: LOGS_UNAVAILABLE })
+			return await this.streamLogs(req, res)
 		}
 
 		if (path === "/api/allowlist") {
@@ -1705,6 +1794,98 @@ export class UiServer {
 		const persisted = this.persistConfig()
 		this.logger.warn({ level }, "Log level changed from the UI")
 		return sendJson(res, 200, { level, persisted })
+	}
+
+	/**
+	 * Server-sent tail of the log buffer. The client passes the seq of the last
+	 * record it holds as `after`, so whatever was logged between its `GET
+	 * /api/logs` and this connection is replayed before the live feed starts —
+	 * a plain "live only" stream drops exactly the records an operator was
+	 * watching for.
+	 */
+	private async streamLogs(req: IncomingMessage, res: ServerResponse): Promise<void> {
+		const logs = this.operator!.logs!
+		const query = logQueryFrom(req.url)
+		res.writeHead(200, {
+			"Content-Type": "text/event-stream",
+			"Cache-Control": "no-store",
+			Connection: "keep-alive",
+		})
+		res.write(":ok\n\n")
+
+		// Everything leaves through one queue drained by `pump`, so a slow socket
+		// applies backpressure instead of being written past. Writing the replay
+		// straight out in a loop cannot work: it never yields, so the socket never
+		// drains during it, and any byte-based guard fires on a reader who was
+		// never given the chance.
+		const queue: LogRecordDto[] = []
+		let closed = false
+		let pumping = false
+		let dropped = false
+		let lastQueued = 0
+
+		const pump = async (): Promise<void> => {
+			if (pumping) return
+			pumping = true
+			try {
+				while (queue.length > 0 && !closed) {
+					const record = queue.shift()!
+					if (dropped) {
+						// Say there is a hole rather than let the client splice two
+						// non-adjacent stretches together and believe the feed is whole.
+						dropped = false
+						res.write("event: gap\ndata: {}\n\n")
+					}
+					if (!res.write(`data: ${JSON.stringify(record)}\n\n`)) await drained(res)
+				}
+			} catch {
+				// A dead socket is the client's problem; `close` tears the rest down.
+			} finally {
+				pumping = false
+			}
+		}
+
+		const enqueue = (record: LogRecordDto) => {
+			if (closed || record.seq <= lastQueued) return
+			lastQueued = record.seq
+			queue.push(record)
+			// A reader that has stopped reading (a phone that walked out of signal
+			// mid-tunnel) would otherwise buffer the whole firehose in this process.
+			if (queue.length > MAX_LOG_STREAM_QUEUE) {
+				queue.shift()
+				dropped = true
+			}
+			void pump()
+		}
+
+		// Subscribed before the replay is awaited: reading history can hit the
+		// launch file, and anything logged while that I/O is in flight has to be
+		// held rather than missed. It is queued after the replay so the feed stays
+		// in seq order.
+		const pending: LogRecordDto[] = []
+		let replaying = true
+		const live: LogQuery = { level: query.level, q: query.q }
+		const unsubscribe = logs.subscribe((record) => {
+			if (!matchesLogQuery(record, live)) return
+			if (replaying) pending.push(record)
+			else enqueue(record)
+		})
+		this.logClients.set(res, unsubscribe)
+		req.on("close", () => {
+			closed = true
+			queue.length = 0
+			unsubscribe()
+			this.logClients.delete(res)
+		})
+
+		try {
+			for (const record of await logs.recent(query)) enqueue(record)
+		} catch {
+			// History unreadable: the live tail below still works.
+		}
+		replaying = false
+		for (const record of pending) enqueue(record)
+		pending.length = 0
 	}
 
 	/**

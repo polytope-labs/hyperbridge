@@ -1,15 +1,16 @@
-import { useCallback, useState, type ComponentType, type SVGProps } from "react"
+import { useCallback, useEffect, useState, type ComponentType, type SVGProps } from "react"
 import { api } from "../api"
 import { type OperatorTab, useTabRoute } from "../lib/route"
 import hyperfxLogo from "../assets/hyperfx-logo.webp"
 import { CopyHash } from "../components/CopyHash"
-import { ActivityIcon, OperationsIcon, OverviewIcon, SettingsIcon, WalletIcon } from "../components/InterfaceIcons"
+import { ActivityIcon, LogsIcon, OperationsIcon, OverviewIcon, SettingsIcon, WalletIcon } from "../components/InterfaceIcons"
 import { OperatorSheet } from "../components/OperatorSheet"
 import { InstallAppButton } from "../components/InstallAppButton"
-import { useAction, usePolling } from "../lib/hooks"
+import { useAction, useIsHandheld, usePolling } from "../lib/hooks"
 import type { AdminStrategyDto, BalanceSnapshot, ConfigDto, StatusOperator } from "../types"
 import { Orders } from "./Orders"
 import { Operations, type OperationsPanel } from "./Operations"
+import { Logs } from "./Logs"
 import { OperatorOverview } from "./OperatorOverview"
 import { Wallet } from "./Wallet"
 
@@ -20,10 +21,13 @@ const PAGE_TABS: Array<{
 	label: string
 	description: string
 	icon: ComponentType<SVGProps<SVGSVGElement>>
+	/** Hidden on handhelds — see {@link Operator} for why Logs is desktop-only. */
+	desktopOnly?: true
 }> = [
 	{ value: "overview", label: "Overview", description: "Health and liquidity", icon: OverviewIcon },
 	{ value: "orders", label: "Orders", description: "History and bids", icon: ActivityIcon },
 	{ value: "wallet", label: "Wallet", description: "Funds and history", icon: WalletIcon },
+	{ value: "logs", label: "Logs", description: "Live filler output", icon: LogsIcon, desktopOnly: true },
 	{ value: "operations", label: "Operations", description: "Live configuration", icon: OperationsIcon },
 ]
 
@@ -43,6 +47,11 @@ const PAGE_COPY: Record<Tab, { eyebrow: string; title: string; description: stri
 		title: "Wallet",
 		description: "Move funds, put idle liquidity to work, and review what the filler wallet has submitted.",
 	},
+	logs: {
+		eyebrow: "Diagnostics",
+		title: "Logs",
+		description: "Everything the filler has logged since launch. The level sets what it records.",
+	},
 	operations: {
 		eyebrow: "Operator tools",
 		title: "Operations",
@@ -56,9 +65,22 @@ function formatUptime(seconds: number): string {
 	return h > 0 ? `${h}h ${m}m` : `${m}m ${seconds % 60}s`
 }
 
+/**
+ * The dashboard shell.
+ *
+ * Logs is desktop-only. A log line is a wide, dense, monospace record that a
+ * phone can only show a fragment of at a time, and reading them means scanning
+ * and comparing — the one thing a 390px column is worst at. It is also the only
+ * page that holds an open stream and thousands of rows, which is real battery
+ * and memory on a device that came to the dashboard to check a balance or
+ * unpause filling. So the tab is absent on a handheld — which is a narrower
+ * test than the layout's breakpoint, because a phone in landscape is wider than
+ * it — and `/logs` sends one back to the overview rather than rendering.
+ */
 export function Operator(props: { status: StatusOperator; refresh: () => void }) {
 	const { status, refresh } = props
 	const [tab, setTab] = useTabRoute()
+	const handheld = useIsHandheld()
 	// Set when another page sends the operator to a specific Operations sheet.
 	const [operationsPanel, setOperationsPanel] = useState<OperationsPanel>()
 	const [balances, setBalances] = useState<BalanceSnapshot>()
@@ -69,6 +91,10 @@ export function Operator(props: { status: StatusOperator; refresh: () => void })
 	const [stopped, setStopped] = useState(false)
 	const { run, pending, error } = useAction()
 	const page = PAGE_COPY[tab]
+
+	useEffect(() => {
+		if (handheld && tab === "logs") setTab("overview", { replace: true })
+	}, [handheld, tab, setTab])
 
 	const load = useCallback(async () => {
 		try {
@@ -144,7 +170,7 @@ export function Operator(props: { status: StatusOperator; refresh: () => void })
 			<div className="operator-layout">
 				<aside className="operator-sidebar" aria-label="Dashboard navigation">
 					<nav>
-						{PAGE_TABS.map((item) => {
+						{PAGE_TABS.filter((item) => !(item.desktopOnly && handheld)).map((item) => {
 							const Icon = item.icon
 							return (
 								<button
@@ -170,7 +196,7 @@ export function Operator(props: { status: StatusOperator; refresh: () => void })
 					</div>
 				</aside>
 
-				<main className="operator-main">
+				<main className="operator-main" data-tab={tab}>
 					<header className="operator-page-header">
 						<div>
 							<span className="eyebrow">{page.eyebrow}</span>
@@ -192,6 +218,7 @@ export function Operator(props: { status: StatusOperator; refresh: () => void })
 					) : null}
 
 					{tab === "orders" ? <Orders chainLabels={status.chainLabels} /> : null}
+					{tab === "logs" && !handheld ? <Logs /> : null}
 					{tab === "wallet" ? (
 						<Wallet
 							chains={status.chains}

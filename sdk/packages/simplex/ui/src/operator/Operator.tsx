@@ -6,7 +6,7 @@ import { CopyHash } from "../components/CopyHash"
 import { ActivityIcon, LogsIcon, OperationsIcon, OverviewIcon, SettingsIcon, WalletIcon } from "../components/InterfaceIcons"
 import { OperatorSheet } from "../components/OperatorSheet"
 import { InstallAppButton } from "../components/InstallAppButton"
-import { useAction, useIsHandheld, useIsMobile, usePolling } from "../lib/hooks"
+import { useAction, useIsHandheld, usePolling } from "../lib/hooks"
 import type { AdminStrategyDto, BalanceSnapshot, ConfigDto, StatusOperator } from "../types"
 import { Orders } from "./Orders"
 import { Operations, type OperationsPanel } from "./Operations"
@@ -80,7 +80,6 @@ function formatUptime(seconds: number): string {
 export function Operator(props: { status: StatusOperator; refresh: () => void }) {
 	const { status, refresh } = props
 	const [tab, setTab] = useTabRoute()
-	const mobile = useIsMobile()
 	const handheld = useIsHandheld()
 	// Set when another page sends the operator to a specific Operations sheet.
 	const [operationsPanel, setOperationsPanel] = useState<OperationsPanel>()

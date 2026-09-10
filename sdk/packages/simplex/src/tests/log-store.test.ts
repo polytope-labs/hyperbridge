@@ -284,10 +284,45 @@ describe("LogStore persistence", () => {
 		const names = readdirSync(dir).sort()
 		expect(names.filter((n) => n.startsWith("simplex-"))).toEqual([
 			"simplex-2026-09-03T00-00-00.log",
-			"simplex-2026-09-04T00-00-00.log",
+			"simplex-2026-09-04T00-00-00-000.log",
 		])
 		expect(names).toContain("unrelated.txt")
 		store.close()
+	})
+
+	/**
+	 * `RestartSec=0` puts two launches inside one second. With a second-resolution
+	 * stamp and an appending stream they shared a file, so the dead launch's
+	 * seq-1..N run was read back as this launch's history and collided with the
+	 * ring on seq.
+	 */
+	it("gives each launch its own file when restarts land in the same second", async () => {
+		const dir = tempDir()
+		const first = new LogStore({ dir, startedAt: new Date("2026-09-10T08:49:27.100Z") })
+		const firstLoggers = new LoggerContext({ level: "info" })
+		firstLoggers.addSink(first.sink())
+		firstLoggers.get("filler").info("from the dead launch")
+		await flushed()
+		first.close()
+
+		const second = new LogStore({ dir, capacity: 2, startedAt: new Date("2026-09-10T08:49:27.900Z") })
+		const secondLoggers = new LoggerContext({ level: "info" })
+		secondLoggers.addSink(second.sink())
+		for (let i = 1; i <= 5; i++) secondLoggers.get("filler").info(`from this launch ${i}`)
+		await flushed()
+
+		expect(second.stats().path).not.toBe(first.stats().path)
+		const history = await second.recent({})
+		expect(history.map((r) => r.msg)).toEqual([
+			"from this launch 1",
+			"from this launch 2",
+			"from this launch 3",
+			"from this launch 4",
+			"from this launch 5",
+		])
+		// seq is per launch, so a shared file would have produced duplicates here.
+		expect(new Set(history.map((r) => r.seq)).size).toBe(history.length)
+		second.close()
 	})
 
 	it("falls back to memory when the directory cannot be used", async () => {

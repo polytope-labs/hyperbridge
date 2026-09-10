@@ -243,8 +243,17 @@ const OPERATOR_PROBES = [
 
 const LOGS_UNAVAILABLE = "Log capture is not enabled for this filler"
 
-/** Above this, a log tail is talking to a reader that has stopped reading; frames are dropped instead of queued. */
-const MAX_LOG_STREAM_BACKLOG_BYTES = 1_000_000
+/**
+ * Records a log tail will hold for a reader that is behind before it starts
+ * dropping the oldest.
+ *
+ * Counted in records rather than in `res.writableLength`: the replay writes its
+ * whole page without yielding, so socket bytes accumulate monotonically through
+ * it and a byte threshold fires on a *healthy* reader who was simply never given
+ * a chance to drain. Sized above `MAX_LOG_PAGE` so a legitimate replay can never
+ * trip it, leaving it to mean what it says — a reader that has stopped reading.
+ */
+const MAX_LOG_STREAM_QUEUE = 5000
 
 /** The most records one `GET /api/logs` will return, whatever the caller asks for. */
 const MAX_LOG_PAGE = 2000
@@ -262,6 +271,21 @@ function logQueryFrom(url: string | undefined): LogQuery {
 		after: Number.isFinite(after) && after > 0 ? after : undefined,
 		limit: Number.isFinite(limit) && limit > 0 ? Math.min(limit, MAX_LOG_PAGE) : MAX_LOG_PAGE,
 	}
+}
+
+/** Resolves on the response's next drain, or as soon as it can no longer drain. */
+function drained(res: ServerResponse): Promise<void> {
+	return new Promise((resolve) => {
+		const done = () => {
+			res.removeListener("drain", done)
+			res.removeListener("close", done)
+			res.removeListener("error", done)
+			resolve()
+		}
+		res.once("drain", done)
+		res.once("close", done)
+		res.once("error", done)
+	})
 }
 
 const UI_NOT_BUILT_HTML = `<!doctype html><meta charset="utf-8"><title>simplex</title>
@@ -1789,58 +1813,78 @@ export class UiServer {
 		})
 		res.write(":ok\n\n")
 
+		// Everything leaves through one queue drained by `pump`, so a slow socket
+		// applies backpressure instead of being written past. Writing the replay
+		// straight out in a loop cannot work: it never yields, so the socket never
+		// drains during it, and any byte-based guard fires on a reader who was
+		// never given the chance.
+		const queue: LogRecordDto[] = []
+		let closed = false
+		let pumping = false
+		let dropped = false
+		let lastQueued = 0
+
+		const pump = async (): Promise<void> => {
+			if (pumping) return
+			pumping = true
+			try {
+				while (queue.length > 0 && !closed) {
+					const record = queue.shift()!
+					if (dropped) {
+						// Say there is a hole rather than let the client splice two
+						// non-adjacent stretches together and believe the feed is whole.
+						dropped = false
+						res.write("event: gap\ndata: {}\n\n")
+					}
+					if (!res.write(`data: ${JSON.stringify(record)}\n\n`)) await drained(res)
+				}
+			} catch {
+				// A dead socket is the client's problem; `close` tears the rest down.
+			} finally {
+				pumping = false
+			}
+		}
+
+		const enqueue = (record: LogRecordDto) => {
+			if (closed || record.seq <= lastQueued) return
+			lastQueued = record.seq
+			queue.push(record)
+			// A reader that has stopped reading (a phone that walked out of signal
+			// mid-tunnel) would otherwise buffer the whole firehose in this process.
+			if (queue.length > MAX_LOG_STREAM_QUEUE) {
+				queue.shift()
+				dropped = true
+			}
+			void pump()
+		}
+
 		// Subscribed before the replay is awaited: reading history can hit the
 		// launch file, and anything logged while that I/O is in flight has to be
-		// held rather than missed. `seq` orders the two sources on the way out.
+		// held rather than missed. It is queued after the replay so the feed stays
+		// in seq order.
 		const pending: LogRecordDto[] = []
 		let replaying = true
-		let lastSent = 0
-		let dropped = false
-
-		const send = (record: LogRecordDto) => {
-			// A stalled reader (a phone that walked out of signal, mid-tunnel)
-			// would otherwise buffer the whole firehose in this process. Dropping
-			// frames costs that client some lines; not dropping them costs the
-			// filler its memory.
-			if (res.writableLength > MAX_LOG_STREAM_BACKLOG_BYTES) {
-				dropped = true
-				return
-			}
-			if (dropped) {
-				// Tell the client it has a hole rather than letting it splice two
-				// non-adjacent stretches together and believe the feed is whole. It
-				// re-reads the backfill, which is still on disk.
-				dropped = false
-				res.write("event: gap\ndata: {}\n\n")
-			}
-			res.write(`data: ${JSON.stringify(record)}\n\n`)
-		}
-
-		const emit = (record: LogRecordDto) => {
-			if (record.seq <= lastSent) return
-			lastSent = record.seq
-			send(record)
-		}
-
 		const live: LogQuery = { level: query.level, q: query.q }
 		const unsubscribe = logs.subscribe((record) => {
 			if (!matchesLogQuery(record, live)) return
 			if (replaying) pending.push(record)
-			else emit(record)
+			else enqueue(record)
 		})
 		this.logClients.set(res, unsubscribe)
 		req.on("close", () => {
+			closed = true
+			queue.length = 0
 			unsubscribe()
 			this.logClients.delete(res)
 		})
 
 		try {
-			for (const record of await logs.recent(query)) emit(record)
+			for (const record of await logs.recent(query)) enqueue(record)
 		} catch {
 			// History unreadable: the live tail below still works.
 		}
 		replaying = false
-		for (const record of pending) emit(record)
+		for (const record of pending) enqueue(record)
 		pending.length = 0
 	}
 

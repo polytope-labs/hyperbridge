@@ -1467,9 +1467,15 @@ describe("UiServer (operator mode)", () => {
 						resolve({ records, headers: res.headers, events })
 					}
 					const deadline = setTimeout(finish, deadlineMs)
+					// A frame larger than a TCP segment arrives split across chunks, so
+					// only whole lines can be parsed; the remainder carries over.
+					let buffer = ""
 					res.setEncoding("utf-8")
 					res.on("data", (chunk: string) => {
-						for (const line of chunk.split("\n")) {
+						buffer += chunk
+						const lines = buffer.split("\n")
+						buffer = lines.pop() ?? ""
+						for (const line of lines) {
 							if (line.startsWith("data: ")) records.push(JSON.parse(line.slice(6)))
 							else if (line.startsWith("event: ")) events.push(line.slice(7).trim())
 						}
@@ -1670,6 +1676,26 @@ describe("UiServer (operator mode)", () => {
 			expect(dto.records).toHaveLength(1)
 			expect(dto.records[0].level).toBe("warn")
 			expect(JSON.parse(dto.records[0].detail)).toEqual({ level: "debug" })
+		})
+
+		/**
+		 * The replay writes its whole page without yielding, so the socket cannot
+		 * drain during it. A byte-threshold guard therefore fired on a reader who
+		 * was never given the chance, and the `gap` it emitted made the page re-run
+		 * the feed, replay the same page, and trip again — a livelock on a healthy
+		 * operator over the tunnel.
+		 */
+		it("a large replay reports no gap to a reader that is keeping up", async () => {
+			const { logs, log } = logSource()
+			for (let i = 0; i < 1200; i++) log.info({ blob: "x".repeat(2000) }, `line ${i}`)
+			const { base } = await startServer({ logs })
+
+			// ~2.4MB of frames — comfortably past the 1MB the old guard allowed.
+			const { records, events } = await tail(base, "/api/logs/stream", { expect: 1200, deadlineMs: 10_000 })
+			expect(events).not.toContain("gap")
+			expect(records).toHaveLength(1200)
+			expect(records[0].msg).toBe("line 0")
+			expect(records[1199].msg).toBe("line 1199")
 		})
 
 		it("stop() ends open log tails instead of leaving them hanging", async () => {

@@ -194,6 +194,11 @@ export class LogStore implements LogTail {
 		const effective: LogQuery = { ...query, after: stale ? undefined : query.after }
 
 		const fromRing = this.ringMatches(effective)
+		// The ring already fills the page, so nothing older can survive the slice
+		// below. Checked before `needsHistory` because the scan is the expensive
+		// part: on a filler at debug the launch file is gigabytes, and the search
+		// box would repeat it per debounced keystroke.
+		if (fromRing.length >= limit) return fromRing.slice(-limit)
 		const needsHistory = this.filled && (effective.after === undefined || effective.after < this.oldestInRing - 1)
 		if (!needsHistory || !this.file) return fromRing.slice(-limit)
 
@@ -274,12 +279,21 @@ export class LogStore implements LogTail {
 					// A file someone else holds open is not worth failing a boot over.
 				}
 			}
-			const stamp = (startedAt ?? new Date()).toISOString().replace(/:/g, "-").replace(/\..*$/, "")
+			// Milliseconds, not seconds: `RestartSec=0` restarts land inside the same
+			// second, and an appended second run would put two seq-1..N sequences in
+			// one file — which `scanFile` would read back as this launch's history,
+			// colliding with the ring on seq. `wx` refuses a collision outright
+			// rather than appending into someone else's launch.
+			const stamp = (startedAt ?? new Date()).toISOString().replace(/[:.]/g, "-").replace(/Z$/, "")
 			this.file = join(dir, `simplex-${stamp}.log`)
-			this.stream = createWriteStream(this.file, { flags: "a" })
+			this.stream = createWriteStream(this.file, { flags: "wx" })
 			// Without a handler an EACCES/ENOSPC on the stream is an unhandled 'error' event.
 			this.stream.on("error", () => {
+				// A full disk, a permission change, or the `wx` collision above. The
+				// path goes with the stream: a half-owned file must not be read back
+				// as this launch's history.
 				this.stream = undefined
+				this.file = undefined
 			})
 			for (const record of this.ringMatches({})) this.stream.write(`${JSON.stringify(record)}\n`)
 		} catch {

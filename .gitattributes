@@ -1,9 +1,0 @@
-# ChangeLog.md and Decisions.md under docs/ai are append-only logs: every change adds
-# its entry at the top of the file, so any two concurrent PRs collide on that same
-# line. `union` is git's built-in "keep both sides" driver — it takes both entries
-# instead of raising a conflict, which is what you want for a log.
-#
-# Flow.md is deliberately not listed. It is edited in place, so union would merge two
-# contradictory edits into a file that silently states both, with no conflict shown.
-**/docs/ai/ChangeLog.md merge=union
-**/docs/ai/Decisions.md merge=union

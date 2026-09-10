@@ -143,7 +143,21 @@ export class SqliteStateStore implements StateStore {
 			}
 			this.db.exec("COMMIT")
 		} catch (err) {
-			this.db.exec("ROLLBACK")
+			// Same shape as `SqliteActivityStore.attachOrder`, for the same reason: a
+			// COMMIT that fails has already rolled back, so an unconditional ROLLBACK
+			// throws `cannot rollback - no transaction is active` over the real cause
+			// — and the real cause is the one worth reading, here more than there,
+			// since `persist` only logs it and the migration's write fails a boot.
+			// Compared against `false`, not truthiness: the Node 23 line never got
+			// the property, and treating `undefined` as "no transaction" would skip
+			// the ROLLBACK and wedge the connection mid-transaction for good.
+			if (this.db.isTransaction !== false) {
+				try {
+					this.db.exec("ROLLBACK")
+				} catch {
+					// Nothing to roll back, or the connection is already gone.
+				}
+			}
 			throw err
 		}
 	}

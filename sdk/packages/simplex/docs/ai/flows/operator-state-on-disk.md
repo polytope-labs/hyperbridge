@@ -11,7 +11,9 @@ both `SqliteBidStore` and `SqliteStateStore`. The state store keeps one `runtime
 
 `node:sqlite` has no transaction helper, so `write` brackets its statements with `BEGIN`/`COMMIT`
 by hand and rolls back on a throw. Without it a `set` could be observed with the old rows deleted
-and the new ones not yet written.
+and the new ones not yet written. The rollback is guarded on `isTransaction !== false`, the same
+shape as `SqliteActivityStore.attachOrder`: SQLite rolls a failed COMMIT back itself, and rolling
+back again throws `cannot rollback - no transaction is active` over the error worth reading.
 
 On construction the store imports the `runtime-state.json` earlier versions wrote — first from the
 data directory, then from `.filler-data/` relative to the process's cwd — but only when

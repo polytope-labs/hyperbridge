@@ -2,10 +2,12 @@ import { describe, expect, it } from "vitest"
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, writeFileSync } from "fs"
 import { tmpdir } from "os"
 import { join } from "path"
+import { DatabaseSync } from "node:sqlite"
 import { LoggerContext, type LogSink } from "@/services/Logger"
 import { MemoryDataStore } from "@/data/memory"
 import { patchRuntimeState } from "@/data/state"
 import { SqliteDataStore } from "@/data/sqlite"
+import { SqliteStateStore } from "@/data/sqlite/state"
 
 const dataDir = () => mkdtempSync(join(tmpdir(), "simplex-state-"))
 
@@ -13,6 +15,27 @@ const dataDir = () => mkdtempSync(join(tmpdir(), "simplex-state-"))
 function collector(): LogSink & { lines: string[] } {
 	const lines: string[] = []
 	return { lines, write: (line) => void lines.push(line) }
+}
+
+/**
+ * A connection whose COMMIT fails the way SQLite fails one: the transaction is
+ * already rolled back by the time the error reaches the caller, so `ROLLBACK`
+ * from the catch block would throw over it.
+ */
+function commitFailsWith(db: DatabaseSync, failure: Error): DatabaseSync {
+	return new Proxy(db, {
+		get(target, prop) {
+			if (prop === "exec") {
+				return (sql: string) => {
+					if (sql.trim().toUpperCase() !== "COMMIT") return target.exec(sql)
+					target.exec("ROLLBACK")
+					throw failure
+				}
+			}
+			const value = Reflect.get(target, prop, target)
+			return typeof value === "function" ? value.bind(target) : value
+		},
+	})
 }
 
 /** A store on a fresh data directory, plus the directory it was opened on. */
@@ -86,6 +109,28 @@ describe("SqliteStateStore", () => {
 		const store = openStore()
 		await store.close()
 		await expect(store.state.patch!({ paused: true })).resolves.toEqual({ paused: true })
+	})
+
+	it("reports why a write failed, not that it could not roll back afterwards", async () => {
+		// SQLite rolls a failed COMMIT back on its own, so an unconditional ROLLBACK
+		// throws `cannot rollback - no transaction is active` over the real cause —
+		// and the real cause is the only one that says anything. Here it reaches the
+		// log; on the migration path `write` is outside `persist` and it fails a boot.
+		const dir = dataDir()
+		const db = new DatabaseSync(join(dir, "bids.db"))
+		const logs = collector()
+		const state = new SqliteStateStore(
+			commitFailsWith(db, new Error("disk I/O error")),
+			dir,
+			new LoggerContext({ level: "warn", sink: logs }),
+		)
+
+		await state.set({ paused: true })
+		db.close()
+
+		const logged = logs.lines.join("")
+		expect(logged).toContain("disk I/O error")
+		expect(logged).not.toContain("cannot rollback")
 	})
 })
 

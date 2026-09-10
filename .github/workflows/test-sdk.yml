@@ -135,6 +135,12 @@ jobs:
             - name: Lint simplex
               run: pnpm --filter="@hyperbridge/simplex" lint
 
+            # Operators' existing bids.db/activity.db files, opened and migrated for real
+            # against committed fixtures. Needs no network or secrets and runs in seconds;
+            # test:filler names four specific files and would never reach it.
+            - name: Run simplex data-store tests
+              run: pnpm --filter="@hyperbridge/simplex" test:data
+
             - name: Run simplex test
               run: pnpm --filter="@hyperbridge/simplex" test:filler
 

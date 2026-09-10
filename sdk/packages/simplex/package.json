@@ -40,6 +40,7 @@
 		"build": "bash ./scripts/build.sh",
 		"prepublishOnly": "npm run build",
 		"test": "pnpm run codegen && vitest --watch=false --maxConcurrency=1",
+		"test:data": "pnpm run codegen && vitest --watch=false --maxConcurrency=1 src/tests/data",
 		"test:filler": "pnpm run codegen && vitest --watch=false --maxConcurrency=1 --testTimeout=1000000 src/tests/pairs.test.ts src/tests/strategies/fx.curve-payout.test.ts src/tests/strategies/fx.testnet.test.ts src/tests/quorum-public-client.test.ts",
 		"test:basic:testnet": "pnpm run codegen && vitest --watch=false --maxConcurrency=1 --testTimeout=1000000 src/tests/strategies/basic.testnet.test.ts",
 		"test:fx": "pnpm run codegen && vitest --watch=false --maxConcurrency=1 --testTimeout=1000000 src/tests/strategies/fx.mainnet.test.ts",
@@ -63,7 +64,6 @@
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^1.9.4",
-		"@types/better-sqlite3": "^9.6.0",
 		"@types/node": "^22.13.5",
 		"@types/qrcode": "^1.5.6",
 		"@types/react": "^19.2.17",
@@ -71,7 +71,6 @@
 		"@types/ssh2": "^1.15.5",
 		"@vitejs/plugin-react": "^6.0.2",
 		"@vitest/coverage-v8": "^3.0.7",
-		"better-sqlite3": "^13.0.3",
 		"nodemon": "^3.1.0",
 		"qrcode": "^1.5.4",
 		"react": "^19.2.7",
@@ -89,7 +88,7 @@
 		"access": "public"
 	},
 	"engines": {
-		"node": ">=22.0.0"
+		"node": ">=22.16.0"
 	},
 	"dependencies": {
 		"@base-ui/react": "^1.8.0",
@@ -150,9 +149,5 @@
 	},
 	"sideEffects": [
 		"src/bin/quiet.ts"
-	],
-	"optionalDependencies": {
-		"@types/better-sqlite3": "^7.6.13",
-		"better-sqlite3": "^13.0.3"
-	}
+	]
 }

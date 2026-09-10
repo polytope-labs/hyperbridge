@@ -4,7 +4,6 @@ allowBuilds:
   '@biomejs/biome': true
   '@cosmology/protobufjs': true
   '@nestjs/core': true
-  better-sqlite3: true
   bufferutil: true
   cpu-features: false
   es5-ext: false

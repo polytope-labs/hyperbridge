@@ -1,4 +1,4 @@
-#!/usr/bin/env -S node --enable-source-maps
+#!/usr/bin/env -S node --enable-source-maps --disable-warning=ExperimentalWarning
 
 // First import, deliberately: silences @polkadot/* init noise, which fires
 // while the imports below are still evaluating.
@@ -16,6 +16,7 @@ import type { AssetDefinition } from "@/config/asset-registry"
 import type { PairConfig } from "@/config/pairs"
 import type { FillerRuntime } from "@/core/boot"
 import { Simplex } from "@/simplex"
+import { SqliteDataStore } from "@/data/sqlite"
 import { discoverConfigPath, DEFAULT_CONFIG_FILENAME } from "@/cli/discover-config"
 import { addRunOptions, DEFAULT_UI_PORT, type RunOptions } from "@/cli/run-options"
 import { openBrowser } from "@/cli/open-browser"
@@ -80,23 +81,14 @@ addLogSink(consoleSink())
 /**
  * Opens the CLI's persistent store.
  *
- * Imported lazily and by name so `--help`, `init` and a config error all still
- * work when the optional `better-sqlite3` native module failed to build — and so
- * that failure reports what to do instead of a module-resolution stack trace.
  * There is no memory fallback: the CLI submits bids, and bid records are how
- * locked deposits are found again.
+ * locked deposits are found again. This used to be a lazy import wrapped in a
+ * try/catch that translated a failed native build into readable advice; on
+ * `node:sqlite` there is no native build to fail, so a throw here is a real
+ * problem with the data directory and should surface as itself.
  */
-async function openDataStore(dataDir?: string) {
-	try {
-		const { SqliteDataStore } = await import("@/data/sqlite")
-		return new SqliteDataStore(resolveDataDir(dataDir))
-	} catch (err) {
-		throw new Error(
-			"Could not load better-sqlite3, which simplex needs to record the bids it submits. " +
-				"Reinstall so its native module builds (it is an optional dependency, so a failed " +
-				`build is not fatal to installation): ${err instanceof Error ? err.message : String(err)}`,
-		)
-	}
+function openDataStore(dataDir?: string) {
+	return new SqliteDataStore(resolveDataDir(dataDir))
 }
 
 /**
@@ -258,7 +250,7 @@ addRunOptions(program.command("run", { isDefault: true }))
 			}
 
 			let simplex: Simplex | undefined
-			let dataStore: Awaited<ReturnType<typeof openDataStore>> | undefined
+			let dataStore: SqliteDataStore | undefined
 			let runtime: FillerRuntime | undefined
 			let uiServer: UiServer | undefined
 			let tunnel: TunnelService | undefined
@@ -267,7 +259,7 @@ addRunOptions(program.command("run", { isDefault: true }))
 
 			/** Starts the filler and everything the CLI layers on top of it. */
 			const startFiller = async (config: FillerConfigFile, path: string) => {
-				dataStore = await openDataStore(options.dataDir)
+				dataStore = openDataStore(options.dataDir)
 				// The TOML block is the binary's way of naming a signer; the library
 				// takes the resolved instance, so the file format stops here.
 				const signer = await signerFromToml(config.simplex?.signer)

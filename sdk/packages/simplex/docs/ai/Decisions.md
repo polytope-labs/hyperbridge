@@ -33,6 +33,175 @@ Why not keep the old `[host:]port` nuance, where the *host* half is the optional
 bracket anywhere in the flags string sets commander's `required`, which is the bug being fixed, and
 commander has no notation for "optional value whose host half is also optional". The description
 carries that instead.
+## 2026-09-09 — node:sqlite's defaults are restated explicitly, and its feature guards compare against `false` (#1236)
+
+Decided: pass `{ timeout: 5000 }` to both `DatabaseSync` constructors, and write every
+capability guard as `x === false` / `x !== false` rather than `!x` / `x`.
+
+**The timeout, and why the PRAGMA rather than the constructor option.** `DatabaseSync` takes a
+`timeout` option, and using it was the obvious move — but it only landed in v22.18.0 and v24.0.0,
+so it is accepted and ignored on 22.16, 22.17 and every 23.x, which `engines.node` allows. A
+reviewer measured 0.45ms to failure on 23.11 against the option-based version. `@types/node`
+declares it `@since v22.16.0`, which is simply wrong; nodejs.org's version table is the source to
+trust when the two disagree. `PRAGMA busy_timeout` is ordinary SQLite, so it applies on every
+runtime that has `node:sqlite` at all, and it can be read back for a direct assertion instead of
+inferred from a stopwatch.
+
+Swapping libraries silently swaps defaults, and this one is load-bearing:
+better-sqlite3 sets a 5000ms busy timeout unless told otherwise (`lib/database.js`:
+`'timeout' in options ? options.timeout : 5000`), while `node:sqlite` leaves it at 0. Nothing in
+the diff mentioned locking, which is exactly why it slipped through — the migration was audited
+for return shapes and API equivalence, not for constructor defaults. 5000 is chosen to match what
+the store already had, not because the number is special; the point is not to change locking
+behaviour in a commit that is not about locking.
+
+Rejected: catching `SQLITE_BUSY` and retrying in the store. That reimplements, worse, what
+SQLite's own busy handler does in C, and it would have to be added at ten call sites.
+
+Rejected: leaving it at 0 and treating contention as a caller problem. The callers are the fill
+loop and the retraction sweep; neither has anywhere to put the error, and the bid store is the
+record that makes a locked deposit reclaimable.
+
+**The guards.** `db.isOpen` (Node 22.15+) and `db.isTransaction` (22.16+, and never backported to
+the 23 line) are read to decide whether to close and whether to roll back. Written as `!db.isOpen`
+and `if (db.isTransaction)`, a runtime *missing* the property takes the convenient branch: the
+close is skipped for every database, and a failed transaction is never rolled back — which leaves
+the connection inside an open transaction so nothing commits again for the life of the process.
+Comparing against `false` inverts that: absent means "do the work", and the existing try/catch
+absorbs the outcome. The rollback path additionally swallows a ROLLBACK error, because `err` — the
+original failure — is what propagates either way, and losing it to `cannot rollback - no
+transaction is active` would be strictly worse.
+
+Rejected: relying on `engines.node` to make the missing-property case unreachable. `engines` is
+advisory — npm prints `EBADENGINE` and installs anyway, pnpm likewise by default — so it documents
+intent, it does not enforce it. A guard that is only correct when a manifest field is obeyed is
+not a guard.
+
+
+## 2026-09-09 — Both tsup entries set `removeNodeProtocol: false`, and the build greps for it (#1236)
+
+Decided: turn tsup's `node:`-prefix stripping off, and verify the bundle afterwards in
+`scripts/build.sh`.
+
+tsup 8 rewrites `import ... from "node:sqlite"` to `from "sqlite"` by default. The flip to `false`
+is announced for the next major but has not shipped — 8.5.1 is the latest release — so this is a
+default to live with, not something an upgrade clears today. The rewrite is
+harmless for most builtins because `fs`, `path` and friends resolve with or without the prefix.
+`node:sqlite` does not: there is no bare `sqlite` builtin, so the import fails with
+`ERR_MODULE_NOT_FOUND: Cannot find package 'sqlite'` the moment the process starts. Both the CLI
+bundle and the `@hyperbridge/simplex/sqlite` library entry were broken this way, i.e. it would
+have shipped.
+
+Why a grep in the build rather than a test: this failure only exists *after* bundling. The vitest
+suite imports from source, where nothing rewrites specifiers, so every test can pass against a
+bundle that cannot start — which is exactly what happened here (25/25 green, image dead on
+`--version`). The check runs inside `pnpm build`, so the Docker image and any release build both
+fail loudly instead of shipping.
+
+Rejected: setting an esbuild `target` of `node22`. The stripping is tsup's own plugin, not
+esbuild's — plain esbuild at `--target=es2020` preserves the prefix — so a target change would not
+have fixed it, and would have silently changed downleveling for the whole bundle.
+
+Rejected: importing `sqlite` through `createRequire` to sidestep specifier rewriting. It defeats
+the rewrite but replaces a plain static import with indirection that no longer type-checks
+naturally, to work around a bundler default that upstream has already agreed to reverse.
+
+Rejected: relying on the Docker build alone to catch it. That is what caught it this time, but
+only because the image was actually run; a build that merely succeeds proves nothing here, and
+`pnpm build` is the narrower place to assert the invariant.
+
+
+## 2026-09-09 — `engines.node` floor is `>=22.16.0`, not `>=22.13.0` or `>=24` (#1236)
+
+Decided: `>=22.16.0`. That is the first release carrying *every* `node:sqlite` API this store
+calls, which is a stricter bar than the first release where the module is unflagged.
+
+The two dates differ. `node:sqlite` stopped needing `--experimental-sqlite` in v23.4.0 and
+v22.13.0. But `database.isTransaction`, which `attachOrder`'s rollback branch reads, was added in
+v24.0.0 and v22.16.0; `database.isOpen`, which `close()` reads, in v23.11.0 and v22.15.0. So
+22.16.0 is the floor, and picking 22.13.0 because that is when the flag went away would have
+declared support for versions where two APIs we call do not exist.
+
+Note the consequence: the whole v23 line is nominally inside `>=22.16.0` but never received
+`isTransaction` (it went to v22.16.0 and v24.0.0, skipping 23). This is accepted rather than
+worked around — v23 was never an LTS line and went end-of-life on 2025-06-01, and `engines` is
+advisory in npm and pnpm by default anyway.
+
+Rejected: keep `>=22` and put `--experimental-sqlite` in the bin's shebang. The bin already ships
+`#!/usr/bin/env -S node --enable-source-maps`, so it is not a new pattern, but a shebang flag only
+covers the binary. A library consumer importing `@hyperbridge/simplex/sqlite` runs in their own
+process with their own flags, and would get a module-not-found they could do nothing about from
+inside our code.
+
+Rejected: raise to `>=24`. The Docker image is on 24.19.0 either way, so this costs the container
+nothing — but it would exclude Node 22, which is still in maintenance LTS until 2027-04-30, from
+a package many operators install globally. Nothing here needs a 24-only API.
+
+
+## 2026-09-09 — `attachOrder`'s transaction is explicit BEGIN/COMMIT/ROLLBACK, guarded by `isTransaction` (#1236)
+
+Decided: `node:sqlite` has no `db.transaction(fn)` wrapper, so the one call site that needed one
+writes the boundary out:
+
+```ts
+this.db.exec("BEGIN")
+try {
+    ...
+    this.db.exec("COMMIT")
+} catch (err) {
+    if (this.db.isTransaction) this.db.exec("ROLLBACK")
+    throw err
+}
+```
+
+The transaction is load-bearing, not decoration: `attachOrder` SELECTs the event ids that lack an
+order summary and then UPDATEs them, and it returns those ids to the caller as the rows it
+changed. Without one boundary around both, a concurrent writer could fill a row in between and the
+returned ids would name rows this call did not touch.
+
+Why the `isTransaction` guard rather than an unconditional ROLLBACK: SQLite rolls back
+automatically when a COMMIT fails, and a ROLLBACK with no transaction open throws
+`cannot rollback - no transaction is active` — which would replace the real error with a
+misleading one on the way out. `isTransaction` is a thin wrapper over `sqlite3_get_autocommit()`
+and answers exactly the question being asked. Note BEGIN sits *outside* the `try` on purpose: if
+BEGIN itself throws there is nothing to roll back, and catching it would attempt one.
+
+Rejected: `try { rollback } catch {}` — swallowing whatever the ROLLBACK throws. Same behaviour in
+the common case, but it also hides a genuine rollback failure, which is exactly the failure worth
+seeing. It would have avoided the 22.16.0 floor (see above); that was not worth trading a real
+diagnostic for.
+
+Rejected: reimplementing a generic `transaction(fn)` helper over BEGIN/COMMIT. There is one call
+site. A helper would have to decide about nesting (`node:sqlite` throws on a nested BEGIN) and
+savepoints for a case that does not exist here.
+
+
+## 2026-09-09 — The legacy-database fixtures are committed binaries, not generated in the test (#1236)
+
+Decided: `src/tests/data/fixtures/legacy-v0/{bids.db,activity.db}` are real SQLite files, written
+by better-sqlite3 at the schema that shipped before the in-place column migrations, checked into
+git. `scripts/make-legacy-db-fixture.mjs` regenerates them and carries the original DDL, copied
+verbatim from the commits that introduced it (9149fc52, b3af77e3).
+
+Why committed rather than built in `beforeEach`: the risk being tested is an operator's existing
+data directory failing to open under a different driver. A database the test creates through
+`node:sqlite` would have been written by the same library that reads it back, so it could not
+detect a cross-driver problem even in principle. The generator is not wired into any package
+script, because better-sqlite3 is no longer installed — regenerating is a deliberate act that
+needs it added back temporarily, which is the right friction for a file whose value is being
+*old*.
+
+The root `.gitignore` has a repo-wide `**/*.db`, so the fixture directory carries a `.gitignore`
+with `!*.db` to re-include them. That works because no parent directory is excluded, only the
+files.
+
+Rejected: a SQL dump replayed at test time. It keeps git free of binaries, but a dump is
+re-executed by the current driver, which puts it back in the same category as generating the
+database in the test.
+
+Rejected: skipping the fixture and trusting that SQLite's file format is driver-independent. It is
+— but the migrations, the WAL header on `activity.db`, and the row values are the parts that
+actually break, and none of them are guaranteed by the format.
 
 
 ## 2026-09-09 — The publickey probe branch requires both halves absent, not either

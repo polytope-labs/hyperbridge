@@ -677,12 +677,12 @@ set(state: RuntimeState): Promise<void>
 | Class | Import from | Notes |
 |------|-------------|-------|
 | `MemoryDataStore` | `@hyperbridge/simplex` | Default. Process-local, row-capped, lost on exit |
-| `SqliteDataStore` | `@hyperbridge/simplex/sqlite` | Durable. Needs the optional `better-sqlite3` native module |
+| `SqliteDataStore` | `@hyperbridge/simplex/sqlite` | Durable. Built on `node:sqlite`, so nothing to install |
 
 `SqliteDataStore(dataDir)` keeps `bids.db`, `activity.db` and `runtime-state.json` in the given
-directory, so a data directory written by the binary is picked up unchanged. It is a separate entry
-point so nothing native is loaded unless you import it — `better-sqlite3` is an optional dependency,
-installed by default but free to fail to build without breaking the package.
+directory, so a data directory written by the binary is picked up unchanged. It is built on Node's
+built-in `node:sqlite`, so there is no native module to install or compile — which is why the
+package requires Node 22.16 or newer.
 
 **Example — a custom backend:**
 

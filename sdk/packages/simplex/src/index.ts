@@ -53,8 +53,8 @@ export type {
 } from "@/simplex"
 
 // ─── Persistence ────────────────────────────────────────────────────────────
-// The SQLite implementation lives at `@hyperbridge/simplex/sqlite`; it needs the
-// optional `better-sqlite3` native module, which nothing here does.
+// The SQLite implementation lives at `@hyperbridge/simplex/sqlite`. It is built
+// on `node:sqlite`, so it needs nothing installed — see `engines.node`.
 
 export { MemoryDataStore } from "@/data/memory"
 export type {

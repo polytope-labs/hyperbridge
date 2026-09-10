@@ -275,24 +275,41 @@ describe("SqliteDataStore: a data directory it creates itself", () => {
 })
 
 describe("SqliteDataStore: lock contention", () => {
-	it("waits for another connection's write lock instead of failing instantly", async () => {
-		const dir = mkdtempSync(join(tmpdir(), "simplex-busy-"))
+	// better-sqlite3 applied a 5s busy timeout by default; node:sqlite defaults to 0,
+	// so a store that does not set one throws SQLITE_BUSY the instant anything else
+	// holds the file — and a dropped bid write is a deposit nobody can reclaim.
+	it("applies a busy timeout to both connections, whatever the runtime", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "simplex-busy-pragma-"))
 		dirs.push(dir)
 		const store = new SqliteDataStore(dir)
 		stores.push(store)
-		await store.bids.store({ commitment: `0x${"31".repeat(32)}`, success: true })
 
-		// better-sqlite3 applied a 5s busy timeout by default; node:sqlite defaults to
-		// 0, so a store opened without one throws SQLITE_BUSY the instant anything else
-		// holds the file — and a dropped bid write is a deposit nobody can reclaim.
-		const readBusyTimeout = (path: string) => {
-			const db = new DatabaseSync(join(dir, path))
+		// Read it back off the store's OWN handles: busy_timeout is per-connection, so
+		// a fresh handle would report the default no matter what the store did. This
+		// asserts the mechanism directly, which the wall-clock test below cannot —
+		// `DatabaseSync`'s `timeout` option is silently ignored before Node 22.18 and
+		// on all of 23, so an option-based implementation passes here only by luck of
+		// which runtime the suite happens to run on.
+		// biome-ignore lint/suspicious/noExplicitAny: reaching past `private` for a per-connection pragma
+		const connections = (store as any).databases as DatabaseSync[]
+		expect(connections).toHaveLength(2)
+		for (const db of connections) {
 			const row = db.prepare("PRAGMA busy_timeout").get() as unknown as { timeout: number }
-			db.close()
-			return row.timeout
+			expect(row.timeout).toBe(5000)
 		}
-		expect(readBusyTimeout("bids.db")).toBe(0) // a plain handle, for contrast
-		await store.close?.()
+
+		// A handle opened without the pragma is the contrast: SQLite's own default.
+		const plain = new DatabaseSync(join(dir, "bids.db"))
+		expect((plain.prepare("PRAGMA busy_timeout").get() as unknown as { timeout: number }).timeout).toBe(0)
+		plain.close()
+	})
+
+	it("waits for another connection's write lock instead of failing instantly", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "simplex-busy-"))
+		dirs.push(dir)
+		const seed = new SqliteDataStore(dir)
+		await seed.bids.store({ commitment: `0x${"31".repeat(32)}`, success: true })
+		await seed.close?.()
 
 		// Hold a write lock from outside, then prove the store's own handle waits.
 		const holder = new DatabaseSync(join(dir, "bids.db"))
@@ -309,7 +326,7 @@ describe("SqliteDataStore: lock contention", () => {
 		holder.exec("ROLLBACK")
 		holder.close()
 
-		// With timeout: 0 this returns in single-digit milliseconds.
+		// Without a busy timeout this returns in single-digit milliseconds.
 		expect(waitedMs).toBeGreaterThan(1_000)
 	}, 30_000)
 })

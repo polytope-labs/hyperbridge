@@ -13,7 +13,15 @@ export { FileStateStore } from "./state"
 
 /**
  * How long a write waits for another connection's lock before giving up.
- * Matches the default better-sqlite3 applied for us; `node:sqlite` has none.
+ * Matches the default better-sqlite3 applied for us; `node:sqlite` defaults to 0,
+ * which turns any momentary contention into an instant SQLITE_BUSY throw — and a
+ * lost bid write is a deposit the retraction sweep can no longer find.
+ *
+ * Set through the PRAGMA rather than `DatabaseSync`'s `timeout` option on purpose.
+ * That option only exists in Node >=22.18 and >=24 (`@types/node` says 22.16, which
+ * is wrong — the version table on nodejs.org is authoritative), so it is silently
+ * ignored on 22.16, 22.17 and the whole 23 line, all of which `engines.node`
+ * admits. The PRAGMA is plain SQLite and works wherever `node:sqlite` does.
  */
 const BUSY_TIMEOUT_MS = 5_000
 
@@ -42,15 +50,10 @@ export class SqliteDataStore implements SimplexDataStore {
 		this.logger = loggers.get("data-store")
 		if (!existsSync(dataDir)) mkdirSync(dataDir, { recursive: true })
 
-		// `timeout` is not a nicety: better-sqlite3 defaulted it to 5000ms and
-		// `node:sqlite` defaults it to 0, so omitting it turns every lock contention
-		// into an instant SQLITE_BUSY throw. Anything holding the file for a moment —
-		// an operator's `sqlite3 bids.db`, a backup, a second process on the same
-		// --data-dir — would fail the write that races it, and a lost bid write is a
-		// deposit the retraction sweep can no longer find.
-		const bidsDb = new DatabaseSync(join(dataDir, "bids.db"), { timeout: BUSY_TIMEOUT_MS })
-		const activityDb = new DatabaseSync(join(dataDir, "activity.db"), { timeout: BUSY_TIMEOUT_MS })
-		// `node:sqlite` has no .pragma(); exec() discards the row this one returns.
+		const bidsDb = new DatabaseSync(join(dataDir, "bids.db"))
+		const activityDb = new DatabaseSync(join(dataDir, "activity.db"))
+		// `node:sqlite` has no .pragma(); exec() discards the rows these return.
+		for (const db of [bidsDb, activityDb]) db.exec(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}`)
 		activityDb.exec("PRAGMA journal_mode = WAL")
 
 		this.databases = [bidsDb, activityDb]

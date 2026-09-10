@@ -53,9 +53,17 @@ every lock contention into an instant `SQLITE_BUSY` throw where the old store wa
 Anything holding either file for a moment — an operator running `sqlite3 bids.db`, a backup, a
 second process on the same `--data-dir` — would have failed the write racing it, and a dropped bid
 write is a deposit the retraction sweep can no longer find. Both databases now pass
-`{ timeout: 5000 }`. Verified empirically: `PRAGMA busy_timeout` reads 0 on a plain handle, and a
-contended write now blocks ~5s before failing instead of ~28ms. Covered by a regression test that
-holds a write lock from a second connection.
+`PRAGMA busy_timeout = 5000`. Verified empirically: it reads 0 on a plain handle, and a contended
+write now blocks ~5s before failing instead of ~28ms.
+
+The first fix used `DatabaseSync`'s `timeout` constructor option and was wrong — caught in review
+(#1247). That option was added in v22.18.0 and v24.0.0, so it is *silently ignored* on 22.16,
+22.17 and the entire 23 line, all of which `engines.node` admits; on Node 23.11 the contended write
+still failed in 0.45ms. Note `@types/node` marks it `@since v22.16.0`, which is what the first fix
+trusted; the version table on nodejs.org is authoritative and disagrees. The PRAGMA is plain
+SQLite and works wherever `node:sqlite` does. Two tests cover it: one reads `busy_timeout` back off
+the store's own connections (fast, and runtime-independent — the option-based version passes the
+behavioural test on a lucky runtime), one holds a real write lock from a second connection.
 
 **Two guards failed unsafe on runtimes below the engines floor.** `if (!db.isOpen) continue` skips
 the close entirely when the property is missing (it landed in 22.15), and

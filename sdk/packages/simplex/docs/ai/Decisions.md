@@ -38,7 +38,16 @@ carries that instead.
 Decided: pass `{ timeout: 5000 }` to both `DatabaseSync` constructors, and write every
 capability guard as `x === false` / `x !== false` rather than `!x` / `x`.
 
-**The timeout.** Swapping libraries silently swaps defaults, and this one is load-bearing:
+**The timeout, and why the PRAGMA rather than the constructor option.** `DatabaseSync` takes a
+`timeout` option, and using it was the obvious move — but it only landed in v22.18.0 and v24.0.0,
+so it is accepted and ignored on 22.16, 22.17 and every 23.x, which `engines.node` allows. A
+reviewer measured 0.45ms to failure on 23.11 against the option-based version. `@types/node`
+declares it `@since v22.16.0`, which is simply wrong; nodejs.org's version table is the source to
+trust when the two disagree. `PRAGMA busy_timeout` is ordinary SQLite, so it applies on every
+runtime that has `node:sqlite` at all, and it can be read back for a direct assertion instead of
+inferred from a stopwatch.
+
+Swapping libraries silently swaps defaults, and this one is load-bearing:
 better-sqlite3 sets a 5000ms busy timeout unless told otherwise (`lib/database.js`:
 `'timeout' in options ? options.timeout : 5000`), while `node:sqlite` leaves it at 0. Nothing in
 the diff mentioned locking, which is exactly why it slipped through — the migration was audited

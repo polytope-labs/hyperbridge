@@ -15,9 +15,14 @@ and the new ones not yet written.
 
 On construction the store imports the `runtime-state.json` earlier versions wrote — first from the
 data directory, then from `.filler-data/` relative to the process's cwd — but only when
-`runtime_state` is empty, so it can never overwrite state the database already holds. Both copies
-are then deleted: one left behind is read again by the next empty database, resurrecting a pause
-the operator has since lifted.
+`runtime_state` is empty, so it can never overwrite state the database already holds. Every copy it
+managed to read is then deleted, not just the one it imported: a copy left behind is read again by
+the next empty database, resurrecting a pause the operator has since lifted.
+
+A file it could not read is left alone. A missing file is silent, since that is the normal case;
+any other failure — no permission, an I/O error, malformed JSON, or a parsed value that is not a
+plain object — logs at warn and keeps the file, because it may still hold the pause and deleting it
+would destroy the state the import exists to rescue.
 
 Writes are wrapped so a failure logs instead of throwing: a pause that cannot be persisted still
 pauses the filler. Reads are not, so a database that cannot be read fails `bootFiller` rather than

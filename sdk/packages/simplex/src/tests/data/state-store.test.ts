@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "fs"
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, writeFileSync } from "fs"
 import { tmpdir } from "os"
 import { join } from "path"
 import { MemoryDataStore } from "@/data/memory"
@@ -111,6 +111,69 @@ describe("retired runtime-state.json", () => {
 
 	it("reads an empty record when there is nothing to import", async () => {
 		expect(await openStore().state.get()).toEqual({})
+	})
+
+	it("keeps a file it could not parse instead of deleting it", async () => {
+		const dir = dataDir()
+		const file = join(dir, "runtime-state.json")
+		writeFileSync(file, '{"paused": tru')
+
+		const { state } = openStore(dir)
+
+		// Deleting a file we could not read destroys the very state this import
+		// exists to rescue. It stays put for the operator to recover.
+		expect(await state.get()).toEqual({})
+		expect(existsSync(file)).toBe(true)
+	})
+
+	it("keeps a file holding something other than an object", async () => {
+		const dir = dataDir()
+		const file = join(dir, "runtime-state.json")
+		writeFileSync(file, "null")
+
+		const { state } = openStore(dir)
+
+		expect(await state.get()).toEqual({})
+		expect(existsSync(file)).toBe(true)
+	})
+
+	// Root reads a mode-000 file regardless, which is how some CI containers run.
+	it.skipIf(process.getuid?.() === 0)("keeps a file it could not read instead of deleting it", async () => {
+		const dir = dataDir()
+		const file = join(dir, "runtime-state.json")
+		writeFileSync(file, JSON.stringify({ paused: true, phantomBids: { "EVM-8453": "0xabc" } }))
+		chmodSync(file, 0o000)
+
+		try {
+			const { state } = openStore(dir)
+			expect(await state.get()).toEqual({})
+			expect(existsSync(file)).toBe(true)
+		} finally {
+			chmodSync(file, 0o600)
+		}
+	})
+
+	it("deletes every readable copy, not just the one it imported", async () => {
+		const cwd = process.cwd()
+		const home = dataDir()
+		const dir = join(home, "data")
+		mkdirSync(dir)
+		mkdirSync(join(home, ".filler-data"))
+		writeFileSync(join(dir, "runtime-state.json"), JSON.stringify({ paused: true }))
+		writeFileSync(join(home, ".filler-data", "runtime-state.json"), JSON.stringify({ paused: false }))
+
+		try {
+			process.chdir(home)
+			const { state } = openStore(dir)
+
+			// The data directory wins, and the older copy goes too — left behind, it
+			// would be re-imported by the next empty database.
+			expect(await state.get()).toEqual({ paused: true })
+			expect(existsSync(join(dir, "runtime-state.json"))).toBe(false)
+			expect(existsSync(join(home, ".filler-data", "runtime-state.json"))).toBe(false)
+		} finally {
+			process.chdir(cwd)
+		}
 	})
 })
 

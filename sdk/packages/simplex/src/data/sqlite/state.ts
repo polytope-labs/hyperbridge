@@ -50,8 +50,8 @@ export class SqliteStateStore implements StateStore {
 
 	/**
 	 * Moves state out of the JSON file a previous version wrote, then removes
-	 * every copy of it. Runs only against an empty table, so it can never
-	 * overwrite state this database already holds.
+	 * the copies it managed to read. Runs only against an empty table, so it can
+	 * never overwrite state this database already holds.
 	 */
 	private importRetiredStateFile(dataDir: string): void {
 		const { rows } = this.db.prepare("SELECT COUNT(*) as rows FROM runtime_state").get() as unknown as {
@@ -60,25 +60,44 @@ export class SqliteStateStore implements StateStore {
 		if (rows > 0) return
 
 		const paths = [join(dataDir, RETIRED_STATE_FILE), resolve(process.cwd(), RETIRED_STATE_DIR, RETIRED_STATE_FILE)]
+		const recovered: { path: string; state: RuntimeState }[] = []
+
 		for (const path of paths) {
-			let state: RuntimeState
 			try {
-				state = JSON.parse(readFileSync(path, "utf-8")) as RuntimeState
-			} catch {
-				continue
+				const parsed = JSON.parse(readFileSync(path, "utf-8")) as unknown
+				if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+					throw new Error(`expected a JSON object, got ${Array.isArray(parsed) ? "an array" : typeof parsed}`)
+				}
+				recovered.push({ path, state: parsed as RuntimeState })
+			} catch (err) {
+				// An absent file is the normal case and says nothing. Anything else —
+				// no read permission, an I/O error, malformed JSON — may still hold the
+				// operator's pause, so the file stays put for them to recover. Deleting
+				// it would destroy the state this import exists to rescue.
+				if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+					this.logger.warn({ err, path }, "Could not read the retired state file; leaving it in place")
+				}
 			}
-			this.write(state, true)
-			this.logger.info({ path, keys: Object.keys(state) }, "Imported operator state from its retired JSON file")
-			break
 		}
 
-		// Delete every copy, imported or not: one left behind would be read again
-		// by the next empty database, resurrecting a pause the operator has since
-		// lifted. Best-effort — a read-only directory just keeps a dead file.
-		for (const path of paths) {
+		const [first] = recovered
+		if (first) {
+			this.write(first.state, true)
+			this.logger.info(
+				{ path: first.path, keys: Object.keys(first.state) },
+				"Imported operator state from its retired JSON file",
+			)
+		}
+
+		// Delete only what was read back. A copy left behind is read again by the
+		// next empty database, resurrecting a pause the operator has since lifted,
+		// so every readable copy goes — not just the one that was imported.
+		for (const { path } of recovered) {
 			try {
 				unlinkSync(path)
-			} catch {}
+			} catch (err) {
+				this.logger.warn({ err, path }, "Could not delete the retired state file")
+			}
 		}
 	}
 

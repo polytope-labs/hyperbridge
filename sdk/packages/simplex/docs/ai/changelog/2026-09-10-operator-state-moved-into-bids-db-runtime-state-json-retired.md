@@ -16,9 +16,17 @@ statements with `BEGIN`/`COMMIT` and rolls back on a throw.
 
 Existing data directories are migrated on open: if `runtime_state` is empty the store reads
 `runtime-state.json` from the data directory, then from `.filler-data/` relative to cwd, writes
-what it finds, and unlinks both copies. Guarding on an empty table means it can never overwrite
-state the database already holds; deleting both copies means an empty database cannot resurrect a
-pause the operator has since lifted.
+what it finds, and unlinks the copies it read. Guarding on an empty table means it can never
+overwrite state the database already holds; deleting every readable copy — not just the imported
+one — means an empty database cannot resurrect a pause the operator has since lifted.
+
+Only files that were read back are deleted, which the first draft got wrong: it unlinked both paths
+whether or not the read succeeded, so a `runtime-state.json` that existed but could not be read
+(no permission, an I/O error, malformed JSON) was destroyed and its pause and phantom bids lost —
+the exact state the import exists to rescue. Found in review by @royvardhan, who reproduced it with
+a mode-000 file holding a real pause. A missing file is still silent, since that is the normal
+case; every other read failure logs and leaves the file where it is. A parsed value that is not a
+plain object counts as a failed read for the same reason.
 
 Writes still swallow their errors (logged now, which the file store could not do) so a pause that
 cannot be persisted still pauses the filler; reads no longer do, so an unreadable database fails

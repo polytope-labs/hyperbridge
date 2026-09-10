@@ -16,7 +16,9 @@ Alternatives rejected: a temp-file-plus-rename would have made the write atomic 
 read-modify-write race and a third storage format in a directory that already has two databases. A
 separate `state.db` would add a file and a handle to carry one boolean. Keeping the JSON file
 around after importing it was rejected too — an empty database reads it again, so a copy left
-behind resurrects a pause the operator has since lifted. The cost is that a downgrade past this finds no
+behind resurrects a pause the operator has since lifted. Deletion is limited to files that were
+actually read back: a file that exists but cannot be read may still hold the pause, and unlinking
+it destroys the state the import exists to rescue. The cost is that a downgrade past this finds no
 state and starts unpaused; the version that reads the file is the one that deletes it, so this is a
 one-way door by construction.
 

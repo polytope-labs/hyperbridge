@@ -288,7 +288,6 @@ button.operator-text-button:hover:not(:disabled) {
 	color: var(--text);
 }
 
-.operator-balance-list,
 .operator-market-list,
 .operator-tool-list {
 	border-top: 1px solid var(--border);
@@ -298,32 +297,155 @@ button.operator-text-button:hover:not(:disabled) {
  * Each of these lists ends its section, and the section draws its own bottom
  * rule, so a last row that draws one too leaves two lines a padding apart.
  */
-.operator-balance-list > *:last-child,
 .operator-market-list > *:last-child,
 .operator-tool-list > *:last-child {
 	border-bottom: 0;
 }
 
-.operator-balance-row {
-	padding: 1.25rem 0 1.5rem;
-	border-bottom: 1px solid var(--border);
-}
-
-.operator-balance-row:last-child,
 button.operator-market-row:last-child,
 button.operator-tool-row:last-child {
 	border-bottom: 0;
 }
 
-.operator-balance-network {
+.operator-balance-heading-aside {
+	display: flex;
+	align-items: center;
+	gap: 0.75rem;
+}
+
+/*
+ * The switcher sizes to its content instead of the whole heading row, and its menu is wider
+ * than its trigger: each row carries a network, its state and its stablecoin figure.
+ */
+.operator-network-switcher .app-select-trigger {
+	width: auto;
+	min-width: 15rem;
+}
+
+.app-select-content.operator-network-menu {
+	width: min(24rem, calc(100vw - 1.5rem));
+}
+
+.operator-network-switcher .chain-logo,
+.operator-network-menu .chain-logo {
+	width: 1.5rem;
+	height: 1.5rem;
+}
+
+/*
+ * Narrowing the cards to one network must not lose the aggregate, so every tracked token keeps
+ * its cross-network total here, with the selected network's share of it underneath.
+ */
+.operator-balance-totals-heading {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: 1rem;
+	padding-top: 1.1rem;
+	border-top: 1px solid var(--border);
+	color: var(--muted);
+	font-size: 0.6875rem;
+}
+
+.operator-balance-totals-heading small {
+	font-family: var(--font-mono);
+	font-size: 0.625rem;
+}
+
+/* One column per token held, so a two-token config does not leave two dead cells. */
+.operator-balance-totals {
+	display: grid;
+	grid-template-columns: repeat(var(--balance-total-columns, 1), minmax(0, 1fr));
+	padding: 0.75rem 0 1.1rem;
+}
+
+.operator-balance-total {
+	--token-accent: #7d8ca5;
+	display: grid;
+	align-content: start;
+	gap: 0.35rem;
+	min-width: 0;
+	padding: 0 1.25rem;
+	border-left: 1px solid var(--border);
+}
+
+.operator-balance-total:first-child {
+	padding-left: 0;
+	border-left: 0;
+}
+
+.operator-balance-total-token {
+	display: flex;
+	align-items: center;
+	gap: 0.4rem;
+	color: var(--text-secondary);
+	font-size: 0.6875rem;
+}
+
+.operator-balance-total > strong {
+	overflow: hidden;
+	font-family: var(--font-mono);
+	font-size: 1.125rem;
+	font-weight: 500;
+	font-variant-numeric: tabular-nums;
+	letter-spacing: -0.02em;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.operator-balance-total > small {
+	color: var(--text-secondary);
+	font-size: 0.625rem;
+}
+
+.operator-balance-total > strong[data-unavailable],
+.operator-balance-total > small[data-muted] {
+	color: var(--muted);
+}
+
+.operator-balance-share {
+	display: block;
+	height: 0.25rem;
+	overflow: hidden;
+	border-radius: 999px;
+	background: rgba(255, 255, 255, 0.07);
+}
+
+.operator-balance-share i {
+	display: block;
+	height: 100%;
+	border-radius: 999px;
+	background: var(--token-accent);
+}
+
+/* A total nothing can be read for fills the track in warning, rather than claiming a share. */
+.operator-balance-share[data-unavailable] i {
+	background: var(--warn);
+	opacity: 0.25;
+}
+
+.operator-balance-focus {
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
 	gap: 1rem;
-	margin-bottom: 1rem;
+	margin-bottom: 0.85rem;
+	padding-top: 1.1rem;
+	border-top: 1px solid var(--border);
 }
 
-.operator-balance-network .operator-balance-value {
+.operator-balance-focus-network {
+	min-width: 0;
+	color: var(--muted);
+	font-size: 0.75rem;
+}
+
+.operator-balance-focus-network strong {
+	color: var(--text);
+	font-weight: 500;
+}
+
+.operator-balance-focus .operator-balance-value {
 	display: flex;
 	align-items: center;
 	gap: 0.55rem;
@@ -386,23 +508,28 @@ button.operator-tool-row:last-child {
 	content: "";
 }
 
-.operator-asset-balance[data-token="usdc"] {
+.operator-asset-balance[data-token="usdc"],
+.operator-balance-total[data-token="usdc"] {
 	--token-accent: #2775ca;
 }
 
-.operator-asset-balance[data-token="usdt"] {
+.operator-asset-balance[data-token="usdt"],
+.operator-balance-total[data-token="usdt"] {
 	--token-accent: #26a17b;
 }
 
-.operator-asset-balance[data-token="cngn"] {
+.operator-asset-balance[data-token="cngn"],
+.operator-balance-total[data-token="cngn"] {
 	--token-accent: #7c4dff;
 }
 
-.operator-asset-balance[data-token="dai"] {
+.operator-asset-balance[data-token="dai"],
+.operator-balance-total[data-token="dai"] {
 	--token-accent: #f4b731;
 }
 
-.operator-asset-balance[data-token="eurc"] {
+.operator-asset-balance[data-token="eurc"],
+.operator-balance-total[data-token="eurc"] {
 	--token-accent: #5a6edb;
 }
 
@@ -553,19 +680,6 @@ button.operator-tool-row:last-child {
 	white-space: nowrap;
 }
 
-.operator-chain-name {
-	display: flex;
-	align-items: center;
-	gap: 0.75rem;
-	min-width: 0;
-}
-
-.operator-chain-name .chain-logo {
-	width: 2rem;
-	height: 2rem;
-}
-
-.operator-chain-name > span,
 .operator-balance-value,
 .operator-market-copy,
 .operator-tool-row > span {
@@ -574,15 +688,9 @@ button.operator-tool-row:last-child {
 	min-width: 0;
 }
 
-.operator-chain-name strong,
 .operator-balance-value strong {
 	font-size: 0.8125rem;
 	font-weight: 500;
-}
-
-.operator-chain-name small {
-	color: var(--muted);
-	font-size: 0.6875rem;
 }
 
 .operator-balance-value strong {

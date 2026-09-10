@@ -49,6 +49,11 @@ function groupThousands(integer: string): string {
 	return integer.replace(/\B(?=(\d{3})+(?!\d))/g, ",")
 }
 
+/** A number already in display units: grouped thousands, at most four decimals. */
+export function formatAmount(value: number): string {
+	return value.toLocaleString(undefined, { maximumFractionDigits: 4 })
+}
+
 /** "09:05 AM" in the viewer's locale. */
 export function formatClockTime(ts: number): string {
 	return new Date(ts).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })

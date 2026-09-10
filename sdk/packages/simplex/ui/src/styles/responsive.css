@@ -82,6 +82,16 @@
 		grid-template-columns: 1fr;
 	}
 
+	.operator-balance-totals {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+		gap: 1rem 0;
+	}
+
+	.operator-balance-total:nth-child(odd) {
+		padding-left: 0;
+		border-left: 0;
+	}
+
 	.operator-market-editor .curve-editor {
 		grid-template-columns: minmax(0, 1fr);
 		grid-template-rows: auto;
@@ -481,7 +491,22 @@
 		flex-direction: column;
 	}
 
-	.operator-balance-network,
+	.operator-balance-heading-aside {
+		align-items: flex-start;
+		flex-direction: column;
+		gap: 0.5rem;
+		width: 100%;
+	}
+
+	.operator-network-switcher {
+		width: 100%;
+	}
+
+	.operator-network-switcher .app-select-trigger {
+		width: 100%;
+	}
+
+	.operator-balance-focus,
 	.operator-asset-header,
 	.operator-asset-available {
 		align-items: flex-start;

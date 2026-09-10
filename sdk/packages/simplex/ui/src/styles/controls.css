@@ -113,6 +113,19 @@ input:hover {
 	white-space: nowrap;
 }
 
+/* A trigger given a caption stacks it under the value; without one the value stays a plain flex child. */
+.app-select-current-text {
+	display: grid;
+	gap: 0.1rem;
+	min-width: 0;
+	text-align: left;
+}
+
+.app-select-caption {
+	color: var(--muted);
+	font-size: 0.625rem;
+}
+
 .app-select-chevron {
 	display: grid;
 	flex: 0 0 auto;
@@ -144,6 +157,19 @@ input:hover {
 	animation: app-select-in 140ms var(--ease-out);
 }
 
+.app-select-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 1rem;
+	padding: 0.75rem 0.95rem 0.5rem;
+	color: var(--muted);
+	font-family: var(--font-mono);
+	font-size: 0.5625rem;
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+}
+
 .app-select-viewport {
 	padding: 0.35rem;
 }
@@ -162,6 +188,48 @@ input:hover {
 	outline: none;
 	cursor: default;
 	user-select: none;
+}
+
+/*
+ * A row carrying a second line and a right-hand value needs fixed columns: laid out as flex,
+ * its value lands somewhere else on the one row that also draws a check.
+ */
+.app-select-item[data-rich] {
+	display: grid;
+	grid-template-columns: auto minmax(0, 1fr) auto 1rem;
+}
+
+.app-select-item-text {
+	display: grid;
+	gap: 0.12rem;
+	min-width: 0;
+}
+
+.app-select-item-text > * {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.app-select-item-description {
+	display: flex;
+	align-items: center;
+	gap: 0.35rem;
+	color: var(--muted);
+	font-size: 0.625rem;
+	font-weight: 400;
+}
+
+.app-select-item-trailing {
+	color: var(--muted);
+	font-family: var(--font-mono);
+	font-size: 0.75rem;
+	font-variant-numeric: tabular-nums;
+	text-align: right;
+}
+
+.app-select-item[data-state="checked"] .app-select-item-trailing {
+	color: var(--text);
 }
 
 .app-select-item[data-highlighted] {

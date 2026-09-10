@@ -16,6 +16,10 @@ export type AppSelectOption = {
 	value: string
 	label: string
 	leading?: ReactNode
+	/** Second line under the label, in the menu only. The trigger shows `caption` instead. */
+	description?: ReactNode
+	/** Right-aligned value on the row, before the check indicator. */
+	trailing?: ReactNode
 	disabled?: boolean
 	muted?: boolean
 	separatorBefore?: boolean
@@ -30,9 +34,32 @@ export function AppSelect(props: {
 	ariaLabelledBy?: string
 	required?: boolean
 	disabled?: boolean
+	/** Second line under the current value in the trigger, for a roll-up the label cannot carry. */
+	caption?: ReactNode
+	/** Pinned above the options, outside the scrolling viewport. Column headings, typically. */
+	header?: ReactNode
+	/** Extra class on the popover, which is portalled out of the caller's own subtree. */
+	contentClassName?: string
 }) {
-	const { value, options, onValueChange, placeholder, ariaLabel, ariaLabelledBy, required, disabled } = props
+	const {
+		value,
+		options,
+		onValueChange,
+		placeholder,
+		ariaLabel,
+		ariaLabelledBy,
+		required,
+		disabled,
+		caption,
+		header,
+		contentClassName,
+	} = props
 	const selected = options.find((option) => option.value === value)
+	const currentValue = (
+		<Select.Value className="app-select-value" placeholder={placeholder}>
+			{selected?.label}
+		</Select.Value>
+	)
 
 	return (
 		<Select.Root
@@ -48,9 +75,14 @@ export function AppSelect(props: {
 			>
 				<span className="app-select-current">
 					{selected?.leading}
-					<Select.Value className="app-select-value" placeholder={placeholder}>
-						{selected?.label}
-					</Select.Value>
+					{caption === undefined ? (
+						currentValue
+					) : (
+						<span className="app-select-current-text">
+							{currentValue}
+							<small className="app-select-caption">{caption}</small>
+						</span>
+					)}
 				</span>
 				<Select.Icon className="app-select-chevron">
 					<ChevronDownIcon aria-hidden="true" />
@@ -58,11 +90,12 @@ export function AppSelect(props: {
 			</Select.Trigger>
 			<Select.Portal>
 				<Select.Content
-					className="app-select-content"
+					className={contentClassName ? `app-select-content ${contentClassName}` : "app-select-content"}
 					position="popper"
 					sideOffset={6}
 					collisionPadding={12}
 				>
+					{header ? <div className="app-select-header">{header}</div> : null}
 					<Select.Viewport className="app-select-viewport">
 						{options.map((option) => (
 							<Fragment key={option.value}>
@@ -70,11 +103,22 @@ export function AppSelect(props: {
 								<Select.Item
 									className="app-select-item"
 									data-muted={option.muted || undefined}
+									data-rich={option.description || option.trailing ? true : undefined}
 									value={encodeValue(option.value)}
 									disabled={option.disabled}
 								>
 									{option.leading}
-									<Select.ItemText>{option.label}</Select.ItemText>
+									{option.description === undefined ? (
+										<Select.ItemText>{option.label}</Select.ItemText>
+									) : (
+										<span className="app-select-item-text">
+											<Select.ItemText>{option.label}</Select.ItemText>
+											<small className="app-select-item-description">{option.description}</small>
+										</span>
+									)}
+									{option.trailing === undefined ? null : (
+										<span className="app-select-item-trailing">{option.trailing}</span>
+									)}
 									<Select.ItemIndicator className="app-select-indicator">
 										<CheckIcon aria-hidden="true" />
 									</Select.ItemIndicator>

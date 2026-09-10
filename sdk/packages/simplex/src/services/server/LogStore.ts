@@ -286,14 +286,20 @@ export class LogStore implements LogTail {
 			// rather than appending into someone else's launch.
 			const stamp = (startedAt ?? new Date()).toISOString().replace(/[:.]/g, "-").replace(/Z$/, "")
 			this.file = join(dir, `simplex-${stamp}.log`)
-			this.stream = createWriteStream(this.file, { flags: "wx" })
+			const stream = createWriteStream(this.file, { flags: "wx" })
+			this.stream = stream
 			// Without a handler an EACCES/ENOSPC on the stream is an unhandled 'error' event.
-			this.stream.on("error", () => {
-				// A full disk, a permission change, or the `wx` collision above. The
-				// path goes with the stream: a half-owned file must not be read back
-				// as this launch's history.
+			stream.on("error", () => {
+				// `pending` is still true when the open itself failed — the `wx`
+				// collision with another launch's file, or a directory we cannot write.
+				// Nothing of ours reached that path, so it must not be read back as
+				// this launch's history. A failure *after* the open (a full disk, most
+				// likely) leaves a file that is ours and complete up to that point, and
+				// the hours before the disk filled are what an operator opens this page
+				// for — so there the path stays and the history stays searchable.
+				const neverOpened = stream.pending
 				this.stream = undefined
-				this.file = undefined
+				if (neverOpened) this.file = undefined
 			})
 			for (const record of this.ringMatches({})) this.stream.write(`${JSON.stringify(record)}\n`)
 		} catch {

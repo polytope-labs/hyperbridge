@@ -147,10 +147,16 @@ function DetailFields(props: { detail: string; term: string; pretty: boolean }) 
 	// A search hit that lands across a token boundary would render with nothing
 	// marked — the same "highlighted row with no highlight" the clamp used to
 	// cause. Fall back to the raw string so the match is always visible.
+	//
+	// Both halves matter. Without the first, a term that is simply not in this
+	// record's fields — a message search, which is most of them — satisfies the
+	// second trivially, and every matching row drops back to raw JSON.
+	const needle = term.toLowerCase()
 	const splitsMatch =
 		Boolean(term) &&
 		tokens !== null &&
-		!tokens.some((t) => t.text.toLowerCase().includes(term.toLowerCase()))
+		detail.toLowerCase().includes(needle) &&
+		!tokens.some((t) => t.text.toLowerCase().includes(needle))
 	if (tokens === null || splitsMatch) return <Highlight text={detail} term={term} />
 	return (
 		<>
@@ -449,6 +455,13 @@ export function Logs() {
 				{coverage?.persisted ? (
 					<span className="log-capture" title={coverage.path}>
 						full history on disk
+					</span>
+				) : coverage?.path ? (
+					// Recording stopped part-way — a full disk, or a permission change.
+					// What reached the file before that is still there and still
+					// searchable, so this is not the memory-only case.
+					<span className="log-capture" title={`Recording stopped; what was written is still searchable in ${coverage.path}`}>
+						history to here on disk
 					</span>
 				) : coverage ? (
 					<span className="log-capture" title="No writable data directory; only the in-memory tail is searchable">

@@ -325,6 +325,50 @@ describe("LogStore persistence", () => {
 		second.close()
 	})
 
+	/**
+	 * A disk that fills part-way through a launch is the failure this design
+	 * invites — the history is "bounded only by the disk" — and it is exactly when
+	 * an operator opens the page. What reached the file before the failure is ours
+	 * and readable, so it stays searchable; only an open that never succeeded
+	 * leaves a path that is not this launch's to read.
+	 */
+	it("keeps the history it already wrote when recording fails part-way through", async () => {
+		const dir = tempDir()
+		const { store, log } = storeAt("info", { dir, capacity: 1 })
+		log.info("before the disk filled")
+		log.info("and another")
+		await flushed()
+		const path = store.stats().path
+
+		// How Node delivers a write failure on an open file: the fd exists, so the
+		// records already on disk are intact.
+		;(store as unknown as { stream: { emit(event: string, err: Error): void } }).stream.emit(
+			"error",
+			Object.assign(new Error("no space left on device"), { code: "ENOSPC" }),
+		)
+
+		expect(store.stats().persisted).toBe(false)
+		expect(store.stats().path).toBe(path)
+		// capacity 1, so the first record survives only on disk.
+		expect((await store.recent({})).map((r) => r.msg)).toEqual(["before the disk filled", "and another"])
+	})
+
+	it("drops the path when the launch file was never opened", async () => {
+		const dir = tempDir()
+		const startedAt = new Date("2026-09-10T08:49:27.100Z")
+		const first = new LogStore({ dir, startedAt })
+
+		// `wx` refuses the collision, so nothing of this launch reaches that file
+		// and reading it back would report the other launch's records as ours.
+		const second = new LogStore({ dir, startedAt })
+		await flushed()
+
+		expect(second.stats().persisted).toBe(false)
+		expect(second.stats().path).toBeUndefined()
+		first.close()
+		second.close()
+	})
+
 	it("falls back to memory when the directory cannot be used", async () => {
 		const dir = tempDir()
 		const blocker = join(dir, "logs")

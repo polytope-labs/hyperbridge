@@ -26,8 +26,13 @@ Read from the source and exercised by `src/tests/log-store.test.ts` and the `log
 6. `openLaunchFile`, called from the `run` action once `--data-dir` is parsed, prunes to the last
    five launches, opens `<dataDir>/logs/simplex-<stamp>.log` with `wx`, and writes out whatever the
    ring already holds — which is what makes the file start at launch rather than at that call. A
-   stream error (a full disk, a name collision) clears both the stream and the path, so the store
-   degrades to memory-only and the DTO stops advertising a file nothing is writing.
+   stream error always clears the stream, so recording stops; whether it clears the *path* turns on
+   `stream.pending`. Still pending means the open itself failed — the `wx` collision, or a directory
+   that cannot be written — so nothing of this launch reached that path and it must not be read back
+   as this launch's history. Already open means a full disk or the like, and the file is ours and
+   complete up to the failure, so the path stays and `scanFile` keeps answering from it. The footer
+   reads the difference: `persisted` for a file still being written, a retained `path` without it for
+   "history to here on disk", neither for memory-only.
 7. The page mounts and issues `GET /api/logs?level&q&after&limit`. `UiServer` builds a `LogQuery`
    with `logQueryFrom` (unparseable values fall back rather than 400) and answers with
    `await logs.recent(query)` plus `config.simplex.logging`, the ring capacity, the count captured

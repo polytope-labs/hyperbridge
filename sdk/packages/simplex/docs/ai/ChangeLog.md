@@ -333,8 +333,14 @@ byte-identical to a default run and launched no browser (checked with a stub `xd
 `--log-format pretty` was identical to passing nothing. A separate check ran two `LoggerContext`s into
 one shared `process.stdout` for 4000 records and found no interleaved or partial lines.
 
-Files: src/bin/simplex.ts, src/cli/log-format.ts (new), src/tests/cli/log-format.test.ts (new),
-README.md.
+Rebased onto #1249, which split `run`'s option declarations into `addRunOptions`
+(`src/cli/run-options.ts`). Both flags moved there, and `open` joined its `RunOptions` interface;
+`logFormat` deliberately did not. The test now parses the real builder instead of a hand-copied mirror,
+which is what makes the `--ui`-swallows-the-next-flag case (fixed by #1249) testable here at all — the
+suite went from 15 to 22 tests, including the first coverage `--no-open` has had.
+
+Files: src/bin/simplex.ts, src/cli/run-options.ts, src/cli/log-format.ts (new),
+src/tests/cli/log-format.test.ts (new), README.md.
 
 No version bump. Four simplex branches were open against #1237 at once and a bump in each would have
 collided on the same field for nothing — publishing is tag-driven, so the version can be set once on

@@ -458,7 +458,12 @@ sink has to exist before the parse, so its format has to be known before the par
 Why the action ignores `options.logFormat` even though it is available by then: the sink is already
 writing, and a command line the two readers disagree about (`simplex run -c --log-format json`, where
 commander binds `--log-format` to `-c`) would then put an ASCII banner in the middle of a stream a
-supervisor is parsing as NDJSON. One reader, one answer.
+supervisor is parsing as NDJSON. One reader, one answer. `RunOptions` in `src/cli/run-options.ts`
+therefore omits `logFormat`, with the reason recorded on the field it would have occupied.
+
+Both flags live in `addRunOptions` (`src/cli/run-options.ts`) with the rest of `run`'s options, after
+#1249 split that builder out of the bin. That is also what lets the tests parse the *real* declarations
+rather than a hand-copied mirror that could drift.
 
 Rejected: moving the `addLogSink` call into each command's action, after the parse. It would remove
 the double read, but the process-wide sink is what the setup wizard logs to — `UiServer`'s

@@ -20,9 +20,10 @@ Read from `bin/simplex.ts` and exercised against the built `dist/bin/simplex.js`
 3. `consoleSink(format)` returns `process.stdout` for `json` and a `pino-pretty` transform for
    `pretty`. The transform is built with `destination: process.stdout`, not `.pipe()` — piped, it
    echoes each record's raw NDJSON next to the formatted line.
-4. `program.parse(process.argv)` runs. `--log-format` is declared on `run` with `.choices()`, so an
-   unknown value exits here with the allowed values and the action never runs. `--no-open` is a
-   commander negated boolean: `options.open` is `true` unless the flag is present.
+4. `program.parse(process.argv)` runs. Both flags are declared in `addRunOptions` (`src/cli/run-options.ts`),
+   alongside the rest of `run`'s options. `--log-format` uses `.choices()`, so an unknown value exits
+   here with the allowed values and the action never runs. `--no-open` is a commander negated boolean:
+   `options.open` is `true` unless the flag is present.
 5. The `run` action writes `ASCII_HEADER` to stdout only when `logFormat === "pretty"`.
 6. The config branch. With a config present, `startFiller` is called and passes `consoleSink(logFormat)`
    as `SimplexOptions.logger`, so the filler's own `LoggerContext` gets a second sink. On the pretty

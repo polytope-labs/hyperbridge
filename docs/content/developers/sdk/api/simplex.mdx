@@ -668,9 +668,16 @@ else, so an implementation may prune, sample or cap history freely.
 ```typescript lineNumbers
 get(): Promise<RuntimeState>
 set(state: RuntimeState): Promise<void>
+patch?(patch: Partial<RuntimeState>): Promise<RuntimeState>
 ```
 
-`RuntimeState` is `{ paused?: boolean }`.
+`RuntimeState` is `{ paused?: boolean, phantomBids?: Record<string, string> }`.
+
+`set` replaces the whole record. `patch` is optional and merges, leaving keys it does not name
+untouched — implement it if your backend can do that atomically. The fallback when you do not is a
+read, a merge and a write back, which loses a key another writer set in between. That race is real
+on a running filler: `paused` is written by the operator and `phantomBids` by the bid batch, from
+different places at unrelated times.
 
 ### Implementations
 
@@ -679,8 +686,10 @@ set(state: RuntimeState): Promise<void>
 | `MemoryDataStore` | `@hyperbridge/simplex` | Default. Process-local, row-capped, lost on exit |
 | `SqliteDataStore` | `@hyperbridge/simplex/sqlite` | Durable. Built on `node:sqlite`, so nothing to install |
 
-`SqliteDataStore(dataDir)` keeps `bids.db`, `activity.db` and `runtime-state.json` in the given
-directory, so a data directory written by the binary is picked up unchanged. It is built on Node's
+`SqliteDataStore(dataDir)` keeps `bids.db` and `activity.db` in the given directory, so a data
+directory written by the binary is picked up unchanged. Operator state rides in `bids.db` beside
+the bids, and implements `patch`; a `runtime-state.json` from an earlier version is imported once
+and then removed. It is built on Node's
 built-in `node:sqlite`, so there is no native module to install or compile — which is why the
 package requires Node 22.16 or newer.
 

@@ -2,16 +2,24 @@ import { describe, expect, it } from "vitest"
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, writeFileSync } from "fs"
 import { tmpdir } from "os"
 import { join } from "path"
+import { LoggerContext, type LogSink } from "@/services/Logger"
 import { MemoryDataStore } from "@/data/memory"
 import { patchRuntimeState } from "@/data/state"
 import { SqliteDataStore } from "@/data/sqlite"
 
 const dataDir = () => mkdtempSync(join(tmpdir(), "simplex-state-"))
 
+/** Captures every log line the store emits, so a test can assert on warnings. */
+function collector(): LogSink & { lines: string[] } {
+	const lines: string[] = []
+	return { lines, write: (line) => void lines.push(line) }
+}
+
 /** A store on a fresh data directory, plus the directory it was opened on. */
 function openStore(dir = dataDir()) {
-	const store = new SqliteDataStore(dir)
-	return { dir, state: store.state, close: () => store.close() }
+	const logs = collector()
+	const store = new SqliteDataStore(dir, new LoggerContext({ level: "warn", sink: logs }))
+	return { dir, logs, state: store.state, close: () => store.close() }
 }
 
 describe("SqliteStateStore", () => {
@@ -69,6 +77,16 @@ describe("SqliteStateStore", () => {
 		await store.close()
 		await expect(store.state.set({ paused: true })).resolves.toBeUndefined()
 	})
+
+	it("does not reject from patch on an unwritable store either", async () => {
+		// `patch` is the only path production takes — `Simplex.pause`, the CLI's
+		// `setPaused` and the phantom batch all route through `patchRuntimeState`.
+		// A rejection here tells the operator the pause failed while the filler is
+		// in fact paused, and returns a 500 from POST /api/pause.
+		const store = openStore()
+		await store.close()
+		await expect(store.state.patch!({ paused: true })).resolves.toEqual({ paused: true })
+	})
 })
 
 describe("retired runtime-state.json", () => {
@@ -107,6 +125,27 @@ describe("retired runtime-state.json", () => {
 
 		const second = openStore(first.dir)
 		expect(await second.state.get()).toEqual({ paused: false })
+	})
+
+	it("imports once when the data directory is the legacy directory", async () => {
+		// `--data-dir .filler-data` makes both candidate paths the same file under
+		// different strings. Unlinking it twice used to log that a stale copy had
+		// survived when it had not.
+		const cwd = process.cwd()
+		const home = dataDir()
+		mkdirSync(join(home, ".filler-data"))
+		writeFileSync(join(home, ".filler-data", "runtime-state.json"), JSON.stringify({ paused: true }))
+
+		try {
+			process.chdir(home)
+			const store = openStore(".filler-data")
+
+			expect(await store.state.get()).toEqual({ paused: true })
+			expect(existsSync(join(home, ".filler-data", "runtime-state.json"))).toBe(false)
+			expect(store.logs.lines.filter((line) => line.includes("Could not delete"))).toEqual([])
+		} finally {
+			process.chdir(cwd)
+		}
 	})
 
 	it("reads an empty record when there is nothing to import", async () => {

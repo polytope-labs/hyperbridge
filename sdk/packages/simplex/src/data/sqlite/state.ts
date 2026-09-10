@@ -1,5 +1,5 @@
 import { readFileSync, unlinkSync } from "node:fs"
-import { join, resolve } from "node:path"
+import { resolve } from "node:path"
 import type { DatabaseSync } from "node:sqlite"
 import { defaultLoggerContext, type Logger, type LoggerContext } from "@/services/Logger"
 import type { RuntimeState, StateStore } from "@/data/types"
@@ -59,7 +59,16 @@ export class SqliteStateStore implements StateStore {
 		}
 		if (rows > 0) return
 
-		const paths = [join(dataDir, RETIRED_STATE_FILE), resolve(process.cwd(), RETIRED_STATE_DIR, RETIRED_STATE_FILE)]
+		// Resolved and de-duplicated: `--data-dir .filler-data` makes both entries
+		// the same file under different strings, which would import it twice and
+		// then unlink it twice — the second failing, and logging that a stale file
+		// survived when it did not.
+		const paths = [
+			...new Set([
+				resolve(dataDir, RETIRED_STATE_FILE),
+				resolve(process.cwd(), RETIRED_STATE_DIR, RETIRED_STATE_FILE),
+			]),
+		]
 		const recovered: { path: string; state: RuntimeState }[] = []
 
 		for (const path of paths) {
@@ -151,22 +160,35 @@ export class SqliteStateStore implements StateStore {
 	 * Merges `patch` in one transaction, leaving every other key untouched. The
 	 * generic {@link StateStore} fallback reads and writes back the whole record,
 	 * which loses a concurrent writer's key; this cannot.
+	 *
+	 * The read-back is inside the guard with the write. Every production caller
+	 * reaches this store through here — `Simplex.pause/resume`, the CLI's
+	 * `setPaused`, the phantom batch — so a throw is a pause that reports failure
+	 * while the filler is actually paused, which is the one thing {@link persist}
+	 * exists to prevent. With the database unreadable the requested patch is the
+	 * most that can honestly be said about the state; the failure is in the log,
+	 * and no caller reads this value.
 	 */
 	async patch(patch: Partial<RuntimeState>): Promise<RuntimeState> {
-		this.persist(() => this.write(patch, false))
-		return this.read()
+		return (
+			this.persist(() => {
+				this.write(patch, false)
+				return this.read()
+			}) ?? patch
+		)
 	}
 
 	/**
-	 * Runs a write, logging rather than throwing if it fails. A pause that cannot
-	 * be persisted must still pause the filler; only its survival across a
-	 * restart is lost.
+	 * Runs a write, logging rather than throwing if it fails, and returning
+	 * `undefined` in that case. A pause that cannot be persisted must still pause
+	 * the filler; only its survival across a restart is lost.
 	 */
-	private persist(write: () => void): void {
+	private persist<T>(work: () => T): T | undefined {
 		try {
-			write()
+			return work()
 		} catch (err) {
 			this.logger.warn({ err }, "Could not persist operator state")
+			return undefined
 		}
 	}
 }

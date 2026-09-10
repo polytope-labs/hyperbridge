@@ -25,5 +25,12 @@ plain object — logs at warn and keeps the file, because it may still hold the 
 would destroy the state the import exists to rescue.
 
 Writes are wrapped so a failure logs instead of throwing: a pause that cannot be persisted still
-pauses the filler. Reads are not, so a database that cannot be read fails `bootFiller` rather than
+pauses the filler. `patch` wraps its read-back too, returning the requested patch if the database
+cannot be read — production reaches the store only through `patch`, and `UiServer` pauses the
+filler before awaiting it, so a throw would report failure for a pause that had already happened.
+`get` is deliberately unwrapped, so a database that cannot be read fails `bootFiller` rather than
 starting a filler the operator had paused.
+
+The two candidate paths are resolved to absolute and de-duplicated before any of this: with
+`--data-dir .filler-data` they name the same file, and importing and unlinking it twice logged a
+failure to delete a file that was already gone.

@@ -1,4 +1,4 @@
-# Pool liquidity refresh (OrderFilled, PartialFill, EscrowReleased, vault Deposit/Withdraw)
+# Pool liquidity refresh (OrderFilled, PartialFill, EscrowReleased, vault Deposit/Withdraw/Transfer)
 
 Verified 2026-09-08 by unit tests against a mocked store (`inventoryReading.service.test.ts` for the EVM half,
 `liquidityPoolFold.service.test.ts` for the Hyperbridge half); the store behaviour the split rests on was read in
@@ -12,8 +12,8 @@ EVM nodes publish readings for it to fold.
 
 **EVM side — publish (`src/services/inventoryReading.service.ts`)**
 
-1. Four events reach it, each in its own try/catch — they read external RPCs, and stale depth is recoverable, so a
-   failure must never stall indexing:
+1. Order fills, partial fills, escrow releases and vault capital movements reach it. Inventory publication is
+   best-effort — stale depth is recoverable. Required vault principal reads still propagate failures:
    - `handleOrderFilledEventV3` and `handlePartialFilledEventV3` call `IntentGatewayV3Service.publishInventoryAfterFill`,
      which loads the order row for its **source** chain (a fill carries the inputs' addresses but not the chain they
      live on), resolves the pools with `poolsForFill`, and calls `publishPoolInventory`. No order row, or no
@@ -21,8 +21,9 @@ EVM nodes publish readings for it to fold.
    - `handleEscrowReleasedEventV3` (source chain) calls `publishInventoryAfterEscrowRelease`: the solver was just paid
      the order's inputs back, so its inventory there ROSE. The event names no filler, so the handler first reads
      the gateway's `_filled(commitment)` at that block.
-   - `YieldVaultService.recordLedger` (vault `Deposit`/`Withdraw`) ends with the same call for (chain, lp,
-     underlying token), after its own known-solver gate and duplicate-log guard.
+   - `YieldVaultService.recordLedger` (vault `Deposit`/`Withdraw` and each tracked side of an ordinary
+     share `Transfer`) ends with the same call for (chain, lp, underlying token), after its own
+     known-solver gate and duplicate-log guard. Mint/burn, self and zero-share transfers are excluded.
    The last two name a solver and a token but no pool, so they enter through `publishProviderInventory`.
 2. Both entry points select `PoolBidder` rows of **this chain only** with field queries (which go to Postgres;
    `get` would serve the process cache), and collapse them to distinct (solver, output token) targets. A target

@@ -17,6 +17,7 @@ import type { PairConfig } from "@/config/pairs"
 import type { FillerRuntime } from "@/core/boot"
 import { Simplex } from "@/simplex"
 import { discoverConfigPath, DEFAULT_CONFIG_FILENAME } from "@/cli/discover-config"
+import { addRunOptions, DEFAULT_UI_PORT, type RunOptions } from "@/cli/run-options"
 import { openBrowser } from "@/cli/open-browser"
 import { addLogSink, getLogger, configureLogger, type LogLevel, type LogSink } from "@/services/Logger"
 import prettyStream from "pino-pretty"
@@ -48,8 +49,6 @@ const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
 const packageJsonPath = resolve(__dirname, "../../package.json")
 const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf-8"))
-
-const DEFAULT_UI_PORT = 8686
 
 /**
  * Sends the library's log records to this process's stdout, pretty-printed.
@@ -237,18 +236,9 @@ program
 		}
 	})
 
-program
-	.command("run", { isDefault: true })
+addRunOptions(program.command("run", { isDefault: true }))
 	.description("Run the intent filler; without a config it starts the browser setup wizard")
-	.option("-c, --config <path>", `Path to TOML configuration file (default: ./${DEFAULT_CONFIG_FILENAME})`)
-	.option("-d, --data-dir <path>", "Directory for persistent data storage (bids database, etc.)")
-	.option("--watch-only", "Watch-only mode: monitor orders without executing fills", false)
-	.option(
-		"--ui [<[host:]port>]",
-		`Bind address for the local web UI (status, pause/resume, price curves). Unauthenticated; default ${`127.0.0.1:${DEFAULT_UI_PORT}`}`,
-	)
-	.option("--no-ui", "Disable the local web UI")
-	.action(async (options: { config?: string; dataDir?: string; watchOnly?: boolean; ui?: string | boolean }) => {
+	.action(async (options: RunOptions) => {
 		try {
 			// Display ASCII art header
 			process.stdout.write(ASCII_HEADER)

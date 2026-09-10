@@ -6,7 +6,7 @@ import { CopyHash } from "../components/CopyHash"
 import { ActivityIcon, LogsIcon, OperationsIcon, OverviewIcon, SettingsIcon, WalletIcon } from "../components/InterfaceIcons"
 import { OperatorSheet } from "../components/OperatorSheet"
 import { InstallAppButton } from "../components/InstallAppButton"
-import { useAction, useIsMobile, usePolling } from "../lib/hooks"
+import { useAction, useIsHandheld, useIsMobile, usePolling } from "../lib/hooks"
 import type { AdminStrategyDto, BalanceSnapshot, ConfigDto, StatusOperator } from "../types"
 import { Orders } from "./Orders"
 import { Operations, type OperationsPanel } from "./Operations"
@@ -21,7 +21,7 @@ const PAGE_TABS: Array<{
 	label: string
 	description: string
 	icon: ComponentType<SVGProps<SVGSVGElement>>
-	/** Hidden on phones — see {@link Operator} for why Logs is desktop-only. */
+	/** Hidden on handhelds — see {@link Operator} for why Logs is desktop-only. */
 	desktopOnly?: true
 }> = [
 	{ value: "overview", label: "Overview", description: "Health and liquidity", icon: OverviewIcon },
@@ -50,7 +50,7 @@ const PAGE_COPY: Record<Tab, { eyebrow: string; title: string; description: stri
 	logs: {
 		eyebrow: "Diagnostics",
 		title: "Logs",
-		description: "Read what the filler is doing right now, filtered by level and searchable.",
+		description: "Everything the filler has logged since launch. The level sets what it records.",
 	},
 	operations: {
 		eyebrow: "Operator tools",
@@ -73,13 +73,15 @@ function formatUptime(seconds: number): string {
  * and comparing — the one thing a 390px column is worst at. It is also the only
  * page that holds an open stream and thousands of rows, which is real battery
  * and memory on a device that came to the dashboard to check a balance or
- * unpause filling. So the tab is absent below the layout's mobile breakpoint,
- * and `/logs` sends a phone back to the overview rather than rendering.
+ * unpause filling. So the tab is absent on a handheld — which is a narrower
+ * test than the layout's breakpoint, because a phone in landscape is wider than
+ * it — and `/logs` sends one back to the overview rather than rendering.
  */
 export function Operator(props: { status: StatusOperator; refresh: () => void }) {
 	const { status, refresh } = props
 	const [tab, setTab] = useTabRoute()
 	const mobile = useIsMobile()
+	const handheld = useIsHandheld()
 	// Set when another page sends the operator to a specific Operations sheet.
 	const [operationsPanel, setOperationsPanel] = useState<OperationsPanel>()
 	const [balances, setBalances] = useState<BalanceSnapshot>()
@@ -92,8 +94,8 @@ export function Operator(props: { status: StatusOperator; refresh: () => void })
 	const page = PAGE_COPY[tab]
 
 	useEffect(() => {
-		if (mobile && tab === "logs") setTab("overview", { replace: true })
-	}, [mobile, tab, setTab])
+		if (handheld && tab === "logs") setTab("overview", { replace: true })
+	}, [handheld, tab, setTab])
 
 	const load = useCallback(async () => {
 		try {
@@ -169,7 +171,7 @@ export function Operator(props: { status: StatusOperator; refresh: () => void })
 			<div className="operator-layout">
 				<aside className="operator-sidebar" aria-label="Dashboard navigation">
 					<nav>
-						{PAGE_TABS.filter((item) => !(item.desktopOnly && mobile)).map((item) => {
+						{PAGE_TABS.filter((item) => !(item.desktopOnly && handheld)).map((item) => {
 							const Icon = item.icon
 							return (
 								<button
@@ -217,7 +219,7 @@ export function Operator(props: { status: StatusOperator; refresh: () => void })
 					) : null}
 
 					{tab === "orders" ? <Orders chainLabels={status.chainLabels} /> : null}
-					{tab === "logs" && !mobile ? <Logs /> : null}
+					{tab === "logs" && !handheld ? <Logs /> : null}
 					{tab === "wallet" ? (
 						<Wallet
 							chains={status.chains}

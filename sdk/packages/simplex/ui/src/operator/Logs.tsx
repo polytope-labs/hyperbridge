@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { LOG_LEVELS, LOG_LEVEL_RANK } from "@/services/server/dto"
 import { api } from "../api"
 import { CloseIcon } from "../components/InterfaceIcons"
@@ -29,7 +29,7 @@ type SelectableLevel = (typeof LOG_LEVELS)[number]
 
 const LEVEL_OPTIONS = LOG_LEVELS.map((level) => ({ value: level, label: level.toUpperCase() }))
 
-/** The filler's capture level as read from its config, which is free-form text on disk. */
+/** The filler's level as read back from its config, which is free-form text on disk. */
 function captureLevelOf(value: string): LogRecordLevel {
 	return value in LOG_LEVEL_RANK ? (value as LogRecordLevel) : "info"
 }
@@ -70,7 +70,7 @@ function Highlight(props: { text: string; term: string }) {
 	)
 }
 
-function LogRow(props: { record: LogRecordDto; term: string }) {
+const LogRow = memo(function LogRow(props: { record: LogRecordDto; term: string }) {
 	const { record, term } = props
 	const [expanded, setExpanded] = useState(false)
 	return (
@@ -96,14 +96,15 @@ function LogRow(props: { record: LogRecordDto; term: string }) {
 			</span>
 		</li>
 	)
-}
+})
 
 /**
- * The filler's live log tail: one feed, filtered by level and by a search over
- * the message, the module and the serialized fields.
+ * The filler's log, from launch: one feed, filtered by level and by a search
+ * over the message, the module and the serialized fields.
  *
- * A record exists only if the filler's capture level let it through, so the
- * level pills do double duty — see {@link Logs.chooseLevel}.
+ * The level pills set the filler's own log level, in both directions — see
+ * {@link Logs.chooseLevel}. Everything captured is on disk, so the page can
+ * search back past what memory holds.
  */
 export function Logs() {
 	const [level, setLevel] = useState<SelectableLevel>("info")
@@ -112,14 +113,16 @@ export function Logs() {
 	const [records, setRecords] = useState<LogRecordDto[]>([])
 	/** Records at or below this seq are hidden: what Clear leaves behind, so a re-query does not undo it. */
 	const [floor, setFloor] = useState(0)
-	const [capture, setCapture] = useState<LogRecordLevel>("info")
-	const [capacity, setCapacity] = useState(0)
+	const [coverage, setCoverage] = useState<{ captured: number; persisted: boolean; path?: string }>()
+	const [applying, setApplying] = useState<SelectableLevel>()
 	const [paused, setPaused] = useState(false)
 	const [live, setLive] = useState(false)
 	const [error, setError] = useState<string>()
 	/** Bumped to re-run the feed effect after a drop. */
 	const [attempt, setAttempt] = useState(0)
 
+	/** Cleared once the filler's own level has been adopted, so it happens exactly once. */
+	const unsynced = useRef(true)
 	const scroller = useRef<HTMLDivElement | null>(null)
 	const sticky = useRef(true)
 	const pending = useRef<LogRecordDto[]>([])
@@ -163,15 +166,32 @@ export function Logs() {
 			try {
 				const dto = await api.get<LogsDto>(`/api/logs?${query}&limit=${MAX_ROWS}`)
 				if (cancelled) return
-				setCapture(captureLevelOf(dto.level))
-				setCapacity(dto.capacity)
+				setCoverage({ captured: dto.captured, persisted: dto.persisted, path: dto.path })
+				// The pills show the filler's level, so on first load they have to
+				// adopt it rather than assert a default the filler may not be at.
+				if (unsynced.current) {
+					unsynced.current = false
+					const actual = captureLevelOf(dto.level)
+					if (actual !== level && actual !== "fatal") setLevel(actual)
+				}
+				// `floor` is a seq from whichever process produced it, and the counter
+				// restarts at 1. Once the filler has logged fewer records than the
+				// mark Clear left behind, that mark belongs to a dead process.
+				if (floor > dto.captured) setFloor(0)
 				setRecords(dto.records)
+				// A wholesale replacement is a fresh view; re-anchor to the tail so a
+				// scroll made before a filter change does not freeze the feed.
+				sticky.current = true
 				setError(undefined)
 				// Whatever was logged while that request was in flight is still in
 				// the buffer; the stream replays it rather than skipping to now.
 				query.set("after", String(dto.records[dto.records.length - 1]?.seq ?? floor))
 				source = new EventSource(`/api/logs/stream?${query}`)
 				source.onopen = () => setLive(true)
+				// The server dropped frames to a reader that had stopped reading. The
+				// records are still on disk, so start the feed over rather than splice
+				// two non-adjacent stretches together.
+				source.addEventListener("gap", () => setAttempt((n) => n + 1))
 				source.onerror = () => {
 					setLive(false)
 					source?.close()
@@ -220,29 +240,32 @@ export function Logs() {
 	}
 
 	/**
-	 * Picking a level both filters the view and, when the filler is not recording
-	 * that deep, tells it to start — asking for debug and being shown an empty
-	 * page until you find a second control elsewhere is not a filter, it is a
-	 * dead end.
+	 * The pills are the filler's log level, not a view filter over one — raising
+	 * starts recording more, lowering stops recording it at all, which is how an
+	 * operator keeps a long-running filler's log file from growing without bound.
 	 *
-	 * It only ever raises verbosity. Narrowing the view to errors leaves the
-	 * capture level alone: the records you stop looking at are still on the
-	 * console and still in the buffer, and lowering it would throw both away to
-	 * serve a change of view.
+	 * Awaited rather than optimistic: changing `level` re-runs the feed effect,
+	 * and its `GET /api/logs` reports the level straight out of the config. Fired
+	 * concurrently, that read can answer before the write lands and show the old
+	 * level back to the operator who just changed it.
 	 */
-	const chooseLevel = (next: SelectableLevel) => {
-		setLevel(next)
-		if (LOG_LEVEL_RANK[next] >= LOG_LEVEL_RANK[capture]) return
-		// Optimistic: the feed re-subscribes at `next` either way, and the records
-		// start arriving the moment the filler applies it.
-		setCapture(next)
-		api.put("/api/log-level", { level: next })
-			.then(() => setError(undefined))
-			.catch((err: unknown) => {
-				setCapture(capture)
-				setError(err instanceof Error ? err.message : String(err))
-			})
+	const chooseLevel = async (next: SelectableLevel) => {
+		if (next === level) return
+		setApplying(next)
+		try {
+			await api.put("/api/log-level", { level: next })
+			setLevel(next)
+			setError(undefined)
+		} catch (err) {
+			setError(err instanceof Error ? err.message : String(err))
+		} finally {
+			setApplying(undefined)
+		}
 	}
+
+	// seq counts from 1, so the newest one the page holds *is* the number captured
+	// — fresher than the count the last backfill reported.
+	const captured = Math.max(coverage?.captured ?? 0, records[records.length - 1]?.seq ?? 0)
 
 	return (
 		<div className="operator-page-content operator-logs">
@@ -250,9 +273,9 @@ export function Logs() {
 				<PillTabs
 					className="log-levels"
 					options={LEVEL_OPTIONS}
-					value={level}
+					value={applying ?? level}
 					onChange={chooseLevel}
-					ariaLabel="Minimum log level"
+					ariaLabel="Filler log level"
 				/>
 				<div className="log-search">
 					<input
@@ -294,7 +317,7 @@ export function Logs() {
 						{error
 							? error
 							: term
-								? `Nothing matching “${term}” at ${level} and above.`
+								? `Nothing matching “${term}” in the ${level} and above records kept since launch.`
 								: "No log lines yet. New ones appear as the filler works."}
 					</p>
 				) : (
@@ -309,12 +332,21 @@ export function Logs() {
 			<p className="log-footer">
 				<span>
 					{records.length} line{records.length === 1 ? "" : "s"} shown
-					{capacity ? ` · buffer keeps the last ${capacity.toLocaleString()}` : ""}
+					{coverage ? ` · ${captured.toLocaleString()} captured since launch` : ""}
 					{" · "}
-					<span className="log-capture" title="The filler's own log level, saved to its config file">
-						filler records <strong>{capture}</strong> and above
+					<span className="log-capture" title="Saved to the filler's config, so it survives a restart">
+						recording <strong>{level}</strong> and above
 					</span>
 				</span>
+				{coverage?.persisted ? (
+					<span className="log-capture" title={coverage.path}>
+						full history on disk
+					</span>
+				) : coverage ? (
+					<span className="log-capture" title="No writable data directory; only the in-memory tail is searchable">
+						memory only
+					</span>
+				) : null}
 				{error && records.length > 0 ? <span className="error">{error}</span> : null}
 			</p>
 		</div>

@@ -46,10 +46,16 @@ export interface LogRecordDto {
 
 /** GET /api/logs */
 export interface LogsDto {
-	/** The filler's capture level: nothing below this was ever written to the buffer. */
+	/** The filler's current log level: nothing below this is being recorded. */
 	level: string
-	/** How many records the buffer holds at most, so the page can say what it is showing. */
+	/** Records held in memory for the live tail. The history on disk is not bounded by this. */
 	capacity: number
+	/** Records captured since launch, whether or not they are still in memory. */
+	captured: number
+	/** True when this launch's full history is on disk and searchable. */
+	persisted: boolean
+	/** Where that history is being written; absent when the store is memory-only. */
+	path?: string
 	/** Oldest first. */
 	records: LogRecordDto[]
 }

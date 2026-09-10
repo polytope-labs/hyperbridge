@@ -77,6 +77,10 @@
 .operator-sidebar {
 	display: flex;
 	flex-direction: column;
+	/* A grid item's default min-height is its content, so without this the sidebar
+	   grows past its track instead of letting the nav below scroll — and the shell's
+	   overflow:hidden then clips the footer and the last nav items outright. */
+	min-height: 0;
 	padding: 1.5rem 1rem 1.1rem;
 	border-right: 1px solid var(--border);
 	background: rgba(255, 255, 255, 0.014);
@@ -85,6 +89,11 @@
 .operator-sidebar nav {
 	display: grid;
 	gap: 0.25rem;
+	/* The sidebar is a fixed-height flex column inside an overflow:hidden shell.
+	   Without these the nav cannot shrink, and on a short viewport the footer —
+	   then the last nav items — are clipped rather than scrolled to. */
+	min-height: 0;
+	overflow-y: auto;
 }
 
 button.operator-nav-item {

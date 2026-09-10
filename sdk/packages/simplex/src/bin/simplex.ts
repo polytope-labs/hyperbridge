@@ -450,7 +450,10 @@ addRunOptions(program.command("run", { isDefault: true }))
 				// application renders the wizard itself over this socket. A bind failure
 				// here is fatal — there is no other way in.
 				await server.start({ socketPath: uiSocket })
-				console.log(`\n  No config found — the setup wizard is serving on ${uiSocket}\n`)
+				// Same rule as the TCP announcement below: in json mode this is a record,
+				// not prose, or it is the one non-JSON line in a stream someone is parsing.
+				if (logFormat === "json") logger.info({ socket: uiSocket }, "No config found, starting the setup wizard")
+				else console.log(`\n  No config found — the setup wizard is serving on ${uiSocket}\n`)
 				// The server keeps the event loop alive until the wizard completes.
 				return
 			}

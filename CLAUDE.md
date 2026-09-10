@@ -37,12 +37,28 @@ The Solidity test helper contract is `evm/tests/foundry/AbiEncodeTest.sol`.
 
 ## AI workflow docs
 
-Each package under `sdk/packages/*` keeps AI workflow docs in `docs/ai/`:
+Each package under `sdk/packages/*` keeps AI workflow docs in `docs/ai/`, as one file per
+entry. Every package's `docs/ai/README.md` states the conventions; in short:
 
-- `ChangeLog.md` — append an entry for every AI-assisted code change (date, what changed, files touched).
-- `Decisions.md` — record non-obvious choices with the alternatives considered and why they lost.
-- `Flow.md` — how the code paths actually execute; update it when documented control flow changes, and add flows as they are read and verified. Never document a flow speculatively.
+- `changelog/YYYY-MM-DD-short-title.md` — one file per AI-assisted code change: what changed and why, then a `Files:` line listing the files touched.
+- `decisions/YYYY-MM-DD-short-title.md` — one file per non-obvious choice, with the alternatives considered and why they lost.
+- `flows/<flow-name>.md` — one file per code path, no date in the name, describing how it actually executes. Update it when the documented control flow changes, and add flows as they are read and verified. Never document a flow speculatively.
 
-When changing code in a package that has `docs/ai/`, updating these files is part of the change, not optional follow-up. When starting substantial work in a package that has no `docs/ai/` yet (e.g. simplex, sdk, core, lz-endpoint), create the three files as the first step and seed them from that task's actual work — never with empty templates.
+Always write a new file for a changelog or decision entry. Never append to an existing one,
+and never gather entries back into a shared `ChangeLog.md`-style file — that is the layout
+this replaced. Two concurrent PRs appending to one file collide on the same line, and GitHub
+blocks the merge: it ignores the `merge=union` driver in `.gitattributes` that resolves the
+collision locally, so the conflict is real as far as the PR is concerned. Separate files
+cannot collide, so the question never arises.
 
-These are not release notes. Package `CHANGELOG.md` files are changesets release logs managed separately; `ChangeLog.md` lives in `docs/ai/` partly because the two names collide on case-insensitive filesystems.
+Flow files are the exception — they are edited in place, so two PRs revising the same flow
+do conflict. That conflict is worth seeing, because it means two changes disagree about how
+the code runs.
+
+When changing code in a package that has `docs/ai/`, writing these files is part of the
+change, not optional follow-up. When starting substantial work in a package that has none
+yet (lz-endpoint), create the three directories and the README as the first step and seed
+them from that task's actual work — never with empty templates.
+
+These are not release notes. Package `CHANGELOG.md` files are changesets release logs,
+managed separately.

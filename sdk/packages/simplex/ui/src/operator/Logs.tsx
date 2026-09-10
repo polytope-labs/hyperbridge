@@ -73,6 +73,9 @@ function Highlight(props: { text: string; term: string }) {
 const LogRow = memo(function LogRow(props: { record: LogRecordDto; term: string }) {
 	const { record, term } = props
 	const [expanded, setExpanded] = useState(false)
+	// A row the search matched on a field has to show that field. Clamping a hit
+	// is how you get a highlighted row with nothing highlighted on it.
+	const matchedInDetail = Boolean(term) && Boolean(record.detail?.toLowerCase().includes(term.toLowerCase()))
 	return (
 		<li className="log-row" data-level={record.level}>
 			<time dateTime={new Date(record.time).toISOString()}>{formatLogTime(record.time)}</time>
@@ -86,9 +89,9 @@ const LogRow = memo(function LogRow(props: { record: LogRecordDto; term: string 
 					<button
 						type="button"
 						className="log-detail"
-						data-expanded={expanded || undefined}
+						data-expanded={expanded || matchedInDetail || undefined}
 						onClick={() => setExpanded((open) => !open)}
-						title={expanded ? "Collapse" : "Expand"}
+						title={expanded ? "Collapse this record" : "Show the whole record"}
 					>
 						<Highlight text={record.detail} term={term} />
 					</button>

@@ -187,8 +187,16 @@
 }
 
 /* Collapsed to one line: a serialized error is long, and most rows are skimmed. */
+/* Wraps by default. The record's fields are the part worth reading — the ids,
+   the amounts, the revert reason — and `msg` alone is often generic, so clipping
+   them to one line hid the answer and, worse, let a search match highlight a row
+   while sitting off the end of it. Only the rare oversized record is clamped, and
+   only far enough to keep one error from filling the pane. */
 .log-detail {
-	display: block;
+	display: -webkit-box;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 4;
+	line-clamp: 4;
 	width: 100%;
 	min-height: 0;
 	padding: 0;
@@ -201,8 +209,8 @@
 	line-height: 1.5;
 	text-align: left;
 	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
 }
 
 .log-detail:hover:not(:disabled) {
@@ -212,9 +220,10 @@
 }
 
 .log-detail[data-expanded] {
+	display: block;
+	-webkit-line-clamp: none;
+	line-clamp: none;
 	overflow: visible;
-	white-space: pre-wrap;
-	overflow-wrap: anywhere;
 }
 
 .log-row[data-level="warn"] {

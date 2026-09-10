@@ -75,7 +75,7 @@
 	}
 
 	.operator-main {
-		padding-inline: 2rem;
+		--page-inset: 2rem;
 	}
 
 	.operator-asset-balances {
@@ -440,7 +440,8 @@
 
 	.operator-main {
 		flex: 1;
-		padding: 2rem 1rem calc(6.5rem + env(safe-area-inset-bottom));
+		--page-inset: 1rem;
+		padding: 2rem var(--page-inset) calc(6.5rem + env(safe-area-inset-bottom));
 		overflow: visible;
 	}
 

@@ -160,7 +160,8 @@ button.operator-nav-item[data-active="true"] {
 .operator-main {
 	min-width: 0;
 	min-height: 0;
-	padding: 3rem clamp(1.5rem, 4.5vw, 4rem) 4rem;
+	--page-inset: clamp(1.5rem, 4.5vw, 4rem);
+	padding: 3rem var(--page-inset) 4rem;
 	overflow-y: auto;
 	overscroll-behavior: contain;
 	scrollbar-gutter: stable;

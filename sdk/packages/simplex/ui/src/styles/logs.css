@@ -5,11 +5,6 @@
 .operator-main[data-tab="logs"] {
 	display: flex;
 	flex-direction: column;
-	/* Logs earn the width the other pages give up to margins: a log line is wide,
-	   and every column the gutter takes is message text that wraps instead. The
-	   gutter shrinks rather than going to zero so the stream's border still reads
-	   as an edge against the shell. */
-	padding-inline: 1.25rem;
 }
 
 .operator-main[data-tab="logs"] .operator-page-header {
@@ -21,6 +16,13 @@
 	flex-direction: column;
 	flex: 1 1 auto;
 	min-height: 0;
+	/* The viewer breaks out of the page inset; the heading above it does not. A
+	   log line is wide, and every column the inset takes is message text that
+	   wraps instead — but the search field has to stay the width of what it
+	   filters, so the toolbar and footer travel with the stream rather than
+	   leaving its edges sticking out past them. The remaining gutter keeps the
+	   stream's border reading as an edge rather than butting against the shell. */
+	margin-inline: calc(1.25rem - var(--page-inset));
 	padding-top: 1.5rem;
 	padding-bottom: 1.5rem;
 }

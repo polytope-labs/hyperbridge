@@ -268,5 +268,13 @@ export interface RuntimeState {
 
 export interface StateStore {
 	get(): Promise<RuntimeState>
+	/** Replaces the whole record. Keys absent from `state` are dropped. */
 	set(state: RuntimeState): Promise<void>
+	/**
+	 * Merges `patch` into the stored record atomically, leaving keys it does not
+	 * name untouched. Optional: `patchRuntimeState` falls back to a read and a
+	 * `set` for stores that cannot do better, which loses a key written
+	 * concurrently. The bundled SQLite store implements it.
+	 */
+	patch?(patch: Partial<RuntimeState>): Promise<RuntimeState>
 }

@@ -295,7 +295,13 @@ the process: `@polkadot/util`'s logger routes `log` to `console.log`, and `bin/q
 `console.warn`, so a Hyperbridge runtime upgrade mid-run would print one plain-text line. The claims
 are now scoped to what simplex itself writes.
 
-Files: src/bin/simplex.ts, docs/ai/Decisions.md, docs/ai/Flow.md, README.md.
+CI ran none of this. `.github/workflows/test-sdk.yml` gated simplex on `test:filler`, which pins four
+network-backed files; `src/tests/cli` and `src/tests/logger.test.ts` were gated by nothing, so the
+flags' own 15 tests never ran on a PR. Added a `test:unit` script over those two paths and a CI step
+ahead of `test:filler`. It is network-free and takes ~20s.
+
+Files: src/bin/simplex.ts, package.json (test:unit), .github/workflows/test-sdk.yml,
+docs/ai/Decisions.md, docs/ai/Flow.md, README.md.
 
 
 ## 2026-09-09 — `--no-open` and `--log-format json`, for running the solver under a supervisor (#1237)

@@ -182,15 +182,24 @@ const LogRow = memo(function LogRow(props: { record: LogRecordDto; term: string 
 				{/* A real separator, not just the margin: a copied row has to read the
 				    way it looks, and these get pasted into tickets. */}
 				{record.detail ? "  " : null}
+				{/* A span, not a button: a button is an atomic inline box that cannot
+				    break across lines, so a long record's fields could not share the
+				    message's line and the whole box dropped below it. */}
 				{record.detail ? (
-					<button
-						type="button"
+					<span
 						className="log-detail"
+						role="button"
+						tabIndex={0}
 						onClick={() => setExpanded((open) => !open)}
+						onKeyDown={(event) => {
+							if (event.key !== "Enter" && event.key !== " ") return
+							event.preventDefault()
+							setExpanded((open) => !open)
+						}}
 						title={expanded ? "Collapse this record" : "Show the whole record"}
 					>
 						<DetailFields detail={record.detail} term={term} pretty={expanded} />
-					</button>
+					</span>
 				) : null}
 			</span>
 		</li>

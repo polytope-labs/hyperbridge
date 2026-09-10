@@ -22,4 +22,11 @@ The gap between message and fields is a real character in the DOM, not the CSS m
 A margin looks right and copies wrong: selecting a row yielded `Vault refreshedchain: "EVM-8453"`,
 and these lines get pasted into tickets.
 
+The fields moved from a `<button>` to a `<span>` with `role="button"` to make any of this work. A
+button is an atomic inline box — it occupies one rectangle and cannot break across lines — so a long
+record's fields could not share the message's line and the whole box dropped below it. Short records
+looked right and long ones did not, which is what the one-line change appeared to fail at. A span
+breaks like the inline text it is; the keyboard toggle moved to an `onKeyDown` handler, since a span
+does not activate on Enter by itself.
+
 Files: ui/src/styles/logs.css, ui/src/operator/Logs.tsx.

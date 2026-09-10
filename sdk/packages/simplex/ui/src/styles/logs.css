@@ -207,11 +207,7 @@
    only far enough to keep one error from filling the pane. */
 .log-detail {
 	display: inline;
-	min-height: 0;
-	padding: 0;
-	border: 0;
-	border-radius: 0;
-	background: transparent;
+	cursor: pointer;
 	color: var(--muted);
 	font-family: var(--font-mono);
 	font-size: 0.6875rem;
@@ -243,9 +239,9 @@
 	color: rgba(146, 157, 170, 0.5);
 }
 
-.log-detail:hover:not(:disabled) {
-	border-color: transparent;
-	background: transparent;
+.log-detail:focus-visible {
+	outline: 1px solid var(--focus);
+	outline-offset: 2px;
 }
 
 .log-body[data-expanded] .log-detail {

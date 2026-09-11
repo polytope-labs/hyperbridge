@@ -2937,23 +2937,25 @@ type PoolRoute @entity @compositeIndexes(fields: [["sourceChain", "chain"], ["po
 }
 
 """
-Whether a yield-vault ledger entry records capital entering (Deposit) or leaving (Withdraw/redeem)
-an LP's position. ERC-4626 `redeem` emits the same `Withdraw` event as `withdraw`, so both are WITHDRAW.
+Capital entering or leaving an LP through ERC-4626 deposits/withdrawals or ordinary share transfers.
+Mint/burn Transfer events are excluded because Deposit/Withdraw already account for them.
 """
 enum VaultLedgerEventType {
 	DEPOSIT
 	WITHDRAW
+	TRANSFER_IN
+	TRANSFER_OUT
 }
 
 """
-A single ERC-4626 Deposit or Withdraw event on a supported yield vault, recording an LP moving
-principal in or out. Both `withdraw` and `redeem` surface here as WITHDRAW (they share the
-`Withdraw` event). The running sum of these per LP is the principal tracked by VaultLpPosition;
-each row is the immutable audit trail behind that sum.
+A capital movement in a supported vault. Deposits/withdrawals use emitted asset amounts;
+ordinary share transfers use convertToAssets at the transfer block. Each tracked side of a
+transfer has its own row. Together with openingPrincipal these rows explain net capital.
 """
 type VaultLedgerEvent @entity @compositeIndexes(fields: [["chain", "vault"], ["vault", "lp"]]) {
 	"""
-	Composite identifier: {chain}-{transactionHash}-{logIndex}.
+	Composite identifier: {chain}-{transactionHash}-{logIndex} for deposits/withdrawals;
+	transfers append -{lp} because one log can affect two tracked owners.
 	"""
 	id: ID!
 
@@ -2979,28 +2981,30 @@ type VaultLedgerEvent @entity @compositeIndexes(fields: [["chain", "vault"], ["v
 	lp: String! @index
 
 	"""
-	EVM address that initiated the call (Deposit.sender / Withdraw.sender), for provenance.
+	Deposit.sender / Withdraw.sender, or the previous share owner (Transfer.from).
+	For transfers this is not necessarily the transaction caller.
 	"""
 	caller: String!
 
 	"""
 	For Withdraw events, the EVM address that received the withdrawn assets (Withdraw.receiver).
-	Equal to `lp` for a plain `redeem`/`withdraw`; null for Deposit events.
+	Equal to `lp` for a plain `redeem`/`withdraw`; null for Deposit events. Transfer.to for share transfers.
 	"""
 	receiver: String
 
 	"""
-	Whether this entry is a DEPOSIT or a WITHDRAW.
+	Whether capital entered/exited through a deposit/withdrawal or a share transfer.
 	"""
 	eventType: VaultLedgerEventType! @index
 
 	"""
-	Amount of the underlying asset moved, in its smallest unit (assets field of the ERC-4626 event).
+	Underlying asset amount in its smallest unit: emitted assets for Deposit/Withdraw,
+	or the transferred shares valued by convertToAssets at the event block.
 	"""
 	assets: BigInt!
 
 	"""
-	Amount of vault shares minted (Deposit) or burned (Withdraw), in the share token's smallest unit.
+	Amount of vault shares minted, burned or transferred, in the share token's smallest unit.
 	"""
 	shares: BigInt!
 
@@ -3021,11 +3025,10 @@ type VaultLedgerEvent @entity @compositeIndexes(fields: [["chain", "vault"], ["v
 }
 
 """
-An LP's running position in a single yield vault, accumulated from VaultLedgerEvent rows. Tracks
-the cumulative principal an LP has deposited and withdrawn so net principal
-(totalAssetsDeposited - totalAssetsWithdrawn) can be compared against the live asset value of their
-shares to derive yield. Also serves as the registry of LPs the daily snapshot iterates over for a
-given (chain, vault).
+An LP's running position in a single vault. Net capital is openingPrincipal + deposits + incoming
+transfer values - withdrawals - outgoing transfer values. Opening capital is valued when tracking
+begins; yield before that baseline is not attributed to this LP. Positions are registered on the
+first eligible vault event and serve as the LP registry for daily snapshots.
 """
 type VaultLpPosition @entity @compositeIndexes(fields: [["chain", "vault"]]) {
 	"""
@@ -3054,11 +3057,38 @@ type VaultLpPosition @entity @compositeIndexes(fields: [["chain", "vault"]]) {
 	lp: String! @index
 
 	"""
-	Net vault shares the LP holds as accounted from Deposit (minted) minus Withdraw (burned) events.
-	Informational only — the daily snapshot reads the authoritative balance via `balanceOf` so this
-	can drift if shares are transferred LP-to-LP (vault ERC-20 transfers are not indexed).
+	Vault shares accounted from the opening balance, deposits, withdrawals and ordinary transfers.
+	Snapshots are withheld when this differs from the onchain balance.
 	"""
 	shares: BigInt!
+
+	"""
+	Shares already held before the first tracked event. Null on positions created by older indexers.
+	"""
+	openingShares: BigInt
+
+	"""
+	Underlying value of openingShares at openingBlock. Yield before this baseline is not attributed
+	to this LP. Null on legacy positions means no opening principal was recorded.
+	"""
+	openingPrincipal: BigInt
+
+	"""
+	Block of the first tracked event, whose exchange rate values the opening shares.
+	"""
+	openingBlock: BigInt
+
+	"""
+	Cumulative underlying value of ordinary incoming share transfers at their event blocks.
+	Null on legacy positions is treated as zero.
+	"""
+	totalAssetsTransferredIn: BigInt
+
+	"""
+	Cumulative underlying value of ordinary outgoing share transfers at their event blocks.
+	Null on legacy positions is treated as zero.
+	"""
+	totalAssetsTransferredOut: BigInt
 
 	"""
 	Cumulative underlying assets the LP has ever deposited, smallest unit. Monotonically increasing.
@@ -3067,7 +3097,7 @@ type VaultLpPosition @entity @compositeIndexes(fields: [["chain", "vault"]]) {
 
 	"""
 	Cumulative underlying assets the LP has ever withdrawn/redeemed, smallest unit. Monotonically increasing.
-	Net principal currently at risk is totalAssetsDeposited - totalAssetsWithdrawn.
+	Net principal also includes openingPrincipal and transferred-in minus transferred-out asset values.
 	"""
 	totalAssetsWithdrawn: BigInt!
 
@@ -3141,7 +3171,8 @@ type VaultPositionSnapshot @entity @compositeIndexes(fields: [["chain", "vault"]
 	assetValue: BigInt!
 
 	"""
-	The LP's net principal at snapshot time (totalAssetsDeposited - totalAssetsWithdrawn from VaultLpPosition).
+	The LP's net capital at snapshot time: openingPrincipal + totalAssetsDeposited +
+	totalAssetsTransferredIn - totalAssetsWithdrawn - totalAssetsTransferredOut.
 	"""
 	netPrincipal: BigInt!
 

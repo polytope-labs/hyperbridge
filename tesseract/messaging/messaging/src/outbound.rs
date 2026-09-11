@@ -39,7 +39,9 @@ use tokio::sync::mpsc::Sender;
 use tracing::Instrument;
 use transaction_fees::TransactionPayment;
 
-use crate::events::{filter_events, is_explicitly_filtered, translate_events_to_messages};
+use crate::events::{
+	filter_events, is_explicitly_filtered, is_retry_module, translate_events_to_messages,
+};
 
 /// Log/tracing target for the outbound pipeline.
 const LOG_TARGET: &str = concat!("messaging", "-outbound");
@@ -398,7 +400,7 @@ async fn submit_for_dest(
 			dest.clone(),
 			events,
 			state_machine_height,
-			relayer_config,
+			relayer_config.clone(),
 			coprocessor,
 			&client_map,
 			// Pass the consensus update as the gas-estimation prelude so EVM
@@ -409,9 +411,14 @@ async fn submit_for_dest(
 		.await
 		{
 			Ok((deliverable, unprofitable)) => {
-				if !unprofitable.is_empty() {
-					tracing::debug!(target: LOG_TARGET, dropped = unprofitable.len(), "unprofitable messages dropped");
-				}
+				park_undelivered(
+					&dest_name,
+					dest_state_machine,
+					&relayer_config,
+					unprofitable,
+					&claim_tx_payment,
+				)
+				.await;
 				batch.extend(deliverable);
 			},
 			Err(err) => {
@@ -441,9 +448,12 @@ async fn submit_for_dest(
 	} else {
 		tracing::info!(target: "tesseract", msgs = batch.len(), "🛰️ Transmitting ismp messages to {dest_name}");
 	}
-	// Extract the post requests from the batch before submit consumes it,
-	// so the request-claim forwarder can index them by commitment.
-	let batch_requests: Vec<PostRequest> = batch
+	// Keep a copy of the request messages before submit consumes the batch:
+	// the request-claim forwarder indexes them by commitment, and a submission
+	// that never lands parks them for the retry task.
+	let requests: Vec<Message> =
+		batch.iter().filter(|msg| matches!(msg, Message::Request(_))).cloned().collect();
+	let batch_requests: Vec<PostRequest> = requests
 		.iter()
 		.flat_map(|msg| match msg {
 			Message::Request(req_msg) => req_msg.requests.clone(),
@@ -454,7 +464,29 @@ async fn submit_for_dest(
 	// `submit` transparently picks the right transport — EVM destinations
 	// whose handler supports IHandlerV2 dispatch the whole batch as a single
 	// `batchCall(bytes[])` tx; everything else uses the legacy serial path.
-	let result = dest.submit(batch, hb_state_machine_id.state_id).await?;
+	let result = match dest.submit(batch, hb_state_machine_id.state_id).await {
+		Ok(result) => result,
+		Err(err) => {
+			park_undelivered(
+				&dest_name,
+				dest_state_machine,
+				&relayer_config,
+				requests,
+				&claim_tx_payment,
+			)
+			.await;
+			return Err(err);
+		},
+	};
+
+	park_undelivered(
+		&dest_name,
+		dest_state_machine,
+		&relayer_config,
+		result.unsuccessful,
+		&claim_tx_payment,
+	)
+	.await;
 
 	// Forward a claim for every hyperbridge-originated request just delivered.
 	forward_request_delivery_claims(
@@ -537,6 +569,59 @@ async fn submit_for_dest(
 	.await;
 
 	Ok(())
+}
+
+/// Park requests the destination never received so the retry task can try them
+/// again.
+///
+/// Only requests addressed to a module the operator listed in `retry_modules`
+/// are kept, matched on the request's `to`. Which modules those are is the
+/// operator's call: deliveries out of hyperbridge are gated to a whitelisted
+/// relayer, so nobody else is coming for those, while a user's request merely
+/// routed through hyperbridge is still up for grabs for any relayer. Consensus
+/// messages are dropped since the next proof along supersedes them, and so are
+/// get responses, which are paid for on delivery rather than claimed.
+///
+/// Parking is pointless with nothing draining the rows, so it is gated on the
+/// same non empty `retry_modules` that spawns the retry task.
+async fn park_undelivered(
+	dest_name: &str,
+	dest_state_machine: StateMachine,
+	config: &RelayerConfig,
+	messages: Vec<Message>,
+	tx_payment: &Option<Arc<TransactionPayment>>,
+) {
+	let Some(tx_payment) = tx_payment.as_ref().filter(|_| config.retries_enabled()) else {
+		return
+	};
+	let requests = messages
+		.into_iter()
+		.filter_map(|message| match message {
+			Message::Request(mut msg) => {
+				msg.requests.retain(|post| is_retry_module(config, &post.to));
+				(!msg.requests.is_empty()).then_some(Message::Request(msg))
+			},
+			_ => None,
+		})
+		.collect::<Vec<_>>();
+	if requests.is_empty() {
+		return;
+	}
+
+	tracing::debug!(
+		target: LOG_TARGET,
+		dest = %dest_name,
+		count = requests.len(),
+		"parking undelivered messages for retry",
+	);
+	if let Err(err) = tx_payment.store_unprofitable_messages(requests, dest_state_machine).await {
+		tracing::error!(
+			target: LOG_TARGET,
+			dest = %dest_name,
+			?err,
+			"failed to park undelivered messages",
+		);
+	}
 }
 
 /// Drop hyperbridge-originated requests whose `source_module` is neither on the
@@ -948,6 +1033,41 @@ pub async fn initialize(
 		.instrument(request_claim_span)
 		.boxed(),
 	);
+
+	// One retry loop per destination, draining the requests the fan-out parked
+	// when a batch never landed. Listing a module in `retry_modules` is what
+	// switches this on; `retry_frequency` only paces it.
+	if relayer_config.retries_enabled() {
+		for (state_machine, dest) in &destinations {
+			let ctx = crate::retries::RetryContext {
+				dest: dest.clone(),
+				hyperbridge: hyperbridge_provider.clone(),
+				proof_source: proof_source.clone(),
+				client_map: provider_clients.clone(),
+				tx_payment: tx_payment.clone(),
+				config: relayer_config.clone(),
+				coprocessor: hyperbridge_provider.state_machine_id().state_id,
+				fee_acc_sender: fee_senders.get(state_machine).cloned(),
+			};
+			let name = format!("retries-{}-{}", hyperbridge_provider.name(), dest.name());
+			let span = tracing::info_span!(
+				"retries",
+				hb = %hyperbridge_provider.name(),
+				chain = %dest.name(),
+			);
+			task_manager.spawn_essential_handle().spawn_blocking(
+				Box::leak(Box::new(name)),
+				"outbound",
+				async move {
+					tracing::trace!(target: LOG_TARGET, "task started");
+					let res = crate::retries::retry_undelivered_messages(ctx).await;
+					tracing::error!(target: LOG_TARGET, ?res, "task terminated");
+				}
+				.instrument(span)
+				.boxed(),
+			);
+		}
+	}
 
 	// Outbound fan-out itself.
 	let outbound_name = format!("outbound-{}", hyperbridge_provider.name());

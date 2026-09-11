@@ -8,7 +8,7 @@ use ismp::{
 		Event as IsmpEvent, Meta, RequestResponseHandled, StateMachineUpdated, TimeoutHandled,
 	},
 	host::StateMachine,
-	messaging::{hash_request, hash_response, Message, Proof, RequestMessage, ResponseMessage},
+	messaging::{hash_response, Message, Proof, RequestMessage, ResponseMessage},
 	router::{GetResponse, PostRequest, Request},
 };
 use sp_core::{H160, U256};
@@ -129,15 +129,7 @@ pub async fn translate_events_to_messages(
 								return Ok(None);
 							}
 
-							let req = Request::Post(post.clone());
-							let hash = hash_request::<Hasher>(&req);
-
-							let query = Query {
-								source_chain: req.source_chain(),
-								dest_chain: req.dest_chain(),
-								nonce: req.nonce(),
-								commitment: hash,
-							};
+							let query = Query::from(&Request::Post(post.clone()));
 
 							let proof = source
 								.query_requests_proof(
@@ -381,12 +373,7 @@ async fn build_get_response_candidates(
 			// The `Query` describes the origin GetRequest, not the response: its commitment
 			// is the request commitment, which is what the EVM host keys both the fee
 			// metadata and the response receipt on.
-			queries.push(Query {
-				source_chain: res.get.source,
-				dest_chain: res.get.dest,
-				nonce: res.get.nonce,
-				commitment: hash_request::<Hasher>(&Request::Get(res.get.clone())),
-			});
+			queries.push(Query::from(&Request::Get(res.get.clone())));
 			messages.push(Message::Response(ResponseMessage {
 				requests: vec![res.get.clone()],
 				proof: Proof {
@@ -492,8 +479,7 @@ pub async fn return_successful_queries(
 				async move {
 					if !est.successful_execution && !deliver_failed {
 						tracing::info!(target: crate::LOG_TARGET, "Skipping Failed tx");
-						// if msg has not been delivered return the message as retriable
-						let relayer = match &msg {
+						let receipt = match &msg {
 							Message::Request(_) => {
 								sink.query_request_receipt(query.commitment).await?
 							}
@@ -503,7 +489,8 @@ pub async fn return_successful_queries(
 							_ => unreachable!("Relayer should only ever debug trace request or response messages")
 						};
 
-						if relayer == H160::zero().0.to_vec() && coprocessor != sink.state_machine_id().state_id {
+						// Anything the sink has not seen yet is worth another attempt later.
+						if !was_delivered(&receipt) && coprocessor != sink.state_machine_id().state_id {
 							return Ok((None, Some(msg)))
 						} else {
 							return Ok((None, None))
@@ -575,6 +562,13 @@ pub async fn return_successful_queries(
 	Ok(ProfitabilityResult { queries: queries_to_be_relayed, retriable_messages })
 }
 
+/// Whether a commitment has already been delivered. Hosts record the address of
+/// the relayer that delivered a message and hand back the zero address for one
+/// they have not seen.
+pub fn was_delivered(receipt: &[u8]) -> bool {
+	receipt != H160::zero().0.as_slice()
+}
+
 fn is_allowed_module(config: &RelayerConfig, module: &[u8]) -> bool {
 	match config.module_filter {
 		Some(ref filters) =>
@@ -594,10 +588,52 @@ fn is_allowed_module(config: &RelayerConfig, module: &[u8]) -> bool {
 /// every module. Here it names none, which is what callers that need "the
 /// operator asked for this module by name" want.
 pub fn is_explicitly_filtered(config: &RelayerConfig, module: &[u8]) -> bool {
-	config.module_filter.as_ref().map_or(false, |filters| {
-		filters.iter().any(|filter| {
-			hex::decode(filter.replace("0x", "")).expect("Module identifier should be valid hex") ==
+	module_listed(config.module_filter.as_deref(), module)
+}
+
+/// Whether the operator asked, through `retry_modules`, for requests addressed
+/// to `module` to be parked and retried when a delivery to an EVM chain is
+/// cancelled or never lands. Callers pass the request's `to`. An absent or
+/// empty list names nothing, so nothing is parked.
+pub fn is_retry_module(config: &RelayerConfig, module: &[u8]) -> bool {
+	module_listed(config.retry_modules.as_deref(), module)
+}
+
+/// Whether `module` appears in an operator supplied list of hex encoded module
+/// ids, with or without a `0x` prefix.
+fn module_listed(list: Option<&[String]>, module: &[u8]) -> bool {
+	list.map_or(false, |entries| {
+		entries.iter().any(|entry| {
+			hex::decode(entry.replace("0x", "")).expect("Module identifier should be valid hex") ==
 				module
 		})
 	})
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	/// Destination modules are matched, so on an EVM chain these are contract
+	/// addresses; a pallet id shows the same code path for a substrate target.
+	const LISTED: &[u8] = &[0xAB; 20];
+	const CONTRACT: &[u8] = &[0xCD; 20];
+
+	#[test]
+	fn retry_modules_names_nothing_when_unset_or_empty() {
+		assert!(!is_retry_module(&RelayerConfig::default(), LISTED));
+		let empty = RelayerConfig { retry_modules: Some(vec![]), ..Default::default() };
+		assert!(!is_retry_module(&empty, LISTED));
+	}
+
+	#[test]
+	fn retry_modules_matches_listed_modules_with_or_without_prefix() {
+		let config = RelayerConfig {
+			retry_modules: Some(vec![hex::encode(LISTED), format!("0x{}", hex::encode(CONTRACT))]),
+			..Default::default()
+		};
+		assert!(is_retry_module(&config, LISTED));
+		assert!(is_retry_module(&config, CONTRACT));
+		assert!(!is_retry_module(&config, &[0xEF; 20]));
+	}
 }

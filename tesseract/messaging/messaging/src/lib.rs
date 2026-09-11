@@ -26,10 +26,9 @@ mod get_requests;
 pub mod outbound;
 pub mod outbound_claim;
 pub mod outbound_request_claim;
-/// Unprofitable-message retry loop. Kept public for callers that want to wire
-/// it up; **not** spawned by [`inbound`] in the consolidated relayer — the
-/// design is that retrying unprofitable messages is the outbound task's
-/// concern.
+/// Retry loop for deliveries that never landed. Spawned by
+/// [`outbound::initialize`], one per destination, not by [`inbound`]: retrying
+/// is the outbound task's concern.
 pub mod retries;
 
 use anyhow::anyhow;
@@ -63,10 +62,8 @@ type GetReqSender = Sender<(Vec<GetRequest>, StateMachineUpdated)>;
 ///   a single event-driven fan-out task.
 /// - Fee accumulation — spawned once per chain in `tesseract-relayer/src/cli.rs`.
 /// - Fee withdrawal — spawned globally in `tesseract-relayer/src/cli.rs`.
-/// - Unprofitable-message retries — the retry loop at
-///   [`crate::retries::retry_unprofitable_messages`] is kept in-tree but deliberately **not**
-///   spawned. Retrying unprofitable inbound messages is the outbound relayer's concern, not this
-///   one.
+/// - Retries of undelivered messages — [`crate::retries::retry_undelivered_messages`] is spawned
+///   per destination by [`outbound::initialize`], which is also what parks the messages it drains.
 ///
 /// The inbound messaging task already queries chain_b's events on every HB-side
 /// state-machine-update, so it also feeds the GET-request channel that
@@ -381,85 +378,24 @@ async fn handle_update(
 		let res = chain_a.submit(messages.clone(), coprocessor).await;
 		match res {
 			Ok(TxResult { receipts, unsuccessful, new_epochs: _ }) => {
-				if let Some(sender) = fee_acc_sender {
-					// We should not store messages when they are delivered to hyperbridge
-					if chain_a.state_machine_id().state_id != coprocessor {
-						// Filter out receipts for transactions that originated from the coprocessor
-						let receipts = receipts
-							.into_iter()
-							.filter(|receipt| receipt.source() != coprocessor)
-							.collect::<Vec<_>>();
-						if !receipts.is_empty() {
-							// Store receipts in database before auto accumulation
-							tracing::trace!(
-								target: LOG_TARGET,
-								source = %chain_b.name(),
-								dest = %chain_a.name(),
-								count = receipts.len(),
-								"Persisting deliveries to the db",
-							);
-							if let Err(err) = tx_payment.store_messages(receipts.clone()).await {
-								tracing::error!(
-									target: LOG_TARGET,
-									source = %chain_b.name(),
-									dest = %chain_a.name(),
-									count = receipts.len(),
-									?err,
-									"Failed to persist deliveries to database",
-								)
-							}
-							// Send receipts to the fee accumulation task.
-							// `try_send` so the inbound task never blocks on
-							// a backed-up fee-accumulator. Receipts are
-							// already persisted via `tx_payment.store_messages`
-							// above, so a dropped channel push is recoverable
-							// by the manual `accumulate-fees` subcommand.
-							if let Err(err) = sender.try_send(receipts) {
-								tracing::error!(
-									target: LOG_TARGET,
-									source = %chain_b.name(),
-									dest = %chain_a.name(),
-									?err,
-									"Fee auto accumulation channel send failed; you can try again manually",
-								);
-							}
-						}
-					}
+				// Deliveries to hyperbridge itself are not accumulated, hyperbridge is
+				// where those fees are claimed from.
+				if chain_a.state_machine_id().state_id != coprocessor {
+					record_deliveries(&tx_payment, &fee_acc_sender, receipts, coprocessor).await;
 				}
 
-				if !unsuccessful.is_empty() &&
-					config.unprofitable_retry_frequency.is_some() &&
-					chain_a.state_machine_id().state_id != coprocessor
-				{
+				// Nothing retries deliveries on this pipeline: the retry loop only
+				// serves the EVM destinations the outbound fan-out parks for. A
+				// cancelled batch here is picked up again by whichever relayer next
+				// sees the events, so it is only logged.
+				if !unsuccessful.is_empty() {
 					tracing::error!(
 						target: LOG_TARGET,
 						source = %chain_b.name(),
 						dest = %chain_a.name(),
 						count = unsuccessful.len(),
-						"Some transactions were cancelled and will be retried",
+						"Some transactions were cancelled",
 					);
-					tracing::trace!(
-						target: LOG_TARGET,
-						source = %chain_b.name(),
-						dest = %chain_a.name(),
-						count = unsuccessful.len(),
-						"Persisting cancelled transactions to the db",
-					);
-					if let Err(err) = tx_payment
-						.store_unprofitable_messages(
-							unsuccessful,
-							chain_a.state_machine_id().state_id,
-						)
-						.await
-					{
-						tracing::error!(
-							target: LOG_TARGET,
-							source = %chain_b.name(),
-							dest = %chain_a.name(),
-							?err,
-							"Failed to persist cancelled messages to the database",
-						)
-					}
 				}
 			},
 			Err(err) => {
@@ -474,33 +410,59 @@ async fn handle_update(
 		}
 	}
 
-	// Store currently unprofitable in messages in db
-	if !unprofitable.is_empty() &&
-		config.unprofitable_retry_frequency.is_some() &&
-		chain_a.state_machine_id().state_id != coprocessor
-	{
-		tracing::trace!(
+	if !unprofitable.is_empty() {
+		tracing::debug!(
 			target: LOG_TARGET,
 			source = %chain_b.name(),
 			dest = %chain_a.name(),
-			count = unprofitable.len(),
-			"Persisting unprofitable messages to the db",
+			dropped = unprofitable.len(),
+			"unprofitable messages dropped",
 		);
-		if let Err(err) = tx_payment
-			.store_unprofitable_messages(unprofitable, chain_a.state_machine_id().state_id)
-			.await
-		{
-			tracing::error!(
-				target: LOG_TARGET,
-				source = %chain_b.name(),
-				dest = %chain_a.name(),
-				?err,
-				"Error while storing unprofitable messages in the database",
-			)
-		}
 	}
 
 	Ok(())
+}
+
+/// Persist deliveries and hand them to the fee accumulation task.
+///
+/// Receipts for requests that originated on hyperbridge are dropped: those are
+/// paid for by the outbound delivery reward, which the claim tasks collect, so
+/// accumulating them here would bill hyperbridge twice for the same delivery.
+/// Sending is a `try_send` so a backed up accumulator never stalls a delivery
+/// task; the rows are already in the db by then, which is what the manual
+/// `accumulate-fees` subcommand reads.
+pub(crate) async fn record_deliveries(
+	tx_payment: &TransactionPayment,
+	fee_acc_sender: &Option<FeeAccSender>,
+	receipts: Vec<TxReceipt>,
+	coprocessor: StateMachine,
+) {
+	let Some(sender) = fee_acc_sender else { return };
+	let receipts = receipts
+		.into_iter()
+		.filter(|receipt| receipt.source() != coprocessor)
+		.collect::<Vec<_>>();
+	if receipts.is_empty() {
+		return;
+	}
+
+	tracing::trace!(target: LOG_TARGET, count = receipts.len(), "Persisting deliveries to the db");
+	if let Err(err) = tx_payment.store_messages(receipts.clone()).await {
+		tracing::error!(
+			target: LOG_TARGET,
+			count = receipts.len(),
+			?err,
+			"Failed to persist deliveries to database",
+		);
+	}
+
+	if let Err(err) = sender.try_send(receipts) {
+		tracing::error!(
+			target: LOG_TARGET,
+			?err,
+			"Fee auto accumulation channel send failed; you can try again manually",
+		);
+	}
 }
 
 pub async fn fee_accumulation<A: IsmpProvider + Clone + Clone + HyperbridgeClaim + 'static>(

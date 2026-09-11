@@ -588,10 +588,49 @@ fn is_allowed_module(config: &RelayerConfig, module: &[u8]) -> bool {
 /// every module. Here it names none, which is what callers that need "the
 /// operator asked for this module by name" want.
 pub fn is_explicitly_filtered(config: &RelayerConfig, module: &[u8]) -> bool {
-	config.module_filter.as_ref().map_or(false, |filters| {
-		filters.iter().any(|filter| {
-			hex::decode(filter.replace("0x", "")).expect("Module identifier should be valid hex") ==
+	module_listed(config.module_filter.as_deref(), module)
+}
+
+/// Whether the operator asked, through `retry_modules`, for `module`'s requests
+/// to be parked and retried when a delivery to an EVM chain is cancelled or
+/// never lands. An absent or empty list names nothing, so nothing is parked.
+pub fn is_retry_module(config: &RelayerConfig, module: &[u8]) -> bool {
+	module_listed(config.retry_modules.as_deref(), module)
+}
+
+/// Whether `module` appears in an operator supplied list of hex encoded module
+/// ids, with or without a `0x` prefix.
+fn module_listed(list: Option<&[String]>, module: &[u8]) -> bool {
+	list.map_or(false, |entries| {
+		entries.iter().any(|entry| {
+			hex::decode(entry.replace("0x", "")).expect("Module identifier should be valid hex") ==
 				module
 		})
 	})
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	const LISTED: &[u8] = b"pall_hft";
+	const CONTRACT: &[u8] = &[0xAB; 20];
+
+	#[test]
+	fn retry_modules_names_nothing_when_unset_or_empty() {
+		assert!(!is_retry_module(&RelayerConfig::default(), LISTED));
+		let empty = RelayerConfig { retry_modules: Some(vec![]), ..Default::default() };
+		assert!(!is_retry_module(&empty, LISTED));
+	}
+
+	#[test]
+	fn retry_modules_matches_listed_modules_with_or_without_prefix() {
+		let config = RelayerConfig {
+			retry_modules: Some(vec![hex::encode(LISTED), format!("0x{}", hex::encode(CONTRACT))]),
+			..Default::default()
+		};
+		assert!(is_retry_module(&config, LISTED));
+		assert!(is_retry_module(&config, CONTRACT));
+		assert!(!is_retry_module(&config, b"pall_xyz"));
+	}
 }

@@ -65,6 +65,10 @@ pub struct RelayerConfig {
 	pub withdrawal_frequency: Option<u64>,
 	pub minimum_withdrawal_amount: Option<u64>,
 	pub unprofitable_retry_frequency: Option<u64>,
+	/// Hex encoded module ids whose requests are parked and retried when a
+	/// delivery to an EVM chain is cancelled or never lands. Absent or empty
+	/// parks nothing; `unprofitable_retry_frequency` must also be set.
+	pub retry_modules: Option<Vec<String>>,
 	pub deliver_failed: Option<bool>,
 	pub disable_fee_accumulation: Option<bool>,
 	/// Per-`(state_machine_id, max_interval_secs)` entries enabling the
@@ -85,6 +89,7 @@ impl Default for RelayerConfig {
 			withdrawal_frequency: None,
 			minimum_withdrawal_amount: None,
 			unprofitable_retry_frequency: None,
+			retry_modules: None,
 			deliver_failed: None,
 			disable_fee_accumulation: None,
 			maximum_update_intervals: None,
@@ -100,6 +105,7 @@ impl From<RelayerConfig> for tesseract_primitives::config::RelayerConfig {
 			withdrawal_frequency: config.withdrawal_frequency,
 			minimum_withdrawal_amount: config.minimum_withdrawal_amount,
 			unprofitable_retry_frequency: config.unprofitable_retry_frequency,
+			retry_modules: config.retry_modules,
 			// Unused by the consolidated relayer — every chain in `[chains.*]`
 			// gets inbound messaging spawned automatically.
 			delivery_endpoints: Vec::new(),

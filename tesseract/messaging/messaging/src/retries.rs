@@ -20,7 +20,7 @@ use tokio_stream::StreamExt;
 use transaction_fees::TransactionPayment;
 
 use crate::{
-	events::{chunk_size, return_successful_queries, was_delivered},
+	events::{chunk_size, is_retry_module, return_successful_queries, was_delivered},
 	record_deliveries, FeeAccSender,
 };
 
@@ -43,12 +43,13 @@ pub struct RetryContext {
 	pub fee_acc_sender: Option<FeeAccSender>,
 }
 
-/// Redeliver requests from hyperbridge that never landed.
+/// Redeliver requests to an EVM chain that never landed.
 ///
-/// Deliveries out of hyperbridge are gated to a whitelisted relayer, so a batch
+/// The outbound fan-out parks requests from the modules the operator listed in
+/// `retry_modules` whenever a batch is cancelled or fails to submit, and this
+/// loop drains them on a timer. Deliveries out of hyperbridge are the usual
+/// reason to list a module: they are gated to a whitelisted relayer, so a batch
 /// this relayer failed to submit is not going to be picked up by anyone else.
-/// The delivery pipelines park those requests in the database and this loop
-/// drains them on a timer.
 pub async fn retry_undelivered_messages(ctx: RetryContext) -> Result<(), anyhow::Error> {
 	let frequency = ctx
 		.config
@@ -95,10 +96,13 @@ async fn retry_once(ctx: &RetryContext) -> Result<(), anyhow::Error> {
 	for (message, _) in parked {
 		let Message::Request(msg) = message else { continue };
 		let parked_at = msg.proof.height.height;
-		// Only what hyperbridge dispatched is this relayer's to redeliver. Rows left
-		// by the inbound pipeline or an older build can carry a user's request, and
-		// another relayer is free to take those.
-		for post in msg.requests.into_iter().filter(|post| post.source == ctx.coprocessor) {
+		// Only modules the operator listed are retried. Rows left by an older build,
+		// or by a config that has since dropped a module, are swept up here and not
+		// carried any further.
+		for post in msg.requests {
+			if !is_retry_module(&ctx.config, &post.from) {
+				continue;
+			}
 			let commitment = hash_request::<Hasher>(&Request::Post(post.clone()));
 			requests
 				.entry(commitment)

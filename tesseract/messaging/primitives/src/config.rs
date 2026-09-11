@@ -31,6 +31,10 @@ pub struct RelayerConfig {
 	/// How frequently to retry unprofitable or failed messages in seconds.
 	/// If this is value not supplied retries will not be enabled
 	pub unprofitable_retry_frequency: Option<u64>,
+	/// Modules, as hex encoded module ids, whose requests are parked and retried when a
+	/// delivery to an EVM chain is cancelled or never lands. Absent or empty parks nothing.
+	/// The retry loop itself only runs when `unprofitable_retry_frequency` is set.
+	pub retry_modules: Option<Vec<String>>,
 	/// Delivery endpoints: chains you intend to deliver messages to
 	pub delivery_endpoints: Vec<String>,
 	/// Flag to tell the messsaging process to deliver failed transactions

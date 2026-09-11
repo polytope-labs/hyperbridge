@@ -39,7 +39,9 @@ use tokio::sync::mpsc::Sender;
 use tracing::Instrument;
 use transaction_fees::TransactionPayment;
 
-use crate::events::{filter_events, is_explicitly_filtered, translate_events_to_messages};
+use crate::events::{
+	filter_events, is_explicitly_filtered, is_retry_module, translate_events_to_messages,
+};
 
 /// Log/tracing target for the outbound pipeline.
 const LOG_TARGET: &str = concat!("messaging", "-outbound");
@@ -382,10 +384,6 @@ async fn submit_for_dest(
 		return Ok(());
 	}
 
-	// Parking is pointless with nothing draining the rows, so it follows the
-	// same toggle the retry task itself does.
-	let retries_enabled = relayer_config.unprofitable_retry_frequency.is_some();
-
 	let consensus_msg = Message::Consensus(ConsensusMessage {
 		consensus_proof: proof_bytes,
 		consensus_state_id: BEEFY_CONSENSUS_STATE_ID,
@@ -402,7 +400,7 @@ async fn submit_for_dest(
 			dest.clone(),
 			events,
 			state_machine_height,
-			relayer_config,
+			relayer_config.clone(),
 			coprocessor,
 			&client_map,
 			// Pass the consensus update as the gas-estimation prelude so EVM
@@ -416,10 +414,9 @@ async fn submit_for_dest(
 				park_undelivered(
 					&dest_name,
 					dest_state_machine,
-					coprocessor,
+					&relayer_config,
 					unprofitable,
 					&claim_tx_payment,
-					retries_enabled,
 				)
 				.await;
 				batch.extend(deliverable);
@@ -473,10 +470,9 @@ async fn submit_for_dest(
 			park_undelivered(
 				&dest_name,
 				dest_state_machine,
-				coprocessor,
+				&relayer_config,
 				requests,
 				&claim_tx_payment,
-				retries_enabled,
 			)
 			.await;
 			return Err(err);
@@ -486,10 +482,9 @@ async fn submit_for_dest(
 	park_undelivered(
 		&dest_name,
 		dest_state_machine,
-		coprocessor,
+		&relayer_config,
 		result.unsuccessful,
 		&claim_tx_payment,
-		retries_enabled,
 	)
 	.await;
 
@@ -579,26 +574,30 @@ async fn submit_for_dest(
 /// Park requests the destination never received so the retry task can try them
 /// again.
 ///
-/// Only requests hyperbridge itself dispatched are kept. Those are the ones
-/// gated to a whitelisted relayer, so nobody else is coming for them, while a
-/// user's request merely routed through hyperbridge is still up for grabs and
-/// another relayer will deliver it. Consensus messages are dropped since the
-/// next proof along supersedes them, and so are get responses, which are paid
-/// for on delivery rather than claimed.
+/// Only requests from modules the operator listed in `retry_modules` are kept.
+/// Which modules those are is the operator's call: deliveries out of hyperbridge
+/// are gated to a whitelisted relayer, so nobody else is coming for those, while
+/// a user's request merely routed through hyperbridge is still up for grabs for
+/// any relayer. Consensus messages are dropped since the next proof along
+/// supersedes them, and so are get responses, which are paid for on delivery
+/// rather than claimed.
+///
+/// Parking is pointless with nothing draining the rows, so it also follows the
+/// `unprofitable_retry_frequency` toggle the retry task itself runs on.
 async fn park_undelivered(
 	dest_name: &str,
 	dest_state_machine: StateMachine,
-	coprocessor: StateMachine,
+	config: &RelayerConfig,
 	messages: Vec<Message>,
 	tx_payment: &Option<Arc<TransactionPayment>>,
-	retries_enabled: bool,
 ) {
+	let retries_enabled = config.unprofitable_retry_frequency.is_some();
 	let Some(tx_payment) = tx_payment.as_ref().filter(|_| retries_enabled) else { return };
 	let requests = messages
 		.into_iter()
 		.filter_map(|message| match message {
 			Message::Request(mut msg) => {
-				msg.requests.retain(|post| post.source == coprocessor);
+				msg.requests.retain(|post| is_retry_module(config, &post.from));
 				(!msg.requests.is_empty()).then_some(Message::Request(msg))
 			},
 			_ => None,
@@ -1036,7 +1035,8 @@ pub async fn initialize(
 
 	// One retry loop per destination, draining the requests the fan-out parked
 	// when a batch never landed. Off unless the operator set
-	// `unprofitable_retry_frequency`.
+	// `unprofitable_retry_frequency`; which requests get parked at all is
+	// decided by `retry_modules`.
 	if relayer_config.unprofitable_retry_frequency.is_some() {
 		for (state_machine, dest) in &destinations {
 			let ctx = crate::retries::RetryContext {

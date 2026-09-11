@@ -582,8 +582,8 @@ async fn submit_for_dest(
 /// messages are dropped since the next proof along supersedes them, and so are
 /// get responses, which are paid for on delivery rather than claimed.
 ///
-/// Parking is pointless with nothing draining the rows, so it also follows the
-/// `retry_frequency` toggle the retry task itself runs on.
+/// Parking is pointless with nothing draining the rows, so it is gated on the
+/// same non empty `retry_modules` that spawns the retry task.
 async fn park_undelivered(
 	dest_name: &str,
 	dest_state_machine: StateMachine,
@@ -591,8 +591,9 @@ async fn park_undelivered(
 	messages: Vec<Message>,
 	tx_payment: &Option<Arc<TransactionPayment>>,
 ) {
-	let retries_enabled = config.retry_frequency.is_some();
-	let Some(tx_payment) = tx_payment.as_ref().filter(|_| retries_enabled) else { return };
+	let Some(tx_payment) = tx_payment.as_ref().filter(|_| config.retries_enabled()) else {
+		return
+	};
 	let requests = messages
 		.into_iter()
 		.filter_map(|message| match message {
@@ -1034,10 +1035,9 @@ pub async fn initialize(
 	);
 
 	// One retry loop per destination, draining the requests the fan-out parked
-	// when a batch never landed. Off unless the operator set
-	// `retry_frequency`; which requests get parked at all is
-	// decided by `retry_modules`.
-	if relayer_config.retry_frequency.is_some() {
+	// when a batch never landed. Listing a module in `retry_modules` is what
+	// switches this on; `retry_frequency` only paces it.
+	if relayer_config.retries_enabled() {
 		for (state_machine, dest) in &destinations {
 			let ctx = crate::retries::RetryContext {
 				dest: dest.clone(),

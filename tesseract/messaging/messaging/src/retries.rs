@@ -47,7 +47,8 @@ pub struct RetryContext {
 ///
 /// The outbound fan-out parks requests addressed to the modules the operator
 /// listed in `retry_modules` whenever a batch is cancelled or fails to submit,
-/// and this loop drains them on a timer. Deliveries out of hyperbridge are the usual
+/// and this loop drains them every `retry_frequency` seconds, five minutes when
+/// unset. Listing a module is what brings the loop up in the first place. Deliveries out of hyperbridge are the usual
 /// reason to list a module: they are gated to a whitelisted relayer, so a batch
 /// this relayer failed to submit is not going to be picked up by anyone else.
 pub async fn retry_undelivered_messages(ctx: RetryContext) -> Result<(), anyhow::Error> {

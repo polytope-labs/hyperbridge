@@ -28,12 +28,13 @@ pub struct RelayerConfig {
 	pub withdrawal_frequency: Option<u64>,
 	/// Minimum amount to withdraw when auto-withdrawing
 	pub minimum_withdrawal_amount: Option<u64>,
-	/// How frequently to retry unprofitable or failed messages in seconds.
-	/// If this is value not supplied retries will not be enabled
-	pub unprofitable_retry_frequency: Option<u64>,
-	/// Modules, as hex encoded module ids, whose requests are parked and retried when a
-	/// delivery to an EVM chain is cancelled or never lands. Absent or empty parks nothing.
-	/// The retry loop itself only runs when `unprofitable_retry_frequency` is set.
+	/// How frequently to retry parked deliveries, in seconds. Unset disables
+	/// retries, and with them the parking of undelivered messages.
+	pub retry_frequency: Option<u64>,
+	/// Destination modules, as hex encoded module ids, whose requests are parked and retried
+	/// when a delivery to an EVM chain is cancelled or never lands. Matched on the request's
+	/// `to` field. Absent or empty parks nothing. The retry loop itself only runs when
+	/// `retry_frequency` is set.
 	pub retry_modules: Option<Vec<String>>,
 	/// Delivery endpoints: chains you intend to deliver messages to
 	pub delivery_endpoints: Vec<String>,

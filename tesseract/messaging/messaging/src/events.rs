@@ -591,9 +591,10 @@ pub fn is_explicitly_filtered(config: &RelayerConfig, module: &[u8]) -> bool {
 	module_listed(config.module_filter.as_deref(), module)
 }
 
-/// Whether the operator asked, through `retry_modules`, for `module`'s requests
-/// to be parked and retried when a delivery to an EVM chain is cancelled or
-/// never lands. An absent or empty list names nothing, so nothing is parked.
+/// Whether the operator asked, through `retry_modules`, for requests addressed
+/// to `module` to be parked and retried when a delivery to an EVM chain is
+/// cancelled or never lands. Callers pass the request's `to`. An absent or
+/// empty list names nothing, so nothing is parked.
 pub fn is_retry_module(config: &RelayerConfig, module: &[u8]) -> bool {
 	module_listed(config.retry_modules.as_deref(), module)
 }
@@ -613,8 +614,10 @@ fn module_listed(list: Option<&[String]>, module: &[u8]) -> bool {
 mod tests {
 	use super::*;
 
-	const LISTED: &[u8] = b"pall_hft";
-	const CONTRACT: &[u8] = &[0xAB; 20];
+	/// Destination modules are matched, so on an EVM chain these are contract
+	/// addresses; a pallet id shows the same code path for a substrate target.
+	const LISTED: &[u8] = &[0xAB; 20];
+	const CONTRACT: &[u8] = &[0xCD; 20];
 
 	#[test]
 	fn retry_modules_names_nothing_when_unset_or_empty() {
@@ -631,6 +634,6 @@ mod tests {
 		};
 		assert!(is_retry_module(&config, LISTED));
 		assert!(is_retry_module(&config, CONTRACT));
-		assert!(!is_retry_module(&config, b"pall_xyz"));
+		assert!(!is_retry_module(&config, &[0xEF; 20]));
 	}
 }

@@ -385,7 +385,7 @@ async fn handle_update(
 				}
 
 				if !unsuccessful.is_empty() &&
-					config.unprofitable_retry_frequency.is_some() &&
+					config.retry_frequency.is_some() &&
 					chain_a.state_machine_id().state_id != coprocessor
 				{
 					tracing::error!(
@@ -433,7 +433,7 @@ async fn handle_update(
 
 	// Store currently unprofitable in messages in db
 	if !unprofitable.is_empty() &&
-		config.unprofitable_retry_frequency.is_some() &&
+		config.retry_frequency.is_some() &&
 		chain_a.state_machine_id().state_id != coprocessor
 	{
 		tracing::trace!(

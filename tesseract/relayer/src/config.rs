@@ -64,10 +64,14 @@ pub struct RelayerConfig {
 	pub minimum_profit_percentage: u32,
 	pub withdrawal_frequency: Option<u64>,
 	pub minimum_withdrawal_amount: Option<u64>,
-	pub unprofitable_retry_frequency: Option<u64>,
-	/// Hex encoded module ids whose requests are parked and retried when a
-	/// delivery to an EVM chain is cancelled or never lands. Absent or empty
-	/// parks nothing; `unprofitable_retry_frequency` must also be set.
+	/// How often, in seconds, to retry parked deliveries. Unset disables retries
+	/// and parking. The old `unprofitable_retry_frequency` key is still accepted.
+	#[serde(alias = "unprofitable_retry_frequency")]
+	pub retry_frequency: Option<u64>,
+	/// Hex encoded ids of destination modules whose requests are parked and
+	/// retried when a delivery to an EVM chain is cancelled or never lands,
+	/// matched on the request's `to` field. Absent or empty parks nothing;
+	/// `retry_frequency` must also be set.
 	pub retry_modules: Option<Vec<String>>,
 	pub deliver_failed: Option<bool>,
 	pub disable_fee_accumulation: Option<bool>,
@@ -88,7 +92,7 @@ impl Default for RelayerConfig {
 			minimum_profit_percentage: 0,
 			withdrawal_frequency: None,
 			minimum_withdrawal_amount: None,
-			unprofitable_retry_frequency: None,
+			retry_frequency: None,
 			retry_modules: None,
 			deliver_failed: None,
 			disable_fee_accumulation: None,
@@ -104,7 +108,7 @@ impl From<RelayerConfig> for tesseract_primitives::config::RelayerConfig {
 			minimum_profit_percentage: config.minimum_profit_percentage,
 			withdrawal_frequency: config.withdrawal_frequency,
 			minimum_withdrawal_amount: config.minimum_withdrawal_amount,
-			unprofitable_retry_frequency: config.unprofitable_retry_frequency,
+			retry_frequency: config.retry_frequency,
 			retry_modules: config.retry_modules,
 			// Unused by the consolidated relayer — every chain in `[chains.*]`
 			// gets inbound messaging spawned automatically.

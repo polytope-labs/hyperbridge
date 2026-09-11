@@ -24,7 +24,7 @@ use crate::{
 	record_deliveries, FeeAccSender,
 };
 
-/// How often a pass runs when the operator hasn't set `unprofitable_retry_frequency`.
+/// How often a pass runs when the operator hasn't set `retry_frequency`.
 const DEFAULT_RETRY_FREQUENCY: Duration = Duration::from_secs(5 * 60);
 
 /// Everything one destination's retry loop needs, assembled once by the caller.
@@ -45,15 +45,15 @@ pub struct RetryContext {
 
 /// Redeliver requests to an EVM chain that never landed.
 ///
-/// The outbound fan-out parks requests from the modules the operator listed in
-/// `retry_modules` whenever a batch is cancelled or fails to submit, and this
-/// loop drains them on a timer. Deliveries out of hyperbridge are the usual
+/// The outbound fan-out parks requests addressed to the modules the operator
+/// listed in `retry_modules` whenever a batch is cancelled or fails to submit,
+/// and this loop drains them on a timer. Deliveries out of hyperbridge are the usual
 /// reason to list a module: they are gated to a whitelisted relayer, so a batch
 /// this relayer failed to submit is not going to be picked up by anyone else.
 pub async fn retry_undelivered_messages(ctx: RetryContext) -> Result<(), anyhow::Error> {
 	let frequency = ctx
 		.config
-		.unprofitable_retry_frequency
+		.retry_frequency
 		.map_or(DEFAULT_RETRY_FREQUENCY, Duration::from_secs);
 	tracing::trace!(
 		target: crate::LOG_TARGET,
@@ -96,11 +96,11 @@ async fn retry_once(ctx: &RetryContext) -> Result<(), anyhow::Error> {
 	for (message, _) in parked {
 		let Message::Request(msg) = message else { continue };
 		let parked_at = msg.proof.height.height;
-		// Only modules the operator listed are retried. Rows left by an older build,
-		// or by a config that has since dropped a module, are swept up here and not
-		// carried any further.
+		// Only requests addressed to a listed module are retried. Rows left by an
+		// older build, or by a config that has since dropped a module, are swept up
+		// here and not carried any further.
 		for post in msg.requests {
-			if !is_retry_module(&ctx.config, &post.from) {
+			if !is_retry_module(&ctx.config, &post.to) {
 				continue;
 			}
 			let commitment = hash_request::<Hasher>(&Request::Post(post.clone()));

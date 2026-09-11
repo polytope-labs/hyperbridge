@@ -574,16 +574,16 @@ async fn submit_for_dest(
 /// Park requests the destination never received so the retry task can try them
 /// again.
 ///
-/// Only requests from modules the operator listed in `retry_modules` are kept.
-/// Which modules those are is the operator's call: deliveries out of hyperbridge
-/// are gated to a whitelisted relayer, so nobody else is coming for those, while
-/// a user's request merely routed through hyperbridge is still up for grabs for
-/// any relayer. Consensus messages are dropped since the next proof along
-/// supersedes them, and so are get responses, which are paid for on delivery
-/// rather than claimed.
+/// Only requests addressed to a module the operator listed in `retry_modules`
+/// are kept, matched on the request's `to`. Which modules those are is the
+/// operator's call: deliveries out of hyperbridge are gated to a whitelisted
+/// relayer, so nobody else is coming for those, while a user's request merely
+/// routed through hyperbridge is still up for grabs for any relayer. Consensus
+/// messages are dropped since the next proof along supersedes them, and so are
+/// get responses, which are paid for on delivery rather than claimed.
 ///
 /// Parking is pointless with nothing draining the rows, so it also follows the
-/// `unprofitable_retry_frequency` toggle the retry task itself runs on.
+/// `retry_frequency` toggle the retry task itself runs on.
 async fn park_undelivered(
 	dest_name: &str,
 	dest_state_machine: StateMachine,
@@ -591,13 +591,13 @@ async fn park_undelivered(
 	messages: Vec<Message>,
 	tx_payment: &Option<Arc<TransactionPayment>>,
 ) {
-	let retries_enabled = config.unprofitable_retry_frequency.is_some();
+	let retries_enabled = config.retry_frequency.is_some();
 	let Some(tx_payment) = tx_payment.as_ref().filter(|_| retries_enabled) else { return };
 	let requests = messages
 		.into_iter()
 		.filter_map(|message| match message {
 			Message::Request(mut msg) => {
-				msg.requests.retain(|post| is_retry_module(config, &post.from));
+				msg.requests.retain(|post| is_retry_module(config, &post.to));
 				(!msg.requests.is_empty()).then_some(Message::Request(msg))
 			},
 			_ => None,
@@ -1035,9 +1035,9 @@ pub async fn initialize(
 
 	// One retry loop per destination, draining the requests the fan-out parked
 	// when a batch never landed. Off unless the operator set
-	// `unprofitable_retry_frequency`; which requests get parked at all is
+	// `retry_frequency`; which requests get parked at all is
 	// decided by `retry_modules`.
-	if relayer_config.unprofitable_retry_frequency.is_some() {
+	if relayer_config.retry_frequency.is_some() {
 		for (state_machine, dest) in &destinations {
 			let ctx = crate::retries::RetryContext {
 				dest: dest.clone(),

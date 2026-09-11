@@ -384,39 +384,18 @@ async fn handle_update(
 					record_deliveries(&tx_payment, &fee_acc_sender, receipts, coprocessor).await;
 				}
 
-				if !unsuccessful.is_empty() &&
-					config.retry_frequency.is_some() &&
-					chain_a.state_machine_id().state_id != coprocessor
-				{
+				// Nothing retries deliveries on this pipeline: the retry loop only
+				// serves the EVM destinations the outbound fan-out parks for. A
+				// cancelled batch here is picked up again by whichever relayer next
+				// sees the events, so it is only logged.
+				if !unsuccessful.is_empty() {
 					tracing::error!(
 						target: LOG_TARGET,
 						source = %chain_b.name(),
 						dest = %chain_a.name(),
 						count = unsuccessful.len(),
-						"Some transactions were cancelled and will be retried",
+						"Some transactions were cancelled",
 					);
-					tracing::trace!(
-						target: LOG_TARGET,
-						source = %chain_b.name(),
-						dest = %chain_a.name(),
-						count = unsuccessful.len(),
-						"Persisting cancelled transactions to the db",
-					);
-					if let Err(err) = tx_payment
-						.store_unprofitable_messages(
-							unsuccessful,
-							chain_a.state_machine_id().state_id,
-						)
-						.await
-					{
-						tracing::error!(
-							target: LOG_TARGET,
-							source = %chain_b.name(),
-							dest = %chain_a.name(),
-							?err,
-							"Failed to persist cancelled messages to the database",
-						)
-					}
 				}
 			},
 			Err(err) => {
@@ -431,30 +410,14 @@ async fn handle_update(
 		}
 	}
 
-	// Store currently unprofitable in messages in db
-	if !unprofitable.is_empty() &&
-		config.retry_frequency.is_some() &&
-		chain_a.state_machine_id().state_id != coprocessor
-	{
-		tracing::trace!(
+	if !unprofitable.is_empty() {
+		tracing::debug!(
 			target: LOG_TARGET,
 			source = %chain_b.name(),
 			dest = %chain_a.name(),
-			count = unprofitable.len(),
-			"Persisting unprofitable messages to the db",
+			dropped = unprofitable.len(),
+			"unprofitable messages dropped",
 		);
-		if let Err(err) = tx_payment
-			.store_unprofitable_messages(unprofitable, chain_a.state_machine_id().state_id)
-			.await
-		{
-			tracing::error!(
-				target: LOG_TARGET,
-				source = %chain_b.name(),
-				dest = %chain_a.name(),
-				?err,
-				"Error while storing unprofitable messages in the database",
-			)
-		}
 	}
 
 	Ok(())

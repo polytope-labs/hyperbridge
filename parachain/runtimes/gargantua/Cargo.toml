@@ -55,6 +55,7 @@ ismp-arbitrum = { workspace = true }
 ismp-optimism = { workspace = true }
 ismp-polygon = { workspace = true }
 ismp-pharos = { workspace =  true }
+ismp-arc = { workspace = true }
 ismp-tendermint = { workspace = true }
 evm-state-machine = { workspace = true }
 substrate-state-machine = { workspace = true }
@@ -172,6 +173,7 @@ std = [
     "evm-state-machine/std",
     "substrate-state-machine/std",
     "ismp-pharos/std",
+    "ismp-arc/std",
     "pallet-hyper-fungible-token/std"
 ]
 runtime-benchmarks = [

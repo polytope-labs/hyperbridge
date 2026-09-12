@@ -2,11 +2,16 @@
 // imports, erased at build, so the server and the browser cannot drift.
 
 export type { InitChainMeta as ChainDefault, InitNetwork as Network } from "@/cli/init/chains"
-export type { FillerTomlConfig as FillerConfig } from "@/config/filler-toml"
+// The wizard writes the binary's config file, signer block included — that is
+// `FillerConfigFile`, not the library's `FillerTomlConfig`.
+export type { FillerConfigFile as FillerConfig } from "@/config/filler-toml"
 export type { CurvePoint, PriceCurvePoint as PricePoint } from "@/config/interpolated-curve"
 export type { PairConfig } from "@/config/pairs"
 export type {
 	ActivityEventDto,
+	OrderHistoryDto,
+	OrderLeg,
+	OrderSummary,
 	AdminStrategyDto,
 	BalanceSnapshot,
 	BidDto,
@@ -16,10 +21,19 @@ export type {
 	ConfigDto,
 	KnownToken,
 	KnownVault,
+	LedgerLeg,
+	LogRecordDto,
+	LogRecordLevel,
+	LogsDto,
 	SendTokenOption,
 	SetupDefaults,
 	Status,
 	StatusInit,
 	StatusOperator,
+	TunnelConnectionDto,
+	TunnelDeviceDto,
+	TunnelNewDeviceDto,
+	TunnelStatusDto,
+	VaultSweepDto,
 	WalletTxDto,
 } from "@/services/server/dto"

@@ -2,12 +2,9 @@ import { ERC20_ABI } from "@/config/abis/ERC20"
 import { ERC4626_ABI } from "@/config/abis/Erc4626"
 import type { VaultConfig, HydratedVault } from "@/funding/types"
 import type { ChainClientManager } from "@/services/ChainClientManager"
-import { getLogger } from "@/services/Logger"
+import { type Logger, moduleLogger } from "@/services/Logger"
 import type { HexString } from "@hyperbridge/sdk"
 import { parseUnits } from "viem"
-
-const logger = getLogger("vault-state")
-
 /**
  * Backstop expiry for a reservation whose bid never executes (lost auction,
  * abandoned) — without it, `remaining` would drift to 0 and disable sourcing.
@@ -29,6 +26,8 @@ const RESERVATION_TTL_MS = 60_000
  * Concurrent access is serialised by the planner's per-chain mutex.
  */
 export class VaultLiquidityState {
+	private readonly logger: Logger
+
 	/** Keyed by underlying asset address, lowercased. */
 	private vaults = new Map<string, HydratedVault>()
 	private hydrated = false
@@ -47,7 +46,9 @@ export class VaultLiquidityState {
 		private readonly configs: VaultConfig[],
 		private readonly solver: HexString,
 		private readonly clientManager: ChainClientManager,
-	) {}
+	) {
+		this.logger = moduleLogger(clientManager.loggers, "vault-state")
+	}
 
 	// =========================================================================
 	// Initialisation & refresh
@@ -76,6 +77,16 @@ export class VaultLiquidityState {
 				abi: ERC20_ABI,
 				functionName: "decimals",
 			})) as number
+			let symbol = "TOKEN"
+			try {
+				symbol = (await client.readContract({
+					address: asset,
+					abi: ERC20_ABI,
+					functionName: "symbol",
+				})) as string
+			} catch (err) {
+				this.logger.warn({ err, chain: this.chain, asset }, "Could not resolve vault asset symbol")
+			}
 
 			// Vaults are keyed by underlying asset — a second same-asset vault would
 			// silently shadow the first (its shares invisible to sourcing, sweeping
@@ -91,12 +102,14 @@ export class VaultLiquidityState {
 			this.vaults.set(asset.toLowerCase(), {
 				vault: cfg.vault,
 				asset,
+				symbol,
 				decimals,
 				thresholdScaled: cfg.threshold ? parseUnits(cfg.threshold, decimals) : null,
 				minBalanceScaled: cfg.minBalance ? parseUnits(cfg.minBalance, decimals) : 0n,
 				redeemOnShutdown: cfg.redeemOnShutdown ?? false,
 				positionAssets: 0n,
 				maxWithdrawable: 0n,
+				maxDeposit: 0n,
 				remaining: 0n,
 			})
 		}
@@ -105,7 +118,7 @@ export class VaultLiquidityState {
 		this.hydrated = true
 
 		for (const v of this.vaults.values()) {
-			logger.info(
+			this.logger.info(
 				{
 					chain: this.chain,
 					vault: v.vault,
@@ -117,7 +130,7 @@ export class VaultLiquidityState {
 				"Vault hydrated",
 			)
 		}
-		logger.info({ chain: this.chain, vaults: this.configs.length }, "Vault liquidity state hydrated")
+		this.logger.info({ chain: this.chain, vaults: this.configs.length }, "Vault liquidity state hydrated")
 	}
 
 	/**
@@ -139,7 +152,7 @@ export class VaultLiquidityState {
 				args: [this.solver],
 			})) as bigint
 
-			const [positionAssets, maxWithdrawable] = await Promise.all([
+			const [positionAssets, maxWithdrawable, maxDeposit] = await Promise.all([
 				client.readContract({
 					address: v.vault,
 					abi: ERC4626_ABI,
@@ -150,6 +163,12 @@ export class VaultLiquidityState {
 					address: v.vault,
 					abi: ERC4626_ABI,
 					functionName: "maxWithdraw",
+					args: [this.solver],
+				}) as Promise<bigint>,
+				client.readContract({
+					address: v.vault,
+					abi: ERC4626_ABI,
+					functionName: "maxDeposit",
 					args: [this.solver],
 				}) as Promise<bigint>,
 			])
@@ -169,15 +188,17 @@ export class VaultLiquidityState {
 
 			v.positionAssets = positionAssets
 			v.maxWithdrawable = maxWithdrawable
+			v.maxDeposit = maxDeposit
 			v.remaining = maxWithdrawable > reserved ? maxWithdrawable - reserved : 0n
 
-			logger.debug(
+			this.logger.debug(
 				{
 					chain: this.chain,
 					vault: v.vault,
 					asset: v.asset,
 					positionAssets: positionAssets.toString(),
 					maxWithdrawable: maxWithdrawable.toString(),
+					maxDeposit: maxDeposit.toString(),
 					reserved: reserved.toString(),
 					remaining: v.remaining.toString(),
 				},

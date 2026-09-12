@@ -1,3 +1,4 @@
+import { stubOrderScanner } from "../helpers/stub-scanner"
 import { IntentFiller } from "@/core/filler"
 import {
 	CacheService,
@@ -7,7 +8,7 @@ import {
 	type ResolvedChainConfig,
 	type FillerConfig as FillerServiceConfig,
 } from "@/services"
-import { createSimplexSigner, SignerType } from "@/services/wallet"
+import { createSigner, SignerType } from "@/services/wallet"
 import { FXFiller, type TradingPair } from "@/strategies/fx"
 import { AssetRegistry } from "@/config/asset-registry"
 import { Decimal } from "decimal.js"
@@ -113,7 +114,7 @@ describe("Vault funding venue - testnet", () => {
 
 		const beneficiary = bytes20ToBytes32(solver)
 
-		let order: Order = {
+		const order: Order = {
 			user: bytes20ToBytes32(solver),
 			source: toHex(bscChapelId),
 			destination: toHex(polygonAmoyId),
@@ -378,7 +379,7 @@ async function createIntentFiller(
 	fundingVenues: VaultFundingPlanner[],
 ): Promise<{ intentFiller: IntentFiller; strategy: FXFiller }> {
 	const privateKey = process.env.PRIVATE_KEY as HexString
-	const signer = await createSimplexSigner({ type: SignerType.PrivateKey, key: privateKey })
+	const signer = await createSigner({ type: SignerType.PrivateKey, key: privateKey })
 	const cacheService = new CacheService()
 	const chainClientManager = new ChainClientManager(chainConfigService, signer)
 	const contractService = new ContractInteractionService(chainClientManager, chainConfigService, signer, cacheService)
@@ -416,6 +417,7 @@ async function createIntentFiller(
 		chainClientManager,
 		contractService,
 		signer,
+		{ orders: stubOrderScanner() },
 	)
 	return { intentFiller, strategy }
 }
@@ -467,7 +469,7 @@ async function setUp() {
 	}
 
 	const privateKey = process.env.PRIVATE_KEY as HexString
-	const signer = await createSimplexSigner({ type: SignerType.PrivateKey, key: privateKey })
+	const signer = await createSigner({ type: SignerType.PrivateKey, key: privateKey })
 	const cacheService = new CacheService()
 	const chainClientManager = new ChainClientManager(chainConfigService, signer)
 	const contractService = new ContractInteractionService(chainClientManager, chainConfigService, signer, cacheService)

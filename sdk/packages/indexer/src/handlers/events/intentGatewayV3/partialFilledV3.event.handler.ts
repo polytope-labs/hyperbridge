@@ -28,28 +28,33 @@ export const handlePartialFilledEventV3 = wrap(async (event: PartialFillLog): Pr
 		token: token.token as Hex,
 		amount: BigInt(token.amount.toString()),
 	}))
+	const mappedInputs = inputs.map((token) => ({
+		token: token.token as Hex,
+		amount: BigInt(token.amount.toString()),
+	}))
 
-	const enrichment = await resolveFillEnrichment(event, {
-		commitment,
-		filler,
-		outputs: mappedOutputs,
-		chain,
-	})
-
+	const enrichment = await resolveFillEnrichment(event, { commitment, filler, outputs: mappedOutputs, chain })
 	await IntentGatewayV3Service.recordPartialFill(
 		commitment,
-		filler as Hex,
+		filler,
 		mappedOutputs,
-		inputs.map((token) => ({
-			token: token.token as Hex,
-			amount: BigInt(token.amount.toString()),
-		})),
-		{
-			transactionHash,
-			blockNumber,
-			timestamp,
-			logIndex,
-		},
+		mappedInputs,
+		{ transactionHash, blockNumber, timestamp, logIndex },
 		enrichment,
 	)
+
+	// A partial fill spends the filler's output-token inventory exactly as a full one does, so the
+	// pools it drew on are re-read and published the same way. Best-effort: it reads external RPCs,
+	// and stale depth is recoverable — the next phantom bid window republishes it from scratch.
+	try {
+		await IntentGatewayV3Service.publishInventoryAfterFill({
+			commitment,
+			inputs: mappedInputs,
+			outputs: mappedOutputs,
+			timestamp,
+			blockNumber,
+		})
+	} catch (e: any) {
+		logger.error(`Failed to publish pool inventory for partially filled order ${commitment}: ${e.message}`)
+	}
 })

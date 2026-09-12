@@ -1,6 +1,6 @@
 import type { ERC7821Call } from "@hyperbridge/sdk"
-import { HexString } from "@hyperbridge/sdk"
-import { getLogger } from "./Logger"
+import type { HexString } from "@hyperbridge/sdk"
+import { defaultLoggerContext, type Logger, type LoggerContext } from "./Logger"
 
 interface GasEstimateCache {
 	totalCostInSourceFeeToken: string
@@ -66,6 +66,8 @@ interface CacheData {
 	fillerOutputs: Record<string, FillerOutputsCache>
 	pairClassifications: Record<string, PairClassificationsCache>
 	fundingPrepends: Record<string, FundingPrependsCache>
+	/** Orders whose evaluation concluded in a deliberate partial fill. */
+	partialFills: Record<string, { partial: boolean; timestamp: number }>
 	feeTokens: Record<string, { address: HexString; decimals: number }>
 	tokenDecimals: Record<string, Record<HexString, number>>
 	solverSelection: Record<string, boolean>
@@ -74,15 +76,17 @@ interface CacheData {
 export class CacheService {
 	private cacheData: CacheData
 	private readonly CACHE_EXPIRY_MS = 1 * 60 * 1000 // 1 minute
-	private logger = getLogger("cache-service")
+	private logger: Logger
 
-	constructor() {
+	constructor(loggers: LoggerContext = defaultLoggerContext()) {
+		this.logger = loggers.get("cache-service")
 		this.cacheData = {
 			gasEstimates: {},
 			swapOperations: {},
 			fillerOutputs: {},
 			pairClassifications: {},
 			fundingPrepends: {},
+			partialFills: {},
 			feeTokens: {},
 			tokenDecimals: {},
 			solverSelection: {},
@@ -136,6 +140,16 @@ export class CacheService {
 
 		staleFundingIds.forEach((orderId) => {
 			delete this.cacheData.fundingPrepends[orderId]
+		})
+
+		// Swept on its own timestamps: most orders never set fundingPrepends, so
+		// piggybacking on that sweep left the common case growing without bound.
+		const stalePartialIds = Object.entries(this.cacheData.partialFills)
+			.filter(([_, data]) => !this.isCacheValid(data.timestamp))
+			.map(([orderId]) => orderId)
+
+		stalePartialIds.forEach((orderId) => {
+			delete this.cacheData.partialFills[orderId]
 		})
 	}
 
@@ -336,6 +350,26 @@ export class CacheService {
 
 	clearFundingPrepends(orderId: string): void {
 		delete this.cacheData.fundingPrepends[orderId]
+	}
+
+	/**
+	 * Whether the strategy's completed evaluation of this order chose a partial fill.
+	 *
+	 * Only ever written by an evaluation that went on to return a fillable answer,
+	 * and cleared at the start of every evaluation — so a refusal can never leave a
+	 * `true` behind for the caller to act on.
+	 */
+	isPartialFill(orderId: string): boolean {
+		const cache = this.cacheData.partialFills[orderId]
+		return cache !== undefined && this.isCacheValid(cache.timestamp) && cache.partial
+	}
+
+	setPartialFill(orderId: string, partial: boolean): void {
+		this.cacheData.partialFills[orderId] = { partial, timestamp: Date.now() }
+	}
+
+	clearPartialFill(orderId: string): void {
+		delete this.cacheData.partialFills[orderId]
 	}
 
 	getFeeTokenWithDecimals(chain: string): { address: HexString; decimals: number } | null {

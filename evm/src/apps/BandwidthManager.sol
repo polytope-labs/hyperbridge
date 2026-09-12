@@ -70,6 +70,11 @@ contract BandwidthManager is HyperApp, ERC165, Ownable {
     /// the round-trip.
     bytes public constant PALLET_BANDWIDTH_MODULE_ID = bytes("BWMARKET");
 
+    /// Must equal the bound on `pallet_bandwidth::AppKey`. The pallet rejects anything longer,
+    /// so checking here fails the purchase before the payer is charged for a message that
+    /// cannot be credited.
+    uint256 public constant MAX_APP_LENGTH = 32;
+
     /// Discriminants for the first byte of an `onAccept` body. Order
     /// must match `pallet_bandwidth::lib.rs::ACTION_*`.
     enum OnAcceptActions {
@@ -149,7 +154,9 @@ contract BandwidthManager is HyperApp, ERC165, Ownable {
         external
         returns (bytes32 commitment)
     {
-        if (app.length == 0 || chain.length == 0 || months == 0) revert InvalidPurchase();
+        if (app.length == 0 || app.length > MAX_APP_LENGTH || chain.length == 0 || months == 0) {
+            revert InvalidPurchase();
+        }
         uint256 price18d = tierPrice[tier];
         if (price18d == 0) revert UnknownTier();
 

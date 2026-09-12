@@ -1,11 +1,12 @@
 import "log-timestamp"
 
 import { strict as assert } from "node:assert"
-import { decodeFunctionData, type PublicClient } from "viem"
+import { decodeFunctionData, formatUnits, parseUnits, type PublicClient } from "viem"
 import { ABI as IntentGatewayV2ABI } from "@/abis/IntentGatewayV2"
-import type { AvailableLiquiditySnapshot, HexString, Order, TokenInfo } from "@/types"
+import type { AvailableLiquidity, BuyAndSellRates, HexString, Order, TokenInfo } from "@/types"
 import { EvmChain } from "@/chain"
 import { IntentGateway } from "@/protocols/intents/IntentGateway"
+import { LiquidityEngine } from "@/protocols/intents/LiquidityEngine"
 import { DEFAULT_GRAFFITI } from "@/protocols/intents/types"
 import { createQueryClient } from "@/queryClient"
 import {
@@ -13,7 +14,7 @@ import {
 	grossUpForProtocolFee,
 	UNISWAP_INTENT_QUOTE_CHAIN,
 } from "@/protocols/intents/quote/uniswapV4"
-import { PhantomSnapshotIntentQuoteStrategy } from "@/protocols/intents/quote"
+import { divCeil } from "@/protocols/intents/quote/shared"
 import { ChainConfigService } from "@/configs/ChainConfigService"
 import { bytes20ToBytes32 } from "@/utils"
 import { UniswapQuoteEngine, type UniswapQuoteAdapter, type UniswapQuoteToken } from "@/utils/uniswapQuote"
@@ -87,11 +88,9 @@ describe("Intent quote helper", () => {
 	it("queries live USDC to cNGN liquidity", async () => {
 		const configService = new ChainConfigService()
 		const cNgnAddress = configService.getCNgnAsset(BASE_CHAIN)
-
 		assert(cNgnAddress, "Expected cNGN to be configured on Base")
 
 		const intentGateway = await createLiveBaseIntentGateway(configService)
-
 		const liquidity = await intentGateway.queryAvailableLiquidity({
 			tokenIn: configService.getUsdcAsset(BASE_CHAIN),
 			tokenOut: cNgnAddress,
@@ -104,80 +103,176 @@ describe("Intent quote helper", () => {
 		const configService = new ChainConfigService()
 		const cNgnAddress = configService.getCNgnAsset(BASE_CHAIN)
 		const usdcAddress = configService.getUsdcAsset(BASE_CHAIN)
-
 		assert(cNgnAddress, "Expected cNGN to be configured on Base")
+
 		const intentGateway = await createLiveBaseIntentGateway(configService)
-		const liquidity = await intentGateway.queryAvailableLiquidity({
-			tokenIn: cNgnAddress,
-			tokenOut: usdcAddress,
-		})
+		const liquidity = await intentGateway.queryAvailableLiquidity({ tokenIn: cNgnAddress, tokenOut: usdcAddress })
 
 		assertAndLogLiquidity("cNGN → USDC", liquidity, usdcAddress)
 	}, 120_000)
 
-	it("resolves Base USDT to the canonical USDC to cNGN liquidity snapshot", async () => {
+	it("queries the indexed Base USDT to cNGN pool directly", async () => {
 		const configService = new ChainConfigService()
 		const cNgnAddress = configService.getCNgnAsset(BASE_CHAIN)
-
 		assert(cNgnAddress, "Expected cNGN to be configured on Base")
+
 		const intentGateway = await createLiveBaseIntentGateway(configService)
 		const liquidity = await intentGateway.queryAvailableLiquidity({
 			tokenIn: configService.getUsdtAsset(BASE_CHAIN),
 			tokenOut: cNgnAddress,
 		})
 
-		assertAndLogLiquidity("USDT → cNGN (canonical USDC snapshot)", liquidity, cNgnAddress)
+		logLiquidity("USDT → cNGN", liquidity)
+		assert(liquidity, "Expected an indexed Base USDT → cNGN pool sample")
+		assert.equal(liquidity.tokenAddress, cNgnAddress.toLowerCase())
+		assert(!Number.isNaN(liquidity.updatedAt.getTime()))
+		assert(parseUnits(liquidity.destination.totalLiquidity, 18) >= 0n)
+		assert(liquidity.destination.providerCount >= 0)
 	}, 120_000)
 
-	it("quotes USDT through the Base USDC Phantom snapshot", async () => {
+	it("reports destination, unrestricted, and explicit cross-chain liquidity separately", async () => {
 		const configService = new ChainConfigService()
-		console.log("USDT -> cNGN intent quote through Base USDC snapshot")
-
-		const baseChain = makeEvmChain(CHAINS.base, configService)
 		const cNgnAddress = configService.getCNgnAsset(BASE_CHAIN)
-		assert(cNgnAddress)
-		const queryClient = createQueryClient({ url: "https://nexus.indexer.polytope.technology/" })
-		const intentGateway = (await IntentGateway.create(baseChain, baseChain)).withQueryClient(queryClient)
+		assert(cNgnAddress, "Expected cNGN to be configured on Base")
+		const sourceUsdc = configService.getUsdcAsset(CHAINS.eth.id)
+		const sourceToken = configService.getAssetMetadataByAddress(CHAINS.eth.id, sourceUsdc)
+		const destinationToken = configService.getAssetMetadataByAddress(BASE_CHAIN, cNgnAddress)
+		assert(sourceToken, "Expected Ethereum USDC metadata")
+		assert(destinationToken, "Expected Base cNGN metadata")
 
-		const quote = await intentGateway.quoteIntent({
-			tokenIn: configService.getUsdtAsset(BASE_CHAIN),
-			tokenOut: cNgnAddress,
-			amountIn: 1_000_000n,
+		const engine = new LiquidityEngine(
+			createQueryClient({ url: "https://nexus.indexer.polytope.technology/" }),
+		)
+		const liquidity = await engine.getAvailableLiquidity({
+			source: { chain: CHAINS.eth.id, ...sourceToken },
+			destination: { chain: BASE_CHAIN, ...destinationToken },
 		})
 
-		console.log("amountIn:", quote.amountIn.toString())
-		console.log("amountOut:", quote.amountOut.toString())
-		console.log("protocolFeeBps:", quote.quoteMetadata.protocolFeeBps.toString())
-		assert.equal(quote.strategy, "phantom_snapshot")
-		if (quote.strategy !== "phantom_snapshot") throw new Error("Expected Phantom snapshot quote")
-		console.log("snapshot commitment:", quote.quoteMetadata.commitment)
-		console.log("snapshot block:", quote.quoteMetadata.blockNumber.toString())
-
-		assert.equal(quote.tradeType, "EXACT_INPUT")
-		assert.equal(quote.amountIn, 1_000_000n)
-		assert(quote.amountOut > 0n)
-		assert.equal(quote.quoteMetadata.quoteChain, BASE_CHAIN)
-		assert(quote.quoteMetadata.medianPrice > 0n)
-		assert(quote.quoteMetadata.bidCount > 0)
-
-		const bscUsdtQuote = await new PhantomSnapshotIntentQuoteStrategy(configService, () => queryClient).quote(
-			{
-				tokenIn: configService.getUsdtAsset(CHAINS.bsc.id),
-				tokenOut: cNgnAddress,
-				amountIn: 1_000_000n,
-			},
-			{
-				stateMachineId: CHAINS.bsc.id,
-				client: {
-					readContract: async () => [0n, 0n, 0n, 0n, 5n],
-				} as unknown as PublicClient,
-			},
-			{ stateMachineId: BASE_CHAIN, client: baseChain.client },
+		logLiquidity("Ethereum USDC → Base cNGN", liquidity)
+		assert(liquidity, "Expected indexed Base destination liquidity")
+		assert.equal(liquidity.sourceChain, CHAINS.eth.id)
+		assert.equal(liquidity.destinationChain, BASE_CHAIN)
+		assert.equal(liquidity.tokenAddress, cNgnAddress.toLowerCase())
+		assert(parseUnits(liquidity.destination.totalLiquidity, 18) > 0n)
+		assert(
+			parseUnits(liquidity.unrestricted.totalLiquidity, 18) <=
+				parseUnits(liquidity.destination.totalLiquidity, 18),
 		)
-		assert.equal(bscUsdtQuote.strategy, "phantom_snapshot")
-		if (bscUsdtQuote.strategy !== "phantom_snapshot") throw new Error("Expected Phantom snapshot quote")
-		assert.equal(bscUsdtQuote.quoteMetadata.tokenA, configService.getUsdcAsset(BASE_CHAIN))
-		assert.equal(bscUsdtQuote.quoteMetadata.tokenB.toLowerCase(), cNgnAddress.toLowerCase())
+		assert(liquidity.unrestricted.providerCount <= liquidity.destination.providerCount)
+		if (liquidity.explicitRoute) {
+			assert(
+				parseUnits(liquidity.explicitRoute.totalLiquidity, 18) <=
+					parseUnits(liquidity.destination.totalLiquidity, 18),
+			)
+			assert(liquidity.explicitRoute.providerCount <= liquidity.destination.providerCount)
+		}
+	}, 120_000)
+
+	it("queries buy and sell rates using only symbols and chain IDs", async () => {
+		const configService = new ChainConfigService()
+		const intentGateway = await createLiveBaseIntentGateway(configService)
+		const rates = await intentGateway.queryBuyAndSellRates({
+			tokenInSymbol: "USDC",
+			tokenOutSymbol: "cngn",
+			sourceChainId: 1,
+			destinationChainId: 8453,
+		})
+
+		logRates("Ethereum USDC → Base cNGN", rates)
+		assert(rates, "Expected live chain-specific cNGN/USDC rates from Nexus")
+		assert.equal(rates.baseTokenSymbol, "USDC")
+		assert.equal(rates.quoteTokenSymbol, "cNGN")
+		assert(rates.buyRate && parseUnits(rates.buyRate, 18) > 1_000n * 10n ** 18n)
+		assert(rates.sellRate && parseUnits(rates.sellRate, 18) > 1_000n * 10n ** 18n)
+		assert(rates.buyRateUpdatedAt && !Number.isNaN(rates.buyRateUpdatedAt.getTime()))
+		assert(rates.sellRateUpdatedAt && !Number.isNaN(rates.sellRateUpdatedAt.getTime()))
+	}, 120_000)
+
+	it("quotes exact-input BSC USDC to Base cNGN from indexed rates", async () => {
+		const configService = new ChainConfigService()
+		const cNgnAddress = configService.getCNgnAsset(CHAINS.base.id)
+		const cNgnDecimals = configService.getCNgnDecimals(CHAINS.base.id)
+		assert(cNgnAddress, "Expected cNGN to be configured on Base")
+		assert(cNgnDecimals !== undefined, "Expected cNGN decimals to be configured on Base")
+		const intentGateway = await createLiveIntentGateway(CHAINS.bsc, CHAINS.base, configService)
+		const usdcDecimals = configService.getUsdcDecimals(CHAINS.bsc.id)
+		const amountIn = parseUnits("100", usdcDecimals)
+
+		const quote = await intentGateway.quoteIntent({
+			tokenIn: configService.getUsdcAsset(CHAINS.bsc.id),
+			tokenOut: cNgnAddress,
+			amountIn,
+		})
+
+		logIntentQuote("BSC USDC → Base cNGN exact input", quote)
+		assert.equal(quote.strategy, "indexed_rates")
+		if (quote.strategy !== "indexed_rates") throw new Error("Expected indexed rate quote")
+		const scaledRate = parseUnits(quote.quoteMetadata.rate, 18)
+		const netAmountIn = deductProtocolFee(amountIn, quote.quoteMetadata.protocolFeeBps)
+		const expectedAmountOut =
+			(netAmountIn * scaledRate * 10n ** BigInt(cNgnDecimals)) /
+			(10n ** BigInt(usdcDecimals) * 10n ** 18n)
+		assert.equal(quote.tradeType, "EXACT_INPUT")
+		assert.equal(quote.amountIn, amountIn)
+		assert.equal(quote.amountOut, expectedAmountOut)
+		assert(netAmountIn < amountIn, "Expected the on-chain protocol fee to reduce the priced input")
+		assert(quote.amountOut > parseUnits("100000", cNgnDecimals))
+		assert.equal(quote.quoteMetadata.sourceChain, CHAINS.bsc.id)
+		assert.equal(quote.quoteMetadata.destinationChain, CHAINS.base.id)
+		assert.equal(quote.quoteMetadata.rateSide, "buy")
+		assert(scaledRate > 1_000n * 10n ** 18n)
+		assert(!Number.isNaN(quote.quoteMetadata.rateUpdatedAt.getTime()))
+		console.log("Fee-adjusted buy quote:", {
+			amountIn: `${formatUnits(quote.amountIn, usdcDecimals)} USDC`,
+			amountOut: `${formatUnits(quote.amountOut, cNgnDecimals)} cNGN`,
+		})
+	}, 120_000)
+
+	it("quotes exact-output Base cNGN to BSC USDC from indexed rates", async () => {
+		const configService = new ChainConfigService()
+		const cNgnAddress = configService.getCNgnAsset(CHAINS.base.id)
+		const cNgnDecimals = configService.getCNgnDecimals(CHAINS.base.id)
+		assert(cNgnAddress, "Expected cNGN to be configured on Base")
+		assert(cNgnDecimals !== undefined, "Expected cNGN decimals to be configured on Base")
+		const intentGateway = await createLiveIntentGateway(CHAINS.base, CHAINS.bsc, configService)
+		const usdcDecimals = configService.getUsdcDecimals(CHAINS.bsc.id)
+		const amountOut = parseUnits("100", usdcDecimals)
+
+		const quote = await intentGateway.quoteIntent({
+			tokenIn: cNgnAddress,
+			tokenOut: configService.getUsdcAsset(CHAINS.bsc.id),
+			amountOut,
+		})
+
+		logIntentQuote("Base cNGN → BSC USDC exact output", quote)
+		assert.equal(quote.strategy, "indexed_rates")
+		if (quote.strategy !== "indexed_rates") throw new Error("Expected indexed rate quote")
+		const scaledRate = parseUnits(quote.quoteMetadata.rate, 18)
+		const requiredNetAmountIn = divCeil(
+			amountOut * 10n ** BigInt(cNgnDecimals) * scaledRate,
+			10n ** BigInt(usdcDecimals) * 10n ** 18n,
+		)
+		const expectedAmountIn = grossUpForProtocolFee(
+			requiredNetAmountIn,
+			quote.quoteMetadata.protocolFeeBps,
+		)
+		assert.equal(quote.tradeType, "EXACT_OUTPUT")
+		assert.equal(quote.amountOut, amountOut)
+		assert.equal(quote.amountIn, expectedAmountIn)
+		assert(
+			deductProtocolFee(quote.amountIn, quote.quoteMetadata.protocolFeeBps) >= requiredNetAmountIn,
+			"Expected the gross input to cover the required net input after the on-chain protocol fee",
+		)
+		assert(quote.amountIn > parseUnits("100000", cNgnDecimals))
+		assert.equal(quote.quoteMetadata.sourceChain, CHAINS.base.id)
+		assert.equal(quote.quoteMetadata.destinationChain, CHAINS.bsc.id)
+		assert.equal(quote.quoteMetadata.rateSide, "sell")
+		assert(scaledRate > 1_000n * 10n ** 18n)
+		assert(!Number.isNaN(quote.quoteMetadata.rateUpdatedAt.getTime()))
+		console.log("Fee-adjusted sell quote:", {
+			amountIn: `${formatUnits(quote.amountIn, cNgnDecimals)} cNGN`,
+			amountOut: `${formatUnits(quote.amountOut, usdcDecimals)} USDC`,
+		})
 	}, 120_000)
 })
 
@@ -397,37 +492,78 @@ function makeEvmChain(chain: ChainDef, configService: ChainConfigService, bundle
 }
 
 async function createLiveBaseIntentGateway(configService: ChainConfigService): Promise<IntentGateway> {
-	const baseChain = makeEvmChain(CHAINS.base, configService)
-	return (await IntentGateway.create(baseChain, baseChain)).withQueryClient(
-		createQueryClient({ url: "https://nexus.indexer.polytope.technology/" }),
+	return createLiveIntentGateway(CHAINS.base, CHAINS.base, configService)
+}
+
+async function createLiveIntentGateway(
+	source: ChainDef,
+	destination: ChainDef,
+	configService: ChainConfigService,
+): Promise<IntentGateway> {
+	const gateway = await IntentGateway.create(
+		makeEvmChain(source, configService),
+		makeEvmChain(destination, configService),
+	)
+	return gateway.withQueryClient(createQueryClient({ url: "https://nexus.indexer.polytope.technology/" }))
+}
+
+function logIntentQuote(label: string, quote: Awaited<ReturnType<IntentGateway["quoteIntent"]>>): void {
+	console.log(`[quoteIntent] ${label}`)
+	console.log({
+		...quote,
+		amountIn: quote.amountIn.toString(),
+		amountOut: quote.amountOut.toString(),
+		quoteMetadata: {
+			...quote.quoteMetadata,
+			protocolFeeBps: quote.quoteMetadata.protocolFeeBps.toString(),
+			...(quote.strategy === "indexed_rates"
+				? { rateUpdatedAt: quote.quoteMetadata.rateUpdatedAt.toISOString() }
+				: {}),
+		},
+	})
+}
+
+function logLiquidity(label: string, liquidity: AvailableLiquidity | undefined): void {
+	console.log(`[queryAvailableLiquidity] ${label}`)
+	console.log(
+		liquidity
+			? {
+					...liquidity,
+					updatedAt: liquidity.updatedAt.toISOString(),
+					explicitRoute: liquidity.explicitRoute
+						? { ...liquidity.explicitRoute, updatedAt: liquidity.explicitRoute.updatedAt.toISOString() }
+						: null,
+				}
+			: undefined,
+	)
+}
+
+function logRates(label: string, rates: BuyAndSellRates | undefined): void {
+	console.log(`[queryBuyAndSellRates] ${label}`)
+	console.log(
+		rates
+			? {
+					...rates,
+					buyRateUpdatedAt: rates.buyRateUpdatedAt?.toISOString() ?? null,
+					sellRateUpdatedAt: rates.sellRateUpdatedAt?.toISOString() ?? null,
+				}
+			: undefined,
 	)
 }
 
 function assertAndLogLiquidity(
 	pair: string,
-	liquidity: AvailableLiquiditySnapshot | undefined,
+	liquidity: AvailableLiquidity | undefined,
 	expectedTokenAddress: HexString,
-): asserts liquidity is AvailableLiquiditySnapshot {
-	assert(liquidity, `Expected a live ${pair} Phantom liquidity snapshot from Nexus`)
-	console.log(`Live ${pair} liquidity snapshot from Nexus`)
-	console.log({
-		totalLiquidity: liquidity.totalLiquidity,
-		providerCount: liquidity.providerCount,
-		tokenAddress: liquidity.tokenAddress,
-		snapshotTime: liquidity.snapshotTime.toISOString(),
-		liquidityByChain: liquidity.liquidityByChain,
-	})
-	assert.notEqual(liquidity.totalLiquidity, "0")
-	assert(liquidity.providerCount > 0)
-	assert.equal(liquidity.tokenAddress.toLowerCase(), expectedTokenAddress.toLowerCase())
-	assert(!Number.isNaN(liquidity.snapshotTime.getTime()))
-	assert(liquidity.liquidityByChain.length > 0)
+): asserts liquidity is AvailableLiquidity {
+	logLiquidity(pair, liquidity)
+	assert(liquidity, `Expected live ${pair} indexed pool liquidity from Nexus`)
+	assert.notEqual(liquidity.destination.totalLiquidity, "0")
+	assert(liquidity.destination.providerCount > 0)
+	assert.equal(liquidity.tokenAddress, expectedTokenAddress.toLowerCase())
+	assert(!Number.isNaN(liquidity.updatedAt.getTime()))
 	assert(
-		liquidity.liquidityByChain.some(
-			(group) =>
-				group.chain === CHAINS.base.id &&
-				group.tokenAddress.toLowerCase() === expectedTokenAddress.toLowerCase(),
-		),
+		parseUnits(liquidity.unrestricted.totalLiquidity, 18) <= parseUnits(liquidity.destination.totalLiquidity, 18),
 	)
 }
 

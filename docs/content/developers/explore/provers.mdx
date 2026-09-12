@@ -11,7 +11,7 @@ Without provers, cross-chain messages dispatched through Hyperbridge cannot be d
 
 ## How It Works
 
-![Prover flow](/images/prover-flow.svg)
+![Prover flow](./images/prover-flow.svg)
 
 
 The prover watches the relay chain for BEEFY authority set rotations and monitors Hyperbridge for newly dispatched cross-chain messages that need to be proven. When new messages are found, it generates a consensus proof covering the parachain block range that includes them and submits it as an unsigned extrinsic to the Hyperbridge runtime via `pallet-beefy-consensus-proofs`.

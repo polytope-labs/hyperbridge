@@ -27,15 +27,16 @@
  *
  * Override endpoints via SIMNODE_URL / ANVIL_URL / ANVIL2_URL.
  */
+import { stubOrderScanner } from "./helpers/stub-scanner"
+import { HyperbridgeScanner } from "@/scanner/hyperbridge-scanner"
 import { ApiPromise, WsProvider, Keyring } from "@polkadot/api"
-import { hexToU8a, u8aToString } from "@polkadot/util"
+import { hexToU8a, u8aToHex, u8aToString } from "@polkadot/util"
 import { keccakAsU8a } from "@polkadot/util-crypto"
 import { encodeAbiParameters, keccak256, toHex } from "viem"
 import { privateKeyToAccount } from "viem/accounts"
 import { describe, it, expect, beforeAll, afterAll } from "vitest"
 import { IntentFiller } from "@/core/filler"
 import {
-	BidStorageService,
 	CacheService,
 	ChainClientManager,
 	ContractInteractionService,
@@ -43,7 +44,8 @@ import {
 	type ResolvedChainConfig,
 	type FillerConfig as FillerServiceConfig,
 } from "@/services"
-import { createSimplexSigner, SignerType } from "@/services/wallet"
+import { SqliteDataStore } from "@/data/sqlite"
+import { createSigner, SignerType } from "@/services/wallet"
 import { FXFiller, type TradingPair } from "@/strategies/fx"
 import { AssetRegistry } from "@/config/asset-registry"
 import { Decimal } from "decimal.js"
@@ -122,38 +124,27 @@ const CHAINS = [
 // //Alice is reserved for the driver's sudo/sealing, so fillers use other dev accounts to avoid
 // nonce contention.
 //
-// Each filler declares a different accepted-source-chains state so the aggregation must surface
-// all three route semantics per bidder: an explicit list, an explicit empty list (accepts
-// nothing), and no declaration at all (null — the legacy "all covered chains" default).
 const FILLERS = [
 	{
 		suri: "//Bob",
 		evmKey: "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d" as HexString,
 		cngnPerUsd: "1500",
-		declaredSources: ["EVM-1", "EVM-8453"] as string[] | undefined,
 	},
 	{
 		suri: "//Charlie",
 		evmKey: "0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a" as HexString,
 		cngnPerUsd: "1510",
-		declaredSources: [] as string[] | undefined,
 	},
 	{
 		suri: "//Dave",
 		evmKey: "0x7c852118294e51e653712a81e05800f419141751be58f605c371e15141b007a6" as HexString,
 		cngnPerUsd: "1520",
-		declaredSources: undefined as string[] | undefined,
 	},
 ]
 
-// What decodeAcceptedSourceChains must yield for each solver's bid: the declared list survives
-// the ride verbatim, an empty declaration stays [] (not null), and no declaration decodes to null.
-const EXPECTED_SOURCES = new Map(
-	FILLERS.map((f) => [
-		privateKeyToAccount(f.evmKey).address.toLowerCase(),
-		f.declaredSources ?? null,
-	]),
-)
+// What decodeAcceptedSourceChains must yield for every solver's bid: the filler declares every
+// configured chain in ascending chain-id order, so all three declare both chains.
+const EXPECTED_SOURCES = [...CHAINS].sort((a, b) => a.chainId - b.chainId).map((c) => c.stateMachine)
 
 // ─── simnode driving (manual seal) ──────────────────────────────────────────────────────────────
 
@@ -176,7 +167,11 @@ async function sudoAndSeal(api: ApiPromise, call: any): Promise<void> {
 async function seedStateMachineHeight(api: ApiPromise, chainId: number, height: bigint): Promise<void> {
 	const id = { state_id: { Evm: chainId }, consensus_state_id: ETH0_CONSENSUS_ID }
 	const key = api.query.ismp.latestStateMachineHeight.key(id)
-	await sudoAndSeal(api, api.tx.system.setStorage([[key, api.createType("u64", height).toHex()]]))
+	// `toU8a()` and not `toHex()`: polkadot-js renders integers big-endian in hex, while SCALE
+	// stores them little-endian. Seeding the hex form wrote 0x00000000000f4240, which the runtime
+	// decoded as 4.6e18 — so every phantom order carried a far-future deadline and was, contrary
+	// to the point of a phantom order, genuinely fillable on-chain.
+	await sudoAndSeal(api, api.tx.system.setStorage([[key, u8aToHex(api.createType("u64", height).toU8a())]]))
 }
 // Two pairs per chain: both stables against cNGN. Each pair expands into its forward and
 // reverse legs, so every chain's order carries four legs.
@@ -188,11 +183,11 @@ async function setPhantomOrderConfig(api: ApiPromise): Promise<void> {
 		// 1 cNGN (6 decimals) — the reverse leg's benchmark quantity.
 		standard_amount_b: 1_000_000n,
 	}))
+	// `chains` maps each state machine id to its own token pairs; the interval is shared.
 	const config = {
-		chains: CHAINS.map((c) => ({
-			chain: { state_id: { Evm: c.chainId }, consensus_state_id: ETH0_CONSENSUS_ID },
-			token_pairs: tokenPairs,
-		})),
+		chains: new Map(
+			CHAINS.map((c) => [{ state_id: { Evm: c.chainId }, consensus_state_id: ETH0_CONSENSUS_ID }, tokenPairs]),
+		),
 		interval_blocks: 10,
 	}
 	await sudoAndSeal(api, api.tx.intentsCoprocessor.setPhantomOrderConfig(config))
@@ -245,8 +240,9 @@ async function buildPhantomFiller(opts: {
 	suri: string
 	evmKey: HexString
 	cngnPerUsd: string
-	declaredSources: string[] | undefined
+	phantomScanner: HyperbridgeScanner
 }): Promise<{ filler: IntentFiller; solver: HexString; gateway: HexString }> {
+	const { phantomScanner } = opts
 	const resolvedChains: ResolvedChainConfig[] = CHAINS.map((c) => ({
 		chainId: c.chainId,
 		rpcUrls: [c.anvilUrl],
@@ -262,10 +258,9 @@ async function buildPhantomFiller(opts: {
 	const fillerConfig: FillerConfig = {
 		maxConcurrentOrders: 5,
 		pendingQueueConfig: { maxRechecks: 10, recheckDelayMs: 30_000 },
-		acceptedSourceChains: opts.declaredSources,
 	}
 
-	const signer = await createSimplexSigner({ type: SignerType.PrivateKey, key: opts.evmKey })
+	const signer = await createSigner({ type: SignerType.PrivateKey, key: opts.evmKey })
 	const chainClientManager = new ChainClientManager(configService, signer)
 	const contractService = new ContractInteractionService(
 		chainClientManager,
@@ -308,14 +303,19 @@ async function buildPhantomFiller(opts: {
 		chainClientManager,
 		contractService,
 		signer,
+		// Orders stay stubbed — this suite drives phantom orders, which arrive via
+		// the Hyperbridge scanner, and phantom bids need no gateway scanning. The
+		// hyperbridge scanner must be REAL: without one the filler never sees a
+		// phantom order and every "expected 3 bids" assertion reads 0.
+		{ orders: stubOrderScanner(), hyperbridge: phantomScanner },
 		undefined,
-		new BidStorageService(configService.getDataDir()),
+		new SqliteDataStore(".simplex-data").bids,
 	)
 	await filler.initialize()
 	filler.start()
 	return {
 		filler,
-		solver: signer.account.address as HexString,
+		solver: signer.address as HexString,
 		// The gateway the filler targets in its fillOrder call — the aggregation must filter on the same one.
 		gateway: configService.getIntentGatewayAddress(BASE_STATE_MACHINE) as HexString,
 	}
@@ -328,8 +328,13 @@ describe("Phantom filler E2E (real IntentFillers + simnode + anvil-forked Base)"
 	let driver: IntentsCoprocessor
 	let gateway: HexString
 	const fillers: IntentFiller[] = []
+	let phantomScanner: HyperbridgeScanner
 
 	beforeAll(async () => {
+		// One shared phantom feed for every filler — the pattern the scanners were
+		// built for, and the only way a directly-constructed IntentFiller sees
+		// phantom orders at all.
+		phantomScanner = await HyperbridgeScanner.create(SIMNODE_URL)
 		api = await ApiPromise.create({
 			provider: new WsProvider(SIMNODE_URL),
 			typesBundle: { spec: { gargantua: { hasher: keccakAsU8a } } },
@@ -364,7 +369,7 @@ describe("Phantom filler E2E (real IntentFillers + simnode + anvil-forked Base)"
 		}
 
 		for (const f of FILLERS) {
-			const { filler, gateway: gw } = await buildPhantomFiller(f)
+			const { filler, gateway: gw } = await buildPhantomFiller({ ...f, phantomScanner })
 			fillers.push(filler)
 			gateway = gw
 		}
@@ -372,6 +377,7 @@ describe("Phantom filler E2E (real IntentFillers + simnode + anvil-forked Base)"
 
 	afterAll(async () => {
 		await Promise.all(fillers.map((f) => f.stop().catch(() => {})))
+		await phantomScanner?.close().catch(() => {})
 		await api?.disconnect()
 	}, 60_000)
 
@@ -463,10 +469,8 @@ describe("Phantom filler E2E (real IntentFillers + simnode + anvil-forked Base)"
 					expect(bidder.weight).toBeGreaterThan(0n)
 					// Route indexing: each solver's accepted-source declaration rode inside its
 					// bid's paymasterAndData — covered by the solver's signature — and survived
-					// SCALE encoding and aggregation with all three semantics intact (explicit
-					// list, explicit empty list, null for no declaration).
-					expect(EXPECTED_SOURCES.has(bidder.solver.toLowerCase())).toBe(true)
-					expect(bidder.acceptedSources).toEqual(EXPECTED_SOURCES.get(bidder.solver.toLowerCase()))
+					// SCALE encoding and aggregation as the explicit list of chains it fills on.
+					expect(bidder.acceptedSources).toEqual(EXPECTED_SOURCES)
 				}
 			}
 			// One swept balance per filler per configured token on this chain.

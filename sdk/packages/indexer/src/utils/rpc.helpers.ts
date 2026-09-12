@@ -47,7 +47,8 @@ interface ETHGetBlockByHashResponse {
 
 interface CallTracerCall {
 	from: string
-	to: string
+	to?: string
+	error?: string
 	gas: string
 	gasUsed: string
 	input: string
@@ -119,8 +120,10 @@ function findCallInputsByAddress(call: CallTracerCall, targetContractAddress: st
 	// Recursively search nested calls only (skip the current call itself)
 	if (call.calls && Array.isArray(call.calls)) {
 		for (const nestedCall of call.calls) {
+			// Reverted call subtrees cannot have produced a persisted fill log.
+			if (nestedCall.error) continue
 			// Check if this nested call matches the target
-			if (nestedCall.to.toLowerCase() === normalizedTarget) {
+			if (nestedCall.to?.toLowerCase() === normalizedTarget) {
 				inputs.push(nestedCall.input)
 			}
 			// Recursively search deeper nested calls
@@ -204,7 +207,7 @@ export async function getContractCallInputs(
 	const normalizedTarget = targetContractAddress.toLowerCase()
 
 	// If the transaction directly calls the target contract, return an empty array
-	if (trace.result.to.toLowerCase() === normalizedTarget) {
+	if (trace.result.to?.toLowerCase() === normalizedTarget) {
 		return []
 	}
 

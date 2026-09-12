@@ -1,0 +1,77 @@
+---
+title: Treasury
+description: Park idle stablecoins in ERC-4626 vaults that still fund fills, and keep per-chain balances near a base.
+---
+
+# Treasury
+
+Idle stablecoins do not have to sit in the wallet doing nothing, and balances do not have to be topped up by hand. The `[vault]` section parks the float in ERC-4626 vaults it can still withdraw from mid-fill; `[rebalancing]` keeps each chain near a base balance.
+
+## Vault treasury (ERC-4626)
+
+The optional top-level `[vault]` section configures a **solver-wide stablecoin treasury** backed by ERC-4626 vaults. Any ERC-4626 vault works — for example Aave's `stataToken` for USDC — so idle treasury earns yield while remaining available for fills. Each entry needs a `chain` and a `vault` address; the underlying asset and its decimals are resolved on-chain at startup.
+
+<Callout type="info">
+This is distinct from the [`[vault.uniswapV4]`](/developers/evm/simplex/pricing#uniswap-v4-lp-funding) source, which shares the `[vault]` section. The ERC-4626 treasury sources **stablecoins**; `[vault.uniswapV4]` sources and prices the **exotic** token.
+</Callout>
+
+One vault list drives three behaviours:
+
+1. **Sourcing** — when wallet balance is short on a fill, Simplex withdraws the deficit from the solver's vault position. The withdrawal is prepended to the UserOperation as ERC-7821 batch calls, so it is atomic with the fill.
+2. **Sweeping** — a timer (`sweepIntervalMs`, default 5 min) waits for wallet balance to reach the `threshold` high-water mark, then deposits everything down to `minBalance`. Size `minBalance` to cover working fill float plus gas/paymaster spend; the `threshold`–`minBalance` gap is the guaranteed minimum sweep size, so balance oscillates between the two without thrashing on dust.
+3. **Shutdown** — on stop, positions are kept across restarts by default. Set `redeemOnShutdown = true` on a vault to instead redeem its position back to the underlying asset when the solver stops.
+
+Omit `threshold`/`minBalance` on a vault to make it **withdraw-only** (sourcing + shutdown, no sweeping) for that token.
+
+<Callout type="warn">
+    A vault with no `minBalance` also has no floor for sends. A send that draws on it withdraws
+    exactly what the transfer is short by, so the wallet ends at zero — and on the sponsored path
+    the paymaster debits its gas from that same token during validation, before the transfer runs.
+    Set `minBalance` on any vault whose asset the paymaster charges in.
+</Callout>
+
+```toml lineNumbers
+[vault]
+sweepIntervalMs = 300000   # optional, default 5 min
+
+# Aave stataUSDC on Base — once balance hits $5,000, sweep down to $3,000
+[[vault.vaults]]
+chain      = "EVM-8453"
+vault      = "0xC768c589647798a6EE01A91FdE98EF2ed046DBD6"
+threshold  = "5000"
+minBalance = "3000"
+
+# Aave stataUSDT on Arbitrum
+[[vault.vaults]]
+chain      = "EVM-42161"
+vault      = "0xa6D12574eFB239FC1D2099732bd8b5dC6306897F"
+threshold  = "5000"
+minBalance = "3000"
+```
+
+| Field | Required | Description |
+|---|---|---|
+| `chain` | yes | State-machine ID the vault lives on (e.g. `"EVM-8453"`) |
+| `vault` | yes | ERC-4626 vault address |
+| `threshold` | no | High-water balance (human units) that triggers a sweep down to `minBalance`. Omit to disable sweeping (withdraw-only). |
+| `minBalance` | conditional | Wallet floor (human units). The sweep deposits down to it, and an operator send that draws on this vault withdraws it on top of the shortfall, so the wallet is left at the floor rather than at zero. Required when `threshold` is set, and must be less than it. |
+| `redeemOnShutdown` | no | Redeem this position back to the underlying asset on shutdown. Defaults to `false` (the position is kept across restarts). |
+
+## Rebalancing
+
+The optional `[rebalancing]` section keeps per-chain, per-asset balances near a configured base. Rebalancing triggers when a balance falls to `(1 - triggerPercentage) × baseBalance`. Base balances are expressed in USD value (treated as $1 per stablecoin), keyed by asset symbol and then by numeric chain ID.
+
+```toml lineNumbers
+[rebalancing]
+triggerPercentage = 0.5   # trigger when balance ≤ 50% of base
+
+[rebalancing.baseBalances."USDC"]
+"1"     = "10000"   # Ethereum: $10k USDC base
+"8453"  = "10000"   # Base
+"42161" = "10000"   # Arbitrum
+
+[rebalancing.baseBalances."USDT"]
+"1"     = "10000"
+"8453"  = "10000"
+"42161" = "10000"
+```

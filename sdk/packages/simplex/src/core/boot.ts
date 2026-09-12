@@ -1,60 +1,107 @@
+import { formatUnits } from "viem"
 import { Decimal } from "decimal.js"
 import { IntentFiller } from "@/core/filler"
-import { loadRuntimeState } from "@/core/runtime-state"
 import { FXFiller, type TradingPair } from "@/strategies/fx"
 import type { VaultConfig, FundingVenue, UniswapV4PositionConfig } from "@/funding/types"
 import { UniswapV4FundingPlanner } from "@/funding/uniswapV4/UniswapV4FundingPlanner"
 import { VaultFundingPlanner } from "@/funding/vault/VaultFundingPlanner"
 import { VaultLiquidityState } from "@/funding/vault/VaultLiquidityState"
 import { TokenSender } from "@/services/TokenSender"
-import { FillerPricePolicy, parseChainKey } from "@/config/interpolated-curve"
-import { AssetRegistry, normalizeSymbol } from "@/config/asset-registry"
+import { FillerPricePolicy, formatChainKey, parseChainKey } from "@/config/interpolated-curve"
+import { AssetRegistry, normalizeSymbol, registrySymbols } from "@/config/asset-registry"
 import { assertPairSymbolsResolve, type PairConfig } from "@/config/pairs"
-import { ChainConfig, FillerConfig, HexString } from "@hyperbridge/sdk"
+import type { ChainConfig, FillerConfig, HexString } from "@hyperbridge/sdk"
 import {
 	FillerConfigService,
 	type ResolvedChainConfig,
-	FillerConfig as FillerServiceConfig,
+	type FillerConfig as FillerServiceConfig,
 	resolveChainConfigs,
 } from "@/services/FillerConfigService"
 import { assertConfirmationCoverage, validateConfig, type FillerTomlConfig, type VaultToml } from "@/config/filler-toml"
+import type { ConfirmationPolicy } from "@/config/interpolated-curve"
+import { DEFAULT_MAX_CONCURRENT_ORDERS } from "@/config/defaults"
 import { ChainClientManager } from "@/services/ChainClientManager"
 import { ContractInteractionService } from "@/services/ContractInteractionService"
 import { UserOpSender } from "@/services/UserOpSender"
 import { RebalancingService } from "@/services/RebalancingService"
-import { getLogger, configureLogger, type LogLevel } from "@/services/Logger"
+import { getLogger, moduleLogger, type Logger, type LogLevel, type LoggerContext } from "@/services/Logger"
 import { CacheService } from "@/services/CacheService"
-import { BidStorageService } from "@/services/BidStorageService"
-import { initializeSignerFromToml } from "@/services/wallet"
-import { MetricsService } from "@/services/MetricsService"
 import { BalanceProvider } from "@/services/BalanceProvider"
-import { ActivityLogService } from "@/services/ActivityLogService"
+import { ActivityRecorder, type TokenDescriber } from "@/data/recorder"
+import { backfillOrderSummaries, DEFAULT_INDEXER_URLS } from "@/data/backfill"
+import { backfillVaultLedger } from "@/data/ledger-backfill"
+import { chainByChainId } from "@/cli/init/chains"
+import type { SimplexDataStore } from "@/data/types"
+import type { HyperbridgeScanner, OrderScanner } from "@/scanner/types"
 import type { AdminStrategy, HaltControl } from "@/services/server/UiServer"
 import type { BinanceCexConfig } from "@/services/rebalancers/index"
-import type { SigningAccount } from "@/services/wallet"
+import type { Signer } from "@/services/wallet"
 
 export interface BootOptions {
-	configPath: string
-	dataDir?: string
+	/** Where the config was loaded from, when it came from a file. Purely informational. */
+	configPath?: string
+	/** Persistence backend. Required — `Simplex.start` defaults it to a MemoryDataStore. */
+	data: SimplexDataStore
+	/**
+	 * Whether shutdown may close `data`. False for a caller-supplied store: two
+	 * solvers can share one, and the first to stop must not pull it out from
+	 * under the second — the same ownership rule the scanners follow.
+	 */
+	ownsData?: boolean
+	/**
+	 * This filler's logging destination. Every service resolves its logger from
+	 * here, so two fillers in one process never write into each other's sinks.
+	 */
+	loggers: LoggerContext
+	/**
+	 * Event scanners this filler reads from. `Simplex.start` supplies the ones the
+	 * caller passed, or builds private ones from this config.
+	 */
+	scanners: { orders: OrderScanner; hyperbridge?: HyperbridgeScanner }
 	/** --watch-only CLI flag: forces watch-only on every chain. */
 	watchOnlyOverride?: boolean
-	/** Prometheus bind, when -p was passed with a valid value. */
-	metricsBind?: { host: string; port: number }
+	/**
+	 * How this solver signs. Required unless every chain is watch-only, where a
+	 * throwaway key stands in for an account that never signs anything.
+	 */
+	signer?: Signer
 }
 
 /** Everything a running filler exposes to the UI server and the CLI. */
 export interface FillerRuntime {
 	intentFiller: IntentFiller
 	balanceProvider: BalanceProvider
-	metrics?: MetricsService
 	vaultVenue?: VaultFundingPlanner
 	/** Live FillerPricePolicy handles shared with the trading engine, one per curve-priced pair. */
 	adminStrategies: AdminStrategy[]
 	/** Self-halt visibility/reset for the trading engine (overfill protection). */
 	haltControls: HaltControl[]
-	activityLog: ActivityLogService
-	bidStorage: BidStorageService
+	/** Live order-activity bridge; emits `event` per stored row. */
+	activity: ActivityRecorder
+	/** The persistence backend this filler was started with. */
+	data: SimplexDataStore
 	configService: FillerConfigService
+	/** Owns the per-chain viem clients; chain edits invalidate through it. */
+	chainClientManager: ChainClientManager
+	/** The order scanner this filler reads from, whether it built it or was handed one. */
+	orderScanner: OrderScanner
+	/**
+	 * True when the operator asked for watch-only across the board, rather than
+	 * per chain. Boot expands it over the chains it knows; keeping the intent is
+	 * what lets a chain added later inherit it instead of quietly filling.
+	 */
+	globalWatchOnly: boolean
+	/**
+	 * True when this filler was started without a signer — a watch-only observer
+	 * running on a throwaway key. The chain controller refuses to take a chain
+	 * out of watch-only while this is set: the generated key holds no funds and
+	 * dies with the process, so "filling" from it can only burn bids.
+	 */
+	signerless: boolean
+	/** The live confirmation policy the engine prices with; runtime chain adds install into it. */
+	confirmationPolicy?: ConfirmationPolicy
+	/** This filler's logging destination. */
+	loggers: LoggerContext
 	/** Symbol-to-address resolution for the configured chains (send options, balance labels). */
 	assetRegistry: AssetRegistry
 	/** The live trading engine, absent when the config declared no pairs. */
@@ -68,7 +115,8 @@ export interface FillerRuntime {
 	fillerAddress: HexString
 	watchOnly?: Record<number, boolean>
 	config: FillerTomlConfig
-	configPath: string
+	/** Where the config came from, when it came from a file. */
+	configPath?: string
 	/**
 	 * Hydrates throwaway state for a prospective vault set (read-only on-chain
 	 * calls) so hydration-time errors — unconfigured chain, same-asset
@@ -77,10 +125,19 @@ export interface FillerRuntime {
 	vaultPreflight(vaults: VaultToml[]): Promise<void>
 	/** Operator-initiated outbound transfers (dashboard Send). */
 	tokenSender: TokenSender
-	dataDir?: string
 	startedAt: number
 	/** Stops everything bootFiller started. Idempotent; does NOT process.exit. */
 	shutdown(signal: string): Promise<void>
+}
+
+/**
+ * True when every resolved chain is marked watch-only, so nothing ever needs
+ * signing. Exported for its tests: this is the exemption that admits a
+ * signerless boot, and a bug here puts a throwaway key to work filling.
+ */
+export function allChainsWatchOnly(watchOnly: Record<number, boolean> | undefined, chains: ResolvedChainConfig[]): boolean {
+	if (!watchOnly) return false
+	return chains.every((chain) => watchOnly[chain.chainId] === true)
 }
 
 /** One TOML pair to the engine's TradingPair shape (curves become live policies). */
@@ -88,8 +145,9 @@ export function tradingPairFrom(pair: PairConfig): TradingPair {
 	return {
 		token0: pair.token0,
 		token1: pair.token1,
-		// Reference-only pairs never fill, so the cap is never consulted.
-		maxOrderSize: new Decimal(pair.maxOrderSize ?? "0"),
+		// Optional: absent means uncapped. Reference-only pairs never fill, so the
+		// cap is never consulted for them either way.
+		maxOrderSize: pair.maxOrderSize === undefined ? undefined : new Decimal(pair.maxOrderSize),
 		referenceOnly: pair.referenceOnly === true,
 		bidPricePolicy: pair.bidPriceCurve?.length ? new FillerPricePolicy({ points: pair.bidPriceCurve }) : undefined,
 		askPricePolicy: pair.askPriceCurve?.length ? new FillerPricePolicy({ points: pair.askPriceCurve }) : undefined,
@@ -99,13 +157,18 @@ export function tradingPairFrom(pair: PairConfig): TradingPair {
 /**
  * Editable view of one trading pair for the UI server, or null for
  * venue-priced (curve-less) pairs — they have nothing to edit. The
- * enableSide/disableSide/setMaxOrderSize closures mutate the live TradingPair:
+ * enableSide/disableSide/setMaxOrderSize/clearMaxOrderSize closures mutate the
+ * live TradingPair:
  * the engine reads curve presence and the cap per order, so assignment opens or
  * closes a direction and resizes the market from the next evaluation.
  */
-export function adminStrategyFor(pair: TradingPair, pairIndex: number, index: number): AdminStrategy | null {
+export function adminStrategyFor(
+	pair: TradingPair,
+	pairIndex: number,
+	index: number,
+	logger: Logger = getLogger("cli"),
+): AdminStrategy | null {
 	if (!pair.bidPricePolicy && !pair.askPricePolicy) return null
-	const logger = getLogger("cli")
 	const sameToken = normalizeSymbol(pair.token0) === normalizeSymbol(pair.token1)
 	const adminStrategy: AdminStrategy = {
 		index,
@@ -119,16 +182,26 @@ export function adminStrategyFor(pair: TradingPair, pairIndex: number, index: nu
 		referenceOnly: pair.referenceOnly === true,
 	}
 	// A reference pair's cap is never consulted (it never fills), so leave it
-	// absent rather than surfacing the placeholder "0" as editable.
+	// absent rather than surfacing an editable field that does nothing. An
+	// uncapped pair reports no current value but can still be given one.
 	if (pair.referenceOnly !== true) {
-		adminStrategy.maxOrderSize = pair.maxOrderSize.toString()
+		adminStrategy.maxOrderSize = pair.maxOrderSize?.toString()
 		adminStrategy.setMaxOrderSize = (value) => {
-			const previous = pair.maxOrderSize.toString()
+			const previous = pair.maxOrderSize?.toString() ?? "uncapped"
 			pair.maxOrderSize = new Decimal(value)
 			adminStrategy.maxOrderSize = value
 			logger.warn(
 				{ pair: `${pair.token0}/${pair.token1}`, previous, next: value },
 				"Per-order cap resized by operator",
+			)
+		}
+		adminStrategy.clearMaxOrderSize = () => {
+			const previous = pair.maxOrderSize?.toString() ?? "uncapped"
+			pair.maxOrderSize = undefined
+			adminStrategy.maxOrderSize = undefined
+			logger.warn(
+				{ pair: `${pair.token0}/${pair.token1}`, previous },
+				"Per-order cap removed by operator — market is now uncapped",
 			)
 		}
 	}
@@ -175,36 +248,47 @@ export function adminStrategyFor(pair: TradingPair, pairIndex: number, index: nu
 export async function bootFiller(config: FillerTomlConfig, options: BootOptions): Promise<FillerRuntime> {
 	validateConfig(config, options.watchOnlyOverride === true)
 
-	// Configure logger based on config BEFORE creating any services
-	if (config.simplex.logging) {
-		configureLogger(config.simplex.logging as LogLevel)
-	}
-
-	const logger = getLogger("cli")
+	const logger = moduleLogger(options.loggers, "cli")
 	logger.info({ configPath: options.configPath }, "Loading configuration")
 	logger.info("Starting Filler...")
 
 	logger.info("Initializing services...")
+
+	// Everything constructed past this point needs tearing down if a later step
+	// throws. `initialize()` legitimately rejects (delegation on an unfunded EOA),
+	// and without this the Hyperbridge socket, scanners and timers outlive the
+	// failure with nothing holding a reference to stop them.
+	const started: Array<() => Promise<void> | void> = []
+	const unwind = async () => {
+		for (const stop of started.reverse()) {
+			try {
+				await stop()
+			} catch (err) {
+				logger.warn({ err }, "Cleanup step failed while unwinding a failed boot")
+			}
+		}
+	}
 
 	logger.info("Resolving chain IDs from RPC endpoints...")
 	const resolvedChains: ResolvedChainConfig[] = await resolveChainConfigs(config.chains)
 	logger.info({ chains: resolvedChains.map((c) => c.chainId) }, "Chain IDs resolved")
 
 	const fillerConfigForService: FillerServiceConfig = {
-		maxConcurrentOrders: config.simplex.maxConcurrentOrders,
+		maxConcurrentOrders: config.simplex.maxConcurrentOrders ?? DEFAULT_MAX_CONCURRENT_ORDERS,
 		logging: config.simplex.logging as LogLevel | undefined,
 		substratePrivateKey: config.simplex.substratePrivateKey,
 		hyperbridgeWsUrl: config.simplex.hyperbridgeWsUrl,
 		entryPointAddress: config.simplex.entryPointAddress,
-		dataDir: options.dataDir,
 		rebalancing: config.rebalancing,
 		targetGasUnits: config.simplex.targetGasUnits,
+		bidValiditySeconds: config.simplex.bidValiditySeconds,
+		blockScanIntervalSeconds: config.simplex.blockScanIntervalSeconds,
 		gasFeeBump: config.simplex.gasFeeBump,
 		overfillProtection: config.simplex.overfillProtection,
 		allowlist: config.allowlist,
 	}
 
-	const configService = new FillerConfigService(resolvedChains, fillerConfigForService)
+	const configService = new FillerConfigService(resolvedChains, fillerConfigForService, options.loggers)
 
 	const chainConfigs: ChainConfig[] = resolvedChains.map((chain) => {
 		const chainName = `EVM-${chain.chainId}`
@@ -214,6 +298,7 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 	// Create filler configuration
 	// Handle watchOnly: can be boolean (global) or Record<string, boolean> (per-chain)
 	let watchOnlyConfig: Record<number, boolean> | undefined
+	const globalWatchOnly = options.watchOnlyOverride === true || config.simplex.watchOnly === true
 	if (options.watchOnlyOverride) {
 		// CLI flag overrides config - apply to all chains
 		watchOnlyConfig = {}
@@ -235,7 +320,9 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 				if (chainId === null) {
 					// Never discard silently: a dropped key here means the
 					// filler commits capital on a chain meant to be observed.
-					throw new Error(`simplex.watchOnly key '${chainIdStr}' is not a chain id — use "EVM-<id>" or "<id>"`)
+					throw new Error(
+						`simplex.watchOnly key '${chainIdStr}' is not a chain id — use "EVM-<id>" or "<id>"`,
+					)
 				}
 				watchOnlyConfig![chainId] = value === true
 			})
@@ -243,17 +330,44 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 	}
 
 	const fillerConfig: FillerConfig = {
-		maxConcurrentOrders: config.simplex.maxConcurrentOrders,
-		pendingQueueConfig: config.simplex.queue,
+		maxConcurrentOrders: config.simplex.maxConcurrentOrders ?? DEFAULT_MAX_CONCURRENT_ORDERS,
 		watchOnly: watchOnlyConfig,
-		acceptedSourceChains: config.simplex.acceptedSourceChains,
+		// Same list the V4 funding venue is built from, so a position can never back a fill without
+		// also being declared to the snapshot that measures the depth behind it.
+		uniswapV4PositionsByChain: (config.vault?.uniswapV4?.positions ?? []).reduce<Record<string, string[]>>(
+			(byChain, row) => {
+				;(byChain[row.chain] ??= []).push(String(row.tokenId))
+				return byChain
+			},
+			{},
+		),
 	} as FillerConfig
 
 	// Create shared services to avoid duplicate RPC calls and reuse connections
-	const sharedCacheService = new CacheService()
-	const configuredSigner = await initializeSignerFromToml(config.simplex.signer)
-	const chainClientManager = new ChainClientManager(configService, configuredSigner)
-	const runtimeSigner: SigningAccount = chainClientManager.getSigner()
+	const sharedCacheService = new CacheService(options.loggers)
+	// Watch-only chains sign nothing, so ChainClientManager stands a throwaway key
+	// in for the missing signer. Anywhere else, a missing signer means a solver
+	// that would bid with an address nobody funded — refuse to start instead.
+	if (!options.signer && !globalWatchOnly && !allChainsWatchOnly(watchOnlyConfig, resolvedChains)) {
+		throw new Error(
+			"A signer is required unless every chain is watch-only: pass `signer` to Simplex.start " +
+				"(privateKeySigner, turnkeySigner, mpcVaultSigner, viemSigner, or your own Signer implementation). " +
+				"Running the binary? Configure it under [simplex.signer].",
+		)
+	}
+	const chainClientManager = new ChainClientManager(configService, options.signer)
+	const runtimeSigner: Signer = chainClientManager.getSigner()
+	if (options.signer) {
+		const strategy = options.signer.mode ?? "custom"
+		options.loggers
+			.get("signer")
+			.info({ signingStrategy: strategy, address: runtimeSigner.address }, `EVM signing strategy: ${strategy}`)
+	} else {
+		// The throwaway key. Say so, so nobody funds the address in the logs.
+		options.loggers
+			.get("signer")
+			.info({ address: runtimeSigner.address }, "Watch-only: no signer, using a throwaway key")
+	}
 
 	const contractService = new ContractInteractionService(
 		chainClientManager,
@@ -262,16 +376,12 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		sharedCacheService,
 	)
 
-	// Initialize bid storage service for persistent storage of bid transaction hashes
-	// This enables later cleanup and fund recovery from Hyperbridge
-	const bidStorageService = new BidStorageService(configService.getDataDir())
-	logger.info(
-		{ dataDir: configService.getDataDir() || ".filler-data" },
-		"Bid storage initialized for fund recovery tracking",
-	)
+	// Bid records are how submitted deposits are found again for retraction, so
+	// the store is wired in before anything can bid.
+	const bidStore = options.data.bids
 
 	// Sponsors self-initiated UserOps (delegation, vault sweep/redeem) via the
-	// Circle paymaster so gas is paid in USDC instead of native token.
+	// Simplex paymaster so gas is paid in stablecoins instead of native token.
 	const userOpSender = new UserOpSender(chainClientManager, configService, runtimeSigner)
 
 	// Build the shared vault venue (withdraw sourcing + threshold sweeping).
@@ -317,12 +427,14 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 	// server mutates the exact policy instances the engine prices with.
 	const adminStrategies: AdminStrategy[] = []
 	const strategies: FXFiller[] = []
+	// Held so ChainController can install a curve for a chain added at runtime.
+	let confirmationPolicy: ConfirmationPolicy | undefined
 	let tradingPairs: TradingPair[] | undefined
 	let engine: FXFiller | undefined
 	if (config.pairs?.length) {
 		tradingPairs = config.pairs.map(tradingPairFrom)
 		tradingPairs.forEach((pair, pairIndex) => {
-			const adminStrategy = adminStrategyFor(pair, pairIndex, adminStrategies.length)
+			const adminStrategy = adminStrategyFor(pair, pairIndex, adminStrategies.length, logger)
 			if (adminStrategy) adminStrategies.push(adminStrategy)
 		})
 
@@ -330,7 +442,7 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		// included), so each needs a confirmation curve — fail at boot,
 		// not with silently dropped orders at fill time. Same construction the
 		// wizard write gates run against the selected chain ids.
-		const confirmationPolicy = assertConfirmationCoverage(
+		confirmationPolicy = assertConfirmationCoverage(
 			config.confirmationPolicies,
 			resolvedChains.map((c) => c.chainId),
 		)
@@ -395,7 +507,7 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 	// Ensure the shared vault venue is hydrated even if no strategy
 	// initialised it, so the sweep timer has live state. Idempotent.
 	if (vaultVenue) {
-		await vaultVenue.initialise(runtimeSigner.account.address as HexString)
+		await vaultVenue.initialise(runtimeSigner.address as HexString)
 	}
 
 	// Initialize rebalancing service only if fully configured
@@ -428,30 +540,78 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		chainClientManager,
 		contractService,
 		runtimeSigner,
+		options.scanners,
 		rebalancingService,
-		bidStorageService,
+		bidStore,
+		options.data.state,
 	)
 
-	// Initialize (sets up EIP-7702 delegation if solver selection is configured)
-	await intentFiller.initialize()
+	started.push(() => intentFiller.stop())
 
-	// Persistent order-activity feed for the operator UI
-	const activityLog = new ActivityLogService(options.dataDir)
-	activityLog.attach(intentFiller.monitor)
+	// Initialize (sets up EIP-7702 delegation if solver selection is configured)
+	try {
+		await intentFiller.initialize()
+	} catch (error) {
+		await unwind()
+		throw error
+	}
+
+	// Order-activity feed for the operator UI. Legs are described with the
+	// registry's symbol (built-in or user-defined) and on-chain decimals so the
+	// feed can show token amounts; either lookup may fail and the row still lands.
+	const knownSymbols = [...new Set([...registrySymbols(), ...Object.keys(config.assets ?? {})])]
+	const describeToken: TokenDescriber = async (chain, token) => {
+		const symbol =
+			knownSymbols.find((candidate) => assetRegistry.getAddress(candidate, chain)?.toLowerCase() === token) ?? null
+		let decimals: number | null = null
+		try {
+			decimals = await contractService.getTokenDecimals(token, chain)
+		} catch {
+			decimals = null
+		}
+		return { symbol, decimals }
+	}
+	const activity = new ActivityRecorder(options.data.activity, options.loggers, { describeToken })
+	activity.attach(intentFiller.monitor)
+	// Rows from before order details were captured get them from the indexer.
+	// Fire-and-forget: the feed is observability, and a slow or absent indexer
+	// must not hold up the boot. Updated rows are re-emitted so open dashboards
+	// refresh in place.
+	const network = resolvedChains.some((chain) => chainByChainId(chain.chainId)?.network === "testnet")
+		? "testnet"
+		: "mainnet"
+	void backfillOrderSummaries({
+		store: options.data.activity,
+		indexerUrl: config.simplex.indexerUrl ?? DEFAULT_INDEXER_URLS[network],
+		fillerAddress: runtimeSigner.address,
+		describeToken,
+		onUpdated: (rows) => {
+			for (const row of rows) activity.emit("event", row)
+		},
+		logger: moduleLogger(options.loggers, "activity"),
+	})
 	if (vaultVenue) {
-		vaultVenue.onTx = ({ chain, kind, txHash, sponsored }) => {
-			try {
-				activityLog.recordWalletTx({
-					kind,
-					chainId: parseChainKey(chain),
-					token: null,
-					amount: null,
-					to: null,
-					txHash,
-					sponsored,
-				})
-			} catch (err) {
-				logger.warn({ err }, "Failed to record vault tx in wallet history")
+		vaultVenue.onTx = ({ chain, kind, txHash, sponsored, movements }) => {
+			// One ledger row per vault the transaction touched, so the amount and
+			// vault show; a transaction that moved nothing identifiable still gets a row.
+			// A sweep gives the underlying and gets shares; a redeem gives shares and gets the underlying.
+			const rows =
+				movements.length > 0
+					? movements.map((move) => {
+							const underlying = { token: move.symbol, amount: formatUnits(move.amount, move.decimals) }
+							const shares =
+								move.shares === undefined
+									? { token: null, amount: null }
+									: { token: move.shareSymbol, amount: formatUnits(move.shares, move.shareDecimals) }
+							const out = kind === "sweep" ? underlying : shares
+							const back = kind === "sweep" ? shares : underlying
+							return { token: out.token, amount: out.amount, to: move.vault as string, tokenIn: back.token, amountIn: back.amount }
+						})
+					: [{ token: null, amount: null, to: null, tokenIn: null, amountIn: null }]
+			for (const row of rows) {
+				options.data.activity
+					.recordWalletTx({ kind, chainId: parseChainKey(chain), ...row, txHash, sponsored })
+					.catch((err) => logger.warn({ err }, "Failed to record vault tx in wallet history"))
 			}
 		}
 	}
@@ -474,36 +634,58 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 	const balanceProvider = new BalanceProvider({
 		chainClientManager,
 		configService,
-		fillerAddress: runtimeSigner.account.address,
+		fillerAddress: runtimeSigner.address,
 		token1,
-		hyperbridgeWsUrl: config.simplex.hyperbridgeWsUrl,
+		vaultBalances: vaultVenue,
+		hyperbridge: intentFiller.hyperbridgeConnection,
 		substratePrivateKey: config.simplex.substratePrivateKey,
 	})
 
-	// Start optional Prometheus metrics server
-	let metrics: MetricsService | undefined
-	if (options.metricsBind) {
-		metrics = new MetricsService({
-			monitor: intentFiller.monitor,
-			bidStorage: bidStorageService,
-			balances: balanceProvider,
-			dataDir: options.dataDir,
-		})
-		metrics.start(options.metricsBind.port, options.metricsBind.host)
+	// Read operator state BEFORE anything starts: this is a call into a
+	// caller-supplied store, and a rejection after start() would leave a filler
+	// committing capital with no shutdown handle while boot reports failure.
+	let restoredState: Awaited<ReturnType<typeof options.data.state.get>>
+	try {
+		restoredState = await options.data.state.get()
+	} catch (error) {
+		await unwind()
+		throw error
 	}
+
+	// Phantom bids the previous run left live: the first batch retracts them,
+	// reclaiming deposits that used to be stranded by every restart.
+	intentFiller.restorePhantomBids(restoredState.phantomBids)
 
 	// Start the filler
 	intentFiller.start()
 
+	// Ledger rows from before sweeps carried amounts: read them back from their
+	// receipts once the vault states have hydrated (strategy start does that), so
+	// wait a little rather than racing it. Fire-and-forget, like the order backfill.
+	if (vaultVenue) {
+		const venue = vaultVenue
+		setTimeout(() => {
+			void backfillVaultLedger({
+				store: options.data.activity,
+				describe: (chainId, txHash) => venue.describeTransaction(formatChainKey(chainId), txHash as HexString),
+				logger: moduleLogger(options.loggers, "activity"),
+			})
+		}, 15_000).unref()
+	}
+
 	// An operator-initiated pause survives restarts
-	if (loadRuntimeState(options.dataDir).paused) {
+	if (restoredState.paused) {
 		intentFiller.pause()
 	}
 
+
+
 	// Start the vault threshold-sweep timer (lifecycle owned here, not by the filler)
+	started.push(() => vaultVenue?.stopSweeping())
 	vaultVenue?.startSweeping()
 
-	balanceProvider.start()
+	started.push(() => balanceProvider.stop())
+	await balanceProvider.start()
 
 	const watchOnlyChains = watchOnlyConfig
 		? Object.entries(watchOnlyConfig)
@@ -515,7 +697,7 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		{
 			chains: resolvedChains.map((c) => c.chainId),
 			pairs: (config.pairs ?? []).map((p) => `${p.token0}/${p.token1}`),
-			maxConcurrentOrders: config.simplex.maxConcurrentOrders,
+			maxConcurrentOrders: config.simplex.maxConcurrentOrders ?? DEFAULT_MAX_CONCURRENT_ORDERS,
 			watchOnlyChains: watchOnlyChains.length > 0 ? watchOnlyChains : undefined,
 		},
 		watchOnlyChains.length > 0
@@ -528,42 +710,47 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		if (stopping) return
 		stopping = true
 		logger.warn(`Shutting down intent filler (${signal})...`)
-		metrics?.stop()
 		balanceProvider.stop()
 		vaultVenue?.stopSweeping()
 		await intentFiller.stop()
 		// Exit all vault positions back to the underlying asset (best-effort).
 		await vaultVenue?.redeemAll()
-		activityLog.close()
+		activity.detach()
+		if (options.ownsData) await options.data.close?.()
 	}
 
 	return {
 		intentFiller,
 		balanceProvider,
-		metrics,
 		vaultVenue,
 		adminStrategies,
 		haltControls,
-		activityLog,
-		bidStorage: bidStorageService,
+		activity,
+		data: options.data,
 		configService,
+		chainClientManager,
+		orderScanner: options.scanners.orders,
+		globalWatchOnly,
+		signerless: !options.signer,
+		confirmationPolicy,
+		loggers: options.loggers,
 		assetRegistry,
 		engine,
 		tradingPairs,
 		balanceTokens: token1,
 		rebalancingService,
 		resolvedChains,
-		fillerAddress: runtimeSigner.account.address as HexString,
+		fillerAddress: runtimeSigner.address as HexString,
 		watchOnly: watchOnlyConfig,
 		config,
 		configPath: options.configPath,
-		dataDir: options.dataDir,
 		startedAt: Date.now(),
 		tokenSender: new TokenSender(
 			chainClientManager,
-			runtimeSigner.account.address as HexString,
+			runtimeSigner.address as HexString,
 			() => config.vault?.vaults ?? [],
 			userOpSender,
+			configService,
 		),
 		vaultPreflight: async (vaults) => {
 			const byChain: Record<string, VaultConfig[]> = {}
@@ -580,7 +767,7 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 				await new VaultLiquidityState(
 					chain,
 					chainVaults,
-					runtimeSigner.account.address as HexString,
+					runtimeSigner.address as HexString,
 					chainClientManager,
 				).hydrate()
 			}

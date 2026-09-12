@@ -2,6 +2,7 @@ import { ethers } from "ethers"
 
 import Erc4626Abi from "@/configs/abis/Erc4626.abi.json"
 import {
+	InventoryReadingTrigger,
 	LiquidityProvider,
 	VaultLedgerEvent,
 	VaultLedgerEventType,
@@ -12,6 +13,9 @@ import {
 import { YIELD_VAULT_ADDRESSES } from "@/yield-vault-addresses"
 import { SOLVER_ACCOUNT_ADDRESSES } from "@/solver-account-addresses"
 import { timestampToDate } from "@/utils/date.helpers"
+import { publishProviderInventory } from "@/services/inventoryReading.service"
+import { inventoryReadContext } from "@/utils/solverBalance"
+import { isOrdinaryVaultTransfer, readVaultBlockMovements, type VaultCapitalMovement } from "@/utils/vaultAccounting"
 
 const SECONDS_PER_DAY = 86400n
 
@@ -27,16 +31,16 @@ export interface ConfiguredVault {
 	underlyingToken: string
 }
 
-/** Inputs for recording one ERC-4626 Deposit or Withdraw event. */
+/** Inputs for recording one deposit, withdrawal or side of an ordinary share transfer. */
 export interface VaultLedgerInput {
 	chain: string
 	/** The vault address the event was emitted by (event.address). */
 	vault: string
 	/** The share owner whose principal moved (Deposit.owner / Withdraw.owner). */
 	lp: string
-	/** The address that initiated the call (Deposit.sender / Withdraw.sender). */
+	/** Deposit.sender / Withdraw.sender, or Transfer.from for ordinary share transfers. */
 	caller: string
-	/** For withdrawals, who received the assets (Withdraw.receiver). Omitted for deposits. */
+	/** Withdraw.receiver or Transfer.to. Omitted for deposits. */
 	receiver?: string
 	assets: bigint
 	shares: bigint
@@ -46,6 +50,20 @@ export interface VaultLedgerInput {
 	logIndex: number
 	/** Block timestamp in UNIX seconds. */
 	timestamp: bigint
+}
+
+export interface VaultTransferInput
+	extends Omit<VaultLedgerInput, "lp" | "caller" | "receiver" | "assets" | "eventType"> {
+	from: string
+	to: string
+}
+
+function isCapitalIn(type: VaultLedgerEventType): boolean {
+	return type === VaultLedgerEventType.DEPOSIT || type === VaultLedgerEventType.TRANSFER_IN
+}
+
+function capitalEventId(input: Pick<VaultLedgerInput, "chain" | "transactionHash" | "logIndex">, lp?: string): string {
+	return `${input.chain}-${input.transactionHash.toLowerCase()}-${input.logIndex}${lp ? `-${lp.toLowerCase()}` : ""}`
 }
 
 export class YieldVaultService {
@@ -72,26 +90,96 @@ export class YieldVaultService {
 		)
 	}
 
-	/** Whether `lp` is EIP-7702-delegated to the chain's SolverAccount contract. Fails closed. */
+	/** Whether `lp` is delegated to one of our SolverAccounts at the handler's block. */
 	static async isDelegatedSolver(chain: string, lp: string): Promise<boolean> {
-		const solverAccount = SOLVER_ACCOUNT_ADDRESSES[chain]
-		if (!solverAccount) return false
+		const solverAccounts = SOLVER_ACCOUNT_ADDRESSES[chain]
+		if (!solverAccounts?.length) return false
 
 		try {
 			const code: string = await (api as any).getCode(lp)
 			if (!code || !code.toLowerCase().startsWith(DELEGATION_INDICATOR_PREFIX)) return false
-			const delegatedTo = "0x" + code.slice(DELEGATION_INDICATOR_PREFIX.length)
-			return delegatedTo.toLowerCase() === solverAccount.toLowerCase()
+			const delegatedTo = ("0x" + code.slice(DELEGATION_INDICATOR_PREFIX.length)).toLowerCase()
+			return solverAccounts.some((solverAccount) => solverAccount.toLowerCase() === delegatedTo)
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error)
 			logger.warn(`[yield-vault] Delegation check failed for ${lp} on ${chain}: ${message}`)
-			return false
+			// A failed RPC is not evidence that this is an unrelated wallet. Retry the block instead
+			// of permanently dropping a capital movement and overstating the next snapshot's yield.
+			throw error
+		}
+	}
+
+	private static async tracksLp(chain: string, vault: string, lp: string): Promise<boolean> {
+		return (
+			!!(await VaultLpPosition.get(`${chain}-${vault}-${lp}`)) ||
+			!!(await LiquidityProvider.get(lp)) ||
+			(await this.isDelegatedSolver(chain, lp))
+		)
+	}
+
+	/** A share transfer is capital moving between owners, valued at this block's exchange rate. */
+	static async recordTransfer(input: VaultTransferInput): Promise<void> {
+		const from = input.from.toLowerCase()
+		const to = input.to.toLowerCase()
+		const vault = input.vault.toLowerCase()
+		if (!isOrdinaryVaultTransfer(from, to, input.shares)) return
+		if (!this.underlyingTokenFor(input.chain, vault)) return
+		const owners: string[] = []
+		for (const lp of [from, to]) {
+			if (await VaultLedgerEvent.get(capitalEventId(input, lp))) continue
+			if (await this.tracksLp(input.chain, vault, lp)) owners.push(lp)
+		}
+		if (!owners.length) return
+		const contract = new ethers.Contract(vault, Erc4626Abi, api as any)
+		const assets = BigInt((await contract.convertToAssets(input.shares.toString())).toString())
+		// Sequential, with a distinct ledger key per owner: one log can affect two tracked LPs.
+		for (const lp of owners) {
+			await this.recordLedger({
+				...input,
+				vault,
+				lp,
+				caller: from,
+				receiver: to,
+				assets,
+				eventType: lp === from ? VaultLedgerEventType.TRANSFER_OUT : VaultLedgerEventType.TRANSFER_IN,
+			})
 		}
 	}
 
 	/**
-	 * Persist one ledger event and fold it into the LP's running position. The position's net
-	 * principal (deposited - withdrawn) is the baseline the daily snapshot measures yield against.
+	 * Seed capital held before tracking began. balanceOf is end-of-block, so subtract ALL later
+	 * capital movements in that block, including the triggering event. Subtracting only that
+	 * event would count a later deposit/transfer twice (or lose a later withdrawal).
+	 */
+	private static async openingBalance(input: VaultLedgerInput): Promise<{ shares: bigint; assets: bigint }> {
+		const movements = await readVaultBlockMovements(input.chain, input.vault, input.blockNumber)
+		const delta = isCapitalIn(input.eventType) ? input.shares : -input.shares
+		if (
+			!movements.some(
+				(m) =>
+					m.lp === input.lp &&
+					m.logIndex === input.logIndex &&
+					m.transactionHash === input.transactionHash.toLowerCase() &&
+					m.shares === delta,
+			)
+		) {
+			throw new Error(
+				`Vault opening balance is missing the triggering log for ${input.chain}:${input.vault}:${input.lp}`,
+			)
+		}
+		const remainingShares = movements
+			.filter((m) => m.lp === input.lp && m.logIndex >= input.logIndex)
+			.reduce((sum, m) => sum + m.shares, 0n)
+		const contract = new ethers.Contract(input.vault, Erc4626Abi, api as any)
+		const shares = BigInt((await contract.balanceOf(input.lp)).toString()) - remainingShares
+		if (shares < 0n) throw new Error(`Negative vault opening shares for ${input.chain}:${input.vault}:${input.lp}`)
+		const assets = shares === 0n ? 0n : BigInt((await contract.convertToAssets(shares.toString())).toString())
+		return { shares, assets }
+	}
+
+	/**
+	 * Persist one capital movement and fold it into the LP's running position. Opening capital,
+	 * deposits/withdrawals and transfers form the baseline the daily snapshot measures yield against.
 	 */
 	static async recordLedger(input: VaultLedgerInput): Promise<void> {
 		const vault = input.vault.toLowerCase()
@@ -118,13 +206,18 @@ export class YieldVaultService {
 		// corrupt principal. Skip if this exact log was already recorded. (A reorg rolls back both the
 		// ledger row and the position together under historical indexing, so legitimate reprocessing
 		// still re-applies cleanly — this only blocks true duplicate delivery.)
-		const ledgerId = `${input.chain}-${input.transactionHash}-${input.logIndex}`
+		const isTransfer =
+			input.eventType === VaultLedgerEventType.TRANSFER_IN ||
+			input.eventType === VaultLedgerEventType.TRANSFER_OUT
+		const ledgerId = capitalEventId(input, isTransfer ? lp : undefined)
 		if (await VaultLedgerEvent.get(ledgerId)) {
 			logger.debug(`[yield-vault] Ledger event ${ledgerId} already recorded, skipping`)
 			return
 		}
 
 		const eventTime = timestampToDate(input.timestamp)
+		// Complete every required RPC before persisting the dedup row.
+		const opening = existingPosition ? undefined : await this.openingBalance({ ...input, lp, vault })
 
 		await VaultLedgerEvent.create({
 			id: ledgerId,
@@ -138,7 +231,7 @@ export class YieldVaultService {
 			assets: input.assets,
 			shares: input.shares,
 			blockNumber: input.blockNumber,
-			transactionHash: input.transactionHash,
+			transactionHash: input.transactionHash.toLowerCase(),
 			timestamp: eventTime,
 		}).save()
 
@@ -150,7 +243,12 @@ export class YieldVaultService {
 				vault,
 				underlyingToken,
 				lp,
-				shares: 0n,
+				shares: opening!.shares,
+				openingShares: opening!.shares,
+				openingPrincipal: opening!.assets,
+				openingBlock: input.blockNumber,
+				totalAssetsTransferredIn: 0n,
+				totalAssetsTransferredOut: 0n,
 				totalAssetsDeposited: 0n,
 				totalAssetsWithdrawn: 0n,
 				depositCount: 0,
@@ -164,14 +262,36 @@ export class YieldVaultService {
 			position.totalAssetsDeposited += input.assets
 			position.shares += input.shares
 			position.depositCount += 1
-		} else {
+		} else if (input.eventType === VaultLedgerEventType.WITHDRAW) {
 			position.totalAssetsWithdrawn += input.assets
 			position.shares -= input.shares
 			position.withdrawCount += 1
+		} else if (input.eventType === VaultLedgerEventType.TRANSFER_IN) {
+			position.totalAssetsTransferredIn = (position.totalAssetsTransferredIn ?? 0n) + input.assets
+			position.shares += input.shares
+		} else {
+			position.totalAssetsTransferredOut = (position.totalAssetsTransferredOut ?? 0n) + input.assets
+			position.shares -= input.shares
 		}
 		position.lastUpdatedAt = eventTime
 
 		await position.save()
+
+		// The LP's inventory in this token just moved: its own principal only shifted between the
+		// raw and vault halves of one total, which the re-read confirms rather than changes, but the
+		// total does move when the counterparty is someone else (a treasury funding the solver, or
+		// inventory leaving it) and no order event reports that at all. Best-effort — this reads
+		// external RPCs, and the ledger row above must not be lost to a publication failure.
+		try {
+			await publishProviderInventory({
+				provider: lp,
+				tokens: [underlyingToken],
+				...inventoryReadContext(input.chain, input.blockNumber, input.timestamp, InventoryReadingTrigger.VAULT),
+			})
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error)
+			logger.error(`[yield-vault] Inventory publication failed for ${lp} on ${input.chain}: ${message}`)
+		}
 	}
 
 	/**
@@ -189,11 +309,15 @@ export class YieldVaultService {
 			if (await VaultSnapshot.get(vaultSnapshotId)) continue
 
 			const contract = new ethers.Contract(vault, Erc4626Abi, api as any)
+			// Ethereum block handlers run BEFORE this block's log handlers. Even a zero-net-share
+			// round trip can change principal, so do not snapshot an LP touched by this block.
+			let movements: VaultCapitalMovement[]
 
 			let totalAssets: bigint
 			let totalShares: bigint
 			let assetsPerShare: bigint
 			try {
+				movements = await readVaultBlockMovements(chain, vault, blockNumber)
 				const [assetsRaw, supplyRaw, decimalsRaw] = await Promise.all([
 					contract.totalAssets(),
 					contract.totalSupply(),
@@ -214,7 +338,19 @@ export class YieldVaultService {
 			// per-day completion gate (checked at the top), so persisting it only after the LP loop
 			// finishes means a mid-loop failure leaves the gate open and the next run retries — the
 			// per-LP dedup skips LPs already done, so the remainder is filled in rather than lost.
-			await this.snapshotLpPositions(chain, vault, underlyingToken, contract, dayStart, blockNumber, snapshotTime)
+			if (
+				!(await this.snapshotLpPositions(
+					chain,
+					vault,
+					underlyingToken,
+					contract,
+					dayStart,
+					blockNumber,
+					snapshotTime,
+					movements,
+				))
+			)
+				continue
 
 			await VaultSnapshot.create({
 				id: vaultSnapshotId,
@@ -239,8 +375,10 @@ export class YieldVaultService {
 		dayStart: bigint,
 		blockNumber: bigint,
 		snapshotTime: Date,
-	): Promise<void> {
+		movements: VaultCapitalMovement[],
+	): Promise<boolean> {
 		let offset = 0
+		let complete = true
 		// Stream the vault's LPs page by page so a vault with many positions doesn't load them all at once.
 		for (;;) {
 			const positions = await VaultLpPosition.getByFields(
@@ -253,7 +391,7 @@ export class YieldVaultService {
 			)
 			if (positions.length === 0) break
 
-			await Promise.all(
+			const results = await Promise.all(
 				positions.map((position) =>
 					this.snapshotLpPosition(
 						position,
@@ -264,13 +402,16 @@ export class YieldVaultService {
 						dayStart,
 						blockNumber,
 						snapshotTime,
+						movements,
 					),
 				),
 			)
+			if (results.includes("retry")) complete = false
 
 			if (positions.length < LP_PAGE_SIZE) break
 			offset += LP_PAGE_SIZE
 		}
+		return complete
 	}
 
 	/** Price one LP's live share balance into assets and persist its daily snapshot. */
@@ -283,9 +424,11 @@ export class YieldVaultService {
 		dayStart: bigint,
 		blockNumber: bigint,
 		snapshotTime: Date,
-	): Promise<void> {
+		movements: VaultCapitalMovement[],
+	): Promise<"complete" | "retry" | "unreconciled"> {
 		const snapshotId = `${chain}-${vault}-${position.lp}-${dayStart}`
-		if (await VaultPositionSnapshot.get(snapshotId)) return
+		if (await VaultPositionSnapshot.get(snapshotId)) return "complete"
+		if (movements.some((m) => m.lp === position.lp)) return "retry"
 
 		let shares: bigint
 		let assetValue: bigint
@@ -297,10 +440,25 @@ export class YieldVaultService {
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error)
 			logger.error(`[yield-vault] LP read failed for ${position.lp} on ${vault}: ${message}`)
-			return
+			return "retry"
 		}
 
-		const netPrincipal = position.totalAssetsDeposited - position.totalAssetsWithdrawn
+		if (shares !== position.shares) {
+			logger.error(
+				`[yield-vault] Withholding yield for ${chain}:${vault}:${position.lp}: ` +
+					`accounted shares=${position.shares}, onchain shares=${shares}; principal requires reconciliation`,
+			)
+			// This needs a historical repair, not another RPC in 50 blocks. Do not prevent the
+			// independent vault aggregate from being published or repeatedly scan every LP today.
+			return "unreconciled"
+		}
+
+		const netPrincipal =
+			(position.openingPrincipal ?? 0n) +
+			position.totalAssetsDeposited -
+			position.totalAssetsWithdrawn +
+			(position.totalAssetsTransferredIn ?? 0n) -
+			(position.totalAssetsTransferredOut ?? 0n)
 		const yieldEarned = assetValue - netPrincipal
 		if (yieldEarned < 0n) {
 			// Expected transiently (a fresh deposit before yield accrues, or a vesting/loss vault), but
@@ -325,5 +483,6 @@ export class YieldVaultService {
 			blockNumber,
 			snapshotTime,
 		}).save()
+		return "complete"
 	}
 }

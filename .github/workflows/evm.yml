@@ -61,7 +61,12 @@ jobs:
             - name: Install Foundry
               uses: foundry-rs/foundry-toolchain@v1
               with:
-                  version: stable
+                  # Pinned, not `stable`. Foundry v1.8.0 (2026-08-27) probes `anvil_nodeInfo` to
+                  # determine an endpoint's network family; Alchemy answers that with HTTP 400, so
+                  # `vm.createFork` fails and every fork test in this workflow dies in `setUp`.
+                  # v1.7.1 is the last version this suite ran green on. Revert to `stable` once
+                  # upstream stops probing, or once the fork URL is a provider that answers it.
+                  version: v1.7.1
 
             - name: Run Forge build
               run: |
@@ -103,7 +108,12 @@ jobs:
             - name: Install Foundry
               uses: foundry-rs/foundry-toolchain@v1
               with:
-                  version: stable
+                  # Pinned, not `stable`. Foundry v1.8.0 (2026-08-27) probes `anvil_nodeInfo` to
+                  # determine an endpoint's network family; Alchemy answers that with HTTP 400, so
+                  # `vm.createFork` fails and every fork test in this workflow dies in `setUp`.
+                  # v1.7.1 is the last version this suite ran green on. Revert to `stable` once
+                  # upstream stops probing, or once the fork URL is a provider that answers it.
+                  version: v1.7.1
 
             - name: Install Rust toolchain
               uses: dtolnay/rust-toolchain@stable

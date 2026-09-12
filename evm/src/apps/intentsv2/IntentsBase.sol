@@ -110,9 +110,13 @@ abstract contract IntentsBase is EIP712 {
          */
         RefundEscrow,
         /**
-         * @dev Upgrade the gateway implementation behind its ERC-1967 proxy.
+         * @dev Delegatecall the current implementation with the rest of the body as calldata, the
+         * host still `msg.sender`. Governance's one door to the host-only functions:
+         * `upgradeToAndCall` for upgrades, `setRelayer` for rotations. Same discriminator as the
+         * `UpgradeContract` action of earlier implementations, whose `(address, bytes)` body
+         * selects no function here and reverts.
          */
-        UpgradeContract
+        Execute
     }
 
     /**
@@ -142,8 +146,9 @@ abstract contract IntentsBase is EIP712 {
     /**
      * @dev Maps keccak256(stateMachineId) to the registered gateway address for
      * that chain. Used for authenticating cross-chain messages and routing dispatches.
+     * Read through `instance(bytes)`; the auto-generated getter was dropped for EIP-170 room.
      */
-    mapping(bytes32 => address) public _instances;
+    mapping(bytes32 => address) internal _instances;
 
     /**
      * @dev Maps (commitment, output token) to the cumulative amount already filled.
@@ -158,7 +163,14 @@ abstract contract IntentsBase is EIP712 {
     mapping(bytes32 => uint256) public _destinationProtocolFees;
 
     /// @dev Appended last to preserve existing storage slots.
-    bool public _paused;
+    bool internal _paused;
+
+    /**
+     * @dev Once set, the only relayer whose deliveries `onAccept` and `onGetResponse` accept.
+     * Read through `relayer()`; an auto-generated getter on top of that would not fit under
+     * EIP-170.
+     */
+    address internal _relayer;
 
     /**
      * @dev Thrown when the caller is not authorized to perform the action.
@@ -174,6 +186,13 @@ abstract contract IntentsBase is EIP712 {
      * @dev Thrown when attempting to fill an order past its deadline.
      */
     error Expired();
+
+    /**
+     * @notice The fill's own validity window has passed (`options.validUntil`)
+     * @dev Distinct from {Expired}: that one means the order is dead, this one means the
+     *      solver's quote is stale.
+     */
+    error FillExpired();
 
     /**
      * @dev Thrown when insufficient native token (ETH) is provided or a transfer fails.
@@ -284,6 +303,17 @@ abstract contract IntentsBase is EIP712 {
     event EscrowRefunded(bytes32 indexed commitment, TokenInfo[] tokens);
 
     /**
+     * @dev Emitted when an order's cancellation is initiated, on the chain it is initiated from.
+     * For same-chain orders the refund is processed in the same transaction and `EscrowRefunded`
+     * follows; for cross-chain orders `EscrowRefunded` follows on the source chain once the
+     * cancellation has travelled through Hyperbridge.
+     * @param commitment The order commitment hash.
+     * @param canceller The account that initiated the cancellation. The destination-side route is
+     * permissionless after expiry, so this is not necessarily the order's creator.
+     */
+    event OrderCancelled(bytes32 indexed commitment, address canceller);
+
+    /**
      * @dev Emitted when the gateway's configuration parameters are updated via governance.
      * @param previous The previous parameter values.
      * @param current The new parameter values.
@@ -320,6 +350,13 @@ abstract contract IntentsBase is EIP712 {
      * @param feeBps The protocol fee in basis points for orders targeting this destination.
      */
     event DestinationProtocolFeeUpdated(string chain, uint256 feeBps);
+
+    /**
+     * @dev Emitted when the authorised relayer is replaced.
+     * @param previous The relayer that was authorised before this change.
+     * @param current The relayer authorised from now on.
+     */
+    event RelayerUpdated(address previous, address current);
 
     /**
      * @dev Returns the address of the Hyperbridge host contract. This function is virtual
@@ -378,6 +415,24 @@ abstract contract IntentsBase is EIP712 {
         return abi.encodePacked(keccak256(abi.encodePacked(commitment, FILLED_SLOT_BIG_ENDIAN_BYTES)));
     }
 
+    /// @dev Native transfer that reverts with `InsufficientNativeToken` if refused.
+    function _sendValue(address to, uint256 amount) internal {
+        (bool sent,) = to.call{value: amount}("");
+        if (!sent) revert InsufficientNativeToken();
+    }
+
+    /// @dev Splits overpayment between protocol and beneficiary. An order with output calldata
+    /// gives the beneficiary nothing, since the surplus is not the caller's to give.
+    function _splitSurplus(uint256 dust, bool hasOutputCall)
+        internal
+        view
+        returns (uint256 protocolShare, uint256 beneficiaryShare)
+    {
+        if (hasOutputCall) return (dust, 0);
+        protocolShare = (dust * _params.surplusShareBps) / 10_000;
+        beneficiaryShare = dust - protocolShare;
+    }
+
     /**
      * @dev Releases escrowed tokens to a beneficiary. Iterates over the withdrawal request's
      * token list, decrements the escrow balance for each, and transfers tokens out.
@@ -408,8 +463,7 @@ abstract contract IntentsBase is EIP712 {
 
             _orders[body.commitment][token] = escrowed - amount;
             if (token == address(0)) {
-                (bool sent,) = beneficiary.call{value: amount}("");
-                if (!sent) revert InsufficientNativeToken();
+                _sendValue(beneficiary, amount);
             } else {
                 IERC20(token).safeTransfer(beneficiary, amount);
             }
@@ -590,8 +644,7 @@ abstract contract IntentsBase is EIP712 {
             uint256 amount = info.amount;
 
             if (token == address(0)) {
-                (bool sent,) = req.beneficiary.call{value: amount}("");
-                if (!sent) revert InsufficientNativeToken();
+                _sendValue(req.beneficiary, amount);
             } else {
                 IERC20(token).safeTransfer(req.beneficiary, amount);
             }

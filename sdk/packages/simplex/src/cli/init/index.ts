@@ -2,7 +2,7 @@ import { confirm, intro, log, select, spinner } from "@clack/prompts"
 import { existsSync, readFileSync } from "fs"
 import { resolve } from "path"
 import { parse } from "toml"
-import { validateConfig, type FillerTomlConfig } from "@/config/filler-toml"
+import { validateConfig, type FillerConfigFile } from "@/config/filler-toml"
 import { fetchChainId } from "@/services/FillerConfigService"
 import { guard, withTimeout, PROBE_TIMEOUT_MS } from "./prompt-utils"
 import { migrateLegacyConfig } from "./migrate-legacy"
@@ -77,11 +77,11 @@ export async function runInit(options: InitOptions): Promise<void> {
  * walk the wizard with its values prefilled, or start over.
  */
 async function handleExistingConfig(outputPath: string): Promise<Prefill | undefined> {
-	let config: FillerTomlConfig | undefined
+	let config: FillerConfigFile | undefined
 	let invalidReason: string | undefined
 	let degraded = false
 	try {
-		config = parse(readFileSync(outputPath, "utf-8")) as FillerTomlConfig
+		config = parse(readFileSync(outputPath, "utf-8")) as FillerConfigFile
 		// Pre-pair-engine configs ([[strategies]]) are migrated to pairs so an
 		// update run offers the old values as prefills instead of failing.
 		if ("strategies" in config) {

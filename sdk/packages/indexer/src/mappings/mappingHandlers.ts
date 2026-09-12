@@ -32,8 +32,10 @@ export { handleSubstrateGetRequestHandledEvent } from "@/handlers/events/substra
 export { handleSubstrateGetRequestTimeoutHandledEvent } from "@/handlers/events/substrateChains/handleGetRequestTimeoutHandledEvent.handler"
 
 // Price Handlers
-export { handlePriceIndexing } from "@/handlers/events/price/handlePriceIndexing.event.handler"
 export { handleBridgeTokenSupplyIndexing } from "@/handlers/events/supply/handleBridgeTokenSupplyIndexing.event.handler"
+
+// Liquidity Handlers
+export { handleInventoryFold } from "@/handlers/events/liquidity/inventoryFold.block.handler"
 
 // Pending Status Flush Handler
 export { handlePendingStatusFlush } from "@/handlers/events/pendingStatus/handlePendingStatusFlush.event.handler"
@@ -42,6 +44,7 @@ export { handlePendingStatusFlushEvm } from "@/handlers/events/pendingStatus/han
 // Yield Vault Handlers
 export { handleVaultDepositEvent } from "@/handlers/events/yieldVault/deposit.event.handler"
 export { handleVaultWithdrawEvent } from "@/handlers/events/yieldVault/withdraw.event.handler"
+export { handleVaultTransferEvent } from "@/handlers/events/yieldVault/transfer.event.handler"
 export { handleVaultSnapshotIndexing } from "@/handlers/events/yieldVault/snapshot.block.handler"
 
 export { handleRelayerRewardedEvent } from "@/handlers/events/incentives/relayerRewarded.event.handler"

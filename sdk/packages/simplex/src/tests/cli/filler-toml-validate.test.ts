@@ -2,15 +2,16 @@ import { describe, it, expect } from "vitest"
 import { parse } from "toml"
 import { readFileSync } from "fs"
 import { resolve } from "path"
-import { assertConfirmationCoverage, validateConfig, type FillerTomlConfig } from "@/config/filler-toml"
+import {
+	assertConfirmationCoverage,
+	validateConfig,
+	type FillerConfigFile,
+	type FillerTomlConfig,
+} from "@/config/filler-toml"
 import { SignerType } from "@/services/wallet"
 
 const minimalConfig = (): FillerTomlConfig => ({
 	simplex: {
-		signer: {
-			type: SignerType.PrivateKey,
-			key: "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d",
-		},
 		maxConcurrentOrders: 5,
 		queue: { maxRechecks: 10, recheckDelayMs: 30000 },
 		substratePrivateKey: "seed phrase here",
@@ -37,8 +38,7 @@ describe("validateConfig", () => {
 
 	it("accepts the example config shape parsed from TOML", () => {
 		const example = readFileSync(resolve(__dirname, "../../../filler-config-example.toml"), "utf-8")
-		const config = parse(example) as FillerTomlConfig
-		config.simplex.signer = { type: SignerType.PrivateKey, key: "0xab" }
+		const config = parse(example) as FillerConfigFile
 		config.simplex.substratePrivateKey = "seed"
 		config.simplex.hyperbridgeWsUrl = "wss://example"
 		for (const chain of config.chains) {
@@ -54,23 +54,14 @@ describe("validateConfig", () => {
 		expect(() => validateConfig(config)).toThrow(/\[\[strategies\]\] was removed/)
 	})
 
-	it("rejects a missing signer", () => {
-		const config = minimalConfig()
-		config.simplex.signer = undefined
-		expect(() => validateConfig(config)).toThrow(/Signer configuration is required/)
-	})
-
-	it("allows a missing signer in global watch-only mode", () => {
-		const config = minimalConfig()
-		config.simplex.signer = undefined
-		config.simplex.watchOnly = true
+	// `SimplexConfig` has no signer field: the signer is an argument to
+	// `Simplex.start`, and the `[simplex.signer]` block belongs to the binary's
+	// file format (`FillerConfigFile`). Neither its presence nor its absence is
+	// this validator's business — boot rejects a missing signer instead.
+	it("ignores a [simplex.signer] block parsed from a config file", () => {
+		const config = minimalConfig() as FillerConfigFile
+		config.simplex.signer = { type: SignerType.PrivateKey, key: "0xab" }
 		expect(() => validateConfig(config)).not.toThrow()
-	})
-
-	it("allows a missing signer when the --watch-only flag forces watch-only", () => {
-		const config = minimalConfig()
-		config.simplex.signer = undefined
-		expect(() => validateConfig(config, true)).not.toThrow()
 	})
 
 	it("rejects a missing substratePrivateKey", () => {

@@ -86,14 +86,25 @@ struct CancelOptions {
 
 `height` is only meaningful for source-side cross-chain cancels. It must point to a block after the order deadline, ensuring the proof captures a state where no fill could have occurred. The SDK selects this value automatically. For same-chain and destination-side cancels, `height` is ignored.
 
+### The `OrderCancelled` event
+
+```solidity
+// Emitted on whichever chain the cancellation was initiated from.
+event OrderCancelled(bytes32 indexed commitment, address canceller);
+```
+
+`cancelOrder` emits this once, before it routes to any of the three cancellation paths, so it fires the moment a cancellation is initiated whichever route handles it. Every route-specific check reverts, and a revert discards logs, so the event never announces a cancellation that did not happen. It is the only signal keyed to the order that a cross-chain cancel produces on the initiating chain; the host's `GetRequestEvent` and `PostRequestEvent` carry no reference to the order.
+
+`canceller` is `msg.sender`. On the destination route that need not be `order.user`: after the deadline anyone may cancel, so this is the only record of who did.
+
 ### The `EscrowRefunded` event
 
 ```solidity
 // Emitted on the source chain when escrowed tokens are returned to the user.
-event EscrowRefunded(bytes32 indexed commitment);
+event EscrowRefunded(bytes32 indexed commitment, TokenInfo[] tokens);
 ```
 
-For same-chain cancels, `EscrowRefunded` is emitted in the same transaction. For source-side cross-chain cancels, it is emitted once Hyperbridge delivers the destination proof back to the source chain and the refund is processed. For destination-side cancels, it is emitted on the source chain once the refund message from Hyperbridge is received and settled.
+`EscrowRefunded` remains the terminal event — `OrderCancelled` says a cancellation started, this one says the money is back. For same-chain cancels it follows in the same transaction. For source-side cross-chain cancels, it is emitted once Hyperbridge delivers the destination proof back to the source chain and the refund is processed. For destination-side cancels, it is emitted on the source chain once the refund message from Hyperbridge is received and settled.
 
 ## Set up the gateway, indexer, and wallets
 

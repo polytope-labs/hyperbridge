@@ -1,6 +1,6 @@
+import { stubOrderScanner } from "../helpers/stub-scanner"
 import { IntentFiller } from "@/core/filler"
 import {
-	BidStorageService,
 	CacheService,
 	ChainClientManager,
 	ContractInteractionService,
@@ -9,7 +9,8 @@ import {
 	type ResolvedChainConfig,
 	type FillerConfig as FillerServiceConfig,
 } from "@/services"
-import { createSimplexSigner, SignerType, type SigningAccount } from "@/services/wallet"
+import { SqliteDataStore } from "@/data/sqlite"
+import { createSigner, SignerType, type Signer } from "@/services/wallet"
 import { FXFiller, type TradingPair } from "@/strategies/fx"
 import { AssetRegistry } from "@/config/asset-registry"
 import { Decimal } from "decimal.js"
@@ -31,7 +32,6 @@ import {
 	decodeEventLog,
 	formatUnits,
 	getContract,
-	maxUint256,
 	parseUnits,
 	type PublicClient,
 	type WalletClient,
@@ -116,7 +116,7 @@ describe.skip("Filler V2 FX - Polygon mainnet same-chain swap", () => {
 		const user = privateKeyToAccount(process.env.PRIVATE_KEY as HexString).address
 		const currentBlock = await polygonPublicClient.getBlockNumber()
 
-		let order: Order = {
+		const order: Order = {
 			user: bytes20ToBytes32(user),
 			source: toHex(polygonMainnetId),
 			destination: toHex(polygonMainnetId),
@@ -250,7 +250,7 @@ describe.skip("Filler V2 FX - Base mainnet same-chain swap", () => {
 		const currentBlock = await basePublicClient.getBlockNumber()
 		const deadline = currentBlock + 3000n
 
-		let order: Order = {
+		const order: Order = {
 			user: bytes20ToBytes32(user),
 			source: toHex(baseMainnetId),
 			destination: toHex(baseMainnetId),
@@ -473,7 +473,7 @@ describe.skip("Filler V2 FX - Base mainnet same-chain swap", () => {
 		const user = privateKeyToAccount(process.env.PRIVATE_KEY as HexString).address
 		const currentBlock = await basePublicClient.getBlockNumber()
 
-		let order: Order = {
+		const order: Order = {
 			user: bytes20ToBytes32(user),
 			source: toHex(baseMainnetId),
 			destination: toHex(baseMainnetId),
@@ -886,7 +886,7 @@ describe.skip("Filler V2 FX - Base mainnet same-chain USDC→cNGN with V4 fundin
 		await fxStrategy.initialise()
 
 		const strategies = [fxStrategy]
-		const bidStorage = new BidStorageService(chainConfigService.getDataDir())
+		const bidStorage = new SqliteDataStore(".simplex-data").bids
 
 		const intentFiller = new IntentFiller(
 			chainConfigs,
@@ -896,6 +896,7 @@ describe.skip("Filler V2 FX - Base mainnet same-chain USDC→cNGN with V4 fundin
 			chainClientManager,
 			contractService,
 			signer,
+			{ orders: stubOrderScanner() },
 			undefined,
 			bidStorage,
 		)
@@ -913,7 +914,7 @@ describe.skip("Filler V2 FX - Base mainnet same-chain USDC→cNGN with V4 fundin
 		const beneficiary = bytes20ToBytes32(beneficiaryAddress)
 		const deadlineBlock = (await basePublicClient.getBlockNumber()) + 3000n
 
-		let order: Order = {
+		const order: Order = {
 			user: bytes20ToBytes32(user),
 			source: toHex(baseMainnetId),
 			destination: toHex(baseMainnetId),
@@ -1219,7 +1220,7 @@ describe.skip("Filler V2 FX - Base mainnet same-chain USDC→cNGN with V4 fundin
 		await fxStrategy.initialise()
 
 		const strategies = [fxStrategy]
-		const bidStorage = new BidStorageService(chainConfigService.getDataDir())
+		const bidStorage = new SqliteDataStore(".simplex-data").bids
 
 		const intentFiller = new IntentFiller(
 			chainConfigs,
@@ -1229,6 +1230,7 @@ describe.skip("Filler V2 FX - Base mainnet same-chain USDC→cNGN with V4 fundin
 			chainClientManager,
 			contractService,
 			signer,
+			{ orders: stubOrderScanner() },
 			undefined,
 			bidStorage,
 		)
@@ -1246,7 +1248,7 @@ describe.skip("Filler V2 FX - Base mainnet same-chain USDC→cNGN with V4 fundin
 		const beneficiary = bytes20ToBytes32(beneficiaryAddress)
 		const deadlineBlock = (await basePublicClient.getBlockNumber()) + 3000n
 
-		let order: Order = {
+		const order: Order = {
 			user: bytes20ToBytes32(user),
 			source: toHex(baseMainnetId),
 			destination: toHex(baseMainnetId),
@@ -1380,7 +1382,7 @@ describe.skip("Filler V2 FX - BSC mainnet same-chain swap", () => {
 		const currentBlock = await bscPublicClient.getBlockNumber()
 		const deadline = currentBlock + 200n
 
-		let order: Order = {
+		const order: Order = {
 			user: bytes20ToBytes32(user),
 			source: toHex(bscMainnetId),
 			destination: toHex(bscMainnetId),
@@ -1556,7 +1558,7 @@ describe.skip("Filler V2 FX - Arbitrum mainnet same-chain swap", () => {
 		const user = privateKeyToAccount(process.env.PRIVATE_KEY as HexString).address
 		const currentBlock = await arbitrumPublicClient.getBlockNumber()
 
-		let order: Order = {
+		const order: Order = {
 			user: bytes20ToBytes32(user),
 			source: toHex(arbitrumMainnetId),
 			destination: toHex(arbitrumMainnetId),
@@ -1698,7 +1700,7 @@ describe.skip("Filler V2 FX - Arbitrum to Base cross-chain swap", () => {
 			const user = privateKeyToAccount(process.env.PRIVATE_KEY as HexString).address
 			const destBlock = await basePublicClient.getBlockNumber()
 
-			let order: Order = {
+			const order: Order = {
 				user: bytes20ToBytes32(user),
 				source: toHex(arbitrumMainnetId),
 				destination: toHex(baseMainnetId),
@@ -1811,7 +1813,7 @@ function hasMpcVaultFillCredentials(): boolean {
 }
 
 function createMpcVaultFillSigner() {
-	return createSimplexSigner({
+	return createSigner({
 		type: SignerType.MpcVault,
 		apiToken: process.env.MPCVAULT_API_TOKEN!,
 		vaultUuid: process.env.MPCVAULT_VAULT_UUID!,
@@ -1846,7 +1848,7 @@ async function setUpMainnetFx() {
 	}
 
 	const privateKey = process.env.PRIVATE_KEY as HexString
-	const signer = await createSimplexSigner({ type: SignerType.PrivateKey, key: privateKey })
+	const signer = await createSigner({ type: SignerType.PrivateKey, key: privateKey })
 	const cacheService = new CacheService()
 	const chainClientManager = new ChainClientManager(chainConfigService, signer)
 	const contractService = new ContractInteractionService(chainClientManager, chainConfigService, signer, cacheService)
@@ -1898,7 +1900,7 @@ async function setUpMainnetFxBase() {
 	}
 
 	const privateKey = process.env.PRIVATE_KEY as HexString
-	const signer = await createSimplexSigner({ type: SignerType.PrivateKey, key: privateKey })
+	const signer = await createSigner({ type: SignerType.PrivateKey, key: privateKey })
 	const cacheService = new CacheService()
 	const chainClientManager = new ChainClientManager(chainConfigService, signer)
 	const contractService = new ContractInteractionService(chainClientManager, chainConfigService, signer, cacheService)
@@ -1954,7 +1956,7 @@ async function setUpMainnetFxBsc() {
 	}
 
 	const privateKey = process.env.PRIVATE_KEY as HexString
-	const signer = await createSimplexSigner({ type: SignerType.PrivateKey, key: privateKey })
+	const signer = await createSigner({ type: SignerType.PrivateKey, key: privateKey })
 	const cacheService = new CacheService()
 	const chainClientManager = new ChainClientManager(chainConfigService, signer)
 	const contractService = new ContractInteractionService(chainClientManager, chainConfigService, signer, cacheService)
@@ -2006,7 +2008,7 @@ async function setUpMainnetFxArbitrum() {
 	}
 
 	const privateKey = process.env.PRIVATE_KEY as HexString
-	const signer = await createSimplexSigner({ type: SignerType.PrivateKey, key: privateKey })
+	const signer = await createSigner({ type: SignerType.PrivateKey, key: privateKey })
 	const cacheService = new CacheService()
 	const chainClientManager = new ChainClientManager(chainConfigService, signer)
 	const contractService = new ContractInteractionService(chainClientManager, chainConfigService, signer, cacheService)
@@ -2061,7 +2063,7 @@ async function setUpMainnetFxArbitrumToBase() {
 
 	// User EOA (PRIVATE_KEY): Arbitrum wallet for approvals and placing the order.
 	const privateKey = process.env.PRIVATE_KEY as HexString
-	const userSigner = await createSimplexSigner({ type: SignerType.PrivateKey, key: privateKey })
+	const userSigner = await createSigner({ type: SignerType.PrivateKey, key: privateKey })
 	const cacheService = new CacheService()
 	const chainClientManager = new ChainClientManager(chainConfigService, userSigner)
 	const contractService = new ContractInteractionService(
@@ -2100,7 +2102,7 @@ async function createCrossChainFxIntentFiller(
 	fillerConfig: FillerConfig,
 	chainConfigService: FillerConfigService,
 	chainIds: string[],
-	fillerSigner: SigningAccount,
+	fillerSigner: Signer,
 ): Promise<IntentFiller> {
 	const cacheService = new CacheService()
 	const chainClientManager = new ChainClientManager(chainConfigService, fillerSigner)
@@ -2161,7 +2163,7 @@ async function createCrossChainFxIntentFiller(
 	)
 
 	const strategies = [fxStrategy]
-	const bidStorage = new BidStorageService(chainConfigService.getDataDir())
+	const bidStorage = new SqliteDataStore(".simplex-data").bids
 
 	return new IntentFiller(
 		chainConfigs,
@@ -2171,6 +2173,7 @@ async function createCrossChainFxIntentFiller(
 		chainClientManager,
 		contractService,
 		fillerSigner,
+		{ orders: stubOrderScanner() },
 		undefined,
 		bidStorage,
 	)
@@ -2185,7 +2188,7 @@ async function createFxOnlyIntentFiller(
 	exoticTokenOverride?: HexString,
 ): Promise<IntentFiller> {
 	const privateKey = process.env.PRIVATE_KEY as HexString
-	const signer = await createSimplexSigner({ type: SignerType.PrivateKey, key: privateKey })
+	const signer = await createSigner({ type: SignerType.PrivateKey, key: privateKey })
 	const cacheService = new CacheService()
 	const chainClientManager = new ChainClientManager(chainConfigService, signer)
 
@@ -2219,7 +2222,7 @@ async function createFxOnlyIntentFiller(
 	)
 
 	const strategies = [fxStrategy]
-	const bidStorage = new BidStorageService(chainConfigService.getDataDir())
+	const bidStorage = new SqliteDataStore(".simplex-data").bids
 
 	return new IntentFiller(
 		chainConfigs,
@@ -2229,6 +2232,7 @@ async function createFxOnlyIntentFiller(
 		chainClientManager,
 		contractService,
 		signer,
+		{ orders: stubOrderScanner() },
 		undefined,
 		bidStorage,
 	)

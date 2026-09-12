@@ -79,11 +79,23 @@ where
 		let finalized_state_commitment =
 			counterparty.query_state_machine_commitment(height).await?;
 
-		if finalized_state_commitment.state_root != state_root.into() {
+		let state_root_mismatch = finalized_state_commitment.state_root != state_root.into();
+		// The commitment's timestamp is taken verbatim from the header's timestamp digest, so
+		// anything else recorded against this height is forged. Timestamps gate request/response
+		// timeouts, so a skewed one either strands messages or expires them early — worth a veto
+		// even when the state root itself checks out.
+		let timestamp_mismatch = finalized_state_commitment.timestamp != digest_result.timestamp;
+
+		if state_root_mismatch || timestamp_mismatch {
 			log::info!(
-				target: crate::LOG_TARGET, "Vetoing state commitment for {} on {}, state commitment mismatch",
+				target: crate::LOG_TARGET, "Vetoing state commitment for {} on {} at height {}: recorded (state root {:?}, timestamp {}) disagrees with header (state root {:?}, timestamp {})",
 				self.state_machine_id().state_id,
-				counterparty.state_machine_id().state_id
+				counterparty.state_machine_id().state_id,
+				event.latest_height,
+				finalized_state_commitment.state_root,
+				finalized_state_commitment.timestamp,
+				state_root,
+				digest_result.timestamp,
 			);
 			counterparty.veto_state_commitment(height).await?;
 		}

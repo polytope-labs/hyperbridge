@@ -10,7 +10,9 @@ import type {
 	IndexerQueryClient,
 	OrderStatus,
 	OrderWithStatus,
-	AvailableLiquiditySnapshot,
+	AvailableLiquidity,
+	BuyAndSellRates,
+	QueryBuyAndSellRatesParams,
 } from "@/types"
 import type {
 	PackedUserOperation,
@@ -27,6 +29,7 @@ import type { ResumeIntentOrderOptions } from "@/types"
 import type { IEvmChain } from "@/chain"
 import type { IntentsCoprocessor } from "@/chains/intentsCoprocessor"
 import type { IsmpClient } from "@/client"
+import { Chains, chainConfigs, getConfigByStateMachineId } from "@/configs/chain"
 import { _queryOrderInternal } from "@/queryClient"
 import type { IntentGatewayContext } from "./types"
 import type { CancelEvent } from "./types"
@@ -37,30 +40,61 @@ import { OrderCanceller } from "./OrderCanceller"
 import { BidManager } from "./BidManager"
 import { GasEstimator } from "./GasEstimator"
 import { OrderStatusChecker } from "./OrderStatusChecker"
-import { LiquidityEngine } from "./LiquidityEngine"
+import {
+	LiquidityEngine,
+	UnsupportedLiquidityAssetError,
+	UnsupportedLiquidityChainError,
+} from "./LiquidityEngine"
 import {
 	type IntentQuoteStrategyHandler,
 	type QuoteIntentParams,
 	type QuoteIntentResult,
+	IndexedRateIntentQuoteStrategy,
 	PhantomSnapshotIntentQuoteStrategy,
 	UniswapV4IntentQuoteStrategy,
 	UnsupportedIntentQuotePairError,
 	UnsupportedIntentQuoteStrategyError,
 } from "./quote"
-import { PhantomSnapshotPairResolver } from "./quote/phantomSnapshot"
 import type { ERC7821Call } from "@/types"
-import { DEFAULT_GRAFFITI, DEFAULT_POLL_INTERVAL, ADDRESS_ZERO, bytes32ToBytes20, sleep } from "@/utils"
+import {
+	DEFAULT_GRAFFITI,
+	DEFAULT_POLL_INTERVAL,
+	ADDRESS_ZERO,
+	bytes32ToBytes20,
+	sleep,
+} from "@/utils"
 import { getFeeToken } from "./utils"
 
-const CROSS_CHAIN_ORDER_FEE_GAS_PRICE_BUMP_PERCENT = 10n
+interface OrderFeeGasPriceBumpPolicy {
+	defaultPercent: bigint
+	bySourceStateMachineId: Readonly<Record<string, bigint>>
+}
+
+const ORDER_FEE_GAS_PRICE_BUMP_POLICY: OrderFeeGasPriceBumpPolicy = {
+	defaultPercent: 10n,
+	bySourceStateMachineId: {
+		[Chains.MAINNET]: 50n,
+	},
+}
+
+function resolveOrderFeeGasPriceBump(sourceStateMachineId: string, isSameChain: boolean): bigint {
+	if (isSameChain) {
+		return 0n
+	}
+
+	return (
+		ORDER_FEE_GAS_PRICE_BUMP_POLICY.bySourceStateMachineId[sourceStateMachineId] ??
+		ORDER_FEE_GAS_PRICE_BUMP_POLICY.defaultPercent
+	)
+}
 
 /**
  * High-level facade for the IntentGatewayV2 protocol.
  *
  * `IntentGateway` orchestrates the complete lifecycle of an intent-based
  * cross-chain swap:
- * - **Quoting** — prices the order's input/output amounts via Phantom order
- *   snapshots by default, with Uniswap V4 available as an explicit strategy.
+ * - **Quoting** — prices the order's input/output amounts from aggregate
+ *   indexed pool rates by default, with legacy quote strategies available explicitly.
  * - **Order placement** — encodes and yields `placeOrder` calldata; caller
  *   signs and submits the transaction.
  * - **Order execution** — polls the Hyperbridge coprocessor for solver bids,
@@ -105,8 +139,6 @@ export class IntentGateway {
 	private readonly gasEstimator: GasEstimator
 	/** Quote strategies for pricing orders before placement, keyed by strategy name. */
 	private readonly quoteStrategies: Record<string, IntentQuoteStrategyHandler>
-	/** Resolves order tokens to canonical Phantom snapshot market pairs. */
-	private readonly phantomSnapshotPairResolver: PhantomSnapshotPairResolver
 
 	/**
 	 * Private constructor — use {@link IntentGateway.create} instead.
@@ -155,8 +187,11 @@ export class IntentGateway {
 		this.bidManager = bidManager
 		this.gasEstimator = gasEstimator
 		this._crypto = crypto
-		this.phantomSnapshotPairResolver = new PhantomSnapshotPairResolver(dest.configService)
 		this.quoteStrategies = {
+			indexed_rates: new IndexedRateIntentQuoteStrategy(
+				dest.configService,
+				() => this.requireIndexer().queryClient,
+			),
 			phantom_snapshot: new PhantomSnapshotIntentQuoteStrategy(
 				dest.configService,
 				() => this.requireIndexer().queryClient,
@@ -219,26 +254,26 @@ export class IntentGateway {
 	/**
 	 * Quotes an intent between this gateway's source and destination chains.
 	 *
-	 * Uses the latest directional Phantom order price snapshot from the attached
-	 * indexer by default. Pass `strategy: "uniswap_v4"` only when explicitly
-	 * requesting a Uniswap quote. Provide exactly one of `amountIn` or `amountOut`.
+	 * Uses the indexer's latest aggregate directional pool rate by default. Pass
+	 * `strategy: "phantom_snapshot"` or `strategy: "uniswap_v4"` only when
+	 * explicitly requesting a legacy quote source. Provide exactly one of
+	 * `amountIn` or `amountOut`.
 	 *
-	 * Both built-in strategies resolve their canonical market on Base,
-	 * regardless of this gateway's destination chain. Returned
+	 * The gateway's source and destination chains resolve the configured order
+	 * tokens; the indexer supplies the depth-weighted pool rate. Returned
 	 * `amountIn`/`amountOut` already account for the gateway's protocol fee
-	 * (`quoteMetadata.protocolFeeBps`), which the gateway deducts from order
-	 * inputs; use the returned amounts directly when placing the order.
+	 * (`quoteMetadata.protocolFeeBps`), which the gateway deducts from order inputs.
 	 *
 	 * @param params - Token pair, amount, and optional strategy/pool overrides.
 	 * @returns The quoted amounts plus strategy-specific metadata.
 	 * @throws {UnsupportedIntentQuoteStrategyError} For unknown strategies.
 	 * @throws {UnsupportedIntentQuotePairError} When the selected strategy does not support the pair.
-	 * @throws {PhantomSnapshotUnavailableError} When an eligible cNGN pair has no snapshot.
+	 * @throws {IndexedRateUnavailableError} When the requested direction has no indexed rate.
 	 */
 	async quoteIntent(params: QuoteIntentParams): Promise<QuoteIntentResult> {
 		const source = { stateMachineId: this.source.config.stateMachineId, client: this.source.client }
 		const destination = { stateMachineId: this.dest.config.stateMachineId, client: this.dest.client }
-		const strategy = params.strategy ?? "phantom_snapshot"
+		const strategy = params.strategy ?? "indexed_rates"
 		const handler = this.quoteStrategies[strategy]
 		if (!handler) throw new UnsupportedIntentQuoteStrategyError(strategy)
 
@@ -246,36 +281,67 @@ export class IntentGateway {
 	}
 
 	/**
-	 * Returns the output-token liquidity measured in the latest directional
-	 * Phantom snapshot for this gateway's source and destination.
+	 * Returns indexed destination liquidity and its source-routing slices.
 	 *
-	 * Pair resolution uses the same canonical Base market as {@link quoteIntent}.
-	 * The snapshot itself determines the output token and chain to aggregate. The
-	 * amount is in the token's smallest unit and reflects the indexer's
-	 * `snapshotTime`; it is not a live reservation or fill guarantee.
+	 * Destination, unrestricted, and explicit-route capacity come exclusively
+	 * from the indexer's pair-centric liquidity entities. The SDK does not decide
+	 * whether unrestricted bidders cover the source chain. Amounts reflect the
+	 * latest rolling sample; they are not reservations or fill guarantees.
 	 *
 	 * Requires a prior call to {@link withQueryClient}.
 	 */
 	async queryAvailableLiquidity(
 		params: Pick<QuoteIntentParams, "tokenIn" | "tokenOut">,
-	): Promise<AvailableLiquiditySnapshot | undefined> {
+	): Promise<AvailableLiquidity | undefined> {
 		const { queryClient } = this.requireIndexer()
-		const sourceStateMachineId = this.source.config.stateMachineId
-		const destinationStateMachineId = this.dest.config.stateMachineId
-		const pair = this.phantomSnapshotPairResolver.resolve(params, sourceStateMachineId, destinationStateMachineId)
-		if (!pair) {
-			throw new UnsupportedIntentQuotePairError({
-				source: sourceStateMachineId,
-				destination: destinationStateMachineId,
-				tokenIn: params.tokenIn,
-				tokenOut: params.tokenOut,
-				quoteSource: "Phantom snapshot pair",
-			})
-		}
+		const sourceStateMachineId = getConfigByStateMachineId(this.source.config.stateMachineId)?.stateMachineId
+		const destinationStateMachineId = getConfigByStateMachineId(this.dest.config.stateMachineId)?.stateMachineId
+		if (!sourceStateMachineId) throw new UnsupportedLiquidityChainError(this.source.config.stateMachineId)
+		if (!destinationStateMachineId) throw new UnsupportedLiquidityChainError(this.dest.config.stateMachineId)
+		const sourceToken = this.source.configService.getAssetMetadataByAddress(sourceStateMachineId, params.tokenIn)
+		const destinationToken = this.dest.configService.getAssetMetadataByAddress(
+			destinationStateMachineId,
+			params.tokenOut,
+		)
+		if (!sourceToken) throw new UnsupportedLiquidityAssetError(sourceStateMachineId, params.tokenIn)
+		if (!destinationToken) throw new UnsupportedLiquidityAssetError(destinationStateMachineId, params.tokenOut)
 
-		return new LiquidityEngine(queryClient, this.dest.configService).getAvailableLiquiditySnapshot({
-			tokenIn: pair.tokenA,
-			tokenOut: pair.tokenB,
+		return new LiquidityEngine(queryClient).getAvailableLiquidity({
+			source: {
+				chain: sourceStateMachineId,
+				...sourceToken,
+			},
+			destination: {
+				chain: destinationStateMachineId,
+				...destinationToken,
+			},
+		})
+	}
+
+	/**
+	 * Returns aggregate indexed pool buy and sell rates in less-valued quote-token
+	 * units without requiring token addresses. Symbols are matched
+	 * case-insensitively; chain IDs resolve configured token deployments.
+	 */
+	async queryBuyAndSellRates(params: QueryBuyAndSellRatesParams): Promise<BuyAndSellRates | undefined> {
+		const { queryClient } = this.requireIndexer()
+		const sourceChain = chainConfigs[params.sourceChainId]?.stateMachineId
+		const destinationChain = chainConfigs[params.destinationChainId]?.stateMachineId
+		if (!sourceChain) throw new UnsupportedLiquidityChainError(params.sourceChainId)
+		if (!destinationChain) throw new UnsupportedLiquidityChainError(params.destinationChainId)
+		const sourceToken = this.source.configService.getAssetMetadataBySymbol(sourceChain, params.tokenInSymbol)
+		const destinationToken = this.dest.configService.getAssetMetadataBySymbol(
+			destinationChain,
+			params.tokenOutSymbol,
+		)
+		if (!sourceToken) throw new UnsupportedLiquidityAssetError(sourceChain, params.tokenInSymbol)
+		if (!destinationToken) throw new UnsupportedLiquidityAssetError(destinationChain, params.tokenOutSymbol)
+
+		return new LiquidityEngine(queryClient).getBuyAndSellRates({
+			sourceChain,
+			destinationChain,
+			tokenInSymbol: sourceToken.symbol,
+			tokenOutSymbol: destinationToken.symbol,
 		})
 	}
 
@@ -286,8 +352,9 @@ export class IntentGateway {
 	 * **Yield/receive protocol:**
 	 * 1. If `order.fees` is unset or zero, prices the fee on an internal copy
 	 *    via {@link quoteOrderFees}: same-chain fees are twice the fill-gas
-	 *    estimate without a gas-price bump; cross-chain gas is priced 10% above
-	 *    the live price before attaching (fill gas + the settlement relayer fee)
+	 *    estimate without a gas-price bump; cross-chain order fees originating on
+	 *    Ethereum price gas 50% above the live price, while other source chains use
+	 *    10%, before attaching (fill gas + the settlement relayer fee)
 	 *    with a further 5% buffer over the whole sum — strictly above the solver's
 	 *    unpadded requirement. Direct solver estimates remain unbumped. The wei
 	 *    cost used for the `value` field receives a 2% buffer.
@@ -735,7 +802,8 @@ export class IntentGateway {
 	 * transaction (check the native balance).
 	 *
 	 * @param order - The order to quote. `order.fees` is ignored and not mutated.
-	 * Gas prices used to derive cross-chain `fees` receive 10% SDK-only headroom.
+	 * Gas prices used to derive cross-chain `fees` receive 50% SDK-only headroom
+	 * when the source chain is Ethereum mainnet and 10% for other source chains.
 	 * Same-chain quotes and direct calls to {@link estimateFillOrder}, including
 	 * Simplex solver estimates, remain unbumped.
 	 *
@@ -749,15 +817,14 @@ export class IntentGateway {
 		options?: { maxPriorityFeePerGasBumpPercent?: number; maxFeePerGasBumpPercent?: number },
 	): Promise<OrderFeesQuote> {
 		const isSameChain = this.source.config.stateMachineId === this.dest.config.stateMachineId
+		const orderFeeGasPriceBumpPercent = resolveOrderFeeGasPriceBump(this.source.config.stateMachineId, isSameChain)
 		const estimate = await this.gasEstimator.estimateFillOrder(
 			{
 				order,
 				maxPriorityFeePerGasBumpPercent: options?.maxPriorityFeePerGasBumpPercent,
 				maxFeePerGasBumpPercent: options?.maxFeePerGasBumpPercent,
 			},
-			{
-				orderFeeGasPriceBumpPercent: isSameChain ? 0n : CROSS_CHAIN_ORDER_FEE_GAS_PRICE_BUMP_PERCENT,
-			},
+			{ orderFeeGasPriceBumpPercent },
 		)
 
 		if (estimate.totalGasCostWei === 0n || estimate.totalGasInFeeToken === 0n) {

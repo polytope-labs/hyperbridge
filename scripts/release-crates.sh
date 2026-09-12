@@ -3,6 +3,8 @@
 cargo release \
 -p serde-hex-utils \
 -p crypto-utils \
+-p beefy-verifier-primitives \
+-p ismp-abi \
 -p ismp \
 -p pallet-ismp \
 -p pallet-ismp-runtime-api \

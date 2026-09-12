@@ -285,10 +285,11 @@ contract HyperFungibleToken is ERC20, ERC165, HyperApp, Ownable, Pausable {
      * @notice Handles incoming cross-chain token transfer messages
      * @dev Called by the ISMP host when a POST request is received. Verifies the source
      * address matches the configured contract for that chain, then mints tokens to the
-     * recipient. If calldata is present, executes it via the CallDispatcher.
+     * recipient. If calldata is present, executes it via the CallDispatcher. Virtual so a token
+     * can gate deliveries, e.g. on the relayer, before calling `super`.
      * @param incoming The incoming POST request containing the token transfer message
      */
-    function onAccept(IncomingPostRequest calldata incoming) external override onlyHost whenNotPaused {
+    function onAccept(IncomingPostRequest calldata incoming) public virtual override onlyHost whenNotPaused {
         PostRequest calldata request = incoming.request;
 
         bytes memory expectedSource = _supportedChains[request.source];
@@ -317,7 +318,7 @@ contract HyperFungibleToken is ERC20, ERC165, HyperApp, Ownable, Pausable {
      * Re-mints the burned tokens back to the original sender as a refund.
      * @param incoming The timed-out POST request and the relayer that submitted the timeout proof
      */
-    function onPostRequestTimeout(PostRequestTimeout memory incoming) external override onlyHost whenNotPaused {
+    function onPostRequestTimeout(PostRequestTimeout memory incoming) public virtual override onlyHost whenNotPaused {
         Message memory message = abi.decode(incoming.request.body, (Message));
         address refundee = _toAddr(message.from);
         _mint(refundee, message.amount);

@@ -1,5 +1,4 @@
 export * from "./server/UiServer"
-export * from "./BidStorageService"
 export * from "./CacheService"
 export * from "./ChainClientManager"
 export * from "./ContractInteractionService"

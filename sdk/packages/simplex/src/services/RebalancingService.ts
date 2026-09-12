@@ -1,9 +1,9 @@
 import { formatUnits } from "viem"
 import { parseStateMachineId } from "@hyperbridge/sdk"
 import { Decimal } from "decimal.js"
-import { ChainClientManager } from "./ChainClientManager"
-import { FillerConfigService } from "./FillerConfigService"
-import { getLogger } from "./Logger"
+import type { ChainClientManager } from "./ChainClientManager"
+import type { FillerConfigService } from "./FillerConfigService"
+import { type Logger , moduleLogger} from "./Logger"
 import { ERC20_ABI } from "@/config/abis/ERC20"
 import {
 	BinanceRebalancer,
@@ -12,7 +12,6 @@ import {
 	type BinanceCexConfig,
 	type CexRebalanceEstimate,
 	type CexRebalanceResult,
-	type RebalanceMethod,
 	type RouteDecision,
 	type RebalanceOptions,
 	type UnifiedRebalanceOptions,
@@ -103,17 +102,18 @@ export class RebalancingService {
 	private readonly usdt0Rebalancer: Usdt0Rebalancer
 	private readonly binanceRebalancer?: BinanceRebalancer
 
-	private readonly logger = getLogger("RebalancingService")
+	private readonly logger: Logger
 
 	constructor(
 		chainClientManager: ChainClientManager,
 		configService: FillerConfigService,
 		binanceConfig?: BinanceCexConfig,
 	) {
+		this.logger = moduleLogger(configService.loggers, "RebalancingService")
 		this.chainClientManager = chainClientManager
 		this.configService = configService
 
-		this.walletAddress = this.chainClientManager.getSigner().account.address
+		this.walletAddress = this.chainClientManager.getSigner().address
 
 		this.cctpRebalancer = new CctpRebalancer(chainClientManager, configService)
 		this.usdt0Rebalancer = new Usdt0Rebalancer(chainClientManager, configService)

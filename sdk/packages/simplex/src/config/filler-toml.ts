@@ -1,9 +1,11 @@
+import type { TunnelConfig } from "@/services/tunnel/TunnelService"
 import { isAddress } from "viem"
-import { HexString } from "@hyperbridge/sdk"
+import type { HexString } from "@hyperbridge/sdk"
 import { ConfirmationPolicy, DEFAULT_CONFIRMATION_POLICIES } from "@/config/interpolated-curve"
 import { USD_STABLE_SYMBOLS, validateAssetDefinitions, type AssetDefinition } from "@/config/asset-registry"
 import { validatePairConfigs, type PairConfig } from "@/config/pairs"
 import type { SignerConfig } from "@/services/wallet"
+import { MIN_BLOCK_SCAN_INTERVAL_SECONDS } from "@/services/FillerConfigService"
 import type { UserProvidedChainConfig, AllowlistConfig } from "@/services/FillerConfigService"
 import type { PaymasterKeeperConfig } from "@/services/PaymasterKeeperService"
 
@@ -117,18 +119,37 @@ export interface FillerTomlConfig {
 	 */
 	confirmationPolicies?: Record<string, ChainConfirmationPolicy>
 	simplex: {
-		// The signer is optional to keep the watch-only mode compatible
-		signer?: SignerConfig
-		maxConcurrentOrders: number
-		queue: QueueConfig
+		/** Orders evaluated at once. Defaults to 5. */
+		maxConcurrentOrders?: number
+		/**
+		 * Accepted and ignored. Older configs and the wizard used to write it; the
+		 * engine never read it. Kept in the type so those configs still load.
+		 */
+		queue?: QueueConfig
 		logging?: string
 		watchOnly?: boolean | Record<string, boolean>
 		substratePrivateKey: string
 		hyperbridgeWsUrl: string
+		/**
+		 * Hyperbridge indexer GraphQL endpoint, used to backfill order details on
+		 * activity rows recorded before they were captured. Defaults per network
+		 * (nexus for mainnet, gargantua for testnet).
+		 */
+		indexerUrl?: string
+		/** Accepted and ignored. Contract addresses come from the SDK chain registry. */
 		entryPointAddress?: string
+		/** Accepted and ignored. Contract addresses come from the SDK chain registry. */
 		solverAccountContractAddress?: string
 		/** Target gas units for EntryPoint deposits per chain. Defaults to 3,000,000. */
 		targetGasUnits?: number
+		/**
+		 * Block-scanner poll period per chain in seconds. Defaults to 3, and
+		 * fractional values are allowed (0.5 = twice a second). Each tick costs
+		 * one `eth_blockNumber` + one `eth_getLogs` per chain per endpoint, so
+		 * raising this is the lever for fitting inside a rate-limited RPC's
+		 * budget; the cost is seeing new orders that much later.
+		 */
+		blockScanIntervalSeconds?: number
 		/** Gas fee bump (percentages added to base gasPrice). Defaults: priority=8%, max=10%. */
 		gasFeeBump?: {
 			maxPriorityFeePerGasBumpPercent?: number
@@ -146,11 +167,24 @@ export interface FillerTomlConfig {
 			maxConsecutiveClamps?: number
 		}
 		/**
-		 * Source chains (state machine ids, e.g. "EVM-8453") this filler accepts payment from,
-		 * declared inside its phantom bids. Omit to declare nothing (read downstream as "all
-		 * CCTP/USDT0-covered chains"); an empty array declares no accepted sources.
+		 * How long a signed bid stays executable, in seconds. Defaults to 300 (5 minutes).
+		 *
+		 * Written into `FillOptions.validUntil` and enforced by `fillOrder`, which reverts
+		 * `FillExpired` past it. This is how long the quoted price stands as a firm commitment:
+		 * the order's `deadline` is chosen by the placer with no ceiling, and retracting the bid
+		 * on Hyperbridge does not reach the destination chain, so without it a signed bid stays
+		 * executable indefinitely and is taken up only once the rate has moved against us.
+		 *
+		 * Configured in seconds but written on-chain in blocks, converted per destination chain.
+		 * Ignored on gateways predating `FillOptions.validUntil` — there is nowhere to put it.
 		 */
-		acceptedSourceChains?: string[]
+		bidValiditySeconds?: number
+		/**
+		 * Remote access: an outbound SSH tunnel to a rendezvous relay so a phone's
+		 * SSH client can reach the local web UI. Off unless `enabled = true`; the
+		 * relay defaults to the hosted one. Devices are paired from the UI.
+		 */
+		tunnel?: TunnelConfig
 	}
 	chains: UserProvidedChainConfig[]
 	rebalancing?: RebalancingConfig
@@ -161,6 +195,23 @@ export interface FillerTomlConfig {
 	allowlist?: AllowlistConfig
 	/** SimplexPaymaster fee-recycling keeper (`paymaster-keeper` subcommand). */
 	keeper?: PaymasterKeeperConfig
+}
+
+/**
+ * The TOML file the binary reads: a {@link FillerTomlConfig} plus the
+ * `[simplex.signer]` block, which is the CLI's way of naming a signing backend.
+ *
+ * The block is not part of the library's config — `Simplex.start` takes a
+ * `Signer` instance — so it lives on this type and nowhere else. The binary
+ * resolves it with `signerFromToml` and passes the parsed file straight through;
+ * the extra key rides along untouched so the dashboard's config writer can put
+ * it back in the file it came from.
+ */
+export interface FillerConfigFile extends FillerTomlConfig {
+	simplex: FillerTomlConfig["simplex"] & {
+		/** Omitted by watch-only configs, which sign nothing. */
+		signer?: SignerConfig
+	}
 }
 
 /**
@@ -242,16 +293,9 @@ export function validateConfig(config: FillerTomlConfig, cliWatchOnly = false): 
 		)
 	}
 
-	// Private key is only required if not all chains are in watch-only mode.
 	// The --watch-only CLI flag forces global watch-only, so honour it here too
-	// (otherwise the flag's own config would still trip the signer requirement).
+	// (otherwise the flag's own config would still trip the checks it exempts).
 	const allChainsWatchOnly = cliWatchOnly || config.simplex?.watchOnly === true
-
-	const signer = config.simplex?.signer
-
-	if (!signer && !allChainsWatchOnly) {
-		throw new Error("Signer configuration is required via [simplex.signer]")
-	}
 
 	if (!config.simplex?.substratePrivateKey) {
 		throw new Error("simplex.substratePrivateKey is required")
@@ -275,13 +319,23 @@ export function validateConfig(config: FillerTomlConfig, cliWatchOnly = false): 
 		}
 	}
 
-	if (config.simplex.acceptedSourceChains !== undefined) {
-		if (
-			!Array.isArray(config.simplex.acceptedSourceChains) ||
-			config.simplex.acceptedSourceChains.some((chain) => typeof chain !== "string" || !chain.trim())
-		) {
+	// `|| 5` downstream reads 0 as "unset", and p-queue throws a bare TypeError on
+	// fractional or negative concurrency — surface both here with a named error.
+	const concurrent = config.simplex.maxConcurrentOrders
+	if (concurrent !== undefined) {
+		if (!Number.isInteger(concurrent) || concurrent < 1) {
+			throw new Error(`simplex.maxConcurrentOrders must be an integer >= 1; got ${concurrent}`)
+		}
+	}
+
+	// A zero/negative/NaN interval would spin the scanner as fast as the event
+	// loop allows and exhaust any RPC budget in minutes, so reject it at the gate
+	// rather than letting setInterval coerce it.
+	const scanInterval = config.simplex.blockScanIntervalSeconds
+	if (scanInterval !== undefined) {
+		if (!Number.isFinite(scanInterval) || scanInterval < MIN_BLOCK_SCAN_INTERVAL_SECONDS) {
 			throw new Error(
-				"simplex.acceptedSourceChains must be an array of state machine ids (e.g. \"EVM-8453\")",
+				`simplex.blockScanIntervalSeconds must be a number >= ${MIN_BLOCK_SCAN_INTERVAL_SECONDS} (seconds); got ${scanInterval}`,
 			)
 		}
 	}

@@ -8,6 +8,13 @@ export const SIMPLEX_PAYMASTER_ABI = [
 	},
 	{
 		inputs: [],
+		name: "PERMIT2",
+		outputs: [{ name: "", type: "address" }],
+		stateMutability: "view",
+		type: "function",
+	},
+	{
+		inputs: [],
 		name: "treasury",
 		outputs: [{ name: "", type: "address" }],
 		stateMutability: "view",

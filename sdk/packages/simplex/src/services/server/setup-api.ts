@@ -2,12 +2,12 @@ import type { IncomingMessage, ServerResponse } from "node:http"
 import { createPublicClient, http, isAddress } from "viem"
 import { ChainConfigService } from "@hyperbridge/sdk"
 import { privateKeyToAccount } from "viem/accounts"
-import { assertConfirmationCoverage, validateConfig, type FillerTomlConfig } from "@/config/filler-toml"
+import { assertConfirmationCoverage, validateConfig, type FillerConfigFile } from "@/config/filler-toml"
 import { assertPairSymbolsResolve } from "@/config/pairs"
 import { formatChainKey } from "@/config/interpolated-curve"
 import { AssetRegistry, registrySymbols, USD_STABLE_SYMBOLS } from "@/config/asset-registry"
 import { fetchChainId, validateRpcUrls } from "@/services/FillerConfigService"
-import { validateSignerConfig, type SignerConfig } from "@/services/wallet"
+import { validateSignerConfig } from "@/services/wallet"
 import { deriveSubstrateKeyPair, generateSubstrateKey } from "@/services/substrate-key"
 import { ERC20_ABI } from "@/config/abis/ERC20"
 import { emitFillerToml, writeConfigFileAtomic } from "@/cli/init/emit-toml"
@@ -16,8 +16,6 @@ import { deriveAlchemyRpc } from "@/cli/init/derive/alchemy"
 import { maskSecret, withTimeout, PROBE_TIMEOUT_MS } from "@/cli/init/prompt-utils"
 import {
 	DEFAULT_MAX_CONCURRENT_ORDERS,
-	DEFAULT_QUEUE,
-	DEFAULT_SAME_ASSET_ASK_CURVE,
 	TESTNET_CONFIRMATION_POINTS,
 } from "@/cli/init/state"
 import { getLogger } from "../Logger"
@@ -87,9 +85,7 @@ export async function handleSetupRequest(
 			chains: INIT_CHAINS,
 			hyperbridgeWs: HYPERBRIDGE_WS_DEFAULTS,
 			usdStables: [...USD_STABLE_SYMBOLS],
-			sameAssetAskCurve: DEFAULT_SAME_ASSET_ASK_CURVE,
 			testnetConfirmationPoints: TESTNET_CONFIRMATION_POINTS,
-			queue: DEFAULT_QUEUE,
 			maxConcurrentOrders: DEFAULT_MAX_CONCURRENT_ORDERS,
 			configPath: setup.configPath,
 			knownTokens,
@@ -282,14 +278,14 @@ async function checkSubstrateBalance(body: Record<string, unknown>) {
 }
 
 interface GatedConfig {
-	config: FillerTomlConfig
+	config: FillerConfigFile
 	toml: string
 	chainLabels?: string[]
 }
 
 /** The same gate the CLI wizard applies before writing: reject anything `run` would reject. */
 function gateConfig(body: Record<string, unknown>): GatedConfig | { ok: false; error: string } {
-	const config = body.config as FillerTomlConfig | undefined
+	const config = body.config as FillerConfigFile | undefined
 	const chainLabels = Array.isArray(body.chainLabels) ? body.chainLabels.map(String) : undefined
 	// Enabled chain ids, sent by the wizard so boot-parity symbol resolution can
 	// run offline. Advisory for early feedback — boot re-checks against the
@@ -297,7 +293,13 @@ function gateConfig(body: Record<string, unknown>): GatedConfig | { ok: false; e
 	const chainIds = Array.isArray(body.chainIds) ? body.chainIds.map(Number).filter(Number.isFinite) : []
 	if (!config || typeof config !== "object") return { ok: false, error: "Missing config object" }
 	try {
-		validateSignerConfig(config.simplex?.signer as SignerConfig)
+		// The same rule `run` applies: a signer block is required unless the config
+		// is globally watch-only, and a present block is validated for completeness.
+		if (config.simplex?.signer) {
+			validateSignerConfig(config.simplex.signer)
+		} else if (config.simplex?.watchOnly !== true) {
+			throw new Error("Signer configuration is required via [simplex.signer]")
+		}
 		for (const chain of config.chains ?? []) validateRpcUrls(chain.rpcUrls)
 		validateConfig(config)
 		if (chainIds.length > 0 && config.pairs?.length) {
@@ -318,8 +320,8 @@ function gateConfig(body: Record<string, unknown>): GatedConfig | { ok: false; e
 }
 
 /** Display-only TOML with every secret masked; the round-trip gate runs on the real config. */
-export function maskToml(config: FillerTomlConfig, chainLabels?: string[]): string {
-	const masked: FillerTomlConfig = JSON.parse(JSON.stringify(config))
+export function maskToml(config: FillerConfigFile, chainLabels?: string[]): string {
+	const masked: FillerConfigFile = JSON.parse(JSON.stringify(config))
 	const signer = masked.simplex.signer as Record<string, string> | undefined
 	if (signer) {
 		for (const field of ["key", "apiToken", "apiPrivateKey"]) {

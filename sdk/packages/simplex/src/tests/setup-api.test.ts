@@ -4,7 +4,7 @@ import { tmpdir } from "os"
 import { join } from "path"
 import { parse } from "toml"
 import { UiServer, type SetupContext } from "@/services/server/UiServer"
-import { validateConfig, type FillerTomlConfig } from "@/config/filler-toml"
+import { validateConfig, type FillerConfigFile } from "@/config/filler-toml"
 import { SignerType } from "@/services/wallet"
 import { deriveSubstrateKeyPair } from "@/services/substrate-key"
 import { startMockRpc, type MockRpc } from "./helpers/mock-rpc"
@@ -44,12 +44,11 @@ describe("setup API", () => {
 		})
 	}
 
-	function minimalConfig(rpcUrl: string): FillerTomlConfig {
+	function minimalConfig(rpcUrl: string): FillerConfigFile {
 		return {
 			simplex: {
 				signer: { type: SignerType.PrivateKey, key: TEST_KEY },
 				maxConcurrentOrders: 5,
-				queue: { maxRechecks: 10, recheckDelayMs: 30000 },
 				substratePrivateKey: "bottom drive obey lake curtain smoke basket hold race lonely fit walk",
 				hyperbridgeWsUrl: "wss://nexus.rpc.polytope.technology",
 			},
@@ -212,7 +211,7 @@ describe("setup API", () => {
 
 		expect(existsSync(configPath)).toBe(true)
 		expect(statSync(configPath).mode & 0o777).toBe(0o600)
-		const written = parse(readFileSync(configPath, "utf-8")) as FillerTomlConfig
+		const written = parse(readFileSync(configPath, "utf-8")) as FillerConfigFile
 		expect(() => validateConfig(written)).not.toThrow()
 		expect(written.simplex.signer?.type).toBe("privateKey")
 		expect(JSON.parse(JSON.stringify(written))).toEqual(JSON.parse(JSON.stringify(config)))

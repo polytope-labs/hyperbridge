@@ -10,7 +10,7 @@ A Merkle tree is a powerful data structure that enables efficient verification o
 Merkle trees are constructed by recusively hashing pairs of data blocks, referred to as "leaves" and then hashing the hashes of the data to create a tree structure.
 
 
-![merkle.webp](/patricia/merkle.webp)
+![merkle.webp](./images/merkle.webp)
 
 ## Properties
 
@@ -33,15 +33,15 @@ $$
 
 Merkle multi proofs enable more efficient merkle proofs by re-using the intermediate nodes shared by the proof leaves during the recalculation of the root hash of the tree. In order to understand the benefits provided by merkle multi proofs, let’s look at the number of proof items needed for the green node in the tree below:
 
-![Proof schema for a single item in the tree. We need log₂(n) = 4 proof nodes.](/merkle/single1.svg)
+![Proof schema for a single item in the tree. We need log₂(n) = 4 proof nodes.](./images/single1.svg)
 
 Proof schema for a single item in the tree. We need log₂(n) = 4 proof nodes.
 
-![Proof schema for another item in the merkle tree, which uses 3 proof nodes. (note: this tree is unbalanced)](/merkle/single2.svg)
+![Proof schema for another item in the merkle tree, which uses 3 proof nodes. (note: this tree is unbalanced)](./images/single2.svg)
 
 Proof schema for another item in the merkle tree, which uses 3 proof nodes. (note: this tree is unbalanced)
 
-![A combined merkle multi proof uses only 5 proof nodes, in contrast to the total of 7 proof nodes required for verifying each node individually.](/merkle/merkle_proof.svg)
+![A combined merkle multi proof uses only 5 proof nodes, in contrast to the total of 7 proof nodes required for verifying each node individually.](./images/merkle_proof.svg)
 
 A combined merkle multi proof uses only 5 proof nodes, in contrast to the total of 7 proof nodes required for verifying each node individually.
 
@@ -49,7 +49,7 @@ This scheme brings significant space savings when proving the existence of multi
 
 We first define the $k$-index of any node in the tree as it’s distance to the leftmost node at every level of the tree:
 
-![Untitled Diagram.drawio (1).svg](/merkle/Untitled_Diagram.drawio_(1).svg)
+![Untitled Diagram.drawio (1).svg](./images/Untitled_Diagram.drawio_(1).svg)
 
 Using this $k$-index. we can model the relationship between a parent node and it’s children nodes as:
 
@@ -71,7 +71,7 @@ With the knowledge of the $k$-index of each node and its relationship with it’
 
 We can define our proof schema as a 2-dimensional array, where the first dimension encodes the layers of the tree, and the second dimension holds the proof nodes for that layer:
 
-![Untitled Diagram.drawio (3).svg](/merkle/Untitled_Diagram.drawio_(3).svg)
+![Untitled Diagram.drawio (3).svg](./images/Untitled_Diagram.drawio_(3).svg)
 
 ## Second Pre-image Attacks
 

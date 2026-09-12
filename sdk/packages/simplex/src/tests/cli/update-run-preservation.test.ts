@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest"
 import { parse } from "toml"
 import { assembleConfig } from "@/cli/init/steps/write"
 import { emitFillerToml } from "@/cli/init/emit-toml"
-import { validateConfig, type FillerTomlConfig } from "@/config/filler-toml"
+import { validateConfig, type FillerConfigFile } from "@/config/filler-toml"
 import { SignerType } from "@/services/wallet"
 import { newWizardState, DEFAULT_SAME_ASSET_ASK_CURVE } from "@/cli/init/state"
 import { INIT_CHAINS } from "@/cli/init/chains"
@@ -13,11 +13,10 @@ import { INIT_CHAINS } from "@/cli/init/chains"
  * that binance/targetGasUnits/entryPointAddress/watchOnly/keeper were dropped.
  */
 describe("CLI wizard update run", () => {
-	const existing: FillerTomlConfig = {
+	const existing: FillerConfigFile = {
 		simplex: {
 			signer: { type: SignerType.PrivateKey, key: "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d" },
 			maxConcurrentOrders: 7,
-			queue: { maxRechecks: 4, recheckDelayMs: 12000 },
 			logging: "warn",
 			watchOnly: { "56": true },
 			substratePrivateKey: "seed",
@@ -25,6 +24,10 @@ describe("CLI wizard update run", () => {
 			entryPointAddress: "0x0000000071727De22E5E9d8BAf0edAc6f37da032",
 			solverAccountContractAddress: "0x9999999999999999999999999999999999999999",
 			targetGasUnits: 2500000,
+			// The three fields that reproduced the update-run round-trip abort: the
+			// dead knob must be stripped, the live knobs must survive emission.
+			queue: { maxRechecks: 10, recheckDelayMs: 30000 },
+			blockScanIntervalSeconds: 5,
 			gasFeeBump: { maxPriorityFeePerGasBumpPercent: 12, maxFeePerGasBumpPercent: 15 },
 			overfillProtection: { maxOverfillBps: 300, maxConsecutiveClamps: 2 },
 		},
@@ -58,7 +61,7 @@ describe("CLI wizard update run", () => {
 		},
 	}
 
-	function simulateUpdateRun(): FillerTomlConfig {
+	function simulateUpdateRun(): FillerConfigFile {
 		// Mirrors runInit: prefillConfig stored, then each step overwrites its
 		// managed fields (here with the same values, as if the user pressed Enter
 		// through every prompt), then carryPrefillExtras seeds the finetune state.
@@ -74,8 +77,7 @@ describe("CLI wizard update run", () => {
 		state.assets = wizardAssets
 		state.confirmationPolicies = wizardConfirmationPolicies
 		// carryPrefillExtras equivalents
-		state.maxConcurrentOrders = existing.simplex.maxConcurrentOrders
-		state.queue = existing.simplex.queue
+		state.maxConcurrentOrders = existing.simplex.maxConcurrentOrders ?? state.maxConcurrentOrders
 		state.logging = existing.simplex.logging
 		state.gasFeeBump = existing.simplex.gasFeeBump
 		state.overfillProtection = existing.simplex.overfillProtection
@@ -89,8 +91,13 @@ describe("CLI wizard update run", () => {
 		expect(assembled.binance).toEqual(existing.binance)
 		expect(assembled.keeper).toEqual(existing.keeper)
 		expect(assembled.simplex.targetGasUnits).toBe(2500000)
-		expect(assembled.simplex.entryPointAddress).toBe(existing.simplex.entryPointAddress)
-		expect(assembled.simplex.solverAccountContractAddress).toBe(existing.simplex.solverAccountContractAddress)
+		// Dead knobs are deliberately stripped, not preserved: they are parsed for
+		// compatibility but never read, and the emitter no longer writes them — so
+		// carrying them through would fail the round-trip gate.
+		expect(assembled.simplex.entryPointAddress).toBeUndefined()
+		expect(assembled.simplex.solverAccountContractAddress).toBeUndefined()
+		expect(assembled.simplex.queue).toBeUndefined()
+		expect(assembled.simplex.blockScanIntervalSeconds).toBe(5)
 		expect(assembled.simplex.watchOnly).toEqual({ "56": true })
 		expect(assembled.simplex.logging).toBe("warn")
 		expect(assembled.simplex.gasFeeBump).toEqual(existing.simplex.gasFeeBump)
@@ -139,7 +146,7 @@ describe("CLI wizard update run", () => {
 
 	it("survives the emit round-trip with unmanaged sections intact", () => {
 		const assembled = simulateUpdateRun()
-		const parsed = parse(emitFillerToml(assembled)) as FillerTomlConfig
+		const parsed = parse(emitFillerToml(assembled)) as FillerConfigFile
 		expect(() => validateConfig(parsed)).not.toThrow()
 		expect(JSON.parse(JSON.stringify(parsed))).toEqual(JSON.parse(JSON.stringify(assembled)))
 	})
@@ -156,7 +163,7 @@ describe("CLI wizard update run", () => {
 		state.allowlist = { bySource: {} }
 		const assembled = assembleConfig(state)
 		expect(assembled.allowlist).toBeUndefined()
-		const parsed = parse(emitFillerToml(assembled)) as FillerTomlConfig
+		const parsed = parse(emitFillerToml(assembled)) as FillerConfigFile
 		expect(JSON.parse(JSON.stringify(parsed)).allowlist).toEqual(JSON.parse(JSON.stringify(assembled)).allowlist)
 	})
 
@@ -167,14 +174,14 @@ describe("CLI wizard update run", () => {
 		state.substratePrivateKey = existing.simplex.substratePrivateKey
 		state.hyperbridgeWsUrl = existing.simplex.hyperbridgeWsUrl
 		state.pairs = wizardPairs
-		state.rebalancing = { triggerPercentage: 0.2 } as FillerTomlConfig["rebalancing"]
+		state.rebalancing = { triggerPercentage: 0.2 } as FillerConfigFile["rebalancing"]
 		const assembled = assembleConfig(state)
 		expect(assembled.rebalancing).toBeUndefined()
 	})
 
 	it("emits a degenerate hand-written [rebalancing] without crashing", () => {
-		const config = JSON.parse(JSON.stringify(existing)) as FillerTomlConfig
-		config.rebalancing = { triggerPercentage: 0.2 } as FillerTomlConfig["rebalancing"]
+		const config = JSON.parse(JSON.stringify(existing)) as FillerConfigFile
+		config.rebalancing = { triggerPercentage: 0.2 } as FillerConfigFile["rebalancing"]
 		expect(() => emitFillerToml(config)).not.toThrow()
 	})
 })

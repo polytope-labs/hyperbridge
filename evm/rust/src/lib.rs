@@ -19,6 +19,12 @@
 //! [`mod@conversions`] compile in both `std` and `no_std`. Only `#[sol(rpc)]` (the
 //! provider-backed contract-call bindings, via `alloy-contract` / `alloy-provider` /
 //! `alloy-network` / `alloy-transport`) is gated on `std`, since those crates are std-only.
+//!
+//! The polkadot-sdk-typed surface — [`mod@host_params`] and the BEEFY conversions in
+//! [`mod@conversions`] — sits behind the `substrate` feature. It is on by default, but
+//! `ismp` turns it off: the protocol crate only needs the generated `sol!` types, and
+//! leaving the umbrella out keeps its exact version pin from propagating to everything
+//! that depends on `ismp`.
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
@@ -27,8 +33,10 @@ extern crate alloc;
 mod generated;
 
 pub mod conversions;
+#[cfg(feature = "substrate")]
 pub mod host_params;
 
 pub use conversions::*;
 pub use generated::*;
+#[cfg(feature = "substrate")]
 pub use host_params::*;

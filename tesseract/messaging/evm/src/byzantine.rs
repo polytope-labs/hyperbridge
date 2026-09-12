@@ -28,11 +28,22 @@ const MAX_TRANSPORT_RETRIES: usize = 3;
 /// Backoff between retries.
 const RETRY_BACKOFF: Duration = Duration::from_millis(250);
 
+/// The header fields that back a [`StateCommitment`](ismp::consensus::StateCommitment): both are
+/// compared across providers and then against the commitment hyperbridge recorded, so a forged
+/// timestamp is vetoed just like a forged state root.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct HeaderFields {
+	/// Root hash of the global state trie.
+	state_root: H256,
+	/// Block timestamp in seconds, the same unit as `StateCommitment::timestamp`.
+	timestamp: u64,
+}
+
 /// Outcome of fetching the L2 block for a single provider, after retries.
 enum FetchOutcome {
 	/// Provider returned a block header at the queried height. We carry the
-	/// state root so the caller can compare across providers.
-	Found(H256),
+	/// commitment fields so the caller can compare across providers.
+	Found(HeaderFields),
 	/// Provider definitively reports there is no block at this height.
 	Missing,
 	/// Provider failed with transport errors on every attempt. Treated as a
@@ -47,7 +58,12 @@ enum FetchOutcome {
 async fn fetch_with_retry(provider: &AlloyProvider, height: u64) -> FetchOutcome {
 	for attempt in 1..=MAX_TRANSPORT_RETRIES {
 		match provider.get_block(height.into()).await {
-			Ok(Some(header)) => return FetchOutcome::Found(H256(header.header.state_root.0)),
+			Ok(Some(block)) => {
+				return FetchOutcome::Found(HeaderFields {
+					state_root: H256(block.header.state_root.0),
+					timestamp: block.header.timestamp,
+				})
+			},
 			Ok(None) => return FetchOutcome::Missing,
 			Err(e) => {
 				log::warn!(
@@ -97,11 +113,11 @@ impl ByzantineHandler for EvmClient {
 		.await;
 
 		let quorum = quorum_threshold(self.byzantine_providers.len());
-		let mut state_roots: Vec<H256> = Vec::with_capacity(outcomes.len());
+		let mut headers: Vec<HeaderFields> = Vec::with_capacity(outcomes.len());
 		let mut missing = 0usize;
 		for outcome in outcomes {
 			match outcome {
-				FetchOutcome::Found(root) => state_roots.push(root),
+				FetchOutcome::Found(fields) => headers.push(fields),
 				FetchOutcome::Missing => missing += 1,
 				// Transport errors after retries don't drive any decision —
 				// they're silent non-signals.
@@ -123,28 +139,30 @@ impl ByzantineHandler for EvmClient {
 			return Ok(());
 		}
 
-		// Below quorum on positive responses (state roots), no signal worth
+		// Below quorum on positive responses (block headers), no signal worth
 		// acting on. Either too few providers responded, or the remaining
 		// responses split between Found and Missing without either side
 		// reaching quorum.
-		if state_roots.len() < quorum {
+		if headers.len() < quorum {
 			log::warn!(
 				target: crate::LOG_TARGET,
-				"insufficient quorum for {} on {} at height {}: {} state-roots, {missing} missing (threshold {quorum}). Abstaining.",
+				"insufficient quorum for {} on {} at height {}: {} headers, {missing} missing (threshold {quorum}). Abstaining.",
 				self.state_machine,
 				counterparty_state_id,
 				event.latest_height,
-				state_roots.len(),
+				headers.len(),
 			);
 			return Ok(());
 		}
 
-		let first = state_roots[0];
-		let unanimous = state_roots.iter().all(|r| *r == first);
+		let first = headers[0];
+		// State root *and* timestamp must be unanimous: providers serving the same block can only
+		// disagree on either field if one of them is lying.
+		let unanimous = headers.iter().all(|fields| *fields == first);
 		if !unanimous {
 			log::info!(
 				target: crate::LOG_TARGET,
-				"Vetoing State Machine Update for {} on {}: providers disagree at height {}: {state_roots:?}",
+				"Vetoing State Machine Update for {} on {}: providers disagree at height {}: {headers:?}",
 				self.state_machine,
 				counterparty_state_id,
 				event.latest_height,
@@ -154,15 +172,22 @@ impl ByzantineHandler for EvmClient {
 		}
 
 		let recorded = counterparty.query_state_machine_commitment(height).await?;
-		if first.0 != recorded.state_root.0 {
+		let root_mismatch = recorded.state_root.0 != first.state_root.0;
+		// A commitment carrying the right state root but a forged timestamp is just as fraudulent:
+		// timestamps gate request/response timeouts, so a skewed one either strands messages or
+		// expires them early.
+		let timestamp_mismatch = recorded.timestamp != first.timestamp;
+		if root_mismatch || timestamp_mismatch {
 			log::info!(
 				target: crate::LOG_TARGET,
-				"Vetoing State Machine Update for {} on {}: recorded {:?} disagrees with quorum {:?} at height {}",
+				"Vetoing State Machine Update for {} on {} at height {}: recorded (state root {:?}, timestamp {}) disagrees with quorum (state root {:?}, timestamp {})",
 				self.state_machine,
 				counterparty_state_id,
-				recorded.state_root,
-				first,
 				event.latest_height,
+				recorded.state_root,
+				recorded.timestamp,
+				first.state_root,
+				first.timestamp,
 			);
 			counterparty.veto_state_commitment(height).await?;
 		}

@@ -1,0 +1,477 @@
+label.field,
+.field {
+	display: block;
+	margin: 1rem 0;
+	font-size: 0.875rem;
+}
+
+label.field > span,
+.field > span:first-child {
+	display: block;
+	margin-bottom: 0.45rem;
+	color: var(--text-secondary);
+	font-size: 0.8125rem;
+	font-weight: 500;
+	line-height: 1.4;
+}
+
+.field > .field-label,
+label.field > .field-label {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.75rem;
+}
+
+.field-required {
+	flex: 0 0 auto;
+	color: var(--err);
+	font-family: var(--font-mono);
+	font-size: 0.625rem;
+	font-weight: 500;
+	letter-spacing: 0.07em;
+	line-height: 1;
+	text-transform: uppercase;
+}
+
+.field-label-required-mark {
+	justify-content: flex-start !important;
+	gap: 0.2rem !important;
+}
+
+.field-required-mark {
+	color: var(--err);
+	font-family: var(--font-mono);
+	font-size: 0.9rem;
+	font-weight: 600;
+	line-height: 1;
+}
+
+input[type="text"],
+input[type="password"],
+input[type="number"] {
+	width: 100%;
+	min-height: 3rem;
+	padding: 0.7rem 0.9rem;
+	border: 1px solid var(--border);
+	border-radius: 0.75rem;
+	background: var(--control);
+	color: var(--text);
+	font-size: 0.875rem;
+	transition:
+		border-color 180ms var(--ease-out),
+		box-shadow 180ms var(--ease-out),
+		background-color 180ms var(--ease-out);
+}
+
+input:hover {
+	border-color: var(--border-strong);
+	background: var(--card-raised);
+}
+
+.app-select-trigger {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	width: 100%;
+	min-height: 3rem;
+	padding: 0.7rem 0.9rem;
+	border: 1px solid var(--border);
+	border-radius: 0.75rem;
+	background: var(--control);
+	color: var(--text);
+	font-size: 0.875rem;
+	font-weight: 400;
+	box-shadow: none;
+}
+
+.app-select-trigger:hover:not(:disabled),
+.app-select-trigger[data-state="open"] {
+	border-color: var(--border-strong);
+	background: var(--card-raised);
+}
+
+.app-select-trigger:active:not(:disabled) {
+	transform: none;
+}
+
+.app-select-trigger:focus-visible {
+	border-color: var(--focus);
+	box-shadow: 0 0 0 3px rgba(74, 222, 255, 0.14);
+}
+
+.app-select-current {
+	display: flex;
+	align-items: center;
+	gap: 0.65rem;
+	min-width: 0;
+}
+
+.app-select-value {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+/* A trigger given a caption stacks it under the value; without one the value stays a plain flex child. */
+.app-select-current-text {
+	display: grid;
+	gap: 0.1rem;
+	min-width: 0;
+	text-align: left;
+}
+
+.app-select-caption {
+	color: var(--muted);
+	font-size: 0.625rem;
+}
+
+.app-select-chevron {
+	display: grid;
+	flex: 0 0 auto;
+	place-items: center;
+	color: var(--muted);
+	transition: transform 160ms var(--ease-out);
+}
+
+.app-select-trigger[data-state="open"] .app-select-chevron {
+	transform: rotate(180deg);
+}
+
+.app-select-chevron svg {
+	width: 1rem;
+	height: 1rem;
+}
+
+.app-select-content {
+	z-index: 2000;
+	width: var(--radix-select-trigger-width);
+	max-height: min(22rem, var(--radix-select-content-available-height), calc(100dvh - 1.5rem));
+	overflow: hidden;
+	border: 1px solid var(--border-strong);
+	border-radius: 0.8rem;
+	background: var(--card-raised);
+	color: var(--text);
+	box-shadow: 0 1rem 3rem rgba(0, 0, 0, 0.48);
+	transform-origin: var(--radix-select-content-transform-origin);
+	animation: app-select-in 140ms var(--ease-out);
+}
+
+.app-select-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 1rem;
+	padding: 0.75rem 0.95rem 0.5rem;
+	color: var(--muted);
+	font-family: var(--font-mono);
+	font-size: 0.5625rem;
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+}
+
+.app-select-viewport {
+	padding: 0.35rem;
+}
+
+.app-select-item {
+	position: relative;
+	display: flex;
+	align-items: center;
+	gap: 0.65rem;
+	min-height: 2.75rem;
+	padding: 0.5rem 0.6rem;
+	border-radius: 0.55rem;
+	color: var(--text-secondary);
+	font-size: 0.875rem;
+	font-weight: 500;
+	outline: none;
+	cursor: default;
+	user-select: none;
+}
+
+/*
+ * A row carrying a second line and a right-hand value needs fixed columns: laid out as flex,
+ * its value lands somewhere else on the one row that also draws a check.
+ */
+.app-select-item[data-rich] {
+	display: grid;
+	grid-template-columns: auto minmax(0, 1fr) auto 1rem;
+}
+
+.app-select-item-text {
+	display: grid;
+	gap: 0.12rem;
+	min-width: 0;
+}
+
+.app-select-item-text > * {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.app-select-item-description {
+	display: flex;
+	align-items: center;
+	gap: 0.35rem;
+	color: var(--muted);
+	font-size: 0.625rem;
+	font-weight: 400;
+}
+
+.app-select-item-trailing {
+	color: var(--muted);
+	font-family: var(--font-mono);
+	font-size: 0.75rem;
+	font-variant-numeric: tabular-nums;
+	text-align: right;
+}
+
+.app-select-item[data-state="checked"] .app-select-item-trailing {
+	color: var(--text);
+}
+
+.app-select-item[data-highlighted] {
+	background: color-mix(in srgb, var(--focus) 9%, var(--card-raised));
+	color: var(--text);
+}
+
+.app-select-item[data-state="checked"] {
+	color: var(--text);
+}
+
+.app-select-item[data-disabled] {
+	opacity: 0.45;
+	pointer-events: none;
+}
+
+.app-select-item[data-muted] {
+	color: var(--muted);
+}
+
+.app-select-indicator {
+	display: grid;
+	margin-left: auto;
+	place-items: center;
+	color: var(--focus);
+}
+
+.app-select-indicator svg {
+	width: 1rem;
+	height: 1rem;
+}
+
+.app-select-separator {
+	height: 1px;
+	margin: 0.3rem 0.4rem;
+	background: var(--border);
+}
+
+@keyframes app-select-in {
+	from {
+		opacity: 0;
+		transform: translateY(-0.25rem) scale(0.985);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0) scale(1);
+	}
+}
+
+input::placeholder {
+	color: #68717e;
+}
+
+input[type="radio"],
+input[type="checkbox"] {
+	width: 1.05rem;
+	height: 1.05rem;
+	margin: 0;
+	accent-color: var(--focus);
+}
+
+button {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 0.5rem;
+	min-height: 2.75rem;
+	padding: 0.65rem 1rem;
+	border: 1px solid var(--border);
+	border-radius: 0.75rem;
+	background: var(--card-raised);
+	color: var(--text);
+	font-size: 0.875rem;
+	font-weight: 500;
+	cursor: pointer;
+	transition:
+		transform 120ms var(--ease-out),
+		background-color 180ms var(--ease-out),
+		border-color 180ms var(--ease-out),
+		color 180ms var(--ease-out);
+}
+
+button:hover:not(:disabled) {
+	border-color: var(--border-strong);
+	background: oklch(0.3227 0.02 273.23);
+}
+
+button:active:not(:disabled) {
+	transform: scale(0.97);
+}
+
+button.primary {
+	border-color: #ffffff;
+	background: var(--accent);
+	color: var(--accent-text);
+}
+
+button.primary:hover:not(:disabled) {
+	border-color: #f4f4f4;
+	background: #f4f4f4;
+}
+
+button.secondary {
+	background: transparent;
+}
+
+button:disabled {
+	border-color: var(--border);
+	background: var(--control);
+	color: #68717e;
+	cursor: not-allowed;
+}
+
+.row {
+	display: flex;
+	align-items: center;
+	gap: 0.75rem;
+	flex-wrap: wrap;
+}
+
+.spread {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 1rem;
+}
+
+.badge {
+	display: inline-flex;
+	align-items: center;
+	min-height: 1.5rem;
+	padding: 0.2rem 0.5rem;
+	border: 1px solid var(--border);
+	border-radius: 0.45rem;
+	color: var(--muted);
+	font-family: var(--font-mono);
+	font-size: 0.625rem;
+	font-weight: 500;
+	letter-spacing: 0.035em;
+	line-height: 1.2;
+	text-transform: uppercase;
+}
+
+.badge.ok {
+	border-color: rgba(116, 233, 152, 0.18);
+	background: rgba(116, 233, 152, 0.06);
+	color: var(--ok);
+}
+
+.badge.warn {
+	border-color: rgba(255, 219, 105, 0.18);
+	background: rgba(255, 219, 105, 0.06);
+	color: var(--warn);
+}
+
+.badge.err {
+	border-color: rgba(255, 122, 137, 0.2);
+	background: rgba(255, 122, 137, 0.06);
+	color: var(--err);
+}
+
+.steps {
+	display: inline-flex;
+	gap: 0.25rem;
+	max-width: 100%;
+	margin: 0.75rem 0 1.25rem;
+	padding: 0.25rem;
+	border: 1px solid var(--border);
+	border-radius: 0.9rem;
+	background: var(--control);
+	overflow-x: auto;
+}
+
+.steps .step {
+	min-height: 2.35rem;
+	padding: 0.45rem 0.8rem;
+	border: 0;
+	border-radius: 0.65rem;
+	background: transparent;
+	color: var(--muted);
+	white-space: nowrap;
+}
+
+.steps .step:hover:not(:disabled) {
+	background: rgba(255, 255, 255, 0.035);
+	color: var(--text-secondary);
+}
+
+.steps .step.active {
+	background: var(--card-raised);
+	color: var(--text);
+	box-shadow: 0 0 0 1px var(--border);
+}
+
+table {
+	width: 100%;
+	border-collapse: collapse;
+	font-size: 0.8125rem;
+}
+
+th,
+td {
+	padding: 0.65rem 0.55rem;
+	border-bottom: 1px solid var(--border);
+	text-align: left;
+}
+
+th {
+	color: var(--muted);
+	font-family: var(--font-mono);
+	font-size: 0.625rem;
+	font-weight: 500;
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+}
+
+td input {
+	max-width: 10rem;
+}
+
+pre.toml {
+	padding: 1rem;
+	border: 1px solid var(--border);
+	border-radius: 0.75rem;
+	overflow-x: auto;
+	background: var(--control);
+	font-family: var(--font-mono);
+	font-size: 0.75rem;
+	line-height: 1.6;
+}
+
+.error {
+	margin: 0.65rem 0;
+	color: var(--err);
+	font-size: 0.8125rem;
+	line-height: 1.5;
+}
+
+/* A completed action that still needs the operator to do something (e.g. restart). */
+.warning {
+	margin: 0.65rem 0;
+	color: var(--warn);
+	font-size: 0.8125rem;
+	line-height: 1.5;
+}

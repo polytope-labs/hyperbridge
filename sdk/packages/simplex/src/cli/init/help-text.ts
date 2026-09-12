@@ -35,7 +35,7 @@ export const WHY = {
 
 export const FUNDING_CHECKLIST = [
 	"Fund the filler wallet on every selected chain: native token for gas + stablecoins to fill with (docs suggest ~$10k per chain to start).",
-	"Keep at least 1 USDC on each chain for the Circle paymaster (BNB Chain has no paymaster — it needs native BNB).",
+	"Keep at least 1 USDC or USDT on each chain for the Simplex gas paymaster. A chain whose fee token has no EIP-2612 permit (BNB Chain) also needs native dust once, to approve that token to Permit2.",
 	"Fund the Substrate account with BRIDGE tokens for bid fees (claimed back automatically).",
 	"Use premium RPC endpoints with archive access; free tiers will rate-limit.",
 ].join("\n")

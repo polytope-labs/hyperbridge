@@ -111,7 +111,7 @@ export const handleOrderPlacedEventV3 = wrap(async (event: OrderPlacedLog): Prom
 	logger.info(`[Intent Gateway V3] Order Commitment: ${commitment}`)
 
 	// Fees are paid in the host's fee token, which differs per chain.
-	const feeToken = await getHostFeeToken(chain)
+	const feeToken = await getHostFeeToken(chain, blockHash)
 
 	await IntentGatewayV3Service.getOrCreateOrder(
 		{ ...order, user: bytes32ToBytes20(order.user) as Hex },

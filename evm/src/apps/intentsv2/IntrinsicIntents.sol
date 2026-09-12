@@ -16,7 +16,6 @@ pragma solidity ^0.8.24;
 
 import {IntentsBase} from "./IntentsBase.sol";
 import {TokenInfo, Order, Params, WithdrawalRequest, FillOptions} from "@hyperbridge/core/apps/IntentGatewayV2.sol";
-import {IDispatcher} from "@hyperbridge/core/interfaces/IDispatcher.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
@@ -83,13 +82,8 @@ abstract contract IntrinsicIntents is IntentsBase {
             uint256 protocolShare = 0;
             if (alreadyFilled == 0 && solverAmount > totalRequired) {
                 fillAmount = totalRequired;
-                uint256 dust = solverAmount - totalRequired;
-                if (order.output.call.length > 0) {
-                    protocolShare = dust;
-                } else {
-                    protocolShare = (dust * _params.surplusShareBps) / 10_000;
-                    beneficiaryShare = dust - protocolShare;
-                }
+                (protocolShare, beneficiaryShare) =
+                    _splitSurplus(solverAmount - totalRequired, order.output.call.length > 0);
             } else {
                 fillAmount = solverAmount > remaining ? remaining : solverAmount;
             }
@@ -101,6 +95,7 @@ abstract contract IntrinsicIntents is IntentsBase {
             if (token == address(0)) {
                 if (msgValue < beneficiaryTotal + protocolShare) revert InsufficientNativeToken();
                 msgValue -= (beneficiaryTotal + protocolShare);
+                // Inline, not `_sendValue`: this loop is at the via-ir stack limit.
                 (bool sent,) = beneficiary.call{value: beneficiaryTotal}("");
                 if (!sent) revert InsufficientNativeToken();
             } else {
@@ -143,28 +138,26 @@ abstract contract IntrinsicIntents is IntentsBase {
 
         // Refund any unspent native tokens to the solver.
         if (msgValue > 0) {
-            (bool sent,) = msg.sender.call{value: msgValue}("");
-            if (!sent) revert InsufficientNativeToken();
+            _sendValue(msg.sender, msgValue);
         }
     }
 
     /**
      * @dev Cancels a same-chain order and refunds the remaining escrowed tokens to the user.
      *
-     * Only the original order creator (order.user) may cancel. Verifies the order
-     * was placed on this chain, collects all remaining escrow balances (which may be
-     * reduced by prior partial fills), and issues a full refund via `_withdraw`.
+     * Only the original order creator (order.user) may cancel. Collects all remaining escrow
+     * balances (which may be reduced by prior partial fills) and issues a full refund via
+     * `_withdraw`. `cancelOrder` is the only caller and has already established that this chain
+     * is the order's source.
+     *
+     * `cancelOrder` has already emitted `OrderCancelled`; the `EscrowRefunded` of this refund
+     * follows it in the same transaction.
      *
      * @param order The order to cancel.
      * @param commitment The keccak256 hash of the ABI-encoded order.
      */
     function _cancelSameChain(Order calldata order, bytes32 commitment) internal {
         if (order.user != bytes32(uint256(uint160(msg.sender)))) revert Unauthorized();
-
-        address hostAddr = host();
-        bytes32 currentChain = keccak256(IDispatcher(hostAddr).host());
-        bytes32 orderSource = keccak256(order.source);
-        if (orderSource != currentChain) revert WrongChain();
 
         uint256 inputsLen = order.inputs.length;
         TokenInfo[] memory remainingTokens = new TokenInfo[](inputsLen);

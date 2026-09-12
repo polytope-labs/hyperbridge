@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest"
 import type { HexString } from "@hyperbridge/sdk"
 import { ChainClientManager, FillerConfigService, type ResolvedChainConfig } from "@/services"
 import { BinanceRebalancer, type UnifiedRebalanceOptions } from "@/services/rebalancers"
-import { createSimplexSigner, SignerType, type SigningAccount } from "@/services/wallet"
+import { createSigner, SignerType, type Signer } from "@/services/wallet"
 import "../setup"
 
 describe("BinanceRebalancer - CEX integration", () => {
@@ -26,11 +26,11 @@ describe("BinanceRebalancer - CEX integration", () => {
 	]
 
 	const configService = new FillerConfigService(chainConfigs)
-	let signer: SigningAccount
+	let signer: Signer
 	let chainClientManager!: ChainClientManager
 
 	beforeAll(async () => {
-		signer = await createSimplexSigner({ type: SignerType.PrivateKey, key: privateKey })
+		signer = await createSigner({ type: SignerType.PrivateKey, key: privateKey })
 		chainClientManager = new ChainClientManager(configService, signer)
 	})
 

@@ -15,7 +15,7 @@ import {
  * [[pairs]]
  * token0 = "USDC"        # quote side — any symbol in the asset registry
  * token1 = "CNGN"        # base side — any symbol in the asset registry
- * maxOrderSize = "5000"  # per-order cap, in token0 units
+ * maxOrderSize = "5000"  # optional per-order cap, in token0 units; omit for uncapped
  * bidPriceCurve = [ { amount = "1000", price = "1580" } ]
  * askPriceCurve = [ { amount = "1000", price = "1550" } ]
  * ```
@@ -251,9 +251,8 @@ export function validatePairConfigs(
 			}
 		}
 
-		if (pair.maxOrderSize === undefined && !pair.referenceOnly) {
-			throw new Error(`pairs.${label}: 'maxOrderSize' is required (per-order cap in ${token0} units)`)
-		}
+		// Optional: omitting it leaves the pair uncapped, filling every order at its
+		// full notional. Present and malformed is still an error.
 		if (pair.maxOrderSize !== undefined) {
 			let maxOrderSize: Decimal
 			try {

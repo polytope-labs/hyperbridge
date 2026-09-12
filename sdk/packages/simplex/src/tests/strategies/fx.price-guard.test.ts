@@ -1,7 +1,7 @@
 import { FXFiller, type TradingPair } from "@/strategies/fx"
 import { AssetRegistry } from "@/config/asset-registry"
 import { FillerPricePolicy } from "@/config/interpolated-curve"
-import { type HexString } from "@hyperbridge/sdk"
+import type { HexString } from "@hyperbridge/sdk"
 import { describe, it, expect } from "vitest"
 import { Decimal } from "decimal.js"
 
@@ -42,7 +42,7 @@ function makeFiller(priceGuard?: Record<string, { referencePrice: string; maxDev
 		getMaxConsecutiveClamps: () => 3,
 	} as any
 	const contractService = {} as any
-	const signer = { account: { address: "0x3333333333333333333333333333333333333333" } } as any
+	const signer = { address: "0x3333333333333333333333333333333333333333" } as any
 	const clientManager = {} as any
 
 	const { pairs, registry } = exoticPairs(
@@ -108,7 +108,7 @@ describe("FXFiller price guard on confirmation sizing (referenceRate)", () => {
 			getMaxOverfillBps: () => 500n,
 			getMaxConsecutiveClamps: () => 3,
 		} as any
-		const signer = { account: { address: "0x3333333333333333333333333333333333333333" } } as any
+		const signer = { address: "0x3333333333333333333333333333333333333333" } as any
 		const { pairs, registry } = exoticPairs(configService, { [CHAIN]: EXOTIC }, 5000)
 		const filler = new FXFiller(signer, configService, {} as any, {} as any, pairs, registry, {
 			fundingVenues: [{} as any],

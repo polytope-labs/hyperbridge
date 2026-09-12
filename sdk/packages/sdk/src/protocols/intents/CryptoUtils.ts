@@ -165,6 +165,12 @@ export class CryptoUtils {
 	 * signing infrastructure (hardware wallets, MPC/TEE policy engines) instead
 	 * of an opaque 32-byte digest.
 	 *
+	 * The payload must be a standard self-describing `eth_signTypedData_v4`
+	 * payload — `EIP712Domain` listed in `types`, `chainId` as a JSON number —
+	 * because some signing backends (e.g. MPC Vault) hash it server-side from
+	 * the JSON rather than locally via viem. viem ignores both details when
+	 * hashing, so the digest is unchanged for local signers.
+	 *
 	 * @param userOp - The packed UserOperation to sign (signature field ignored).
 	 * @param entryPoint - Address of the EntryPoint v0.8 contract.
 	 * @param chainId - Chain ID of the network on which the operation will execute.
@@ -175,10 +181,22 @@ export class CryptoUtils {
 			domain: {
 				name: "ERC4337",
 				version: "1",
-				chainId,
+				// Runtime number so JSON.stringify emits a canonical v4 numeric chainId for
+				// server-side hashers; viem's uint256 type mapping wants bigint but its
+				// runtime accepts numbers, hence the cast.
+				chainId: Number(chainId) as unknown as bigint,
 				verifyingContract: entryPoint,
 			},
+			// `as const`: viem derives the domain's TYPE from `types.EIP712Domain`, so the
+			// entries must stay string literals — widened `string` fields make viem's
+			// typed-data generics reject the payload at every call site.
 			types: {
+				EIP712Domain: [
+					{ name: "name", type: "string" },
+					{ name: "version", type: "string" },
+					{ name: "chainId", type: "uint256" },
+					{ name: "verifyingContract", type: "address" },
+				],
 				PackedUserOperation: [
 					{ name: "sender", type: "address" },
 					{ name: "nonce", type: "uint256" },
@@ -189,7 +207,7 @@ export class CryptoUtils {
 					{ name: "gasFees", type: "bytes32" },
 					{ name: "paymasterAndData", type: "bytes" },
 				],
-			},
+			} as const,
 			primaryType: "PackedUserOperation" as const,
 			message: {
 				sender: userOp.sender,

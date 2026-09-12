@@ -20,7 +20,6 @@ import {ExtrinsicIntents} from "./intentsv2/ExtrinsicIntents.sol";
 
 import {ICallDispatcher, Call} from "@hyperbridge/core/interfaces/ICallDispatcher.sol";
 import {IDispatcher} from "@hyperbridge/core/interfaces/IDispatcher.sol";
-import {IIntentPriceOracle} from "@hyperbridge/core/apps/IntentPriceOracle.sol";
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
@@ -70,6 +69,7 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardT
     /// implementation against direct initialization.
     /// @param owner The privileged admin address.
     constructor(address owner) EIP712("IntentGateway", "2") {
+        if (owner == address(0)) revert InvalidInput();
         _owner = owner;
         _disableInitializers();
     }
@@ -91,27 +91,59 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardT
         return _params.host;
     }
 
+    /// @dev The `Initializable` version this implementation lands a proxy on, through `initialize`
+    /// or `migrate`. Bumped by the next implementation that needs a migration.
+    uint64 private constant VERSION = 2;
+
+    /// @dev `initialize` is for a bare proxy only. A proxy that an upgrade left below `VERSION` is
+    /// taken there by the host-only `migrate`; without this, anyone could `initialize` it.
+    modifier onlyFresh() {
+        if (_getInitializedVersion() != 0) revert InvalidInitialization();
+        _;
+    }
+
     /**
-     * @dev One-time init (the `initializer` modifier caps it to a single call). Registers the
-     * initial cross-chain peers, each bound to `address(this)`; `_instance` reverts with
-     * `UnknownInstance` for any chain not registered here or later via `onAccept` governance.
-     *
+     * @dev One-time init of a bare proxy: registers the peers, each bound to `address(this)`,
+     * stores the params, arms the relayer gate, and lands at `VERSION`. Refused on any proxy
+     * already at a version, see `onlyFresh`.
      * @param p The initial gateway configuration parameters.
-     * @param peerChains State-machine ids of the cross-chain peers to register. Each is bound to
-     * this gateway's own address, identical across chains under deterministic CREATE2, so no peer
-     * address is carried in the proxy's init data.
+     * @param peerChains State-machine ids of the cross-chain peers to register, each bound to this
+     * gateway's own address so no peer address is carried in the proxy's init data.
+     * @param relayer The only relayer whose deliveries are accepted. Zero leaves the gate open.
      */
-    function initialize(Params memory p, bytes[] memory peerChains) public initializer {
+    function initialize(Params memory p, bytes[] memory peerChains, address relayer)
+        public
+        onlyFresh
+        reinitializer(VERSION)
+    {
         uint256 peersLength = peerChains.length;
         for (uint256 i = 0; i < peersLength; i++) {
-            Deployment memory deployment = Deployment({
-                chain: peerChains[i],
-                gateway: address(this)
-            });
+            Deployment memory deployment = Deployment({chain: peerChains[i], gateway: address(this)});
             _addDeployment(deployment);
         }
         _validateParams(p);
         _params = p;
+        _setRelayer(relayer);
+    }
+
+    /**
+     * @dev Migration for a proxy from before this implementation: arms the gate and lands at
+     * `VERSION`. Host-only, so nobody can arm it before governance does, and one-shot; delivered as
+     * the migration calldata of the upgrade that installs this implementation. Reverts on a proxy
+     * `initialize` already took there.
+     * @param relayer The account whose deliveries are accepted from now on.
+     */
+    function migrate(address relayer) external onlyHost reinitializer(VERSION) {
+        _setRelayer(relayer);
+    }
+
+    /**
+     * @dev The `Initializable` version: 0 on a bare proxy, 1 on one from before this
+     * implementation, `VERSION` once `initialize` or `migrate` has run. The raw implementation is
+     * locked at the maximum.
+     */
+    function version() external view returns (uint64) {
+        return _getInitializedVersion();
     }
 
     /**
@@ -162,7 +194,7 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardT
     function placeOrder(Order memory order, bytes32 graffiti) public payable nonReentrant {
         if (order.inputs.length == 0) revert InvalidInput();
 
-        // Reject duplicate output tokens 
+        // Reject duplicate output tokens
         uint256 outputsLen_ = order.output.assets.length;
         for (uint256 i; i < outputsLen_;) {
             bytes32 token = order.output.assets[i].token;
@@ -213,8 +245,7 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardT
                     if (amount > msgValue) revert InsufficientNativeToken();
                     msgValue -= amount;
 
-                    (bool sent,) = dispatcher.call{value: amount}("");
-                    if (!sent) revert InsufficientNativeToken();
+                    _sendValue(dispatcher, amount);
                 } else {
                     IERC20(token).safeTransferFrom(msg.sender, dispatcher, amount);
                 }
@@ -324,11 +355,10 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardT
             }
 
             order.inputs = reducedInputs;
-            commitment = keccak256(abi.encode(order));
         } else {
             reducedInputs = order.inputs;
-            commitment = keccak256(abi.encode(order));
         }
+        commitment = keccak256(abi.encode(order));
 
         // Phase 3: Credit escrow.
         for (uint256 i; i < inputsLen;) {
@@ -349,7 +379,7 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardT
                 address WETH = IUniswapV2Router02(uniswapV2).WETH();
                 address[] memory path = new address[](2);
                 path[0] = WETH;
-                path[1] = IDispatcher(hostAddr).feeToken();
+                path[1] = feeToken;
                 uint256[] memory amounts = IUniswapV2Router02(uniswapV2).swapETHForExactTokens{value: msgValue}(
                     order.fees, path, address(this), block.timestamp
                 );
@@ -363,8 +393,7 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardT
 
         // Refund any unspent native tokens to the user.
         if (msgValue > 0) {
-            (bool sent,) = msg.sender.call{value: msgValue}("");
-            if (!sent) revert InsufficientNativeToken();
+            _sendValue(msg.sender, msgValue);
         }
 
         emit OrderPlaced({
@@ -408,13 +437,17 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardT
      *    solver stored in transient storage (set by a prior `select` call).
      * 4. Validates input/output array length consistency.
      *
-     * After fill completion, records the price spread with the oracle if configured.
-     *
      * @param order The order to fill. Must match the exact order that was placed.
      * @param options Fill options including output token amounts and fee parameters.
      */
     function fillOrder(Order calldata order, FillOptions calldata options) public payable nonReentrant {
-        if (order.deadline < _blockNumber()) revert Expired();
+        uint256 blockNumber = _blockNumber();
+        if (order.deadline < blockNumber) revert Expired();
+        // The solver's own bound on how long its quoted price stands. Zero means unbounded,
+        // which is the right default for a solver filling directly — it is only at risk from
+        // its own staleness. It matters for a bid signed through the coprocessor, where the
+        // order placer chooses the moment of execution and nothing else caps the wait.
+        if (options.validUntil != 0 && blockNumber > options.validUntil) revert FillExpired();
         bytes32 commitment = keccak256(abi.encode(order));
 
         address hostAddr = host();
@@ -447,11 +480,6 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardT
         } else {
             _fillCrossChain(order, options, commitment);
         }
-
-        if (_params.priceOracle != address(0)) {
-            IIntentPriceOracle(_params.priceOracle)
-                .recordSpread(commitment, order.source, order.inputs, options.outputs);
-        }
     }
 
     /**
@@ -467,6 +495,10 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardT
      *
      * Reverts if the order has already been filled or if called from the wrong chain.
      *
+     * Emits `OrderCancelled` on whichever chain the cancellation is initiated from. `EscrowRefunded`
+     * remains the terminal event: same transaction for a same-chain cancel, on the source chain
+     * after a Hyperbridge round trip for a cross-chain one.
+     *
      * @param order The order to cancel. Must match the exact order that was placed.
      * @param options Cancel options including proof height and relayer fee for cross-chain cancels.
      */
@@ -481,7 +513,19 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardT
         bytes32 orderDest = keccak256(order.destination);
         bool isSameChain = orderSource == orderDest;
 
+        // Emitted here, once, rather than from each of the three routes below. Every check those
+        // routes make — Unauthorized, NotExpired, UnknownOrder — reverts, and a revert discards
+        // logs, so an early emit can never announce a cancellation that did not happen. Emitting
+        // before the branch also keeps `EscrowRefunded` the last log on the same-chain route, where
+        // the refund is processed in this same transaction. Three emit sites cost bytecode this
+        // contract does not have: it sits within ~100 bytes of the EIP-170 limit.
+        emit OrderCancelled({commitment: commitment, canceller: msg.sender});
+
         if (isSameChain) {
+            // Checked here rather than inside `_cancelSameChain`, which used to re-read `host()`,
+            // re-query the host's state machine id and re-hash `order.source` to reach the same
+            // answer this function already has. Same check, one external call fewer.
+            if (currentChain != orderSource) revert WrongChain();
             _cancelSameChain(order, commitment);
         } else if (currentChain == orderSource) {
             _cancelFromSource(order, options, commitment);

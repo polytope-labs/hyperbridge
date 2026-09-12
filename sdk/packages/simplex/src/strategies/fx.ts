@@ -1,26 +1,27 @@
-import { FillerStrategy } from "@/strategies/base"
+import type { FillResult, FillerStrategy } from "@/strategies/base"
 import {
-	Order,
-	ExecutionResult,
-	HexString,
+	type Order,
+	type ExecutionResult,
+	type HexString,
 	bytes32ToBytes20,
 	type ERC7821Call,
-	TokenInfo,
-	IntentsCoprocessor,
+	type TokenInfo,
+	type IntentsCoprocessor,
 	ADDRESS_ZERO,
 } from "@hyperbridge/sdk"
-import { ChainClientManager, ContractInteractionService } from "@/services"
-import { FillerConfigService } from "@/services/FillerConfigService"
+import type { ChainClientManager, ContractInteractionService } from "@/services"
+import type { FillerConfigService } from "@/services/FillerConfigService"
 import { formatUnits } from "viem"
-import { getLogger } from "@/services/Logger"
-import { ConfirmationPolicy, FillerPricePolicy } from "@/config/interpolated-curve"
-import { AssetRegistry, normalizeSymbol, USD_STABLE_SYMBOLS } from "@/config/asset-registry"
+import { type Logger , moduleLogger} from "@/services/Logger"
+import type { ConfirmationPolicy, FillerPricePolicy } from "@/config/interpolated-curve"
+import { type AssetRegistry, normalizeSymbol, USD_STABLE_SYMBOLS } from "@/config/asset-registry"
 import { unanchoredToken0Symbols } from "@/config/pairs"
-import { type CachedPairClassification } from "@/services/CacheService"
+import type { CachedPairClassification } from "@/services/CacheService"
 import { Decimal } from "decimal.js"
 import { ERC20_ABI } from "@/config/abis/ERC20"
 import type { FundingVenue } from "@/funding/types"
-import type { SigningAccount } from "@/services/wallet"
+import type { Signer } from "@/services/wallet"
+import { paymasterReserveForToken } from "@/services/paymaster"
 
 /**
  * A trading pair the engine serves. `token0` and `token1` are registry symbols
@@ -36,16 +37,21 @@ import type { SigningAccount } from "@/services/wallet"
  * cross-chain market: ask-only, with the ask price at or below par — the gap
  * to 1 is the filler's spread, realized in-kind on every fill.
  *
- * `maxOrderSize` caps the pair's exposure per order, denominated in token0 —
- * the curve amount axis shares that unit, so trade pricing never consults an
- * external feed. Confirmation sizing alone converts token0 notionals to USD,
- * derived from the declared curves (USD stables at $1, curve mids as FX edges).
+ * `maxOrderSize` optionally caps the pair's exposure per order, denominated in
+ * token0 — the curve amount axis shares that unit, so trade pricing never
+ * consults an external feed. Omit it and the pair is uncapped: every leg is
+ * priced and filled at its full notional. Confirmation sizing alone converts
+ * token0 notionals to USD, derived from the declared curves (USD stables at $1,
+ * curve mids as FX edges).
  */
 export interface TradingPair {
 	token0: string
 	token1: string
-	/** Maximum token0 notional this pair fills per order. Ignored for reference-only pairs. */
-	maxOrderSize: Decimal
+	/**
+	 * Maximum token0 notional this pair fills per order. Omit for an uncapped
+	 * pair. Ignored for reference-only pairs, which never fill.
+	 */
+	maxOrderSize?: Decimal
 	bidPricePolicy?: FillerPricePolicy
 	askPricePolicy?: FillerPricePolicy
 	/**
@@ -139,8 +145,8 @@ export class FXFiller implements FillerStrategy {
 	private pairs: TradingPair[]
 	/** Symbol → per-chain address resolution (built-ins + curated + user `[assets]`). */
 	private registry: AssetRegistry
-	private signer: SigningAccount
-	private logger = getLogger("fx-simplex")
+	private signer: Signer
+	private logger: Logger
 	/** Consecutive orders where overfill clamp activated. */
 	private consecutiveClamps = 0
 	/** Once set, the filler refuses all orders until restart — systemic pricing error suspected. */
@@ -179,7 +185,7 @@ export class FXFiller implements FillerStrategy {
 	 *   Only valid when no pair has static curves; curve-priced pairs go one-sided by omitting a curve.
 	 */
 	constructor(
-		signer: SigningAccount,
+		signer: Signer,
 		configService: FillerConfigService,
 		clientManager: ChainClientManager,
 		contractService: ContractInteractionService,
@@ -192,6 +198,7 @@ export class FXFiller implements FillerStrategy {
 			side?: "bid" | "ask"
 		},
 	) {
+		this.logger = moduleLogger(configService.loggers, "fx-simplex")
 		const { confirmationPolicy, fundingVenues = [], priceGuard, side } = options ?? {}
 
 		if (pairs.length === 0) {
@@ -250,9 +257,16 @@ export class FXFiller implements FillerStrategy {
 			)
 		}
 		seenPairs.add(label)
-		if (!pair.referenceOnly && (!pair.maxOrderSize.isFinite() || pair.maxOrderSize.lte(0))) {
+		// Absent is legal — an uncapped pair. Present and nonsensical is not, except
+		// on a reference-only pair, which never fills and whose cap is never read;
+		// callers predating the optional field still pass a placeholder 0 there.
+		if (
+			!pair.referenceOnly &&
+			pair.maxOrderSize !== undefined &&
+			(!pair.maxOrderSize.isFinite() || pair.maxOrderSize.lte(0))
+		) {
 			throw new Error(
-				`FXFiller pair ${pair.token0}/${pair.token1}: maxOrderSize must be a positive token0 amount`,
+				`FXFiller pair ${pair.token0}/${pair.token1}: maxOrderSize must be a positive token0 amount when set`,
 			)
 		}
 		if (pair.referenceOnly) {
@@ -369,7 +383,7 @@ export class FXFiller implements FillerStrategy {
 	 * Hydrates all funding venue state so venue-priced pairs quote from live pool data.
 	 */
 	async initialise(): Promise<void> {
-		const solver = this.signer.account.address as HexString
+		const solver = this.signer.address as HexString
 		await Promise.all(this.fundingVenues.map((v) => v.initialise(solver)))
 	}
 
@@ -465,13 +479,13 @@ export class FXFiller implements FillerStrategy {
 
 	/**
 	 * Evaluates whether an order is profitable to fill under the per-pair
-	 * `maxOrderSize` caps and the filler's current token balances.
+	 * `maxOrderSize` caps (where set) and the filler's current token balances.
 	 *
 	 * High-level flow:
 	 * - Resolve each (input, output) leg to a configured pair and direction.
 	 * - Estimate each pair's total token0 notional in the order and cap it at
-	 *   the pair's `maxOrderSize`; pair curves are evaluated at that capped
-	 *   notional.
+	 *   the pair's `maxOrderSize` when one is set; pair curves are evaluated at
+	 *   that (possibly uncapped) notional.
 	 * - Walk the legs, allocating from each pair's capped token0 budget and
 	 *   pricing outputs at the pair's rate.
 	 * - Further cap each leg by the filler's current token balance plus
@@ -482,6 +496,9 @@ export class FXFiller implements FillerStrategy {
 	 * outputs if the pair pricing makes that attractive. This is how we stay competitive.
 	 */
 	async calculateProfitability(order: Order): Promise<number> {
+			// Cleared up front: the caller exempts partial fills from its profit floor,
+			// so a stale `true` from an earlier evaluation would let a refusal through.
+			if (order.id) this.contractService.cacheService.clearPartialFill(order.id)
 		if (this.halted) {
 			this.logger.warn({ orderId: order.id }, "FXFiller halted — rejecting order")
 			return 0
@@ -492,7 +509,7 @@ export class FXFiller implements FillerStrategy {
 			const { decimals: feeTokenDecimals } = await this.contractService.getFeeTokenWithDecimals(sourceChain)
 
 			const destClient = this.clientManager.getPublicClient(destChain)
-			const walletAddress = this.signer.account.address as HexString
+			const walletAddress = this.signer.address as HexString
 			const balanceCache = new Map<string, bigint>()
 
 			const legs = this.resolveOrderLegs(order)
@@ -511,17 +528,43 @@ export class FXFiller implements FillerStrategy {
 
 			const venueUsdPrice = this.venuePriceMemo()
 
-			// Per-pair token0 notionals, capped at each pair's maxOrderSize. The
-			// capped notional is both the curve evaluation point and the budget
+			// Per-pair token0 notionals, capped at each pair's maxOrderSize where one
+			// is set. That notional is both the curve evaluation point and the budget
 			// legs of that pair draw from.
 			const sized = await this.sizeOrder(order, legs, venueUsdPrice)
 			if (!sized) {
 				this.logger.info({ orderId: order.id }, "Skipping order: could not size the order's legs")
 				return 0
 			}
-			const { legNotionals, cappedByPair, totalNotional } = sized
+			const { legNotionals, cappedByPair, capFractionByPair, totalNotional } = sized
 
 			const remainingByPair = new Map(cappedByPair)
+
+			// Whether this order may be filled below what the user asked for.
+			//
+			//  - Cross-chain reverts on any under-fill: in ExtrinsicIntents.sol
+			//    `if (solverAmount < totalRequired) revert InvalidInput()` is
+			//    unconditional and per-leg, so bidding a partial there is a
+			//    guaranteed failed fill.
+			//  - An order carrying output calldata reverts too
+			//    (`PartialFillNotAllowed`): the attached call runs only on a full
+			//    fill, so the gateway will not release escrow without it.
+			//  - An order already partially filled has had its escrow drawn down,
+			//    while the P&L below reads `order.inputs[i].amount` as if it were
+			//    intact. Refuse rather than mis-price it.
+			const partialEligibleCheap = sourceChain === destChain && (order.output.call ?? "0x").length <= 2
+			// The prior-partial probe is a contract read per output, and most orders
+			// fill fully and never consult it — so it runs only once an under-fill is
+			// actually on the table, and at most once per evaluation.
+			let priorPartialChecked: boolean | undefined
+			const partialEligible = async (): Promise<boolean> => {
+				if (!partialEligibleCheap) return false
+				if (priorPartialChecked === undefined) {
+					priorPartialChecked = !(await this.hasExistingPartialFill(order, destChain))
+				}
+				return priorPartialChecked
+			}
+			let partialFill = false
 
 			const fillerOutputs: TokenInfo[] = []
 			// Original leg index for each entry in `fillerOutputs`. Legs can be skipped
@@ -529,6 +572,15 @@ export class FXFiller implements FillerStrategy {
 			// *surviving* leg, not the k-th leg. The valuation pass below realigns to the
 			// original input/leg via this array rather than by position.
 			const fillerOutputLegs: number[] = []
+			/**
+			 * What our own curve was willing to pay out for each leg's allocation.
+			 *
+			 * A one-sided or venue-priced pair has no opposite curve to mark the open
+			 * side against, so `fxMarginUsd` skips it entirely. Our quote is still a
+			 * real reference though: handing over less than we were willing to is
+			 * surplus we keep, and it is measurable for every leg type.
+			 */
+			const policyOutputByLeg = new Map<number, bigint>()
 			// Rate context per original leg index, captured during the leg loop so the
 			// margin pass below prices with the same numbers.
 			const legRatesByIndex = new Map<number, LegRates>()
@@ -563,7 +615,10 @@ export class FXFiller implements FillerStrategy {
 				const token0Decimals = leg.inputIsToken0 ? inputDecimals : outputDecimals
 				const token1Decimals = leg.inputIsToken0 ? outputDecimals : inputDecimals
 
-				const cappedNotional = cappedByPair.get(leg.pair) ?? leg.pair.maxOrderSize
+				// `sizeOrder` populates an entry for every pair these legs resolve to, so
+				// the fallback is defensive only — the leg's own notional, never a cap
+				// that may not exist.
+				const cappedNotional = cappedByPair.get(leg.pair) ?? legNotionals[i]
 				const rates = await this.resolveLegRates(order.id, leg, cappedNotional, venueUsdPrice)
 				if (!rates) return 0
 				legRatesByIndex.set(i, rates)
@@ -579,10 +634,28 @@ export class FXFiller implements FillerStrategy {
 				)
 
 				if (!legResult) {
-					// Budget exhausted for this pair. Emit a zero output so the
-					// on-chain outputs array stays index-aligned with
-					// order.output.assets (the gateway skips solverAmount == 0 legs);
-					// a compacted array would mismatch and revert fillOrder.
+					// Budget exhausted for this pair. A zero leg IS an under-fill: the
+					// gateway sets isFullyFilled = false for it, which reverts a calldata
+					// order (PartialFillNotAllowed) and reverts cross-chain outright
+					// (InvalidInput) — so it must clear the same eligibility gate a
+					// short leg does, not sneak past it.
+					if (!(await partialEligible())) {
+						this.logger.info(
+							{
+								orderId: order.id,
+								pair: `${leg.pair.token0}/${leg.pair.token1}`,
+								token: output.token,
+								reason: "pair budget exhausted",
+							},
+							"Skipping order: a leg cannot be filled at all and the order cannot be partially filled",
+						)
+						return 0
+					}
+					partialFill = true
+					// Emit a zero output so the on-chain outputs array stays
+					// index-aligned with order.output.assets (the gateway skips
+					// solverAmount == 0 legs); a compacted array would mismatch and
+					// revert fillOrder.
 					fillerOutputs.push({ token: output.token, amount: 0n })
 					fillerOutputLegs.push(i)
 					continue
@@ -590,6 +663,17 @@ export class FXFiller implements FillerStrategy {
 
 				const { token0Used, policyMaxOutput: rawPolicyMaxOutput } = legResult
 				remainingByPair.set(leg.pair, remaining.minus(token0Used))
+
+				// `maxOrderSize` is a per-order exposure cap, so an oversized order is
+				// filled down to the fraction the cap allows rather than skipped. The
+				// gateway releases escrow strictly pro-rata to the outputs provided
+				// (IntrinsicIntents.sol: `inputs[i].amount * fillAmount / totalRequired`),
+				// so scaling the output by the cap fraction scales what we take on by
+				// exactly the same factor — which is what makes the cap hold.
+				const capFraction = capFractionByPair.get(leg.pair) ?? new Decimal(1)
+				const desiredOutput = capFraction.gte(1)
+					? output.amount
+					: BigInt(new Decimal(output.amount.toString()).mul(capFraction).floor().toFixed(0))
 
 				// Overfill detection is warn-only: the clamp is DISABLED, so the filler
 				// fills the full computed amount even when it exceeds
@@ -616,23 +700,45 @@ export class FXFiller implements FillerStrategy {
 					)
 				}
 
-				// Spend the free wallet balance first, down to the configured minBalance
-				// reserve — kept liquid for the gas/paymaster pull during
-				// validatePaymasterUserOp — then source any remaining shortfall from the
-				// funding venues (the vault).
+				// Spend the free wallet balance first, down to the reserve — the paymaster's
+				// gas pull during validatePaymasterUserOp plus the vault's configured
+				// minBalance — then source any remaining shortfall from the funding venues.
 				const tokenAddress = bytes32ToBytes20(output.token).toLowerCase()
 				const balance = await this.getAndCacheBalance(tokenAddress, walletAddress, destClient, balanceCache)
 
-				let reserve = 0n
+				let reserve = paymasterReserveForToken(destChain, tokenAddress, this.configService)
 				for (const venue of this.fundingVenues) {
 					reserve += venue.walletReserveForToken(destChain, tokenAddress)
 				}
 				const usableWallet = balance > reserve ? balance - reserve : 0n
 
-				const walletContribution = policyMaxOutput < usableWallet ? policyMaxOutput : usableWallet
+				// What we intend to provide — and the figure the funding venues are asked
+				// to source, so a vault withdrawal never strands tokens in the wallet.
+				//
+				// Always the curve amount, capped or not. The curve IS the price, and
+				// paying it out even when it exceeds what the user asked for is the
+				// point: IntrinsicIntents.sol has an explicit `solverAmount >
+				// totalRequired` branch that splits the excess between the beneficiary
+				// and the protocol (`surplusShareBps`), and `quotePhantomFill` publishes
+				// this same figure as our quoted rate — paying less would advertise a
+				// price we do not honour.
+				//
+				// `maxOrderSize` still bounds this: `computeLegPolicyOutput` rationed
+				// `token0ForLeg` against the pair's remaining budget before the rate was
+				// applied, so a capped leg's curve amount is already the capped slice's
+				// worth. `desiredOutput` — the user's ask scaled by the same cap — is a
+				// second expression of that ration in output-token units, kept for the
+				// price gate and the short-fill logs, but no longer a ceiling on payout.
+				// The trade-off: on a capped leg, escrow releases as
+				// `fillAmount / totalRequired`, so paying above the pro-rata ask draws
+				// down more input than the cap fraction nominally allots — more of the
+				// user's token for the same outlay, and never more outlay than the cap.
+				const targetOutput = policyMaxOutput
+
+				const walletContribution = targetOutput < usableWallet ? targetOutput : usableWallet
 
 				let credited = 0n
-				let needed = policyMaxOutput - walletContribution
+				let needed = targetOutput - walletContribution
 				for (const venue of this.fundingVenues) {
 					if (needed <= 0n) break
 					const planned = await venue.planWithdrawalForToken(destChain, walletAddress, tokenAddress, needed, deadlineTimestamp)
@@ -645,9 +751,25 @@ export class FXFiller implements FillerStrategy {
 
 				const effectiveBalance = walletContribution + credited
 
-				const finalOutputAmount = effectiveBalance > policyMaxOutput ? policyMaxOutput : effectiveBalance
+				const finalOutputAmount = effectiveBalance > targetOutput ? targetOutput : effectiveBalance
 
 				if (finalOutputAmount === 0n) {
+					// Same rule as the budget-exhausted zero above: an empty leg is an
+					// under-fill and must pass the same gate a short leg does.
+					if (!(await partialEligible())) {
+						this.logger.info(
+							{
+								orderId: order.id,
+								pair: `${leg.pair.token0}/${leg.pair.token1}`,
+								token: output.token,
+								inputAmount: input.amount.toString(),
+								fillerBalance: balance.toString(),
+							},
+							"Skipping order: a leg has no available balance and the order cannot be partially filled",
+						)
+						return 0
+					}
+					partialFill = true
 					this.logger.info(
 						{
 							orderId: order.id,
@@ -656,7 +778,7 @@ export class FXFiller implements FillerStrategy {
 							inputAmount: input.amount.toString(),
 							fillerBalance: balance.toString(),
 						},
-						"Skipping leg: no available balance for required output token",
+						"Leg has no available balance; continuing as a partial fill",
 					)
 					// Aligned zero output (see budget-exhausted case above).
 					fillerOutputs.push({ token: output.token, amount: 0n })
@@ -664,11 +786,11 @@ export class FXFiller implements FillerStrategy {
 					continue
 				}
 
-				if (policyMaxOutput < output.amount) {
-					// Name the actual limiter: a fair order capped by maxOrderSize
-					// reads very differently from one demanding a better-than-book
-					// rate, and the two have different operator fixes.
-					const capLimited = token0Used.lt(legNotionals[i])
+				if (policyMaxOutput < desiredOutput) {
+					// Price, not size: our curve yields less than the order's rate even
+					// for the slice the cap allows. Escrow releases at the *order's*
+					// rate, so filling a smaller piece of a bad rate is the same loss
+					// per unit plus the same gas — there is nothing to salvage here.
 					this.logger.info(
 						{
 							orderId: order.id,
@@ -677,32 +799,67 @@ export class FXFiller implements FillerStrategy {
 							inputAmount: input.amount.toString(),
 							legNotional: legNotionals[i].toString(),
 							pricedNotional: token0Used.toString(),
-							maxOrderSize: leg.pair.maxOrderSize.toString(),
+							maxOrderSize: leg.pair.maxOrderSize?.toString() ?? "uncapped",
 							policyOutput: policyMaxOutput.toString(),
+							desiredOutput: desiredOutput.toString(),
 							userRequested: output.amount.toString(),
-							limiter: capLimited ? "maxOrderSize" : "price",
+							limiter: "price",
 						},
-						capLimited
-							? "Skipping order: maxOrderSize caps the leg below the user's requested amount"
-							: "Skipping order: filler price yields less than user's requested amount",
+						"Skipping order: filler price yields less than user's requested amount",
 					)
 					return 0
 				}
 
-				if (sourceChain !== destChain && finalOutputAmount < output.amount) {
-					this.logger.info(
-						{
-							orderId: order.id,
-							pair: `${leg.pair.token0}/${leg.pair.token1}`,
-							token: output.token,
-							inputAmount: input.amount.toString(),
-							fillerBalance: balance.toString(),
-							userRequested: output.amount.toString(),
-						},
-						"Skipping cross-chain order: insufficient balance for full fill",
-					)
-					return 0
+				// The cap only shortens the fill if the curve amount it allows actually
+				// falls below the ask. Since the payout is `policyMaxOutput` rather than
+				// the pro-rata `desiredOutput`, a curve running far enough above the
+				// order's rate can cover the whole ask out of a capped slice — that is a
+				// full fill and must not be gated as a partial one.
+				if (capFraction.lt(1) && policyMaxOutput < output.amount) {
+					if (!(await partialEligible())) {
+						this.logger.info(
+							{
+								orderId: order.id,
+								pair: `${leg.pair.token0}/${leg.pair.token1}`,
+								token: output.token,
+								maxOrderSize: leg.pair.maxOrderSize?.toString() ?? "uncapped",
+								desiredOutput: desiredOutput.toString(),
+								userRequested: output.amount.toString(),
+								crossChain: sourceChain !== destChain,
+							},
+							"Skipping order: maxOrderSize caps the leg and this order cannot be partially filled",
+						)
+						return 0
+					}
+					partialFill = true
 				}
+
+				// Any shortfall makes this an under-fill, whatever caused it — the cap,
+				// or not holding enough of the output token. (An EMPTY leg is gated the
+				// same way at its two zero-push sites above.) The gateway does not care
+				// which: an under-fill on a cross-chain order or one carrying output
+				// calldata reverts, so both must clear the same eligibility check the
+				// cap-limited path does. Only the cross-chain half used to be tested, so
+				// a calldata order the wallet could not cover was bid on and reverted.
+				if (finalOutputAmount < output.amount) {
+					if (!(await partialEligible())) {
+						this.logger.info(
+							{
+								orderId: order.id,
+								pair: `${leg.pair.token0}/${leg.pair.token1}`,
+								token: output.token,
+								available: finalOutputAmount.toString(),
+								userRequested: output.amount.toString(),
+								crossChain: sourceChain !== destChain,
+								hasCalldata: (order.output.call ?? "0x").length > 2,
+							},
+							"Skipping order: cannot fill it in full and it cannot be partially filled",
+						)
+						return 0
+					}
+					partialFill = true
+				}
+
 
 				// Decrement the wallet pool by what this leg drew from it (vault-sourced
 				// tokens are tracked by the venue's own reservations) so repeated outputs
@@ -710,6 +867,7 @@ export class FXFiller implements FillerStrategy {
 				const walletRemaining = balance - walletContribution
 				balanceCache.set(tokenAddress, walletRemaining > 0n ? walletRemaining : 0n)
 
+				policyOutputByLeg.set(i, policyMaxOutput)
 				fillerOutputs.push({ token: output.token, amount: finalOutputAmount })
 				fillerOutputLegs.push(i)
 			}
@@ -746,6 +904,13 @@ export class FXFiller implements FillerStrategy {
 			//    value) is REPORT-ONLY telemetry and never rejects an order or
 			//    feeds the execute score.
 			let realizedSpreadProfit = 0n
+			// `realizedSpreadProfit` is a decimal RESCALE, not a price conversion: for a
+			// non-USD same-token asset its magnitude is in that asset's units. Harmless
+			// while it only ranks orders and GATE 2 checks the sign — but a fee-less
+			// partial fill has to compare an edge against gas, so it needs real dollars.
+			let sameTokenEdgeUsd = new Decimal(0)
+			/** Surplus over our own quote, for legs with no opposite curve to mark against. */
+			let curveSurplusUsd = new Decimal(0)
 			let fxMarginUsd = new Decimal(0)
 			let hasSameTokenSpread = false
 			let sameTokenAllProfitable = true
@@ -759,6 +924,15 @@ export class FXFiller implements FillerStrategy {
 				// Zero-amount legs are placeholders keeping the outputs array aligned;
 				// they release no escrow on-chain, so they contribute nothing to P&L.
 				if (output.amount === 0n) continue
+
+				// Escrow is released in proportion to the output actually delivered
+				// (IntrinsicIntents.sol: `inputs[i].amount * fillAmount / totalRequired`),
+				// and only a fill that COMPLETES the order sweeps the residue. Valuing an
+				// under-fill against the whole escrow overstates every leg's take — which
+				// is what the balance-shortfall path has been doing.
+				const requested = order.output.assets[legIndex].amount
+				const releasedInput =
+					output.amount >= requested ? input.amount : (input.amount * output.amount) / requested
 
 				const inputDecimals = await this.contractService.getTokenDecimals(
 					bytes32ToBytes20(input.token) as HexString,
@@ -774,16 +948,40 @@ export class FXFiller implements FillerStrategy {
 					// output paid. Positive iff the filler nets the asset — a sign check
 					// that is valid for any asset (USD-stable or not), since it never
 					// crosses into another unit.
-					const convertedInput = adjustDecimalsFloor(input.amount, inputDecimals, outputDecimals)
+					const convertedInput = adjustDecimalsFloor(releasedInput, inputDecimals, outputDecimals)
 					const spread = convertedInput - output.amount
 					if (spread <= 0n) sameTokenAllProfitable = false
 					realizedSpreadProfit += adjustDecimalsFloor(spread, outputDecimals, feeTokenDecimals)
+					const spreadUsdFactor = usdFactorBySymbol.get(normalizeSymbol(leg.pair.token0))
+					if (spreadUsdFactor) {
+						sameTokenEdgeUsd = sameTokenEdgeUsd.plus(
+							new Decimal(formatUnits(spread, outputDecimals)).mul(spreadUsdFactor),
+						)
+					}
 					hasSameTokenSpread = true
 					continue
 				}
 
 				const rates = legRatesByIndex.get(legIndex)
-				if (!rates?.oppositeRate) continue
+				if (!rates?.oppositeRate) {
+					// One-sided or venue-priced: no opposite curve exists, so the
+					// round-trip mark `fxMarginUsd` uses is undefined. Fall back to the
+					// surplus over our own quote — we were willing to pay
+					// `policyMaxOutput` and paid `output.amount`, and the difference is
+					// ours. Measured against the order's rate rather than a second
+					// curve, so it works wherever a curve exists at all.
+					const quoted = policyOutputByLeg.get(legIndex)
+					if (quoted !== undefined && quoted > output.amount) {
+						const outputSymbol = leg.inputIsToken0 ? leg.pair.token1 : leg.pair.token0
+						const outputUsdFactor = usdFactorBySymbol.get(normalizeSymbol(outputSymbol))
+						if (outputUsdFactor) {
+							curveSurplusUsd = curveSurplusUsd.plus(
+								new Decimal(formatUnits(quoted - output.amount, outputDecimals)).mul(outputUsdFactor),
+							)
+						}
+					}
+					continue
+				}
 
 				const token0Decimals = leg.inputIsToken0 ? inputDecimals : outputDecimals
 				const token1Decimals = leg.inputIsToken0 ? outputDecimals : inputDecimals
@@ -791,12 +989,12 @@ export class FXFiller implements FillerStrategy {
 				let legMarginToken0: Decimal
 				if (leg.inputIsToken0) {
 					// Sells token1: receives token0, gives token1 valued at bid (rebuy cost).
-					const inputToken0 = new Decimal(formatUnits(input.amount, token0Decimals))
+					const inputToken0 = new Decimal(formatUnits(releasedInput, token0Decimals))
 					const outputToken1 = new Decimal(formatUnits(output.amount, token1Decimals))
 					legMarginToken0 = inputToken0.minus(outputToken1.div(rates.oppositeRate))
 				} else {
 					// Buys token1: gives token0, receives token1 valued at ask (resale value).
-					const inputToken1 = new Decimal(formatUnits(input.amount, token1Decimals))
+					const inputToken1 = new Decimal(formatUnits(releasedInput, token1Decimals))
 					const outputToken0 = new Decimal(formatUnits(output.amount, token0Decimals))
 					legMarginToken0 = inputToken1.div(rates.oppositeRate).minus(outputToken0)
 				}
@@ -808,8 +1006,39 @@ export class FXFiller implements FillerStrategy {
 			// left in place but dormant (always recorded as a clean, unclamped outcome).
 			this.recordOrderOutcome(false, order.id)
 
-			const { totalCostInSourceFeeToken, relayerFeeInSourceFeeToken } =
+			const { totalCostInSourceFeeToken, relayerFeeInSourceFeeToken, dispatchFee } =
 				await this.contractService.estimateGasFillPost(order)
+
+			// `fillOrder` dispatches the escrow-release message back to the source
+			// chain, and HyperApp.dispatchWithFeeToken pulls `dispatchFee` from this
+			// same wallet in the destination host's fee token — which on most chains
+			// is the USDC the fill is already paying out. The leg loop above committed
+			// the balance to outputs without knowing this figure (it is only priced
+			// here, after the funding calls it depends on exist), so the affordability
+			// check has to happen now. A cross-chain order cannot be partially filled,
+			// so shrinking the fill is not on the table: either the residue covers the
+			// dispatch or the order is not ours to take.
+			if (sourceChain !== destChain && dispatchFee > 0n) {
+				const feeToken = await this.contractService.getFeeTokenWithDecimals(destChain)
+				const feeTokenLower = feeToken.address.toLowerCase()
+				// Post-loop, `balanceCache` holds each output token's balance net of
+				// what the fill draws from it; a fee token no leg paid out is read fresh.
+				const residual = await this.getAndCacheBalance(feeTokenLower, walletAddress, destClient, balanceCache)
+				const required = dispatchFee + paymasterReserveForToken(destChain, feeTokenLower, this.configService)
+				if (residual < required) {
+					this.logger.info(
+						{
+							orderId: order.id,
+							feeToken: feeTokenLower,
+							residual: formatUnits(residual, feeToken.decimals),
+							dispatchFee: formatUnits(dispatchFee, feeToken.decimals),
+							required: formatUnits(required, feeToken.decimals),
+						},
+						"Skipping order: fill leaves too little of the fee token to dispatch the escrow release",
+					)
+					return 0
+				}
+			}
 
 			// GATE 1 — execution cost (independent). order.fees exist solely to pay
 			// for execution: the fill gas plus, for cross-chain orders, the relayer
@@ -817,7 +1046,17 @@ export class FXFiller implements FillerStrategy {
 			// (RELAYER_MESSAGE_GAS priced on the source chain; 0 for same-chain). The
 			// swap spread is NOT credited here — fees must cover cost on their own.
 			const executionCost = totalCostInSourceFeeToken + relayerFeeInSourceFeeToken
-			if (order.fees < executionCost) {
+			// Never double-counted: `fxMarginUsd` covers legs that have an opposite
+			// curve, `curveSurplusUsd` covers exactly the legs that do not.
+			const partialEdgeUsd = sameTokenEdgeUsd.plus(fxMarginUsd).plus(curveSurplusUsd)
+
+			// GATE 1 — full fills only. A partial collects NO `order.fees`: the gateway
+			// releases those to whoever completes the order (`_withdraw(..., finalize)`
+			// with `finalize = isFullyFilled`), so there is no fee revenue to test. What
+			// a partial earns instead is its spread net of gas, which is exactly what
+			// `totalProfit` reports below — and the caller already refuses anything that
+			// does not score above zero.
+			if (!partialFill && order.fees < executionCost) {
 				this.logger.info(
 					{
 						orderId: order.id,
@@ -846,12 +1085,25 @@ export class FXFiller implements FillerStrategy {
 			const feeProfit = order.fees - executionCost
 			// Both gates passed → the order is profitable. This number is only the
 			// ranking / >0 execute signal, never a funds gate (the two gates above
-			// already decided). It sums fee surplus (USD) with the realized same-token
-			// spread — for a non-USD same-token asset the spread term is in that
-			// asset's units, so the magnitude is a rough signal rather than a true
-			// dollar figure; its sign is always correct. fxMarginUsd is reported in
-			// the log below but never summed in.
-			const totalProfit = parseFloat(formatUnits(feeProfit + realizedSpreadProfit, feeTokenDecimals))
+			// already decided).
+			//
+			// Full fill: fee surplus (USD) plus the realized same-token spread — for a
+			// non-USD same-token asset the spread term is in that asset's units, so the
+			// magnitude is a rough signal rather than a true dollar figure; its sign is
+			// always correct. fxMarginUsd is reported in the log below but never summed in.
+			//
+			// Partial fill: the USD edge, gross. Gas is deliberately not netted off —
+			// a partial collects no fees, so netting gas would put every one of them
+			// at or below zero and nothing would ever fill. What pays for the gas is
+			// the margin in the operator's own curve, which the engine cannot measure;
+			// the caller exempts partials from the profit floor for the same reason.
+			const totalProfit = partialFill
+				? partialEdgeUsd.toNumber()
+				: Number.parseFloat(formatUnits(feeProfit + realizedSpreadProfit, feeTokenDecimals))
+
+			// Past both gates, so this is the evaluation's answer rather than a plan it
+			// may still abandon. Only now may the caller treat it as a partial.
+			if (order.id) this.contractService.cacheService.setPartialFill(order.id, partialFill)
 
 			this.logger.info(
 				{
@@ -929,7 +1181,7 @@ export class FXFiller implements FillerStrategy {
 		order: Order,
 		startTime: number,
 		intentsCoprocessor: IntentsCoprocessor,
-	): Promise<ExecutionResult> {
+	): Promise<FillResult> {
 		const entryPointAddress = this.configService.getEntryPointAddress(order.destination)
 		if (!entryPointAddress) {
 			return {
@@ -938,7 +1190,7 @@ export class FXFiller implements FillerStrategy {
 			}
 		}
 
-		const solverAccountAddress = this.signer.account.address as HexString
+		const solverAccountAddress = this.signer.address as HexString
 
 		// Prepare the signed UserOp for bid submission (bundles approvals + fillOrder internally)
 		const { commitment, userOp } = await this.contractService.prepareBidUserOp(
@@ -961,8 +1213,16 @@ export class FXFiller implements FillerStrategy {
 			}
 		}
 
-		this.logger.error({ commitment, error: bidResult.error }, "Bid submission failed")
-		return { success: false, error: bidResult.error, commitment }
+		this.logger.error({ commitment, error: bidResult.error, pending: bidResult.pending }, "Bid submission failed")
+		// `pending` and the hash ride along: a pooled extrinsic that later lands
+		// reserves a deposit, so the sweep must be able to find and trace it.
+		return {
+			success: false,
+			pending: bidResult.pending === true,
+			txHash: bidResult.extrinsicHash,
+			error: bidResult.error,
+			commitment,
+		}
 	}
 
 	// =========================================================================
@@ -1008,8 +1268,9 @@ export class FXFiller implements FillerStrategy {
 	 *
 	 * The estimate uses the leg's own price source at minimum size (curve at 0,
 	 * or the venue quote) to convert token1-input legs into token0 terms. Each
-	 * pair's total is capped at its `maxOrderSize` — that capped notional is
-	 * the point pair curves are evaluated at and the budget its legs draw from.
+	 * pair's total is capped at its `maxOrderSize` when it has one — that
+	 * notional is the point pair curves are evaluated at and the budget its legs
+	 * draw from. A pair with no cap budgets against the order's own total.
 	 *
 	 * Returns null when a leg cannot be estimated (no usable rate).
 	 */
@@ -1017,7 +1278,13 @@ export class FXFiller implements FillerStrategy {
 		order: Order,
 		legs: ResolvedLeg[],
 		venueUsdPrice: (chain: string, token1Address: string) => Promise<Decimal | null>,
-	): Promise<{ legNotionals: Decimal[]; cappedByPair: Map<TradingPair, Decimal>; totalNotional: Decimal } | null> {
+	): Promise<{
+		legNotionals: Decimal[]
+		cappedByPair: Map<TradingPair, Decimal>
+		/** min(1, maxOrderSize / uncapped notional) per pair — the exposure cap as a ratio; 1 when uncapped. */
+		capFractionByPair: Map<TradingPair, Decimal>
+		totalNotional: Decimal
+	} | null> {
 		const sourceChain = order.source
 		const legNotionals: Decimal[] = []
 		const totals = new Map<TradingPair, Decimal>()
@@ -1043,16 +1310,30 @@ export class FXFiller implements FillerStrategy {
 		}
 
 		const cappedByPair = new Map<TradingPair, Decimal>()
+		const capFractionByPair = new Map<TradingPair, Decimal>()
 		// totalNotional is log-only: for an order whose legs span pairs with
 		// different token0s it mixes units — anything decision-making must use
 		// legNotionals (per-pair token0) or getOrderUsdValue (USD).
 		let totalNotional = new Decimal(0)
 		for (const [pair, total] of totals) {
-			cappedByPair.set(pair, Decimal.min(total, pair.maxOrderSize))
+			// An uncapped pair budgets its legs against the order's own notional: the
+			// per-pair ration in `computeLegPolicyOutput` still keeps sibling legs from
+			// double-spending the same token0, it just never binds below the order.
+			const cap = pair.maxOrderSize
+			cappedByPair.set(pair, cap === undefined ? total : Decimal.min(total, cap))
+			// The one place the cap test is exact. Both sides are token0 notionals
+			// derived from `referenceRate`, so the comparison is single-basis —
+			// unlike `token0Used` vs `legNotionals[i]` downstream, where the former
+			// is priced at the capped notional and the latter at the curve's origin,
+			// so a sloped curve makes them differ with the cap nowhere near binding.
+			capFractionByPair.set(
+				pair,
+				cap !== undefined && total.gt(cap) && total.gt(0) ? cap.div(total) : new Decimal(1),
+			)
 			totalNotional = totalNotional.plus(total)
 		}
 
-		return { legNotionals, cappedByPair, totalNotional }
+		return { legNotionals, cappedByPair, capFractionByPair, totalNotional }
 	}
 
 	/**
@@ -1094,12 +1375,36 @@ export class FXFiller implements FillerStrategy {
 	 * Returns `null` when this leg cannot consume any of the pair's remaining
 	 * budget (e.g. the cap has already been exhausted).
 	 */
+	/**
+	 * Whether any solver has already delivered output against this order.
+	 *
+	 * Fails closed: a read that errors returns true, so an order we cannot price
+	 * confidently is left alone rather than bid on with stale escrow assumptions.
+	 */
+	private async hasExistingPartialFill(order: Order, chain: string): Promise<boolean> {
+		try {
+			const filled = await this.contractService.partialFillsFor(order, chain)
+			return filled.some((amount) => amount > 0n)
+		} catch (err) {
+			this.logger.warn(
+				{ orderId: order.id, chain, err },
+				"Could not read existing partial fills; treating the order as already touched",
+			)
+			return true
+		}
+	}
+
 	private computeLegPolicyOutput(
 		inputAmount: bigint,
 		inputIsToken0: boolean,
 		token0Decimals: number,
 		token1Decimals: number,
-		remainingToken0: Decimal,
+		/**
+		 * Token0 left in the pair's per-order exposure budget, or `null` to price the whole
+		 * input unbudgeted. Only a price probe passes `null`: it commits no capital, so there
+		 * is no exposure to ration, and a clamped quantity would silently misprice it.
+		 */
+		remainingToken0: Decimal | null,
 		rate: Decimal,
 	): { token0Used: Decimal; policyMaxOutput: bigint } | null {
 		let legMaxToken0: Decimal
@@ -1109,7 +1414,7 @@ export class FXFiller implements FillerStrategy {
 			legMaxToken0 = new Decimal(formatUnits(inputAmount, token1Decimals)).div(rate)
 		}
 
-		const token0ForLeg = Decimal.min(legMaxToken0, remainingToken0)
+		const token0ForLeg = remainingToken0 === null ? legMaxToken0 : Decimal.min(legMaxToken0, remainingToken0)
 		if (token0ForLeg.lte(0)) {
 			return null
 		}
@@ -1354,9 +1659,11 @@ export class FXFiller implements FillerStrategy {
 		const chain = order.source
 		const venueUsdPrice = this.venuePriceMemo()
 
+		// `sizeOrder` is used here only for its per-leg notionals — the rate sample points below.
+		// Its `cappedByPair` / `capFractionByPair` outputs are exposure controls for real fills
+		// and deliberately play no part in a probe.
 		const sized = await this.sizeOrder(order, legs, venueUsdPrice)
 		if (!sized) return null
-		const remainingByPair = new Map(sized.cappedByPair)
 
 		const outputs: TokenInfo[] = []
 
@@ -1379,23 +1686,45 @@ export class FXFiller implements FillerStrategy {
 			const token0Decimals = leg.inputIsToken0 ? inputDecimals : outputDecimals
 			const token1Decimals = leg.inputIsToken0 ? outputDecimals : inputDecimals
 
-			const cappedNotional = sized.cappedByPair.get(leg.pair) ?? leg.pair.maxOrderSize
-			const rates = await this.resolveLegRates(order.id, leg, cappedNotional, venueUsdPrice)
+			// Price this leg at ITS OWN notional, not the pair's exposure-capped budget. The leg
+			// is a quote for `input.amount`; sampling a sloped curve at a smaller notional would
+			// advertise a tighter rate than this filler would actually give at that size, and
+			// optimistic is the one direction a published rate must never be — a quote built
+			// from it has to stay fillable.
+			const legNotional = sized.legNotionals[i]
+			const rates = await this.resolveLegRates(order.id, leg, legNotional, venueUsdPrice)
 			if (!rates) return null
 
-			const remaining = remainingByPair.get(leg.pair) ?? new Decimal(0)
+			// A probe advertising more than the pair will actually fill is a config problem the
+			// operator has to see: the price is honest, but no order that size can clear it.
+			if (leg.pair.maxOrderSize !== undefined && legNotional.gt(leg.pair.maxOrderSize)) {
+				this.logger.warn(
+					{
+						orderId: order.id,
+						pair: `${leg.pair.token0}/${leg.pair.token1}`,
+						legNotional: legNotional.toString(),
+						maxOrderSize: leg.pair.maxOrderSize.toString(),
+					},
+					"Phantom probe notional exceeds the pair's maxOrderSize — the published price quotes a size this pair will not fill",
+				)
+			}
+
+			// `null` budget: a phantom leg commits no capital, so the pair's per-order exposure
+			// cap must not ration it. Clamping the quantity here would leave the output covering
+			// less than the standard amount while every consumer still divides by the FULL
+			// standard amount — publishing a proportionally worse price with nothing to signal
+			// that it happened. The cap still governs real fills, which is where exposure is
+			// actually taken.
 			const legResult = this.computeLegPolicyOutput(
 				input.amount,
 				leg.inputIsToken0,
 				token0Decimals,
 				token1Decimals,
-				remaining,
+				null,
 				rates.rate,
 			)
 
 			if (!legResult) continue
-
-			remainingByPair.set(leg.pair, remaining.minus(legResult.token0Used))
 
 			// Phantom orders only probe price (they request a zero output), so there is no
 			// user-requested amount to cap against — quote the full policy output.

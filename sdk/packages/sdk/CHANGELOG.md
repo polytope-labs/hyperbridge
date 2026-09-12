@@ -1,5 +1,36 @@
 # @hyperbridge/sdk
 
+## 2.8.10
+
+### Patch Changes
+
+- Increased the gas-price headroom used by SDK-generated cross-chain Intent Gateway order-fee quotes from 10% to 50% when Ethereum mainnet is the source chain. Other source chains remain at 10%; same-chain quotes and direct solver estimates remain unchanged.
+
+## 2.8.8
+
+### Patch Changes
+
+- `IntentGateway.quoteIntent()` now uses the indexer's depth-weighted aggregate pool buy and sell rates by default, including configured token decimals and the source gateway protocol fee. Reverse sell rates round conservatively so quotes do not overpromise output. Legacy Phantom snapshot and Uniswap V4 quotes remain available as explicit strategies.
+- Replaced the non-resolving default BSC RPC with the publicnode endpoint.
+
+## 2.8.5
+
+### Patch Changes
+
+- Source-initiated cross-chain cancellation GET responses now quote a 1M source-chain gas budget. Destination-initiated refund POSTs retain their existing 800k budget.
+
+## 2.8.2
+
+### Patch Changes
+
+- Autopilot bid selection now attempts each ranked bid once per selection round. Any bid that fails simulation or execution—including an `already known` bundler response—is skipped immediately so the next bid can be attempted instead of restarting the polling round on the same bid.
+
+## 2.8.1
+
+### Patch Changes
+
+- Recorded balance/allowance storage slots and decimals for cNGN, ZARP, EURC, XSGD, TRYB and USDR on Ethereum, Base and Polygon, so `GasEstimator` state overrides for these tokens resolve from config instead of requiring an RPC with `debug_traceCall`.
+
 ## 2.8.0
 
 ### Minor Changes
@@ -21,6 +52,7 @@
 - `IntentGateway.quoteOrderFees(order, options?)`: public quote for the solver fee, using the same policy `execute()`/`executeBest()` apply when `order.fees` is `0n`. Returns `{ fees, nativeValue, feeToken, estimate }` (`OrderFeesQuote` is exported) so integrators can check a user's fee-token balance and allowance, or native balance, before placing — instead of re-implementing the fee formula from `estimateFillOrder` components. `execute()` now derives its automatic fee from the same method.
 - `AWAITING_PLACE_ORDER` now separates the placement transaction's native components: `value` carries the order's native-token input amounts (previously it carried the auto-quoted fee), and the new `nativeFee` field carries the native amount that funds `order.fees` (`0n` when the caller set `order.fees`). Sign with `value + nativeFee` to pay the fee in native token — the sum is also correct on the fee-token rail. The update also carries `feeTokenAmount`/`feeTokenAddress`: the exact fee encoded in the calldata and the source-chain token it is charged in.
 - Cross-chain cancellation relayer fees (source and destination routes) are now sized from an 800k source-chain gas budget, up from 400k, so refund deliveries clear on expensive source chains. Same-chain cancellations remain free of relayer fees.
+
 ## 2.6.2
 
 ### Patch Changes
@@ -40,7 +72,6 @@
 - Cross-chain `order.fees` now attaches (fill gas + a `RELAYER_MESSAGE_GAS` (1M) settlement uplift) with a 5% buffer over the whole sum, while the solver-side requirement carries no padding — SDK-placed orders always clear a solver's fee gate, including expensive-source/cheap-destination routes that were previously refused. `RELAYER_MESSAGE_GAS` is exported.
 - The cross-chain dispatch is always paid in the fee token: `estimateFillOrder` no longer quotes the native payment rail and always sets `fillOptions.nativeDispatchFee = 0` (the field remains in the on-chain struct; the native rail drew on a solver native balance nothing guaranteed). The estimate gains a `relayerFeeInSourceFeeToken` field for solver-side cost accounting.
 - `ChainConfigService.getAssetBySymbol(chain, symbol)`: case-insensitive lookup into the per-chain asset table, which now ships curated mainnet deployments of ZARP, EURC, XSGD and TRYB (issuer-documented addresses, verified on-chain).
-
 
 ## 2.5.0
 

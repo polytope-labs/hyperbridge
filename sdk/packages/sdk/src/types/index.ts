@@ -1,13 +1,14 @@
 import type { ConsolaInstance } from "consola"
 import type Decimal from "decimal.js"
 import type { GraphQLClient } from "graphql-request"
-import type { ContractFunctionArgs, Hex, Log, PublicClient, TransactionReceipt } from "viem"
+import type { Chain, ContractFunctionArgs, Hex, Log, PublicClient, TransactionReceipt } from "viem"
 import type { Account } from "viem/accounts"
 
 /** Re-export: use this type when wiring a viem `Account` next to `SigningAccount` so you stay aligned with the SDK’s viem resolution. */
 export type { Account as ViemAccount } from "viem/accounts"
 import type HandlerV2 from "@/abis/handlerV2"
 import type { IChain } from "@/chain"
+import type { Chains, ConfiguredAssetSymbol, ConfiguredAssetSymbolInput } from "@/configs/chain"
 import { Struct, Vector, Bytes, u8 } from "scale-ts"
 
 export type EstimateGasCallData = ContractFunctionArgs<
@@ -813,12 +814,16 @@ export interface FillerConfig {
 	watchOnly?: Record<number, boolean>
 
 	/**
-	 * Source chains (state machine ids, e.g. "EVM-8453") this filler accepts payment from when
-	 * filling cross-chain orders, declared inside its phantom bids' paymasterAndData. Omit to
-	 * declare nothing, which downstream consumers read as "accepts all CCTP/USDT0-covered
-	 * chains"; an empty array declares that no source chain is accepted.
+	 * Uniswap V4 position tokenIds this filler holds, per chain (state machine id -> tokenIds as
+	 * decimal strings), declared inside its phantom bids' paymasterAndData for the bid's own chain.
+	 *
+	 * Liquidity parked in a V4 position is invisible to the snapshot's inventory read, which sees
+	 * only ERC-20 balances and ERC-4626 vault shares — so without this a venue-funded filler is
+	 * weighted at zero and its quotes are discarded. The declaration is only a POINTER: the indexer
+	 * reads each position's liquidity on-chain and checks it is owned by the solver that signed the
+	 * bid, so naming a position cannot inflate it and naming someone else's achieves nothing.
 	 */
-	acceptedSourceChains?: string[]
+	uniswapV4PositionsByChain?: Record<string, string[]>
 }
 
 /**
@@ -1141,26 +1146,52 @@ export interface PhantomOrderPriceSnapshotsResponse {
 	}
 }
 
-/**
- * Total solver liquidity measured at one immutable Phantom price snapshot.
- *
- * Liquidity amounts are decimal strings formatted with the configured decimals
- * for their respective `tokenAddress` and chain.
- */
-export interface AvailableLiquiditySnapshot {
+/** One independently reported slice of indexed liquidity. */
+export interface LiquiditySlice {
 	totalLiquidity: string
 	providerCount: number
-	tokenAddress: HexString
-	snapshotTime: Date
-	liquidityByChain: AvailableLiquidityByChain[]
 }
 
-/** Liquidity for one chain/token balance group in an availability snapshot. */
-export interface AvailableLiquidityByChain {
-	chain: string
+/**
+ * Indexed destination capacity and its source-routing slices.
+ *
+ * The SDK reports the indexer's facts separately and does not decide whether a
+ * source chain is covered by the legacy unrestricted-bidder policy.
+ */
+export interface AvailableLiquidity {
+	sourceChain: Chains
+	destinationChain: Chains
 	tokenAddress: HexString
-	totalLiquidity: string
-	providerCount: number
+	updatedAt: Date
+	destination: LiquiditySlice
+	unrestricted: LiquiditySlice
+	explicitRoute: (LiquiditySlice & { updatedAt: Date }) | null
+}
+
+/**
+ * Aggregate indexed pool buy and sell rates expressed as quote-token units per
+ * one base token. The quote token is the less valuable currency when the rates
+ * establish an ordering (for example, cNGN in a USDC/cNGN pair).
+ */
+export interface BuyAndSellRates {
+	baseTokenSymbol: ConfiguredAssetSymbol
+	quoteTokenSymbol: ConfiguredAssetSymbol
+	sourceChain: Chains
+	destinationChain: Chains
+	/** Quote-token units received when buying the quote token with one base token. */
+	buyRate: string | null
+	/** Quote-token units sold to receive one base token. */
+	sellRate: string | null
+	buyRateUpdatedAt: Date | null
+	sellRateUpdatedAt: Date | null
+}
+
+/** Symbol-only input for querying an indexed pool's rates. */
+export interface QueryBuyAndSellRatesParams {
+	tokenInSymbol: ConfiguredAssetSymbolInput
+	tokenOutSymbol: ConfiguredAssetSymbolInput
+	sourceChainId: Chain["id"]
+	destinationChainId: Chain["id"]
 }
 
 export interface TokenPrice {
@@ -1250,6 +1281,18 @@ export interface CancelOrderOptions {
 export interface FillOptions {
 	relayerFee: bigint
 	nativeDispatchFee: bigint
+	/**
+	 * Last block number at which this fill may execute. `0n` means no bound.
+	 *
+	 * A solver bidding through the coprocessor signs this calldata and then has no further
+	 * say in when it is used: the order's `deadline` is placer-chosen with no ceiling, and
+	 * retracting the bid on Hyperbridge does not reach the destination chain. Without a bound
+	 * the placer can sit on a signed bid and execute it once the price has moved their way.
+	 *
+	 * In blocks, matching `order.deadline`, so both read against the same clock. Dropped when
+	 * encoding against a gateway whose implementation predates the field.
+	 */
+	validUntil: bigint
 	outputs: TokenInfo[]
 }
 
@@ -1270,15 +1313,17 @@ export interface PackedUserOperation {
 }
 
 export interface SigningAccount {
-	/** Signs a bid message hash for a given chain. Returns a 65-byte ECDSA signature. */
-	signMessage: (messageHash: HexString, chainId: number) => Promise<HexString>
-	/** Signs a raw 32-byte hash, returning split signature components for EIP-7702 etc. */
-	signRawHash: (hash: HexString) => Promise<{ r: HexString; s: HexString; yParity: number }>
 	/**
 	 * Signs an EIP-712 typed-data payload (e.g. an EIP-2612 USDC permit for the Circle Paymaster).
 	 * The shape of `typedData` matches viem's `TypedDataDefinition` (domain + types + message).
+	 *
+	 * No chain id parameter: EIP-712 carries it in `domain.chainId`, which is what
+	 * the digest covers and what a backend scoping the request to a chain reads.
+	 *
+	 * Returns the 65-byte `r ‖ s ‖ v` signature as 0x-hex, `v` 27 or 28 — the
+	 * `eth_signTypedData_v4` form. Bid validation recovers against exactly this.
 	 */
-	signTypedData: (typedData: unknown, chainId?: number) => Promise<HexString>
+	signTypedData: (typedData: unknown) => Promise<HexString>
 }
 
 export interface SubmitBidOptions {
@@ -1361,8 +1406,9 @@ export interface OrderFeesQuote {
 	/**
 	 * The amount to set as `Order.fees`, denominated in the source-chain fee
 	 * token. Same-chain fills carry a 2x margin over the estimated fill gas without
-	 * a gas-price bump. Cross-chain gas is priced with 10% SDK-only headroom before
-	 * adding the settlement relayer fee and a further 5% buffer over the whole sum.
+	 * a gas-price bump. Cross-chain orders originating on Ethereum mainnet use 50%
+	 * SDK-only gas-price headroom; other source chains use 10%. The settlement
+	 * relayer fee is then added with a further 5% buffer over the whole sum.
 	 */
 	fees: bigint
 	/**
@@ -1404,6 +1450,16 @@ export interface BidSubmissionResult {
 	 * Error message if submission failed
 	 */
 	error?: string
+
+	/**
+	 * The extrinsic is (or may still be) in the transaction pool: it was accepted but its
+	 * inclusion was not observed before the watch timed out, or a resubmission bounced off an
+	 * earlier copy already pooled (RPC 1013/1014). Only meaningful when `success` is false —
+	 * the operation is in flight, not failed, and must not be re-signed with the same nonce.
+	 * Callers should confirm the outcome later (e.g. re-check on-chain state) instead of
+	 * treating this as a terminal failure.
+	 */
+	pending?: boolean
 }
 
 /**

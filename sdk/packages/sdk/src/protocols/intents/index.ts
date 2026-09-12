@@ -1,12 +1,23 @@
 export { IntentGateway } from "./IntentGateway"
+export {
+	InvalidLiquidityIndexerResponseError,
+	UnsupportedLiquidityAssetError,
+	UnsupportedLiquidityChainError,
+} from "./LiquidityEngine"
+export { poolSlug, sortPoolSymbols } from "./liquidity-pool"
 export { OrderStatusChecker } from "./OrderStatusChecker"
 export {
+	InvalidIndexedRateError,
 	InvalidPhantomSnapshotError,
+	IndexedRateUnavailableError,
 	PhantomSnapshotUnavailableError,
 	UnsupportedIntentQuotePairError,
 	UnsupportedIntentQuoteStrategyError,
 } from "./quote"
 export type {
+	IndexedRateIntentQuoteMetadata,
+	IndexedRateQuoteIntentResult,
+	IndexedRateSide,
 	IntentQuoteStrategy,
 	IntentQuoteTradeType,
 	QuoteIntentParams,
@@ -26,7 +37,32 @@ export {
 	orderCommitment,
 } from "./utils"
 export { CryptoUtils, SELECT_SOLVER_TYPEHASH, PACKED_USEROP_TYPEHASH, DOMAIN_TYPEHASH } from "./CryptoUtils"
-export { encodeAcceptedSourceChains, decodeAcceptedSourceChains } from "./phantom-aggregation"
+export {
+	encodeFillOrder,
+	decodeFillOrder,
+	getFillOptionsVersion,
+	resetFillOptionsVersionCache,
+	LEGACY_FILL_OPTIONS_IMPLEMENTATIONS,
+	CHAINS_WITHOUT_VALID_UNTIL,
+	FILL_ORDER_V1_ABI,
+} from "./fillOrderCodec"
+export type { FillOptionsVersion } from "./fillOrderCodec"
+export {
+	encodeAcceptedSourceChains,
+	decodeAcceptedSourceChains,
+	encodePhantomBidDeclaration,
+	decodePhantomBidDeclaration,
+	encodePhantomBidPaymasterAndData,
+	decodePhantomBidPaymasterAndData,
+	applyProtocolFeeHaircut,
+	applyUniswapQuoteHaircut,
+	readProtocolFeeHaircutBps,
+	UNISWAP_QUOTE_HAIRCUT_BPS,
+	PERMIT2_SPONSORSHIP_BYTES,
+	type PhantomBidDeclaration,
+	type PhantomBidPaymasterAndData,
+	type PhantomBidSponsorship,
+} from "./phantom-aggregation"
 export {
 	DEFAULT_GRAFFITI,
 	ERC7821_BATCH_MODE,

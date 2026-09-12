@@ -1,9 +1,9 @@
 import { erc20Abi, formatEther, formatUnits } from "viem"
 import type { HexString } from "@hyperbridge/sdk"
-import { ChainClientManager } from "./ChainClientManager"
-import { FillerConfigService } from "./FillerConfigService"
-import { getLogger } from "./Logger"
-import type { SigningAccount } from "./wallet"
+import type { ChainClientManager } from "./ChainClientManager"
+import type { FillerConfigService } from "./FillerConfigService"
+import { type Logger , moduleLogger} from "./Logger"
+import type { Signer } from "./wallet"
 import { SIMPLEX_PAYMASTER_ABI } from "@/config/abis/SimplexPaymaster"
 import { ENTRYPOINT_ABI } from "@/config/abis/Entrypoint"
 
@@ -27,7 +27,7 @@ export interface PaymasterKeeperConfig {
  * swapping. The signer must be the paymaster's treasury.
  */
 export class PaymasterKeeperService {
-	private logger = getLogger("paymaster-keeper")
+	private logger: Logger
 	private timer?: NodeJS.Timeout
 	private running = false
 	private readonly decimalsCache = new Map<string, number>()
@@ -35,9 +35,11 @@ export class PaymasterKeeperService {
 	constructor(
 		private clientManager: ChainClientManager,
 		private configService: FillerConfigService,
-		private signer: SigningAccount,
+		private signer: Signer,
 		private config: PaymasterKeeperConfig = {},
-	) {}
+	) {
+		this.logger = moduleLogger(clientManager.loggers, "paymaster-keeper")
+	}
 
 	/** Idempotent. Runs one cycle shortly after start, then on an interval. */
 	start(chains: string[]): void {
@@ -87,7 +89,7 @@ export class PaymasterKeeperService {
 		}
 
 		const publicClient = this.clientManager.getPublicClient(chain)
-		const keeper = this.signer.account.address as HexString
+		const keeper = this.signer.address as HexString
 
 		let treasury: HexString
 		let tokens: readonly HexString[]

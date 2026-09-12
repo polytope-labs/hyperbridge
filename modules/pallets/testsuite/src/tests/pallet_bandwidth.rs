@@ -520,6 +520,63 @@ fn purchase_rejects_zero_months() {
 	});
 }
 
+/// Builds a purchase whose `app` field is arbitrary bytes rather than an address, so the
+/// `AppKey` bound can be probed from either side.
+fn purchase_request_with_app(app: Vec<u8>) -> PostRequest {
+	let mut req = purchase_request(APP_CHAIN, MANAGER, TIER1, APP_CHAIN);
+	req.body =
+		(&PurchaseMessage { app, tier: TIER1.into(), months: 1, chain: APP_CHAIN }).into();
+	req
+}
+
+/// `app` is stored as an `AppKey`, so bytes past its bound are not a longer identifier — they
+/// silently disappear. The tier price is flat regardless of body length, so a purchase carrying
+/// them is paying the same for a message that got longer for no reason; reject it at decode time
+/// instead of truncating.
+#[test]
+fn purchase_rejects_app_identifier_over_the_bound() {
+	new_test_ext().execute_with(|| {
+		jump_to(T0);
+		register_manager(APP_CHAIN);
+		configure_tier(TIER1, TIER1_BYTES, MONTH_SECS);
+
+		dispatch(purchase_request_with_app(vec![0xBB; AppKey::bound() + 1]))
+			.expect_err("app identifier longer than AppKey must be rejected at decode time");
+		assert_eq!(sub_count(APP_CHAIN), 0);
+	});
+}
+
+#[test]
+fn purchase_rejects_empty_app_identifier() {
+	new_test_ext().execute_with(|| {
+		jump_to(T0);
+		register_manager(APP_CHAIN);
+		configure_tier(TIER1, TIER1_BYTES, MONTH_SECS);
+
+		dispatch(purchase_request_with_app(Vec::new()))
+			.expect_err("empty app identifier must be rejected at decode time");
+		assert_eq!(sub_count(APP_CHAIN), 0);
+	});
+}
+
+/// The bound itself stays valid — the rejection is for what exceeds it, not for identifiers
+/// longer than the 20-byte address the happy path uses.
+#[test]
+fn purchase_accepts_app_identifier_at_the_bound() {
+	new_test_ext().execute_with(|| {
+		jump_to(T0);
+		register_manager(APP_CHAIN);
+		configure_tier(TIER1, TIER1_BYTES, MONTH_SECS);
+
+		let app = vec![0xBB; AppKey::bound()];
+		dispatch(purchase_request_with_app(app.clone()))
+			.expect("an app identifier that fits AppKey must be accepted");
+
+		let key = AppKey::truncate_from(app);
+		assert_eq!(Allowance::<Test>::get(APP_CHAIN, key).len(), 1);
+	});
+}
+
 /// The 1024-sub cap evicts the oldest entry. force_credit reuses the
 /// same push path as purchase, so this also covers the purchase cap.
 #[test]

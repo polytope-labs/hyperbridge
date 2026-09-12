@@ -29,6 +29,21 @@
       "source": "/docs/developers/configurations/:path*",
       "destination": "/docs/developers/evm/contract-addresses/:path*",
       "permanent": true
+    },
+    {
+      "source": "/protocol/ismp",
+      "destination": "/protocol/ismp/introduction",
+      "permanent": true
+    },
+    {
+      "source": "/developers/evm/intent-gateway/simplex",
+      "destination": "/developers/evm/simplex/overview",
+      "permanent": true
+    },
+    {
+      "source": "/developers/evm/simplex",
+      "destination": "/developers/evm/simplex/overview",
+      "permanent": true
     }
   ]
 }

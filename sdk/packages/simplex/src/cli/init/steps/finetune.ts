@@ -1,4 +1,4 @@
-import { confirm, log, multiselect, note, select, text } from "@clack/prompts"
+import { confirm, log, multiselect, note, select, } from "@clack/prompts"
 import type { HexString } from "@hyperbridge/sdk"
 import type { ChainConfirmationPolicy, VaultToml } from "@/config/filler-toml"
 import { DEFAULT_CONFIRMATION_POLICIES } from "@/config/interpolated-curve"
@@ -77,7 +77,6 @@ function carryPrefillExtras(state: WizardState, prefill?: Prefill): void {
 	if (!prefill) return
 	const { config } = prefill
 	state.maxConcurrentOrders = config.simplex.maxConcurrentOrders ?? state.maxConcurrentOrders
-	state.queue = config.simplex.queue ?? state.queue
 	state.logging = config.simplex.logging ?? state.logging
 	state.gasFeeBump = config.simplex.gasFeeBump
 	state.overfillProtection = config.simplex.overfillProtection
@@ -94,14 +93,6 @@ async function tuneConcurrency(state: WizardState): Promise<void> {
 	why(WHY.concurrency)
 	state.maxConcurrentOrders = await askNumber("Max concurrent orders", state.maxConcurrentOrders, (n) =>
 		n >= 1 ? undefined : "Must be at least 1",
-	)
-	state.queue.maxRechecks = await askNumber(
-		"Max re-checks before dropping a queued order",
-		state.queue.maxRechecks,
-		(n) => (n >= 0 ? undefined : "Must be >= 0"),
-	)
-	state.queue.recheckDelayMs = await askNumber("Delay between re-checks (ms)", state.queue.recheckDelayMs, (n) =>
-		n >= 1000 ? undefined : "Use at least 1000ms",
 	)
 }
 
@@ -192,11 +183,11 @@ async function tuneVault(state: WizardState): Promise<void> {
 			// notation (1e21) would not survive as a valid TOML decimal.
 			const plainDecimal = (n: number): string | undefined =>
 				/^\d+(\.\d+)?$/.test(String(n)) ? undefined : "Enter a plain decimal number"
-			const threshold = await askNumber("Sweep when wallet balance reaches (USD)", 5000, (n) =>
+			const threshold = await askNumber("Sweep when wallet balance reaches (underlying token units)", 5000, (n) =>
 				n > 0 ? plainDecimal(n) : "Must be positive",
 			)
 			const minBalance = await askNumber(
-				"Sweep down to (USD; cover fill float + gas spend)",
+				"Sweep down to (underlying token units; cover fill float + gas spend)",
 				Math.max(1, Math.min(3000, threshold - 1)),
 				(n) => (n > 0 && n < threshold ? plainDecimal(n) : `Must be positive and below ${threshold}`),
 			)

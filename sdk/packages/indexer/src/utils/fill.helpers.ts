@@ -5,7 +5,6 @@ import type { EthereumLog, EthereumTransaction } from "@subql/types-ethereum"
 
 import IntentGatewayV3Abi from "@/configs/abis/IntentGatewayV3.abi.json"
 import { IOrderV3OutputAsset } from "@/configs/src/types/models/IOrderV3OutputAsset"
-import { INTENT_GATEWAY_V3_ADDRESSES } from "@/constants"
 import { FillEnrichment, IntentGatewayV3Service, OrderV3, TokenInfo } from "@/services/intentGatewayV3.service"
 import { getContractCallInputs } from "./rpc.helpers"
 import { bytes32ToBytes20, extractAddressFromTopic } from "./transfer.helpers"
@@ -24,9 +23,29 @@ const ORDER_FILLED_TOPIC = "0xdd5ba16ce7d9636800f5875b2a5572176a96f47947d3218b2a
 // PartialFill(bytes32,address,(bytes32,uint256)[],(bytes32,uint256)[])
 const PARTIAL_FILL_TOPIC = "0xa71fc5b4fbaf5f5f0846475fec0d0c1d6c93100f2326ddb75c117244f45bbe85"
 
+// Canonical EntryPoints used by SolverAccount deployments (v0.6, v0.7, v0.8).
+const ENTRY_POINTS = new Set([
+	"0x5ff137d4b0fdcd49dca30c7cf57e578a026d2789",
+	"0x0000000071727de22e5e9d8baf0edac6f37da032",
+	"0x4337084d9e255ff0702461cf8895ce9e3b5ff108",
+])
+
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000"
 
 const intentGatewayInterface = new Interface(IntentGatewayV3Abi)
+// FillOptions gained validUntil after the original V3 deployment; both selectors remain
+// in historical receipts and use the same order tuple / commitment.
+const legacyFillAbi = IntentGatewayV3Abi.filter((item) => item.type === "function" && item.name === "fillOrder").map(
+	(item) => ({
+		...item,
+		inputs: item.inputs!.map((input) =>
+			input.name === "options"
+				? { ...input, components: input.components!.filter((field) => field.name !== "validUntil") }
+				: input,
+		),
+	}),
+)
+const legacyFillInterface = new Interface(legacyFillAbi)
 
 type FillLog = Pick<EthereumLog, "address" | "logIndex" | "transactionHash"> & {
 	transaction?: EthereumTransaction
@@ -71,7 +90,8 @@ export async function resolveFillEnrichment(
 /**
  * Finds the hash of the ERC-4337 user operation that executed a fill. The EntryPoint emits
  * UserOperationEvent right after each op finishes executing, so the op that performed this
- * fill emits the first event after the fill log whose sender is the filler account.
+ * fill must belong to the first EntryPoint event after the fill. A sender mismatch
+ * must not fall through to another operation later in the bundle.
  * Returns undefined for plain EOA fills.
  */
 export function findUserOpHash(logs: EthereumLog[], filler: string, fillLogIndex: number): string | undefined {
@@ -81,13 +101,15 @@ export function findUserOpHash(logs: EthereumLog[], filler: string, fillLogIndex
 		.filter(
 			(log) =>
 				log.topics?.[0] === USER_OPERATION_EVENT_TOPIC &&
-				log.topics.length >= 3 &&
-				log.logIndex > fillLogIndex &&
-				extractAddressFromTopic(log.topics[2]) === fillerAddress,
+				log.topics.length === 4 &&
+				ENTRY_POINTS.has(log.address.toLowerCase()) &&
+				log.logIndex > fillLogIndex,
 		)
 		.sort((a, b) => a.logIndex - b.logIndex)[0]
 
-	return userOpEvent?.topics[1]
+	return userOpEvent && extractAddressFromTopic(userOpEvent.topics[2]) === fillerAddress
+		? userOpEvent.topics[1]
+		: undefined
 }
 
 /**
@@ -103,26 +125,25 @@ async function resolveBeneficiary(commitment: string, fillLog: FillLog, chain: s
 		return bytes32ToBytes20(orderOutput.beneficiary).toLowerCase()
 	}
 
+	const decodeBeneficiary = (calldata: string): string | undefined => {
+		const order = tryDecodeFillOrder(calldata)
+		if (!order || IntentGatewayV3Service.computeOrderCommitment(order).toLowerCase() !== commitment.toLowerCase()) {
+			return undefined
+		}
+		return bytes32ToBytes20(order.outputs.beneficiary).toLowerCase()
+	}
+
+	// Do not require debug tracing when direct calldata already identifies the order.
+	if (fillLog.transaction?.input) {
+		const beneficiary = decodeBeneficiary(fillLog.transaction.input)
+		if (beneficiary) return beneficiary
+	}
+
 	try {
-		const candidates: string[] = []
-		if (fillLog.transaction?.input) {
-			candidates.push(fillLog.transaction.input)
-		}
-
-		const gatewayAddress = INTENT_GATEWAY_V3_ADDRESSES[chain]
-		if (gatewayAddress) {
-			candidates.push(...(await getContractCallInputs(fillLog.transactionHash, gatewayAddress, chain)))
-		}
-
+		const candidates = await getContractCallInputs(fillLog.transactionHash, fillLog.address, chain)
 		for (const calldata of candidates) {
-			const order = tryDecodeFillOrder(calldata)
-			if (!order) continue
-			// A solver may batch fills for several orders in one transaction; the commitment
-			// identifies which fillOrder call belongs to this event.
-			if (IntentGatewayV3Service.computeOrderCommitment(order).toLowerCase() !== commitment.toLowerCase()) {
-				continue
-			}
-			return bytes32ToBytes20(order.outputs.beneficiary).toLowerCase()
+			const beneficiary = decodeBeneficiary(calldata)
+			if (beneficiary) return beneficiary
 		}
 	} catch (e: any) {
 		logger.warn(`Could not recover order ${commitment} from fill calldata: ${e.message}`)
@@ -138,7 +159,11 @@ async function resolveBeneficiary(commitment: string, fillLog: FillLog, chain: s
  */
 export function tryDecodeFillOrder(calldata: string): OrderV3 | null {
 	try {
-		const { name, args } = intentGatewayInterface.parseTransaction({ data: calldata })
+		const parser =
+			calldata.slice(0, 10).toLowerCase() === legacyFillInterface.getSighash("fillOrder")
+				? legacyFillInterface
+				: intentGatewayInterface
+		const { name, args } = parser.parseTransaction({ data: calldata })
 		if (name !== "fillOrder") return null
 
 		const decoded = args[0]
@@ -208,19 +233,34 @@ export function matchDeliveryTransfers(
 				log.topics?.[0] === ERC20_TRANSFER_TOPIC &&
 				log.topics.length === 3 &&
 				typeof log.data === "string" &&
-				log.data.length > 2 &&
+				/^0x[0-9a-fA-F]{64}$/.test(log.data) &&
 				log.logIndex > previousFillBoundary &&
 				log.logIndex < fillLog.logIndex &&
 				extractAddressFromTopic(log.topics[1]) === fillerAddress &&
-				extractAddressFromTopic(log.topics[2]) === beneficiary,
+				extractAddressFromTopic(log.topics[2]) === beneficiary.toLowerCase(),
 		)
 		.sort((a, b) => a.logIndex - b.logIndex)
 
+	const counts = new Map<string, number>()
+	for (const output of outputs) {
+		if (output.amount === 0n) continue
+		const token = bytes32ToBytes20(output.token).toLowerCase()
+		counts.set(token, (counts.get(token) ?? 0) + 1)
+	}
 	const consumed = new Set<number>()
 	return outputs.map((output) => {
 		const token = bytes32ToBytes20(output.token).toLowerCase()
 		if (token === ZERO_ADDRESS) return undefined
+		// PartialFill emits zero-valued slots for assets that this call did not
+		// deliver. ERC-20 has no transfer for that slot, but the event makes zero
+		// unambiguous and prevents it from poisoning repeated-token matching.
+		if (output.amount === 0n) return 0n
 
+		// Extra or missing transfers make attribution ambiguous (e.g. an unrelated
+		// transfer before the call or a fee-on-transfer token emitting multiple logs).
+		if (transfers.filter((transfer) => transfer.address.toLowerCase() === token).length !== counts.get(token)) {
+			return undefined
+		}
 		const index = transfers.findIndex((transfer, i) => !consumed.has(i) && transfer.address.toLowerCase() === token)
 		if (index === -1) return undefined
 

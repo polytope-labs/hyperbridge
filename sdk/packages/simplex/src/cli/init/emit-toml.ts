@@ -1,7 +1,8 @@
+import { DEFAULT_MAX_CONCURRENT_ORDERS } from "@/config/defaults"
 import { chmodSync, renameSync, unlinkSync, writeFileSync } from "node:fs"
 import { dirname, join, basename } from "node:path"
 import { randomBytes } from "node:crypto"
-import type { FillerTomlConfig, ChainConfirmationPolicy } from "@/config/filler-toml"
+import type { FillerConfigFile, ChainConfirmationPolicy } from "@/config/filler-toml"
 import type { PairConfig } from "@/config/pairs"
 
 /**
@@ -29,11 +30,11 @@ export interface EmitOptions {
 }
 
 /**
- * Renders a FillerTomlConfig as a commented TOML document. A generic stringifier
+ * Renders a FillerConfigFile as a commented TOML document. A generic stringifier
  * can't produce comments or stable section ordering, so the document is emitted
  * section by section; `toml.parse(emitFillerToml(c))` must deep-equal `c`.
  */
-export function emitFillerToml(config: FillerTomlConfig, options: EmitOptions = {}): string {
+export function emitFillerToml(config: FillerConfigFile, options: EmitOptions = {}): string {
 	const out: string[] = []
 	const push = (line = "") => out.push(line)
 
@@ -43,7 +44,7 @@ export function emitFillerToml(config: FillerTomlConfig, options: EmitOptions = 
 
 	push("[simplex]")
 	push("# Maximum number of orders processed concurrently. Lower this if your RPCs rate-limit (429s).")
-	push(kv("maxConcurrentOrders", config.simplex.maxConcurrentOrders))
+	push(kv("maxConcurrentOrders", config.simplex.maxConcurrentOrders ?? DEFAULT_MAX_CONCURRENT_ORDERS))
 	if (config.simplex.logging !== undefined) {
 		push("# Log verbosity: trace, debug, info, warn, error")
 		push(kv("logging", config.simplex.logging))
@@ -57,11 +58,10 @@ export function emitFillerToml(config: FillerTomlConfig, options: EmitOptions = 
 	push(kv("substratePrivateKey", config.simplex.substratePrivateKey))
 	push("# Hyperbridge WebSocket endpoint used to submit solver bids.")
 	push(kv("hyperbridgeWsUrl", config.simplex.hyperbridgeWsUrl))
-	if (config.simplex.entryPointAddress !== undefined) {
-		push(kv("entryPointAddress", config.simplex.entryPointAddress))
-	}
-	if (config.simplex.solverAccountContractAddress !== undefined) {
-		push(kv("solverAccountContractAddress", config.simplex.solverAccountContractAddress))
+	if (config.simplex.indexerUrl) push(kv("indexerUrl", config.simplex.indexerUrl))
+	if (config.simplex.blockScanIntervalSeconds !== undefined) {
+		push("# Seconds between block scans per chain. Default 3, minimum 0.1.")
+		push(kv("blockScanIntervalSeconds", config.simplex.blockScanIntervalSeconds))
 	}
 	if (config.simplex.targetGasUnits !== undefined) {
 		push("# Gas units to keep deposited at the ERC-4337 EntryPoint on chains without a paymaster.")
@@ -95,6 +95,16 @@ export function emitFillerToml(config: FillerTomlConfig, options: EmitOptions = 
 		push()
 	}
 
+	if (config.simplex.tunnel) {
+		push("# Remote access: outbound SSH tunnel to a relay so a phone's SSH client can open the web UI.")
+		push("# Pair devices from the UI (Operations > Remote access). Keys live under <data-dir>/tunnel/.")
+		push("[simplex.tunnel]")
+		for (const [key, value] of Object.entries(config.simplex.tunnel)) {
+			if (value !== undefined) push(kv(key, value))
+		}
+		push()
+	}
+
 	if (config.simplex.overfillProtection) {
 		push("# Bounds per-leg loss when internal pricing is wrong (bug, stale cache, manipulated venue).")
 		push("[simplex.overfillProtection]")
@@ -110,12 +120,6 @@ export function emitFillerToml(config: FillerTomlConfig, options: EmitOptions = 
 		push("# maxConsecutiveClamps = 3")
 		push()
 	}
-
-	push("# How often a not-yet-fillable order is re-checked before being dropped.")
-	push("[simplex.queue]")
-	push(kv("maxRechecks", config.simplex.queue.maxRechecks))
-	push(kv("recheckDelayMs", config.simplex.queue.recheckDelayMs))
-	push()
 
 	if (config.rebalancing) {
 		push("# Rebalancing: triggers when a balance falls to (1 - triggerPercentage) * baseBalance.")

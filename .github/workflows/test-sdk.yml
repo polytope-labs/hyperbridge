@@ -131,6 +131,21 @@ jobs:
             - name: Run SDK test - intents-coprocessor
               run: pnpm --filter="@hyperbridge/sdk" test:intents-coprocessor
 
+            # Dead imports have shipped twice past tsc, which does not flag them.
+            - name: Lint simplex
+              run: pnpm --filter="@hyperbridge/simplex" lint
+
+            # Operators' existing bids.db/activity.db files, opened and migrated for real
+            # against committed fixtures. Needs no network or secrets and runs in seconds;
+            # test:filler names four specific files and would never reach it.
+            - name: Run simplex data-store tests
+              run: pnpm --filter="@hyperbridge/simplex" test:data
+
+            # test:filler covers the network-backed suites; the CLI and logger units
+            # were gated by nothing until 2026-09-10, so a broken flag stayed green.
+            - name: Run simplex test - cli and logger units
+              run: pnpm --filter="@hyperbridge/simplex" test:unit
+
             - name: Run simplex test
               run: pnpm --filter="@hyperbridge/simplex" test:filler
 
@@ -187,6 +202,15 @@ jobs:
 
             - name: Install Foundry (anvil)
               uses: foundry-rs/foundry-toolchain@v1
+              with:
+                  # Pinned, not `stable`, for the same reason as evm.yml. Foundry v1.8.0
+                  # (2026-08-27) probes `anvil_nodeInfo` to work out an endpoint's network family,
+                  # and providers that answer it with HTTP 400 fail the fork outright — here that
+                  # would take down both `anvil --fork-url` instances below and with them the whole
+                  # phantom-filler E2E. v1.7.1 is the last version this suite ran green on. Revert
+                  # to `stable` once upstream stops probing, or once the fork URL is a provider that
+                  # answers it, and do it in both workflows together.
+                  version: v1.7.1
 
             - name: Set up Node
               uses: actions/setup-node@v4

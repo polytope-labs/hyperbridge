@@ -5,12 +5,19 @@
 // it passes VM2-safe implementations; the viem-based defaults are fine for Node consumers (tests,
 // simplex).
 import { decodeFunctionData, encodeAbiParameters, keccak256, recoverAddress } from "viem"
-import { hexToU8a, isHex, stringToU8a, u8aToHex, u8aToString } from "@polkadot/util"
+import { hexToU8a, isHex, u8aToHex } from "@polkadot/util"
 import { decodeERC7821ExecuteBatch } from "@/protocols/intents/decode-utils"
 import { decodeUserOpScale } from "@/chains/intentsCoprocessor"
 import { CryptoUtils } from "@/protocols/intents/CryptoUtils"
 import type { PackedUserOperation } from "@/types"
 import IntentGatewayV2 from "@/abis/IntentGatewayV2"
+import { decodeFillOrder } from "./fillOrderCodec"
+import {
+	decodePoolAndPositionInfo,
+	positionAmountOfToken,
+	word,
+	type PoolAndPositionInfo,
+} from "@/protocols/intents/uniswap-v4-position"
 
 export type HexString = `0x${string}`
 
@@ -39,10 +46,27 @@ function rpcFetch(): FetchLike {
 	return f
 }
 
+/**
+ * An RPC read the aggregation depends on could not be completed. Distinct from a bid being
+ * rejected: a rejected bid is a fact about the bid, this is the absence of a fact. The two must
+ * never be conflated — treating an unreachable node as "not delegated" or as "holds nothing"
+ * silently drops a real solver from the snapshot, which then publishes a price and a depth
+ * computed from whoever happened to answer.
+ */
+export class PhantomRpcError extends Error {
+	constructor(
+		message: string,
+		readonly cause?: unknown,
+	) {
+		super(message)
+		this.name = "PhantomRpcError"
+	}
+}
+
 // POSTs a JSON-RPC payload and returns the parsed response, retrying with a short backoff. The node
 // intermittently returns an empty body under concurrent load (a 200 with no payload), which makes
 // response.json() throw; without a retry a single blip would silently drop a bid's quote or a whole
-// window (fetchBids throws). Throws if every attempt fails.
+// window (fetchBids throws). Throws PhantomRpcError if every attempt fails.
 async function rpcCall(url: string, payload: object): Promise<any> {
 	let lastErr: unknown
 	for (let attempt = 0; attempt < 4; attempt++) {
@@ -63,82 +87,416 @@ async function rpcCall(url: string, payload: object): Promise<any> {
 				}),
 				timeout,
 			])
-			return await response.json()
+			const body = await response.json()
+			// A JSON-RPC error body is a failed read, not an answer. Rate limiting arrives this way,
+			// so letting it through as `undefined` is what turns throttling into fabricated data.
+			if (body?.error) {
+				lastErr = new Error(`rpc error: ${JSON.stringify(body.error).slice(0, 200)}`)
+				continue
+			}
+			return body
 		} catch (err) {
 			lastErr = err
 		} finally {
 			if (timer) clearTimeout(timer)
 		}
 	}
-	throw lastErr
+	throw new PhantomRpcError(`RPC call failed after 4 attempts: ${url}`, lastErr)
 }
 
 export const FILL_ORDER_ABI = IntentGatewayV2.ABI
 
-// ─── accepted-source-chains declaration ─────────────────────────────────────────────────────────
+// ─── phantom bid declaration ────────────────────────────────────────────────────────────────────
 //
-// A same-chain phantom bid proves a solver operates on a chain, not which chains it will accept
-// payment FROM when filling a cross-chain order. Bids declare that set inside paymasterAndData,
-// which the userOpHash covers, so the declaration is authenticated by the solver's existing bid
-// signature (the `signature` field is excluded from the hash and therefore unusable). The
-// overload applies to phantom bids only: a real fill's paymasterAndData keeps its functional
-// EntryPoint semantics, and nothing on the real-fill path ever parses this format.
+// A same-chain phantom bid proves a solver operates on a chain, but not two things the snapshot
+// needs: which chains it will accept payment FROM when filling a cross-chain order, and which
+// Uniswap V4 positions stand behind its quote. Bids declare both inside paymasterAndData, which
+// the userOpHash covers, so the declaration is authenticated by the solver's existing bid
+// signature (the `signature` field is excluded from the hash and therefore unusable). The overload
+// applies to phantom bids only: a real fill's paymasterAndData keeps its functional EntryPoint
+// semantics, and nothing on the real-fill path ever parses this format.
 //
-// Layout: version(1) ‖ count(1) ‖ count × (length(1) ‖ utf8 state machine id). A declaration
-// with no entries is a deliberate "accepts no source chains" and is distinct from an absent
-// declaration ("0x"), which means the legacy default: all CCTP/USDT0-covered chains.
+// Layouts, by leading version byte:
+//
+//   v1  0x01 ‖ chainCount(1) ‖ chainCount × ( len(1) ‖ utf8 state machine id )
+//   v2  0x01-body ‖ posCount(1) ‖ posCount × ( len(1) ‖ big-endian tokenId )   with 0x02 leading
+//
+// v2 is v1 with a positions section appended, so decoding is one parser with an optional tail.
+// The encoder emits v1 whenever there are no positions, which keeps existing solvers' bids
+// byte-identical to what they produce today; a v1 blob decodes under v2 readers as "no positions".
+// A v2 blob read by a pre-v2 decoder fails its version check and reads as no declaration at all —
+// the same degradation as an absent blob, never a misparse, because both versions reject trailing
+// bytes rather than half-reading.
+//
+// Declared positions are implicitly on the order's own chain: a phantom bid is submitted per
+// chain, so the tokenIds a solver names in it are the ones it holds on that chain. The declaration
+// is a POINTER, not a claim of size — the indexer reads each position's liquidity on-chain and
+// checks the position is owned by the very solver that signed the bid, so a solver can point at
+// its own positions but cannot inflate them, nor borrow someone else's.
+//
+// Two shapes of paymasterAndData are on the wire, and the decoder reads both:
+//
+//   bare         declaration                                     (the original phantom-bid shape)
+//   sponsored    paymaster(20) ‖ verificationGasLimit(16) ‖ postOpGasLimit(16)
+//                ‖ 0x02 ‖ token(20) ‖ permitAmount(32) ‖ nonce(32) ‖ deadline(32) ‖ v(1) ‖ r(32) ‖ s(32)
+//                ‖ [declaration]
+//
+// The sponsored shape is the EntryPoint v0.8 paymasterAndData a real bid carries, with the Simplex
+// paymaster's PERMIT2 mode section (a per-op Permit2 SignatureTransfer permit, see
+// SimplexPaymaster._parsePermit2Data). A solver that builds its phantom bid on the same path as a
+// real bid produces exactly this, with the declaration appended after the permit; the paymaster
+// never parses a phantom bid, so the trailing bytes cost nothing. The declaration is optional there
+// — a sponsored bid with no tail is a solver that declared nothing, the same as an empty field.
 
-const DECLARATION_VERSION = 0x01
+const DECLARATION_V1 = 0x01
+const DECLARATION_V2 = 0x02
 
-/** Upper bound on declared chains; one byte of count, and far beyond any real deployment. */
-const MAX_DECLARED_CHAINS = 255
+/** EntryPoint v0.8: paymaster address, then two uint128 gas limits, before the paymaster's own data. */
+const PAYMASTER_ADDRESS_BYTES = 20
+const PAYMASTER_GAS_LIMIT_BYTES = 16
+const PAYMASTER_DATA_OFFSET = PAYMASTER_ADDRESS_BYTES + 2 * PAYMASTER_GAS_LIMIT_BYTES
+
+/** SimplexPaymaster's mode byte for a Permit2 SignatureTransfer permit — the mode every simplex bid authorizes with. */
+const SIMPLEX_MODE_PERMIT2 = 0x02
+/** mode(1) + token(20) + permitAmount(32) + nonce(32) + deadline(32) + v(1) + r(32) + s(32). */
+const PERMIT2_DATA_BYTES = 1 + 20 + 32 + 32 + 32 + 1 + 32 + 32
+/** A complete Permit2-sponsored paymasterAndData, before any declaration is appended. */
+export const PERMIT2_SPONSORSHIP_BYTES = PAYMASTER_DATA_OFFSET + PERMIT2_DATA_BYTES
+
+/** Upper bound on declared chains and positions alike; one byte of count each. */
+const MAX_DECLARED_ENTRIES = 255
+
+/** Widest tokenId the codec will carry — a uint256, as minted by the V4 PositionManager. */
+const MAX_TOKEN_ID_BYTES = 32
 
 /**
- * Encodes the accepted source chains (state machine ids, e.g. "EVM-8453") into the
- * paymasterAndData declaration blob.
+ * The Permit2 sponsorship a bid's paymasterAndData carries when it was built on the real-bid path:
+ * which paymaster it names and the fee-token permit it signed for that paymaster. Read for the
+ * record only — the bid's authenticity comes from the solver signature over the userOpHash, which
+ * covers these bytes, so nothing here is verified further and the permit signature is not kept.
  */
-export function encodeAcceptedSourceChains(chains: string[]): HexString {
-	if (chains.length > MAX_DECLARED_CHAINS) {
-		throw new Error(`Cannot declare more than ${MAX_DECLARED_CHAINS} source chains`)
+export interface PhantomBidSponsorship {
+	paymaster: HexString
+	/** The fee token the permit draws on. */
+	token: HexString
+	permitAmount: bigint
+	/** Permit2 unordered nonce — random per op, which is what lets a solver's bids run in parallel. */
+	nonce: bigint
+	/** Unix seconds after which the permit is unusable. */
+	deadline: bigint
+}
+
+/** What a phantom bid's paymasterAndData declares about the solver behind it. */
+export interface PhantomBidDeclaration {
+	/**
+	 * Source chains the solver accepts payment from. Null when the bid carries no parseable
+	 * declaration (the legacy default: the solver has not restricted its sources); an empty array
+	 * is an explicit accepts-nothing. Callers must preserve that distinction.
+	 */
+	acceptedSources: string[] | null
+	/**
+	 * Uniswap V4 position tokenIds the solver declares as backing this bid, on the order's own
+	 * chain. Empty when none are declared — including for every v1 bid, which predates the field.
+	 */
+	uniswapV4Positions: bigint[]
+}
+
+// The chain ids in a declaration are UTF-8, encoded and decoded here by hand rather than through
+// TextEncoder/TextDecoder (which is what @polkadot/util's stringToU8a/u8aToString wrap). The
+// indexer runs this decoder inside SubQuery's vm2 sandbox, which exposes neither as a global and
+// whose `util` fallback rejects a sandbox-created Uint8Array as "not an ArrayBufferView" — so every
+// bid carrying a source-chain declaration threw on the first chain name and was dropped as
+// "Failed to process bid", while bids declaring nothing, or only positions, sailed through. Plain
+// arithmetic over the bytes has no realm to be on the wrong side of.
+
+/** UTF-8 bytes of `text`, with no TextEncoder. */
+function utf8Encode(text: string): number[] {
+	const bytes: number[] = []
+	for (const char of text) {
+		const codePoint = char.codePointAt(0)!
+		if (codePoint < 0x80) bytes.push(codePoint)
+		else if (codePoint < 0x800) bytes.push(0xc0 | (codePoint >> 6), 0x80 | (codePoint & 0x3f))
+		else if (codePoint < 0x10000) {
+			bytes.push(0xe0 | (codePoint >> 12), 0x80 | ((codePoint >> 6) & 0x3f), 0x80 | (codePoint & 0x3f))
+		} else {
+			bytes.push(
+				0xf0 | (codePoint >> 18),
+				0x80 | ((codePoint >> 12) & 0x3f),
+				0x80 | ((codePoint >> 6) & 0x3f),
+				0x80 | (codePoint & 0x3f),
+			)
+		}
+	}
+	return bytes
+}
+
+/**
+ * The string `bytes` encode in UTF-8, with no TextDecoder. Null for anything that is not
+ * well-formed UTF-8 — a truncated sequence, a stray continuation byte, an overlong form, a
+ * surrogate, or a code point past U+10FFFF — since a declaration naming an unreadable chain is
+ * malformed as a whole.
+ */
+function utf8Decode(bytes: Uint8Array): string | null {
+	let text = ""
+	for (let offset = 0; offset < bytes.length; ) {
+		const lead = bytes[offset]
+		let codePoint: number
+		let continuations: number
+		if (lead < 0x80) {
+			codePoint = lead
+			continuations = 0
+		} else if ((lead & 0xe0) === 0xc0) {
+			codePoint = lead & 0x1f
+			continuations = 1
+		} else if ((lead & 0xf0) === 0xe0) {
+			codePoint = lead & 0x0f
+			continuations = 2
+		} else if ((lead & 0xf8) === 0xf0) {
+			codePoint = lead & 0x07
+			continuations = 3
+		} else {
+			return null
+		}
+		if (offset + continuations >= bytes.length) return null
+		for (let index = 1; index <= continuations; index++) {
+			const byte = bytes[offset + index]
+			if ((byte & 0xc0) !== 0x80) return null
+			codePoint = (codePoint << 6) | (byte & 0x3f)
+		}
+		const overlong =
+			(continuations === 1 && codePoint < 0x80) ||
+			(continuations === 2 && codePoint < 0x800) ||
+			(continuations === 3 && codePoint < 0x10000)
+		if (overlong || codePoint > 0x10ffff || (codePoint >= 0xd800 && codePoint <= 0xdfff)) return null
+		text += String.fromCodePoint(codePoint)
+		offset += continuations + 1
+	}
+	return text
+}
+
+/** Minimal big-endian bytes of a non-negative tokenId; `[0]` for zero. */
+function tokenIdToBytes(tokenId: bigint): number[] {
+	if (tokenId < 0n) throw new Error(`Uniswap V4 tokenId cannot be negative: ${tokenId}`)
+	const bytes: number[] = []
+	let rest = tokenId
+	while (rest > 0n) {
+		bytes.unshift(Number(rest & 0xffn))
+		rest >>= 8n
+	}
+	return bytes.length > 0 ? bytes : [0]
+}
+
+/**
+ * Encodes a phantom bid's declaration into the paymasterAndData blob. Emits the v1 layout when no
+ * positions are declared, so a solver that only names source chains produces exactly the bytes it
+ * produced before positions existed.
+ */
+export function encodePhantomBidDeclaration(declaration: {
+	acceptedSourceChains?: string[]
+	uniswapV4Positions?: bigint[]
+}): HexString {
+	const chains = declaration.acceptedSourceChains ?? []
+	const positions = declaration.uniswapV4Positions ?? []
+	if (chains.length > MAX_DECLARED_ENTRIES) {
+		throw new Error(`Cannot declare more than ${MAX_DECLARED_ENTRIES} source chains`)
+	}
+	if (positions.length > MAX_DECLARED_ENTRIES) {
+		throw new Error(`Cannot declare more than ${MAX_DECLARED_ENTRIES} Uniswap V4 positions`)
 	}
 
-	const bytes: number[] = [DECLARATION_VERSION, chains.length]
+	const version = positions.length > 0 ? DECLARATION_V2 : DECLARATION_V1
+	const bytes: number[] = [version, chains.length]
 	for (const chain of chains) {
-		const encoded = stringToU8a(chain)
+		const encoded = utf8Encode(chain)
 		if (encoded.length === 0 || encoded.length > 255) {
 			throw new Error(`Invalid state machine id in source chain declaration: ${chain}`)
 		}
 		bytes.push(encoded.length, ...encoded)
 	}
+
+	if (version === DECLARATION_V2) {
+		bytes.push(positions.length)
+		for (const tokenId of positions) {
+			const encoded = tokenIdToBytes(tokenId)
+			if (encoded.length > MAX_TOKEN_ID_BYTES) {
+				throw new Error(`Uniswap V4 tokenId exceeds uint256: ${tokenId}`)
+			}
+			bytes.push(encoded.length, ...encoded)
+		}
+	}
+
 	return u8aToHex(new Uint8Array(bytes)) as HexString
 }
 
 /**
- * Decodes a phantom bid's paymasterAndData into its declared source chains. Returns null for an
- * absent, unversioned or malformed blob — the legacy default — and an empty array only for an
- * explicit zero-entry declaration. Callers must preserve that distinction.
+ * Parses a declaration that starts at `start` and must run exactly to the end of `bytes`. Null for
+ * anything unversioned, truncated or followed by trailing bytes — never a partial read.
  */
-export function decodeAcceptedSourceChains(paymasterAndData: string | undefined | null): string[] | null {
-	if (!paymasterAndData || !isHex(paymasterAndData)) return null
-	const bytes = hexToU8a(paymasterAndData)
-	if (bytes.length < 2 || bytes[0] !== DECLARATION_VERSION) return null
+function parseDeclaration(bytes: Uint8Array, start: number): PhantomBidDeclaration | null {
+	if (bytes.length - start < 2) return null
 
-	const count = bytes[1]
+	const version = bytes[start]
+	if (version !== DECLARATION_V1 && version !== DECLARATION_V2) return null
+
 	const chains: string[] = []
-	let offset = 2
-	for (let entry = 0; entry < count; entry++) {
+	let offset = start + 2
+	for (let entry = 0; entry < bytes[start + 1]; entry++) {
 		if (offset >= bytes.length) return null
 		const length = bytes[offset]
 		offset += 1
 		if (length === 0 || offset + length > bytes.length) return null
-		chains.push(u8aToString(bytes.subarray(offset, offset + length)))
+		const chain = utf8Decode(bytes.subarray(offset, offset + length))
+		if (chain === null) return null
+		chains.push(chain)
 		offset += length
 	}
+
+	const positions: bigint[] = []
+	if (version === DECLARATION_V2) {
+		if (offset >= bytes.length) return null
+		const count = bytes[offset]
+		offset += 1
+		for (let entry = 0; entry < count; entry++) {
+			if (offset >= bytes.length) return null
+			const length = bytes[offset]
+			offset += 1
+			if (length === 0 || length > MAX_TOKEN_ID_BYTES || offset + length > bytes.length) return null
+			positions.push(bytesToBigInt(bytes.subarray(offset, offset + length)))
+			offset += length
+		}
+	}
+
 	// Trailing bytes mean this is not a declaration but something that happens to share the
 	// version byte, so treat the whole blob as unparseable rather than half-reading it.
 	if (offset !== bytes.length) return null
 
-	return chains
+	return { acceptedSources: chains, uniswapV4Positions: positions }
+}
+
+function bytesToBigInt(bytes: Uint8Array): bigint {
+	let value = 0n
+	for (const byte of bytes) value = (value << 8n) | BigInt(byte)
+	return value
+}
+
+function bytesToAddress(bytes: Uint8Array): HexString {
+	return u8aToHex(bytes) as HexString
+}
+
+/** Whether `bytes` opens with a complete Permit2-sponsored paymasterAndData (see the layout note above). */
+function hasPermit2Sponsorship(bytes: Uint8Array): boolean {
+	return bytes.length >= PERMIT2_SPONSORSHIP_BYTES && bytes[PAYMASTER_DATA_OFFSET] === SIMPLEX_MODE_PERMIT2
+}
+
+/** Reads the sponsorship fields off a blob {@link hasPermit2Sponsorship} accepted. */
+function parseSponsorship(bytes: Uint8Array): PhantomBidSponsorship {
+	let offset = 0
+	const take = (length: number) => {
+		const slice = bytes.subarray(offset, offset + length)
+		offset += length
+		return slice
+	}
+	const paymaster = bytesToAddress(take(PAYMASTER_ADDRESS_BYTES))
+	take(2 * PAYMASTER_GAS_LIMIT_BYTES)
+	take(1) // mode, already checked
+	const token = bytesToAddress(take(20))
+	const permitAmount = bytesToBigInt(take(32))
+	const nonce = bytesToBigInt(take(32))
+	const deadline = bytesToBigInt(take(32))
+	return { paymaster, token, permitAmount, nonce, deadline }
+}
+
+/** Everything a phantom bid's paymasterAndData was found to carry. */
+export interface PhantomBidPaymasterAndData {
+	/**
+	 * Which shape the field was read as: a bare declaration, a Permit2-sponsored bid (with or
+	 * without a declaration appended), or neither — empty, or bytes matching no known layout.
+	 */
+	mode: "declaration" | "permit2" | "none"
+	/** Never null: an unreadable or missing declaration is the absent one (null sources, no positions). */
+	declaration: PhantomBidDeclaration
+	/** The paymaster fields of a sponsored bid; null for the other two modes. */
+	sponsorship: PhantomBidSponsorship | null
+}
+
+/** A fresh absent declaration per call: consumers may extend the positions list, and must not share one. */
+const absentDeclaration = (): PhantomBidDeclaration => ({ acceptedSources: null, uniswapV4Positions: [] })
+
+/**
+ * Decodes a phantom bid's paymasterAndData in whichever shape it takes.
+ *
+ * A bare declaration is tried first, so every bid placed before sponsored phantom bids existed
+ * decodes to the byte exactly as it did. Failing that, a blob opening with a complete
+ * Permit2-sponsored payload is read as a sponsored bid, and whatever follows the permit is parsed
+ * as its declaration. Both parsers demand exact consumption — a bare declaration must end where
+ * the bytes end, and a sponsored bid's tail must be a whole declaration or nothing — so neither
+ * shape can be half-read as the other.
+ *
+ * A malformed tail on a sponsored bid yields the absent declaration but still reports the
+ * sponsorship: the bid is still a bid, it just declared nothing readable.
+ */
+export function decodePhantomBidPaymasterAndData(
+	paymasterAndData: string | undefined | null,
+): PhantomBidPaymasterAndData {
+	const none: PhantomBidPaymasterAndData = { mode: "none", declaration: absentDeclaration(), sponsorship: null }
+	if (!paymasterAndData || !isHex(paymasterAndData)) return none
+	const bytes = hexToU8a(paymasterAndData)
+
+	const bare = parseDeclaration(bytes, 0)
+	if (bare) return { mode: "declaration", declaration: bare, sponsorship: null }
+
+	if (!hasPermit2Sponsorship(bytes)) return none
+	const sponsorship = parseSponsorship(bytes)
+	const tail = bytes.length > PERMIT2_SPONSORSHIP_BYTES ? parseDeclaration(bytes, PERMIT2_SPONSORSHIP_BYTES) : null
+	return { mode: "permit2", declaration: tail ?? absentDeclaration(), sponsorship }
+}
+
+/**
+ * Decodes the declaration out of a phantom bid's paymasterAndData, whichever shape it takes (see
+ * {@link decodePhantomBidPaymasterAndData}). Understands both declaration versions, so bids placed
+ * before positions existed keep decoding unchanged. Anything absent, unversioned or malformed
+ * yields a null `acceptedSources` with no positions — never a partial read.
+ */
+export function decodePhantomBidDeclaration(paymasterAndData: string | undefined | null): PhantomBidDeclaration {
+	return decodePhantomBidPaymasterAndData(paymasterAndData).declaration
+}
+
+/**
+ * Builds a phantom bid's paymasterAndData: the declaration alone, or appended to a Permit2
+ * sponsorship when the bid was built on the real-bid path and carries one.
+ *
+ * `sponsorship` is the packed EntryPoint v0.8 paymasterAndData the paymaster builder produced. It
+ * must be exactly the Permit2-mode layout — the only one the decoder recognises — so a caller
+ * cannot sign bytes the aggregation would read as "no declaration"; anything else throws. Empty
+ * or omitted, the result is the bare declaration, byte-identical to what unsponsored bids carry.
+ */
+export function encodePhantomBidPaymasterAndData(bid: {
+	sponsorship?: HexString | null
+	acceptedSourceChains?: string[]
+	uniswapV4Positions?: bigint[]
+}): HexString {
+	const declaration = encodePhantomBidDeclaration(bid)
+	const sponsorship = bid.sponsorship
+	if (!sponsorship || sponsorship === "0x") return declaration
+
+	if (!isHex(sponsorship)) throw new Error("Phantom bid sponsorship is not hex")
+	const bytes = hexToU8a(sponsorship)
+	if (bytes.length !== PERMIT2_SPONSORSHIP_BYTES || !hasPermit2Sponsorship(bytes)) {
+		throw new Error(
+			`Phantom bid sponsorship must be a ${PERMIT2_SPONSORSHIP_BYTES}-byte Permit2-mode paymasterAndData, got ${bytes.length} bytes`,
+		)
+	}
+	return `${sponsorship}${declaration.slice(2)}` as HexString
+}
+
+/** Back-compat wrapper: the source-chain half of {@link encodePhantomBidDeclaration}. */
+export function encodeAcceptedSourceChains(chains: string[]): HexString {
+	return encodePhantomBidDeclaration({ acceptedSourceChains: chains })
+}
+
+/** Back-compat wrapper: the source-chain half of {@link decodePhantomBidDeclaration}. */
+export function decodeAcceptedSourceChains(paymasterAndData: string | undefined | null): string[] | null {
+	return decodePhantomBidDeclaration(paymasterAndData).acceptedSources
 }
 
 /** ERC-4626 vaults per chain, keyed by chain id then lowercase underlying token address. */
@@ -185,13 +543,26 @@ export interface LpBalance {
 	/** State machine id of the chain the balance was measured on (e.g. EVM-8453). */
 	chain: string
 	tokenAddress: HexString
+	/**
+	 * Wallet ERC-20, redeemable ERC-4626 vault shares, and the withdrawable amount held in the
+	 * solver's declared Uniswap V4 positions — the same total the leg weights are built from, so a
+	 * provider's reported inventory and the depth attributed to it cannot disagree.
+	 *
+	 * The V4 share is only ever included on the chain whose bid declared the positions: a bid is
+	 * per chain, so no other chain's sweep can know about them. Consumers must therefore treat the
+	 * larger of two readings for the same (chain, token, block) as the complete one.
+	 */
 	balance: bigint
 }
 
-/** One verified solver behind a leg's quote. */
+/** One verified solver behind a leg's quote, holding inventory to deliver it. */
 export interface PhantomLegBidder {
 	solver: HexString
-	/** The solver's output-token inventory on the destination chain — its weight in the median. */
+	/**
+	 * The solver's output-token inventory on the destination chain — its weight in the median.
+	 * Always greater than zero: a solver quoting a leg it holds none of is dropped, not recorded
+	 * at zero, since it can deliver nothing at any price.
+	 */
 	weight: bigint
 	/**
 	 * Source chains the solver's signed paymasterAndData declaration accepts payment from. Null
@@ -209,28 +580,132 @@ export interface PhantomLegAggregation {
 	lowestPrice: bigint
 	highestPrice: bigint
 	medianPrice: bigint
+	/** Backed quotes behind the price. Quotes from solvers holding no inventory are not counted. */
 	bidCount: number
-	/** The verified solvers quoting this leg; bidCount === bidders.length. */
+	/** The verified, inventory-backed solvers quoting this leg; bidCount === bidders.length. */
 	bidders: PhantomLegBidder[]
+}
+
+/**
+ * A Uniswap V4 position a bid declared, after the on-chain ownership check — i.e. one this solver
+ * really holds and can fund a fill from.
+ *
+ * A bid is the only place a position is ever named, so a consumer that wants to value these between
+ * bid windows (an order fill drains a position inside the fill transaction, while wallet and vault
+ * balances barely move) has to take them from here.
+ */
+export interface SolverV4Position {
+	solver: HexString
+	/** The chain the bid was for. A bid is per chain, so no other chain's reads can see it. */
+	chain: string
+	tokenId: bigint
 }
 
 /** The aggregated result for a single phantom order's bid window. */
 export interface PhantomAggregation {
-	/** One entry per leg that at least one solver quoted; legs nobody quoted are absent. */
+	/**
+	 * One entry per leg that at least one solver quoted AND at least one of those quotes is backed
+	 * by output-token inventory on the destination chain. Legs nobody quoted are absent, and so are
+	 * legs every bidder quoted on zero inventory — neither is a price anyone could trade against.
+	 */
 	legs: PhantomLegAggregation[]
 	lpBalances: LpBalance[]
+	/**
+	 * Every declared position that passed the ownership check, across all bids in this window.
+	 * Empty when the chain has no configured V4 deployment, since nothing is read there.
+	 */
+	positions: SolverV4Position[]
+	/**
+	 * Every solver whose bid passed verification in this window, whether or not it ended up backing
+	 * a leg, holding any inventory, or declaring anything.
+	 *
+	 * The other three fields are all filtered — `legs` drops unbacked quotes, `lpBalances` skips
+	 * tokens a solver does not hold, and `positions` only lists what was declared — so a solver that
+	 * bid while holding nothing anywhere appears in none of them. This is the only complete answer
+	 * to "who bid this window", which is what a consumer reconciling per-solver state needs.
+	 */
+	solvers: HexString[]
 }
 
 export interface AggregationLogger {
 	warn: (payload: unknown, message: string) => void
 }
 
+/**
+ * Haircut applied to a quote that is priced off a Uniswap V4 pool, in basis points.
+ *
+ * A bid that declares V4 positions is quoting off those pools, and a pool price is what a trade
+ * gets BEFORE the pool takes its fee — so the amount such a bid names is more than the solver
+ * would actually be left holding once the swap that sources it clears. Netting that cost out here
+ * is what makes a pool-priced quote comparable to a wallet-funded one, whose inventory has already
+ * paid its cost of goods.
+ */
+export const UNISWAP_QUOTE_HAIRCUT_BPS = 10n
+
+function haircut(amount: bigint, bps: bigint): bigint {
+	return (amount * (10_000n - bps)) / 10_000n
+}
+
+/** Applies {@link UNISWAP_QUOTE_HAIRCUT_BPS} to a quoted output amount, rounding down. */
+export function applyUniswapQuoteHaircut(amount: bigint): bigint {
+	return haircut(amount, UNISWAP_QUOTE_HAIRCUT_BPS)
+}
+
+/** `IntentGateway.params()` — `keccak256("params()")[0:4]`. */
+const SELECTOR_GATEWAY_PARAMS = "0xcff0ab96"
+/** `params()` returns a struct of six static words; `protocolFeeBps` is the fifth. */
+const GATEWAY_PARAMS_WORDS = 6
+const GATEWAY_PARAMS_FEE_WORD = 4
+
+/**
+ * The protocol fee haircut: the fee the IntentGateway at `gatewayAddress` charges on order inputs,
+ * in basis points, read live from its `params()`.
+ *
+ * A wallet-funded quote is shaded by exactly this, so the published rate is the one a taker
+ * actually realizes after the gateway takes its cut, and it moves with governance rather than
+ * with a constant someone has to remember to keep in step. Read on the phantom order's own chain,
+ * which is the chain whose gateway will collect the fee on the fills this rate is published for.
+ *
+ * Fails loudly rather than defaulting: a gateway that returns no code, or a fee at or above 100%,
+ * is a misconfiguration, and pricing a window unhaircut on the back of it would publish a rate
+ * nobody can trade at. The `PhantomRpcError` lets the run's retry loop have another go first.
+ */
+export async function readProtocolFeeHaircutBps(evmRpcUrl: string, gatewayAddress: string): Promise<bigint> {
+	const result = await rpcCall(evmRpcUrl, {
+		id: 1,
+		jsonrpc: "2.0",
+		method: "eth_call",
+		params: [{ to: gatewayAddress, data: SELECTOR_GATEWAY_PARAMS }, "latest"],
+	})
+	const hex = result.result
+	if (typeof hex !== "string" || hex.length < 2 + 64 * GATEWAY_PARAMS_WORDS) {
+		throw new PhantomRpcError(`IntentGateway.params() returned no usable result from ${gatewayAddress} on ${evmRpcUrl}`)
+	}
+	const start = 2 + 64 * GATEWAY_PARAMS_FEE_WORD
+	const protocolFeeBps = BigInt(`0x${hex.slice(start, start + 64)}`)
+	if (protocolFeeBps >= 10_000n) {
+		throw new PhantomRpcError(`IntentGateway ${gatewayAddress} reports an implausible protocol fee: ${protocolFeeBps} bps`)
+	}
+	return protocolFeeBps
+}
+
+/** Applies the protocol fee haircut (see {@link readProtocolFeeHaircutBps}) to a quoted output amount, rounding down. */
+export function applyProtocolFeeHaircut(amount: bigint, protocolFeeBps: bigint): bigint {
+	return haircut(amount, protocolFeeBps)
+}
+
 // Liquidity-weighted median of solver quotes. Each quote's influence is proportional to `weight` —
 // the solver's total balance for the output token across native + vault venues — so a solver that
 // can actually deliver size moves the price more than one quoting on thin liquidity. Returns the
 // lower weighted median: the smallest price whose cumulative weight reaches half of the total.
-// Zero-weight quotes contribute nothing; if every weight is zero it falls back to the unweighted
-// median so a price is still reported.
+// Zero-weight quotes contribute nothing.
+//
+// Callers must not hand this an entry set whose weights are all zero: with nothing to weight by it
+// can only pick a quote by position, and for an even-sized set that position is the upper of the
+// two middles — so "the median" becomes "whoever quoted higher", settable by a solver holding no
+// inventory at all. aggregatePhantomBids drops such legs instead of pricing them. The fallback
+// below stays only so an unguarded caller gets a number rather than a crash; treat reaching it as
+// a caller bug.
 export function weightedMedian(entries: { price: bigint; weight: bigint }[]): bigint {
 	const sorted = [...entries].sort((a, b) => (a.price < b.price ? -1 : a.price > b.price ? 1 : 0))
 	const totalWeight = sorted.reduce((acc, e) => (e.weight > 0n ? acc + e.weight : acc), 0n)
@@ -259,10 +734,13 @@ export function extractFillData(callData: HexString, gatewayAddress: string): Fi
 	for (const call of calls) {
 		if (call.target.toLowerCase() !== normalized) continue
 		try {
-			const decoded = decodeFunctionData({ abi: FILL_ORDER_ABI, data: call.data as HexString })
-			if (decoded.functionName !== "fillOrder" || !decoded.args || decoded.args.length < 2) continue
-			const order = decoded.args[0] as Record<string, unknown>
-			const options = decoded.args[1] as Record<string, unknown>
+			// Bids come from solvers targeting whichever gateway they run against, so the
+			// calldata may be either FillOptions shape. The selectors differ, so this cannot
+			// mis-decode one as the other.
+			const decoded = decodeFillOrder(call.data as HexString)
+			if (!decoded) continue
+			const order = decoded.order as unknown as Record<string, unknown>
+			const options = decoded.options as unknown as Record<string, unknown>
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any
 			const assets = (order as any)?.output?.assets as { token: HexString }[] | undefined
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -353,18 +831,67 @@ export const recoverBidSignerViem: RecoverBidSigner = async (userOp, entryPoint,
 // An EOA that has delegated with EIP-7702 has code `0xef0100 ‖ delegate`.
 const DELEGATION_INDICATOR_PREFIX = "0xef0100"
 
-/** Whether `account` is an EOA EIP-7702-delegated to `solverAccount` on the given chain. */
-async function isDelegatedToSolverAccount(evmRpcUrl: string, account: string, solverAccount: string): Promise<boolean> {
+/**
+ * Whether `account` is an EOA EIP-7702-delegated to one of `solverAccounts` on the given chain.
+ * Several are accepted so a SolverAccount redeployment does not unseat solvers still delegated to
+ * the previous one.
+ */
+async function isDelegatedToSolverAccount(
+	evmRpcUrl: string,
+	account: string,
+	solverAccounts: readonly string[],
+): Promise<boolean> {
 	const response = await rpcCall(evmRpcUrl, {
 		id: 1,
 		jsonrpc: "2.0",
 		method: "eth_getCode",
 		params: [account, "latest"],
 	})
-	const code = typeof response.result === "string" ? response.result.toLowerCase() : ""
+	// Anything that is not a code string means the node did not answer the question. Reading that
+	// as "no delegation" is how a throttled endpoint silently unseats a real solver: the bid is
+	// dropped, the legs only it quoted vanish, and the pool reports zero depth it actually has.
+	if (typeof response.result !== "string") {
+		throw new PhantomRpcError(`eth_getCode returned no code for ${account} on ${evmRpcUrl}`)
+	}
+
+	const code = response.result.toLowerCase()
 	if (!code.startsWith(DELEGATION_INDICATOR_PREFIX)) return false
 
-	return `0x${code.slice(DELEGATION_INDICATOR_PREFIX.length)}` === solverAccount.toLowerCase()
+	const delegate = `0x${code.slice(DELEGATION_INDICATOR_PREFIX.length)}`
+	return solverAccounts.some((solverAccount) => solverAccount.toLowerCase() === delegate)
+}
+
+/** Promise-caching delegation reader produced by {@link memoizedDelegationCheck}. */
+type DelegationReader = (evmRpcUrl: string, account: string, solverAccounts: readonly string[]) => Promise<boolean>
+
+/**
+ * Caches the delegation check for the life of one aggregation, retries included.
+ *
+ * Two reads are otherwise repeated for nothing. A solver running several fillers has its bid
+ * copied under each, and the dedupe that collapses them runs only AFTER verification, so every
+ * copy re-interrogated the chain for the same answer. And a retry re-verifies every solver, even
+ * when the run was abandoned over an unrelated read — so the endpoint most likely to be throttled
+ * got up to five times the load from the very code meant to survive it.
+ *
+ * Rejections are evicted, so a retry re-reads rather than replaying a failure as a verdict. A
+ * negative result is cached: an EOA cannot gain a delegation part-way through one bid window, and
+ * "not our solver" is an answer, unlike an unreachable node.
+ */
+function memoizedDelegationCheck(): DelegationReader {
+	const cache = new Map<string, Promise<boolean>>()
+	return (evmRpcUrl: string, account: string, solverAccounts: readonly string[]): Promise<boolean> => {
+		const targets = solverAccounts.map((a) => a.toLowerCase()).sort().join(",")
+		const key = `${evmRpcUrl}|${account.toLowerCase()}|${targets}`
+		let pending = cache.get(key)
+		if (!pending) {
+			pending = isDelegatedToSolverAccount(evmRpcUrl, account, solverAccounts).catch((err) => {
+				cache.delete(key)
+				throw err
+			})
+			cache.set(key, pending)
+		}
+		return pending
+	}
 }
 
 /** Chain id out of an EVM state machine id ("EVM-8453" -> 8453n); null for any other format. */
@@ -388,14 +915,26 @@ async function isVerifiedSolverBid(params: {
 	commitment: string
 	sessionKey: HexString
 	chainId: bigint
-	solverAccount: string
+	solverAccounts: readonly string[]
 	evmRpcUrl: string
 	recoverSigner: RecoverBidSigner
 	bidNonceKey: BidNonceKeyFn
+	/** Cached per aggregation, so duplicate fillers and retries do not re-read the same answer. */
+	isDelegated: DelegationReader
 	logger?: AggregationLogger
 }): Promise<boolean> {
-	const { userOp, commitment, sessionKey, chainId, solverAccount, evmRpcUrl, recoverSigner, bidNonceKey, logger } =
-		params
+	const {
+		userOp,
+		commitment,
+		sessionKey,
+		chainId,
+		solverAccounts,
+		evmRpcUrl,
+		recoverSigner,
+		bidNonceKey,
+		isDelegated,
+		logger,
+	} = params
 	const solver = userOp.sender
 
 	const parsed = splitBidSignature(userOp.signature)
@@ -431,8 +970,8 @@ async function isVerifiedSolverBid(params: {
 		return false
 	}
 
-	if (!(await isDelegatedToSolverAccount(evmRpcUrl, solver, solverAccount))) {
-		logger?.warn({ solver, commitment, solverAccount }, "Rejecting phantom bid: sender is not a delegated solver")
+	if (!(await isDelegated(evmRpcUrl, solver, solverAccounts))) {
+		logger?.warn({ solver, commitment, solverAccounts }, "Rejecting phantom bid: sender is not a delegated solver")
 		return false
 	}
 
@@ -449,46 +988,168 @@ export async function fetchBidsForOrder(nodeUrl: string, commitment: string): Pr
 	return Array.isArray(data.result) ? (data.result as RpcBidInfo[]) : []
 }
 
-async function ethCallUint(evmRpcUrl: string, to: string, data: string): Promise<bigint> {
-	try {
-		const result = await rpcCall(evmRpcUrl, {
-			id: 1,
-			jsonrpc: "2.0",
-			method: "eth_call",
-			params: [{ to, data }, "latest"],
-		})
-		if (result.error || !result.result || result.result === "0x") return 0n
-		return BigInt(result.result)
-	} catch {
-		return 0n
+// A balance read that fails is NOT a balance of zero. Zero weight now removes a leg from the
+// snapshot entirely, so swallowing the failure would delete real liquidity on an RPC blip and
+// leave a pool reporting depth it has. Only "0x" — the call reverted or there is no code at the
+// address, i.e. the node did answer — is a genuine zero; everything else propagates.
+async function ethCallUint(evmRpcUrl: string, to: string, data: string, blockTag = "latest"): Promise<bigint> {
+	const result = await rpcCall(evmRpcUrl, {
+		id: 1,
+		jsonrpc: "2.0",
+		method: "eth_call",
+		params: [{ to, data }, blockTag],
+	})
+	if (result.result === "0x") return 0n
+	if (typeof result.result !== "string") {
+		throw new PhantomRpcError(`eth_call returned no result for ${to} on ${evmRpcUrl}`)
 	}
+	return BigInt(result.result)
 }
 
-// Sums the solver's redeemable balance of a single token on its destination chain: the raw ERC-20
-// balance plus any ERC-4626 vault positions wrapping it.
-async function getTotalSolverBalance(
+/**
+ * Sums the solver's redeemable balance of a single token on one chain: the raw ERC-20 balance plus
+ * any ERC-4626 vault positions wrapping it.
+ *
+ * This is THE definition of "a solver's balance" — the periodic sweep and any per-event re-read
+ * must use it rather than a bare `balanceOf`, because simplex funds fills straight out of a vault
+ * inside the fill transaction: the wallet ends the block roughly where it started while
+ * `maxWithdraw` is what actually moved, so a wallet-only read misses such a fill entirely.
+ *
+ * `blockTag` reads the balance as of a specific block ("0x..." or a tag), so a caller replaying an
+ * event records the balance as of that event rather than stamping today's balance onto a
+ * historical row. It defaults to the chain head, which is what a periodic sweep wants.
+ */
+export async function getTotalSolverBalance(
 	evmRpcUrl: string,
 	chain: string,
 	token: string,
 	solver: string,
 	yieldVaults: YieldVaultMap,
+	blockTag = "latest",
 ): Promise<bigint> {
 	const padded = solver.replace("0x", "").padStart(64, "0")
-	const raw = await ethCallUint(evmRpcUrl, token, `0x70a08231${padded}`) // balanceOf(address)
+	const raw = await ethCallUint(evmRpcUrl, token, `0x70a08231${padded}`, blockTag) // balanceOf(address)
 	const vaults = yieldVaults[chain]?.[token.toLowerCase()] ?? []
 	const vaultBalances = await Promise.all(
-		vaults.map((v) => ethCallUint(evmRpcUrl, v, `0xce96cb77${padded}`)), // maxWithdraw(address)
+		vaults.map((v) => ethCallUint(evmRpcUrl, v, `0xce96cb77${padded}`, blockTag)), // maxWithdraw(address)
 	)
 	return vaultBalances.reduce((acc, b) => acc + b, raw)
 }
 
+/** PositionManager + StateView addresses for a chain's Uniswap V4 deployment. */
+export interface UniswapV4Contracts {
+	positionManager: string
+	stateView: string
+}
+
+/** Everything a declared position's contribution depends on, read once and reused across legs. */
+export interface V4PositionState {
+	/** Current on-chain owner. Compared against the bid's signer, never trusted from the bid. */
+	owner: string
+	info: PoolAndPositionInfo
+	liquidity: bigint
+	sqrtPriceX96: bigint
+}
+
+const SELECTOR_OWNER_OF = "0x6352211e"
+const SELECTOR_POSITION_LIQUIDITY = "0x1efeed33"
+const SELECTOR_POOL_AND_POSITION_INFO = "0x7ba03aad"
+const SELECTOR_GET_SLOT0 = "0xc815641c"
+
+const uint256Arg = (value: bigint) => value.toString(16).padStart(64, "0")
+
+/**
+ * Reads a declared position: who owns it, how much liquidity it holds, and the price its pool is
+ * currently at. Null when the position does not exist — a solver may name a burned tokenId, which
+ * is not an RPC failure and must not sink the run.
+ *
+ * Exported because a bid is the only place a position is ever named: a consumer that persists the
+ * tokenIds this run verified can re-value them later (at `blockTag`) with exactly these reads, and
+ * `owner` is what tells it a position has since been transferred away.
+ */
+export async function readV4Position(params: {
+	evmRpcUrl: string
+	contracts: UniswapV4Contracts
+	tokenId: bigint
+	keccak: (hex: HexString) => HexString
+	/** Block to read at; defaults to the chain head. */
+	blockTag?: string
+	logger?: AggregationLogger
+}): Promise<V4PositionState | null> {
+	const { evmRpcUrl, contracts, tokenId, keccak, blockTag = "latest", logger } = params
+	const call = async (to: string, data: string): Promise<string | null> => {
+		const result = await rpcCall(evmRpcUrl, {
+			id: 1,
+			jsonrpc: "2.0",
+			method: "eth_call",
+			params: [{ to, data }, blockTag],
+		})
+		if (result.result === "0x") return null
+		if (typeof result.result !== "string") {
+			throw new PhantomRpcError(`eth_call returned no result for ${to} on ${evmRpcUrl}`)
+		}
+		return result.result
+	}
+
+	const arg = uint256Arg(tokenId)
+	const [ownerData, infoData, liquidityData] = await Promise.all([
+		call(contracts.positionManager, `${SELECTOR_OWNER_OF}${arg}`),
+		call(contracts.positionManager, `${SELECTOR_POOL_AND_POSITION_INFO}${arg}`),
+		call(contracts.positionManager, `${SELECTOR_POSITION_LIQUIDITY}${arg}`),
+	])
+	// An empty ownerOf is a tokenId that was never minted or has been burned — a solver may name a
+	// stale position, which is its problem and not ours.
+	if (!ownerData) return null
+	if (!infoData || !liquidityData) {
+		logger?.warn(
+			{ tokenId: tokenId.toString(), positionManager: contracts.positionManager },
+			"Uniswap V4 position exists but its pool info or liquidity did not read back — check the configured PositionManager",
+		)
+		return null
+	}
+
+	const info = decodePoolAndPositionInfo(infoData)
+	// The pool id is keccak of the PoolKey exactly as the chain returned it, so no re-encoding of
+	// ours can disagree with the hash the pool was registered under.
+	const slot0Data = await call(contracts.stateView, `${SELECTOR_GET_SLOT0}${keccak(info.poolKeyEncoded).slice(2)}`)
+	// The position resolved, so its pool exists — an empty slot0 means the call went somewhere that
+	// is not a StateView, i.e. a misconfigured address. Silence here is what let a wrong address
+	// zero out every declared position indefinitely instead of failing where someone would see it.
+	if (!slot0Data) {
+		logger?.warn(
+			{ tokenId: tokenId.toString(), stateView: contracts.stateView, evmRpcUrl },
+			"Uniswap V4 slot0 read returned nothing for a live position — the configured StateView address is wrong",
+		)
+		return null
+	}
+
+	return {
+		owner: `0x${ownerData.slice(-40)}`.toLowerCase(),
+		info,
+		liquidity: word(liquidityData, 0),
+		sqrtPriceX96: word(slot0Data, 0),
+	}
+}
+
+/** Promise-caching position reader: one set of reads per position, reused across every leg. */
+function memoizedV4Position(keccak: (hex: HexString) => HexString, logger?: AggregationLogger) {
+	const cache = new Map<string, Promise<V4PositionState | null>>()
+	return (evmRpcUrl: string, chain: string, contracts: UniswapV4Contracts, tokenId: bigint) => {
+		const key = `${chain}|${tokenId}`
+		let pending = cache.get(key)
+		if (!pending) {
+			pending = readV4Position({ evmRpcUrl, contracts, tokenId, keccak, logger }).catch((err) => {
+				cache.delete(key)
+				throw err
+			})
+			cache.set(key, pending)
+		}
+		return pending
+	}
+}
+
 /** Promise-caching balance reader produced by [`memoizedSolverBalance`]. */
-export type SolverBalanceReader = (
-	evmRpcUrl: string,
-	chain: string,
-	token: string,
-	solver: string,
-) => Promise<bigint>
+export type SolverBalanceReader = (evmRpcUrl: string, chain: string, token: string, solver: string) => Promise<bigint>
 
 // One aggregation run reads the same (chain, token, solver) balance from several places — once
 // per leg the solver quoted in that token, and again in the liquidity sweep — and a bundled order
@@ -497,13 +1158,28 @@ export type SolverBalanceReader = (
 // is a point-in-time read either way). Exported so a caller aggregating several orders whose bid
 // windows close on the same block (one bundled order per configured chain) can share one memo
 // across the runs instead of re-reading identical balances per order.
-export function memoizedSolverBalance(yieldVaults: YieldVaultMap): SolverBalanceReader {
+export function memoizedSolverBalance(
+	yieldVaults: YieldVaultMap,
+	/**
+	 * Block to read each chain at, keyed by state machine id; anything absent reads the head. Block
+	 * numbers are per chain, so a caller handling an event on one chain can pin that chain to the
+	 * event's block while the rest of its sweep stays at the head, where the numbers would mean
+	 * nothing.
+	 */
+	blockTags: Record<string, string> = {},
+): SolverBalanceReader {
 	const cache = new Map<string, Promise<bigint>>()
 	return (evmRpcUrl: string, chain: string, token: string, solver: string): Promise<bigint> => {
 		const key = `${chain}|${token.toLowerCase()}|${solver.toLowerCase()}`
 		let pending = cache.get(key)
 		if (!pending) {
-			pending = getTotalSolverBalance(evmRpcUrl, chain, token, solver, yieldVaults)
+			// Evict on rejection. Caching a failure would make it permanent for the memo's lifetime —
+			// every retry would replay the same failed read, and a block-scoped memo would carry one
+			// blip across every order closing on that block.
+			pending = getTotalSolverBalance(evmRpcUrl, chain, token, solver, yieldVaults, blockTags[chain]).catch((err) => {
+				cache.delete(key)
+				throw err
+			})
 			cache.set(key, pending)
 		}
 		return pending
@@ -520,6 +1196,8 @@ async function sweepSolverLiquidity(
 	yieldVaults: YieldVaultMap,
 	solver: string,
 	getBalance: ReturnType<typeof memoizedSolverBalance>,
+	/** Verified positions and the chain they sit on; only that chain's tokens can draw on them. */
+	positions: { chain: string; states: V4PositionState[] },
 ): Promise<LpBalance[]> {
 	const balances: LpBalance[] = []
 	for (const [chain, tokens] of Object.entries(yieldVaults)) {
@@ -527,8 +1205,24 @@ async function sweepSolverLiquidity(
 		if (!url) continue
 		for (const token of Object.keys(tokens)) {
 			const balance = await getBalance(url, chain, token, solver)
-			if (balance === 0n) continue
-			balances.push({ solver, chain, tokenAddress: token as HexString, balance })
+			const uniswapV4Balance =
+				chain === positions.chain
+					? positions.states.reduce(
+							(total, state) =>
+								total +
+								positionAmountOfToken({
+									info: state.info,
+									liquidity: state.liquidity,
+									sqrtPriceX96: state.sqrtPriceX96,
+									outputToken: token,
+								}),
+							0n,
+						)
+					: 0n
+			// A token the solver neither holds nor has parked in a position is not a row.
+			const total = balance + uniswapV4Balance
+			if (total === 0n) continue
+			balances.push({ solver, chain, tokenAddress: token as HexString, balance: total })
 		}
 	}
 	return balances
@@ -557,30 +1251,79 @@ function toAddress(token: string): HexString {
  * `extractFill` decodes a bid's ERC-7821 calldata into the fill's order/output and `recoverSigner`
  * recovers its solver signature; both default to the viem implementations, but the indexer injects
  * VM2-safe variants (viem's keccak throws in the SubQuery sandbox).
+ *
+ * The whole run is retried up to {@link AGGREGATION_ATTEMPTS} times on any error, because every
+ * error that escapes the per-bid handling means some input could not be read, and a snapshot
+ * computed from a partial bid set is worse than none: it publishes a confident price and zeroes
+ * depth that exists. Throws if every attempt fails, leaving the window unsnapshotted — consumers
+ * see the previous rate with a stale lastUpdatedBlock, which is a state they can already detect.
  */
-export async function aggregatePhantomBids(params: {
-	nodeUrl: string
-	/** RPC URL per supported EVM chain (stateMachineId -> url); must include the destination chain. */
-	evmRpcUrls: Record<string, string>
-	chain: string
-	gatewayAddress: string
-	commitment: string
-	yieldVaults: YieldVaultMap
-	/** SolverAccount on `chain` that our solvers delegate to; bids from anyone else are dropped. */
-	solverAccount: string
-	extractFill?: (callData: HexString, gatewayAddress: string) => FillData | null
-	recoverSigner?: RecoverBidSigner
-	bidNonceKey?: BidNonceKeyFn
-	orderCommitment?: OrderCommitmentFn
-	/**
-	 * Balance reader shared across runs; defaults to a fresh per-run memo. Pass one built with
-	 * `memoizedSolverBalance` when aggregating several same-block orders, and build it from the
-	 * same `yieldVaults` passed here — the memo bakes in the vault map its balances include.
-	 */
-	getBalance?: SolverBalanceReader
-	logger?: AggregationLogger
-}): Promise<PhantomAggregation | null> {
-	const { nodeUrl, evmRpcUrls, chain, gatewayAddress, commitment, yieldVaults, solverAccount, logger } = params
+export async function aggregatePhantomBids(
+	params: Parameters<typeof runAggregation>[0],
+): Promise<PhantomAggregation | null> {
+	// Built out here, not per attempt: delegation cannot change within a bid window, so a retry
+	// forced by one unrelated failed read must not re-interrogate every solver it already verified.
+	const isDelegated = memoizedDelegationCheck()
+	let lastErr: unknown
+	for (let attempt = 1; attempt <= AGGREGATION_ATTEMPTS; attempt++) {
+		try {
+			return await runAggregation(params, isDelegated)
+		} catch (err) {
+			lastErr = err
+			params.logger?.warn(
+				{ err, commitment: params.commitment, chain: params.chain, attempt, of: AGGREGATION_ATTEMPTS },
+				"Phantom aggregation attempt failed",
+			)
+			if (attempt < AGGREGATION_ATTEMPTS) await new Promise((resolve) => setTimeout(resolve, 250 * attempt))
+		}
+	}
+	throw lastErr
+}
+
+/** How many times a failed aggregation run is retried before the window is given up on. */
+export const AGGREGATION_ATTEMPTS = 5
+
+async function runAggregation(
+	params: {
+		nodeUrl: string
+		/** RPC URL per supported EVM chain (stateMachineId -> url); must include the destination chain. */
+		evmRpcUrls: Record<string, string>
+		chain: string
+		gatewayAddress: string
+		commitment: string
+		yieldVaults: YieldVaultMap
+		/**
+		 * SolverAccount on `chain` that our solvers delegate to; bids from anyone else are dropped.
+		 * Several may be given, e.g. the current deployment and the one it replaced, and a bid is
+		 * counted when its sender delegates to any of them.
+		 */
+		solverAccount: string | readonly string[]
+		extractFill?: (callData: HexString, gatewayAddress: string) => FillData | null
+		recoverSigner?: RecoverBidSigner
+		bidNonceKey?: BidNonceKeyFn
+		orderCommitment?: OrderCommitmentFn
+		/**
+		 * Balance reader shared across runs; defaults to a fresh per-run memo. Pass one built with
+		 * `memoizedSolverBalance` when aggregating several same-block orders, and build it from the
+		 * same `yieldVaults` passed here — the memo bakes in the vault map its balances include.
+		 */
+		getBalance?: SolverBalanceReader
+		/**
+		 * Uniswap V4 deployment per chain. Supply it to let bids that declare positions have those
+		 * positions counted; without it a declaration is simply ignored, and the weight stays the
+		 * plain balance as before.
+		 */
+		uniswapV4?: Record<string, UniswapV4Contracts>
+		/** keccak256 over hex; defaults to viem's, which the VM2 sandbox must replace. */
+		keccak?: (hex: HexString) => HexString
+		logger?: AggregationLogger
+	},
+	isDelegated: DelegationReader,
+): Promise<PhantomAggregation | null> {
+	const { nodeUrl, evmRpcUrls, chain, gatewayAddress, commitment, yieldVaults, logger } = params
+	const solverAccounts = (Array.isArray(params.solverAccount) ? params.solverAccount : [params.solverAccount]).filter(
+		(a): a is string => typeof a === "string" && a.length > 0,
+	)
 	const extractFill = params.extractFill ?? extractFillData
 	const recoverSigner = params.recoverSigner ?? recoverBidSignerViem
 	const bidNonceKey = params.bidNonceKey ?? CryptoUtils.bidNonceKey
@@ -593,13 +1336,22 @@ export async function aggregatePhantomBids(params: {
 	// the price, so a chain we can't resolve them for produces no snapshot at all. solverAccount is
 	// typed as required but comes from a config lookup that can miss, so it is re-checked here.
 	const chainId = evmChainId(chain)
-	if (!solverAccount || chainId === null) {
+	if (solverAccounts.length === 0 || chainId === null) {
 		logger?.warn({ chain, commitment }, "Cannot verify phantom bids: no SolverAccount or chain id for chain")
 		return null
 	}
 
 	const bids = await fetchBidsForOrder(nodeUrl, commitment)
 	if (bids.length === 0) return null
+
+	// One read per run, after the bids so an empty window costs no call: the haircut every
+	// wallet-funded quote in this window pays. A failed read aborts the run (and is retried) rather
+	// than pricing the window unhaircut — see readProtocolFeeHaircutBps.
+	const protocolFeeHaircutBps = await readProtocolFeeHaircutBps(destUrl, gatewayAddress)
+
+	// One set of reads per declared position, reused by every leg it backs.
+	const v4Contracts = params.uniswapV4?.[chain]
+	const readPosition = memoizedV4Position(params.keccak ?? keccak256, logger)
 
 	// Balances repeat across legs and the sweep; one memo serves the whole run.
 	const getBalance = params.getBalance ?? memoizedSolverBalance(yieldVaults)
@@ -616,6 +1368,7 @@ export async function aggregatePhantomBids(params: {
 		}
 	>()
 	const lpBalances: LpBalance[] = []
+	const verifiedPositions: SolverV4Position[] = []
 	// Bids are stored per substrate filler, but weight is a property of the EVM solver. Without this
 	// one solver's bid, copied under N funded fillers, would count N times in the weighted median.
 	const countedSolvers = new Set<string>()
@@ -648,10 +1401,11 @@ export async function aggregatePhantomBids(params: {
 				commitment,
 				sessionKey,
 				chainId,
-				solverAccount,
+				solverAccounts,
 				evmRpcUrl: destUrl,
 				recoverSigner,
 				bidNonceKey,
+				isDelegated,
 				logger,
 			})
 			if (!verified) continue
@@ -664,17 +1418,82 @@ export async function aggregatePhantomBids(params: {
 			countedSolvers.add(normalizedSolver)
 
 			// The declaration rides in paymasterAndData, which the userOpHash covers, so it carries
-			// the same authenticity as the quote itself.
-			const acceptedSources = decodeAcceptedSourceChains(decoded.paymasterAndData)
+			// the same authenticity as the quote itself. It arrives bare, or appended to the Permit2
+			// sponsorship a bid built on the real-bid path carries; the decoder reads both, and a
+			// sponsored bid that appended nothing is simply one that declared nothing.
+			const { declaration } = decodePhantomBidPaymasterAndData(decoded.paymasterAndData)
+			const acceptedSources = declaration.acceptedSources
 
 			// A zero amount is how a solver declines a leg it does not price, so it is not a quote.
 			// Weights are fetched concurrently: the memo caches promises, so identical output tokens
 			// across legs still collapse to a single RPC round trip.
-			const quotedLegs = [...fillData.legs.entries()].filter(([, leg]) => leg.solverAmount !== 0n)
+			//
+			// Every quote is haircut before anything downstream reads it — the median, the bidder
+			// rows, and the zero-check right here, which then treats a quote the haircut rounds
+			// away exactly as it treats a declined one. A bid that names V4 positions is priced
+			// off those pools and pays the pool-fee haircut; every other bid pays the protocol fee
+			// haircut, the gateway's own fee read above. One or the other, never both. The
+			// declaration drives that choice rather than the positions that survive the ownership
+			// check below, so the quote is haircut on the same basis the solver priced it on,
+			// whether or not this chain has V4 contracts configured.
+			const poolPriced = declaration.uniswapV4Positions.length > 0
+			const applyHaircut = (amount: bigint) =>
+				poolPriced ? applyUniswapQuoteHaircut(amount) : applyProtocolFeeHaircut(amount, protocolFeeHaircutBps)
+			const quotedLegs = [...fillData.legs.entries()]
+				.map(([legIndex, leg]): [number, FillLeg] => [
+					legIndex,
+					{ ...leg, solverAmount: applyHaircut(leg.solverAmount) },
+				])
+				.filter(([, leg]) => leg.solverAmount !== 0n)
+
+			// Liquidity a solver parked in a Uniswap V4 position is real capacity but holds no ERC-20
+			// balance, so without this it reads as zero and the leg is dropped. The bid only NAMES
+			// the positions; ownership is checked against the signer here and the amounts come off
+			// the chain, so naming more, or naming someone else's, buys nothing.
+			const declaredPositions = v4Contracts ? declaration.uniswapV4Positions : []
+			const ownedPositions = (
+				await Promise.all(
+					declaredPositions.map(async (tokenId) => ({
+						tokenId,
+						state: await readPosition(destUrl, chain, v4Contracts!, tokenId),
+					})),
+				)
+			).filter((entry): entry is { tokenId: bigint; state: V4PositionState } => {
+				if (!entry.state) return false
+				if (entry.state.owner !== normalizedSolver) {
+					logger?.warn(
+						{ solver, commitment, tokenId: entry.tokenId.toString(), owner: entry.state.owner },
+						"Ignoring declared Uniswap V4 position: not owned by the bidding solver",
+					)
+					return false
+				}
+				return true
+			})
+			const positions = ownedPositions.map((entry) => entry.state)
+			// Reported alongside the balances so a consumer can record which positions back this
+			// solver: nothing outside a bid names them, so this is the only place they are knowable.
+			for (const entry of ownedPositions) {
+				verifiedPositions.push({ solver: normalizedSolver as HexString, chain, tokenId: entry.tokenId })
+			}
+
 			const weights = await Promise.all(
 				// Price influence: the solver's liquidity in THIS leg's output token on the destination
 				// chain, so a leg is weighted by the inventory that actually backs it.
-				quotedLegs.map(([, leg]) => getBalance(destUrl, chain, toAddress(leg.outputToken), solver)),
+				quotedLegs.map(async ([, leg]) => {
+					const outputToken = toAddress(leg.outputToken)
+					const balance = await getBalance(destUrl, chain, outputToken, solver)
+					return positions.reduce(
+						(total, state) =>
+							total +
+							positionAmountOfToken({
+								info: state.info,
+								liquidity: state.liquidity,
+								sqrtPriceX96: state.sqrtPriceX96,
+								outputToken,
+							}),
+						balance,
+					)
+				}),
 			)
 			for (const [position, [legIndex, leg]] of quotedLegs.entries()) {
 				const weight = weights[position]
@@ -686,8 +1505,17 @@ export async function aggregatePhantomBids(params: {
 
 			// Full liquidity picture: every configured token on every supported chain. Swept once per
 			// bid rather than per leg, since it measures the solver's whole inventory either way.
-			lpBalances.push(...(await sweepSolverLiquidity(evmRpcUrls, yieldVaults, solver, getBalance)))
+			lpBalances.push(
+				...(await sweepSolverLiquidity(evmRpcUrls, yieldVaults, solver, getBalance, {
+					chain,
+					states: positions,
+				})),
+			)
 		} catch (err) {
+			// A malformed bid is this bid's problem — skip it and price the rest. An unreachable RPC
+			// is the snapshot's problem: continuing would silently price the order from whichever
+			// bids happened to be readable, so abandon the run and let the retry above re-read.
+			if (err instanceof PhantomRpcError) throw err
 			logger?.warn({ err, filler: bid.filler }, "Failed to process bid for price snapshot")
 		}
 	}
@@ -697,20 +1525,42 @@ export async function aggregatePhantomBids(params: {
 	// Each leg reports a single price: the liquidity-weighted median of the quotes for that leg.
 	// lowestPrice and highestPrice carry that same value rather than the raw min/max of the bid set,
 	// so consumers cannot read an outlier bid as if it were a tradeable bound.
+	//
+	// A quote's weight is the solver's inventory in THAT leg's output token on the destination
+	// chain, so a zero-weight quote is one its solver cannot deliver at any price. Those are
+	// dropped outright rather than merely down-weighted: they must not reach weightedMedian (with
+	// nothing to weight by it picks a quote by position, letting whoever quotes the extreme set the
+	// rate on zero capital), and they must not reach bidCount or `bidders`, where they would inflate
+	// the solver count behind a price and mint zero-capacity PoolBidder/PoolRoute rows downstream.
+	// A leg left with no backed quote at all is therefore absent entirely, exactly as if nobody had
+	// quoted it — no snapshot, and its depth zeroes out downstream.
 	const legs = [...quotesByLeg.entries()]
 		.sort(([a], [b]) => a - b)
-		.map(([legIndex, { outputToken, quotes, bidders }]) => {
-			const medianPrice = weightedMedian(quotes)
-			return {
-				legIndex,
-				outputToken,
-				lowestPrice: medianPrice,
-				highestPrice: medianPrice,
-				medianPrice,
-				bidCount: quotes.length,
-				bidders,
+		.flatMap(([legIndex, { outputToken, quotes, bidders }]) => {
+			// quotes and bidders are pushed in lockstep above, so the same predicate keeps them aligned.
+			const backedQuotes = quotes.filter((quote) => quote.weight > 0n)
+			const backedBidders = bidders.filter((bidder) => bidder.weight > 0n)
+			if (backedQuotes.length === 0) {
+				logger?.warn(
+					{ commitment, chain, legIndex, outputToken, quotes: quotes.length },
+					"Dropping phantom leg: no bidder holds the output token on this chain, so no quote is backed",
+				)
+				return []
 			}
+
+			const medianPrice = weightedMedian(backedQuotes)
+			return [
+				{
+					legIndex,
+					outputToken,
+					lowestPrice: medianPrice,
+					highestPrice: medianPrice,
+					medianPrice,
+					bidCount: backedQuotes.length,
+					bidders: backedBidders,
+				},
+			]
 		})
 
-	return { legs, lpBalances }
+	return { legs, lpBalances, positions: verifiedPositions, solvers: [...countedSolvers] as HexString[] }
 }

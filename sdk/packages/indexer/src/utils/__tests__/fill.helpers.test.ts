@@ -1,8 +1,14 @@
 import { Interface } from "@ethersproject/abi"
 import type { EthereumLog } from "@subql/types-ethereum"
 
+import { IOrderV3OutputAsset } from "@/configs/src/types/models/IOrderV3OutputAsset"
+import { IntentGatewayV3Service } from "@/services/intentGatewayV3.service"
+import { getContractCallInputs } from "@/utils/rpc.helpers"
+jest.mock("@/utils/rpc.helpers", () => ({ getContractCallInputs: jest.fn() }))
+;(global as any).logger = { info: jest.fn(), warn: jest.fn(), error: jest.fn() }
+
 import IntentGatewayV3Abi from "@/configs/abis/IntentGatewayV3.abi.json"
-import { findUserOpHash, matchDeliveryTransfers, tryDecodeFillOrder } from "@/utils/fill.helpers"
+import { findUserOpHash, matchDeliveryTransfers, tryDecodeFillOrder, resolveFillEnrichment } from "@/utils/fill.helpers"
 
 const USER_OPERATION_EVENT_TOPIC = "0x49628fd1471006c1482da88028e9ce4dbb080b815c9b0344d39e5a8e6ec1419f"
 const ERC20_TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
@@ -51,12 +57,23 @@ describe("findUserOpHash", () => {
 		const logs = [
 			userOpLog(2, "0x" + "11".repeat(32), FILLER), // earlier op, before the fill
 			fillEventLog(5),
-			userOpLog(7, "0x" + "22".repeat(32), BENEFICIARY), // different sender
 			userOpLog(9, USER_OP_HASH, FILLER),
 			userOpLog(12, "0x" + "33".repeat(32), FILLER), // later op
 		]
 
 		expect(findUserOpHash(logs, FILLER, 5)).toBe(USER_OP_HASH)
+	})
+
+	it("does not attribute a fill to a later operation after a different sender", () => {
+		expect(
+			findUserOpHash([userOpLog(7, USER_OP_HASH, BENEFICIARY), userOpLog(9, USER_OP_HASH, FILLER)], FILLER, 5),
+		).toBeUndefined()
+	})
+
+	it("ignores spoofed events from non-EntryPoint contracts", () => {
+		const spoof = { ...userOpLog(6, USER_OP_HASH, FILLER), address: TOKEN_A }
+		expect(findUserOpHash([spoof], FILLER, 5)).toBeUndefined()
+		expect(findUserOpHash([spoof, userOpLog(9, USER_OP_HASH, FILLER)], FILLER, 5)).toBe(USER_OP_HASH)
 	})
 
 	it("matches the filler address case-insensitively", () => {
@@ -107,6 +124,16 @@ describe("matchDeliveryTransfers", () => {
 		])
 	})
 
+	it("records an ERC-20 zero-output slot without consuming a repeated-token transfer", () => {
+		const logs = [transferLog(2, TOKEN_A, FILLER, BENEFICIARY, 60n), fillEventLog(5)]
+		const partialOutputs = [
+			{ token: pad32(TOKEN_A) as any, amount: 0n },
+			{ token: pad32(TOKEN_A) as any, amount: 60n },
+		]
+
+		expect(matchDeliveryTransfers(logs, fillLog(5), FILLER, BENEFICIARY, partialOutputs)).toEqual([0n, 60n])
+	})
+
 	it("resolves native token outputs to undefined", () => {
 		const logs = [transferLog(2, TOKEN_A, FILLER, BENEFICIARY, 100n), fillEventLog(5)]
 
@@ -140,6 +167,44 @@ describe("matchDeliveryTransfers", () => {
 		expect(matchDeliveryTransfers(logs, fillLog(3), FILLER, BENEFICIARY, outputs(TOKEN_A))).toEqual([100n])
 	})
 
+	it("leaves ambiguous deliveries null instead of choosing an unrelated transfer", () => {
+		const logs = [
+			transferLog(1, TOKEN_A, FILLER, BENEFICIARY, 7n),
+			transferLog(2, TOKEN_A, FILLER, BENEFICIARY, 105n),
+		]
+		expect(matchDeliveryTransfers(logs, fillLog(5), FILLER, BENEFICIARY, outputs(TOKEN_A))).toEqual([undefined])
+	})
+
+	it("does not shift repeated-token amounts when a delivery is missing", () => {
+		expect(
+			matchDeliveryTransfers(
+				[transferLog(2, TOKEN_A, FILLER, BENEFICIARY, 50n)],
+				fillLog(5),
+				FILLER,
+				BENEFICIARY,
+				outputs(TOKEN_A, TOKEN_A),
+			),
+		).toEqual([undefined, undefined])
+	})
+
+	it("ignores malformed Transfer data", () => {
+		const log = { ...transferLog(2, TOKEN_A, FILLER, BENEFICIARY, 100n), data: "0xgarbage" }
+		expect(matchDeliveryTransfers([log], fillLog(5), FILLER, BENEFICIARY, outputs(TOKEN_A))).toEqual([undefined])
+	})
+
+	it("uses PartialFill logs as batch boundaries", () => {
+		const boundary = {
+			...fillEventLog(3),
+			topics: [new Interface(IntentGatewayV3Abi).getEventTopic("PartialFill")],
+		}
+		const logs = [
+			transferLog(2, TOKEN_A, FILLER, BENEFICIARY, 50n),
+			boundary,
+			transferLog(4, TOKEN_A, FILLER, BENEFICIARY, 60n),
+		]
+		expect(matchDeliveryTransfers(logs, fillLog(5), FILLER, BENEFICIARY, outputs(TOKEN_A))).toEqual([60n])
+	})
+
 	it("resolves to undefined when no matching transfer exists", () => {
 		const logs = [fillEventLog(5)]
 
@@ -167,10 +232,76 @@ describe("tryDecodeFillOrder", () => {
 		},
 	}
 
+	describe("receipt enrichment", () => {
+		const encode = (value = order) =>
+			intentGatewayInterface.encodeFunctionData("fillOrder", [
+				value,
+				{ relayerFee: 0n, nativeDispatchFee: 0n, validUntil: 0n, outputs: value.output.assets },
+			])
+		const enrich = (input: string) =>
+			resolveFillEnrichment(
+				{
+					...fillLog(5),
+					transaction: {
+						input,
+						receipt: async () => ({
+							logs: [
+								transferLog(2, TOKEN_B, FILLER, BENEFICIARY, 205n),
+								userOpLog(6, USER_OP_HASH, FILLER),
+							],
+						}),
+					},
+				} as any,
+				{
+					commitment: IntentGatewayV3Service.computeOrderCommitment(tryDecodeFillOrder(encode())!),
+					filler: FILLER,
+					outputs: [{ token: pad32(TOKEN_B) as any, amount: 200n }],
+					chain: "EVM-56",
+				},
+			)
+		beforeEach(() => {
+			jest.spyOn(IOrderV3OutputAsset, "get").mockResolvedValue(undefined)
+			jest.mocked(getContractCallInputs).mockReset()
+		})
+		afterEach(() => jest.restoreAllMocks())
+
+		it("recovers an unindexed order directly without needing debug tracing", async () => {
+			jest.mocked(getContractCallInputs).mockRejectedValue(new Error("tracing unavailable"))
+			expect(await enrich(encode())).toEqual({ userOpHash: USER_OP_HASH, amountsReceived: [205n] })
+			expect(getContractCallInputs).not.toHaveBeenCalled()
+		})
+		it("selects the matching commitment from multiple nested fill calls", async () => {
+			jest.mocked(getContractCallInputs).mockResolvedValue([
+				encode({ ...order, nonce: 2n }) as any,
+				encode() as any,
+			])
+			expect(await enrich("0x12345678")).toEqual({ userOpHash: USER_OP_HASH, amountsReceived: [205n] })
+			expect(getContractCallInputs).toHaveBeenCalledWith(fillLog(5).transactionHash, GATEWAY, "EVM-56")
+		})
+		it("rejects calldata for a different order", async () => {
+			jest.mocked(getContractCallInputs).mockResolvedValue([encode({ ...order, nonce: 2n }) as any])
+			expect(await enrich("0x12345678")).toEqual({ userOpHash: USER_OP_HASH, amountsReceived: undefined })
+		})
+		it("retains the userop hash when optional tracing is unavailable", async () => {
+			jest.mocked(getContractCallInputs).mockRejectedValue(new Error("tracing unavailable"))
+			expect(await enrich("0x12345678")).toEqual({ userOpHash: USER_OP_HASH, amountsReceived: undefined })
+		})
+		it("uses indexed beneficiaries without tracing", async () => {
+			jest.mocked(IOrderV3OutputAsset.get).mockResolvedValue({ beneficiary: pad32(BENEFICIARY) } as any)
+			expect(await enrich("0x12345678")).toEqual({ userOpHash: USER_OP_HASH, amountsReceived: [205n] })
+			expect(getContractCallInputs).not.toHaveBeenCalled()
+		})
+	})
+
 	it("decodes a fillOrder call", () => {
 		const calldata = intentGatewayInterface.encodeFunctionData("fillOrder", [
 			order,
-			{ relayerFee: 0n, nativeDispatchFee: 0n, outputs: [{ token: pad32(TOKEN_B), amount: 200n }] },
+			{
+				relayerFee: 0n,
+				nativeDispatchFee: 0n,
+				validUntil: 0n,
+				outputs: [{ token: pad32(TOKEN_B), amount: 200n }],
+			},
 		])
 
 		const decoded = tryDecodeFillOrder(calldata)
@@ -182,6 +313,16 @@ describe("tryDecodeFillOrder", () => {
 		expect(decoded!.inputs).toEqual([{ token: pad32(TOKEN_A), amount: 100n }])
 		expect(decoded!.deadline).toBe(1000n)
 		expect(decoded!.fees).toBe(5n)
+	})
+
+	it("decodes historical fills before FillOptions gained validUntil", () => {
+		const fragment = intentGatewayInterface.getFunction("fillOrder").format("full")
+		const legacy = new Interface([fragment.replace("uint256 validUntil, ", "")])
+		const calldata = legacy.encodeFunctionData("fillOrder", [
+			order,
+			{ relayerFee: 0n, nativeDispatchFee: 0n, outputs: order.output.assets },
+		])
+		expect(tryDecodeFillOrder(calldata)?.outputs.beneficiary).toBe(pad32(BENEFICIARY))
 	})
 
 	it("returns null for other gateway calls", () => {

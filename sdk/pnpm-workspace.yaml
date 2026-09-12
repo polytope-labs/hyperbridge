@@ -4,14 +4,15 @@ allowBuilds:
   '@biomejs/biome': true
   '@cosmology/protobufjs': true
   '@nestjs/core': true
-  better-sqlite3: true
   bufferutil: true
+  cpu-features: false
   es5-ext: false
   esbuild: true
   keccak: true
   protobufjs: true
   secp256k1: true
   sodium-native: true
+  ssh2: false
   utf-8-validate: true
 blockExoticSubdeps: true
 minimumReleaseAge: 43200

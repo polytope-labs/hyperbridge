@@ -106,6 +106,12 @@ describe("AssetRegistry", () => {
 		expect(registry.getAddress("USDR", "EVM-1")).toBe("0x9623DfB044D5612Ce0c0F1606973CCAEFd03CD05")
 		expect(registry.getAddress("USDR", "EVM-8453")).toBe("0x3B5F2810fB2168FfA9C73160F97BF9f2461fFa5c")
 		expect(registry.getAddress("usdr", "EVM-137")).toBe("0x3B5F2810fB2168FfA9C73160F97BF9f2461fFa5c")
+		expect(registry.getAddress("CNGN", "EVM-56")).toBe("0xa8AEA66B361a8d53e8865c62D142167Af28Af058")
+		// cNGN on BNB Chain is 6-decimal while the Binance-pegged stables beside it are 18. Every
+		// rate divides by this, so pin it: inheriting 18 from its neighbours would silently scale
+		// every cNGN quote on that chain by 1e12.
+		expect(sdk.getCNgnDecimals("EVM-56")).toBe(6)
+		expect(sdk.getUsdcDecimals("EVM-56")).toBe(18)
 		// Not deployed there → absent, not an error.
 		expect(registry.getAddress("EURC", "EVM-56")).toBeNull()
 		expect(registry.getAddress("USDR", "EVM-42161")).toBeNull()
@@ -339,10 +345,11 @@ describe("validatePairConfigs", () => {
 		).toThrow(/must be positive/)
 	})
 
-	it("requires a positive maxOrderSize", () => {
-		expect(() => validatePairConfigs([{ token0: "USDC", token1: "CNGN", askPriceCurve: CURVE } as any])).toThrow(
-			/maxOrderSize' is required/,
-		)
+	it("accepts an omitted maxOrderSize, and rejects a malformed one", () => {
+		// Omitted means uncapped — the pair fills every order at its full notional.
+		expect(() =>
+			validatePairConfigs([{ token0: "USDC", token1: "CNGN", askPriceCurve: CURVE } as any]),
+		).not.toThrow()
 		expect(() =>
 			validatePairConfigs([{ token0: "USDC", token1: "CNGN", maxOrderSize: "0", askPriceCurve: CURVE }]),
 		).toThrow(/positive/)
@@ -362,7 +369,9 @@ describe("validatePairConfigs", () => {
 })
 
 // ---------------------------------------------------------------------------
-// FX engine leg math with pair-local rates and caps, via quotePhantomFill
+// FX engine leg math with pair-local rates, via quotePhantomFill. A probe is a
+// price quote, not an allocation, so maxOrderSize never rations it — the cap
+// governs real fills only (see the exposure-cap and profit-gates suites).
 // ---------------------------------------------------------------------------
 
 function makeContractService(): any {
@@ -378,6 +387,9 @@ function makeContractService(): any {
 			getPairClassifications: (id: string) => cache.get(`pc:${id}`),
 			setPairClassifications: (id: string, pairs: unknown) => cache.set(`pc:${id}`, pairs),
 			setFillerOutputs: (id: string, outputs: unknown) => cache.set(`fo:${id}`, outputs),
+			clearPartialFill: (id: string) => cache.delete(`pf:${id}`),
+			setPartialFill: (id: string, partial: boolean) => cache.set(`pf:${id}`, partial),
+			isPartialFill: (id: string) => cache.get(`pf:${id}`) === true,
 		},
 		getTokenDecimals: async (token: string) => decimals[token.toLowerCase()] ?? 18,
 	}
@@ -395,7 +407,7 @@ function makeFiller(pairs: TradingPair[]) {
 		CNGN: { [CHAIN]: CNGN },
 		ZARP: { [CHAIN]: ZARP },
 	})
-	const signer = { account: { address: SOLVER } } as any
+	const signer = { address: SOLVER } as any
 	return new FXFiller(signer, configService, {} as any, makeContractService(), pairs, registry)
 }
 
@@ -451,9 +463,9 @@ describe("FXFiller pairs engine", () => {
 		expect((await filler.quotePhantomFill(usdtLeg))?.[0].amount).toBe(parseUnits("100000", 18))
 	})
 
-	it("caps each pair at its own maxOrderSize, in token0 units", async () => {
-		// ZARP-quoted pair: pricing and the cap are denominated in ZARP. The
-		// USDC/ZARP pair only anchors ZARP for confirmation sizing.
+	it("prices ZARP-quoted pairs in token0 units; probes are not rationed by maxOrderSize", async () => {
+		// ZARP-quoted pair: pricing is denominated in ZARP. The USDC/ZARP pair
+		// only anchors ZARP for confirmation sizing.
 		const filler = makeFiller([
 			{ token0: "USDC", token1: "ZARP", maxOrderSize: size("100000"), askPricePolicy: flat("18") },
 			{ token0: "ZARP", token1: "CNGN", maxOrderSize: size("100000"), askPricePolicy: flat("100") },
@@ -476,8 +488,10 @@ describe("FXFiller pairs engine", () => {
 			{ token: bytes20ToBytes32(ZARP), amount: parseUnits("200000", 18) },
 			{ token: bytes20ToBytes32(CNGN), amount: 0n },
 		)
-		// 200,000 ZARP → capped at maxOrderSize 100,000 ZARP → 10,000,000 CNGN
-		expect((await filler.quotePhantomFill(large))?.[0].amount).toBe(parseUnits("10000000", 18))
+		// 200,000 ZARP exceeds maxOrderSize 100,000, but a probe commits no
+		// capital, so the cap does not ration it (it only logs a config warning):
+		// 200,000 × 100 = 20,000,000 CNGN.
+		expect((await filler.quotePhantomFill(large))?.[0].amount).toBe(parseUnits("20000000", 18))
 	})
 
 	it("sizes bid legs through the pair's own curve", async () => {
@@ -494,13 +508,14 @@ describe("FXFiller pairs engine", () => {
 		expect(sized?.inputUsd.eq(new Decimal(2000))).toBe(true)
 		expect((await filler.quotePhantomFill(order))?.[0].amount).toBe(parseUnits("2000", 6))
 
-		// 15,000,000 CNGN ÷ 1500 = 10,000 USDC notional → capped at 5000 USDC out.
+		// 15,000,000 CNGN ÷ 1500 = 10,000 USDC notional — over the 5000 cap, but
+		// probes are not rationed by it: the full 10,000 USDC is quoted.
 		const large = makeOrder(
 			"bid-sizing-large",
 			{ token: bytes20ToBytes32(CNGN), amount: parseUnits("15000000", 18) },
 			{ token: bytes20ToBytes32(USDC), amount: 0n },
 		)
-		expect((await filler.quotePhantomFill(large))?.[0].amount).toBe(parseUnits("5000", 6))
+		expect((await filler.quotePhantomFill(large))?.[0].amount).toBe(parseUnits("10000", 6))
 	})
 
 	it("quotes same-token pairs at the below-par ask, across differing decimals", async () => {
@@ -528,7 +543,7 @@ describe("FXFiller pairs engine", () => {
 			{ token0: "USDC", token1: "USDC", maxOrderSize: size("10000"), askPricePolicy: flat("0.995") },
 		]
 		const registry = new AssetRegistry(configService)
-		const signer = { account: { address: SOLVER } } as any
+		const signer = { address: SOLVER } as any
 		const filler = new FXFiller(signer, configService, {} as any, contractService, pairs, registry)
 
 		const order = {
@@ -550,8 +565,9 @@ describe("FXFiller pairs engine", () => {
 			),
 			destination: CHAIN2,
 		} as unknown as Order
-		// 20,000 USDC → capped at maxOrderSize 10,000 → 9,950 out.
-		expect((await filler.quotePhantomFill(large))?.[0].amount).toBe(parseUnits("9950", 18))
+		// 20,000 USDC exceeds maxOrderSize 10,000, but probes are not rationed by
+		// the cap: 20,000 × 0.995 = 19,900 out.
+		expect((await filler.quotePhantomFill(large))?.[0].amount).toBe(parseUnits("19900", 18))
 	})
 
 	it("prefers explicitly configured curves over venue pricing", async () => {
@@ -570,7 +586,7 @@ describe("FXFiller pairs engine", () => {
 			getMaxConsecutiveClamps: () => 3,
 		} as any
 		const registry = new AssetRegistry(configService, { CNGN: { [CHAIN]: CNGN } })
-		const signer = { account: { address: SOLVER } } as any
+		const signer = { address: SOLVER } as any
 		const filler = new FXFiller(
 			signer,
 			configService,
@@ -591,7 +607,7 @@ describe("FXFiller pairs engine", () => {
 
 	it("rejects duplicate and reverse-duplicate engine pairs", () => {
 		const registry = new AssetRegistry(resolver as any, { CNGN: { [CHAIN]: CNGN } })
-		const signer = { account: { address: SOLVER } } as any
+		const signer = { address: SOLVER } as any
 		const build = (pairs: TradingPair[]) =>
 			new FXFiller(
 				signer,
@@ -611,7 +627,7 @@ describe("FXFiller pairs engine", () => {
 
 	it("rejects same-token engine pairs with a bid policy or above-par prices", () => {
 		const registry = new AssetRegistry(resolver as any)
-		const signer = { account: { address: SOLVER } } as any
+		const signer = { address: SOLVER } as any
 		const build = (pair: TradingPair) =>
 			new FXFiller(signer, { getMaxOverfillBps: () => 500n, getMaxConsecutiveClamps: () => 3 } as any, {} as any, makeContractService(), [pair], registry)
 
@@ -669,7 +685,7 @@ describe("FXFiller same-token markets (cross-chain only)", () => {
 		getMaxOverfillBps: () => 500n,
 		getMaxConsecutiveClamps: () => 3,
 	} as any
-	const signer = { account: { address: SOLVER } } as any
+	const signer = { address: SOLVER } as any
 	const usdcUsdc = (): TradingPair[] => [
 		{ token0: "USDC", token1: "USDC", maxOrderSize: size("100000"), askPricePolicy: flat("0.999") },
 	]
@@ -718,8 +734,12 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 		getCNgnAsset: () => undefined,
 		getMaxOverfillBps: () => 500n,
 		getMaxConsecutiveClamps: () => 3,
+		// No paymaster on any chain: the leg loop's paymasterReserveForToken
+		// consults these and must reserve nothing here — this suite asserts
+		// exact spread/fee arithmetic with no gas headroom held back.
+		getSimplexPaymasterAddress: () => undefined,
 	} as any
-	const signer = { account: { address: SOLVER } } as any
+	const signer = { address: SOLVER } as any
 
 	const decimalsByAddr: Record<string, number> = {
 		[USDC.toLowerCase()]: 6,
@@ -733,7 +753,7 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 		pairs: TradingPair[],
 		registry: AssetRegistry,
 		estimate: { fillGas: bigint; relayer: bigint },
-		options?: { fundingVenues?: unknown[] },
+		options?: { fundingVenues?: unknown[]; balancesByToken?: Record<string, bigint> },
 	) {
 		const cache = new Map<string, unknown>()
 		const contractService = {
@@ -743,9 +763,13 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 				setFillerOutputs: () => {},
 				setFundingPrepends: () => {},
 				clearFundingPrepends: () => {},
+				clearPartialFill: (id: string) => cache.delete(`pf:${id}`),
+				setPartialFill: (id: string, partial: boolean) => cache.set(`pf:${id}`, partial),
+				isPartialFill: (id: string) => cache.get(`pf:${id}`) === true,
 			},
 			getFeeTokenWithDecimals: async () => ({ decimals: 6, address: USDC }),
 			getTokenDecimals: async (token: string) => decimalsByAddr[token.toLowerCase()] ?? 18,
+			partialFillsFor: async (o: Order) => o.output.assets.map(() => 0n),
 			estimateGasFillPost: async () => ({
 				totalCostInSourceFeeToken: estimate.fillGas,
 				relayerFeeInSourceFeeToken: estimate.relayer,
@@ -757,7 +781,8 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 			chain: { blockTime: 2000 },
 			getBlock: async () => ({ number: 100n, timestamp: 0n }),
 			getBalance: async () => 10n ** 30n,
-			readContract: async () => 10n ** 30n, // balanceOf: effectively unlimited
+			readContract: async (params: { address: string }) =>
+				options?.balancesByToken?.[params.address.toLowerCase()] ?? 10n ** 30n, // balanceOf
 		}
 		const clientManager = { getPublicClient: () => destClient } as any
 		return new FXFiller(signer, cfg, clientManager, contractService, pairs, registry, {
@@ -883,6 +908,89 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 		maxOrderSize: size("100000"),
 		bidPricePolicy: flat("18.2"),
 		askPricePolicy: flat("17.8"), // mid 18 ZARP per USDC → ZARP ≈ $1/18
+	})
+
+	/**
+	 * An EMPTY leg is an under-fill too: on-chain a zero output sets
+	 * isFullyFilled = false, which reverts a calldata order outright
+	 * (PartialFillNotAllowed). The zero-push sites must clear the same
+	 * eligibility gate a short leg does — royvardhan's finding, in his shape:
+	 * the solver funds one leg's token and holds none of the other's.
+	 */
+	it("gates an empty leg like any under-fill: calldata refuses, plain becomes a partial", async () => {
+		const pairs = [
+			{ token0: "USDC", token1: "CNGN", maxOrderSize: size("100000"), bidPricePolicy: flat("1500"), askPricePolicy: flat("1510") },
+			{ token0: "USDC", token1: "ZARP", maxOrderSize: size("100000"), bidPricePolicy: flat("18"), askPricePolicy: flat("18.2") },
+		]
+		const registry = new AssetRegistry(cfg, {
+			CNGN: { [SRC]: CNGN, [DST]: CNGN },
+			ZARP: { [SRC]: ZARP, [DST]: ZARP },
+		})
+		const noZarp = { [ZARP.toLowerCase()]: 0n }
+		const twoLegs = (id: string, call: HexString): Order => ({
+			...order(
+				id,
+				{ token: bytes20ToBytes32(USDC), amount: parseUnits("1000", 6) },
+				{ token: bytes20ToBytes32(CNGN), amount: parseUnits("1500000", 18) },
+				parseUnits("10", 6),
+			),
+			// Same-chain: partial eligibility's cheap half must pass so the gate
+			// itself is what decides.
+			destination: SRC,
+			inputs: [
+				{ token: bytes20ToBytes32(USDC), amount: parseUnits("1000", 6) },
+				{ token: bytes20ToBytes32(USDC), amount: parseUnits("1000", 6) },
+			],
+			output: {
+				beneficiary: bytes20ToBytes32(SOLVER),
+				assets: [
+					{ token: bytes20ToBytes32(CNGN), amount: parseUnits("1500000", 18) },
+					{ token: bytes20ToBytes32(ZARP), amount: parseUnits("17900", 18) },
+				],
+				call,
+			},
+		})
+
+		// The ZARP leg is unfundable, so it goes out as a zero — an under-fill.
+		// With output calldata the gateway would revert PartialFillNotAllowed, so
+		// the order is refused before any bid.
+		const withCalldata = gateFiller(pairs, registry, { fillGas: parseUnits("1", 6), relayer: 0n }, { balancesByToken: noZarp })
+		expect(await withCalldata.calculateProfitability(twoLegs("empty-leg-calldata", "0xdeadbeef" as HexString))).toBe(0)
+
+		// Without calldata the same shape is a legitimate partial: flagged so the
+		// caller's floor exemption applies, and never scored by GATE 1's fee rule.
+		const plain = gateFiller(pairs, registry, { fillGas: parseUnits("1", 6), relayer: 0n }, { balancesByToken: noZarp })
+		const o = twoLegs("empty-leg-plain", "0x" as HexString)
+		await plain.calculateProfitability(o)
+		expect((plain as unknown as { contractService: { cacheService: { isPartialFill(id: string): boolean } } }).contractService.cacheService.isPartialFill("empty-leg-plain")).toBe(true)
+	})
+
+	it("fills fully at a sloped curve when the cap does not bind (cap test is curve-independent)", async () => {
+		// Regression guard for the old limiter `token0Used < legNotionals[i]`: those
+		// two are priced at different curve points, so an upward-sloping bid made it
+		// fire with the cap nowhere near binding — turning a full fill that collects
+		// order.fees into a skip (cross-chain) or a fee-less partial (same-chain).
+		// bid rises 1500 -> 1600 over 10k USDC. 1.5M CNGN = 1000 USDC at the origin
+		// rate but only ~993 at the capped rate; a curve-dependent cap test calls
+		// that capped. The real cap is 100k USDC and nowhere near binding.
+		const sloped = new FillerPricePolicy({
+			points: [
+				{ amount: "0", price: "1500" },
+				{ amount: "10000", price: "1600" },
+			],
+		})
+		const filler = gateFiller(
+			[{ token0: "USDC", token1: "CNGN", maxOrderSize: size("100000"), bidPricePolicy: sloped }],
+			usdcOnBoth(),
+			{ fillGas: parseUnits("1", 6), relayer: parseUnits("1", 6) },
+		)
+		const o = order(
+			"sloped-no-cap",
+			{ token: bytes20ToBytes32(CNGN), amount: parseUnits("1500000", 18) },
+			{ token: bytes20ToBytes32(USDC), amount: parseUnits("990", 6) },
+			parseUnits("10", 6),
+		)
+		expect(await filler.calculateProfitability(o)).toBeGreaterThan(0)
 	})
 
 	it("fills inside a crossed book when the order is within its own side's curve", async () => {
@@ -1193,5 +1301,72 @@ describe("assertPairSymbolsResolve", () => {
 		expect(() =>
 			assertPairSymbolsResolve([{ token0: "USDC", token1: "FAKE", maxOrderSize: "1000" }], registry, ["EVM-8453"]),
 		).toThrow(/both resolve to/)
+	})
+})
+
+describe("FXFiller exposure cap", () => {
+	/** The cap fraction sizeOrder derives for an order's single pair. */
+	async function capFraction(filler: FXFiller, order: Order): Promise<string> {
+		const engine = filler as unknown as {
+			resolveOrderLegs(o: Order): unknown[] | null
+			sizeOrder(
+				o: Order,
+				legs: unknown[],
+				venueUsdPrice: () => Promise<Decimal | null>,
+			): Promise<{ capFractionByPair: Map<unknown, Decimal> } | null>
+		}
+		const legs = engine.resolveOrderLegs(order)!
+		const sized = await engine.sizeOrder(order, legs, async () => null)
+		return [...sized!.capFractionByPair.values()][0].toFixed(6)
+	}
+
+	it("does not scale an order inside the cap", async () => {
+		const filler = makeFiller([
+			{ token0: "USDC", token1: "CNGN", maxOrderSize: size("5000"), askPricePolicy: flat("1500") },
+		])
+		const order = makeOrder(
+			"within-cap",
+			{ token: bytes20ToBytes32(USDC), amount: parseUnits("1000", 6) },
+			{ token: bytes20ToBytes32(CNGN), amount: parseUnits("1500000", 18) },
+		)
+		expect(await capFraction(filler, order)).toBe("1.000000")
+	})
+
+	it("scales an oversized order to the fraction the cap allows", async () => {
+		const filler = makeFiller([
+			{ token0: "USDC", token1: "CNGN", maxOrderSize: size("5000"), askPricePolicy: flat("1500") },
+		])
+		// 20,000 USDC of exposure against a 5,000 cap → fill a quarter of it.
+		const order = makeOrder(
+			"over-cap",
+			{ token: bytes20ToBytes32(USDC), amount: parseUnits("20000", 6) },
+			{ token: bytes20ToBytes32(CNGN), amount: parseUnits("30000000", 18) },
+		)
+		expect(await capFraction(filler, order)).toBe("0.250000")
+	})
+
+	/**
+	 * capFraction is derived from referenceRate-based notionals on both sides, so
+	 * a sloped curve cannot perturb it by construction. The behavioural guard for
+	 * the old curve-dependent limiter lives in the profit-gates suite
+	 * ("fills fully at a sloped curve when the cap does not bind").
+	 */
+	it("reports no cap on a sloped curve when the cap does not bind", async () => {
+		const sloped = new FillerPricePolicy({
+			points: [
+				{ amount: "0", price: "1500" },
+				{ amount: "10000", price: "1400" },
+			],
+		})
+		const filler = makeFiller([
+			{ token0: "USDC", token1: "CNGN", maxOrderSize: size("1000000"), bidPricePolicy: sloped },
+		])
+		// A token1-input (bid-direction) leg, well inside a huge cap.
+		const order = makeOrder(
+			"sloped-under-cap",
+			{ token: bytes20ToBytes32(CNGN), amount: parseUnits("1500000", 18) },
+			{ token: bytes20ToBytes32(USDC), amount: parseUnits("1000", 6) },
+		)
+		expect(await capFraction(filler, order)).toBe("1.000000")
 	})
 })

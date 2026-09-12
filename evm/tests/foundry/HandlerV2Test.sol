@@ -72,7 +72,7 @@ contract HandlerV2Test is Test {
         });
         host = new TestHost(params);
 
-        manager.setIsmpHost(address(host));
+        manager.init(address(host));
 
         feeToken.superApprove(address(tx.origin), address(host));
         feeToken.superApprove(address(this), address(host));

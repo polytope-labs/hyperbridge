@@ -1,5 +1,9 @@
 {
     "title": "Intent Gateway",
-    "pages": ["overview", "placing-orders", "cancelling-orders", "simplex"],
+    "pages": [
+        "overview",
+        "placing-orders",
+        "cancelling-orders"
+    ],
     "defaultOpen": false
 }

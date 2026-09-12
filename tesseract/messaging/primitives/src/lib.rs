@@ -146,8 +146,8 @@ use ismp::{
 	consensus::{ConsensusStateId, StateCommitment, StateMachineHeight, StateMachineId},
 	events::{Event, StateCommitmentVetoed},
 	host::StateMachine,
-	messaging::{CreateConsensusState, Keccak256, Message},
-	router::PostRequest,
+	messaging::{hash_request, CreateConsensusState, Keccak256, Message},
+	router::{PostRequest, Request},
 };
 use pallet_ismp_host_executive::HostParam;
 pub use pallet_ismp_relayer::withdrawal::{Signature, WithdrawalProof};
@@ -243,6 +243,17 @@ pub struct Query {
 	pub dest_chain: StateMachine,
 	pub nonce: u64,
 	pub commitment: H256,
+}
+
+impl From<&Request> for Query {
+	fn from(request: &Request) -> Self {
+		Query {
+			source_chain: request.source_chain(),
+			dest_chain: request.dest_chain(),
+			nonce: request.nonce(),
+			commitment: hash_request::<Hasher>(request),
+		}
+	}
 }
 
 /// A type that should be returned when messages are submitted successfully.

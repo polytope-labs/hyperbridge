@@ -983,6 +983,17 @@ export class IntentGateway {
 		const { queryClient, pollInterval, logger } = this.requireIndexer()
 		const streamLogger = logger.withTag("[orderStatusStream]")
 		const TERMINAL = ["FILLED", "REDEEMED", "REFUNDED"] as const
+		const latestOrderStatus = (order: OrderWithStatus) => {
+			const latest = order.statuses[order.statuses.length - 1]
+			// Cancellation is an initiation event. Independent chain timestamps (or
+			// equal timestamps within a block) must not let it hide a settled status.
+			if (latest.status === "CANCELLED") {
+				for (let i = order.statuses.length - 1; i >= 0; i--) {
+					if ((TERMINAL as readonly string[]).includes(order.statuses[i].status)) return order.statuses[i]
+				}
+			}
+			return latest
+		}
 
 		let order: OrderWithStatus | undefined
 		while (!order) {
@@ -991,7 +1002,7 @@ export class IntentGateway {
 		}
 
 		streamLogger.trace("`Order` found")
-		const latestStatus = order.statuses[order.statuses.length - 1]
+		let latestStatus = latestOrderStatus(order)
 		yield { status: latestStatus.status, metadata: latestStatus.metadata }
 
 		if ((TERMINAL as readonly string[]).includes(latestStatus.status)) return
@@ -1001,8 +1012,9 @@ export class IntentGateway {
 			const updatedOrder = await _queryOrderInternal({ commitmentHash: commitment, queryClient, logger })
 			if (!updatedOrder) continue
 
-			const newLatestStatus = updatedOrder.statuses[updatedOrder.statuses.length - 1]
+			const newLatestStatus = latestOrderStatus(updatedOrder)
 			if (newLatestStatus.status !== latestStatus.status) {
+				latestStatus = newLatestStatus
 				yield { status: newLatestStatus.status, metadata: newLatestStatus.metadata }
 				if ((TERMINAL as readonly string[]).includes(newLatestStatus.status)) return
 			}

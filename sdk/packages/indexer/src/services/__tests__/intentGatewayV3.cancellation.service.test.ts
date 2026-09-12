@@ -49,14 +49,18 @@ const placeOrder = (status: OrderStatus) => {
 const event = { transactionHash: TX_HASH, blockNumber: 123, timestamp: 456n, logIndex: 7 }
 
 describe("IntentGatewayV3Service.recordOrderCancellation", () => {
-	beforeEach(() => records.clear())
+	beforeEach(() => {
+		records.clear()
+		jest.clearAllMocks()
+	})
 
-	it("records the cancellation and moves a placed order to CANCELLED", async () => {
+	it("records cancellation metadata without writing the shared order row", async () => {
 		placeOrder(OrderStatus.PLACED)
 
 		await IntentGatewayV3Service.recordOrderCancellation(COMMITMENT, CANCELLER, event)
 
-		expect(records.get(`IOrderV3:${COMMITMENT}`).status).toBe(OrderStatus.CANCELLED)
+		expect(records.get(`IOrderV3:${COMMITMENT}`).status).toBe(OrderStatus.PLACED)
+		expect((global as any).store.set.mock.calls.some(([entity]: string[]) => entity === "IOrderV3")).toBe(false)
 		expect(records.get(`IOrderV3Cancellation:${TX_HASH}.7`)).toMatchObject({
 			orderId: COMMITMENT,
 			chain: "8453",
@@ -70,15 +74,18 @@ describe("IntentGatewayV3Service.recordOrderCancellation", () => {
 		})
 	})
 
-	it("records a late cancellation without regressing a refunded order", async () => {
-		placeOrder(OrderStatus.REFUNDED)
+	it.each([OrderStatus.REFUNDED, OrderStatus.FILLED, OrderStatus.REDEEMED])(
+		"retains cancellation history without regressing %s",
+		async (status) => {
+			placeOrder(status)
 
-		await IntentGatewayV3Service.recordOrderCancellation(COMMITMENT, CANCELLER, event)
+			await IntentGatewayV3Service.recordOrderCancellation(COMMITMENT, CANCELLER, event)
 
-		expect(records.get(`IOrderV3:${COMMITMENT}`).status).toBe(OrderStatus.REFUNDED)
-		expect(records.get(`IOrderV3Cancellation:${TX_HASH}.7`)).toBeDefined()
-		expect(records.get(`IOrderV3StatusMetadata:${COMMITMENT}.${OrderStatus.CANCELLED}`)).toBeUndefined()
-	})
+			expect(records.get(`IOrderV3:${COMMITMENT}`).status).toBe(status)
+			expect(records.get(`IOrderV3Cancellation:${TX_HASH}.7`)).toBeDefined()
+			expect(records.get(`IOrderV3StatusMetadata:${COMMITMENT}.${OrderStatus.CANCELLED}`)).toBeDefined()
+		},
+	)
 
 	it("uses the established pending-status path when the order has not arrived", async () => {
 		await IntentGatewayV3Service.recordOrderCancellation(COMMITMENT, CANCELLER, event)
@@ -89,5 +96,31 @@ describe("IntentGatewayV3Service.recordOrderCancellation", () => {
 			status: OrderStatus.CANCELLED,
 			chain: "8453",
 		})
+	})
+
+	it("materializes a pending cancellation without changing the established parent-status policy", async () => {
+		await IntentGatewayV3Service.recordOrderCancellation(COMMITMENT, CANCELLER, event)
+		placeOrder(OrderStatus.REFUNDED)
+		await IntentGatewayV3Service.flushPendingStatuses(COMMITMENT)
+		expect(records.get(`IOrderV3:${COMMITMENT}`).status).toBe(OrderStatus.REFUNDED)
+		expect(records.get(`IOrderV3StatusMetadata:${COMMITMENT}.CANCELLED`)).toBeDefined()
+		expect(records.get(`PendingStatusMetadata:${COMMITMENT}.IOrderV3.CANCELLED`)).toBeUndefined()
+	})
+
+	it("keeps distinct cancellation logs and replays the same log idempotently", async () => {
+		placeOrder(OrderStatus.PLACED)
+		await IntentGatewayV3Service.recordOrderCancellation(COMMITMENT, CANCELLER, event)
+		await IntentGatewayV3Service.recordOrderCancellation(COMMITMENT, CANCELLER, event)
+		await IntentGatewayV3Service.recordOrderCancellation(COMMITMENT, CANCELLER, { ...event, logIndex: 8 })
+		expect([...records.keys()].filter((key) => key.startsWith("IOrderV3Cancellation:"))).toHaveLength(2)
+	})
+
+	it("lets the same-chain EscrowRefunded transition complete after cancellation", async () => {
+		placeOrder(OrderStatus.PLACED)
+		await IntentGatewayV3Service.recordOrderCancellation(COMMITMENT, CANCELLER, event)
+		await IntentGatewayV3Service.updateOrderStatus(COMMITMENT, OrderStatus.REFUNDED, event)
+		expect(records.get(`IOrderV3:${COMMITMENT}`).status).toBe(OrderStatus.REFUNDED)
+		expect(records.get(`IOrderV3StatusMetadata:${COMMITMENT}.CANCELLED`)).toBeDefined()
+		expect(records.get(`IOrderV3StatusMetadata:${COMMITMENT}.REFUNDED`)).toBeDefined()
 	})
 })

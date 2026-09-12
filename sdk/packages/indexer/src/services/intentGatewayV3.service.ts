@@ -1008,19 +1008,11 @@ export class IntentGatewayV3Service {
 	}
 
 	/**
-	 * Records an OrderCancelled event and advances the order to CANCELLED, but only from
-	 * PLACED.
-	 *
-	 * The gateway documents EscrowRefunded — not this event — as terminal, and
-	 * `updateOrderStatus` overwrites unconditionally, so calling it unguarded would let a
-	 * cancellation clobber a REFUNDED that has already landed. That ordering is not
-	 * hypothetical: a cross-chain cancel is initiated on the destination chain and refunded
-	 * on the source chain, and the two are indexed by separate datasources with no ordering
-	 * guarantee between them. Guarding on PLACED makes the write idempotent and
-	 * order-independent — whichever arrives second is ignored if it would regress.
-	 *
-	 * An order not yet seen falls through to `updateOrderStatus`'s PendingStatusMetadata
-	 * path, which is the existing mechanism for out-of-order arrival.
+	 * Records cancellation initiation in its event entity and status metadata only.
+	 * SubQuery flushes whole cached rows without conditional updates: even a guarded
+	 * write to IOrderV3 could overwrite a refund committed by another chain indexer.
+	 * Keeping cancellation off that shared row makes both cache flush orders safe.
+	 * Missing parents use the established metadata-only pending-status workflow.
 	 */
 	static async recordOrderCancellation(
 		commitment: string,
@@ -1050,19 +1042,29 @@ export class IntentGatewayV3Service {
 		}
 		await cancellation.save()
 
-		const orderPlaced = await OrderV3Placed.get(commitment)
-		if (orderPlaced && orderPlaced.status !== OrderStatus.PLACED) {
-			logger.info(
-				`[Intent Gateway V3] Order ${commitment} already at ${orderPlaced.status}; not regressing to CANCELLED`,
-			)
-			return
-		}
-
-		await IntentGatewayV3Service.updateOrderStatus(commitment, OrderStatus.CANCELLED, {
+		const metadata = {
+			status: OrderStatus.CANCELLED,
+			chain: chainId,
 			transactionHash,
-			blockNumber,
+			blockNumber: blockNumber.toString(),
 			timestamp,
-		})
+			createdAt: timestampToDate(timestamp),
+		}
+		if (await OrderV3Placed.get(commitment)) {
+			await IOrderV3StatusMetadata.create({
+				...metadata,
+				id: `${commitment}.${OrderStatus.CANCELLED}`,
+				orderId: commitment,
+			}).save()
+		} else {
+			await PendingStatusMetadata.create({
+				...metadata,
+				id: `${commitment}.${ENTITY_TYPE}.${OrderStatus.CANCELLED}`,
+				commitment,
+				entityType: ENTITY_TYPE,
+				blockHash: "",
+			}).save()
+		}
 	}
 
 	static computeOrderCommitment(order: OrderV3): string {

@@ -215,6 +215,8 @@ export enum OrderStatus {
 	FILLED = "FILLED",
 	REDEEMED = "REDEEMED",
 	REFUNDED = "REFUNDED",
+	/** Cancellation has been initiated; escrow refund is still pending. */
+	CANCELLED = "CANCELLED",
 }
 
 export enum TeleportStatus {

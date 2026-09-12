@@ -11,8 +11,8 @@ import { wrap } from "@/utils/event.utils"
  * REFUNDED — it follows in the same transaction for a same-chain cancel, and on the source
  * chain once the cancellation has travelled through Hyperbridge for a cross-chain one.
  *
- * The status write is guarded inside the service so this cannot regress an order that has
- * already been refunded; see `recordOrderCancellation`.
+ * Cancellation writes its own event and status metadata without updating the shared order
+ * row; see `recordOrderCancellation`.
  */
 export const handleOrderCancelledEventV3 = wrap(async (event: OrderCancelledLog): Promise<void> => {
 	logger.info(`[Intent Gateway V3] Order Cancelled Event: ${stringify(event)}`)

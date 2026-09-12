@@ -1,0 +1,4 @@
+# 2026-09-02 — Harden Simplex-first selection (PR #1196 review)
+
+Wrapped the `buildSimplexPaymasterData` call in `buildPaymasterAndData` in try/catch: a builder failure warns, joins `skipReasons` as `simplex: <message>`, and falls through to Circle instead of aborting selection (previously a throw lost the bid on the `prepareBidUserOp` path). `tokenSupportsPermit` now discriminates contract reverts from transport errors like `paymasterSupportsPermit2` — a transport error propagates (and demotes to Circle) instead of reading as "no permit". Test mock for `version()` updated to throw viem-shaped errors; added selection-level throw tests and a permit-probe transport test.
+Files: `src/services/paymaster/index.ts`, `src/services/paymaster/provider/simplex.ts`, `src/tests/services/PaymasterSelection.test.ts`, `src/tests/services/SimplexPaymaster.test.ts`, `docs/ai/Decisions.md`, `CHANGELOG.md`.

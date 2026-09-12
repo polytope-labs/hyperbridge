@@ -1,0 +1,20 @@
+{
+	"name": "Simplex by Hyperbridge",
+	"short_name": "Simplex",
+	"id": "./",
+	"description": "Configure and operate your Hyperbridge intent solver.",
+	"start_url": "./",
+	"scope": "./",
+	"display": "standalone",
+	"orientation": "any",
+	"theme_color": "#131417",
+	"background_color": "#131417",
+	"icons": [
+		{
+			"src": "./icons/mobile-logo.svg",
+			"sizes": "any",
+			"type": "image/svg+xml",
+			"purpose": "any"
+		}
+	]
+}

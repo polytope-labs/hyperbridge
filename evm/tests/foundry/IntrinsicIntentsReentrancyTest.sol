@@ -147,7 +147,8 @@ contract IntrinsicIntentsReentrancyTest is MainnetForkBaseTest {
                 protocolFeeBps: 0,
                 priceOracle: address(0)
             }),
-            new bytes[](0)
+            new bytes[](0),
+            address(0)
         );
 
         maliciousBeneficiary = new ReentrantBeneficiary(payable(address(intentGateway)));
@@ -176,9 +177,7 @@ contract IntrinsicIntentsReentrancyTest is MainnetForkBaseTest {
             predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
             inputs: inputs,
             output: PaymentInfo({
-                beneficiary: bytes32(uint256(uint160(address(maliciousBeneficiary)))),
-                assets: outputs,
-                call: ""
+                beneficiary: bytes32(uint256(uint160(address(maliciousBeneficiary)))), assets: outputs, call: ""
             })
         });
     }
@@ -203,9 +202,7 @@ contract IntrinsicIntentsReentrancyTest is MainnetForkBaseTest {
             predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
             inputs: inputs,
             output: PaymentInfo({
-                beneficiary: bytes32(uint256(uint160(address(maliciousBeneficiary)))),
-                assets: outputs,
-                call: ""
+                beneficiary: bytes32(uint256(uint160(address(maliciousBeneficiary)))), assets: outputs, call: ""
             })
         });
     }

@@ -511,6 +511,55 @@ fn upgrade_gateway_fails_when_gateway_not_found() {
 }
 
 #[test]
+fn execute_on_gateway_works() {
+	new_test_ext().execute_with(|| {
+		let state_machine = StateMachine::Evm(1);
+		let params = types::IntentGatewayParams {
+			host: H160::default(),
+			dispatcher: H160::default(),
+			solver_selection: true,
+			surplus_share_bps: U256::from(5000),
+			protocol_fee_bps: U256::from(100),
+			price_oracle: H160::default(),
+		};
+		assert_ok!(Intents::add_deployment(
+			RuntimeOrigin::root(),
+			state_machine,
+			H160::default(),
+			params
+		));
+
+		assert_ok!(Intents::execute_on_gateway(
+			RuntimeOrigin::root(),
+			state_machine,
+			vec![0xDE, 0xAD, 0xBE, 0xEF],
+		));
+	});
+}
+
+#[test]
+fn execute_on_gateway_fails_when_gateway_not_found() {
+	new_test_ext().execute_with(|| {
+		assert_noop!(
+			Intents::execute_on_gateway(RuntimeOrigin::root(), StateMachine::Evm(1), vec![]),
+			Error::<Test>::GatewayNotFound
+		);
+	});
+}
+
+#[test]
+fn execute_on_gateway_requires_governance_origin() {
+	new_test_ext().execute_with(|| {
+		assert!(Intents::execute_on_gateway(
+			RuntimeOrigin::signed(AccountId32::new([1; 32])),
+			StateMachine::Evm(1),
+			vec![]
+		)
+		.is_err());
+	});
+}
+
+#[test]
 fn upgrade_gateway_requires_governance_origin() {
 	new_test_ext().execute_with(|| {
 		// A signed (non-governance) origin must be rejected before any gateway lookup.
@@ -1354,6 +1403,10 @@ fn paymaster_actions_fail_when_not_registered() {
 			Intents::withdraw_paymaster_stake(RuntimeOrigin::root(), sm),
 			Error::<Test>::PaymasterNotFound
 		);
+		assert_noop!(
+			Intents::set_paymaster_relayer(RuntimeOrigin::root(), sm, H160::repeat_byte(0x55)),
+			Error::<Test>::PaymasterNotFound
+		);
 	});
 }
 
@@ -1394,6 +1447,27 @@ fn paymaster_governance_actions_dispatch() {
 		));
 		assert_ok!(Intents::unlock_paymaster_stake(RuntimeOrigin::root(), sm));
 		assert_ok!(Intents::withdraw_paymaster_stake(RuntimeOrigin::root(), sm));
+		assert_ok!(Intents::set_paymaster_relayer(
+			RuntimeOrigin::root(),
+			sm,
+			H160::repeat_byte(0x55)
+		));
+	});
+}
+
+#[test]
+fn set_paymaster_relayer_rejects_zero() {
+	new_test_ext().execute_with(|| {
+		let sm = StateMachine::Evm(1);
+		assert_ok!(Intents::add_paymaster_deployment(
+			RuntimeOrigin::root(),
+			sm,
+			H160::repeat_byte(0xAA)
+		));
+		assert_noop!(
+			Intents::set_paymaster_relayer(RuntimeOrigin::root(), sm, H160::zero()),
+			Error::<Test>::InvalidPaymasterRelayer
+		);
 	});
 }
 
@@ -1406,6 +1480,12 @@ fn paymaster_actions_require_governance_origin() {
 			sm,
 			H160::repeat_byte(0x42),
 			vec![]
+		)
+		.is_err());
+		assert!(Intents::set_paymaster_relayer(
+			RuntimeOrigin::signed(AccountId32::new([1; 32])),
+			sm,
+			H160::repeat_byte(0x55)
 		)
 		.is_err());
 	});

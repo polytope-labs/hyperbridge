@@ -713,7 +713,7 @@ export class ContractInteractionService {
 
 		const commitment = orderCommitment(order)
 
-		// Build paymasterAndData — Circle (USDC permit) → Simplex → EntryPoint deposit
+		// Build paymasterAndData — Simplex (Permit2) → EntryPoint deposit
 		const pmResult = await buildPaymasterAndData({
 			chain: order.destination,
 			solverAccount: solverAccountAddress,
@@ -721,10 +721,18 @@ export class ContractInteractionService {
 			walletClient: this.clientManager.getWalletClient(order.destination),
 			signer: this.signer,
 			configService: this.configService,
+			prefund: {
+				baseGas:
+					cachedEstimate.callGasLimit + cachedEstimate.verificationGasLimit + cachedEstimate.preVerificationGas,
+				maxFeePerGas: cachedEstimate.maxFeePerGas,
+			},
+			logger: this.logger,
 		})
 		const paymasterAndData = pmResult.paymasterAndData
 		if (pmResult.type !== "none") {
 			this.logger.info({ paymaster: pmResult.address, type: pmResult.type }, "Using paymaster for bid UserOp")
+		} else {
+			this.logger.warn({ reason: pmResult.reason }, "No paymaster for bid UserOp; relying on EntryPoint deposit")
 		}
 
 		const userOp = await sdkHelper.prepareSubmitBid({
@@ -801,7 +809,7 @@ export class ContractInteractionService {
 		entryPointAddress: HexString,
 		solverAccountAddress: HexString,
 		fillerOutputs: TokenInfo[],
-		acceptedSourceChains?: string[],
+		acceptedSourceChains: string[],
 		uniswapV4PositionIds?: string[],
 	): Promise<{ commitment: HexString; userOp: HexString }> {
 		const sdkHelper = await this.getIntentGateway(order.source, order.destination)
@@ -846,13 +854,13 @@ export class ContractInteractionService {
 			maxFeePerGas: gasPrice,
 			maxPriorityFeePerGas: gasPrice / 10n,
 			callData,
-			paymasterAndData:
-				acceptedSourceChains || uniswapV4PositionIds?.length
-					? encodePhantomBidDeclaration({
-							acceptedSourceChains,
-							uniswapV4Positions: uniswapV4PositionIds?.map((id) => BigInt(id)),
-						})
-					: ("0x" as HexString),
+			// Every phantom bid carries a declaration. The accepted sources are the chains this filler
+			// is configured on, so a bid with none to declare says so explicitly ([]), rather than
+			// leaving the field empty for consumers to read as "any chain".
+			paymasterAndData: encodePhantomBidDeclaration({
+				acceptedSourceChains,
+				uniswapV4Positions: uniswapV4PositionIds?.map((id) => BigInt(id)),
+			}),
 		})
 
 		return { commitment, userOp: encodeUserOpScale(userOp) }

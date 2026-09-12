@@ -77,11 +77,7 @@ dataSources:
           filter:
             modulo: 3600 # Indexings 1 block every 6 hours (6 seconds per block indexing).
 {{/if}}
-{{#if enablePriceIndexing}}
-        - handler: handlePriceIndexing
-          kind: substrate/BlockHandler
-          filter:
-            modulo: 10 # Indexings 1 block every minute (6 seconds per block indexing).
+{{#if enableLiquidityIndexing}}
         - handler: handlePhantomOrderRegistered
           kind: substrate/EventHandler
           filter:
@@ -92,6 +88,8 @@ dataSources:
           filter:
             module: intentsCoprocessor
             method: PhantomBidWindowExhausted
+        - handler: handleInventoryFold
+          kind: substrate/BlockHandler # Every block: folds the EVM nodes' SolverInventoryReading rows into the pool rows this node alone writes.
 {{/if}}
         - handler: handlePendingStatusFlush
           kind: substrate/BlockHandler

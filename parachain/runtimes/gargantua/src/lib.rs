@@ -845,7 +845,17 @@ impl frame_support::traits::Contains<RuntimeCall> for CollatorSelectionCallFilte
 	fn contains(call: &RuntimeCall) -> bool {
 		!matches!(
 			call,
-			RuntimeCall::CollatorSelection(pallet_collator_selection::Call::leave_intent { .. })
+			RuntimeCall::CollatorSelection(
+				pallet_collator_selection::Call::leave_intent { .. } |
+					// `take_candidate_slot` is the inherited pallet's deposit auction: it evicts a
+					// named candidate for one unit more than their bond, with no regard for
+					// reputation. `CollatorManager::new_session` ranks only the stashes still in
+					// `CandidateList`, so an eviction removes an operator's reputation from the
+					// selection domain entirely. Leaving this open lets bonded-but-unreputed
+					// accounts replace the whole candidate set, which is the opposite of what the
+					// reputation-based session manager exists to decide.
+					pallet_collator_selection::Call::take_candidate_slot { .. }
+			)
 		)
 	}
 }
@@ -1432,4 +1442,49 @@ impl_runtime_apis! {
 cumulus_pallet_parachain_system::register_validate_block! {
 	Runtime = Runtime,
 	BlockExecutor = cumulus_pallet_aura_ext::BlockExecutor::<Runtime, Executive>,
+}
+
+#[cfg(test)]
+mod collator_selection_filter_tests {
+	use super::*;
+	use frame_support::traits::Contains;
+
+	fn account(byte: u8) -> AccountId {
+		AccountId::new([byte; 32])
+	}
+
+	/// The deposit auction must stay closed: it evicts a named candidate for one unit over their
+	/// bond, which would let an unreputed but funded account displace a ranked operator.
+	#[test]
+	fn take_candidate_slot_is_filtered() {
+		let call = RuntimeCall::CollatorSelection(
+			pallet_collator_selection::Call::take_candidate_slot {
+				deposit: 1,
+				target: account(1),
+			},
+		);
+		assert!(!CollatorSelectionCallFilter::contains(&call));
+	}
+
+	#[test]
+	fn leave_intent_is_filtered() {
+		let call =
+			RuntimeCall::CollatorSelection(pallet_collator_selection::Call::leave_intent {});
+		assert!(!CollatorSelectionCallFilter::contains(&call));
+	}
+
+	/// The filter must stay narrow: candidates still need to be able to register and to top up
+	/// their own bond, otherwise the collator set cannot be joined or maintained at all.
+	#[test]
+	fn ordinary_candidate_calls_are_not_filtered() {
+		let register = RuntimeCall::CollatorSelection(
+			pallet_collator_selection::Call::register_as_candidate {},
+		);
+		assert!(CollatorSelectionCallFilter::contains(&register));
+
+		let update_bond = RuntimeCall::CollatorSelection(
+			pallet_collator_selection::Call::update_bond { new_deposit: 1 },
+		);
+		assert!(CollatorSelectionCallFilter::contains(&update_bond));
+	}
 }

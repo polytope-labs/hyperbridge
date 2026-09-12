@@ -30,7 +30,11 @@ export function AddressListEditor(props: { addresses: string[]; onChange: (addre
 					<span className="mono" style={{ flex: 1 }}>
 						{address}
 					</span>
-					<button type="button" onClick={() => onChange(addresses.filter((a) => a !== address))}>
+					<button
+						type="button"
+						aria-label={`Remove ${address}`}
+						onClick={() => onChange(addresses.filter((a) => a !== address))}
+					>
 						✕
 					</button>
 				</div>
@@ -38,6 +42,7 @@ export function AddressListEditor(props: { addresses: string[]; onChange: (addre
 			<div className="row">
 				<input
 					type="text"
+					aria-label="EVM address"
 					style={{ flex: 1 }}
 					placeholder="0x…"
 					value={draft}

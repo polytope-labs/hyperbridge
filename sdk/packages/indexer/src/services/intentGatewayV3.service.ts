@@ -16,7 +16,13 @@ const ORDER_TUPLE_TYPE: AbiParameter = (() => {
 	return order as AbiParameter
 })()
 
-import { OrderStatus, PendingStatusMetadata, ProtocolParticipantType, PointsActivityType } from "@/configs/src/types"
+import {
+	InventoryReadingTrigger,
+	OrderStatus,
+	PendingStatusMetadata,
+	ProtocolParticipantType,
+	PointsActivityType,
+} from "@/configs/src/types"
 import { ERC6160Ext20Abi__factory } from "@/configs/src/types/contracts"
 import { IOrderV3 as OrderV3Placed } from "@/configs/src/types/models/IOrderV3"
 import { IOrderV3StatusMetadata } from "@/configs/src/types/models/IOrderV3StatusMetadata"
@@ -40,7 +46,10 @@ import { LiquidityPool } from "@/configs/src/types/models/LiquidityPool"
 import { timestampToDate } from "@/utils/date.helpers"
 import { getHostStateMachine } from "@/utils/substrate.helpers"
 import { canonicalPoolSymbol, poolSlug } from "@/addresses/pool-tokens.addresses"
-import { orientedPoolRates, POOL_RATE_DECIMALS } from "@/services/liquidityPool.service"
+import { INTENT_GATEWAY_V3_ADDRESSES } from "@/intent-gateway-v3-addresses"
+import { orientedPoolRates, poolsForFill, POOL_RATE_DECIMALS } from "@/services/liquidityPool.service"
+import { publishPoolInventory, publishProviderInventory } from "@/services/inventoryReading.service"
+import { inventoryReadContext } from "@/utils/solverBalance"
 
 import { PointsService } from "./points.service"
 import { VolumeService, toScaledUsd } from "./volume.service"
@@ -742,6 +751,87 @@ export class IntentGatewayV3Service {
 				filler,
 			})}`,
 		)
+	}
+
+	/**
+	 * Re-reads the liquidity behind the pools this fill traded through and publishes it, so their
+	 * depth stops advertising inventory the filler has just spent once the Hyperbridge node folds
+	 * the readings in. The pool pair spans two chains — the inputs are escrowed on the source
+	 * chain, the outputs delivered here — so the order row is what makes the pair resolvable; a
+	 * fill indexed before its `OrderPlaced` has no source chain to resolve against and is left to
+	 * the next phantom snapshot.
+	 */
+	static async publishInventoryAfterFill(params: {
+		commitment: string
+		inputs: TokenInfo[]
+		outputs: TokenInfo[]
+		timestamp: bigint
+		blockNumber: number
+	}): Promise<void> {
+		const { commitment, inputs, outputs, timestamp, blockNumber } = params
+		const destChain = getHostStateMachine(chainId)
+
+		const order = await OrderV3Placed.get(commitment)
+		if (!order) return
+
+		const poolIds = poolsForFill({
+			sourceChain: decodeChain(order.sourceChain),
+			inputTokens: inputs.map((input) => input.token),
+			destChain,
+			outputTokens: outputs.map((output) => output.token),
+		})
+		if (poolIds.length === 0) return
+
+		await publishPoolInventory({
+			poolIds,
+			...inventoryReadContext(destChain, blockNumber, timestamp, InventoryReadingTrigger.FILL),
+		})
+	}
+
+	/**
+	 * The filler an escrow release paid, read from the gateway's `_filled` mapping at the event's
+	 * own block. The event itself names no filler, and `_withdraw` writes the beneficiary in the
+	 * same call that emits it, so the mapping is authoritative from that block on — and reading it
+	 * here never depends on the destination chain's node having indexed the fill first.
+	 */
+	static async filledBeneficiary(commitment: string, blockNumber: number): Promise<string | null> {
+		const chain = getHostStateMachine(chainId)
+		const gateway = INTENT_GATEWAY_V3_ADDRESSES[chain as keyof typeof INTENT_GATEWAY_V3_ADDRESSES]
+		if (!gateway) return null
+
+		const selector = ethers.utils.id("_filled(bytes32)").slice(0, 10)
+		const result: string = await (api as any).call(
+			{ to: gateway, data: `${selector}${commitment.replace(/^0x/, "").padStart(64, "0")}` },
+			blockNumber,
+		)
+		if (!result || result === "0x") return null
+		const beneficiary = `0x${result.slice(-40)}`.toLowerCase()
+		return beneficiary === ZERO_ADDRESS ? null : beneficiary
+	}
+
+	/**
+	 * The same publication for an escrow release: the solver has just been paid the order's inputs
+	 * back on the SOURCE chain, so its inventory there rose and every pool it backs in those tokens
+	 * is understating depth.
+	 *
+	 * The event names no filler — the gateway records the beneficiary when `_withdraw` finalizes —
+	 * so the caller resolves it, and a release whose beneficiary is not a known provider publishes
+	 * nothing.
+	 */
+	static async publishInventoryAfterEscrowRelease(params: {
+		provider: string
+		tokens: TokenInfo[]
+		timestamp: bigint
+		blockNumber: number
+	}): Promise<void> {
+		const { provider, tokens, timestamp, blockNumber } = params
+		const chain = getHostStateMachine(chainId)
+
+		await publishProviderInventory({
+			provider: provider.toLowerCase(),
+			tokens: tokens.map((token) => bytes32ToBytes20(token.token).toLowerCase()),
+			...inventoryReadContext(chain, blockNumber, timestamp, InventoryReadingTrigger.ESCROW_RELEASE),
+		})
 	}
 
 	static async recordFill(

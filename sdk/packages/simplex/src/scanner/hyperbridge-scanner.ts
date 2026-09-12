@@ -141,6 +141,13 @@ export class HyperbridgeScanner implements HyperbridgeScannerContract {
 				this.stopPolling = this.coprocessor.pollPhantomOrders(
 					(orders) => this.phantom.publish(orders),
 					{
+						// The poll abandons a backlog too old to bid on rather than walking it; say so,
+						// because a filler that keeps skipping is one that is falling behind the chain.
+						onSkip: ({ from, to, head }) =>
+							this.logger.warn(
+								{ from, to, head, blocks: to - from + 1 },
+								"Phantom order polling fell too far behind to bid; skipping ahead to the head",
+							),
 						onError: (err) => {
 							this.logger.warn({ err }, "Phantom order poll failed, will retry")
 							for (const entry of this.errors) {

@@ -40,7 +40,7 @@ Edit `.env` and fill in at minimum:
 | Variable | Description |
 |---|---|
 | `PRIVATE_KEY` | Hex-encoded private key of the deployer account (no `0x` prefix) |
-| `ADMIN` | Admin address that will govern the deployment |
+| `ADMIN` | Admin address that will govern the deployment. Also the HostManager's admin: the only relayer whose governance deliveries it accepts, until a `SetAdmin` request from Hyperbridge rotates it |
 | `FEE_TOKEN` | TRC-20 fee token address (e.g. USDT on TRON) |
 | `PARA_ID` | Hyperbridge parachain ID |
 | `CONSENSUS_STATE` | Hex-encoded initial BEEFY consensus state |
@@ -144,7 +144,7 @@ HostManager(admin, address(0))
        ▼
 TronHost(hostParams)
        │
-       ├──► HostManager.setIsmpHost(tronHost)
+       ├──► HostManager.init(tronHost)
        │
        ├──► TronHost.setConsensusState(...)   [if CONSENSUS_STATE is set]
        │

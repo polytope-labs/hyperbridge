@@ -84,11 +84,11 @@ export class EventMonitor extends EventEmitter {
 		this.subscription = this.orderScanner.subscribe({
 			onOrder: (event) => {
 				if (!this.chains.has(event.chainId)) return
-				this.handleOrder(event.order, event.transactionHash)
+				this.handleOrder(event.order, event.transactionHash, event.graffiti)
 			},
 			onFill: (event) => {
 				if (!this.chains.has(event.chainId)) return
-				this.handleFill(event.commitment, event.filler, event.chainId)
+				this.handleFill(event.commitment, event.filler, event.chainId, event.transactionHash)
 			},
 			onError: (error, chainId) =>
 				this.logger.error({ chainId, err: error }, "Order scanner reported a scan failure"),
@@ -96,7 +96,7 @@ export class EventMonitor extends EventEmitter {
 		this.logger.info({ chains: [...this.chains] }, "Subscribed to the order scanner")
 	}
 
-	private handleOrder(order: Order, transactionHash: string): void {
+	private handleOrder(order: Order, transactionHash: string, graffiti?: HexString): void {
 		if (order.inputs.length !== 1 || order.output.assets.length !== 1) {
 			this.logger.debug(
 				{ orderId: order.id, inputs: order.inputs.length, outputs: order.output.assets.length },
@@ -121,12 +121,16 @@ export class EventMonitor extends EventEmitter {
 				if (evicted) this.seen.delete(evicted)
 			}
 		}
-		this.emit("newOrder", { order, transactionHash })
+		this.emit("newOrder", { order, transactionHash, graffiti })
 	}
 
-	private handleFill(commitment: HexString, filler: string, chainId: number): void {
+	private handleFill(commitment: HexString, filler: string, chainId: number, transactionHash?: string): void {
+		const ours = filler?.toLowerCase() === this.fillerAddress
+		// Every fill on a configured chain, ours or a rival's: the activity feed
+		// uses it to settle an order's outcome after a bid.
+		this.emit("orderFillObserved", { commitment, filler, chainId, txHash: transactionHash, ours })
 		// Never a topic filter — see the class comment.
-		if (filler?.toLowerCase() !== this.fillerAddress) return
+		if (!ours) return
 		this.logger.info({ chainId, commitment, filler }, "OrderFilled event detected for this filler")
 		this.emit("orderFilledOnChain", { commitment, filler, chainId })
 	}

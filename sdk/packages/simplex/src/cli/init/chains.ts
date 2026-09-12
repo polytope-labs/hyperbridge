@@ -9,8 +9,31 @@ export interface InitChainMeta {
 	alchemySubdomain?: string
 	/** Block explorer base URL (no trailing slash) for transaction links. */
 	explorerUrl?: string
-	/** Extra caveat surfaced next to the chain in prompts. */
+	/** Short operator-facing caveat shown beside the chain in the wizards (e.g. a paymaster limitation). */
 	note?: string
+}
+
+const CHAIN_NATIVE_SYMBOLS: Record<number, string> = {
+	1: "ETH",
+	56: "BNB",
+	97: "BNB",
+	100: "xDAI",
+	130: "ETH",
+	137: "MATIC",
+	250: "FTM",
+	43114: "AVAX",
+	42161: "ETH",
+	8453: "ETH",
+	10: "ETH",
+	80002: "MATIC",
+	84532: "ETH",
+	11155111: "ETH",
+	421614: "ETH",
+}
+
+/** Display symbol for a chain's native gas asset. */
+export function nativeTokenSymbol(chainId: number): string {
+	return CHAIN_NATIVE_SYMBOLS[chainId] ?? "ETH"
 }
 
 export const INIT_CHAINS: InitChainMeta[] = [
@@ -53,7 +76,6 @@ export const INIT_CHAINS: InitChainMeta[] = [
 		network: "mainnet",
 		alchemySubdomain: "bnb-mainnet",
 		explorerUrl: "https://bscscan.com",
-		note: "no Circle paymaster — the filler wallet also needs native BNB for gas",
 	},
 	{
 		chainId: 11155111,
@@ -94,7 +116,6 @@ export const INIT_CHAINS: InitChainMeta[] = [
 		network: "testnet",
 		alchemySubdomain: "bnb-testnet",
 		explorerUrl: "https://testnet.bscscan.com",
-		note: "no Circle paymaster — the filler wallet also needs native tBNB for gas",
 	},
 ]
 

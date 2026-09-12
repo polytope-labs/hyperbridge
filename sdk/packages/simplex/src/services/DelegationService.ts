@@ -1,5 +1,6 @@
 import type { HexString } from "@hyperbridge/sdk"
 import { encodeFunctionData, erc20Abi, formatEther, maxUint256, zeroAddress } from "viem"
+import { encodeERC7821ExecuteBatch } from "@hyperbridge/sdk"
 import type { ChainClientManager } from "./ChainClientManager"
 import type { FillerConfigService } from "./FillerConfigService"
 import { type Logger, moduleLogger } from "./Logger"
@@ -19,14 +20,43 @@ const DELEGATION_TX_GAS_FLOOR = 650_000n
 /** Extra gas for an ERC-20 approve folded into the delegation tx. */
 const BATCHED_APPROVE_GAS = 60_000n
 
+/** callGasLimit for an op carrying `approve(Permit2, max)` through ERC-7821. */
+const BOOTSTRAP_CALL_GAS_LIMIT = 150_000n
+
+/**
+ * The ERC-7821 batch that installs the Permit2 allowance. Shared by the first-time delegation
+ * op and by {@link DelegationService.ensurePermit2Allowance}, so the two carriers can never
+ * drift into approving different amounts or spenders.
+ */
+function bootstrapCallData(approval: { token: HexString; spender: HexString }): HexString {
+	return encodeERC7821ExecuteBatch([
+		{
+			target: approval.token,
+			value: 0n,
+			data: encodeFunctionData({
+				abi: erc20Abi,
+				functionName: "approve",
+				args: [approval.spender, maxUint256],
+			}),
+		},
+	])
+}
+
 /**
  * Service for managing EIP-7702 delegation of the filler's EOA to the SolverAccount contract.
  * This enables the filler to participate in solver selection mode.
  *
- * When a paymaster (Circle or Simplex) is configured and the filler holds stablecoins,
- * delegation is performed via a no-op UserOp sent through the bundler — the paymaster
- * pays gas in stablecoins, so the solver never needs native tokens. Falls back to a
- * direct type-0x04 tx if the bundler path is unavailable.
+ * When the Simplex paymaster is configured and the filler holds stablecoins already
+ * approved to Permit2, delegation is performed via a no-op UserOp sent through the
+ * bundler — the paymaster pays gas in stablecoins. Falls back to a direct type-0x04 tx
+ * if the bundler path is unavailable.
+ *
+ * The paymaster prefunds through Permit2, which needs a standing token approval to the
+ * Permit2 contract. On a chain the solver has never used, the delegation op installs
+ * that approval itself and pays for the privilege with an EIP-2612 permit, so a
+ * permit-capable fee token bootstraps with no native at all. A token without a permit
+ * (BNB Chain) still needs native dust once, for the type-0x04 tx that batches the
+ * approve in. Every op after that is native-free either way.
  */
 export class DelegationService {
 	private logger: Logger
@@ -147,7 +177,7 @@ export class DelegationService {
 	 */
 	private async resolvePendingPermit2Approval(
 		chain: string,
-	): Promise<{ token: HexString; spender: HexString } | null> {
+	): Promise<{ token: HexString; spender: HexString; permitCapable: boolean } | null> {
 		try {
 			const paymaster = this.configService.getSimplexPaymasterAddress(chain)
 			if (!paymaster) return null
@@ -202,10 +232,20 @@ export class DelegationService {
 	}
 
 	/**
-	 * Sets up EIP-7702 delegation via the bundler with a no-op UserOp.
-	 * Uses the Circle Paymaster (USDC permit) when available and filler has USDC balance.
+	 * Sets up EIP-7702 delegation via the bundler. Uses the Simplex paymaster when
+	 * configured and the filler holds a sufficient stablecoin balance.
+	 *
+	 * The op is a no-op once the account has a Permit2 allowance. On a chain it has
+	 * never used, and only when the fee token implements EIP-2612 (`permitCapable`),
+	 * the op instead carries `approve(Permit2, max)` as its callData and asks the
+	 * paymaster for PERMIT mode: the permit covers this op's gas, and the op installs
+	 * the allowance every later op authorizes against. That is the whole zero-native
+	 * bootstrap — one sponsored op, after which the account never needs a permit again.
 	 */
-	private async setupDelegationViaBundler(chain: string): Promise<boolean> {
+	private async setupDelegationViaBundler(
+		chain: string,
+		pendingApproval?: { token: HexString; spender: HexString; permitCapable: boolean } | null,
+	): Promise<boolean> {
 		const solverAccountContract = this.configService.getSolverAccountContractAddress(chain)
 
 		if (!solverAccountContract || !this.userOpSender.canSponsor(chain)) {
@@ -223,22 +263,26 @@ export class DelegationService {
 			// ops is unreliable (Alchemy echoes the input limits rather than simulating).
 			//
 			// A FRESH delegation (EOA has no code) burns far more verification gas on
-			// first-time cold storage, so the proven 150k account + default 200k paymaster
-			// limits clear rundler's verification-efficiency policy. A RE-delegation
-			// (EOA already delegated) uses much less (warm slots, paymaster allowance
-			// reused) — actual ~96k — so those loose limits fall below the 0.4 floor
-			// (`actual / (accountVerif + paymasterVerif)`). Tighten both verification
-			// limits for that case so the ratio clears 0.4 while still covering usage.
+			// first-time cold storage, so the proven 150k account limit clears rundler's
+			// verification-efficiency policy. A RE-delegation (EOA already delegated) uses
+			// much less (warm slots) — actual ~96k — so a loose limit falls below the 0.4
+			// floor (`actual / (accountVerif + paymasterVerif)`). Tighten the account
+			// verification limit for that case so the ratio clears 0.4 while still covering
+			// usage.
 			//
-			// The tightened paymaster limit assumes the allowance is still in place. When
-			// it has been depleted (or was never set on this chain — e.g. re-delegating
-			// from an older SolverAccount), the Circle builder ignores the override and
-			// keeps its 200k default: the permit executed during validation needs ~113k
-			// on its own and would OOG the paymaster frame (bundler AA33) at 110k.
+			// Only the account side is tuned here: the paymaster packs its own limit
+			// (VERIFICATION_GAS_LIMIT_PERMIT2, 200k), charged to the paymaster frame.
 			const code = await this.clientManager.getPublicClient(chain).getCode({
 				address: this.signer.address as HexString,
 			})
 			const isFreshEoa = !code || code === "0x"
+
+			// Bootstrap only when the token can pay for it: without a permit the paymaster
+			// would have to land a native-funded approve first, and that same approve would
+			// then make this op's callData a non-zero → non-zero change the USDT rule
+			// rejects. Those chains stay on the no-op op and the native fallbacks.
+			const bootstrap = !!pendingApproval?.permitCapable
+			const callData = bootstrap ? bootstrapCallData(pendingApproval!) : ("0x" as HexString)
 
 			// The EIP-7702 authorization rides inside the UserOp so a not-yet-delegated
 			// EOA is delegated in the op (bundler submits the tx, so it uses the current
@@ -247,13 +291,16 @@ export class DelegationService {
 			// a tx from this same EOA at that step, invalidating an earlier authorization.
 			const result = await this.userOpSender.trySendSponsored({
 				chain,
-				callData: "0x" as HexString,
+				callData,
 				eip7702Auth: () => this.buildAuthorization(chain, solverAccountContract, true),
-				gas: isFreshEoa
-					? { verificationGasLimit: 150_000n, callGasLimit: 50_000n, preVerificationGas: 100_000n }
-					: { verificationGasLimit: 80_000n, callGasLimit: 50_000n, preVerificationGas: 100_000n },
-				paymasterVerificationGasLimit: isFreshEoa ? undefined : 110_000n,
-				skipPermit: true,
+				gas: {
+					verificationGasLimit: isFreshEoa ? 150_000n : 80_000n,
+					// The no-op needs almost nothing; the bootstrap runs an approve through
+					// ERC-7821 `execute`, a cold SSTORE plus dispatch overhead.
+					callGasLimit: bootstrap ? BOOTSTRAP_CALL_GAS_LIMIT : 50_000n,
+					preVerificationGas: 100_000n,
+				},
+				permitBootstrap: bootstrap,
 			})
 
 			if (result) {
@@ -277,10 +324,82 @@ export class DelegationService {
 	}
 
 	/**
+	 * Installs `approve(Permit2, max)` on an account that is ALREADY delegated, using the same
+	 * permit-funded op the first-time delegation carries — minus the authorization, which it
+	 * does not need.
+	 *
+	 * This exists because delegation and bootstrap are separate facts. An account delegated by
+	 * an earlier release has no Permit2 allowance (that release charged EIP-2612 permits and
+	 * never touched Permit2), and `setupDelegation` returns before the bootstrap once
+	 * `isDelegated` holds. Leaving it there strands every upgraded solver on the native-funded
+	 * approve path.
+	 *
+	 * Best-effort and never throws: on failure the first sponsored op still falls back to
+	 * `sendFundedApprove`, which works for a solver holding native.
+	 */
+	private async ensurePermit2Allowance(chain: string): Promise<void> {
+		if (!this.userOpSender.canSponsor(chain)) return
+
+		const pending = await this.resolvePendingPermit2Approval(chain)
+		if (!pending) return
+		if (!pending.permitCapable) {
+			// No permit means no way to pay for this op without native, and a solver that holds
+			// native can let the first sponsored op send the approve itself.
+			this.logger.info(
+				{ chain, token: pending.token },
+				"Fee token has no permit; its Permit2 approval defers to the first sponsored op's funded approve",
+			)
+			return
+		}
+
+		this.logger.info(
+			{ chain, token: pending.token },
+			"Installing the Permit2 allowance with a permit-funded UserOp",
+		)
+		try {
+			const result = await this.userOpSender.trySendSponsored({
+				chain,
+				callData: bootstrapCallData(pending),
+				// No authorization and warm account storage, so the account side is the
+				// re-delegation figure; the paymaster packs its own PERMIT limit.
+				gas: {
+					verificationGasLimit: 80_000n,
+					callGasLimit: BOOTSTRAP_CALL_GAS_LIMIT,
+					preVerificationGas: 100_000n,
+				},
+				permitBootstrap: true,
+			})
+			if (result) {
+				this.logger.info({ chain, txHash: result.txHash }, "Permit2 allowance installed — paymaster paid gas")
+				return
+			}
+			this.logger.warn(
+				{ chain },
+				"Permit-funded Permit2 approval unavailable; the first sponsored op will need a native-funded approve",
+			)
+		} catch (error) {
+			this.logger.warn(
+				{ chain, error },
+				"Permit-funded Permit2 approval failed; the first sponsored op will need a native-funded approve",
+			)
+		}
+	}
+
+	/**
 	 * Sets up EIP-7702 delegation from the filler's EOA to the SolverAccount contract.
 	 *
-	 * Tries bundler path first (paymaster pays gas in ERC-20).
-	 * Falls back to direct type-0x04 tx if bundler path fails.
+	 * A fee token with no Permit2 allowance yet cannot be charged through Permit2, so the
+	 * approve has to be installed by the very first operation. Which carrier does that
+	 * depends on the token:
+	 *
+	 * - EIP-2612 token: the bundler goes first and the op pays for itself with a permit
+	 *   while carrying the approve in its callData. No native is spent, so this is
+	 *   preferred even on an EOA that holds some.
+	 * - No permit (BSC pegged stables): only a native type-0x04 tx can carry the approve,
+	 *   so that goes first when the EOA covers it.
+	 *
+	 * With nothing pending — the allowance is already in place — the bundler path goes
+	 * first as usual. A plain direct tx is the last fallback in every case.
 	 */
 	async setupDelegation(chain: string): Promise<boolean> {
 		const solverAccountContract = this.configService.getSolverAccountContractAddress(chain)
@@ -292,55 +411,36 @@ export class DelegationService {
 
 		if (await this.isDelegated(chain)) {
 			this.logger.info({ chain }, "EOA already delegated to SolverAccount")
+			// Delegated does NOT imply bootstrapped. An account delegated by a release that
+			// charged EIP-2612 permits has no Permit2 allowance at all, and the delegation op
+			// that would have installed one never runs again. Without this, the first sponsored
+			// op falls into a native-funded approve — the exact trap the 2026-09-02 `skipPermit`
+			// entry in docs/ai/Decisions.md records hitting on Base and Arbitrum.
+			await this.ensurePermit2Allowance(chain)
 			return true
 		}
 
-		// Try bundler path first (paymaster pays gas)
-		if (hasPaymaster(chain, this.configService)) {
-			const success = await this.setupDelegationViaBundler(chain)
-			if (success) return true
-			this.logger.info({ chain }, "Falling back to direct delegation tx")
-		}
-
-		// Fallback: direct type-0x04 transaction (requires native token)
-		const publicClient = this.clientManager.getPublicClient(chain)
 		const authority = this.signer.address as HexString
 
-		// The direct tx pays gas in native ETH. If the EOA can't cover it, delegation fails
-		// outright (the paymaster path already failed too) — surface the deficit explicitly.
-		const [nativeBalance, gasPrice] = await Promise.all([
-			publicClient.getBalance({ address: authority }),
-			publicClient.getGasPrice(),
-		])
-		const requiredNative = DELEGATION_TX_GAS_FLOOR * gasPrice
-		if (nativeBalance < requiredNative) {
-			this.logger.error(
-				{
-					chain,
-					authority,
-					nativeBalance: formatEther(nativeBalance),
-					requiredNative: formatEther(requiredNative),
-				},
-				"Delegation failed: insufficient native balance for direct EIP-7702 tx and paymaster path unavailable",
-			)
-			return false
-		}
-
-		this.logger.info(
-			{ chain, authority, solverAccountContract, mode: this.signer.mode ?? "custom" },
-			"Setting up EIP-7702 delegation via direct tx",
-		)
-
-		// Fold the one-time Permit2 approval into this native tx when the chain needs it, so
-		// a no-permit fee token costs one native tx (delegate + approve) rather than two.
 		// The approve is the tx payload, so a token that rejects it (a blacklist, insufficient
 		// batched gas) reverts the whole tx with it. The batched attempt is best-effort: a
 		// reverted tx usually still delegated (EIP-7702 applies authorization tuples before
 		// execution and keeps them applied when execution reverts), and only a genuinely
-		// undelegated account retries as a plain self-call; the approval then defers to the
-		// first sponsored op's own funded approve.
+		// undelegated account carries on to the sponsored path; the approval then defers to
+		// the first sponsored op's own funded approve.
+		//
+		// A permit-capable token skips this: its approve rides the sponsored op instead,
+		// which costs the operator stablecoins rather than native.
 		const pendingApproval = await this.resolvePendingPermit2Approval(chain)
-		if (pendingApproval) {
+		if (
+			pendingApproval &&
+			!pendingApproval.permitCapable &&
+			(await this.nativeCoversDirectTx(chain, authority)).covered
+		) {
+			this.logger.info(
+				{ chain, authority, solverAccountContract, token: pendingApproval.token },
+				"Setting up EIP-7702 delegation via direct tx with the Permit2 approve batched in",
+			)
 			if (await this.trySendDelegation(chain, solverAccountContract, pendingApproval)) {
 				return true
 			}
@@ -351,9 +451,51 @@ export class DelegationService {
 				)
 				return true
 			}
-			this.logger.warn({ chain }, "Batched delegate+approve failed; retrying delegation without the approve")
+			this.logger.warn({ chain }, "Batched delegate+approve failed; trying the sponsored path")
 		}
+
+		if (hasPaymaster(chain, this.configService)) {
+			const success = await this.setupDelegationViaBundler(chain, pendingApproval)
+			if (success) return true
+			this.logger.info({ chain }, "Falling back to direct delegation tx")
+		}
+
+		// Fallback: direct type-0x04 transaction (requires native token). If the EOA can't
+		// cover it, delegation fails outright (the paymaster path already failed too), so
+		// surface the deficit explicitly.
+		const native = await this.nativeCoversDirectTx(chain, authority)
+		if (!native.covered) {
+			this.logger.error(
+				{
+					chain,
+					authority,
+					nativeBalance: formatEther(native.nativeBalance),
+					requiredNative: formatEther(native.requiredNative),
+				},
+				"Delegation failed: insufficient native balance for direct EIP-7702 tx and paymaster path unavailable",
+			)
+			return false
+		}
+
+		this.logger.info(
+			{ chain, authority, solverAccountContract, mode: this.signer.mode ?? "custom" },
+			"Setting up EIP-7702 delegation via direct tx",
+		)
 		return this.trySendDelegation(chain, solverAccountContract, undefined)
+	}
+
+	/** Whether the EOA can pay for one direct set-code tx at the current gas price. */
+	private async nativeCoversDirectTx(
+		chain: string,
+		authority: HexString,
+	): Promise<{ covered: boolean; nativeBalance: bigint; requiredNative: bigint }> {
+		const publicClient = this.clientManager.getPublicClient(chain)
+		const [nativeBalance, gasPrice] = await Promise.all([
+			publicClient.getBalance({ address: authority }),
+			publicClient.getGasPrice(),
+		])
+		const requiredNative = DELEGATION_TX_GAS_FLOOR * gasPrice
+		return { covered: nativeBalance >= requiredNative, nativeBalance, requiredNative }
 	}
 
 	/**

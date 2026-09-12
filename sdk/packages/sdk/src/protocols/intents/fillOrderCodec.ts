@@ -15,8 +15,15 @@ import type { FillOptions, HexString, Order } from "@/types"
  */
 export type FillOptionsVersion = 1 | 2
 
-/** The v1 `fillOrder`, kept only so we can still talk to deployments that predate `validUntil`. */
-const FILL_ORDER_V1_ABI = [
+/**
+ * The v1 `fillOrder`, kept only so we can still talk to deployments that predate `validUntil`.
+ *
+ * Exported because consumers that cannot use {@link decodeFillOrder} still have to accept both
+ * shapes. The indexer decodes bid calldata with ethers rather than viem (viem's byte handling
+ * throws inside SubQuery's VM2 sandbox), so it rebuilds this decode itself and needs the same
+ * definition rather than a second copy that can drift out of step with this one.
+ */
+export const FILL_ORDER_V1_ABI = [
 	{
 		type: "function",
 		name: "fillOrder",

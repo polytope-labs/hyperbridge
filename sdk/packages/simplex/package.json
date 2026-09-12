@@ -1,8 +1,8 @@
 {
 	"name": "@hyperbridge/simplex",
-	"version": "0.12.0",
+	"version": "0.16.2",
 	"license": "Apache-2.0",
-	"description": "Automated intent filler for the Hyperbridge IntentGateway \u2014 run it as a binary or embed it as a library",
+	"description": "Automated intent filler for the Hyperbridge IntentGateway — run it as a binary or embed it as a library",
 	"main": "dist/index.js",
 	"types": "dist/index.d.ts",
 	"type": "module",
@@ -40,6 +40,8 @@
 		"build": "bash ./scripts/build.sh",
 		"prepublishOnly": "npm run build",
 		"test": "pnpm run codegen && vitest --watch=false --maxConcurrency=1",
+		"test:data": "pnpm run codegen && vitest --watch=false --maxConcurrency=1 src/tests/data",
+		"test:unit": "pnpm run codegen && vitest --watch=false --maxConcurrency=1 src/tests/cli src/tests/logger.test.ts",
 		"test:filler": "pnpm run codegen && vitest --watch=false --maxConcurrency=1 --testTimeout=1000000 src/tests/pairs.test.ts src/tests/strategies/fx.curve-payout.test.ts src/tests/strategies/fx.testnet.test.ts src/tests/quorum-public-client.test.ts",
 		"test:basic:testnet": "pnpm run codegen && vitest --watch=false --maxConcurrency=1 --testTimeout=1000000 src/tests/strategies/basic.testnet.test.ts",
 		"test:fx": "pnpm run codegen && vitest --watch=false --maxConcurrency=1 --testTimeout=1000000 src/tests/strategies/fx.mainnet.test.ts",
@@ -55,6 +57,7 @@
 		"lint:fix": "pnpm run codegen && biome lint --write src/bin src/cli src/config src/core src/data src/services src/strategies src/tests src/index.ts src/simplex.ts",
 		"format": "pnpm run codegen && prettier --write \"src/**/*.ts\"",
 		"ui:build": "vite build --config ui/vite.config.ts",
+		"ui:check": "biome check ui/src && tsc --noEmit -p ui/tsconfig.json && vite build --config ui/vite.config.ts",
 		"ui:dev": "vite --config ui/vite.config.ts",
 		"cli": "pnpm run codegen && NODE_NO_WARNINGS=1 tsx src/bin/simplex.ts",
 		"cli:dev": "pnpm run codegen && nodemon --watch src --ext ts --exec tsx src/bin/simplex.ts",
@@ -62,13 +65,15 @@
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^1.9.4",
-		"@types/better-sqlite3": "^9.6.0",
 		"@types/node": "^22.13.5",
+		"@types/qrcode": "^1.5.6",
 		"@types/react": "^19.2.17",
 		"@types/react-dom": "^19.2.3",
+		"@types/ssh2": "^1.15.5",
 		"@vitejs/plugin-react": "^6.0.2",
 		"@vitest/coverage-v8": "^3.0.7",
 		"nodemon": "^3.1.0",
+		"qrcode": "^1.5.4",
 		"react": "^19.2.7",
 		"react-dom": "^19.2.7",
 		"tronweb": "^6.2.0",
@@ -78,16 +83,16 @@
 		"typescript": "^5.7.3",
 		"vite": "^8.0.16",
 		"vite-tsconfig-paths": "^5.1.4",
-		"vitest": "^3.0.7",
-		"better-sqlite3": "^13.0.3"
+		"vitest": "^3.0.7"
 	},
 	"publishConfig": {
 		"access": "public"
 	},
 	"engines": {
-		"node": ">=22.0.0"
+		"node": ">=22.16.0"
 	},
 	"dependencies": {
+		"@base-ui/react": "^1.8.0",
 		"@binance/wallet": "^16.0.0",
 		"@bufbuild/protobuf": "^2.2.3",
 		"@circle-fin/adapter-viem-v2": "1.4.0",
@@ -95,9 +100,13 @@
 		"@clack/prompts": "^1.5.1",
 		"@grpc/grpc-js": "^1.12.5",
 		"@hyperbridge/sdk": "workspace:*",
+		"@hyperbridge/ui": "^0.0.33",
 		"@polkadot/api": "^16.5.6",
 		"@polkadot/util": "^14.0.3",
 		"@polkadot/util-crypto": "^14.0.3",
+		"@radix-ui/react-collapsible": "^1.1.20",
+		"@radix-ui/react-dialog": "^1.1.23",
+		"@radix-ui/react-select": "^2.3.7",
 		"@safe-global/api-kit": "^3.0.1",
 		"@safe-global/protocol-kit": "^6.0.4",
 		"@safe-global/types-kit": "^2.0.1",
@@ -115,6 +124,8 @@
 		"pino": "~10.3.1",
 		"pino-pretty": "^11.3.0",
 		"scale-ts": "^1.6.1",
+		"sonner": "^2.0.7",
+		"ssh2": "^1.17.0",
 		"toml": "^3.0.0",
 		"viem": "2.47.6"
 	},
@@ -139,9 +150,5 @@
 	},
 	"sideEffects": [
 		"src/bin/quiet.ts"
-	],
-	"optionalDependencies": {
-		"better-sqlite3": "^13.0.3",
-		"@types/better-sqlite3": "^7.6.13"
-	}
+	]
 }

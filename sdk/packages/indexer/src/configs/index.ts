@@ -10,7 +10,8 @@ const evmContractsSchema = z.object({
 	handlerV1: z.string().min(3, "Invalid Ethereum address"),
 	erc6160ext20: z.string().min(3, "Invalid Ethereum address"),
 	intentGatewayV3: z.string().optional(),
-	solverAccount: z.string().optional(),
+	// One address, or several so bids from solvers still delegated to a replaced SolverAccount count.
+	solverAccount: z.union([z.string(), z.array(z.string())]).optional(),
 	yieldVaults: z
 		.record(
 			z.string(),

@@ -9,6 +9,8 @@
  * is given.
  */
 import type { HexString } from "@hyperbridge/sdk"
+import type { ChannelCredentials } from "@grpc/grpc-js"
+import type { Logger } from "../Logger"
 
 export interface MpcVaultClientConfig {
 	apiToken: string
@@ -20,6 +22,14 @@ export interface MpcVaultClientConfig {
 	 * Replaces the previous REST `baseUrl` field.
 	 */
 	grpcTarget?: string
+	/**
+	 * Destination for signing lifecycle logs. Defaults to the process-wide
+	 * context, which an embedded filler's `SimplexOptions.logger` never sees —
+	 * pass your own to capture retries and failures in that setup.
+	 */
+	logger?: Logger
+	/** Channel credentials override for tests against a plaintext server. Defaults to TLS. */
+	credentials?: ChannelCredentials
 }
 
 export interface MpcVaultSignerConfig {
@@ -32,6 +42,14 @@ export interface MpcVaultSignerConfig {
 	 * Replaces the previous REST `baseUrl` field.
 	 */
 	grpcTarget?: string
+	/**
+	 * Destination for signing lifecycle logs. Defaults to the process-wide
+	 * context, which an embedded filler's `SimplexOptions.logger` never sees —
+	 * pass your own to capture retries and failures in that setup.
+	 */
+	logger?: Logger
+	/** Channel credentials override for tests against a plaintext server. Defaults to TLS. */
+	credentials?: ChannelCredentials
 }
 
 export enum SignerType {

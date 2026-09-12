@@ -1,7 +1,9 @@
 import { defineConfig } from "tsup"
 
 /** Native and worker-spawning modules that must never be inlined into a bundle. */
-const ALWAYS_EXTERNAL = ["better-sqlite3", "@solana/spl-token", "@solana/web3.js", "pino", "pino-pretty", "thread-stream"]
+// ssh2 probes for an optional native crypto binding relative to its own package
+// directory, so inlining it sends that lookup into dist/ instead.
+const ALWAYS_EXTERNAL = ["@solana/spl-token", "@solana/web3.js", "pino", "pino-pretty", "thread-stream", "ssh2"]
 
 /**
  * Dependencies inlined into the library build despite the general rule.
@@ -19,6 +21,17 @@ const ALWAYS_EXTERNAL = ["better-sqlite3", "@solana/spl-token", "@solana/web3.js
  */
 const BUNDLE_INTO_LIBRARY = [/^@uniswap\//, /^ethers($|\/)/]
 
+/**
+ * tsup 8 rewrites `node:foo` imports to bare `foo` by default
+ * (`removeNodeProtocol`, flipped to false in tsup 9). For most builtins that is
+ * harmless — `fs` and `path` resolve either way — but `node:sqlite` has no
+ * unprefixed alias, so a stripped import is an ERR_MODULE_NOT_FOUND the moment
+ * the binary starts. Nothing catches it in the test suite, which runs from
+ * source where no rewriting happens; `scripts/build.sh` greps the bundle for it
+ * instead.
+ */
+const KEEP_NODE_PROTOCOL = { removeNodeProtocol: false } as const
+
 const ESM_REQUIRE_SHIM = {
 	js: "import { createRequire } from 'module'; const require = createRequire(import.meta.url);",
 }
@@ -34,15 +47,16 @@ export default defineConfig([
 	{
 		entry: { index: "src/index.ts", sqlite: "src/data/sqlite/index.ts" },
 		format: ["esm", "cjs"],
+		...KEEP_NODE_PROTOCOL,
 		dts: true,
 		splitting: false,
 		sourcemap: true,
 		clean: true,
 		shims: true,
 		noExternal: BUNDLE_INTO_LIBRARY,
-		// tsup externalizes `dependencies` and `peerDependencies` automatically but
-		// not `optionalDependencies`, so better-sqlite3 has to be named here or its
-		// loader gets inlined and hunts for the native binding relative to dist/.
+		// tsup externalizes `dependencies` and `peerDependencies` automatically;
+		// the list above is for modules reached transitively, which it would
+		// otherwise inline.
 		external: ALWAYS_EXTERNAL,
 		esbuildOptions(options, context) {
 			if (context.format === "esm") options.banner = ESM_REQUIRE_SHIM
@@ -59,6 +73,7 @@ export default defineConfig([
 		// Keyed, not a bare path: with one entry tsup would flatten the output to
 		// dist/simplex.js and break the `bin` mapping.
 		entry: { "bin/simplex": "src/bin/simplex.ts" },
+		...KEEP_NODE_PROTOCOL,
 		// ESM only: `bin` and the docker ENTRYPOINT both execute simplex.js, so a
 		// CJS twin was 15 MB of tarball nothing ever ran. Dropping it pays for the
 		// map below.

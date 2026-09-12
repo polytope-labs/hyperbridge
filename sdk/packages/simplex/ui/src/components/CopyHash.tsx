@@ -1,32 +1,33 @@
-import { useState } from "react"
+import { type ReactNode, useState } from "react"
+import { CheckIcon, CopyIcon } from "./InterfaceIcons"
 
 /** Truncated hash with a click-to-copy button for the full value. */
-export function CopyHash(props: { value: string; chars?: number }) {
+export function CopyHash(props: { value: string; chars?: number; copyLabel?: string; children?: ReactNode }) {
+	const { value, chars = 10, copyLabel = "Copy value", children } = props
 	const [copied, setCopied] = useState(false)
-	const chars = props.chars ?? 10
-
-	const copy = async () => {
-		try {
-			await navigator.clipboard.writeText(props.value)
-			setCopied(true)
-			setTimeout(() => setCopied(false), 1200)
-		} catch {
-			// clipboard unavailable — the title attribute still exposes the full value
-		}
+	const copy = () => {
+		void navigator.clipboard
+			.writeText(value)
+			.then(() => {
+				setCopied(true)
+				window.setTimeout(() => setCopied(false), 1200)
+			})
+			.catch(() => setCopied(false))
 	}
 
 	return (
-		<span className="row" style={{ gap: "0.3rem", display: "inline-flex" }}>
-			<span className="mono" title={props.value}>
-				{props.value.length > chars ? `${props.value.slice(0, chars)}…` : props.value}
+		<span className="copy-value">
+			<span className="copy-value-text mono" title={value}>
+				{children ?? (value.length > chars ? `${value.slice(0, chars)}…` : value)}
 			</span>
 			<button
 				type="button"
-				title="Copy full hash"
+				className="copy-value-button"
+				aria-label={copied ? "Copied" : copyLabel}
+				title={copied ? "Copied" : copyLabel}
 				onClick={copy}
-				style={{ padding: "0 0.4rem", fontSize: "0.75rem", lineHeight: "1.4" }}
 			>
-				{copied ? "✓" : "⧉"}
+				{copied ? <CheckIcon aria-hidden="true" /> : <CopyIcon aria-hidden="true" />}
 			</button>
 		</span>
 	)

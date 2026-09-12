@@ -29,7 +29,7 @@ import type { ResumeIntentOrderOptions } from "@/types"
 import type { IEvmChain } from "@/chain"
 import type { IntentsCoprocessor } from "@/chains/intentsCoprocessor"
 import type { IsmpClient } from "@/client"
-import { chainConfigs, getConfigByStateMachineId } from "@/configs/chain"
+import { Chains, chainConfigs, getConfigByStateMachineId } from "@/configs/chain"
 import { _queryOrderInternal } from "@/queryClient"
 import type { IntentGatewayContext } from "./types"
 import type { CancelEvent } from "./types"
@@ -65,7 +65,28 @@ import {
 } from "@/utils"
 import { getFeeToken } from "./utils"
 
-const CROSS_CHAIN_ORDER_FEE_GAS_PRICE_BUMP_PERCENT = 10n
+interface OrderFeeGasPriceBumpPolicy {
+	defaultPercent: bigint
+	bySourceStateMachineId: Readonly<Record<string, bigint>>
+}
+
+const ORDER_FEE_GAS_PRICE_BUMP_POLICY: OrderFeeGasPriceBumpPolicy = {
+	defaultPercent: 10n,
+	bySourceStateMachineId: {
+		[Chains.MAINNET]: 50n,
+	},
+}
+
+function resolveOrderFeeGasPriceBump(sourceStateMachineId: string, isSameChain: boolean): bigint {
+	if (isSameChain) {
+		return 0n
+	}
+
+	return (
+		ORDER_FEE_GAS_PRICE_BUMP_POLICY.bySourceStateMachineId[sourceStateMachineId] ??
+		ORDER_FEE_GAS_PRICE_BUMP_POLICY.defaultPercent
+	)
+}
 
 /**
  * High-level facade for the IntentGatewayV2 protocol.
@@ -331,8 +352,9 @@ export class IntentGateway {
 	 * **Yield/receive protocol:**
 	 * 1. If `order.fees` is unset or zero, prices the fee on an internal copy
 	 *    via {@link quoteOrderFees}: same-chain fees are twice the fill-gas
-	 *    estimate without a gas-price bump; cross-chain gas is priced 10% above
-	 *    the live price before attaching (fill gas + the settlement relayer fee)
+	 *    estimate without a gas-price bump; cross-chain order fees originating on
+	 *    Ethereum price gas 50% above the live price, while other source chains use
+	 *    10%, before attaching (fill gas + the settlement relayer fee)
 	 *    with a further 5% buffer over the whole sum — strictly above the solver's
 	 *    unpadded requirement. Direct solver estimates remain unbumped. The wei
 	 *    cost used for the `value` field receives a 2% buffer.
@@ -780,7 +802,8 @@ export class IntentGateway {
 	 * transaction (check the native balance).
 	 *
 	 * @param order - The order to quote. `order.fees` is ignored and not mutated.
-	 * Gas prices used to derive cross-chain `fees` receive 10% SDK-only headroom.
+	 * Gas prices used to derive cross-chain `fees` receive 50% SDK-only headroom
+	 * when the source chain is Ethereum mainnet and 10% for other source chains.
 	 * Same-chain quotes and direct calls to {@link estimateFillOrder}, including
 	 * Simplex solver estimates, remain unbumped.
 	 *
@@ -794,15 +817,14 @@ export class IntentGateway {
 		options?: { maxPriorityFeePerGasBumpPercent?: number; maxFeePerGasBumpPercent?: number },
 	): Promise<OrderFeesQuote> {
 		const isSameChain = this.source.config.stateMachineId === this.dest.config.stateMachineId
+		const orderFeeGasPriceBumpPercent = resolveOrderFeeGasPriceBump(this.source.config.stateMachineId, isSameChain)
 		const estimate = await this.gasEstimator.estimateFillOrder(
 			{
 				order,
 				maxPriorityFeePerGasBumpPercent: options?.maxPriorityFeePerGasBumpPercent,
 				maxFeePerGasBumpPercent: options?.maxFeePerGasBumpPercent,
 			},
-			{
-				orderFeeGasPriceBumpPercent: isSameChain ? 0n : CROSS_CHAIN_ORDER_FEE_GAS_PRICE_BUMP_PERCENT,
-			},
+			{ orderFeeGasPriceBumpPercent },
 		)
 
 		if (estimate.totalGasCostWei === 0n || estimate.totalGasInFeeToken === 0n) {

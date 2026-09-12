@@ -1,5 +1,68 @@
 # @hyperbridge/filler
 
+## 0.14.0
+
+### Minor Changes
+
+- The Simplex paymaster's APPROVE mode is gone. A fee token with EIP-2612 always pays by permit; a token without it pays through Permit2, bootstrapped once with `approve(Permit2, max)`. A standing allowance to the paymaster is no longer read or created, and when Permit2 is unavailable on a chain, or the paymaster deployment does not expose `PERMIT2()`, the Simplex paymaster is skipped for that operation with the reason logged. Release after the live paymaster proxies are upgraded: against a paymaster from before PERMIT2 mode, a solver holding only a no-permit token (Ethereum USDT) is not sponsored by Simplex.
+- The paymaster contract now accepts governance deliveries from one authorised relayer only (rotated by the new `set_paymaster_relayer` extrinsic), and refuses mode byte `0x01`.
+- On a chain whose fee token has no EIP-2612 permit, first-time delegation now sends one native transaction that delegates and approves Permit2 together, instead of a native approve followed by a sponsored operation, whenever the solver holds native for it.
+
+### Patch Changes
+
+- Phantom bids now declare every configured chain as an accepted source, so the indexer can publish routes for the filler's depth. The optional `simplex.acceptedSourceChains` config key is removed; a TOML that still has it is ignored, not rejected.
+
+## 0.13.2
+
+### Patch Changes
+
+- Orders page (renamed from Activity): every sidebar page has its own URL that survives a reload; orders another solver filled read "Outbid" with the winner beneath; the bid and its retraction are one column of arrow links to the Hyperbridge explorer (green up for the bid, red down for the retraction); amounts round to a precision that fits their size; the order row links only to HyperFX.
+- Wallet ledger: rows lead with an action icon (receipt for fills, arrows for vault sweeps and redeems, send), then Amount in and Amount out with token logos — a fill shows the order's input received and output paid, a sweep the underlying out and the vault shares in (share tokens carry a bank badge over the underlying's logo), a redeem the reverse. Sweeps and redeems now record their amounts, and rows from before that are backfilled from their receipts at startup.
+- Solver links: an FX market's sheet has a "Get link" entry that builds a HyperFX swap page locked to this filler, the pair and its current curve prices, with a copy button.
+- The dashboard container widens to 150rem.
+## 0.13.1
+
+### Patch Changes
+
+- Picks up the sdk chain config with the current mainnet SolverAccount.
+
+## 0.13.0
+
+### Minor Changes
+
+- The dashboard's activity feed is now an order history: one row per order with the referrer decoded from the graffiti tag, amounts in and out with token and chain, user, placed time, the latest bid and its retraction as links to the Hyperbridge explorer, and links to HyperFX and the placement and fill transactions. Pages are served by `GET /api/activity/history`. Order details are captured at detection and, for rows recorded before that, backfilled from the Hyperbridge indexer (`simplex.indexerUrl` overrides the per-network default).
+- A bid is no longer reported as a fill. Under solver selection an accepted bid records a `bid` row and the order settles from the on-chain `OrderFilled` log as `filled` or `lost` (with the winning filler). A new `order:fill-observed` event reports every fill on a configured chain; `order:filled` now carries the bid's commitment. Legacy bid-time rows are retyped and settled from the indexer at boot.
+- Phantom bid deposits no longer leak on restart. The live phantom commitment per chain is persisted in the runtime state and retracted by the first batch of the next process; previously every restart stranded one 0.01 BRIDGE deposit per chain. All runtime-state writers merge, so a pause no longer discards it.
+- The vault treasury editor groups curated vaults per chain, folds chains the filler does not run behind one row with an "Enable chain" link, and lists every chain on the running network. Send funds and Vault treasury moved to the Wallet page, Runtime controls onto the Overview, and the Activity page is now Orders.
+- Watch-only orders are recorded as skipped instead of silently dropped, and `ScannedFill` carries the fill transaction hash.
+
+## 0.12.4
+
+### Patch Changes
+
+- Phantom bids are no longer placed on orders whose bid window has closed. A filler whose poll cursor fell behind the head kept bidding on orders thousands of blocks old: the extrinsic is accepted and reserves a deposit, but the aggregation read that order's bids when its window closed, so nothing counted them — the filler backed no pool for hours while its own logs reported bids submitted. Phantom order polling now abandons a backlog it cannot bid on and resumes one bid window behind the head, and any order older than the pallet's bid window is dropped before it is quoted, with a warning naming the lag. Both limits are read from chain state (`PhantomBidWindow`, falling back to the runtime constant, and `PhantomOrderInterval`) rather than hard-coded, because the window is governance-set and already differs from the constant behind it.
+
+## 0.12.3
+
+### Patch Changes
+
+- Paymaster selection now prefers the Simplex paymaster and falls back to Circle, inverting the previous Circle-first order. Simplex accepts USDC or USDT and its fees recycle through the keeper; Circle remains the fallback where Simplex is unconfigured or fails the deposit/balance gates. Circle-specific `paymasterVerificationGasLimit` overrides now only apply when Circle is the selected paymaster.
+- A Simplex builder failure (RPC error, bootstrap approve failure, missing native dust) now demotes Simplex to a skip reason and falls through to Circle instead of aborting selection, and the token permit probe no longer treats transport errors as "no permit support".
+- Removed the `skipPermit` option. Delegation UserOps can now use the Simplex paymaster's EIP-2612 PERMIT mode on permit-capable tokens, instead of being routed into the PERMIT2/APPROVE bootstrap that needs a native-funded `approve` — which a solver holding no native cannot send, leaving delegation unsponsored.
+
+## 0.12.2
+
+### Patch Changes
+
+- Paymaster selection now skips any candidate whose EntryPoint deposit cannot cover the operation's max prefund with 150% headroom, falling through Circle to Simplex and reporting per-candidate reasons when none qualifies. Previously the Circle paymaster was chosen on solver balance alone, so a drained deposit (as happened on Base) meant every bid was signed against a paymaster the bundler was bound to reject at precheck. Deposit reads fail open so a transient RPC error degrades to the bundler's own check.
+
+## 0.12.1
+
+### Patch Changes
+
+- MPCVault signing failures now name the failing RPC, the signing-request uuid and MPCVault's x-request-id, and the error guard defensively trips on errors that carry only a non-zero code with an empty message. `executeSigningRequests` retries INVALID_ARGUMENT/NOT_FOUND twice with short backoff: MPCVault intermittently rejects a uuid its own createSigningRequest just returned, which failed live fills with `3 INVALID_ARGUMENT: Invalid uuid` before the callback co-signer was contacted.
+- A signing request whose execute fails terminally is best-effort rejected in the vault instead of staying pending forever, and `MpcVaultClientConfig` accepts an injected `logger` (embedded fillers passing `SimplexOptions.logger` otherwise never see MPCVault retry warnings) and channel `credentials`.
+
 ## 0.12.0
 
 ### Minor Changes

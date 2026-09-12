@@ -1,3 +1,4 @@
+import { formatUnits } from "viem"
 import { Decimal } from "decimal.js"
 import { IntentFiller } from "@/core/filler"
 import { FXFiller, type TradingPair } from "@/strategies/fx"
@@ -6,8 +7,8 @@ import { UniswapV4FundingPlanner } from "@/funding/uniswapV4/UniswapV4FundingPla
 import { VaultFundingPlanner } from "@/funding/vault/VaultFundingPlanner"
 import { VaultLiquidityState } from "@/funding/vault/VaultLiquidityState"
 import { TokenSender } from "@/services/TokenSender"
-import { FillerPricePolicy, parseChainKey } from "@/config/interpolated-curve"
-import { AssetRegistry, normalizeSymbol } from "@/config/asset-registry"
+import { FillerPricePolicy, formatChainKey, parseChainKey } from "@/config/interpolated-curve"
+import { AssetRegistry, normalizeSymbol, registrySymbols } from "@/config/asset-registry"
 import { assertPairSymbolsResolve, type PairConfig } from "@/config/pairs"
 import type { ChainConfig, FillerConfig, HexString } from "@hyperbridge/sdk"
 import {
@@ -26,7 +27,10 @@ import { RebalancingService } from "@/services/RebalancingService"
 import { getLogger, moduleLogger, type Logger, type LogLevel, type LoggerContext } from "@/services/Logger"
 import { CacheService } from "@/services/CacheService"
 import { BalanceProvider } from "@/services/BalanceProvider"
-import { ActivityRecorder } from "@/data/recorder"
+import { ActivityRecorder, type TokenDescriber } from "@/data/recorder"
+import { backfillOrderSummaries, DEFAULT_INDEXER_URLS } from "@/data/backfill"
+import { backfillVaultLedger } from "@/data/ledger-backfill"
+import { chainByChainId } from "@/cli/init/chains"
 import type { SimplexDataStore } from "@/data/types"
 import type { HyperbridgeScanner, OrderScanner } from "@/scanner/types"
 import type { AdminStrategy, HaltControl } from "@/services/server/UiServer"
@@ -328,7 +332,6 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 	const fillerConfig: FillerConfig = {
 		maxConcurrentOrders: config.simplex.maxConcurrentOrders ?? DEFAULT_MAX_CONCURRENT_ORDERS,
 		watchOnly: watchOnlyConfig,
-		acceptedSourceChains: config.simplex.acceptedSourceChains,
 		// Same list the V4 funding venue is built from, so a position can never back a fill without
 		// also being declared to the snapshot that measures the depth behind it.
 		uniswapV4PositionsByChain: (config.vault?.uniswapV4?.positions ?? []).reduce<Record<string, string[]>>(
@@ -378,7 +381,7 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 	const bidStore = options.data.bids
 
 	// Sponsors self-initiated UserOps (delegation, vault sweep/redeem) via the
-	// Circle paymaster so gas is paid in USDC instead of native token.
+	// Simplex paymaster so gas is paid in stablecoins instead of native token.
 	const userOpSender = new UserOpSender(chainClientManager, configService, runtimeSigner)
 
 	// Build the shared vault venue (withdraw sourcing + threshold sweeping).
@@ -540,6 +543,7 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		options.scanners,
 		rebalancingService,
 		bidStore,
+		options.data.state,
 	)
 
 	started.push(() => intentFiller.stop())
@@ -552,22 +556,63 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		throw error
 	}
 
-	// Order-activity feed for the operator UI
-	const activity = new ActivityRecorder(options.data.activity, options.loggers)
+	// Order-activity feed for the operator UI. Legs are described with the
+	// registry's symbol (built-in or user-defined) and on-chain decimals so the
+	// feed can show token amounts; either lookup may fail and the row still lands.
+	const knownSymbols = [...new Set([...registrySymbols(), ...Object.keys(config.assets ?? {})])]
+	const describeToken: TokenDescriber = async (chain, token) => {
+		const symbol =
+			knownSymbols.find((candidate) => assetRegistry.getAddress(candidate, chain)?.toLowerCase() === token) ?? null
+		let decimals: number | null = null
+		try {
+			decimals = await contractService.getTokenDecimals(token, chain)
+		} catch {
+			decimals = null
+		}
+		return { symbol, decimals }
+	}
+	const activity = new ActivityRecorder(options.data.activity, options.loggers, { describeToken })
 	activity.attach(intentFiller.monitor)
+	// Rows from before order details were captured get them from the indexer.
+	// Fire-and-forget: the feed is observability, and a slow or absent indexer
+	// must not hold up the boot. Updated rows are re-emitted so open dashboards
+	// refresh in place.
+	const network = resolvedChains.some((chain) => chainByChainId(chain.chainId)?.network === "testnet")
+		? "testnet"
+		: "mainnet"
+	void backfillOrderSummaries({
+		store: options.data.activity,
+		indexerUrl: config.simplex.indexerUrl ?? DEFAULT_INDEXER_URLS[network],
+		fillerAddress: runtimeSigner.address,
+		describeToken,
+		onUpdated: (rows) => {
+			for (const row of rows) activity.emit("event", row)
+		},
+		logger: moduleLogger(options.loggers, "activity"),
+	})
 	if (vaultVenue) {
-		vaultVenue.onTx = ({ chain, kind, txHash, sponsored }) => {
-			options.data.activity
-				.recordWalletTx({
-					kind,
-					chainId: parseChainKey(chain),
-					token: null,
-					amount: null,
-					to: null,
-					txHash,
-					sponsored,
-				})
-				.catch((err) => logger.warn({ err }, "Failed to record vault tx in wallet history"))
+		vaultVenue.onTx = ({ chain, kind, txHash, sponsored, movements }) => {
+			// One ledger row per vault the transaction touched, so the amount and
+			// vault show; a transaction that moved nothing identifiable still gets a row.
+			// A sweep gives the underlying and gets shares; a redeem gives shares and gets the underlying.
+			const rows =
+				movements.length > 0
+					? movements.map((move) => {
+							const underlying = { token: move.symbol, amount: formatUnits(move.amount, move.decimals) }
+							const shares =
+								move.shares === undefined
+									? { token: null, amount: null }
+									: { token: move.shareSymbol, amount: formatUnits(move.shares, move.shareDecimals) }
+							const out = kind === "sweep" ? underlying : shares
+							const back = kind === "sweep" ? shares : underlying
+							return { token: out.token, amount: out.amount, to: move.vault as string, tokenIn: back.token, amountIn: back.amount }
+						})
+					: [{ token: null, amount: null, to: null, tokenIn: null, amountIn: null }]
+			for (const row of rows) {
+				options.data.activity
+					.recordWalletTx({ kind, chainId: parseChainKey(chain), ...row, txHash, sponsored })
+					.catch((err) => logger.warn({ err }, "Failed to record vault tx in wallet history"))
+			}
 		}
 	}
 
@@ -591,6 +636,7 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		configService,
 		fillerAddress: runtimeSigner.address,
 		token1,
+		vaultBalances: vaultVenue,
 		hyperbridge: intentFiller.hyperbridgeConnection,
 		substratePrivateKey: config.simplex.substratePrivateKey,
 	})
@@ -606,8 +652,26 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		throw error
 	}
 
+	// Phantom bids the previous run left live: the first batch retracts them,
+	// reclaiming deposits that used to be stranded by every restart.
+	intentFiller.restorePhantomBids(restoredState.phantomBids)
+
 	// Start the filler
 	intentFiller.start()
+
+	// Ledger rows from before sweeps carried amounts: read them back from their
+	// receipts once the vault states have hydrated (strategy start does that), so
+	// wait a little rather than racing it. Fire-and-forget, like the order backfill.
+	if (vaultVenue) {
+		const venue = vaultVenue
+		setTimeout(() => {
+			void backfillVaultLedger({
+				store: options.data.activity,
+				describe: (chainId, txHash) => venue.describeTransaction(formatChainKey(chainId), txHash as HexString),
+				logger: moduleLogger(options.loggers, "activity"),
+			})
+		}, 15_000).unref()
+	}
 
 	// An operator-initiated pause survives restarts
 	if (restoredState.paused) {
@@ -621,7 +685,7 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 	vaultVenue?.startSweeping()
 
 	started.push(() => balanceProvider.stop())
-	balanceProvider.start()
+	await balanceProvider.start()
 
 	const watchOnlyChains = watchOnlyConfig
 		? Object.entries(watchOnlyConfig)
@@ -686,6 +750,7 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 			runtimeSigner.address as HexString,
 			() => config.vault?.vaults ?? [],
 			userOpSender,
+			configService,
 		),
 		vaultPreflight: async (vaults) => {
 			const byChain: Record<string, VaultConfig[]> = {}

@@ -86,7 +86,15 @@ Flags:
 simplex run -c filler-config.toml            # UI on 127.0.0.1:8686
 simplex run -c filler-config.toml --ui 9000  # custom port
 simplex run -c filler-config.toml --no-ui    # headless
+simplex run --no-open                        # start the wizard, don't launch a browser
+simplex run --log-format json                # NDJSON on stdout instead of colourised lines
 ```
+
+`--no-open` and `--log-format json` are for running the solver under a supervisor. The wizard still
+starts and still reports its URL under `--no-open`; only the browser launch is skipped. `json` makes
+every line simplex writes to stdout one JSON object, with no ANSI escapes, which is what a captured log
+file needs. (One caveat: `@polkadot/api` prints a plain-text line to stdout if the Hyperbridge runtime
+upgrades while the solver is running, so parse defensively.)
 
 The curve-update API:
 
@@ -103,6 +111,35 @@ editable. The server is unauthenticated — mutating requests need the `X-Simple
 hygiene), and both the wizard and the operator UI bind loopback unless told otherwise. Only bind
 another interface (e.g. `--ui 0.0.0.0:8686`, which the docker image does inside its own network
 namespace) on a trusted network.
+
+## Remote access from a phone
+
+The UI is loopback-only, and most operator machines sit behind NAT. Remote access keeps an
+outbound SSH tunnel from simplex to a relay ([polytope-labs/simplex-tunnel](https://github.com/polytope-labs/simplex-tunnel),
+hosted at `simplex.tunnel.polytope.technology`) that leases this simplex a stable public port.
+A phone's SSH client connects to that port with a local port forward, and the browser opens
+`http://localhost:8686`.
+
+The phone's SSH session terminates in an SSH server embedded in simplex, not in sshd and not in
+the relay, so the relay only ever carries ciphertext. That server accepts public-key auth against
+the devices paired in the UI and `direct-tcpip` channels to the UI bind, and nothing else: no
+shell, exec, PTY or other destinations.
+
+It is off by default. Turn it on and pair devices under **Operations > Remote access** in the UI;
+the choice is written to `[simplex.tunnel]` in the config. To pair, create a key in the phone's SSH
+app and paste its public key into the panel, so the private key never leaves the phone; for apps
+that cannot make their own, simplex can generate a pair instead and shows the private key exactly
+once, as text and as a QR code. Either way the panel shows the host, port, username, host-key
+fingerprint and local forward to enter in the SSH app (Blink and Termius on iOS, ConnectBot and
+JuiceSSH on Android). A paired key opens the whole dashboard, including the
+Send and treasury tools, so keep it on the device and revoke it from the same panel if the
+device is lost. Keys live under `<data-dir>/tunnel/` in plain OpenSSH formats.
+
+The hosted relay's host key is pinned in the binary, so first contact is verified. A self-hosted
+relay is pinned on first contact unless `relayHostKey` in `[simplex.tunnel]` names its fingerprint.
+
+The tunnel is best-effort: it retries with backoff and never affects filling. It only runs in
+operator mode, never while the setup wizard holds secrets.
 
 ## Development
 

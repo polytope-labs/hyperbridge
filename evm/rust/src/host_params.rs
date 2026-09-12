@@ -180,6 +180,14 @@ pub fn encode_host_params(params: &EvmHostParamsAbi) -> Vec<u8> {
 	[variant, params.abi_encode()].concat()
 }
 
+/// Encode a host-manager `SetAdmin` request: the variant tag (`2`) followed by
+/// the ABI-encoded address of the new admin, the only relayer whose governance
+/// deliveries the manager accepts from then on. The manager rejects zero.
+pub fn encode_set_admin(admin: H160) -> Vec<u8> {
+	let variant = vec![2u8]; // host manager action: SetAdmin
+	[variant, alloy_primitives::Address::from(admin.0).abi_encode()].concat()
+}
+
 impl TryFrom<EvmHostParam> for EvmHostParamsAbi {
 	type Error = anyhow::Error;
 
@@ -261,8 +269,20 @@ impl TryFrom<&WithdrawalParams> for WithdrawParamsAbi {
 
 #[cfg(test)]
 mod test {
-	use super::WithdrawalParams;
+	use super::{encode_set_admin, WithdrawalParams};
 	use primitive_types::{H160, U256};
+
+	#[test]
+	fn set_admin_encoding() {
+		let admin = H160::repeat_byte(0x42);
+		let encoding = encode_set_admin(admin);
+
+		// 1 action byte + one left-padded 32-byte ABI word holding the address.
+		assert_eq!(encoding.len(), 1 + 32);
+		assert_eq!(encoding[0], 2);
+		assert_eq!(&encoding[1..13], &[0u8; 12]);
+		assert_eq!(&encoding[13..], admin.as_bytes());
+	}
 
 	#[test]
 	fn check_encoding() {

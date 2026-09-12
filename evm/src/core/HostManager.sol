@@ -27,9 +27,10 @@ import {HostParams, IHostManager, WithdrawParams} from "./EvmHost.sol";
 
 /// Host manager params
 struct HostManagerParams {
-    /// admin for setting the host address
+    /// The only relayer whose deliveries `onAccept` accepts, and the only account that may call
+    /// `init`. Never zero. Rotated by a `SetAdmin` request from Hyperbridge.
     address admin;
-    /// Local ismp host
+    /// Local ismp host. Zero until `init` binds it.
     address host;
 }
 
@@ -45,7 +46,8 @@ contract HostManager is HyperApp, ERC165 {
 
     enum OnAcceptActions {
         Withdraw,
-        SetHostParam
+        SetHostParam,
+        SetAdmin
     }
 
     HostManagerParams private _params;
@@ -53,13 +55,28 @@ contract HostManager is HyperApp, ERC165 {
     // @dev Action is unauthorized
     error UnauthorizedAction();
 
+    // @dev The host is already bound
+    error AlreadyInitialized();
+
+    // @dev The admin may not be zero. It is the only account able to deliver governance here, so
+    // a zero admin would leave no way to reach this contract again, rotation included.
+    error InvalidAdmin();
+
+    /**
+     * @dev Emitted when a `SetAdmin` request replaces the admin
+     * @param previous The admin before this change
+     * @param current The admin from now on
+     */
+    event AdminUpdated(address previous, address current);
+
     // @dev restricts call to the provided `caller`
-    modifier restrict(address caller) {
-        if (msg.sender != caller) revert UnauthorizedAction();
+    modifier restrict(address who, address caller) {
+        if (who != caller) revert UnauthorizedAction();
         _;
     }
 
     constructor(HostManagerParams memory managerParams) {
+        if (managerParams.admin == address(0)) revert InvalidAdmin();
         _params = managerParams;
     }
 
@@ -85,14 +102,41 @@ contract HostManager is HyperApp, ERC165 {
         return _params.host;
     }
 
-    // This function can only be called once by the admin to set the IsmpHost.
-    // This exists to seal the cyclic dependency between this contract & the ismp host.
-    function setIsmpHost(address hostAddr) public restrict(_params.admin) {
-        _params.host = hostAddr;
-        _params.admin = address(0);
+    /**
+     * @notice The only relayer whose deliveries `onAccept` accepts: the admin
+     */
+    function relayer() external view returns (address) {
+        return _params.admin;
     }
 
-    function onAccept(IncomingPostRequest calldata incoming) external override restrict(_params.host) {
+    /**
+     * @notice Binds this contract to the ISMP host
+     * @dev Exists to seal the cyclic dependency between this contract and the host when the host
+     * is not known at construction; a manager constructed with its host set needs no `init`. Only
+     * the admin may call it, and only once: the admin is the governance relayer key, and letting it
+     * re-point the host later would let that key cut the host off from its own governance.
+     * @param hostAddr The host this contract accepts `onAccept` calls from and acts upon
+     */
+    function init(address hostAddr) external restrict(msg.sender, _params.admin) {
+        if (_params.host != address(0)) revert AlreadyInitialized();
+        _params.host = hostAddr;
+    }
+
+    /**
+     * @notice Applies a governance action from Hyperbridge to the host
+     * @dev Only the host may call, only the admin may deliver, and only the Hyperbridge parachain
+     * may send; any other relayer's delivery reverts and stays retryable by the admin. The first
+     * byte of the body selects the action: `Withdraw` pays out fees, `SetHostParam` replaces the
+     * host params, `SetAdmin` rotates the admin, refusing zero since it could never be rotated
+     * back.
+     * @param incoming The verified request and the relayer that submitted it
+     */
+    function onAccept(IncomingPostRequest calldata incoming)
+        external
+        override
+        restrict(msg.sender, _params.host)
+        restrict(incoming.relayer, _params.admin)
+    {
         PostRequest calldata request = incoming.request;
         // Only the Hyperbridge parachain can send requests to this module.
         if (!request.source.equals(IHost(_params.host).hyperbridge())) revert UnauthorizedAction();
@@ -105,6 +149,12 @@ contract HostManager is HyperApp, ERC165 {
         } else if (action == OnAcceptActions.SetHostParam) {
             HostParams memory hostParams = abi.decode(request.body[1:], (HostParams));
             IHostManager(_params.host).updateHostParams(hostParams);
+        } else if (action == OnAcceptActions.SetAdmin) {
+            // Rotates the governance relayer.
+            address newAdmin = abi.decode(request.body[1:], (address));
+            if (newAdmin == address(0)) revert InvalidAdmin();
+            emit AdminUpdated({previous: _params.admin, current: newAdmin});
+            _params.admin = newAdmin;
         }
     }
 }

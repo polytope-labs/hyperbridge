@@ -44,6 +44,7 @@ export {
 	resetFillOptionsVersionCache,
 	LEGACY_FILL_OPTIONS_IMPLEMENTATIONS,
 	CHAINS_WITHOUT_VALID_UNTIL,
+	FILL_ORDER_V1_ABI,
 } from "./fillOrderCodec"
 export type { FillOptionsVersion } from "./fillOrderCodec"
 export {
@@ -51,11 +52,16 @@ export {
 	decodeAcceptedSourceChains,
 	encodePhantomBidDeclaration,
 	decodePhantomBidDeclaration,
+	encodePhantomBidPaymasterAndData,
+	decodePhantomBidPaymasterAndData,
+	applyProtocolFeeHaircut,
 	applyUniswapQuoteHaircut,
-	applyPhantomQuoteHaircut,
+	readProtocolFeeHaircutBps,
 	UNISWAP_QUOTE_HAIRCUT_BPS,
-	PHANTOM_QUOTE_HAIRCUT_BPS,
+	PERMIT2_SPONSORSHIP_BYTES,
 	type PhantomBidDeclaration,
+	type PhantomBidPaymasterAndData,
+	type PhantomBidSponsorship,
 } from "./phantom-aggregation"
 export {
 	DEFAULT_GRAFFITI,

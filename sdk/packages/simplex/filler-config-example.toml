@@ -308,6 +308,15 @@ points = [
 # min_output = "990000000"         # 990 USDT minimum
 
 
+# Remote access from a phone. Off by default. When enabled, simplex keeps an outbound
+# SSH tunnel to a relay so a phone's SSH client can open this UI with a local port
+# forward; the phone's session terminates inside simplex, the relay only sees ciphertext.
+# Pair devices from the UI (Operations > Remote access); keys live under <data-dir>/tunnel/.
+# [simplex.tunnel]
+# enabled = true
+# relay = "simplex.tunnel.polytope.technology:443"   # host[:port], port defaults to 443
+# relayHostKey = "SHA256:..."                          # pin for a self-hosted relay; the hosted one is built in
+
 # Chain configuration - RPC and bundler URLs are required
 # Chain IDs are resolved automatically from the RPC endpoints.
 # All other chain data (addresses, assets, etc.) comes from the SDK automatically.

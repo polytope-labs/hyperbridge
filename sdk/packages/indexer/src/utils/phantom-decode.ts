@@ -3,6 +3,7 @@ import { ethers } from "ethers"
 import {
 	zipFillLegs,
 	FILL_ORDER_ABI,
+	FILL_ORDER_V1_ABI,
 	type BidNonceKeyFn,
 	type FillData,
 	type HexString,
@@ -19,9 +20,33 @@ import {
 // (isBytesLike), so it works in the sandbox. These are injected into aggregatePhantomBids so the SDK
 // itself stays on the plain viem helpers (used by simplex/tests in Node, where viem is fine).
 const executeIface = new Interface(["function execute(bytes32 mode, bytes executionData)"])
+// Both `fillOrder` shapes, because a bid carries whichever one its target gateway speaks.
+// `FillOptions.validUntil` changed the selector (0x5cfb1ea5 -> 0xa5470064), so a solver bidding
+// against a gateway that predates it sends the v1 shape. ethers validates the selector before
+// decoding, so a single interface silently rejects every bid of the other shape — and
+// `extractFillDataVm2`'s caller drops those bids without logging. This mirrors the SDK's
+// `decodeFillOrder`, which tries v2 then falls back to v1; the two must stay in step.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const fillIface = new Interface(FILL_ORDER_ABI as any)
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const legacyFillIface = new Interface(FILL_ORDER_V1_ABI as any)
 const CALL_TUPLE = ["tuple(address target, uint256 value, bytes data)[]"]
+
+/**
+ * Decodes a `fillOrder` call of either shape, or returns null if it is neither.
+ *
+ * The selectors differ, so there is no payload one interface could mis-decode as the other.
+ */
+function decodeFillOrderEither(data: string): ReadonlyArray<unknown> | null {
+	for (const iface of [fillIface, legacyFillIface]) {
+		try {
+			return iface.decodeFunctionData("fillOrder", data)
+		} catch {
+			// Wrong shape for this interface; try the other.
+		}
+	}
+	return null
+}
 
 /** Drop-in for the SDK's extractFillData that decodes with ethers (VM2-safe). */
 export function extractFillDataVm2(callData: HexString, gatewayAddress: string): FillData | null {
@@ -33,12 +58,8 @@ export function extractFillDataVm2(callData: HexString, gatewayAddress: string):
 		const normalized = gatewayAddress.toLowerCase()
 		for (const call of calls) {
 			if (call.target.toLowerCase() !== normalized) continue
-			let decoded
-			try {
-				decoded = fillIface.decodeFunctionData("fillOrder", call.data)
-			} catch {
-				continue
-			}
+			const decoded = decodeFillOrderEither(call.data)
+			if (!decoded) continue
 			const order = decoded[0] as Record<string, unknown>
 			const options = decoded[1] as Record<string, unknown>
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any

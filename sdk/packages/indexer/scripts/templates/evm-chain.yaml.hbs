@@ -130,6 +130,11 @@ dataSources:
           filter:
             topics:
               - 'Withdraw(address,address,address,uint256,uint256)'
+        - kind: ethereum/LogHandler
+          handler: handleVaultTransferEvent
+          filter:
+            topics:
+              - 'Transfer(address,address,uint256)'
   {{/each}}
   {{#if yieldVaults.length}}
   - kind: ethereum/Runtime

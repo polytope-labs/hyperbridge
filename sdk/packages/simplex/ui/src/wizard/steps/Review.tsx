@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react"
 import { api } from "../../api"
 import { CopyHash } from "../../components/CopyHash"
+import { CheckIcon } from "../../components/InterfaceIcons"
 import { assembleConfig, chainLabels, enabledChains } from "../state"
+import { formatSetupStartError } from "../startError"
 import type { StepProps } from "../Wizard"
 
-type Phase = "review" | "starting" | "failed"
+type Phase = "review" | "saving" | "starting" | "failed"
 
 export function StepReview({ state, defaults }: StepProps) {
 	const [toml, setToml] = useState<string>()
@@ -53,29 +55,34 @@ export function StepReview({ state, defaults }: StepProps) {
 		return () => clearInterval(timer)
 	}, [phase])
 
-	const saveAndStart = async () => {
+	const saveAndStart = () => {
+		if (phase === "saving") return
+		setPhase("saving")
 		setStartError(undefined)
-		try {
-			await api.post("/api/setup/save-and-start", {
+		void api
+			.post("/api/setup/save-and-start", {
 				config: assembleConfig(state, defaults),
 				chainLabels: chainLabels(state),
 				chainIds: enabledChains(state).map((c) => c.meta.chainId),
 			})
-			setPhase("starting")
-		} catch (err) {
-			setPhase("failed")
-			setStartError(err instanceof Error ? err.message : String(err))
-		}
+			.then(() => setPhase("starting"))
+			.catch((err) => {
+				setPhase("failed")
+				setStartError(err instanceof Error ? err.message : String(err))
+			})
 	}
+	const enabled = enabledChains(state)
 
 	if (phase === "starting") {
 		return (
-			<div className="card">
-				<h2>Starting the filler…</h2>
-				<p className="hint">
-					Resolving chains, hydrating funding venues and setting up EIP-7702 delegation — this takes up to a
-					minute. This page switches to the dashboard automatically.
-				</p>
+			<div className="wizard-sections review-step">
+				<div className="card">
+					<h2>Starting the filler…</h2>
+					<p className="hint">
+						Resolving chains, hydrating funding venues and setting up EIP-7702 delegation — this takes up to
+						a minute. This page switches to the dashboard automatically.
+					</p>
+				</div>
 			</div>
 		)
 	}
@@ -86,57 +93,145 @@ export function StepReview({ state, defaults }: StepProps) {
 			: state.signerType === "mpcVault"
 				? state.mpcVault.accountAddress
 				: state.turnkey.signWith
+	const displayStartError = startError
+		? formatSetupStartError(startError, new Map(enabled.map((chain) => [chain.meta.chainId, chain.meta.label])))
+		: undefined
+	const pathSeparator = defaults.configPath.lastIndexOf("/")
+	const configDirectory = pathSeparator >= 0 ? defaults.configPath.slice(0, pathSeparator + 1) : ""
+	const configFilename = pathSeparator >= 0 ? defaults.configPath.slice(pathSeparator + 1) : defaults.configPath
+	const directoryParts = configDirectory.split("/").filter(Boolean)
+	const compactConfigDirectory =
+		directoryParts.length > 3 ? `…/${directoryParts.slice(-3).join("/")}/` : configDirectory
 
 	return (
-		<div>
-			<div className="card">
-				<h2>Your accounts — fund these</h2>
-				{evmAddress && (
-					<div style={{ marginBottom: "0.9rem" }}>
-						<p className="hint" style={{ margin: "0 0 0.2rem" }}>
-							Filler wallet (EVM) — needs stablecoins (USDC/USDT) on every enabled chain; gas is covered by the
-							paymaster, paid in USDC/USDT — whichever is available.
-						</p>
-						<div className="mono" style={{ fontSize: "1.05rem" }}>
-							<CopyHash value={evmAddress} chars={42} />
-						</div>
-					</div>
-				)}
-				{state.substrateAddress && (
-					<div>
-						<p className="hint" style={{ margin: "0 0 0.2rem" }}>
-							Hyperbridge account — needs BRIDGE tokens for bid fees (claimed back automatically).
-						</p>
-						<div className="mono" style={{ fontSize: "1.05rem" }}>
-							<CopyHash value={state.substrateAddress} chars={64} />
-						</div>
-					</div>
-				)}
-			</div>
+		<div className="wizard-sections review-step">
+			<section className="card review-accounts-section">
+				<header className="review-section-heading">
+					<span className="markets-kicker">Funding checklist</span>
+					<h2>Fund your accounts</h2>
+					<p>These are the two identities Simplex will use after launch.</p>
+				</header>
 
-			<div className="card">
-				<h2>Config file</h2>
-				<p className="hint">
-					Written to <span className="mono">{defaults.configPath}</span> with permissions 600. It contains your
-					secrets — keep it private and out of version control. Safe to edit by hand later; re-run the wizard to
-					update it interactively.
+				<div className="review-account-list">
+					{evmAddress && (
+						<article className="review-account-row">
+							<div className="review-account-heading">
+								<div>
+									<h3>Filler wallet</h3>
+									<span>EVM execution account</span>
+								</div>
+								<span className="review-account-network">EVM</span>
+							</div>
+							<p>
+								Fund with USDC or USDT on every enabled chain.
+								 Gas is covered by the paymaster.
+							</p>
+							<div className="review-account-value">
+								<CopyHash value={evmAddress} chars={42} copyLabel="Copy filler wallet address" />
+							</div>
+						</article>
+					)}
+					{state.substrateAddress && (
+						<article className="review-account-row">
+							<div className="review-account-heading">
+								<div>
+									<h3>Hyperbridge account</h3>
+									<span>Bid submission account</span>
+								</div>
+								<span className="review-account-network">SUBSTRATE</span>
+							</div>
+							<p>Fund with BRIDGE for bid fees. Claimed fees return automatically after fills.</p>
+							<div className="review-account-value">
+								<CopyHash
+									value={state.substrateAddress}
+									chars={64}
+									copyLabel="Copy Hyperbridge account address"
+								/>
+							</div>
+						</article>
+					)}
+				</div>
+			</section>
+
+			<section className="card review-config-section">
+				<header className="review-section-heading">
+					<span className="markets-kicker">Local output</span>
+					<h2>Configuration file</h2>
+					<p>Simplex writes a private, editable TOML file to this location.</p>
+				</header>
+
+				<div className="review-config-path">
+					<span className="review-config-path-label">Destination</span>
+					<CopyHash
+						value={defaults.configPath}
+						chars={defaults.configPath.length}
+						copyLabel="Copy config path"
+					>
+						<span className="review-path-directory">{compactConfigDirectory}</span>
+						<strong>{configFilename}</strong>
+					</CopyHash>
+				</div>
+				<p className="review-config-security">
+					<span aria-hidden="true">◆</span>
+					Only your user account can read or edit this file. Keep it private and out of version control.
 				</p>
-				{previewError && <p className="error">{previewError}</p>}
-			</div>
+
+				{previewError ? (
+					<div className="review-validation" data-state="error" role="alert">
+						<span className="review-validation-icon" aria-hidden="true">
+							!
+						</span>
+						<div>
+							<strong>Configuration needs attention</strong>
+							<p>{previewError}</p>
+						</div>
+					</div>
+				) : toml ? (
+					<div className="review-validation" data-state="ready" role="status">
+						<span className="review-validation-icon" aria-hidden="true">
+							<CheckIcon />
+						</span>
+						<div>
+							<strong>Ready to launch</strong>
+							<p>The generated configuration passed validation.</p>
+						</div>
+					</div>
+				) : (
+					<div className="review-validation" data-state="checking" role="status">
+						<span className="review-validation-icon review-validation-spinner" aria-hidden="true" />
+						<div>
+							<strong>Checking configuration</strong>
+							<p>Validating the generated TOML before launch.</p>
+						</div>
+					</div>
+				)}
+			</section>
 
 			{phase === "failed" && (
-				<div className="card">
-					<p className="error">The filler failed to start: {startError}</p>
+				<div className="card" role="alert">
+					<p className="error">{displayStartError}</p>
 					<p className="hint">
-						The config file was written — fix the problem (funding, endpoints) and try again, or edit the file and
-						run `simplex run` manually.
+						Your configuration is already saved. Correct the checks above, then retry startup.
 					</p>
 				</div>
 			)}
 
-			<button type="button" className="primary" disabled={!toml} onClick={saveAndStart}>
-				Save & start the filler
-			</button>
+			<div className="review-launch-row">
+				<button
+					type="button"
+					className="primary review-start-button"
+					disabled={!toml || phase === "saving"}
+					onClick={saveAndStart}
+				>
+					{phase === "saving"
+						? "Saving configuration…"
+						: phase === "failed"
+							? "Retry startup"
+							: "Save config & start Simplex"}
+					{phase !== "saving" && <span aria-hidden="true">→</span>}
+				</button>
+				<p>The dashboard opens automatically when the solver is ready.</p>
+			</div>
 		</div>
 	)
 }

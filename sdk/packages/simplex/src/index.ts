@@ -53,8 +53,8 @@ export type {
 } from "@/simplex"
 
 // ─── Persistence ────────────────────────────────────────────────────────────
-// The SQLite implementation lives at `@hyperbridge/simplex/sqlite`; it needs the
-// optional `better-sqlite3` native module, which nothing here does.
+// The SQLite implementation lives at `@hyperbridge/simplex/sqlite`. It is built
+// on `node:sqlite`, so it needs nothing installed — see `engines.node`.
 
 export { MemoryDataStore } from "@/data/memory"
 export type {
@@ -144,7 +144,21 @@ export type {
 } from "@/services/wallet/types"
 
 export type { AllowlistConfig, UserProvidedChainConfig, ResolvedChainConfig } from "@/services/FillerConfigService"
-export type { BalanceSnapshot, ChainBalanceRow, HyperbridgeBalance } from "@/services/BalanceProvider"
+export type {
+	AssetBalanceRow,
+	BalanceIssue,
+	BalanceSnapshot,
+	ChainBalanceRow,
+	HyperbridgeBalance,
+	VaultBalanceRow,
+} from "@/services/BalanceProvider"
+export type {
+	VaultSweepDeposit,
+	VaultSweepResult,
+	VaultSweepSkip,
+	VaultSweepSkipReason,
+	VaultSweepSubmission,
+} from "@/funding/vault/VaultFundingPlanner"
 
 // ─── Shared scanners ────────────────────────────────────────────────────────
 // Scanning a chain is identical work for every filler, so the default sources

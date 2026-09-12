@@ -1,6 +1,7 @@
 import { encodePacked, type PublicClient, type WalletClient } from "viem"
 import type { HexString } from "@hyperbridge/sdk"
 import type { FillerConfigService } from "@/services/FillerConfigService"
+import type { Logger } from "@/services/Logger"
 import type { Signer } from "@/services/wallet/types"
 
 // ── Shared paymaster result type ────────────────────────────────────
@@ -12,7 +13,26 @@ export interface PaymasterResult {
 	paymasterPostOpGasLimit: bigint
 }
 
+/** One paymaster fee token's balance against the whole-token minimum sponsorship needs. */
+export interface FeeTokenBalance {
+	symbol: "USDC" | "USDT"
+	balance: bigint
+	required: bigint
+}
+
 // ── Unified orchestration types ─────────────────────────────────────
+
+/**
+ * Gas terms of the UserOp being sponsored, used to check a candidate paymaster's
+ * EntryPoint deposit against the op's max prefund before selecting it. The
+ * paymaster's own gas limits are not included — selection adds each candidate's
+ * worst-case limits, since they are only known once a candidate is chosen.
+ */
+export interface PaymasterPrefund {
+	/** callGasLimit + verificationGasLimit + preVerificationGas */
+	baseGas: bigint
+	maxFeePerGas: bigint
+}
 
 export interface PaymasterOptions {
 	chain: string
@@ -22,27 +42,30 @@ export interface PaymasterOptions {
 	signer: Pick<Signer, "signTypedData">
 	configService: FillerConfigService
 	/**
-	 * Override for the Circle paymaster verification gas limit (default 200k).
-	 * Only honored when the paymaster allowance is already in place — a permit
-	 * executed during validation needs the full default. Ignored when the Simplex
-	 * paymaster is selected — its limits are mode-specific
-	 * ({@link VERIFICATION_GAS_LIMIT_PERMIT} / {@link VERIFICATION_GAS_LIMIT_APPROVE}).
+	 * When set, each candidate paymaster is skipped unless its EntryPoint deposit
+	 * covers this op's max prefund with {@link DEPOSIT_HEADROOM_PERCENT} headroom.
+	 * Omitted (or with no EntryPoint configured), selection is balance-only.
 	 */
-	paymasterVerificationGasLimit?: bigint
+	prefund?: PaymasterPrefund
 	/**
-	 * Skips EIP-2612 permit detection for the Simplex paymaster (PERMIT2 and APPROVE
-	 * modes stay available). Delegation UserOps rely on fixed, measured gas limits;
-	 * executing a permit during paymaster validation adds tens of thousands of
-	 * verification gas and would invalidate them.
+	 * Lets this op fall back to an EIP-2612 permit (mode 0x00) when the fee token has
+	 * no Permit2 allowance yet and does implement `permit`. Set only by a first-time
+	 * delegation, which carries the `approve(Permit2, max)` in its own callData: the
+	 * permit pays for the op that installs the allowance every later op relies on, so
+	 * a solver holding zero native can bootstrap a chain. Everything else leaves this
+	 * unset and authorizes through Permit2, whose unordered nonces do not serialize
+	 * concurrent ops the way 2612's single counter would.
 	 */
-	skipPermit?: boolean
+	permitBootstrap?: boolean
+	/** Receives a warning for every candidate skipped or deposit read that fails. */
+	logger?: Pick<Logger, "warn">
 }
 
 export interface PaymasterDataResult {
 	/** Packed paymasterAndData bytes, or "0x" when no paymaster is available. */
 	paymasterAndData: HexString
 	/** Which paymaster was selected. */
-	type: "circle" | "simplex" | "none"
+	type: "simplex" | "none"
 	/** Paymaster contract address (undefined when type is "none"). */
 	address?: HexString
 	/** Token the paymaster will charge (undefined when type is "none"). */
@@ -53,32 +76,31 @@ export interface PaymasterDataResult {
 
 // ── Authorization amount constants ──────────────────────────────────
 
-/** Dollar amount to authorize (permit). Safe upper bound — unused gas is refunded. */
+/** Dollar amount to authorize per Permit2 signature. Safe upper bound — unused gas is refunded. */
 export const RECOMMENDED_AMOUNT_USD = 5n
 /** When existing allowance drops below this, re-authorize. */
 export const THRESHOLD_USD = 2n
 
 // ── Gas limit constants ─────────────────────────────────────────────
 
-/** Verification gas limit for Circle Paymaster (recommended by Circle docs). */
-export const VERIFICATION_GAS_LIMIT_CIRCLE = 200_000n
-/** Simplex paymaster verification gas when executing an EIP-2612 permit during validation. */
-export const VERIFICATION_GAS_LIMIT_PERMIT = 250_000n
-/** Simplex paymaster verification gas when relying on an existing approval. */
-export const VERIFICATION_GAS_LIMIT_APPROVE = 150_000n
 /**
- * Simplex paymaster verification gas when prefunding through Permit2. Measured at
- * ~135k on Ethereum and BSC forks (EOA and delegated senders).
+ * Simplex paymaster verification gas when prefunding through Permit2 — the mode every
+ * op but a first-time delegation uses. Measured at ~135k on Ethereum and BSC forks
+ * (EOA and delegated senders).
  */
 export const VERIFICATION_GAS_LIMIT_PERMIT2 = 200_000n
+/**
+ * Simplex paymaster verification gas when executing an EIP-2612 permit during
+ * validation — the bootstrap mode, reachable only via `permitBootstrap`. Higher than
+ * the Permit2 limit: the permit itself costs ~113k before the prefund transferFrom.
+ */
+export const VERIFICATION_GAS_LIMIT_PERMIT = 250_000n
 /**
  * Permit2 signatures use unordered nonces, so an unspent one (a losing bid) stays
  * valid until its deadline; keep that window short but well past bid-to-execution
  * latency and clock skew.
  */
 export const PERMIT2_DEADLINE_SECONDS = 3600n
-/** Post-operation gas limit for the Circle Paymaster (its own contract, its own postOp). */
-export const POST_OP_GAS_LIMIT_CIRCLE = 100_000n
 /**
  * Post-operation gas limit for the Simplex paymaster. The contract accepts the band
  * [MIN_POST_OP_GAS_LIMIT 30k, MAX_POST_OP_GAS_LIMIT 100k] — the ceiling stays at 100k so
@@ -89,6 +111,16 @@ export const POST_OP_GAS_LIMIT_CIRCLE = 100_000n
  * and both USDC and USDT execute postOp at 30k.
  */
 export const POST_OP_GAS_LIMIT_SIMPLEX = 40_000n
+
+/**
+ * A candidate paymaster needs its EntryPoint deposit to cover the op's max prefund
+ * times this percentage. The bundler checks deposit >= exact prefund at execution,
+ * which for a bid is minutes after selection, and concurrent in-flight ops draw on
+ * the same deposit — 150% buys roughly one other op's share. Healthy deposits are
+ * orders of magnitude above one prefund, so the headroom only bites near-empty,
+ * exactly when skipping the paymaster is right.
+ */
+export const DEPOSIT_HEADROOM_PERCENT = 150n
 
 // ── Shared helpers ──────────────────────────────────────────────────
 

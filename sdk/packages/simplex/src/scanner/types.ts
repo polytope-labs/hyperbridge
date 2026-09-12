@@ -35,6 +35,8 @@ export interface ScannerChainConfig {
 export interface ScannedOrder {
 	order: Order
 	transactionHash: string
+	/** Attribution tag the placer supplied; absent on pre-#1092 logs and on feeds that lack it. */
+	graffiti?: HexString
 	blockNumber: bigint
 	blockHash: string
 	logIndex: number
@@ -56,6 +58,8 @@ export interface ScannedFill {
 	blockNumber: bigint
 	blockHash: string
 	logIndex: number
+	/** Hash of the transaction that filled the order, when the log carried it. */
+	transactionHash?: string
 }
 
 /** What {@link OrderScanner.create} needs to start scanning. */

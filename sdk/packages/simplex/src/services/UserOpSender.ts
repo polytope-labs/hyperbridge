@@ -34,7 +34,7 @@ export interface SponsoredUserOpRequest {
 	/**
 	 * Attach when the EOA still needs delegating in this op. Pass a factory rather
 	 * than a pre-signed tuple: building paymaster data can send an approve tx from
-	 * the authority EOA (Simplex approve mode), and an authorization signed before
+	 * the authority EOA (the Simplex bootstrap approve to Permit2), and an authorization signed before
 	 * that tx embeds a stale nonce the bundler will reject. The factory runs only
 	 * after paymaster data is built.
 	 */
@@ -48,27 +48,18 @@ export interface SponsoredUserOpRequest {
 	 */
 	gas?: UserOpGasLimits
 	/**
-	 * Override for the Circle paymaster verification gas limit (default 200k).
-	 * Lower it for a known cheap op so rundler's verification-gas-limit efficiency
-	 * policy — which divides actual usage by `accountVerif + paymasterVerif` —
-	 * accepts the op (e.g. re-delegation). Only honored when the paymaster allowance
-	 * is already in place — a permit executed during validation needs the full
-	 * default. Ignored when the Simplex paymaster is selected; its limits are
-	 * mode-specific.
+	 * Lets the paymaster fall back to an EIP-2612 permit when the fee token has no
+	 * Permit2 allowance yet. Only a first-time delegation sets this — it carries the
+	 * `approve(Permit2, max)` in its own callData, so the permit buys the one op that
+	 * makes every later Permit2 op possible without native.
 	 */
-	paymasterVerificationGasLimit?: bigint
-	/**
-	 * Skips the Simplex paymaster's EIP-2612 permit mode. Delegation ops pass fixed,
-	 * measured gas limits that a permit executed during paymaster validation
-	 * would exceed; PERMIT2 and APPROVE modes stay available.
-	 */
-	skipPermit?: boolean
+	permitBootstrap?: boolean
 }
 
 // Generous fallbacks used only when bundler gas estimation fails. The paymaster
-// refunds unused gas in postOp, and the permit ceiling caps the validation-phase
+// refunds unused gas in postOp, and the signed Permit2 amount caps the validation-phase
 // prefund regardless of these, so over-estimating here is safe (it does not pull
-// more USDC than the allowance).
+// more USDC than the solver authorized).
 const FALLBACK_VERIFICATION_GAS_LIMIT = 250_000n
 const FALLBACK_CALL_GAS_LIMIT = 1_500_000n
 const FALLBACK_PRE_VERIFICATION_GAS = 150_000n
@@ -109,15 +100,7 @@ export class UserOpSender {
 	}
 
 	async trySendSponsored(req: SponsoredUserOpRequest): Promise<{ txHash: HexString } | null> {
-		const {
-			chain,
-			callData,
-			eip7702Auth,
-			nonceKey = 0n,
-			gas,
-			paymasterVerificationGasLimit,
-			skipPermit,
-		} = req
+		const { chain, callData, eip7702Auth, nonceKey = 0n, gas, permitBootstrap } = req
 
 		const entryPoint = this.configService.getEntryPointAddress(chain)
 		const bundlerUrl = this.configService.getBundlerUrl(chain)
@@ -132,7 +115,21 @@ export class UserOpSender {
 
 		let pm: PaymasterDataResult
 		let auth: Eip7702Authorization | undefined
+		let fees: { maxFeePerGas: bigint; maxPriorityFeePerGas: bigint }
 		try {
+			// Fetched before paymaster selection so the deposit gate can price the op's
+			// max prefund; a failure here means nothing was submitted, safe to fall back.
+			fees = await this.getGasPrice(bundlerUrl, publicClient, chainId)
+
+			// Without explicit limits the fallbacks (~1.9M gas) over-require the deposit;
+			// a false skip degrades to the caller's native fallback, which is safe —
+			// under-requiring would sign an op the bundler is bound to reject.
+			const gasForPrefund = gas ?? {
+				verificationGasLimit: FALLBACK_VERIFICATION_GAS_LIMIT,
+				callGasLimit: FALLBACK_CALL_GAS_LIMIT,
+				preVerificationGas: FALLBACK_PRE_VERIFICATION_GAS,
+			}
+
 			pm = await buildPaymasterAndData({
 				chain,
 				solverAccount,
@@ -140,8 +137,13 @@ export class UserOpSender {
 				walletClient,
 				signer: this.signer,
 				configService: this.configService,
-				paymasterVerificationGasLimit,
-				skipPermit,
+				permitBootstrap,
+				prefund: {
+					baseGas:
+						gasForPrefund.callGasLimit + gasForPrefund.verificationGasLimit + gasForPrefund.preVerificationGas,
+					maxFeePerGas: fees.maxFeePerGas,
+				},
+				logger: this.logger,
 			})
 			if (pm.type === "none") {
 				this.logger.warn(
@@ -163,8 +165,7 @@ export class UserOpSender {
 		}
 		this.logger.info({ chain, paymaster: pm.address, type: pm.type, token: pm.token }, "Paymaster selected")
 		const paymasterAndData = pm.paymasterAndData
-
-		const { maxFeePerGas, maxPriorityFeePerGas } = await this.getGasPrice(bundlerUrl, publicClient, chainId)
+		const { maxFeePerGas, maxPriorityFeePerGas } = fees
 
 		const nonce = (await publicClient.readContract({
 			address: entryPoint,

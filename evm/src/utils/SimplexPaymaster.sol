@@ -61,18 +61,17 @@ interface ISignatureTransfer {
 ///   0x00  PERMIT  — EIP-2612 permit signature included; the permit is executed
 ///                    during validation so the subsequent prefund transferFrom
 ///                    succeeds without a prior onchain approval.
-///   0x01  APPROVE — Token must be pre-approved to this paymaster.
 ///   0x02  PERMIT2 — Permit2 SignatureTransfer signature included; the prefund
 ///                    is pulled through Permit2.permitTransferFrom, so the token
 ///                    only needs a one-time approval to Permit2 (the path for
 ///                    tokens without permit support, e.g. BSC stablecoins).
+///   Any other mode byte, including the retired 0x01 that spent a standing
+///   allowance to this contract, is refused with {InvalidMode}.
 ///
 /// paymasterData encoding:
 ///   Mode 0x00 (permit):
 ///     abi.encodePacked(uint8(0), address(token), uint256(permitAmount),
 ///                      uint256(deadline), uint8(v), bytes32(r), bytes32(s))
-///   Mode 0x01 (approve):
-///     abi.encodePacked(uint8(1), address(token))
 ///   Mode 0x02 (permit2):
 ///     abi.encodePacked(uint8(2), address(token), uint256(permitAmount),
 ///                      uint256(nonce), uint256(deadline), uint8(v), bytes32(r), bytes32(s))
@@ -82,14 +81,28 @@ interface ISignatureTransfer {
 /// The markup surplus accumulates in the contract and is withdrawable to the
 /// treasury; unused gas is refunded to the sender by PaymasterERC20._postOp.
 ///
-/// @dev Security model. Solvers grant this contract ERC-20 allowances, so a
-///      compromise must never translate into large withdrawals from their
-///      accounts. There is no privileged key: every administrative action —
-///      upgrades, parameter changes, token registry, withdrawals — is an
-///      onAccept request authenticated as originating from Hyperbridge
-///      governance and delivered by the local host. Clients additionally keep
-///      allowances and permit amounts small (a few dollars), bounding exposure
-///      to the residual allowance even against a malicious oracle.
+/// @dev Security model. The only allowance a solver ever holds towards this
+///      contract is the residue of a mode 0x00 permit, bounded by the signed
+///      permitAmount; mode 0x02 leaves none. A compromise must never translate
+///      into large withdrawals from solver accounts. There is no privileged
+///      key: every administrative action — upgrades, parameter changes, token
+///      registry, withdrawals — is an onAccept request authenticated as
+///      originating from Hyperbridge governance and delivered by the local
+///      host. Clients additionally keep permit amounts small (a few dollars),
+///      bounding exposure to the residual allowance even against a malicious
+///      oracle.
+///
+///      Governance deliveries are further restricted to one relayer. The host
+///      hands onAccept the handler's msg.sender as `incoming.relayer`; once
+///      `_relayer` is set, any other submitter is refused before the body is
+///      read, so a forged consensus proof alone cannot reach this contract.
+///      The host records the refusal as undelivered and the authorised relayer
+///      can resubmit. While `_relayer` is unset (a proxy upgraded without
+///      {migrate}) every relayer passes, as on the gateway; governance can
+///      never set it to zero afterwards. The relayer must be a plain EOA, not
+///      an account that executes third-party calldata. Losing that key loses
+///      governance over the deposit, stake and surplus for good: there is no
+///      second key.
 ///
 ///      Permit2 signatures name this contract as spender and are single-use,
 ///      so no third party can consume or burn them; only the signed
@@ -98,7 +111,7 @@ interface ISignatureTransfer {
 ///
 ///      ERC-7562 note: Permit2's nonce bitmap and the token's Permit2 allowance
 ///      are not sender-associated storage, so spec-enforcing bundlers may reject
-///      mode 0x02 during validation; modes 0x00/0x01 remain available.
+///      mode 0x02 during validation; only mode 0x00 remains for permit tokens.
 contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
     using SafeERC20 for IERC20;
     using ERC4337Utils for PackedUserOperation;
@@ -118,7 +131,9 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
         ///      once `unstakeDelaySec` has elapsed.
         UnlockStake,
         /// @dev Sweeps the unlocked EntryPoint stake to the treasury.
-        WithdrawStake
+        WithdrawStake,
+        /// @dev Replaces the only relayer whose governance deliveries are accepted. Never zero.
+        SetRelayer
     }
 
     struct Params {
@@ -191,7 +206,14 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
 
     uint256 public swapSlippageBps;
 
-    uint256[49] private __gap;
+    /// @dev The only relayer whose `onAccept` deliveries are accepted; zero means every relayer.
+    address private _relayer;
+
+    uint256[48] private __gap;
+
+    /// @dev The `Initializable` version this implementation lands a proxy on, through `initialize`
+    ///      or `migrate`. Bumped by the next implementation that needs a migration.
+    uint64 private constant VERSION = 2;
 
     event TokenRegistered(address indexed token, address indexed oracle);
     event TokenDeactivated(address indexed token);
@@ -199,6 +221,7 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
     event PermitExecuted(address indexed token, address indexed owner, uint256 amount);
     event Permit2Executed(address indexed token, address indexed owner, uint256 amount, uint256 nonce);
     event FeesRecycled(address indexed token, uint256 amountIn, uint256 nativeOut, uint256 deposited);
+    event RelayerUpdated(address previous, address current);
 
     error TokenNotRegistered(address token);
     error TokenNotActive(address token);
@@ -218,21 +241,33 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
     error ZeroAddress();
     error InvalidHost();
     error LengthMismatch();
+    error UnauthorizedRelayer();
 
     constructor() {
         _disableInitializers();
+    }
+
+    /// @dev `initialize` is for a bare proxy only. A proxy that an upgrade left below `VERSION` is
+    ///      taken there by the host-only `migrate`; without this, anyone could `initialize` it
+    ///      with their own host.
+    modifier onlyFresh() {
+        if (_getInitializedVersion() != 0) revert InvalidInitialization();
+        _;
     }
 
     /// @param host_    Local Hyperbridge host, sole deliverer of governance requests
     /// @param params_  Initial pricing and treasury parameters
     /// @param tokens_  Initially supported ERC-20 tokens
     /// @param oracles_ token/USD feed for each entry in tokens_
+    /// @param relayer_ The only relayer whose governance deliveries are accepted; zero leaves
+    ///                 the gate open
     function initialize(
         address host_,
         Params memory params_,
         address[] memory tokens_,
-        AggregatorV3Interface[] memory oracles_
-    ) external initializer {
+        AggregatorV3Interface[] memory oracles_,
+        address relayer_
+    ) external onlyFresh reinitializer(VERSION) {
         if (host_ == address(0) || host_.code.length == 0) revert InvalidHost();
         if (tokens_.length != oracles_.length) revert LengthMismatch();
 
@@ -242,6 +277,27 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
         for (uint256 i = 0; i < tokens_.length; i++) {
             _registerToken(tokens_[i], oracles_[i]);
         }
+        _setRelayer(relayer_);
+    }
+
+    /// @notice Migration for a proxy from before the relayer gate: arms it and lands at `VERSION`.
+    /// @dev Host-only, so reachable only as the init data of an `UpgradeContract` request, which
+    ///      delegatecalls it with the host still `msg.sender`; one-shot through the reinitializer.
+    /// @param relayer_ The only relayer whose governance deliveries are accepted from now on
+    function migrate(address relayer_) external onlyHost reinitializer(VERSION) {
+        if (relayer_ == address(0)) revert ZeroAddress();
+        _setRelayer(relayer_);
+    }
+
+    /// @notice The `Initializable` version: 1 on a proxy from before the relayer gate, `VERSION`
+    ///         once `initialize` or `migrate` has run.
+    function version() external view returns (uint64) {
+        return _getInitializedVersion();
+    }
+
+    /// @notice The only relayer whose governance deliveries are accepted, or zero while unset.
+    function relayer() external view returns (address) {
+        return _relayer;
     }
 
     // ── Governance ───────────────────────────────────────────────────
@@ -252,8 +308,10 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
 
     /// @dev Handles governance requests delivered by the local host. The first
     ///      byte of the request body encodes the `RequestKind`; only requests
-    ///      originating from Hyperbridge itself are accepted.
+    ///      originating from Hyperbridge itself, submitted by the authorised
+    ///      relayer, are accepted.
     function onAccept(IncomingPostRequest calldata incoming) external override onlyHost {
+        _checkRelayer(incoming.relayer);
         if (keccak256(incoming.request.source) != keccak256(IDispatcher(host()).hyperbridge())) {
             revert UnauthorizedCall();
         }
@@ -278,7 +336,22 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
             entryPoint().unlockStake();
         } else if (kind == RequestKind.WithdrawStake) {
             entryPoint().withdrawStake(payable(treasury));
+        } else if (kind == RequestKind.SetRelayer) {
+            address newRelayer = abi.decode(payload, (address));
+            if (newRelayer == address(0)) revert ZeroAddress();
+            _setRelayer(newRelayer);
         }
+    }
+
+    /// @dev Once a relayer is set, refuses every other submitter before the body is read.
+    function _checkRelayer(address incomingRelayer) internal view {
+        address authorised = _relayer;
+        if (authorised != address(0) && incomingRelayer != authorised) revert UnauthorizedRelayer();
+    }
+
+    function _setRelayer(address relayer_) internal {
+        emit RelayerUpdated(_relayer, relayer_);
+        _relayer = relayer_;
     }
 
     /// @dev Validates and applies pricing/treasury parameters, re-caching the
@@ -461,7 +534,7 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
         if (data.length < 21) revert InvalidPaymasterData(data.length);
 
         uint8 mode = uint8(data[0]);
-        if (mode > 0x02) revert InvalidMode(mode);
+        if (mode != 0x00 && mode != 0x02) revert InvalidMode(mode);
 
         address tokenAddr = address(bytes20(data[1:21]));
 
@@ -516,7 +589,7 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
         // on the caller-ordering of the base contract.
         address tokenAddr = address(token);
         // `prefunder_` is who the base says funds the op (userOp.sender today); use it so this
-        // branch stays aligned with the mode-0/1 branch that forwards it to super._prefund.
+        // branch stays aligned with the mode-0 branch that forwards it to super._prefund.
         address owner = prefunder_;
         try PERMIT2.permitTransferFrom(
             ISignatureTransfer.PermitTransferFrom({

@@ -1,7 +1,8 @@
-import type { Database as DatabaseType } from "better-sqlite3"
+import type { DatabaseSync } from "node:sqlite"
 import { defaultLoggerContext, type Logger, type LoggerContext } from "@/services/Logger"
 import { sqliteDatetime } from "@/data/memory"
 import type { BidInsert, BidStats, BidStore, StoredBid } from "@/data/types"
+import { columnNames } from "./schema"
 
 /** Column list shared by every SELECT that returns a StoredBid. */
 const BID_COLUMNS = `
@@ -22,7 +23,7 @@ const BID_COLUMNS = `
 /**
  * SQLite-backed {@link BidStore}.
  *
- * better-sqlite3 is synchronous, so every method here resolves immediately —
+ * `node:sqlite` is synchronous, so every method here resolves immediately —
  * the promises exist to satisfy the interface, not because work is deferred.
  * That also means `store` is durable the moment it resolves, which is what the
  * retraction sweep relies on.
@@ -31,7 +32,7 @@ export class SqliteBidStore implements BidStore {
 	private logger: Logger
 
 	constructor(
-		private db: DatabaseType,
+		private db: DatabaseSync,
 		loggers: LoggerContext = defaultLoggerContext(),
 	) {
 		this.logger = loggers.get("bid-storage")
@@ -62,9 +63,9 @@ export class SqliteBidStore implements BidStore {
 		`)
 
 		// Databases created before a column existed need it added in place.
-		const columns = this.db.pragma("table_info(bids)") as { name: string }[]
+		const columns = columnNames(this.db, "bids")
 		for (const column of ["dead", "pending"] as const) {
-			if (columns.some((existing) => existing.name === column)) continue
+			if (columns.has(column)) continue
 			this.db.exec(`ALTER TABLE bids ADD COLUMN ${column} INTEGER NOT NULL DEFAULT 0`)
 			this.logger.info({ column }, "Migrated bid storage schema")
 		}
@@ -166,6 +167,8 @@ export class SqliteBidStore implements BidStore {
 	}
 
 	async stats(): Promise<BidStats> {
+		// COUNT is always a number; every SUM is null when the table is empty,
+		// which is what the `|| 0`s below are for.
 		const stats = this.db
 			.prepare(`
 				SELECT
@@ -176,8 +179,7 @@ export class SqliteBidStore implements BidStore {
 					SUM(CASE WHEN (success = 1 OR pending = 1) AND retracted = 0 THEN 1 ELSE 0 END) as pendingRetraction
 				FROM bids
 			`)
-			// biome-ignore lint/suspicious/noExplicitAny: raw sqlite row
-			.get() as any
+			.get() as unknown as Record<keyof BidStats, number | null>
 
 		return {
 			total: stats.total || 0,
@@ -192,6 +194,17 @@ export class SqliteBidStore implements BidStore {
 		const rows = this.db
 			.prepare(`SELECT ${BID_COLUMNS} FROM bids WHERE success = 0 ORDER BY created_at DESC LIMIT ?`)
 			.all(limit)
+		// biome-ignore lint/suspicious/noExplicitAny: raw sqlite row
+		return (rows as any[]).map((row) => this.toStoredBid(row))
+	}
+
+	async byCommitments(commitments: string[]): Promise<StoredBid[]> {
+		if (commitments.length === 0) return []
+		const rows = this.db
+			.prepare(
+				`SELECT ${BID_COLUMNS} FROM bids WHERE commitment IN (${commitments.map(() => "?").join(",")}) ORDER BY id DESC`,
+			)
+			.all(...commitments)
 		// biome-ignore lint/suspicious/noExplicitAny: raw sqlite row
 		return (rows as any[]).map((row) => this.toStoredBid(row))
 	}

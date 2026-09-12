@@ -9,6 +9,8 @@ import type { SetupDeps } from "@/services/server/setup-api"
 import { ActivityRecorder } from "@/data/recorder"
 import { MemoryDataStore } from "@/data/memory"
 import { LoggerContext, type LogLevel } from "@/services/Logger"
+import { LogStore } from "@/services/server/LogStore"
+import type { LogRecordDto } from "@/services/server/dto"
 import { FillerPricePolicy } from "@/config/interpolated-curve"
 import type { FillerConfigFile } from "@/config/filler-toml"
 import { SignerType } from "@/services/wallet"
@@ -17,6 +19,7 @@ import type { AssetDefinition } from "@/config/asset-registry"
 import { describe, it, expect, afterEach, vi } from "vitest"
 import { existsSync, mkdtempSync, readFileSync, writeFileSync, mkdirSync } from "fs"
 import { createConnection } from "net"
+import { get } from "http"
 import { tmpdir } from "os"
 import { dirname, join } from "path"
 import { parse } from "toml"
@@ -127,11 +130,12 @@ function baseOperator(overrides: Partial<OperatorContext> = {}): TestOperator {
 		loggers,
 		strategies: [],
 		filler: fakePauseControl(),
-		balances: { getSnapshot: () => ({ updatedAt: null, chains: [] }) },
+		balances: { getSnapshot: () => ({ updatedAt: null, status: "loading", chains: [], issues: [] }) },
 		haltControls: [],
 		config: fakeConfig(),
 		stop: vi.fn().mockResolvedValue(undefined),
 		activity: new ActivityRecorder(data.activity),
+		bids: data.bids,
 		setPaused: (paused: boolean) => data.state.set({ paused }),
 		setLogLevel: (level: LogLevel) => loggers.setLevel(level),
 		applyAllowlist: vi.fn(),
@@ -202,7 +206,14 @@ describe("UiServer (operator mode)", () => {
 				{ index: 3, pairIndex: 3, exotic: "USDC/ZARP", token0: "USDC", token1: "ZARP", ask: askOnly, sameToken: false, maxOrderSize: "5000" }, // one-sided LP
 			],
 			filler,
-			balances: { getSnapshot: () => ({ updatedAt: 123, chains: [{ chainId: 8453, usdc: 1500 }] }) },
+			balances: {
+				getSnapshot: () => ({
+					updatedAt: 123,
+					status: "fresh",
+					chains: [{ chainId: 8453, usdc: 1500, assets: [] }],
+					issues: [],
+				}),
+			},
 			...overrides,
 		})
 		server = new UiServer({ mode: "operator", operator, deps })
@@ -242,7 +253,12 @@ describe("UiServer (operator mode)", () => {
 		expect(payload.strategyTypes).toEqual(["USDC/CNGN"])
 
 		const balances = await fetch(`${base}/api/balances`)
-		expect(await balances.json()).toEqual({ updatedAt: 123, chains: [{ chainId: 8453, usdc: 1500 }] })
+		expect(await balances.json()).toEqual({
+			updatedAt: 123,
+			status: "fresh",
+			chains: [{ chainId: 8453, usdc: 1500, assets: [] }],
+			issues: [],
+		})
 	})
 
 	it("rejects mutating requests without the X-Simplex-UI header", async () => {
@@ -262,9 +278,36 @@ describe("UiServer (operator mode)", () => {
 		expect(await rawRequest(port, "/api/status", "evil.example.com")).toContain("403")
 		expect(await rawRequest(port, "/api/status", "evil.example.com:1234")).toContain("403")
 		expect(await rawRequest(port, "/health", "evil.example.com")).toContain("403")
+		// DNS names that a "startsWith(127.)" prefix test would have accepted: a
+		// leading-digit label is a legal hostname, so these must all be rejected.
+		expect(await rawRequest(port, "/api/status", "127.0.0.1.evil.example.com")).toContain("403")
+		expect(await rawRequest(port, "/api/status", "127.evil.example.com")).toContain("403")
+		expect(await rawRequest(port, "/api/status", `127.0.0.1.nip.io:${port}`)).toContain("403")
+		expect(await rawRequest(port, "/api/status", "127.")).toContain("403")
 		// Legitimate local access keeps working.
 		expect(await rawRequest(port, "/api/status", `127.0.0.1:${port}`)).toContain("200")
+		expect(await rawRequest(port, "/api/status", `127.0.0.2:${port}`)).toContain("200")
 		expect(await rawRequest(port, "/api/status", "localhost")).toContain("200")
+	})
+
+	it("forbids framing on every response, including rejections", async () => {
+		const { base } = await startServer()
+		// A framing page cannot read or script this origin, but it does not need
+		// to: an invisible overlay makes the operator click the real UI's own
+		// buttons. Pause, reset-halt and vault redeem are one click each.
+		const expectFramingDenied = async (path: string, init?: Parameters<typeof fetch>[1]) => {
+			const res = await fetch(`${base}${path}`, init)
+			await res.arrayBuffer()
+			expect(res.headers.get("content-security-policy")).toBe("frame-ancestors 'none'")
+			expect(res.headers.get("x-frame-options")).toBe("DENY")
+			return res
+		}
+		// The HTML an operator's browser loads, and the JSON API behind it.
+		await expectFramingDenied("/")
+		await expectFramingDenied("/api/status")
+		// Rejections carry it too: the headers are set before any route can
+		// return, so every writeHead downstream merges rather than drops them.
+		expect((await expectFramingDenied("/api/pause", { method: "POST" })).status).toBe(403)
 	})
 
 	it("lists strategies with their curves", async () => {
@@ -452,6 +495,36 @@ describe("UiServer (operator mode)", () => {
 		await vi.waitFor(() => expect(operator.stop).toHaveBeenCalledTimes(1))
 	})
 
+	it("serves order history one page at a time with each order's bids folded in", async () => {
+		const { base, operator } = await startServer()
+		const activity = operator.data.activity
+		await activity.record({ type: "detected", orderId: "order-1" })
+		await activity.record({ type: "skipped", orderId: "order-1", reason: "No profitable strategy" })
+		await activity.record({ type: "rebalance", success: true, reason: "1/1 transfers executed" })
+		await activity.record({ type: "detected", orderId: "order-2" })
+		await activity.record({ type: "filled", orderId: "order-2", volumeUsd: 120, profitUsd: 1.2, chainId: 8453 })
+		await operator.data.bids.store({ commitment: "order-2", success: false, error: "InsufficientDeposit" })
+		await operator.data.bids.store({ commitment: "order-2", success: true, extrinsicHash: "0xext" })
+
+		const first = await (await fetch(`${base}/api/activity/history?page=1&pageSize=1`)).json()
+		expect(first.page).toBe(1)
+		expect(first.network).toBe("mainnet")
+		expect(first.total).toBe(2)
+		expect(first.orders).toHaveLength(1)
+		expect(first.orders[0].orderId).toBe("order-2")
+		expect(first.orders[0].events.map((e: { type: string }) => e.type)).toEqual(["filled", "detected"])
+		expect(first.orders[0].bids.map((b: { success: boolean }) => b.success)).toEqual([true, false])
+		expect(first.other.map((e: { type: string }) => e.type)).toEqual(["rebalance"])
+
+		const second = await (await fetch(`${base}/api/activity/history?page=2&pageSize=1`)).json()
+		expect(second.orders.map((o: { orderId: string }) => o.orderId)).toEqual(["order-1"])
+		expect(second.orders[0].bids).toEqual([])
+
+		const beyond = await (await fetch(`${base}/api/activity/history?page=9&pageSize=1`)).json()
+		expect(beyond.orders).toEqual([])
+		expect(beyond.total).toBe(2)
+	})
+
 	it("serves the order activity feed with paging", async () => {
 		const { base, operator } = await startServer()
 		const activity = operator.data.activity
@@ -545,12 +618,39 @@ describe("UiServer (operator mode)", () => {
 		expect((await fetch(`${none.base}/api/vault/sweep`, { method: "POST", headers: CSRF })).status).toBe(409)
 		server?.stop()
 
-		const sweepNow = vi.fn().mockResolvedValue(undefined)
+		const vault = "0x00000000000000000000000000000000000000aa"
+		const asset = "0x00000000000000000000000000000000000000bb"
+		const sweepNow = vi.fn().mockResolvedValue({
+			submitted: [],
+			skipped: [
+				{
+					chain: "EVM-8453",
+					vault,
+					asset,
+					symbol: "USDC",
+					decimals: 6,
+					reason: "deposits-closed",
+					walletBalance: 8_000_000_000n,
+					threshold: 5_000_000_000n,
+					maxDeposit: 0n,
+				},
+			],
+		})
 		const redeemAll = vi.fn().mockResolvedValue(undefined)
 		const reconfigure = vi.fn().mockResolvedValue(undefined)
 		const { base } = await startServer({ vault: { sweepNow, redeemAll, reconfigure } })
-		expect((await fetch(`${base}/api/vault/sweep`, { method: "POST", headers: CSRF })).status).toBe(200)
+		const sweep = await fetch(`${base}/api/vault/sweep`, { method: "POST", headers: CSRF })
+		expect(sweep.status).toBe(200)
 		expect(sweepNow).toHaveBeenCalledTimes(1)
+		// The pass's outcome reaches the dashboard with amounts already formatted, so an empty
+		// sweep can say whether the wallet or the vault is the reason.
+		expect(await sweep.json()).toEqual({
+			ok: true,
+			submitted: [],
+			skipped: [
+				{ chain: "EVM-8453", vault, symbol: "USDC", reason: "deposits-closed", walletBalance: "8000", threshold: "5000" },
+			],
+		})
 		expect((await fetch(`${base}/api/vault/redeem`, { method: "POST", headers: CSRF })).status).toBe(200)
 		expect(redeemAll).toHaveBeenCalledTimes(1)
 	})
@@ -734,9 +834,21 @@ describe("UiServer (operator mode)", () => {
 		const { base } = await startServer({ config })
 		const configDto = await (await fetch(`${base}/api/config`)).json()
 		const tokens = configDto.sendTokens["EVM-8453"] as Array<{ address: string; symbol: string }>
-		expect(tokens[0]).toEqual({ symbol: "native", address: "native" })
+		expect(tokens[0]).toEqual({ symbol: "ETH", address: "native" })
+		expect(configDto.sendTokens["EVM-56"][0]).toEqual({ symbol: "BNB", address: "native" })
 		expect(tokens.some((t) => t.address.toLowerCase() === vaultAddress.toLowerCase())).toBe(false)
 		expect(configDto.knownVaults["EVM-8453"].length).toBeGreaterThan(0)
+	})
+
+	it("lists curated vaults for every chain on the running network, not only the running ones", async () => {
+		const { base } = await startServer()
+		const configDto = await (await fetch(`${base}/api/config`)).json()
+		const chains = Object.keys(configDto.knownVaults)
+		// Running chain plus the other mainnet chains that ship Aave stata vaults.
+		expect(chains).toEqual(expect.arrayContaining(["EVM-8453", "EVM-1", "EVM-42161", "EVM-137", "EVM-56"]))
+		expect(chains.some((key) => key === "EVM-11155111")).toBe(false)
+		const ethereum = configDto.knownVaults["EVM-1"] as Array<{ label: string; asset: string }>
+		expect(ethereum.map((v) => v.asset)).toEqual(expect.arrayContaining(["USDC", "USDT"]))
 	})
 
 	it("records operator sends in the wallet history and merges fill txs", async () => {
@@ -1060,6 +1172,8 @@ describe("UiServer (operator mode)", () => {
 	it("serves static SPA files with an index.html fallback", async () => {
 		const uiDistDir = mkdtempSync(join(tmpdir(), "simplex-dist-"))
 		writeFileSync(join(uiDistDir, "index.html"), "<html>spa</html>")
+		writeFileSync(join(uiDistDir, "manifest.webmanifest"), "{}")
+		writeFileSync(join(uiDistDir, "sw.js"), "self.addEventListener('fetch', () => {})")
 		mkdirSync(join(uiDistDir, "assets"))
 		writeFileSync(join(uiDistDir, "assets", "app.js"), "console.log(1)")
 
@@ -1070,6 +1184,10 @@ describe("UiServer (operator mode)", () => {
 		expect(await (await fetch(base)).text()).toBe("<html>spa</html>")
 		const js = await fetch(`${base}/assets/app.js`)
 		expect(js.headers.get("content-type")).toContain("text/javascript")
+		const manifest = await fetch(`${base}/manifest.webmanifest`)
+		expect(manifest.headers.get("content-type")).toContain("application/manifest+json")
+		const serviceWorker = await fetch(`${base}/sw.js`)
+		expect(serviceWorker.headers.get("content-type")).toContain("text/javascript")
 		// client-routed path falls back to the SPA shell
 		expect(await (await fetch(`${base}/setup/step-2`)).text()).toBe("<html>spa</html>")
 		// traversal is blocked (fetch normalizes ../, so send the raw path over a socket)
@@ -1312,6 +1430,296 @@ describe("UiServer (operator mode)", () => {
 
 		expect((await fetch(`${base}/api/setup/defaults`)).status).toBe(410)
 		expect((await fetch(`${base}/api/setup/save-and-start`, { method: "POST", headers: CSRF, body: "{}" })).status).toBe(410)
+	})
+
+	// The dashboard's Logs page: a backfill request, then an SSE tail that
+	// resumes from the last seq the page holds. Both filter identically.
+	describe("logs", () => {
+		/** A buffer wired to its own context, so a test writes records by logging them. */
+		function logSource(level: LogLevel = "trace") {
+			const logs = new LogStore()
+			const loggers = new LoggerContext({ level })
+			loggers.addSink(logs.sink())
+			return { logs, loggers, log: loggers.get("filler") }
+		}
+
+		/**
+		 * Opens an SSE tail and resolves once `expect` records have arrived (or the
+		 * deadline passes). Event-driven rather than deadline-driven: a fixed
+		 * collection window turns a loaded CI box into a spurious failure.
+		 */
+		function tail(
+			base: string,
+			path: string,
+			options: { expect?: number; deadlineMs?: number; whileOpen?: () => void } = {},
+		): Promise<{ records: LogRecordDto[]; headers: Record<string, string | string[] | undefined>; events: string[] }> {
+			const { expect: wanted = 0, deadlineMs = 3000, whileOpen } = options
+			return new Promise((resolve, reject) => {
+				const request = get(`${base}${path}`, (res) => {
+					const records: LogRecordDto[] = []
+					const events: string[] = []
+					let settled = false
+					const finish = () => {
+						if (settled) return
+						settled = true
+						clearTimeout(deadline)
+						request.destroy()
+						resolve({ records, headers: res.headers, events })
+					}
+					const deadline = setTimeout(finish, deadlineMs)
+					// A frame larger than a TCP segment arrives split across chunks, so
+					// only whole lines can be parsed; the remainder carries over.
+					let buffer = ""
+					res.setEncoding("utf-8")
+					res.on("data", (chunk: string) => {
+						buffer += chunk
+						const lines = buffer.split("\n")
+						buffer = lines.pop() ?? ""
+						for (const line of lines) {
+							if (line.startsWith("data: ")) records.push(JSON.parse(line.slice(6)))
+							else if (line.startsWith("event: ")) events.push(line.slice(7).trim())
+						}
+						if (wanted > 0 && records.length >= wanted) finish()
+					})
+					// The replay is written before the response is readable here, so the
+					// side effect runs once a first chunk has landed.
+					if (whileOpen) setTimeout(whileOpen, 20)
+					if (wanted === 0) finish()
+				})
+				request.on("error", (err) => {
+					// destroy() to end the tail surfaces here; the records are already resolved.
+					if ((err as NodeJS.ErrnoException).code !== "ECONNRESET") reject(err)
+				})
+			})
+		}
+
+		it("GET /api/logs reports the level actually configured, with launch coverage", async () => {
+			const { logs, log } = logSource()
+			log.info({ chain: "EVM-8453" }, "Scanned block")
+			log.error({ reason: "insufficient allowance" }, "Fill reverted")
+			const config = fakeConfig()
+			// Not the route's `?? "info"` fallback: a configured level must survive.
+			config.simplex.logging = "warn"
+			const { base } = await startServer({ logs, config })
+
+			const dto = await (await fetch(`${base}/api/logs`)).json()
+			expect(dto.level).toBe("warn")
+			expect(dto.captured).toBe(2)
+			expect(dto.capacity).toBeGreaterThanOrEqual(2)
+			expect(dto.persisted).toBe(false)
+			expect(dto.records.map((r: LogRecordDto) => r.msg)).toEqual(["Scanned block", "Fill reverted"])
+		})
+
+		it("GET /api/logs filters by level, search and after", async () => {
+			const { logs, log } = logSource()
+			log.debug("Curve quote resolved")
+			log.warn({ endpoint: "https://rpc.example" }, "Provider fell behind")
+			log.error("Fill reverted")
+			const { base } = await startServer({ logs })
+
+			const at = async (query: string) =>
+				(await (await fetch(`${base}/api/logs?${query}`)).json()).records.map((r: LogRecordDto) => r.msg)
+
+			expect(await at("level=warn")).toEqual(["Provider fell behind", "Fill reverted"])
+			expect(await at("q=rpc.example")).toEqual(["Provider fell behind"])
+			expect(await at("after=2")).toEqual(["Fill reverted"])
+			expect(await at("limit=1")).toEqual(["Fill reverted"])
+			// An unknown level is not a 400: it falls back to no level filter.
+			expect(await at("level=nonsense")).toHaveLength(3)
+		})
+
+		it("caps ?limit= however large the caller asks for", async () => {
+			const { logs, log } = logSource()
+			for (let i = 0; i < 12; i++) log.info(`line ${i}`)
+			const { base } = await startServer({ logs })
+
+			const dto = await (await fetch(`${base}/api/logs?limit=999999`)).json()
+			// MAX_LOG_PAGE, not the caller's number — an operator cannot ask the
+			// filler to serialize an unbounded page.
+			expect(dto.records.length).toBeLessThanOrEqual(2000)
+			expect(dto.records).toHaveLength(12)
+		})
+
+		it("the log routes report unavailable when nothing registered a store", async () => {
+			const { base } = await startServer()
+
+			expect((await fetch(`${base}/api/logs`)).status).toBe(409)
+			expect((await fetch(`${base}/api/logs/stream`)).status).toBe(409)
+		})
+
+		it("the log routes reject the wrong method and non-operator mode", async () => {
+			const { logs } = logSource()
+			const { base } = await startServer({ logs })
+
+			expect((await fetch(`${base}/api/logs`, { method: "POST", headers: CSRF })).status).toBe(405)
+			expect((await fetch(`${base}/api/logs/stream`, { method: "POST", headers: CSRF })).status).toBe(405)
+		})
+
+		it("GET /api/logs/stream serves an event stream, replays the backfill, then streams new records", async () => {
+			const { logs, log } = logSource()
+			log.info("Scanned block")
+			log.error("Fill reverted")
+			const { base } = await startServer({ logs })
+
+			const { records, headers } = await tail(base, "/api/logs/stream?level=info", {
+				expect: 3,
+				whileOpen: () => log.warn("Provider fell behind"),
+			})
+			// EventSource refuses any other content type outright.
+			expect(headers["content-type"]).toBe("text/event-stream")
+			expect(records.map((r) => r.msg)).toEqual(["Scanned block", "Fill reverted", "Provider fell behind"])
+		})
+
+		it("after skips the replay without silencing the live tail", async () => {
+			const { logs, log } = logSource()
+			log.info("Scanned block")
+			const { base } = await startServer({ logs })
+
+			const { records } = await tail(base, "/api/logs/stream?after=1", {
+				expect: 1,
+				whileOpen: () => log.info("Order detected"),
+			})
+			expect(records.map((r) => r.msg)).toEqual(["Order detected"])
+		})
+
+		it("a stale after — a seq from before the filler restarted — still replays and streams", async () => {
+			const { logs, log } = logSource()
+			log.info("Scanned block")
+			const { base } = await startServer({ logs })
+
+			// `after` resumes the replay; a seq that outlived the process it came
+			// from must not leave the page permanently blank.
+			const { records } = await tail(base, "/api/logs/stream?after=99999", {
+				expect: 2,
+				whileOpen: () => log.info("Order detected"),
+			})
+			expect(records.map((r) => r.msg)).toEqual(["Scanned block", "Order detected"])
+		})
+
+		it("the stream's level and search apply to live records too", async () => {
+			const { logs, log } = logSource()
+			const { base } = await startServer({ logs })
+
+			const { records } = await tail(base, "/api/logs/stream?level=warn&q=quorum", {
+				expect: 1,
+				whileOpen: () => {
+					log.info({ module: "quorum" }, "quorum is fine")
+					log.warn("Provider fell behind")
+					log.error({ endpoint: "quorum-rpc" }, "Fill reverted")
+				},
+			})
+			expect(records.map((r) => r.msg)).toEqual(["Fill reverted"])
+		})
+
+		it("records logged while the replay is in flight are not lost", async () => {
+			const { logs, log } = logSource()
+			log.info("from the backfill")
+			const { base } = await startServer({ logs })
+
+			// The replay is awaited (it can read the launch file), so anything logged
+			// during it has to be held and emitted in seq order afterwards.
+			const { records } = await tail(base, "/api/logs/stream", {
+				expect: 2,
+				whileOpen: () => log.info("logged during the replay"),
+			})
+			expect(records.map((r) => r.msg)).toEqual(["from the backfill", "logged during the replay"])
+			expect(records.map((r) => r.seq)).toEqual([1, 2])
+		})
+
+		it("PUT /api/log-level moves the filler in both directions and persists it", async () => {
+			const { logs, loggers, log } = logSource("info")
+			const operator = baseOperator({ logs, setLogLevel: (level: LogLevel) => loggers.setLevel(level) })
+			const { base } = await startServer(operator)
+
+			expect((await put(base, "/api/log-level", { level: "debug" })).status).toBe(200)
+			log.debug("now recorded")
+			expect(operator.config.simplex.logging).toBe("debug")
+
+			// Lowering is allowed: it is how an operator stops a long-running filler
+			// from writing a log file it does not want.
+			expect((await put(base, "/api/log-level", { level: "error" })).status).toBe(200)
+			log.warn("no longer recorded")
+			log.error("still recorded")
+			expect(operator.config.simplex.logging).toBe("error")
+
+			const dto = await (await fetch(`${base}/api/logs`)).json()
+			expect(dto.level).toBe("error")
+			expect(dto.records.map((r: LogRecordDto) => r.msg)).toEqual(["now recorded", "still recorded"])
+		})
+
+		it("PUT /api/log-level rejects a level that is not one of the five", async () => {
+			const { logs } = logSource()
+			const { base } = await startServer({ logs })
+
+			const response = await put(base, "/api/log-level", { level: "chatty" })
+			expect(response.status).toBe(400)
+			expect((await response.json()).error).toContain("must be one of")
+		})
+
+		/**
+		 * The record that says the level changed carries a `level` field of its own,
+		 * which collides with pino's — the one line documenting the change used to
+		 * vanish from the page it was logged for.
+		 */
+		it("the level-change record itself survives into the feed", async () => {
+			const { logs } = logSource()
+			const { base } = await startServer({ logs })
+			await put(base, "/api/log-level", { level: "debug" })
+
+			// The UI server logs on the process-wide context, so drive the store the
+			// same way handleLogLevel does and assert the record survives parsing.
+			const processLike = new LoggerContext({ level: "info" })
+			processLike.addSink(logs.sink())
+			processLike.get("ui").warn({ level: "debug" }, "Log level changed from the UI")
+
+			const dto = await (await fetch(`${base}/api/logs?q=Log+level+changed`)).json()
+			expect(dto.records).toHaveLength(1)
+			expect(dto.records[0].level).toBe("warn")
+			expect(JSON.parse(dto.records[0].detail)).toEqual({ level: "debug" })
+		})
+
+		/**
+		 * The replay writes its whole page without yielding, so the socket cannot
+		 * drain during it. A byte-threshold guard therefore fired on a reader who
+		 * was never given the chance, and the `gap` it emitted made the page re-run
+		 * the feed, replay the same page, and trip again — a livelock on a healthy
+		 * operator over the tunnel.
+		 */
+		it("a large replay reports no gap to a reader that is keeping up", async () => {
+			const { logs, log } = logSource()
+			for (let i = 0; i < 1200; i++) log.info({ blob: "x".repeat(2000) }, `line ${i}`)
+			const { base } = await startServer({ logs })
+
+			// ~2.4MB of frames — comfortably past the 1MB the old guard allowed.
+			const { records, events } = await tail(base, "/api/logs/stream", { expect: 1200, deadlineMs: 10_000 })
+			expect(events).not.toContain("gap")
+			expect(records).toHaveLength(1200)
+			expect(records[0].msg).toBe("line 0")
+			expect(records[1199].msg).toBe("line 1199")
+		})
+
+		it("stop() ends open log tails instead of leaving them hanging", async () => {
+			const { logs } = logSource()
+			const { base } = await startServer({ logs })
+			// Resolves "ended" only if the server actually terminated the response.
+			const ended = new Promise<string>((resolve) => {
+				const request = get(`${base}/api/logs/stream`, (res) => {
+					res.resume()
+					res.on("end", () => resolve("ended"))
+					res.on("close", () => resolve("ended"))
+				})
+				request.on("error", () => resolve("errored"))
+				setTimeout(() => {
+					request.destroy()
+					resolve("still open")
+				}, 2000)
+			})
+			await new Promise((r) => setTimeout(r, 50))
+
+			server!.stop()
+			server = undefined
+			expect(await ended).toBe("ended")
+		})
 	})
 
 })

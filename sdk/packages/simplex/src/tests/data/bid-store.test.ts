@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest"
-import Database from "better-sqlite3"
+import { DatabaseSync } from "node:sqlite"
 import { mkdtempSync, rmSync } from "fs"
 import { tmpdir } from "os"
 import { join } from "path"
@@ -84,7 +84,7 @@ const backends: Array<{ name: string; create: () => BidStore; backdate: Backdate
 		backdate: async (bids, commitment, ageMs) => {
 			// biome-ignore lint/suspicious/noExplicitAny: test-only handle
 			const dir = (bids as any).__dir as string
-			const db = new Database(join(dir, "bids.db"))
+			const db = new DatabaseSync(join(dir, "bids.db"))
 			const past = new Date(Date.now() - ageMs)
 				.toISOString()
 				.replace("T", " ")
@@ -180,7 +180,7 @@ describe("SqliteBidStore migrations", () => {
 		const dir = tempDir("simplex-bids-legacy-")
 
 		// The exact pre-#1074 schema, with a row already in it.
-		const legacy = new Database(join(dir, "bids.db"))
+		const legacy = new DatabaseSync(join(dir, "bids.db"))
 		legacy.exec(`
 			CREATE TABLE bids (
 				id INTEGER PRIMARY KEY AUTOINCREMENT,

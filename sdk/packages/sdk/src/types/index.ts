@@ -814,14 +814,6 @@ export interface FillerConfig {
 	watchOnly?: Record<number, boolean>
 
 	/**
-	 * Source chains (state machine ids, e.g. "EVM-8453") this filler accepts payment from when
-	 * filling cross-chain orders, declared inside its phantom bids' paymasterAndData. Omit to
-	 * declare nothing, which downstream consumers read as "accepts all CCTP/USDT0-covered
-	 * chains"; an empty array declares that no source chain is accepted.
-	 */
-	acceptedSourceChains?: string[]
-
-	/**
 	 * Uniswap V4 position tokenIds this filler holds, per chain (state machine id -> tokenIds as
 	 * decimal strings), declared inside its phantom bids' paymasterAndData for the bid's own chain.
 	 *
@@ -1414,8 +1406,9 @@ export interface OrderFeesQuote {
 	/**
 	 * The amount to set as `Order.fees`, denominated in the source-chain fee
 	 * token. Same-chain fills carry a 2x margin over the estimated fill gas without
-	 * a gas-price bump. Cross-chain gas is priced with 10% SDK-only headroom before
-	 * adding the settlement relayer fee and a further 5% buffer over the whole sum.
+	 * a gas-price bump. Cross-chain orders originating on Ethereum mainnet use 50%
+	 * SDK-only gas-price headroom; other source chains use 10%. The settlement
+	 * relayer fee is then added with a further 5% buffer over the whole sum.
 	 */
 	fees: bigint
 	/**

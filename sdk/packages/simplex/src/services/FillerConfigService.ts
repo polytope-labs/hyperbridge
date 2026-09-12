@@ -342,10 +342,6 @@ export class FillerConfigService {
 		return this.chainConfigService.getUsdcDecimals(chain)
 	}
 
-	getCirclePaymasterAddress(chain: string): HexString | undefined {
-		return this.chainConfigService.getCirclePaymasterAddress(chain)
-	}
-
 	getSimplexPaymasterAddress(chain: string): HexString | undefined {
 		return this.chainConfigService.getSimplexPaymasterAddress(chain)
 	}

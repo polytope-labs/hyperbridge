@@ -15,7 +15,7 @@ export async function stepChains(state: WizardState, prefill?: Prefill): Promise
 			initialValue: prefillNetwork ?? "mainnet",
 			options: [
 				{ value: "mainnet", label: "Mainnet", hint: "real funds, real orders" },
-				{ value: "testnet", label: "Testnet", hint: "Sepolia-family chains, for trying things out" },
+				{ value: "testnet", label: "Testnet", hint: "EVM test networks, for trying things out" },
 			],
 		}),
 	)

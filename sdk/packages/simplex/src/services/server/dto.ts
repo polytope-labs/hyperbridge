@@ -7,8 +7,58 @@
 import type { InitChainMeta, InitNetwork } from "@/cli/init/chains"
 import type { VaultToml } from "@/config/filler-toml"
 import type { CurvePoint, PriceCurvePoint } from "@/config/interpolated-curve"
+import type { BalanceSnapshot as RuntimeBalanceSnapshot } from "@/services/BalanceProvider"
+import type { VaultSweepSkipReason } from "@/funding/vault/VaultFundingPlanner"
+import type { ActivityType, OrderSummary } from "@/data/types"
 
 export const LOG_LEVELS = ["trace", "debug", "info", "warn", "error"] as const
+
+/**
+ * Levels a record can carry, as opposed to the levels an operator can select.
+ * `fatal` is emitted by `Logger.fatal` but is not a capture level, so it is
+ * never offered as a choice — it just has to be displayable.
+ */
+export type LogRecordLevel = (typeof LOG_LEVELS)[number] | "fatal"
+
+/** Ordering for "this level and above"; the same numbers pino writes. */
+export const LOG_LEVEL_RANK: Record<LogRecordLevel, number> = {
+	trace: 10,
+	debug: 20,
+	info: 30,
+	warn: 40,
+	error: 50,
+	fatal: 60,
+}
+
+/** One buffered log record: a row in the Logs page, and a frame of GET /api/logs/stream. */
+export interface LogRecordDto {
+	/** Monotonic per process; the client resumes a stream from the last one it holds. */
+	seq: number
+	/** Milliseconds since epoch, as pino recorded it. */
+	time: number
+	level: LogRecordLevel
+	/** The `[module]` tag, brackets stripped; absent for records logged without one. */
+	module?: string
+	msg: string
+	/** Everything else on the record (error fields, ids, amounts) as JSON, for display and search. */
+	detail?: string
+}
+
+/** GET /api/logs */
+export interface LogsDto {
+	/** The filler's current log level: nothing below this is being recorded. */
+	level: string
+	/** Records held in memory for the live tail. The history on disk is not bounded by this. */
+	capacity: number
+	/** Records captured since launch, whether or not they are still in memory. */
+	captured: number
+	/** True when this launch's full history is on disk and searchable. */
+	persisted: boolean
+	/** Where that history is being written; absent when the store is memory-only. */
+	path?: string
+	/** Oldest first. */
+	records: LogRecordDto[]
+}
 
 export interface KnownToken {
 	symbol: string
@@ -26,7 +76,6 @@ export interface SetupDefaults {
 	chains: InitChainMeta[]
 	hyperbridgeWs: Record<InitNetwork, string>
 	usdStables: string[]
-	sameAssetAskCurve: PriceCurvePoint[]
 	testnetConfirmationPoints: CurvePoint[]
 	maxConcurrentOrders: number
 	configPath: string
@@ -61,17 +110,30 @@ export interface StatusOperator {
 
 export type Status = StatusInit | StatusOperator
 
-/** GET /api/balances */
-export interface BalanceSnapshot {
-	updatedAt: number | null
-	chains: Array<{
-		chainId: number
-		native?: { symbol: string; amount: number }
-		usdc?: number
-		usdt?: number
-		exotics?: Array<{ symbol: string; amount: number }>
-	}>
-	hyperbridge?: { address: string; free: number; reserved: number }
+/** GET /api/balances — shared with the runtime collector to prevent contract drift. */
+export type BalanceSnapshot = RuntimeBalanceSnapshot
+
+/**
+ * POST /api/vault/sweep response. `submitted` is empty when the pass found nothing it could
+ * deposit; `skipped` says why per vault, so the dashboard can tell a wallet below its threshold
+ * from a vault that is refusing deposits. Amounts are in the underlying token's display units.
+ */
+export interface VaultSweepDto {
+	ok: true
+	submitted: {
+		chain: string
+		txHash: string
+		sponsored: boolean
+		deposits: { vault: string; symbol: string; amount: string }[]
+	}[]
+	skipped: {
+		chain: string
+		vault: string
+		symbol: string
+		reason: VaultSweepSkipReason
+		walletBalance?: string
+		threshold?: string
+	}[]
 }
 
 /** GET /api/strategies rows; PUT /api/strategies/:index(/curves) response */
@@ -118,7 +180,7 @@ export interface ChainsDto {
 export interface ActivityEventDto {
 	id: number
 	ts: number
-	type: "detected" | "filled" | "executed" | "skipped" | "rebalance"
+	type: ActivityType
 	orderId: string | null
 	chainId: number | null
 	strategy: string | null
@@ -127,6 +189,27 @@ export interface ActivityEventDto {
 	volumeUsd: number | null
 	profitUsd: number | null
 	txHash: string | null
+	order: OrderSummary | null
+}
+
+export type { ActivityType, OrderLeg, OrderSummary } from "@/data/types"
+
+/** GET /api/activity/history — one page of orders, each with its rows and Hyperbridge bids. */
+export interface OrderHistoryDto {
+	page: number
+	pageSize: number
+	total: number
+	/** Network the running chains belong to; picks the Hyperbridge explorer for bid extrinsics. */
+	network: InitNetwork
+	orders: Array<{
+		orderId: string
+		/** Newest first. */
+		events: ActivityEventDto[]
+		/** Bids submitted for this order's commitment, newest first. */
+		bids: BidDto[]
+	}>
+	/** Newest events with no order (rebalances), for the footer of the first page. */
+	other: ActivityEventDto[]
 }
 
 /** GET /api/activity/bids rows */
@@ -136,8 +219,11 @@ export interface BidDto {
 	extrinsicHash: string | null
 	success: boolean
 	error: string | null
+	/** SQLite-style "YYYY-MM-DD HH:MM:SS" in UTC. */
 	createdAt: string
 	retracted: boolean
+	retractedAt: string | null
+	retractExtrinsicHash: string | null
 }
 
 export interface BidStatsDto {
@@ -165,6 +251,23 @@ export interface WalletTxDto {
 	to: string | null
 	txHash: string
 	sponsored: boolean | null
+	/** Curated vault name when `to` is a known vault (sweep/redeem), else null. */
+	label: string | null
+	/** What came into the wallet (fill: the order's input; sweep: vault shares; redeem: the underlying). */
+	in: LedgerLeg | null
+	/** What left the wallet (fill: the order's output; sweep: the underlying; redeem: shares; send: the token). */
+	out: LedgerLeg | null
+}
+
+/** One side of a ledger row. `decimals` null means `amount` is already a decimal string. */
+export interface LedgerLeg {
+	symbol: string
+	amount: string
+	decimals: number | null
+	/** Symbol whose logo to show; for vault shares this is the underlying (stataUSDC → USDC). */
+	icon: string
+	/** True for vault share tokens, which render with a vault badge over the underlying's logo. */
+	vault: boolean
 }
 
 /** GET /api/config */
@@ -177,6 +280,77 @@ export interface ConfigDto {
 	allowlistUsers: string[]
 	vaults: VaultToml[]
 	sendTokens: Record<string, SendTokenOption[]>
-	/** Registry vault catalog per running chain (state machine id), for selection UIs. */
+	/**
+	 * Registry vault catalog per chain (state machine id) for every chain on the
+	 * running network, not only the running ones; the editor disables rows for
+	 * chains that are not enabled. Running chains are always present, possibly empty.
+	 */
 	knownVaults: Record<string, KnownVault[]>
+	/** Remote-access summary for the Operations list; absent when the filler has no tunnel. */
+	tunnel?: { enabled: boolean; devices: number }
+}
+
+/** Where the remote-access tunnel is in its lifecycle. */
+export type TunnelState = "disabled" | "connecting" | "connected" | "reconnecting" | "disconnected" | "error"
+
+export interface TunnelDeviceDto {
+	/** `SHA256:…` of the device's public key. */
+	fingerprint: string
+	label: string
+	/** Unix milliseconds; 0 for a line added to `authorized_keys` by hand. */
+	addedAt: number
+}
+
+/** GET /api/tunnel */
+export interface TunnelStatusDto {
+	enabled: boolean
+	state: TunnelState
+	/** `host:port` of the relay in use. */
+	relay: string
+	/** Pinned relay host key, once known. */
+	relayFingerprint?: string
+	/** Public port the relay leased to this simplex; what the phone connects to. */
+	port?: number
+	connectedAt?: number
+	lastError?: string
+	/** The embedded SSH server's host key, which the phone must pin. */
+	hostFingerprint: string
+	/** This simplex's identity toward the relay. */
+	operatorFingerprint: string
+	devices: TunnelDeviceDto[]
+	/** Device sessions open right now. */
+	activeConnections: number
+	/**
+	 * The connection an operator types into their SSH app. Overlaps `port` and
+	 * `hostFingerprint` on purpose: this is the block the dashboard renders, so
+	 * it stays one shape whether it comes from here or from pairing.
+	 */
+	connection: TunnelConnectionDto
+	/** True when this status was read through the tunnel, where remote access cannot be changed. */
+	readOnly?: boolean
+}
+
+/** Everything a phone's SSH app needs to reach this dashboard. */
+export interface TunnelConnectionDto {
+	host: string
+	/** Absent until the relay has leased a port. */
+	port?: number
+	username: string
+	/** The embedded SSH server's host key, which the phone pins. */
+	hostFingerprint: string
+	/** `-L` argument: local port to the UI bind. */
+	localForward: string
+}
+
+/**
+ * POST /api/tunnel/devices. When the request carried the phone's own public
+ * key there is no private key here; when simplex generated the pair, the
+ * private key is returned once and never stored.
+ */
+export interface TunnelNewDeviceDto {
+	device: TunnelDeviceDto
+	/** OpenSSH-format private key for the phone; absent for a pasted public key. */
+	privateKey?: string
+	publicKey: string
+	connection: TunnelConnectionDto
 }

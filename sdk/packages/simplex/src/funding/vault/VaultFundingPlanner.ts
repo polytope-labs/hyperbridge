@@ -2,18 +2,81 @@ import { ERC20_ABI } from "@/config/abis/ERC20"
 import { ERC4626_ABI } from "@/config/abis/Erc4626"
 import { validateVaultToml } from "@/config/filler-toml"
 import { VaultLiquidityState } from "@/funding/vault/VaultLiquidityState"
-import type { VaultOutputFundingConfig, FundingPlanResult, FundingVenue } from "@/funding/types"
+import type {
+	FundingPlanResult,
+	FundingVenue,
+	HydratedVault,
+	VaultBalancePosition,
+	VaultOutputFundingConfig,
+} from "@/funding/types"
 import type { ChainClientManager } from "@/services/ChainClientManager"
 import type { UserOpSender } from "@/services/UserOpSender"
-import { type Logger , moduleLogger} from "@/services/Logger"
+import { type Logger, moduleLogger } from "@/services/Logger"
 import { encodeERC7821ExecuteBatch, type ERC7821Call, type HexString } from "@hyperbridge/sdk"
 import { Mutex } from "async-mutex"
 import type { Decimal } from "decimal.js"
-import { encodeFunctionData } from "viem"
-
-
+import { encodeFunctionData, formatUnits } from "viem"
+import type { DescribedMovement } from "@/data/ledger-backfill"
+import { vaultMovementsFromLogs } from "@/funding/vault/ledger"
 /** Default sweep cadence when the config omits `sweepIntervalMs`. */
 const DEFAULT_SWEEP_INTERVAL_MS = 5 * 60 * 1000
+
+/**
+ * Why a sweep pass left a configured vault alone. `deposits-closed` is the one an operator needs
+ * to see: the wallet is over its trigger but the vault reports `maxDeposit(solver) == 0`.
+ */
+export type VaultSweepSkipReason = "sweeping-disabled" | "below-threshold" | "deposits-closed"
+
+export interface VaultSweepSkip {
+	chain: string
+	vault: HexString
+	asset: HexString
+	symbol: string
+	decimals: number
+	reason: VaultSweepSkipReason
+	/** Solver wallet balance of the underlying, base units. Not read when sweeping is disabled. */
+	walletBalance?: bigint
+	/** High-water trigger, base units. Absent when sweeping is disabled. */
+	threshold?: bigint
+	/** `maxDeposit(solver)` at the time of the pass. Only read once the threshold is met. */
+	maxDeposit?: bigint
+}
+
+export interface VaultSweepDeposit {
+	vault: HexString
+	asset: HexString
+	symbol: string
+	decimals: number
+	/** Amount deposited, base units. */
+	amount: bigint
+}
+
+/** One vault's part of a sweep or redeem transaction: the underlying side and the share side. */
+export interface VaultMovement {
+	vault: HexString
+	asset: HexString
+	symbol: string
+	decimals: number
+	/** Base units of the underlying asset. */
+	amount: bigint
+	/** Vault shares given (sweep) or burned (redeem), base units; absent when the vault would not quote them. */
+	shares?: bigint
+	shareSymbol: string
+	shareDecimals: number
+}
+
+export interface VaultSweepSubmission {
+	chain: string
+	txHash: HexString
+	sponsored: boolean
+	deposits: VaultSweepDeposit[]
+}
+
+/** Outcome of one sweep pass: what was submitted, and why every other vault was left alone. */
+export interface VaultSweepResult {
+	submitted: VaultSweepSubmission[]
+	skipped: VaultSweepSkip[]
+}
 
 /**
  * Funding venue that sources output tokens by withdrawing the solver's own
@@ -33,17 +96,25 @@ export class VaultFundingPlanner implements FundingVenue {
 
 	name = "Vault"
 	private stateByChain = new Map<string, VaultLiquidityState>()
+	/** ERC-20 metadata of each vault's share token, read once per vault. */
+	private shareMeta = new Map<string, { symbol: string; decimals: number }>()
 	private mutexByChain = new Map<string, Mutex>()
 	/** Per-chain mutex serialising sweeps so a slow supply tx can't overlap the next tick. */
 	private sweepMutexByChain = new Map<string, Mutex>()
 	private solver: HexString | null = null
 	private sweepInterval?: NodeJS.Timeout
 	private initialSweepTimer?: NodeJS.Timeout
+	/**
+	 * `chain:vault` keys whose closed-deposit state has been warned about. The periodic sweep runs
+	 * every few minutes and a streaming-yield vault is closed for most of the day; one warn per
+	 * closure (and debug thereafter) keeps the log readable without hiding the cause.
+	 */
+	private depositsClosedWarned = new Set<string>()
 
 	/**
-	 * @param userOpSender When provided, sweep/redeem batches are sent as Circle-
-	 * Paymaster-sponsored UserOps (gas paid in USDC) where the chain supports it,
-	 * falling back to a native EOA tx. Omit to always use native txs.
+	 * @param userOpSender When provided, sweep/redeem batches are sent as paymaster-
+	 * sponsored UserOps (gas paid in USDC) where the chain supports it, falling back
+	 * to a native EOA tx. Omit to always use native txs.
 	 */
 	constructor(
 		private readonly clientManager: ChainClientManager,
@@ -54,7 +125,14 @@ export class VaultFundingPlanner implements FundingVenue {
 	}
 
 	/** Invoked after each submitted sweep/redeem batch so wallet history can record it. */
-	onTx?: (tx: { chain: string; kind: "sweep" | "redeem"; txHash: HexString; sponsored: boolean }) => void
+	onTx?: (tx: {
+		chain: string
+		kind: "sweep" | "redeem"
+		txHash: HexString
+		sponsored: boolean
+		/** What moved, per vault: deposits for a sweep, redeemed assets for a redeem. */
+		movements: VaultMovement[]
+	}) => void
 
 	/**
 	 * Replaces the vault set at runtime and re-hydrates. The instance is shared
@@ -78,6 +156,7 @@ export class VaultFundingPlanner implements FundingVenue {
 		// Swap only after every chain hydrated, so a bad address leaves the old set live.
 		this.config = config
 		this.stateByChain.clear()
+		this.depositsClosedWarned.clear()
 		for (const [chain, state] of stateByChain) {
 			this.stateByChain.set(chain, state)
 			if (!this.mutexByChain.has(chain)) this.mutexByChain.set(chain, new Mutex())
@@ -125,6 +204,39 @@ export class VaultFundingPlanner implements FundingVenue {
 		} else {
 			await Promise.all(Array.from(this.stateByChain.values()).map((s) => s.refresh()))
 		}
+	}
+
+	/**
+	 * Returns a coherent read-only view of every configured vault. Refreshing
+	 * under the same per-chain mutex used by withdrawal planning ensures the
+	 * displayed availability includes all live pending-fill reservations.
+	 */
+	async getBalanceSnapshot(requestedChain?: string): Promise<VaultBalancePosition[]> {
+		const snapshots = await Promise.all(
+			Array.from(this.stateByChain.entries())
+				.filter(([chain]) => requestedChain === undefined || chain === requestedChain)
+				.map(async ([chain, state]) => {
+				const mutex = this.mutexByChain.get(chain)
+				if (!mutex || !state.isHydrated()) return []
+
+				return mutex.runExclusive(async () => {
+					await state.refresh()
+					return state.allVaults().map((vault) => ({
+						chain,
+						vault: vault.vault,
+						asset: vault.asset,
+						symbol: vault.symbol,
+						decimals: vault.decimals,
+						positionAssets: vault.positionAssets,
+						availableAssets: vault.remaining,
+						walletReserve: vault.minBalanceScaled,
+						acceptsDeposits: vault.maxDeposit > 0n,
+					}))
+				})
+				}),
+		)
+
+		return snapshots.flat()
 	}
 
 	// =========================================================================
@@ -255,23 +367,34 @@ export class VaultFundingPlanner implements FundingVenue {
 	 * `approve + deposit` pair and sending them as a single ERC-7821 batch to the
 	 * solver account — atomic, leaving no residual allowance.
 	 */
-	async sweepExcessToVault(chain?: string): Promise<void> {
+	async sweepExcessToVault(chain?: string): Promise<VaultSweepResult> {
 		const chains = chain ? [chain] : Array.from(this.stateByChain.keys())
-		await Promise.all(chains.map((c) => this.sweepChain(c)))
+		const passes = await Promise.all(chains.map((c) => this.sweepChain(c)))
+		return {
+			submitted: passes.flatMap((pass) => (pass.submitted ? [pass.submitted] : [])),
+			skipped: passes.flatMap((pass) => pass.skipped),
+		}
 	}
 
-	private async sweepChain(chain: string): Promise<void> {
+	private async sweepChain(chain: string): Promise<{ submitted?: VaultSweepSubmission; skipped: VaultSweepSkip[] }> {
 		const state = this.stateByChain.get(chain)
 		const solver = this.solver
-		if (!state || !state.isHydrated() || !solver) return
+		if (!state || !state.isHydrated() || !solver) return { skipped: [] }
 
 		const mutex = this.sweepMutexByChain.get(chain)!
-		await mutex.runExclusive(async () => {
+		return mutex.runExclusive(async () => {
 			const publicClient = this.clientManager.getPublicClient(chain)
 			const calls: ERC7821Call[] = []
+			const deposits: VaultSweepDeposit[] = []
+			const movements: VaultMovement[] = []
+			const skipped: VaultSweepSkip[] = []
 
 			for (const vault of state.allVaults()) {
-				if (vault.thresholdScaled === null) continue // sweeping disabled for this vault
+				const identity = { chain, vault: vault.vault, asset: vault.asset, symbol: vault.symbol, decimals: vault.decimals }
+				if (vault.thresholdScaled === null) {
+					skipped.push({ ...identity, reason: "sweeping-disabled" })
+					continue
+				}
 
 				const walletBalance = (await publicClient.readContract({
 					abi: ERC20_ABI,
@@ -283,15 +406,19 @@ export class VaultFundingPlanner implements FundingVenue {
 				// Hysteresis: only act once the balance reaches the high-water
 				// trigger, then deposit everything down to minBalance. The
 				// threshold→minBalance gap is the implicit minimum sweep size.
-				if (walletBalance < vault.thresholdScaled) continue
+				if (walletBalance < vault.thresholdScaled) {
+					skipped.push({ ...identity, reason: "below-threshold", walletBalance, threshold: vault.thresholdScaled })
+					continue
+				}
 				const excess = walletBalance - vault.minBalanceScaled
 
 				// Clamp to the vault's deposit cap — ERC-4626 requires deposit to
 				// revert when assets > maxDeposit(receiver) (e.g. an Aave stataToken
-				// at its supply cap, or a paused market). Without this the sweep tx
-				// reverts every tick once the cap is hit. `excess` is read here and
-				// deposited in a later tx; if a fill consumes wallet balance in the
-				// interim the batch reverts atomically, leaving no stale allowance.
+				// at its supply cap, a paused market, or a StreamingYieldVault while a
+				// tranche vests). Without this the sweep tx reverts every tick once
+				// the cap is hit. `excess` is read here and deposited in a later tx;
+				// if a fill consumes wallet balance in the interim the batch reverts
+				// atomically, leaving no stale allowance.
 				const maxDeposit = (await publicClient.readContract({
 					abi: ERC4626_ABI,
 					address: vault.vault,
@@ -299,7 +426,21 @@ export class VaultFundingPlanner implements FundingVenue {
 					args: [solver],
 				})) as bigint
 				const depositAmount = excess < maxDeposit ? excess : maxDeposit
-				if (depositAmount <= 0n) continue
+				if (depositAmount <= 0n) {
+					// The wallet is over its trigger and the vault refuses the deposit.
+					// Silently skipping here made a closed vault indistinguishable from
+					// a wallet that never reached its threshold.
+					this.noteDepositsClosed(chain, vault, walletBalance, maxDeposit)
+					skipped.push({
+						...identity,
+						reason: "deposits-closed",
+						walletBalance,
+						threshold: vault.thresholdScaled,
+						maxDeposit,
+					})
+					continue
+				}
+				this.depositsClosedWarned.delete(closedKey(chain, vault))
 
 				calls.push({
 					target: vault.asset,
@@ -319,6 +460,16 @@ export class VaultFundingPlanner implements FundingVenue {
 						args: [depositAmount, solver],
 					}) as HexString,
 				})
+				deposits.push({ ...identity, amount: depositAmount })
+				movements.push({
+					vault: vault.vault,
+					asset: vault.asset,
+					symbol: vault.symbol,
+					decimals: vault.decimals,
+					amount: depositAmount,
+					shares: await this.quoteShares(vault.vault, depositAmount, publicClient),
+					...(await this.shareTokenMeta(vault.vault, publicClient)),
+				})
 
 				this.logger.info(
 					{ chain, vault: vault.vault, asset: vault.asset, excess: excess.toString(), depositAmount: depositAmount.toString() },
@@ -326,18 +477,48 @@ export class VaultFundingPlanner implements FundingVenue {
 				)
 			}
 
-			if (calls.length === 0) return
+			if (calls.length === 0) return { skipped }
 
 			const { txHash, sponsored } = await this.submitBatch(chain, solver, calls)
 			this.logger.info({ chain, tx: txHash, sponsored, pairs: calls.length / 2 }, "Vault sweep submitted")
-			this.onTx?.({ chain, kind: "sweep", txHash, sponsored })
+			this.onTx?.({ chain, kind: "sweep", txHash, sponsored, movements })
+			return { submitted: { chain, txHash, sponsored, deposits }, skipped }
 		})
 	}
 
 	/**
-	 * Sends an ERC-7821 batch to the solver account. Prefers a Circle-Paymaster-
-	 * sponsored UserOp (gas paid in USDC) when a sender is wired and the chain
-	 * supports it, falling back to a native EOA tx.
+	 * Warns the first time a vault turns a due sweep away, debug on every repeat until a deposit
+	 * goes through (or the venue is reconfigured). The fields name what an operator needs to
+	 * decide whether to wait or intervene: how far over the trigger the wallet is, and that the
+	 * vault — not the solver — is the side saying no.
+	 */
+	private noteDepositsClosed(chain: string, vault: HydratedVault, walletBalance: bigint, maxDeposit: bigint): void {
+		const key = closedKey(chain, vault)
+		const fields = {
+			chain,
+			vault: vault.vault,
+			asset: vault.asset,
+			symbol: vault.symbol,
+			walletBalance: walletBalance.toString(),
+			threshold: vault.thresholdScaled?.toString(),
+			minBalance: vault.minBalanceScaled.toString(),
+			maxDeposit: maxDeposit.toString(),
+		}
+		if (this.depositsClosedWarned.has(key)) {
+			this.logger.debug(fields, "Vault sweep skipped: vault still not accepting deposits")
+			return
+		}
+		this.depositsClosedWarned.add(key)
+		this.logger.warn(
+			fields,
+			"Vault sweep skipped: wallet balance is above its sweep threshold but the vault is not accepting deposits (maxDeposit is 0); retrying every cycle",
+		)
+	}
+
+	/**
+	 * Sends an ERC-7821 batch to the solver account. Prefers a paymaster-sponsored
+	 * UserOp (gas paid in USDC) when a sender is wired and the chain supports it,
+	 * falling back to a native EOA tx.
 	 *
 	 * The sponsored path only falls back to native when the op was **never
 	 * submitted**; a submitted-but-unconfirmed op throws so a native resend can't
@@ -353,8 +534,8 @@ export class VaultFundingPlanner implements FundingVenue {
 		if (this.userOpSender?.canSponsor(chain)) {
 			// The bundler echoes input gas limits for these ops instead of simulating, so
 			// pass measured fixed limits. Verification efficiency `used / (verif + pmVerif)`
-			// must clear rundler's 0.4 floor — the Circle paymaster verification (~75k) is
-			// the dominant term, account validation only ~24k.
+			// must clear rundler's 0.4 floor — the paymaster's Permit2 verification is the
+			// dominant term, account validation only ~24k.
 			const result = await this.userOpSender.trySendSponsored({
 				chain,
 				callData,
@@ -363,7 +544,6 @@ export class VaultFundingPlanner implements FundingVenue {
 					callGasLimit: 350_000n * BigInt(calls.length) + 100_000n,
 					preVerificationGas: 150_000n,
 				},
-				paymasterVerificationGasLimit: 140_000n,
 			})
 			if (result) return { txHash: result.txHash, sponsored: true }
 			this.logger.warn({ chain }, "Sponsored batch unavailable, sending native tx")
@@ -412,6 +592,7 @@ export class VaultFundingPlanner implements FundingVenue {
 		await mutex.runExclusive(async () => {
 			const publicClient = this.clientManager.getPublicClient(chain)
 			const calls: ERC7821Call[] = []
+			const movements: VaultMovement[] = []
 
 			for (const vault of state.allVaults()) {
 				if (!vault.redeemOnShutdown) continue // operator opted to keep this position
@@ -423,6 +604,22 @@ export class VaultFundingPlanner implements FundingVenue {
 					args: [solver],
 				})) as bigint
 				if (shares === 0n) continue
+				// For the ledger: what those shares are worth in the underlying, per the vault itself.
+				const assets = (await publicClient.readContract({
+					abi: ERC4626_ABI,
+					address: vault.vault,
+					functionName: "previewRedeem",
+					args: [shares],
+				})) as bigint
+				movements.push({
+					vault: vault.vault,
+					asset: vault.asset,
+					symbol: vault.symbol,
+					decimals: vault.decimals,
+					amount: assets,
+					shares,
+					...(await this.shareTokenMeta(vault.vault, publicClient)),
+				})
 
 				calls.push({
 					target: vault.vault,
@@ -444,7 +641,77 @@ export class VaultFundingPlanner implements FundingVenue {
 
 			const { txHash, sponsored } = await this.submitBatch(chain, solver, calls)
 			this.logger.info({ chain, tx: txHash, sponsored, vaults: calls.length }, "Vault shutdown redeem submitted")
-			this.onTx?.({ chain, kind: "redeem", txHash, sponsored })
+			this.onTx?.({ chain, kind: "redeem", txHash, sponsored, movements })
 		})
 	}
+
+	/**
+	 * What a sweep or redeem transaction did, read back from its receipt: one
+	 * entry per configured vault it deposited into or withdrew from. Empty until
+	 * the chain's vaults are hydrated, or when the receipt touches none of them.
+	 */
+	async describeTransaction(chain: string, txHash: HexString): Promise<DescribedMovement[]> {
+		const state = this.stateByChain.get(chain)
+		if (!state) return []
+		const client = this.clientManager.getPublicClient(chain)
+		const receipt = await client.getTransactionReceipt({ hash: txHash })
+		const vaults = new Map(state.allVaults().map((vault) => [vault.vault.toLowerCase(), vault]))
+		const out: DescribedMovement[] = []
+		for (const move of vaultMovementsFromLogs(receipt.logs, vaults.keys())) {
+			const vault = vaults.get(move.vault.toLowerCase())
+			if (!vault) continue
+			const share = await this.shareTokenMeta(vault.vault, client)
+			out.push({
+				kind: move.kind,
+				vault: vault.vault,
+				symbol: vault.symbol,
+				amount: formatUnits(move.assets, vault.decimals),
+				shareSymbol: share.shareSymbol,
+				shares: formatUnits(move.shares, share.shareDecimals),
+			})
+		}
+		return out
+	}
+
+	/** Symbol and decimals of a vault's share token (e.g. stataUSDC), cached per vault. */
+	private async shareTokenMeta(
+		vault: HexString,
+		client: ReturnType<ChainClientManager["getPublicClient"]>,
+	): Promise<{ shareSymbol: string; shareDecimals: number }> {
+		const cached = this.shareMeta.get(vault)
+		if (cached) return { shareSymbol: cached.symbol, shareDecimals: cached.decimals }
+		let symbol = "shares"
+		let decimals = 18
+		try {
+			symbol = (await client.readContract({ abi: ERC20_ABI, address: vault, functionName: "symbol" })) as string
+			decimals = Number(await client.readContract({ abi: ERC20_ABI, address: vault, functionName: "decimals" }))
+		} catch (err) {
+			this.logger.debug({ err, vault }, "Could not read vault share token metadata")
+		}
+		this.shareMeta.set(vault, { symbol, decimals })
+		return { shareSymbol: symbol, shareDecimals: decimals }
+	}
+
+	/** Shares the vault would mint for `assets`, for the ledger; undefined when it will not say. */
+	private async quoteShares(
+		vault: HexString,
+		assets: bigint,
+		client: ReturnType<ChainClientManager["getPublicClient"]>,
+	): Promise<bigint | undefined> {
+		try {
+			return (await client.readContract({
+				abi: ERC4626_ABI,
+				address: vault,
+				functionName: "previewDeposit",
+				args: [assets],
+			})) as bigint
+		} catch (err) {
+			this.logger.debug({ err, vault }, "Vault would not quote shares for the deposit")
+			return undefined
+		}
+	}
+}
+
+function closedKey(chain: string, vault: HydratedVault): string {
+	return `${chain}:${vault.vault.toLowerCase()}`
 }

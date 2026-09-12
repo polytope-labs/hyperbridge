@@ -1,6 +1,7 @@
-import type { Database as DatabaseType } from "better-sqlite3"
+import type { DatabaseSync } from "node:sqlite"
 import { defaultLoggerContext, type Logger, type LoggerContext } from "@/services/Logger"
-import type { ActivityEvent, ActivityInsert, ActivityStore, WalletTx } from "@/data/types"
+import type { ActivityEvent, ActivityInsert, ActivityStore, OrderHistoryPage, OrderSummary, WalletTx } from "@/data/types"
+import { columnNames } from "./schema"
 
 const MAX_ROWS = 10_000
 const PRUNE_EVERY = 500
@@ -19,6 +20,16 @@ function toActivityEvent(row: any): ActivityEvent {
 		volumeUsd: row.volume_usd,
 		profitUsd: row.profit_usd,
 		txHash: row.tx_hash,
+		order: parseOrder(row.order_json),
+	}
+}
+
+function parseOrder(json: string | null): OrderSummary | null {
+	if (!json) return null
+	try {
+		return JSON.parse(json) as OrderSummary
+	} catch {
+		return null
 	}
 }
 
@@ -39,7 +50,7 @@ export class SqliteActivityStore implements ActivityStore {
 	private insertsSincePrune = 0
 
 	constructor(
-		private db: DatabaseType,
+		private db: DatabaseSync,
 		loggers: LoggerContext = defaultLoggerContext(),
 	) {
 		this.logger = loggers.get("activity")
@@ -70,14 +81,27 @@ export class SqliteActivityStore implements ActivityStore {
 				sponsored INTEGER
 			);
 		`)
+		// Added after the first release: rows written before it have no order summary.
+		const columns = columnNames(this.db, "events")
+		if (!columns.has("order_json")) {
+			this.db.exec("ALTER TABLE events ADD COLUMN order_json TEXT")
+			this.logger.info({ column: "order_json" }, "Migrated activity schema")
+		}
+		// Added with the ledger's amount columns: the side that came back (vault shares, redeemed assets).
+		const walletColumns = columnNames(this.db, "wallet_txs")
+		for (const column of ["token_in", "amount_in"]) {
+			if (walletColumns.has(column)) continue
+			this.db.exec(`ALTER TABLE wallet_txs ADD COLUMN ${column} TEXT`)
+			this.logger.info({ column }, "Migrated wallet ledger schema")
+		}
 	}
 
 	async record(event: ActivityInsert): Promise<ActivityEvent> {
 		const ts = Date.now()
 		const result = this.db
 			.prepare(`
-				INSERT INTO events (ts, type, order_id, chain_id, strategy, success, reason, volume_usd, profit_usd, tx_hash)
-				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+				INSERT INTO events (ts, type, order_id, chain_id, strategy, success, reason, volume_usd, profit_usd, tx_hash, order_json)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			`)
 			.run(
 				ts,
@@ -90,6 +114,7 @@ export class SqliteActivityStore implements ActivityStore {
 				event.volumeUsd ?? null,
 				event.profitUsd ?? null,
 				event.txHash ?? null,
+				event.order ? JSON.stringify(event.order) : null,
 			)
 
 		if (++this.insertsSincePrune >= PRUNE_EVERY) {
@@ -114,6 +139,7 @@ export class SqliteActivityStore implements ActivityStore {
 			volumeUsd: event.volumeUsd ?? null,
 			profitUsd: event.profitUsd ?? null,
 			txHash: event.txHash ?? null,
+			order: event.order ?? null,
 		}
 	}
 
@@ -136,11 +162,127 @@ export class SqliteActivityStore implements ActivityStore {
 		return (rows as any[]).map(toActivityEvent)
 	}
 
+	async orderIdsMissingSummary(limit = 500): Promise<string[]> {
+		const rows = this.db
+			.prepare(
+				"SELECT order_id FROM events WHERE order_id IS NOT NULL AND order_json IS NULL GROUP BY order_id ORDER BY MAX(id) DESC LIMIT ?",
+			)
+			.all(capLimit(limit))
+		// biome-ignore lint/suspicious/noExplicitAny: raw sqlite row
+		return (rows as any[]).map((row) => row.order_id as string)
+	}
+
+	async attachOrder(orderId: string, order: OrderSummary): Promise<ActivityEvent[]> {
+		const json = JSON.stringify(order)
+		// `node:sqlite` has no transaction wrapper, so the boundary is written out.
+		// The SELECT and the UPDATE have to agree on which rows lacked a summary:
+		// without the transaction a concurrent writer could fill one in between
+		// them, and the ids returned here would name rows this call did not change.
+		let changed: number[]
+		this.db.exec("BEGIN")
+		try {
+			const missing = this.db
+				.prepare("SELECT id FROM events WHERE order_id = ? AND order_json IS NULL")
+				.all(orderId) as unknown as Array<{ id: number }>
+			changed = missing.map((row) => row.id)
+			if (changed.length > 0) {
+				this.db.prepare("UPDATE events SET order_json = ? WHERE order_id = ? AND order_json IS NULL").run(json, orderId)
+			}
+			this.db.exec("COMMIT")
+		} catch (err) {
+			// A COMMIT that fails has already rolled back, and rolling back twice
+			// throws over the original error — `isTransaction` says which case this is.
+			// Compared against `false`, not truthiness: the Node 23 line never got the
+			// property, and treating `undefined` as "no transaction" would skip the
+			// ROLLBACK and leave the connection wedged mid-transaction for good. The
+			// inner catch is only for that case; `err` is what propagates either way.
+			if (this.db.isTransaction !== false) {
+				try {
+					this.db.exec("ROLLBACK")
+				} catch {
+					// Nothing to roll back, or the connection is already gone.
+				}
+			}
+			throw err
+		}
+		if (changed.length === 0) return []
+		const rows = this.db
+			.prepare(`SELECT * FROM events WHERE id IN (${changed.map(() => "?").join(",")}) ORDER BY id`)
+			.all(...changed)
+		// biome-ignore lint/suspicious/noExplicitAny: raw sqlite row
+		return (rows as any[]).map(toActivityEvent)
+	}
+
+	async unsettledOrders(limit = 500): Promise<string[]> {
+		const rows = this.db
+			.prepare(
+				`SELECT order_id FROM events
+				 WHERE order_id IS NOT NULL
+				 GROUP BY order_id
+				 HAVING SUM(type = 'bid' OR (type = 'filled' AND volume_usd IS NOT NULL)) > 0
+				    AND SUM(type = 'lost' OR (type = 'filled' AND volume_usd IS NULL)) = 0
+				 ORDER BY MAX(id) DESC LIMIT ?`,
+			)
+			.all(capLimit(limit)) as unknown as Array<{ order_id: string }>
+		return rows.map((row) => row.order_id)
+	}
+
+	async retypeLegacyBid(orderId: string): Promise<ActivityEvent[]> {
+		const ids = (
+			this.db
+				.prepare("SELECT id FROM events WHERE order_id = ? AND type = 'filled' AND volume_usd IS NOT NULL")
+				.all(orderId) as unknown as Array<{ id: number }>
+		).map((row) => row.id)
+		if (ids.length === 0) return []
+		this.db
+			.prepare("UPDATE events SET type = 'bid' WHERE order_id = ? AND type = 'filled' AND volume_usd IS NOT NULL")
+			.run(orderId)
+		const rows = this.db
+			.prepare(`SELECT * FROM events WHERE id IN (${ids.map(() => "?").join(",")}) ORDER BY id`)
+			.all(...ids)
+		// biome-ignore lint/suspicious/noExplicitAny: raw sqlite row
+		return (rows as any[]).map(toActivityEvent)
+	}
+
+	async knowsOrder(orderId: string): Promise<boolean> {
+		return this.db.prepare("SELECT 1 FROM events WHERE order_id = ? LIMIT 1").get(orderId) !== undefined
+	}
+
+	async orderHistory(page: number, pageSize: number): Promise<OrderHistoryPage> {
+		const size = capLimit(pageSize)
+		const current = Math.max(1, Math.floor(page))
+		const total = (
+			this.db.prepare("SELECT COUNT(DISTINCT order_id) AS n FROM events WHERE order_id IS NOT NULL").get() as unknown as {
+				n: number
+			}
+		).n
+		const heads = this.db
+			.prepare(
+				"SELECT order_id FROM events WHERE order_id IS NOT NULL GROUP BY order_id ORDER BY MAX(id) DESC LIMIT ? OFFSET ?",
+			)
+			.all(size, (current - 1) * size) as unknown as Array<{ order_id: string }>
+		const ids = heads.map((head) => head.order_id)
+		const byOrder = new Map<string, ActivityEvent[]>(ids.map((id) => [id, []]))
+		if (ids.length > 0) {
+			const rows = this.db
+				.prepare(`SELECT * FROM events WHERE order_id IN (${ids.map(() => "?").join(",")}) ORDER BY id DESC`)
+				.all(...ids)
+			// biome-ignore lint/suspicious/noExplicitAny: raw sqlite row
+			for (const row of (rows as any[]).map(toActivityEvent)) byOrder.get(row.orderId as string)?.push(row)
+		}
+		return {
+			page: current,
+			pageSize: size,
+			total,
+			orders: ids.map((orderId) => ({ orderId, events: byOrder.get(orderId) ?? [] })),
+		}
+	}
+
 	async recordWalletTx(tx: Omit<WalletTx, "id" | "ts">): Promise<void> {
 		this.db
 			.prepare(`
-				INSERT INTO wallet_txs (ts, kind, chain_id, token, amount, to_address, tx_hash, sponsored)
-				VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+				INSERT INTO wallet_txs (ts, kind, chain_id, token, amount, to_address, tx_hash, sponsored, token_in, amount_in)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			`)
 			.run(
 				Date.now(),
@@ -151,22 +293,50 @@ export class SqliteActivityStore implements ActivityStore {
 				tx.to,
 				tx.txHash,
 				tx.sponsored === null ? null : tx.sponsored ? 1 : 0,
+				tx.tokenIn ?? null,
+				tx.amountIn ?? null,
 			)
+	}
+
+	async walletTxsWithoutAmounts(limit = 200): Promise<WalletTx[]> {
+		const rows = this.db
+			.prepare(
+				"SELECT * FROM wallet_txs WHERE kind IN ('sweep', 'redeem') AND token IS NULL ORDER BY id DESC LIMIT ?",
+			)
+			.all(capLimit(limit))
+		// biome-ignore lint/suspicious/noExplicitAny: raw sqlite row
+		return (rows as any[]).map(toWalletTx)
+	}
+
+	async updateWalletTx(
+		id: number,
+		patch: Pick<WalletTx, "token" | "amount" | "to" | "tokenIn" | "amountIn">,
+	): Promise<void> {
+		this.db
+			.prepare("UPDATE wallet_txs SET token = ?, amount = ?, to_address = ?, token_in = ?, amount_in = ? WHERE id = ?")
+			.run(patch.token, patch.amount, patch.to, patch.tokenIn ?? null, patch.amountIn ?? null, id)
 	}
 
 	async walletTxs(limit = 100): Promise<WalletTx[]> {
 		const rows = this.db.prepare("SELECT * FROM wallet_txs ORDER BY id DESC LIMIT ?").all(capLimit(limit))
 		// biome-ignore lint/suspicious/noExplicitAny: raw sqlite row
-		return (rows as any[]).map((row) => ({
-			id: row.id,
-			ts: row.ts,
-			kind: row.kind,
-			chainId: row.chain_id,
-			token: row.token,
-			amount: row.amount,
-			to: row.to_address,
-			txHash: row.tx_hash,
-			sponsored: row.sponsored === null ? null : row.sponsored === 1,
-		}))
+		return (rows as any[]).map(toWalletTx)
+	}
+}
+
+// biome-ignore lint/suspicious/noExplicitAny: raw sqlite row
+function toWalletTx(row: any): WalletTx {
+	return {
+		id: row.id,
+		ts: row.ts,
+		kind: row.kind,
+		chainId: row.chain_id,
+		token: row.token,
+		amount: row.amount,
+		to: row.to_address,
+		txHash: row.tx_hash,
+		sponsored: row.sponsored === null ? null : row.sponsored === 1,
+		tokenIn: row.token_in ?? null,
+		amountIn: row.amount_in ?? null,
 	}
 }

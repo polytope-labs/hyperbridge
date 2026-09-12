@@ -1,4 +1,5 @@
 import { EventEmitter } from "node:events"
+import type { VaultSweepResult } from "@/funding/vault/VaultFundingPlanner"
 import { Decimal } from "decimal.js"
 import type { HexString, Order } from "@hyperbridge/sdk"
 import { adminStrategyFor, bootFiller, tradingPairFrom, type FillerRuntime } from "@/core/boot"
@@ -10,6 +11,7 @@ import type { ChainConfirmationPolicy, FillerTomlConfig, RebalancingConfig } fro
 import { resolveChainConfigs, validateRpcUrls, type AllowlistConfig } from "@/services/FillerConfigService"
 import { LoggerContext, type Logger, type LogLevel, type LogSink } from "@/services/Logger"
 import type { ActivityEvent, BidStats, SimplexDataStore, StoredBid, WalletTx } from "@/data/types"
+import { patchRuntimeState } from "@/data/state"
 import { MemoryDataStore } from "@/data/memory"
 import { OrderScanner as OrderScannerImpl } from "@/scanner/order-scanner"
 import type { HyperbridgeScanner, OrderScanner } from "@/scanner/types"
@@ -116,6 +118,8 @@ export interface SimplexEvents {
 		durationSec: number
 	}
 	"order:filled-onchain": { commitment: HexString; filler: string; chainId: number }
+	/** Every OrderFilled seen on a configured chain; `ours` says whether this filler won it. */
+	"order:fill-observed": { commitment: HexString; filler: string; chainId: number; txHash?: string; ours: boolean }
 	rebalance: { success: boolean; transferCount?: number; executedCount?: number; error?: string }
 	activity: ActivityEvent
 }
@@ -128,6 +132,7 @@ const EVENT_MAP: Record<string, keyof SimplexEvents> = {
 	orderExecuted: "order:executed",
 	orderTiming: "order:timing",
 	orderFilledOnChain: "order:filled-onchain",
+	orderFillObserved: "order:fill-observed",
 	rebalanceExecuted: "rebalance",
 }
 
@@ -666,8 +671,12 @@ export class VaultController {
 		await this.persist()
 	}
 
-	/** Deposits wallet balance above each vault's threshold, down to its floor. */
-	sweepNow(): Promise<void> {
+	/**
+	 * Deposits wallet balance above each vault's threshold, down to its floor. The result says what
+	 * was submitted and, for every vault left alone, why — `deposits-closed` means the wallet is
+	 * over its trigger but the vault reports `maxDeposit(solver) == 0`.
+	 */
+	sweepNow(): Promise<VaultSweepResult> {
 		const venue = this.runtime.vaultVenue
 		if (!venue) throw new Error("This filler was started without a vault treasury")
 		return venue.sweepExcessToVault()
@@ -917,12 +926,12 @@ export class Simplex extends EventEmitter {
 	 */
 	async pause(): Promise<void> {
 		this.runtime.intentFiller.pause()
-		await this.runtime.data.state.set({ paused: true })
+		await patchRuntimeState(this.runtime.data.state, { paused: true })
 	}
 
 	async resume(): Promise<void> {
 		this.runtime.intentFiller.resume()
-		await this.runtime.data.state.set({ paused: false })
+		await patchRuntimeState(this.runtime.data.state, { paused: false })
 	}
 
 	isPaused(): boolean {

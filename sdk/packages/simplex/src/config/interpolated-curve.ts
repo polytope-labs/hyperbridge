@@ -39,9 +39,9 @@ export const DEFAULT_CONFIRMATION_POLICIES: Record<string, CurveConfig> = {
 	"137": {
 		points: [
 			{ amount: "1000", value: 2 },
-			{ amount: "100000", value: 32 },
+			{ amount: "100000", value: 5 },
 		],
-	}, // Polygon (~2s blocks, milestone finality)
+	}, // Polygon (~2s blocks; milestone finality lands in ~5s, so 5 blocks ≈ 10s covers it)
 	"8453": {
 		points: [
 			{ amount: "1000", value: 2 },

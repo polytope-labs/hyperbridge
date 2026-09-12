@@ -35,6 +35,22 @@ fi
 echo "Running tsup..."
 pnpm exec tsup
 
+# The store imports `node:sqlite`, which — unlike `fs` or `path` — has no unprefixed
+# alias. tsup 8 strips `node:` prefixes unless told not to (see KEEP_NODE_PROTOCOL in
+# tsup.config.ts), and a stripped import is an ERR_MODULE_NOT_FOUND the moment the
+# binary starts. No test catches it: the suite runs from source, where nothing rewrites
+# imports. So the bundle itself is checked.
+echo "Verifying the node: protocol survived bundling..."
+if grep -rnE '(from|require\()[[:space:]]*"sqlite"' dist --include='*.js' --include='*.cjs'; then
+	echo "ERROR: the bundle imports bare \"sqlite\" — the node: prefix was stripped." >&2
+	echo "       Set removeNodeProtocol: false for that entry in tsup.config.ts." >&2
+	exit 1
+fi
+if ! grep -rqE '"node:sqlite"' dist --include='*.js' --include='*.cjs'; then
+	echo "ERROR: no node:sqlite import in dist — the persistent store cannot work." >&2
+	exit 1
+fi
+
 # The web UI must build after tsup: tsup's clean:true wipes dist/, including dist/ui.
 echo "Building web UI (vite)..."
 pnpm exec vite build --config ui/vite.config.ts

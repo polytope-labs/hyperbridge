@@ -58,13 +58,10 @@ export function emitFillerToml(config: FillerConfigFile, options: EmitOptions = 
 	push(kv("substratePrivateKey", config.simplex.substratePrivateKey))
 	push("# Hyperbridge WebSocket endpoint used to submit solver bids.")
 	push(kv("hyperbridgeWsUrl", config.simplex.hyperbridgeWsUrl))
+	if (config.simplex.indexerUrl) push(kv("indexerUrl", config.simplex.indexerUrl))
 	if (config.simplex.blockScanIntervalSeconds !== undefined) {
 		push("# Seconds between block scans per chain. Default 3, minimum 0.1.")
 		push(kv("blockScanIntervalSeconds", config.simplex.blockScanIntervalSeconds))
-	}
-	if (config.simplex.acceptedSourceChains !== undefined) {
-		push("# Source chains (state machine ids) accepted for payment, declared in phantom bids.")
-		push(kv("acceptedSourceChains", config.simplex.acceptedSourceChains))
 	}
 	if (config.simplex.targetGasUnits !== undefined) {
 		push("# Gas units to keep deposited at the ERC-4337 EntryPoint on chains without a paymaster.")
@@ -95,6 +92,16 @@ export function emitFillerToml(config: FillerConfigFile, options: EmitOptions = 
 		push("# [simplex.gasFeeBump]")
 		push("# maxPriorityFeePerGasBumpPercent = 8")
 		push("# maxFeePerGasBumpPercent = 10")
+		push()
+	}
+
+	if (config.simplex.tunnel) {
+		push("# Remote access: outbound SSH tunnel to a relay so a phone's SSH client can open the web UI.")
+		push("# Pair devices from the UI (Operations > Remote access). Keys live under <data-dir>/tunnel/.")
+		push("[simplex.tunnel]")
+		for (const [key, value] of Object.entries(config.simplex.tunnel)) {
+			if (value !== undefined) push(kv(key, value))
+		}
 		push()
 	}
 

@@ -4,12 +4,12 @@ import type { Hex } from "viem"
 import type { EthereumLog, EthereumTransaction } from "@subql/types-ethereum"
 
 import IntentGatewayV3Abi from "@/configs/abis/IntentGatewayV3.abi.json"
+import type { OrderStructOutput, TokenInfoStructOutput } from "@/configs/src/types/contracts/IntentGatewayV3Abi"
 import { IOrderV3OutputAsset } from "@/configs/src/types/models/IOrderV3OutputAsset"
 import { FillEnrichment, IntentGatewayV3Service, OrderV3, TokenInfo } from "@/services/intentGatewayV3.service"
 import { getContractCallInputs } from "./rpc.helpers"
 import { bytes32ToBytes20, extractAddressFromTopic } from "./transfer.helpers"
 import { findUserOpHash } from "./userOp.helpers"
-export { findUserOpHash } from "./userOp.helpers"
 
 // ERC20 Transfer(address indexed from, address indexed to, uint256 value)
 const ERC20_TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
@@ -40,6 +40,11 @@ const legacyFillInterface = new Interface(legacyFillAbi)
 type FillLog = Pick<EthereumLog, "address" | "logIndex" | "transactionHash"> & {
 	transaction?: EthereumTransaction
 }
+
+const decodeToken = (token: TokenInfoStructOutput): TokenInfo => ({
+	token: token.token as Hex,
+	amount: BigInt(token.amount.toString()),
+})
 
 /**
  * Derives the fill data that only exists in the fill transaction's receipt: the ERC-4337
@@ -131,7 +136,7 @@ export function tryDecodeFillOrder(calldata: string): OrderV3 | null {
 		const { name, args } = parser.parseTransaction({ data: calldata })
 		if (name !== "fillOrder") return null
 
-		const decoded = args[0]
+		const decoded = args[0] as OrderStructOutput
 		return {
 			user: decoded.user as Hex,
 			sourceChain: decoded.source,
@@ -141,22 +146,13 @@ export function tryDecodeFillOrder(calldata: string): OrderV3 | null {
 			fees: BigInt(decoded.fees.toString()),
 			session: decoded.session as Hex,
 			predispatch: {
-				assets: decoded.predispatch.assets.map((token: any) => ({
-					token: token.token as Hex,
-					amount: BigInt(token.amount.toString()),
-				})),
+				assets: decoded.predispatch.assets.map(decodeToken),
 				call: decoded.predispatch.call as Hex,
 			},
-			inputs: decoded.inputs.map((token: any) => ({
-				token: token.token as Hex,
-				amount: BigInt(token.amount.toString()),
-			})),
+			inputs: decoded.inputs.map(decodeToken),
 			outputs: {
 				beneficiary: decoded.output.beneficiary as Hex,
-				assets: decoded.output.assets.map((token: any) => ({
-					token: token.token as Hex,
-					amount: BigInt(token.amount.toString()),
-				})),
+				assets: decoded.output.assets.map(decodeToken),
 				call: decoded.output.call as Hex,
 			},
 		}
@@ -179,6 +175,7 @@ export function matchDeliveryTransfers(
 	outputs: TokenInfo[],
 ): (bigint | undefined)[] {
 	const fillerAddress = filler.toLowerCase()
+	const beneficiaryAddress = beneficiary.toLowerCase()
 	const gatewayAddress = fillLog.address.toLowerCase()
 
 	// A solver may batch several fills in one transaction. Each fill's delivery transfers sit
@@ -202,7 +199,7 @@ export function matchDeliveryTransfers(
 				log.logIndex > previousFillBoundary &&
 				log.logIndex < fillLog.logIndex &&
 				extractAddressFromTopic(log.topics[1]) === fillerAddress &&
-				extractAddressFromTopic(log.topics[2]) === beneficiary.toLowerCase(),
+				extractAddressFromTopic(log.topics[2]) === beneficiaryAddress,
 		)
 		.sort((a, b) => a.logIndex - b.logIndex)
 
@@ -212,7 +209,13 @@ export function matchDeliveryTransfers(
 		const token = bytes32ToBytes20(output.token).toLowerCase()
 		counts.set(token, (counts.get(token) ?? 0) + 1)
 	}
-	const consumed = new Set<number>()
+	const transfersByToken = new Map<string, { logs: EthereumLog[]; next: number }>()
+	for (const transfer of transfers) {
+		const token = transfer.address.toLowerCase()
+		const group = transfersByToken.get(token)
+		if (group) group.logs.push(transfer)
+		else transfersByToken.set(token, { logs: [transfer], next: 0 })
+	}
 	return outputs.map((output) => {
 		const token = bytes32ToBytes20(output.token).toLowerCase()
 		if (token === ZERO_ADDRESS) return undefined
@@ -223,13 +226,10 @@ export function matchDeliveryTransfers(
 
 		// Extra or missing transfers make attribution ambiguous (e.g. an unrelated
 		// transfer before the call or a fee-on-transfer token emitting multiple logs).
-		if (transfers.filter((transfer) => transfer.address.toLowerCase() === token).length !== counts.get(token)) {
+		const group = transfersByToken.get(token)
+		if (!group || group.logs.length !== counts.get(token)) {
 			return undefined
 		}
-		const index = transfers.findIndex((transfer, i) => !consumed.has(i) && transfer.address.toLowerCase() === token)
-		if (index === -1) return undefined
-
-		consumed.add(index)
-		return hexToBigInt(transfers[index].data as Hex)
+		return hexToBigInt(group.logs[group.next++].data as Hex)
 	})
 }

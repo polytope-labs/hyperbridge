@@ -29,61 +29,58 @@ async function boot(sdl) {
 	await tx.commit()
 	return sequelize
 }
-const entities = [
-	"IOrderV3",
-	"IOrderV3Fill",
-	"IOrderV3PartialFill",
-	"IOrderV3FillOutputAsset",
-	"IOrderV3PartialFillOutputAsset",
-]
-const additions = {
-	IOrderV3: ["feeToken", "feeTokenDecimals", "userOpHash"],
-	IOrderV3Fill: ["userOpHash"],
-	IOrderV3PartialFill: ["userOpHash"],
-	IOrderV3FillOutputAsset: ["amountReceived"],
-	IOrderV3PartialFillOutputAsset: ["amountReceived"],
+const address = "0x" + "ab".repeat(20)
+const transactionHash = "0x" + "cd".repeat(32)
+const fill = {
+	id: "existing",
+	orderId: "existing",
+	chain: "56",
+	filler: address,
+	timestamp: "100",
+	blockNumber: "100",
+	transactionHash,
+	createdAt: new Date("2026-09-01"),
 }
+const output = { id: "existing", token: address, amount: "100", index: 0 }
+const seeds = {
+	IOrderV3: {
+		id: "existing",
+		user: address,
+		sourceChain: "EVM-1",
+		destChain: "EVM-56",
+		commitment: "existing",
+		deadline: "100",
+		nonce: "1",
+		fees: "100",
+		inputUSD: "100",
+		status: "PLACED",
+		predispatchCalldata: "0x",
+		postDispatchCalldata: "0x",
+		createdAt: new Date("2026-09-01"),
+		blockNumber: "100",
+		blockTimestamp: "100",
+		transactionHash,
+	},
+	IOrderV3Fill: fill,
+	IOrderV3PartialFill: fill,
+	IOrderV3FillOutputAsset: { ...output, fillId: "existing" },
+	IOrderV3PartialFillOutputAsset: { ...output, partialFillId: "existing", beneficiary: address },
+}
+const userOpHash = "0x" + "ef".repeat(32)
+const additions = {
+	IOrderV3: { feeToken: address, feeTokenDecimals: 6, userOpHash },
+	IOrderV3Fill: { userOpHash },
+	IOrderV3PartialFill: { userOpHash },
+	IOrderV3FillOutputAsset: { amountReceived: "105" },
+	IOrderV3PartialFillOutputAsset: { amountReceived: "105" },
+}
+const entities = Object.keys(seeds)
 ;(async () => {
 	const admin = connection()
 	await admin.createSchema(schemaName)
 	await admin.close()
 	const first = await boot(baseline)
-	for (const entity of entities) {
-		const model = first.model(entity)
-		const seed = { id: "existing" }
-		for (const [field, attr] of Object.entries(model.rawAttributes)) {
-			if (field === "id" || attr.allowNull !== false) continue
-			const kind = [
-				"deadline",
-				"nonce",
-				"fees",
-				"inputUSD",
-				"blockNumber",
-				"blockTimestamp",
-				"timestamp",
-				"amount",
-				"index",
-			].includes(field)
-				? "BIGINT"
-				: field === "createdAt"
-					? "DATE"
-					: field === "status"
-						? "ENUM"
-						: "STRING"
-			seed[field] = field.endsWith("Id")
-				? "existing"
-				: kind === "ENUM"
-					? "PLACED"
-					: kind === "DATE"
-						? new Date("2026-09-01")
-						: ["BIGINT", "INTEGER", "DECIMAL"].includes(kind)
-							? "100"
-							: kind === "BOOLEAN"
-								? false
-								: "existing"
-		}
-		await model.create(seed)
-	}
+	for (const entity of entities) await first.model(entity).create(seeds[entity])
 	const originals = {}
 	for (const entity of entities) originals[entity] = await first.model(entity).findByPk("existing", { raw: true })
 	await first.close()
@@ -93,17 +90,8 @@ const additions = {
 		const row = await model.findByPk("existing", { raw: true })
 		for (const [field, value] of Object.entries(originals[entity]))
 			assert.deepEqual(row[field], value, `${entity}.${field} preserved`)
-		for (const field of additions[entity]) assert.equal(row[field], null, `${entity}.${field} defaults null`)
-		const added = Object.fromEntries(
-			additions[entity].map((field) => [
-				field,
-				field === "feeTokenDecimals"
-					? 6
-					: field === "amountReceived"
-						? "105"
-						: "0x" + "ab".repeat(field === "userOpHash" ? 32 : 20),
-			]),
-		)
+		const added = additions[entity]
+		for (const field of Object.keys(added)) assert.equal(row[field], null, `${entity}.${field} defaults null`)
 		await model.create({ ...originals[entity], id: "new", ...added })
 		const fresh = await model.findByPk("new", { raw: true })
 		for (const [field, value] of Object.entries(added)) assert.equal(String(fresh[field]), String(value))

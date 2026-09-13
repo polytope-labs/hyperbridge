@@ -43,6 +43,7 @@ import { IntentGatewayTokenVolume } from "@/configs/src/types/models/IntentGatew
 import { CumulativeIntentGatewayVolumeUSD } from "@/configs/src/types/models/CumulativeIntentGatewayVolumeUSD"
 import { LiquidityPool } from "@/configs/src/types/models/LiquidityPool"
 import { timestampToDate } from "@/utils/date.helpers"
+import type { FeeTokenInfo } from "@/utils/host.helpers"
 import { getHostStateMachine } from "@/utils/substrate.helpers"
 import { canonicalPoolSymbol, poolSlug } from "@/addresses/pool-tokens.addresses"
 import { INTENT_GATEWAY_V3_ADDRESSES } from "@/intent-gateway-v3-addresses"
@@ -58,6 +59,16 @@ import { getOrCreateUser } from "./userActivity.services"
 export interface TokenInfo {
 	token: Hex
 	amount: bigint
+}
+
+/**
+ * Fill data derived from the fill transaction's receipt rather than the event args.
+ */
+export interface FillEnrichment {
+	/** Hash of the ERC-4337 user operation that executed the fill, when the filler is a smart account */
+	userOpHash?: string
+	/** Amounts actually received by the beneficiary, aligned with the fill's output assets */
+	amountsReceived?: (bigint | undefined)[]
 }
 
 const ENTITY_TYPE = "IOrderV3"
@@ -187,8 +198,10 @@ export class IntentGatewayV3Service {
 	static async getOrCreateOrder(
 		order: OrderV3,
 		referrer: string,
+		feeToken: FeeTokenInfo,
 		logsData: {
 			transactionHash: string
+			userOpHash?: string
 			blockNumber: number
 			timestamp: bigint
 		},
@@ -208,6 +221,8 @@ export class IntentGatewayV3Service {
 				deadline: order.deadline,
 				nonce: order.nonce,
 				fees: order.fees,
+				feeToken: feeToken.address,
+				feeTokenDecimals: feeToken.decimals,
 				session: order.session,
 				inputUSD: BigInt(new Decimal(inputUSD).truncated().toString()),
 				predispatchCalldata: order.predispatch.call as string,
@@ -218,6 +233,7 @@ export class IntentGatewayV3Service {
 				blockNumber: BigInt(blockNumber),
 				blockTimestamp: timestamp,
 				transactionHash,
+				userOpHash: logsData.userOpHash,
 			})
 			await orderPlaced.save()
 
@@ -278,6 +294,10 @@ export class IntentGatewayV3Service {
 			orderPlaced.deadline = order.deadline
 			orderPlaced.nonce = order.nonce
 			orderPlaced.fees = order.fees
+			orderPlaced.feeToken = feeToken.address
+			orderPlaced.feeTokenDecimals = feeToken.decimals
+			// A replay with unavailable receipt enrichment must not erase a known hash.
+			if (logsData.userOpHash !== undefined) orderPlaced.userOpHash = logsData.userOpHash
 			orderPlaced.session = order.session
 			orderPlaced.inputUSD = BigInt(new Decimal(inputUSD).truncated().toString())
 			orderPlaced.predispatchCalldata = order.predispatch.call as string
@@ -666,6 +686,7 @@ export class IntentGatewayV3Service {
 			timestamp: bigint
 			logIndex: number
 		},
+		enrichment?: FillEnrichment,
 	): Promise<void> {
 		const { transactionHash, blockNumber, timestamp, logIndex } = logsData
 
@@ -691,6 +712,7 @@ export class IntentGatewayV3Service {
 				timestamp,
 				blockNumber: blockNumber.toString(),
 				transactionHash,
+				userOpHash: enrichment?.userOpHash,
 				createdAt: timestampToDate(timestamp),
 			})
 		}
@@ -734,6 +756,7 @@ export class IntentGatewayV3Service {
 						partialFillId,
 						token: output.token,
 						amount: output.amount,
+						amountReceived: enrichment?.amountsReceived?.[index],
 						index,
 						beneficiary,
 					})
@@ -844,6 +867,7 @@ export class IntentGatewayV3Service {
 			timestamp: bigint
 			logIndex: number
 		},
+		enrichment?: FillEnrichment,
 	): Promise<void> {
 		const { transactionHash, blockNumber, timestamp, logIndex } = logsData
 
@@ -868,6 +892,7 @@ export class IntentGatewayV3Service {
 				timestamp,
 				blockNumber: blockNumber.toString(),
 				transactionHash,
+				userOpHash: enrichment?.userOpHash,
 				createdAt: timestampToDate(timestamp),
 			})
 		}
@@ -900,6 +925,7 @@ export class IntentGatewayV3Service {
 						fillId,
 						token: output.token,
 						amount: output.amount,
+						amountReceived: enrichment?.amountsReceived?.[index],
 						index,
 					})
 				}

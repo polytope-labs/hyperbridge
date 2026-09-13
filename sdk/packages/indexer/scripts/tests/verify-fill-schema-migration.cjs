@@ -1,4 +1,4 @@
-// Run in the deployed substrate image against a disposable database; see docs/ai/decisions/2026-09-13-placement-userop-attribution.md.
+// Run in the deployed substrate image against a disposable database.
 const { createRequire } = require("node:module")
 // The released node image exposes its dependencies from /node_modules. The
 // synthetic parent is intentional: this script is mounted into that image.

@@ -2,7 +2,7 @@
 
 The indexer is a SubQuery project: per-network YAML files in `src/configs/` bind contract addresses and events to handler functions, and generated entity models in `src/configs/src/types/` persist via the SubQuery global `store`.
 
-1. An `OrderFilled` log from the IntentGatewayV3 contract triggers `handleOrderFilledV3Event` in `src/handlers/events/intentGatewayV3/orderFilledV3.event.handler.ts`. Before recording the fill it derives receipt-only fields: the first canonical EntryPoint `UserOperationEvent` after the fill must name the filler, and ERC-20 delivery transfers must match the output token and beneficiary in this fill's log range. If either is not safely attributable it remains null. It then makes two independent calls, each in its own try/catch:
+1. An `OrderFilled` log from the IntentGatewayV3 contract triggers `handleOrderFilledV3Event` in `src/handlers/events/intentGatewayV3/orderFilledV3.event.handler.ts`. It decodes the log, then makes two independent calls, each in its own try/catch:
    - `IntentGatewayV3Service.updateOrderStatus(commitment, FILLED, ..., filler)` — order status, points, user activity, and the per-fill volume records described below.
    - `IntentGatewayV3Service.recordOrderVolume("FILLED", outputTokens, timestamp)` — a separate, unconditional cumulative volume path (see the parallel-paths note).
 

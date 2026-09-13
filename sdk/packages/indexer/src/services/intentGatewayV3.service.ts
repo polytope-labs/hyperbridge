@@ -201,6 +201,7 @@ export class IntentGatewayV3Service {
 		feeToken: FeeTokenInfo,
 		logsData: {
 			transactionHash: string
+			userOpHash?: string
 			blockNumber: number
 			timestamp: bigint
 		},
@@ -232,6 +233,7 @@ export class IntentGatewayV3Service {
 				blockNumber: BigInt(blockNumber),
 				blockTimestamp: timestamp,
 				transactionHash,
+				userOpHash: logsData.userOpHash,
 			})
 			await orderPlaced.save()
 
@@ -294,6 +296,8 @@ export class IntentGatewayV3Service {
 			orderPlaced.fees = order.fees
 			orderPlaced.feeToken = feeToken.address
 			orderPlaced.feeTokenDecimals = feeToken.decimals
+			// A replay with unavailable receipt enrichment must not erase a known hash.
+			if (logsData.userOpHash !== undefined) orderPlaced.userOpHash = logsData.userOpHash
 			orderPlaced.session = order.session
 			orderPlaced.inputUSD = BigInt(new Decimal(inputUSD).truncated().toString())
 			orderPlaced.predispatchCalldata = order.predispatch.call as string

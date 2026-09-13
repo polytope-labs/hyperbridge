@@ -8,11 +8,8 @@ import { IOrderV3OutputAsset } from "@/configs/src/types/models/IOrderV3OutputAs
 import { FillEnrichment, IntentGatewayV3Service, OrderV3, TokenInfo } from "@/services/intentGatewayV3.service"
 import { getContractCallInputs } from "./rpc.helpers"
 import { bytes32ToBytes20, extractAddressFromTopic } from "./transfer.helpers"
-
-// ERC-4337 EntryPoint event, identical across v0.6/v0.7/v0.8:
-// UserOperationEvent(bytes32 indexed userOpHash, address indexed sender, address indexed paymaster,
-//                    uint256 nonce, bool success, uint256 actualGasCost, uint256 actualGasUsed)
-const USER_OPERATION_EVENT_TOPIC = "0x49628fd1471006c1482da88028e9ce4dbb080b815c9b0344d39e5a8e6ec1419f"
+import { findUserOpHash } from "./userOp.helpers"
+export { findUserOpHash } from "./userOp.helpers"
 
 // ERC20 Transfer(address indexed from, address indexed to, uint256 value)
 const ERC20_TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
@@ -22,13 +19,6 @@ const ERC20_TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a116
 const ORDER_FILLED_TOPIC = "0xdd5ba16ce7d9636800f5875b2a5572176a96f47947d3218b2a2ac4c5cc11f9bf"
 // PartialFill(bytes32,address,(bytes32,uint256)[],(bytes32,uint256)[])
 const PARTIAL_FILL_TOPIC = "0xa71fc5b4fbaf5f5f0846475fec0d0c1d6c93100f2326ddb75c117244f45bbe85"
-
-// Canonical EntryPoints used by SolverAccount deployments (v0.6, v0.7, v0.8).
-const ENTRY_POINTS = new Set([
-	"0x5ff137d4b0fdcd49dca30c7cf57e578a026d2789",
-	"0x0000000071727de22e5e9d8baf0edac6f37da032",
-	"0x4337084d9e255ff0702461cf8895ce9e3b5ff108",
-])
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000"
 
@@ -85,31 +75,6 @@ export async function resolveFillEnrichment(
 		: undefined
 
 	return { userOpHash, amountsReceived }
-}
-
-/**
- * Finds the hash of the ERC-4337 user operation that executed a fill. The EntryPoint emits
- * UserOperationEvent right after each op finishes executing, so the op that performed this
- * fill must belong to the first EntryPoint event after the fill. A sender mismatch
- * must not fall through to another operation later in the bundle.
- * Returns undefined for plain EOA fills.
- */
-export function findUserOpHash(logs: EthereumLog[], filler: string, fillLogIndex: number): string | undefined {
-	const fillerAddress = filler.toLowerCase()
-
-	const userOpEvent = logs
-		.filter(
-			(log) =>
-				log.topics?.[0] === USER_OPERATION_EVENT_TOPIC &&
-				log.topics.length === 4 &&
-				ENTRY_POINTS.has(log.address.toLowerCase()) &&
-				log.logIndex > fillLogIndex,
-		)
-		.sort((a, b) => a.logIndex - b.logIndex)[0]
-
-	return userOpEvent && extractAddressFromTopic(userOpEvent.topics[2]) === fillerAddress
-		? userOpEvent.topics[1]
-		: undefined
 }
 
 /**

@@ -915,6 +915,12 @@ type IOrderV3 @entity {
 	Hash of the transaction that placed the order
 	"""
 	transactionHash: String! @index
+
+	"""
+	Hash of the ERC-4337 user operation that placed the order, when attributable from the receipt.
+	Null for direct transactions, unavailable receipts, and orders indexed before this field was added.
+	"""
+	userOpHash: String @index
 }
 
 """

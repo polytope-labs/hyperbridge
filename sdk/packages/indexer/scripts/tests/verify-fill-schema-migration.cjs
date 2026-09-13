@@ -1,4 +1,4 @@
-// Run in the deployed substrate image against a disposable database; see docs/ai/decisions/2026-09-12-fill-enrichment.md.
+// Run in the deployed substrate image against a disposable database; see docs/ai/decisions/2026-09-13-placement-userop-attribution.md.
 const { createRequire } = require("node:module")
 // The released node image exposes its dependencies from /node_modules. The
 // synthetic parent is intentional: this script is mounted into that image.
@@ -37,7 +37,7 @@ const entities = [
 	"IOrderV3PartialFillOutputAsset",
 ]
 const additions = {
-	IOrderV3: ["feeToken", "feeTokenDecimals"],
+	IOrderV3: ["feeToken", "feeTokenDecimals", "userOpHash"],
 	IOrderV3Fill: ["userOpHash"],
 	IOrderV3PartialFill: ["userOpHash"],
 	IOrderV3FillOutputAsset: ["amountReceived"],
@@ -115,7 +115,7 @@ const additions = {
 	assert.equal(metadata[0].value, next)
 	await third.close()
 	console.log(
-		"PASS: full main schema -> PR schema -> unchanged restart; all 5 affected tables preserve old rows, 6 nullable fields accept new data, appliedSchemaSDL advances.",
+		"PASS: baseline schema -> PR schema -> unchanged restart; all 5 affected tables preserve old rows, 7 nullable fields accept new data, appliedSchemaSDL advances.",
 	)
 })().catch((e) => {
 	console.error(e)

@@ -119,13 +119,14 @@ it("records plain EOA fills without receipt enrichment when no transaction is su
 	expect(records.get(`IOrderV3FillOutputAsset:${hash}.5-output-0`).amountReceived).toBeUndefined()
 })
 
-it("persists fee denomination from a current OrderPlaced event and fills it on existing rows", async () => {
+function placementEvent() {
 	const inputs = [{ token: pad(token), amount: 100n }]
-	const event = {
+	return {
 		address: gateway,
 		transactionHash: hash,
 		blockHash: hash,
 		blockNumber: 10,
+		logIndex: 5,
 		args: {
 			user: pad(beneficiary),
 			source: "0x45564d2d3536",
@@ -143,6 +144,10 @@ it("persists fee denomination from a current OrderPlaced event and fills it on e
 			graffiti: pad(beneficiary),
 		},
 	} as any
+}
+
+it("persists fee denomination from a current OrderPlaced event and fills it on existing rows", async () => {
+	const event = placementEvent()
 	await handleOrderPlacedEventV3(event)
 	const key = [...records.keys()].find((key) => key.startsWith("IOrderV3:"))!
 	expect(records.get(key)).toMatchObject({ fees: 5n, feeToken: token, feeTokenDecimals: 6 })
@@ -154,3 +159,95 @@ it("persists fee denomination from a current OrderPlaced event and fills it on e
 	await handleOrderPlacedEventV3(event)
 	expect(records.get(key)).toMatchObject({ feeToken: token, feeTokenDecimals: 6, status: "FILLED" })
 })
+
+const placementOpHash = "0x" + "ef".repeat(32)
+const entryPointAbi = new Interface([
+	"event BeforeExecution()",
+	"event UserOperationEvent(bytes32 indexed userOpHash, address indexed sender, address indexed paymaster, uint256 nonce, bool success, uint256 actualGasCost, uint256 actualGasUsed)",
+])
+const placementReceipt = () => ({
+	logs: [
+		{
+			address: logs[1].address,
+			logIndex: 1,
+			...entryPointAbi.encodeEventLog(entryPointAbi.getEvent("BeforeExecution"), []),
+		},
+		{
+			address: logs[1].address,
+			logIndex: 6,
+			...entryPointAbi.encodeEventLog(entryPointAbi.getEvent("UserOperationEvent"), [
+				placementOpHash,
+				beneficiary,
+				zero,
+				1,
+				true,
+				1,
+				1,
+			]),
+		},
+	],
+})
+
+it.each(["current", "legacy"])("persists the placing operation from a %s OrderPlaced event", async (version) => {
+	const event = placementEvent()
+	// The receiving beneficiary is independent of the account placing the order.
+	event.args.beneficiary = pad(filler)
+	event.transaction = { receipt: async () => placementReceipt() }
+	if (version === "legacy") {
+		event.transaction.input = abi.encodeFunctionData("placeOrder", [
+			{
+				user: event.args.user,
+				source: event.args.source,
+				destination: event.args.destination,
+				deadline: event.args.deadline,
+				nonce: event.args.nonce,
+				fees: event.args.fees,
+				session: event.args.session,
+				predispatch: { assets: [], call: "0x" },
+				inputs: event.args.inputs,
+				output: { assets: event.args.outputs, beneficiary: event.args.beneficiary, call: "0x" },
+			},
+			event.args.graffiti,
+		])
+		delete event.args.predispatchCall
+		delete event.args.outputCall
+		delete event.args.graffiti
+	}
+	await handleOrderPlacedEventV3(event)
+	const key = [...records.keys()].find((key) => key.startsWith("IOrderV3:"))!
+	expect(records.get(key)).toMatchObject({ transactionHash: hash, userOpHash: placementOpHash, user: beneficiary })
+	// A successful replay can enrich an older row without altering its lifecycle status.
+	records.get(key).status = "REFUNDED"
+	delete records.get(key).userOpHash
+	await handleOrderPlacedEventV3(event)
+	expect(records.get(key)).toMatchObject({ status: "REFUNDED", userOpHash: placementOpHash })
+	// An unavailable optional lookup must not erase previously stored enrichment.
+	event.transaction.receipt = async () => {
+		throw new Error("RPC unavailable")
+	}
+	await handleOrderPlacedEventV3(event)
+	expect(records.get(key)).toMatchObject({ status: "REFUNDED", userOpHash: placementOpHash })
+})
+
+it.each(["direct", "missing transaction", "unavailable receipt"])(
+	"indexes a %s placement without userOpHash",
+	async (kind) => {
+		const event = placementEvent()
+		if (kind !== "missing transaction")
+			event.transaction = {
+				receipt: async () => {
+					if (kind === "unavailable receipt") throw new Error("RPC unavailable")
+					return { logs: [] }
+				},
+			}
+		await handleOrderPlacedEventV3(event)
+		const key = [...records.keys()].find((key) => key.startsWith("IOrderV3:"))!
+		expect(records.get(key)).toMatchObject({ status: "PLACED", transactionHash: hash, feeToken: token })
+		expect(records.get(key).userOpHash).toBeUndefined()
+		expect(IntentGatewayV3Service.updateOrderStatus).toHaveBeenCalledWith(
+			expect.any(String),
+			"PLACED",
+			expect.any(Object),
+		)
+	},
+)

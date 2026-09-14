@@ -6,11 +6,11 @@ import { describe, expect, it } from "vitest"
 import { assertResources, resourcePaths, socketPathFor, UNIX_SOCKET_PATH_LIMIT } from "../desktop-paths"
 
 describe("desktop paths", () => {
-	it("keeps a short Unix socket inside user data", () => {
+	it("uses POSIX paths for a short Unix socket regardless of the build host", () => {
 		expect(socketPathFor("/tmp/simplex-user", "darwin", "/tmp")).toBe("/tmp/simplex-user/simplex.sock")
 	})
 
-	it("falls back to a stable short socket path", () => {
+	it("falls back to a stable short POSIX socket path", () => {
 		const userData = `/Users/operator/${"long-directory/".repeat(10)}`
 		const first = socketPathFor(userData, "darwin", "/tmp")
 		const second = socketPathFor(userData, "darwin", "/tmp")

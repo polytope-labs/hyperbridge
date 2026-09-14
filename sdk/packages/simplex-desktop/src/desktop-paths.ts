@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto"
 import { existsSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join, posix, win32 } from "node:path"
+import { posix, win32 } from "node:path"
 
 /** Conservative common denominator below Darwin's 104-byte and Linux's 108-byte sun_path limits. */
 export const UNIX_SOCKET_PATH_LIMIT = 100
@@ -19,13 +19,15 @@ export function socketPathFor(
 	const suffix = identity(userDataDir)
 	if (platform === "win32") return `\\\\.\\pipe\\simplex-${suffix}`
 
-	const preferred = join(userDataDir, "simplex.sock")
+	// Socket paths must follow the target platform, not the build host. This is
+	// important when CI exercises Darwin/Linux path selection on Windows.
+	const preferred = posix.join(userDataDir, "simplex.sock")
 	if (Buffer.byteLength(preferred) <= UNIX_SOCKET_PATH_LIMIT) return preferred
 
-	const fallback = join(tempDir, `simplex-${suffix}.sock`)
+	const fallback = posix.join(tempDir, `simplex-${suffix}.sock`)
 	if (Buffer.byteLength(fallback) <= UNIX_SOCKET_PATH_LIMIT) return fallback
 
-	const finalFallback = join("/tmp", `simplex-${suffix}.sock`)
+	const finalFallback = posix.join("/tmp", `simplex-${suffix}.sock`)
 	if (Buffer.byteLength(finalFallback) <= UNIX_SOCKET_PATH_LIMIT) return finalFallback
 	throw new Error(`Could not derive a Simplex socket path within ${UNIX_SOCKET_PATH_LIMIT} bytes`)
 }

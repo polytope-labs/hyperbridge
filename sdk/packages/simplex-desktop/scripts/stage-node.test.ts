@@ -113,7 +113,11 @@ describe("Node runtime staging", () => {
 		await atomicInstall(source, destination, true)
 		expect(await readFile(destination, "utf8")).toBe("verified-runtime")
 		expect(await readFile(source, "utf8")).toBe("verified-runtime")
-		expect((await stat(destination)).mode & 0o777).toBe(0o755)
+		// Windows executability is determined by the `.exe` file type rather than
+		// POSIX mode bits. Unix staging must still install an executable runtime.
+		if (process.platform !== "win32") {
+			expect((await stat(destination)).mode & 0o777).toBe(0o755)
+		}
 	})
 
 	it("builds a universal runtime from the two independently staged slices", () => {

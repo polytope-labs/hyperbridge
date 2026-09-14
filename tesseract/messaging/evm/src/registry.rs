@@ -36,6 +36,7 @@ pub fn consensus_state_id_for_chain_id(chain_id: u64) -> Option<&'static str> {
 		84532 => "ETH0",     // Base Sepolia (L2 of Sepolia)
 		420420417 => "PAS0", // Polkadot Asset Hub Paseo (Revive), finalised by Paseo relay
 		688689 => "PHAR",    // Pharos Atlantic
+		1001 => "KAIA",      // Kaia Kairos
 
 		// Mainnets.
 		1 => "ETH0",         // Ethereum
@@ -47,6 +48,7 @@ pub fn consensus_state_id_for_chain_id(chain_id: u64) -> Option<&'static str> {
 		100 => "GNO0",       // Gnosis
 		1868 => "ETH0",      // Soneium (L2 of Ethereum)
 		420420419 => "DOT0", // Polkadot Hub
+		8217 => "KAIA",      // Kaia
 
 		_ => return None,
 	};

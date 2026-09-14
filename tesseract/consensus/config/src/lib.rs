@@ -20,6 +20,7 @@ use tesseract_beefy::{
 use tesseract_bsc::BscPosConfig;
 use tesseract_grandpa::{GrandpaConfig, GrandpaHost};
 use tesseract_parachain::ParachainConfig;
+use tesseract_kaia::KaiaConfig;
 use tesseract_pharos::PharosConfig;
 use tesseract_polygon::PolygonPosConfig;
 use tesseract_primitives::{IsmpHost, IsmpProvider};
@@ -108,6 +109,11 @@ pub enum AnyConfig {
 	Pharos {
 		#[serde(flatten)]
 		inner: PharosConfig,
+	},
+	/// Kaia chain config
+	Kaia {
+		#[serde(flatten)]
+		inner: KaiaConfig,
 	},
 }
 
@@ -363,6 +369,7 @@ pub async fn create_client_map(
 					_ => inner.into_client::<pharos_primitives::Mainnet>(evm).await?,
 				}
 			},
+			(AnyConfig::Kaia { inner }, HostKind::Evm(evm)) => inner.into_client(evm).await?,
 			(AnyConfig::Grandpa { inner }, HostKind::Substrate(substrate)) => {
 				match substrate.hashing {
 					Some(HashAlgorithm::Keccak) =>

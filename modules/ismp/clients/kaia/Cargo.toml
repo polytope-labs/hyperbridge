@@ -1,0 +1,25 @@
+[package]
+name = "ismp-kaia"
+version = "0.1.0"
+edition = "2021"
+description = "ISMP consensus client for the Kaia blockchain"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+publish = false
+
+[dependencies]
+codec = { workspace = true }
+ismp = { workspace = true, default-features = false }
+kaia-verifier = { workspace = true, default-features = false }
+evm-state-machine = { workspace = true }
+pallet-ismp-host-executive = { workspace = true }
+
+[features]
+default = ["std"]
+std = [
+    "codec/std",
+    "ismp/std",
+    "kaia-verifier/std",
+    "evm-state-machine/std",
+    "pallet-ismp-host-executive/std",
+]
+try-runtime = []

@@ -251,6 +251,7 @@ fn consensus_kind_str(consensus: &ConsensusConfig) -> &'static str {
 		ConsensusConfig::Tendermint { .. } => "tendermint",
 		ConsensusConfig::EvmHost { .. } => "evm_host",
 		ConsensusConfig::Pharos { .. } => "pharos",
+		ConsensusConfig::Kaia { .. } => "kaia",
 	}
 }
 

@@ -510,6 +510,36 @@ signer   = "SIGNER-KEY"
 type         = "bsc_testnet"
 ```
 
+### Kaia
+
+**Mainnet**
+
+```toml lineNumbers
+[kaia]
+type     = "evm"
+rpc_urls = ["https://public-en.node.kaia.io"]
+signer   = "SIGNER-KEY"
+
+[kaia.consensus]
+type = "kaia"
+```
+
+**Kairos testnet**
+
+```toml lineNumbers
+[kaia]
+type     = "evm"
+rpc_urls = ["https://public-en-kairos.node.kaia.io"]
+signer   = "SIGNER-KEY"
+
+[kaia.consensus]
+type = "kaia"
+```
+
+The RPC endpoints must serve Kaia's `kaia_*` JSON-RPC namespace — the standard
+`eth_*` block queries omit the governance header fields the consensus client
+tracks. Public Kaia endpoints and full nodes serve both namespaces.
+
 ### Gnosis
 
 **Mainnet**

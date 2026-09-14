@@ -306,7 +306,13 @@ export function Orders(props: { chainLabels?: Record<string, string> }) {
 	// (a detection is followed within a second by its skip or fill).
 	useEffect(() => {
 		const source = new EventSource("/api/events")
-		source.onopen = () => setLive(true)
+		source.onopen = () => {
+			setLive(true)
+			// The daemon does not replay events written while this stream was down.
+			// Re-read the current page when Chromium reconnects so a restarted solver
+			// cannot leave a live badge over stale activity until the next fill.
+			void load(page)
+		}
 		source.onerror = () => setLive(false)
 		source.onmessage = () => {
 			window.clearTimeout(refreshTimer.current)

@@ -11,6 +11,7 @@ on:
             - "sdk/packages/sdk/**"
             - "sdk/packages/indexer/**"
             - "sdk/packages/simplex/**"
+            - "sdk/packages/simplex-desktop/**"
             - ".github/workflows/test-sdk.yml"
     pull_request:
         branches: [main]
@@ -19,6 +20,7 @@ on:
             - "sdk/packages/sdk/**"
             - "sdk/packages/indexer/**"
             - "sdk/packages/simplex/**"
+            - "sdk/packages/simplex-desktop/**"
             - ".github/workflows/test-sdk.yml"
     workflow_dispatch:
 
@@ -135,6 +137,12 @@ jobs:
             - name: Lint simplex
               run: pnpm --filter="@hyperbridge/simplex" lint
 
+            - name: Check Simplex desktop
+              run: |
+                  pnpm --filter="@hyperbridge/simplex-desktop" typecheck
+                  pnpm --filter="@hyperbridge/simplex-desktop" lint
+                  pnpm --filter="@hyperbridge/simplex-desktop" test
+
             # Operators' existing bids.db/activity.db files, opened and migrated for real
             # against committed fixtures. Needs no network or secrets and runs in seconds;
             # test:filler names four specific files and would never reach it.
@@ -166,6 +174,170 @@ jobs:
                     echo "Indexer logs:"
                     cat packages/indexer/indexer_output.log
                   fi
+
+    desktop-runtime-integrity:
+        name: Desktop Node runtime (${{ matrix.target }})
+        runs-on: ${{ matrix.runner }}
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - runner: macos-15
+                      target: darwin-universal
+                    - runner: ubuntu-latest
+                      target: linux-x64
+                    - runner: ubuntu-24.04-arm
+                      target: linux-arm64
+                    - runner: windows-latest
+                      target: win32-x64
+        defaults:
+            run:
+                working-directory: sdk
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: "24"
+
+            - name: Setup pnpm
+              uses: pnpm/action-setup@v4
+              with:
+                  version: 11
+
+            # The staging script needs openpgp and tar, but not Electron's downloaded
+            # application binary. The binary under test is fetched from nodejs.org.
+            - name: Install staging dependencies
+              run: pnpm install --frozen-lockfile --filter="@hyperbridge/simplex-desktop..." --ignore-scripts
+
+            - name: Verify and stage Node
+              run: pnpm --filter="@hyperbridge/simplex-desktop" stage:node -- --target ${{ matrix.target }}
+
+            - name: Execute staged Node on Unix
+              if: runner.os != 'Windows'
+              run: test "$(packages/simplex-desktop/resources/node/${{ matrix.target }}/node --version)" = "v24.19.0"
+
+            - name: Execute staged Node on Windows
+              if: runner.os == 'Windows'
+              shell: pwsh
+              run: |
+                  $version = & "packages/simplex-desktop/resources/node/win32-x64/node.exe" --version
+                  if ($version -ne "v24.19.0") { throw "Expected v24.19.0, got $version" }
+
+    desktop-e2e-artifacts:
+        name: Build Simplex desktop E2E artifacts
+        runs-on: ubuntu-latest
+        defaults:
+            run:
+                working-directory: sdk
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+              with:
+                  ref: ${{ github.event.pull_request.head.sha || github.sha }}
+                  submodules: recursive
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: "24"
+
+            - name: Setup pnpm
+              uses: pnpm/action-setup@v4
+              with:
+                  version: 11
+
+            - name: Install desktop workspace dependencies
+              run: pnpm install --frozen-lockfile --filter="@hyperbridge/simplex-desktop..."
+
+            # Build once on Linux: the output is JavaScript and the generated proto
+            # sources are portable. Each OS job below still stages and executes its
+            # own verified Node runtime and downloads its native Electron binary.
+            - name: Build SDK, Simplex, and Electron main process
+              run: |
+                  pnpm --filter="@hyperbridge/sdk" build
+                  pnpm --filter="@hyperbridge/simplex" build
+                  pnpm --filter="@hyperbridge/simplex-desktop" build
+              env:
+                  CI: "true"
+
+            - name: Upload desktop E2E artifacts
+              uses: actions/upload-artifact@v4
+              with:
+                  name: simplex-desktop-e2e
+                  path: |
+                      sdk/packages/simplex/dist
+                      sdk/packages/simplex/src/proto
+                      sdk/packages/simplex-desktop/dist
+                  if-no-files-found: error
+                  retention-days: 1
+
+    desktop-electron-e2e:
+        name: Desktop Electron E2E (${{ matrix.target }})
+        needs: desktop-e2e-artifacts
+        runs-on: ${{ matrix.runner }}
+        timeout-minutes: 20
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - runner: macos-15
+                      target: darwin-arm64
+                    - runner: ubuntu-latest
+                      target: linux-x64
+                    - runner: ubuntu-24.04-arm
+                      target: linux-arm64
+                    - runner: windows-latest
+                      target: win32-x64
+        defaults:
+            run:
+                working-directory: sdk
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+              with:
+                  ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: "24"
+
+            - name: Setup pnpm
+              uses: pnpm/action-setup@v4
+              with:
+                  version: 11
+
+            - name: Install desktop workspace dependencies
+              run: pnpm install --frozen-lockfile --filter="@hyperbridge/simplex-desktop..."
+
+            - name: Download built desktop artifacts
+              uses: actions/download-artifact@v4
+              with:
+                  name: simplex-desktop-e2e
+                  path: sdk/packages
+
+            - name: Install Linux display and listener tools
+              if: runner.os == 'Linux'
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y lsof xvfb
+
+            - name: Verify and stage the host Node runtime
+              run: pnpm --filter="@hyperbridge/simplex-desktop" stage:node -- --target ${{ matrix.target }}
+
+            - name: Run cross-platform desktop tests
+              run: pnpm --filter="@hyperbridge/simplex-desktop" test
+
+            - name: Run Electron E2E on Linux
+              if: runner.os == 'Linux'
+              run: xvfb-run -a pnpm --filter="@hyperbridge/simplex-desktop" test:e2e
+
+            - name: Run Electron E2E on macOS and Windows
+              if: runner.os != 'Linux'
+              run: pnpm --filter="@hyperbridge/simplex-desktop" test:e2e
 
     # Full phantom-order flow: a locally-built simnode emits the order, real simplex IntentFillers
     # watch + submit USDC->cNGN bids, and the SDK aggregation reduces them to a snapshot — simulated

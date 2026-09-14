@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import { createReadStream, createWriteStream } from "node:fs"
-import { chmod, mkdir, mkdtemp, readFile, rename, rm, stat } from "node:fs/promises"
+import { chmod, copyFile, mkdir, mkdtemp, readFile, rename, rm, stat } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { basename, dirname, join, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
@@ -73,19 +73,23 @@ async function verifiedDownload(asset, directory, manifest) {
 export async function extractNode(archive, destination) {
 	const root = basename(archive, ".tar.gz")
 	let extracted = false
-	await tar.x({
-		file: archive,
-		cwd: dirname(destination),
-		strip: 2,
-		filter(path, entry) {
-			const selected = path === `${root}/bin/node` && entry.type === "File"
-			if (selected) extracted = true
-			return selected
-		},
-	})
-	if (!extracted) throw new Error(`The verified archive ${basename(archive)} did not contain bin/node`)
-	const extractedPath = join(dirname(destination), "node")
-	if (extractedPath !== destination) await rename(extractedPath, destination)
+	const extractionDirectory = await mkdtemp(join(dirname(destination), ".simplex-node-extract-"))
+	try {
+		await tar.x({
+			file: archive,
+			cwd: extractionDirectory,
+			strip: 2,
+			filter(path, entry) {
+				const selected = path === `${root}/bin/node` && entry.type === "File"
+				if (selected) extracted = true
+				return selected
+			},
+		})
+		if (!extracted) throw new Error(`The verified archive ${basename(archive)} did not contain bin/node`)
+		await rename(join(extractionDirectory, "node"), destination)
+	} finally {
+		await rm(extractionDirectory, { recursive: true, force: true })
+	}
 }
 
 async function stageSlice(target, workingDirectory, manifest) {
@@ -100,15 +104,19 @@ async function stageSlice(target, workingDirectory, manifest) {
 
 export async function atomicInstall(source, destination, executable) {
 	await mkdir(dirname(destination), { recursive: true })
-	const temporary = `${destination}.new-${process.pid}`
-	await rm(temporary, { force: true })
-	await rename(source, temporary)
-	if (executable) await chmod(temporary, 0o755)
+	// The verified download lives under the OS temp directory, which can be a
+	// different volume from the workspace on Windows runners. Copy into a unique
+	// sibling first, then make the only visible transition with a same-volume
+	// rename so readers never observe a partial runtime.
+	const temporaryDirectory = await mkdtemp(join(dirname(destination), `.${basename(destination)}.new-`))
+	const temporary = join(temporaryDirectory, basename(destination))
 	try {
+		await copyFile(source, temporary)
+		if (executable) await chmod(temporary, 0o755)
 		// rename replaces an existing file without exposing a partially written runtime.
 		await rename(temporary, destination)
 	} finally {
-		await rm(temporary, { force: true })
+		await rm(temporaryDirectory, { recursive: true, force: true })
 	}
 }
 

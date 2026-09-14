@@ -82,7 +82,28 @@ describe("Node runtime staging", () => {
 		)
 	})
 
-	it("installs Unix runtimes atomically with executable permissions", async () => {
+	it("extracts independently when verified slices are staged in parallel", async () => {
+		const directory = await mkdtemp(join(tmpdir(), "simplex-stage-parallel-"))
+		const archives = await Promise.all(
+			Array.from({ length: 12 }, async (_, index) => {
+				const root = `node-slice-${index}`
+				await mkdir(join(directory, root, "bin"), { recursive: true })
+				await writeFile(join(directory, root, "bin", "node"), `runtime-${index}-${"x".repeat(64_000)}`)
+				const archive = join(directory, `${root}.tar.gz`)
+				await tar.c({ cwd: directory, file: archive, gzip: true }, [root])
+				return archive
+			}),
+		)
+		const destinations = archives.map((_, index) => join(directory, `verified-node-${index}`))
+
+		await Promise.all(archives.map((archive, index) => extractNode(archive, destinations[index])))
+
+		for (let index = 0; index < destinations.length; index += 1) {
+			expect(await readFile(destinations[index], "utf8")).toBe(`runtime-${index}-${"x".repeat(64_000)}`)
+		}
+	})
+
+	it("installs runtimes atomically without moving the verified source across filesystems", async () => {
 		const directory = await mkdtemp(join(tmpdir(), "simplex-stage-install-"))
 		const source = join(directory, "verified-node")
 		const destination = join(directory, "runtime", "node")
@@ -91,6 +112,7 @@ describe("Node runtime staging", () => {
 		await writeFile(source, "verified-runtime", { mode: 0o600 })
 		await atomicInstall(source, destination, true)
 		expect(await readFile(destination, "utf8")).toBe("verified-runtime")
+		expect(await readFile(source, "utf8")).toBe("verified-runtime")
 		expect((await stat(destination)).mode & 0o777).toBe(0o755)
 	})
 

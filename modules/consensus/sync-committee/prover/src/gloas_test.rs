@@ -42,8 +42,10 @@ fn setup_prover() -> SyncCommitteeProver<
 #[ignore]
 async fn beacon_state_hashes_to_the_signed_header() {
 	let prover = setup_prover();
-	let mut state = prover.fetch_beacon_state("finalized").await.unwrap();
-	let header = prover.fetch_header(&state.slot().to_string()).await.unwrap();
+	// Resolve the header first. `finalized` always names a block, whereas the finalized state's
+	// slot may have been skipped, in which case there is no header to fetch at that slot number.
+	let header = prover.fetch_header("finalized").await.unwrap();
+	let mut state = prover.fetch_beacon_state(&header.slot.to_string()).await.unwrap();
 
 	assert_eq!(state.tree_hash_root(), Hash256::from(&header.state_root));
 }
@@ -55,8 +57,10 @@ async fn beacon_state_hashes_to_the_signed_header() {
 #[ignore]
 async fn execution_header_recovers_the_execution_state_root() {
 	let prover = setup_prover();
-	let mut finalized_state = prover.fetch_beacon_state("finalized").await.unwrap();
-	let finalized_header = prover.fetch_header(&finalized_state.slot().to_string()).await.unwrap();
+	// As above: go through the header so a skipped finalized slot does not 404.
+	let finalized_header = prover.fetch_header("finalized").await.unwrap();
+	let mut finalized_state =
+		prover.fetch_beacon_state(&finalized_header.slot.to_string()).await.unwrap();
 
 	let block_hash = H256::from_slice(finalized_state.execution_block_hash().as_ref());
 	let header = prover.fetch_execution_header(block_hash).await.unwrap();

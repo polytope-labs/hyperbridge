@@ -28,6 +28,7 @@ import {
 } from "@/configs/src/types"
 import { SOLVER_ACCOUNT_ADDRESSES } from "@/solver-account-addresses"
 import { timestampToDate } from "@/utils/date.helpers"
+import { readContracts, settle, type Settled, unwrap } from "@/utils/multicall"
 import { readAllPages } from "@/utils/store.helpers"
 import { YIELD_VAULT_ADDRESSES } from "@/yield-vault-addresses"
 
@@ -218,11 +219,20 @@ async function consumeWatchlist(chain: string, blockNumber: bigint, at: Date): P
 }
 
 // ─── Storage reads ──────────────────────────────────────────────────────────────────────────────
+//
+// Reads are batched across every solver one pass handles: one Multicall3 call carries all of their
+// balances, and a second values all of their vault shares. `getCode` has no Multicall3 form, so each
+// solver's goes out alongside the first batch, where SubQuery's batching provider carries them together.
+
+const erc20 = new ethers.utils.Interface(Erc20Abi)
+const erc4626 = new ethers.utils.Interface(Erc4626Abi)
 
 interface VaultReading {
 	vault: string
 	shares: bigint
 	assets: bigint
+	/** On a reconciliation, the read shares minus the tracked ones, valued in assets at the block. */
+	drift: bigint
 }
 
 interface TokenReading {
@@ -235,32 +245,129 @@ interface SolverReading extends DelegationReading {
 	tokens: TokenReading[]
 }
 
-async function sharesToAssets(vault: string, shares: bigint): Promise<bigint> {
-	if (shares === 0n) return 0n
-	const contract = new ethers.Contract(vault, Erc4626Abi, api as any)
-	return BigInt((await contract.convertToAssets(shares.toString())).toString())
+interface ShareAmount {
+	vault: string
+	shares: bigint
 }
 
-/** Signed shares valued in assets: convertToAssets only takes an unsigned amount. */
-async function signedSharesToAssets(vault: string, shares: bigint): Promise<bigint> {
-	return shares < 0n ? -(await sharesToAssets(vault, -shares)) : sharesToAssets(vault, shares)
+/**
+ * Values signed share amounts in assets at the handler's block, in one batch. Zero costs no read,
+ * and a negative amount is valued by its magnitude: convertToAssets only takes an unsigned one.
+ */
+async function valueShares(chain: string, amounts: ShareAmount[]): Promise<Settled<bigint>[]> {
+	const reads = await readContracts(
+		chain,
+		amounts
+			.filter(({ shares }) => shares !== 0n)
+			.map(({ vault, shares }) => ({
+				target: vault,
+				abi: erc4626,
+				method: "convertToAssets",
+				args: [(shares < 0n ? -shares : shares).toString()],
+			})),
+	)
+	let next = 0
+	return amounts.map(({ shares }): Settled<bigint> => {
+		if (shares === 0n) return { ok: true, value: 0n }
+		const read = reads[next++]
+		if (!read.ok) return read
+		const assets = BigInt(read.value[0].toString())
+		return { ok: true, value: shares < 0n ? -assets : assets }
+	})
 }
 
-/** Every read tracking needs for one solver, pinned to the handler's block by SubQuery's provider. */
-async function readSolver(chain: string, solver: string): Promise<SolverReading> {
-	const code: string = await (api as any).getCode(solver)
-	const tokens: TokenReading[] = []
-	for (const { token, vaults } of supportedTokens(chain)) {
-		const wallet = BigInt((await new ethers.Contract(token, Erc20Abi, api as any).balanceOf(solver)).toString())
-		const readings: VaultReading[] = []
-		for (const vault of vaults) {
-			const contract = new ethers.Contract(vault, Erc4626Abi, api as any)
-			const shares = BigInt((await contract.balanceOf(solver)).toString())
-			readings.push({ vault, shares, assets: await sharesToAssets(vault, shares) })
-		}
-		tokens.push({ token, wallet, vaults: readings })
+/** Runs `assemble` for one solver, turning a failed read it unwraps into that solver's error. */
+function settleSolver<T>(assemble: () => T): T | Error {
+	try {
+		return assemble()
+	} catch (error) {
+		return error instanceof Error ? error : new Error(String(error))
 	}
-	return { ...parseDelegation(chain, code), tokens }
+}
+
+interface VaultDraft extends ShareAmount {
+	/** Where the shares' valuation sits in the valuation batch. */
+	slot: number
+	/** Where the drift's valuation sits, when the shares drifted from the tracked position. */
+	driftSlot?: number
+}
+
+/**
+ * Every read tracking needs for each of `solvers`, pinned to the handler's block: every supported
+ * token's and vault's `balanceOf` in one batch alongside each solver's `getCode`, then every vault
+ * balance valued in a second. A reconciliation also values each vault balance's drift from the
+ * tracked position in that second batch. A solver with any failed read comes back as an error, and
+ * a failed batch throws.
+ */
+async function readSolvers(
+	chain: string,
+	solvers: string[],
+	reconciliation: boolean,
+): Promise<(SolverReading | Error)[]> {
+	const tokens = supportedTokens(chain)
+	const holdings = tokens.flatMap(({ token, vaults }) => [token, ...vaults])
+	const [balances, codes] = await Promise.all([
+		readContracts(
+			chain,
+			solvers.flatMap((solver) =>
+				holdings.map((holding) => ({ target: holding, abi: erc20, method: "balanceOf", args: [solver] })),
+			),
+		),
+		Promise.all(solvers.map((solver) => settle<string>(`getCode of ${solver}`, (api as any).getCode(solver)))),
+	])
+
+	// Balances come back solver by solver, each in `holdings` order.
+	const amounts: ShareAmount[] = []
+	const drafts = solvers.map((_, index) =>
+		settleSolver(() => {
+			const code = unwrap(codes[index])
+			const own = balances
+				.slice(index * holdings.length, (index + 1) * holdings.length)
+				.map((read) => BigInt(unwrap(read)[0].toString()))
+			let next = 0
+			return {
+				code,
+				tokens: tokens.map(({ token, vaults }) => ({
+					token,
+					wallet: own[next++],
+					vaults: vaults.map((vault): VaultDraft => {
+						const shares = own[next++]
+						return { vault, shares, slot: amounts.push({ vault, shares }) - 1 }
+					}),
+				})),
+			}
+		}),
+	)
+	if (reconciliation) {
+		for (const [index, draft] of drafts.entries()) {
+			if (draft instanceof Error) continue
+			for (const vault of draft.tokens.flatMap((token) => token.vaults)) {
+				const position = await SolverVaultShares.get(vaultSharesId(chain, vault.vault, solvers[index]))
+				if (position && position.shares !== vault.shares) {
+					vault.driftSlot = amounts.push({ vault: vault.vault, shares: vault.shares - position.shares }) - 1
+				}
+			}
+		}
+	}
+
+	const values = await valueShares(chain, amounts)
+	return drafts.map((draft) =>
+		draft instanceof Error
+			? draft
+			: settleSolver(() => ({
+					...parseDelegation(chain, draft.code),
+					tokens: draft.tokens.map(({ token, wallet, vaults }) => ({
+						token,
+						wallet,
+						vaults: vaults.map(({ vault, shares, slot, driftSlot }) => ({
+							vault,
+							shares,
+							assets: unwrap(values[slot]),
+							drift: driftSlot === undefined ? 0n : unwrap(values[driftSlot]),
+						})),
+					})),
+				})),
+	)
 }
 
 async function recordDelegation(
@@ -300,19 +407,6 @@ async function applyReading(
 ): Promise<void> {
 	const { chain, solver } = tracked
 
-	// Share drift is valued at this block, which is another read, so it happens before any write.
-	const shareDrift = new Map<string, bigint>()
-	const positions = new Map<string, SolverVaultShares | undefined>()
-	for (const token of reading.tokens) {
-		for (const vault of token.vaults) {
-			const position = await SolverVaultShares.get(vaultSharesId(chain, vault.vault, solver))
-			positions.set(vault.vault, position)
-			if (reconciliation && position && vault.shares !== position.shares) {
-				shareDrift.set(vault.vault, await signedSharesToAssets(vault.vault, vault.shares - position.shares))
-			}
-		}
-	}
-
 	await recordDelegation(chain, solver, reading, blockNumber, at)
 
 	for (const token of reading.tokens) {
@@ -320,7 +414,7 @@ async function applyReading(
 		let vaultShares = 0n
 		let drift = 0n
 		for (const vault of token.vaults) {
-			const position = positions.get(vault.vault)
+			const position = await SolverVaultShares.get(vaultSharesId(chain, vault.vault, solver))
 			const moved = !position || position.shares !== vault.shares || position.assets !== vault.assets
 			await SolverVaultShares.create({
 				id: vaultSharesId(chain, vault.vault, solver),
@@ -336,7 +430,7 @@ async function applyReading(
 			}).save()
 			vaults += vault.assets
 			vaultShares += vault.shares
-			drift += shareDrift.get(vault.vault) ?? 0n
+			drift += vault.drift
 		}
 
 		const existing = await SolverInventory.get(inventoryId(chain, token.token, solver))
@@ -375,9 +469,10 @@ async function applyReading(
 }
 
 /**
- * The genesis read for PENDING solvers. A failed read leaves the solver PENDING — nothing is
- * written for it, and none of its events are applied meanwhile — so the next block simply reads
- * again, and that later read includes whatever moved in between.
+ * The genesis read for PENDING solvers, all of them in one batched read. A failed read leaves its
+ * solver PENDING — nothing is written for it, and none of its events are applied meanwhile — so the
+ * next block simply reads again, and that later read includes whatever moved in between. The other
+ * solvers' readings are still applied.
  */
 async function seedPendingSolvers(chain: string, blockNumber: bigint, at: Date): Promise<void> {
 	const pending = await TrackedSolver.getByFields(
@@ -387,16 +482,26 @@ async function seedPendingSolvers(chain: string, blockNumber: bigint, at: Date):
 		],
 		{ limit: MAX_GENESIS_PER_BLOCK, orderBy: "id", orderDirection: "ASC" },
 	)
-	for (const tracked of pending) {
-		let reading: SolverReading
-		try {
-			reading = await readSolver(chain, tracked.solver)
-		} catch (error) {
-			const message = error instanceof Error ? error.message : String(error)
+	if (pending.length === 0) return
+	let readings: (SolverReading | Error)[]
+	try {
+		readings = await readSolvers(
+			chain,
+			pending.map(({ solver }) => solver),
+			false,
+		)
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error)
+		logger.warn(`[solver-inventory] Genesis reads failed on ${chain}, retrying next block: ${message}`)
+		return
+	}
+	for (const [index, tracked] of pending.entries()) {
+		const reading = readings[index]
+		if (reading instanceof Error) {
 			logger.warn(
-				`[solver-inventory] Genesis read failed for ${tracked.solver} on ${chain}, retrying next block: ${message}`,
+				`[solver-inventory] Genesis read failed for ${tracked.solver} on ${chain}, retrying next block: ${reading.message}`,
 			)
-			return
+			continue
 		}
 		await applyReading(tracked, reading, blockNumber, at, false)
 		tracked.status = TrackedSolverStatus.TRACKED
@@ -479,7 +584,7 @@ export async function applyVaultShareTransfer(input: TransferInput & { vault: st
 			shares = 0n
 		}
 		position.shares = shares
-		position.assets = await sharesToAssets(vault, shares)
+		position.assets = unwrap((await valueShares(input.chain, [{ vault, shares }]))[0])
 		position.blockNumber = input.blockNumber
 		position.lastLogIndex = input.logIndex
 		position.observedAt = later(position.observedAt, at)
@@ -509,18 +614,41 @@ async function refoldVaults(chain: string, token: string, solver: string, at: Da
 
 // ─── Head and refresh ───────────────────────────────────────────────────────────────────────────
 
-/** Revalues a solver's vault shares at this block. Shares do not move, so the wallet is left alone. */
-async function revalueSolver(tracked: TrackedSolver, at: Date): Promise<void> {
-	const { chain, solver } = tracked
-	const revalued: { token: string; positions: { position: SolverVaultShares; assets: bigint }[] }[] = []
-	for (const { token, vaults } of supportedTokens(chain)) {
-		const positions: { position: SolverVaultShares; assets: bigint }[] = []
-		for (const vault of vaults) {
-			const position = await SolverVaultShares.get(vaultSharesId(chain, vault, solver))
-			if (position) positions.push({ position, assets: await sharesToAssets(vault, position.shares) })
+interface Revaluation {
+	token: string
+	positions: { position: SolverVaultShares; assets: bigint }[]
+}
+
+/** Values every solver's vault positions at this block, all of them in one batch. */
+async function readRevaluations(chain: string, solvers: TrackedSolver[]): Promise<(Revaluation[] | Error)[]> {
+	const amounts: ShareAmount[] = []
+	const plans: { token: string; positions: { position: SolverVaultShares; slot: number }[] }[][] = []
+	for (const { solver } of solvers) {
+		const plan: (typeof plans)[number] = []
+		for (const { token, vaults } of supportedTokens(chain)) {
+			const positions: { position: SolverVaultShares; slot: number }[] = []
+			for (const vault of vaults) {
+				const position = await SolverVaultShares.get(vaultSharesId(chain, vault, solver))
+				if (position) positions.push({ position, slot: amounts.push({ vault, shares: position.shares }) - 1 })
+			}
+			if (positions.length > 0) plan.push({ token, positions })
 		}
-		if (positions.length > 0) revalued.push({ token, positions })
+		plans.push(plan)
 	}
+	const values = await valueShares(chain, amounts)
+	return plans.map((plan) =>
+		settleSolver(() =>
+			plan.map(({ token, positions }) => ({
+				token,
+				positions: positions.map(({ position, slot }) => ({ position, assets: unwrap(values[slot]) })),
+			})),
+		),
+	)
+}
+
+/** Writes a solver's revalued vault shares. Shares do not move, so the wallet is left alone. */
+async function applyRevaluation(tracked: TrackedSolver, revalued: Revaluation[], at: Date): Promise<void> {
+	const { chain, solver } = tracked
 	for (const { token, positions } of revalued) {
 		for (const { position, assets } of positions) {
 			if (position.assets === assets) continue
@@ -538,8 +666,11 @@ async function revalueSolver(tracked: TrackedSolver, at: Date): Promise<void> {
 
 /**
  * One page of the chain's tracked solvers: each that is due is reconciled (daily) or has its vault
- * shares revalued (hourly). A failed read stops the pass and the page is retried on the next head
- * advance; nothing is written for a solver until all of its reads have succeeded.
+ * shares revalued (hourly). The page's reads are batched — the reconciliations' balances and
+ * valuations, and the revaluations' valuations — so a page costs the same few eth_calls however
+ * many of its solvers are due. A failed read skips its solver and keeps the page for the next head
+ * advance, whose pass finds the other solvers no longer due; nothing is written for a solver until
+ * all of its reads have succeeded.
  *
  * @returns the offset the next pass resumes from.
  */
@@ -551,27 +682,59 @@ async function refreshPage(chain: string, blockNumber: bigint, at: Date, offset:
 		],
 		{ limit: REFRESH_PAGE_SIZE, offset, orderBy: "id", orderDirection: "ASC" },
 	)
+	const reconciling: TrackedSolver[] = []
+	const revaluing: TrackedSolver[] = []
 	for (const tracked of page) {
-		const reconcile = elapsedSecs(tracked.reconciledAt, at) >= RECONCILE_INTERVAL_SECS
-		const revalue = reconcile || elapsedSecs(tracked.revaluedAt, at) >= REVALUE_INTERVAL_SECS
-		if (!revalue) continue
-		try {
-			if (reconcile) {
-				await applyReading(tracked, await readSolver(chain, tracked.solver), blockNumber, at, true)
-				tracked.reconciledAt = at
-			} else {
-				await revalueSolver(tracked, at)
-			}
-		} catch (error) {
-			const message = error instanceof Error ? error.message : String(error)
-			logger.warn(
-				`[solver-inventory] Refresh failed for ${tracked.solver} on ${chain}, retrying next pass: ${message}`,
-			)
-			return offset
+		if (elapsedSecs(tracked.reconciledAt, at) >= RECONCILE_INTERVAL_SECS) reconciling.push(tracked)
+		else if (elapsedSecs(tracked.revaluedAt, at) >= REVALUE_INTERVAL_SECS) revaluing.push(tracked)
+	}
+
+	let readings: (SolverReading | Error)[]
+	let revaluations: (Revaluation[] | Error)[]
+	try {
+		;[readings, revaluations] = await Promise.all([
+			readSolvers(
+				chain,
+				reconciling.map(({ solver }) => solver),
+				true,
+			),
+			readRevaluations(chain, revaluing),
+		])
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error)
+		logger.warn(`[solver-inventory] Refresh reads failed on ${chain}, retrying next pass: ${message}`)
+		return offset
+	}
+
+	let failed = false
+	const skip = (tracked: TrackedSolver, error: Error) => {
+		failed = true
+		logger.warn(
+			`[solver-inventory] Refresh failed for ${tracked.solver} on ${chain}, retrying next pass: ${error.message}`,
+		)
+	}
+	for (const [index, tracked] of reconciling.entries()) {
+		const reading = readings[index]
+		if (reading instanceof Error) {
+			skip(tracked, reading)
+			continue
 		}
+		await applyReading(tracked, reading, blockNumber, at, true)
+		tracked.reconciledAt = at
 		tracked.revaluedAt = at
 		await tracked.save()
 	}
+	for (const [index, tracked] of revaluing.entries()) {
+		const revaluation = revaluations[index]
+		if (revaluation instanceof Error) {
+			skip(tracked, revaluation)
+			continue
+		}
+		await applyRevaluation(tracked, revaluation, at)
+		tracked.revaluedAt = at
+		await tracked.save()
+	}
+	if (failed) return offset
 	return page.length < REFRESH_PAGE_SIZE ? 0 : offset + page.length
 }
 

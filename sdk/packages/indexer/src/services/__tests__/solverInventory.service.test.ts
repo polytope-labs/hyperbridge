@@ -18,25 +18,10 @@ const rows = (entity: string) =>
 const mockOnchain = new Map<string, bigint>()
 /** Assets per share, per vault. */
 const mockRates = new Map<string, bigint>()
+/** The contract of every balanceOf read, those inside a multicall included. */
 const mockBalanceReads: string[] = []
-jest.mock("ethers", () => {
-	const actual = jest.requireActual("ethers")
-	return {
-		...actual,
-		ethers: {
-			...actual.ethers,
-			Contract: jest.fn((address: string) => ({
-				balanceOf: jest.fn(async (holder: string) => {
-					mockBalanceReads.push(address.toLowerCase())
-					return (mockOnchain.get(`${address.toLowerCase()}|${holder.toLowerCase()}`) ?? 0n).toString()
-				}),
-				convertToAssets: jest.fn(async (shares: string) =>
-					(BigInt(shares) * (mockRates.get(address.toLowerCase()) ?? 1n)).toString(),
-				),
-			})),
-		},
-	}
-})
+/** Holders whose balanceOf reverts. */
+const mockReverting = new Set<string>()
 jest.mock("@/yield-vault-addresses", () => ({
 	YIELD_VAULT_ADDRESSES: {
 		"EVM-8453": {
@@ -50,6 +35,8 @@ jest.mock("@/solver-account-addresses", () => ({
 }))
 
 import { ethers } from "ethers"
+import Erc4626Abi from "@/configs/abis/Erc4626.abi.json"
+import Multicall3Abi from "@/configs/abis/Multicall3.abi.json"
 import { SolverDiscoveryTrigger, TrackedSolverStatus } from "@/configs/src/types"
 import {
 	AFTER_EVERY_LOG,
@@ -63,6 +50,7 @@ import {
 	REVALUE_INTERVAL_SECS,
 	type TransferInput,
 } from "@/services/solverInventory.service"
+import { MULTICALL3_ADDRESS, resetMulticallCache } from "@/utils/multicall"
 
 const CHAIN = "EVM-8453"
 const USDC = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913"
@@ -75,7 +63,41 @@ const SOLVER_ACCOUNT = "0x7cb55539d1144f62422099c3fa3405092022c88c"
 const DELEGATED = `0xef0100${SOLVER_ACCOUNT.slice(2)}`
 const T0 = 1_750_000_000n
 
-const getCode = () => (global as any).api.getCode as jest.Mock
+const MULTICALL3 = MULTICALL3_ADDRESS.toLowerCase()
+const erc4626 = new ethers.utils.Interface(Erc4626Abi)
+const multicall3 = new ethers.utils.Interface(Multicall3Abi)
+
+/** Answers an eth_call from the mocked state, and throws where the chain would revert. */
+function answer(to: string, data: string): string {
+	const target = to.toLowerCase()
+	if (target === MULTICALL3) {
+		const [calls] = multicall3.decodeFunctionData("aggregate3", data)
+		const results = calls.map((call: any) => {
+			try {
+				return { success: true, returnData: answer(call.target, call.callData) }
+			} catch {
+				return { success: false, returnData: "0x" }
+			}
+		})
+		return multicall3.encodeFunctionResult("aggregate3", [results])
+	}
+	const call = erc4626.parseTransaction({ data })
+	if (call.name === "balanceOf") {
+		const holder = String(call.args[0]).toLowerCase()
+		mockBalanceReads.push(target)
+		if (mockReverting.has(holder)) throw new Error("execution reverted")
+		return erc4626.encodeFunctionResult("balanceOf", [(mockOnchain.get(`${target}|${holder}`) ?? 0n).toString()])
+	}
+	const shares = BigInt(call.args[0].toString())
+	return erc4626.encodeFunctionResult("convertToAssets", [(shares * (mockRates.get(target) ?? 1n)).toString()])
+}
+
+let multicallDeployed = true
+/** The code of any account but Multicall3's. */
+let solverCode: jest.Mock
+const getCode = () => solverCode
+/** Every eth_call; a multicall counts once. */
+const ethCalls = () => (global as any).api.call as jest.Mock
 const inventory = (token = USDC, solver = SOLVER) => records.get(`SolverInventory:${CHAIN}-${token}-${solver}`)
 const shares = (solver = SOLVER) => records.get(`SolverVaultShares:${CHAIN}-${VAULT}-${solver}`)
 const tracked = (solver = SOLVER) => records.get(`TrackedSolver:${CHAIN}-${solver}`)
@@ -152,9 +174,18 @@ beforeEach(() => {
 	mockRates.clear()
 	mockRates.set(VAULT, 2n)
 	mockBalanceReads.length = 0
+	mockReverting.clear()
+	multicallDeployed = true
 	jest.clearAllMocks()
 	resetSolverInventoryCache()
-	;(global as any).api = { getCode: jest.fn(async () => DELEGATED) }
+	resetMulticallCache()
+	solverCode = jest.fn(async (_address: string) => DELEGATED)
+	;(global as any).api = {
+		getCode: jest.fn(async (address: string) =>
+			address.toLowerCase() === MULTICALL3 ? (multicallDeployed ? "0x6080604052" : "0x") : solverCode(address),
+		),
+		call: jest.fn(async ({ to, data }: { to: string; data: string }) => answer(to, data)),
+	}
 })
 
 describe("discovery", () => {
@@ -169,8 +200,8 @@ describe("discovery", () => {
 			discoveredByFill: "0xfill",
 			discoveryBlock: 100n,
 		})
-		expect(getCode()).not.toHaveBeenCalled()
-		expect(ethers.Contract).not.toHaveBeenCalled()
+		expect((global as any).api.getCode).not.toHaveBeenCalled()
+		expect(ethCalls()).not.toHaveBeenCalled()
 	})
 
 	test("watchlist requests become tracked solvers, reading only the versions not yet consumed", async () => {
@@ -280,6 +311,59 @@ describe("genesis", () => {
 		await transfer({ blockNumber: 102n, logIndex: 0, value: 25n })
 		expect(inventory()).toMatchObject({ wallet: 1_065n, balance: 1_065n, blockNumber: 102n, lastLogIndex: 0 })
 	})
+
+	test("a burst of solvers is read in two eth_calls, balances then valuations, plus one getCode each", async () => {
+		const solvers = Array.from({ length: 20 }, (_, i) => `0x${(0xa000 + i).toString(16).padStart(40, "0")}`)
+		for (const [i, solver] of solvers.entries()) {
+			mockOnchain.set(`${USDC}|${solver}`, 1_000n + BigInt(i))
+			mockOnchain.set(`${VAULT}|${solver}`, BigInt(i))
+		}
+		queueWatchlist(1, ...solvers)
+
+		await block(101n, T0)
+
+		expect(ethCalls()).toHaveBeenCalledTimes(2)
+		expect(ethCalls().mock.calls.every(([tx]) => tx.to === MULTICALL3_ADDRESS)).toBe(true)
+		expect(getCode()).toHaveBeenCalledTimes(solvers.length)
+		for (const [i, solver] of solvers.entries()) {
+			expect(tracked(solver)).toMatchObject({ status: TrackedSolverStatus.TRACKED })
+			expect(inventory(USDC, solver)).toMatchObject({
+				wallet: 1_000n + BigInt(i),
+				vaultShares: BigInt(i),
+				vaults: 2n * BigInt(i),
+			})
+		}
+	})
+
+	test("a read that fails for one solver leaves only that solver pending", async () => {
+		mockOnchain.set(`${USDC}|${SOLVER}`, 1_000n)
+		mockOnchain.set(`${USDC}|${OTHER}`, 700n)
+		mockReverting.add(SOLVER)
+		await fill(100n, SOLVER)
+		await fill(100n, OTHER)
+
+		await block(101n, T0)
+		expect(tracked()).toMatchObject({ status: TrackedSolverStatus.PENDING })
+		expect(inventory()).toBeUndefined()
+		expect(tracked(OTHER)).toMatchObject({ status: TrackedSolverStatus.TRACKED })
+		expect(inventory(USDC, OTHER)).toMatchObject({ wallet: 700n })
+
+		mockReverting.clear()
+		await block(102n, T0 + 2n)
+		expect(tracked()).toMatchObject({ status: TrackedSolverStatus.TRACKED, genesisBlock: 102n })
+		expect(inventory()).toMatchObject({ wallet: 1_000n })
+	})
+
+	test("a chain without Multicall3 makes the same reads as individual calls", async () => {
+		multicallDeployed = false
+
+		await trackSolver(1_000n, 50n)
+
+		expect(inventory()).toMatchObject({ wallet: 1_000n, vaultShares: 50n, vaults: 100n, balance: 1_100n })
+		// USDC, its vault and CNGN's balanceOf, then the vault shares' convertToAssets.
+		expect(ethCalls()).toHaveBeenCalledTimes(4)
+		expect(ethCalls().mock.calls.some(([tx]) => tx.to === MULTICALL3_ADDRESS)).toBe(false)
+	})
 })
 
 describe("events", () => {
@@ -288,8 +372,8 @@ describe("events", () => {
 		await transfer({ from: OTHER, to: "0x18f23e630077b1da3ed97c0469d0504a93fad9e2" })
 		jest.mocked(store.get).mockClear()
 		jest.mocked(store.getByFields).mockClear()
-		jest.mocked(ethers.Contract).mockClear()
-		getCode().mockClear()
+		ethCalls().mockClear()
+		;(global as any).api.getCode.mockClear()
 
 		for (let i = 0; i < 2_000; i++) {
 			const from = `0x${(i + 1).toString(16).padStart(40, "0")}`
@@ -300,8 +384,8 @@ describe("events", () => {
 
 		expect(store.get).not.toHaveBeenCalled()
 		expect(store.getByFields).not.toHaveBeenCalled()
-		expect(ethers.Contract).not.toHaveBeenCalled()
-		expect(getCode()).not.toHaveBeenCalled()
+		expect(ethCalls()).not.toHaveBeenCalled()
+		expect((global as any).api.getCode).not.toHaveBeenCalled()
 		expect(inventory()).toMatchObject({ wallet: 1_000n })
 	})
 
@@ -394,6 +478,35 @@ describe("head and refresh", () => {
 		// The read at 9000 already holds that block's logs.
 		await transfer({ value: 50n, blockNumber: 9_000n, logIndex: 1 })
 		expect(inventory()).toMatchObject({ wallet: 900n })
+	})
+
+	test("a page of due solvers is reconciled and revalued in three eth_calls", async () => {
+		const solvers = Array.from({ length: 6 }, (_, i) => `0x${(0xb000 + i).toString(16).padStart(40, "0")}`)
+		for (const solver of solvers) {
+			mockOnchain.set(`${USDC}|${solver}`, 1_000n)
+			mockOnchain.set(`${VAULT}|${solver}`, 50n)
+			await fill(100n, solver)
+		}
+		await block(101n, T0)
+		const at = T0 + BigInt(RECONCILE_INTERVAL_SECS) + 60n
+		// Half the page was reconciled recently, so it is only due a revaluation.
+		for (const solver of solvers.slice(0, 3)) {
+			tracked(solver).reconciledAt = new Date(Number(at - 60n) * 1000)
+		}
+		mockRates.set(VAULT, 3n)
+		ethCalls().mockClear()
+		getCode().mockClear()
+
+		await block(9_000n, at)
+
+		// The reconciliations' balances and valuations, and the revaluations' valuations.
+		expect(ethCalls()).toHaveBeenCalledTimes(3)
+		expect(getCode()).toHaveBeenCalledTimes(3)
+		for (const solver of solvers) {
+			expect(inventory(USDC, solver)).toMatchObject({ wallet: 1_000n, vaults: 150n, balance: 1_150n })
+		}
+		expect(inventory(USDC, solvers[0]).lastReadBlock).toBe(101n)
+		expect(inventory(USDC, solvers[5]).lastReadBlock).toBe(9_000n)
 	})
 
 	test("a failed refresh read writes nothing and resumes the same page next time", async () => {

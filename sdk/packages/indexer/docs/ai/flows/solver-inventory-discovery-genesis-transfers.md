@@ -1,8 +1,8 @@
 # Solver inventory (fill and watchlist discovery, genesis read, Transfer events, head)
 
 Verified 2026-09-14 by unit tests against a mocked store and provider (`solverInventory.service.test.ts`,
-`solverWatchlist.service.test.ts`), and by generating the mainnet manifests and parsing every one. The ordering
-fact it rests on — SubQuery's Ethereum indexer runs a block's block handlers before its log handlers — is the one
+`solverWatchlist.service.test.ts`, `multicall.test.ts`), and by generating the mainnet manifests and parsing every
+one. The ordering fact it rests on — SubQuery's Ethereum indexer runs a block's block handlers before its log handlers — is the one
 `YieldVaultService.snapshotChain` already depends on.
 
 Each chain's EVM node maintains, for every solver it tracks, one `SolverInventory` row per supported token (the
@@ -39,14 +39,17 @@ watchlist requests.
 
 **Genesis**
 
-4. `seedPendingSolvers` takes up to 20 of the chain's `PENDING` solvers in id order. For each, `readSolver`
-   reads, pinned to the block by SubQuery's provider:
-   - `getCode`;
-   - every supported token's `balanceOf`;
-   - every supported vault's `balanceOf` and `convertToAssets`.
+4. `seedPendingSolvers` takes up to 20 of the chain's `PENDING` solvers in id order and reads all of them with
+   `readSolvers`, pinned to the block by SubQuery's provider:
+   - one `readContracts` batch of every solver's `balanceOf`, for every supported token and vault, alongside each
+     solver's `getCode`;
+   - a second batch of `convertToAssets` for every non-zero vault balance.
    
-   A failed read logs a warning and ends the step. The solver stays `PENDING`, nothing is written for it, and a
-   later block reads it again.
+   `readContracts` sends a batch as Multicall3 `aggregate3` calls of at most 250 reads, each allowed to fail. It
+   calls each read directly instead when there is only one, or when Multicall3 has no code on the chain; that is
+   checked once per chain per process. A read that reverts or cannot be decoded fails only its own solver. The
+   solver logs a warning and stays `PENDING`, nothing is written for it, a later block reads it again, and the
+   other solvers are applied. A failed `aggregate3` call logs a warning and ends the step.
 5. `applyReading` writes:
    - the `SolverDelegation` row. `delegated` is true only for exactly `0xef0100 ‖ a known SolverAccount`;
      `delegate` is set for any designator.
@@ -83,12 +86,16 @@ position. Replaying an applied log is skipped by the same comparison.
 
 8. `advanceHead` does nothing while the chain's `SolverInventoryHead` is less than 30 s of block time old.
    Otherwise it runs `refreshPage` over 25 `TRACKED` solvers from `refreshOffset`:
-   - A solver whose `reconciledAt` is a day old is reconciled: `readSolver`, then `applyReading`, which records
-     `lastReconciledDrift` as read minus tracked. The drift counts the wallet plus share drift valued at the block,
-     and is logged when non-zero. Reconciliation also re-checks delegation.
+   - A solver whose `reconciledAt` is a day old is reconciled. `readSolvers` reads every such solver on the page
+     as in step 4, and its valuation batch also values each vault's drift from the tracked position. Then
+     `applyReading` records `lastReconciledDrift` as read minus tracked. The drift counts the wallet plus that
+     share drift, and is logged when non-zero. Reconciliation also re-checks delegation.
    - A solver whose `revaluedAt` is an hour old has its vault shares revalued and those tokens' `refreshedAt` set.
-     The wallet is not re-read.
-   - A failed read ends the pass and keeps the offset.
+     `readRevaluations` values every such solver's positions in one batch, concurrently with the reconciliations'
+     reads. The wallet is not re-read.
+   - A solver with a failed read is skipped with a warning, and the pass keeps the offset. The next pass re-reads
+     only that solver, since the rest of the page is no longer due. A failed `aggregate3` call ends the pass and
+     keeps the offset.
    
    The head then records the block, its time, and the offset for the next pass.
 

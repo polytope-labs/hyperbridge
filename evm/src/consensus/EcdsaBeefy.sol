@@ -84,6 +84,9 @@ contract EcdsaBeefy is IConsensusV2, ERC165 {
     // Provided authorities proof was invalid
     error InvalidAuthoritiesProof();
 
+    // Provided mmr leaf is not the leaf appended at the commitment's block
+    error StaleMmrLeaf();
+
     /**
      * @dev See {IERC165-supportsInterface}.
      */
@@ -160,6 +163,17 @@ contract EcdsaBeefy is IConsensusV2, ERC165 {
 
         bool valid = MerkleMultiProof.VerifyProof(authoritySet.root, relayProof.proof, authorities, authoritySet.len);
         if (!valid) revert InvalidAuthoritiesProof();
+
+        // The submitted leaf must be the one appended at the commitment's block. `parentNumber`
+        // is bound into the leaf hash, but `leafIndex` is not — so without this pin an attacker
+        // can present a genuine *older* leaf (its own honest leaf count) at a fabricated index
+        // and, because peak bagging and internal-node hashing share the same keccak with no
+        // domain tag, re-assemble genuine nodes into the current signed root. That advances the
+        // trusted height while dropping the authority-set rotation carried by the real latest
+        // leaf. `SP1Beefy` already enforces this pin; mirror it here.
+        if (uint256(relayProof.latestMmrLeaf.parentNumber) + 1 != commitment.blockNumber) {
+            revert StaleMmrLeaf();
+        }
 
         verifyMmrLeaf(trustedState, relayProof, mmrRoot);
         if (relayProof.latestMmrLeaf.nextAuthoritySet.id > trustedState.nextAuthoritySet.id) {

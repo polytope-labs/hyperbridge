@@ -52,8 +52,11 @@ arb-host = { workspace = true }
 op-host = { workspace = true }
 grandpa-verifier-primitives = { workspace = true }
 tesseract-pharos = { workspace = true }
+tesseract-arc = { workspace = true }
 ismp-pharos = { workspace = true }
 pharos-primitives = { workspace = true }
+ismp-arc = { workspace = true, default-features = true }
+arc-primitives = { workspace = true, default-features = true }
 
 [dependencies.polkadot-sdk]
 workspace = true

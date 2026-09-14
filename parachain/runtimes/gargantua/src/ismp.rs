@@ -186,6 +186,7 @@ impl pallet_ismp::Config for Runtime {
 		ismp_polygon::PolygonClient<Ismp, Runtime>,
 		ismp_tendermint::TendermintClient<Ismp, Runtime>,
 		ismp_pharos::PharosClient<Ismp, Runtime, ismp_pharos::Testnet>,
+		ismp_arc::ArcClient<Ismp, Runtime>,
 		ismp_beefy::BeefyConsensusClient<Ismp, Runtime>,
 	);
 	type OffchainDB = Mmr;

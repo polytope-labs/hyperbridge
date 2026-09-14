@@ -38,6 +38,8 @@ const multichainTemplate = Handlebars.compile(fs.readFileSync(path.join(template
 const EVM_TRACKED = [
 	// Envrionment Variable Tracked
 	"COIN_GECKGO_API_KEY",
+	// The HyperFX orderbook's GET /solvers, polled by the Hyperbridge node to discover solvers that have never filled.
+	"HYPERFX_WATCHLIST_URL",
 ] as const
 
 const getChainTypesPath = (chain: string) => {
@@ -80,9 +82,9 @@ const generateSubstrateYaml = async (chain: string, config: Configuration) => {
 	// Check if this is a Hyperbridge chain (stateMachineId is KUSAMA-4009 or POLKADOT-3367)
 	const isHyperbridgeChain = ["KUSAMA-4009", "POLKADOT-3367"].includes(config.stateMachineId)
 
-	// Liquidity indexing — the phantom order handlers and the inventory fold that produce the pool
-	// rows — runs on the Hyperbridge chain only, and not on testnet.
-	const enableLiquidityIndexing = isHyperbridgeChain && currentEnv !== "testnet"
+	// Solver discovery — polling the HyperFX orderbook's watchlist for the EVM nodes to track — runs on
+	// the Hyperbridge chain only, and not on testnet.
+	const enableSolverDiscovery = isHyperbridgeChain && currentEnv !== "testnet"
 
 	const templateData = {
 		name: `${chain}-chain`,
@@ -98,7 +100,7 @@ const generateSubstrateYaml = async (chain: string, config: Configuration) => {
 		chainTypesConfig,
 		blockNumber,
 		isHyperbridgeChain,
-		enableLiquidityIndexing,
+		enableSolverDiscovery,
 		handlerKind: "substrate/EventHandler",
 		handlers: [
 			{ handler: "handleIsmpStateMachineUpdatedEvent", module: "ismp", method: "StateMachineUpdated" },
@@ -168,6 +170,13 @@ const generateEvmYaml = async (chain: string, config: Configuration) => {
 				? Object.entries(config.contracts.yieldVaults).flatMap(([token, entry]) =>
 						entry.vaults.map((vault) => ({ vault, underlyingToken: token })),
 					)
+				: [],
+		// Solver inventory is event-sourced from each supported token's Transfers. Gated like the
+		// Hyperbridge node's solver discovery, which polls the watchlist these nodes consume.
+		enableSolverInventory: currentEnv !== "testnet",
+		supportedTokens:
+			config.type === "evm" && config.contracts?.yieldVaults
+				? Object.keys(config.contracts.yieldVaults).map((token) => token.toLowerCase())
 				: [],
 		handlerKind: "ethereum/LogHandler",
 		handlers: [

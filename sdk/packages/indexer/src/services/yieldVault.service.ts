@@ -2,8 +2,6 @@ import { ethers } from "ethers"
 
 import Erc4626Abi from "@/configs/abis/Erc4626.abi.json"
 import {
-	InventoryReadingTrigger,
-	LiquidityProvider,
 	VaultLedgerEvent,
 	VaultLedgerEventType,
 	VaultLpPosition,
@@ -13,8 +11,6 @@ import {
 import { YIELD_VAULT_ADDRESSES } from "@/yield-vault-addresses"
 import { SOLVER_ACCOUNT_ADDRESSES } from "@/solver-account-addresses"
 import { timestampToDate } from "@/utils/date.helpers"
-import { publishProviderInventory } from "@/services/inventoryReading.service"
-import { inventoryReadContext } from "@/utils/solverBalance"
 import { isOrdinaryVaultTransfer, readVaultBlockMovements, type VaultCapitalMovement } from "@/utils/vaultAccounting"
 
 const SECONDS_PER_DAY = 86400n
@@ -110,11 +106,7 @@ export class YieldVaultService {
 	}
 
 	private static async tracksLp(chain: string, vault: string, lp: string): Promise<boolean> {
-		return (
-			!!(await VaultLpPosition.get(`${chain}-${vault}-${lp}`)) ||
-			!!(await LiquidityProvider.get(lp)) ||
-			(await this.isDelegatedSolver(chain, lp))
-		)
+		return !!(await VaultLpPosition.get(`${chain}-${vault}-${lp}`)) || (await this.isDelegatedSolver(chain, lp))
 	}
 
 	/** A share transfer is capital moving between owners, valued at this block's exchange rate. */
@@ -190,15 +182,10 @@ export class YieldVaultService {
 			return
 		}
 
-		// Only track our solvers. LiquidityProvider is written by the phantom handler on another node
-		// and may lag a solver's first deposit, so fall back to the on-chain delegation check.
+		// Only track our solvers: an LP already holding a position, or one delegated to a SolverAccount.
 		const positionId = `${input.chain}-${vault}-${lp}`
 		const existingPosition = await VaultLpPosition.get(positionId)
-		if (
-			!existingPosition &&
-			!(await LiquidityProvider.get(lp)) &&
-			!(await this.isDelegatedSolver(input.chain, lp))
-		) {
+		if (!existingPosition && !(await this.isDelegatedSolver(input.chain, lp))) {
 			return
 		}
 
@@ -276,22 +263,6 @@ export class YieldVaultService {
 		position.lastUpdatedAt = eventTime
 
 		await position.save()
-
-		// The LP's inventory in this token just moved: its own principal only shifted between the
-		// raw and vault halves of one total, which the re-read confirms rather than changes, but the
-		// total does move when the counterparty is someone else (a treasury funding the solver, or
-		// inventory leaving it) and no order event reports that at all. Best-effort — this reads
-		// external RPCs, and the ledger row above must not be lost to a publication failure.
-		try {
-			await publishProviderInventory({
-				provider: lp,
-				tokens: [underlyingToken],
-				...inventoryReadContext(input.chain, input.blockNumber, input.timestamp, InventoryReadingTrigger.VAULT),
-			})
-		} catch (error) {
-			const message = error instanceof Error ? error.message : String(error)
-			logger.error(`[yield-vault] Inventory publication failed for ${lp} on ${input.chain}: ${message}`)
-		}
 	}
 
 	/**

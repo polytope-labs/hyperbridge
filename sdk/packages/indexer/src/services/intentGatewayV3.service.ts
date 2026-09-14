@@ -37,6 +37,7 @@ import { IOrderV3FillInputAsset } from "@/configs/src/types/models/IOrderV3FillI
 import { IOrderV3FillOutputAsset } from "@/configs/src/types/models/IOrderV3FillOutputAsset"
 import { IOrderV3EscrowRelease } from "@/configs/src/types/models/IOrderV3EscrowRelease"
 import { IOrderV3EscrowReleaseToken } from "@/configs/src/types/models/IOrderV3EscrowReleaseToken"
+import { IOrderV3Cancellation } from "@/configs/src/types/models/IOrderV3Cancellation"
 import { IOrderV3EscrowRefund } from "@/configs/src/types/models/IOrderV3EscrowRefund"
 import { IOrderV3EscrowRefundToken } from "@/configs/src/types/models/IOrderV3EscrowRefundToken"
 import { IntentGatewayTokenVolume } from "@/configs/src/types/models/IntentGatewayTokenVolume"
@@ -1004,6 +1005,66 @@ export class IntentGatewayV3Service {
 				await tokenEntity.save()
 			}),
 		)
+	}
+
+	/**
+	 * Records cancellation initiation in its event entity and status metadata only.
+	 * SubQuery flushes whole cached rows without conditional updates: even a guarded
+	 * write to IOrderV3 could overwrite a refund committed by another chain indexer.
+	 * Keeping cancellation off that shared row makes both cache flush orders safe.
+	 * Missing parents use the established metadata-only pending-status workflow.
+	 */
+	static async recordOrderCancellation(
+		commitment: string,
+		canceller: string,
+		logsData: {
+			transactionHash: string
+			blockNumber: number
+			timestamp: bigint
+			logIndex: number
+		},
+	): Promise<void> {
+		const { transactionHash, blockNumber, timestamp, logIndex } = logsData
+		const cancellationId = `${transactionHash}.${logIndex}`
+
+		let cancellation = await IOrderV3Cancellation.get(cancellationId)
+		if (!cancellation) {
+			cancellation = await IOrderV3Cancellation.create({
+				id: cancellationId,
+				orderId: commitment,
+				chain: chainId,
+				canceller,
+				timestamp,
+				blockNumber: blockNumber.toString(),
+				transactionHash,
+				createdAt: timestampToDate(timestamp),
+			})
+		}
+		await cancellation.save()
+
+		const metadata = {
+			status: OrderStatus.CANCELLED,
+			chain: chainId,
+			transactionHash,
+			blockNumber: blockNumber.toString(),
+			timestamp,
+			createdAt: timestampToDate(timestamp),
+		}
+		if (await OrderV3Placed.get(commitment)) {
+			await IOrderV3StatusMetadata.create({
+				...metadata,
+				id: `${commitment}.${OrderStatus.CANCELLED}`,
+				orderId: commitment,
+			}).save()
+		} else {
+			await PendingStatusMetadata.create({
+				...metadata,
+				id: `${commitment}.${ENTITY_TYPE}.${OrderStatus.CANCELLED}`,
+				commitment,
+				entityType: ENTITY_TYPE,
+				blockHash: "",
+			}).save()
+		}
 	}
 
 	static computeOrderCommitment(order: OrderV3): string {

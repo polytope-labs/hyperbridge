@@ -7,7 +7,7 @@ import { VaultFundingPlanner } from "@/funding/vault/VaultFundingPlanner"
 import { VaultLiquidityState } from "@/funding/vault/VaultLiquidityState"
 import { TokenSender } from "@/services/TokenSender"
 import { FillerPricePolicy, formatChainKey, parseChainKey } from "@/config/interpolated-curve"
-import { AssetRegistry, normalizeSymbol, registrySymbols } from "@/config/asset-registry"
+import { AssetRegistry, normalizeSymbol } from "@/config/asset-registry"
 import { assertPairSymbolsResolve, type PairConfig } from "@/config/pairs"
 import type { ChainConfig, FillerConfig, HexString } from "@hyperbridge/sdk"
 import {
@@ -542,10 +542,8 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 	// Order-activity feed for the operator UI. Legs are described with the
 	// registry's symbol (built-in or user-defined) and on-chain decimals so the
 	// feed can show token amounts; either lookup may fail and the row still lands.
-	const knownSymbols = [...new Set([...registrySymbols(), ...Object.keys(config.assets ?? {})])]
 	const describeToken: TokenDescriber = async (chain, token) => {
-		const symbol =
-			knownSymbols.find((candidate) => assetRegistry.getAddress(candidate, chain)?.toLowerCase() === token) ?? null
+		const symbol = assetRegistry.symbolFor(token, chain)
 		let decimals: number | null = null
 		try {
 			decimals = await contractService.getTokenDecimals(token, chain)

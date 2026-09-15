@@ -14,6 +14,11 @@ export function toRaw(amount: bigint, decimals: number): bigint {
 	return amount / 10n ** BigInt(18 - decimals)
 }
 
+/** A raw on-chain amount back at 1e18, the unit limit orders are kept in. */
+export function toScaled(amount: bigint, decimals: number): bigint {
+	return amount * 10n ** BigInt(18 - decimals)
+}
+
 function divCeil(numerator: bigint, denominator: bigint): bigint {
 	return (numerator + denominator - 1n) / denominator
 }

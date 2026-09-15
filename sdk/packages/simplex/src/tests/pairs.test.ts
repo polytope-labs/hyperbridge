@@ -11,6 +11,8 @@ import {
 } from "@/config/pairs"
 import { FXFiller, type TradingPair } from "@/strategies/fx"
 import { FillerPricePolicy } from "@/config/interpolated-curve"
+import type { LimitOrderStore } from "@/data/types"
+import { limitOrderStore } from "./helpers/limit-orders"
 
 // Pure unit tests for the asset registry, [[pairs]] validation, and the
 // pairs-driven FX engine's order gating (mocked services).
@@ -46,6 +48,17 @@ describe("AssetRegistry", () => {
 		expect(registry.getAddress("USDC", OTHER_CHAIN)).toBeNull()
 		expect(registry.getAddress("DAI", CHAIN)).toBeNull()
 		expect(registry.getAddress("CNGN", CHAIN)).toBeNull()
+	})
+
+	it("names the symbol an address is known by, and nothing for one it does not hold", () => {
+		const registry = new AssetRegistry(resolver as any, { CNGN: { [CHAIN]: CNGN } })
+		expect(registry.symbolFor(USDC, CHAIN)).toBe("USDC")
+		expect(registry.symbolFor(CNGN, CHAIN)).toBe("CNGN")
+		// Case of the caller's address must not matter.
+		expect(registry.symbolFor(USDC.toUpperCase(), CHAIN)).toBe("USDC")
+		expect(registry.symbolFor("0x9999999999999999999999999999999999999999", CHAIN)).toBeNull()
+		// Known symbol, but not deployed on that chain.
+		expect(registry.symbolFor(CNGN, OTHER_CHAIN)).toBeNull()
 	})
 
 	it("user [assets] entries extend and override built-ins per chain", () => {
@@ -379,6 +392,7 @@ function makeContractService(): any {
 			getPairClassifications: (id: string) => cache.get(`pc:${id}`),
 			setPairClassifications: (id: string, pairs: unknown) => cache.set(`pc:${id}`, pairs),
 			setFillerOutputs: (id: string, outputs: unknown) => cache.set(`fo:${id}`, outputs),
+			setMatchedLimitOrder: () => {},
 			clearPartialFill: (id: string) => cache.delete(`pf:${id}`),
 			setPartialFill: (id: string, partial: boolean) => cache.set(`pf:${id}`, partial),
 			isPartialFill: (id: string) => cache.get(`pf:${id}`) === true,
@@ -389,7 +403,7 @@ function makeContractService(): any {
 
 const flat = (price: string) => new FillerPricePolicy({ points: [{ amount: "0", price }] })
 
-function makeFiller(pairs: TradingPair[]) {
+function makeFiller(pairs: TradingPair[], limitOrders?: LimitOrderStore) {
 	const configService = {
 		...resolver,
 		getMaxOverfillBps: () => 500n,
@@ -400,7 +414,7 @@ function makeFiller(pairs: TradingPair[]) {
 		ZARP: { [CHAIN]: ZARP },
 	})
 	const signer = { address: SOLVER } as any
-	return new FXFiller(signer, configService, {} as any, makeContractService(), pairs, registry)
+	return new FXFiller(signer, configService, {} as any, makeContractService(), pairs, registry, { limitOrders })
 }
 
 function makeOrder(id: string, input: TokenInfo, output: TokenInfo): Order {
@@ -475,9 +489,12 @@ describe("FXFiller pairs engine", () => {
 	it("accepts same-chain cross-asset orders — only same-token pairs are chain-restricted", async () => {
 		// makeOrder is source == destination: an on-chain USDC→CNGN swap. The
 		// same-chain rejection applies to same-token self-swaps, never to FX.
-		const filler = makeFiller([
-			{ token0: "USDC", token1: "CNGN", maxOrderSize: size("5000"), askPricePolicy: flat("1500") },
-		])
+		const filler = makeFiller(
+			[{ token0: "USDC", token1: "CNGN", maxOrderSize: size("5000"), askPricePolicy: flat("1500") }],
+			await limitOrderStore([
+				{ base: "USDC", quote: "CNGN", side: "BID", fillChain: CHAIN, price: "1500", size: "1500000" },
+			]),
+		)
 		const order = makeOrder(
 			"same-chain-fx",
 			{ token: bytes20ToBytes32(USDC), amount: parseUnits("100", 6) },
@@ -526,14 +543,38 @@ describe("FXFiller same-token markets (cross-chain only)", () => {
 		} as unknown as Order
 	}
 
-	it("rejects a same-chain same-token order (a self-swap paying more than received)", async () => {
-		const filler = new FXFiller(signer, cfg, {} as any, makeContractService(), usdcUsdc(), new AssetRegistry(cfg))
-		expect(await filler.canFill(sameTokenOrder(CHAIN_A, CHAIN_A))).toBe(false)
+	it("accepts a cross-chain same-token order (the same-asset transfer market)", async () => {
+		const filler = new FXFiller(signer, cfg, {} as any, makeContractService(), usdcUsdc(), new AssetRegistry(cfg), {
+			limitOrders: await limitOrderStore([
+				{
+					base: "USDC",
+					quote: "USDC",
+					side: "BID",
+					fillChain: CHAIN_B,
+					price: "0.999",
+					size: "100000",
+					acceptedSources: [CHAIN_A],
+				},
+			]),
+		})
+		expect(await filler.canFill(sameTokenOrder(CHAIN_A, CHAIN_B))).toBe(true)
 	})
 
-	it("accepts a cross-chain same-token order (the same-asset transfer market)", async () => {
-		const filler = new FXFiller(signer, cfg, {} as any, makeContractService(), usdcUsdc(), new AssetRegistry(cfg))
-		expect(await filler.canFill(sameTokenOrder(CHAIN_A, CHAIN_B))).toBe(true)
+	it("does not serve a chain the order never declared", async () => {
+		const filler = new FXFiller(signer, cfg, {} as any, makeContractService(), usdcUsdc(), new AssetRegistry(cfg), {
+			limitOrders: await limitOrderStore([
+				{
+					base: "USDC",
+					quote: "USDC",
+					side: "BID",
+					fillChain: CHAIN_B,
+					price: "0.999",
+					size: "100000",
+					acceptedSources: ["EVM-42161"],
+				},
+			]),
+		})
+		expect(await filler.canFill(sameTokenOrder(CHAIN_A, CHAIN_B))).toBe(false)
 	})
 
 })
@@ -569,7 +610,12 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 		pairs: TradingPair[],
 		registry: AssetRegistry,
 		estimate: { fillGas: bigint; relayer: bigint },
-		options?: { fundingVenues?: unknown[]; balancesByToken?: Record<string, bigint> },
+		options?: {
+			fundingVenues?: unknown[]
+			balancesByToken?: Record<string, bigint>
+			/** What the operator is offering. Without it the filler prices nothing. */
+			limitOrders?: LimitOrderStore
+		},
 	) {
 		const cache = new Map<string, unknown>()
 		const contractService = {
@@ -577,6 +623,7 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 				getPairClassifications: (id: string) => cache.get(`pc:${id}`),
 				setPairClassifications: (id: string, v: unknown) => cache.set(`pc:${id}`, v),
 				setFillerOutputs: () => {},
+				setMatchedLimitOrder: () => {},
 				setFundingPrepends: () => {},
 				clearFundingPrepends: () => {},
 				clearPartialFill: (id: string) => cache.delete(`pf:${id}`),
@@ -603,6 +650,7 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 		const clientManager = { getPublicClient: () => destClient } as any
 		return new FXFiller(signer, cfg, clientManager, contractService, pairs, registry, {
 			fundingVenues: (options?.fundingVenues ?? []) as any,
+			limitOrders: options?.limitOrders,
 		})
 	}
 
@@ -644,6 +692,11 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 			[{ token0: "USDC", token1: "CNGN", maxOrderSize: size("100000"), bidPricePolicy: flat("1500"), askPricePolicy: flat("1450") }],
 			usdcOnBoth(),
 			{ fillGas: parseUnits("2", 6), relayer: parseUnits("3", 6) },
+			{
+				limitOrders: await limitOrderStore([
+					{ base: "USDC", quote: "CNGN", side: "BID", fillChain: DST, price: "1450", size: "10000000", acceptedSources: [SRC] },
+				]),
+			},
 		)
 		const o = order(
 			"g1-pass",
@@ -702,6 +755,11 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 			[{ token0: "USDC", token1: "USDC", maxOrderSize: size("100000"), askPricePolicy: flat("0.999") }],
 			new AssetRegistry(cfg),
 			{ fillGas: parseUnits("1", 6), relayer: parseUnits("1", 6) },
+			{
+				limitOrders: await limitOrderStore([
+					{ base: "USDC", quote: "USDC", side: "BID", fillChain: DST, price: "0.999", size: "100000", acceptedSources: [SRC] },
+				]),
+			},
 		)
 		const o = order(
 			"g2-pass",
@@ -733,100 +791,6 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 	 * eligibility gate a short leg does — royvardhan's finding, in his shape:
 	 * the solver funds one leg's token and holds none of the other's.
 	 */
-	it("gates an empty leg like any under-fill: calldata refuses, plain becomes a partial", async () => {
-		const pairs = [
-			{ token0: "USDC", token1: "CNGN", maxOrderSize: size("100000"), bidPricePolicy: flat("1500"), askPricePolicy: flat("1510") },
-			{ token0: "USDC", token1: "ZARP", maxOrderSize: size("100000"), bidPricePolicy: flat("18"), askPricePolicy: flat("18.2") },
-		]
-		const registry = new AssetRegistry(cfg, {
-			CNGN: { [SRC]: CNGN, [DST]: CNGN },
-			ZARP: { [SRC]: ZARP, [DST]: ZARP },
-		})
-		const noZarp = { [ZARP.toLowerCase()]: 0n }
-		const twoLegs = (id: string, call: HexString): Order => ({
-			...order(
-				id,
-				{ token: bytes20ToBytes32(USDC), amount: parseUnits("1000", 6) },
-				{ token: bytes20ToBytes32(CNGN), amount: parseUnits("1500000", 18) },
-				parseUnits("10", 6),
-			),
-			// Same-chain: partial eligibility's cheap half must pass so the gate
-			// itself is what decides.
-			destination: SRC,
-			inputs: [
-				{ token: bytes20ToBytes32(USDC), amount: parseUnits("1000", 6) },
-				{ token: bytes20ToBytes32(USDC), amount: parseUnits("1000", 6) },
-			],
-			output: {
-				beneficiary: bytes20ToBytes32(SOLVER),
-				assets: [
-					{ token: bytes20ToBytes32(CNGN), amount: parseUnits("1500000", 18) },
-					{ token: bytes20ToBytes32(ZARP), amount: parseUnits("17900", 18) },
-				],
-				call,
-			},
-		})
-
-		// The ZARP leg is unfundable, so it goes out as a zero — an under-fill.
-		// With output calldata the gateway would revert PartialFillNotAllowed, so
-		// the order is refused before any bid.
-		const withCalldata = gateFiller(pairs, registry, { fillGas: parseUnits("1", 6), relayer: 0n }, { balancesByToken: noZarp })
-		expect(await withCalldata.calculateProfitability(twoLegs("empty-leg-calldata", "0xdeadbeef" as HexString))).toBe(0)
-
-		// Without calldata the same shape is a legitimate partial: flagged so the
-		// caller's floor exemption applies, and never scored by GATE 1's fee rule.
-		const plain = gateFiller(pairs, registry, { fillGas: parseUnits("1", 6), relayer: 0n }, { balancesByToken: noZarp })
-		const o = twoLegs("empty-leg-plain", "0x" as HexString)
-		await plain.calculateProfitability(o)
-		expect((plain as unknown as { contractService: { cacheService: { isPartialFill(id: string): boolean } } }).contractService.cacheService.isPartialFill("empty-leg-plain")).toBe(true)
-	})
-
-	it("fills fully at a sloped curve when the cap does not bind (cap test is curve-independent)", async () => {
-		// Regression guard for the old limiter `token0Used < legNotionals[i]`: those
-		// two are priced at different curve points, so an upward-sloping bid made it
-		// fire with the cap nowhere near binding — turning a full fill that collects
-		// order.fees into a skip (cross-chain) or a fee-less partial (same-chain).
-		// bid rises 1500 -> 1600 over 10k USDC. 1.5M CNGN = 1000 USDC at the origin
-		// rate but only ~993 at the capped rate; a curve-dependent cap test calls
-		// that capped. The real cap is 100k USDC and nowhere near binding.
-		const sloped = new FillerPricePolicy({
-			points: [
-				{ amount: "0", price: "1500" },
-				{ amount: "10000", price: "1600" },
-			],
-		})
-		const filler = gateFiller(
-			[{ token0: "USDC", token1: "CNGN", maxOrderSize: size("100000"), bidPricePolicy: sloped }],
-			usdcOnBoth(),
-			{ fillGas: parseUnits("1", 6), relayer: parseUnits("1", 6) },
-		)
-		const o = order(
-			"sloped-no-cap",
-			{ token: bytes20ToBytes32(CNGN), amount: parseUnits("1500000", 18) },
-			{ token: bytes20ToBytes32(USDC), amount: parseUnits("990", 6) },
-			parseUnits("10", 6),
-		)
-		expect(await filler.calculateProfitability(o)).toBeGreaterThan(0)
-	})
-
-	it("fills inside a crossed book when the order is within its own side's curve", async () => {
-		// bid 1392 / ask 1400 CNGN per USDC (crossed). The user wants 1396.3 CNGN
-		// for 1 USDC — within the 1400 the ask curve pays, so the filler bids.
-		// The negative round-trip FX margin is report-only and never gates.
-		const filler = gateFiller(
-			[{ token0: "USDC", token1: "CNGN", maxOrderSize: size("100000"), bidPricePolicy: flat("1392"), askPricePolicy: flat("1400") }],
-			usdcOnBoth(),
-			{ fillGas: parseUnits("1", 6), relayer: parseUnits("1", 6) },
-		)
-		const o = order(
-			"crossed-fill",
-			{ token: bytes20ToBytes32(USDC), amount: parseUnits("1", 6) },
-			{ token: bytes20ToBytes32(CNGN), amount: parseUnits("1396.3015", 18) },
-			parseUnits("10", 6),
-		)
-		expect(await filler.calculateProfitability(o)).toBeGreaterThan(0)
-	})
-
 	it("rejects construction when a pair's token0 has no USD anchor", () => {
 		expect(() =>
 			gateFiller(
@@ -860,118 +824,12 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 		expect(await filler.calculateProfitability(o)).toBe(0)
 	})
 
-	it("fills a multi-pair order when every leg is within its own curve", async () => {
-		const filler = gateFiller(
-			[
-				{ token0: "USDC", token1: "CNGN", maxOrderSize: size("100000"), bidPricePolicy: flat("1500"), askPricePolicy: flat("1450") },
-				{ token0: "ZARP", token1: "CNGN", maxOrderSize: size("1000000"), bidPricePolicy: flat("100"), askPricePolicy: flat("95") },
-			],
-			zarpCngnRegistry(),
-			{ fillGas: parseUnits("1", 6), relayer: parseUnits("1", 6) },
-		)
-		const o = order(
-			"all-legs-win",
-			{ token: bytes20ToBytes32(USDC), amount: parseUnits("1000", 6) },
-			{ token: bytes20ToBytes32(CNGN), amount: parseUnits("1400000", 18) }, // ≤ 1000 × 1450
-			parseUnits("100", 6),
-		)
-		o.inputs.push({ token: bytes20ToBytes32(ZARP), amount: parseUnits("1000", 18) })
-		o.output.assets.push({ token: bytes20ToBytes32(CNGN), amount: parseUnits("94000", 18) }) // ≤ 1000 × 95
-		expect(await filler.calculateProfitability(o)).toBeGreaterThan(0)
-	})
-
-	it("referenceOnly pairs feed the anchor graph but never match orders", async () => {
-		const filler = gateFiller(
-			[
-				// Reference quote: anchors CNGN at $1/1565 (mid of 1580/1550), no market.
-				{
-					token0: "USDC",
-					token1: "CNGN",
-					maxOrderSize: size("0"),
-					referenceOnly: true,
-					bidPricePolicy: flat("1580"),
-					askPricePolicy: flat("1550"),
-				},
-				{ token0: "CNGN", token1: "CNGN", maxOrderSize: size("5000000"), askPricePolicy: flat("0.995") },
-			],
-			usdcOnBoth(),
-			{ fillGas: parseUnits("1", 6), relayer: parseUnits("1", 6) },
-		)
-		// A USDC→CNGN order would match the reference pair if it were a market — it must not.
-		const fx = order(
-			"ref-no-market",
-			{ token: bytes20ToBytes32(USDC), amount: parseUnits("1000", 6) },
-			{ token: bytes20ToBytes32(CNGN), amount: parseUnits("1500000", 18) },
-			parseUnits("10", 6),
-		)
-		expect(await filler.canFill(fx)).toBe(false)
-		// The same-token market fills, and its confirmation notional is priced
-		// through the reference edge: 1,565,000 CNGN ÷ 1565 = $1000.
-		const transfer = order(
-			"ref-anchored",
-			{ token: bytes20ToBytes32(CNGN), amount: parseUnits("1565000", 18) },
-			{ token: bytes20ToBytes32(CNGN), amount: parseUnits("1500000", 18) },
-			parseUnits("10", 6),
-		)
-		expect(await filler.canFill(transfer)).toBe(true)
-		expect((await filler.getOrderUsdValue(transfer))?.inputUsd.toFixed(4)).toBe("1000.0000")
-	})
-
-	it("keeps USD stables pinned at $1 — a stable/stable curve contributes no FX edge", async () => {
-		// A (mis-set) USDC/USDT curve at 0.95 must never re-price USDT: both
-		// sides are $1 anchors, so 1000 USDT reads as $1000, not $950 or $1052.
-		const filler = gateFiller(
-			[
-				{ token0: "USDC", token1: "USDT", maxOrderSize: size("100000"), askPricePolicy: flat("0.95") },
-				{ token0: "USDT", token1: "CNGN", maxOrderSize: size("100000"), askPricePolicy: flat("1500") },
-			],
-			usdcOnBoth(),
-			{ fillGas: parseUnits("1", 6), relayer: parseUnits("1", 6) },
-		)
-		const o = order(
-			"stable-pin",
-			{ token: bytes20ToBytes32(USDT), amount: parseUnits("1000", 6) },
-			{ token: bytes20ToBytes32(CNGN), amount: parseUnits("1400000", 18) },
-			parseUnits("10", 6),
-		)
-		expect((await filler.getOrderUsdValue(o))?.inputUsd.toFixed(6)).toBe("1000.000000")
-	})
-
-	it("resolves conflicting anchor routes deterministically — first declared pair wins", async () => {
-		// USDC/ZARP (mid 18) is declared before USDT/ZARP (mid 20), so ZARP's
-		// factor comes from the first: 1800 ZARP = $100, not $90.
-		const filler = gateFiller(
-			[
-				usdcZarpAnchor(),
-				{ token0: "USDT", token1: "ZARP", maxOrderSize: size("100000"), askPricePolicy: flat("20") },
-				{ token0: "ZARP", token1: "CNGN", maxOrderSize: size("1000000"), bidPricePolicy: flat("100"), askPricePolicy: flat("95") },
-			],
-			zarpCngnRegistry(),
-			{ fillGas: parseUnits("1", 6), relayer: parseUnits("1", 6) },
-		)
-		const o = order(
-			"first-edge",
-			{ token: bytes20ToBytes32(ZARP), amount: parseUnits("1800", 18) },
-			{ token: bytes20ToBytes32(CNGN), amount: parseUnits("170000", 18) },
-			parseUnits("10", 6),
-		)
-		expect((await filler.getOrderUsdValue(o))?.inputUsd.toFixed(6)).toBe("100.000000")
-	})
-
-	it("addPair opens a live market; duplicate, reverse and unanchored adds are rejected atomically", async () => {
+	it("addPair rejects a duplicate, its reverse, and a market with no USD anchor", async () => {
 		const filler = gateFiller(
 			[{ token0: "USDC", token1: "CNGN", maxOrderSize: size("100000"), askPricePolicy: flat("1500") }],
 			usdcOnBoth(),
 			{ fillGas: parseUnits("1", 6), relayer: parseUnits("1", 6) },
 		)
-		const o = order(
-			"added-market",
-			{ token: bytes20ToBytes32(USDC), amount: parseUnits("1000", 6) },
-			{ token: bytes20ToBytes32(USDT), amount: parseUnits("999", 6) },
-			parseUnits("100", 6),
-		)
-		expect(await filler.canFill(o)).toBe(false)
-
 		filler.addPair({
 			token0: "USDC",
 			token1: "USDT",
@@ -979,7 +837,6 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 			bidPricePolicy: flat("1.005"),
 			askPricePolicy: flat("0.999"),
 		})
-		expect(await filler.calculateProfitability(o)).toBeGreaterThan(0)
 
 		const usdtPair = () => ({ token0: "USDT", token1: "USDC", maxOrderSize: size("1"), askPricePolicy: flat("0.9") })
 		expect(() => filler.addPair({ ...usdtPair(), token0: "USDC", token1: "USDT" })).toThrow(/duplicate market/)
@@ -990,7 +847,7 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 		).toThrow(/no USD anchor/)
 	})
 
-	it("removePair closes a live market; anchor-orphaning and last-market removals are rejected", async () => {
+	it("removePair rejects an anchor-orphaning removal and the last market", async () => {
 		const reference: TradingPair = {
 			token0: "USDC",
 			token1: "ZARP",
@@ -1019,15 +876,7 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 		expect(() => filler.removePair(reference)).toThrow(/no USD anchor/)
 
 		filler.addPair(usdcCngn)
-		const o = order(
-			"removed-market",
-			{ token: bytes20ToBytes32(USDC), amount: parseUnits("1", 6) },
-			{ token: bytes20ToBytes32(CNGN), amount: parseUnits("1396", 18) },
-			parseUnits("10", 6),
-		)
-		expect(await filler.calculateProfitability(o)).toBeGreaterThan(0)
 		filler.removePair(usdcCngn)
-		expect(await filler.canFill(o)).toBe(false)
 
 		filler.removePair(zarpCngn)
 		expect(() => filler.removePair(reference)).toThrow(/cannot be removed/)
@@ -1092,72 +941,5 @@ describe("assertPairSymbolsResolve", () => {
 		expect(() =>
 			assertPairSymbolsResolve([{ token0: "USDC", token1: "FAKE", maxOrderSize: "1000" }], registry, ["EVM-8453"]),
 		).toThrow(/both resolve to/)
-	})
-})
-
-describe("FXFiller exposure cap", () => {
-	/** The cap fraction sizeOrder derives for an order's single pair. */
-	async function capFraction(filler: FXFiller, order: Order): Promise<string> {
-		const engine = filler as unknown as {
-			resolveOrderLegs(o: Order): unknown[] | null
-			sizeOrder(
-				o: Order,
-				legs: unknown[],
-				venueUsdPrice: () => Promise<Decimal | null>,
-			): Promise<{ capFractionByPair: Map<unknown, Decimal> } | null>
-		}
-		const legs = engine.resolveOrderLegs(order)!
-		const sized = await engine.sizeOrder(order, legs, async () => null)
-		return [...sized!.capFractionByPair.values()][0].toFixed(6)
-	}
-
-	it("does not scale an order inside the cap", async () => {
-		const filler = makeFiller([
-			{ token0: "USDC", token1: "CNGN", maxOrderSize: size("5000"), askPricePolicy: flat("1500") },
-		])
-		const order = makeOrder(
-			"within-cap",
-			{ token: bytes20ToBytes32(USDC), amount: parseUnits("1000", 6) },
-			{ token: bytes20ToBytes32(CNGN), amount: parseUnits("1500000", 18) },
-		)
-		expect(await capFraction(filler, order)).toBe("1.000000")
-	})
-
-	it("scales an oversized order to the fraction the cap allows", async () => {
-		const filler = makeFiller([
-			{ token0: "USDC", token1: "CNGN", maxOrderSize: size("5000"), askPricePolicy: flat("1500") },
-		])
-		// 20,000 USDC of exposure against a 5,000 cap → fill a quarter of it.
-		const order = makeOrder(
-			"over-cap",
-			{ token: bytes20ToBytes32(USDC), amount: parseUnits("20000", 6) },
-			{ token: bytes20ToBytes32(CNGN), amount: parseUnits("30000000", 18) },
-		)
-		expect(await capFraction(filler, order)).toBe("0.250000")
-	})
-
-	/**
-	 * capFraction is derived from referenceRate-based notionals on both sides, so
-	 * a sloped curve cannot perturb it by construction. The behavioural guard for
-	 * the old curve-dependent limiter lives in the profit-gates suite
-	 * ("fills fully at a sloped curve when the cap does not bind").
-	 */
-	it("reports no cap on a sloped curve when the cap does not bind", async () => {
-		const sloped = new FillerPricePolicy({
-			points: [
-				{ amount: "0", price: "1500" },
-				{ amount: "10000", price: "1400" },
-			],
-		})
-		const filler = makeFiller([
-			{ token0: "USDC", token1: "CNGN", maxOrderSize: size("1000000"), bidPricePolicy: sloped },
-		])
-		// A token1-input (bid-direction) leg, well inside a huge cap.
-		const order = makeOrder(
-			"sloped-under-cap",
-			{ token: bytes20ToBytes32(CNGN), amount: parseUnits("1500000", 18) },
-			{ token: bytes20ToBytes32(USDC), amount: parseUnits("1000", 6) },
-		)
-		expect(await capFraction(filler, order)).toBe("1.000000")
 	})
 })

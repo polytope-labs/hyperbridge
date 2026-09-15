@@ -213,4 +213,18 @@ export class AssetRegistry {
 		this.addressCache.set(cacheKey, result)
 		return result
 	}
+
+	/**
+	 * The symbol `address` is known by on `chain`, or null when nothing in the
+	 * registry resolves to it.
+	 *
+	 * Every symbol this registry can name is tried, user `[assets]` first so an
+	 * overridden address reports the name the operator gave it. Two symbols
+	 * resolving to one address would be a registry mistake; the first wins.
+	 */
+	symbolFor(address: string, chain: string): string | null {
+		const target = address.toLowerCase()
+		const known = [...this.userAssets.keys(), ...registrySymbols()]
+		return known.find((symbol) => this.getAddress(symbol, chain)?.toLowerCase() === target) ?? null
+	}
 }

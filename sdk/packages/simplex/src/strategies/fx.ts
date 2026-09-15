@@ -13,13 +13,12 @@ import type { ChainClientManager, ContractInteractionService } from "@/services"
 import type { FillerConfigService } from "@/services/FillerConfigService"
 import { formatUnits } from "viem"
 import { type Logger , moduleLogger} from "@/services/Logger"
-import type { ConfirmationPolicy, FillerPricePolicy } from "@/config/interpolated-curve"
+import type { ConfirmationPolicy } from "@/config/interpolated-curve"
 import { type AssetRegistry, normalizeSymbol, } from "@/config/asset-registry"
 import { Decimal } from "decimal.js"
 import { ERC20_ABI } from "@/config/abis/ERC20"
 import type { FundingVenue } from "@/funding/types"
 import type { Signer } from "@/services/wallet"
-import { unanchoredToken0Symbols } from "@/config/pairs"
 import { paymasterReserveForToken } from "@/services/paymaster"
 import type { LimitOrderStore } from "@/data/types"
 import { toRaw, toScaled } from "@/orderbook/amounts"
@@ -27,46 +26,15 @@ import { matchLimitOrder, type LimitOrderMatch } from "@/orderbook/matching"
 import { limitOrderUsdEdges, usdFactorsFrom, usdValueOf } from "@/orderbook/usd"
 
 /**
- * A trading pair the engine serves. `token0` and `token1` are registry symbols
- * (see `AssetRegistry`); the price policies quote **token1 per 1 token0**,
- * keyed by the order's token0 notional.
+ * One market the engine will quote, as a pair of registry symbols.
  *
- * The bid policy prices the filler *buying* token1 (user sends token1, receives
- * token0); the ask policy prices the filler *selling* token1. A missing policy
- * disables that direction for this pair (one-sided LP). A pair with neither
- * policy disables that direction for the pair.
- *
- * A **same-token pair** (`token0 == token1`, e.g. USDC/USDC) is the same-asset
- * cross-chain market: ask-only, with the ask price at or below par — the gap
- * to 1 is the filler's spread, realized in-kind on every fill.
- *
- * `maxOrderSize` optionally caps the pair's exposure per order, denominated in
- * token0 — the curve amount axis shares that unit, so trade pricing never
- * consults an external feed. Omit it and the pair is uncapped: every leg is
- * priced and filled at its full notional. Confirmation sizing alone converts
- * token0 notionals to USD, derived from the declared curves (USD stables at $1,
- * curve mids as FX edges).
+ * A pair declares that the market exists and nothing more: what the filler pays
+ * on it comes from the operator's limit orders. `token0 == token1` is the
+ * same-asset cross-chain market, where the spread is realized in kind.
  */
 export interface TradingPair {
 	token0: string
 	token1: string
-	/**
-	 * Maximum token0 notional this pair fills per order. Omit for an uncapped
-	 * pair. Ignored for reference-only pairs, which never fill.
-	 */
-	maxOrderSize?: Decimal
-	bidPricePolicy?: FillerPricePolicy
-	askPricePolicy?: FillerPricePolicy
-	/**
-	 * Pure price feed: contributes its FX edge to the USD anchor graph but
-	 * never matches order legs — no market is opened for it.
-	 */
-	referenceOnly?: boolean
-}
-
-/** Whether a pair quotes the same asset on both sides (same-asset cross-chain market). */
-function isSameTokenPair(pair: TradingPair): boolean {
-	return normalizeSymbol(pair.token0) === normalizeSymbol(pair.token1)
 }
 
 /**
@@ -182,14 +150,10 @@ export class FXFiller implements FillerStrategy {
 		if (pairs.length === 0) {
 			throw new Error("FXFiller requires at least one trading pair")
 		}
-		if (!pairs.some((p) => p.bidPricePolicy || p.askPricePolicy)) {
-			throw new Error("FXFiller requires price curves on its pairs")
-		}
 		const seenPairs = new Set<string>()
 		for (const pair of pairs) {
 			FXFiller.assertPairValid(pair, seenPairs)
 		}
-		FXFiller.assertAnchored(pairs)
 
 		this.configService = configService
 		this.clientManager = clientManager
@@ -219,87 +183,16 @@ export class FXFiller implements FillerStrategy {
 			)
 		}
 		seenPairs.add(label)
-		// Absent is legal — an uncapped pair. Present and nonsensical is not, except
-		// on a reference-only pair, which never fills and whose cap is never read;
-		// callers predating the optional field still pass a placeholder 0 there.
-		if (
-			!pair.referenceOnly &&
-			pair.maxOrderSize !== undefined &&
-			(!pair.maxOrderSize.isFinite() || pair.maxOrderSize.lte(0))
-		) {
-			throw new Error(
-				`FXFiller pair ${pair.token0}/${pair.token1}: maxOrderSize must be a positive token0 amount when set`,
-			)
-		}
-		if (pair.referenceOnly) {
-			// A reference pair is only its curve: same-token pairs carry no FX
-			// rate to reference, and without a curve there is no reference.
-			if (isSameTokenPair(pair)) {
-				throw new Error(
-					`FXFiller pair ${pair.token0}/${pair.token1}: referenceOnly applies to cross-asset pairs — a same-token pair carries no FX rate to reference`,
-				)
-			}
-			if (!pair.bidPricePolicy && !pair.askPricePolicy) {
-				throw new Error(
-					`FXFiller pair ${pair.token0}/${pair.token1}: a referenceOnly pair needs a bid and/or ask policy — the curve IS the reference`,
-				)
-			}
-		}
-		if (isSameTokenPair(pair)) {
-			// Same-asset market: ask-only, priced strictly below par — at or
-			// above par the spread is zero or negative, so every fill either
-			// loses or is rejected by the same-token spread gate.
-			if (pair.bidPricePolicy || !pair.askPricePolicy) {
-				throw new Error(
-					`FXFiller pair ${pair.token0}/${pair.token1}: same-token pairs need exactly an ask policy (they are ask-only)`,
-				)
-			}
-			const atOrAbovePar = pair.askPricePolicy.getPoints().some((p) => new Decimal(p.price).gte(1))
-			if (atOrAbovePar) {
-				throw new Error(
-					`FXFiller pair ${pair.token0}/${pair.token1}: same-token ask prices must be strictly below 1 (the gap to 1 is the spread; par or above never fills)`,
-				)
-			}
-			return
-		}
-		// A crossed book (bid ≤ ask) is accepted: each side is quoted and
-		// filled independently at its own curve — crossing only means a
-		// full round trip loses money.
-		if (!pair.bidPricePolicy && !pair.askPricePolicy) {
-			throw new Error(`FXFiller pair ${pair.token0}/${pair.token1}: needs a bid and/or ask policy`)
-		}
-	}
-
-	/**
-	 * Mirrors validatePairConfigs for direct SDK construction: confirmation
-	 * depth prices token0 notionals in USD through the curve graph, so every
-	 * token0 must be reachable from a USD stable.
-	 */
-	private static assertAnchored(pairs: TradingPair[]): void {
-		const unanchored = unanchoredToken0Symbols(
-			pairs.map((p) => ({
-				token0: p.token0,
-				token1: p.token1,
-				hasCurve: Boolean(p.bidPricePolicy || p.askPricePolicy),
-			})),
-		)
-		if (unanchored.length > 0) {
-			throw new Error(
-				`FXFiller: no USD anchor for ${unanchored.join(", ")} — add a curve-priced pair against a USD stable (e.g. USDC/${unanchored[0]}), directly or through an already-anchored asset; mark it referenceOnly to anchor without opening that market`,
-			)
-		}
 	}
 
 	/**
 	 * Adds a market to the running engine. All-or-nothing: the pair passes the
-	 * same invariants the constructor enforces (duplicate/reverse orientation,
-	 * per-kind rules, whole-graph USD anchoring) before it is pushed. Legs
-	 * re-scan `pairs` on every match, so the market is live immediately.
+	 * same duplicate and reverse-orientation checks the constructor enforces
+	 * before it is pushed.
 	 */
 	addPair(pair: TradingPair): void {
 		const seenPairs = new Set(this.pairs.map((p) => `${normalizeSymbol(p.token0)}/${normalizeSymbol(p.token1)}`))
 		FXFiller.assertPairValid(pair, seenPairs)
-		FXFiller.assertAnchored([...this.pairs, pair])
 		this.pairs.push(pair)
 	}
 
@@ -318,7 +211,6 @@ export class FXFiller implements FillerStrategy {
 		if (remaining.length === 0) {
 			throw new Error("FXFiller requires at least one trading pair — the last market cannot be removed live")
 		}
-		FXFiller.assertAnchored(remaining)
 		this.pairs.splice(index, 1)
 	}
 

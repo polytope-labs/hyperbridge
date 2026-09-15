@@ -1,9 +1,6 @@
 import { useEffect } from "react"
-import { unanchoredToken0Symbols } from "@/config/pairs"
-import type { EditorPoint } from "../../components/curveModel"
 import type { SetupDefaults } from "../../types"
 import {
-	draftHasCurve,
 	enabledChains,
 	newCrossAssetDraft,
 	normSymbol,
@@ -51,15 +48,6 @@ export function useStrategiesModel(options: {
 		if (seen.has(key) || seen.has(reverse)) duplicateKeys.add(key)
 		seen.add(key)
 	}
-	const unanchored = unanchoredToken0Symbols(
-		enabled
-			.filter((pair) => pair.token0.trim() && pair.token1.trim())
-			.map((pair) => ({
-				token0: pair.token0,
-				token1: pair.token1,
-				hasCurve: draftHasCurve(pair),
-			})),
-	)
 	const defaultToken1 =
 		availableSymbols.find((symbol) => normSymbol(symbol) === "CNGN") ??
 		availableSymbols.find((symbol) => !defaults.usdStables.includes(normSymbol(symbol))) ??
@@ -93,7 +81,6 @@ export function useStrategiesModel(options: {
 		marketRows,
 		enabled,
 		duplicateKeys,
-		unanchored,
 		defaultToken1,
 		patchPair,
 	}

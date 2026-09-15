@@ -1,9 +1,7 @@
 import { FXFiller, type TradingPair } from "@/strategies/fx"
-import { FillerPricePolicy } from "@/config/interpolated-curve"
 import { AssetRegistry } from "@/config/asset-registry"
 import { bytes20ToBytes32, type HexString, type Order, type TokenInfo } from "@hyperbridge/sdk"
 import { describe, it, expect } from "vitest"
-import { Decimal } from "decimal.js"
 import { parseUnits } from "viem"
 import type { LimitOrderSide } from "@/data/types"
 import { limitOrderStore } from "../helpers/limit-orders"
@@ -18,26 +16,13 @@ const STABLE = "0x1111111111111111111111111111111111111111" as HexString
 const EXOTIC = "0x2222222222222222222222222222222222222222" as HexString
 const SOLVER = "0x3333333333333333333333333333333333333333" as HexString
 
-const FLAT = new FillerPricePolicy({ points: [{ amount: "0", price: "1500" }] })
-// Bid for two-sided books — sits above the ask so round trips are profitable.
-const FLAT_BID = new FillerPricePolicy({ points: [{ amount: "0", price: "1520" }] })
-
 /** Builds an exotic-pair set + registry for tests: `token1` addresses traded against USDC and USDT. */
 function exoticPairs(
 	resolver: any,
 	token1: Record<string, HexString>,
-	maxOrderSize: number,
-	bidPricePolicy?: FillerPricePolicy,
-	askPricePolicy?: FillerPricePolicy,
 ): { pairs: TradingPair[]; registry: AssetRegistry } {
 	const registry = new AssetRegistry(resolver, { EXOTIC: token1 })
-	const pairs: TradingPair[] = ["USDC", "USDT"].map((token0) => ({
-		token0,
-		token1: "EXOTIC",
-		maxOrderSize: new Decimal(maxOrderSize),
-		bidPricePolicy,
-		askPricePolicy,
-	}))
+	const pairs: TradingPair[] = ["USDC", "USDT"].map((token0) => ({ token0, token1: "EXOTIC" }))
 	return { pairs, registry }
 }
 
@@ -85,7 +70,7 @@ async function makeFiller(options: {
 	const contractService = provided ?? makeContractService()
 	const signer = { address: SOLVER } as any
 
-	const { pairs, registry } = exoticPairs(configService, { [CHAIN]: EXOTIC }, 5000, FLAT_BID, FLAT)
+	const { pairs, registry } = exoticPairs(configService, { [CHAIN]: EXOTIC })
 	return new FXFiller(signer, configService, {} as any, contractService, pairs, registry, {
 		...fillerOptions,
 		limitOrders: await limitOrderStore(
@@ -141,8 +126,8 @@ describe("FXFiller one-sided LP", () => {
 			ZARP: { [CHAIN]: OTHER },
 		})
 		const pairs: TradingPair[] = [
-			{ token0: "USDC", token1: "CNGN2", maxOrderSize: new Decimal(5000), askPricePolicy: FLAT },
-			{ token0: "USDC", token1: "ZARP", maxOrderSize: new Decimal(5000), bidPricePolicy: FLAT },
+			{ token0: "USDC", token1: "CNGN2" },
+			{ token0: "USDC", token1: "ZARP" },
 		]
 		const signer = { address: SOLVER } as any
 		const filler = new FXFiller(signer, configService, {} as any, makeContractService(), pairs, registry, {

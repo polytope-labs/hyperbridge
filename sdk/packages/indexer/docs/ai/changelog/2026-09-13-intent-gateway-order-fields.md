@@ -13,4 +13,6 @@ Operation hashes are matched from EntryPoint receipt logs using the placing acco
 
 Delivered amounts are matched from transfers within each fill's log range. Native outputs and ambiguous deliveries remain null. When the order has not been indexed yet, its beneficiary is recovered from calldata and verified against the order commitment.
 
+Receipt lookup failures leave a fill's operation hash and delivered amounts null without preventing indexing. Fee-token lookup failures leave the placement's fee-token fields null; placement replays preserve any previously stored fee-token fields.
+
 The schema changes are additive. Existing records retain their data and default to null for the new fields; no backfill is performed.

@@ -69,8 +69,14 @@ export async function resolveFillEnrichment(
 		return {}
 	}
 
-	const receipt = await fillLog.transaction.receipt()
-	const logs = receipt.logs ?? []
+	let logs: EthereumLog[]
+	try {
+		const receipt = await fillLog.transaction.receipt()
+		logs = receipt.logs ?? []
+	} catch (error) {
+		logger.warn(`Could not read fill receipt for ${fillLog.transactionHash}: ${error}`)
+		return {}
+	}
 
 	const userOpHash = findUserOpHash(logs, filler, fillLog.logIndex)
 

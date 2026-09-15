@@ -108,6 +108,44 @@ it.each([
 	},
 )
 
+it.each([
+	["OrderFilled", handleOrderFilledEventV3, "IOrderV3Fill", "IOrderV3FillOutputAsset"],
+	["PartialFill", handlePartialFilledEventV3, "IOrderV3PartialFill", "IOrderV3PartialFillOutputAsset"],
+] as const)("records %s when its receipt lookup fails", async (name, handle, entity, asset) => {
+	const encoded = abi.encodeEventLog(abi.getEvent(name), [
+		commitment,
+		filler,
+		[{ token: pad(token), amount: 100n }],
+		[],
+	])
+	await handle({
+		address: gateway,
+		transactionHash: hash,
+		blockHash: hash,
+		blockNumber: 10,
+		logIndex: 5,
+		args: abi.decodeEventLog(name, encoded.data, encoded.topics),
+		transaction: {
+			receipt: async () => {
+				throw new Error("receipt RPC unavailable")
+			},
+		},
+	} as any)
+	expect(records.get(`${entity}:${hash}.5`)).toMatchObject({ orderId: commitment, transactionHash: hash })
+	expect(records.get(`${entity}:${hash}.5`).userOpHash).toBeUndefined()
+	expect(records.get(`${asset}:${hash}.5-output-0`)).toMatchObject({ token: pad(token), amount: 100n })
+	expect(records.get(`${asset}:${hash}.5-output-0`).amountReceived).toBeUndefined()
+	expect(IntentGatewayV3Service.publishInventoryAfterFill).toHaveBeenCalledTimes(1)
+	if (name === "OrderFilled") {
+		expect(IntentGatewayV3Service.updateOrderStatus).toHaveBeenCalledWith(
+			commitment,
+			"FILLED",
+			expect.any(Object),
+			filler,
+		)
+	}
+})
+
 it("records plain EOA fills without receipt enrichment when no transaction is supplied", async () => {
 	await IntentGatewayV3Service.recordFill(commitment, filler, [{ token: pad(token) as any, amount: 100n }], [], {
 		transactionHash: hash,
@@ -186,6 +224,40 @@ const placementReceipt = () => ({
 			]),
 		},
 	],
+})
+
+it.each(["fee-token RPC unavailable", "No ISMP host address configured for chain: EVM-56"])(
+	"records placement when fee denomination is unavailable: %s",
+	async (message) => {
+		jest.mocked(getHostFeeToken).mockRejectedValueOnce(new Error(message))
+		const event = placementEvent()
+		event.transaction = { receipt: async () => placementReceipt() }
+		await handleOrderPlacedEventV3(event)
+		const key = [...records.keys()].find((key) => key.startsWith("IOrderV3:"))!
+		expect(records.get(key)).toMatchObject({
+			status: "PLACED",
+			fees: 5n,
+			transactionHash: hash,
+			userOpHash: placementOpHash,
+		})
+		expect(records.get(key).feeToken).toBeUndefined()
+		expect(records.get(key).feeTokenDecimals).toBeUndefined()
+		expect(IntentGatewayV3Service.updateOrderStatus).toHaveBeenCalledWith(
+			expect.any(String),
+			"PLACED",
+			expect.any(Object),
+		)
+	},
+)
+
+it("preserves existing fee denomination when a placement replay cannot read it", async () => {
+	const event = placementEvent()
+	await handleOrderPlacedEventV3(event)
+	const key = [...records.keys()].find((key) => key.startsWith("IOrderV3:"))!
+	records.get(key).status = "FILLED"
+	jest.mocked(getHostFeeToken).mockRejectedValueOnce(new Error("fee-token RPC unavailable"))
+	await handleOrderPlacedEventV3(event)
+	expect(records.get(key)).toMatchObject({ status: "FILLED", feeToken: token, feeTokenDecimals: 6 })
 })
 
 it.each(["current", "legacy"])("persists the placing operation from a %s OrderPlaced event", async (version) => {

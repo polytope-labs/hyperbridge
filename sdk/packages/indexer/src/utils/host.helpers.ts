@@ -25,10 +25,9 @@ export async function getHostFeeToken(chain: string, blockHash: string): Promise
 		throw new Error(`No ISMP host address configured for chain: ${chain}`)
 	}
 
-	const address = (
-		await EthereumHostAbi__factory.connect(hostAddress, api).feeToken({ blockTag: blockHash })
-	).toLowerCase()
-	const decimals = await ERC6160Ext20Abi__factory.connect(address, api).decimals({ blockTag: blockHash })
+	// SubQuery's api provider already scopes contract reads to the indexed block.
+	const address = (await EthereumHostAbi__factory.connect(hostAddress, api).feeToken()).toLowerCase()
+	const decimals = await ERC6160Ext20Abi__factory.connect(address, api).decimals()
 
 	const feeToken = { address, decimals }
 	feeTokenCache.set(chain, { blockHash, info: feeToken })

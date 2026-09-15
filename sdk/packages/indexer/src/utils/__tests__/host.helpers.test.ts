@@ -14,12 +14,12 @@ beforeEach(() => {
 })
 afterEach(() => jest.restoreAllMocks())
 
-it("pins both reads to the placement block and reuses that block's metadata", async () => {
+it("uses the block-scoped provider without overrides and reuses that block's metadata", async () => {
 	expect(await getHostFeeToken("EVM-1", "0xblock1")).toEqual({ address: "0xabc", decimals: 6 })
 	await getHostFeeToken("EVM-1", "0xblock1")
 	expect(feeToken).toHaveBeenCalledTimes(1)
-	expect(feeToken).toHaveBeenCalledWith({ blockTag: "0xblock1" })
-	expect(decimals).toHaveBeenCalledWith({ blockTag: "0xblock1" })
+	expect(feeToken).toHaveBeenCalledWith()
+	expect(decimals).toHaveBeenCalledWith()
 })
 
 it("refreshes on a new block hash and keeps chains independent", async () => {

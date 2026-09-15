@@ -144,6 +144,10 @@ export class SqliteLimitOrderStore implements LimitOrderStore {
 		return rows.map((row) => this.toLimitOrder(row))
 	}
 
+	async open(): Promise<LimitOrder[]> {
+		return this.list({ status: "open" })
+	}
+
 	async setPosting(id: string, posting: LimitOrderPosting): Promise<LimitOrder | null> {
 		this.db
 			.prepare(`

@@ -111,3 +111,26 @@ export function signedAmounts(params: {
 	return { outputAmount, inputAmount: divCeil(outputAmount * price * quote, base * ORDERBOOK_SCALE) }
 }
 
+
+/**
+ * What a limit order pays for `inputAmount` at its own signed rate, at 1e18 but
+ * quantised to the output token's raw unit on the fill chain.
+ *
+ * A bid receives the base and pays the quote, so its offer scales up with the
+ * price; an ask is the other way round. Flooring keeps the payout at or inside
+ * the rate simplex signed for, which is the same direction {@link signedAmounts}
+ * rounds, and stops an offer being promised that the raw token cannot express.
+ */
+export function offerFor(params: {
+	side: LimitOrderSide
+	inputAmount: bigint
+	price: bigint
+	outputDecimals: number
+}): bigint {
+	const { side, inputAmount, price, outputDecimals } = params
+	if (price <= 0n) throw new Error("A limit order's price must be greater than zero")
+
+	const scaled = side === "BID" ? (inputAmount * price) / ORDERBOOK_SCALE : (inputAmount * ORDERBOOK_SCALE) / price
+	const unit = 10n ** BigInt(18 - outputDecimals)
+	return (scaled / unit) * unit
+}

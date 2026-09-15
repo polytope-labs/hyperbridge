@@ -59,6 +59,7 @@ export {
 	readProtocolFeeHaircutBps,
 	UNISWAP_QUOTE_HAIRCUT_BPS,
 	PERMIT2_SPONSORSHIP_BYTES,
+	MAX_DECLARED_ENTRIES,
 	type PhantomBidDeclaration,
 	type PhantomBidPaymasterAndData,
 	type PhantomBidSponsorship,

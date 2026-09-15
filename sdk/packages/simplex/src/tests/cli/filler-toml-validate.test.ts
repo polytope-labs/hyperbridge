@@ -186,3 +186,47 @@ describe("validateConfig", () => {
 		expect(() => validateConfig(config)).toThrow(/askPriceCurve — .*invalid amount/)
 	})
 })
+
+describe("validateConfig [orderbook]", () => {
+	const withOrderbook = (orderbook: FillerTomlConfig["orderbook"]): FillerTomlConfig => ({
+		...minimalConfig(),
+		orderbook,
+	})
+
+	it("ignores the block entirely while it is disabled", () => {
+		expect(() => validateConfig(withOrderbook({ enabled: false, defaultTtlSecs: 1 }))).not.toThrow()
+	})
+
+	it("accepts a well-formed enabled block", () => {
+		expect(() =>
+			validateConfig(
+				withOrderbook({
+					enabled: true,
+					url: "https://orderbook.example/graphql",
+					defaultTtlSecs: 1800,
+					renewMarginSecs: 120,
+					reconcileIntervalSecs: 300,
+					requestTimeoutMs: 10000,
+				}),
+			),
+		).not.toThrow()
+	})
+
+	it("requires a url once enabled, rather than failing on the first posting", () => {
+		expect(() => validateConfig(withOrderbook({ enabled: true }))).toThrow(/orderbook.url is required/)
+	})
+
+	it("refuses a ttl below the orderbook's own floor", () => {
+		expect(() =>
+			validateConfig(withOrderbook({ enabled: true, url: "https://example", defaultTtlSecs: 60 })),
+		).toThrow(/defaultTtlSecs must be an integer >= 900/)
+	})
+
+	it("refuses a renewal margin that is not shorter than the ttl", () => {
+		expect(() =>
+			validateConfig(
+				withOrderbook({ enabled: true, url: "https://example", defaultTtlSecs: 900, renewMarginSecs: 900 }),
+			),
+		).toThrow(/must be shorter than orderbook.defaultTtlSecs/)
+	})
+})

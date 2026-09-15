@@ -18,7 +18,10 @@ import { formatUnits, isAddress } from "viem"
 import { validateRpcUrls, type AllowlistConfig } from "@/services/FillerConfigService"
 import { withTimeout, PROBE_TIMEOUT_MS } from "@/cli/init/prompt-utils"
 import type { ActivityRecorder } from "@/data/recorder"
-import type { ActivityEvent, BidStore, OrderLeg } from "@/data/types"
+import type { ActivityEvent, BidStore, LimitOrderFilter, OrderLeg } from "@/data/types"
+import { OrderbookRequestError } from "@/orderbook/client"
+import { LimitOrderValidationError, type CreateLimitOrderRequest } from "@/orderbook/limit-orders"
+import type { LimitOrderController } from "@/simplex"
 import type { BalanceProvider } from "../BalanceProvider"
 import { getLogger, type LogLevel } from "../Logger"
 import { DEFAULT_TUNNEL_RELAY, parseRelayAddress, relayKey, type TunnelControls } from "../tunnel/TunnelService"
@@ -159,6 +162,8 @@ export interface OperatorContext {
 	stop(): Promise<void>
 	activity: Pick<ActivityRecorder, "recent" | "on" | "off" | "record" | "recordWalletTx" | "walletTxs" | "fills" | "orderHistory">
 	bids?: Pick<BidStore, "recent" | "stats" | "byCommitments">
+	/** The operator's limit orders. Absent unless `[orderbook]` is enabled. */
+	limitOrders?: Pick<LimitOrderController, "list" | "get" | "create" | "cancel">
 	/** Persists an operator pause so it survives a restart. */
 	setPaused(paused: boolean): Promise<void>
 	/**
@@ -804,6 +809,38 @@ export class UiServer {
 			return handleSetupRequest(this, this.setup, req, res, path, method)
 		}
 
+		if (path === "/api/limit-orders") {
+			if (this.mode !== "operator") return sendJson(res, 409, { error: "Filler is not running" })
+			if (method === "GET") {
+				const params = new URL(req.url ?? "/", "http://localhost").searchParams
+				return this.handleLimitOrders(res, () =>
+					this.operator!.limitOrders!.list({
+						status: (params.get("status") as LimitOrderFilter["status"]) ?? undefined,
+						fillChain: params.get("chain") ?? undefined,
+						book: params.get("book") ?? undefined,
+					}).then((orders) => ({ orders })),
+				)
+			}
+			if (method === "POST") return this.handleLimitOrderCreate(req, res)
+			return sendJson(res, 405, { error: "Method not allowed" })
+		}
+
+		const limitOrderMatch = path.match(/^\/api\/limit-orders\/([\w-]+)$/)
+		if (limitOrderMatch) {
+			if (this.mode !== "operator") return sendJson(res, 409, { error: "Filler is not running" })
+			const id = limitOrderMatch[1]
+			if (method === "GET") {
+				return this.handleLimitOrders(res, async () => {
+					const order = await this.operator!.limitOrders!.get(id)
+					return order && { order }
+				})
+			}
+			if (method === "DELETE") {
+				return this.handleLimitOrders(res, () => this.operator!.limitOrders!.cancel(id))
+			}
+			return sendJson(res, 405, { error: "Method not allowed" })
+		}
+
 		if (path === "/api/strategies") {
 			if (this.mode !== "operator") return sendJson(res, 409, { error: "Filler is not running" })
 			if (method === "GET") {
@@ -1324,6 +1361,36 @@ export class UiServer {
 	 * graph, symbol resolution on the running chains) before anything mutates,
 	 * hydrated into the running engine when possible, and persisted either way.
 	 */
+	/**
+	 * Runs one limit-order operation and maps its failures onto status codes: an
+	 * operator mistake is a 400, an orderbook that could not be reached is a 502,
+	 * and an operation resolving null is a 404.
+	 */
+	private async handleLimitOrders(res: ServerResponse, run: () => Promise<unknown>): Promise<void> {
+		if (!this.operator?.limitOrders) {
+			return sendJson(res, 501, { error: "No orderbook is configured for this filler" })
+		}
+		try {
+			const payload = await run()
+			if (payload === null || payload === undefined) return sendJson(res, 404, { error: "Not found" })
+			return sendJson(res, 200, payload)
+		} catch (err) {
+			if (err instanceof LimitOrderValidationError) return sendJson(res, 400, { error: err.message })
+			if (err instanceof OrderbookRequestError) return sendJson(res, 502, { error: err.message })
+			throw err
+		}
+	}
+
+	private async handleLimitOrderCreate(req: IncomingMessage, res: ServerResponse): Promise<void> {
+		let body: CreateLimitOrderRequest
+		try {
+			body = JSON.parse(await readBody(req))
+		} catch {
+			return sendJson(res, 400, { error: "Invalid JSON body" })
+		}
+		return this.handleLimitOrders(res, () => this.operator!.limitOrders!.create(body))
+	}
+
 	private async handleMarketAdd(req: IncomingMessage, res: ServerResponse): Promise<void> {
 		const op = this.operator!
 		let body: {

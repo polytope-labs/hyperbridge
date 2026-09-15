@@ -719,9 +719,7 @@ export class FXFiller implements FillerStrategy {
 				// paying it out even when it exceeds what the user asked for is the
 				// point: IntrinsicIntents.sol has an explicit `solverAmount >
 				// totalRequired` branch that splits the excess between the beneficiary
-				// and the protocol (`surplusShareBps`), and `quotePhantomFill` publishes
-				// this same figure as our quoted rate — paying less would advertise a
-				// price we do not honour.
+				// and the protocol (`surplusShareBps`).
 				//
 				// `maxOrderSize` still bounds this: `computeLegPolicyOutput` rationed
 				// `token0ForLeg` against the pair's remaining budget before the rate was
@@ -1640,102 +1638,6 @@ export class FXFiller implements FillerStrategy {
 		}
 
 		return legs
-	}
-
-	/**
-	 * Returns the filler's proposed output amounts for a phantom order without
-	 * checking on-chain balance or estimating gas. Phantom orders are probes that
-	 * never execute; we only need the price signal.
-	 *
-	 * Returns `null` when no pair matches or the legs cannot be sized (e.g.
-	 * venue price unavailable and no fallback).
-	 */
-	async quotePhantomFill(order: Order): Promise<TokenInfo[] | null> {
-		if (!(await this.canFill(order))) return null
-
-		const legs = this.resolveOrderLegs(order)
-		if (!legs) return null
-
-		const chain = order.source
-		const venueUsdPrice = this.venuePriceMemo()
-
-		// `sizeOrder` is used here only for its per-leg notionals — the rate sample points below.
-		// Its `cappedByPair` / `capFractionByPair` outputs are exposure controls for real fills
-		// and deliberately play no part in a probe.
-		const sized = await this.sizeOrder(order, legs, venueUsdPrice)
-		if (!sized) return null
-
-		const outputs: TokenInfo[] = []
-
-		for (let i = 0; i < order.inputs.length; i++) {
-			const input = order.inputs[i]
-			const output = order.output.assets[i]
-			const leg = legs[i]
-
-			const inputDecimals = await this.contractService.getTokenDecimals(
-				bytes32ToBytes20(input.token) as HexString,
-				chain,
-			)
-			// Phantom orders are same-chain probes today, but resolve the output on
-			// the destination anyway — decimals differ per chain for some assets.
-			const outputDecimals = await this.contractService.getTokenDecimals(
-				bytes32ToBytes20(output.token) as HexString,
-				order.destination,
-			)
-
-			const token0Decimals = leg.inputIsToken0 ? inputDecimals : outputDecimals
-			const token1Decimals = leg.inputIsToken0 ? outputDecimals : inputDecimals
-
-			// Price this leg at ITS OWN notional, not the pair's exposure-capped budget. The leg
-			// is a quote for `input.amount`; sampling a sloped curve at a smaller notional would
-			// advertise a tighter rate than this filler would actually give at that size, and
-			// optimistic is the one direction a published rate must never be — a quote built
-			// from it has to stay fillable.
-			const legNotional = sized.legNotionals[i]
-			const rates = await this.resolveLegRates(order.id, leg, legNotional, venueUsdPrice)
-			if (!rates) return null
-
-			// A probe advertising more than the pair will actually fill is a config problem the
-			// operator has to see: the price is honest, but no order that size can clear it.
-			if (leg.pair.maxOrderSize !== undefined && legNotional.gt(leg.pair.maxOrderSize)) {
-				this.logger.warn(
-					{
-						orderId: order.id,
-						pair: `${leg.pair.token0}/${leg.pair.token1}`,
-						legNotional: legNotional.toString(),
-						maxOrderSize: leg.pair.maxOrderSize.toString(),
-					},
-					"Phantom probe notional exceeds the pair's maxOrderSize — the published price quotes a size this pair will not fill",
-				)
-			}
-
-			// `null` budget: a phantom leg commits no capital, so the pair's per-order exposure
-			// cap must not ration it. Clamping the quantity here would leave the output covering
-			// less than the standard amount while every consumer still divides by the FULL
-			// standard amount — publishing a proportionally worse price with nothing to signal
-			// that it happened. The cap still governs real fills, which is where exposure is
-			// actually taken.
-			const legResult = this.computeLegPolicyOutput(
-				input.amount,
-				leg.inputIsToken0,
-				token0Decimals,
-				token1Decimals,
-				null,
-				rates.rate,
-			)
-
-			if (!legResult) continue
-
-			// Phantom orders only probe price (they request a zero output), so there is no
-			// user-requested amount to cap against — quote the full policy output.
-			outputs.push({ token: output.token, amount: legResult.policyMaxOutput })
-		}
-
-		if (outputs.length === 0) return null
-
-		// Deliberately not cached: the bid is built from these outputs directly, and phantom
-		// orders never reach the execution path that reads cached filler outputs.
-		return outputs
 	}
 
 	/**

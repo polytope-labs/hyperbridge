@@ -6,7 +6,7 @@ import { ChainController } from "@/simplex"
 import { LoggerContext } from "@/services/Logger"
 import { MemoryDataStore } from "@/data/memory"
 import { startMockRpc, type MockRpc } from "../helpers/mock-rpc"
-import { stubHyperbridgeScanner, stubOrderScanner } from "../helpers/stub-scanner"
+import { stubOrderScanner } from "../helpers/stub-scanner"
 
 /**
  * The signer requirement used to live in `validateConfig` and was tested there;
@@ -46,7 +46,7 @@ function config(overrides: Partial<FillerTomlConfig["simplex"]> = {}): FillerTom
 function bootOptions() {
 	return {
 		loggers: new LoggerContext({}),
-		scanners: { orders: stubOrderScanner([CHAIN_ID]), hyperbridge: stubHyperbridgeScanner() },
+		scanners: { orders: stubOrderScanner([CHAIN_ID]) },
 		data: new MemoryDataStore(),
 		ownsData: true,
 	}

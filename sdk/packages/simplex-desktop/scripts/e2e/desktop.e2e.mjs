@@ -200,10 +200,13 @@ async function quitElectron(electronApp) {
 }
 
 async function hardKillElectron(electronApp) {
+	// On Windows, Playwright launches Electron through cmd.exe, so process() is
+	// the shell and killing it leaves Electron running. Kill Electron's own main
+	// process; the shell exits after it.
+	const pid = await electronApp.evaluate(() => process.pid)
 	const exited = electronExit(electronApp)
-	const child = electronApp.process()
-	if (process.platform === "win32") await execFileAsync("taskkill.exe", ["/PID", String(child.pid), "/F"])
-	else child.kill("SIGKILL")
+	if (process.platform === "win32") await execFileAsync("taskkill.exe", ["/PID", String(pid), "/F"])
+	else process.kill(pid, "SIGKILL")
 	await exited
 }
 
@@ -222,9 +225,9 @@ async function cleanupDesktop(electronApp, userDataDir) {
 	await rm(userDataDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 250 })
 }
 
-// On Windows, killing Electron's main process has left helper processes
-// running. They hold profile files and Playwright's stdio pipes, which kept the
-// test process alive until the job timeout. Name each one, then stop it.
+// Helper processes can outlive a killed main process for a moment. Any left
+// running hold profile files and Playwright's stdio pipes, which keep the test
+// process alive until the job timeout. Name each one, then stop it.
 async function stopLeftoverElectron() {
 	for (const row of await processRows()) {
 		if (!row.includes(electronExecutable)) continue

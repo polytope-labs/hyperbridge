@@ -23,6 +23,15 @@ The E2E suite changed with it:
 - The lifecycle test asserts on Linux that the solver holds no descriptor into Electron's install
   directory. Against the old spawn it fails in about a second and lists the leaked files.
 - Quitting and killing Electron wait for the process to exit, not for its stdio to close.
+- The hard kill targets Electron's own main process ID, read with `process.pid` inside Electron. On
+  Windows, Playwright launches Electron through `cmd.exe`, so its process handle is the shell.
+  Killing the shell left Electron running with the single-instance lock, which made the relaunch
+  quit at once.
+- The Windows listener check prints the collected ports as its last statement.
+  `Get-NetTCPConnection` reports "nothing found" as an error, so PowerShell exited 1 in the passing
+  case.
+- Cleanup stops any process still running the Electron binary, logs its `--type`, and retries
+  deleting the profile directory.
 - `test:e2e` passes `--test-timeout=300000`, so a stuck test is named.
 
 The workflow now checks out `github.sha`, the PR merge commit, instead of the PR head. It runs the

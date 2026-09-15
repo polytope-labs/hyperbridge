@@ -7,7 +7,7 @@ import type { DelegationService } from "@/services/DelegationService"
 import type { FillerConfigService } from "@/services/FillerConfigService"
 import { defaultLoggerContext, type Logger, type LoggerContext } from "@/services/Logger"
 import type { Signer } from "@/services/wallet"
-import { signedAmounts } from "./amounts"
+import { rateFrom, signedAmounts } from "./amounts"
 import { OrderbookClient, OrderbookRequestError } from "./client"
 import type { Book, CancelOrderResult, OrderbookLimits, SubmitOrderResult } from "./types"
 
@@ -32,14 +32,23 @@ const CANCEL_ORDER_TYPES = {
  */
 export class LimitOrderValidationError extends Error {}
 
+/**
+ * One limit order as the operator states it: what simplex takes in, and what it
+ * pays out for that.
+ *
+ * "10000 USDC for 139000000 CNGN" is `tokenIn: "USDC", amountIn: 10000e18,
+ * tokenOut: "CNGN", amountOut: 139000000e18`. The rate and the side of the book
+ * follow from those, so the order is directional by construction: it prices
+ * USDC to CNGN swaps and never the reverse.
+ */
 export interface CreateLimitOrderRequest {
-	book: string
-	side: "BID" | "ASK"
 	fillChain: string
-	/** Quote per 1 base at 1e18, as a decimal string. */
-	price: string
-	/** The output to pay at 1e18, as a decimal string. */
-	size: string
+	/** The symbol simplex takes in, at 1e18. */
+	tokenIn: string
+	amountIn: string
+	/** The symbol simplex pays out, at 1e18. */
+	tokenOut: string
+	amountOut: string
 	acceptedSources: string[]
 	ttlSecs?: number
 	expiresAt?: string | null
@@ -100,10 +109,23 @@ export class LimitOrderService {
 	 * undelegated solver's orders outright, so posting without it achieves nothing.
 	 */
 	async create(request: CreateLimitOrderRequest): Promise<PostedLimitOrder> {
+		// Ahead of the book lookup, which would otherwise report a same-symbol
+		// request as an unknown pair.
+		if (request.tokenIn === request.tokenOut) {
+			throw new LimitOrderValidationError("tokenIn and tokenOut must be different symbols")
+		}
 		const limits = await this.limits()
-		const book = this.resolveBook(limits, request.book)
+		const book = this.resolveBook(limits, request.tokenIn, request.tokenOut)
 		const ttlSecs = request.ttlSecs ?? this.defaultTtlSecs
 		this.validate(request, book, limits, ttlSecs)
+
+		const { side, price } = rateFrom({
+			base: book.base,
+			quote: book.quote,
+			tokenIn: request.tokenIn,
+			amountIn: BigInt(request.amountIn),
+			amountOut: BigInt(request.amountOut),
+		})
 
 		if (this.delegationService && !(await this.delegationService.setupDelegation(request.fillChain))) {
 			throw new LimitOrderValidationError(
@@ -116,10 +138,10 @@ export class LimitOrderService {
 			book: book.id,
 			base: book.base,
 			quote: book.quote,
-			side: request.side,
+			side,
 			fillChain: request.fillChain,
-			price: request.price,
-			size: request.size,
+			price: price.toString(),
+			size: request.amountOut,
 			acceptedSources: request.acceptedSources,
 			ttlSecs,
 			expiresAt: request.expiresAt ?? null,
@@ -226,26 +248,30 @@ export class LimitOrderService {
 		}
 	}
 
-	private resolveBook(limits: OrderbookLimits, id: string): Book {
-		const book = limits.books.find((candidate) => candidate.id === id)
+	/** The book that trades this pair of symbols, whichever way round they were given. */
+	private resolveBook(limits: OrderbookLimits, tokenIn: string, tokenOut: string): Book {
+		const book = limits.books.find(
+			(candidate) =>
+				(candidate.base === tokenIn && candidate.quote === tokenOut) ||
+				(candidate.quote === tokenIn && candidate.base === tokenOut),
+		)
 		if (!book) {
 			const known = limits.books.map((candidate) => candidate.id).join(", ")
-			throw new LimitOrderValidationError(`Unknown book '${id}'. The orderbook offers: ${known || "none"}`)
+			throw new LimitOrderValidationError(
+				`No book trades ${tokenIn} against ${tokenOut}. The orderbook offers: ${known || "none"}`,
+			)
 		}
 		return book
 	}
 
 	private validate(request: CreateLimitOrderRequest, book: Book, limits: OrderbookLimits, ttlSecs: number): void {
-		if (request.side !== "BID" && request.side !== "ASK") {
-			throw new LimitOrderValidationError("side must be 'BID' or 'ASK'")
-		}
 		if (!this.configService.getConfiguredChainIds().includes(getChainId(request.fillChain) ?? -1)) {
 			throw new LimitOrderValidationError(`'${request.fillChain}' is not a chain this filler is configured for`)
 		}
 
 		for (const [name, value] of [
-			["price", request.price],
-			["size", request.size],
+			["amountIn", request.amountIn],
+			["amountOut", request.amountOut],
 		] as const) {
 			if (!/^[0-9]+$/.test(value ?? "") || BigInt(value) <= 0n) {
 				throw new LimitOrderValidationError(`${name} must be a positive integer at 1e18, as a decimal string`)
@@ -277,13 +303,12 @@ export class LimitOrderService {
 			)
 		}
 
-		// The output is what the operator pays out, so that is the side the dust
-		// floor applies to: a bid pays the quote, an ask pays the base.
-		const outputSymbol = request.side === "BID" ? book.quote : book.base
-		const floor = limits.serverInfo.minOrderSizes.find((entry) => entry.symbol === outputSymbol)
-		if (floor && BigInt(request.size) < BigInt(floor.size)) {
+		// The dust floor applies to what the operator pays out, which is the side
+		// the orderbook advertises depth on.
+		const floor = limits.serverInfo.minOrderSizes.find((entry) => entry.symbol === request.tokenOut)
+		if (floor && BigInt(request.amountOut) < BigInt(floor.size)) {
 			throw new LimitOrderValidationError(
-				`size is below the orderbook's dust floor for ${outputSymbol} (${floor.size} at 1e18)`,
+				`amountOut is below the orderbook's dust floor for ${request.tokenOut} (${floor.size} at 1e18)`,
 			)
 		}
 

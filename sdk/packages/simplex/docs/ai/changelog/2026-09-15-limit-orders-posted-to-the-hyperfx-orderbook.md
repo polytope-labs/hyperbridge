@@ -1,8 +1,13 @@
 # 2026-09-15 — Limit orders posted to the HyperFX orderbook
 
 The operator can now create limit orders, and simplex advertises them on the HyperFX orderbook.
-A limit order is what simplex offers to pay: a book, a side, a fill chain, a price and a size. It
-lives in a new `limit_orders` table in `bids.db` behind `SimplexDataStore.limitOrders`, and the
+An operator states a limit order as what simplex takes in and what it pays out for that, for example
+10,000 USDC in for 139,000,000 cNGN out. The rate and the side of the book follow from those two
+amounts, so an order is directional by construction: that one prices USDC to cNGN swaps and can
+never price cNGN to USDC, which needs its own order. An operator can hold as many at once as they
+like, and an incoming order is matched against all of them.
+
+Orders live in a new `limit_orders` table in `bids.db` behind `SimplexDataStore.limitOrders`, and the
 orderbook entry is a derived copy that expires and is reposted. Amounts and prices are decimal
 strings at 1e18 everywhere they cross the orderbook boundary, whatever decimals the tokens use on
 their own chains.
@@ -14,7 +19,7 @@ their own chains.
 ```
 GET    /api/limit-orders?status=&chain=&book=
 GET    /api/limit-orders/:id
-POST   /api/limit-orders     { book, side, fillChain, price, size, acceptedSources, ttlSecs?, expiresAt? }
+POST   /api/limit-orders     { fillChain, tokenIn, amountIn, tokenOut, amountOut, acceptedSources, ttlSecs?, expiresAt? }
 DELETE /api/limit-orders/:id
 ```
 
@@ -39,8 +44,8 @@ It is always encoded as FillOptions v2, without consulting the deployed gateway:
 and v1 has nowhere to put `validUntil`, which the orderbook requires. `validUntil` here is a TTL in
 seconds from the orderbook's receipt, not a block number.
 
-The input is rounded up against the operator's price, so the rate the op carries is never better for
-the taker than the price asked for. `REPLAYED` and `ORDER_EXISTS` are answered once by bumping
+The derived rate is rounded in simplex's favour, and so is the input the op is built from, so
+neither the stored rate nor a repost quotes better than the two amounts the operator gave. `REPLAYED` and `ORDER_EXISTS` are answered once by bumping
 `orderNonce`, which changes the commitment and the userOpHash; the orderbook remembers every hash it
 has accepted, so a fresh nonce is the only way past.
 

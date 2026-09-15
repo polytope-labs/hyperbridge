@@ -17,7 +17,6 @@ const ORDER_TUPLE_TYPE: AbiParameter = (() => {
 })()
 
 import {
-	InventoryReadingTrigger,
 	OrderStatus,
 	PendingStatusMetadata,
 	ProtocolParticipantType,
@@ -42,18 +41,13 @@ import { IOrderV3EscrowRefund } from "@/configs/src/types/models/IOrderV3EscrowR
 import { IOrderV3EscrowRefundToken } from "@/configs/src/types/models/IOrderV3EscrowRefundToken"
 import { IntentGatewayTokenVolume } from "@/configs/src/types/models/IntentGatewayTokenVolume"
 import { CumulativeIntentGatewayVolumeUSD } from "@/configs/src/types/models/CumulativeIntentGatewayVolumeUSD"
-import { LiquidityPool } from "@/configs/src/types/models/LiquidityPool"
 import { timestampToDate } from "@/utils/date.helpers"
 import { getHostStateMachine } from "@/utils/substrate.helpers"
-import { canonicalPoolSymbol, poolSlug } from "@/addresses/pool-tokens.addresses"
-import { INTENT_GATEWAY_V3_ADDRESSES } from "@/intent-gateway-v3-addresses"
-import { orientedPoolRates, poolsForFill, POOL_RATE_DECIMALS } from "@/services/liquidityPool.service"
-import { publishPoolInventory, publishProviderInventory } from "@/services/inventoryReading.service"
-import { inventoryReadContext } from "@/utils/solverBalance"
 
 import { PointsService } from "./points.service"
 import { VolumeService, toScaledUsd } from "./volume.service"
 import PriceHelper from "@/utils/price.helpers"
+import { fetchOrderbookUsdPrice } from "@/services/orderbookRates.service"
 import stringify from "safe-stable-stringify"
 import { getOrCreateUser } from "./userActivity.services"
 export interface TokenInfo {
@@ -70,7 +64,6 @@ const STABLE_SYMBOLS = ["USDC", "USDT"]
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000"
 
-const POOL_RATE_SCALE = new Decimal(10).pow(POOL_RATE_DECIMALS)
 
 const decodeChain = (value: string): string =>
 	value.startsWith("0x") ? ethers.utils.toUtf8String(value) : value
@@ -372,8 +365,8 @@ export class IntentGatewayV3Service {
 
 	/**
 	 * Record intent gateway volume for a list of order tokens: cumulative raw amounts per
-	 * chain-token, plus a per-chain USD rollup priced at $1 for stables and via the
-	 * token's LiquidityPool rate for FX tokens.
+	 * chain-token, plus a per-chain USD rollup priced at $1 for stables and from the HyperFX
+	 * orderbook's rate for every other token.
 	 */
 	static async recordOrderVolume(
 		volumeType: IntentVolumeType,
@@ -464,34 +457,7 @@ export class IntentGatewayV3Service {
 			return new Decimal(1)
 		}
 
-		return this.getFxPriceFromPools(symbol)
-	}
-
-	/**
-	 * Price an FX token in USD from its liquidity pool against a $1 stable. Pool rates are
-	 * decimals-free (output per 1 whole input, 1e18-scaled) and already merged across chains, so
-	 * no address or decimals context is needed — any chain's representation prices identically.
-	 * Prefers the direct FX -> stable side; falls back to the reciprocal of the stable -> FX side
-	 * when only that direction is registered. Null when no pool has priced the symbol yet.
-	 */
-	private static async getFxPriceFromPools(symbol: string): Promise<Decimal | null> {
-		const canonical = canonicalPoolSymbol(symbol)
-		if (!canonical) return null
-
-		for (const quote of STABLE_SYMBOLS) {
-			const pool = await LiquidityPool.get(poolSlug(canonical, quote))
-			if (!pool) continue
-
-			const { direct, inverse } = orientedPoolRates(pool, canonical)
-
-			if (direct && direct > 0n) {
-				return new Decimal(direct.toString()).div(POOL_RATE_SCALE)
-			}
-			if (inverse && inverse > 0n) {
-				return POOL_RATE_SCALE.div(new Decimal(inverse.toString()))
-			}
-		}
-		return null
+		return fetchOrderbookUsdPrice(symbol)
 	}
 
 	static async updateOrderStatus(
@@ -751,87 +717,6 @@ export class IntentGatewayV3Service {
 				filler,
 			})}`,
 		)
-	}
-
-	/**
-	 * Re-reads the liquidity behind the pools this fill traded through and publishes it, so their
-	 * depth stops advertising inventory the filler has just spent once the Hyperbridge node folds
-	 * the readings in. The pool pair spans two chains — the inputs are escrowed on the source
-	 * chain, the outputs delivered here — so the order row is what makes the pair resolvable; a
-	 * fill indexed before its `OrderPlaced` has no source chain to resolve against and is left to
-	 * the next phantom snapshot.
-	 */
-	static async publishInventoryAfterFill(params: {
-		commitment: string
-		inputs: TokenInfo[]
-		outputs: TokenInfo[]
-		timestamp: bigint
-		blockNumber: number
-	}): Promise<void> {
-		const { commitment, inputs, outputs, timestamp, blockNumber } = params
-		const destChain = getHostStateMachine(chainId)
-
-		const order = await OrderV3Placed.get(commitment)
-		if (!order) return
-
-		const poolIds = poolsForFill({
-			sourceChain: decodeChain(order.sourceChain),
-			inputTokens: inputs.map((input) => input.token),
-			destChain,
-			outputTokens: outputs.map((output) => output.token),
-		})
-		if (poolIds.length === 0) return
-
-		await publishPoolInventory({
-			poolIds,
-			...inventoryReadContext(destChain, blockNumber, timestamp, InventoryReadingTrigger.FILL),
-		})
-	}
-
-	/**
-	 * The filler an escrow release paid, read from the gateway's `_filled` mapping at the event's
-	 * own block. The event itself names no filler, and `_withdraw` writes the beneficiary in the
-	 * same call that emits it, so the mapping is authoritative from that block on — and reading it
-	 * here never depends on the destination chain's node having indexed the fill first.
-	 */
-	static async filledBeneficiary(commitment: string, blockNumber: number): Promise<string | null> {
-		const chain = getHostStateMachine(chainId)
-		const gateway = INTENT_GATEWAY_V3_ADDRESSES[chain as keyof typeof INTENT_GATEWAY_V3_ADDRESSES]
-		if (!gateway) return null
-
-		const selector = ethers.utils.id("_filled(bytes32)").slice(0, 10)
-		const result: string = await (api as any).call(
-			{ to: gateway, data: `${selector}${commitment.replace(/^0x/, "").padStart(64, "0")}` },
-			blockNumber,
-		)
-		if (!result || result === "0x") return null
-		const beneficiary = `0x${result.slice(-40)}`.toLowerCase()
-		return beneficiary === ZERO_ADDRESS ? null : beneficiary
-	}
-
-	/**
-	 * The same publication for an escrow release: the solver has just been paid the order's inputs
-	 * back on the SOURCE chain, so its inventory there rose and every pool it backs in those tokens
-	 * is understating depth.
-	 *
-	 * The event names no filler — the gateway records the beneficiary when `_withdraw` finalizes —
-	 * so the caller resolves it, and a release whose beneficiary is not a known provider publishes
-	 * nothing.
-	 */
-	static async publishInventoryAfterEscrowRelease(params: {
-		provider: string
-		tokens: TokenInfo[]
-		timestamp: bigint
-		blockNumber: number
-	}): Promise<void> {
-		const { provider, tokens, timestamp, blockNumber } = params
-		const chain = getHostStateMachine(chainId)
-
-		await publishProviderInventory({
-			provider: provider.toLowerCase(),
-			tokens: tokens.map((token) => bytes32ToBytes20(token.token).toLowerCase()),
-			...inventoryReadContext(chain, blockNumber, timestamp, InventoryReadingTrigger.ESCROW_RELEASE),
-		})
 	}
 
 	static async recordFill(

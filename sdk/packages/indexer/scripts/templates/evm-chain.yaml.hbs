@@ -15,6 +15,9 @@ dataSources:
       # chains with no configured vaults (e.g. testnet); the vault datasources reference it for decoding.
       erc4626:
         file: ./abis/Erc4626.abi.json
+      # Listed for the same reason: the solver-inventory token datasources decode with it.
+      erc20:
+        file: ./abis/Erc20.abi.json
     mapping:
       file: ./dist/index.js
       handlers:
@@ -136,6 +139,37 @@ dataSources:
             topics:
               - 'Transfer(address,address,uint256)'
   {{/each}}
+  {{#if enableSolverInventory}}
+  {{#if supportedTokens.length}}
+  # One datasource per supported token: tracked solvers' wallet balances are event-sourced from these
+  # Transfers. Every other address's transfers are dropped in memory, without a store read or an RPC.
+  {{#each supportedTokens}}
+  - kind: ethereum/Runtime
+    startBlock: {{../blockNumber}}
+    options:
+      abi: erc20
+      address: '{{this}}'
+    assets:
+      erc20:
+        file: ./abis/Erc20.abi.json
+    mapping:
+      file: ./dist/index.js
+      handlers:
+        - kind: ethereum/LogHandler
+          handler: handleSolverTokenTransferEvent
+          filter:
+            topics:
+              - 'Transfer(address,address,uint256)'
+  {{/each}}
+  - kind: ethereum/Runtime
+    startBlock: {{blockNumber}}
+    mapping:
+      file: ./dist/index.js
+      handlers:
+        - handler: handleSolverInventoryBlock
+          kind: ethereum/BlockHandler # Every block: consumes watchlist requests, seeds newly discovered solvers, advances the inventory head.
+  {{/if}}
+  {{/if}}
   {{#if yieldVaults.length}}
   - kind: ethereum/Runtime
     startBlock: {{blockNumber}}

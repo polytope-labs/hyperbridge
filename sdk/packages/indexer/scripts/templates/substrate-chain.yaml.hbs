@@ -77,19 +77,9 @@ dataSources:
           filter:
             modulo: 3600 # Indexings 1 block every 6 hours (6 seconds per block indexing).
 {{/if}}
-{{#if enableLiquidityIndexing}}
-        - handler: handlePhantomOrderRegistered
-          kind: substrate/EventHandler
-          filter:
-            module: intentsCoprocessor
-            method: PhantomOrderRegistered
-        - handler: handlePhantomOrderPrices
-          kind: substrate/EventHandler
-          filter:
-            module: intentsCoprocessor
-            method: PhantomBidWindowExhausted
-        - handler: handleInventoryFold
-          kind: substrate/BlockHandler # Every block: folds the EVM nodes' SolverInventoryReading rows into the pool rows this node alone writes.
+{{#if enableSolverDiscovery}}
+        - handler: handleSolverWatchlistPoll
+          kind: substrate/BlockHandler # Every block while live: polls the orderbook's GET /solvers and queues unseen solvers for the EVM nodes. Skipped during historical sync.
 {{/if}}
         - handler: handlePendingStatusFlush
           kind: substrate/BlockHandler

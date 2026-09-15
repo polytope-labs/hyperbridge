@@ -419,7 +419,9 @@ addRunOptions(program.command("run", { isDefault: true }))
 			process.on("SIGINT", () => void shutdown("SIGINT"))
 			process.on("SIGTERM", () => void shutdown("SIGTERM"))
 
-			const configPath = options.config ? resolve(process.cwd(), options.config) : discoverConfigPath()
+			const configPath = options.config
+				? resolve(process.cwd(), options.config)
+				: discoverConfigPath(process.cwd(), options.dataDir)
 
 			if (configPath) {
 				const tomlContent = readFileSync(configPath, "utf-8")
@@ -475,7 +477,10 @@ addRunOptions(program.command("run", { isDefault: true }))
 				process.exit(1)
 			}
 
-			const outputPath = resolve(process.cwd(), DEFAULT_CONFIG_FILENAME)
+			// A desktop host passes its user-data directory through --data-dir. Keep
+			// ordinary CLI first-run behaviour unchanged, while making the app's
+			// config stable across the meaningless cwd assigned to a double-click.
+			const outputPath = resolve(options.dataDir ?? process.cwd(), DEFAULT_CONFIG_FILENAME)
 			const server = new UiServer({
 				mode: "init",
 				uiDistDir: resolveUiDistDir(),

@@ -12,7 +12,6 @@ import { SqliteDataStore } from "@/data/sqlite"
 import { createSigner, SignerType } from "@/services/wallet"
 import { FXFiller, type TradingPair } from "@/strategies/fx"
 import { AssetRegistry } from "@/config/asset-registry"
-import { Decimal } from "decimal.js"
 import {
 	type ChainConfig,
 	type FillerConfig,
@@ -28,7 +27,7 @@ import {
 	ChainConfigService,
 } from "@hyperbridge/sdk"
 import { beforeAll, describe, it, expect } from "vitest"
-import { ConfirmationPolicy, FillerPricePolicy } from "@/config/interpolated-curve"
+import { ConfirmationPolicy } from "@/config/interpolated-curve"
 import {
 	createPublicClient,
 	createWalletClient,
@@ -55,17 +54,11 @@ import { ERC20_ABI } from "@/config/abis/ERC20"
 function exoticPairs(
 	resolver: FillerConfigService,
 	token1: Record<string, HexString>,
-	maxOrderSize: number,
-	bidPricePolicy?: FillerPricePolicy,
-	askPricePolicy?: FillerPricePolicy,
 ): { pairs: TradingPair[]; registry: AssetRegistry } {
 	const registry = new AssetRegistry(resolver, { EXOTIC: token1 })
 	const pairs: TradingPair[] = ["USDC", "USDT"].map((token0) => ({
 		token0,
 		token1: "EXOTIC",
-		maxOrderSize: new Decimal(maxOrderSize),
-		bidPricePolicy,
-		askPricePolicy,
 	}))
 	return { pairs, registry }
 }
@@ -490,18 +483,6 @@ async function createFxIntentFiller(
 	// the profit gate requires the FX margin to be strictly positive, so a
 	// bid == ask (zero-spread) config makes the filler refuse to bid and the
 	// E2E flow time out. 50 bps: buy exotic at 1, sell at 0.995 per USD.
-	const bidPricePolicy = new FillerPricePolicy({
-		points: [
-			{ amount: "1", price: "1" },
-			{ amount: "10000", price: "1" },
-		],
-	})
-	const askPricePolicy = new FillerPricePolicy({
-		points: [
-			{ amount: "1", price: "0.995" },
-			{ amount: "10000", price: "0.995" },
-		],
-	})
 
 	const confirmationPolicy = new ConfirmationPolicy({
 		"97": {
@@ -522,7 +503,7 @@ async function createFxIntentFiller(
 		[exoticChainId]: chainConfigService.getUsdcAsset(exoticChainId),
 	}
 
-	const legacy = exoticPairs(chainConfigService, token1, 5000, bidPricePolicy, askPricePolicy)
+	const legacy = exoticPairs(chainConfigService, token1)
 	const strategies = [
 		new FXFiller(signer, chainConfigService, chainClientManager, contractService, legacy.pairs, legacy.registry, {
 			confirmationPolicy,

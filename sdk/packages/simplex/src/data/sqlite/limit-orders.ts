@@ -144,6 +144,10 @@ export class SqliteLimitOrderStore implements LimitOrderStore {
 		return rows.map((row) => this.toLimitOrder(row))
 	}
 
+	async open(): Promise<LimitOrder[]> {
+		return this.list({ status: "open" })
+	}
+
 	async setPosting(id: string, posting: LimitOrderPosting): Promise<LimitOrder | null> {
 		this.db
 			.prepare(`
@@ -169,5 +173,34 @@ export class SqliteLimitOrderStore implements LimitOrderStore {
 			.prepare("UPDATE limit_orders SET status = ?, last_error = ?, updated_at = datetime('now') WHERE id = ?")
 			.run(status, lastError, id)
 		return this.read(id)
+	}
+
+	async reserve(id: string, amount: string): Promise<boolean> {
+		const order = this.read(id)
+		if (!order || order.status !== "open") return false
+		const reserved = BigInt(order.reserved) + BigInt(amount)
+		if (reserved > BigInt(order.remaining)) return false
+
+		// Guarded on the `reserved` this decision was read against, so a caller that
+		// moved it in between loses here instead of overcommitting the order. The
+		// arithmetic cannot happen in SQL: a 1e18 amount overruns a 64-bit integer.
+		const result = this.db
+			.prepare(`
+				UPDATE limit_orders SET reserved = ?, updated_at = datetime('now')
+				WHERE id = ? AND reserved = ? AND status = 'open'
+			`)
+			.run(reserved.toString(), id, order.reserved)
+		return result.changes === 1
+	}
+
+	async release(id: string, amount: string): Promise<void> {
+		const order = this.read(id)
+		if (!order) return
+		// Floored at zero: a double release would otherwise leave a negative
+		// reservation, which hands out capacity the order does not have.
+		const reserved = BigInt(order.reserved) - BigInt(amount)
+		this.db
+			.prepare("UPDATE limit_orders SET reserved = ?, updated_at = datetime('now') WHERE id = ? AND reserved = ?")
+			.run((reserved > 0n ? reserved : 0n).toString(), id, order.reserved)
 	}
 }

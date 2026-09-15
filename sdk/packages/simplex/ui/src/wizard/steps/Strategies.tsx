@@ -1,62 +1,17 @@
 import { useState } from "react"
 import { isRegistrySymbol } from "@/config/asset-registry"
-import { pickAnchorStable } from "@/config/pairs"
 import { TokenPairIcons } from "../../components/TokenIcon"
 import { WizardDialog } from "../../components/WizardDialog"
-import { newCrossAssetDraft, newReferenceDraft, normSymbol, removeAt, type PairDraft } from "../state"
+import { newCrossAssetDraft, normSymbol, removeAt, type PairDraft } from "../state"
 import { MarketRow } from "../strategies/MarketRow"
 import { prefillCurves, useStrategiesModel } from "../strategies/useStrategiesModel"
 import type { StepProps } from "../Wizard"
 
-function firstConfiguredPrice(points: PairDraft["bid"]): string | undefined {
-	return points.find((point) => {
-		const amount = Number(point.amount)
-		const price = Number(point.value)
-		return (
-			point.amount.trim() &&
-			point.value.trim() &&
-			Number.isFinite(amount) &&
-			amount >= 0 &&
-			Number.isFinite(price) &&
-			price > 0
-		)
-	})?.value.trim()
-}
-
-function MarketPrices({ pair }: { pair: PairDraft }) {
-	if (pair.referenceOnly) return null
-
-	const buyPrice = pair.bidEnabled ? firstConfiguredPrice(pair.bid) : undefined
-	const sellPrice = pair.askEnabled ? firstConfiguredPrice(pair.ask) : undefined
-	if (!buyPrice && !sellPrice) return null
-
-	const unit = `${pair.token1 || "token1"}/${pair.token0 || "token0"}`
-	return (
-		<div className="market-overview-prices" aria-label={`Configured prices in ${unit}`}>
-			{buyPrice ? (
-				<span className="market-overview-price">
-					<small>Buy</small>
-					<strong>
-						{buyPrice} <em>{unit}</em>
-					</strong>
-				</span>
-			) : null}
-			{sellPrice ? (
-				<span className="market-overview-price">
-					<small>Sell</small>
-					<strong>
-						{sellPrice} <em>{unit}</em>
-					</strong>
-				</span>
-			) : null}
-		</div>
-	)
-}
 
 export function StepStrategies({ state, setState, defaults }: StepProps) {
 	const [editingPairIndex, setEditingPairIndex] = useState<number | null>(null)
 	const model = useStrategiesModel({ state, setState, defaults })
-	const { chains, availableSymbols, marketRows, enabled, duplicateKeys, unanchored, defaultToken1, patchPair } = model
+	const { chains, availableSymbols, marketRows, enabled, duplicateKeys, defaultToken1, patchPair } = model
 
 	const editingPair = editingPairIndex === null ? null : state.pairs[editingPairIndex]
 
@@ -90,11 +45,7 @@ export function StepStrategies({ state, setState, defaults }: StepProps) {
 								<strong>
 									{pair.token0 || "Choose asset"} <span>↔</span> {pair.token1 || "Choose asset"}
 								</strong>
-								<small>
-									{pair.referenceOnly ? "Reference price only" : "Custom price curves"}
-								</small>
 							</div>
-							<MarketPrices pair={pair} />
 							<button
 								type="button"
 								className="market-configure-button"
@@ -105,41 +56,6 @@ export function StepStrategies({ state, setState, defaults }: StepProps) {
 						</div>
 					))}
 				</div>
-
-				{unanchored.length > 0 && (
-					<div className="market-anchor-warning">
-						<p className="error">
-							No USD anchor for {unanchored.join(", ")}. Add a reference-only price feed so confirmation
-							depth can be sized correctly.
-						</p>
-						{unanchored.map((symbol) => {
-							// The feed needs a stable with no existing market against the
-							// symbol — a pair and its reverse are the same market.
-							const stable = pickAnchorStable(enabled, symbol)
-							return stable ? (
-								<button
-									key={symbol}
-									type="button"
-									className="market-text-action"
-									onClick={() =>
-										setState((s) => ({
-											...s,
-											pairs: [...s.pairs, newReferenceDraft(symbol, stable)],
-										}))
-									}
-								>
-									+ Add {stable}/{symbol} reference price feed
-								</button>
-							) : (
-								<p className="hint" key={symbol}>
-									Every USD stable already has a market against {symbol}, but none carries a curve —
-									give one of those markets a price curve instead of adding a feed.
-								</p>
-							)
-						})}
-					</div>
-				)}
-			</section>
 
 			<WizardDialog
 				open={editingPair !== null}

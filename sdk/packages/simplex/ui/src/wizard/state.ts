@@ -1,5 +1,4 @@
 import { isRegistrySymbol, normalizeSymbol } from "@/config/asset-registry"
-import { toPricePoints, type EditorPoint } from "../components/curveModel"
 import { vaultRowsToToml, type VaultRowDraft } from "../lib/vault-rows"
 import type { ChainDefault, CurvePoint, FillerConfig, Network, PairConfig, SetupDefaults } from "../types"
 
@@ -20,21 +19,14 @@ export type VaultDraft = VaultRowDraft
 
 export type SignerType = "privateKey" | "mpcVault" | "turnkey"
 
-/** One cross-asset trading market or reference-only price feed. */
+/** One market the filler will quote. What it pays there comes from a limit order. */
 export interface PairDraft {
 	enabled: boolean
 	token0: string
 	token1: string
-	maxOrderSize: string
-	/** Price feed only: anchors token1 in USD without opening a market. */
-	referenceOnly?: boolean
 	/** UI mode of the symbol pickers — lives on the draft so it survives row reordering. */
 	custom0?: boolean
 	custom1?: boolean
-	bidEnabled: boolean
-	askEnabled: boolean
-	bid: EditorPoint[]
-	ask: EditorPoint[]
 }
 
 export const normSymbol = normalizeSymbol
@@ -73,47 +65,7 @@ export interface WizardState {
 }
 
 export function newCrossAssetDraft(token1: string, token0 = "USDC"): PairDraft {
-	return {
-		enabled: true,
-		token0,
-		token1,
-		maxOrderSize: "",
-		bidEnabled: true,
-		askEnabled: true,
-		bid: [{ amount: "1", value: "" }],
-		ask: [{ amount: "1", value: "" }],
-	}
-}
-
-/** A curve editor whose filled points parse into a policy the engine accepts. */
-export function curveFilled(points: EditorPoint[], check: (v: number) => boolean = (v) => v > 0): boolean {
-	const filled = points.filter((p) => p.amount.trim() && p.value.trim())
-	return filled.length > 0 && filled.every((p) => Number(p.amount) >= 0 && check(Number(p.value)))
-}
-
-/**
- * Whether a draft will contribute a curve edge to the emitted config —
- * mirrors what assembleConfig emits, so the anchor check and the step
- * validation agree with the server by construction.
- */
-export function draftHasCurve(draft: PairDraft): boolean {
-	if (draft.referenceOnly) return curveFilled(draft.ask)
-	return (draft.bidEnabled && curveFilled(draft.bid)) || (draft.askEnabled && curveFilled(draft.ask))
-}
-
-/** A reference-only <stable>/<symbol> price feed, inserted by the anchor helper. */
-export function newReferenceDraft(token1: string, token0: string): PairDraft {
-	return {
-		enabled: true,
-		token0,
-		token1,
-		maxOrderSize: "",
-		referenceOnly: true,
-		bidEnabled: false,
-		askEnabled: true,
-		bid: [],
-		ask: [{ amount: "0", value: "" }],
-	}
+	return { enabled: true, token0, token1 }
 }
 
 export function initialState(defaults: SetupDefaults): WizardState {
@@ -209,28 +161,10 @@ export function patchChain(state: WizardState, chainId: number, patch: Partial<C
 export function assembleConfig(state: WizardState, defaults: SetupDefaults): FillerConfig {
 	const chains = enabledChains(state)
 
-	const pairs: PairConfig[] = enabledPairs(state).map((draft) => {
-		if (draft.referenceOnly) {
-			return {
-				token0: draft.token0,
-				token1: draft.token1,
-				referenceOnly: true,
-				askPriceCurve: toPricePoints(draft.ask),
-			}
-		}
-		const withBid = draft.bidEnabled
-		const withAsk = draft.askEnabled
-		return {
-			token0: draft.token0,
-			token1: draft.token1,
-			// Omitted entirely when blank: the cap is optional, and an empty string
-			// would fail config validation as a malformed decimal rather than read
-			// as "no cap".
-			...(draft.maxOrderSize.trim() ? { maxOrderSize: draft.maxOrderSize.trim() } : {}),
-			...(withBid ? { bidPriceCurve: toPricePoints(draft.bid) } : {}),
-			...(withAsk ? { askPriceCurve: toPricePoints(draft.ask) } : {}),
-		}
-	})
+	const pairs: PairConfig[] = enabledPairs(state).map((draft) => ({
+		token0: draft.token0,
+		token1: draft.token1,
+	}))
 
 	// Only [assets] entries actually referenced by a pair are emitted — and
 	// never for registry symbols: an accidental override would silently repoint

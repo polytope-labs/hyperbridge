@@ -37,7 +37,7 @@ function config(overrides: Partial<FillerTomlConfig["simplex"]> = {}): FillerTom
 			...overrides,
 		},
 		pairs: [
-			{ token0: "USDC", token1: "USDC", maxOrderSize: "1000", askPriceCurve: [{ amount: "0", price: "0.999" }] },
+			{ token0: "USDC", token1: "USDC" },
 		],
 		chains: [{ rpcUrls: [rpc.url], bundlerUrl: "https://bundler.example" }],
 	}

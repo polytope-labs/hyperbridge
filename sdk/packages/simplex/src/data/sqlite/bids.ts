@@ -17,7 +17,8 @@ const BID_COLUMNS = `
 	retracted,
 	retracted_at as retractedAt,
 	retract_extrinsic_hash as retractExtrinsicHash,
-	dead
+	dead,
+	limit_order_id as limitOrderId
 `
 
 /**
@@ -53,7 +54,8 @@ export class SqliteBidStore implements BidStore {
 				retracted INTEGER NOT NULL DEFAULT 0,
 				retracted_at TEXT,
 				retract_extrinsic_hash TEXT,
-				dead INTEGER NOT NULL DEFAULT 0
+				dead INTEGER NOT NULL DEFAULT 0,
+				limit_order_id TEXT
 			);
 
 			CREATE INDEX IF NOT EXISTS idx_bids_commitment ON bids(commitment);
@@ -68,6 +70,10 @@ export class SqliteBidStore implements BidStore {
 			if (columns.has(column)) continue
 			this.db.exec(`ALTER TABLE bids ADD COLUMN ${column} INTEGER NOT NULL DEFAULT 0`)
 			this.logger.info({ column }, "Migrated bid storage schema")
+		}
+		if (!columns.has("limit_order_id")) {
+			this.db.exec("ALTER TABLE bids ADD COLUMN limit_order_id TEXT")
+			this.logger.info({ column: "limit_order_id" }, "Migrated bid storage schema")
 		}
 	}
 
@@ -85,8 +91,8 @@ export class SqliteBidStore implements BidStore {
 	async store(bid: BidInsert): Promise<void> {
 		const result = this.db
 			.prepare(`
-				INSERT INTO bids (commitment, extrinsic_hash, block_hash, success, pending, error)
-				VALUES (?, ?, ?, ?, ?, ?)
+				INSERT INTO bids (commitment, extrinsic_hash, block_hash, success, pending, error, limit_order_id)
+				VALUES (?, ?, ?, ?, ?, ?, ?)
 			`)
 			.run(
 				bid.commitment,
@@ -95,6 +101,7 @@ export class SqliteBidStore implements BidStore {
 				bid.success ? 1 : 0,
 				bid.pending ? 1 : 0,
 				bid.error || null,
+				bid.limitOrderId ?? null,
 			)
 
 		this.logger.debug({ id: result.lastInsertRowid, commitment: bid.commitment, success: bid.success }, "Bid stored")

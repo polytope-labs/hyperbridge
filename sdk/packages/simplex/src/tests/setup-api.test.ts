@@ -56,11 +56,6 @@ describe("setup API", () => {
 				{
 					token0: "USDC",
 					token1: "USDC",
-					maxOrderSize: "100000",
-					askPriceCurve: [
-						{ amount: "100", price: "0.99" },
-						{ amount: "100000", price: "0.999" },
-					],
 				},
 			],
 			chains: [{ rpcUrls: [rpcUrl], bundlerUrl: "https://api.pimlico.io/v2/1/rpc?apikey=secretpimlicokey" }],

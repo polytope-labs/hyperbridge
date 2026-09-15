@@ -170,9 +170,9 @@ async function killProcess(pid) {
 }
 
 // Playwright's close() and "close" event wait for Electron's stdio pipes to
-// close, not for the process to exit. On Windows the detached solver inherits
-// those handles (libuv always spawns with handle inheritance), so they stay
-// open while it runs. Wait for the process itself instead.
+// close, not for the process to exit. On Windows the detached solver can inherit
+// those handles (libuv always spawns with handle inheritance) and keep them open
+// while it runs. Wait for the process itself instead.
 function electronExit(electronApp, timeoutMs = 30_000) {
 	const child = electronApp.process()
 	if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve()

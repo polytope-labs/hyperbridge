@@ -15,6 +15,13 @@ import { patchRuntimeState } from "@/data/state"
 import { MemoryDataStore } from "@/data/memory"
 import { OrderScanner as OrderScannerImpl } from "@/scanner/order-scanner"
 import type { OrderScanner } from "@/scanner/types"
+import type { LimitOrder, LimitOrderFilter } from "@/data/types"
+import type {
+	CancelledLimitOrder,
+	CreateLimitOrderRequest,
+	LimitOrderService,
+	PostedLimitOrder,
+} from "@/orderbook/limit-orders"
 import type { BalanceSnapshot } from "@/services/BalanceProvider"
 import type { Signer } from "@/services/wallet"
 
@@ -113,6 +120,9 @@ export interface SimplexEvents {
 	"order:fill-observed": { commitment: HexString; filler: string; chainId: number; txHash?: string; ours: boolean }
 	rebalance: { success: boolean; transferCount?: number; executedCount?: number; error?: string }
 	activity: ActivityEvent
+	"limit-order:posted": { order: LimitOrder }
+	"limit-order:rejected": { order: LimitOrder; code: string; message: string }
+	"limit-order:cancelled": { order: LimitOrder }
 }
 
 /** Internal monitor event name to public event name. */
@@ -182,6 +192,63 @@ export interface SimplexStatus {
 // ===========================================================================
 
 /** Trading pairs of the running engine. Every mutation binds on the next order. */
+/**
+ * The operator's limit orders: what simplex offers to pay, and what the
+ * orderbook advertises on its behalf.
+ *
+ * Every method rejects when the filler was started without `[orderbook]`
+ * enabled, rather than quietly doing nothing.
+ */
+export class LimitOrderController {
+	constructor(
+		private runtime: FillerRuntime,
+		private emit: LimitOrderEmitter,
+	) {}
+
+	private get service(): LimitOrderService {
+		const service = this.runtime.limitOrders
+		if (!service) {
+			throw new Error("No orderbook is configured — set [orderbook] enabled and url to use limit orders")
+		}
+		return service
+	}
+
+	list(filter?: LimitOrderFilter): Promise<LimitOrder[]> {
+		return this.service.list(filter)
+	}
+
+	get(id: string): Promise<LimitOrder | null> {
+		return this.service.get(id)
+	}
+
+	/** Creates the order, posts it, and reports what the orderbook made of it. */
+	async create(request: CreateLimitOrderRequest): Promise<PostedLimitOrder> {
+		const posted = await this.service.create(request)
+		if (posted.result.kind === "rejected" || posted.result.kind === "failed") {
+			this.emit("limit-order:rejected", {
+				order: posted.order,
+				code: posted.result.code,
+				message: posted.result.message,
+			})
+		} else {
+			this.emit("limit-order:posted", { order: posted.order })
+		}
+		return posted
+	}
+
+	async cancel(id: string): Promise<CancelledLimitOrder> {
+		const cancelled = await this.service.cancel(id)
+		this.emit("limit-order:cancelled", { order: cancelled.order })
+		return cancelled
+	}
+}
+
+/** How the controller publishes an outcome on the `Simplex` it belongs to. */
+type LimitOrderEmitter = <E extends "limit-order:posted" | "limit-order:rejected" | "limit-order:cancelled">(
+	event: E,
+	payload: SimplexEvents[E],
+) => void
+
 export class PairController {
 	constructor(
 		private runtime: FillerRuntime,
@@ -776,6 +843,7 @@ export class Simplex extends EventEmitter {
 	readonly assets: AssetController
 	readonly wallet: WalletController
 	readonly rebalancing: RebalanceController
+	readonly limitOrders: LimitOrderController
 
 	private logger: Logger
 	private stopped = false
@@ -795,6 +863,7 @@ export class Simplex extends EventEmitter {
 		this.assets = new AssetController(runtime, persist)
 		this.wallet = new WalletController(runtime)
 		this.rebalancing = new RebalanceController(runtime, persist)
+		this.limitOrders = new LimitOrderController(runtime, (event, payload) => this.emit(event, payload))
 		this.forwardEvents()
 	}
 

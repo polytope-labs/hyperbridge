@@ -19,8 +19,9 @@ EVM nodes publish readings for it to fold.
      live on), resolves the pools with `poolsForFill`, and calls `publishPoolInventory`. No order row, or no
      registry-tracked pair, means nothing to publish — the common case, and what keeps this off most fills' path.
    - `handleEscrowReleasedEventV3` (source chain) calls `publishInventoryAfterEscrowRelease`: the solver was just paid
-     the order's inputs back, so its inventory there ROSE. The event names no filler, so the handler first reads
-     the gateway's `_filled(commitment)` at that block.
+     the order's inputs back, so its inventory there ROSE. The event names the solver, and that is the provider
+     published — including for a partial redeem, which never sets `_filled`. The old event shape names no filler;
+     `handleEscrowReleasedEventV3Legacy` handles it and reads the gateway's `_filled(commitment)` at that block.
    - `YieldVaultService.recordLedger` (vault `Deposit`/`Withdraw` and each tracked side of an ordinary
      share `Transfer`) ends with the same call for (chain, lp, underlying token), after its own
      known-solver gate and duplicate-log guard. Mint/burn, self and zero-share transfers are excluded.

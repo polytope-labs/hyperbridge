@@ -753,14 +753,20 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 		pairs: TradingPair[],
 		registry: AssetRegistry,
 		estimate: { fillGas: bigint; relayer: bigint },
-		options?: { fundingVenues?: unknown[]; balancesByToken?: Record<string, bigint> },
+		options?: {
+			fundingVenues?: unknown[]
+			balancesByToken?: Record<string, bigint>
+			/** Output other solvers already delivered, per leg. Defaults to an untouched order. */
+			partialFills?: (o: Order) => Promise<bigint[]>
+		},
 	) {
 		const cache = new Map<string, unknown>()
 		const contractService = {
 			cacheService: {
 				getPairClassifications: (id: string) => cache.get(`pc:${id}`),
 				setPairClassifications: (id: string, v: unknown) => cache.set(`pc:${id}`, v),
-				setFillerOutputs: () => {},
+				setFillerOutputs: (id: string, outputs: TokenInfo[]) => cache.set(`fo:${id}`, outputs),
+				getFillerOutputs: (id: string) => cache.get(`fo:${id}`) as TokenInfo[] | undefined,
 				setFundingPrepends: () => {},
 				clearFundingPrepends: () => {},
 				clearPartialFill: (id: string) => cache.delete(`pf:${id}`),
@@ -769,7 +775,7 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 			},
 			getFeeTokenWithDecimals: async () => ({ decimals: 6, address: USDC }),
 			getTokenDecimals: async (token: string) => decimalsByAddr[token.toLowerCase()] ?? 18,
-			partialFillsFor: async (o: Order) => o.output.assets.map(() => 0n),
+			partialFillsFor: options?.partialFills ?? (async (o: Order) => o.output.assets.map(() => 0n)),
 			estimateGasFillPost: async () => ({
 				totalCostInSourceFeeToken: estimate.fillGas,
 				relayerFeeInSourceFeeToken: estimate.relayer,
@@ -1240,6 +1246,135 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 
 		filler.removePair(zarpCngn)
 		expect(() => filler.removePair(reference)).toThrow(/cannot be removed/)
+	})
+	describe("partially filled and cross-chain under-fills", () => {
+		type Probe = {
+			contractService: {
+				cacheService: {
+					isPartialFill(id: string): boolean
+					getFillerOutputs(id: string): TokenInfo[] | undefined
+				}
+			}
+		}
+		const cache = (filler: FXFiller) => (filler as unknown as Probe).contractService.cacheService
+		const usdcUsdc = (): TradingPair[] => [
+			{ token0: "USDC", token1: "USDC", maxOrderSize: size("100000"), askPricePolicy: flat("0.999") },
+		]
+		const exec = { fillGas: parseUnits("1", 6), relayer: parseUnits("1", 6) }
+		const usdcOrder = (id: string) =>
+			order(
+				id,
+				{ token: bytes20ToBytes32(USDC), amount: parseUnits("1000", 6) },
+				{ token: bytes20ToBytes32(USDC), amount: parseUnits("999", 6) },
+				parseUnits("10", 6),
+			)
+
+		it("bids a cross-chain under-fill as a partial instead of refusing it", async () => {
+			// The wallet holds 400 of the 999 USDC asked. The gateway now releases a
+			// proportional slice for a cross-chain under-fill, so this is a partial.
+			const filler = gateFiller(usdcUsdc(), new AssetRegistry(cfg), exec, {
+				balancesByToken: { [USDC.toLowerCase()]: parseUnits("400", 6) },
+			})
+			expect(await filler.calculateProfitability(usdcOrder("xchain-short"))).toBeGreaterThan(0)
+			expect(cache(filler).isPartialFill("xchain-short")).toBe(true)
+			expect(cache(filler).getFillerOutputs("xchain-short")?.[0].amount).toBe(parseUnits("400", 6))
+		})
+
+		it("still refuses an under-fill on an order carrying output calldata", async () => {
+			const filler = gateFiller(usdcUsdc(), new AssetRegistry(cfg), exec, {
+				balancesByToken: { [USDC.toLowerCase()]: parseUnits("400", 6) },
+			})
+			const o = usdcOrder("xchain-short-calldata")
+			o.output.call = "0xdeadbeef" as HexString
+			expect(await filler.calculateProfitability(o)).toBe(0)
+		})
+
+		it("sizes a started order against the remainder and prices the released slice", async () => {
+			// Half the output (499.5 USDC) already landed, releasing 500 of the 1000 escrowed.
+			// Our fill owes the other 499.5 and releases the remaining 500, so it completes the
+			// order: a full fill that collects the fees, sourcing no more than the remainder.
+			const filler = gateFiller(usdcUsdc(), new AssetRegistry(cfg), exec, {
+				partialFills: async () => [parseUnits("499.5", 6)],
+			})
+			const profit = await filler.calculateProfitability(usdcOrder("started"))
+			expect(cache(filler).isPartialFill("started")).toBe(false)
+			expect(cache(filler).getFillerOutputs("started")?.[0].amount).toBe(parseUnits("499.5", 6))
+			// Fees $10 - execution $2 + spread (500 released - 499.5 paid). Sized as a fresh
+			// order it would pay 999 against the full 1000 and score 9.
+			expect(profit).toBeCloseTo(8.5, 9)
+		})
+
+		it("sends a completed leg as an aligned zero without treating it as an under-fill", async () => {
+			const pairs = [
+				{
+					token0: "USDC",
+					token1: "CNGN",
+					maxOrderSize: size("100000"),
+					bidPricePolicy: flat("1500"),
+					askPricePolicy: flat("1510"),
+				},
+				{
+					token0: "USDT",
+					token1: "ZARP",
+					maxOrderSize: size("100000"),
+					bidPricePolicy: flat("18"),
+					askPricePolicy: flat("18.2"),
+				},
+			]
+			const registry = new AssetRegistry(cfg, {
+				CNGN: { [SRC]: CNGN, [DST]: CNGN },
+				ZARP: { [SRC]: ZARP, [DST]: ZARP },
+			})
+			const cngnOut = parseUnits("1500000", 18)
+			const filler = gateFiller(
+				pairs,
+				registry,
+				{ fillGas: parseUnits("1", 6), relayer: 0n },
+				{
+					partialFills: async () => [cngnOut, 0n],
+				},
+			)
+			const o: Order = {
+				...order(
+					"completed-leg",
+					{ token: bytes20ToBytes32(USDC), amount: parseUnits("1000", 6) },
+					{ token: bytes20ToBytes32(CNGN), amount: cngnOut },
+					parseUnits("10", 6),
+				),
+				inputs: [
+					{ token: bytes20ToBytes32(USDC), amount: parseUnits("1000", 6) },
+					{ token: bytes20ToBytes32(USDT), amount: parseUnits("1000", 6) },
+				],
+				output: {
+					beneficiary: bytes20ToBytes32(SOLVER),
+					assets: [
+						{ token: bytes20ToBytes32(CNGN), amount: cngnOut },
+						{ token: bytes20ToBytes32(ZARP), amount: parseUnits("17900", 18) },
+					],
+					call: "0x" as HexString,
+				},
+			}
+			expect(await filler.calculateProfitability(o)).toBeGreaterThan(0)
+			const outputs = cache(filler).getFillerOutputs("completed-leg")!
+			expect(outputs.map((out) => out.amount > 0n)).toEqual([false, true])
+			expect(cache(filler).isPartialFill("completed-leg")).toBe(false)
+		})
+
+		it("skips an order every leg of which is already filled", async () => {
+			const filler = gateFiller(usdcUsdc(), new AssetRegistry(cfg), exec, {
+				partialFills: async () => [parseUnits("999", 6)],
+			})
+			expect(await filler.calculateProfitability(usdcOrder("done"))).toBe(0)
+		})
+
+		it("skips an order whose fill progress cannot be read", async () => {
+			const filler = gateFiller(usdcUsdc(), new AssetRegistry(cfg), exec, {
+				partialFills: async () => {
+					throw new Error("rpc down")
+				},
+			})
+			expect(await filler.calculateProfitability(usdcOrder("unreadable"))).toBe(0)
+		})
 	})
 })
 

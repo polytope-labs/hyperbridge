@@ -7,6 +7,12 @@ import type {
 	BidInsert,
 	BidStats,
 	BidStore,
+	LimitOrder,
+	LimitOrderFilter,
+	LimitOrderInsert,
+	LimitOrderPosting,
+	LimitOrderStatus,
+	LimitOrderStore,
 	RuntimeState,
 	SimplexDataStore,
 	StateStore,
@@ -308,6 +314,64 @@ class MemoryActivityStore implements ActivityStore {
 	}
 }
 
+class MemoryLimitOrderStore implements LimitOrderStore {
+	private orders = new Map<string, LimitOrder>()
+
+	async create(order: LimitOrderInsert): Promise<LimitOrder> {
+		const now = sqliteDatetime(new Date())
+		const stored: LimitOrder = {
+			...order,
+			acceptedSources: [...order.acceptedSources],
+			remaining: order.size,
+			reserved: "0",
+			expiresAt: order.expiresAt ?? null,
+			status: "open",
+			commitment: null,
+			orderNonce: "0",
+			bookExpiresAt: null,
+			bookPrice: null,
+			lastError: null,
+			createdAt: now,
+			updatedAt: now,
+		}
+		this.orders.set(stored.id, stored)
+		return { ...stored }
+	}
+
+	async get(id: string): Promise<LimitOrder | null> {
+		const order = this.orders.get(id)
+		return order ? { ...order } : null
+	}
+
+	async list(filter: LimitOrderFilter = {}): Promise<LimitOrder[]> {
+		return [...this.orders.values()]
+			.filter(
+				(order) =>
+					(filter.status === undefined || order.status === filter.status) &&
+					(filter.fillChain === undefined || order.fillChain === filter.fillChain) &&
+					(filter.book === undefined || order.book === filter.book),
+			)
+			.sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+			.map((order) => ({ ...order }))
+	}
+
+	async setPosting(id: string, posting: LimitOrderPosting): Promise<LimitOrder | null> {
+		return this.patch(id, posting)
+	}
+
+	async setStatus(id: string, status: LimitOrderStatus, lastError: string | null = null): Promise<LimitOrder | null> {
+		return this.patch(id, { status, lastError })
+	}
+
+	private patch(id: string, fields: Partial<LimitOrder>): LimitOrder | null {
+		const order = this.orders.get(id)
+		if (!order) return null
+		const next = { ...order, ...fields, updatedAt: sqliteDatetime(new Date()) }
+		this.orders.set(id, next)
+		return { ...next }
+	}
+}
+
 class MemoryStateStore implements StateStore {
 	private state: RuntimeState = {}
 
@@ -333,4 +397,5 @@ export class MemoryDataStore implements SimplexDataStore {
 	readonly bids: BidStore = new MemoryBidStore()
 	readonly activity: ActivityStore = new MemoryActivityStore()
 	readonly state: StateStore = new MemoryStateStore()
+	readonly limitOrders: LimitOrderStore = new MemoryLimitOrderStore()
 }

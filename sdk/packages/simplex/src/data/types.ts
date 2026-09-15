@@ -1,10 +1,10 @@
 /**
  * The persistence contract for a running filler.
  *
- * Everything simplex must remember across a restart lives behind these three
+ * Everything simplex must remember across a restart lives behind these four
  * stores: submitted bids (so deposits can be reclaimed), the order-activity
- * feed, and a scrap of operator state. Nothing else in the filler touches a
- * database, a file, or a data directory.
+ * feed, the operator's limit orders, and a scrap of operator state. Nothing
+ * else in the filler touches a database, a file, or a data directory.
  *
  * Every method is async. The bundled SQLite adapter is synchronous underneath
  * and simply returns resolved promises — the async signature exists so a
@@ -17,6 +17,7 @@ export interface SimplexDataStore {
 	bids: BidStore
 	activity: ActivityStore
 	state: StateStore
+	limitOrders: LimitOrderStore
 	/** Releases any underlying handles. Called by `Simplex.stop()`. */
 	close?(): Promise<void>
 }
@@ -257,6 +258,116 @@ export interface OrderHistoryPage {
 	pageSize: number
 	total: number
 	orders: OrderHistoryEntry[]
+}
+
+// ===========================================================================
+// Limit orders
+// ===========================================================================
+
+/** Which way round a limit order trades its book's pair. */
+export type LimitOrderSide = "BID" | "ASK"
+
+/**
+ * `open`: live, and bids may draw on it. `resizing`: a repost is in flight after
+ * a fill, so the orderbook entry may be missing until it lands. `filled`: worked
+ * down past the dust floor. `cancelled`: withdrawn by the operator. `rejected`:
+ * the orderbook refused it and `lastError` says why.
+ */
+export type LimitOrderStatus = "open" | "resizing" | "filled" | "cancelled" | "rejected"
+
+/**
+ * One of the operator's limit orders.
+ *
+ * This record is what simplex prices against and draws down; the orderbook entry
+ * is a derived copy that expires and is reposted. Amounts and prices are decimal
+ * strings at 1e18, the unit the orderbook takes and returns, whatever decimals
+ * the tokens use on their own chains.
+ */
+export interface LimitOrder {
+	/** Stable across every repost, unlike `commitment`. */
+	id: string
+	/** Orderbook book id, with the symbols it resolved to. */
+	book: string
+	base: string
+	quote: string
+	side: LimitOrderSide
+	/** Where simplex fills, as a state machine id. */
+	fillChain: string
+	/** Quote per 1 base: the rate simplex signs, before the orderbook's fee haircut. */
+	price: string
+	/** The output simplex offered to pay when the order was created. */
+	size: string
+	/** Output not yet delivered. */
+	remaining: string
+	/** Output promised to bids that have neither filled nor been retracted. */
+	reserved: string
+	/** Source chains this order accepts swaps from. Never empty. */
+	acceptedSources: string[]
+	/** TTL written into each posting. */
+	ttlSecs: number
+	/** Operator expiry for the limit order itself, independent of the posting's. */
+	expiresAt: string | null
+	status: LimitOrderStatus
+	/** The current posting's commitment, absent while nothing is live. */
+	commitment: string | null
+	/** Bumped on every repost, so each posting hashes differently. */
+	orderNonce: string
+	/** When the current posting expires, as the orderbook reported it. */
+	bookExpiresAt: string | null
+	/** `Order.price` from the orderbook, which shades `price` by the protocol fee. */
+	bookPrice: string | null
+	/** The last rejection, as "CODE: message". */
+	lastError: string | null
+	/** SQLite-style "YYYY-MM-DD HH:MM:SS" in UTC. Sorts lexicographically. */
+	createdAt: string
+	updatedAt: string
+}
+
+/** What the operator supplies; everything else is derived or defaulted. */
+export interface LimitOrderInsert {
+	id: string
+	book: string
+	base: string
+	quote: string
+	side: LimitOrderSide
+	fillChain: string
+	price: string
+	size: string
+	acceptedSources: string[]
+	ttlSecs: number
+	expiresAt?: string | null
+}
+
+export interface LimitOrderFilter {
+	status?: LimitOrderStatus
+	fillChain?: string
+	book?: string
+}
+
+/** The fields a posting writes back, applied together so a half-posted row is never visible. */
+export interface LimitOrderPosting {
+	commitment: string | null
+	bookExpiresAt: string | null
+	bookPrice: string | null
+	orderNonce: string
+	status: LimitOrderStatus
+	lastError: string | null
+}
+
+/**
+ * Persistent record of the operator's limit orders.
+ *
+ * This is inventory, not a cache: `remaining` and `reserved` are what stop two
+ * chains from paying out the same liability twice, so a store that loses writes
+ * overcommits real money.
+ */
+export interface LimitOrderStore {
+	create(order: LimitOrderInsert): Promise<LimitOrder>
+	get(id: string): Promise<LimitOrder | null>
+	list(filter?: LimitOrderFilter): Promise<LimitOrder[]>
+	/** Records what the orderbook did with the current posting. */
+	setPosting(id: string, posting: LimitOrderPosting): Promise<LimitOrder | null>
+	setStatus(id: string, status: LimitOrderStatus, lastError?: string | null): Promise<LimitOrder | null>
 }
 
 // ===========================================================================

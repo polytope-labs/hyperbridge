@@ -18,9 +18,13 @@ import {
 } from "@/services/FillerConfigService"
 import { assertConfirmationCoverage, validateConfig, type FillerTomlConfig, type VaultToml } from "@/config/filler-toml"
 import type { ConfirmationPolicy } from "@/config/interpolated-curve"
-import { DEFAULT_MAX_CONCURRENT_ORDERS } from "@/config/defaults"
+import { DEFAULT_MAX_CONCURRENT_ORDERS, DEFAULT_ORDERBOOK_TIMEOUT_MS } from "@/config/defaults"
 import { ChainClientManager } from "@/services/ChainClientManager"
 import { ContractInteractionService } from "@/services/ContractInteractionService"
+import { DelegationService } from "@/services/DelegationService"
+import { OrderbookClient } from "@/orderbook/client"
+import { LimitOrderService } from "@/orderbook/limit-orders"
+import { MIN_ORDER_TTL_SECONDS } from "@/orderbook/types"
 import { UserOpSender } from "@/services/UserOpSender"
 import { RebalancingService } from "@/services/RebalancingService"
 import { getLogger, moduleLogger, type Logger, type LogLevel, type LoggerContext } from "@/services/Logger"
@@ -103,6 +107,8 @@ export interface FillerRuntime {
 	loggers: LoggerContext
 	/** Symbol-to-address resolution for the configured chains (send options, balance labels). */
 	assetRegistry: AssetRegistry
+	/** Creates and posts the operator's limit orders, absent unless `[orderbook]` is enabled. */
+	limitOrders?: LimitOrderService
 	/** The live trading engine, absent when the config declared no pairs. */
 	engine?: FXFiller
 	/** The engine's live pair array (same instance), indexed 1:1 with config.pairs. */
@@ -504,6 +510,27 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 
 	started.push(() => intentFiller.stop())
 
+	// Limit orders are inventory the operator opens while the filler runs, so the
+	// service exists as soon as an orderbook is configured, whether or not any
+	// order has been created yet.
+	const limitOrderService = config.orderbook?.enabled
+		? new LimitOrderService(
+				options.data.limitOrders,
+				new OrderbookClient(
+					config.orderbook.url!,
+					config.orderbook.requestTimeoutMs ?? DEFAULT_ORDERBOOK_TIMEOUT_MS,
+					options.loggers,
+				),
+				contractService,
+				configService,
+				assetRegistry,
+				runtimeSigner,
+				config.orderbook.defaultTtlSecs ?? MIN_ORDER_TTL_SECONDS,
+				new DelegationService(chainClientManager, configService, runtimeSigner),
+				options.loggers,
+			)
+		: undefined
+
 	// Initialize (sets up EIP-7702 delegation if solver selection is configured)
 	try {
 		await intentFiller.initialize()
@@ -673,6 +700,7 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 
 	return {
 		intentFiller,
+		limitOrders: limitOrderService,
 		balanceProvider,
 		vaultVenue,
 		adminStrategies,

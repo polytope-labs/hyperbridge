@@ -6,6 +6,7 @@ import { validateAssetDefinitions, type AssetDefinition } from "@/config/asset-r
 import { validatePairConfigs, type PairConfig } from "@/config/pairs"
 import type { SignerConfig } from "@/services/wallet"
 import { MIN_BLOCK_SCAN_INTERVAL_SECONDS } from "@/services/FillerConfigService"
+import { MIN_ORDER_TTL_SECONDS } from "@/orderbook/types"
 import type { UserProvidedChainConfig, AllowlistConfig } from "@/services/FillerConfigService"
 import type { PaymasterKeeperConfig } from "@/services/PaymasterKeeperService"
 
@@ -159,6 +160,29 @@ export interface FillerTomlConfig {
 	allowlist?: AllowlistConfig
 	/** SimplexPaymaster fee-recycling keeper (`paymaster-keeper` subcommand). */
 	keeper?: PaymasterKeeperConfig
+	/** The HyperFX orderbook simplex posts its limit orders to. */
+	orderbook?: OrderbookConfig
+}
+
+/**
+ * Where the operator's limit orders are advertised.
+ *
+ * The limit orders themselves are not configured here: they live in `bids.db`
+ * and are created over the API, because they are inventory the operator opens
+ * and closes while the filler runs rather than startup settings.
+ */
+export interface OrderbookConfig {
+	/** GraphQL endpoint. Required when `enabled`. */
+	url?: string
+	/** Off unless set. A filler with no orderbook simply posts nothing. */
+	enabled?: boolean
+	/** TTL written into each posting, in seconds. At least 900, which is the orderbook's floor. */
+	defaultTtlSecs?: number
+	/** How long before a posting expires to repost it, in seconds. */
+	renewMarginSecs?: number
+	/** How often to reconcile local limit orders against the orderbook, in seconds. */
+	reconcileIntervalSecs?: number
+	requestTimeoutMs?: number
 }
 
 /**
@@ -228,6 +252,38 @@ export function validateVaultToml(
 			if (Number(v.threshold) <= Number(v.minBalance)) {
 				throw new Error(`Vault ${v.vault} 'threshold' must be greater than 'minBalance'`)
 			}
+		}
+	}
+}
+
+/**
+ * Checked at the gate rather than at first use: an orderbook that is enabled but
+ * misconfigured means every limit order the operator creates is refused, and a
+ * TTL under the orderbook's own floor is refused one order at a time with a
+ * `TTL_TOO_SHORT` nobody sees until they try.
+ */
+function validateOrderbookConfig(orderbook: OrderbookConfig): void {
+	if (!orderbook.url) {
+		throw new Error("orderbook.url is required when orderbook.enabled is true")
+	}
+	const positiveSeconds: [keyof OrderbookConfig, number | undefined, number][] = [
+		["defaultTtlSecs", orderbook.defaultTtlSecs, MIN_ORDER_TTL_SECONDS],
+		["renewMarginSecs", orderbook.renewMarginSecs, 1],
+		["reconcileIntervalSecs", orderbook.reconcileIntervalSecs, 1],
+		["requestTimeoutMs", orderbook.requestTimeoutMs, 1],
+	]
+	for (const [name, value, minimum] of positiveSeconds) {
+		if (value === undefined) continue
+		if (!Number.isInteger(value) || value < minimum) {
+			throw new Error(`orderbook.${name} must be an integer >= ${minimum}; got ${value}`)
+		}
+	}
+	if (orderbook.renewMarginSecs !== undefined) {
+		const ttl = orderbook.defaultTtlSecs ?? MIN_ORDER_TTL_SECONDS
+		if (orderbook.renewMarginSecs >= ttl) {
+			throw new Error(
+				`orderbook.renewMarginSecs (${orderbook.renewMarginSecs}) must be shorter than orderbook.defaultTtlSecs (${ttl}), or every posting is due for renewal the moment it lands`,
+			)
 		}
 	}
 }
@@ -309,6 +365,10 @@ export function validateConfig(config: FillerTomlConfig, cliWatchOnly = false): 
 
 	if (config.vault?.vaults?.length) {
 		validateVaultToml(config.vault.vaults)
+	}
+
+	if (config.orderbook?.enabled) {
+		validateOrderbookConfig(config.orderbook)
 	}
 
 	// Asset registry and trading pairs — the entire trading configuration.

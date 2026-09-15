@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { ORDERBOOK_SCALE, signedAmounts, toRaw } from "@/orderbook/amounts"
+import { ORDERBOOK_SCALE, rateFrom, signedAmounts, toRaw } from "@/orderbook/amounts"
 
 /** 1,500 quote per 1 base, the shape a USDC/cNGN book reads at. */
 const PRICE = 1500n * ORDERBOOK_SCALE
@@ -71,5 +71,56 @@ describe("signedAmounts", () => {
 		expect(() => signedAmounts({ side: "BID", size: ONE, price: 0n, baseDecimals: 6, quoteDecimals: 18 })).toThrow(
 			/greater than zero/,
 		)
+	})
+})
+
+describe("rateFrom", () => {
+	const book = { base: "USDC", quote: "CNGN" }
+
+	it("derives the rate and the side from the two amounts the operator gave", () => {
+		// 10,000 USDC in for 139,000,000 cNGN out: base in, quote out, so a bid.
+		const { side, price } = rateFrom({
+			...book,
+			tokenIn: "USDC",
+			amountIn: 10_000n * ONE,
+			amountOut: 139_000_000n * ONE,
+		})
+		expect(side).toBe("BID")
+		expect(price).toBe(13_900n * ONE)
+	})
+
+	it("reads the other direction on the same book as an ask", () => {
+		// 139,000,000 cNGN in for 10,000 USDC out: quote in, base out.
+		const { side, price } = rateFrom({
+			...book,
+			tokenIn: "CNGN",
+			amountIn: 139_000_000n * ONE,
+			amountOut: 10_000n * ONE,
+		})
+		expect(side).toBe("ASK")
+		expect(price).toBe(13_900n * ONE)
+	})
+
+	it("rounds a bid's rate down, so it never pays away more quote than was offered", () => {
+		// 3 quote for 7 base does not divide; the operator offered 3, not more.
+		const { price } = rateFrom({ ...book, tokenIn: "USDC", amountIn: 7n, amountOut: 3n })
+		expect(price).toBe((3n * ONE) / 7n)
+		expect(price * 7n <= 3n * ONE).toBe(true)
+	})
+
+	it("rounds an ask's rate up, so it never takes in less quote than was asked for", () => {
+		const { price } = rateFrom({ ...book, tokenIn: "CNGN", amountIn: 3n, amountOut: 7n })
+		expect(price * 7n >= 3n * ONE).toBe(true)
+	})
+
+	it("refuses a symbol that is neither side of the book", () => {
+		expect(() => rateFrom({ ...book, tokenIn: "EURC", amountIn: ONE, amountOut: ONE })).toThrow(
+			/neither side of the USDC\/CNGN book/,
+		)
+	})
+
+	it("refuses a zero amount rather than dividing by it", () => {
+		expect(() => rateFrom({ ...book, tokenIn: "USDC", amountIn: 0n, amountOut: ONE })).toThrow(/greater than zero/)
+		expect(() => rateFrom({ ...book, tokenIn: "USDC", amountIn: ONE, amountOut: 0n })).toThrow(/greater than zero/)
 	})
 })

@@ -19,6 +19,43 @@ function divCeil(numerator: bigint, denominator: bigint): bigint {
 }
 
 /**
+ * The rate an operator's two amounts imply, as quote per 1 base at 1e18, and the
+ * side of the book they trade.
+ *
+ * The operator states what they will take in and what they will pay out, so the
+ * direction is the order rather than something chosen separately: taking the
+ * base in and paying the quote out is a bid, the other way round an ask. A limit
+ * order written this way can only ever price swaps going the same way.
+ *
+ * The rate is rounded in simplex's favour, the same direction
+ * {@link signedAmounts} rounds, so rebuilding the op from it on a repost never
+ * quotes better than the operator asked for.
+ */
+export function rateFrom(params: {
+	base: string
+	quote: string
+	/** The symbol simplex takes in. */
+	tokenIn: string
+	/** What simplex takes in, at 1e18. */
+	amountIn: bigint
+	/** What simplex pays out, at 1e18. */
+	amountOut: bigint
+}): { side: LimitOrderSide; price: bigint } {
+	const { base, quote, tokenIn, amountIn, amountOut } = params
+	if (amountIn <= 0n || amountOut <= 0n) throw new Error("A limit order's amounts must both be greater than zero")
+
+	if (tokenIn === base) {
+		// Base in, quote out. A lower rate pays away less quote per base.
+		return { side: "BID", price: (amountOut * ORDERBOOK_SCALE) / amountIn }
+	}
+	if (tokenIn === quote) {
+		// Quote in, base out. A higher rate takes in more quote per base.
+		return { side: "ASK", price: divCeil(amountIn * ORDERBOOK_SCALE, amountOut) }
+	}
+	throw new Error(`'${tokenIn}' is neither side of the ${base}/${quote} book`)
+}
+
+/**
  * The raw input and output a limit order signs for.
  *
  * `size` is the output simplex offers to pay and `price` is quote per 1 base,

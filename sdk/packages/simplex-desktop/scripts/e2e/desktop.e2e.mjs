@@ -2,7 +2,7 @@ import assert from "node:assert/strict"
 import { execFile } from "node:child_process"
 import { createRequire } from "node:module"
 import { existsSync } from "node:fs"
-import { mkdtemp, readFile, realpath, rm, stat } from "node:fs/promises"
+import { mkdtemp, readFile, readdir, realpath, rm, stat } from "node:fs/promises"
 import { request as httpRequest } from "node:http"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
@@ -21,6 +21,9 @@ const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..")
 const simplexRoot = resolve(packageRoot, "../simplex")
 const electronExecutable = require("electron")
 const TEST_KEY = "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"
+const TEST_SEED = "bottom drive obey lake curtain smoke basket hold race lonely fit walk"
+const FIXTURE_KEY = "operator-fixture-key-do-not-expose"
+const FIXTURE_SEED = "operator-fixture-substrate-do-not-expose"
 
 function delay(milliseconds) {
 	return new Promise((resolveDelay) => setTimeout(resolveDelay, milliseconds))
@@ -175,20 +178,49 @@ async function cleanupDesktop(electronApp, userDataDir) {
 	await rm(userDataDir, { recursive: true, force: true })
 }
 
-function operatorFixture(socketPath) {
+async function regularFilesUnder(directory) {
+	let entries
+	try {
+		entries = await readdir(directory, { withFileTypes: true })
+	} catch (error) {
+		if (error.code === "ENOENT") return []
+		throw error
+	}
+	const files = []
+	for (const entry of entries) {
+		const path = join(directory, entry.name)
+		if (entry.isDirectory()) files.push(...(await regularFilesUnder(path)))
+		else if (entry.isFile()) files.push(path)
+	}
+	return files
+}
+
+async function assertSecretsExistOnlyInConfig(userDataDir, configPath, secrets) {
+	for (const path of await regularFilesUnder(userDataDir)) {
+		if (path === configPath) continue
+		const content = await readFile(path)
+		for (const secret of secrets) {
+			assert.equal(content.includes(Buffer.from(secret)), false, `${path} must not persist setup key material`)
+		}
+	}
+}
+
+function operatorFixture(socketPath, options = {}) {
 	const data = new MemoryDataStore()
 	const activity = new ActivityRecorder(data.activity)
 	const originalOrderHistory = activity.orderHistory.bind(activity)
 	let historyReads = 0
+	let pauseWrites = 0
 	activity.orderHistory = (...args) => {
 		historyReads += 1
 		return originalOrderHistory(...args)
 	}
 	const config = {
 		simplex: {
-			signer: { type: "privateKey", key: "0xab" },
-			substratePrivateKey: "seed",
+			signer: { type: "privateKey", key: FIXTURE_KEY },
+			substratePrivateKey: FIXTURE_SEED,
 			hyperbridgeWsUrl: "wss://example.invalid",
+			...(options.tunnelEnabled ? { tunnel: { enabled: true } } : {}),
 		},
 		pairs: [],
 		chains: [],
@@ -202,7 +234,9 @@ function operatorFixture(socketPath) {
 		stop: async () => {},
 		activity,
 		bids: data.bids,
-		setPaused: async () => {},
+		setPaused: async () => {
+			pauseWrites += 1
+		},
 		setLogLevel() {},
 		applyAllowlist() {},
 		applyRebalancing() {},
@@ -211,6 +245,24 @@ function operatorFixture(socketPath) {
 		configPath: join(dirname(socketPath), "filler-config.toml"),
 		chains: [],
 		strategyTypes: [],
+		...(options.tunnelEnabled
+			? {
+					tunnel: {
+						status: () => ({
+							enabled: true,
+							state: "connected",
+							relay: "relay.example:443",
+							devices: [],
+							activeConnections: 0,
+						}),
+						configure: async () => {},
+						addDevice: () => {
+							throw new Error("not used")
+						},
+						removeDevice: () => false,
+					},
+				}
+			: {}),
 	}
 	const server = new UiServer({ mode: "operator", uiDistDir: join(simplexRoot, "dist/ui"), operator })
 	return {
@@ -219,6 +271,7 @@ function operatorFixture(socketPath) {
 		start: () => server.start({ socketPath }),
 		stop: () => server.stop(),
 		historyReads: () => historyReads,
+		pauseWrites: () => pauseWrites,
 		clientCount: () => server.sseClients.size,
 	}
 }
@@ -279,6 +332,117 @@ test("the custom protocol reconnects Orders SSE and releases streams across 20 r
 	await waitFor(() => fixture.clientCount() === 1, "exactly one SSE stream after 20 reloads")
 })
 
+test("the renderer enforces CSP and opens only approved links outside Electron", async (t) => {
+	const userDataDir = await temporaryUserData("security")
+	const socketPath = socketPathFor(userDataDir)
+	let electronApp
+	const fixture = operatorFixture(socketPath, { tunnelEnabled: true })
+	t.after(async () => {
+		fixture.stop()
+		await cleanupDesktop(electronApp, userDataDir)
+	})
+
+	await fixture.start()
+	let page
+	;({ electronApp, page } = await launchDesktop(userDataDir))
+	await waitForHealth(socketPath, "operator")
+	await electronApp.evaluate(({ shell }) => {
+		globalThis.__simplexOpenedUrls = []
+		shell.openExternal = async (url) => {
+			globalThis.__simplexOpenedUrls.push(url)
+		}
+	})
+
+	const documentResponse = page.waitForResponse(
+		(response) => response.request().resourceType() === "document" && response.url().startsWith("simplex://local/"),
+	)
+	await page.reload()
+	const csp = await (await documentResponse).headerValue("content-security-policy")
+	assert.match(csp ?? "", /default-src 'none'/)
+	assert.match(csp ?? "", /script-src 'self'/)
+	assert.match(csp ?? "", /connect-src 'self'/)
+	assert.doesNotMatch(csp ?? "", /unsafe-eval/)
+
+	const inlineScriptRan = await page.evaluate(async () => {
+		delete globalThis.__simplexInlineScriptRan
+		const script = document.createElement("script")
+		script.textContent = "globalThis.__simplexInlineScriptRan = true"
+		document.head.append(script)
+		await new Promise((resolveDelay) => setTimeout(resolveDelay, 25))
+		return globalThis.__simplexInlineScriptRan === true
+	})
+	assert.equal(inlineScriptRan, false, "the CSP must reject injected inline scripts")
+
+	const externalConnectSucceeded = await page.evaluate(async () => {
+		try {
+			await fetch("data:text/plain,not-simplex")
+			return true
+		} catch {
+			return false
+		}
+	})
+	assert.equal(externalConnectSucceeded, false, "the renderer must not connect outside simplex://local")
+
+	const maskedConfig = await page.evaluate(async () => (await fetch("/api/config")).text())
+	assert.doesNotMatch(
+		maskedConfig,
+		new RegExp(`${FIXTURE_KEY}|${FIXTURE_SEED}`),
+		"the operator config response must not expose key material",
+	)
+
+	const hostilePage = await electronApp.evaluate(async ({ BrowserWindow }) => {
+		const attacker = new BrowserWindow({
+			show: false,
+			webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
+		})
+		try {
+			await attacker.loadURL("data:text/html,<title>untrusted</title>")
+			return await attacker.webContents.executeJavaScript(`(async () => {
+				const attempt = async (url, options) => {
+					try {
+						const response = await fetch(url, options)
+						return { reached: true, status: response.status, body: await response.text() }
+					} catch {
+						return { reached: false }
+					}
+				}
+				return {
+					read: await attempt("simplex://local/api/config"),
+					write: await attempt("simplex://local/api/pause", {
+						method: "POST",
+						headers: { "Content-Type": "application/json", "X-Simplex-UI": "1" },
+						body: "{}",
+					}),
+				}
+			})()`)
+		} finally {
+			attacker.destroy()
+		}
+	})
+	assert.deepEqual(hostilePage, { read: { reached: false }, write: { reached: false } })
+	assert.equal(fixture.pauseWrites(), 0, "an untrusted page must not mutate the operator API")
+
+	await page.evaluate(() => window.open("https://app.hyperfx.finance/history/details/?id=1", "_blank"))
+	await waitFor(
+		async () => (await electronApp.evaluate(() => globalThis.__simplexOpenedUrls ?? [])).length === 1,
+		"approved external link",
+	)
+	assert.deepEqual(await electronApp.evaluate(() => globalThis.__simplexOpenedUrls), [
+		"https://app.hyperfx.finance/history/details/?id=1",
+	])
+	assert.equal(electronApp.windows().length, 1, "target=_blank must not create an Electron window")
+
+	await page.evaluate(() => window.open("https://example.com/", "_blank"))
+	await delay(100)
+	assert.equal((await electronApp.evaluate(() => globalThis.__simplexOpenedUrls ?? [])).length, 1)
+
+	await page.evaluate(() => {
+		window.location.href = "https://example.com/"
+	})
+	await delay(100)
+	assert.match(page.url(), /^simplex:\/\/local\//, "external navigation must leave the desktop document in place")
+})
+
 test("first run writes a valid private config under Electron userData", async (t) => {
 	const userDataDir = await temporaryUserData("first-run")
 	const socketPath = socketPathFor(userDataDir)
@@ -290,14 +454,15 @@ test("first run writes a valid private config under Electron userData", async (t
 	;({ electronApp, page } = await launchDesktop(userDataDir))
 	await waitForHealth(socketPath, "init")
 	await page.locator(".wizard-shell").waitFor({ timeout: 30_000 })
-	await waitForDaemonPids(userDataDir)
+	const [daemonPid] = await waitForDaemonPids(userDataDir)
 
 	const config = {
 		simplex: {
 			signer: { type: "privateKey", key: TEST_KEY },
 			maxConcurrentOrders: 5,
-			substratePrivateKey: "bottom drive obey lake curtain smoke basket hold race lonely fit walk",
+			substratePrivateKey: TEST_SEED,
 			hyperbridgeWsUrl: "ws://127.0.0.1:9",
+			tunnel: { enabled: true, relay: "127.0.0.1:9" },
 		},
 		pairs: [
 			{
@@ -325,7 +490,22 @@ test("first run writes a valid private config under Electron userData", async (t
 	assert.equal(result.json.configPath, configPath)
 	await waitFor(() => existsSync(configPath), "first-run config file")
 	const written = await readFile(configPath, "utf8")
+	assert.match(written, /WARNING: contains secrets/)
 	assert.match(written, /\[simplex\.signer\]/)
+	assert.match(written, /\[simplex\.tunnel\]/)
 	assert.match(written, /\[\[pairs\]\]/)
+	assert.equal(written.match(new RegExp(TEST_KEY, "g"))?.length, 1)
 	if (process.platform !== "win32") assert.equal((await stat(configPath)).mode & 0o777, 0o600)
+	await delay(250)
+	await assertNoTcpListener(daemonPid)
+	const rendererStorage = await page.evaluate(() => ({
+		local: { ...localStorage },
+		session: { ...sessionStorage },
+	}))
+	assert.doesNotMatch(JSON.stringify(rendererStorage), new RegExp(TEST_KEY))
+	assert.doesNotMatch(JSON.stringify(rendererStorage), new RegExp(TEST_SEED))
+	await electronApp.close()
+	electronApp = undefined
+	await waitForHealth(socketPath, "init")
+	await assertSecretsExistOnlyInConfig(userDataDir, configPath, [TEST_KEY, TEST_SEED])
 })

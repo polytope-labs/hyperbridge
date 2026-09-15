@@ -23,7 +23,8 @@ function sequence(states: HealthProbe[]) {
 
 describe("daemon lifecycle", () => {
 	it("builds the exact bundled-runtime command line", () => {
-		expect(daemonArgs(launch)).toEqual([
+		const args = daemonArgs(launch)
+		expect(args).toEqual([
 			"--enable-source-maps",
 			"--disable-warning=ExperimentalWarning",
 			"/app/simplex.js",
@@ -36,6 +37,7 @@ describe("daemon lifecycle", () => {
 			"--data-dir",
 			"/data/simplex",
 		])
+		expect(args).not.toContain("--ui")
 	})
 
 	it("spawns detached with ignored stdio and releases the Electron event loop", () => {

@@ -112,6 +112,12 @@ hygiene), and both the wizard and the operator UI bind loopback unless told othe
 another interface (e.g. `--ui 0.0.0.0:8686`, which the docker image does inside its own network
 namespace) on a trusted network.
 
+Loopback is machine-local, not user-local. On a shared machine, another OS user may be able to reach
+the unauthenticated TCP UI and invoke operator actions. Prefer `--ui-socket` in an owner-only
+directory or the authenticated, opt-in tunnel when other local users are not trusted. The generated
+`filler-config.toml` stores signing keys in plaintext; it is written atomically with mode `0600` on
+Unix, but must still be kept out of source control and broadly shared backups.
+
 ## Remote access from a phone
 
 The UI is loopback-only, and most operator machines sit behind NAT. Remote access keeps an

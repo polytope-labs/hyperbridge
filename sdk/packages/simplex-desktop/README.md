@@ -65,6 +65,36 @@ Use the dashboard's explicit **Stop** action when the solver itself should exit.
 Continuous crash supervision, tray integration, login startup, and focus restoration are deferred.
 If the solver exits while Electron remains open, this shell does not automatically restart it.
 
+## Security model
+
+Desktop Simplex serves the dashboard only on its Unix socket or Windows named pipe. The Electron
+launch command never supplies `--ui`, so configuration changes—including enabling the opt-in remote
+access tunnel—cannot make the desktop solver open a TCP listener. Tunnel connections are outbound
+and their authenticated channels are injected directly into the socket-backed UI server.
+
+The renderer is sandboxed, has context isolation and web security enabled, and has no Node
+integration, preload bridge, IPC API, or webview support. Production builds disable DevTools. A
+desktop-only Content Security Policy limits scripts and API connections to `simplex://local`; all
+browser permissions are denied except sanitized clipboard writes from that exact origin. Navigation
+cannot leave that origin. Links opened with `target=_blank` are denied an Electron child window and
+only the UI's exact HTTPS explorer/HyperFX hosts may be handed to the operating system browser.
+
+On Unix, the UI socket and newly generated config are mode `0600`. Windows named pipes do not offer
+an equivalent portable owner-only guarantee through Node's current APIs; administrators and some
+same-machine contexts may still be able to inspect or connect to the pipe. On every platform,
+software already running as the same OS user remains inside the trust boundary.
+
+`filler-config.toml` contains private signing material in plaintext. Simplex writes new files
+atomically with a prominent warning and mode `0600` on Unix, but operators must still keep the file
+out of source control and broadly shared backups. Desktop does not copy keys into renderer storage,
+logs, or crash-report uploads, and it does not configure a crash-report uploader.
+
+The CLI's normal `127.0.0.1` web UI is a machine-local, unauthenticated interface—not a per-user
+boundary. On a shared machine, another local OS user may be able to reach it and invoke operator
+actions. Prefer `--ui-socket` with owner-only filesystem permissions, or the authenticated opt-in
+tunnel, whenever other users are not trusted. Never bind the CLI UI to a non-loopback interface
+without a separate trusted network boundary.
+
 ## Runtime resources
 
 The staging script follows Node's binary-verification procedure: it verifies the signed
@@ -100,6 +130,6 @@ pnpm test:e2e
 
 The E2E suite hard-kills and relaunches Electron to prove the detached solver survives and is reused,
 checks that the solver has no TCP listener, restarts a real `UiServer` behind the custom protocol,
-checks that one SSE client remains after twenty reloads, and verifies first-run config placement and
-Unix mode `0600`. It uses unreachable loopback endpoints for the first-run write and does not start a
-real filler.
+checks CSP and external-navigation enforcement, verifies one SSE client remains after twenty reloads,
+and verifies first-run config placement, secret-storage hygiene, and Unix mode `0600`. It uses
+unreachable loopback endpoints for the first-run write and does not start a real filler.

@@ -5,6 +5,15 @@ import { dirname, join } from "node:path"
 export const HIDDEN_LAUNCH_ARGUMENT = "--hidden"
 const LINUX_AUTOSTART_MARKER = "X-Simplex-Managed=true"
 
+/** AppImage mounts are ephemeral; its original image path is the stable login target. */
+export function loginItemExecutable(
+	platform: NodeJS.Platform,
+	executable: string,
+	appImage = process.env.APPIMAGE,
+): string {
+	return platform === "linux" && appImage ? appImage : executable
+}
+
 type LoginApp = {
 	getLoginItemSettings: (options?: Electron.LoginItemSettingsOptions) => {
 		openAtLogin: boolean

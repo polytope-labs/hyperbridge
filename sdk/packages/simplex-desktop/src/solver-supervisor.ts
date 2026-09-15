@@ -6,6 +6,7 @@ export type SolverStatus =
 	| { state: "setup" }
 	| { state: "running" }
 	| { state: "paused" }
+	| { state: "stopping" }
 	| { state: "stopped"; detail?: string }
 	| { state: "unreachable"; detail: string }
 
@@ -52,6 +53,7 @@ function socketRequest(
 /** The state the native shell displays, read only through the private socket. */
 export async function probeSolverStatus(socketPath: string): Promise<SolverStatus> {
 	const health = await probeHealth(socketPath)
+	if (health.state === "stopping") return { state: "stopping" }
 	if (health.state === "spawnable") return { state: "stopped", detail: health.reason }
 	if (health.state === "occupied" || health.state === "unavailable") {
 		return { state: "unreachable", detail: health.detail }
@@ -84,6 +86,18 @@ export function holdsMachineAwake(status: SolverStatus): boolean {
 	return status.state === "running"
 }
 
+export function shouldNotifySolverFailure(
+	previous: SolverStatus,
+	next: SolverStatus,
+	intentionalStop: boolean,
+): boolean {
+	if (intentionalStop) return false
+	return (
+		(previous.state === "setup" || previous.state === "running" || previous.state === "paused") &&
+		next.state === "unreachable"
+	)
+}
+
 function sameStatus(left: SolverStatus, right: SolverStatus): boolean {
 	return (
 		left.state === right.state &&
@@ -95,6 +109,7 @@ export class SolverSupervisor {
 	private timer?: NodeJS.Timeout
 	private polling?: Promise<SolverStatus>
 	private current: SolverStatus = { state: "starting" }
+	private consecutiveFailures = 0
 
 	constructor(
 		private readonly options: {
@@ -102,6 +117,7 @@ export class SolverSupervisor {
 			onChange: (next: SolverStatus, previous: SolverStatus) => void
 			probe?: (socketPath: string) => Promise<SolverStatus>
 			intervalMs?: number
+			failureThreshold?: number
 		},
 	) {}
 
@@ -121,18 +137,30 @@ export class SolverSupervisor {
 		this.polling = (this.options.probe ?? probeSolverStatus)(this.options.socketPath)
 		try {
 			const next = await this.polling
-			this.setStatus(next)
-			return next
+			return this.applyProbe(next)
 		} finally {
 			this.polling = undefined
 		}
+	}
+
+	private applyProbe(next: SolverStatus): SolverStatus {
+		const wasLive = this.current.state === "running" || this.current.state === "paused"
+		const failed = next.state === "stopped" || next.state === "unreachable"
+		if (wasLive && failed) {
+			this.consecutiveFailures += 1
+			if (this.consecutiveFailures < (this.options.failureThreshold ?? 2)) return this.current
+		} else {
+			this.consecutiveFailures = 0
+		}
+		this.setStatus(next)
+		return this.current
 	}
 
 	start(): void {
 		if (this.timer) return
 		const poll = () =>
 			void this.pollNow().catch((error) =>
-				this.setStatus({
+				this.applyProbe({
 					state: "unreachable",
 					detail: error instanceof Error ? error.message : String(error),
 				}),

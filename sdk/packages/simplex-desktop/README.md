@@ -68,9 +68,12 @@ The tray and application menus deliberately provide two separate exit commands:
 - **Stop solver and quit** requests a graceful solver stop before closing Electron.
 
 The app polls the private socket every three seconds. Its tray icon, native menu, tooltip, and window
-title distinguish setup, running, paused, stopped, and unreachable states. A transition from a live
-solver to stopped or unreachable also raises an operating-system notification, and the menus offer a
-restart. Restart is operator-controlled; the shell does not silently enter a crash loop.
+title distinguish setup, running, paused, stopping, stopped, and unreachable states. It requires two
+consecutive failed probes before declaring a running solver unreachable. A transport failure raises
+an operating-system notification; clean socket removal is shown as stopped without calling it a
+crash, because it may be a deliberate dashboard stop. Restart is operator-controlled and remains
+disabled while graceful shutdown drains in-flight work, so the shell cannot start a second filler on
+the same signer.
 
 While the solver is actively filling and Electron remains open, its `powerSaveBlocker` prevents app
 suspension. The native menu says whether sleep prevention is on. Pausing or stopping the solver
@@ -92,8 +95,8 @@ not the detached solver, and starts it without opening a window. macOS and Windo
 login-item API; Linux uses the equivalent per-user XDG autostart entry. Development runs do not
 register the Electron development binary.
 
-Native menus also provide About, Check for Updates, Open Data Directory, and Open Current Log.
-Update delivery is tracked separately, so Check for Updates reports that it is unavailable until an
+Native menus also provide About, Open Data Directory, and Open Current Log while preserving the
+platform Edit and Window roles and their keyboard shortcuts. Check for Updates stays hidden until an
 updater is integrated.
 
 Simplex does not upload crash reports. Solver diagnostics remain in rotating NDJSON launch logs under
@@ -151,8 +154,8 @@ PWA logo, and fails before creating a window if any is missing:
 - `resources/node/<platform>-<arch>/node` in development, or `node.exe` on Windows;
 - `@hyperbridge/simplex/dist/bin/simplex.js`;
 - `@hyperbridge/simplex/dist/ui/index.html`.
-- `resources/tray/<state>.png` in development, with macOS `Template` variants; packaged builds place
-  them under `desktop/tray` in Electron resources.
+- `resources/tray/<state>.png` in development, with 18px macOS `Template` and 36px `Template@2x`
+  variants; packaged builds place them under `desktop/tray` in Electron resources.
 
 It never searches `PATH` for the solver runtime. Packaging, signing, installers, updates, and final
 packaged resource placement are intentionally outside this package's current scope.

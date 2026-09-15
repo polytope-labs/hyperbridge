@@ -8,6 +8,7 @@ import {
 	holdsMachineAwake,
 	probeSolverStatus,
 	sendSolverAction,
+	shouldNotifySolverFailure,
 	SolverSupervisor,
 	type SolverStatus,
 } from "../solver-supervisor"
@@ -21,16 +22,18 @@ afterEach(async () => {
 async function fixture(): Promise<{
 	socketPath: string
 	setPaused: (paused: boolean) => void
+	setHealthStatus: (status: "ok" | "stopping") => void
 	actions: string[]
 }> {
 	const directory = mkdtempSync(join(tmpdir(), "simplex-supervisor-"))
 	const socketPath = socketPathFor(directory)
 	let paused = false
+	let healthStatus: "ok" | "stopping" = "ok"
 	const actions: string[] = []
 	const server = createServer((request, response) => {
 		if (request.url === "/health") {
 			response.writeHead(200, { "content-type": "application/json" })
-			response.end(JSON.stringify({ status: "ok", mode: "operator" }))
+			response.end(JSON.stringify({ status: healthStatus, mode: "operator" }))
 			return
 		}
 		if (request.url === "/api/status") {
@@ -54,7 +57,12 @@ async function fixture(): Promise<{
 		await close(server)
 		rmSync(directory, { recursive: true, force: true })
 	})
-	return { socketPath, setPaused: (value) => (paused = value), actions }
+	return {
+		socketPath,
+		setPaused: (value) => (paused = value),
+		setHealthStatus: (value) => (healthStatus = value),
+		actions,
+	}
 }
 
 function listen(server: Server, socketPath: string): Promise<void> {
@@ -74,6 +82,12 @@ describe("solver supervision", () => {
 		expect(await probeSolverStatus(server.socketPath)).toEqual({ state: "running" })
 		server.setPaused(true)
 		expect(await probeSolverStatus(server.socketPath)).toEqual({ state: "paused" })
+	})
+
+	it("reports stopping before the socket disappears", async () => {
+		const server = await fixture()
+		server.setHealthStatus("stopping")
+		expect(await probeSolverStatus(server.socketPath)).toEqual({ state: "stopping" })
 	})
 
 	it("sends guarded pause, resume, and stop actions", async () => {
@@ -109,9 +123,42 @@ describe("solver supervision", () => {
 		expect(onChange).toHaveBeenCalledTimes(1)
 	})
 
+	it("requires consecutive failures before leaving a live state", async () => {
+		const probe = vi
+			.fn<() => Promise<SolverStatus>>()
+			.mockResolvedValueOnce({ state: "running" })
+			.mockResolvedValueOnce({ state: "unreachable", detail: "slow poll" })
+			.mockResolvedValueOnce({ state: "running" })
+			.mockResolvedValueOnce({ state: "unreachable", detail: "slow poll" })
+			.mockResolvedValueOnce({ state: "unreachable", detail: "still unavailable" })
+		const onChange = vi.fn()
+		const supervisor = new SolverSupervisor({ socketPath: "ignored", probe, onChange, failureThreshold: 2 })
+
+		await supervisor.pollNow()
+		await supervisor.pollNow()
+		expect(supervisor.status).toEqual({ state: "running" })
+		await supervisor.pollNow()
+		await supervisor.pollNow()
+		expect(supervisor.status).toEqual({ state: "running" })
+		await supervisor.pollNow()
+		expect(supervisor.status).toEqual({ state: "unreachable", detail: "still unavailable" })
+	})
+
 	it("holds the machine awake only while actively filling", () => {
 		expect(holdsMachineAwake({ state: "running" })).toBe(true)
 		expect(holdsMachineAwake({ state: "paused" })).toBe(false)
+		expect(holdsMachineAwake({ state: "stopping" })).toBe(false)
 		expect(holdsMachineAwake({ state: "stopped" })).toBe(false)
+	})
+
+	it("notifies for crashes but not deliberate stops", () => {
+		// A missing socket cannot distinguish a clean dashboard stop from a crash;
+		// the tray still shows Stopped, but only transport failures raise an alert.
+		expect(shouldNotifySolverFailure({ state: "running" }, { state: "stopped" }, false)).toBe(false)
+		expect(shouldNotifySolverFailure({ state: "running" }, { state: "unreachable", detail: "crash" }, false)).toBe(
+			true,
+		)
+		expect(shouldNotifySolverFailure({ state: "running" }, { state: "stopped" }, true)).toBe(false)
+		expect(shouldNotifySolverFailure({ state: "stopping" }, { state: "stopped" }, false)).toBe(false)
 	})
 })

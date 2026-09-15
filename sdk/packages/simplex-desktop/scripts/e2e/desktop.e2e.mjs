@@ -243,7 +243,10 @@ function operatorFixture(socketPath, options = {}) {
 		balances: { getSnapshot: () => ({ updatedAt: null, status: "loading", chains: [], issues: [] }) },
 		haltControls: [],
 		config,
-		stop: async () => server.stop(),
+		stop: async () => {
+			if (options.stopBarrier) await options.stopBarrier
+			server.stop()
+		},
 		activity,
 		bids: data.bids,
 		setPaused: async (value) => {
@@ -305,6 +308,29 @@ test("window close, app quit, hard crash, and second launch preserve one detache
 			)) === "Solver: Setup required",
 		"setup status in the native menu",
 	)
+	const nativeMenu = await electronApp.evaluate(({ Menu }) => {
+		const menu = Menu.getApplicationMenu()
+		return {
+			items: menu?.items.map((entry) => ({
+				label: entry.label,
+				submenu: entry.submenu?.items.map((child) => ({
+					label: child.label,
+					role: child.role,
+					accelerator: child.accelerator,
+				})),
+			})),
+			quitAccelerator: menu?.getMenuItemById("quit-simplex")?.accelerator,
+			updatesVisible: menu?.getMenuItemById("check-for-updates")?.visible,
+		}
+	})
+	const editItems = nativeMenu.items.find((entry) => entry.label === "Edit")?.submenu ?? []
+	const windowItems = nativeMenu.items.find((entry) => entry.label === "Window")?.submenu ?? []
+	assert.equal(editItems.find((entry) => entry.role === "copy")?.accelerator, "CommandOrControl+C")
+	assert.equal(editItems.find((entry) => entry.role === "paste")?.accelerator, "CommandOrControl+V")
+	assert.equal(windowItems.find((entry) => entry.role === "close")?.accelerator, "CommandOrControl+W")
+	assert.equal(windowItems.find((entry) => entry.role === "minimize")?.accelerator, "CommandOrControl+M")
+	assert.equal(nativeMenu.quitAccelerator, "CmdOrCtrl+Q")
+	assert.equal(nativeMenu.updatesVisible, false)
 	const logFiles = await waitFor(async () => {
 		const files = await regularFilesUnder(join(userDataDir, "logs"))
 		return files.some((path) => /simplex-[\dT-]+\.log$/.test(path)) ? files : false
@@ -396,6 +422,58 @@ test("Stop solver and quit drains the solver before closing Electron", async (t)
 			return true
 		}
 	}, "the solver socket to close before Electron exits")
+})
+
+test("graceful stop keeps the socket lock and disables restart until draining finishes", async (t) => {
+	const userDataDir = await temporaryUserData("stopping-lock")
+	const socketPath = socketPathFor(userDataDir)
+	let electronApp
+	let releaseDrain
+	const stopBarrier = new Promise((resolveDrain) => {
+		releaseDrain = resolveDrain
+	})
+	const fixture = operatorFixture(socketPath, { stopBarrier })
+	t.after(async () => {
+		releaseDrain?.()
+		try {
+			await fixture.stop()
+		} catch {
+			// The stop action may already have closed the fixture.
+		}
+		await cleanupDesktop(electronApp, userDataDir)
+	})
+
+	await fixture.start()
+	;({ electronApp } = await launchDesktop(userDataDir))
+	await electronApp.evaluate(({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById("stop-solver")?.click())
+	await waitFor(async () => {
+		const response = await socketRequest(socketPath, "/health")
+		return JSON.parse(response.body).status === "stopping"
+	}, "the stopping health state")
+	await waitFor(
+		async () =>
+			(await electronApp.evaluate(
+				({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById("solver-status")?.label,
+			)) === "Solver: Stopping…",
+		"the stopping native state",
+	)
+	assert.equal(
+		await electronApp.evaluate(({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById("restart-solver")?.enabled),
+		false,
+	)
+	await electronApp.evaluate(({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById("restart-solver")?.click())
+	await delay(500)
+	assert.deepEqual(await daemonPids(userDataDir), [], "Restart must not spawn while the old solver drains")
+
+	releaseDrain()
+	await waitFor(async () => {
+		try {
+			await socketRequest(socketPath, "/health")
+			return false
+		} catch {
+			return true
+		}
+	}, "the drained fixture to release its socket")
 })
 
 test("the native shell reports a crashed solver, prevents sleep while active, and offers restart", async (t) => {

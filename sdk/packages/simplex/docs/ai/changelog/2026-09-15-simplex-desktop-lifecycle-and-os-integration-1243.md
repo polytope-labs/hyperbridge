@@ -19,3 +19,12 @@ contract so configuration, bid records, and reclaimable-deposit history are not
 silently deleted. The documentation also makes clear that login startup and
 sleep prevention are not substitutes for running the Simplex container on a
 VPS when continuous uptime is required.
+
+Review hardening keeps the socket bound and reports `stopping` until graceful
+shutdown has drained in-flight fills and vault redemptions. Restart stays
+disabled throughout that interval, transient health failures require two
+consecutive probes, and deliberate stops no longer produce crash alerts. Setup
+mode can also be stopped when save-and-start is not in progress. The native
+application menu preserves Edit and Window roles, unsigned Windows builds no
+longer use a path-sensitive tray GUID, Linux AppImage autostart uses the stable
+`APPIMAGE` path, and macOS ships 18px plus 36px Retina template icons.

@@ -63,6 +63,17 @@ describe("daemon lifecycle", () => {
 		expect(spawn).not.toHaveBeenCalled()
 	})
 
+	it("attaches to a stopping daemon without spawning a replacement", async () => {
+		const spawn = vi.fn()
+		await expect(
+			ensureDaemon({ launch, probe: sequence([{ state: "stopping", mode: "operator" }]), spawn }),
+		).resolves.toEqual({
+			attached: true,
+			mode: "operator",
+		})
+		expect(spawn).not.toHaveBeenCalled()
+	})
+
 	it("spawns after a stale socket and waits for health", async () => {
 		const spawned = child()
 		const spawn = vi.fn(() => spawned)

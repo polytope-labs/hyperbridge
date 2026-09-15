@@ -1,10 +1,10 @@
-import { existsSync } from "node:fs"
+import { existsSync, readFileSync } from "node:fs"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 const desktopRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..")
 const packagesRoot = resolve(desktopRoot, "..")
-const trayStates = ["starting", "setup", "running", "paused", "stopped", "unreachable"]
+const trayStates = ["starting", "setup", "running", "paused", "stopping", "stopped", "unreachable"]
 const requiredArtifacts = [
 	resolve(packagesRoot, "sdk/dist/node/index.js"),
 	resolve(packagesRoot, "simplex/dist/bin/simplex.js"),
@@ -16,10 +16,27 @@ const requiredArtifacts = [
 	...trayStates.flatMap((state) => [
 		resolve(desktopRoot, "resources/tray", `${state}.png`),
 		resolve(desktopRoot, "resources/tray", `${state}Template.png`),
+		resolve(desktopRoot, "resources/tray", `${state}Template@2x.png`),
 	]),
 ]
 
 const missing = requiredArtifacts.filter((path) => !existsSync(path))
 if (missing.length > 0) {
 	throw new Error(`Simplex desktop E2E artifacts are missing:\n${missing.map((path) => `- ${path}`).join("\n")}`)
+}
+
+function pngDimensions(path) {
+	const png = readFileSync(path)
+	return { width: png.readUInt32BE(16), height: png.readUInt32BE(20) }
+}
+
+for (const state of trayStates) {
+	const standard = resolve(desktopRoot, "resources/tray", `${state}Template.png`)
+	const retina = resolve(desktopRoot, "resources/tray", `${state}Template@2x.png`)
+	if (JSON.stringify(pngDimensions(standard)) !== JSON.stringify({ width: 18, height: 18 })) {
+		throw new Error(`${standard} must be an 18x18 macOS template image`)
+	}
+	if (JSON.stringify(pngDimensions(retina)) !== JSON.stringify({ width: 36, height: 36 })) {
+		throw new Error(`${retina} must be a 36x36 macOS Retina template image`)
+	}
 }

@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import {
 	HIDDEN_LAUNCH_ARGUMENT,
 	latestLogPath,
+	loginItemExecutable,
 	linuxAutostartEntry,
 	linuxAutostartPath,
 	LoginItemController,
@@ -30,6 +31,15 @@ function appMock(openAtLogin = false, wasOpenedAtLogin = false) {
 }
 
 describe("launch at login", () => {
+	it("uses the stable AppImage path for Linux autostart", () => {
+		expect(loginItemExecutable("linux", "/tmp/.mount_Simplex/simplex", "/opt/Simplex.AppImage")).toBe(
+			"/opt/Simplex.AppImage",
+		)
+		expect(loginItemExecutable("darwin", "/Applications/Simplex.app/Contents/MacOS/Simplex", "/ignored")).toBe(
+			"/Applications/Simplex.app/Contents/MacOS/Simplex",
+		)
+	})
+
 	it("uses Electron login items for installed macOS and Windows apps", () => {
 		const macApp = appMock(true, true)
 		const mac = new LoginItemController({

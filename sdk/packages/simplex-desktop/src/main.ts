@@ -17,23 +17,28 @@ import {
 import { ensureDaemon, type DaemonLaunch } from "./daemon"
 import { installSessionSecurity, installWebContentsSecurity, rendererWebPreferences } from "./desktop-security"
 import { assertResources, resourcePaths, socketPathFor, userDataOverrideFromArgv } from "./desktop-paths"
-import { latestLogPath, LoginItemController } from "./login-item"
+import { latestLogPath, loginItemExecutable, LoginItemController } from "./login-item"
 import { proxyToSimplex } from "./protocol"
-import { holdsMachineAwake, sendSolverAction, SolverSupervisor, type SolverStatus } from "./solver-supervisor"
+import {
+	holdsMachineAwake,
+	sendSolverAction,
+	shouldNotifySolverFailure,
+	SolverSupervisor,
+	type SolverStatus,
+} from "./solver-supervisor"
 import {
 	buildApplicationMenuTemplate,
 	buildTrayMenuTemplate,
 	solverStatusLabel,
 	type DesktopMenuActions,
 } from "./tray-menu"
-import { TRAY_ICON_STATES, trayIconPath } from "./tray-icon"
+import { TRAY_ICON_STATES, trayIconPath, trayIconRetinaPath } from "./tray-icon"
 
 protocol.registerSchemesAsPrivileged([
 	{ scheme: "simplex", privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } },
 ])
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..")
-const TRAY_GUID = "608b63eb-159e-4b83-97a9-aa619c123dd7"
 const STATUS_POLL_INTERVAL_MS = 3_000
 const STOP_TIMEOUT_MS = 30_000
 
@@ -49,6 +54,7 @@ let startPromise: Promise<boolean> | undefined
 let powerSaveBlockerId: number | undefined
 let sessionSecured = false
 let quitting = false
+let intentionalStop = false
 
 const userDataSwitch = app.commandLine.getSwitchValue("user-data-dir")
 const userDataOverride = userDataSwitch ? resolve(userDataSwitch) : userDataOverrideFromArgv()
@@ -87,9 +93,11 @@ function trayImage(status: SolverStatus) {
 	if (!existsSync(path)) throw new Error(`The Simplex tray icon is missing: ${path}`)
 	const image = nativeImage.createFromPath(path)
 	if (image.isEmpty()) throw new Error("Electron could not render the Simplex tray icon")
-	const resized = image.resize({ width: process.platform === "darwin" ? 18 : 24 })
-	if (process.platform === "darwin") resized.setTemplateImage(true)
-	return resized
+	if (process.platform === "darwin") {
+		image.setTemplateImage(true)
+		return image
+	}
+	return image.resize({ width: 24 })
 }
 
 const menuActions: DesktopMenuActions = {
@@ -158,12 +166,11 @@ function notifySolverFailure(status: SolverStatus): void {
 function onSolverStatusChanged(next: SolverStatus, previous: SolverStatus): void {
 	syncPowerSaveBlocker(next)
 	refreshNativeUi()
-	if (
-		["setup", "running", "paused"].includes(previous.state) &&
-		(next.state === "stopped" || next.state === "unreachable")
-	) {
-		notifySolverFailure(next)
+	if ((next.state === "stopped" || next.state === "unreachable") && intentionalStop) {
+		intentionalStop = false
+		return
 	}
+	if (shouldNotifySolverFailure(previous, next, intentionalStop)) notifySolverFailure(next)
 }
 
 async function startOrAttachSolver(fatal: boolean): Promise<boolean> {
@@ -211,17 +218,20 @@ async function togglePause(): Promise<void> {
 
 async function stopSolver(): Promise<boolean> {
 	if (!daemonLaunch || !supervisor) return false
+	intentionalStop = true
 	try {
 		await sendSolverAction(daemonLaunch.socketPath, "stop")
 		await waitForStopped()
 		return true
 	} catch (error) {
+		intentionalStop = false
 		reportActionError("Simplex could not stop the solver", error)
 		return false
 	}
 }
 
 async function restartSolver(): Promise<void> {
+	if (supervisor?.status.state === "stopping") return
 	await startOrAttachSolver(false)
 }
 
@@ -272,7 +282,13 @@ async function createWindow(): Promise<void> {
 	}
 	if (!supervisor) return
 	if (supervisor.status.state === "stopped" || supervisor.status.state === "unreachable") {
-		if (!(await startOrAttachSolver(false))) return
+		await dialog.showMessageBox({
+			type: "warning",
+			title: "Simplex solver is not running",
+			message: "The Simplex solver is not running.",
+			detail: "Restart it explicitly from the Simplex tray or application menu.",
+		})
+		return
 	}
 
 	const window = new BrowserWindow({
@@ -318,10 +334,7 @@ async function safeShowWindow(): Promise<void> {
 
 function createTray(): void {
 	if (!supervisor) return
-	tray =
-		process.platform === "win32"
-			? new Tray(trayImage(supervisor.status), TRAY_GUID)
-			: new Tray(trayImage(supervisor.status))
+	tray = new Tray(trayImage(supervisor.status))
 	if (process.platform === "win32") tray.on("click", () => void safeShowWindow())
 	refreshNativeUi()
 }
@@ -347,6 +360,11 @@ async function prepareDesktop(): Promise<void> {
 	for (const state of TRAY_ICON_STATES) {
 		const path = trayIconPath(trayIconDirectory, { state })
 		if (!existsSync(path)) throw new Error(`The Simplex ${state} tray icon is missing: ${path}`)
+		if (process.platform === "darwin") {
+			const retinaPath = trayIconRetinaPath(trayIconDirectory, { state })
+			if (!existsSync(retinaPath))
+				throw new Error(`The Simplex ${state} Retina tray icon is missing: ${retinaPath}`)
+		}
 	}
 	if (process.platform === "darwin") app.dock?.setIcon(applicationIconPath)
 	daemonLaunch = { nodePath: resources.node, solverPath: resources.solver, socketPath, dataDir: dataDirectory }
@@ -360,7 +378,7 @@ async function prepareDesktop(): Promise<void> {
 		app,
 		platform: process.platform,
 		isPackaged: app.isPackaged,
-		executable: process.execPath,
+		executable: loginItemExecutable(process.platform, process.execPath),
 	})
 	const openedAtLogin = loginItem.wasOpenedAtLogin()
 	if (openedAtLogin && process.platform === "darwin") app.dock?.hide()

@@ -56,6 +56,12 @@ describe("native desktop menus", () => {
 		const template = buildTrayMenuTemplate(runningModel, actions())
 		expect(item(template, "quit-simplex").label).toBe("Quit Simplex (solver keeps filling)")
 		expect(item(template, "stop-and-quit").label).toBe("Stop solver and quit")
+		expect(item(template, "quit-simplex").accelerator).toBe("CmdOrCtrl+Q")
+
+		const setup = buildTrayMenuTemplate({ ...runningModel, status: { state: "setup" } }, actions())
+		expect(item(setup, "quit-simplex").label).toBe("Quit Simplex")
+		expect(item(setup, "stop-solver").enabled).toBe(true)
+		expect(item(setup, "stop-and-quit").enabled).toBe(true)
 	})
 
 	it("reflects running, paused, and stopped control states", () => {
@@ -76,10 +82,15 @@ describe("native desktop menus", () => {
 		const stopped = buildTrayMenuTemplate({ ...runningModel, status: { state: "stopped" } }, callbacks)
 		expect(item(stopped, "restart-solver").enabled).toBe(true)
 		expect(item(stopped, "stop-solver").enabled).toBe(false)
+
+		const stopping = buildTrayMenuTemplate({ ...runningModel, status: { state: "stopping" } }, callbacks)
+		expect(item(stopping, "restart-solver").enabled).toBe(false)
+		expect(item(stopping, "stop-solver").enabled).toBe(false)
 	})
 
 	it("exposes the required commands in the application menu", () => {
-		const root = buildApplicationMenuTemplate(runningModel, actions())[0]
+		const template = buildApplicationMenuTemplate(runningModel, actions(), "darwin")
+		const root = template[0]
 		const submenu = root.submenu as MenuItemConstructorOptions[]
 		for (const id of [
 			"about-simplex",
@@ -90,6 +101,12 @@ describe("native desktop menus", () => {
 		]) {
 			expect(item(submenu, id)).toBeDefined()
 		}
+		expect(template.some((entry) => entry.role === "editMenu")).toBe(true)
+		expect(template.some((entry) => entry.role === "windowMenu")).toBe(true)
+		expect(item(submenu, "check-for-updates").visible).toBe(false)
+		expect(submenu.some((entry) => entry.role === "hide")).toBe(true)
+		const window = template.find((entry) => entry.role === "windowMenu")
+		expect((window?.submenu as MenuItemConstructorOptions[]).some((entry) => entry.role === "close")).toBe(true)
 	})
 
 	it("labels every solver status", () => {
@@ -98,6 +115,7 @@ describe("native desktop menus", () => {
 			["setup", "Solver: Setup required"],
 			["running", "Solver: Running"],
 			["paused", "Solver: Paused"],
+			["stopping", "Solver: Stopping…"],
 			["stopped", "Solver: Stopped"],
 			["unreachable", "Solver: Unreachable"],
 		] as const) {

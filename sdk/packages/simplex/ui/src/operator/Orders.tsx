@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { INIT_CHAINS } from "@/cli/init/chains"
 import { parseChainKey } from "@/config/interpolated-curve"
+import externalLinks from "@/config/external-links.json"
 import { api } from "../api"
 import { Pager } from "../components/Pager"
 import { ChainLogo } from "../components/ChainLogo"
@@ -18,7 +19,7 @@ import {
 import type { ActivityEventDto, BidDto, BidStatsDto, OrderHistoryDto, OrderLeg, OrderSummary } from "../types"
 
 /** Where an order's full record lives; the same page the HyperFX app links to. */
-const HYPERFX_ORDER_URL = "https://app.hyperfx.finance/history/details/?id="
+const HYPERFX_ORDER_URL = `${externalLinks.hyperfxApp}/history/details/?id=`
 const PAGE_SIZE = 20
 
 const CHAIN_META = new Map(INIT_CHAINS.map((meta) => [meta.stateMachineId, meta]))
@@ -64,7 +65,7 @@ function statusOf(events: ActivityEventDto[], bids: BidDto[]): Status {
 
 /** Hyperbridge's explorer for the network the filler bids on. */
 function hyperbridgeExplorer(network: OrderHistoryDto["network"]): string {
-	return network === "testnet" ? "https://gargantua.statescan.io" : "https://nexus.statescan.io"
+	return externalLinks.hyperbridgeExplorers[network]
 }
 
 function ArrowIcon({ direction }: { direction: "up" | "down" }) {

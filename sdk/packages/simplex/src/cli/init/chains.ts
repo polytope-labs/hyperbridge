@@ -1,3 +1,5 @@
+import externalLinks from "../../config/external-links.json"
+
 export type InitNetwork = "mainnet" | "testnet"
 
 export interface InitChainMeta {
@@ -43,7 +45,7 @@ export const INIT_CHAINS: InitChainMeta[] = [
 		label: "Ethereum",
 		network: "mainnet",
 		alchemySubdomain: "eth-mainnet",
-		explorerUrl: "https://etherscan.io",
+		explorerUrl: externalLinks.chainExplorers.ethereum,
 	},
 	{
 		chainId: 42161,
@@ -51,7 +53,7 @@ export const INIT_CHAINS: InitChainMeta[] = [
 		label: "Arbitrum",
 		network: "mainnet",
 		alchemySubdomain: "arb-mainnet",
-		explorerUrl: "https://arbiscan.io",
+		explorerUrl: externalLinks.chainExplorers.arbitrum,
 	},
 	{
 		chainId: 8453,
@@ -59,7 +61,7 @@ export const INIT_CHAINS: InitChainMeta[] = [
 		label: "Base",
 		network: "mainnet",
 		alchemySubdomain: "base-mainnet",
-		explorerUrl: "https://basescan.org",
+		explorerUrl: externalLinks.chainExplorers.base,
 	},
 	{
 		chainId: 137,
@@ -67,7 +69,7 @@ export const INIT_CHAINS: InitChainMeta[] = [
 		label: "Polygon",
 		network: "mainnet",
 		alchemySubdomain: "polygon-mainnet",
-		explorerUrl: "https://polygonscan.com",
+		explorerUrl: externalLinks.chainExplorers.polygon,
 	},
 	{
 		chainId: 56,
@@ -75,7 +77,7 @@ export const INIT_CHAINS: InitChainMeta[] = [
 		label: "BNB Chain",
 		network: "mainnet",
 		alchemySubdomain: "bnb-mainnet",
-		explorerUrl: "https://bscscan.com",
+		explorerUrl: externalLinks.chainExplorers.bnb,
 	},
 	{
 		chainId: 11155111,
@@ -83,7 +85,7 @@ export const INIT_CHAINS: InitChainMeta[] = [
 		label: "Sepolia",
 		network: "testnet",
 		alchemySubdomain: "eth-sepolia",
-		explorerUrl: "https://sepolia.etherscan.io",
+		explorerUrl: externalLinks.chainExplorers.sepolia,
 	},
 	{
 		chainId: 421614,
@@ -91,7 +93,7 @@ export const INIT_CHAINS: InitChainMeta[] = [
 		label: "Arbitrum Sepolia",
 		network: "testnet",
 		alchemySubdomain: "arb-sepolia",
-		explorerUrl: "https://sepolia.arbiscan.io",
+		explorerUrl: externalLinks.chainExplorers.arbitrumSepolia,
 	},
 	{
 		chainId: 84532,
@@ -99,7 +101,7 @@ export const INIT_CHAINS: InitChainMeta[] = [
 		label: "Base Sepolia",
 		network: "testnet",
 		alchemySubdomain: "base-sepolia",
-		explorerUrl: "https://sepolia.basescan.org",
+		explorerUrl: externalLinks.chainExplorers.baseSepolia,
 	},
 	{
 		chainId: 80002,
@@ -107,7 +109,7 @@ export const INIT_CHAINS: InitChainMeta[] = [
 		label: "Polygon Amoy",
 		network: "testnet",
 		alchemySubdomain: "polygon-amoy",
-		explorerUrl: "https://amoy.polygonscan.com",
+		explorerUrl: externalLinks.chainExplorers.polygonAmoy,
 	},
 	{
 		chainId: 97,
@@ -115,7 +117,7 @@ export const INIT_CHAINS: InitChainMeta[] = [
 		label: "BSC Chapel",
 		network: "testnet",
 		alchemySubdomain: "bnb-testnet",
-		explorerUrl: "https://testnet.bscscan.com",
+		explorerUrl: externalLinks.chainExplorers.bnbChapel,
 	},
 ]
 

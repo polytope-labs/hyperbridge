@@ -408,12 +408,15 @@ addRunOptions(program.command("run", { isDefault: true }))
 			// (ctrl-c just closes the server); once save-and-start assigns `runtime`,
 			// the same handler drains the filler. Nothing is re-registered on transition.
 			const shutdown = async (signal: string): Promise<never> => {
-				uiServer?.stop()
+				// Keep the socket bound as the process lock while on-chain work drains.
+				// Releasing it first lets a replacement filler start on the same signer.
+				uiServer?.beginStopping()
 				await tunnel?.stop()
 				if (simplex) await simplex.stop()
 				// Ours to close: the library no longer closes a caller-supplied store.
 				await dataStore?.close?.()
 				logStore.close()
+				uiServer?.stop()
 				process.exit(0)
 			}
 			process.on("SIGINT", () => void shutdown("SIGINT"))
@@ -486,6 +489,7 @@ addRunOptions(program.command("run", { isDefault: true }))
 				uiDistDir: resolveUiDistDir(),
 				setup: {
 					configPath: outputPath,
+					stop: () => shutdown("UI"),
 					onSaveAndStart: async (config, _toml, path) => {
 						await startFiller(config, path)
 						// The wizard's own server is already bound, so the tunnel has a UI

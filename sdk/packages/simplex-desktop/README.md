@@ -58,12 +58,55 @@ Electron attaches to one solver address derived from its user-data directory. If
 Simplex process answers `/health`, it launches the existing Simplex binary with the staged runtime.
 It refuses to replace a live, unrecognized listener.
 
-Closing or crashing Electron intentionally leaves the solver running so UI lifecycle cannot interrupt
-in-flight fills. A later desktop launch attaches to that same solver instead of spawning another.
-Use the dashboard's explicit **Stop** action when the solver itself should exit.
+Closing the window hides it to the system tray and intentionally leaves the solver running so UI
+lifecycle cannot interrupt in-flight fills. A later desktop launch attaches to that same solver
+instead of spawning another, and a second concurrent launch focuses the first window.
 
-Continuous crash supervision, tray integration, login startup, and focus restoration are deferred.
-If the solver exits while Electron remains open, this shell does not automatically restart it.
+The tray and application menus deliberately provide two separate exit commands:
+
+- **Quit Simplex (solver keeps filling)** closes only Electron;
+- **Stop solver and quit** requests a graceful solver stop before closing Electron.
+
+The app polls the private socket every three seconds. Its tray icon, native menu, tooltip, and window
+title distinguish setup, running, paused, stopped, and unreachable states. A transition from a live
+solver to stopped or unreachable also raises an operating-system notification, and the menus offer a
+restart. Restart is operator-controlled; the shell does not silently enter a crash loop.
+
+While the solver is actively filling and Electron remains open, its `powerSaveBlocker` prevents app
+suspension. The native menu says whether sleep prevention is on. Pausing or stopping the solver
+releases it. This protects an active session from ordinary system sleep, but it cannot survive logout
+or guarantee 24/7 laptop uptime. Explicitly quitting Electron releases this protection even though
+app-only quit leaves the detached solver running.
+
+## Tray and operating-system integration
+
+The app and tray icons are rasterized from the existing Simplex PWA `mobile-logo.svg`; the tray adds
+a small status marker rather than introducing independent artwork. It appears in the macOS menu bar,
+the Windows notification area, and Linux's StatusNotifierItem/Gtk status-icon implementation. GNOME
+normally requires an AppIndicator extension. Because Linux click activation is inconsistent, every
+command—including Show, Pause, Stop, Restart, and both quit choices—is available from the context
+menu.
+
+**Launch Simplex at login** is opt-in and available only in an installed build. It registers the app,
+not the detached solver, and starts it without opening a window. macOS and Windows use Electron's
+login-item API; Linux uses the equivalent per-user XDG autostart entry. Development runs do not
+register the Electron development binary.
+
+Native menus also provide About, Check for Updates, Open Data Directory, and Open Current Log.
+Update delivery is tracked separately, so Check for Updates reports that it is unavailable until an
+updater is integrated.
+
+Simplex does not upload crash reports. Solver diagnostics remain in rotating NDJSON launch logs under
+`<userData>/logs`; five launches are retained, and **Open Current Log** opens the newest one. This
+avoids a remote crash-reporting path that could accidentally capture config contents or key material.
+
+Desktop removal must leave Electron's user-data directory in place. Installer work is separate, but
+neither this shell nor its uninstall contract deletes operator databases, logs, or configuration;
+operators may remove that directory manually only after confirming no reclaimable deposits or records
+are needed.
+
+For genuinely continuous uptime, run `polytopelabs/simplex` on a VPS and use the authenticated tunnel
+for remote viewing. Desktop login startup does not make a laptop a server.
 
 ## Security model
 
@@ -102,12 +145,14 @@ The staging script follows Node's binary-verification procedure: it verifies the
 and installs only `node` or `node.exe`. `darwin-universal` verifies both macOS slices independently
 before merging them with `lipo`.
 
-The desktop process requires all three resources and fails before creating a window if any is
-missing:
+The desktop process requires the three solver resources plus the status variants derived from the
+PWA logo, and fails before creating a window if any is missing:
 
 - `resources/node/<platform>-<arch>/node` in development, or `node.exe` on Windows;
 - `@hyperbridge/simplex/dist/bin/simplex.js`;
 - `@hyperbridge/simplex/dist/ui/index.html`.
+- `resources/tray/<state>.png` in development, with macOS `Template` variants; packaged builds place
+  them under `desktop/tray` in Electron resources.
 
 It never searches `PATH` for the solver runtime. Packaging, signing, installers, updates, and final
 packaged resource placement are intentionally outside this package's current scope.
@@ -128,8 +173,10 @@ After building Simplex and staging the host runtime as shown above, run the real
 pnpm test:e2e
 ```
 
-The E2E suite hard-kills and relaunches Electron to prove the detached solver survives and is reused,
-checks that the solver has no TCP listener, restarts a real `UiServer` behind the custom protocol,
-checks CSP and external-navigation enforcement, verifies one SSE client remains after twenty reloads,
-and verifies first-run config placement, secret-storage hygiene, and Unix mode `0600`. It uses
-unreachable loopback endpoints for the first-run write and does not start a real filler.
+The E2E suite closes and hard-kills Electron to prove the detached solver survives and is reused,
+launches a second copy to prove it focuses the first without spawning, verifies native lifecycle
+state and sleep prevention, exercises pause/resume and crash/restart, checks that the solver has no
+TCP listener and writes a disk log, restarts a real `UiServer` behind the custom protocol, checks CSP
+and external-navigation enforcement, verifies one SSE client remains after twenty reloads, and
+verifies first-run config placement, secret-storage hygiene, and Unix mode `0600`. It uses unreachable
+loopback endpoints for the first-run write and does not start a real filler.

@@ -1,11 +1,21 @@
-import { mkdirSync, writeFileSync } from "node:fs"
-import { mkdtempSync } from "node:fs"
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { join, resolve } from "node:path"
 import { describe, expect, it } from "vitest"
-import { assertResources, resourcePaths, socketPathFor, UNIX_SOCKET_PATH_LIMIT } from "../desktop-paths"
+import {
+	assertResources,
+	resourcePaths,
+	socketPathFor,
+	UNIX_SOCKET_PATH_LIMIT,
+	userDataOverrideFromArgv,
+} from "../desktop-paths"
 
 describe("desktop paths", () => {
+	it("applies an explicit Electron user-data directory to desktop state", () => {
+		expect(userDataOverrideFromArgv(["electron", ".", "--user-data-dir=./profile"])).toBe(resolve("./profile"))
+		expect(userDataOverrideFromArgv(["electron", "."])).toBeUndefined()
+		expect(() => userDataOverrideFromArgv(["electron", ".", "--user-data-dir="])).toThrow(/requires a directory/)
+	})
 	it("uses POSIX paths for a short Unix socket regardless of the build host", () => {
 		expect(socketPathFor("/tmp/simplex-user", "darwin", "/tmp")).toBe("/tmp/simplex-user/simplex.sock")
 	})

@@ -10,7 +10,6 @@ import {
 	type PairAddressResolver,
 } from "@/config/pairs"
 import { FXFiller, type TradingPair } from "@/strategies/fx"
-import { FillerPricePolicy } from "@/config/interpolated-curve"
 import type { LimitOrderStore } from "@/data/types"
 import { limitOrderStore } from "./helpers/limit-orders"
 
@@ -167,9 +166,9 @@ describe("validatePairConfigs", () => {
 		expect(() =>
 			validatePairConfigs(
 				[
-					{ token0: "USDC", token1: "CNGN", maxOrderSize: SIZE, bidPriceCurve: [{ amount: "0", price: "1580" }], askPriceCurve: [{ amount: "0", price: "1550" }] },
-					{ token0: "USDT", token1: "CNGN", maxOrderSize: SIZE, askPriceCurve: CURVE },
-					{ token0: "ZARP", token1: "CNGN", maxOrderSize: "90000", bidPriceCurve: CURVE },
+					{ token0: "USDC", token1: "CNGN" },
+					{ token0: "USDT", token1: "CNGN" },
+					{ token0: "ZARP", token1: "CNGN" },
 				],
 				assets,
 			),
@@ -185,9 +184,6 @@ describe("validatePairConfigs", () => {
 					{
 						token0: "USDC",
 						token1: "CNGN",
-						maxOrderSize: SIZE,
-						bidPriceCurve: [{ amount: "0", price: "1540" }],
-						askPriceCurve: [{ amount: "0", price: "1550" }],
 					},
 				],
 				assets,
@@ -195,7 +191,7 @@ describe("validatePairConfigs", () => {
 		).not.toThrow()
 		expect(() =>
 			validatePairConfigs(
-				[{ token0: "USDC", token1: "CNGN", maxOrderSize: SIZE, bidPriceCurve: CURVE, askPriceCurve: CURVE }],
+				[{ token0: "USDC", token1: "CNGN" }],
 				assets,
 			),
 		).not.toThrow()
@@ -205,23 +201,23 @@ describe("validatePairConfigs", () => {
 		// ZARP anchors through CNGN (via USDC/CNGN), EURC directly via USDC/EURC.
 		expect(() =>
 			validatePairConfigs([
-				{ token0: "USDC", token1: "CNGN", maxOrderSize: SIZE, askPriceCurve: CURVE },
-				{ token0: "ZARP", token1: "CNGN", maxOrderSize: SIZE, askPriceCurve: CURVE },
-				{ token0: "USDC", token1: "EURC", maxOrderSize: SIZE, askPriceCurve: CURVE },
-				{ token0: "EURC", token1: "XSGD", maxOrderSize: SIZE, bidPriceCurve: CURVE },
+				{ token0: "USDC", token1: "CNGN" },
+				{ token0: "ZARP", token1: "CNGN" },
+				{ token0: "USDC", token1: "EURC" },
+				{ token0: "EURC", token1: "XSGD" },
 			]),
 		).not.toThrow()
 	})
 
 	it("rejects unknown symbols and duplicates", () => {
 		expect(() =>
-			validatePairConfigs([{ token0: "USDC", token1: "WAT", maxOrderSize: SIZE, askPriceCurve: CURVE }], assets),
+			validatePairConfigs([{ token0: "USDC", token1: "WAT" }], assets),
 		).toThrow(/unknown symbol/)
 		expect(() =>
 			validatePairConfigs(
 				[
-					{ token0: "USDC", token1: "CNGN", maxOrderSize: SIZE, askPriceCurve: CURVE },
-					{ token0: "usdc", token1: "cngn", maxOrderSize: SIZE, bidPriceCurve: CURVE },
+					{ token0: "USDC", token1: "CNGN" },
+					{ token0: "usdc", token1: "cngn" },
 				],
 				assets,
 			),
@@ -231,147 +227,14 @@ describe("validatePairConfigs", () => {
 		expect(() =>
 			validatePairConfigs(
 				[
-					{ token0: "USDC", token1: "CNGN", maxOrderSize: SIZE, askPriceCurve: CURVE },
-					{ token0: "CNGN", token1: "USDC", maxOrderSize: SIZE, askPriceCurve: CURVE },
+					{ token0: "USDC", token1: "CNGN" },
+					{ token0: "CNGN", token1: "USDC" },
 				],
 				assets,
 			),
 		).toThrow(/already declared/)
 	})
 
-	it("accepts same-token pairs that are ask-only with prices below par", () => {
-		const PAR_CURVE = [
-			{ amount: "100", price: "0.99" },
-			{ amount: "100000", price: "0.999" },
-		]
-		expect(() =>
-			validatePairConfigs([{ token0: "USDC", token1: "usdc", maxOrderSize: SIZE, askPriceCurve: PAR_CURVE }]),
-		).not.toThrow()
-		// Bid curve is meaningless — both directions are the same market.
-		expect(() =>
-			validatePairConfigs([
-				{ token0: "USDC", token1: "USDC", maxOrderSize: SIZE, askPriceCurve: PAR_CURVE, bidPriceCurve: PAR_CURVE },
-			]),
-		).toThrow(/ask-only/)
-		// At or above par the spread is zero or negative — never fillable.
-		expect(() =>
-			validatePairConfigs([
-				{ token0: "USDC", token1: "USDC", maxOrderSize: SIZE, askPriceCurve: [{ amount: "0", price: "1.01" }] },
-			]),
-		).toThrow(/strictly below 1/)
-		expect(() =>
-			validatePairConfigs([
-				{ token0: "USDC", token1: "USDC", maxOrderSize: SIZE, askPriceCurve: [{ amount: "0", price: "1" }] },
-			]),
-		).toThrow(/strictly below 1/)
-	})
-
-	it("accepts non-USD same-token pairs (e.g. CNGN/CNGN) when a USD pair anchors the asset", () => {
-		// The USDC/CNGN curve is the price feed that lets confirmation depth
-		// size CNGN notionals in USD; without it the config must not start.
-		expect(() =>
-			validatePairConfigs(
-				[
-					{ token0: "USDC", token1: "CNGN", maxOrderSize: SIZE, askPriceCurve: CURVE },
-					{ token0: "CNGN", token1: "CNGN", maxOrderSize: SIZE, askPriceCurve: [{ amount: "0", price: "0.99" }] },
-				],
-				assets,
-			),
-		).not.toThrow()
-		// The ask-only and below-par rules still apply to any same-token pair.
-		expect(() =>
-			validatePairConfigs(
-				[
-					{ token0: "USDC", token1: "CNGN", maxOrderSize: SIZE, askPriceCurve: CURVE },
-					{ token0: "CNGN", token1: "CNGN", maxOrderSize: SIZE, askPriceCurve: [{ amount: "0", price: "1.01" }] },
-				],
-				assets,
-			),
-		).toThrow(/strictly below 1/)
-	})
-
-	it("rejects any pair whose token0 has no USD anchor — direct or transitive", () => {
-		// A lone non-USD market has no path to a $1 anchor.
-		expect(() =>
-			validatePairConfigs([{ token0: "ZARP", token1: "CNGN", maxOrderSize: SIZE, askPriceCurve: CURVE }], assets),
-		).toThrow(/no USD anchor for ZARP/)
-		// Same-token non-USD alone is equally unanchored.
-		expect(() =>
-			validatePairConfigs(
-				[{ token0: "CNGN", token1: "CNGN", maxOrderSize: SIZE, askPriceCurve: [{ amount: "0", price: "0.99" }] }],
-				assets,
-			),
-		).toThrow(/no USD anchor for CNGN/)
-		// USDC/CNGN anchors CNGN, whose curve then anchors ZARP: two hops.
-		expect(() =>
-			validatePairConfigs(
-				[
-					{ token0: "USDC", token1: "CNGN", maxOrderSize: SIZE, askPriceCurve: CURVE },
-					{ token0: "ZARP", token1: "CNGN", maxOrderSize: SIZE, askPriceCurve: CURVE },
-				],
-				assets,
-			),
-		).not.toThrow()
-	})
-
-	it("referenceOnly pairs anchor without opening a market and need no maxOrderSize", () => {
-		// A lone CNGN/CNGN transfer market anchored by a reference USDC/CNGN quote.
-		expect(() =>
-			validatePairConfigs(
-				[
-					{ token0: "USDC", token1: "CNGN", referenceOnly: true, askPriceCurve: [{ amount: "0", price: "1565" }] },
-					{ token0: "CNGN", token1: "CNGN", maxOrderSize: SIZE, askPriceCurve: [{ amount: "0", price: "0.995" }] },
-				],
-				assets,
-			),
-		).not.toThrow()
-		// A reference pair without a curve has nothing to reference.
-		expect(() =>
-			validatePairConfigs([{ token0: "USDC", token1: "CNGN", referenceOnly: true }], assets),
-		).toThrow(/the curve IS the reference/)
-		// Same-token pairs carry no FX rate to reference.
-		expect(() =>
-			validatePairConfigs(
-				[
-					{
-						token0: "USDC",
-						token1: "USDC",
-						referenceOnly: true,
-						askPriceCurve: [{ amount: "0", price: "0.99" }],
-					},
-				],
-				assets,
-			),
-		).toThrow(/carries no FX rate/)
-	})
-
-	it("rejects non-positive curve prices (they would poison the USD anchor math)", () => {
-		expect(() =>
-			validatePairConfigs(
-				[{ token0: "USDC", token1: "CNGN", maxOrderSize: SIZE, askPriceCurve: [{ amount: "0", price: "0" }] }],
-				assets,
-			),
-		).toThrow(/must be positive/)
-	})
-
-	it("accepts an omitted maxOrderSize, and rejects a malformed one", () => {
-		// Omitted means uncapped — the pair fills every order at its full notional.
-		expect(() =>
-			validatePairConfigs([{ token0: "USDC", token1: "CNGN", askPriceCurve: CURVE } as any]),
-		).not.toThrow()
-		expect(() =>
-			validatePairConfigs([{ token0: "USDC", token1: "CNGN", maxOrderSize: "0", askPriceCurve: CURVE }]),
-		).toThrow(/positive/)
-		expect(() =>
-			validatePairConfigs([{ token0: "USDC", token1: "CNGN", maxOrderSize: "abc", askPriceCurve: CURVE }]),
-		).toThrow(/decimal string/)
-	})
-
-	it("requires a price curve on every pair", () => {
-		expect(() => validatePairConfigs([{ token0: "USDC", token1: "CNGN", maxOrderSize: SIZE }], assets)).toThrow(
-			/price curve/,
-		)
-	})
 })
 
 // ---------------------------------------------------------------------------
@@ -400,8 +263,6 @@ function makeContractService(): any {
 		getTokenDecimals: async (token: string) => decimals[token.toLowerCase()] ?? 18,
 	}
 }
-
-const flat = (price: string) => new FillerPricePolicy({ points: [{ amount: "0", price }] })
 
 function makeFiller(pairs: TradingPair[], limitOrders?: LimitOrderStore) {
 	const configService = {
@@ -450,33 +311,15 @@ describe("FXFiller pairs engine", () => {
 			)
 		expect(() =>
 			build([
-				{ token0: "USDC", token1: "CNGN", maxOrderSize: size("5000"), askPricePolicy: flat("1500") },
-				{ token0: "CNGN", token1: "USDC", maxOrderSize: size("5000"), askPricePolicy: flat("0.0006") },
+				{ token0: "USDC", token1: "CNGN" },
+				{ token0: "CNGN", token1: "USDC" },
 			]),
 		).toThrow(/duplicate market/)
 	})
 
-	it("rejects same-token engine pairs with a bid policy or above-par prices", () => {
-		const registry = new AssetRegistry(resolver as any)
-		const signer = { address: SOLVER } as any
-		const build = (pair: TradingPair) =>
-			new FXFiller(signer, { getMaxOverfillBps: () => 500n, getMaxConsecutiveClamps: () => 3 } as any, {} as any, makeContractService(), [pair], registry)
-
-		expect(() =>
-			build({ token0: "USDC", token1: "USDC", maxOrderSize: size("5000"), askPricePolicy: flat("0.995"), bidPricePolicy: flat("0.995") }),
-		).toThrow(/ask-only/)
-		expect(() =>
-			build({ token0: "USDC", token1: "USDC", maxOrderSize: size("5000"), askPricePolicy: flat("1.5") }),
-		).toThrow(/strictly below 1/)
-		// Par is a zero spread — the pair could never fill anything.
-		expect(() =>
-			build({ token0: "USDC", token1: "USDC", maxOrderSize: size("5000"), askPricePolicy: flat("1") }),
-		).toThrow(/strictly below 1/)
-	})
-
 	it("rejects orders whose legs match no configured pair", async () => {
 		const filler = makeFiller([
-			{ token0: "USDC", token1: "CNGN", maxOrderSize: size("5000"), askPricePolicy: flat("1500") },
+			{ token0: "USDC", token1: "CNGN" },
 		])
 		const order = makeOrder(
 			"no-pair",
@@ -490,7 +333,7 @@ describe("FXFiller pairs engine", () => {
 		// makeOrder is source == destination: an on-chain USDC→CNGN swap. The
 		// same-chain rejection applies to same-token self-swaps, never to FX.
 		const filler = makeFiller(
-			[{ token0: "USDC", token1: "CNGN", maxOrderSize: size("5000"), askPricePolicy: flat("1500") }],
+			[{ token0: "USDC", token1: "CNGN" }],
 			await limitOrderStore([
 				{ base: "USDC", quote: "CNGN", side: "BID", fillChain: CHAIN, price: "1500", size: "1500000" },
 			]),
@@ -520,7 +363,7 @@ describe("FXFiller same-token markets (cross-chain only)", () => {
 	} as any
 	const signer = { address: SOLVER } as any
 	const usdcUsdc = (): TradingPair[] => [
-		{ token0: "USDC", token1: "USDC", maxOrderSize: size("100000"), askPricePolicy: flat("0.999") },
+		{ token0: "USDC", token1: "USDC" },
 	]
 
 	function sameTokenOrder(source: string, destination: string): Order {
@@ -674,7 +517,7 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 
 	it("gate 1: rejects when fees do not cover fill gas + relayer fee", async () => {
 		const filler = gateFiller(
-			[{ token0: "USDC", token1: "CNGN", maxOrderSize: size("100000"), bidPricePolicy: flat("1500"), askPricePolicy: flat("1450") }],
+			[{ token0: "USDC", token1: "CNGN" }],
 			usdcOnBoth(),
 			{ fillGas: parseUnits("2", 6), relayer: parseUnits("3", 6) }, // exec cost = $5
 		)
@@ -689,7 +532,7 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 
 	it("gate 1: passes when fees cover execution and the FX spread is positive", async () => {
 		const filler = gateFiller(
-			[{ token0: "USDC", token1: "CNGN", maxOrderSize: size("100000"), bidPricePolicy: flat("1500"), askPricePolicy: flat("1450") }],
+			[{ token0: "USDC", token1: "CNGN" }],
 			usdcOnBoth(),
 			{ fillGas: parseUnits("2", 6), relayer: parseUnits("3", 6) },
 			{
@@ -711,7 +554,7 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 		// The book is healthy (ask 0.999) but the ORDER demands a 1:1 payout —
 		// the realized spread on this fill is zero, so the per-leg gate refuses.
 		const filler = gateFiller(
-			[{ token0: "USDC", token1: "USDC", maxOrderSize: size("100000"), askPricePolicy: flat("0.999") }],
+			[{ token0: "USDC", token1: "USDC" }],
 			new AssetRegistry(cfg),
 			{ fillGas: parseUnits("1", 6), relayer: parseUnits("1", 6) },
 		)
@@ -735,8 +578,8 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 		})
 		const filler = gateFiller(
 			[
-				{ token0: "USDC", token1: "CNGN", maxOrderSize: size("5000"), askPricePolicy: flat("1500") },
-				{ token0: "CNGN", token1: "CNGN", maxOrderSize: size("5000000"), askPricePolicy: flat("0.999") },
+				{ token0: "USDC", token1: "CNGN" },
+				{ token0: "CNGN", token1: "CNGN" },
 			],
 			registry,
 			{ fillGas: parseUnits("1", 6), relayer: parseUnits("1", 6) },
@@ -752,7 +595,7 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 
 	it("gate 2: passes a same-token order with a below-par spread and covering fees", async () => {
 		const filler = gateFiller(
-			[{ token0: "USDC", token1: "USDC", maxOrderSize: size("100000"), askPricePolicy: flat("0.999") }],
+			[{ token0: "USDC", token1: "USDC" }],
 			new AssetRegistry(cfg),
 			{ fillGas: parseUnits("1", 6), relayer: parseUnits("1", 6) },
 			{
@@ -778,27 +621,7 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 		new AssetRegistry(cfg, { ZARP: { [SRC]: ZARP, [DST]: ZARP }, CNGN: { [SRC]: CNGN, [DST]: CNGN } })
 	const usdcZarpAnchor = (): TradingPair => ({
 		token0: "USDC",
-		token1: "ZARP",
-		maxOrderSize: size("100000"),
-		bidPricePolicy: flat("18.2"),
-		askPricePolicy: flat("17.8"), // mid 18 ZARP per USDC → ZARP ≈ $1/18
-	})
-
-	/**
-	 * An EMPTY leg is an under-fill too: on-chain a zero output sets
-	 * isFullyFilled = false, which reverts a calldata order outright
-	 * (PartialFillNotAllowed). The zero-push sites must clear the same
-	 * eligibility gate a short leg does — royvardhan's finding, in his shape:
-	 * the solver funds one leg's token and holds none of the other's.
-	 */
-	it("rejects construction when a pair's token0 has no USD anchor", () => {
-		expect(() =>
-			gateFiller(
-				[{ token0: "ZARP", token1: "CNGN", maxOrderSize: size("1000000"), askPricePolicy: flat("95") }],
-				zarpCngnRegistry(),
-				{ fillGas: parseUnits("1", 6), relayer: parseUnits("1", 6) },
-			),
-		).toThrow(/no USD anchor for ZARP/)
+		token1: "ZARP", // mid 18 ZARP per USDC → ZARP ≈ $1/18
 	})
 
 	it("rejects an order when a leg demands more than its own ask curve yields", async () => {
@@ -807,8 +630,8 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 		// the comfortably-within-curve ZARP/CNGN leg cannot rescue the order.
 		const filler = gateFiller(
 			[
-				{ token0: "USDC", token1: "CNGN", maxOrderSize: size("100000"), bidPricePolicy: flat("1500"), askPricePolicy: flat("1450") },
-				{ token0: "ZARP", token1: "CNGN", maxOrderSize: size("1000000"), bidPricePolicy: flat("100"), askPricePolicy: flat("95") },
+				{ token0: "USDC", token1: "CNGN" },
+				{ token0: "ZARP", token1: "CNGN" },
 			],
 			zarpCngnRegistry(),
 			{ fillGas: parseUnits("1", 6), relayer: parseUnits("1", 6) },
@@ -824,57 +647,39 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 		expect(await filler.calculateProfitability(o)).toBe(0)
 	})
 
-	it("addPair rejects a duplicate, its reverse, and a market with no USD anchor", async () => {
+	it("addPair rejects a duplicate and its reverse", async () => {
 		const filler = gateFiller(
-			[{ token0: "USDC", token1: "CNGN", maxOrderSize: size("100000"), askPricePolicy: flat("1500") }],
+			[{ token0: "USDC", token1: "CNGN" }],
 			usdcOnBoth(),
 			{ fillGas: parseUnits("1", 6), relayer: parseUnits("1", 6) },
 		)
 		filler.addPair({
 			token0: "USDC",
 			token1: "USDT",
-			maxOrderSize: size("100000"),
-			bidPricePolicy: flat("1.005"),
-			askPricePolicy: flat("0.999"),
 		})
 
-		const usdtPair = () => ({ token0: "USDT", token1: "USDC", maxOrderSize: size("1"), askPricePolicy: flat("0.9") })
+		const usdtPair = () => ({ token0: "USDT", token1: "USDC" })
 		expect(() => filler.addPair({ ...usdtPair(), token0: "USDC", token1: "USDT" })).toThrow(/duplicate market/)
 		expect(() => filler.addPair(usdtPair())).toThrow(/duplicate market/)
-		// ZARP/ZWL is an island — no curve path to a USD stable.
-		expect(() =>
-			filler.addPair({ token0: "ZARP", token1: "ZWL", maxOrderSize: size("1000"), askPricePolicy: flat("95") }),
-		).toThrow(/no USD anchor/)
 	})
 
-	it("removePair rejects an anchor-orphaning removal and the last market", async () => {
+	it("removePair closes a market and refuses to remove the last one", async () => {
 		const reference: TradingPair = {
 			token0: "USDC",
 			token1: "ZARP",
-			maxOrderSize: size("0"),
-			referenceOnly: true,
-			askPricePolicy: flat("17.8"),
 		}
 		const zarpCngn: TradingPair = {
 			token0: "ZARP",
 			token1: "CNGN",
-			maxOrderSize: size("1000000"),
-			askPricePolicy: flat("95"),
 		}
 		const usdcCngn: TradingPair = {
 			token0: "USDC",
 			token1: "CNGN",
-			maxOrderSize: size("100000"),
-			askPricePolicy: flat("1400"),
 		}
 		const filler = gateFiller([reference, zarpCngn], zarpCngnRegistry(), {
 			fillGas: parseUnits("1", 6),
 			relayer: parseUnits("1", 6),
 		})
-		// The reference feed is ZARP's only path to a USD stable — removing it
-		// would orphan the ZARP/CNGN market.
-		expect(() => filler.removePair(reference)).toThrow(/no USD anchor/)
-
 		filler.addPair(usdcCngn)
 		filler.removePair(usdcCngn)
 
@@ -915,7 +720,7 @@ describe("assertPairSymbolsResolve", () => {
 		})
 		expect(() =>
 			assertPairSymbolsResolve(
-				[{ token0: "USDC", token1: "CNGN", maxOrderSize: "1000" }],
+				[{ token0: "USDC", token1: "CNGN" }],
 				registry,
 				["EVM-8453", "EVM-1"],
 			),
@@ -928,7 +733,7 @@ describe("assertPairSymbolsResolve", () => {
 			CNGN: { "EVM-56": "0x2222222222222222222222222222222222222222" },
 		})
 		expect(() =>
-			assertPairSymbolsResolve([{ token0: "USDC", token1: "CNGN", maxOrderSize: "1000" }], registry, ["EVM-8453"]),
+			assertPairSymbolsResolve([{ token0: "USDC", token1: "CNGN" }], registry, ["EVM-8453"]),
 		).toThrow(/'CNGN' does not resolve/)
 	})
 
@@ -939,7 +744,7 @@ describe("assertPairSymbolsResolve", () => {
 			FAKE: { "EVM-8453": shared },
 		})
 		expect(() =>
-			assertPairSymbolsResolve([{ token0: "USDC", token1: "FAKE", maxOrderSize: "1000" }], registry, ["EVM-8453"]),
+			assertPairSymbolsResolve([{ token0: "USDC", token1: "FAKE" }], registry, ["EVM-8453"]),
 		).toThrow(/both resolve to/)
 	})
 })

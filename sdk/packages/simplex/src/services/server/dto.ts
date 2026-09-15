@@ -6,7 +6,7 @@
  */
 import type { InitChainMeta, InitNetwork } from "@/cli/init/chains"
 import type { VaultToml } from "@/config/filler-toml"
-import type { CurvePoint, PriceCurvePoint } from "@/config/interpolated-curve"
+import type { CurvePoint } from "@/config/interpolated-curve"
 import type { BalanceSnapshot as RuntimeBalanceSnapshot } from "@/services/BalanceProvider"
 import type { VaultSweepSkipReason } from "@/funding/vault/VaultFundingPlanner"
 import type { ActivityType, OrderSummary } from "@/data/types"
@@ -155,13 +155,7 @@ export interface AdminStrategyDto {
 	exotic?: string
 	token0: string
 	token1: string
-	pricingMode: "static" | "venue"
 	sameToken: boolean
-	referenceOnly: boolean
-	/** Per-order cap in token0 units; absent for reference-only pairs (never consulted). */
-	maxOrderSize?: string
-	bid?: PriceCurvePoint[]
-	ask?: PriceCurvePoint[]
 }
 
 /** GET /api/chains rows; one per `[[chains]]` entry in the running config. */

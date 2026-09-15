@@ -4,7 +4,7 @@ import { assembleConfig } from "@/cli/init/steps/write"
 import { emitFillerToml } from "@/cli/init/emit-toml"
 import { validateConfig, type FillerConfigFile } from "@/config/filler-toml"
 import { SignerType } from "@/services/wallet"
-import { newWizardState, DEFAULT_SAME_ASSET_ASK_CURVE } from "@/cli/init/state"
+import { newWizardState } from "@/cli/init/state"
 import { INIT_CHAINS } from "@/cli/init/chains"
 
 /**
@@ -36,11 +36,6 @@ describe("CLI wizard update run", () => {
 			{
 				token0: "USDC",
 				token1: "USDC",
-				maxOrderSize: "100000",
-				askPriceCurve: [
-					{ amount: "100", price: "0.99" },
-					{ amount: "100000", price: "0.999" },
-				],
 			},
 		],
 		chains: [{ rpcUrls: ["https://eth.example/rpc"], bundlerUrl: "https://bundler.example" }],
@@ -50,7 +45,7 @@ describe("CLI wizard update run", () => {
 	}
 
 	const wizardPairs = [
-		{ token0: "USDC", token1: "USDC", maxOrderSize: "100000", askPriceCurve: DEFAULT_SAME_ASSET_ASK_CURVE },
+		{ token0: "USDC", token1: "USDC" },
 	]
 	const wizardAssets = { BRZ: { "EVM-8453": "0x5555555555555555555555555555555555555555" as const } }
 	const wizardConfirmationPolicies = {

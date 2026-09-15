@@ -22,11 +22,6 @@ const minimalConfig = (): FillerTomlConfig => ({
 		{
 			token0: "USDC",
 			token1: "USDC",
-			maxOrderSize: "100000",
-			askPriceCurve: [
-				{ amount: "100", price: "0.99" },
-				{ amount: "100000", price: "0.999" },
-			],
 		},
 	],
 	chains: [{ rpcUrls: ["https://eth-mainnet.g.alchemy.com/v2/key"], bundlerUrl: "https://bundler.example" }],
@@ -101,9 +96,6 @@ describe("validateConfig", () => {
 		unknown.pairs!.push({
 			token0: "USDC",
 			token1: "BRZ",
-			maxOrderSize: "5000",
-			bidPriceCurve: [{ amount: "100", price: "6" }],
-			askPriceCurve: [{ amount: "100", price: "5.8" }],
 		})
 		expect(() => validateConfig(unknown)).toThrow(/unknown symbol 'BRZ'/)
 
@@ -117,12 +109,10 @@ describe("validateConfig", () => {
 			{
 				token0: "USDC",
 				token1: "CNGN",
-				referenceOnly: true,
-				askPriceCurve: [{ amount: "0", price: "1565" }],
 			},
-			{ token0: "CNGN", token1: "ZARP", maxOrderSize: "5000" },
+			{ token0: "CNGN", token1: "ZARP" },
 		)
-		expect(() => validateConfig(config)).toThrow(/provide a bid and\/or ask price curve/)
+		expect(() => validateConfig(config)).not.toThrow()
 	})
 
 	it("rejects malformed confirmation policy keys and short point lists", () => {
@@ -174,18 +164,6 @@ describe("validateConfig", () => {
 		).not.toThrow()
 	})
 
-	it("rejects invalid curve amounts at the gate, like the price policy does", () => {
-		const config = minimalConfig()
-		config.pairs = [
-			{
-				token0: "USDC",
-				token1: "CNGN",
-				maxOrderSize: "1000",
-				askPriceCurve: [{ amount: "-5", price: "1550" }],
-			},
-		]
-		expect(() => validateConfig(config)).toThrow(/askPriceCurve — .*invalid amount/)
-	})
 })
 
 describe("validateConfig [orderbook]", () => {

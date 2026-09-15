@@ -48,14 +48,6 @@ export interface Prefill {
 import { DEFAULT_MAX_CONCURRENT_ORDERS } from "@/config/defaults"
 export { DEFAULT_MAX_CONCURRENT_ORDERS }
 
-/** Ask prices below par by order size — the gap to 1 is the spread on every fill. */
-export const DEFAULT_SAME_ASSET_ASK_CURVE = [
-	{ amount: "100", price: "0.99" },
-	{ amount: "1000", price: "0.995" },
-	{ amount: "10000", price: "0.9975" },
-	{ amount: "100000", price: "0.999" },
-]
-
 /** Low-value testnet default; testnet chain ids have no built-in confirmation policy. */
 export const TESTNET_CONFIRMATION_POINTS = [
 	{ amount: "100", value: 1 },

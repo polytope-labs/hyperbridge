@@ -355,6 +355,10 @@ class MemoryLimitOrderStore implements LimitOrderStore {
 			.map((order) => ({ ...order }))
 	}
 
+	async open(): Promise<LimitOrder[]> {
+		return this.list({ status: "open" })
+	}
+
 	async setPosting(id: string, posting: LimitOrderPosting): Promise<LimitOrder | null> {
 		return this.patch(id, posting)
 	}

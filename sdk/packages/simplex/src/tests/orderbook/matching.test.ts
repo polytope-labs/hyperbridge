@@ -88,9 +88,40 @@ describe("matchLimitOrder", () => {
 		expect(matchLimitOrder([order], incoming(), resolve)).toBeNull()
 	})
 
-	it("only matches an order facing the same direction", () => {
-		// An ASK on this book takes cNGN in and pays USDC, not the other way round.
-		expect(matchLimitOrder([limitOrder({ side: "ASK" })], incoming(), resolve)).toBeNull()
+	describe("direction", () => {
+		it("does not let a USDC to cNGN limit order price a cNGN to USDC swap", () => {
+			// The operator's order takes USDC in and pays cNGN out. The reverse swap
+			// needs its own order; this one must not stand in for it at 1/price.
+			const usdcToCngn = limitOrder({ side: "BID" })
+			const reversed = incoming({
+				inputSymbol: "CNGN",
+				outputToken: USDC,
+				inputNet: 1_500_000n * ONE,
+				requestedOutput: 900n * ONE,
+				outputDecimals: 6,
+			})
+			expect(matchLimitOrder([usdcToCngn], reversed, resolve)).toBeNull()
+		})
+
+		it("does not let a cNGN to USDC limit order price a USDC to cNGN swap", () => {
+			expect(matchLimitOrder([limitOrder({ side: "ASK" })], incoming(), resolve)).toBeNull()
+		})
+
+		it("serves each direction from the order facing it, when both are open", () => {
+			// Both directions of one book, held at once. Each swap draws on its own.
+			const usdcToCngn = limitOrder({ id: "usdc-to-cngn", side: "BID" })
+			const cngnToUsdc = limitOrder({ id: "cngn-to-usdc", side: "ASK" })
+			const reversed = incoming({
+				inputSymbol: "CNGN",
+				outputToken: USDC,
+				inputNet: 1_500_000n * ONE,
+				requestedOutput: 900n * ONE,
+				outputDecimals: 6,
+			})
+
+			expect(matchLimitOrder([usdcToCngn, cngnToUsdc], incoming(), resolve)?.order.id).toBe("usdc-to-cngn")
+			expect(matchLimitOrder([usdcToCngn, cngnToUsdc], reversed, resolve)?.order.id).toBe("cngn-to-usdc")
+		})
 	})
 
 	it("only matches when the output token is the one the order asked for", () => {

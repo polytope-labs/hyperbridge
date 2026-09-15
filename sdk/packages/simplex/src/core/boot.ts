@@ -32,7 +32,7 @@ import { backfillOrderSummaries, DEFAULT_INDEXER_URLS } from "@/data/backfill"
 import { backfillVaultLedger } from "@/data/ledger-backfill"
 import { chainByChainId } from "@/cli/init/chains"
 import type { SimplexDataStore } from "@/data/types"
-import type { HyperbridgeScanner, OrderScanner } from "@/scanner/types"
+import type { OrderScanner } from "@/scanner/types"
 import type { AdminStrategy, HaltControl } from "@/services/server/UiServer"
 import type { BinanceCexConfig } from "@/services/rebalancers/index"
 import type { Signer } from "@/services/wallet"
@@ -54,10 +54,10 @@ export interface BootOptions {
 	 */
 	loggers: LoggerContext
 	/**
-	 * Event scanners this filler reads from. `Simplex.start` supplies the ones the
-	 * caller passed, or builds private ones from this config.
+	 * Event scanners this filler reads from. `Simplex.start` supplies the one the
+	 * caller passed, or builds a private one from this config.
 	 */
-	scanners: { orders: OrderScanner; hyperbridge?: HyperbridgeScanner }
+	scanners: { orders: OrderScanner }
 	/** --watch-only CLI flag: forces watch-only on every chain. */
 	watchOnlyOverride?: boolean
 	/**
@@ -332,15 +332,6 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 	const fillerConfig: FillerConfig = {
 		maxConcurrentOrders: config.simplex.maxConcurrentOrders ?? DEFAULT_MAX_CONCURRENT_ORDERS,
 		watchOnly: watchOnlyConfig,
-		// Same list the V4 funding venue is built from, so a position can never back a fill without
-		// also being declared to the snapshot that measures the depth behind it.
-		uniswapV4PositionsByChain: (config.vault?.uniswapV4?.positions ?? []).reduce<Record<string, string[]>>(
-			(byChain, row) => {
-				;(byChain[row.chain] ??= []).push(String(row.tokenId))
-				return byChain
-			},
-			{},
-		),
 	} as FillerConfig
 
 	// Create shared services to avoid duplicate RPC calls and reuse connections
@@ -543,7 +534,6 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		options.scanners,
 		rebalancingService,
 		bidStore,
-		options.data.state,
 	)
 
 	started.push(() => intentFiller.stop())
@@ -651,10 +641,6 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		await unwind()
 		throw error
 	}
-
-	// Phantom bids the previous run left live: the first batch retracts them,
-	// reclaiming deposits that used to be stranded by every restart.
-	intentFiller.restorePhantomBids(restoredState.phantomBids)
 
 	// Start the filler
 	intentFiller.start()

@@ -162,19 +162,16 @@ export type {
 export type { SolverWork } from "@/services/server/dto"
 
 // ─── Shared scanners ────────────────────────────────────────────────────────
-// Scanning a chain is identical work for every filler, so the default sources
-// share one loop per (chain, gateway, endpoints) and one Hyperbridge poll per
-// endpoint across every Simplex in the process. Implement these contracts to
-// feed fillers from somewhere else — another process, an indexer, a bus.
+// Scanning a chain is identical work for every filler, so the default source
+// shares one loop per (chain, gateway, endpoints) across every Simplex in the
+// process. Implement these contracts to feed fillers from somewhere else —
+// another process, an indexer, a bus.
 
 export { OrderScanner } from "@/scanner/order-scanner"
-export { HyperbridgeScanner } from "@/scanner/hyperbridge-scanner"
 export type {
 	OrderScanner as OrderScannerContract,
 	OrderScannerHandlers,
 	OrderScannerOptions,
-	HyperbridgeScanner as HyperbridgeScannerContract,
-	HyperbridgeScannerHandlers,
 	ScannerChainConfig,
 	ScannedOrder,
 	ScannedFill,

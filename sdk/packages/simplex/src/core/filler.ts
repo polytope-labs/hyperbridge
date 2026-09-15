@@ -9,18 +9,14 @@ import {
 	retryPromise,
 	type HexString,
 	IntentsCoprocessor,
-	type PhantomOrderEvent,
 	type TokenInfo,
-	type PhantomBid,
-	ADDRESS_ZERO,
 	readLegEscrow,
 } from "@hyperbridge/sdk"
 import { parseChainKey } from "@/config/interpolated-curve"
 import pQueue from "p-queue"
 import { type ChainClientManager, type ContractInteractionService, DelegationService, type RebalancingService } from "@/services"
-import { patchRuntimeState } from "@/data/state"
-import type { BidStore, StateStore } from "@/data/types"
-import type { HyperbridgeScanner, OrderScanner, Subscription } from "@/scanner/types"
+import type { BidStore } from "@/data/types"
+import type { OrderScanner } from "@/scanner/types"
 import type { FillerConfigService } from "@/services/FillerConfigService"
 import type { SolverWork } from "@/services/server/dto"
 import { type Logger , moduleLogger} from "@/services/Logger"
@@ -30,27 +26,6 @@ import { Decimal } from "decimal.js"
 
 /** How long to wait for a Hyperbridge connection before giving up on it. */
 const HYPERBRIDGE_CONNECT_TIMEOUT_MS = 30_000
-
-/**
- * Blocks of slack allowed on top of the pallet's own bid window when ageing a phantom order.
- *
- * The pallet accepts a bid while `block_number <= created_at + window`, and the block it lands in
- * is a block or two past the head this gate reads. Erring a little permissive is the cheaper
- * mistake: a bid that arrives one block late is bounced with `PhantomOrderBidWindowClosed`, which
- * costs fees and a log line, while erring tight throws away a bid that would have landed. The
- * pallet stays the authority on the edge — this gate is here for the systematic lag, where the
- * order is thousands of blocks old and no margin makes any difference.
- */
-const PHANTOM_BID_AGE_MARGIN_BLOCKS = 2
-
-/** One chain's phantom bid, quoted and built, waiting to ride in the interval's batch. */
-interface PreparedPhantomBid {
-	chain: string
-	/** Legs that got a non-zero quote, and how many the order carried — for logging only. */
-	quotedLegs: number
-	legs: number
-	bid: PhantomBid
-}
 
 export class IntentFiller {
 	public monitor: EventMonitor
@@ -62,7 +37,6 @@ export class IntentFiller {
 	private delegationService?: DelegationService
 	private rebalancingService?: RebalancingService
 	private bidStorage?: BidStore
-	private stateStore?: StateStore
 	private retractionQueue: pQueue
 	private paused = false
 	private stopping = false
@@ -71,11 +45,6 @@ export class IntentFiller {
 	private initialRebalanceTimer?: NodeJS.Timeout
 	private activeRebalances = new Set<Promise<void>>()
 	private retractionSweepInterval?: NodeJS.Timeout
-	private stopPhantomPolling: (() => void) | null = null
-	// Last phantom bid commitment per chain. The pallet bundles every configured pair into a single
-	// order per interval, so one commitment per chain is live at a time and a new interval's bid
-	// retracts exactly the one it replaces.
-	private lastPhantomCommitmentByChain = new Map<string, HexString>()
 	private hyperbridge: Promise<IntentsCoprocessor> | undefined = undefined
 	private hyperbridgeEndpoint?: { wsUrl: string; substrateKey: string }
 	/** The ApiPromise behind `hyperbridge` — ours, so stop() can disconnect it. */
@@ -94,8 +63,6 @@ export class IntentFiller {
 	private signer: Signer
 	private fillerAddress: HexString
 	private logger: Logger
-	private hyperbridgeScanner?: HyperbridgeScanner
-	private phantomSubscription?: Subscription
 
 	constructor(
 		chainConfigs: ChainConfig[],
@@ -105,10 +72,9 @@ export class IntentFiller {
 		chainClientManager: ChainClientManager,
 		contractService: ContractInteractionService,
 		signer: Signer,
-		scanners: { orders: OrderScanner; hyperbridge?: HyperbridgeScanner },
+		scanners: { orders: OrderScanner },
 		rebalancingService?: RebalancingService,
 		bidStorage?: BidStore,
-		stateStore?: StateStore,
 	) {
 		this.logger = moduleLogger(configService.loggers, "intent-filler")
 		this.configService = configService
@@ -118,9 +84,7 @@ export class IntentFiller {
 		this.contractService = contractService
 		this.rebalancingService = rebalancingService
 		this.bidStorage = bidStorage
-		this.stateStore = stateStore
 		this.monitor = new EventMonitor(chainConfigs, configService, this.fillerAddress, scanners.orders)
-		this.hyperbridgeScanner = scanners.hyperbridge
 		this.strategies = strategies
 		this.config = config
 
@@ -170,16 +134,6 @@ export class IntentFiller {
 	private isChainWatchOnly(chainId: number): boolean {
 		const watchOnly = this.config.watchOnly
 		return typeof watchOnly === "object" && watchOnly !== null && watchOnly[chainId] === true
-	}
-
-	/**
-	 * The source chains this filler accepts payment from, declared in every phantom bid: every
-	 * configured chain. Derived at bid time rather than at boot because chains are added and
-	 * removed while the filler runs, and a declaration that lagged them would advertise a route
-	 * the filler no longer serves, or hide one it does.
-	 */
-	private acceptedSourceChains(): string[] {
-		return acceptedSourceChainsFor(this.configService.getConfiguredChainIds())
 	}
 
 	/**
@@ -362,10 +316,6 @@ export class IntentFiller {
 		if (this.bidStorage && this.hyperbridge) {
 			this.startRetractionSweep()
 		}
-
-		if (this.hyperbridge) {
-			this.startPhantomBidding()
-		}
 	}
 
 	/**
@@ -541,13 +491,6 @@ export class IntentFiller {
 		await this.hyperbridgeApi?.disconnect().catch(() => {})
 		this.hyperbridgeApi = undefined
 		this.hyperbridge = undefined
-
-		this.phantomSubscription?.close()
-		this.phantomSubscription = undefined
-		if (this.stopPhantomPolling) {
-			this.stopPhantomPolling()
-			this.stopPhantomPolling = null
-		}
 
 		// Stop rebalancing interval
 		if (this.initialRebalanceTimer) {
@@ -1045,7 +988,6 @@ export class IntentFiller {
 			// The queued promise is nobody's return value, so the rethrow above would be an
 			// unhandled rejection — which this process has no handler for and Node turns
 			// into an exit, stopping the retraction sweep for every other outstanding bid.
-			// Same guard the phantom path already applies.
 		}).catch((err) => this.logger.error({ orderId: order.id, err }, "Order execution task failed"))
 	}
 
@@ -1139,421 +1081,4 @@ export class IntentFiller {
 			}
 		})
 	}
-
-	private startPhantomBidding(): void {
-		if (!this.hyperbridge) return
-		const scanner = this.hyperbridgeScanner
-		if (!scanner) return
-		this.hyperbridge
-			.then((coprocessor) => {
-				// connect() can resolve long after stop() was called against a slow
-				// endpoint; installing the poller then would leave it running forever.
-				if (this.stopping) return
-				// Reads come from the shared poller — every filler used to re-read every
-				// Hyperbridge block itself. Bids still go through this instance's own
-				// coprocessor, which holds its substrate key.
-				this.phantomSubscription = scanner.subscribe({
-					onPhantomOrders: (orders: PhantomOrderEvent[]) => {
-						// The queued promise is nobody's return value, so an escaping throw would be an
-						// unhandled rejection — which this process has no handler for and Node turns into
-						// an exit. Contain it here so a bad phantom order can never take the filler down.
-						void this.globalQueue
-							.add(() => this.handlePhantomOrders(orders, coprocessor))
-							.catch((err) =>
-								this.logger.error(
-									{ err, chains: orders.map((order) => order.chain) },
-									"Unhandled error while processing phantom orders",
-								),
-							)
-					},
-					onError: (err: unknown) => this.logger.warn({ err }, "Phantom order poll failed, will retry"),
-				})
-				this.logger.info("Phantom order polling active")
-			})
-			.catch((err) => {
-				this.logger.error({ err }, "Failed to start phantom order polling")
-			})
-	}
-
-	/**
-	 * Quotes one leg of a bundled phantom order. Legs are positional, so narrowing the order to
-	 * `inputs[index]` and `output.assets[index]` produces the single pair order the strategies
-	 * already know how to price. `quotePhantomFill` does its own canFill gating and returns null
-	 * for a leg it does not handle, so there is no pre-check here — one canFill per strategy,
-	 * not two. The synthetic leg carries no id so nothing keys the shared TTL caches with
-	 * per-interval throwaway entries.
-	 */
-	private async quotePhantomLeg(order: Order, index: number, chain: string): Promise<TokenInfo | null> {
-		const leg: Order = {
-			...order,
-			id: undefined,
-			inputs: [order.inputs[index]],
-			output: { ...order.output, assets: [order.output.assets[index]] },
-		}
-
-		for (const candidate of this.strategies) {
-			if (typeof candidate.quotePhantomFill !== "function") continue
-			try {
-				const outputs = await candidate.quotePhantomFill(leg)
-				if (outputs?.length) return outputs[0]
-			} catch (err) {
-				this.logger.warn(
-					{ err, commitment: order.id, chain, index, strategy: candidate.name },
-					"Phantom leg quote failed",
-				)
-			}
-		}
-
-		return null
-	}
-
-	/**
-	 * Quotes and builds one chain's phantom bid, ready to be batched with the rest of the interval's.
-	 * Returns null when the chain is skipped, nothing quoted, or the userOp could not be built —
-	 * one chain dropping out never costs the others their bid.
-	 */
-	/**
-	 * Quotes and builds one chain's phantom bid, ready to be batched with the rest of the interval's.
-	 * Returns null when the chain is skipped, nothing quoted, or the userOp could not be built —
-	 * one chain dropping out never costs the others their bid.
-	 */
-	private async preparePhantomBid(
-		event: PhantomOrderEvent,
-		coprocessor: IntentsCoprocessor,
-	): Promise<PreparedPhantomBid | null> {
-		// A phantom bid is a public quote — it advertises that this filler stands ready to fill that
-		// chain's pairs at the quoted rate. The pallet registers one order per chain *it* knows about,
-		// which is a superset of what any single operator runs, and the strategies price legs off the
-		// shared asset registry rather than the operator's config, so an unconfigured chain quotes
-		// happily. Bidding there advertises liquidity no real order could ever draw on: without RPCs
-		// or a bundler for the chain, the fill path cannot even see the order, let alone fill it.
-		// Watch-only chains are the same story — `evaluateOrder` refuses to fill them by design.
-		const chainId = getChainId(event.chain)
-		if (chainId === undefined || !this.configService.getConfiguredChainIds().includes(chainId)) {
-			this.logger.debug({ chain: event.chain }, "Phantom order chain is not configured, skipping")
-			return null
-		}
-		if (this.isChainWatchOnly(chainId)) {
-			this.logger.debug({ chain: event.chain }, "Phantom order chain is watch-only, skipping")
-			return null
-		}
-
-		const entryPointAddress = this.configService.getEntryPointAddress(`EVM-${chainId}`)
-		if (!entryPointAddress) {
-			this.logger.debug({ chain: event.chain }, "No entry point configured for phantom order chain, skipping")
-			return null
-		}
-
-		// Fetch the exact ABI-encoded order the pallet committed to from offchain storage. The read
-		// throws rather than returning empty when the node does not serve the offchain RPC at all,
-		// which is the common misconfiguration — a public endpoint runs safe methods only.
-		let phantomOrder: Order | null
-		try {
-			phantomOrder = await coprocessor.fetchPhantomOrder(event.commitment)
-		} catch (err) {
-			this.logger.error(
-				{ err, commitment: event.commitment, chain: event.chain },
-				"Could not read the phantom order from offchain storage — the Hyperbridge node must run with " +
-					"--enable-offchain-indexing=true and expose offchain_localStorageGet (--rpc-methods=unsafe)",
-			)
-			return null
-		}
-		if (!phantomOrder) {
-			this.logger.warn(
-				{ commitment: event.commitment, chain: event.chain },
-				"Phantom order not found in offchain storage — node may not be an offchain worker or order expired",
-			)
-			return null
-		}
-
-		// Everything below establishes that this order body really is the pallet's.
-		//
-		// It arrives from a single Hyperbridge node's offchain storage, and `fetchPhantomOrder`
-		// assigns the commitment from the event rather than re-deriving it from the bytes, so the
-		// body is unauthenticated. That matters because `quotePhantomFill` deliberately runs with
-		// no budget, no wallet-balance read and neither profit gate — the amounts we sign are
-		// bounded only by the body. A forged body would turn that unbounded quote into a signed,
-		// executable authorization to fill an order of someone else's choosing.
-		//
-		// `phantom_order_commitment` fixes every one of these fields, so each check is free and
-		// each one independently makes the bid unexecutable. `session` is the load-bearing one:
-		// `_select` recovers a session key with `ECDSA.recover`, which can never return the zero
-		// address, so a genuine phantom order can never have a solver selected at all.
-		const invariant =
-			phantomOrder.session?.toLowerCase() !== ADDRESS_ZERO.toLowerCase()
-				? "session key is not the zero address"
-				: phantomOrder.output.assets.some((asset) => asset.amount !== 0n)
-					? "an output leg requests a non-zero amount"
-					: phantomOrder.source !== event.chain || phantomOrder.destination !== event.chain
-						? "source/destination do not both match the announced chain"
-						: null
-		if (invariant) {
-			this.logger.error(
-				{
-					commitment: event.commitment,
-					chain: event.chain,
-					source: phantomOrder.source,
-					destination: phantomOrder.destination,
-					session: phantomOrder.session,
-					reason: invariant,
-				},
-				"Phantom order does not match the shape the pallet generates — refusing to quote. The " +
-					"order body did not come from the pallet.",
-			)
-			return null
-		}
-
-		// Defence in depth on top of the structural checks: the pallet stamps the chain's latest
-		// *confirmed* height as the deadline precisely so the order "can never be executed for
-		// real", and `fillOrder` reverts `Expired()` once `deadline < block.number`. A body that is
-		// still fillable is not the pallet's whatever else it looks like.
-		//
-		// Best-effort: a failed head read only costs this cross-check, and the invariants above
-		// already carry the security property without touching an RPC. Hard-failing here would let
-		// one flaky endpoint stop this filler bidding altogether — and this runs inside the
-		// on-chain bid window, so it must not become a latency cliff either.
-		try {
-			const currentBlock = await this.chainClientManager.getPublicClient(event.chain).getBlockNumber()
-			if (phantomOrder.deadline >= currentBlock) {
-				this.logger.error(
-					{
-						commitment: event.commitment,
-						chain: event.chain,
-						deadline: phantomOrder.deadline.toString(),
-						currentBlock: currentBlock.toString(),
-					},
-					"Phantom order is still fillable — refusing to quote. A genuine phantom order carries a " +
-						"past confirmed height as its deadline.",
-				)
-				return null
-			}
-		} catch (err) {
-			this.logger.warn(
-				{ err, commitment: event.commitment, chain: event.chain },
-				"Could not read the current block to cross-check the phantom order deadline; " +
-					"continuing on the structural checks alone",
-			)
-		}
-
-		// Every leg of every configured pair rides in this one order, so quote leg by leg —
-		// concurrently, because legs are independent and the bid has to land inside the on-chain
-		// bid window (as few as 5 blocks), which a sequential walk over a large order would miss.
-		// A leg no strategy handles is quoted at zero instead of sinking the whole order, and legs
-		// belonging to different strategies each get the one that actually prices them.
-		const quotes = await Promise.all(
-			phantomOrder.output.assets.map((_, index) => this.quotePhantomLeg(phantomOrder, index, event.chain)),
-		)
-		const fillerOutputs: TokenInfo[] = quotes.map(
-			(quote, index) => quote ?? { token: phantomOrder.output.assets[index].token, amount: 0n },
-		)
-
-		if (fillerOutputs.every((output) => output.amount === 0n)) {
-			this.logger.debug({ chain: event.chain }, "No strategy quoted any leg of the phantom order")
-			return null
-		}
-
-		const solverAccountAddress = this.signer.address as HexString
-
-		try {
-			const { userOp } = await this.contractService.preparePhantomBidUserOp(
-				phantomOrder,
-				entryPointAddress,
-				solverAccountAddress,
-				fillerOutputs,
-				this.acceptedSourceChains(),
-				// Positions are declared per chain because the bid is: the tokenIds that back a quote
-				// on this chain are the ones held here.
-				this.config.uniswapV4PositionsByChain?.[event.chain],
-			)
-
-			// Use event.commitment directly — re-deriving it from the decoded order risks parity
-			// divergence if the encode round-trip doesn't perfectly reproduce the pallet's bytes.
-			// When the previous interval's bid on this chain is still live it rides along as a
-			// retraction, so the old deposit comes back in the same extrinsic.
-			const prevCommitment = this.lastPhantomCommitmentByChain.get(event.chain)
-			return {
-				chain: event.chain,
-				quotedLegs: fillerOutputs.filter((output) => output.amount > 0n).length,
-				legs: fillerOutputs.length,
-				bid: {
-					commitment: event.commitment,
-					userOp,
-					retractCommitment:
-						prevCommitment && prevCommitment !== event.commitment ? prevCommitment : undefined,
-				},
-			}
-		} catch (err) {
-			this.logger.error({ err, chain: event.chain }, "Failed to prepare phantom bid")
-			return null
-		}
-	}
-
-	/**
-	 * The orders whose bid window can still be open, dropping the rest.
-	 *
-	 * Everything upstream of here can add delay — the poll cursor falling behind, the global queue
-	 * this runs on, the quoting inside `preparePhantomBid` — and none of it is visible in the event
-	 * itself, which carries the block it was registered at and no clock. Bidding anyway is not a
-	 * harmless no-op: the extrinsic is accepted, reserves a deposit, and is counted by nothing,
-	 * because the aggregation read that order's bids when its window closed. A filler in that state
-	 * looks perfectly healthy — bids land, no errors — while backing no pool at all, which is
-	 * exactly how it went unnoticed on mainnet for nine hours.
-	 *
-	 * The window comes from the chain rather than a constant here, because it is governance-set and
-	 * has already moved: Nexus runs 15 where the runtime constant behind it says 25, and Gargantua
-	 * says 5. Anything fixed is wrong in one direction or the other — too tight and this drops live
-	 * orders, too loose and it waves through bids the pallet will bounce.
-	 *
-	 * One head read per batch, not per order, and a failed read of either value keeps every event: a
-	 * flaky endpoint must not be able to stop this filler bidding.
-	 */
-	private async dropExpiredPhantomOrders(
-		events: PhantomOrderEvent[],
-		coprocessor: IntentsCoprocessor,
-	): Promise<PhantomOrderEvent[]> {
-		let head: number
-		let bidWindowBlocks: number
-		try {
-			;[head, { bidWindowBlocks }] = await Promise.all([
-				coprocessor.latestBlockNumber(),
-				coprocessor.phantomTimings(),
-			])
-		} catch (err) {
-			this.logger.warn(
-				{ err },
-				"Could not read the Hyperbridge head or bid window to age phantom orders; bidding on all of them",
-			)
-			return events
-		}
-
-		const maxAge = bidWindowBlocks + PHANTOM_BID_AGE_MARGIN_BLOCKS
-		const live = events.filter((event) => head - event.createdAt <= maxAge)
-		if (live.length < events.length) {
-			const expired = events.filter((event) => !live.includes(event))
-			this.logger.warn(
-				{
-					head,
-					bidWindowBlocks,
-					dropped: expired.length,
-					oldestLagBlocks: Math.max(...expired.map((event) => head - event.createdAt)),
-					chains: expired.map((event) => event.chain),
-				},
-				"Skipping phantom orders whose bid window has closed — bidding on them would reserve a " +
-					"deposit for a bid nothing can count. Persistent, and this filler is falling behind the chain.",
-			)
-		}
-		return live
-	}
-
-	/**
-	 * Seeds the per-chain phantom commitments from a previous run, so the first
-	 * batch after a restart retracts the bid that run left live. Chains already
-	 * known to this run are not overwritten.
-	 */
-	restorePhantomBids(bids: Record<string, string> | undefined): void {
-		for (const [chain, commitment] of Object.entries(bids ?? {})) {
-			if (!this.lastPhantomCommitmentByChain.has(chain)) {
-				this.lastPhantomCommitmentByChain.set(chain, commitment as HexString)
-			}
-		}
-		if (bids && Object.keys(bids).length > 0) {
-			this.logger.info({ chains: Object.keys(bids) }, "Restored live phantom bids from the previous run")
-		}
-	}
-
-	/** The last phantom commitment per chain that may still hold a deposit. */
-	livePhantomBids(): Record<string, string> {
-		return Object.fromEntries(this.lastPhantomCommitmentByChain)
-	}
-
-	/**
-	 * Records a phantom bid as the chain's live one and persists the set. The
-	 * write is best-effort: a failed persist costs one deposit on the next
-	 * restart, which is exactly the situation it exists to prevent, so it is
-	 * logged rather than allowed to fail the interval.
-	 */
-	private rememberPhantomBid(chain: string, commitment: HexString): void {
-		this.lastPhantomCommitmentByChain.set(chain, commitment)
-		if (!this.stateStore) return
-		patchRuntimeState(this.stateStore, { phantomBids: this.livePhantomBids() }).catch((err) =>
-			this.logger.warn({ err, chain }, "Could not persist the live phantom bid"),
-		)
-	}
-
-	/**
-	 * Bids on every phantom order registered in one block, in a single extrinsic.
-	 *
-	 * The pallet registers one order per configured chain in the same block, so this is the whole
-	 * interval's set. Quoting stays per chain and runs concurrently; only the submission is shared.
-	 * One bid per chain used to mean one extrinsic per chain, each waiting for inclusion behind the
-	 * last because submissions are serialised on the account nonce — so the final chain's bid was
-	 * many blocks behind the first, against a bid window measured in tens of blocks.
-	 */
-	private async handlePhantomOrders(events: PhantomOrderEvent[], coprocessor: IntentsCoprocessor): Promise<void> {
-		const live = await this.dropExpiredPhantomOrders(events, coprocessor)
-		if (live.length === 0) return
-
-		const prepared = (await Promise.all(live.map((event) => this.preparePhantomBid(event, coprocessor)))).filter(
-			(entry): entry is PreparedPhantomBid => entry !== null,
-		)
-		if (prepared.length === 0) return
-
-		const result = await coprocessor.submitPhantomBids(prepared.map((entry) => entry.bid))
-
-		const landed: string[] = []
-		prepared.forEach((entry, index) => {
-			const outcome = result.bids[index]
-			if (outcome?.success) {
-				landed.push(entry.chain)
-				this.rememberPhantomBid(entry.chain, entry.bid.commitment)
-				return
-			}
-			if (result.pending) {
-				// The extrinsic reached the tx pool but inclusion wasn't observed — it will almost
-				// certainly land. Record the commitment so the next interval's batch retracts it;
-				// if it never lands, that retraction degrades to a harmless trailing BidNotFound.
-				this.rememberPhantomBid(entry.chain, entry.bid.commitment)
-				return
-			}
-			this.logger.warn(
-				{ commitment: entry.bid.commitment, chain: entry.chain, error: outcome?.error ?? result.error },
-				"Phantom bid rejected",
-			)
-		})
-
-		if (result.pending) {
-			this.logger.info(
-				{ bids: prepared.length, chains: prepared.map((entry) => entry.chain), error: result.error },
-				"Phantom bids in flight, inclusion not yet observed",
-			)
-			return
-		}
-
-		this.logger.info(
-			{
-				bids: prepared.length,
-				landed: landed.length,
-				chains: landed,
-				quotedLegs: prepared.reduce((sum, entry) => sum + entry.quotedLegs, 0),
-				legs: prepared.reduce((sum, entry) => sum + entry.legs, 0),
-				txHash: result.extrinsicHash,
-				blockHash: result.blockHash,
-				error: result.error,
-			},
-			landed.length > 0 ? "Phantom bids submitted" : "Phantom bid batch landed no bids",
-		)
-	}
-}
-
-/**
- * The accepted-source declaration for a filler configured on `configuredChainIds`: all of them, as
- * state machine ids in ascending chain-id order so the same configuration always encodes to the
- * same bytes.
- *
- * Watch-only chains are included. Watch-only governs where the filler commits inventory as a fill
- * destination; it says nothing about where it is willing to be paid, and an order sourced on a
- * watch-only chain is still filled on a live one with the escrow released to the filler there.
- */
-export function acceptedSourceChainsFor(configuredChainIds: readonly number[]): string[] {
-	return [...new Set(configuredChainIds)].sort((a, b) => a - b).map((chainId) => `EVM-${chainId}`)
 }

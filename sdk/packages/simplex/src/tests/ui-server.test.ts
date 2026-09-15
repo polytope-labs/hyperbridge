@@ -11,7 +11,6 @@ import { MemoryDataStore } from "@/data/memory"
 import { LoggerContext, type LogLevel } from "@/services/Logger"
 import { LogStore } from "@/services/server/LogStore"
 import type { LogRecordDto } from "@/services/server/dto"
-import { FillerPricePolicy } from "@/config/interpolated-curve"
 import type { FillerConfigFile } from "@/config/filler-toml"
 import { SignerType } from "@/services/wallet"
 import type { PairConfig } from "@/config/pairs"
@@ -23,7 +22,6 @@ import { get } from "http"
 import { tmpdir } from "os"
 import { dirname, join } from "path"
 import { parse } from "toml"
-import Decimal from "decimal.js"
 
 /** fetch() normalizes `..` out of URLs and forbids Host, so these tests need a raw socket. */
 function rawRequest(port: number, path: string, host = "127.0.0.1"): Promise<string> {
@@ -102,18 +100,9 @@ function fakeConfig(): FillerConfigFile {
 			hyperbridgeWsUrl: "wss://example",
 		},
 		pairs: [
-			{ token0: "USDC", token1: "USDC", maxOrderSize: "100000", askPriceCurve: SAME_ASSET_POINTS },
-			{
-				token0: "USDC",
-				token1: "CNGN",
-				maxOrderSize: "5000",
-				bidPriceCurve: BID_POINTS,
-				askPriceCurve: ASK_POINTS,
-			},
-			// venue-priced: no curves
-			{ token0: "USDC", token1: "CNGN", maxOrderSize: "5000" },
-			// one-sided LP
-			{ token0: "USDC", token1: "ZARP", maxOrderSize: "5000", askPriceCurve: ASK_POINTS },
+			{ token0: "USDC", token1: "USDC" },
+			{ token0: "USDC", token1: "CNGN" },
+			{ token0: "USDC", token1: "ZARP" },
 		],
 		chains: [{ rpcUrls: ["https://rpc.example"], bundlerUrl: "https://bundler.example" }],
 	}
@@ -149,41 +138,6 @@ function baseOperator(overrides: Partial<OperatorContext> = {}): TestOperator {
 	}
 }
 
-describe("FillerPricePolicy runtime mutation", () => {
-	it("getPoints returns points sorted by amount as strings", () => {
-		const policy = new FillerPricePolicy({
-			points: [
-				{ amount: "5000", price: "1570" },
-				{ amount: "100", price: "1580" },
-			],
-		})
-		expect(policy.getPoints()).toEqual([
-			{ amount: "100", price: "1580" },
-			{ amount: "5000", price: "1570" },
-		])
-	})
-
-	it("replacePoints changes what getPrice returns on the same instance", () => {
-		const policy = new FillerPricePolicy({ points: [{ amount: "0", price: "1500" }] })
-		expect(policy.getPrice(new Decimal(1000)).toString()).toBe("1500")
-
-		policy.replacePoints({
-			points: [
-				{ amount: "0", price: "1600" },
-				{ amount: "2000", price: "1700" },
-			],
-		})
-		expect(policy.getPrice(new Decimal(1000)).toString()).toBe("1650")
-	})
-
-	it("replacePoints rejects invalid input and leaves the curve unchanged", () => {
-		const policy = new FillerPricePolicy({ points: BID_POINTS })
-		expect(() => policy.replacePoints({ points: [{ amount: "0", price: "-5" }] })).toThrow(/positive/)
-		expect(() => policy.replacePoints({ points: [] })).toThrow(/at least 1 point/)
-		expect(policy.getPoints()).toEqual(BID_POINTS)
-	})
-})
-
 describe("UiServer (operator mode)", () => {
 	let server: UiServer | undefined
 
@@ -193,17 +147,12 @@ describe("UiServer (operator mode)", () => {
 	})
 
 	async function startServer(overrides: Partial<OperatorContext> = {}, deps?: SetupDeps) {
-		const sameAsset = new FillerPricePolicy({ points: SAME_ASSET_POINTS })
-		const bid = new FillerPricePolicy({ points: BID_POINTS })
-		const ask = new FillerPricePolicy({ points: ASK_POINTS })
-		const askOnly = new FillerPricePolicy({ points: ASK_POINTS })
 		const filler = fakePauseControl()
 		const operator = baseOperator({
 			strategies: [
-				{ index: 0, pairIndex: 0, exotic: "USDC/USDC", token0: "USDC", token1: "USDC", ask: sameAsset, sameToken: true, maxOrderSize: "100000" },
-				{ index: 1, pairIndex: 1, exotic: "USDC/CNGN", token0: "USDC", token1: "CNGN", bid, ask, sameToken: false, maxOrderSize: "5000" },
-				{ index: 2, pairIndex: 2, token0: "USDC", token1: "CNGN", sameToken: false }, // venue-priced: no editable curves
-				{ index: 3, pairIndex: 3, exotic: "USDC/ZARP", token0: "USDC", token1: "ZARP", ask: askOnly, sameToken: false, maxOrderSize: "5000" }, // one-sided LP
+				{ index: 0, pairIndex: 0, exotic: "USDC/USDC", token0: "USDC", token1: "USDC", sameToken: true },
+				{ index: 1, pairIndex: 1, exotic: "USDC/CNGN", token0: "USDC", token1: "CNGN", sameToken: false },
+				{ index: 2, pairIndex: 2, exotic: "USDC/ZARP", token0: "USDC", token1: "ZARP", sameToken: false },
 			],
 			filler,
 			balances: {
@@ -220,10 +169,6 @@ describe("UiServer (operator mode)", () => {
 		const port = await server.start(0)
 		return {
 			base: `http://127.0.0.1:${port}`,
-			sameAsset,
-			bid,
-			ask,
-			askOnly,
 			filler,
 			dataDir: dirname(operator.configPath!),
 			operator,
@@ -262,10 +207,10 @@ describe("UiServer (operator mode)", () => {
 	})
 
 	it("rejects mutating requests without the X-Simplex-UI header", async () => {
-		const { base, bid } = await startServer()
-		const res = await put(base, "/api/strategies/1/curves", { bidPriceCurve: BID_POINTS }, {})
+		const { base, filler } = await startServer()
+		const res = await fetch(`${base}/api/pause`, { method: "POST" })
 		expect(res.status).toBe(403)
-		expect(bid.getPoints()).toEqual(BID_POINTS)
+		expect(filler.paused).toBe(false)
 
 		const pause = await fetch(`${base}/api/pause`, { method: "POST" })
 		expect(pause.status).toBe(403)
@@ -310,148 +255,10 @@ describe("UiServer (operator mode)", () => {
 		expect((await expectFramingDenied("/api/pause", { method: "POST" })).status).toBe(403)
 	})
 
-	it("lists strategies with their curves", async () => {
-		const { base } = await startServer()
-		const res = await fetch(`${base}/api/strategies`)
-		expect(res.status).toBe(200)
-		expect(await res.json()).toEqual({
-			strategies: [
-				{
-					index: 0,
-					exotic: "USDC/USDC",
-					token0: "USDC",
-					token1: "USDC",
-					pricingMode: "static",
-					sameToken: true,
-					referenceOnly: false,
-					maxOrderSize: "100000",
-					ask: SAME_ASSET_POINTS,
-				},
-				{
-					index: 1,
-					exotic: "USDC/CNGN",
-					token0: "USDC",
-					token1: "CNGN",
-					pricingMode: "static",
-					sameToken: false,
-					referenceOnly: false,
-					maxOrderSize: "5000",
-					bid: BID_POINTS,
-					ask: ASK_POINTS,
-				},
-				{ index: 2, token0: "USDC", token1: "CNGN", pricingMode: "venue", sameToken: false, referenceOnly: false },
-				{
-					index: 3,
-					exotic: "USDC/ZARP",
-					token0: "USDC",
-					token1: "ZARP",
-					pricingMode: "static",
-					sameToken: false,
-					referenceOnly: false,
-					maxOrderSize: "5000",
-					ask: ASK_POINTS,
-				},
-			],
-		})
-	})
-
-	it("applies a curve update to the live policy instance and persists it to the config", async () => {
-		const { base, bid, ask, operator } = await startServer()
-		const newAsk = [
-			{ amount: "0", price: "1540" },
-			{ amount: "1000", price: "1535" },
-		]
-		const res = await put(base, "/api/strategies/1/curves", { askPriceCurve: newAsk })
-		expect(res.status).toBe(200)
-		expect(await res.json()).toEqual({
-			index: 1,
-			exotic: "USDC/CNGN",
-			token0: "USDC",
-			token1: "CNGN",
-			pricingMode: "static",
-			sameToken: false,
-			referenceOnly: false,
-			maxOrderSize: "5000",
-			bid: BID_POINTS,
-			ask: newAsk,
-			persisted: true,
-		})
-		expect(ask.getPoints()).toEqual(newAsk)
-		expect(bid.getPoints()).toEqual(BID_POINTS)
-
-		// restarts keep the change: the config file now carries the new curve
-		expect(existsSync(operator.configPath!)).toBe(true)
-		const written = parse(readFileSync(operator.configPath!, "utf-8")) as FillerConfigFile
-		expect(written.pairs?.[1]?.askPriceCurve).toEqual(newAsk)
-		expect(written.pairs?.[1]?.bidPriceCurve).toEqual(BID_POINTS)
-		// ...and the signer block rode along. The library's config type does not
-		// declare it, so a regression in persistConfig/emitFillerToml would delete
-		// the operator's signer from disk on an unrelated edit — the exact hazard
-		// the FillerConfigFile split was designed around.
-		expect(written.simplex.signer).toEqual(fakeConfig().simplex.signer)
-	})
-
-	it("rejects same-token ask prices at or above par, judged against the live invariants", async () => {
-		const { base, sameAsset } = await startServer()
-		const res = await put(base, "/api/strategies/0/curves", {
-			askPriceCurve: [{ amount: "0", price: "1" }],
-		})
-		expect(res.status).toBe(400)
-		expect((await res.json()).error).toContain("below 1")
-		expect(sameAsset.getPoints()).toEqual(SAME_ASSET_POINTS)
-	})
-
-	it("rejects enabling a bid on a same-token market", async () => {
-		const { base } = await startServer()
-		const res = await put(base, "/api/strategies/0/curves", { bidPriceCurve: [{ amount: "0", price: "0.9" }] })
-		expect(res.status).toBe(409)
-		expect((await res.json()).error).toContain("ask-only")
-	})
-
-	it("accepts an edit that crosses the book — sides are quoted independently", async () => {
-		const { base, bid, ask } = await startServer()
-		// New ask above the existing bid at every size: crossed, but allowed —
-		// each side fills at its own curve.
-		const res = await put(base, "/api/strategies/1/curves", {
-			askPriceCurve: [{ amount: "0", price: "1650" }],
-		})
-		expect(res.status).toBe(200)
-		expect(bid.getPoints()).toEqual(BID_POINTS)
-		expect(ask.getPoints()).toEqual([{ amount: "0", price: "1650" }])
-	})
-
-	it("rejects malformed bodies with 400", async () => {
-		const { base } = await startServer()
-		expect((await put(base, "/api/strategies/1/curves", {})).status).toBe(400)
-		expect((await put(base, "/api/strategies/1/curves", { bidPriceCurve: "flat" })).status).toBe(400)
-		expect((await put(base, "/api/strategies/1/curves", { bidPriceCurve: [{ amount: 5, price: "1" }] })).status).toBe(
-			400,
-		)
-		expect((await put(base, "/api/strategies/1/curves", { unexpected: true })).status).toBe(400)
-	})
-
-	it("is all-or-nothing: an invalid ask rejects the whole update including a valid bid", async () => {
-		const { base, bid, ask } = await startServer()
-		const res = await put(base, "/api/strategies/1/curves", {
-			bidPriceCurve: [{ amount: "0", price: "1600" }],
-			askPriceCurve: [{ amount: "0", price: "-5" }],
-		})
-		expect(res.status).toBe(400)
-		expect(bid.getPoints()).toEqual(BID_POINTS)
-		expect(ask.getPoints()).toEqual(ASK_POINTS)
-	})
-
 	it("returns 404 for unknown strategies and routes", async () => {
 		const { base } = await startServer()
-		expect((await put(base, "/api/strategies/9/curves", { bidPriceCurve: BID_POINTS })).status).toBe(404)
+		expect((await fetch(`${base}/api/strategies/9`, { method: "DELETE", headers: CSRF })).status).toBe(404)
 		expect((await fetch(`${base}/api/nope`)).status).toBe(404)
-	})
-
-	it("returns 409 for venue-priced strategies and disabled sides", async () => {
-		const { base, askOnly } = await startServer()
-		expect((await put(base, "/api/strategies/2/curves", { bidPriceCurve: BID_POINTS })).status).toBe(409)
-		expect((await put(base, "/api/strategies/3/curves", { bidPriceCurve: BID_POINTS })).status).toBe(409)
-		expect(askOnly.getPoints()).toEqual(ASK_POINTS)
 	})
 
 	it("returns 405 for wrong methods", async () => {
@@ -670,74 +477,6 @@ describe("UiServer (operator mode)", () => {
 		expect(res.triggers).toEqual({ triggeredChains: [] })
 	})
 
-	it("enables a disabled side on a curve-priced strategy and persists the curve", async () => {
-		const { base, operator } = await startServer()
-		// strategy 3 is ask-only; wire an enableSide like boot does for curve-priced FX
-		const strategy3 = operator.strategies.find((s) => s.index === 3)!
-		const enableSide = vi.fn()
-		strategy3.enableSide = enableSide
-
-		const newBid = [{ amount: "0", price: "1600" }]
-		const res = await put(base, "/api/strategies/3/curves", { bidPriceCurve: newBid })
-		expect(res.status).toBe(200)
-		const bodyJson = await res.json()
-		expect(bodyJson.bid).toEqual(newBid)
-		expect(enableSide).toHaveBeenCalledTimes(1)
-		expect(enableSide.mock.calls[0][0]).toBe("bid")
-		expect(strategy3.bid?.getPoints()).toEqual(newBid)
-
-		// invalid curve neither enables nor mutates
-		const bad = await put(base, "/api/strategies/3/curves", { bidPriceCurve: [{ amount: "0", price: "-1" }] })
-		expect(bad.status).toBe(400)
-		expect(enableSide).toHaveBeenCalledTimes(1)
-	})
-
-	it("disables a side with an empty curve and persists the removal (one-sided LP)", async () => {
-		const { base, operator } = await startServer()
-		const strategy1 = operator.strategies.find((s) => s.index === 1)!
-		const disableSide = vi.fn()
-		strategy1.disableSide = disableSide
-
-		const res = await put(base, "/api/strategies/1/curves", { askPriceCurve: [] })
-		expect(res.status).toBe(200)
-		const bodyJson = await res.json()
-		expect(bodyJson.ask).toBeUndefined()
-		expect(bodyJson.bid).toEqual(BID_POINTS)
-		expect(disableSide).toHaveBeenCalledWith("ask")
-		expect(strategy1.ask).toBeUndefined()
-		const written = parse(readFileSync(operator.configPath!, "utf-8")) as FillerConfigFile
-		expect(written.pairs?.[1]?.askPriceCurve).toBeUndefined()
-		expect(written.pairs?.[1]?.bidPriceCurve).toBeDefined()
-	})
-
-	it("rejects disabling the only remaining side", async () => {
-		const { base, operator } = await startServer()
-		const strategy3 = operator.strategies.find((s) => s.index === 3)! // ask-only
-		strategy3.disableSide = vi.fn()
-		const res = await put(base, "/api/strategies/3/curves", { askPriceCurve: [] })
-		expect(res.status).toBe(409)
-		expect((await res.json()).error).toContain("at least one side")
-		expect(strategy3.disableSide).not.toHaveBeenCalled()
-	})
-
-	it("rejects deleting the ask of a same-token market", async () => {
-		const { base } = await startServer()
-		const res = await put(base, "/api/strategies/0/curves", { askPriceCurve: [] })
-		expect(res.status).toBe(409)
-		expect((await res.json()).error).toContain("ask-only")
-	})
-
-	it("treats an empty curve on an already-absent side as a no-op", async () => {
-		const { base } = await startServer()
-		// strategy 3 is ask-only: empty bid does nothing, the ask update applies.
-		const res = await put(base, "/api/strategies/3/curves", {
-			bidPriceCurve: [],
-			askPriceCurve: [{ amount: "0", price: "1500" }],
-		})
-		expect(res.status).toBe(200)
-		expect((await res.json()).bid).toBeUndefined()
-	})
-
 	it("updates the vault set at runtime and persists it", async () => {
 		const sweepNow = vi.fn().mockResolvedValue(undefined)
 		const redeemAll = vi.fn().mockResolvedValue(undefined)
@@ -918,8 +657,8 @@ describe("UiServer (operator mode)", () => {
 	function marketConfig(): FillerConfigFile {
 		const config = fakeConfig()
 		config.pairs = [
-			{ token0: "USDC", token1: "USDC", maxOrderSize: "100000", askPriceCurve: SAME_ASSET_POINTS },
-			{ token0: "USDC", token1: "CNGN", maxOrderSize: "5000", bidPriceCurve: BID_POINTS, askPriceCurve: ASK_POINTS },
+			{ token0: "USDC", token1: "USDC" },
+			{ token0: "USDC", token1: "CNGN" },
 		]
 		return config
 	}
@@ -941,12 +680,7 @@ describe("UiServer (operator mode)", () => {
 			}
 		})
 		const { base, operator } = await startServer({ config: cfg, addPair })
-		const body = {
-			token0: "USDC",
-			token1: "EURC",
-			maxOrderSize: "5000",
-			askPriceCurve: [{ amount: "0", price: "0.92" }],
-		}
+		const body = { token0: "USDC", token1: "EURC" }
 		const res = await fetch(`${base}/api/strategies`, { method: "POST", headers: CSRF, body: JSON.stringify(body) })
 		expect(res.status).toBe(200)
 		const payload = await res.json()
@@ -977,22 +711,6 @@ describe("UiServer (operator mode)", () => {
 		expect(addPair).not.toHaveBeenCalled()
 		expect(operator.config.pairs).toHaveLength(2)
 		expect(existsSync(operator.configPath!)).toBe(false)
-	})
-
-	it("rejects an unanchored market with the validator's message", async () => {
-		const { base } = await startServer({ config: marketConfig(), addPair: vi.fn() })
-		const res = await fetch(`${base}/api/strategies`, {
-			method: "POST",
-			headers: CSRF,
-			body: JSON.stringify({
-				token0: "EURC",
-				token1: "ZARP",
-				maxOrderSize: "5000",
-				askPriceCurve: [{ amount: "0", price: "19.4" }],
-			}),
-		})
-		expect(res.status).toBe(400)
-		expect((await res.json()).error).toContain("no USD anchor")
 	})
 
 	it("adds a custom-token market, persisting its [assets] entry", async () => {
@@ -1044,13 +762,7 @@ describe("UiServer (operator mode)", () => {
 
 	it("removes a market at runtime and remaps later strategies to the right config rows", async () => {
 		const config = marketConfig()
-		config.pairs!.push({
-			token0: "USDC",
-			token1: "ZARP",
-			maxOrderSize: "5000",
-			askPriceCurve: [{ amount: "0", price: "17.8" }],
-		})
-		const zarpAsk = new FillerPricePolicy({ points: [{ amount: "0", price: "17.8" }] })
+		config.pairs!.push({ token0: "USDC", token1: "ZARP" })
 		const strategies: AdminStrategy[] = [
 			{
 				index: 0,
@@ -1058,7 +770,6 @@ describe("UiServer (operator mode)", () => {
 				exotic: "USDC/USDC",
 				token0: "USDC",
 				token1: "USDC",
-				ask: new FillerPricePolicy({ points: SAME_ASSET_POINTS }),
 				sameToken: true,
 			},
 			{
@@ -1067,11 +778,9 @@ describe("UiServer (operator mode)", () => {
 				exotic: "USDC/CNGN",
 				token0: "USDC",
 				token1: "CNGN",
-				bid: new FillerPricePolicy({ points: BID_POINTS }),
-				ask: new FillerPricePolicy({ points: ASK_POINTS }),
 				sameToken: false,
 			},
-			{ index: 2, pairIndex: 2, exotic: "USDC/ZARP", token0: "USDC", token1: "ZARP", ask: zarpAsk, sameToken: false },
+			{ index: 2, pairIndex: 2, exotic: "USDC/ZARP", token0: "USDC", token1: "ZARP", sameToken: false },
 		]
 		const removePair = vi.fn(async (index: number) => {
 			const position = strategies.findIndex((s) => s.index === index)
@@ -1090,35 +799,26 @@ describe("UiServer (operator mode)", () => {
 		expect(removePair).toHaveBeenCalledWith(1)
 		expect(operator.config.pairs).toHaveLength(2)
 
-		// The ZARP strategy (index 2) now maps to config row 1 — a curve edit must land on the right pair.
-		const put = await fetch(`${base}/api/strategies/2/curves`, {
-			method: "PUT",
-			headers: CSRF,
-			body: JSON.stringify({ askPriceCurve: [{ amount: "0", price: "18" }] }),
-		})
-		expect(put.status).toBe(200)
+		// The ZARP market now maps to config row 1 — the rows must reindex with it.
 		const written = parse(readFileSync(operator.configPath!, "utf-8")) as FillerConfigFile
 		expect(written.pairs).toHaveLength(2)
 		expect(written.pairs?.[1]?.token1).toBe("ZARP")
-		expect(written.pairs?.[1]?.askPriceCurve?.[0]?.price).toBe("18")
 	})
 
-	it("refuses removals that orphan an anchor, empty the market list, or name an unknown strategy", async () => {
+	it("refuses removals that empty the market list or name an unknown strategy", async () => {
 		const config = marketConfig()
 		config.pairs = [
-			{ token0: "USDC", token1: "ZARP", referenceOnly: true, askPriceCurve: [{ amount: "0", price: "17.8" }] },
-			{ token0: "ZARP", token1: "CNGN", maxOrderSize: "90000", askPriceCurve: [{ amount: "0", price: "5.2" }] },
+			{ token0: "USDC", token1: "ZARP" },
+			{ token0: "ZARP", token1: "CNGN" },
 		]
 		const strategies: AdminStrategy[] = [
 			{
 				index: 0,
 				pairIndex: 0,
-				exotic: "USDC/ZARP (reference)",
+				exotic: "USDC/ZARP",
 				token0: "USDC",
 				token1: "ZARP",
-				ask: new FillerPricePolicy({ points: [{ amount: "0", price: "17.8" }] }),
 				sameToken: false,
-				referenceOnly: true,
 			},
 			{
 				index: 1,
@@ -1126,17 +826,11 @@ describe("UiServer (operator mode)", () => {
 				exotic: "ZARP/CNGN",
 				token0: "ZARP",
 				token1: "CNGN",
-				ask: new FillerPricePolicy({ points: [{ amount: "0", price: "5.2" }] }),
 				sameToken: false,
 			},
 		]
 		const removePair = vi.fn()
 		const { base, operator } = await startServer({ config, strategies, removePair })
-
-		// Removing the reference feed would orphan ZARP/CNGN's USD anchor.
-		const orphan = await fetch(`${base}/api/strategies/0`, { method: "DELETE", headers: CSRF })
-		expect(orphan.status).toBe(400)
-		expect((await orphan.json()).error).toContain("no USD anchor")
 
 		const missing = await fetch(`${base}/api/strategies/99`, { method: "DELETE", headers: CSRF })
 		expect(missing.status).toBe(404)
@@ -1156,8 +850,6 @@ describe("UiServer (operator mode)", () => {
 					exotic: "USDC/CNGN",
 					token0: "USDC",
 					token1: "CNGN",
-					bid: new FillerPricePolicy({ points: BID_POINTS }),
-					ask: new FillerPricePolicy({ points: ASK_POINTS }),
 					sameToken: false,
 				},
 			],
@@ -1193,55 +885,6 @@ describe("UiServer (operator mode)", () => {
 		// traversal is blocked (fetch normalizes ../, so send the raw path over a socket)
 		const traversal = await rawRequest(port, "/../secret.txt")
 		expect(traversal).toContain("403")
-	})
-
-	it("resizes a market's per-order cap on the live pair and persists it", async () => {
-		const { base, operator } = await startServer({ config: marketConfig() })
-		const setMaxOrderSize = vi.fn()
-		operator.strategies.find((s) => s.index === 1)!.setMaxOrderSize = setMaxOrderSize
-
-		const res = await put(base, "/api/strategies/1", { maxOrderSize: "12500" })
-		expect(res.status).toBe(200)
-		const payload = await res.json()
-		expect(payload.applied).toBe(true)
-		expect(payload.restartNeeded).toBe(false)
-		expect(payload.maxOrderSize).toBe("12500")
-		expect(setMaxOrderSize).toHaveBeenCalledWith("12500")
-		expect(operator.config.pairs?.[1]?.maxOrderSize).toBe("12500")
-		const written = parse(readFileSync(operator.configPath!, "utf-8")) as FillerConfigFile
-		expect(written.pairs?.[1]?.maxOrderSize).toBe("12500")
-	})
-
-	it("persists a cap for restart when the pair cannot be resized live", async () => {
-		const { base, operator } = await startServer({ config: marketConfig() })
-		// No setMaxOrderSize hook: no engine ran at boot.
-		const res = await put(base, "/api/strategies/1", { maxOrderSize: "7500" })
-		expect(await res.json()).toMatchObject({ applied: false, restartNeeded: true, persisted: true })
-		expect(operator.config.pairs?.[1]?.maxOrderSize).toBe("7500")
-	})
-
-	it("rejects non-positive caps and reference-only markets, leaving the pair untouched", async () => {
-		const { base, operator } = await startServer({ config: marketConfig() })
-		const strategy = operator.strategies.find((s) => s.index === 1)!
-		strategy.setMaxOrderSize = vi.fn()
-
-		for (const value of ["0", "-5", "abc", ""]) {
-			const res = await put(base, "/api/strategies/1", { maxOrderSize: value })
-			expect(res.status).toBe(400)
-			expect((await res.json()).error).toMatch(/maxOrderSize must be a (positive number|decimal string)/)
-		}
-		const unknown = await put(base, "/api/strategies/1", { maxOrderSize: "1", token0: "USDC" })
-		expect(unknown.status).toBe(400)
-		expect((await unknown.json()).error).toContain("Unknown fields")
-
-		strategy.referenceOnly = true
-		const reference = await put(base, "/api/strategies/1", { maxOrderSize: "1000" })
-		expect(reference.status).toBe(409)
-		expect((await reference.json()).error).toContain("never fill")
-
-		expect(strategy.setMaxOrderSize).not.toHaveBeenCalled()
-		expect(operator.config.pairs?.[1]?.maxOrderSize).toBe("5000")
-		expect(existsSync(operator.configPath!)).toBe(false)
 	})
 
 	/** Two chain rows aligned with the operator's running chain ids. */

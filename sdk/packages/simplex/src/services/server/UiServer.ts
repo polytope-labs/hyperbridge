@@ -4,8 +4,7 @@ import { connect } from "node:net"
 import { tmpdir } from "node:os"
 import { resolve as resolvePath } from "node:path"
 import type { Duplex } from "node:stream"
-import { Decimal } from "decimal.js"
-import { FillerPricePolicy, formatChainKey, parseChainKey, type PriceCurvePoint } from "@/config/interpolated-curve"
+import { formatChainKey, parseChainKey } from "@/config/interpolated-curve"
 import { AssetRegistry, registrySymbols, validateAssetDefinitions, type AssetDefinition } from "@/config/asset-registry"
 import { assertPairSymbolsResolve, validatePairConfigs, type PairConfig } from "@/config/pairs"
 import { VaultFundingPlanner, type VaultSweepResult } from "@/funding/vault/VaultFundingPlanner"
@@ -73,46 +72,18 @@ import {
  * effect on the next order evaluation. A side is absent when it cannot be
  * edited: disabled (one-sided LP) or venue-priced (both sides absent).
  */
+/** One market the engine serves, as the operator's market list shows it. */
 export interface AdminStrategy {
-	/** Position among curve-priced pairs; stable identifier for the API. */
+	/** Stable identifier for the API. */
 	index: number
-	/** Position in the TOML `[[pairs]]` array — where curve edits are persisted. */
+	/** Position in the TOML `[[pairs]]` array. */
 	pairIndex: number
 	/** Pair label, e.g. "USDC/CNGN" (display-only). */
 	exotic?: string
 	token0: string
 	token1: string
-	bid?: FillerPricePolicy
-	ask?: FillerPricePolicy
-	/**
-	 * Per-order cap in token0 units, as configured; absent when the market is
-	 * uncapped. Kept in step with `setMaxOrderSize` and `clearMaxOrderSize`.
-	 */
-	maxOrderSize?: string
-	/**
-	 * Applies a new per-order cap to the live TradingPair — the engine reads it
-	 * per order, so the cap binds on the next evaluation. Absent when no engine
-	 * ran at boot (the edit is then persisted for the next start).
-	 */
-	setMaxOrderSize?: (value: string) => void
-	/**
-	 * Removes the per-order cap from the live TradingPair, leaving the market
-	 * uncapped — it then fills every order at its full notional. Same
-	 * availability as `setMaxOrderSize`.
-	 */
-	clearMaxOrderSize?: () => void
-	/** Same-asset cross-chain market: ask-only, prices strictly below par. */
+	/** Same-asset cross-chain market, where the spread is realized in kind. */
 	sameToken?: boolean
-	/** Price feed only — the pair never fills; curves stay editable, sides are never opened. */
-	referenceOnly?: boolean
-	/**
-	 * Opens a direction configured as one-sided LP with a fresh policy. Present
-	 * only for cross-asset curve-priced pairs — same-token markets stay
-	 * ask-only and venue-priced sides stay uneditable.
-	 */
-	enableSide?: (side: "bid" | "ask", policy: FillerPricePolicy) => void
-	/** Closes a direction (back to one-sided LP); same availability as enableSide. */
-	disableSide?: (side: "bid" | "ask") => void
 }
 
 export type UiMode = "init" | "operator"
@@ -854,22 +825,7 @@ export class UiServer {
 		if (strategyMatch) {
 			if (this.mode !== "operator") return sendJson(res, 409, { error: "Filler is not running" })
 			if (method === "DELETE") return this.handleMarketRemove(res, Number(strategyMatch[1]))
-			if (method === "PUT") return this.handleMarketUpdate(req, res, Number(strategyMatch[1]))
 			return sendJson(res, 405, { error: "Method not allowed" })
-		}
-
-		const capMatch = path.match(/^\/api\/strategies\/(\d+)\/max-order-size$/)
-		if (capMatch) {
-			if (this.mode !== "operator") return sendJson(res, 409, { error: "Filler is not running" })
-			if (method !== "DELETE") return sendJson(res, 405, { error: "Method not allowed" })
-			return this.handleMaxOrderSizeClear(res, Number(capMatch[1]))
-		}
-
-		const curvesMatch = path.match(/^\/api\/strategies\/(\d+)\/curves$/)
-		if (curvesMatch) {
-			if (this.mode !== "operator") return sendJson(res, 409, { error: "Filler is not running" })
-			if (method !== "PUT") return sendJson(res, 405, { error: "Method not allowed" })
-			return this.handleCurveUpdate(req, res, Number(curvesMatch[1]))
 		}
 
 		if (path === "/api/pause" || path === "/api/resume") {
@@ -1207,160 +1163,6 @@ export class UiServer {
 		return sendJson(res, 200, status)
 	}
 
-	private async handleCurveUpdate(req: IncomingMessage, res: ServerResponse, index: number): Promise<void> {
-		const strategy = this.operator!.strategies.find((s) => s.index === index)
-		if (!strategy) {
-			return sendJson(res, 404, { error: `No strategy with index ${index}` })
-		}
-
-		let body: unknown
-		try {
-			body = JSON.parse(await readBody(req))
-		} catch (err) {
-			return sendJson(res, 400, { error: err instanceof Error ? err.message : "Invalid JSON body" })
-		}
-
-		const shapeError = validateCurveUpdateShape(body)
-		if (shapeError) {
-			return sendJson(res, 400, { error: shapeError })
-		}
-		const update = body as { bidPriceCurve?: PriceCurvePoint[]; askPriceCurve?: PriceCurvePoint[] }
-
-		// Per provided side: a non-empty curve on an absent side *enables* it
-		// (one-sided LP opened by the operator), an empty curve on a present
-		// side *disables* it (back to one-sided LP), an empty curve on an
-		// absent side is a no-op. Venue-priced pairs expose neither hook, and
-		// same-token markets are ask-only by construction.
-		const enabling: Array<{ side: "bid" | "ask"; points: PriceCurvePoint[] }> = []
-		const disabling: Array<"bid" | "ask"> = []
-		for (const side of ["bid", "ask"] as const) {
-			const points = side === "bid" ? update.bidPriceCurve : update.askPriceCurve
-			const current = side === "bid" ? strategy.bid : strategy.ask
-			if (points === undefined) continue
-			if (points.length === 0) {
-				if (!current) continue
-				if (!strategy.disableSide) {
-					return sendJson(res, 409, {
-						error: strategy.sameToken
-							? "Same-token markets are ask-only — deleting the ask would remove the market; remove the pair from the config instead"
-							: strategy.referenceOnly
-								? "The curve is the reference price feed — remove the pair from the config to retire it"
-								: `The ${side} side of this strategy is not editable (venue-priced)`,
-					})
-				}
-				disabling.push(side)
-			} else if (!current) {
-				if (!strategy.enableSide) {
-					return sendJson(res, 409, {
-						error:
-							strategy.sameToken && side === "bid"
-								? "Same-token markets are ask-only — the bid side cannot be enabled"
-								: `The ${side} side of this strategy is not editable (venue-priced)`,
-					})
-				}
-				enabling.push({ side, points })
-			}
-		}
-		const bidAfter = disabling.includes("bid") ? false : Boolean(strategy.bid) || enabling.some((e) => e.side === "bid")
-		const askAfter = disabling.includes("ask") ? false : Boolean(strategy.ask) || enabling.some((e) => e.side === "ask")
-		if (!bidAfter && !askAfter) {
-			return sendJson(res, 409, {
-				error: "A market needs at least one side — remove the pair from the config to retire it",
-			})
-		}
-
-		// Apply all-or-nothing: validate every curve before touching any policy.
-		const sides: Array<{ label: "bid" | "ask"; policy: FillerPricePolicy; points: PriceCurvePoint[] }> = []
-		if (update.bidPriceCurve?.length && strategy.bid)
-			sides.push({ label: "bid", policy: strategy.bid, points: update.bidPriceCurve })
-		if (update.askPriceCurve?.length && strategy.ask)
-			sides.push({ label: "ask", policy: strategy.ask, points: update.askPriceCurve })
-		const enabled: Array<{ side: "bid" | "ask"; policy: FillerPricePolicy }> = []
-		try {
-			for (const side of sides) {
-				// Constructing a throwaway policy runs full validation without mutating.
-				void new FillerPricePolicy({ points: side.points })
-			}
-			for (const enable of enabling) {
-				enabled.push({ side: enable.side, policy: new FillerPricePolicy({ points: enable.points }) })
-			}
-
-			// Live edits keep the same startup invariants. A crossed book is
-			// allowed (the sides are quoted independently; the crossed region
-			// never fills), but a same-token ask must stay strictly below par.
-			const nextAsk = update.askPriceCurve?.length
-				? new FillerPricePolicy({ points: update.askPriceCurve })
-				: strategy.ask
-			if (strategy.sameToken && nextAsk) {
-				for (const point of nextAsk.getPoints()) {
-					if (new Decimal(point.price).gte(1)) {
-						throw new Error(
-							`same-token ask prices must be strictly below 1 — '${point.price}' would fill at or above par`,
-						)
-					}
-				}
-			}
-		} catch (err) {
-			return sendJson(res, 400, { error: err instanceof Error ? err.message : String(err) })
-		}
-
-		for (const side of sides) {
-			const previous = side.policy.getPoints()
-			side.policy.replacePoints({ points: side.points })
-			this.logger.info(
-				{ strategy: index, side: side.label, previous, next: side.policy.getPoints() },
-				"Price curve updated on the running strategy",
-			)
-		}
-		for (const { side, policy } of enabled) {
-			strategy.enableSide!(side, policy)
-			if (side === "bid") strategy.bid = policy
-			else strategy.ask = policy
-			this.logger.warn(
-				{ strategy: index, side, points: policy.getPoints() },
-				"One-sided LP direction enabled from the UI",
-			)
-		}
-		for (const side of disabling) {
-			strategy.disableSide!(side)
-			if (side === "bid") strategy.bid = undefined
-			else strategy.ask = undefined
-			this.logger.warn({ strategy: index, side }, "Trading direction disabled from the UI (one-sided LP)")
-		}
-
-		const persisted = this.persistCurveUpdate(strategy, update)
-		sendJson(res, 200, { ...serializeStrategy(strategy), persisted })
-	}
-
-	/**
-	 * Writes the updated curves back into the config file so restarts keep them.
-	 * The file is regenerated from the parsed config: hand-written comments are
-	 * replaced by the generated ones, values are preserved.
-	 */
-	private persistCurveUpdate(
-		strategy: AdminStrategy,
-		update: { bidPriceCurve?: PriceCurvePoint[]; askPriceCurve?: PriceCurvePoint[] },
-	): boolean {
-		const op = this.operator!
-		const pair = op.config.pairs?.[strategy.pairIndex]
-		if (!pair) return false
-		if (update.bidPriceCurve !== undefined) {
-			if (update.bidPriceCurve.length) pair.bidPriceCurve = update.bidPriceCurve
-			else delete pair.bidPriceCurve
-		}
-		if (update.askPriceCurve !== undefined) {
-			if (update.askPriceCurve.length) pair.askPriceCurve = update.askPriceCurve
-			else delete pair.askPriceCurve
-		}
-		return this.persistConfig()
-	}
-
-	/**
-	 * POST /api/strategies — adds a market. The candidate is validated against
-	 * the FULL prospective config (duplicate/reverse orientation, USD anchor
-	 * graph, symbol resolution on the running chains) before anything mutates,
-	 * hydrated into the running engine when possible, and persisted either way.
-	 */
 	/**
 	 * Runs one limit-order operation and maps its failures onto status codes: an
 	 * operator mistake is a 400, an orderbook that could not be reached is a 502,
@@ -1396,9 +1198,6 @@ export class UiServer {
 		let body: {
 			token0?: string
 			token1?: string
-			maxOrderSize?: string
-			bidPriceCurve?: PriceCurvePoint[]
-			askPriceCurve?: PriceCurvePoint[]
 			assets?: Record<string, AssetDefinition>
 		}
 		try {
@@ -1410,13 +1209,7 @@ export class UiServer {
 			return sendJson(res, 400, { error: "token0 and token1 are required" })
 		}
 
-		const candidate: PairConfig = {
-			token0: body.token0.trim(),
-			token1: body.token1.trim(),
-			...(String(body.maxOrderSize ?? "").trim() ? { maxOrderSize: String(body.maxOrderSize).trim() } : {}),
-			...(body.bidPriceCurve?.length ? { bidPriceCurve: body.bidPriceCurve } : {}),
-			...(body.askPriceCurve?.length ? { askPriceCurve: body.askPriceCurve } : {}),
-		}
+		const candidate: PairConfig = { token0: body.token0.trim(), token1: body.token1.trim() }
 		const assets = body.assets && Object.keys(body.assets).length > 0 ? body.assets : undefined
 		const mergedAssets = { ...(op.config.assets ?? {}) }
 		const next = [...(op.config.pairs ?? []), candidate]
@@ -1466,102 +1259,6 @@ export class UiServer {
 			restartNeeded: !applied,
 			persisted,
 			strategy: strategy ? serializeStrategy(strategy) : null,
-		})
-	}
-
-	/**
-	 * PUT /api/strategies/:index — edits a live market's per-order cap. The
-	 * engine reads `maxOrderSize` while sizing each order, so a new cap binds on
-	 * the next evaluation; it is persisted to the pair's config entry either way.
-	 */
-	private async handleMarketUpdate(req: IncomingMessage, res: ServerResponse, index: number): Promise<void> {
-		const op = this.operator!
-		const strategy = op.strategies.find((s) => s.index === index)
-		if (!strategy) return sendJson(res, 404, { error: `No strategy with index ${index}` })
-
-		let body: Record<string, unknown>
-		try {
-			body = JSON.parse(await readBody(req))
-		} catch {
-			return sendJson(res, 400, { error: "Invalid JSON body" })
-		}
-		const { maxOrderSize, ...rest } = body
-		if (Object.keys(rest).length > 0) {
-			return sendJson(res, 400, { error: `Unknown fields: ${Object.keys(rest).join(", ")}` })
-		}
-		if (maxOrderSize === undefined) {
-			return sendJson(res, 400, { error: "Provide maxOrderSize" })
-		}
-		if (strategy.referenceOnly) {
-			return sendJson(res, 409, {
-				error: "Reference-only markets never fill orders — their order cap is never consulted",
-			})
-		}
-		const value = String(maxOrderSize).trim()
-		let parsed: Decimal
-		try {
-			parsed = new Decimal(value)
-		} catch {
-			return sendJson(res, 400, { error: `maxOrderSize must be a decimal string, got '${value}'` })
-		}
-		if (!parsed.isFinite() || parsed.lte(0)) {
-			return sendJson(res, 400, { error: `maxOrderSize must be a positive number, got '${value}'` })
-		}
-
-		strategy.setMaxOrderSize?.(value)
-		strategy.maxOrderSize = value
-		const pair = op.config.pairs?.[strategy.pairIndex]
-		if (pair) pair.maxOrderSize = value
-		const persisted = this.persistConfig()
-		const applied = Boolean(strategy.setMaxOrderSize)
-		this.logger.warn(
-			{ strategy: index, pair: `${strategy.token0}/${strategy.token1}`, maxOrderSize: value, applied },
-			"Max order size updated by operator",
-		)
-		return sendJson(res, 200, {
-			...serializeStrategy(strategy),
-			applied,
-			restartNeeded: !applied,
-			persisted,
-		})
-	}
-
-	/**
-	 * DELETE /api/strategies/:index/max-order-size — removes a market's per-order
-	 * cap, leaving it uncapped. Its own route rather than a null on the PUT:
-	 * DELETE /api/strategies/:index already means "remove the market", and a cap
-	 * removal that a typo could turn into a market removal is not a trade worth
-	 * making for one fewer endpoint.
-	 *
-	 * Idempotent — clearing an already-uncapped market succeeds and reports the
-	 * same state, so the UI does not have to know which it is.
-	 */
-	private async handleMaxOrderSizeClear(res: ServerResponse, index: number): Promise<void> {
-		const op = this.operator!
-		const strategy = op.strategies.find((s) => s.index === index)
-		if (!strategy) return sendJson(res, 404, { error: `No strategy with index ${index}` })
-		if (strategy.referenceOnly) {
-			return sendJson(res, 409, {
-				error: "Reference-only markets never fill orders — their order cap is never consulted",
-			})
-		}
-
-		const previous = strategy.maxOrderSize
-		strategy.clearMaxOrderSize?.()
-		strategy.maxOrderSize = undefined
-		const pair = op.config.pairs?.[strategy.pairIndex]
-		if (pair) pair.maxOrderSize = undefined
-		const persisted = this.persistConfig()
-		const applied = Boolean(strategy.clearMaxOrderSize)
-		this.logger.warn(
-			{ strategy: index, pair: `${strategy.token0}/${strategy.token1}`, previous, applied },
-			"Max order size removed by operator — market is now uncapped",
-		)
-		return sendJson(res, 200, {
-			...serializeStrategy(strategy),
-			applied,
-			restartNeeded: !applied,
-			persisted,
 		})
 	}
 
@@ -2165,12 +1862,7 @@ function serializeStrategy(strategy: AdminStrategy): AdminStrategyDto {
 		exotic: strategy.exotic,
 		token0: strategy.token0,
 		token1: strategy.token1,
-		pricingMode: strategy.bid || strategy.ask ? ("static" as const) : ("venue" as const),
 		sameToken: strategy.sameToken ?? false,
-		referenceOnly: strategy.referenceOnly ?? false,
-		maxOrderSize: strategy.maxOrderSize,
-		bid: strategy.bid?.getPoints(),
-		ask: strategy.ask?.getPoints(),
 	}
 }
 
@@ -2179,40 +1871,6 @@ function chainLabel(chainId: number): string {
 	return INIT_CHAINS.find((meta) => meta.chainId === chainId)?.label ?? `chain ${chainId}`
 }
 
-/** Returns an error message when the body is not a well-formed curve update, else null. */
-function validateCurveUpdateShape(body: unknown): string | null {
-	if (typeof body !== "object" || body === null || Array.isArray(body)) {
-		return "Body must be a JSON object"
-	}
-	const { bidPriceCurve, askPriceCurve, ...rest } = body as Record<string, unknown>
-	if (Object.keys(rest).length > 0) {
-		return `Unknown fields: ${Object.keys(rest).join(", ")}`
-	}
-	if (bidPriceCurve === undefined && askPriceCurve === undefined) {
-		return "Provide at least one of bidPriceCurve/askPriceCurve"
-	}
-	for (const [name, curve] of [
-		["bidPriceCurve", bidPriceCurve],
-		["askPriceCurve", askPriceCurve],
-	] as const) {
-		if (curve === undefined) continue
-		// An empty array is meaningful: it disables that side (one-sided LP).
-		if (!Array.isArray(curve)) {
-			return `${name} must be an array of points`
-		}
-		for (const point of curve) {
-			if (
-				typeof point !== "object" ||
-				point === null ||
-				typeof (point as PriceCurvePoint).amount !== "string" ||
-				typeof (point as PriceCurvePoint).price !== "string"
-			) {
-				return `Each ${name} point must have string 'amount' and 'price'`
-			}
-		}
-	}
-	return null
-}
 
 /** Wire shape of a sweep pass: base units formatted once here so the dashboard never sees bigints. */
 /** One network per filler: testnet if any running chain is a testnet, else mainnet. */

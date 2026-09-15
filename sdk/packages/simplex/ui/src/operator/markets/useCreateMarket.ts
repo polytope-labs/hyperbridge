@@ -1,7 +1,5 @@
 import { useRef, useState } from "react"
-import { bookCrossedAt } from "@/config/interpolated-curve"
 import { api } from "../../api"
-import { toPricePoints, type EditorPoint } from "../../components/curveModel"
 import { CUSTOM_TOKEN } from "./marketModel"
 
 interface CreateMarketDraft {
@@ -10,11 +8,6 @@ interface CreateMarketDraft {
 	customSymbol: string
 	customAddresses: Record<string, string>
 	verified: Record<string, string>
-	maxOrderSize: string
-	bidEnabled: boolean
-	askEnabled: boolean
-	bid: EditorPoint[]
-	ask: EditorPoint[]
 }
 
 export function useCreateMarket(options: { symbols: string[]; onAdded: () => Promise<void> | void }) {
@@ -25,11 +18,6 @@ export function useCreateMarket(options: { symbols: string[]; onAdded: () => Pro
 		customSymbol: "",
 		customAddresses: {},
 		verified: {},
-		maxOrderSize: "",
-		bidEnabled: true,
-		askEnabled: true,
-		bid: [{ amount: "1", value: "" }],
-		ask: [{ amount: "1", value: "" }],
 	}))
 	const [busy, setBusy] = useState(false)
 	const [error, setError] = useState<string>()
@@ -39,10 +27,6 @@ export function useCreateMarket(options: { symbols: string[]; onAdded: () => Pro
 	const customSide = draft.token0 === CUSTOM_TOKEN || draft.token1 === CUSTOM_TOKEN
 	const resolved0 = draft.token0 === CUSTOM_TOKEN ? draft.customSymbol.trim().toUpperCase() : draft.token0
 	const resolved1 = draft.token1 === CUSTOM_TOKEN ? draft.customSymbol.trim().toUpperCase() : draft.token1
-	const crossedAt =
-		draft.bidEnabled && draft.askEnabled
-			? (bookCrossedAt(toPricePoints(draft.bid), toPricePoints(draft.ask))?.amount ?? null)
-			: null
 
 	const verifyToken = async (chainKey: string) => {
 		const address = draft.customAddresses[chainKey]?.trim()
@@ -99,9 +83,6 @@ export function useCreateMarket(options: { symbols: string[]; onAdded: () => Pro
 			const result = await api.post<{ applied: boolean; restartNeeded: boolean }>("/api/strategies", {
 				token0: resolved0,
 				token1: resolved1,
-				maxOrderSize: draft.maxOrderSize,
-				...(draft.bidEnabled ? { bidPriceCurve: toPricePoints(draft.bid) } : {}),
-				...(draft.askEnabled ? { askPriceCurve: toPricePoints(draft.ask) } : {}),
 				...(customSide ? { assets: { [draft.customSymbol.trim().toUpperCase()]: addresses } } : {}),
 			})
 			if (result.restartNeeded) setError("Saved to config — restart the filler to open the market")
@@ -114,5 +95,5 @@ export function useCreateMarket(options: { symbols: string[]; onAdded: () => Pro
 		}
 	}
 
-	return { draft, patch, busy, error, customSide, resolved0, resolved1, crossedAt, verifyToken, submit }
+	return { draft, patch, busy, error, customSide, resolved0, resolved1, verifyToken, submit }
 }

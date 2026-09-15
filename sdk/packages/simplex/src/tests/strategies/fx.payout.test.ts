@@ -1,5 +1,4 @@
 import { FXFiller, type TradingPair } from "@/strategies/fx"
-import { FillerPricePolicy } from "@/config/interpolated-curve"
 import { AssetRegistry } from "@/config/asset-registry"
 import { bytes20ToBytes32, type HexString, type Order, type TokenInfo } from "@hyperbridge/sdk"
 import { describe, it, expect } from "vitest"
@@ -18,9 +17,6 @@ const CHAIN = "EVM-97"
 const STABLE = "0x1111111111111111111111111111111111111111" as HexString
 const EXOTIC = "0x2222222222222222222222222222222222222222" as HexString
 const SOLVER = "0x3333333333333333333333333333333333333333" as HexString
-
-// Flat ask: the filler sells EXOTIC at 1500 per token0, at every size.
-const FLAT_ASK = new FillerPricePolicy({ points: [{ amount: "0", price: "1500" }] })
 
 // 100 in; the order asks for 149,000 EXOTIC (rate 1490, below the limit order's
 // 1500), so what the operator offers strictly exceeds the ask.
@@ -93,7 +89,7 @@ async function makeFiller(options: {
 	offering?: string
 }): Promise<FXFiller> {
 	const registry = new AssetRegistry(configService, { EXOTIC: { [CHAIN]: EXOTIC } })
-	const pairs: TradingPair[] = [{ token0: "USDC", token1: "EXOTIC", askPricePolicy: FLAT_ASK }]
+	const pairs: TradingPair[] = [{ token0: "USDC", token1: "EXOTIC" }]
 	const signer = { address: SOLVER } as any
 	return new FXFiller(
 		signer,

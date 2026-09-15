@@ -67,7 +67,7 @@ jobs:
               run: pnpm install --frozen-lockfile --filter="@hyperbridge/simplex-desktop..." --ignore-scripts
 
             - name: Verify and stage Node
-              run: pnpm --filter="@hyperbridge/simplex-desktop" stage:node -- --target ${{ matrix.target }}
+              run: pnpm --dir packages/simplex-desktop stage:node -- --target ${{ matrix.target }}
 
             - name: Execute staged Node on Unix
               if: runner.os != 'Windows'
@@ -90,7 +90,8 @@ jobs:
             - name: Checkout repository
               uses: actions/checkout@v4
               with:
-                  ref: ${{ github.event.pull_request.head.sha || github.sha }}
+                  # The PR's merge commit, so a branch that predates this package still tests it.
+                  ref: ${{ github.sha }}
                   submodules: recursive
 
             - name: Setup Node.js
@@ -113,15 +114,15 @@ jobs:
               run: |
                   pnpm --filter="@hyperbridge/sdk" build
                   pnpm --filter="@hyperbridge/simplex" build
-                  pnpm --filter="@hyperbridge/simplex-desktop" build
+                  pnpm --dir packages/simplex-desktop build
               env:
                   CI: "true"
 
             - name: Check Simplex desktop
               run: |
-                  pnpm --filter="@hyperbridge/simplex-desktop" typecheck
-                  pnpm --filter="@hyperbridge/simplex-desktop" lint
-                  pnpm --filter="@hyperbridge/simplex-desktop" test
+                  pnpm --dir packages/simplex-desktop typecheck
+                  pnpm --dir packages/simplex-desktop lint
+                  pnpm --dir packages/simplex-desktop test
 
             - name: Upload desktop E2E artifacts
               uses: actions/upload-artifact@v4
@@ -159,7 +160,8 @@ jobs:
             - name: Checkout repository
               uses: actions/checkout@v4
               with:
-                  ref: ${{ github.event.pull_request.head.sha || github.sha }}
+                  # The PR's merge commit, so a branch that predates this package still tests it.
+                  ref: ${{ github.sha }}
 
             - name: Setup Node.js
               uses: actions/setup-node@v4
@@ -187,15 +189,15 @@ jobs:
                   sudo apt-get install -y lsof xvfb
 
             - name: Verify and stage the host Node runtime
-              run: pnpm --filter="@hyperbridge/simplex-desktop" stage:node -- --target ${{ matrix.target }}
+              run: pnpm --dir packages/simplex-desktop stage:node -- --target ${{ matrix.target }}
 
             - name: Run cross-platform desktop tests
-              run: pnpm --filter="@hyperbridge/simplex-desktop" test
+              run: pnpm --dir packages/simplex-desktop test
 
             - name: Run Electron E2E on Linux
               if: runner.os == 'Linux'
-              run: xvfb-run -a pnpm --filter="@hyperbridge/simplex-desktop" test:e2e
+              run: xvfb-run -a pnpm --dir packages/simplex-desktop test:e2e
 
             - name: Run Electron E2E on macOS and Windows
               if: runner.os != 'Linux'
-              run: pnpm --filter="@hyperbridge/simplex-desktop" test:e2e
+              run: pnpm --dir packages/simplex-desktop test:e2e

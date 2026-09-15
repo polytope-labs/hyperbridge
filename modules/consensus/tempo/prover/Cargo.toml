@@ -1,0 +1,22 @@
+[package]
+name = "tempo-prover"
+version = "0.1.0"
+edition = "2021"
+description = "Prover for Tempo's commonware simplex consensus proofs"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+publish = false
+
+[dependencies]
+tempo-verifier = { workspace = true, default-features = true }
+geth-primitives = { workspace = true, default-features = true }
+anyhow = { workspace = true, default-features = true }
+ethabi = { workspace = true, default-features = true }
+primitive-types = { workspace = true, default-features = true }
+hex = { workspace = true, default-features = true }
+reqwest = { version = "0.11", features = ["json"] }
+serde_json = { version = "1.0" }
+
+[dev-dependencies]
+ismp = { workspace = true, default-features = true }
+sha3 = "0.10"
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }

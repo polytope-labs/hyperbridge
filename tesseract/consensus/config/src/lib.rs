@@ -25,6 +25,7 @@ use tesseract_polygon::PolygonPosConfig;
 use tesseract_primitives::{IsmpHost, IsmpProvider};
 use tesseract_substrate::{SubstrateClient, SubstrateConfig};
 use tesseract_sync_committee::SyncCommitteeConfig;
+use tesseract_tempo::TempoConfig;
 use tesseract_tendermint::TendermintConfig;
 use zk_beefy;
 
@@ -98,6 +99,11 @@ pub enum AnyConfig {
 	Tendermint {
 		#[serde(flatten)]
 		inner: TendermintConfig,
+	},
+	/// Tempo chain config
+	Tempo {
+		#[serde(flatten)]
+		inner: TempoConfig,
 	},
 	/// EVM Host chain config
 	EvmHost {
@@ -344,6 +350,7 @@ pub async fn create_client_map(
 			(AnyConfig::Gnosis { inner }, HostKind::Evm(evm)) => inner.into_gnosis(evm).await?,
 			(AnyConfig::Polygon { inner }, HostKind::Evm(evm)) => inner.into_client(evm).await?,
 			(AnyConfig::Tendermint { inner }, HostKind::Evm(evm)) => inner.into_client(evm).await?,
+			(AnyConfig::Tempo { inner }, HostKind::Evm(evm)) => inner.into_client(evm).await?,
 			(AnyConfig::EvmHost { inner }, HostKind::Evm(evm)) => inner.into_client(evm).await?,
 			(AnyConfig::Pharos { inner }, HostKind::Evm(evm)) => {
 				// Need the chain id to select between Testnet/Mainnet. Prefer

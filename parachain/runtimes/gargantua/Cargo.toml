@@ -56,6 +56,7 @@ ismp-optimism = { workspace = true }
 ismp-polygon = { workspace = true }
 ismp-pharos = { workspace =  true }
 ismp-tendermint = { workspace = true }
+ismp-tempo = { workspace = true }
 evm-state-machine = { workspace = true }
 substrate-state-machine = { workspace = true }
 
@@ -169,6 +170,7 @@ std = [
     "ismp-optimism/std",
     "ismp-polygon/std",
     "ismp-tendermint/std",
+    "ismp-tempo/std",
     "evm-state-machine/std",
     "substrate-state-machine/std",
     "ismp-pharos/std",

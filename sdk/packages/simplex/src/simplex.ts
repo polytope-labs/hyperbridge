@@ -143,8 +143,6 @@ export interface PairView {
 	sameToken: boolean
 	/** A price feed for the USD anchor graph that never opens a market. */
 	referenceOnly: boolean
-	/** No static curves — priced from a Uniswap V4 pool instead. */
-	venuePriced: boolean
 }
 
 export interface ChainView {
@@ -230,7 +228,7 @@ export class PairController {
 		const assets = options?.assets
 		const nextAssets = { ...(config.assets ?? {}), ...(assets ?? {}) }
 		const nextPairs = [...this.pairs, pair]
-		validatePairConfigs(nextPairs, nextAssets, Boolean(config.vault?.uniswapV4?.positions?.length))
+		validatePairConfigs(nextPairs, nextAssets)
 
 		if (assets && Object.keys(assets).length > 0) assetRegistry.addAssets(assets)
 		assertPairSymbolsResolve(
@@ -494,8 +492,8 @@ export class ChainController {
 	/**
 	 * Removes a chain. In-flight fills on it are drained first.
 	 *
-	 * Refuses while a vault or Uniswap V4 position still names the chain — those
-	 * hydrate per chain at boot, and one left behind would fail the next start.
+	 * Refuses while a vault still names the chain — vaults hydrate per chain at
+	 * boot, and one left behind would fail the next start.
 	 */
 	async remove(chainId: number): Promise<void> {
 		return this.serialise(async () => {
@@ -504,9 +502,6 @@ export class ChainController {
 
 			if (config.vault?.vaults?.some((vault) => vault.chain === chainKey)) {
 				throw new Error(`${chainKey} still holds a vault entry — remove it from the vault treasury first`)
-			}
-			if (config.vault?.uniswapV4?.positions?.some((position) => position.chain === chainKey)) {
-				throw new Error(`${chainKey} still holds a Uniswap V4 position — remove it first`)
 			}
 
 			const index = this.runtime.resolvedChains.findIndex((chain) => chain.chainId === chainId)

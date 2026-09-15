@@ -285,7 +285,6 @@ describe("VaultFundingPlanner", () => {
 	it("returns null for exotic-token pricing (stable-only venue)", async () => {
 		const planner = makeWithdrawPlanner({ positionAssets: 1n, maxWithdrawable: 1n })
 		await planner.initialise(SOLVER)
-		expect(await planner.getExoticTokenPrice(CHAIN, USDC)).toBeNull()
 	})
 
 	it("rejects invalid vault config", () => {

@@ -251,10 +251,6 @@ describe("validatePairConfigs", () => {
 				{ token0: "USDC", token1: "USDC", maxOrderSize: SIZE, askPriceCurve: [{ amount: "0", price: "1" }] },
 			]),
 		).toThrow(/strictly below 1/)
-		// Venue pricing cannot substitute for the curve on same-token pairs.
-		expect(() =>
-			validatePairConfigs([{ token0: "USDC", token1: "USDC", maxOrderSize: SIZE }], undefined, true),
-		).toThrow(/askPriceCurve/)
 	})
 
 	it("accepts non-USD same-token pairs (e.g. CNGN/CNGN) when a USD pair anchors the asset", () => {
@@ -318,7 +314,7 @@ describe("validatePairConfigs", () => {
 		).not.toThrow()
 		// A reference pair without a curve has nothing to reference.
 		expect(() =>
-			validatePairConfigs([{ token0: "USDC", token1: "CNGN", referenceOnly: true }], assets, true),
+			validatePairConfigs([{ token0: "USDC", token1: "CNGN", referenceOnly: true }], assets),
 		).toThrow(/the curve IS the reference/)
 		// Same-token pairs carry no FX rate to reference.
 		expect(() =>
@@ -358,13 +354,10 @@ describe("validatePairConfigs", () => {
 		).toThrow(/decimal string/)
 	})
 
-	it("requires a curve unless venue pricing is available", () => {
+	it("requires a price curve on every pair", () => {
 		expect(() => validatePairConfigs([{ token0: "USDC", token1: "CNGN", maxOrderSize: SIZE }], assets)).toThrow(
 			/price curve/,
 		)
-		expect(() =>
-			validatePairConfigs([{ token0: "USDC", token1: "CNGN", maxOrderSize: SIZE }], assets, true),
-		).not.toThrow()
 	})
 })
 
@@ -884,31 +877,6 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 		)
 		o.inputs.push({ token: bytes20ToBytes32(ZARP), amount: parseUnits("1000", 18) })
 		o.output.assets.push({ token: bytes20ToBytes32(CNGN), amount: parseUnits("94000", 18) }) // ≤ 1000 × 95
-		expect(await filler.calculateProfitability(o)).toBeGreaterThan(0)
-	})
-
-	it("venue-priced legs fill at the pool mid — gated by fees and the price guard only", async () => {
-		// A pool mid is one price, not a book. Like curve legs, venue legs are
-		// gated by execution cost (gate 1) and the price guard, never by a
-		// cross-curve margin.
-		const venueStub = {
-			walletReserveForToken: () => 0n,
-			planWithdrawalForToken: async () => ({ calls: [], credited: 0n }),
-		} as any
-		const filler = gateFiller(
-			[{ token0: "USDC", token1: "CNGN", maxOrderSize: size("100000") }], // curve-less → venue-priced
-			usdcOnBoth(),
-			{ fillGas: parseUnits("1", 6), relayer: parseUnits("1", 6) },
-			{ fundingVenues: [venueStub] },
-		)
-		// Pool mid: 1500 CNGN per USD (USD per CNGN = 1/1500).
-		;(filler as any).getVenueUsdPrice = async () => new Decimal(1).div(new Decimal("1500"))
-		const o = order(
-			"venue-fair",
-			{ token: bytes20ToBytes32(USDC), amount: parseUnits("100", 6) },
-			{ token: bytes20ToBytes32(CNGN), amount: parseUnits("150000", 18) }, // exactly 100 × 1500
-			parseUnits("10", 6),
-		)
 		expect(await filler.calculateProfitability(o)).toBeGreaterThan(0)
 	})
 

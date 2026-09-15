@@ -103,17 +103,9 @@ export function assembleConfig(state: WizardState): FillerConfigFile {
 			? state.rebalancing
 			: undefined
 
-	// The pairs step owns [vault.uniswapV4] wholesale: the block it configured
-	// this run replaces whatever the prefill had (or drops it when the operator
-	// switched to curve pricing).
 	const vault: NonNullable<FillerTomlConfig["vault"]> = { ...(state.vault ?? {}) }
-	delete vault.uniswapV4
 	if (vault.vaults && vault.vaults.length === 0) delete vault.vaults
-	if (state.vaultUniswapV4) {
-		vault.uniswapV4 = { ...state.vaultUniswapV4 }
-		if (vault.uniswapV4.positions && vault.uniswapV4.positions.length === 0) delete vault.uniswapV4.positions
-	}
-	const hasVault = Boolean(vault.vaults?.length || vault.uniswapV4 || vault.sweepIntervalMs !== undefined)
+	const hasVault = Boolean(vault.vaults?.length || vault.sweepIntervalMs !== undefined)
 
 	// Merge, prefill first: a custom token added this run must not drop the
 	// existing [assets] entries.

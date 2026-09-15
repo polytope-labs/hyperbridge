@@ -77,7 +77,7 @@ export type {
 // `SimplexConfig` is a plain object — no TOML required. These validators are
 // pure and run the same rules boot does, so a config that passes here starts.
 
-export { validateConfig, assertConfirmationCoverage, validateVaultToml, validateUniswapV4Positions } from "@/config/filler-toml"
+export { validateConfig, assertConfirmationCoverage, validateVaultToml } from "@/config/filler-toml"
 export type {
 	FillerTomlConfig,
 	// The binary's on-disk shape: a config plus the `[simplex.signer]` block.
@@ -89,7 +89,6 @@ export type {
 	BinanceConfig,
 	VaultToml,
 	VaultTomlConfig,
-	UniswapV4PositionToml,
 } from "@/config/filler-toml"
 
 export { validatePairConfigs, unanchoredToken0Symbols, pickAnchorStable } from "@/config/pairs"

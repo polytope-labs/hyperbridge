@@ -26,8 +26,8 @@ interface LegacyStrategy {
  * Rewrites a pre-pair-engine config in place: `[[strategies]]` becomes
  * `[[pairs]]` (stable → same-token markets with bps margins mapped to
  * below-par ask prices; hyperfx → a USDC/<symbol> pair), per-strategy
- * confirmation policies move top-level, and `[strategies.vault.uniswapV4]`
- * moves to `[vault.uniswapV4]`. Returns human-readable notes about what moved.
+ * confirmation policies move top-level. Returns human-readable notes about what
+ * moved, including anything the current config no longer supports.
  */
 export function migrateLegacyConfig(config: FillerTomlConfig): string[] {
 	const legacy = config as FillerTomlConfig & { strategies?: LegacyStrategy[] }
@@ -100,19 +100,7 @@ export function migrateLegacyConfig(config: FillerTomlConfig): string[] {
 			}
 
 			if (strategy.vault?.uniswapV4) {
-				const existing = config.vault?.uniswapV4
-				const positions = [...(existing?.positions ?? []), ...(strategy.vault.uniswapV4.positions ?? [])]
-				const side = existing?.side ?? strategy.vault.uniswapV4.side
-				const spreadBps = existing?.spreadBps ?? strategy.spreadBps
-				config.vault = {
-					...(config.vault ?? {}),
-					uniswapV4: {
-						...(positions.length > 0 ? { positions } : {}),
-						...(side !== undefined ? { side } : {}),
-						...(spreadBps !== undefined ? { spreadBps } : {}),
-					},
-				}
-				notes.push("[strategies.vault.uniswapV4] merged into the top-level [vault.uniswapV4]")
+				notes.push("dropped [strategies.vault.uniswapV4] — Uniswap V4 funding is no longer supported")
 			}
 		}
 
@@ -120,16 +108,6 @@ export function migrateLegacyConfig(config: FillerTomlConfig): string[] {
 			normalizeConfirmationPolicyKeys(strategy.confirmationPolicies ?? {}),
 		)) {
 			confirmationPolicies[chainId] ??= policy
-		}
-	}
-
-	// `side` only applies to pool pricing with no static curves anywhere — the
-	// engine rejects the combination, which would kill the whole prefill.
-	if (config.vault?.uniswapV4?.side !== undefined) {
-		const anyCurves = pairs.some((p) => (p.bidPriceCurve?.length ?? 0) > 0 || (p.askPriceCurve?.length ?? 0) > 0)
-		if (anyCurves) {
-			delete config.vault.uniswapV4.side
-			notes.push("dropped [vault.uniswapV4].side — one-sided pool pricing is invalid alongside curve-priced pairs")
 		}
 	}
 

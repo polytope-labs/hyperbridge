@@ -127,31 +127,6 @@ describe("FXFiller one-sided LP", () => {
 		expect(await filler.canFill(makeOrder("f", STABLE, EXOTIC))).toBe(false)
 	})
 
-	// Pool pricing (no curves): one-sided LP via the venue `side` switch.
-	const VENUE = [{ name: "UniswapV4" }]
-
-	it("venue side=ask sells exotic only and rejects the reverse", async () => {
-		const filler = makeFiller({ fundingVenues: VENUE, side: "ask" })
-		expect(await filler.canFill(makeOrder("g", STABLE, EXOTIC))).toBe(true)
-		expect(await filler.canFill(makeOrder("h", EXOTIC, STABLE))).toBe(false)
-	})
-
-	it("venue side=bid buys exotic only and rejects the reverse", async () => {
-		const filler = makeFiller({ fundingVenues: VENUE, side: "bid" })
-		expect(await filler.canFill(makeOrder("i", EXOTIC, STABLE))).toBe(true)
-		expect(await filler.canFill(makeOrder("j", STABLE, EXOTIC))).toBe(false)
-	})
-
-	it("venue with no side fills both directions", async () => {
-		const filler = makeFiller({ fundingVenues: VENUE })
-		expect(await filler.canFill(makeOrder("k", STABLE, EXOTIC))).toBe(true)
-		expect(await filler.canFill(makeOrder("l", EXOTIC, STABLE))).toBe(true)
-	})
-
-	it("rejects 'side' combined with static curves", () => {
-		expect(() => makeFiller({ fundingVenues: VENUE, side: "ask", askPricePolicy: FLAT })).toThrow()
-	})
-
 	// One-sidedness is per pair: two pairs on the same engine can face opposite directions.
 	it("gates each pair independently", async () => {
 		const OTHER = "0x4444444444444444444444444444444444444444" as HexString

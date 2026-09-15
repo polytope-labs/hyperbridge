@@ -87,12 +87,13 @@ function makeService(client: ReturnType<typeof fakeClient>, store = new MemoryDa
 	return { service, store }
 }
 
+/** Take in 1,000 USDC, pay out 1,500,000 cNGN: a USDC to cNGN order at 1,500. */
 const REQUEST: CreateLimitOrderRequest = {
-	book: "USDC/CNGN",
-	side: "BID",
 	fillChain: CHAIN,
-	price: (1500n * ONE).toString(),
-	size: (1_500_000n * ONE).toString(),
+	tokenIn: "USDC",
+	amountIn: (1000n * ONE).toString(),
+	tokenOut: "CNGN",
+	amountOut: (1_500_000n * ONE).toString(),
 	acceptedSources: ["EVM-1"],
 }
 
@@ -104,7 +105,9 @@ describe("LimitOrderService.create", () => {
 		expect(result.kind).toBe("accepted")
 		expect(order.status).toBe("open")
 		expect(order.commitment).toBe("0xabc")
-		// The orderbook shades a posting by the protocol fee, so both prices are kept.
+		// The rate follows from the two amounts: 1,500,000 cNGN for 1,000 USDC.
+		// The orderbook shades a posting by the protocol fee, so both are kept.
+		expect(order.side).toBe("BID")
 		expect(order.price).toBe((1500n * ONE).toString())
 		expect(order.bookPrice).toBe((1490n * ONE).toString())
 		expect(order.remaining).toBe(order.size)
@@ -168,25 +171,29 @@ describe("LimitOrderService.create validation", () => {
 		await rejects({ acceptedSources: ["EVM-1", "EVM-1"] }, /must not repeat/)
 	})
 
-	it("refuses a size under the output token's dust floor", async () => {
-		await rejects({ size: (999n * ONE).toString() }, /dust floor for CNGN/)
+	it("refuses an amountOut under the paid token's dust floor", async () => {
+		await rejects({ amountOut: (999n * ONE).toString() }, /dust floor for CNGN/)
 	})
 
 	it("refuses a ttl under the orderbook's minimum", async () => {
 		await rejects({ ttlSecs: 60 }, /at least the orderbook's minimum of 900/)
 	})
 
-	it("refuses an unknown book, naming the ones on offer", async () => {
-		await rejects({ book: "USDC/EURC" }, /Unknown book 'USDC\/EURC'.*USDC\/CNGN/)
+	it("refuses a pair no book trades, naming the ones on offer", async () => {
+		await rejects({ tokenOut: "EURC" }, /No book trades USDC against EURC.*USDC\/CNGN/)
+	})
+
+	it("refuses an order that takes in and pays out the same symbol", async () => {
+		await rejects({ tokenOut: "USDC" }, /must be different symbols/)
 	})
 
 	it("refuses a chain this filler does not run", async () => {
 		await rejects({ fillChain: "EVM-1" }, /not a chain this filler is configured for/)
 	})
 
-	it("refuses a price or size that is not a positive 1e18 integer", async () => {
-		await rejects({ price: "0" }, /price must be a positive integer/)
-		await rejects({ size: "1.5" }, /size must be a positive integer/)
+	it("refuses an amount that is not a positive 1e18 integer", async () => {
+		await rejects({ amountIn: "0" }, /amountIn must be a positive integer/)
+		await rejects({ amountOut: "1.5" }, /amountOut must be a positive integer/)
 	})
 })
 

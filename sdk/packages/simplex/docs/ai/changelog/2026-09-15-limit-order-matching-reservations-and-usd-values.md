@@ -11,6 +11,11 @@ incoming order's destination, its input symbol and output address line up with w
 swapped, and its offer covers what was asked for. A cross-chain swap also has to come from a chain
 the order declared; a same-chain swap ignores the declaration, as the orderbook does.
 
+A limit order's input and output are fixed when it is created, so direction is not something the
+matcher infers: an order that takes USDC in and pays cNGN out prices USDC to cNGN swaps and is never
+turned around to price cNGN to USDC at the inverse rate. Trading both ways means holding an order
+for each, and an operator can hold as many as they like at once.
+
 `offer` is what the order pays for the incoming input at its own signed rate, floored to the output
 token's raw unit so it stays inside the rate that was signed. When several orders serve, the largest
 offer wins and a tie goes to the one with more left. Exactly one is returned, which is what keeps

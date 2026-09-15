@@ -1,26 +1,28 @@
 import type { Session, WebContents, WebPreferences } from "electron"
+import externalLinks from "../../simplex/src/config/external-links.json"
 
 const TRUSTED_PROTOCOL = "simplex:"
 const TRUSTED_HOST = "local"
 const CLIPBOARD_WRITE_PERMISSION = "clipboard-sanitized-write"
 
-// This is intentionally an exact allowlist, not a suffix check. Keep it in sync
-// with the fixed explorer and HyperFX links compiled into the existing SPA.
-const EXTERNAL_HOSTS = new Set([
-	"amoy.polygonscan.com",
-	"app.hyperfx.finance",
-	"arbiscan.io",
-	"basescan.org",
-	"bscscan.com",
-	"etherscan.io",
-	"gargantua.statescan.io",
-	"nexus.statescan.io",
-	"polygonscan.com",
-	"sepolia.arbiscan.io",
-	"sepolia.basescan.org",
-	"sepolia.etherscan.io",
-	"testnet.bscscan.com",
-])
+const EXTERNAL_ORIGINS = [
+	externalLinks.hyperfxApp,
+	...Object.values(externalLinks.hyperbridgeExplorers),
+	...Object.values(externalLinks.chainExplorers),
+]
+
+// The existing SPA and this policy consume the same manifest. Validate it here
+// so a malformed future entry fails closed instead of silently broadening the
+// system-browser boundary.
+const EXTERNAL_HOSTS = new Set(
+	EXTERNAL_ORIGINS.map((origin) => {
+		const url = new URL(origin)
+		if (url.protocol !== "https:" || url.origin !== origin) {
+			throw new Error(`Simplex external-link origin must be a canonical HTTPS origin: ${origin}`)
+		}
+		return url.hostname
+	}),
+)
 
 export const RENDERER_CSP = [
 	"default-src 'none'",

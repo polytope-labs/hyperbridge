@@ -1,5 +1,6 @@
 import type { Session, WebContents } from "electron"
 import { describe, expect, it, vi } from "vitest"
+import externalLinks from "../../../simplex/src/config/external-links.json"
 import {
 	approvedExternalUrl,
 	installSessionSecurity,
@@ -29,10 +30,15 @@ describe("desktop renderer security", () => {
 	})
 
 	it("allows only known HTTPS destinations to leave Electron", () => {
-		expect(approvedExternalUrl("https://app.hyperfx.finance/history/?id=1")).toBe(
-			"https://app.hyperfx.finance/history/?id=1",
+		expect(approvedExternalUrl(`${externalLinks.hyperfxApp}/history/?id=1`)).toBe(
+			`${externalLinks.hyperfxApp}/history/?id=1`,
 		)
-		expect(approvedExternalUrl("https://sepolia.etherscan.io/tx/0x1")).toBe("https://sepolia.etherscan.io/tx/0x1")
+		for (const origin of [
+			...Object.values(externalLinks.hyperbridgeExplorers),
+			...Object.values(externalLinks.chainExplorers),
+		]) {
+			expect(approvedExternalUrl(`${origin}/test`), origin).toBe(`${origin}/test`)
+		}
 
 		for (const url of [
 			"http://app.hyperfx.finance/",
@@ -172,8 +178,8 @@ describe("desktop renderer security", () => {
 		listeners.get("will-attach-webview")?.(webview)
 		expect(webview.preventDefault).toHaveBeenCalledOnce()
 
-		expect(windowHandler({ url: "https://app.hyperfx.finance/" })).toEqual({ action: "deny" })
-		await vi.waitFor(() => expect(openExternal).toHaveBeenCalledWith("https://app.hyperfx.finance/"))
+		expect(windowHandler({ url: `${externalLinks.hyperfxApp}/` })).toEqual({ action: "deny" })
+		await vi.waitFor(() => expect(openExternal).toHaveBeenCalledWith(`${externalLinks.hyperfxApp}/`))
 		expect(windowHandler({ url: "https://example.com/" })).toEqual({ action: "deny" })
 		expect(openExternal).toHaveBeenCalledOnce()
 		expect(onOpenError).not.toHaveBeenCalled()

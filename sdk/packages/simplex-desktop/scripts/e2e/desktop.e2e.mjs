@@ -11,6 +11,7 @@ import test from "node:test"
 import { promisify } from "node:util"
 import { _electron } from "playwright-core"
 import { ActivityRecorder } from "../../../simplex/src/data/recorder.ts"
+import externalLinks from "../../../simplex/src/config/external-links.json" with { type: "json" }
 import { MemoryDataStore } from "../../../simplex/src/data/memory.ts"
 import { UiServer } from "../../../simplex/src/services/server/UiServer.ts"
 import { socketPathFor } from "../../src/desktop-paths.ts"
@@ -422,14 +423,13 @@ test("the renderer enforces CSP and opens only approved links outside Electron",
 	assert.deepEqual(hostilePage, { read: { reached: false }, write: { reached: false } })
 	assert.equal(fixture.pauseWrites(), 0, "an untrusted page must not mutate the operator API")
 
-	await page.evaluate(() => window.open("https://app.hyperfx.finance/history/details/?id=1", "_blank"))
+	const approvedLink = `${externalLinks.hyperfxApp}/history/details/?id=1`
+	await page.evaluate((url) => window.open(url, "_blank"), approvedLink)
 	await waitFor(
 		async () => (await electronApp.evaluate(() => globalThis.__simplexOpenedUrls ?? [])).length === 1,
 		"approved external link",
 	)
-	assert.deepEqual(await electronApp.evaluate(() => globalThis.__simplexOpenedUrls), [
-		"https://app.hyperfx.finance/history/details/?id=1",
-	])
+	assert.deepEqual(await electronApp.evaluate(() => globalThis.__simplexOpenedUrls), [approvedLink])
 	assert.equal(electronApp.windows().length, 1, "target=_blank must not create an Electron window")
 
 	await page.evaluate(() => window.open("https://example.com/", "_blank"))

@@ -356,6 +356,8 @@ export interface LimitOrderStore {
 	create(order: LimitOrderInsert): Promise<LimitOrder>
 	get(id: string): Promise<LimitOrder | null>
 	list(filter?: LimitOrderFilter): Promise<LimitOrder[]>
+	/** Every `open` order, which is what the matcher prices against. */
+	open(): Promise<LimitOrder[]>
 	/** Records what the orderbook did with the current posting. */
 	setPosting(id: string, posting: LimitOrderPosting): Promise<LimitOrder | null>
 	setStatus(id: string, status: LimitOrderStatus, lastError?: string | null): Promise<LimitOrder | null>

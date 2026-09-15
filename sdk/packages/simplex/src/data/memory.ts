@@ -69,6 +69,7 @@ class MemoryBidStore implements BidStore {
 			retractedAt: null,
 			retractExtrinsicHash: null,
 			dead: false,
+			limitOrderId: bid.limitOrderId ?? null,
 		})
 		if (this.rows.length > MAX_ROWS) {
 			// Only ever drop rows with nothing left to reclaim. A successful or pending
@@ -365,6 +366,22 @@ class MemoryLimitOrderStore implements LimitOrderStore {
 
 	async setStatus(id: string, status: LimitOrderStatus, lastError: string | null = null): Promise<LimitOrder | null> {
 		return this.patch(id, { status, lastError })
+	}
+
+	async reserve(id: string, amount: string): Promise<boolean> {
+		const order = this.orders.get(id)
+		if (!order || order.status !== "open") return false
+		const reserved = BigInt(order.reserved) + BigInt(amount)
+		if (reserved > BigInt(order.remaining)) return false
+		this.patch(id, { reserved: reserved.toString() })
+		return true
+	}
+
+	async release(id: string, amount: string): Promise<void> {
+		const order = this.orders.get(id)
+		if (!order) return
+		const reserved = BigInt(order.reserved) - BigInt(amount)
+		this.patch(id, { reserved: (reserved > 0n ? reserved : 0n).toString() })
 	}
 
 	private patch(id: string, fields: Partial<LimitOrder>): LimitOrder | null {

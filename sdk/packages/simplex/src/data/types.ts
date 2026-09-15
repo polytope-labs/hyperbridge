@@ -49,6 +49,11 @@ export interface StoredBid {
 	retractExtrinsicHash: string | null
 	/** The order was seen filled on-chain, so this bid can never win — reclaim its deposit now. */
 	dead: boolean
+	/**
+	 * The limit order this bid drew its payout from. Null for a bid placed before
+	 * limit orders priced anything, and how a fill finds the order to draw down.
+	 */
+	limitOrderId: string | null
 }
 
 export interface BidInsert {
@@ -60,6 +65,8 @@ export interface BidInsert {
 	 * from the same account, lands after it and reclaims its deposit all the same.
 	 */
 	bid?: string
+	/** The limit order this bid drew its payout from, when one priced it. */
+	limitOrderId?: string
 	extrinsicHash?: string
 	blockHash?: string
 	success: boolean
@@ -370,6 +377,17 @@ export interface LimitOrderStore {
 	/** Records what the orderbook did with the current posting. */
 	setPosting(id: string, posting: LimitOrderPosting): Promise<LimitOrder | null>
 	setStatus(id: string, status: LimitOrderStatus, lastError?: string | null): Promise<LimitOrder | null>
+	/**
+	 * Adds `amount` to `reserved`, but only while the order is `open` and
+	 * `remaining - reserved` still covers it. Resolves false when it does not.
+	 *
+	 * This is the one method that must not be a read followed by a write. Two
+	 * chains bidding against the same limit order at once would both see room in
+	 * the gap, and between them promise more output than the order has.
+	 */
+	reserve(id: string, amount: string): Promise<boolean>
+	/** Gives a reservation back, after a bid was retracted, lost or found dead. */
+	release(id: string, amount: string): Promise<void>
 }
 
 // ===========================================================================

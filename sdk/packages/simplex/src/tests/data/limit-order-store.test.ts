@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import { mkdtempSync } from "fs"
 import { tmpdir } from "os"
 import { join } from "path"
+import { DatabaseSync } from "node:sqlite"
 import { LoggerContext } from "@/services/Logger"
 import { MemoryDataStore } from "@/data/memory"
 import { SqliteDataStore } from "@/data/sqlite"
@@ -106,9 +107,115 @@ describe.each(backends)("%s", (_name, open) => {
 		expect(await store.setStatus("missing", "cancelled")).toBeNull()
 		await close()
 	})
+
+	describe("reserve", () => {
+		it("holds output against the order and reports what is left", async () => {
+			const { store, close } = open()
+			await store.create(ORDER)
+
+			expect(await store.reserve(ORDER.id, "1000")).toBe(true)
+			expect(await store.reserve(ORDER.id, "500")).toBe(true)
+			expect((await store.get(ORDER.id))?.reserved).toBe("1500")
+			await close()
+		})
+
+		it("refuses to reserve more than the order has left", async () => {
+			const { store, close } = open()
+			await store.create({ ...ORDER, size: "1000" })
+
+			expect(await store.reserve(ORDER.id, "600")).toBe(true)
+			expect(await store.reserve(ORDER.id, "500")).toBe(false)
+			expect((await store.get(ORDER.id))?.reserved).toBe("600")
+			await close()
+		})
+
+		it("holds the cap when several callers reserve against one order", async () => {
+			const { store, close } = open()
+			await store.create({ ...ORDER, size: "1000" })
+
+			// Five chains bidding, each wanting most of the order. Both backends run
+			// synchronously underneath, so this pins the invariant rather than an
+			// interleaving; the cross-connection test below is what exercises the
+			// database guard itself.
+			const results = await Promise.all([600, 600, 600, 600, 600].map(() => store.reserve(ORDER.id, "600")))
+
+			expect(results.filter(Boolean)).toHaveLength(1)
+			expect((await store.get(ORDER.id))?.reserved).toBe("600")
+			await close()
+		})
+
+		it("refuses an order that is no longer open", async () => {
+			const { store, close } = open()
+			await store.create(ORDER)
+			await store.setStatus(ORDER.id, "cancelled")
+
+			expect(await store.reserve(ORDER.id, "1000")).toBe(false)
+			expect(await store.reserve("missing", "1000")).toBe(false)
+			await close()
+		})
+	})
+
+	describe("release", () => {
+		it("gives a reservation back", async () => {
+			const { store, close } = open()
+			await store.create(ORDER)
+			await store.reserve(ORDER.id, "1000")
+			await store.release(ORDER.id, "400")
+
+			expect((await store.get(ORDER.id))?.reserved).toBe("600")
+			await close()
+		})
+
+		it("floors at zero, so a double release cannot invent capacity", async () => {
+			const { store, close } = open()
+			await store.create(ORDER)
+			await store.reserve(ORDER.id, "1000")
+			await store.release(ORDER.id, "1000")
+			await store.release(ORDER.id, "1000")
+
+			expect((await store.get(ORDER.id))?.reserved).toBe("0")
+			await close()
+		})
+	})
 })
 
 describe("SqliteLimitOrderStore", () => {
+	it("counts another connection's reservation against the same order", async () => {
+		// Two solvers sharing a data directory. The guard has to live in the
+		// database, not in one process's memory, or each would see the full size.
+		const dir = dataDir()
+		const first = new SqliteDataStore(dir, new LoggerContext({ level: "warn" }))
+		const second = new SqliteDataStore(dir, new LoggerContext({ level: "warn" }))
+
+		await first.limitOrders.create({ ...ORDER, size: "1000" })
+		expect(await first.limitOrders.reserve(ORDER.id, "600")).toBe(true)
+		expect(await second.limitOrders.reserve(ORDER.id, "600")).toBe(false)
+		expect(await second.limitOrders.reserve(ORDER.id, "400")).toBe(true)
+		expect((await first.limitOrders.get(ORDER.id))?.reserved).toBe("1000")
+
+		await first.close()
+		await second.close()
+	})
+
+	it("refuses an update whose reservation moved under it", async () => {
+		// `reserve` reads, decides, then writes guarded on the value it read. This
+		// drives that gap by hand: the write is stale, so it must not land.
+		const dir = dataDir()
+		const store = new SqliteDataStore(dir, new LoggerContext({ level: "warn" }))
+		await store.limitOrders.create({ ...ORDER, size: "1000" })
+		await store.limitOrders.reserve(ORDER.id, "500")
+
+		const db = new DatabaseSync(join(dir, "bids.db"))
+		const stale = db
+			.prepare("UPDATE limit_orders SET reserved = ? WHERE id = ? AND reserved = ? AND status = 'open'")
+			.run("900", ORDER.id, "0")
+		db.close()
+
+		expect(stale.changes).toBe(0)
+		expect((await store.limitOrders.get(ORDER.id))?.reserved).toBe("500")
+		await store.close()
+	})
+
 	it("survives a reopen of the same data directory", async () => {
 		const dir = dataDir()
 		const first = new SqliteDataStore(dir, new LoggerContext({ level: "warn" }))

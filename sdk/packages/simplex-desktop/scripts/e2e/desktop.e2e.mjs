@@ -131,7 +131,14 @@ async function waitForDaemonPids(userDataDir, count = 1) {
 
 async function assertNoTcpListener(pid) {
 	if (process.platform === "win32") {
-		const script = `Get-NetTCPConnection -State Listen -OwningProcess ${pid} -ErrorAction SilentlyContinue | Select-Object -ExpandProperty LocalPort`
+		// Get-NetTCPConnection reports "no matching connection" as an error, and
+		// -Command exits 1 when its last statement failed, so the passing case
+		// looked like a failure. Print the collected ports as the last statement.
+		const script = [
+			"$ErrorActionPreference = 'Stop'",
+			`$ports = @(Get-NetTCPConnection -State Listen -OwningProcess ${pid} -ErrorAction SilentlyContinue | ForEach-Object { $_.LocalPort })`,
+			"$ports -join ','",
+		].join("; ")
 		const { stdout } = await execFileAsync("powershell.exe", ["-NoProfile", "-Command", script])
 		assert.equal(stdout.trim(), "", `daemon ${pid} must not open a TCP listener`)
 		return
@@ -210,7 +217,22 @@ async function cleanupDesktop(electronApp, userDataDir) {
 	}
 	for (const pid of await daemonPids(userDataDir)) await killProcess(pid)
 	await waitFor(async () => (await daemonPids(userDataDir)).length === 0, "detached daemon cleanup").catch(() => {})
-	await rm(userDataDir, { recursive: true, force: true })
+	await stopLeftoverElectron()
+	// Windows releases a killed process's file handles asynchronously.
+	await rm(userDataDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 250 })
+}
+
+// On Windows, killing Electron's main process has left helper processes
+// running. They hold profile files and Playwright's stdio pipes, which kept the
+// test process alive until the job timeout. Name each one, then stop it.
+async function stopLeftoverElectron() {
+	for (const row of await processRows()) {
+		if (!row.includes(electronExecutable)) continue
+		const pid = Number(row.trim().split(/\s+/, 1)[0])
+		if (!Number.isInteger(pid)) continue
+		console.log(`cleanup: stopping leftover Electron ${row.match(/--type=(\S+)/)?.[1] ?? "main"} process ${pid}`)
+		await killProcess(pid).catch(() => {})
+	}
 }
 
 function operatorFixture(socketPath) {

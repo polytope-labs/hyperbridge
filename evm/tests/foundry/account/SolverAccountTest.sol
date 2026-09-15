@@ -4,6 +4,7 @@ pragma solidity ^0.8.17;
 import "forge-std/Test.sol";
 import {SolverAccount} from "../../../src/apps/intentsv2/SolverAccount.sol";
 import {IntentGatewayV2} from "../../../src/apps/IntentGatewayV2.sol";
+import {deployIntentGatewayImpl, deployIntentModules} from "../IntentGatewayDeploy.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {
     SelectOptions,
@@ -34,7 +35,7 @@ contract SolverAccountTest is Test {
     bytes32 public testCommitment;
 
     function _deployGatewayProxy() internal returns (IntentGatewayV2) {
-        IntentGatewayV2 implementation = new IntentGatewayV2(address(this));
+        IntentGatewayV2 implementation = deployIntentGatewayImpl();
         ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), "");
         return IntentGatewayV2(payable(address(proxy)));
     }

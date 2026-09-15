@@ -8,6 +8,9 @@ solc = "0.8.30"
 optimizer = true
 evm_version = "cancun"
 via-ir = true
+# Storage layouts in the artifacts, read by IntentGatewayModulesTest to assert the gateway
+# implementation and its delegatecall modules agree slot for slot.
+extra_output = ["storageLayout"]
 fs_permissions = [{ access = "read-write", path = "./"}]
 
 [profile.ci]

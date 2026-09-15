@@ -110,8 +110,8 @@ abstract contract IntentsBase is EIP712 {
          */
         RefundEscrow,
         /**
-         * @dev Delegatecall the current implementation with the rest of the body as calldata, the
-         * host still `msg.sender`. Governance's one door to the host-only functions:
+         * @dev Delegatecall the extrinsic module with the rest of the body as calldata, the host
+         * still `msg.sender`. Governance's one door to the host-only functions:
          * `upgradeToAndCall` for upgrades, `setRelayer` for rotations. Same discriminator as the
          * `UpgradeContract` action of earlier implementations, whose `(address, bytes)` body
          * selects no function here and reverts.
@@ -167,10 +167,14 @@ abstract contract IntentsBase is EIP712 {
 
     /**
      * @dev Once set, the only relayer whose deliveries `onAccept` and `onGetResponse` accept.
-     * Read through `relayer()`; an auto-generated getter on top of that would not fit under
-     * EIP-170.
      */
     address internal _relayer;
+
+    /**
+     * @dev This contract's own address. Under delegatecall `address(this)` is the proxy instead,
+     * so a module uses this to refuse direct calls and to delegatecall itself for `Execute`.
+     */
+    address internal immutable __self = address(this);
 
     /**
      * @dev Thrown when the caller is not authorized to perform the action.
@@ -374,6 +378,14 @@ abstract contract IntentsBase is EIP712 {
      */
     function DOMAIN_SEPARATOR() public view returns (bytes32) {
         return _domainSeparatorV4();
+    }
+
+    /**
+     * @notice The only relayer whose `onAccept` and `onGetResponse` deliveries are accepted, or
+     * zero while the gate is open
+     */
+    function relayer() external view returns (address) {
+        return _relayer;
     }
 
     /**
@@ -581,6 +593,14 @@ abstract contract IntentsBase is EIP712 {
     function _addDeployment(Deployment memory body) internal {
         _instances[keccak256(body.chain)] = body.gateway;
         emit DeploymentAdded({chain: string(body.chain), gateway: body.gateway});
+    }
+
+    /**
+     * @dev The only writer of `_relayer`, behind `initialize` and `setRelayer`.
+     */
+    function _setRelayer(address relayer_) internal {
+        emit RelayerUpdated({previous: _relayer, current: relayer_});
+        _relayer = relayer_;
     }
 
     /**

@@ -32,6 +32,7 @@ import {
     WithdrawalRequest,
     SelectOptions
 } from "../../src/apps/IntentGatewayV2.sol";
+import {deployIntentGatewayImpl, deployIntentModules} from "./IntentGatewayDeploy.sol";
 import {IntentsBase} from "../../src/apps/intentsv2/IntentsBase.sol";
 import {ExtrinsicIntents} from "../../src/apps/intentsv2/ExtrinsicIntents.sol";
 import {HyperApp} from "@hyperbridge/core/apps/HyperApp.sol";
@@ -108,7 +109,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
     /// peers. Its relayer gate stays open unless a test arms it through the host. Production
     /// initializes atomically (see `testAtomicInitialization`).
     function _deployGatewayProxy() internal returns (IntentGatewayV2) {
-        IntentGatewayV2 implementation = new IntentGatewayV2(address(this));
+        IntentGatewayV2 implementation = deployIntentGatewayImpl();
         ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), "");
         return IntentGatewayV2(payable(address(proxy)));
     }
@@ -3997,6 +3998,11 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         });
     }
 
+    /// @dev A rotation is an Execute request calling `setRelayer(next)`.
+    function _rotateRequest(address next) internal view returns (PostRequest memory) {
+        return _executeRequest(host.hyperbridge(), abi.encodeCall(ExtrinsicIntents.setRelayer, (next)));
+    }
+
     /// @dev An upgrade is an Execute request calling `upgradeToAndCall(newImpl, initData)`.
     function _upgradeRequest(bytes memory source, address newImpl, bytes memory initData)
         internal
@@ -4019,7 +4025,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         intentGateway.onAccept(IncomingPostRequest({relayer: relayer, request: request}));
 
         assertEq(intentGateway.relayer(), next);
-        assertEq(intentGateway.version(), 2, "no migration ran");
+        assertEq(intentGateway.version(), 3, "no migration ran");
         assertEq(_implementationOf(address(intentGateway)), implBefore, "implementation unchanged");
     }
 
@@ -4033,9 +4039,10 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
     }
 
     /// A revert inside the call surfaces unchanged, so the host records the message undelivered.
+    /// Here `migrate()` on a proxy already at `VERSION`, three delegatecalls deep.
     function testExecuteBubblesReverts() public {
         PostRequest memory request =
-            _executeRequest(host.hyperbridge(), abi.encodeCall(IntentGatewayV2.migrate, (user)));
+            _upgradeRequest(host.hyperbridge(), address(_upgradedImpl()), abi.encodeCall(IntentGatewayV2.migrate, ()));
         vm.prank(address(host));
         vm.expectRevert(Initializable.InvalidInitialization.selector);
         intentGateway.onAccept(IncomingPostRequest({relayer: relayer, request: request}));
@@ -4045,7 +4052,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
     /// discriminator; here it selects no function and reverts rather than doing anything.
     function testLegacyUpgradeBodyIsRefused() public {
         address implBefore = _implementationOf(address(intentGateway));
-        IntentGatewayV2Upgraded newImpl = new IntentGatewayV2Upgraded(address(this));
+        IntentGatewayV2Upgraded newImpl = _upgradedImpl();
         PostRequest memory request = _executeRequest(host.hyperbridge(), abi.encode(address(newImpl), bytes("")));
         vm.prank(address(host));
         vm.expectRevert();
@@ -4053,13 +4060,26 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         assertEq(_implementationOf(address(intentGateway)), implBefore, "implementation unchanged");
     }
 
-    function testUpgradeToAndCallRejectsEveryoneButHost() public {
-        IntentGatewayV2Upgraded newImpl = new IntentGatewayV2Upgraded(address(this));
+    /// `upgradeToAndCall` lives on the extrinsic module, reached only by `Execute`.
+    function testUpgradeToAndCallOnlyThroughExecute() public {
+        IntentGatewayV2Upgraded newImpl = _upgradedImpl();
+        address implBefore = _implementationOf(address(intentGateway));
+        (bool ok,) =
+            address(intentGateway).call(abi.encodeCall(ExtrinsicIntents.upgradeToAndCall, (address(newImpl), "")));
+        assertFalse(ok, "not on the gateway");
+
+        ExtrinsicIntents module = ExtrinsicIntents(intentGateway.extrinsicModule());
         vm.expectRevert(HyperApp.UnauthorizedCall.selector);
-        intentGateway.upgradeToAndCall(address(newImpl), "");
-        vm.prank(user);
+        module.upgradeToAndCall(address(newImpl), "");
+        vm.prank(address(host));
         vm.expectRevert(HyperApp.UnauthorizedCall.selector);
-        intentGateway.upgradeToAndCall(address(newImpl), "");
+        module.upgradeToAndCall(address(newImpl), "");
+        assertEq(_implementationOf(address(intentGateway)), implBefore, "implementation unchanged");
+    }
+
+    /// @dev A new implementation with extra logic, reusing the live gateway's modules.
+    function _upgradedImpl() internal returns (IntentGatewayV2Upgraded) {
+        return new IntentGatewayV2Upgraded(intentGateway.intrinsicModule(), intentGateway.extrinsicModule());
     }
 
     function _implementationOf(address proxy) internal view returns (address) {
@@ -4077,7 +4097,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             intentGateway._orders(escrowedCommitment, inputToken), escrowedAmount, "precondition: order B escrowed"
         );
 
-        IntentGatewayV2Upgraded newImpl = new IntentGatewayV2Upgraded(address(this));
+        IntentGatewayV2Upgraded newImpl = _upgradedImpl();
         PostRequest memory request = _upgradeRequest(host.hyperbridge(), address(newImpl), "");
 
         vm.prank(address(host));
@@ -4094,9 +4114,9 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
     }
 
     /// @dev Production deploy path: the proxy initializes atomically via its init data, so the
-    /// `initialize` call arrives through the proxy constructor (not from `_owner`). Must succeed.
+    /// `initialize` call arrives through the proxy constructor. Must succeed.
     function testAtomicInitialization() public {
-        IntentGatewayV2 implementation = new IntentGatewayV2(address(this));
+        IntentGatewayV2 implementation = deployIntentGatewayImpl();
         Params memory intentParams = Params({
             host: address(host),
             dispatcher: address(dispatcher),
@@ -4115,7 +4135,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         assertEq(gateway.params().host, address(host), "params set via atomic init");
         assertEq(gateway.instance(bytes("SOURCE_CHAIN")), address(gateway), "peer bound to address(this)");
         assertEq(gateway.relayer(), relayer, "relayer armed from the init data");
-        assertEq(gateway.version(), 2, "at VERSION from the init data");
+        assertEq(gateway.version(), 3, "at VERSION from the init data");
 
         vm.expectRevert();
         gateway.initialize(intentParams, peers, address(0));
@@ -4135,7 +4155,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
     function testOnAcceptUpgradeContractRejectsNonHyperbridgeSource() public {
         address implBefore = _implementationOf(address(intentGateway));
-        IntentGatewayV2Upgraded newImpl = new IntentGatewayV2Upgraded(address(this));
+        IntentGatewayV2Upgraded newImpl = _upgradedImpl();
 
         // A registered peer gateway (not the Hyperbridge coprocessor) must not be able to upgrade.
         PostRequest memory request = _upgradeRequest(bytes("SOURCE_CHAIN"), address(newImpl), "");
@@ -4278,7 +4298,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
     function testVersionTracksInitialization() public {
         IntentGatewayV2 bare = _deployGatewayProxy();
         assertEq(bare.version(), 0, "bare proxy");
-        assertEq(intentGateway.version(), 2, "initialized");
+        assertEq(intentGateway.version(), 3, "initialized");
         address impl = _implementationOf(address(intentGateway));
         assertEq(IntentGatewayV2(payable(impl)).version(), type(uint64).max, "raw implementation is locked");
     }
@@ -4293,24 +4313,21 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         assertEq(vm.load(address(intentGateway), bytes32(uint256(14))), bytes32(0), "slot 14 unused");
     }
 
-    function testConstructorRejectsZeroOwner() public {
-        vm.expectRevert(IntentsBase.InvalidInput.selector);
-        new IntentGatewayV2(address(0));
-    }
+    /// `setRelayer` lives on the extrinsic module, reached only by `Execute`: the gateway has no
+    /// such function, and the module refuses everyone, the host included, when called directly.
+    function testSetRelayerOnlyThroughExecute() public {
+        (bool ok,) = address(intentGateway).call(abi.encodeCall(ExtrinsicIntents.setRelayer, (user)));
+        assertFalse(ok, "not on the gateway");
 
-    function testSetRelayerRejectsEveryoneButHost() public {
-        // `_owner` (this contract) has no say.
+        ExtrinsicIntents module = ExtrinsicIntents(intentGateway.extrinsicModule());
         vm.expectRevert(HyperApp.UnauthorizedCall.selector);
-        intentGateway.setRelayer(user);
-
+        module.setRelayer(user);
         vm.prank(user);
         vm.expectRevert(HyperApp.UnauthorizedCall.selector);
-        intentGateway.setRelayer(user);
-
-        // The handler talks to the host, never to the gateway.
-        vm.prank(address(handler));
+        module.setRelayer(user);
+        vm.prank(address(host));
         vm.expectRevert(HyperApp.UnauthorizedCall.selector);
-        intentGateway.setRelayer(user);
+        module.setRelayer(user);
 
         assertEq(intentGateway.relayer(), relayer, "relayer unchanged");
     }
@@ -4319,12 +4336,13 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         address next = makeCleanAddr("nextRelayer");
         (PostRequest memory request,, uint256 amount) = _escrowedRedeemRequest();
 
+        PostRequest memory rotate = _rotateRequest(next);
         vm.expectEmit(true, true, true, true, address(intentGateway));
         emit IntentsBase.RelayerUpdated(relayer, next);
         vm.prank(address(host));
-        intentGateway.setRelayer(next);
+        intentGateway.onAccept(IncomingPostRequest({relayer: relayer, request: rotate}));
         assertEq(intentGateway.relayer(), next);
-        assertEq(intentGateway.version(), 2, "a rotation is not a migration");
+        assertEq(intentGateway.version(), 3, "a rotation is not a migration");
 
         // The previous relayer is locked out immediately.
         vm.prank(address(host));
@@ -4337,17 +4355,16 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         assertEq(usdc.balanceOf(filler) - before, amount, "new relayer releases escrow");
     }
 
-    /// `initialize` already took this proxy to version 2, so `migrate` is refused.
+    /// `initialize` already took this proxy to `VERSION`, so `migrate` is refused.
     function testMigrateRunsOnce() public {
         vm.prank(address(host));
         vm.expectRevert(Initializable.InvalidInitialization.selector);
-        intentGateway.migrate(user);
-        assertEq(intentGateway.relayer(), relayer, "relayer unchanged");
-        assertEq(intentGateway.version(), 2, "version unchanged");
+        intentGateway.migrate();
+        assertEq(intentGateway.version(), 3, "version unchanged");
     }
 
-    /// A proxy an upgrade left at version 1 cannot be re-initialized by anyone; only the host-only
-    /// `migrate` takes it to `VERSION`.
+    /// A proxy an upgrade left at an earlier version cannot be re-initialized by anyone; only the
+    /// host-only `migrate` takes it to `VERSION`.
     function testInitializeRefusedOnLegacyProxy() public {
         IntentGatewayV2 gateway = _legacyGateway();
         Params memory p = _openParams();
@@ -4358,55 +4375,50 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         vm.expectRevert(Initializable.InvalidInitialization.selector);
         gateway.initialize(p, new bytes[](0), user);
         assertEq(gateway.version(), 1, "still at version 1");
-        assertEq(gateway.relayer(), address(0), "still open");
 
         vm.prank(address(host));
-        gateway.migrate(relayer);
-        assertEq(gateway.version(), 2);
-        assertEq(gateway.relayer(), relayer);
+        gateway.migrate();
+        assertEq(gateway.version(), 3);
     }
 
-    /// A proxy at version 1 is open, so `onlyHost` is what stops a stranger arming it first.
     function testMigrateRejectsEveryoneButHost() public {
         IntentGatewayV2 gateway = _legacyGateway();
 
         vm.expectRevert(HyperApp.UnauthorizedCall.selector);
-        gateway.migrate(user);
+        gateway.migrate();
 
         vm.prank(user);
         vm.expectRevert(HyperApp.UnauthorizedCall.selector);
-        gateway.migrate(user);
+        gateway.migrate();
 
-        assertEq(gateway.relayer(), address(0), "still open");
         assertEq(gateway.version(), 1, "still at version 1");
     }
 
-    /// `RelayerUpdated` first, then `Initialized(2)` from the reinitializer.
-    function testMigrateArmsAndBumpsTheVersion() public {
+    /// `migrate` only bumps the version: the relayer gate is left as it was.
+    function testMigrateBumpsTheVersion() public {
         IntentGatewayV2 gateway = _legacyGateway();
+        address before = gateway.relayer();
 
         vm.expectEmit(true, true, true, true, address(gateway));
-        emit IntentsBase.RelayerUpdated(address(0), relayer);
-        vm.expectEmit(true, true, true, true, address(gateway));
-        emit Initializable.Initialized(2);
+        emit Initializable.Initialized(3);
         vm.prank(address(host));
-        gateway.migrate(relayer);
+        gateway.migrate();
 
-        assertEq(gateway.relayer(), relayer);
-        assertEq(gateway.version(), 2);
+        assertEq(gateway.relayer(), before, "relayer untouched");
+        assertEq(gateway.version(), 3);
     }
 
-    /// `initialize` arms the gate from the init data and lands at version 2.
+    /// `initialize` arms the gate from the init data and lands at `VERSION`.
     function testInitializeArmsTheGate() public {
         IntentGatewayV2 gateway = _deployGatewayProxy();
         Params memory p = _openParams();
         vm.expectEmit(true, true, true, true, address(gateway));
         emit IntentsBase.RelayerUpdated(address(0), relayer);
         vm.expectEmit(true, true, true, true, address(gateway));
-        emit Initializable.Initialized(2);
+        emit Initializable.Initialized(3);
         gateway.initialize(p, new bytes[](0), relayer);
         assertEq(gateway.relayer(), relayer);
-        assertEq(gateway.version(), 2);
+        assertEq(gateway.version(), 3);
     }
 
     /// @dev OpenZeppelin's `Initializable` namespaced slot; `_initialized` is its low 8 bytes.
@@ -4430,7 +4442,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         });
     }
 
-    /// @dev Through `initialize` with no relayer: open gate, version 2, no peers.
+    /// @dev Through `initialize` with no relayer: open gate, at `VERSION`, no peers.
     function _freshInitializedGateway() internal returns (IntentGatewayV2 gateway) {
         gateway = _deployGatewayProxy();
         Params memory p = Params({
@@ -4446,10 +4458,11 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
     function testSetRelayerToZeroReopensTheGate() public {
         (PostRequest memory request,, uint256 amount) = _escrowedRedeemRequest();
+        PostRequest memory reopen = _rotateRequest(address(0));
         vm.prank(address(host));
-        intentGateway.setRelayer(address(0));
+        intentGateway.onAccept(IncomingPostRequest({relayer: relayer, request: reopen}));
         assertEq(intentGateway.relayer(), address(0));
-        assertEq(intentGateway.version(), 2, "reopening the gate is not a migration either");
+        assertEq(intentGateway.version(), 3, "reopening the gate is not a migration either");
 
         // With no relayer set the gate is open, so a delivery from anyone lands.
         uint256 before = usdc.balanceOf(filler);
@@ -4478,7 +4491,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
     function testOnAcceptGovernanceRejectsUnlistedRelayer() public {
         // UpgradeContract: a forged upgrade cannot land unless the relayer submits it.
         address implBefore = _implementationOf(address(intentGateway));
-        IntentGatewayV2Upgraded newImpl = new IntentGatewayV2Upgraded(address(this));
+        IntentGatewayV2Upgraded newImpl = _upgradedImpl();
         PostRequest memory upgrade = _upgradeRequest(host.hyperbridge(), address(newImpl), "");
 
         vm.prank(address(host));
@@ -4530,9 +4543,10 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         assertEq(gateway.instance(bytes("NEW_CHAIN")), address(0xBEEF), "open gate applies governance");
 
         // Armed by a rotation: only `relayer` from now on, version unchanged.
+        PostRequest memory arm = _rotateRequest(relayer);
         vm.prank(address(host));
-        gateway.setRelayer(relayer);
-        assertEq(gateway.version(), 2, "a rotation leaves the version alone");
+        gateway.onAccept(IncomingPostRequest({relayer: filler, request: arm}));
+        assertEq(gateway.version(), 3, "a rotation leaves the version alone");
         PostRequest memory another = _newDeploymentRequest(bytes("OTHER_CHAIN"), address(0xCAFE));
         another.from = abi.encodePacked(address(gateway));
         another.to = abi.encodePacked(address(gateway));
@@ -4548,38 +4562,37 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         assertEq(gateway.instance(bytes("OTHER_CHAIN")), address(0xCAFE));
     }
 
-    function testUpgradeWithInitDataSetsRelayerAtomically() public {
+    /// A rotation cannot ride in upgrade init data any more: that data runs against the new
+    /// implementation, and `setRelayer` lives on the extrinsic module. It is its own `Execute`,
+    /// delivered by the relayer authorised at the time, after which only the new one is accepted.
+    function testUpgradeThenRotateAreTwoExecutes() public {
         (bytes32 filledCommitment, bytes32 escrowedCommitment, address inputToken, uint256 escrowedAmount) =
             _seedUpgradeState();
         address next = makeCleanAddr("nextRelayer");
-        IntentGatewayV2Upgraded newImpl = new IntentGatewayV2Upgraded(address(this));
-        bytes memory initData = abi.encodeCall(ExtrinsicIntents.setRelayer, (next));
-        PostRequest memory request = _upgradeRequest(host.hyperbridge(), address(newImpl), initData);
+        IntentGatewayV2Upgraded newImpl = _upgradedImpl();
+        PostRequest memory upgrade = _upgradeRequest(host.hyperbridge(), address(newImpl), "");
+        PostRequest memory rotate = _rotateRequest(next);
+        rotate.nonce = 1;
 
-        // The upgrade itself must arrive through the relayer authorised at the time.
+        // Both must arrive through the relayer authorised at the time.
         vm.prank(address(host));
         vm.expectRevert(IntentsBase.Unauthorized.selector);
-        intentGateway.onAccept(IncomingPostRequest({relayer: next, request: request}));
-
-        // `upgradeToAndCall` delegatecalls the migration calldata with the host still as
-        // `msg.sender`, which is the one caller `setRelayer` accepts.
-        vm.recordLogs();
+        intentGateway.onAccept(IncomingPostRequest({relayer: next, request: upgrade}));
         vm.prank(address(host));
-        intentGateway.onAccept(IncomingPostRequest({relayer: relayer, request: request}));
-        Vm.Log[] memory logs = vm.getRecordedLogs();
-        bool sawRelayerUpdated;
-        for (uint256 i; i < logs.length; i++) {
-            bool ours = logs[i].emitter == address(intentGateway);
-            if (ours && logs[i].topics[0] == IntentsBase.RelayerUpdated.selector) {
-                sawRelayerUpdated = true;
-                assertEq(logs[i].data, abi.encode(relayer, next), "RelayerUpdated(previous, current)");
-            }
-        }
-        assertTrue(sawRelayerUpdated, "RelayerUpdated emitted from the upgrade transaction");
+        vm.expectRevert(IntentsBase.Unauthorized.selector);
+        intentGateway.onAccept(IncomingPostRequest({relayer: next, request: rotate}));
 
+        vm.prank(address(host));
+        intentGateway.onAccept(IncomingPostRequest({relayer: relayer, request: upgrade}));
         assertEq(_implementationOf(address(intentGateway)), address(newImpl), "implementation slot updated");
-        assertEq(intentGateway.relayer(), next, "relayer set in the upgrade transaction");
-        assertEq(intentGateway.version(), 2, "a rotation in upgrade calldata is not a migration");
+        assertEq(intentGateway.relayer(), relayer, "upgrade leaves the relayer alone");
+
+        vm.expectEmit(true, true, true, true, address(intentGateway));
+        emit IntentsBase.RelayerUpdated(relayer, next);
+        vm.prank(address(host));
+        intentGateway.onAccept(IncomingPostRequest({relayer: relayer, request: rotate}));
+        assertEq(intentGateway.relayer(), next, "rotated");
+        assertEq(intentGateway.version(), 3, "neither is a migration");
         assertEq(intentGateway._nonce(), 2, "_nonce preserved");
         assertEq(intentGateway._filled(filledCommitment), filler, "_filled preserved");
         assertEq(intentGateway._orders(escrowedCommitment, inputToken), escrowedAmount, "_orders preserved");
@@ -4595,14 +4608,14 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
     }
 
     function testUpgradeWithoutInitDataKeepsExistingRelayer() public {
-        IntentGatewayV2Upgraded newImpl = new IntentGatewayV2Upgraded(address(this));
+        IntentGatewayV2Upgraded newImpl = _upgradedImpl();
         PostRequest memory request = _upgradeRequest(host.hyperbridge(), address(newImpl), "");
         vm.prank(address(host));
         intentGateway.onAccept(IncomingPostRequest({relayer: relayer, request: request}));
 
         assertEq(_implementationOf(address(intentGateway)), address(newImpl));
         assertEq(intentGateway.relayer(), relayer, "relayer survives an implementation swap");
-        assertEq(intentGateway.version(), 2, "no migration ran, so the version is unchanged");
+        assertEq(intentGateway.version(), 3, "no migration ran, so the version is unchanged");
     }
 
     /// @dev Through the real host: a delivery the gateway refuses is recorded as undelivered, so
@@ -4656,7 +4669,6 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         address implBefore = _implementationOf(LIVE_GATEWAY);
         uint256 nonce = live._nonce();
         Params memory p = live.params();
-        address owner = live._owner();
         bytes32 domain = live.DOMAIN_SEPARATOR();
         address liveHost = live.host();
         bytes[] memory peers = _livePeers();
@@ -4667,16 +4679,13 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             fees[i] = live._destinationProtocolFees(keccak256(peers[i]));
         }
 
-        // Nobody can initialise it again, and the migration cannot re-run even from the host.
+        // Nobody can initialise it again.
         vm.expectRevert(Initializable.InvalidInitialization.selector);
         live.initialize(p, peers, filler);
-        vm.prank(liveHost);
-        vm.expectRevert(Initializable.InvalidInitialization.selector);
-        live.migrate(filler);
 
-        // The next upgrade is an Execute request. Anyone but the relayer is refused before the
-        // body is read...
-        IntentGatewayV2 newImpl = new IntentGatewayV2(owner);
+        // The next upgrade is an Execute request carrying `migrate()`. Anyone but the relayer is
+        // refused before the body is read...
+        IntentGatewayV2 newImpl = deployIntentGatewayImpl();
         PostRequest memory upgrade = PostRequest({
             source: IDispatcher(liveHost).hyperbridge(),
             dest: IDispatcher(liveHost).host(),
@@ -4685,7 +4694,9 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             to: abi.encodePacked(LIVE_GATEWAY),
             body: bytes.concat(
                 bytes1(uint8(IntentsBase.RequestKind.Execute)),
-                abi.encodeCall(ExtrinsicIntents.upgradeToAndCall, (address(newImpl), bytes("")))
+                abi.encodeCall(
+                    ExtrinsicIntents.upgradeToAndCall, (address(newImpl), abi.encodeCall(IntentGatewayV2.migrate, ()))
+                )
             ),
             timeoutTimestamp: 0
         });
@@ -4700,7 +4711,10 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         assertEq(_implementationOf(LIVE_GATEWAY), address(newImpl), "implementation slot updated");
         assertTrue(implBefore != address(newImpl), "implementation actually changed");
         assertEq(live.relayer(), liveRelayer, "relayer survives the upgrade");
-        assertEq(live.version(), 2, "no migration ran, so the version is unchanged");
+        assertEq(live.version(), 3, "migrated by the upgrade calldata");
+        vm.prank(liveHost);
+        vm.expectRevert(Initializable.InvalidInitialization.selector);
+        live.migrate();
         assertEq(live._nonce(), nonce, "_nonce preserved");
         Params memory q = live.params();
         assertEq(q.host, p.host, "params.host preserved");
@@ -4709,7 +4723,6 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         assertEq(q.surplusShareBps, p.surplusShareBps, "params.surplusShareBps preserved");
         assertEq(q.protocolFeeBps, p.protocolFeeBps, "params.protocolFeeBps preserved");
         assertEq(q.priceOracle, p.priceOracle, "params.priceOracle preserved");
-        assertEq(live._owner(), owner, "_owner preserved");
         assertEq(live.DOMAIN_SEPARATOR(), domain, "EIP-712 domain preserved");
         assertEq(live.host(), liveHost, "host preserved");
         for (uint256 i; i < peers.length; i++) {
@@ -4727,7 +4740,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         vm.prank(liveHost);
         live.onAccept(IncomingPostRequest({relayer: liveRelayer, request: rotate}));
         assertEq(live.relayer(), next, "rotated through Execute");
-        assertEq(live.version(), 2, "a rotation leaves the version alone");
+        assertEq(live.version(), 3, "a rotation leaves the version alone");
         vm.prank(liveHost);
         vm.expectRevert(IntentsBase.Unauthorized.selector);
         live.onAccept(IncomingPostRequest({relayer: liveRelayer, request: rotate}));
@@ -4735,7 +4748,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 }
 
 contract IntentGatewayV2Upgraded is IntentGatewayV2 {
-    constructor(address deployer) IntentGatewayV2(deployer) {}
+    constructor(address intrinsic, address extrinsic) IntentGatewayV2(intrinsic, extrinsic) {}
 
     function upgradedMarker() external pure returns (uint256) {
         return 42;

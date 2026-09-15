@@ -6,24 +6,25 @@ import "stringutils/strings.sol";
 
 import {IntentGatewayV2, Params} from "../src/apps/IntentGatewayV2.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
-import {BaseScript} from "./BaseScript.sol";
+import {IntentGatewayScript} from "./IntentGatewayScript.sol";
 import {CallDispatcher} from "../src/utils/CallDispatcher.sol";
 import {SolverAccount} from "../src/apps/intentsv2/SolverAccount.sol";
 import {VWAPOracle} from "../src/utils/VWAPOracle.sol";
 import {StateMachine} from "@hyperbridge/core/libraries/StateMachine.sol";
 
-contract DeployScript is BaseScript {
+contract DeployScript is IntentGatewayScript {
     using strings for *;
 
     /// @notice Main deployment logic - called by BaseScript's run() functions
     /// @dev This function is called within a broadcast context
     function deploy() internal override {
-        // The implementation is always new. The proxy is deployed only on a chain that has none
-        // yet: where `INTENT_GATEWAY_V2` is already in the config, governance moves that proxy to
-        // this implementation (`upgrade_gateway` for a proxy still on the pre-`Execute` code,
-        // `execute_on_gateway` with `upgradeToAndCall` calldata afterwards), and only the solver
-        // account is redeployed alongside.
-        IntentGatewayV2 implementation = new IntentGatewayV2{salt: salt}(admin);
+        // The implementation is always new; a module already at its CREATE2 address is reused.
+        // The proxy is deployed only on a chain that
+        // has none yet: where `INTENT_GATEWAY_V2` is already in the config, governance moves that
+        // proxy to this implementation (`upgrade_gateway` for a proxy still on the pre-`Execute`
+        // code, `execute_on_gateway` with `upgradeToAndCall` calldata afterwards), and only the
+        // solver account is redeployed alongside.
+        IntentGatewayV2 implementation = _deployImplementation();
         IntentGatewayV2 intentGateway;
         if (config.exists("INTENT_GATEWAY_V2")) {
             intentGateway = IntentGatewayV2(payable(config.get("INTENT_GATEWAY_V2").toAddress()));
@@ -34,12 +35,11 @@ contract DeployScript is BaseScript {
 
         vm.stopBroadcast();
 
-        console.log("IntentGateway implementation deployed at:", address(implementation));
         console.log("IntentGateway proxy at:", address(intentGateway));
         console.log("SolverAccount deployed at:", address(solverAccount));
 
+        _recordImplementation(implementation);
         config.set("INTENT_GATEWAY_V2", address(intentGateway));
-        config.set("INTENT_GATEWAY_V2_IMPL", address(implementation));
         config.set("SOLVER_ACCOUNT", address(solverAccount));
     }
 

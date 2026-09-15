@@ -27,6 +27,7 @@ import {
     CancelOptions,
     Deployment
 } from "../../src/apps/IntentGatewayV2.sol";
+import {deployIntentGatewayImpl, deployIntentModules} from "./IntentGatewayDeploy.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {IntentsBase} from "../../src/apps/intentsv2/IntentsBase.sol";
 import {ICallDispatcher, Call} from "@hyperbridge/core/interfaces/ICallDispatcher.sol";
@@ -65,7 +66,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
     event DustCollected(address indexed token, uint256 amount);
 
     function _deployGatewayProxy() internal returns (IntentGatewayV2) {
-        IntentGatewayV2 implementation = new IntentGatewayV2(address(this));
+        IntentGatewayV2 implementation = deployIntentGatewayImpl();
         ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), "");
         return IntentGatewayV2(payable(address(proxy)));
     }

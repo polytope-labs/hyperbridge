@@ -69,7 +69,7 @@ abstract contract ExtrinsicIntents is IntentsBase, HyperApp {
     /**
      * @dev Once a relayer is set, rejects deliveries from anyone else before the body is read. The
      * host records the revert as undelivered, so the authorised relayer can resubmit. While unset,
-     * every delivery passes: a proxy from before the gate stays open until `migrate` arms it.
+     * every delivery passes: a proxy stays open until governance arms it through `setRelayer`.
      * @param relayer The account that submitted the message to the handler.
      */
     function _checkRelayer(address relayer) internal view {
@@ -79,8 +79,7 @@ abstract contract ExtrinsicIntents is IntentsBase, HyperApp {
 
     /**
      * @dev Rotates the authorised relayer. Host-only, so reachable only through an `Execute`
-     * request, which delegatecalls it with the host still `msg.sender`.
-     * Leaves `version()` alone; `initialize` and `migrate` arm a proxy on its way to `VERSION`.
+     * request, which delegatecalls it with the host still `msg.sender`. Leaves `version()` alone.
      * @param relayer The account whose deliveries are accepted from now on. Zero reopens the gate.
      */
     function setRelayer(address relayer) external onlyHost {
@@ -89,26 +88,12 @@ abstract contract ExtrinsicIntents is IntentsBase, HyperApp {
 
     /**
      * @dev Points the proxy at `newImplementation` and delegatecalls `data` on it in the same
-     * transaction, e.g. `migrate(relayer)`. Host-only, so reachable only through `Execute`.
+     * transaction, e.g. `migrate()`. Host-only, so reachable only through `Execute`.
      * @param newImplementation The implementation to install; must have code.
      * @param data Migration calldata run against the new implementation, or empty.
      */
     function upgradeToAndCall(address newImplementation, bytes calldata data) external onlyHost {
         ERC1967Utils.upgradeToAndCall(newImplementation, data);
-    }
-
-    /// @dev The only writer of `_relayer`, behind `initialize`, `migrate` and `setRelayer`.
-    function _setRelayer(address relayer) internal {
-        emit RelayerUpdated({previous: _relayer, current: relayer});
-        _relayer = relayer;
-    }
-
-    /**
-     * @notice The only relayer whose `onAccept` and `onGetResponse` deliveries are accepted, or
-     * zero while the gate is open
-     */
-    function relayer() external view returns (address) {
-        return _relayer;
     }
 
     /// @dev `kind` followed by the ABI-encoded `WithdrawalRequest`.
@@ -321,8 +306,8 @@ abstract contract ExtrinsicIntents is IntentsBase, HyperApp {
      *   protocol fees. Only Hyperbridge may dispatch this request.
      * - SweepDust: Transfers accumulated protocol dust to a specified beneficiary.
      *   Only Hyperbridge may dispatch this request.
-     * - Execute: Delegatecalls the current implementation with the rest of the body, the host
-     *   still `msg.sender`, so the host-only functions (`upgradeToAndCall`, `setRelayer`) are
+     * - Execute: Delegatecalls this module with the rest of the body, the host still
+     *   `msg.sender`, so the host-only functions (`upgradeToAndCall`, `setRelayer`) are
      *   reachable. Reverts bubble up unchanged. Only Hyperbridge may dispatch this request.
      *
      * @param incoming The incoming post request from Hyperbridge.
@@ -345,7 +330,7 @@ abstract contract ExtrinsicIntents is IntentsBase, HyperApp {
         } else if (kind == RequestKind.SweepDust) {
             _sweepDust(abi.decode(incoming.request.body[1:], (SweepDust)));
         } else if (kind == RequestKind.Execute) {
-            Address.functionDelegateCall(ERC1967Utils.getImplementation(), incoming.request.body[1:]);
+            Address.functionDelegateCall(__self, incoming.request.body[1:]);
         }
     }
 

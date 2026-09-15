@@ -67,6 +67,8 @@ interface CacheData {
 	fillerOutputs: Record<string, FillerOutputsCache>
 	pairClassifications: Record<string, PairClassificationsCache>
 	fundingPrepends: Record<string, FundingPrependsCache>
+	/** The limit order an evaluation priced against, carried to the bid that draws on it. */
+	matchedLimitOrders: Record<string, { limitOrderId: string; payout: string; timestamp: number }>
 	/** Orders whose evaluation concluded in a deliberate partial fill. */
 	partialFills: Record<string, { partial: boolean; timestamp: number }>
 	feeTokens: Record<string, { address: HexString; decimals: number }>
@@ -87,6 +89,7 @@ export class CacheService {
 			fillerOutputs: {},
 			pairClassifications: {},
 			fundingPrepends: {},
+			matchedLimitOrders: {},
 			partialFills: {},
 			feeTokens: {},
 			tokenDecimals: {},
@@ -107,6 +110,11 @@ export class CacheService {
 		staleGasEstimateIds.forEach((orderId) => {
 			delete this.cacheData.gasEstimates[orderId]
 		})
+
+		// Clean up matched limit orders
+		for (const [orderId, data] of Object.entries(this.cacheData.matchedLimitOrders)) {
+			if (!this.isCacheValid(data.timestamp)) delete this.cacheData.matchedLimitOrders[orderId]
+		}
 
 		// Clean up swap operations
 		const staleSwapOperationIds = Object.entries(this.cacheData.swapOperations)
@@ -305,6 +313,40 @@ export class CacheService {
 			}
 		} catch (error) {
 			this.logger.error({ err: error }, "Error setting filler outputs")
+			throw error
+		}
+	}
+
+	/**
+	 * The limit order this order was priced against, and the payout it allowed.
+	 *
+	 * Carried from `calculateProfitability` to the bid so the reservation lands on
+	 * the same limit order the price came from. A fill later finds it through the
+	 * bid row, not through here.
+	 */
+	getMatchedLimitOrder(orderId: string): { limitOrderId: string; payout: bigint } | null {
+		try {
+			const cache = this.cacheData.matchedLimitOrders[orderId]
+			if (cache && this.isCacheValid(cache.timestamp)) {
+				return { limitOrderId: cache.limitOrderId, payout: BigInt(cache.payout) }
+			}
+			return null
+		} catch (error) {
+			this.logger.error({ err: error }, "Error getting matched limit order")
+			return null
+		}
+	}
+
+	setMatchedLimitOrder(orderId: string, limitOrderId: string, payout: bigint): void {
+		try {
+			this.cleanupStaleData()
+			this.cacheData.matchedLimitOrders[orderId] = {
+				limitOrderId,
+				payout: payout.toString(),
+				timestamp: Date.now(),
+			}
+		} catch (error) {
+			this.logger.error({ err: error }, "Error setting matched limit order")
 			throw error
 		}
 	}

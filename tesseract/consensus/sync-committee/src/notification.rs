@@ -1,3 +1,4 @@
+use ssz_types::typenum::Unsigned;
 use std::sync::Arc;
 
 use codec::Decode;
@@ -23,8 +24,8 @@ pub struct EventResponse {
 
 pub async fn consensus_notification<
 	T: Config + Send + Sync + 'static,
-	const ETH1_DATA_VOTES_BOUND: usize,
-	const PROPOSER_LOOK_AHEAD_LIMIT: usize,
+	ETH1_DATA_VOTES_BOUND: Unsigned + Send + Sync + 'static,
+	PROPOSER_LOOK_AHEAD_LIMIT: Unsigned + Send + Sync + 'static,
 >(
 	client: &SyncCommitteeHost<T, ETH1_DATA_VOTES_BOUND, PROPOSER_LOOK_AHEAD_LIMIT>,
 	counterparty: Arc<dyn IsmpProvider>,
@@ -52,7 +53,13 @@ pub async fn consensus_notification<
 		return Ok(None);
 	};
 
-	if consensus_update.execution_payload.block_number <= execution_layer_height &&
+	let Some(claimed_block_number) = consensus_update.execution_payload.claimed_block_number()
+	else {
+		trace!(target: "sync-committee-prover", "could not read an execution block number out of the update's payload proof");
+		return Ok(None);
+	};
+
+	if claimed_block_number <= execution_layer_height &&
 		consensus_update.sync_committee_update.is_none() ||
 		consensus_update.attested_header.slot <= light_client_state.finalized_header.slot
 	{

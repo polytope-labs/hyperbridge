@@ -101,12 +101,6 @@ function marketRequirements(state: WizardState, defaults: SetupDefaults): string
 			}
 		}
 	}
-	if (
-		state.fxPricing === "uniswapV4" &&
-		!state.fxPositions.every((position) => /^\d+$/.test(position.tokenId.trim()))
-	) {
-		return ["Enter a numeric Uniswap V4 position token ID for every position."]
-	}
 	try {
 		validateConfig(assembleConfig(state, defaults))
 	} catch (error) {

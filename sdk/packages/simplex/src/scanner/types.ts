@@ -1,4 +1,4 @@
-import type { HexString, Order, PhantomOrderEvent } from "@hyperbridge/sdk"
+import type { HexString, Order } from "@hyperbridge/sdk"
 import type { LoggerContext } from "@/services/Logger"
 
 /**
@@ -114,32 +114,5 @@ export interface OrderScanner {
 	/** Stops scanning a chain. Subscribers simply stop seeing it. */
 	removeChain(chainId: number): Promise<void>
 	/** Stops every scan loop. The scanner cannot be reused afterwards. */
-	close(): Promise<void>
-}
-
-export interface HyperbridgeScannerHandlers {
-	/**
-	 * One call per Hyperbridge block, carrying every phantom order registered in
-	 * it. The batch boundary is load-bearing: the pallet registers one order per
-	 * configured chain in the same block, and a solver bids on the whole set in
-	 * a single extrinsic — per-order delivery would put every chain's bid behind
-	 * the previous one's inclusion on the account nonce.
-	 */
-	onPhantomOrders(orders: PhantomOrderEvent[]): void
-	onError?(error: unknown): void
-}
-
-/**
- * A live feed of Hyperbridge phantom orders.
- *
- * The heavier of the two to share: phantom polling re-reads every Hyperbridge
- * block, and it goes through `offchain_localStorageGet`, which needs
- * `--rpc-methods=unsafe` — so it can only ever hit an operator's own node.
- *
- * Reads only. Bids are signed with a filler's own substrate key on its own
- * connection and never come through here.
- */
-export interface HyperbridgeScanner {
-	subscribe(handlers: HyperbridgeScannerHandlers): Subscription
 	close(): Promise<void>
 }

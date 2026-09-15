@@ -1366,8 +1366,7 @@ export class UiServer {
 				}
 				Object.assign(mergedAssets, assets)
 			}
-			const hasVenuePricing = Boolean(op.config.vault?.uniswapV4?.positions?.length)
-			validatePairConfigs(next, mergedAssets, hasVenuePricing)
+			validatePairConfigs(next, mergedAssets)
 			const registry = new AssetRegistry(new ChainConfigService({}), mergedAssets)
 			assertPairSymbolsResolve(next, registry, op.chains.map((id) => formatChainKey(id)))
 		} catch (err) {
@@ -1516,8 +1515,7 @@ export class UiServer {
 			if (remaining.length === 0) {
 				throw new Error("The last market cannot be removed live — edit the config and restart instead")
 			}
-			const hasVenuePricing = Boolean(op.config.vault?.uniswapV4?.positions?.length)
-			validatePairConfigs(remaining, op.config.assets, hasVenuePricing)
+			validatePairConfigs(remaining, op.config.assets)
 			await op.removePair?.(index)
 		} catch (err) {
 			return sendJson(res, 400, { error: err instanceof Error ? err.message : String(err) })
@@ -1670,11 +1668,6 @@ export class UiServer {
 				if (op.config.vault?.vaults?.some((vault) => vault.chain === chainKey)) {
 					throw new Error(
 						`${chainLabel(chainId)} still holds a vault entry — remove it from the vault treasury before dropping the chain`,
-					)
-				}
-				if (op.config.vault?.uniswapV4?.positions?.some((position) => position.chain === chainKey)) {
-					throw new Error(
-						`${chainLabel(chainId)} still holds a Uniswap V4 position — remove it from the config before dropping the chain`,
 					)
 				}
 			}

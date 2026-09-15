@@ -2,7 +2,7 @@ import assert from "node:assert/strict"
 import { execFile } from "node:child_process"
 import { createRequire } from "node:module"
 import { existsSync } from "node:fs"
-import { mkdtemp, readFile, realpath, rm, stat } from "node:fs/promises"
+import { mkdtemp, readdir, readFile, readlink, realpath, rm, stat } from "node:fs/promises"
 import { request as httpRequest } from "node:http"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
@@ -131,7 +131,14 @@ async function waitForDaemonPids(userDataDir, count = 1) {
 
 async function assertNoTcpListener(pid) {
 	if (process.platform === "win32") {
-		const script = `Get-NetTCPConnection -State Listen -OwningProcess ${pid} -ErrorAction SilentlyContinue | Select-Object -ExpandProperty LocalPort`
+		// Get-NetTCPConnection reports "no matching connection" as an error, and
+		// -Command exits 1 when its last statement failed, so the passing case
+		// looked like a failure. Print the collected ports as the last statement.
+		const script = [
+			"$ErrorActionPreference = 'Stop'",
+			`$ports = @(Get-NetTCPConnection -State Listen -OwningProcess ${pid} -ErrorAction SilentlyContinue | ForEach-Object { $_.LocalPort })`,
+			"$ports -join ','",
+		].join("; ")
 		const { stdout } = await execFileAsync("powershell.exe", ["-NoProfile", "-Command", script])
 		assert.equal(stdout.trim(), "", `daemon ${pid} must not open a TCP listener`)
 		return
@@ -145,6 +152,21 @@ async function assertNoTcpListener(pid) {
 	}
 }
 
+async function assertNoElectronDescriptors(pid) {
+	// libuv on Linux forks without closing descriptors that lack close-on-exec,
+	// and Electron's main process leaves Chromium's open that way. Its resource
+	// files are the ones only Electron opens, so any of them here means the
+	// solver inherited Electron's descriptor table.
+	if (process.platform !== "linux") return
+	const electronDir = dirname(electronExecutable)
+	const inherited = []
+	for (const fd of await readdir(`/proc/${pid}/fd`)) {
+		const target = await readlink(`/proc/${pid}/fd/${fd}`).catch(() => "")
+		if (target.startsWith(electronDir)) inherited.push(`${fd} -> ${target}`)
+	}
+	assert.deepEqual(inherited, [], `daemon ${pid} must not hold Electron's descriptors`)
+}
+
 async function killProcess(pid) {
 	try {
 		if (process.platform === "win32") await execFileAsync("taskkill.exe", ["/PID", String(pid), "/T", "/F"])
@@ -154,25 +176,66 @@ async function killProcess(pid) {
 	}
 }
 
-async function hardKillElectron(electronApp) {
-	const closed = new Promise((resolveClose) => electronApp.once("close", resolveClose))
+// Playwright's close() and "close" event wait for Electron's stdio pipes to
+// close, not for the process to exit. On Windows the detached solver can inherit
+// those handles (libuv always spawns with handle inheritance) and keep them open
+// while it runs. Wait for the process itself instead.
+function electronExit(electronApp, timeoutMs = 30_000) {
 	const child = electronApp.process()
-	if (process.platform === "win32") await execFileAsync("taskkill.exe", ["/PID", String(child.pid), "/F"])
-	else child.kill("SIGKILL")
-	await closed
+	if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve()
+	return new Promise((resolveExit, reject) => {
+		const timer = setTimeout(() => reject(new Error(`Electron ${child.pid} did not exit`)), timeoutMs)
+		child.once("exit", () => {
+			clearTimeout(timer)
+			resolveExit()
+		})
+	})
+}
+
+async function quitElectron(electronApp) {
+	const exited = electronExit(electronApp)
+	// The inspector connection drops as the app quits, which can reject this call.
+	await electronApp.evaluate(({ app }) => app.quit()).catch(() => {})
+	await exited
+}
+
+async function hardKillElectron(electronApp) {
+	// On Windows, Playwright launches Electron through cmd.exe, so process() is
+	// the shell and killing it leaves Electron running. Kill Electron's own main
+	// process; the shell exits after it.
+	const pid = await electronApp.evaluate(() => process.pid)
+	const exited = electronExit(electronApp)
+	if (process.platform === "win32") await execFileAsync("taskkill.exe", ["/PID", String(pid), "/F"])
+	else process.kill(pid, "SIGKILL")
+	await exited
 }
 
 async function cleanupDesktop(electronApp, userDataDir) {
 	if (electronApp) {
 		try {
-			await electronApp.close()
+			await hardKillElectron(electronApp)
 		} catch {
-			// A hard-killed Electron app is already closed.
+			// A test that already quit or killed Electron leaves nothing to stop.
 		}
 	}
 	for (const pid of await daemonPids(userDataDir)) await killProcess(pid)
 	await waitFor(async () => (await daemonPids(userDataDir)).length === 0, "detached daemon cleanup").catch(() => {})
-	await rm(userDataDir, { recursive: true, force: true })
+	await stopLeftoverElectron()
+	// Windows releases a killed process's file handles asynchronously.
+	await rm(userDataDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 250 })
+}
+
+// Helper processes can outlive a killed main process for a moment. Any left
+// running hold profile files and Playwright's stdio pipes, which keep the test
+// process alive until the job timeout. Name each one, then stop it.
+async function stopLeftoverElectron() {
+	for (const row of await processRows()) {
+		if (!row.includes(electronExecutable)) continue
+		const pid = Number(row.trim().split(/\s+/, 1)[0])
+		if (!Number.isInteger(pid)) continue
+		console.log(`cleanup: stopping leftover Electron ${row.match(/--type=(\S+)/)?.[1] ?? "main"} process ${pid}`)
+		await killProcess(pid).catch(() => {})
+	}
 }
 
 function operatorFixture(socketPath) {
@@ -231,6 +294,7 @@ test("Electron survives a hard close, reattaches, and never opens a TCP listener
 	;({ electronApp } = await launchDesktop(userDataDir))
 	await waitForHealth(socketPath, "init")
 	const [daemonPid] = await waitForDaemonPids(userDataDir)
+	await assertNoElectronDescriptors(daemonPid)
 	await assertNoTcpListener(daemonPid)
 
 	await hardKillElectron(electronApp)
@@ -240,7 +304,7 @@ test("Electron survives a hard close, reattaches, and never opens a TCP listener
 	;({ electronApp } = await launchDesktop(userDataDir))
 	await waitForHealth(socketPath, "init")
 	assert.deepEqual(await waitForDaemonPids(userDataDir), [daemonPid], "relaunch must attach instead of spawning")
-	await electronApp.close()
+	await quitElectron(electronApp)
 	electronApp = undefined
 	await waitForHealth(socketPath, "init")
 })

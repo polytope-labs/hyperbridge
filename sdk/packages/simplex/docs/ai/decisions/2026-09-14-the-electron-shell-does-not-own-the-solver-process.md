@@ -12,6 +12,12 @@ path; Electron never calls it as part of window or app teardown. A later launch 
 address and attaches without spawning a second solver. Continuous crash supervision, tray lifecycle,
 login startup, and focus restoration remain separate lifecycle work.
 
+The detached solver must not inherit Electron's open descriptors. On Linux, Electron leaves them
+without close-on-exec, so `spawnDaemon()` covers every open slot above stdio with `/dev/null`.
+Otherwise the solver would hold Electron's stdio, Chromium's sockets and any DevTools listener for
+as long as it runs. macOS needs nothing. On Windows, libuv always spawns with handle inheritance,
+so any of Electron's inheritable handles still pass to the solver.
+
 The shell never searches `PATH` and never rebuilds or copies the SPA. In development it resolves a
 verified staged Node executable plus the existing Simplex binary and UI artifacts; a future packaged
 layout must provide the same three resources explicitly. Missing resources are fatal before a window

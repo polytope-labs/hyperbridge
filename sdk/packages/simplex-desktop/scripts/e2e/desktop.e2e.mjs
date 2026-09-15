@@ -2,7 +2,7 @@ import assert from "node:assert/strict"
 import { execFile } from "node:child_process"
 import { createRequire } from "node:module"
 import { existsSync } from "node:fs"
-import { mkdtemp, readFile, realpath, rm, stat } from "node:fs/promises"
+import { mkdtemp, readdir, readFile, readlink, realpath, rm, stat } from "node:fs/promises"
 import { request as httpRequest } from "node:http"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
@@ -145,6 +145,21 @@ async function assertNoTcpListener(pid) {
 	}
 }
 
+async function assertNoElectronDescriptors(pid) {
+	// libuv on Linux forks without closing descriptors that lack close-on-exec,
+	// and Electron's main process leaves Chromium's open that way. Its resource
+	// files are the ones only Electron opens, so any of them here means the
+	// solver inherited Electron's descriptor table.
+	if (process.platform !== "linux") return
+	const electronDir = dirname(electronExecutable)
+	const inherited = []
+	for (const fd of await readdir(`/proc/${pid}/fd`)) {
+		const target = await readlink(`/proc/${pid}/fd/${fd}`).catch(() => "")
+		if (target.startsWith(electronDir)) inherited.push(`${fd} -> ${target}`)
+	}
+	assert.deepEqual(inherited, [], `daemon ${pid} must not hold Electron's descriptors`)
+}
+
 async function killProcess(pid) {
 	try {
 		if (process.platform === "win32") await execFileAsync("taskkill.exe", ["/PID", String(pid), "/T", "/F"])
@@ -154,20 +169,43 @@ async function killProcess(pid) {
 	}
 }
 
+// Playwright's close() and "close" event wait for Electron's stdio pipes to
+// close, not for the process to exit. On Windows the detached solver inherits
+// those handles (libuv always spawns with handle inheritance), so they stay
+// open while it runs. Wait for the process itself instead.
+function electronExit(electronApp, timeoutMs = 30_000) {
+	const child = electronApp.process()
+	if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve()
+	return new Promise((resolveExit, reject) => {
+		const timer = setTimeout(() => reject(new Error(`Electron ${child.pid} did not exit`)), timeoutMs)
+		child.once("exit", () => {
+			clearTimeout(timer)
+			resolveExit()
+		})
+	})
+}
+
+async function quitElectron(electronApp) {
+	const exited = electronExit(electronApp)
+	// The inspector connection drops as the app quits, which can reject this call.
+	await electronApp.evaluate(({ app }) => app.quit()).catch(() => {})
+	await exited
+}
+
 async function hardKillElectron(electronApp) {
-	const closed = new Promise((resolveClose) => electronApp.once("close", resolveClose))
+	const exited = electronExit(electronApp)
 	const child = electronApp.process()
 	if (process.platform === "win32") await execFileAsync("taskkill.exe", ["/PID", String(child.pid), "/F"])
 	else child.kill("SIGKILL")
-	await closed
+	await exited
 }
 
 async function cleanupDesktop(electronApp, userDataDir) {
 	if (electronApp) {
 		try {
-			await electronApp.close()
+			await hardKillElectron(electronApp)
 		} catch {
-			// A hard-killed Electron app is already closed.
+			// A test that already quit or killed Electron leaves nothing to stop.
 		}
 	}
 	for (const pid of await daemonPids(userDataDir)) await killProcess(pid)
@@ -231,6 +269,7 @@ test("Electron survives a hard close, reattaches, and never opens a TCP listener
 	;({ electronApp } = await launchDesktop(userDataDir))
 	await waitForHealth(socketPath, "init")
 	const [daemonPid] = await waitForDaemonPids(userDataDir)
+	await assertNoElectronDescriptors(daemonPid)
 	await assertNoTcpListener(daemonPid)
 
 	await hardKillElectron(electronApp)
@@ -240,7 +279,7 @@ test("Electron survives a hard close, reattaches, and never opens a TCP listener
 	;({ electronApp } = await launchDesktop(userDataDir))
 	await waitForHealth(socketPath, "init")
 	assert.deepEqual(await waitForDaemonPids(userDataDir), [daemonPid], "relaunch must attach instead of spawning")
-	await electronApp.close()
+	await quitElectron(electronApp)
 	electronApp = undefined
 	await waitForHealth(socketPath, "init")
 })

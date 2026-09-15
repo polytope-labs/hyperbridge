@@ -25,8 +25,7 @@ import {
  * capped, and sized entirely in its own quote asset with no external price
  * feed. The bid curve prices the filler *buying* token1 (user sends token1,
  * receives token0); the ask curve prices the filler *selling* token1.
- * Omitting one curve disables that direction for this pair (one-sided LP);
- * omitting both is only valid when Uniswap V4 venue pricing is configured.
+ * Omitting one curve disables that direction for this pair (one-sided LP).
  *
  * A pair may quote the **same symbol on both sides** (`token0 = token1 =
  * "USDC"`) — the same-asset cross-chain market. Such pairs are ask-only with
@@ -72,8 +71,7 @@ function isKnownSymbol(symbol: string, userAssets?: Record<string, AssetDefiniti
  * transitively (USDC/CNGN + ZARP/CNGN anchors ZARP through CNGN).
  *
  * Returns the token0 symbols (normalized) that cannot be priced. Same-token
- * pairs carry no FX information and venue-priced (curve-less) pairs have no
- * quote at validation time, so neither contributes an edge.
+ * pairs carry no FX information, so they contribute no edge.
  */
 export function unanchoredToken0Symbols(
 	pairs: Array<{ token0: string; token1: string; hasCurve: boolean }>,
@@ -208,15 +206,8 @@ export function pickAnchorStable(pairs: Array<{ token0: string; token1: string }
 /**
  * Validates the `[[pairs]]` array against the `[assets]` table and built-in
  * symbols. Pure — throws a descriptive error on the first invalid pair.
- *
- * @param hasVenuePricing whether Uniswap V4 venue pricing is configured; a pair
- *   with no curves is only valid when it is.
  */
-export function validatePairConfigs(
-	pairs: PairConfig[],
-	userAssets?: Record<string, AssetDefinition>,
-	hasVenuePricing = false,
-): void {
+export function validatePairConfigs(pairs: PairConfig[], userAssets?: Record<string, AssetDefinition>): void {
 	if (!Array.isArray(pairs) || pairs.length === 0) {
 		throw new Error("pairs: at least one [[pairs]] entry is required")
 	}
@@ -315,10 +306,8 @@ export function validatePairConfigs(
 		}
 
 		const hasAnyCurve = (pair.bidPriceCurve?.length ?? 0) >= 1 || (pair.askPriceCurve?.length ?? 0) >= 1
-		if (!hasAnyCurve && !hasVenuePricing) {
-			throw new Error(
-				`pairs.${label}: provide a bid and/or ask price curve, or configure [vault.uniswapV4] positions for pool-based pricing`,
-			)
+		if (!hasAnyCurve) {
+			throw new Error(`pairs.${label}: provide a bid and/or ask price curve`)
 		}
 
 		// A crossed book (bid ≤ ask) is allowed: each side is quoted and filled

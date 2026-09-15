@@ -2,8 +2,7 @@ import { formatUnits } from "viem"
 import { Decimal } from "decimal.js"
 import { IntentFiller } from "@/core/filler"
 import { FXFiller, type TradingPair } from "@/strategies/fx"
-import type { VaultConfig, FundingVenue, UniswapV4PositionConfig } from "@/funding/types"
-import { UniswapV4FundingPlanner } from "@/funding/uniswapV4/UniswapV4FundingPlanner"
+import type { VaultConfig, FundingVenue } from "@/funding/types"
 import { VaultFundingPlanner } from "@/funding/vault/VaultFundingPlanner"
 import { VaultLiquidityState } from "@/funding/vault/VaultLiquidityState"
 import { TokenSender } from "@/services/TokenSender"
@@ -438,37 +437,9 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 			resolvedChains.map((c) => c.chainId),
 		)
 
-		const fundingVenues: FundingVenue[] = []
-		// Vault first: source stablecoins from the idle-yield treasury before
-		// draining a V4 LP position (which also pulls the paired exotic and
-		// perturbs the pool used for exotic pricing). V4 then covers the
-		// exotic legs and any stablecoin the vault can't fully fund.
-		if (vaultVenue) {
-			fundingVenues.push(vaultVenue)
-		}
-		const priceGuard: Record<string, { referencePrice: string; maxDeviationBps: number }> = {}
-		if (config.vault?.uniswapV4?.positions?.length) {
-			const positionsByChain: Record<string, UniswapV4PositionConfig[]> = {}
-			for (const row of config.vault.uniswapV4.positions) {
-				const chain = row.chain
-				if (!positionsByChain[chain]) positionsByChain[chain] = []
-				positionsByChain[chain].push({ tokenId: BigInt(row.tokenId) })
-				if (row.referencePrice !== undefined) {
-					priceGuard[chain] = {
-						referencePrice: row.referencePrice,
-						maxDeviationBps: row.maxDeviationBps!,
-					}
-				}
-			}
-			fundingVenues.push(
-				new UniswapV4FundingPlanner(
-					chainClientManager,
-					{ positionsByChain },
-					configService,
-					config.vault.uniswapV4.spreadBps,
-				),
-			)
-		}
+		// The idle-yield treasury is the only place a fill sources from beyond
+		// the wallet itself.
+		const fundingVenues: FundingVenue[] = vaultVenue ? [vaultVenue] : []
 
 		engine = new FXFiller(
 			runtimeSigner,
@@ -477,12 +448,7 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 			contractService,
 			tradingPairs,
 			assetRegistry,
-			{
-				confirmationPolicy,
-				fundingVenues,
-				priceGuard,
-				side: config.vault?.uniswapV4?.side,
-			},
+			{ confirmationPolicy, fundingVenues },
 		)
 		logger.info("Hydrating funding venue state...")
 		await engine.initialise()

@@ -1,13 +1,10 @@
 import { useState } from "react"
 import { isRegistrySymbol } from "@/config/asset-registry"
 import { pickAnchorStable } from "@/config/pairs"
-import uniswapIcon from "../../assets/networks/uniswap.svg"
 import { TokenPairIcons } from "../../components/TokenIcon"
 import { WizardDialog } from "../../components/WizardDialog"
 import { newCrossAssetDraft, newReferenceDraft, normSymbol, removeAt, type PairDraft } from "../state"
 import { MarketRow } from "../strategies/MarketRow"
-import { PricingMethodSection } from "../strategies/PricingMethodSection"
-import { UniswapPositionsDialog } from "../strategies/UniswapPositionsDialog"
 import { prefillCurves, useStrategiesModel } from "../strategies/useStrategiesModel"
 import type { StepProps } from "../Wizard"
 
@@ -58,7 +55,6 @@ function MarketPrices({ pair }: { pair: PairDraft }) {
 
 export function StepStrategies({ state, setState, defaults }: StepProps) {
 	const [editingPairIndex, setEditingPairIndex] = useState<number | null>(null)
-	const [positionsOpen, setPositionsOpen] = useState(false)
 	const model = useStrategiesModel({ state, setState, defaults })
 	const { chains, availableSymbols, marketRows, enabled, duplicateKeys, unanchored, defaultToken1, patchPair } = model
 
@@ -66,11 +62,6 @@ export function StepStrategies({ state, setState, defaults }: StepProps) {
 
 	return (
 		<div className="wizard-sections strategies-step">
-			<PricingMethodSection
-				value={state.fxPricing}
-				onChange={(fxPricing) => setState((current) => ({ ...current, fxPricing }))}
-			/>
-
 			<section className="card market-flow-section markets-primary-section">
 				<div className="market-flow-heading markets-section-heading">
 					<div>
@@ -100,11 +91,7 @@ export function StepStrategies({ state, setState, defaults }: StepProps) {
 									{pair.token0 || "Choose asset"} <span>↔</span> {pair.token1 || "Choose asset"}
 								</strong>
 								<small>
-									{pair.referenceOnly
-										? "Reference price only"
-										: state.fxPricing === "curves"
-											? "Custom price curves"
-											: "Priced from Uniswap v4"}
+									{pair.referenceOnly ? "Reference price only" : "Custom price curves"}
 								</small>
 							</div>
 							<MarketPrices pair={pair} />
@@ -154,55 +141,6 @@ export function StepStrategies({ state, setState, defaults }: StepProps) {
 				)}
 			</section>
 
-			{state.fxPricing === "uniswapV4" && marketRows.length > 0 && (
-				<section className="card market-flow-section">
-					<div className="market-flow-heading">
-						<div>
-							<span className="market-flow-step">3 · Liquidity source</span>
-							<h2>Uniswap v4 positions</h2>
-							<p className="hint">Positions provide the live price and liquidity used to fill orders.</p>
-						</div>
-						<button
-							type="button"
-							className="market-configure-button"
-							onClick={() => {
-								if (state.fxPositions.length === 0) {
-									setState((s) => ({
-										...s,
-										fxPositions: [
-											{
-												chain: chains[0]?.meta.stateMachineId ?? "",
-												tokenId: "",
-												referencePrice: "",
-												maxDeviationBps: "",
-											},
-										],
-									}))
-								}
-								setPositionsOpen(true)
-							}}
-						>
-							{state.fxPositions.length > 0 ? "Manage positions" : "Add position"}
-						</button>
-					</div>
-					<div className="liquidity-summary">
-						<span className="liquidity-summary-icon" aria-hidden="true">
-							<img src={uniswapIcon} alt="" />
-						</span>
-						<div>
-							<strong>
-								{state.fxPositions.length} {state.fxPositions.length === 1 ? "position" : "positions"}
-							</strong>
-							<small>
-								{state.fxPositions.length > 0
-									? "Ready to price enabled markets"
-									: "At least one position is required"}
-							</small>
-						</div>
-					</div>
-				</section>
-			)}
-
 			<WizardDialog
 				open={editingPair !== null}
 				onClose={() => setEditingPairIndex(null)}
@@ -220,7 +158,6 @@ export function StepStrategies({ state, setState, defaults }: StepProps) {
 							symbols={availableSymbols}
 							usdStables={defaults.usdStables}
 							chains={chains}
-							pricing={state.fxPricing}
 							duplicate={duplicateKeys.has(
 								`${normSymbol(editingPair.token0)}/${normSymbol(editingPair.token1)}`,
 							)}
@@ -278,14 +215,6 @@ export function StepStrategies({ state, setState, defaults }: StepProps) {
 					</>
 				)}
 			</WizardDialog>
-
-			<UniswapPositionsDialog
-				open={positionsOpen}
-				onClose={() => setPositionsOpen(false)}
-				state={state}
-				setState={setState}
-				chains={chains}
-			/>
 		</div>
 	)
 }

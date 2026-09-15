@@ -14,7 +14,6 @@ import type { UserOpSender } from "@/services/UserOpSender"
 import { type Logger, moduleLogger } from "@/services/Logger"
 import { encodeERC7821ExecuteBatch, type ERC7821Call, type HexString } from "@hyperbridge/sdk"
 import { Mutex } from "async-mutex"
-import type { Decimal } from "decimal.js"
 import { encodeFunctionData, formatUnits } from "viem"
 import type { DescribedMovement } from "@/data/ledger-backfill"
 import { vaultMovementsFromLogs } from "@/funding/vault/ledger"
@@ -87,9 +86,6 @@ export interface VaultSweepResult {
  * Sourcing is one-sided per token — tokens not backed by a configured vault
  * yield a no-op plan so the caller falls back to the wallet balance or another
  * venue.
- *
- * Configured vaults hold stablecoins (USDC/USDT), so this venue does not price
- * exotic tokens: {@link getExoticTokenPrice} always returns null.
  */
 export class VaultFundingPlanner implements FundingVenue {
 	private readonly logger: Logger
@@ -242,11 +238,6 @@ export class VaultFundingPlanner implements FundingVenue {
 	// =========================================================================
 	// Pricing (FundingVenue)
 	// =========================================================================
-
-	/** Configured vaults hold stablecoins; this venue does not price exotic tokens. */
-	async getExoticTokenPrice(_chain: string, _exoticToken: string): Promise<Decimal | null> {
-		return null
-	}
 
 	/**
 	 * The vault's `minBalance` floor for `tokenLower` on `chain` — the wallet

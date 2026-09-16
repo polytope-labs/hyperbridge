@@ -77,6 +77,10 @@ export interface PostedOrder {
  * Why the orderbook refused an order. `MIN_ORDER_SIZE` and `TTL_TOO_SHORT` are
  * prevented by validation before posting; `REPLAYED` and `ORDER_EXISTS` are
  * answered by bumping the nonce; the rest are encoding bugs on our side.
+ *
+ * `UNSUPPORTED_SOURCE_CHAIN` is the exception: a declared source chain has to
+ * register the order's input symbol on the server, which is the server's own
+ * config and nothing here can check ahead of asking.
  */
 export type RejectionCode =
 	| "MALFORMED_USER_OP"
@@ -95,6 +99,7 @@ export type RejectionCode =
 	| "MIN_ORDER_SIZE"
 	| "MISSING_DECLARATION"
 	| "EMPTY_DECLARATION"
+	| "UNSUPPORTED_SOURCE_CHAIN"
 
 export type SubmitOrderResult =
 	| { kind: "accepted"; order: PostedOrder; surfaced: boolean }

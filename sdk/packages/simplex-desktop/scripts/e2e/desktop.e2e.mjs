@@ -4,7 +4,6 @@ import { createRequire } from "node:module"
 import { existsSync } from "node:fs"
 import { mkdtemp, readFile, readdir, readlink, realpath, rm, stat, writeFile } from "node:fs/promises"
 import { request as httpRequest } from "node:http"
-import { createServer as createNetServer } from "node:net"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -17,6 +16,7 @@ import externalLinks from "../../../simplex/src/config/external-links.json" with
 import { MemoryDataStore } from "../../../simplex/src/data/memory.ts"
 import { UiServer } from "../../../simplex/src/services/server/UiServer.ts"
 import { socketPathFor } from "../../src/desktop-paths.ts"
+import { blackholeServer } from "./blackhole-server.ts"
 import { desktopArguments, directElectronArguments, electronProcessExit } from "./electron-launch.ts"
 
 const execFileAsync = promisify(execFile)
@@ -227,27 +227,6 @@ async function stopLeftoverElectron() {
 		if (!Number.isInteger(pid)) continue
 		console.log(`cleanup: stopping leftover Electron ${row.match(/--type=(\S+)/)?.[1] ?? "main"} process ${pid}`)
 		await killProcess(pid).catch(() => {})
-	}
-}
-
-async function blackholeServer() {
-	const sockets = new Set()
-	const server = createNetServer((socket) => {
-		sockets.add(socket)
-		socket.on("close", () => sockets.delete(socket))
-	})
-	await new Promise((resolveListen, reject) => {
-		server.once("error", reject)
-		server.listen(0, "127.0.0.1", resolveListen)
-	})
-	const address = server.address()
-	if (!address || typeof address === "string") throw new Error("Blackhole server did not bind TCP")
-	return {
-		port: address.port,
-		close: async () => {
-			for (const socket of sockets) socket.destroy()
-			await new Promise((resolveClose) => server.close(resolveClose))
-		},
 	}
 }
 

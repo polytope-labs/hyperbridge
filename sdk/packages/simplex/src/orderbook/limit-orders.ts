@@ -600,6 +600,36 @@ export class LimitOrderService {
 		return report
 	}
 
+	/**
+	 * Withdraws every order that has outlived the operator's own `expiresAt`.
+	 *
+	 * The matcher refuses an expired order, so leaving it alone would advertise
+	 * depth that no swapper could ever draw on: renewal would keep its posting
+	 * alive and reconciliation would put it back if it lapsed. The orderbook's own
+	 * entry expiry does not cover this, since a posting is renewed long before it
+	 * reaches its TTL.
+	 */
+	async expireStale(now: Date = new Date()): Promise<number> {
+		const stale = (await this.live()).filter((order) => hasExpired(order.expiresAt, now))
+		for (const order of stale) {
+			this.logger.info({ id: order.id, expiresAt: order.expiresAt }, "Limit order has expired; withdrawing it")
+			try {
+				if (order.commitment) await this.withdraw(order.commitment as HexString)
+				await this.store.setPosting(order.id, {
+					commitment: null,
+					bookExpiresAt: null,
+					bookPrice: null,
+					orderNonce: order.orderNonce,
+					status: "expired",
+					lastError: null,
+				})
+			} catch (err) {
+				this.logger.error({ id: order.id, err }, "Could not withdraw the expired limit order")
+			}
+		}
+		return stale.length
+	}
+
 	/** Every order that has a posting on the book, or should have one. */
 	private async live(): Promise<LimitOrder[]> {
 		const [open, resizing] = await Promise.all([
@@ -796,6 +826,13 @@ export class LimitOrderService {
 
 function nowSecs(): number {
 	return Math.floor(Date.now() / 1000)
+}
+
+/** Whether the operator's own expiry has passed. An unreadable one never has. */
+function hasExpired(expiresAt: string | null, now: Date): boolean {
+	if (!expiresAt) return false
+	const at = Date.parse(expiresAt)
+	return !Number.isNaN(at) && at <= now.getTime()
 }
 
 /** Whether a posting expires within `marginSecs`, or already has. */

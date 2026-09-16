@@ -78,8 +78,19 @@ describe("matchLimitOrder", () => {
 		expect(match?.offer).toBe(1000n * ONE)
 	})
 
-	it("does not match an order whose offer falls short of the ask", () => {
+	it("matches an order whose price falls short of the ask, and says by how much", () => {
+		// Whether a shortfall can be filled is the caller's rule: cross-chain
+		// reverts on any under-fill, same-chain may take a partial. Refusing here
+		// would make a same-chain partial impossible whenever the price, rather
+		// than the size, is what falls short.
 		const order = limitOrder({ price: (1300n * ONE).toString() })
+		const match = matchLimitOrder([order], incoming(), resolve)
+		expect(match?.payout).toBe(1_300_000n * ONE)
+		expect(match?.payout).toBeLessThan(incoming().requestedOutput)
+	})
+
+	it("does not match an order with nothing left to pay", () => {
+		const order = limitOrder({ remaining: (1_000n * ONE).toString(), reserved: (1_000n * ONE).toString() })
 		expect(matchLimitOrder([order], incoming(), resolve)).toBeNull()
 	})
 
@@ -154,13 +165,22 @@ describe("matchLimitOrder", () => {
 	})
 
 	describe("choosing between several matches", () => {
-		it("takes the largest offer", () => {
+		it("takes the one that pays the most", () => {
 			const cheap = limitOrder({ id: "cheap", price: (1450n * ONE).toString() })
 			const generous = limitOrder({ id: "generous", price: (1600n * ONE).toString() })
 			expect(matchLimitOrder([cheap, generous], incoming(), resolve)?.order.id).toBe("generous")
 		})
 
-		it("breaks a tie on the offer by taking the one with more left", () => {
+		it("passes over a better rate that has nothing behind it", () => {
+			// Ranking on the offer alone would take `thin`, pay out the little it has
+			// left, and leave the caller to skip a cross-chain fill that `deep` could
+			// have covered outright.
+			const thin = limitOrder({ id: "thin", price: (1600n * ONE).toString(), remaining: ONE.toString() })
+			const deep = limitOrder({ id: "deep", price: (1450n * ONE).toString() })
+			expect(matchLimitOrder([thin, deep], incoming(), resolve)?.order.id).toBe("deep")
+		})
+
+		it("breaks a tie on the payout by taking the one with more left", () => {
 			const small = limitOrder({ id: "small", remaining: (1_500_000n * ONE).toString() })
 			const large = limitOrder({ id: "large", remaining: (3_000_000n * ONE).toString() })
 			expect(matchLimitOrder([small, large], incoming(), resolve)?.order.id).toBe("large")

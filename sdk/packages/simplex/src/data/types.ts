@@ -300,10 +300,11 @@ export type LimitOrderSide = "BID" | "ASK"
 /**
  * `open`: live, and bids may draw on it. `resizing`: a repost is in flight after
  * a fill, so the orderbook entry may be missing until it lands. `filled`: worked
- * down past the dust floor. `cancelled`: withdrawn by the operator. `rejected`:
- * the orderbook refused it and `lastError` says why.
+ * down past the dust floor. `cancelled`: withdrawn by the operator. `expired`:
+ * past the operator's own `expiresAt` and swept off the book. `rejected`: the
+ * orderbook refused it and `lastError` says why.
  */
-export type LimitOrderStatus = "open" | "resizing" | "filled" | "cancelled" | "rejected"
+export type LimitOrderStatus = "open" | "resizing" | "filled" | "cancelled" | "expired" | "rejected"
 
 /**
  * One of the operator's limit orders.

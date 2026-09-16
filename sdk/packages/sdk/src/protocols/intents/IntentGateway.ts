@@ -655,6 +655,8 @@ export class IntentGateway {
 	/**
 	 * Returns both the native token cost and the relayer fee for cancelling an
 	 * order. Use `relayerFee` to approve the ERC-20 spend before submitting.
+	 * Same-chain orders use the direct local route for either `from` option and
+	 * return `{ nativeValue: 0n, relayerFee: 0n }`.
 	 *
 	 * Delegates to {@link OrderCanceller.quoteCancelOrder}.
 	 *
@@ -681,9 +683,17 @@ export class IntentGateway {
 	 *
 	 * Delegates to {@link OrderCanceller.cancelOrder}.
 	 *
+	 * Same-chain orders always use the direct source-gateway route. The order
+	 * user may call through the deadline; any account may call strictly after
+	 * it, pays the transaction gas, and cannot change the refund beneficiary.
+	 * The SDK yields unsigned transaction fields and accepts either the caller's
+	 * signed raw transaction or its already-broadcast transaction hash.
+	 *
 	 * @param order - The order to cancel.
-	 * @param indexerClient - Indexer client used for ISMP request status streaming.
-	 * @param options - Choose the initiation side. Defaults to source-side cancellation.
+	 * @param indexerClient - Indexer client used for cross-chain ISMP request
+	 *   status streaming; the same-chain route does not access it.
+	 * @param options - Choose the cross-chain initiation side. Defaults to source;
+	 *   ignored for routing when source and destination are the same chain.
 	 * @yields {@link CancelEvent} objects describing each cancellation stage.
 	 */
 	async *cancelOrder(

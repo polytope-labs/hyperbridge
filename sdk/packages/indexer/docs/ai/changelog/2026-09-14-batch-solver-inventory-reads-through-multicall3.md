@@ -6,8 +6,9 @@ Solver inventory's storage reads were one `eth_call` at a time. For each solver,
 
 Reads are now batched across every solver a pass handles:
 - **Genesis.** A block's genesis reads take two Multicall3 `aggregate3` calls, however many solvers are pending: one
-  for every balance, one valuing every vault balance. Each solver's `getCode` goes out alongside the first, and
-  SubQuery's JSON-RPC batch provider carries those `getCode`s together.
+  for every balance, one valuing every vault balance. Each solver's `getCode` goes out alongside the first, capped
+  at `MAX_CONCURRENT_READS` in flight; those stay one request each, since SubQuery hands a mapping a non-batching
+  client on HTTP.
 - **Refresh page.** A page takes at most three calls: the reconciliations' balances, their valuations (drift
   included), and the revaluations' valuations.
 - **Share Transfer.** A share Transfer's single valuation is still one direct call.
@@ -19,7 +20,8 @@ solver that needed it.
 Failure granularity changed with it:
 - **Genesis.** A failed read now skips its solver, and the rest of the batch is applied. Before, the first failure
   ended the step.
-- **Refresh.** Still keeps the page's offset when any solver on it failed.
+- **Refresh.** A failed solver is skipped and the offset still advances, so one permanently failing solver no longer
+  starves every page behind it. A failed batch still keeps the offset.
 
 Files: `src/utils/multicall.ts`, `src/utils/__tests__/multicall.test.ts`, `src/configs/abis/Multicall3.abi.json`,
 `src/services/solverInventory.service.ts`, `src/services/__tests__/solverInventory.service.test.ts`,

@@ -17,21 +17,29 @@ second batch, which is why positions are loaded before it rather than inside `ap
   rounding makes that differ by wei from the exact `convertToAssets(shares)` the share Transfer path writes, so the
   two paths would disagree about unchanged positions.
 
-**Chosen: `getCode` stays one call per solver, sent concurrently with the first batch.** Multicall3 has no code
-read. SubQuery's `JsonRpcBatchProvider` groups concurrent requests.
+**Chosen: `getCode` stays one request per solver, sent concurrently with the first batch, at most
+`MAX_CONCURRENT_READS` in flight.** Multicall3 has no code read. These do not coalesce: `EthereumApi.getSafeApi`
+hands a mapping `nonBatchClient`, a plain `JsonRpcProvider`, on HTTP endpoints, because batched historical queries
+are not routed to archive nodes everywhere. So a 20-solver genesis is two `eth_call`s plus 20 `eth_getCode`s, down
+from about 240 requests.
 - Rejected: a helper contract, or a deployless `eth_call` that returns `EXTCODECOPY`. The first needs deploying on
-  every chain, and the second adds bytecode to maintain for one read per solver.
+  every chain, and the second adds bytecode to maintain for one read per solver. Worth revisiting only if the
+  `getCode`s, now the larger half of a genesis burst, start to hurt.
 
-**Chosen: fall back to individual concurrent calls where Multicall3 has no code.** `eth_getCode` on 2026-09-14 found
-it on every configured chain except Polkadot Asset Hub (420420419) and Paseo (420420417). The answer is cached per
-chain for the process, since every start block postdates Multicall3's deployment. A single read also goes direct,
-because wrapping one call saves nothing.
+**Chosen: fall back to individual calls where Multicall3 has no code, `MAX_CONCURRENT_READS` at a time.**
+`eth_getCode` on 2026-09-14 found it on every configured chain except Polkadot Asset Hub (420420419) and Paseo
+(420420417). Only a positive answer is cached: code never disappears, while an absence is also what a block before
+the deployment, or a node briefly serving empty code, returns — caching that would quietly drop the chain to
+unbatched reads until the process restarts. A single read also goes direct, because wrapping one call saves
+nothing.
 
 **Chosen: a failed read skips its solver, not the pass.** The other solvers' reads have already been paid for in the
 same batch. Before, a solver whose read always failed also stalled every pending solver after it in id order.
 - **Genesis.** A skipped solver stays `PENDING`.
-- **Refresh.** A skipped solver keeps the page's offset. The next pass finds its page-mates no longer due, so only it
-  is read again.
+- **Refresh.** A skipped solver does not hold the page: the offset still advances. Such a failure is usually a
+  revert that will keep failing, and holding the page would starve every solver behind it — with 25 per page, one
+  bad solver froze every later page. It stays due, so the next pass over its page reads it again. A failed batch
+  is the transient case, the RPC being down, and does keep the offset.
 
 `aggregate3` calls carry at most 250 reads, well inside providers' `eth_call` gas and response limits. A genesis
 burst on Ethereum is about 220 balance reads.

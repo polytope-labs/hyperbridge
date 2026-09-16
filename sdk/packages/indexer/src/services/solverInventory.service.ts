@@ -28,7 +28,7 @@ import {
 } from "@/configs/src/types"
 import { SOLVER_ACCOUNT_ADDRESSES } from "@/solver-account-addresses"
 import { timestampToDate } from "@/utils/date.helpers"
-import { readContracts, settle, type Settled, unwrap } from "@/utils/multicall"
+import { mapConcurrently, readContracts, settle, type Settled, unwrap } from "@/utils/multicall"
 import { readAllPages } from "@/utils/store.helpers"
 import { YIELD_VAULT_ADDRESSES } from "@/yield-vault-addresses"
 
@@ -221,8 +221,9 @@ async function consumeWatchlist(chain: string, blockNumber: bigint, at: Date): P
 // ─── Storage reads ──────────────────────────────────────────────────────────────────────────────
 //
 // Reads are batched across every solver one pass handles: one Multicall3 call carries all of their
-// balances, and a second values all of their vault shares. `getCode` has no Multicall3 form, so each
-// solver's goes out alongside the first batch, where SubQuery's batching provider carries them together.
+// balances, and a second values all of their vault shares. `getCode` has no Multicall3 form, so it
+// stays one request per solver — SubQuery hands a mapping a non-batching client on HTTP — sent
+// concurrently with the first batch, capped at MAX_CONCURRENT_READS.
 
 const erc20 = new ethers.utils.Interface(Erc20Abi)
 const erc4626 = new ethers.utils.Interface(Erc4626Abi)
@@ -313,7 +314,7 @@ async function readSolvers(
 				holdings.map((holding) => ({ target: holding, abi: erc20, method: "balanceOf", args: [solver] })),
 			),
 		),
-		Promise.all(solvers.map((solver) => settle<string>(`getCode of ${solver}`, (api as any).getCode(solver)))),
+		mapConcurrently(solvers, (solver) => settle<string>(`getCode of ${solver}`, (api as any).getCode(solver))),
 	])
 
 	// Balances come back solver by solver, each in `holdings` order.
@@ -668,9 +669,13 @@ async function applyRevaluation(tracked: TrackedSolver, revalued: Revaluation[],
  * One page of the chain's tracked solvers: each that is due is reconciled (daily) or has its vault
  * shares revalued (hourly). The page's reads are batched — the reconciliations' balances and
  * valuations, and the revaluations' valuations — so a page costs the same few eth_calls however
- * many of its solvers are due. A failed read skips its solver and keeps the page for the next head
- * advance, whose pass finds the other solvers no longer due; nothing is written for a solver until
- * all of its reads have succeeded.
+ * many of its solvers are due. Nothing is written for a solver until all of its reads have
+ * succeeded.
+ *
+ * A read that fails for one solver skips only that solver, and the offset still advances: such a
+ * failure is usually a revert that will keep failing, and holding the page for it would starve
+ * every solver behind it. The solver stays due, so the next pass over its page reads it again. A
+ * failed batch is the transient case — the RPC is down — and keeps the offset for the next advance.
  *
  * @returns the offset the next pass resumes from.
  */
@@ -706,13 +711,10 @@ async function refreshPage(chain: string, blockNumber: bigint, at: Date, offset:
 		return offset
 	}
 
-	let failed = false
-	const skip = (tracked: TrackedSolver, error: Error) => {
-		failed = true
+	const skip = (tracked: TrackedSolver, error: Error) =>
 		logger.warn(
-			`[solver-inventory] Refresh failed for ${tracked.solver} on ${chain}, retrying next pass: ${error.message}`,
+			`[solver-inventory] Refresh failed for ${tracked.solver} on ${chain}, retrying when its page comes round: ${error.message}`,
 		)
-	}
 	for (const [index, tracked] of reconciling.entries()) {
 		const reading = readings[index]
 		if (reading instanceof Error) {
@@ -734,7 +736,6 @@ async function refreshPage(chain: string, blockNumber: bigint, at: Date, offset:
 		tracked.revaluedAt = at
 		await tracked.save()
 	}
-	if (failed) return offset
 	return page.length < REFRESH_PAGE_SIZE ? 0 : offset + page.length
 }
 

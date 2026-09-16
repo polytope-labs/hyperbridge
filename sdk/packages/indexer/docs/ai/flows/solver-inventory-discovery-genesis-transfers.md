@@ -46,8 +46,9 @@ watchlist requests.
    - a second batch of `convertToAssets` for every non-zero vault balance.
    
    `readContracts` sends a batch as Multicall3 `aggregate3` calls of at most 250 reads, each allowed to fail. It
-   calls each read directly instead when there is only one, or when Multicall3 has no code on the chain; that is
-   checked once per chain per process. A read that reverts or cannot be decoded fails only its own solver. The
+   calls each read directly instead when there is only one, or when Multicall3 has no code on the chain, at most
+   `MAX_CONCURRENT_READS` in flight; a chain Multicall3 was found on is remembered for the process, an absence is
+   probed again. A read that reverts or cannot be decoded fails only its own solver. The
    solver logs a warning and stays `PENDING`, nothing is written for it, a later block reads it again, and the
    other solvers are applied. A failed `aggregate3` call logs a warning and ends the step.
 5. `applyReading` writes:
@@ -93,9 +94,9 @@ position. Replaying an applied log is skipped by the same comparison.
    - A solver whose `revaluedAt` is an hour old has its vault shares revalued and those tokens' `refreshedAt` set.
      `readRevaluations` values every such solver's positions in one batch, concurrently with the reconciliations'
      reads. The wallet is not re-read.
-   - A solver with a failed read is skipped with a warning, and the pass keeps the offset. The next pass re-reads
-     only that solver, since the rest of the page is no longer due. A failed `aggregate3` call ends the pass and
-     keeps the offset.
+   - A solver with a failed read is skipped with a warning, and the offset still advances; the solver stays due
+     and is read again when the cycle returns to its page. A failed `aggregate3` call ends the pass and keeps the
+     offset, so the page is retried on the next advance.
    
    The head then records the block, its time, and the offset for the next pass.
 

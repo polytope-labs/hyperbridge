@@ -3,6 +3,7 @@ import { ethers } from "ethers"
 import Erc20Abi from "@/configs/abis/Erc20.abi.json"
 import Multicall3Abi from "@/configs/abis/Multicall3.abi.json"
 import {
+	MAX_CONCURRENT_READS,
 	MULTICALL3_ADDRESS,
 	MULTICALL_BATCH_SIZE,
 	readContracts,
@@ -20,6 +21,9 @@ const multicall3 = new ethers.utils.Interface(Multicall3Abi)
 /** Holders whose balanceOf reverts. */
 const reverting = new Set<string>()
 let deployed = true
+/** The most eth_calls the fallback ever had in flight at once. */
+let peakInFlight = 0
+let inFlight = 0
 
 /** A holder's balance is its last byte, so every answer can be checked against its request. */
 function balanceCall(data: string): string {
@@ -48,10 +52,21 @@ const api = () => (global as any).api as { getCode: jest.Mock; call: jest.Mock }
 beforeEach(() => {
 	reverting.clear()
 	deployed = true
+	peakInFlight = 0
+	inFlight = 0
 	resetMulticallCache()
 	;(global as any).api = {
 		getCode: jest.fn(async () => (deployed ? "0x6080604052" : "0x")),
-		call: jest.fn(async (tx: { to: string; data: string }) => answer(tx)),
+		call: jest.fn(async (tx: { to: string; data: string }) => {
+			peakInFlight = Math.max(peakInFlight, ++inFlight)
+			try {
+				// Resolves on a later tick, so overlapping calls are actually concurrent.
+				await new Promise((resolve) => setTimeout(resolve, 0))
+				return answer(tx)
+			} finally {
+				inFlight--
+			}
+		}),
 	}
 })
 
@@ -83,7 +98,7 @@ describe("readContracts", () => {
 		expect(api().call).toHaveBeenCalledWith({ to: TOKEN, data: expect.any(String) })
 	})
 
-	test("without Multicall3 every read is its own call, and the check is made once per chain", async () => {
+	test("without Multicall3 every read is its own call", async () => {
 		deployed = false
 		reverting.add(holder(2))
 
@@ -93,7 +108,33 @@ describe("readContracts", () => {
 		expect(outcomes.map((outcome) => outcome.ok)).toEqual([true, false, true])
 		expect(api().call).toHaveBeenCalledTimes(5)
 		expect(api().call.mock.calls.some(([tx]) => tx.to === MULTICALL3_ADDRESS)).toBe(false)
-		expect(api().getCode).toHaveBeenCalledTimes(1)
+	})
+
+	test("an absent Multicall3 is probed again, a present one is not", async () => {
+		deployed = false
+		await readContracts(CHAIN, [balanceOf(1), balanceOf(2)])
+		await readContracts(CHAIN, [balanceOf(3), balanceOf(4)])
+		expect(api().getCode).toHaveBeenCalledTimes(2)
+
+		// It answers once Multicall3 is found, and that answer is kept.
+		deployed = true
+		await readContracts(CHAIN, [balanceOf(5), balanceOf(6)])
+		await readContracts(CHAIN, [balanceOf(7), balanceOf(8)])
+		expect(api().getCode).toHaveBeenCalledTimes(3)
+	})
+
+	test("the fallback holds MAX_CONCURRENT_READS calls in flight at most", async () => {
+		deployed = false
+
+		const outcomes = await readContracts(
+			CHAIN,
+			Array.from({ length: MAX_CONCURRENT_READS * 2 + 3 }, (_, i) => balanceOf(i % 256)),
+		)
+
+		expect(peakInFlight).toBe(MAX_CONCURRENT_READS)
+		expect(outcomes.map((outcome) => unwrap(outcome)[0].toNumber())).toEqual(
+			Array.from({ length: MAX_CONCURRENT_READS * 2 + 3 }, (_, i) => i % 256),
+		)
 	})
 
 	test("no reads cost nothing", async () => {

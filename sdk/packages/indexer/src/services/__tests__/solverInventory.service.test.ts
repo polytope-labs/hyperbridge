@@ -509,6 +509,36 @@ describe("head and refresh", () => {
 		expect(inventory(USDC, solvers[5]).lastReadBlock).toBe(9_000n)
 	})
 
+	test("a solver whose read keeps failing does not pin the page to it", async () => {
+		const solvers = Array.from({ length: 26 }, (_, i) => `0x${(0xc000 + i).toString(16).padStart(40, "0")}`)
+		for (const solver of solvers) {
+			mockOnchain.set(`${USDC}|${solver}`, 1_000n)
+			await fill(100n, solver)
+		}
+		// Genesis runs 20 solvers a block.
+		await block(101n, T0)
+		await block(102n, T0 + 2n)
+		expect(rows("TrackedSolver").every((row) => row.status === TrackedSolverStatus.TRACKED)).toBe(true)
+		for (const solver of solvers) mockOnchain.set(`${USDC}|${solver}`, 900n)
+		mockReverting.add(solvers[0])
+		const at = T0 + BigInt(RECONCILE_INTERVAL_SECS) + 60n
+
+		// The first page carries the failing solver, and still hands the next pass the page behind it.
+		await block(9_000n, at)
+		expect(head()).toMatchObject({ refreshOffset: 25 })
+		expect(inventory(USDC, solvers[0])).toMatchObject({ wallet: 1_000n })
+		expect(inventory(USDC, solvers[1])).toMatchObject({ wallet: 900n })
+
+		await block(9_100n, at + 31n)
+		expect(inventory(USDC, solvers[25])).toMatchObject({ wallet: 900n })
+		expect(head()).toMatchObject({ refreshOffset: 0 })
+
+		// Still due, the failed solver is read again when the cycle comes round.
+		mockReverting.clear()
+		await block(9_200n, at + 62n)
+		expect(inventory(USDC, solvers[0])).toMatchObject({ wallet: 900n })
+	})
+
 	test("a failed refresh read writes nothing and resumes the same page next time", async () => {
 		await trackSolver(1_000n, 50n)
 		mockOnchain.set(`${USDC}|${SOLVER}`, 900n)

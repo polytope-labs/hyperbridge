@@ -74,7 +74,10 @@ export interface PostedOrder {
 }
 
 /**
- * Why the orderbook refused an order. `MIN_ORDER_SIZE` and `TTL_TOO_SHORT` are
+ * Every code the orderbook's `RejectionCode` enum can send, listed rather than
+ * written as a union so a test can hold it against the published schema.
+ *
+ * Why the orderbook refuses an order. `MIN_ORDER_SIZE` and `TTL_TOO_SHORT` are
  * prevented by validation before posting; `REPLAYED` and `ORDER_EXISTS` are
  * answered by bumping the nonce; the rest are encoding bugs on our side.
  *
@@ -82,39 +85,54 @@ export interface PostedOrder {
  * register the order's input symbol on the server, which is the server's own
  * config and nothing here can check ahead of asking.
  */
-export type RejectionCode =
-	| "MALFORMED_USER_OP"
-	| "NO_FILL_ORDER"
-	| "UNSUPPORTED_CHAIN"
-	| "UNSUPPORTED_SHAPE"
-	| "NOT_PHANTOM"
-	| "MISSING_VALID_UNTIL"
-	| "TTL_TOO_SHORT"
-	| "UNSUPPORTED_PAIR"
-	| "BAD_SIGNATURE"
-	| "BAD_NONCE_BINDING"
-	| "REPLAYED"
-	| "ORDER_EXISTS"
-	| "TOO_MANY_ORDERS"
-	| "MIN_ORDER_SIZE"
-	| "MISSING_DECLARATION"
-	| "EMPTY_DECLARATION"
-	| "UNSUPPORTED_SOURCE_CHAIN"
+export const REJECTION_CODES = [
+	"MALFORMED_USER_OP",
+	"NO_FILL_ORDER",
+	"UNSUPPORTED_CHAIN",
+	"UNSUPPORTED_SHAPE",
+	"NOT_PHANTOM",
+	"MISSING_VALID_UNTIL",
+	"TTL_TOO_SHORT",
+	"UNSUPPORTED_PAIR",
+	"BAD_SIGNATURE",
+	"BAD_NONCE_BINDING",
+	"REPLAYED",
+	"ORDER_EXISTS",
+	"TOO_MANY_ORDERS",
+	"MIN_ORDER_SIZE",
+	"MISSING_DECLARATION",
+	"EMPTY_DECLARATION",
+	"UNSUPPORTED_SOURCE_CHAIN",
+] as const
+
+export type RejectionCode = (typeof REJECTION_CODES)[number]
+
+/**
+ * Why the orderbook could not decide an op at all. Ingest reads no chain, so it
+ * is the database or the submission running out of time, and both are worth
+ * another attempt.
+ */
+export const FAILURE_CODES = ["DATABASE_UNAVAILABLE", "TIMEOUT"] as const
+
+export type FailureCode = (typeof FAILURE_CODES)[number]
 
 export type SubmitOrderResult =
 	| { kind: "accepted"; order: PostedOrder; surfaced: boolean }
 	| { kind: "unchanged"; order: PostedOrder }
 	| { kind: "rejected"; code: RejectionCode; message: string }
-	| { kind: "failed"; code: string; message: string; retryable: boolean }
+	| { kind: "failed"; code: FailureCode | "REQUEST_FAILED"; message: string; retryable: boolean }
 
 /** Why a signed message was refused, shared by `cancelOrder` and `heartbeat`. */
-export type MessageRejectionCode =
-	| "BAD_SIGNATURE"
-	| "SOLVER_MISMATCH"
-	| "SIGNATURE_EXPIRED"
-	| "SIGNATURE_REUSED"
-	| "UNKNOWN_ORDER"
-	| "UNKNOWN_SOLVER"
+export const MESSAGE_REJECTION_CODES = [
+	"BAD_SIGNATURE",
+	"SOLVER_MISMATCH",
+	"SIGNATURE_EXPIRED",
+	"SIGNATURE_REUSED",
+	"UNKNOWN_ORDER",
+	"UNKNOWN_SOLVER",
+] as const
+
+export type MessageRejectionCode = (typeof MESSAGE_REJECTION_CODES)[number]
 
 export type SolverStatus = "ACTIVE" | "SUSPENDED"
 

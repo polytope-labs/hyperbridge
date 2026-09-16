@@ -1,0 +1,989 @@
+scalar Address
+
+type BalanceConnection {
+	"""
+	Information to aid in pagination.
+	"""
+	pageInfo: PageInfo!
+	"""
+	A list of edges.
+	"""
+	edges: [BalanceEdge!]!
+	"""
+	What the whole filter covers, per chain and symbol, not just this page.
+	"""
+	totals: [BalanceTotal!]!
+}
+
+"""
+An edge in a connection.
+"""
+type BalanceEdge {
+	"""
+	The item at the end of the edge
+	"""
+	node: SolverBalance!
+	"""
+	A cursor for use in pagination
+	"""
+	cursor: String!
+}
+
+"""
+Which balances a read covers. Every field left out widens it.
+"""
+input BalanceFilter {
+	solver: Address
+	chain: String
+	token: Address
+	symbol: String
+	"""
+	Rows whose solver's latest declaration on the chain lists this source chain.
+	"""
+	sourceChain: String
+	"""
+	At 1e18.
+	"""
+	minTotal: BigInt
+	"""
+	At 1e18. A row with no validated order has 0 and matches a minimum of 0.
+	"""
+	minLiquidity: BigInt
+}
+
+"""
+What a filter's balances add up to for one symbol on one chain.
+"""
+type BalanceTotal {
+	chain: String!
+	symbol: String!
+	"""
+	The balances, summed (1e18).
+	"""
+	total: BigInt!
+	"""
+	True liquidity, summed (1e18).
+	"""
+	liquidity: BigInt!
+	solvers: Int!
+}
+
+"""
+How long one bar lasts. Bars open on multiples of it, in UTC.
+"""
+enum BarInterval {
+	"""
+	One minute.
+	"""
+	M1
+	"""
+	Five minutes.
+	"""
+	M5
+	"""
+	Fifteen minutes.
+	"""
+	M15
+	"""
+	One hour.
+	"""
+	H1
+	"""
+	Four hours.
+	"""
+	H4
+	"""
+	One day.
+	"""
+	D1
+}
+
+scalar BigInt
+
+type Book {
+	id: ID!
+	base: String!
+	quote: String!
+	"""
+	The highest bid level price, across fill chains.
+	"""
+	bestBid: BigInt
+	"""
+	The lowest ask level price, across fill chains.
+	"""
+	bestAsk: BigInt
+	"""
+	`bestAsk − bestBid`; null when a side is empty, or when the book is crossed (the best bid
+	and the best ask can sit on different fill chains). `mid` is still served for a crossed
+	book.
+	"""
+	spread: BigInt
+	"""
+	The midpoint of `bestBid` and `bestAsk`, rounded down.
+	"""
+	mid: BigInt
+	"""
+	The book: one price level per (fillChain, price bucket) on a side, best price first.
+	`sourceChain` keeps only the orders whose own declaration lists it, whichever chain they fill
+	on, as `orders` does; `rates` and `quote` also count orders already on that chain.
+	"""
+	levels(side: Side!, fillChain: String, sourceChain: String): [PriceLevel!]!
+	"""
+	True liquidity behind the side's surfaced orders matching fillChain and sourceChain: per
+	distinct (solver, fill chain), its largest validated order among them, summed (1e18, in the
+	token the side pays out). Unvalidated orders add nothing. `sourceChain` matches as in
+	`levels`: orders whose own declaration lists it.
+	"""
+	availableLiquidity(side: Side!, fillChain: String, sourceChain: String): BigInt!
+	"""
+	Individual orders, oldest first: the ACTIVE ones unless `status` asks for SUSPENDED.
+	`sourceChain` matches orders whose own declaration lists it, whichever chain they fill on.
+	`minSize` (1e18) keeps those advertising at least that much of the token `side` pays out
+	(quote for BID, base for ASK), so it requires `side`.
+	"""
+	orders(side: Side, fillChain: String, sourceChain: String, minSize: BigInt, status: OrderStatus, first: Int = 50, after: String): OrderConnection!
+}
+
+type BookHistoryConnection {
+	"""
+	Information to aid in pagination.
+	"""
+	pageInfo: PageInfo!
+	"""
+	A list of edges.
+	"""
+	edges: [BookHistoryEdge!]!
+}
+
+"""
+An edge in a connection.
+"""
+type BookHistoryEdge {
+	"""
+	The item at the end of the edge
+	"""
+	node: BookHistoryPoint!
+	"""
+	A cursor for use in pagination
+	"""
+	cursor: String!
+}
+
+"""
+The book as one validation tick left it, on one fill chain or across all of them.
+"""
+type BookHistoryPoint {
+	recordedAt: DateTime!
+	"""
+	Null for the book across chains.
+	"""
+	fillChain: String
+	"""
+	The highest surfaced bid, quote per 1 base (1e18), as `book.bestBid` served it; null while
+	there were no bids.
+	"""
+	bestBid: BigInt
+	"""
+	The lowest surfaced ask (1e18); null while there were no asks.
+	"""
+	bestAsk: BigInt
+	"""
+	The midpoint of `bestBid` and `bestAsk`, rounded down; null unless both sides had a price.
+	"""
+	mid: BigInt
+	"""
+	`bestAsk − bestBid`; null while a side was empty or the book was crossed.
+	"""
+	spread: BigInt
+	"""
+	Virtual: the surfaced bids' input sizes, summed (1e18 base).
+	"""
+	bidDepthBase: BigInt!
+	"""
+	Virtual: the surfaced bids' advertised sizes, summed (1e18 quote).
+	"""
+	bidDepthQuote: BigInt!
+	"""
+	Virtual: the surfaced asks' advertised sizes, summed (1e18 base).
+	"""
+	askDepthBase: BigInt!
+	"""
+	Virtual: the surfaced asks' input sizes, summed (1e18 quote).
+	"""
+	askDepthQuote: BigInt!
+	"""
+	True: each (solver, fill chain)'s largest validated surfaced bid, summed, in quote (1e18).
+	"""
+	bidLiquidity: BigInt!
+	"""
+	True: each (solver, fill chain)'s largest validated surfaced ask, summed, in base (1e18).
+	"""
+	askLiquidity: BigInt!
+	bidOrders: Int!
+	askOrders: Int!
+	"""
+	Distinct solvers among the surfaced bids.
+	"""
+	bidSolvers: Int!
+	"""
+	Distinct solvers among the surfaced asks.
+	"""
+	askSolvers: Int!
+}
+
+scalar Bytes
+
+union CancelOrderResult = OrderCancelled | MessageRejected
+
+scalar DateTime
+
+enum FailureCode {
+	DATABASE_UNAVAILABLE
+	TIMEOUT
+}
+
+type HeartbeatAccepted {
+	solver: Solver!
+	"""
+	The suspended orders this heartbeat surfaced again.
+	"""
+	reactivatedOrders: Int!
+	heartbeatDueBy: DateTime!
+}
+
+union HeartbeatResult = HeartbeatAccepted | MessageRejected
+
+type MessageRejected {
+	code: MessageRejectionCode!
+	message: String!
+}
+
+enum MessageRejectionCode {
+	BAD_SIGNATURE
+	SOLVER_MISMATCH
+	SIGNATURE_EXPIRED
+	SIGNATURE_REUSED
+	UNKNOWN_ORDER
+	UNKNOWN_SOLVER
+}
+
+type Mutation {
+	"""
+	Place one order from a signed phantom fillOrder UserOp. validUntil = TTL in seconds from
+	receipt.
+	"""
+	submitOrder(userOp: Bytes!): SubmitOrderResult!
+	"""
+	Place several orders (e.g. both sides of a pair). Not atomic: one result per op, in order.
+	"""
+	submitOrders(userOps: [Bytes!]!): [SubmitOrderResult!]!
+	"""
+	Cancel one of the signer's orders. Signs EIP-712 CancelOrder(solver, commitment, timestamp).
+	"""
+	cancelOrder(solver: Address!, commitment: Bytes!, timestamp: Int!, signature: Bytes!): CancelOrderResult!
+	"""
+	Keep the signer's orders surfaced. Signs EIP-712 Heartbeat(solver, timestamp).
+	"""
+	heartbeat(solver: Address!, timestamp: Int!, signature: Bytes!): HeartbeatResult!
+}
+
+type Order {
+	solver: Solver!
+	commitment: Bytes!
+	book: Book!
+	side: Side!
+	status: OrderStatus!
+	"""
+	Where the solver fills the order and the swapper receives `tokenOut`.
+	"""
+	fillChain: String!
+	"""
+	What the solver receives: the swapper's `tokenIn`.
+	"""
+	tokenIn: String!
+	"""
+	What the solver pays out: the swapper's `tokenOut`.
+	"""
+	tokenOut: String!
+	"""
+	This order's price and its rate, one number: quote per 1 base (1e18). Bids round down, asks
+	up.
+	"""
+	price: BigInt!
+	"""
+	The signed input (1e18).
+	"""
+	inputAmount: BigInt!
+	"""
+	The signed output (1e18), before the haircut: what the solver pays, checked against the
+	balance.
+	"""
+	quotedAmount: BigInt!
+	"""
+	`min(quotedAmount, balance)`, exact (1e18): the depth this order publishes.
+	"""
+	advertisedSize: BigInt!
+	"""
+	What the quote alone allows (1e18); equal to `advertisedSize` when fully backed.
+	"""
+	quotedSize: BigInt!
+	"""
+	Whether the balance, not the quote, is what binds `advertisedSize`.
+	"""
+	resized: Boolean!
+	"""
+	The level this order sits in.
+	"""
+	priceBucket: BigInt!
+	"""
+	The input scaled to the advertised size (1e18).
+	"""
+	inputSize: BigInt!
+	haircutBps: Int!
+	ttlSecs: Int!
+	receivedAt: DateTime!
+	expiresAt: DateTime!
+	"""
+	The last cycle that read this order's balance; null until one has, and the order surfaces
+	at its quoted size meanwhile.
+	"""
+	validatedAt: DateTime
+	"""
+	Whether the solver's current balance covers the whole signed quote. False while the order is
+	resized, and before any balance has been read.
+	"""
+	backed: Boolean!
+	"""
+	The balance this order is backed by, once a cycle has read one.
+	"""
+	balance: SolverBalance
+	"""
+	Source chains this order accepts swaps from, from its own signed declaration. Never empty:
+	ingest refuses an order that declares none.
+	"""
+	acceptedSources: [String!]!
+	"""
+	The signed UserOp, SCALE-encoded as it was submitted.
+	"""
+	userOp: Bytes!
+}
+
+"""
+The order was stored, and is live at its quoted size.
+"""
+type OrderAccepted {
+	order: Order!
+	"""
+	False while the solver is suspended: stored, but not published until it heartbeats.
+	"""
+	surfaced: Boolean!
+}
+
+type OrderCancelled {
+	solver: Address!
+	commitment: Bytes!
+}
+
+type OrderConnection {
+	"""
+	Information to aid in pagination.
+	"""
+	pageInfo: PageInfo!
+	"""
+	A list of edges.
+	"""
+	edges: [OrderEdge!]!
+}
+
+"""
+An edge in a connection.
+"""
+type OrderEdge {
+	"""
+	The item at the end of the edge
+	"""
+	node: Order!
+	"""
+	A cursor for use in pagination
+	"""
+	cursor: String!
+}
+
+type OrderRejected {
+	code: RejectionCode!
+	message: String!
+}
+
+enum OrderStatus {
+	ACTIVE
+	SUSPENDED
+}
+
+"""
+The server could not decide the op. Ingest reads no chain, so this is the database, or the
+submission running out of time.
+"""
+type OrderSubmissionFailed {
+	code: FailureCode!
+	message: String!
+	retryable: Boolean!
+}
+
+"""
+The op was accepted before and its order is still live, so nothing changed.
+"""
+type OrderUnchanged {
+	order: Order!
+}
+
+"""
+Information about pagination in a connection
+"""
+type PageInfo {
+	"""
+	When paginating backwards, are there more items?
+	"""
+	hasPreviousPage: Boolean!
+	"""
+	When paginating forwards, are there more items?
+	"""
+	hasNextPage: Boolean!
+	"""
+	When paginating backwards, the cursor to continue.
+	"""
+	startCursor: String
+	"""
+	When paginating forwards, the cursor to continue.
+	"""
+	endCursor: String
+}
+
+"""
+One book's price bucket width. Orders whose prices round into the same bucket form one level.
+"""
+type PairGranularity {
+	book: ID!
+	"""
+	The bucket width, quote per 1 base (1e18).
+	"""
+	granularity: BigInt!
+}
+
+"""
+One price level of one side of a book on one fill chain.
+"""
+type PriceLevel {
+	fillChain: String!
+	"""
+	The level's price rounded to the pair's granularity, away from the taker.
+	"""
+	priceBucket: BigInt!
+	"""
+	The served price, quote per 1 base (1e18): the level's best price, the highest bid or the
+	lowest ask.
+	"""
+	price: BigInt!
+	"""
+	Informational: the level's aggregate rate.
+	"""
+	aggregatePrice: BigInt!
+	worstPrice: BigInt!
+	"""
+	Virtual depth in base (1e18).
+	"""
+	baseSize: BigInt!
+	"""
+	Virtual depth in quote (1e18).
+	"""
+	quoteSize: BigInt!
+	orderCount: Int!
+	solverCount: Int!
+}
+
+type Query {
+	"""
+	Limits and signing parameters solvers need to configure themselves.
+	"""
+	serverInfo: ServerInfo!
+	"""
+	Best rate for tokenIn -> tokenOut, quote per 1 base, ignoring depth: the lowest ask when
+	tokenIn is the quote (a buy), the highest bid when it is the base (a sell). `minSize` (1e18,
+	in tokenOut) keeps only levels holding an order that pays out at least that much.
+	"""
+	bestRate(tokenIn: String!, tokenOut: String!, minSize: BigInt, fillChain: String, sourceChain: String): RateEntry
+	"""
+	Every price level for tokenIn -> tokenOut, one entry per (fill chain, price bucket), best to
+	worst for the side (asks ascending, bids descending), each with its depth. `minSize` (1e18,
+	in tokenOut) keeps only levels holding an order that pays out at least that much.
+	"""
+	rates(tokenIn: String!, tokenOut: String!, minSize: BigInt, fillChain: String, sourceChain: String, limit: Int = 100): [RateEntry!]!
+	"""
+	The best rate that can fill an input amount (1e18): one order on a cross-chain route, several
+	solvers' orders combined on a same-chain route.
+	"""
+	quote(route: RouteInput!, amountIn: BigInt!): SwapQuote!
+	"""
+	Total liquidity on a same-chain or cross-chain route, no amount required.
+	"""
+	routeLiquidity(route: RouteInput!): RouteLiquidity!
+	"""
+	Every configured book.
+	"""
+	books: [Book!]!
+	"""
+	A book by id, `BASE-QUOTE`.
+	"""
+	book(id: ID!): Book
+	"""
+	The order `solver` holds under `commitment`.
+	"""
+	order(solver: Address!, commitment: Bytes!): Order
+	"""
+	Solver balances, oldest row first, with the totals per chain and symbol of every row the
+	filter covers.
+	"""
+	balances(filter: BalanceFilter, first: Int = 50, after: String): BalanceConnection!
+	"""
+	A solver by address.
+	"""
+	solver(address: Address!): Solver
+	"""
+	A book's recorded history in [from, to), oldest first: on one fill chain, or across chains
+	when fillChain is omitted. Between two points the book held the earlier point's values.
+	"""
+	bookHistory(book: ID!, fillChain: String, from: DateTime!, to: DateTime!, first: Int = 50, after: String): BookHistoryConnection!
+	"""
+	OHLC bars of a book's best bid, best ask or mid, on one fill chain or across chains when
+	fillChain is omitted. Bars open on multiples of the interval in UTC: the first at or before `from`, and every bar
+	overlapping [from, to) runs to its own close, past `to`. `to` is clamped to the server's
+	current time, so no bar opens in the future, and the bar still open closes on what is in
+	effect now. A bar with no point carries the value in effect forward, but a point stays in
+	effect only for `history.keepalive_secs` plus one validation tick, the longest an unchanged
+	book goes unrecorded; past that the server was not recording, and bars have null prices and
+	zero depth until the next point. Only the retention window is read, so bars before it are
+	empty. At most 1000 bars, counted on the clamped range before anything is read.
+	"""
+	rateBars(book: ID!, fillChain: String, series: RateSeries!, interval: BarInterval!, from: DateTime!, to: DateTime!): [RateBar!]!
+}
+
+"""
+One order used by a quote. Every fill settles at the quote's served rate.
+"""
+type QuoteFill {
+	"""
+	The order's full advertised size (1e18), not just the part this fill takes.
+	"""
+	advertisedSize: BigInt!
+	"""
+	The order's own price, at or better than the served rate for the side (1e18).
+	"""
+	orderRate: BigInt!
+	"""
+	The tokenOut it contributes at the served rate (1e18); the fills sum to the quote's
+	amountOut.
+	"""
+	amountOut: BigInt!
+}
+
+"""
+One bar of a rate series. Prices are null for a bar in which the series had no value in effect.
+"""
+type RateBar {
+	"""
+	When the bar opens.
+	"""
+	time: DateTime!
+	"""
+	The value as the bar opened, or its first value when it opened with none (1e18).
+	"""
+	open: BigInt
+	high: BigInt
+	low: BigInt
+	"""
+	The value in effect as the bar closed, or now for the bar still open (1e18).
+	"""
+	close: BigInt
+	"""
+	The bids' virtual depth in quote at the bar's close (1e18).
+	"""
+	bidDepthQuote: BigInt!
+	"""
+	The asks' virtual depth in base at the bar's close (1e18).
+	"""
+	askDepthBase: BigInt!
+	"""
+	The bids' true liquidity at the bar's close (1e18 quote).
+	"""
+	bidLiquidity: BigInt!
+	"""
+	The asks' true liquidity at the bar's close (1e18 base).
+	"""
+	askLiquidity: BigInt!
+}
+
+"""
+One price level of a direction on one fill chain. `rate` is its best price, quote per 1 base:
+the rate served for the level.
+"""
+type RateEntry {
+	tokenIn: String!
+	tokenOut: String!
+	"""
+	BID when tokenIn is the base (a sell: higher is better), ASK when it is the quote (a buy:
+	lower is better).
+	"""
+	side: Side!
+	"""
+	The chain where this rate can be filled.
+	"""
+	fillChain: String!
+	"""
+	The level's price rounded to the pair's granularity, away from the taker.
+	"""
+	priceBucket: BigInt!
+	"""
+	The served rate: the best single-order price in the level, quote per 1 base (1e18). Highest
+	for a BID level, lowest for an ASK level.
+	"""
+	rate: BigInt!
+	"""
+	Informational, never served: average of each solver's best price in the level (1e18),
+	rounded away from the taker.
+	"""
+	aggregateRate: BigInt!
+	"""
+	The worst single-order price in the level (1e18): the lowest bid or the highest ask.
+	"""
+	worstRate: BigInt!
+	"""
+	Virtual: the level's orders' summed input sizes (1e18).
+	"""
+	depthIn: BigInt!
+	"""
+	Virtual: the level's orders' summed advertised sizes (1e18).
+	"""
+	depthOut: BigInt!
+	"""
+	True: each distinct solver's largest validated order in the level, in tokenOut (1e18).
+	"""
+	backingLiquidity: BigInt!
+	"""
+	Union of the level's orders' accepted source chains.
+	"""
+	sourceChains: [String!]!
+	orderCount: Int!
+	solverCount: Int!
+}
+
+"""
+A price series bars are built from.
+"""
+enum RateSeries {
+	"""
+	The highest surfaced bid.
+	"""
+	BEST_BID
+	"""
+	The lowest surfaced ask.
+	"""
+	BEST_ASK
+	"""
+	The midpoint of the two, rounded down; empty while either side is.
+	"""
+	MID
+}
+
+"""
+Everything ingest can decide without a chain read. Delegation and liquidity are absent: the
+validation cycle settles both on a stored order.
+"""
+enum RejectionCode {
+	MALFORMED_USER_OP
+	NO_FILL_ORDER
+	UNSUPPORTED_CHAIN
+	UNSUPPORTED_SHAPE
+	NOT_PHANTOM
+	MISSING_VALID_UNTIL
+	TTL_TOO_SHORT
+	UNSUPPORTED_PAIR
+	BAD_SIGNATURE
+	BAD_NONCE_BINDING
+	MISSING_DECLARATION
+	EMPTY_DECLARATION
+	UNSUPPORTED_SOURCE_CHAIN
+	REPLAYED
+	ORDER_EXISTS
+	TOO_MANY_ORDERS
+	MIN_ORDER_SIZE
+}
+
+"""
+A swap route, by symbol and chain.
+"""
+input RouteInput {
+	"""
+	The symbol the swapper pays in.
+	"""
+	tokenIn: String!
+	"""
+	The symbol the swapper receives.
+	"""
+	tokenOut: String!
+	"""
+	Where the swapper's tokenIn is escrowed.
+	"""
+	sourceChain: String!
+	"""
+	Where tokenOut is delivered, which is the fill chain.
+	"""
+	destinationChain: String!
+}
+
+"""
+How the gateway settles a route.
+"""
+enum RouteKind {
+	"""
+	Source and destination are one chain: several solvers may fill parts of one order.
+	"""
+	SAME_CHAIN
+	"""
+	Payment crosses chains: one solver fills the whole order.
+	"""
+	CROSS_CHAIN
+}
+
+"""
+What a route holds, with no amount given.
+"""
+type RouteLiquidity {
+	route: RouteKind!
+	"""
+	The best price on the route, quote per 1 base: the lowest ask for a buy, the highest bid
+	for a sell.
+	"""
+	bestRate: BigInt
+	"""
+	Virtual (1e18 tokenIn).
+	"""
+	depthIn: BigInt!
+	"""
+	Virtual (1e18 tokenOut).
+	"""
+	depthOut: BigInt!
+	"""
+	True: each distinct serving solver's largest validated serving order, in tokenOut on the
+	destination (1e18).
+	"""
+	availableLiquidity: BigInt!
+	"""
+	The largest amountIn the route could fill (1e18 tokenIn, whole raw units): one order
+	cross-chain, combined same-chain.
+	"""
+	maxFillableIn: BigInt!
+	orderCount: Int!
+	solverCount: Int!
+}
+
+"""
+Limits and signing parameters solvers need to configure themselves.
+"""
+type ServerInfo {
+	"""
+	The shortest `validUntil` accepted: seconds of validity counted from receipt.
+	"""
+	minOrderTtlSecs: Int!
+	"""
+	A solver whose last heartbeat is older than this is suspended.
+	"""
+	heartbeatIntervalSecs: Int!
+	"""
+	How often expired and unbacked orders are deleted.
+	"""
+	sweepIntervalSecs: Int!
+	"""
+	Allowed clock skew on cancel and heartbeat timestamps.
+	"""
+	signatureSkewSecs: Int!
+	"""
+	Most UserOps one request may place, counted across all its `submitOrder` and
+	`submitOrders` fields.
+	"""
+	maxBatchSize: Int!
+	"""
+	Tokens with a dust floor: an order paying out less than this is rejected.
+	"""
+	minOrderSizes: [TokenMinSize!]!
+	"""
+	Price bucket width per book, the key orders group into levels on.
+	"""
+	priceGranularities: [PairGranularity!]!
+	"""
+	Every configured chain by state machine id (`EVM-8453`), sorted: the chains orders fill on
+	and the source chains they may declare.
+	"""
+	chains: [String!]!
+	"""
+	EIP-712 domain name for `CancelOrder` and `Heartbeat` messages.
+	"""
+	eip712DomainName: String!
+	"""
+	EIP-712 domain version for `CancelOrder` and `Heartbeat` messages.
+	"""
+	eip712DomainVersion: String!
+}
+
+enum Side {
+	BID
+	ASK
+}
+
+type Solver {
+	address: Address!
+	status: SolverStatus!
+	lastHeartbeatAt: DateTime
+	"""
+	When the sweep suspends this solver unless it heartbeats first.
+	"""
+	heartbeatDueBy: DateTime
+	suspendedAt: DateTime
+	"""
+	The solver's balance rows, one per token per chain, oldest first, narrowed to a chain or a
+	symbol.
+	"""
+	balances(chain: String, symbol: String): [SolverBalance!]!
+	"""
+	The solver's live orders, oldest first.
+	"""
+	orders(book: ID, side: Side, status: OrderStatus, first: Int = 50, after: String): OrderConnection!
+}
+
+type SolverBalance {
+	solver: Address!
+	chain: String!
+	token: Address!
+	symbol: String!
+	decimals: Int!
+	"""
+	The wallet balance (1e18).
+	"""
+	wallet: BigInt!
+	"""
+	What the solver's vault shares are worth in the token (1e18).
+	"""
+	vaults: BigInt!
+	"""
+	The shares behind `vaults`, as the indexer reports them: shares, not the token.
+	"""
+	vaultShares: BigInt!
+	"""
+	`wallet + vaults` (1e18): the indexer's balance, which orders are resized against.
+	"""
+	total: BigInt!
+	"""
+	True liquidity (1e18): the largest validated output among all the solver's live orders
+	paying this token on this chain; 0 when it has no validated order. What it has offered to
+	deliver; no more than `total` as of the last refresh.
+	"""
+	liquidity: BigInt!
+	"""
+	The solver's latest declaration on this chain, copied from its newest accepted order there.
+	Empty only for a row whose order went away (cancelled or expired) before any declaration was
+	copied; such a row matches no `sourceChain` filter.
+	"""
+	acceptedSources: [String!]!
+	"""
+	The indexer's inventory head block for this chain: the figures are current as of it.
+	"""
+	blockNumber: BigInt!
+	"""
+	The head's time. The staleness rule reads this, never `changedAt`.
+	"""
+	measuredAt: DateTime!
+	"""
+	When the balance last changed on chain.
+	"""
+	changedAt: DateTime!
+	"""
+	When a storage read in the indexer last confirmed it.
+	"""
+	confirmedAt: DateTime!
+	updatedAt: DateTime!
+	"""
+	Whether the last read of this chain failed, so the figures are the last ones known.
+	"""
+	stale: Boolean!
+}
+
+enum SolverStatus {
+	ACTIVE
+	SUSPENDED
+}
+
+union SubmitOrderResult = OrderAccepted | OrderUnchanged | OrderRejected | OrderSubmissionFailed
+
+"""
+A quote for an input amount on a route.
+"""
+type SwapQuote {
+	route: RouteKind!
+	"""
+	ASK for a buy (tokenIn is the quote), BID for a sell (tokenIn is the base).
+	"""
+	side: Side!
+	"""
+	The tokenIn priced (1e18), floored to a whole raw unit on sourceChain.
+	"""
+	amountIn: BigInt!
+	"""
+	The tokenOut (1e18), floored to a whole raw unit on destinationChain; 0 when not fillable.
+	"""
+	amountOut: BigInt!
+	"""
+	The served rate, quote per 1 base (1e18). Cross-chain: the best price among orders that can
+	fill the whole trade. Same-chain: the clearing price, the best at which the orders at it or
+	better can fill the trade together. Null when the route can't fill it.
+	"""
+	rate: BigInt
+	"""
+	The served level's bucket; null same-chain, where a fill spans levels.
+	"""
+	priceBucket: BigInt
+	fillable: Boolean!
+	"""
+	The tokenIn (1e18) the route can absorb at the served price or better.
+	"""
+	depth: BigInt!
+	"""
+	The largest amountIn this route could fill (1e18 tokenIn, whole raw units).
+	"""
+	maxFillableIn: BigInt!
+	"""
+	The orders used, best first: one cross-chain, possibly several same-chain.
+	"""
+	fills: [QuoteFill!]!
+}
+
+"""
+One token's dust floor.
+"""
+type TokenMinSize {
+	symbol: String!
+	"""
+	The smallest output an order paying out this token may quote (1e18).
+	"""
+	size: BigInt!
+}
+
+"""
+Directs the executor to include this field or fragment only when the `if` argument is true.
+"""
+directive @include(if: Boolean!) on FIELD | FRAGMENT_SPREAD | INLINE_FRAGMENT
+"""
+Directs the executor to skip this field or fragment when the `if` argument is true.
+"""
+directive @skip(if: Boolean!) on FIELD | FRAGMENT_SPREAD | INLINE_FRAGMENT
+schema {
+	query: Query
+	mutation: Mutation
+}

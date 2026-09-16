@@ -266,7 +266,8 @@ async function cancelFromSource(order: Order) {
       case "HYPERBRIDGE_FINALIZED":
       // metadata.calldata is the encoded handleGetResponses call to submit to the
       // ISMP handler on the source chain. This triggers onGetResponse, which
-      // verifies the _filled slot and refunds the escrowed assets.
+      // verifies the _partialFills amounts and refunds the unfilled principal
+      // plus its protocol-fee share.
       const { calldata: handleCalldata } = event.metadata
       // Fetch the handler address from the source ISMP host
       const { handler: handlerAddress } = await sourceChain.client.readContract({
@@ -292,7 +293,7 @@ async function cancelFromSource(order: Order) {
 }
 ```
 
-The SDK polls the destination chain until it can read the fill status at a height past the order deadline, then encodes the `cancelOrder` calldata and yields `AWAITING_CANCEL_TRANSACTION`. You sign the transaction and pass it back. The generator broadcasts it and yields `CANCEL_STARTED`. From there, the SDK handles proof fetching, waiting for the challenge period, and submitting to Hyperbridge. No further action is needed. After finalization, a relayer delivers the response to the source chain, which verifies the order was never filled and returns the escrowed tokens.
+The SDK polls the destination chain until it can read the fill amounts at a height past the order deadline, then encodes the `cancelOrder` calldata and yields `AWAITING_CANCEL_TRANSACTION`. You sign the transaction and pass it back. The generator broadcasts it and yields `CANCEL_STARTED`. From there, the SDK handles proof fetching, waiting for the challenge period, and submitting to Hyperbridge. No further action is needed. After finalization, a relayer delivers the response to the source chain, which verifies the destination's `_partialFills` amounts and refunds the unfilled principal plus its protocol-fee share. A fully filled proof refunds zero; the final redemption settles the pending fees.
 
 ---
 

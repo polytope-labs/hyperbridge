@@ -337,6 +337,43 @@ describe("LimitOrderService.settleFill", () => {
 	})
 })
 
+describe("reposting when the old entry will not come down", () => {
+	it("leaves the posting alone rather than adding a second entry", async () => {
+		// Cancel then post is the right order, but only if the cancel worked. A
+		// refusal leaves the old entry live, and posting over it is how two entries
+		// end up behind one liability.
+		const client = fakeClient([], [{ kind: "rejected", code: "SOLVER_MISMATCH", message: "wrong key" }])
+		const { service, store } = makeService(client)
+		const created = await service.create(REQUEST)
+
+		const reposted = await service.repost(created.order)
+		expect(reposted?.commitment).toBe(created.order.commitment)
+		expect(reposted?.lastError).toMatch(/SOLVER_MISMATCH/)
+		expect(client.submitted).toEqual(["0x00"])
+		expect((await store.get(created.order.id))?.status).toBe("open")
+	})
+
+	it("goes ahead when the orderbook says the entry is already gone", async () => {
+		const client = fakeClient([], [{ kind: "rejected", code: "UNKNOWN_ORDER", message: "gone" }])
+		const { service } = makeService(client)
+		const created = await service.create(REQUEST)
+
+		await service.repost(created.order)
+		expect(client.submitted).toEqual(["0x00", "0x01"])
+	})
+
+	it("holds off when the cancel never got an answer", async () => {
+		const client = fakeClient([])
+		client.cancelOrder = async () => ({ kind: "failed", message: "connect ECONNREFUSED" })
+		const { service } = makeService(client)
+		const created = await service.create(REQUEST)
+
+		const reposted = await service.repost(created.order)
+		expect(reposted?.lastError).toMatch(/ECONNREFUSED/)
+		expect(client.submitted).toEqual(["0x00"])
+	})
+})
+
 describe("LimitOrderService.cancel", () => {
 	it("cancels locally first, then clears the orderbook entry", async () => {
 		const { service, store } = makeService(fakeClient([]))

@@ -1119,16 +1119,13 @@ export class IntentFiller {
 		const claimed = await this.bidStorage.claimReservation(commitment)
 		if (!claimed) return
 
-		// The hold goes back first: whatever was delivered is accounted for by the
-		// draw-down, and the rest was never spent.
-		await this.limitOrders.release(claimed.limitOrderId, claimed.amount)
-
 		const delivered = await this.deliveredAgainst(claimed.limitOrderId, chainId, outputs)
 		if (delivered === null) {
 			this.logger.warn(
 				{ commitment, limitOrder: claimed.limitOrderId },
 				"Fill carried no output this limit order pays; leaving it at its current size",
 			)
+			await this.limitOrders.release(claimed.limitOrderId, claimed.amount)
 			return
 		}
 
@@ -1136,7 +1133,12 @@ export class IntentFiller {
 			{ commitment, limitOrder: claimed.limitOrderId, delivered: delivered.toString() },
 			"Working the limit order down by what the fill delivered",
 		)
+		// The draw-down goes first and the hold goes back after. These are two
+		// writes and a crash can land between them: leaving the hold up means the
+		// order understates its capacity until reconciliation, where releasing first
+		// would leave it advertising output it has already paid out.
 		await this.limitOrderService?.settleFill(claimed.limitOrderId, delivered)
+		await this.limitOrders.release(claimed.limitOrderId, claimed.amount)
 	}
 
 	/**

@@ -107,20 +107,21 @@ async function makeFiller(options: {
 					fillChain: CHAIN,
 					price: "1500",
 					size: options.offering ?? "1000000",
+					acceptedSources: [CHAIN, "EVM-1"],
 				},
 			]),
 		},
 	)
 }
 
-/** Same-chain USDC→EXOTIC order (partial-fill eligible: no calldata, not cross-chain). */
-function makeOrder(id: string): Order {
+/** USDC→EXOTIC, same-chain unless a source is given. Partial-fill eligible: no calldata. */
+function makeOrder(id: string, source: string = CHAIN): Order {
 	const inputs: TokenInfo[] = [{ token: bytes20ToBytes32(STABLE), amount: INPUT_AMOUNT }]
 	const outputs: TokenInfo[] = [{ token: bytes20ToBytes32(EXOTIC), amount: REQUESTED_OUTPUT }]
 	return {
 		id,
 		user: bytes20ToBytes32(SOLVER),
-		source: CHAIN,
+		source,
 		destination: CHAIN,
 		deadline: 0n,
 		nonce: 0n,
@@ -174,6 +175,24 @@ describe("FXFiller limit order payout", () => {
 		expect(cached![0].amount).toBe(parseUnits("60000", 18))
 		// Short of the ask, so this is an under-fill.
 		expect(contractService.partials.get("payout-capped")).toBe(true)
+	})
+
+	it("takes a cross-chain under-fill as a partial, as the gateway now allows", async () => {
+		// `ExtrinsicIntents._fillCrossChain` keeps cumulative progress per output
+		// token, clears `_filled` on an under-fill so another solver can finish the
+		// order, and releases escrow proportionally. Refusing these would leave the
+		// operator's inventory idle against a swap it is priced to serve.
+		const contractService = makeEvalContractService()
+		const filler = await makeFiller({
+			contractService,
+			balances: { [EXOTIC.toLowerCase()]: parseUnits("1000000", 18) },
+			offering: "60000",
+		})
+
+		await filler.calculateProfitability(makeOrder("payout-cross", "EVM-1"))
+
+		expect(contractService.outputs.get("payout-cross")![0].amount).toBe(parseUnits("60000", 18))
+		expect(contractService.partials.get("payout-cross")).toBe(true)
 	})
 
 	it("pays what the wallet covers when balance-limited, still a full fill above the ask", async () => {

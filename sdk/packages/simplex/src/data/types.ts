@@ -48,24 +48,28 @@ export interface StoredBid {
 	/** The order was seen filled on-chain, so this bid can never win — reclaim its deposit now. */
 	dead: boolean
 	/**
-	 * The limit order this bid drew its payout from. Null for a bid placed before
-	 * limit orders priced anything, and how a fill finds the order to draw down.
+	 * What this bid holds against the operator's limit orders, at 1e18, in the
+	 * order the payout draws on them. Empty for a bid placed before limit orders
+	 * priced anything, and empty again once the hold has been settled, whether it
+	 * was released because the bid lost or converted because the bid filled.
+	 *
+	 * More than one when a swap drew on several levels: the orderbook quotes a
+	 * same-chain swapper across every level that can fill the trade together, so a
+	 * bid may be meeting several of the operator's own orders at once.
 	 */
-	limitOrderId: string | null
-	/**
-	 * The output still held against {@link limitOrderId} on the bid's behalf, at
-	 * 1e18. Null once the reservation has been settled, whether it was released
-	 * because the bid lost or converted because the bid filled.
-	 */
-	reservedAmount: string | null
+	reservations: LimitOrderHold[]
+}
+
+/** One limit order and what a bid holds against it, at 1e18. */
+export interface LimitOrderHold {
+	limitOrderId: string
+	amount: string
 }
 
 export interface BidInsert {
 	commitment: string
-	/** The limit order this bid drew its payout from, when one priced it. */
-	limitOrderId?: string
-	/** Output held against that limit order for this bid, at 1e18. */
-	reservedAmount?: string
+	/** What this bid holds against the limit orders that priced it, best first. */
+	reservations?: LimitOrderHold[]
 	extrinsicHash?: string
 	blockHash?: string
 	success: boolean
@@ -121,15 +125,15 @@ export interface BidStore {
 	/** Flags a bid dead (its order was filled on-chain). False when nothing matched. */
 	markDead(commitment: string): Promise<boolean>
 	/**
-	 * Takes the reservation this bid holds, exactly once, and returns it.
+	 * Takes what this bid holds, exactly once, and returns it.
 	 *
-	 * A losing bid gives its reservation back and a winning one converts it into a
-	 * draw-down, and both routes end at the same bid row — a bid that won is still
+	 * A losing bid gives its holds back and a winning one converts them into
+	 * draw-downs, and both routes end at the same bid row — a bid that won is still
 	 * retracted eventually, by the stale sweep, so an unguarded release would undo
-	 * a conversion that already happened. Whichever settles first claims it here;
-	 * the other gets null and does nothing.
+	 * a conversion that already happened. Whichever settles first claims them here;
+	 * the other gets an empty list and does nothing.
 	 */
-	claimReservation(commitment: string): Promise<{ limitOrderId: string; amount: string } | null>
+	claimReservation(commitment: string): Promise<LimitOrderHold[]>
 	/**
 	 * Every bid that drew on a limit order, newest first. What makes a `remaining`
 	 * explicable to the operator: which bids took the difference.

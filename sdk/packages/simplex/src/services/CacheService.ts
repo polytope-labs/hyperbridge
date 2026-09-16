@@ -67,7 +67,7 @@ interface CacheData {
 	pairClassifications: Record<string, PairClassificationsCache>
 	fundingPrepends: Record<string, FundingPrependsCache>
 	/** The limit order an evaluation priced against, carried to the bid that draws on it. */
-	matchedLimitOrders: Record<string, { limitOrderId: string; payout: string; timestamp: number }>
+	matchedLimitOrders: Record<string, { holds: { limitOrderId: string; payout: string }[]; timestamp: number }>
 	/** Orders whose evaluation concluded in a deliberate partial fill. */
 	partialFills: Record<string, { partial: boolean; timestamp: number }>
 	feeTokens: Record<string, { address: HexString; decimals: number }>
@@ -302,25 +302,24 @@ export class CacheService {
 	 * the same limit order the price came from. A fill later finds it through the
 	 * bid row, not through here.
 	 */
-	getMatchedLimitOrder(orderId: string): { limitOrderId: string; payout: bigint } | null {
+	getMatchedLimitOrder(orderId: string): { limitOrderId: string; payout: bigint }[] {
 		try {
 			const cache = this.cacheData.matchedLimitOrders[orderId]
 			if (cache && this.isCacheValid(cache.timestamp)) {
-				return { limitOrderId: cache.limitOrderId, payout: BigInt(cache.payout) }
+				return cache.holds.map((hold) => ({ limitOrderId: hold.limitOrderId, payout: BigInt(hold.payout) }))
 			}
-			return null
+			return []
 		} catch (error) {
 			this.logger.error({ err: error }, "Error getting matched limit order")
-			return null
+			return []
 		}
 	}
 
-	setMatchedLimitOrder(orderId: string, limitOrderId: string, payout: bigint): void {
+	setMatchedLimitOrder(orderId: string, holds: { limitOrderId: string; payout: bigint }[]): void {
 		try {
 			this.cleanupStaleData()
 			this.cacheData.matchedLimitOrders[orderId] = {
-				limitOrderId,
-				payout: payout.toString(),
+				holds: holds.map((hold) => ({ limitOrderId: hold.limitOrderId, payout: hold.payout.toString() })),
 				timestamp: Date.now(),
 			}
 		} catch (error) {

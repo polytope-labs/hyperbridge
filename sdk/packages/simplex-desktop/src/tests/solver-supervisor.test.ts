@@ -191,6 +191,28 @@ describe("solver supervision", () => {
 		expect(onChange).toHaveBeenCalledTimes(1)
 	})
 
+	it("updates work snapshots without rebuilding native menus", () => {
+		const onChange = vi.fn()
+		const supervisor = new SolverSupervisor({ socketPath: "ignored", onChange })
+		const idle = {
+			queuedEvaluations: 0,
+			evaluating: 0,
+			queuedFills: 0,
+			activeFills: 0,
+			retractions: 0,
+			rebalancing: 0,
+		}
+		supervisor.setStatus({ state: "running", version: "0.16.2", work: idle })
+		supervisor.setStatus({ state: "running", version: "0.16.2", work: { ...idle, activeFills: 1 } })
+
+		expect(onChange).toHaveBeenCalledTimes(1)
+		expect(supervisor.status).toEqual({
+			state: "running",
+			version: "0.16.2",
+			work: { ...idle, activeFills: 1 },
+		})
+	})
+
 	it("requires consecutive failures before leaving a live state", async () => {
 		const probe = vi
 			.fn<() => Promise<SolverStatus>>()

@@ -2,6 +2,8 @@ publish:
   provider: github
   owner: polytope-labs
   repo: hyperbridge
+  # Publication naming only. Installed apps use SimplexReleaseProvider to
+  # filter this monorepo's release API by the same prefix.
   tagNamePrefix: simplex-desktop-v
 
 # The signed build writes its certificate subject into app-update.yml. Keep

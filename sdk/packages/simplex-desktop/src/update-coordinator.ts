@@ -81,6 +81,9 @@ export class UpdateCoordinator {
 	private checkQueued = false
 	private activeCheckChannel?: UpdateChannel
 	private started = false
+	private downloadReady = false
+	private solverStoppedForInstall = false
+	private recoveringInstallFailure = false
 	private readonly downloadChannels = new Map<string, UpdateChannel>()
 
 	private readonly listeners: Record<string, (...args: any[]) => void>
@@ -93,6 +96,7 @@ export class UpdateCoordinator {
 			store: UpdateStore
 			probeSolver: () => Promise<SolverStatus>
 			requestSolverStop: () => Promise<void>
+			restartSolver: () => Promise<void>
 			waitForExit: (pid: number) => Promise<boolean>
 			onChange: (status: UpdateStatus) => void
 			notify: (title: string, body: string) => void
@@ -121,9 +125,12 @@ export class UpdateCoordinator {
 				}
 			},
 			"update-not-available": () => {
-				if (this.activeCheckChannel === this.preferences.channel && !this.preferences.receipt) {
-					this.setStatus({ state: "idle" })
+				if (this.activeCheckChannel !== this.preferences.channel) return
+				if (this.preferences.receipt && !this.downloadReady) {
+					this.preferences = { ...this.preferences, receipt: undefined, lastNagAt: undefined }
+					this.options.store.write(this.preferences)
 				}
+				this.setStatus({ state: "idle" })
 			},
 			"download-progress": (progress: { percent?: number }) => {
 				const targetVersion = this.current.targetVersion
@@ -138,7 +145,16 @@ export class UpdateCoordinator {
 				void this.updateDownloaded(info.version).catch((error) => this.fail(error)),
 			error: (error: unknown) => {
 				if (this.activeCheckChannel && this.activeCheckChannel !== this.preferences.channel) return
-				this.preferences.receipt ? this.defer(error) : this.fail(error)
+				if (this.installing) {
+					void this.recoverInstallerFailure(error)
+					return
+				}
+				if (this.preferences.receipt) {
+					this.defer(error)
+					this.scheduleIdleRetry()
+				} else {
+					this.fail(error)
+				}
 			},
 		}
 	}
@@ -164,6 +180,7 @@ export class UpdateCoordinator {
 		this.idleTimer = undefined
 		this.checkQueued = false
 		this.activeCheckChannel = undefined
+		this.downloadReady = false
 		this.downloadChannels.clear()
 		for (const [event, listener] of Object.entries(this.listeners))
 			this.options.updater.removeListener(event, listener)
@@ -174,17 +191,16 @@ export class UpdateCoordinator {
 		if (!this.options.packaged || this.installing) return
 		let checkChannel: UpdateChannel | undefined
 		try {
-			if (this.preferences.receipt?.installAttemptedAt) {
-				await this.verifyPreviousInstall()
-				return
-			}
-			if (this.preferences.receipt) {
-				await this.tryInstall()
-				return
-			}
 			if (this.checkAttempt) {
 				this.checkQueued = true
 				await this.checkAttempt.catch(() => {})
+				return
+			}
+			if (this.preferences.receipt?.installAttemptedAt) {
+				await this.verifyPreviousInstall()
+			}
+			if (this.preferences.receipt && this.downloadReady) {
+				await this.tryInstall()
 				return
 			}
 			const channel = this.preferences.channel
@@ -202,7 +218,13 @@ export class UpdateCoordinator {
 				}
 			}
 		} catch (error) {
-			if (!checkChannel || checkChannel === this.preferences.channel) this.fail(error)
+			if (!checkChannel || checkChannel !== this.preferences.channel) return
+			if (this.preferences.receipt) {
+				this.defer(error)
+				this.scheduleIdleRetry()
+			} else {
+				this.fail(error)
+			}
 		}
 	}
 
@@ -211,6 +233,7 @@ export class UpdateCoordinator {
 		try {
 			const receipt = this.preferences.receipt?.installAttemptedAt ? this.preferences.receipt : undefined
 			this.preferences = { ...this.preferences, channel, receipt, lastNagAt: undefined }
+			this.downloadReady = false
 			this.options.store.write(this.preferences)
 			this.configureUpdater()
 			this.setStatus({ state: "idle", channel })
@@ -240,17 +263,11 @@ export class UpdateCoordinator {
 	}
 
 	private async resumeUpdateLifecycle(): Promise<void> {
-		if (this.preferences.receipt?.installAttemptedAt) {
-			await this.verifyPreviousInstall()
-			if (this.current.state === "error") return
-		}
-		if (this.preferences.receipt) {
+		if (this.preferences.receipt && !this.preferences.receipt.installAttemptedAt) {
 			this.setStatus({
 				state: "waiting-for-idle",
 				targetVersion: this.preferences.receipt.targetVersion,
 			})
-			await this.tryInstall()
-			return
 		}
 		await this.checkNow()
 	}
@@ -275,6 +292,11 @@ export class UpdateCoordinator {
 
 	private reportFailedInstall(receipt: UpdateReceipt, cause?: unknown): void {
 		const suffix = cause ? `: ${cause instanceof Error ? cause.message : String(cause)}` : ""
+		this.preferences = {
+			...this.preferences,
+			receipt: { ...receipt, installAttemptedAt: undefined },
+		}
+		this.options.store.write(this.preferences)
 		this.setStatus({
 			state: "error",
 			targetVersion: receipt.targetVersion,
@@ -292,11 +314,16 @@ export class UpdateCoordinator {
 		this.downloadChannels.delete(version)
 		if (!channel) return this.fail(new Error(`Downloaded update ${version} did not match an active check`))
 		if (channel !== this.preferences.channel) return
-		const receipt: UpdateReceipt = {
-			fromVersion: this.options.appVersion,
-			targetVersion: version,
-			downloadedAt: this.options.now?.() ?? Date.now(),
-		}
+		const previous = this.preferences.receipt
+		const receipt: UpdateReceipt =
+			previous?.targetVersion === version && !previous.installAttemptedAt
+				? previous
+				: {
+						fromVersion: this.options.appVersion,
+						targetVersion: version,
+						downloadedAt: this.options.now?.() ?? Date.now(),
+					}
+		this.downloadReady = true
 		this.preferences = { ...this.preferences, receipt, lastNagAt: undefined }
 		this.options.store.write(this.preferences)
 		this.setStatus({ state: "waiting-for-idle", targetVersion: version })
@@ -325,7 +352,8 @@ export class UpdateCoordinator {
 		if (this.preferences.receipt !== receipt) return
 
 		if (solver.state === "stopped") {
-			return this.install(receipt)
+			this.defer(new Error("Solver is stopped; restart it before installing the staged update"))
+			return this.scheduleIdleRetry()
 		}
 		if (solver.state !== "setup" && solver.state !== "running" && solver.state !== "paused") {
 			this.defer(new Error(`Solver is ${solver.state}; update remains staged`))
@@ -348,6 +376,7 @@ export class UpdateCoordinator {
 			if (!(await this.options.waitForExit(solver.pid))) {
 				throw new Error("Solver did not exit after its graceful stop; update remains staged")
 			}
+			this.solverStoppedForInstall = true
 			await this.install(receipt)
 		} catch (error) {
 			this.installing = false
@@ -368,23 +397,53 @@ export class UpdateCoordinator {
 			this.setStatus({ state: "installing", targetVersion: receipt.targetVersion })
 			this.options.updater.quitAndInstall(false, true)
 		} catch (error) {
+			await this.recoverInstallerFailure(error)
+		}
+	}
+
+	private async recoverInstallerFailure(error: unknown): Promise<void> {
+		if (this.recoveringInstallFailure) return
+		this.recoveringInstallFailure = true
+		try {
+			const recoveryErrors: string[] = []
+			const receipt = this.preferences.receipt
 			this.installing = false
-			this.preferences = { ...this.preferences, receipt }
-			try {
-				this.options.store.write(this.preferences)
-			} catch (restoreError) {
-				const installDetail = error instanceof Error ? error.message : String(error)
-				const restoreDetail = restoreError instanceof Error ? restoreError.message : String(restoreError)
-				this.fail(
-					new Error(
-						`The update could not start (${installDetail}) and its retry receipt could not be restored (${restoreDetail})`,
-					),
-				)
-				this.scheduleIdleRetry()
-				return
+			this.downloadReady = false
+			if (receipt) {
+				this.preferences = {
+					...this.preferences,
+					receipt: { ...receipt, installAttemptedAt: undefined },
+				}
+				try {
+					this.options.store.write(this.preferences)
+				} catch (storeError) {
+					recoveryErrors.push(
+						`the retry receipt could not be saved: ${storeError instanceof Error ? storeError.message : String(storeError)}`,
+					)
+				}
 			}
 			this.defer(error)
+			if (this.solverStoppedForInstall) {
+				this.solverStoppedForInstall = false
+				try {
+					await this.options.restartSolver()
+				} catch (restartError) {
+					recoveryErrors.push(
+						`the solver could not be restarted: ${restartError instanceof Error ? restartError.message : String(restartError)}`,
+					)
+				}
+			}
+			if (recoveryErrors.length > 0) {
+				this.fail(
+					new Error(
+						`The update installer failed (${error instanceof Error ? error.message : String(error)}); ${recoveryErrors.join("; ")}`,
+					),
+				)
+				return
+			}
 			this.scheduleIdleRetry()
+		} finally {
+			this.recoveringInstallFailure = false
 		}
 	}
 
@@ -392,7 +451,7 @@ export class UpdateCoordinator {
 		if (this.idleTimer || this.installing) return
 		this.idleTimer = (this.options.setTimeout ?? setTimeout)(() => {
 			this.idleTimer = undefined
-			void this.tryInstall()
+			void (this.downloadReady ? this.tryInstall() : this.checkNow())
 		}, IDLE_RETRY_MS)
 		this.idleTimer.unref?.()
 	}

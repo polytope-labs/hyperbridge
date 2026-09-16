@@ -166,7 +166,11 @@ export function stopRequestAccepted(status: SolverStatus): boolean {
 }
 
 function sameStatus(left: SolverStatus, right: SolverStatus): boolean {
-	return JSON.stringify(left) === JSON.stringify(right)
+	return (
+		left.state === right.state &&
+		("detail" in left ? left.detail : undefined) === ("detail" in right ? right.detail : undefined) &&
+		solverVersion(left) === solverVersion(right)
+	)
 }
 
 export class SolverSupervisor {
@@ -190,9 +194,9 @@ export class SolverSupervisor {
 	}
 
 	setStatus(next: SolverStatus): void {
-		if (sameStatus(this.current, next)) return
 		const previous = this.current
 		this.current = next
+		if (sameStatus(previous, next)) return
 		this.options.onChange(next, previous)
 	}
 

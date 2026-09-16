@@ -166,7 +166,8 @@ remain responsibilities of the desktop release build.
 Installed builds check the `simplex-desktop-v*` releases in `polytope-labs/hyperbridge` at launch and
 every six hours. Stable is the default channel; beta is opt-in from the native menu. Downloads happen
 in the background without interrupting the solver. Ordinary app quit never installs a downloaded
-update.
+update. The updater filters the repository's release API by that tag prefix, so unrelated monorepo
+releases cannot be selected.
 
 After download, the app waits until `/api/status` reports no active evaluation, queued fill, active
 fill, bid retraction, or portfolio rebalancing work. A running solver must also have no queued
@@ -179,6 +180,11 @@ the operator to pause new fills and create a safe window.
 A previous-version solver that does not yet report its PID can still be attached and restarted
 gracefully, using release of the private socket as the exit proof. Automatic installation remains
 staged until the app is supervising a PID-reporting solver, so updater safety is never weakened.
+
+A staged update is also left untouched while the operator has intentionally stopped the solver. On
+relaunch, Electron rechecks the feed so its updater instance revalidates the cached artifact before
+stopping anything. If the installer reports an error after the updater stopped the solver, the app
+clears the attempted marker, restarts that solver, and leaves the update available for a later retry.
 
 Before installing, the app records the old and target versions in `desktop-updates.json` under
 Electron user data. The relaunched app clears that receipt only after a healthy setup or operator

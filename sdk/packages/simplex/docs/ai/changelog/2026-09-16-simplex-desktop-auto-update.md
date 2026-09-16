@@ -1,9 +1,10 @@
 # Simplex desktop auto-update
 
-Installed Simplex desktop builds use `electron-updater` with the explicitly configured
-`polytope-labs/hyperbridge` GitHub release feed and `simplex-desktop-v*` tags. Stable is the default
-channel and beta is opt-in. Checks and downloads run while the detached solver continues filling, but
-ordinary Electron quit never installs an update.
+Installed Simplex desktop builds use `electron-updater` with a GitHub provider that filters the
+`polytope-labs/hyperbridge` release API to `simplex-desktop-v*` tags. This prevents unrelated
+monorepo releases from becoming desktop update candidates. Stable is the default channel and beta is
+opt-in. Checks and downloads run while the detached solver continues filling, but ordinary Electron
+quit never installs an update.
 
 `GET /health` now reports the solver PID and operator `GET /api/status` reports queued and active
 evaluation, queued and active fill, retraction, and rebalancing counts. A downloaded update waits for
@@ -21,6 +22,14 @@ from before PID health reporting can still be attached and gracefully restarted 
 release as its exit proof, but automatic installation requires a reported PID. Rollback uses a
 previous signed installer after a graceful solver stop; channel changes ignore downloads started on
 the previous channel and never trigger an automatic downgrade.
+
+After an Electron restart, a saved download receipt triggers another updater check so the current
+process revalidates and reopens the cached artifact before the solver is stopped. Installer errors
+clear the attempted marker, restart a solver that the updater stopped, and leave the download
+retryable. A failed post-install version check is notified once before normal checks resume. Updates
+remain staged while the operator has intentionally left the solver stopped, so a background update
+cannot silently resume filling. Desktop builds fail unless the desktop and bundled Simplex manifests
+have the same version.
 
 Release metadata supplies SHA-512 artifact verification. macOS also verifies the application code
 signature, and Windows NSIS updates keep Authenticode publisher verification enabled. Installer and

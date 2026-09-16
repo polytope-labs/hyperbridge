@@ -19,18 +19,13 @@ import { parseChainKey } from "@/config/interpolated-curve"
 import { INTENT_GATEWAY_V2_ABI } from "@/config/abis/IntentGatewayV2"
 import type { Address } from "viem"
 import pQueue from "p-queue"
-import {
-	type ChainClientManager,
-	type ContractInteractionService,
-	DelegationService,
-	type RebalancingService,
-} from "@/services"
+import { type ChainClientManager, type ContractInteractionService, DelegationService, type RebalancingService } from "@/services"
 import { patchRuntimeState } from "@/data/state"
 import type { BidStore, StateStore } from "@/data/types"
 import type { HyperbridgeScanner, OrderScanner, Subscription } from "@/scanner/types"
 import type { FillerConfigService } from "@/services/FillerConfigService"
 import type { SolverWork } from "@/services/server/dto"
-import { type Logger, moduleLogger } from "@/services/Logger"
+import { type Logger , moduleLogger} from "@/services/Logger"
 import type { Signer } from "@/services/wallet"
 import { hasPaymaster } from "@/services/paymaster"
 import { Decimal } from "decimal.js"
@@ -86,6 +81,7 @@ export class IntentFiller {
 	private hyperbridge: Promise<IntentsCoprocessor> | undefined = undefined
 	private hyperbridgeEndpoint?: { wsUrl: string; substrateKey: string }
 	/** The ApiPromise behind `hyperbridge` — ours, so stop() can disconnect it. */
+	// biome-ignore lint/suspicious/noExplicitAny: polkadot api type kept out of the public surface
 	private hyperbridgeApi: any
 
 	/**
@@ -275,10 +271,7 @@ export class IntentFiller {
 				throw new Error(`EIP-7702 delegation failed on ${failedChains.join(", ")}`)
 			}
 			if (failedChains.length === chains.length) {
-				this.logger.error(
-					{ results: result.results },
-					"EIP-7702 delegation failed on all chains; shutting down",
-				)
+				this.logger.error({ results: result.results }, "EIP-7702 delegation failed on all chains; shutting down")
 				throw new Error(
 					`EIP-7702 delegation failed on all chains: ${failedChains.join(", ")}. Shutting down for restart.`,
 				)
@@ -400,14 +393,7 @@ export class IntentFiller {
 		return this.paused
 	}
 
-	/**
-	 * A point-in-time view of work that must finish before a desktop update may stop the process.
-	 *
-	 * Exposing counts rather than a second `busy` flag keeps the existing pause/stop lifecycle
-	 * authoritative. The desktop requires active work to reach zero and, while running, queued
-	 * evaluations too. A paused queue may be discarded by `stop()`; that method still performs the
-	 * final race-free drain if work is queued immediately after this snapshot.
-	 */
+	/** Work that must finish before the desktop may stop the process for an update. */
 	public getWorkSnapshot(): SolverWork {
 		let queuedFills = 0
 		let activeFills = 0
@@ -420,7 +406,7 @@ export class IntentFiller {
 			evaluating: this.globalQueue.pending,
 			queuedFills,
 			activeFills,
-			retractions: this.pendingRetractions.size + this.retractionQueue.size + this.retractionQueue.pending,
+			retractions: this.retractionQueue.size + this.retractionQueue.pending,
 			rebalancing: this.activeRebalances.size,
 		}
 	}
@@ -473,12 +459,11 @@ export class IntentFiller {
 
 	private runTrackedRebalance(): Promise<void> {
 		if (this.stopping) return Promise.resolve()
-		const task = this.checkAndRebalance()
+		const task = this.checkAndRebalance().catch((error) => {
+			this.logger.error({ error }, "Error in periodic rebalancing check")
+		})
 		this.activeRebalances.add(task)
-		void task.then(
-			() => this.activeRebalances.delete(task),
-			() => this.activeRebalances.delete(task),
-		)
+		void task.then(() => this.activeRebalances.delete(task))
 		return task
 	}
 
@@ -986,90 +971,81 @@ export class IntentFiller {
 		// Execute with the most profitable strategy using the chain-specific queue
 		// This ensures transactions for the same chain are processed sequentially
 		const queuedAtMs = Date.now()
-		chainQueue
-			.add(async () => {
-				const queueDurationSec = (Date.now() - queuedAtMs) / 1000
+		chainQueue.add(async () => {
+			const queueDurationSec = (Date.now() - queuedAtMs) / 1000
+			this.monitor.emit("orderTiming", { orderId: order.id, phase: "queue_wait", durationSec: queueDurationSec })
+
+			this.logger.info(
+				{ orderId: order.id, strategy: bestStrategy.name, chain: order.destination },
+				"Executing order",
+			)
+
+			try {
+				const execStartMs = Date.now()
+				const hyperbridgeService = solverSelectionActive ? await this.hyperbridge : undefined
+				const result = await bestStrategy.executeOrder(order, hyperbridgeService)
+				const execDurationSec = (Date.now() - execStartMs) / 1000
 				this.monitor.emit("orderTiming", {
 					orderId: order.id,
-					phase: "queue_wait",
-					durationSec: queueDurationSec,
+					phase: "execution",
+					durationSec: execDurationSec,
 				})
+				this.logger.info({ orderId: order.id, result }, "Order execution completed")
 
-				this.logger.info(
-					{ orderId: order.id, strategy: bestStrategy.name, chain: order.destination },
-					"Executing order",
-				)
-
-				try {
-					const execStartMs = Date.now()
-					const hyperbridgeService = solverSelectionActive ? await this.hyperbridge : undefined
-					const result = await bestStrategy.executeOrder(order, hyperbridgeService)
-					const execDurationSec = (Date.now() - execStartMs) / 1000
-					this.monitor.emit("orderTiming", {
-						orderId: order.id,
-						phase: "execution",
-						durationSec: execDurationSec,
-					})
-					this.logger.info({ orderId: order.id, result }, "Order execution completed")
-
-					// Persist the bid FIRST, before any telemetry. By this point the bid is
-					// already on Hyperbridge holding a deposit, and the only way to reclaim
-					// it is to retract it — which the sweep can only do for bids it can find
-					// here. Anything between the submission and this write is something that
-					// can strand money: a consumer's event listener throwing, an
-					// operator-supplied store rejecting on a connection blip, a disk error.
-					if (result.commitment) {
-						const commitment = result.commitment as HexString
-						await this.bidStorage?.store({
-							commitment,
-							extrinsicHash: (result.txHash as HexString) || undefined,
-							success: result.success,
-							pending: result.pending === true,
-							error: result.error,
-						})
-
-						if (this.pendingRetractions.delete(commitment)) {
-							this.logger.info(
-								{ commitment },
-								"OrderFilled arrived before bid was stored, retracting now",
-							)
-							this.enqueueRetraction(commitment)
-							await this.bidStorage?.markDead(commitment)
-						}
-					}
-
-					if (result.success) {
-						this.monitor.emit("orderFilled", {
-							orderId: order.id,
-							hash: result.txHash,
-							volumeUsd: inputUsdValue.toNumber(),
-							profitUsd,
-							chainId: getChainId(order.source),
-							// Under solver selection "success" means the bid was accepted by
-							// Hyperbridge, not that the order is filled; the commitment says which.
-							commitment: result.commitment,
-						})
-					}
-					this.monitor.emit("orderExecuted", {
-						orderId: order.id,
+				// Persist the bid FIRST, before any telemetry. By this point the bid is
+				// already on Hyperbridge holding a deposit, and the only way to reclaim
+				// it is to retract it — which the sweep can only do for bids it can find
+				// here. Anything between the submission and this write is something that
+				// can strand money: a consumer's event listener throwing, an
+				// operator-supplied store rejecting on a connection blip, a disk error.
+				if (result.commitment) {
+					const commitment = result.commitment as HexString
+					await this.bidStorage?.store({
+						commitment,
+						extrinsicHash: (result.txHash as HexString) || undefined,
 						success: result.success,
-						txHash: result.txHash,
-						strategy: bestStrategy.name,
-						commitment: result.commitment,
+						pending: result.pending === true,
 						error: result.error,
 					})
 
-					return result
-				} catch (error) {
-					this.logger.error({ orderId: order.id, err: error }, "Order execution failed")
-					throw error
+					if (this.pendingRetractions.delete(commitment)) {
+						this.logger.info({ commitment }, "OrderFilled arrived before bid was stored, retracting now")
+						this.enqueueRetraction(commitment)
+						await this.bidStorage?.markDead(commitment)
+					}
 				}
-				// The queued promise is nobody's return value, so the rethrow above would be an
-				// unhandled rejection — which this process has no handler for and Node turns
-				// into an exit, stopping the retraction sweep for every other outstanding bid.
-				// Same guard the phantom path already applies.
-			})
-			.catch((err) => this.logger.error({ orderId: order.id, err }, "Order execution task failed"))
+
+				if (result.success) {
+					this.monitor.emit("orderFilled", {
+						orderId: order.id,
+						hash: result.txHash,
+						volumeUsd: inputUsdValue.toNumber(),
+						profitUsd,
+						chainId: getChainId(order.source),
+						// Under solver selection "success" means the bid was accepted by
+						// Hyperbridge, not that the order is filled; the commitment says which.
+						commitment: result.commitment,
+					})
+				}
+				this.monitor.emit("orderExecuted", {
+					orderId: order.id,
+					success: result.success,
+					txHash: result.txHash,
+					strategy: bestStrategy.name,
+					commitment: result.commitment,
+					error: result.error,
+				})
+
+				return result
+			} catch (error) {
+				this.logger.error({ orderId: order.id, err: error }, "Order execution failed")
+				throw error
+			}
+			// The queued promise is nobody's return value, so the rethrow above would be an
+			// unhandled rejection — which this process has no handler for and Node turns
+			// into an exit, stopping the retraction sweep for every other outstanding bid.
+			// Same guard the phantom path already applies.
+		}).catch((err) => this.logger.error({ orderId: order.id, err }, "Order execution task failed"))
 	}
 
 	private async handleOrderFilledOnChain(commitment: HexString, filler: string, chainId: number): Promise<void> {

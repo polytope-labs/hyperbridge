@@ -20,6 +20,7 @@ import { installSessionSecurity, installWebContentsSecurity, rendererWebPreferen
 import { assertResources, resourcePaths, socketPathFor, userDataOverrideFromArgv } from "./desktop-paths"
 import { latestLogPath, loginItemExecutable, LoginItemController } from "./login-item"
 import { proxyToSimplex } from "./protocol"
+import { SIMPLEX_UPDATE_FEED } from "./release-provider"
 import {
 	holdsMachineAwake,
 	sendSolverAction,
@@ -60,6 +61,7 @@ let dataDirectory: string | undefined
 let startPromise: Promise<boolean> | undefined
 let powerSaveBlockerId: number | undefined
 let quitting = false
+let installingUpdate = false
 let intentionalStop = false
 let updateCoordinator: UpdateCoordinator | undefined
 let updateStatus: UpdateStatus = { state: "disabled", channel: "stable" }
@@ -328,7 +330,7 @@ async function createWindow(): Promise<void> {
 	})
 	mainWindow = window
 	window.on("close", (event) => {
-		if (quitting) return
+		if (quitting || installingUpdate) return
 		event.preventDefault()
 		window.hide()
 	})
@@ -419,10 +421,14 @@ async function prepareDesktop(): Promise<void> {
 			intentionalStop = true
 			await sendSolverAction(socketPath, "stop")
 		},
+		restartSolver: async () => {
+			intentionalStop = false
+			if (!(await startOrAttachSolver(false))) throw new Error("Simplex could not restart the solver")
+		},
 		waitForExit: (pid) => waitForSolverExit({ pid, probe: () => probeHealth(socketPath) }),
 		onChange: (next) => {
 			updateStatus = next
-			if (next.state === "installing") quitting = true
+			installingUpdate = next.state === "installing"
 			refreshNativeUi()
 		},
 		notify: (title, body) => {
@@ -432,6 +438,7 @@ async function prepareDesktop(): Promise<void> {
 			notification.show()
 		},
 	})
+	autoUpdater.setFeedURL(SIMPLEX_UPDATE_FEED)
 	updateStatus = updateCoordinator.status
 	updateCoordinator.start()
 	refreshNativeUi()

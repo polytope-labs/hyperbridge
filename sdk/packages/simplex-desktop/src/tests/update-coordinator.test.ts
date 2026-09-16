@@ -57,6 +57,7 @@ function coordinator(overrides: Partial<ConstructorParameters<typeof UpdateCoord
 		store,
 		probeSolver: vi.fn(async () => idleSolver()),
 		requestSolverStop: vi.fn(async () => undefined),
+		restartSolver: vi.fn(async () => undefined),
 		waitForExit: vi.fn(async () => true),
 		onChange: vi.fn(),
 		notify: vi.fn(),
@@ -252,12 +253,14 @@ describe("desktop update coordinator", () => {
 		})
 		const test = coordinator({ store })
 		test.instance.start()
+		await vi.waitFor(() => expect(test.updater.checkForUpdates).toHaveBeenCalled())
+		expect(test.updater.quitAndInstall).not.toHaveBeenCalled()
+		finishDownload(test.updater, "0.17.0")
 		await vi.waitFor(() => expect(test.updater.quitAndInstall).toHaveBeenCalledWith(false, true))
-		expect(test.updater.checkForUpdates).not.toHaveBeenCalled()
 		test.instance.dispose()
 	})
 
-	it("keeps a staged update retryable when the installer call fails", async () => {
+	it("restarts the solver and keeps the update retryable when electron-updater emits an installer error", async () => {
 		const scheduled: Array<() => void> = []
 		const test = coordinator({
 			setTimeout: ((callback: () => void) => {
@@ -266,12 +269,55 @@ describe("desktop update coordinator", () => {
 			}) as typeof setTimeout,
 		})
 		test.updater.quitAndInstall.mockImplementation(() => {
-			throw new Error("installer unavailable")
+			test.updater.emit("error", new Error("installer unavailable"))
 		})
 		test.instance.start()
 		finishDownload(test.updater, "0.17.0")
 		await vi.waitFor(() => expect(test.instance.status.state).toBe("deferred"))
 		expect(test.store.value.receipt?.installAttemptedAt).toBeUndefined()
+		expect(test.options.restartSolver).toHaveBeenCalledOnce()
+		expect(scheduled).toHaveLength(1)
+		test.instance.dispose()
+	})
+
+	it("still restarts the solver when persisting installer recovery fails", async () => {
+		let rejectRecoveryWrite = false
+		const store = new MemoryUpdateStore()
+		const write = vi.spyOn(store, "write").mockImplementation((value) => {
+			if (rejectRecoveryWrite && value.receipt && !value.receipt.installAttemptedAt) {
+				throw new Error("disk unavailable")
+			}
+			store.value = structuredClone(value)
+		})
+		const test = coordinator({ store })
+		test.updater.quitAndInstall.mockImplementation(() => {
+			rejectRecoveryWrite = true
+			test.updater.emit("error", new Error("signature rejected"))
+		})
+
+		test.instance.start()
+		finishDownload(test.updater, "0.17.0")
+		await vi.waitFor(() => expect(test.options.restartSolver).toHaveBeenCalledOnce())
+		expect(test.instance.status.state).toBe("error")
+		expect(write).toHaveBeenCalled()
+		test.instance.dispose()
+	})
+
+	it("does not install or restart while the operator has intentionally left the solver stopped", async () => {
+		const scheduled: Array<() => void> = []
+		const test = coordinator({
+			probeSolver: vi.fn(async () => ({ state: "stopped" as const, detail: "absent" })),
+			setTimeout: ((callback: () => void) => {
+				scheduled.push(callback)
+				return { unref: vi.fn() } as unknown as NodeJS.Timeout
+			}) as typeof setTimeout,
+		})
+		test.instance.start()
+		finishDownload(test.updater, "0.17.0")
+		await vi.waitFor(() => expect(test.instance.status.state).toBe("deferred"))
+		expect(test.options.requestSolverStop).not.toHaveBeenCalled()
+		expect(test.options.restartSolver).not.toHaveBeenCalled()
+		expect(test.updater.quitAndInstall).not.toHaveBeenCalled()
 		expect(scheduled).toHaveLength(1)
 		test.instance.dispose()
 	})
@@ -302,12 +348,14 @@ describe("desktop update coordinator", () => {
 			})),
 		})
 		test.instance.start()
+		await vi.waitFor(() => expect(test.updater.checkForUpdates).toHaveBeenCalled())
+		finishDownload(test.updater, "0.17.0")
 		await vi.waitFor(() => expect(test.options.notify).toHaveBeenCalledTimes(1))
 		expect(store.value.lastNagAt).toBe(now)
 		test.instance.dispose()
 	})
 
-	it("reports an unsuccessful post-update version check", async () => {
+	it("reports an unsuccessful post-update version check once and returns to a normal check", async () => {
 		const store = new MemoryUpdateStore({
 			channel: "stable",
 			receipt: {
@@ -319,15 +367,17 @@ describe("desktop update coordinator", () => {
 		})
 		const test = coordinator({ appVersion: "0.17.0", store })
 		test.instance.start()
-		await vi.waitFor(() => expect(test.instance.status.state).toBe("error"))
+		await vi.waitFor(() => expect(test.options.notify).toHaveBeenCalledOnce())
 		expect(test.options.notify).toHaveBeenCalledWith(
 			"Simplex update needs attention",
 			expect.stringContaining("did not start a matching solver"),
 		)
-		expect(store.value.receipt).toBeDefined()
+		expect(store.value.receipt?.installAttemptedAt).toBeUndefined()
+		expect(test.updater.checkForUpdates).toHaveBeenCalledOnce()
 		expect(test.options.requestSolverStop).not.toHaveBeenCalled()
 		expect(test.updater.quitAndInstall).not.toHaveBeenCalled()
 		await test.instance.checkNow()
+		expect(test.options.notify).toHaveBeenCalledOnce()
 		expect(test.options.requestSolverStop).not.toHaveBeenCalled()
 		expect(test.updater.quitAndInstall).not.toHaveBeenCalled()
 		test.instance.dispose()

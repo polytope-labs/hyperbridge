@@ -154,7 +154,7 @@ describe("IntentFiller bid retraction", () => {
 		expect(retractBid).toHaveBeenCalledTimes(1)
 	})
 
-	it("reports every queue that must drain before a desktop update", () => {
+	it("reports work that stop drains without counting unmatched pending retractions", () => {
 		const { filler } = build([])
 		;(filler as any).globalQueue = { size: 2, pending: 1 }
 		;(filler as any).chainQueues = new Map([
@@ -169,7 +169,7 @@ describe("IntentFiller bid retraction", () => {
 			evaluating: 1,
 			queuedFills: 7,
 			activeFills: 3,
-			retractions: 7,
+			retractions: 6,
 			rebalancing: 0,
 		})
 	})

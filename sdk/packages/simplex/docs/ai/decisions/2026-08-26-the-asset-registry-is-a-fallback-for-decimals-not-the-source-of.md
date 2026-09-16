@@ -17,16 +17,15 @@ Alternatives rejected:
   bad path unreachable rather than merely survivable. Rejected because it inverts which value is
   authoritative: a stale registry entry would then silently override the live token on every fill,
   and the registry is edited by hand.
-- _Return 18 when the registry has no entry either._ What this replaced. `decimals` scales
-  `policyMaxOutput` by `10 ** decimals`, so a wrong value does not degrade a fill — it changes its
-  size by orders of magnitude. There is no safe guess, so the function now throws and the order is
+- _Return 18 when the registry has no entry either._ What this replaced. `decimals` is what
+  scales a payout into the token's own units, so a wrong value does not degrade a fill — it changes
+  its size by orders of magnitude. There is no safe guess, so the function now throws and the order is
   skipped.
 
 Making it throw required auditing every caller, since `getTokenDecimals` had never thrown:
 
-- `calculateProfitability` and `sizeOrder` reach `IntentFiller.evaluateOrder`, inside the
-  `try/catch` opened at `core/filler.ts:604` — the order is logged and skipped.
-- `quotePhantomFill` is wrapped at `core/filler.ts:1134` — the leg goes unquoted.
+- `calculateProfitability` reaches `IntentFiller.evaluateOrder`, inside the `try/catch` opened at
+  `core/filler.ts:604` — the order is logged and skipped.
 - `getOrderUsdValue` is wrapped at `core/filler.ts:688` — sizing falls back to `baseInputUsd`.
 - `initCache` was the one real hazard: it runs **unawaited** from the constructor, so a rejection
   would have been an unhandled rejection and killed the process rather than skipping an order. It

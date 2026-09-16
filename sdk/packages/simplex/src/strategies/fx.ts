@@ -320,18 +320,19 @@ export class FXFiller implements FillerStrategy {
 			// never offers more than it has left even when the wallet holds more.
 			const targetOutput = toRaw(match.payout, outputDecimals)
 
-			// Whether this order may be filled below what the user asked for.
+			// Whether this order may be filled below what the user asked for. Both
+			// chains allow it: `ExtrinsicIntents._fillCrossChain` keeps cumulative
+			// progress in `_partialFills[commitment][outputToken]`, clears
+			// `_filled[commitment]` on an under-fill so another solver can take the
+			// rest, and releases escrow proportionally through `RedeemEscrowPartial`.
 			//
-			//  - Cross-chain reverts on any under-fill: in ExtrinsicIntents.sol
-			//    `if (solverAmount < totalRequired) revert InvalidInput()` is
-			//    unconditional, so bidding a partial there is a guaranteed failed fill.
-			//  - An order carrying output calldata reverts too
-			//    (`PartialFillNotAllowed`): the attached call runs only on a full
-			//    fill, so the gateway will not release escrow without it.
+			//  - An order carrying output calldata reverts (`PartialFillNotAllowed`):
+			//    the attached call runs only on a full fill, so the gateway will not
+			//    release escrow without it. That holds on both paths.
 			//  - An order already partially filled has had its escrow drawn down,
 			//    while the P&L below reads `order.inputs[0].amount` as if it were
 			//    intact. Refuse rather than mis-price it.
-			const partialEligibleCheap = sourceChain === destChain && (order.output.call ?? "0x").length <= 2
+			const partialEligibleCheap = (order.output.call ?? "0x").length <= 2
 			// The prior-partial probe is a contract read, and most orders fill fully
 			// and never consult it — so it runs only once an under-fill is actually on
 			// the table, and at most once per evaluation.
@@ -613,6 +614,11 @@ export class FXFiller implements FillerStrategy {
 			// the margin in the operator's own limit order, which the engine cannot
 			// measure; the caller exempts partials from the profit floor for the same
 			// reason.
+			//
+			// A cross-chain partial pays one cost a same-chain one does not: the
+			// relayer fee carrying `RedeemEscrowPartial` back to the source. It is not
+			// netted here either, for the same reason and with the same consequence,
+			// so the operator's margin has to cover the message as well as the gas.
 			const totalProfit = partialFill
 				? partialEdgeUsd.toNumber()
 				: Number.parseFloat(formatUnits(feeProfit + realizedSpreadProfit, feeTokenDecimals))

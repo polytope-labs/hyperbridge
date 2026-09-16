@@ -426,8 +426,24 @@ export class LimitOrderService {
 	 */
 	async repost(order: LimitOrder | null): Promise<LimitOrder | null> {
 		if (!order) return null
-		// `UNKNOWN_ORDER` is as good as cancelled: the entry is already gone.
-		if (order.commitment) await this.withdraw(order.commitment as HexString)
+
+		if (order.commitment) {
+			const withdrawn = await this.withdraw(order.commitment as HexString)
+			// Only a cancel the orderbook confirmed, or its word that the entry is
+			// already gone, means there is nothing left up. Anything else leaves the
+			// entry live, and posting over it is how two entries end up behind one
+			// liability. The row keeps its commitment and the next cycle tries again.
+			const gone = withdrawn.kind === "cancelled" || (withdrawn.kind === "rejected" && withdrawn.code === "UNKNOWN_ORDER")
+			if (!gone) {
+				const message = withdrawn.kind === "rejected" ? `${withdrawn.code}: ${withdrawn.message}` : withdrawn.message
+				this.logger.error(
+					{ id: order.id, commitment: order.commitment, err: message },
+					"Could not clear the old entry; leaving the posting alone rather than adding a second",
+				)
+				return this.store.setStatus(order.id, "open", message)
+			}
+		}
+
 		// A fresh nonce, because the orderbook remembers every op hash it has taken
 		// and a signed op cannot be posted twice.
 		const nonce = (BigInt(order.orderNonce) + 1n).toString()

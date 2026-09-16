@@ -16,7 +16,7 @@ import {
 import { parseChainKey } from "@/config/interpolated-curve"
 import pQueue from "p-queue"
 import { type ChainClientManager, type ContractInteractionService, DelegationService, type RebalancingService } from "@/services"
-import type { BidStore } from "@/data/types"
+import type { BidStore, LimitOrderStore } from "@/data/types"
 import type { OrderScanner } from "@/scanner/types"
 import type { FillerConfigService } from "@/services/FillerConfigService"
 import type { SolverWork } from "@/services/server/dto"
@@ -38,6 +38,7 @@ export class IntentFiller {
 	private delegationService?: DelegationService
 	private rebalancingService?: RebalancingService
 	private bidStorage?: BidStore
+	private limitOrders?: LimitOrderStore
 	private retractionQueue: pQueue
 	private paused = false
 	private stopping = false
@@ -76,6 +77,7 @@ export class IntentFiller {
 		scanners: { orders: OrderScanner },
 		rebalancingService?: RebalancingService,
 		bidStorage?: BidStore,
+		limitOrders?: LimitOrderStore,
 	) {
 		this.logger = moduleLogger(configService.loggers, "intent-filler")
 		this.configService = configService
@@ -85,6 +87,7 @@ export class IntentFiller {
 		this.contractService = contractService
 		this.rebalancingService = rebalancingService
 		this.bidStorage = bidStorage
+		this.limitOrders = limitOrders
 		this.monitor = new EventMonitor(chainConfigs, configService, this.fillerAddress, scanners.orders)
 		this.strategies = strategies
 		this.config = config
@@ -925,6 +928,21 @@ export class IntentFiller {
 				"Executing order",
 			)
 
+			// Held before the bid goes out, so two chains bidding at once cannot
+			// between them promise more output than the limit order has left. The
+			// reservation lives on the bid row from here, and is given back when the
+			// bid loses or converted into a draw-down when it fills.
+			const matched =
+				this.limitOrders && order.id ? this.contractService.cacheService.getMatchedLimitOrder(order.id) : null
+			if (matched && !(await this.limitOrders!.reserve(matched.limitOrderId, matched.payout.toString()))) {
+				this.logger.info(
+					{ orderId: order.id, limitOrder: matched.limitOrderId },
+					"Skipping order: the limit order that priced it no longer has room",
+				)
+				return
+			}
+			const reservation = matched
+
 			try {
 				const execStartMs = Date.now()
 				const hyperbridgeService = solverSelectionActive ? await this.hyperbridge : undefined
@@ -952,6 +970,8 @@ export class IntentFiller {
 						success: result.success,
 						pending: result.pending === true,
 						error: result.error,
+						limitOrderId: reservation?.limitOrderId,
+						reservedAmount: reservation?.payout.toString(),
 					})
 
 					if (this.pendingRetractions.delete(commitment)) {
@@ -959,6 +979,15 @@ export class IntentFiller {
 						this.enqueueRetraction(commitment)
 						await this.bidStorage?.markDead(commitment)
 					}
+					// A bid that failed outright holds no deposit and will never be
+					// retracted, so nothing downstream would ever give its reservation
+					// back. A pooled one might still land, so it keeps its hold.
+					if (!result.success && result.pending !== true) {
+						await this.releaseReservation(commitment)
+					}
+				} else if (reservation) {
+					// No commitment means no bid row, so the hold has to be undone here.
+					await this.limitOrders?.release(reservation.limitOrderId, reservation.payout.toString())
 				}
 
 				if (result.success) {
@@ -984,6 +1013,11 @@ export class IntentFiller {
 
 				return result
 			} catch (error) {
+				// The bid may or may not have gone out, so release only what no bid row
+				// took over; `claimReservation` is what keeps the two from both firing.
+				if (reservation) {
+					await this.limitOrders?.release(reservation.limitOrderId, reservation.payout.toString())
+				}
 				this.logger.error({ orderId: order.id, err: error }, "Order execution failed")
 				throw error
 			}
@@ -1043,6 +1077,24 @@ export class IntentFiller {
 		await this.bidStorage.markDead(commitment)
 	}
 
+	/**
+	 * Gives back whatever this bid still holds against its limit order.
+	 *
+	 * Safe to call more than once and from either settlement route: the store
+	 * hands the reservation out once, so a bid that already converted its hold on
+	 * a fill releases nothing here.
+	 */
+	private async releaseReservation(commitment: HexString): Promise<void> {
+		if (!this.bidStorage || !this.limitOrders) return
+		const claimed = await this.bidStorage.claimReservation(commitment)
+		if (!claimed) return
+		await this.limitOrders.release(claimed.limitOrderId, claimed.amount)
+		this.logger.debug(
+			{ commitment, limitOrder: claimed.limitOrderId, amount: claimed.amount },
+			"Released the limit order reservation this bid held",
+		)
+	}
+
 	private enqueueRetraction(commitment: HexString): void {
 		this.retractionQueue.add(async () => {
 			try {
@@ -1059,6 +1111,7 @@ export class IntentFiller {
 
 				if (result.success) {
 					await this.bidStorage!.markRetracted(commitment, (result.extrinsicHash as HexString) ?? null)
+					await this.releaseReservation(commitment)
 					this.logger.info({ commitment, retractHash: result.extrinsicHash }, "Bid retracted successfully")
 				} else if (result.error?.includes("BidNotFound")) {
 					// Terminal, not retryable: bids only leave the pallet by retraction, so "no bid"
@@ -1066,6 +1119,7 @@ export class IntentFiller {
 					// someone retracted manually, or the placement never landed. Anything else seeds
 					// a zombie the sweep re-retracts forever.
 					await this.bidStorage!.markRetracted(commitment, null)
+					await this.releaseReservation(commitment)
 					this.logger.debug({ commitment }, "No bid on chain, marked as retracted")
 				} else if (result.pending) {
 					// Our extrinsic is still in the Hyperbridge tx pool. Resubmitting can only bounce

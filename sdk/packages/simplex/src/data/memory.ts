@@ -70,6 +70,7 @@ class MemoryBidStore implements BidStore {
 			retractExtrinsicHash: null,
 			dead: false,
 			limitOrderId: bid.limitOrderId ?? null,
+			reservedAmount: bid.reservedAmount ?? null,
 		})
 		if (this.rows.length > MAX_ROWS) {
 			// Only ever drop rows with nothing left to reclaim. A successful or pending
@@ -112,6 +113,18 @@ class MemoryBidStore implements BidStore {
 			changed = true
 		}
 		return changed
+	}
+
+	async claimReservation(commitment: string): Promise<{ limitOrderId: string; amount: string } | null> {
+		// Newest first, matching `byCommitment`: a commitment can be re-bid.
+		for (let i = this.rows.length - 1; i >= 0; i--) {
+			const row = this.rows[i]
+			if (row.commitment !== commitment || !row.limitOrderId || row.reservedAmount === null) continue
+			const claimed = { limitOrderId: row.limitOrderId, amount: row.reservedAmount }
+			row.reservedAmount = null
+			return claimed
+		}
+		return null
 	}
 
 	async markDead(commitment: string): Promise<boolean> {

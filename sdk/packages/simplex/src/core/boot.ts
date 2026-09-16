@@ -358,7 +358,7 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 			contractService,
 			tradingPairs,
 			assetRegistry,
-			{ confirmationPolicy, fundingVenues },
+			{ confirmationPolicy, fundingVenues, limitOrders: options.data.limitOrders },
 		)
 		logger.info("Hydrating funding venue state...")
 		await engine.initialise()
@@ -410,6 +410,7 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		options.scanners,
 		rebalancingService,
 		bidStore,
+		options.data.limitOrders,
 	)
 
 	started.push(() => intentFiller.stop())

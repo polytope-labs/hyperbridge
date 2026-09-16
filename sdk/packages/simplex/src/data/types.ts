@@ -54,6 +54,12 @@ export interface StoredBid {
 	 * limit orders priced anything, and how a fill finds the order to draw down.
 	 */
 	limitOrderId: string | null
+	/**
+	 * The output still held against {@link limitOrderId} on the bid's behalf, at
+	 * 1e18. Null once the reservation has been settled, whether it was released
+	 * because the bid lost or converted because the bid filled.
+	 */
+	reservedAmount: string | null
 }
 
 export interface BidInsert {
@@ -67,6 +73,8 @@ export interface BidInsert {
 	bid?: string
 	/** The limit order this bid drew its payout from, when one priced it. */
 	limitOrderId?: string
+	/** Output held against that limit order for this bid, at 1e18. */
+	reservedAmount?: string
 	extrinsicHash?: string
 	blockHash?: string
 	success: boolean
@@ -121,6 +129,16 @@ export interface BidStore {
 	markRetracted(commitment: string, retractExtrinsicHash: string | null): Promise<boolean>
 	/** Flags a bid dead (its order was filled on-chain). False when nothing matched. */
 	markDead(commitment: string): Promise<boolean>
+	/**
+	 * Takes the reservation this bid holds, exactly once, and returns it.
+	 *
+	 * A losing bid gives its reservation back and a winning one converts it into a
+	 * draw-down, and both routes end at the same bid row — a bid that won is still
+	 * retracted eventually, by the stale sweep, so an unguarded release would undo
+	 * a conversion that already happened. Whichever settles first claims it here;
+	 * the other gets null and does nothing.
+	 */
+	claimReservation(commitment: string): Promise<{ limitOrderId: string; amount: string } | null>
 	/** Newest first. Implementations should cap `limit` at a few hundred. */
 	recent(limit?: number): Promise<StoredBid[]>
 	/** Failed bids, newest first — for debugging. */

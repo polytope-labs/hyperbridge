@@ -32,9 +32,11 @@ import { transformOrderForContract, fetchSourceProof, getFeeToken, convertGasToF
  *
  * **Source-chain cancellation** (`cancelOrderFromSource`):
  * For same-chain orders, encodes a direct `cancelOrder` call and waits for
- * the `EscrowRefunded` event. For cross-chain orders, fetches a destination
- * state proof, submits a GET request, waits for Hyperbridge finalization, and
- * submits the proof to unlock the escrowed funds.
+ * the `EscrowRefunded` event. The order user may submit that transaction
+ * through the deadline; strictly after the deadline, any caller may submit it
+ * and pay gas while the refund still goes to `order.user`. For cross-chain
+ * orders, fetches a destination state proof, submits a GET request, waits for
+ * Hyperbridge finalization, and submits the proof to unlock the escrowed funds.
  *
  * **Destination-chain cancellation** (`cancelOrderFromDest`):
  * Submits a `cancelOrder` call on the destination chain which dispatches an
@@ -147,10 +149,13 @@ export class OrderCanceller {
 	 *
 	 * @param order - The order to cancel.
 	 * @param indexerClient - Indexer client used to stream ISMP request status
-	 *   updates and query state-machine heights.
-	 * @param options - Choose the initiation side. Defaults to source-side cancellation.
+	 *   updates and query state-machine heights. The direct same-chain route does
+	 *   not access it.
+	 * @param options - Choose the initiation side. Defaults to source-side
+	 *   cancellation. Same-chain orders always use the direct local route.
 	 * @yields {@link CancelEvent} objects describing each stage of the
-	 *   cancellation lifecycle.
+	 *   cancellation lifecycle. The caller signs or broadcasts the yielded
+	 *   transaction, so its signer may differ from `order.user` after expiry.
 	 */
 	async *cancelOrder(
 		order: Order,
@@ -191,9 +196,12 @@ export class OrderCanceller {
 	 * Async generator that cancels an order by initiating the cancel from the
 	 * source chain.
 	 *
-	 * **Same-chain path:** encodes a direct `cancelOrder` call, yields
-	 * `AWAITING_CANCEL_TRANSACTION`, broadcasts the signed transaction, and
-	 * yields `CANCELLATION_COMPLETE` after confirming the `EscrowRefunded` event.
+	 * **Same-chain path:** encodes a direct `cancelOrder` call with zero cancel
+	 * options, yields `AWAITING_CANCEL_TRANSACTION`, accepts either a signed raw
+	 * transaction or an already-broadcast hash, and yields `CANCELLATION_COMPLETE`
+	 * after confirming the `EscrowRefunded` event. The contract authorizes the
+	 * order user through the deadline and any caller strictly after it; the SDK
+	 * preserves `order.user` in calldata so a third party cannot redirect escrow.
 	 *
 	 * **Cross-chain path:**
 	 * 1. Fetches (or resumes from cache) a destination finalization proof.

@@ -314,8 +314,8 @@ interface IIntentGatewayV2 {
      *         the same transaction for a same-chain cancel, and on the source chain once
      *         the cancellation has travelled through Hyperbridge for a cross-chain one.
      * @param commitment The unique identifier of the order
-     * @param canceller The account that initiated the cancellation. The destination-side
-     *        route is permissionless after expiry, so this is not necessarily the creator.
+     * @param canceller The account that initiated the cancellation. Destination-side cancellation
+     *        and expired same-chain cancellation are permissionless, so this may be a third party.
      */
     event OrderCancelled(bytes32 indexed commitment, address canceller);
 

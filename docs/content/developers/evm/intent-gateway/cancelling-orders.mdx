@@ -19,11 +19,13 @@ Keep the **finalized `Order`** from the placement flow, including `id`, fee-redu
 
 | Order type and route | Who may start it | When it may start | What happens |
 | --- | --- | --- | --- |
-| Same-chain | Original order user only | Any time before it is fully filled | Gateway refunds remaining escrow directly in the same transaction. |
+| Same-chain | Original user through the deadline; anyone strictly after it | Any time before it is fully filled | Source gateway refunds remaining escrow directly in the same transaction. |
 | Cross-chain, **from source** | Original order user only | Only after a destination proof height is **strictly greater** than `order.deadline` | Source gateway dispatches an ISMP GET request to prove the destination fill amounts and calculate the unfilled remainder. |
-| Cross-chain, **from destination** | Original user through the deadline; anyone after it | Any time before or after expiry | Destination gateway locks the order against fills and dispatches a `RefundEscrow` POST message to the source. |
+| Cross-chain, **from destination** | Original user through the deadline; anyone strictly after it | Any time before or after expiry | Destination gateway locks the order against fills and dispatches a `RefundEscrow` POST message to the source. |
 
-For destination-side cancellation, the contract checks `order.deadline >= block.number` before it allows the public route. In practical terms, the original user is still required **at the deadline block itself**; a third party can cancel only from the first destination block strictly after the deadline.
+For same-chain and destination-side cancellation, the contract requires the original user while `_blockNumber() <= order.deadline`. The deadline block itself is still user-only; a third party can cancel from the first block strictly after it. `_blockNumber()` is the L2 block height on Arbitrum, matching `eth_blockNumber`; it is not a timestamp or an L1 block-height field.
+
+A third-party caller pays the cancellation transaction gas and receives no escrow or fee refund. The finalized order remains in calldata, and the gateway always sends the remaining escrow to `order.user`, so the caller cannot redirect it.
 
 ### What is refunded and what is not
 
@@ -48,35 +50,20 @@ Cross-chain refunds exclude principal already earned by solvers, even if their r
 
 ## Contract rules at a glance
 
-All routes enter the same `IntentGatewayV2.cancelOrder` function. The contract derives the order commitment, rejects a commitment that is already settled, and chooses the implementation from the current chain:
+All routes enter `IntentGatewayV2.cancelOrder`. The gateway derives the order commitment, rejects an already-settled commitment, and routes same-chain work to `IntrinsicModule.cancelSameChain`; the two cross-chain routes delegate to `ExtrinsicModule`. The route-specific authorization predicates are:
 
 ```solidity
-function cancelOrder(Order calldata order, CancelOptions calldata options) public payable nonReentrant {
-    bytes32 commitment = keccak256(abi.encode(order));
-    if (_filled[commitment] != address(0)) revert Filled();
-
-    bool isSameChain = keccak256(order.source) == keccak256(order.destination);
-    if (isSameChain) {
-        _cancelSameChain(order, commitment);
-    } else if (currentChain == keccak256(order.source)) {
-        _cancelFromSource(order, options, commitment);
-    } else if (currentChain == keccak256(order.destination)) {
-        _cancelFromDest(order, options, commitment);
-    } else {
-        revert WrongChain();
-    }
+// Same-chain route: user through the deadline; public only after it.
+if (order.user != bytes32(uint256(uint160(msg.sender))) && _blockNumber() <= order.deadline) {
+    revert Unauthorized();
 }
-```
 
-The authorization and expiry checks are intentionally different for the two cross-chain routes:
-
-```solidity
 // Source route: user only, and proof height must be after the deadline.
 if (order.user != bytes32(uint256(uint160(msg.sender)))) revert Unauthorized();
 if (options.height <= order.deadline) revert NotExpired();
 
 // Destination route: user through the deadline; public only after it.
-if (order.deadline >= block.number) {
+if (order.deadline >= _blockNumber()) {
     if (order.user != bytes32(uint256(uint160(msg.sender)))) revert Unauthorized();
 }
 ```
@@ -85,14 +72,14 @@ This explains the trade-off:
 
 - Choose the **destination route** when the user wants to recover promptly, including before expiry. It definitively prevents a future fill before the refund travels back to the source.
 - Choose the **source route** only after expiry when the user controls the source wallet and prefers proving the destination fill amounts to recover the unfilled remainder.
-- A same-chain order has no messaging or deadline precondition, but the original user must always call it.
+- Choose the **same-chain route** for a direct refund with no messaging fee. The user can submit it through the deadline, and a keeper can submit it strictly after expiry.
 
 ### `CancelOptions`
 
 ```solidity
 struct CancelOptions {
     uint256 relayerFee;  // Fee paid to the Hyperbridge relayer (cross-chain cancels only)
-    uint256 height;      // Proof height for source-side cancels; must be > order.deadline
+    uint64 height;       // Proof height for source-side cancels; must be > order.deadline
 }
 ```
 
@@ -107,7 +94,7 @@ event OrderCancelled(bytes32 indexed commitment, address canceller);
 
 `cancelOrder` emits this once, before it routes to any of the three cancellation paths, so it fires the moment a cancellation is initiated whichever route handles it. Every route-specific check reverts, and a revert discards logs, so the event never announces a cancellation that did not happen. It is the only signal keyed to the order that a cross-chain cancel produces on the initiating chain; the host's `GetRequestEvent` and `PostRequestEvent` carry no reference to the order.
 
-`canceller` is `msg.sender`. On the destination route that need not be `order.user`: after the deadline anyone may cancel, so this is the only record of who did.
+`canceller` is `msg.sender`. On same-chain and destination routes that need not be `order.user`: after the deadline anyone may cancel, so this is the record of who submitted the transaction.
 
 ### The `EscrowRefunded` event
 
@@ -131,24 +118,42 @@ Protocol fees are held until the order settles. `DustCollected` reports only the
 ## Set up the gateway, indexer, and wallets
 
 ```typescript lineNumbers title="setup.ts" icon="typescript"
-import { EvmChain, IntentsCoprocessor, IntentGateway, IsmpClient, createQueryClient } from "@hyperbridge/sdk"
+import {
+  EvmChain,
+  IntentsCoprocessor,
+  IntentGateway,
+  IsmpClient,
+  SubstrateChain,
+  createQueryClient,
+  normalizeStateMachineId,
+  type Order,
+} from "@hyperbridge/sdk"
 import { createWalletClient, http } from "viem"
 import { privateKeyToAccount } from "viem/accounts"
+import { arbitrum, mainnet } from "viem/chains"
 
 const SOURCE_RPC_URL = "https://eth-mainnet.g.alchemy.com/v2/YOUR_KEY"
 const DEST_RPC_URL = "https://arb-mainnet.g.alchemy.com/v2/YOUR_KEY"
 
 const sourceChain = await EvmChain.create(SOURCE_RPC_URL)
 const destChain   = await EvmChain.create(DEST_RPC_URL)
+const hyperbridge = await SubstrateChain.connect({
+  wsUrl: "wss://hyperbridge-rpc.polkadot.io",
+  stateMachineId: "POLKADOT-3367",
+  consensusStateId: "DOT0",
+  hasher: "Keccak",
+})
 
 const coprocessor = await IntentsCoprocessor.connect("wss://nexus.rpc.polytope.technology")
 const queryClient = createQueryClient({ url: "https://nexus.indexer.polytope.technology" })
 const intentGateway = (await IntentGateway.create(sourceChain, destChain, coprocessor)).withQueryClient(queryClient)
-const indexerClient = new IsmpClient({ queryClient, source: sourceChain, dest: destChain })
+const indexerClient = new IsmpClient({ queryClient, source: sourceChain, dest: destChain, hyperbridge })
 
-const account      = privateKeyToAccount("0xYOUR_PRIVATE_KEY")
-const sourceWallet = createWalletClient({ account, transport: http(SOURCE_RPC_URL) })
-const destWallet   = createWalletClient({ account, transport: http(DEST_RPC_URL) })
+const account       = privateKeyToAccount("0xYOUR_PRIVATE_KEY")
+const keeperAccount = privateKeyToAccount("0xKEEPER_PRIVATE_KEY")
+const sourceWallet  = createWalletClient({ account, chain: mainnet, transport: http(SOURCE_RPC_URL) })
+const destWallet    = createWalletClient({ account, chain: arbitrum, transport: http(DEST_RPC_URL) })
+const keeperWallet  = createWalletClient({ account: keeperAccount, chain: mainnet, transport: http(SOURCE_RPC_URL) })
 ```
 
 ---
@@ -177,31 +182,68 @@ For a destination-side cancel before expiry, ensure the signer is the same addre
 
 ## Same-Chain Orders
 
-For same-chain orders, the contract verifies the caller is the original order creator and that tokens remain in escrow, then returns them directly. No cross-chain messaging is required and there is no deadline restriction. The order creator can cancel at any time before the order is filled.
+For same-chain orders, the gateway returns escrow directly on the order's chain. The order user can cancel through the deadline. Strictly after the deadline, a keeper can submit the same calldata from its own wallet; the keeper pays native gas, while all remaining escrow and refundable `order.fees` still go to `order.user`. No Hyperbridge message or relayer fee is involved.
 
 If the order has been partially filled, the escrowed balance will already be reduced proportionally. The refund covers only what remains.
 
-```typescript lineNumbers title="cancel-same-chain.ts" icon="typescript"
-async function cancelSameChain(order: Order) {
-  if (await intentGateway.isOrderFilled(order)) {
-    throw new Error("Order already filled or cancelled")
+The keeper must use SDK chain clients and a wallet for the finalized order's source/destination chain. The Ethereum setup above can create a same-chain gateway by passing `sourceChain` on both sides:
+
+```typescript lineNumbers title="cancel-expired-same-chain.ts" icon="typescript"
+async function cancelExpiredSameChain(order: Order) {
+  const orderSource = normalizeStateMachineId(order.source)
+  const orderDestination = normalizeStateMachineId(order.destination)
+  if (
+    orderSource !== orderDestination ||
+    orderSource !== sourceChain.config.stateMachineId ||
+    keeperWallet.chain.id !== mainnet.id
+  ) {
+    throw new Error("Gateway and keeper wallet must target the order's same chain")
+  }
+  const sameChainGateway = await IntentGateway.create(sourceChain, sourceChain, coprocessor)
+  const sameChainIndexer = new IsmpClient({
+    queryClient,
+    source: sourceChain,
+    dest: sourceChain,
+    hyperbridge,
+  })
+  const currentBlock = await sourceChain.client.getBlockNumber({ cacheTime: 0 })
+  if (currentBlock <= order.deadline) throw new Error("Order has not expired")
+  if (await sameChainGateway.isOrderFilled(order)) {
+    throw new Error("Order already settled")
   }
 
-  const gen = intentGateway.cancelOrder(order, indexerClient)
-
-  // First yield: AWAITING_CANCEL_TRANSACTION
-  const { value: { data, to } } = await gen.next()
-  const signedTx = await sourceWallet.signTransaction({
-    to,
-    data,
-    type: "eip1559",
-  })
-
-  // Pass signed tx back. SDK broadcasts and yields CANCELLATION_COMPLETE as the return value.
-  const { value: complete } = await gen.next(signedTx)
-  console.log("Refunded at:", complete!.transactionHash)
+  const cancellation = sameChainGateway.cancelOrder(order, sameChainIndexer)
+  try {
+    const pending = await cancellation.next()
+    if (pending.done || pending.value.status !== "AWAITING_CANCEL_TRANSACTION") {
+      throw new Error("Expected a same-chain cancellation transaction")
+    }
+    const { to, data, value } = pending.value
+    const hash = await keeperWallet.sendTransaction({
+      account: keeperWallet.account,
+      chain: keeperWallet.chain,
+      to,
+      data,
+      value,
+      type: "eip1559",
+    })
+    const result = await cancellation.next(hash)
+    if (result.done || result.value.status !== "CANCELLATION_COMPLETE") {
+      throw new Error("Cancellation did not complete")
+    }
+    if (!(await sameChainGateway.isOrderRefunded(order))) {
+      throw new Error("Refund is not confirmed on-chain")
+    }
+    console.log("Refunded to the order user:", result.value.transactionHash)
+  } finally {
+    await cancellation.return(undefined)
+  }
 }
+
+await cancelExpiredSameChain(finalizedOrder)
 ```
+
+Preflight checks reduce failed transactions but do not reserve the order; the contract remains authoritative if a fill or another cancellation lands first. A concurrent cancellation can make this transaction revert with `Filled`. Re-check `isOrderRefunded(order)` before reporting a refund, rather than treating that error by itself as proof. The keeper wallet also needs enough native currency for transaction gas.
 
 ---
 

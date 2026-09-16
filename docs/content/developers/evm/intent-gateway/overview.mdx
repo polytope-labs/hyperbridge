@@ -24,7 +24,7 @@ Each order is **auctioned** to competing solvers. Solvers bid by signing `UserOp
 
 ## Same-Chain Swaps
 
-Intent Gateway supports same-chain swaps where source and destination are the same chain. Settlement is atomic — no cross-chain messaging required. Supports **partial fills** where multiple solvers can each fill a portion of an order, with escrow released proportionally. Cancellation is immediate and any remaining escrowed assets are returned to the user.
+Intent Gateway supports same-chain swaps where source and destination are the same chain. Settlement is atomic — no cross-chain messaging required. Supports **partial fills** where multiple solvers can each fill a portion of an order, with escrow released proportionally. Cancellation is immediate: the user may cancel through the deadline, and anyone may cancel strictly after it; remaining escrow always returns to the order user.
 
 ![Same-Chain Swap](./images/intent-gateway-same-chain.svg)
 

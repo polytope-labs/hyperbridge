@@ -344,8 +344,8 @@ abstract contract IntentsBase is EIP712 {
      * follows; for cross-chain orders `EscrowRefunded` follows on the source chain once the
      * cancellation has travelled through Hyperbridge.
      * @param commitment The order commitment hash.
-     * @param canceller The account that initiated the cancellation. The destination-side route is
-     * permissionless after expiry, so this is not necessarily the order's creator.
+     * @param canceller The account that initiated the cancellation. Destination-side cancellation
+     * and expired same-chain cancellation are permissionless, so this may be a third party.
      */
     event OrderCancelled(bytes32 indexed commitment, address canceller);
 

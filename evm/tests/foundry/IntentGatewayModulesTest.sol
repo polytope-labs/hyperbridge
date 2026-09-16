@@ -396,6 +396,31 @@ contract IntentGatewayModulesTest is MainnetForkBaseTest {
         assertEq(gateway._filled(commitment), solver, "filled after three upgrades");
     }
 
+    /// An order placed through the previous intrinsic module remains publicly cancellable after
+    /// an empty-data implementation upgrade installs a new intrinsic module.
+    function testExpiredSameChainOrderCanBePubliclyCancelledAfterModuleUpgrade() public {
+        uint256 amount = 1000 * 1e6;
+        uint256 userBefore = usdc.balanceOf(user);
+        Order memory order = _placeSameChainOrder(amount, 900 * 1e18);
+        bytes32 commitment = keccak256(abi.encode(order));
+        address previousIntrinsic = gateway.intrinsicModule();
+
+        IntentGatewayV2 newImpl = deployIntentGatewayImpl();
+        _upgradeThroughExecute(address(newImpl), "");
+        assertNotEq(gateway.intrinsicModule(), previousIntrinsic, "intrinsic module switched");
+        assertEq(gateway._orders(commitment, address(usdc)), amount, "pre-upgrade escrow preserved");
+
+        vm.roll(order.deadline + 1);
+        uint256 keeperBefore = usdc.balanceOf(solver);
+        vm.prank(solver);
+        gateway.cancelOrder(order, CancelOptions({relayerFee: 0, height: 0}));
+
+        assertEq(usdc.balanceOf(user), userBefore, "original user refunded");
+        assertEq(usdc.balanceOf(solver), keeperBefore, "keeper receives no escrow");
+        assertEq(gateway._orders(commitment, address(usdc)), 0, "escrow cleared");
+        assertEq(gateway._filled(commitment), user, "refund finalizes for original user");
+    }
+
     /*//////////////////////////////////////////////////////////////
                                 HELPERS
     //////////////////////////////////////////////////////////////*/

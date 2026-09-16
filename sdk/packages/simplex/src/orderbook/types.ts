@@ -52,10 +52,26 @@ export interface ServerInfo {
 	eip712DomainVersion: string
 }
 
-/** `serverInfo` and `books` together, which is how simplex reads them. */
+/** One token on one chain, as the orderbook's own registry has it. */
+export interface ChainToken {
+	symbol: string
+	/** Its decimals there: USDC and USDT carry 18 on BNB Chain and 6 on the rest. */
+	decimals: number
+}
+
+/** One chain the orderbook serves, with the tokens it registers on it. */
+export interface ChainInfo {
+	/** State machine id, such as `EVM-8453`. */
+	id: string
+	name: string
+	tokens: ChainToken[]
+}
+
+/** `serverInfo`, `books` and `chains` together, which is how simplex reads them. */
 export interface OrderbookLimits {
 	serverInfo: ServerInfo
 	books: Book[]
+	chains: ChainInfo[]
 }
 
 export interface PostedOrder {

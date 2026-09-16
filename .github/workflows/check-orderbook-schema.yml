@@ -1,0 +1,42 @@
+name: "orderbook schema pin"
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# `sdk/packages/simplex/src/tests/fixtures/orderbook-schema.graphql` is a copy of the
+# orderbook's own schema, and `schema.test.ts` validates every document simplex sends
+# against it. A copy that has fallen behind still passes, which is the one failure the
+# test exists to prevent, so the copy is compared with the server here instead.
+on:
+    schedule:
+        - cron: "17 6 * * 1"
+    pull_request:
+        branches: [main]
+        types: [opened, synchronize, reopened, ready_for_review]
+        paths:
+            - "sdk/packages/simplex/src/orderbook/**"
+            - "sdk/packages/simplex/src/tests/fixtures/orderbook-schema.graphql"
+            - ".github/workflows/check-orderbook-schema.yml"
+    workflow_dispatch:
+
+jobs:
+    compare:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+              with:
+                  ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+            - name: Compare the pinned schema with the orderbook's
+              env:
+                  GH_TOKEN: ${{ secrets.ORDERBOOK_SCHEMA_TOKEN || secrets.GITHUB_TOKEN }}
+              run: |
+                  pin=sdk/packages/simplex/src/tests/fixtures/orderbook-schema.graphql
+                  gh api repos/polytope-labs/hyperfx-orderbook/contents/schema.graphql -q .content \
+                    | base64 -d > /tmp/schema.graphql
+                  if ! diff -u "$pin" /tmp/schema.graphql; then
+                    echo "::error::The pinned orderbook schema has drifted. Refresh it with the command in schema.test.ts."
+                    exit 1
+                  fi

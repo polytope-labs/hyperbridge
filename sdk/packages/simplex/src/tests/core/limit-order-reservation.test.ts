@@ -149,20 +149,20 @@ describe("a fill's draw-down", () => {
 	async function onFill(outputs: Array<{ token: HexString; amount: bigint }>) {
 		const ctx = await build()
 		await placeBid(ctx)
-		const settleFill = vi.fn(async () => null)
+		const resize = vi.fn(async () => null)
 		;(ctx.filler as any).assetRegistry = { getAddress: () => CNGN }
 		;(ctx.filler as any).contractService = { getTokenDecimals: async () => 18 }
-		;(ctx.filler as any).limitOrderService = { settleFill }
+		;(ctx.filler as any).limitOrderService = { resize }
 
 		await (ctx.filler as any).settleFilledLimitOrder(COMMITMENT, 8453, outputs)
-		return { ...ctx, settleFill }
+		return { ...ctx, resize }
 	}
 
 	it("gives the hold back and works the order down by what went out", async () => {
 		const ctx = await onFill([{ token: CNGN, amount: 400n * 10n ** 18n }])
 
 		expect(await ctx.reserved()).toBe("0")
-		expect(ctx.settleFill).toHaveBeenCalledWith(LIMIT_ORDER, 400n * 10n ** 18n)
+		expect(ctx.resize).toHaveBeenCalledWith(expect.objectContaining({ id: LIMIT_ORDER }), 400n * 10n ** 18n)
 	})
 
 	it("sums every output of the token the order pays", async () => {
@@ -172,7 +172,7 @@ describe("a fill's draw-down", () => {
 			{ token: CNGN, amount: 250n * 10n ** 18n },
 		])
 
-		expect(ctx.settleFill).toHaveBeenCalledWith(LIMIT_ORDER, 350n * 10n ** 18n)
+		expect(ctx.resize).toHaveBeenCalledWith(expect.objectContaining({ id: LIMIT_ORDER }), 350n * 10n ** 18n)
 	})
 
 	it("leaves the order alone when the fill names none of what it pays", async () => {
@@ -180,7 +180,7 @@ describe("a fill's draw-down", () => {
 		// one drawn down by a guess.
 		const ctx = await onFill([{ token: OTHER, amount: 999n * 10n ** 18n }])
 
-		expect(ctx.settleFill).not.toHaveBeenCalled()
+		expect(ctx.resize).not.toHaveBeenCalled()
 		// The hold still goes back: the bid is settled either way.
 		expect(await ctx.reserved()).toBe("0")
 	})
@@ -188,11 +188,12 @@ describe("a fill's draw-down", () => {
 	it("does nothing for a bid that held nothing", async () => {
 		const ctx = await build()
 		await ctx.bids.store({ commitment: COMMITMENT, success: true })
-		const settleFill = vi.fn()
-		;(ctx.filler as any).limitOrderService = { settleFill }
+		const resize = vi.fn()
+		// biome-ignore lint/suspicious/noExplicitAny: narrow stub for this path
+		;(ctx.filler as any).limitOrderService = { resize }
 
 		await (ctx.filler as any).settleFilledLimitOrder(COMMITMENT, 8453, [{ token: CNGN, amount: 1n }])
-		expect(settleFill).not.toHaveBeenCalled()
+		expect(resize).not.toHaveBeenCalled()
 	})
 })
 
@@ -233,8 +234,8 @@ describe("a bid drawing on several limit orders", () => {
 		;(ctx.filler as any).contractService = { getTokenDecimals: async () => 18 }
 		// biome-ignore lint/suspicious/noExplicitAny: narrow stubs for this path
 		;(ctx.filler as any).limitOrderService = {
-			settleFill: async (id: string, amount: bigint) => {
-				settled.push([id, amount])
+			resize: async (order: { id: string }, amount: bigint) => {
+				settled.push([order.id, amount])
 				return null
 			},
 		}

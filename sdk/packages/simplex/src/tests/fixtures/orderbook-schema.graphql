@@ -235,6 +235,35 @@ scalar Bytes
 
 union CancelOrderResult = OrderCancelled | MessageRejected
 
+"""
+One chain this server serves.
+"""
+type ChainInfo {
+	"""
+	The state machine id, such as `EVM-8453`.
+	"""
+	id: String!
+	"""
+	What to call it, such as `Base`.
+	"""
+	name: String!
+	"""
+	The tokens this chain registers, by symbol.
+	"""
+	tokens: [ChainToken!]!
+}
+
+"""
+One token on one chain.
+"""
+type ChainToken {
+	symbol: String!
+	"""
+	Its decimals on this chain: USDC and USDT carry 18 on BNB Chain and 6 on the rest.
+	"""
+	decimals: Int!
+}
+
 scalar DateTime
 
 enum FailureCode {
@@ -518,8 +547,8 @@ type Query {
 	"""
 	rates(tokenIn: String!, tokenOut: String!, minSize: BigInt, fillChain: String, sourceChain: String, limit: Int = 100): [RateEntry!]!
 	"""
-	The best rate that can fill an input amount (1e18): one order on a cross-chain route, several
-	solvers' orders combined on a same-chain route.
+	The best rate that can fill an input amount (1e18): the clearing price of the orders
+	serving the route, which may combine several solvers' orders on either route kind.
 	"""
 	quote(route: RouteInput!, amountIn: BigInt!): SwapQuote!
 	"""
@@ -547,6 +576,14 @@ type Query {
 	A solver by address.
 	"""
 	solver(address: Address!): Solver
+	"""
+	Every chain this server serves, by state machine id, with the tokens it registers on each.
+	
+	A client names a route by chain and symbol, and one symbol does not have the same decimals
+	everywhere, so this is what saves it carrying a copy of the registry. A chain the registry
+	does not list is served under its own id as its name.
+	"""
+	chains: [ChainInfo!]!
 	"""
 	A book's recorded history in [from, to), oldest first: on one fill chain, or across chains
 	when fillChain is omitted. Between two points the book held the earlier point's values.
@@ -740,15 +777,16 @@ input RouteInput {
 }
 
 """
-How the gateway settles a route.
+Whether a route's payment crosses chains, which decides which orders serve it. Either kind is
+filled by one solver or by several together.
 """
 enum RouteKind {
 	"""
-	Source and destination are one chain: several solvers may fill parts of one order.
+	Source and destination are one chain: every order filled there serves it.
 	"""
 	SAME_CHAIN
 	"""
-	Payment crosses chains: one solver fills the whole order.
+	Payment crosses chains: only orders declaring the source chain serve it.
 	"""
 	CROSS_CHAIN
 }
@@ -777,8 +815,8 @@ type RouteLiquidity {
 	"""
 	availableLiquidity: BigInt!
 	"""
-	The largest amountIn the route could fill (1e18 tokenIn, whole raw units): one order
-	cross-chain, combined same-chain.
+	The largest amountIn the route could fill with its orders combined (1e18 tokenIn, whole
+	raw units).
 	"""
 	maxFillableIn: BigInt!
 	orderCount: Int!
@@ -940,15 +978,10 @@ type SwapQuote {
 	"""
 	amountOut: BigInt!
 	"""
-	The served rate, quote per 1 base (1e18). Cross-chain: the best price among orders that can
-	fill the whole trade. Same-chain: the clearing price, the best at which the orders at it or
-	better can fill the trade together. Null when the route can't fill it.
+	The served rate, quote per 1 base (1e18): the clearing price, the best at which the orders
+	at it or better can fill the trade together. Null when the route can't fill it.
 	"""
 	rate: BigInt
-	"""
-	The served level's bucket; null same-chain, where a fill spans levels.
-	"""
-	priceBucket: BigInt
 	fillable: Boolean!
 	"""
 	The tokenIn (1e18) the route can absorb at the served price or better.
@@ -959,7 +992,7 @@ type SwapQuote {
 	"""
 	maxFillableIn: BigInt!
 	"""
-	The orders used, best first: one cross-chain, possibly several same-chain.
+	The orders used, best first: one, or several across solvers.
 	"""
 	fills: [QuoteFill!]!
 }

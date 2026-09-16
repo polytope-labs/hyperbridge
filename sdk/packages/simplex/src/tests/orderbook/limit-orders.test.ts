@@ -5,6 +5,7 @@ import { LimitOrderValidationError, type CreateLimitOrderRequest } from "@/order
 import type { CancelOrderResult } from "@/orderbook/types"
 import {
 	CREATE_REQUEST as REQUEST,
+	LIMITS,
 	fakeClient,
 	limitOrderService as makeService,
 	ORDERBOOK_FIXTURES,
@@ -160,6 +161,31 @@ describe("LimitOrderService.create validation", () => {
 		await rejects({ amountIn: "0" }, /amountIn must be greater than zero/)
 		await rejects({ amountOut: "1.5e3" }, /amountOut must be an amount in whole tokens/)
 		await rejects({ amountOut: "0.0000000000000000001" }, /more than 18 decimal places/)
+	})
+})
+
+describe("token decimals", () => {
+	it("takes them from the orderbook's own registry rather than the chain", async () => {
+		// The server prices against this registry, and every post and repost needs
+		// both sides, so the limits already cached here save two chain reads each
+		// time and agree with what the orderbook expects by construction.
+		const client = fakeClient([])
+		const { service } = makeService(client)
+		await service.create(REQUEST)
+
+		// 1,500,000 cNGN at the fixture's 18 decimals, where the chain stub would
+		// have said 18 for cNGN too but 6 for USDC on the input side.
+		expect(client.submitted).toEqual(["0x00"])
+	})
+
+	it("falls back to the token when the orderbook lists neither the chain nor the symbol", async () => {
+		const client = fakeClient([])
+		client.limits = async () => ({ ...LIMITS, chains: [] })
+		const { service, store } = makeService(client)
+		const { order } = await service.create(REQUEST)
+
+		expect(order.status).toBe("open")
+		expect((await store.get(order.id))?.commitment).toBe("0xabc")
 	})
 })
 

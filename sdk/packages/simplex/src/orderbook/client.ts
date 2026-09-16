@@ -26,6 +26,7 @@ const LIMITS_QUERY = `
 			eip712DomainVersion
 		}
 		books { id base quote }
+		chains { id name tokens { symbol decimals } }
 	}
 `
 

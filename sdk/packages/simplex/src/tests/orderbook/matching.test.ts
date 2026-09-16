@@ -78,15 +78,12 @@ describe("matchLimitOrder", () => {
 		expect(match?.offer).toBe(1000n * ONE)
 	})
 
-	it("matches an order whose price falls short of the ask, and says by how much", () => {
-		// Whether a shortfall can be filled is the caller's rule: cross-chain
-		// reverts on any under-fill, same-chain may take a partial. Refusing here
-		// would make a same-chain partial impossible whenever the price, rather
-		// than the size, is what falls short.
+	it("does not match an order whose offer falls short of the ask", () => {
+		// Escrow release is proportional, so every fill settles at the swapper's
+		// rate whatever fraction it covers. An order whose offer is below the ask
+		// would be paying above the rate it signed, however little it fills.
 		const order = limitOrder({ price: (1300n * ONE).toString() })
-		const match = matchLimitOrder([order], incoming(), resolve)
-		expect(match?.payout).toBe(1_300_000n * ONE)
-		expect(match?.payout).toBeLessThan(incoming().requestedOutput)
+		expect(matchLimitOrder([order], incoming(), resolve)).toBeNull()
 	})
 
 	it("does not match an order with nothing left to pay", () => {
@@ -155,7 +152,8 @@ describe("matchLimitOrder", () => {
 		// USDC in, USDC out, below par: what the curves expressed as ask-only and
 		// priced under 1. The order carries the symbol on both sides.
 		const order = limitOrder({ book: "USDC", base: "USDC", quote: "USDC", price: ((999n * ONE) / 1000n).toString() })
-		const swap = incoming({ source: BASE_CHAIN, outputToken: USDC })
+		// Asking for less than the order offers, so its offer covers the ask.
+		const swap = incoming({ source: BASE_CHAIN, outputToken: USDC, requestedOutput: 900n * ONE })
 
 		const match = matchLimitOrder([order], swap, resolve)
 		expect(match?.order.id).toBe("L1")
@@ -176,51 +174,49 @@ describe("matchLimitOrder", () => {
 	})
 
 	describe("choosing between several matches", () => {
-		it("takes the one that pays the most", () => {
+		it("draws on the tightest that still clears the ask", () => {
+			// The rate is the swapper's either way, so which one funds the swap does
+			// not change what it earns. It decides what is left resting, and the
+			// generous order is the one that qualifies for more swaps later.
 			const cheap = limitOrder({ id: "cheap", price: (1450n * ONE).toString() })
 			const generous = limitOrder({ id: "generous", price: (1600n * ONE).toString() })
-			expect(matchLimitOrder([cheap, generous], incoming(), resolve)?.order.id).toBe("generous")
+			expect(matchLimitOrder([cheap, generous], incoming(), resolve)?.order.id).toBe("cheap")
 		})
 
-		it("passes over a better rate that has nothing behind it", () => {
-			// Ranking on the offer alone would take `thin`, pay out the little it has
-			// left, and leave the caller to skip a cross-chain fill that `deep` could
-			// have covered outright.
-			const thin = limitOrder({ id: "thin", price: (1600n * ONE).toString(), remaining: ONE.toString() })
-			const deep = limitOrder({ id: "deep", price: (1450n * ONE).toString() })
-			expect(matchLimitOrder([thin, deep], incoming(), resolve)?.order.id).toBe("deep")
-		})
-
-		it("breaks a tie on the payout by taking the one with more left", () => {
+		it("finishes the smaller of two equal offers rather than part-using both", () => {
 			const small = limitOrder({ id: "small", remaining: (1_500_000n * ONE).toString() })
 			const large = limitOrder({ id: "large", remaining: (3_000_000n * ONE).toString() })
-			expect(matchLimitOrder([small, large], incoming(), resolve)?.order.id).toBe("large")
+			expect(matchLimitOrder([large, small], incoming(), resolve)?.order.id).toBe("small")
 		})
 	})
 
-	describe("walking several levels", () => {
-		it("takes a second order when the best one cannot cover the ask", () => {
-			// The orderbook quotes a same-chain swapper the clearing price across every
-			// level that can fill the trade together, so honouring one would advertise
-			// depth and then refuse to meet it.
-			// 1,400,000 asked for, and neither order covers it alone.
-			const best = limitOrder({ id: "best", price: (1500n * ONE).toString(), remaining: (900_000n * ONE).toString() })
-			const next = limitOrder({ id: "next", price: (1450n * ONE).toString(), remaining: (600_000n * ONE).toString() })
+	describe("drawing on several orders", () => {
+		it("adds levels until the ask is covered, tightest first", () => {
+			// 1,400,000 asked for. Both clear the ask on rate; neither has the depth
+			// alone, so the swap draws on both, spending the tighter one first.
+			const tight = limitOrder({ id: "tight", price: (1450n * ONE).toString(), remaining: (600_000n * ONE).toString() })
+			const rich = limitOrder({ id: "rich", price: (1600n * ONE).toString(), remaining: (900_000n * ONE).toString() })
 
-			const matched = matchLimitOrders([next, best], incoming(), resolve)
-			expect(matched.map((match) => match.order.id)).toEqual(["best", "next"])
-			expect(matched.reduce((total, match) => total + match.payout, 0n)).toBe(1_500_000n * ONE)
+			expect(matchLimitOrders([rich, tight], incoming(), resolve).map((m) => m.order.id)).toEqual(["tight", "rich"])
 		})
 
-		it("stops as soon as the ask is covered", () => {
-			const first = limitOrder({ id: "first" })
-			const spare = limitOrder({ id: "spare", price: (1400n * ONE).toString() })
+		it("stops at the first order that covers it", () => {
+			const tight = limitOrder({ id: "tight", price: (1450n * ONE).toString() })
+			const rich = limitOrder({ id: "rich", price: (1600n * ONE).toString() })
 
-			// One order covers the 1,400,000 asked for, so the second is left alone.
-			expect(matchLimitOrders([first, spare], incoming(), resolve).map((m) => m.order.id)).toEqual(["first"])
+			expect(matchLimitOrders([rich, tight], incoming(), resolve).map((m) => m.order.id)).toEqual(["tight"])
 		})
 
-		it("orders them the same way every time, so the draw-down follows the promise", () => {
+		it("leaves out an order whose rate does not clear the ask, however deep it is", () => {
+			// Depth cannot make up for a rate: every fill settles at the swapper's
+			// rate, so this one would be paying above what it signed for.
+			const shallow = limitOrder({ id: "shallow", remaining: (10n * ONE).toString() })
+			const cheap = limitOrder({ id: "cheap", price: (1300n * ONE).toString() })
+
+			expect(matchLimitOrders([cheap, shallow], incoming(), resolve).map((m) => m.order.id)).toEqual(["shallow"])
+		})
+
+		it("orders them the same way every time", () => {
 			const a = limitOrder({ id: "a", remaining: (10n * ONE).toString() })
 			const b = limitOrder({ id: "b", remaining: (10n * ONE).toString() })
 

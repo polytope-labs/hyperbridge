@@ -155,6 +155,52 @@ describe.each(backends)("%s", (_name, open) => {
 		})
 	})
 
+	describe("transaction", () => {
+		it("keeps a settlement that throws part-way from landing at all", async () => {
+			// A fill claims what its bid held, works the orders down and gives the rest
+			// back. Half of that is worse than none: a hold released against an order
+			// that was never drawn down leaves it advertising output already paid.
+			const { store, close } = open()
+			try {
+				await store.create(ORDER)
+				await store.reserve(ORDER.id, "100")
+
+				await expect(
+					store.transaction(async () => {
+						await store.drawDown(ORDER.id, "100")
+						await store.release(ORDER.id, "100")
+						throw new Error("the fill path exploded")
+					}),
+				).rejects.toThrow("exploded")
+
+				const after = await store.get(ORDER.id)
+				expect(after?.remaining).toBe(ORDER.size)
+				expect(after?.reserved).toBe("100")
+			} finally {
+				await close()
+			}
+		})
+
+		it("commits every write when the settlement finishes", async () => {
+			const { store, close } = open()
+			try {
+				await store.create(ORDER)
+				await store.reserve(ORDER.id, "100")
+
+				await store.transaction(async () => {
+					await store.drawDown(ORDER.id, "100")
+					await store.release(ORDER.id, "100")
+				})
+
+				const after = await store.get(ORDER.id)
+				expect(after?.remaining).toBe((BigInt(ORDER.size) - 100n).toString())
+				expect(after?.reserved).toBe("0")
+			} finally {
+				await close()
+			}
+		})
+	})
+
 	describe("release", () => {
 		it("gives a reservation back", async () => {
 			const { store, close } = open()

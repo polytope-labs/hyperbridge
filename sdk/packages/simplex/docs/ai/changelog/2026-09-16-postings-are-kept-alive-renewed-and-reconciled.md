@@ -16,9 +16,11 @@ every op hash it has taken, so renewal is a fresh op on a new nonce.
 
 **`reconcile()`** pages through `solver(address).orders` and compares it with what is open here.
 An entry no limit order owns is cancelled, an order whose entry has gone is posted again without the
-cancel `repost` normally leads with, and an entry that is `resized` or `backed: false` is left where
-it is with `UNDER_FUNDED` on the row for the operator. Reposting that last one would only have it cut
-down again. A `resizing` row written in the last two minutes is skipped, which
+cancel `repost` normally leads with, and an entry the solver cannot cover is left where it is with
+`UNDER_FUNDED` on the row for the operator, since reposting it would only have it cut down again.
+"Cannot cover" is `resized`, or a `backed: false` on an entry carrying a `validatedAt`: `backed` is
+also false before any cycle has read a balance, and a posting surfaces at its full quoted size
+meanwhile. A `resizing` row written in the last two minutes is skipped, which
 `2026-09-16-reconciliation-waits-out-a-resize-rather-than-locking-against-it.md` covers.
 
 A pass that throws is logged and its clock carries on, and a tick is skipped while the previous pass

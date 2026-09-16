@@ -64,7 +64,7 @@ const MY_ORDERS_QUERY = `
 		solver(address: $solver) {
 			status
 			orders(first: 50, after: $after) {
-				edges { node { ${POSTED_ORDER_FIELDS} resized backed } }
+				edges { node { ${POSTED_ORDER_FIELDS} resized backed validatedAt } }
 				pageInfo { hasNextPage endCursor }
 			}
 		}

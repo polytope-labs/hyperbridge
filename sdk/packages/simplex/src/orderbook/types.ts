@@ -67,10 +67,19 @@ export interface PostedOrder {
 	advertisedSize: string
 	expiresAt: string
 	acceptedSources: string[]
-	/** `advertisedSize < quotedSize`: the balance is binding, not the quote. */
+	/** The balance, not the quote, is what binds `advertisedSize`. */
 	resized?: boolean
-	/** False until the next balance cycle has confirmed the solver can cover the quote. */
+	/**
+	 * Whether the solver's balance covers the whole quote. Also false before any
+	 * balance has been read, which is why {@link PostedOrder.validatedAt} decides
+	 * whether a false here means anything.
+	 */
 	backed?: boolean
+	/**
+	 * The last cycle that read this order's balance, absent until one has. An
+	 * order surfaces at its quoted size meanwhile.
+	 */
+	validatedAt?: string | null
 }
 
 /**

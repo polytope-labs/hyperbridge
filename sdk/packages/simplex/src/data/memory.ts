@@ -126,6 +126,14 @@ class MemoryBidStore implements BidStore {
 		return null
 	}
 
+	async byLimitOrder(limitOrderId: string, limit = 100): Promise<StoredBid[]> {
+		return this.rows
+			.filter((row) => row.limitOrderId === limitOrderId)
+			.slice(-capLimit(limit))
+			.reverse()
+			.map((row) => ({ ...row }))
+	}
+
 	async markDead(commitment: string): Promise<boolean> {
 		let changed = false
 		for (const row of this.rows) {

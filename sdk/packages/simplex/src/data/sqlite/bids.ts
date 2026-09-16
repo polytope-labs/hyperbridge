@@ -184,6 +184,14 @@ export class SqliteBidStore implements BidStore {
 		return result.changes === 1 ? row : null
 	}
 
+	async byLimitOrder(limitOrderId: string, limit = 100): Promise<StoredBid[]> {
+		const rows = this.db
+			.prepare(`SELECT ${BID_COLUMNS} FROM bids WHERE limit_order_id = ? ORDER BY id DESC LIMIT ?`)
+			.all(limitOrderId, Math.min(Math.max(limit, 1), 500))
+		// biome-ignore lint/suspicious/noExplicitAny: raw sqlite row
+		return (rows as any[]).map((row) => this.toStoredBid(row))
+	}
+
 	async markDead(commitment: string): Promise<boolean> {
 		const result = this.db
 			.prepare("UPDATE bids SET dead = 1 WHERE commitment = ? AND retracted = 0 AND dead = 0")

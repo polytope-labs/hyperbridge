@@ -130,6 +130,11 @@ export interface BidStore {
 	 * the other gets null and does nothing.
 	 */
 	claimReservation(commitment: string): Promise<{ limitOrderId: string; amount: string } | null>
+	/**
+	 * Every bid that drew on a limit order, newest first. What makes a `remaining`
+	 * explicable to the operator: which bids took the difference.
+	 */
+	byLimitOrder(limitOrderId: string, limit?: number): Promise<StoredBid[]>
 	/** Newest first. Implementations should cap `limit` at a few hundred. */
 	recent(limit?: number): Promise<StoredBid[]>
 	/** Failed bids, newest first — for debugging. */

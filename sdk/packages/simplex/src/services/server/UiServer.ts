@@ -136,7 +136,7 @@ export interface OperatorContext {
 	activity: Pick<ActivityRecorder, "recent" | "on" | "off" | "record" | "recordWalletTx" | "walletTxs" | "fills" | "orderHistory">
 	bids?: Pick<BidStore, "recent" | "stats" | "byCommitments">
 	/** The operator's limit orders. Always present: simplex prices from them. */
-	limitOrders: Pick<LimitOrderController, "list" | "get" | "create" | "cancel">
+	limitOrders: Pick<LimitOrderController, "list" | "get" | "withFills" | "create" | "cancel">
 	/** Persists an operator pause so it survives a restart. */
 	setPaused(paused: boolean): Promise<void>
 	/**
@@ -821,10 +821,9 @@ export class UiServer {
 			if (this.mode !== "operator") return sendJson(res, 409, { error: "Filler is not running" })
 			const id = limitOrderMatch[1]
 			if (method === "GET") {
-				return this.handleLimitOrders(res, async () => {
-					const order = await this.operator!.limitOrders.get(id)
-					return order && { order }
-				})
+				// The order and the bids that drew on it: a `remaining` that shrank is
+				// only explicable alongside the fills that took the difference.
+				return this.handleLimitOrders(res, () => this.operator!.limitOrders.withFills(id))
 			}
 			if (method === "DELETE") {
 				return this.handleLimitOrders(res, () => this.operator!.limitOrders.cancel(id))

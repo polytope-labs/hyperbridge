@@ -406,6 +406,11 @@ export interface LimitOrderStore {
 	reserve(id: string, amount: string): Promise<boolean>
 	/** Gives a reservation back, after a bid was retracted, lost or found dead. */
 	release(id: string, amount: string): Promise<void>
+	/**
+	 * Works the order down by output that has actually been delivered, floored at
+	 * zero. Returns the order as it now stands, or null when there is none.
+	 */
+	drawDown(id: string, amount: string): Promise<LimitOrder | null>
 }
 
 // ===========================================================================

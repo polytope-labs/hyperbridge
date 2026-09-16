@@ -390,6 +390,13 @@ class MemoryLimitOrderStore implements LimitOrderStore {
 		return true
 	}
 
+	async drawDown(id: string, amount: string): Promise<LimitOrder | null> {
+		const order = this.orders.get(id)
+		if (!order) return null
+		const remaining = BigInt(order.remaining) - BigInt(amount)
+		return this.patch(id, { remaining: (remaining > 0n ? remaining : 0n).toString() })
+	}
+
 	async release(id: string, amount: string): Promise<void> {
 		const order = this.orders.get(id)
 		if (!order) return

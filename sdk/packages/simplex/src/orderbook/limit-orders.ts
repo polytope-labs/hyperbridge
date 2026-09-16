@@ -356,6 +356,69 @@ export class LimitOrderService {
 		return { amountIn: scaled.amountIn, amountOut: scaled.amountOut }
 	}
 
+	/**
+	 * Works a limit order down by what a fill delivered, and puts the rest back on
+	 * the orderbook.
+	 *
+	 * The order is moved to `resizing` and its new size written before the
+	 * orderbook is touched, so a crash mid-way leaves a row that says what it was
+	 * doing rather than one that silently advertises output it has already paid.
+	 *
+	 * The old entry is cancelled before the new one is posted. Two live entries
+	 * for one liability would advertise the same output twice, and the gap between
+	 * the two calls is at most one request.
+	 */
+	async settleFill(id: string, delivered: bigint): Promise<LimitOrder | null> {
+		const order = await this.store.get(id)
+		if (!order) return null
+
+		const remaining = await this.store.drawDown(id, delivered.toString())
+		if (!remaining) return null
+
+		const floor = await this.dustFloor(remaining)
+		if (BigInt(remaining.remaining) < floor) {
+			this.logger.info(
+				{ id, remaining: remaining.remaining, floor: floor.toString() },
+				"Limit order worked down past the dust floor; closing it",
+			)
+			if (remaining.commitment) await this.withdraw(remaining.commitment as HexString)
+			return this.store.setPosting(id, {
+				commitment: null,
+				bookExpiresAt: null,
+				bookPrice: null,
+				orderNonce: remaining.orderNonce,
+				status: "filled",
+				lastError: null,
+			})
+		}
+
+		return this.repost(await this.store.setStatus(id, "resizing"))
+	}
+
+	/**
+	 * Cancels the current posting and puts the order back at its present size.
+	 *
+	 * Also how a posting is renewed before it expires and how reconciliation
+	 * restores an entry the orderbook dropped, since all three want the same
+	 * thing: whatever the order has left, live on the book again.
+	 */
+	async repost(order: LimitOrder | null): Promise<LimitOrder | null> {
+		if (!order) return null
+		// `UNKNOWN_ORDER` is as good as cancelled: the entry is already gone.
+		if (order.commitment) await this.withdraw(order.commitment as HexString)
+		// A fresh nonce, because the orderbook remembers every op hash it has taken
+		// and a signed op cannot be posted twice.
+		const nonce = (BigInt(order.orderNonce) + 1n).toString()
+		return (await this.post({ ...order, commitment: null, orderNonce: nonce })).order
+	}
+
+	/** The orderbook's dust floor for what this order pays out, or zero when it names none. */
+	private async dustFloor(order: LimitOrder): Promise<bigint> {
+		const paid = order.side === "BID" ? order.quote : order.base
+		const { serverInfo } = await this.limits()
+		const floor = serverInfo.minOrderSizes.find((entry) => entry.symbol === paid)
+		return floor ? BigInt(floor.size) : 0n
+	}
 
 	/** Builds and submits the posting, then writes the orderbook's answer onto the row. */
 	private async post(order: LimitOrder): Promise<PostedLimitOrder> {

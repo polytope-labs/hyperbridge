@@ -250,6 +250,76 @@ describe("LimitOrderService.create validation", () => {
 	})
 })
 
+describe("LimitOrderService.settleFill", () => {
+	/** Take in 1,000 USDC, pay out 1,500,000 cNGN, then see 500,000 cNGN go out. */
+	const fill = async (delivered: bigint, cancels: CancelOrderResult[] = []) => {
+		const client = fakeClient([], cancels)
+		const { service, store } = makeService(client)
+		const created = await service.create(REQUEST)
+		const settled = await service.settleFill(created.order.id, delivered)
+		return { client, store, settled: settled!, id: created.order.id }
+	}
+
+	it("works the order down by what went out and reposts the rest", async () => {
+		const { client, settled } = await fill(500_000n * ONE)
+
+		expect(settled.remaining).toBe((1_000_000n * ONE).toString())
+		expect(settled.status).toBe("open")
+		// A fresh op on a fresh nonce: the orderbook remembers every hash it took.
+		expect(client.submitted).toEqual(["0x00", "0x01"])
+		expect(settled.orderNonce).toBe("1")
+	})
+
+	it("closes the order when what is left falls under the dust floor", async () => {
+		// 1,499,500 of 1,500,000 delivered leaves 500, under the 1,000 floor.
+		const { client, settled } = await fill(1_499_500n * ONE)
+
+		expect(settled.status).toBe("filled")
+		expect(settled.commitment).toBeNull()
+		// Cancelled, not reposted.
+		expect(client.submitted).toEqual(["0x00"])
+	})
+
+	it("cancels the old entry before posting the new one", async () => {
+		// Two live entries for one liability would advertise the same output twice.
+		const order: string[] = []
+		const client = fakeClient([])
+		const submit = client.submitOrder
+		client.submitOrder = async (userOp) => {
+			order.push("submit")
+			return submit(userOp)
+		}
+		client.cancelOrder = async () => {
+			order.push("cancel")
+			return { kind: "cancelled", commitment: "0xabc" as HexString }
+		}
+		const { service } = makeService(client)
+		const created = await service.create(REQUEST)
+		await service.settleFill(created.order.id, 500_000n * ONE)
+
+		expect(order).toEqual(["submit", "cancel", "submit"])
+	})
+
+	it("reposts even when the orderbook no longer knows the old entry", async () => {
+		const { settled } = await fill(500_000n * ONE, [
+			{ kind: "rejected", code: "UNKNOWN_ORDER", message: "gone" },
+		])
+		expect(settled.status).toBe("open")
+		expect(settled.commitment).toBe("0xabc")
+	})
+
+	it("does nothing for an order it does not know", async () => {
+		const { service } = makeService(fakeClient([]))
+		expect(await service.settleFill("missing", ONE)).toBeNull()
+	})
+
+	it("floors the draw-down at zero when a fill delivered more than was left", async () => {
+		const { settled } = await fill(9_000_000n * ONE)
+		expect(settled.remaining).toBe("0")
+		expect(settled.status).toBe("filled")
+	})
+})
+
 describe("LimitOrderService.cancel", () => {
 	it("cancels locally first, then clears the orderbook entry", async () => {
 		const { service, store } = makeService(fakeClient([]))

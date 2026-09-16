@@ -17,6 +17,9 @@ import { parseChainKey } from "@/config/interpolated-curve"
 import pQueue from "p-queue"
 import { type ChainClientManager, type ContractInteractionService, DelegationService, type RebalancingService } from "@/services"
 import type { BidStore, LimitOrderStore } from "@/data/types"
+import type { AssetRegistry } from "@/config/asset-registry"
+import type { LimitOrderService } from "@/orderbook/limit-orders"
+import { toScaled } from "@/orderbook/amounts"
 import type { OrderScanner } from "@/scanner/types"
 import type { FillerConfigService } from "@/services/FillerConfigService"
 import type { SolverWork } from "@/services/server/dto"
@@ -39,6 +42,12 @@ export class IntentFiller {
 	private rebalancingService?: RebalancingService
 	private bidStorage?: BidStore
 	private limitOrders?: LimitOrderStore
+	private assetRegistry?: AssetRegistry
+	/**
+	 * Set after construction: the service owns the orderbook connection and is
+	 * built from this same store, so it cannot exist before the filler does.
+	 */
+	private limitOrderService?: LimitOrderService
 	private retractionQueue: pQueue
 	private paused = false
 	private stopping = false
@@ -78,6 +87,7 @@ export class IntentFiller {
 		rebalancingService?: RebalancingService,
 		bidStorage?: BidStore,
 		limitOrders?: LimitOrderStore,
+		assetRegistry?: AssetRegistry,
 	) {
 		this.logger = moduleLogger(configService.loggers, "intent-filler")
 		this.configService = configService
@@ -88,6 +98,7 @@ export class IntentFiller {
 		this.rebalancingService = rebalancingService
 		this.bidStorage = bidStorage
 		this.limitOrders = limitOrders
+		this.assetRegistry = assetRegistry
 		this.monitor = new EventMonitor(chainConfigs, configService, this.fillerAddress, scanners.orders)
 		this.strategies = strategies
 		this.config = config
@@ -121,8 +132,8 @@ export class IntentFiller {
 			this.handleNewOrder(order, transactionHash)
 		})
 
-		this.monitor.on("orderFilledOnChain", ({ commitment, filler, chainId }) => {
-			this.handleOrderFilledOnChain(commitment as HexString, filler, chainId).catch((err) => {
+		this.monitor.on("orderFilledOnChain", ({ commitment, filler, chainId, outputs }) => {
+			this.handleOrderFilledOnChain(commitment as HexString, filler, chainId, outputs).catch((err) => {
 				// The retraction sweep still picks this bid up on its next cycle.
 				this.logger.error({ commitment, err }, "Failed to handle on-chain fill")
 			})
@@ -134,6 +145,11 @@ export class IntentFiller {
 	 * depositing the target amount to the EntryPoint on chains where solver
 	 * selection is active. This should be called before start().
 	 */
+	/** Hands the filler the service that keeps the orderbook in step with a fill. */
+	public setLimitOrderService(service: LimitOrderService): void {
+		this.limitOrderService = service
+	}
+
 	/** Whether the given chain id is configured for watch-only (monitor, never fill). */
 	private isChainWatchOnly(chainId: number): boolean {
 		const watchOnly = this.config.watchOnly
@@ -1027,10 +1043,16 @@ export class IntentFiller {
 		}).catch((err) => this.logger.error({ orderId: order.id, err }, "Order execution task failed"))
 	}
 
-	private async handleOrderFilledOnChain(commitment: HexString, filler: string, chainId: number): Promise<void> {
+	private async handleOrderFilledOnChain(
+		commitment: HexString,
+		filler: string,
+		chainId: number,
+		outputs: TokenInfo[] = [],
+	): Promise<void> {
 		// Top up EntryPoint deposit if we were the filler, but only on chains
 		// without any paymaster (paymaster chains pay gas in ERC-20 tokens).
 		if (filler.toLowerCase() === this.fillerAddress.toLowerCase()) {
+			await this.settleFilledLimitOrder(commitment, chainId, outputs)
 			const chain = `EVM-${chainId}`
 			if (!hasPaymaster(chain, this.configService)) {
 				const targetGasUnits = this.configService.getTargetGasUnits()
@@ -1075,6 +1097,76 @@ export class IntentFiller {
 		// flag-write suppress the retraction itself inverts the intent.
 		this.enqueueRetraction(commitment)
 		await this.bidStorage.markDead(commitment)
+	}
+
+	/**
+	 * Turns the hold a filled bid was carrying into an actual draw-down.
+	 *
+	 * The hold and the delivery are two different numbers: the hold is what the
+	 * bid promised, the delivery is what the gateway recorded going out. Giving
+	 * the hold back and taking the delivery off `remaining` is what leaves the
+	 * order describing the output it still has.
+	 *
+	 * A fill with no amounts leaves the order alone. Sizing a draw-down from a
+	 * guess would either advertise output already paid or quietly retire output
+	 * still available, and both are worse than an order that looks unchanged
+	 * until reconciliation notices.
+	 */
+	private async settleFilledLimitOrder(
+		commitment: HexString,
+		chainId: number,
+		outputs: TokenInfo[],
+	): Promise<void> {
+		if (!this.bidStorage || !this.limitOrders) return
+		const claimed = await this.bidStorage.claimReservation(commitment)
+		if (!claimed) return
+
+		// The hold goes back first: whatever was delivered is accounted for by the
+		// draw-down, and the rest was never spent.
+		await this.limitOrders.release(claimed.limitOrderId, claimed.amount)
+
+		const delivered = await this.deliveredAgainst(claimed.limitOrderId, chainId, outputs)
+		if (delivered === null) {
+			this.logger.warn(
+				{ commitment, limitOrder: claimed.limitOrderId },
+				"Fill carried no output this limit order pays; leaving it at its current size",
+			)
+			return
+		}
+
+		this.logger.info(
+			{ commitment, limitOrder: claimed.limitOrderId, delivered: delivered.toString() },
+			"Working the limit order down by what the fill delivered",
+		)
+		await this.limitOrderService?.settleFill(claimed.limitOrderId, delivered)
+	}
+
+	/**
+	 * What this fill delivered of the token the limit order pays, at 1e18, or null
+	 * when the fill names none of it.
+	 */
+	private async deliveredAgainst(
+		limitOrderId: string,
+		chainId: number,
+		outputs: TokenInfo[],
+	): Promise<bigint | null> {
+		const order = await this.limitOrders?.get(limitOrderId)
+		if (!order || outputs.length === 0) return null
+
+		const paid = order.side === "BID" ? order.quote : order.base
+		const chain = `EVM-${chainId}`
+		const address = this.assetRegistry?.getAddress(paid, chain)
+		if (!address) return null
+
+		let total = 0n
+		for (const output of outputs) {
+			if (bytes32ToBytes20(output.token).toLowerCase() !== address.toLowerCase()) continue
+			total += output.amount
+		}
+		if (total === 0n) return null
+
+		const decimals = await this.contractService.getTokenDecimals(address, chain)
+		return toScaled(total, decimals)
 	}
 
 	/**

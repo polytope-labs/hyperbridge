@@ -18,7 +18,8 @@ const BID_COLUMNS = `
 	retracted_at as retractedAt,
 	retract_extrinsic_hash as retractExtrinsicHash,
 	dead,
-	limit_order_id as limitOrderId
+	limit_order_id as limitOrderId,
+	reserved_amount as reservedAmount
 `
 
 /**
@@ -55,7 +56,8 @@ export class SqliteBidStore implements BidStore {
 				retracted_at TEXT,
 				retract_extrinsic_hash TEXT,
 				dead INTEGER NOT NULL DEFAULT 0,
-				limit_order_id TEXT
+				limit_order_id TEXT,
+				reserved_amount TEXT
 			);
 
 			CREATE INDEX IF NOT EXISTS idx_bids_commitment ON bids(commitment);
@@ -71,9 +73,10 @@ export class SqliteBidStore implements BidStore {
 			this.db.exec(`ALTER TABLE bids ADD COLUMN ${column} INTEGER NOT NULL DEFAULT 0`)
 			this.logger.info({ column }, "Migrated bid storage schema")
 		}
-		if (!columns.has("limit_order_id")) {
-			this.db.exec("ALTER TABLE bids ADD COLUMN limit_order_id TEXT")
-			this.logger.info({ column: "limit_order_id" }, "Migrated bid storage schema")
+		for (const column of ["limit_order_id", "reserved_amount"] as const) {
+			if (columns.has(column)) continue
+			this.db.exec(`ALTER TABLE bids ADD COLUMN ${column} TEXT`)
+			this.logger.info({ column }, "Migrated bid storage schema")
 		}
 	}
 
@@ -91,8 +94,8 @@ export class SqliteBidStore implements BidStore {
 	async store(bid: BidInsert): Promise<void> {
 		const result = this.db
 			.prepare(`
-				INSERT INTO bids (commitment, extrinsic_hash, block_hash, success, pending, error, limit_order_id)
-				VALUES (?, ?, ?, ?, ?, ?, ?)
+				INSERT INTO bids (commitment, extrinsic_hash, block_hash, success, pending, error, limit_order_id, reserved_amount)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 			`)
 			.run(
 				bid.commitment,
@@ -102,6 +105,7 @@ export class SqliteBidStore implements BidStore {
 				bid.pending ? 1 : 0,
 				bid.error || null,
 				bid.limitOrderId ?? null,
+				bid.reservedAmount ?? null,
 			)
 
 		this.logger.debug({ id: result.lastInsertRowid, commitment: bid.commitment, success: bid.success }, "Bid stored")
@@ -159,6 +163,25 @@ export class SqliteBidStore implements BidStore {
 			return true
 		}
 		return false
+	}
+
+	async claimReservation(commitment: string): Promise<{ limitOrderId: string; amount: string } | null> {
+		const row = this.db
+			.prepare(`
+				SELECT limit_order_id as limitOrderId, reserved_amount as amount
+				FROM bids
+				WHERE commitment = ? AND reserved_amount IS NOT NULL AND limit_order_id IS NOT NULL
+				ORDER BY id DESC LIMIT 1
+			`)
+			.get(commitment) as { limitOrderId: string; amount: string } | undefined
+		if (!row) return null
+
+		// Guarded on the amount just read, so two settlers racing the same bid
+		// cannot both come away holding the reservation.
+		const result = this.db
+			.prepare("UPDATE bids SET reserved_amount = NULL WHERE commitment = ? AND reserved_amount = ?")
+			.run(commitment, row.amount)
+		return result.changes === 1 ? row : null
 	}
 
 	async markDead(commitment: string): Promise<boolean> {

@@ -17,6 +17,7 @@ import externalLinks from "../../../simplex/src/config/external-links.json" with
 import { MemoryDataStore } from "../../../simplex/src/data/memory.ts"
 import { UiServer } from "../../../simplex/src/services/server/UiServer.ts"
 import { socketPathFor } from "../../src/desktop-paths.ts"
+import { desktopArguments, directElectronArguments } from "./electron-launch.ts"
 
 const execFileAsync = promisify(execFile)
 const require = createRequire(import.meta.url)
@@ -93,11 +94,9 @@ async function waitForHealth(socketPath, mode) {
 }
 
 async function launchDesktop(userDataDir, options = {}) {
-	const args = [packageRoot, `--user-data-dir=${userDataDir}`]
-	if (options.hidden) args.push("--hidden")
 	const electronApp = await _electron.launch({
 		executablePath: electronExecutable,
-		args,
+		args: desktopArguments(packageRoot, userDataDir, options),
 		cwd: packageRoot,
 		env: { ...process.env, ELECTRON_DISABLE_SECURITY_WARNINGS: "true" },
 		timeout: 120_000,
@@ -407,7 +406,7 @@ test("window close, app quit, hard crash, and second launch preserve one detache
 	await waitForHealth(socketPath, "init")
 	assert.deepEqual(await daemonPids(userDataDir), [daemonPid], "closing the window must leave Simplex alive")
 
-	await execFileAsync(electronExecutable, [packageRoot, `--user-data-dir=${userDataDir}`], {
+	await execFileAsync(electronExecutable, directElectronArguments(packageRoot, userDataDir), {
 		cwd: packageRoot,
 		env: { ...process.env, ELECTRON_DISABLE_SECURITY_WARNINGS: "true" },
 		timeout: 30_000,

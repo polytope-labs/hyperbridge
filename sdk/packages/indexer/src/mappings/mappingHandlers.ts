@@ -17,6 +17,7 @@ export { handlePartialFilledEventV3 } from "@/handlers/events/intentGatewayV3/pa
 export { handleEscrowReleasedEventV3 } from "@/handlers/events/intentGatewayV3/escrowReleasedV3.event.handler"
 export { handleEscrowReleasedEventV3Legacy } from "@/handlers/events/intentGatewayV3/escrowReleasedV3Legacy.event.handler"
 export { handleEscrowRefundedEventV3 } from "@/handlers/events/intentGatewayV3/escrowRefundedV3.event.handler"
+export { handleProtocolFeeRefundedEventV3 } from "@/handlers/events/intentGatewayV3/protocolFeeRefunded.event.handler"
 export { handleOrderCancelledEventV3 } from "@/handlers/events/intentGatewayV3/orderCancelledV3.event.handler"
 export { handleDustCollectedEventV3 } from "@/handlers/events/intentGatewayV3/dustCollected.event.handler"
 export { handleDustSweptEventV3 } from "@/handlers/events/intentGatewayV3/dustSwept.event.handler"

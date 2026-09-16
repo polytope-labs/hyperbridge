@@ -15,6 +15,7 @@
 pragma solidity ^0.8.24;
 
 import "forge-std/Test.sol";
+import {intentGatewayUpgradeInitialization} from "../../script/IntentGatewayScript.sol";
 import {MainnetForkBaseTest} from "./MainnetForkBaseTest.sol";
 import {deployIntentGatewayImpl, deployIntentModules} from "./IntentGatewayDeploy.sol";
 import {
@@ -153,6 +154,38 @@ contract IntentGatewayModulesTest is MainnetForkBaseTest {
                 assertEq(_canonicalType(layout[i].type_), _canonicalType(impl[i].type_), string.concat(where, " type"));
             }
         }
+    }
+
+    /// Existing proof keys, packed relayer state, and every earlier field remain in place.
+    function testFeeAccountingAppendsAfterEveryExistingStorageField() public view {
+        StorageEntry[] memory layout = _storageLayout("out/IntentGatewayV2.sol/IntentGatewayV2.json");
+        string[12] memory labels = [
+            "_nameFallback",
+            "_versionFallback",
+            "_filled",
+            "_nonce",
+            "_params",
+            "_orders",
+            "_instances",
+            "_partialFills",
+            "_destinationProtocolFees",
+            "_paused",
+            "_relayer",
+            "_protocolFees"
+        ];
+        string[12] memory slots = ["0", "1", "2", "3", "4", "9", "10", "11", "12", "13", "13", "14"];
+        assertEq(layout.length, labels.length);
+        for (uint256 i; i < labels.length; i++) {
+            assertEq(layout[i].label, labels[i]);
+            assertEq(layout[i].slot, slots[i], labels[i]);
+            assertEq(layout[i].offset, i == 10 ? 1 : 0, labels[i]);
+        }
+    }
+
+    function testImplementationAndModulesFitEIP170() public view {
+        assertLe(gateway.intrinsicModule().code.length, 24_576, "intrinsic module");
+        assertLe(gateway.extrinsicModule().code.length, 24_576, "extrinsic module");
+        assertLe(_implementationOf(address(gateway)).code.length, 24_576, "implementation");
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -307,6 +340,28 @@ contract IntentGatewayModulesTest is MainnetForkBaseTest {
         vm.prank(address(host));
         vm.expectRevert(Initializable.InvalidInitialization.selector);
         gateway.onAccept(IncomingPostRequest({relayer: address(this), request: again}));
+    }
+
+    function testUpgradeHelperUsesEmptyInitializationForVersionThree() public view {
+        assertEq(intentGatewayUpgradeInitialization(gateway), bytes(""));
+    }
+
+    function testUpgradeHelperMigratesVersionTwo() public {
+        vm.store(address(gateway), INITIALIZABLE_SLOT, bytes32(uint256(2)));
+        assertEq(intentGatewayUpgradeInitialization(gateway), abi.encodeCall(IntentGatewayV2.migrate, ()));
+    }
+
+    function testUpgradeHelperRejectsUnsupportedVersions() public {
+        uint256[3] memory unsupported = [uint256(0), uint256(1), uint256(4)];
+        for (uint256 i; i < unsupported.length; i++) {
+            vm.store(address(gateway), INITIALIZABLE_SLOT, bytes32(unsupported[i]));
+            vm.expectRevert("Unsupported IntentGateway version");
+            this.upgradeInitialization(address(gateway));
+        }
+    }
+
+    function upgradeInitialization(address target) external view returns (bytes memory) {
+        return intentGatewayUpgradeInitialization(IntentGatewayV2(payable(target)));
     }
 
     /// Upgrading is still possible after the split, and repeatedly. The second upgrade is the one

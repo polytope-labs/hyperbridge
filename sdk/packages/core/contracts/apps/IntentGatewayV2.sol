@@ -324,7 +324,7 @@ interface IIntentGatewayV2 {
      * @param commitment The unique identifier of the order
      * @param tokens The tokens and amounts released
      */
-    event EscrowReleased(bytes32 indexed commitment, TokenInfo[] tokens);
+    event EscrowReleased(bytes32 indexed commitment, address solver, TokenInfo[] tokens);
 
     /**
      * @notice Emitted when an escrow is refunded to the original user.
@@ -332,6 +332,9 @@ interface IIntentGatewayV2 {
      * @param tokens The tokens and amounts refunded
      */
     event EscrowRefunded(bytes32 indexed commitment, TokenInfo[] tokens);
+
+    /// @dev Protocol fee returned on cancellation, separate from principal in EscrowRefunded.
+    event ProtocolFeeRefunded(bytes32 indexed commitment, address indexed token, uint256 amount);
 
     /**
      * @notice Emitted when parameters are updated.
@@ -425,6 +428,9 @@ interface IIntentGatewayV2 {
      */
     function params() external view returns (Params memory);
 
+    /// @notice Held placement fee and original post-fee principal; zero for legacy or settled orders.
+    function _protocolFees(bytes32 commitment, address token) external view returns (uint256 amount, uint256 committed);
+
     /**
      * @notice The only relayer whose `onAccept` and `onGetResponse` deliveries are accepted.
      * @return address The authorised relayer, or zero while every relayer is accepted
@@ -458,7 +464,8 @@ interface IIntentGatewayV2 {
      * @notice Places an order for cross-chain intent fulfillment.
      * @dev If protocolFeeBps is configured, a protocol fee is deducted from each input token amount.
      *      The full input amounts are escrowed, but the OrderPlaced event emits reduced amounts (after fee).
-     *      Protocol fees are retained as dust and can be swept via SweepDust requests.
+     *      Protocol fees stay reserved until final settlement. Cancellation refunds the fee
+     *      attributable to unfilled principal; only the earned remainder becomes sweepable dust.
      * @param order The order to be placed
      * @param graffiti The arbitrary data used for identification purposes
      */

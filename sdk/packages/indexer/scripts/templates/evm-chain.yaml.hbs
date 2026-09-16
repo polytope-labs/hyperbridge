@@ -78,6 +78,11 @@ dataSources:
             topics:
               - 'EscrowRefunded(bytes32,(bytes32,uint256)[])'
         - kind: ethereum/LogHandler
+          handler: handleProtocolFeeRefundedEventV3
+          filter:
+            topics:
+              - 'ProtocolFeeRefunded(bytes32,address,uint256)'
+        - kind: ethereum/LogHandler
           handler: handleOrderCancelledEventV3
           filter:
             topics:

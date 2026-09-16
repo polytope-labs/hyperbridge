@@ -325,6 +325,7 @@ contract IntentGatewayV2 is IntentsBase, HyperApp, ReentrancyGuardTransient, Ini
             protocolFeeBps = _params.protocolFeeBps;
         }
         TokenInfo[] memory reducedInputs;
+        uint256[] memory protocolFees = new uint256[](inputsLen);
         bytes32 commitment;
 
         if (protocolFeeBps > 0) {
@@ -334,9 +335,7 @@ contract IntentGatewayV2 is IntentsBase, HyperApp, ReentrancyGuardTransient, Ini
                 if (originalAmount == 0) revert InvalidInput();
                 uint256 protocolFee = (originalAmount * protocolFeeBps) / 10_000;
                 uint256 reducedAmount = originalAmount - protocolFee;
-                address token = address(uint160(uint256(order.inputs[i].token)));
-
-                if (protocolFee > 0) emit DustCollected(token, protocolFee);
+                protocolFees[i] = protocolFee;
 
                 reducedInputs[i] = TokenInfo({token: order.inputs[i].token, amount: reducedAmount});
                 unchecked {
@@ -354,6 +353,10 @@ contract IntentGatewayV2 is IntentsBase, HyperApp, ReentrancyGuardTransient, Ini
         for (uint256 i; i < inputsLen;) {
             address token = address(uint160(uint256(order.inputs[i].token)));
             _orders[commitment][token] = reducedInputs[i].amount;
+            uint256 fee = protocolFees[i];
+            if (fee > 0) {
+                _protocolFees[commitment][token] = ProtocolFee({amount: fee, committed: reducedInputs[i].amount});
+            }
 
             unchecked {
                 ++i;

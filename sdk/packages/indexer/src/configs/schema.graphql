@@ -876,6 +876,11 @@ type IOrderV3 @entity {
 	escrowRefunds: [IOrderV3EscrowRefund!]! @derivedFrom(field: "order")
 
 	"""
+	Protocol fee refund events for this order (fires when cancellation returns an unearned placement fee)
+	"""
+	protocolFeeRefunds: [IOrderV3ProtocolFeeRefund!]! @derivedFrom(field: "order")
+
+	"""
 	Cancellation events for this order. More than one is possible: the source-side route
 	re-emits on every call, and a cross-chain cancel is initiated on the destination chain
 	while the refund lands on the source chain.
@@ -1563,6 +1568,57 @@ type IOrderV3EscrowRefundToken @entity {
 	Position index in the refund tokens array
 	"""
 	index: Int!
+}
+
+"""
+Represents a protocol fee returned for an IOrderV3 after cancellation.
+This is separate from the principal amounts reported by EscrowRefunded.
+"""
+type IOrderV3ProtocolFeeRefund @entity {
+	"""
+	Unique identifier for the refund event. Format: {transactionHash}.{logIndex}
+	"""
+	id: ID!
+
+	"""
+	The order whose protocol fee was refunded
+	"""
+	order: IOrderV3!
+
+	"""
+	The chain on which the protocol fee refund occurred
+	"""
+	chain: String! @index
+
+	"""
+	The 20-byte token address emitted by ProtocolFeeRefunded
+	"""
+	token: String! @index
+
+	"""
+	Protocol fee amount refunded
+	"""
+	amount: BigInt! @index
+
+	"""
+	The timestamp of the refund event
+	"""
+	timestamp: BigInt! @index
+
+	"""
+	The number of the block in which the refund occurred
+	"""
+	blockNumber: String! @index
+
+	"""
+	The hash of the transaction in which the refund occurred
+	"""
+	transactionHash: String! @index
+
+	"""
+	The timestamp when this record was created
+	"""
+	createdAt: Date! @index
 }
 
 type CumulativeVolumeUSD @entity {

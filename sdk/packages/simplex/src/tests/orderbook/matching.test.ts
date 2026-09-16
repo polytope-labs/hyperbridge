@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 import type { HexString } from "@hyperbridge/sdk"
 import type { LimitOrder } from "@/data/types"
 import { ORDERBOOK_SCALE } from "@/orderbook/amounts"
-import { availableOn, matchLimitOrder, type IncomingOrder } from "@/orderbook/matching"
+import { availableOn, matchLimitOrder, matchLimitOrders, type IncomingOrder } from "@/orderbook/matching"
 
 const ONE = ORDERBOOK_SCALE
 const BASE_CHAIN = "EVM-8453"
@@ -195,6 +195,37 @@ describe("matchLimitOrder", () => {
 			const small = limitOrder({ id: "small", remaining: (1_500_000n * ONE).toString() })
 			const large = limitOrder({ id: "large", remaining: (3_000_000n * ONE).toString() })
 			expect(matchLimitOrder([small, large], incoming(), resolve)?.order.id).toBe("large")
+		})
+	})
+
+	describe("walking several levels", () => {
+		it("takes a second order when the best one cannot cover the ask", () => {
+			// The orderbook quotes a same-chain swapper the clearing price across every
+			// level that can fill the trade together, so honouring one would advertise
+			// depth and then refuse to meet it.
+			// 1,400,000 asked for, and neither order covers it alone.
+			const best = limitOrder({ id: "best", price: (1500n * ONE).toString(), remaining: (900_000n * ONE).toString() })
+			const next = limitOrder({ id: "next", price: (1450n * ONE).toString(), remaining: (600_000n * ONE).toString() })
+
+			const matched = matchLimitOrders([next, best], incoming(), resolve)
+			expect(matched.map((match) => match.order.id)).toEqual(["best", "next"])
+			expect(matched.reduce((total, match) => total + match.payout, 0n)).toBe(1_500_000n * ONE)
+		})
+
+		it("stops as soon as the ask is covered", () => {
+			const first = limitOrder({ id: "first" })
+			const spare = limitOrder({ id: "spare", price: (1400n * ONE).toString() })
+
+			// One order covers the 1,400,000 asked for, so the second is left alone.
+			expect(matchLimitOrders([first, spare], incoming(), resolve).map((m) => m.order.id)).toEqual(["first"])
+		})
+
+		it("orders them the same way every time, so the draw-down follows the promise", () => {
+			const a = limitOrder({ id: "a", remaining: (10n * ONE).toString() })
+			const b = limitOrder({ id: "b", remaining: (10n * ONE).toString() })
+
+			expect(matchLimitOrders([b, a], incoming(), resolve).map((m) => m.order.id)).toEqual(["a", "b"])
+			expect(matchLimitOrders([a, b], incoming(), resolve).map((m) => m.order.id)).toEqual(["a", "b"])
 		})
 	})
 

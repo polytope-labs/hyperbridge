@@ -43,33 +43,36 @@ export function availableOn(order: LimitOrder): bigint {
 }
 
 /**
- * The limit order an incoming order is priced against, or null when none serves it.
+ * The limit orders an incoming order is priced against, best payout first, or an
+ * empty list when none serves it.
  *
  * There is no fallback price: an order matching nothing is not filled, which is
  * the whole point of pricing from the operator's own resting orders rather than
  * from a curve that always has an answer.
  *
- * When several match, the one that pays the most wins, and a tie goes to the one
- * with more left. What it pays is `min(offer, remaining - reserved)`, not the
- * offer alone: an order quoting a wonderful rate with almost nothing behind it
- * would otherwise beat one that can actually cover the swap, and the caller
- * would skip a fill that was there to be had.
+ * Several orders may serve one swap. The orderbook already quotes a same-chain
+ * swapper "the clearing price, the best at which the orders at it or better can
+ * fill the trade together", so honouring only the best-priced one advertises
+ * depth the operator has and then refuses to meet it. Levels are walked best
+ * first and stop as soon as the ask is covered, so a swap one order covers still
+ * draws on one.
+ *
+ * What each pays is `min(offer, remaining - reserved)`, not the offer alone: an
+ * order quoting a wonderful rate with almost nothing behind it would otherwise
+ * crowd out one that can actually cover the swap.
  *
  * An order whose offer falls short of what the swapper asked for is still a
  * match. Whether a shortfall can be filled at all is the caller's rule, not the
  * matcher's: a cross-chain order reverts on any under-fill, while a same-chain
  * one may fill partially, and that holds whether the shortfall comes from the
- * price or from what the order has left.
- *
- * Exactly one limit order is ever returned, which is what keeps the draw-down on
- * a fill a one-to-one piece of bookkeeping.
+ * price or from what the orders have left.
  */
-export function matchLimitOrder(
+export function matchLimitOrders(
 	orders: readonly LimitOrder[],
 	incoming: IncomingOrder,
 	resolve: (symbol: string, chain: string) => HexString | null,
 	now: Date = new Date(),
-): LimitOrderMatch | null {
+): LimitOrderMatch[] {
 	const candidates = orders
 		.filter((order) => serves(order, incoming, resolve, now))
 		.map((order) => {
@@ -84,12 +87,41 @@ export function matchLimitOrder(
 		})
 		// An order with nothing left to pay serves nobody, whatever it quotes.
 		.filter((candidate) => candidate.payout > 0n)
+		.sort(byPayoutThenAvailable)
 
-	return candidates.reduce<LimitOrderMatch | null>((best, candidate) => {
-		if (!best) return candidate
-		if (candidate.payout !== best.payout) return candidate.payout > best.payout ? candidate : best
-		return candidate.available > best.available ? candidate : best
-	}, null)
+	// The best candidate is always taken, then levels are added while the ask is
+	// still short. An order asking for nothing, which is how a quote reaches the
+	// engine, still draws on the one that prices it.
+	const taken: LimitOrderMatch[] = []
+	let covered = 0n
+	for (const candidate of candidates) {
+		taken.push(candidate)
+		covered += candidate.payout
+		if (covered >= incoming.requestedOutput) break
+	}
+	return taken
+}
+
+/** The best single match, for callers that only need to know whether one exists. */
+export function matchLimitOrder(
+	orders: readonly LimitOrder[],
+	incoming: IncomingOrder,
+	resolve: (symbol: string, chain: string) => HexString | null,
+	now: Date = new Date(),
+): LimitOrderMatch | null {
+	return matchLimitOrders(orders, incoming, resolve, now)[0] ?? null
+}
+
+/**
+ * Best payout first, ties to the one with more left, then by id.
+ *
+ * Deterministic to the last comparison, because the draw-down after a fill walks
+ * these orders in the same sequence and has to reach the same answer.
+ */
+function byPayoutThenAvailable(a: LimitOrderMatch, b: LimitOrderMatch): number {
+	if (a.payout !== b.payout) return a.payout > b.payout ? -1 : 1
+	if (a.available !== b.available) return a.available > b.available ? -1 : 1
+	return a.order.id < b.order.id ? -1 : 1
 }
 
 function serves(

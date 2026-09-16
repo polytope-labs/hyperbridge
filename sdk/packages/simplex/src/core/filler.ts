@@ -17,7 +17,7 @@ import {
 import { parseChainKey } from "@/config/interpolated-curve"
 import pQueue from "p-queue"
 import { type ChainClientManager, type ContractInteractionService, DelegationService, type RebalancingService } from "@/services"
-import type { BidStore, LimitOrderStore } from "@/data/types"
+import type { BidStore, LimitOrderHold, LimitOrderStore } from "@/data/types"
 import type { AssetRegistry } from "@/config/asset-registry"
 import type { LimitOrderService } from "@/orderbook/limit-orders"
 import { toScaled } from "@/orderbook/amounts"
@@ -963,15 +963,15 @@ export class IntentFiller {
 			// reservation lives on the bid row from here, and is given back when the
 			// bid loses or converted into a draw-down when it fills.
 			const matched =
-				this.limitOrders && order.id ? this.contractService.cacheService.getMatchedLimitOrder(order.id) : null
-			if (matched && !(await this.limitOrders!.reserve(matched.limitOrderId, matched.payout.toString()))) {
+				this.limitOrders && order.id ? this.contractService.cacheService.getMatchedLimitOrder(order.id) : []
+			const reservation = await this.holdAll(matched)
+			if (matched.length > 0 && reservation.length === 0) {
 				this.logger.info(
-					{ orderId: order.id, limitOrder: matched.limitOrderId },
-					"Skipping order: the limit order that priced it no longer has room",
+					{ orderId: order.id, limitOrders: matched.map((hold) => hold.limitOrderId) },
+					"Skipping order: the limit orders that priced it no longer have room",
 				)
 				return
 			}
-			const reservation = matched
 			// Set the moment a bid row is on its way, because from then on the row is
 			// what owns the hold and `claimReservation` is the only safe way to give
 			// it back. Releasing directly after that point would hand the same hold
@@ -998,7 +998,7 @@ export class IntentFiller {
 				// operator-supplied store rejecting on a connection blip, a disk error.
 				if (result.commitment) {
 					const commitment = result.commitment as HexString
-					if (reservation) bidRow = commitment
+					if (reservation.length > 0) bidRow = commitment
 					await this.bidStorage?.store({
 						commitment,
 						bid: result.bid,
@@ -1006,8 +1006,7 @@ export class IntentFiller {
 						success: result.success,
 						pending: result.pending === true,
 						error: result.error,
-						limitOrderId: reservation?.limitOrderId,
-						reservedAmount: reservation?.payout.toString(),
+						reservations: reservation,
 					})
 
 					if (this.pendingRetractions.delete(commitment)) {
@@ -1021,9 +1020,9 @@ export class IntentFiller {
 					if (!result.success && result.pending !== true) {
 						await this.releaseReservation(commitment)
 					}
-				} else if (reservation) {
-					// No commitment means no bid row, so the hold has to be undone here.
-					await this.limitOrders?.release(reservation.limitOrderId, reservation.payout.toString())
+				} else if (reservation.length > 0) {
+					// No commitment means no bid row, so the holds have to be undone here.
+					await this.releaseAll(reservation)
 				}
 
 				if (result.success) {
@@ -1056,8 +1055,8 @@ export class IntentFiller {
 				// an overstated reservation refuses fills, an understated one oversells.
 				if (bidRow) {
 					await this.releaseReservation(bidRow)
-				} else if (reservation) {
-					await this.limitOrders?.release(reservation.limitOrderId, reservation.payout.toString())
+				} else if (reservation.length > 0) {
+					await this.releaseAll(reservation)
 				}
 				this.logger.error({ orderId: order.id, err: error }, "Order execution failed")
 				throw error
@@ -1137,6 +1136,35 @@ export class IntentFiller {
 	 * still available, and both are worse than an order that looks unchanged
 	 * until reconciliation notices.
 	 */
+	/**
+	 * Takes a hold on every limit order the payout draws on, or none at all.
+	 *
+	 * A bid that reserved only part of what it means to pay would promise output
+	 * no order is holding for it, so a hold that cannot be taken gives back the
+	 * ones already taken. Reserving in the matcher's order keeps two evaluations
+	 * racing the same pair of orders from taking them in opposite sequences.
+	 */
+	private async holdAll(holds: { limitOrderId: string; payout: bigint }[]): Promise<LimitOrderHold[]> {
+		if (!this.limitOrders || holds.length === 0) return []
+
+		const taken: LimitOrderHold[] = []
+		for (const hold of holds) {
+			const amount = hold.payout.toString()
+			if (!(await this.limitOrders.reserve(hold.limitOrderId, amount))) {
+				await this.releaseAll(taken)
+				return []
+			}
+			taken.push({ limitOrderId: hold.limitOrderId, amount })
+		}
+		return taken
+	}
+
+	private async releaseAll(holds: readonly LimitOrderHold[]): Promise<void> {
+		for (const hold of holds) {
+			await this.limitOrders?.release(hold.limitOrderId, hold.amount)
+		}
+	}
+
 	private async settleFilledLimitOrder(
 		commitment: HexString,
 		chainId: number,
@@ -1144,28 +1172,45 @@ export class IntentFiller {
 	): Promise<void> {
 		if (!this.bidStorage || !this.limitOrders) return
 		const claimed = await this.bidStorage.claimReservation(commitment)
-		if (!claimed) return
+		if (claimed.length === 0) return
 
-		const delivered = await this.deliveredAgainst(claimed.limitOrderId, chainId, outputs)
+		const delivered = await this.deliveredAgainst(claimed[0].limitOrderId, chainId, outputs)
 		if (delivered === null) {
 			this.logger.warn(
-				{ commitment, limitOrder: claimed.limitOrderId },
-				"Fill carried no output this limit order pays; leaving it at its current size",
+				{ commitment, limitOrders: claimed.map((hold) => hold.limitOrderId) },
+				"Fill carried no output these limit orders pay; leaving them at their current size",
 			)
-			await this.limitOrders.release(claimed.limitOrderId, claimed.amount)
+			await this.releaseAll(claimed)
 			return
 		}
 
-		this.logger.info(
-			{ commitment, limitOrder: claimed.limitOrderId, delivered: delivered.toString() },
-			"Working the limit order down by what the fill delivered",
-		)
-		// The draw-down goes first and the hold goes back after. These are two
-		// writes and a crash can land between them: leaving the hold up means the
-		// order understates its capacity until reconciliation, where releasing first
-		// would leave it advertising output it has already paid out.
-		await this.limitOrderService?.settleFill(claimed.limitOrderId, delivered)
-		await this.limitOrders.release(claimed.limitOrderId, claimed.amount)
+		// Shared out in the order the payout drew on them, each taking what it held
+		// until the delivery runs out. That is the same sequence the matcher ranked
+		// them in, so the draw-down lands where the promise was made.
+		let left = delivered
+		let settled = 0
+		for (const hold of claimed) {
+			if (left <= 0n) break
+			const held = BigInt(hold.amount)
+			const share = left < held ? left : held
+			left -= share
+
+			this.logger.info(
+				{ commitment, limitOrder: hold.limitOrderId, delivered: share.toString() },
+				"Working the limit order down by what the fill delivered",
+			)
+			// The draw-down goes first and the hold goes back after. These are two
+			// writes and a crash can land between them: leaving the hold up means the
+			// order understates its capacity until reconciliation, where releasing
+			// first would leave it advertising output it has already paid out.
+			await this.limitOrderService?.settleFill(hold.limitOrderId, share)
+			await this.limitOrders.release(hold.limitOrderId, hold.amount)
+			settled += 1
+		}
+
+		// An order the delivery never reached was promised output that never went
+		// out, so it takes no draw-down and simply gets its hold back.
+		await this.releaseAll(claimed.slice(settled))
 	}
 
 	/**
@@ -1206,11 +1251,11 @@ export class IntentFiller {
 	private async releaseReservation(commitment: HexString): Promise<void> {
 		if (!this.bidStorage || !this.limitOrders) return
 		const claimed = await this.bidStorage.claimReservation(commitment)
-		if (!claimed) return
-		await this.limitOrders.release(claimed.limitOrderId, claimed.amount)
+		if (claimed.length === 0) return
+		await this.releaseAll(claimed)
 		this.logger.debug(
-			{ commitment, limitOrder: claimed.limitOrderId, amount: claimed.amount },
-			"Released the limit order reservation this bid held",
+			{ commitment, limitOrders: claimed.map((hold) => hold.limitOrderId) },
+			"Released what this bid held against the limit orders that priced it",
 		)
 	}
 

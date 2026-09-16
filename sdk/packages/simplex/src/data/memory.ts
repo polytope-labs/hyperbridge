@@ -9,6 +9,7 @@ import type {
 	BidStore,
 	LimitOrder,
 	LimitOrderFilter,
+	LimitOrderHold,
 	LimitOrderInsert,
 	LimitOrderPosting,
 	LimitOrderStatus,
@@ -69,8 +70,7 @@ class MemoryBidStore implements BidStore {
 			retractedAt: null,
 			retractExtrinsicHash: null,
 			dead: false,
-			limitOrderId: bid.limitOrderId ?? null,
-			reservedAmount: bid.reservedAmount ?? null,
+			reservations: bid.reservations ?? [],
 		})
 		if (this.rows.length > MAX_ROWS) {
 			// Only ever drop rows with nothing left to reclaim. A successful or pending
@@ -115,21 +115,21 @@ class MemoryBidStore implements BidStore {
 		return changed
 	}
 
-	async claimReservation(commitment: string): Promise<{ limitOrderId: string; amount: string } | null> {
+	async claimReservation(commitment: string): Promise<LimitOrderHold[]> {
 		// Newest first, matching `byCommitment`: a commitment can be re-bid.
 		for (let i = this.rows.length - 1; i >= 0; i--) {
 			const row = this.rows[i]
-			if (row.commitment !== commitment || !row.limitOrderId || row.reservedAmount === null) continue
-			const claimed = { limitOrderId: row.limitOrderId, amount: row.reservedAmount }
-			row.reservedAmount = null
+			if (row.commitment !== commitment || row.reservations.length === 0) continue
+			const claimed = row.reservations
+			row.reservations = []
 			return claimed
 		}
-		return null
+		return []
 	}
 
 	async byLimitOrder(limitOrderId: string, limit = 100): Promise<StoredBid[]> {
 		return this.rows
-			.filter((row) => row.limitOrderId === limitOrderId)
+			.filter((row) => row.reservations.some((hold) => hold.limitOrderId === limitOrderId))
 			.slice(-capLimit(limit))
 			.reverse()
 			.map((row) => ({ ...row }))

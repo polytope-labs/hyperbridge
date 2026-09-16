@@ -22,7 +22,7 @@ import type { Signer } from "@/services/wallet"
 import { paymasterReserveForToken } from "@/services/paymaster"
 import type { LimitOrderStore } from "@/data/types"
 import { toRaw, toScaled } from "@/orderbook/amounts"
-import { matchLimitOrder, type LimitOrderMatch } from "@/orderbook/matching"
+import { matchLimitOrders, type LimitOrderMatch } from "@/orderbook/matching"
 import { limitOrderUsdEdges, usdFactorsFrom, usdValueOf } from "@/orderbook/usd"
 
 /**
@@ -241,7 +241,7 @@ export class FXFiller implements FillerStrategy {
 				return false
 			}
 
-			if (!(await this.matchOrder(order))) {
+			if ((await this.matchOrder(order)).length === 0) {
 				this.logger.debug(
 					{ orderId: order.id, sourceChain: order.source, destChain: order.destination },
 					"No limit order matches this order",
@@ -302,11 +302,18 @@ export class FXFiller implements FillerStrategy {
 				return 0
 			}
 
-			const match = await this.matchOrder(order)
-			if (!match) {
+			const matches = await this.matchOrder(order)
+			if (matches.length === 0) {
 				this.logger.info({ orderId: order.id }, "Skipping order: no limit order matches it")
 				return 0
 			}
+			// The best-priced match speaks for the set wherever one order has to be
+			// named: they all trade the same pair on the same chain, and the matcher
+			// ranked them, so this is the one the swap draws on first.
+			const match = matches[0]
+			// What the set pays together, which is what the orderbook quoted the
+			// swapper when it priced their swap across levels.
+			const combinedPayout = matches.reduce((total, candidate) => total + candidate.payout, 0n)
 
 			const outputToken = bytes32ToBytes20(output.token) as HexString
 			const outputDecimals = await this.contractService.getTokenDecimals(outputToken, destChain)
@@ -318,7 +325,7 @@ export class FXFiller implements FillerStrategy {
 			// What the matched limit order will pay, in the output token's own units.
 			// `payout` is already `min(offer, remaining − reserved)`, so the order
 			// never offers more than it has left even when the wallet holds more.
-			const targetOutput = toRaw(match.payout, outputDecimals)
+			const targetOutput = toRaw(combinedPayout, outputDecimals)
 
 			// Whether this order may be filled below what the user asked for. Both
 			// chains allow it: `ExtrinsicIntents._fillCrossChain` keeps cumulative
@@ -367,7 +374,7 @@ export class FXFiller implements FillerStrategy {
 					{
 						orderId: order.id,
 						limitOrder: match.order.id,
-						available: formatUnits(match.available, 18),
+						available: formatUnits(matches.reduce((total, candidate) => total + candidate.available, 0n), 18),
 						userRequested: output.amount.toString(),
 						payout: targetOutput.toString(),
 						crossChain: sourceChain !== destChain,
@@ -500,7 +507,10 @@ export class FXFiller implements FillerStrategy {
 			if (order.id) {
 				// The bid draws on this limit order, so the reservation and the fill
 				// that later works it down both have to find the same one.
-				this.contractService.cacheService.setMatchedLimitOrder(order.id, match.order.id, match.payout)
+				this.contractService.cacheService.setMatchedLimitOrder(
+					order.id,
+					matches.map((candidate) => ({ limitOrderId: candidate.order.id, payout: candidate.payout })),
+				)
 				if (fundingCalls.length > 0) {
 					this.contractService.cacheService.setFundingPrepends(order.id, fundingCalls)
 				} else {
@@ -658,7 +668,8 @@ export class FXFiller implements FillerStrategy {
 					side: match.order.side,
 					price: match.order.price,
 					offer: match.offer.toString(),
-					available: match.available.toString(),
+					limitOrders: matches.length,
+					available: matches.reduce((total, candidate) => total + candidate.available, 0n).toString(),
 					payout: targetOutput.toString(),
 					orderFees: formatUnits(order.fees, feeTokenDecimals),
 					fillGas: formatUnits(totalCostInSourceFeeToken, feeTokenDecimals),
@@ -896,9 +907,9 @@ export class FXFiller implements FillerStrategy {
 	 * and the payout comes back in the same unit for the caller to bring down to
 	 * the output token's own decimals.
 	 */
-	private async matchOrder(order: Order): Promise<LimitOrderMatch | null> {
-		if (!this.limitOrders) return null
-		if (order.inputs.length !== 1 || order.output.assets.length !== 1) return null
+	private async matchOrder(order: Order): Promise<LimitOrderMatch[]> {
+		if (!this.limitOrders) return []
+		if (order.inputs.length !== 1 || order.output.assets.length !== 1) return []
 
 		const input = order.inputs[0]
 		const output = order.output.assets[0]
@@ -906,14 +917,14 @@ export class FXFiller implements FillerStrategy {
 		const outputToken = bytes32ToBytes20(output.token) as HexString
 
 		const inputSymbol = this.registry.symbolFor(inputToken, order.source)
-		if (!inputSymbol) return null
+		if (!inputSymbol) return []
 
 		const [inputDecimals, outputDecimals] = await Promise.all([
 			this.contractService.getTokenDecimals(inputToken, order.source),
 			this.contractService.getTokenDecimals(outputToken, order.destination),
 		])
 
-		return matchLimitOrder(
+		return matchLimitOrders(
 			await this.limitOrders.open(),
 			{
 				source: order.source,

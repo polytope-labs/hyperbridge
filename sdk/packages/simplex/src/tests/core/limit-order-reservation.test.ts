@@ -23,6 +23,8 @@ const OUR_ADDRESS = "0xAAAA00000000000000000000000000000000AAAA" as HexString
 const LIMIT_ORDER = "limit-0"
 /** The identifier the bid was placed under, which retracting it names. */
 const OUR_BID = `0x${"b1".repeat(32)}` as HexString
+/** A second resting order, for the bid that draws on more than one. */
+const SECOND_ORDER = "limit-1"
 const CNGN = "0xCCCC00000000000000000000000000000000CCCC" as HexString
 const OTHER = "0xDDDD00000000000000000000000000000000DDDD" as HexString
 /** 1,000 of an 18-decimal token, the payout each test's bid holds. */
@@ -31,6 +33,15 @@ const PAYOUT = (1000n * 10n ** 18n).toString()
 async function build(options: { retract?: BidSubmissionResult } = {}) {
 	const data = new MemoryDataStore()
 	const limitOrders: LimitOrderStore = await limitOrderStore([
+		{
+			id: SECOND_ORDER,
+			base: "USDC",
+			quote: "CNGN",
+			side: "BID",
+			fillChain: "EVM-8453",
+			price: "1450",
+			size: "3000",
+		},
 		{
 			id: LIMIT_ORDER,
 			base: "USDC",
@@ -70,8 +81,7 @@ async function placeBid(ctx: Awaited<ReturnType<typeof build>>) {
 		commitment: COMMITMENT,
 		bid: OUR_BID,
 		success: true,
-		limitOrderId: LIMIT_ORDER,
-		reservedAmount: PAYOUT,
+		reservations: [{ limitOrderId: LIMIT_ORDER, amount: PAYOUT }],
 	})
 }
 
@@ -186,18 +196,72 @@ describe("a fill's draw-down", () => {
 	})
 })
 
+describe("a bid drawing on several limit orders", () => {
+	it("gives every hold back when the bid is retracted", async () => {
+		const ctx = await build()
+		expect(await ctx.limitOrders.reserve(LIMIT_ORDER, PAYOUT)).toBe(true)
+		await ctx.bids.store({
+			commitment: COMMITMENT,
+			success: true,
+			reservations: [
+				{ limitOrderId: LIMIT_ORDER, amount: PAYOUT },
+				{ limitOrderId: LIMIT_ORDER, amount: PAYOUT },
+			],
+		})
+		expect(await ctx.limitOrders.reserve(LIMIT_ORDER, PAYOUT)).toBe(true)
+
+		// biome-ignore lint/suspicious/noExplicitAny: the settlement path is private
+		await (ctx.filler as any).releaseReservation(COMMITMENT)
+		expect(await ctx.reserved()).toBe("0")
+	})
+
+	it("shares a fill out over the holds in the order the payout drew on them", async () => {
+		const ctx = await build()
+		await ctx.limitOrders.reserve(LIMIT_ORDER, PAYOUT)
+		await ctx.bids.store({
+			commitment: COMMITMENT,
+			success: true,
+			reservations: [
+				{ limitOrderId: LIMIT_ORDER, amount: (400n * 10n ** 18n).toString() },
+				{ limitOrderId: SECOND_ORDER, amount: (600n * 10n ** 18n).toString() },
+			],
+		})
+		const settled: Array<[string, bigint]> = []
+		// biome-ignore lint/suspicious/noExplicitAny: narrow stubs for this path
+		;(ctx.filler as any).assetRegistry = { getAddress: () => CNGN }
+		// biome-ignore lint/suspicious/noExplicitAny: narrow stubs for this path
+		;(ctx.filler as any).contractService = { getTokenDecimals: async () => 18 }
+		// biome-ignore lint/suspicious/noExplicitAny: narrow stubs for this path
+		;(ctx.filler as any).limitOrderService = {
+			settleFill: async (id: string, amount: bigint) => {
+				settled.push([id, amount])
+				return null
+			},
+		}
+
+		// 700 delivered: the first hold takes its 400, the second the remaining 300.
+		// biome-ignore lint/suspicious/noExplicitAny: the settlement path is private
+		await (ctx.filler as any).settleFilledLimitOrder(COMMITMENT, 8453, [{ token: CNGN, amount: 700n * 10n ** 18n }])
+
+		expect(settled).toEqual([
+			[LIMIT_ORDER, 400n * 10n ** 18n],
+			[SECOND_ORDER, 300n * 10n ** 18n],
+		])
+	})
+})
+
 describe("claiming a bid's reservation", () => {
 	it("hands it over exactly once", async () => {
 		const ctx = await build()
 		await placeBid(ctx)
 
-		expect(await ctx.bids.claimReservation(COMMITMENT)).toEqual({ limitOrderId: LIMIT_ORDER, amount: PAYOUT })
-		expect(await ctx.bids.claimReservation(COMMITMENT)).toBeNull()
+		expect(await ctx.bids.claimReservation(COMMITMENT)).toEqual([{ limitOrderId: LIMIT_ORDER, amount: PAYOUT }])
+		expect(await ctx.bids.claimReservation(COMMITMENT)).toEqual([])
 	})
 
 	it("answers null for a bid that was never priced by a limit order", async () => {
 		const ctx = await build()
 		await ctx.bids.store({ commitment: COMMITMENT, success: true })
-		expect(await ctx.bids.claimReservation(COMMITMENT)).toBeNull()
+		expect(await ctx.bids.claimReservation(COMMITMENT)).toEqual([])
 	})
 })

@@ -1,10 +1,20 @@
 import { createHash } from "node:crypto"
 import { existsSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { posix, win32 } from "node:path"
+import { posix, resolve, win32 } from "node:path"
 
 /** Conservative common denominator below Darwin's 104-byte and Linux's 108-byte sun_path limits. */
 export const UNIX_SOCKET_PATH_LIMIT = 100
+
+/** Electron does not map Chromium's user-data switch back into app.getPath on every OS. */
+export function userDataOverrideFromArgv(argv: string[] = process.argv): string | undefined {
+	const prefix = "--user-data-dir="
+	const argument = argv.find((value) => value.startsWith(prefix))
+	if (!argument) return undefined
+	const directory = argument.slice(prefix.length)
+	if (!directory) throw new Error("--user-data-dir requires a directory")
+	return resolve(directory)
+}
 
 function identity(value: string): string {
 	return createHash("sha256").update(value).digest("hex").slice(0, 16)

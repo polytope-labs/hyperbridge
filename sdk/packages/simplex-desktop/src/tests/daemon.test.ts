@@ -24,7 +24,8 @@ function sequence(states: HealthProbe[]) {
 
 describe("daemon lifecycle", () => {
 	it("builds the exact bundled-runtime command line", () => {
-		expect(daemonArgs(launch)).toEqual([
+		const args = daemonArgs(launch)
+		expect(args).toEqual([
 			"--enable-source-maps",
 			"--disable-warning=ExperimentalWarning",
 			"/app/simplex.js",
@@ -85,6 +86,34 @@ describe("daemon lifecycle", () => {
 			attached: true,
 			mode: "operator",
 		})
+		expect(spawn).not.toHaveBeenCalled()
+	})
+
+	it("attaches to a stopping daemon without spawning a replacement", async () => {
+		const spawn = vi.fn()
+		await expect(
+			ensureDaemon({ launch, probe: sequence([{ state: "stopping", mode: "operator" }]), spawn }),
+		).resolves.toEqual({
+			attached: true,
+			mode: "operator",
+		})
+		expect(spawn).not.toHaveBeenCalled()
+	})
+
+	it("waits for a starting daemon without spawning a replacement", async () => {
+		const spawn = vi.fn()
+		await expect(
+			ensureDaemon({
+				launch,
+				probe: sequence([
+					{ state: "starting", mode: "init" },
+					{ state: "starting", mode: "init" },
+					{ state: "ready", mode: "operator" },
+				]),
+				spawn,
+				delay: async () => {},
+			}),
+		).resolves.toEqual({ attached: true, mode: "operator" })
 		expect(spawn).not.toHaveBeenCalled()
 	})
 

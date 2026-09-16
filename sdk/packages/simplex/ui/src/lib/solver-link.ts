@@ -1,3 +1,4 @@
+import externalLinks from "@/config/external-links.json"
 import type { AdminStrategyDto } from "../types"
 
 /**
@@ -8,7 +9,7 @@ import type { AdminStrategyDto } from "../types"
  * `reverse_rate` for the other direction in the same unit, the solver's
  * address and a display name of at most 24 characters).
  */
-export const HYPERFX_APP_URL = "https://app.hyperfx.finance"
+export const HYPERFX_APP_URL = externalLinks.hyperfxApp
 export const SOLVER_NAME_MAX = 24
 
 export interface SolverLinkInput {

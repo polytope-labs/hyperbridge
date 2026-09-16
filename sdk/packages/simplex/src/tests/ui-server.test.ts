@@ -492,6 +492,7 @@ describe("UiServer (operator mode)", () => {
 		const res = await fetch(`${base}/api/stop`, { method: "POST", headers: CSRF })
 		expect(res.status).toBe(202)
 		expect(await res.json()).toEqual({ stopping: true })
+		expect(await (await fetch(`${base}/health`)).json()).toEqual({ status: "stopping", mode: "operator" })
 		await vi.waitFor(() => expect(operator.stop).toHaveBeenCalledTimes(1))
 	})
 
@@ -1741,9 +1742,10 @@ describe("UiServer (init mode)", () => {
 	})
 
 	it("reports init status and gates operator endpoints", async () => {
+		const stop = vi.fn().mockResolvedValue(undefined)
 		server = new UiServer({
 			mode: "init",
-			setup: { configPath: "/tmp/x.toml", onSaveAndStart: async () => {} },
+			setup: { configPath: "/tmp/x.toml", onSaveAndStart: async () => {}, stop },
 		})
 		const port = await server.start(0)
 		const base = `http://127.0.0.1:${port}`
@@ -1752,6 +1754,25 @@ describe("UiServer (init mode)", () => {
 		expect((await fetch(`${base}/api/strategies`)).status).toBe(409)
 		expect((await fetch(`${base}/api/balances`)).status).toBe(409)
 		expect((await fetch(`${base}/api/pause`, { method: "POST", headers: CSRF })).status).toBe(409)
+
+		const stopResponse = await fetch(`${base}/api/stop`, { method: "POST", headers: CSRF })
+		expect(stopResponse.status).toBe(202)
+		expect(await stopResponse.json()).toEqual({ stopping: true })
+		expect(await (await fetch(`${base}/health`)).json()).toEqual({ status: "stopping", mode: "init" })
+		await vi.waitFor(() => expect(stop).toHaveBeenCalledOnce())
+	})
+
+	it("refuses to stop setup while save-and-start is booting", async () => {
+		const stop = vi.fn().mockResolvedValue(undefined)
+		server = new UiServer({
+			mode: "init",
+			setup: { configPath: "/tmp/x.toml", onSaveAndStart: async () => {}, stop },
+		})
+		server.setStartState("starting")
+		const port = await server.start(0)
+		const response = await fetch(`http://127.0.0.1:${port}/api/stop`, { method: "POST", headers: CSRF })
+		expect(response.status).toBe(409)
+		expect(stop).not.toHaveBeenCalled()
 	})
 
 	it("enterOperatorMode flips the live server", async () => {

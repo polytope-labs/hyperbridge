@@ -2,7 +2,7 @@ import assert from "node:assert/strict"
 import { execFile } from "node:child_process"
 import { createRequire } from "node:module"
 import { existsSync } from "node:fs"
-import { mkdtemp, readdir, readFile, readlink, realpath, rm, stat } from "node:fs/promises"
+import { mkdtemp, readFile, readdir, readlink, realpath, rm, stat, writeFile } from "node:fs/promises"
 import { request as httpRequest } from "node:http"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
@@ -11,9 +11,13 @@ import test from "node:test"
 import { promisify } from "node:util"
 import { _electron } from "playwright-core"
 import { ActivityRecorder } from "../../../simplex/src/data/recorder.ts"
+import { emitFillerToml } from "../../../simplex/src/cli/init/emit-toml.ts"
+import externalLinks from "../../../simplex/src/config/external-links.json" with { type: "json" }
 import { MemoryDataStore } from "../../../simplex/src/data/memory.ts"
 import { UiServer } from "../../../simplex/src/services/server/UiServer.ts"
 import { socketPathFor } from "../../src/desktop-paths.ts"
+import { blackholeServer } from "./blackhole-server.ts"
+import { desktopArguments, directElectronArguments, electronProcessExit } from "./electron-launch.ts"
 
 const execFileAsync = promisify(execFile)
 const require = createRequire(import.meta.url)
@@ -21,6 +25,9 @@ const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..")
 const simplexRoot = resolve(packageRoot, "../simplex")
 const electronExecutable = require("electron")
 const TEST_KEY = "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"
+const TEST_SEED = "bottom drive obey lake curtain smoke basket hold race lonely fit walk"
+const FIXTURE_KEY = "operator-fixture-key-do-not-expose"
+const FIXTURE_SEED = "operator-fixture-substrate-do-not-expose"
 
 function delay(milliseconds) {
 	return new Promise((resolveDelay) => setTimeout(resolveDelay, milliseconds))
@@ -86,15 +93,16 @@ async function waitForHealth(socketPath, mode) {
 	)
 }
 
-async function launchDesktop(userDataDir) {
+async function launchDesktop(userDataDir, options = {}) {
 	const electronApp = await _electron.launch({
 		executablePath: electronExecutable,
-		args: [packageRoot, `--user-data-dir=${userDataDir}`],
+		args: desktopArguments(packageRoot, userDataDir, options),
 		cwd: packageRoot,
 		env: { ...process.env, ELECTRON_DISABLE_SECURITY_WARNINGS: "true" },
 		timeout: 120_000,
 	})
-	const page = await electronApp.firstWindow({ timeout: 120_000 })
+	if (options.hidden) return { electronApp }
+	const page = await waitFor(() => electronApp.windows()[0], "the Simplex BrowserWindow", 120_000)
 	await page.waitForURL("simplex://local/**", { timeout: 120_000 })
 	return { electronApp, page }
 }
@@ -176,24 +184,8 @@ async function killProcess(pid) {
 	}
 }
 
-// Playwright's close() and "close" event wait for Electron's stdio pipes to
-// close, not for the process to exit. On Windows the detached solver can inherit
-// those handles (libuv always spawns with handle inheritance) and keep them open
-// while it runs. Wait for the process itself instead.
-function electronExit(electronApp, timeoutMs = 30_000) {
-	const child = electronApp.process()
-	if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve()
-	return new Promise((resolveExit, reject) => {
-		const timer = setTimeout(() => reject(new Error(`Electron ${child.pid} did not exit`)), timeoutMs)
-		child.once("exit", () => {
-			clearTimeout(timer)
-			resolveExit()
-		})
-	})
-}
-
 async function quitElectron(electronApp) {
-	const exited = electronExit(electronApp)
+	const exited = electronProcessExit(electronApp.process())
 	// The inspector connection drops as the app quits, which can reject this call.
 	await electronApp.evaluate(({ app }) => app.quit()).catch(() => {})
 	await exited
@@ -204,7 +196,7 @@ async function hardKillElectron(electronApp) {
 	// the shell and killing it leaves Electron running. Kill Electron's own main
 	// process; the shell exits after it.
 	const pid = await electronApp.evaluate(() => process.pid)
-	const exited = electronExit(electronApp)
+	const exited = electronProcessExit(electronApp.process())
 	if (process.platform === "win32") await execFileAsync("taskkill.exe", ["/PID", String(pid), "/F"])
 	else process.kill(pid, "SIGKILL")
 	await exited
@@ -238,19 +230,49 @@ async function stopLeftoverElectron() {
 	}
 }
 
-function operatorFixture(socketPath) {
+async function regularFilesUnder(directory) {
+	let entries
+	try {
+		entries = await readdir(directory, { withFileTypes: true })
+	} catch (error) {
+		if (error.code === "ENOENT") return []
+		throw error
+	}
+	const files = []
+	for (const entry of entries) {
+		const path = join(directory, entry.name)
+		if (entry.isDirectory()) files.push(...(await regularFilesUnder(path)))
+		else if (entry.isFile()) files.push(path)
+	}
+	return files
+}
+
+async function assertSecretsExistOnlyInConfig(userDataDir, configPath, secrets) {
+	for (const path of await regularFilesUnder(userDataDir)) {
+		if (path === configPath) continue
+		const content = await readFile(path)
+		for (const secret of secrets) {
+			assert.equal(content.includes(Buffer.from(secret)), false, `${path} must not persist setup key material`)
+		}
+	}
+}
+
+function operatorFixture(socketPath, options = {}) {
 	const data = new MemoryDataStore()
 	const activity = new ActivityRecorder(data.activity)
 	const originalOrderHistory = activity.orderHistory.bind(activity)
 	let historyReads = 0
+	let pauseWrites = 0
+	let paused = false
+	let server
 	activity.orderHistory = (...args) => {
 		historyReads += 1
 		return originalOrderHistory(...args)
 	}
 	const config = {
 		simplex: {
-			signer: { type: "privateKey", key: "0xab" },
-			substratePrivateKey: "seed",
+			signer: { type: "privateKey", key: FIXTURE_KEY },
+			substratePrivateKey: FIXTURE_SEED,
 			hyperbridgeWsUrl: "wss://example.invalid",
 		},
 		pairs: [],
@@ -258,14 +280,20 @@ function operatorFixture(socketPath) {
 	}
 	const operator = {
 		strategies: [],
-		filler: { pause() {}, resume() {}, isPaused: () => false, getWatchOnly: () => ({}) },
+		filler: { pause() {}, resume() {}, isPaused: () => paused, getWatchOnly: () => ({}) },
 		balances: { getSnapshot: () => ({ updatedAt: null, status: "loading", chains: [], issues: [] }) },
 		haltControls: [],
 		config,
-		stop: async () => {},
+		stop: async () => {
+			if (options.stopBarrier) await options.stopBarrier
+			server.stop()
+		},
 		activity,
 		bids: data.bids,
-		setPaused: async () => {},
+		setPaused: async (value) => {
+			pauseWrites += 1
+			paused = value
+		},
 		setLogLevel() {},
 		applyAllowlist() {},
 		applyRebalancing() {},
@@ -275,18 +303,19 @@ function operatorFixture(socketPath) {
 		chains: [],
 		strategyTypes: [],
 	}
-	const server = new UiServer({ mode: "operator", uiDistDir: join(simplexRoot, "dist/ui"), operator })
+	server = new UiServer({ mode: "operator", uiDistDir: join(simplexRoot, "dist/ui"), operator })
 	return {
 		server,
 		activity,
 		start: () => server.start({ socketPath }),
 		stop: () => server.stop(),
 		historyReads: () => historyReads,
+		pauseWrites: () => pauseWrites,
 		clientCount: () => server.sseClients.size,
 	}
 }
 
-test("Electron survives a hard close, reattaches, and never opens a TCP listener", async (t) => {
+test("window close, app quit, hard crash, and second launch preserve one detached solver", async (t) => {
 	const userDataDir = await temporaryUserData("lifecycle")
 	const socketPath = socketPathFor(userDataDir)
 	let electronApp
@@ -296,6 +325,71 @@ test("Electron survives a hard close, reattaches, and never opens a TCP listener
 	const [daemonPid] = await waitForDaemonPids(userDataDir)
 	await assertNoElectronDescriptors(daemonPid)
 	await assertNoTcpListener(daemonPid)
+	await waitFor(
+		async () =>
+			(await electronApp.evaluate(
+				({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById("solver-status")?.label,
+			)) === "Solver: Setup required",
+		"setup status in the native menu",
+	)
+	const nativeMenu = await electronApp.evaluate(({ Menu }) => {
+		const menu = Menu.getApplicationMenu()
+		return {
+			items: menu?.items.map((entry) => ({
+				label: entry.label,
+				submenu: entry.submenu?.items.map((child) => ({
+					label: child.label,
+					role: child.role,
+					accelerator: child.accelerator,
+				})),
+			})),
+			quitAccelerator: menu?.getMenuItemById("quit-simplex")?.accelerator,
+			updatesVisible: menu?.getMenuItemById("check-for-updates")?.visible,
+		}
+	})
+	const editItems = nativeMenu.items.find((entry) => entry.label === "Edit")?.submenu ?? []
+	const windowItems = nativeMenu.items.find((entry) => entry.label === "Window")?.submenu ?? []
+	assert.equal(editItems.find((entry) => entry.role === "copy")?.accelerator, "CommandOrControl+C")
+	assert.equal(editItems.find((entry) => entry.role === "paste")?.accelerator, "CommandOrControl+V")
+	assert.equal(windowItems.find((entry) => entry.role === "close")?.accelerator, "CommandOrControl+W")
+	assert.equal(windowItems.find((entry) => entry.role === "minimize")?.accelerator, "CommandOrControl+M")
+	assert.equal(nativeMenu.quitAccelerator, "CmdOrCtrl+Q")
+	assert.equal(nativeMenu.updatesVisible, false)
+	const logFiles = await waitFor(async () => {
+		const files = await regularFilesUnder(join(userDataDir, "logs"))
+		return files.some((path) => /simplex-[\dT-]+\.log$/.test(path)) ? files : false
+	}, "a persistent solver log")
+	assert.ok(logFiles.length > 0)
+
+	await electronApp.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.close())
+	await waitFor(
+		async () => !(await electronApp.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.isVisible())),
+		"the closed window to hide",
+	)
+	await waitForHealth(socketPath, "init")
+	assert.deepEqual(await daemonPids(userDataDir), [daemonPid], "closing the window must leave Simplex alive")
+
+	await execFileAsync(electronExecutable, directElectronArguments(packageRoot, userDataDir), {
+		cwd: packageRoot,
+		env: { ...process.env, ELECTRON_DISABLE_SECURITY_WARNINGS: "true" },
+		timeout: 30_000,
+	})
+	await waitFor(
+		async () => await electronApp.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.isVisible()),
+		"the first instance to focus its window",
+	)
+	assert.deepEqual(await daemonPids(userDataDir), [daemonPid], "a second desktop launch must not spawn a solver")
+
+	const appQuit = electronProcessExit(electronApp.process())
+	await electronApp
+		.evaluate(({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById("quit-simplex")?.click())
+		.catch(() => {})
+	await appQuit
+	electronApp = undefined
+	await waitForHealth(socketPath, "init")
+	assert.deepEqual(await daemonPids(userDataDir), [daemonPid], "Quit Simplex must leave the solver alive")
+	;({ electronApp } = await launchDesktop(userDataDir))
+	assert.deepEqual(await waitForDaemonPids(userDataDir), [daemonPid], "relaunch must attach after app-only quit")
 
 	await hardKillElectron(electronApp)
 	electronApp = undefined
@@ -307,6 +401,237 @@ test("Electron survives a hard close, reattaches, and never opens a TCP listener
 	await quitElectron(electronApp)
 	electronApp = undefined
 	await waitForHealth(socketPath, "init")
+})
+
+test("a hidden login launch starts the app and solver without opening a window", async (t) => {
+	const userDataDir = await temporaryUserData("login")
+	const socketPath = socketPathFor(userDataDir)
+	let electronApp
+	t.after(async () => cleanupDesktop(electronApp, userDataDir))
+	;({ electronApp } = await launchDesktop(userDataDir, { hidden: true }))
+	await waitForHealth(socketPath, "init")
+	await waitForDaemonPids(userDataDir)
+	assert.equal(await electronApp.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length), 0)
+	assert.ok(
+		await electronApp.evaluate(({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById("show-simplex")?.enabled),
+	)
+	await quitElectron(electronApp)
+	electronApp = undefined
+	await waitForHealth(socketPath, "init")
+})
+
+test("configured startup owns the socket before filling and relaunch attaches while booting", async (t) => {
+	const userDataDir = await temporaryUserData("startup-lock")
+	const socketPath = socketPathFor(userDataDir)
+	const blackhole = await blackholeServer()
+	let electronApp
+	t.after(async () => {
+		await cleanupDesktop(electronApp, userDataDir)
+		await blackhole.close()
+	})
+	const config = {
+		simplex: {
+			signer: { type: "privateKey", key: TEST_KEY },
+			maxConcurrentOrders: 5,
+			substratePrivateKey: TEST_SEED,
+			hyperbridgeWsUrl: `ws://127.0.0.1:${blackhole.port}`,
+		},
+		pairs: [
+			{
+				token0: "USDC",
+				token1: "USDC",
+				maxOrderSize: "100000",
+				askPriceCurve: [
+					{ amount: "100", price: "0.99" },
+					{ amount: "100000", price: "0.999" },
+				],
+			},
+		],
+		chains: [
+			{
+				rpcUrls: [`http://127.0.0.1:${blackhole.port}`],
+				bundlerUrl: `http://127.0.0.1:${blackhole.port}`,
+			},
+		],
+	}
+	await writeFile(join(userDataDir, "filler-config.toml"), emitFillerToml(config), { mode: 0o600 })
+	;({ electronApp } = await launchDesktop(userDataDir, { hidden: true }))
+	await waitFor(async () => {
+		const response = await socketRequest(socketPath, "/health")
+		return JSON.parse(response.body).status === "starting"
+	}, "configured solver to bind its startup lock")
+	const [daemonPid] = await waitForDaemonPids(userDataDir)
+
+	await quitElectron(electronApp)
+	electronApp = undefined
+	;({ electronApp } = await launchDesktop(userDataDir, { hidden: true }))
+	await waitFor(async () => {
+		const response = await socketRequest(socketPath, "/health")
+		return JSON.parse(response.body).status === "starting"
+	}, "the relaunched desktop to observe startup in progress")
+	assert.deepEqual(await daemonPids(userDataDir), [daemonPid], "relaunch must not spawn a second booting solver")
+})
+
+test("Stop solver and quit closes Electron after shutdown is accepted", async (t) => {
+	const userDataDir = await temporaryUserData("stop-and-quit")
+	const socketPath = socketPathFor(userDataDir)
+	let electronApp
+	let releaseDrain
+	const stopBarrier = new Promise((resolveDrain) => {
+		releaseDrain = resolveDrain
+	})
+	const fixture = operatorFixture(socketPath, { stopBarrier })
+	t.after(async () => {
+		releaseDrain?.()
+		try {
+			await fixture.stop()
+		} catch {
+			// The menu action is expected to have stopped it already.
+		}
+		await cleanupDesktop(electronApp, userDataDir)
+	})
+
+	await fixture.start()
+	;({ electronApp } = await launchDesktop(userDataDir))
+	const closed = new Promise((resolveClose) => electronApp.once("close", resolveClose))
+	await electronApp.evaluate(({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById("stop-and-quit")?.click())
+	await closed
+	electronApp = undefined
+	const health = JSON.parse((await socketRequest(socketPath, "/health")).body)
+	assert.equal(health.status, "stopping", "the detached solver may continue draining after Electron exits")
+	releaseDrain()
+	await waitFor(async () => {
+		try {
+			await socketRequest(socketPath, "/health")
+			return false
+		} catch {
+			return true
+		}
+	}, "the detached solver to finish draining")
+})
+
+test("graceful stop keeps the socket lock and disables restart until draining finishes", async (t) => {
+	const userDataDir = await temporaryUserData("stopping-lock")
+	const socketPath = socketPathFor(userDataDir)
+	let electronApp
+	let releaseDrain
+	const stopBarrier = new Promise((resolveDrain) => {
+		releaseDrain = resolveDrain
+	})
+	const fixture = operatorFixture(socketPath, { stopBarrier })
+	t.after(async () => {
+		releaseDrain?.()
+		try {
+			await fixture.stop()
+		} catch {
+			// The stop action may already have closed the fixture.
+		}
+		await cleanupDesktop(electronApp, userDataDir)
+	})
+
+	await fixture.start()
+	;({ electronApp } = await launchDesktop(userDataDir))
+	await electronApp.evaluate(({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById("stop-solver")?.click())
+	await waitFor(async () => {
+		const response = await socketRequest(socketPath, "/health")
+		return JSON.parse(response.body).status === "stopping"
+	}, "the stopping health state")
+	await waitFor(
+		async () =>
+			(await electronApp.evaluate(
+				({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById("solver-status")?.label,
+			)) === "Solver: Stopping…",
+		"the stopping native state",
+	)
+	assert.equal(
+		await electronApp.evaluate(({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById("restart-solver")?.enabled),
+		false,
+	)
+	await electronApp.evaluate(({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById("restart-solver")?.click())
+	await delay(500)
+	assert.deepEqual(await daemonPids(userDataDir), [], "Restart must not spawn while the old solver drains")
+
+	releaseDrain()
+	await waitFor(async () => {
+		try {
+			await socketRequest(socketPath, "/health")
+			return false
+		} catch {
+			return true
+		}
+	}, "the drained fixture to release its socket")
+})
+
+test("the native shell reports a crashed solver, prevents sleep while active, and offers restart", async (t) => {
+	const userDataDir = await temporaryUserData("supervision")
+	const socketPath = socketPathFor(userDataDir)
+	let electronApp
+	const fixture = operatorFixture(socketPath)
+	t.after(async () => {
+		try {
+			await fixture.stop()
+		} catch {
+			// A crash scenario may already have closed the fixture server.
+		}
+		await cleanupDesktop(electronApp, userDataDir)
+	})
+
+	await fixture.start()
+	;({ electronApp } = await launchDesktop(userDataDir))
+	await waitFor(
+		async () =>
+			(await electronApp.evaluate(
+				({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById("solver-status")?.label,
+			)) === "Solver: Running",
+		"running status in the native menu",
+	)
+	assert.equal(
+		await electronApp.evaluate(({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById("sleep-prevention")?.label),
+		"Sleep prevention: On",
+	)
+
+	await electronApp.evaluate(({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById("toggle-pause")?.click())
+	await waitFor(
+		async () =>
+			(await electronApp.evaluate(
+				({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById("solver-status")?.label,
+			)) === "Solver: Paused",
+		"paused status in the native menu",
+	)
+	assert.equal(
+		await electronApp.evaluate(({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById("sleep-prevention")?.label),
+		"Sleep prevention: Off",
+	)
+	await electronApp.evaluate(({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById("toggle-pause")?.click())
+	await waitFor(
+		async () =>
+			(await electronApp.evaluate(
+				({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById("solver-status")?.label,
+			)) === "Solver: Running",
+		"resumed status in the native menu",
+	)
+
+	await fixture.stop()
+	await waitFor(
+		async () =>
+			(await electronApp.evaluate(
+				({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById("solver-status")?.label,
+			)) === "Solver: Stopped",
+		"crashed solver status within one polling interval",
+		10_000,
+	)
+	assert.match(
+		await electronApp.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.getTitle() ?? ""),
+		/Stopped/,
+	)
+	assert.equal(
+		await electronApp.evaluate(({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById("restart-solver")?.enabled),
+		true,
+	)
+
+	await electronApp.evaluate(({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById("restart-solver")?.click())
+	await waitForHealth(socketPath, "init")
+	await waitForDaemonPids(userDataDir)
 })
 
 test("the custom protocol reconnects Orders SSE and releases streams across 20 reloads", async (t) => {
@@ -343,6 +668,121 @@ test("the custom protocol reconnects Orders SSE and releases streams across 20 r
 	await waitFor(() => fixture.clientCount() === 1, "exactly one SSE stream after 20 reloads")
 })
 
+test("the renderer enforces CSP and opens only approved links outside Electron", async (t) => {
+	const userDataDir = await temporaryUserData("security")
+	const socketPath = socketPathFor(userDataDir)
+	let electronApp
+	const fixture = operatorFixture(socketPath)
+	t.after(async () => {
+		fixture.stop()
+		await cleanupDesktop(electronApp, userDataDir)
+	})
+
+	await fixture.start()
+	let page
+	;({ electronApp, page } = await launchDesktop(userDataDir))
+	await waitForHealth(socketPath, "operator")
+	await page.addInitScript(() => {
+		globalThis.__simplexCspViolations = []
+		window.addEventListener("securitypolicyviolation", (event) => {
+			globalThis.__simplexCspViolations.push({ directive: event.effectiveDirective, blocked: event.blockedURI })
+		})
+	})
+	await electronApp.evaluate(({ shell }) => {
+		globalThis.__simplexOpenedUrls = []
+		shell.openExternal = async (url) => {
+			globalThis.__simplexOpenedUrls.push(url)
+		}
+	})
+
+	const documentResponse = page.waitForResponse(
+		(response) => response.request().resourceType() === "document" && response.url().startsWith("simplex://local/"),
+	)
+	await page.reload()
+	const csp = await (await documentResponse).headerValue("content-security-policy")
+	assert.match(csp ?? "", /default-src 'none'/)
+	assert.match(csp ?? "", /script-src 'self'/)
+	assert.match(csp ?? "", /connect-src 'self'/)
+	assert.match(csp ?? "", /style-src 'self' 'unsafe-inline'/)
+	assert.doesNotMatch(csp ?? "", /unsafe-eval/)
+	assert.deepEqual(
+		await page.evaluate(() => globalThis.__simplexCspViolations ?? []),
+		[],
+		"the operator page must not violate its CSP during load",
+	)
+
+	const inlineScriptRan = await page.evaluate(async () => {
+		delete globalThis.__simplexInlineScriptRan
+		const script = document.createElement("script")
+		script.textContent = "globalThis.__simplexInlineScriptRan = true"
+		document.head.append(script)
+		await new Promise((resolveDelay) => setTimeout(resolveDelay, 25))
+		return globalThis.__simplexInlineScriptRan === true
+	})
+	assert.equal(inlineScriptRan, false, "the CSP must reject injected inline scripts")
+
+	const externalConnectSucceeded = await page.evaluate(async () => {
+		try {
+			await fetch("data:text/plain,not-simplex")
+			return true
+		} catch {
+			return false
+		}
+	})
+	assert.equal(externalConnectSucceeded, false, "the renderer must not connect outside simplex://local")
+
+	const maskedConfig = await page.evaluate(async () => (await fetch("/api/config")).text())
+	assert.doesNotMatch(
+		maskedConfig,
+		new RegExp(`${FIXTURE_KEY}|${FIXTURE_SEED}`),
+		"the operator config response must not expose key material",
+	)
+	const futureWindowGuards = await electronApp.evaluate(({ BrowserWindow }) => {
+		const attacker = new BrowserWindow({
+			show: false,
+			webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
+		})
+		try {
+			return {
+				navigate: attacker.webContents.listenerCount("will-navigate"),
+				frameNavigate: attacker.webContents.listenerCount("will-frame-navigate"),
+				redirect: attacker.webContents.listenerCount("will-redirect"),
+				webview: attacker.webContents.listenerCount("will-attach-webview"),
+			}
+		} finally {
+			attacker.destroy()
+		}
+	})
+	assert.deepEqual(futureWindowGuards, { navigate: 1, frameNavigate: 1, redirect: 1, webview: 1 })
+	assert.equal(fixture.pauseWrites(), 0, "an untrusted page must not mutate the operator API")
+
+	const approvedLink = `${externalLinks.hyperfxApp}/history/details/?id=1`
+	const secondApprovedLink = `${externalLinks.chainExplorers.ethereum}/tx/0x1`
+	await page.evaluate((url) => window.open(url, "_blank"), approvedLink)
+	await waitFor(
+		async () => (await electronApp.evaluate(() => globalThis.__simplexOpenedUrls ?? [])).length === 1,
+		"approved external link",
+	)
+	assert.deepEqual(await electronApp.evaluate(() => globalThis.__simplexOpenedUrls), [approvedLink])
+	assert.equal(electronApp.windows().length, 1, "target=_blank must not create an Electron window")
+
+	await page.evaluate(() => window.open("https://example.com/", "_blank"))
+	await page.evaluate((url) => window.open(url, "_blank"), secondApprovedLink)
+	await waitFor(
+		async () => (await electronApp.evaluate(() => globalThis.__simplexOpenedUrls ?? [])).length === 2,
+		"second approved external link",
+	)
+	assert.deepEqual(await electronApp.evaluate(() => globalThis.__simplexOpenedUrls), [
+		approvedLink,
+		secondApprovedLink,
+	])
+	await page.evaluate(() => {
+		window.location.href = "https://example.com/"
+	})
+	await delay(100)
+	assert.match(page.url(), /^simplex:\/\/local\//, "external navigation must leave the desktop document in place")
+})
+
 test("first run writes a valid private config under Electron userData", async (t) => {
 	const userDataDir = await temporaryUserData("first-run")
 	const socketPath = socketPathFor(userDataDir)
@@ -352,15 +792,27 @@ test("first run writes a valid private config under Electron userData", async (t
 
 	let page
 	;({ electronApp, page } = await launchDesktop(userDataDir))
+	await page.addInitScript(() => {
+		globalThis.__simplexCspViolations = []
+		window.addEventListener("securitypolicyviolation", (event) => {
+			globalThis.__simplexCspViolations.push({ directive: event.effectiveDirective, blocked: event.blockedURI })
+		})
+	})
+	await page.reload()
 	await waitForHealth(socketPath, "init")
 	await page.locator(".wizard-shell").waitFor({ timeout: 30_000 })
-	await waitForDaemonPids(userDataDir)
+	assert.deepEqual(
+		await page.evaluate(() => globalThis.__simplexCspViolations ?? []),
+		[],
+		"the setup wizard must not violate its CSP during load",
+	)
+	const [daemonPid] = await waitForDaemonPids(userDataDir)
 
 	const config = {
 		simplex: {
 			signer: { type: "privateKey", key: TEST_KEY },
 			maxConcurrentOrders: 5,
-			substratePrivateKey: "bottom drive obey lake curtain smoke basket hold race lonely fit walk",
+			substratePrivateKey: TEST_SEED,
 			hyperbridgeWsUrl: "ws://127.0.0.1:9",
 		},
 		pairs: [
@@ -389,7 +841,21 @@ test("first run writes a valid private config under Electron userData", async (t
 	assert.equal(result.json.configPath, configPath)
 	await waitFor(() => existsSync(configPath), "first-run config file")
 	const written = await readFile(configPath, "utf8")
+	assert.match(written, /WARNING: contains secrets/)
 	assert.match(written, /\[simplex\.signer\]/)
 	assert.match(written, /\[\[pairs\]\]/)
+	assert.equal(written.match(new RegExp(TEST_KEY, "g"))?.length, 1)
 	if (process.platform !== "win32") assert.equal((await stat(configPath)).mode & 0o777, 0o600)
+	await delay(250)
+	await assertNoTcpListener(daemonPid)
+	const rendererStorage = await page.evaluate(() => ({
+		local: { ...localStorage },
+		session: { ...sessionStorage },
+	}))
+	assert.doesNotMatch(JSON.stringify(rendererStorage), new RegExp(TEST_KEY))
+	assert.doesNotMatch(JSON.stringify(rendererStorage), new RegExp(TEST_SEED))
+	await quitElectron(electronApp)
+	electronApp = undefined
+	await waitForHealth(socketPath, "init")
+	await assertSecretsExistOnlyInConfig(userDataDir, configPath, [TEST_KEY, TEST_SEED])
 })

@@ -262,7 +262,19 @@ describe("setup API", () => {
 		const config = minimalConfig(rpc.url)
 
 		expect((await post(base, "save-and-start", { config })).status).toBe(202)
+		expect(await (await fetch(`${base}/health`)).json()).toEqual({ status: "starting", mode: "init" })
 		expect((await post(base, "save-and-start", { config })).status).toBe(409)
 		resolveBoot()
+	})
+
+	it("rejects save-and-start after graceful shutdown begins", async () => {
+		rpc = await startMockRpc({ chainId: 1 })
+		const { base, onSaveAndStart } = await startInitServer()
+		server!.beginStopping()
+
+		const response = await post(base, "save-and-start", { config: minimalConfig(rpc.url) })
+		expect(response.status).toBe(409)
+		expect(await response.json()).toEqual({ error: "Simplex is stopping" })
+		expect(onSaveAndStart).not.toHaveBeenCalled()
 	})
 })

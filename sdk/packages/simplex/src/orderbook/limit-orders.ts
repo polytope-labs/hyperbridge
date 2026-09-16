@@ -60,6 +60,15 @@ export interface CreateLimitOrderRequest {
 	ttlSecs?: number
 }
 
+/**
+ * What the service reports about an order nobody asked it about: a fill worked it
+ * down, or took it under the dust floor. Operator-initiated changes are reported
+ * by the controller that took the request.
+ */
+export type LimitOrderEvent =
+	| { kind: "resized"; order: LimitOrder; delivered: bigint }
+	| { kind: "filled"; order: LimitOrder }
+
 /** The stored limit order, and what the orderbook said about its posting. */
 export interface PostedLimitOrder {
 	order: LimitOrder
@@ -82,6 +91,7 @@ export interface CancelledLimitOrder {
 export class LimitOrderService {
 	private logger: Logger
 	private cachedLimits?: { limits: OrderbookLimits; readAt: number }
+	private onEvent?: (event: LimitOrderEvent) => void
 
 	constructor(
 		private readonly store: LimitOrderStore,
@@ -95,6 +105,14 @@ export class LimitOrderService {
 		loggers: LoggerContext = defaultLoggerContext(),
 	) {
 		this.logger = loggers.get("limit-orders")
+	}
+
+	/**
+	 * Attaches the listener fill-driven changes are reported to. `Simplex` does
+	 * this after boot, the same way the filler is handed the service itself.
+	 */
+	listen(onEvent: (event: LimitOrderEvent) => void): void {
+		this.onEvent = onEvent
 	}
 
 	list(filter?: LimitOrderFilter): Promise<LimitOrder[]> {
@@ -382,7 +400,7 @@ export class LimitOrderService {
 				"Limit order worked down past the dust floor; closing it",
 			)
 			if (remaining.commitment) await this.withdraw(remaining.commitment as HexString)
-			return this.store.setPosting(id, {
+			const closed = await this.store.setPosting(id, {
 				commitment: null,
 				bookExpiresAt: null,
 				bookPrice: null,
@@ -390,9 +408,13 @@ export class LimitOrderService {
 				status: "filled",
 				lastError: null,
 			})
+			if (closed) this.report({ kind: "filled", order: closed })
+			return closed
 		}
 
-		return this.repost(await this.store.setStatus(id, "resizing"))
+		const resized = await this.repost(await this.store.setStatus(id, "resizing"))
+		if (resized) this.report({ kind: "resized", order: resized, delivered })
+		return resized
 	}
 
 	/**
@@ -410,6 +432,15 @@ export class LimitOrderService {
 		// and a signed op cannot be posted twice.
 		const nonce = (BigInt(order.orderNonce) + 1n).toString()
 		return (await this.post({ ...order, commitment: null, orderNonce: nonce })).order
+	}
+
+	/** A listener that throws is the listener's problem, not the fill's. */
+	private report(event: LimitOrderEvent): void {
+		try {
+			this.onEvent?.(event)
+		} catch (err) {
+			this.logger.warn({ id: event.order.id, err }, "A limit order listener threw")
+		}
 	}
 
 	/** The orderbook's dust floor for what this order pays out, or zero when it names none. */

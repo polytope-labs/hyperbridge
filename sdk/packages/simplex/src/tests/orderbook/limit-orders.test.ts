@@ -260,6 +260,23 @@ describe("LimitOrderService.settleFill", () => {
 		return { client, store, settled: settled!, id: created.order.id }
 	}
 
+	it("reports a resize and a close, which nobody asked for", async () => {
+		// Every other change to a limit order is something the operator initiated and
+		// gets told about by the controller that took the request. These two happen
+		// inside a fill, so without this the size just goes stale on their screen.
+		const client = fakeClient([])
+		const { service } = makeService(client)
+		const events: string[] = []
+		service.listen((event) => events.push(`${event.kind}:${event.order.remaining}`))
+		const created = await service.create(REQUEST)
+
+		await service.settleFill(created.order.id, 500_000n * ONE)
+		expect(events).toEqual([`resized:${(1_000_000n * ONE).toString()}`])
+
+		await service.settleFill(created.order.id, 999_999n * ONE)
+		expect(events[1]).toMatch(/^filled:/)
+	})
+
 	it("works the order down by what went out and reposts the rest", async () => {
 		const { client, settled } = await fill(500_000n * ONE)
 

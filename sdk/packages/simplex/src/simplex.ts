@@ -122,6 +122,10 @@ export interface SimplexEvents {
 	"limit-order:posted": { order: LimitOrder }
 	"limit-order:rejected": { order: LimitOrder; code: string; message: string }
 	"limit-order:cancelled": { order: LimitOrder }
+	/** A fill worked the order down and it went back on the book at its new size. */
+	"limit-order:resized": { order: LimitOrder; delivered: string }
+	/** A fill took the order under the orderbook's dust floor, so it is done. */
+	"limit-order:filled": { order: LimitOrder }
 }
 
 /** Internal monitor event name to public event name. */
@@ -214,6 +218,18 @@ export class LimitOrderController {
 		return this.service.get(id)
 	}
 
+	/**
+	 * One limit order with the bids that drew on it, newest first.
+	 *
+	 * What makes `remaining` explicable: a size that shrank is the sum of the
+	 * fills behind it, and the operator can see which ones.
+	 */
+	async withFills(id: string): Promise<{ order: LimitOrder; fills: StoredBid[] } | null> {
+		const order = await this.service.get(id)
+		if (!order) return null
+		return { order, fills: await this.runtime.data.bids.byLimitOrder(id) }
+	}
+
 	/** Creates the order, posts it, and reports what the orderbook made of it. */
 	async create(request: CreateLimitOrderRequest): Promise<PostedLimitOrder> {
 		const posted = await this.service.create(request)
@@ -237,7 +253,14 @@ export class LimitOrderController {
 }
 
 /** How the controller publishes an outcome on the `Simplex` it belongs to. */
-type LimitOrderEmitter = <E extends "limit-order:posted" | "limit-order:rejected" | "limit-order:cancelled">(
+type LimitOrderEmitter = <
+	E extends
+		| "limit-order:posted"
+		| "limit-order:rejected"
+		| "limit-order:cancelled"
+		| "limit-order:resized"
+		| "limit-order:filled",
+>(
 	event: E,
 	payload: SimplexEvents[E],
 ) => void
@@ -885,6 +908,16 @@ export class Simplex extends EventEmitter {
 				this.emit("activity", row)
 			} catch (err) {
 				this.logger.error({ err, event: "activity" }, "Event listener threw; continuing")
+			}
+		})
+		// A resize or a close is the one change to a limit order the operator did not
+		// ask for, so it is the one they most need told about. The service isolates a
+		// listener that throws, the same way the fill path does above.
+		this.runtime.limitOrders?.listen((event) => {
+			if (event.kind === "resized") {
+				this.emit("limit-order:resized", { order: event.order, delivered: event.delivered.toString() })
+			} else {
+				this.emit("limit-order:filled", { order: event.order })
 			}
 		})
 	}

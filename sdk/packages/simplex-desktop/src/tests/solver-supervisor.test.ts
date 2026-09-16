@@ -1,7 +1,8 @@
 import { createServer, type Server } from "node:http"
-import { mkdtempSync, rmSync } from "node:fs"
+import { linkSync, mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { createServer as createNetServer } from "node:net"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { socketPathFor } from "../desktop-paths"
 import {
@@ -9,6 +10,7 @@ import {
 	probeSolverStatus,
 	sendSolverAction,
 	shouldNotifySolverFailure,
+	stopRequestAccepted,
 	SolverSupervisor,
 	type SolverStatus,
 } from "../solver-supervisor"
@@ -104,6 +106,23 @@ describe("solver supervision", () => {
 		expect(await probeSolverStatus(socketPathFor(directory))).toEqual({ state: "stopped", detail: "absent" })
 	})
 
+	it("reports a Unix socket orphaned by a crash as stale", async () => {
+		if (process.platform === "win32") return
+		const directory = mkdtempSync(join(tmpdir(), "simplex-supervisor-stale-"))
+		const bound = join(directory, "bound.sock")
+		const orphan = join(directory, "orphan.sock")
+		const server = createNetServer()
+		await new Promise<void>((resolve, reject) => {
+			server.once("error", reject)
+			server.listen(bound, resolve)
+		})
+		linkSync(bound, orphan)
+		await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())))
+		cleanups.push(() => rmSync(directory, { recursive: true, force: true }))
+
+		expect(await probeSolverStatus(orphan)).toEqual({ state: "stopped", detail: "stale" })
+	})
+
 	it("deduplicates concurrent probes and emits only status changes", async () => {
 		let resolveProbe: ((status: SolverStatus) => void) | undefined
 		const probe = vi.fn(
@@ -152,13 +171,22 @@ describe("solver supervision", () => {
 	})
 
 	it("notifies for crashes but not deliberate stops", () => {
-		// A missing socket cannot distinguish a clean dashboard stop from a crash;
-		// the tray still shows Stopped, but only transport failures raise an alert.
-		expect(shouldNotifySolverFailure({ state: "running" }, { state: "stopped" }, false)).toBe(false)
+		expect(shouldNotifySolverFailure({ state: "running" }, { state: "stopped", detail: "stale" }, false)).toBe(true)
+		expect(shouldNotifySolverFailure({ state: "running" }, { state: "stopped", detail: "absent" }, false)).toBe(
+			false,
+		)
 		expect(shouldNotifySolverFailure({ state: "running" }, { state: "unreachable", detail: "crash" }, false)).toBe(
 			true,
 		)
-		expect(shouldNotifySolverFailure({ state: "running" }, { state: "stopped" }, true)).toBe(false)
-		expect(shouldNotifySolverFailure({ state: "stopping" }, { state: "stopped" }, false)).toBe(false)
+		expect(shouldNotifySolverFailure({ state: "running" }, { state: "stopped", detail: "stale" }, true)).toBe(false)
+		expect(shouldNotifySolverFailure({ state: "stopping" }, { state: "stopped", detail: "stale" }, false)).toBe(
+			false,
+		)
+	})
+
+	it("accepts a stopping daemon as a successful graceful-stop handoff", () => {
+		expect(stopRequestAccepted({ state: "stopping" })).toBe(true)
+		expect(stopRequestAccepted({ state: "stopped", detail: "absent" })).toBe(true)
+		expect(stopRequestAccepted({ state: "running" })).toBe(false)
 	})
 })

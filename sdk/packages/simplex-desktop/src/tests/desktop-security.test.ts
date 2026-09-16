@@ -80,6 +80,7 @@ describe("desktop renderer security", () => {
 		expect(RENDERER_CSP).toContain("connect-src 'self'")
 		expect(RENDERER_CSP).toContain("object-src 'none'")
 		expect(RENDERER_CSP).toContain("script-src 'self'")
+		expect(RENDERER_CSP).toContain("style-src 'self' 'unsafe-inline'")
 		expect(RENDERER_CSP).not.toContain("'unsafe-eval'")
 		expect(RENDERER_CSP).not.toContain("script-src 'unsafe-inline'")
 	})

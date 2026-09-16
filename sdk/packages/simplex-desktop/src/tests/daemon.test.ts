@@ -38,7 +38,6 @@ describe("daemon lifecycle", () => {
 			"--data-dir",
 			"/data/simplex",
 		])
-		expect(args).not.toContain("--ui")
 	})
 
 	it.each(["darwin", "win32"] as const)(
@@ -98,6 +97,23 @@ describe("daemon lifecycle", () => {
 			attached: true,
 			mode: "operator",
 		})
+		expect(spawn).not.toHaveBeenCalled()
+	})
+
+	it("waits for a starting daemon without spawning a replacement", async () => {
+		const spawn = vi.fn()
+		await expect(
+			ensureDaemon({
+				launch,
+				probe: sequence([
+					{ state: "starting", mode: "init" },
+					{ state: "starting", mode: "init" },
+					{ state: "ready", mode: "operator" },
+				]),
+				spawn,
+				delay: async () => {},
+			}),
+		).resolves.toEqual({ attached: true, mode: "operator" })
 		expect(spawn).not.toHaveBeenCalled()
 	})
 

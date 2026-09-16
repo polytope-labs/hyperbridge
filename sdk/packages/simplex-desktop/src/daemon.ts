@@ -5,6 +5,7 @@ import { request as httpRequest } from "node:http"
 export type SimplexMode = "init" | "operator"
 export type HealthProbe =
 	| { state: "ready"; mode: SimplexMode }
+	| { state: "starting"; mode: SimplexMode }
 	| { state: "stopping"; mode: SimplexMode }
 	| { state: "spawnable"; reason: "absent" | "stale" }
 	| { state: "occupied"; detail: string }
@@ -23,6 +24,7 @@ export function probeHealth(socketPath: string, timeoutMs = 1_000): Promise<Heal
 					const parsed = JSON.parse(body) as { status?: unknown; mode?: unknown }
 					if (response.statusCode === 200 && (parsed.mode === "init" || parsed.mode === "operator")) {
 						if (parsed.status === "ok") resolve({ state: "ready", mode: parsed.mode })
+						else if (parsed.status === "starting") resolve({ state: "starting", mode: parsed.mode })
 						else if (parsed.status === "stopping") resolve({ state: "stopping", mode: parsed.mode })
 						else throw new Error("unrecognized health status")
 						return
@@ -121,13 +123,14 @@ export async function ensureDaemon(options: {
 	if (initial.state === "occupied") throw new Error(`The Simplex socket is occupied: ${initial.detail}`)
 	if (initial.state === "unavailable") throw new Error(`The Simplex socket cannot be probed: ${initial.detail}`)
 
-	const child = (options.spawn ?? spawnDaemon)(options.launch)
+	const attached = initial.state === "starting"
+	const child = attached ? undefined : (options.spawn ?? spawnDaemon)(options.launch)
 	let exit: { code: number | null; signal: NodeJS.Signals | null } | undefined
 	let failure: Error | undefined
-	child.once("exit", (code, signal) => {
+	child?.once("exit", (code, signal) => {
 		exit = { code, signal }
 	})
-	child.once("error", (error) => {
+	child?.once("error", (error) => {
 		failure = error
 	})
 
@@ -144,8 +147,11 @@ export async function ensureDaemon(options: {
 			)
 		}
 		const health = await probe(options.launch.socketPath)
-		if (health.state === "ready") return { attached: false, mode: health.mode }
-		if (health.state === "stopping") return { attached: false, mode: health.mode }
+		if (health.state === "ready") return { attached, mode: health.mode }
+		if (health.state === "stopping") return { attached, mode: health.mode }
+		if (attached && health.state === "spawnable") {
+			throw new Error(`Simplex stopped before its UI became ready (${health.reason})`)
+		}
 		if (health.state === "occupied")
 			throw new Error(`The Simplex socket was taken by an unexpected listener: ${health.detail}`)
 		await delay(pollIntervalMs)

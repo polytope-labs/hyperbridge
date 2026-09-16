@@ -23,6 +23,13 @@ import type {
 const LIMITS_TTL_MS = 5 * 60 * 1000
 
 /**
+ * The statuses a posting may be written onto: the row still expects one. A
+ * posting is a slow round trip, and an operator's cancel or the expiry sweep
+ * can land while one is in flight.
+ */
+const POSTABLE = ["open", "resizing"] as const
+
+/**
  * How long a `resizing` row must have sat before reconciliation treats it as
  * stranded by a crash rather than as a repost still in flight.
  */
@@ -718,14 +725,29 @@ export class LimitOrderService {
 				{ id: order.id, commitment: posted.commitment, price: posted.price },
 				"Limit order posted to the orderbook",
 			)
-			const stored = await this.store.setPosting(order.id, {
-				commitment: posted.commitment,
-				bookExpiresAt: posted.expiresAt,
-				bookPrice: posted.price,
-				orderNonce: orderNonce.toString(),
-				status: "open",
-				lastError: null,
-			})
+			const stored = await this.store.setPosting(
+				order.id,
+				{
+					commitment: posted.commitment,
+					bookExpiresAt: posted.expiresAt,
+					bookPrice: posted.price,
+					orderNonce: orderNonce.toString(),
+					status: "open",
+					lastError: null,
+				},
+				POSTABLE,
+			)
+			if (!stored) {
+				// The operator cancelled it, or the sweep expired it, while this posting
+				// was in flight. Writing it back as open would undo that, so the entry
+				// the orderbook has just taken comes down instead.
+				this.logger.warn(
+					{ id: order.id, commitment: posted.commitment },
+					"Limit order moved on while it was being posted; withdrawing the entry",
+				)
+				await this.withdraw(posted.commitment)
+				return { order: (await this.store.get(order.id))!, result }
+			}
 			// A solver the orderbook has just met is suspended until it hears from it,
 			// which is what `surfaced: false` is saying. The posting is also what makes
 			// the heartbeat answerable, so it goes out now rather than on the next tick.
@@ -759,7 +781,10 @@ export class LimitOrderService {
 		}
 
 		this.logger.error({ id: order.id, err: message }, "Orderbook refused the limit order")
-		return { order: (await this.store.setStatus(order.id, "rejected", message))!, result }
+		// Guarded for the same reason: a refusal that arrives after the operator
+		// cancelled says nothing about the row they left behind.
+		const rejected = await this.store.setStatus(order.id, "rejected", message, POSTABLE)
+		return { order: rejected ?? (await this.store.get(order.id))!, result }
 	}
 
 	/**

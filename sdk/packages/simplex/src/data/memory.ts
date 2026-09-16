@@ -380,12 +380,21 @@ class MemoryLimitOrderStore implements LimitOrderStore {
 		return this.list({ status: "open" })
 	}
 
-	async setPosting(id: string, posting: LimitOrderPosting): Promise<LimitOrder | null> {
-		return this.patch(id, posting)
+	async setPosting(
+		id: string,
+		posting: LimitOrderPosting,
+		only?: readonly LimitOrderStatus[],
+	): Promise<LimitOrder | null> {
+		return this.patch(id, posting, only)
 	}
 
-	async setStatus(id: string, status: LimitOrderStatus, lastError: string | null = null): Promise<LimitOrder | null> {
-		return this.patch(id, { status, lastError })
+	async setStatus(
+		id: string,
+		status: LimitOrderStatus,
+		lastError: string | null = null,
+		only?: readonly LimitOrderStatus[],
+	): Promise<LimitOrder | null> {
+		return this.patch(id, { status, lastError }, only)
 	}
 
 	async reserve(id: string, amount: string): Promise<boolean> {
@@ -411,9 +420,10 @@ class MemoryLimitOrderStore implements LimitOrderStore {
 		this.patch(id, { reserved: (reserved > 0n ? reserved : 0n).toString() })
 	}
 
-	private patch(id: string, fields: Partial<LimitOrder>): LimitOrder | null {
+	private patch(id: string, fields: Partial<LimitOrder>, only?: readonly LimitOrderStatus[]): LimitOrder | null {
 		const order = this.orders.get(id)
 		if (!order) return null
+		if (only && only.length > 0 && !only.includes(order.status)) return null
 		const next = { ...order, ...fields, updatedAt: sqliteDatetime(new Date()) }
 		this.orders.set(id, next)
 		return { ...next }

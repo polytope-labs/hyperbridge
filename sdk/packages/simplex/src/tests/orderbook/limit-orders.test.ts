@@ -8,6 +8,7 @@ import {
 	fakeClient,
 	limitOrderService as makeService,
 	ORDERBOOK_FIXTURES,
+	postedOrder,
 } from "../helpers/limit-orders"
 
 const { ONE } = ORDERBOOK_FIXTURES
@@ -328,6 +329,56 @@ describe("reposting when the old entry will not come down", () => {
 		const reposted = await service.repost(created.order)
 		expect(reposted?.lastError).toMatch(/ECONNREFUSED/)
 		expect(client.submitted).toEqual(["0x00"])
+	})
+})
+
+describe("a posting that lands after the order moved on", () => {
+	// A posting is a slow round trip. An operator's cancel, or the expiry sweep,
+	// can land while one is in flight, and writing the answer back as `open` would
+	// undo it and leave the order matching swaps again.
+	const raced = async (status: "cancelled" | "expired") => {
+		const client = fakeClient([], [])
+		const cancelled: string[] = []
+		const inner = client.cancelOrder
+		client.cancelOrder = async (params) => {
+			cancelled.push(params.commitment)
+			return inner(params)
+		}
+		const { service, store } = makeService(client)
+		const created = await service.create(REQUEST)
+		await store.setStatus(created.order.id, status)
+
+		// biome-ignore lint/suspicious/noExplicitAny: the posting path is private
+		const posted = await (service as any).post({ ...created.order, commitment: null, orderNonce: "1" })
+		return { order: posted.order as typeof created.order, store, cancelled, id: created.order.id }
+	}
+
+	it("is withdrawn rather than written over a cancel", async () => {
+		const { order, store, cancelled, id } = await raced("cancelled")
+
+		expect(order.status).toBe("cancelled")
+		expect((await store.get(id))?.status).toBe("cancelled")
+		expect(cancelled).toEqual(["0xabc"])
+	})
+
+	it("is withdrawn rather than written over an expiry", async () => {
+		const { order, cancelled } = await raced("expired")
+
+		expect(order.status).toBe("expired")
+		expect(cancelled).toEqual(["0xabc"])
+	})
+
+	it("leaves a refusal off a row that already moved on", async () => {
+		const client = fakeClient([{ kind: "rejected", code: "BAD_SIGNATURE", message: "bad" }])
+		const { service, store } = makeService(client)
+		const created = await service.create(REQUEST)
+		await store.setStatus(created.order.id, "cancelled")
+
+		// biome-ignore lint/suspicious/noExplicitAny: the posting path is private
+		await (service as any).post({ ...created.order, commitment: null, orderNonce: "1" })
+		const order = await store.get(created.order.id)
+		expect(order?.status).toBe("cancelled")
+		expect(order?.lastError).toBeNull()
 	})
 })
 

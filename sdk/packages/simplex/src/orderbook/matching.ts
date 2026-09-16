@@ -35,6 +35,9 @@ export interface LimitOrderMatch {
 }
 
 export function availableOn(order: LimitOrder): bigint {
+	// Floored because a fill draws `remaining` down without touching what other
+	// bids have reserved, so an order can owe more than it has left. That is
+	// nothing to draw on, not capacity in reverse.
 	const available = BigInt(order.remaining) - BigInt(order.reserved)
 	return available > 0n ? available : 0n
 }

@@ -13,6 +13,11 @@ import {
 
 const { ONE } = ORDERBOOK_FIXTURES
 
+/** Past every grace period, for a reconciliation that should treat a row as settled. */
+function later(): Date {
+	return new Date(Date.now() + 10 * 60 * 1000)
+}
+
 /** An ISO stamp `secs` from now, which is how the orderbook reports an expiry. */
 function inSeconds(secs: number): string {
 	return new Date(Date.now() + secs * 1000).toISOString()
@@ -182,7 +187,8 @@ describe("reconciliation", () => {
 		const { service } = makeService(client)
 		await service.create(REQUEST)
 
-		expect(await service.reconcile()).toEqual({ cancelled: 0, reposted: 1, underFunded: 0 })
+		// From later on: a row touched moments ago has a posting in flight.
+		expect(await service.reconcile(later())).toEqual({ cancelled: 0, reposted: 1, underFunded: 0 })
 		// No cancel first: the entry the orderbook would be asked about is the one
 		// it has just said it does not have.
 		expect(client.cancelled).toHaveLength(0)
@@ -242,6 +248,18 @@ describe("reconciliation", () => {
 		await store.setStatus(created.order.id, "resizing")
 
 		expect(await service.reconcile()).toMatchObject({ reposted: 0 })
+		expect(client.submitted).toEqual(["0x00"])
+	})
+
+	it("waits out a posting that has not answered yet, whatever opened the window", async () => {
+		// A create posts after its insert and a renewal posts after its cancel, and
+		// both leave a live row with no entry to find. Reading that as one to put
+		// back is how two entries end up behind one liability.
+		const client = countingClient([])
+		const { service } = makeService(client)
+		await service.create(REQUEST)
+
+		expect(await service.reconcile()).toEqual({ cancelled: 0, reposted: 0, underFunded: 0 })
 		expect(client.submitted).toEqual(["0x00"])
 	})
 })

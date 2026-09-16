@@ -958,6 +958,11 @@ export class IntentFiller {
 				return
 			}
 			const reservation = matched
+			// Set the moment a bid row is on its way, because from then on the row is
+			// what owns the hold and `claimReservation` is the only safe way to give
+			// it back. Releasing directly after that point would hand the same hold
+			// back twice, once here and once when the bid is retracted.
+			let bidRow: HexString | undefined
 
 			try {
 				const execStartMs = Date.now()
@@ -979,6 +984,7 @@ export class IntentFiller {
 				// operator-supplied store rejecting on a connection blip, a disk error.
 				if (result.commitment) {
 					const commitment = result.commitment as HexString
+					if (reservation) bidRow = commitment
 					await this.bidStorage?.store({
 						commitment,
 						extrinsicHash: (result.txHash as HexString) || undefined,
@@ -1028,9 +1034,14 @@ export class IntentFiller {
 
 				return result
 			} catch (error) {
-				// The bid may or may not have gone out, so release only what no bid row
-				// took over; `claimReservation` is what keeps the two from both firing.
-				if (reservation) {
+				// Before the bid row, nothing else can give this hold back, so release it
+				// here. After it, the row owns the hold: claim it, which answers null if
+				// a retraction got there first. A write that failed leaves the hold
+				// stranded rather than released twice, which is the safe way round —
+				// an overstated reservation refuses fills, an understated one oversells.
+				if (bidRow) {
+					await this.releaseReservation(bidRow)
+				} else if (reservation) {
 					await this.limitOrders?.release(reservation.limitOrderId, reservation.payout.toString())
 				}
 				this.logger.error({ orderId: order.id, err: error }, "Order execution failed")

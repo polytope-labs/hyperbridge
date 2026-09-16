@@ -2,7 +2,9 @@ import { describe, expect, it, vi } from "vitest"
 import type { HexString } from "@hyperbridge/sdk"
 import { IntentFiller } from "@/core/filler"
 import { MemoryDataStore } from "@/data/memory"
+import type { LimitOrderStore } from "@/data/types"
 import { stubOrderScanner } from "../helpers/stub-scanner"
+import { limitOrderStore } from "../helpers/limit-orders"
 
 /**
  * The fill path holds money. By the time `executeOrder` returns, a bid may
@@ -16,8 +18,12 @@ import { stubOrderScanner } from "../helpers/stub-scanner"
 
 const COMMITMENT = "0xc0mm1tment" as HexString
 const OUR_ADDRESS = "0xAAAA00000000000000000000000000000000AAAA" as HexString
+const LIMIT_ORDER = "limit-0"
+/** 1,000 of an 18-decimal token: what the bid below holds against the limit order. */
+const PAYOUT = 1000n * 10n ** 18n
+const MATCH = { limitOrderId: LIMIT_ORDER, payout: PAYOUT }
 
-function build(result: Record<string, unknown>) {
+function build(result: Record<string, unknown>, limitOrders?: LimitOrderStore) {
 	const data = new MemoryDataStore()
 	const strategy = {
 		name: "test",
@@ -39,11 +45,13 @@ function build(result: Record<string, unknown>) {
 			getRpcUrls: () => ["https://rpc.example"],
 		} as never,
 		{} as never,
-		{} as never,
+		// The fill path reads the match this order was priced against off the cache.
+		{ cacheService: { getMatchedLimitOrder: () => MATCH } } as never,
 		{ address: OUR_ADDRESS } as never,
 		{ orders: stubOrderScanner([1]) },
 		undefined,
 		data.bids,
+		limitOrders,
 	)
 	return { filler, data, strategy }
 }
@@ -111,6 +119,30 @@ describe("fill path safety", () => {
 		// and must show up in the gauge operators are told to watch.
 		expect((await data.bids.unretractedReclaimable()).map((b) => b.commitment)).toEqual([COMMITMENT])
 		expect((await data.bids.stats()).pendingRetraction).toBe(1)
+	})
+
+	it("gives a limit order's hold back exactly once when the fill path throws late", async () => {
+		// The hold belongs to the bid row from the moment it is written, so a throw
+		// after that has to claim it rather than release it: releasing here and
+		// again on the retraction would free capacity a second bid is holding.
+		const limitOrders = await limitOrderStore([
+			{ id: LIMIT_ORDER, base: "USDC", quote: "CNGN", side: "BID", fillChain: "EVM-1", price: "1500", size: "3000" },
+		])
+		// A second bid, still open, holding the same amount against the same order.
+		expect(await limitOrders.reserve(LIMIT_ORDER, PAYOUT.toString())).toBe(true)
+
+		const { filler } = build({ success: true, commitment: COMMITMENT, txHash: "0xtx" }, limitOrders)
+		filler.monitor.on("orderFilled", () => {
+			throw new Error("consumer exploded")
+		})
+
+		await execute(filler, ORDER)
+		expect((await limitOrders.get(LIMIT_ORDER))!.reserved).toBe(PAYOUT.toString())
+
+		// The retraction that follows finds the hold already claimed and takes nothing.
+		// biome-ignore lint/suspicious/noExplicitAny: the settlement path is private
+		await (filler as any).releaseReservation(COMMITMENT)
+		expect((await limitOrders.get(LIMIT_ORDER))!.reserved).toBe(PAYOUT.toString())
 	})
 
 	it("leaves an outright failed bid out of the sweep", async () => {

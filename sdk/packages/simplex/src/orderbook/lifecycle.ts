@@ -59,7 +59,7 @@ export class LimitOrderLifecycle {
 		const reconcileMs = this.options.reconcileIntervalSecs * 1000
 
 		this.every(heartbeatMs, "heartbeat", () => this.service.heartbeat())
-		this.every(renewMs, "renewal", () => this.service.renewExpiring(this.options.renewMarginSecs))
+		this.every(renewMs, "renewal", () => this.renew())
 		this.every(reconcileMs, "reconciliation", () => this.reconcile())
 
 		this.logger.info({ heartbeatMs, renewMs, reconcileMs }, "Orderbook lifecycle started")
@@ -69,6 +69,18 @@ export class LimitOrderLifecycle {
 	stop(): void {
 		this.timers.forEach((timer) => clearInterval(timer))
 		this.timers = []
+	}
+
+	/**
+	 * Sweeps expired orders off the book, then renews what is left.
+	 *
+	 * In that order: renewing an order that has just outlived its own expiry would
+	 * put a fresh posting up for something the matcher already refuses.
+	 */
+	private async renew(): Promise<void> {
+		const expired = await this.service.expireStale()
+		if (expired > 0) this.logger.info({ expired }, "Withdrew limit orders that had outlived their expiry")
+		await this.service.renewExpiring(this.options.renewMarginSecs)
 	}
 
 	private async reconcile(): Promise<void> {

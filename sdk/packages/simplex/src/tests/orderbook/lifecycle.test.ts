@@ -111,6 +111,56 @@ describe("renewal", () => {
 	})
 })
 
+describe("the operator's own expiry", () => {
+	const withExpiry = async (expiresAt: string) => {
+		const client = countingClient([])
+		const { service, store } = makeService(client)
+		const created = await service.create({ ...REQUEST, expiresAt })
+		return { client, service, store, id: created.order.id }
+	}
+
+	it("withdraws an order that has outlived it", async () => {
+		// The matcher already refuses an expired order, so a posting left up
+		// advertises depth no swapper could ever draw on.
+		const { client, service, store, id } = await withExpiry(inSeconds(-1))
+
+		expect(await service.expireStale()).toBe(1)
+		const order = await store.get(id)
+		expect(order?.status).toBe("expired")
+		expect(order?.commitment).toBeNull()
+		expect(client.cancelled).toEqual(["0xabc"])
+	})
+
+	it("leaves an order whose expiry has not come", async () => {
+		const { client, service, store, id } = await withExpiry(inSeconds(3600))
+
+		expect(await service.expireStale()).toBe(0)
+		expect((await store.get(id))?.status).toBe("open")
+		expect(client.cancelled).toEqual([])
+	})
+
+	it("renews nothing once the order has expired", async () => {
+		// The posting is due for renewal on its own clock; the sweep has to have
+		// taken it down first, or renewal puts a fresh one up for a dead order.
+		const client = countingClient([
+			{ kind: "accepted", order: postedOrder({ expiresAt: inSeconds(60) }), surfaced: true },
+		])
+		const { service } = makeService(client)
+		await service.create({ ...REQUEST, expiresAt: inSeconds(-1) })
+
+		await service.expireStale()
+		expect(await service.renewExpiring(120)).toBe(0)
+		expect(client.submitted).toEqual(["0x00"])
+	})
+
+	it("treats an expiry it cannot read as no expiry at all", async () => {
+		const { service, store, id } = await withExpiry("whenever")
+
+		expect(await service.expireStale()).toBe(0)
+		expect((await store.get(id))?.status).toBe("open")
+	})
+})
+
 describe("reconciliation", () => {
 	it("cancels an orderbook entry no limit order here owns", async () => {
 		// Orphaned by a crash, or by a local cancel whose request never landed.

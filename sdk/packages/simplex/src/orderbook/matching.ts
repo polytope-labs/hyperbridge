@@ -46,10 +46,20 @@ export function availableOn(order: LimitOrder): bigint {
  * the whole point of pricing from the operator's own resting orders rather than
  * from a curve that always has an answer.
  *
- * When several match, the largest offer wins, and a tie goes to the one with
- * more left. That is the order the orderbook would have served when the swapper
- * was quoted. Exactly one limit order is ever returned, which is what keeps the
- * draw-down on a fill a one-to-one piece of bookkeeping.
+ * When several match, the one that pays the most wins, and a tie goes to the one
+ * with more left. What it pays is `min(offer, remaining - reserved)`, not the
+ * offer alone: an order quoting a wonderful rate with almost nothing behind it
+ * would otherwise beat one that can actually cover the swap, and the caller
+ * would skip a fill that was there to be had.
+ *
+ * An order whose offer falls short of what the swapper asked for is still a
+ * match. Whether a shortfall can be filled at all is the caller's rule, not the
+ * matcher's: a cross-chain order reverts on any under-fill, while a same-chain
+ * one may fill partially, and that holds whether the shortfall comes from the
+ * price or from what the order has left.
+ *
+ * Exactly one limit order is ever returned, which is what keeps the draw-down on
+ * a fill a one-to-one piece of bookkeeping.
  */
 export function matchLimitOrder(
 	orders: readonly LimitOrder[],
@@ -69,11 +79,12 @@ export function matchLimitOrder(
 			const available = availableOn(order)
 			return { order, offer, available, payout: offer < available ? offer : available }
 		})
-		.filter((candidate) => candidate.offer >= incoming.requestedOutput)
+		// An order with nothing left to pay serves nobody, whatever it quotes.
+		.filter((candidate) => candidate.payout > 0n)
 
 	return candidates.reduce<LimitOrderMatch | null>((best, candidate) => {
 		if (!best) return candidate
-		if (candidate.offer !== best.offer) return candidate.offer > best.offer ? candidate : best
+		if (candidate.payout !== best.payout) return candidate.payout > best.payout ? candidate : best
 		return candidate.available > best.available ? candidate : best
 	}, null)
 }

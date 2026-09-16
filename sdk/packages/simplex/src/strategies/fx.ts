@@ -359,8 +359,9 @@ export class FXFiller implements FillerStrategy {
 				this.logger.warn({ err, destChain }, "Failed to estimate deadline timestamp, using fallback")
 			}
 
-			// The matcher already required the offer to cover the ask, so a shortfall
-			// here is the limit order running out rather than pricing badly.
+			// A shortfall is either the limit order running out or its price landing
+			// under what the swapper asked for. Cross-chain neither can be filled;
+			// same-chain both can, as far as the payout goes.
 			if (targetOutput < output.amount && !(await partialEligible())) {
 				this.logger.info(
 					{

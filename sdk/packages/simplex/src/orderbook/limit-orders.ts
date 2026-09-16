@@ -30,10 +30,15 @@ const LIMITS_TTL_MS = 5 * 60 * 1000
 const POSTABLE = ["open", "resizing"] as const
 
 /**
- * How long a `resizing` row must have sat before reconciliation treats it as
- * stranded by a crash rather than as a repost still in flight.
+ * How long a row must have sat untouched before reconciliation treats a missing
+ * entry as stranded by a crash rather than as a posting still in flight.
+ *
+ * Three paths leave a live row with no entry to find for as long as a round trip
+ * takes: a create between the insert and the post, a resize, and a renewal
+ * between the cancel and the post. All three write `updatedAt` as they start, so
+ * one rule covers them.
  */
-const RESIZE_GRACE_MS = 2 * 60 * 1000
+const POST_GRACE_MS = 2 * 60 * 1000
 
 /** EIP-712 types for the signed messages the orderbook accepts. */
 const EIP712_DOMAIN = [
@@ -524,6 +529,13 @@ export class LimitOrderService {
 			}
 		}
 
+		// Marked for the duration. A repost is a cancel and a post, and between them
+		// the row is live with no entry on the book, which is exactly what
+		// reconciliation would otherwise read as one to put back. The status is what
+		// `POSTABLE` lets the posting write over, and the write refreshes
+		// `updatedAt`, which is what reconciliation actually leaves alone.
+		await this.store.setStatus(order.id, "resizing")
+
 		// A fresh nonce, because the orderbook remembers every op hash it has taken
 		// and a signed op cannot be posted twice.
 		const nonce = (BigInt(order.orderNonce) + 1n).toString()
@@ -599,7 +611,7 @@ export class LimitOrderService {
 	 * owns, an order here whose entry has gone, or an entry the orderbook has cut
 	 * down because the solver cannot cover what it quoted.
 	 */
-	async reconcile(): Promise<ReconcileReport> {
+	async reconcile(now: Date = new Date()): Promise<ReconcileReport> {
 		const [entries, live] = await Promise.all([this.postedOrders(), this.live()])
 		const owners = new Map(
 			live.filter((order) => order.commitment).map((order) => [order.commitment!.toLowerCase(), order]),
@@ -627,9 +639,11 @@ export class LimitOrderService {
 		for (const order of live) {
 			if (isLocal(order)) continue
 			if (order.commitment && found.has(order.commitment.toLowerCase())) continue
-			// A row that only just went to `resizing` has a repost in flight, and
-			// posting a second entry for one liability is worse than waiting a cycle.
-			if (order.status === "resizing" && sinceMs(order.updatedAt) < RESIZE_GRACE_MS) continue
+			// A row touched moments ago has a posting in flight: a create posts after
+			// its insert, and a repost posts after its cancel, both leaving the row
+			// live with nothing on the book to find. Posting now would put a second
+			// entry behind one liability, which is worse than waiting a cycle.
+			if (sinceMs(order.updatedAt, now) < POST_GRACE_MS) continue
 
 			this.logger.warn({ id: order.id }, "Limit order has no entry on the orderbook; posting it again")
 			try {
@@ -910,9 +924,9 @@ function expiresWithin(bookExpiresAt: string | null, marginSecs: number): boolea
 }
 
 /** How long ago a row was written. Its stamps are UTC but not marked as such. */
-function sinceMs(updatedAt: string): number {
+function sinceMs(updatedAt: string, now: Date): number {
 	const written = Date.parse(`${updatedAt.replace(" ", "T")}Z`)
-	return Number.isNaN(written) ? Number.POSITIVE_INFINITY : Date.now() - written
+	return Number.isNaN(written) ? Number.POSITIVE_INFINITY : now.getTime() - written
 }
 
 /**

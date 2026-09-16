@@ -20,8 +20,9 @@ cancel `repost` normally leads with, and an entry the solver cannot cover is lef
 `UNDER_FUNDED` on the row for the operator, since reposting it would only have it cut down again.
 "Cannot cover" is `resized`, or a `backed: false` on an entry carrying a `validatedAt`: `backed` is
 also false before any cycle has read a balance, and a posting surfaces at its full quoted size
-meanwhile. A `resizing` row written in the last two minutes is skipped, which
-`2026-09-16-reconciliation-waits-out-a-resize-rather-than-locking-against-it.md` covers.
+meanwhile. A row written in the last two minutes is skipped whatever its status, because a posting
+may still be in flight, which
+`2026-09-16-reconciliation-waits-out-a-posting-rather-than-locking-against-it.md` covers.
 
 A pass that throws is logged and its clock carries on, and a tick is skipped while the previous pass
 is still running. An orderbook that is down at boot does not stop the filler starting: it prices from

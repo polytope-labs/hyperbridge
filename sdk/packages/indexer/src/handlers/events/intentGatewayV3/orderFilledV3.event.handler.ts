@@ -55,8 +55,10 @@ export const handleOrderFilledEventV3 = wrap(async (event: OrderFilledLog): Prom
 		filler,
 	)
 
-	// Filling an order is what makes an address a solver, so the filler starts being tracked. Store-only;
-	// the next block's handler reads its balances.
+	// Filling an order is what makes an address a solver, so the filler starts being tracked. Store-only:
+	// the next block's handler reads its balances. Deliberately unguarded, like the store writes above it —
+	// only the store can fail it, and a lost discovery means a solver never tracked, so the block should
+	// retry rather than swallow it. That is what separates it from the best-effort volume path below.
 	await discoverSolverFromFill({
 		chain,
 		solver: filler,

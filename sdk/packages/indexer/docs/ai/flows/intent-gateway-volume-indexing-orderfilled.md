@@ -6,9 +6,10 @@ The indexer is a SubQuery project: per-network YAML files in `src/configs/` bind
 
     - `IntentGatewayV3Service.recordFill(...)` — the fill rows, the order's cumulative `filled` totals, and the per-fill volume and points described below.
     - `IntentGatewayV3Service.updateOrderStatus(commitment, FILLED, ..., filler)` — order status, user activity and referrer points.
+    - `discoverSolverFromFill(...)` — queues the filler for solver-inventory tracking (see the solver inventory flow). Store-only and unguarded: only the store can fail it, so the block retries rather than losing the discovery.
     - `IntentGatewayV3Service.recordOrderVolume("FILLED", outputTokens, timestamp)`, in its own try/catch — a separate, unconditional cumulative volume path (see the parallel-paths note).
 
-    A `PartialFill` log triggers `handlePartialFilledEventV3`, which calls `recordPartialFill` the same way. It updates no status and does not call `recordOrderVolume`.
+    A `PartialFill` log triggers `handlePartialFilledEventV3`, which calls `recordPartialFill` the same way and also calls `discoverSolverFromFill`. It updates no status and does not call `recordOrderVolume`.
 
 2. `recordFill` and `recordPartialFill` (`src/services/intentGatewayV3.service.ts`) key the fill by `{transactionHash}.{logIndex}`. If that row already exists the log is a replay, and the call returns before counting anything. Otherwise they write the fill rows, add the outputs to the order's `IOrderV3OutputAsset.filled`, and call `awardFillRewards`.
 

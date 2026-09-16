@@ -44,7 +44,7 @@ export const handlePartialFilledEventV3 = wrap(async (event: PartialFillLog): Pr
 		enrichment,
 	)
 
-	// A partial fill makes the filler a solver just as a full one does.
+	// A partial fill makes the filler a solver just as a full one does, and is unguarded for the same reason.
 	await discoverSolverFromFill({
 		chain,
 		solver: filler,

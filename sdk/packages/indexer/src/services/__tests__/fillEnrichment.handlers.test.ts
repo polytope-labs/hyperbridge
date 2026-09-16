@@ -68,7 +68,7 @@ it.each([
 	["OrderFilled", handleOrderFilledEventV3, "IOrderV3Fill", "IOrderV3FillOutputAsset"],
 	["PartialFill", handlePartialFilledEventV3, "IOrderV3PartialFill", "IOrderV3PartialFillOutputAsset"],
 ] as const)(
-	"persists %s receipt data while keeping inventory refresh and event amounts",
+	"persists %s receipt data and event amounts",
 	async (name, handle, entity, asset) => {
 		records.set(`IOrderV3OutputAsset:${commitment}-output-0`, {
 			id: `${commitment}-output-0`,

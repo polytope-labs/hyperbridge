@@ -17,6 +17,15 @@ import type { HexString } from "@hyperbridge/sdk"
  */
 export const MIN_ORDER_TTL_SECONDS = 900
 
+/**
+ * The heartbeat period to fall back on when `serverInfo` cannot be read.
+ *
+ * Deliberately short. Heartbeating more often than the server asks costs one
+ * request; heartbeating less often costs a suspension, and the live
+ * `heartbeatIntervalSecs` is used whenever it can be read.
+ */
+export const FALLBACK_HEARTBEAT_INTERVAL_MS = 60_000
+
 export interface Book {
 	id: string
 	base: string
@@ -58,6 +67,10 @@ export interface PostedOrder {
 	advertisedSize: string
 	expiresAt: string
 	acceptedSources: string[]
+	/** `advertisedSize < quotedSize`: the balance is binding, not the quote. */
+	resized?: boolean
+	/** False until the next balance cycle has confirmed the solver can cover the quote. */
+	backed?: boolean
 }
 
 /**
@@ -97,6 +110,20 @@ export type MessageRejectionCode =
 	| "SIGNATURE_REUSED"
 	| "UNKNOWN_ORDER"
 	| "UNKNOWN_SOLVER"
+
+export type SolverStatus = "ACTIVE" | "SUSPENDED"
+
+export type HeartbeatResult =
+	| { kind: "accepted"; status: SolverStatus; reactivatedOrders: number; heartbeatDueBy: string }
+	| { kind: "rejected"; code: MessageRejectionCode; message: string }
+
+/** One page of the solver's own orders, as reconciliation walks them. */
+export interface PostedOrderPage {
+	orders: PostedOrder[]
+	/** Cursor for the next page, absent on the last one. */
+	cursor?: string
+	status: SolverStatus
+}
 
 export type CancelOrderResult =
 	| { kind: "cancelled"; commitment: HexString }

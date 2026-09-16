@@ -33,6 +33,12 @@ import {IntentsBase} from "../../src/apps/intentsv2/IntentsBase.sol";
 import {ICallDispatcher, Call} from "@hyperbridge/core/interfaces/ICallDispatcher.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
+contract RejectingNativeRecipient {
+    receive() external payable {
+        revert("reject ETH");
+    }
+}
+
 /**
  * @title IntentGatewayV2SameChainTest
  * @notice Comprehensive tests for same-chain swap functionality in IntentGatewayV2
@@ -681,6 +687,299 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         vm.stopPrank();
     }
 
+    function testSameChainCancel_ThirdPartyAfterDeadline() public {
+        uint256 amount = 1000 * 1e6;
+        Order memory order = _placeStandardOrder(amount, 1000 * 1e18);
+        bytes32 commitment = keccak256(abi.encode(order));
+        uint256 userBefore = usdc.balanceOf(user);
+        uint256 callerBefore = usdc.balanceOf(otherUser);
+        vm.roll(order.deadline + 1);
+
+        vm.expectEmit(true, false, false, true, address(intentGateway));
+        emit IntentsBase.OrderCancelled(commitment, otherUser);
+        vm.expectEmit(true, false, false, true, address(intentGateway));
+        emit IntentsBase.EscrowRefunded(commitment, order.inputs);
+        vm.prank(otherUser);
+        intentGateway.cancelOrder(order, CancelOptions({height: 0, relayerFee: 0}));
+
+        assertEq(usdc.balanceOf(user), userBefore + amount);
+        assertEq(usdc.balanceOf(otherUser), callerBefore);
+        assertEq(usdc.balanceOf(address(intentGateway)), 0);
+        vm.expectRevert(IntentsBase.Filled.selector);
+        vm.prank(otherUser);
+        intentGateway.cancelOrder(order, CancelOptions({height: 0, relayerFee: 0}));
+    }
+
+    function testSameChainCancel_ThirdPartyBeforeDeadlineRevertsAndPreservesEscrow() public {
+        uint256 amount = 1000 * 1e6;
+        Order memory order = _placeStandardOrder(amount, 1000 * 1e18);
+        bytes32 commitment = keccak256(abi.encode(order));
+        vm.roll(order.deadline - 1);
+
+        vm.expectRevert(IntentsBase.Unauthorized.selector);
+        vm.prank(otherUser);
+        intentGateway.cancelOrder(order, CancelOptions({height: 0, relayerFee: 0}));
+
+        assertEq(intentGateway._orders(commitment, address(usdc)), amount);
+        assertEq(intentGateway._filled(commitment), address(0));
+        assertEq(usdc.balanceOf(address(intentGateway)), amount);
+    }
+
+    function testSameChainCancel_DeadlineBelongsToOwnerAndSolver() public {
+        uint256 amount = 1000 * 1e6;
+        uint256 outputAmount = 1000 * 1e18;
+        Order memory order = _placeStandardOrder(amount, outputAmount);
+        bytes32 commitment = keccak256(abi.encode(order));
+        vm.roll(order.deadline);
+
+        vm.expectRevert(IntentsBase.Unauthorized.selector);
+        vm.prank(otherUser);
+        intentGateway.cancelOrder(order, CancelOptions({height: 0, relayerFee: 0}));
+
+        uint256 userDaiBefore = dai.balanceOf(user);
+        vm.startPrank(solver);
+        dai.approve(address(intentGateway), outputAmount);
+        intentGateway.fillOrder(
+            order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: order.output.assets})
+        );
+        vm.stopPrank();
+
+        assertEq(dai.balanceOf(user), userDaiBefore + outputAmount);
+        assertEq(intentGateway._filled(commitment), solver);
+    }
+
+    function testSameChainCancel_FirstExpiredBlockRejectsFillAndAllowsThirdParty() public {
+        uint256 amount = 1000 * 1e6;
+        uint256 outputAmount = 1000 * 1e18;
+        Order memory order = _placeStandardOrder(amount, outputAmount);
+        vm.roll(order.deadline + 1);
+
+        vm.startPrank(solver);
+        dai.approve(address(intentGateway), outputAmount);
+        vm.expectRevert(IntentsBase.Expired.selector);
+        intentGateway.fillOrder(
+            order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: order.output.assets})
+        );
+        vm.stopPrank();
+
+        uint256 userBefore = usdc.balanceOf(user);
+        vm.prank(otherUser);
+        intentGateway.cancelOrder(order, CancelOptions({height: 0, relayerFee: 0}));
+        assertEq(usdc.balanceOf(user), userBefore + amount);
+    }
+
+    function testSameChainCancel_OwnerCanCancelBeforeAtAndAfterDeadline() public {
+        uint256 amount = 100 * 1e6;
+        uint256 userBefore = usdc.balanceOf(user);
+        Order memory beforeDeadline = _placeStandardOrder(amount, 100 * 1e18);
+        Order memory atDeadline = _placeStandardOrder(amount, 100 * 1e18);
+        Order memory afterDeadline = _placeStandardOrder(amount, 100 * 1e18);
+        uint256 deadline = beforeDeadline.deadline;
+
+        vm.roll(deadline - 1);
+        vm.prank(user);
+        intentGateway.cancelOrder(beforeDeadline, CancelOptions({height: 0, relayerFee: 0}));
+        vm.roll(deadline);
+        vm.prank(user);
+        intentGateway.cancelOrder(atDeadline, CancelOptions({height: 0, relayerFee: 0}));
+        vm.roll(deadline + 1);
+        vm.prank(user);
+        intentGateway.cancelOrder(afterDeadline, CancelOptions({height: 0, relayerFee: 0}));
+
+        assertEq(usdc.balanceOf(user), userBefore);
+        assertEq(intentGateway._filled(keccak256(abi.encode(beforeDeadline))), user);
+        assertEq(intentGateway._filled(keccak256(abi.encode(atDeadline))), user);
+        assertEq(intentGateway._filled(keccak256(abi.encode(afterDeadline))), user);
+    }
+
+    function testSameChainCancel_ThirdPartyAfterPartialFillRefundsOnlyRemainder() public {
+        uint256 amount = 1000 * 1e6;
+        Order memory order = _placeStandardOrder(amount, 1000 * 1e18);
+        bytes32 commitment = keccak256(abi.encode(order));
+        TokenInfo[] memory outputs = new TokenInfo[](1);
+        outputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 500 * 1e18});
+
+        vm.startPrank(solver);
+        dai.approve(address(intentGateway), 500 * 1e18);
+        intentGateway.fillOrder(
+            order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: outputs})
+        );
+        vm.stopPrank();
+
+        uint256 solverProceeds = usdc.balanceOf(solver);
+        uint256 userBefore = usdc.balanceOf(user);
+        vm.roll(order.deadline + 1);
+        vm.prank(otherUser);
+        intentGateway.cancelOrder(order, CancelOptions({height: 0, relayerFee: 0}));
+
+        assertEq(usdc.balanceOf(user), userBefore + 500 * 1e6);
+        assertEq(usdc.balanceOf(solver), solverProceeds);
+        assertEq(usdc.balanceOf(address(intentGateway)), 0);
+        assertEq(intentGateway._filled(commitment), user);
+        vm.expectRevert(IntentsBase.Filled.selector);
+        vm.prank(otherUser);
+        intentGateway.cancelOrder(order, CancelOptions({height: 0, relayerFee: 0}));
+    }
+
+    function testSameChainCancel_ThirdPartyRefundsNativeEscrowOnlyToUser() public {
+        uint256 amount = 1 ether;
+        uint256 userBefore = user.balance;
+        Order memory order = _placeNativeOrder(user, user, amount, block.number + 100);
+        bytes32 commitment = keccak256(abi.encode(order));
+        uint256 callerBefore = otherUser.balance;
+        vm.roll(order.deadline + 1);
+
+        vm.expectEmit(true, false, false, true, address(intentGateway));
+        emit IntentsBase.OrderCancelled(commitment, otherUser);
+        vm.expectEmit(true, false, false, true, address(intentGateway));
+        emit IntentsBase.EscrowRefunded(commitment, order.inputs);
+        vm.prank(otherUser);
+        intentGateway.cancelOrder(order, CancelOptions({height: 0, relayerFee: 0}));
+
+        assertEq(user.balance, userBefore);
+        assertEq(otherUser.balance, callerBefore);
+        assertEq(address(intentGateway).balance, 0);
+        assertEq(intentGateway._filled(commitment), user);
+    }
+
+    function testSameChainCancel_RejectingNativeUserRollsBackKeeperAndOwnerCancellation() public {
+        uint256 amount = 1 ether;
+        RejectingNativeRecipient rejectingUser = new RejectingNativeRecipient();
+        vm.deal(address(rejectingUser), amount);
+        Order memory order = _placeNativeOrder(address(rejectingUser), otherUser, amount, block.number + 100);
+        bytes32 commitment = keccak256(abi.encode(order));
+        vm.roll(order.deadline + 1);
+
+        uint256 gatewayBefore = address(intentGateway).balance;
+        uint256 recipientBefore = address(rejectingUser).balance;
+        assertEq(intentGateway._filled(commitment), address(0));
+        assertEq(intentGateway._orders(commitment, address(0)), amount);
+
+        vm.expectRevert(IntentsBase.InsufficientNativeToken.selector);
+        vm.prank(otherUser);
+        intentGateway.cancelOrder(order, CancelOptions({height: 0, relayerFee: 0}));
+        assertEq(intentGateway._filled(commitment), address(0));
+        assertEq(intentGateway._orders(commitment, address(0)), amount);
+
+        vm.expectRevert(IntentsBase.InsufficientNativeToken.selector);
+        vm.prank(address(rejectingUser));
+        intentGateway.cancelOrder(order, CancelOptions({height: 0, relayerFee: 0}));
+        assertEq(intentGateway._filled(commitment), address(0));
+        assertEq(intentGateway._orders(commitment, address(0)), amount);
+        assertEq(address(intentGateway).balance, gatewayBefore);
+        assertEq(address(rejectingUser).balance, recipientBefore);
+    }
+
+    function testSameChainCancel_RefundIgnoresDifferentOutputBeneficiary() public {
+        uint256 amount = 1000 * 1e6;
+        Order memory order = _placeErc20Order(user, solver, amount, 1000 * 1e18, 0, block.number + 100);
+        uint256 userBefore = usdc.balanceOf(user);
+        uint256 beneficiaryBefore = usdc.balanceOf(solver);
+        uint256 callerBefore = usdc.balanceOf(otherUser);
+        vm.roll(order.deadline + 1);
+
+        vm.prank(otherUser);
+        intentGateway.cancelOrder(order, CancelOptions({height: 0, relayerFee: 0}));
+
+        assertEq(usdc.balanceOf(user), userBefore + amount);
+        assertEq(usdc.balanceOf(solver), beneficiaryBefore);
+        assertEq(usdc.balanceOf(otherUser), callerBefore);
+    }
+
+    function testSameChainCancel_ThirdPartyStillRejectsFilledAndUnknownOrders() public {
+        uint256 outputAmount = 1000 * 1e18;
+        Order memory order = _placeStandardOrder(1000 * 1e6, outputAmount);
+        vm.startPrank(solver);
+        dai.approve(address(intentGateway), outputAmount);
+        intentGateway.fillOrder(
+            order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: order.output.assets})
+        );
+        vm.stopPrank();
+        vm.roll(order.deadline + 1);
+
+        vm.expectRevert(IntentsBase.Filled.selector);
+        vm.prank(otherUser);
+        intentGateway.cancelOrder(order, CancelOptions({height: 0, relayerFee: 0}));
+
+        order.nonce = 999;
+        vm.expectRevert(IntentsBase.UnknownOrder.selector);
+        vm.prank(otherUser);
+        intentGateway.cancelOrder(order, CancelOptions({height: 0, relayerFee: 0}));
+    }
+
+    function testSameChainCancel_ThirdPartyStillRejectsWrongChain() public {
+        uint256 amount = 1000 * 1e6;
+        Order memory order = _placeStandardOrder(amount, 1000 * 1e18);
+        bytes32 commitment = keccak256(abi.encode(order));
+        vm.roll(order.deadline + 1);
+        order.source = bytes("OTHER_CHAIN");
+        order.destination = bytes("OTHER_CHAIN");
+
+        vm.expectRevert(IntentsBase.WrongChain.selector);
+        vm.prank(otherUser);
+        intentGateway.cancelOrder(order, CancelOptions({height: 0, relayerFee: 0}));
+
+        assertEq(intentGateway._orders(commitment, address(usdc)), amount);
+        assertEq(intentGateway._filled(commitment), address(0));
+    }
+
+    function testSameChainCancel_ThirdPartyRefundsStoredFeesOnlyToUser() public {
+        uint256 amount = 1000 * 1e6;
+        uint256 fees = 25 * 1e18;
+        Order memory order = _placeErc20Order(user, user, amount, 1000 * 1e18, fees, block.number + 100);
+        uint256 userUsdcBefore = usdc.balanceOf(user);
+        uint256 userDaiBefore = dai.balanceOf(user);
+        uint256 callerUsdcBefore = usdc.balanceOf(otherUser);
+        uint256 callerDaiBefore = dai.balanceOf(otherUser);
+        vm.roll(order.deadline + 1);
+
+        vm.prank(otherUser);
+        intentGateway.cancelOrder(order, CancelOptions({height: 0, relayerFee: 0}));
+
+        assertEq(usdc.balanceOf(user), userUsdcBefore + amount);
+        assertEq(dai.balanceOf(user), userDaiBefore + fees);
+        assertEq(usdc.balanceOf(otherUser), callerUsdcBefore);
+        assertEq(dai.balanceOf(otherUser), callerDaiBefore);
+        assertEq(usdc.balanceOf(address(intentGateway)), 0);
+        assertEq(dai.balanceOf(address(intentGateway)), 0);
+    }
+
+    function testSameChainCancel_ArbitrumUsesL2ClockForPublicBoundary() public {
+        uint256[3] memory chainIds = [uint256(42161), uint256(42170), uint256(421614)];
+        for (uint256 i; i < chainIds.length; i++) {
+            _assertArbitrumPublicCancelBoundary(chainIds[i], 400_000_000 + (i * 1000));
+        }
+    }
+
+    function _assertArbitrumPublicCancelBoundary(uint256 chainId, uint256 deadline) internal {
+        uint256 amount = 100 * 1e6;
+        vm.chainId(chainId);
+        vm.etch(address(100), hex"fe");
+
+        vm.roll(deadline + 50);
+        vm.mockCall(address(100), abi.encodeWithSignature("arbBlockNumber()"), abi.encode(deadline - 1));
+        Order memory boundaryOrder = _placeErc20Order(user, user, amount, 100 * 1e18, 0, deadline);
+        bytes32 boundaryCommitment = keccak256(abi.encode(boundaryOrder));
+        vm.mockCall(address(100), abi.encodeWithSignature("arbBlockNumber()"), abi.encode(deadline));
+        vm.expectRevert(IntentsBase.Unauthorized.selector);
+        vm.prank(otherUser);
+        intentGateway.cancelOrder(boundaryOrder, CancelOptions({height: 0, relayerFee: 0}));
+        assertEq(intentGateway._orders(boundaryCommitment, address(usdc)), amount);
+        vm.prank(user);
+        intentGateway.cancelOrder(boundaryOrder, CancelOptions({height: 0, relayerFee: 0}));
+
+        vm.roll(deadline - 50);
+        vm.mockCall(address(100), abi.encodeWithSignature("arbBlockNumber()"), abi.encode(deadline - 1));
+        Order memory expiredOrder = _placeErc20Order(user, user, amount, 100 * 1e18, 0, deadline);
+        uint256 userBefore = usdc.balanceOf(user);
+        uint256 callerBefore = usdc.balanceOf(otherUser);
+        vm.mockCall(address(100), abi.encodeWithSignature("arbBlockNumber()"), abi.encode(deadline + 1));
+        vm.prank(otherUser);
+        intentGateway.cancelOrder(expiredOrder, CancelOptions({height: 0, relayerFee: 0}));
+        assertEq(usdc.balanceOf(user), userBefore + amount);
+        assertEq(usdc.balanceOf(otherUser), callerBefore);
+    }
+
     /*//////////////////////////////////////////////////////////////
                         NATIVE TOKEN TESTS
     //////////////////////////////////////////////////////////////*/
@@ -1139,6 +1438,17 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
     //////////////////////////////////////////////////////////////*/
 
     function _placeStandardOrder(uint256 inputAmount, uint256 outputAmount) internal returns (Order memory order) {
+        return _placeErc20Order(user, user, inputAmount, outputAmount, 0, block.number + 100);
+    }
+
+    function _placeErc20Order(
+        address placer,
+        address outputBeneficiary,
+        uint256 inputAmount,
+        uint256 outputAmount,
+        uint256 fees,
+        uint256 deadline
+    ) internal returns (Order memory order) {
         TokenInfo[] memory inputs = new TokenInfo[](1);
         inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: inputAmount});
 
@@ -1146,29 +1456,64 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: outputAmount});
 
         PaymentInfo memory output =
-            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(outputBeneficiary))), assets: outputAssets, call: ""});
+
+        uint256 nonce = intentGateway._nonce();
 
         order = Order({
             user: bytes32(0),
             source: "",
             destination: host.host(),
-            deadline: block.number + 100,
+            deadline: deadline,
             nonce: 0,
-            fees: 0,
+            fees: fees,
             session: address(0),
             predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
             inputs: inputs,
             output: output
         });
 
-        vm.startPrank(user);
+        vm.startPrank(placer);
         usdc.approve(address(intentGateway), inputAmount);
+        if (fees > 0) dai.approve(address(intentGateway), fees);
         intentGateway.placeOrder(order, bytes32(0));
         vm.stopPrank();
 
-        order.user = bytes32(uint256(uint160(user)));
+        order.user = bytes32(uint256(uint160(placer)));
         order.source = host.host();
-        order.nonce = 0;
+        order.nonce = nonce;
+    }
+
+    function _placeNativeOrder(address placer, address outputBeneficiary, uint256 inputAmount, uint256 deadline)
+        internal
+        returns (Order memory order)
+    {
+        TokenInfo[] memory inputs = new TokenInfo[](1);
+        inputs[0] = TokenInfo({token: bytes32(0), amount: inputAmount});
+        TokenInfo[] memory outputAssets = new TokenInfo[](1);
+        outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
+        uint256 nonce = intentGateway._nonce();
+
+        order = Order({
+            user: bytes32(0),
+            source: "",
+            destination: host.host(),
+            deadline: deadline,
+            nonce: 0,
+            fees: 0,
+            session: address(0),
+            predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
+            inputs: inputs,
+            output: PaymentInfo({
+                beneficiary: bytes32(uint256(uint160(outputBeneficiary))), assets: outputAssets, call: ""
+            })
+        });
+
+        vm.prank(placer);
+        intentGateway.placeOrder{value: inputAmount}(order, bytes32(0));
+        order.user = bytes32(uint256(uint160(placer)));
+        order.source = host.host();
+        order.nonce = nonce;
     }
 
     function testPartialFill_TwoSolversCompleteOrder() public {

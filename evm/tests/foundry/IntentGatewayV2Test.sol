@@ -2108,9 +2108,10 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         intentGateway.placeOrder(order, bytes32(0));
         vm.stopPrank();
 
-        vm.roll(block.number + 101);
+        // Same-chain cancellation remains owner-only through the exact deadline block.
+        vm.roll(order.deadline);
 
-        CancelOptions memory cancelOptions = CancelOptions({relayerFee: 0, height: uint64(block.number + 100)});
+        CancelOptions memory cancelOptions = CancelOptions({relayerFee: 0, height: uint64(order.deadline)});
 
         // Different user tries to cancel
         vm.startPrank(filler);

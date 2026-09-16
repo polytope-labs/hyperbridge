@@ -475,13 +475,15 @@ contract IntentGatewayV2 is IntentsBase, HyperApp, ReentrancyGuardTransient, Ini
      * Routes to the appropriate cancellation logic based on the order type and
      * the current chain:
      *
-     * - Same-chain orders: Refunds escrow directly on this chain.
+     * - Same-chain orders: Refunds escrow directly on this chain. The order creator may cancel
+     *   through the deadline; cancellation becomes permissionless strictly after the deadline.
      * - Cross-chain, called from source: Dispatches a Hyperbridge GET request to
      *   verify the order was not filled on the destination chain.
      * - Cross-chain, called from destination: Marks the order as filled (preventing
      *   future fills) and dispatches a RefundEscrow message to the source chain.
      *
-     * Reverts if the order has already been filled or if called from the wrong chain.
+     * Reverts if the order has already been filled, if called from the wrong chain, or if a
+     * third party attempts to cancel a same-chain order through its deadline.
      *
      * Emits `OrderCancelled` on whichever chain the cancellation is initiated from. `EscrowRefunded`
      * remains the terminal event: same transaction for a same-chain cancel, on the source chain

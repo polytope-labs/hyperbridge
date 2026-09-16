@@ -28,6 +28,7 @@ import {
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 
@@ -184,6 +185,18 @@ abstract contract IntentsBase is EIP712 {
      */
     address internal _relayer;
 
+    /// @dev Exact placement fee and original post-fee input; absent for legacy and zero-fee orders.
+    struct ProtocolFee {
+        uint256 amount;
+        uint256 committed;
+    }
+
+    /// @dev Appended accounting shared by the implementation and both delegatecall modules.
+    mapping(bytes32 => mapping(address => ProtocolFee)) public _protocolFees;
+
+    /// @dev Held protocol fees excluded from governance dust sweeps, keyed by input token.
+    mapping(address => uint256) public _pendingProtocolFees;
+
     /**
      * @dev This contract's own address. Under delegatecall `address(this)` is the proxy instead,
      * so a module uses this to refuse direct calls and to delegatecall itself for `Execute`.
@@ -322,6 +335,9 @@ abstract contract IntentsBase is EIP712 {
      */
     event EscrowRefunded(bytes32 indexed commitment, TokenInfo[] tokens);
 
+    /// @dev Protocol fee returned on cancellation, separate from principal in EscrowRefunded.
+    event ProtocolFeeRefunded(bytes32 indexed commitment, address indexed token, uint256 amount);
+
     /**
      * @dev Emitted when an order's cancellation is initiated, on the chain it is initiated from.
      * For same-chain orders the refund is processed in the same transaction and `EscrowRefunded`
@@ -349,7 +365,7 @@ abstract contract IntentsBase is EIP712 {
 
     /**
      * @dev Emitted when surplus tokens are retained by the protocol. This includes
-     * protocol fee deductions, surplus shares from overpayment, and residual
+     * settled protocol fees, surplus shares from overpayment, and residual
      * balances swept from the CallDispatcher after calldata execution.
      * @param token The token address (address(0) for native token).
      * @param amount The amount collected.
@@ -524,16 +540,21 @@ abstract contract IntentsBase is EIP712 {
         for (uint256 i; i < len; i++) {
             address token = address(uint160(uint256(body.tokens[i].token)));
             uint256 amount = body.tokens[i].amount;
-            if (amount == 0) continue;
+            // A final redeem may carry zero principal after earlier slices were delivered.
+            // Only finalize settles fees: fully-filled cancel proofs leave them for the solver redeem.
+            uint256 refund = finalize ? _settleProtocolFee(body.commitment, token, isRefund ? amount : 0) : 0;
+            if (amount > 0) {
+                uint256 escrowed = _orders[body.commitment][token];
+                if (escrowed == 0) revert UnknownOrder();
+                _orders[body.commitment][token] = escrowed - amount;
+            }
 
-            uint256 escrowed = _orders[body.commitment][token];
-            if (escrowed == 0) revert UnknownOrder();
-
-            _orders[body.commitment][token] = escrowed - amount;
+            uint256 transferAmount = amount + refund;
+            if (transferAmount == 0) continue;
             if (token == address(0)) {
-                _sendValue(beneficiary, amount);
+                _sendValue(beneficiary, transferAmount);
             } else {
-                IERC20(token).safeTransfer(beneficiary, amount);
+                IERC20(token).safeTransfer(beneficiary, transferAmount);
             }
         }
 
@@ -553,6 +574,24 @@ abstract contract IntentsBase is EIP712 {
         } else {
             emit EscrowReleased({commitment: body.commitment, solver: beneficiary, tokens: body.tokens});
         }
+    }
+
+    /// @dev Settles the held fee once, using authenticated refundable principal and the original
+    /// commitment denominator. Floor rounding assigns the remaining fee unit to protocol revenue.
+    function _settleProtocolFee(bytes32 commitment, address token, uint256 principalRefund)
+        internal
+        returns (uint256 refund)
+    {
+        ProtocolFee memory fee = _protocolFees[commitment][token];
+        if (fee.amount == 0) return 0;
+
+        refund = Math.mulDiv(fee.amount, principalRefund, fee.committed);
+        uint256 earned = fee.amount - refund;
+        delete _protocolFees[commitment][token];
+        _pendingProtocolFees[token] -= fee.amount;
+
+        if (refund > 0) emit ProtocolFeeRefunded(commitment, token, refund);
+        if (earned > 0) emit DustCollected(token, earned);
     }
 
     /**
@@ -721,6 +760,9 @@ abstract contract IntentsBase is EIP712 {
             TokenInfo memory info = req.outputs[i];
             address token = address(uint160(uint256(info.token)));
             uint256 amount = info.amount;
+            uint256 balance = token == address(0) ? address(this).balance : IERC20(token).balanceOf(address(this));
+            uint256 reserved = _pendingProtocolFees[token];
+            if (balance < reserved || amount > balance - reserved) revert InvalidInput();
 
             if (token == address(0)) {
                 _sendValue(req.beneficiary, amount);

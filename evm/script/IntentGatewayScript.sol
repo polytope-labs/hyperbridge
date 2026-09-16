@@ -10,6 +10,14 @@ import {IntrinsicModule} from "../src/apps/intentsv2/IntrinsicModule.sol";
 import {ExtrinsicModule} from "../src/apps/intentsv2/ExtrinsicModule.sol";
 import {BaseScript} from "./BaseScript.sol";
 
+/// @dev Initialization payload for an upgrade of an existing proxy.
+function intentGatewayUpgradeInitialization(IntentGatewayV2 gateway) view returns (bytes memory) {
+    uint64 current = gateway.version();
+    if (current == 3) return bytes("");
+    require(current == 2, "Unsupported IntentGateway version");
+    return abi.encodeCall(IntentGatewayV2.migrate, ());
+}
+
 /// @notice Shared by the IntentGatewayV2 deploy scripts: modules first, then the implementation.
 abstract contract IntentGatewayScript is BaseScript {
     using strings for *;
@@ -19,6 +27,17 @@ abstract contract IntentGatewayScript is BaseScript {
      * already at its address is reused. Prints the `data` for `execute_on_gateway`.
      */
     function _deployImplementation() internal returns (IntentGatewayV2 implementation) {
+        // Query the configured proxy before broadcasting any deployments. New chains initialize
+        // their fresh proxy separately; an existing v3 proxy must not re-run migrate().
+        vm.stopBroadcast();
+        bool hasProxy = config.exists("INTENT_GATEWAY_V2");
+        bytes memory migration;
+        if (hasProxy) {
+            migration = intentGatewayUpgradeInitialization(
+                IntentGatewayV2(payable(config.get("INTENT_GATEWAY_V2").toAddress()))
+            );
+        }
+        vm.startBroadcast(uint256(privateKey));
         address intrinsic = vm.computeCreate2Address(salt, keccak256(type(IntrinsicModule).creationCode));
         if (intrinsic.code.length == 0) intrinsic = address(new IntrinsicModule{salt: salt}());
 
@@ -36,10 +55,11 @@ abstract contract IntentGatewayScript is BaseScript {
         console.log("IntrinsicModule at:", intrinsic);
         console.log("ExtrinsicModule at:", extrinsic);
         console.log("IntentGatewayV2 implementation deployed at:", address(implementation));
-        // `execute_on_gateway(data)` prepends the `Execute` discriminator itself.
-        console.log("execute_on_gateway data (upgradeToAndCall with migrate()):");
-        bytes memory migration = abi.encodeCall(IntentGatewayV2.migrate, ());
-        console.logBytes(abi.encodeCall(ExtrinsicIntents.upgradeToAndCall, (address(implementation), migration)));
+        if (hasProxy) {
+            // `execute_on_gateway(data)` prepends the `Execute` discriminator itself.
+            console.log("execute_on_gateway data (version-aware upgradeToAndCall):");
+            console.logBytes(abi.encodeCall(ExtrinsicIntents.upgradeToAndCall, (address(implementation), migration)));
+        }
         vm.startBroadcast(uint256(privateKey));
     }
 

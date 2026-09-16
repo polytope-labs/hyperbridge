@@ -3060,26 +3060,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         customGateway.placeOrder(order, bytes32(0));
         vm.stopPrank();
 
-        // Verify DustCollected event was emitted with destination-specific fee (0.5%, not default 1%)
-        Vm.Log[] memory entries = vm.getRecordedLogs();
-        bool dustCollectedFound = false;
-        uint256 collectedFee = 0;
-
-        for (uint256 i = 0; i < entries.length; i++) {
-            if (entries[i].topics[0] == keccak256("DustCollected(address,uint256)")) {
-                dustCollectedFound = true;
-                // Decode the fee amount from event data
-                (address token, uint256 amount) = abi.decode(entries[i].data, (address, uint256));
-                if (token == address(usdc)) {
-                    collectedFee = amount;
-                }
-            }
-        }
-
-        assertTrue(dustCollectedFound, "DustCollected event should be emitted");
-        assertEq(
-            collectedFee, expectedDestinationFee, "Should collect destination-specific fee (0.5%), not default (1%)"
-        );
+        _assertPendingPlacementFee(customGateway, vm.getRecordedLogs(), expectedDestinationFee);
         assertEq(usdc.balanceOf(address(customGateway)), inputAmount, "Gateway should have full input amount");
     }
 
@@ -3127,20 +3108,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         customGateway.placeOrder(order, bytes32(0));
         vm.stopPrank();
 
-        // Verify DustCollected event was emitted with default fee (1%)
-        Vm.Log[] memory entries = vm.getRecordedLogs();
-        uint256 collectedFee = 0;
-
-        for (uint256 i = 0; i < entries.length; i++) {
-            if (entries[i].topics[0] == keccak256("DustCollected(address,uint256)")) {
-                (address token, uint256 amount) = abi.decode(entries[i].data, (address, uint256));
-                if (token == address(usdc)) {
-                    collectedFee = amount;
-                }
-            }
-        }
-
-        assertEq(collectedFee, expectedDefaultFee, "Should use default protocol fee when destination fee not set");
+        _assertPendingPlacementFee(customGateway, vm.getRecordedLogs(), expectedDefaultFee);
     }
 
     // ============================================
@@ -3281,6 +3249,20 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
     // Protocol Fee Tests
     // ============================================
 
+    function _assertPendingPlacementFee(IntentGatewayV2 gateway, Vm.Log[] memory entries, uint256 expectedFee)
+        internal
+        view
+    {
+        for (uint256 i; i < entries.length; i++) {
+            if (entries[i].emitter == address(gateway)) {
+                assertTrue(
+                    entries[i].topics[0] != keccak256("DustCollected(address,uint256)"), "held fee is not revenue"
+                );
+            }
+        }
+        assertEq(gateway._pendingProtocolFees(address(usdc)), expectedFee, "exact placement fee reserved");
+    }
+
     function testProtocolFeeWith1Percent() public {
         // Test with 1% protocol fee (100 basis points)
         IntentGatewayV2 customGateway = _deployGatewayProxy();
@@ -3325,35 +3307,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         customGateway.placeOrder(order, bytes32(0));
         vm.stopPrank();
 
-        // Check that DustCollected event was emitted
-        Vm.Log[] memory entries = vm.getRecordedLogs();
-        bool dustCollectedFound = false;
-        bool orderPlacedFound = false;
-        uint256 dustAmount = 0;
-
-        for (uint256 i = 0; i < entries.length; i++) {
-            if (entries[i].topics[0] == keccak256("DustCollected(address,uint256)")) {
-                dustCollectedFound = true;
-                (address token, uint256 amount) = abi.decode(entries[i].data, (address, uint256));
-                assertEq(token, address(usdc), "DustCollected should be for USDC");
-                dustAmount = amount;
-            }
-            if (
-                entries[i].topics[0]
-                    == keccak256(
-                        "OrderPlaced(bytes32,string,string,uint256,uint256,uint256,address,bytes32,(bytes32,uint256)[],(bytes32,uint256)[],(bytes32,uint256)[],bytes,bytes,bytes32)"
-                    )
-            ) {
-                orderPlacedFound = true;
-            }
-        }
-
-        assertTrue(dustCollectedFound, "DustCollected event should be emitted");
-        assertTrue(orderPlacedFound, "OrderPlaced event should be emitted");
-        assertEq(dustAmount, expectedProtocolFee, "Protocol fee should be 10 USDC");
-
-        // Verify the gateway received the full amount (protocol fees kept as dust)
-        assertEq(usdc.balanceOf(address(customGateway)), inputAmount, "Gateway should have full input amount");
+        _assertPendingPlacementFee(customGateway, vm.getRecordedLogs(), expectedProtocolFee);
+        assertEq(usdc.balanceOf(address(customGateway)), inputAmount, "Gateway holds principal and reserved fee");
 
         // Verify commitment is calculated with REDUCED amounts
         // Need to reconstruct the order exactly as the contract sees it after filling in fields
@@ -3451,25 +3406,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         customGateway.placeOrder(order, bytes32(0));
         vm.stopPrank();
 
-        // Check that DustCollected event was emitted with correct amount
-        Vm.Log[] memory entries = vm.getRecordedLogs();
-        bool dustCollectedFound = false;
-        uint256 dustAmount = 0;
-
-        for (uint256 i = 0; i < entries.length; i++) {
-            if (entries[i].topics[0] == keccak256("DustCollected(address,uint256)")) {
-                dustCollectedFound = true;
-                (address token, uint256 amount) = abi.decode(entries[i].data, (address, uint256));
-                assertEq(token, address(usdc), "DustCollected should be for USDC");
-                dustAmount = amount;
-            }
-        }
-
-        assertTrue(dustCollectedFound, "DustCollected event should be emitted");
-        assertEq(dustAmount, expectedProtocolFee, "Protocol fee should be 100 USDC");
-
-        // Verify the gateway received the full amount (protocol fees kept as dust)
-        assertEq(usdc.balanceOf(address(customGateway)), inputAmount, "Gateway should have full input amount");
+        _assertPendingPlacementFee(customGateway, vm.getRecordedLogs(), expectedProtocolFee);
+        assertEq(usdc.balanceOf(address(customGateway)), inputAmount, "Gateway holds principal and reserved fee");
 
         // Verify commitment is calculated with REDUCED amounts
         // Need to reconstruct the order exactly as the contract sees it after filling in fields
@@ -3586,31 +3524,39 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         customGateway.placeOrder(order, bytes32(0));
         vm.stopPrank();
 
-        // Manually verify the inputs in the OrderPlaced event
         Vm.Log[] memory entries = vm.getRecordedLogs();
-        for (uint256 i = 0; i < entries.length; i++) {
+        _assertPendingPlacementFee(customGateway, entries, expectedProtocolFee);
+        for (uint256 i; i < entries.length; i++) {
             if (
-                entries[i].topics[0]
-                    == keccak256(
-                        "OrderPlaced(bytes32,string,string,uint256,uint256,uint256,address,bytes32,(bytes32,uint256)[],(bytes32,uint256)[],(bytes32,uint256)[],bytes,bytes,bytes32)"
-                    )
-            ) {
-                // Decode the event - note this is complex due to dynamic arrays
-                // We'll just verify the protocol fee was deducted
-                assertTrue(true, "OrderPlaced event found");
-            }
+                entries[i].emitter != address(customGateway)
+                    || entries[i].topics[0]
+                        != keccak256(
+                            "OrderPlaced(bytes32,string,string,uint256,uint256,uint256,address,bytes32,(bytes32,uint256)[],(bytes32,uint256)[],(bytes32,uint256)[],bytes,bytes,bytes32)"
+                        )
+            ) continue;
+            (,,,,,,,,, TokenInfo[] memory placedInputs,,,,) = abi.decode(
+                entries[i].data,
+                (
+                    bytes32,
+                    string,
+                    string,
+                    uint256,
+                    uint256,
+                    uint256,
+                    address,
+                    bytes32,
+                    TokenInfo[],
+                    TokenInfo[],
+                    TokenInfo[],
+                    bytes,
+                    bytes,
+                    bytes32
+                )
+            );
+            assertEq(placedInputs[0].amount, inputAmount - expectedProtocolFee, "event contains net principal");
+            return;
         }
-
-        // The main verification is that DustCollected was emitted with the correct fee
-        bool dustFound = false;
-        for (uint256 i = 0; i < entries.length; i++) {
-            if (entries[i].topics[0] == keccak256("DustCollected(address,uint256)")) {
-                dustFound = true;
-                (, uint256 amount) = abi.decode(entries[i].data, (address, uint256));
-                assertEq(amount, expectedProtocolFee, "Protocol fee should be 50 USDC");
-            }
-        }
-        assertTrue(dustFound, "DustCollected should be emitted");
+        fail("OrderPlaced missing");
     }
 
     /*//////////////////////////////////////////////////////////////

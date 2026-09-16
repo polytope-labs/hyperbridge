@@ -364,6 +364,9 @@ function maskUrlKey(url: string): string {
 }
 
 function saveAndStart(server: UiServer, setup: SetupContext, body: Record<string, unknown>, res: ServerResponse): void {
+	if (server.isStopping()) {
+		return sendJson(res, 409, { error: "Simplex is stopping" })
+	}
 	if (server.getStartState() === "starting") {
 		return sendJson(res, 409, { error: "A start is already in progress" })
 	}

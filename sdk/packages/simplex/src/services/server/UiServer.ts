@@ -667,6 +667,10 @@ export class UiServer {
 		this.stopping = true
 	}
 
+	isStopping(): boolean {
+		return this.stopping
+	}
+
 	/**
 	 * Removes the socket file on the way out, so the next run has nothing to
 	 * recover. `server.close()` unlinks too, but only once it has drained every
@@ -772,7 +776,8 @@ export class UiServer {
 		}
 
 		if (path === "/health") {
-			return sendJson(res, 200, { status: this.stopping ? "stopping" : "ok", mode: this.mode })
+			const status = this.stopping ? "stopping" : this.startState === "starting" ? "starting" : "ok"
+			return sendJson(res, 200, { status, mode: this.mode })
 		}
 
 		if (path === "/api/status") {

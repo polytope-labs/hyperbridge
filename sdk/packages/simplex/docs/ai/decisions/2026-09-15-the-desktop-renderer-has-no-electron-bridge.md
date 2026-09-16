@@ -5,11 +5,12 @@ served only at the standard, secure `simplex://local` origin and proxied to the 
 or Windows named pipe. Context isolation, Chromium sandboxing, and web security are explicit; Node
 integration and webviews are disabled. Production builds also disable DevTools.
 
-The main document receives a desktop-only Content Security Policy. Scripts, workers, styles, assets,
-and API connections are local-only; frames, objects, media, and non-local form submissions are
-disabled. React's existing element-level style properties require `style-src-attr 'unsafe-inline'`,
-but scripts do not allow inline execution or evaluation. The HTTP UI keeps its existing headers, so
-this policy does not unexpectedly break CLI deployments with different embedding requirements.
+The main document receives a desktop-only Content Security Policy. Scripts, workers, assets, and API
+connections are local-only; frames, objects, media, and non-local form submissions are disabled.
+Inline styles remain allowed because React style properties, Sonner, and Radix insert them at runtime;
+scripts still disallow inline execution and evaluation, while images, fonts, and connections cannot
+reach outside hosts. The HTTP UI keeps its existing headers, so this policy does not unexpectedly
+break CLI deployments with different embedding requirements.
 
 Renderer navigation is restricted to the exact `simplex://local` authority. Every requested child
 window is denied. Known HTTPS links to HyperFX and the explorers compiled into the UI are instead

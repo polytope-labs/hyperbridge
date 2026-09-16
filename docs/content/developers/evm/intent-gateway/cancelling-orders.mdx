@@ -20,7 +20,7 @@ Keep the **finalized `Order`** from the placement flow, including `id`, fee-redu
 | Order type and route | Who may start it | When it may start | What happens |
 | --- | --- | --- | --- |
 | Same-chain | Original order user only | Any time before it is fully filled | Gateway refunds remaining escrow directly in the same transaction. |
-| Cross-chain, **from source** | Original order user only | Only after a destination proof height is **strictly greater** than `order.deadline` | Source gateway dispatches an ISMP GET request to prove the destination has not filled the order. |
+| Cross-chain, **from source** | Original order user only | Only after a destination proof height is **strictly greater** than `order.deadline` | Source gateway dispatches an ISMP GET request to prove the destination fill amounts and calculate the unfilled remainder. |
 | Cross-chain, **from destination** | Original user through the deadline; anyone after it | Any time before or after expiry | Destination gateway locks the order against fills and dispatches a `RefundEscrow` POST message to the source. |
 
 For destination-side cancellation, the contract checks `order.deadline >= block.number` before it allows the public route. In practical terms, the original user is still required **at the deadline block itself**; a third party can cancel only from the first destination block strictly after the deadline.
@@ -29,10 +29,22 @@ For destination-side cancellation, the contract checks `order.deadline >= block.
 
 | Amount | On a successful cancellation |
 | --- | --- |
-| Remaining input escrow | Refunded to `order.user`. For a same-chain partial fill, only the unfilled remainder remains. |
+| Remaining input escrow | Refunded to `order.user`. After a partial fill, only the unfilled remainder is refundable, including for cross-chain orders. |
 | `order.fees` solver/settlement fee | Refunded to `order.user` when the refund finalizes on the source chain. |
-| 5 bps protocol fee deducted at placement | **Not refunded.** It was retained as protocol dust before the order's escrow commitment was created. |
+| Protocol fee deducted at placement | The portion attributable to refunded input escrow is returned to `order.user`; the protocol keeps the portion attributable to released escrow. Applies to orders placed after the fee-refund upgrade. |
 | Placement gas and cancellation gas | **Not refunded.** They are native-chain transaction costs. |
+
+For each input token, the gateway records the exact protocol fee charged at placement and the original input amount committed after deducting that fee. On cancellation it returns:
+
+```text
+fee refund = floor(placement fee × refunded input escrow / original committed input)
+```
+
+The same rule applies to voluntary cancellation before expiry and cancellation after expiry. For example, a 1,000-token input with a 1% fee commits 990 tokens and holds a 10-token fee. If 495 escrowed tokens are released before the rest is cancelled, the user receives 495 escrowed tokens plus 5 fee tokens. The other 5 fee tokens become protocol revenue. An entirely unfilled order receives its whole fee back.
+
+The formula uses refundable input amounts, including existing partial-fill rounding, rather than the percentage of output filled. Fee refunds round down in the token's smallest unit; the remainder becomes protocol revenue. Later changes to the configured fee rate do not change the recorded fee. For tokens that charge a transfer fee, placement accounting uses the amount actually received by the gateway, and a tax on the outgoing refund can reduce what the user receives.
+
+Cross-chain refunds exclude principal already earned by solvers, even if their redemption messages have not yet reached the source. Orders placed **before the fee-refund upgrade** retain their original treatment: their protocol fees were already collected as dust and are not refundable.
 
 ## Contract rules at a glance
 
@@ -72,7 +84,7 @@ if (order.deadline >= block.number) {
 This explains the trade-off:
 
 - Choose the **destination route** when the user wants to recover promptly, including before expiry. It definitively prevents a future fill before the refund travels back to the source.
-- Choose the **source route** only after expiry when the user controls the source wallet and prefers proving that no destination fill occurred.
+- Choose the **source route** only after expiry when the user controls the source wallet and prefers proving the destination fill amounts to recover the unfilled remainder.
 - A same-chain order has no messaging or deadline precondition, but the original user must always call it.
 
 ### `CancelOptions`
@@ -84,7 +96,7 @@ struct CancelOptions {
 }
 ```
 
-`height` is only meaningful for source-side cross-chain cancels. It must point to a block after the order deadline, ensuring the proof captures a state where no fill could have occurred. The SDK selects this value automatically. For same-chain and destination-side cancels, `height` is ignored.
+`height` is only meaningful for source-side cross-chain cancels. It must point to a block after the order deadline, ensuring the proof captures fill amounts after further fills are no longer allowed. The SDK selects this value automatically. For same-chain and destination-side cancels, `height` is ignored.
 
 ### The `OrderCancelled` event
 
@@ -105,6 +117,16 @@ event EscrowRefunded(bytes32 indexed commitment, TokenInfo[] tokens);
 ```
 
 `EscrowRefunded` remains the terminal event — `OrderCancelled` says a cancellation started, this one says the money is back. For same-chain cancels it follows in the same transaction. For source-side cross-chain cancels, it is emitted once Hyperbridge delivers the destination proof back to the source chain and the refund is processed. For destination-side cancels, it is emitted on the source chain once the refund message from Hyperbridge is received and settled.
+
+### The `ProtocolFeeRefunded` event
+
+```solidity
+event ProtocolFeeRefunded(bytes32 indexed commitment, address indexed token, uint256 amount);
+```
+
+The source gateway emits this event for each nonzero protocol-fee refund. `EscrowRefunded.tokens` continues to contain only the input escrow; add `ProtocolFeeRefunded.amount` for the corresponding token to obtain the total input-token refund. Both events report amounts transferred by the gateway, before any outgoing token transfer tax.
+
+Protocol fees are held until the order settles. `DustCollected` reports only the earned fee at settlement, not the held fee at placement. Other sources of dust, such as surplus, still emit `DustCollected` when collected.
 
 ## Set up the gateway, indexer, and wallets
 
@@ -185,11 +207,11 @@ async function cancelSameChain(order: Order) {
 
 ## Cross-Chain Orders
 
-Cross-chain cancellations require Hyperbridge to either prove the order was never filled (source-side cancel) or deliver a refund message (dest-side cancel). Both paths involve a Hyperbridge dispatch fee. Quote it with `quoteCancelOrder` before signing. The SDK handles proof fetching, finality monitoring, and Hyperbridge submission automatically.
+Cross-chain cancellations require Hyperbridge to either prove the destination fill amounts (source-side cancel) or deliver a refund message (dest-side cancel). Both paths involve a Hyperbridge dispatch fee. Quote it with `quoteCancelOrder` before signing. The SDK handles proof fetching, finality monitoring, and Hyperbridge submission automatically.
 
 ### Cancel from the Source Chain
 
-Cancelling from the source chain works by proving to the source chain that the order was never filled on the destination. The contract sends a cross-chain query to the destination chain to read the fill status at a block height after the order deadline. If the result comes back empty, no fill occurred and the escrowed tokens are returned. If the order was already filled, the transaction reverts.
+Cancelling from the source chain proves how much of the order was filled on the destination. The contract queries the destination's `_partialFills` storage at a block height after the deadline and refunds the proven unfilled principal plus its protocol-fee share. Principal already earned by solvers remains available for their redemption messages. A proof that the order was fully filled returns no principal or protocol fee; pending fees are settled by the final solver redemption.
 
 Because the proof must come from a block after the order deadline, this path is only available once the order has expired. The SDK automatically selects the appropriate block height.
 
@@ -276,7 +298,7 @@ The SDK polls the destination chain until it can read the fill status at a heigh
 
 ### Cancel from the Destination Chain
 
-Cancelling from the destination chain is simpler and does not require a storage proof. The destination gateway immediately marks the order as settled, blocking any future fill attempts, and sends a refund message to the source chain via Hyperbridge. When the message arrives, the source chain authenticates it as coming from the registered destination gateway and returns the escrowed tokens to the original user.
+Cancelling from the destination chain is simpler and does not require a storage proof. The destination gateway immediately marks the order as settled, blocking any future fill attempts, and sends a refund message to the source chain via Hyperbridge. When the message arrives, the source chain authenticates it as coming from the registered destination gateway and returns the proven unfilled escrow and its refundable protocol fee to the original user.
 
 Before and **at** the order deadline only the order creator can trigger this path. From the first destination block after the deadline, anyone may call. This lets relayers act on behalf of users whose orders have expired without being filled, providing a recovery mechanism that does not require the user to be online. The caller pays the dispatch cost, but cannot change `WithdrawalRequest.beneficiary`: the refund always goes to `order.user`.
 
@@ -403,7 +425,7 @@ async function cancelWithFeeToken(order: Order, from: "source" | "destination") 
 }
 ```
 
-The dispatch fee for starting a cross-chain cancellation is not recovered from the cancelled order. The source-chain refund still returns the order's remaining input escrow and its original `order.fees`; the cancellation caller separately pays the new `relayerFee` above.
+The dispatch fee for starting a cross-chain cancellation is not recovered from the cancelled order. The source-chain refund returns the unfilled input escrow, its refundable protocol fee, and the original `order.fees` when cancellation finalizes; the cancellation caller separately pays the new `relayerFee` above.
 
 ---
 
@@ -412,6 +434,8 @@ The dispatch fee for starting a cross-chain cancellation is not recovered from t
 The cancellation generator is the best live tracker for the ISMP transport. It emits `DESTINATION_FINALIZED`, `CANCEL_STARTED`, `SOURCE_FINALIZED`, `HYPERBRIDGE_DELIVERED`, and `HYPERBRIDGE_FINALIZED` as a cross-chain request progresses. Destination-side cancellation additionally ends with `CANCELLATION_COMPLETE` after the source-chain delivery receipt contains `EscrowRefunded`.
 
 Track the order itself through the attached indexer. The terminal status you want is `REFUNDED`: it means the source chain has processed `EscrowRefunded`, so the remaining escrow and `order.fees` have been returned to `order.user`.
+
+The indexer schema exposes fee refunds through `IOrderV3.protocolFeeRefunds`, separately from `escrowRefunds`. Each record includes `token`, `amount`, `chain`, and `transactionHash`. Fee records do not change the order's status. The SDK's `queryOrder()` and status stream continue to track settlement; use the fee-refund events or indexer relation when displaying a refund breakdown.
 
 ```typescript title="track-order-refund.ts" lineNumbers
 import { OrderStatus } from "@hyperbridge/sdk"

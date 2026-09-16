@@ -477,11 +477,13 @@ The placement transaction has four distinct costs.
 | Cost | Paid by | How it is handled |
 | --- | --- | --- |
 | Input amount | You, on the source chain | `quote.amountIn` USDC is transferred into escrow after approval. |
-| Protocol fee | You, from the input amount | 5 bps is deducted at successful placement. It is not returned on expiry or cancellation. The quote already accounts for it. |
+| Protocol fee | You, from the input amount | The configured fee is deducted and held at placement; the quote already accounts for it. Cancellation refunds the portion attributable to unfilled escrow for orders placed after the fee-refund upgrade. |
 | Solver fee (`order.fees`) | You, in the Hyperbridge fee token | The gas cost the solver spends on filling the order — paid in the fee token directly, or in native token that the gateway swaps for the fee token. For cross-chain orders it includes the `RedeemEscrow` relayer fee. |
 | Source-chain transaction gas | You, in native token | Paid by the wallet when it submits the approval and placement transactions. |
 
 Do not manually add the protocol fee to `order.fees`: they are different charges. `order.fees` pays the solver and, cross-chain, the settlement relayer; the protocol fee is deducted from the input before the order commitment is created.
+
+The protocol earns the held fee when the order settles. A full fill earns the whole fee; a cancellation refunds `floor(placement fee × refunded input escrow / original committed input)`, using the original post-fee committed amount. This includes voluntary cancellation before expiry. See [Cancelling Orders](./cancelling-orders#what-is-refunded-and-what-is-not) for partial-fill examples and the treatment of orders placed before the upgrade.
 
 <Callout type="warn">
 The placement transaction's `msg.value` is the `value` from `AWAITING_PLACE_ORDER` — the order's native-token input amounts — plus the quoted `nativeValue` when paying the solver fee in native token. Never zero out `value`.

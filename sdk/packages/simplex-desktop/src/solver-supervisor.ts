@@ -53,6 +53,7 @@ function socketRequest(
 /** The state the native shell displays, read only through the private socket. */
 export async function probeSolverStatus(socketPath: string): Promise<SolverStatus> {
 	const health = await probeHealth(socketPath)
+	if (health.state === "starting") return { state: "starting" }
 	if (health.state === "stopping") return { state: "stopping" }
 	if (health.state === "spawnable") return { state: "stopped", detail: health.reason }
 	if (health.state === "occupied" || health.state === "unavailable") {
@@ -94,8 +95,13 @@ export function shouldNotifySolverFailure(
 	if (intentionalStop) return false
 	return (
 		(previous.state === "setup" || previous.state === "running" || previous.state === "paused") &&
-		next.state === "unreachable"
+		(next.state === "unreachable" || (next.state === "stopped" && next.detail === "stale"))
 	)
+}
+
+/** A detached solver can finish draining after Electron has accepted its stop. */
+export function stopRequestAccepted(status: SolverStatus): boolean {
+	return status.state === "stopping" || status.state === "stopped"
 }
 
 function sameStatus(left: SolverStatus, right: SolverStatus): boolean {

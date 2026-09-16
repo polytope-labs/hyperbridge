@@ -2,8 +2,9 @@ import assert from "node:assert/strict"
 import { execFile } from "node:child_process"
 import { createRequire } from "node:module"
 import { existsSync } from "node:fs"
-import { mkdtemp, readFile, readdir, realpath, rm, stat } from "node:fs/promises"
+import { mkdtemp, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises"
 import { request as httpRequest } from "node:http"
+import { createServer as createNetServer } from "node:net"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -11,6 +12,7 @@ import test from "node:test"
 import { promisify } from "node:util"
 import { _electron } from "playwright-core"
 import { ActivityRecorder } from "../../../simplex/src/data/recorder.ts"
+import { emitFillerToml } from "../../../simplex/src/cli/init/emit-toml.ts"
 import externalLinks from "../../../simplex/src/config/external-links.json" with { type: "json" }
 import { MemoryDataStore } from "../../../simplex/src/data/memory.ts"
 import { UiServer } from "../../../simplex/src/services/server/UiServer.ts"
@@ -188,6 +190,27 @@ async function cleanupDesktop(electronApp, userDataDir) {
 	await rm(userDataDir, { recursive: true, force: true })
 }
 
+async function blackholeServer() {
+	const sockets = new Set()
+	const server = createNetServer((socket) => {
+		sockets.add(socket)
+		socket.on("close", () => sockets.delete(socket))
+	})
+	await new Promise((resolveListen, reject) => {
+		server.once("error", reject)
+		server.listen(0, "127.0.0.1", resolveListen)
+	})
+	const address = server.address()
+	if (!address || typeof address === "string") throw new Error("Blackhole server did not bind TCP")
+	return {
+		port: address.port,
+		close: async () => {
+			for (const socket of sockets) socket.destroy()
+			await new Promise((resolveClose) => server.close(resolveClose))
+		},
+	}
+}
+
 async function regularFilesUnder(directory) {
 	let entries
 	try {
@@ -232,7 +255,6 @@ function operatorFixture(socketPath, options = {}) {
 			signer: { type: "privateKey", key: FIXTURE_KEY },
 			substratePrivateKey: FIXTURE_SEED,
 			hyperbridgeWsUrl: "wss://example.invalid",
-			...(options.tunnelEnabled ? { tunnel: { enabled: true } } : {}),
 		},
 		pairs: [],
 		chains: [],
@@ -261,24 +283,6 @@ function operatorFixture(socketPath, options = {}) {
 		configPath: join(dirname(socketPath), "filler-config.toml"),
 		chains: [],
 		strategyTypes: [],
-		...(options.tunnelEnabled
-			? {
-					tunnel: {
-						status: () => ({
-							enabled: true,
-							state: "connected",
-							relay: "relay.example:443",
-							devices: [],
-							activeConnections: 0,
-						}),
-						configure: async () => {},
-						addDevice: () => {
-							throw new Error("not used")
-						},
-						removeDevice: () => false,
-					},
-				}
-			: {}),
 	}
 	server = new UiServer({ mode: "operator", uiDistDir: join(simplexRoot, "dist/ui"), operator })
 	return {
@@ -394,12 +398,69 @@ test("a hidden login launch starts the app and solver without opening a window",
 	await waitForHealth(socketPath, "init")
 })
 
-test("Stop solver and quit drains the solver before closing Electron", async (t) => {
+test("configured startup owns the socket before filling and relaunch attaches while booting", async (t) => {
+	const userDataDir = await temporaryUserData("startup-lock")
+	const socketPath = socketPathFor(userDataDir)
+	const blackhole = await blackholeServer()
+	let electronApp
+	t.after(async () => {
+		await cleanupDesktop(electronApp, userDataDir)
+		await blackhole.close()
+	})
+	const config = {
+		simplex: {
+			signer: { type: "privateKey", key: TEST_KEY },
+			maxConcurrentOrders: 5,
+			substratePrivateKey: TEST_SEED,
+			hyperbridgeWsUrl: `ws://127.0.0.1:${blackhole.port}`,
+		},
+		pairs: [
+			{
+				token0: "USDC",
+				token1: "USDC",
+				maxOrderSize: "100000",
+				askPriceCurve: [
+					{ amount: "100", price: "0.99" },
+					{ amount: "100000", price: "0.999" },
+				],
+			},
+		],
+		chains: [
+			{
+				rpcUrls: [`http://127.0.0.1:${blackhole.port}`],
+				bundlerUrl: `http://127.0.0.1:${blackhole.port}`,
+			},
+		],
+	}
+	await writeFile(join(userDataDir, "filler-config.toml"), emitFillerToml(config), { mode: 0o600 })
+	;({ electronApp } = await launchDesktop(userDataDir, { hidden: true }))
+	await waitFor(async () => {
+		const response = await socketRequest(socketPath, "/health")
+		return JSON.parse(response.body).status === "starting"
+	}, "configured solver to bind its startup lock")
+	const [daemonPid] = await waitForDaemonPids(userDataDir)
+
+	await hardKillElectron(electronApp)
+	electronApp = undefined
+	;({ electronApp } = await launchDesktop(userDataDir, { hidden: true }))
+	await waitFor(async () => {
+		const response = await socketRequest(socketPath, "/health")
+		return JSON.parse(response.body).status === "starting"
+	}, "the relaunched desktop to observe startup in progress")
+	assert.deepEqual(await daemonPids(userDataDir), [daemonPid], "relaunch must not spawn a second booting solver")
+})
+
+test("Stop solver and quit closes Electron after shutdown is accepted", async (t) => {
 	const userDataDir = await temporaryUserData("stop-and-quit")
 	const socketPath = socketPathFor(userDataDir)
 	let electronApp
-	const fixture = operatorFixture(socketPath)
+	let releaseDrain
+	const stopBarrier = new Promise((resolveDrain) => {
+		releaseDrain = resolveDrain
+	})
+	const fixture = operatorFixture(socketPath, { stopBarrier })
 	t.after(async () => {
+		releaseDrain?.()
 		try {
 			await fixture.stop()
 		} catch {
@@ -414,6 +475,9 @@ test("Stop solver and quit drains the solver before closing Electron", async (t)
 	await electronApp.evaluate(({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById("stop-and-quit")?.click())
 	await closed
 	electronApp = undefined
+	const health = JSON.parse((await socketRequest(socketPath, "/health")).body)
+	assert.equal(health.status, "stopping", "the detached solver may continue draining after Electron exits")
+	releaseDrain()
 	await waitFor(async () => {
 		try {
 			await socketRequest(socketPath, "/health")
@@ -421,7 +485,7 @@ test("Stop solver and quit drains the solver before closing Electron", async (t)
 		} catch {
 			return true
 		}
-	}, "the solver socket to close before Electron exits")
+	}, "the detached solver to finish draining")
 })
 
 test("graceful stop keeps the socket lock and disables restart until draining finishes", async (t) => {
@@ -586,7 +650,7 @@ test("the renderer enforces CSP and opens only approved links outside Electron",
 	const userDataDir = await temporaryUserData("security")
 	const socketPath = socketPathFor(userDataDir)
 	let electronApp
-	const fixture = operatorFixture(socketPath, { tunnelEnabled: true })
+	const fixture = operatorFixture(socketPath)
 	t.after(async () => {
 		fixture.stop()
 		await cleanupDesktop(electronApp, userDataDir)
@@ -596,6 +660,12 @@ test("the renderer enforces CSP and opens only approved links outside Electron",
 	let page
 	;({ electronApp, page } = await launchDesktop(userDataDir))
 	await waitForHealth(socketPath, "operator")
+	await page.addInitScript(() => {
+		globalThis.__simplexCspViolations = []
+		window.addEventListener("securitypolicyviolation", (event) => {
+			globalThis.__simplexCspViolations.push({ directive: event.effectiveDirective, blocked: event.blockedURI })
+		})
+	})
 	await electronApp.evaluate(({ shell }) => {
 		globalThis.__simplexOpenedUrls = []
 		shell.openExternal = async (url) => {
@@ -611,7 +681,13 @@ test("the renderer enforces CSP and opens only approved links outside Electron",
 	assert.match(csp ?? "", /default-src 'none'/)
 	assert.match(csp ?? "", /script-src 'self'/)
 	assert.match(csp ?? "", /connect-src 'self'/)
+	assert.match(csp ?? "", /style-src 'self' 'unsafe-inline'/)
 	assert.doesNotMatch(csp ?? "", /unsafe-eval/)
+	assert.deepEqual(
+		await page.evaluate(() => globalThis.__simplexCspViolations ?? []),
+		[],
+		"the operator page must not violate its CSP during load",
+	)
 
 	const inlineScriptRan = await page.evaluate(async () => {
 		delete globalThis.__simplexInlineScriptRan
@@ -639,40 +715,27 @@ test("the renderer enforces CSP and opens only approved links outside Electron",
 		new RegExp(`${FIXTURE_KEY}|${FIXTURE_SEED}`),
 		"the operator config response must not expose key material",
 	)
-
-	const hostilePage = await electronApp.evaluate(async ({ BrowserWindow }) => {
+	const futureWindowGuards = await electronApp.evaluate(({ BrowserWindow }) => {
 		const attacker = new BrowserWindow({
 			show: false,
 			webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
 		})
 		try {
-			await attacker.loadURL("data:text/html,<title>untrusted</title>")
-			return await attacker.webContents.executeJavaScript(`(async () => {
-				const attempt = async (url, options) => {
-					try {
-						const response = await fetch(url, options)
-						return { reached: true, status: response.status, body: await response.text() }
-					} catch {
-						return { reached: false }
-					}
-				}
-				return {
-					read: await attempt("simplex://local/api/config"),
-					write: await attempt("simplex://local/api/pause", {
-						method: "POST",
-						headers: { "Content-Type": "application/json", "X-Simplex-UI": "1" },
-						body: "{}",
-					}),
-				}
-			})()`)
+			return {
+				navigate: attacker.webContents.listenerCount("will-navigate"),
+				frameNavigate: attacker.webContents.listenerCount("will-frame-navigate"),
+				redirect: attacker.webContents.listenerCount("will-redirect"),
+				webview: attacker.webContents.listenerCount("will-attach-webview"),
+			}
 		} finally {
 			attacker.destroy()
 		}
 	})
-	assert.deepEqual(hostilePage, { read: { reached: false }, write: { reached: false } })
+	assert.deepEqual(futureWindowGuards, { navigate: 1, frameNavigate: 1, redirect: 1, webview: 1 })
 	assert.equal(fixture.pauseWrites(), 0, "an untrusted page must not mutate the operator API")
 
 	const approvedLink = `${externalLinks.hyperfxApp}/history/details/?id=1`
+	const secondApprovedLink = `${externalLinks.chainExplorers.ethereum}/tx/0x1`
 	await page.evaluate((url) => window.open(url, "_blank"), approvedLink)
 	await waitFor(
 		async () => (await electronApp.evaluate(() => globalThis.__simplexOpenedUrls ?? [])).length === 1,
@@ -682,9 +745,15 @@ test("the renderer enforces CSP and opens only approved links outside Electron",
 	assert.equal(electronApp.windows().length, 1, "target=_blank must not create an Electron window")
 
 	await page.evaluate(() => window.open("https://example.com/", "_blank"))
-	await delay(100)
-	assert.equal((await electronApp.evaluate(() => globalThis.__simplexOpenedUrls ?? [])).length, 1)
-
+	await page.evaluate((url) => window.open(url, "_blank"), secondApprovedLink)
+	await waitFor(
+		async () => (await electronApp.evaluate(() => globalThis.__simplexOpenedUrls ?? [])).length === 2,
+		"second approved external link",
+	)
+	assert.deepEqual(await electronApp.evaluate(() => globalThis.__simplexOpenedUrls), [
+		approvedLink,
+		secondApprovedLink,
+	])
 	await page.evaluate(() => {
 		window.location.href = "https://example.com/"
 	})
@@ -701,8 +770,20 @@ test("first run writes a valid private config under Electron userData", async (t
 
 	let page
 	;({ electronApp, page } = await launchDesktop(userDataDir))
+	await page.addInitScript(() => {
+		globalThis.__simplexCspViolations = []
+		window.addEventListener("securitypolicyviolation", (event) => {
+			globalThis.__simplexCspViolations.push({ directive: event.effectiveDirective, blocked: event.blockedURI })
+		})
+	})
+	await page.reload()
 	await waitForHealth(socketPath, "init")
 	await page.locator(".wizard-shell").waitFor({ timeout: 30_000 })
+	assert.deepEqual(
+		await page.evaluate(() => globalThis.__simplexCspViolations ?? []),
+		[],
+		"the setup wizard must not violate its CSP during load",
+	)
 	const [daemonPid] = await waitForDaemonPids(userDataDir)
 
 	const config = {
@@ -711,7 +792,6 @@ test("first run writes a valid private config under Electron userData", async (t
 			maxConcurrentOrders: 5,
 			substratePrivateKey: TEST_SEED,
 			hyperbridgeWsUrl: "ws://127.0.0.1:9",
-			tunnel: { enabled: true, relay: "127.0.0.1:9" },
 		},
 		pairs: [
 			{
@@ -741,7 +821,6 @@ test("first run writes a valid private config under Electron userData", async (t
 	const written = await readFile(configPath, "utf8")
 	assert.match(written, /WARNING: contains secrets/)
 	assert.match(written, /\[simplex\.signer\]/)
-	assert.match(written, /\[simplex\.tunnel\]/)
 	assert.match(written, /\[\[pairs\]\]/)
 	assert.equal(written.match(new RegExp(TEST_KEY, "g"))?.length, 1)
 	if (process.platform !== "win32") assert.equal((await stat(configPath)).mode & 0o777, 0o600)

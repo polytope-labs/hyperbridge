@@ -37,8 +37,7 @@ export const RENDERER_CSP = [
 	"media-src 'none'",
 	"object-src 'none'",
 	"script-src 'self'",
-	"style-src 'self'",
-	"style-src-attr 'unsafe-inline'",
+	"style-src 'self' 'unsafe-inline'",
 	"worker-src 'self'",
 ].join("; ")
 

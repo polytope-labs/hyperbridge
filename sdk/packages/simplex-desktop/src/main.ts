@@ -24,6 +24,7 @@ import {
 	sendSolverAction,
 	shouldNotifySolverFailure,
 	SolverSupervisor,
+	stopRequestAccepted,
 	type SolverStatus,
 } from "./solver-supervisor"
 import {
@@ -52,7 +53,6 @@ let applicationIconPath: string | undefined
 let dataDirectory: string | undefined
 let startPromise: Promise<boolean> | undefined
 let powerSaveBlockerId: number | undefined
-let sessionSecured = false
 let quitting = false
 let intentionalStop = false
 
@@ -194,12 +194,12 @@ async function startOrAttachSolver(fatal: boolean): Promise<boolean> {
 	return startPromise
 }
 
-async function waitForStopped(): Promise<void> {
+async function waitForStopAccepted(): Promise<void> {
 	if (!supervisor) return
 	const deadline = Date.now() + STOP_TIMEOUT_MS
 	while (Date.now() < deadline) {
 		const status = await supervisor.pollNow()
-		if (status.state === "stopped") return
+		if (stopRequestAccepted(status)) return
 		await new Promise((resolveDelay) => setTimeout(resolveDelay, 250))
 	}
 	throw new Error(`Simplex did not stop within ${STOP_TIMEOUT_MS / 1_000} seconds`)
@@ -221,7 +221,7 @@ async function stopSolver(): Promise<boolean> {
 	intentionalStop = true
 	try {
 		await sendSolverAction(daemonLaunch.socketPath, "stop")
-		await waitForStopped()
+		await waitForStopAccepted()
 		return true
 	} catch (error) {
 		intentionalStop = false
@@ -300,11 +300,6 @@ async function createWindow(): Promise<void> {
 		icon: applicationIconPath,
 		webPreferences: rendererWebPreferences(app.isPackaged),
 	})
-	installWebContentsSecurity(
-		window.webContents,
-		(url) => shell.openExternal(url),
-		() => dialog.showErrorBox("Could not open link", "Simplex could not open this link in your default browser."),
-	)
 	mainWindow = window
 	window.on("close", (event) => {
 		if (quitting) return
@@ -370,10 +365,7 @@ async function prepareDesktop(): Promise<void> {
 	daemonLaunch = { nodePath: resources.node, solverPath: resources.solver, socketPath, dataDir: dataDirectory }
 
 	await protocol.handle("simplex", (request) => proxyToSimplex(request, socketPath))
-	if (!sessionSecured) {
-		installSessionSecurity(session.defaultSession)
-		sessionSecured = true
-	}
+	installSessionSecurity(session.defaultSession)
 	loginItem = new LoginItemController({
 		app,
 		platform: process.platform,
@@ -410,6 +402,14 @@ if (!app.requestSingleInstanceLock()) {
 	quitting = true
 	app.quit()
 } else {
+	app.on("web-contents-created", (_event, webContents) => {
+		installWebContentsSecurity(
+			webContents,
+			(url) => shell.openExternal(url),
+			() =>
+				dialog.showErrorBox("Could not open link", "Simplex could not open this link in your default browser."),
+		)
+	})
 	app.on("second-instance", () => void safeShowWindow())
 	app.on("activate", () => void safeShowWindow())
 	app.on("before-quit", () => {

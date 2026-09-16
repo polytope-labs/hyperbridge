@@ -25,6 +25,10 @@ Held placement fees no longer emit `DustCollected`; earned fees emit it at settl
 Other dust sources keep their existing event timing. Indexer revenue continues to
 sum `DustCollected`, so refunded fees are never counted as revenue.
 
+The SDK and Simplex ABIs include the non-indexed `solver` address in
+`EscrowReleased(bytes32 indexed commitment, address solver, TokenInfo[] tokens)`,
+matching the contract so consumers can decode settlement logs.
+
 The indexer stores `IOrderV3ProtocolFeeRefund` records with ID
 `{transactionHash}.{logIndex}`, exposed through the order's `protocolFeeRefunds`
 relation. Each record contains the order, chain, token (20-byte address), amount,

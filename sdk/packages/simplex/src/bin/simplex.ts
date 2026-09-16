@@ -437,6 +437,41 @@ addRunOptions(program.command("run", { isDefault: true }))
 					throw new Error("Signer configuration is required via [simplex.signer]")
 				}
 
+				// In socket mode the listener is also the per-data-directory process lock.
+				// Own it before boot starts any filling work, then expose operator routes on
+				// the same server once boot completes. A second desktop launch sees
+				// `starting` and waits instead of starting another signer process.
+				if (uiEnabled && uiSocket) {
+					const server = new UiServer({ mode: "init", uiDistDir: resolveUiDistDir() })
+					server.setStartState("starting")
+					uiServer = server
+					try {
+						await server.start({ socketPath: uiSocket })
+						await startFiller(config, configPath)
+						tunnel = createTunnel(config)
+						server.enterOperatorMode(await operatorContextFrom(simplex!, () => shutdown("UI"), tunnel))
+						startTunnel()
+					} catch (err) {
+						// Once the lock is released no partially started filler may survive to
+						// race a replacement process on the same signer and data directory.
+						await tunnel?.stop().catch((cleanupError) =>
+							logger.error({ err: cleanupError }, "Could not stop the tunnel after failed startup"),
+						)
+						if (simplex) {
+							await simplex.stop().catch((cleanupError) =>
+								logger.error({ err: cleanupError }, "Could not stop the filler after failed startup"),
+							)
+						}
+						await dataStore?.close?.().catch((cleanupError: unknown) =>
+							logger.error({ err: cleanupError }, "Could not close the data store after failed startup"),
+						)
+						server.stop()
+						uiServer = undefined
+						throw err
+					}
+					return
+				}
+
 				await startFiller(config, configPath)
 
 				// Local web UI (status, pause/resume, inflight price curve updates).
@@ -455,8 +490,7 @@ addRunOptions(program.command("run", { isDefault: true }))
 						// only the address paired devices dial through the tunnel's forward.
 						// Nothing listens there in socket mode and nothing needs to: channels
 						// are injected via `deliver` above, never connected to.
-						if (uiSocket) await uiServer.start({ socketPath: uiSocket })
-						else uiBoundPort = await uiServer.start(uiBind.port, uiBind.host)
+						uiBoundPort = await uiServer.start(uiBind.port, uiBind.host)
 						startTunnel()
 					} catch (err) {
 						// The filler is the primary workload; a bind failure (e.g. port in use)

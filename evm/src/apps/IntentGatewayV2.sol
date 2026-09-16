@@ -188,6 +188,8 @@ contract IntentGatewayV2 is IntentsBase, HyperApp, ReentrancyGuardTransient, Ini
     /**
      * @dev Places a new intent order by escrowing the user's input tokens.
      *
+     * An order swaps exactly one input for exactly one output; any other shape reverts `InvalidInput`.
+     *
      * The caller specifies the desired output tokens and destination chain. The function:
      * 1. Stamps the order with the caller's address, source chain, and a unique nonce.
      * 2. Deducts a protocol fee (in basis points) from each input amount. The commitment
@@ -203,37 +205,10 @@ contract IntentGatewayV2 is IntentsBase, HyperApp, ReentrancyGuardTransient, Ini
      * @param graffiti Attribution tag emitted in the OrderPlaced event for off-chain indexers.
      */
     function placeOrder(Order memory order, bytes32 graffiti) public payable nonReentrant {
-        if (order.inputs.length == 0) revert InvalidInput();
-        // Inputs and outputs pair 1:1 by index; reject mismatched orders that could never be filled.
-        if (order.inputs.length != order.output.assets.length) revert InvalidInput();
-
-        // Reject duplicate output tokens
-        uint256 outputsLen_ = order.output.assets.length;
-        for (uint256 i; i < outputsLen_;) {
-            // A zero-amount output would strand its paired input escrow
-            if (order.output.assets[i].amount == 0) revert InvalidInput();
-            bytes32 token = order.output.assets[i].token;
-            assembly ("memory-safe") {
-                if tload(token) {
-                    mstore(0, 0xb4fa3fb3) // InvalidInput.selector
-                    revert(0x1c, 0x04)
-                }
-                tstore(token, 1)
-            }
-            unchecked {
-                ++i;
-            }
-        }
-        // Clean up transient storage so repeated placeOrder calls in the same tx don't false-positive.
-        for (uint256 i; i < outputsLen_;) {
-            bytes32 token = order.output.assets[i].token;
-            assembly ("memory-safe") {
-                tstore(token, 0)
-            }
-            unchecked {
-                ++i;
-            }
-        }
+        // An order swaps exactly one input for exactly one output.
+        if (order.inputs.length != 1 || order.output.assets.length != 1) revert InvalidInput();
+        // A zero-amount output would strand the input escrow.
+        if (order.output.assets[0].amount == 0) revert InvalidInput();
 
         address hostAddr = host();
         order.user = bytes32(uint256(uint160(msg.sender)));
@@ -378,8 +353,6 @@ contract IntentGatewayV2 is IntentsBase, HyperApp, ReentrancyGuardTransient, Ini
         // Phase 3: Credit escrow.
         for (uint256 i; i < inputsLen;) {
             address token = address(uint160(uint256(order.inputs[i].token)));
-            // Reject duplicate input tokens
-            if (_orders[commitment][token] != 0) revert InvalidInput();
             _orders[commitment][token] = reducedInputs[i].amount;
 
             unchecked {

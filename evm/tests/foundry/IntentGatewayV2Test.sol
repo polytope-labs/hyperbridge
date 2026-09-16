@@ -3545,105 +3545,6 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         assertEq(usdc.balanceOf(address(customGateway)), inputAmount, "Gateway should have full input amount");
     }
 
-    function testProtocolFeeWithMultipleTokens() public {
-        // Test protocol fee with multiple input tokens
-        IntentGatewayV2 customGateway = _deployGatewayProxy();
-        Params memory customParams = Params({
-            host: address(host),
-            dispatcher: address(dispatcher),
-            solverSelection: false,
-            surplusShareBps: 10000,
-            protocolFeeBps: 200, // 2%
-            priceOracle: address(0)
-        });
-        customGateway.initialize(customParams, new bytes[](0), address(0));
-
-        uint256 usdcAmount = 1000 * 1e6; // 1000 USDC
-        uint256 daiAmount = 500 * 1e18; // 500 DAI
-        uint256 expectedUsdcFee = (usdcAmount * 200) / 10000; // 20 USDC
-        uint256 expectedDaiFee = (daiAmount * 200) / 10000; // 10 DAI
-        uint256 expectedUsdcAfterFee = usdcAmount - expectedUsdcFee; // 980 USDC
-        uint256 expectedDaiAfterFee = daiAmount - expectedDaiFee; // 490 DAI
-
-        deal(address(usdc), user, usdcAmount);
-        deal(address(dai), user, daiAmount);
-
-        Order memory order = Order({
-            user: bytes32(0),
-            source: bytes(""),
-            destination: host.host(),
-            deadline: block.timestamp + 1 hours,
-            nonce: 0,
-            fees: 0,
-            session: address(0),
-            predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
-            inputs: new TokenInfo[](2),
-            output: PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: new TokenInfo[](2), call: ""})
-        });
-
-        order.inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: usdcAmount});
-        order.inputs[1] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: daiAmount});
-        // Two distinct outputs to satisfy the 1:1 input/output pairing invariant.
-        order.output.assets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 2000 * 1e18});
-        order.output.assets[1] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: 2000 * 1e6});
-
-        vm.startPrank(user);
-        usdc.approve(address(customGateway), usdcAmount);
-        dai.approve(address(customGateway), daiAmount);
-
-        vm.recordLogs();
-        customGateway.placeOrder(order, bytes32(0));
-        vm.stopPrank();
-
-        // Check that DustCollected events were emitted for both tokens
-        Vm.Log[] memory entries = vm.getRecordedLogs();
-        uint256 dustCollectedCount = 0;
-        uint256 usdcDustAmount = 0;
-        uint256 daiDustAmount = 0;
-
-        for (uint256 i = 0; i < entries.length; i++) {
-            if (entries[i].topics[0] == keccak256("DustCollected(address,uint256)")) {
-                dustCollectedCount++;
-                (address token, uint256 amount) = abi.decode(entries[i].data, (address, uint256));
-                if (token == address(usdc)) {
-                    usdcDustAmount = amount;
-                } else if (token == address(dai)) {
-                    daiDustAmount = amount;
-                }
-            }
-        }
-
-        assertEq(dustCollectedCount, 2, "Should emit DustCollected for both tokens");
-        assertEq(usdcDustAmount, expectedUsdcFee, "USDC protocol fee should be 20 USDC");
-        assertEq(daiDustAmount, expectedDaiFee, "DAI protocol fee should be 10 DAI");
-
-        // Verify the gateway received the full amounts (protocol fees kept as dust)
-        assertEq(usdc.balanceOf(address(customGateway)), usdcAmount, "Gateway should have full USDC amount");
-        assertEq(dai.balanceOf(address(customGateway)), daiAmount, "Gateway should have full DAI amount");
-
-        // Verify commitment is calculated with REDUCED amounts for both tokens
-        // Need to reconstruct the order exactly as the contract sees it after filling in fields
-        Order memory orderWithReducedAmounts = order;
-        orderWithReducedAmounts.user = bytes32(uint256(uint160(user)));
-        orderWithReducedAmounts.source = host.host();
-        orderWithReducedAmounts.nonce = 0; // First order
-        orderWithReducedAmounts.inputs[0].amount = expectedUsdcAfterFee;
-        orderWithReducedAmounts.inputs[1].amount = expectedDaiAfterFee;
-        bytes32 expectedCommitment = keccak256(abi.encode(orderWithReducedAmounts));
-
-        // Calculate storage slots for _orders[commitment][token]
-        bytes32 commitmentSlot = keccak256(abi.encode(expectedCommitment, uint256(9)));
-        bytes32 usdcEscrowSlot = keccak256(abi.encode(address(usdc), commitmentSlot));
-        bytes32 daiEscrowSlot = keccak256(abi.encode(address(dai), commitmentSlot));
-
-        // Verify escrow storage contains REDUCED amounts for both tokens
-        uint256 usdcEscrowedAmount = uint256(vm.load(address(customGateway), usdcEscrowSlot));
-        uint256 daiEscrowedAmount = uint256(vm.load(address(customGateway), daiEscrowSlot));
-
-        assertEq(usdcEscrowedAmount, expectedUsdcAfterFee, "USDC escrow should be reduced (980 USDC)");
-        assertEq(daiEscrowedAmount, expectedDaiAfterFee, "DAI escrow should be reduced (490 DAI)");
-    }
-
     function testProtocolFeeOrderPlacedEventHasReducedAmounts() public {
         // Test that OrderPlaced event contains reduced amounts after protocol fee
         IntentGatewayV2 customGateway = _deployGatewayProxy();
@@ -5206,78 +5107,6 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         vm.stopPrank();
     }
 
-    /// @dev Multi-token cancel: the host returns proof values sorted by storage key, NOT in
-    /// request-key order. Each value must be matched to its input by key, otherwise fill amounts
-    /// pair with the wrong escrow. Here the two values are supplied in reversed order.
-    function testCrossChainCancel_MultiTokenMatchesValuesByKey() public {
-        // input0 USDC funds output0 DAI; input1 DAI funds output1 USDC.
-        TokenInfo[] memory inputs = new TokenInfo[](2);
-        inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: 1000 * 1e6});
-        inputs[1] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 500 * 1e18});
-        TokenInfo[] memory outputAssets = new TokenInfo[](2);
-        outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
-        outputAssets[1] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: 500 * 1e6});
-
-        Order memory order = Order({
-            user: bytes32(uint256(uint160(user))),
-            source: host.host(),
-            destination: bytes("DEST_CHAIN"),
-            deadline: block.number + 1000,
-            nonce: 0,
-            fees: 0,
-            session: address(0),
-            predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
-            inputs: inputs,
-            output: PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""})
-        });
-
-        vm.startPrank(user);
-        usdc.approve(address(intentGateway), 1000 * 1e6);
-        dai.approve(address(intentGateway), 500 * 1e18);
-        intentGateway.placeOrder(order, bytes32(0));
-        vm.stopPrank();
-
-        bytes32 commitment = keccak256(abi.encode(order));
-        uint256[] memory totalRequired = new uint256[](2);
-        totalRequired[0] = 1000 * 1e18; // output0 DAI
-        totalRequired[1] = 500 * 1e6; // output1 USDC
-        bytes memory context = abi.encode(commitment, bytes32(uint256(uint160(user))), inputs, totalRequired);
-
-        // request.keys aligned with inputs: keys[0] -> output0 (DAI), keys[1] -> output1 (USDC).
-        bytes[] memory keys = new bytes[](2);
-        keys[0] = abi.encodePacked(_partialFillSlot(commitment, bytes32(uint256(uint160(address(dai))))));
-        keys[1] = abi.encodePacked(_partialFillSlot(commitment, bytes32(uint256(uint160(address(usdc))))));
-
-        // Values returned in REVERSED order (key-sorted by the host): output0 DAI 40% filled,
-        // output1 USDC 60% filled.
-        StorageValue[] memory values = new StorageValue[](2);
-        values[0] = StorageValue({key: keys[1], value: _rlpEncodeUint(300 * 1e6)}); // output1 filled
-        values[1] = StorageValue({key: keys[0], value: _rlpEncodeUint(400 * 1e18)}); // output0 filled
-
-        GetRequest memory getRequest = GetRequest({
-            source: host.host(),
-            dest: bytes("DEST_CHAIN"),
-            nonce: 0,
-            from: abi.encodePacked(address(intentGateway)),
-            keys: keys,
-            height: 0,
-            timeoutTimestamp: 0,
-            context: context
-        });
-
-        uint256 userUsdcBefore = usdc.balanceOf(user);
-        uint256 userDaiBefore = dai.balanceOf(user);
-        vm.prank(address(host));
-        intentGateway.onGetResponse(
-            IncomingGetResponse({response: GetResponse({request: getRequest, values: values}), relayer: relayer})
-        );
-
-        // input0 USDC: 40% of output0 redeemed -> refund 60% = 600 USDC.
-        // input1 DAI:  60% of output1 redeemed -> refund 40% = 200 DAI.
-        assertEq(usdc.balanceOf(user) - userUsdcBefore, 600 * 1e6, "USDC refund matched output0 fill by key");
-        assertEq(dai.balanceOf(user) - userDaiBefore, 200 * 1e18, "DAI refund matched output1 fill by key");
-    }
-
     /// @dev External helper so the test can use calldata slicing to strip the RequestKind prefix.
     function decodeWithdrawalBody(bytes calldata body) external pure returns (uint8 kind, WithdrawalRequest memory wr) {
         kind = uint8(body[0]);
@@ -5374,19 +5203,48 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         assertEq(uint256(raw), viaGetter, "slot-11 derivation matches public getter");
     }
 
-    /// @dev placeOrder rejects orders whose input/output array lengths differ, since the 1:1
-    /// index pairing is required for fills and cancels.
-    function testPlaceOrder_RevertsOnInputOutputLengthMismatch() public {
-        TokenInfo[] memory inputs = new TokenInfo[](2);
-        inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: 1000 * 1e6});
-        inputs[1] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
+    /// @notice An order swaps exactly one input for exactly one output. Every other shape reverts.
+    function testPlaceOrder_RequiresExactlyOneInputAndOneOutput() public {
+        TokenInfo[] memory none = new TokenInfo[](0);
+        TokenInfo[] memory oneIn = new TokenInfo[](1);
+        oneIn[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: 1000 * 1e6});
+        TokenInfo[] memory twoIn = new TokenInfo[](2);
+        twoIn[0] = oneIn[0];
+        twoIn[1] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
+        TokenInfo[] memory oneOut = new TokenInfo[](1);
+        oneOut[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
+        TokenInfo[] memory twoOut = new TokenInfo[](2);
+        twoOut[0] = oneOut[0];
+        twoOut[1] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: 1000 * 1e6});
 
-        TokenInfo[] memory outputAssets = new TokenInfo[](1);
-        outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
+        vm.startPrank(user);
+        usdc.approve(address(intentGateway), type(uint256).max);
+        dai.approve(address(intentGateway), type(uint256).max);
 
-        Order memory order = Order({
+        vm.expectRevert(IntentsBase.InvalidInput.selector);
+        intentGateway.placeOrder(_orderWithLegs(none, oneOut), bytes32(0));
+        vm.expectRevert(IntentsBase.InvalidInput.selector);
+        intentGateway.placeOrder(_orderWithLegs(twoIn, oneOut), bytes32(0));
+        vm.expectRevert(IntentsBase.InvalidInput.selector);
+        intentGateway.placeOrder(_orderWithLegs(oneIn, none), bytes32(0));
+        vm.expectRevert(IntentsBase.InvalidInput.selector);
+        intentGateway.placeOrder(_orderWithLegs(oneIn, twoOut), bytes32(0));
+
+        intentGateway.placeOrder(_orderWithLegs(oneIn, oneOut), bytes32(0));
+        vm.stopPrank();
+        assertEq(usdc.balanceOf(address(intentGateway)), 1000 * 1e6, "one input, one output is escrowed");
+    }
+
+    /// @dev A cross-chain order with the given legs. Builds without external calls, so it can sit between
+    /// `vm.expectRevert` and the call it targets; `placeOrder` stamps `source` itself.
+    function _orderWithLegs(TokenInfo[] memory inputs, TokenInfo[] memory outputs)
+        internal
+        view
+        returns (Order memory)
+    {
+        return Order({
             user: bytes32(uint256(uint160(user))),
-            source: host.host(),
+            source: "",
             destination: bytes("DEST_CHAIN"),
             deadline: block.number + 1000,
             nonce: 0,
@@ -5394,15 +5252,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             session: address(0),
             predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
             inputs: inputs,
-            output: PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""})
+            output: PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputs, call: ""})
         });
-
-        vm.startPrank(user);
-        usdc.approve(address(intentGateway), type(uint256).max);
-        dai.approve(address(intentGateway), type(uint256).max);
-        vm.expectRevert(IntentsBase.InvalidInput.selector);
-        intentGateway.placeOrder(order, bytes32(0));
-        vm.stopPrank();
     }
 }
 

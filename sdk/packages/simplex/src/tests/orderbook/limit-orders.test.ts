@@ -19,6 +19,7 @@ const LIMITS: OrderbookLimits = {
 		signatureSkewSecs: 30,
 		maxBatchSize: 20,
 		minOrderSizes: [{ symbol: "CNGN", size: (1000n * ONE).toString() }],
+		chains: [CHAIN, "EVM-1"],
 		eip712DomainName: "HyperFX Orderbook",
 		eip712DomainVersion: "1",
 	},
@@ -44,7 +45,12 @@ function fakeClient(results: SubmitOrderResult[], cancels: CancelOrderResult[] =
 	const submitted: HexString[] = []
 	return {
 		submitted,
+		/** Entries the orderbook already holds, by commitment. */
+		entries: [] as PostedOrder[],
 		limits: async () => LIMITS,
+		orderAt: async function (_solver: HexString, commitment: HexString) {
+			return this.entries.find((entry) => entry.commitment === commitment) ?? null
+		},
 		submitOrder: async (userOp: HexString) => {
 			submitted.push(userOp)
 			return results.shift() ?? { kind: "accepted" as const, order: postedOrder(), surfaced: true }
@@ -143,16 +149,56 @@ describe("LimitOrderService.create", () => {
 		expect(client.submitted).toHaveLength(1)
 	})
 
-	it("reports an unreachable orderbook as retryable and leaves the order rejected", async () => {
+	it("leaves an order the orderbook could not decide open, to be posted again", async () => {
+		// A refusal retires the order; a failure must not. One timeout on the way in
+		// would otherwise kill an order the operator still wants, with nothing left
+		// looking at the row.
 		const client = fakeClient([])
 		client.submitOrder = async () => {
 			throw new OrderbookRequestError("connect ECONNREFUSED")
 		}
-		const { service } = makeService(client)
+		const { service, store } = makeService(client)
 		const { order, result } = await service.create(REQUEST)
 
 		expect(result).toMatchObject({ kind: "failed", retryable: true })
+		expect(order.status).toBe("open")
+		expect(order.commitment).toBeNull()
+		expect(order.lastError).toMatch(/REQUEST_FAILED/)
+		expect((await store.get(order.id))?.status).toBe("open")
+	})
+
+	it("retires an order the orderbook actually refused", async () => {
+		const client = fakeClient([{ kind: "rejected", code: "BAD_SIGNATURE", message: "bad" }])
+		const { service } = makeService(client)
+		const { order } = await service.create(REQUEST)
 		expect(order.status).toBe("rejected")
+	})
+})
+
+describe("an op the orderbook has already taken", () => {
+	it("treats a live entry at the same commitment as the posting it was", async () => {
+		// `ORDER_EXISTS` is a live entry sitting at that commitment, unlike
+		// `REPLAYED`. Posting again on a new nonce would leave two entries behind one
+		// liability and record only the second.
+		const client = fakeClient([{ kind: "rejected", code: "ORDER_EXISTS", message: "already here" }])
+		client.entries = [postedOrder({ commitment: "0xabc" })]
+		const { service } = makeService(client)
+
+		const { order, result } = await service.create(REQUEST)
+		expect(result.kind).toBe("unchanged")
+		expect(order.status).toBe("open")
+		expect(order.commitment).toBe("0xabc")
+		// One submission, not two.
+		expect(client.submitted).toEqual(["0x00"])
+	})
+
+	it("bumps the nonce when the orderbook holds no such entry", async () => {
+		const client = fakeClient([{ kind: "rejected", code: "REPLAYED", message: "seen" }])
+		const { service } = makeService(client)
+
+		const { order } = await service.create(REQUEST)
+		expect(client.submitted).toEqual(["0x00", "0x01"])
+		expect(order.orderNonce).toBe("1")
 	})
 })
 
@@ -189,6 +235,12 @@ describe("LimitOrderService.create validation", () => {
 
 	it("refuses a chain this filler does not run", async () => {
 		await rejects({ fillChain: "EVM-1" }, /not a chain this filler is configured for/)
+	})
+
+	it("refuses a source chain the orderbook does not serve", async () => {
+		// Half of what UNSUPPORTED_SOURCE_CHAIN tests, and the half an operator gets
+		// wrong by typo, so it is worth catching before a row is stored.
+		await rejects({ acceptedSources: ["EVM-1", "EVM-42161"] }, /does not serve EVM-42161/)
 	})
 
 	it("refuses an amount that is not a positive 1e18 integer", async () => {

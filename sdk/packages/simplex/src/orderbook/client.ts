@@ -17,6 +17,7 @@ const LIMITS_QUERY = `
 			signatureSkewSecs
 			maxBatchSize
 			minOrderSizes { symbol size }
+			chains
 			eip712DomainName
 			eip712DomainVersion
 		}
@@ -35,6 +36,12 @@ const SUBMIT_ORDER_MUTATION = `
 			... on OrderRejected { code message }
 			... on OrderSubmissionFailed { code message retryable }
 		}
+	}
+`
+
+const ORDER_QUERY = `
+	query OrderAt($solver: Address!, $commitment: Bytes!) {
+		order(solver: $solver, commitment: $commitment) { ${POSTED_ORDER_FIELDS} }
 	}
 `
 
@@ -99,6 +106,18 @@ export class OrderbookClient {
 			default:
 				throw new OrderbookRequestError(`Unknown submitOrder result ${submitOrder.__typename}`)
 		}
+	}
+
+	/**
+	 * The entry this solver holds at `commitment`, or null when it holds none.
+	 *
+	 * What tells `ORDER_EXISTS` from `REPLAYED`: the first means a live entry is
+	 * already sitting there, and posting again on a new nonce would put a second
+	 * one behind the same liability.
+	 */
+	async orderAt(solver: HexString, commitment: HexString): Promise<PostedOrder | null> {
+		const { order } = await this.request<{ order: PostedOrder | null }>(ORDER_QUERY, { solver, commitment })
+		return order
 	}
 
 	async cancelOrder(params: {

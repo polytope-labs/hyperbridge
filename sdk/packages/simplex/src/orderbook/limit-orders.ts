@@ -9,7 +9,7 @@ import { defaultLoggerContext, type Logger, type LoggerContext } from "@/service
 import type { Signer } from "@/services/wallet"
 import { rateFrom, signedAmounts } from "./amounts"
 import { OrderbookClient, OrderbookRequestError } from "./client"
-import type { Book, CancelOrderResult, OrderbookLimits, SubmitOrderResult } from "./types"
+import type { Book, CancelOrderResult, OrderbookLimits, PostedOrder, SubmitOrderResult } from "./types"
 
 /** How long a read of `serverInfo` and `books` is reused before being refreshed. */
 const LIMITS_TTL_MS = 5 * 60 * 1000
@@ -167,7 +167,7 @@ export class LimitOrderService {
 		}
 
 		const result = await this.withdraw(existing.commitment as HexString)
-		if (result.kind === "cancelled" || result.code === "UNKNOWN_ORDER") {
+		if (result.kind === "cancelled" || (result.kind === "rejected" && result.code === "UNKNOWN_ORDER")) {
 			// UNKNOWN_ORDER means the entry is already gone, whether it expired, was
 			// swept, or the orderbook deleted it over balance or delegation.
 			return {
@@ -183,8 +183,11 @@ export class LimitOrderService {
 			}
 		}
 
-		const message = `${result.code}: ${result.message}`
-		this.logger.error({ id, err: message }, "Orderbook refused to cancel the limit order")
+		// The commitment stays on the row. A refusal leaves the entry live, and a
+		// request that never got an answer may have left it live: either way
+		// something still owns it, and clearing it here is how an entry is orphaned.
+		const message = result.kind === "rejected" ? `${result.code}: ${result.message}` : result.message
+		this.logger.error({ id, err: message }, "Could not clear the limit order's entry on the orderbook")
 		return { order: (await this.store.setStatus(id, "cancelled", message))!, result }
 	}
 
@@ -197,7 +200,7 @@ export class LimitOrderService {
 	 */
 	private async withdraw(commitment: HexString): Promise<CancelOrderResult> {
 		const first = await this.signAndCancel(commitment, nowSecs())
-		if (first.kind === "cancelled") return first
+		if (first.kind !== "rejected") return first
 		if (first.code !== "SIGNATURE_EXPIRED" && first.code !== "SIGNATURE_REUSED") return first
 
 		if (first.code === "SIGNATURE_EXPIRED") {
@@ -217,9 +220,9 @@ export class LimitOrderService {
 		try {
 			return await this.client.cancelOrder({ solver: this.signer.address, commitment, timestamp, signature })
 		} catch (err) {
-			if (err instanceof OrderbookRequestError) {
-				return { kind: "rejected", code: "UNKNOWN_ORDER", message: err.message }
-			}
+			// Never `UNKNOWN_ORDER`: that is the orderbook's considered answer that the
+			// entry is gone, and this is the request not getting one at all.
+			if (err instanceof OrderbookRequestError) return { kind: "failed", message: err.message }
 			throw err
 		}
 	}
@@ -297,6 +300,20 @@ export class LimitOrderService {
 			}
 		}
 
+		// The orderbook lists the chains it serves, so a typo in a source chain is
+		// worth catching here rather than as an `UNSUPPORTED_SOURCE_CHAIN` against a
+		// row already stored. It only answers half the question: whether the input
+		// symbol is registered on that chain is the server's own config.
+		const served = limits.serverInfo.chains ?? []
+		if (served.length > 0) {
+			const unknown = [request.fillChain, ...sources].filter((chain) => !served.includes(chain))
+			if (unknown.length > 0) {
+				throw new LimitOrderValidationError(
+					`The orderbook does not serve ${unknown.join(", ")}. It serves: ${served.join(", ")}`,
+				)
+			}
+		}
+
 		if (ttlSecs < limits.serverInfo.minOrderTtlSecs) {
 			throw new LimitOrderValidationError(
 				`ttlSecs must be at least the orderbook's minimum of ${limits.serverInfo.minOrderTtlSecs}; got ${ttlSecs}`,
@@ -343,41 +360,93 @@ export class LimitOrderService {
 		}
 
 		const message = `${result.code}: ${result.message}`
+
+		// A failure is not a refusal. The orderbook could not decide the op, whether
+		// its database was away or the request never landed, so the order stays open
+		// with the reason on it and something posts it again later. Marking it
+		// `rejected` would retire an order the operator still wants over one timeout.
+		if (result.kind === "failed" && result.retryable) {
+			this.logger.warn({ id: order.id, err: message }, "Could not post the limit order; leaving it to be posted again")
+			return {
+				order: (await this.store.setPosting(order.id, {
+					commitment: null,
+					bookExpiresAt: null,
+					bookPrice: null,
+					orderNonce: orderNonce.toString(),
+					status: "open",
+					lastError: message,
+				}))!,
+				result,
+			}
+		}
+
 		this.logger.error({ id: order.id, err: message }, "Orderbook refused the limit order")
 		return { order: (await this.store.setStatus(order.id, "rejected", message))!, result }
 	}
 
 	/**
 	 * Submits the posting, answering a nonce the orderbook has already seen with a
-	 * fresh one. `REPLAYED` and `ORDER_EXISTS` both mean the op hashed to something
-	 * it remembers, and it remembers every hash forever, so bumping the nonce is
-	 * the only way past. Anything else is returned as it came.
+	 * fresh one.
+	 *
+	 * The two refusals that say so are not the same thing. `REPLAYED` is an op hash
+	 * it remembers for an order that is gone, and the nonce is the only way past.
+	 * `ORDER_EXISTS` is a live entry sitting at that commitment: if it is ours, the
+	 * posting has already happened and is taken as accepted, because posting again
+	 * on a new nonce would put a second entry behind the same liability and record
+	 * only the second one.
 	 */
 	private async submit(order: LimitOrder): Promise<{ result: SubmitOrderResult; orderNonce: bigint }> {
 		const orderNonce = BigInt(order.orderNonce)
-		const first = await this.buildAndSubmit(order, orderNonce)
+		const attempt = await this.buildAndSubmit(order, orderNonce)
+		const first = attempt.result
 		if (first.kind !== "rejected" || (first.code !== "REPLAYED" && first.code !== "ORDER_EXISTS")) {
 			return { result: first, orderNonce }
 		}
 
+		if (first.code === "ORDER_EXISTS" && attempt.commitment) {
+			const live = await this.entryAt(order, attempt.commitment)
+			if (live) {
+				this.logger.info({ id: order.id, commitment: live.commitment }, "This posting is already on the orderbook")
+				return { result: { kind: "unchanged", order: live }, orderNonce }
+			}
+		}
+
 		this.logger.warn({ id: order.id, code: first.code }, "Orderbook has seen this op before; reposting on a new nonce")
 		const retried = orderNonce + 1n
-		return { result: await this.buildAndSubmit(order, retried), orderNonce: retried }
+		return { result: (await this.buildAndSubmit(order, retried)).result, orderNonce: retried }
 	}
 
-	private async buildAndSubmit(order: LimitOrder, orderNonce: bigint): Promise<SubmitOrderResult> {
-		const userOp = await this.buildUserOp(order, orderNonce)
+	/**
+	 * The entry the orderbook holds at `commitment`, if it holds one. A lookup that
+	 * fails answers null, which sends the caller down the nonce-bump path it would
+	 * have taken anyway.
+	 */
+	private async entryAt(order: LimitOrder, commitment: HexString): Promise<PostedOrder | null> {
 		try {
-			return await this.client.submitOrder(userOp)
+			return await this.client.orderAt(this.signer.address, commitment)
+		} catch (err) {
+			this.logger.warn({ id: order.id, err }, "Could not read the entry the orderbook says exists")
+			return null
+		}
+	}
+
+	/** The orderbook's answer, and the commitment the op we sent hashes to. */
+	private async buildAndSubmit(
+		order: LimitOrder,
+		orderNonce: bigint,
+	): Promise<{ result: SubmitOrderResult; commitment?: HexString }> {
+		const { commitment, userOp } = await this.buildUserOp(order, orderNonce)
+		try {
+			return { result: await this.client.submitOrder(userOp), commitment }
 		} catch (err) {
 			if (err instanceof OrderbookRequestError) {
-				return { kind: "failed", code: "REQUEST_FAILED", message: err.message, retryable: true }
+				return { result: { kind: "failed", code: "REQUEST_FAILED", message: err.message, retryable: true }, commitment }
 			}
 			throw err
 		}
 	}
 
-	private async buildUserOp(order: LimitOrder, orderNonce: bigint): Promise<HexString> {
+	private async buildUserOp(order: LimitOrder, orderNonce: bigint): Promise<{ commitment: HexString; userOp: HexString }> {
 		const baseToken = this.assetRegistry.getAddress(order.base, order.fillChain)!
 		const quoteToken = this.assetRegistry.getAddress(order.quote, order.fillChain)!
 		const [baseDecimals, quoteDecimals] = await Promise.all([
@@ -400,7 +469,7 @@ export class LimitOrderService {
 			throw new LimitOrderValidationError(`No EntryPoint is configured for ${order.fillChain}`)
 		}
 
-		const { userOp } = await this.contractService.prepareLimitOrderUserOp({
+		return this.contractService.prepareLimitOrderUserOp({
 			fillChain: order.fillChain,
 			entryPointAddress,
 			inputToken,
@@ -411,7 +480,6 @@ export class LimitOrderService {
 			ttlSecs: order.ttlSecs,
 			acceptedSourceChains: order.acceptedSources,
 		})
-		return userOp
 	}
 }
 

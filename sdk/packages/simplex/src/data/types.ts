@@ -398,9 +398,21 @@ export interface LimitOrderStore {
 	list(filter?: LimitOrderFilter): Promise<LimitOrder[]>
 	/** Every `open` order, which is what the matcher prices against. */
 	open(): Promise<LimitOrder[]>
-	/** Records what the orderbook did with the current posting. */
-	setPosting(id: string, posting: LimitOrderPosting): Promise<LimitOrder | null>
-	setStatus(id: string, status: LimitOrderStatus, lastError?: string | null): Promise<LimitOrder | null>
+	/**
+	 * Records what the orderbook did with the current posting.
+	 *
+	 * `only` guards the write on the status the row still holds, and answers null
+	 * when it has moved on. A posting is a slow round trip, and an operator's
+	 * cancel or an expiry sweep that lands first must not be undone by an answer
+	 * that was already in flight.
+	 */
+	setPosting(id: string, posting: LimitOrderPosting, only?: readonly LimitOrderStatus[]): Promise<LimitOrder | null>
+	setStatus(
+		id: string,
+		status: LimitOrderStatus,
+		lastError?: string | null,
+		only?: readonly LimitOrderStatus[],
+	): Promise<LimitOrder | null>
 	/**
 	 * Adds `amount` to `reserved`, but only while the order is `open` and
 	 * `remaining - reserved` still covers it. Resolves false when it does not.

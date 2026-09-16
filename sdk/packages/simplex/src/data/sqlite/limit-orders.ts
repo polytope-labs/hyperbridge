@@ -50,6 +50,11 @@ export class LimitOrderWriteError extends Error {}
  * integers top out at 64 bits, which a 1e18 amount overruns as soon as the size
  * passes about 18 tokens, so they are never arithmetic in SQL.
  */
+/** `AND status IN (...)` for a guarded write, or nothing when the caller did not ask. */
+function statusGuard(only?: readonly LimitOrderStatus[]): string {
+	return only && only.length > 0 ? ` AND status IN (${only.map(() => "?").join(", ")})` : ""
+}
+
 export class SqliteLimitOrderStore implements LimitOrderStore {
 	private logger: Logger
 
@@ -157,13 +162,17 @@ export class SqliteLimitOrderStore implements LimitOrderStore {
 		return this.list({ status: "open" })
 	}
 
-	async setPosting(id: string, posting: LimitOrderPosting): Promise<LimitOrder | null> {
-		this.db
+	async setPosting(
+		id: string,
+		posting: LimitOrderPosting,
+		only?: readonly LimitOrderStatus[],
+	): Promise<LimitOrder | null> {
+		const result = this.db
 			.prepare(`
 				UPDATE limit_orders
 				SET commitment = ?, book_expires_at = ?, book_price = ?, order_nonce = ?,
 				    status = ?, last_error = ?, updated_at = datetime('now')
-				WHERE id = ?
+				WHERE id = ?${statusGuard(only)}
 			`)
 			.run(
 				posting.commitment,
@@ -173,15 +182,23 @@ export class SqliteLimitOrderStore implements LimitOrderStore {
 				posting.status,
 				posting.lastError,
 				id,
+				...(only ?? []),
 			)
-		return this.read(id)
+		return result.changes === 1 ? this.read(id) : null
 	}
 
-	async setStatus(id: string, status: LimitOrderStatus, lastError: string | null = null): Promise<LimitOrder | null> {
-		this.db
-			.prepare("UPDATE limit_orders SET status = ?, last_error = ?, updated_at = datetime('now') WHERE id = ?")
-			.run(status, lastError, id)
-		return this.read(id)
+	async setStatus(
+		id: string,
+		status: LimitOrderStatus,
+		lastError: string | null = null,
+		only?: readonly LimitOrderStatus[],
+	): Promise<LimitOrder | null> {
+		const result = this.db
+			.prepare(
+				`UPDATE limit_orders SET status = ?, last_error = ?, updated_at = datetime('now') WHERE id = ?${statusGuard(only)}`,
+			)
+			.run(status, lastError, id, ...(only ?? []))
+		return result.changes === 1 ? this.read(id) : null
 	}
 
 	async reserve(id: string, amount: string): Promise<boolean> {

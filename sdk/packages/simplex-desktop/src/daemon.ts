@@ -1,4 +1,5 @@
-import { spawn, type ChildProcess, type SpawnOptions } from "node:child_process"
+import { spawn, type ChildProcess, type SpawnOptions, type StdioOptions } from "node:child_process"
+import { closeSync, openSync, readdirSync } from "node:fs"
 import { request as httpRequest } from "node:http"
 
 export type SimplexMode = "init" | "operator"
@@ -71,11 +72,39 @@ export function daemonArgs(launch: DaemonLaunch): string[] {
 	]
 }
 
-export function spawnDaemon(launch: DaemonLaunch, spawnImpl: typeof spawn = spawn): ChildProcess {
-	const options: SpawnOptions = { detached: true, stdio: "ignore", windowsHide: true }
-	const child = spawnImpl(launch.nodePath, daemonArgs(launch), options)
-	child.unref()
-	return child
+/**
+ * Stdio for the solver on Linux. Electron's main process does not mark its
+ * descriptors close-on-exec, and libuv forks without closing them, so a plain
+ * "ignore" would leave the detached solver holding Electron's stdout, stderr,
+ * Chromium's sockets and shared memory, and any DevTools listener. libuv
+ * dup2()s every numbered slot, so /dev/null in each slot up to the highest open
+ * descriptor replaces all of them. macOS needs none of this: libuv spawns there
+ * with POSIX_SPAWN_CLOEXEC_DEFAULT.
+ */
+export function linuxDaemonStdio(openDescriptors: string[], devNull: number): Array<"ignore" | number> {
+	const highest = Math.max(devNull, ...openDescriptors.map(Number).filter(Number.isInteger))
+	return ["ignore", "ignore", "ignore", ...Array<number>(Math.max(0, highest - 2)).fill(devNull)]
+}
+
+export function spawnDaemon(
+	launch: DaemonLaunch,
+	spawnImpl: typeof spawn = spawn,
+	platform: NodeJS.Platform = process.platform,
+): ChildProcess {
+	const start = (stdio: StdioOptions) => {
+		const options: SpawnOptions = { detached: true, stdio, windowsHide: true }
+		const child = spawnImpl(launch.nodePath, daemonArgs(launch), options)
+		child.unref()
+		return child
+	}
+	if (platform !== "linux") return start("ignore")
+
+	const devNull = openSync("/dev/null", "r+")
+	try {
+		return start(linuxDaemonStdio(readdirSync("/proc/self/fd"), devNull))
+	} finally {
+		closeSync(devNull)
+	}
 }
 
 export async function ensureDaemon(options: {

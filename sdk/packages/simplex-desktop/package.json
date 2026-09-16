@@ -10,7 +10,7 @@
 		"dev": "pnpm run build && electron .",
 		"stage:node": "node scripts/stage-node.mjs",
 		"test": "pnpm run test:unit && pnpm run test:integration",
-		"test:e2e": "node scripts/e2e/assert-artifacts.mjs && tsx --tsconfig ../simplex/tsconfig.json --test scripts/e2e/desktop.e2e.mjs",
+		"test:e2e": "node scripts/e2e/assert-artifacts.mjs && tsx --tsconfig ../simplex/tsconfig.json --test --test-timeout=300000 scripts/e2e/desktop.e2e.mjs",
 		"test:unit": "vitest --watch=false src/tests/desktop-paths.test.ts src/tests/daemon.test.ts scripts/stage-node.test.ts",
 		"test:integration": "vitest --watch=false src/tests/protocol.test.ts",
 		"lint": "biome lint src scripts",

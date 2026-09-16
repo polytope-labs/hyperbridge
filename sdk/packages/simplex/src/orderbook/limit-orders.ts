@@ -9,19 +9,42 @@ import { defaultLoggerContext, type Logger, type LoggerContext } from "@/service
 import type { Signer } from "@/services/wallet"
 import { fromHuman, rateFrom, signedAmounts, toHuman } from "./amounts"
 import { OrderbookClient, OrderbookRequestError } from "./client"
-import type { Book, CancelOrderResult, OrderbookLimits, PostedOrder, SubmitOrderResult } from "./types"
+import type {
+	Book,
+	CancelOrderResult,
+	HeartbeatResult,
+	OrderbookLimits,
+	PostedOrder,
+	SubmitOrderResult,
+} from "./types"
 
 /** How long a read of `serverInfo` and `books` is reused before being refreshed. */
 const LIMITS_TTL_MS = 5 * 60 * 1000
 
+/**
+ * How long a `resizing` row must have sat before reconciliation treats it as
+ * stranded by a crash rather than as a repost still in flight.
+ */
+const RESIZE_GRACE_MS = 2 * 60 * 1000
+
 /** EIP-712 types for the signed messages the orderbook accepts. */
+const EIP712_DOMAIN = [
+	{ name: "name", type: "string" },
+	{ name: "version", type: "string" },
+] as const
+
 const CANCEL_ORDER_TYPES = {
-	EIP712Domain: [
-		{ name: "name", type: "string" },
-		{ name: "version", type: "string" },
-	],
+	EIP712Domain: EIP712_DOMAIN,
 	CancelOrder: [
 		{ name: "commitment", type: "bytes32" },
+		{ name: "timestamp", type: "uint64" },
+	],
+} as const
+
+const HEARTBEAT_TYPES = {
+	EIP712Domain: EIP712_DOMAIN,
+	Heartbeat: [
+		{ name: "solver", type: "address" },
 		{ name: "timestamp", type: "uint64" },
 	],
 } as const
@@ -78,6 +101,16 @@ export interface PostedLimitOrder {
 export interface CancelledLimitOrder {
 	order: LimitOrder
 	result: CancelOrderResult
+}
+
+/** What one reconciliation pass put right. */
+export interface ReconcileReport {
+	/** Orderbook entries no limit order here owns, now withdrawn. */
+	cancelled: number
+	/** Limit orders whose entry had gone, now posted again. */
+	reposted: number
+	/** Postings the orderbook is not backing in full, left alone and surfaced. */
+	underFunded: number
 }
 
 /**
@@ -459,6 +492,143 @@ export class LimitOrderService {
 		}
 	}
 
+	/**
+	 * Keeps the solver's postings surfaced.
+	 *
+	 * The orderbook suspends a solver it has not heard from for a while, and knows
+	 * nothing at all about one that has never had an order accepted, so a heartbeat
+	 * before the first posting can only come back `UNKNOWN_SOLVER`. Answers null
+	 * when there is nothing posted to keep alive.
+	 */
+	async heartbeat(): Promise<HeartbeatResult | null> {
+		if (!(await this.live()).some((order) => order.commitment)) return null
+
+		const first = await this.signAndHeartbeat(nowSecs())
+		if (first.kind === "accepted") {
+			if (first.reactivatedOrders > 0) {
+				this.logger.warn({ reactivated: first.reactivatedOrders }, "Heartbeat brought suspended postings back")
+			}
+			return first
+		}
+		// A heartbeat sent on the back of a posting can land in the same second as
+		// the scheduled one, and the timestamp is the whole of the objection.
+		if (first.code !== "SIGNATURE_REUSED" && first.code !== "SIGNATURE_EXPIRED") return first
+		return this.signAndHeartbeat(nowSecs() + 1)
+	}
+
+	/** How often to heartbeat: half the server's interval, so one lost request is not a suspension. */
+	async heartbeatIntervalMs(): Promise<number> {
+		const { heartbeatIntervalSecs } = (await this.limits()).serverInfo
+		return Math.max(1, Math.floor(heartbeatIntervalSecs / 2)) * 1000
+	}
+
+	/**
+	 * Reposts every open order whose entry expires within `marginSecs`.
+	 *
+	 * A posting cannot be extended. The op carries its own deadline and the
+	 * orderbook remembers its hash, so renewal is a fresh op on a new nonce rather
+	 * than the same one sent again.
+	 */
+	async renewExpiring(marginSecs: number): Promise<number> {
+		const due = (await this.store.list({ status: "open" })).filter(
+			(order) => order.commitment && expiresWithin(order.bookExpiresAt, marginSecs),
+		)
+		for (const order of due) {
+			this.logger.info({ id: order.id, bookExpiresAt: order.bookExpiresAt }, "Renewing a limit order's posting")
+			try {
+				await this.repost(order)
+			} catch (err) {
+				this.logger.error({ id: order.id, err }, "Could not renew the limit order's posting")
+			}
+		}
+		return due.length
+	}
+
+	/**
+	 * Brings the orderbook's copy of the operator's orders back in line with ours.
+	 *
+	 * They drift apart when a request never got an answer or the process died
+	 * between two of them: an entry the orderbook still lists that nothing here
+	 * owns, an order here whose entry has gone, or an entry the orderbook has cut
+	 * down because the solver cannot cover what it quoted.
+	 */
+	async reconcile(): Promise<ReconcileReport> {
+		const [entries, live] = await Promise.all([this.postedOrders(), this.live()])
+		const owners = new Map(
+			live.filter((order) => order.commitment).map((order) => [order.commitment!.toLowerCase(), order]),
+		)
+		const report: ReconcileReport = { cancelled: 0, reposted: 0, underFunded: 0 }
+		const found = new Set<string>()
+
+		for (const entry of entries) {
+			const owner = owners.get(entry.commitment.toLowerCase())
+			if (!owner) {
+				this.logger.warn({ commitment: entry.commitment }, "Orderbook entry no limit order here owns; cancelling it")
+				await this.withdraw(entry.commitment)
+				report.cancelled++
+				continue
+			}
+			found.add(entry.commitment.toLowerCase())
+			if (entry.resized || entry.backed === false) {
+				const reason = underFunded(entry)
+				this.logger.warn({ id: owner.id, commitment: entry.commitment }, reason)
+				await this.store.setStatus(owner.id, owner.status, reason)
+				report.underFunded++
+			}
+		}
+
+		for (const order of live) {
+			if (order.commitment && found.has(order.commitment.toLowerCase())) continue
+			// A row that only just went to `resizing` has a repost in flight, and
+			// posting a second entry for one liability is worse than waiting a cycle.
+			if (order.status === "resizing" && sinceMs(order.updatedAt) < RESIZE_GRACE_MS) continue
+
+			this.logger.warn({ id: order.id }, "Limit order has no entry on the orderbook; posting it again")
+			try {
+				// Without the cancel `repost` leads with: the entry is already gone.
+				await this.repost({ ...order, commitment: null })
+				report.reposted++
+			} catch (err) {
+				this.logger.error({ id: order.id, err }, "Could not post the limit order again")
+			}
+		}
+
+		return report
+	}
+
+	/** Every order that has a posting on the book, or should have one. */
+	private async live(): Promise<LimitOrder[]> {
+		const [open, resizing] = await Promise.all([
+			this.store.list({ status: "open" }),
+			this.store.list({ status: "resizing" }),
+		])
+		return [...open, ...resizing]
+	}
+
+	/** Every entry the orderbook holds for this solver, walked to the last page. */
+	private async postedOrders(): Promise<PostedOrder[]> {
+		const entries: PostedOrder[] = []
+		let cursor: string | undefined
+		do {
+			const page = await this.client.myOrders(this.signer.address, cursor)
+			entries.push(...page.orders)
+			cursor = page.cursor
+		} while (cursor)
+		return entries
+	}
+
+	private async signAndHeartbeat(timestamp: number): Promise<HeartbeatResult> {
+		const { eip712DomainName, eip712DomainVersion } = (await this.limits()).serverInfo
+		const solver = this.signer.address
+		const signature = await this.signer.signTypedData({
+			domain: { name: eip712DomainName, version: eip712DomainVersion },
+			types: HEARTBEAT_TYPES,
+			primaryType: "Heartbeat",
+			message: { solver, timestamp },
+		})
+		return this.client.heartbeat({ solver, timestamp, signature })
+	}
+
 	/** The orderbook's dust floor for what this order pays out, or zero when it names none. */
 	private async dustFloor(order: LimitOrder): Promise<bigint> {
 		const paid = order.side === "BID" ? order.quote : order.base
@@ -485,6 +655,14 @@ export class LimitOrderService {
 				status: "open",
 				lastError: null,
 			})
+			// A solver the orderbook has just met is suspended until it hears from it,
+			// which is what `surfaced: false` is saying. The posting is also what makes
+			// the heartbeat answerable, so it goes out now rather than on the next tick.
+			if (result.kind === "accepted" && !result.surfaced) {
+				await this.heartbeat().catch((err) =>
+					this.logger.warn({ id: order.id, err }, "Could not heartbeat the posting into view"),
+				)
+			}
 			return { order: stored!, result }
 		}
 
@@ -614,4 +792,24 @@ export class LimitOrderService {
 
 function nowSecs(): number {
 	return Math.floor(Date.now() / 1000)
+}
+
+/** Whether a posting expires within `marginSecs`, or already has. */
+function expiresWithin(bookExpiresAt: string | null, marginSecs: number): boolean {
+	if (!bookExpiresAt) return false
+	const expiry = Date.parse(bookExpiresAt)
+	return !Number.isNaN(expiry) && expiry - Date.now() <= marginSecs * 1000
+}
+
+/** How long ago a row was written. Its stamps are UTC but not marked as such. */
+function sinceMs(updatedAt: string): number {
+	const written = Date.parse(`${updatedAt.replace(" ", "T")}Z`)
+	return Number.isNaN(written) ? Number.POSITIVE_INFINITY : Date.now() - written
+}
+
+/** What the operator has to act on: the posting is live but not covered in full. */
+function underFunded(entry: PostedOrder): string {
+	return entry.resized
+		? `UNDER_FUNDED: the orderbook is advertising ${entry.advertisedSize} of the ${entry.quotedAmount} quoted`
+		: "UNDER_FUNDED: the orderbook has not confirmed this posting is covered"
 }

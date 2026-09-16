@@ -17,11 +17,17 @@ import {
 } from "@/services/FillerConfigService"
 import { assertConfirmationCoverage, validateConfig, type FillerTomlConfig, type VaultToml } from "@/config/filler-toml"
 import type { ConfirmationPolicy } from "@/config/interpolated-curve"
-import { DEFAULT_MAX_CONCURRENT_ORDERS, DEFAULT_ORDERBOOK_TIMEOUT_MS } from "@/config/defaults"
+import {
+	DEFAULT_MAX_CONCURRENT_ORDERS,
+	DEFAULT_ORDERBOOK_TIMEOUT_MS,
+	DEFAULT_RECONCILE_INTERVAL_SECS,
+	DEFAULT_RENEW_MARGIN_SECS,
+} from "@/config/defaults"
 import { ChainClientManager } from "@/services/ChainClientManager"
 import { ContractInteractionService } from "@/services/ContractInteractionService"
 import { DelegationService } from "@/services/DelegationService"
 import { OrderbookClient } from "@/orderbook/client"
+import { LimitOrderLifecycle } from "@/orderbook/lifecycle"
 import { LimitOrderService } from "@/orderbook/limit-orders"
 import { MIN_ORDER_TTL_SECONDS } from "@/orderbook/types"
 import { UserOpSender } from "@/services/UserOpSender"
@@ -441,6 +447,16 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 	// A fill has to work its limit order down and put the rest back on the book,
 	// which the filler cannot do until the service that owns the connection exists.
 	intentFiller.setLimitOrderService(limitOrderService)
+	const lifecycle = new LimitOrderLifecycle(
+		limitOrderService,
+		{
+			renewMarginSecs: config.orderbook?.renewMarginSecs ?? DEFAULT_RENEW_MARGIN_SECS,
+			reconcileIntervalSecs: config.orderbook?.reconcileIntervalSecs ?? DEFAULT_RECONCILE_INTERVAL_SECS,
+		},
+		options.loggers,
+	)
+	started.push(() => lifecycle.stop())
+	await lifecycle.start()
 
 	// Initialize (sets up EIP-7702 delegation if solver selection is configured)
 	try {

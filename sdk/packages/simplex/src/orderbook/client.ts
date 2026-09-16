@@ -2,10 +2,13 @@ import type { HexString } from "@hyperbridge/sdk"
 import { defaultLoggerContext, type Logger, type LoggerContext } from "@/services/Logger"
 import type {
 	CancelOrderResult,
+	HeartbeatResult,
 	MessageRejectionCode,
 	OrderbookLimits,
 	PostedOrder,
+	PostedOrderPage,
 	RejectionCode,
+	SolverStatus,
 	SubmitOrderResult,
 } from "./types"
 
@@ -42,6 +45,28 @@ const SUBMIT_ORDER_MUTATION = `
 const ORDER_QUERY = `
 	query OrderAt($solver: Address!, $commitment: Bytes!) {
 		order(solver: $solver, commitment: $commitment) { ${POSTED_ORDER_FIELDS} }
+	}
+`
+
+const HEARTBEAT_MUTATION = `
+	mutation Heartbeat($solver: Address!, $timestamp: Int!, $signature: Bytes!) {
+		heartbeat(solver: $solver, timestamp: $timestamp, signature: $signature) {
+			__typename
+			... on HeartbeatAccepted { reactivatedOrders heartbeatDueBy solver { status } }
+			... on MessageRejected { code message }
+		}
+	}
+`
+
+const MY_ORDERS_QUERY = `
+	query MyOrders($solver: Address!, $after: String) {
+		solver(address: $solver) {
+			status
+			orders(first: 50, after: $after) {
+				edges { node { ${POSTED_ORDER_FIELDS} resized backed } }
+				pageInfo { hasNextPage endCursor }
+			}
+		}
 	}
 `
 
@@ -136,6 +161,41 @@ export class OrderbookClient {
 		throw new OrderbookRequestError(`Unknown cancelOrder result ${cancelOrder.__typename}`)
 	}
 
+	async heartbeat(params: { solver: HexString; timestamp: number; signature: HexString }): Promise<HeartbeatResult> {
+		const { heartbeat } = await this.request<{ heartbeat: RawHeartbeat }>(HEARTBEAT_MUTATION, params)
+		if (heartbeat.__typename === "HeartbeatAccepted") {
+			return {
+				kind: "accepted",
+				status: heartbeat.solver?.status ?? "ACTIVE",
+				reactivatedOrders: heartbeat.reactivatedOrders ?? 0,
+				heartbeatDueBy: heartbeat.heartbeatDueBy ?? "",
+			}
+		}
+		if (heartbeat.__typename === "MessageRejected") {
+			return { kind: "rejected", code: heartbeat.code as MessageRejectionCode, message: heartbeat.message! }
+		}
+		throw new OrderbookRequestError(`Unknown heartbeat result ${heartbeat.__typename}`)
+	}
+
+	/**
+	 * One page of the solver's own orders as the orderbook holds them.
+	 *
+	 * A solver the orderbook has never accepted an order from is not an error:
+	 * it answers with no solver at all, which reads here as an empty page.
+	 */
+	async myOrders(solver: HexString, after?: string): Promise<PostedOrderPage> {
+		const { solver: row } = await this.request<{ solver: RawSolverOrders | null }>(MY_ORDERS_QUERY, {
+			solver,
+			after: after ?? null,
+		})
+		if (!row) return { orders: [], status: "SUSPENDED" }
+		return {
+			orders: row.orders.edges.map((edge) => edge.node),
+			cursor: row.orders.pageInfo.hasNextPage ? (row.orders.pageInfo.endCursor ?? undefined) : undefined,
+			status: row.status,
+		}
+	}
+
 	private async request<T>(query: string, variables: Record<string, unknown>): Promise<T> {
 		const controller = new AbortController()
 		const timer = setTimeout(() => controller.abort(), this.requestTimeoutMs)
@@ -182,6 +242,20 @@ interface RawSubmitOrder {
 	code?: string
 	message?: string
 	retryable?: boolean
+}
+
+interface RawHeartbeat {
+	__typename: string
+	reactivatedOrders?: number
+	heartbeatDueBy?: string
+	solver?: { status: SolverStatus }
+	code?: string
+	message?: string
+}
+
+interface RawSolverOrders {
+	status: SolverStatus
+	orders: { edges: { node: PostedOrder }[]; pageInfo: { hasNextPage: boolean; endCursor: string | null } }
 }
 
 interface RawCancelOrder {

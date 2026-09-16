@@ -15,7 +15,14 @@
  *   console.log(`filled ${orderId} for $${profitUsd}`)
  * })
  *
- * await simplex.pairs.setCurve(0, "ask", [{ amount: "0", price: "1550" }])
+ * await simplex.limitOrders.create({
+ *   fillChain: "EVM-8453",
+ *   tokenIn: "USDC",
+ *   amountIn: "10000000000000000000000",
+ *   tokenOut: "CNGN",
+ *   amountOut: "139000000000000000000000000",
+ *   acceptedSources: ["EVM-1"],
+ * })
  * await simplex.stop()
  * ```
  *

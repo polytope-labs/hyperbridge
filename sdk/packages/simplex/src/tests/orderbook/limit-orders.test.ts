@@ -1,107 +1,16 @@
 import { describe, expect, it } from "vitest"
 import type { HexString } from "@hyperbridge/sdk"
-import { MemoryDataStore } from "@/data/memory"
-import { ORDERBOOK_SCALE } from "@/orderbook/amounts"
 import { OrderbookRequestError } from "@/orderbook/client"
-import { LimitOrderService, LimitOrderValidationError, type CreateLimitOrderRequest } from "@/orderbook/limit-orders"
-import type { CancelOrderResult, OrderbookLimits, PostedOrder, SubmitOrderResult } from "@/orderbook/types"
+import { LimitOrderValidationError, type CreateLimitOrderRequest } from "@/orderbook/limit-orders"
+import type { CancelOrderResult } from "@/orderbook/types"
+import {
+	CREATE_REQUEST as REQUEST,
+	fakeClient,
+	limitOrderService as makeService,
+	ORDERBOOK_FIXTURES,
+} from "../helpers/limit-orders"
 
-const CHAIN = "EVM-8453"
-const USDC = "0x1111111111111111111111111111111111111111" as HexString
-const CNGN = "0x2222222222222222222222222222222222222222" as HexString
-const SOLVER = "0x3333333333333333333333333333333333333333" as HexString
-const ONE = ORDERBOOK_SCALE
-
-const LIMITS: OrderbookLimits = {
-	serverInfo: {
-		minOrderTtlSecs: 900,
-		heartbeatIntervalSecs: 60,
-		signatureSkewSecs: 30,
-		maxBatchSize: 20,
-		minOrderSizes: [{ symbol: "CNGN", size: (1000n * ONE).toString() }],
-		chains: [CHAIN, "EVM-1"],
-		eip712DomainName: "HyperFX Orderbook",
-		eip712DomainVersion: "1",
-	},
-	books: [{ id: "USDC/CNGN", base: "USDC", quote: "CNGN" }],
-}
-
-function postedOrder(overrides: Partial<PostedOrder> = {}): PostedOrder {
-	return {
-		commitment: "0xabc" as HexString,
-		side: "BID",
-		status: "ACTIVE",
-		price: (1490n * ONE).toString(),
-		quotedAmount: (1_500_000n * ONE).toString(),
-		advertisedSize: (1_500_000n * ONE).toString(),
-		expiresAt: "2026-09-15T12:00:00.000Z",
-		acceptedSources: ["EVM-1"],
-		...overrides,
-	}
-}
-
-/** An orderbook that answers from a queue, and records what it was sent. */
-function fakeClient(results: SubmitOrderResult[], cancels: CancelOrderResult[] = []) {
-	const submitted: HexString[] = []
-	return {
-		submitted,
-		/** Entries the orderbook already holds, by commitment. */
-		entries: [] as PostedOrder[],
-		limits: async () => LIMITS,
-		orderAt: async function (_solver: HexString, commitment: HexString) {
-			return this.entries.find((entry) => entry.commitment === commitment) ?? null
-		},
-		submitOrder: async (userOp: HexString) => {
-			submitted.push(userOp)
-			return results.shift() ?? { kind: "accepted" as const, order: postedOrder(), surfaced: true }
-		},
-		cancelOrder: async () =>
-			cancels.shift() ?? ({ kind: "cancelled", commitment: "0xabc" as HexString } as CancelOrderResult),
-	}
-}
-
-function makeService(client: ReturnType<typeof fakeClient>, store = new MemoryDataStore().limitOrders) {
-	const contractService = {
-		getTokenDecimals: async (token: string) => (token === USDC ? 6 : 18),
-		// The op is opaque to the service; the nonce is echoed so a repost is visible.
-		prepareLimitOrderUserOp: async ({ orderNonce }: { orderNonce: bigint }) => ({
-			commitment: "0xabc" as HexString,
-			userOp: `0x0${orderNonce}` as HexString,
-		}),
-	}
-	const configService = {
-		getConfiguredChainIds: () => [8453],
-		getEntryPointAddress: () => "0x4444444444444444444444444444444444444444" as HexString,
-	}
-	const assetRegistry = {
-		getAddress: (symbol: string, chain: string) =>
-			chain === CHAIN ? ({ USDC, CNGN } as Record<string, HexString>)[symbol] ?? null : null,
-	}
-	const signer = { address: SOLVER, signTypedData: async () => "0xsig" as HexString }
-
-	// biome-ignore lint/suspicious/noExplicitAny: narrow stubs for the collaborators this path touches
-	const service = new LimitOrderService(
-		store,
-		client as any,
-		contractService as any,
-		configService as any,
-		assetRegistry as any,
-		signer as any,
-		900,
-		undefined,
-	)
-	return { service, store }
-}
-
-/** Take in 1,000 USDC, pay out 1,500,000 cNGN: a USDC to cNGN order at 1,500. */
-const REQUEST: CreateLimitOrderRequest = {
-	fillChain: CHAIN,
-	tokenIn: "USDC",
-	amountIn: "1000",
-	tokenOut: "CNGN",
-	amountOut: "1500000",
-	acceptedSources: ["EVM-1"],
-}
+const { ONE } = ORDERBOOK_FIXTURES
 
 describe("LimitOrderService.create", () => {
 	it("stores the order and records the orderbook's posting", async () => {
@@ -401,9 +310,9 @@ describe("LimitOrderService.cancel", () => {
 		const client = fakeClient([], [{ kind: "rejected", code: "SIGNATURE_REUSED", message: "same second" }])
 		let cancels = 0
 		const inner = client.cancelOrder
-		client.cancelOrder = async () => {
+		client.cancelOrder = async (params) => {
 			cancels += 1
-			return inner()
+			return inner(params)
 		}
 		const { service } = makeService(client)
 		const created = await service.create(REQUEST)

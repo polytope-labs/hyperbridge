@@ -385,6 +385,7 @@ abstract contract ExtrinsicIntents is IntentsBase, HyperApp {
      *   cancel refund remain possible). Authenticated against the registered gateway instance.
      * - RefundEscrow: Refunds escrowed tokens to the original user after a successful
      *   cancellation from the destination chain. Authenticated against the registered gateway.
+     *   Rejected with `Filled` once the order is finalized, e.g. by a GET cancel from this chain.
      * - NewDeployment: Registers a new gateway instance for a state machine. Only
      *   Hyperbridge itself may dispatch this request.
      * - UpdateParams: Updates the gateway's configuration parameters and per-destination
@@ -406,6 +407,10 @@ abstract contract ExtrinsicIntents is IntentsBase, HyperApp {
         ) {
             _authenticate(incoming.request);
             WithdrawalRequest memory body = abi.decode(incoming.request.body[1:], (WithdrawalRequest));
+            // An order can be cancelled from both chains, and each only sees its own `_filled`. Once one cancel
+            // has finalized it here, a RefundEscrow from the other would refund the same unfilled slice again,
+            // out of the escrow reserved for redeems still in flight. Redeems stay allowed: they consume it.
+            if (kind == RequestKind.RefundEscrow && _filled[body.commitment] != address(0)) revert Filled();
             // A partial redeem must not finalize: escrow stays open for further redeems / a cancel
             // refund, and the fee pot is left for the completing redeem. _withdraw emits EscrowReleased
             // regardless of finalize, so the partial release is still observable on the source chain.

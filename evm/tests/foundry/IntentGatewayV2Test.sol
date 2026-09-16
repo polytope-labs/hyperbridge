@@ -4807,19 +4807,23 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         });
     }
 
-    /// @dev Replays a RedeemEscrow / RedeemEscrowPartial message arriving on the source chain.
-    function _replayRedeem(IntentsBase.RequestKind kind, bytes32 commitment, TokenInfo[] memory tokens, address solver)
-        internal
-    {
+    /// @dev A withdrawal message (`RedeemEscrow`, `RedeemEscrowPartial` or `RefundEscrow`) as the destination
+    /// gateway dispatches it to this source-chain gateway.
+    function _withdrawalPost(
+        IntentsBase.RequestKind kind,
+        bytes32 commitment,
+        TokenInfo[] memory tokens,
+        address beneficiary
+    ) internal view returns (PostRequest memory) {
         bytes memory body = bytes.concat(
             bytes1(uint8(kind)),
             abi.encode(
                 WithdrawalRequest({
-                    commitment: commitment, tokens: tokens, beneficiary: bytes32(uint256(uint160(solver)))
+                    commitment: commitment, tokens: tokens, beneficiary: bytes32(uint256(uint160(beneficiary)))
                 })
             )
         );
-        PostRequest memory request = PostRequest({
+        return PostRequest({
             source: bytes("DEST_CHAIN"),
             dest: host.host(),
             nonce: 0,
@@ -4828,14 +4832,22 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             body: body,
             timeoutTimestamp: 0
         });
+    }
+
+    /// @dev Replays a RedeemEscrow / RedeemEscrowPartial message arriving on the source chain.
+    function _replayRedeem(IntentsBase.RequestKind kind, bytes32 commitment, TokenInfo[] memory tokens, address solver)
+        internal
+    {
+        PostRequest memory request = _withdrawalPost(kind, commitment, tokens, solver);
         vm.prank(address(host));
         intentGateway.onAccept(IncomingPostRequest({relayer: relayer, request: request}));
     }
 
-    /// @dev Drives onGetResponse for a single-token partial-fill-aware cancel with the given proven
-    /// fill amount on the destination.
-    function _replayCancel(bytes32 commitment, uint256 inputAmount, uint256 totalOutput, uint256 provenFilled)
+    /// @dev The source-side cancel's GET response, proving `provenFilled` of the single output filled.
+    function _cancelProof(bytes32 commitment, uint256 inputAmount, uint256 totalOutput, uint256 provenFilled)
         internal
+        view
+        returns (IncomingGetResponse memory)
     {
         TokenInfo[] memory inputs = new TokenInfo[](1);
         inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: inputAmount});
@@ -4860,8 +4872,15 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             timeoutTimestamp: 0,
             context: context
         });
-        IncomingGetResponse memory incoming =
-            IncomingGetResponse({response: GetResponse({request: getRequest, values: values}), relayer: relayer});
+        return IncomingGetResponse({response: GetResponse({request: getRequest, values: values}), relayer: relayer});
+    }
+
+    /// @dev Drives onGetResponse for a single-token partial-fill-aware cancel with the given proven
+    /// fill amount on the destination.
+    function _replayCancel(bytes32 commitment, uint256 inputAmount, uint256 totalOutput, uint256 provenFilled)
+        internal
+    {
+        IncomingGetResponse memory incoming = _cancelProof(commitment, inputAmount, totalOutput, provenFilled);
         vm.prank(address(host));
         intentGateway.onGetResponse(incoming);
     }
@@ -5095,6 +5114,75 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         vm.prank(address(host));
         vm.expectRevert(IntentsBase.Filled.selector);
         intentGateway.onGetResponse(incoming);
+    }
+
+    /// @dev Places a 1000 USDC -> 1000 DAI cross-chain order. `half` is the 500 USDC slice that, at a 50% fill,
+    /// both a cancel refunds and the in-flight redeem claims.
+    function _placeCrossChainOrder() internal returns (bytes32 commitment, TokenInfo[] memory half) {
+        uint256 inputAmount = 1000 * 1e6;
+        Order memory order = _xchainOrder(host.host(), bytes("DEST_CHAIN"), inputAmount, 1000 * 1e18);
+
+        vm.startPrank(user);
+        usdc.approve(address(intentGateway), inputAmount);
+        intentGateway.placeOrder(order, bytes32(0));
+        vm.stopPrank();
+
+        commitment = keccak256(abi.encode(order));
+        half = new TokenInfo[](1);
+        half[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: 500 * 1e6});
+    }
+
+    /// Cancelling from both chains sends two refunds for the same unfilled slice, since each chain only sees its
+    /// own `_filled`. Here the GET cancel lands first: it refunds the unfilled half and reserves the other half for the solver's
+    /// in-flight redeem. The destination's RefundEscrow for the same half must then be rejected, or it drains
+    /// the reserve and the solver, who already delivered half the output, is never paid.
+    function testCrossChainCancel_RefundEscrowAfterGetCancelRejected() public {
+        (bytes32 commitment, TokenInfo[] memory half) = _placeCrossChainOrder();
+        address solver = makeAddr("xchainSolver");
+
+        uint256 userUsdcBefore = usdc.balanceOf(user);
+        _replayCancel(commitment, 1000 * 1e6, 1000 * 1e18, 500 * 1e18);
+        assertEq(usdc.balanceOf(user) - userUsdcBefore, 500 * 1e6, "user refunded the unfilled half");
+        assertEq(intentGateway._orders(commitment, address(usdc)), 500 * 1e6, "half reserved for the redeem");
+
+        PostRequest memory refund = _withdrawalPost(IntentsBase.RequestKind.RefundEscrow, commitment, half, user);
+        vm.prank(address(host));
+        vm.expectRevert(IntentsBase.Filled.selector);
+        intentGateway.onAccept(IncomingPostRequest({relayer: relayer, request: refund}));
+
+        assertEq(usdc.balanceOf(user) - userUsdcBefore, 500 * 1e6, "no second refund");
+        assertEq(intentGateway._orders(commitment, address(usdc)), 500 * 1e6, "reserve intact");
+
+        // The guard is scoped to RefundEscrow: the delayed redeem still consumes the reserve.
+        _replayRedeem(IntentsBase.RequestKind.RedeemEscrowPartial, commitment, half, solver);
+        assertEq(usdc.balanceOf(solver), 500 * 1e6, "solver paid for its half");
+        assertEq(intentGateway._orders(commitment, address(usdc)), 0, "escrow fully settled");
+    }
+
+    /// The reverse delivery order: RefundEscrow lands first and finalizes, so the GET cancel is rejected. A
+    /// delayed redeem after a RefundEscrow cancel still consumes the reserve it left.
+    function testCrossChainCancel_GetCancelAfterRefundEscrowRejected() public {
+        (bytes32 commitment, TokenInfo[] memory half) = _placeCrossChainOrder();
+        address solver = makeAddr("xchainSolver");
+
+        uint256 userUsdcBefore = usdc.balanceOf(user);
+        PostRequest memory refund = _withdrawalPost(IntentsBase.RequestKind.RefundEscrow, commitment, half, user);
+        vm.prank(address(host));
+        intentGateway.onAccept(IncomingPostRequest({relayer: relayer, request: refund}));
+        assertEq(usdc.balanceOf(user) - userUsdcBefore, 500 * 1e6, "user refunded the unfilled half");
+        assertEq(intentGateway._filled(commitment), user, "refund finalized the order");
+
+        IncomingGetResponse memory cancel = _cancelProof(commitment, 1000 * 1e6, 1000 * 1e18, 500 * 1e18);
+        vm.prank(address(host));
+        vm.expectRevert(IntentsBase.Filled.selector);
+        intentGateway.onGetResponse(cancel);
+
+        assertEq(usdc.balanceOf(user) - userUsdcBefore, 500 * 1e6, "no second refund");
+        assertEq(intentGateway._orders(commitment, address(usdc)), 500 * 1e6, "reserve intact");
+
+        _replayRedeem(IntentsBase.RequestKind.RedeemEscrowPartial, commitment, half, solver);
+        assertEq(usdc.balanceOf(solver), 500 * 1e6, "solver paid for its half");
+        assertEq(intentGateway._orders(commitment, address(usdc)), 0, "escrow fully settled");
     }
 
     /// @dev Cross-chain orders carrying output calldata cannot be partially filled.

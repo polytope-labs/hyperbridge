@@ -14,16 +14,19 @@ import {
 	shell,
 	Tray,
 } from "electron"
-import { ensureDaemon, type DaemonLaunch } from "./daemon"
+import electronUpdater from "electron-updater"
+import { ensureDaemon, probeHealth, type DaemonLaunch } from "./daemon"
 import { installSessionSecurity, installWebContentsSecurity, rendererWebPreferences } from "./desktop-security"
 import { assertResources, resourcePaths, socketPathFor, userDataOverrideFromArgv } from "./desktop-paths"
 import { latestLogPath, loginItemExecutable, LoginItemController } from "./login-item"
 import { proxyToSimplex } from "./protocol"
+import { SIMPLEX_UPDATE_FEED } from "./release-provider"
 import {
 	holdsMachineAwake,
 	sendSolverAction,
 	shouldNotifySolverFailure,
 	SolverSupervisor,
+	solverHasVersionSkew,
 	stopRequestAccepted,
 	type SolverStatus,
 } from "./solver-supervisor"
@@ -34,6 +37,10 @@ import {
 	type DesktopMenuActions,
 } from "./tray-menu"
 import { TRAY_ICON_STATES, trayIconPath, trayIconRetinaPath } from "./tray-icon"
+import { UpdateCoordinator, waitForSolverExit, type UpdateStatus } from "./update-coordinator"
+import { FileUpdateStore, type UpdateChannel } from "./update-store"
+
+const { autoUpdater } = electronUpdater
 
 protocol.registerSchemesAsPrivileged([
 	{ scheme: "simplex", privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } },
@@ -54,7 +61,10 @@ let dataDirectory: string | undefined
 let startPromise: Promise<boolean> | undefined
 let powerSaveBlockerId: number | undefined
 let quitting = false
+let installingUpdate = false
 let intentionalStop = false
+let updateCoordinator: UpdateCoordinator | undefined
+let updateStatus: UpdateStatus = { state: "disabled", channel: "stable" }
 
 const userDataSwitch = app.commandLine.getSwitchValue("user-data-dir")
 const userDataOverride = userDataSwitch ? resolve(userDataSwitch) : userDataOverrideFromArgv()
@@ -107,16 +117,11 @@ const menuActions: DesktopMenuActions = {
 		await stopSolver()
 	},
 	restartSolver: () => restartSolver(),
+	restartBundledSolver: () => restartBundledSolver(),
 	toggleLoginItem: () => toggleLoginItem(),
 	showAbout: () => app.showAboutPanel(),
-	checkForUpdates: async () => {
-		await dialog.showMessageBox({
-			type: "info",
-			title: "Simplex updates",
-			message: "Update delivery is not configured in this build.",
-			detail: "Automatic update installation is tracked separately from desktop lifecycle support.",
-		})
-	},
+	checkForUpdates: () => updateCoordinator?.checkNow(),
+	setUpdateChannel: (channel: UpdateChannel) => updateCoordinator?.setChannel(channel),
 	openDataDirectory: () => openDataDirectory(),
 	openLog: () => openCurrentLog(),
 	quitApp: () => quitApp(),
@@ -132,6 +137,9 @@ function refreshNativeUi(): void {
 		loginItemEnabled: loginItem.isEnabled(),
 		logAvailable: Boolean(dataDirectory && latestLogPath(dataDirectory)),
 		sleepPreventionActive: currentPowerSaveState(),
+		updatesEnabled: app.isPackaged && Boolean(updateCoordinator),
+		update: updateStatus,
+		versionSkew: solverHasVersionSkew(status, app.getVersion()),
 	}
 
 	if (tray && !tray.isDestroyed()) {
@@ -235,6 +243,26 @@ async function restartSolver(): Promise<void> {
 	await startOrAttachSolver(false)
 }
 
+async function restartBundledSolver(): Promise<void> {
+	if (!daemonLaunch || !supervisor) return
+	const status = await supervisor.pollNow()
+	if (status.state === "running" || status.state === "paused" || status.state === "setup") {
+		intentionalStop = true
+		try {
+			await sendSolverAction(daemonLaunch.socketPath, "stop")
+			const exited = await waitForSolverExit({
+				pid: status.pid,
+				probe: () => probeHealth(daemonLaunch!.socketPath),
+			})
+			if (!exited) throw new Error("The old solver did not finish its graceful shutdown")
+		} catch (error) {
+			intentionalStop = false
+			return reportActionError("Simplex could not restart with its bundled solver", error)
+		}
+	}
+	await startOrAttachSolver(false)
+}
+
 function toggleLoginItem(): void {
 	if (!loginItem) return
 	try {
@@ -302,7 +330,7 @@ async function createWindow(): Promise<void> {
 	})
 	mainWindow = window
 	window.on("close", (event) => {
-		if (quitting) return
+		if (quitting || installingUpdate) return
 		event.preventDefault()
 		window.hide()
 	})
@@ -364,7 +392,7 @@ async function prepareDesktop(): Promise<void> {
 	if (process.platform === "darwin") app.dock?.setIcon(applicationIconPath)
 	daemonLaunch = { nodePath: resources.node, solverPath: resources.solver, socketPath, dataDir: dataDirectory }
 
-	await protocol.handle("simplex", (request) => proxyToSimplex(request, socketPath))
+	await protocol.handle("simplex", (request) => proxyToSimplex(request, socketPath, undefined, app.getVersion()))
 	installSessionSecurity(session.defaultSession)
 	loginItem = new LoginItemController({
 		app,
@@ -383,6 +411,36 @@ async function prepareDesktop(): Promise<void> {
 	createTray()
 	await startOrAttachSolver(true)
 	supervisor.start()
+	updateCoordinator = new UpdateCoordinator({
+		updater: autoUpdater,
+		packaged: app.isPackaged,
+		appVersion: app.getVersion(),
+		store: new FileUpdateStore(dataDirectory),
+		probeSolver: () => supervisor!.pollNow(),
+		requestSolverStop: async () => {
+			intentionalStop = true
+			await sendSolverAction(socketPath, "stop")
+		},
+		restartSolver: async () => {
+			intentionalStop = false
+			if (!(await startOrAttachSolver(false))) throw new Error("Simplex could not restart the solver")
+		},
+		waitForExit: (pid) => waitForSolverExit({ pid, probe: () => probeHealth(socketPath) }),
+		onChange: (next) => {
+			updateStatus = next
+			installingUpdate = next.state === "installing"
+			refreshNativeUi()
+		},
+		notify: (title, body) => {
+			if (!Notification.isSupported()) return
+			const notification = new Notification({ title, body })
+			notification.on("click", () => void safeShowWindow())
+			notification.show()
+		},
+	})
+	autoUpdater.setFeedURL(SIMPLEX_UPDATE_FEED)
+	updateStatus = updateCoordinator.status
+	updateCoordinator.start()
 	refreshNativeUi()
 
 	if (!openedAtLogin) {
@@ -415,6 +473,7 @@ if (!app.requestSingleInstanceLock()) {
 	app.on("before-quit", () => {
 		quitting = true
 		supervisor?.stop()
+		updateCoordinator?.dispose()
 		if (powerSaveBlockerId !== undefined && powerSaveBlocker.isStarted(powerSaveBlockerId)) {
 			powerSaveBlocker.stop(powerSaveBlockerId)
 		}

@@ -4,9 +4,9 @@ import { request as httpRequest } from "node:http"
 
 export type SimplexMode = "init" | "operator"
 export type HealthProbe =
-	| { state: "ready"; mode: SimplexMode }
-	| { state: "starting"; mode: SimplexMode }
-	| { state: "stopping"; mode: SimplexMode }
+	| { state: "ready"; mode: SimplexMode; pid?: number }
+	| { state: "starting"; mode: SimplexMode; pid?: number }
+	| { state: "stopping"; mode: SimplexMode; pid?: number }
 	| { state: "spawnable"; reason: "absent" | "stale" }
 	| { state: "occupied"; detail: string }
 	| { state: "unavailable"; detail: string }
@@ -21,11 +21,20 @@ export function probeHealth(socketPath: string, timeoutMs = 1_000): Promise<Heal
 			})
 			response.on("end", () => {
 				try {
-					const parsed = JSON.parse(body) as { status?: unknown; mode?: unknown }
-					if (response.statusCode === 200 && (parsed.mode === "init" || parsed.mode === "operator")) {
-						if (parsed.status === "ok") resolve({ state: "ready", mode: parsed.mode })
-						else if (parsed.status === "starting") resolve({ state: "starting", mode: parsed.mode })
-						else if (parsed.status === "stopping") resolve({ state: "stopping", mode: parsed.mode })
+					const parsed = JSON.parse(body) as { status?: unknown; mode?: unknown; pid?: unknown }
+					const pidIsValid =
+						typeof parsed.pid === "number" && Number.isSafeInteger(parsed.pid) && parsed.pid > 0
+					if (
+						response.statusCode === 200 &&
+						(parsed.mode === "init" || parsed.mode === "operator") &&
+						(parsed.pid === undefined || pidIsValid)
+					) {
+						const identity: { mode: SimplexMode; pid?: number } = pidIsValid
+							? { mode: parsed.mode, pid: parsed.pid as number }
+							: { mode: parsed.mode }
+						if (parsed.status === "ok") resolve({ state: "ready", ...identity })
+						else if (parsed.status === "starting") resolve({ state: "starting", ...identity })
+						else if (parsed.status === "stopping") resolve({ state: "stopping", ...identity })
 						else throw new Error("unrecognized health status")
 						return
 					}

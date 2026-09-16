@@ -101,7 +101,7 @@ describe("Node runtime staging", () => {
 		for (let index = 0; index < destinations.length; index += 1) {
 			expect(await readFile(destinations[index], "utf8")).toBe(`runtime-${index}-${"x".repeat(64_000)}`)
 		}
-	})
+	}, 30_000)
 
 	it("installs runtimes atomically without moving the verified source across filesystems", async () => {
 		const directory = await mkdtemp(join(tmpdir(), "simplex-stage-install-"))

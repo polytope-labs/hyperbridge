@@ -1,0 +1,13 @@
+publish:
+  provider: github
+  owner: polytope-labs
+  repo: hyperbridge
+  # Publication naming only. Installed apps use SimplexReleaseProvider to
+  # filter this monorepo's release API by the same prefix.
+  tagNamePrefix: simplex-desktop-v
+
+# The signed build writes its certificate subject into app-update.yml. Keep
+# verification enabled so electron-updater rejects an NSIS update whose
+# Authenticode publisher does not match that installed build.
+win:
+  verifyUpdateCodeSignature: true

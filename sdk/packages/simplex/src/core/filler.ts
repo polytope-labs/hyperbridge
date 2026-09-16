@@ -24,6 +24,7 @@ import { patchRuntimeState } from "@/data/state"
 import type { BidStore, StateStore } from "@/data/types"
 import type { HyperbridgeScanner, OrderScanner, Subscription } from "@/scanner/types"
 import type { FillerConfigService } from "@/services/FillerConfigService"
+import type { SolverWork } from "@/services/server/dto"
 import { type Logger , moduleLogger} from "@/services/Logger"
 import type { Signer } from "@/services/wallet"
 import { hasPaymaster } from "@/services/paymaster"
@@ -70,6 +71,7 @@ export class IntentFiller {
 	private pendingRetractions = new Set<string>()
 	private rebalancingInterval?: NodeJS.Timeout
 	private initialRebalanceTimer?: NodeJS.Timeout
+	private activeRebalances = new Set<Promise<void>>()
 	private retractionSweepInterval?: NodeJS.Timeout
 	private stopPhantomPolling: (() => void) | null = null
 	// Last phantom bid commitment per chain. The pallet bundles every configured pair into a single
@@ -391,6 +393,24 @@ export class IntentFiller {
 		return this.paused
 	}
 
+	/** Work that must finish before the desktop may stop the process for an update. */
+	public getWorkSnapshot(): SolverWork {
+		let queuedFills = 0
+		let activeFills = 0
+		for (const queue of this.chainQueues.values()) {
+			queuedFills += queue.size
+			activeFills += queue.pending
+		}
+		return {
+			queuedEvaluations: this.globalQueue.size,
+			evaluating: this.globalQueue.pending,
+			queuedFills,
+			activeFills,
+			retractions: this.retractionQueue.size + this.retractionQueue.pending,
+			rebalancing: this.activeRebalances.size,
+		}
+	}
+
 	/** Takes effect immediately: evaluateOrder reads the map on every order. */
 	public setWatchOnly(chainId: number, value: boolean): void {
 		if (this.config.watchOnly === undefined) {
@@ -422,22 +442,29 @@ export class IntentFiller {
 		// Run initial check after 30 seconds (to let the filler start up). Tracked so
 		// it cannot fire after stop() has resolved.
 		this.initialRebalanceTimer = setTimeout(() => {
-			this.checkAndRebalance().catch((error) => {
-				this.logger.error({ error }, "Error in initial rebalancing check")
-			})
+			this.initialRebalanceTimer = undefined
+			void this.runTrackedRebalance()
 		}, 30_000)
 
 		// Then check every 5 minutes
 		this.rebalancingInterval = setInterval(
 			() => {
-				this.checkAndRebalance().catch((error) => {
-					this.logger.error({ error }, "Error in periodic rebalancing check")
-				})
+				void this.runTrackedRebalance()
 			},
 			5 * 60 * 1000,
 		) // 5 minutes
 
 		this.logger.info("Periodic rebalancing checks started (every 5 minutes)")
+	}
+
+	private runTrackedRebalance(): Promise<void> {
+		if (this.stopping) return Promise.resolve()
+		const task = this.checkAndRebalance().catch((error) => {
+			this.logger.error({ error }, "Error in periodic rebalancing check")
+		})
+		this.activeRebalances.add(task)
+		void task.then(() => this.activeRebalances.delete(task))
+		return task
 	}
 
 	/**
@@ -556,6 +583,7 @@ export class IntentFiller {
 		})
 		promises.push(this.globalQueue.onIdle())
 		promises.push(this.retractionQueue.onIdle())
+		promises.push(...this.activeRebalances)
 
 		await Promise.all(promises)
 

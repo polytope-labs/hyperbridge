@@ -1,8 +1,19 @@
 import { EventEmitter } from "node:events"
 import type { ChildProcess, SpawnOptions } from "node:child_process"
-import { fstatSync, readdirSync } from "node:fs"
+import { fstatSync, mkdtempSync, readdirSync, rmSync } from "node:fs"
+import { createServer } from "node:http"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { describe, expect, it, vi } from "vitest"
-import { daemonArgs, ensureDaemon, linuxDaemonStdio, spawnDaemon, type DaemonLaunch, type HealthProbe } from "../daemon"
+import {
+	daemonArgs,
+	ensureDaemon,
+	linuxDaemonStdio,
+	probeHealth,
+	spawnDaemon,
+	type DaemonLaunch,
+	type HealthProbe,
+} from "../daemon"
 
 const launch: DaemonLaunch = {
 	nodePath: "/runtime/node",
@@ -81,7 +92,7 @@ describe("daemon lifecycle", () => {
 	it("attaches to a healthy daemon without spawning", async () => {
 		const spawn = vi.fn()
 		await expect(
-			ensureDaemon({ launch, probe: sequence([{ state: "ready", mode: "operator" }]), spawn }),
+			ensureDaemon({ launch, probe: sequence([{ state: "ready", mode: "operator", pid: 42 }]), spawn }),
 		).resolves.toEqual({
 			attached: true,
 			mode: "operator",
@@ -89,10 +100,32 @@ describe("daemon lifecycle", () => {
 		expect(spawn).not.toHaveBeenCalled()
 	})
 
+	it("recognizes a previous-version daemon whose health response predates process ids", async () => {
+		const directory = mkdtempSync(join(tmpdir(), "simplex-legacy-health-"))
+		const socketPath =
+			process.platform === "win32"
+				? `\\\\.\\pipe\\simplex-legacy-health-${process.pid}-${Date.now()}`
+				: join(directory, "simplex.sock")
+		const server = createServer((_request, response) => {
+			response.writeHead(200, { "content-type": "application/json" })
+			response.end(JSON.stringify({ status: "ok", mode: "operator" }))
+		})
+		try {
+			await new Promise<void>((resolve, reject) => {
+				server.once("error", reject)
+				server.listen(socketPath, resolve)
+			})
+			await expect(probeHealth(socketPath)).resolves.toEqual({ state: "ready", mode: "operator" })
+		} finally {
+			await new Promise<void>((resolve) => server.close(() => resolve()))
+			rmSync(directory, { recursive: true, force: true })
+		}
+	})
+
 	it("attaches to a stopping daemon without spawning a replacement", async () => {
 		const spawn = vi.fn()
 		await expect(
-			ensureDaemon({ launch, probe: sequence([{ state: "stopping", mode: "operator" }]), spawn }),
+			ensureDaemon({ launch, probe: sequence([{ state: "stopping", mode: "operator", pid: 42 }]), spawn }),
 		).resolves.toEqual({
 			attached: true,
 			mode: "operator",
@@ -106,9 +139,9 @@ describe("daemon lifecycle", () => {
 			ensureDaemon({
 				launch,
 				probe: sequence([
-					{ state: "starting", mode: "init" },
-					{ state: "starting", mode: "init" },
-					{ state: "ready", mode: "operator" },
+					{ state: "starting", mode: "init", pid: 42 },
+					{ state: "starting", mode: "init", pid: 42 },
+					{ state: "ready", mode: "operator", pid: 42 },
 				]),
 				spawn,
 				delay: async () => {},
@@ -123,7 +156,7 @@ describe("daemon lifecycle", () => {
 		const probe = sequence([
 			{ state: "spawnable", reason: "stale" },
 			{ state: "spawnable", reason: "stale" },
-			{ state: "ready", mode: "init" },
+			{ state: "ready", mode: "init", pid: 42 },
 		])
 		await expect(ensureDaemon({ launch, probe, spawn, delay: async () => {} })).resolves.toEqual({
 			attached: false,

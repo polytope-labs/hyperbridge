@@ -8,9 +8,11 @@ function actions() {
 		togglePause: vi.fn(),
 		stopSolver: vi.fn(),
 		restartSolver: vi.fn(),
+		restartBundledSolver: vi.fn(),
 		toggleLoginItem: vi.fn(),
 		showAbout: vi.fn(),
 		checkForUpdates: vi.fn(),
+		setUpdateChannel: vi.fn(),
 		openDataDirectory: vi.fn(),
 		openLog: vi.fn(),
 		quitApp: vi.fn(),
@@ -30,6 +32,9 @@ const runningModel = {
 	loginItemEnabled: true,
 	logAvailable: true,
 	sleepPreventionActive: true,
+	updatesEnabled: true,
+	update: { state: "idle", channel: "stable" } as const,
+	versionSkew: false,
 }
 
 describe("native desktop menus", () => {
@@ -103,10 +108,31 @@ describe("native desktop menus", () => {
 		}
 		expect(template.some((entry) => entry.role === "editMenu")).toBe(true)
 		expect(template.some((entry) => entry.role === "windowMenu")).toBe(true)
-		expect(item(submenu, "check-for-updates").visible).toBe(false)
+		expect(item(submenu, "check-for-updates").visible).toBe(true)
+		expect(item(submenu, "update-channel").visible).toBe(true)
 		expect(submenu.some((entry) => entry.role === "hide")).toBe(true)
 		const window = template.find((entry) => entry.role === "windowMenu")
 		expect((window?.submenu as MenuItemConstructorOptions[]).some((entry) => entry.role === "close")).toBe(true)
+	})
+
+	it("surfaces staged updates and a version-skew restart", () => {
+		const template = buildTrayMenuTemplate(
+			{
+				...runningModel,
+				versionSkew: true,
+				update: { state: "waiting-for-idle", channel: "beta", targetVersion: "0.17.0-beta.1" },
+			},
+			actions(),
+		)
+		expect(item(template, "check-for-updates").label).toBe("Update Ready — Waiting for Idle")
+		expect(item(template, "restart-bundled-solver").visible).toBe(true)
+		expect(item(template, "restart-bundled-solver").enabled).toBe(true)
+
+		const stopping = buildTrayMenuTemplate(
+			{ ...runningModel, update: { state: "stopping-solver", channel: "stable", targetVersion: "0.17.0" } },
+			actions(),
+		)
+		expect(item(stopping, "update-channel").enabled).toBe(false)
 	})
 
 	it("labels every solver status", () => {

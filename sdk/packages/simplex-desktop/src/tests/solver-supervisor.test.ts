@@ -10,6 +10,8 @@ import {
 	probeSolverStatus,
 	sendSolverAction,
 	shouldNotifySolverFailure,
+	solverHasVersionSkew,
+	solverIsIdle,
 	stopRequestAccepted,
 	SolverSupervisor,
 	type SolverStatus,
@@ -35,12 +37,25 @@ async function fixture(): Promise<{
 	const server = createServer((request, response) => {
 		if (request.url === "/health") {
 			response.writeHead(200, { "content-type": "application/json" })
-			response.end(JSON.stringify({ status: healthStatus, mode: "operator" }))
+			response.end(JSON.stringify({ status: healthStatus, mode: "operator", pid: process.pid }))
 			return
 		}
 		if (request.url === "/api/status") {
 			response.writeHead(200, { "content-type": "application/json" })
-			response.end(JSON.stringify({ paused }))
+			response.end(
+				JSON.stringify({
+					paused,
+					version: "0.16.2",
+					work: {
+						queuedEvaluations: 0,
+						evaluating: 0,
+						queuedFills: 0,
+						activeFills: 0,
+						retractions: 0,
+						rebalancing: 0,
+					},
+				}),
+			)
 			return
 		}
 		if (request.method === "POST" && /^\/api\/(pause|resume|stop)$/.test(request.url ?? "")) {
@@ -81,15 +96,49 @@ function close(server: Server): Promise<void> {
 describe("solver supervision", () => {
 	it("reads running and paused states through the private socket", async () => {
 		const server = await fixture()
-		expect(await probeSolverStatus(server.socketPath)).toEqual({ state: "running" })
+		expect(await probeSolverStatus(server.socketPath)).toEqual({
+			state: "running",
+			pid: process.pid,
+			version: "0.16.2",
+			work: {
+				queuedEvaluations: 0,
+				evaluating: 0,
+				queuedFills: 0,
+				activeFills: 0,
+				retractions: 0,
+				rebalancing: 0,
+			},
+		})
 		server.setPaused(true)
-		expect(await probeSolverStatus(server.socketPath)).toEqual({ state: "paused" })
+		expect(await probeSolverStatus(server.socketPath)).toMatchObject({ state: "paused", pid: process.pid })
+	})
+
+	it("reads setup version from a previous daemon that does not report a PID", async () => {
+		const directory = mkdtempSync(join(tmpdir(), "simplex-supervisor-legacy-"))
+		const socketPath = socketPathFor(directory)
+		const server = createServer((request, response) => {
+			response.writeHead(200, { "content-type": "application/json" })
+			response.end(
+				JSON.stringify(
+					request.url === "/health"
+						? { status: "ok", mode: "init" }
+						: { mode: "init", version: "0.16.1", starting: false },
+				),
+			)
+		})
+		await listen(server, socketPath)
+		cleanups.push(async () => {
+			await close(server)
+			rmSync(directory, { recursive: true, force: true })
+		})
+
+		expect(await probeSolverStatus(socketPath)).toEqual({ state: "setup", version: "0.16.1" })
 	})
 
 	it("reports stopping before the socket disappears", async () => {
 		const server = await fixture()
 		server.setHealthStatus("stopping")
-		expect(await probeSolverStatus(server.socketPath)).toEqual({ state: "stopping" })
+		expect(await probeSolverStatus(server.socketPath)).toEqual({ state: "stopping", pid: process.pid })
 	})
 
 	it("sends guarded pause, resume, and stop actions", async () => {
@@ -142,6 +191,28 @@ describe("solver supervision", () => {
 		expect(onChange).toHaveBeenCalledTimes(1)
 	})
 
+	it("updates work snapshots without rebuilding native menus", () => {
+		const onChange = vi.fn()
+		const supervisor = new SolverSupervisor({ socketPath: "ignored", onChange })
+		const idle = {
+			queuedEvaluations: 0,
+			evaluating: 0,
+			queuedFills: 0,
+			activeFills: 0,
+			retractions: 0,
+			rebalancing: 0,
+		}
+		supervisor.setStatus({ state: "running", version: "0.16.2", work: idle })
+		supervisor.setStatus({ state: "running", version: "0.16.2", work: { ...idle, activeFills: 1 } })
+
+		expect(onChange).toHaveBeenCalledTimes(1)
+		expect(supervisor.status).toEqual({
+			state: "running",
+			version: "0.16.2",
+			work: { ...idle, activeFills: 1 },
+		})
+	})
+
 	it("requires consecutive failures before leaving a live state", async () => {
 		const probe = vi
 			.fn<() => Promise<SolverStatus>>()
@@ -168,6 +239,81 @@ describe("solver supervision", () => {
 		expect(holdsMachineAwake({ state: "paused" })).toBe(false)
 		expect(holdsMachineAwake({ state: "stopping" })).toBe(false)
 		expect(holdsMachineAwake({ state: "stopped" })).toBe(false)
+	})
+
+	it("only reports idle when every authoritative work count is zero", () => {
+		expect(
+			solverIsIdle({
+				state: "running",
+				work: {
+					queuedEvaluations: 0,
+					evaluating: 0,
+					queuedFills: 0,
+					activeFills: 0,
+					retractions: 0,
+					rebalancing: 0,
+				},
+			}),
+		).toBe(true)
+		expect(
+			solverIsIdle({
+				state: "running",
+				work: {
+					queuedEvaluations: 1,
+					evaluating: 0,
+					queuedFills: 0,
+					activeFills: 0,
+					retractions: 0,
+					rebalancing: 0,
+				},
+			}),
+		).toBe(false)
+		expect(
+			solverIsIdle({
+				state: "paused",
+				work: {
+					queuedEvaluations: 1,
+					evaluating: 0,
+					queuedFills: 0,
+					activeFills: 0,
+					retractions: 0,
+					rebalancing: 0,
+				},
+			}),
+		).toBe(true)
+		expect(
+			solverIsIdle({
+				state: "paused",
+				work: {
+					queuedEvaluations: 0,
+					evaluating: 0,
+					queuedFills: 0,
+					activeFills: 1,
+					retractions: 0,
+					rebalancing: 0,
+				},
+			}),
+		).toBe(false)
+		expect(
+			solverIsIdle({
+				state: "running",
+				work: {
+					queuedEvaluations: 0,
+					evaluating: 0,
+					queuedFills: 0,
+					activeFills: 0,
+					retractions: 0,
+					rebalancing: 1,
+				},
+			}),
+		).toBe(false)
+		expect(solverIsIdle({ state: "running" })).toBe(false)
+	})
+
+	it("treats setup without a matching reported version as skewed", () => {
+		expect(solverHasVersionSkew({ state: "setup", version: "0.16.2" }, "0.17.0")).toBe(true)
+		expect(solverHasVersionSkew({ state: "setup" }, "0.17.0")).toBe(true)
+		expect(solverHasVersionSkew({ state: "setup", version: "0.17.0" }, "0.17.0")).toBe(false)
 	})
 
 	it("notifies for crashes but not deliberate stops", () => {

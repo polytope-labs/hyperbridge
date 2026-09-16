@@ -159,6 +159,7 @@ export type {
 	VaultSweepSkipReason,
 	VaultSweepSubmission,
 } from "@/funding/vault/VaultFundingPlanner"
+export type { SolverWork } from "@/services/server/dto"
 
 // ─── Shared scanners ────────────────────────────────────────────────────────
 // Scanning a chain is identical work for every filler, so the default sources

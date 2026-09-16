@@ -1,12 +1,13 @@
 import { request as httpRequest } from "node:http"
+import type { SolverWork } from "@hyperbridge/simplex"
 import { probeHealth } from "./daemon"
 
 export type SolverStatus =
-	| { state: "starting" }
-	| { state: "setup" }
-	| { state: "running" }
-	| { state: "paused" }
-	| { state: "stopping" }
+	| { state: "starting"; pid?: number }
+	| { state: "setup"; pid?: number; version?: string }
+	| { state: "running"; pid?: number; version?: string; work?: SolverWork }
+	| { state: "paused"; pid?: number; version?: string; work?: SolverWork }
+	| { state: "stopping"; pid?: number }
 	| { state: "stopped"; detail?: string }
 	| { state: "unreachable"; detail: string }
 
@@ -53,27 +54,87 @@ function socketRequest(
 /** The state the native shell displays, read only through the private socket. */
 export async function probeSolverStatus(socketPath: string): Promise<SolverStatus> {
 	const health = await probeHealth(socketPath)
-	if (health.state === "starting") return { state: "starting" }
-	if (health.state === "stopping") return { state: "stopping" }
+	if (health.state === "starting") return { state: "starting", pid: health.pid }
+	if (health.state === "stopping") return { state: "stopping", pid: health.pid }
 	if (health.state === "spawnable") return { state: "stopped", detail: health.reason }
 	if (health.state === "occupied" || health.state === "unavailable") {
 		return { state: "unreachable", detail: health.detail }
 	}
-	if (health.mode === "init") return { state: "setup" }
-
 	try {
 		const response = await socketRequest(socketPath, "/api/status", "GET")
 		if (response.status !== 200) {
 			return { state: "unreachable", detail: `/api/status returned ${response.status}` }
 		}
-		const status = JSON.parse(response.body) as { paused?: unknown }
+		const status = JSON.parse(response.body) as {
+			mode?: unknown
+			paused?: unknown
+			version?: unknown
+			work?: unknown
+		}
+		const version = typeof status.version === "string" ? status.version : undefined
+		if (health.mode === "init") {
+			if (status.mode !== "init") {
+				return { state: "unreachable", detail: "/api/status did not return init mode" }
+			}
+			return { state: "setup", pid: health.pid, version }
+		}
 		if (typeof status.paused !== "boolean") {
 			return { state: "unreachable", detail: "/api/status did not return a pause state" }
 		}
-		return { state: status.paused ? "paused" : "running" }
+		const work = parseSolverWork(status.work)
+		return { state: status.paused ? "paused" : "running", pid: health.pid, version, work }
 	} catch (error) {
 		return { state: "unreachable", detail: error instanceof Error ? error.message : String(error) }
 	}
+}
+
+function parseSolverWork(value: unknown): SolverWork | undefined {
+	if (!value || typeof value !== "object") return undefined
+	const candidate = value as Record<keyof SolverWork, unknown>
+	const fields: Array<keyof SolverWork> = [
+		"queuedEvaluations",
+		"evaluating",
+		"queuedFills",
+		"activeFills",
+		"retractions",
+		"rebalancing",
+	]
+	if (!fields.every((field) => typeof candidate[field] === "number" && candidate[field] >= 0)) return undefined
+	return {
+		queuedEvaluations: candidate.queuedEvaluations as number,
+		evaluating: candidate.evaluating as number,
+		queuedFills: candidate.queuedFills as number,
+		activeFills: candidate.activeFills as number,
+		retractions: candidate.retractions as number,
+		rebalancing: candidate.rebalancing as number,
+	}
+}
+
+export function solverIsIdle(status: SolverStatus): boolean {
+	if (status.state !== "running" && status.state !== "paused") return false
+	const work = status.work
+	return Boolean(
+		work &&
+			(status.state === "paused" || work.queuedEvaluations === 0) &&
+			work.evaluating === 0 &&
+			work.queuedFills === 0 &&
+			work.activeFills === 0 &&
+			work.retractions === 0 &&
+			work.rebalancing === 0,
+	)
+}
+
+export function solverVersion(status: SolverStatus): string | undefined {
+	return status.state === "setup" || status.state === "running" || status.state === "paused"
+		? status.version
+		: undefined
+}
+
+export function solverHasVersionSkew(status: SolverStatus, appVersion: string): boolean {
+	return (
+		(status.state === "setup" || status.state === "running" || status.state === "paused") &&
+		status.version !== appVersion
+	)
 }
 
 export async function sendSolverAction(socketPath: string, action: SolverAction): Promise<void> {
@@ -107,7 +168,8 @@ export function stopRequestAccepted(status: SolverStatus): boolean {
 function sameStatus(left: SolverStatus, right: SolverStatus): boolean {
 	return (
 		left.state === right.state &&
-		("detail" in left ? left.detail : undefined) === ("detail" in right ? right.detail : undefined)
+		("detail" in left ? left.detail : undefined) === ("detail" in right ? right.detail : undefined) &&
+		solverVersion(left) === solverVersion(right)
 	)
 }
 
@@ -132,9 +194,9 @@ export class SolverSupervisor {
 	}
 
 	setStatus(next: SolverStatus): void {
-		if (sameStatus(this.current, next)) return
 		const previous = this.current
 		this.current = next
+		if (sameStatus(previous, next)) return
 		this.options.onChange(next, previous)
 	}
 

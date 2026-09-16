@@ -15,7 +15,7 @@ const USED_USEROPS_STORAGE_KEY = (commitment: HexString) => `used-userops:${comm
  * the corresponding ERC-4337 UserOperation via the bundler, and tracks
  * partial fills until the order is fully satisfied or its on-chain block
  * deadline is reached. Cross-chain fills are confirmed from the destination
- * chain `OrderFilled` / `PartialFill` log returned by the executed bid.
+ * chain `OrderFilled` log returned by the executed bid.
  *
  * Execution is structured as two racing async generators combined via
  * `mergeRace`: an `executionStream` that polls for bids and submits
@@ -228,14 +228,11 @@ export class OrderExecutor {
 	 * terminates or continues polling for the remaining amount. Feeding back
 	 * `undefined` (no bid executed this round) causes it to keep polling.
 	 *
-	 * Both same-chain and cross-chain orders follow the same shape, since cross-chain
-	 * fills now support partial fills and emit their fill events on the destination:
-	 *   `AWAITING_BIDS` → `BIDS_RECEIVED` → `BID_SELECTED`
+	 * **Same-chain:** `AWAITING_BIDS` → `BIDS_RECEIVED` → `BID_SELECTED`
 	 *   → (`FILLED` | `PARTIAL_FILL`)* → (`FILLED` | `EXPIRED`)
 	 *
-	 * The only difference is that cross-chain escrow settlement (release/refund on the
-	 * source chain) is confirmed asynchronously via Hyperbridge, out of band from this
-	 * fill-progress lifecycle.
+	 * **Cross-chain:** `AWAITING_BIDS` → `BIDS_RECEIVED` → `BID_SELECTED`
+	 *   → `FILLED`
 	 */
 	async *executeOrder(
 		options: ExecuteIntentOrderOptions,

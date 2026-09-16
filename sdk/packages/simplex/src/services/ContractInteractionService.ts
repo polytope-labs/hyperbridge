@@ -632,13 +632,13 @@ export class ContractInteractionService {
 	/**
 	 * Output already delivered against this order by any solver, per output token.
 	 *
-	 * A partially filled order has had its escrow drawn down, so the release a later
-	 * filler receives is computed against the *residual*, not against
-	 * `order.inputs[i].amount`. Strategies size and price against these amounts so
-	 * they never overstate their take.
+	 * A partially filled order has had its escrow drawn down, so the pro-rata
+	 * release a later filler receives is computed against the *residual*, not
+	 * against `order.inputs[i].amount`. A strategy that prices off the original
+	 * inputs would overstate its take, which is why the partial-fill path refuses
+	 * any order this reports as already touched.
 	 *
-	 * Read on the destination chain, where fills land for same-chain and cross-chain
-	 * orders alike.
+	 * Same-chain concept only — the cross-chain path has no partial-fill state.
 	 */
 	async partialFillsFor(order: Order, chain: string): Promise<bigint[]> {
 		const client = this.clientManager.getPublicClient(chain)
@@ -872,8 +872,7 @@ export class ContractInteractionService {
 	 *
 	 * Same-chain fills release escrow locally with no Hyperbridge dispatch, so the
 	 * gateway never pulls the fee token — its approval is skipped. Only cross-chain
-	 * fills, which dispatch a RedeemEscrow (or, for a partial, RedeemEscrowPartial)
-	 * message paid in the fee token, need it.
+	 * fills, which dispatch a RedeemEscrow message paid in the fee token, need it.
 	 */
 	public async buildApprovalAndFillCalldata(
 		order: Order,

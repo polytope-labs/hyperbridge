@@ -747,18 +747,6 @@ export enum RequestKind {
 	 * Identifies a request for refunding escrowed tokens after cancellation
 	 */
 	RefundEscrow = 4,
-
-	/**
-	 * Identifies a governance request that delegatecalls the gateway's extrinsic module
-	 * (implementation upgrades and relayer rotations)
-	 */
-	Execute = 5,
-
-	/**
-	 * Identifies a request for releasing a proportional slice of escrowed tokens to a
-	 * solver after a cross-chain partial fill, without finalizing the order.
-	 */
-	RedeemEscrowPartial = 6,
 }
 
 /**

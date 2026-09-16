@@ -8,7 +8,6 @@ import {
 	type TokenInfo,
 	type IntentsCoprocessor,
 	ADDRESS_ZERO,
-	cumulativeReleased,
 } from "@hyperbridge/sdk"
 import type { ChainClientManager, ContractInteractionService } from "@/services"
 import type { FillerConfigService } from "@/services/FillerConfigService"
@@ -495,10 +494,6 @@ export class FXFiller implements FillerStrategy {
 	 *
 	 * Note: we may intentionally overfill relative to the user's requested
 	 * outputs if the pair pricing makes that attractive. This is how we stay competitive.
-	 *
-	 * An order other solvers have already partially filled, on either path, is sized
-	 * against each leg's unfilled remainder and priced on the escrow slice this fill
-	 * releases, so it is treated like any other order rather than refused.
 	 */
 	async calculateProfitability(order: Order): Promise<number> {
 			// Cleared up front: the caller exempts partial fills from its profit floor,
@@ -531,31 +526,12 @@ export class FXFiller implements FillerStrategy {
 				return 0
 			}
 
-			// Output already delivered per leg by any solver. Fills land on the destination for
-			// same-chain and cross-chain orders alike, so both read its `_partialFills`.
-			let alreadyFilled: bigint[]
-			try {
-				alreadyFilled = await this.contractService.partialFillsFor(order, destChain)
-			} catch (err) {
-				this.logger.warn({ orderId: order.id, err }, "Skipping order: could not read existing partial fills")
-				return 0
-			}
-			if (order.output.assets.every((asset, i) => alreadyFilled[i] >= asset.amount)) {
-				this.logger.info({ orderId: order.id }, "Skipping order: already fully filled")
-				return 0
-			}
-			// Escrow each leg can still release: the prior fills have drawn down the rest.
-			const remainingInputs = order.inputs.map(
-				(input, i) =>
-					input.amount - cumulativeReleased(input.amount, alreadyFilled[i], order.output.assets[i].amount),
-			)
-
 			const venueUsdPrice = this.venuePriceMemo()
 
 			// Per-pair token0 notionals, capped at each pair's maxOrderSize where one
 			// is set. That notional is both the curve evaluation point and the budget
 			// legs of that pair draw from.
-			const sized = await this.sizeOrder(order, legs, venueUsdPrice, remainingInputs)
+			const sized = await this.sizeOrder(order, legs, venueUsdPrice)
 			if (!sized) {
 				this.logger.info({ orderId: order.id }, "Skipping order: could not size the order's legs")
 				return 0
@@ -564,11 +540,30 @@ export class FXFiller implements FillerStrategy {
 
 			const remainingByPair = new Map(cappedByPair)
 
-			// Whether this order may be filled below its unfilled remainder. The gateway takes
-			// under-fills on same-chain and cross-chain orders alike; only an order carrying
-			// output calldata reverts (`PartialFillNotAllowed`), since the attached call runs
-			// only on a full fill.
-			const partialEligible = (order.output.call ?? "0x").length <= 2
+			// Whether this order may be filled below what the user asked for.
+			//
+			//  - Cross-chain reverts on any under-fill: in ExtrinsicIntents.sol
+			//    `if (solverAmount < totalRequired) revert InvalidInput()` is
+			//    unconditional and per-leg, so bidding a partial there is a
+			//    guaranteed failed fill.
+			//  - An order carrying output calldata reverts too
+			//    (`PartialFillNotAllowed`): the attached call runs only on a full
+			//    fill, so the gateway will not release escrow without it.
+			//  - An order already partially filled has had its escrow drawn down,
+			//    while the P&L below reads `order.inputs[i].amount` as if it were
+			//    intact. Refuse rather than mis-price it.
+			const partialEligibleCheap = sourceChain === destChain && (order.output.call ?? "0x").length <= 2
+			// The prior-partial probe is a contract read per output, and most orders
+			// fill fully and never consult it — so it runs only once an under-fill is
+			// actually on the table, and at most once per evaluation.
+			let priorPartialChecked: boolean | undefined
+			const partialEligible = async (): Promise<boolean> => {
+				if (!partialEligibleCheap) return false
+				if (priorPartialChecked === undefined) {
+					priorPartialChecked = !(await this.hasExistingPartialFill(order, destChain))
+				}
+				return priorPartialChecked
+			}
 			let partialFill = false
 
 			const fillerOutputs: TokenInfo[] = []
@@ -608,15 +603,6 @@ export class FXFiller implements FillerStrategy {
 				const output = order.output.assets[i]
 				const leg = legs[i]
 
-				// Output still owed on this leg after other solvers' fills. A completed leg goes
-				// out as an aligned zero, which the gateway skips without counting as an under-fill.
-				const unfilled = output.amount > alreadyFilled[i] ? output.amount - alreadyFilled[i] : 0n
-				if (unfilled === 0n) {
-					fillerOutputs.push({ token: output.token, amount: 0n })
-					fillerOutputLegs.push(i)
-					continue
-				}
-
 				const inputDecimals = await this.contractService.getTokenDecimals(
 					bytes32ToBytes20(input.token) as HexString,
 					sourceChain,
@@ -639,7 +625,7 @@ export class FXFiller implements FillerStrategy {
 
 				const remaining = remainingByPair.get(leg.pair) ?? new Decimal(0)
 				const legResult = this.computeLegPolicyOutput(
-					remainingInputs[i],
+					input.amount,
 					leg.inputIsToken0,
 					token0Decimals,
 					token1Decimals,
@@ -650,9 +636,10 @@ export class FXFiller implements FillerStrategy {
 				if (!legResult) {
 					// Budget exhausted for this pair. A zero leg IS an under-fill: the
 					// gateway sets isFullyFilled = false for it, which reverts a calldata
-					// order (PartialFillNotAllowed) — so it must clear the same
-					// eligibility gate a short leg does, not sneak past it.
-					if (!partialEligible) {
+					// order (PartialFillNotAllowed) and reverts cross-chain outright
+					// (InvalidInput) — so it must clear the same eligibility gate a
+					// short leg does, not sneak past it.
+					if (!(await partialEligible())) {
 						this.logger.info(
 							{
 								orderId: order.id,
@@ -685,8 +672,8 @@ export class FXFiller implements FillerStrategy {
 				// exactly the same factor — which is what makes the cap hold.
 				const capFraction = capFractionByPair.get(leg.pair) ?? new Decimal(1)
 				const desiredOutput = capFraction.gte(1)
-					? unfilled
-					: BigInt(new Decimal(unfilled.toString()).mul(capFraction).floor().toFixed(0))
+					? output.amount
+					: BigInt(new Decimal(output.amount.toString()).mul(capFraction).floor().toFixed(0))
 
 				// Overfill detection is warn-only: the clamp is DISABLED, so the filler
 				// fills the full computed amount even when it exceeds
@@ -694,7 +681,7 @@ export class FXFiller implements FillerStrategy {
 				// (e.g. Uniswap V4). NOTE: this removes the per-leg loss bound that
 				// previously protected against a bug / stale cache / manipulated venue
 				// price. Output is no longer capped; we only emit a warning.
-				const overfillCeiling = (unfilled * (10000n + this.maxOverfillBps)) / 10000n
+				const overfillCeiling = (output.amount * (10000n + this.maxOverfillBps)) / 10000n
 				const policyMaxOutput = rawPolicyMaxOutput
 				if (rawPolicyMaxOutput > overfillCeiling) {
 					this.logger.warn(
@@ -704,7 +691,6 @@ export class FXFiller implements FillerStrategy {
 							pair: `${leg.pair.token0}/${leg.pair.token1}`,
 							token: output.token,
 							userRequested: output.amount.toString(),
-							unfilled: unfilled.toString(),
 							unclamped: rawPolicyMaxOutput.toString(),
 							ceiling: overfillCeiling.toString(),
 							maxOverfillBps: this.maxOverfillBps.toString(),
@@ -747,11 +733,7 @@ export class FXFiller implements FillerStrategy {
 				// `fillAmount / totalRequired`, so paying above the pro-rata ask draws
 				// down more input than the cap fraction nominally allots — more of the
 				// user's token for the same outlay, and never more outlay than the cap.
-				//
-				// A started leg is the exception. Once any output has landed, the gateway
-				// takes no more than the unfilled remainder and splits no surplus, so
-				// sourcing above it would only strand tokens in the wallet.
-				const targetOutput = alreadyFilled[i] > 0n && policyMaxOutput > unfilled ? unfilled : policyMaxOutput
+				const targetOutput = policyMaxOutput
 
 				const walletContribution = targetOutput < usableWallet ? targetOutput : usableWallet
 
@@ -774,7 +756,7 @@ export class FXFiller implements FillerStrategy {
 				if (finalOutputAmount === 0n) {
 					// Same rule as the budget-exhausted zero above: an empty leg is an
 					// under-fill and must pass the same gate a short leg does.
-					if (!partialEligible) {
+					if (!(await partialEligible())) {
 						this.logger.info(
 							{
 								orderId: order.id,
@@ -833,8 +815,8 @@ export class FXFiller implements FillerStrategy {
 				// the pro-rata `desiredOutput`, a curve running far enough above the
 				// order's rate can cover the whole ask out of a capped slice — that is a
 				// full fill and must not be gated as a partial one.
-				if (capFraction.lt(1) && policyMaxOutput < unfilled) {
-					if (!partialEligible) {
+				if (capFraction.lt(1) && policyMaxOutput < output.amount) {
+					if (!(await partialEligible())) {
 						this.logger.info(
 							{
 								orderId: order.id,
@@ -855,10 +837,12 @@ export class FXFiller implements FillerStrategy {
 				// Any shortfall makes this an under-fill, whatever caused it — the cap,
 				// or not holding enough of the output token. (An EMPTY leg is gated the
 				// same way at its two zero-push sites above.) The gateway does not care
-				// which: an under-fill on an order carrying output calldata reverts, so
-				// it must clear the same eligibility check the cap-limited path does.
-				if (finalOutputAmount < unfilled) {
-					if (!partialEligible) {
+				// which: an under-fill on a cross-chain order or one carrying output
+				// calldata reverts, so both must clear the same eligibility check the
+				// cap-limited path does. Only the cross-chain half used to be tested, so
+				// a calldata order the wallet could not cover was bid on and reverted.
+				if (finalOutputAmount < output.amount) {
+					if (!(await partialEligible())) {
 						this.logger.info(
 							{
 								orderId: order.id,
@@ -941,15 +925,14 @@ export class FXFiller implements FillerStrategy {
 				// they release no escrow on-chain, so they contribute nothing to P&L.
 				if (output.amount === 0n) continue
 
-				// The escrow slice this fill releases: the cumulative release after it,
-				// less what earlier fills already released. Cross-chain sizes each redeem
-				// exactly this way. Same-chain releases `inputs[i].amount * fillAmount /
-				// totalRequired` per slice and sweeps the residue on completion, which
-				// agrees to within integer dust and never exceeds it on a completing fill.
+				// Escrow is released in proportion to the output actually delivered
+				// (IntrinsicIntents.sol: `inputs[i].amount * fillAmount / totalRequired`),
+				// and only a fill that COMPLETES the order sweeps the residue. Valuing an
+				// under-fill against the whole escrow overstates every leg's take — which
+				// is what the balance-shortfall path has been doing.
 				const requested = order.output.assets[legIndex].amount
 				const releasedInput =
-					cumulativeReleased(input.amount, alreadyFilled[legIndex] + output.amount, requested) -
-					cumulativeReleased(input.amount, alreadyFilled[legIndex], requested)
+					output.amount >= requested ? input.amount : (input.amount * output.amount) / requested
 
 				const inputDecimals = await this.contractService.getTokenDecimals(
 					bytes32ToBytes20(input.token) as HexString,
@@ -961,7 +944,7 @@ export class FXFiller implements FillerStrategy {
 				)
 
 				if (isSameTokenPair(leg.pair)) {
-					// Spread in the asset's OWN units: escrow released by this fill minus
+					// Spread in the asset's OWN units: escrow released (full input) minus
 					// output paid. Positive iff the filler nets the asset — a sign check
 					// that is valid for any asset (USD-stable or not), since it never
 					// crosses into another unit.
@@ -1032,9 +1015,9 @@ export class FXFiller implements FillerStrategy {
 			// is the USDC the fill is already paying out. The leg loop above committed
 			// the balance to outputs without knowing this figure (it is only priced
 			// here, after the funding calls it depends on exist), so the affordability
-			// check has to happen now. Every cross-chain fill, partial or not, dispatches
-			// that message. Shrinking the fill to make room is not attempted: either the
-			// residue covers the dispatch or the order is not ours to take.
+			// check has to happen now. A cross-chain order cannot be partially filled,
+			// so shrinking the fill is not on the table: either the residue covers the
+			// dispatch or the order is not ours to take.
 			if (sourceChain !== destChain && dispatchFee > 0n) {
 				const feeToken = await this.contractService.getFeeTokenWithDecimals(destChain)
 				const feeTokenLower = feeToken.address.toLowerCase()
@@ -1295,8 +1278,6 @@ export class FXFiller implements FillerStrategy {
 		order: Order,
 		legs: ResolvedLeg[],
 		venueUsdPrice: (chain: string, token1Address: string) => Promise<Decimal | null>,
-		/** Per-leg input to size, when it differs from `order.inputs` (a partially filled order). */
-		inputAmounts?: bigint[],
 	): Promise<{
 		legNotionals: Decimal[]
 		cappedByPair: Map<TradingPair, Decimal>
@@ -1314,7 +1295,7 @@ export class FXFiller implements FillerStrategy {
 				bytes32ToBytes20(order.inputs[i].token) as HexString,
 				sourceChain,
 			)
-			const amount = new Decimal(formatUnits(inputAmounts?.[i] ?? order.inputs[i].amount, decimals))
+			const amount = new Decimal(formatUnits(order.inputs[i].amount, decimals))
 
 			let notional: Decimal
 			if (leg.inputIsToken0) {
@@ -1394,6 +1375,25 @@ export class FXFiller implements FillerStrategy {
 	 * Returns `null` when this leg cannot consume any of the pair's remaining
 	 * budget (e.g. the cap has already been exhausted).
 	 */
+	/**
+	 * Whether any solver has already delivered output against this order.
+	 *
+	 * Fails closed: a read that errors returns true, so an order we cannot price
+	 * confidently is left alone rather than bid on with stale escrow assumptions.
+	 */
+	private async hasExistingPartialFill(order: Order, chain: string): Promise<boolean> {
+		try {
+			const filled = await this.contractService.partialFillsFor(order, chain)
+			return filled.some((amount) => amount > 0n)
+		} catch (err) {
+			this.logger.warn(
+				{ orderId: order.id, chain, err },
+				"Could not read existing partial fills; treating the order as already touched",
+			)
+			return true
+		}
+	}
+
 	private computeLegPolicyOutput(
 		inputAmount: bigint,
 		inputIsToken0: boolean,

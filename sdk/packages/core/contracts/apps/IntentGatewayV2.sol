@@ -431,9 +431,6 @@ interface IIntentGatewayV2 {
     /// @notice Held placement fee and original post-fee principal; zero for legacy or settled orders.
     function _protocolFees(bytes32 commitment, address token) external view returns (uint256 amount, uint256 committed);
 
-    /// @notice Aggregate held protocol fees excluded from dust sweeps for this token.
-    function _pendingProtocolFees(address token) external view returns (uint256);
-
     /**
      * @notice The only relayer whose `onAccept` and `onGetResponse` deliveries are accepted.
      * @return address The authorised relayer, or zero while every relayer is accepted

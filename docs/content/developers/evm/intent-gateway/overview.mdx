@@ -81,7 +81,7 @@ There are two modes for cross-chain cancellation:
 | **Fill fee** (`order.fees`) | At order placement | User (in fee token or native ETH) |
 | **Relayer fee** | At fill time (cross-chain) or cancel time | Solver or user |
 
-For orders placed after the fee-refund upgrade, protocol fees are held until settlement and reserved against governance dust sweeps. A full fill earns the whole fee; cancellation returns the portion attributable to refunded input escrow, including for voluntary cancellation before expiry. The earned remainder becomes "dust" and can be swept to a treasury via Hyperbridge governance. Orders placed before the upgrade retain their original, nonrefundable fee treatment. See [Cancelling Orders](./cancelling-orders#what-is-refunded-and-what-is-not) for the refund formula.
+For orders placed after the fee-refund upgrade, protocol fees are held until settlement. A full fill earns the whole fee; cancellation returns the portion attributable to refunded input escrow, including for voluntary cancellation before expiry. The earned remainder becomes "dust" and can be swept to a treasury via Hyperbridge governance. Governance sizes sweeps from collected dust less amounts swept or already in flight; the gateway does not enforce an escrow reservation. Orders placed before the upgrade retain their original, nonrefundable fee treatment. See [Cancelling Orders](./cancelling-orders#what-is-refunded-and-what-is-not) for the refund formula.
 
 When a solver provides more tokens than required, the excess is split according to `surplusShareBps` (100% to protocol if the order has calldata). Surplus only applies on the first fill of each output token pair.
 

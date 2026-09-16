@@ -194,9 +194,6 @@ abstract contract IntentsBase is EIP712 {
     /// @dev Appended accounting shared by the implementation and both delegatecall modules.
     mapping(bytes32 => mapping(address => ProtocolFee)) public _protocolFees;
 
-    /// @dev Held protocol fees excluded from governance dust sweeps, keyed by input token.
-    mapping(address => uint256) public _pendingProtocolFees;
-
     /**
      * @dev This contract's own address. Under delegatecall `address(this)` is the proxy instead,
      * so a module uses this to refuse direct calls and to delegatecall itself for `Execute`.
@@ -588,7 +585,6 @@ abstract contract IntentsBase is EIP712 {
         refund = Math.mulDiv(fee.amount, principalRefund, fee.committed);
         uint256 earned = fee.amount - refund;
         delete _protocolFees[commitment][token];
-        _pendingProtocolFees[token] -= fee.amount;
 
         if (refund > 0) emit ProtocolFeeRefunded(commitment, token, refund);
         if (earned > 0) emit DustCollected(token, earned);
@@ -760,9 +756,6 @@ abstract contract IntentsBase is EIP712 {
             TokenInfo memory info = req.outputs[i];
             address token = address(uint160(uint256(info.token)));
             uint256 amount = info.amount;
-            uint256 balance = token == address(0) ? address(this).balance : IERC20(token).balanceOf(address(this));
-            uint256 reserved = _pendingProtocolFees[token];
-            if (balance < reserved || amount > balance - reserved) revert InvalidInput();
 
             if (token == address(0)) {
                 _sendValue(req.beneficiary, amount);

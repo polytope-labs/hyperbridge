@@ -159,7 +159,7 @@ contract IntentGatewayModulesTest is MainnetForkBaseTest {
     /// Existing proof keys, packed relayer state, and every earlier field remain in place.
     function testFeeAccountingAppendsAfterEveryExistingStorageField() public view {
         StorageEntry[] memory layout = _storageLayout("out/IntentGatewayV2.sol/IntentGatewayV2.json");
-        string[13] memory labels = [
+        string[12] memory labels = [
             "_nameFallback",
             "_versionFallback",
             "_filled",
@@ -171,10 +171,9 @@ contract IntentGatewayModulesTest is MainnetForkBaseTest {
             "_destinationProtocolFees",
             "_paused",
             "_relayer",
-            "_protocolFees",
-            "_pendingProtocolFees"
+            "_protocolFees"
         ];
-        string[13] memory slots = ["0", "1", "2", "3", "4", "9", "10", "11", "12", "13", "13", "14", "15"];
+        string[12] memory slots = ["0", "1", "2", "3", "4", "9", "10", "11", "12", "13", "13", "14"];
         assertEq(layout.length, labels.length);
         for (uint256 i; i < labels.length; i++) {
             assertEq(layout[i].label, labels[i]);

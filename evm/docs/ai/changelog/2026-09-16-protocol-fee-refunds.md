@@ -35,14 +35,14 @@ relation. Each record contains the order, chain, token (20-byte address), amount
 timestamp, block number, transaction hash, and creation time. Recording a fee refund
 is idempotent and does not write the shared order row or change its status.
 
-Fee records and aggregate pending-fee reservations append to the shared storage
-layout; `_filled` remains at slot 2 and `_partialFills` at slot 11. Governance dust
-sweeps cannot consume pending fees. This reservation does not add protection for
-other escrow liabilities against trusted governance.
+Per-order fee records append to the shared storage layout; `_filled` remains at
+slot 2 and `_partialFills` at slot 11. Governance sizes dust sweeps from earned
+`DustCollected` amounts less `DustSwept` amounts, accounting for sweeps already
+in flight. The gateway does not enforce an escrow reservation; governance must
+exclude principal and pending fees from sweep amounts.
 
 `_protocolFees(commitment, token)` returns the held `amount` and original net
 `committed` input; both are zero for legacy, zero-fee, and settled orders.
-`_pendingProtocolFees(token)` returns the aggregate held fee for that token.
 
 Existing orders have no fee record and retain their previous, nonrefundable fee
 treatment. No historical-fee migration is possible because those fees were already

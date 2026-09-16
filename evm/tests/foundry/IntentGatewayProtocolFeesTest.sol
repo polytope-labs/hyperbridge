@@ -202,7 +202,6 @@ contract IntentGatewayProtocolFeesTest is MainnetForkBaseTest {
         (uint256 fee, uint256 committed) = gateway._protocolFees(keccak256(abi.encode(order)), address(usdc));
         assertEq(fee, 100);
         assertEq(committed, 900);
-        assertEq(gateway._pendingProtocolFees(address(usdc)), 100);
     }
 
     function testUnfilledEarlyCancellationRefundsEntireFee() public {
@@ -215,7 +214,6 @@ contract IntentGatewayProtocolFeesTest is MainnetForkBaseTest {
         (uint256 fee, uint256 committed) = gateway._protocolFees(keccak256(abi.encode(order)), address(usdc));
         assertEq(fee, 0);
         assertEq(committed, 0);
-        assertEq(gateway._pendingProtocolFees(address(usdc)), 0);
     }
 
     function testUnfilledExpiredNativeCancellationRefundsEntireFee() public {
@@ -285,11 +283,17 @@ contract IntentGatewayProtocolFeesTest is MainnetForkBaseTest {
         Order memory order = _place(address(usdc), 1000, 900, true);
         vm.recordLogs();
         _proof(order, 100);
-        assertEq(gateway._pendingProtocolFees(address(usdc)), 100, "fully-filled proof must retain reservation");
+        bytes32 commitment = keccak256(abi.encode(order));
+        (uint256 fee, uint256 committed) = gateway._protocolFees(commitment, address(usdc));
+        assertEq(fee, 100, "fully-filled proof must retain the fee");
+        assertEq(committed, 900, "original principal remains until final redemption");
         _assertEvents(vm.getRecordedLogs(), keccak256(abi.encode(order)), address(usdc), 0, 0);
         vm.recordLogs();
         _redeem(order, 900, true);
         _assertEvents(vm.getRecordedLogs(), keccak256(abi.encode(order)), address(usdc), 0, 100);
+        (fee, committed) = gateway._protocolFees(commitment, address(usdc));
+        assertEq(fee, 0);
+        assertEq(committed, 0);
     }
 
     function testFinalRedeemBeforeDelayedPartialRedeemRecognizesFeeOnce() public {
@@ -364,36 +368,6 @@ contract IntentGatewayProtocolFeesTest is MainnetForkBaseTest {
         assertEq(usdc.balanceOf(user), 1_000_000);
     }
 
-    function testSweepCannotConsumeReservedERC20Fees() public {
-        _place(address(usdc), 1000, 900, false);
-        vm.expectRevert(IntentsBase.InvalidInput.selector);
-        _sweep(_tokens(address(usdc), 901));
-    }
-
-    function testSweepCannotConsumeReservedNativeFees() public {
-        _place(address(0), 1000, 900, false);
-        vm.expectRevert(IntentsBase.InvalidInput.selector);
-        _sweep(_tokens(address(0), 901));
-    }
-
-    function testSweepDuplicateTokensChecksCombinedTransfersAndRollsBack() public {
-        _place(address(usdc), 1000, 900, false);
-        TokenInfo[] memory tokens = new TokenInfo[](2);
-        tokens[0] = TokenInfo(bytes32(uint256(uint160(address(usdc)))), 500);
-        tokens[1] = TokenInfo(bytes32(uint256(uint160(address(usdc)))), 401);
-        vm.expectRevert(IntentsBase.InvalidInput.selector);
-        _sweep(tokens);
-        assertEq(usdc.balanceOf(address(gateway)), 1000);
-        assertEq(usdc.balanceOf(solver), 0);
-    }
-
-    function testSweepBelowReservationRevertsWithoutUnderflow() public {
-        _place(address(usdc), 1000, 900, false);
-        deal(address(usdc), address(gateway), 99);
-        vm.expectRevert(IntentsBase.InvalidInput.selector);
-        _sweep(_tokens(address(usdc), 1));
-    }
-
     function testSweepEarnedDustKeepsTwoOtherOrdersRefundable() public {
         Order memory first = _place(address(usdc), 1000, 900, false);
         Order memory second = _place(address(usdc), 1000, 900, false);
@@ -410,11 +384,10 @@ contract IntentGatewayProtocolFeesTest is MainnetForkBaseTest {
         Order memory order = _place(address(usdc), 1000, 900, false);
         bytes32 commitment = keccak256(abi.encode(order));
         // Reconstruct the pre-accounting v3 snapshot: historical net escrow and fee balance,
-        // with the newly appended mappings still empty. Historical fees may already be swept.
+        // with the newly appended mapping still empty. Historical fees may already be swept.
         bytes32 feeSlot = keccak256(abi.encode(address(usdc), keccak256(abi.encode(commitment, uint256(14)))));
         vm.store(address(gateway), feeSlot, bytes32(0));
         vm.store(address(gateway), bytes32(uint256(feeSlot) + 1), bytes32(0));
-        vm.store(address(gateway), keccak256(abi.encode(address(usdc), uint256(15))), bytes32(0));
         _sweep(_tokens(address(usdc), 100));
         _post(
             IntentsBase.RequestKind.Execute,

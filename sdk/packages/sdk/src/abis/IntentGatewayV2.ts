@@ -154,25 +154,6 @@ export const ABI = [
 	},
 	{
 		type: "function",
-		name: "_pendingProtocolFees",
-		inputs: [
-			{
-				name: "",
-				type: "address",
-				internalType: "address",
-			},
-		],
-		outputs: [
-			{
-				name: "",
-				type: "uint256",
-				internalType: "uint256",
-			},
-		],
-		stateMutability: "view",
-	},
-	{
-		type: "function",
 		name: "_protocolFees",
 		inputs: [
 			{

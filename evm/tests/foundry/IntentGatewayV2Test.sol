@@ -3061,7 +3061,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         customGateway.placeOrder(order, bytes32(0));
         vm.stopPrank();
 
-        _assertPendingPlacementFee(customGateway, vm.getRecordedLogs(), expectedDestinationFee);
+        _assertPendingPlacementFee(customGateway, order, vm.getRecordedLogs(), expectedDestinationFee);
         assertEq(usdc.balanceOf(address(customGateway)), inputAmount, "Gateway should have full input amount");
     }
 
@@ -3109,7 +3109,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         customGateway.placeOrder(order, bytes32(0));
         vm.stopPrank();
 
-        _assertPendingPlacementFee(customGateway, vm.getRecordedLogs(), expectedDefaultFee);
+        _assertPendingPlacementFee(customGateway, order, vm.getRecordedLogs(), expectedDefaultFee);
     }
 
     // ============================================
@@ -3250,10 +3250,12 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
     // Protocol Fee Tests
     // ============================================
 
-    function _assertPendingPlacementFee(IntentGatewayV2 gateway, Vm.Log[] memory entries, uint256 expectedFee)
-        internal
-        view
-    {
+    function _assertPendingPlacementFee(
+        IntentGatewayV2 gateway,
+        Order memory originalOrder,
+        Vm.Log[] memory entries,
+        uint256 expectedFee
+    ) internal view {
         for (uint256 i; i < entries.length; i++) {
             if (entries[i].emitter == address(gateway)) {
                 assertTrue(
@@ -3261,7 +3263,15 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
                 );
             }
         }
-        assertEq(gateway._pendingProtocolFees(address(usdc)), expectedFee, "exact placement fee reserved");
+        // Copy before normalizing so callers can still inspect their original gross-input order.
+        Order memory placed = abi.decode(abi.encode(originalOrder), (Order));
+        placed.user = bytes32(uint256(uint160(user)));
+        placed.source = host.host();
+        placed.nonce = gateway._nonce() - 1;
+        placed.inputs[0].amount -= expectedFee;
+        (uint256 fee, uint256 committed) = gateway._protocolFees(keccak256(abi.encode(placed)), address(usdc));
+        assertEq(fee, expectedFee, "exact placement fee held for this order");
+        assertEq(committed, placed.inputs[0].amount, "original post-fee input");
     }
 
     function testProtocolFeeWith1Percent() public {
@@ -3308,8 +3318,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         customGateway.placeOrder(order, bytes32(0));
         vm.stopPrank();
 
-        _assertPendingPlacementFee(customGateway, vm.getRecordedLogs(), expectedProtocolFee);
-        assertEq(usdc.balanceOf(address(customGateway)), inputAmount, "Gateway holds principal and reserved fee");
+        _assertPendingPlacementFee(customGateway, order, vm.getRecordedLogs(), expectedProtocolFee);
+        assertEq(usdc.balanceOf(address(customGateway)), inputAmount, "Gateway holds principal and pending fee");
 
         // Verify commitment is calculated with REDUCED amounts
         // Need to reconstruct the order exactly as the contract sees it after filling in fields
@@ -3407,8 +3417,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         customGateway.placeOrder(order, bytes32(0));
         vm.stopPrank();
 
-        _assertPendingPlacementFee(customGateway, vm.getRecordedLogs(), expectedProtocolFee);
-        assertEq(usdc.balanceOf(address(customGateway)), inputAmount, "Gateway holds principal and reserved fee");
+        _assertPendingPlacementFee(customGateway, order, vm.getRecordedLogs(), expectedProtocolFee);
+        assertEq(usdc.balanceOf(address(customGateway)), inputAmount, "Gateway holds principal and pending fee");
 
         // Verify commitment is calculated with REDUCED amounts
         // Need to reconstruct the order exactly as the contract sees it after filling in fields
@@ -3526,7 +3536,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         vm.stopPrank();
 
         Vm.Log[] memory entries = vm.getRecordedLogs();
-        _assertPendingPlacementFee(customGateway, entries, expectedProtocolFee);
+        _assertPendingPlacementFee(customGateway, order, entries, expectedProtocolFee);
         for (uint256 i; i < entries.length; i++) {
             if (
                 entries[i].emitter != address(customGateway)

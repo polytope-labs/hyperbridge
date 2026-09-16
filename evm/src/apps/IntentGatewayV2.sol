@@ -356,7 +356,6 @@ contract IntentGatewayV2 is IntentsBase, HyperApp, ReentrancyGuardTransient, Ini
             uint256 fee = protocolFees[i];
             if (fee > 0) {
                 _protocolFees[commitment][token] = ProtocolFee({amount: fee, committed: reducedInputs[i].amount});
-                _pendingProtocolFees[token] += fee;
             }
 
             unchecked {

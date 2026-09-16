@@ -32,6 +32,7 @@ import {
     WithdrawalRequest,
     SelectOptions
 } from "../../src/apps/IntentGatewayV2.sol";
+import {deployIntentGatewayImpl, deployIntentModules} from "./IntentGatewayDeploy.sol";
 import {IntentsBase} from "../../src/apps/intentsv2/IntentsBase.sol";
 import {ExtrinsicIntents} from "../../src/apps/intentsv2/ExtrinsicIntents.sol";
 import {HyperApp} from "@hyperbridge/core/apps/HyperApp.sol";
@@ -108,7 +109,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
     /// peers. Its relayer gate stays open unless a test arms it through the host. Production
     /// initializes atomically (see `testAtomicInitialization`).
     function _deployGatewayProxy() internal returns (IntentGatewayV2) {
-        IntentGatewayV2 implementation = new IntentGatewayV2(address(this));
+        IntentGatewayV2 implementation = deployIntentGatewayImpl();
         ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), "");
         return IntentGatewayV2(payable(address(proxy)));
     }
@@ -2107,9 +2108,10 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         intentGateway.placeOrder(order, bytes32(0));
         vm.stopPrank();
 
-        vm.roll(block.number + 101);
+        // Same-chain cancellation remains owner-only through the exact deadline block.
+        vm.roll(order.deadline);
 
-        CancelOptions memory cancelOptions = CancelOptions({relayerFee: 0, height: uint64(block.number + 100)});
+        CancelOptions memory cancelOptions = CancelOptions({relayerFee: 0, height: uint64(order.deadline)});
 
         // Different user tries to cancel
         vm.startPrank(filler);
@@ -3059,26 +3061,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         customGateway.placeOrder(order, bytes32(0));
         vm.stopPrank();
 
-        // Verify DustCollected event was emitted with destination-specific fee (0.5%, not default 1%)
-        Vm.Log[] memory entries = vm.getRecordedLogs();
-        bool dustCollectedFound = false;
-        uint256 collectedFee = 0;
-
-        for (uint256 i = 0; i < entries.length; i++) {
-            if (entries[i].topics[0] == keccak256("DustCollected(address,uint256)")) {
-                dustCollectedFound = true;
-                // Decode the fee amount from event data
-                (address token, uint256 amount) = abi.decode(entries[i].data, (address, uint256));
-                if (token == address(usdc)) {
-                    collectedFee = amount;
-                }
-            }
-        }
-
-        assertTrue(dustCollectedFound, "DustCollected event should be emitted");
-        assertEq(
-            collectedFee, expectedDestinationFee, "Should collect destination-specific fee (0.5%), not default (1%)"
-        );
+        _assertPendingPlacementFee(customGateway, order, vm.getRecordedLogs(), expectedDestinationFee);
         assertEq(usdc.balanceOf(address(customGateway)), inputAmount, "Gateway should have full input amount");
     }
 
@@ -3126,20 +3109,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         customGateway.placeOrder(order, bytes32(0));
         vm.stopPrank();
 
-        // Verify DustCollected event was emitted with default fee (1%)
-        Vm.Log[] memory entries = vm.getRecordedLogs();
-        uint256 collectedFee = 0;
-
-        for (uint256 i = 0; i < entries.length; i++) {
-            if (entries[i].topics[0] == keccak256("DustCollected(address,uint256)")) {
-                (address token, uint256 amount) = abi.decode(entries[i].data, (address, uint256));
-                if (token == address(usdc)) {
-                    collectedFee = amount;
-                }
-            }
-        }
-
-        assertEq(collectedFee, expectedDefaultFee, "Should use default protocol fee when destination fee not set");
+        _assertPendingPlacementFee(customGateway, order, vm.getRecordedLogs(), expectedDefaultFee);
     }
 
     // ============================================
@@ -3242,20 +3212,23 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         bytes32 commitment = keccak256(abi.encode(order));
 
-        // Create GET response with empty value (order not filled)
-        bytes memory context = abi.encode(
-            WithdrawalRequest({commitment: commitment, tokens: inputs, beneficiary: bytes32(uint256(uint160(user)))})
-        );
+        // Partial-fill-aware cancel context: per-token _partialFills proof. An empty proof value
+        // decodes to filled=0, so the full escrow is refundable.
+        uint256[] memory totalRequired = new uint256[](1);
+        totalRequired[0] = outputAssets[0].amount;
+        bytes memory context = abi.encode(commitment, bytes32(uint256(uint160(user))), inputs, totalRequired);
 
+        bytes[] memory keys = new bytes[](1);
+        keys[0] = abi.encodePacked(_partialFillSlot(commitment, bytes32(uint256(uint160(address(dai))))));
         StorageValue[] memory values = new StorageValue[](1);
-        values[0] = StorageValue({key: new bytes(0), value: new bytes(0)}); // Empty value = not filled
+        values[0] = StorageValue({key: keys[0], value: new bytes(0)}); // Empty value = not filled
 
         GetRequest memory getRequest = GetRequest({
             source: host.host(),
             dest: order.destination,
             nonce: 0,
             from: abi.encodePacked(address(intentGateway)),
-            keys: new bytes[](0),
+            keys: keys,
             height: 0,
             timeoutTimestamp: 0,
             context: context
@@ -3276,6 +3249,30 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
     // ============================================
     // Protocol Fee Tests
     // ============================================
+
+    function _assertPendingPlacementFee(
+        IntentGatewayV2 gateway,
+        Order memory originalOrder,
+        Vm.Log[] memory entries,
+        uint256 expectedFee
+    ) internal view {
+        for (uint256 i; i < entries.length; i++) {
+            if (entries[i].emitter == address(gateway)) {
+                assertTrue(
+                    entries[i].topics[0] != keccak256("DustCollected(address,uint256)"), "held fee is not revenue"
+                );
+            }
+        }
+        // Copy before normalizing so callers can still inspect their original gross-input order.
+        Order memory placed = abi.decode(abi.encode(originalOrder), (Order));
+        placed.user = bytes32(uint256(uint160(user)));
+        placed.source = host.host();
+        placed.nonce = gateway._nonce() - 1;
+        placed.inputs[0].amount -= expectedFee;
+        (uint256 fee, uint256 committed) = gateway._protocolFees(keccak256(abi.encode(placed)), address(usdc));
+        assertEq(fee, expectedFee, "exact placement fee held for this order");
+        assertEq(committed, placed.inputs[0].amount, "original post-fee input");
+    }
 
     function testProtocolFeeWith1Percent() public {
         // Test with 1% protocol fee (100 basis points)
@@ -3321,35 +3318,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         customGateway.placeOrder(order, bytes32(0));
         vm.stopPrank();
 
-        // Check that DustCollected event was emitted
-        Vm.Log[] memory entries = vm.getRecordedLogs();
-        bool dustCollectedFound = false;
-        bool orderPlacedFound = false;
-        uint256 dustAmount = 0;
-
-        for (uint256 i = 0; i < entries.length; i++) {
-            if (entries[i].topics[0] == keccak256("DustCollected(address,uint256)")) {
-                dustCollectedFound = true;
-                (address token, uint256 amount) = abi.decode(entries[i].data, (address, uint256));
-                assertEq(token, address(usdc), "DustCollected should be for USDC");
-                dustAmount = amount;
-            }
-            if (
-                entries[i].topics[0]
-                    == keccak256(
-                        "OrderPlaced(bytes32,string,string,uint256,uint256,uint256,address,bytes32,(bytes32,uint256)[],(bytes32,uint256)[],(bytes32,uint256)[],bytes,bytes,bytes32)"
-                    )
-            ) {
-                orderPlacedFound = true;
-            }
-        }
-
-        assertTrue(dustCollectedFound, "DustCollected event should be emitted");
-        assertTrue(orderPlacedFound, "OrderPlaced event should be emitted");
-        assertEq(dustAmount, expectedProtocolFee, "Protocol fee should be 10 USDC");
-
-        // Verify the gateway received the full amount (protocol fees kept as dust)
-        assertEq(usdc.balanceOf(address(customGateway)), inputAmount, "Gateway should have full input amount");
+        _assertPendingPlacementFee(customGateway, order, vm.getRecordedLogs(), expectedProtocolFee);
+        assertEq(usdc.balanceOf(address(customGateway)), inputAmount, "Gateway holds principal and pending fee");
 
         // Verify commitment is calculated with REDUCED amounts
         // Need to reconstruct the order exactly as the contract sees it after filling in fields
@@ -3447,25 +3417,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         customGateway.placeOrder(order, bytes32(0));
         vm.stopPrank();
 
-        // Check that DustCollected event was emitted with correct amount
-        Vm.Log[] memory entries = vm.getRecordedLogs();
-        bool dustCollectedFound = false;
-        uint256 dustAmount = 0;
-
-        for (uint256 i = 0; i < entries.length; i++) {
-            if (entries[i].topics[0] == keccak256("DustCollected(address,uint256)")) {
-                dustCollectedFound = true;
-                (address token, uint256 amount) = abi.decode(entries[i].data, (address, uint256));
-                assertEq(token, address(usdc), "DustCollected should be for USDC");
-                dustAmount = amount;
-            }
-        }
-
-        assertTrue(dustCollectedFound, "DustCollected event should be emitted");
-        assertEq(dustAmount, expectedProtocolFee, "Protocol fee should be 100 USDC");
-
-        // Verify the gateway received the full amount (protocol fees kept as dust)
-        assertEq(usdc.balanceOf(address(customGateway)), inputAmount, "Gateway should have full input amount");
+        _assertPendingPlacementFee(customGateway, order, vm.getRecordedLogs(), expectedProtocolFee);
+        assertEq(usdc.balanceOf(address(customGateway)), inputAmount, "Gateway holds principal and pending fee");
 
         // Verify commitment is calculated with REDUCED amounts
         // Need to reconstruct the order exactly as the contract sees it after filling in fields
@@ -3541,103 +3494,6 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         assertEq(usdc.balanceOf(address(customGateway)), inputAmount, "Gateway should have full input amount");
     }
 
-    function testProtocolFeeWithMultipleTokens() public {
-        // Test protocol fee with multiple input tokens
-        IntentGatewayV2 customGateway = _deployGatewayProxy();
-        Params memory customParams = Params({
-            host: address(host),
-            dispatcher: address(dispatcher),
-            solverSelection: false,
-            surplusShareBps: 10000,
-            protocolFeeBps: 200, // 2%
-            priceOracle: address(0)
-        });
-        customGateway.initialize(customParams, new bytes[](0), address(0));
-
-        uint256 usdcAmount = 1000 * 1e6; // 1000 USDC
-        uint256 daiAmount = 500 * 1e18; // 500 DAI
-        uint256 expectedUsdcFee = (usdcAmount * 200) / 10000; // 20 USDC
-        uint256 expectedDaiFee = (daiAmount * 200) / 10000; // 10 DAI
-        uint256 expectedUsdcAfterFee = usdcAmount - expectedUsdcFee; // 980 USDC
-        uint256 expectedDaiAfterFee = daiAmount - expectedDaiFee; // 490 DAI
-
-        deal(address(usdc), user, usdcAmount);
-        deal(address(dai), user, daiAmount);
-
-        Order memory order = Order({
-            user: bytes32(0),
-            source: bytes(""),
-            destination: host.host(),
-            deadline: block.timestamp + 1 hours,
-            nonce: 0,
-            fees: 0,
-            session: address(0),
-            predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
-            inputs: new TokenInfo[](2),
-            output: PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: new TokenInfo[](1), call: ""})
-        });
-
-        order.inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: usdcAmount});
-        order.inputs[1] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: daiAmount});
-        order.output.assets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 2000 * 1e18});
-
-        vm.startPrank(user);
-        usdc.approve(address(customGateway), usdcAmount);
-        dai.approve(address(customGateway), daiAmount);
-
-        vm.recordLogs();
-        customGateway.placeOrder(order, bytes32(0));
-        vm.stopPrank();
-
-        // Check that DustCollected events were emitted for both tokens
-        Vm.Log[] memory entries = vm.getRecordedLogs();
-        uint256 dustCollectedCount = 0;
-        uint256 usdcDustAmount = 0;
-        uint256 daiDustAmount = 0;
-
-        for (uint256 i = 0; i < entries.length; i++) {
-            if (entries[i].topics[0] == keccak256("DustCollected(address,uint256)")) {
-                dustCollectedCount++;
-                (address token, uint256 amount) = abi.decode(entries[i].data, (address, uint256));
-                if (token == address(usdc)) {
-                    usdcDustAmount = amount;
-                } else if (token == address(dai)) {
-                    daiDustAmount = amount;
-                }
-            }
-        }
-
-        assertEq(dustCollectedCount, 2, "Should emit DustCollected for both tokens");
-        assertEq(usdcDustAmount, expectedUsdcFee, "USDC protocol fee should be 20 USDC");
-        assertEq(daiDustAmount, expectedDaiFee, "DAI protocol fee should be 10 DAI");
-
-        // Verify the gateway received the full amounts (protocol fees kept as dust)
-        assertEq(usdc.balanceOf(address(customGateway)), usdcAmount, "Gateway should have full USDC amount");
-        assertEq(dai.balanceOf(address(customGateway)), daiAmount, "Gateway should have full DAI amount");
-
-        // Verify commitment is calculated with REDUCED amounts for both tokens
-        // Need to reconstruct the order exactly as the contract sees it after filling in fields
-        Order memory orderWithReducedAmounts = order;
-        orderWithReducedAmounts.user = bytes32(uint256(uint160(user)));
-        orderWithReducedAmounts.source = host.host();
-        orderWithReducedAmounts.nonce = 0; // First order
-        orderWithReducedAmounts.inputs[0].amount = expectedUsdcAfterFee;
-        orderWithReducedAmounts.inputs[1].amount = expectedDaiAfterFee;
-        bytes32 expectedCommitment = keccak256(abi.encode(orderWithReducedAmounts));
-
-        // Calculate storage slots for _orders[commitment][token]
-        bytes32 commitmentSlot = keccak256(abi.encode(expectedCommitment, uint256(9)));
-        bytes32 usdcEscrowSlot = keccak256(abi.encode(address(usdc), commitmentSlot));
-        bytes32 daiEscrowSlot = keccak256(abi.encode(address(dai), commitmentSlot));
-
-        // Verify escrow storage contains REDUCED amounts for both tokens
-        uint256 usdcEscrowedAmount = uint256(vm.load(address(customGateway), usdcEscrowSlot));
-        uint256 daiEscrowedAmount = uint256(vm.load(address(customGateway), daiEscrowSlot));
-
-        assertEq(usdcEscrowedAmount, expectedUsdcAfterFee, "USDC escrow should be reduced (980 USDC)");
-        assertEq(daiEscrowedAmount, expectedDaiAfterFee, "DAI escrow should be reduced (490 DAI)");
-    }
-
     function testProtocolFeeOrderPlacedEventHasReducedAmounts() public {
         // Test that OrderPlaced event contains reduced amounts after protocol fee
         IntentGatewayV2 customGateway = _deployGatewayProxy();
@@ -3679,31 +3535,39 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         customGateway.placeOrder(order, bytes32(0));
         vm.stopPrank();
 
-        // Manually verify the inputs in the OrderPlaced event
         Vm.Log[] memory entries = vm.getRecordedLogs();
-        for (uint256 i = 0; i < entries.length; i++) {
+        _assertPendingPlacementFee(customGateway, order, entries, expectedProtocolFee);
+        for (uint256 i; i < entries.length; i++) {
             if (
-                entries[i].topics[0]
-                    == keccak256(
-                        "OrderPlaced(bytes32,string,string,uint256,uint256,uint256,address,bytes32,(bytes32,uint256)[],(bytes32,uint256)[],(bytes32,uint256)[],bytes,bytes,bytes32)"
-                    )
-            ) {
-                // Decode the event - note this is complex due to dynamic arrays
-                // We'll just verify the protocol fee was deducted
-                assertTrue(true, "OrderPlaced event found");
-            }
+                entries[i].emitter != address(customGateway)
+                    || entries[i].topics[0]
+                        != keccak256(
+                            "OrderPlaced(bytes32,string,string,uint256,uint256,uint256,address,bytes32,(bytes32,uint256)[],(bytes32,uint256)[],(bytes32,uint256)[],bytes,bytes,bytes32)"
+                        )
+            ) continue;
+            (,,,,,,,,, TokenInfo[] memory placedInputs,,,,) = abi.decode(
+                entries[i].data,
+                (
+                    bytes32,
+                    string,
+                    string,
+                    uint256,
+                    uint256,
+                    uint256,
+                    address,
+                    bytes32,
+                    TokenInfo[],
+                    TokenInfo[],
+                    TokenInfo[],
+                    bytes,
+                    bytes,
+                    bytes32
+                )
+            );
+            assertEq(placedInputs[0].amount, inputAmount - expectedProtocolFee, "event contains net principal");
+            return;
         }
-
-        // The main verification is that DustCollected was emitted with the correct fee
-        bool dustFound = false;
-        for (uint256 i = 0; i < entries.length; i++) {
-            if (entries[i].topics[0] == keccak256("DustCollected(address,uint256)")) {
-                dustFound = true;
-                (, uint256 amount) = abi.decode(entries[i].data, (address, uint256));
-                assertEq(amount, expectedProtocolFee, "Protocol fee should be 50 USDC");
-            }
-        }
-        assertTrue(dustFound, "DustCollected should be emitted");
+        fail("OrderPlaced missing");
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -3997,6 +3861,11 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         });
     }
 
+    /// @dev A rotation is an Execute request calling `setRelayer(next)`.
+    function _rotateRequest(address next) internal view returns (PostRequest memory) {
+        return _executeRequest(host.hyperbridge(), abi.encodeCall(ExtrinsicIntents.setRelayer, (next)));
+    }
+
     /// @dev An upgrade is an Execute request calling `upgradeToAndCall(newImpl, initData)`.
     function _upgradeRequest(bytes memory source, address newImpl, bytes memory initData)
         internal
@@ -4019,7 +3888,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         intentGateway.onAccept(IncomingPostRequest({relayer: relayer, request: request}));
 
         assertEq(intentGateway.relayer(), next);
-        assertEq(intentGateway.version(), 2, "no migration ran");
+        assertEq(intentGateway.version(), 3, "no migration ran");
         assertEq(_implementationOf(address(intentGateway)), implBefore, "implementation unchanged");
     }
 
@@ -4033,9 +3902,10 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
     }
 
     /// A revert inside the call surfaces unchanged, so the host records the message undelivered.
+    /// Here `migrate()` on a proxy already at `VERSION`, three delegatecalls deep.
     function testExecuteBubblesReverts() public {
         PostRequest memory request =
-            _executeRequest(host.hyperbridge(), abi.encodeCall(IntentGatewayV2.migrate, (user)));
+            _upgradeRequest(host.hyperbridge(), address(_upgradedImpl()), abi.encodeCall(IntentGatewayV2.migrate, ()));
         vm.prank(address(host));
         vm.expectRevert(Initializable.InvalidInitialization.selector);
         intentGateway.onAccept(IncomingPostRequest({relayer: relayer, request: request}));
@@ -4045,7 +3915,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
     /// discriminator; here it selects no function and reverts rather than doing anything.
     function testLegacyUpgradeBodyIsRefused() public {
         address implBefore = _implementationOf(address(intentGateway));
-        IntentGatewayV2Upgraded newImpl = new IntentGatewayV2Upgraded(address(this));
+        IntentGatewayV2Upgraded newImpl = _upgradedImpl();
         PostRequest memory request = _executeRequest(host.hyperbridge(), abi.encode(address(newImpl), bytes("")));
         vm.prank(address(host));
         vm.expectRevert();
@@ -4053,13 +3923,26 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         assertEq(_implementationOf(address(intentGateway)), implBefore, "implementation unchanged");
     }
 
-    function testUpgradeToAndCallRejectsEveryoneButHost() public {
-        IntentGatewayV2Upgraded newImpl = new IntentGatewayV2Upgraded(address(this));
+    /// `upgradeToAndCall` lives on the extrinsic module, reached only by `Execute`.
+    function testUpgradeToAndCallOnlyThroughExecute() public {
+        IntentGatewayV2Upgraded newImpl = _upgradedImpl();
+        address implBefore = _implementationOf(address(intentGateway));
+        (bool ok,) =
+            address(intentGateway).call(abi.encodeCall(ExtrinsicIntents.upgradeToAndCall, (address(newImpl), "")));
+        assertFalse(ok, "not on the gateway");
+
+        ExtrinsicIntents module = ExtrinsicIntents(intentGateway.extrinsicModule());
         vm.expectRevert(HyperApp.UnauthorizedCall.selector);
-        intentGateway.upgradeToAndCall(address(newImpl), "");
-        vm.prank(user);
+        module.upgradeToAndCall(address(newImpl), "");
+        vm.prank(address(host));
         vm.expectRevert(HyperApp.UnauthorizedCall.selector);
-        intentGateway.upgradeToAndCall(address(newImpl), "");
+        module.upgradeToAndCall(address(newImpl), "");
+        assertEq(_implementationOf(address(intentGateway)), implBefore, "implementation unchanged");
+    }
+
+    /// @dev A new implementation with extra logic, reusing the live gateway's modules.
+    function _upgradedImpl() internal returns (IntentGatewayV2Upgraded) {
+        return new IntentGatewayV2Upgraded(intentGateway.intrinsicModule(), intentGateway.extrinsicModule());
     }
 
     function _implementationOf(address proxy) internal view returns (address) {
@@ -4077,7 +3960,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             intentGateway._orders(escrowedCommitment, inputToken), escrowedAmount, "precondition: order B escrowed"
         );
 
-        IntentGatewayV2Upgraded newImpl = new IntentGatewayV2Upgraded(address(this));
+        IntentGatewayV2Upgraded newImpl = _upgradedImpl();
         PostRequest memory request = _upgradeRequest(host.hyperbridge(), address(newImpl), "");
 
         vm.prank(address(host));
@@ -4094,9 +3977,9 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
     }
 
     /// @dev Production deploy path: the proxy initializes atomically via its init data, so the
-    /// `initialize` call arrives through the proxy constructor (not from `_owner`). Must succeed.
+    /// `initialize` call arrives through the proxy constructor. Must succeed.
     function testAtomicInitialization() public {
-        IntentGatewayV2 implementation = new IntentGatewayV2(address(this));
+        IntentGatewayV2 implementation = deployIntentGatewayImpl();
         Params memory intentParams = Params({
             host: address(host),
             dispatcher: address(dispatcher),
@@ -4115,7 +3998,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         assertEq(gateway.params().host, address(host), "params set via atomic init");
         assertEq(gateway.instance(bytes("SOURCE_CHAIN")), address(gateway), "peer bound to address(this)");
         assertEq(gateway.relayer(), relayer, "relayer armed from the init data");
-        assertEq(gateway.version(), 2, "at VERSION from the init data");
+        assertEq(gateway.version(), 3, "at VERSION from the init data");
 
         vm.expectRevert();
         gateway.initialize(intentParams, peers, address(0));
@@ -4135,7 +4018,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
     function testOnAcceptUpgradeContractRejectsNonHyperbridgeSource() public {
         address implBefore = _implementationOf(address(intentGateway));
-        IntentGatewayV2Upgraded newImpl = new IntentGatewayV2Upgraded(address(this));
+        IntentGatewayV2Upgraded newImpl = _upgradedImpl();
 
         // A registered peer gateway (not the Hyperbridge coprocessor) must not be able to upgrade.
         PostRequest memory request = _upgradeRequest(bytes("SOURCE_CHAIN"), address(newImpl), "");
@@ -4237,19 +4120,23 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         vm.stopPrank();
         commitment = keccak256(abi.encode(order));
 
+        uint256[] memory totalRequired = new uint256[](1);
+        totalRequired[0] = order.output.assets[0].amount;
+        bytes[] memory keys = new bytes[](1);
+        keys[0] = abi.encodePacked(_partialFillSlot(commitment, order.output.assets[0].token));
+
+        // Nothing filled on the destination: an empty proof value, so the whole escrow refunds.
         StorageValue[] memory values = new StorageValue[](1);
-        values[0] = StorageValue({key: new bytes(0), value: new bytes(0)});
+        values[0] = StorageValue({key: keys[0], value: new bytes(0)});
         GetRequest memory getRequest = GetRequest({
             source: host.host(),
             dest: order.destination,
             nonce: 0,
             from: abi.encodePacked(address(intentGateway)),
-            keys: new bytes[](0),
+            keys: keys,
             height: 0,
             timeoutTimestamp: 0,
-            context: abi.encode(
-                WithdrawalRequest({commitment: commitment, tokens: order.inputs, beneficiary: order.user})
-            )
+            context: abi.encode(commitment, order.user, order.inputs, totalRequired)
         });
         response = GetResponse({request: getRequest, values: values});
     }
@@ -4278,7 +4165,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
     function testVersionTracksInitialization() public {
         IntentGatewayV2 bare = _deployGatewayProxy();
         assertEq(bare.version(), 0, "bare proxy");
-        assertEq(intentGateway.version(), 2, "initialized");
+        assertEq(intentGateway.version(), 3, "initialized");
         address impl = _implementationOf(address(intentGateway));
         assertEq(IntentGatewayV2(payable(impl)).version(), type(uint64).max, "raw implementation is locked");
     }
@@ -4293,24 +4180,21 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         assertEq(vm.load(address(intentGateway), bytes32(uint256(14))), bytes32(0), "slot 14 unused");
     }
 
-    function testConstructorRejectsZeroOwner() public {
-        vm.expectRevert(IntentsBase.InvalidInput.selector);
-        new IntentGatewayV2(address(0));
-    }
+    /// `setRelayer` lives on the extrinsic module, reached only by `Execute`: the gateway has no
+    /// such function, and the module refuses everyone, the host included, when called directly.
+    function testSetRelayerOnlyThroughExecute() public {
+        (bool ok,) = address(intentGateway).call(abi.encodeCall(ExtrinsicIntents.setRelayer, (user)));
+        assertFalse(ok, "not on the gateway");
 
-    function testSetRelayerRejectsEveryoneButHost() public {
-        // `_owner` (this contract) has no say.
+        ExtrinsicIntents module = ExtrinsicIntents(intentGateway.extrinsicModule());
         vm.expectRevert(HyperApp.UnauthorizedCall.selector);
-        intentGateway.setRelayer(user);
-
+        module.setRelayer(user);
         vm.prank(user);
         vm.expectRevert(HyperApp.UnauthorizedCall.selector);
-        intentGateway.setRelayer(user);
-
-        // The handler talks to the host, never to the gateway.
-        vm.prank(address(handler));
+        module.setRelayer(user);
+        vm.prank(address(host));
         vm.expectRevert(HyperApp.UnauthorizedCall.selector);
-        intentGateway.setRelayer(user);
+        module.setRelayer(user);
 
         assertEq(intentGateway.relayer(), relayer, "relayer unchanged");
     }
@@ -4319,12 +4203,13 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         address next = makeCleanAddr("nextRelayer");
         (PostRequest memory request,, uint256 amount) = _escrowedRedeemRequest();
 
+        PostRequest memory rotate = _rotateRequest(next);
         vm.expectEmit(true, true, true, true, address(intentGateway));
         emit IntentsBase.RelayerUpdated(relayer, next);
         vm.prank(address(host));
-        intentGateway.setRelayer(next);
+        intentGateway.onAccept(IncomingPostRequest({relayer: relayer, request: rotate}));
         assertEq(intentGateway.relayer(), next);
-        assertEq(intentGateway.version(), 2, "a rotation is not a migration");
+        assertEq(intentGateway.version(), 3, "a rotation is not a migration");
 
         // The previous relayer is locked out immediately.
         vm.prank(address(host));
@@ -4337,17 +4222,16 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         assertEq(usdc.balanceOf(filler) - before, amount, "new relayer releases escrow");
     }
 
-    /// `initialize` already took this proxy to version 2, so `migrate` is refused.
+    /// `initialize` already took this proxy to `VERSION`, so `migrate` is refused.
     function testMigrateRunsOnce() public {
         vm.prank(address(host));
         vm.expectRevert(Initializable.InvalidInitialization.selector);
-        intentGateway.migrate(user);
-        assertEq(intentGateway.relayer(), relayer, "relayer unchanged");
-        assertEq(intentGateway.version(), 2, "version unchanged");
+        intentGateway.migrate();
+        assertEq(intentGateway.version(), 3, "version unchanged");
     }
 
-    /// A proxy an upgrade left at version 1 cannot be re-initialized by anyone; only the host-only
-    /// `migrate` takes it to `VERSION`.
+    /// A proxy an upgrade left at an earlier version cannot be re-initialized by anyone; only the
+    /// host-only `migrate` takes it to `VERSION`.
     function testInitializeRefusedOnLegacyProxy() public {
         IntentGatewayV2 gateway = _legacyGateway();
         Params memory p = _openParams();
@@ -4358,55 +4242,50 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         vm.expectRevert(Initializable.InvalidInitialization.selector);
         gateway.initialize(p, new bytes[](0), user);
         assertEq(gateway.version(), 1, "still at version 1");
-        assertEq(gateway.relayer(), address(0), "still open");
 
         vm.prank(address(host));
-        gateway.migrate(relayer);
-        assertEq(gateway.version(), 2);
-        assertEq(gateway.relayer(), relayer);
+        gateway.migrate();
+        assertEq(gateway.version(), 3);
     }
 
-    /// A proxy at version 1 is open, so `onlyHost` is what stops a stranger arming it first.
     function testMigrateRejectsEveryoneButHost() public {
         IntentGatewayV2 gateway = _legacyGateway();
 
         vm.expectRevert(HyperApp.UnauthorizedCall.selector);
-        gateway.migrate(user);
+        gateway.migrate();
 
         vm.prank(user);
         vm.expectRevert(HyperApp.UnauthorizedCall.selector);
-        gateway.migrate(user);
+        gateway.migrate();
 
-        assertEq(gateway.relayer(), address(0), "still open");
         assertEq(gateway.version(), 1, "still at version 1");
     }
 
-    /// `RelayerUpdated` first, then `Initialized(2)` from the reinitializer.
-    function testMigrateArmsAndBumpsTheVersion() public {
+    /// `migrate` only bumps the version: the relayer gate is left as it was.
+    function testMigrateBumpsTheVersion() public {
         IntentGatewayV2 gateway = _legacyGateway();
+        address before = gateway.relayer();
 
         vm.expectEmit(true, true, true, true, address(gateway));
-        emit IntentsBase.RelayerUpdated(address(0), relayer);
-        vm.expectEmit(true, true, true, true, address(gateway));
-        emit Initializable.Initialized(2);
+        emit Initializable.Initialized(3);
         vm.prank(address(host));
-        gateway.migrate(relayer);
+        gateway.migrate();
 
-        assertEq(gateway.relayer(), relayer);
-        assertEq(gateway.version(), 2);
+        assertEq(gateway.relayer(), before, "relayer untouched");
+        assertEq(gateway.version(), 3);
     }
 
-    /// `initialize` arms the gate from the init data and lands at version 2.
+    /// `initialize` arms the gate from the init data and lands at `VERSION`.
     function testInitializeArmsTheGate() public {
         IntentGatewayV2 gateway = _deployGatewayProxy();
         Params memory p = _openParams();
         vm.expectEmit(true, true, true, true, address(gateway));
         emit IntentsBase.RelayerUpdated(address(0), relayer);
         vm.expectEmit(true, true, true, true, address(gateway));
-        emit Initializable.Initialized(2);
+        emit Initializable.Initialized(3);
         gateway.initialize(p, new bytes[](0), relayer);
         assertEq(gateway.relayer(), relayer);
-        assertEq(gateway.version(), 2);
+        assertEq(gateway.version(), 3);
     }
 
     /// @dev OpenZeppelin's `Initializable` namespaced slot; `_initialized` is its low 8 bytes.
@@ -4430,7 +4309,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         });
     }
 
-    /// @dev Through `initialize` with no relayer: open gate, version 2, no peers.
+    /// @dev Through `initialize` with no relayer: open gate, at `VERSION`, no peers.
     function _freshInitializedGateway() internal returns (IntentGatewayV2 gateway) {
         gateway = _deployGatewayProxy();
         Params memory p = Params({
@@ -4446,10 +4325,11 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
     function testSetRelayerToZeroReopensTheGate() public {
         (PostRequest memory request,, uint256 amount) = _escrowedRedeemRequest();
+        PostRequest memory reopen = _rotateRequest(address(0));
         vm.prank(address(host));
-        intentGateway.setRelayer(address(0));
+        intentGateway.onAccept(IncomingPostRequest({relayer: relayer, request: reopen}));
         assertEq(intentGateway.relayer(), address(0));
-        assertEq(intentGateway.version(), 2, "reopening the gate is not a migration either");
+        assertEq(intentGateway.version(), 3, "reopening the gate is not a migration either");
 
         // With no relayer set the gate is open, so a delivery from anyone lands.
         uint256 before = usdc.balanceOf(filler);
@@ -4478,7 +4358,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
     function testOnAcceptGovernanceRejectsUnlistedRelayer() public {
         // UpgradeContract: a forged upgrade cannot land unless the relayer submits it.
         address implBefore = _implementationOf(address(intentGateway));
-        IntentGatewayV2Upgraded newImpl = new IntentGatewayV2Upgraded(address(this));
+        IntentGatewayV2Upgraded newImpl = _upgradedImpl();
         PostRequest memory upgrade = _upgradeRequest(host.hyperbridge(), address(newImpl), "");
 
         vm.prank(address(host));
@@ -4530,9 +4410,10 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         assertEq(gateway.instance(bytes("NEW_CHAIN")), address(0xBEEF), "open gate applies governance");
 
         // Armed by a rotation: only `relayer` from now on, version unchanged.
+        PostRequest memory arm = _rotateRequest(relayer);
         vm.prank(address(host));
-        gateway.setRelayer(relayer);
-        assertEq(gateway.version(), 2, "a rotation leaves the version alone");
+        gateway.onAccept(IncomingPostRequest({relayer: filler, request: arm}));
+        assertEq(gateway.version(), 3, "a rotation leaves the version alone");
         PostRequest memory another = _newDeploymentRequest(bytes("OTHER_CHAIN"), address(0xCAFE));
         another.from = abi.encodePacked(address(gateway));
         another.to = abi.encodePacked(address(gateway));
@@ -4548,38 +4429,37 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         assertEq(gateway.instance(bytes("OTHER_CHAIN")), address(0xCAFE));
     }
 
-    function testUpgradeWithInitDataSetsRelayerAtomically() public {
+    /// A rotation cannot ride in upgrade init data any more: that data runs against the new
+    /// implementation, and `setRelayer` lives on the extrinsic module. It is its own `Execute`,
+    /// delivered by the relayer authorised at the time, after which only the new one is accepted.
+    function testUpgradeThenRotateAreTwoExecutes() public {
         (bytes32 filledCommitment, bytes32 escrowedCommitment, address inputToken, uint256 escrowedAmount) =
             _seedUpgradeState();
         address next = makeCleanAddr("nextRelayer");
-        IntentGatewayV2Upgraded newImpl = new IntentGatewayV2Upgraded(address(this));
-        bytes memory initData = abi.encodeCall(ExtrinsicIntents.setRelayer, (next));
-        PostRequest memory request = _upgradeRequest(host.hyperbridge(), address(newImpl), initData);
+        IntentGatewayV2Upgraded newImpl = _upgradedImpl();
+        PostRequest memory upgrade = _upgradeRequest(host.hyperbridge(), address(newImpl), "");
+        PostRequest memory rotate = _rotateRequest(next);
+        rotate.nonce = 1;
 
-        // The upgrade itself must arrive through the relayer authorised at the time.
+        // Both must arrive through the relayer authorised at the time.
         vm.prank(address(host));
         vm.expectRevert(IntentsBase.Unauthorized.selector);
-        intentGateway.onAccept(IncomingPostRequest({relayer: next, request: request}));
-
-        // `upgradeToAndCall` delegatecalls the migration calldata with the host still as
-        // `msg.sender`, which is the one caller `setRelayer` accepts.
-        vm.recordLogs();
+        intentGateway.onAccept(IncomingPostRequest({relayer: next, request: upgrade}));
         vm.prank(address(host));
-        intentGateway.onAccept(IncomingPostRequest({relayer: relayer, request: request}));
-        Vm.Log[] memory logs = vm.getRecordedLogs();
-        bool sawRelayerUpdated;
-        for (uint256 i; i < logs.length; i++) {
-            bool ours = logs[i].emitter == address(intentGateway);
-            if (ours && logs[i].topics[0] == IntentsBase.RelayerUpdated.selector) {
-                sawRelayerUpdated = true;
-                assertEq(logs[i].data, abi.encode(relayer, next), "RelayerUpdated(previous, current)");
-            }
-        }
-        assertTrue(sawRelayerUpdated, "RelayerUpdated emitted from the upgrade transaction");
+        vm.expectRevert(IntentsBase.Unauthorized.selector);
+        intentGateway.onAccept(IncomingPostRequest({relayer: next, request: rotate}));
 
+        vm.prank(address(host));
+        intentGateway.onAccept(IncomingPostRequest({relayer: relayer, request: upgrade}));
         assertEq(_implementationOf(address(intentGateway)), address(newImpl), "implementation slot updated");
-        assertEq(intentGateway.relayer(), next, "relayer set in the upgrade transaction");
-        assertEq(intentGateway.version(), 2, "a rotation in upgrade calldata is not a migration");
+        assertEq(intentGateway.relayer(), relayer, "upgrade leaves the relayer alone");
+
+        vm.expectEmit(true, true, true, true, address(intentGateway));
+        emit IntentsBase.RelayerUpdated(relayer, next);
+        vm.prank(address(host));
+        intentGateway.onAccept(IncomingPostRequest({relayer: relayer, request: rotate}));
+        assertEq(intentGateway.relayer(), next, "rotated");
+        assertEq(intentGateway.version(), 3, "neither is a migration");
         assertEq(intentGateway._nonce(), 2, "_nonce preserved");
         assertEq(intentGateway._filled(filledCommitment), filler, "_filled preserved");
         assertEq(intentGateway._orders(escrowedCommitment, inputToken), escrowedAmount, "_orders preserved");
@@ -4595,14 +4475,14 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
     }
 
     function testUpgradeWithoutInitDataKeepsExistingRelayer() public {
-        IntentGatewayV2Upgraded newImpl = new IntentGatewayV2Upgraded(address(this));
+        IntentGatewayV2Upgraded newImpl = _upgradedImpl();
         PostRequest memory request = _upgradeRequest(host.hyperbridge(), address(newImpl), "");
         vm.prank(address(host));
         intentGateway.onAccept(IncomingPostRequest({relayer: relayer, request: request}));
 
         assertEq(_implementationOf(address(intentGateway)), address(newImpl));
         assertEq(intentGateway.relayer(), relayer, "relayer survives an implementation swap");
-        assertEq(intentGateway.version(), 2, "no migration ran, so the version is unchanged");
+        assertEq(intentGateway.version(), 3, "no migration ran, so the version is unchanged");
     }
 
     /// @dev Through the real host: a delivery the gateway refuses is recorded as undelivered, so
@@ -4656,7 +4536,6 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         address implBefore = _implementationOf(LIVE_GATEWAY);
         uint256 nonce = live._nonce();
         Params memory p = live.params();
-        address owner = live._owner();
         bytes32 domain = live.DOMAIN_SEPARATOR();
         address liveHost = live.host();
         bytes[] memory peers = _livePeers();
@@ -4667,16 +4546,13 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             fees[i] = live._destinationProtocolFees(keccak256(peers[i]));
         }
 
-        // Nobody can initialise it again, and the migration cannot re-run even from the host.
+        // Nobody can initialise it again.
         vm.expectRevert(Initializable.InvalidInitialization.selector);
         live.initialize(p, peers, filler);
-        vm.prank(liveHost);
-        vm.expectRevert(Initializable.InvalidInitialization.selector);
-        live.migrate(filler);
 
-        // The next upgrade is an Execute request. Anyone but the relayer is refused before the
-        // body is read...
-        IntentGatewayV2 newImpl = new IntentGatewayV2(owner);
+        // The next upgrade is an Execute request carrying `migrate()`. Anyone but the relayer is
+        // refused before the body is read...
+        IntentGatewayV2 newImpl = deployIntentGatewayImpl();
         PostRequest memory upgrade = PostRequest({
             source: IDispatcher(liveHost).hyperbridge(),
             dest: IDispatcher(liveHost).host(),
@@ -4685,7 +4561,9 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             to: abi.encodePacked(LIVE_GATEWAY),
             body: bytes.concat(
                 bytes1(uint8(IntentsBase.RequestKind.Execute)),
-                abi.encodeCall(ExtrinsicIntents.upgradeToAndCall, (address(newImpl), bytes("")))
+                abi.encodeCall(
+                    ExtrinsicIntents.upgradeToAndCall, (address(newImpl), abi.encodeCall(IntentGatewayV2.migrate, ()))
+                )
             ),
             timeoutTimestamp: 0
         });
@@ -4700,7 +4578,10 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         assertEq(_implementationOf(LIVE_GATEWAY), address(newImpl), "implementation slot updated");
         assertTrue(implBefore != address(newImpl), "implementation actually changed");
         assertEq(live.relayer(), liveRelayer, "relayer survives the upgrade");
-        assertEq(live.version(), 2, "no migration ran, so the version is unchanged");
+        assertEq(live.version(), 3, "migrated by the upgrade calldata");
+        vm.prank(liveHost);
+        vm.expectRevert(Initializable.InvalidInitialization.selector);
+        live.migrate();
         assertEq(live._nonce(), nonce, "_nonce preserved");
         Params memory q = live.params();
         assertEq(q.host, p.host, "params.host preserved");
@@ -4709,7 +4590,6 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         assertEq(q.surplusShareBps, p.surplusShareBps, "params.surplusShareBps preserved");
         assertEq(q.protocolFeeBps, p.protocolFeeBps, "params.protocolFeeBps preserved");
         assertEq(q.priceOracle, p.priceOracle, "params.priceOracle preserved");
-        assertEq(live._owner(), owner, "_owner preserved");
         assertEq(live.DOMAIN_SEPARATOR(), domain, "EIP-712 domain preserved");
         assertEq(live.host(), liveHost, "host preserved");
         for (uint256 i; i < peers.length; i++) {
@@ -4727,15 +4607,615 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         vm.prank(liveHost);
         live.onAccept(IncomingPostRequest({relayer: liveRelayer, request: rotate}));
         assertEq(live.relayer(), next, "rotated through Execute");
-        assertEq(live.version(), 2, "a rotation leaves the version alone");
+        assertEq(live.version(), 3, "a rotation leaves the version alone");
         vm.prank(liveHost);
         vm.expectRevert(IntentsBase.Unauthorized.selector);
         live.onAccept(IncomingPostRequest({relayer: liveRelayer, request: rotate}));
     }
+
+    // ============================================
+    // Cross-chain partial fill tests
+    // ============================================
+
+    /// @dev Minimal big-endian RLP encoding of a uint, matching what an Ethereum storage proof
+    /// returns for a slot value (`RLP(slotValueTrimmed)`). Returns empty bytes for 0 (absent slot).
+    function _rlpEncodeUint(uint256 x) internal pure returns (bytes memory) {
+        if (x == 0) return bytes("");
+        bytes32 be = bytes32(x);
+        uint256 firstNonZero = 0;
+        while (firstNonZero < 32 && be[firstNonZero] == 0) firstNonZero++;
+        uint256 len = 32 - firstNonZero;
+        bytes memory trimmed = new bytes(len);
+        for (uint256 i; i < len; i++) {
+            trimmed[i] = be[firstNonZero + i];
+        }
+        if (len == 1 && uint8(trimmed[0]) < 0x80) return trimmed;
+        return abi.encodePacked(bytes1(uint8(0x80 + len)), trimmed);
+    }
+
+    /// @dev Recomputes the `_partialFills[commitment][token]` storage slot independently of the
+    /// contract, to guard against storage-layout drift (slot 11).
+    function _partialFillSlot(bytes32 commitment, bytes32 token) internal pure returns (bytes32) {
+        bytes32 inner = keccak256(abi.encodePacked(commitment, bytes32(uint256(11))));
+        return keccak256(abi.encodePacked(token, inner));
+    }
+
+    /// @dev Builds a single-input/single-output cross-chain order (USDC -> DAI) with the given
+    /// source/destination and amounts. `user`/`nonce` are left as the literals the caller expects.
+    function _xchainOrder(bytes memory source, bytes memory destination, uint256 inputAmount, uint256 outputAmount)
+        internal
+        view
+        returns (Order memory order)
+    {
+        TokenInfo[] memory inputs = new TokenInfo[](1);
+        inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: inputAmount});
+        TokenInfo[] memory outputAssets = new TokenInfo[](1);
+        outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: outputAmount});
+        order = Order({
+            user: bytes32(uint256(uint160(user))),
+            source: source,
+            destination: destination,
+            deadline: block.number + 1000,
+            nonce: 0,
+            fees: 0,
+            session: address(0),
+            predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
+            inputs: inputs,
+            output: PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""})
+        });
+    }
+
+    /// @dev A withdrawal message (`RedeemEscrow`, `RedeemEscrowPartial` or `RefundEscrow`) as the destination
+    /// gateway dispatches it to this source-chain gateway.
+    function _withdrawalPost(
+        IntentsBase.RequestKind kind,
+        bytes32 commitment,
+        TokenInfo[] memory tokens,
+        address beneficiary
+    ) internal view returns (PostRequest memory) {
+        bytes memory body = bytes.concat(
+            bytes1(uint8(kind)),
+            abi.encode(
+                WithdrawalRequest({
+                    commitment: commitment, tokens: tokens, beneficiary: bytes32(uint256(uint160(beneficiary)))
+                })
+            )
+        );
+        return PostRequest({
+            source: bytes("DEST_CHAIN"),
+            dest: host.host(),
+            nonce: 0,
+            from: abi.encodePacked(address(intentGateway)),
+            to: abi.encodePacked(address(intentGateway)),
+            body: body,
+            timeoutTimestamp: 0
+        });
+    }
+
+    /// @dev Replays a RedeemEscrow / RedeemEscrowPartial message arriving on the source chain.
+    function _replayRedeem(IntentsBase.RequestKind kind, bytes32 commitment, TokenInfo[] memory tokens, address solver)
+        internal
+    {
+        PostRequest memory request = _withdrawalPost(kind, commitment, tokens, solver);
+        vm.prank(address(host));
+        intentGateway.onAccept(IncomingPostRequest({relayer: relayer, request: request}));
+    }
+
+    /// @dev The source-side cancel's GET response, proving `provenFilled` of the single output filled.
+    function _cancelProof(bytes32 commitment, uint256 inputAmount, uint256 totalOutput, uint256 provenFilled)
+        internal
+        view
+        returns (IncomingGetResponse memory)
+    {
+        TokenInfo[] memory inputs = new TokenInfo[](1);
+        inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: inputAmount});
+        uint256[] memory totalRequired = new uint256[](1);
+        totalRequired[0] = totalOutput;
+        bytes memory context = abi.encode(commitment, bytes32(uint256(uint160(user))), inputs, totalRequired);
+
+        // request.keys[i] is the _partialFills slot key for output i; the value carries the same key.
+        bytes[] memory keys = new bytes[](1);
+        keys[0] = abi.encodePacked(_partialFillSlot(commitment, bytes32(uint256(uint160(address(dai))))));
+
+        StorageValue[] memory values = new StorageValue[](1);
+        values[0] = StorageValue({key: keys[0], value: _rlpEncodeUint(provenFilled)});
+
+        GetRequest memory getRequest = GetRequest({
+            source: host.host(),
+            dest: bytes("DEST_CHAIN"),
+            nonce: 0,
+            from: abi.encodePacked(address(intentGateway)),
+            keys: keys,
+            height: 0,
+            timeoutTimestamp: 0,
+            context: context
+        });
+        return IncomingGetResponse({response: GetResponse({request: getRequest, values: values}), relayer: relayer});
+    }
+
+    /// @dev Drives onGetResponse for a single-token partial-fill-aware cancel with the given proven
+    /// fill amount on the destination.
+    function _replayCancel(bytes32 commitment, uint256 inputAmount, uint256 totalOutput, uint256 provenFilled)
+        internal
+    {
+        IncomingGetResponse memory incoming = _cancelProof(commitment, inputAmount, totalOutput, provenFilled);
+        vm.prank(address(host));
+        intentGateway.onGetResponse(incoming);
+    }
+
+    /// @dev Destination-side: a partial fill pays the beneficiary pro-rata, records cumulative
+    /// progress, clears `_filled`, and dispatches a proportional escrow release (asserted via the
+    /// PartialFill event's `inputs`). A second solver then completes the order.
+    function testCrossChainPartialFill_ReleasesProportionalEscrowAndCompletes() public {
+        uint256 inputAmount = 1000 * 1e6; // 1000 USDC escrowed on the source chain
+        uint256 outputAmount = 1000 * 1e18; // 1000 DAI requested on this (destination) chain
+        Order memory order = _xchainOrder(bytes("SOURCE_CHAIN"), host.host(), inputAmount, outputAmount);
+        bytes32 commitment = keccak256(abi.encode(order));
+        bytes32 daiToken = bytes32(uint256(uint160(address(dai))));
+
+        // Solver A fills 40%.
+        TokenInfo[] memory outA = new TokenInfo[](1);
+        outA[0] = TokenInfo({token: daiToken, amount: 400 * 1e18});
+        TokenInfo[] memory expOutA = new TokenInfo[](1);
+        expOutA[0] = TokenInfo({token: daiToken, amount: 400 * 1e18});
+        TokenInfo[] memory expInA = new TokenInfo[](1);
+        expInA[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: 400 * 1e6});
+
+        uint256 userDaiBefore = dai.balanceOf(user);
+        vm.startPrank(filler);
+        dai.approve(address(intentGateway), type(uint256).max);
+        vm.expectEmit(true, false, false, true);
+        emit IntentsBase.PartialFill(commitment, filler, expOutA, expInA);
+        intentGateway.fillOrder(order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: outA}));
+        vm.stopPrank();
+
+        assertEq(dai.balanceOf(user) - userDaiBefore, 400 * 1e18, "beneficiary gets 40% output");
+        assertEq(intentGateway._partialFills(commitment, daiToken), 400 * 1e18, "cumulative fill recorded");
+        assertEq(intentGateway._filled(commitment), address(0), "filled cleared so next solver can continue");
+
+        // Solver B completes the remaining 60%.
+        address solverB = makeAddr("solverB");
+        deal(address(dai), solverB, 10000 * 1e18);
+        TokenInfo[] memory outB = new TokenInfo[](1);
+        outB[0] = TokenInfo({token: daiToken, amount: 600 * 1e18});
+        TokenInfo[] memory expOutB = new TokenInfo[](1);
+        expOutB[0] = TokenInfo({token: daiToken, amount: 600 * 1e18});
+        TokenInfo[] memory expInB = new TokenInfo[](1);
+        expInB[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: 600 * 1e6});
+
+        vm.startPrank(solverB);
+        dai.approve(address(intentGateway), type(uint256).max);
+        vm.expectEmit(true, false, false, true);
+        emit IntentsBase.OrderFilled(commitment, solverB, expOutB, expInB);
+        intentGateway.fillOrder(order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: outB}));
+        vm.stopPrank();
+
+        assertEq(dai.balanceOf(user) - userDaiBefore, 1000 * 1e18, "beneficiary fully paid");
+        assertEq(intentGateway._partialFills(commitment, daiToken), 1000 * 1e18, "order fully filled");
+        assertEq(intentGateway._filled(commitment), solverB, "completing solver recorded");
+    }
+
+    /// @dev Source-side: a RedeemEscrowPartial releases only its slice without finalizing (no
+    /// `_filled`, fees retained); the completing RedeemEscrow finalizes and forwards the fee pot.
+    function testCrossChainPartialRedeem_DoesNotFinalizeUntilComplete() public {
+        uint256 inputAmount = 1000 * 1e6;
+        uint256 feeAmount = 5 * 1e18; // fees are paid in the fee token (DAI)
+        Order memory order = _xchainOrder(host.host(), bytes("DEST_CHAIN"), inputAmount, 1000 * 1e18);
+        order.fees = feeAmount;
+
+        vm.startPrank(user);
+        usdc.approve(address(intentGateway), inputAmount);
+        dai.approve(address(intentGateway), feeAmount);
+        intentGateway.placeOrder(order, bytes32(0));
+        vm.stopPrank();
+
+        bytes32 commitment = keccak256(abi.encode(order));
+        address solver = makeAddr("xchainSolver");
+
+        // Partial redeem of 40% of the escrow. The source emits EscrowReleased for the slice even
+        // though it does not finalize, so partial releases are observable.
+        TokenInfo[] memory slice = new TokenInfo[](1);
+        slice[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: 400 * 1e6});
+        vm.expectEmit(true, false, false, true);
+        emit IntentsBase.EscrowReleased(commitment, solver, slice);
+        _replayRedeem(IntentsBase.RequestKind.RedeemEscrowPartial, commitment, slice, solver);
+
+        assertEq(usdc.balanceOf(solver), 400 * 1e6, "solver received partial slice");
+        assertEq(intentGateway._orders(commitment, address(usdc)), 600 * 1e6, "escrow reduced, not drained");
+        assertEq(intentGateway._filled(commitment), address(0), "partial redeem does not finalize");
+        assertEq(dai.balanceOf(solver), 0, "fees not forwarded on partial redeem");
+
+        // Completing redeem of the remaining 60% finalizes and forwards the fee pot.
+        TokenInfo[] memory rest = new TokenInfo[](1);
+        rest[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: 600 * 1e6});
+        _replayRedeem(IntentsBase.RequestKind.RedeemEscrow, commitment, rest, solver);
+
+        assertEq(usdc.balanceOf(solver), 1000 * 1e6, "solver received full escrow");
+        assertEq(intentGateway._orders(commitment, address(usdc)), 0, "escrow drained");
+        assertEq(intentGateway._filled(commitment), solver, "completing redeem finalizes");
+        assertEq(dai.balanceOf(solver), feeAmount, "completing solver takes the fee pot");
+    }
+
+    /// @dev Cancel after a partial fill refunds only the proven-unredeemed fraction, never the raw
+    /// remaining escrow, so an already-redeemed slice plus the refund sum to the full escrow.
+    function testCrossChainCancel_RefundsUnfilledFractionOnly() public {
+        uint256 inputAmount = 1000 * 1e6;
+        Order memory order = _xchainOrder(host.host(), bytes("DEST_CHAIN"), inputAmount, 1000 * 1e18);
+
+        vm.startPrank(user);
+        usdc.approve(address(intentGateway), inputAmount);
+        intentGateway.placeOrder(order, bytes32(0));
+        vm.stopPrank();
+
+        bytes32 commitment = keccak256(abi.encode(order));
+        address solver = makeAddr("xchainSolver");
+
+        // A 40% partial fill was already redeemed on the source chain.
+        TokenInfo[] memory slice = new TokenInfo[](1);
+        slice[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: 400 * 1e6});
+        _replayRedeem(IntentsBase.RequestKind.RedeemEscrowPartial, commitment, slice, solver);
+
+        // User cancels with a proof showing 40% of the output filled on the destination.
+        uint256 userUsdcBefore = usdc.balanceOf(user);
+        _replayCancel(commitment, inputAmount, 1000 * 1e18, 400 * 1e18);
+
+        assertEq(usdc.balanceOf(user) - userUsdcBefore, 600 * 1e6, "user refunded only the unfilled 60%");
+        assertEq(intentGateway._orders(commitment, address(usdc)), 0, "escrow fully accounted for");
+        assertEq(intentGateway._filled(commitment), user, "cancel finalizes for idempotency");
+        assertEq(usdc.balanceOf(solver), 400 * 1e6, "solver keeps its redeemed slice");
+    }
+
+    /// @dev Cancel can reach onGetResponse even for an order fully filled on the destination, when
+    /// the completing RedeemEscrow is still in flight to the source (source _filled is still 0). The
+    /// proof then shows full fill: refund is 0 and the fee pot must be withheld for the completing solver.
+    function testCrossChainCancel_FullyFilledRaceRefundsNothingAndWithholdsFees() public {
+        uint256 inputAmount = 1000 * 1e6;
+        uint256 feeAmount = 5 * 1e18;
+        Order memory order = _xchainOrder(host.host(), bytes("DEST_CHAIN"), inputAmount, 1000 * 1e18);
+        order.fees = feeAmount;
+
+        vm.startPrank(user);
+        usdc.approve(address(intentGateway), inputAmount);
+        dai.approve(address(intentGateway), feeAmount);
+        intentGateway.placeOrder(order, bytes32(0));
+        vm.stopPrank();
+
+        bytes32 commitment = keccak256(abi.encode(order));
+
+        // Fully filled on the destination, completing RedeemEscrow still in flight. User cancels;
+        // the proof shows 100% filled.
+        uint256 userUsdcBefore = usdc.balanceOf(user);
+        uint256 userDaiBefore = dai.balanceOf(user);
+        _replayCancel(commitment, inputAmount, 1000 * 1e18, 1000 * 1e18);
+
+        assertEq(usdc.balanceOf(user) - userUsdcBefore, 0, "nothing refunded for a fully-filled order");
+        assertEq(dai.balanceOf(user) - userDaiBefore, 0, "fees withheld for the completing solver");
+        assertEq(intentGateway._orders(commitment, address(usdc)), inputAmount, "escrow intact for in-flight redeem");
+        address txFeeKey = address(uint160(uint256(keccak256("txFees"))));
+        assertEq(intentGateway._orders(commitment, txFeeKey), feeAmount, "fee pot intact");
+        assertEq(intentGateway._filled(commitment), user, "cancel still records idempotency");
+
+        // The in-flight completing redeem lands: the solver receives the full escrow and the fee pot.
+        address solver = makeAddr("xchainSolver");
+        TokenInfo[] memory full = new TokenInfo[](1);
+        full[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: inputAmount});
+        _replayRedeem(IntentsBase.RequestKind.RedeemEscrow, commitment, full, solver);
+
+        assertEq(usdc.balanceOf(solver), inputAmount, "completing solver redeems full escrow");
+        assertEq(dai.balanceOf(solver), feeAmount, "completing solver receives the fee pot");
+    }
+
+    /// @dev A RedeemEscrowPartial that arrives AFTER the user has cancelled still succeeds: the
+    /// cancel refunded only the unfilled fraction, leaving exactly enough escrow for the in-flight slice.
+    function testCrossChainCancel_InFlightRedeemAfterCancelStaysConsistent() public {
+        uint256 inputAmount = 1000 * 1e6;
+        Order memory order = _xchainOrder(host.host(), bytes("DEST_CHAIN"), inputAmount, 1000 * 1e18);
+
+        vm.startPrank(user);
+        usdc.approve(address(intentGateway), inputAmount);
+        intentGateway.placeOrder(order, bytes32(0));
+        vm.stopPrank();
+
+        bytes32 commitment = keccak256(abi.encode(order));
+        address solver = makeAddr("xchainSolver");
+
+        // User cancels first; proof shows 40% filled before the deadline, redeem still in flight.
+        uint256 userUsdcBefore = usdc.balanceOf(user);
+        _replayCancel(commitment, inputAmount, 1000 * 1e18, 400 * 1e18);
+        assertEq(usdc.balanceOf(user) - userUsdcBefore, 600 * 1e6, "user refunded unfilled 60%");
+        assertEq(intentGateway._orders(commitment, address(usdc)), 400 * 1e6, "escrow reserved for in-flight redeem");
+
+        // The in-flight 40% redeem now lands and is fully covered.
+        TokenInfo[] memory slice = new TokenInfo[](1);
+        slice[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: 400 * 1e6});
+        _replayRedeem(IntentsBase.RequestKind.RedeemEscrowPartial, commitment, slice, solver);
+
+        assertEq(usdc.balanceOf(solver), 400 * 1e6, "in-flight redeem paid in full");
+        assertEq(intentGateway._orders(commitment, address(usdc)), 0, "escrow fully settled");
+    }
+
+    /// @dev A second cancel response for the same commitment is rejected (idempotency).
+    function testCrossChainCancel_DoubleCancelBlocked() public {
+        uint256 inputAmount = 1000 * 1e6;
+        Order memory order = _xchainOrder(host.host(), bytes("DEST_CHAIN"), inputAmount, 1000 * 1e18);
+
+        vm.startPrank(user);
+        usdc.approve(address(intentGateway), inputAmount);
+        intentGateway.placeOrder(order, bytes32(0));
+        vm.stopPrank();
+
+        bytes32 commitment = keccak256(abi.encode(order));
+        _replayCancel(commitment, inputAmount, 1000 * 1e18, 0);
+        assertEq(intentGateway._filled(commitment), user, "first cancel finalized");
+
+        TokenInfo[] memory inputs = new TokenInfo[](1);
+        inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: inputAmount});
+        uint256[] memory totalRequired = new uint256[](1);
+        totalRequired[0] = 1000 * 1e18;
+        bytes memory context = abi.encode(commitment, bytes32(uint256(uint160(user))), inputs, totalRequired);
+        bytes[] memory keys = new bytes[](1);
+        keys[0] = abi.encodePacked(_partialFillSlot(commitment, bytes32(uint256(uint160(address(dai))))));
+        StorageValue[] memory values = new StorageValue[](1);
+        values[0] = StorageValue({key: keys[0], value: _rlpEncodeUint(0)});
+        GetRequest memory getRequest = GetRequest({
+            source: host.host(),
+            dest: bytes("DEST_CHAIN"),
+            nonce: 0,
+            from: abi.encodePacked(address(intentGateway)),
+            keys: keys,
+            height: 0,
+            timeoutTimestamp: 0,
+            context: context
+        });
+        IncomingGetResponse memory incoming =
+            IncomingGetResponse({response: GetResponse({request: getRequest, values: values}), relayer: relayer});
+        vm.prank(address(host));
+        vm.expectRevert(IntentsBase.Filled.selector);
+        intentGateway.onGetResponse(incoming);
+    }
+
+    /// @dev Places a 1000 USDC -> 1000 DAI cross-chain order. `half` is the 500 USDC slice that, at a 50% fill,
+    /// both a cancel refunds and the in-flight redeem claims.
+    function _placeCrossChainOrder() internal returns (bytes32 commitment, TokenInfo[] memory half) {
+        uint256 inputAmount = 1000 * 1e6;
+        Order memory order = _xchainOrder(host.host(), bytes("DEST_CHAIN"), inputAmount, 1000 * 1e18);
+
+        vm.startPrank(user);
+        usdc.approve(address(intentGateway), inputAmount);
+        intentGateway.placeOrder(order, bytes32(0));
+        vm.stopPrank();
+
+        commitment = keccak256(abi.encode(order));
+        half = new TokenInfo[](1);
+        half[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: 500 * 1e6});
+    }
+
+    /// Cancelling from both chains sends two refunds for the same unfilled slice, since each chain only sees its
+    /// own `_filled`. Here the GET cancel lands first: it refunds the unfilled half and reserves the other half for the solver's
+    /// in-flight redeem. The destination's RefundEscrow for the same half must then be rejected, or it drains
+    /// the reserve and the solver, who already delivered half the output, is never paid.
+    function testCrossChainCancel_RefundEscrowAfterGetCancelRejected() public {
+        (bytes32 commitment, TokenInfo[] memory half) = _placeCrossChainOrder();
+        address solver = makeAddr("xchainSolver");
+
+        uint256 userUsdcBefore = usdc.balanceOf(user);
+        _replayCancel(commitment, 1000 * 1e6, 1000 * 1e18, 500 * 1e18);
+        assertEq(usdc.balanceOf(user) - userUsdcBefore, 500 * 1e6, "user refunded the unfilled half");
+        assertEq(intentGateway._orders(commitment, address(usdc)), 500 * 1e6, "half reserved for the redeem");
+
+        PostRequest memory refund = _withdrawalPost(IntentsBase.RequestKind.RefundEscrow, commitment, half, user);
+        vm.prank(address(host));
+        vm.expectRevert(IntentsBase.Filled.selector);
+        intentGateway.onAccept(IncomingPostRequest({relayer: relayer, request: refund}));
+
+        assertEq(usdc.balanceOf(user) - userUsdcBefore, 500 * 1e6, "no second refund");
+        assertEq(intentGateway._orders(commitment, address(usdc)), 500 * 1e6, "reserve intact");
+
+        // The guard is scoped to RefundEscrow: the delayed redeem still consumes the reserve.
+        _replayRedeem(IntentsBase.RequestKind.RedeemEscrowPartial, commitment, half, solver);
+        assertEq(usdc.balanceOf(solver), 500 * 1e6, "solver paid for its half");
+        assertEq(intentGateway._orders(commitment, address(usdc)), 0, "escrow fully settled");
+    }
+
+    /// The reverse delivery order: RefundEscrow lands first and finalizes, so the GET cancel is rejected. A
+    /// delayed redeem after a RefundEscrow cancel still consumes the reserve it left.
+    function testCrossChainCancel_GetCancelAfterRefundEscrowRejected() public {
+        (bytes32 commitment, TokenInfo[] memory half) = _placeCrossChainOrder();
+        address solver = makeAddr("xchainSolver");
+
+        uint256 userUsdcBefore = usdc.balanceOf(user);
+        PostRequest memory refund = _withdrawalPost(IntentsBase.RequestKind.RefundEscrow, commitment, half, user);
+        vm.prank(address(host));
+        intentGateway.onAccept(IncomingPostRequest({relayer: relayer, request: refund}));
+        assertEq(usdc.balanceOf(user) - userUsdcBefore, 500 * 1e6, "user refunded the unfilled half");
+        assertEq(intentGateway._filled(commitment), user, "refund finalized the order");
+
+        IncomingGetResponse memory cancel = _cancelProof(commitment, 1000 * 1e6, 1000 * 1e18, 500 * 1e18);
+        vm.prank(address(host));
+        vm.expectRevert(IntentsBase.Filled.selector);
+        intentGateway.onGetResponse(cancel);
+
+        assertEq(usdc.balanceOf(user) - userUsdcBefore, 500 * 1e6, "no second refund");
+        assertEq(intentGateway._orders(commitment, address(usdc)), 500 * 1e6, "reserve intact");
+
+        _replayRedeem(IntentsBase.RequestKind.RedeemEscrowPartial, commitment, half, solver);
+        assertEq(usdc.balanceOf(solver), 500 * 1e6, "solver paid for its half");
+        assertEq(intentGateway._orders(commitment, address(usdc)), 0, "escrow fully settled");
+    }
+
+    /// @dev Cross-chain orders carrying output calldata cannot be partially filled.
+    function testCrossChainPartialFill_CalldataRevertsPartialFillNotAllowed() public {
+        Order memory order = _xchainOrder(bytes("SOURCE_CHAIN"), host.host(), 1000 * 1e6, 1000 * 1e18);
+        // Attach a (harmless) output call so the order requires single-fill completion.
+        Call[] memory calls = new Call[](1);
+        calls[0] = Call({to: address(dai), value: 0, data: abi.encodeWithSelector(IERC20.balanceOf.selector, user)});
+        order.output.call = abi.encode(calls);
+        bytes32 daiToken = bytes32(uint256(uint160(address(dai))));
+
+        TokenInfo[] memory partialOut = new TokenInfo[](1);
+        partialOut[0] = TokenInfo({token: daiToken, amount: 400 * 1e18});
+
+        vm.startPrank(filler);
+        dai.approve(address(intentGateway), type(uint256).max);
+        vm.expectRevert(IntentsBase.PartialFillNotAllowed.selector);
+        intentGateway.fillOrder(
+            order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: partialOut})
+        );
+        vm.stopPrank();
+    }
+
+    /// @dev External helper so the test can use calldata slicing to strip the RequestKind prefix.
+    function decodeWithdrawalBody(bytes calldata body) external pure returns (uint8 kind, WithdrawalRequest memory wr) {
+        kind = uint8(body[0]);
+        wr = abi.decode(body[1:], (WithdrawalRequest));
+    }
+
+    /// @dev Destination-side cancel after a partial fill must refund only the unredeemed fraction
+    /// of escrow (read from local `_partialFills`), not the full `order.inputs`.
+    function testCrossChainCancelFromDest_RefundsUnredeemedFractionOnly() public {
+        uint256 inputAmount = 1000 * 1e6;
+        uint256 outputAmount = 1000 * 1e18;
+        Order memory order = _xchainOrder(bytes("SOURCE_CHAIN"), host.host(), inputAmount, outputAmount);
+        bytes32 commitment = keccak256(abi.encode(order));
+        bytes32 daiToken = bytes32(uint256(uint160(address(dai))));
+
+        // Solver fills 40% on this (destination) chain.
+        TokenInfo[] memory outA = new TokenInfo[](1);
+        outA[0] = TokenInfo({token: daiToken, amount: 400 * 1e18});
+        vm.startPrank(filler);
+        dai.approve(address(intentGateway), type(uint256).max);
+        intentGateway.fillOrder(order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: outA}));
+        vm.stopPrank();
+        assertEq(intentGateway._partialFills(commitment, daiToken), 400 * 1e18, "40% recorded");
+
+        // User cancels from the destination; capture the dispatched RefundEscrow.
+        vm.recordLogs();
+        vm.prank(user);
+        intentGateway.cancelOrder(order, CancelOptions({relayerFee: 0, height: 0}));
+
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        bytes32 postTopic = keccak256("PostRequestEvent(string,string,address,bytes,uint256,uint256,bytes,uint256)");
+        bytes memory body;
+        for (uint256 i = 0; i < logs.length; i++) {
+            if (logs[i].topics[0] == postTopic) {
+                (,,,,, bytes memory b,) =
+                    abi.decode(logs[i].data, (string, string, bytes, uint256, uint256, bytes, uint256));
+                body = b;
+            }
+        }
+        assertGt(body.length, 0, "RefundEscrow dispatched");
+
+        (uint8 kind, WithdrawalRequest memory wr) = this.decodeWithdrawalBody(body);
+        assertEq(kind, uint8(IntentsBase.RequestKind.RefundEscrow), "refund escrow kind");
+        assertEq(wr.tokens.length, 1, "one input");
+        // 40% of output filled -> 40% of USDC escrow redeemed -> refund the unredeemed 60% = 600 USDC.
+        assertEq(wr.tokens[0].amount, 600 * 1e6, "refunds only the unredeemed 60%");
+        assertEq(wr.beneficiary, bytes32(uint256(uint160(user))), "refund to user");
+        assertEq(intentGateway._filled(commitment), user, "order frozen on destination");
+    }
+
+    /// @dev placeOrder rejects a zero-amount output, which would otherwise strand its paired escrow.
+    function testPlaceOrder_RevertsOnZeroAmountOutput() public {
+        TokenInfo[] memory inputs = new TokenInfo[](1);
+        inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: 1000 * 1e6});
+        TokenInfo[] memory outputAssets = new TokenInfo[](1);
+        outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 0});
+
+        Order memory order = Order({
+            user: bytes32(uint256(uint160(user))),
+            source: host.host(),
+            destination: bytes("DEST_CHAIN"),
+            deadline: block.number + 1000,
+            nonce: 0,
+            fees: 0,
+            session: address(0),
+            predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
+            inputs: inputs,
+            output: PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""})
+        });
+
+        vm.startPrank(user);
+        usdc.approve(address(intentGateway), type(uint256).max);
+        vm.expectRevert(IntentsBase.InvalidInput.selector);
+        intentGateway.placeOrder(order, bytes32(0));
+        vm.stopPrank();
+    }
+
+    /// @dev Guards the `_partialFills` storage slot (12) used to build cross-chain cancel proofs.
+    function testPartialFillsStorageSlotIsEleven() public {
+        Order memory order = _xchainOrder(bytes("SOURCE_CHAIN"), host.host(), 1000 * 1e6, 1000 * 1e18);
+        bytes32 commitment = keccak256(abi.encode(order));
+        bytes32 daiToken = bytes32(uint256(uint160(address(dai))));
+
+        TokenInfo[] memory outA = new TokenInfo[](1);
+        outA[0] = TokenInfo({token: daiToken, amount: 250 * 1e18});
+        vm.startPrank(filler);
+        dai.approve(address(intentGateway), type(uint256).max);
+        intentGateway.fillOrder(order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: outA}));
+        vm.stopPrank();
+
+        uint256 viaGetter = intentGateway._partialFills(commitment, daiToken);
+        bytes32 raw = vm.load(address(intentGateway), _partialFillSlot(commitment, daiToken));
+        assertEq(viaGetter, 250 * 1e18, "partial fill recorded via getter");
+        assertEq(uint256(raw), viaGetter, "slot-11 derivation matches public getter");
+    }
+
+    /// @notice An order swaps exactly one input for exactly one output. Every other shape reverts.
+    function testPlaceOrder_RequiresExactlyOneInputAndOneOutput() public {
+        TokenInfo[] memory none = new TokenInfo[](0);
+        TokenInfo[] memory oneIn = new TokenInfo[](1);
+        oneIn[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: 1000 * 1e6});
+        TokenInfo[] memory twoIn = new TokenInfo[](2);
+        twoIn[0] = oneIn[0];
+        twoIn[1] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
+        TokenInfo[] memory oneOut = new TokenInfo[](1);
+        oneOut[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
+        TokenInfo[] memory twoOut = new TokenInfo[](2);
+        twoOut[0] = oneOut[0];
+        twoOut[1] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: 1000 * 1e6});
+
+        vm.startPrank(user);
+        usdc.approve(address(intentGateway), type(uint256).max);
+        dai.approve(address(intentGateway), type(uint256).max);
+
+        vm.expectRevert(IntentsBase.InvalidInput.selector);
+        intentGateway.placeOrder(_orderWithLegs(none, oneOut), bytes32(0));
+        vm.expectRevert(IntentsBase.InvalidInput.selector);
+        intentGateway.placeOrder(_orderWithLegs(twoIn, oneOut), bytes32(0));
+        vm.expectRevert(IntentsBase.InvalidInput.selector);
+        intentGateway.placeOrder(_orderWithLegs(oneIn, none), bytes32(0));
+        vm.expectRevert(IntentsBase.InvalidInput.selector);
+        intentGateway.placeOrder(_orderWithLegs(oneIn, twoOut), bytes32(0));
+
+        intentGateway.placeOrder(_orderWithLegs(oneIn, oneOut), bytes32(0));
+        vm.stopPrank();
+        assertEq(usdc.balanceOf(address(intentGateway)), 1000 * 1e6, "one input, one output is escrowed");
+    }
+
+    /// @dev A cross-chain order with the given legs. Builds without external calls, so it can sit between
+    /// `vm.expectRevert` and the call it targets; `placeOrder` stamps `source` itself.
+    function _orderWithLegs(TokenInfo[] memory inputs, TokenInfo[] memory outputs)
+        internal
+        view
+        returns (Order memory)
+    {
+        return Order({
+            user: bytes32(uint256(uint160(user))),
+            source: "",
+            destination: bytes("DEST_CHAIN"),
+            deadline: block.number + 1000,
+            nonce: 0,
+            fees: 0,
+            session: address(0),
+            predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
+            inputs: inputs,
+            output: PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputs, call: ""})
+        });
+    }
 }
 
 contract IntentGatewayV2Upgraded is IntentGatewayV2 {
-    constructor(address deployer) IntentGatewayV2(deployer) {}
+    constructor(address intrinsic, address extrinsic) IntentGatewayV2(intrinsic, extrinsic) {}
 
     function upgradedMarker() external pure returns (uint256) {
         return 42;

@@ -74,6 +74,9 @@ abstract contract IntrinsicIntents is IntentsBase {
             uint256 remaining = totalRequired - alreadyFilled;
             if (remaining == 0 || solverAmount == 0) {
                 if (solverAmount == 0 && remaining > 0) isFullyFilled = false;
+                // Record the real tokens (with zero amounts) so emitted events carry token identity.
+                escrowedInputs[i] = TokenInfo({token: order.inputs[i].token, amount: 0});
+                outputFills[i] = TokenInfo({token: outputToken, amount: 0});
                 continue;
             }
             uint256 fillAmount;
@@ -145,10 +148,11 @@ abstract contract IntrinsicIntents is IntentsBase {
     /**
      * @dev Cancels a same-chain order and refunds the remaining escrowed tokens to the user.
      *
-     * Only the original order creator (order.user) may cancel. Collects all remaining escrow
-     * balances (which may be reduced by prior partial fills) and issues a full refund via
-     * `_withdraw`. `cancelOrder` is the only caller and has already established that this chain
-     * is the order's source.
+     * The original order creator (order.user) may cancel through the deadline. Cancellation is
+     * permissionless strictly after the deadline, using `_blockNumber()` so Arbitrum deployments
+     * use their L2 block number. Collects all remaining escrow balances (which may be reduced by
+     * prior partial fills) and refunds them to the original user via `_withdraw`. `cancelOrder` is
+     * the only caller and has already established that this chain is the order's source.
      *
      * `cancelOrder` has already emitted `OrderCancelled`; the `EscrowRefunded` of this refund
      * follows it in the same transaction.
@@ -157,7 +161,9 @@ abstract contract IntrinsicIntents is IntentsBase {
      * @param commitment The keccak256 hash of the ABI-encoded order.
      */
     function _cancelSameChain(Order calldata order, bytes32 commitment) internal {
-        if (order.user != bytes32(uint256(uint160(msg.sender)))) revert Unauthorized();
+        if (order.user != bytes32(uint256(uint160(msg.sender))) && _blockNumber() <= order.deadline) {
+            revert Unauthorized();
+        }
 
         uint256 inputsLen = order.inputs.length;
         TokenInfo[] memory remainingTokens = new TokenInfo[](inputsLen);

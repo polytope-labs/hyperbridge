@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { INIT_CHAINS } from "@/cli/init/chains"
 import { parseChainKey } from "@/config/interpolated-curve"
+import externalLinks from "@/config/external-links.json"
 import { api } from "../api"
 import { Pager } from "../components/Pager"
 import { ChainLogo } from "../components/ChainLogo"
@@ -18,7 +19,7 @@ import {
 import type { ActivityEventDto, BidDto, BidStatsDto, OrderHistoryDto, OrderLeg, OrderSummary } from "../types"
 
 /** Where an order's full record lives; the same page the HyperFX app links to. */
-const HYPERFX_ORDER_URL = "https://app.hyperfx.finance/history/details/?id="
+const HYPERFX_ORDER_URL = `${externalLinks.hyperfxApp}/history/details/?id=`
 const PAGE_SIZE = 20
 
 const CHAIN_META = new Map(INIT_CHAINS.map((meta) => [meta.stateMachineId, meta]))
@@ -64,7 +65,7 @@ function statusOf(events: ActivityEventDto[], bids: BidDto[]): Status {
 
 /** Hyperbridge's explorer for the network the filler bids on. */
 function hyperbridgeExplorer(network: OrderHistoryDto["network"]): string {
-	return network === "testnet" ? "https://gargantua.statescan.io" : "https://nexus.statescan.io"
+	return externalLinks.hyperbridgeExplorers[network]
 }
 
 function ArrowIcon({ direction }: { direction: "up" | "down" }) {
@@ -306,7 +307,13 @@ export function Orders(props: { chainLabels?: Record<string, string> }) {
 	// (a detection is followed within a second by its skip or fill).
 	useEffect(() => {
 		const source = new EventSource("/api/events")
-		source.onopen = () => setLive(true)
+		source.onopen = () => {
+			setLive(true)
+			// The daemon does not replay events written while this stream was down.
+			// Re-read the current page when Chromium reconnects so a restarted solver
+			// cannot leave a live badge over stale activity until the next fill.
+			void load(page)
+		}
 		source.onerror = () => setLive(false)
 		source.onmessage = () => {
 			window.clearTimeout(refreshTimer.current)

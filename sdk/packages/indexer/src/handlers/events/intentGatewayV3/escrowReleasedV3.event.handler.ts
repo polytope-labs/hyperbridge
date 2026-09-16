@@ -2,7 +2,6 @@ import { getBlockTimestamp } from "@/utils/rpc.helpers"
 import stringify from "safe-stable-stringify"
 import { EscrowReleasedLog } from "@/configs/src/types/abi-interfaces/IntentGatewayV3Abi"
 import { IntentGatewayV3Service } from "@/services/intentGatewayV3.service"
-import { OrderStatus } from "@/configs/src/types"
 import { getHostStateMachine } from "@/utils/substrate.helpers"
 import { Hex } from "viem"
 import { wrap } from "@/utils/event.utils"
@@ -12,7 +11,7 @@ export const handleEscrowReleasedEventV3 = wrap(async (event: EscrowReleasedLog)
 
 	const { blockNumber, transactionHash, args, blockHash, logIndex } = event
 	if (!args) return
-	const { commitment, tokens } = args
+	const { commitment, solver, tokens } = args
 
 	const chain = getHostStateMachine(chainId)
 	const timestamp = await getBlockTimestamp(blockHash, chain)
@@ -20,11 +19,15 @@ export const handleEscrowReleasedEventV3 = wrap(async (event: EscrowReleasedLog)
 	logger.info(
 		`[Intent Gateway V3] Escrow Released: ${stringify({
 			commitment,
+			solver,
 		})}, tokens: ${stringify(tokens)}`,
 	)
 
+	// recordEscrowRelease decides whether this release completes the order (REDEEMED)
+	// or is a non-finalizing partial redeem that leaves the escrow open.
 	await IntentGatewayV3Service.recordEscrowRelease(
 		commitment,
+		solver,
 		tokens.map((token) => ({
 			token: token.token as Hex,
 			amount: BigInt(token.amount.toString()),
@@ -36,10 +39,4 @@ export const handleEscrowReleasedEventV3 = wrap(async (event: EscrowReleasedLog)
 			logIndex,
 		},
 	)
-
-	await IntentGatewayV3Service.updateOrderStatus(commitment, OrderStatus.REDEEMED, {
-		transactionHash,
-		blockNumber,
-		timestamp,
-	})
 })

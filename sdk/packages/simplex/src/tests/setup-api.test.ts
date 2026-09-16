@@ -89,9 +89,7 @@ describe("setup API", () => {
 	it("rejects quorum URLs sharing a hostname", async () => {
 		rpc = await startMockRpc({ chainId: 1 })
 		const { base } = await startInitServer()
-		const res = await (
-			await post(base, "validate-rpc", { urls: [rpc.url, rpc.url], expectedChainId: 1 })
-		).json()
+		const res = await (await post(base, "validate-rpc", { urls: [rpc.url, rpc.url], expectedChainId: 1 })).json()
 		expect(res.ok).toBe(false)
 		expect(res.error).toContain("different domains")
 	})
@@ -114,7 +112,10 @@ describe("setup API", () => {
 		const { base } = await startInitServer()
 
 		const ok = await (
-			await post(base, "validate-token", { rpcUrl: rpc.url, address: "0x1111111111111111111111111111111111111111" })
+			await post(base, "validate-token", {
+				rpcUrl: rpc.url,
+				address: "0x1111111111111111111111111111111111111111",
+			})
 		).json()
 		expect(ok).toEqual({ ok: true, symbol: "cNGN", decimals: 6 })
 
@@ -126,7 +127,10 @@ describe("setup API", () => {
 		rpc = await startMockRpc({ code: "0x" })
 		const { base } = await startInitServer()
 		const res = await (
-			await post(base, "validate-token", { rpcUrl: rpc.url, address: "0x1111111111111111111111111111111111111111" })
+			await post(base, "validate-token", {
+				rpcUrl: rpc.url,
+				address: "0x1111111111111111111111111111111111111111",
+			})
 		).json()
 		expect(res).toEqual({ ok: false, error: "No contract deployed at this address" })
 	})
@@ -262,7 +266,23 @@ describe("setup API", () => {
 		const config = minimalConfig(rpc.url)
 
 		expect((await post(base, "save-and-start", { config })).status).toBe(202)
+		expect(await (await fetch(`${base}/health`)).json()).toEqual({
+			status: "starting",
+			mode: "init",
+			pid: process.pid,
+		})
 		expect((await post(base, "save-and-start", { config })).status).toBe(409)
 		resolveBoot()
+	})
+
+	it("rejects save-and-start after graceful shutdown begins", async () => {
+		rpc = await startMockRpc({ chainId: 1 })
+		const { base, onSaveAndStart } = await startInitServer()
+		server!.beginStopping()
+
+		const response = await post(base, "save-and-start", { config: minimalConfig(rpc.url) })
+		expect(response.status).toBe(409)
+		expect(await response.json()).toEqual({ error: "Simplex is stopping" })
+		expect(onSaveAndStart).not.toHaveBeenCalled()
 	})
 })

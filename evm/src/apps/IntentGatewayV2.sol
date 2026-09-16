@@ -15,9 +15,11 @@
 pragma solidity ^0.8.24;
 
 import {IntentsBase} from "./intentsv2/IntentsBase.sol";
-import {IntrinsicIntents} from "./intentsv2/IntrinsicIntents.sol";
-import {ExtrinsicIntents} from "./intentsv2/ExtrinsicIntents.sol";
+import {IntrinsicModule} from "./intentsv2/IntrinsicModule.sol";
+import {ExtrinsicModule} from "./intentsv2/ExtrinsicModule.sol";
 
+import {HyperApp} from "@hyperbridge/core/apps/HyperApp.sol";
+import {IncomingPostRequest, IncomingGetResponse} from "@hyperbridge/core/interfaces/IApp.sol";
 import {ICallDispatcher, Call} from "@hyperbridge/core/interfaces/ICallDispatcher.sol";
 import {IDispatcher} from "@hyperbridge/core/interfaces/IDispatcher.sol";
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
@@ -47,30 +49,47 @@ import {
  * @author Polytope Labs (hello@polytope.technology)
  *
  * @dev The IntentGateway allows for the creation and fulfillment of same-chain & cross-chain orders.
- * This is the concrete entry-point contract that composes all intent logic via inheritance:
+ * This is the implementation behind the ERC-1967 proxy. It keeps every entry point and its guards,
+ * does the shared validation, and delegatecalls the bodies to two modules to stay under the
+ * EIP-170 code size limit:
  *
- *            EIP712
- *              |
- *          IntentsBase
- *           /       \
- *  IntrinsicIntents  ExtrinsicIntents
- *           \       /
- *        IntentGatewayV2
+ * IntentsBase (EIP712)             storage, events, errors, shared helpers
+ *   |- IntentGatewayV2 (HyperApp)  this contract: entry points, validation, delegation
+ *   |- IntrinsicIntents            same-chain fill and cancel
+ *   |    `- IntrinsicModule        deployed, delegatecalled from here
+ *   `- ExtrinsicIntents (HyperApp) cross-chain fill and cancel, the host callbacks
+ *        `- ExtrinsicModule        deployed, delegatecalled from here
+ *
+ * A name in parentheses is a second base of that contract.
+ *
+ * Module addresses are immutables, so a module upgrade is an ordinary implementation upgrade.
+ * Governance reaches `upgradeToAndCall` and `setRelayer` on the extrinsic module through
+ * `Execute`; neither is on this contract.
  */
-contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardTransient, Initializable {
+contract IntentGatewayV2 is IntentsBase, HyperApp, ReentrancyGuardTransient, Initializable {
     using SafeERC20 for IERC20;
 
-    /// @dev Privileged admin for future upgrade-gated actions (e.g. pausing). Immutable, so it must
-    /// be identical across chains or the deterministic proxy address diverges. Does not gate
-    /// `initialize`; atomic CREATE2 deployment already binds the init data to the canonical address.
-    address public immutable _owner;
+    /// @dev Same-chain fills and cancels.
+    address public immutable intrinsicModule;
 
-    /// @dev Sets the EIP-712 domain ("IntentGateway", "2"), records the admin, and locks this raw
-    /// implementation against direct initialization.
-    /// @param owner The privileged admin address.
-    constructor(address owner) EIP712("IntentGateway", "2") {
-        if (owner == address(0)) revert InvalidInput();
-        _owner = owner;
+    /// @dev Cross-chain fills, cancels and escrow settlement.
+    address public immutable extrinsicModule;
+
+    /// @dev The `Initializable` version this implementation lands a proxy on, through `initialize`
+    /// or `migrate`. 3 is the module split; bumped by every implementation that ships a `migrate`.
+    uint64 private constant VERSION = 3;
+
+    /**
+     * @dev Sets the EIP-712 domain ("IntentGateway", "2"), records the modules, and locks this raw
+     * implementation against direct initialization. Modules must have code: delegatecall to an
+     * empty address succeeds with no effect.
+     * @param intrinsic The deployed `IntrinsicModule`.
+     * @param extrinsic The deployed `ExtrinsicModule`.
+     */
+    constructor(address intrinsic, address extrinsic) EIP712("IntentGateway", "2") {
+        if (intrinsic.code.length == 0 || extrinsic.code.length == 0) revert InvalidInput();
+        intrinsicModule = intrinsic;
+        extrinsicModule = extrinsic;
         _disableInitializers();
     }
 
@@ -83,62 +102,16 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardT
 
     /**
      * @dev Returns the Hyperbridge host contract address. Overrides both IntentsBase
-     * and ExtrinsicIntents to resolve the diamond inheritance conflict at the
-     * final concrete contract level.
+     * and HyperApp to resolve the diamond inheritance conflict at the final concrete
+     * contract level.
      * @return The host contract address from stored params.
      */
-    function host() public view override(IntentsBase, ExtrinsicIntents) returns (address) {
+    function host() public view override(IntentsBase, HyperApp) returns (address) {
         return _params.host;
     }
 
-    /// @dev The `Initializable` version this implementation lands a proxy on, through `initialize`
-    /// or `migrate`. Bumped by the next implementation that needs a migration.
-    uint64 private constant VERSION = 2;
-
-    /// @dev `initialize` is for a bare proxy only. A proxy that an upgrade left below `VERSION` is
-    /// taken there by the host-only `migrate`; without this, anyone could `initialize` it.
-    modifier onlyFresh() {
-        if (_getInitializedVersion() != 0) revert InvalidInitialization();
-        _;
-    }
-
     /**
-     * @dev One-time init of a bare proxy: registers the peers, each bound to `address(this)`,
-     * stores the params, arms the relayer gate, and lands at `VERSION`. Refused on any proxy
-     * already at a version, see `onlyFresh`.
-     * @param p The initial gateway configuration parameters.
-     * @param peerChains State-machine ids of the cross-chain peers to register, each bound to this
-     * gateway's own address so no peer address is carried in the proxy's init data.
-     * @param relayer The only relayer whose deliveries are accepted. Zero leaves the gate open.
-     */
-    function initialize(Params memory p, bytes[] memory peerChains, address relayer)
-        public
-        onlyFresh
-        reinitializer(VERSION)
-    {
-        uint256 peersLength = peerChains.length;
-        for (uint256 i = 0; i < peersLength; i++) {
-            Deployment memory deployment = Deployment({chain: peerChains[i], gateway: address(this)});
-            _addDeployment(deployment);
-        }
-        _validateParams(p);
-        _params = p;
-        _setRelayer(relayer);
-    }
-
-    /**
-     * @dev Migration for a proxy from before this implementation: arms the gate and lands at
-     * `VERSION`. Host-only, so nobody can arm it before governance does, and one-shot; delivered as
-     * the migration calldata of the upgrade that installs this implementation. Reverts on a proxy
-     * `initialize` already took there.
-     * @param relayer The account whose deliveries are accepted from now on.
-     */
-    function migrate(address relayer) external onlyHost reinitializer(VERSION) {
-        _setRelayer(relayer);
-    }
-
-    /**
-     * @dev The `Initializable` version: 0 on a bare proxy, 1 on one from before this
+     * @dev The `Initializable` version: 0 on a bare proxy, below `VERSION` on one from an earlier
      * implementation, `VERSION` once `initialize` or `migrate` has run. The raw implementation is
      * locked at the maximum.
      */
@@ -174,8 +147,48 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardT
         return _calculateCommitmentSlotHash(commitment);
     }
 
+    /// @dev `initialize` is for a bare proxy only. A proxy that an upgrade left below `VERSION` is
+    /// taken there by the host-only `migrate`; without this, anyone could `initialize` it.
+    modifier onlyFresh() {
+        if (_getInitializedVersion() != 0) revert InvalidInitialization();
+        _;
+    }
+
+    /**
+     * @dev One-time init of a bare proxy: registers the peers, each bound to `address(this)`,
+     * stores the params, arms the relayer gate, and lands at `VERSION`. Refused on any proxy
+     * already at a version, see `onlyFresh`.
+     * @param p The initial gateway configuration parameters.
+     * @param peerChains State-machine ids of the cross-chain peers to register, each bound to this
+     * gateway's own address so no peer address is carried in the proxy's init data.
+     * @param relayer_ The only relayer whose deliveries are accepted. Zero leaves the gate open.
+     */
+    function initialize(Params memory p, bytes[] memory peerChains, address relayer_)
+        public
+        onlyFresh
+        reinitializer(VERSION)
+    {
+        uint256 peersLength = peerChains.length;
+        for (uint256 i = 0; i < peersLength; i++) {
+            Deployment memory deployment = Deployment({chain: peerChains[i], gateway: address(this)});
+            _addDeployment(deployment);
+        }
+        _validateParams(p);
+        _params = p;
+        _setRelayer(relayer_);
+    }
+
+    /**
+     * @dev Takes a proxy from an earlier implementation to `VERSION`. Host-only and one-shot;
+     * delivered as the calldata of the upgrade that installs this implementation. Nothing to
+     * migrate for the module split: the storage layout is unchanged.
+     */
+    function migrate() external onlyHost reinitializer(VERSION) {}
+
     /**
      * @dev Places a new intent order by escrowing the user's input tokens.
+     *
+     * An order swaps exactly one input for exactly one output; any other shape reverts `InvalidInput`.
      *
      * The caller specifies the desired output tokens and destination chain. The function:
      * 1. Stamps the order with the caller's address, source chain, and a unique nonce.
@@ -192,33 +205,10 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardT
      * @param graffiti Attribution tag emitted in the OrderPlaced event for off-chain indexers.
      */
     function placeOrder(Order memory order, bytes32 graffiti) public payable nonReentrant {
-        if (order.inputs.length == 0) revert InvalidInput();
-
-        // Reject duplicate output tokens
-        uint256 outputsLen_ = order.output.assets.length;
-        for (uint256 i; i < outputsLen_;) {
-            bytes32 token = order.output.assets[i].token;
-            assembly ("memory-safe") {
-                if tload(token) {
-                    mstore(0, 0xb4fa3fb3) // InvalidInput.selector
-                    revert(0x1c, 0x04)
-                }
-                tstore(token, 1)
-            }
-            unchecked {
-                ++i;
-            }
-        }
-        // Clean up transient storage so repeated placeOrder calls in the same tx don't false-positive.
-        for (uint256 i; i < outputsLen_;) {
-            bytes32 token = order.output.assets[i].token;
-            assembly ("memory-safe") {
-                tstore(token, 0)
-            }
-            unchecked {
-                ++i;
-            }
-        }
+        // An order swaps exactly one input for exactly one output.
+        if (order.inputs.length != 1 || order.output.assets.length != 1) revert InvalidInput();
+        // A zero-amount output would strand the input escrow.
+        if (order.output.assets[0].amount == 0) revert InvalidInput();
 
         address hostAddr = host();
         order.user = bytes32(uint256(uint160(msg.sender)));
@@ -335,6 +325,7 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardT
             protocolFeeBps = _params.protocolFeeBps;
         }
         TokenInfo[] memory reducedInputs;
+        uint256[] memory protocolFees = new uint256[](inputsLen);
         bytes32 commitment;
 
         if (protocolFeeBps > 0) {
@@ -344,9 +335,7 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardT
                 if (originalAmount == 0) revert InvalidInput();
                 uint256 protocolFee = (originalAmount * protocolFeeBps) / 10_000;
                 uint256 reducedAmount = originalAmount - protocolFee;
-                address token = address(uint160(uint256(order.inputs[i].token)));
-
-                if (protocolFee > 0) emit DustCollected(token, protocolFee);
+                protocolFees[i] = protocolFee;
 
                 reducedInputs[i] = TokenInfo({token: order.inputs[i].token, amount: reducedAmount});
                 unchecked {
@@ -363,9 +352,11 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardT
         // Phase 3: Credit escrow.
         for (uint256 i; i < inputsLen;) {
             address token = address(uint160(uint256(order.inputs[i].token)));
-            // Reject duplicate input tokens
-            if (_orders[commitment][token] != 0) revert InvalidInput();
             _orders[commitment][token] = reducedInputs[i].amount;
+            uint256 fee = protocolFees[i];
+            if (fee > 0) {
+                _protocolFees[commitment][token] = ProtocolFee({amount: fee, committed: reducedInputs[i].amount});
+            }
 
             unchecked {
                 ++i;
@@ -476,9 +467,9 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardT
         if (order.inputs.length != outputsLen) revert InvalidInput();
 
         if (isSameChain) {
-            _fillSameChain(order, options, commitment);
+            _delegate(intrinsicModule, abi.encodeCall(IntrinsicModule.fillSameChain, (order, options, commitment)));
         } else {
-            _fillCrossChain(order, options, commitment);
+            _delegate(extrinsicModule, abi.encodeCall(ExtrinsicModule.fillCrossChain, (order, options, commitment)));
         }
     }
 
@@ -487,13 +478,15 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardT
      * Routes to the appropriate cancellation logic based on the order type and
      * the current chain:
      *
-     * - Same-chain orders: Refunds escrow directly on this chain.
+     * - Same-chain orders: Refunds escrow directly on this chain. The order creator may cancel
+     *   through the deadline; cancellation becomes permissionless strictly after the deadline.
      * - Cross-chain, called from source: Dispatches a Hyperbridge GET request to
      *   verify the order was not filled on the destination chain.
      * - Cross-chain, called from destination: Marks the order as filled (preventing
      *   future fills) and dispatches a RefundEscrow message to the source chain.
      *
-     * Reverts if the order has already been filled or if called from the wrong chain.
+     * Reverts if the order has already been filled, if called from the wrong chain, or if a
+     * third party attempts to cancel a same-chain order through its deadline.
      *
      * Emits `OrderCancelled` on whichever chain the cancellation is initiated from. `EscrowRefunded`
      * remains the terminal event: same transaction for a same-chain cancel, on the source chain
@@ -513,12 +506,9 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardT
         bytes32 orderDest = keccak256(order.destination);
         bool isSameChain = orderSource == orderDest;
 
-        // Emitted here, once, rather than from each of the three routes below. Every check those
-        // routes make — Unauthorized, NotExpired, UnknownOrder — reverts, and a revert discards
-        // logs, so an early emit can never announce a cancellation that did not happen. Emitting
-        // before the branch also keeps `EscrowRefunded` the last log on the same-chain route, where
-        // the refund is processed in this same transaction. Three emit sites cost bytecode this
-        // contract does not have: it sits within ~100 bytes of the EIP-170 limit.
+        // Emitted once, before the routes below. Every check they make reverts, and a revert
+        // discards logs, so an early emit never announces a cancellation that did not happen.
+        // It also keeps `EscrowRefunded` the last log on the same-chain route.
         emit OrderCancelled({commitment: commitment, canceller: msg.sender});
 
         if (isSameChain) {
@@ -526,13 +516,44 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardT
             // re-query the host's state machine id and re-hash `order.source` to reach the same
             // answer this function already has. Same check, one external call fewer.
             if (currentChain != orderSource) revert WrongChain();
-            _cancelSameChain(order, commitment);
+            _delegate(intrinsicModule, abi.encodeCall(IntrinsicModule.cancelSameChain, (order, commitment)));
         } else if (currentChain == orderSource) {
-            _cancelFromSource(order, options, commitment);
+            _delegate(extrinsicModule, abi.encodeCall(ExtrinsicModule.cancelFromSource, (order, options, commitment)));
         } else if (currentChain == orderDest) {
-            _cancelFromDest(order, options, commitment);
+            _delegate(extrinsicModule, abi.encodeCall(ExtrinsicModule.cancelFromDest, (order, options, commitment)));
         } else {
             revert WrongChain();
+        }
+    }
+
+    /**
+     * @dev Runs `ExtrinsicIntents.onAccept` in the extrinsic module, `msg.sender` still the host.
+     */
+    function onAccept(IncomingPostRequest calldata) external override onlyHost {
+        _delegate(extrinsicModule, msg.data);
+    }
+
+    /**
+     * @dev Runs `ExtrinsicIntents.onGetResponse` in the extrinsic module, `msg.sender` still the host.
+     */
+    function onGetResponse(IncomingGetResponse calldata) external override onlyHost {
+        _delegate(extrinsicModule, msg.data);
+    }
+
+    /**
+     * @dev Delegatecalls a module, bubbling any revert byte for byte so custom error selectors
+     * survive. Return data is dropped; no module function returns anything.
+     * @param module The module to run.
+     * @param data The ABI-encoded call.
+     */
+    function _delegate(address module, bytes memory data) internal {
+        assembly ("memory-safe") {
+            let ok := delegatecall(gas(), module, add(data, 0x20), mload(data), 0, 0)
+            if iszero(ok) {
+                let ptr := mload(0x40)
+                returndatacopy(ptr, 0, returndatasize())
+                revert(ptr, returndatasize())
+            }
         }
     }
 }

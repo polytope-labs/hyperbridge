@@ -6,7 +6,7 @@ export class ApiError extends Error {
 	}
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+async function requestWithMeta<T>(path: string, init?: RequestInit): Promise<{ body: T; response: Response }> {
 	const response = await fetch(path, {
 		...init,
 		headers: {
@@ -20,11 +20,16 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 	if (!response.ok) {
 		throw new ApiError(response.status, (body as { error?: string }).error ?? `HTTP ${response.status}`)
 	}
-	return body as T
+	return { body: body as T, response }
+}
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+	return (await requestWithMeta<T>(path, init)).body
 }
 
 export const api = {
 	get: <T>(path: string) => request<T>(path),
+	getWithMeta: <T>(path: string) => requestWithMeta<T>(path),
 	post: <T>(path: string, body?: unknown) => request<T>(path, { method: "POST", body: JSON.stringify(body ?? {}) }),
 	put: <T>(path: string, body: unknown) => request<T>(path, { method: "PUT", body: JSON.stringify(body) }),
 	del: <T>(path: string) => request<T>(path, { method: "DELETE" }),

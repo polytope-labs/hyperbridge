@@ -72,6 +72,16 @@ function fakePauseControl(): PauseControl & { paused: boolean } {
 		isPaused() {
 			return this.paused
 		},
+		getWorkSnapshot() {
+			return {
+				queuedEvaluations: 0,
+				evaluating: 0,
+				queuedFills: 0,
+				activeFills: 0,
+				retractions: 0,
+				rebalancing: 0,
+			}
+		},
 		getWatchOnly() {
 			return { 56: true }
 		},
@@ -200,10 +210,38 @@ describe("UiServer (operator mode)", () => {
 		const filler = fakePauseControl()
 		const operator = baseOperator({
 			strategies: [
-				{ index: 0, pairIndex: 0, exotic: "USDC/USDC", token0: "USDC", token1: "USDC", ask: sameAsset, sameToken: true, maxOrderSize: "100000" },
-				{ index: 1, pairIndex: 1, exotic: "USDC/CNGN", token0: "USDC", token1: "CNGN", bid, ask, sameToken: false, maxOrderSize: "5000" },
+				{
+					index: 0,
+					pairIndex: 0,
+					exotic: "USDC/USDC",
+					token0: "USDC",
+					token1: "USDC",
+					ask: sameAsset,
+					sameToken: true,
+					maxOrderSize: "100000",
+				},
+				{
+					index: 1,
+					pairIndex: 1,
+					exotic: "USDC/CNGN",
+					token0: "USDC",
+					token1: "CNGN",
+					bid,
+					ask,
+					sameToken: false,
+					maxOrderSize: "5000",
+				},
 				{ index: 2, pairIndex: 2, token0: "USDC", token1: "CNGN", sameToken: false }, // venue-priced: no editable curves
-				{ index: 3, pairIndex: 3, exotic: "USDC/ZARP", token0: "USDC", token1: "ZARP", ask: askOnly, sameToken: false, maxOrderSize: "5000" }, // one-sided LP
+				{
+					index: 3,
+					pairIndex: 3,
+					exotic: "USDC/ZARP",
+					token0: "USDC",
+					token1: "ZARP",
+					ask: askOnly,
+					sameToken: false,
+					maxOrderSize: "5000",
+				}, // one-sided LP
 			],
 			filler,
 			balances: {
@@ -241,13 +279,21 @@ describe("UiServer (operator mode)", () => {
 	it("serves health and status", async () => {
 		const { base } = await startServer()
 		const health = await fetch(`${base}/health`)
-		expect(await health.json()).toEqual({ status: "ok", mode: "operator" })
+		expect(await health.json()).toEqual({ status: "ok", mode: "operator", pid: process.pid })
 
 		const status = await fetch(`${base}/api/status`)
 		expect(status.status).toBe(200)
 		const payload = await status.json()
 		expect(payload.mode).toBe("operator")
 		expect(payload.paused).toBe(false)
+		expect(payload.work).toEqual({
+			queuedEvaluations: 0,
+			evaluating: 0,
+			queuedFills: 0,
+			activeFills: 0,
+			retractions: 0,
+			rebalancing: 0,
+		})
 		expect(payload.chains).toEqual([8453, 56])
 		expect(payload.watchOnly).toEqual({ "56": true })
 		expect(payload.strategyTypes).toEqual(["USDC/CNGN"])
@@ -339,7 +385,14 @@ describe("UiServer (operator mode)", () => {
 					bid: BID_POINTS,
 					ask: ASK_POINTS,
 				},
-				{ index: 2, token0: "USDC", token1: "CNGN", pricingMode: "venue", sameToken: false, referenceOnly: false },
+				{
+					index: 2,
+					token0: "USDC",
+					token1: "CNGN",
+					pricingMode: "venue",
+					sameToken: false,
+					referenceOnly: false,
+				},
 				{
 					index: 3,
 					exotic: "USDC/ZARP",
@@ -424,9 +477,9 @@ describe("UiServer (operator mode)", () => {
 		const { base } = await startServer()
 		expect((await put(base, "/api/strategies/1/curves", {})).status).toBe(400)
 		expect((await put(base, "/api/strategies/1/curves", { bidPriceCurve: "flat" })).status).toBe(400)
-		expect((await put(base, "/api/strategies/1/curves", { bidPriceCurve: [{ amount: 5, price: "1" }] })).status).toBe(
-			400,
-		)
+		expect(
+			(await put(base, "/api/strategies/1/curves", { bidPriceCurve: [{ amount: 5, price: "1" }] })).status,
+		).toBe(400)
 		expect((await put(base, "/api/strategies/1/curves", { unexpected: true })).status).toBe(400)
 	})
 
@@ -457,7 +510,9 @@ describe("UiServer (operator mode)", () => {
 	it("returns 405 for wrong methods", async () => {
 		const { base } = await startServer()
 		expect((await fetch(`${base}/api/strategies`, { method: "PUT", headers: CSRF, body: "{}" })).status).toBe(405)
-		expect((await fetch(`${base}/api/strategies/1`, { method: "POST", headers: CSRF, body: "{}" })).status).toBe(405)
+		expect((await fetch(`${base}/api/strategies/1`, { method: "POST", headers: CSRF, body: "{}" })).status).toBe(
+			405,
+		)
 	})
 
 	it("pause/resume toggles the filler and persists the state", async () => {
@@ -492,6 +547,11 @@ describe("UiServer (operator mode)", () => {
 		const res = await fetch(`${base}/api/stop`, { method: "POST", headers: CSRF })
 		expect(res.status).toBe(202)
 		expect(await res.json()).toEqual({ stopping: true })
+		expect(await (await fetch(`${base}/health`)).json()).toEqual({
+			status: "stopping",
+			mode: "operator",
+			pid: process.pid,
+		})
 		await vi.waitFor(() => expect(operator.stop).toHaveBeenCalledTimes(1))
 	})
 
@@ -537,9 +597,7 @@ describe("UiServer (operator mode)", () => {
 		expect(res.events[0].type).toBe("filled")
 		expect(res.events[1].reason).toBe("No profitable strategy")
 
-		const older = await (
-			await fetch(`${base}/api/activity/orders?limit=10&before=${res.events[1].id}`)
-		).json()
+		const older = await (await fetch(`${base}/api/activity/orders?limit=10&before=${res.events[1].id}`)).json()
 		expect(older.events).toHaveLength(1)
 		expect(older.events[0].type).toBe("detected")
 	})
@@ -648,7 +706,14 @@ describe("UiServer (operator mode)", () => {
 			ok: true,
 			submitted: [],
 			skipped: [
-				{ chain: "EVM-8453", vault, symbol: "USDC", reason: "deposits-closed", walletBalance: "8000", threshold: "5000" },
+				{
+					chain: "EVM-8453",
+					vault,
+					symbol: "USDC",
+					reason: "deposits-closed",
+					walletBalance: "8000",
+					threshold: "5000",
+				},
 			],
 		})
 		expect((await fetch(`${base}/api/vault/redeem`, { method: "POST", headers: CSRF })).status).toBe(200)
@@ -745,7 +810,12 @@ describe("UiServer (operator mode)", () => {
 		const { base, operator } = await startServer({ vault: { sweepNow, redeemAll, reconfigure } })
 
 		const vaults = [
-			{ chain: "EVM-8453", vault: "0xC768c589647798a6EE01A91FdE98EF2ed046DBD6", threshold: "5000", minBalance: "3000" },
+			{
+				chain: "EVM-8453",
+				vault: "0xC768c589647798a6EE01A91FdE98EF2ed046DBD6",
+				threshold: "5000",
+				minBalance: "3000",
+			},
 		]
 		const res = await fetch(`${base}/api/vault`, { method: "PUT", headers: CSRF, body: JSON.stringify({ vaults }) })
 		expect(await res.json()).toEqual({ applied: true, restartNeeded: false, persisted: true })
@@ -757,7 +827,9 @@ describe("UiServer (operator mode)", () => {
 		const bad = await fetch(`${base}/api/vault`, {
 			method: "PUT",
 			headers: CSRF,
-			body: JSON.stringify({ vaults: [{ chain: "EVM-8453", vault: "0xabc", threshold: "10", minBalance: "20" }] }),
+			body: JSON.stringify({
+				vaults: [{ chain: "EVM-8453", vault: "0xabc", threshold: "10", minBalance: "20" }],
+			}),
 		})
 		expect(bad.status).toBe(400)
 	})
@@ -815,7 +887,11 @@ describe("UiServer (operator mode)", () => {
 			{ ...body, amount: "" },
 			{ chain: "EVM-8453" },
 		]) {
-			const rejected = await fetch(`${base}/api/send`, { method: "POST", headers: CSRF, body: JSON.stringify(bad) })
+			const rejected = await fetch(`${base}/api/send`, {
+				method: "POST",
+				headers: CSRF,
+				body: JSON.stringify(bad),
+			})
 			expect(rejected.status).toBe(400)
 		}
 		expect(send).toHaveBeenCalledTimes(1)
@@ -919,7 +995,13 @@ describe("UiServer (operator mode)", () => {
 		const config = fakeConfig()
 		config.pairs = [
 			{ token0: "USDC", token1: "USDC", maxOrderSize: "100000", askPriceCurve: SAME_ASSET_POINTS },
-			{ token0: "USDC", token1: "CNGN", maxOrderSize: "5000", bidPriceCurve: BID_POINTS, askPriceCurve: ASK_POINTS },
+			{
+				token0: "USDC",
+				token1: "CNGN",
+				maxOrderSize: "5000",
+				bidPriceCurve: BID_POINTS,
+				askPriceCurve: ASK_POINTS,
+			},
 		]
 		return config
 	}
@@ -1071,7 +1153,15 @@ describe("UiServer (operator mode)", () => {
 				ask: new FillerPricePolicy({ points: ASK_POINTS }),
 				sameToken: false,
 			},
-			{ index: 2, pairIndex: 2, exotic: "USDC/ZARP", token0: "USDC", token1: "ZARP", ask: zarpAsk, sameToken: false },
+			{
+				index: 2,
+				pairIndex: 2,
+				exotic: "USDC/ZARP",
+				token0: "USDC",
+				token1: "ZARP",
+				ask: zarpAsk,
+				sameToken: false,
+			},
 		]
 		const removePair = vi.fn(async (index: number) => {
 			const position = strategies.findIndex((s) => s.index === index)
@@ -1308,7 +1398,12 @@ describe("UiServer (operator mode)", () => {
 					rpcUrls: ["https://base.example", "https://base-two.example"],
 					bundlerUrl: "https://base-bundler.example",
 				},
-				{ chainId: 42161, rpcUrls: ["https://arb.example"], bundlerUrl: "https://arb-bundler.example", watchOnly: true },
+				{
+					chainId: 42161,
+					rpcUrls: ["https://arb.example"],
+					bundlerUrl: "https://arb-bundler.example",
+					watchOnly: true,
+				},
 			],
 		})
 		expect(res.status).toBe(200)
@@ -1337,7 +1432,11 @@ describe("UiServer (operator mode)", () => {
 	it("rejects chain edits that boot would reject, with nothing persisted", async () => {
 		const fetchChainId = vi.fn(async () => 999)
 		const { base, operator } = await startServer({ config: chainsConfig() }, { fetchChainId })
-		const base8453 = { chainId: 8453, rpcUrls: ["https://base.example"], bundlerUrl: "https://base-bundler.example" }
+		const base8453 = {
+			chainId: 8453,
+			rpcUrls: ["https://base.example"],
+			bundlerUrl: "https://base-bundler.example",
+		}
 
 		const empty = await put(base, "/api/chains", { chains: [] })
 		expect((await empty.json()).error).toContain("at least one chain")
@@ -1377,7 +1476,10 @@ describe("UiServer (operator mode)", () => {
 	})
 
 	it("writes a testnet confirmation policy for an added testnet chain", async () => {
-		const { base, operator } = await startServer({ config: chainsConfig() }, { fetchChainId: vi.fn(async () => 84532) })
+		const { base, operator } = await startServer(
+			{ config: chainsConfig() },
+			{ fetchChainId: vi.fn(async () => 84532) },
+		)
 		const res = await put(base, "/api/chains", {
 			chains: [
 				{ chainId: 8453, rpcUrls: ["https://base.example"], bundlerUrl: "https://base-bundler.example" },
@@ -1429,7 +1531,9 @@ describe("UiServer (operator mode)", () => {
 		expect(base8453.bundlerUrl).toBe(base8453.rpcUrl)
 
 		expect((await fetch(`${base}/api/setup/defaults`)).status).toBe(410)
-		expect((await fetch(`${base}/api/setup/save-and-start`, { method: "POST", headers: CSRF, body: "{}" })).status).toBe(410)
+		expect(
+			(await fetch(`${base}/api/setup/save-and-start`, { method: "POST", headers: CSRF, body: "{}" })).status,
+		).toBe(410)
 	})
 
 	// The dashboard's Logs page: a backfill request, then an SSE tail that
@@ -1452,7 +1556,11 @@ describe("UiServer (operator mode)", () => {
 			base: string,
 			path: string,
 			options: { expect?: number; deadlineMs?: number; whileOpen?: () => void } = {},
-		): Promise<{ records: LogRecordDto[]; headers: Record<string, string | string[] | undefined>; events: string[] }> {
+		): Promise<{
+			records: LogRecordDto[]
+			headers: Record<string, string | string[] | undefined>
+			events: string[]
+		}> {
 			const { expect: wanted = 0, deadlineMs = 3000, whileOpen } = options
 			return new Promise((resolve, reject) => {
 				const request = get(`${base}${path}`, (res) => {
@@ -1721,7 +1829,6 @@ describe("UiServer (operator mode)", () => {
 			expect(await ended).toBe("ended")
 		})
 	})
-
 })
 
 describe("UiServer (init mode)", () => {
@@ -1741,17 +1848,46 @@ describe("UiServer (init mode)", () => {
 	})
 
 	it("reports init status and gates operator endpoints", async () => {
+		const stop = vi.fn().mockResolvedValue(undefined)
 		server = new UiServer({
 			mode: "init",
-			setup: { configPath: "/tmp/x.toml", onSaveAndStart: async () => {} },
+			version: "0.16.2",
+			setup: { configPath: "/tmp/x.toml", onSaveAndStart: async () => {}, stop },
 		})
 		const port = await server.start(0)
 		const base = `http://127.0.0.1:${port}`
 
-		expect(await (await fetch(`${base}/api/status`)).json()).toEqual({ mode: "init", starting: false })
+		expect(await (await fetch(`${base}/api/status`)).json()).toEqual({
+			mode: "init",
+			version: "0.16.2",
+			starting: false,
+		})
 		expect((await fetch(`${base}/api/strategies`)).status).toBe(409)
 		expect((await fetch(`${base}/api/balances`)).status).toBe(409)
 		expect((await fetch(`${base}/api/pause`, { method: "POST", headers: CSRF })).status).toBe(409)
+
+		const stopResponse = await fetch(`${base}/api/stop`, { method: "POST", headers: CSRF })
+		expect(stopResponse.status).toBe(202)
+		expect(await stopResponse.json()).toEqual({ stopping: true })
+		expect(await (await fetch(`${base}/health`)).json()).toEqual({
+			status: "stopping",
+			mode: "init",
+			pid: process.pid,
+		})
+		await vi.waitFor(() => expect(stop).toHaveBeenCalledOnce())
+	})
+
+	it("refuses to stop setup while save-and-start is booting", async () => {
+		const stop = vi.fn().mockResolvedValue(undefined)
+		server = new UiServer({
+			mode: "init",
+			setup: { configPath: "/tmp/x.toml", onSaveAndStart: async () => {}, stop },
+		})
+		server.setStartState("starting")
+		const port = await server.start(0)
+		const response = await fetch(`http://127.0.0.1:${port}/api/stop`, { method: "POST", headers: CSRF })
+		expect(response.status).toBe(409)
+		expect(stop).not.toHaveBeenCalled()
 	})
 
 	it("enterOperatorMode flips the live server", async () => {

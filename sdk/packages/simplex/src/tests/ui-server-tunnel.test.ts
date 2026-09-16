@@ -82,7 +82,20 @@ function operatorContext(tunnel?: TunnelControls): OperatorContext & { configPat
 	}
 	return {
 		strategies: [],
-		filler: { pause() {}, resume() {}, isPaused: () => false, getWatchOnly: () => ({}) },
+		filler: {
+			pause() {},
+			resume() {},
+			isPaused: () => false,
+			getWorkSnapshot: () => ({
+				queuedEvaluations: 0,
+				evaluating: 0,
+				queuedFills: 0,
+				activeFills: 0,
+				retractions: 0,
+				rebalancing: 0,
+			}),
+			getWatchOnly: () => ({}),
+		},
 		balances: { getSnapshot: () => ({ updatedAt: null, status: "loading", chains: [], issues: [] }) },
 		haltControls: [],
 		config,

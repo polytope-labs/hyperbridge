@@ -1,0 +1,19 @@
+{
+	"hyperfxApp": "https://app.hyperfx.finance",
+	"hyperbridgeExplorers": {
+		"mainnet": "https://nexus.statescan.io",
+		"testnet": "https://gargantua.statescan.io"
+	},
+	"chainExplorers": {
+		"ethereum": "https://etherscan.io",
+		"arbitrum": "https://arbiscan.io",
+		"base": "https://basescan.org",
+		"polygon": "https://polygonscan.com",
+		"bnb": "https://bscscan.com",
+		"sepolia": "https://sepolia.etherscan.io",
+		"arbitrumSepolia": "https://sepolia.arbiscan.io",
+		"baseSepolia": "https://sepolia.basescan.org",
+		"polygonAmoy": "https://amoy.polygonscan.com",
+		"bnbChapel": "https://testnet.bscscan.com"
+	}
+}

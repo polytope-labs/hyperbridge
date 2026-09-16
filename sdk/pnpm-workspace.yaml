@@ -8,6 +8,7 @@ allowBuilds:
   cpu-features: false
   es5-ext: false
   esbuild: true
+  electron: true
   keccak: true
   protobufjs: true
   secp256k1: true

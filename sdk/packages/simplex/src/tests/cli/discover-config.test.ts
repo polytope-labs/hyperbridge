@@ -27,6 +27,27 @@ describe("discoverConfigPath", () => {
 		expect(discoverConfigPath(cwd)).toBe(join(home, "config.toml"))
 	})
 
+	it("uses an application data config after both CLI locations", () => {
+		const cwd = mkdtempSync(join(tmpdir(), "simplex-discover-"))
+		const appData = mkdtempSync(join(tmpdir(), "simplex-app-data-"))
+		writeFileSync(join(appData, "filler-config.toml"), "")
+		delete process.env.SIMPLEX_HOME
+		expect(discoverConfigPath(cwd, appData)).toBe(join(appData, "filler-config.toml"))
+	})
+
+	it("keeps cwd and $SIMPLEX_HOME ahead of application data", () => {
+		const cwd = mkdtempSync(join(tmpdir(), "simplex-discover-"))
+		const home = mkdtempSync(join(tmpdir(), "simplex-home-"))
+		const appData = mkdtempSync(join(tmpdir(), "simplex-app-data-"))
+		writeFileSync(join(home, "config.toml"), "")
+		writeFileSync(join(appData, "filler-config.toml"), "")
+		process.env.SIMPLEX_HOME = home
+		expect(discoverConfigPath(cwd, appData)).toBe(join(home, "config.toml"))
+
+		writeFileSync(join(cwd, "filler-config.toml"), "")
+		expect(discoverConfigPath(cwd, appData)).toBe(join(cwd, "filler-config.toml"))
+	})
+
 	it("returns undefined when nothing exists", () => {
 		const cwd = mkdtempSync(join(tmpdir(), "simplex-discover-"))
 		delete process.env.SIMPLEX_HOME

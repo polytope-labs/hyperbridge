@@ -28,7 +28,7 @@ const OTHER_FILLER = "0xBBBB00000000000000000000000000000000BBBB"
 const HOUR_MS = 60 * 60 * 1000
 
 describe("IntentFiller bid retraction", () => {
-	function build(results: BidSubmissionResult[]) {
+	function build(results: BidSubmissionResult[], rebalancingService?: { rebalancePortfolio(): Promise<unknown> }) {
 		const bidStorage = new MemoryDataStore().bids
 
 		const retractBid = vi.fn(async (): Promise<BidSubmissionResult> => {
@@ -51,7 +51,7 @@ describe("IntentFiller bid retraction", () => {
 			{} as any, // ContractInteractionService — unused on the retraction path
 			{ address: OUR_ADDRESS } as any,
 			{ orders: stubOrderScanner() },
-			undefined,
+			rebalancingService as any,
 			bidStorage,
 		)
 		;(filler as any).hyperbridge = Promise.resolve({ retractBid })
@@ -152,5 +152,56 @@ describe("IntentFiller bid retraction", () => {
 
 		expect((await bidStorage.byCommitment(COMMITMENT))!.retracted).toBe(true)
 		expect(retractBid).toHaveBeenCalledTimes(1)
+	})
+
+	it("reports work that stop drains without counting unmatched pending retractions", () => {
+		const { filler } = build([])
+		;(filler as any).globalQueue = { size: 2, pending: 1 }
+		;(filler as any).chainQueues = new Map([
+			[1, { size: 3, pending: 1 }],
+			[2, { size: 4, pending: 2 }],
+		])
+		;(filler as any).pendingRetractions = new Set([COMMITMENT])
+		;(filler as any).retractionQueue = { size: 5, pending: 1 }
+
+		expect(filler.getWorkSnapshot()).toEqual({
+			queuedEvaluations: 2,
+			evaluating: 1,
+			queuedFills: 7,
+			activeFills: 3,
+			retractions: 6,
+			rebalancing: 0,
+		})
+	})
+
+	it("reports and drains a rebalance already in flight before stopping", async () => {
+		vi.useFakeTimers()
+		let finishRebalance!: (value: { success: boolean; transfers: never[]; executedTransfers: never[] }) => void
+		const rebalancePortfolio = vi.fn(
+			() =>
+				new Promise<{ success: boolean; transfers: never[]; executedTransfers: never[] }>((resolve) => {
+					finishRebalance = resolve
+				}),
+		)
+		const { filler } = build([], { rebalancePortfolio })
+		try {
+			filler.start()
+			await vi.advanceTimersByTimeAsync(30_000)
+			expect(rebalancePortfolio).toHaveBeenCalledOnce()
+			expect(filler.getWorkSnapshot().rebalancing).toBe(1)
+
+			let stopped = false
+			const stop = filler.stop().then(() => {
+				stopped = true
+			})
+			await Promise.resolve()
+			expect(stopped).toBe(false)
+
+			finishRebalance({ success: true, transfers: [], executedTransfers: [] })
+			await stop
+			expect(filler.getWorkSnapshot().rebalancing).toBe(0)
+		} finally {
+			vi.useRealTimers()
+		}
 	})
 })

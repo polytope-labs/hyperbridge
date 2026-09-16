@@ -24,7 +24,7 @@ Each order is **auctioned** to competing solvers. Solvers bid by signing `UserOp
 
 ## Same-Chain Swaps
 
-Intent Gateway supports same-chain swaps where source and destination are the same chain. Settlement is atomic — no cross-chain messaging required. Supports **partial fills** where multiple solvers can each fill a portion of an order, with escrow released proportionally. Cancellation is immediate and any remaining escrowed assets are returned to the user.
+Intent Gateway supports same-chain swaps where source and destination are the same chain. Settlement is atomic — no cross-chain messaging required. Supports **partial fills** where multiple solvers can each fill a portion of an order, with escrow released proportionally. Cancellation is immediate: the user may cancel through the deadline, and anyone may cancel strictly after it; remaining escrow always returns to the order user.
 
 ![Same-Chain Swap](./images/intent-gateway-same-chain.svg)
 
@@ -34,27 +34,28 @@ For same-chain orders, solvers can fill any portion of the output. The proportio
 
 ## Cross-Chain Swaps
 
-Source and destination are different chains. Settlement requires cross-chain messaging through Hyperbridge. Fills are all-or-nothing — partial fills are not supported for cross-chain orders.
+Source and destination are different chains. Settlement requires cross-chain messaging through Hyperbridge. Orders without output calldata support partial fills; each fill releases the corresponding share of source-chain escrow.
 
 ![Cross-Chain Swap](./images/intent-gateway-cross-chain.svg)
 
 ### Fill Flow
 
-The solver calls `fillOrder(order, options)` on the **destination chain**. The function verifies the order hasn't expired (`order.deadline >= block.number`), confirms execution is on the correct chain, and checks the order hasn't already been filled. The solver must provide output amounts greater than or equal to the order's required amounts — any amount below the required amount reverts with `InvalidInput()`.
+The solver calls `fillOrder(order, options)` on the **destination chain**. The function verifies the order hasn't expired (`order.deadline >= block.number`), confirms execution is on the correct chain, and checks the order hasn't already been filled. For orders without output calldata, the solver can provide part of the remaining output. Orders with output calldata require a full fill.
 
 If the solver provides more tokens than required, the excess (surplus) is split according to `surplusShareBps`. If the order includes calldata, 100% of surplus goes to the protocol to prevent manipulation.
 
-After delivering output tokens to the beneficiary, the contract dispatches a cross-chain `RedeemEscrow` message back to the source chain.
+After delivering output tokens to the beneficiary, the contract dispatches a cross-chain `RedeemEscrowPartial` message for a partial fill or `RedeemEscrow` for the completing fill.
 
 
 ### Settlement
 
 When the settlement message arrives on the source chain, the ISMP host calls `onAccept()`. The handler authenticates the message (verifying it came from a known IntentGateway instance), decodes the `WithdrawalRequest`, and calls `withdraw()` which:
 
-1. Marks the order as filled (`_filled[commitment] = solver`)
-2. Transfers each escrowed input token to the solver
-3. Releases stored transaction fees (in fee token) to the solver
-4. Emits `EscrowReleased(commitment, tokens)`
+1. Releases the message's share of input escrow to the solver.
+2. On the completing fill, marks the order as filled, releases stored transaction fees to that solver, and settles the held protocol fee as revenue.
+3. Emits `EscrowReleased(commitment, solver, tokens)` for each release.
+
+Earlier partial redemption messages can arrive after the completing message or a cancellation. Their earned principal remains available; protocol-fee settlement occurs only once.
 
 ### Cancellation
 
@@ -62,7 +63,7 @@ There are two modes for cross-chain cancellation:
 
 `cancelOrder` emits `OrderCancelled(commitment, canceller)` on the chain the cancellation is initiated from, before it routes to either path below. `EscrowRefunded` remains the terminal event, on the source chain, once the escrow is actually returned.
 
-**Cancel from source chain**: The user calls `cancelOrder()` on the source chain, which dispatches a `DispatchGet` storage read request to query the destination chain's fill status. The `CancelOptions.height` must be greater than `order.deadline` — this ensures the proof is taken from a block after the order has expired. A relayer processes this request on Hyperbridge by providing storage proofs from the destination chain. If the storage slot for `_filled[commitment]` is empty (order unfilled), Hyperbridge dispatches a response back to the source chain. The `onGetResponse` handler verifies the empty proof and calls `withdraw()` to refund the escrowed tokens to the user. If the order was filled, the response contains a non-empty value and the handler reverts with `Filled()`.
+**Cancel from source chain**: The user calls `cancelOrder()` on the source chain, dispatching a storage query for the destination's `_partialFills` amounts. `CancelOptions.height` must be strictly greater than `order.deadline`. Once Hyperbridge delivers the proof, `onGetResponse` refunds the proven unfilled input and its protocol-fee share. Principal earned by solvers remains available for delayed redemptions. A fully-filled proof refunds zero and leaves pending fees for the final redemption.
 
 ![Cancel from Source Chain](./images/intent-gateway-cancel-source.svg)
 
@@ -80,7 +81,9 @@ There are two modes for cross-chain cancellation:
 | **Fill fee** (`order.fees`) | At order placement | User (in fee token or native ETH) |
 | **Relayer fee** | At fill time (cross-chain) or cancel time | Solver or user |
 
-Protocol fees are retained as "dust" in the gateway and can be swept to a treasury via Hyperbridge governance. When a solver provides more tokens than required, the excess is split according to `surplusShareBps` (100% to protocol if the order has calldata). Surplus only applies on the first fill of each output token pair.
+For orders placed after the fee-refund upgrade, protocol fees are held until settlement. A full fill earns the whole fee; cancellation returns the portion attributable to refunded input escrow, including for voluntary cancellation before expiry. The earned remainder becomes "dust" and can be swept to a treasury via Hyperbridge governance. Governance sizes sweeps from collected dust less amounts swept or already in flight; the gateway does not enforce an escrow reservation. Orders placed before the upgrade retain their original, nonrefundable fee treatment. See [Cancelling Orders](./cancelling-orders#what-is-refunded-and-what-is-not) for the refund formula.
+
+When a solver provides more tokens than required, the excess is split according to `surplusShareBps` (100% to protocol if the order has calldata). Surplus only applies on the first fill of each output token pair.
 
 ## Calldata
 
@@ -147,7 +150,6 @@ The session signature is appended to the solver's `UserOperation` as `abi.encode
 During `SolverAccount.validateUserOp()`, `IntentGatewayV2.select()` is called which recovers the session key from the EIP-712 signature, verifies it matches the order's session key, and stores the authorized solver in transient storage (`tstore`). The account then verifies the solver's signature against the plain `userOpHash` and checks that the UserOperation's nonce key matches `keccak256(commitment ‖ recovered session key)` — rejecting, during validation rather than at the solver's expense during execution, any attempt to pair a solver's signed bid with a different order or with a session signature from a key the solver never bid against. When `fillOrder()` runs in the same transaction, it reads the authorized solver from transient storage (`tload`) and verifies `msg.sender` matches. Since transient storage is cleared after each transaction, the selection cannot be replayed or front-run.
 </Step>
 </Steps>
-
 
 
 

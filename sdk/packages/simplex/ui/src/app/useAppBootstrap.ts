@@ -6,17 +6,25 @@ export type AppBootstrapState =
 	| { kind: "connecting" }
 	| { kind: "error"; message: string }
 	| { kind: "loading-setup" }
+	| { kind: "version-skew"; desktopVersion: string; solverVersion: string }
 	| { kind: "operator"; status: StatusOperator }
 	| { kind: "setup"; defaults: SetupDefaults }
 
-function resolveBootstrapState(
+export function resolveBootstrapState(
 	status: Status | undefined,
 	defaults: SetupDefaults | undefined,
 	error: string | undefined,
+	desktopVersion: string | undefined,
 ): AppBootstrapState {
 	if (error) return { kind: "error", message: error }
 	if (!status) return { kind: "connecting" }
-	if (status.mode === "operator") return { kind: "operator", status }
+	const solverVersion = typeof status.version === "string" ? status.version : "unknown"
+	if (desktopVersion && desktopVersion !== solverVersion) {
+		return { kind: "version-skew", desktopVersion, solverVersion }
+	}
+	if (status.mode === "operator") {
+		return { kind: "operator", status }
+	}
 	if (!defaults) return { kind: "loading-setup" }
 	return { kind: "setup", defaults }
 }
@@ -26,13 +34,16 @@ export function useAppBootstrap() {
 	const [status, setStatus] = useState<Status>()
 	const [defaults, setDefaults] = useState<SetupDefaults>()
 	const [error, setError] = useState<string>()
+	const [desktopVersion, setDesktopVersion] = useState<string>()
 	const requestId = useRef(0)
 
 	const refresh = useCallback(async () => {
 		const currentRequest = ++requestId.current
 		try {
-			const next = await api.get<Status>("/api/status")
+			const result = await api.getWithMeta<Status>("/api/status")
+			const next = result.body
 			if (currentRequest !== requestId.current) return
+			setDesktopVersion(result.response.headers.get("x-simplex-desktop-version") ?? undefined)
 			setStatus(next)
 			setError(undefined)
 			if (next.mode === "operator") {
@@ -56,5 +67,5 @@ export function useAppBootstrap() {
 		}
 	}, [refresh])
 
-	return { state: resolveBootstrapState(status, defaults, error), refresh }
+	return { state: resolveBootstrapState(status, defaults, error, desktopVersion), refresh }
 }

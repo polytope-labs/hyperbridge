@@ -5,27 +5,23 @@ import "forge-std/Script.sol";
 import "stringutils/strings.sol";
 
 import {IntentGatewayV2} from "../src/apps/IntentGatewayV2.sol";
-import {BaseScript} from "./BaseScript.sol";
+import {IntentGatewayScript} from "./IntentGatewayScript.sol";
 
-/// @notice Deploys a new IntentGatewayV2 implementation only. The live ERC-1967 proxy
-/// keeps its deterministic CREATE2 address; Hyperbridge governance points it at this
+/// @notice Deploys the IntentGatewayV2 modules and a new implementation only. The live ERC-1967
+/// proxy keeps its deterministic CREATE2 address; Hyperbridge governance points it at this
 /// implementation through the intents-coprocessor pallet: `upgrade_gateway` for a proxy still
 /// on the pre-`Execute` implementation, `execute_on_gateway` carrying `upgradeToAndCall`
 /// calldata afterwards.
-contract DeployScript is BaseScript {
+contract DeployScript is IntentGatewayScript {
     using strings for *;
 
     /// @notice Main deployment logic - called by BaseScript's run() functions
     /// @dev This function is called within a broadcast context
     function deploy() internal override {
-        // The admin must match the owner the proxy was originally deployed with —
-        // `_owner` is an immutable read from the implementation.
-        IntentGatewayV2 implementation = new IntentGatewayV2{salt: salt}(admin);
+        IntentGatewayV2 implementation = _deployImplementation();
 
         vm.stopBroadcast();
 
-        console.log("IntentGatewayV2 implementation deployed at:", address(implementation));
-
-        config.set("INTENT_GATEWAY_V2_IMPL", address(implementation));
+        _recordImplementation(implementation);
     }
 }

@@ -20,6 +20,21 @@ export function AppScreen(props: { state: AppBootstrapState; refresh: () => Prom
 			return <p className="hint">Connecting…</p>
 		case "loading-setup":
 			return <p className="hint">Loading setup…</p>
+		case "version-skew":
+			return (
+				<div className="connection-error" role="alert">
+					<span className="eyebrow">Restart required</span>
+					<h1>Simplex versions do not match</h1>
+					<p>
+						The desktop app is version {state.desktopVersion}, but the running solver is version{" "}
+						{state.solverVersion}. The dashboard is blocked so a newer UI cannot drive an older solver.
+					</p>
+					<p>Choose “Restart with bundled solver” from the Simplex tray or application menu.</p>
+					<button type="button" onClick={() => void refresh()}>
+						Check again
+					</button>
+				</div>
+			)
 		case "operator":
 			return <Operator status={state.status} refresh={refresh} />
 		case "setup":

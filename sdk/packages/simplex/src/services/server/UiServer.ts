@@ -56,6 +56,7 @@ import {
 	type LogRecordLevel,
 	type LogsDto,
 	type SendTokenOption,
+	type SolverWork,
 	type StatusInit,
 	type StatusOperator,
 	type WalletTxDto,
@@ -132,6 +133,7 @@ export interface PauseControl {
 	pause(): void
 	resume(): void
 	isPaused(): boolean
+	getWorkSnapshot(): SolverWork
 	getWatchOnly(): Record<number, boolean>
 }
 
@@ -227,6 +229,8 @@ export interface SetupContext {
 	configPath: string
 	/** Writes the config and boots the filler; the caller flips the server into operator mode. */
 	onSaveAndStart(config: FillerConfigFile, toml: string, path: string): Promise<void>
+	/** Stops the init-mode process when onboarding has not started booting the filler. */
+	stop?: () => Promise<void>
 	/** Test injection for the network-facing validators. */
 	deps?: SetupDeps
 }
@@ -364,6 +368,8 @@ export class UiServer {
 	private uiDistDir?: string
 	private startState: StartState = "idle"
 	private startError?: string
+	/** Keeps the listener recognizable while the filler drains during graceful shutdown. */
+	private stopping = false
 	private sseClients = new Set<ServerResponse>()
 	/** Open log tails, each mapped to the unsubscribe that detaches it from the buffer. */
 	private logClients = new Map<ServerResponse, () => void>()
@@ -381,12 +387,15 @@ export class UiServer {
 	 * ids stand in (the file is authoritative again on the next boot).
 	 */
 	private configuredChainIds?: number[]
+	private readonly version: string
 
 	constructor(opts: {
 		mode: UiMode
 		uiDistDir?: string
 		setup?: SetupContext
 		operator?: OperatorContext
+		/** Binary version, required by setup mode before an operator context exists. */
+		version?: string
 		/** Test injection for the operator-mode network probes (chain editor, token verify). */
 		deps?: SetupDeps
 	}) {
@@ -394,6 +403,7 @@ export class UiServer {
 		this.operator = opts.operator
 		this.setup = opts.setup
 		this.uiDistDir = opts.uiDistDir
+		this.version = opts.version ?? opts.operator?.version ?? "unknown"
 		this.deps = resolveSetupDeps(opts.deps)
 		if (this.mode === "operator") this.startState = "running"
 		if (this.operator) this.subscribeActivity()
@@ -658,6 +668,15 @@ export class UiServer {
 		this.unlinkSocket()
 	}
 
+	/** Marks graceful shutdown without releasing the socket-based process lock. */
+	beginStopping(): void {
+		this.stopping = true
+	}
+
+	isStopping(): boolean {
+		return this.stopping
+	}
+
 	/**
 	 * Removes the socket file on the way out, so the next run has nothing to
 	 * recover. `server.close()` unlinks too, but only once it has drained every
@@ -763,7 +782,8 @@ export class UiServer {
 		}
 
 		if (path === "/health") {
-			return sendJson(res, 200, { status: "ok", mode: this.mode })
+			const status = this.stopping ? "stopping" : this.startState === "starting" ? "starting" : "ok"
+			return sendJson(res, 200, { status, mode: this.mode, pid: process.pid })
 		}
 
 		if (path === "/api/status") {
@@ -1117,8 +1137,19 @@ export class UiServer {
 		}
 
 		if (path === "/api/stop") {
-			if (this.mode !== "operator") return sendJson(res, 409, { error: "Filler is not running" })
 			if (method !== "POST") return sendJson(res, 405, { error: "Method not allowed" })
+			if (this.stopping) return sendJson(res, 202, { stopping: true })
+			if (this.mode === "init") {
+				if (this.startState === "starting") return sendJson(res, 409, { error: "Filler startup is already in progress" })
+				if (!this.setup?.stop) return sendJson(res, 409, { error: "Filler is not running" })
+				this.beginStopping()
+				this.logger.warn("Graceful stop requested from the setup UI")
+				sendJson(res, 202, { stopping: true })
+				setTimeout(() => void this.setup?.stop?.(), 100)
+				return
+			}
+			if (!this.operator) return sendJson(res, 409, { error: "Filler is not running" })
+			this.beginStopping()
 			this.logger.warn("Graceful stop requested from the UI")
 			sendJson(res, 202, { stopping: true })
 			// Let the response flush before draining the filler and exiting.
@@ -1147,6 +1178,7 @@ export class UiServer {
 		if (this.mode === "init" || !this.operator) {
 			const status: StatusInit = {
 				mode: "init",
+				version: this.version,
 				starting: this.startState === "starting",
 				startError: this.startError,
 			}
@@ -1159,6 +1191,7 @@ export class UiServer {
 			uptimeSec: Math.floor((Date.now() - op.startedAt) / 1000),
 			paused: op.filler.isPaused(),
 			halted: op.haltControls.filter((h) => h.isHalted()).map((h) => h.index),
+			work: op.filler.getWorkSnapshot(),
 			watchOnly: op.filler.getWatchOnly(),
 			chains: op.chains,
 			strategies: op.strategies.map((s) => ({ index: s.index, exotic: s.exotic })),

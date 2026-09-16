@@ -314,8 +314,8 @@ interface IIntentGatewayV2 {
      *         the same transaction for a same-chain cancel, and on the source chain once
      *         the cancellation has travelled through Hyperbridge for a cross-chain one.
      * @param commitment The unique identifier of the order
-     * @param canceller The account that initiated the cancellation. The destination-side
-     *        route is permissionless after expiry, so this is not necessarily the creator.
+     * @param canceller The account that initiated the cancellation. Destination-side cancellation
+     *        and expired same-chain cancellation are permissionless, so this may be a third party.
      */
     event OrderCancelled(bytes32 indexed commitment, address canceller);
 
@@ -324,7 +324,7 @@ interface IIntentGatewayV2 {
      * @param commitment The unique identifier of the order
      * @param tokens The tokens and amounts released
      */
-    event EscrowReleased(bytes32 indexed commitment, TokenInfo[] tokens);
+    event EscrowReleased(bytes32 indexed commitment, address solver, TokenInfo[] tokens);
 
     /**
      * @notice Emitted when an escrow is refunded to the original user.
@@ -332,6 +332,9 @@ interface IIntentGatewayV2 {
      * @param tokens The tokens and amounts refunded
      */
     event EscrowRefunded(bytes32 indexed commitment, TokenInfo[] tokens);
+
+    /// @dev Protocol fee returned on cancellation, separate from principal in EscrowRefunded.
+    event ProtocolFeeRefunded(bytes32 indexed commitment, address indexed token, uint256 amount);
 
     /**
      * @notice Emitted when parameters are updated.
@@ -408,16 +411,25 @@ interface IIntentGatewayV2 {
     function instance(bytes calldata stateMachineId) external view returns (address);
 
     /**
-     * @notice Sets the parameters for the IntentGateway module.
-     * @param p The parameters to be set, encapsulated in a Params struct
+     * @notice The module that runs same-chain fills and cancels under delegatecall
+     * @return address The `IntrinsicModule` this implementation was deployed with
      */
-    function setParams(Params memory p) external;
+    function intrinsicModule() external view returns (address);
+
+    /**
+     * @notice The module that runs cross-chain fills, cancels and settlement under delegatecall
+     * @return address The `ExtrinsicModule` this implementation was deployed with
+     */
+    function extrinsicModule() external view returns (address);
 
     /**
      * @notice Returns the current parameters of the module.
      * @return Params A struct containing the module's current parameters
      */
     function params() external view returns (Params memory);
+
+    /// @notice Held placement fee and original post-fee principal; zero for legacy or settled orders.
+    function _protocolFees(bytes32 commitment, address token) external view returns (uint256 amount, uint256 committed);
 
     /**
      * @notice The only relayer whose `onAccept` and `onGetResponse` deliveries are accepted.
@@ -426,33 +438,17 @@ interface IIntentGatewayV2 {
     function relayer() external view returns (address);
 
     /**
-     * @notice Rotates the only relayer whose `onAccept` and `onGetResponse` deliveries are
-     *         accepted. Host-only, delivered as the migration calldata of a governance upgrade.
-     *         Leaves `version()` unchanged; a gateway is first armed by `initialize` or `migrate`.
-     * @param relayer The relayer authorised from now on. Zero reopens the gate to every relayer.
+     * @notice Takes a proxy from an earlier implementation to the current version, where
+     *         `initialize` puts a fresh one. Host-only and one-shot; emits `Initialized`. It is the
+     *         only way up for a proxy already at a version: `initialize` is refused on anything but
+     *         a bare proxy.
      */
-    function setRelayer(address relayer) external;
+    function migrate() external;
 
     /**
-     * @notice Migration for a proxy deployed before this implementation: arms the relayer gate
-     *         and takes the proxy to version 2, where `initialize` puts a fresh one. Host-only and
-     *         one-shot; emits `RelayerUpdated` then `Initialized(2)`. It is the only way up for a
-     *         proxy already at a version: `initialize` is refused on anything but a bare proxy.
-     * @param relayer The relayer authorised from now on.
-     */
-    function migrate(address relayer) external;
-
-    /**
-     * @notice Points the proxy at `newImplementation` and runs `data` against it in the same
-     *         transaction. Host-only, reached through an `Execute` governance request.
-     * @param newImplementation The implementation to install
-     * @param data Migration calldata for the new implementation, or empty
-     */
-    function upgradeToAndCall(address newImplementation, bytes calldata data) external;
-
-    /**
-     * @notice The `Initializable` version: 2 once `initialize` or `migrate` has run, 1 on a proxy
-     *         from before this implementation. Reverts on implementations that predate the gate.
+     * @notice The `Initializable` version: 3 once `initialize` or `migrate` has run on the
+     *         module-split implementation, 2 on the armed implementation before it, 1 before the
+     *         relayer gate. Reverts on implementations that predate the gate.
      * @return uint64 The initialized version
      */
     function version() external view returns (uint64);
@@ -468,7 +464,8 @@ interface IIntentGatewayV2 {
      * @notice Places an order for cross-chain intent fulfillment.
      * @dev If protocolFeeBps is configured, a protocol fee is deducted from each input token amount.
      *      The full input amounts are escrowed, but the OrderPlaced event emits reduced amounts (after fee).
-     *      Protocol fees are retained as dust and can be swept via SweepDust requests.
+     *      Protocol fees stay reserved until final settlement. Cancellation refunds the fee
+     *      attributable to unfilled principal; only the earned remainder becomes sweepable dust.
      * @param order The order to be placed
      * @param graffiti The arbitrary data used for identification purposes
      */

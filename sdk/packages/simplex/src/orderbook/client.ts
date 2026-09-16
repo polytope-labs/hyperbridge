@@ -2,6 +2,7 @@ import type { HexString } from "@hyperbridge/sdk"
 import { defaultLoggerContext, type Logger, type LoggerContext } from "@/services/Logger"
 import type {
 	CancelOrderResult,
+	FailureCode,
 	HeartbeatResult,
 	MessageRejectionCode,
 	OrderbookLimits,
@@ -37,7 +38,7 @@ const SUBMIT_ORDER_MUTATION = `
 			... on OrderAccepted { surfaced order { ${POSTED_ORDER_FIELDS} } }
 			... on OrderUnchanged { order { ${POSTED_ORDER_FIELDS} } }
 			... on OrderRejected { code message }
-			... on OrderSubmissionFailed { code message retryable }
+			... on OrderSubmissionFailed { failureCode: code message retryable }
 		}
 	}
 `
@@ -79,6 +80,21 @@ const CANCEL_ORDER_MUTATION = `
 		}
 	}
 `
+
+/**
+ * Every document this client sends.
+ *
+ * Exported so they can be held against the orderbook's published schema. A
+ * misspelled field or a selection set the server would refuse is otherwise
+ * invisible until a live request, since nothing here parses them.
+ */
+export const ORDERBOOK_DOCUMENTS = {
+	limits: LIMITS_QUERY,
+	submitOrder: SUBMIT_ORDER_MUTATION,
+	heartbeat: HEARTBEAT_MUTATION,
+	myOrders: MY_ORDERS_QUERY,
+	cancelOrder: CANCEL_ORDER_MUTATION,
+} as const
 
 /**
  * A GraphQL error the orderbook returned, or a transport failure reaching it.
@@ -124,7 +140,7 @@ export class OrderbookClient {
 			case "OrderSubmissionFailed":
 				return {
 					kind: "failed",
-					code: submitOrder.code!,
+					code: submitOrder.failureCode!,
 					message: submitOrder.message!,
 					retryable: submitOrder.retryable ?? false,
 				}
@@ -240,6 +256,12 @@ interface RawSubmitOrder {
 	order?: PostedOrder
 	surfaced?: boolean
 	code?: string
+	/**
+	 * `OrderSubmissionFailed.code` under an alias. It is a `FailureCode` where
+	 * `OrderRejected.code` is a `RejectionCode`, and one selection set cannot ask
+	 * for two enums under one name.
+	 */
+	failureCode?: FailureCode
 	message?: string
 	retryable?: boolean
 }

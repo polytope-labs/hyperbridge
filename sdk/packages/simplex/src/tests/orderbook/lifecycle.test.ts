@@ -157,14 +157,27 @@ describe("reconciliation", () => {
 		expect(client.submitted).toEqual(["0x00"])
 	})
 
-	it("surfaces a posting the orderbook has not confirmed it can cover", async () => {
+	it("surfaces a posting a balance cycle found the solver cannot cover", async () => {
 		const client = countingClient([])
 		const { service, store } = makeService(client)
 		const created = await service.create(REQUEST)
-		client.entries = [postedOrder({ backed: false })]
+		client.entries = [postedOrder({ backed: false, validatedAt: "2026-09-16T10:00:00.000Z" })]
 
 		expect(await service.reconcile()).toMatchObject({ underFunded: 1 })
-		expect((await store.get(created.order.id))?.lastError).toMatch(/not confirmed this posting is covered/)
+		expect((await store.get(created.order.id))?.lastError).toMatch(/balance does not cover this posting/)
+	})
+
+	it("says nothing about a posting no cycle has reached yet", async () => {
+		// `backed` is false before any balance has been read, and the posting
+		// surfaces at its full size meanwhile, so a fresh one would otherwise be
+		// reported as under-funded within seconds of going up.
+		const client = countingClient([])
+		const { service, store } = makeService(client)
+		const created = await service.create(REQUEST)
+		client.entries = [postedOrder({ backed: false, validatedAt: null })]
+
+		expect(await service.reconcile()).toEqual({ cancelled: 0, reposted: 0, underFunded: 0 })
+		expect((await store.get(created.order.id))?.lastError).toBeNull()
 	})
 
 	it("waits out a repost that is still in flight rather than posting a second entry", async () => {

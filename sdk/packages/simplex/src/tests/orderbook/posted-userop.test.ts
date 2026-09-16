@@ -1,9 +1,7 @@
 import { readFileSync } from "node:fs"
 import { describe, expect, it } from "vitest"
 import { recoverTypedDataAddress, type Hex } from "viem"
-import { EvmChain, IntentGateway } from "@hyperbridge/sdk"
-import { ContractInteractionService } from "@/services/ContractInteractionService"
-import { privateKeySigner } from "@/services/wallet"
+import { BASE_CHAIN, BASE_CNGN, BASE_USDC, postingRig } from "../helpers/posting"
 import {
 	ADDRESS_ZERO,
 	CryptoUtils,
@@ -183,61 +181,14 @@ describe("the orderbook's golden vectors", () => {
 	})
 })
 
-/** Anvil's first account, which is the key the vectors were signed with. */
-const SOLVER_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80" as HexString
-const USDC = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" as HexString
-const CNGN = "0x46C85152bFe9f96829aA94755D9f915F9B10EF5F" as HexString
-const CHAIN = "EVM-8453"
-
-/**
- * The real posting path over stubbed collaborators.
- *
- * Only two things are stood in for: the endpoints, which nothing on this path
- * reads, and the fee token the gateway warms its cache with, which costs a call
- * to a node. Everything the orderbook looks at is built by the code that builds
- * it in production.
- */
-let cachedGateway: Promise<IntentGateway> | undefined
-
-/** Built once: the solver account lookup inside `create` waits on a node that is not there. */
-function intentGateway(): Promise<IntentGateway> {
-	if (cachedGateway) return cachedGateway
-	const chain = EvmChain.fromParams({
-		chainId: vectors.chainId,
-		host: "0x6FFe92e4d7a9D589549644544780e6725E84b248" as HexString,
-		rpcUrl: "http://127.0.0.1:1",
-	})
-	// biome-ignore lint/suspicious/noExplicitAny: the fee token read is the one thing here that wants a node
-	;(chain as any).getFeeTokenWithDecimals = async () => ({ address: USDC, decimals: 6 })
-	cachedGateway = IntentGateway.create(chain, chain)
-	return cachedGateway
-}
-
-async function postingService() {
-	const signer = privateKeySigner(SOLVER_KEY)
-	const gateway = await intentGateway()
-
-	const configService = {
-		loggers: undefined,
-		getConfiguredChainIds: () => [],
-		getIntentGatewayAddress: () => vectors.gateway,
-		getRpcUrls: () => ["http://127.0.0.1:1"],
-	}
-	// biome-ignore lint/suspicious/noExplicitAny: narrow stubs for the collaborators this path touches
-	const service = new ContractInteractionService({} as any, configService as any, signer)
-	// biome-ignore lint/suspicious/noExplicitAny: the gateway is built above rather than from a node
-	;(service as any).getIntentGateway = async () => gateway
-	return { service, signer }
-}
-
 /** A limit order taking in 1,500,000 cNGN and paying out 1,000.5 USDC, as v2_bid does. */
 async function postOne(overrides: { ttlSecs?: number; acceptedSourceChains?: string[] } = {}) {
-	const { service, signer } = await postingService()
+	const { service, signer } = await postingRig({ gateway: vectors.gateway, chainId: vectors.chainId })
 	const built = await service.prepareLimitOrderUserOp({
-		fillChain: CHAIN,
+		fillChain: BASE_CHAIN,
 		entryPointAddress: vectors.entryPoint,
-		inputToken: CNGN,
-		outputToken: USDC,
+		inputToken: BASE_CNGN,
+		outputToken: BASE_USDC,
 		inputAmount: 1_500_000_000_000n,
 		outputAmount: 1_000_500_000n,
 		orderNonce: 7n,
@@ -265,7 +216,7 @@ describe("the op simplex posts", () => {
 		const calls = decodeERC7821ExecuteBatch(op.callData)!
 
 		expect(calls.map((call) => call.target.toLowerCase())).toEqual([
-			USDC.toLowerCase(),
+			BASE_USDC.toLowerCase(),
 			vectors.gateway.toLowerCase(),
 		])
 		const { order, options } = decodeFillOrder(calls[1].data)!

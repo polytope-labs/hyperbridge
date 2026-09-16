@@ -36,6 +36,7 @@ const EIP712_DOMAIN = [
 const CANCEL_ORDER_TYPES = {
 	EIP712Domain: EIP712_DOMAIN,
 	CancelOrder: [
+		{ name: "solver", type: "address" },
 		{ name: "commitment", type: "bytes32" },
 		{ name: "timestamp", type: "uint64" },
 	],
@@ -268,14 +269,17 @@ export class LimitOrderService {
 
 	private async signAndCancel(commitment: HexString, timestamp: number): Promise<CancelOrderResult> {
 		const { eip712DomainName, eip712DomainVersion } = (await this.limits()).serverInfo
+		const solver = this.signer.address
+		// `solver` is part of what is signed, not merely an argument alongside it:
+		// it is what stops two solvers ever signing the same digest.
 		const signature = await this.signer.signTypedData({
 			domain: { name: eip712DomainName, version: eip712DomainVersion },
 			types: CANCEL_ORDER_TYPES,
 			primaryType: "CancelOrder",
-			message: { commitment, timestamp },
+			message: { solver, commitment, timestamp },
 		})
 		try {
-			return await this.client.cancelOrder({ solver: this.signer.address, commitment, timestamp, signature })
+			return await this.client.cancelOrder({ solver, commitment, timestamp, signature })
 		} catch (err) {
 			// Never `UNKNOWN_ORDER`: that is the orderbook's considered answer that the
 			// entry is gone, and this is the request not getting one at all.
@@ -569,7 +573,7 @@ export class LimitOrderService {
 				continue
 			}
 			found.add(entry.commitment.toLowerCase())
-			if (entry.resized || entry.backed === false) {
+			if (underFunds(entry)) {
 				const reason = underFunded(entry)
 				this.logger.warn({ id: owner.id, commitment: entry.commitment }, reason)
 				await this.store.setStatus(owner.id, owner.status, reason)
@@ -807,9 +811,21 @@ function sinceMs(updatedAt: string): number {
 	return Number.isNaN(written) ? Number.POSITIVE_INFINITY : Date.now() - written
 }
 
+/**
+ * Whether the orderbook is telling us the solver cannot cover this posting.
+ *
+ * `backed` is false before any balance has been read as well as when one falls
+ * short, and a posting surfaces at its full quoted size until a cycle reaches
+ * it. Only a `backed: false` a cycle actually decided is worth an operator's
+ * attention; the rest is a posting that has simply not been looked at yet.
+ */
+function underFunds(entry: PostedOrder): boolean {
+	return entry.resized === true || (entry.backed === false && !!entry.validatedAt)
+}
+
 /** What the operator has to act on: the posting is live but not covered in full. */
 function underFunded(entry: PostedOrder): string {
 	return entry.resized
 		? `UNDER_FUNDED: the orderbook is advertising ${entry.advertisedSize} of the ${entry.quotedAmount} quoted`
-		: "UNDER_FUNDED: the orderbook has not confirmed this posting is covered"
+		: "UNDER_FUNDED: the solver's balance does not cover this posting"
 }

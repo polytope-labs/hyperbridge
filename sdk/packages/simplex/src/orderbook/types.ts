@@ -34,6 +34,11 @@ export interface ServerInfo {
 	signatureSkewSecs: number
 	maxBatchSize: number
 	minOrderSizes: TokenMinSize[]
+	/**
+	 * Every chain the orderbook serves, by state machine id: the chains orders
+	 * fill on, and the source chains they may declare.
+	 */
+	chains: string[]
 	eip712DomainName: string
 	eip712DomainVersion: string
 }
@@ -96,3 +101,9 @@ export type MessageRejectionCode =
 export type CancelOrderResult =
 	| { kind: "cancelled"; commitment: HexString }
 	| { kind: "rejected"; code: MessageRejectionCode; message: string }
+	/**
+	 * The request never got an answer. Distinct from `UNKNOWN_ORDER`, which is the
+	 * orderbook saying the entry is already gone: here the entry may well still be
+	 * live, and a caller that treats the two alike orphans it.
+	 */
+	| { kind: "failed"; message: string }

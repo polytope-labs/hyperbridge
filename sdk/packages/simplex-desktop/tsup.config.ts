@@ -8,5 +8,5 @@ export default defineConfig({
 	bundle: true,
 	clean: true,
 	sourcemap: true,
-	external: ["electron"],
+	external: ["electron", "electron-updater"],
 })

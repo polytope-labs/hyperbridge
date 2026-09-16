@@ -153,4 +153,23 @@ describe("IntentFiller bid retraction", () => {
 		expect((await bidStorage.byCommitment(COMMITMENT))!.retracted).toBe(true)
 		expect(retractBid).toHaveBeenCalledTimes(1)
 	})
+
+	it("reports every queue that must drain before a desktop update", () => {
+		const { filler } = build([])
+		;(filler as any).globalQueue = { size: 2, pending: 1 }
+		;(filler as any).chainQueues = new Map([
+			[1, { size: 3, pending: 1 }],
+			[2, { size: 4, pending: 2 }],
+		])
+		;(filler as any).pendingRetractions = new Set([COMMITMENT])
+		;(filler as any).retractionQueue = { size: 5, pending: 1 }
+
+		expect(filler.getWorkSnapshot()).toEqual({
+			queuedEvaluations: 2,
+			evaluating: 1,
+			queuedFills: 7,
+			activeFills: 3,
+			retractions: 7,
+		})
+	})
 })

@@ -95,9 +95,10 @@ not the detached solver, and starts it without opening a window. macOS and Windo
 login-item API; Linux uses the equivalent per-user XDG autostart entry. Development runs do not
 register the Electron development binary.
 
-Native menus also provide About, Open Data Directory, and Open Current Log while preserving the
-platform Edit and Window roles and their keyboard shortcuts. Check for Updates stays hidden until an
-updater is integrated.
+Native menus also provide About, Open Data Directory, Open Current Log, update checks, and a
+stable/beta channel selector while preserving the platform Edit and Window roles and their keyboard
+shortcuts. Update controls are available only in an installed build; development launches never
+contact the release feed.
 
 Simplex does not upload crash reports. Solver diagnostics remain in rotating NDJSON launch logs under
 `<userData>/logs`; five launches are retained, and **Open Current Log** opens the newest one. This
@@ -157,8 +158,39 @@ PWA logo, and fails before creating a window if any is missing:
 - `resources/tray/<state>.png` in development, with 18px macOS `Template` and 36px `Template@2x`
   variants; packaged builds place them under `desktop/tray` in Electron resources.
 
-It never searches `PATH` for the solver runtime. Packaging, signing, installers, updates, and final
-packaged resource placement are intentionally outside this package's current scope.
+It never searches `PATH` for the solver runtime. Packaged resource placement and installer generation
+remain responsibilities of the desktop release build.
+
+## Updates and rollback
+
+Installed builds check the `simplex-desktop-v*` releases in `polytope-labs/hyperbridge` at launch and
+every six hours. Stable is the default channel; beta is opt-in from the native menu. Downloads happen
+in the background without interrupting the solver. Ordinary app quit never installs a downloaded
+update.
+
+After download, the app waits until `/api/status` reports no active evaluation, queued fill, active
+fill, or bid retraction work. A running solver must also have no queued evaluations; a paused solver
+may discard those not-yet-started evaluations through its existing graceful-stop behavior. The app
+then asks the solver to stop gracefully and waits for both its private socket and operating-system
+process to disappear before invoking the installer. A solver that does not drain is never killed: the
+update remains staged and is retried. After 24 hours the app notifies the operator to pause new fills
+and create a safe window.
+
+Before installing, the app records the old and target versions in `desktop-updates.json` under
+Electron user data. The relaunched app clears that receipt only after a healthy solver reports the
+same version as the desktop app. A solver boot failure uses the native startup error and exits instead
+of failing silently. A version mismatch remains visible in the native menu and blocks the dashboard
+from driving the mismatched solver.
+
+Update artifacts use electron-updater's SHA-512 metadata checks. macOS updates additionally require
+the app's code signature, and Windows NSIS updates retain Authenticode publisher verification. The
+release configuration explicitly fixes the GitHub owner, repository, and `simplex-desktop-v` tag
+prefix so installed copies cannot silently follow a renamed build repository.
+
+Rollback is manual. Stop the solver gracefully, download the previous signed installer from GitHub
+Releases, and install it over the current build. Previous releases and their update metadata must
+remain downloadable. Switching from beta to stable does not downgrade to a numerically older stable
+version automatically.
 
 ## Verification
 

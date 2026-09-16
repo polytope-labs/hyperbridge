@@ -10,6 +10,7 @@ import {
 	probeSolverStatus,
 	sendSolverAction,
 	shouldNotifySolverFailure,
+	solverIsIdle,
 	stopRequestAccepted,
 	SolverSupervisor,
 	type SolverStatus,
@@ -35,12 +36,18 @@ async function fixture(): Promise<{
 	const server = createServer((request, response) => {
 		if (request.url === "/health") {
 			response.writeHead(200, { "content-type": "application/json" })
-			response.end(JSON.stringify({ status: healthStatus, mode: "operator" }))
+			response.end(JSON.stringify({ status: healthStatus, mode: "operator", pid: process.pid }))
 			return
 		}
 		if (request.url === "/api/status") {
 			response.writeHead(200, { "content-type": "application/json" })
-			response.end(JSON.stringify({ paused }))
+			response.end(
+				JSON.stringify({
+					paused,
+					version: "0.16.2",
+					work: { queuedEvaluations: 0, evaluating: 0, queuedFills: 0, activeFills: 0, retractions: 0 },
+				}),
+			)
 			return
 		}
 		if (request.method === "POST" && /^\/api\/(pause|resume|stop)$/.test(request.url ?? "")) {
@@ -81,15 +88,20 @@ function close(server: Server): Promise<void> {
 describe("solver supervision", () => {
 	it("reads running and paused states through the private socket", async () => {
 		const server = await fixture()
-		expect(await probeSolverStatus(server.socketPath)).toEqual({ state: "running" })
+		expect(await probeSolverStatus(server.socketPath)).toEqual({
+			state: "running",
+			pid: process.pid,
+			version: "0.16.2",
+			work: { queuedEvaluations: 0, evaluating: 0, queuedFills: 0, activeFills: 0, retractions: 0 },
+		})
 		server.setPaused(true)
-		expect(await probeSolverStatus(server.socketPath)).toEqual({ state: "paused" })
+		expect(await probeSolverStatus(server.socketPath)).toMatchObject({ state: "paused", pid: process.pid })
 	})
 
 	it("reports stopping before the socket disappears", async () => {
 		const server = await fixture()
 		server.setHealthStatus("stopping")
-		expect(await probeSolverStatus(server.socketPath)).toEqual({ state: "stopping" })
+		expect(await probeSolverStatus(server.socketPath)).toEqual({ state: "stopping", pid: process.pid })
 	})
 
 	it("sends guarded pause, resume, and stop actions", async () => {
@@ -168,6 +180,34 @@ describe("solver supervision", () => {
 		expect(holdsMachineAwake({ state: "paused" })).toBe(false)
 		expect(holdsMachineAwake({ state: "stopping" })).toBe(false)
 		expect(holdsMachineAwake({ state: "stopped" })).toBe(false)
+	})
+
+	it("only reports idle when every authoritative work count is zero", () => {
+		expect(
+			solverIsIdle({
+				state: "running",
+				work: { queuedEvaluations: 0, evaluating: 0, queuedFills: 0, activeFills: 0, retractions: 0 },
+			}),
+		).toBe(true)
+		expect(
+			solverIsIdle({
+				state: "running",
+				work: { queuedEvaluations: 1, evaluating: 0, queuedFills: 0, activeFills: 0, retractions: 0 },
+			}),
+		).toBe(false)
+		expect(
+			solverIsIdle({
+				state: "paused",
+				work: { queuedEvaluations: 1, evaluating: 0, queuedFills: 0, activeFills: 0, retractions: 0 },
+			}),
+		).toBe(true)
+		expect(
+			solverIsIdle({
+				state: "paused",
+				work: { queuedEvaluations: 0, evaluating: 0, queuedFills: 0, activeFills: 1, retractions: 0 },
+			}),
+		).toBe(false)
+		expect(solverIsIdle({ state: "running" })).toBe(false)
 	})
 
 	it("notifies for crashes but not deliberate stops", () => {

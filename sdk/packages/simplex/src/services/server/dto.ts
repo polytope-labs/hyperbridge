@@ -98,6 +98,14 @@ export interface StatusOperator {
 	uptimeSec: number
 	paused: boolean
 	halted: number[]
+	/** Work that must drain before a desktop update may stop and replace the bundled runtime. */
+	work: {
+		queuedEvaluations: number
+		evaluating: number
+		queuedFills: number
+		activeFills: number
+		retractions: number
+	}
 	watchOnly: Record<number, boolean>
 	chains: number[]
 	strategies: Array<{ index: number; exotic?: string }>

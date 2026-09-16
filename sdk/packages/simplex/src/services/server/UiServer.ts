@@ -12,7 +12,12 @@ import { VaultFundingPlanner, type VaultSweepResult } from "@/funding/vault/Vaul
 import { chainByChainId, chainsForNetwork, INIT_CHAINS, nativeTokenSymbol, type InitNetwork } from "@/cli/init/chains"
 import { TESTNET_CONFIRMATION_POINTS } from "@/cli/init/state"
 import { ChainConfigService } from "@hyperbridge/sdk"
-import { assertConfirmationCoverage, type FillerConfigFile, type FillerTomlConfig, type VaultToml } from "@/config/filler-toml"
+import {
+	assertConfirmationCoverage,
+	type FillerConfigFile,
+	type FillerTomlConfig,
+	type VaultToml,
+} from "@/config/filler-toml"
 import { emitFillerToml, writeConfigFileAtomic } from "@/cli/init/emit-toml"
 import { formatUnits, isAddress } from "viem"
 import { validateRpcUrls, type AllowlistConfig } from "@/services/FillerConfigService"
@@ -132,6 +137,13 @@ export interface PauseControl {
 	pause(): void
 	resume(): void
 	isPaused(): boolean
+	getWorkSnapshot(): {
+		queuedEvaluations: number
+		evaluating: number
+		queuedFills: number
+		activeFills: number
+		retractions: number
+	}
 	getWatchOnly(): Record<number, boolean>
 }
 
@@ -157,7 +169,10 @@ export interface OperatorContext {
 	config: FillerConfigFile
 	/** Drains the filler and exits the process (the UI's graceful Stop). */
 	stop(): Promise<void>
-	activity: Pick<ActivityRecorder, "recent" | "on" | "off" | "record" | "recordWalletTx" | "walletTxs" | "fills" | "orderHistory">
+	activity: Pick<
+		ActivityRecorder,
+		"recent" | "on" | "off" | "record" | "recordWalletTx" | "walletTxs" | "fills" | "orderHistory"
+	>
 	bids?: Pick<BidStore, "recent" | "stats" | "byCommitments">
 	/** Persists an operator pause so it survives a restart. */
 	setPaused(paused: boolean): Promise<void>
@@ -345,8 +360,8 @@ function assertSocketPathFits(path: string): void {
 	throw new Error(
 		`UI socket path is ${bytes} bytes, over this platform's ${SUN_PATH_MAX_BYTES}-byte limit for a Unix socket: ${path}. ` +
 			`Use a shorter path in a directory only this user can write — on Linux $XDG_RUNTIME_DIR ` +
-				`(${process.env.XDG_RUNTIME_DIR ?? "/run/user/<uid>"}) is both short and already private. ` +
-				`Avoid a shared directory such as ${tmpdir()}: anything that can create names there can take this address first.`,
+			`(${process.env.XDG_RUNTIME_DIR ?? "/run/user/<uid>"}) is both short and already private. ` +
+			`Avoid a shared directory such as ${tmpdir()}: anything that can create names there can take this address first.`,
 	)
 }
 
@@ -601,7 +616,9 @@ export class UiServer {
 		}
 		if (code !== "ECONNREFUSED") {
 			// EACCES on somebody else's socket, say. Not ours to delete.
-			throw new Error(`Cannot tell whether ${path} is in use (${code}); remove it by hand if no simplex is running`)
+			throw new Error(
+				`Cannot tell whether ${path} is in use (${code}); remove it by hand if no simplex is running`,
+			)
 		}
 		try {
 			unlinkSync(path)
@@ -640,7 +657,10 @@ export class UiServer {
 				this.listenProvenance = "tcp"
 				const address = this.server.address()
 				const boundPort = typeof address === "object" && address !== null ? address.port : port
-				this.logger.info({ bind: `${host}:${boundPort}` }, `Simplex UI available at http://${host}:${boundPort}/`)
+				this.logger.info(
+					{ bind: `${host}:${boundPort}` },
+					`Simplex UI available at http://${host}:${boundPort}/`,
+				)
 				resolve(boundPort)
 			})
 		})
@@ -777,7 +797,7 @@ export class UiServer {
 
 		if (path === "/health") {
 			const status = this.stopping ? "stopping" : this.startState === "starting" ? "starting" : "ok"
-			return sendJson(res, 200, { status, mode: this.mode })
+			return sendJson(res, 200, { status, mode: this.mode, pid: process.pid })
 		}
 
 		if (path === "/api/status") {
@@ -795,7 +815,8 @@ export class UiServer {
 				if (method !== "POST") return sendJson(res, 405, { error: "Method not allowed" })
 				try {
 					const body = JSON.parse(await readBody(req)) as Record<string, unknown>
-					if (path === "/api/setup/validate-rpc") return sendJson(res, 200, await validateRpc(body, this.deps))
+					if (path === "/api/setup/validate-rpc")
+						return sendJson(res, 200, await validateRpc(body, this.deps))
 					if (path === "/api/setup/validate-bundler") {
 						return sendJson(res, 200, await validateBundler(body, this.deps))
 					}
@@ -916,10 +937,24 @@ export class UiServer {
 			}
 			// Share tokens are named after their underlying (stataUSDC, ycNGN): the logo
 			// comes from the underlying's symbol, and the vault badge says it is a share.
-			const legOf = (symbol: string | null | undefined, amount: string | null | undefined, vault: boolean): LedgerLeg | null =>
-				symbol && amount ? { symbol, amount, decimals: null, icon: vault ? underlyingOf(symbol) : symbol, vault } : null
+			const legOf = (
+				symbol: string | null | undefined,
+				amount: string | null | undefined,
+				vault: boolean,
+			): LedgerLeg | null =>
+				symbol && amount
+					? { symbol, amount, decimals: null, icon: vault ? underlyingOf(symbol) : symbol, vault }
+					: null
 			const orderLeg = (leg: OrderLeg | undefined): LedgerLeg | null =>
-				leg ? { symbol: leg.symbol ?? leg.token, amount: leg.amount, decimals: leg.decimals, icon: leg.symbol ?? "", vault: false } : null
+				leg
+					? {
+							symbol: leg.symbol ?? leg.token,
+							amount: leg.amount,
+							decimals: leg.decimals,
+							icon: leg.symbol ?? "",
+							vault: false,
+						}
+					: null
 			const txs: WalletTxDto[] = [
 				...walletTxs.map(({ tokenIn, amountIn, ...tx }) => {
 					const vaultTx = tx.kind === "sweep" || tx.kind === "redeem"
@@ -991,7 +1026,9 @@ export class UiServer {
 				vaults: op.config.vault?.vaults ?? [],
 				sendTokens: this.sendTokenOptions(op),
 				knownVaults: this.knownVaultCatalog(op),
-				tunnel: op.tunnel ? { enabled: op.tunnel.status().enabled, devices: op.tunnel.status().devices.length } : undefined,
+				tunnel: op.tunnel
+					? { enabled: op.tunnel.status().enabled, devices: op.tunnel.status().devices.length }
+					: undefined,
 			}
 			return sendJson(res, 200, configDto)
 		}
@@ -1108,7 +1145,8 @@ export class UiServer {
 				return sendJson(res, 400, { error: "Invalid JSON body" })
 			}
 			if (path === "/api/tunnel/devices") {
-				if (typeof body.label !== "string" || !body.label.trim()) return sendJson(res, 400, { error: "label is required" })
+				if (typeof body.label !== "string" || !body.label.trim())
+					return sendJson(res, 400, { error: "label is required" })
 				if (body.publicKey !== undefined && typeof body.publicKey !== "string") {
 					return sendJson(res, 400, { error: "publicKey must be a string" })
 				}
@@ -1118,9 +1156,14 @@ export class UiServer {
 					return sendJson(res, 400, { error: err instanceof Error ? err.message : String(err) })
 				}
 			}
-			if (typeof body.fingerprint !== "string" || !body.fingerprint) return sendJson(res, 400, { error: "fingerprint is required" })
+			if (typeof body.fingerprint !== "string" || !body.fingerprint)
+				return sendJson(res, 400, { error: "fingerprint is required" })
 			const removed = tunnel.removeDevice(body.fingerprint)
-			return sendJson(res, removed ? 200 : 404, removed ? { removed: true } : { error: "No device with that fingerprint" })
+			return sendJson(
+				res,
+				removed ? 200 : 404,
+				removed ? { removed: true } : { error: "No device with that fingerprint" },
+			)
 		}
 
 		if (path === "/api/reset-halt") {
@@ -1134,7 +1177,8 @@ export class UiServer {
 			if (method !== "POST") return sendJson(res, 405, { error: "Method not allowed" })
 			if (this.stopping) return sendJson(res, 202, { stopping: true })
 			if (this.mode === "init") {
-				if (this.startState === "starting") return sendJson(res, 409, { error: "Filler startup is already in progress" })
+				if (this.startState === "starting")
+					return sendJson(res, 409, { error: "Filler startup is already in progress" })
 				if (!this.setup?.stop) return sendJson(res, 409, { error: "Filler is not running" })
 				this.beginStopping()
 				this.logger.warn("Graceful stop requested from the setup UI")
@@ -1184,6 +1228,7 @@ export class UiServer {
 			uptimeSec: Math.floor((Date.now() - op.startedAt) / 1000),
 			paused: op.filler.isPaused(),
 			halted: op.haltControls.filter((h) => h.isHalted()).map((h) => h.index),
+			work: op.filler.getWorkSnapshot(),
 			watchOnly: op.filler.getWatchOnly(),
 			chains: op.chains,
 			strategies: op.strategies.map((s) => ({ index: s.index, exotic: s.exotic })),
@@ -1249,8 +1294,12 @@ export class UiServer {
 				enabling.push({ side, points })
 			}
 		}
-		const bidAfter = disabling.includes("bid") ? false : Boolean(strategy.bid) || enabling.some((e) => e.side === "bid")
-		const askAfter = disabling.includes("ask") ? false : Boolean(strategy.ask) || enabling.some((e) => e.side === "ask")
+		const bidAfter = disabling.includes("bid")
+			? false
+			: Boolean(strategy.bid) || enabling.some((e) => e.side === "bid")
+		const askAfter = disabling.includes("ask")
+			? false
+			: Boolean(strategy.ask) || enabling.some((e) => e.side === "ask")
 		if (!bidAfter && !askAfter) {
 			return sendJson(res, 409, {
 				error: "A market needs at least one side — remove the pair from the config to retire it",
@@ -1394,7 +1443,11 @@ export class UiServer {
 			const hasVenuePricing = Boolean(op.config.vault?.uniswapV4?.positions?.length)
 			validatePairConfigs(next, mergedAssets, hasVenuePricing)
 			const registry = new AssetRegistry(new ChainConfigService({}), mergedAssets)
-			assertPairSymbolsResolve(next, registry, op.chains.map((id) => formatChainKey(id)))
+			assertPairSymbolsResolve(
+				next,
+				registry,
+				op.chains.map((id) => formatChainKey(id)),
+			)
 		} catch (err) {
 			return sendJson(res, 400, { error: err instanceof Error ? err.message : String(err) })
 		}
@@ -1417,7 +1470,11 @@ export class UiServer {
 		const persisted = this.persistConfig()
 		const applied = Boolean(op.addPair)
 		this.logger.warn(
-			{ pair: `${candidate.token0}/${candidate.token1}`, applied, customAssets: assets ? Object.keys(assets) : undefined },
+			{
+				pair: `${candidate.token0}/${candidate.token1}`,
+				applied,
+				customAssets: assets ? Object.keys(assets) : undefined,
+			},
 			"Market added by operator",
 		)
 		return sendJson(res, 200, {
@@ -1550,10 +1607,7 @@ export class UiServer {
 		if (!op.removePair) pairs.splice(pairIndex, 1)
 		const persisted = this.persistConfig()
 		const applied = Boolean(op.removePair)
-		this.logger.warn(
-			{ pair: `${strategy.token0}/${strategy.token1}`, applied },
-			"Market removed by operator",
-		)
+		this.logger.warn({ pair: `${strategy.token0}/${strategy.token1}`, applied }, "Market removed by operator")
 		return sendJson(res, 200, { applied, restartNeeded: !applied, persisted })
 	}
 
@@ -1641,7 +1695,9 @@ export class UiServer {
 			return sendJson(res, 400, { error: "Invalid JSON body" })
 		}
 		if (!Array.isArray(body.chains) || body.chains.length === 0) {
-			return sendJson(res, 400, { error: "Provide chains as a non-empty array — the filler needs at least one chain" })
+			return sendJson(res, 400, {
+				error: "Provide chains as a non-empty array — the filler needs at least one chain",
+			})
 		}
 
 		const rows: Array<{ chainId: number; rpcUrls: string[]; bundlerUrl: string; watchOnly: boolean }> = []
@@ -1746,7 +1802,9 @@ export class UiServer {
 					throw new Error(`RPC ${url} is unreachable: ${err instanceof Error ? err.message : err}`)
 				}
 				if (reported !== chainId) {
-					throw new Error(`RPC ${url} reports chain ${reported}, expected ${chainId} (${chainLabel(chainId)})`)
+					throw new Error(
+						`RPC ${url} reports chain ${reported}, expected ${chainId} (${chainLabel(chainId)})`,
+					)
 				}
 			}),
 		)
@@ -2035,7 +2093,10 @@ export class UiServer {
 			} catch (err) {
 				return sendJson(res, 400, { error: err instanceof Error ? err.message : String(err) })
 			}
-			op.config.vault = { vaults: body.vaults, ...(body.sweepIntervalMs ? { sweepIntervalMs: body.sweepIntervalMs } : {}) }
+			op.config.vault = {
+				vaults: body.vaults,
+				...(body.sweepIntervalMs ? { sweepIntervalMs: body.sweepIntervalMs } : {}),
+			}
 			const persisted = this.persistConfig()
 			return sendJson(res, 200, { applied: false, restartNeeded: true, persisted })
 		}
@@ -2200,14 +2261,20 @@ function vaultSweepDto(result: VaultSweepResult): VaultSweepDto {
 			chain: tx.chain,
 			txHash: tx.txHash,
 			sponsored: tx.sponsored,
-			deposits: tx.deposits.map((d) => ({ vault: d.vault, symbol: d.symbol, amount: formatUnits(d.amount, d.decimals) })),
+			deposits: tx.deposits.map((d) => ({
+				vault: d.vault,
+				symbol: d.symbol,
+				amount: formatUnits(d.amount, d.decimals),
+			})),
 		})),
 		skipped: result.skipped.map((skip) => ({
 			chain: skip.chain,
 			vault: skip.vault,
 			symbol: skip.symbol,
 			reason: skip.reason,
-			...(skip.walletBalance !== undefined ? { walletBalance: formatUnits(skip.walletBalance, skip.decimals) } : {}),
+			...(skip.walletBalance !== undefined
+				? { walletBalance: formatUnits(skip.walletBalance, skip.decimals) }
+				: {}),
 			...(skip.threshold !== undefined ? { threshold: formatUnits(skip.threshold, skip.decimals) } : {}),
 		})),
 	}

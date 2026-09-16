@@ -42,6 +42,16 @@ describe("simplex protocol proxy", () => {
 		expect(await response.json()).toEqual({ path: "/api/activity?before=42" })
 	})
 
+	it("exposes the immutable desktop version without changing the upstream body", async () => {
+		const path = await listen((_request, response) => {
+			response.writeHead(200, { "Content-Type": "application/json" })
+			response.end(JSON.stringify({ version: "old-solver" }))
+		})
+		const response = await proxyToSimplex(new Request("simplex://local/api/status"), path, undefined, "new-desktop")
+		expect(response.headers.get("x-simplex-desktop-version")).toBe("new-desktop")
+		expect(await response.json()).toEqual({ version: "old-solver" })
+	})
+
 	it("preserves status, headers, request headers and a POST body", async () => {
 		const path = await listen((request, response) => {
 			let body = ""

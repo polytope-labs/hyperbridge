@@ -81,7 +81,7 @@ describe("daemon lifecycle", () => {
 	it("attaches to a healthy daemon without spawning", async () => {
 		const spawn = vi.fn()
 		await expect(
-			ensureDaemon({ launch, probe: sequence([{ state: "ready", mode: "operator" }]), spawn }),
+			ensureDaemon({ launch, probe: sequence([{ state: "ready", mode: "operator", pid: 42 }]), spawn }),
 		).resolves.toEqual({
 			attached: true,
 			mode: "operator",
@@ -92,7 +92,7 @@ describe("daemon lifecycle", () => {
 	it("attaches to a stopping daemon without spawning a replacement", async () => {
 		const spawn = vi.fn()
 		await expect(
-			ensureDaemon({ launch, probe: sequence([{ state: "stopping", mode: "operator" }]), spawn }),
+			ensureDaemon({ launch, probe: sequence([{ state: "stopping", mode: "operator", pid: 42 }]), spawn }),
 		).resolves.toEqual({
 			attached: true,
 			mode: "operator",
@@ -106,9 +106,9 @@ describe("daemon lifecycle", () => {
 			ensureDaemon({
 				launch,
 				probe: sequence([
-					{ state: "starting", mode: "init" },
-					{ state: "starting", mode: "init" },
-					{ state: "ready", mode: "operator" },
+					{ state: "starting", mode: "init", pid: 42 },
+					{ state: "starting", mode: "init", pid: 42 },
+					{ state: "ready", mode: "operator", pid: 42 },
 				]),
 				spawn,
 				delay: async () => {},
@@ -123,7 +123,7 @@ describe("daemon lifecycle", () => {
 		const probe = sequence([
 			{ state: "spawnable", reason: "stale" },
 			{ state: "spawnable", reason: "stale" },
-			{ state: "ready", mode: "init" },
+			{ state: "ready", mode: "init", pid: 42 },
 		])
 		await expect(ensureDaemon({ launch, probe, spawn, delay: async () => {} })).resolves.toEqual({
 			attached: false,

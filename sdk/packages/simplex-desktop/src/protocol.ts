@@ -17,6 +17,7 @@ export function proxyToSimplex(
 	request: Request,
 	socketPath: string,
 	requestImpl: HttpRequest = httpRequest,
+	desktopVersion?: string,
 ): Promise<Response> {
 	const url = new URL(request.url)
 	if (url.protocol !== "simplex:" || url.hostname !== "local" || url.port || url.username || url.password) {
@@ -36,10 +37,12 @@ export function proxyToSimplex(
 			const status = response.statusCode ?? 502
 			const noBody = status === 204 || status === 205 || status === 304
 			if (noBody) response.resume()
+			const headers = responseHeaders(response.headers)
+			if (desktopVersion) headers.set("X-Simplex-Desktop-Version", desktopVersion)
 			resolve(
 				new Response(noBody ? null : (Readable.toWeb(response) as ReadableStream), {
 					status,
-					headers: responseHeaders(response.headers),
+					headers,
 				}),
 			)
 		})

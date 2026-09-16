@@ -1,14 +1,18 @@
 import type { MenuItemConstructorOptions } from "electron"
 import type { SolverStatus } from "./solver-supervisor"
+import type { UpdateStatus } from "./update-coordinator"
+import type { UpdateChannel } from "./update-store"
 
 export interface DesktopMenuActions {
 	showWindow: () => void | Promise<void>
 	togglePause: () => void | Promise<void>
 	stopSolver: () => void | Promise<void>
 	restartSolver: () => void | Promise<void>
+	restartBundledSolver: () => void | Promise<void>
 	toggleLoginItem: () => void | Promise<void>
 	showAbout: () => void
 	checkForUpdates: () => void | Promise<void>
+	setUpdateChannel: (channel: UpdateChannel) => void | Promise<void>
 	openDataDirectory: () => void | Promise<void>
 	openLog: () => void | Promise<void>
 	quitApp: () => void
@@ -21,6 +25,9 @@ export interface DesktopMenuModel {
 	loginItemEnabled: boolean
 	logAvailable: boolean
 	sleepPreventionActive: boolean
+	updatesEnabled: boolean
+	update: UpdateStatus
+	versionSkew: boolean
 }
 
 function run(action: () => void | Promise<void>): () => void {
@@ -72,6 +79,13 @@ function operationItems(model: DesktopMenuModel, actions: DesktopMenuActions): M
 			click: run(actions.togglePause),
 		},
 		{ id: "restart-solver", label: "Restart solver", enabled: canRestart, click: run(actions.restartSolver) },
+		{
+			id: "restart-bundled-solver",
+			label: "Restart with bundled solver",
+			visible: model.versionSkew,
+			enabled: model.versionSkew && canStop,
+			click: run(actions.restartBundledSolver),
+		},
 		{ id: "stop-solver", label: "Stop solver", enabled: canStop, click: run(actions.stopSolver) },
 	]
 }
@@ -95,9 +109,22 @@ export function buildTrayMenuTemplate(
 		{ id: "about-simplex", label: "About Simplex", click: actions.showAbout },
 		{
 			id: "check-for-updates",
-			label: "Check for Updates…",
-			visible: false,
+			label: updateMenuLabel(model.update),
+			visible: model.updatesEnabled,
+			enabled: model.update.state !== "checking" && model.update.state !== "installing",
 			click: run(actions.checkForUpdates),
+		},
+		{
+			id: "update-channel",
+			label: "Update Channel",
+			visible: model.updatesEnabled,
+			submenu: (["stable", "beta"] as const).map((channel) => ({
+				id: `update-channel-${channel}`,
+				label: channel === "stable" ? "Stable" : "Beta",
+				type: "radio" as const,
+				checked: model.update.channel === channel,
+				click: run(() => actions.setUpdateChannel(channel)),
+			})),
 		},
 		{ id: "open-data-directory", label: "Open Data Directory", click: run(actions.openDataDirectory) },
 		{ id: "open-current-log", label: "Open Current Log", enabled: model.logAvailable, click: run(actions.openLog) },
@@ -156,9 +183,22 @@ export function buildApplicationMenuTemplate(
 				{ id: "about-simplex", label: "About Simplex", click: actions.showAbout },
 				{
 					id: "check-for-updates",
-					label: "Check for Updates…",
-					visible: false,
+					label: updateMenuLabel(model.update),
+					visible: model.updatesEnabled,
+					enabled: model.update.state !== "checking" && model.update.state !== "installing",
 					click: run(actions.checkForUpdates),
+				},
+				{
+					id: "update-channel",
+					label: "Update Channel",
+					visible: model.updatesEnabled,
+					submenu: (["stable", "beta"] as const).map((channel) => ({
+						id: `update-channel-${channel}`,
+						label: channel === "stable" ? "Stable" : "Beta",
+						type: "radio" as const,
+						checked: model.update.channel === channel,
+						click: run(() => actions.setUpdateChannel(channel)),
+					})),
 				},
 				...macApplicationItems,
 				{ type: "separator" },
@@ -189,4 +229,27 @@ export function buildApplicationMenuTemplate(
 		{ role: "editMenu" },
 		windowMenu,
 	]
+}
+
+function updateMenuLabel(status: UpdateStatus): string {
+	switch (status.state) {
+		case "checking":
+			return "Checking for Updates…"
+		case "downloading":
+			return status.progress === undefined
+				? "Downloading Update…"
+				: `Downloading Update… ${Math.round(status.progress)}%`
+		case "waiting-for-idle":
+			return "Update Ready — Waiting for Idle"
+		case "stopping-solver":
+			return "Update Ready — Stopping Solver"
+		case "installing":
+			return "Installing Update…"
+		case "deferred":
+			return "Update Deferred — Retry Now"
+		case "error":
+			return "Update Error — Retry"
+		default:
+			return "Check for Updates…"
+	}
 }

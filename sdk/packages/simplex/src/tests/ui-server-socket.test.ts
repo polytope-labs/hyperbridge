@@ -150,6 +150,7 @@ function operatorContext(): OperatorContext & { configPath: string } {
 				paused = false
 			},
 			isPaused: () => paused,
+			getWorkSnapshot: () => ({ queuedEvaluations: 0, evaluating: 0, queuedFills: 0, activeFills: 0, retractions: 0 }),
 			getWatchOnly: () => ({}),
 		},
 		balances: { getSnapshot: () => ({ updatedAt: null, status: "loading", chains: [], issues: [] }) },
@@ -191,11 +192,18 @@ describe("UiServer Unix socket listen mode", () => {
 
 		const health = await socketRequest(socketPath, "/health")
 		expect(health.status).toBe(200)
-		expect(JSON.parse(health.body)).toEqual({ status: "ok", mode: "operator" })
+		expect(JSON.parse(health.body)).toEqual({ status: "ok", mode: "operator", pid: process.pid })
 
 		const status = await socketRequest(socketPath, "/api/status")
 		expect(status.status).toBe(200)
 		expect(JSON.parse(status.body).mode).toBe("operator")
+		expect(JSON.parse(status.body).work).toEqual({
+			queuedEvaluations: 0,
+			evaluating: 0,
+			queuedFills: 0,
+			activeFills: 0,
+			retractions: 0,
+		})
 
 		// Mutating routes work, and the CSRF header rule is untouched by the transport.
 		const unguarded = await socketRequest(socketPath, "/api/pause", { method: "POST" })
@@ -279,9 +287,11 @@ describe("UiServer Unix socket listen mode", () => {
 		// corpse and unlinks it. `--ui-socket ~/filler-config.toml` must not eat it.
 		if (process.platform === "win32") return
 		const socketPath = join(tmpDir(), "not-a-socket.toml")
-		writeFileSync(socketPath, "[simplex.signer]\nkey = \"0xdeadbeef\"\n")
+		writeFileSync(socketPath, '[simplex.signer]\nkey = "0xdeadbeef"\n')
 		const { server } = newServer()
-		await expect(server.start({ socketPath })).rejects.toThrow(/exists and is a regular file; refusing to remove it/)
+		await expect(server.start({ socketPath })).rejects.toThrow(
+			/exists and is a regular file; refusing to remove it/,
+		)
 		expect(readFileSync(socketPath, "utf8")).toContain("0xdeadbeef")
 	})
 
@@ -294,7 +304,9 @@ describe("UiServer Unix socket listen mode", () => {
 		symlinkSync(join(dir, "nowhere"), socketPath)
 		expect(existsSync(socketPath)).toBe(false)
 		const { server } = newServer()
-		await expect(server.start({ socketPath })).rejects.toThrow(/exists and is a symbolic link; refusing to remove it/)
+		await expect(server.start({ socketPath })).rejects.toThrow(
+			/exists and is a symbolic link; refusing to remove it/,
+		)
 	})
 
 	it("does not relabel a live TCP listener's connections when a socket start fails", async () => {

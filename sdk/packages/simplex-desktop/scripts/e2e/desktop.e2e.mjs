@@ -23,6 +23,7 @@ const execFileAsync = promisify(execFile)
 const require = createRequire(import.meta.url)
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..")
 const simplexRoot = resolve(packageRoot, "../simplex")
+const desktopVersion = JSON.parse(await readFile(join(packageRoot, "package.json"), "utf8")).version
 const electronExecutable = require("electron")
 const TEST_KEY = "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"
 const TEST_SEED = "bottom drive obey lake curtain smoke basket hold race lonely fit walk"
@@ -280,7 +281,19 @@ function operatorFixture(socketPath, options = {}) {
 	}
 	const operator = {
 		strategies: [],
-		filler: { pause() {}, resume() {}, isPaused: () => paused, getWatchOnly: () => ({}) },
+		filler: {
+			pause() {},
+			resume() {},
+			isPaused: () => paused,
+			getWorkSnapshot: () => ({
+				queuedEvaluations: 0,
+				evaluating: 0,
+				queuedFills: 0,
+				activeFills: 0,
+				retractions: 0,
+			}),
+			getWatchOnly: () => ({}),
+		},
 		balances: { getSnapshot: () => ({ updatedAt: null, status: "loading", chains: [], issues: [] }) },
 		haltControls: [],
 		config,
@@ -297,7 +310,7 @@ function operatorFixture(socketPath, options = {}) {
 		setLogLevel() {},
 		applyAllowlist() {},
 		applyRebalancing() {},
-		version: "0.0.0-test",
+		version: options.version ?? desktopVersion,
 		startedAt: Date.now(),
 		configPath: join(dirname(socketPath), "filler-config.toml"),
 		chains: [],
@@ -632,6 +645,31 @@ test("the native shell reports a crashed solver, prevents sleep while active, an
 	await electronApp.evaluate(({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById("restart-solver")?.click())
 	await waitForHealth(socketPath, "init")
 	await waitForDaemonPids(userDataDir)
+})
+
+test("a solver version mismatch blocks the dashboard and offers a bundled restart", async (t) => {
+	const userDataDir = await temporaryUserData("version-skew")
+	const socketPath = socketPathFor(userDataDir)
+	let electronApp
+	const fixture = operatorFixture(socketPath, { version: "0.0.1" })
+	t.after(async () => {
+		fixture.stop()
+		await cleanupDesktop(electronApp, userDataDir)
+	})
+
+	await fixture.start()
+	let page
+	;({ electronApp, page } = await launchDesktop(userDataDir))
+	await page.getByRole("heading", { name: "Simplex versions do not match" }).waitFor({ timeout: 30_000 })
+	assert.match(await page.getByRole("alert").innerText(), new RegExp(desktopVersion.replaceAll(".", "\\.")))
+	assert.match(await page.getByRole("alert").innerText(), /0\.0\.1/)
+	assert.deepEqual(
+		await electronApp.evaluate(({ Menu }) => {
+			const item = Menu.getApplicationMenu()?.getMenuItemById("restart-bundled-solver")
+			return { visible: item?.visible, enabled: item?.enabled }
+		}),
+		{ visible: true, enabled: true },
+	)
 })
 
 test("the custom protocol reconnects Orders SSE and releases streams across 20 reloads", async (t) => {

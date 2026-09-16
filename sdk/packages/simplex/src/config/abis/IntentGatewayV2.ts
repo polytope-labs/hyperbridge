@@ -154,6 +154,54 @@ export const INTENT_GATEWAY_V2_ABI = [
 	},
 	{
 		type: "function",
+		name: "_pendingProtocolFees",
+		inputs: [
+			{
+				name: "",
+				type: "address",
+				internalType: "address",
+			},
+		],
+		outputs: [
+			{
+				name: "",
+				type: "uint256",
+				internalType: "uint256",
+			},
+		],
+		stateMutability: "view",
+	},
+	{
+		type: "function",
+		name: "_protocolFees",
+		inputs: [
+			{
+				name: "",
+				type: "bytes32",
+				internalType: "bytes32",
+			},
+			{
+				name: "",
+				type: "address",
+				internalType: "address",
+			},
+		],
+		outputs: [
+			{
+				name: "amount",
+				type: "uint256",
+				internalType: "uint256",
+			},
+			{
+				name: "committed",
+				type: "uint256",
+				internalType: "uint256",
+			},
+		],
+		stateMutability: "view",
+	},
+	{
+		type: "function",
 		name: "calculateCommitmentSlotHash",
 		inputs: [
 			{
@@ -1790,6 +1838,31 @@ export const INTENT_GATEWAY_V2_ABI = [
 						internalType: "uint256",
 					},
 				],
+			},
+		],
+		anonymous: false,
+	},
+	{
+		type: "event",
+		name: "ProtocolFeeRefunded",
+		inputs: [
+			{
+				name: "commitment",
+				type: "bytes32",
+				indexed: true,
+				internalType: "bytes32",
+			},
+			{
+				name: "token",
+				type: "address",
+				indexed: true,
+				internalType: "address",
+			},
+			{
+				name: "amount",
+				type: "uint256",
+				indexed: false,
+				internalType: "uint256",
 			},
 		],
 		anonymous: false,

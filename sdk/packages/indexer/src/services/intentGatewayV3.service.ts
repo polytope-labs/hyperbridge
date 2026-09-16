@@ -40,6 +40,7 @@ import { IOrderV3EscrowReleaseToken } from "@/configs/src/types/models/IOrderV3E
 import { IOrderV3Cancellation } from "@/configs/src/types/models/IOrderV3Cancellation"
 import { IOrderV3EscrowRefund } from "@/configs/src/types/models/IOrderV3EscrowRefund"
 import { IOrderV3EscrowRefundToken } from "@/configs/src/types/models/IOrderV3EscrowRefundToken"
+import { IOrderV3ProtocolFeeRefund } from "@/configs/src/types/models/IOrderV3ProtocolFeeRefund"
 import { IntentGatewayTokenVolume } from "@/configs/src/types/models/IntentGatewayTokenVolume"
 import { CumulativeIntentGatewayVolumeUSD } from "@/configs/src/types/models/CumulativeIntentGatewayVolumeUSD"
 import { LiquidityPool } from "@/configs/src/types/models/LiquidityPool"
@@ -1194,6 +1195,36 @@ export class IntentGatewayV3Service {
 				await tokenEntity.save()
 			}),
 		)
+	}
+
+	static async recordProtocolFeeRefund(
+		commitment: string,
+		token: string,
+		amount: bigint,
+		logsData: {
+			transactionHash: string
+			blockNumber: number
+			timestamp: bigint
+			logIndex: number
+		},
+	): Promise<void> {
+		const { transactionHash, blockNumber, timestamp, logIndex } = logsData
+		const refundId = `${transactionHash}.${logIndex}`
+
+		if (await IOrderV3ProtocolFeeRefund.get(refundId)) return
+
+		const refund = await IOrderV3ProtocolFeeRefund.create({
+			id: refundId,
+			orderId: commitment,
+			chain: chainId,
+			token,
+			amount,
+			timestamp,
+			blockNumber: blockNumber.toString(),
+			transactionHash,
+			createdAt: timestampToDate(timestamp),
+		})
+		await refund.save()
 	}
 
 	/**

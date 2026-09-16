@@ -8,6 +8,7 @@ import type { FillerConfigService } from "@/services/FillerConfigService"
 import { defaultLoggerContext, type Logger, type LoggerContext } from "@/services/Logger"
 import type { Signer } from "@/services/wallet"
 import { fromHuman, rateFrom, signedAmounts, toHuman } from "./amounts"
+import { ORDERBOOK_SCALE, rateFrom, signedAmounts } from "./amounts"
 import { OrderbookClient, OrderbookRequestError } from "./client"
 import type {
 	Book,
@@ -93,10 +94,16 @@ export type LimitOrderEvent =
 	| { kind: "resized"; order: LimitOrder; delivered: bigint }
 	| { kind: "filled"; order: LimitOrder }
 
-/** The stored limit order, and what the orderbook said about its posting. */
+/**
+ * What came of an order being created: the orderbook's answer, or `unposted` for
+ * a same-asset quote, which has no book to sit on and is never sent anywhere.
+ */
+export type PostingOutcome = SubmitOrderResult | { kind: "unposted" }
+
+/** The stored limit order, and what became of its posting. */
 export interface PostedLimitOrder {
 	order: LimitOrder
-	result: SubmitOrderResult
+	result: PostingOutcome
 }
 
 export interface CancelledLimitOrder {
@@ -167,13 +174,13 @@ export class LimitOrderService {
 	 * undelegated solver's orders outright, so posting without it achieves nothing.
 	 */
 	async create(request: CreateLimitOrderRequest): Promise<PostedLimitOrder> {
-		// Ahead of the book lookup, which would otherwise report a same-symbol
-		// request as an unknown pair.
-		if (request.tokenIn === request.tokenOut) {
-			throw new LimitOrderValidationError("tokenIn and tokenOut must be different symbols")
-		}
 		const limits = await this.limits()
-		const book = this.resolveBook(limits, request.tokenIn, request.tokenOut)
+		// No book trades a symbol against itself, so a same-asset quote is ours
+		// alone: it prices swaps here and is never advertised.
+		const sameAsset = request.tokenIn === request.tokenOut
+		const book = sameAsset
+			? { id: request.tokenIn, base: request.tokenIn, quote: request.tokenIn }
+			: this.resolveBook(limits, request.tokenIn, request.tokenOut)
 		const ttlSecs = request.ttlSecs ?? this.defaultTtlSecs
 		const { amountIn, amountOut } = this.validate(request, book, limits, ttlSecs)
 
@@ -185,7 +192,16 @@ export class LimitOrderService {
 			amountOut,
 		})
 
-		if (this.delegationService && !(await this.delegationService.setupDelegation(request.fillChain))) {
+		// A same-asset fill hands back the same token it took in, so anything above
+		// par pays out more than it receives. That is the rule the curves expressed
+		// as ask-only and priced below par.
+		if (sameAsset && price > ORDERBOOK_SCALE) {
+			throw new LimitOrderValidationError(
+				`A ${request.tokenIn} for ${request.tokenIn} order must pay out no more than it takes in`,
+			)
+		}
+
+		if (!sameAsset && this.delegationService && !(await this.delegationService.setupDelegation(request.fillChain))) {
 			throw new LimitOrderValidationError(
 				`The solver is not 7702-delegated on ${request.fillChain}, and the orderbook deletes an undelegated solver's orders`,
 			)
@@ -204,7 +220,12 @@ export class LimitOrderService {
 			ttlSecs,
 			expiresAt: new Date(Date.now() + ttlSecs * 1000).toISOString(),
 		}
-		return this.post(await this.store.create(insert))
+		const stored = await this.store.create(insert)
+		if (sameAsset) {
+			this.logger.info({ id: stored.id, symbol: book.base }, "Same-asset limit order stored; nothing to post")
+			return { order: stored, result: { kind: "unposted" } }
+		}
+		return this.post(stored)
 	}
 
 	/**
@@ -385,6 +406,19 @@ export class LimitOrderService {
 			}
 		}
 
+		// Checked here rather than left to the sweep: an unreadable expiry never
+		// arrives, and one already past creates an order that is posted, paid for
+		// and never matched.
+		if (request.expiresAt != null) {
+			const at = Date.parse(request.expiresAt)
+			if (Number.isNaN(at)) {
+				throw new LimitOrderValidationError(`expiresAt '${request.expiresAt}' is not a date this can read`)
+			}
+			if (at <= Date.now()) {
+				throw new LimitOrderValidationError(`expiresAt '${request.expiresAt}' has already passed`)
+			}
+		}
+
 		if (ttlSecs < limits.serverInfo.minOrderTtlSecs) {
 			throw new LimitOrderValidationError(
 				`ttlSecs must be at least the orderbook's minimum of ${limits.serverInfo.minOrderTtlSecs}; got ${ttlSecs}`,
@@ -463,6 +497,8 @@ export class LimitOrderService {
 	 */
 	async repost(order: LimitOrder | null): Promise<LimitOrder | null> {
 		if (!order) return null
+		// A same-asset order was never on the book, so there is nothing to put back.
+		if (isLocal(order)) return this.store.setStatus(order.id, "open")
 
 		if (order.commitment) {
 			const withdrawn = await this.withdraw(order.commitment as HexString)
@@ -582,6 +618,7 @@ export class LimitOrderService {
 		}
 
 		for (const order of live) {
+			if (isLocal(order)) continue
 			if (order.commitment && found.has(order.commitment.toLowerCase())) continue
 			// A row that only just went to `resizing` has a repost in flight, and
 			// posting a second entry for one liability is worse than waiting a cycle.
@@ -826,6 +863,11 @@ export class LimitOrderService {
 
 function nowSecs(): number {
 	return Math.floor(Date.now() / 1000)
+}
+
+/** Whether this order is ours alone: a same-asset quote has no book to sit on. */
+function isLocal(order: LimitOrder): boolean {
+	return order.base === order.quote
 }
 
 /** Whether the operator's own expiry has passed. An unreadable one never has. */

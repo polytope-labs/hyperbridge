@@ -30,6 +30,27 @@ export interface PairConfig {
 	token1: string
 }
 
+/**
+ * Keys a `[[pairs]]` entry used to carry when the filler priced from curves.
+ *
+ * Unknown keys are ignored rather than rejected, so an operator upgrading from a
+ * curve config still boots. What they would not otherwise learn is that their
+ * prices are no longer read and the filler will quote nothing until limit orders
+ * are posted, which is what {@link retiredPairKeys} is for.
+ */
+const RETIRED_PAIR_KEYS = ["bidPriceCurve", "askPriceCurve", "maxOrderSize", "referenceOnly"] as const
+
+/** The retired keys an operator's `[[pairs]]` entries still carry, in the order listed above. */
+export function retiredPairKeys(pairs: readonly PairConfig[]): string[] {
+	const carried = new Set<string>()
+	for (const pair of pairs) {
+		for (const key of RETIRED_PAIR_KEYS) {
+			if ((pair as unknown as Record<string, unknown>)[key] !== undefined) carried.add(key)
+		}
+	}
+	return RETIRED_PAIR_KEYS.filter((key) => carried.has(key))
+}
+
 function isKnownSymbol(symbol: string, userAssets?: Record<string, AssetDefinition>): boolean {
 	const normalized = normalizeSymbol(symbol)
 	if (isRegistrySymbol(normalized)) return true

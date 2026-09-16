@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { ORDERBOOK_SCALE, rateFrom, signedAmounts, toRaw } from "@/orderbook/amounts"
+import { offerFor, ORDERBOOK_SCALE, rateFrom, signedAmounts, toRaw, toScaled } from "@/orderbook/amounts"
 
 /** 1,500 quote per 1 base, the shape a USDC/cNGN book reads at. */
 const PRICE = 1500n * ORDERBOOK_SCALE
@@ -122,5 +122,19 @@ describe("rateFrom", () => {
 	it("refuses a zero amount rather than dividing by it", () => {
 		expect(() => rateFrom({ ...book, tokenIn: "USDC", amountIn: 0n, amountOut: ONE })).toThrow(/greater than zero/)
 		expect(() => rateFrom({ ...book, tokenIn: "USDC", amountIn: ONE, amountOut: 0n })).toThrow(/greater than zero/)
+	})
+})
+
+describe("tokens finer than the orderbook's own unit", () => {
+	// Uncommon, but a negative exponent is a RangeError rather than a wrong
+	// number, so it would take the pricing path down rather than misprice it.
+	it("converts a 24-decimal amount both ways", () => {
+		expect(toRaw(ORDERBOOK_SCALE, 24)).toBe(10n ** 24n)
+		expect(toScaled(10n ** 24n, 24)).toBe(ORDERBOOK_SCALE)
+	})
+
+	it("quantises an offer to nothing coarser than the scale itself", () => {
+		const offer = offerFor({ side: "BID", inputAmount: 3n * ORDERBOOK_SCALE, price: ORDERBOOK_SCALE / 3n, outputDecimals: 24 })
+		expect(offer).toBe(999999999999999999n)
 	})
 })

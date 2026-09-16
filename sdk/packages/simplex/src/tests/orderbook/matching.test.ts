@@ -151,6 +151,17 @@ describe("matchLimitOrder", () => {
 		).not.toBeNull()
 	})
 
+	it("prices a same-asset swap from a same-asset order", () => {
+		// USDC in, USDC out, below par: what the curves expressed as ask-only and
+		// priced under 1. The order carries the symbol on both sides.
+		const order = limitOrder({ book: "USDC", base: "USDC", quote: "USDC", price: ((999n * ONE) / 1000n).toString() })
+		const swap = incoming({ source: BASE_CHAIN, outputToken: USDC })
+
+		const match = matchLimitOrder([order], swap, resolve)
+		expect(match?.order.id).toBe("L1")
+		expect(match?.payout).toBe(999n * ONE)
+	})
+
 	describe("accepted sources", () => {
 		it("refuses a cross-chain order from a source the limit order did not declare", () => {
 			const order = limitOrder({ acceptedSources: ["EVM-42161"] })

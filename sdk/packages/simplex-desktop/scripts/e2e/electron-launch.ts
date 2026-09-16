@@ -2,6 +2,13 @@ interface DesktopArgumentOptions {
 	hidden?: boolean
 }
 
+interface ElectronChildProcess {
+	exitCode: number | null
+	signalCode: NodeJS.Signals | null
+	pid?: number
+	once(event: "exit", listener: () => void): unknown
+}
+
 export function desktopArguments(
 	packageRoot: string,
 	userDataDir: string,
@@ -25,4 +32,20 @@ export function directElectronArguments(
 	const args = desktopArguments(packageRoot, userDataDir)
 	if (platform === "linux") args.unshift("--no-sandbox")
 	return args
+}
+
+/**
+ * Playwright's Electron "close" event waits for stdio pipes as well as the
+ * process. A detached Windows solver can inherit those pipes, so lifecycle
+ * tests must wait for the launcher process itself.
+ */
+export function electronProcessExit(child: ElectronChildProcess, timeoutMs = 30_000): Promise<void> {
+	if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve()
+	return new Promise((resolveExit, reject) => {
+		const timer = setTimeout(() => reject(new Error(`Electron ${child.pid ?? "process"} did not exit`)), timeoutMs)
+		child.once("exit", () => {
+			clearTimeout(timer)
+			resolveExit()
+		})
+	})
 }

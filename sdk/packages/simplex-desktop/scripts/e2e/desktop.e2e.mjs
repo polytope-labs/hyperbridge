@@ -17,7 +17,7 @@ import externalLinks from "../../../simplex/src/config/external-links.json" with
 import { MemoryDataStore } from "../../../simplex/src/data/memory.ts"
 import { UiServer } from "../../../simplex/src/services/server/UiServer.ts"
 import { socketPathFor } from "../../src/desktop-paths.ts"
-import { desktopArguments, directElectronArguments } from "./electron-launch.ts"
+import { desktopArguments, directElectronArguments, electronProcessExit } from "./electron-launch.ts"
 
 const execFileAsync = promisify(execFile)
 const require = createRequire(import.meta.url)
@@ -184,24 +184,8 @@ async function killProcess(pid) {
 	}
 }
 
-// Playwright's close() and "close" event wait for Electron's stdio pipes to
-// close, not for the process to exit. On Windows the detached solver can inherit
-// those handles (libuv always spawns with handle inheritance) and keep them open
-// while it runs. Wait for the process itself instead.
-function electronExit(electronApp, timeoutMs = 30_000) {
-	const child = electronApp.process()
-	if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve()
-	return new Promise((resolveExit, reject) => {
-		const timer = setTimeout(() => reject(new Error(`Electron ${child.pid} did not exit`)), timeoutMs)
-		child.once("exit", () => {
-			clearTimeout(timer)
-			resolveExit()
-		})
-	})
-}
-
 async function quitElectron(electronApp) {
-	const exited = electronExit(electronApp)
+	const exited = electronProcessExit(electronApp.process())
 	// The inspector connection drops as the app quits, which can reject this call.
 	await electronApp.evaluate(({ app }) => app.quit()).catch(() => {})
 	await exited
@@ -212,7 +196,7 @@ async function hardKillElectron(electronApp) {
 	// the shell and killing it leaves Electron running. Kill Electron's own main
 	// process; the shell exits after it.
 	const pid = await electronApp.evaluate(() => process.pid)
-	const exited = electronExit(electronApp)
+	const exited = electronProcessExit(electronApp.process())
 	if (process.platform === "win32") await execFileAsync("taskkill.exe", ["/PID", String(pid), "/F"])
 	else process.kill(pid, "SIGKILL")
 	await exited
@@ -417,8 +401,10 @@ test("window close, app quit, hard crash, and second launch preserve one detache
 	)
 	assert.deepEqual(await daemonPids(userDataDir), [daemonPid], "a second desktop launch must not spawn a solver")
 
-	const appQuit = new Promise((resolveClose) => electronApp.once("close", resolveClose))
-	await electronApp.evaluate(({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById("quit-simplex")?.click())
+	const appQuit = electronProcessExit(electronApp.process())
+	await electronApp
+		.evaluate(({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById("quit-simplex")?.click())
+		.catch(() => {})
 	await appQuit
 	electronApp = undefined
 	await waitForHealth(socketPath, "init")
@@ -497,7 +483,7 @@ test("configured startup owns the socket before filling and relaunch attaches wh
 	}, "configured solver to bind its startup lock")
 	const [daemonPid] = await waitForDaemonPids(userDataDir)
 
-	await hardKillElectron(electronApp)
+	await quitElectron(electronApp)
 	electronApp = undefined
 	;({ electronApp } = await launchDesktop(userDataDir, { hidden: true }))
 	await waitFor(async () => {

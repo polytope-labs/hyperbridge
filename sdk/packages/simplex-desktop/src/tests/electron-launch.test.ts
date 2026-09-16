@@ -1,5 +1,6 @@
+import { EventEmitter } from "node:events"
 import { describe, expect, it } from "vitest"
-import { desktopArguments, directElectronArguments } from "../../scripts/e2e/electron-launch"
+import { desktopArguments, directElectronArguments, electronProcessExit } from "../../scripts/e2e/electron-launch"
 
 describe("Electron E2E launch arguments", () => {
 	it("builds the shared desktop application arguments", () => {
@@ -24,5 +25,16 @@ describe("Electron E2E launch arguments", () => {
 			"/app/simplex-desktop",
 			"--user-data-dir=C:\\Simplex",
 		])
+	})
+
+	it("resolves from the Electron process exit without waiting for Playwright close", async () => {
+		const child = Object.assign(new EventEmitter(), {
+			exitCode: null,
+			signalCode: null,
+			pid: 42,
+		})
+		const exited = electronProcessExit(child, 100)
+		child.emit("exit", 0, null)
+		await expect(exited).resolves.toBeUndefined()
 	})
 })

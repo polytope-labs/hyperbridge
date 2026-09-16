@@ -87,8 +87,19 @@ export interface SetupDefaults {
 /** GET /api/status in init mode */
 export interface StatusInit {
 	mode: "init"
+	version: string
 	starting: boolean
 	startError?: string
+}
+
+/** Signer work that must finish before the desktop may replace the bundled solver. */
+export interface SolverWork {
+	queuedEvaluations: number
+	evaluating: number
+	queuedFills: number
+	activeFills: number
+	retractions: number
+	rebalancing: number
 }
 
 /** GET /api/status in operator mode */
@@ -98,14 +109,7 @@ export interface StatusOperator {
 	uptimeSec: number
 	paused: boolean
 	halted: number[]
-	/** Work that must drain before a desktop update may stop and replace the bundled runtime. */
-	work: {
-		queuedEvaluations: number
-		evaluating: number
-		queuedFills: number
-		activeFills: number
-		retractions: number
-	}
+	work: SolverWork
 	watchOnly: Record<number, boolean>
 	chains: number[]
 	strategies: Array<{ index: number; exotic?: string }>

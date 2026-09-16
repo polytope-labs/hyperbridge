@@ -90,6 +90,31 @@ function operationItems(model: DesktopMenuModel, actions: DesktopMenuActions): M
 	]
 }
 
+function updateItems(model: DesktopMenuModel, actions: DesktopMenuActions): MenuItemConstructorOptions[] {
+	return [
+		{
+			id: "check-for-updates",
+			label: updateMenuLabel(model.update),
+			visible: model.updatesEnabled,
+			enabled: model.update.state !== "checking" && model.update.state !== "installing",
+			click: run(actions.checkForUpdates),
+		},
+		{
+			id: "update-channel",
+			label: "Update Channel",
+			visible: model.updatesEnabled,
+			enabled: model.update.state !== "stopping-solver" && model.update.state !== "installing",
+			submenu: (["stable", "beta"] as const).map((channel) => ({
+				id: `update-channel-${channel}`,
+				label: channel === "stable" ? "Stable" : "Beta",
+				type: "radio" as const,
+				checked: model.update.channel === channel,
+				click: run(() => actions.setUpdateChannel(channel)),
+			})),
+		},
+	]
+}
+
 export function buildTrayMenuTemplate(
 	model: DesktopMenuModel,
 	actions: DesktopMenuActions,
@@ -107,25 +132,7 @@ export function buildTrayMenuTemplate(
 		},
 		{ type: "separator" },
 		{ id: "about-simplex", label: "About Simplex", click: actions.showAbout },
-		{
-			id: "check-for-updates",
-			label: updateMenuLabel(model.update),
-			visible: model.updatesEnabled,
-			enabled: model.update.state !== "checking" && model.update.state !== "installing",
-			click: run(actions.checkForUpdates),
-		},
-		{
-			id: "update-channel",
-			label: "Update Channel",
-			visible: model.updatesEnabled,
-			submenu: (["stable", "beta"] as const).map((channel) => ({
-				id: `update-channel-${channel}`,
-				label: channel === "stable" ? "Stable" : "Beta",
-				type: "radio" as const,
-				checked: model.update.channel === channel,
-				click: run(() => actions.setUpdateChannel(channel)),
-			})),
-		},
+		...updateItems(model, actions),
 		{ id: "open-data-directory", label: "Open Data Directory", click: run(actions.openDataDirectory) },
 		{ id: "open-current-log", label: "Open Current Log", enabled: model.logAvailable, click: run(actions.openLog) },
 		{ type: "separator" },
@@ -181,25 +188,7 @@ export function buildApplicationMenuTemplate(
 			label: "Simplex",
 			submenu: [
 				{ id: "about-simplex", label: "About Simplex", click: actions.showAbout },
-				{
-					id: "check-for-updates",
-					label: updateMenuLabel(model.update),
-					visible: model.updatesEnabled,
-					enabled: model.update.state !== "checking" && model.update.state !== "installing",
-					click: run(actions.checkForUpdates),
-				},
-				{
-					id: "update-channel",
-					label: "Update Channel",
-					visible: model.updatesEnabled,
-					submenu: (["stable", "beta"] as const).map((channel) => ({
-						id: `update-channel-${channel}`,
-						label: channel === "stable" ? "Stable" : "Beta",
-						type: "radio" as const,
-						checked: model.update.channel === channel,
-						click: run(() => actions.setUpdateChannel(channel)),
-					})),
-				},
+				...updateItems(model, actions),
 				...macApplicationItems,
 				{ type: "separator" },
 				...operationItems(model, actions),

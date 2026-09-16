@@ -169,18 +169,23 @@ in the background without interrupting the solver. Ordinary app quit never insta
 update.
 
 After download, the app waits until `/api/status` reports no active evaluation, queued fill, active
-fill, or bid retraction work. A running solver must also have no queued evaluations; a paused solver
-may discard those not-yet-started evaluations through its existing graceful-stop behavior. The app
-then asks the solver to stop gracefully and waits for both its private socket and operating-system
-process to disappear before invoking the installer. A solver that does not drain is never killed: the
-update remains staged and is retried. After 24 hours the app notifies the operator to pause new fills
-and create a safe window.
+fill, bid retraction, or portfolio rebalancing work. A running solver must also have no queued
+evaluations; a paused solver may discard those not-yet-started evaluations through its existing
+graceful-stop behavior. The app then asks the solver to stop gracefully and waits for both its private
+socket and operating-system process to disappear before invoking the installer. A solver that does
+not drain is never killed: the update remains staged and is retried. After 24 hours the app notifies
+the operator to pause new fills and create a safe window.
+
+A previous-version solver that does not yet report its PID can still be attached and restarted
+gracefully, using release of the private socket as the exit proof. Automatic installation remains
+staged until the app is supervising a PID-reporting solver, so updater safety is never weakened.
 
 Before installing, the app records the old and target versions in `desktop-updates.json` under
-Electron user data. The relaunched app clears that receipt only after a healthy solver reports the
-same version as the desktop app. A solver boot failure uses the native startup error and exits instead
-of failing silently. A version mismatch remains visible in the native menu and blocks the dashboard
-from driving the mismatched solver.
+Electron user data. The relaunched app clears that receipt only after a healthy setup or operator
+solver reports the same version as the desktop app. A solver boot failure uses the native startup
+error and exits instead of failing silently. A version mismatch remains visible in the native menu
+and blocks both onboarding and the dashboard from driving the mismatched solver. Changing update
+channels ignores a download that was started on the previous channel.
 
 Update artifacts use electron-updater's SHA-512 metadata checks. macOS updates additionally require
 the app's code signature, and Windows NSIS updates retain Authenticode publisher verification. The

@@ -73,7 +73,14 @@ function fakePauseControl(): PauseControl & { paused: boolean } {
 			return this.paused
 		},
 		getWorkSnapshot() {
-			return { queuedEvaluations: 0, evaluating: 0, queuedFills: 0, activeFills: 0, retractions: 0 }
+			return {
+				queuedEvaluations: 0,
+				evaluating: 0,
+				queuedFills: 0,
+				activeFills: 0,
+				retractions: 0,
+				rebalancing: 0,
+			}
 		},
 		getWatchOnly() {
 			return { 56: true }
@@ -285,6 +292,7 @@ describe("UiServer (operator mode)", () => {
 			queuedFills: 0,
 			activeFills: 0,
 			retractions: 0,
+			rebalancing: 0,
 		})
 		expect(payload.chains).toEqual([8453, 56])
 		expect(payload.watchOnly).toEqual({ "56": true })
@@ -1843,12 +1851,17 @@ describe("UiServer (init mode)", () => {
 		const stop = vi.fn().mockResolvedValue(undefined)
 		server = new UiServer({
 			mode: "init",
+			version: "0.16.2",
 			setup: { configPath: "/tmp/x.toml", onSaveAndStart: async () => {}, stop },
 		})
 		const port = await server.start(0)
 		const base = `http://127.0.0.1:${port}`
 
-		expect(await (await fetch(`${base}/api/status`)).json()).toEqual({ mode: "init", starting: false })
+		expect(await (await fetch(`${base}/api/status`)).json()).toEqual({
+			mode: "init",
+			version: "0.16.2",
+			starting: false,
+		})
 		expect((await fetch(`${base}/api/strategies`)).status).toBe(409)
 		expect((await fetch(`${base}/api/balances`)).status).toBe(409)
 		expect((await fetch(`${base}/api/pause`, { method: "POST", headers: CSRF })).status).toBe(409)

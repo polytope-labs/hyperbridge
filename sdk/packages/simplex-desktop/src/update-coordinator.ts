@@ -35,12 +35,12 @@ export interface UpdaterAdapter {
 	channel: string | null
 	on(event: string, listener: (...args: any[]) => void): this
 	removeListener(event: string, listener: (...args: any[]) => void): this
-	checkForUpdates(): Promise<unknown>
+	checkForUpdates(): Promise<{ downloadPromise?: Promise<unknown> | null } | null | undefined>
 	quitAndInstall(isSilent?: boolean, isForceRunAfter?: boolean): void
 }
 
 export interface ExitWaitOptions {
-	pid: number
+	pid?: number
 	timeoutMs?: number
 	probe: () => Promise<{ state: string }>
 	processExists?: (pid: number) => boolean
@@ -64,7 +64,7 @@ export async function waitForSolverExit(options: ExitWaitOptions): Promise<boole
 	while (Date.now() < deadline) {
 		const health = await options.probe().catch(() => ({ state: "unavailable" }))
 		const socketGone = health.state === "spawnable"
-		if (socketGone && !processExists(options.pid)) return true
+		if (socketGone && (options.pid === undefined || !processExists(options.pid))) return true
 		await delay(250)
 	}
 	return false
@@ -77,7 +77,11 @@ export class UpdateCoordinator {
 	private idleTimer?: NodeJS.Timeout
 	private installing = false
 	private installAttempt?: Promise<void>
+	private checkAttempt?: Promise<void>
+	private checkQueued = false
+	private activeCheckChannel?: UpdateChannel
 	private started = false
+	private readonly downloadChannels = new Map<string, UpdateChannel>()
 
 	private readonly listeners: Record<string, (...args: any[]) => void>
 
@@ -103,23 +107,39 @@ export class UpdateCoordinator {
 			channel: this.preferences.channel,
 		}
 		this.listeners = {
-			"checking-for-update": () => {
-				if (!this.preferences.receipt) this.setStatus({ state: "checking" })
+			"update-available": (info: { version?: string }) => {
+				const channel = this.activeCheckChannel
+				if (!channel) return this.fail(new Error("Available update did not match an active check"))
+				if (!info.version) {
+					if (channel === this.preferences.channel)
+						this.fail(new Error("Available update did not include a version"))
+					return
+				}
+				this.downloadChannels.set(info.version, channel)
+				if (channel === this.preferences.channel) {
+					this.setStatus({ state: "downloading", targetVersion: info.version })
+				}
 			},
-			"update-available": (info: { version?: string }) =>
-				this.setStatus({ state: "downloading", targetVersion: info.version }),
 			"update-not-available": () => {
-				if (!this.preferences.receipt) this.setStatus({ state: "idle" })
+				if (this.activeCheckChannel === this.preferences.channel && !this.preferences.receipt) {
+					this.setStatus({ state: "idle" })
+				}
 			},
-			"download-progress": (progress: { percent?: number }) =>
+			"download-progress": (progress: { percent?: number }) => {
+				const targetVersion = this.current.targetVersion
+				if (!targetVersion || this.downloadChannels.get(targetVersion) !== this.preferences.channel) return
 				this.setStatus({
 					state: "downloading",
-					targetVersion: this.current.targetVersion,
+					targetVersion,
 					progress: typeof progress.percent === "number" ? progress.percent : undefined,
-				}),
+				})
+			},
 			"update-downloaded": (info: { version?: string }) =>
 				void this.updateDownloaded(info.version).catch((error) => this.fail(error)),
-			error: (error: unknown) => (this.preferences.receipt ? this.defer(error) : this.fail(error)),
+			error: (error: unknown) => {
+				if (this.activeCheckChannel && this.activeCheckChannel !== this.preferences.channel) return
+				this.preferences.receipt ? this.defer(error) : this.fail(error)
+			},
 		}
 	}
 
@@ -142,6 +162,9 @@ export class UpdateCoordinator {
 		if (this.idleTimer) clearTimeout(this.idleTimer)
 		this.checkTimer = undefined
 		this.idleTimer = undefined
+		this.checkQueued = false
+		this.activeCheckChannel = undefined
+		this.downloadChannels.clear()
 		for (const [event, listener] of Object.entries(this.listeners))
 			this.options.updater.removeListener(event, listener)
 		this.started = false
@@ -149,6 +172,7 @@ export class UpdateCoordinator {
 
 	async checkNow(): Promise<void> {
 		if (!this.options.packaged || this.installing) return
+		let checkChannel: UpdateChannel | undefined
 		try {
 			if (this.preferences.receipt?.installAttemptedAt) {
 				await this.verifyPreviousInstall()
@@ -158,19 +182,34 @@ export class UpdateCoordinator {
 				await this.tryInstall()
 				return
 			}
-			this.setStatus({ state: "checking" })
-			await this.options.updater.checkForUpdates()
+			if (this.checkAttempt) {
+				this.checkQueued = true
+				await this.checkAttempt.catch(() => {})
+				return
+			}
+			const channel = this.preferences.channel
+			checkChannel = channel
+			const attempt = this.runUpdateCheck(channel)
+			this.checkAttempt = attempt
+			try {
+				await attempt
+			} finally {
+				if (this.checkAttempt === attempt) this.checkAttempt = undefined
+				if (this.activeCheckChannel === channel) this.activeCheckChannel = undefined
+				if (this.started && this.checkQueued) {
+					this.checkQueued = false
+					void this.checkNow()
+				}
+			}
 		} catch (error) {
-			this.fail(error)
+			if (!checkChannel || checkChannel === this.preferences.channel) this.fail(error)
 		}
 	}
 
 	setChannel(channel: UpdateChannel): void {
-		if (this.preferences.channel === channel) return
+		if (this.preferences.channel === channel || this.installing) return
 		try {
-			const receipt = this.preferences.receipt?.installAttemptedAt
-				? this.preferences.receipt
-				: undefined
+			const receipt = this.preferences.receipt?.installAttemptedAt ? this.preferences.receipt : undefined
 			this.preferences = { ...this.preferences, channel, receipt, lastNagAt: undefined }
 			this.options.store.write(this.preferences)
 			this.configureUpdater()
@@ -193,9 +232,18 @@ export class UpdateCoordinator {
 		this.options.updater.allowDowngrade = false
 	}
 
+	private async runUpdateCheck(channel: UpdateChannel): Promise<void> {
+		this.activeCheckChannel = channel
+		this.setStatus({ state: "checking", channel })
+		const result = await this.options.updater.checkForUpdates()
+		if (result?.downloadPromise) await result.downloadPromise
+	}
+
 	private async resumeUpdateLifecycle(): Promise<void> {
-		await this.verifyPreviousInstall()
-		if (this.current.state === "error") return
+		if (this.preferences.receipt?.installAttemptedAt) {
+			await this.verifyPreviousInstall()
+			if (this.current.state === "error") return
+		}
 		if (this.preferences.receipt) {
 			this.setStatus({
 				state: "waiting-for-idle",
@@ -240,6 +288,10 @@ export class UpdateCoordinator {
 
 	private async updateDownloaded(version: string | undefined): Promise<void> {
 		if (!version) return this.fail(new Error("Downloaded update did not include a version"))
+		const channel = this.downloadChannels.get(version)
+		this.downloadChannels.delete(version)
+		if (!channel) return this.fail(new Error(`Downloaded update ${version} did not match an active check`))
+		if (channel !== this.preferences.channel) return
 		const receipt: UpdateReceipt = {
 			fromVersion: this.options.appVersion,
 			targetVersion: version,
@@ -269,6 +321,8 @@ export class UpdateCoordinator {
 			return undefined
 		})
 		if (!solver) return this.scheduleIdleRetry()
+		// A channel change can discard the receipt while the idle probe is pending.
+		if (this.preferences.receipt !== receipt) return
 
 		if (solver.state === "stopped") {
 			return this.install(receipt)

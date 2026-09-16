@@ -150,7 +150,14 @@ function operatorContext(): OperatorContext & { configPath: string } {
 				paused = false
 			},
 			isPaused: () => paused,
-			getWorkSnapshot: () => ({ queuedEvaluations: 0, evaluating: 0, queuedFills: 0, activeFills: 0, retractions: 0 }),
+			getWorkSnapshot: () => ({
+				queuedEvaluations: 0,
+				evaluating: 0,
+				queuedFills: 0,
+				activeFills: 0,
+				retractions: 0,
+				rebalancing: 0,
+			}),
 			getWatchOnly: () => ({}),
 		},
 		balances: { getSnapshot: () => ({ updatedAt: null, status: "loading", chains: [], issues: [] }) },
@@ -203,6 +210,7 @@ describe("UiServer Unix socket listen mode", () => {
 			queuedFills: 0,
 			activeFills: 0,
 			retractions: 0,
+			rebalancing: 0,
 		})
 
 		// Mutating routes work, and the CSRF header rule is untouched by the transport.

@@ -17,7 +17,7 @@ class FakeUpdater extends EventEmitter implements UpdaterAdapter {
 		// Match electron-updater: selecting a channel implicitly enables downgrades.
 		this.allowDowngrade = true
 	}
-	checkForUpdates = vi.fn(async () => undefined)
+	checkForUpdates = vi.fn<UpdaterAdapter["checkForUpdates"]>(async () => undefined)
 	quitAndInstall = vi.fn()
 }
 
@@ -36,7 +36,14 @@ function idleSolver() {
 		state: "running" as const,
 		pid: 42,
 		version: "0.16.2",
-		work: { queuedEvaluations: 0, evaluating: 0, queuedFills: 0, activeFills: 0, retractions: 0 },
+		work: {
+			queuedEvaluations: 0,
+			evaluating: 0,
+			queuedFills: 0,
+			activeFills: 0,
+			retractions: 0,
+			rebalancing: 0,
+		},
 	}
 }
 
@@ -58,6 +65,11 @@ function coordinator(overrides: Partial<ConstructorParameters<typeof UpdateCoord
 	return { updater, store, options, instance: new UpdateCoordinator(options) }
 }
 
+function finishDownload(updater: FakeUpdater, version: string): void {
+	updater.emit("update-available", { version })
+	updater.emit("update-downloaded", { version })
+}
+
 describe("desktop update coordinator", () => {
 	it("configures manual installation and stable checks in packaged builds", async () => {
 		const test = coordinator()
@@ -75,11 +87,18 @@ describe("desktop update coordinator", () => {
 		const test = coordinator({
 			probeSolver: vi.fn(async () => ({
 				...idleSolver(),
-				work: { queuedEvaluations: 0, evaluating: 0, queuedFills: 0, activeFills: 1, retractions: 0 },
+				work: {
+					queuedEvaluations: 0,
+					evaluating: 0,
+					queuedFills: 0,
+					activeFills: 1,
+					retractions: 0,
+					rebalancing: 0,
+				},
 			})),
 		})
 		test.instance.start()
-		test.updater.emit("update-downloaded", { version: "0.17.0" })
+		finishDownload(test.updater, "0.17.0")
 		await vi.waitFor(() => expect(test.instance.status.state).toBe("waiting-for-idle"))
 		expect(test.options.requestSolverStop).not.toHaveBeenCalled()
 		expect(test.updater.quitAndInstall).not.toHaveBeenCalled()
@@ -99,7 +118,7 @@ describe("desktop update coordinator", () => {
 		})
 		test.updater.quitAndInstall.mockImplementation(() => order.push("install"))
 		test.instance.start()
-		test.updater.emit("update-downloaded", { version: "0.17.0" })
+		finishDownload(test.updater, "0.17.0")
 		await vi.waitFor(() => expect(test.updater.quitAndInstall).toHaveBeenCalledWith(false, true))
 		expect(order).toEqual(["stop", "exit", "install"])
 		expect(test.store.value.receipt?.installAttemptedAt).toEqual(expect.any(Number))
@@ -109,7 +128,7 @@ describe("desktop update coordinator", () => {
 	it("defers without force-installing when graceful exit never completes", async () => {
 		const test = coordinator({ waitForExit: vi.fn(async () => false) })
 		test.instance.start()
-		test.updater.emit("update-downloaded", { version: "0.17.0" })
+		finishDownload(test.updater, "0.17.0")
 		await vi.waitFor(() => expect(test.instance.status.state).toBe("deferred"))
 		expect(test.updater.quitAndInstall).not.toHaveBeenCalled()
 		test.instance.dispose()
@@ -135,6 +154,52 @@ describe("desktop update coordinator", () => {
 		expect(test.updater.allowDowngrade).toBe(false)
 	})
 
+	it("rejects a late download from the channel the operator left", async () => {
+		const store = new MemoryUpdateStore({ channel: "beta" })
+		const test = coordinator({ store })
+		let finishOldDownload!: () => void
+		const oldDownload = new Promise<void>((resolve) => {
+			finishOldDownload = resolve
+		})
+		test.updater.checkForUpdates.mockResolvedValueOnce({ downloadPromise: oldDownload })
+		test.instance.start()
+		await Promise.resolve()
+		test.instance.setChannel("stable")
+		// The old beta check may emit only after the channel preference changes.
+		test.updater.emit("update-available", { version: "0.17.0-beta.1" })
+		test.updater.emit("update-downloaded", { version: "0.17.0-beta.1" })
+		finishOldDownload()
+
+		await new Promise((resolve) => setTimeout(resolve, 0))
+		expect(store.value.channel).toBe("stable")
+		expect(store.value.receipt).toBeUndefined()
+		expect(test.updater.quitAndInstall).not.toHaveBeenCalled()
+		test.instance.dispose()
+	})
+
+	it("cancels a staged install when the channel changes during its idle probe", async () => {
+		let resolveProbe!: (status: ReturnType<typeof idleSolver>) => void
+		const probeSolver = vi.fn(
+			() =>
+				new Promise<ReturnType<typeof idleSolver>>((resolve) => {
+					resolveProbe = resolve
+				}),
+		)
+		const test = coordinator({ probeSolver })
+		test.instance.start()
+		finishDownload(test.updater, "0.17.0")
+		await vi.waitFor(() => expect(probeSolver).toHaveBeenCalled())
+
+		test.instance.setChannel("beta")
+		resolveProbe(idleSolver())
+		await new Promise((resolve) => setTimeout(resolve, 0))
+
+		expect(test.store.value.receipt).toBeUndefined()
+		expect(test.options.requestSolverStop).not.toHaveBeenCalled()
+		expect(test.updater.quitAndInstall).not.toHaveBeenCalled()
+		test.instance.dispose()
+	})
+
 	it("clears an attempted receipt only after app and solver versions match", async () => {
 		const store = new MemoryUpdateStore({
 			channel: "stable",
@@ -152,6 +217,27 @@ describe("desktop update coordinator", () => {
 		})
 		test.instance.start()
 		await vi.waitFor(() => expect(store.value.receipt).toBeUndefined())
+		test.instance.dispose()
+	})
+
+	it("accepts a healthy matching setup solver after an update", async () => {
+		const store = new MemoryUpdateStore({
+			channel: "stable",
+			receipt: {
+				fromVersion: "0.16.2",
+				targetVersion: "0.17.0",
+				downloadedAt: 1,
+				installAttemptedAt: 2,
+			},
+		})
+		const test = coordinator({
+			appVersion: "0.17.0",
+			store,
+			probeSolver: vi.fn(async () => ({ state: "setup" as const, pid: 42, version: "0.17.0" })),
+		})
+		test.instance.start()
+		await vi.waitFor(() => expect(store.value.receipt).toBeUndefined())
+		expect(test.updater.checkForUpdates).toHaveBeenCalled()
 		test.instance.dispose()
 	})
 
@@ -183,7 +269,7 @@ describe("desktop update coordinator", () => {
 			throw new Error("installer unavailable")
 		})
 		test.instance.start()
-		test.updater.emit("update-downloaded", { version: "0.17.0" })
+		finishDownload(test.updater, "0.17.0")
 		await vi.waitFor(() => expect(test.instance.status.state).toBe("deferred"))
 		expect(test.store.value.receipt?.installAttemptedAt).toBeUndefined()
 		expect(scheduled).toHaveLength(1)
@@ -205,7 +291,14 @@ describe("desktop update coordinator", () => {
 			now: () => now,
 			probeSolver: vi.fn(async () => ({
 				...idleSolver(),
-				work: { queuedEvaluations: 0, evaluating: 0, queuedFills: 1, activeFills: 0, retractions: 0 },
+				work: {
+					queuedEvaluations: 0,
+					evaluating: 0,
+					queuedFills: 1,
+					activeFills: 0,
+					retractions: 0,
+					rebalancing: 0,
+				},
 			})),
 		})
 		test.instance.start()
@@ -253,6 +346,19 @@ describe("desktop update coordinator", () => {
 				delay: async () => {
 					alive = false
 				},
+			}),
+		).resolves.toBe(true)
+	})
+
+	it("uses socket release as the exit proof for a legacy solver without a reported PID", async () => {
+		await expect(
+			waitForSolverExit({
+				timeoutMs: 100,
+				probe: vi.fn().mockResolvedValueOnce({ state: "stopping" }).mockResolvedValue({ state: "spawnable" }),
+				processExists: () => {
+					throw new Error("no PID should be probed")
+				},
+				delay: async () => {},
 			}),
 		).resolves.toBe(true)
 	})

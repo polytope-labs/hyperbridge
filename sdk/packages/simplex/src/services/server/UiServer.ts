@@ -61,6 +61,7 @@ import {
 	type LogRecordLevel,
 	type LogsDto,
 	type SendTokenOption,
+	type SolverWork,
 	type StatusInit,
 	type StatusOperator,
 	type WalletTxDto,
@@ -137,13 +138,7 @@ export interface PauseControl {
 	pause(): void
 	resume(): void
 	isPaused(): boolean
-	getWorkSnapshot(): {
-		queuedEvaluations: number
-		evaluating: number
-		queuedFills: number
-		activeFills: number
-		retractions: number
-	}
+	getWorkSnapshot(): SolverWork
 	getWatchOnly(): Record<number, boolean>
 }
 
@@ -400,12 +395,15 @@ export class UiServer {
 	 * ids stand in (the file is authoritative again on the next boot).
 	 */
 	private configuredChainIds?: number[]
+	private readonly version: string
 
 	constructor(opts: {
 		mode: UiMode
 		uiDistDir?: string
 		setup?: SetupContext
 		operator?: OperatorContext
+		/** Binary version, required by setup mode before an operator context exists. */
+		version?: string
 		/** Test injection for the operator-mode network probes (chain editor, token verify). */
 		deps?: SetupDeps
 	}) {
@@ -413,6 +411,7 @@ export class UiServer {
 		this.operator = opts.operator
 		this.setup = opts.setup
 		this.uiDistDir = opts.uiDistDir
+		this.version = opts.version ?? opts.operator?.version ?? "unknown"
 		this.deps = resolveSetupDeps(opts.deps)
 		if (this.mode === "operator") this.startState = "running"
 		if (this.operator) this.subscribeActivity()
@@ -1216,6 +1215,7 @@ export class UiServer {
 		if (this.mode === "init" || !this.operator) {
 			const status: StatusInit = {
 				mode: "init",
+				version: this.version,
 				starting: this.startState === "starting",
 				startError: this.startError,
 			}

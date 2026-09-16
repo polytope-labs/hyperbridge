@@ -29,6 +29,7 @@ import { patchRuntimeState } from "@/data/state"
 import type { BidStore, StateStore } from "@/data/types"
 import type { HyperbridgeScanner, OrderScanner, Subscription } from "@/scanner/types"
 import type { FillerConfigService } from "@/services/FillerConfigService"
+import type { SolverWork } from "@/services/server/dto"
 import { type Logger, moduleLogger } from "@/services/Logger"
 import type { Signer } from "@/services/wallet"
 import { hasPaymaster } from "@/services/paymaster"
@@ -75,6 +76,7 @@ export class IntentFiller {
 	private pendingRetractions = new Set<string>()
 	private rebalancingInterval?: NodeJS.Timeout
 	private initialRebalanceTimer?: NodeJS.Timeout
+	private activeRebalances = new Set<Promise<void>>()
 	private retractionSweepInterval?: NodeJS.Timeout
 	private stopPhantomPolling: (() => void) | null = null
 	// Last phantom bid commitment per chain. The pallet bundles every configured pair into a single
@@ -84,7 +86,6 @@ export class IntentFiller {
 	private hyperbridge: Promise<IntentsCoprocessor> | undefined = undefined
 	private hyperbridgeEndpoint?: { wsUrl: string; substrateKey: string }
 	/** The ApiPromise behind `hyperbridge` — ours, so stop() can disconnect it. */
-	// biome-ignore lint/suspicious/noExplicitAny: polkadot api type kept out of the public surface
 	private hyperbridgeApi: any
 
 	/**
@@ -407,13 +408,7 @@ export class IntentFiller {
 	 * evaluations too. A paused queue may be discarded by `stop()`; that method still performs the
 	 * final race-free drain if work is queued immediately after this snapshot.
 	 */
-	public getWorkSnapshot(): {
-		queuedEvaluations: number
-		evaluating: number
-		queuedFills: number
-		activeFills: number
-		retractions: number
-	} {
+	public getWorkSnapshot(): SolverWork {
 		let queuedFills = 0
 		let activeFills = 0
 		for (const queue of this.chainQueues.values()) {
@@ -425,8 +420,8 @@ export class IntentFiller {
 			evaluating: this.globalQueue.pending,
 			queuedFills,
 			activeFills,
-			retractions:
-				this.pendingRetractions.size + this.retractionQueue.size + this.retractionQueue.pending,
+			retractions: this.pendingRetractions.size + this.retractionQueue.size + this.retractionQueue.pending,
+			rebalancing: this.activeRebalances.size,
 		}
 	}
 
@@ -461,22 +456,30 @@ export class IntentFiller {
 		// Run initial check after 30 seconds (to let the filler start up). Tracked so
 		// it cannot fire after stop() has resolved.
 		this.initialRebalanceTimer = setTimeout(() => {
-			this.checkAndRebalance().catch((error) => {
-				this.logger.error({ error }, "Error in initial rebalancing check")
-			})
+			this.initialRebalanceTimer = undefined
+			void this.runTrackedRebalance()
 		}, 30_000)
 
 		// Then check every 5 minutes
 		this.rebalancingInterval = setInterval(
 			() => {
-				this.checkAndRebalance().catch((error) => {
-					this.logger.error({ error }, "Error in periodic rebalancing check")
-				})
+				void this.runTrackedRebalance()
 			},
 			5 * 60 * 1000,
 		) // 5 minutes
 
 		this.logger.info("Periodic rebalancing checks started (every 5 minutes)")
+	}
+
+	private runTrackedRebalance(): Promise<void> {
+		if (this.stopping) return Promise.resolve()
+		const task = this.checkAndRebalance()
+		this.activeRebalances.add(task)
+		void task.then(
+			() => this.activeRebalances.delete(task),
+			() => this.activeRebalances.delete(task),
+		)
+		return task
 	}
 
 	/**
@@ -595,6 +598,7 @@ export class IntentFiller {
 		})
 		promises.push(this.globalQueue.onIdle())
 		promises.push(this.retractionQueue.onIdle())
+		promises.push(...this.activeRebalances)
 
 		await Promise.all(promises)
 

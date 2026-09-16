@@ -6,17 +6,21 @@ channel and beta is opt-in. Checks and downloads run while the detached solver c
 ordinary Electron quit never installs an update.
 
 `GET /health` now reports the solver PID and operator `GET /api/status` reports queued and active
-evaluation, queued and active fill, and retraction counts. A downloaded update waits for active work
-to drain; running solvers must also have no queued evaluations, while paused solvers may discard
-not-yet-started evaluations through the existing graceful-stop behavior. The installer runs only after
-the private socket and old PID are both gone. A slow drain is deferred without killing the solver,
-and a staged update older than 24 hours raises a daily notification.
+evaluation, queued and active fill, retraction, and rebalancing counts. A downloaded update waits for
+active work to drain; running solvers must also have no queued evaluations, while paused solvers may
+discard not-yet-started evaluations through the existing graceful-stop behavior. Rebalancing promises
+are tracked and drained during graceful stop. The installer runs only after the private socket and old
+PID are both gone. A slow drain is deferred without killing the solver, and a staged update older than
+24 hours raises a daily notification.
 
 The app persists the target version before installation and clears it only when the relaunched app
-and healthy solver report the same version. The custom protocol exposes the immutable desktop version
-as a response header; the renderer blocks operator pages when it differs from the solver version and
-directs the operator to restart with the bundled solver. Rollback uses a previous signed installer
-after a graceful solver stop; channel changes never trigger an automatic downgrade.
+and healthy setup or operator solver report the same version. The custom protocol exposes the
+immutable desktop version as a response header; the renderer blocks setup and operator pages when it
+differs from the solver version and directs the operator to restart with the bundled solver. A solver
+from before PID health reporting can still be attached and gracefully restarted by treating socket
+release as its exit proof, but automatic installation requires a reported PID. Rollback uses a
+previous signed installer after a graceful solver stop; channel changes ignore downloads started on
+the previous channel and never trigger an automatic downgrade.
 
 Release metadata supplies SHA-512 artifact verification. macOS also verifies the application code
 signature, and Windows NSIS updates keep Authenticode publisher verification enabled. Installer and

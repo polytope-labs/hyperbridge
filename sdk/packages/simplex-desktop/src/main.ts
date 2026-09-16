@@ -25,7 +25,7 @@ import {
 	sendSolverAction,
 	shouldNotifySolverFailure,
 	SolverSupervisor,
-	solverVersion,
+	solverHasVersionSkew,
 	stopRequestAccepted,
 	type SolverStatus,
 } from "./solver-supervisor"
@@ -129,7 +129,6 @@ const menuActions: DesktopMenuActions = {
 function refreshNativeUi(): void {
 	if (!supervisor || !loginItem) return
 	const status = supervisor.status
-	const version = solverVersion(status)
 	const model = {
 		status,
 		loginItemSupported: loginItem.supported,
@@ -138,7 +137,7 @@ function refreshNativeUi(): void {
 		sleepPreventionActive: currentPowerSaveState(),
 		updatesEnabled: app.isPackaged && Boolean(updateCoordinator),
 		update: updateStatus,
-		versionSkew: Boolean(version && version !== app.getVersion()),
+		versionSkew: solverHasVersionSkew(status, app.getVersion()),
 	}
 
 	if (tray && !tray.isDestroyed()) {
@@ -245,7 +244,7 @@ async function restartSolver(): Promise<void> {
 async function restartBundledSolver(): Promise<void> {
 	if (!daemonLaunch || !supervisor) return
 	const status = await supervisor.pollNow()
-	if ((status.state === "running" || status.state === "paused" || status.state === "setup") && status.pid) {
+	if (status.state === "running" || status.state === "paused" || status.state === "setup") {
 		intentionalStop = true
 		try {
 			await sendSolverAction(daemonLaunch.socketPath, "stop")

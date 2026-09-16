@@ -10,6 +10,7 @@ import {
 	probeSolverStatus,
 	sendSolverAction,
 	shouldNotifySolverFailure,
+	solverHasVersionSkew,
 	solverIsIdle,
 	stopRequestAccepted,
 	SolverSupervisor,
@@ -45,7 +46,14 @@ async function fixture(): Promise<{
 				JSON.stringify({
 					paused,
 					version: "0.16.2",
-					work: { queuedEvaluations: 0, evaluating: 0, queuedFills: 0, activeFills: 0, retractions: 0 },
+					work: {
+						queuedEvaluations: 0,
+						evaluating: 0,
+						queuedFills: 0,
+						activeFills: 0,
+						retractions: 0,
+						rebalancing: 0,
+					},
 				}),
 			)
 			return
@@ -92,10 +100,39 @@ describe("solver supervision", () => {
 			state: "running",
 			pid: process.pid,
 			version: "0.16.2",
-			work: { queuedEvaluations: 0, evaluating: 0, queuedFills: 0, activeFills: 0, retractions: 0 },
+			work: {
+				queuedEvaluations: 0,
+				evaluating: 0,
+				queuedFills: 0,
+				activeFills: 0,
+				retractions: 0,
+				rebalancing: 0,
+			},
 		})
 		server.setPaused(true)
 		expect(await probeSolverStatus(server.socketPath)).toMatchObject({ state: "paused", pid: process.pid })
+	})
+
+	it("reads setup version from a previous daemon that does not report a PID", async () => {
+		const directory = mkdtempSync(join(tmpdir(), "simplex-supervisor-legacy-"))
+		const socketPath = socketPathFor(directory)
+		const server = createServer((request, response) => {
+			response.writeHead(200, { "content-type": "application/json" })
+			response.end(
+				JSON.stringify(
+					request.url === "/health"
+						? { status: "ok", mode: "init" }
+						: { mode: "init", version: "0.16.1", starting: false },
+				),
+			)
+		})
+		await listen(server, socketPath)
+		cleanups.push(async () => {
+			await close(server)
+			rmSync(directory, { recursive: true, force: true })
+		})
+
+		expect(await probeSolverStatus(socketPath)).toEqual({ state: "setup", version: "0.16.1" })
 	})
 
 	it("reports stopping before the socket disappears", async () => {
@@ -186,28 +223,75 @@ describe("solver supervision", () => {
 		expect(
 			solverIsIdle({
 				state: "running",
-				work: { queuedEvaluations: 0, evaluating: 0, queuedFills: 0, activeFills: 0, retractions: 0 },
+				work: {
+					queuedEvaluations: 0,
+					evaluating: 0,
+					queuedFills: 0,
+					activeFills: 0,
+					retractions: 0,
+					rebalancing: 0,
+				},
 			}),
 		).toBe(true)
 		expect(
 			solverIsIdle({
 				state: "running",
-				work: { queuedEvaluations: 1, evaluating: 0, queuedFills: 0, activeFills: 0, retractions: 0 },
+				work: {
+					queuedEvaluations: 1,
+					evaluating: 0,
+					queuedFills: 0,
+					activeFills: 0,
+					retractions: 0,
+					rebalancing: 0,
+				},
 			}),
 		).toBe(false)
 		expect(
 			solverIsIdle({
 				state: "paused",
-				work: { queuedEvaluations: 1, evaluating: 0, queuedFills: 0, activeFills: 0, retractions: 0 },
+				work: {
+					queuedEvaluations: 1,
+					evaluating: 0,
+					queuedFills: 0,
+					activeFills: 0,
+					retractions: 0,
+					rebalancing: 0,
+				},
 			}),
 		).toBe(true)
 		expect(
 			solverIsIdle({
 				state: "paused",
-				work: { queuedEvaluations: 0, evaluating: 0, queuedFills: 0, activeFills: 1, retractions: 0 },
+				work: {
+					queuedEvaluations: 0,
+					evaluating: 0,
+					queuedFills: 0,
+					activeFills: 1,
+					retractions: 0,
+					rebalancing: 0,
+				},
+			}),
+		).toBe(false)
+		expect(
+			solverIsIdle({
+				state: "running",
+				work: {
+					queuedEvaluations: 0,
+					evaluating: 0,
+					queuedFills: 0,
+					activeFills: 0,
+					retractions: 0,
+					rebalancing: 1,
+				},
 			}),
 		).toBe(false)
 		expect(solverIsIdle({ state: "running" })).toBe(false)
+	})
+
+	it("treats setup without a matching reported version as skewed", () => {
+		expect(solverHasVersionSkew({ state: "setup", version: "0.16.2" }, "0.17.0")).toBe(true)
+		expect(solverHasVersionSkew({ state: "setup" }, "0.17.0")).toBe(true)
+		expect(solverHasVersionSkew({ state: "setup", version: "0.17.0" }, "0.17.0")).toBe(false)
 	})
 
 	it("notifies for crashes but not deliberate stops", () => {

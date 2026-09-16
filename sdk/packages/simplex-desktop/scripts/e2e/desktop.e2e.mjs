@@ -291,6 +291,7 @@ function operatorFixture(socketPath, options = {}) {
 				queuedFills: 0,
 				activeFills: 0,
 				retractions: 0,
+				rebalancing: 0,
 			}),
 			getWatchOnly: () => ({}),
 		},

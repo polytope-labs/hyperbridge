@@ -127,6 +127,12 @@ describe("native desktop menus", () => {
 		expect(item(template, "check-for-updates").label).toBe("Update Ready — Waiting for Idle")
 		expect(item(template, "restart-bundled-solver").visible).toBe(true)
 		expect(item(template, "restart-bundled-solver").enabled).toBe(true)
+
+		const stopping = buildTrayMenuTemplate(
+			{ ...runningModel, update: { state: "stopping-solver", channel: "stable", targetVersion: "0.17.0" } },
+			actions(),
+		)
+		expect(item(stopping, "update-channel").enabled).toBe(false)
 	})
 
 	it("labels every solver status", () => {

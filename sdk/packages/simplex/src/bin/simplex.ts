@@ -442,7 +442,11 @@ addRunOptions(program.command("run", { isDefault: true }))
 				// the same server once boot completes. A second desktop launch sees
 				// `starting` and waits instead of starting another signer process.
 				if (uiEnabled && uiSocket) {
-					const server = new UiServer({ mode: "init", uiDistDir: resolveUiDistDir() })
+					const server = new UiServer({
+						mode: "init",
+						version: packageJson.version,
+						uiDistDir: resolveUiDistDir(),
+					})
 					server.setStartState("starting")
 					uiServer = server
 					try {
@@ -482,6 +486,7 @@ addRunOptions(program.command("run", { isDefault: true }))
 					tunnel = createTunnel(config)
 					uiServer = new UiServer({
 						mode: "operator",
+						version: packageJson.version,
 						uiDistDir: resolveUiDistDir(),
 						operator: await operatorContextFrom(simplex!, () => shutdown("UI"), tunnel),
 					})
@@ -520,6 +525,7 @@ addRunOptions(program.command("run", { isDefault: true }))
 			const outputPath = resolve(options.dataDir ?? process.cwd(), DEFAULT_CONFIG_FILENAME)
 			const server = new UiServer({
 				mode: "init",
+				version: packageJson.version,
 				uiDistDir: resolveUiDistDir(),
 				setup: {
 					configPath: outputPath,

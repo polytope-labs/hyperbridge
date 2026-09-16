@@ -10,7 +10,7 @@ export type AppBootstrapState =
 	| { kind: "operator"; status: StatusOperator }
 	| { kind: "setup"; defaults: SetupDefaults }
 
-function resolveBootstrapState(
+export function resolveBootstrapState(
 	status: Status | undefined,
 	defaults: SetupDefaults | undefined,
 	error: string | undefined,
@@ -18,10 +18,11 @@ function resolveBootstrapState(
 ): AppBootstrapState {
 	if (error) return { kind: "error", message: error }
 	if (!status) return { kind: "connecting" }
+	const solverVersion = typeof status.version === "string" ? status.version : "unknown"
+	if (desktopVersion && desktopVersion !== solverVersion) {
+		return { kind: "version-skew", desktopVersion, solverVersion }
+	}
 	if (status.mode === "operator") {
-		if (desktopVersion && desktopVersion !== status.version) {
-			return { kind: "version-skew", desktopVersion, solverVersion: status.version }
-		}
 		return { kind: "operator", status }
 	}
 	if (!defaults) return { kind: "loading-setup" }

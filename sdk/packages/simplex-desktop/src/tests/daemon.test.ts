@@ -1,8 +1,19 @@
 import { EventEmitter } from "node:events"
 import type { ChildProcess, SpawnOptions } from "node:child_process"
-import { fstatSync, readdirSync } from "node:fs"
+import { fstatSync, mkdtempSync, readdirSync, rmSync } from "node:fs"
+import { createServer } from "node:http"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { describe, expect, it, vi } from "vitest"
-import { daemonArgs, ensureDaemon, linuxDaemonStdio, spawnDaemon, type DaemonLaunch, type HealthProbe } from "../daemon"
+import {
+	daemonArgs,
+	ensureDaemon,
+	linuxDaemonStdio,
+	probeHealth,
+	spawnDaemon,
+	type DaemonLaunch,
+	type HealthProbe,
+} from "../daemon"
 
 const launch: DaemonLaunch = {
 	nodePath: "/runtime/node",
@@ -87,6 +98,28 @@ describe("daemon lifecycle", () => {
 			mode: "operator",
 		})
 		expect(spawn).not.toHaveBeenCalled()
+	})
+
+	it("recognizes a previous-version daemon whose health response predates process ids", async () => {
+		const directory = mkdtempSync(join(tmpdir(), "simplex-legacy-health-"))
+		const socketPath =
+			process.platform === "win32"
+				? `\\\\.\\pipe\\simplex-legacy-health-${process.pid}-${Date.now()}`
+				: join(directory, "simplex.sock")
+		const server = createServer((_request, response) => {
+			response.writeHead(200, { "content-type": "application/json" })
+			response.end(JSON.stringify({ status: "ok", mode: "operator" }))
+		})
+		try {
+			await new Promise<void>((resolve, reject) => {
+				server.once("error", reject)
+				server.listen(socketPath, resolve)
+			})
+			await expect(probeHealth(socketPath)).resolves.toEqual({ state: "ready", mode: "operator" })
+		} finally {
+			await new Promise<void>((resolve) => server.close(() => resolve()))
+			rmSync(directory, { recursive: true, force: true })
+		}
 	})
 
 	it("attaches to a stopping daemon without spawning a replacement", async () => {

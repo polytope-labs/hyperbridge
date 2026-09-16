@@ -21,6 +21,8 @@ import { limitOrderStore } from "../helpers/limit-orders"
 const COMMITMENT = "0x4380111111111111111111111111111111111111111111111111111111114818" as HexString
 const OUR_ADDRESS = "0xAAAA00000000000000000000000000000000AAAA" as HexString
 const LIMIT_ORDER = "limit-0"
+const CNGN = "0xCCCC00000000000000000000000000000000CCCC" as HexString
+const OTHER = "0xDDDD00000000000000000000000000000000DDDD" as HexString
 /** 1,000 of an 18-decimal token, the payout each test's bid holds. */
 const PAYOUT = (1000n * 10n ** 18n).toString()
 
@@ -126,6 +128,58 @@ describe("a bid's hold on its limit order", () => {
 		await (ctx.filler as any).releaseReservation(COMMITMENT)
 
 		expect(await ctx.reserved()).toBe("0")
+	})
+})
+
+describe("a fill's draw-down", () => {
+	/** The filler's fill path, with the registry and decimals a draw-down needs. */
+	async function onFill(outputs: Array<{ token: HexString; amount: bigint }>) {
+		const ctx = await build()
+		await placeBid(ctx)
+		const settleFill = vi.fn(async () => null)
+		;(ctx.filler as any).assetRegistry = { getAddress: () => CNGN }
+		;(ctx.filler as any).contractService = { getTokenDecimals: async () => 18 }
+		;(ctx.filler as any).limitOrderService = { settleFill }
+
+		await (ctx.filler as any).settleFilledLimitOrder(COMMITMENT, 8453, outputs)
+		return { ...ctx, settleFill }
+	}
+
+	it("gives the hold back and works the order down by what went out", async () => {
+		const ctx = await onFill([{ token: CNGN, amount: 400n * 10n ** 18n }])
+
+		expect(await ctx.reserved()).toBe("0")
+		expect(ctx.settleFill).toHaveBeenCalledWith(LIMIT_ORDER, 400n * 10n ** 18n)
+	})
+
+	it("sums every output of the token the order pays", async () => {
+		const ctx = await onFill([
+			{ token: CNGN, amount: 100n * 10n ** 18n },
+			{ token: OTHER, amount: 999n * 10n ** 18n },
+			{ token: CNGN, amount: 250n * 10n ** 18n },
+		])
+
+		expect(ctx.settleFill).toHaveBeenCalledWith(LIMIT_ORDER, 350n * 10n ** 18n)
+	})
+
+	it("leaves the order alone when the fill names none of what it pays", async () => {
+		// Better an order that looks unchanged until reconciliation notices than
+		// one drawn down by a guess.
+		const ctx = await onFill([{ token: OTHER, amount: 999n * 10n ** 18n }])
+
+		expect(ctx.settleFill).not.toHaveBeenCalled()
+		// The hold still goes back: the bid is settled either way.
+		expect(await ctx.reserved()).toBe("0")
+	})
+
+	it("does nothing for a bid that held nothing", async () => {
+		const ctx = await build()
+		await ctx.bids.store({ commitment: COMMITMENT, success: true })
+		const settleFill = vi.fn()
+		;(ctx.filler as any).limitOrderService = { settleFill }
+
+		await (ctx.filler as any).settleFilledLimitOrder(COMMITMENT, 8453, [{ token: CNGN, amount: 1n }])
+		expect(settleFill).not.toHaveBeenCalled()
 	})
 })
 

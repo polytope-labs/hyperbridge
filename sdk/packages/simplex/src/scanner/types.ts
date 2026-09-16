@@ -1,4 +1,4 @@
-import type { HexString, Order } from "@hyperbridge/sdk"
+import type { HexString, Order, TokenInfo } from "@hyperbridge/sdk"
 import type { LoggerContext } from "@/services/Logger"
 
 /**
@@ -60,6 +60,14 @@ export interface ScannedFill {
 	logIndex: number
 	/** Hash of the transaction that filled the order, when the log carried it. */
 	transactionHash?: string
+	/**
+	 * What the filler handed over, as the log reported it. This is the amount a
+	 * limit order is drawn down by, so a fill that carries none leaves the order
+	 * untouched rather than guessed at.
+	 */
+	outputs: TokenInfo[]
+	/** What the filler received: the escrow the gateway released for those outputs. */
+	inputs: TokenInfo[]
 }
 
 /** What {@link OrderScanner.create} needs to start scanning. */

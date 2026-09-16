@@ -193,6 +193,18 @@ export class SqliteLimitOrderStore implements LimitOrderStore {
 		return result.changes === 1
 	}
 
+	async drawDown(id: string, amount: string): Promise<LimitOrder | null> {
+		const order = this.read(id)
+		if (!order) return null
+		// Floored: a fill that somehow delivered more than the order had left has
+		// nothing further to give, and a negative remaining would read as capacity.
+		const remaining = BigInt(order.remaining) - BigInt(amount)
+		this.db
+			.prepare("UPDATE limit_orders SET remaining = ?, updated_at = datetime('now') WHERE id = ? AND remaining = ?")
+			.run((remaining > 0n ? remaining : 0n).toString(), id, order.remaining)
+		return this.read(id)
+	}
+
 	async release(id: string, amount: string): Promise<void> {
 		const order = this.read(id)
 		if (!order) return

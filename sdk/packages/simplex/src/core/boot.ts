@@ -411,6 +411,7 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		rebalancingService,
 		bidStore,
 		options.data.limitOrders,
+		assetRegistry,
 	)
 
 	started.push(() => intentFiller.stop())
@@ -437,6 +438,9 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		new DelegationService(chainClientManager, configService, runtimeSigner),
 		options.loggers,
 	)
+	// A fill has to work its limit order down and put the rest back on the book,
+	// which the filler cannot do until the service that owns the connection exists.
+	intentFiller.setLimitOrderService(limitOrderService)
 
 	// Initialize (sets up EIP-7702 delegation if solver selection is configured)
 	try {

@@ -95,6 +95,26 @@ interface LegRates {
  * releases inputs proportionally to the fraction of outputs provided, partial
  * fills (and overfills) need no extra on-chain logic.
  */
+/**
+ * Shares what is being paid across the limit orders funding it, in order, each
+ * taking up to what it can pay.
+ *
+ * The total is the ask rather than the sum of the offers, so a set with more
+ * depth than the swap needs leaves its later orders untouched. Every slice is a
+ * hold, so an order is never reserved for output no swapper receives.
+ */
+function allocate(matches: readonly LimitOrderMatch[], total: bigint): { limitOrderId: string; payout: bigint }[] {
+	const holds: { limitOrderId: string; payout: bigint }[] = []
+	let left = total
+	for (const match of matches) {
+		if (left <= 0n) break
+		const share = left < match.payout ? left : match.payout
+		holds.push({ limitOrderId: match.order.id, payout: share })
+		left -= share
+	}
+	return holds
+}
+
 export class FXFiller implements FillerStrategy {
 	name = "FXFiller"
 	private clientManager: ChainClientManager
@@ -307,13 +327,10 @@ export class FXFiller implements FillerStrategy {
 				this.logger.info({ orderId: order.id }, "Skipping order: no limit order matches it")
 				return 0
 			}
-			// The best-priced match speaks for the set wherever one order has to be
-			// named: they all trade the same pair on the same chain, and the matcher
-			// ranked them, so this is the one the swap draws on first.
+			// The first speaks for the set wherever one has to be named: they trade
+			// the same pair on the same chain, and it is the one the swap draws on
+			// first.
 			const match = matches[0]
-			// What the set pays together, which is what the orderbook quoted the
-			// swapper when it priced their swap across levels.
-			const combinedPayout = matches.reduce((total, candidate) => total + candidate.payout, 0n)
 
 			const outputToken = bytes32ToBytes20(output.token) as HexString
 			const outputDecimals = await this.contractService.getTokenDecimals(outputToken, destChain)
@@ -325,7 +342,21 @@ export class FXFiller implements FillerStrategy {
 			// What the matched limit order will pay, in the output token's own units.
 			// `payout` is already `min(offer, remaining − reserved)`, so the order
 			// never offers more than it has left even when the wallet holds more.
-			const targetOutput = toRaw(combinedPayout, outputDecimals)
+			// Every order in the set clears the ask on rate, so what they add up to is
+			// depth rather than price: the total paid is the ask, and each funds a
+			// slice of it.
+			const offered = toRaw(
+				matches.reduce((total, candidate) => total + candidate.payout, 0n),
+				outputDecimals,
+			)
+
+			// Never more than the swapper asked for. The bid amount is `solverAmount`
+			// at the gateway, and on a full fill it sets `fillAmount = totalRequired`
+			// and splits everything above it between the beneficiary and the protocol,
+			// debiting the solver the whole amount. Paying the order's full offer when
+			// the ask is smaller hands that difference away; the escrow released is
+			// the same either way, so what is not bid is margin kept.
+			const targetOutput = offered < output.amount ? offered : output.amount
 
 			// Whether this order may be filled below what the user asked for. Both
 			// chains allow it: `ExtrinsicIntents._fillCrossChain` keeps cumulative
@@ -374,7 +405,10 @@ export class FXFiller implements FillerStrategy {
 					{
 						orderId: order.id,
 						limitOrder: match.order.id,
-						available: formatUnits(matches.reduce((total, candidate) => total + candidate.available, 0n), 18),
+						available: formatUnits(
+							matches.reduce((total, candidate) => total + candidate.available, 0n),
+							18,
+						),
 						userRequested: output.amount.toString(),
 						payout: targetOutput.toString(),
 						crossChain: sourceChain !== destChain,
@@ -385,21 +419,23 @@ export class FXFiller implements FillerStrategy {
 			}
 			if (targetOutput < output.amount) partialFill = true
 
-			// Warn-only: the clamp is DISABLED, so the filler pays the full matched
-			// amount even when it exceeds (1 + maxOverfillBps) × requested.
+			// Nothing is ever bid above the ask now, so the ceiling cannot be crossed
+			// on the way out. It still says something worth hearing: an offer far past
+			// what the swapper wanted is a limit order priced well away from the
+			// market, which is usually a mistake in the operator's terms.
 			const overfillCeiling = (output.amount * (10000n + this.maxOverfillBps)) / 10000n
-			if (targetOutput > overfillCeiling) {
+			if (offered > overfillCeiling) {
 				this.logger.warn(
 					{
 						orderId: order.id,
 						limitOrder: match.order.id,
 						token: output.token,
 						userRequested: output.amount.toString(),
-						unclamped: targetOutput.toString(),
+						offered: offered.toString(),
 						ceiling: overfillCeiling.toString(),
 						maxOverfillBps: this.maxOverfillBps.toString(),
 					},
-					"Overfill ceiling exceeded — clamp disabled, filling unclamped amount",
+					"Limit order offers far more than the swapper asked for; bidding the ask",
 				)
 			}
 
@@ -479,9 +515,11 @@ export class FXFiller implements FillerStrategy {
 			if (order.id) {
 				// The bid draws on this limit order, so the reservation and the fill
 				// that later works it down both have to find the same one.
+				// Held as slices of what is actually being paid, in the order the fill
+				// will draw on them, so nothing is reserved that no swapper receives.
 				this.contractService.cacheService.setMatchedLimitOrder(
 					order.id,
-					matches.map((candidate) => ({ limitOrderId: candidate.order.id, payout: candidate.payout })),
+					allocate(matches, toScaled(finalOutputAmount, outputDecimals)),
 				)
 				if (fundingCalls.length > 0) {
 					this.contractService.cacheService.setFundingPrepends(order.id, fundingCalls)
@@ -490,14 +528,22 @@ export class FXFiller implements FillerStrategy {
 				}
 			}
 
-			// Clamp is disabled, so a fill can never be clamped — the halt subsystem is
-			// left in place but dormant (always recorded as a clean, unclamped outcome).
+			// The venue clamp is gone with the curves, so a fill can never be clamped —
+			// the halt subsystem is left in place but dormant (always recorded as a
+			// clean, unclamped outcome).
 			this.recordOrderOutcome(false, order.id)
 
 			// Escrow is released in proportion to the output actually delivered
 			// (IntrinsicIntents.sol: `inputs[i].amount * fillAmount / totalRequired`),
 			// and only a fill that COMPLETES the order sweeps the residue. Valuing an
 			// under-fill against the whole escrow would overstate the take.
+			//
+			// The contract divides by `totalRequired` and counts `fillAmount`, which is
+			// what it accepted rather than what was bid; this counts `finalOutputAmount`
+			// against `output.amount`. They are the same figures only because an order
+			// another solver has already touched is refused above, so `alreadyFilled`
+			// is zero and the bid is never above the ask. Both halves of that are
+			// load-bearing here.
 			const releasedInput =
 				finalOutputAmount >= output.amount
 					? input.amount
@@ -522,15 +568,17 @@ export class FXFiller implements FillerStrategy {
 				if (spreadUsd) sameAssetEdgeUsd = spreadUsd
 			}
 
-			// What the limit order was willing to pay against what the order asked
-			// for. Handing over less than we were willing to is surplus we keep, and
-			// it is what pays for a partial fill's gas.
+			// What the limit order was willing to pay against what the swapper asked
+			// for. The bid is the smaller of the two and the escrow released is the
+			// same either way, so the difference really is margin kept, and it is what
+			// pays for a partial fill's gas. It was booked here before the bid was
+			// clamped, when the contract was in fact taking every bit of it.
 			let payoutSurplusUsd = new Decimal(0)
-			if (!sameAsset && outputSymbol && targetOutput > output.amount) {
+			if (!sameAsset && outputSymbol && offered > output.amount) {
 				const surplus = usdValueOf(
 					usdFactors,
 					outputSymbol,
-					new Decimal(formatUnits(targetOutput - output.amount, outputDecimals)),
+					new Decimal(formatUnits(offered - output.amount, outputDecimals)),
 				)
 				if (surplus) payoutSurplusUsd = surplus
 			}

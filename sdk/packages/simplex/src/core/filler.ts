@@ -16,7 +16,7 @@ import {
 import { parseChainKey } from "@/config/interpolated-curve"
 import pQueue from "p-queue"
 import { type ChainClientManager, type ContractInteractionService, DelegationService, type RebalancingService } from "@/services"
-import type { BidStore, LimitOrderHold, LimitOrderStore } from "@/data/types"
+import type { BidStore, LimitOrder, LimitOrderHold, LimitOrderStore } from "@/data/types"
 import type { AssetRegistry } from "@/config/asset-registry"
 import type { LimitOrderService } from "@/orderbook/limit-orders"
 import { toScaled } from "@/orderbook/amounts"
@@ -1185,30 +1185,36 @@ export class IntentFiller {
 		// Shared out in the order the payout drew on them, each taking what it held
 		// until the delivery runs out. That is the same sequence the matcher ranked
 		// them in, so the draw-down lands where the promise was made.
-		let left = delivered
-		let settled = 0
-		for (const hold of claimed) {
-			if (left <= 0n) break
-			const held = BigInt(hold.amount)
-			const share = left < held ? left : held
-			left -= share
+		//
+		// One transaction over the whole settlement: the draw-downs and the releases
+		// are one decision about the same holds, and a crash between two of them
+		// would give a hold back against an order that was never worked down. Only
+		// store writes are inside; putting the order back on the book is a round trip
+		// and comes after.
+		const drawn = await this.limitOrders.transaction(async () => {
+			const worked: { order: LimitOrder; delivered: bigint }[] = []
+			let left = delivered
+			for (const hold of claimed) {
+				const share = left < BigInt(hold.amount) ? left : BigInt(hold.amount)
+				if (share > 0n) {
+					const after = await this.limitOrders!.drawDown(hold.limitOrderId, share.toString())
+					if (after) worked.push({ order: after, delivered: share })
+					left -= share
+				}
+				// Whatever the delivery did not reach was promised output that never
+				// went out, so it takes no draw-down and simply comes back.
+				await this.limitOrders!.release(hold.limitOrderId, hold.amount)
+			}
+			return worked
+		})
 
+		for (const { order, delivered: share } of drawn) {
 			this.logger.info(
-				{ commitment, limitOrder: hold.limitOrderId, delivered: share.toString() },
-				"Working the limit order down by what the fill delivered",
+				{ commitment, limitOrder: order.id, delivered: share.toString() },
+				"Worked the limit order down by what the fill delivered",
 			)
-			// The draw-down goes first and the hold goes back after. These are two
-			// writes and a crash can land between them: leaving the hold up means the
-			// order understates its capacity until reconciliation, where releasing
-			// first would leave it advertising output it has already paid out.
-			await this.limitOrderService?.settleFill(hold.limitOrderId, share)
-			await this.limitOrders.release(hold.limitOrderId, hold.amount)
-			settled += 1
+			await this.limitOrderService?.resize(order, share)
 		}
-
-		// An order the delivery never reached was promised output that never went
-		// out, so it takes no draw-down and simply gets its hold back.
-		await this.releaseAll(claimed.slice(settled))
 	}
 
 	/**

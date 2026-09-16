@@ -424,6 +424,18 @@ export interface LimitOrderStore {
 	 * zero. Returns the order as it now stands, or null when there is none.
 	 */
 	drawDown(id: string, amount: string): Promise<LimitOrder | null>
+	/**
+	 * Runs `settle` as one unit where the backend can.
+	 *
+	 * A fill claims what its bid held, works the orders down by what went out and
+	 * gives the rest back, and a crash between those leaves the hold released
+	 * against an order that was never drawn down. The bid rows live in the same
+	 * database as the limit orders, which is what lets one transaction cover both.
+	 *
+	 * Only store calls belong inside: they are synchronous underneath, so nothing
+	 * else interleaves on the connection, which would not hold for a network call.
+	 */
+	transaction<T>(settle: () => Promise<T>): Promise<T>
 }
 
 // ===========================================================================

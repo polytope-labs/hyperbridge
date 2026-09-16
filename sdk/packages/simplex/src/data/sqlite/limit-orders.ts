@@ -219,6 +219,29 @@ export class SqliteLimitOrderStore implements LimitOrderStore {
 		return result.changes === 1
 	}
 
+	async transaction<T>(settle: () => Promise<T>): Promise<T> {
+		this.db.exec("BEGIN")
+		try {
+			const result = await settle()
+			this.db.exec("COMMIT")
+			return result
+		} catch (err) {
+			// Same shape as the state store's, for the same reason: a COMMIT that
+			// failed has already rolled back, so an unconditional ROLLBACK would throw
+			// over the real cause. Compared against `false` rather than truthiness,
+			// because the Node 23 line never got the property and treating `undefined`
+			// as "no transaction" would wedge the connection mid-transaction.
+			if (this.db.isTransaction !== false) {
+				try {
+					this.db.exec("ROLLBACK")
+				} catch {
+					// Nothing to roll back, or the connection is already gone.
+				}
+			}
+			throw err
+		}
+	}
+
 	async drawDown(id: string, amount: string): Promise<LimitOrder | null> {
 		const order = this.read(id)
 		if (!order) return null

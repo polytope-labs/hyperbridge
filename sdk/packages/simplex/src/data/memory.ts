@@ -420,6 +420,22 @@ class MemoryLimitOrderStore implements LimitOrderStore {
 		this.patch(id, { reserved: (reserved > 0n ? reserved : 0n).toString() })
 	}
 
+	/**
+	 * Snapshot and restore, since this store is what `Simplex.start` uses when a
+	 * consumer configures no persistence. A settlement that half-landed here would
+	 * leave an order advertising output it has already paid, which is the same
+	 * money either backend is protecting.
+	 */
+	async transaction<T>(settle: () => Promise<T>): Promise<T> {
+		const snapshot = new Map([...this.orders].map(([id, order]) => [id, { ...order }]))
+		try {
+			return await settle()
+		} catch (err) {
+			this.orders = snapshot
+			throw err
+		}
+	}
+
 	private patch(id: string, fields: Partial<LimitOrder>, only?: readonly LimitOrderStatus[]): LimitOrder | null {
 		const order = this.orders.get(id)
 		if (!order) return null

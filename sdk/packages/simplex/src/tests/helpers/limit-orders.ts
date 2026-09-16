@@ -81,6 +81,16 @@ export const LIMITS: OrderbookLimits = {
 		eip712DomainVersion: "1",
 	},
 	books: [{ id: "USDC/CNGN", base: "USDC", quote: "CNGN" }],
+	chains: [
+		{
+			id: CHAIN,
+			name: "Base",
+			tokens: [
+				{ symbol: "USDC", decimals: 6 },
+				{ symbol: "CNGN", decimals: 18 },
+			],
+		},
+	],
 }
 
 export function postedOrder(overrides: Partial<PostedOrder> = {}): PostedOrder {

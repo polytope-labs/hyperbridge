@@ -136,7 +136,11 @@ function makeOrder(id: string, source: string = CHAIN): Order {
 }
 
 describe("FXFiller limit order payout", () => {
-	it("pays what the limit order offers, not the user's requested amount", async () => {
+	it("bids the ask, not the more the limit order was willing to pay", async () => {
+		// The gateway sets `fillAmount = totalRequired` on a full fill and splits
+		// everything above it between the beneficiary and the protocol, debiting the
+		// solver the whole bid. The escrow released is the same either way, so the
+		// difference between the offer and the ask is margin kept by not bidding it.
 		const contractService = makeEvalContractService()
 		const filler = await makeFiller({
 			contractService,
@@ -148,12 +152,10 @@ describe("FXFiller limit order payout", () => {
 		const cached = contractService.outputs.get("payout-full")
 		expect(cached).toHaveLength(1)
 		expect(cached![0].token).toBe(bytes20ToBytes32(EXOTIC))
-		// 100 in at the order's rate of 1500 — what the operator offered, which is
-		// above the 149,000 asked for.
-		expect(cached![0].amount).toBe(OFFERED_OUTPUT)
-		expect(cached![0].amount).not.toBe(REQUESTED_OUTPUT)
-		// Paying above the ask is a full fill (the gateway splits the excess),
-		// and the fee surplus makes it score.
+		// 100 in at the order's rate of 1500 offers 150,000, and 149,000 was asked.
+		expect(cached![0].amount).toBe(REQUESTED_OUTPUT)
+		expect(cached![0].amount).toBeLessThan(OFFERED_OUTPUT)
+		// Meeting the ask in full is a full fill, and the margin left makes it score.
 		expect(contractService.partials.get("payout-full")).toBe(false)
 		expect(profit).toBeGreaterThan(0)
 	})
@@ -195,11 +197,11 @@ describe("FXFiller limit order payout", () => {
 		expect(contractService.partials.get("payout-cross")).toBe(true)
 	})
 
-	it("pays what the wallet covers when balance-limited, still a full fill above the ask", async () => {
+	it("still fills fully when the wallet holds less than the offer but more than the ask", async () => {
 		const contractService = makeEvalContractService()
 		// Wallet holds 149,500 — between the ask (149,000) and what the order
-		// offered (150,000). The payout is capped by the balance, but it still clears the
-		// ask, so the fill is full, not partial.
+		// offered (150,000). The bid is the ask either way, so the balance never
+		// binds and the fill is full.
 		const filler = await makeFiller({
 			contractService,
 			balances: { [EXOTIC.toLowerCase()]: parseUnits("149500", 18) },
@@ -209,7 +211,7 @@ describe("FXFiller limit order payout", () => {
 
 		const cached = contractService.outputs.get("payout-balance")
 		expect(cached).toHaveLength(1)
-		expect(cached![0].amount).toBe(parseUnits("149500", 18))
+		expect(cached![0].amount).toBe(REQUESTED_OUTPUT)
 		expect(contractService.partials.get("payout-balance")).toBe(false)
 		expect(profit).toBeGreaterThan(0)
 	})

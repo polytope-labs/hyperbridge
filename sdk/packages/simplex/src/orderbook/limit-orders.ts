@@ -475,7 +475,19 @@ export class LimitOrderService {
 
 		const remaining = await this.store.drawDown(id, delivered.toString())
 		if (!remaining) return null
+		return this.resize(remaining, delivered)
+	}
 
+	/**
+	 * Puts an order that has already been worked down back on the book, or closes
+	 * it when what is left is under the orderbook's dust floor for what it pays.
+	 *
+	 * Separate from the draw-down because that is a store write that belongs in
+	 * the same transaction as the hold it settles, while this is a round trip to
+	 * the orderbook and must not be inside one.
+	 */
+	async resize(remaining: LimitOrder, delivered: bigint): Promise<LimitOrder | null> {
+		const id = remaining.id
 		const floor = await this.dustFloor(remaining)
 		if (BigInt(remaining.remaining) < floor) {
 			this.logger.info(
@@ -721,6 +733,22 @@ export class LimitOrderService {
 		return this.client.heartbeat({ solver, timestamp, signature })
 	}
 
+	/**
+	 * A token's decimals on the fill chain.
+	 *
+	 * The orderbook publishes its own registry, and every post and repost needs
+	 * both sides, so taking them from the limits already cached here saves two
+	 * chain reads each time. It is the same registry the server prices against,
+	 * which is what makes it the right source rather than merely a cheap one. A
+	 * chain or symbol it does not list falls back to the token itself.
+	 */
+	private async decimalsFor(symbol: string, token: HexString, chain: string): Promise<number> {
+		const published = (await this.limits()).chains
+			?.find((entry) => entry.id === chain)
+			?.tokens.find((entry) => entry.symbol === symbol)
+		return published ? published.decimals : this.contractService.getTokenDecimals(token, chain)
+	}
+
 	/** The orderbook's dust floor for what this order pays out, or zero when it names none. */
 	private async dustFloor(order: LimitOrder): Promise<bigint> {
 		const paid = order.side === "BID" ? order.quote : order.base
@@ -867,8 +895,8 @@ export class LimitOrderService {
 		const baseToken = this.assetRegistry.getAddress(order.base, order.fillChain)!
 		const quoteToken = this.assetRegistry.getAddress(order.quote, order.fillChain)!
 		const [baseDecimals, quoteDecimals] = await Promise.all([
-			this.contractService.getTokenDecimals(baseToken, order.fillChain),
-			this.contractService.getTokenDecimals(quoteToken, order.fillChain),
+			this.decimalsFor(order.base, baseToken, order.fillChain),
+			this.decimalsFor(order.quote, quoteToken, order.fillChain),
 		])
 
 		// A bid receives the base and pays the quote; an ask is the other way round.

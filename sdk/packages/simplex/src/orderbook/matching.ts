@@ -43,29 +43,33 @@ export function availableOn(order: LimitOrder): bigint {
 }
 
 /**
- * The limit orders an incoming order is priced against, best payout first, or an
- * empty list when none serves it.
+ * The limit orders an incoming order is priced against, in the order they should
+ * be drawn on, or an empty list when none serves it.
  *
  * There is no fallback price: an order matching nothing is not filled, which is
  * the whole point of pricing from the operator's own resting orders rather than
  * from a curve that always has an answer.
  *
- * Several orders may serve one swap. The orderbook already quotes a same-chain
- * swapper "the clearing price, the best at which the orders at it or better can
- * fill the trade together", so honouring only the best-priced one advertises
- * depth the operator has and then refuses to meet it. Levels are walked best
- * first and stop as soon as the ask is covered, so a swap one order covers still
- * draws on one.
+ * An order takes part only if its offer covers what the swapper asked for. That
+ * is not a preference, it is what the operator's rate permits: escrow release is
+ * strictly proportional, `Released(filled) = escrowTotal * filled / totalRequired`,
+ * so a fill of `f` out of `T` releases `I * f / T` and settles at `T / I`
+ * whatever `f` is. Every fill of an order therefore pays the swapper's rate, and
+ * an order may only take part where that rate is inside its own: `T / I <= price`,
+ * which is exactly `offer >= requestedOutput`.
  *
- * What each pays is `min(offer, remaining - reserved)`, not the offer alone: an
- * order quoting a wonderful rate with almost nothing behind it would otherwise
- * crowd out one that can actually cover the swap.
+ * Several may be needed, because one that clears the rate may not have the depth.
+ * The orderbook already quotes a swapper across every level that can fill the
+ * trade together, so serving only the first would advertise depth and refuse to
+ * meet it. What is paid in total is the ask, never the sum of the offers: each
+ * order funds a slice, is drawn down by that slice, and receives that fraction of
+ * the input, so every one of them settles at `T / I` too.
  *
- * An order whose offer falls short of what the swapper asked for is still a
- * match. Whether a shortfall can be filled at all is the caller's rule, not the
- * matcher's: a cross-chain order reverts on any under-fill, while a same-chain
- * one may fill partially, and that holds whether the shortfall comes from the
- * price or from what the orders have left.
+ * They are drawn on tightest first, meaning the smallest offer that still clears
+ * the ask. Because the rate is the swapper's either way, which order funds a
+ * slice does not change what this swap earns; it decides what is left afterwards.
+ * A more generous order qualifies for every swap a tighter one does and for swaps
+ * it cannot serve, at the same cost per unit, so the tight end is what to spend.
  */
 export function matchLimitOrders(
 	orders: readonly LimitOrder[],
@@ -73,7 +77,7 @@ export function matchLimitOrders(
 	resolve: (symbol: string, chain: string) => HexString | null,
 	now: Date = new Date(),
 ): LimitOrderMatch[] {
-	const candidates = orders
+	const qualifying = orders
 		.filter((order) => serves(order, incoming, resolve, now))
 		.map((order) => {
 			const offer = offerFor({
@@ -85,16 +89,14 @@ export function matchLimitOrders(
 			const available = availableOn(order)
 			return { order, offer, available, payout: offer < available ? offer : available }
 		})
-		// An order with nothing left to pay serves nobody, whatever it quotes.
-		.filter((candidate) => candidate.payout > 0n)
-		.sort(byPayoutThenAvailable)
+		// Below the ask is below the operator's rate, and an order with nothing left
+		// to pay serves nobody whatever it quotes.
+		.filter((candidate) => candidate.offer >= incoming.requestedOutput && candidate.payout > 0n)
+		.sort(byTightestFirst)
 
-	// The best candidate is always taken, then levels are added while the ask is
-	// still short. An order asking for nothing, which is how a quote reaches the
-	// engine, still draws on the one that prices it.
 	const taken: LimitOrderMatch[] = []
 	let covered = 0n
-	for (const candidate of candidates) {
+	for (const candidate of qualifying) {
 		taken.push(candidate)
 		covered += candidate.payout
 		if (covered >= incoming.requestedOutput) break
@@ -102,7 +104,7 @@ export function matchLimitOrders(
 	return taken
 }
 
-/** The best single match, for callers that only need to know whether one exists. */
+/** The first order to draw on, for callers that only need to know one exists. */
 export function matchLimitOrder(
 	orders: readonly LimitOrder[],
 	incoming: IncomingOrder,
@@ -113,14 +115,16 @@ export function matchLimitOrder(
 }
 
 /**
- * Best payout first, ties to the one with more left, then by id.
+ * Smallest offer first, then least left, then by id.
  *
- * Deterministic to the last comparison, because the draw-down after a fill walks
- * these orders in the same sequence and has to reach the same answer.
+ * Spending the tight end keeps the generous orders resting, and finishing the
+ * smaller of two equal offers retires it rather than leaving two part-used. The
+ * last comparison is what makes the sequence reproducible, because the draw-down
+ * after a fill walks these orders in the same order.
  */
-function byPayoutThenAvailable(a: LimitOrderMatch, b: LimitOrderMatch): number {
-	if (a.payout !== b.payout) return a.payout > b.payout ? -1 : 1
-	if (a.available !== b.available) return a.available > b.available ? -1 : 1
+function byTightestFirst(a: LimitOrderMatch, b: LimitOrderMatch): number {
+	if (a.offer !== b.offer) return a.offer < b.offer ? -1 : 1
+	if (a.available !== b.available) return a.available < b.available ? -1 : 1
 	return a.order.id < b.order.id ? -1 : 1
 }
 

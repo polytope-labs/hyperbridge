@@ -9,9 +9,16 @@ import type { LimitOrderSide } from "@/data/types"
  */
 export const ORDERBOOK_SCALE = 10n ** 18n
 
-/** A normalised amount in the token's own units on `fillChain`. Truncates. */
+/**
+ * A normalised amount in the token's own units on `fillChain`. Truncates.
+ *
+ * A token with more than 18 decimals is finer than the orderbook's own unit, so
+ * the conversion goes the other way. Rare, but `10n ** -1n` is a `RangeError`
+ * rather than a wrong number, which would take the pricing path down.
+ */
 export function toRaw(amount: bigint, decimals: number): bigint {
-	return amount / 10n ** BigInt(18 - decimals)
+	const shift = 18 - decimals
+	return shift >= 0 ? amount / 10n ** BigInt(shift) : amount * 10n ** BigInt(-shift)
 }
 
 /**
@@ -41,8 +48,10 @@ export function toHuman(amount: bigint): string {
 }
 
 /** A raw on-chain amount back at 1e18, the unit limit orders are kept in. */
+/** A raw on-chain amount back at 1e18, the unit limit orders are kept in. Truncates. */
 export function toScaled(amount: bigint, decimals: number): bigint {
-	return amount * 10n ** BigInt(18 - decimals)
+	const shift = 18 - decimals
+	return shift >= 0 ? amount * 10n ** BigInt(shift) : amount / 10n ** BigInt(-shift)
 }
 
 function divCeil(numerator: bigint, denominator: bigint): bigint {
@@ -136,6 +145,8 @@ export function offerFor(params: {
 	if (price <= 0n) throw new Error("A limit order's price must be greater than zero")
 
 	const scaled = side === "BID" ? (inputAmount * price) / ORDERBOOK_SCALE : (inputAmount * ORDERBOOK_SCALE) / price
-	const unit = 10n ** BigInt(18 - outputDecimals)
+	// A token finer than 1e18 can express every scaled amount, so there is nothing
+	// to quantise away.
+	const unit = outputDecimals >= 18 ? 1n : 10n ** BigInt(18 - outputDecimals)
 	return (scaled / unit) * unit
 }

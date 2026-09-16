@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import type { HexString } from "@hyperbridge/sdk"
 import { OrderbookRequestError } from "@/orderbook/client"
 import { LimitOrderLifecycle } from "@/orderbook/lifecycle"
+import type { SubmitOrderResult } from "@/orderbook/types"
 import {
 	CREATE_REQUEST as REQUEST,
 	fakeClient,
@@ -112,19 +113,20 @@ describe("renewal", () => {
 })
 
 describe("the operator's own expiry", () => {
-	const withExpiry = async (expiresAt: string) => {
-		const client = countingClient([])
+	/** An order expiring in an hour, and the clock wound past it. */
+	const withExpiry = async (results: SubmitOrderResult[] = []) => {
+		const client = countingClient(results)
 		const { service, store } = makeService(client)
-		const created = await service.create({ ...REQUEST, expiresAt })
-		return { client, service, store, id: created.order.id }
+		const created = await service.create({ ...REQUEST, expiresAt: inSeconds(3600) })
+		return { client, service, store, id: created.order.id, after: new Date(Date.now() + 2 * 3600 * 1000) }
 	}
 
 	it("withdraws an order that has outlived it", async () => {
 		// The matcher already refuses an expired order, so a posting left up
 		// advertises depth no swapper could ever draw on.
-		const { client, service, store, id } = await withExpiry(inSeconds(-1))
+		const { client, service, store, id, after } = await withExpiry()
 
-		expect(await service.expireStale()).toBe(1)
+		expect(await service.expireStale(after)).toBe(1)
 		const order = await store.get(id)
 		expect(order?.status).toBe("expired")
 		expect(order?.commitment).toBeNull()
@@ -132,7 +134,7 @@ describe("the operator's own expiry", () => {
 	})
 
 	it("leaves an order whose expiry has not come", async () => {
-		const { client, service, store, id } = await withExpiry(inSeconds(3600))
+		const { client, service, store, id } = await withExpiry()
 
 		expect(await service.expireStale()).toBe(0)
 		expect((await store.get(id))?.status).toBe("open")
@@ -142,22 +144,25 @@ describe("the operator's own expiry", () => {
 	it("renews nothing once the order has expired", async () => {
 		// The posting is due for renewal on its own clock; the sweep has to have
 		// taken it down first, or renewal puts a fresh one up for a dead order.
-		const client = countingClient([
+		const { client, service, after } = await withExpiry([
 			{ kind: "accepted", order: postedOrder({ expiresAt: inSeconds(60) }), surfaced: true },
 		])
-		const { service } = makeService(client)
-		await service.create({ ...REQUEST, expiresAt: inSeconds(-1) })
 
-		await service.expireStale()
+		await service.expireStale(after)
 		expect(await service.renewExpiring(120)).toBe(0)
 		expect(client.submitted).toEqual(["0x00"])
 	})
 
 	it("treats an expiry it cannot read as no expiry at all", async () => {
-		const { service, store, id } = await withExpiry("whenever")
+		// `create` refuses one it cannot parse, so this is a row from before that
+		// check existed. The sweep must not guess at it either way.
+		const client = countingClient([])
+		const { service, store } = makeService(client)
+		const created = await service.create(REQUEST)
+		await store.create({ ...created.order, id: "unreadable", expiresAt: "whenever" })
 
 		expect(await service.expireStale()).toBe(0)
-		expect((await store.get(id))?.status).toBe("open")
+		expect((await store.get("unreadable"))?.status).toBe("open")
 	})
 })
 

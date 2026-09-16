@@ -138,8 +138,11 @@ describe("LimitOrderService.create validation", () => {
 		await rejects({ tokenOut: "EURC" }, /No book trades USDC against EURC.*USDC\/CNGN/)
 	})
 
-	it("refuses an order that takes in and pays out the same symbol", async () => {
-		await rejects({ tokenOut: "USDC" }, /must be different symbols/)
+	it("refuses a same-asset order that pays out more than it takes in", async () => {
+		await rejects(
+			{ tokenOut: "USDC", amountOut: (1001n * ONE).toString(), amountIn: (1000n * ONE).toString() },
+			/must pay out no more than it takes in/,
+		)
 	})
 
 	it("refuses a chain this filler does not run", async () => {
@@ -156,6 +159,51 @@ describe("LimitOrderService.create validation", () => {
 		await rejects({ amountIn: "0" }, /amountIn must be greater than zero/)
 		await rejects({ amountOut: "1.5e3" }, /amountOut must be an amount in whole tokens/)
 		await rejects({ amountOut: "0.0000000000000000001" }, /more than 18 decimal places/)
+	})
+})
+
+describe("a same-asset limit order", () => {
+	/** Take in 1,000 USDC and pay out 999: the ask-only, below-par case curves used to hold. */
+	const SAME: CreateLimitOrderRequest = {
+		...REQUEST,
+		tokenOut: "USDC",
+		amountIn: (1000n * ONE).toString(),
+		amountOut: (999n * ONE).toString(),
+	}
+
+	it("is stored and priced here, and never sent to a book that does not exist", async () => {
+		const client = fakeClient([])
+		const { service, store } = makeService(client)
+		const { order, result } = await service.create(SAME)
+
+		expect(result.kind).toBe("unposted")
+		expect(order.status).toBe("open")
+		expect(order.base).toBe("USDC")
+		expect(order.quote).toBe("USDC")
+		expect(order.commitment).toBeNull()
+		expect(order.price).toBe(((999n * ONE) / 1000n).toString())
+		expect(client.submitted).toEqual([])
+		expect((await store.get(order.id))?.remaining).toBe(SAME.amountOut)
+	})
+
+	it("is worked down by a fill without anything being reposted", async () => {
+		const client = fakeClient([])
+		const { service } = makeService(client)
+		const created = await service.create(SAME)
+
+		const settled = await service.settleFill(created.order.id, 500n * ONE)
+		expect(settled?.status).toBe("open")
+		expect(settled?.remaining).toBe((499n * ONE).toString())
+		expect(client.submitted).toEqual([])
+	})
+
+	it("is left alone by reconciliation, which has no entry to compare it with", async () => {
+		const client = fakeClient([])
+		const { service } = makeService(client)
+		await service.create(SAME)
+
+		expect(await service.reconcile()).toEqual({ cancelled: 0, reposted: 0, underFunded: 0 })
+		expect(client.submitted).toEqual([])
 	})
 })
 

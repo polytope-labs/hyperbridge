@@ -7,7 +7,7 @@ import { VaultLiquidityState } from "@/funding/vault/VaultLiquidityState"
 import { TokenSender } from "@/services/TokenSender"
 import { formatChainKey, parseChainKey } from "@/config/interpolated-curve"
 import { AssetRegistry, normalizeSymbol } from "@/config/asset-registry"
-import { assertPairSymbolsResolve, } from "@/config/pairs"
+import { assertPairSymbolsResolve, retiredPairKeys } from "@/config/pairs"
 import type { ChainConfig, FillerConfig, HexString } from "@hyperbridge/sdk"
 import {
 	FillerConfigService,
@@ -177,6 +177,17 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 				logger.warn({ err }, "Cleanup step failed while unwinding a failed boot")
 			}
 		}
+	}
+
+	// Prices come from the operator's limit orders now. A config still carrying
+	// curve keys parses cleanly and quotes nothing, which is a quiet way to lose
+	// an afternoon.
+	const retired = retiredPairKeys(config.pairs ?? [])
+	if (retired.length > 0) {
+		logger.warn(
+			{ keys: retired },
+			"These [[pairs]] keys are no longer read; prices come from limit orders, and the filler fills nothing until one is posted",
+		)
 	}
 
 	logger.info("Resolving chain IDs from RPC endpoints...")

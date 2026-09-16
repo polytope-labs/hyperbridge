@@ -700,6 +700,10 @@ export class IntentFiller {
 				}
 
 				let inputUsdValue = baseInputUsd
+				// Whether anything could put a dollar figure on this order at all. The
+				// stable-only base reads zero for an exotic input, and a zero would size
+				// the confirmation wait at the shallowest point of the curve.
+				let valued = baseInputUsd.gt(0)
 				for (const [strategy, canFill] of canFillCache) {
 					if (!canFill || typeof strategy.getOrderUsdValue !== "function") continue
 					try {
@@ -707,6 +711,7 @@ export class IntentFiller {
 
 						if (stratValue != null) {
 							inputUsdValue = Decimal.max(baseInputUsd, stratValue.inputUsd)
+							valued = true
 							break
 						}
 					} catch (err) {
@@ -735,14 +740,22 @@ export class IntentFiller {
 						)
 						return
 					}
+					// An order nothing could value waits as long as the deepest order on
+					// the curve. The curve clamps at its last point, so this is its top.
+					// Treating unknown as zero would be the shallowest wait on the order
+					// there is least reason to trust.
+					if (!valued) {
+						this.logger.warn(
+							{ orderId: order.id, source: order.source },
+							"No dollar value for this order; waiting the deepest confirmation the policy allows",
+						)
+					}
+					const depthUsd = valued ? inputUsdValue.toNumber() : Number.MAX_SAFE_INTEGER
 					for (const [strategy, canFill] of canFillCache) {
 						if (!canFill || !strategy.confirmationPolicy) continue
 						requiredConfirmations = Math.max(
 							requiredConfirmations,
-							strategy.confirmationPolicy.getConfirmationBlocks(
-								getChainId(order.source)!,
-								inputUsdValue.toNumber(),
-							),
+							strategy.confirmationPolicy.getConfirmationBlocks(getChainId(order.source)!, depthUsd),
 						)
 					}
 				}

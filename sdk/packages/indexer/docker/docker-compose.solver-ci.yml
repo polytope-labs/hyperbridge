@@ -34,6 +34,11 @@ services:
             - --allow-schema-migration
             - --unsafe
             - --log-level=${LOG_LEVEL:-info}
+            # This node starts at the chain's head, where the best header moves under it. Without
+            # unfinalized-block tracking it dies on an assertion inside UnfinalizedBlocksService
+            # ("Expect best header and checking header to be at the same height") and, with
+            # restart: always, crash-loops — polling the watchlist only in the gaps between restarts.
+            - --unfinalized-blocks
             - --store-cache-async=false
             - --store-cache-threshold=1
 

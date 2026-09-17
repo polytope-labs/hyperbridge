@@ -26,9 +26,22 @@ const ADDRESS = /^0x[0-9a-f]{40}$/
 // The ETag of the last response fully applied. Losing it (a restart) costs one full response.
 let etag: string | undefined
 
-/** Forgets the last ETag. For tests. */
+// When a poll last said why it did nothing. Every block asks, and the answer rarely changes, so
+// this reports at most once a minute: enough to tell a silent-but-working node from a silent-and-
+// skipping one, which is otherwise indistinguishable from the outside.
+let lastSkipReport = 0
+const SKIP_REPORT_INTERVAL_MS = 60_000
+
+function reportSkip(reason: string, now: number): void {
+	if (now - lastSkipReport < SKIP_REPORT_INTERVAL_MS) return
+	lastSkipReport = now
+	logger.info(`[solver-watchlist] Not polling: ${reason}`)
+}
+
+/** Forgets the last ETag and the skip report clock. For tests. */
 export function resetSolverWatchlistPoll(): void {
 	etag = undefined
+	lastSkipReport = 0
 }
 
 function configuredUrl(): string | undefined {
@@ -114,12 +127,26 @@ export async function pollSolverWatchlist(params: {
 	/** Overrides HYPERFX_WATCHLIST_URL. */
 	url?: string
 }): Promise<void> {
+	const now = params.now ?? Date.now()
 	const url = params.url ?? configuredUrl()
-	if (!url) return
+	if (!url) {
+		reportSkip("HYPERFX_WATCHLIST_URL is not set", now)
+		return
+	}
 	// A resync from genesis would otherwise replay one fetch per historical block of a list that
 	// only describes now, hammering the endpoint and learning nothing.
-	const now = params.now ?? Date.now()
-	if (!params.blockTime || now - params.blockTime.getTime() > LIVE_SLACK_MS) return
+	if (!params.blockTime) {
+		reportSkip(`block ${params.blockNumber} has no timestamp`, now)
+		return
+	}
+	const lagMs = now - params.blockTime.getTime()
+	if (lagMs > LIVE_SLACK_MS) {
+		reportSkip(
+			`block ${params.blockNumber} trails wall clock by ${Math.round(lagMs / 1000)}s, over the ${LIVE_SLACK_MS / 1000}s bound`,
+			now,
+		)
+		return
+	}
 
 	let chains: Map<string, string[]> | undefined
 	let responseTag: string | undefined

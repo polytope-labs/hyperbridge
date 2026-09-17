@@ -524,6 +524,13 @@ export class LimitOrderService {
 		// A same-asset order was never on the book, so there is nothing to put back.
 		if (isLocal(order)) return this.store.setStatus(order.id, "open")
 
+		// Expiry belongs here rather than in each caller. The matcher refuses an
+		// expired order, so posting one advertises depth that is quoted to swappers,
+		// counted as liquidity, and then refused on every fill that comes back, which
+		// is worse than no order at all. Unlike the grace period there is no timing to
+		// it: an order that has expired has expired on whichever clock arrives.
+		if (hasExpired(order.expiresAt, new Date())) return this.retire(order)
+
 		if (order.commitment) {
 			const withdrawn = await this.withdraw(order.commitment as HexString)
 			// Only a cancel the orderbook confirmed, or its word that the entry is
@@ -660,8 +667,10 @@ export class LimitOrderService {
 			this.logger.warn({ id: order.id }, "Limit order has no entry on the orderbook; posting it again")
 			try {
 				// Without the cancel `repost` leads with: the entry is already gone.
-				await this.repost({ ...order, commitment: null })
-				report.reposted++
+				const posted = await this.repost({ ...order, commitment: null })
+				// Counted on a posting that landed, not on the attempt: `repost` also
+				// retires an order that has expired and reports a refusal on the row.
+				if (posted?.commitment) report.reposted++
 			} catch (err) {
 				this.logger.error({ id: order.id, err }, "Could not post the limit order again")
 			}
@@ -682,22 +691,27 @@ export class LimitOrderService {
 	async expireStale(now: Date = new Date()): Promise<number> {
 		const stale = (await this.live()).filter((order) => hasExpired(order.expiresAt, now))
 		for (const order of stale) {
-			this.logger.info({ id: order.id, expiresAt: order.expiresAt }, "Limit order has expired; withdrawing it")
 			try {
-				if (order.commitment) await this.withdraw(order.commitment as HexString)
-				await this.store.setPosting(order.id, {
-					commitment: null,
-					bookExpiresAt: null,
-					bookPrice: null,
-					orderNonce: order.orderNonce,
-					status: "expired",
-					lastError: null,
-				})
+				await this.retire(order)
 			} catch (err) {
 				this.logger.error({ id: order.id, err }, "Could not withdraw the expired limit order")
 			}
 		}
 		return stale.length
+	}
+
+	/** Takes an expired order off the book and closes the row. */
+	private async retire(order: LimitOrder): Promise<LimitOrder | null> {
+		this.logger.info({ id: order.id, expiresAt: order.expiresAt }, "Limit order has expired; withdrawing it")
+		if (order.commitment) await this.withdraw(order.commitment as HexString)
+		return this.store.setPosting(order.id, {
+			commitment: null,
+			bookExpiresAt: null,
+			bookPrice: null,
+			orderNonce: order.orderNonce,
+			status: "expired",
+			lastError: null,
+		})
 	}
 
 	/** Every order that has a posting on the book, or should have one. */

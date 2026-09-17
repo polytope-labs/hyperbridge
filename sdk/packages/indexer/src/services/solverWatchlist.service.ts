@@ -14,8 +14,21 @@ import { safeFetch } from "@/utils/safeFetch"
 import { readAllPages } from "@/utils/store.helpers"
 import { YIELD_VAULT_ADDRESSES } from "@/yield-vault-addresses"
 
-/** How close to wall clock a block must be for the poll to run. */
-export const LIVE_SLACK_MS = 120_000
+/**
+ * How close to wall clock a block must be for the poll to run.
+ *
+ * Production indexes FINALIZED blocks — no Hyperbridge node runs with `--unfinalized-blocks` — so
+ * the block reaching this handler is already behind by the chain's finality lag. Measured on
+ * 2026-09-17 over 14 samples: 34–42 s on Gargantua, 38–58 s on Nexus. The node's own indexing delay
+ * sits on top of that.
+ *
+ * Two minutes left roughly a minute of headroom on mainnet, which one finality stall or a slow
+ * batch would exhaust — and the failure is silent: the poll simply never fires, so no solver is
+ * ever discovered from the watchlist. Five minutes keeps what the guard is actually for, which is
+ * stopping a resync from genesis replaying one fetch per historical block, since those blocks are
+ * hours to years old, not minutes.
+ */
+export const LIVE_SLACK_MS = 300_000
 /** A poll runs every block, so a slow orderbook must not hold one up for long. */
 export const FETCH_TIMEOUT_MS = 5_000
 /** Solvers accepted per chain per response; the orderbook caps its own list the same way. */

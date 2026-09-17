@@ -26,7 +26,7 @@ vault. A stub would pass while a wrong slot, a proxy, or a vault that does not a
 `convertToAssets` would fail in production.
 
 **The live Gargantua testnet as the Hyperbridge node.** The watchlist poll only runs on the
-Hyperbridge chain, and only on blocks within 120 s of wall clock. A simnode would do it, but it costs
+Hyperbridge chain, and only on blocks within 300 s of wall clock. A simnode would do it, but it costs
 a full Rust build in CI; Gargantua produces live blocks and its endpoint is already a CI secret. The
 trade is a dependency on a public testnet, acceptable because the poll needs nothing from it but
 recent blocks. Rejected: discovering the solvers by fill instead, which needs no Hyperbridge node at

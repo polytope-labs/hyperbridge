@@ -18,7 +18,8 @@ watchlist requests.
 2. On the Hyperbridge node, `handleSolverWatchlistPoll` runs every block, from inside the
    `enableSolverDiscovery` block of the substrate template, and calls `pollSolverWatchlist`:
    - It does nothing without `HYPERFX_WATCHLIST_URL`, or when the block has no timestamp or trails wall clock by
-     more than 120 s.
+     more than 300 s. Production indexes finalized blocks, which on Nexus trail wall clock by
+     roughly 40–60 s, so the bound has to cover that lag plus the node's own indexing delay.
    - Otherwise it GETs the URL with `If-None-Match` and a 5 s timeout. A `304` ends the poll. So do a transport
      error, a non-2xx answer or a body not shaped `{ chains: [{ chain, solvers: [{ address }] }] }`; each logs a
      warning and never throws.

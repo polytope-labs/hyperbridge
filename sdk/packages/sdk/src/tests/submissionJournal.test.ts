@@ -586,3 +586,48 @@ it("retains a pending operation at the inclusive order deadline", async () => {
 	expect(f.sent).toHaveLength(2)
 	expect(f.sent[1]).toEqual(f.sent[0])
 })
+
+it("keeps a contradictory RPC result and error pending without selecting another bid", async () => {
+	const f = fixture()
+	const originalFetch = globalThis.fetch
+	const sentNonces: string[] = []
+	vi.stubGlobal(
+		"fetch",
+		vi.fn(async (url, request) => {
+			const body = JSON.parse(request.body)
+			if (body.method === "eth_sendUserOperation") {
+				sentNonces.push(body.params[0].nonce)
+				if (body.params[0].nonce === "0x1") {
+					return {
+						json: async () => ({
+							jsonrpc: "2.0",
+							id: 1,
+							result: CryptoUtils.computeUserOpHash(op(), entryPoint, 8453n),
+							error: { code: -32500, message: "AA21 didn't pay prefund" },
+						}),
+					}
+				}
+				f.confirm(true, entryPoint, 2n)
+			}
+			return originalFetch(url, request)
+		}),
+	)
+	const journal = new SubmissionJournal(f.ctx.usedUserOpsStorage, { chainId: 8453, gateway, entryPoint, commitment })
+	await expect(
+		f.manager.selectAndExecuteBest(
+			order,
+			[f.bid(), f.bid(2n)],
+			(submission) => journal.write(submission),
+			async (submission) => {
+				await f.ctx.usedUserOpsStorage.setItem(
+					`used-userops:${commitment}`,
+					JSON.stringify([submission.userOpHash]),
+				)
+				await journal.clear()
+			},
+		),
+	).rejects.toBeInstanceOf(BidExecutionPendingError)
+	expect(sentNonces).toEqual(["0x1"])
+	expect(pending(f)).toBeDefined()
+	expect(f.storage.has(`used-userops:${commitment}`)).toBe(false)
+})

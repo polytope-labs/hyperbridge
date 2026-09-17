@@ -406,12 +406,14 @@ export class CryptoUtils {
 		const result = await response.json()
 
 		if (!result || result.jsonrpc !== "2.0" || result.id !== 1) throw new Error("Malformed bundler response")
-		if (result.error) {
-			if (!Number.isInteger(result.error.code) || typeof result.error.message !== "string")
+		const hasResult = Object.prototype.hasOwnProperty.call(result, "result")
+		const hasError = Object.prototype.hasOwnProperty.call(result, "error")
+		if (hasResult === hasError) throw new Error("Malformed bundler response")
+		if (hasError) {
+			if (!result.error || !Number.isInteger(result.error.code) || typeof result.error.message !== "string")
 				throw new Error("Malformed bundler error")
 			throw new BundlerRpcError(result.error.code, result.error.message, result.error.data)
 		}
-		if (!("result" in result)) throw new Error("Malformed bundler response")
 		return result.result
 	}
 

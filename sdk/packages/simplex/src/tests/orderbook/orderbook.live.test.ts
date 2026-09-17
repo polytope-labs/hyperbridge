@@ -10,7 +10,7 @@ import { MemoryDataStore } from "@/data/memory"
 import { OrderbookClient } from "@/orderbook/client"
 import { LimitOrderService } from "@/orderbook/limit-orders"
 import { ORDERBOOK_SCALE } from "@/orderbook/amounts"
-import { BASE_CHAIN, baseAssetRegistry, BASE_CNGN, BASE_USDC, postingRig } from "../helpers/posting"
+import { BASE_CHAIN, baseAssetRegistry, postingRig } from "../helpers/posting"
 
 /**
  * One limit order through a running HyperFX orderbook, start to finish.
@@ -102,18 +102,10 @@ rpc_url = "${indexer}/rpc/EVM-8453"
 gateway = "${GATEWAY}"
 solver_accounts = ["0x7cb55539d1144F62422099c3FA3405092022c88C"]
 
-[chains."EVM-8453".tokens]
-"${BASE_USDC}" = { symbol = "USDC", decimals = 6 }
-"${BASE_CNGN}" = { symbol = "cNGN", decimals = 6 }
-
 [chains."EVM-1"]
 rpc_url = "${indexer}/rpc/EVM-1"
 gateway = "${GATEWAY}"
 solver_accounts = ["0x7cb55539d1144F62422099c3FA3405092022c88C"]
-
-[chains."EVM-1".tokens]
-"${BASE_USDC}" = { symbol = "USDC", decimals = 6 }
-"${BASE_CNGN}" = { symbol = "cNGN", decimals = 6 }
 `
 }
 

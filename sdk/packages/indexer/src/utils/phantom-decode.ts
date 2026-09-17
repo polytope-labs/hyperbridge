@@ -4,6 +4,7 @@ import {
 	zipFillLegs,
 	FILL_ORDER_ABI,
 	FILL_ORDER_V1_ABI,
+	FILL_ORDER_AT_RATE_ABI,
 	type BidNonceKeyFn,
 	type FillData,
 	type HexString,
@@ -30,6 +31,7 @@ const executeIface = new Interface(["function execute(bytes32 mode, bytes execut
 const fillIface = new Interface(FILL_ORDER_ABI as any)
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const legacyFillIface = new Interface(FILL_ORDER_V1_ABI as any)
+const rateFillIface = new Interface(FILL_ORDER_AT_RATE_ABI as any)
 const CALL_TUPLE = ["tuple(address target, uint256 value, bytes data)[]"]
 
 /**
@@ -38,9 +40,13 @@ const CALL_TUPLE = ["tuple(address target, uint256 value, bytes data)[]"]
  * The selectors differ, so there is no payload one interface could mis-decode as the other.
  */
 function decodeFillOrderEither(data: string): ReadonlyArray<unknown> | null {
-	for (const iface of [fillIface, legacyFillIface]) {
+	for (const [iface, method] of [
+		[rateFillIface, "fillOrderAtRate"],
+		[fillIface, "fillOrder"],
+		[legacyFillIface, "fillOrder"],
+	] as const) {
 		try {
-			return iface.decodeFunctionData("fillOrder", data)
+			return iface.decodeFunctionData(method, data)
 		} catch {
 			// Wrong shape for this interface; try the other.
 		}
@@ -65,9 +71,19 @@ export function extractFillDataVm2(callData: HexString, gatewayAddress: string):
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any
 			const assets = (order as any)?.output?.assets as { token: HexString }[] | undefined
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any
-			const outputs = (options as any)?.outputs as { amount: unknown }[] | undefined
+			const outputs = (options as any)?.outputs as { token: HexString; amount: unknown }[] | undefined
 			if (!assets?.length || !outputs?.length) continue
-			return { order, options, legs: zipFillLegs(assets, outputs) }
+			const orderInputs = order.inputs as { token: HexString; amount: unknown }[]
+			const inputs = ((decoded[2] ?? []) as { token: HexString; amount: { toString(): string } }[]).map(
+				({ token, amount }) => ({ token, amount: BigInt(amount.toString()) }),
+			)
+			return {
+				order,
+				options,
+				method: decoded.length === 3 ? "fillOrderAtRate" : "fillOrder",
+				inputs,
+				legs: zipFillLegs(assets, outputs, orderInputs, inputs),
+			}
 		}
 	} catch {
 		return null

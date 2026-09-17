@@ -10,3 +10,5 @@
 6. Per leg: drop every zero-weight quote — from the median, from `bidCount`, and from `bidders` alike — and drop the leg entirely if none is left. Otherwise `weightedMedian` picks the price, and `lowestPrice`/`highestPrice` are set to that same median rather than the raw bid extremes.
 
 A malformed bid is skipped and the rest are priced; a `PhantomRpcError` aborts the whole run instead, because a partial bid set publishes a confident price built from whichever bids happened to be readable.
+
+Rate bids retain their signed input takes alongside raw output amounts. Before pricing, the output quote is normalized to the full input amount using that take, so differently sized slices compete by rate. Rate advertisements require a rate-capable gateway and SolverAccount; missing capability skips the bid and RPC failures retry the snapshot. The committed order is never rewritten.

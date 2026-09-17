@@ -2,11 +2,13 @@ import { describe, it, expect, beforeEach, vi } from "vitest"
 import { slice } from "viem"
 import {
 	encodeFillOrder,
+	encodeFillOrderAtRate,
 	decodeFillOrder,
 	getFillOptionsVersion,
 	resetFillOptionsVersionCache,
+	supportsRateFills,
 } from "@/protocols/intents/fillOrderCodec"
-import type { FillOptions, HexString, Order } from "@/types"
+import type { FillOptions, HexString, Order, TokenInfo } from "@/types"
 
 /**
  * `FillOptions` gained `validUntil`, which changes `fillOrder`'s selector. Both shapes are on
@@ -21,6 +23,7 @@ const TOKEN = "0x000000000000000000000000000000000000000000000000000000000000000
 // changes the ABI shows up here rather than as a reverting fill.
 const V1_SELECTOR = "0x5cfb1ea5"
 const V2_SELECTOR = "0xa5470064"
+const RATE_SELECTOR = "0x25745288"
 const ERC1967_SLOT = "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc"
 
 function order(): Order {
@@ -34,7 +37,11 @@ function order(): Order {
 		session: "0x0000000000000000000000000000000000000000" as HexString,
 		predispatch: { assets: [], call: "0x" },
 		inputs: [{ token: TOKEN, amount: 1_000n }],
-		output: { beneficiary: ("0x" + "00".repeat(32)) as HexString, assets: [{ token: TOKEN, amount: 0n }], call: "0x" },
+		output: {
+			beneficiary: ("0x" + "00".repeat(32)) as HexString,
+			assets: [{ token: TOKEN, amount: 0n }],
+			call: "0x",
+		},
 	} as unknown as Order
 }
 
@@ -74,7 +81,19 @@ describe("decodeFillOrder", () => {
 		for (const version of [1, 2] as const) {
 			const decoded = decodeFillOrder(encodeFillOrder(order(), options(7n), version))
 			expect(decoded!.options.outputs[0].amount).toBe(500n)
+			expect(decoded).toMatchObject({ method: "fillOrder", inputs: [] })
 		}
+	})
+
+	it("distinguishes fillOrderAtRate and round-trips its positional input takes", () => {
+		const inputs: TokenInfo[] = [{ token: TOKEN, amount: 400n }]
+		const encoded = encodeFillOrderAtRate(order(), options(77n), inputs)
+		const decoded = decodeFillOrder(encoded)
+
+		expect(decoded).toMatchObject({ method: "fillOrderAtRate" })
+		expect(decoded!.options.validUntil).toBe(77n)
+		expect(decoded!.inputs).toEqual(inputs)
+		expect(slice(encoded, 0, 4)).toBe(RATE_SELECTOR)
 	})
 
 	it("returns null for calldata that is not a fillOrder call", () => {
@@ -155,5 +174,25 @@ describe("getFillOptionsVersion", () => {
 		await getFillOptionsVersion(c, GATEWAY)
 
 		expect(c.getStorageAt).toHaveBeenCalledTimes(1)
+	})
+})
+
+describe("supportsRateFills", () => {
+	it("requires fresh support from both the gateway and solver-account implementation", async () => {
+		const readContract = vi.fn().mockResolvedValueOnce(true).mockResolvedValueOnce(false)
+		await expect(
+			supportsRateFills({ readContract } as any, GATEWAY, "0x2222222222222222222222222222222222222222"),
+		).resolves.toBe(false)
+		expect(readContract).toHaveBeenCalledTimes(2)
+	})
+
+	it("does not cache capability across calls", async () => {
+		const readContract = vi.fn().mockResolvedValue(true)
+		const c = { readContract } as any
+		const solver = "0x2222222222222222222222222222222222222222"
+
+		expect(await supportsRateFills(c, GATEWAY, solver)).toBe(true)
+		expect(await supportsRateFills(c, GATEWAY, solver)).toBe(true)
+		expect(readContract).toHaveBeenCalledTimes(4)
 	})
 })

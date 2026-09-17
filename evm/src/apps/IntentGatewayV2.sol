@@ -480,6 +480,25 @@ contract IntentGatewayV2 is
      * @param options Fill options including output token amounts and fee parameters.
      */
     function fillOrder(Order calldata order, FillOptions calldata options) public payable whenNotPaused nonReentrant {
+        _fillOrder(order, options, new TokenInfo[](0));
+    }
+
+    /// @notice Whether this implementation accepts solver-priced fills.
+    function supportsRateFills() external pure returns (bool) {
+        return true;
+    }
+
+    /// @notice Fill at a signed per-leg rate without changing the legacy fillOrder selector.
+    function fillOrderAtRate(Order calldata order, FillOptions calldata options, TokenInfo[] calldata inputs)
+        external
+        payable
+        whenNotPaused
+        nonReentrant
+    {
+        _fillOrder(order, options, inputs);
+    }
+
+    function _fillOrder(Order calldata order, FillOptions calldata options, TokenInfo[] memory inputs) internal {
         uint256 blockNumber = _blockNumber();
         if (order.deadline < blockNumber) revert Expired();
         // The solver's own bound on how long its quoted price stands. Zero means unbounded,
@@ -513,11 +532,16 @@ contract IntentGatewayV2 is
         uint256 outputsLen = order.output.assets.length;
         if (options.outputs.length != outputsLen) revert InvalidInput();
         if (order.inputs.length != outputsLen) revert InvalidInput();
+        if (inputs.length != 0 && inputs.length != outputsLen) revert InvalidInput();
 
         if (isSameChain) {
-            _delegate(intrinsicModule, abi.encodeCall(IntrinsicModule.fillSameChain, (order, options, commitment)));
+            _delegate(
+                intrinsicModule, abi.encodeCall(IntrinsicModule.fillSameChain, (order, options, commitment, inputs))
+            );
         } else {
-            _delegate(extrinsicModule, abi.encodeCall(ExtrinsicModule.fillCrossChain, (order, options, commitment)));
+            _delegate(
+                extrinsicModule, abi.encodeCall(ExtrinsicModule.fillCrossChain, (order, options, commitment, inputs))
+            );
         }
     }
 

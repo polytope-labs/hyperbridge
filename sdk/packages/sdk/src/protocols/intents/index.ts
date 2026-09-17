@@ -1,4 +1,5 @@
 export { IntentGateway } from "./IntentGateway"
+export { BidExecutionPendingError } from "./Bid"
 export {
 	InvalidLiquidityIndexerResponseError,
 	UnsupportedLiquidityAssetError,
@@ -39,14 +40,19 @@ export {
 export { CryptoUtils, SELECT_SOLVER_TYPEHASH, PACKED_USEROP_TYPEHASH, DOMAIN_TYPEHASH } from "./CryptoUtils"
 export {
 	encodeFillOrder,
+	encodeFillOrderAtRate,
 	decodeFillOrder,
 	getFillOptionsVersion,
 	resetFillOptionsVersionCache,
+	supportsRateFills,
 	LEGACY_FILL_OPTIONS_IMPLEMENTATIONS,
 	CHAINS_WITHOUT_VALID_UNTIL,
 	FILL_ORDER_V1_ABI,
+	FILL_ORDER_AT_RATE_ABI,
+	SUPPORTS_RATE_FILLS_ABI,
 } from "./fillOrderCodec"
 export type { FillOptionsVersion } from "./fillOrderCodec"
+export { previewRateFill, type RateFillPreview } from "./rateFill"
 export {
 	encodeAcceptedSourceChains,
 	decodeAcceptedSourceChains,
@@ -57,11 +63,13 @@ export {
 	applyProtocolFeeHaircut,
 	applyUniswapQuoteHaircut,
 	readProtocolFeeHaircutBps,
+	readRateFillCapability,
 	UNISWAP_QUOTE_HAIRCUT_BPS,
 	PERMIT2_SPONSORSHIP_BYTES,
 	type PhantomBidDeclaration,
 	type PhantomBidPaymasterAndData,
 	type PhantomBidSponsorship,
+	type RateFillCapabilityReader,
 } from "./phantom-aggregation"
 export {
 	DEFAULT_GRAFFITI,

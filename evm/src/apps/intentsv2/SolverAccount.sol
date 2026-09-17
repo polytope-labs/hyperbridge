@@ -53,6 +53,12 @@ contract SolverAccount is Account, ERC7821, IERC1271 {
      * @notice Cached fillOrder function selector
      */
     bytes4 private constant FILL_ORDER_SELECTOR = IIntentGatewayV2.fillOrder.selector;
+    bytes4 private constant FILL_ORDER_AT_RATE_SELECTOR = IIntentGatewayV2.fillOrderAtRate.selector;
+
+    /// @notice Includes the rate entry point in the signature-stripping defense.
+    function supportsRateFills() external pure returns (bool) {
+        return true;
+    }
 
     /**
      * @notice Cached ERC-7821 execute function selector
@@ -156,7 +162,9 @@ contract SolverAccount is Account, ERC7821, IERC1271 {
         Execution[] memory calls = abi.decode(executionData, (Execution[]));
 
         for (uint256 i = 0; i < calls.length; i++) {
-            bool hasFillOrder = calls[i].target == INTENT_GATEWAY_V2 && bytes4(calls[i].callData) == FILL_ORDER_SELECTOR;
+            bool hasFillOrder = calls[i].target == INTENT_GATEWAY_V2
+                && (bytes4(calls[i].callData) == FILL_ORDER_SELECTOR
+                    || bytes4(calls[i].callData) == FILL_ORDER_AT_RATE_SELECTOR);
             if (hasFillOrder) return true;
         }
         return false;

@@ -1,11 +1,69 @@
 import type { HexString, Order, TokenInfo } from "@/types"
 import type { ExecuteIntentOrderOptions, FillerBid, IntentOrderStatusUpdate, SelectBidResult } from "@/types"
-import { DEFAULT_POLL_INTERVAL, normalizeStateMachineId, sleep } from "@/utils"
+import { DEFAULT_POLL_INTERVAL, normalizeStateMachineId } from "@/utils"
 import type { BidManager } from "./BidManager"
 import { CryptoUtils } from "./CryptoUtils"
 import type { IntentGatewayContext } from "./types"
+import { ABI as IntentGatewayV2ABI } from "@/abis/IntentGatewayV2"
+import { BidExecutionPendingError } from "./Bid"
+import EntryPoint from "@/abis/entrypoint"
 
 const USED_USEROPS_STORAGE_KEY = (commitment: HexString) => `used-userops:${commitment.toLowerCase()}`
+const ABORTED = Symbol("order-execution-aborted")
+
+function waitUnlessAborted<T>(promise: Promise<T>, signal: AbortSignal): Promise<T | typeof ABORTED> {
+	if (signal.aborted) return Promise.resolve(ABORTED)
+
+	return new Promise((resolve, reject) => {
+		let settled = false
+		const finish = (callback: () => void) => {
+			if (settled) return
+			settled = true
+			signal.removeEventListener("abort", onAbort)
+			callback()
+		}
+		const onAbort = () => finish(() => resolve(ABORTED))
+		signal.addEventListener("abort", onAbort, { once: true })
+		promise.then(
+			(value) => finish(() => resolve(value)),
+			(error) => finish(() => reject(error)),
+		)
+	})
+}
+
+function sleepUnlessAborted(ms: number, signal: AbortSignal): Promise<boolean> {
+	if (signal.aborted) return Promise.resolve(false)
+
+	return new Promise((resolve) => {
+		const timeout = setTimeout(() => {
+			signal.removeEventListener("abort", onAbort)
+			resolve(true)
+		}, ms)
+		const onAbort = () => {
+			clearTimeout(timeout)
+			signal.removeEventListener("abort", onAbort)
+			resolve(false)
+		}
+		signal.addEventListener("abort", onAbort, { once: true })
+	})
+}
+
+export async function isUserOperationNonceConsumed(
+	client: { readContract: (args: unknown) => Promise<unknown> },
+	entryPoint: HexString,
+	userOp: FillerBid["userOp"],
+): Promise<boolean> {
+	const key = userOp.nonce >> 64n
+	const current = BigInt(
+		await client.readContract({
+			address: entryPoint,
+			abi: EntryPoint.ABI,
+			functionName: "getNonce",
+			args: [userOp.sender, key],
+		}),
+	)
+	return current > userOp.nonce
+}
 
 /**
  * Drives the post-placement execution lifecycle of an intent order.
@@ -38,18 +96,21 @@ export class OrderExecutor {
 	private async *deadlineStream(
 		deadline: bigint,
 		commitment: HexString,
+		signal: AbortSignal,
 	): AsyncGenerator<IntentOrderStatusUpdate, void> {
 		const client = this.ctx.dest.client
 		const blockTimeMs = client.chain?.blockTime ?? 2_000
 
-		while (true) {
-			const currentBlock = await client.getBlockNumber()
+		while (!signal.aborted) {
+			const currentBlock = await waitUnlessAborted(client.getBlockNumber(), signal)
+			if (currentBlock === ABORTED) return
 			if (currentBlock >= deadline) break
 
 			const blocksRemaining = Number(deadline - currentBlock)
 			const sleepMs = Math.min(blocksRemaining * blockTimeMs, 60_000)
-			await sleep(sleepMs)
+			if (!(await sleepUnlessAborted(sleepMs, signal))) return
 		}
+		if (signal.aborted) return
 
 		yield {
 			status: "EXPIRED",
@@ -81,6 +142,44 @@ export class OrderExecutor {
 			USED_USEROPS_STORAGE_KEY(commitment),
 			JSON.stringify([...usedUserOps]),
 		)
+	}
+
+	/** Reads cumulative credited progress so restarts and concurrent fillers do not rely on stale local totals. */
+	private async readCreditedProgress(
+		order: Order,
+		commitment: HexString,
+		fallback: TokenInfo[],
+	): Promise<TokenInfo[]> {
+		const client = this.ctx.dest.client as any
+		if (typeof client.readContract !== "function") return fallback
+		const gateway = this.ctx.dest.configService.getIntentGatewayAddress(normalizeStateMachineId(order.destination))
+		return Promise.all(
+			order.output.assets.map(async (asset, index) => {
+				const credited = BigInt(
+					await client.readContract({
+						address: gateway,
+						abi: IntentGatewayV2ABI,
+						functionName: "_partialFills",
+						args: [commitment, asset.token],
+					}),
+				)
+				const previous = fallback[index]?.amount ?? 0n
+				return { token: asset.token, amount: credited > previous ? credited : previous }
+			}),
+		)
+	}
+
+	private async readFinalizer(order: Order, commitment: HexString): Promise<HexString | undefined> {
+		const client = this.ctx.dest.client as any
+		if (typeof client.readContract !== "function") return undefined
+		const gateway = this.ctx.dest.configService.getIntentGatewayAddress(normalizeStateMachineId(order.destination))
+		const finalizer = (await client.readContract({
+			address: gateway,
+			abi: IntentGatewayV2ABI,
+			functionName: "_filled",
+			args: [commitment],
+		})) as HexString
+		return /^0x0{40}$/i.test(finalizer) ? undefined : finalizer
 	}
 
 	/**
@@ -237,7 +336,14 @@ export class OrderExecutor {
 	async *executeOrder(
 		options: ExecuteIntentOrderOptions,
 	): AsyncGenerator<IntentOrderStatusUpdate, void, SelectBidResult | undefined> {
-		const { order, sessionPrivateKey, auctionTimeMs, pollIntervalMs = DEFAULT_POLL_INTERVAL, solver } = options
+		const {
+			order,
+			sessionPrivateKey,
+			auctionTimeMs,
+			pollIntervalMs = DEFAULT_POLL_INTERVAL,
+			solver,
+			automatic,
+		} = options
 
 		const commitment = order.id as HexString
 
@@ -250,14 +356,52 @@ export class OrderExecutor {
 			yield { status: "FAILED", error: "Bundler URL not configured" }
 			return
 		}
-
 		const usedUserOps = await this.loadUsedUserOps(commitment)
 		const userOpHashKey = this.createUserOpHasher(order)
 
 		const targetAssets = order.output.assets.map((a) => ({ token: a.token, amount: a.amount }))
-		let totalFilledAssets = order.output.assets.map((a) => ({ token: a.token, amount: 0n }))
+		let totalFilledAssets: TokenInfo[]
+		let initialFinalizer: HexString | undefined
+		try {
+			totalFilledAssets = await this.readCreditedProgress(
+				order,
+				commitment,
+				order.output.assets.map((a) => ({ token: a.token, amount: 0n })),
+			)
+			initialFinalizer = await this.readFinalizer(order, commitment)
+			if (initialFinalizer) {
+				// Once finalized, progress is immutable. Reread it after the finalizer so a fill that
+				// lands between the two independent latest-state reads cannot look like cancellation.
+				totalFilledAssets = await this.readCreditedProgress(order, commitment, totalFilledAssets)
+			}
+		} catch (err) {
+			yield { status: "FAILED", commitment, error: err instanceof Error ? err.message : String(err) }
+			return
+		}
 		let remainingAssets = order.output.assets.map((a) => ({ token: a.token, amount: a.amount }))
+		remainingAssets = targetAssets.map((target, index) => ({
+			token: target.token,
+			amount:
+				(totalFilledAssets[index]?.amount ?? 0n) >= target.amount
+					? 0n
+					: target.amount - (totalFilledAssets[index]?.amount ?? 0n),
+		}))
+		if (initialFinalizer) {
+			if (remainingAssets.every((asset) => asset.amount === 0n)) {
+				yield {
+					status: "FILLED",
+					commitment,
+					selectedSolver: initialFinalizer,
+					totalFilledAssets,
+					remainingAssets,
+				}
+			} else {
+				yield { status: "CANCELLED", commitment, totalFilledAssets, remainingAssets }
+			}
+			return
+		}
 
+		const abortController = new AbortController()
 		const executionStream = this.executionStream({
 			order,
 			sessionPrivateKey,
@@ -270,9 +414,10 @@ export class OrderExecutor {
 			targetAssets,
 			totalFilledAssets,
 			remainingAssets,
+			signal: abortController.signal,
 		})
 
-		const deadlineTimeout = this.deadlineStream(order.deadline, commitment)
+		const deadlineTimeout = this.deadlineStream(order.deadline, commitment, abortController.signal)
 		// The deadline stream resolves once, when the order's block deadline is
 		// reached. We race every execution-stream step against it.
 		const deadlinePromise = deadlineTimeout.next()
@@ -307,13 +452,48 @@ export class OrderExecutor {
 				if (done) return
 
 				const fed = yield value
-				if (value.status === "BIDS_RECEIVED") input = fed
+				if (value.status === "BIDS_RECEIVED") {
+					if (automatic) {
+						const executableBids =
+							order.inputs.length === 1 && order.output.assets.length === 1
+								? value.bids
+								: value.bids.filter((bid) => bid.inputs.length === 0)
+						if (executableBids.length === 0 && value.bids.some((bid) => bid.inputs.length > 0)) {
+							yield {
+								status: "FAILED",
+								commitment,
+								error: "Automatic rate execution supports single-leg orders only",
+							}
+							return
+						}
+						try {
+							input = await this.bidManager.selectAndExecuteBest(
+								order,
+								executableBids,
+								async (submission) => {
+									usedUserOps.add(userOpHashKey(submission.userOp))
+									await this.persistUsedUserOps(commitment, usedUserOps)
+								},
+							)
+						} catch (err) {
+							if (err instanceof BidExecutionPendingError) {
+								yield { status: "FAILED", commitment, error: err.message }
+								return
+							}
+							// The manager has exhausted this ranked batch. Let the stream poll for fresh bids.
+							input = undefined
+						}
+					} else {
+						input = fed
+					}
+				}
 				if (value.status === "EXPIRED" || value.status === "FILLED") return
 			}
 		} finally {
 			// Tear the streams down explicitly so neither keeps polling in the
 			// background after the consumer stops iterating.
 			console.log(`[OrderExecutor] Tearing down streams for commitment=${commitment}`)
+			abortController.abort()
 			await executionStream.return(undefined as never)
 			await deadlineTimeout.return(undefined as never)
 		}
@@ -343,6 +523,7 @@ export class OrderExecutor {
 		targetAssets: TokenInfo[]
 		totalFilledAssets: TokenInfo[]
 		remainingAssets: TokenInfo[]
+		signal: AbortSignal
 	}): AsyncGenerator<IntentOrderStatusUpdate, void, SelectBidResult | undefined> {
 		const {
 			order,
@@ -354,10 +535,14 @@ export class OrderExecutor {
 			usedUserOps,
 			userOpHashKey,
 			targetAssets,
+			signal,
 		} = params
 		let { totalFilledAssets, remainingAssets } = params
 
 		const isFreshBid = (bid: FillerBid) => !usedUserOps.has(userOpHashKey(bid.userOp))
+		const entryPointAddress = this.ctx.dest.configService.getEntryPointV08Address(
+			normalizeStateMachineId(order.destination),
+		)
 
 		const solverLockStartTime = Date.now()
 		yield { status: "AWAITING_BIDS", commitment, totalFilledAssets, remainingAssets }
@@ -366,9 +551,13 @@ export class OrderExecutor {
 			// Poll for bids during the auction period, yielding NEW_BID for each new bid seen
 			const auctionEnd = Date.now() + auctionTimeMs
 			const auctionSeenBids = new Set<string>()
-			while (Date.now() < auctionEnd) {
+			while (!signal.aborted && Date.now() < auctionEnd) {
 				try {
-					const bids = await this.fetchBids({ commitment, solver, solverLockStartTime })
+					const bids = await waitUnlessAborted(
+						this.fetchBids({ commitment, solver, solverLockStartTime }),
+						signal,
+					)
+					if (bids === ABORTED) return
 					const newBids = bids.filter(
 						(bid) => isFreshBid(bid) && !auctionSeenBids.has(userOpHashKey(bid.userOp)),
 					)
@@ -378,32 +567,101 @@ export class OrderExecutor {
 						if (bid) yield { status: "NEW_BID", commitment, bid }
 					}
 				} catch {
+					if (signal.aborted) return
 					// Ignore fetch errors during auction, will retry next interval
 				}
 				const remaining = auctionEnd - Date.now()
 				if (remaining > 0) {
-					await sleep(Math.min(pollIntervalMs, remaining))
+					if (!(await sleepUnlessAborted(Math.min(pollIntervalMs, remaining), signal))) return
 				}
 			}
 
-			while (true) {
+			while (!signal.aborted) {
+				const creditedProgress = await waitUnlessAborted(
+					this.readCreditedProgress(order, commitment, totalFilledAssets),
+					signal,
+				)
+				if (creditedProgress === ABORTED) return
+				totalFilledAssets = creditedProgress
+				remainingAssets = targetAssets.map((target, index) => ({
+					token: target.token,
+					amount:
+						(totalFilledAssets[index]?.amount ?? 0n) >= target.amount
+							? 0n
+							: target.amount - (totalFilledAssets[index]?.amount ?? 0n),
+				}))
+				const finalizer = await waitUnlessAborted(this.readFinalizer(order, commitment), signal)
+				if (finalizer === ABORTED) return
+				if (finalizer) {
+					const finalizedProgress = await waitUnlessAborted(
+						this.readCreditedProgress(order, commitment, totalFilledAssets),
+						signal,
+					)
+					if (finalizedProgress === ABORTED) return
+					totalFilledAssets = finalizedProgress
+					remainingAssets = targetAssets.map((target, index) => ({
+						token: target.token,
+						amount:
+							(totalFilledAssets[index]?.amount ?? 0n) >= target.amount
+								? 0n
+								: target.amount - (totalFilledAssets[index]?.amount ?? 0n),
+					}))
+					if (remainingAssets.every((asset) => asset.amount === 0n)) {
+						yield {
+							status: "FILLED",
+							commitment,
+							selectedSolver: finalizer,
+							totalFilledAssets,
+							remainingAssets,
+						}
+					} else {
+						yield { status: "CANCELLED", commitment, totalFilledAssets, remainingAssets }
+					}
+					return
+				}
 				let freshBids: FillerBid[]
 				try {
-					const bids = await this.fetchBids({ commitment, solver, solverLockStartTime })
-					freshBids = bids.filter(isFreshBid)
+					const bids = await waitUnlessAborted(
+						this.fetchBids({ commitment, solver, solverLockStartTime }),
+						signal,
+					)
+					if (bids === ABORTED) return
+					const unseen = bids.filter(isFreshBid)
+					const client = this.ctx.dest.client as any
+					const checkedBids =
+						typeof client.readContract !== "function"
+							? Promise.resolve(unseen)
+							: Promise.all(
+								unseen.map(async (bid) => ({
+									bid,
+									consumed: await isUserOperationNonceConsumed(
+										client,
+										entryPointAddress,
+										bid.userOp,
+									),
+								})),
+							).then((results) =>
+								results
+									.filter(({ consumed }) => !consumed)
+									.map(({ bid }) => bid),
+							)
+					const availableBids = await waitUnlessAborted(checkedBids, signal)
+					if (availableBids === ABORTED) return
+					freshBids = availableBids
 				} catch {
-					await sleep(pollIntervalMs)
+					if (signal.aborted) return
+					if (!(await sleepUnlessAborted(pollIntervalMs, signal))) return
 					continue
 				}
 
 				if (freshBids.length === 0) {
-					await sleep(pollIntervalMs)
+					if (!(await sleepUnlessAborted(pollIntervalMs, signal))) return
 					continue
 				}
 
 				const bids = this.bidManager.buildBids(order, freshBids, sessionPrivateKey)
 				if (bids.length === 0) {
-					await sleep(pollIntervalMs)
+					if (!(await sleepUnlessAborted(pollIntervalMs, signal))) return
 					continue
 				}
 
@@ -412,7 +670,7 @@ export class OrderExecutor {
 
 				if (!result) {
 					// Consumer did not execute a bid this round; poll again.
-					await sleep(pollIntervalMs)
+					if (!(await sleepUnlessAborted(pollIntervalMs, signal))) return
 					continue
 				}
 

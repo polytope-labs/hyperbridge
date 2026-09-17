@@ -53,7 +53,9 @@ function makeEvalContractService(): any {
 	const classifications = new Map<string, unknown>()
 	const outputs = new Map<string, TokenInfo[]>()
 	const partials = new Map<string, boolean>()
+	const inputs = new Map<string, TokenInfo[]>()
 	return {
+		rateFillsSupported: async () => false,
 		getTokenDecimals: async () => 18,
 		getFeeTokenWithDecimals: async () => ({ address: STABLE, decimals: 18 }),
 		estimateGasFillPost: async () => ({
@@ -67,7 +69,10 @@ function makeEvalContractService(): any {
 			getPairClassifications: (id: string) => classifications.get(id),
 			setPairClassifications: (id: string, pairs: unknown) => classifications.set(id, pairs),
 			getFillerOutputs: (id: string) => outputs.get(id),
-			setFillerOutputs: (id: string, value: TokenInfo[]) => outputs.set(id, value),
+			setFillerOutputs: (id: string, value: TokenInfo[], takes: TokenInfo[] = []) => {
+				outputs.set(id, value)
+				inputs.set(id, takes)
+			},
 			clearPartialFill: (id: string) => partials.delete(id),
 			setPartialFill: (id: string, value: boolean) => partials.set(id, value),
 			getPartialFill: (id: string) => partials.get(id),
@@ -75,6 +80,7 @@ function makeEvalContractService(): any {
 			clearFundingPrepends: () => {},
 		},
 		outputs,
+		inputs,
 		partials,
 	}
 }
@@ -199,5 +205,38 @@ describe("FXFiller curve payout", () => {
 		expect(cached![0].amount).toBe(parseUnits("149500", 18))
 		expect(contractService.partials.get("payout-balance")).toBe(false)
 		expect(profit).toBeGreaterThan(0)
+	})
+	it("quotes capped input at the solver rate when gateway and account support it", async () => {
+		const contractService = makeEvalContractService()
+		contractService.rateFillsSupported = async () => true
+		const filler = makeFiller({
+			contractService,
+			balances: { [EXOTIC.toLowerCase()]: parseUnits("1000000", 18) },
+			maxOrderSize: 40,
+		})
+		await filler.calculateProfitability(makeOrder("rate-capped"))
+		expect(contractService.inputs.get("rate-capped")).toEqual([
+			{ token: bytes20ToBytes32(STABLE), amount: parseUnits("40", 18) },
+		])
+		expect(contractService.outputs.get("rate-capped")[0].amount).toBe(parseUnits("60000", 18))
+		expect(contractService.partials.get("rate-capped")).toBe(true)
+	})
+
+	it("does not count a funding reduction at the same rate as profit", async () => {
+		const contractService = makeEvalContractService()
+		contractService.rateFillsSupported = async () => true
+		contractService.estimateGasFillPost = async () => ({
+			totalCostInSourceFeeToken: parseUnits("1", 18),
+			relayerFeeInSourceFeeToken: 0n,
+			dispatchFee: 0n,
+		})
+		const filler = makeFiller({
+			contractService,
+			balances: { [EXOTIC.toLowerCase()]: parseUnits("75000", 18) },
+			maxOrderSize: 5000,
+		})
+		const profit = await filler.calculateProfitability(makeOrder("rate-funded"))
+		expect(contractService.inputs.get("rate-funded")[0].amount).toBe(parseUnits("50", 18))
+		expect(profit).toBeLessThanOrEqual(0)
 	})
 })

@@ -23,6 +23,10 @@ import {Execution} from "@openzeppelin/contracts/interfaces/draft-IERC7579.sol";
 import {ERC4337Utils} from "@openzeppelin/contracts/account/utils/draft-ERC4337Utils.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 
+interface RateGateway {
+    function fillOrderAtRate(Order calldata, FillOptions calldata, TokenInfo[] calldata) external payable;
+}
+
 contract SolverAccountTest is Test {
     SolverAccount public solverAccount;
     IntentGatewayV2 public intentGateway;
@@ -173,6 +177,24 @@ contract SolverAccountTest is Test {
         assertEq(result, ERC4337Utils.SIG_VALIDATION_FAILED);
     }
 
+    function test_ValidateUserOp_StandardECDSA_RateFillCalldata_Fails() public {
+        bytes32 userOpHash = keccak256("test_userop");
+
+        Execution[] memory calls = new Execution[](1);
+        calls[0] = Execution({
+            target: address(intentGateway),
+            value: 0,
+            callData: abi.encodeWithSelector(RateGateway.fillOrderAtRate.selector)
+        });
+
+        PackedUserOperation memory op = _standardOp(_executeCalldata(calls), _signUserOpHash(userOpHash));
+
+        vm.prank(entryPoint);
+        uint256 result = solverAccount.validateUserOp(op, userOpHash, 0);
+
+        assertEq(result, ERC4337Utils.SIG_VALIDATION_FAILED);
+    }
+
     function test_ValidateUserOp_StandardECDSA_NonFillOrderBatch_Success() public {
         bytes32 userOpHash = keccak256("test_userop");
 
@@ -265,6 +287,43 @@ contract SolverAccountTest is Test {
         Execution[] memory calls = new Execution[](1);
         calls[0] = Execution({
             target: address(intentGateway), value: 0, callData: abi.encodeWithSelector(intentGateway.fillOrder.selector)
+        });
+
+        PackedUserOperation memory op = PackedUserOperation({
+            sender: address(solverAccount),
+            nonce: _bidNonce(testCommitment, sessionKey),
+            initCode: "",
+            callData: _executeCalldata(calls),
+            accountGasLimits: bytes32(0),
+            preVerificationGas: 0,
+            gasFees: bytes32(0),
+            paymasterAndData: "",
+            signature: signature
+        });
+
+        SelectOptions memory expectedOptions =
+            SelectOptions({commitment: testCommitment, solver: address(solverAccount), signature: sessionSignature});
+        bytes memory selectCalldata = abi.encodeWithSelector(intentGateway.select.selector, expectedOptions);
+        vm.mockCall(address(intentGateway), selectCalldata, abi.encode(sessionKey));
+
+        vm.prank(entryPoint);
+        uint256 result = solverAccount.validateUserOp(op, userOpHash, 0);
+
+        assertEq(result, ERC4337Utils.SIG_VALIDATION_SUCCESS);
+    }
+
+    function test_ValidateUserOp_IntentSelection_RateFillCalldata_Success() public {
+        bytes32 userOpHash = keccak256("test_userop");
+
+        bytes memory sessionSignature = _createSessionKeySignature(testCommitment, address(solverAccount));
+        bytes memory solverSignature = _signUserOpHash(userOpHash);
+        bytes memory signature = abi.encodePacked(testCommitment, solverSignature, sessionSignature);
+
+        Execution[] memory calls = new Execution[](1);
+        calls[0] = Execution({
+            target: address(intentGateway),
+            value: 0,
+            callData: abi.encodeWithSelector(RateGateway.fillOrderAtRate.selector)
         });
 
         PackedUserOperation memory op = PackedUserOperation({

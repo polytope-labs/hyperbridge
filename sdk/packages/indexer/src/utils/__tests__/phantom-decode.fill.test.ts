@@ -3,6 +3,7 @@ import {
 	encodeERC7821ExecuteBatch,
 	FILL_ORDER_ABI,
 	FILL_ORDER_V1_ABI,
+	FILL_ORDER_AT_RATE_ABI,
 	type HexString,
 } from "@hyperbridge/sdk/intents-helpers"
 import { extractFillDataVm2 } from "@/utils/phantom-decode"
@@ -19,7 +20,7 @@ import { extractFillDataVm2 } from "@/utils/phantom-decode"
 // requires ESM-only `lodash-es`, and there is no `transformIgnorePatterns` override).
 describe("extractFillDataVm2", () => {
 	const GATEWAY = "0x1111111111111111111111111111111111111111" as HexString
-	const OUTPUT_TOKEN = `0x${"55".repeat(32)}` as HexString
+	const OUTPUT_TOKEN = `0x${"00".repeat(12)}${"55".repeat(20)}` as HexString
 	const SOLVER_AMOUNT = 12_345n
 
 	const order = {
@@ -31,7 +32,7 @@ describe("extractFillDataVm2", () => {
 		fees: 0n,
 		session: `0x${"22".repeat(20)}`,
 		predispatch: { assets: [], call: "0x" },
-		inputs: [{ token: `0x${"33".repeat(32)}`, amount: 1n }],
+		inputs: [{ token: `0x${"00".repeat(12)}${"33".repeat(20)}`, amount: 1n }],
 		output: {
 			beneficiary: `0x${"44".repeat(32)}`,
 			assets: [{ token: OUTPUT_TOKEN, amount: 2n }],
@@ -48,7 +49,10 @@ describe("extractFillDataVm2", () => {
 	}
 
 	it("decodes a bid encoded for an upgraded gateway (v2, with validUntil)", () => {
-		const calldata = bid(FILL_ORDER_ABI, [order, { relayerFee: 0n, nativeDispatchFee: 0n, validUntil: 99n, outputs }])
+		const calldata = bid(FILL_ORDER_ABI, [
+			order,
+			{ relayerFee: 0n, nativeDispatchFee: 0n, validUntil: 99n, outputs },
+		])
 
 		const result = extractFillDataVm2(calldata, GATEWAY)
 
@@ -71,8 +75,57 @@ describe("extractFillDataVm2", () => {
 		expect(result!.legs[0].solverAmount).toBe(SOLVER_AMOUNT)
 	})
 
+	it("decodes a rate bid with its signed take, normalized to the full input", () => {
+		const rateOrder = { ...order, inputs: [{ ...order.inputs[0], amount: 1000n }] }
+		const data = encodeFunctionData({
+			abi: FILL_ORDER_AT_RATE_ABI,
+			functionName: "fillOrderAtRate",
+			args: [
+				rateOrder as never,
+				{ relayerFee: 0n, nativeDispatchFee: 0n, validUntil: 99n, outputs },
+				[{ token: order.inputs[0].token as HexString, amount: 400n }],
+			],
+		})
+		const result = extractFillDataVm2(encodeERC7821ExecuteBatch([{ target: GATEWAY, value: 0n, data }]), GATEWAY)
+		expect(result).not.toBeNull()
+		expect(result!.legs[0].inputTake).toBe(400n)
+		expect(result!.legs[0].normalizedAmount).toBe(30_862n)
+	})
+
+	it.each(["wrong-token", "short-array", "zero-pair"])("rejects malformed rate inputs: %s", (kind) => {
+		const rateOrder = {
+			...order,
+			inputs: [{ ...order.inputs[0], amount: 1000n }],
+			output: { ...order.output, assets: [...order.output.assets] },
+		}
+		const takes = [{ token: order.inputs[0].token as HexString, amount: 400n }]
+		const offered = [...outputs]
+		if (kind === "wrong-token") takes[0].token = OUTPUT_TOKEN
+		if (kind === "zero-pair") takes[0].amount = 0n
+		if (kind === "short-array") {
+			rateOrder.inputs.push({ token: `0x${"00".repeat(12)}${"66".repeat(20)}`, amount: 1000n })
+			rateOrder.output.assets.push({ token: `0x${"00".repeat(12)}${"77".repeat(20)}`, amount: 2n })
+			offered.push({ token: rateOrder.output.assets[1].token as HexString, amount: 10n })
+		}
+		const data = encodeFunctionData({
+			abi: FILL_ORDER_AT_RATE_ABI,
+			functionName: "fillOrderAtRate",
+			args: [
+				rateOrder as never,
+				{ relayerFee: 0n, nativeDispatchFee: 0n, validUntil: 99n, outputs: offered },
+				takes,
+			],
+		})
+		expect(
+			extractFillDataVm2(encodeERC7821ExecuteBatch([{ target: GATEWAY, value: 0n, data }]), GATEWAY),
+		).toBeNull()
+	})
+
 	it("returns null when the batch targets a different contract", () => {
-		const calldata = bid(FILL_ORDER_ABI, [order, { relayerFee: 0n, nativeDispatchFee: 0n, validUntil: 0n, outputs }])
+		const calldata = bid(FILL_ORDER_ABI, [
+			order,
+			{ relayerFee: 0n, nativeDispatchFee: 0n, validUntil: 0n, outputs },
+		])
 
 		expect(extractFillDataVm2(calldata, "0x2222222222222222222222222222222222222222")).toBeNull()
 	})

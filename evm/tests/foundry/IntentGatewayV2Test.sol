@@ -4811,6 +4811,84 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
     /// @dev Destination-side: a partial fill pays the beneficiary pro-rata, records cumulative
     /// progress, clears `_filled`, and dispatches a proportional escrow release (asserted via the
     /// PartialFill event's `inputs`). A second solver then completes the order.
+    function testRate_CancelAndTwoRedemptionsConserveEscrowInAllDeliveryOrders() public {
+        bytes memory source = host.host();
+        Order memory order = _xchainOrder(source, bytes("DEST_CHAIN"), 1000, 1000);
+        vm.startPrank(user);
+        usdc.approve(address(intentGateway), 1000);
+        intentGateway.placeOrder(order, bytes32(0));
+        vm.stopPrank();
+        bytes32 commitment = keccak256(abi.encode(order));
+        // Exercise destination settlement against the same layout, then deliver its
+        // earned slices and proof to the source in every order. Transport is mocked.
+        vm.mockCall(address(host), abi.encodeWithSignature("host()"), abi.encode(bytes("DEST_CHAIN")));
+        TokenInfo[] memory takes = new TokenInfo[](1);
+        TokenInfo[] memory outputs = new TokenInfo[](1);
+        takes[0] = TokenInfo(order.inputs[0].token, 200);
+        outputs[0] = TokenInfo(order.output.assets[0].token, 220);
+        vm.startPrank(filler);
+        dai.approve(address(intentGateway), 550);
+        intentGateway.fillOrderAtRate(order, FillOptions(0, 0, 0, outputs), takes);
+        takes[0].amount = 300;
+        outputs[0].amount = 330;
+        intentGateway.fillOrderAtRate(order, FillOptions(0, 0, 0, outputs), takes);
+        vm.stopPrank();
+        vm.clearMockedCalls();
+        assertEq(intentGateway._partialFills(commitment, outputs[0].token), 500);
+        uint8[3][6] memory permutations =
+            [[uint8(0), 1, 2], [uint8(0), 2, 1], [uint8(1), 0, 2], [uint8(1), 2, 0], [uint8(2), 0, 1], [uint8(2), 1, 0]];
+        for (uint256 i; i < 6; ++i) {
+            uint256 snapshot = vm.snapshotState();
+            uint256 beforeUser = usdc.balanceOf(user);
+            uint256 beforeSolver = usdc.balanceOf(filler);
+            for (uint256 j; j < 3; ++j) {
+                uint8 action = permutations[i][j];
+                if (action == 2) {
+                    _replayCancel(commitment, 1000, 1000, 500);
+                } else {
+                    takes[0].amount = action == 0 ? 200 : 300;
+                    _replayRedeem(IntentsBase.RequestKind.RedeemEscrowPartial, commitment, takes, filler);
+                }
+            }
+            assertEq(usdc.balanceOf(user) - beforeUser, 500);
+            assertEq(usdc.balanceOf(filler) - beforeSolver, 500);
+            assertEq(intentGateway._orders(commitment, address(usdc)), 0);
+            assertTrue(vm.revertToStateAndDelete(snapshot));
+        }
+    }
+
+    function testRate_CrossChainSurplusCapsAndCreditsOnlyOrderOutput() public {
+        Order memory order = _xchainOrder(bytes("SOURCE_CHAIN"), host.host(), 1000, 1000);
+        bytes32 commitment = keccak256(abi.encode(order));
+        TokenInfo[] memory takes = new TokenInfo[](1);
+        takes[0] = TokenInfo(order.inputs[0].token, 800);
+        TokenInfo[] memory outputs = new TokenInfo[](1);
+        outputs[0] = TokenInfo(order.output.assets[0].token, 880);
+        TokenInfo[] memory credited = new TokenInfo[](1);
+        credited[0] = TokenInfo(order.output.assets[0].token, 800);
+        vm.startPrank(filler);
+        dai.approve(address(intentGateway), type(uint256).max);
+        uint256 before = dai.balanceOf(filler);
+        uint256 userBefore = dai.balanceOf(user);
+        vm.expectEmit(true, false, false, true);
+        emit IntentsBase.PartialFill(commitment, filler, credited, takes);
+        intentGateway.fillOrderAtRate(order, FillOptions(0, 0, 0, outputs), takes);
+        assertEq(intentGateway._partialFills(commitment, outputs[0].token), 800);
+        assertEq(dai.balanceOf(user) - userBefore, 800);
+        takes[0].amount = 500;
+        outputs[0].amount = 550;
+        credited[0].amount = 200;
+        TokenInfo[] memory released = new TokenInfo[](1);
+        released[0] = TokenInfo(order.inputs[0].token, 200);
+        vm.expectEmit(true, false, false, true);
+        emit IntentsBase.OrderFilled(commitment, filler, credited, released);
+        intentGateway.fillOrderAtRate(order, FillOptions(0, 0, 0, outputs), takes);
+        vm.stopPrank();
+        assertEq(before - dai.balanceOf(filler), 1100);
+        assertEq(dai.balanceOf(user) - userBefore, 1000);
+        assertEq(intentGateway._partialFills(commitment, outputs[0].token), 1000);
+    }
+
     function testCrossChainPartialFill_ReleasesProportionalEscrowAndCompletes() public {
         uint256 inputAmount = 1000 * 1e6; // 1000 USDC escrowed on the source chain
         uint256 outputAmount = 1000 * 1e18; // 1000 DAI requested on this (destination) chain

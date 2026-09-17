@@ -1,6 +1,6 @@
 import { encodeFunctionData, decodeFunctionData, type PublicClient } from "viem"
 import { ABI as IntentGatewayV2ABI } from "@/abis/IntentGatewayV2"
-import type { FillOptions, HexString, Order } from "@/types"
+import type { FillOptions, HexString, Order, TokenInfo } from "@/types"
 
 /**
  * `FillOptions` gained a `validUntil` field. Adding a field to a struct changes the
@@ -52,6 +52,69 @@ export const FILL_ORDER_V1_ABI = [
 		],
 	},
 ] as const
+
+const fillOrderV2 = IntentGatewayV2ABI.find((e) => e.type === "function" && e.name === "fillOrder")!
+
+/** ABI fragment kept here so codec consumers can decode bids during generated-ABI rollouts. */
+export const FILL_ORDER_AT_RATE_ABI = [
+	{
+		type: "function",
+		name: "fillOrderAtRate",
+		stateMutability: "payable",
+		outputs: [],
+		inputs: [
+			fillOrderV2.inputs![0],
+			fillOrderV2.inputs![1],
+			{
+				name: "inputs",
+				type: "tuple[]",
+				internalType: "struct TokenInfo[]",
+				components: [
+					{ name: "token", type: "bytes32", internalType: "bytes32" },
+					{ name: "amount", type: "uint256", internalType: "uint256" },
+				],
+			},
+		],
+	},
+] as const
+
+export const SUPPORTS_RATE_FILLS_ABI = [
+	{
+		type: "function",
+		name: "supportsRateFills",
+		stateMutability: "pure",
+		inputs: [],
+		outputs: [{ name: "", type: "bool", internalType: "bool" }],
+	},
+] as const
+
+/**
+ * Reads rate-fill capability from the live gateway and SolverAccount implementation.
+ * Deliberately uncached: proxy upgrades and delegation changes must be visible before publishing a bid.
+ */
+export async function supportsRateFills(
+	client: PublicClient,
+	gateway: HexString,
+	solverAccount: HexString,
+): Promise<boolean> {
+	try {
+		const [gatewaySupport, solverSupport] = await Promise.all([
+			(client as any).readContract({
+				address: gateway,
+				abi: SUPPORTS_RATE_FILLS_ABI,
+				functionName: "supportsRateFills",
+			}),
+			(client as any).readContract({
+				address: solverAccount,
+				abi: SUPPORTS_RATE_FILLS_ABI,
+				functionName: "supportsRateFills",
+			}),
+		])
+		return gatewaySupport === true && solverSupport === true
+	} catch {
+		return false
+	}
+}
 
 /**
  * ERC-1967 implementation slot: `keccak256("eip1967.proxy.implementation") - 1`.
@@ -173,6 +236,15 @@ export function encodeFillOrder(order: Order, options: FillOptions, version: Fil
 	}) as HexString
 }
 
+/** Encodes the additive rate-fill entry point. Empty inputs intentionally retain legacy settlement semantics. */
+export function encodeFillOrderAtRate(order: Order, options: FillOptions, inputs: TokenInfo[]): HexString {
+	return encodeFunctionData({
+		abi: FILL_ORDER_AT_RATE_ABI,
+		functionName: "fillOrderAtRate",
+		args: [order as any, options as any, inputs as any],
+	}) as HexString
+}
+
 /**
  * Decodes a `fillOrder` call of either shape.
  *
@@ -182,11 +254,32 @@ export function encodeFillOrder(order: Order, options: FillOptions, version: Fil
  *
  * @returns The decoded order and options, or `null` if the calldata is not a `fillOrder`.
  */
-export function decodeFillOrder(data: HexString): { order: Order; options: FillOptions } | null {
+export function decodeFillOrder(
+	data: HexString,
+): { order: Order; options: FillOptions; inputs: TokenInfo[]; method: "fillOrder" | "fillOrderAtRate" } | null {
+	try {
+		const decoded = decodeFunctionData({ abi: FILL_ORDER_AT_RATE_ABI, data })
+		if (decoded.functionName === "fillOrderAtRate" && decoded.args && decoded.args.length >= 3) {
+			return {
+				order: decoded.args[0] as Order,
+				options: decoded.args[1] as FillOptions,
+				inputs: decoded.args[2] as TokenInfo[],
+				method: "fillOrderAtRate",
+			}
+		}
+	} catch {
+		// Falls through to legacy entry points.
+	}
+
 	try {
 		const decoded = decodeFunctionData({ abi: IntentGatewayV2ABI, data })
 		if (decoded.functionName === "fillOrder" && decoded.args && decoded.args.length >= 2) {
-			return { order: decoded.args[0] as Order, options: decoded.args[1] as FillOptions }
+			return {
+				order: decoded.args[0] as Order,
+				options: decoded.args[1] as FillOptions,
+				inputs: [],
+				method: "fillOrder",
+			}
 		}
 	} catch {
 		// Falls through to the v1 attempt below.
@@ -196,7 +289,12 @@ export function decodeFillOrder(data: HexString): { order: Order; options: FillO
 		const decoded = decodeFunctionData({ abi: FILL_ORDER_V1_ABI, data })
 		if (decoded.functionName === "fillOrder" && decoded.args && decoded.args.length >= 2) {
 			const legacy = decoded.args[1] as Omit<FillOptions, "validUntil">
-			return { order: decoded.args[0] as Order, options: { ...legacy, validUntil: 0n } }
+			return {
+				order: decoded.args[0] as Order,
+				options: { ...legacy, validUntil: 0n },
+				inputs: [],
+				method: "fillOrder",
+			}
 		}
 	} catch {
 		// Not a fillOrder call in either shape.

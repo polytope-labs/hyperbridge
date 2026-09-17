@@ -16,7 +16,7 @@ pragma solidity ^0.8.24;
 
 import {ExtrinsicIntents} from "./ExtrinsicIntents.sol";
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
-import {Order, FillOptions, CancelOptions} from "@hyperbridge/core/apps/IntentGatewayV2.sol";
+import {Order, FillOptions, CancelOptions, TokenInfo} from "@hyperbridge/core/apps/IntentGatewayV2.sol";
 
 /**
  * @title ExtrinsicModule
@@ -44,12 +44,13 @@ contract ExtrinsicModule is ExtrinsicIntents {
      * @param options The solver's output amounts and dispatch fees.
      * @param commitment The order commitment hash.
      */
-    function fillCrossChain(Order calldata order, FillOptions calldata options, bytes32 commitment)
-        external
-        payable
-        onlyDelegated
-    {
-        _fillCrossChain(order, options, commitment);
+    function fillCrossChain(
+        Order calldata order,
+        FillOptions calldata options,
+        bytes32 commitment,
+        TokenInfo[] calldata inputs
+    ) external payable onlyDelegated {
+        _fillCrossChain(order, options, commitment, inputs);
     }
 
     /**

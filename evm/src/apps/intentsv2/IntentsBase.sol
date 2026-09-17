@@ -17,6 +17,7 @@ pragma solidity ^0.8.24;
 import {IDispatcher} from "@hyperbridge/core/interfaces/IDispatcher.sol";
 import {
     TokenInfo,
+    FillOptions,
     Order,
     Params,
     ParamsUpdate,
@@ -28,6 +29,7 @@ import {
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {RateFillMath} from "./RateFillMath.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
@@ -261,6 +263,9 @@ abstract contract IntentsBase is EIP712 {
      * output calldata. Such orders must be filled completely in a single fill.
     */
     error PartialFillNotAllowed();
+    error RateBelowOrder();
+    error RateFillTooSmall();
+    error LegacyRateAccounting();
 
     /**
      * @dev Emitted when a new intent order is placed and input tokens are escrowed.
@@ -300,7 +305,7 @@ abstract contract IntentsBase is EIP712 {
      * @dev Emitted when an order is fully filled by a solver.
      * @param commitment The order commitment hash.
      * @param filler The address of the solver who filled the order.
-     * @param outputs The output token amounts provided by the solver.
+     * @param outputs The credited output amounts, excluding surplus.
      * @param inputs The escrowed input tokens released to the solver.
      */
     event OrderFilled(bytes32 indexed commitment, address filler, TokenInfo[] outputs, TokenInfo[] inputs);
@@ -310,7 +315,7 @@ abstract contract IntentsBase is EIP712 {
      * to same-chain orders which support incremental fills.
      * @param commitment The order commitment hash.
      * @param filler The address of the solver who provided this partial fill.
-     * @param outputs The output token amounts provided in this fill.
+     * @param outputs The credited output amounts in this fill, excluding surplus.
      * @param inputs The proportional escrowed input tokens released to the solver.
      */
     event PartialFill(bytes32 indexed commitment, address filler, TokenInfo[] outputs, TokenInfo[] inputs);
@@ -461,6 +466,114 @@ abstract contract IntentsBase is EIP712 {
         if (!sent) revert InsufficientNativeToken();
     }
 
+    struct FillResult {
+        TokenInfo[] inputs;
+        TokenInfo[] outputs;
+        bool complete;
+        uint256 nativeRemaining;
+    }
+
+    /// @dev Shared destination-side loop. Credit, not gross payment, drives settlement/proofs.
+    function _fillLegs(
+        Order calldata order,
+        FillOptions calldata options,
+        bytes32 commitment,
+        TokenInfo[] memory takes,
+        bool sameChain
+    ) internal returns (FillResult memory result) {
+        uint256 len = order.output.assets.length;
+        bool quoted = takes.length != 0;
+        if (quoted) _validateRateLegs(order, options, takes);
+        result.inputs = new TokenInfo[](len);
+        result.outputs = new TokenInfo[](len);
+        result.complete = true;
+        result.nativeRemaining = msg.value;
+        bool progressed;
+        for (uint256 i; i < len; ++i) {
+            bytes32 outputToken = order.output.assets[i].token;
+            if (options.outputs[i].token != outputToken) revert InvalidInput();
+            result.inputs[i].token = order.inputs[i].token;
+            result.outputs[i].token = outputToken;
+            uint256 previous = _partialFills[commitment][outputToken];
+            uint256 required = order.output.assets[i].amount;
+            uint256 offered = options.outputs[i].amount;
+            if (previous == required || offered == 0) {
+                if (previous < required) result.complete = false;
+                continue;
+            }
+            (uint256 credit, uint256 release, uint256 delivered) =
+                _fillAmounts(order, commitment, i, previous, offered, quoted ? takes[i].amount : 0, sameChain);
+            progressed = true;
+            _partialFills[commitment][outputToken] = previous + credit;
+            if (previous + credit < required) result.complete = false;
+            result.inputs[i].amount = release;
+            result.outputs[i].amount = credit;
+            (uint256 protocolShare, uint256 beneficiaryShare) =
+                _splitSurplus(delivered - credit, order.output.call.length > 0);
+            address token = address(uint160(uint256(outputToken)));
+            address beneficiary = address(uint160(uint256(order.output.beneficiary)));
+            if (token == address(0)) {
+                if (result.nativeRemaining < delivered) revert InsufficientNativeToken();
+                result.nativeRemaining -= delivered;
+                _sendValue(beneficiary, credit + beneficiaryShare);
+            } else {
+                IERC20(token).safeTransferFrom(msg.sender, beneficiary, credit + beneficiaryShare);
+                if (protocolShare > 0) IERC20(token).safeTransferFrom(msg.sender, address(this), protocolShare);
+            }
+            if (protocolShare > 0) emit DustCollected(token, protocolShare);
+        }
+        if (quoted && !progressed) revert RateFillTooSmall();
+        if (order.output.call.length > 0 && !result.complete) revert PartialFillNotAllowed();
+    }
+
+    function _validateRateLegs(Order calldata order, FillOptions calldata options, TokenInfo[] memory takes)
+        private
+        pure
+    {
+        for (uint256 i; i < takes.length; ++i) {
+            bytes32 token = order.inputs[i].token;
+            bytes32 output = order.output.assets[i].token;
+            if (takes[i].token != token || uint256(token) >> 160 != 0 || uint256(output) >> 160 != 0) {
+                revert InvalidInput();
+            }
+            if ((takes[i].amount == 0) != (options.outputs[i].amount == 0)) revert InvalidInput();
+            // The deployed layout keys escrow/progress by token. Repeated input support
+            // requires the separate per-leg storage upgrade; do not alias rate accounting.
+            for (uint256 j; j < i; ++j) {
+                if (order.inputs[j].token == token || order.output.assets[j].token == output) revert InvalidInput();
+            }
+        }
+    }
+
+    function _fillAmounts(
+        Order calldata order,
+        bytes32 commitment,
+        uint256 i,
+        uint256 previous,
+        uint256 offered,
+        uint256 take,
+        bool sameChain
+    ) private view returns (uint256 credit, uint256 release, uint256 delivered) {
+        uint256 escrow = order.inputs[i].amount;
+        uint256 required = order.output.assets[i].amount;
+        uint256 released = _cumulativeReleased(escrow, previous, required);
+        uint256 balance = sameChain ? _orders[commitment][address(uint160(uint256(order.inputs[i].token)))] : 0;
+        bool legacyRounding = sameChain && balance != escrow - released;
+        if (take > 0) {
+            if (legacyRounding) revert LegacyRateAccounting();
+            return RateFillMath.quote(escrow, required, previous, take, offered);
+        }
+        credit = Math.min(offered, required - previous);
+        delivered = previous == 0 && offered > required ? offered : credit;
+        if (legacyRounding) {
+            // Pre-upgrade same-chain slices floored separately. Retain their final
+            // balance sweep so existing signed legacy fills never strand that dust.
+            release = previous + credit == required ? balance : Math.mulDiv(escrow, credit, required);
+        } else {
+            release = _cumulativeReleased(escrow, previous + credit, required) - released;
+        }
+    }
+
     /// @dev Splits overpayment between protocol and beneficiary. An order with output calldata
     /// gives the beneficiary nothing, since the surplus is not the caller's to give.
     function _splitSurplus(uint256 dust, bool hasOutputCall)
@@ -469,7 +582,7 @@ abstract contract IntentsBase is EIP712 {
         returns (uint256 protocolShare, uint256 beneficiaryShare)
     {
         if (hasOutputCall) return (dust, 0);
-        protocolShare = (dust * _params.surplusShareBps) / 10_000;
+        protocolShare = Math.mulDiv(dust, _params.surplusShareBps, 10_000);
         beneficiaryShare = dust - protocolShare;
     }
 
@@ -510,7 +623,7 @@ abstract contract IntentsBase is EIP712 {
         returns (uint256)
     {
         if (totalRequired == 0 || filled >= totalRequired) return escrowTotal;
-        return (escrowTotal * filled) / totalRequired;
+        return Math.mulDiv(escrowTotal, filled, totalRequired);
     }
 
     /**

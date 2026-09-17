@@ -3,7 +3,12 @@ export const INTENT_GATEWAY_V2_ABI = [
 		type: "constructor",
 		inputs: [
 			{
-				name: "owner",
+				name: "intrinsic",
+				type: "address",
+				internalType: "address",
+			},
+			{
+				name: "extrinsic",
 				type: "address",
 				internalType: "address",
 			},
@@ -117,19 +122,6 @@ export const INTENT_GATEWAY_V2_ABI = [
 	},
 	{
 		type: "function",
-		name: "_owner",
-		inputs: [],
-		outputs: [
-			{
-				name: "",
-				type: "address",
-				internalType: "address",
-			},
-		],
-		stateMutability: "view",
-	},
-	{
-		type: "function",
 		name: "_partialFills",
 		inputs: [
 			{
@@ -180,6 +172,13 @@ export const INTENT_GATEWAY_V2_ABI = [
 			},
 		],
 		stateMutability: "view",
+	},
+	{
+		type: "function",
+		name: "acceptOwnership",
+		inputs: [],
+		outputs: [],
+		stateMutability: "nonpayable",
 	},
 	{
 		type: "function",
@@ -392,6 +391,19 @@ export const INTENT_GATEWAY_V2_ABI = [
 	},
 	{
 		type: "function",
+		name: "extrinsicModule",
+		inputs: [],
+		outputs: [
+			{
+				name: "",
+				type: "address",
+				internalType: "address",
+			},
+		],
+		stateMutability: "view",
+	},
+	{
+		type: "function",
 		name: "fillOrder",
 		inputs: [
 			{
@@ -561,6 +573,192 @@ export const INTENT_GATEWAY_V2_ABI = [
 	},
 	{
 		type: "function",
+		name: "fillOrderAtRate",
+		inputs: [
+			{
+				name: "order",
+				type: "tuple",
+				internalType: "struct Order",
+				components: [
+					{
+						name: "user",
+						type: "bytes32",
+						internalType: "bytes32",
+					},
+					{
+						name: "source",
+						type: "bytes",
+						internalType: "bytes",
+					},
+					{
+						name: "destination",
+						type: "bytes",
+						internalType: "bytes",
+					},
+					{
+						name: "deadline",
+						type: "uint256",
+						internalType: "uint256",
+					},
+					{
+						name: "nonce",
+						type: "uint256",
+						internalType: "uint256",
+					},
+					{
+						name: "fees",
+						type: "uint256",
+						internalType: "uint256",
+					},
+					{
+						name: "session",
+						type: "address",
+						internalType: "address",
+					},
+					{
+						name: "predispatch",
+						type: "tuple",
+						internalType: "struct DispatchInfo",
+						components: [
+							{
+								name: "assets",
+								type: "tuple[]",
+								internalType: "struct TokenInfo[]",
+								components: [
+									{
+										name: "token",
+										type: "bytes32",
+										internalType: "bytes32",
+									},
+									{
+										name: "amount",
+										type: "uint256",
+										internalType: "uint256",
+									},
+								],
+							},
+							{
+								name: "call",
+								type: "bytes",
+								internalType: "bytes",
+							},
+						],
+					},
+					{
+						name: "inputs",
+						type: "tuple[]",
+						internalType: "struct TokenInfo[]",
+						components: [
+							{
+								name: "token",
+								type: "bytes32",
+								internalType: "bytes32",
+							},
+							{
+								name: "amount",
+								type: "uint256",
+								internalType: "uint256",
+							},
+						],
+					},
+					{
+						name: "output",
+						type: "tuple",
+						internalType: "struct PaymentInfo",
+						components: [
+							{
+								name: "beneficiary",
+								type: "bytes32",
+								internalType: "bytes32",
+							},
+							{
+								name: "assets",
+								type: "tuple[]",
+								internalType: "struct TokenInfo[]",
+								components: [
+									{
+										name: "token",
+										type: "bytes32",
+										internalType: "bytes32",
+									},
+									{
+										name: "amount",
+										type: "uint256",
+										internalType: "uint256",
+									},
+								],
+							},
+							{
+								name: "call",
+								type: "bytes",
+								internalType: "bytes",
+							},
+						],
+					},
+				],
+			},
+			{
+				name: "options",
+				type: "tuple",
+				internalType: "struct FillOptions",
+				components: [
+					{
+						name: "relayerFee",
+						type: "uint256",
+						internalType: "uint256",
+					},
+					{
+						name: "nativeDispatchFee",
+						type: "uint256",
+						internalType: "uint256",
+					},
+					{
+						name: "validUntil",
+						type: "uint256",
+						internalType: "uint256",
+					},
+					{
+						name: "outputs",
+						type: "tuple[]",
+						internalType: "struct TokenInfo[]",
+						components: [
+							{
+								name: "token",
+								type: "bytes32",
+								internalType: "bytes32",
+							},
+							{
+								name: "amount",
+								type: "uint256",
+								internalType: "uint256",
+							},
+						],
+					},
+				],
+			},
+			{
+				name: "inputs",
+				type: "tuple[]",
+				internalType: "struct TokenInfo[]",
+				components: [
+					{
+						name: "token",
+						type: "bytes32",
+						internalType: "bytes32",
+					},
+					{
+						name: "amount",
+						type: "uint256",
+						internalType: "uint256",
+					},
+				],
+			},
+		],
+		outputs: [],
+		stateMutability: "payable",
+	},
+	{
+		type: "function",
 		name: "host",
 		inputs: [],
 		outputs: [
@@ -577,51 +775,63 @@ export const INTENT_GATEWAY_V2_ABI = [
 		name: "initialize",
 		inputs: [
 			{
-				name: "p",
+				name: "init",
 				type: "tuple",
-				internalType: "struct Params",
+				internalType: "struct InitParams",
 				components: [
 					{
-						name: "host",
+						name: "params",
+						type: "tuple",
+						internalType: "struct Params",
+						components: [
+							{
+								name: "host",
+								type: "address",
+								internalType: "address",
+							},
+							{
+								name: "dispatcher",
+								type: "address",
+								internalType: "address",
+							},
+							{
+								name: "solverSelection",
+								type: "bool",
+								internalType: "bool",
+							},
+							{
+								name: "surplusShareBps",
+								type: "uint256",
+								internalType: "uint256",
+							},
+							{
+								name: "protocolFeeBps",
+								type: "uint256",
+								internalType: "uint256",
+							},
+							{
+								name: "priceOracle",
+								type: "address",
+								internalType: "address",
+							},
+						],
+					},
+					{
+						name: "peerChains",
+						type: "bytes[]",
+						internalType: "bytes[]",
+					},
+					{
+						name: "relayer",
 						type: "address",
 						internalType: "address",
 					},
 					{
-						name: "dispatcher",
-						type: "address",
-						internalType: "address",
-					},
-					{
-						name: "solverSelection",
-						type: "bool",
-						internalType: "bool",
-					},
-					{
-						name: "surplusShareBps",
-						type: "uint256",
-						internalType: "uint256",
-					},
-					{
-						name: "protocolFeeBps",
-						type: "uint256",
-						internalType: "uint256",
-					},
-					{
-						name: "priceOracle",
+						name: "owner",
 						type: "address",
 						internalType: "address",
 					},
 				],
-			},
-			{
-				name: "peerChains",
-				type: "bytes[]",
-				internalType: "bytes[]",
-			},
-			{
-				name: "relayer",
-				type: "address",
-				internalType: "address",
 			},
 		],
 		outputs: [],
@@ -648,10 +858,23 @@ export const INTENT_GATEWAY_V2_ABI = [
 	},
 	{
 		type: "function",
+		name: "intrinsicModule",
+		inputs: [],
+		outputs: [
+			{
+				name: "",
+				type: "address",
+				internalType: "address",
+			},
+		],
+		stateMutability: "view",
+	},
+	{
+		type: "function",
 		name: "migrate",
 		inputs: [
 			{
-				name: "relayer",
+				name: "owner_",
 				type: "address",
 				internalType: "address",
 			},
@@ -726,7 +949,7 @@ export const INTENT_GATEWAY_V2_ABI = [
 		name: "onGetResponse",
 		inputs: [
 			{
-				name: "incoming",
+				name: "",
 				type: "tuple",
 				internalType: "struct IncomingGetResponse",
 				components: [
@@ -943,6 +1166,19 @@ export const INTENT_GATEWAY_V2_ABI = [
 	},
 	{
 		type: "function",
+		name: "owner",
+		inputs: [],
+		outputs: [
+			{
+				name: "",
+				type: "address",
+				internalType: "address",
+			},
+		],
+		stateMutability: "view",
+	},
+	{
+		type: "function",
 		name: "params",
 		inputs: [],
 		outputs: [
@@ -982,6 +1218,39 @@ export const INTENT_GATEWAY_V2_ABI = [
 						internalType: "address",
 					},
 				],
+			},
+		],
+		stateMutability: "view",
+	},
+	{
+		type: "function",
+		name: "pause",
+		inputs: [],
+		outputs: [],
+		stateMutability: "nonpayable",
+	},
+	{
+		type: "function",
+		name: "paused",
+		inputs: [],
+		outputs: [
+			{
+				name: "",
+				type: "bool",
+				internalType: "bool",
+			},
+		],
+		stateMutability: "view",
+	},
+	{
+		type: "function",
+		name: "pendingOwner",
+		inputs: [],
+		outputs: [
+			{
+				name: "",
+				type: "address",
+				internalType: "address",
 			},
 		],
 		stateMutability: "view",
@@ -1243,6 +1512,13 @@ export const INTENT_GATEWAY_V2_ABI = [
 	},
 	{
 		type: "function",
+		name: "renounceOwnership",
+		inputs: [],
+		outputs: [],
+		stateMutability: "nonpayable",
+	},
+	{
+		type: "function",
 		name: "select",
 		inputs: [
 			{
@@ -1279,10 +1555,23 @@ export const INTENT_GATEWAY_V2_ABI = [
 	},
 	{
 		type: "function",
-		name: "setRelayer",
+		name: "supportsRateFills",
+		inputs: [],
+		outputs: [
+			{
+				name: "",
+				type: "bool",
+				internalType: "bool",
+			},
+		],
+		stateMutability: "pure",
+	},
+	{
+		type: "function",
+		name: "transferOwnership",
 		inputs: [
 			{
-				name: "relayer",
+				name: "newOwner",
 				type: "address",
 				internalType: "address",
 			},
@@ -1292,19 +1581,8 @@ export const INTENT_GATEWAY_V2_ABI = [
 	},
 	{
 		type: "function",
-		name: "upgradeToAndCall",
-		inputs: [
-			{
-				name: "newImplementation",
-				type: "address",
-				internalType: "address",
-			},
-			{
-				name: "data",
-				type: "bytes",
-				internalType: "bytes",
-			},
-		],
+		name: "unpause",
+		inputs: [],
 		outputs: [],
 		stateMutability: "nonpayable",
 	},
@@ -1693,6 +1971,44 @@ export const INTENT_GATEWAY_V2_ABI = [
 	},
 	{
 		type: "event",
+		name: "OwnershipTransferStarted",
+		inputs: [
+			{
+				name: "previousOwner",
+				type: "address",
+				indexed: true,
+				internalType: "address",
+			},
+			{
+				name: "newOwner",
+				type: "address",
+				indexed: true,
+				internalType: "address",
+			},
+		],
+		anonymous: false,
+	},
+	{
+		type: "event",
+		name: "OwnershipTransferred",
+		inputs: [
+			{
+				name: "previousOwner",
+				type: "address",
+				indexed: true,
+				internalType: "address",
+			},
+			{
+				name: "newOwner",
+				type: "address",
+				indexed: true,
+				internalType: "address",
+			},
+		],
+		anonymous: false,
+	},
+	{
+		type: "event",
 		name: "ParamsUpdated",
 		inputs: [
 			{
@@ -1831,6 +2147,19 @@ export const INTENT_GATEWAY_V2_ABI = [
 	},
 	{
 		type: "event",
+		name: "Paused",
+		inputs: [
+			{
+				name: "account",
+				type: "address",
+				indexed: false,
+				internalType: "address",
+			},
+		],
+		anonymous: false,
+	},
+	{
+		type: "event",
 		name: "ProtocolFeeRefunded",
 		inputs: [
 			{
@@ -1875,27 +2204,16 @@ export const INTENT_GATEWAY_V2_ABI = [
 	},
 	{
 		type: "event",
-		name: "Upgraded",
+		name: "Unpaused",
 		inputs: [
 			{
-				name: "implementation",
+				name: "account",
 				type: "address",
-				indexed: true,
+				indexed: false,
 				internalType: "address",
 			},
 		],
 		anonymous: false,
-	},
-	{
-		type: "error",
-		name: "AddressEmptyCode",
-		inputs: [
-			{
-				name: "target",
-				type: "address",
-				internalType: "address",
-			},
-		],
 	},
 	{
 		type: "error",
@@ -1931,28 +2249,17 @@ export const INTENT_GATEWAY_V2_ABI = [
 	},
 	{
 		type: "error",
-		name: "ERC1967InvalidImplementation",
-		inputs: [
-			{
-				name: "implementation",
-				type: "address",
-				internalType: "address",
-			},
-		],
+		name: "EnforcedPause",
+		inputs: [],
 	},
 	{
 		type: "error",
-		name: "ERC1967NonPayable",
+		name: "ExpectedPause",
 		inputs: [],
 	},
 	{
 		type: "error",
 		name: "Expired",
-		inputs: [],
-	},
-	{
-		type: "error",
-		name: "FailedCall",
 		inputs: [],
 	},
 	{
@@ -1987,6 +2294,11 @@ export const INTENT_GATEWAY_V2_ABI = [
 	},
 	{
 		type: "error",
+		name: "LegacyRateAccounting",
+		inputs: [],
+	},
+	{
+		type: "error",
 		name: "NotExpired",
 		inputs: [],
 	},
@@ -1997,7 +2309,39 @@ export const INTENT_GATEWAY_V2_ABI = [
 	},
 	{
 		type: "error",
+		name: "OwnableInvalidOwner",
+		inputs: [
+			{
+				name: "owner",
+				type: "address",
+				internalType: "address",
+			},
+		],
+	},
+	{
+		type: "error",
+		name: "OwnableUnauthorizedAccount",
+		inputs: [
+			{
+				name: "account",
+				type: "address",
+				internalType: "address",
+			},
+		],
+	},
+	{
+		type: "error",
 		name: "PartialFillNotAllowed",
+		inputs: [],
+	},
+	{
+		type: "error",
+		name: "RateBelowOrder",
+		inputs: [],
+	},
+	{
+		type: "error",
+		name: "RateFillTooSmall",
 		inputs: [],
 	},
 	{

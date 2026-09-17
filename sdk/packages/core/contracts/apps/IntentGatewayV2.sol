@@ -266,6 +266,9 @@ interface IIntentGatewayV2 {
     /// @notice Thrown when a solver attempts to partially fill an order that carries output
     ///         calldata. Such orders must be filled completely in a single fill.
     error PartialFillNotAllowed();
+    error RateBelowOrder();
+    error RateFillTooSmall();
+    error LegacyRateAccounting();
 
     /// @notice Thrown by `placeOrder`, `fillOrder` and escrow deliveries while the gateway is paused,
     ///         and by `pause` when already paused.
@@ -322,7 +325,7 @@ interface IIntentGatewayV2 {
      * @notice Emitted when an order is fully filled.
      * @param commitment The unique identifier of the order
      * @param filler The address of the entity that filled the order
-     * @param outputs The output token amounts provided by the filler
+     * @param outputs The credited output amounts, excluding surplus
      * @param inputs The escrowed input tokens released to the filler
      */
     event OrderFilled(bytes32 indexed commitment, address filler, TokenInfo[] outputs, TokenInfo[] inputs);
@@ -332,7 +335,7 @@ interface IIntentGatewayV2 {
      *         support incremental fills.
      * @param commitment The unique identifier of the order
      * @param filler The address of the entity that provided this partial fill
-     * @param outputs The output token amounts provided in this fill
+     * @param outputs The credited output amounts in this fill, excluding surplus
      * @param inputs The proportional escrowed input tokens released to the filler
      */
     event PartialFill(bytes32 indexed commitment, address filler, TokenInfo[] outputs, TokenInfo[] inputs);
@@ -583,6 +586,13 @@ interface IIntentGatewayV2 {
      * @param options The options to be used when filling the order
      */
     function fillOrder(Order calldata order, FillOptions calldata options) external payable;
+
+    /// @notice Input takes are per-leg maxima; integer credit determines the actual release.
+    function fillOrderAtRate(Order calldata order, FillOptions calldata options, TokenInfo[] calldata inputs)
+        external
+        payable;
+
+    function supportsRateFills() external pure returns (bool);
 
     /**
      * @notice Cancels an order after it has expired.

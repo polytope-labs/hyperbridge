@@ -33,8 +33,16 @@ interface FillerOutputCache {
 	amount: string
 }
 
+export interface FillerQuote {
+	inputs: { token: HexString; amount: bigint }[]
+	outputs: { token: HexString; amount: bigint }[]
+	revision: number
+}
+
 interface FillerOutputsCache {
+	revision: number
 	outputs: FillerOutputCache[]
+	inputs?: FillerOutputCache[]
 	timestamp: number
 }
 
@@ -74,6 +82,7 @@ interface CacheData {
 }
 
 export class CacheService {
+	private quoteRevision = 0
 	private cacheData: CacheData
 	private readonly CACHE_EXPIRY_MS = 1 * 60 * 1000 // 1 minute
 	private logger: Logger
@@ -255,26 +264,43 @@ export class CacheService {
 		}
 	}
 
-	getFillerOutputs(orderId: string): { token: HexString; amount: bigint }[] | null {
-		try {
-			const cache = this.cacheData.fillerOutputs[orderId]
-			if (cache && this.isCacheValid(cache.timestamp)) {
-				return cache.outputs.map((o) => ({
-					token: o.token,
-					amount: BigInt(o.amount),
-				}))
-			}
-			return null
-		} catch (error) {
-			this.logger.error({ err: error }, "Error getting filler outputs")
-			return null
+	getFillerQuote(orderId: string): FillerQuote | null {
+		const cache = this.cacheData.fillerOutputs[orderId]
+		if (!cache || !this.isCacheValid(cache.timestamp)) return null
+		const decode = ({ token, amount }: FillerOutputCache) => ({ token, amount: BigInt(amount) })
+		return {
+			inputs: (cache.inputs ?? []).map(decode),
+			outputs: cache.outputs.map(decode),
+			revision: cache.revision,
 		}
 	}
 
-	setFillerOutputs(orderId: string, outputs: { token: HexString; amount: bigint }[]): void {
+	assertFillerQuoteCurrent(orderId: string, quote: FillerQuote): void {
+		const current = this.getFillerQuote(orderId)
+		if (!current || current.revision !== quote.revision) {
+			throw new Error(`Filler quote expired or changed for order ${orderId}; recalculate profitability`)
+		}
+	}
+
+	getFillerOutputs(orderId: string): FillerQuote["outputs"] | null {
+		return this.getFillerQuote(orderId)?.outputs ?? null
+	}
+
+	getFillerInputs(orderId: string): FillerQuote["inputs"] | null {
+		return this.getFillerQuote(orderId)?.inputs ?? null
+	}
+
+	setFillerOutputs(
+		orderId: string,
+		outputs: { token: HexString; amount: bigint }[],
+		inputs: { token: HexString; amount: bigint }[] = [],
+	): void {
 		try {
 			this.cleanupStaleData()
+			delete this.cacheData.gasEstimates[orderId]
 			this.cacheData.fillerOutputs[orderId] = {
+				revision: ++this.quoteRevision,
+				inputs: inputs.map(({ token, amount }) => ({ token, amount: amount.toString() })),
 				outputs: outputs.map((o) => ({
 					token: o.token,
 					amount: o.amount.toString(),

@@ -157,109 +157,33 @@ abstract contract ExtrinsicIntents is IntentsBase, HyperApp {
      * @param options Fill options including output amounts, relayer fee, and native dispatch fee.
      * @param commitment The keccak256 hash of the ABI-encoded order.
      */
-    function _fillCrossChain(Order calldata order, FillOptions calldata options, bytes32 commitment) internal {
-        uint256 outputsLen = order.output.assets.length;
-
+    function _fillCrossChain(
+        Order calldata order,
+        FillOptions calldata options,
+        bytes32 commitment,
+        TokenInfo[] memory takes
+    ) internal {
         _filled[commitment] = msg.sender;
-
-        uint256 msgValue = msg.value;
-        address beneficiary = address(uint160(uint256(order.output.beneficiary)));
-        bool isFullyFilled = true;
-
-        TokenInfo[] memory escrowReleases = new TokenInfo[](outputsLen);
-        TokenInfo[] memory outputFills = new TokenInfo[](outputsLen);
-
-        for (uint256 i; i < outputsLen; i++) {
-            bytes32 outputToken = order.output.assets[i].token;
-            if (options.outputs[i].token != outputToken) revert InvalidInput();
-
-            address token = address(uint160(uint256(outputToken)));
-            uint256 totalRequired = order.output.assets[i].amount;
-            uint256 solverAmount = options.outputs[i].amount;
-
-            uint256 alreadyFilled = _partialFills[commitment][outputToken];
-            uint256 remaining = totalRequired - alreadyFilled;
-            if (remaining == 0 || solverAmount == 0) {
-                if (solverAmount == 0 && remaining > 0) isFullyFilled = false;
-                // Record the real tokens (with zero amounts) so emitted events carry token identity.
-                escrowReleases[i] = TokenInfo({token: order.inputs[i].token, amount: 0});
-                outputFills[i] = TokenInfo({token: outputToken, amount: 0});
-                continue;
-            }
-            uint256 fillAmount;
-
-            uint256 beneficiaryShare = 0;
-            uint256 protocolShare = 0;
-            if (alreadyFilled == 0 && solverAmount > totalRequired) {
-                fillAmount = totalRequired;
-                (protocolShare, beneficiaryShare) =
-                    _splitSurplus(solverAmount - totalRequired, order.output.call.length > 0);
-            } else {
-                fillAmount = solverAmount > remaining ? remaining : solverAmount;
-            }
-
-            uint256 amountFilled = alreadyFilled + fillAmount;
-            _partialFills[commitment][outputToken] = amountFilled;
-            uint256 beneficiaryTotal = fillAmount + beneficiaryShare;
-
-            if (token == address(0)) {
-                if (msgValue < beneficiaryTotal + protocolShare) revert InsufficientNativeToken();
-                msgValue -= (beneficiaryTotal + protocolShare);
-                _sendValue(beneficiary, beneficiaryTotal);
-            } else {
-                IERC20(token).safeTransferFrom(msg.sender, beneficiary, beneficiaryTotal);
-                if (protocolShare > 0) {
-                    IERC20(token).safeTransferFrom(msg.sender, address(this), protocolShare);
-                }
-            }
-
-            if (totalRequired > amountFilled) isFullyFilled = false;
-            if (protocolShare > 0) emit DustCollected(token, protocolShare);
-
-            // Escrow lives on the source chain; carry this fill's proportional slice in the message.
-            uint256 escrowTotal = order.inputs[i].amount;
-            uint256 releaseNow = _cumulativeReleased(escrowTotal, amountFilled, totalRequired)
-                - _cumulativeReleased(escrowTotal, alreadyFilled, totalRequired);
-            escrowReleases[i] = TokenInfo({token: order.inputs[i].token, amount: releaseNow});
-            outputFills[i] = TokenInfo({token: outputToken, amount: fillAmount});
-        }
-
-        // Orders with output calldata can't be partially filled; the call only runs on a full fill.
-        if (order.output.call.length > 0 && !isFullyFilled) revert PartialFillNotAllowed();
-
-        if (isFullyFilled) {
-            _execute(order, outputsLen);
-        } else {
-            // Clear the optimistic claim so the next solver can fill the remainder.
-            delete _filled[commitment];
-        }
-
-        // Native dispatch fee only if the solver sent enough to cover it; else the fee token.
+        FillResult memory result = _fillLegs(order, options, commitment, takes, false);
+        if (result.complete) _execute(order, order.output.assets.length);
+        else delete _filled[commitment];
         uint256 nativeFee = options.nativeDispatchFee;
-        if (nativeFee > msgValue) nativeFee = 0;
-        msgValue -= nativeFee;
+        if (nativeFee > result.nativeRemaining) nativeFee = 0;
+        result.nativeRemaining -= nativeFee;
         _post(
             order,
             _body(
-                isFullyFilled ? RequestKind.RedeemEscrow : RequestKind.RedeemEscrowPartial,
+                result.complete ? RequestKind.RedeemEscrow : RequestKind.RedeemEscrowPartial,
                 commitment,
-                escrowReleases,
+                result.inputs,
                 bytes32(uint256(uint160(msg.sender)))
             ),
             options.relayerFee,
             nativeFee
         );
-
-        // Refund any unspent native tokens to the solver.
-        if (msgValue > 0) {
-            _sendValue(msg.sender, msgValue);
-        }
-
-        if (isFullyFilled) {
-            emit OrderFilled({commitment: commitment, filler: msg.sender, outputs: outputFills, inputs: escrowReleases});
-        } else {
-            emit PartialFill({commitment: commitment, filler: msg.sender, outputs: outputFills, inputs: escrowReleases});
-        }
+        if (result.nativeRemaining > 0) _sendValue(msg.sender, result.nativeRemaining);
+        if (result.complete) emit OrderFilled(commitment, msg.sender, result.outputs, result.inputs);
+        else emit PartialFill(commitment, msg.sender, result.outputs, result.inputs);
     }
 
     /**

@@ -7,6 +7,7 @@ import {
 	memoizedSolverBalance,
 	orderCommitmentFromDecoded,
 	recoverBidSignerViem,
+	readRateFillCapability,
 	setAggregationFetch,
 	splitBidSignature,
 	weightedMedian,
@@ -18,8 +19,10 @@ import {
 	AGGREGATION_ATTEMPTS,
 	ENTRY_POINT_V08_ADDRESS,
 	FILL_ORDER_ABI,
+	FILL_ORDER_AT_RATE_ABI,
 	type FetchLike,
 	type HexString,
+	PhantomRpcError,
 } from "@/protocols/intents/phantom-aggregation"
 import { CryptoUtils } from "@/protocols/intents/CryptoUtils"
 import { encodeUserOpScale } from "@/chains/intentsCoprocessor"
@@ -107,6 +110,32 @@ function bidCalldata(target: string = GATEWAY): HexString {
 	return encodeERC7821ExecuteBatch([{ target: target as HexString, value: 0n, data: fillCalldata }])
 }
 
+function rateBidCalldata(take: bigint, offered: bigint): HexString {
+	const fillCalldata = encodeFunctionData({
+		abi: FILL_ORDER_AT_RATE_ABI,
+		functionName: "fillOrderAtRate",
+		args: [
+			phantomOrder() as any,
+			{ ...fillOptions(), outputs: [{ token: USDT_BYTES32, amount: offered }] } as any,
+			[{ token: USDC_BYTES32, amount: take }] as any,
+		],
+	}) as HexString
+	return encodeERC7821ExecuteBatch([{ target: GATEWAY, value: 0n, data: fillCalldata }])
+}
+
+function customRateBidCalldata(
+	order: ReturnType<typeof phantomOrder>,
+	outputs: { token: HexString; amount: bigint }[],
+	inputs: { token: HexString; amount: bigint }[],
+): HexString {
+	const fillCalldata = encodeFunctionData({
+		abi: FILL_ORDER_AT_RATE_ABI,
+		functionName: "fillOrderAtRate",
+		args: [order as any, { ...fillOptions(), outputs } as any, inputs as any],
+	}) as HexString
+	return encodeERC7821ExecuteBatch([{ target: GATEWAY, value: 0n, data: fillCalldata }])
+}
+
 /** The same bid encoded in the pre-`validUntil` shape, as an older gateway's solver would send it. */
 function legacyBidCalldata(target: string = GATEWAY): HexString {
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -175,6 +204,85 @@ describe("extractFillData", () => {
 		expect(result).not.toBeNull()
 		expect(result!.legs[0].solverAmount).toBe(SOLVER_AMOUNT)
 		expect(result!.legs[0].outputToken.toLowerCase()).toBe(USDT_BYTES32.toLowerCase())
+	})
+
+	it("decodes and normalizes a rate quote against its positional input take", () => {
+		const result = extractFillData(rateBidCalldata(2_500_000n, 600_000n), GATEWAY)
+
+		expect(result).toMatchObject({
+			method: "fillOrderAtRate",
+			inputs: [{ token: USDC_BYTES32, amount: 2_500_000n }],
+		})
+		expect(result!.legs[0]).toMatchObject({
+			outputToken: USDT_BYTES32,
+			solverAmount: 600_000n,
+			inputTake: 2_500_000n,
+			normalizedAmount: 1_200_000n,
+		})
+	})
+
+	it("rejects a rate quote whose positional input token does not match the order", () => {
+		const calldata = customRateBidCalldata(
+			phantomOrder(),
+			[{ token: USDT_BYTES32, amount: 1_100n }],
+			[{ token: DAI_BYTES32, amount: 1n }],
+		)
+
+		expect(extractFillData(calldata, GATEWAY)).toBeNull()
+	})
+
+	it("rejects short nonempty rate arrays instead of filling missing denominators from the order", () => {
+		const multi = phantomOrder()
+		multi.inputs.push({ token: DAI_BYTES32, amount: 1_000n })
+		multi.output.assets.push({ token: USDC_BYTES32, amount: 0n })
+		const calldata = customRateBidCalldata(
+			multi,
+			[
+				{ token: USDT_BYTES32, amount: 600_000n },
+				{ token: USDC_BYTES32, amount: 1_000n },
+			],
+			[{ token: USDC_BYTES32, amount: 2_500_000n }],
+		)
+
+		expect(extractFillData(calldata, GATEWAY)).toBeNull()
+	})
+
+	it("rejects inconsistent zero take/output pairs and duplicate rate legs", () => {
+		const zeroPair = customRateBidCalldata(
+			phantomOrder(),
+			[{ token: USDT_BYTES32, amount: 1n }],
+			[{ token: USDC_BYTES32, amount: 0n }],
+		)
+		expect(extractFillData(zeroPair, GATEWAY)).toBeNull()
+
+		const duplicate = phantomOrder()
+		duplicate.inputs.push({ ...duplicate.inputs[0] })
+		duplicate.output.assets.push({ ...duplicate.output.assets[0] })
+		const duplicateCalldata = customRateBidCalldata(
+			duplicate,
+			[
+				{ token: USDT_BYTES32, amount: 1n },
+				{ token: USDT_BYTES32, amount: 1n },
+			],
+			[
+				{ token: USDC_BYTES32, amount: 1n },
+				{ token: USDC_BYTES32, amount: 1n },
+			],
+		)
+		expect(extractFillData(duplicateCalldata, GATEWAY)).toBeNull()
+	})
+
+	it("rejects noncanonical bytes32 EVM token addresses", () => {
+		const noncanonical = `0x01${"00".repeat(31)}` as HexString
+		const malformed = phantomOrder()
+		malformed.inputs[0].token = noncanonical
+		const calldata = customRateBidCalldata(
+			malformed,
+			[{ token: USDT_BYTES32, amount: 1n }],
+			[{ token: noncanonical, amount: 1n }],
+		)
+
+		expect(extractFillData(calldata, GATEWAY)).toBeNull()
 	})
 
 	it("returns null for calldata that is not an ERC-7821 batch", () => {
@@ -280,9 +388,13 @@ async function signedBidUserOp(opts: {
 	commitment?: HexString
 	nonce?: bigint
 	paymasterAndData?: HexString
+	callData?: HexString
 }): Promise<PackedUserOperation> {
 	const signer = privateKeyToAccount(opts.signingKey)
-	const userOp = unsignedUserOp(opts.sender ?? (signer.address as HexString), opts.nonce, opts.paymasterAndData)
+	const userOp = {
+		...unsignedUserOp(opts.sender ?? (signer.address as HexString), opts.nonce, opts.paymasterAndData),
+		...(opts.callData ? { callData: opts.callData } : {}),
+	}
 	const solverSignature = await signer.signTypedData(
 		CryptoUtils.packedUserOpTypedData(userOp, ENTRY_POINT_V08_ADDRESS, CHAIN_ID),
 	)
@@ -375,6 +487,38 @@ function aggregate(
 	})
 }
 
+describe("readRateFillCapability", () => {
+	it("checks both the gateway and the solver's live delegation target", async () => {
+		const solver = privateKeyToAccount(SOLVER_KEY).address
+		const calls: string[] = []
+		setAggregationFetch(async (_url, init) => {
+			const payload = JSON.parse(init.body)
+			if (payload.method === "eth_getCode") {
+				return { json: async () => ({ result: delegatedTo(SOLVER_ACCOUNT)() }) }
+			}
+			calls.push(payload.params[0].to.toLowerCase())
+			return { json: async () => ({ result: toHex(1n, { size: 32 }) }) }
+		})
+
+		await expect(readRateFillCapability("http://base.test", GATEWAY, solver, [SOLVER_ACCOUNT])).resolves.toBe(true)
+		expect(calls).toEqual([GATEWAY.toLowerCase(), SOLVER_ACCOUNT.toLowerCase()])
+	})
+
+	it("keeps an unavailable capability RPC distinct from unsupported contracts", async () => {
+		const solver = privateKeyToAccount(SOLVER_KEY).address
+		setAggregationFetch(async (_url, init) => {
+			const payload = JSON.parse(init.body)
+			return payload.method === "eth_getCode"
+				? { json: async () => ({ result: delegatedTo(SOLVER_ACCOUNT)() }) }
+				: { json: async () => ({ result: undefined }) }
+		})
+
+		await expect(
+			readRateFillCapability("http://base.test", GATEWAY, solver, [SOLVER_ACCOUNT]),
+		).rejects.toBeInstanceOf(PhantomRpcError)
+	})
+})
+
 describe("splitBidSignature", () => {
 	it("splits a bid signature into its commitment and 65-byte solver signature", () => {
 		const solverSignature = `0x${"cd".repeat(65)}` as HexString
@@ -433,6 +577,94 @@ describe("recoverBidSignerViem", () => {
 })
 
 describe("aggregatePhantomBids bid verification", () => {
+	it("does not aggregate a signed malformed rate quote", async () => {
+		const malformed = customRateBidCalldata(
+			phantomOrder(),
+			[{ token: USDT_BYTES32, amount: 1_100n }],
+			[{ token: DAI_BYTES32, amount: 1n }],
+		)
+		const userOp = await signedBidUserOp({ signingKey: SOLVER_KEY, callData: malformed })
+		setAggregationFetch(mockRpc([userOp], delegatedTo(SOLVER_ACCOUNT)))
+		const supportsRateFills = vi.fn(async () => true)
+
+		const result = await aggregatePhantomBids({
+			nodeUrl: NODE_URL,
+			evmRpcUrls: { [CHAIN]: "http://base.test" },
+			chain: CHAIN,
+			gatewayAddress: GATEWAY,
+			commitment: COMMITMENT,
+			yieldVaults: { [CHAIN]: { [USDT]: [] } },
+			solverAccount: SOLVER_ACCOUNT,
+			supportsRateFills,
+		})
+
+		expect(result).toBeNull()
+		expect(supportsRateFills).not.toHaveBeenCalled()
+	})
+
+	it("skips a signed rate bid when its live gateway or delegated account lacks rate-fill support", async () => {
+		const userOp = await signedBidUserOp({
+			signingKey: SOLVER_KEY,
+			callData: rateBidCalldata(2_500_000n, 600_000n),
+		})
+		setAggregationFetch(mockRpc([userOp], delegatedTo(SOLVER_ACCOUNT)))
+		const supportsRateFills = vi.fn(async () => false)
+
+		const result = await aggregatePhantomBids({
+			nodeUrl: NODE_URL,
+			evmRpcUrls: { [CHAIN]: "http://base.test" },
+			chain: CHAIN,
+			gatewayAddress: GATEWAY,
+			commitment: COMMITMENT,
+			yieldVaults: { [CHAIN]: { [USDT]: [] } },
+			solverAccount: SOLVER_ACCOUNT,
+			supportsRateFills,
+		})
+
+		expect(result).toBeNull()
+		expect(supportsRateFills).toHaveBeenCalledWith(
+			"http://base.test",
+			GATEWAY,
+			privateKeyToAccount(SOLVER_KEY).address.toLowerCase(),
+			[SOLVER_ACCOUNT],
+		)
+	})
+
+	it("treats a missing capability method as unsupported", async () => {
+		const solver = privateKeyToAccount(SOLVER_KEY).address
+		setAggregationFetch(async (_url, init) => {
+			const payload = JSON.parse(init.body)
+			return payload.method === "eth_getCode"
+				? { json: async () => ({ result: delegatedTo(SOLVER_ACCOUNT)() }) }
+				: { json: async () => ({ error: { code: 3, message: "execution reverted" } }) }
+		})
+
+		await expect(readRateFillCapability("http://base.test", GATEWAY, solver, [SOLVER_ACCOUNT])).resolves.toBe(false)
+	})
+
+	it("counts a signed rate bid only after a fresh positive capability check", async () => {
+		const userOp = await signedBidUserOp({
+			signingKey: SOLVER_KEY,
+			callData: rateBidCalldata(2_500_000n, 600_000n),
+		})
+		setAggregationFetch(mockRpc([userOp], delegatedTo(SOLVER_ACCOUNT)))
+		const supportsRateFills = vi.fn(async () => true)
+
+		const result = await aggregatePhantomBids({
+			nodeUrl: NODE_URL,
+			evmRpcUrls: { [CHAIN]: "http://base.test" },
+			chain: CHAIN,
+			gatewayAddress: GATEWAY,
+			commitment: COMMITMENT,
+			yieldVaults: { [CHAIN]: { [USDT]: [] } },
+			solverAccount: SOLVER_ACCOUNT,
+			supportsRateFills,
+		})
+
+		expect(result!.legs[0].medianPrice).toBe(applyProtocolFeeHaircut(1_200_000n, PROTOCOL_FEE_BPS))
+		expect(supportsRateFills).toHaveBeenCalledTimes(1)
+	})
+
 	it("counts a bid whose sender signed it and is delegated to the chain's SolverAccount", async () => {
 		const userOp = await signedBidUserOp({ signingKey: SOLVER_KEY })
 

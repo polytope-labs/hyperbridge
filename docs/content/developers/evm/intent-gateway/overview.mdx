@@ -30,7 +30,39 @@ Intent Gateway supports same-chain swaps where source and destination are the sa
 
 ### Partial Fills
 
-For same-chain orders, solvers can fill any portion of the output. The proportional share of escrowed inputs is released immediately (`inputs[i].amount × fillAmount / totalRequired`). The order is fully filled once all output pairs reach their target amounts.
+For same-chain orders, solvers can fill any portion of the output. Escrow is released immediately by the cumulative difference `floor(input × newCredit / required) − floor(input × previousCredit / required)`. The order is fully filled once all output pairs reach their target amounts.
+
+### Solver-priced fills
+
+`fillOrderAtRate(order, options, inputs)` adds a per-leg input quote while retaining the existing
+`fillOrder(order, options)` selector and `FillOptions` struct. Each `inputs[i]` names the matching
+order input token and the maximum input the solver takes for `options.outputs[i]`. Empty inputs
+use ordinary order-rate settlement.
+
+The contract credits output at the order's rate and releases the corresponding cumulative input
+slice. Integer rounding can release less than the quoted maximum; use the SDK's `previewRateFill`
+to inspect the actual release. A quote below the order's floor reverts with `RateBelowOrder`;
+a positive slice too small to release input reverts with `RateFillTooSmall`.
+
+If earlier solvers leave less work than a signed quote covers, the contract caps credited progress
+and scales output against the actual input release, preserving the quote's rate. The original signed
+calldata can be used unchanged. Output above credited progress is surplus on every rate fill,
+split by `surplusShareBps`; calldata orders retain all surplus as protocol dust and must complete
+in one fill. Fill events report credited output, so surplus never advances the order twice.
+
+Rate fills require unique, canonical input and output token identifiers with the current token-keyed
+storage layout. A same-chain order whose earlier legacy slices accumulated rounding dust can finish
+or cancel through the existing methods, but rate settlement reverts with `LegacyRateAccounting`.
+No rate or surplus data is added to cross-chain redemption messages or cancellation proofs.
+
+The SDK's `automatic: true` execution option walks single-leg bids in rate order, confirms each
+slice, and continues until the order is filled. An uncertain submission stops execution and reports
+its error; the attempted UserOp is persisted to prevent replay on resume. Manual bid selection
+remains available for multi-leg rate quotes, and existing multi-leg legacy best-bid execution
+continues to work. Simplex
+uses quoted takes when both the gateway and delegated SolverAccount report `supportsRateFills()`.
+Rate bids must use the updated account: its validation recognizes both selectors and rejects a
+public bid submitted with its session signature stripped off.
 
 ## Cross-Chain Swaps
 
@@ -83,7 +115,7 @@ There are two modes for cross-chain cancellation:
 
 For orders placed after the fee-refund upgrade, protocol fees are held until settlement. A full fill earns the whole fee; cancellation returns the portion attributable to refunded input escrow, including for voluntary cancellation before expiry. The earned remainder becomes "dust" and can be swept to a treasury via Hyperbridge governance. Governance sizes sweeps from collected dust less amounts swept or already in flight; the gateway does not enforce an escrow reservation. Orders placed before the upgrade retain their original, nonrefundable fee treatment. See [Cancelling Orders](./cancelling-orders#what-is-refunded-and-what-is-not) for the refund formula.
 
-When a solver provides more tokens than required, the excess is split according to `surplusShareBps` (100% to protocol if the order has calldata). Surplus only applies on the first fill of each output token pair.
+When a solver provides more tokens than required, the excess is split according to `surplusShareBps` (100% to protocol if the order has calldata). For ordinary `fillOrder`, surplus only applies on the first fill of each output token pair. For `fillOrderAtRate`, surplus applies to each quoted slice.
 
 ## Calldata
 

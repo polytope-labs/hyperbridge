@@ -19,6 +19,33 @@ import { CryptoUtils } from "./CryptoUtils"
 import type { IntentGatewayContext } from "./types"
 import { BundlerMethod } from "./types"
 
+const USER_OPERATION_EVENT_ABI = [
+	{
+		type: "event",
+		name: "UserOperationEvent",
+		inputs: [
+			{ name: "userOpHash", type: "bytes32", indexed: true },
+			{ name: "sender", type: "address", indexed: true },
+			{ name: "paymaster", type: "address", indexed: true },
+			{ name: "nonce", type: "uint256", indexed: false },
+			{ name: "success", type: "bool", indexed: false },
+			{ name: "actualGasCost", type: "uint256", indexed: false },
+			{ name: "actualGasUsed", type: "uint256", indexed: false },
+		],
+	},
+] as const
+
+/** Submission was accepted, but inclusion/fill outcome could not be established safely. */
+export class BidExecutionPendingError extends Error {
+	constructor(
+		readonly userOpHash: HexString,
+		message: string,
+	) {
+		super(message)
+		this.name = "BidExecutionPendingError"
+	}
+}
+
 /** Constructor parameters for {@link BidImpl}. */
 export interface BidParams {
 	ctx: IntentGatewayContext
@@ -26,6 +53,8 @@ export interface BidParams {
 	order: Order
 	fillerBid: FillerBid
 	fillOptions: FillOptions
+	/** Positional rate-fill input takes. Omitted for legacy decoded bids. */
+	inputs?: TokenInfo[]
 	/** Prices the bid outputs in USD; bound by {@link BidManager} to the destination chain. */
 	priceOutputs: (outputs: TokenInfo[]) => Promise<Decimal | null>
 	/** Optional session-key override; looked up from storage by `order.session` if omitted. */
@@ -44,6 +73,7 @@ export interface BidParams {
 export class BidImpl implements Bid {
 	readonly solverAddress: HexString
 	readonly outputs: TokenInfo[]
+	readonly inputs: TokenInfo[]
 	readonly relayerFee: bigint
 	readonly nativeDispatchFee: bigint
 	readonly userOp: PackedUserOperation
@@ -71,6 +101,7 @@ export class BidImpl implements Bid {
 
 		this.solverAddress = params.fillerBid.userOp.sender
 		this.outputs = params.fillOptions.outputs
+		this.inputs = params.inputs ?? []
 		this.relayerFee = params.fillOptions.relayerFee
 		this.nativeDispatchFee = params.fillOptions.nativeDispatchFee
 		this.userOp = params.fillerBid.userOp
@@ -188,7 +219,7 @@ export class BidImpl implements Bid {
 	 * @throws If the bundler is not configured, the session key is missing, or the
 	 *   bundler rejects the UserOperation.
 	 */
-	async execute(): Promise<SelectBidResult> {
+	async execute(onSubmitted?: (submission: SelectBidResult) => Promise<void>): Promise<SelectBidResult> {
 		const commitment = this.order.id as HexString
 
 		if (!this.ctx.bundlerUrl) {
@@ -207,18 +238,45 @@ export class BidImpl implements Bid {
 			normalizeStateMachineId(this.order.destination),
 		)
 
-		const userOpHash = await this.crypto.sendBundler<HexString>(BundlerMethod.ETH_SEND_USER_OPERATION, [
-			CryptoUtils.prepareBundlerCall(signedUserOp),
-			entryPointAddress,
-		])
+		// The EntryPoint hash excludes the signature, so it is deterministic before the RPC call.
+		// Persist it before sending: an HTTP timeout can happen after the bundler accepted the op,
+		// and treating that timeout as a safe rejection could execute a second solver bid.
+		const userOpHash = CryptoUtils.computeUserOpHash(signedUserOp, entryPointAddress, this.chainId())
+		const accepted: SelectBidResult = {
+			userOp: signedUserOp,
+			userOpHash,
+			solverAddress: this.solverAddress,
+			commitment,
+		}
+		try {
+			await onSubmitted?.(accepted)
+		} catch (err) {
+			throw new BidExecutionPendingError(
+				userOpHash,
+				`Bid submission attempt could not be recorded durably: ${err instanceof Error ? err.message : String(err)}`,
+			)
+		}
+		try {
+			await this.crypto.sendBundler<HexString>(BundlerMethod.ETH_SEND_USER_OPERATION, [
+				CryptoUtils.prepareBundlerCall(signedUserOp),
+				entryPointAddress,
+			])
+		} catch (err) {
+			throw new BidExecutionPendingError(
+				userOpHash,
+				`Bid send outcome is uncertain: ${err instanceof Error ? err.message : String(err)}`,
+			)
+		}
 
 		let txnHash: HexString | undefined
 		let fillStatus: "full" | "partial" | undefined
 		let filledAssets: TokenInfo[] | undefined
+		let receipt: { success?: boolean; receipt: { transactionHash: HexString } }
 		try {
-			const receipt = await retryPromise(
+			receipt = await retryPromise(
 				async () => {
 					const result = await this.crypto.sendBundler<{
+						success?: boolean
 						receipt: { transactionHash: HexString }
 					} | null>(BundlerMethod.ETH_GET_USER_OPERATION_RECEIPT, [userOpHash])
 					if (!result?.receipt?.transactionHash) {
@@ -228,45 +286,80 @@ export class BidImpl implements Bid {
 				},
 				{ maxRetries: 5, backoffMs: 2000, logMessage: "Fetching user operation receipt" },
 			)
-			txnHash = receipt.receipt.transactionHash
+		} catch (err) {
+			throw new BidExecutionPendingError(
+				userOpHash,
+				`Bid submission outcome is uncertain: ${err instanceof Error ? err.message : String(err)}`,
+			)
+		}
+		txnHash = receipt.receipt.transactionHash
 
-			try {
-				const chainReceipt = await this.ctx.dest.client.waitForTransactionReceipt({
-					hash: txnHash,
-					confirmations: 1,
-				})
-				const events = parseEventLogs({
-					abi: IntentGatewayV2ABI,
-					logs: chainReceipt.logs,
-					eventName: ["OrderFilled", "PartialFill"],
-				})
+		let chainReceipt: Awaited<ReturnType<typeof this.ctx.dest.client.waitForTransactionReceipt>>
+		try {
+			chainReceipt = await this.ctx.dest.client.waitForTransactionReceipt({
+				hash: txnHash,
+				confirmations: 1,
+			})
+		} catch (err) {
+			throw new BidExecutionPendingError(
+				userOpHash,
+				`Bid submission outcome is uncertain: ${err instanceof Error ? err.message : String(err)}`,
+			)
+		}
+		if (chainReceipt.status === "reverted") {
+			throw new Error(`Bid execution reverted in transaction ${txnHash}`)
+		}
+		let userOpSucceeded = receipt.success
+		try {
+			const userOpEvents = parseEventLogs({
+				abi: USER_OPERATION_EVENT_ABI,
+				logs: chainReceipt.logs,
+				eventName: "UserOperationEvent",
+			})
+			const matched = userOpEvents.find(
+				(event) =>
+					event.address.toLowerCase() === entryPointAddress.toLowerCase() &&
+					event.args.userOpHash.toLowerCase() === userOpHash.toLowerCase() &&
+					event.args.sender.toLowerCase() === signedUserOp.sender.toLowerCase() &&
+					event.args.nonce === signedUserOp.nonce,
+			)
+			if (matched) userOpSucceeded = matched.args.success
+		} catch {
+			// A confirmed bundler success flag remains usable when unrelated malformed logs cannot be decoded.
+		}
+		if (userOpSucceeded === false) {
+			throw new Error(`UserOperation failed in confirmed transaction ${txnHash}`)
+		}
 
-				const matched = events.find((e) => {
-					if (e.eventName === "OrderFilled")
-						return e.args.commitment.toLowerCase() === commitment.toLowerCase()
-					if (e.eventName === "PartialFill")
-						return e.args.commitment.toLowerCase() === commitment.toLowerCase()
-					return false
-				})
-
-				if (matched?.eventName === "OrderFilled") {
-					fillStatus = "full"
-				} else if (matched?.eventName === "PartialFill") {
-					fillStatus = "partial"
-					filledAssets = (matched.args.outputs ?? []) as TokenInfo[]
-				}
-			} catch {
-				throw new Error("Failed to determine fill status from logs")
+		try {
+			const events = parseEventLogs({
+				abi: IntentGatewayV2ABI,
+				logs: chainReceipt.logs,
+				eventName: ["OrderFilled", "PartialFill"],
+			})
+			const matched = events.find((e) => {
+				if (e.address.toLowerCase() !== this.intentGatewayV2Address.toLowerCase()) return false
+				if (e.eventName === "OrderFilled") return e.args.commitment.toLowerCase() === commitment.toLowerCase()
+				if (e.eventName === "PartialFill") return e.args.commitment.toLowerCase() === commitment.toLowerCase()
+				return false
+			})
+			if (matched?.eventName === "OrderFilled") {
+				fillStatus = "full"
+			} else if (matched?.eventName === "PartialFill") {
+				fillStatus = "partial"
+				filledAssets = (matched.args.outputs ?? []) as TokenInfo[]
+			} else {
+				throw new Error("No fill event found")
 			}
 		} catch (err) {
-			throw new Error(`Failed to execute bid: ${err instanceof Error ? err.message : String(err)}`)
+			throw new BidExecutionPendingError(
+				userOpHash,
+				`Bid submission outcome is uncertain: ${err instanceof Error ? err.message : String(err)}`,
+			)
 		}
 
 		return {
-			userOp: signedUserOp,
-			userOpHash,
-			solverAddress: this.solverAddress,
-			commitment,
+			...accepted,
 			txnHash,
 			fillStatus,
 			filledAssets,

@@ -18,6 +18,8 @@ import {
 	transformOrderForContract,
 	type TokenInfo,
 	encodeFillOrder,
+	encodeFillOrderAtRate,
+	supportsRateFills,
 	getFillOptionsVersion,
 } from "@hyperbridge/sdk"
 import { ERC20_ABI } from "@/config/abis/ERC20"
@@ -25,7 +27,7 @@ import type { ChainClientManager } from "./ChainClientManager"
 import type { FillerConfigService } from "./FillerConfigService"
 import { EVM_HOST } from "@/config/abis/EvmHost"
 import { CacheService } from "./CacheService"
-import { type Logger , moduleLogger} from "@/services/Logger"
+import { type Logger, moduleLogger } from "@/services/Logger"
 import { Decimal } from "decimal.js"
 import { INTENT_GATEWAY_V2_ABI } from "@/config/abis/IntentGatewayV2"
 import { ENTRYPOINT_ABI } from "@/config/abis/Entrypoint"
@@ -253,6 +255,8 @@ export class ContractInteractionService {
 	}> {
 		try {
 			const client = this.clientManager.getPublicClient(order.destination)
+			const quote = this.cacheService.getFillerQuote(order.id!)
+			if (!quote) throw new Error(`No cached filler quote for order ${order.id}; calculate profitability first`)
 			const cachedEstimate = this.cacheService.getGasEstimate(order.id!)
 			if (cachedEstimate) {
 				return {
@@ -275,6 +279,8 @@ export class ContractInteractionService {
 			// without the prepends and apply a gas multiplier afterwards.
 			const estimate = await sdkHelper.estimateFillOrder({
 				order,
+				inputs: quote.inputs,
+				outputs: quote.outputs,
 				prependCalls: undefined,
 				maxPriorityFeePerGasBumpPercent: gasFeeBumpConfig?.maxPriorityFeePerGasBumpPercent,
 				maxFeePerGasBumpPercent: gasFeeBumpConfig?.maxFeePerGasBumpPercent,
@@ -297,6 +303,7 @@ export class ContractInteractionService {
 			this.logger.info({ estimate, fundingGasBump: fundingGasBump.toString() }, "Estimate")
 			const callGasLimit = estimate.callGasLimit + fundingGasBump
 
+			this.cacheService.assertFillerQuoteCurrent(order.id!, quote)
 			this.cacheService.setGasEstimate(
 				order.id!,
 				estimate.totalGasInFeeToken,
@@ -646,13 +653,14 @@ export class ContractInteractionService {
 		const commitment = orderCommitment(order)
 
 		return Promise.all(
-			order.output.assets.map((asset) =>
-				client.readContract({
-					address,
-					abi: INTENT_GATEWAY_V2_ABI,
-					functionName: "_partialFills",
-					args: [commitment, asset.token],
-				}) as Promise<bigint>,
+			order.output.assets.map(
+				(asset) =>
+					client.readContract({
+						address,
+						abi: INTENT_GATEWAY_V2_ABI,
+						functionName: "_partialFills",
+						args: [commitment, asset.token],
+					}) as Promise<bigint>,
 			),
 		)
 	}
@@ -680,9 +688,9 @@ export class ContractInteractionService {
 		}
 
 		// Use cached filler outputs (calculated based on bps) for competitive bidding
-		const cachedFillerOutputs = this.cacheService.getFillerOutputs(order.id!)
+		const quote = this.cacheService.getFillerQuote(order.id!)
 
-		if (!cachedFillerOutputs) {
+		if (!quote) {
 			throw new Error(`No cached filler outputs found for order ${order.id}. Call calculateProfitability first.`)
 		}
 
@@ -699,16 +707,19 @@ export class ContractInteractionService {
 			// Caps how long this quote stands. Without it the placer holds a free option:
 			// they choose the moment of execution and we are committed to the old price.
 			validUntil: await this.bidValidUntilBlock(order.destination),
-			outputs: cachedFillerOutputs,
+			outputs: quote.outputs,
 		}
+
+		this.cacheService.assertFillerQuoteCurrent(order.id!, quote)
 
 		// dispatchWithFeeToken pulls relayerFee in fee token from the solver.
 		const dispatchFeeTokenAmount = fillOptions.relayerFee
 		const callData = await this.buildApprovalAndFillCalldata(
 			order,
-			cachedFillerOutputs,
+			quote.outputs,
 			fillOptions,
 			cachedEstimate.totalCostInSourceFeeToken + dispatchFeeTokenAmount,
+			quote.inputs,
 		)
 
 		const commitment = orderCommitment(order)
@@ -723,7 +734,9 @@ export class ContractInteractionService {
 			configService: this.configService,
 			prefund: {
 				baseGas:
-					cachedEstimate.callGasLimit + cachedEstimate.verificationGasLimit + cachedEstimate.preVerificationGas,
+					cachedEstimate.callGasLimit +
+					cachedEstimate.verificationGasLimit +
+					cachedEstimate.preVerificationGas,
 				maxFeePerGas: cachedEstimate.maxFeePerGas,
 			},
 			logger: this.logger,
@@ -735,6 +748,7 @@ export class ContractInteractionService {
 			this.logger.warn({ reason: pmResult.reason }, "No paymaster for bid UserOp; relying on EntryPoint deposit")
 		}
 
+		this.cacheService.assertFillerQuoteCurrent(order.id!, quote)
 		const userOp = await sdkHelper.prepareSubmitBid({
 			order,
 			fillOptions,
@@ -811,6 +825,7 @@ export class ContractInteractionService {
 		fillerOutputs: TokenInfo[],
 		acceptedSourceChains: string[],
 		uniswapV4PositionIds?: string[],
+		inputs: TokenInfo[] = [],
 	): Promise<{ commitment: HexString; userOp: HexString }> {
 		const sdkHelper = await this.getIntentGateway(order.source, order.destination)
 		const client = this.clientManager.getPublicClient(order.destination)
@@ -823,7 +838,7 @@ export class ContractInteractionService {
 			validUntil: await this.bidValidUntilBlock(order.destination),
 			outputs: fillerOutputs,
 		}
-		const callData = await this.buildApprovalAndFillCalldata(order, fillerOutputs, fillOptions, 0n)
+		const callData = await this.buildApprovalAndFillCalldata(order, fillerOutputs, fillOptions, 0n, inputs)
 
 		const commitment = orderCommitment(order)
 
@@ -874,15 +889,27 @@ export class ContractInteractionService {
 	 * gateway never pulls the fee token — its approval is skipped. Only cross-chain
 	 * fills, which dispatch a RedeemEscrow message paid in the fee token, need it.
 	 */
+	async rateFillsSupported(chain: string): Promise<boolean> {
+		return supportsRateFills(
+			this.clientManager.getPublicClient(chain) as any,
+			this.configService.getIntentGatewayAddress(chain),
+			this.solverAccountAddress,
+		)
+	}
+
 	public async buildApprovalAndFillCalldata(
 		order: Order,
 		fillerOutputs: TokenInfo[],
 		fillOptions: FillOptions,
 		requiredFeeTokenAmount: bigint,
+		inputs: TokenInfo[] = [],
 	): Promise<HexString> {
 		const chain = order.destination
 		const destClient = this.clientManager.getPublicClient(chain)
 		const intentGatewayV2Address = this.configService.getIntentGatewayAddress(chain)
+		if (inputs.length && !(await this.rateFillsSupported(chain))) {
+			throw new Error("Rate fills require an upgraded gateway and SolverAccount delegation")
+		}
 
 		// Aggregate required amounts per ERC20 token
 		const perTokenRequired = new Map<string, bigint>()
@@ -937,7 +964,9 @@ export class ContractInteractionService {
 
 		// Gateways predating `FillOptions.validUntil` take a differently-shaped (and
 		// differently-selectored) fillOrder, so the encoding has to match the deployment.
-		const fillOptionsVersion = await getFillOptionsVersion(destClient as any, intentGatewayV2Address)
+		const fillOptionsVersion = inputs.length
+			? 2
+			: await getFillOptionsVersion(destClient as any, intentGatewayV2Address)
 		if (fillOptionsVersion === 1 && fillOptions.validUntil !== 0n && !this.warnedNoValidUntil.has(chain)) {
 			this.warnedNoValidUntil.add(chain)
 			this.logger.warn(
@@ -950,7 +979,9 @@ export class ContractInteractionService {
 		calls.push({
 			target: intentGatewayV2Address,
 			value: nativeOutputValue,
-			data: encodeFillOrder(transformOrderForContract(order) as any, fillOptions, fillOptionsVersion),
+			data: inputs.length
+				? encodeFillOrderAtRate(transformOrderForContract(order) as any, fillOptions, inputs)
+				: encodeFillOrder(transformOrderForContract(order) as any, fillOptions, fillOptionsVersion),
 		})
 
 		return encodeERC7821ExecuteBatch(calls)

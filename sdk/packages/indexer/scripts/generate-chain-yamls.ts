@@ -45,11 +45,14 @@ const EVM_TRACKED = [
 const getChainTypesPath = (chain: string) => {
 	// Extract base chain name before the hyphen
 	const baseChainName = chain.split("-")[0]
-	const potentialPath = `./dist/substrate-chaintypes/${baseChainName}.js`
 
-	// Check if file exists
-	if (fs.existsSync(potentialPath)) {
-		return potentialPath
+	// Decided on the source, emitted as the compiled path the node loads. `subql build` writes that
+	// compiled file later in the same build, so testing for it here means a checkout with no dist
+	// yet — every clean CI run and first deploy — silently omits the chaintypes line, and a
+	// Hyperbridge node without it cannot decode its own blocks (its hasher is keccak, not blake2).
+	const source = path.join(root, "src", "substrate-chaintypes", `${baseChainName}.ts`)
+	if (fs.existsSync(source)) {
+		return `./dist/substrate-chaintypes/${baseChainName}.js`
 	}
 	return null
 }

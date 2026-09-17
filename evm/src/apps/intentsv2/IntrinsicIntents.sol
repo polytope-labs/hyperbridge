@@ -66,6 +66,9 @@ abstract contract IntrinsicIntents is IntentsBase {
 
         for (uint256 i; i < outputsLen; i++) {
             bytes32 outputToken = order.output.assets[i].token;
+            // Every use of a token reads the address in its low 20 bytes. Anything above would let one
+            // token pass `_isRepeatedToken` as two.
+            if (uint256(outputToken) >> 160 != 0) revert InvalidInput();
             if (options.outputs[i].token != outputToken) revert InvalidInput();
 
             address token = address(uint160(uint256(outputToken)));

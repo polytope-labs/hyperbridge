@@ -33,6 +33,8 @@ The gateway tracks each leg's escrow, fill progress and protocol fee separately,
 
 An order with predispatch calldata is the one exception: its escrow is swept from the dispatcher and measured per token, so its legs may not repeat an input token.
 
+Tokens are `bytes32` values holding the token address left-padded with zeros. `placeOrder` rejects an input token, and `fillOrder` an output token, whose upper 12 bytes are not zero.
+
 ## Same-Chain Swaps
 
 Intent Gateway supports same-chain swaps where source and destination are the same chain. Settlement is atomic — no cross-chain messaging required. Supports **partial fills** where multiple solvers can each fill a portion of an order, with escrow released proportionally. Cancellation is immediate: the user may cancel through the deadline, and anyone may cancel strictly after it; remaining escrow always returns to the order user.

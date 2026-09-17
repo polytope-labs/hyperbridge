@@ -6,6 +6,15 @@ and legs may repeat tokens, e.g. one pair offered at several prices. An order wi
 calldata may not repeat an input token: its escrow is swept and measured per token, and the
 dispatcher does not check a token's `transfer` return value.
 
+A token is the address in the low 20 bytes of its `bytes32`, and its upper 12 bytes must be zero:
+`placeOrder` rejects such an input token and both fill paths such an output token, with
+`InvalidInput`. The repeated-token checks compare the full `bytes32` while every transfer reads only
+the address, so `T` and `T | 1 << 255` would pass as two tokens. With a token whose `transfer` returns
+false instead of reverting, two such predispatch legs would each credit the one sweep that landed, and
+a cancel would pay the second copy out of other orders' escrow in that token
+(`testPlaceOrder_PredispatchRejectsAliasedInputToken`). Output tokens are checked at fill, on the
+chain they belong to, rather than at placement.
+
 `_orders`, `_partialFills` and `_protocolFees` are keyed by `(commitment, leg index)` instead of by
 token, in the same storage slots (9, 11 and 14). Each leg's escrow, fill progress and held protocol
 fee are its own, so a completing leg releases only its escrow (SRLabs S3-2), a repeated output token

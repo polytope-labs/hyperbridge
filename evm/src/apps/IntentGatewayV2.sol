@@ -236,8 +236,8 @@ contract IntentGatewayV2 is
      * @dev Places a new intent order by escrowing the user's input tokens.
      *
      * An order is a list of legs: leg `i` sells `order.inputs[i]` for `order.output.assets[i]`, so
-     * the two arrays must be non-empty and of equal length, and every output amount non-zero; any
-     * other shape reverts `InvalidInput`. Legs may repeat tokens, e.g. one pair at several prices,
+     * the two arrays must be non-empty and of equal length, every output amount non-zero, and every
+     * input token an address with its upper 12 bytes zero; any other shape reverts `InvalidInput`. Legs may repeat tokens, e.g. one pair at several prices,
      * except that an order with predispatch calldata may not repeat an input token. Escrow, fill
      * progress and protocol fees are all held per leg, so each leg settles on its own.
      * Reverts `EnforcedPause` while the gateway is paused.
@@ -261,6 +261,9 @@ contract IntentGatewayV2 is
         // Inputs and outputs pair 1:1 by index; a leg without its counterpart could never be filled.
         if (inputsLen == 0 || order.output.assets.length != inputsLen) revert InvalidInput();
         for (uint256 i; i < inputsLen;) {
+            // Every use of a token reads the address in its low 20 bytes. Anything above would let one
+            // token pass the repeated input token check below as two.
+            if (uint256(order.inputs[i].token) >> 160 != 0) revert InvalidInput();
             // A zero-amount output would strand its leg's escrow.
             if (order.output.assets[i].amount == 0) revert InvalidInput();
             unchecked {
@@ -493,7 +496,8 @@ contract IntentGatewayV2 is
      * 2. Verifies the order has not already been filled.
      * 3. If solver selection is enabled, validates the caller matches the selected
      *    solver stored in transient storage (set by a prior `select` call).
-     * 4. Validates input/output array length consistency.
+     * 4. Validates input/output array length consistency. Each module's fill also rejects an output
+     *    token with its upper 12 bytes set, so `_isRepeatedToken` sees every token in one form.
      *
      * @param order The order to fill. Must match the exact order that was placed.
      * @param options Fill options including output token amounts and fee parameters.

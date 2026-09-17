@@ -152,6 +152,71 @@ export function MarketRow(props: {
 					onAddress={(chain, address) => onCustomAddress(symbol, chain, address)}
 				/>
 			))}
+		</section>
+	)
+}
+
+function CustomAssetAddresses(props: {
+	symbol: string
+	chains: ChainDraft[]
+	addresses: Record<string, string>
+	onAddress: (chain: string, address: string) => void
+}) {
+	const { symbol, chains, addresses, onAddress } = props
+	const [status, setStatus] = useState<Record<string, { ok?: string; err?: string }>>({})
+
+	const verify = async (chain: ChainDraft) => {
+		const address = (addresses[chain.meta.stateMachineId] ?? "").trim()
+		if (!address || !chain.rpcUrls[0]?.trim()) return
+		try {
+			const res = await api.post<{ ok: boolean; symbol?: string; decimals?: number; error?: string }>(
+				"/api/setup/validate-token",
+				{ rpcUrl: chain.rpcUrls[0].trim(), address },
+			)
+			setStatus((s) => ({
+				...s,
+				[chain.meta.stateMachineId]: res.ok
+					? { ok: `${res.symbol} (${res.decimals} decimals)` }
+					: { err: res.error },
+			}))
+		} catch (err) {
+			setStatus((s) => ({
+				...s,
+				[chain.meta.stateMachineId]: { err: err instanceof Error ? err.message : String(err) },
+			}))
+		}
+	}
+
+	return (
+		<div className="custom-asset-addresses">
+			<p className="hint">{symbol} contract address per chain it exists on (at least one required):</p>
+			{chains.map((chain) => (
+				<div className="field custom-asset-chain" key={chain.meta.chainId}>
+					<span>{chain.meta.label}</span>
+					<div className="custom-asset-chain-control">
+						<input
+							type="text"
+							aria-label={`${symbol} contract address on ${chain.meta.label}`}
+							placeholder="0x… (leave empty if the token isn't on this chain)"
+							value={addresses[chain.meta.stateMachineId] ?? ""}
+							onChange={(e) => onAddress(chain.meta.stateMachineId, e.target.value)}
+						/>
+						<button
+							type="button"
+							disabled={!(addresses[chain.meta.stateMachineId] ?? "").trim()}
+							onClick={() => verify(chain)}
+						>
+							Verify
+						</button>
+						{status[chain.meta.stateMachineId]?.ok && (
+							<span className="badge ok">{status[chain.meta.stateMachineId].ok}</span>
+						)}
+						{status[chain.meta.stateMachineId]?.err && (
+							<span className="badge err">{status[chain.meta.stateMachineId].err}</span>
+						)}
+					</div>
+				</div>
+			))}
 		</div>
 	)
 }

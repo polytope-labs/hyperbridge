@@ -76,13 +76,16 @@ jobs:
             # rather than passing against a stub. `--block-time` keeps blocks coming, which is what
             # drives the indexer's every-block solver handler.
             # Logged, not silenced: when anvil stops answering — which is how this fails — its own
-            # output is the only account of why. `--slots-in-an-epoch 1` finalizes locally almost at
+            # output is the only account of why. It is line-buffered through stdbuf, because Rust
+            # block-buffers stdout to a file and a hung anvil never flushes, which left the log
+            # empty exactly when it was needed. `--slots-in-an-epoch 1` finalizes locally almost at
             # once, so the indexer's per-second `finalized` and `safe` lookups are answered from
-            # local state instead of reaching upstream.
+            # local state instead of reaching upstream, and `--no-rate-limit` stops anvil throttling
+            # its own upstream fetches into a queue.
             - name: Start anvil (fork of Base)
               run: |
-                  nohup anvil --fork-url "${{ secrets.BASE_MAINNET }}" --port 8545 --block-time 2 \
-                    --slots-in-an-epoch 1 > anvil.log 2>&1 &
+                  nohup stdbuf -oL -eL anvil --fork-url "${{ secrets.BASE_MAINNET }}" --port 8545 \
+                    --block-time 2 --slots-in-an-epoch 1 --no-rate-limit > anvil.log 2>&1 &
                   echo "Waiting for anvil on 8545..."
                   for i in $(seq 1 60); do
                     nc -z localhost 8545 && break
@@ -202,6 +205,11 @@ jobs:
                   echo "::endgroup::"
                   echo "::group::Indexer"
                   cat packages/indexer/indexer_output.log || true
+                  echo "::endgroup::"
+                  echo "::group::Fork process and runner state"
+                  ps -o pid,etime,%cpu,%mem,rss,args -C anvil || echo "anvil is NOT running"
+                  free -m || true
+                  (sudo dmesg 2>/dev/null | grep -iE "out of memory|killed process" | tail -5) || true
                   echo "::endgroup::"
                   echo "::group::anvil"
                   tail -80 anvil.log || true

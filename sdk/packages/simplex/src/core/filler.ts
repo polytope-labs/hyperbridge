@@ -10,14 +10,12 @@ import {
 	type HexString,
 	IntentsCoprocessor,
 	type PhantomOrderEvent,
-	bytes32ToBytes20,
 	type TokenInfo,
 	type PhantomBid,
 	ADDRESS_ZERO,
+	readLegEscrow,
 } from "@hyperbridge/sdk"
 import { parseChainKey } from "@/config/interpolated-curve"
-import { INTENT_GATEWAY_V2_ABI } from "@/config/abis/IntentGatewayV2"
-import type { Address } from "viem"
 import pQueue from "p-queue"
 import { type ChainClientManager, type ContractInteractionService, DelegationService, type RebalancingService } from "@/services"
 import { patchRuntimeState } from "@/data/state"
@@ -604,15 +602,18 @@ export class IntentFiller {
 
 		try {
 			const escrows = await Promise.all(
-				order.inputs.map((input: TokenInfo) =>
+				// Escrow is held per leg, keyed by the input's index; a gateway not yet upgraded to per-leg
+				// escrow is read by token.
+				order.inputs.map((input: TokenInfo, index: number) =>
 					retryPromise(
 						() =>
-							sourceClient.readContract({
-								address: intentGatewayAddress,
-								abi: INTENT_GATEWAY_V2_ABI,
-								functionName: "_orders",
-								args: [commitment, bytes32ToBytes20(input.token) as Address],
-							}) as Promise<bigint>,
+							readLegEscrow(
+								sourceClient,
+								intentGatewayAddress as HexString,
+								commitment,
+								index,
+								input.token as HexString,
+							),
 						{
 							maxRetries: 3,
 							backoffMs: 250,

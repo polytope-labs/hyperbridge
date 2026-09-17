@@ -7,6 +7,7 @@ import type { IntentGatewayContext } from "./types"
 import { ABI as IntentGatewayV2ABI } from "@/abis/IntentGatewayV2"
 import { BidExecutionPendingError, BidExecutionRejectedError, BidImpl } from "./Bid"
 import { SubmissionJournal } from "./submissionJournal"
+import { readLegPartialFill } from "./escrowReads"
 import EntryPoint from "@/abis/entrypoint"
 
 const USED_USEROPS_STORAGE_KEY = (commitment: HexString) => `used-userops:${commitment.toLowerCase()}`
@@ -159,14 +160,7 @@ export class OrderExecutor {
 		const gateway = this.ctx.dest.configService.getIntentGatewayAddress(normalizeStateMachineId(order.destination))
 		return Promise.all(
 			order.output.assets.map(async (asset, index) => {
-				const credited = BigInt(
-					await client.readContract({
-						address: gateway,
-						abi: IntentGatewayV2ABI,
-						functionName: "_partialFills",
-						args: [commitment, asset.token],
-					}),
-				)
+				const credited = await readLegPartialFill(client, gateway, commitment, index, asset.token)
 				const previous = fallback[index]?.amount ?? 0n
 				return { token: asset.token, amount: credited > previous ? credited : previous }
 			}),
@@ -273,13 +267,13 @@ export class OrderExecutor {
 		if (result.fillStatus === "partial") {
 			const filledAssets = result.filledAssets ?? []
 
-			totalFilledAssets = totalFilledAssets.map((a) => {
-				const filled = filledAssets.find((f) => f.token === a.token)
+			totalFilledAssets = totalFilledAssets.map((a, index) => {
+				const filled = filledAssets[index]
 				return filled ? { token: a.token, amount: a.amount + filled.amount } : { ...a }
 			})
 
-			remainingAssets = targetAssets.map((target) => {
-				const filled = totalFilledAssets.find((a) => a.token === target.token)
+			remainingAssets = targetAssets.map((target, index) => {
+				const filled = totalFilledAssets[index]
 				const filledAmt = filled?.amount ?? 0n
 				return {
 					token: target.token,

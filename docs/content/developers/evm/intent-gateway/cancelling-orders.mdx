@@ -36,7 +36,7 @@ A third-party caller pays the cancellation transaction gas and receives no escro
 | Protocol fee deducted at placement | The portion attributable to refunded input escrow is returned to `order.user`; the protocol keeps the portion attributable to released escrow. Applies to orders placed after the fee-refund upgrade. |
 | Placement gas and cancellation gas | **Not refunded.** They are native-chain transaction costs. |
 
-For each input token, the gateway records the exact protocol fee charged at placement and the original input amount committed after deducting that fee. On cancellation it returns:
+For each input (leg), the gateway records the exact protocol fee charged at placement and the original input amount committed after deducting that fee. On cancellation it returns:
 
 ```text
 fee refund = floor(placement fee × refunded input escrow / original committed input)
@@ -253,7 +253,7 @@ Cross-chain cancellations require Hyperbridge to either prove the destination fi
 
 ### Cancel from the Source Chain
 
-Cancelling from the source chain proves how much of the order was filled on the destination. The contract queries the destination's `_partialFills` storage at a block height after the deadline and refunds the proven unfilled principal plus its protocol-fee share. Principal already earned by solvers remains available for their redemption messages. A proof that the order was fully filled returns no principal or protocol fee; pending fees are settled by the final solver redemption.
+Cancelling from the source chain proves how much of the order was filled on the destination. The contract queries the destination's `_partialFills` storage for each leg at a block height after the deadline and refunds the proven unfilled principal plus its protocol-fee share. Principal already earned by solvers remains available for their redemption messages. A proof that the order was fully filled returns no principal or protocol fee; pending fees are settled by the final solver redemption.
 
 Because the proof must come from a block after the order deadline, this path is only available once the order has expired. The SDK automatically selects the appropriate block height.
 

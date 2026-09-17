@@ -11,7 +11,7 @@ import type {
 	SelectOptions,
 	TokenInfo,
 } from "@/types"
-import { ADDRESS_ZERO, bytes32ToBytes20, normalizeStateMachineId, retryPromise } from "@/utils"
+import { ADDRESS_ZERO, bytes20ToBytes32, bytes32ToBytes20, normalizeStateMachineId, retryPromise } from "@/utils"
 import type Decimal from "decimal.js"
 import { concat, encodeFunctionData, parseEventLogs, toEventSelector } from "viem"
 import type { Hex } from "viem"
@@ -449,20 +449,31 @@ export class BidImpl implements Bid {
 				logs: executionLogs,
 				eventName: ["OrderFilled", "PartialFill"],
 			})
-			const matched = events.find((e) => {
+			const matchingFills = events.filter((e) => {
 				if (e.address.toLowerCase() !== intentGatewayV2Address.toLowerCase()) return false
 				return (
 					e.args.commitment.toLowerCase() === commitment.toLowerCase() &&
 					e.args.filler.toLowerCase() === accepted.solverAddress.toLowerCase()
 				)
 			})
-			if (matched?.eventName === "OrderFilled") {
+			if (matchingFills.length === 0) throw new Error("No fill event found")
+			if (matchingFills.some((event) => event.eventName === "OrderFilled")) {
 				fillStatus = "full"
-			} else if (matched?.eventName === "PartialFill") {
-				fillStatus = "partial"
-				filledAssets = (matched.args.outputs ?? []) as TokenInfo[]
 			} else {
-				throw new Error("No fill event found")
+				fillStatus = "partial"
+				filledAssets = order.output.assets.map(({ token }) => ({ token: bytes20ToBytes32(token), amount: 0n }))
+				// One operation can fill repeatedly; each event credits its positional legs.
+				for (const { args } of matchingFills) {
+					if (args.outputs.length !== filledAssets.length)
+						throw new Error("Fill output length does not match order")
+					for (const [index, output] of args.outputs.entries()) {
+						const leg = filledAssets[index]
+						if (output.token.toLowerCase() !== leg.token.toLowerCase()) {
+							throw new Error("Fill output token does not match order leg")
+						}
+						leg.amount += output.amount
+					}
+				}
 			}
 		} catch (err) {
 			throw new BidExecutionPendingError(

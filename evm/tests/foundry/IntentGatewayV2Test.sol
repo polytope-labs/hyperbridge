@@ -360,9 +360,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             output: PaymentInfo({beneficiary: ev.beneficiary, assets: ev.outputs, call: ev.outputCall})
         });
         bytes32 commitment = keccak256(abi.encode(fromEvent));
-        assertEq(
-            intentGateway._orders(commitment, address(dai)), minDaiAmount, "commitment from event must match escrow"
-        );
+        assertEq(intentGateway._orders(commitment, 0), minDaiAmount, "commitment from event must match escrow");
     }
 
     function testDustCollectionFromPredispatchSwapWithUniswapV3() public {
@@ -2600,7 +2598,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         intentGateway.cancelOrder{value: 0.1 ether}(order, cancelOptions);
 
         // Escrow is untouched until the GET response comes back through `onGetResponse`.
-        assertEq(intentGateway._orders(commitment, address(usdc)), inputAmount, "Escrow should still be held");
+        assertEq(intentGateway._orders(commitment, 0), inputAmount, "Escrow should still be held");
     }
 
     function testCancelOrderFromWrongChainFails() public {
@@ -3292,14 +3290,14 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         bytes32 commitment = keccak256(abi.encode(order));
 
-        // Partial-fill-aware cancel context: per-token _partialFills proof. An empty proof value
+        // Partial-fill-aware cancel context: per-leg _partialFills proof. An empty proof value
         // decodes to filled=0, so the full escrow is refundable.
         uint256[] memory totalRequired = new uint256[](1);
         totalRequired[0] = outputAssets[0].amount;
         bytes memory context = abi.encode(commitment, bytes32(uint256(uint160(user))), inputs, totalRequired);
 
         bytes[] memory keys = new bytes[](1);
-        keys[0] = abi.encodePacked(_partialFillSlot(commitment, bytes32(uint256(uint160(address(dai))))));
+        keys[0] = abi.encodePacked(_partialFillSlot(commitment, 0));
         StorageValue[] memory values = new StorageValue[](1);
         values[0] = StorageValue({key: keys[0], value: new bytes(0)}); // Empty value = not filled
 
@@ -3349,7 +3347,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         placed.source = host.host();
         placed.nonce = gateway._nonce() - 1;
         placed.inputs[0].amount -= expectedFee;
-        (uint256 fee, uint256 committed) = gateway._protocolFees(keccak256(abi.encode(placed)), address(usdc));
+        (uint256 fee, uint256 committed) = gateway._protocolFees(keccak256(abi.encode(placed)), 0);
         assertEq(fee, expectedFee, "exact placement fee held for this order");
         assertEq(committed, placed.inputs[0].amount, "original post-fee input");
     }
@@ -3412,11 +3410,11 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         orderWithReducedAmount.inputs[0].amount = expectedAmountAfterFee;
         bytes32 expectedCommitment = keccak256(abi.encode(orderWithReducedAmount));
 
-        // Calculate storage slot for _orders[commitment][token]
-        // _orders is at storage slot 8 (see forge inspect storage-layout)
+        // Calculate storage slot for _orders[commitment][leg 0]
+        // _orders is at storage slot 9 (see forge inspect storage-layout)
         // For nested mappings: keccak256(abi.encode(innerKey, keccak256(abi.encode(outerKey, baseSlot))))
         bytes32 commitmentSlot = keccak256(abi.encode(expectedCommitment, uint256(9)));
-        bytes32 escrowSlot = keccak256(abi.encode(address(usdc), commitmentSlot));
+        bytes32 escrowSlot = keccak256(abi.encode(uint256(0), commitmentSlot));
 
         // Verify escrow storage contains REDUCED amount (not full amount)
         uint256 escrowedAmount = uint256(vm.load(address(customGateway), escrowSlot));
@@ -3513,9 +3511,9 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         orderWithReducedAmount.inputs[0].amount = expectedAmountAfterFee;
         bytes32 expectedCommitment = keccak256(abi.encode(orderWithReducedAmount));
 
-        // Calculate storage slot for _orders[commitment][token]
+        // Calculate storage slot for _orders[commitment][leg 0]
         bytes32 commitmentSlot = keccak256(abi.encode(expectedCommitment, uint256(9)));
-        bytes32 escrowSlot = keccak256(abi.encode(address(usdc), commitmentSlot));
+        bytes32 escrowSlot = keccak256(abi.encode(uint256(0), commitmentSlot));
 
         // Verify escrow storage contains REDUCED amount
         uint256 escrowedAmount = uint256(vm.load(address(customGateway), escrowSlot));
@@ -3905,11 +3903,10 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
     /// escrowed token/amount so callers can assert these survive an implementation swap.
     function _seedUpgradeState()
         internal
-        returns (bytes32 filledCommitment, bytes32 escrowedCommitment, address inputToken, uint256 escrowedAmount)
+        returns (bytes32 filledCommitment, bytes32 escrowedCommitment, uint256 escrowedAmount)
     {
         uint256 inputAmount = 1000 * 1e6;
         uint256 outputAmount = 1000 * 1e18;
-        inputToken = address(usdc);
         escrowedAmount = inputAmount; // protocolFeeBps is 0 in setUp, so escrow == input.
 
         // Order A: place + full fill -> _filled[commitment] = filler.
@@ -3932,7 +3929,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         );
         vm.stopPrank();
 
-        // Order B: place only -> _orders[commitment][usdc] = inputAmount.
+        // Order B: place only -> _orders[commitment][0] = inputAmount.
         Order memory orderB = _sameChainOrder(inputAmount, outputAmount, 1);
         vm.startPrank(user);
         usdc.approve(address(intentGateway), inputAmount);
@@ -3982,7 +3979,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         intentGateway.onAccept(IncomingPostRequest({relayer: relayer, request: request}));
 
         assertEq(intentGateway.relayer(), next);
-        assertEq(intentGateway.version(), 3, "no migration ran");
+        assertEq(intentGateway.version(), 4, "no migration ran");
         assertEq(_implementationOf(address(intentGateway)), implBefore, "implementation unchanged");
     }
 
@@ -4045,15 +4042,12 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
     }
 
     function testOnAcceptUpgradeContractPreservesState() public {
-        (bytes32 filledCommitment, bytes32 escrowedCommitment, address inputToken, uint256 escrowedAmount) =
-            _seedUpgradeState();
+        (bytes32 filledCommitment, bytes32 escrowedCommitment, uint256 escrowedAmount) = _seedUpgradeState();
 
         uint256 nonceBefore = intentGateway._nonce();
         assertEq(nonceBefore, 2, "precondition: two orders placed");
         assertEq(intentGateway._filled(filledCommitment), filler, "precondition: order A filled");
-        assertEq(
-            intentGateway._orders(escrowedCommitment, inputToken), escrowedAmount, "precondition: order B escrowed"
-        );
+        assertEq(intentGateway._orders(escrowedCommitment, 0), escrowedAmount, "precondition: order B escrowed");
 
         IntentGatewayV2Upgraded newImpl = _upgradedImpl();
         PostRequest memory request = _upgradeRequest(host.hyperbridge(), address(newImpl), "");
@@ -4068,7 +4062,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         // All escrow-critical state survives the implementation swap.
         assertEq(intentGateway._nonce(), nonceBefore, "_nonce preserved");
         assertEq(intentGateway._filled(filledCommitment), filler, "_filled preserved");
-        assertEq(intentGateway._orders(escrowedCommitment, inputToken), escrowedAmount, "_orders preserved");
+        assertEq(intentGateway._orders(escrowedCommitment, 0), escrowedAmount, "_orders preserved");
     }
 
     /// @dev Production deploy path: the proxy initializes atomically via its init data, so the
@@ -4096,7 +4090,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         assertEq(gateway.params().host, address(host), "params set via atomic init");
         assertEq(gateway.instance(bytes("SOURCE_CHAIN")), address(gateway), "peer bound to address(this)");
         assertEq(gateway.relayer(), relayer, "relayer armed from the init data");
-        assertEq(gateway.version(), 3, "at VERSION from the init data");
+        assertEq(gateway.version(), 4, "at VERSION from the init data");
 
         vm.expectRevert();
         gateway.initialize(
@@ -4105,7 +4099,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
     }
 
     function testFilledMappingStaysAtSlotTwo() public {
-        (bytes32 filledCommitment,,,) = _seedUpgradeState();
+        (bytes32 filledCommitment,,) = _seedUpgradeState();
 
         // _filled is `mapping(bytes32 => address)` declared at storage slot 2. The cross-chain
         // cancel proof (FILLED_SLOT_BIG_ENDIAN_BYTES) depends on this exact slot.
@@ -4226,7 +4220,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         uint256[] memory totalRequired = new uint256[](1);
         totalRequired[0] = order.output.assets[0].amount;
         bytes[] memory keys = new bytes[](1);
-        keys[0] = abi.encodePacked(_partialFillSlot(commitment, order.output.assets[0].token));
+        keys[0] = abi.encodePacked(_partialFillSlot(commitment, 0));
 
         // Nothing filled on the destination: an empty proof value, so the whole escrow refunds.
         StorageValue[] memory values = new StorageValue[](1);
@@ -4274,7 +4268,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
     function testVersionTracksInitialization() public {
         IntentGatewayV2 bare = _deployGatewayProxy();
         assertEq(bare.version(), 0, "bare proxy");
-        assertEq(intentGateway.version(), 3, "initialized");
+        assertEq(intentGateway.version(), 4, "initialized");
         address impl = _implementationOf(address(intentGateway));
         assertEq(IntentGatewayV2(payable(impl)).version(), type(uint64).max, "raw implementation is locked");
     }
@@ -4318,7 +4312,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         vm.prank(address(host));
         intentGateway.onAccept(IncomingPostRequest({relayer: relayer, request: rotate}));
         assertEq(intentGateway.relayer(), next);
-        assertEq(intentGateway.version(), 3, "a rotation is not a migration");
+        assertEq(intentGateway.version(), 4, "a rotation is not a migration");
 
         // The previous relayer is locked out immediately.
         vm.prank(address(host));
@@ -4336,7 +4330,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         vm.prank(address(host));
         vm.expectRevert(Initializable.InvalidInitialization.selector);
         intentGateway.migrate(address(this));
-        assertEq(intentGateway.version(), 3, "version unchanged");
+        assertEq(intentGateway.version(), 4, "version unchanged");
     }
 
     /// A proxy an upgrade left at an earlier version cannot be re-initialized by anyone; only the
@@ -4350,11 +4344,20 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         vm.prank(user);
         vm.expectRevert(Initializable.InvalidInitialization.selector);
         gateway.initialize(InitParams({params: p, peerChains: new bytes[](0), relayer: user, owner: address(this)}));
-        assertEq(gateway.version(), 1, "still at version 1");
+        assertEq(gateway.version(), 2, "still at version 2");
 
         vm.prank(address(host));
         gateway.migrate(address(this));
-        assertEq(gateway.version(), 3);
+        assertEq(gateway.version(), 4);
+    }
+
+    function testMigrateRejectsUnsupportedLegacyVersion() public {
+        IntentGatewayV2 gateway = _legacyGateway();
+        vm.store(address(gateway), INITIALIZABLE_SLOT, bytes32(uint256(1)));
+        vm.prank(address(host));
+        vm.expectRevert(Initializable.InvalidInitialization.selector);
+        gateway.migrate(address(this));
+        assertEq(gateway.version(), 1, "unsupported version remains unchanged");
     }
 
     function testMigrateRejectsEveryoneButHost() public {
@@ -4367,7 +4370,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         vm.expectRevert(HyperApp.UnauthorizedCall.selector);
         gateway.migrate(address(this));
 
-        assertEq(gateway.version(), 1, "still at version 1");
+        assertEq(gateway.version(), 2, "still at version 2");
     }
 
     /// `migrate` moves the relayer from slot 13 offset 1 to offset 0, dropping the removed `_paused`
@@ -4378,14 +4381,14 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         vm.store(address(gateway), bytes32(uint256(13)), bytes32(uint256(_legacyRelayerSlot(relayer)) | 1));
 
         vm.expectEmit(true, true, true, true, address(gateway));
-        emit Initializable.Initialized(3);
+        emit Initializable.Initialized(4);
         vm.prank(address(host));
         gateway.migrate(address(this));
 
         assertEq(gateway.relayer(), relayer, "relayer moved");
         assertEq(vm.load(address(gateway), bytes32(uint256(13))), _relayerSlot(relayer), "old _paused byte dropped");
         assertFalse(gateway.paused(), "the old byte does not pause");
-        assertEq(gateway.version(), 3);
+        assertEq(gateway.version(), 4);
     }
 
     /// `initialize` arms the gate from the init data and lands at `VERSION`.
@@ -4395,20 +4398,20 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         vm.expectEmit(true, true, true, true, address(gateway));
         emit IntentsBase.RelayerUpdated(address(0), relayer);
         vm.expectEmit(true, true, true, true, address(gateway));
-        emit Initializable.Initialized(3);
+        emit Initializable.Initialized(4);
         gateway.initialize(InitParams({params: p, peerChains: new bytes[](0), relayer: relayer, owner: address(this)}));
         assertEq(gateway.relayer(), relayer);
-        assertEq(gateway.version(), 3);
+        assertEq(gateway.version(), 4);
     }
 
     /// @dev OpenZeppelin's `Initializable` namespaced slot; `_initialized` is its low 8 bytes.
     bytes32 internal constant INITIALIZABLE_SLOT = 0xf0c57e16840df040f15088dc2f81fe391c3923bec73e23a9662efc9c229c6a00;
 
-    /// @dev A proxy as an implementation from before this one left it: open gate, version 1.
+    /// @dev A proxy as an implementation from before this one left it: open gate, version 2.
     function _legacyGateway() internal returns (IntentGatewayV2 gateway) {
         gateway = _freshInitializedGateway();
-        vm.store(address(gateway), INITIALIZABLE_SLOT, bytes32(uint256(1)));
-        assertEq(gateway.version(), 1, "legacy proxy");
+        vm.store(address(gateway), INITIALIZABLE_SLOT, bytes32(uint256(2)));
+        assertEq(gateway.version(), 2, "legacy proxy");
     }
 
     function _openParams() internal view returns (Params memory) {
@@ -4444,7 +4447,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         vm.prank(address(host));
         intentGateway.onAccept(IncomingPostRequest({relayer: relayer, request: reopen}));
         assertEq(intentGateway.relayer(), address(0));
-        assertEq(intentGateway.version(), 3, "reopening the gate is not a migration either");
+        assertEq(intentGateway.version(), 4, "reopening the gate is not a migration either");
 
         // With no relayer set the gate is open, so a delivery from anyone lands.
         uint256 before = usdc.balanceOf(filler);
@@ -4459,7 +4462,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         vm.prank(address(host));
         vm.expectRevert(IntentsBase.Unauthorized.selector);
         intentGateway.onAccept(IncomingPostRequest({relayer: filler, request: request}));
-        assertEq(intentGateway._orders(commitment, address(usdc)), amount, "escrow untouched");
+        assertEq(intentGateway._orders(commitment, 0), amount, "escrow untouched");
         assertEq(intentGateway._filled(commitment), address(0), "order not finalised");
 
         // The very same message goes through once the authorised relayer submits it.
@@ -4500,7 +4503,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         vm.prank(address(host));
         vm.expectRevert(IntentsBase.Unauthorized.selector);
         intentGateway.onGetResponse(IncomingGetResponse({response: response, relayer: user}));
-        assertEq(intentGateway._orders(commitment, address(usdc)), amount, "escrow untouched");
+        assertEq(intentGateway._orders(commitment, 0), amount, "escrow untouched");
 
         uint256 before = usdc.balanceOf(user);
         vm.prank(address(host));
@@ -4528,7 +4531,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         PostRequest memory arm = _rotateRequest(relayer);
         vm.prank(address(host));
         gateway.onAccept(IncomingPostRequest({relayer: filler, request: arm}));
-        assertEq(gateway.version(), 3, "a rotation leaves the version alone");
+        assertEq(gateway.version(), 4, "a rotation leaves the version alone");
         PostRequest memory another = _newDeploymentRequest(bytes("OTHER_CHAIN"), address(0xCAFE));
         another.from = abi.encodePacked(address(gateway));
         another.to = abi.encodePacked(address(gateway));
@@ -4548,8 +4551,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
     /// implementation, and `setRelayer` lives on the extrinsic module. It is its own `Execute`,
     /// delivered by the relayer authorised at the time, after which only the new one is accepted.
     function testUpgradeThenRotateAreTwoExecutes() public {
-        (bytes32 filledCommitment, bytes32 escrowedCommitment, address inputToken, uint256 escrowedAmount) =
-            _seedUpgradeState();
+        (bytes32 filledCommitment, bytes32 escrowedCommitment, uint256 escrowedAmount) = _seedUpgradeState();
         address next = makeCleanAddr("nextRelayer");
         IntentGatewayV2Upgraded newImpl = _upgradedImpl();
         PostRequest memory upgrade = _upgradeRequest(host.hyperbridge(), address(newImpl), "");
@@ -4574,10 +4576,10 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         vm.prank(address(host));
         intentGateway.onAccept(IncomingPostRequest({relayer: relayer, request: rotate}));
         assertEq(intentGateway.relayer(), next, "rotated");
-        assertEq(intentGateway.version(), 3, "neither is a migration");
+        assertEq(intentGateway.version(), 4, "neither is a migration");
         assertEq(intentGateway._nonce(), 2, "_nonce preserved");
         assertEq(intentGateway._filled(filledCommitment), filler, "_filled preserved");
-        assertEq(intentGateway._orders(escrowedCommitment, inputToken), escrowedAmount, "_orders preserved");
+        assertEq(intentGateway._orders(escrowedCommitment, 0), escrowedAmount, "_orders preserved");
 
         // From here on only the new relayer is accepted.
         PostRequest memory deployment = _newDeploymentRequest(bytes("NEW_CHAIN"), address(0xBEEF));
@@ -4597,7 +4599,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         assertEq(_implementationOf(address(intentGateway)), address(newImpl));
         assertEq(intentGateway.relayer(), relayer, "relayer survives an implementation swap");
-        assertEq(intentGateway.version(), 3, "no migration ran, so the version is unchanged");
+        assertEq(intentGateway.version(), 4, "no migration ran, so the version is unchanged");
     }
 
     /// @dev Through the real host: a delivery the gateway refuses is recorded as undelivered, so
@@ -4609,7 +4611,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         vm.prank(address(handler));
         host.dispatchIncoming(request, filler);
         assertEq(host.requestReceipts(requestCommitment), address(0), "refused delivery leaves no receipt");
-        assertEq(intentGateway._orders(commitment, address(usdc)), amount, "escrow untouched");
+        assertEq(intentGateway._orders(commitment, 0), amount, "escrow untouched");
 
         uint256 before = usdc.balanceOf(filler);
         vm.prank(address(handler));
@@ -4695,7 +4697,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         assertTrue(implBefore != address(newImpl), "implementation actually changed");
         assertEq(live.relayer(), liveRelayer, "relayer survives the upgrade");
         assertEq(vm.load(LIVE_GATEWAY, bytes32(uint256(13))), _relayerSlot(liveRelayer), "relayer moved to offset 0");
-        assertEq(live.version(), 3, "migrated by the upgrade calldata");
+        assertEq(live.version(), 4, "migrated by the upgrade calldata");
         assertEq(live.owner(), address(this), "owner set by the upgrade calldata");
         assertFalse(live.paused(), "placement stays open");
         vm.prank(liveHost);
@@ -4728,7 +4730,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         vm.prank(liveHost);
         live.onAccept(IncomingPostRequest({relayer: liveRelayer, request: rotate}));
         assertEq(live.relayer(), next, "rotated through Execute");
-        assertEq(live.version(), 3, "a rotation leaves the version alone");
+        assertEq(live.version(), 4, "a rotation leaves the version alone");
         vm.prank(liveHost);
         vm.expectRevert(IntentsBase.Unauthorized.selector);
         live.onAccept(IncomingPostRequest({relayer: liveRelayer, request: rotate}));
@@ -4754,11 +4756,11 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         return abi.encodePacked(bytes1(uint8(0x80 + len)), trimmed);
     }
 
-    /// @dev Recomputes the `_partialFills[commitment][token]` storage slot independently of the
+    /// @dev Recomputes the `_partialFills[commitment][index]` storage slot independently of the
     /// contract, to guard against storage-layout drift (slot 11).
-    function _partialFillSlot(bytes32 commitment, bytes32 token) internal pure returns (bytes32) {
+    function _partialFillSlot(bytes32 commitment, uint256 index) internal pure returns (bytes32) {
         bytes32 inner = keccak256(abi.encodePacked(commitment, bytes32(uint256(11))));
-        return keccak256(abi.encodePacked(token, inner));
+        return keccak256(abi.encodePacked(index, inner));
     }
 
     /// @dev Builds a single-input/single-output cross-chain order (USDC -> DAI) with the given
@@ -4836,7 +4838,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         // request.keys[i] is the _partialFills slot key for output i; the value carries the same key.
         bytes[] memory keys = new bytes[](1);
-        keys[0] = abi.encodePacked(_partialFillSlot(commitment, bytes32(uint256(uint160(address(dai))))));
+        keys[0] = abi.encodePacked(_partialFillSlot(commitment, 0));
 
         StorageValue[] memory values = new StorageValue[](1);
         values[0] = StorageValue({key: keys[0], value: _rlpEncodeUint(provenFilled)});
@@ -4890,7 +4892,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         intentGateway.fillOrder(order, FillOptions(0, 0, 0, outputs, takes));
         vm.stopPrank();
         vm.clearMockedCalls();
-        assertEq(intentGateway._partialFills(commitment, outputs[0].token), 500);
+        assertEq(intentGateway._partialFills(commitment, 0), 500);
         uint8[3][6] memory permutations = [
             [uint8(0), 1, 2], [uint8(0), 2, 1], [uint8(1), 0, 2], [uint8(1), 2, 0], [uint8(2), 0, 1], [uint8(2), 1, 0]
         ];
@@ -4909,7 +4911,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             }
             assertEq(usdc.balanceOf(user) - beforeUser, 500);
             assertEq(usdc.balanceOf(filler) - beforeSolver, 500);
-            assertEq(intentGateway._orders(commitment, address(usdc)), 0);
+            assertEq(intentGateway._orders(commitment, 0), 0);
             assertTrue(vm.revertToStateAndDelete(snapshot));
         }
     }
@@ -4930,7 +4932,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         vm.expectEmit(true, false, false, true);
         emit IntentsBase.PartialFill(commitment, filler, credited, takes);
         intentGateway.fillOrder(order, FillOptions(0, 0, 0, outputs, takes));
-        assertEq(intentGateway._partialFills(commitment, outputs[0].token), 800);
+        assertEq(intentGateway._partialFills(commitment, 0), 800);
         assertEq(dai.balanceOf(user) - userBefore, 800);
         takes[0].amount = 500;
         outputs[0].amount = 550;
@@ -4943,7 +4945,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         vm.stopPrank();
         assertEq(before - dai.balanceOf(filler), 1100);
         assertEq(dai.balanceOf(user) - userBefore, 1000);
-        assertEq(intentGateway._partialFills(commitment, outputs[0].token), 1000);
+        assertEq(intentGateway._partialFills(commitment, 0), 1000);
     }
 
     function testCrossChainPartialFill_ReleasesProportionalEscrowAndCompletes() public {
@@ -4973,7 +4975,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         vm.stopPrank();
 
         assertEq(dai.balanceOf(user) - userDaiBefore, 400 * 1e18, "beneficiary gets 40% output");
-        assertEq(intentGateway._partialFills(commitment, daiToken), 400 * 1e18, "cumulative fill recorded");
+        assertEq(intentGateway._partialFills(commitment, 0), 400 * 1e18, "cumulative fill recorded");
         assertEq(intentGateway._filled(commitment), address(0), "filled cleared so next solver can continue");
 
         // Solver B completes the remaining 60%.
@@ -4997,7 +4999,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         vm.stopPrank();
 
         assertEq(dai.balanceOf(user) - userDaiBefore, 1000 * 1e18, "beneficiary fully paid");
-        assertEq(intentGateway._partialFills(commitment, daiToken), 1000 * 1e18, "order fully filled");
+        assertEq(intentGateway._partialFills(commitment, 0), 1000 * 1e18, "order fully filled");
         assertEq(intentGateway._filled(commitment), solverB, "completing solver recorded");
     }
 
@@ -5027,7 +5029,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         _replayRedeem(IntentsBase.RequestKind.RedeemEscrowPartial, commitment, slice, solver);
 
         assertEq(usdc.balanceOf(solver), 400 * 1e6, "solver received partial slice");
-        assertEq(intentGateway._orders(commitment, address(usdc)), 600 * 1e6, "escrow reduced, not drained");
+        assertEq(intentGateway._orders(commitment, 0), 600 * 1e6, "escrow reduced, not drained");
         assertEq(intentGateway._filled(commitment), address(0), "partial redeem does not finalize");
         assertEq(dai.balanceOf(solver), 0, "fees not forwarded on partial redeem");
 
@@ -5037,7 +5039,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         _replayRedeem(IntentsBase.RequestKind.RedeemEscrow, commitment, rest, solver);
 
         assertEq(usdc.balanceOf(solver), 1000 * 1e6, "solver received full escrow");
-        assertEq(intentGateway._orders(commitment, address(usdc)), 0, "escrow drained");
+        assertEq(intentGateway._orders(commitment, 0), 0, "escrow drained");
         assertEq(intentGateway._filled(commitment), solver, "completing redeem finalizes");
         assertEq(dai.balanceOf(solver), feeAmount, "completing solver takes the fee pot");
     }
@@ -5066,7 +5068,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         _replayCancel(commitment, inputAmount, 1000 * 1e18, 400 * 1e18);
 
         assertEq(usdc.balanceOf(user) - userUsdcBefore, 600 * 1e6, "user refunded only the unfilled 60%");
-        assertEq(intentGateway._orders(commitment, address(usdc)), 0, "escrow fully accounted for");
+        assertEq(intentGateway._orders(commitment, 0), 0, "escrow fully accounted for");
         assertEq(intentGateway._filled(commitment), user, "cancel finalizes for idempotency");
         assertEq(usdc.balanceOf(solver), 400 * 1e6, "solver keeps its redeemed slice");
     }
@@ -5096,8 +5098,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         assertEq(usdc.balanceOf(user) - userUsdcBefore, 0, "nothing refunded for a fully-filled order");
         assertEq(dai.balanceOf(user) - userDaiBefore, 0, "fees withheld for the completing solver");
-        assertEq(intentGateway._orders(commitment, address(usdc)), inputAmount, "escrow intact for in-flight redeem");
-        address txFeeKey = address(uint160(uint256(keccak256("txFees"))));
+        assertEq(intentGateway._orders(commitment, 0), inputAmount, "escrow intact for in-flight redeem");
+        uint256 txFeeKey = uint160(uint256(keccak256("txFees")));
         assertEq(intentGateway._orders(commitment, txFeeKey), feeAmount, "fee pot intact");
         assertEq(intentGateway._filled(commitment), user, "cancel still records idempotency");
 
@@ -5129,7 +5131,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         uint256 userUsdcBefore = usdc.balanceOf(user);
         _replayCancel(commitment, inputAmount, 1000 * 1e18, 400 * 1e18);
         assertEq(usdc.balanceOf(user) - userUsdcBefore, 600 * 1e6, "user refunded unfilled 60%");
-        assertEq(intentGateway._orders(commitment, address(usdc)), 400 * 1e6, "escrow reserved for in-flight redeem");
+        assertEq(intentGateway._orders(commitment, 0), 400 * 1e6, "escrow reserved for in-flight redeem");
 
         // The in-flight 40% redeem now lands and is fully covered.
         TokenInfo[] memory slice = new TokenInfo[](1);
@@ -5137,7 +5139,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         _replayRedeem(IntentsBase.RequestKind.RedeemEscrowPartial, commitment, slice, solver);
 
         assertEq(usdc.balanceOf(solver), 400 * 1e6, "in-flight redeem paid in full");
-        assertEq(intentGateway._orders(commitment, address(usdc)), 0, "escrow fully settled");
+        assertEq(intentGateway._orders(commitment, 0), 0, "escrow fully settled");
     }
 
     /// @dev A second cancel response for the same commitment is rejected (idempotency).
@@ -5160,7 +5162,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         totalRequired[0] = 1000 * 1e18;
         bytes memory context = abi.encode(commitment, bytes32(uint256(uint160(user))), inputs, totalRequired);
         bytes[] memory keys = new bytes[](1);
-        keys[0] = abi.encodePacked(_partialFillSlot(commitment, bytes32(uint256(uint160(address(dai))))));
+        keys[0] = abi.encodePacked(_partialFillSlot(commitment, 0));
         StorageValue[] memory values = new StorageValue[](1);
         values[0] = StorageValue({key: keys[0], value: _rlpEncodeUint(0)});
         GetRequest memory getRequest = GetRequest({
@@ -5207,7 +5209,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         uint256 userUsdcBefore = usdc.balanceOf(user);
         _replayCancel(commitment, 1000 * 1e6, 1000 * 1e18, 500 * 1e18);
         assertEq(usdc.balanceOf(user) - userUsdcBefore, 500 * 1e6, "user refunded the unfilled half");
-        assertEq(intentGateway._orders(commitment, address(usdc)), 500 * 1e6, "half reserved for the redeem");
+        assertEq(intentGateway._orders(commitment, 0), 500 * 1e6, "half reserved for the redeem");
 
         PostRequest memory refund = _withdrawalPost(IntentsBase.RequestKind.RefundEscrow, commitment, half, user);
         vm.prank(address(host));
@@ -5215,12 +5217,12 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         intentGateway.onAccept(IncomingPostRequest({relayer: relayer, request: refund}));
 
         assertEq(usdc.balanceOf(user) - userUsdcBefore, 500 * 1e6, "no second refund");
-        assertEq(intentGateway._orders(commitment, address(usdc)), 500 * 1e6, "reserve intact");
+        assertEq(intentGateway._orders(commitment, 0), 500 * 1e6, "reserve intact");
 
         // The guard is scoped to RefundEscrow: the delayed redeem still consumes the reserve.
         _replayRedeem(IntentsBase.RequestKind.RedeemEscrowPartial, commitment, half, solver);
         assertEq(usdc.balanceOf(solver), 500 * 1e6, "solver paid for its half");
-        assertEq(intentGateway._orders(commitment, address(usdc)), 0, "escrow fully settled");
+        assertEq(intentGateway._orders(commitment, 0), 0, "escrow fully settled");
     }
 
     /// The reverse delivery order: RefundEscrow lands first and finalizes, so the GET cancel is rejected. A
@@ -5242,11 +5244,11 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         intentGateway.onGetResponse(cancel);
 
         assertEq(usdc.balanceOf(user) - userUsdcBefore, 500 * 1e6, "no second refund");
-        assertEq(intentGateway._orders(commitment, address(usdc)), 500 * 1e6, "reserve intact");
+        assertEq(intentGateway._orders(commitment, 0), 500 * 1e6, "reserve intact");
 
         _replayRedeem(IntentsBase.RequestKind.RedeemEscrowPartial, commitment, half, solver);
         assertEq(usdc.balanceOf(solver), 500 * 1e6, "solver paid for its half");
-        assertEq(intentGateway._orders(commitment, address(usdc)), 0, "escrow fully settled");
+        assertEq(intentGateway._orders(commitment, 0), 0, "escrow fully settled");
     }
 
     /// @dev Cross-chain orders carrying output calldata cannot be partially filled.
@@ -5279,7 +5281,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         );
         vm.stopPrank();
         bytes32 commitment = keccak256(abi.encode(order));
-        assertEq(intentGateway._partialFills(commitment, daiToken), 0);
+        assertEq(intentGateway._partialFills(commitment, 0), 0);
         assertEq(intentGateway._filled(commitment), address(0));
     }
 
@@ -5308,7 +5310,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             FillOptions({relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: outA, inputs: new TokenInfo[](0)})
         );
         vm.stopPrank();
-        assertEq(intentGateway._partialFills(commitment, daiToken), 400 * 1e18, "40% recorded");
+        assertEq(intentGateway._partialFills(commitment, 0), 400 * 1e18, "40% recorded");
 
         // User cancels from the destination; capture the dispatched RefundEscrow.
         vm.recordLogs();
@@ -5363,7 +5365,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         vm.stopPrank();
     }
 
-    /// @dev Guards the `_partialFills` storage slot (12) used to build cross-chain cancel proofs.
+    /// @dev Guards the `_partialFills` storage slot (11) used to build cross-chain cancel proofs.
     function testPartialFillsStorageSlotIsEleven() public {
         Order memory order = _xchainOrder(bytes("SOURCE_CHAIN"), host.host(), 1000 * 1e6, 1000 * 1e18);
         bytes32 commitment = keccak256(abi.encode(order));
@@ -5379,42 +5381,57 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         );
         vm.stopPrank();
 
-        uint256 viaGetter = intentGateway._partialFills(commitment, daiToken);
-        bytes32 raw = vm.load(address(intentGateway), _partialFillSlot(commitment, daiToken));
+        uint256 viaGetter = intentGateway._partialFills(commitment, 0);
+        bytes32 raw = vm.load(address(intentGateway), _partialFillSlot(commitment, 0));
         assertEq(viaGetter, 250 * 1e18, "partial fill recorded via getter");
         assertEq(uint256(raw), viaGetter, "slot-11 derivation matches public getter");
     }
 
-    /// @notice An order swaps exactly one input for exactly one output. Every other shape reverts.
-    function testPlaceOrder_RequiresExactlyOneInputAndOneOutput() public {
+    /// @notice Inputs and outputs pair 1:1 into legs: both arrays non-empty, equal length, every output
+    /// amount non-zero. Legs may repeat tokens, and each leg is escrowed under its own index.
+    function testPlaceOrder_LegShape() public {
+        bytes32 usdcToken = bytes32(uint256(uint160(address(usdc))));
+        bytes32 daiToken = bytes32(uint256(uint160(address(dai))));
         TokenInfo[] memory none = new TokenInfo[](0);
         TokenInfo[] memory oneIn = new TokenInfo[](1);
-        oneIn[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: 1000 * 1e6});
+        oneIn[0] = TokenInfo({token: usdcToken, amount: 1000 * 1e6});
         TokenInfo[] memory twoIn = new TokenInfo[](2);
-        twoIn[0] = oneIn[0];
-        twoIn[1] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
+        twoIn[0] = TokenInfo({token: usdcToken, amount: 1000 * 1e6});
+        twoIn[1] = TokenInfo({token: usdcToken, amount: 500 * 1e6});
         TokenInfo[] memory oneOut = new TokenInfo[](1);
-        oneOut[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
+        oneOut[0] = TokenInfo({token: daiToken, amount: 1000 * 1e18});
         TokenInfo[] memory twoOut = new TokenInfo[](2);
-        twoOut[0] = oneOut[0];
-        twoOut[1] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: 1000 * 1e6});
+        twoOut[0] = TokenInfo({token: daiToken, amount: 1000 * 1e18});
+        twoOut[1] = TokenInfo({token: daiToken, amount: 490 * 1e18});
+        TokenInfo[] memory zeroSecondOut = new TokenInfo[](2);
+        zeroSecondOut[0] = twoOut[0];
+        zeroSecondOut[1] = TokenInfo({token: daiToken, amount: 0});
 
         vm.startPrank(user);
         usdc.approve(address(intentGateway), type(uint256).max);
         dai.approve(address(intentGateway), type(uint256).max);
 
         vm.expectRevert(IntentsBase.InvalidInput.selector);
+        intentGateway.placeOrder(_orderWithLegs(none, none), bytes32(0));
+        vm.expectRevert(IntentsBase.InvalidInput.selector);
         intentGateway.placeOrder(_orderWithLegs(none, oneOut), bytes32(0));
         vm.expectRevert(IntentsBase.InvalidInput.selector);
         intentGateway.placeOrder(_orderWithLegs(twoIn, oneOut), bytes32(0));
         vm.expectRevert(IntentsBase.InvalidInput.selector);
-        intentGateway.placeOrder(_orderWithLegs(oneIn, none), bytes32(0));
-        vm.expectRevert(IntentsBase.InvalidInput.selector);
         intentGateway.placeOrder(_orderWithLegs(oneIn, twoOut), bytes32(0));
+        vm.expectRevert(IntentsBase.InvalidInput.selector);
+        intentGateway.placeOrder(_orderWithLegs(twoIn, zeroSecondOut), bytes32(0));
 
-        intentGateway.placeOrder(_orderWithLegs(oneIn, oneOut), bytes32(0));
+        // One pair at two prices: both legs repeat USDC -> DAI.
+        Order memory order = _orderWithLegs(twoIn, twoOut);
+        intentGateway.placeOrder(order, bytes32(0));
         vm.stopPrank();
-        assertEq(usdc.balanceOf(address(intentGateway)), 1000 * 1e6, "one input, one output is escrowed");
+
+        order.source = host.host();
+        bytes32 commitment = keccak256(abi.encode(order));
+        assertEq(intentGateway._orders(commitment, 0), 1000 * 1e6, "leg 0 escrowed on its own");
+        assertEq(intentGateway._orders(commitment, 1), 500 * 1e6, "leg 1 escrowed on its own");
+        assertEq(usdc.balanceOf(address(intentGateway)), 1500 * 1e6, "both legs escrowed");
     }
 
     /// @dev A cross-chain order with the given legs. Builds without external calls, so it can sit between
@@ -5489,7 +5506,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         gateway.migrate(next);
 
         assertEq(gateway.owner(), next, "owner from the migration");
-        assertEq(gateway.version(), 3);
+        assertEq(gateway.version(), 4);
     }
 
     function testOwnershipTransferIsTwoStep() public {

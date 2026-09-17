@@ -107,8 +107,8 @@ export const INTENT_GATEWAY_V2_ABI = [
 			},
 			{
 				name: "",
-				type: "address",
-				internalType: "address",
+				type: "uint256",
+				internalType: "uint256",
 			},
 		],
 		outputs: [
@@ -131,8 +131,8 @@ export const INTENT_GATEWAY_V2_ABI = [
 			},
 			{
 				name: "",
-				type: "bytes32",
-				internalType: "bytes32",
+				type: "uint256",
+				internalType: "uint256",
 			},
 		],
 		outputs: [
@@ -155,8 +155,8 @@ export const INTENT_GATEWAY_V2_ABI = [
 			},
 			{
 				name: "",
-				type: "address",
-				internalType: "address",
+				type: "uint256",
+				internalType: "uint256",
 			},
 		],
 		outputs: [
@@ -587,19 +587,6 @@ export const INTENT_GATEWAY_V2_ABI = [
 		],
 		outputs: [],
 		stateMutability: "payable",
-	},
-	{
-		type: "function",
-		name: "fillOrderSelector",
-		inputs: [],
-		outputs: [
-			{
-				name: "",
-				type: "bytes4",
-				internalType: "bytes4",
-			},
-		],
-		stateMutability: "pure",
 	},
 	{
 		type: "function",
@@ -1396,19 +1383,6 @@ export const INTENT_GATEWAY_V2_ABI = [
 			},
 		],
 		stateMutability: "nonpayable",
-	},
-	{
-		type: "function",
-		name: "supportsRateFills",
-		inputs: [],
-		outputs: [
-			{
-				name: "",
-				type: "bool",
-				internalType: "bool",
-			},
-		],
-		stateMutability: "pure",
 	},
 	{
 		type: "function",

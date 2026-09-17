@@ -20,7 +20,20 @@ Each order is **auctioned** to competing solvers. Solvers bid by signing `UserOp
 | **Hyperbridge** | Hosts the order auction, delivers cross-chain settlement messages via ISMP, and governs parameter updates. |
 | **Relayer** | Submits cross-chain proofs for settlement messages and storage queries. |
 
+## Order Legs
 
+An order is a list of legs: leg `i` sells `inputs[i]` for `output.assets[i]`. `inputs` and `output.assets` must be non-empty and the same length, and every output amount must be non-zero. Legs may repeat tokens, for example one pair offered at several prices:
+
+| Leg | Input | Output |
+|-----|-------|--------|
+| 0 | 1,200 USDC | 1,200 DAI |
+| 1 | 1,000 USDC | 990 DAI |
+
+The gateway tracks each leg's escrow, fill progress and protocol fee separately, keyed by the order commitment and the leg index (`_orders`, `_partialFills` and `_protocolFees`). Different solvers can fill different legs, and filling or cancelling one leg never releases another leg's escrow.
+
+An order with predispatch calldata is the one exception: its escrow is swept from the dispatcher and measured per token, so its legs may not repeat an input token.
+
+Tokens are `bytes32` values holding the token address left-padded with zeros. `placeOrder` rejects an input token, and `fillOrder` an output token, whose upper 12 bytes are not zero.
 
 ## Same-Chain Swaps
 
@@ -51,8 +64,8 @@ calldata can be used unchanged. Output above credited progress is surplus on eve
 split by `surplusShareBps`; calldata orders retain all surplus as protocol dust and must complete
 in one fill. Fill events report credited output, so surplus never advances the order twice.
 
-Rate fills require unique, canonical input and output token identifiers with the current token-keyed
-storage layout. A same-chain order whose earlier legacy slices accumulated rounding dust can finish
+Rate fills use canonical input and output token addresses. Repeated tokens are supported because
+escrow and credited progress are tracked independently by leg. A same-chain order whose earlier legacy slices accumulated rounding dust can finish
 with empty input quotes or cancel, but rate settlement reverts with `LegacyRateAccounting`.
 No rate or surplus data is added to cross-chain redemption messages or cancellation proofs.
 
@@ -64,8 +77,8 @@ blocks another distinct bid until its outcome is established. Manual selection r
 for multi-leg rate quotes, and existing multi-leg order-rate execution continues to work.
 
 Every v3 bid, including an ordinary fill with empty inputs, requires an updated delegated SolverAccount.
-Before signing, the SDK verifies the exact `fillOrderSelector()` on the gateway, configured account
-implementation, and live delegation. The account protects the new and both historical selectors against
+Before signing, the SDK requires release `4` from `version()` on the gateway, configured account
+implementation, and live delegation. Gateway release 4 uses FillOptions ABI version 3. The account protects the new and both historical selectors against
 submission with the session signature stripped off. Deploy matching gateway modules and redelegate
 solvers before enabling v3 bids.
 
@@ -100,7 +113,7 @@ There are two modes for cross-chain cancellation:
 
 `cancelOrder` emits `OrderCancelled(commitment, canceller)` on the chain the cancellation is initiated from, before it routes to either path below. `EscrowRefunded` remains the terminal event, on the source chain, once the escrow is actually returned.
 
-**Cancel from source chain**: The user calls `cancelOrder()` on the source chain, dispatching a storage query for the destination's `_partialFills` amounts. `CancelOptions.height` must be strictly greater than `order.deadline`. Once Hyperbridge delivers the proof, `onGetResponse` refunds the proven unfilled input and its protocol-fee share. Principal earned by solvers remains available for delayed redemptions. A fully-filled proof refunds zero and leaves pending fees for the final redemption.
+**Cancel from source chain**: The user calls `cancelOrder()` on the source chain, dispatching a storage query for the destination's `_partialFills` amount of each leg. `CancelOptions.height` must be strictly greater than `order.deadline`. Once Hyperbridge delivers the proof, `onGetResponse` refunds the proven unfilled input and its protocol-fee share. Principal earned by solvers remains available for delayed redemptions. A fully-filled proof refunds zero and leaves pending fees for the final redemption.
 
 ![Cancel from Source Chain](./images/intent-gateway-cancel-source.svg)
 

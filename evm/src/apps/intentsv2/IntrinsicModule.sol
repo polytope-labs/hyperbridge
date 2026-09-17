@@ -16,7 +16,7 @@ pragma solidity ^0.8.24;
 
 import {IntrinsicIntents} from "./IntrinsicIntents.sol";
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
-import {Order, FillOptions, TokenInfo} from "@hyperbridge/core/apps/IntentGatewayV2.sol";
+import {Order, FillOptions} from "@hyperbridge/core/apps/IntentGatewayV2.sol";
 
 /**
  * @title IntrinsicModule
@@ -40,16 +40,15 @@ contract IntrinsicModule is IntrinsicIntents {
     /**
      * @dev Same-chain fill, validated by `IntentGatewayV2.fillOrder`.
      * @param order The order to fill.
-     * @param options The solver's output amounts.
+     * @param options The solver's output amounts and optional input quotes.
      * @param commitment The order commitment hash.
      */
-    function fillSameChain(
-        Order calldata order,
-        FillOptions calldata options,
-        bytes32 commitment,
-        TokenInfo[] calldata inputs
-    ) external payable onlyDelegated {
-        _fillSameChain(order, options, commitment, inputs);
+    function fillSameChain(Order calldata order, FillOptions calldata options, bytes32 commitment)
+        external
+        payable
+        onlyDelegated
+    {
+        _fillSameChain(order, options, commitment);
     }
 
     /**

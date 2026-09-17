@@ -222,7 +222,7 @@ describe("automatic rate bid execution", () => {
 		expect(getBidsForOrder).not.toHaveBeenCalled()
 	})
 
-	it("seeds resumed progress from destination credited state", async () => {
+	it("seeds unequal repeated-token progress from destination leg indexes", async () => {
 		let resolveBlock: (block: bigint) => void = () => undefined
 		const block = new Promise<bigint>((resolve) => {
 			resolveBlock = resolve
@@ -238,23 +238,38 @@ describe("automatic rate bid execution", () => {
 				},
 				client: {
 					chain: { id: 8453, blockTime: 1 },
-					readContract: vi.fn(async ({ functionName }: { functionName: string }) =>
-						functionName === "_filled" ? "0x0000000000000000000000000000000000000000" : 40n,
+					readContract: vi.fn(async ({ functionName, args }: { functionName: string; args: unknown[] }) =>
+						functionName === "_filled"
+							? "0x0000000000000000000000000000000000000000"
+							: args[1] === 0n
+								? 40n
+								: args[1] === 1n
+									? 90n
+									: 0n,
 					),
 					getBlockNumber: vi.fn(() => block),
 				},
 			},
 			usedUserOpsStorage: { getItem: vi.fn(async () => null), setItem: vi.fn(async () => undefined) },
 		} as never
+		const repeated = order()
+		repeated.inputs.push({ token: TOKEN, amount: 200n })
+		repeated.output.assets.push({ token: TOKEN, amount: 200n })
 		const stream = new OrderExecutor(ctx, new BidManager(ctx, {} as never)).executeOrder({
-			order: order(),
+			order: repeated,
 			auctionTimeMs: 0,
 		})
 
 		expect((await stream.next()).value).toMatchObject({
 			status: "AWAITING_BIDS",
-			totalFilledAssets: [{ token: TOKEN, amount: 40n }],
-			remainingAssets: [{ token: TOKEN, amount: 60n }],
+			totalFilledAssets: [
+				{ token: TOKEN, amount: 40n },
+				{ token: TOKEN, amount: 90n },
+			],
+			remainingAssets: [
+				{ token: TOKEN, amount: 60n },
+				{ token: TOKEN, amount: 110n },
+			],
 		})
 		resolveBlock(100n)
 		await stream.return()
@@ -307,6 +322,89 @@ describe("automatic rate bid execution", () => {
 		expect((await stream.next()).value).toMatchObject({ status: "FILLED" })
 		expect(execute).toHaveBeenCalledTimes(2)
 		await stream.return()
+	})
+
+	it("accumulates unequal repeated-token event amounts by leg", async () => {
+		const repeated = order()
+		repeated.inputs.push({ token: TOKEN, amount: 200n })
+		repeated.output.assets.push({ token: TOKEN, amount: 200n })
+		const firstOp = userOp(1n)
+		const secondOp = userOp(2n)
+		const raw = (op: PackedUserOperation): FillerBid => ({ filler: "solver", userOp: op, deposit: 0n })
+		const ctx = {
+			bundlerUrl: "http://bundler.test",
+			intentsCoprocessor: {
+				getBidsForOrder: vi
+					.fn()
+					.mockResolvedValueOnce([raw(firstOp)])
+					.mockResolvedValue([raw(secondOp)]),
+			},
+			dest: {
+				config: { stateMachineId: "EVM-8453" },
+				configService: { getEntryPointV08Address: () => ENTRY_POINT, getIntentGatewayAddress: () => SOLVER },
+				client: {
+					chain: { id: 8453, blockTime: 1 },
+					getBlockNumber: vi.fn(() => new Promise(() => undefined)),
+				},
+			},
+			usedUserOpsStorage: { getItem: vi.fn(async () => null), setItem: vi.fn(async () => undefined) },
+		} as never
+		const manager = new BidManager(ctx, {} as never)
+		vi.spyOn(manager, "buildBids").mockImplementation((_order, bids) =>
+			bids.map((item) => ({ ...bid(item.userOp), inputs: [] })),
+		)
+		vi.spyOn(manager, "selectAndExecuteBest")
+			.mockResolvedValueOnce({
+				...result(firstOp, 40n, "partial"),
+				filledAssets: [
+					{ token: TOKEN, amount: 40n },
+					{ token: TOKEN, amount: 90n },
+				],
+			})
+			.mockResolvedValueOnce({
+				...result(secondOp, 60n, "partial"),
+				filledAssets: [
+					{ token: TOKEN, amount: 60n },
+					{ token: TOKEN, amount: 110n },
+				],
+			})
+		const stream = new OrderExecutor(ctx, manager).executeOrder({
+			order: repeated,
+			auctionTimeMs: 0,
+			pollIntervalMs: 0,
+			automatic: true,
+		})
+		try {
+			expect((await stream.next()).value).toMatchObject({ status: "AWAITING_BIDS" })
+			expect((await stream.next()).value).toMatchObject({ status: "BIDS_RECEIVED" })
+			expect((await stream.next()).value).toMatchObject({ status: "BID_SELECTED" })
+			expect((await stream.next()).value).toMatchObject({
+				status: "PARTIAL_FILL",
+				totalFilledAssets: [
+					{ token: TOKEN, amount: 40n },
+					{ token: TOKEN, amount: 90n },
+				],
+				remainingAssets: [
+					{ token: TOKEN, amount: 60n },
+					{ token: TOKEN, amount: 110n },
+				],
+			})
+			expect((await stream.next()).value).toMatchObject({ status: "BIDS_RECEIVED" })
+			expect((await stream.next()).value).toMatchObject({ status: "BID_SELECTED" })
+			expect((await stream.next()).value).toMatchObject({
+				status: "FILLED",
+				totalFilledAssets: [
+					{ token: TOKEN, amount: 100n },
+					{ token: TOKEN, amount: 200n },
+				],
+				remainingAssets: [
+					{ token: TOKEN, amount: 0n },
+					{ token: TOKEN, amount: 0n },
+				],
+			})
+		} finally {
+			await stream.return()
+		}
 	})
 
 	it("persists an accepted UserOp before reporting an uncertain submission outcome", async () => {

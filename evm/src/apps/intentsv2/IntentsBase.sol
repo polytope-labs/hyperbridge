@@ -29,7 +29,6 @@ import {
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {RateFillMath} from "./RateFillMath.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
@@ -62,11 +61,11 @@ abstract contract IntentsBase is EIP712 {
     bytes32 public constant SELECT_SOLVER_TYPEHASH = keccak256("SelectSolver(bytes32 commitment,address solver)");
 
     /**
-     * @dev Sentinel address used as the key for storing Hyperbridge relayer fees
-     * in the `_orders` mapping. Derived from keccak256("txFees") to avoid
-     * collisions with real token addresses.
+     * @dev Sentinel key under which the Hyperbridge relayer fees are held in `_orders`. The low
+     * 160 bits of keccak256("txFees"), far above any leg index, and the same slot the fee pot
+     * occupied when `_orders` was keyed by token address.
      */
-    address internal constant TRANSACTION_FEES = address(uint160(uint256(keccak256("txFees"))));
+    uint256 internal constant TRANSACTION_FEES = uint160(uint256(keccak256("txFees")));
 
     /**
      * @dev Big-endian encoding of storage slot 2 (the `_filled` mapping slot).
@@ -155,10 +154,11 @@ abstract contract IntentsBase is EIP712 {
     Params internal _params;
 
     /**
-     * @dev Maps (commitment, token address) to the escrowed amount for that token.
-     * Decremented as tokens are released via fills or refunds.
+     * @dev Maps (commitment, leg index) to the escrow still held for `order.inputs[index]`, and
+     * `TRANSACTION_FEES` to the relayer fee pot. Decremented as the leg is released via fills or
+     * refunds. Keyed by leg rather than token so legs that repeat a token never share a balance.
      */
-    mapping(bytes32 => mapping(address => uint256)) public _orders;
+    mapping(bytes32 => mapping(uint256 => uint256)) public _orders;
 
     /**
      * @dev Maps keccak256(stateMachineId) to the registered gateway address for
@@ -168,10 +168,12 @@ abstract contract IntentsBase is EIP712 {
     mapping(bytes32 => address) internal _instances;
 
     /**
-     * @dev Maps (commitment, output token) to the cumulative amount already filled.
-     * Used to track partial fill progress for same-chain orders.
+     * @dev Maps (commitment, leg index) to the cumulative amount of `order.output.assets[index]`
+     * already filled, on the chain the order is filled on. Keyed by leg rather than token so legs
+     * that repeat an output token track their progress independently. Proven cross-chain by
+     * source-side cancellation, see `_calculatePartialFillSlotHash`.
      */
-    mapping(bytes32 => mapping(bytes32 => uint256)) public _partialFills;
+    mapping(bytes32 => mapping(uint256 => uint256)) public _partialFills;
 
     /**
      * @dev Maps keccak256(stateMachineId) to a destination-specific protocol fee
@@ -192,8 +194,9 @@ abstract contract IntentsBase is EIP712 {
         uint256 committed;
     }
 
-    /// @dev Appended accounting shared by the implementation and both delegatecall modules.
-    mapping(bytes32 => mapping(address => ProtocolFee)) public _protocolFees;
+    /// @dev Appended accounting shared by the implementation and both delegatecall modules, keyed
+    /// by (commitment, leg index) like `_orders`.
+    mapping(bytes32 => mapping(uint256 => ProtocolFee)) public _protocolFees;
 
     /**
      * @dev This contract's own address. Under delegatecall `address(this)` is the proxy instead,
@@ -467,23 +470,20 @@ abstract contract IntentsBase is EIP712 {
     }
 
     struct FillResult {
-        TokenInfo[] inputs;
-        TokenInfo[] outputs;
+        TokenInfo[] inputs; // Escrow released for each input leg.
+        TokenInfo[] outputs; // Output credited toward completion, excluding surplus.
         bool complete;
         uint256 nativeRemaining;
     }
 
     /// @dev Shared destination-side loop. Credit, not gross payment, drives settlement/proofs.
-    function _fillLegs(
-        Order calldata order,
-        FillOptions calldata options,
-        bytes32 commitment,
-        TokenInfo[] memory takes,
-        bool sameChain
-    ) internal returns (FillResult memory result) {
+    function _fillLegs(Order calldata order, FillOptions calldata options, bytes32 commitment, bool sameChain)
+        internal
+        returns (FillResult memory result)
+    {
         uint256 len = order.output.assets.length;
-        bool quoted = takes.length != 0;
-        if (quoted) _validateRateLegs(order, options, takes);
+        bool useInputQuotes = options.inputs.length != 0;
+        if (useInputQuotes) _validateRateLegs(order, options);
         result.inputs = new TokenInfo[](len);
         result.outputs = new TokenInfo[](len);
         result.complete = true;
@@ -491,57 +491,57 @@ abstract contract IntentsBase is EIP712 {
         bool progressed;
         for (uint256 i; i < len; ++i) {
             bytes32 outputToken = order.output.assets[i].token;
+            if (uint256(outputToken) >> 160 != 0) revert InvalidInput();
             if (options.outputs[i].token != outputToken) revert InvalidInput();
             result.inputs[i].token = order.inputs[i].token;
             result.outputs[i].token = outputToken;
-            uint256 previous = _partialFills[commitment][outputToken];
-            uint256 required = order.output.assets[i].amount;
-            uint256 offered = options.outputs[i].amount;
-            if (previous == required || offered == 0) {
-                if (previous < required) result.complete = false;
+            uint256 previousCredit = _partialFills[commitment][i];
+            uint256 requiredOutput = order.output.assets[i].amount;
+            uint256 offeredOutput = options.outputs[i].amount;
+            if (previousCredit == requiredOutput || offeredOutput == 0) {
+                if (previousCredit < requiredOutput) result.complete = false;
                 continue;
             }
-            (uint256 credit, uint256 release, uint256 delivered) =
-                _fillAmounts(order, commitment, i, previous, offered, quoted ? takes[i].amount : 0, sameChain);
+            (uint256 creditedOutput, uint256 releasedInput, uint256 deliveredOutput) = _fillAmounts(
+                order,
+                commitment,
+                i,
+                previousCredit,
+                offeredOutput,
+                useInputQuotes ? options.inputs[i].amount : 0,
+                sameChain
+            );
             progressed = true;
-            _partialFills[commitment][outputToken] = previous + credit;
-            if (previous + credit < required) result.complete = false;
-            result.inputs[i].amount = release;
-            result.outputs[i].amount = credit;
+            _partialFills[commitment][i] = previousCredit + creditedOutput;
+            if (previousCredit + creditedOutput < requiredOutput) result.complete = false;
+            result.inputs[i].amount = releasedInput;
+            result.outputs[i].amount = creditedOutput;
             (uint256 protocolShare, uint256 beneficiaryShare) =
-                _splitSurplus(delivered - credit, order.output.call.length > 0);
+                _splitSurplus(deliveredOutput - creditedOutput, order.output.call.length > 0);
             address token = address(uint160(uint256(outputToken)));
             address beneficiary = address(uint160(uint256(order.output.beneficiary)));
             if (token == address(0)) {
-                if (result.nativeRemaining < delivered) revert InsufficientNativeToken();
-                result.nativeRemaining -= delivered;
-                _sendValue(beneficiary, credit + beneficiaryShare);
+                if (result.nativeRemaining < deliveredOutput) revert InsufficientNativeToken();
+                result.nativeRemaining -= deliveredOutput;
+                _sendValue(beneficiary, creditedOutput + beneficiaryShare);
             } else {
-                IERC20(token).safeTransferFrom(msg.sender, beneficiary, credit + beneficiaryShare);
+                IERC20(token).safeTransferFrom(msg.sender, beneficiary, creditedOutput + beneficiaryShare);
                 if (protocolShare > 0) IERC20(token).safeTransferFrom(msg.sender, address(this), protocolShare);
             }
             if (protocolShare > 0) emit DustCollected(token, protocolShare);
         }
-        if (quoted && !progressed) revert RateFillTooSmall();
+        if (useInputQuotes && !progressed) revert RateFillTooSmall();
         if (order.output.call.length > 0 && !result.complete) revert PartialFillNotAllowed();
     }
 
-    function _validateRateLegs(Order calldata order, FillOptions calldata options, TokenInfo[] memory takes)
-        private
-        pure
-    {
-        for (uint256 i; i < takes.length; ++i) {
+    function _validateRateLegs(Order calldata order, FillOptions calldata options) private pure {
+        for (uint256 i; i < options.inputs.length; ++i) {
             bytes32 token = order.inputs[i].token;
             bytes32 output = order.output.assets[i].token;
-            if (takes[i].token != token || uint256(token) >> 160 != 0 || uint256(output) >> 160 != 0) {
+            if (options.inputs[i].token != token || uint256(token) >> 160 != 0 || uint256(output) >> 160 != 0) {
                 revert InvalidInput();
             }
-            if ((takes[i].amount == 0) != (options.outputs[i].amount == 0)) revert InvalidInput();
-            // The deployed layout keys escrow/progress by token. Repeated input support
-            // requires the separate per-leg storage upgrade; do not alias rate accounting.
-            for (uint256 j; j < i; ++j) {
-                if (order.inputs[j].token == token || order.output.assets[j].token == output) revert InvalidInput();
-            }
+            if ((options.inputs[i].amount == 0) != (options.outputs[i].amount == 0)) revert InvalidInput();
         }
     }
 
@@ -557,11 +557,11 @@ abstract contract IntentsBase is EIP712 {
         uint256 escrow = order.inputs[i].amount;
         uint256 required = order.output.assets[i].amount;
         uint256 released = _cumulativeReleased(escrow, previous, required);
-        uint256 balance = sameChain ? _orders[commitment][address(uint160(uint256(order.inputs[i].token)))] : 0;
+        uint256 balance = sameChain ? _orders[commitment][i] : 0;
         bool legacyRounding = sameChain && balance != escrow - released;
         if (take > 0) {
             if (legacyRounding) revert LegacyRateAccounting();
-            return RateFillMath.quote(escrow, required, previous, take, offered);
+            return _quoteRateFill(escrow, required, previous, take, offered);
         }
         credit = Math.min(offered, required - previous);
         delivered = previous == 0 && offered > required ? offered : credit;
@@ -571,6 +571,28 @@ abstract contract IntentsBase is EIP712 {
             release = previous + credit == required ? balance : Math.mulDiv(escrow, credit, required);
         } else {
             release = _cumulativeReleased(escrow, previous + credit, required) - released;
+        }
+    }
+
+    /// @dev No fixed-point rates: the solver signs input/output raw amounts.
+    function _quoteRateFill(uint256 escrow, uint256 required, uint256 filled, uint256 take, uint256 offered)
+        internal
+        pure
+        returns (uint256 credit, uint256 release, uint256 delivered)
+    {
+        if (escrow == 0 || required == 0 || take == 0 || offered == 0) revert RateFillTooSmall();
+        // Round the minimum payment up so the quote cannot fall below the order's price.
+        if (Math.mulDiv(take, required, escrow, Math.Rounding.Ceil) > offered) revert RateBelowOrder();
+        uint256 uncapped = Math.mulDiv(take, required, escrow);
+        uint256 remaining = required - filled;
+        credit = Math.min(uncapped, remaining);
+        // Differences of cumulative floors make every slice sum to the full escrow at completion.
+        release = Math.mulDiv(escrow, filled + credit, required) - Math.mulDiv(escrow, filled, required);
+        if (credit == 0 || release == 0) revert RateFillTooSmall();
+        delivered = offered;
+        if (uncapped > remaining) {
+            // A capped final fill pays for the input actually released at the signed quote rate.
+            delivered = Math.max(credit, Math.mulDiv(offered, release, take, Math.Rounding.Ceil));
         }
     }
 
@@ -587,17 +609,18 @@ abstract contract IntentsBase is EIP712 {
     }
 
     /**
-     * @dev Computes the storage slot hash for `_partialFills[commitment][token]` on a remote
+     * @dev Computes the storage slot hash for `_partialFills[commitment][index]` on a remote
      * chain. `_partialFills` is a nested mapping at slot 11, so the key is derived as
-     * keccak256(token . keccak256(commitment . 12)) — the standard Solidity nested-mapping layout.
+     * keccak256(index . keccak256(commitment . 11)) — the standard Solidity nested-mapping layout.
      * Used to construct GET storage-proof keys for cross-chain partial-fill cancel verification.
+     * Keying by leg gives every leg its own proof key even when legs repeat an output token.
      * @param commitment The order commitment hash.
-     * @param token The output token (bytes32-encoded address) whose fill progress is being proven.
+     * @param index The leg whose fill progress is being proven.
      * @return The ABI-encoded storage slot hash for the nested mapping entry.
      */
-    function _calculatePartialFillSlotHash(bytes32 commitment, bytes32 token) internal pure returns (bytes memory) {
+    function _calculatePartialFillSlotHash(bytes32 commitment, uint256 index) internal pure returns (bytes memory) {
         bytes32 innerSlot = keccak256(abi.encodePacked(commitment, PARTIAL_FILLS_SLOT_BIG_ENDIAN_BYTES));
-        return abi.encodePacked(keccak256(abi.encodePacked(token, innerSlot)));
+        return abi.encodePacked(keccak256(abi.encodePacked(index, innerSlot)));
     }
 
     /**
@@ -637,7 +660,12 @@ abstract contract IntentsBase is EIP712 {
      * When `finalize` is false (partial fills), only the proportional token amounts are
      * released without finalizing the order.
      *
-     * @param body The withdrawal request containing the commitment, token amounts, and beneficiary.
+     * `body.tokens[i]` is leg `i` of the order: every caller, and every gateway that posts a
+     * `WithdrawalRequest`, lists one entry per leg in `order.inputs` order. The entry's token only
+     * names what to transfer; the escrow drawn down is the leg's own, so legs that repeat a token
+     * can never release each other's balance.
+     *
+     * @param body The withdrawal request containing the commitment, per-leg token amounts, and beneficiary.
      * @param isRefund If true, emits EscrowRefunded instead of EscrowReleased on finalization.
      * @param finalize If true, marks the order as complete and releases accumulated fees.
      */
@@ -651,11 +679,11 @@ abstract contract IntentsBase is EIP712 {
             uint256 amount = body.tokens[i].amount;
             // A final redeem may carry zero principal after earlier slices were delivered.
             // Only finalize settles fees: fully-filled cancel proofs leave them for the solver redeem.
-            uint256 refund = finalize ? _settleProtocolFee(body.commitment, token, isRefund ? amount : 0) : 0;
+            uint256 refund = finalize ? _settleProtocolFee(body.commitment, i, token, isRefund ? amount : 0) : 0;
             if (amount > 0) {
-                uint256 escrowed = _orders[body.commitment][token];
+                uint256 escrowed = _orders[body.commitment][i];
                 if (escrowed == 0) revert UnknownOrder();
-                _orders[body.commitment][token] = escrowed - amount;
+                _orders[body.commitment][i] = escrowed - amount;
             }
 
             uint256 transferAmount = amount + refund;
@@ -685,18 +713,19 @@ abstract contract IntentsBase is EIP712 {
         }
     }
 
-    /// @dev Settles the held fee once, using authenticated refundable principal and the original
-    /// commitment denominator. Floor rounding assigns the remaining fee unit to protocol revenue.
-    function _settleProtocolFee(bytes32 commitment, address token, uint256 principalRefund)
+    /// @dev Settles leg `index`'s held fee once, using authenticated refundable principal and the
+    /// original commitment denominator. Floor rounding assigns the remaining fee unit to protocol
+    /// revenue. `token` is the leg's input token, named in the emitted events.
+    function _settleProtocolFee(bytes32 commitment, uint256 index, address token, uint256 principalRefund)
         internal
         returns (uint256 refund)
     {
-        ProtocolFee memory fee = _protocolFees[commitment][token];
+        ProtocolFee memory fee = _protocolFees[commitment][index];
         if (fee.amount == 0) return 0;
 
         refund = Math.mulDiv(fee.amount, principalRefund, fee.committed);
         uint256 earned = fee.amount - refund;
-        delete _protocolFees[commitment][token];
+        delete _protocolFees[commitment][index];
 
         if (refund > 0) emit ProtocolFeeRefunded(commitment, token, refund);
         if (earned > 0) emit DustCollected(token, earned);
@@ -724,6 +753,15 @@ abstract contract IntentsBase is EIP712 {
 
         for (uint256 i; i < outputsLen;) {
             address token = address(uint160(uint256(order.output.assets[i].token)));
+
+            // Legs may repeat an output token. Sweep each token at its first leg only: a second
+            // call for the same balance would fail the whole dispatch and report the dust twice.
+            if (_isRepeatedToken(order.output.assets, i)) {
+                unchecked {
+                    ++i;
+                }
+                continue;
+            }
 
             if (token == address(0)) {
                 uint256 balance = dispatcher.balance;
@@ -760,6 +798,23 @@ abstract contract IntentsBase is EIP712 {
             }
             ICallDispatcher(dispatcher).dispatch(abi.encode(finalCalls));
         }
+    }
+
+    /**
+     * @dev Whether `assets[i].token` already appears at a lower index.
+     * @param assets The order's output assets.
+     * @param i The leg to check.
+     * @return True if an earlier leg carries the same token.
+     */
+    function _isRepeatedToken(TokenInfo[] calldata assets, uint256 i) internal pure returns (bool) {
+        bytes32 token = assets[i].token;
+        for (uint256 j; j < i;) {
+            if (assets[j].token == token) return true;
+            unchecked {
+                ++j;
+            }
+        }
+        return false;
     }
 
     /**

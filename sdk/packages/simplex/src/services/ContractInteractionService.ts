@@ -20,6 +20,7 @@ import {
 	encodeFillOrder,
 	supportsRateFills,
 	getFillOptionsVersion,
+	readLegPartialFill,
 } from "@hyperbridge/sdk"
 import { ERC20_ABI } from "@/config/abis/ERC20"
 import type { ChainClientManager } from "./ChainClientManager"
@@ -636,7 +637,9 @@ export class ContractInteractionService {
 	}
 
 	/**
-	 * Output already delivered against this order by any solver, per output token.
+	 * Output already delivered against this order by any solver, per leg (the gateway keys fill
+	 * progress by output index, so legs repeating a token are reported separately; a gateway not yet
+	 * upgraded to per-leg escrow is read by token).
 	 *
 	 * A partially filled order has had its escrow drawn down, so the pro-rata
 	 * release a later filler receives is computed against the *residual*, not
@@ -652,14 +655,8 @@ export class ContractInteractionService {
 		const commitment = orderCommitment(order)
 
 		return Promise.all(
-			order.output.assets.map(
-				(asset) =>
-					client.readContract({
-						address,
-						abi: INTENT_GATEWAY_V2_ABI,
-						functionName: "_partialFills",
-						args: [commitment, asset.token],
-					}) as Promise<bigint>,
+			order.output.assets.map((asset, index) =>
+				readLegPartialFill(client, address as HexString, commitment, index, asset.token as HexString),
 			),
 		)
 	}

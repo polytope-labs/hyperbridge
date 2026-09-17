@@ -492,8 +492,9 @@ interface IIntentGatewayV2 {
      */
     function params() external view returns (Params memory);
 
-    /// @notice Held placement fee and original post-fee principal; zero for legacy or settled orders.
-    function _protocolFees(bytes32 commitment, address token) external view returns (uint256 amount, uint256 committed);
+    /// @notice Held placement fee and original post-fee principal of leg `index`
+    /// (`order.inputs[index]`); zero for zero-fee or settled legs.
+    function _protocolFees(bytes32 commitment, uint256 index) external view returns (uint256 amount, uint256 committed);
 
     /**
      * @notice The only relayer whose `onAccept` and `onGetResponse` deliveries are accepted.

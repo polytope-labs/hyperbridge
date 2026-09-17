@@ -760,7 +760,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         vm.prank(otherUser);
         intentGateway.cancelOrder(order, CancelOptions({height: 0, relayerFee: 0}));
 
-        assertEq(intentGateway._orders(commitment, address(usdc)), amount);
+        assertEq(intentGateway._orders(commitment, 0), amount);
         assertEq(intentGateway._filled(commitment), address(0));
         assertEq(usdc.balanceOf(address(intentGateway)), amount);
     }
@@ -910,19 +910,19 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         uint256 gatewayBefore = address(intentGateway).balance;
         uint256 recipientBefore = address(rejectingUser).balance;
         assertEq(intentGateway._filled(commitment), address(0));
-        assertEq(intentGateway._orders(commitment, address(0)), amount);
+        assertEq(intentGateway._orders(commitment, 0), amount);
 
         vm.expectRevert(IntentsBase.InsufficientNativeToken.selector);
         vm.prank(otherUser);
         intentGateway.cancelOrder(order, CancelOptions({height: 0, relayerFee: 0}));
         assertEq(intentGateway._filled(commitment), address(0));
-        assertEq(intentGateway._orders(commitment, address(0)), amount);
+        assertEq(intentGateway._orders(commitment, 0), amount);
 
         vm.expectRevert(IntentsBase.InsufficientNativeToken.selector);
         vm.prank(address(rejectingUser));
         intentGateway.cancelOrder(order, CancelOptions({height: 0, relayerFee: 0}));
         assertEq(intentGateway._filled(commitment), address(0));
-        assertEq(intentGateway._orders(commitment, address(0)), amount);
+        assertEq(intentGateway._orders(commitment, 0), amount);
         assertEq(address(intentGateway).balance, gatewayBefore);
         assertEq(address(rejectingUser).balance, recipientBefore);
     }
@@ -983,7 +983,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         vm.prank(otherUser);
         intentGateway.cancelOrder(order, CancelOptions({height: 0, relayerFee: 0}));
 
-        assertEq(intentGateway._orders(commitment, address(usdc)), amount);
+        assertEq(intentGateway._orders(commitment, 0), amount);
         assertEq(intentGateway._filled(commitment), address(0));
     }
 
@@ -1028,7 +1028,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         vm.expectRevert(IntentsBase.Unauthorized.selector);
         vm.prank(otherUser);
         intentGateway.cancelOrder(boundaryOrder, CancelOptions({height: 0, relayerFee: 0}));
-        assertEq(intentGateway._orders(boundaryCommitment, address(usdc)), amount);
+        assertEq(intentGateway._orders(boundaryCommitment, 0), amount);
         vm.prank(user);
         intentGateway.cancelOrder(boundaryOrder, CancelOptions({height: 0, relayerFee: 0}));
 
@@ -2066,8 +2066,8 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         );
 
         bytes32 commitment = keccak256(abi.encode(order));
-        assertEq(intentGateway._orders(commitment, address(usdc)), inputAmount);
-        assertEq(intentGateway._partialFills(commitment, outputAssets[0].token), 0);
+        assertEq(intentGateway._orders(commitment, 0), inputAmount);
+        assertEq(intentGateway._partialFills(commitment, 0), 0);
 
         // Full fill in a single transaction — calldata executes.
         if (rateFill) takes[0].amount = inputAmount;
@@ -2625,11 +2625,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         bytes32 commitment = keccak256(abi.encode(order));
 
         // Escrow should match actual received, not the user-specified amount
-        assertEq(
-            intentGateway._orders(commitment, address(fot)),
-            expectedReceived,
-            "Escrow should equal actual received amount"
-        );
+        assertEq(intentGateway._orders(commitment, 0), expectedReceived, "Escrow should equal actual received amount");
     }
 
     /// @notice Fee-on-transfer with protocol fees: both deductions applied correctly.
@@ -2690,9 +2686,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         bytes32 commitment = keccak256(abi.encode(order));
 
         assertEq(
-            gatewayWithFees._orders(commitment, address(fot)),
-            expectedEscrow,
-            "Escrow should equal received minus protocol fee"
+            gatewayWithFees._orders(commitment, 0), expectedEscrow, "Escrow should equal received minus protocol fee"
         );
     }
 
@@ -2823,7 +2817,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         bytes32 commitment = keccak256(abi.encode(order));
 
         assertEq(
-            intentGateway._orders(commitment, address(fot)),
+            intentGateway._orders(commitment, 0),
             gatewayReceived,
             "Escrow should match actual received after double transfer fee"
         );

@@ -97,7 +97,7 @@ contract IntentGatewayProtocolFeesTest is MainnetForkBaseTest {
         gateway.placeOrder{value: token == address(0) ? gross : 0}(order, bytes32(0));
         vm.stopPrank();
         order.inputs[0].amount = net;
-        assertEq(gateway._orders(keccak256(abi.encode(order)), token), net, "post-fee commitment");
+        assertEq(gateway._orders(keccak256(abi.encode(order)), 0), net, "post-fee commitment");
     }
 
     function _cancel(Order memory order) internal {
@@ -143,9 +143,7 @@ contract IntentGatewayProtocolFeesTest is MainnetForkBaseTest {
     function _proof(Order memory order, uint8 filled) internal {
         bytes[] memory keys = new bytes[](1);
         bytes32 commitment = keccak256(abi.encode(order));
-        keys[0] = abi.encodePacked(
-            keccak256(abi.encode(order.output.assets[0].token, keccak256(abi.encode(commitment, uint256(11)))))
-        );
+        keys[0] = abi.encodePacked(keccak256(abi.encode(uint256(0), keccak256(abi.encode(commitment, uint256(11))))));
         StorageValue[] memory values = new StorageValue[](1);
         values[0] = StorageValue(keys[0], filled == 0 ? abi.encodePacked(uint8(128)) : abi.encodePacked(filled));
         uint256[] memory totals = new uint256[](1);
@@ -207,7 +205,7 @@ contract IntentGatewayProtocolFeesTest is MainnetForkBaseTest {
         vm.recordLogs();
         Order memory order = _place(address(usdc), 1000, 900, false);
         _assertEvents(vm.getRecordedLogs(), keccak256(abi.encode(order)), address(usdc), 0, 0);
-        (uint256 fee, uint256 committed) = gateway._protocolFees(keccak256(abi.encode(order)), address(usdc));
+        (uint256 fee, uint256 committed) = gateway._protocolFees(keccak256(abi.encode(order)), 0);
         assertEq(fee, 100);
         assertEq(committed, 900);
     }
@@ -219,7 +217,7 @@ contract IntentGatewayProtocolFeesTest is MainnetForkBaseTest {
         _cancel(order);
         assertEq(usdc.balanceOf(user) - before, 1000, "principal and fee returned");
         _assertEvents(vm.getRecordedLogs(), keccak256(abi.encode(order)), address(usdc), 100, 0);
-        (uint256 fee, uint256 committed) = gateway._protocolFees(keccak256(abi.encode(order)), address(usdc));
+        (uint256 fee, uint256 committed) = gateway._protocolFees(keccak256(abi.encode(order)), 0);
         assertEq(fee, 0);
         assertEq(committed, 0);
     }
@@ -292,14 +290,14 @@ contract IntentGatewayProtocolFeesTest is MainnetForkBaseTest {
         vm.recordLogs();
         _proof(order, 100);
         bytes32 commitment = keccak256(abi.encode(order));
-        (uint256 fee, uint256 committed) = gateway._protocolFees(commitment, address(usdc));
+        (uint256 fee, uint256 committed) = gateway._protocolFees(commitment, 0);
         assertEq(fee, 100, "fully-filled proof must retain the fee");
         assertEq(committed, 900, "original principal remains until final redemption");
         _assertEvents(vm.getRecordedLogs(), keccak256(abi.encode(order)), address(usdc), 0, 0);
         vm.recordLogs();
         _redeem(order, 900, true);
         _assertEvents(vm.getRecordedLogs(), keccak256(abi.encode(order)), address(usdc), 0, 100);
-        (fee, committed) = gateway._protocolFees(commitment, address(usdc));
+        (fee, committed) = gateway._protocolFees(commitment, 0);
         assertEq(fee, 0);
         assertEq(committed, 0);
     }
@@ -388,12 +386,12 @@ contract IntentGatewayProtocolFeesTest is MainnetForkBaseTest {
         assertEq(usdc.balanceOf(user), 999_000);
     }
 
-    function testVersionThreeUpgradePreservesLegacyEscrowWithoutRetroactiveRefund() public {
+    function testUpgradePreservesEscrowWithoutRecordedProtocolFees() public {
         Order memory order = _place(address(usdc), 1000, 900, false);
         bytes32 commitment = keccak256(abi.encode(order));
-        // Reconstruct the pre-accounting v3 snapshot: historical net escrow and fee balance,
-        // with the newly appended mapping still empty. Historical fees may already be swept.
-        bytes32 feeSlot = keccak256(abi.encode(address(usdc), keccak256(abi.encode(commitment, uint256(14)))));
+        // An escrow with no recorded protocol fee remains refundable after an upgrade.
+        // Unrecorded fees may already have been swept and must not be refunded retroactively.
+        bytes32 feeSlot = keccak256(abi.encode(uint256(0), keccak256(abi.encode(commitment, uint256(14)))));
         vm.store(address(gateway), feeSlot, bytes32(0));
         vm.store(address(gateway), bytes32(uint256(feeSlot) + 1), bytes32(0));
         _sweep(_tokens(address(usdc), 100));
@@ -402,8 +400,8 @@ contract IntentGatewayProtocolFeesTest is MainnetForkBaseTest {
             abi.encodeCall(ExtrinsicIntents.upgradeToAndCall, (address(deployIntentGatewayImpl()), bytes(""))),
             true
         );
-        assertEq(gateway.version(), 3);
-        assertEq(gateway._orders(commitment, address(usdc)), 900);
+        assertEq(gateway.version(), 4);
+        assertEq(gateway._orders(commitment, 0), 900);
         uint256 before = usdc.balanceOf(user);
         vm.recordLogs();
         _cancel(order);

@@ -573,7 +573,7 @@ describe("remaining submission boundaries", () => {
 						],
 					},
 				],
-				[sender, [], [{ token, amount: 40n }]],
+				[sender, [{ token, amount: 40n }], []],
 			),
 		}
 		f.setReceipt({

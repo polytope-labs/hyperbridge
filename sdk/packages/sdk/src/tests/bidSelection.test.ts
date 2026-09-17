@@ -4,13 +4,15 @@ import { CryptoUtils } from "@/protocols/intents/CryptoUtils"
 import { OrderExecutor } from "@/protocols/intents/OrderExecutor"
 import { encodeFillOrder } from "@/protocols/intents/fillOrderCodec"
 import { ABI as IntentGatewayV2ABI } from "@/abis/IntentGatewayV2"
-import type { Bid, FillerBid, HexString, Order, PackedUserOperation, SelectBidResult } from "@/types"
+import type { Bid, FillerBid, HexString, Order, PackedUserOperation, SelectBidResult, TokenInfo } from "@/types"
 import { encodeAbiParameters, encodeEventTopics } from "viem"
 import { describe, expect, it, vi } from "vitest"
 
 const SOLVER_ONE = "0x1111111111111111111111111111111111111111" as HexString
 const SOLVER_TWO = "0x2222222222222222222222222222222222222222" as HexString
 const TOKEN = "0x3333333333333333333333333333333333333333" as HexString
+const TOKEN_ID = `0x${"00".repeat(12)}${TOKEN.slice(2)}` as HexString
+const OTHER_TOKEN_ID = `0x${"44".repeat(32)}` as HexString
 const ENTRY_POINT = "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108" as HexString
 const COMMITMENT = `0x${"ab".repeat(32)}` as HexString
 const SESSION = "0x5555555555555555555555555555555555555555" as HexString
@@ -103,6 +105,7 @@ function orderFilledLog(
 	address: HexString,
 	filler = SOLVER_ONE,
 	eventName: "OrderFilled" | "PartialFill" = "OrderFilled",
+	outputs: TokenInfo[] = [],
 ) {
 	return {
 		address,
@@ -129,7 +132,7 @@ function orderFilledLog(
 					],
 				},
 			],
-			[filler, [], []],
+			[filler, outputs, []],
 		),
 	}
 }
@@ -149,6 +152,7 @@ function makeBid(params: { solverAddress: HexString; amount: bigint; take?: bigi
 }
 
 function concreteBidWithReceipt(params: {
+	order?: Order
 	userOpReceipt: { success?: boolean; receipt: { transactionHash: HexString } }
 	chainReceipt: { status: "success" | "reverted"; logs: readonly unknown[] }
 }): { ctx: any; bid: BidImpl } {
@@ -181,7 +185,7 @@ function concreteBidWithReceipt(params: {
 	const bid = new BidImpl({
 		ctx: ctx as never,
 		crypto: { sendBundler } as never,
-		order: makeOrder(),
+		order: params.order ?? makeOrder(),
 		fillerBid: { filler: "solver", userOp: op, deposit: 0n },
 		fillOptions: {
 			relayerFee: 0n,
@@ -277,6 +281,93 @@ describe("Order execution bid-selection integration", () => {
 		})
 
 		await expect(bid.execute()).resolves.toMatchObject({ fillStatus: "full", filledAssets: undefined })
+	})
+
+	it.each([
+		{
+			label: "a partial fill followed by completion",
+			fills: [
+				orderFilledLog(SOLVER_TWO, SOLVER_ONE, "PartialFill", [{ token: TOKEN_ID, amount: 40n }]),
+				orderFilledLog(SOLVER_TWO, SOLVER_ONE, "OrderFilled", [{ token: TOKEN_ID, amount: 60n }]),
+			],
+			assets: [{ token: TOKEN, amount: 100n }],
+			expected: { fillStatus: "full", filledAssets: undefined },
+		},
+		{
+			label: "two partial fills",
+			fills: [
+				orderFilledLog(SOLVER_TWO, SOLVER_ONE, "PartialFill", [{ token: TOKEN_ID, amount: 20n }]),
+				orderFilledLog(SOLVER_TWO, SOLVER_ONE, "PartialFill", [{ token: TOKEN_ID, amount: 30n }]),
+			],
+			assets: [{ token: TOKEN, amount: 100n }],
+			expected: { fillStatus: "partial", filledAssets: [{ token: TOKEN_ID, amount: 50n }] },
+		},
+		{
+			label: "two partial fills with repeated token legs",
+			fills: [
+				orderFilledLog(SOLVER_TWO, SOLVER_ONE, "PartialFill", [
+					{ token: TOKEN_ID, amount: 10n },
+					{ token: TOKEN_ID, amount: 20n },
+				]),
+				orderFilledLog(SOLVER_TWO, SOLVER_ONE, "PartialFill", [
+					{ token: TOKEN_ID, amount: 25n },
+					{ token: TOKEN_ID, amount: 5n },
+				]),
+			],
+			assets: [
+				{ token: TOKEN_ID, amount: 100n },
+				{ token: TOKEN_ID, amount: 200n },
+			],
+			expected: {
+				fillStatus: "partial",
+				filledAssets: [
+					{ token: TOKEN_ID, amount: 35n },
+					{ token: TOKEN_ID, amount: 25n },
+				],
+			},
+		},
+	])("accounts for $label in one accepted operation", async ({ fills, assets, expected }) => {
+		const order = makeOrder()
+		order.output.assets = assets
+		const { bid } = concreteBidWithReceipt({
+			order,
+			userOpReceipt: { receipt: { transactionHash: `0x${"55".repeat(32)}` } },
+			chainReceipt: {
+				status: "success",
+				logs: [beforeExecutionLog(), ...fills, userOperationEventLog(ENTRY_POINT, true)],
+			},
+		})
+		await expect(bid.execute()).resolves.toMatchObject(expected)
+	})
+
+	it.each([
+		{ label: "missing legs", outputs: [{ token: TOKEN_ID, amount: 20n }] },
+		{
+			label: "reordered tokens",
+			outputs: [
+				{ token: OTHER_TOKEN_ID, amount: 20n },
+				{ token: TOKEN_ID, amount: 30n },
+			],
+		},
+	])("keeps partial fill evidence pending with $label", async ({ outputs }) => {
+		const order = makeOrder()
+		order.output.assets = [
+			{ token: TOKEN_ID, amount: 100n },
+			{ token: OTHER_TOKEN_ID, amount: 100n },
+		]
+		const { bid } = concreteBidWithReceipt({
+			order,
+			userOpReceipt: { receipt: { transactionHash: `0x${"55".repeat(32)}` } },
+			chainReceipt: {
+				status: "success",
+				logs: [
+					beforeExecutionLog(),
+					orderFilledLog(SOLVER_TWO, SOLVER_ONE, "PartialFill", outputs),
+					userOperationEventLog(ENTRY_POINT, true),
+				],
+			},
+		})
+		await expect(bid.execute()).rejects.toBeInstanceOf(BidExecutionPendingError)
 	})
 
 	it.each([

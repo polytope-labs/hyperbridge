@@ -28,7 +28,7 @@ contract IntentGatewayRateFillTest is IntentGatewayV2SameChainTest {
         uint256 solverBefore = usdc.balanceOf(solver);
         _rateFill(order, 800, 880);
         bytes32 commitment = keccak256(abi.encode(order));
-        assertEq(intentGateway._partialFills(commitment, order.output.assets[0].token), 800);
+        assertEq(intentGateway._partialFills(commitment, 0), 800);
         assertEq(usdc.balanceOf(solver) - solverBefore, 800);
         assertEq(dai.balanceOf(user) - userBefore, 840);
         uint256 outputBefore = dai.balanceOf(solver);
@@ -37,7 +37,7 @@ contract IntentGatewayRateFillTest is IntentGatewayV2SameChainTest {
         assertEq(usdc.balanceOf(solver) - solverBefore, 1000);
         assertEq(dai.balanceOf(user) - userBefore, 1050);
         assertEq(dai.balanceOf(address(intentGateway)), 50);
-        assertEq(intentGateway._orders(commitment, address(usdc)), 0);
+        assertEq(intentGateway._orders(commitment, 0), 0);
     }
 
     function testRate_QuantizedInputRelease() public {
@@ -45,7 +45,7 @@ contract IntentGatewayRateFillTest is IntentGatewayV2SameChainTest {
         uint256 before = usdc.balanceOf(solver);
         _rateFill(order, 4, 2);
         assertEq(usdc.balanceOf(solver) - before, 3);
-        assertEq(intentGateway._partialFills(keccak256(abi.encode(order)), order.output.assets[0].token), 1);
+        assertEq(intentGateway._partialFills(keccak256(abi.encode(order)), 0), 1);
         _rateFill(order, 10, 3);
         assertEq(usdc.balanceOf(solver) - before, 10);
     }
@@ -80,7 +80,7 @@ contract IntentGatewayRateFillTest is IntentGatewayV2SameChainTest {
         intentGateway.fillOrder(order, FillOptions(0, 0, 0, outputs, new TokenInfo[](0)));
         vm.stopPrank();
         assertEq(usdc.balanceOf(solver) - before, 7);
-        assertEq(intentGateway._orders(keccak256(abi.encode(order)), address(usdc)), 0);
+        assertEq(intentGateway._orders(keccak256(abi.encode(order)), 0), 0);
     }
 
     function testRate_LegacyRoundingDebtRejectsRateButLegacyCompletes() public {
@@ -88,9 +88,8 @@ contract IntentGatewayRateFillTest is IntentGatewayV2SameChainTest {
         bytes32 commitment = keccak256(abi.encode(order));
         // State after two old one-output slices: each released floor(10/6)=1.
         // Cumulative accounting would have released floor(20/6)=3.
-        bytes32 escrowSlot = keccak256(abi.encode(address(usdc), keccak256(abi.encode(commitment, uint256(9)))));
-        bytes32 progressSlot =
-            keccak256(abi.encode(order.output.assets[0].token, keccak256(abi.encode(commitment, uint256(11)))));
+        bytes32 escrowSlot = keccak256(abi.encode(uint256(0), keccak256(abi.encode(commitment, uint256(9)))));
+        bytes32 progressSlot = keccak256(abi.encode(uint256(0), keccak256(abi.encode(commitment, uint256(11)))));
         vm.store(address(intentGateway), escrowSlot, bytes32(uint256(8)));
         vm.store(address(intentGateway), progressSlot, bytes32(uint256(2)));
         vm.prank(address(intentGateway));
@@ -107,7 +106,7 @@ contract IntentGatewayRateFillTest is IntentGatewayV2SameChainTest {
         intentGateway.fillOrder(order, FillOptions(0, 0, 0, outputs, new TokenInfo[](0)));
         vm.stopPrank();
         assertEq(usdc.balanceOf(solver) - before, 8);
-        assertEq(intentGateway._orders(commitment, address(usdc)), 0);
+        assertEq(intentGateway._orders(commitment, 0), 0);
     }
 
     function testRate_EmptyInputsPreserveOrderRateBehavior() public {
@@ -116,7 +115,7 @@ contract IntentGatewayRateFillTest is IntentGatewayV2SameChainTest {
         dai.approve(address(intentGateway), 100);
         intentGateway.fillOrder(order, FillOptions(0, 0, 0, order.output.assets, new TokenInfo[](0)));
         vm.stopPrank();
-        assertEq(intentGateway._orders(keccak256(abi.encode(order)), address(usdc)), 0);
+        assertEq(intentGateway._orders(keccak256(abi.encode(order)), 0), 0);
     }
 
     function testRate_NativeInputReleaseAndCancellation() public {
@@ -199,7 +198,7 @@ contract IntentGatewayRateFillTest is IntentGatewayV2SameChainTest {
         vm.expectRevert(bytes4(keccak256("InvalidInput()")));
         intentGateway.fillOrder(order, FillOptions(0, 0, 0, outputs, new TokenInfo[](2)));
         vm.stopPrank();
-        assertEq(intentGateway._partialFills(keccak256(abi.encode(order)), order.output.assets[0].token), 0);
-        assertEq(intentGateway._orders(keccak256(abi.encode(order)), address(usdc)), 1000);
+        assertEq(intentGateway._partialFills(keccak256(abi.encode(order)), 0), 0);
+        assertEq(intentGateway._orders(keccak256(abi.encode(order)), 0), 1000);
     }
 }

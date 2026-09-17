@@ -4,8 +4,8 @@
 limit (24,367 of 24,576 bytes). The implementation now delegatecalls its heavy branches to two
 separately deployed modules. The proxy, its address and the governance upgrade path are unchanged.
 The ABI lost the host-only `setRelayer` and `upgradeToAndCall` (now reached only through
-`Execute`), `migrate(address)` became `migrate()`, `_owner()` is gone, and `intrinsicModule()`
-and `extrinsicModule()` were added.
+`Execute`). `migrate(address)` advances the gateway release, and `intrinsicModule()` and
+`extrinsicModule()` expose the configured modules.
 
 ## Layout
 
@@ -19,18 +19,15 @@ and `extrinsicModule()` were added.
                  IntrinsicModule    ExtrinsicModule   deployed modules the implementation delegatecalls
 ```
 
-| Contract | Holds | Runtime size |
-|---|---|---|
-| `IntentGatewayV2` | every external entry point and its guards, `placeOrder`, `select`, the shared validation of `fillOrder` and `cancelOrder`, `initialize`, `migrate`, the views | 16,473 bytes |
-| `IntrinsicModule` | `IntrinsicIntents`: `fillSameChain`, `cancelSameChain` | 7,710 bytes |
-| `ExtrinsicModule` | `ExtrinsicIntents`: `fillCrossChain`, `cancelFromSource`, `cancelFromDest`, the `onAccept` and `onGetResponse` handlers with governance and `Execute`, and the host-only `setRelayer` and `upgradeToAndCall` | 17,793 bytes |
+| Contract | Responsibility |
+|---|---|
+| `IntentGatewayV2` | External guards, placement, selection, fill/cancel validation, initialization and migration |
+| `IntrinsicModule` | Same-chain fills and cancellation |
+| `ExtrinsicModule` | Cross-chain fills, cancellation proofs, escrow settlement and governance |
 
-The implementation inherits nothing from the intents contracts; it validates, routes and
-delegatecalls. `IntrinsicIntents.sol` is unchanged. `ExtrinsicIntents.sol` is unchanged apart
-from `onAccept` and `onGetResponse` becoming `virtual`, `relayer()` and `_setRelayer` moving to
-`IntentsBase` because `initialize` needs them, and `Execute` delegatecalling the module's own
-address instead of the implementation. `setRelayer` and `upgradeToAndCall` therefore exist only
-on the extrinsic module and are not in the gateway's ABI; `Execute` is the only way to them.
+Both fill paths use the accounting and rate arithmetic in `IntentsBase`. The gateway validates
+and delegatecalls the matching module. `setRelayer` and `upgradeToAndCall` exist only on the
+extrinsic module and are reached through the host-authorized `Execute` request.
 
 ## Rules
 
@@ -38,9 +35,11 @@ on the extrinsic module and are not in the gateway's ABI; `Execute` is the only 
   declares no storage and never runs an initializer. `IntentGatewayModulesTest` reads the storage
   layouts out of the forge artifacts and asserts the three contracts agree slot for slot, so
   `foundry.toml` sets `extra_output = ["storageLayout"]`. The append-only rule for storage now
-  applies to all three at once, and `_filled` must stay at slot 2 for the cross-chain cancel proof.
+  applies to all three at once. `_filled` must stay at slot 2, which the SDK reads for fill status, and
+  `_partialFills` at slot 11, which cross-chain cancel proves per leg as `_partialFills[commitment][index]`.
   The one exception is the unused `bool _paused` that sat at slot 13 offset 0: it was removed, so
-  `_relayer` moved from offset 1 to offset 0 and `migrate` shifts it there on existing proxies.
+  `_relayer` moved from offset 1 to offset 0. Migration from version 2 shifts it once;
+  migration from the current owner-layout version 3 preserves it.
 - **The owner is the implementation's alone.** `IntentGatewayV2` inherits OpenZeppelin's
   `Ownable2StepUpgradeable`, whose owner and pending owner sit at ERC-7201 namespaced slots outside
   the shared sequential layout, so the modules never see them and the layout tests are unaffected. The owner
@@ -48,7 +47,7 @@ on the extrinsic module and are not in the gateway's ABI; `Execute` is the only 
   is namespaced too. `placeOrder`, `fillOrder`, and the escrow deliveries
   of `onAccept` and `onGetResponse` revert while paused, checked on the implementation before any
   delegatecall; governance deliveries and `cancelOrder` are not paused. `initialize` and
-  `migrate(owner)` set it and transfers are two-step. `_checkOwner` also accepts the host, so
+  `migrate(owner)` from version 2 set it, and transfers are two-step. `_checkOwner` also accepts the host, so
   governance can pause, resume or propose a new owner through `Execute` carrying
   `upgradeToAndCall(currentImplementation, call)`.
 - **Module addresses are immutables.** `intrinsicModule()` and `extrinsicModule()` are set in the
@@ -71,7 +70,7 @@ on the extrinsic module and are not in the gateway's ABI; `Execute` is the only 
   relayer. Delegatecall nests freely; only the 1024 call depth and the 63/64 gas rule bound it.
   The body may select any module function, including the fills, with the host as `msg.sender`
   and none of the implementation's validation. That is not new power: the same request can
-  install any implementation. It cannot select anything on the implementation, so `migrate()`
+  install any implementation. It cannot select anything on the implementation, so `migrate(owner)`
   runs only as `upgradeToAndCall` init data; an `Execute` body naming it directly fails with
   `FailedCall()`.
 - **Reverts bubble byte for byte.** `IntentGatewayV2._delegate` re-raises the module's revert
@@ -133,10 +132,12 @@ modules included, and `--mode verify` re-verifies from the broadcast artifacts.
 The upgrade itself is a Hyperbridge governance call, `execute_on_gateway(data)` on the
 intents-coprocessor pallet. The pallet prepends the `Execute` discriminator (`0x05`) itself, so
 `data` is bare `upgradeToAndCall(newImplementation, initData)` calldata, exactly what the script
-prints. `initData` is `migrate(owner)` for a proxy below `VERSION`, as on the upgrade from 2 to 3,
-and empty otherwise. That `migrate` is required: it moves `_relayer` to slot 13 offset 0. Installing
-this implementation on a proxy at 2 with empty `initData` leaves the relayer gate reading a wrong
-address, and it would refuse every delivery, governance included. A relayer rotation is a separate `execute_on_gateway` carrying
+prints. For release 4, `initData` is `migrate(owner)` when upgrading a supported version-2 or
+current owner-layout version-3 proxy, and empty for an already-current proxy. Version 2 initializes
+the owner and shifts the legacy relayer slot; version 3 preserves owner, pending owner, pause state
+and relayer. Earlier module-only implementations also used version 3 with a different layout and
+are not supported predecessors. Token-keyed deployments must first drain escrow, fees and pending
+messages on all chains and keep placement stopped until every chain has per-leg accounting. A relayer rotation is a separate `execute_on_gateway` carrying
 `setRelayer(next)`; it cannot ride in `initData`, which runs against the new implementation, where
 `setRelayer` does not exist. Whether the upgrade changes the implementation's own code, a module,
 or both, the procedure is the same: new modules if needed, new implementation, one

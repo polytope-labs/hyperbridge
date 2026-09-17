@@ -32,8 +32,10 @@ abstract contract IntrinsicIntents is IntentsBase {
      * @dev Fills a same-chain order, supporting both partial and full fills.
      *
      * For each output asset, the solver provides tokens directly to the beneficiary.
-     * The function tracks cumulative partial fill progress in `_partialFills` and computes
-     * proportional escrowed input amounts to release to the solver.
+     * The function tracks cumulative partial fill progress per leg in `_partialFills` and computes
+     * proportional escrowed input amounts to release to the solver. Leg `i` pairs
+     * `order.inputs[i]` with `order.output.assets[i]`; its progress and escrow are its own, so
+     * legs that repeat a token (e.g. one pair at several prices) settle independently.
      *
      * Surplus handling (on each quoted slice, or an ordinary first-fill overpayment):
      * - If the order has attached calldata, all surplus goes to the protocol as dust.
@@ -50,14 +52,9 @@ abstract contract IntrinsicIntents is IntentsBase {
      * @param options The fill options containing the solver's output token amounts.
      * @param commitment The keccak256 hash of the ABI-encoded order.
      */
-    function _fillSameChain(
-        Order calldata order,
-        FillOptions calldata options,
-        bytes32 commitment,
-        TokenInfo[] memory takes
-    ) internal {
+    function _fillSameChain(Order calldata order, FillOptions calldata options, bytes32 commitment) internal {
         _filled[commitment] = msg.sender;
-        FillResult memory result = _fillLegs(order, options, commitment, takes, true);
+        FillResult memory result = _fillLegs(order, options, commitment, true);
         WithdrawalRequest memory body = WithdrawalRequest({
             commitment: commitment, tokens: result.inputs, beneficiary: bytes32(uint256(uint160(msg.sender)))
         });
@@ -96,8 +93,7 @@ abstract contract IntrinsicIntents is IntentsBase {
         TokenInfo[] memory remainingTokens = new TokenInfo[](inputsLen);
         bool hasEscrow = false;
         for (uint256 i; i < inputsLen;) {
-            address token = address(uint160(uint256(order.inputs[i].token)));
-            uint256 escrowed = _orders[commitment][token];
+            uint256 escrowed = _orders[commitment][i];
             if (escrowed > 0) hasEscrow = true;
             remainingTokens[i] = TokenInfo({token: order.inputs[i].token, amount: escrowed});
             unchecked {

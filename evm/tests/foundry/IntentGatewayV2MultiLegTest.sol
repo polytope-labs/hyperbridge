@@ -171,6 +171,42 @@ contract IntentGatewayV2MultiLegTest is MainnetForkBaseTest {
         return (order, keccak256(abi.encode(order)));
     }
 
+    /// @dev The GET response `cancelFromSource` would receive for `order`, with the given proven values.
+    function _cancelResponse(
+        Order memory order,
+        bytes32 commitment,
+        bytes[] memory keys,
+        uint256[] memory totals,
+        StorageValue[] memory values
+    ) internal view returns (IncomingGetResponse memory) {
+        GetRequest memory request = GetRequest({
+            source: host.host(),
+            dest: bytes("DEST_CHAIN"),
+            nonce: 0,
+            from: abi.encodePacked(address(gateway)),
+            keys: keys,
+            height: uint64(order.deadline + 1),
+            timeoutTimestamp: 0,
+            context: abi.encode(commitment, order.user, order.inputs, totals)
+        });
+        return IncomingGetResponse({response: GetResponse({request: request, values: values}), relayer: relayer});
+    }
+
+    /// @dev Minimal big-endian RLP encoding of a uint, as a storage proof returns a slot value.
+    function _rlpEncodeUint(uint256 x) internal pure returns (bytes memory) {
+        if (x == 0) return bytes("");
+        bytes32 be = bytes32(x);
+        uint256 firstNonZero;
+        while (firstNonZero < 32 && be[firstNonZero] == 0) firstNonZero++;
+        uint256 len = 32 - firstNonZero;
+        bytes memory trimmed = new bytes(len);
+        for (uint256 i; i < len; i++) {
+            trimmed[i] = be[firstNonZero + i];
+        }
+        if (len == 1 && uint8(trimmed[0]) < 0x80) return trimmed;
+        return abi.encodePacked(bytes1(uint8(0x80 + len)), trimmed);
+    }
+
     function _fill(address solver, Order memory order, uint256 leg0, uint256 leg1) internal {
         TokenInfo[] memory outputs = _legs([order.output.assets[0].token, order.output.assets[1].token], [leg0, leg1]);
         vm.prank(solver);
@@ -518,6 +554,83 @@ contract IntentGatewayV2MultiLegTest is MainnetForkBaseTest {
         assertEq(usdc.balanceOf(user) - before, 600 * 1e6 + 1000 * 1e6, "leg 0 unfilled half and all of leg 1");
         assertEq(gateway._orders(commitment, 0), 600 * 1e6, "leg 0 keeps the half its solver will redeem");
         assertEq(gateway._orders(commitment, 1), 0, "leg 1 fully refunded");
+    }
+
+    /// @notice A cancel proof for many legs resolves every leg's value by key through the transient index,
+    /// whatever order the values arrive in.
+    function testCrossChainCancelFromSource_ManyLegsResolveEachValueByKey() public {
+        uint256 legs = 32;
+        TokenInfo[] memory inputs = new TokenInfo[](legs);
+        TokenInfo[] memory outputs = new TokenInfo[](legs);
+        for (uint256 i; i < legs; i++) {
+            inputs[i] = TokenInfo({token: usdcToken, amount: (100 + i) * 1e6});
+            outputs[i] = TokenInfo({token: daiToken, amount: (100 + i) * 1e18});
+        }
+        (Order memory order, bytes32 commitment) = _place(gateway, _order("", bytes("DEST_CHAIN"), inputs, outputs));
+
+        // Odd legs are half filled on the destination. Values arrive in a scrambled order.
+        uint256[] memory totals = new uint256[](legs);
+        bytes[] memory keys = new bytes[](legs);
+        StorageValue[] memory values = new StorageValue[](legs);
+        uint256 expected;
+        for (uint256 i; i < legs; i++) {
+            totals[i] = outputs[i].amount;
+            keys[i] = bytes.concat(abi.encodePacked(address(gateway)), _partialFillSlot(commitment, i));
+            bool half = i % 2 == 1;
+            values[(i * 7) % legs] =
+                StorageValue({key: keys[i], value: half ? _rlpEncodeUint(totals[i] / 2) : bytes("")});
+            expected += half ? inputs[i].amount / 2 : inputs[i].amount;
+        }
+
+        IncomingGetResponse memory response = _cancelResponse(order, commitment, keys, totals, values);
+        uint256 before = usdc.balanceOf(user);
+        uint256 gas = gasleft();
+        vm.prank(address(host));
+        gateway.onGetResponse(response);
+        emit log_named_uint("onGetResponse gas, 32 legs", gas - gasleft());
+
+        assertEq(usdc.balanceOf(user) - before, expected, "each leg refunded its own unfilled fraction");
+        for (uint256 i; i < legs; i++) {
+            assertEq(gateway._orders(commitment, i), i % 2 == 1 ? inputs[i].amount / 2 : 0, "leg escrow");
+        }
+    }
+
+    /// @notice The transient index is cleared before the response settles, so a second response in the
+    /// same transaction cannot resolve its key against the first response's values.
+    function testCrossChainCancelFromSource_ProofIndexIsClearedBetweenResponses() public {
+        (Order memory first, bytes32 firstCommitment) = _place(gateway, _ladder("", bytes("DEST_CHAIN")));
+        (Order memory second, bytes32 secondCommitment) = _place(gateway, _ladder("", bytes("DEST_CHAIN")));
+        uint256[] memory totals = new uint256[](2);
+        totals[0] = 1200 * 1e18;
+        totals[1] = 990 * 1e18;
+        bytes[] memory firstKeys = new bytes[](2);
+        bytes[] memory secondKeys = new bytes[](2);
+        for (uint256 i; i < 2; i++) {
+            firstKeys[i] = bytes.concat(abi.encodePacked(address(gateway)), _partialFillSlot(firstCommitment, i));
+            secondKeys[i] = bytes.concat(abi.encodePacked(address(gateway)), _partialFillSlot(secondCommitment, i));
+        }
+
+        // The first response also carries the second order's leg 0 key, at position 2.
+        StorageValue[] memory firstValues = new StorageValue[](3);
+        firstValues[0] = StorageValue({key: firstKeys[0], value: ""});
+        firstValues[1] = StorageValue({key: firstKeys[1], value: ""});
+        firstValues[2] = StorageValue({key: secondKeys[0], value: ""});
+        IncomingGetResponse memory firstResponse =
+            _cancelResponse(first, firstCommitment, firstKeys, totals, firstValues);
+        vm.prank(address(host));
+        gateway.onGetResponse(firstResponse);
+
+        // The second response lacks its leg 0 key. A stale index would point leg 0 at position 2, which
+        // holds a fill amount here, and refund the wrong fraction instead of reverting.
+        StorageValue[] memory secondValues = new StorageValue[](3);
+        secondValues[0] = StorageValue({key: secondKeys[1], value: ""});
+        secondValues[1] = StorageValue({key: bytes("unrelated"), value: ""});
+        secondValues[2] = StorageValue({key: bytes("filled"), value: _rlpEncodeUint(totals[0])});
+        IncomingGetResponse memory secondResponse =
+            _cancelResponse(second, secondCommitment, secondKeys, totals, secondValues);
+        vm.prank(address(host));
+        vm.expectRevert(IntentsBase.InvalidInput.selector);
+        gateway.onGetResponse(secondResponse);
     }
 
     /// @notice On the destination, legs repeating an output token track progress separately, and a

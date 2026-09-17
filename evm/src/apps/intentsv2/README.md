@@ -23,7 +23,7 @@ and `extrinsicModule()` were added.
 |---|---|---|
 | `IntentGatewayV2` | every external entry point and its guards, `placeOrder`, `select`, the shared validation of `fillOrder` and `cancelOrder`, `initialize`, `migrate`, the views | 16,484 bytes |
 | `IntrinsicModule` | `IntrinsicIntents`: `fillSameChain`, `cancelSameChain` | 7,675 bytes |
-| `ExtrinsicModule` | `ExtrinsicIntents`: `fillCrossChain`, `cancelFromSource`, `cancelFromDest`, the `onAccept` and `onGetResponse` handlers with governance and `Execute`, and the host-only `setRelayer` and `upgradeToAndCall` | 17,816 bytes |
+| `ExtrinsicModule` | `ExtrinsicIntents`: `fillCrossChain`, `cancelFromSource`, `cancelFromDest`, the `onAccept` and `onGetResponse` handlers with governance and `Execute`, and the host-only `setRelayer` and `upgradeToAndCall` | 17,960 bytes |
 
 The implementation inherits nothing from the intents contracts; it validates, routes and
 delegatecalls. `IntrinsicIntents.sol` is unchanged. `ExtrinsicIntents.sol` is unchanged apart

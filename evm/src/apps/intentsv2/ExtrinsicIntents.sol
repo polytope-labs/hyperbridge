@@ -456,6 +456,7 @@ abstract contract ExtrinsicIntents is IntentsBase, HyperApp {
         uint256 len = inputs.length;
         TokenInfo[] memory refunds = new TokenInfo[](len);
         bool fullyFilled = true;
+        bytes32[] memory proofSlots = _indexProofValues(incoming);
         for (uint256 i; i < len;) {
             // Values come back sorted by key, not in request order, so match by key. request.keys[i]
             // is leg i's slot, and the request is verified against its committed hash.
@@ -471,6 +472,7 @@ abstract contract ExtrinsicIntents is IntentsBase, HyperApp {
                 ++i;
             }
         }
+        _clearProofValueIndex(proofSlots);
 
         // `_filled` is already set above for idempotency. Finalize — which flushes the prepaid fee
         // pot to the user — only when the order did not fully fill; a fully-filled order's fees belong
@@ -481,28 +483,65 @@ abstract contract ExtrinsicIntents is IntentsBase, HyperApp {
     }
 
     /**
-     * @dev Returns the proof value whose storage key matches `key`. GET responses return values
-     * sorted by key (the responder iterates a BTreeMap), so positional indexing would mispair
-     * values with legs on multi-leg orders. Every leg has its own key, so no two legs share a
-     * value. Absent slots are still returned (with an empty value), so a matching key is always
-     * expected; reverts if none is found.
+     * @dev Indexes the response's proven values in transient storage: under the hash of each value's
+     * key, its position plus one. Every leg then finds its value with one lookup instead of rescanning
+     * the values, so a cancel proof for N legs hashes about 2N keys rather than N(N+1)/2. The first
+     * value for a key wins. A slot is the keccak256 of a storage key, a different preimage from the
+     * reentrancy guard's and solver selection's slots. `onGetResponse` clears them before any transfer.
+     * @param incoming The incoming GET response.
+     * @return slots The transient slots written, for `_clearProofValueIndex`.
+     */
+    function _indexProofValues(IncomingGetResponse calldata incoming) internal returns (bytes32[] memory slots) {
+        uint256 n = incoming.response.values.length;
+        slots = new bytes32[](n);
+        for (uint256 j; j < n;) {
+            bytes32 slot = keccak256(incoming.response.values[j].key);
+            slots[j] = slot;
+            assembly ("memory-safe") {
+                if iszero(tload(slot)) { tstore(slot, add(j, 1)) }
+            }
+            unchecked {
+                ++j;
+            }
+        }
+    }
+
+    /**
+     * @dev Returns the proof value whose storage key matches `key`, through the index
+     * `_indexProofValues` built. GET responses return values sorted by key (the responder iterates a
+     * BTreeMap), so positional indexing would mispair values with legs on multi-leg orders. Every leg
+     * has its own key, so no two legs share a value. Absent slots are still returned (with an empty
+     * value), so a matching key is always expected; reverts if none is found.
      * @param incoming The incoming GET response.
      * @param key The expected storage key (one of the request's keys).
      * @return The raw (RLP-encoded) proof value bytes for that key.
      */
     function _proofValueForKey(IncomingGetResponse calldata incoming, bytes calldata key)
         internal
-        pure
+        view
         returns (bytes calldata)
     {
-        bytes32 want = keccak256(key);
-        uint256 n = incoming.response.values.length;
+        bytes32 slot = keccak256(key);
+        uint256 position;
+        assembly ("memory-safe") {
+            position := tload(slot)
+        }
+        if (position == 0) revert InvalidInput();
+        return incoming.response.values[position - 1].value;
+    }
+
+    /// @dev Clears the transient index `_indexProofValues` wrote, so a later call in the same
+    /// transaction cannot resolve a key against another response's values.
+    function _clearProofValueIndex(bytes32[] memory slots) internal {
+        uint256 n = slots.length;
         for (uint256 j; j < n;) {
-            if (keccak256(incoming.response.values[j].key) == want) return incoming.response.values[j].value;
+            bytes32 slot = slots[j];
+            assembly ("memory-safe") {
+                tstore(slot, 0)
+            }
             unchecked {
                 ++j;
             }
         }
-        revert InvalidInput();
     }
 }

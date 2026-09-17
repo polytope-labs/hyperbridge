@@ -21,7 +21,9 @@ fee are its own, so a completing leg releases only its escrow (SRLabs S3-2), a r
 cannot mark another leg complete (S2-15), and a cancel refunds every leg's remainder. The relayer
 fee pot stays at `_orders[commitment][TRANSACTION_FEES]`, now a `uint256` key in the same slot.
 Source-side cancellation proves `_partialFills[commitment][i]` for each leg, so legs sharing an
-output token get distinct proof keys. Fills with output calldata sweep each output token from the
+output token get distinct proof keys. `onGetResponse` indexes the proven values by key in transient storage,
+cleared before it settles, so each leg finds its value with one lookup: a cancel proof hashes about
+2N keys instead of N(N+1)/2 (at 128 legs, about 2.5M gas instead of 12.2M). Fills with output calldata sweep each output token from the
 dispatcher once.
 
 Getter signatures change: `_orders(bytes32,uint256)`, `_partialFills(bytes32,uint256)` and

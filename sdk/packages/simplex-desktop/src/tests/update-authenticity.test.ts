@@ -5,6 +5,7 @@ import { join } from "node:path"
 import { describe, expect, it, vi } from "vitest"
 import {
 	macApplicationBundlePath,
+	macCodeSigningArguments,
 	macCodeSigningRequirement,
 	macTeamIdFromAppPackage,
 	updateAuthenticityForInstallation,
@@ -59,6 +60,18 @@ describe("desktop update authenticity", () => {
 			"=anchor apple generic and certificate leaf[subject.OU] = ABCDE12345",
 		)
 		expect(result.enabled).toBe(false)
+		expect(
+			macCodeSigningArguments(
+				"/Applications/Simplex.app",
+				"=anchor apple generic and certificate leaf[subject.OU] = ABCDE12345",
+			),
+		).toEqual([
+			"--verify",
+			"--strict",
+			"-R",
+			"=anchor apple generic and certificate leaf[subject.OU] = ABCDE12345",
+			"/Applications/Simplex.app",
+		])
 	})
 
 	it("requires the expected macOS Team ID before enabling updates", () => {

@@ -28,14 +28,12 @@
 		"format": "prettier --write \"{src,scripts}/**/*.{ts,mjs}\"",
 		"typecheck": "tsc --noEmit"
 	},
-	"dependencies": {
-		"electron-updater": "6.8.9"
-	},
 	"devDependencies": {
 		"@biomejs/biome": "^1.9.4",
 		"@hyperbridge/simplex": "workspace:*",
 		"@types/node": "^22.13.5",
 		"electron": "44.3.0",
+		"electron-updater": "6.8.9",
 		"openpgp": "^6.2.2",
 		"playwright-core": "1.63.0",
 		"tar": "7.5.13",

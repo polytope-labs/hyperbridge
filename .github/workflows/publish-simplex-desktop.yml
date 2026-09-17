@@ -269,6 +269,16 @@ jobs:
           -Root packages/simplex-desktop/release
           -PublisherName "$env:SIMPLEX_WINDOWS_PUBLISHER_NAME"
 
+      - name: Verify Windows updater publisher
+        if: needs.prepare.outputs.sign_artifacts == 'true' && runner.os == 'Windows'
+        shell: pwsh
+        env:
+          SIMPLEX_WINDOWS_PUBLISHER_NAME: ${{ vars.SIMPLEX_WINDOWS_PUBLISHER_NAME }}
+        run: >-
+          node packages/simplex-desktop/scripts/verify-windows-update-config.mjs
+          packages/simplex-desktop/release
+          "$env:SIMPLEX_WINDOWS_PUBLISHER_NAME"
+
       - name: Enforce installed-size budget
         run: node packages/simplex-desktop/scripts/package-size.mjs --root packages/simplex-desktop/release --budget-mib ${{ matrix.size_budget_mib }}
 

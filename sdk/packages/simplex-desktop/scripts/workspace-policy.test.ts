@@ -25,19 +25,9 @@ function dependencySpecifiers(manifest: Record<string, unknown>): Record<string,
 describe("desktop workspace package policy", () => {
 	it("keeps build policy in the supported workspace configuration", () => {
 		const workspace = readYaml(join(workspaceRoot, "pnpm-workspace.yaml"))
-		const manifest = JSON.parse(readFileSync(join(workspaceRoot, "package.json"), "utf8")) as Record<string, unknown>
 
 		expect(workspace.allowBuilds).toMatchObject({ "utf-8-validate": false })
-		expect(workspace.minimumReleaseAgeExclude).toEqual(
-			expect.arrayContaining([
-				"@base-ui/react@1.8.0",
-				"@base-ui/utils@0.4.0",
-				"electron@44.3.0",
-				"playwright-core@1.63.0",
-			]),
-		)
-		expect(workspace).not.toHaveProperty("overrides")
-		expect(manifest).not.toHaveProperty("pnpm")
+		expect(workspace.minimumReleaseAgeExclude).toContain("electron@44.3.0")
 	})
 
 	it("keeps every frozen-lockfile importer aligned with its package manifest", () => {

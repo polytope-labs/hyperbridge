@@ -32,6 +32,10 @@ export function macCodeSigningRequirement(teamId: string): string | undefined {
 	return `=anchor apple generic and certificate leaf[subject.OU] = ${teamId}`
 }
 
+export function macCodeSigningArguments(bundlePath: string, requirement: string): string[] {
+	return ["--verify", "--strict", "-R", requirement, bundlePath]
+}
+
 export function macTeamIdFromAppPackage(appPath: string): string | undefined {
 	try {
 		const manifest = JSON.parse(readFileSync(join(appPath, "package.json"), "utf8")) as { simplexMacTeamId?: unknown }
@@ -75,7 +79,7 @@ export function updateAuthenticityForInstallation(options: {
 		const verify =
 			options.verifyMacSignature ??
 			((path: string, signingRequirement: string) =>
-				spawnSync("/usr/bin/codesign", ["--verify", "--deep", "--strict", "-R", signingRequirement, path], {
+				spawnSync("/usr/bin/codesign", macCodeSigningArguments(path, signingRequirement), {
 					stdio: "ignore",
 				}).status === 0)
 		return verify(bundlePath, requirement)

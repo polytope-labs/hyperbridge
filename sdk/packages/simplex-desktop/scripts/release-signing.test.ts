@@ -1,10 +1,11 @@
 import { createRequire } from "node:module"
-import { mkdtemp, readFile, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it, vi } from "vitest"
 import { notarytoolArguments } from "./notarize-macos-dmg.mjs"
 import { entitlementKeys, teamIdentifier } from "./verify-macos-signatures.mjs"
+import { assertWindowsUpdatePublisher, verifyWindowsUpdateConfig } from "./verify-windows-update-config.mjs"
 
 const require = createRequire(import.meta.url)
 const {
@@ -153,6 +154,23 @@ describe("desktop release signing", () => {
 				timestampDigest: "SHA256",
 			},
 		})
+	})
+
+	it("requires the packaged Windows updater configuration to retain the trusted publisher", async () => {
+		expect(assertWindowsUpdatePublisher('publisherName: "Polytope Labs"\n', "Polytope Labs")).toEqual([
+			"Polytope Labs",
+		])
+		expect(() => assertWindowsUpdatePublisher("provider: github\n", "Polytope Labs")).toThrow(/publisher/)
+		expect(() => assertWindowsUpdatePublisher('publisherName: "Someone Else"\n', "Polytope Labs")).toThrow(
+			/Polytope Labs/,
+		)
+
+		const root = await mkdtemp(join(tmpdir(), "simplex-windows-update-config-"))
+		const resources = join(root, "win-unpacked", "resources")
+		await mkdir(resources, { recursive: true })
+		const config = join(resources, "app-update.yml")
+		await writeFile(config, 'publisherName: "Polytope Labs"\n')
+		await expect(verifyWindowsUpdateConfig(root, "Polytope Labs")).resolves.toBe(config)
 	})
 
 	it("signs the Windows Node runtime after staging and rejects a skipped signature", async () => {

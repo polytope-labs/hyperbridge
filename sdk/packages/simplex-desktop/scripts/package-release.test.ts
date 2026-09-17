@@ -204,6 +204,9 @@ describe("desktop package and release layout", () => {
 		}
 
 		await expect(assertReleaseAssets(directory, version)).resolves.toBeUndefined()
+		await writeFile(join(directory, "stale-release-asset.txt"), "stale")
+		await expect(assertReleaseAssets(directory, version)).rejects.toThrow(/Unexpected release assets/)
+		await unlink(join(directory, "stale-release-asset.txt"))
 		await writeFile(join(directory, `Simplex-${version}-mac-arm64.zip`), "tampered")
 		await expect(assertReleaseAssets(directory, version)).rejects.toThrow(/invalid SHA-512/)
 		await writeFile(join(directory, `Simplex-${version}-mac-arm64.zip`), `Simplex-${version}-mac-arm64.zip`)

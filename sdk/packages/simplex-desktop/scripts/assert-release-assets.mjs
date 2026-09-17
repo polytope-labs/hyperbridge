@@ -17,6 +17,11 @@ export async function assertReleaseAssets(directory, version) {
 	for (const name of required) await access(join(directory, name))
 
 	const available = new Set(await readdir(directory))
+	const expected = new Set(required)
+	const unexpected = [...available].filter((name) => !expected.has(name)).sort()
+	if (unexpected.length > 0) {
+		throw new Error(`Unexpected release assets: ${unexpected.join(", ")}`)
+	}
 	const checksums = new Map()
 	for (const metadataName of required.filter((name) => name.endsWith(".yml"))) {
 		const metadata = parse(await readFile(join(directory, metadataName), "utf8"))

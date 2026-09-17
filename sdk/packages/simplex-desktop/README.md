@@ -203,17 +203,94 @@ roughly five percent growth headroom while still catching accidental duplication
 
 Pull requests that change desktop packaging run the complete native matrix before merge. Pushing the
 exact package-version tag, for example `simplex-desktop-v0.16.2`, runs the same matrix for macOS arm64
-and x64 DMG plus updater ZIP, Windows x64 NSIS, and Linux x64 and arm64 AppImage plus deb. The workflow
-smoke-tests each unpacked application and each artifact through its private socket. It mounts the
-macOS DMG, extracts the updater ZIP, silently installs NSIS and deb packages, and launches the
-AppImage executable (using its self-extract runtime only when hosted-runner FUSE is unavailable);
-local Linux runs extract the deb instead of modifying the host.
-It verifies the packaged setup UI and also launches the packaged Node/solver pair with captured
-stderr so startup warnings fail the build. It recomputes every updater SHA-512, validates the
-complete asset set, and attaches the installers and matching `latest` or `beta` channel metadata to
-a draft GitHub release. Desktop tags are separate from `simplex-v*`, so they do not publish npm or
-Docker artifacts. The release stays private until #1239 supplies macOS and Windows signing and Linux
-has independently signed update metadata.
+and x64 DMG plus updater ZIP, Windows x64 NSIS, and Linux x64 and arm64 AppImage plus deb. Pull-request
+builds and default manual runs are explicitly unsigned. A signed manual run or tag build instead fails
+before packaging unless its native signing environment is complete; an unsigned release artifact can
+never be used as a fallback.
+
+The workflow smoke-tests each unpacked application and each artifact through its private socket. It
+mounts the macOS DMG, extracts the updater ZIP, silently installs NSIS and deb packages, and launches
+the AppImage executable (using its self-extract runtime only when hosted-runner FUSE is unavailable);
+local Linux runs extract the deb instead of modifying the host. It verifies the packaged setup UI and
+also launches the packaged Node/solver pair with captured stderr so startup warnings fail the build.
+It drives packaged onboarding through config creation and a fail-closed offline boot, recomputes every
+updater SHA-512, and validates the exact asset set. The macOS jobs additionally require the app,
+Electron helpers, bundled Node, and DMG to have the expected Developer ID team, the app, helpers, and
+Node to have exactly the two JIT entitlements, the app and DMG to pass Gatekeeper assessment, and the app to have a stapled
+notarization ticket. The signed DMG is separately submitted to `notarytool` as the outer distribution
+container and must also carry a valid stapled ticket. The Windows job
+requires valid, timestamped Authenticode signatures from the configured publisher on every packaged
+executable, including `Simplex.exe`, the bundled `node.exe`, and the NSIS installer.
+
+Only after every native job passes does CI publish the GitHub release. A failed upload remains a draft,
+and CI refuses to mutate an already-public release. Desktop tags are separate from `simplex-v*`, so
+they do not publish npm or Docker artifacts. Linux packages are public for manual installation, but
+Linux automatic updates remain disabled until channel metadata has an independent signature.
+
+### Release signing configuration
+
+macOS releases use a Developer ID Application certificate, hardened runtime, and Apple's `notarytool`.
+The app and bundled Node runtime receive only
+`com.apple.security.cs.allow-jit` and
+`com.apple.security.cs.allow-unsigned-executable-memory`; automatic entitlement expansion is disabled.
+Store these as secrets in a GitHub Actions environment named `simplex-desktop-release`:
+
+- `SIMPLEX_MACOS_CERTIFICATE_P12`: base64-encoded Developer ID Application `.p12`;
+- `SIMPLEX_MACOS_CERTIFICATE_PASSWORD`: export password for that `.p12`;
+- `SIMPLEX_APPLE_API_KEY_P8_BASE64`: base64-encoded App Store Connect API `.p8` key;
+- `SIMPLEX_APPLE_API_KEY_ID`, `SIMPLEX_APPLE_API_ISSUER`, and `SIMPLEX_APPLE_TEAM_ID`.
+
+Windows releases use Azure Trusted Signing. Store its workload identity as secrets in the same
+`simplex-desktop-release` environment:
+
+- `SIMPLEX_AZURE_TENANT_ID`;
+- `SIMPLEX_AZURE_CLIENT_ID`;
+- `SIMPLEX_AZURE_CLIENT_SECRET`.
+
+Store the non-secret Trusted Signing resource identity as variables in that environment:
+
+- `SIMPLEX_WINDOWS_PUBLISHER_NAME`, exactly matching the certificate's simple subject name;
+- `SIMPLEX_AZURE_SIGNING_ENDPOINT`, an HTTPS `*.codesigning.azure.net` endpoint;
+- `SIMPLEX_AZURE_SIGNING_ACCOUNT_NAME`;
+- `SIMPLEX_AZURE_CERTIFICATE_PROFILE_NAME`.
+
+Configure the `simplex-desktop-release` environment to allow only the `main` branch and tags matching
+`simplex-desktop-v*`, and require release-maintainer approval. Unsigned builds use a separate,
+secretless `simplex-desktop-ci` environment. The workflow never uses signing secrets for
+`pull_request`, including fork pull requests. A manual
+dispatch is unsigned by default; a maintainer can explicitly enable `sign_artifacts` on `main` to
+exercise the complete credentialed pipeline and download its private workflow artifacts without
+publishing a release. Credentialed dispatches from other refs fail before any secret-bearing step. A
+pushed `simplex-desktop-v*` tag always enables signing and is the only event that publishes; CI also
+requires the tagged commit to belong to `origin/main`. Protect this tag namespace with a repository
+ruleset so only release maintainers can create or delete matching tags. Keep the signing values out of
+repository-level secrets: environment branch/tag rules cannot protect repository secrets.
+To rotate credentials, provision the replacement at Apple or Microsoft first, update the corresponding
+environment secrets (and variables if the Azure resource identity changed), run a signed manual dispatch,
+and revoke the old certificate, API key, or service-principal secret only after both native signature
+jobs and clean-machine installation checks pass. Never reuse or move an existing release tag.
+
+Apple Developer Program enrollment, creation of the Developer ID certificate and App Store Connect
+key, and creation of the Azure Trusted Signing account/profile are operational prerequisites. Download
+the artifacts from a signed manual dispatch, install the DMG on a clean macOS account and the NSIS
+installer on a clean Windows VM, complete onboarding with live credentials, and perform a real fill
+before creating the public tag. The macOS CI job already runs `spctl`; the Windows VM check is still
+required to observe SmartScreen reputation, which cannot be established by inspecting an
+Authenticode signature alone.
+
+Once the secrets and variables exist on the repository, start the private validation run from the
+merged revision with:
+
+```sh
+gh workflow run publish-simplex-desktop.yml --ref main -f sign_artifacts=true
+```
+
+Download the `simplex-desktop-darwin-*` and `simplex-desktop-win32-x64` artifacts from that run for
+the clean-machine checks. On the Mac, verify the installed copy with
+`spctl --assess --type execute --verbose=4 /Applications/Simplex.app`. On Windows, retain a screenshot
+of the SmartScreen result and use `Get-AuthenticodeSignature` on every installed `.exe`, including
+the installer, `Simplex.exe`, and `resources\runtime\node.exe`; each must report `Valid`, the
+configured publisher, and a timestamp.
 
 ## Updates and rollback
 

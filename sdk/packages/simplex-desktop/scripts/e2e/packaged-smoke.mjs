@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process"
 import { existsSync } from "node:fs"
-import { mkdtemp, readFile, readdir, realpath, rm } from "node:fs/promises"
+import { mkdtemp, readFile, readdir, realpath, rm, stat } from "node:fs/promises"
 import { request as httpRequest } from "node:http"
 import { tmpdir } from "node:os"
 import { basename, join, resolve } from "node:path"
@@ -10,10 +10,20 @@ import { daemonArgs } from "../../src/daemon.ts"
 import { socketPathFor } from "../../src/desktop-paths.ts"
 import { installedAppDirectories } from "../package-size.mjs"
 
-function socketRequest(socketPath, path, method = "GET") {
+function socketRequest(socketPath, path, method = "GET", body = undefined) {
 	return new Promise((resolveRequest, reject) => {
+		const encodedBody = body === undefined ? undefined : Buffer.from(JSON.stringify(body))
+		const headers =
+			method === "GET"
+				? undefined
+				: {
+						"X-Simplex-UI": "1",
+						...(encodedBody
+							? { "Content-Type": "application/json", "Content-Length": String(encodedBody.byteLength) }
+							: {}),
+					}
 		const request = httpRequest(
-			{ socketPath, path, method, headers: method === "GET" ? undefined : { "X-Simplex-UI": "1" } },
+			{ socketPath, path, method, headers },
 			(response) => {
 				const chunks = []
 				response.on("data", (chunk) => chunks.push(chunk))
@@ -23,7 +33,7 @@ function socketRequest(socketPath, path, method = "GET") {
 			},
 		)
 		request.on("error", reject)
-		request.end()
+		request.end(encodedBody)
 	})
 }
 
@@ -130,6 +140,55 @@ async function assertCleanSolverStartup(userData) {
 	}
 }
 
+const PACKAGED_SETUP_KEY = "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"
+
+async function assertPackagedOnboarding(socketPath, userData) {
+	const configPath = join(userData, "filler-config.toml")
+	const config = {
+		simplex: {
+			signer: { type: "privateKey", key: PACKAGED_SETUP_KEY },
+			maxConcurrentOrders: 1,
+			substratePrivateKey: "bottom drive obey lake curtain smoke basket hold race lonely fit walk",
+			hyperbridgeWsUrl: "ws://127.0.0.1:9",
+		},
+		pairs: [
+			{
+				token0: "USDC",
+				token1: "USDC",
+				maxOrderSize: "100000",
+				askPriceCurve: [
+					{ amount: "100", price: "0.99" },
+					{ amount: "100000", price: "0.999" },
+				],
+			},
+		],
+		chains: [{ rpcUrls: ["http://127.0.0.1:9"], bundlerUrl: "http://127.0.0.1:9" }],
+	}
+	const response = await socketRequest(socketPath, "/api/setup/save-and-start", "POST", { config })
+	if (response.status !== 202) {
+		throw new Error(`Packaged setup rejected config: ${response.status} ${response.body}`)
+	}
+	const result = JSON.parse(response.body)
+	if (result.configPath !== configPath) {
+		throw new Error(`Packaged setup wrote ${result.configPath}, expected ${configPath}`)
+	}
+	await waitFor(() => existsSync(configPath), "packaged first-run config")
+	const written = await readFile(configPath, "utf8")
+	if (!written.includes("WARNING: contains secrets") || !written.includes(PACKAGED_SETUP_KEY)) {
+		throw new Error("Packaged first-run config is incomplete")
+	}
+	if (process.platform !== "win32" && ((await stat(configPath)).mode & 0o777) !== 0o600) {
+		throw new Error("Packaged first-run config is not mode 0600")
+	}
+	await waitFor(async () => {
+		const status = await socketRequest(socketPath, "/api/setup/start-status")
+		if (status.status !== 200) return false
+		const state = JSON.parse(status.body).state
+		if (state === "running") throw new Error("Offline packaged setup unexpectedly entered operator mode")
+		return state === "failed"
+	}, "offline packaged setup attempt to fail closed")
+}
+
 export async function smokePackagedApp(appDirectory, options = {}) {
 	await assertDirectSolverStartup(appDirectory)
 	const userData = await realpath(await mkdtemp(join(tmpdir(), "simplex-packaged-smoke-")))
@@ -169,6 +228,7 @@ export async function smokePackagedApp(appDirectory, options = {}) {
 			throw new Error(`Packaged setup wizard is unavailable: ${wizard.status}`)
 		}
 		await assertCleanSolverStartup(userData)
+		await assertPackagedOnboarding(socketPath, userData)
 		const stop = await socketRequest(socketPath, "/api/stop", "POST")
 		if (stop.status !== 202) throw new Error(`Packaged solver rejected shutdown: ${stop.status} ${stop.body}`)
 		await waitFor(async () => {
@@ -179,7 +239,7 @@ export async function smokePackagedApp(appDirectory, options = {}) {
 				return true
 			}
 		}, "packaged solver shutdown")
-		process.stdout.write(`Packaged smoke passed for ${basename(appDirectory)} (${health.mode})\n`)
+		process.stdout.write(`Packaged smoke passed setup, config write, and fail-closed boot for ${basename(appDirectory)}\n`)
 	} finally {
 		await stopProcess(child)
 		await rm(userData, { recursive: true, force: true, maxRetries: 10, retryDelay: 250 })

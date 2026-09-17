@@ -19,7 +19,8 @@ extraResources:
       to: desktop/tray
 
 # The hook selects the independently verified Node slice for the target
-# architecture. It runs before signing, so #1239 can cover the child executable.
+# architecture. Signed Windows releases also sign the staged child executable
+# here because it is added after electron-builder's extra-resource copy pass.
 afterPack: scripts/after-pack.cjs
 
 artifactName: ${productName}-${version}-${os}-${arch}.${ext}
@@ -40,7 +41,7 @@ win:
     icon: resources/tray/app.png
     target:
         - nsis
-    # app-update.yml records the configured publisher once #1239 adds signing.
+    # Signed release configuration supplies the publisher used by the updater.
     verifyUpdateCodeSignature: true
 
 nsis:

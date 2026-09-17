@@ -72,19 +72,19 @@ reads (on this one it selects no function and reverts, `testLegacyUpgradeBodyIsR
 message itself must pass the relayer gate of the implementation it reaches, which is why an unset
 relayer gates nothing: `testFreshProxyIsOpenUntilGovernanceArmsIt` plays both halves on a proxy
 initialized with a zero relayer. `testExecuteRotatesRelayerWithoutUpgrade` and the live-fork test's
-rotation after the migration pin the `Execute` path. The implementation has an owner, kept at the ERC-7201 slot
-`hyperbridge.storage.IntentGatewayV2.Ownership` rather than in `IntentsBase`, so the modules never
-read it. Its only power is `pause`/`unpause`. While `_paused` is set, `placeOrder`, `fillOrder` and
+rotation after the migration pin the `Execute` path. The implementation has an owner: `IntentGatewayV2` inherits OpenZeppelin's
+`Ownable2StepUpgradeable`, whose storage sits at ERC-7201 namespaced slots rather than in
+`IntentsBase`, so the modules never read it. Its only power is `pause`/`unpause`. While `_paused` is set, `placeOrder`, `fillOrder` and
 `onGetResponse` revert `EnforcedPause`, and so does `onAccept` for any request whose source is not
 Hyperbridge itself; the implementation checks before delegatecalling. A refused delivery reverts,
 so the host deletes its receipt and the relayer can resubmit after `unpause`; gateway requests are
 dispatched with no timeout. Governance deliveries and `cancelOrder` are not paused
 (`testPauseStopsPlacementFillsAndEscrowDeliveries`).
-Ownership moves in two steps, `transferOwnership` then `acceptOwnership`; the host may also
-propose, which governance reaches as an `Execute` carrying
-`upgradeToAndCall(currentImplementation, transferOwnership(next))`
-(`testGovernanceReplacesTheOwnerThroughExecute`). A fresh proxy is armed by its init data:
-`initialize` takes the relayer and the owner, writes them through `_setRelayer` and `_setOwner`,
+Ownership moves in two steps, `transferOwnership` then `acceptOwnership`. `_checkOwner` also
+accepts the host, so governance can pause, resume or propose an owner with an `Execute` carrying
+`upgradeToAndCall(currentImplementation, call)` (`testGovernanceReplacesTheOwnerThroughExecute`,
+`testHostCountsAsOwner`). A fresh proxy is armed by its init data: `initialize` takes the relayer
+and the owner, writes them through `_setRelayer` and `__Ownable_init`,
 and lands at `VERSION` (3) under `reinitializer`, emitting `RelayerUpdated`, `OwnershipTransferred`
 then `Initialized(3)`; it is refused on any proxy already at a version. A proxy on the previous
 implementation sits at 2 until the upgrade whose init data is `abi.encodeCall(migrate, (owner))`,

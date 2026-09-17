@@ -254,6 +254,12 @@ interface IIntentGatewayV2 {
     /// @notice Thrown by `placeOrder`, `fillOrder` and escrow deliveries while the gateway is paused.
     error EnforcedPause();
 
+    /// @notice Thrown when an owner-only function is called by anyone but the owner or the host.
+    error OwnableUnauthorizedAccount(address account);
+
+    /// @notice Thrown when `initialize` or `migrate` is given a zero owner.
+    error OwnableInvalidOwner(address owner);
+
     // ============================================
     // Events
     // ============================================
@@ -383,15 +389,17 @@ interface IIntentGatewayV2 {
     event RelayerUpdated(address previous, address current);
 
     /**
-     * @notice Emitted when the owner or the host proposes a new owner; the transfer completes when
-     *         `newOwner` calls `acceptOwnership`. A proposal of zero withdraws a pending one.
+     * @notice Emitted when the owner or the host proposes a new owner (OpenZeppelin
+     *         `Ownable2StepUpgradeable`); the transfer completes when `newOwner` calls
+     *         `acceptOwnership`. A proposal of zero withdraws a pending one.
      * @param previousOwner The current owner
      * @param newOwner The proposed owner
      */
     event OwnershipTransferStarted(address indexed previousOwner, address indexed newOwner);
 
     /**
-     * @notice Emitted when the owner is set, by `initialize`, `migrate` or `acceptOwnership`.
+     * @notice Emitted when the owner is set, by `initialize`, `migrate`, `acceptOwnership` or
+     *         `renounceOwnership`.
      * @param previousOwner The owner before this change
      * @param newOwner The owner from now on
      */
@@ -498,6 +506,9 @@ interface IIntentGatewayV2 {
     /// @notice Completes a proposed ownership transfer. Callable only by the pending owner.
     function acceptOwnership() external;
 
+    /// @notice Clears the owner. Owner or host; governance can propose a new one afterwards.
+    function renounceOwnership() external;
+
     /**
      * @notice Whether the gateway is paused: `placeOrder`, `fillOrder`, and escrow redemptions,
      *         refunds and cancel proofs delivered by Hyperbridge revert `EnforcedPause`. Governance
@@ -507,10 +518,10 @@ interface IIntentGatewayV2 {
      */
     function paused() external view returns (bool);
 
-    /// @notice Pauses the gateway. Owner-only.
+    /// @notice Pauses the gateway. Callable by the owner or the host.
     function pause() external;
 
-    /// @notice Resumes the gateway. Owner-only.
+    /// @notice Resumes the gateway. Callable by the owner or the host.
     function unpause() external;
 
     /**

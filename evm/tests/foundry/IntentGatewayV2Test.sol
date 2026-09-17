@@ -39,6 +39,8 @@ import {HyperApp} from "@hyperbridge/core/apps/HyperApp.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {ERC1967Utils} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Utils.sol";
 import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
+import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 import {ICallDispatcher, Call} from "@hyperbridge/core/interfaces/ICallDispatcher.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
@@ -5230,10 +5232,13 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
     // Owner and placement pause
     // ============================================
 
-    /// @dev The ownership record's ERC-7201 slot, derived independently of the contract.
+    /// @dev OpenZeppelin `OwnableUpgradeable`'s ERC-7201 slot, derived independently of the library.
     function _ownershipSlot() internal pure returns (bytes32) {
-        return keccak256(abi.encode(uint256(keccak256("hyperbridge.storage.IntentGatewayV2.Ownership")) - 1))
-            & ~bytes32(uint256(0xff));
+        return keccak256(abi.encode(uint256(keccak256("openzeppelin.storage.Ownable")) - 1)) & ~bytes32(uint256(0xff));
+    }
+
+    function _notOwner(address account) internal pure returns (bytes memory) {
+        return abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, account);
     }
 
     function testInitializeSetsTheOwnerAtItsNamespacedSlot() public view {
@@ -5249,7 +5254,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
     function testInitializeRejectsAZeroOwner() public {
         IntentGatewayV2 gateway = _deployGatewayProxy();
-        vm.expectRevert(IntentsBase.InvalidInput.selector);
+        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableInvalidOwner.selector, address(0)));
         gateway.initialize(_openParams(), new bytes[](0), address(0), address(0));
     }
 
@@ -5259,11 +5264,11 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         address next = makeCleanAddr("migratedOwner");
 
         vm.prank(address(host));
-        vm.expectRevert(IntentsBase.InvalidInput.selector);
+        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableInvalidOwner.selector, address(0)));
         gateway.migrate(address(0));
 
         vm.expectEmit(true, true, true, true, address(gateway));
-        emit IntentGatewayV2.OwnershipTransferred(address(this), next);
+        emit OwnableUpgradeable.OwnershipTransferred(address(this), next);
         vm.prank(address(host));
         gateway.migrate(next);
 
@@ -5275,28 +5280,28 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         address next = makeCleanAddr("nextOwner");
 
         vm.prank(user);
-        vm.expectRevert(IntentsBase.Unauthorized.selector);
+        vm.expectRevert(_notOwner(user));
         intentGateway.transferOwnership(user);
 
         vm.expectEmit(true, true, true, true, address(intentGateway));
-        emit IntentGatewayV2.OwnershipTransferStarted(address(this), next);
+        emit Ownable2StepUpgradeable.OwnershipTransferStarted(address(this), next);
         intentGateway.transferOwnership(next);
         assertEq(intentGateway.owner(), address(this), "unchanged until accepted");
         assertEq(intentGateway.pendingOwner(), next, "proposal pending");
 
         vm.prank(user);
-        vm.expectRevert(IntentsBase.Unauthorized.selector);
+        vm.expectRevert(_notOwner(user));
         intentGateway.acceptOwnership();
 
         vm.expectEmit(true, true, true, true, address(intentGateway));
-        emit IntentGatewayV2.OwnershipTransferred(address(this), next);
+        emit OwnableUpgradeable.OwnershipTransferred(address(this), next);
         vm.prank(next);
         intentGateway.acceptOwnership();
         assertEq(intentGateway.owner(), next, "accepted");
         assertEq(intentGateway.pendingOwner(), address(0), "proposal cleared");
 
         // The previous owner keeps no power.
-        vm.expectRevert(IntentsBase.Unauthorized.selector);
+        vm.expectRevert(_notOwner(address(this)));
         intentGateway.pause();
     }
 
@@ -5306,9 +5311,29 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         intentGateway.transferOwnership(address(0));
 
         vm.prank(next);
-        vm.expectRevert(IntentsBase.Unauthorized.selector);
+        vm.expectRevert(_notOwner(next));
         intentGateway.acceptOwnership();
         assertEq(intentGateway.owner(), address(this), "owner unchanged");
+    }
+
+    /// The host counts as the owner, so governance can pause, resume, and recover from a renounced owner.
+    function testHostCountsAsOwner() public {
+        vm.prank(address(host));
+        intentGateway.pause();
+        assertTrue(intentGateway.paused(), "host paused");
+        vm.prank(address(host));
+        intentGateway.unpause();
+        assertFalse(intentGateway.paused(), "host resumed");
+
+        intentGateway.renounceOwnership();
+        assertEq(intentGateway.owner(), address(0), "renounced");
+
+        address next = makeCleanAddr("recoveredOwner");
+        vm.prank(address(host));
+        intentGateway.transferOwnership(next);
+        vm.prank(next);
+        intentGateway.acceptOwnership();
+        assertEq(intentGateway.owner(), next, "recovered through the host");
     }
 
     /// Governance replaces the owner without the owner key: an `Execute` carrying
@@ -5316,8 +5341,9 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
     function testGovernanceReplacesTheOwnerThroughExecute() public {
         address next = makeCleanAddr("governanceOwner");
         address impl = _implementationOf(address(intentGateway));
-        PostRequest memory request =
-            _upgradeRequest(host.hyperbridge(), impl, abi.encodeCall(IntentGatewayV2.transferOwnership, (next)));
+        PostRequest memory request = _upgradeRequest(
+            host.hyperbridge(), impl, abi.encodeCall(Ownable2StepUpgradeable.transferOwnership, (next))
+        );
 
         vm.prank(address(host));
         intentGateway.onAccept(IncomingPostRequest({relayer: relayer, request: request}));
@@ -5369,7 +5395,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         PostRequest memory rotate = _rotateRequest(next);
 
         vm.prank(user);
-        vm.expectRevert(IntentsBase.Unauthorized.selector);
+        vm.expectRevert(_notOwner(user));
         intentGateway.pause();
 
         vm.expectEmit(true, true, true, true, address(intentGateway));
@@ -5406,7 +5432,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         assertEq(usdc.balanceOf(user) - before, 1000 * 1e6, "cancellations continue while paused");
 
         vm.prank(user);
-        vm.expectRevert(IntentsBase.Unauthorized.selector);
+        vm.expectRevert(_notOwner(user));
         intentGateway.unpause();
 
         vm.expectEmit(true, true, true, true, address(intentGateway));

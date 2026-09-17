@@ -25,6 +25,7 @@ import {IDispatcher} from "@hyperbridge/core/interfaces/IDispatcher.sol";
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
+import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
@@ -64,10 +65,11 @@ import {
  *
  * Module addresses are immutables, so a module upgrade is an ordinary implementation upgrade.
  * Governance reaches `upgradeToAndCall` and `setRelayer` on the extrinsic module through
- * `Execute`; neither is on this contract. The owner, held here at a namespaced slot, can only
- * pause and resume the gateway.
+ * `Execute`; neither is on this contract. The owner (OpenZeppelin's `Ownable2StepUpgradeable`,
+ * kept at its ERC-7201 namespaced slots, so neither `IntentsBase`'s layout nor the modules see it)
+ * can only pause and resume the gateway.
  */
-contract IntentGatewayV2 is IntentsBase, HyperApp, ReentrancyGuardTransient, Initializable {
+contract IntentGatewayV2 is IntentsBase, HyperApp, ReentrancyGuardTransient, Initializable, Ownable2StepUpgradeable {
     using SafeERC20 for IERC20;
 
     /// @dev Same-chain fills and cancels.
@@ -81,28 +83,6 @@ contract IntentGatewayV2 is IntentsBase, HyperApp, ReentrancyGuardTransient, Ini
     /// a `migrate`.
     uint64 private constant VERSION = 3;
 
-    /// @dev The gateway's owner and the account a transfer is waiting on. Kept at an ERC-7201
-    /// namespaced slot rather than in `IntentsBase`'s sequential layout: only this contract reads
-    /// it, so the modules never see it, and fields appended to `IntentsBase` can never shift it.
-    /// @custom:storage-location erc7201:hyperbridge.storage.IntentGatewayV2.Ownership
-    struct Ownership {
-        address owner;
-        address pendingOwner;
-    }
-
-    /// @dev keccak256(abi.encode(uint256(keccak256("hyperbridge.storage.IntentGatewayV2.Ownership")) - 1))
-    /// & ~bytes32(uint256(0xff))
-    bytes32 private constant OWNERSHIP_LOCATION = 0x3cbc14a150d875ab07607477e27092ec5465d573343d00d0980d7d15d5f0fc00;
-
-    /**
-     * @dev Emitted when the owner or the host proposes `newOwner`. The transfer completes when
-     * `newOwner` calls `acceptOwnership`; a proposal of zero withdraws a pending one.
-     */
-    event OwnershipTransferStarted(address indexed previousOwner, address indexed newOwner);
-
-    /// @dev Emitted when the owner is set, by `initialize`, `migrate` or `acceptOwnership`.
-    event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
-
     /// @dev Emitted when the owner pauses the gateway.
     event Paused(address account);
 
@@ -111,12 +91,6 @@ contract IntentGatewayV2 is IntentsBase, HyperApp, ReentrancyGuardTransient, Ini
 
     /// @dev Thrown by `placeOrder`, `fillOrder` and escrow deliveries while the gateway is paused.
     error EnforcedPause();
-
-    /// @dev Reverts unless called by the owner.
-    modifier onlyOwner() {
-        if (msg.sender != _ownership().owner) revert Unauthorized();
-        _;
-    }
 
     /**
      * @dev Sets the EIP-712 domain ("IntentGateway", "2"), records the modules, and locks this raw
@@ -217,27 +191,19 @@ contract IntentGatewayV2 is IntentsBase, HyperApp, ReentrancyGuardTransient, Ini
         _validateParams(p);
         _params = p;
         _setRelayer(relayer_);
-        _setOwner(owner_);
+        __Ownable_init(owner_);
+        __Ownable2Step_init();
     }
 
     /**
      * @dev Takes a proxy from an earlier implementation to `VERSION` and sets its owner. Host-only
      * and one-shot; delivered as the calldata of the upgrade that installs this implementation.
-     * The storage layout is unchanged: the owner lives at its own namespaced slot.
+     * The storage layout is unchanged: the owner lives at OpenZeppelin's namespaced slots.
      * @param owner_ The owner, who may pause the gateway. Must be non-zero.
      */
     function migrate(address owner_) external onlyHost reinitializer(VERSION) {
-        _setOwner(owner_);
-    }
-
-    /// @dev The owner, who may pause and resume the gateway.
-    function owner() external view returns (address) {
-        return _ownership().owner;
-    }
-
-    /// @dev The account a proposed ownership transfer is waiting on, or zero.
-    function pendingOwner() external view returns (address) {
-        return _ownership().pendingOwner;
+        __Ownable_init(owner_);
+        __Ownable2Step_init();
     }
 
     /// @dev Whether the gateway is paused, see `pause`.
@@ -246,26 +212,14 @@ contract IntentGatewayV2 is IntentsBase, HyperApp, ReentrancyGuardTransient, Ini
     }
 
     /**
-     * @dev Proposes `newOwner`, who takes over on `acceptOwnership`. Callable by the owner, and by
-     * the host so governance can replace a lost or compromised owner key: `Execute` carrying
-     * `upgradeToAndCall(currentImplementation, transferOwnership(newOwner))`. Zero withdraws a
-     * pending proposal.
-     * @param newOwner The proposed owner.
+     * @dev The host counts as the owner, so governance can pause, resume, or replace a lost or
+     * compromised owner key: an `Execute` carrying `upgradeToAndCall(currentImplementation, call)`
+     * runs `call` here with the host still `msg.sender`. The host makes no other calls into the
+     * gateway, so this opens nothing to anyone else.
      */
-    function transferOwnership(address newOwner) external {
-        Ownership storage $ = _ownership();
-        if (msg.sender != $.owner && msg.sender != host()) revert Unauthorized();
-        $.pendingOwner = newOwner;
-        emit OwnershipTransferStarted($.owner, newOwner);
-    }
-
-    /// @dev Completes a transfer proposed by `transferOwnership`. Callable only by the pending owner.
-    function acceptOwnership() external {
-        Ownership storage $ = _ownership();
-        if (msg.sender != $.pendingOwner) revert Unauthorized();
-        emit OwnershipTransferred($.owner, msg.sender);
-        $.owner = msg.sender;
-        delete $.pendingOwner;
+    function _checkOwner() internal view override {
+        address sender = _msgSender();
+        if (sender != owner() && sender != host()) revert OwnableUnauthorizedAccount(sender);
     }
 
     /**
@@ -284,22 +238,6 @@ contract IntentGatewayV2 is IntentsBase, HyperApp, ReentrancyGuardTransient, Ini
     function unpause() external onlyOwner {
         _paused = false;
         emit Unpaused(msg.sender);
-    }
-
-    /// @dev Sets the owner directly, clearing any pending transfer. Used by `initialize` and `migrate`.
-    function _setOwner(address owner_) private {
-        if (owner_ == address(0)) revert InvalidInput();
-        Ownership storage $ = _ownership();
-        emit OwnershipTransferred($.owner, owner_);
-        $.owner = owner_;
-        delete $.pendingOwner;
-    }
-
-    /// @dev The ownership record at its namespaced slot.
-    function _ownership() private pure returns (Ownership storage $) {
-        assembly {
-            $.slot := OWNERSHIP_LOCATION
-        }
     }
 
     /**

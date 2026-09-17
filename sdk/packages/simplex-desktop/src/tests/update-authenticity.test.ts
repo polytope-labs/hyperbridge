@@ -3,7 +3,7 @@ import { mkdtemp } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it, vi } from "vitest"
-import { updateAuthenticityForInstallation } from "../update-authenticity"
+import { macApplicationBundlePath, updateAuthenticityForInstallation } from "../update-authenticity"
 
 async function resources(config?: string): Promise<string> {
 	const directory = await mkdtemp(join(tmpdir(), "simplex-update-authenticity-"))
@@ -13,6 +13,12 @@ async function resources(config?: string): Promise<string> {
 }
 
 describe("desktop update authenticity", () => {
+	it("resolves macOS bundles independently of the test host", () => {
+		expect(macApplicationBundlePath("/Applications/Simplex.app/Contents/MacOS/Simplex")).toBe(
+			"/Applications/Simplex.app",
+		)
+	})
+
 	it("disables Windows updates when publisher verification is absent", async () => {
 		const result = updateAuthenticityForInstallation({
 			packaged: true,

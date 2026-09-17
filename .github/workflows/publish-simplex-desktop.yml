@@ -101,18 +101,23 @@ jobs:
           - target: darwin-arm64
             runner: macos-latest
             builder_args: --mac --arm64
+            size_budget_mib: 520
           - target: darwin-x64
             runner: macos-15-intel
             builder_args: --mac --x64
+            size_budget_mib: 520
           - target: win32-x64
             runner: windows-latest
             builder_args: --win --x64
+            size_budget_mib: 580
           - target: linux-x64
             runner: ubuntu-latest
             builder_args: --linux --x64
+            size_budget_mib: 520
           - target: linux-arm64
             runner: ubuntu-24.04-arm
             builder_args: --linux --arm64
+            size_budget_mib: 520
     defaults:
       run:
         working-directory: sdk
@@ -169,10 +174,7 @@ jobs:
           pnpm --dir packages/simplex-desktop package:smoke:artifacts -- --root release
 
       - name: Enforce installed-size budget
-        # Electron 44's macOS arm64 framework is ~287 MiB by itself. The
-        # first complete package measured 493.3 MiB, so this leaves ~5%
-        # growth headroom while still catching accidental duplication.
-        run: node packages/simplex-desktop/scripts/package-size.mjs --root packages/simplex-desktop/release --budget-mib 520
+        run: node packages/simplex-desktop/scripts/package-size.mjs --root packages/simplex-desktop/release --budget-mib ${{ matrix.size_budget_mib }}
 
       - name: Upload release slice
         uses: actions/upload-artifact@v4

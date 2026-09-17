@@ -196,8 +196,10 @@ pnpm package:smoke:artifacts -- --root release
 node scripts/package-size.mjs --root release --budget-mib 520
 ```
 
-The first complete macOS arm64 package measures about 493 MiB; Electron's framework alone accounts
-for about 287 MiB. The 520 MiB CI limit records that measured baseline with modest growth headroom.
+The first complete macOS arm64 package measures about 495 MiB; Electron's framework alone accounts
+for about 287 MiB. Windows x64 measures about 550 MiB. CI therefore enforces target-specific
+installed-size budgets: 520 MiB for macOS and Linux, and 580 MiB for Windows. Each budget leaves
+roughly five percent growth headroom while still catching accidental duplication.
 
 Pull requests that change desktop packaging run the complete native matrix before merge. Pushing the
 exact package-version tag, for example `simplex-desktop-v0.16.2`, runs the same matrix for macOS arm64

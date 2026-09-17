@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process"
 import { readFileSync } from "node:fs"
-import { dirname, join, resolve } from "node:path"
+import { join, posix } from "node:path"
 import { parse } from "yaml"
 
 export interface UpdateAuthenticity {
@@ -13,6 +13,11 @@ function publisherNames(config: unknown): string[] {
 	const value = (config as { publisherName?: unknown }).publisherName
 	const names = Array.isArray(value) ? value : [value]
 	return names.filter((name): name is string => typeof name === "string" && name.trim().length > 0)
+}
+
+/** Resolve a macOS bundle with macOS path semantics, even in cross-platform tests. */
+export function macApplicationBundlePath(executablePath: string): string {
+	return posix.resolve(posix.dirname(executablePath), "../..")
 }
 
 export function updateAuthenticityForInstallation(options: {
@@ -38,7 +43,7 @@ export function updateAuthenticityForInstallation(options: {
 	}
 
 	if (options.platform === "darwin") {
-		const bundlePath = resolve(dirname(options.executablePath), "../..")
+		const bundlePath = macApplicationBundlePath(options.executablePath)
 		const verify =
 			options.verifyMacSignature ??
 			((path: string) =>

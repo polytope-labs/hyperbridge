@@ -10,12 +10,14 @@ import {IntrinsicModule} from "../src/apps/intentsv2/IntrinsicModule.sol";
 import {ExtrinsicModule} from "../src/apps/intentsv2/ExtrinsicModule.sol";
 import {BaseScript} from "./BaseScript.sol";
 
-/// @dev Initialization payload for an upgrade of an existing proxy.
-function intentGatewayUpgradeInitialization(IntentGatewayV2 gateway) view returns (bytes memory) {
+/// @dev Initialization payload for an upgrade of an existing proxy: `migrate(owner)` for a proxy
+/// at 2, nothing for one already at 3.
+function intentGatewayUpgradeInitialization(IntentGatewayV2 gateway, address owner) view returns (bytes memory) {
     uint64 current = gateway.version();
     if (current == 3) return bytes("");
     require(current == 2, "Unsupported IntentGateway version");
-    return abi.encodeCall(IntentGatewayV2.migrate, ());
+    require(owner != address(0), "GATEWAY_OWNER is unset");
+    return abi.encodeCall(IntentGatewayV2.migrate, (owner));
 }
 
 /// @notice Shared by the IntentGatewayV2 deploy scripts: modules first, then the implementation.
@@ -34,7 +36,8 @@ abstract contract IntentGatewayScript is BaseScript {
         bytes memory migration;
         if (hasProxy) {
             migration = intentGatewayUpgradeInitialization(
-                IntentGatewayV2(payable(config.get("INTENT_GATEWAY_V2").toAddress()))
+                IntentGatewayV2(payable(config.get("INTENT_GATEWAY_V2").toAddress())),
+                vm.envOr("GATEWAY_OWNER", address(0))
             );
         }
         vm.startBroadcast(uint256(privateKey));

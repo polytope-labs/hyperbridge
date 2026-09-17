@@ -107,6 +107,22 @@ struct Params {
 }
 
 /**
+ * @dev Arguments to `IntentGatewayV2.initialize`. All of it is part of the proxy's init data, so the
+ * same values on every chain keep the proxy address identical across chains.
+ */
+struct InitParams {
+    /// @dev The initial gateway configuration.
+    Params params;
+    /// @dev State-machine ids of the cross-chain peers to register, each bound to the gateway's own
+    /// address so no peer address is carried in the init data.
+    bytes[] peerChains;
+    /// @dev The only relayer whose deliveries are accepted. Zero leaves the gate open.
+    address relayer;
+    /// @dev The owner, who may pause the gateway. Must be non-zero.
+    address owner;
+}
+
+/**
  * @dev Struct to define the destination fee parameters.
  */
 struct DestinationFee {
@@ -251,6 +267,19 @@ interface IIntentGatewayV2 {
     ///         calldata. Such orders must be filled completely in a single fill.
     error PartialFillNotAllowed();
 
+    /// @notice Thrown by `placeOrder`, `fillOrder` and escrow deliveries while the gateway is paused,
+    ///         and by `pause` when already paused.
+    error EnforcedPause();
+
+    /// @notice Thrown by `unpause` when the gateway is not paused.
+    error ExpectedPause();
+
+    /// @notice Thrown when an owner-only function is called by anyone but the owner or the host.
+    error OwnableUnauthorizedAccount(address account);
+
+    /// @notice Thrown when `initialize` or `migrate` is given a zero owner.
+    error OwnableInvalidOwner(address owner);
+
     // ============================================
     // Events
     // ============================================
@@ -379,6 +408,35 @@ interface IIntentGatewayV2 {
      */
     event RelayerUpdated(address previous, address current);
 
+    /**
+     * @notice Emitted when the owner or the host proposes a new owner (OpenZeppelin
+     *         `Ownable2StepUpgradeable`); the transfer completes when `newOwner` calls
+     *         `acceptOwnership`. A proposal of zero withdraws a pending one.
+     * @param previousOwner The current owner
+     * @param newOwner The proposed owner
+     */
+    event OwnershipTransferStarted(address indexed previousOwner, address indexed newOwner);
+
+    /**
+     * @notice Emitted when the owner is set, by `initialize`, `migrate`, `acceptOwnership` or
+     *         `renounceOwnership`.
+     * @param previousOwner The owner before this change
+     * @param newOwner The owner from now on
+     */
+    event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
+
+    /**
+     * @notice Emitted when the owner pauses the gateway.
+     * @param account The owner that paused
+     */
+    event Paused(address account);
+
+    /**
+     * @notice Emitted when the owner resumes the gateway.
+     * @param account The owner that resumed
+     */
+    event Unpaused(address account);
+
     // ============================================
     // Constants
     // ============================================
@@ -441,14 +499,55 @@ interface IIntentGatewayV2 {
      * @notice Takes a proxy from an earlier implementation to the current version, where
      *         `initialize` puts a fresh one. Host-only and one-shot; emits `Initialized`. It is the
      *         only way up for a proxy already at a version: `initialize` is refused on anything but
-     *         a bare proxy.
+     *         a bare proxy. Moves the relayer from slot 13 offset 1 to offset 0 and sets the owner.
+     * @param owner The owner, who may pause the gateway; must be non-zero
      */
-    function migrate() external;
+    function migrate(address owner) external;
+
+    /**
+     * @notice The owner, who may pause and resume the gateway.
+     * @return address The owner
+     */
+    function owner() external view returns (address);
+
+    /**
+     * @notice The account a proposed ownership transfer is waiting on.
+     * @return address The pending owner, or zero
+     */
+    function pendingOwner() external view returns (address);
+
+    /**
+     * @notice Proposes a new owner, who takes over on `acceptOwnership`. Callable by the owner and
+     *         by the host, so governance can replace the owner. Zero withdraws a pending proposal.
+     * @param newOwner The proposed owner
+     */
+    function transferOwnership(address newOwner) external;
+
+    /// @notice Completes a proposed ownership transfer. Callable only by the pending owner.
+    function acceptOwnership() external;
+
+    /// @notice Clears the owner. Owner or host; governance can propose a new one afterwards.
+    function renounceOwnership() external;
+
+    /**
+     * @notice Whether the gateway is paused: `placeOrder`, `fillOrder`, and escrow redemptions,
+     *         refunds and cancel proofs delivered by Hyperbridge revert `EnforcedPause`. Governance
+     *         deliveries and `cancelOrder` are never paused; a refused delivery can be resubmitted
+     *         once the gateway resumes.
+     * @return bool True while paused
+     */
+    function paused() external view returns (bool);
+
+    /// @notice Pauses the gateway. Callable by the owner or the host; reverts `EnforcedPause` if already paused.
+    function pause() external;
+
+    /// @notice Resumes the gateway. Callable by the owner or the host; reverts `ExpectedPause` if not paused.
+    function unpause() external;
 
     /**
      * @notice The `Initializable` version: 3 once `initialize` or `migrate` has run on the
-     *         module-split implementation, 2 on the armed implementation before it, 1 before the
-     *         relayer gate. Reverts on implementations that predate the gate.
+     *         module-split implementation with an owner, 2 on the armed implementation before it, 1
+     *         before the relayer gate. Reverts on implementations that predate the gate.
      * @return uint64 The initialized version
      */
     function version() external view returns (uint64);

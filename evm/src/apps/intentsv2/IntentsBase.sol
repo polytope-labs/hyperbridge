@@ -177,11 +177,10 @@ abstract contract IntentsBase is EIP712 {
      */
     mapping(bytes32 => uint256) public _destinationProtocolFees;
 
-    /// @dev Appended last to preserve existing storage slots.
-    bool internal _paused;
-
     /**
-     * @dev Once set, the only relayer whose deliveries `onAccept` and `onGetResponse` accept.
+     * @dev Once set, the only relayer whose deliveries `onAccept` and `onGetResponse` accept. Slot 13
+     * offset 0. Earlier implementations packed it at offset 1, behind an unused `bool _paused` that
+     * has since been removed; `IntentGatewayV2.migrate` moves it.
      */
     address internal _relayer;
 

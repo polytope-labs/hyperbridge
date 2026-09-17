@@ -4,7 +4,7 @@ pragma solidity ^0.8.17;
 import "forge-std/Script.sol";
 import "stringutils/strings.sol";
 
-import {IntentGatewayV2, Params} from "../src/apps/IntentGatewayV2.sol";
+import {IntentGatewayV2, Params, InitParams} from "../src/apps/IntentGatewayV2.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {IntentGatewayScript} from "./IntentGatewayScript.sol";
 import {CallDispatcher} from "../src/utils/CallDispatcher.sol";
@@ -44,12 +44,15 @@ contract DeployScript is IntentGatewayScript {
     }
 
     /// @dev Proxy via CREATE2 with the same salt, initialized atomically through its init data,
-    /// which arms the relayer gate from `GATEWAY_RELAYER`. The peer registry is passed by chain id
-    /// only, since `initialize` binds each to `address(this)`, so the address depends on (impl
-    /// address, salt, params, peer chain ids, relayer), all identical across chains.
+    /// which arms the relayer gate from `GATEWAY_RELAYER` and sets the owner from `GATEWAY_OWNER`.
+    /// The peer registry is passed by chain id only, since `initialize` binds each to
+    /// `address(this)`, so the address depends on (impl address, salt, params, peer chain ids,
+    /// relayer, owner), all identical across chains.
     function _deployProxy(IntentGatewayV2 implementation) internal returns (IntentGatewayV2) {
         address relayer = vm.envAddress("GATEWAY_RELAYER");
         require(relayer != address(0), "GATEWAY_RELAYER is unset");
+        address owner = vm.envAddress("GATEWAY_OWNER");
+        require(owner != address(0), "GATEWAY_OWNER is unset");
         bytes[] memory peerChains;
         if (config.get("is_mainnet").toBool()) {
             peerChains = new bytes[](9);
@@ -68,23 +71,23 @@ contract DeployScript is IntentGatewayScript {
             peerChains[1] = StateMachine.evm(80002); // polygon amoy
         }
 
-        bytes memory initData = abi.encodeCall(
-            IntentGatewayV2.initialize,
-            (
-                Params({
-                    host: HOST_ADDRESS,
-                    dispatcher: config.get("CALL_DISPATCHER").toAddress(),
-                    solverSelection: config.get("7702").toBool(),
-                    surplusShareBps: 6_000, // 60%
-                    protocolFeeBps: 5, // 0.05%
-                    priceOracle: address(0)
-                }),
-                peerChains,
-                relayer
-            )
-        );
+        InitParams memory init = InitParams({
+            params: Params({
+                host: HOST_ADDRESS,
+                dispatcher: config.get("CALL_DISPATCHER").toAddress(),
+                solverSelection: config.get("7702").toBool(),
+                surplusShareBps: 6_000, // 60%
+                protocolFeeBps: 5, // 0.05%
+                priceOracle: address(0)
+            }),
+            peerChains: peerChains,
+            relayer: relayer,
+            owner: owner
+        });
+        bytes memory initData = abi.encodeCall(IntentGatewayV2.initialize, (init));
         ERC1967Proxy proxy = new ERC1967Proxy{salt: salt}(address(implementation), initData);
         console.log("IntentGateway relayer:", relayer);
+        console.log("IntentGateway owner:", owner);
         return IntentGatewayV2(payable(address(proxy)));
     }
 }

@@ -25,6 +25,8 @@ import {IDispatcher} from "@hyperbridge/core/interfaces/IDispatcher.sol";
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
+import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
+import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
@@ -35,6 +37,7 @@ import {
     Order,
     SweepDust,
     Params,
+    InitParams,
     ParamsUpdate,
     DestinationFee,
     WithdrawalRequest,
@@ -64,9 +67,18 @@ import {
  *
  * Module addresses are immutables, so a module upgrade is an ordinary implementation upgrade.
  * Governance reaches `upgradeToAndCall` and `setRelayer` on the extrinsic module through
- * `Execute`; neither is on this contract.
+ * `Execute`; neither is on this contract. The owner (OpenZeppelin's `Ownable2StepUpgradeable`,
+ * kept at its ERC-7201 namespaced slots, so neither `IntentsBase`'s layout nor the modules see it)
+ * can only pause and resume the gateway.
  */
-contract IntentGatewayV2 is IntentsBase, HyperApp, ReentrancyGuardTransient, Initializable {
+contract IntentGatewayV2 is
+    IntentsBase,
+    HyperApp,
+    ReentrancyGuardTransient,
+    Initializable,
+    Ownable2StepUpgradeable,
+    PausableUpgradeable
+{
     using SafeERC20 for IERC20;
 
     /// @dev Same-chain fills and cancels.
@@ -76,7 +88,8 @@ contract IntentGatewayV2 is IntentsBase, HyperApp, ReentrancyGuardTransient, Ini
     address public immutable extrinsicModule;
 
     /// @dev The `Initializable` version this implementation lands a proxy on, through `initialize`
-    /// or `migrate`. 3 is the module split; bumped by every implementation that ships a `migrate`.
+    /// or `migrate`. 3 is the module split and the owner; bumped by every implementation that ships
+    /// a `migrate`.
     uint64 private constant VERSION = 3;
 
     /**
@@ -156,39 +169,74 @@ contract IntentGatewayV2 is IntentsBase, HyperApp, ReentrancyGuardTransient, Ini
 
     /**
      * @dev One-time init of a bare proxy: registers the peers, each bound to `address(this)`,
-     * stores the params, arms the relayer gate, and lands at `VERSION`. Refused on any proxy
-     * already at a version, see `onlyFresh`.
-     * @param p The initial gateway configuration parameters.
-     * @param peerChains State-machine ids of the cross-chain peers to register, each bound to this
-     * gateway's own address so no peer address is carried in the proxy's init data.
-     * @param relayer_ The only relayer whose deliveries are accepted. Zero leaves the gate open.
+     * stores the params, arms the relayer gate, sets the owner, and lands at `VERSION`. Refused on
+     * any proxy already at a version, see `onlyFresh`.
+     * @param init The params, peers, relayer and owner, see `InitParams`.
      */
-    function initialize(Params memory p, bytes[] memory peerChains, address relayer_)
-        public
-        onlyFresh
-        reinitializer(VERSION)
-    {
-        uint256 peersLength = peerChains.length;
+    function initialize(InitParams memory init) public onlyFresh reinitializer(VERSION) {
+        uint256 peersLength = init.peerChains.length;
         for (uint256 i = 0; i < peersLength; i++) {
-            Deployment memory deployment = Deployment({chain: peerChains[i], gateway: address(this)});
+            Deployment memory deployment = Deployment({chain: init.peerChains[i], gateway: address(this)});
             _addDeployment(deployment);
         }
-        _validateParams(p);
-        _params = p;
-        _setRelayer(relayer_);
+        _validateParams(init.params);
+        _params = init.params;
+        _setRelayer(init.relayer);
+        __Ownable_init(init.owner);
+        __Ownable2Step_init();
+        __Pausable_init();
     }
 
     /**
-     * @dev Takes a proxy from an earlier implementation to `VERSION`. Host-only and one-shot;
-     * delivered as the calldata of the upgrade that installs this implementation. Nothing to
-     * migrate for the module split: the storage layout is unchanged.
+     * @dev Takes a proxy from an earlier implementation to `VERSION`: moves the relayer and sets the
+     * owner. Host-only and one-shot; delivered as the calldata of the upgrade that installs this
+     * implementation, so nothing reads `_relayer` in between.
+     *
+     * Earlier implementations kept an unused `bool _paused` at slot 13 offset 0, with `_relayer`
+     * packed behind it at offset 1. That byte is gone, so `_relayer` is now read from offset 0;
+     * shifting slot 13 right by one byte moves the relayer there and drops the old flag. A proxy
+     * that never set a relayer holds zero either way. The owner and the pause flag live at
+     * OpenZeppelin's namespaced slots.
+     * @param owner_ The owner, who may pause the gateway. Must be non-zero.
      */
-    function migrate() external onlyHost reinitializer(VERSION) {}
+    function migrate(address owner_) external onlyHost reinitializer(VERSION) {
+        assembly ("memory-safe") {
+            sstore(_relayer.slot, shr(8, sload(_relayer.slot)))
+        }
+        __Ownable_init(owner_);
+        __Ownable2Step_init();
+        __Pausable_init();
+    }
+
+    /**
+     * @dev The host counts as the owner, so governance can pause, resume, or replace a lost or
+     * compromised owner key: an `Execute` carrying `upgradeToAndCall(currentImplementation, call)`
+     * runs `call` here with the host still `msg.sender`. The host makes no other calls into the
+     * gateway, so this opens nothing to anyone else.
+     */
+    function _checkOwner() internal view override {
+        address sender = _msgSender();
+        if (sender != owner() && sender != host()) revert OwnableUnauthorizedAccount(sender);
+    }
+
+    /**
+     * @dev Pauses the gateway: `placeOrder`, `fillOrder`, and the host callbacks `onAccept` and
+     * `onGetResponse` revert `EnforcedPause`. Reverts `EnforcedPause` if already paused.
+     */
+    function pause() external onlyOwner {
+        _pause();
+    }
+
+    /// @dev Resumes the gateway. Reverts `ExpectedPause` if not paused.
+    function unpause() external onlyOwner {
+        _unpause();
+    }
 
     /**
      * @dev Places a new intent order by escrowing the user's input tokens.
      *
      * An order swaps exactly one input for exactly one output; any other shape reverts `InvalidInput`.
+     * Reverts `EnforcedPause` while the gateway is paused.
      *
      * The caller specifies the desired output tokens and destination chain. The function:
      * 1. Stamps the order with the caller's address, source chain, and a unique nonce.
@@ -204,7 +252,7 @@ contract IntentGatewayV2 is IntentsBase, HyperApp, ReentrancyGuardTransient, Ini
      * @param order The order struct. `user`, `source`, and `nonce` are overwritten by this function.
      * @param graffiti Attribution tag emitted in the OrderPlaced event for off-chain indexers.
      */
-    function placeOrder(Order memory order, bytes32 graffiti) public payable nonReentrant {
+    function placeOrder(Order memory order, bytes32 graffiti) public payable whenNotPaused nonReentrant {
         // An order swaps exactly one input for exactly one output.
         if (order.inputs.length != 1 || order.output.assets.length != 1) revert InvalidInput();
         // A zero-amount output would strand the input escrow.
@@ -421,7 +469,7 @@ contract IntentGatewayV2 is IntentsBase, HyperApp, ReentrancyGuardTransient, Ini
      * either same-chain or cross-chain fill logic based on the order's source and
      * destination chains.
      *
-     * Shared validation performed before routing:
+     * Reverts `EnforcedPause` while the gateway is paused. Shared validation performed before routing:
      * 1. Checks the order has not expired (deadline >= current block).
      * 2. Verifies the order has not already been filled.
      * 3. If solver selection is enabled, validates the caller matches the selected
@@ -431,7 +479,7 @@ contract IntentGatewayV2 is IntentsBase, HyperApp, ReentrancyGuardTransient, Ini
      * @param order The order to fill. Must match the exact order that was placed.
      * @param options Fill options including output token amounts and fee parameters.
      */
-    function fillOrder(Order calldata order, FillOptions calldata options) public payable nonReentrant {
+    function fillOrder(Order calldata order, FillOptions calldata options) public payable whenNotPaused nonReentrant {
         uint256 blockNumber = _blockNumber();
         if (order.deadline < blockNumber) revert Expired();
         // The solver's own bound on how long its quoted price stands. Zero means unbounded,
@@ -528,15 +576,22 @@ contract IntentGatewayV2 is IntentsBase, HyperApp, ReentrancyGuardTransient, Ini
 
     /**
      * @dev Runs `ExtrinsicIntents.onAccept` in the extrinsic module, `msg.sender` still the host.
+     * While paused, only governance deliveries (from Hyperbridge itself) are accepted; escrow
+     * redemptions and refunds from peer gateways revert and stay undelivered on the host. Not
+     * `whenNotPaused`, which would refuse governance too; `paused()` is read first so an unpaused
+     * gateway skips the host call.
      */
-    function onAccept(IncomingPostRequest calldata) external override onlyHost {
+    function onAccept(IncomingPostRequest calldata incoming) external override onlyHost {
+        bool isGovernance = keccak256(incoming.request.source) == keccak256(IDispatcher(host()).hyperbridge());
+        if (paused() && !isGovernance) revert EnforcedPause();
         _delegate(extrinsicModule, msg.data);
     }
 
     /**
      * @dev Runs `ExtrinsicIntents.onGetResponse` in the extrinsic module, `msg.sender` still the host.
+     * Reverts while paused; the response stays undelivered on the host.
      */
-    function onGetResponse(IncomingGetResponse calldata) external override onlyHost {
+    function onGetResponse(IncomingGetResponse calldata) external override onlyHost whenNotPaused {
         _delegate(extrinsicModule, msg.data);
     }
 

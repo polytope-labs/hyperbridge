@@ -21,9 +21,9 @@ and `extrinsicModule()` were added.
 
 | Contract | Holds | Runtime size |
 |---|---|---|
-| `IntentGatewayV2` | every external entry point and its guards, `placeOrder`, `select`, the shared validation of `fillOrder` and `cancelOrder`, `initialize`, `migrate`, the views | 14,610 bytes |
-| `IntrinsicModule` | `IntrinsicIntents`: `fillSameChain`, `cancelSameChain` | 6,843 bytes |
-| `ExtrinsicModule` | `ExtrinsicIntents`: `fillCrossChain`, `cancelFromSource`, `cancelFromDest`, the `onAccept` and `onGetResponse` handlers with governance and `Execute`, and the host-only `setRelayer` and `upgradeToAndCall` | 14,535 bytes |
+| `IntentGatewayV2` | every external entry point and its guards, `placeOrder`, `select`, the shared validation of `fillOrder` and `cancelOrder`, `initialize`, `migrate`, the views | 16,473 bytes |
+| `IntrinsicModule` | `IntrinsicIntents`: `fillSameChain`, `cancelSameChain` | 7,710 bytes |
+| `ExtrinsicModule` | `ExtrinsicIntents`: `fillCrossChain`, `cancelFromSource`, `cancelFromDest`, the `onAccept` and `onGetResponse` handlers with governance and `Execute`, and the host-only `setRelayer` and `upgradeToAndCall` | 17,793 bytes |
 
 The implementation inherits nothing from the intents contracts; it validates, routes and
 delegatecalls. `IntrinsicIntents.sol` is unchanged. `ExtrinsicIntents.sol` is unchanged apart
@@ -39,6 +39,18 @@ on the extrinsic module and are not in the gateway's ABI; `Execute` is the only 
   layouts out of the forge artifacts and asserts the three contracts agree slot for slot, so
   `foundry.toml` sets `extra_output = ["storageLayout"]`. The append-only rule for storage now
   applies to all three at once, and `_filled` must stay at slot 2 for the cross-chain cancel proof.
+  The one exception is the unused `bool _paused` that sat at slot 13 offset 0: it was removed, so
+  `_relayer` moved from offset 1 to offset 0 and `migrate` shifts it there on existing proxies.
+- **The owner is the implementation's alone.** `IntentGatewayV2` inherits OpenZeppelin's
+  `Ownable2StepUpgradeable`, whose owner and pending owner sit at ERC-7201 namespaced slots outside
+  the shared sequential layout, so the modules never see them and the layout tests are unaffected. The owner
+  can only `pause` and `unpause` the gateway, through OpenZeppelin's `PausableUpgradeable`, whose flag
+  is namespaced too. `placeOrder`, `fillOrder`, and the escrow deliveries
+  of `onAccept` and `onGetResponse` revert while paused, checked on the implementation before any
+  delegatecall; governance deliveries and `cancelOrder` are not paused. `initialize` and
+  `migrate(owner)` set it and transfers are two-step. `_checkOwner` also accepts the host, so
+  governance can pause, resume or propose a new owner through `Execute` carrying
+  `upgradeToAndCall(currentImplementation, call)`.
 - **Module addresses are immutables.** `intrinsicModule()` and `extrinsicModule()` are set in the
   implementation's constructor, which refuses an address without code. Upgrading a module means
   deploying a new implementation with the new address and installing it through governance like
@@ -121,8 +133,10 @@ modules included, and `--mode verify` re-verifies from the broadcast artifacts.
 The upgrade itself is a Hyperbridge governance call, `execute_on_gateway(data)` on the
 intents-coprocessor pallet. The pallet prepends the `Execute` discriminator (`0x05`) itself, so
 `data` is bare `upgradeToAndCall(newImplementation, initData)` calldata, exactly what the script
-prints. `initData` is `migrate()` for an implementation that bumps `VERSION`, as the module split
-does (2 to 3), and empty otherwise. A relayer rotation is a separate `execute_on_gateway` carrying
+prints. `initData` is `migrate(owner)` for a proxy below `VERSION`, as on the upgrade from 2 to 3,
+and empty otherwise. That `migrate` is required: it moves `_relayer` to slot 13 offset 0. Installing
+this implementation on a proxy at 2 with empty `initData` leaves the relayer gate reading a wrong
+address, and it would refuse every delivery, governance included. A relayer rotation is a separate `execute_on_gateway` carrying
 `setRelayer(next)`; it cannot ride in `initData`, which runs against the new implementation, where
 `setRelayer` does not exist. Whether the upgrade changes the implementation's own code, a module,
 or both, the procedure is the same: new modules if needed, new implementation, one

@@ -20,6 +20,7 @@ import {
     IntentGatewayV2,
     Order,
     Params,
+    InitParams,
     TokenInfo,
     PaymentInfo,
     DispatchInfo,
@@ -140,16 +141,19 @@ contract IntrinsicIntentsReentrancyTest is MainnetForkBaseTest {
 
         intentGateway = _deployGatewayProxy();
         intentGateway.initialize(
-            Params({
-                host: address(host),
-                dispatcher: address(dispatcher),
-                solverSelection: false,
-                surplusShareBps: 0,
-                protocolFeeBps: 0,
-                priceOracle: address(0)
-            }),
-            new bytes[](0),
-            address(0)
+            InitParams({
+                params: Params({
+                    host: address(host),
+                    dispatcher: address(dispatcher),
+                    solverSelection: false,
+                    surplusShareBps: 0,
+                    protocolFeeBps: 0,
+                    priceOracle: address(0)
+                }),
+                peerChains: new bytes[](0),
+                relayer: address(0),
+                owner: address(this)
+            })
         );
 
         maliciousBeneficiary = new ReentrantBeneficiary(payable(address(intentGateway)));

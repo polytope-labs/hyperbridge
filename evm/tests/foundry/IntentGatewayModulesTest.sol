@@ -22,6 +22,7 @@ import {
     IntentGatewayV2,
     Order,
     Params,
+    InitParams,
     TokenInfo,
     PaymentInfo,
     DispatchInfo,
@@ -79,7 +80,9 @@ contract IntentGatewayModulesTest is MainnetForkBaseTest {
         bytes[] memory peers = new bytes[](1);
         peers[0] = bytes("DEST_CHAIN");
         // Relayer gate left open so governance requests in these tests need no relayer.
-        gateway.initialize(_params(), peers, address(0));
+        gateway.initialize(
+            InitParams({params: _params(), peerChains: peers, relayer: address(0), owner: address(this)})
+        );
 
         deal(address(usdc), user, 10_000 * 1e6);
         deal(address(dai), solver, 10_000 * 1e18);
@@ -156,10 +159,11 @@ contract IntentGatewayModulesTest is MainnetForkBaseTest {
         }
     }
 
-    /// Existing proof keys, packed relayer state, and every earlier field remain in place.
+    /// Existing proof keys and every earlier field remain in place. The unused `_paused` byte is gone, so
+    /// `_relayer` sits alone at slot 13 offset 0; `migrate` moves it there on live proxies.
     function testFeeAccountingAppendsAfterEveryExistingStorageField() public view {
         StorageEntry[] memory layout = _storageLayout("out/IntentGatewayV2.sol/IntentGatewayV2.json");
-        string[12] memory labels = [
+        string[11] memory labels = [
             "_nameFallback",
             "_versionFallback",
             "_filled",
@@ -169,16 +173,15 @@ contract IntentGatewayModulesTest is MainnetForkBaseTest {
             "_instances",
             "_partialFills",
             "_destinationProtocolFees",
-            "_paused",
             "_relayer",
             "_protocolFees"
         ];
-        string[12] memory slots = ["0", "1", "2", "3", "4", "9", "10", "11", "12", "13", "13", "14"];
+        string[11] memory slots = ["0", "1", "2", "3", "4", "9", "10", "11", "12", "13", "14"];
         assertEq(layout.length, labels.length);
         for (uint256 i; i < labels.length; i++) {
             assertEq(layout[i].label, labels[i]);
             assertEq(layout[i].slot, slots[i], labels[i]);
-            assertEq(layout[i].offset, i == 10 ? 1 : 0, labels[i]);
+            assertEq(layout[i].offset, 0, labels[i]);
         }
     }
 
@@ -316,39 +319,52 @@ contract IntentGatewayModulesTest is MainnetForkBaseTest {
     bytes32 internal constant INITIALIZABLE_SLOT = 0xf0c57e16840df040f15088dc2f81fe391c3923bec73e23a9662efc9c229c6a00;
 
     /// The release's own upgrade: a proxy at version 2, as every live one is, moved to this
-    /// implementation with `migrate()` as the init data lands at 3 with its state intact. Pinned
-    /// here because the live-fork test's precondition expires once mainnet is upgraded.
+    /// implementation with `migrate(owner)` as the init data lands at 3 with its state intact and
+    /// its owner set. Pinned here because the live-fork test's precondition expires once mainnet
+    /// is upgraded.
     function testUpgradeFromVersionTwoWithMigrate() public {
         Order memory order = _placeSameChainOrder(1000 * 1e6, 900 * 1e18);
         vm.store(address(gateway), INITIALIZABLE_SLOT, bytes32(uint256(2)));
         assertEq(gateway.version(), 2, "a proxy on the previous implementation");
 
         IntentGatewayV2 newImpl = deployIntentGatewayImpl();
-        PostRequest memory upgrade = _upgradeRequest(address(newImpl), abi.encodeCall(IntentGatewayV2.migrate, ()));
+        PostRequest memory upgrade =
+            _upgradeRequest(address(newImpl), abi.encodeCall(IntentGatewayV2.migrate, (address(this))));
         vm.expectEmit(true, true, true, true, address(gateway));
         emit Initializable.Initialized(3);
         vm.prank(address(host));
         gateway.onAccept(IncomingPostRequest({relayer: address(this), request: upgrade}));
 
         assertEq(gateway.version(), 3, "migrated");
+        assertEq(gateway.owner(), address(this), "owner set by the migration");
         assertEq(gateway._orders(keccak256(abi.encode(order)), address(usdc)), 1000 * 1e6, "escrow survives");
         assertEq(gateway.instance(bytes("DEST_CHAIN")), address(gateway), "peers survive");
 
-        // `migrate()` is one-shot: a second upgrade carrying it is refused.
-        PostRequest memory again =
-            _upgradeRequest(address(deployIntentGatewayImpl()), abi.encodeCall(IntentGatewayV2.migrate, ()));
+        // `migrate` is one-shot: a second upgrade carrying it is refused.
+        PostRequest memory again = _upgradeRequest(
+            address(deployIntentGatewayImpl()), abi.encodeCall(IntentGatewayV2.migrate, (address(this)))
+        );
         vm.prank(address(host));
         vm.expectRevert(Initializable.InvalidInitialization.selector);
         gateway.onAccept(IncomingPostRequest({relayer: address(this), request: again}));
     }
 
     function testUpgradeHelperUsesEmptyInitializationForVersionThree() public view {
-        assertEq(intentGatewayUpgradeInitialization(gateway), bytes(""));
+        assertEq(intentGatewayUpgradeInitialization(gateway, address(this)), bytes(""));
     }
 
     function testUpgradeHelperMigratesVersionTwo() public {
         vm.store(address(gateway), INITIALIZABLE_SLOT, bytes32(uint256(2)));
-        assertEq(intentGatewayUpgradeInitialization(gateway), abi.encodeCall(IntentGatewayV2.migrate, ()));
+        assertEq(
+            intentGatewayUpgradeInitialization(gateway, address(this)),
+            abi.encodeCall(IntentGatewayV2.migrate, (address(this)))
+        );
+    }
+
+    function testUpgradeHelperRequiresAnOwnerToMigrate() public {
+        vm.store(address(gateway), INITIALIZABLE_SLOT, bytes32(uint256(2)));
+        vm.expectRevert("GATEWAY_OWNER is unset");
+        this.upgradeInitialization(address(gateway), address(0));
     }
 
     function testUpgradeHelperRejectsUnsupportedVersions() public {
@@ -356,12 +372,12 @@ contract IntentGatewayModulesTest is MainnetForkBaseTest {
         for (uint256 i; i < unsupported.length; i++) {
             vm.store(address(gateway), INITIALIZABLE_SLOT, bytes32(unsupported[i]));
             vm.expectRevert("Unsupported IntentGateway version");
-            this.upgradeInitialization(address(gateway));
+            this.upgradeInitialization(address(gateway), address(this));
         }
     }
 
-    function upgradeInitialization(address target) external view returns (bytes memory) {
-        return intentGatewayUpgradeInitialization(IntentGatewayV2(payable(target)));
+    function upgradeInitialization(address target, address owner) external view returns (bytes memory) {
+        return intentGatewayUpgradeInitialization(IntentGatewayV2(payable(target)), owner);
     }
 
     /// Upgrading is still possible after the split, and repeatedly. The second upgrade is the one

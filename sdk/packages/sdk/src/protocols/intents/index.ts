@@ -6,6 +6,7 @@ export {
 } from "./LiquidityEngine"
 export { poolSlug, sortPoolSymbols } from "./liquidity-pool"
 export { OrderStatusChecker } from "./OrderStatusChecker"
+export { readLegEscrow, readLegPartialFill } from "./escrowReads"
 export {
 	InvalidIndexedRateError,
 	InvalidPhantomSnapshotError,

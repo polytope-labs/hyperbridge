@@ -287,7 +287,7 @@ contract IntentGatewayModulesTest is MainnetForkBaseTest {
 
         assertEq(gateway.intrinsicModule(), swapped, "new implementation carries the new module");
         assertEq(gateway._nonce(), 1, "state survives");
-        assertEq(gateway._orders(keccak256(abi.encode(order)), address(usdc)), 1000 * 1e6, "escrow survives");
+        assertEq(gateway._orders(keccak256(abi.encode(order)), 0), 1000 * 1e6, "escrow survives");
 
         vm.startPrank(solver);
         dai.approve(address(gateway), 900 * 1e18);
@@ -337,7 +337,7 @@ contract IntentGatewayModulesTest is MainnetForkBaseTest {
 
         assertEq(gateway.version(), 3, "migrated");
         assertEq(gateway.owner(), address(this), "owner set by the migration");
-        assertEq(gateway._orders(keccak256(abi.encode(order)), address(usdc)), 1000 * 1e6, "escrow survives");
+        assertEq(gateway._orders(keccak256(abi.encode(order)), 0), 1000 * 1e6, "escrow survives");
         assertEq(gateway.instance(bytes("DEST_CHAIN")), address(gateway), "peers survive");
 
         // `migrate` is one-shot: a second upgrade carrying it is refused.
@@ -396,7 +396,7 @@ contract IntentGatewayModulesTest is MainnetForkBaseTest {
             assertEq(gateway.extrinsicModule(), next.extrinsicModule());
             assertEq(gateway.version(), 3, "no migration ran");
             assertEq(gateway._nonce(), 1, "_nonce preserved");
-            assertEq(gateway._orders(commitment, address(usdc)), 1000 * 1e6, "escrow preserved");
+            assertEq(gateway._orders(commitment, 0), 1000 * 1e6, "escrow preserved");
             assertEq(gateway.instance(bytes("DEST_CHAIN")), address(gateway), "peers preserved");
         }
 
@@ -423,7 +423,7 @@ contract IntentGatewayModulesTest is MainnetForkBaseTest {
         IntentGatewayV2 newImpl = deployIntentGatewayImpl();
         _upgradeThroughExecute(address(newImpl), "");
         assertNotEq(gateway.intrinsicModule(), previousIntrinsic, "intrinsic module switched");
-        assertEq(gateway._orders(commitment, address(usdc)), amount, "pre-upgrade escrow preserved");
+        assertEq(gateway._orders(commitment, 0), amount, "pre-upgrade escrow preserved");
 
         vm.roll(order.deadline + 1);
         uint256 keeperBefore = usdc.balanceOf(solver);
@@ -432,7 +432,7 @@ contract IntentGatewayModulesTest is MainnetForkBaseTest {
 
         assertEq(usdc.balanceOf(user), userBefore, "original user refunded");
         assertEq(usdc.balanceOf(solver), keeperBefore, "keeper receives no escrow");
-        assertEq(gateway._orders(commitment, address(usdc)), 0, "escrow cleared");
+        assertEq(gateway._orders(commitment, 0), 0, "escrow cleared");
         assertEq(gateway._filled(commitment), user, "refund finalizes for original user");
     }
 

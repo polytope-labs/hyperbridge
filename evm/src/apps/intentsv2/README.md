@@ -21,9 +21,9 @@ and `extrinsicModule()` were added.
 
 | Contract | Holds | Runtime size |
 |---|---|---|
-| `IntentGatewayV2` | every external entry point and its guards, `placeOrder`, `select`, the shared validation of `fillOrder` and `cancelOrder`, `initialize`, `migrate`, the views | 16,473 bytes |
-| `IntrinsicModule` | `IntrinsicIntents`: `fillSameChain`, `cancelSameChain` | 7,710 bytes |
-| `ExtrinsicModule` | `ExtrinsicIntents`: `fillCrossChain`, `cancelFromSource`, `cancelFromDest`, the `onAccept` and `onGetResponse` handlers with governance and `Execute`, and the host-only `setRelayer` and `upgradeToAndCall` | 17,793 bytes |
+| `IntentGatewayV2` | every external entry point and its guards, `placeOrder`, `select`, the shared validation of `fillOrder` and `cancelOrder`, `initialize`, `migrate`, the views | 16,484 bytes |
+| `IntrinsicModule` | `IntrinsicIntents`: `fillSameChain`, `cancelSameChain` | 7,675 bytes |
+| `ExtrinsicModule` | `ExtrinsicIntents`: `fillCrossChain`, `cancelFromSource`, `cancelFromDest`, the `onAccept` and `onGetResponse` handlers with governance and `Execute`, and the host-only `setRelayer` and `upgradeToAndCall` | 17,960 bytes |
 
 The implementation inherits nothing from the intents contracts; it validates, routes and
 delegatecalls. `IntrinsicIntents.sol` is unchanged. `ExtrinsicIntents.sol` is unchanged apart
@@ -38,7 +38,8 @@ on the extrinsic module and are not in the gateway's ABI; `Execute` is the only 
   declares no storage and never runs an initializer. `IntentGatewayModulesTest` reads the storage
   layouts out of the forge artifacts and asserts the three contracts agree slot for slot, so
   `foundry.toml` sets `extra_output = ["storageLayout"]`. The append-only rule for storage now
-  applies to all three at once, and `_filled` must stay at slot 2 for the cross-chain cancel proof.
+  applies to all three at once. `_filled` must stay at slot 2, which the SDK reads for fill status, and
+  `_partialFills` at slot 11, which cross-chain cancel proves per leg as `_partialFills[commitment][index]`.
   The one exception is the unused `bool _paused` that sat at slot 13 offset 0: it was removed, so
   `_relayer` moved from offset 1 to offset 0 and `migrate` shifts it there on existing proxies.
 - **The owner is the implementation's alone.** `IntentGatewayV2` inherits OpenZeppelin's

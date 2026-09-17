@@ -235,7 +235,11 @@ contract IntentGatewayV2 is
     /**
      * @dev Places a new intent order by escrowing the user's input tokens.
      *
-     * An order swaps exactly one input for exactly one output; any other shape reverts `InvalidInput`.
+     * An order is a list of legs: leg `i` sells `order.inputs[i]` for `order.output.assets[i]`, so
+     * the two arrays must be non-empty and of equal length, every output amount non-zero, and every
+     * input token an address with its upper 12 bytes zero; any other shape reverts `InvalidInput`. Legs may repeat tokens, e.g. one pair at several prices,
+     * except that an order with predispatch calldata may not repeat an input token. Escrow, fill
+     * progress and protocol fees are all held per leg, so each leg settles on its own.
      * Reverts `EnforcedPause` while the gateway is paused.
      *
      * The caller specifies the desired output tokens and destination chain. The function:
@@ -253,17 +257,24 @@ contract IntentGatewayV2 is
      * @param graffiti Attribution tag emitted in the OrderPlaced event for off-chain indexers.
      */
     function placeOrder(Order memory order, bytes32 graffiti) public payable whenNotPaused nonReentrant {
-        // An order swaps exactly one input for exactly one output.
-        if (order.inputs.length != 1 || order.output.assets.length != 1) revert InvalidInput();
-        // A zero-amount output would strand the input escrow.
-        if (order.output.assets[0].amount == 0) revert InvalidInput();
+        uint256 inputsLen = order.inputs.length;
+        // Inputs and outputs pair 1:1 by index; a leg without its counterpart could never be filled.
+        if (inputsLen == 0 || order.output.assets.length != inputsLen) revert InvalidInput();
+        for (uint256 i; i < inputsLen;) {
+            // Every use of a token reads the address in its low 20 bytes. Anything above would let one
+            // token pass the repeated input token check below as two.
+            if (uint256(order.inputs[i].token) >> 160 != 0) revert InvalidInput();
+            // A zero-amount output would strand its leg's escrow.
+            if (order.output.assets[i].amount == 0) revert InvalidInput();
+            unchecked {
+                ++i;
+            }
+        }
 
         address hostAddr = host();
         order.user = bytes32(uint256(uint160(msg.sender)));
         order.source = IDispatcher(hostAddr).host();
         order.nonce = _nonce++;
-
-        uint256 inputsLen = order.inputs.length;
 
         // Phase 1: Transfer tokens and record actual received amounts.
         // For fee-on-transfer tokens, the gateway receives less than the requested amount.
@@ -272,6 +283,18 @@ contract IntentGatewayV2 is
         uint256 msgValue = msg.value;
         if (order.predispatch.call.length > 0 && order.predispatch.assets.length > 0) {
             address dispatcher = _params.dispatcher;
+            // Predispatch escrow is swept and measured per input token, so its legs must not share one.
+            for (uint256 i; i < inputsLen;) {
+                for (uint256 j; j < i;) {
+                    if (order.inputs[j].token == order.inputs[i].token) revert InvalidInput();
+                    unchecked {
+                        ++j;
+                    }
+                }
+                unchecked {
+                    ++i;
+                }
+            }
 
             uint256 assetsLen = order.predispatch.assets.length;
             for (uint256 i; i < assetsLen;) {
@@ -397,13 +420,12 @@ contract IntentGatewayV2 is
         }
         commitment = keccak256(abi.encode(order));
 
-        // Phase 3: Credit escrow.
+        // Phase 3: Credit escrow, per leg.
         for (uint256 i; i < inputsLen;) {
-            address token = address(uint160(uint256(order.inputs[i].token)));
-            _orders[commitment][token] = reducedInputs[i].amount;
+            _orders[commitment][i] = reducedInputs[i].amount;
             uint256 fee = protocolFees[i];
             if (fee > 0) {
-                _protocolFees[commitment][token] = ProtocolFee({amount: fee, committed: reducedInputs[i].amount});
+                _protocolFees[commitment][i] = ProtocolFee({amount: fee, committed: reducedInputs[i].amount});
             }
 
             unchecked {
@@ -474,7 +496,8 @@ contract IntentGatewayV2 is
      * 2. Verifies the order has not already been filled.
      * 3. If solver selection is enabled, validates the caller matches the selected
      *    solver stored in transient storage (set by a prior `select` call).
-     * 4. Validates input/output array length consistency.
+     * 4. Validates input/output array length consistency. Each module's fill also rejects an output
+     *    token with its upper 12 bytes set, so `_isRepeatedToken` sees every token in one form.
      *
      * @param order The order to fill. Must match the exact order that was placed.
      * @param options Fill options including output token amounts and fee parameters.

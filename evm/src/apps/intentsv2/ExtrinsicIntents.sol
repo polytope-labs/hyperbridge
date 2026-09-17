@@ -134,7 +134,7 @@ abstract contract ExtrinsicIntents is IntentsBase, HyperApp {
      * fills. The solver provides output tokens directly to the beneficiary, and a Hyperbridge post
      * request is dispatched back to the source chain to release the escrowed input tokens.
      *
-     * Partial-fill tracking mirrors the same-chain path: cumulative progress per output token is
+     * Partial-fill tracking mirrors the same-chain path: cumulative progress per leg is
      * recorded in `_partialFills`, and the escrow released for each fill is computed via
      * `_cumulativeReleased` over `order.inputs[i].amount`. Because the escrow itself lives on the
      * source chain, the proportional slice is carried in the dispatched message rather than
@@ -171,13 +171,16 @@ abstract contract ExtrinsicIntents is IntentsBase, HyperApp {
 
         for (uint256 i; i < outputsLen; i++) {
             bytes32 outputToken = order.output.assets[i].token;
+            // Every use of a token reads the address in its low 20 bytes. Anything above would let one
+            // token pass `_isRepeatedToken` as two.
+            if (uint256(outputToken) >> 160 != 0) revert InvalidInput();
             if (options.outputs[i].token != outputToken) revert InvalidInput();
 
             address token = address(uint160(uint256(outputToken)));
             uint256 totalRequired = order.output.assets[i].amount;
             uint256 solverAmount = options.outputs[i].amount;
 
-            uint256 alreadyFilled = _partialFills[commitment][outputToken];
+            uint256 alreadyFilled = _partialFills[commitment][i];
             uint256 remaining = totalRequired - alreadyFilled;
             if (remaining == 0 || solverAmount == 0) {
                 if (solverAmount == 0 && remaining > 0) isFullyFilled = false;
@@ -199,7 +202,7 @@ abstract contract ExtrinsicIntents is IntentsBase, HyperApp {
             }
 
             uint256 amountFilled = alreadyFilled + fillAmount;
-            _partialFills[commitment][outputToken] = amountFilled;
+            _partialFills[commitment][i] = amountFilled;
             uint256 beneficiaryTotal = fillAmount + beneficiaryShare;
 
             if (token == address(0)) {
@@ -272,13 +275,14 @@ abstract contract ExtrinsicIntents is IntentsBase, HyperApp {
      * `_partialFills` values can no longer change.
      *
      * Dispatches a Hyperbridge GET request reading the destination's
-     * `_partialFills[commitment][token]` slot for each output token. The response is handled by
+     * `_partialFills[commitment][i]` slot for each leg `i`. The response is handled by
      * `onGetResponse`, which refunds the proven-unredeemed fraction of each escrowed input — never
      * the raw remaining escrow, so that any `RedeemEscrow` messages still in flight for fills that
      * happened before the deadline remain covered.
      *
      * `placeOrder` guarantees `order.inputs.length == order.output.assets.length`, so each input is
-     * paired with the output at the same index.
+     * paired with the output at the same index. The proof keys are per leg, so they stay distinct
+     * even when legs repeat an output token.
      *
      * `cancelOrder` has already emitted `OrderCancelled`; the matching `EscrowRefunded` follows
      * on this chain once the GET response returns through Hyperbridge.
@@ -298,9 +302,7 @@ abstract contract ExtrinsicIntents is IntentsBase, HyperApp {
         bytes[] memory keys = new bytes[](inputsLen);
         uint256[] memory totalRequired = new uint256[](inputsLen);
         for (uint256 i; i < inputsLen;) {
-            keys[i] = bytes.concat(
-                abi.encodePacked(destGateway), _calculatePartialFillSlotHash(commitment, order.output.assets[i].token)
-            );
+            keys[i] = bytes.concat(abi.encodePacked(destGateway), _calculatePartialFillSlotHash(commitment, i));
             totalRequired[i] = order.output.assets[i].amount;
             unchecked {
                 ++i;
@@ -361,7 +363,7 @@ abstract contract ExtrinsicIntents is IntentsBase, HyperApp {
         TokenInfo[] memory refunds = new TokenInfo[](inputsLen);
         for (uint256 i; i < inputsLen;) {
             uint256 escrowTotal = order.inputs[i].amount;
-            uint256 filled = _partialFills[commitment][order.output.assets[i].token];
+            uint256 filled = _partialFills[commitment][i];
             uint256 refund = escrowTotal - _cumulativeReleased(escrowTotal, filled, order.output.assets[i].amount);
             refunds[i] = TokenInfo({token: order.inputs[i].token, amount: refund});
             unchecked {
@@ -433,8 +435,8 @@ abstract contract ExtrinsicIntents is IntentsBase, HyperApp {
 
     /**
      * @dev Handles the response to a Hyperbridge GET request dispatched during
-     * `_cancelFromSource`. The response carries the destination's `_partialFills[commitment][token]`
-     * value for each output token; for each escrowed input this refunds the proven-unredeemed
+     * `_cancelFromSource`. The response carries the destination's `_partialFills[commitment][i]`
+     * value for each leg `i`; for each escrowed input this refunds the proven-unredeemed
      * fraction (`escrowTotal - _cumulativeReleased(escrowTotal, filled, totalRequired)`) to the
      * user, leaving exactly enough escrow to cover redeems still in flight. The order is marked
      * filled for idempotency, and the user's prepaid fees are returned only if the order did not
@@ -454,9 +456,10 @@ abstract contract ExtrinsicIntents is IntentsBase, HyperApp {
         uint256 len = inputs.length;
         TokenInfo[] memory refunds = new TokenInfo[](len);
         bool fullyFilled = true;
+        bytes32[] memory proofSlots = _indexProofValues(incoming);
         for (uint256 i; i < len;) {
             // Values come back sorted by key, not in request order, so match by key. request.keys[i]
-            // is the slot for input i's output, and the request is verified against its committed hash.
+            // is leg i's slot, and the request is verified against its committed hash.
             bytes calldata raw = _proofValueForKey(incoming, incoming.response.request.keys[i]);
             uint256 filled = raw.length == 0 ? 0 : raw.toRlpItem().toUint();
 
@@ -469,6 +472,7 @@ abstract contract ExtrinsicIntents is IntentsBase, HyperApp {
                 ++i;
             }
         }
+        _clearProofValueIndex(proofSlots);
 
         // `_filled` is already set above for idempotency. Finalize — which flushes the prepaid fee
         // pot to the user — only when the order did not fully fill; a fully-filled order's fees belong
@@ -479,9 +483,34 @@ abstract contract ExtrinsicIntents is IntentsBase, HyperApp {
     }
 
     /**
-     * @dev Returns the proof value whose storage key matches `key`. GET responses return values
-     * sorted by key (the responder iterates a BTreeMap), so positional indexing would mispair
-     * values with inputs for multi-token orders. Absent slots are still returned (with an empty
+     * @dev Indexes the response's proven values in transient storage: under the hash of each value's
+     * key, its position plus one. Every leg then finds its value with one lookup instead of rescanning
+     * the values, so a cancel proof for N legs hashes about 2N keys rather than N(N+1)/2. The first
+     * value for a key wins. A slot is the keccak256 of a storage key, a different preimage from the
+     * reentrancy guard's and solver selection's slots. `onGetResponse` clears them before any transfer.
+     * @param incoming The incoming GET response.
+     * @return slots The transient slots written, for `_clearProofValueIndex`.
+     */
+    function _indexProofValues(IncomingGetResponse calldata incoming) internal returns (bytes32[] memory slots) {
+        uint256 n = incoming.response.values.length;
+        slots = new bytes32[](n);
+        for (uint256 j; j < n;) {
+            bytes32 slot = keccak256(incoming.response.values[j].key);
+            slots[j] = slot;
+            assembly ("memory-safe") {
+                if iszero(tload(slot)) { tstore(slot, add(j, 1)) }
+            }
+            unchecked {
+                ++j;
+            }
+        }
+    }
+
+    /**
+     * @dev Returns the proof value whose storage key matches `key`, through the index
+     * `_indexProofValues` built. GET responses return values sorted by key (the responder iterates a
+     * BTreeMap), so positional indexing would mispair values with legs on multi-leg orders. Every leg
+     * has its own key, so no two legs share a value. Absent slots are still returned (with an empty
      * value), so a matching key is always expected; reverts if none is found.
      * @param incoming The incoming GET response.
      * @param key The expected storage key (one of the request's keys).
@@ -489,17 +518,30 @@ abstract contract ExtrinsicIntents is IntentsBase, HyperApp {
      */
     function _proofValueForKey(IncomingGetResponse calldata incoming, bytes calldata key)
         internal
-        pure
+        view
         returns (bytes calldata)
     {
-        bytes32 want = keccak256(key);
-        uint256 n = incoming.response.values.length;
+        bytes32 slot = keccak256(key);
+        uint256 position;
+        assembly ("memory-safe") {
+            position := tload(slot)
+        }
+        if (position == 0) revert InvalidInput();
+        return incoming.response.values[position - 1].value;
+    }
+
+    /// @dev Clears the transient index `_indexProofValues` wrote, so a later call in the same
+    /// transaction cannot resolve a key against another response's values.
+    function _clearProofValueIndex(bytes32[] memory slots) internal {
+        uint256 n = slots.length;
         for (uint256 j; j < n;) {
-            if (keccak256(incoming.response.values[j].key) == want) return incoming.response.values[j].value;
+            bytes32 slot = slots[j];
+            assembly ("memory-safe") {
+                tstore(slot, 0)
+            }
             unchecked {
                 ++j;
             }
         }
-        revert InvalidInput();
     }
 }

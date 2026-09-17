@@ -908,8 +908,8 @@ export class IntentGateway {
 	 * Delegates to {@link OrderStatusChecker.isOrderRefunded}.
 	 *
 	 * @param order - The order to check.
-	 * @returns `true` if every input token's escrowed amount has been zeroed out
-	 *   in the `_orders` mapping on the source chain.
+	 * @returns `true` if every input's escrowed amount has been zeroed out
+	 *   in the per-leg `_orders` mapping on the source chain.
 	 */
 	async isOrderRefunded(order: Order): Promise<boolean> {
 		return this.orderStatusChecker.isOrderRefunded(order)

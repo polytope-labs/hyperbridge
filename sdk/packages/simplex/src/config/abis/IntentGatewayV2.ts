@@ -102,8 +102,8 @@ export const INTENT_GATEWAY_V2_ABI = [
 			},
 			{
 				name: "",
-				type: "address",
-				internalType: "address",
+				type: "uint256",
+				internalType: "uint256",
 			},
 		],
 		outputs: [
@@ -139,8 +139,8 @@ export const INTENT_GATEWAY_V2_ABI = [
 			},
 			{
 				name: "",
-				type: "bytes32",
-				internalType: "bytes32",
+				type: "uint256",
+				internalType: "uint256",
 			},
 		],
 		outputs: [
@@ -163,8 +163,8 @@ export const INTENT_GATEWAY_V2_ABI = [
 			},
 			{
 				name: "",
-				type: "address",
-				internalType: "address",
+				type: "uint256",
+				internalType: "uint256",
 			},
 		],
 		outputs: [

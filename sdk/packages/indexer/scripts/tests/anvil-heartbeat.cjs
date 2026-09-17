@@ -38,17 +38,23 @@ async function rpc(method, params = []) {
 
 let sent = 0
 let failures = 0
+let consecutive = 0
 
 async function beat() {
 	try {
 		await rpc("eth_sendTransaction", [{ from: SENDER, to: SENDER, value: "0x0" }])
 		sent += 1
 		if (sent % 20 === 0) console.log(`[heartbeat] ${sent} transactions sent`)
+		consecutive = 0
 	} catch (error) {
 		failures += 1
+		consecutive += 1
 		// Never exit: the test's own transactions also fill blocks, and a transient failure here is
 		// not worth failing the run over. It only becomes visible if it is constant.
 		if (failures % 10 === 1) console.warn(`[heartbeat] send failed (${failures} so far): ${error.message}`)
+		// A run of failures is not transient: the fork has stopped answering, and every block from
+		// here is empty, so the indexer's block handlers stop running too.
+		if (consecutive === 10) console.error(`[heartbeat] the fork has not answered ${consecutive} times: it is down`)
 	}
 }
 

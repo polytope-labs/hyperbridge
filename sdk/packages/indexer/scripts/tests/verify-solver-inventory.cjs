@@ -112,7 +112,22 @@ async function waitFor(label, timeoutMs, check) {
 			await sleep(POLL_INTERVAL_MS)
 		}
 	}
-	throw new Error(`${label}: timed out after ${Math.round(timeoutMs / 1000)}s — ${lastError.message}`)
+	const fork = await forkStatus()
+	throw new Error(`${label}: timed out after ${Math.round(timeoutMs / 1000)}s — ${lastError.message}${fork}`)
+}
+
+/**
+ * Whether the fork is still answering, appended to a timeout. An unresponsive anvil starves the
+ * indexer of blocks, which reads downstream as "nothing was ever indexed" and sends the next hour
+ * after the wrong suspect.
+ */
+async function forkStatus() {
+	try {
+		const block = await rpc("eth_blockNumber")
+		return `. The fork is up, at block ${BigInt(block)}`
+	} catch (error) {
+		return `. The fork stopped answering (${error.message}), so the indexer had no blocks to read`
+	}
 }
 
 function assert(condition, message) {

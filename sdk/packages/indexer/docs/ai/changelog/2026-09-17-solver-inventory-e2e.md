@@ -37,9 +37,14 @@ error — so they are stated here rather than rediscovered:
   `Query` type for the whole run.
 - **The SDK is built first.** The indexer imports `@hyperbridge/sdk/intents-helpers`, which only
   exists once the SDK's node bundle is built.
+- **The fork finalizes locally** (`--slots-in-an-epoch 1`). The indexer looks up `finalized` and
+  `safe` every second; on a fork those reach upstream unless anvil can answer them from local state,
+  and an anvil driven upstream every second stops answering anyone.
 
 The fork needs an archive-capable endpoint (`BASE_MAINNET`). Public Base RPCs either refuse historical
-state or rate-limit a forked anvil into unresponsiveness.
+state or rate-limit a forked anvil into unresponsiveness. anvil's own output is captured to `anvil.log`
+and printed with the other logs, because an unresponsive fork is the failure mode this test has, and
+its side of the story is otherwise missing.
 
 Files: `.github/workflows/test-solver-inventory.yml`, `.github/workflows/test-sdk.yml`,
 `scripts/tests/solver-fixtures.cjs`, `scripts/tests/fake-orderbook.cjs`, `scripts/tests/seed-solvers.cjs`,

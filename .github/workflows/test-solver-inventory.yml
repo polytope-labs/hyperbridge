@@ -75,15 +75,23 @@ jobs:
             # stataUSDC vault, so a wrong token layout or a vault that does not answer fails here
             # rather than passing against a stub. `--block-time` keeps blocks coming, which is what
             # drives the indexer's every-block solver handler.
+            # Logged, not silenced: when anvil stops answering — which is how this fails — its own
+            # output is the only account of why. `--slots-in-an-epoch 1` finalizes locally almost at
+            # once, so the indexer's per-second `finalized` and `safe` lookups are answered from
+            # local state instead of reaching upstream.
             - name: Start anvil (fork of Base)
               run: |
-                  anvil --fork-url "${{ secrets.BASE_MAINNET }}" --port 8545 --block-time 2 --silent &
+                  nohup anvil --fork-url "${{ secrets.BASE_MAINNET }}" --port 8545 --block-time 2 \
+                    --slots-in-an-epoch 1 > anvil.log 2>&1 &
                   echo "Waiting for anvil on 8545..."
                   for i in $(seq 1 60); do
                     nc -z localhost 8545 && break
                     sleep 1
                   done
-                  nc -z localhost 8545 || { echo "anvil never came up"; exit 1; }
+                  nc -z localhost 8545 || { echo "anvil never came up"; cat anvil.log; exit 1; }
+                  curl -s -m 20 -X POST -H 'content-type: application/json' \
+                    --data '{"jsonrpc":"2.0","id":1,"method":"eth_blockNumber","params":[]}' \
+                    http://127.0.0.1:8545
 
             - name: Seed solver balances and delegations
               run: node packages/indexer/scripts/tests/seed-solvers.cjs
@@ -194,6 +202,9 @@ jobs:
                   echo "::endgroup::"
                   echo "::group::Indexer"
                   cat packages/indexer/indexer_output.log || true
+                  echo "::endgroup::"
+                  echo "::group::anvil"
+                  tail -80 anvil.log || true
                   echo "::endgroup::"
                   echo "::group::Heartbeat"
                   tail -5 heartbeat.log || true

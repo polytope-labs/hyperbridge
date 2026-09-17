@@ -4,6 +4,7 @@ import { ContractInteractionService } from "@/services/ContractInteractionServic
 import { CacheService } from "@/services/CacheService"
 
 const gateway = "0x1111111111111111111111111111111111111111"
+const implementation = "0x7777777777777777777777777777777777777777"
 const solver = "0x2222222222222222222222222222222222222222"
 const token = `0x${"0".repeat(24)}${"33".repeat(20)}` as HexString
 const order = {
@@ -19,16 +20,21 @@ const order = {
 	inputs: [{ token, amount: 1000n }],
 	output: { beneficiary: token, assets: [{ token, amount: 1000n }], call: "0x" },
 } as Order
-function makeService(supported = true, cache = new CacheService()) {
+function makeService(supported = true, cache = new CacheService(), unsupportedAddress?: string) {
 	const client = {
 		chain: { id: 1 },
-		readContract: async ({ functionName }: { functionName: string }) =>
-			functionName === "supportsRateFills" ? supported : 0n,
+		readContract: async ({ functionName, address }: { functionName: string; address: string }) =>
+			functionName === "fillOrderSelector"
+				? supported && address !== unsupportedAddress
+					? "0x68ddf058"
+					: "0xa5470064"
+				: 0n,
 	}
 	return new ContractInteractionService(
 		{ getPublicClient: () => client } as never,
 		{
 			getIntentGatewayAddress: () => gateway,
+			getSolverAccountContractAddress: () => implementation,
 			getConfiguredChainIds: () => [],
 			getEntryPointAddress: () => gateway,
 			getGasFeeBumpConfig: () => undefined,
@@ -45,14 +51,13 @@ describe("rate fill batches", () => {
 		const calldata = await service.buildApprovalAndFillCalldata(
 			order,
 			outputs,
-			{ relayerFee: 0n, nativeDispatchFee: 0n, validUntil: 99n, outputs },
+			{ relayerFee: 0n, nativeDispatchFee: 0n, validUntil: 99n, outputs, inputs },
 			0n,
-			inputs,
 		)
 		const calls = decodeERC7821ExecuteBatch(calldata)!
 		const decoded = decodeFillOrder(calls[calls.length - 1].data)
-		expect(decoded?.method).toBe("fillOrderAtRate")
-		expect(decoded?.inputs).toEqual(inputs)
+		expect(decoded?.version).toBe(3)
+		expect(decoded?.options.inputs).toEqual(inputs)
 		expect(decoded?.options.outputs).toEqual(outputs)
 	})
 	it("refuses to publish a rate bid from an unsupported account or gateway", async () => {
@@ -61,12 +66,43 @@ describe("rate fill batches", () => {
 			makeService(false).buildApprovalAndFillCalldata(
 				order,
 				outputs,
-				{ relayerFee: 0n, nativeDispatchFee: 0n, validUntil: 99n, outputs },
+				{ relayerFee: 0n, nativeDispatchFee: 0n, validUntil: 99n, outputs, inputs: [{ token, amount: 400n }] },
 				0n,
-				[{ token, amount: 400n }],
 			),
-		).rejects.toThrow(/rate/i)
+		).rejects.toThrow(/rate|selector/i)
 	})
+	it.each([solver, implementation])("rejects empty-input v3 fills with unsupported account %s", async (address) => {
+		const outputs = [{ token, amount: 440n }]
+		await expect(
+			makeService(true, new CacheService(), address).buildApprovalAndFillCalldata(
+				order,
+				outputs,
+				{ relayerFee: 0n, nativeDispatchFee: 0n, validUntil: 99n, outputs, inputs: [] },
+				0n,
+			),
+		).rejects.toThrow(/delegation/i)
+	})
+	it("checks the live delegation again for a subsequent bid", async () => {
+		const outputs = [{ token, amount: 440n }]
+		const service = makeService()
+		const options = { relayerFee: 0n, nativeDispatchFee: 0n, validUntil: 99n, outputs, inputs: [] }
+		await service.buildApprovalAndFillCalldata(order, outputs, options, 0n)
+		vi.spyOn(service, "rateFillsSupported").mockResolvedValue(false)
+		await expect(service.buildApprovalAndFillCalldata(order, outputs, options, 0n)).rejects.toThrow(/delegation/i)
+	})
+	it.each([solver, implementation])(
+		"rejects an ordinary phantom bid with unsupported account %s",
+		async (address) => {
+			const service = makeService(true, new CacheService(), address)
+			const sign = vi.fn()
+			vi.spyOn(service, "getIntentGateway").mockResolvedValue({ prepareSubmitBid: sign } as never)
+			vi.spyOn(service as any, "bidValidUntilBlock").mockResolvedValue(99n)
+			await expect(
+				service.preparePhantomBidUserOp(order, gateway, solver, [{ token, amount: 440n }], []),
+			).rejects.toThrow(/delegation/i)
+			expect(sign).not.toHaveBeenCalled()
+		},
+	)
 	it("keeps rate inputs with their output quote and invalidates old gas estimates", () => {
 		const cache = new CacheService()
 		cache.setFillerOutputs(order.id!, [{ token, amount: 440n }], [{ token, amount: 400n }])

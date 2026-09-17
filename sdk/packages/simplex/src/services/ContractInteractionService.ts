@@ -18,7 +18,6 @@ import {
 	transformOrderForContract,
 	type TokenInfo,
 	encodeFillOrder,
-	encodeFillOrderAtRate,
 	supportsRateFills,
 	getFillOptionsVersion,
 } from "@hyperbridge/sdk"
@@ -708,6 +707,7 @@ export class ContractInteractionService {
 			// they choose the moment of execution and we are committed to the old price.
 			validUntil: await this.bidValidUntilBlock(order.destination),
 			outputs: quote.outputs,
+			inputs: quote.inputs,
 		}
 
 		this.cacheService.assertFillerQuoteCurrent(order.id!, quote)
@@ -719,7 +719,6 @@ export class ContractInteractionService {
 			quote.outputs,
 			fillOptions,
 			cachedEstimate.totalCostInSourceFeeToken + dispatchFeeTokenAmount,
-			quote.inputs,
 		)
 
 		const commitment = orderCommitment(order)
@@ -837,8 +836,9 @@ export class ContractInteractionService {
 			nativeDispatchFee: 0n,
 			validUntil: await this.bidValidUntilBlock(order.destination),
 			outputs: fillerOutputs,
+			inputs,
 		}
-		const callData = await this.buildApprovalAndFillCalldata(order, fillerOutputs, fillOptions, 0n, inputs)
+		const callData = await this.buildApprovalAndFillCalldata(order, fillerOutputs, fillOptions, 0n)
 
 		const commitment = orderCommitment(order)
 
@@ -890,11 +890,15 @@ export class ContractInteractionService {
 	 * fills, which dispatch a RedeemEscrow message paid in the fee token, need it.
 	 */
 	async rateFillsSupported(chain: string): Promise<boolean> {
-		return supportsRateFills(
-			this.clientManager.getPublicClient(chain) as any,
-			this.configService.getIntentGatewayAddress(chain),
-			this.solverAccountAddress,
-		)
+		const client = this.clientManager.getPublicClient(chain)
+		const gateway = this.configService.getIntentGatewayAddress(chain)
+		const implementation = this.configService.getSolverAccountContractAddress(chain)
+		if (!implementation) return false
+		const capabilities = await Promise.all([
+			supportsRateFills(client as any, gateway, this.solverAccountAddress),
+			supportsRateFills(client as any, gateway, implementation),
+		])
+		return capabilities.every(Boolean)
 	}
 
 	public async buildApprovalAndFillCalldata(
@@ -902,12 +906,12 @@ export class ContractInteractionService {
 		fillerOutputs: TokenInfo[],
 		fillOptions: FillOptions,
 		requiredFeeTokenAmount: bigint,
-		inputs: TokenInfo[] = [],
 	): Promise<HexString> {
 		const chain = order.destination
 		const destClient = this.clientManager.getPublicClient(chain)
 		const intentGatewayV2Address = this.configService.getIntentGatewayAddress(chain)
-		if (inputs.length && !(await this.rateFillsSupported(chain))) {
+		const fillOptionsVersion = await getFillOptionsVersion(destClient as any, intentGatewayV2Address)
+		if ((fillOptionsVersion === 3 || fillOptions.inputs?.length) && !(await this.rateFillsSupported(chain))) {
 			throw new Error("Rate fills require an upgraded gateway and SolverAccount delegation")
 		}
 
@@ -964,9 +968,6 @@ export class ContractInteractionService {
 
 		// Gateways predating `FillOptions.validUntil` take a differently-shaped (and
 		// differently-selectored) fillOrder, so the encoding has to match the deployment.
-		const fillOptionsVersion = inputs.length
-			? 2
-			: await getFillOptionsVersion(destClient as any, intentGatewayV2Address)
 		if (fillOptionsVersion === 1 && fillOptions.validUntil !== 0n && !this.warnedNoValidUntil.has(chain)) {
 			this.warnedNoValidUntil.add(chain)
 			this.logger.warn(
@@ -979,9 +980,7 @@ export class ContractInteractionService {
 		calls.push({
 			target: intentGatewayV2Address,
 			value: nativeOutputValue,
-			data: inputs.length
-				? encodeFillOrderAtRate(transformOrderForContract(order) as any, fillOptions, inputs)
-				: encodeFillOrder(transformOrderForContract(order) as any, fillOptions, fillOptionsVersion),
+			data: encodeFillOrder(transformOrderForContract(order) as any, fillOptions, fillOptionsVersion),
 		})
 
 		return encodeERC7821ExecuteBatch(calls)

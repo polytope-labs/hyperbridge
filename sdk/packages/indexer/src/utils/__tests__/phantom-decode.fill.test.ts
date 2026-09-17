@@ -3,7 +3,7 @@ import {
 	encodeERC7821ExecuteBatch,
 	FILL_ORDER_ABI,
 	FILL_ORDER_V1_ABI,
-	FILL_ORDER_AT_RATE_ABI,
+	FILL_ORDER_V2_ABI,
 	type HexString,
 } from "@hyperbridge/sdk/intents-helpers"
 import { extractFillDataVm2 } from "@/utils/phantom-decode"
@@ -49,7 +49,7 @@ describe("extractFillDataVm2", () => {
 	}
 
 	it("decodes a bid encoded for an upgraded gateway (v2, with validUntil)", () => {
-		const calldata = bid(FILL_ORDER_ABI, [
+		const calldata = bid(FILL_ORDER_V2_ABI, [
 			order,
 			{ relayerFee: 0n, nativeDispatchFee: 0n, validUntil: 99n, outputs },
 		])
@@ -57,6 +57,7 @@ describe("extractFillDataVm2", () => {
 		const result = extractFillDataVm2(calldata, GATEWAY)
 
 		expect(result).not.toBeNull()
+		expect(result!.options.inputs).toEqual([])
 		expect(result!.legs).toHaveLength(1)
 		expect(result!.legs[0].outputToken.toLowerCase()).toBe(OUTPUT_TOKEN.toLowerCase())
 		expect(result!.legs[0].solverAmount).toBe(SOLVER_AMOUNT)
@@ -70,6 +71,7 @@ describe("extractFillDataVm2", () => {
 		const result = extractFillDataVm2(calldata, GATEWAY)
 
 		expect(result).not.toBeNull()
+		expect(result!.options.inputs).toEqual([])
 		expect(result!.legs).toHaveLength(1)
 		expect(result!.legs[0].outputToken.toLowerCase()).toBe(OUTPUT_TOKEN.toLowerCase())
 		expect(result!.legs[0].solverAmount).toBe(SOLVER_AMOUNT)
@@ -78,16 +80,23 @@ describe("extractFillDataVm2", () => {
 	it("decodes a rate bid with its signed take, normalized to the full input", () => {
 		const rateOrder = { ...order, inputs: [{ ...order.inputs[0], amount: 1000n }] }
 		const data = encodeFunctionData({
-			abi: FILL_ORDER_AT_RATE_ABI,
-			functionName: "fillOrderAtRate",
+			abi: FILL_ORDER_ABI,
+			functionName: "fillOrder",
 			args: [
 				rateOrder as never,
-				{ relayerFee: 0n, nativeDispatchFee: 0n, validUntil: 99n, outputs },
-				[{ token: order.inputs[0].token as HexString, amount: 400n }],
+				{
+					relayerFee: 0n,
+					nativeDispatchFee: 0n,
+					validUntil: 99n,
+					outputs,
+					inputs: [{ token: order.inputs[0].token as HexString, amount: 400n }],
+				},
 			],
 		})
 		const result = extractFillDataVm2(encodeERC7821ExecuteBatch([{ target: GATEWAY, value: 0n, data }]), GATEWAY)
 		expect(result).not.toBeNull()
+		expect(result!.version).toBe(3)
+		expect(result!.options.inputs[0].amount).toBe(400n)
 		expect(result!.legs[0].inputTake).toBe(400n)
 		expect(result!.legs[0].normalizedAmount).toBe(30_862n)
 	})
@@ -108,12 +117,11 @@ describe("extractFillDataVm2", () => {
 			offered.push({ token: rateOrder.output.assets[1].token as HexString, amount: 10n })
 		}
 		const data = encodeFunctionData({
-			abi: FILL_ORDER_AT_RATE_ABI,
-			functionName: "fillOrderAtRate",
+			abi: FILL_ORDER_ABI,
+			functionName: "fillOrder",
 			args: [
 				rateOrder as never,
-				{ relayerFee: 0n, nativeDispatchFee: 0n, validUntil: 99n, outputs: offered },
-				takes,
+				{ relayerFee: 0n, nativeDispatchFee: 0n, validUntil: 99n, outputs: offered, inputs: takes },
 			],
 		})
 		expect(
@@ -121,8 +129,21 @@ describe("extractFillDataVm2", () => {
 		).toBeNull()
 	})
 
+	it("decodes v3 empty takes as order-rate settlement", () => {
+		const result = extractFillDataVm2(
+			bid(FILL_ORDER_ABI, [
+				order,
+				{ relayerFee: 0n, nativeDispatchFee: 0n, validUntil: 99n, outputs, inputs: [] },
+			]),
+			GATEWAY,
+		)
+		expect(result?.version).toBe(3)
+		expect(result?.options.inputs).toEqual([])
+		expect(result?.legs[0].solverAmount).toBe(SOLVER_AMOUNT)
+	})
+
 	it("returns null when the batch targets a different contract", () => {
-		const calldata = bid(FILL_ORDER_ABI, [
+		const calldata = bid(FILL_ORDER_V2_ABI, [
 			order,
 			{ relayerFee: 0n, nativeDispatchFee: 0n, validUntil: 0n, outputs },
 		])
@@ -130,7 +151,7 @@ describe("extractFillDataVm2", () => {
 		expect(extractFillDataVm2(calldata, "0x2222222222222222222222222222222222222222")).toBeNull()
 	})
 
-	it("returns null for calldata that is neither fillOrder shape", () => {
+	it("returns null for calldata that has no supported fillOrder selector", () => {
 		const calldata = encodeERC7821ExecuteBatch([{ target: GATEWAY, value: 0n, data: "0xdeadbeef" }])
 
 		expect(extractFillDataVm2(calldata, GATEWAY)).toBeNull()

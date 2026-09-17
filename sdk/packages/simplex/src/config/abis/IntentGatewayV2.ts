@@ -565,85 +565,6 @@ export const INTENT_GATEWAY_V2_ABI = [
 							},
 						],
 					},
-				],
-			},
-		],
-		outputs: [],
-		stateMutability: "payable",
-	},
-	{
-		type: "function",
-		name: "fillOrderAtRate",
-		inputs: [
-			{
-				name: "order",
-				type: "tuple",
-				internalType: "struct Order",
-				components: [
-					{
-						name: "user",
-						type: "bytes32",
-						internalType: "bytes32",
-					},
-					{
-						name: "source",
-						type: "bytes",
-						internalType: "bytes",
-					},
-					{
-						name: "destination",
-						type: "bytes",
-						internalType: "bytes",
-					},
-					{
-						name: "deadline",
-						type: "uint256",
-						internalType: "uint256",
-					},
-					{
-						name: "nonce",
-						type: "uint256",
-						internalType: "uint256",
-					},
-					{
-						name: "fees",
-						type: "uint256",
-						internalType: "uint256",
-					},
-					{
-						name: "session",
-						type: "address",
-						internalType: "address",
-					},
-					{
-						name: "predispatch",
-						type: "tuple",
-						internalType: "struct DispatchInfo",
-						components: [
-							{
-								name: "assets",
-								type: "tuple[]",
-								internalType: "struct TokenInfo[]",
-								components: [
-									{
-										name: "token",
-										type: "bytes32",
-										internalType: "bytes32",
-									},
-									{
-										name: "amount",
-										type: "uint256",
-										internalType: "uint256",
-									},
-								],
-							},
-							{
-								name: "call",
-								type: "bytes",
-								internalType: "bytes",
-							},
-						],
-					},
 					{
 						name: "inputs",
 						type: "tuple[]",
@@ -661,101 +582,24 @@ export const INTENT_GATEWAY_V2_ABI = [
 							},
 						],
 					},
-					{
-						name: "output",
-						type: "tuple",
-						internalType: "struct PaymentInfo",
-						components: [
-							{
-								name: "beneficiary",
-								type: "bytes32",
-								internalType: "bytes32",
-							},
-							{
-								name: "assets",
-								type: "tuple[]",
-								internalType: "struct TokenInfo[]",
-								components: [
-									{
-										name: "token",
-										type: "bytes32",
-										internalType: "bytes32",
-									},
-									{
-										name: "amount",
-										type: "uint256",
-										internalType: "uint256",
-									},
-								],
-							},
-							{
-								name: "call",
-								type: "bytes",
-								internalType: "bytes",
-							},
-						],
-					},
-				],
-			},
-			{
-				name: "options",
-				type: "tuple",
-				internalType: "struct FillOptions",
-				components: [
-					{
-						name: "relayerFee",
-						type: "uint256",
-						internalType: "uint256",
-					},
-					{
-						name: "nativeDispatchFee",
-						type: "uint256",
-						internalType: "uint256",
-					},
-					{
-						name: "validUntil",
-						type: "uint256",
-						internalType: "uint256",
-					},
-					{
-						name: "outputs",
-						type: "tuple[]",
-						internalType: "struct TokenInfo[]",
-						components: [
-							{
-								name: "token",
-								type: "bytes32",
-								internalType: "bytes32",
-							},
-							{
-								name: "amount",
-								type: "uint256",
-								internalType: "uint256",
-							},
-						],
-					},
-				],
-			},
-			{
-				name: "inputs",
-				type: "tuple[]",
-				internalType: "struct TokenInfo[]",
-				components: [
-					{
-						name: "token",
-						type: "bytes32",
-						internalType: "bytes32",
-					},
-					{
-						name: "amount",
-						type: "uint256",
-						internalType: "uint256",
-					},
 				],
 			},
 		],
 		outputs: [],
 		stateMutability: "payable",
+	},
+	{
+		type: "function",
+		name: "fillOrderSelector",
+		inputs: [],
+		outputs: [
+			{
+				name: "",
+				type: "bytes4",
+				internalType: "bytes4",
+			},
+		],
+		stateMutability: "pure",
 	},
 	{
 		type: "function",

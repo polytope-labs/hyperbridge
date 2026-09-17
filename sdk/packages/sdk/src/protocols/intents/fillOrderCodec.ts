@@ -1,4 +1,4 @@
-import { encodeFunctionData, decodeFunctionData, toFunctionSelector, type PublicClient } from "viem"
+import { encodeFunctionData, decodeFunctionData, type PublicClient } from "viem"
 import { ABI as IntentGatewayV2ABI } from "@/abis/IntentGatewayV2"
 import type { FillOptions, HexString, Order, TokenInfo } from "@/types"
 
@@ -210,10 +210,8 @@ export const FILL_ORDER_V1_ABI = [
 	},
 ] as const
 
-/** Derived from the generated Solidity ABI, not a manually maintained version flag. */
-export const FILL_ORDER_V3_SELECTOR = toFunctionSelector(
-	IntentGatewayV2ABI.find((entry) => entry.type === "function" && entry.name === "fillOrder")!,
-)
+/** Compiled ABI selector, pinned by codec tests; avoid import-time hashing in VM2. */
+export const FILL_ORDER_V3_SELECTOR = "0x68ddf058" as const
 export const FILL_ORDER_SELECTOR_ABI = [
 	{
 		type: "function",

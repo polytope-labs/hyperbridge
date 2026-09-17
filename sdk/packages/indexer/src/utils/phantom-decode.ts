@@ -4,7 +4,7 @@ import {
 	zipFillLegs,
 	FILL_ORDER_ABI,
 	FILL_ORDER_V1_ABI,
-	FILL_ORDER_AT_RATE_ABI,
+	FILL_ORDER_V2_ABI,
 	type BidNonceKeyFn,
 	type FillData,
 	type HexString,
@@ -21,34 +21,30 @@ import {
 // (isBytesLike), so it works in the sandbox. These are injected into aggregatePhantomBids so the SDK
 // itself stays on the plain viem helpers (used by simplex/tests in Node, where viem is fine).
 const executeIface = new Interface(["function execute(bytes32 mode, bytes executionData)"])
-// Both `fillOrder` shapes, because a bid carries whichever one its target gateway speaks.
-// `FillOptions.validUntil` changed the selector (0x5cfb1ea5 -> 0xa5470064), so a solver bidding
-// against a gateway that predates it sends the v1 shape. ethers validates the selector before
-// decoding, so a single interface silently rejects every bid of the other shape — and
-// `extractFillDataVm2`'s caller drops those bids without logging. This mirrors the SDK's
-// `decodeFillOrder`, which tries v2 then falls back to v1; the two must stay in step.
+// Explicit fragments preserve all deployed selectors: v1, validUntil v2, and inputs v3.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const fillIface = new Interface(FILL_ORDER_ABI as any)
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
+const v2FillIface = new Interface(FILL_ORDER_V2_ABI as any)
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const legacyFillIface = new Interface(FILL_ORDER_V1_ABI as any)
-const rateFillIface = new Interface(FILL_ORDER_AT_RATE_ABI as any)
 const CALL_TUPLE = ["tuple(address target, uint256 value, bytes data)[]"]
 
 /**
- * Decodes a `fillOrder` call of either shape, or returns null if it is neither.
+ * Decodes a `fillOrder` call using any supported ABI version, or returns null.
  *
  * The selectors differ, so there is no payload one interface could mis-decode as the other.
  */
-function decodeFillOrderEither(data: string): ReadonlyArray<unknown> | null {
-	for (const [iface, method] of [
-		[rateFillIface, "fillOrderAtRate"],
-		[fillIface, "fillOrder"],
-		[legacyFillIface, "fillOrder"],
+function decodeFillOrderEither(data: string): { decoded: ReadonlyArray<unknown>; version: 1 | 2 | 3 } | null {
+	for (const [iface, version] of [
+		[fillIface, 3],
+		[v2FillIface, 2],
+		[legacyFillIface, 1],
 	] as const) {
 		try {
-			return iface.decodeFunctionData(method, data)
+			return { decoded: iface.decodeFunctionData("fillOrder", data), version }
 		} catch {
-			// Wrong shape for this interface; try the other.
+			// The selector identifies the ABI version; all versions have two arguments.
 		}
 	}
 	return null
@@ -64,8 +60,9 @@ export function extractFillDataVm2(callData: HexString, gatewayAddress: string):
 		const normalized = gatewayAddress.toLowerCase()
 		for (const call of calls) {
 			if (call.target.toLowerCase() !== normalized) continue
-			const decoded = decodeFillOrderEither(call.data)
-			if (!decoded) continue
+			const fill = decodeFillOrderEither(call.data)
+			if (!fill) continue
+			const { decoded, version } = fill
 			const order = decoded[0] as Record<string, unknown>
 			const options = decoded[1] as Record<string, unknown>
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -74,14 +71,13 @@ export function extractFillDataVm2(callData: HexString, gatewayAddress: string):
 			const outputs = (options as any)?.outputs as { token: HexString; amount: unknown }[] | undefined
 			if (!assets?.length || !outputs?.length) continue
 			const orderInputs = order.inputs as { token: HexString; amount: unknown }[]
-			const inputs = ((decoded[2] ?? []) as { token: HexString; amount: { toString(): string } }[]).map(
-				({ token, amount }) => ({ token, amount: BigInt(amount.toString()) }),
-			)
+			const inputs = (
+				(version === 3 ? options.inputs : []) as { token: HexString; amount: { toString(): string } }[]
+			).map(({ token, amount }) => ({ token, amount: BigInt(amount.toString()) }))
 			return {
 				order,
-				options,
-				method: decoded.length === 3 ? "fillOrderAtRate" : "fillOrder",
-				inputs,
+				options: { ...options, inputs },
+				version,
 				legs: zipFillLegs(assets, outputs, orderInputs, inputs),
 			}
 		}

@@ -757,6 +757,7 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 	) {
 		const cache = new Map<string, unknown>()
 		const contractService = {
+			rateFillsSupported: async () => false,
 			cacheService: {
 				getPairClassifications: (id: string) => cache.get(`pc:${id}`),
 				setPairClassifications: (id: string, v: unknown) => cache.set(`pc:${id}`, v),
@@ -785,9 +786,14 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 				options?.balancesByToken?.[params.address.toLowerCase()] ?? 10n ** 30n, // balanceOf
 		}
 		const clientManager = { getPublicClient: () => destClient } as any
-		return new FXFiller(signer, cfg, clientManager, contractService, pairs, registry, {
+		const filler = new FXFiller(signer, cfg, clientManager, contractService, pairs, registry, {
 			fundingVenues: (options?.fundingVenues ?? []) as any,
 		})
+		// A rejected quote must reach its intended guard, not the general exception handler.
+		;(filler as any).logger.error = (_details: unknown, message: string) => {
+			throw new Error(message)
+		}
+		return filler
 	}
 
 	function order(id: string, input: TokenInfo, output: TokenInfo, fees: bigint): Order {

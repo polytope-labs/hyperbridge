@@ -8,46 +8,61 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 contract RateFillMathHarness is IntentsBase {
     constructor() EIP712("IntentGateway", "2") {}
 
-    function quote(uint256 e, uint256 q, uint256 p, uint256 t, uint256 o)
-        external
-        pure
-        returns (uint256, uint256, uint256)
-    {
-        return _quoteRateFill(e, q, p, t, o);
+    function quote(
+        uint256 escrowInput,
+        uint256 requiredOutput,
+        uint256 previousCredit,
+        uint256 quotedInput,
+        uint256 offeredOutput
+    ) external pure returns (uint256, uint256, uint256) {
+        return _quoteRateFill(escrowInput, requiredOutput, previousCredit, quotedInput, offeredOutput);
     }
 }
 
 contract RateFillMathTest is Test {
     RateFillMathHarness internal harness = new RateFillMathHarness();
 
-    function testFuzz_RateBounds(uint64 e, uint64 q, uint64 p, uint64 t, uint64 surplus) public {
-        e = uint64(bound(e, 1, type(uint64).max));
-        q = uint64(bound(q, 1, type(uint64).max));
-        p = uint64(bound(p, 0, q - 1));
-        t = uint64(bound(t, 1, type(uint64).max));
-        uint256 offered = Math.mulDiv(t, q, e, Math.Rounding.Ceil) + surplus;
-        uint256 expectedCredit = Math.min(Math.mulDiv(t, q, e), q - p);
-        uint256 expectedRelease = Math.mulDiv(e, p + expectedCredit, q) - Math.mulDiv(e, p, q);
+    function testFuzz_RateBounds(
+        uint64 escrowInput,
+        uint64 requiredOutput,
+        uint64 previousCredit,
+        uint64 quotedInput,
+        uint64 surplus
+    ) public {
+        escrowInput = uint64(bound(escrowInput, 1, type(uint64).max));
+        requiredOutput = uint64(bound(requiredOutput, 1, type(uint64).max));
+        previousCredit = uint64(bound(previousCredit, 0, requiredOutput - 1));
+        quotedInput = uint64(bound(quotedInput, 1, type(uint64).max));
+        uint256 offeredOutput = Math.mulDiv(quotedInput, requiredOutput, escrowInput, Math.Rounding.Ceil) + surplus;
+        uint256 expectedCredit =
+            Math.min(Math.mulDiv(quotedInput, requiredOutput, escrowInput), requiredOutput - previousCredit);
+        uint256 expectedRelease = Math.mulDiv(escrowInput, previousCredit + expectedCredit, requiredOutput)
+            - Math.mulDiv(escrowInput, previousCredit, requiredOutput);
         if (expectedCredit == 0 || expectedRelease == 0) {
             vm.expectRevert(IntentsBase.RateFillTooSmall.selector);
-            harness.quote(e, q, p, t, offered);
+            harness.quote(escrowInput, requiredOutput, previousCredit, quotedInput, offeredOutput);
             return;
         }
-        (uint256 credit, uint256 release, uint256 delivered) = harness.quote(e, q, p, t, offered);
-        assertGt(credit, 0);
-        assertLe(p + credit, q);
-        assertLe(release, t);
-        assertGe(delivered, credit);
-        assertLe(delivered, offered);
-        assertGe(delivered * t, offered * release);
-        assertEq(Math.mulDiv(e, p, q) + release + (e - Math.mulDiv(e, p + credit, q)), e);
+        (uint256 creditedOutput, uint256 releasedInput, uint256 deliveredOutput) =
+            harness.quote(escrowInput, requiredOutput, previousCredit, quotedInput, offeredOutput);
+        assertGt(creditedOutput, 0);
+        assertLe(previousCredit + creditedOutput, requiredOutput);
+        assertLe(releasedInput, quotedInput);
+        assertGe(deliveredOutput, creditedOutput);
+        assertLe(deliveredOutput, offeredOutput);
+        assertGe(deliveredOutput * quotedInput, offeredOutput * releasedInput);
+        assertEq(
+            Math.mulDiv(escrowInput, previousCredit, requiredOutput) + releasedInput
+                + (escrowInput - Math.mulDiv(escrowInput, previousCredit + creditedOutput, requiredOutput)),
+            escrowInput
+        );
     }
 
     function testRate_MaximumAmountsUseFullPrecision() public view {
-        (uint256 c, uint256 r, uint256 d) =
+        (uint256 creditedOutput, uint256 releasedInput, uint256 deliveredOutput) =
             harness.quote(type(uint256).max, type(uint256).max, 0, type(uint256).max, type(uint256).max);
-        assertEq(c, type(uint256).max);
-        assertEq(r, type(uint256).max);
-        assertEq(d, type(uint256).max);
+        assertEq(creditedOutput, type(uint256).max);
+        assertEq(releasedInput, type(uint256).max);
+        assertEq(deliveredOutput, type(uint256).max);
     }
 }

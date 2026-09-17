@@ -130,55 +130,36 @@ abstract contract ExtrinsicIntents is IntentsBase, HyperApp {
     }
 
     /**
-     * @dev Fills a cross-chain order on the destination chain, supporting both partial and full
-     * fills. The solver provides output tokens directly to the beneficiary, and a Hyperbridge post
-     * request is dispatched back to the source chain to release the escrowed input tokens.
-     *
-     * Partial-fill tracking mirrors the same-chain path: cumulative progress per leg is
-     * recorded in `_partialFills`, and the escrow released for each fill is computed via
-     * `_cumulativeReleased` over `order.inputs[i].amount`. Because the escrow itself lives on the
-     * source chain, the proportional slice is carried in the dispatched message rather than
-     * released locally. The monotonic release function guarantees that, across any number of
-     * partial fills, the redeemed slices sum to exactly the escrowed amount.
-     *
-     * - Partial fill: clears `_filled` (so the next solver can continue) and dispatches a
-     *   `RedeemEscrowPartial` message (non-finalizing on the source). Emits `PartialFill`.
-     * - Full fill: keeps `_filled` set, executes any attached calldata, and dispatches a
-     *   `RedeemEscrow` message (finalizing, forwarding accumulated fees). Emits `OrderFilled`.
-     *
-     * Surplus handling (only when a solver overpays on a fresh, unfilled output):
-     * - If the order has attached calldata, all surplus goes to the protocol.
-     * - Otherwise, surplus is split between beneficiary and protocol per `surplusShareBps`.
-     *
-     * Orders carrying output calldata cannot be partially filled — the attached call only runs on
-     * a full fill, so an incomplete fill reverts with PartialFillNotAllowed.
-     *
-     * @param order The cross-chain order to fill.
-     * @param options Fill options including output amounts, relayer fee, and native dispatch fee.
+     * @dev Delivers output on this chain and requests the matching per-leg escrow from
+     * the source chain. Partial fills send RedeemEscrowPartial and reopen the order;
+     * a completing fill executes beneficiary calldata and sends RedeemEscrow.
+     * @param order The cross-chain order being filled.
+     * @param options Output payments, optional input quotes and dispatch fees.
      * @param commitment The keccak256 hash of the ABI-encoded order.
      */
     function _fillCrossChain(Order calldata order, FillOptions calldata options, bytes32 commitment) internal {
         _filled[commitment] = msg.sender;
         FillResult memory result = _fillLegs(order, options, commitment, false);
-        if (result.complete) _execute(order, order.output.assets.length);
-        else delete _filled[commitment];
+        if (result.fullyFilled) {
+            _execute(order, order.output.assets.length);
+        } else {
+            delete _filled[commitment];
+        }
+
         uint256 nativeFee = options.nativeDispatchFee;
         if (nativeFee > result.nativeRemaining) nativeFee = 0;
         result.nativeRemaining -= nativeFee;
-        _post(
-            order,
-            _body(
-                result.complete ? RequestKind.RedeemEscrow : RequestKind.RedeemEscrowPartial,
-                commitment,
-                result.inputs,
-                bytes32(uint256(uint160(msg.sender)))
-            ),
-            options.relayerFee,
-            nativeFee
-        );
+
+        RequestKind requestKind = result.fullyFilled ? RequestKind.RedeemEscrow : RequestKind.RedeemEscrowPartial;
+        bytes memory body = _body(requestKind, commitment, result.releasedInputs, bytes32(uint256(uint160(msg.sender))));
+        _post(order, body, options.relayerFee, nativeFee);
+
         if (result.nativeRemaining > 0) _sendValue(msg.sender, result.nativeRemaining);
-        if (result.complete) emit OrderFilled(commitment, msg.sender, result.outputs, result.inputs);
-        else emit PartialFill(commitment, msg.sender, result.outputs, result.inputs);
+        if (result.fullyFilled) {
+            emit OrderFilled(commitment, msg.sender, result.creditedOutputs, result.releasedInputs);
+        } else {
+            emit PartialFill(commitment, msg.sender, result.creditedOutputs, result.releasedInputs);
+        }
     }
 
     /**

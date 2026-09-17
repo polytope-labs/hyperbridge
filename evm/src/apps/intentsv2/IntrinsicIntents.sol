@@ -29,43 +29,29 @@ abstract contract IntrinsicIntents is IntentsBase {
     using SafeERC20 for IERC20;
 
     /**
-     * @dev Fills a same-chain order, supporting both partial and full fills.
-     *
-     * For each output asset, the solver provides tokens directly to the beneficiary.
-     * The function tracks cumulative partial fill progress per leg in `_partialFills` and computes
-     * proportional escrowed input amounts to release to the solver. Leg `i` pairs
-     * `order.inputs[i]` with `order.output.assets[i]`; its progress and escrow are its own, so
-     * legs that repeat a token (e.g. one pair at several prices) settle independently.
-     *
-     * Surplus handling (on each quoted slice, or an ordinary first-fill overpayment):
-     * - If the order has attached calldata, all surplus goes to the protocol as dust.
-     * - Otherwise, surplus is split between the beneficiary and protocol according to `surplusShareBps`.
-     *
-     * On full fill: releases all remaining escrow, executes any attached calldata,
-     * and emits OrderFilled.
-     * On partial fill: releases proportional escrow and emits PartialFill.
-     *
-     * Orders that carry output calldata cannot be partially filled — they must be
-     * completed in a single fill, otherwise the call reverts with PartialFillNotAllowed.
-     *
-     * @param order The order to fill.
-     * @param options The fill options containing the solver's output token amounts.
+     * @dev Delivers output and releases the corresponding local escrow for each leg.
+     * Partial fills reopen the order for another solver. A completing fill also executes
+     * the beneficiary's calldata; `_fillLegs` rejects incomplete fills that carry calldata.
+     * @param order The order being filled.
+     * @param options The solver's output payments, optional input quotes and fee parameters.
      * @param commitment The keccak256 hash of the ABI-encoded order.
      */
     function _fillSameChain(Order calldata order, FillOptions calldata options, bytes32 commitment) internal {
         _filled[commitment] = msg.sender;
         FillResult memory result = _fillLegs(order, options, commitment, true);
         WithdrawalRequest memory body = WithdrawalRequest({
-            commitment: commitment, tokens: result.inputs, beneficiary: bytes32(uint256(uint160(msg.sender)))
+            commitment: commitment, tokens: result.releasedInputs, beneficiary: bytes32(uint256(uint160(msg.sender)))
         });
-        _withdraw(body, false, result.complete);
-        if (result.complete) {
+        _withdraw(body, false, result.fullyFilled);
+
+        if (result.fullyFilled) {
             _execute(order, order.output.assets.length);
-            emit OrderFilled(commitment, msg.sender, result.outputs, result.inputs);
+            emit OrderFilled(commitment, msg.sender, result.creditedOutputs, result.releasedInputs);
         } else {
             delete _filled[commitment];
-            emit PartialFill(commitment, msg.sender, result.outputs, result.inputs);
+            emit PartialFill(commitment, msg.sender, result.creditedOutputs, result.releasedInputs);
         }
+
         if (result.nativeRemaining > 0) _sendValue(msg.sender, result.nativeRemaining);
     }
 

@@ -18,6 +18,7 @@ import {IDispatcher} from "@hyperbridge/core/interfaces/IDispatcher.sol";
 import {
     TokenInfo,
     FillOptions,
+    PaymentInfo,
     Order,
     Params,
     ParamsUpdate,
@@ -470,129 +471,172 @@ abstract contract IntentsBase is EIP712 {
     }
 
     struct FillResult {
-        TokenInfo[] inputs; // Escrow released for each input leg.
-        TokenInfo[] outputs; // Output credited toward completion, excluding surplus.
-        bool complete;
+        TokenInfo[] releasedInputs;
+        TokenInfo[] creditedOutputs;
+        bool fullyFilled;
         uint256 nativeRemaining;
     }
 
-    /// @dev Shared destination-side loop. Credit, not gross payment, drives settlement/proofs.
+    /// @dev Records each leg's credited output and delivers its payment. The caller settles
+    /// released inputs locally or sends them to the source chain in a redemption request.
     function _fillLegs(Order calldata order, FillOptions calldata options, bytes32 commitment, bool sameChain)
         internal
         returns (FillResult memory result)
     {
-        uint256 len = order.output.assets.length;
         bool useInputQuotes = options.inputs.length != 0;
         if (useInputQuotes) _validateRateLegs(order, options);
-        result.inputs = new TokenInfo[](len);
-        result.outputs = new TokenInfo[](len);
-        result.complete = true;
+
+        uint256 legCount = order.output.assets.length;
+        result.releasedInputs = new TokenInfo[](legCount);
+        result.creditedOutputs = new TokenInfo[](legCount);
+        result.fullyFilled = true;
         result.nativeRemaining = msg.value;
-        bool progressed;
-        for (uint256 i; i < len; ++i) {
+        bool madeProgress;
+
+        for (uint256 i; i < legCount; ++i) {
             bytes32 outputToken = order.output.assets[i].token;
             if (uint256(outputToken) >> 160 != 0) revert InvalidInput();
             if (options.outputs[i].token != outputToken) revert InvalidInput();
-            result.inputs[i].token = order.inputs[i].token;
-            result.outputs[i].token = outputToken;
+
+            // Keep one result per leg, including skipped and already-completed legs.
+            result.releasedInputs[i].token = order.inputs[i].token;
+            result.creditedOutputs[i].token = outputToken;
             uint256 previousCredit = _partialFills[commitment][i];
             uint256 requiredOutput = order.output.assets[i].amount;
-            uint256 offeredOutput = options.outputs[i].amount;
-            if (previousCredit == requiredOutput || offeredOutput == 0) {
-                if (previousCredit < requiredOutput) result.complete = false;
+            if (previousCredit == requiredOutput || options.outputs[i].amount == 0) {
+                if (previousCredit < requiredOutput) result.fullyFilled = false;
                 continue;
             }
-            (uint256 creditedOutput, uint256 releasedInput, uint256 deliveredOutput) = _fillAmounts(
-                order,
-                commitment,
-                i,
-                previousCredit,
-                offeredOutput,
-                useInputQuotes ? options.inputs[i].amount : 0,
-                sameChain
-            );
-            progressed = true;
-            _partialFills[commitment][i] = previousCredit + creditedOutput;
-            if (previousCredit + creditedOutput < requiredOutput) result.complete = false;
-            result.inputs[i].amount = releasedInput;
-            result.outputs[i].amount = creditedOutput;
-            (uint256 protocolShare, uint256 beneficiaryShare) =
-                _splitSurplus(deliveredOutput - creditedOutput, order.output.call.length > 0);
-            address token = address(uint160(uint256(outputToken)));
-            address beneficiary = address(uint160(uint256(order.output.beneficiary)));
-            if (token == address(0)) {
-                if (result.nativeRemaining < deliveredOutput) revert InsufficientNativeToken();
-                result.nativeRemaining -= deliveredOutput;
-                _sendValue(beneficiary, creditedOutput + beneficiaryShare);
-            } else {
-                IERC20(token).safeTransferFrom(msg.sender, beneficiary, creditedOutput + beneficiaryShare);
-                if (protocolShare > 0) IERC20(token).safeTransferFrom(msg.sender, address(this), protocolShare);
-            }
-            if (protocolShare > 0) emit DustCollected(token, protocolShare);
+
+            (uint256 creditedOutput, uint256 releasedInput, uint256 deliveredOutput) =
+                _fillAmounts(order, options, commitment, i, previousCredit, sameChain);
+
+            // Surplus is paid to the beneficiary/protocol but never advances order progress.
+            uint256 updatedCredit = previousCredit + creditedOutput;
+            _partialFills[commitment][i] = updatedCredit;
+            if (updatedCredit < requiredOutput) result.fullyFilled = false;
+            madeProgress = true;
+            result.releasedInputs[i].amount = releasedInput;
+            result.creditedOutputs[i].amount = creditedOutput;
+
+            result.nativeRemaining =
+                _deliverOutput(order.output, result.creditedOutputs[i], deliveredOutput, result.nativeRemaining);
         }
-        if (useInputQuotes && !progressed) revert RateFillTooSmall();
-        if (order.output.call.length > 0 && !result.complete) revert PartialFillNotAllowed();
+
+        if (useInputQuotes && !madeProgress) revert RateFillTooSmall();
+        if (order.output.call.length > 0 && !result.fullyFilled) revert PartialFillNotAllowed();
+    }
+
+    /// @dev Pays credited output and splits the surplus, retaining the protocol's share here.
+    function _deliverOutput(
+        PaymentInfo calldata payment,
+        TokenInfo memory creditedOutput,
+        uint256 deliveredOutput,
+        uint256 nativeRemaining
+    ) private returns (uint256) {
+        uint256 surplus = deliveredOutput - creditedOutput.amount;
+        (uint256 protocolShare, uint256 beneficiaryShare) = _splitSurplus(surplus, payment.call.length > 0);
+        uint256 beneficiaryAmount = creditedOutput.amount + beneficiaryShare;
+        address token = address(uint160(uint256(creditedOutput.token)));
+        address beneficiary = address(uint160(uint256(payment.beneficiary)));
+
+        if (token == address(0)) {
+            if (nativeRemaining < deliveredOutput) revert InsufficientNativeToken();
+            nativeRemaining -= deliveredOutput;
+            _sendValue(beneficiary, beneficiaryAmount);
+        } else {
+            IERC20(token).safeTransferFrom(msg.sender, beneficiary, beneficiaryAmount);
+            if (protocolShare > 0) IERC20(token).safeTransferFrom(msg.sender, address(this), protocolShare);
+        }
+
+        if (protocolShare > 0) emit DustCollected(token, protocolShare);
+        return nativeRemaining;
     }
 
     function _validateRateLegs(Order calldata order, FillOptions calldata options) private pure {
         for (uint256 i; i < options.inputs.length; ++i) {
-            bytes32 token = order.inputs[i].token;
-            bytes32 output = order.output.assets[i].token;
-            if (options.inputs[i].token != token || uint256(token) >> 160 != 0 || uint256(output) >> 160 != 0) {
-                revert InvalidInput();
-            }
-            if ((options.inputs[i].amount == 0) != (options.outputs[i].amount == 0)) revert InvalidInput();
+            bytes32 inputToken = order.inputs[i].token;
+            bytes32 outputToken = order.output.assets[i].token;
+            if (options.inputs[i].token != inputToken) revert InvalidInput();
+            if (uint256(inputToken) >> 160 != 0 || uint256(outputToken) >> 160 != 0) revert InvalidInput();
+
+            // A solver may skip a leg only by quoting zero input and zero output together.
+            bool zeroInput = options.inputs[i].amount == 0;
+            bool zeroOutput = options.outputs[i].amount == 0;
+            if (zeroInput != zeroOutput) revert InvalidInput();
         }
     }
 
+    /// @dev Uses a solver quote when present, otherwise settles at the order's rate.
     function _fillAmounts(
         Order calldata order,
+        FillOptions calldata options,
         bytes32 commitment,
-        uint256 i,
-        uint256 previous,
-        uint256 offered,
-        uint256 take,
+        uint256 legIndex,
+        uint256 previousCredit,
         bool sameChain
-    ) private view returns (uint256 credit, uint256 release, uint256 delivered) {
-        uint256 escrow = order.inputs[i].amount;
-        uint256 required = order.output.assets[i].amount;
-        uint256 released = _cumulativeReleased(escrow, previous, required);
-        uint256 balance = sameChain ? _orders[commitment][i] : 0;
-        bool legacyRounding = sameChain && balance != escrow - released;
-        if (take > 0) {
-            if (legacyRounding) revert LegacyRateAccounting();
-            return _quoteRateFill(escrow, required, previous, take, offered);
+    ) private view returns (uint256 creditedOutput, uint256 releasedInput, uint256 deliveredOutput) {
+        uint256 escrowInput = order.inputs[legIndex].amount;
+        uint256 requiredOutput = order.output.assets[legIndex].amount;
+        uint256 offeredOutput = options.outputs[legIndex].amount;
+        uint256 quotedInput = options.inputs.length == 0 ? 0 : options.inputs[legIndex].amount;
+        uint256 previouslyReleased = _cumulativeReleased(escrowInput, previousCredit, requiredOutput);
+        uint256 remainingEscrow = sameChain ? _orders[commitment][legIndex] : 0;
+        bool hasLegacyRounding = sameChain && remainingEscrow != escrowInput - previouslyReleased;
+
+        if (quotedInput > 0) {
+            if (hasLegacyRounding) revert LegacyRateAccounting();
+            return _quoteRateFill(escrowInput, requiredOutput, previousCredit, quotedInput, offeredOutput);
         }
-        credit = Math.min(offered, required - previous);
-        delivered = previous == 0 && offered > required ? offered : credit;
-        if (legacyRounding) {
-            // Pre-upgrade same-chain slices floored separately. Retain their final
-            // balance sweep so existing signed legacy fills never strand that dust.
-            release = previous + credit == required ? balance : Math.mulDiv(escrow, credit, required);
+
+        creditedOutput = Math.min(offeredOutput, requiredOutput - previousCredit);
+        // Ordinary fills accept surplus only on the first fill of a leg.
+        deliveredOutput = previousCredit == 0 ? offeredOutput : creditedOutput;
+        uint256 updatedCredit = previousCredit + creditedOutput;
+
+        if (hasLegacyRounding) {
+            // Old same-chain fills rounded each slice separately. The final fill releases
+            // the actual balance so those orders can finish without stranding escrow.
+            releasedInput = updatedCredit == requiredOutput
+                ? remainingEscrow
+                : Math.mulDiv(escrowInput, creditedOutput, requiredOutput);
         } else {
-            release = _cumulativeReleased(escrow, previous + credit, required) - released;
+            releasedInput = _cumulativeReleased(escrowInput, updatedCredit, requiredOutput) - previouslyReleased;
         }
     }
 
-    /// @dev No fixed-point rates: the solver signs input/output raw amounts.
-    function _quoteRateFill(uint256 escrow, uint256 required, uint256 filled, uint256 take, uint256 offered)
-        internal
-        pure
-        returns (uint256 credit, uint256 release, uint256 delivered)
-    {
-        if (escrow == 0 || required == 0 || take == 0 || offered == 0) revert RateFillTooSmall();
+    /// @dev A quote pairs a maximum input take with an offered output payment. Credit follows
+    /// the order's rate; any payment above that credit is surplus.
+    function _quoteRateFill(
+        uint256 escrowInput,
+        uint256 requiredOutput,
+        uint256 previousCredit,
+        uint256 quotedInput,
+        uint256 offeredOutput
+    ) internal pure returns (uint256 creditedOutput, uint256 releasedInput, uint256 deliveredOutput) {
+        if (escrowInput == 0 || requiredOutput == 0 || quotedInput == 0 || offeredOutput == 0) {
+            revert RateFillTooSmall();
+        }
+
         // Round the minimum payment up so the quote cannot fall below the order's price.
-        if (Math.mulDiv(take, required, escrow, Math.Rounding.Ceil) > offered) revert RateBelowOrder();
-        uint256 uncapped = Math.mulDiv(take, required, escrow);
-        uint256 remaining = required - filled;
-        credit = Math.min(uncapped, remaining);
-        // Differences of cumulative floors make every slice sum to the full escrow at completion.
-        release = Math.mulDiv(escrow, filled + credit, required) - Math.mulDiv(escrow, filled, required);
-        if (credit == 0 || release == 0) revert RateFillTooSmall();
-        delivered = offered;
-        if (uncapped > remaining) {
-            // A capped final fill pays for the input actually released at the signed quote rate.
-            delivered = Math.max(credit, Math.mulDiv(offered, release, take, Math.Rounding.Ceil));
+        uint256 minimumOutput = Math.mulDiv(quotedInput, requiredOutput, escrowInput, Math.Rounding.Ceil);
+        if (minimumOutput > offeredOutput) revert RateBelowOrder();
+
+        uint256 quotedCredit = Math.mulDiv(quotedInput, requiredOutput, escrowInput);
+        uint256 remainingOutput = requiredOutput - previousCredit;
+        creditedOutput = Math.min(quotedCredit, remainingOutput);
+
+        // Subtract cumulative floors so the completing fill releases all remaining escrow.
+        uint256 previouslyReleased = Math.mulDiv(escrowInput, previousCredit, requiredOutput);
+        uint256 cumulativeRelease = Math.mulDiv(escrowInput, previousCredit + creditedOutput, requiredOutput);
+        releasedInput = cumulativeRelease - previouslyReleased;
+        if (creditedOutput == 0 || releasedInput == 0) revert RateFillTooSmall();
+
+        deliveredOutput = offeredOutput;
+        if (quotedCredit > remainingOutput) {
+            // A capped final fill pays for the actual released input at the signed quote rate.
+            uint256 proratedOutput = Math.mulDiv(offeredOutput, releasedInput, quotedInput, Math.Rounding.Ceil);
+            deliveredOutput = Math.max(creditedOutput, proratedOutput);
         }
     }
 

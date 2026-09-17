@@ -1,27 +1,31 @@
 # Solver-priced partial fills
 
 `fillOrder(Order, FillOptions)` accepts positional input takes in the appended `FillOptions.inputs`
-field. Each take is a maximum; output credit determines the exact cumulative escrow release.
-Empty inputs retain order-rate settlement. Oversized final bids are capped without resigning,
-and surplus remains destination output. Order commitments, proofs, messages, and storage are unchanged.
+field. Each take is a maximum; output credit determines the cumulative escrow release. Empty inputs
+retain order-rate settlement. Oversized final bids are capped without resigning, and excess output
+is split as surplus. Legs may repeat canonical token addresses; escrow and progress are per leg.
 
-The new selector is `0x68ddf058`. SDK codecs retain the historical v1/v2 shapes for old deployments;
-upgraded gateways require new calldata, including for ordinary fills. Upgrade the gateway with both
-matching modules, deploy the updated SolverAccount, and redelegate participating solvers before
-publishing new bids. `fillOrderSelector()` must match on the gateway, configured account implementation,
-and live solver delegation. This check applies to every v3 bid, including empty inputs and phantom bids.
-The account rejects stripped bid signatures for the new and both historical selectors.
-Drain or requote outstanding old-selector bids around each gateway upgrade.
+The selector is `0x68ddf058`, encoded as FillOptions ABI version 3. Gateway and SolverAccount release
+version 4 identify support. Before signing, the SDK checks the gateway, configured account implementation
+and live solver delegation, including bids with empty inputs and phantom bids. Historical ABI versions
+1 and 2 remain decodable. The account protects all three selectors against stripped bid signatures.
 
-Pre-upgrade same-chain rounding debt remains settleable with empty inputs or cancellation;
-explicit rate settlement of that state is rejected. Rate legs require unique, canonical token identifiers
-under the current token-keyed storage layout.
+Upgrade the gateway and both modules atomically with `migrate(owner)`. Supported version-2 proxies
+initialize ownership and shift the legacy relayer slot; current owner-layout version-3 proxies preserve
+owner, pending owner, relayer and pause state. Earlier module-only implementations that also reported
+version 3 are not supported predecessors. Deploy the new SolverAccount and redelegate solvers before
+publishing new bids; outstanding old-selector bids need new calldata and signatures.
 
-Automatic SDK execution ranks single-leg quotes by rate. A durable pending journal retains the exact
-signed operation before broadcast; restart reconciles its outcome and can rebroadcast the same operation.
-Definitive first-send rejection permits the next bid, while uncertain outcomes remain pending.
-Indexer decoding supports all three ABI shapes in VM2 and prices slices using their quoted input takes.
+Token-keyed deployments must first drain escrow, fees and pending messages on every chain, then stop
+placement until all chains use per-leg accounting. This is the rollout requirement of the per-leg
+escrow upgrade. An already-per-leg deployment can retain its order state: old same-chain rounding debt
+can finish with empty inputs or cancel, while explicit rate settlement rejects it.
 
-Update external orderbook and signing-policy consumers before enabling new quotes. Sentry's existing
+Automatic SDK execution ranks single-leg quotes by rate. It persists the signed operation before
+broadcast and reconciles it after restart. Definitive first-send rejection permits fallback; ambiguous
+outcomes retain the same operation. Receipt attribution uses the accepted operation's EntryPoint log
+interval, gateway, order commitment and solver. Simplex rounds funding-limited input takes down so
+rounding cannot push the quote below the user's limit price.
+
+Update external orderbook and signing-policy consumers before enabling quotes. Sentry's existing
 Permit2 paymaster incompatibility remains a separate rollout dependency; use a supported funding policy.
-Deployment addresses and governance transactions are release inputs.

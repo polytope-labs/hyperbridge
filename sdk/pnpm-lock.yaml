@@ -503,9 +503,6 @@ importers:
 
   packages/simplex-desktop:
     dependencies:
-      '@hyperbridge/simplex':
-        specifier: workspace:*
-        version: link:../simplex
       electron-updater:
         specifier: 6.8.9
         version: 6.8.9
@@ -513,6 +510,9 @@ importers:
       '@biomejs/biome':
         specifier: ^1.9.4
         version: 1.9.4
+      '@hyperbridge/simplex':
+        specifier: workspace:*
+        version: link:../simplex
       '@types/node':
         specifier: ^22.13.5
         version: 22.19.17
@@ -540,6 +540,9 @@ importers:
       vitest:
         specifier: ^3.0.7
         version: 3.2.4(@types/debug@4.1.13)(@types/node@22.19.17)(jsdom@26.1.0(bufferutil@4.1.0)(utf-8-validate@6.0.6))(lightningcss@1.32.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3)
+      yaml:
+        specifier: 2.8.3
+        version: 2.8.3
 
 packages:
 

@@ -1,0 +1,15 @@
+{
+	"name": "@hyperbridge/simplex-desktop-runtime",
+	"version": "0.16.2",
+	"private": true,
+	"description": "Production-only dependency closure for the packaged Simplex solver",
+	"packageManager": "pnpm@11.0.0",
+	"dependencies": {
+		"@solana/spl-token": "0.4.14",
+		"@solana/web3.js": "1.98.4",
+		"pino": "10.3.1",
+		"pino-pretty": "11.3.0",
+		"ssh2": "1.17.0",
+		"thread-stream": "4.0.0"
+	}
+}

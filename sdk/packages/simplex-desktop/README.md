@@ -10,7 +10,7 @@ These commands are intentionally package-local. Open a terminal in the directory
 README and `package.json`; its parent directory name is not part of the usage contract. pnpm
 discovers the workspace above it and resolves the other packages by name.
 
-Use Node 22.16 or newer to install and build the workspace:
+Use Node 24 to install and build the workspace:
 
 ```sh
 pnpm install
@@ -104,10 +104,11 @@ Simplex does not upload crash reports. Solver diagnostics remain in rotating NDJ
 `<userData>/logs`; five launches are retained, and **Open Current Log** opens the newest one. This
 avoids a remote crash-reporting path that could accidentally capture config contents or key material.
 
-Desktop removal must leave Electron's user-data directory in place. Installer work is separate, but
-neither this shell nor its uninstall contract deletes operator databases, logs, or configuration;
-operators may remove that directory manually only after confirming no reclaimable deposits or records
-are needed.
+Desktop removal leaves Electron's user-data directory in place. Neither this shell nor its installer
+contract deletes operator databases, logs, or configuration.
+Operators may remove that directory manually only after confirming no reclaimable deposits or records
+are needed. The Windows NSIS uninstaller explicitly disables app-data deletion; macOS and Linux
+removal likewise leave the per-user data directory untouched.
 
 For genuinely continuous uptime, run `polytopelabs/simplex` on a VPS and use the authenticated tunnel
 for remote viewing. Desktop login startup does not make a laptop a server.
@@ -158,8 +159,57 @@ PWA logo, and fails before creating a window if any is missing:
 - `resources/tray/<state>.png` in development, with 18px macOS `Template` and 36px `Template@2x`
   variants; packaged builds place them under `desktop/tray` in Electron resources.
 
-It never searches `PATH` for the solver runtime. Packaged resource placement and installer generation
-remain responsibilities of the desktop release build.
+It never searches `PATH` for the solver runtime. The release build keeps the Electron main process in
+`app.asar` and places the solver's `package.json` and `dist` tree under `resources/simplex`, its
+production dependency closure under `resources/node_modules`, and the independently verified Node
+executable under `resources/runtime`. The runtime dependency workspace is locked separately and
+contains the six packages intentionally left external by the Simplex bundle: `ssh2`, `pino`,
+`pino-pretty`, `thread-stream`, `@solana/web3.js`, and `@solana/spl-token`.
+
+## Build installers locally
+
+Install the release-only tools from this package directory. They use a separate lockfile so
+`electron-builder` and its platform packagers do not alter the SDK dependency graph:
+
+```sh
+pnpm --dir tooling install --frozen-lockfile
+```
+
+Then build the SDK, solver, and desktop main process, stage the verified host runtime, and package the
+current platform:
+
+```sh
+pnpm --filter @hyperbridge/sdk build
+pnpm --filter @hyperbridge/simplex build
+pnpm build
+pnpm stage:node
+pnpm package -- --mac --arm64 --publish never
+```
+
+Replace the final target arguments with `--mac --x64`, `--win --x64`, `--linux --x64`, or
+`--linux --arm64` on a matching native host. The output is written to `release/`. Smoke-test its
+unpacked application, each generated artifact payload, and enforce the installed-size budget with:
+
+```sh
+pnpm package:smoke -- --root release
+pnpm package:smoke:artifacts -- --root release
+node scripts/package-size.mjs --root release --budget-mib 520
+```
+
+The first complete macOS arm64 package measures about 493 MiB; Electron's framework alone accounts
+for about 287 MiB. The 520 MiB CI limit records that measured baseline with modest growth headroom.
+
+Pushing the exact package-version tag, for example `simplex-desktop-v0.16.2`, runs the native release
+matrix: macOS arm64 and x64 DMG plus updater ZIP, Windows x64 NSIS, and Linux x64 and arm64 AppImage
+plus deb. The workflow smoke-tests each unpacked application and each artifact through its private
+socket. It mounts the macOS DMG, extracts the updater ZIP, silently installs NSIS and deb packages,
+and launches the AppImage executable (using its self-extract runtime only when hosted-runner FUSE is unavailable);
+local Linux runs extract the deb instead of modifying the host.
+It verifies the packaged setup UI and also launches the packaged Node/solver pair with captured
+stderr so startup warnings fail the build. It recomputes every updater SHA-512, validates the
+complete asset set, and publishes the installers and matching `latest` or `beta` channel metadata to a GitHub release. Desktop
+tags are separate from `simplex-v*`, so they do not publish npm or Docker artifacts. Code signing and
+notarization are added by #1239; until then these local and CI packages are intentionally unsigned.
 
 ## Updates and rollback
 
@@ -195,8 +245,8 @@ channels ignores a download that was started on the previous channel.
 
 Update artifacts use electron-updater's SHA-512 metadata checks. macOS updates additionally require
 the app's code signature, and Windows NSIS updates retain Authenticode publisher verification. The
-release configuration explicitly fixes the GitHub owner, repository, and `simplex-desktop-v` tag
-prefix so installed copies cannot silently follow a renamed build repository.
+builder configuration fixes the GitHub owner and repository, while `SimplexReleaseProvider` fixes the
+`simplex-desktop-v` tag prefix so installed copies cannot silently follow a renamed build repository.
 
 Rollback is manual. Stop the solver gracefully, download the previous signed installer from GitHub
 Releases, and install it over the current build. Previous releases and their update metadata must

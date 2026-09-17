@@ -1,9 +1,10 @@
 import { defineConfig } from "tsup"
+import { SIMPLEX_BUNDLE_EXTERNALS } from "./bundle-externals.mjs"
 
 /** Native and worker-spawning modules that must never be inlined into a bundle. */
 // ssh2 probes for an optional native crypto binding relative to its own package
 // directory, so inlining it sends that lookup into dist/ instead.
-const ALWAYS_EXTERNAL = ["@solana/spl-token", "@solana/web3.js", "pino", "pino-pretty", "thread-stream", "ssh2"]
+const ALWAYS_EXTERNAL = SIMPLEX_BUNDLE_EXTERNALS
 
 /**
  * Dependencies inlined into the library build despite the general rule.

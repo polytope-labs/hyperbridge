@@ -1,0 +1,16 @@
+{
+	"name": "@hyperbridge/simplex-desktop-tooling",
+	"version": "0.16.2",
+	"private": true,
+	"description": "Pinned release-only tooling for Simplex Desktop",
+	"engines": {
+		"node": ">=24",
+		"pnpm": ">=11"
+	},
+	"packageManager": "pnpm@11.0.0",
+	"devDependencies": {
+		"builder-util": "26.15.3",
+		"electron-builder": "26.15.3",
+		"yaml": "2.8.3"
+	}
+}

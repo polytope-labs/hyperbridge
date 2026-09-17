@@ -2,27 +2,38 @@
 	"name": "@hyperbridge/simplex-desktop",
 	"version": "0.16.2",
 	"private": true,
+	"description": "Native desktop shell for the Simplex intent solver",
+	"author": "Polytope Labs <hello@polytope.technology>",
+	"homepage": "https://docs.hyperbridge.network/developers/sdk/simplex/",
+	"engines": {
+		"node": ">=24",
+		"pnpm": ">=11"
+	},
 	"type": "module",
 	"main": "dist/main.js",
 	"scripts": {
 		"build": "pnpm run check:versions && tsup",
 		"check:versions": "node scripts/verify-versions.mjs",
 		"dev": "pnpm run build && electron .",
+		"package": "pnpm run stage:solver && node scripts/run-builder.mjs --config electron-builder.yml",
+		"package:smoke": "tsx --tsconfig ../simplex/tsconfig.json scripts/e2e/packaged-smoke.mjs",
+		"package:smoke:artifacts": "tsx --tsconfig ../simplex/tsconfig.json scripts/e2e/artifact-smoke.mjs",
 		"stage:node": "node scripts/stage-node.mjs",
+		"stage:solver": "node scripts/stage-solver.mjs",
 		"test": "pnpm run test:unit && pnpm run test:integration",
 		"test:e2e": "node scripts/e2e/assert-artifacts.mjs && tsx --tsconfig ../simplex/tsconfig.json --test --test-timeout=300000 scripts/e2e/desktop.e2e.mjs",
-		"test:unit": "vitest --watch=false src/tests/blackhole-server.test.ts src/tests/desktop-paths.test.ts src/tests/daemon.test.ts src/tests/desktop-security.test.ts src/tests/electron-launch.test.ts src/tests/login-item.test.ts src/tests/release-provider.test.ts src/tests/solver-supervisor.test.ts src/tests/tray-icon.test.ts src/tests/tray-menu.test.ts src/tests/update-coordinator.test.ts src/tests/update-store.test.ts scripts/stage-node.test.ts",
+		"test:unit": "vitest --watch=false src/tests/blackhole-server.test.ts src/tests/desktop-paths.test.ts src/tests/daemon.test.ts src/tests/desktop-security.test.ts src/tests/electron-launch.test.ts src/tests/login-item.test.ts src/tests/release-provider.test.ts src/tests/solver-supervisor.test.ts src/tests/tray-icon.test.ts src/tests/tray-menu.test.ts src/tests/update-coordinator.test.ts src/tests/update-store.test.ts scripts/package-release.test.ts scripts/stage-node.test.ts",
 		"test:integration": "vitest --watch=false src/tests/protocol.test.ts",
 		"lint": "biome lint src scripts",
 		"format": "prettier --write \"{src,scripts}/**/*.{ts,mjs}\"",
 		"typecheck": "tsc --noEmit"
 	},
 	"dependencies": {
-		"@hyperbridge/simplex": "workspace:*",
 		"electron-updater": "6.8.9"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^1.9.4",
+		"@hyperbridge/simplex": "workspace:*",
 		"@types/node": "^22.13.5",
 		"electron": "44.3.0",
 		"openpgp": "^6.2.2",
@@ -31,6 +42,7 @@
 		"tsx": "4.21.0",
 		"tsup": "^8.4.0",
 		"typescript": "5.7.3",
-		"vitest": "^3.0.7"
+		"vitest": "^3.0.7",
+		"yaml": "2.8.3"
 	}
 }

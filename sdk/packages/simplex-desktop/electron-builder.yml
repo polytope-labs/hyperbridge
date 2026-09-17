@@ -1,13 +1,57 @@
-publish:
-  provider: github
-  owner: polytope-labs
-  repo: hyperbridge
-  # Publication naming only. Installed apps use SimplexReleaseProvider to
-  # filter this monorepo's release API by the same prefix.
-  tagNamePrefix: simplex-desktop-v
+appId: network.hyperbridge.simplex
+productName: Simplex
+asar: true
+npmRebuild: false
 
-# The signed build writes its certificate subject into app-update.yml. Keep
-# verification enabled so electron-updater rejects an NSIS update whose
-# Authenticode publisher does not match that installed build.
+directories:
+    output: release
+
+files:
+    - dist/**
+    - package.json
+
+extraResources:
+    - from: build/package/simplex
+      to: simplex
+    - from: build/package/runtime-deps/node_modules
+      to: node_modules
+    - from: resources/tray
+      to: desktop/tray
+
+# The hook selects the independently verified Node slice for the target
+# architecture. It runs before signing, so #1239 can cover the child executable.
+afterPack: scripts/after-pack.cjs
+
+artifactName: ${productName}-${version}-${os}-${arch}.${ext}
+
+publish:
+    provider: github
+    owner: polytope-labs
+    repo: hyperbridge
+
+mac:
+    category: public.app-category.finance
+    icon: resources/tray/app.png
+    target:
+        - dmg
+        - zip
+
 win:
-  verifyUpdateCodeSignature: true
+    icon: resources/tray/app.png
+    target:
+        - nsis
+    # app-update.yml records the configured publisher once #1239 adds signing.
+    verifyUpdateCodeSignature: true
+
+nsis:
+    deleteAppDataOnUninstall: false
+    oneClick: false
+    allowToChangeInstallationDirectory: true
+
+linux:
+    category: Finance
+    executableName: simplex
+    icon: resources/icons
+    target:
+        - AppImage
+        - deb

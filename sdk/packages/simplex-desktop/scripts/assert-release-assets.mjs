@@ -13,37 +13,11 @@ async function sha512(path) {
 
 export async function assertReleaseAssets(directory, version) {
 	const channelName = version.includes("-beta.") ? "beta" : "latest"
-	const required = [
-		`Simplex-${version}-mac-arm64.dmg`,
-		`Simplex-${version}-mac-arm64.zip`,
-		`Simplex-${version}-mac-x64.dmg`,
-		`Simplex-${version}-mac-x64.zip`,
-		`Simplex-${version}-win-x64.exe`,
-		`Simplex-${version}-linux-x64.AppImage`,
-		`Simplex-${version}-linux-x64.deb`,
-		`Simplex-${version}-linux-arm64.AppImage`,
-		`Simplex-${version}-linux-arm64.deb`,
-		`Simplex-${version}-mac-arm64.zip.blockmap`,
-		`Simplex-${version}-mac-x64.zip.blockmap`,
-		`Simplex-${version}-win-x64.exe.blockmap`,
-		`${channelName}.yml`,
-		`${channelName}-mac.yml`,
-		`${channelName}-linux.yml`,
-		`${channelName}-linux-arm64.yml`,
-	]
+	const { required, expectedUpdaterArtifacts } = releaseAssetContract(version, channelName)
 	for (const name of required) await access(join(directory, name))
 
 	const available = new Set(await readdir(directory))
 	const checksums = new Map()
-	const expectedUpdaterArtifacts = new Map([
-		[`${channelName}.yml`, [`Simplex-${version}-win-x64.exe`]],
-		[`${channelName}-mac.yml`, [`Simplex-${version}-mac-arm64.zip`, `Simplex-${version}-mac-x64.zip`]],
-		[`${channelName}-linux.yml`, [`Simplex-${version}-linux-x64.AppImage`, `Simplex-${version}-linux-x64.deb`]],
-		[
-			`${channelName}-linux-arm64.yml`,
-			[`Simplex-${version}-linux-arm64.AppImage`, `Simplex-${version}-linux-arm64.deb`],
-		],
-	])
 	for (const metadataName of required.filter((name) => name.endsWith(".yml"))) {
 		const metadata = parse(await readFile(join(directory, metadataName), "utf8"))
 		if (metadata.version !== version)
@@ -69,6 +43,42 @@ export async function assertReleaseAssets(directory, version) {
 			}
 		}
 	}
+}
+
+export function releaseAssetContract(version, channelName = version.includes("-beta.") ? "beta" : "latest") {
+	const artifacts = [
+		`Simplex-${version}-mac-arm64.dmg`,
+		`Simplex-${version}-mac-arm64.zip`,
+		`Simplex-${version}-mac-x64.dmg`,
+		`Simplex-${version}-mac-x64.zip`,
+		`Simplex-${version}-win-x64.exe`,
+		`Simplex-${version}-linux-x86_64.AppImage`,
+		`Simplex-${version}-linux-amd64.deb`,
+		`Simplex-${version}-linux-arm64.AppImage`,
+		`Simplex-${version}-linux-arm64.deb`,
+		`Simplex-${version}-mac-arm64.zip.blockmap`,
+		`Simplex-${version}-mac-x64.zip.blockmap`,
+		`Simplex-${version}-win-x64.exe.blockmap`,
+	]
+	const metadata = [
+		`${channelName}.yml`,
+		`${channelName}-mac.yml`,
+		`${channelName}-linux.yml`,
+		`${channelName}-linux-arm64.yml`,
+	]
+	const expectedUpdaterArtifacts = new Map([
+		[`${channelName}.yml`, [`Simplex-${version}-win-x64.exe`]],
+		[`${channelName}-mac.yml`, [`Simplex-${version}-mac-arm64.zip`, `Simplex-${version}-mac-x64.zip`]],
+		[
+			`${channelName}-linux.yml`,
+			[`Simplex-${version}-linux-x86_64.AppImage`, `Simplex-${version}-linux-amd64.deb`],
+		],
+		[
+			`${channelName}-linux-arm64.yml`,
+			[`Simplex-${version}-linux-arm64.AppImage`, `Simplex-${version}-linux-arm64.deb`],
+		],
+	])
+	return { artifacts, metadata, required: [...artifacts, ...metadata], expectedUpdaterArtifacts }
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

@@ -1,10 +1,17 @@
 # Simplex desktop auto-update
 
-Installed Simplex desktop builds use `electron-updater` with a GitHub provider that filters the
-`polytope-labs/hyperbridge` release API to `simplex-desktop-v*` tags. This prevents unrelated
-monorepo releases from becoming desktop update candidates. Stable is the default channel and beta is
-opt-in. Checks and downloads run while the detached solver continues filling, but ordinary Electron
-quit never installs an update.
+Trusted Simplex desktop builds use `electron-updater` with a GitHub provider that filters the
+`polytope-labs/hyperbridge` release API to `simplex-desktop-v*` tags. It accepts only plain artifact
+filenames under the selected HTTPS GitHub release path; absolute URLs, foreign hosts, traversal,
+queries, and fragments are rejected. This prevents unrelated monorepo releases or channel metadata
+from redirecting downloads to another host.
+
+The updater is enabled only when the installed macOS application passes code-signature verification
+or the Windows updater configuration contains an Authenticode publisher identity. Linux automatic
+installation stays disabled until update metadata has an independent signature. Unsigned builds
+therefore fail closed instead of treating a checksum delivered with the artifact list as publisher
+authentication. When enabled, stable is the default channel and beta is opt-in. Checks and downloads
+run while the detached solver continues filling, but ordinary Electron quit never installs an update.
 
 `GET /health` now reports the solver PID and operator `GET /api/status` reports queued and active
 evaluation, queued and active fill, retraction, and rebalancing counts. A downloaded update waits for
@@ -31,6 +38,6 @@ remain staged while the operator has intentionally left the solver stopped, so a
 cannot silently resume filling. Desktop builds fail unless the desktop and bundled Simplex manifests
 have the same version.
 
-Release metadata supplies SHA-512 artifact verification. macOS also verifies the application code
-signature, and Windows NSIS updates keep Authenticode publisher verification enabled. Installer and
-signing production remain responsibilities of the desktop release build.
+Release metadata supplies SHA-512 download verification after the platform trust gate passes. macOS
+also verifies the application code signature and Windows NSIS verifies the Authenticode publisher.
+Installer signing and independently authenticated Linux metadata remain release prerequisites.

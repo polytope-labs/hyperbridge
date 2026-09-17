@@ -1,14 +1,22 @@
 import { spawnSync } from "node:child_process"
-import { accessSync } from "node:fs"
+import { accessSync, readFileSync } from "node:fs"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..")
 const cli = resolve(packageRoot, "tooling/node_modules/electron-builder/cli.js")
+const packageVersion = JSON.parse(readFileSync(resolve(packageRoot, "package.json"), "utf8")).version
 
 export function normalizeBuilderArguments(args) {
 	const delimiter = args.indexOf("--")
 	return delimiter === -1 ? args : [...args.slice(0, delimiter), ...args.slice(delimiter + 1)]
+}
+
+export function builderArguments(args, version = packageVersion) {
+	const normalized = normalizeBuilderArguments(args)
+	if (!version.includes("-beta.")) return normalized
+	if (normalized.some((argument) => /^(?:-c|--config)\.publish\.channel=/.test(argument))) return normalized
+	return [...normalized, "-c.publish.channel=beta"]
 }
 
 export function assertPackagingNodeVersion(version = process.versions.node) {
@@ -24,7 +32,7 @@ export function runBuilder(args, spawn = spawnSync) {
 	} catch {
 		throw new Error("Desktop packaging tools are missing; run `pnpm --dir tooling install --frozen-lockfile` first")
 	}
-	const result = spawn(process.execPath, [cli, ...normalizeBuilderArguments(args)], {
+	const result = spawn(process.execPath, [cli, ...builderArguments(args)], {
 		cwd: packageRoot,
 		stdio: "inherit",
 	})

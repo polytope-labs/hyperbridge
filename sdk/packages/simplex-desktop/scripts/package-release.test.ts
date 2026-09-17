@@ -9,7 +9,7 @@ import {
 	parseUpdateMetadata,
 	stringifyUpdateMetadata,
 } from "./assemble-release.mjs"
-import { assertReleaseAssets } from "./assert-release-assets.mjs"
+import { assertReleaseAssets, releaseAssetContract } from "./assert-release-assets.mjs"
 import {
 	assertPackagedResources,
 	EXTERNAL_RUNTIME_PACKAGES,
@@ -17,15 +17,47 @@ import {
 	runtimeTarget,
 } from "./package-layout.mjs"
 import { assertInstalledSize, installedAppDirectories } from "./package-size.mjs"
-import { assertPackagingNodeVersion, normalizeBuilderArguments } from "./run-builder.mjs"
+import { assertPackagingNodeVersion, builderArguments, normalizeBuilderArguments } from "./run-builder.mjs"
 import { verifyReleaseTag } from "./verify-release-tag.mjs"
 import { artifactNamesForPlatform, isUnavailableAppImageFuse } from "./e2e/artifact-smoke.mjs"
+import { waitFor } from "./e2e/packaged-smoke.mjs"
 
 function sha512(value: string): string {
 	return createHash("sha512").update(value).digest("base64")
 }
 
 describe("desktop package and release layout", () => {
+	it("fails packaged smoke polling immediately on fatal launch errors", async () => {
+		let attempts = 0
+		await expect(
+			waitFor(
+				() => {
+					attempts += 1
+					throw new Error("process exited 1")
+				},
+				"launch",
+				100,
+				async () => undefined,
+			),
+		).rejects.toThrow("process exited 1")
+		expect(attempts).toBe(1)
+	})
+
+	it("retries explicit not-ready results in packaged smoke polling", async () => {
+		let attempts = 0
+		await expect(
+			waitFor(
+				() => {
+					attempts += 1
+					return attempts === 3 ? "ready" : false
+				},
+				"readiness",
+				100,
+				async () => undefined,
+			),
+		).resolves.toBe("ready")
+	})
+
 	it("selects every launchable installer for the host platform", () => {
 		const names = ["Simplex.dmg", "Simplex.zip", "Simplex.exe", "Simplex.AppImage", "Simplex.deb"]
 		expect(artifactNamesForPlatform(names, "darwin")).toEqual(["Simplex.dmg", "Simplex.zip"])
@@ -52,6 +84,20 @@ describe("desktop package and release layout", () => {
 			]),
 		).toEqual(["--config", "electron-builder.yml", "--linux", "--arm64", "--publish", "never"])
 		expect(normalizeBuilderArguments(["--win", "--x64"])).toEqual(["--win", "--x64"])
+	})
+
+	it("selects beta updater metadata from the package version", () => {
+		expect(builderArguments(["--linux", "--x64"], "1.2.3-beta.4")).toEqual([
+			"--linux",
+			"--x64",
+			"-c.publish.channel=beta",
+		])
+		expect(builderArguments(["--linux", "--x64"], "1.2.3")).toEqual(["--linux", "--x64"])
+		expect(builderArguments(["--linux", "--x64", "-c.publish.channel=beta"], "1.2.3-beta.4")).toEqual([
+			"--linux",
+			"--x64",
+			"-c.publish.channel=beta",
+		])
 	})
 
 	it("requires Node 24 for the release toolchain", () => {
@@ -146,30 +192,10 @@ describe("desktop package and release layout", () => {
 		{ version: "1.2.3-beta.4", channel: "beta" },
 	])("requires every $channel platform installer and checksum-backed updater entry", async ({ version, channel }) => {
 		const directory = await mkdtemp(join(tmpdir(), "simplex-release-assets-"))
-		const artifacts = [
-			`Simplex-${version}-mac-arm64.dmg`,
-			`Simplex-${version}-mac-arm64.zip`,
-			`Simplex-${version}-mac-x64.dmg`,
-			`Simplex-${version}-mac-x64.zip`,
-			`Simplex-${version}-win-x64.exe`,
-			`Simplex-${version}-linux-x64.AppImage`,
-			`Simplex-${version}-linux-x64.deb`,
-			`Simplex-${version}-linux-arm64.AppImage`,
-			`Simplex-${version}-linux-arm64.deb`,
-			`Simplex-${version}-mac-arm64.zip.blockmap`,
-			`Simplex-${version}-mac-x64.zip.blockmap`,
-			`Simplex-${version}-win-x64.exe.blockmap`,
-		]
+		const contract = releaseAssetContract(version, channel)
+		const artifacts = contract.artifacts
 		for (const name of artifacts) await writeFile(join(directory, name), name)
-		const metadata = {
-			[`${channel}.yml`]: [`Simplex-${version}-win-x64.exe`],
-			[`${channel}-mac.yml`]: [`Simplex-${version}-mac-arm64.zip`, `Simplex-${version}-mac-x64.zip`],
-			[`${channel}-linux.yml`]: [`Simplex-${version}-linux-x64.AppImage`, `Simplex-${version}-linux-x64.deb`],
-			[`${channel}-linux-arm64.yml`]: [
-				`Simplex-${version}-linux-arm64.AppImage`,
-				`Simplex-${version}-linux-arm64.deb`,
-			],
-		}
+		const metadata = Object.fromEntries(contract.expectedUpdaterArtifacts)
 		for (const [name, urls] of Object.entries(metadata)) {
 			await writeFile(
 				join(directory, name),
@@ -205,8 +231,17 @@ describe("desktop package and release layout", () => {
 		await expect(assertReleaseAssets(directory, version)).rejects.toThrow()
 	})
 
+	it("uses electron-builder's target-specific Linux x64 architecture names", () => {
+		const { artifacts } = releaseAssetContract("1.2.3")
+		expect(artifacts).toContain("Simplex-1.2.3-linux-x86_64.AppImage")
+		expect(artifacts).toContain("Simplex-1.2.3-linux-amd64.deb")
+		expect(artifacts).not.toContain("Simplex-1.2.3-linux-x64.AppImage")
+		expect(artifacts).not.toContain("Simplex-1.2.3-linux-x64.deb")
+	})
+
 	it("requires the release tag to match the package version and namespace", async () => {
-		await expect(verifyReleaseTag("simplex-desktop-v0.16.2")).resolves.toBe("0.16.2")
-		await expect(verifyReleaseTag("simplex-v0.16.2")).rejects.toThrow(/must exactly match/)
+		const manifest = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"))
+		await expect(verifyReleaseTag(`simplex-desktop-v${manifest.version}`)).resolves.toBe(manifest.version)
+		await expect(verifyReleaseTag(`simplex-v${manifest.version}`)).rejects.toThrow(/must exactly match/)
 	})
 })

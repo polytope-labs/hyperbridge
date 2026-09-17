@@ -1,17 +1,95 @@
 name: "Publish Simplex Desktop"
 
 on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - "sdk/packages/sdk/**"
+      - "sdk/packages/simplex/**"
+      - "sdk/packages/simplex-desktop/**"
+      - "sdk/package.json"
+      - "sdk/pnpm-lock.yaml"
+      - "sdk/pnpm-workspace.yaml"
+      - ".github/workflows/publish-simplex-desktop.yml"
   push:
     tags:
       - "simplex-desktop-v*"
+  workflow_dispatch:
 
 concurrency:
   group: simplex-desktop-release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
+  prepare:
+    name: Build portable desktop release inputs
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sdk
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24.19.0"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: "11.0.0"
+
+      - name: Install protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          version: "29.3"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install desktop workspace dependencies
+        run: pnpm install --frozen-lockfile --filter="@hyperbridge/simplex-desktop..."
+
+      - name: Verify package versions
+        run: pnpm --dir packages/simplex-desktop check:versions
+
+      - name: Verify release tag
+        if: startsWith(github.ref, 'refs/tags/simplex-desktop-v')
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: node packages/simplex-desktop/scripts/verify-release-tag.mjs "$RELEASE_TAG"
+
+      # Code generation uses Unix shims. Build it once here and pass the plain
+      # JavaScript output to every native packaging job.
+      - name: Build SDK, solver, UI, and Electron main process
+        run: |
+          pnpm --filter="@hyperbridge/sdk" build
+          pnpm --filter="@hyperbridge/simplex" build
+          pnpm --dir packages/simplex-desktop build
+        env:
+          CI: "true"
+
+      - name: Verify portable release inputs
+        run: node packages/simplex-desktop/scripts/e2e/assert-artifacts.mjs
+
+      - name: Upload portable release inputs
+        uses: actions/upload-artifact@v4
+        with:
+          name: simplex-desktop-release-inputs
+          path: |
+            sdk/packages/sdk/dist
+            sdk/packages/simplex/dist
+            sdk/packages/simplex/src/proto
+            sdk/packages/simplex-desktop/dist
+          if-no-files-found: error
+          retention-days: 1
+
   build:
     name: Desktop release (${{ matrix.target }})
+    needs: prepare
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
     permissions:
@@ -41,9 +119,6 @@ jobs:
     steps:
       - name: Checkout sources
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          submodules: recursive
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -55,30 +130,17 @@ jobs:
         with:
           version: "11.0.0"
 
-      - name: Install protoc
-        uses: arduino/setup-protoc@v3
-        with:
-          version: "29.3"
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Install workspace dependencies
-        run: pnpm install --frozen-lockfile
+      - name: Install desktop workspace dependencies
+        run: pnpm install --frozen-lockfile --filter="@hyperbridge/simplex-desktop..."
 
       - name: Install pinned desktop packaging tools
         run: pnpm --dir packages/simplex-desktop/tooling install --frozen-lockfile
 
-      - name: Refuse a tag that disagrees with the manifests
-        env:
-          RELEASE_TAG: ${{ github.ref_name }}
-        run: pnpm --dir packages/simplex-desktop check:versions && node packages/simplex-desktop/scripts/verify-release-tag.mjs "$RELEASE_TAG"
-
-      - name: Build SDK, solver, UI, and Electron main process
-        run: |
-          pnpm --filter="@hyperbridge/sdk" build
-          pnpm --filter="@hyperbridge/simplex" build
-          pnpm --dir packages/simplex-desktop build
-        env:
-          CI: "true"
+      - name: Download portable release inputs
+        uses: actions/download-artifact@v4
+        with:
+          name: simplex-desktop-release-inputs
+          path: sdk/packages
 
       - name: Verify and stage target Node runtime
         run: pnpm --dir packages/simplex-desktop stage:node -- --target ${{ matrix.target }}
@@ -93,9 +155,6 @@ jobs:
           sudo apt-get install -y xvfb libfuse2t64
           sudo chown root:root packages/simplex-desktop/release/*-unpacked/chrome-sandbox
           sudo chmod 4755 packages/simplex-desktop/release/*-unpacked/chrome-sandbox
-          if sysctl kernel.apparmor_restrict_unprivileged_userns >/dev/null 2>&1; then
-            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-          fi
 
       - name: Smoke-test unpacked app and artifact payloads on Linux
         if: runner.os == 'Linux'
@@ -134,6 +193,7 @@ jobs:
   release:
     name: Publish desktop GitHub release
     needs: build
+    if: startsWith(github.ref, 'refs/tags/simplex-desktop-v')
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -169,7 +229,7 @@ jobs:
           node packages/simplex-desktop/scripts/assemble-release.mjs release-input release-assets
           node packages/simplex-desktop/scripts/assert-release-assets.mjs release-assets "$VERSION"
 
-      - name: Create or update GitHub release
+      - name: Create or update draft GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -177,7 +237,14 @@ jobs:
           PRERELEASE=""
           case "$VERSION" in *-beta.*) PRERELEASE="--prerelease" ;; esac
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            IS_DRAFT="$(gh release view "$GITHUB_REF_NAME" --json isDraft --jq .isDraft)"
+            if [ "$IS_DRAFT" != "true" ]; then
+              echo "Refusing to replace assets on a public unsigned release" >&2
+              exit 1
+            fi
             gh release upload "$GITHUB_REF_NAME" release-assets/* --clobber
           else
-            gh release create "$GITHUB_REF_NAME" release-assets/* --verify-tag --generate-notes $PRERELEASE --title "Simplex Desktop v${VERSION}"
+            # Keep unsigned artifacts out of the public updater feed. #1239
+            # removes --draft only after macOS and Windows signing is enforced.
+            gh release create "$GITHUB_REF_NAME" release-assets/* --draft --verify-tag --generate-notes $PRERELEASE --title "Simplex Desktop v${VERSION}"
           fi

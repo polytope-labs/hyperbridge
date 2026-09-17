@@ -1,6 +1,6 @@
 {
 	"name": "@hyperbridge/simplex-desktop-tooling",
-	"version": "0.16.2",
+	"version": "0.0.0",
 	"private": true,
 	"description": "Pinned release-only tooling for Simplex Desktop",
 	"engines": {

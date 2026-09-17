@@ -1,6 +1,6 @@
 {
 	"name": "@hyperbridge/simplex-desktop-runtime",
-	"version": "0.16.2",
+	"version": "0.0.0",
 	"private": true,
 	"description": "Production-only dependency closure for the packaged Simplex solver",
 	"packageManager": "pnpm@11.0.0",

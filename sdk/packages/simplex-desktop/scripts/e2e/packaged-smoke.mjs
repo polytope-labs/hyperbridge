@@ -27,19 +27,21 @@ function socketRequest(socketPath, path, method = "GET") {
 	})
 }
 
-async function waitFor(check, description, timeoutMs = 120_000) {
+const SETUP_READY_LOG = "No config found, starting the setup wizard"
+const RETRYABLE_SOCKET_ERRORS = new Set(["ENOENT", "ECONNREFUSED", "ECONNRESET"])
+
+function retryableSocketError(error) {
+	return RETRYABLE_SOCKET_ERRORS.has(error?.code)
+}
+
+export async function waitFor(check, description, timeoutMs = 120_000, pause = delay) {
 	const deadline = Date.now() + timeoutMs
-	let lastError
 	while (Date.now() < deadline) {
-		try {
-			const result = await check()
-			if (result) return result
-		} catch (error) {
-			lastError = error
-		}
-		await delay(250)
+		const result = await check()
+		if (result) return result
+		await pause(250)
 	}
-	throw new Error(`Timed out waiting for ${description}${lastError ? `: ${lastError.message}` : ""}`)
+	throw new Error(`Timed out waiting for ${description}`)
 }
 
 function executableFor(appDirectory) {
@@ -89,8 +91,13 @@ async function assertDirectSolverStartup(appDirectory) {
 		await waitFor(async () => {
 			if (spawnError) throw spawnError
 			if (child.exitCode !== null) throw new Error(`packaged solver exited ${child.exitCode}: ${stderr}`)
-			const response = await socketRequest(socketPath, "/health")
-			return response.status === 200 && JSON.parse(response.body).status === "ok"
+			try {
+				const response = await socketRequest(socketPath, "/health")
+				return response.status === 200 && JSON.parse(response.body).status === "ok"
+			} catch (error) {
+				if (retryableSocketError(error)) return false
+				throw error
+			}
 		}, `direct packaged solver health on ${socketPath}`)
 		if (stderr.trim()) throw new Error(`Packaged solver emitted stderr during startup: ${stderr.trim()}`)
 		const stop = await socketRequest(socketPath, "/api/stop", "POST")
@@ -106,11 +113,17 @@ async function assertDirectSolverStartup(appDirectory) {
 async function assertCleanSolverStartup(userData) {
 	const logsDirectory = join(userData, "logs")
 	const records = await waitFor(async () => {
-		const names = (await readdir(logsDirectory)).filter((name) => /^simplex-[\dT-]+\.log$/.test(name)).sort()
-		if (names.length !== 1) return false
-		const lines = (await readFile(join(logsDirectory, names[0]), "utf8")).trim().split("\n").filter(Boolean)
-		return lines.length > 0 ? lines.map((line) => JSON.parse(line)) : false
-	}, "packaged solver launch log")
+		try {
+			const names = (await readdir(logsDirectory)).filter((name) => /^simplex-[\dT-]+\.log$/.test(name)).sort()
+			if (names.length !== 1) return false
+			const lines = (await readFile(join(logsDirectory, names[0]), "utf8")).trim().split("\n").filter(Boolean)
+			const parsed = lines.map((line) => JSON.parse(line))
+			return parsed.some((record) => record.msg === SETUP_READY_LOG) ? parsed : false
+		} catch (error) {
+			if (error?.code === "ENOENT" || error instanceof SyntaxError) return false
+			throw error
+		}
+	}, "packaged solver startup-complete log record")
 	const warning = records.find((record) => Number(record.level) >= 40)
 	if (warning) {
 		throw new Error(`Packaged solver emitted a startup warning: ${JSON.stringify(warning)}`)
@@ -139,10 +152,15 @@ export async function smokePackagedApp(appDirectory, options = {}) {
 		const health = await waitFor(async () => {
 			if (spawnError) throw spawnError
 			if (child.exitCode !== null) throw new Error(`packaged app exited ${child.exitCode}: ${stderr}`)
-			const response = await socketRequest(socketPath, "/health")
-			if (response.status !== 200) return false
-			const parsed = JSON.parse(response.body)
-			return parsed.status === "ok" ? parsed : false
+			try {
+				const response = await socketRequest(socketPath, "/health")
+				if (response.status !== 200) return false
+				const parsed = JSON.parse(response.body)
+				return parsed.status === "ok" ? parsed : false
+			} catch (error) {
+				if (retryableSocketError(error)) return false
+				throw error
+			}
 		}, `packaged Simplex health on ${socketPath}`)
 		if (!health.pid) throw new Error("Packaged solver health did not report a PID")
 		if (health.mode !== "init") throw new Error(`Fresh packaged app opened in ${health.mode} mode instead of setup`)

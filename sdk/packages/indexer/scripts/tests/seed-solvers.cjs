@@ -11,7 +11,10 @@
 // Run: node scripts/tests/seed-solvers.cjs [--rpc http://127.0.0.1:8545]
 const { encodeAbiParameters, encodeFunctionData, keccak256, pad, toHex } = require("viem")
 
-const { SOLVERS, USDC } = require("./solver-fixtures.cjs")
+const { SOLVERS, USDC, VAULT } = require("./solver-fixtures.cjs")
+
+/** Multicall3, which the indexer's batched reads go through. */
+const MULTICALL3 = "0xcA11bde05977b3631167028862bE2a173976CA11"
 
 const rpcUrl = process.env.ANVIL_URL || argValue("--rpc") || "http://127.0.0.1:8545"
 /** Gas money, so the plain EOA can send the Transfer the assertions wait for. */
@@ -38,11 +41,60 @@ async function rpc(method, params = []) {
 const balanceKey = (holder, slot) =>
 	keccak256(encodeAbiParameters([{ type: "address" }, { type: "uint256" }], [holder, BigInt(slot)]))
 
-const balanceOf = (holder) =>
-	encodeFunctionData({
-		abi: [{ name: "balanceOf", type: "function", inputs: [{ type: "address" }], outputs: [{ type: "uint256" }] }],
-		args: [holder],
+const balanceOf = (holder) => encodeFunctionData({ abi: erc20Abi, args: [holder] })
+
+const erc20Abi = [
+	{ name: "balanceOf", type: "function", inputs: [{ type: "address" }], outputs: [{ type: "uint256" }] },
+]
+const vaultAbi = [
+	...erc20Abi,
+	{ name: "convertToAssets", type: "function", inputs: [{ type: "uint256" }], outputs: [{ type: "uint256" }] },
+]
+const aggregate3Abi = [
+	{
+		name: "aggregate3",
+		type: "function",
+		inputs: [
+			{
+				type: "tuple[]",
+				components: [{ type: "address" }, { type: "bool" }, { type: "bytes" }],
+			},
+		],
+		outputs: [{ type: "tuple[]", components: [{ type: "bool" }, { type: "bytes" }] }],
+	},
+]
+
+/**
+ * Makes every read the indexer's genesis pass will make, now, while the fork is seconds old.
+ *
+ * anvil resolves any account it has not seen from the fork base upstream, and pins that request to
+ * the fork block. By the time discovery finishes — a Hyperbridge block, an EVM block, a head
+ * advance — that block is a couple of hundred behind the chain, past the window a non-archive
+ * endpoint will serve, and anvil blocks on it forever: it stops answering, stops mining, and the
+ * whole run times out with nothing indexed. Reading the same accounts here caches them while the
+ * request is still cheap, so the genesis pass never reaches upstream at all.
+ */
+async function warmFork() {
+	const calls = []
+	for (const solver of SOLVERS) {
+		calls.push({ target: USDC.address, callData: balanceOf(solver.address) })
+		calls.push({ target: VAULT, callData: balanceOf(solver.address) })
+	}
+	const data = encodeFunctionData({
+		abi: aggregate3Abi,
+		args: [calls.map((call) => [call.target, true, call.callData])],
 	})
+	await rpc("eth_getCode", [MULTICALL3, "latest"])
+	await rpc("eth_call", [{ to: MULTICALL3, data }, "latest"])
+	await rpc("eth_call", [
+		{
+			to: VAULT,
+			data: encodeFunctionData({ abi: vaultAbi, functionName: "convertToAssets", args: [10n ** 6n] }),
+		},
+		"latest",
+	])
+	console.log(`[seed] warmed Multicall3, ${USDC.address} and ${VAULT} into the fork's cache`)
+}
 
 async function main() {
 	const chainId = await rpc("eth_chainId")
@@ -78,6 +130,7 @@ async function main() {
 				(solver.delegateTo ? `delegated to ${solver.delegateTo}` : "no delegation"),
 		)
 	}
+	await warmFork()
 	console.log(`[seed] ${SOLVERS.length} solvers ready`)
 }
 

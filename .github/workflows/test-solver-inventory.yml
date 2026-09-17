@@ -85,16 +85,37 @@ jobs:
             - name: Start anvil (fork of Base)
               run: |
                   nohup stdbuf -oL -eL anvil --fork-url "${{ secrets.BASE_MAINNET }}" --port 8545 \
-                    --block-time 2 --slots-in-an-epoch 1 --no-rate-limit > anvil.log 2>&1 &
+                    --block-time 2 --slots-in-an-epoch 1 --no-rate-limit \
+                    --timeout 15000 --retries 2 > anvil.log 2>&1 &
                   echo "Waiting for anvil on 8545..."
                   for i in $(seq 1 60); do
                     nc -z localhost 8545 && break
                     sleep 1
                   done
                   nc -z localhost 8545 || { echo "anvil never came up"; cat anvil.log; exit 1; }
-                  curl -s -m 20 -X POST -H 'content-type: application/json' \
+
+                  # anvil resolves anything it has not cached from the fork base upstream, pinned to
+                  # the fork block. The genesis read happens minutes later, by which time that block
+                  # is past the window a non-archive endpoint serves, and anvil blocks on it forever:
+                  # it stops answering, stops mining, and the run times out having indexed nothing.
+                  # Ask for old state now, so an endpoint that cannot serve it fails here and says so.
+                  head=$(curl -s -m 20 -X POST -H 'content-type: application/json' \
                     --data '{"jsonrpc":"2.0","id":1,"method":"eth_blockNumber","params":[]}' \
-                    http://127.0.0.1:8545
+                    http://127.0.0.1:8545 | sed -E 's/.*"result":"([^"]*)".*/\1/')
+                  echo "fork head: $head"
+                  old=$(printf '0x%x' $(( head - 200 )))
+                  probe=$(curl -s -m 60 -X POST -H 'content-type: application/json' \
+                    --data "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"eth_getCode\",\"params\":[\"0x833589fcd6edb6e08f4c7c32d4f71b54bda02913\",\"$old\"]}" \
+                    http://127.0.0.1:8545)
+                  code=$(printf '%s' "$probe" | sed -E 's/.*"result":"([^"]*)".*/\1/')
+                  if [ "${#code}" -gt 10 ]; then
+                    echo "the fork endpoint serves historical state (${#code} bytes of code at $old)"
+                  else
+                    echo "::error::BASE_MAINNET cannot serve state at $old. This test forks Base and reads state at the fork block minutes later, so it needs an archive-capable endpoint."
+                    echo "$probe"
+                    tail -30 anvil.log
+                    exit 1
+                  fi
 
             - name: Seed solver balances and delegations
               run: node packages/indexer/scripts/tests/seed-solvers.cjs

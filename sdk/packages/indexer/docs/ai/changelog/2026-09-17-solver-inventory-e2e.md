@@ -41,8 +41,14 @@ error — so they are stated here rather than rediscovered:
   `safe` every second; on a fork those reach upstream unless anvil can answer them from local state,
   and an anvil driven upstream every second stops answering anyone.
 
-The fork needs an archive-capable endpoint (`BASE_MAINNET`). Public Base RPCs either refuse historical
-state or rate-limit a forked anvil into unresponsiveness. anvil's own output is captured to `anvil.log`
+**The fork needs an archive-capable endpoint** (`BASE_MAINNET`), and this is the constraint that bites
+hardest. anvil resolves anything it has not cached from the fork base upstream, pinned to the fork
+block; the genesis read happens minutes later, by which time that block is past the window a
+non-archive endpoint serves, and anvil blocks on it forever — it stops answering, stops mining, and
+the run times out having indexed nothing. Three things guard against it: the seeding warms every
+account the genesis read touches while the fork is seconds old, anvil runs with `--timeout`/`--retries`
+so a fork request fails instead of hanging, and the anvil step asks for 200-block-old state up front
+so an endpoint that cannot serve it fails there with a message naming the cause. anvil's own output is captured to `anvil.log`
 and printed with the other logs, because an unresponsive fork is the failure mode this test has, and
 its side of the story is otherwise missing.
 

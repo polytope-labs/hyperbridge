@@ -34,8 +34,14 @@ jobs:
                   GH_TOKEN: ${{ secrets.ORDERBOOK_SCHEMA_TOKEN || secrets.GITHUB_TOKEN }}
               run: |
                   pin=sdk/packages/simplex/src/tests/fixtures/orderbook-schema.graphql
-                  gh api repos/polytope-labs/hyperfx-orderbook/contents/schema.graphql -q .content \
-                    | base64 -d > /tmp/schema.graphql
+                  # The orderbook is a private repo, and the default GITHUB_TOKEN is scoped to this
+                  # one, so without a token that can read it there is nothing to compare against.
+                  # That is a check that cannot run, not a check that failed.
+                  if ! gh api repos/polytope-labs/hyperfx-orderbook/contents/schema.graphql -q .content \
+                       | base64 -d > /tmp/schema.graphql || [ ! -s /tmp/schema.graphql ]; then
+                    echo "::notice::Could not read the orderbook's schema. Set the ORDERBOOK_SCHEMA_TOKEN secret to a token with read access to polytope-labs/hyperfx-orderbook to enable this check."
+                    exit 0
+                  fi
                   if ! diff -u "$pin" /tmp/schema.graphql; then
                     echo "::error::The pinned orderbook schema has drifted. Refresh it with the command in schema.test.ts."
                     exit 1

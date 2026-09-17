@@ -30,6 +30,8 @@ signed path from `main` to validate private artifacts on clean machines before c
 Tags must point into `origin/main`, and the matching namespace is intended to be protected by a
 repository tag ruleset. Credentials live in a protected `simplex-desktop-release` environment limited
 to `main` and the release tag namespace; unsigned CI runs in a separate secretless environment.
+On macOS, the updater also requires the installed app's signature to match the Apple Team ID recorded
+in signed app metadata before it enables automatic updates.
 
 After every native slice passes, CI assembles the assets in a draft and publishes it as its final
 step. Published releases are immutable to the workflow. Linux artifacts remain manually installable,

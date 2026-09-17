@@ -14,7 +14,9 @@ allowBuilds:
   secp256k1: true
   sodium-native: true
   ssh2: false
-  utf-8-validate: true
+  # ws treats this as an optional performance dependency. Node 24 arm64 has no
+  # compatible prebuild, and compiling it is not required by the desktop app.
+  utf-8-validate: false
 blockExoticSubdeps: true
 minimumReleaseAge: 43200
 trustPolicy: no-downgrade
@@ -28,3 +30,8 @@ trustPolicyExclude:
   - 'semver@6.3.1 || 5.7.2'
   - 'slow-redact@0.3.2'
   - 'undici@5.29.0'
+overrides:
+  viem: 2.47.6
+  axios: 1.13.6
+  vite: 6.4.2
+  pino: "~10.3.1"

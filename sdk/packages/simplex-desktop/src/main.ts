@@ -37,7 +37,7 @@ import {
 	type DesktopMenuActions,
 } from "./tray-menu"
 import { TRAY_ICON_STATES, trayIconPath, trayIconRetinaPath } from "./tray-icon"
-import { updateAuthenticityForInstallation } from "./update-authenticity"
+import { macTeamIdFromAppPackage, updateAuthenticityForInstallation } from "./update-authenticity"
 import { UpdateCoordinator, waitForSolverExit, type UpdateStatus } from "./update-coordinator"
 import { FileUpdateStore, type UpdateChannel } from "./update-store"
 
@@ -417,6 +417,7 @@ async function prepareDesktop(): Promise<void> {
 		platform: process.platform,
 		resourcesPath: process.resourcesPath,
 		executablePath: process.execPath,
+		expectedMacTeamId: process.platform === "darwin" ? macTeamIdFromAppPackage(app.getAppPath()) : undefined,
 	})
 	if (updateAuthenticity.enabled) {
 		updateCoordinator = new UpdateCoordinator({

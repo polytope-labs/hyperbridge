@@ -66,6 +66,7 @@ describe("desktop release signing", () => {
 		const config = loadBuilderConfig(await macEnvironment(), "darwin")
 		expect(config.forceCodeSigning).toBe(true)
 		expect(config.dmg).toMatchObject({ sign: true })
+		expect(config.extraMetadata).toMatchObject({ simplexMacTeamId: "TEAMID" })
 		expect(config.mac).toMatchObject({
 			hardenedRuntime: true,
 			entitlements: "resources/entitlements.mac.plist",

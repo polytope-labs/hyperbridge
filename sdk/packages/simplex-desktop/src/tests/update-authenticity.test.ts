@@ -3,7 +3,12 @@ import { mkdtemp } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it, vi } from "vitest"
-import { macApplicationBundlePath, updateAuthenticityForInstallation } from "../update-authenticity"
+import {
+	macApplicationBundlePath,
+	macCodeSigningRequirement,
+	macTeamIdFromAppPackage,
+	updateAuthenticityForInstallation,
+} from "../update-authenticity"
 
 async function resources(config?: string): Promise<string> {
 	const directory = await mkdtemp(join(tmpdir(), "simplex-update-authenticity-"))
@@ -46,10 +51,39 @@ describe("desktop update authenticity", () => {
 			platform: "darwin",
 			resourcesPath: "/Applications/Simplex.app/Contents/Resources",
 			executablePath: "/Applications/Simplex.app/Contents/MacOS/Simplex",
+			expectedMacTeamId: "ABCDE12345",
 			verifyMacSignature: verify,
 		})
-		expect(verify).toHaveBeenCalledWith("/Applications/Simplex.app")
+		expect(verify).toHaveBeenCalledWith(
+			"/Applications/Simplex.app",
+			"=anchor apple generic and certificate leaf[subject.OU] = ABCDE12345",
+		)
 		expect(result.enabled).toBe(false)
+	})
+
+	it("requires the expected macOS Team ID before enabling updates", () => {
+		const verify = vi.fn(() => true)
+		expect(
+			updateAuthenticityForInstallation({
+				packaged: true,
+				platform: "darwin",
+				resourcesPath: "/Applications/Simplex.app/Contents/Resources",
+				executablePath: "/Applications/Simplex.app/Contents/MacOS/Simplex",
+				verifyMacSignature: verify,
+			}),
+		).toEqual({ enabled: false, reason: "The installed macOS application has no trusted Apple Team ID" })
+		expect(verify).not.toHaveBeenCalled()
+	})
+
+	it("reads only a valid Team ID from signed app metadata", async () => {
+		const appPath = await mkdtemp(join(tmpdir(), "simplex-app-metadata-"))
+		writeFileSync(join(appPath, "package.json"), JSON.stringify({ simplexMacTeamId: "ABCDE12345" }))
+		expect(macTeamIdFromAppPackage(appPath)).toBe("ABCDE12345")
+		writeFileSync(join(appPath, "package.json"), JSON.stringify({ simplexMacTeamId: "not a team id" }))
+		expect(macTeamIdFromAppPackage(appPath)).toBeUndefined()
+		expect(macCodeSigningRequirement("ABCDE12345")).toBe(
+			"=anchor apple generic and certificate leaf[subject.OU] = ABCDE12345",
+		)
 	})
 
 	it("keeps Linux automatic installation disabled without signed metadata", () => {

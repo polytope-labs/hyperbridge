@@ -104,6 +104,9 @@ function loadBuilderConfig(env = process.env, platform = process.platform) {
 	if (platform === "darwin") {
 		config.forceCodeSigning = true
 		config.dmg = { ...config.dmg, sign: true }
+		// This public identifier is sealed inside app.asar. The runtime updater
+		// uses it to require the same Team ID that signed the release artifact.
+		config.extraMetadata = { ...config.extraMetadata, simplexMacTeamId: signing.teamId }
 		config.mac = {
 			...config.mac,
 			hardenedRuntime: true,

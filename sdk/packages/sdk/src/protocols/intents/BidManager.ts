@@ -206,6 +206,7 @@ export class BidManager {
 		order: Order,
 		bids: Bid[],
 		onSubmitted?: (submission: SelectBidResult) => Promise<void>,
+		onTerminal?: (submission: SelectBidResult) => Promise<void>,
 	): Promise<SelectBidResult> {
 		const commitment = order.id as HexString
 		console.log(`[BidManager] selectAndExecuteBest called for commitment=${commitment}, ${bids.length} bid(s)`)
@@ -249,7 +250,7 @@ export class BidManager {
 
 			console.log(`[BidManager] Bid ${idx + 1} from solver=${bid.solverAddress}: simulation PASSED`)
 			try {
-				return await bid.execute(onSubmitted)
+				return await bid.execute(onSubmitted, onTerminal)
 			} catch (err) {
 				if (err instanceof BidExecutionPendingError) throw err
 				executionFailures += 1

@@ -5,7 +5,8 @@ import type { BidManager } from "./BidManager"
 import { CryptoUtils } from "./CryptoUtils"
 import type { IntentGatewayContext } from "./types"
 import { ABI as IntentGatewayV2ABI } from "@/abis/IntentGatewayV2"
-import { BidExecutionPendingError } from "./Bid"
+import { BidExecutionPendingError, BidExecutionRejectedError, BidImpl } from "./Bid"
+import { SubmissionJournal } from "./submissionJournal"
 import EntryPoint from "@/abis/entrypoint"
 
 const USED_USEROPS_STORAGE_KEY = (commitment: HexString) => `used-userops:${commitment.toLowerCase()}`
@@ -125,12 +126,15 @@ export class OrderExecutor {
 		const persisted = await this.ctx.usedUserOpsStorage.getItem(USED_USEROPS_STORAGE_KEY(commitment))
 		if (persisted) {
 			try {
-				const parsed = JSON.parse(persisted) as string[]
-				for (const key of parsed) {
-					usedUserOps.add(key)
-				}
+				const parsed = JSON.parse(persisted)
+				if (
+					!Array.isArray(parsed) ||
+					parsed.some((key) => typeof key !== "string" || !/^0x[0-9a-fA-F]{64}$/.test(key))
+				)
+					throw new Error("Invalid terminal hashes")
+				for (const key of parsed) usedUserOps.add(key.toLowerCase())
 			} catch {
-				// Ignore corrupt entries and start fresh
+				throw new Error("Terminal submission storage is corrupt; restore it before resuming")
 			}
 		}
 		return usedUserOps
@@ -356,8 +360,98 @@ export class OrderExecutor {
 			yield { status: "FAILED", error: "Bundler URL not configured" }
 			return
 		}
-		const usedUserOps = await this.loadUsedUserOps(commitment)
+		let usedUserOps: Set<string>
 		const userOpHashKey = this.createUserOpHasher(order)
+		const entryPoint = this.ctx.dest.configService.getEntryPointV08Address(
+			normalizeStateMachineId(order.destination),
+		)
+		const journal = new SubmissionJournal(this.ctx.usedUserOpsStorage, {
+			chainId:
+				this.ctx.dest.client.chain?.id ?? Number.parseInt(this.ctx.dest.config.stateMachineId.split("-")[1]),
+			gateway: this.ctx.dest.configService.getIntentGatewayAddress(normalizeStateMachineId(order.destination)),
+			entryPoint,
+			commitment,
+		})
+		const retire = async (submission: SelectBidResult) => {
+			try {
+				usedUserOps.add(userOpHashKey(submission.userOp).toLowerCase())
+				await this.persistUsedUserOps(commitment, usedUserOps)
+				await journal.clear()
+			} catch (error) {
+				throw new BidExecutionPendingError(
+					submission.userOpHash,
+					`Could not retire submission durably: ${error instanceof Error ? error.message : String(error)}`,
+				)
+			}
+		}
+		let recovered: SelectBidResult | undefined
+		try {
+			usedUserOps = await this.loadUsedUserOps(commitment)
+			const pending = await journal.read()
+			if (pending) {
+				const submission = pending.submission
+				if (usedUserOps.has(submission.userOpHash.toLowerCase())) {
+					// Crash after terminal write: no rebroadcast and no duplicate fill accounting.
+					await journal.clear()
+				} else {
+					const crypto = new CryptoUtils(this.ctx)
+					const receipt = await BidImpl.receipt(crypto, submission.userOpHash)
+					if (receipt) {
+						try {
+							recovered = await BidImpl.verifyReceipt(this.ctx, order, submission, receipt)
+						} catch (error) {
+							if (!(error instanceof BidExecutionRejectedError)) throw error
+						}
+						await retire(submission)
+					} else {
+						// A finalized nonce/deadline proves this exact operation can no longer execute.
+						// Providers without finalized state fail closed; latest state alone is insufficient.
+						const finalized = await this.ctx.dest.client.getBlock({ blockTag: "finalized" })
+						if (finalized.number === null) throw new Error("Finalized block unavailable")
+						const nonce = BigInt(
+							await this.ctx.dest.client.readContract({
+								address: entryPoint,
+								abi: EntryPoint.ABI,
+								functionName: "getNonce",
+								args: [submission.userOp.sender, submission.userOp.nonce >> 64n],
+								blockNumber: finalized.number,
+							}),
+						)
+						if (nonce > submission.userOp.nonce || finalized.number >= order.deadline) {
+							// Reconcile progress before retirement, then read again before polling below.
+							await this.readCreditedProgress(order, commitment, [])
+							await this.readFinalizer(order, commitment)
+							await retire(submission)
+						} else {
+							if (
+								await isUserOperationNonceConsumed(this.ctx.dest.client, entryPoint, submission.userOp)
+							) {
+								throw new BidExecutionPendingError(
+									submission.userOpHash,
+									"Nonce consumed; waiting for finalized state",
+								)
+							}
+							await BidImpl.broadcast(crypto, submission, entryPoint, true)
+							const replayReceipt = await BidImpl.receipt(crypto, submission.userOpHash)
+							if (!replayReceipt)
+								throw new BidExecutionPendingError(
+									submission.userOpHash,
+									"Rebroadcast operation is awaiting inclusion",
+								)
+							try {
+								recovered = await BidImpl.verifyReceipt(this.ctx, order, submission, replayReceipt)
+							} catch (error) {
+								if (!(error instanceof BidExecutionRejectedError)) throw error
+							}
+							await retire(submission)
+						}
+					}
+				}
+			}
+		} catch (error) {
+			yield { status: "FAILED", commitment, error: error instanceof Error ? error.message : String(error) }
+			return
+		}
 
 		const targetAssets = order.output.assets.map((a) => ({ token: a.token, amount: a.amount }))
 		let totalFilledAssets: TokenInfo[]
@@ -399,6 +493,19 @@ export class OrderExecutor {
 				yield { status: "CANCELLED", commitment, totalFilledAssets, remainingAssets }
 			}
 			return
+		}
+		if (recovered) {
+			yield {
+				status: recovered.fillStatus === "full" ? "FILLED" : "PARTIAL_FILL",
+				commitment,
+				userOpHash: recovered.userOpHash,
+				selectedSolver: recovered.solverAddress,
+				transactionHash: recovered.txnHash,
+				filledAssets: recovered.filledAssets,
+				totalFilledAssets,
+				remainingAssets,
+			}
+			if (recovered.fillStatus === "full") return
 		}
 
 		const abortController = new AbortController()
@@ -471,9 +578,9 @@ export class OrderExecutor {
 								order,
 								executableBids,
 								async (submission) => {
-									usedUserOps.add(userOpHashKey(submission.userOp))
-									await this.persistUsedUserOps(commitment, usedUserOps)
+									await journal.write(submission)
 								},
+								retire,
 							)
 						} catch (err) {
 							if (err instanceof BidExecutionPendingError) {
@@ -632,19 +739,15 @@ export class OrderExecutor {
 						typeof client.readContract !== "function"
 							? Promise.resolve(unseen)
 							: Promise.all(
-								unseen.map(async (bid) => ({
-									bid,
-									consumed: await isUserOperationNonceConsumed(
-										client,
-										entryPointAddress,
-										bid.userOp,
-									),
-								})),
-							).then((results) =>
-								results
-									.filter(({ consumed }) => !consumed)
-									.map(({ bid }) => bid),
-							)
+									unseen.map(async (bid) => ({
+										bid,
+										consumed: await isUserOperationNonceConsumed(
+											client,
+											entryPointAddress,
+											bid.userOp,
+										),
+									})),
+								).then((results) => results.filter(({ consumed }) => !consumed).map(({ bid }) => bid))
 					const availableBids = await waitUnlessAborted(checkedBids, signal)
 					if (availableBids === ABORTED) return
 					freshBids = availableBids

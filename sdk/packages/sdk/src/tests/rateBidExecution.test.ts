@@ -273,7 +273,7 @@ describe("automatic rate bid execution", () => {
 			intentsCoprocessor: { getBidsForOrder },
 			dest: {
 				config: { stateMachineId: "EVM-8453" },
-				configService: { getEntryPointV08Address: () => ENTRY_POINT },
+				configService: { getEntryPointV08Address: () => ENTRY_POINT, getIntentGatewayAddress: () => SOLVER },
 				client: {
 					chain: { id: 8453, blockTime: 1 },
 					getBlockNumber: vi.fn(() => new Promise(() => undefined)),
@@ -318,7 +318,7 @@ describe("automatic rate bid execution", () => {
 			intentsCoprocessor: { getBidsForOrder: vi.fn(async () => [raw]) },
 			dest: {
 				config: { stateMachineId: "EVM-8453" },
-				configService: { getEntryPointV08Address: () => ENTRY_POINT },
+				configService: { getEntryPointV08Address: () => ENTRY_POINT, getIntentGatewayAddress: () => SOLVER },
 				client: {
 					chain: { id: 8453, blockTime: 1 },
 					getBlockNumber: vi.fn(() => new Promise(() => undefined)),
@@ -344,7 +344,10 @@ describe("automatic rate bid execution", () => {
 		expect((await stream.next()).value).toMatchObject({ status: "BIDS_RECEIVED" })
 		expect((await stream.next()).value).toMatchObject({ status: "FAILED", error: "receipt timed out" })
 		expect(setItem).toHaveBeenCalledTimes(1)
-		expect(JSON.parse(setItem.mock.calls[0][1])).toHaveLength(1)
+		expect(JSON.parse(setItem.mock.calls[0][1])).toMatchObject({
+			version: 1,
+			submission: { userOp: { nonce: "1" } },
+		})
 		await stream.return()
 	})
 
@@ -367,7 +370,7 @@ describe("automatic rate bid execution", () => {
 			},
 			dest: {
 				config: { stateMachineId: "EVM-8453" },
-				configService: { getEntryPointV08Address: () => ENTRY_POINT },
+				configService: { getEntryPointV08Address: () => ENTRY_POINT, getIntentGatewayAddress: () => SOLVER },
 				client: {
 					chain: { id: 8453, blockTime: 1 },
 					getBlockNumber: vi.fn(() => new Promise(() => undefined)),
@@ -405,7 +408,7 @@ describe("automatic rate bid execution", () => {
 			intentsCoprocessor: { getBidsForOrder: vi.fn(async () => [raw]) },
 			dest: {
 				config: { stateMachineId: "EVM-8453" },
-				configService: { getEntryPointV08Address: () => ENTRY_POINT },
+				configService: { getEntryPointV08Address: () => ENTRY_POINT, getIntentGatewayAddress: () => SOLVER },
 				client: {
 					chain: { id: 8453, blockTime: 1 },
 					getBlockNumber: vi.fn(() => new Promise(() => undefined)),
@@ -415,9 +418,7 @@ describe("automatic rate bid execution", () => {
 		} as never
 		const manager = new BidManager(executorCtx, {} as never)
 		vi.spyOn(manager, "buildBids").mockReturnValue([rate, legacy])
-		const selectBest = vi
-			.spyOn(manager, "selectAndExecuteBest")
-			.mockResolvedValue(result(op, 0n, "full"))
+		const selectBest = vi.spyOn(manager, "selectAndExecuteBest").mockResolvedValue(result(op, 0n, "full"))
 		const stream = new OrderExecutor(executorCtx, manager).executeOrder({
 			order: multi,
 			auctionTimeMs: 0,
@@ -428,7 +429,7 @@ describe("automatic rate bid execution", () => {
 		expect((await stream.next()).value).toMatchObject({ status: "BIDS_RECEIVED" })
 		expect((await stream.next()).value).toMatchObject({ status: "BID_SELECTED" })
 		expect((await stream.next()).value).toMatchObject({ status: "FILLED" })
-		expect(selectBest).toHaveBeenCalledWith(multi, [legacy], expect.any(Function))
+		expect(selectBest).toHaveBeenCalledWith(multi, [legacy], expect.any(Function), expect.any(Function))
 		await stream.return()
 	})
 
@@ -442,7 +443,7 @@ describe("automatic rate bid execution", () => {
 			intentsCoprocessor: { getBidsForOrder: vi.fn(async () => [raw]) },
 			dest: {
 				config: { stateMachineId: "EVM-8453" },
-				configService: { getEntryPointV08Address: () => ENTRY_POINT },
+				configService: { getEntryPointV08Address: () => ENTRY_POINT, getIntentGatewayAddress: () => SOLVER },
 				client: { chain: { id: 8453, blockTime: 1_000 }, getBlockNumber },
 			},
 			usedUserOpsStorage: { getItem: vi.fn(async () => null), setItem: vi.fn(async () => undefined) },

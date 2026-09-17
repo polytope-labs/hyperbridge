@@ -143,7 +143,7 @@ function concreteBidWithReceipt(params: {
 	const op = makeUserOp(SOLVER_ONE)
 	const sendBundler = vi
 		.fn()
-		.mockResolvedValueOnce(`0x${"44".repeat(32)}`)
+		.mockResolvedValueOnce(CryptoUtils.computeUserOpHash(op, ENTRY_POINT, 8453n))
 		.mockResolvedValueOnce(params.userOpReceipt)
 	const ctx = {
 		bundlerUrl: "http://bundler.test",
@@ -183,7 +183,7 @@ describe("Order execution bid-selection integration", () => {
 	it("advances to the next bid after a chain-confirmed failed UserOperation", async () => {
 		const { ctx, bid: failed } = concreteBidWithReceipt({
 			userOpReceipt: { success: false, receipt: { transactionHash: `0x${"55".repeat(32)}` } },
-			chainReceipt: { status: "success", logs: [] },
+			chainReceipt: { status: "success", logs: [userOperationEventLog(ENTRY_POINT, false)] },
 		})
 		vi.spyOn(failed, "simulate").mockResolvedValue()
 		const secondResult = makeResult(makeUserOp(SOLVER_TWO), SOLVER_TWO)
@@ -236,11 +236,11 @@ describe("Order execution bid-selection integration", () => {
 		await expect(bid.execute()).rejects.toBeInstanceOf(BidExecutionPendingError)
 	})
 
-	it("classifies a confirmed reverted UserOp as a definitive candidate failure", async () => {
+	it("keeps a reverted bundle pending without proof of operation inclusion", async () => {
 		const op = makeUserOp(SOLVER_ONE)
 		const sendBundler = vi
 			.fn()
-			.mockResolvedValueOnce(`0x${"44".repeat(32)}`)
+			.mockResolvedValueOnce(CryptoUtils.computeUserOpHash(op, ENTRY_POINT, 8453n))
 			.mockResolvedValueOnce({ receipt: { transactionHash: `0x${"55".repeat(32)}` } })
 		const ctx = {
 			bundlerUrl: "http://bundler.test",
@@ -276,7 +276,7 @@ describe("Order execution bid-selection integration", () => {
 
 		const execution = concrete.execute()
 		await expect(execution).rejects.toThrow("reverted")
-		await expect(execution).rejects.not.toBeInstanceOf(BidExecutionPendingError)
+		await expect(execution).rejects.toBeInstanceOf(BidExecutionPendingError)
 	})
 
 	it("does not advance to another bid when the bundler send times out after a durable attempt record", async () => {
@@ -498,7 +498,10 @@ describe("Order execution bid-selection integration", () => {
 			intentsCoprocessor: { getBidsForOrder },
 			dest: {
 				config: { stateMachineId: "EVM-8453" },
-				configService: { getEntryPointV08Address: () => ENTRY_POINT },
+				configService: {
+					getEntryPointV08Address: () => ENTRY_POINT,
+					getIntentGatewayAddress: () => SOLVER_TWO,
+				},
 				client: {
 					chain: { id: 8453, blockTime: 1 },
 					getBlockNumber: vi.fn(() => deadlineBlock),

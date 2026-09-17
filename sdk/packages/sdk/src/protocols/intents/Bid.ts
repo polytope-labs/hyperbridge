@@ -15,7 +15,7 @@ import { ADDRESS_ZERO, bytes32ToBytes20, normalizeStateMachineId, retryPromise }
 import type Decimal from "decimal.js"
 import { concat, encodeFunctionData, parseEventLogs } from "viem"
 import type { Hex } from "viem"
-import { CryptoUtils } from "./CryptoUtils"
+import { BundlerRpcError, CryptoUtils } from "./CryptoUtils"
 import type { IntentGatewayContext } from "./types"
 import { BundlerMethod } from "./types"
 
@@ -44,6 +44,18 @@ export class BidExecutionPendingError extends Error {
 		super(message)
 		this.name = "BidExecutionPendingError"
 	}
+}
+
+/** The operation was rejected on its first send, or failed with verified chain evidence. */
+export class BidExecutionRejectedError extends Error {}
+
+const REJECTION_CODES = new Set([-32602, -32500, -32501, -32502, -32503, -32504, -32505, -32507, -32508])
+function isFirstSendRejection(error: unknown): boolean {
+	return (
+		error instanceof BundlerRpcError &&
+		REJECTION_CODES.has(error.code) &&
+		!/already\s+(known|seen)|AA25|nonce/i.test(error.message)
+	)
 }
 
 /** Constructor parameters for {@link BidImpl}. */
@@ -88,6 +100,7 @@ export class BidImpl implements Bid {
 
 	/** Cached session-key signature over the `SelectSolver` message. */
 	private cachedSignature?: HexString
+	private broadcastAttempted = false
 
 	constructor(params: BidParams) {
 		this.ctx = params.ctx
@@ -217,7 +230,10 @@ export class BidImpl implements Bid {
 	 * @throws If the bundler is not configured, the session key is missing, or the
 	 *   bundler rejects the UserOperation.
 	 */
-	async execute(onSubmitted?: (submission: SelectBidResult) => Promise<void>): Promise<SelectBidResult> {
+	async execute(
+		onSubmitted?: (submission: SelectBidResult) => Promise<void>,
+		onTerminal?: (submission: SelectBidResult) => Promise<void>,
+	): Promise<SelectBidResult> {
 		const commitment = this.order.id as HexString
 
 		if (!this.ctx.bundlerUrl) {
@@ -237,7 +253,7 @@ export class BidImpl implements Bid {
 		)
 
 		// The EntryPoint hash excludes the signature, so it is deterministic before the RPC call.
-		// Persist it before sending: an HTTP timeout can happen after the bundler accepted the op,
+		// Persist the complete signed operation before sending: an HTTP timeout can happen after the bundler accepted the op,
 		// and treating that timeout as a safe rejection could execute a second solver bid.
 		const userOpHash = CryptoUtils.computeUserOpHash(signedUserOp, entryPointAddress, this.chainId())
 		const accepted: SelectBidResult = {
@@ -255,46 +271,108 @@ export class BidImpl implements Bid {
 			)
 		}
 		try {
-			await this.crypto.sendBundler<HexString>(BundlerMethod.ETH_SEND_USER_OPERATION, [
-				CryptoUtils.prepareBundlerCall(signedUserOp),
-				entryPointAddress,
-			])
-		} catch (err) {
-			throw new BidExecutionPendingError(
-				userOpHash,
-				`Bid send outcome is uncertain: ${err instanceof Error ? err.message : String(err)}`,
-			)
-		}
-
-		let txnHash: HexString | undefined
-		let fillStatus: "full" | "partial" | undefined
-		let filledAssets: TokenInfo[] | undefined
-		let receipt: { success?: boolean; receipt: { transactionHash: HexString } }
-		try {
-			receipt = await retryPromise(
+			const replay = this.broadcastAttempted
+			this.broadcastAttempted = true
+			await BidImpl.broadcast(this.crypto, accepted, entryPointAddress, replay)
+			const receipt = await retryPromise(
 				async () => {
-					const result = await this.crypto.sendBundler<{
-						success?: boolean
-						receipt: { transactionHash: HexString }
-					} | null>(BundlerMethod.ETH_GET_USER_OPERATION_RECEIPT, [userOpHash])
-					if (!result?.receipt?.transactionHash) {
-						throw new Error("Receipt not available yet")
-					}
+					const result = await BidImpl.receipt(this.crypto, userOpHash)
+					if (!result) throw new Error("Receipt not available yet")
 					return result
 				},
 				{ maxRetries: 5, backoffMs: 2000, logMessage: "Fetching user operation receipt" },
 			)
-		} catch (err) {
+			const result = await BidImpl.verifyReceipt(this.ctx, this.order, accepted, receipt)
+			await this.retire(result, onTerminal)
+			return result
+		} catch (error) {
+			if (error instanceof BidExecutionRejectedError) {
+				await this.retire(accepted, onTerminal)
+				throw error
+			}
+			if (error instanceof BidExecutionPendingError) throw error
 			throw new BidExecutionPendingError(
 				userOpHash,
-				`Bid submission outcome is uncertain: ${err instanceof Error ? err.message : String(err)}`,
+				`Bid submission outcome is uncertain: ${error instanceof Error ? error.message : String(error)}`,
 			)
 		}
+	}
+
+	private async retire(
+		submission: SelectBidResult,
+		onTerminal?: (submission: SelectBidResult) => Promise<void>,
+	): Promise<void> {
+		try {
+			await onTerminal?.(submission)
+		} catch (error) {
+			throw new BidExecutionPendingError(
+				submission.userOpHash,
+				`Could not retire submission durably: ${error instanceof Error ? error.message : String(error)}`,
+			)
+		}
+	}
+
+	/** Replay always preserves the stored signature and never authorizes fallback on an RPC rejection. */
+	static async broadcast(
+		crypto: CryptoUtils,
+		submission: SelectBidResult,
+		entryPoint: HexString,
+		replay: boolean,
+	): Promise<void> {
+		try {
+			const hash = await crypto.sendBundler<HexString>(BundlerMethod.ETH_SEND_USER_OPERATION, [
+				CryptoUtils.prepareBundlerCall(submission.userOp),
+				entryPoint,
+			])
+			if (typeof hash !== "string" || hash.toLowerCase() !== submission.userOpHash.toLowerCase())
+				throw new Error("Bundler returned an unexpected operation hash")
+		} catch (error) {
+			if (!replay && isFirstSendRejection(error)) throw new BidExecutionRejectedError((error as Error).message)
+			throw new BidExecutionPendingError(
+				submission.userOpHash,
+				`Bid send outcome is uncertain: ${error instanceof Error ? error.message : String(error)}`,
+			)
+		}
+	}
+
+	static async receipt(
+		crypto: CryptoUtils,
+		hash: HexString,
+	): Promise<{ receipt: { transactionHash: HexString } } | null> {
+		const result = await crypto.sendBundler<{ receipt: { transactionHash: HexString } } | null>(
+			BundlerMethod.ETH_GET_USER_OPERATION_RECEIPT,
+			[hash],
+		)
+		if (result === null) return null
+		if (!/^0x[0-9a-fA-F]{64}$/.test(result?.receipt?.transactionHash))
+			throw new BidExecutionPendingError(hash, "Malformed UserOperation receipt")
+		return result
+	}
+
+	/** Shared by normal submission and recovery; bundler success flags are not chain evidence. */
+	static async verifyReceipt(
+		ctx: IntentGatewayContext,
+		order: Order,
+		accepted: SelectBidResult,
+		receipt: { receipt: { transactionHash: HexString } },
+	): Promise<SelectBidResult> {
+		const { userOpHash, userOp: signedUserOp, commitment } = accepted
+		const entryPointAddress = ctx.dest.configService.getEntryPointV08Address(
+			normalizeStateMachineId(order.destination),
+		)
+		const intentGatewayV2Address = ctx.dest.configService.getIntentGatewayAddress(
+			normalizeStateMachineId(order.destination),
+		)
+
+		let txnHash: HexString | undefined
+		let fillStatus: "full" | "partial" | undefined
+		let filledAssets: TokenInfo[] | undefined
+
 		txnHash = receipt.receipt.transactionHash
 
-		let chainReceipt: Awaited<ReturnType<typeof this.ctx.dest.client.waitForTransactionReceipt>>
+		let chainReceipt: Awaited<ReturnType<typeof ctx.dest.client.waitForTransactionReceipt>>
 		try {
-			chainReceipt = await this.ctx.dest.client.waitForTransactionReceipt({
+			chainReceipt = await ctx.dest.client.waitForTransactionReceipt({
 				hash: txnHash,
 				confirmations: 1,
 			})
@@ -305,9 +383,12 @@ export class BidImpl implements Bid {
 			)
 		}
 		if (chainReceipt.status === "reverted") {
-			throw new Error(`Bid execution reverted in transaction ${txnHash}`)
+			throw new BidExecutionPendingError(
+				userOpHash,
+				`Bundle reverted without proof of operation inclusion in ${txnHash}`,
+			)
 		}
-		let userOpSucceeded = receipt.success
+		let userOpSucceeded: boolean | undefined
 		try {
 			const userOpEvents = parseEventLogs({
 				abi: USER_OPERATION_EVENT_ABI,
@@ -323,10 +404,12 @@ export class BidImpl implements Bid {
 			)
 			if (matched) userOpSucceeded = matched.args.success
 		} catch {
-			// A confirmed bundler success flag remains usable when unrelated malformed logs cannot be decoded.
+			// Missing or malformed operation evidence remains pending.
 		}
+		if (userOpSucceeded === undefined)
+			throw new BidExecutionPendingError(userOpHash, "No matching EntryPoint UserOperationEvent")
 		if (userOpSucceeded === false) {
-			throw new Error(`UserOperation failed in confirmed transaction ${txnHash}`)
+			throw new BidExecutionRejectedError(`UserOperation failed in confirmed transaction ${txnHash}`)
 		}
 
 		try {
@@ -336,7 +419,7 @@ export class BidImpl implements Bid {
 				eventName: ["OrderFilled", "PartialFill"],
 			})
 			const matched = events.find((e) => {
-				if (e.address.toLowerCase() !== this.intentGatewayV2Address.toLowerCase()) return false
+				if (e.address.toLowerCase() !== intentGatewayV2Address.toLowerCase()) return false
 				if (e.eventName === "OrderFilled") return e.args.commitment.toLowerCase() === commitment.toLowerCase()
 				if (e.eventName === "PartialFill") return e.args.commitment.toLowerCase() === commitment.toLowerCase()
 				return false

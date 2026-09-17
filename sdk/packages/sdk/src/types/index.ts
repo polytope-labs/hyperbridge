@@ -1548,10 +1548,17 @@ export interface Bid {
 	 * Signs the `SelectSolver` EIP-712 message with the order's session key, packs
 	 * the final UserOp signature, and submits it to the bundler.
 	 *
+	 * `onSubmitted` runs with the complete signed operation before broadcast.
+	 * `onTerminal` runs on a verified outcome or definitive first-send rejection;
+	 * failure to persist either callback stops automatic candidate fallback.
+	 *
 	 * @returns A {@link SelectBidResult} with the submitted UserOperation, its hash,
 	 *   the solver address, transaction hash, and fill status.
 	 */
-	execute(onSubmitted?: (submission: SelectBidResult) => Promise<void>): Promise<SelectBidResult>
+	execute(
+		onSubmitted?: (submission: SelectBidResult) => Promise<void>,
+		onTerminal?: (submission: SelectBidResult) => Promise<void>,
+	): Promise<SelectBidResult>
 	/**
 	 * Prices the bid's outputs in USD using the same on-chain DEX-quote helpers
 	 * used for sorting. Returns `null` when any output token cannot be priced.

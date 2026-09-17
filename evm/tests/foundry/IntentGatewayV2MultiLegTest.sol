@@ -16,7 +16,6 @@ pragma solidity ^0.8.17;
 
 import "forge-std/Test.sol";
 import {MainnetForkBaseTest} from "./MainnetForkBaseTest.sol";
-import {FeeOnTransferToken} from "./IntentGatewayV2SameChainTest.sol";
 import {
     IntentGatewayV2,
     Order,
@@ -44,8 +43,8 @@ import {StorageValue} from "@polytope-labs/solidity-merkle-trees/src/trie/Node.s
  * @notice Orders whose legs repeat a token, e.g. one pair offered at several prices. Escrow, fill
  * progress and protocol fees are keyed by (commitment, leg index), so each leg settles on its own.
  * Several tests pin SRLabs findings that token-keyed accounting made possible for such orders:
- * S3-2 (a completing leg released the whole token balance), S2-15 (a repeated output token shared
- * one fill counter) and the predispatch sweep of S2-12/S2-13.
+ * S3-2 (a completing leg released the whole token balance) and S2-15 (a repeated output token
+ * shared one fill counter).
  */
 contract IntentGatewayV2MultiLegTest is MainnetForkBaseTest {
     IntentGatewayV2 internal gateway;
@@ -380,73 +379,23 @@ contract IntentGatewayV2MultiLegTest is MainnetForkBaseTest {
 
     // ── predispatch ───────────────────────────────────────────────────────────
 
-    /// @notice Predispatch legs that repeat an input token are swept once, checked against their total, and
-    /// excess is reported once. Per-leg sweeps of the same balance used to fail the placement.
-    function testPlaceOrder_PredispatchSweepsRepeatedInputTokenOnce() public {
+    /// @notice Predispatch escrow is swept and measured per input token, so an order with predispatch
+    /// calldata may not repeat an input token across legs.
+    function testPlaceOrder_PredispatchRejectsRepeatedInputToken() public {
         Order memory order = _ladder("", host.host());
         TokenInfo[] memory predispatch = new TokenInfo[](1);
-        predispatch[0] = TokenInfo({token: usdcToken, amount: 2100 * 1e6});
+        predispatch[0] = TokenInfo({token: usdcToken, amount: 2200 * 1e6});
         order.predispatch = DispatchInfo({assets: predispatch, call: abi.encode(new Call[](0))});
 
-        // 2100 covers each leg alone but not both together.
         vm.prank(user);
         vm.expectRevert(IntentsBase.InvalidInput.selector);
         gateway.placeOrder(order, bytes32(0));
 
-        order.predispatch.assets[0].amount = 2300 * 1e6;
-        vm.recordLogs();
-        bytes32 commitment;
-        (order, commitment) = _place(gateway, order);
-        (uint256 count, uint256 amount) = _countDust(vm.getRecordedLogs(), address(gateway), address(usdc));
-
+        // The same legs without predispatch are accepted.
+        order.predispatch = DispatchInfo({assets: new TokenInfo[](0), call: ""});
+        (, bytes32 commitment) = _place(gateway, order);
         assertEq(gateway._orders(commitment, 0), 1200 * 1e6, "leg 0 escrow");
         assertEq(gateway._orders(commitment, 1), 1000 * 1e6, "leg 1 escrow");
-        assertEq(count, 1, "excess reported once");
-        assertEq(amount, 100 * 1e6, "excess over both legs");
-        assertEq(usdc.balanceOf(address(gateway)), 2300 * 1e6, "one sweep of the whole balance");
-    }
-
-    /// @notice S2-12 through predispatch: a fee-on-transfer shortfall is shared across the legs of that
-    /// token pro rata, with the rounding remainder on the first leg, so the legs never escrow more than
-    /// arrived.
-    function testPlaceOrder_PredispatchFeeOnTransferShortfallSharedAcrossLegs() public {
-        FeeOnTransferToken fot = new FeeOnTransferToken(100); // 1% per transfer
-        fot.mint(user, 10_000 * 1e18);
-        vm.prank(user);
-        fot.approve(address(gateway), type(uint256).max);
-        bytes32 fotToken = bytes32(uint256(uint160(address(fot))));
-
-        uint256 sent = 1000 * 1e18;
-        uint256 atDispatcher = sent - sent / 100; // 990
-        uint256 arrived = atDispatcher - atDispatcher / 100; // 980.1
-
-        Order memory order = _order(
-            "",
-            host.host(),
-            _legs([fotToken, fotToken], [uint256(100 * 1e18 + 1), 890 * 1e18 - 1]),
-            _legs([daiToken, daiToken], [uint256(100 * 1e18), 890 * 1e18])
-        );
-        TokenInfo[] memory predispatch = new TokenInfo[](1);
-        predispatch[0] = TokenInfo({token: fotToken, amount: sent});
-        order.predispatch = DispatchInfo({assets: predispatch, call: abi.encode(new Call[](0))});
-
-        uint256 leg0 = (order.inputs[0].amount * arrived) / atDispatcher;
-        uint256 leg1 = (order.inputs[1].amount * arrived) / atDispatcher;
-        uint256 remainder = arrived - leg0 - leg1;
-        assertEq(remainder, 1, "amounts chosen to exercise the rounding remainder");
-        leg0 += remainder;
-
-        vm.prank(user);
-        gateway.placeOrder(order, bytes32(0));
-        order.source = host.host();
-        order.inputs[0].amount = leg0;
-        order.inputs[1].amount = leg1;
-        bytes32 commitment = keccak256(abi.encode(order));
-
-        assertEq(gateway._orders(commitment, 0), leg0, "leg 0 share plus remainder");
-        assertEq(gateway._orders(commitment, 1), leg1, "leg 1 share");
-        assertEq(leg0 + leg1, arrived, "legs escrow exactly what arrived");
-        assertEq(fot.balanceOf(address(gateway)), arrived, "gateway holds what arrived");
     }
 
     // ── cross-chain ───────────────────────────────────────────────────────────

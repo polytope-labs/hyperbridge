@@ -2,7 +2,9 @@
 
 An order is a list of legs again: leg `i` sells `order.inputs[i]` for `order.output.assets[i]`.
 `placeOrder` requires both arrays non-empty and of equal length with every output amount non-zero,
-and legs may repeat tokens, e.g. one pair offered at several prices.
+and legs may repeat tokens, e.g. one pair offered at several prices. An order with predispatch
+calldata may not repeat an input token: its escrow is swept and measured per token, and the
+dispatcher does not check a token's `transfer` return value.
 
 `_orders`, `_partialFills` and `_protocolFees` are keyed by `(commitment, leg index)` instead of by
 token, in the same storage slots (9, 11 and 14). Each leg's escrow, fill progress and held protocol
@@ -10,8 +12,8 @@ fee are its own, so a completing leg releases only its escrow (SRLabs S3-2), a r
 cannot mark another leg complete (S2-15), and a cancel refunds every leg's remainder. The relayer
 fee pot stays at `_orders[commitment][TRANSACTION_FEES]`, now a `uint256` key in the same slot.
 Source-side cancellation proves `_partialFills[commitment][i]` for each leg, so legs sharing an
-output token get distinct proof keys. The predispatch sweep checks, sweeps and measures each input
-token once against the sum of its legs, splitting a fee-on-transfer shortfall pro rata.
+output token get distinct proof keys. Fills with output calldata sweep each output token from the
+dispatcher once.
 
 Getter signatures change: `_orders(bytes32,uint256)`, `_partialFills(bytes32,uint256)` and
 `_protocolFees(bytes32,uint256)`. The SDK refund check, Simplex's source-escrow and partial-fill

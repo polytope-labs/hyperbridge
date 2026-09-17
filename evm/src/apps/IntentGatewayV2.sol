@@ -237,8 +237,9 @@ contract IntentGatewayV2 is
      *
      * An order is a list of legs: leg `i` sells `order.inputs[i]` for `order.output.assets[i]`, so
      * the two arrays must be non-empty and of equal length, and every output amount non-zero; any
-     * other shape reverts `InvalidInput`. Legs may repeat tokens, e.g. one pair at several prices.
-     * Escrow, fill progress and protocol fees are all held per leg, so each leg settles on its own.
+     * other shape reverts `InvalidInput`. Legs may repeat tokens, e.g. one pair at several prices,
+     * except that an order with predispatch calldata may not repeat an input token. Escrow, fill
+     * progress and protocol fees are all held per leg, so each leg settles on its own.
      * Reverts `EnforcedPause` while the gateway is paused.
      *
      * The caller specifies the desired output tokens and destination chain. The function:
@@ -279,6 +280,18 @@ contract IntentGatewayV2 is
         uint256 msgValue = msg.value;
         if (order.predispatch.call.length > 0 && order.predispatch.assets.length > 0) {
             address dispatcher = _params.dispatcher;
+            // Predispatch escrow is swept and measured per input token, so its legs must not share one.
+            for (uint256 i; i < inputsLen;) {
+                for (uint256 j; j < i;) {
+                    if (order.inputs[j].token == order.inputs[i].token) revert InvalidInput();
+                    unchecked {
+                        ++j;
+                    }
+                }
+                unchecked {
+                    ++i;
+                }
+            }
 
             uint256 assetsLen = order.predispatch.assets.length;
             for (uint256 i; i < assetsLen;) {
@@ -302,101 +315,52 @@ contract IntentGatewayV2 is
 
             ICallDispatcher(dispatcher).dispatch(order.predispatch.call);
 
-            // Legs may repeat an input token, so each token is swept and measured once, at the first
-            // leg carrying it, against the total its legs require: `firstLeg[i]` is that leg, and at
-            // a first leg `required` holds the token's total and `received` what the sweep delivered.
-            uint256[] memory firstLeg = new uint256[](inputsLen);
-            uint256[] memory required = new uint256[](inputsLen);
-            uint256[] memory received = new uint256[](inputsLen);
+            // Build sweep calls and snapshot gateway balances before the sweep.
+            Call[] memory transferCalls = new Call[](inputsLen);
+            uint256[] memory balancesBefore = new uint256[](inputsLen);
             for (uint256 i; i < inputsLen;) {
                 if (order.inputs[i].amount == 0) revert InvalidInput();
-                uint256 first = i;
-                for (uint256 j; j < i;) {
-                    if (order.inputs[j].token == order.inputs[i].token) {
-                        first = j;
-                        break;
-                    }
-                    unchecked {
-                        ++j;
-                    }
-                }
-                firstLeg[i] = first;
-                required[first] += order.inputs[i].amount;
+                address token = address(uint160(uint256(order.inputs[i].token)));
+                uint256 requiredAmount = order.inputs[i].amount;
 
-                unchecked {
-                    ++i;
-                }
-            }
-
-            // Build one sweep call per token and snapshot gateway balances before the sweep.
-            Call[] memory transferCalls = new Call[](inputsLen);
-            uint256 sweeps;
-            for (uint256 i; i < inputsLen;) {
-                if (firstLeg[i] == i) {
-                    address token = address(uint160(uint256(order.inputs[i].token)));
-                    if (token == address(0)) {
-                        uint256 balance = address(dispatcher).balance;
-                        if (balance < required[i]) revert InsufficientNativeToken();
-                        transferCalls[sweeps] = Call({to: address(this), value: balance, data: ""});
-                        received[i] = address(this).balance;
-                    } else {
-                        uint256 balance = IERC20(token).balanceOf(dispatcher);
-                        if (balance < required[i]) revert InvalidInput();
-                        transferCalls[sweeps] = Call({
-                            to: token,
-                            value: 0,
-                            data: abi.encodeWithSelector(IERC20.transfer.selector, address(this), balance)
-                        });
-                        received[i] = IERC20(token).balanceOf(address(this));
-                    }
-                    ++sweeps;
+                if (token == address(0)) {
+                    uint256 balance = address(dispatcher).balance;
+                    if (balance < requiredAmount) revert InsufficientNativeToken();
+                    transferCalls[i] = Call({to: address(this), value: balance, data: ""});
+                    balancesBefore[i] = address(this).balance;
+                } else {
+                    uint256 balance = IERC20(token).balanceOf(dispatcher);
+                    if (balance < requiredAmount) revert InvalidInput();
+                    transferCalls[i] = Call({
+                        to: token,
+                        value: 0,
+                        data: abi.encodeWithSelector(IERC20.transfer.selector, address(this), balance)
+                    });
+                    balancesBefore[i] = IERC20(token).balanceOf(address(this));
                 }
 
                 unchecked {
                     ++i;
                 }
-            }
-            // Trim to the calls actually built; shrinking a memory array's length in place is safe.
-            assembly ("memory-safe") {
-                mstore(transferCalls, sweeps)
             }
 
             ICallDispatcher(dispatcher).dispatch(abi.encode(transferCalls));
 
-            // Measure what each token delivered and emit dust for any excess over its legs' total.
+            // Measure actual received, emit dust for excess, update order.inputs.
             for (uint256 i; i < inputsLen;) {
-                if (firstLeg[i] == i) {
-                    address token = address(uint160(uint256(order.inputs[i].token)));
-                    uint256 balanceAfter =
-                        token == address(0) ? address(this).balance : IERC20(token).balanceOf(address(this));
-                    received[i] = balanceAfter - received[i];
-                    if (received[i] > required[i]) emit DustCollected(token, received[i] - required[i]);
+                address token = address(uint160(uint256(order.inputs[i].token)));
+                uint256 received;
+                if (token == address(0)) {
+                    received = address(this).balance - balancesBefore[i];
+                } else {
+                    received = IERC20(token).balanceOf(address(this)) - balancesBefore[i];
                 }
 
-                unchecked {
-                    ++i;
-                }
-            }
-
-            // A shortfall (fee-on-transfer) is shared across the token's legs pro rata, the rounding
-            // remainder going to its first leg, so its legs together escrow exactly what arrived. A
-            // token with a single leg escrows exactly what arrived, as before.
-            uint256[] memory allocated = new uint256[](inputsLen);
-            for (uint256 i; i < inputsLen;) {
-                uint256 first = firstLeg[i];
-                if (received[first] < required[first]) {
-                    uint256 share = (order.inputs[i].amount * received[first]) / required[first];
-                    order.inputs[i].amount = share;
-                    allocated[first] += share;
-                }
-
-                unchecked {
-                    ++i;
-                }
-            }
-            for (uint256 i; i < inputsLen;) {
-                if (firstLeg[i] == i && received[i] < required[i]) {
-                    order.inputs[i].amount += received[i] - allocated[i];
+                if (received > order.inputs[i].amount) {
+                    uint256 dust = received - order.inputs[i].amount;
+                    emit DustCollected(token, dust);
+                } else {
+                    order.inputs[i].amount = received;
                 }
 
                 unchecked {

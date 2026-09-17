@@ -20,6 +20,7 @@ import {
     IntentGatewayV2,
     Order,
     Params,
+    InitParams,
     TokenInfo,
     PaymentInfo,
     DispatchInfo,
@@ -97,7 +98,9 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
             protocolFeeBps: 0, // No protocol fees for most tests
             priceOracle: address(0)
         });
-        intentGateway.initialize(intentParams, new bytes[](0), address(0), address(this));
+        intentGateway.initialize(
+            InitParams({params: intentParams, peerChains: new bytes[](0), relayer: address(0), owner: address(this)})
+        );
 
         // Fund test accounts
         _fundTestAccounts();
@@ -328,7 +331,9 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
             protocolFeeBps: PROTOCOL_FEE_BPS,
             priceOracle: address(0)
         });
-        gatewayWithFees.initialize(intentParams, new bytes[](0), address(0), address(this));
+        gatewayWithFees.initialize(
+            InitParams({params: intentParams, peerChains: new bytes[](0), relayer: address(0), owner: address(this)})
+        );
 
         uint256 inputAmount = 1000 * 1e6; // 1000 USDC
         uint256 outputAmount = 900 * 1e18; // 900 DAI
@@ -1796,17 +1801,19 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
     function testPartialFill_WithProtocolFee() public {
         IntentGatewayV2 gatewayWithFees = _deployGatewayProxy();
         gatewayWithFees.initialize(
-            Params({
-                host: address(host),
-                dispatcher: address(dispatcher),
-                solverSelection: false,
-                surplusShareBps: SURPLUS_SHARE_BPS,
-                protocolFeeBps: PROTOCOL_FEE_BPS,
-                priceOracle: address(0)
-            }),
-            new bytes[](0),
-            address(0),
-            address(this)
+            InitParams({
+                params: Params({
+                    host: address(host),
+                    dispatcher: address(dispatcher),
+                    solverSelection: false,
+                    surplusShareBps: SURPLUS_SHARE_BPS,
+                    protocolFeeBps: PROTOCOL_FEE_BPS,
+                    priceOracle: address(0)
+                }),
+                peerChains: new bytes[](0),
+                relayer: address(0),
+                owner: address(this)
+            })
         );
 
         uint256 inputAmount = 1000 * 1e6;
@@ -2478,7 +2485,9 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
             protocolFeeBps: PROTOCOL_FEE_BPS, // 30 bps
             priceOracle: address(0)
         });
-        gatewayWithFees.initialize(intentParams, new bytes[](0), address(0), address(this));
+        gatewayWithFees.initialize(
+            InitParams({params: intentParams, peerChains: new bytes[](0), relayer: address(0), owner: address(this)})
+        );
 
         FeeOnTransferToken fot = new FeeOnTransferToken(100); // 1% transfer fee
         fot.mint(user, 10000 * 1e18);

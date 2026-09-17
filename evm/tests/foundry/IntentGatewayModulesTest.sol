@@ -22,6 +22,7 @@ import {
     IntentGatewayV2,
     Order,
     Params,
+    InitParams,
     TokenInfo,
     PaymentInfo,
     DispatchInfo,
@@ -79,7 +80,9 @@ contract IntentGatewayModulesTest is MainnetForkBaseTest {
         bytes[] memory peers = new bytes[](1);
         peers[0] = bytes("DEST_CHAIN");
         // Relayer gate left open so governance requests in these tests need no relayer.
-        gateway.initialize(_params(), peers, address(0), address(this));
+        gateway.initialize(
+            InitParams({params: _params(), peerChains: peers, relayer: address(0), owner: address(this)})
+        );
 
         deal(address(usdc), user, 10_000 * 1e6);
         deal(address(dai), solver, 10_000 * 1e18);
@@ -156,10 +159,11 @@ contract IntentGatewayModulesTest is MainnetForkBaseTest {
         }
     }
 
-    /// Existing proof keys, packed relayer state, and every earlier field remain in place.
+    /// Existing proof keys and every earlier field remain in place. The unused `_paused` byte is gone, so
+    /// `_relayer` sits alone at slot 13 offset 0; `migrate` moves it there on live proxies.
     function testFeeAccountingAppendsAfterEveryExistingStorageField() public view {
         StorageEntry[] memory layout = _storageLayout("out/IntentGatewayV2.sol/IntentGatewayV2.json");
-        string[12] memory labels = [
+        string[11] memory labels = [
             "_nameFallback",
             "_versionFallback",
             "_filled",
@@ -169,16 +173,15 @@ contract IntentGatewayModulesTest is MainnetForkBaseTest {
             "_instances",
             "_partialFills",
             "_destinationProtocolFees",
-            "_paused",
             "_relayer",
             "_protocolFees"
         ];
-        string[12] memory slots = ["0", "1", "2", "3", "4", "9", "10", "11", "12", "13", "13", "14"];
+        string[11] memory slots = ["0", "1", "2", "3", "4", "9", "10", "11", "12", "13", "14"];
         assertEq(layout.length, labels.length);
         for (uint256 i; i < labels.length; i++) {
             assertEq(layout[i].label, labels[i]);
             assertEq(layout[i].slot, slots[i], labels[i]);
-            assertEq(layout[i].offset, i == 10 ? 1 : 0, labels[i]);
+            assertEq(layout[i].offset, 0, labels[i]);
         }
     }
 

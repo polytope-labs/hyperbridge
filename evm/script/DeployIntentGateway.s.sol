@@ -4,7 +4,7 @@ pragma solidity ^0.8.17;
 import "forge-std/Script.sol";
 import "stringutils/strings.sol";
 
-import {IntentGatewayV2, Params} from "../src/apps/IntentGatewayV2.sol";
+import {IntentGatewayV2, Params, InitParams} from "../src/apps/IntentGatewayV2.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {IntentGatewayScript} from "./IntentGatewayScript.sol";
 import {CallDispatcher} from "../src/utils/CallDispatcher.sol";
@@ -71,22 +71,20 @@ contract DeployScript is IntentGatewayScript {
             peerChains[1] = StateMachine.evm(80002); // polygon amoy
         }
 
-        bytes memory initData = abi.encodeCall(
-            IntentGatewayV2.initialize,
-            (
-                Params({
-                    host: HOST_ADDRESS,
-                    dispatcher: config.get("CALL_DISPATCHER").toAddress(),
-                    solverSelection: config.get("7702").toBool(),
-                    surplusShareBps: 6_000, // 60%
-                    protocolFeeBps: 5, // 0.05%
-                    priceOracle: address(0)
-                }),
-                peerChains,
-                relayer,
-                owner
-            )
-        );
+        InitParams memory init = InitParams({
+            params: Params({
+                host: HOST_ADDRESS,
+                dispatcher: config.get("CALL_DISPATCHER").toAddress(),
+                solverSelection: config.get("7702").toBool(),
+                surplusShareBps: 6_000, // 60%
+                protocolFeeBps: 5, // 0.05%
+                priceOracle: address(0)
+            }),
+            peerChains: peerChains,
+            relayer: relayer,
+            owner: owner
+        });
+        bytes memory initData = abi.encodeCall(IntentGatewayV2.initialize, (init));
         ERC1967Proxy proxy = new ERC1967Proxy{salt: salt}(address(implementation), initData);
         console.log("IntentGateway relayer:", relayer);
         console.log("IntentGateway owner:", owner);

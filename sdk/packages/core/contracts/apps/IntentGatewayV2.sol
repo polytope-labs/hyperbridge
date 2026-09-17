@@ -107,6 +107,22 @@ struct Params {
 }
 
 /**
+ * @dev Arguments to `IntentGatewayV2.initialize`. All of it is part of the proxy's init data, so the
+ * same values on every chain keep the proxy address identical across chains.
+ */
+struct InitParams {
+    /// @dev The initial gateway configuration.
+    Params params;
+    /// @dev State-machine ids of the cross-chain peers to register, each bound to the gateway's own
+    /// address so no peer address is carried in the init data.
+    bytes[] peerChains;
+    /// @dev The only relayer whose deliveries are accepted. Zero leaves the gate open.
+    address relayer;
+    /// @dev The owner, who may pause the gateway. Must be non-zero.
+    address owner;
+}
+
+/**
  * @dev Struct to define the destination fee parameters.
  */
 struct DestinationFee {
@@ -251,8 +267,12 @@ interface IIntentGatewayV2 {
     ///         calldata. Such orders must be filled completely in a single fill.
     error PartialFillNotAllowed();
 
-    /// @notice Thrown by `placeOrder`, `fillOrder` and escrow deliveries while the gateway is paused.
+    /// @notice Thrown by `placeOrder`, `fillOrder` and escrow deliveries while the gateway is paused,
+    ///         and by `pause` when already paused.
     error EnforcedPause();
+
+    /// @notice Thrown by `unpause` when the gateway is not paused.
+    error ExpectedPause();
 
     /// @notice Thrown when an owner-only function is called by anyone but the owner or the host.
     error OwnableUnauthorizedAccount(address account);
@@ -479,7 +499,7 @@ interface IIntentGatewayV2 {
      * @notice Takes a proxy from an earlier implementation to the current version, where
      *         `initialize` puts a fresh one. Host-only and one-shot; emits `Initialized`. It is the
      *         only way up for a proxy already at a version: `initialize` is refused on anything but
-     *         a bare proxy. Sets the owner.
+     *         a bare proxy. Moves the relayer from slot 13 offset 1 to offset 0 and sets the owner.
      * @param owner The owner, who may pause the gateway; must be non-zero
      */
     function migrate(address owner) external;
@@ -518,10 +538,10 @@ interface IIntentGatewayV2 {
      */
     function paused() external view returns (bool);
 
-    /// @notice Pauses the gateway. Callable by the owner or the host.
+    /// @notice Pauses the gateway. Callable by the owner or the host; reverts `EnforcedPause` if already paused.
     function pause() external;
 
-    /// @notice Resumes the gateway. Callable by the owner or the host.
+    /// @notice Resumes the gateway. Callable by the owner or the host; reverts `ExpectedPause` if not paused.
     function unpause() external;
 
     /**

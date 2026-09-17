@@ -26,6 +26,7 @@ import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
 import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
+import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
@@ -36,6 +37,7 @@ import {
     Order,
     SweepDust,
     Params,
+    InitParams,
     ParamsUpdate,
     DestinationFee,
     WithdrawalRequest,
@@ -69,7 +71,14 @@ import {
  * kept at its ERC-7201 namespaced slots, so neither `IntentsBase`'s layout nor the modules see it)
  * can only pause and resume the gateway.
  */
-contract IntentGatewayV2 is IntentsBase, HyperApp, ReentrancyGuardTransient, Initializable, Ownable2StepUpgradeable {
+contract IntentGatewayV2 is
+    IntentsBase,
+    HyperApp,
+    ReentrancyGuardTransient,
+    Initializable,
+    Ownable2StepUpgradeable,
+    PausableUpgradeable
+{
     using SafeERC20 for IERC20;
 
     /// @dev Same-chain fills and cancels.
@@ -82,15 +91,6 @@ contract IntentGatewayV2 is IntentsBase, HyperApp, ReentrancyGuardTransient, Ini
     /// or `migrate`. 3 is the module split and the owner; bumped by every implementation that ships
     /// a `migrate`.
     uint64 private constant VERSION = 3;
-
-    /// @dev Emitted when the owner pauses the gateway.
-    event Paused(address account);
-
-    /// @dev Emitted when the owner resumes the gateway.
-    event Unpaused(address account);
-
-    /// @dev Thrown by `placeOrder`, `fillOrder` and escrow deliveries while the gateway is paused.
-    error EnforcedPause();
 
     /**
      * @dev Sets the EIP-712 domain ("IntentGateway", "2"), records the modules, and locks this raw
@@ -171,44 +171,41 @@ contract IntentGatewayV2 is IntentsBase, HyperApp, ReentrancyGuardTransient, Ini
      * @dev One-time init of a bare proxy: registers the peers, each bound to `address(this)`,
      * stores the params, arms the relayer gate, sets the owner, and lands at `VERSION`. Refused on
      * any proxy already at a version, see `onlyFresh`.
-     * @param p The initial gateway configuration parameters.
-     * @param peerChains State-machine ids of the cross-chain peers to register, each bound to this
-     * gateway's own address so no peer address is carried in the proxy's init data.
-     * @param relayer_ The only relayer whose deliveries are accepted. Zero leaves the gate open.
-     * @param owner_ The owner, who may pause the gateway. Part of the init data, so the same
-     * address on every chain keeps the proxy address identical across chains. Must be non-zero.
+     * @param init The params, peers, relayer and owner, see `InitParams`.
      */
-    function initialize(Params memory p, bytes[] memory peerChains, address relayer_, address owner_)
-        public
-        onlyFresh
-        reinitializer(VERSION)
-    {
-        uint256 peersLength = peerChains.length;
+    function initialize(InitParams memory init) public onlyFresh reinitializer(VERSION) {
+        uint256 peersLength = init.peerChains.length;
         for (uint256 i = 0; i < peersLength; i++) {
-            Deployment memory deployment = Deployment({chain: peerChains[i], gateway: address(this)});
+            Deployment memory deployment = Deployment({chain: init.peerChains[i], gateway: address(this)});
             _addDeployment(deployment);
         }
-        _validateParams(p);
-        _params = p;
-        _setRelayer(relayer_);
-        __Ownable_init(owner_);
+        _validateParams(init.params);
+        _params = init.params;
+        _setRelayer(init.relayer);
+        __Ownable_init(init.owner);
         __Ownable2Step_init();
+        __Pausable_init();
     }
 
     /**
-     * @dev Takes a proxy from an earlier implementation to `VERSION` and sets its owner. Host-only
-     * and one-shot; delivered as the calldata of the upgrade that installs this implementation.
-     * The storage layout is unchanged: the owner lives at OpenZeppelin's namespaced slots.
+     * @dev Takes a proxy from an earlier implementation to `VERSION`: moves the relayer and sets the
+     * owner. Host-only and one-shot; delivered as the calldata of the upgrade that installs this
+     * implementation, so nothing reads `_relayer` in between.
+     *
+     * Earlier implementations kept an unused `bool _paused` at slot 13 offset 0, with `_relayer`
+     * packed behind it at offset 1. That byte is gone, so `_relayer` is now read from offset 0;
+     * shifting slot 13 right by one byte moves the relayer there and drops the old flag. A proxy
+     * that never set a relayer holds zero either way. The owner and the pause flag live at
+     * OpenZeppelin's namespaced slots.
      * @param owner_ The owner, who may pause the gateway. Must be non-zero.
      */
     function migrate(address owner_) external onlyHost reinitializer(VERSION) {
+        assembly ("memory-safe") {
+            sstore(_relayer.slot, shr(8, sload(_relayer.slot)))
+        }
         __Ownable_init(owner_);
         __Ownable2Step_init();
-    }
-
-    /// @dev Whether the gateway is paused, see `pause`.
-    function paused() external view returns (bool) {
-        return _paused;
+        __Pausable_init();
     }
 
     /**
@@ -224,20 +221,15 @@ contract IntentGatewayV2 is IntentsBase, HyperApp, ReentrancyGuardTransient, Ini
 
     /**
      * @dev Pauses the gateway: `placeOrder`, `fillOrder`, and the host callbacks `onAccept` and
-     * `onGetResponse` revert `EnforcedPause`. A delivery refused while paused stays undelivered on
-     * the host and can be resubmitted once the gateway resumes. Governance deliveries (from
-     * Hyperbridge itself) are never paused, so parameter updates, upgrades and an owner replacement
-     * still land. `cancelOrder` stays open, so users can still start a refund.
+     * `onGetResponse` revert `EnforcedPause`. Reverts `EnforcedPause` if already paused.
      */
     function pause() external onlyOwner {
-        _paused = true;
-        emit Paused(msg.sender);
+        _pause();
     }
 
-    /// @dev Resumes the gateway.
+    /// @dev Resumes the gateway. Reverts `ExpectedPause` if not paused.
     function unpause() external onlyOwner {
-        _paused = false;
-        emit Unpaused(msg.sender);
+        _unpause();
     }
 
     /**
@@ -260,8 +252,7 @@ contract IntentGatewayV2 is IntentsBase, HyperApp, ReentrancyGuardTransient, Ini
      * @param order The order struct. `user`, `source`, and `nonce` are overwritten by this function.
      * @param graffiti Attribution tag emitted in the OrderPlaced event for off-chain indexers.
      */
-    function placeOrder(Order memory order, bytes32 graffiti) public payable nonReentrant {
-        if (_paused) revert EnforcedPause();
+    function placeOrder(Order memory order, bytes32 graffiti) public payable whenNotPaused nonReentrant {
         // An order swaps exactly one input for exactly one output.
         if (order.inputs.length != 1 || order.output.assets.length != 1) revert InvalidInput();
         // A zero-amount output would strand the input escrow.
@@ -488,8 +479,7 @@ contract IntentGatewayV2 is IntentsBase, HyperApp, ReentrancyGuardTransient, Ini
      * @param order The order to fill. Must match the exact order that was placed.
      * @param options Fill options including output token amounts and fee parameters.
      */
-    function fillOrder(Order calldata order, FillOptions calldata options) public payable nonReentrant {
-        if (_paused) revert EnforcedPause();
+    function fillOrder(Order calldata order, FillOptions calldata options) public payable whenNotPaused nonReentrant {
         uint256 blockNumber = _blockNumber();
         if (order.deadline < blockNumber) revert Expired();
         // The solver's own bound on how long its quoted price stands. Zero means unbounded,
@@ -587,12 +577,13 @@ contract IntentGatewayV2 is IntentsBase, HyperApp, ReentrancyGuardTransient, Ini
     /**
      * @dev Runs `ExtrinsicIntents.onAccept` in the extrinsic module, `msg.sender` still the host.
      * While paused, only governance deliveries (from Hyperbridge itself) are accepted; escrow
-     * redemptions and refunds from peer gateways revert and stay undelivered on the host.
+     * redemptions and refunds from peer gateways revert and stay undelivered on the host. Not
+     * `whenNotPaused`, which would refuse governance too; `paused()` is read first so an unpaused
+     * gateway skips the host call.
      */
     function onAccept(IncomingPostRequest calldata incoming) external override onlyHost {
-        if (_paused && keccak256(incoming.request.source) != keccak256(IDispatcher(host()).hyperbridge())) {
-            revert EnforcedPause();
-        }
+        bool isGovernance = keccak256(incoming.request.source) == keccak256(IDispatcher(host()).hyperbridge());
+        if (paused() && !isGovernance) revert EnforcedPause();
         _delegate(extrinsicModule, msg.data);
     }
 
@@ -600,8 +591,7 @@ contract IntentGatewayV2 is IntentsBase, HyperApp, ReentrancyGuardTransient, Ini
      * @dev Runs `ExtrinsicIntents.onGetResponse` in the extrinsic module, `msg.sender` still the host.
      * Reverts while paused; the response stays undelivered on the host.
      */
-    function onGetResponse(IncomingGetResponse calldata) external override onlyHost {
-        if (_paused) revert EnforcedPause();
+    function onGetResponse(IncomingGetResponse calldata) external override onlyHost whenNotPaused {
         _delegate(extrinsicModule, msg.data);
     }
 

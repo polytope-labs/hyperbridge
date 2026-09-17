@@ -148,6 +148,29 @@ jobs:
                   done
                   echo "GraphQL server is available"
 
+            # The query service reads the database schema once at startup and never again, so an
+            # entity created after it booted is absent from the Query type for the rest of the run.
+            # The compose gate should make this a no-op; the warning says so when it is not.
+            - name: Wait for the solver entities to be queryable
+              run: |
+                  probe() {
+                    body=$(curl -s -m 10 -X POST -H 'content-type: application/json' \
+                      --data '{"query":"{ trackedSolvers(first: 1) { nodes { id } } }"}' \
+                      http://127.0.0.1:3100)
+                    case "$body" in
+                      *'"errors"'*) return 1 ;;
+                      *'"trackedSolvers"'*) return 0 ;;
+                      *) return 1 ;;
+                    esac
+                  }
+                  for i in $(seq 1 24); do probe && echo "solver entities are queryable" && exit 0; sleep 5; done
+                  echo "::warning::solver entities missing from the schema; restarting the query service"
+                  docker compose -f packages/indexer/docker/docker-compose.solver-ci.yml restart graphql-engine
+                  for i in $(seq 1 24); do probe && echo "solver entities are queryable" && exit 0; sleep 5; done
+                  echo "solver entities are still missing from the GraphQL schema"
+                  docker compose -f packages/indexer/docker/docker-compose.solver-ci.yml logs --tail=200
+                  exit 1
+
             - name: Verify the solvers were indexed
               run: node packages/indexer/scripts/tests/verify-solver-inventory.cjs
 

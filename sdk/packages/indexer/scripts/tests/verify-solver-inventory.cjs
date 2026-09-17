@@ -27,6 +27,9 @@ const POLL_INTERVAL_MS = 5_000
 const addresses = SOLVERS.map((solver) => solver.address)
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
+/** An error worth giving up on immediately: waiting cannot fix it. */
+class FatalError extends Error {}
+
 async function graphql(query) {
 	const response = await fetch(graphqlUrl, {
 		method: "POST",
@@ -35,7 +38,19 @@ async function graphql(query) {
 	})
 	if (!response.ok) throw new Error(`query service answered ${response.status}`)
 	const body = await response.json()
-	if (body.errors) throw new Error(body.errors.map((error) => error.message).join("; "))
+	if (body.errors) {
+		const message = body.errors.map((error) => error.message).join("; ")
+		// The query service reads the schema once at startup. If it booted before the indexer
+		// created its tables, the entities are missing from the Query type for the rest of the run,
+		// and every retry from here would report this same thing until the timeout.
+		if (message.includes("Unknown field")) {
+			throw new FatalError(
+				`the query service has no solver entities: ${message}. It was started before the ` +
+					`indexer created them — restart it, or gate it on the node that owns the schema.`,
+			)
+		}
+		throw new Error(message)
+	}
 	return body.data
 }
 
@@ -90,6 +105,7 @@ async function waitFor(label, timeoutMs, check) {
 			console.log(`[verify] ${label}: ok`)
 			return value
 		} catch (error) {
+			if (error instanceof FatalError) throw error
 			lastError = error
 			const remaining = Math.round((deadline - Date.now()) / 1000)
 			console.log(`[verify] ${label}: waiting (${remaining}s left) — ${error.message}`)

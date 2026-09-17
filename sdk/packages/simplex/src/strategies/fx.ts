@@ -869,10 +869,11 @@ export class FXFiller implements FillerStrategy {
 
 				if (rateFills) {
 					// Cap exposure in input units, then scale the take if funding shortened
-					// the output quote. Ceiling avoids silently improving our signed price.
+					// the output quote.
 					const budgetTake = BigInt(new Decimal(input.amount.toString()).mul(capFraction).floor().toFixed(0))
 					policyInputByLeg.set(i, budgetTake)
-					const take = (budgetTake * finalOutputAmount + policyMaxOutput - 1n) / policyMaxOutput
+					// Round down so limited funding cannot claim input above the order's price limit.
+					const take = (budgetTake * finalOutputAmount) / policyMaxOutput
 					const preview = previewRateFill(input.amount, output.amount, 0n, take, finalOutputAmount)
 					rateInputs[i].amount = take
 					if (preview.credit < output.amount) {

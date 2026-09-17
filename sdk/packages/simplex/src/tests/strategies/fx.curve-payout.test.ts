@@ -1,7 +1,7 @@
 import { FXFiller, type TradingPair } from "@/strategies/fx"
 import { FillerPricePolicy } from "@/config/interpolated-curve"
 import { AssetRegistry } from "@/config/asset-registry"
-import { bytes20ToBytes32, type HexString, type Order, type TokenInfo } from "@hyperbridge/sdk"
+import { bytes20ToBytes32, previewRateFill, type HexString, type Order, type TokenInfo } from "@hyperbridge/sdk"
 import { describe, it, expect } from "vitest"
 import { Decimal } from "decimal.js"
 import { parseUnits } from "viem"
@@ -100,6 +100,7 @@ function makeFiller(options: {
 	contractService: any
 	balances: Record<string, bigint>
 	maxOrderSize?: number
+	askPricePolicy?: FillerPricePolicy
 }): FXFiller {
 	const registry = new AssetRegistry(configService, { EXOTIC: { [CHAIN]: EXOTIC } })
 	const pairs: TradingPair[] = [
@@ -107,7 +108,7 @@ function makeFiller(options: {
 			token0: "USDC",
 			token1: "EXOTIC",
 			...(options.maxOrderSize !== undefined ? { maxOrderSize: new Decimal(options.maxOrderSize) } : {}),
-			askPricePolicy: FLAT_ASK,
+			askPricePolicy: options.askPricePolicy ?? FLAT_ASK,
 		},
 	]
 	const signer = { address: SOLVER } as any
@@ -220,6 +221,26 @@ describe("FXFiller curve payout", () => {
 		])
 		expect(contractService.outputs.get("rate-capped")[0].amount).toBe(parseUnits("60000", 18))
 		expect(contractService.partials.get("rate-capped")).toBe(true)
+	})
+
+	it("rounds balance-limited input down to stay within the order's price limit", async () => {
+		const contractService = makeEvalContractService()
+		contractService.rateFillsSupported = async () => true
+		const filler = makeFiller({
+			contractService,
+			balances: { [EXOTIC.toLowerCase()]: 37n },
+			askPricePolicy: new FillerPricePolicy({ points: [{ amount: "0", price: "0.099" }] }),
+		})
+		const order = makeOrder("rate-funded-rounding")
+		order.inputs[0].amount = 1000n
+		order.output.assets[0].amount = 99n
+
+		await filler.calculateProfitability(order)
+
+		expect(contractService.inputs.get(order.id)).toEqual([{ token: bytes20ToBytes32(STABLE), amount: 373n }])
+		expect(contractService.outputs.get(order.id)).toEqual([{ token: bytes20ToBytes32(EXOTIC), amount: 37n }])
+		expect(contractService.partials.get(order.id)).toBe(true)
+		expect(previewRateFill(1000n, 99n, 0n, 373n, 37n)).toMatchObject({ credit: 36n, release: 363n })
 	})
 
 	it("does not count a funding reduction at the same rate as profit", async () => {

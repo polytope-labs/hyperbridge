@@ -108,7 +108,7 @@ contract IntentGatewayProtocolFeesTest is MainnetForkBaseTest {
     function _fill(Order memory order, uint256 output) internal {
         vm.startPrank(solver);
         dai.approve(address(gateway), output);
-        gateway.fillOrder(order, FillOptions(0, 0, 0, _tokens(address(dai), output)));
+        gateway.fillOrder(order, FillOptions(0, 0, 0, _tokens(address(dai), output), new TokenInfo[](0)));
         vm.stopPrank();
     }
 

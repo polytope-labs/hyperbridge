@@ -179,8 +179,11 @@ struct FillOptions {
     /// same clock (`_blockNumber()`, which is the L2 block number where that differs).
     uint256 validUntil;
     /// @dev The output tokens with amounts the solver is willing to give
-    /// @dev Must be strictly >= the amounts requested in order.output.assets
     TokenInfo[] outputs;
+    /// @dev Positional maximum input takes, matched to order.inputs and outputs by index.
+    /// Integer output credit determines actual release, which can be below these maxima.
+    /// An empty array uses the order rate, including settlement of legacy rounding debt.
+    TokenInfo[] inputs;
 }
 
 /**
@@ -587,12 +590,10 @@ interface IIntentGatewayV2 {
      */
     function fillOrder(Order calldata order, FillOptions calldata options) external payable;
 
-    /// @notice Input takes are per-leg maxima; integer credit determines the actual release.
-    function fillOrderAtRate(Order calldata order, FillOptions calldata options, TokenInfo[] calldata inputs)
-        external
-        payable;
-
     function supportsRateFills() external pure returns (bool);
+
+    /// @notice The fillOrder selector accepted by this implementation.
+    function fillOrderSelector() external pure returns (bytes4);
 
     /**
      * @notice Cancels an order after it has expired.

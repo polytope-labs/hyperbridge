@@ -53,11 +53,18 @@ contract SolverAccount is Account, ERC7821, IERC1271 {
      * @notice Cached fillOrder function selector
      */
     bytes4 private constant FILL_ORDER_SELECTOR = IIntentGatewayV2.fillOrder.selector;
-    bytes4 private constant FILL_ORDER_AT_RATE_SELECTOR = IIntentGatewayV2.fillOrderAtRate.selector;
+    // Deployed fillOrder ABIs, with and without validUntil respectively.
+    bytes4 private constant HISTORICAL_FILL_ORDER_SELECTOR = 0xa5470064;
+    bytes4 private constant HISTORICAL_FILL_ORDER_NO_EXPIRY_SELECTOR = 0x5cfb1ea5;
 
-    /// @notice Includes the rate entry point in the signature-stripping defense.
+    /// @notice Includes solver-priced fills in the signature-stripping defense.
     function supportsRateFills() external pure returns (bool) {
         return true;
+    }
+
+    /// @notice The current fillOrder selector protected by this account.
+    function fillOrderSelector() external pure returns (bytes4) {
+        return FILL_ORDER_SELECTOR;
     }
 
     /**
@@ -164,7 +171,8 @@ contract SolverAccount is Account, ERC7821, IERC1271 {
         for (uint256 i = 0; i < calls.length; i++) {
             bool hasFillOrder = calls[i].target == INTENT_GATEWAY_V2
                 && (bytes4(calls[i].callData) == FILL_ORDER_SELECTOR
-                    || bytes4(calls[i].callData) == FILL_ORDER_AT_RATE_SELECTOR);
+                    || bytes4(calls[i].callData) == HISTORICAL_FILL_ORDER_SELECTOR
+                    || bytes4(calls[i].callData) == HISTORICAL_FILL_ORDER_NO_EXPIRY_SELECTOR);
             if (hasFillOrder) return true;
         }
         return false;

@@ -480,7 +480,7 @@ contract IntentGatewayV2 is
      * @param options Fill options including output token amounts and fee parameters.
      */
     function fillOrder(Order calldata order, FillOptions calldata options) public payable whenNotPaused nonReentrant {
-        _fillOrder(order, options, new TokenInfo[](0));
+        _fillOrder(order, options, options.inputs);
     }
 
     /// @notice Whether this implementation accepts solver-priced fills.
@@ -488,14 +488,9 @@ contract IntentGatewayV2 is
         return true;
     }
 
-    /// @notice Fill at a signed per-leg rate without changing the legacy fillOrder selector.
-    function fillOrderAtRate(Order calldata order, FillOptions calldata options, TokenInfo[] calldata inputs)
-        external
-        payable
-        whenNotPaused
-        nonReentrant
-    {
-        _fillOrder(order, options, inputs);
+    /// @notice The fillOrder selector accepted by this implementation.
+    function fillOrderSelector() external pure returns (bytes4) {
+        return this.fillOrder.selector;
     }
 
     function _fillOrder(Order calldata order, FillOptions calldata options, TokenInfo[] memory inputs) internal {

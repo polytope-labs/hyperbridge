@@ -8,9 +8,6 @@ import {deployIntentGatewayImpl, deployIntentModules} from "../IntentGatewayDepl
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {
     SelectOptions,
-    Order,
-    FillOptions,
-    TokenInfo,
     Params,
     InitParams,
     DispatchInfo,
@@ -22,10 +19,6 @@ import {Execution} from "@openzeppelin/contracts/interfaces/draft-IERC7579.sol";
 
 import {ERC4337Utils} from "@openzeppelin/contracts/account/utils/draft-ERC4337Utils.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
-
-interface RateGateway {
-    function fillOrderAtRate(Order calldata, FillOptions calldata, TokenInfo[] calldata) external payable;
-}
 
 contract SolverAccountTest is Test {
     SolverAccount public solverAccount;
@@ -85,6 +78,15 @@ contract SolverAccountTest is Test {
     // ============================================
     // Constructor Tests
     // ============================================
+
+    function test_FillCapabilitiesIdentifyCompiledSelector() public view {
+        assertTrue(solverAccount.supportsRateFills());
+        assertTrue(intentGateway.supportsRateFills());
+        assertEq(solverAccount.fillOrderSelector(), intentGateway.fillOrder.selector);
+        assertEq(intentGateway.fillOrderSelector(), intentGateway.fillOrder.selector);
+        assertNotEq(intentGateway.fillOrder.selector, bytes4(0xa5470064));
+        assertNotEq(intentGateway.fillOrder.selector, bytes4(0x5cfb1ea5));
+    }
 
     function test_Constructor_SetsCachedValues() public view {
         assertEq(address(solverAccount.entryPoint()), entryPoint);
@@ -177,14 +179,35 @@ contract SolverAccountTest is Test {
         assertEq(result, ERC4337Utils.SIG_VALIDATION_FAILED);
     }
 
-    function test_ValidateUserOp_StandardECDSA_RateFillCalldata_Fails() public {
+    function test_ValidateUserOp_StandardECDSA_HistoricalFillCalldata_Fails() public {
+        _assertHistoricalFillRejectsStandardSignature(0xa5470064);
+        _assertHistoricalFillRejectsStandardSignature(0x5cfb1ea5);
+    }
+
+    function _assertHistoricalFillRejectsStandardSignature(bytes4 selector) internal {
+        bytes32 userOpHash = keccak256("test_userop");
+
+        Execution[] memory calls = new Execution[](1);
+        calls[0] = Execution({target: address(intentGateway), value: 0, callData: abi.encodeWithSelector(selector)});
+
+        PackedUserOperation memory op = _standardOp(_executeCalldata(calls), _signUserOpHash(userOpHash));
+
+        vm.prank(entryPoint);
+        uint256 result = solverAccount.validateUserOp(op, userOpHash, 0);
+
+        assertEq(result, ERC4337Utils.SIG_VALIDATION_FAILED);
+    }
+
+    function test_ValidateUserOp_StandardECDSA_AppendedFillCalldata_Fails() public {
         bytes32 userOpHash = keccak256("test_userop");
 
         Execution[] memory calls = new Execution[](1);
         calls[0] = Execution({
             target: address(intentGateway),
             value: 0,
-            callData: abi.encodeWithSelector(RateGateway.fillOrderAtRate.selector)
+            callData: abi.encodeWithSignature(
+                "fillOrder((bytes32,bytes,bytes,uint256,uint256,uint256,address,((bytes32,uint256)[],bytes),(bytes32,uint256)[],(bytes32,(bytes32,uint256)[],bytes)),(uint256,uint256,uint256,(bytes32,uint256)[],(bytes32,uint256)[]))"
+            )
         });
 
         PackedUserOperation memory op = _standardOp(_executeCalldata(calls), _signUserOpHash(userOpHash));
@@ -312,7 +335,12 @@ contract SolverAccountTest is Test {
         assertEq(result, ERC4337Utils.SIG_VALIDATION_SUCCESS);
     }
 
-    function test_ValidateUserOp_IntentSelection_RateFillCalldata_Success() public {
+    function test_ValidateUserOp_IntentSelection_HistoricalFillCalldata_Success() public {
+        _assertHistoricalFillAcceptsIntentSignature(0xa5470064);
+        _assertHistoricalFillAcceptsIntentSignature(0x5cfb1ea5);
+    }
+
+    function _assertHistoricalFillAcceptsIntentSignature(bytes4 selector) internal {
         bytes32 userOpHash = keccak256("test_userop");
 
         bytes memory sessionSignature = _createSessionKeySignature(testCommitment, address(solverAccount));
@@ -320,11 +348,7 @@ contract SolverAccountTest is Test {
         bytes memory signature = abi.encodePacked(testCommitment, solverSignature, sessionSignature);
 
         Execution[] memory calls = new Execution[](1);
-        calls[0] = Execution({
-            target: address(intentGateway),
-            value: 0,
-            callData: abi.encodeWithSelector(RateGateway.fillOrderAtRate.selector)
-        });
+        calls[0] = Execution({target: address(intentGateway), value: 0, callData: abi.encodeWithSelector(selector)});
 
         PackedUserOperation memory op = PackedUserOperation({
             sender: address(solverAccount),

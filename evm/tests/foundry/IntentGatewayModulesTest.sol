@@ -200,8 +200,9 @@ contract IntentGatewayModulesTest is MainnetForkBaseTest {
         IntrinsicModule intrinsic = IntrinsicModule(gateway.intrinsicModule());
         ExtrinsicModule extrinsic = ExtrinsicModule(gateway.extrinsicModule());
         Order memory order = _sameChainOrder(1e6, 1e18);
-        FillOptions memory fill =
-            FillOptions({relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: order.output.assets});
+        FillOptions memory fill = FillOptions({
+            relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: order.output.assets, inputs: new TokenInfo[](0)
+        });
         CancelOptions memory cancel = CancelOptions({relayerFee: 0, height: 0});
         bytes32 commitment = keccak256(abi.encode(order));
 
@@ -269,7 +270,14 @@ contract IntentGatewayModulesTest is MainnetForkBaseTest {
         vm.prank(solver);
         vm.expectRevert(bytes("Dai/insufficient-allowance"));
         gateway.fillOrder(
-            order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: order.output.assets})
+            order,
+            FillOptions({
+                relayerFee: 0,
+                nativeDispatchFee: 0,
+                validUntil: 0,
+                outputs: order.output.assets,
+                inputs: new TokenInfo[](0)
+            })
         );
     }
 
@@ -293,7 +301,14 @@ contract IntentGatewayModulesTest is MainnetForkBaseTest {
         dai.approve(address(gateway), 900 * 1e18);
         vm.expectRevert(SwappedIntrinsicModule.ModuleSwapped.selector);
         gateway.fillOrder(
-            order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: order.output.assets})
+            order,
+            FillOptions({
+                relayerFee: 0,
+                nativeDispatchFee: 0,
+                validUntil: 0,
+                outputs: order.output.assets,
+                inputs: new TokenInfo[](0)
+            })
         );
         vm.stopPrank();
     }
@@ -311,7 +326,14 @@ contract IntentGatewayModulesTest is MainnetForkBaseTest {
         vm.prank(solver);
         vm.expectRevert(SwappedExtrinsicModule.ExtrinsicSwapped.selector);
         gateway.fillOrder(
-            order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: order.output.assets})
+            order,
+            FillOptions({
+                relayerFee: 0,
+                nativeDispatchFee: 0,
+                validUntil: 0,
+                outputs: order.output.assets,
+                inputs: new TokenInfo[](0)
+            })
         );
     }
 
@@ -405,7 +427,14 @@ contract IntentGatewayModulesTest is MainnetForkBaseTest {
         vm.startPrank(solver);
         dai.approve(address(gateway), 900 * 1e18);
         gateway.fillOrder(
-            order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: order.output.assets})
+            order,
+            FillOptions({
+                relayerFee: 0,
+                nativeDispatchFee: 0,
+                validUntil: 0,
+                outputs: order.output.assets,
+                inputs: new TokenInfo[](0)
+            })
         );
         vm.stopPrank();
         assertEq(gateway._filled(commitment), solver, "filled after three upgrades");

@@ -263,7 +263,14 @@ contract IntrinsicIntentsReentrancyTest is MainnetForkBaseTest {
         reentrantOutputs[0] = TokenInfo({token: bytes32(0), amount: 0});
 
         maliciousBeneficiary.arm(
-            order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: reentrantOutputs})
+            order,
+            FillOptions({
+                relayerFee: 0,
+                nativeDispatchFee: 0,
+                validUntil: 0,
+                outputs: reentrantOutputs,
+                inputs: new TokenInfo[](0)
+            })
         );
 
         // ── 3. Fill attempt reverts — reentrancy is blocked ──────────────────
@@ -271,7 +278,10 @@ contract IntrinsicIntentsReentrancyTest is MainnetForkBaseTest {
         vm.expectRevert(ERR_INSUFFICIENT_NATIVE);
         vm.prank(legitimateSolver);
         intentGateway.fillOrder{value: OUTPUT_ETH}(
-            order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: outputAssets})
+            order,
+            FillOptions({
+                relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: outputAssets, inputs: new TokenInfo[](0)
+            })
         );
 
         // ── 4. State is completely rolled back ───────────────────────────────
@@ -325,7 +335,14 @@ contract IntrinsicIntentsReentrancyTest is MainnetForkBaseTest {
         reentrantOutputs[0] = TokenInfo({token: bytes32(0), amount: 0});
 
         maliciousBeneficiary.arm(
-            order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: reentrantOutputs})
+            order,
+            FillOptions({
+                relayerFee: 0,
+                nativeDispatchFee: 0,
+                validUntil: 0,
+                outputs: reentrantOutputs,
+                inputs: new TokenInfo[](0)
+            })
         );
 
         // ── 3. Fill attempt reverts — reentrancy is blocked ──────────────────
@@ -333,7 +350,10 @@ contract IntrinsicIntentsReentrancyTest is MainnetForkBaseTest {
         vm.expectRevert(ERR_INSUFFICIENT_NATIVE);
         vm.prank(legitimateSolver);
         intentGateway.fillOrder{value: OUTPUT_ETH}(
-            order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: outputAssets})
+            order,
+            FillOptions({
+                relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: outputAssets, inputs: new TokenInfo[](0)
+            })
         );
 
         // ── 4. _filled is rolled back — order remains fillable ───────────────

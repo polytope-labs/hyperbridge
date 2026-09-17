@@ -1,0 +1,39 @@
+{
+	"hyperbridge-gargantua": {
+		"type": "substrate",
+		"chainId": "0x5388faf792c5232566d21493929b32c1f20a9c2b03e95615eefec2aa26d64b73",
+		"startBlock": 2056979,
+		"stateMachineId": "KUSAMA-4009"
+	},
+	"base-solver-ci": {
+		"type": "evm",
+		"chainId": "8453",
+		"startBlock": 0,
+		"stateMachineId": "EVM-8453",
+		"unfinalizedBlocks": true,
+		"blockConfirmations": 0,
+		"contracts": {
+			"ethereumHost": "0x620128E2B19193d6Bd244a3AC8D3bBa0541B19c3",
+			"erc6160ext20": "0x50c5725949A6F0c72E6C4a641F24049A917DB0Cb",
+			"handlerV1": "0x2a18AB35DEa43474882E05A661e2F20fe89c0535",
+			"intentGatewayV3": "0xAe041F7B0CB581876832830baeB6a2Aa2a3C9716",
+			"solverAccount": [
+				"0x7cb55539d1144F62422099c3FA3405092022c88C",
+				"0xfCd233b937D7622AAc63ced3C9A1A12F4a6B64E3"
+			],
+			"yieldVaults": {
+				"0x833589fcd6edb6e08f4c7c32d4f71b54bda02913": {
+					"description": "USDC → stataUSDC (Aave v3 Base) — the one supported token the E2E seeds and asserts on",
+					"vaults": ["0xC768c589647798a6EE01A91FdE98EF2ed046DBD6"]
+				}
+			},
+			"tokenSlots": {
+				"0x833589fcd6edb6e08f4c7c32d4f71b54bda02913": {
+					"description": "USDC native Circle (FiatToken) — balances at slot 9, allowed at slot 10",
+					"balanceSlot": 9,
+					"allowanceSlot": 10
+				}
+			}
+		}
+	}
+}

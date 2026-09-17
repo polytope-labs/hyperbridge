@@ -31,8 +31,6 @@ jest.mock("@/utils/vaultAccounting", () => ({
 	...jest.requireActual("@/utils/vaultAccounting"),
 	readVaultBlockMovements: jest.fn(async () => []),
 }))
-jest.mock("@/services/inventoryReading.service", () => ({ publishProviderInventory: jest.fn() }))
-jest.mock("@/utils/solverBalance", () => ({ inventoryReadContext: jest.fn(() => ({})) }))
 
 import { ethers } from "ethers"
 import { VaultLedgerEventType as Type } from "@/configs/src/types"
@@ -42,7 +40,6 @@ import {
 	type VaultTransferInput,
 } from "@/services/yieldVault.service"
 import { readVaultBlockMovements } from "@/utils/vaultAccounting"
-import { publishProviderInventory } from "@/services/inventoryReading.service"
 
 const CHAIN = "EVM-8453"
 const VAULT = "0xc768c589647798a6ee01a91fde98ef2ed046dbd6"
@@ -50,6 +47,8 @@ const TOKEN = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913"
 const LP = "0xce319986ca4d5d0893751a628d0db3dc8fc91d62"
 const OTHER = "0x13e41cde1d55880cbe031c69f206c2e9bc3c94c2"
 const THIRD = "0x18f23e630077b1da3ed97c0469d0504a93fad9e2"
+/** EIP-7702 designator for the Base SolverAccount: what makes an LP one of our solvers. */
+const DELEGATED = "0xef01007cb55539d1144f62422099c3fa3405092022c88c"
 const position = (lp = LP) => records.get(`VaultLpPosition:${CHAIN}-${VAULT}-${lp}`)
 const getSnapshot = (lp = LP) => rows("VaultPositionSnapshot").find((row) => row.lp === lp)
 const movements = jest.mocked(readVaultBlockMovements)
@@ -128,13 +127,12 @@ beforeEach(() => {
 	mockContract.convertToAssets
 		.mockReset()
 		.mockImplementation(async (shares) => price(BigInt(shares.toString())).toString())
-	;(global as any).api = { getCode: jest.fn(async () => "0x") }
+	;(global as any).api = { getCode: jest.fn(async (lp: string) => (lp === LP ? DELEGATED : "0x")) }
 	jest.spyOn(Service, "configuredVaults").mockReturnValue([{ vault: VAULT, underlyingToken: TOKEN }])
-	records.set(`LiquidityProvider:${LP}`, { id: LP })
 })
 
 it("seeds shares received before delegation as opening capital at the first tracked event", async () => {
-	records.delete(`LiquidityProvider:${LP}`)
+	;(global as any).api.getCode.mockResolvedValue("0x")
 	await Service.recordTransfer(transfer())
 	expect(position()).toBeUndefined()
 	;(global as any).api.getCode.mockResolvedValue("0xef01007cb55539d1144f62422099c3fa3405092022c88c")
@@ -251,7 +249,6 @@ it("accounts for both tracked owners once and preserves earned yield when all sh
 		totalAssetsTransferredIn: 110n,
 		depositCount: 0,
 	})
-	expect(publishProviderInventory).toHaveBeenCalledTimes(2)
 	await snapshot()
 	expect(getSnapshot(OTHER).yieldEarned).toBe(10n)
 	expect(getSnapshot().yieldEarned).toBe(0n)
@@ -363,14 +360,6 @@ it("does not repeat transfer valuation after both owners' ledger entries already
 	mockContract.convertToAssets.mockRejectedValueOnce(new Error("RPC unavailable"))
 	await expect(Service.recordTransfer(transfer())).resolves.toBeUndefined()
 	expect(rows("VaultLedgerEvent")).toHaveLength(2)
-})
-
-it("keeps principal when best-effort inventory publication fails", async () => {
-	legacy()
-	jest.mocked(publishProviderInventory).mockRejectedValueOnce(new Error("inventory RPC unavailable"))
-	await Service.recordLedger(ledger())
-	expect(position()).toMatchObject({ shares: 120n, totalAssetsDeposited: 120n })
-	expect(rows("VaultLedgerEvent")).toHaveLength(1)
 })
 
 it("ignores unknown chains and vaults without reading balances or writing accounting", async () => {

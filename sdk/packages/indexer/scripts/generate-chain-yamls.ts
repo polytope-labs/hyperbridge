@@ -38,16 +38,21 @@ const multichainTemplate = Handlebars.compile(fs.readFileSync(path.join(template
 const EVM_TRACKED = [
 	// Envrionment Variable Tracked
 	"COIN_GECKGO_API_KEY",
+	// The HyperFX orderbook's GET /solvers, polled by the Hyperbridge node to discover solvers that have never filled.
+	"HYPERFX_WATCHLIST_URL",
 ] as const
 
 const getChainTypesPath = (chain: string) => {
 	// Extract base chain name before the hyphen
 	const baseChainName = chain.split("-")[0]
-	const potentialPath = `./dist/substrate-chaintypes/${baseChainName}.js`
 
-	// Check if file exists
-	if (fs.existsSync(potentialPath)) {
-		return potentialPath
+	// Decided on the source, emitted as the compiled path the node loads. `subql build` writes that
+	// compiled file later in the same build, so testing for it here means a checkout with no dist
+	// yet — every clean CI run and first deploy — silently omits the chaintypes line, and a
+	// Hyperbridge node without it cannot decode its own blocks (its hasher is keccak, not blake2).
+	const source = path.join(root, "src", "substrate-chaintypes", `${baseChainName}.ts`)
+	if (fs.existsSync(source)) {
+		return `./dist/substrate-chaintypes/${baseChainName}.js`
 	}
 	return null
 }
@@ -64,25 +69,29 @@ const generateSubstrateYaml = async (chain: string, config: Configuration) => {
 	const endpoints = generateEndpoints(chain)
 
 	let blockNumber: number
-	// Only connect to RPC when we actually need the live head (local/nexus-ci).
+	// Only connect to RPC when we actually need the live head (local/nexus-ci/solver-ci).
 	// For other environments we use the static startBlock from config.
-	if (skipRpc || (currentEnv !== "local" && currentEnv !== "nexus-ci")) {
+	if (skipRpc || !["local", "nexus-ci", "solver-ci"].includes(currentEnv)) {
 		blockNumber = config.startBlock
 	} else {
 		// Expect comma-separated endpoints in env var
 		const rpcUrl = process.env[chain.replace(/-/g, "_").toUpperCase()]?.split(",")[0]
 		const rpc = new RpcWebSocketClient()
 		await rpc.connect(rpcUrl as string)
-		const header = (await rpc.call("chain_getHeader", [])) as { number: Hex }
+		// The FINALIZED head, not the best one: these nodes index finalized blocks, so starting them
+		// at the best head — several blocks ahead of finality — starts them ahead of anything they
+		// can index, and the node dies on an assertion inside UnfinalizedBlocksService.
+		const finalized = (await rpc.call("chain_getFinalizedHead", [])) as Hex
+		const header = (await rpc.call("chain_getHeader", [finalized])) as { number: Hex }
 		blockNumber = hexToNumber(header.number)
 	}
 
 	// Check if this is a Hyperbridge chain (stateMachineId is KUSAMA-4009 or POLKADOT-3367)
 	const isHyperbridgeChain = ["KUSAMA-4009", "POLKADOT-3367"].includes(config.stateMachineId)
 
-	// Liquidity indexing — the phantom order handlers and the inventory fold that produce the pool
-	// rows — runs on the Hyperbridge chain only, and not on testnet.
-	const enableLiquidityIndexing = isHyperbridgeChain && currentEnv !== "testnet"
+	// Solver discovery — polling the HyperFX orderbook's watchlist for the EVM nodes to track — runs on
+	// the Hyperbridge chain only, and not on testnet.
+	const enableSolverDiscovery = isHyperbridgeChain && currentEnv !== "testnet"
 
 	const templateData = {
 		name: `${chain}-chain`,
@@ -98,7 +107,7 @@ const generateSubstrateYaml = async (chain: string, config: Configuration) => {
 		chainTypesConfig,
 		blockNumber,
 		isHyperbridgeChain,
-		enableLiquidityIndexing,
+		enableSolverDiscovery,
 		handlerKind: "substrate/EventHandler",
 		handlers: [
 			{ handler: "handleIsmpStateMachineUpdatedEvent", module: "ismp", method: "StateMachineUpdated" },
@@ -126,9 +135,9 @@ const generateEvmYaml = async (chain: string, config: Configuration) => {
 	const endpoints = generateEndpoints(chain)
 
 	let blockNumber: number
-	// Only connect to RPC when we actually need the live head (local env).
-	// For other environments we use the static startBlock from config.
-	if (skipRpc || currentEnv !== "local") {
+	// Only connect to RPC when we actually need the live head (local/solver-ci: an anvil fork
+	// starts at whatever block it forked from). For other environments we use config's startBlock.
+	if (skipRpc || !["local", "solver-ci"].includes(currentEnv)) {
 		blockNumber = config.startBlock
 	} else {
 		// Expect comma-separated endpoints in env var
@@ -168,6 +177,13 @@ const generateEvmYaml = async (chain: string, config: Configuration) => {
 				? Object.entries(config.contracts.yieldVaults).flatMap(([token, entry]) =>
 						entry.vaults.map((vault) => ({ vault, underlyingToken: token })),
 					)
+				: [],
+		// Solver inventory is event-sourced from each supported token's Transfers. Gated like the
+		// Hyperbridge node's solver discovery, which polls the watchlist these nodes consume.
+		enableSolverInventory: currentEnv !== "testnet",
+		supportedTokens:
+			config.type === "evm" && config.contracts?.yieldVaults
+				? Object.keys(config.contracts.yieldVaults).map((token) => token.toLowerCase())
 				: [],
 		handlerKind: "ethereum/LogHandler",
 		handlers: [

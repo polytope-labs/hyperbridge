@@ -2,6 +2,7 @@ import { getBlockTimestamp } from "@/utils/rpc.helpers"
 import stringify from "safe-stable-stringify"
 import { PartialFillLog } from "@/configs/src/types/abi-interfaces/IntentGatewayV3Abi"
 import { IntentGatewayV3Service } from "@/services/intentGatewayV3.service"
+import { discoverSolverFromFill } from "@/services/solverInventory.service"
 import { getHostStateMachine } from "@/utils/substrate.helpers"
 import { Hex } from "viem"
 import { wrap } from "@/utils/event.utils"
@@ -43,18 +44,12 @@ export const handlePartialFilledEventV3 = wrap(async (event: PartialFillLog): Pr
 		enrichment,
 	)
 
-	// A partial fill spends the filler's output-token inventory exactly as a full one does, so the
-	// pools it drew on are re-read and published the same way. Best-effort: it reads external RPCs,
-	// and stale depth is recoverable — the next phantom bid window republishes it from scratch.
-	try {
-		await IntentGatewayV3Service.publishInventoryAfterFill({
-			commitment,
-			inputs: mappedInputs,
-			outputs: mappedOutputs,
-			timestamp,
-			blockNumber,
-		})
-	} catch (e: any) {
-		logger.error(`Failed to publish pool inventory for partially filled order ${commitment}: ${e.message}`)
-	}
+	// A partial fill makes the filler a solver just as a full one does, and is unguarded for the same reason.
+	await discoverSolverFromFill({
+		chain,
+		solver: filler,
+		blockNumber: BigInt(blockNumber),
+		transactionHash,
+		timestamp,
+	})
 })

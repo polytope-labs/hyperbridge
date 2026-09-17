@@ -10,8 +10,8 @@ import { Interface } from "@ethersproject/abi"
 // The pre-partial-fills EscrowReleased shape, without the solver. The project ABI carries
 // the current signature and subql-cli rejects raw topic hashes in manifest filters, so this
 // handler is registered without a topic filter and matches the legacy topic itself.
-// Decoded with ethers (not viem) because viem's decoders break inside the VM2 sandbox —
-// see the note in `utils/phantom-decode.ts`.
+// Decoded with ethers (not viem): viem's decoders break inside the VM2 sandbox SubQuery runs
+// mappings in.
 const legacyInterface = new Interface([
 	"event EscrowReleased(bytes32 indexed commitment, tuple(bytes32 token, uint256 amount)[] tokens)",
 ])
@@ -51,21 +51,4 @@ export const handleEscrowReleasedEventV3Legacy = wrap(async (event: EthereumLog<
 		timestamp,
 		logIndex,
 	})
-
-	// Same inventory publication as the current handler. This shape names no filler, but it only
-	// comes from contracts that finalize on every redeem, so `_filled` holds the beneficiary from
-	// this block on. Best-effort: it reads external RPCs, and stale depth is recoverable.
-	try {
-		const beneficiary = await IntentGatewayV3Service.filledBeneficiary(commitment, blockNumber)
-		if (beneficiary) {
-			await IntentGatewayV3Service.publishInventoryAfterEscrowRelease({
-				provider: beneficiary,
-				tokens: releasedTokens,
-				timestamp,
-				blockNumber,
-			})
-		}
-	} catch (e: any) {
-		logger.error(`Failed to publish pool inventory for released escrow ${commitment}: ${e.message}`)
-	}
 })

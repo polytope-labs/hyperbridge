@@ -235,7 +235,10 @@ contract IntentGatewayV2 is
     /**
      * @dev Places a new intent order by escrowing the user's input tokens.
      *
-     * An order swaps exactly one input for exactly one output; any other shape reverts `InvalidInput`.
+     * An order is a list of legs: leg `i` sells `order.inputs[i]` for `order.output.assets[i]`, so
+     * the two arrays must be non-empty and of equal length, and every output amount non-zero; any
+     * other shape reverts `InvalidInput`. Legs may repeat tokens, e.g. one pair at several prices.
+     * Escrow, fill progress and protocol fees are all held per leg, so each leg settles on its own.
      * Reverts `EnforcedPause` while the gateway is paused.
      *
      * The caller specifies the desired output tokens and destination chain. The function:
@@ -253,17 +256,21 @@ contract IntentGatewayV2 is
      * @param graffiti Attribution tag emitted in the OrderPlaced event for off-chain indexers.
      */
     function placeOrder(Order memory order, bytes32 graffiti) public payable whenNotPaused nonReentrant {
-        // An order swaps exactly one input for exactly one output.
-        if (order.inputs.length != 1 || order.output.assets.length != 1) revert InvalidInput();
-        // A zero-amount output would strand the input escrow.
-        if (order.output.assets[0].amount == 0) revert InvalidInput();
+        uint256 inputsLen = order.inputs.length;
+        // Inputs and outputs pair 1:1 by index; a leg without its counterpart could never be filled.
+        if (inputsLen == 0 || order.output.assets.length != inputsLen) revert InvalidInput();
+        for (uint256 i; i < inputsLen;) {
+            // A zero-amount output would strand its leg's escrow.
+            if (order.output.assets[i].amount == 0) revert InvalidInput();
+            unchecked {
+                ++i;
+            }
+        }
 
         address hostAddr = host();
         order.user = bytes32(uint256(uint160(msg.sender)));
         order.source = IDispatcher(hostAddr).host();
         order.nonce = _nonce++;
-
-        uint256 inputsLen = order.inputs.length;
 
         // Phase 1: Transfer tokens and record actual received amounts.
         // For fee-on-transfer tokens, the gateway receives less than the requested amount.
@@ -295,28 +302,75 @@ contract IntentGatewayV2 is
 
             ICallDispatcher(dispatcher).dispatch(order.predispatch.call);
 
-            // Build sweep calls and snapshot gateway balances before the sweep.
-            Call[] memory transferCalls = new Call[](inputsLen);
-            uint256[] memory balancesBefore = new uint256[](inputsLen);
+            // Legs may repeat an input token, so each token is swept and measured once, at the first
+            // leg carrying it, against the total its legs require: `firstLeg[i]` is that leg, and at
+            // a first leg `required` holds the token's total and `received` what the sweep delivered.
+            uint256[] memory firstLeg = new uint256[](inputsLen);
+            uint256[] memory required = new uint256[](inputsLen);
+            uint256[] memory received = new uint256[](inputsLen);
             for (uint256 i; i < inputsLen;) {
                 if (order.inputs[i].amount == 0) revert InvalidInput();
-                address token = address(uint160(uint256(order.inputs[i].token)));
-                uint256 requiredAmount = order.inputs[i].amount;
+                uint256 first = i;
+                for (uint256 j; j < i;) {
+                    if (order.inputs[j].token == order.inputs[i].token) {
+                        first = j;
+                        break;
+                    }
+                    unchecked {
+                        ++j;
+                    }
+                }
+                firstLeg[i] = first;
+                required[first] += order.inputs[i].amount;
 
-                if (token == address(0)) {
-                    uint256 balance = address(dispatcher).balance;
-                    if (balance < requiredAmount) revert InsufficientNativeToken();
-                    transferCalls[i] = Call({to: address(this), value: balance, data: ""});
-                    balancesBefore[i] = address(this).balance;
-                } else {
-                    uint256 balance = IERC20(token).balanceOf(dispatcher);
-                    if (balance < requiredAmount) revert InvalidInput();
-                    transferCalls[i] = Call({
-                        to: token,
-                        value: 0,
-                        data: abi.encodeWithSelector(IERC20.transfer.selector, address(this), balance)
-                    });
-                    balancesBefore[i] = IERC20(token).balanceOf(address(this));
+                unchecked {
+                    ++i;
+                }
+            }
+
+            // Build one sweep call per token and snapshot gateway balances before the sweep.
+            Call[] memory transferCalls = new Call[](inputsLen);
+            uint256 sweeps;
+            for (uint256 i; i < inputsLen;) {
+                if (firstLeg[i] == i) {
+                    address token = address(uint160(uint256(order.inputs[i].token)));
+                    if (token == address(0)) {
+                        uint256 balance = address(dispatcher).balance;
+                        if (balance < required[i]) revert InsufficientNativeToken();
+                        transferCalls[sweeps] = Call({to: address(this), value: balance, data: ""});
+                        received[i] = address(this).balance;
+                    } else {
+                        uint256 balance = IERC20(token).balanceOf(dispatcher);
+                        if (balance < required[i]) revert InvalidInput();
+                        transferCalls[sweeps] = Call({
+                            to: token,
+                            value: 0,
+                            data: abi.encodeWithSelector(IERC20.transfer.selector, address(this), balance)
+                        });
+                        received[i] = IERC20(token).balanceOf(address(this));
+                    }
+                    ++sweeps;
+                }
+
+                unchecked {
+                    ++i;
+                }
+            }
+            // Trim to the calls actually built; shrinking a memory array's length in place is safe.
+            assembly ("memory-safe") {
+                mstore(transferCalls, sweeps)
+            }
+
+            ICallDispatcher(dispatcher).dispatch(abi.encode(transferCalls));
+
+            // Measure what each token delivered and emit dust for any excess over its legs' total.
+            for (uint256 i; i < inputsLen;) {
+                if (firstLeg[i] == i) {
+                    address token = address(uint160(uint256(order.inputs[i].token)));
+                    uint256 balanceAfter =
+                        token == address(0) ? address(this).balance : IERC20(token).balanceOf(address(this));
+                    received[i] = balanceAfter - received[i];
+                    if (received[i] > required[i]) emit DustCollected(token, received[i] - required[i]);
                 }
 
                 unchecked {
@@ -324,23 +378,25 @@ contract IntentGatewayV2 is
                 }
             }
 
-            ICallDispatcher(dispatcher).dispatch(abi.encode(transferCalls));
-
-            // Measure actual received, emit dust for excess, update order.inputs.
+            // A shortfall (fee-on-transfer) is shared across the token's legs pro rata, the rounding
+            // remainder going to its first leg, so its legs together escrow exactly what arrived. A
+            // token with a single leg escrows exactly what arrived, as before.
+            uint256[] memory allocated = new uint256[](inputsLen);
             for (uint256 i; i < inputsLen;) {
-                address token = address(uint160(uint256(order.inputs[i].token)));
-                uint256 received;
-                if (token == address(0)) {
-                    received = address(this).balance - balancesBefore[i];
-                } else {
-                    received = IERC20(token).balanceOf(address(this)) - balancesBefore[i];
+                uint256 first = firstLeg[i];
+                if (received[first] < required[first]) {
+                    uint256 share = (order.inputs[i].amount * received[first]) / required[first];
+                    order.inputs[i].amount = share;
+                    allocated[first] += share;
                 }
 
-                if (received > order.inputs[i].amount) {
-                    uint256 dust = received - order.inputs[i].amount;
-                    emit DustCollected(token, dust);
-                } else {
-                    order.inputs[i].amount = received;
+                unchecked {
+                    ++i;
+                }
+            }
+            for (uint256 i; i < inputsLen;) {
+                if (firstLeg[i] == i && received[i] < required[i]) {
+                    order.inputs[i].amount += received[i] - allocated[i];
                 }
 
                 unchecked {
@@ -397,13 +453,12 @@ contract IntentGatewayV2 is
         }
         commitment = keccak256(abi.encode(order));
 
-        // Phase 3: Credit escrow.
+        // Phase 3: Credit escrow, per leg.
         for (uint256 i; i < inputsLen;) {
-            address token = address(uint160(uint256(order.inputs[i].token)));
-            _orders[commitment][token] = reducedInputs[i].amount;
+            _orders[commitment][i] = reducedInputs[i].amount;
             uint256 fee = protocolFees[i];
             if (fee > 0) {
-                _protocolFees[commitment][token] = ProtocolFee({amount: fee, committed: reducedInputs[i].amount});
+                _protocolFees[commitment][i] = ProtocolFee({amount: fee, committed: reducedInputs[i].amount});
             }
 
             unchecked {

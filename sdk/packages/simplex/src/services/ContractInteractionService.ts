@@ -630,7 +630,8 @@ export class ContractInteractionService {
 	}
 
 	/**
-	 * Output already delivered against this order by any solver, per output token.
+	 * Output already delivered against this order by any solver, per leg (the gateway keys fill
+	 * progress by output index, so legs repeating a token are reported separately).
 	 *
 	 * A partially filled order has had its escrow drawn down, so the pro-rata
 	 * release a later filler receives is computed against the *residual*, not
@@ -646,12 +647,12 @@ export class ContractInteractionService {
 		const commitment = orderCommitment(order)
 
 		return Promise.all(
-			order.output.assets.map((asset) =>
+			order.output.assets.map((_asset, index) =>
 				client.readContract({
 					address,
 					abi: INTENT_GATEWAY_V2_ABI,
 					functionName: "_partialFills",
-					args: [commitment, asset.token],
+					args: [commitment, BigInt(index)],
 				}) as Promise<bigint>,
 			),
 		)

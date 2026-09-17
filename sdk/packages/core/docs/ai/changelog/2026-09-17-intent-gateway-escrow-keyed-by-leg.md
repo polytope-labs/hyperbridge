@@ -1,0 +1,27 @@
+# 2026-09-17 — Intent gateway escrow keyed by leg
+
+An order is a list of legs again: leg `i` sells `order.inputs[i]` for `order.output.assets[i]`.
+`placeOrder` requires both arrays non-empty and of equal length with every output amount non-zero,
+and legs may repeat tokens, e.g. one pair offered at several prices.
+
+`_orders`, `_partialFills` and `_protocolFees` are keyed by `(commitment, leg index)` instead of by
+token, in the same storage slots (9, 11 and 14). Each leg's escrow, fill progress and held protocol
+fee are its own, so a completing leg releases only its escrow (SRLabs S3-2), a repeated output token
+cannot mark another leg complete (S2-15), and a cancel refunds every leg's remainder. The relayer
+fee pot stays at `_orders[commitment][TRANSACTION_FEES]`, now a `uint256` key in the same slot.
+Source-side cancellation proves `_partialFills[commitment][i]` for each leg, so legs sharing an
+output token get distinct proof keys. The predispatch sweep checks, sweeps and measures each input
+token once against the sum of its legs, splitting a fee-on-transfer shortfall pro rata.
+
+Getter signatures change: `_orders(bytes32,uint256)`, `_partialFills(bytes32,uint256)` and
+`_protocolFees(bytes32,uint256)`. The SDK refund check, Simplex's source-escrow and partial-fill
+reads, and the indexer, SDK and Simplex ABIs pass the leg index.
+
+Rollout: an implementation keyed by token and one keyed by leg read the same slots differently, and
+the source chain computes the proof key the destination stores under. Upgrade only once no order
+placed under the old implementation holds escrow, fees or pending messages on any chain, and keep
+placement stopped on every chain until all of them run this implementation.
+
+Files: `contracts/apps/IntentGatewayV2.sol`. Gateway side: `evm/src/apps/IntentGatewayV2.sol`,
+`evm/src/apps/intentsv2/IntentsBase.sol`, `evm/src/apps/intentsv2/IntrinsicIntents.sol`,
+`evm/src/apps/intentsv2/ExtrinsicIntents.sol`, `evm/tests/foundry/IntentGatewayV2MultiLegTest.sol`.

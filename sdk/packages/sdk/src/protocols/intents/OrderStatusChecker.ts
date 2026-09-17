@@ -1,6 +1,5 @@
 import { isHex, hexToString } from "viem"
 import { ABI as IntentGatewayV2ABI } from "@/abis/IntentGatewayV2"
-import { bytes32ToBytes20 } from "@/utils"
 import { orderCommitment } from "./utils"
 import type { Order, HexString } from "@/types"
 import type { IntentGatewayContext } from "./types"
@@ -54,7 +53,8 @@ export class OrderStatusChecker {
 	/**
 	 * Checks if a V2 order has been refunded by reading the `_orders` mapping on the source chain.
 	 *
-	 * Calls `_orders(commitment, tokenAddress)` for each input token. When the order is placed the
+	 * Calls `_orders(commitment, index)` for each input: escrow is held per leg, keyed by the input's
+	 * index, so inputs that repeat a token are read separately. When the order is placed the
 	 * escrowed amounts are stored there. After a successful refund the contract zeroes them out.
 	 * An order is considered refunded when all escrowed input amounts have been returned (i.e. are 0).
 	 *
@@ -69,13 +69,12 @@ export class OrderStatusChecker {
 
 		const intentGatewayV2Address = this.ctx.source.configService.getIntentGatewayAddress(sourceStateMachineId)
 
-		for (const input of order.inputs) {
-			const tokenAddress = bytes32ToBytes20(input.token)
+		for (let index = 0; index < order.inputs.length; index++) {
 			const escrowedAmount = await this.ctx.source.client.readContract({
 				abi: IntentGatewayV2ABI,
 				address: intentGatewayV2Address,
 				functionName: "_orders",
-				args: [commitment, tokenAddress],
+				args: [commitment, BigInt(index)],
 			})
 
 			if (escrowedAmount !== 0n) {

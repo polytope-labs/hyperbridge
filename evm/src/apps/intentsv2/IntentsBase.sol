@@ -60,11 +60,11 @@ abstract contract IntentsBase is EIP712 {
     bytes32 public constant SELECT_SOLVER_TYPEHASH = keccak256("SelectSolver(bytes32 commitment,address solver)");
 
     /**
-     * @dev Sentinel address used as the key for storing Hyperbridge relayer fees
-     * in the `_orders` mapping. Derived from keccak256("txFees") to avoid
-     * collisions with real token addresses.
+     * @dev Sentinel key under which the Hyperbridge relayer fees are held in `_orders`. The low
+     * 160 bits of keccak256("txFees"), far above any leg index, and the same slot the fee pot
+     * occupied when `_orders` was keyed by token address.
      */
-    address internal constant TRANSACTION_FEES = address(uint160(uint256(keccak256("txFees"))));
+    uint256 internal constant TRANSACTION_FEES = uint160(uint256(keccak256("txFees")));
 
     /**
      * @dev Big-endian encoding of storage slot 2 (the `_filled` mapping slot).
@@ -153,10 +153,11 @@ abstract contract IntentsBase is EIP712 {
     Params internal _params;
 
     /**
-     * @dev Maps (commitment, token address) to the escrowed amount for that token.
-     * Decremented as tokens are released via fills or refunds.
+     * @dev Maps (commitment, leg index) to the escrow still held for `order.inputs[index]`, and
+     * `TRANSACTION_FEES` to the relayer fee pot. Decremented as the leg is released via fills or
+     * refunds. Keyed by leg rather than token so legs that repeat a token never share a balance.
      */
-    mapping(bytes32 => mapping(address => uint256)) public _orders;
+    mapping(bytes32 => mapping(uint256 => uint256)) public _orders;
 
     /**
      * @dev Maps keccak256(stateMachineId) to the registered gateway address for
@@ -166,10 +167,12 @@ abstract contract IntentsBase is EIP712 {
     mapping(bytes32 => address) internal _instances;
 
     /**
-     * @dev Maps (commitment, output token) to the cumulative amount already filled.
-     * Used to track partial fill progress for same-chain orders.
+     * @dev Maps (commitment, leg index) to the cumulative amount of `order.output.assets[index]`
+     * already filled, on the chain the order is filled on. Keyed by leg rather than token so legs
+     * that repeat an output token track their progress independently. Proven cross-chain by
+     * source-side cancellation, see `_calculatePartialFillSlotHash`.
      */
-    mapping(bytes32 => mapping(bytes32 => uint256)) public _partialFills;
+    mapping(bytes32 => mapping(uint256 => uint256)) public _partialFills;
 
     /**
      * @dev Maps keccak256(stateMachineId) to a destination-specific protocol fee
@@ -190,8 +193,9 @@ abstract contract IntentsBase is EIP712 {
         uint256 committed;
     }
 
-    /// @dev Appended accounting shared by the implementation and both delegatecall modules.
-    mapping(bytes32 => mapping(address => ProtocolFee)) public _protocolFees;
+    /// @dev Appended accounting shared by the implementation and both delegatecall modules, keyed
+    /// by (commitment, leg index) like `_orders`.
+    mapping(bytes32 => mapping(uint256 => ProtocolFee)) public _protocolFees;
 
     /**
      * @dev This contract's own address. Under delegatecall `address(this)` is the proxy instead,
@@ -474,17 +478,18 @@ abstract contract IntentsBase is EIP712 {
     }
 
     /**
-     * @dev Computes the storage slot hash for `_partialFills[commitment][token]` on a remote
+     * @dev Computes the storage slot hash for `_partialFills[commitment][index]` on a remote
      * chain. `_partialFills` is a nested mapping at slot 11, so the key is derived as
-     * keccak256(token . keccak256(commitment . 12)) — the standard Solidity nested-mapping layout.
+     * keccak256(index . keccak256(commitment . 11)) — the standard Solidity nested-mapping layout.
      * Used to construct GET storage-proof keys for cross-chain partial-fill cancel verification.
+     * Keying by leg gives every leg its own proof key even when legs repeat an output token.
      * @param commitment The order commitment hash.
-     * @param token The output token (bytes32-encoded address) whose fill progress is being proven.
+     * @param index The leg whose fill progress is being proven.
      * @return The ABI-encoded storage slot hash for the nested mapping entry.
      */
-    function _calculatePartialFillSlotHash(bytes32 commitment, bytes32 token) internal pure returns (bytes memory) {
+    function _calculatePartialFillSlotHash(bytes32 commitment, uint256 index) internal pure returns (bytes memory) {
         bytes32 innerSlot = keccak256(abi.encodePacked(commitment, PARTIAL_FILLS_SLOT_BIG_ENDIAN_BYTES));
-        return abi.encodePacked(keccak256(abi.encodePacked(token, innerSlot)));
+        return abi.encodePacked(keccak256(abi.encodePacked(index, innerSlot)));
     }
 
     /**
@@ -524,7 +529,12 @@ abstract contract IntentsBase is EIP712 {
      * When `finalize` is false (partial fills), only the proportional token amounts are
      * released without finalizing the order.
      *
-     * @param body The withdrawal request containing the commitment, token amounts, and beneficiary.
+     * `body.tokens[i]` is leg `i` of the order: every caller, and every gateway that posts a
+     * `WithdrawalRequest`, lists one entry per leg in `order.inputs` order. The entry's token only
+     * names what to transfer; the escrow drawn down is the leg's own, so legs that repeat a token
+     * can never release each other's balance.
+     *
+     * @param body The withdrawal request containing the commitment, per-leg token amounts, and beneficiary.
      * @param isRefund If true, emits EscrowRefunded instead of EscrowReleased on finalization.
      * @param finalize If true, marks the order as complete and releases accumulated fees.
      */
@@ -538,11 +548,11 @@ abstract contract IntentsBase is EIP712 {
             uint256 amount = body.tokens[i].amount;
             // A final redeem may carry zero principal after earlier slices were delivered.
             // Only finalize settles fees: fully-filled cancel proofs leave them for the solver redeem.
-            uint256 refund = finalize ? _settleProtocolFee(body.commitment, token, isRefund ? amount : 0) : 0;
+            uint256 refund = finalize ? _settleProtocolFee(body.commitment, i, token, isRefund ? amount : 0) : 0;
             if (amount > 0) {
-                uint256 escrowed = _orders[body.commitment][token];
+                uint256 escrowed = _orders[body.commitment][i];
                 if (escrowed == 0) revert UnknownOrder();
-                _orders[body.commitment][token] = escrowed - amount;
+                _orders[body.commitment][i] = escrowed - amount;
             }
 
             uint256 transferAmount = amount + refund;
@@ -572,18 +582,19 @@ abstract contract IntentsBase is EIP712 {
         }
     }
 
-    /// @dev Settles the held fee once, using authenticated refundable principal and the original
-    /// commitment denominator. Floor rounding assigns the remaining fee unit to protocol revenue.
-    function _settleProtocolFee(bytes32 commitment, address token, uint256 principalRefund)
+    /// @dev Settles leg `index`'s held fee once, using authenticated refundable principal and the
+    /// original commitment denominator. Floor rounding assigns the remaining fee unit to protocol
+    /// revenue. `token` is the leg's input token, named in the emitted events.
+    function _settleProtocolFee(bytes32 commitment, uint256 index, address token, uint256 principalRefund)
         internal
         returns (uint256 refund)
     {
-        ProtocolFee memory fee = _protocolFees[commitment][token];
+        ProtocolFee memory fee = _protocolFees[commitment][index];
         if (fee.amount == 0) return 0;
 
         refund = Math.mulDiv(fee.amount, principalRefund, fee.committed);
         uint256 earned = fee.amount - refund;
-        delete _protocolFees[commitment][token];
+        delete _protocolFees[commitment][index];
 
         if (refund > 0) emit ProtocolFeeRefunded(commitment, token, refund);
         if (earned > 0) emit DustCollected(token, earned);
@@ -611,6 +622,15 @@ abstract contract IntentsBase is EIP712 {
 
         for (uint256 i; i < outputsLen;) {
             address token = address(uint160(uint256(order.output.assets[i].token)));
+
+            // Legs may repeat an output token. Sweep each token at its first leg only: a second
+            // call for the same balance would fail the whole dispatch and report the dust twice.
+            if (_isRepeatedToken(order.output.assets, i)) {
+                unchecked {
+                    ++i;
+                }
+                continue;
+            }
 
             if (token == address(0)) {
                 uint256 balance = dispatcher.balance;
@@ -647,6 +667,23 @@ abstract contract IntentsBase is EIP712 {
             }
             ICallDispatcher(dispatcher).dispatch(abi.encode(finalCalls));
         }
+    }
+
+    /**
+     * @dev Whether `assets[i].token` already appears at a lower index.
+     * @param assets The order's output assets.
+     * @param i The leg to check.
+     * @return True if an earlier leg carries the same token.
+     */
+    function _isRepeatedToken(TokenInfo[] calldata assets, uint256 i) internal pure returns (bool) {
+        bytes32 token = assets[i].token;
+        for (uint256 j; j < i;) {
+            if (assets[j].token == token) return true;
+            unchecked {
+                ++j;
+            }
+        }
+        return false;
     }
 
     /**

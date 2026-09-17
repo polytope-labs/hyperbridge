@@ -32,8 +32,10 @@ abstract contract IntrinsicIntents is IntentsBase {
      * @dev Fills a same-chain order, supporting both partial and full fills.
      *
      * For each output asset, the solver provides tokens directly to the beneficiary.
-     * The function tracks cumulative partial fill progress in `_partialFills` and computes
-     * proportional escrowed input amounts to release to the solver.
+     * The function tracks cumulative partial fill progress per leg in `_partialFills` and computes
+     * proportional escrowed input amounts to release to the solver. Leg `i` pairs
+     * `order.inputs[i]` with `order.output.assets[i]`; its progress and escrow are its own, so
+     * legs that repeat a token (e.g. one pair at several prices) settle independently.
      *
      * Surplus handling (when solver overpays on a fresh, unfilled order):
      * - If the order has attached calldata, all surplus goes to the protocol as dust.
@@ -70,7 +72,7 @@ abstract contract IntrinsicIntents is IntentsBase {
             uint256 totalRequired = order.output.assets[i].amount;
             uint256 solverAmount = options.outputs[i].amount;
 
-            uint256 alreadyFilled = _partialFills[commitment][outputToken];
+            uint256 alreadyFilled = _partialFills[commitment][i];
             uint256 remaining = totalRequired - alreadyFilled;
             if (remaining == 0 || solverAmount == 0) {
                 if (solverAmount == 0 && remaining > 0) isFullyFilled = false;
@@ -92,7 +94,7 @@ abstract contract IntrinsicIntents is IntentsBase {
             }
 
             uint256 amountFilled = alreadyFilled + fillAmount;
-            _partialFills[commitment][outputToken] = amountFilled;
+            _partialFills[commitment][i] = amountFilled;
             uint256 beneficiaryTotal = fillAmount + beneficiaryShare;
 
             if (token == address(0)) {
@@ -113,7 +115,8 @@ abstract contract IntrinsicIntents is IntentsBase {
 
             uint256 escrowedAmount;
             if (amountFilled == totalRequired) {
-                escrowedAmount = _orders[commitment][address(uint160(uint256(order.inputs[i].token)))];
+                // Completing the leg releases what remains of this leg's escrow, never another leg's.
+                escrowedAmount = _orders[commitment][i];
             } else {
                 escrowedAmount = (order.inputs[i].amount * fillAmount) / totalRequired;
             }
@@ -169,8 +172,7 @@ abstract contract IntrinsicIntents is IntentsBase {
         TokenInfo[] memory remainingTokens = new TokenInfo[](inputsLen);
         bool hasEscrow = false;
         for (uint256 i; i < inputsLen;) {
-            address token = address(uint160(uint256(order.inputs[i].token)));
-            uint256 escrowed = _orders[commitment][token];
+            uint256 escrowed = _orders[commitment][i];
             if (escrowed > 0) hasEscrow = true;
             remainingTokens[i] = TokenInfo({token: order.inputs[i].token, amount: escrowed});
             unchecked {

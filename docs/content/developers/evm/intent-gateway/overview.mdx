@@ -20,7 +20,16 @@ Each order is **auctioned** to competing solvers. Solvers bid by signing `UserOp
 | **Hyperbridge** | Hosts the order auction, delivers cross-chain settlement messages via ISMP, and governs parameter updates. |
 | **Relayer** | Submits cross-chain proofs for settlement messages and storage queries. |
 
+## Order Legs
 
+An order is a list of legs: leg `i` sells `inputs[i]` for `output.assets[i]`. `inputs` and `output.assets` must be non-empty and the same length, and every output amount must be non-zero. Legs may repeat tokens, for example one pair offered at several prices:
+
+| Leg | Input | Output |
+|-----|-------|--------|
+| 0 | 1,200 USDC | 1,200 DAI |
+| 1 | 1,000 USDC | 990 DAI |
+
+The gateway tracks each leg's escrow, fill progress and protocol fee separately, keyed by the order commitment and the leg index (`_orders`, `_partialFills` and `_protocolFees`). Different solvers can fill different legs, and filling or cancelling one leg never releases another leg's escrow.
 
 ## Same-Chain Swaps
 
@@ -30,7 +39,7 @@ Intent Gateway supports same-chain swaps where source and destination are the sa
 
 ### Partial Fills
 
-For same-chain orders, solvers can fill any portion of the output. The proportional share of escrowed inputs is released immediately (`inputs[i].amount × fillAmount / totalRequired`). The order is fully filled once all output pairs reach their target amounts.
+For same-chain orders, solvers can fill any portion of any leg's output. The proportional share of that leg's escrowed input is released immediately (`inputs[i].amount × fillAmount / totalRequired`). The order is fully filled once every leg reaches its target amount.
 
 ## Cross-Chain Swaps
 
@@ -63,7 +72,7 @@ There are two modes for cross-chain cancellation:
 
 `cancelOrder` emits `OrderCancelled(commitment, canceller)` on the chain the cancellation is initiated from, before it routes to either path below. `EscrowRefunded` remains the terminal event, on the source chain, once the escrow is actually returned.
 
-**Cancel from source chain**: The user calls `cancelOrder()` on the source chain, dispatching a storage query for the destination's `_partialFills` amounts. `CancelOptions.height` must be strictly greater than `order.deadline`. Once Hyperbridge delivers the proof, `onGetResponse` refunds the proven unfilled input and its protocol-fee share. Principal earned by solvers remains available for delayed redemptions. A fully-filled proof refunds zero and leaves pending fees for the final redemption.
+**Cancel from source chain**: The user calls `cancelOrder()` on the source chain, dispatching a storage query for the destination's `_partialFills` amount of each leg. `CancelOptions.height` must be strictly greater than `order.deadline`. Once Hyperbridge delivers the proof, `onGetResponse` refunds the proven unfilled input and its protocol-fee share. Principal earned by solvers remains available for delayed redemptions. A fully-filled proof refunds zero and leaves pending fees for the final redemption.
 
 ![Cancel from Source Chain](./images/intent-gateway-cancel-source.svg)
 

@@ -18,8 +18,13 @@ const { CHAIN, SOLVERS, TRANSFER, USDC, expectedWallets } = require("./solver-fi
 
 const graphqlUrl = process.env.GRAPHQL_URL || "http://127.0.0.1:3100"
 const anvilUrl = process.env.ANVIL_URL || "http://127.0.0.1:8545"
-/** Discovery waits on a Hyperbridge block, the genesis read on the next Base block, then the head. */
-const GENESIS_TIMEOUT_MS = Number(process.env.GENESIS_TIMEOUT_MS || 900_000)
+/**
+ * Discovery waits on a Hyperbridge block, the genesis read on the next Base block, then the head:
+ * under a minute when it works. Five is margin for the nodes to start, not room for it to be slow —
+ * every failure this has caught was structural, nothing arriving at all, so a longer wait only
+ * delays the report.
+ */
+const GENESIS_TIMEOUT_MS = Number(process.env.GENESIS_TIMEOUT_MS || 300_000)
 /** Once tracked, a Transfer is applied by the log handler that indexes its block. */
 const TRANSFER_TIMEOUT_MS = Number(process.env.TRANSFER_TIMEOUT_MS || 300_000)
 const POLL_INTERVAL_MS = 5_000

@@ -10,12 +10,14 @@ import {IntrinsicModule} from "../src/apps/intentsv2/IntrinsicModule.sol";
 import {ExtrinsicModule} from "../src/apps/intentsv2/ExtrinsicModule.sol";
 import {BaseScript} from "./BaseScript.sol";
 
-/// @dev Initialization payload for an upgrade of an existing proxy.
-function intentGatewayUpgradeInitialization(IntentGatewayV2 gateway) view returns (bytes memory) {
+/// @dev Initialization payload for an upgrade of an existing proxy: `migrate(owner)` for a proxy
+/// at 2 or 3, nothing for one already at 4.
+function intentGatewayUpgradeInitialization(IntentGatewayV2 gateway, address owner) view returns (bytes memory) {
     uint64 current = gateway.version();
-    if (current == 3) return bytes("");
-    require(current == 2, "Unsupported IntentGateway version");
-    return abi.encodeCall(IntentGatewayV2.migrate, ());
+    if (current == 4) return bytes("");
+    require(current == 2 || current == 3, "Unsupported IntentGateway version");
+    require(owner != address(0), "GATEWAY_OWNER is unset");
+    return abi.encodeCall(IntentGatewayV2.migrate, (owner));
 }
 
 /// @notice Shared by the IntentGatewayV2 deploy scripts: modules first, then the implementation.
@@ -28,13 +30,14 @@ abstract contract IntentGatewayScript is BaseScript {
      */
     function _deployImplementation() internal returns (IntentGatewayV2 implementation) {
         // Query the configured proxy before broadcasting any deployments. New chains initialize
-        // their fresh proxy separately; an existing v3 proxy must not re-run migrate().
+        // their fresh proxy separately; an existing v4 proxy must not re-run migrate().
         vm.stopBroadcast();
         bool hasProxy = config.exists("INTENT_GATEWAY_V2");
         bytes memory migration;
         if (hasProxy) {
             migration = intentGatewayUpgradeInitialization(
-                IntentGatewayV2(payable(config.get("INTENT_GATEWAY_V2").toAddress()))
+                IntentGatewayV2(payable(config.get("INTENT_GATEWAY_V2").toAddress())),
+                vm.envOr("GATEWAY_OWNER", address(0))
             );
         }
         vm.startBroadcast(uint256(privateKey));

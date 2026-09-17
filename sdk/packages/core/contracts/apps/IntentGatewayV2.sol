@@ -251,6 +251,9 @@ interface IIntentGatewayV2 {
     ///         calldata. Such orders must be filled completely in a single fill.
     error PartialFillNotAllowed();
 
+    /// @notice Thrown by `placeOrder` while the owner has paused order placement.
+    error EnforcedPause();
+
     // ============================================
     // Events
     // ============================================
@@ -379,6 +382,33 @@ interface IIntentGatewayV2 {
      */
     event RelayerUpdated(address previous, address current);
 
+    /**
+     * @notice Emitted when the owner or the host proposes a new owner; the transfer completes when
+     *         `newOwner` calls `acceptOwnership`. A proposal of zero withdraws a pending one.
+     * @param previousOwner The current owner
+     * @param newOwner The proposed owner
+     */
+    event OwnershipTransferStarted(address indexed previousOwner, address indexed newOwner);
+
+    /**
+     * @notice Emitted when the owner is set, by `initialize`, `migrate` or `acceptOwnership`.
+     * @param previousOwner The owner before this change
+     * @param newOwner The owner from now on
+     */
+    event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
+
+    /**
+     * @notice Emitted when the owner pauses order placement.
+     * @param account The owner that paused
+     */
+    event Paused(address account);
+
+    /**
+     * @notice Emitted when the owner resumes order placement.
+     * @param account The owner that resumed
+     */
+    event Unpaused(address account);
+
     // ============================================
     // Constants
     // ============================================
@@ -441,14 +471,50 @@ interface IIntentGatewayV2 {
      * @notice Takes a proxy from an earlier implementation to the current version, where
      *         `initialize` puts a fresh one. Host-only and one-shot; emits `Initialized`. It is the
      *         only way up for a proxy already at a version: `initialize` is refused on anything but
-     *         a bare proxy.
+     *         a bare proxy. Sets the owner.
+     * @param owner The owner, who may pause order placement; must be non-zero
      */
-    function migrate() external;
+    function migrate(address owner) external;
 
     /**
-     * @notice The `Initializable` version: 3 once `initialize` or `migrate` has run on the
-     *         module-split implementation, 2 on the armed implementation before it, 1 before the
-     *         relayer gate. Reverts on implementations that predate the gate.
+     * @notice The owner, who may pause and resume order placement.
+     * @return address The owner
+     */
+    function owner() external view returns (address);
+
+    /**
+     * @notice The account a proposed ownership transfer is waiting on.
+     * @return address The pending owner, or zero
+     */
+    function pendingOwner() external view returns (address);
+
+    /**
+     * @notice Proposes a new owner, who takes over on `acceptOwnership`. Callable by the owner and
+     *         by the host, so governance can replace the owner. Zero withdraws a pending proposal.
+     * @param newOwner The proposed owner
+     */
+    function transferOwnership(address newOwner) external;
+
+    /// @notice Completes a proposed ownership transfer. Callable only by the pending owner.
+    function acceptOwnership() external;
+
+    /**
+     * @notice Whether order placement is paused. Fills, cancellations and settlement never are.
+     * @return bool True while placement is paused
+     */
+    function paused() external view returns (bool);
+
+    /// @notice Pauses order placement. Owner-only.
+    function pause() external;
+
+    /// @notice Resumes order placement. Owner-only.
+    function unpause() external;
+
+    /**
+     * @notice The `Initializable` version: 4 once `initialize` or `migrate` has run on the
+     *         implementation with an owner, 3 on the module-split implementation, 2 on the armed
+     *         implementation before it, 1 before the relayer gate. Reverts on implementations that
+     *         predate the gate.
      * @return uint64 The initialized version
      */
     function version() external view returns (uint64);

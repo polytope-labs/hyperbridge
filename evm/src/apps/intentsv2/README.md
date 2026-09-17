@@ -21,9 +21,9 @@ and `extrinsicModule()` were added.
 
 | Contract | Holds | Runtime size |
 |---|---|---|
-| `IntentGatewayV2` | every external entry point and its guards, `placeOrder`, `select`, the shared validation of `fillOrder` and `cancelOrder`, `initialize`, `migrate`, the views | 14,610 bytes |
-| `IntrinsicModule` | `IntrinsicIntents`: `fillSameChain`, `cancelSameChain` | 6,843 bytes |
-| `ExtrinsicModule` | `ExtrinsicIntents`: `fillCrossChain`, `cancelFromSource`, `cancelFromDest`, the `onAccept` and `onGetResponse` handlers with governance and `Execute`, and the host-only `setRelayer` and `upgradeToAndCall` | 14,535 bytes |
+| `IntentGatewayV2` | every external entry point and its guards, `placeOrder`, `select`, the shared validation of `fillOrder` and `cancelOrder`, `initialize`, `migrate`, the views | 15,739 bytes |
+| `IntrinsicModule` | `IntrinsicIntents`: `fillSameChain`, `cancelSameChain` | 7,714 bytes |
+| `ExtrinsicModule` | `ExtrinsicIntents`: `fillCrossChain`, `cancelFromSource`, `cancelFromDest`, the `onAccept` and `onGetResponse` handlers with governance and `Execute`, and the host-only `setRelayer` and `upgradeToAndCall` | 17,822 bytes |
 
 The implementation inherits nothing from the intents contracts; it validates, routes and
 delegatecalls. `IntrinsicIntents.sol` is unchanged. `ExtrinsicIntents.sol` is unchanged apart
@@ -39,6 +39,12 @@ on the extrinsic module and are not in the gateway's ABI; `Execute` is the only 
   layouts out of the forge artifacts and asserts the three contracts agree slot for slot, so
   `foundry.toml` sets `extra_output = ["storageLayout"]`. The append-only rule for storage now
   applies to all three at once, and `_filled` must stay at slot 2 for the cross-chain cancel proof.
+- **The owner is the implementation's alone.** `IntentGatewayV2` keeps its owner and pending owner
+  at the ERC-7201 slot `hyperbridge.storage.IntentGatewayV2.Ownership`, outside the shared
+  sequential layout, so the modules never see it and the layout tests are unaffected. The owner
+  can only `pause` and `unpause` order placement. `initialize` and `migrate(owner)` set it,
+  transfers are two-step, and the host can propose a replacement through `Execute` carrying
+  `upgradeToAndCall(currentImplementation, transferOwnership(next))`.
 - **Module addresses are immutables.** `intrinsicModule()` and `extrinsicModule()` are set in the
   implementation's constructor, which refuses an address without code. Upgrading a module means
   deploying a new implementation with the new address and installing it through governance like

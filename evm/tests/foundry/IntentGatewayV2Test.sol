@@ -50,6 +50,11 @@ import {GetRequest, GetResponse, Message} from "@hyperbridge/core/libraries/Mess
 import {StateMachine} from "@hyperbridge/core/libraries/StateMachine.sol";
 import {StorageValue} from "@polytope-labs/solidity-merkle-trees/src/trie/Node.sol";
 
+/// @dev `initialize` as the live mainnet implementation (version 2) declares it, before the owner.
+interface ILiveGatewayInitialize {
+    function initialize(Params memory p, bytes[] memory peerChains, address relayer_) external;
+}
+
 contract IntentGatewayV2Test is MainnetForkBaseTest {
     using Message for PostRequest;
 
@@ -99,7 +104,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         peers[1] = bytes("SOURCE_CHAIN");
         peers[2] = bytes("DEST_CHAIN");
         // Armed from init data: only `relayer` may deliver from here on, and the proxy is at 2.
-        intentGateway.initialize(intentParams, peers, relayer);
+        intentGateway.initialize(intentParams, peers, relayer, address(this));
 
         // Fund test accounts
         _fundTestAccounts();
@@ -656,7 +661,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             protocolFeeBps: 0,
             priceOracle: address(0)
         });
-        zeroFeeGateway.initialize(zeroFeeParams, new bytes[](0), address(0));
+        zeroFeeGateway.initialize(zeroFeeParams, new bytes[](0), address(0), address(this));
 
         uint256 inputAmount = 1000 * 1e6;
 
@@ -937,7 +942,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             protocolFeeBps: 0,
             priceOracle: address(0)
         });
-        customGateway.initialize(customParams, new bytes[](0), address(0));
+        customGateway.initialize(customParams, new bytes[](0), address(0), address(this));
 
         uint256 solverOutputAmount = 2100 * 1e18;
 
@@ -1017,7 +1022,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             protocolFeeBps: 0,
             priceOracle: address(0)
         });
-        customGateway.initialize(customParams, new bytes[](0), address(0));
+        customGateway.initialize(customParams, new bytes[](0), address(0), address(this));
 
         uint256 solverOutputAmount = 2100 * 1e18; // 100 DAI surplus
 
@@ -1082,7 +1087,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             protocolFeeBps: 0,
             priceOracle: address(0)
         });
-        customGateway.initialize(customParams, new bytes[](0), address(0));
+        customGateway.initialize(customParams, new bytes[](0), address(0), address(this));
 
         uint256 solverOutputAmount = 2100 * 1e18; // 100 DAI surplus
 
@@ -1166,7 +1171,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
                 priceOracle: address(0)
             }),
             new bytes[](0),
-            address(0)
+            address(0),
+            address(this)
         );
 
         // Setup order WITH calldata
@@ -1539,7 +1545,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         });
 
         IntentGatewayV2 gatewayWithSelection = _deployGatewayProxy();
-        gatewayWithSelection.initialize(newParams, new bytes[](0), address(0));
+        gatewayWithSelection.initialize(newParams, new bytes[](0), address(0), address(this));
 
         uint256 inputAmount = 1000 * 1e6;
 
@@ -1610,7 +1616,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         });
 
         IntentGatewayV2 gatewayWithSelection = _deployGatewayProxy();
-        gatewayWithSelection.initialize(newParams, new bytes[](0), address(0));
+        gatewayWithSelection.initialize(newParams, new bytes[](0), address(0), address(this));
 
         uint256 inputAmount = 1000 * 1e6;
 
@@ -3004,7 +3010,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             protocolFeeBps: 100, // 1% default
             priceOracle: address(0)
         });
-        customGateway.initialize(customParams, new bytes[](0), address(0));
+        customGateway.initialize(customParams, new bytes[](0), address(0), address(this));
 
         // Set destination-specific fee via governance
         bytes memory destinationChain = bytes("ARBITRUM");
@@ -3076,7 +3082,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             protocolFeeBps: 100, // 1% default
             priceOracle: address(0)
         });
-        customGateway.initialize(customParams, new bytes[](0), address(0));
+        customGateway.initialize(customParams, new bytes[](0), address(0), address(this));
 
         // Place order to destination without specific fee set
         uint256 inputAmount = 1000 * 1e6; // 1000 USDC
@@ -3287,7 +3293,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         });
         bytes[] memory peers = new bytes[](1);
         peers[0] = host.host();
-        customGateway.initialize(customParams, peers, address(0));
+        customGateway.initialize(customParams, peers, address(0), address(this));
 
         uint256 inputAmount = 1000 * 1e6; // 1000 USDC
         uint256 expectedProtocolFee = (inputAmount * 100) / 10000; // 10 USDC
@@ -3386,7 +3392,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             protocolFeeBps: 1000, // 10%
             priceOracle: address(0)
         });
-        customGateway.initialize(customParams, new bytes[](0), address(0));
+        customGateway.initialize(customParams, new bytes[](0), address(0), address(this));
 
         uint256 inputAmount = 1000 * 1e6; // 1000 USDC
         uint256 expectedProtocolFee = (inputAmount * 1000) / 10000; // 100 USDC
@@ -3449,7 +3455,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             protocolFeeBps: 0, // 0%
             priceOracle: address(0)
         });
-        customGateway.initialize(customParams, new bytes[](0), address(0));
+        customGateway.initialize(customParams, new bytes[](0), address(0), address(this));
 
         uint256 inputAmount = 1000 * 1e6; // 1000 USDC
 
@@ -3505,7 +3511,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             protocolFeeBps: 500, // 5%
             priceOracle: address(0)
         });
-        customGateway.initialize(customParams, new bytes[](0), address(0));
+        customGateway.initialize(customParams, new bytes[](0), address(0), address(this));
 
         uint256 inputAmount = 1000 * 1e6; // 1000 USDC
         uint256 expectedProtocolFee = (inputAmount * 500) / 10000; // 50 USDC
@@ -3676,7 +3682,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             priceOracle: address(0)
         });
         vm.expectRevert(IntentsBase.InvalidInput.selector);
-        gw.initialize(p, new bytes[](0), address(0));
+        gw.initialize(p, new bytes[](0), address(0), address(this));
     }
 
     /// @notice setParams rejects EOA dispatcher (no code).
@@ -3691,7 +3697,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             priceOracle: address(0)
         });
         vm.expectRevert(IntentsBase.InvalidInput.selector);
-        gw.initialize(p, new bytes[](0), address(0));
+        gw.initialize(p, new bytes[](0), address(0), address(this));
     }
 
     /// @notice setParams rejects surplusShareBps > 10000.
@@ -3706,7 +3712,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             priceOracle: address(0)
         });
         vm.expectRevert(IntentsBase.InvalidInput.selector);
-        gw.initialize(p, new bytes[](0), address(0));
+        gw.initialize(p, new bytes[](0), address(0), address(this));
     }
 
     /// @notice setParams rejects protocolFeeBps >= 10000.
@@ -3721,7 +3727,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             priceOracle: address(0)
         });
         vm.expectRevert(IntentsBase.InvalidInput.selector);
-        gw.initialize(p, new bytes[](0), address(0));
+        gw.initialize(p, new bytes[](0), address(0), address(this));
     }
 
     /// @notice setParams rejects non-contract priceOracle.
@@ -3736,7 +3742,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             priceOracle: address(0xbeef)
         });
         vm.expectRevert(IntentsBase.InvalidInput.selector);
-        gw.initialize(p, new bytes[](0), address(0));
+        gw.initialize(p, new bytes[](0), address(0), address(this));
     }
 
     /// @notice updateParams via governance rejects destinationFeeBps >= 10000.
@@ -3888,7 +3894,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         intentGateway.onAccept(IncomingPostRequest({relayer: relayer, request: request}));
 
         assertEq(intentGateway.relayer(), next);
-        assertEq(intentGateway.version(), 3, "no migration ran");
+        assertEq(intentGateway.version(), 4, "no migration ran");
         assertEq(_implementationOf(address(intentGateway)), implBefore, "implementation unchanged");
     }
 
@@ -3902,10 +3908,11 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
     }
 
     /// A revert inside the call surfaces unchanged, so the host records the message undelivered.
-    /// Here `migrate()` on a proxy already at `VERSION`, three delegatecalls deep.
+    /// Here `migrate` on a proxy already at `VERSION`, three delegatecalls deep.
     function testExecuteBubblesReverts() public {
-        PostRequest memory request =
-            _upgradeRequest(host.hyperbridge(), address(_upgradedImpl()), abi.encodeCall(IntentGatewayV2.migrate, ()));
+        PostRequest memory request = _upgradeRequest(
+            host.hyperbridge(), address(_upgradedImpl()), abi.encodeCall(IntentGatewayV2.migrate, (address(this)))
+        );
         vm.prank(address(host));
         vm.expectRevert(Initializable.InvalidInitialization.selector);
         intentGateway.onAccept(IncomingPostRequest({relayer: relayer, request: request}));
@@ -3991,17 +3998,18 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         bytes[] memory peers = new bytes[](1);
         peers[0] = bytes("SOURCE_CHAIN");
 
-        bytes memory initData = abi.encodeCall(IntentGatewayV2.initialize, (intentParams, peers, relayer));
+        bytes memory initData =
+            abi.encodeCall(IntentGatewayV2.initialize, (intentParams, peers, relayer, address(this)));
         ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), initData);
         IntentGatewayV2 gateway = IntentGatewayV2(payable(address(proxy)));
 
         assertEq(gateway.params().host, address(host), "params set via atomic init");
         assertEq(gateway.instance(bytes("SOURCE_CHAIN")), address(gateway), "peer bound to address(this)");
         assertEq(gateway.relayer(), relayer, "relayer armed from the init data");
-        assertEq(gateway.version(), 3, "at VERSION from the init data");
+        assertEq(gateway.version(), 4, "at VERSION from the init data");
 
         vm.expectRevert();
-        gateway.initialize(intentParams, peers, address(0));
+        gateway.initialize(intentParams, peers, address(0), address(this));
     }
 
     function testFilledMappingStaysAtSlotTwo() public {
@@ -4055,7 +4063,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             priceOracle: address(0)
         });
         vm.expectRevert(Initializable.InvalidInitialization.selector);
-        IntentGatewayV2(payable(impl)).initialize(p, new bytes[](0), address(0));
+        IntentGatewayV2(payable(impl)).initialize(p, new bytes[](0), address(0), address(this));
     }
 
     function testProxyCannotBeReinitialized() public {
@@ -4069,7 +4077,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             priceOracle: address(0)
         });
         vm.expectRevert(Initializable.InvalidInitialization.selector);
-        intentGateway.initialize(p, new bytes[](0), address(0));
+        intentGateway.initialize(p, new bytes[](0), address(0), address(this));
     }
 
     // ============================================================
@@ -4165,7 +4173,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
     function testVersionTracksInitialization() public {
         IntentGatewayV2 bare = _deployGatewayProxy();
         assertEq(bare.version(), 0, "bare proxy");
-        assertEq(intentGateway.version(), 3, "initialized");
+        assertEq(intentGateway.version(), 4, "initialized");
         address impl = _implementationOf(address(intentGateway));
         assertEq(IntentGatewayV2(payable(impl)).version(), type(uint64).max, "raw implementation is locked");
     }
@@ -4209,7 +4217,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         vm.prank(address(host));
         intentGateway.onAccept(IncomingPostRequest({relayer: relayer, request: rotate}));
         assertEq(intentGateway.relayer(), next);
-        assertEq(intentGateway.version(), 3, "a rotation is not a migration");
+        assertEq(intentGateway.version(), 4, "a rotation is not a migration");
 
         // The previous relayer is locked out immediately.
         vm.prank(address(host));
@@ -4226,8 +4234,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
     function testMigrateRunsOnce() public {
         vm.prank(address(host));
         vm.expectRevert(Initializable.InvalidInitialization.selector);
-        intentGateway.migrate();
-        assertEq(intentGateway.version(), 3, "version unchanged");
+        intentGateway.migrate(address(this));
+        assertEq(intentGateway.version(), 4, "version unchanged");
     }
 
     /// A proxy an upgrade left at an earlier version cannot be re-initialized by anyone; only the
@@ -4237,26 +4245,26 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         Params memory p = _openParams();
 
         vm.expectRevert(Initializable.InvalidInitialization.selector);
-        gateway.initialize(p, new bytes[](0), user);
+        gateway.initialize(p, new bytes[](0), user, address(this));
         vm.prank(user);
         vm.expectRevert(Initializable.InvalidInitialization.selector);
-        gateway.initialize(p, new bytes[](0), user);
+        gateway.initialize(p, new bytes[](0), user, address(this));
         assertEq(gateway.version(), 1, "still at version 1");
 
         vm.prank(address(host));
-        gateway.migrate();
-        assertEq(gateway.version(), 3);
+        gateway.migrate(address(this));
+        assertEq(gateway.version(), 4);
     }
 
     function testMigrateRejectsEveryoneButHost() public {
         IntentGatewayV2 gateway = _legacyGateway();
 
         vm.expectRevert(HyperApp.UnauthorizedCall.selector);
-        gateway.migrate();
+        gateway.migrate(address(this));
 
         vm.prank(user);
         vm.expectRevert(HyperApp.UnauthorizedCall.selector);
-        gateway.migrate();
+        gateway.migrate(address(this));
 
         assertEq(gateway.version(), 1, "still at version 1");
     }
@@ -4267,12 +4275,12 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         address before = gateway.relayer();
 
         vm.expectEmit(true, true, true, true, address(gateway));
-        emit Initializable.Initialized(3);
+        emit Initializable.Initialized(4);
         vm.prank(address(host));
-        gateway.migrate();
+        gateway.migrate(address(this));
 
         assertEq(gateway.relayer(), before, "relayer untouched");
-        assertEq(gateway.version(), 3);
+        assertEq(gateway.version(), 4);
     }
 
     /// `initialize` arms the gate from the init data and lands at `VERSION`.
@@ -4282,10 +4290,10 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         vm.expectEmit(true, true, true, true, address(gateway));
         emit IntentsBase.RelayerUpdated(address(0), relayer);
         vm.expectEmit(true, true, true, true, address(gateway));
-        emit Initializable.Initialized(3);
-        gateway.initialize(p, new bytes[](0), relayer);
+        emit Initializable.Initialized(4);
+        gateway.initialize(p, new bytes[](0), relayer, address(this));
         assertEq(gateway.relayer(), relayer);
-        assertEq(gateway.version(), 3);
+        assertEq(gateway.version(), 4);
     }
 
     /// @dev OpenZeppelin's `Initializable` namespaced slot; `_initialized` is its low 8 bytes.
@@ -4320,7 +4328,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             protocolFeeBps: 0,
             priceOracle: address(0)
         });
-        gateway.initialize(p, new bytes[](0), address(0));
+        gateway.initialize(p, new bytes[](0), address(0), address(this));
     }
 
     function testSetRelayerToZeroReopensTheGate() public {
@@ -4329,7 +4337,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         vm.prank(address(host));
         intentGateway.onAccept(IncomingPostRequest({relayer: relayer, request: reopen}));
         assertEq(intentGateway.relayer(), address(0));
-        assertEq(intentGateway.version(), 3, "reopening the gate is not a migration either");
+        assertEq(intentGateway.version(), 4, "reopening the gate is not a migration either");
 
         // With no relayer set the gate is open, so a delivery from anyone lands.
         uint256 before = usdc.balanceOf(filler);
@@ -4413,7 +4421,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         PostRequest memory arm = _rotateRequest(relayer);
         vm.prank(address(host));
         gateway.onAccept(IncomingPostRequest({relayer: filler, request: arm}));
-        assertEq(gateway.version(), 3, "a rotation leaves the version alone");
+        assertEq(gateway.version(), 4, "a rotation leaves the version alone");
         PostRequest memory another = _newDeploymentRequest(bytes("OTHER_CHAIN"), address(0xCAFE));
         another.from = abi.encodePacked(address(gateway));
         another.to = abi.encodePacked(address(gateway));
@@ -4459,7 +4467,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         vm.prank(address(host));
         intentGateway.onAccept(IncomingPostRequest({relayer: relayer, request: rotate}));
         assertEq(intentGateway.relayer(), next, "rotated");
-        assertEq(intentGateway.version(), 3, "neither is a migration");
+        assertEq(intentGateway.version(), 4, "neither is a migration");
         assertEq(intentGateway._nonce(), 2, "_nonce preserved");
         assertEq(intentGateway._filled(filledCommitment), filler, "_filled preserved");
         assertEq(intentGateway._orders(escrowedCommitment, inputToken), escrowedAmount, "_orders preserved");
@@ -4482,7 +4490,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         assertEq(_implementationOf(address(intentGateway)), address(newImpl));
         assertEq(intentGateway.relayer(), relayer, "relayer survives an implementation swap");
-        assertEq(intentGateway.version(), 3, "no migration ran, so the version is unchanged");
+        assertEq(intentGateway.version(), 4, "no migration ran, so the version is unchanged");
     }
 
     /// @dev Through the real host: a delivery the gateway refuses is recorded as undelivered, so
@@ -4546,11 +4554,11 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             fees[i] = live._destinationProtocolFees(keccak256(peers[i]));
         }
 
-        // Nobody can initialise it again.
+        // Nobody can initialise it again, through the `initialize` its current implementation has.
         vm.expectRevert(Initializable.InvalidInitialization.selector);
-        live.initialize(p, peers, filler);
+        ILiveGatewayInitialize(LIVE_GATEWAY).initialize(p, peers, filler);
 
-        // The next upgrade is an Execute request carrying `migrate()`. Anyone but the relayer is
+        // The next upgrade is an Execute request carrying `migrate(owner)`. Anyone but the relayer is
         // refused before the body is read...
         IntentGatewayV2 newImpl = deployIntentGatewayImpl();
         PostRequest memory upgrade = PostRequest({
@@ -4562,7 +4570,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             body: bytes.concat(
                 bytes1(uint8(IntentsBase.RequestKind.Execute)),
                 abi.encodeCall(
-                    ExtrinsicIntents.upgradeToAndCall, (address(newImpl), abi.encodeCall(IntentGatewayV2.migrate, ()))
+                    ExtrinsicIntents.upgradeToAndCall,
+                    (address(newImpl), abi.encodeCall(IntentGatewayV2.migrate, (address(this))))
                 )
             ),
             timeoutTimestamp: 0
@@ -4578,10 +4587,14 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         assertEq(_implementationOf(LIVE_GATEWAY), address(newImpl), "implementation slot updated");
         assertTrue(implBefore != address(newImpl), "implementation actually changed");
         assertEq(live.relayer(), liveRelayer, "relayer survives the upgrade");
-        assertEq(live.version(), 3, "migrated by the upgrade calldata");
+        assertEq(live.version(), 4, "migrated by the upgrade calldata");
+        assertEq(live.owner(), address(this), "owner set by the upgrade calldata");
+        assertFalse(live.paused(), "placement stays open");
         vm.prank(liveHost);
         vm.expectRevert(Initializable.InvalidInitialization.selector);
-        live.migrate();
+        live.migrate(address(this));
+        vm.expectRevert(Initializable.InvalidInitialization.selector);
+        live.initialize(p, peers, filler, address(this));
         assertEq(live._nonce(), nonce, "_nonce preserved");
         Params memory q = live.params();
         assertEq(q.host, p.host, "params.host preserved");
@@ -4607,7 +4620,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         vm.prank(liveHost);
         live.onAccept(IncomingPostRequest({relayer: liveRelayer, request: rotate}));
         assertEq(live.relayer(), next, "rotated through Execute");
-        assertEq(live.version(), 3, "a rotation leaves the version alone");
+        assertEq(live.version(), 4, "a rotation leaves the version alone");
         vm.prank(liveHost);
         vm.expectRevert(IntentsBase.Unauthorized.selector);
         live.onAccept(IncomingPostRequest({relayer: liveRelayer, request: rotate}));
@@ -5211,6 +5224,159 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             inputs: inputs,
             output: PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputs, call: ""})
         });
+    }
+
+    // ============================================
+    // Owner and placement pause
+    // ============================================
+
+    /// @dev The ownership record's ERC-7201 slot, derived independently of the contract.
+    function _ownershipSlot() internal pure returns (bytes32) {
+        return keccak256(abi.encode(uint256(keccak256("hyperbridge.storage.IntentGatewayV2.Ownership")) - 1))
+            & ~bytes32(uint256(0xff));
+    }
+
+    function testInitializeSetsTheOwnerAtItsNamespacedSlot() public view {
+        assertEq(intentGateway.owner(), address(this), "owner from the init data");
+        assertEq(
+            address(uint160(uint256(vm.load(address(intentGateway), _ownershipSlot())))),
+            address(this),
+            "owner at the namespaced slot"
+        );
+        assertEq(intentGateway.pendingOwner(), address(0), "nothing pending");
+        assertFalse(intentGateway.paused(), "placement open");
+    }
+
+    function testInitializeRejectsAZeroOwner() public {
+        IntentGatewayV2 gateway = _deployGatewayProxy();
+        vm.expectRevert(IntentsBase.InvalidInput.selector);
+        gateway.initialize(_openParams(), new bytes[](0), address(0), address(0));
+    }
+
+    /// `migrate` sets the owner of a proxy coming from an earlier implementation.
+    function testMigrateSetsTheOwner() public {
+        IntentGatewayV2 gateway = _legacyGateway();
+        address next = makeCleanAddr("migratedOwner");
+
+        vm.prank(address(host));
+        vm.expectRevert(IntentsBase.InvalidInput.selector);
+        gateway.migrate(address(0));
+
+        vm.expectEmit(true, true, true, true, address(gateway));
+        emit IntentGatewayV2.OwnershipTransferred(address(this), next);
+        vm.prank(address(host));
+        gateway.migrate(next);
+
+        assertEq(gateway.owner(), next, "owner from the migration");
+        assertEq(gateway.version(), 4);
+    }
+
+    function testOwnershipTransferIsTwoStep() public {
+        address next = makeCleanAddr("nextOwner");
+
+        vm.prank(user);
+        vm.expectRevert(IntentsBase.Unauthorized.selector);
+        intentGateway.transferOwnership(user);
+
+        vm.expectEmit(true, true, true, true, address(intentGateway));
+        emit IntentGatewayV2.OwnershipTransferStarted(address(this), next);
+        intentGateway.transferOwnership(next);
+        assertEq(intentGateway.owner(), address(this), "unchanged until accepted");
+        assertEq(intentGateway.pendingOwner(), next, "proposal pending");
+
+        vm.prank(user);
+        vm.expectRevert(IntentsBase.Unauthorized.selector);
+        intentGateway.acceptOwnership();
+
+        vm.expectEmit(true, true, true, true, address(intentGateway));
+        emit IntentGatewayV2.OwnershipTransferred(address(this), next);
+        vm.prank(next);
+        intentGateway.acceptOwnership();
+        assertEq(intentGateway.owner(), next, "accepted");
+        assertEq(intentGateway.pendingOwner(), address(0), "proposal cleared");
+
+        // The previous owner keeps no power.
+        vm.expectRevert(IntentsBase.Unauthorized.selector);
+        intentGateway.pause();
+    }
+
+    function testOwnershipProposalCanBeWithdrawn() public {
+        address next = makeCleanAddr("nextOwner");
+        intentGateway.transferOwnership(next);
+        intentGateway.transferOwnership(address(0));
+
+        vm.prank(next);
+        vm.expectRevert(IntentsBase.Unauthorized.selector);
+        intentGateway.acceptOwnership();
+        assertEq(intentGateway.owner(), address(this), "owner unchanged");
+    }
+
+    /// Governance replaces the owner without the owner key: an `Execute` carrying
+    /// `upgradeToAndCall(currentImplementation, transferOwnership(next))`, the host still the caller.
+    function testGovernanceReplacesTheOwnerThroughExecute() public {
+        address next = makeCleanAddr("governanceOwner");
+        address impl = _implementationOf(address(intentGateway));
+        PostRequest memory request =
+            _upgradeRequest(host.hyperbridge(), impl, abi.encodeCall(IntentGatewayV2.transferOwnership, (next)));
+
+        vm.prank(address(host));
+        intentGateway.onAccept(IncomingPostRequest({relayer: relayer, request: request}));
+        assertEq(intentGateway.pendingOwner(), next, "proposed by the host");
+        assertEq(_implementationOf(address(intentGateway)), impl, "implementation unchanged");
+
+        vm.prank(next);
+        intentGateway.acceptOwnership();
+        assertEq(intentGateway.owner(), next, "replaced");
+    }
+
+    /// Pausing stops `placeOrder` only: orders placed before it can still be filled or cancelled.
+    function testPauseStopsPlacementOnly() public {
+        Order memory toFill = _sameChainOrder(1000 * 1e6, 1000 * 1e18, 0);
+        Order memory toCancel = _sameChainOrder(1000 * 1e6, 1000 * 1e18, 1);
+        vm.startPrank(user);
+        usdc.approve(address(intentGateway), type(uint256).max);
+        intentGateway.placeOrder(toFill, bytes32(0));
+        intentGateway.placeOrder(toCancel, bytes32(0));
+        vm.stopPrank();
+
+        vm.prank(user);
+        vm.expectRevert(IntentsBase.Unauthorized.selector);
+        intentGateway.pause();
+
+        vm.expectEmit(true, true, true, true, address(intentGateway));
+        emit IntentGatewayV2.Paused(address(this));
+        intentGateway.pause();
+        assertTrue(intentGateway.paused(), "paused");
+
+        Order memory blocked = _sameChainOrder(1000 * 1e6, 1000 * 1e18, 2);
+        vm.prank(user);
+        vm.expectRevert(IntentGatewayV2.EnforcedPause.selector);
+        intentGateway.placeOrder(blocked, bytes32(0));
+
+        vm.startPrank(filler);
+        dai.approve(address(intentGateway), type(uint256).max);
+        intentGateway.fillOrder(
+            toFill, FillOptions({relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: toFill.output.assets})
+        );
+        vm.stopPrank();
+        assertEq(intentGateway._filled(keccak256(abi.encode(toFill))), filler, "fills continue while paused");
+
+        uint256 before = usdc.balanceOf(user);
+        vm.prank(user);
+        intentGateway.cancelOrder(toCancel, CancelOptions({relayerFee: 0, height: 0}));
+        assertEq(usdc.balanceOf(user) - before, 1000 * 1e6, "cancellations continue while paused");
+
+        vm.prank(user);
+        vm.expectRevert(IntentsBase.Unauthorized.selector);
+        intentGateway.unpause();
+
+        vm.expectEmit(true, true, true, true, address(intentGateway));
+        emit IntentGatewayV2.Unpaused(address(this));
+        intentGateway.unpause();
+        assertFalse(intentGateway.paused(), "resumed");
+
+        vm.prank(user);
+        intentGateway.placeOrder(blocked, bytes32(0));
     }
 }
 

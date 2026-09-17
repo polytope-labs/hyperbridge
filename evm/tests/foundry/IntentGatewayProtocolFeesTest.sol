@@ -60,7 +60,9 @@ contract IntentGatewayProtocolFeesTest is MainnetForkBaseTest {
         gateway = IntentGatewayV2(payable(address(new ERC1967Proxy(address(deployIntentGatewayImpl()), ""))));
         bytes[] memory peers = new bytes[](1);
         peers[0] = bytes("DEST_CHAIN");
-        gateway.initialize(Params(address(host), address(dispatcher), false, 0, 1000, address(0)), peers, address(0));
+        gateway.initialize(
+            Params(address(host), address(dispatcher), false, 0, 1000, address(0)), peers, address(0), address(this)
+        );
         deal(address(usdc), user, 1_000_000);
         deal(address(dai), solver, 1_000_000);
         vm.deal(user, 10 ether);
@@ -394,7 +396,7 @@ contract IntentGatewayProtocolFeesTest is MainnetForkBaseTest {
             abi.encodeCall(ExtrinsicIntents.upgradeToAndCall, (address(deployIntentGatewayImpl()), bytes(""))),
             true
         );
-        assertEq(gateway.version(), 3);
+        assertEq(gateway.version(), 4);
         assertEq(gateway._orders(commitment, address(usdc)), 900);
         uint256 before = usdc.balanceOf(user);
         vm.recordLogs();

@@ -59,7 +59,7 @@ contract SolverAccountTest is Test {
             protocolFeeBps: 0,
             priceOracle: address(0)
         });
-        intentGateway.initialize(params, new bytes[](0), address(0));
+        intentGateway.initialize(params, new bytes[](0), address(0), address(this));
 
         // Deploy SolverAccount at a temporary address to get bytecode
         SolverAccount tempAccount = new SolverAccount(address(intentGateway));

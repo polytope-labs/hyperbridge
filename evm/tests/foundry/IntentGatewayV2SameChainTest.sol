@@ -97,7 +97,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
             protocolFeeBps: 0, // No protocol fees for most tests
             priceOracle: address(0)
         });
-        intentGateway.initialize(intentParams, new bytes[](0), address(0));
+        intentGateway.initialize(intentParams, new bytes[](0), address(0), address(this));
 
         // Fund test accounts
         _fundTestAccounts();
@@ -328,7 +328,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
             protocolFeeBps: PROTOCOL_FEE_BPS,
             priceOracle: address(0)
         });
-        gatewayWithFees.initialize(intentParams, new bytes[](0), address(0));
+        gatewayWithFees.initialize(intentParams, new bytes[](0), address(0), address(this));
 
         uint256 inputAmount = 1000 * 1e6; // 1000 USDC
         uint256 outputAmount = 900 * 1e18; // 900 DAI
@@ -1805,7 +1805,8 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
                 priceOracle: address(0)
             }),
             new bytes[](0),
-            address(0)
+            address(0),
+            address(this)
         );
 
         uint256 inputAmount = 1000 * 1e6;
@@ -2477,7 +2478,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
             protocolFeeBps: PROTOCOL_FEE_BPS, // 30 bps
             priceOracle: address(0)
         });
-        gatewayWithFees.initialize(intentParams, new bytes[](0), address(0));
+        gatewayWithFees.initialize(intentParams, new bytes[](0), address(0), address(this));
 
         FeeOnTransferToken fot = new FeeOnTransferToken(100); // 1% transfer fee
         fot.mint(user, 10000 * 1e18);

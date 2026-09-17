@@ -64,7 +64,8 @@ import {
  *
  * Module addresses are immutables, so a module upgrade is an ordinary implementation upgrade.
  * Governance reaches `upgradeToAndCall` and `setRelayer` on the extrinsic module through
- * `Execute`; neither is on this contract.
+ * `Execute`; neither is on this contract. The owner, held here at a namespaced slot, can only
+ * pause and resume order placement.
  */
 contract IntentGatewayV2 is IntentsBase, HyperApp, ReentrancyGuardTransient, Initializable {
     using SafeERC20 for IERC20;
@@ -76,8 +77,46 @@ contract IntentGatewayV2 is IntentsBase, HyperApp, ReentrancyGuardTransient, Ini
     address public immutable extrinsicModule;
 
     /// @dev The `Initializable` version this implementation lands a proxy on, through `initialize`
-    /// or `migrate`. 3 is the module split; bumped by every implementation that ships a `migrate`.
-    uint64 private constant VERSION = 3;
+    /// or `migrate`. 3 is the module split, 4 the owner; bumped by every implementation that ships
+    /// a `migrate`.
+    uint64 private constant VERSION = 4;
+
+    /// @dev The gateway's owner and the account a transfer is waiting on. Kept at an ERC-7201
+    /// namespaced slot rather than in `IntentsBase`'s sequential layout: only this contract reads
+    /// it, so the modules never see it, and fields appended to `IntentsBase` can never shift it.
+    /// @custom:storage-location erc7201:hyperbridge.storage.IntentGatewayV2.Ownership
+    struct Ownership {
+        address owner;
+        address pendingOwner;
+    }
+
+    /// @dev keccak256(abi.encode(uint256(keccak256("hyperbridge.storage.IntentGatewayV2.Ownership")) - 1))
+    /// & ~bytes32(uint256(0xff))
+    bytes32 private constant OWNERSHIP_LOCATION = 0x3cbc14a150d875ab07607477e27092ec5465d573343d00d0980d7d15d5f0fc00;
+
+    /**
+     * @dev Emitted when the owner or the host proposes `newOwner`. The transfer completes when
+     * `newOwner` calls `acceptOwnership`; a proposal of zero withdraws a pending one.
+     */
+    event OwnershipTransferStarted(address indexed previousOwner, address indexed newOwner);
+
+    /// @dev Emitted when the owner is set, by `initialize`, `migrate` or `acceptOwnership`.
+    event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
+
+    /// @dev Emitted when the owner stops order placement.
+    event Paused(address account);
+
+    /// @dev Emitted when the owner resumes order placement.
+    event Unpaused(address account);
+
+    /// @dev Thrown by `placeOrder` while the owner has paused placement.
+    error EnforcedPause();
+
+    /// @dev Reverts unless called by the owner.
+    modifier onlyOwner() {
+        if (msg.sender != _ownership().owner) revert Unauthorized();
+        _;
+    }
 
     /**
      * @dev Sets the EIP-712 domain ("IntentGateway", "2"), records the modules, and locks this raw
@@ -156,14 +195,16 @@ contract IntentGatewayV2 is IntentsBase, HyperApp, ReentrancyGuardTransient, Ini
 
     /**
      * @dev One-time init of a bare proxy: registers the peers, each bound to `address(this)`,
-     * stores the params, arms the relayer gate, and lands at `VERSION`. Refused on any proxy
-     * already at a version, see `onlyFresh`.
+     * stores the params, arms the relayer gate, sets the owner, and lands at `VERSION`. Refused on
+     * any proxy already at a version, see `onlyFresh`.
      * @param p The initial gateway configuration parameters.
      * @param peerChains State-machine ids of the cross-chain peers to register, each bound to this
      * gateway's own address so no peer address is carried in the proxy's init data.
      * @param relayer_ The only relayer whose deliveries are accepted. Zero leaves the gate open.
+     * @param owner_ The owner, who may pause order placement. Part of the init data, so the same
+     * address on every chain keeps the proxy address identical across chains. Must be non-zero.
      */
-    function initialize(Params memory p, bytes[] memory peerChains, address relayer_)
+    function initialize(Params memory p, bytes[] memory peerChains, address relayer_, address owner_)
         public
         onlyFresh
         reinitializer(VERSION)
@@ -176,19 +217,93 @@ contract IntentGatewayV2 is IntentsBase, HyperApp, ReentrancyGuardTransient, Ini
         _validateParams(p);
         _params = p;
         _setRelayer(relayer_);
+        _setOwner(owner_);
     }
 
     /**
-     * @dev Takes a proxy from an earlier implementation to `VERSION`. Host-only and one-shot;
-     * delivered as the calldata of the upgrade that installs this implementation. Nothing to
-     * migrate for the module split: the storage layout is unchanged.
+     * @dev Takes a proxy from an earlier implementation to `VERSION` and sets its owner. Host-only
+     * and one-shot; delivered as the calldata of the upgrade that installs this implementation.
+     * The storage layout is unchanged: the owner lives at its own namespaced slot.
+     * @param owner_ The owner, who may pause order placement. Must be non-zero.
      */
-    function migrate() external onlyHost reinitializer(VERSION) {}
+    function migrate(address owner_) external onlyHost reinitializer(VERSION) {
+        _setOwner(owner_);
+    }
+
+    /// @dev The owner, who may pause and resume order placement.
+    function owner() external view returns (address) {
+        return _ownership().owner;
+    }
+
+    /// @dev The account a proposed ownership transfer is waiting on, or zero.
+    function pendingOwner() external view returns (address) {
+        return _ownership().pendingOwner;
+    }
+
+    /// @dev Whether order placement is paused. Fills and cancellations are never paused.
+    function paused() external view returns (bool) {
+        return _paused;
+    }
+
+    /**
+     * @dev Proposes `newOwner`, who takes over on `acceptOwnership`. Callable by the owner, and by
+     * the host so governance can replace a lost or compromised owner key: `Execute` carrying
+     * `upgradeToAndCall(currentImplementation, transferOwnership(newOwner))`. Zero withdraws a
+     * pending proposal.
+     * @param newOwner The proposed owner.
+     */
+    function transferOwnership(address newOwner) external {
+        Ownership storage $ = _ownership();
+        if (msg.sender != $.owner && msg.sender != host()) revert Unauthorized();
+        $.pendingOwner = newOwner;
+        emit OwnershipTransferStarted($.owner, newOwner);
+    }
+
+    /// @dev Completes a transfer proposed by `transferOwnership`. Callable only by the pending owner.
+    function acceptOwnership() external {
+        Ownership storage $ = _ownership();
+        if (msg.sender != $.pendingOwner) revert Unauthorized();
+        emit OwnershipTransferred($.owner, msg.sender);
+        $.owner = msg.sender;
+        delete $.pendingOwner;
+    }
+
+    /**
+     * @dev Stops order placement. Fills, cancellations and cross-chain settlement keep working, so
+     * orders already placed can still complete or be refunded while placement is paused.
+     */
+    function pause() external onlyOwner {
+        _paused = true;
+        emit Paused(msg.sender);
+    }
+
+    /// @dev Resumes order placement.
+    function unpause() external onlyOwner {
+        _paused = false;
+        emit Unpaused(msg.sender);
+    }
+
+    /// @dev Sets the owner directly, clearing any pending transfer. Used by `initialize` and `migrate`.
+    function _setOwner(address owner_) private {
+        if (owner_ == address(0)) revert InvalidInput();
+        Ownership storage $ = _ownership();
+        emit OwnershipTransferred($.owner, owner_);
+        $.owner = owner_;
+        delete $.pendingOwner;
+    }
+
+    /// @dev The ownership record at its namespaced slot.
+    function _ownership() private pure returns (Ownership storage $) {
+        assembly {
+            $.slot := OWNERSHIP_LOCATION
+        }
+    }
 
     /**
      * @dev Places a new intent order by escrowing the user's input tokens.
      *
      * An order swaps exactly one input for exactly one output; any other shape reverts `InvalidInput`.
+     * Reverts `EnforcedPause` while the owner has paused placement.
      *
      * The caller specifies the desired output tokens and destination chain. The function:
      * 1. Stamps the order with the caller's address, source chain, and a unique nonce.
@@ -205,6 +320,7 @@ contract IntentGatewayV2 is IntentsBase, HyperApp, ReentrancyGuardTransient, Ini
      * @param graffiti Attribution tag emitted in the OrderPlaced event for off-chain indexers.
      */
     function placeOrder(Order memory order, bytes32 graffiti) public payable nonReentrant {
+        if (_paused) revert EnforcedPause();
         // An order swaps exactly one input for exactly one output.
         if (order.inputs.length != 1 || order.output.assets.length != 1) revert InvalidInput();
         // A zero-amount output would strand the input escrow.

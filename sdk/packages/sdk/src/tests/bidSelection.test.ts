@@ -2,7 +2,7 @@ import { BidManager } from "@/protocols/intents/BidManager"
 import { BidExecutionPendingError, BidImpl } from "@/protocols/intents/Bid"
 import { CryptoUtils } from "@/protocols/intents/CryptoUtils"
 import { OrderExecutor } from "@/protocols/intents/OrderExecutor"
-import { encodeFillOrderAtRate } from "@/protocols/intents/fillOrderCodec"
+import { encodeFillOrder } from "@/protocols/intents/fillOrderCodec"
 import { ABI as IntentGatewayV2ABI } from "@/abis/IntentGatewayV2"
 import type { Bid, FillerBid, HexString, Order, PackedUserOperation, SelectBidResult } from "@/types"
 import { encodeAbiParameters, encodeEventTopics } from "viem"
@@ -322,8 +322,20 @@ describe("Order execution bid-selection integration", () => {
 		expect(secondExecute).not.toHaveBeenCalled()
 	})
 
-	it("refuses to sign a rate bid unless the live gateway and delegated solver account support it", async () => {
-		const readContract = vi.fn().mockResolvedValueOnce(true).mockResolvedValueOnce(false)
+	it.each([
+		["rate", false, true],
+		["ordinary", false, true],
+		["ordinary", true, false],
+		["phantom", false, true],
+		["phantom", true, false],
+		["ordinary", true, true],
+		["rate", true, true],
+		["phantom", true, true],
+	] as const)("gates %s v3 signing when live=%s configured=%s", async (kind, live, configured) => {
+		const readContract = vi.fn(async ({ address }: { address: string }) =>
+			(address === SOLVER_ONE ? live : address === SESSION ? configured : true) ? "0x68ddf058" : "0x00000000",
+		)
+		const signTypedData = vi.fn(async () => `0x${"11".repeat(65)}` as HexString)
 		const token32 = `0x${"00".repeat(12)}${TOKEN.slice(2)}` as HexString
 		const rateOrder = {
 			...makeOrder(),
@@ -331,46 +343,63 @@ describe("Order execution bid-selection integration", () => {
 			source: "0x6131",
 			destination: "0x6232",
 			inputs: [{ token: token32, amount: 100n }],
-			output: { ...makeOrder().output, beneficiary: token32, assets: [{ token: token32, amount: 100n }] },
+			output: {
+				...makeOrder().output,
+				beneficiary: token32,
+				assets: [{ token: token32, amount: kind === "phantom" ? 0n : 100n }],
+			},
 		}
-		const rateCall = encodeFillOrderAtRate(
+		const rateCall = encodeFillOrder(
 			rateOrder,
-			{ relayerFee: 0n, nativeDispatchFee: 0n, validUntil: 1n, outputs: [{ token: token32, amount: 55n }] },
-			[{ token: token32, amount: 50n }],
+			{
+				relayerFee: 0n,
+				nativeDispatchFee: 0n,
+				validUntil: 1n,
+				outputs: [{ token: token32, amount: 55n }],
+				inputs: kind === "rate" ? [{ token: token32, amount: 50n }] : [],
+			},
+			3,
 		)
 		const manager = new BidManager(
 			{
 				dest: {
 					client: { chain: { id: 8453 }, readContract },
 					config: { stateMachineId: "EVM-8453" },
-					configService: { getIntentGatewayAddress: () => SOLVER_TWO },
+					configService: {
+						getIntentGatewayAddress: () => SOLVER_TWO,
+						getSolverAccountAddress: () => SESSION,
+					},
 				},
 			} as never,
 			{ decodeERC7821Execute: () => [{ target: SOLVER_TWO, value: 0n, data: rateCall }] } as never,
 		)
 
-		await expect(
-			manager.prepareSubmitBid({
-				order: makeOrder(),
-				fillOptions: {
-					relayerFee: 0n,
-					nativeDispatchFee: 0n,
-					validUntil: 1n,
-					outputs: [{ token: TOKEN, amount: 55n }],
-				},
-				solverAccount: SOLVER_ONE,
-				solverSigner: { signTypedData: vi.fn() },
-				nonce: 0n,
-				entryPointAddress: ENTRY_POINT,
-				callGasLimit: 1n,
-				verificationGasLimit: 1n,
-				preVerificationGas: 1n,
-				maxFeePerGas: 1n,
-				maxPriorityFeePerGas: 1n,
-				callData: "0x",
-			}),
-		).rejects.toThrow("Rate fills are not supported")
-		expect(readContract).toHaveBeenCalledTimes(2)
+		const signing = manager.prepareSubmitBid({
+			order: makeOrder(),
+			fillOptions: {
+				relayerFee: 0n,
+				nativeDispatchFee: 0n,
+				validUntil: 1n,
+				outputs: [{ token: TOKEN, amount: 55n }],
+			},
+			solverAccount: SOLVER_ONE,
+			solverSigner: { signTypedData },
+			nonce: 0n,
+			entryPointAddress: ENTRY_POINT,
+			callGasLimit: 1n,
+			verificationGasLimit: 1n,
+			preVerificationGas: 1n,
+			maxFeePerGas: 1n,
+			maxPriorityFeePerGas: 1n,
+			callData: "0x",
+		})
+		if (live && configured) {
+			await expect(signing).resolves.toHaveProperty("signature")
+			expect(signTypedData).toHaveBeenCalledOnce()
+		} else {
+			await expect(signing).rejects.toThrow("v3 fills are not supported")
+			expect(signTypedData).not.toHaveBeenCalled()
+		}
 	})
 
 	it("ranks a better-priced small rate bid before a worse-priced larger bid", async () => {

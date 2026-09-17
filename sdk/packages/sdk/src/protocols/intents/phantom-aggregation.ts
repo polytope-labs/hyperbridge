@@ -11,8 +11,7 @@ import { decodeUserOpScale } from "@/chains/intentsCoprocessor"
 import { CryptoUtils } from "@/protocols/intents/CryptoUtils"
 import type { PackedUserOperation } from "@/types"
 import IntentGatewayV2 from "@/abis/IntentGatewayV2"
-import { decodeFillOrder, FILL_ORDER_AT_RATE_ABI } from "./fillOrderCodec"
-export { FILL_ORDER_AT_RATE_ABI } from "./fillOrderCodec"
+import { decodeFillOrder, FILL_ORDER_V3_SELECTOR, type FillOptionsVersion } from "./fillOrderCodec"
 import {
 	decodePoolAndPositionInfo,
 	positionAmountOfToken,
@@ -515,11 +514,9 @@ export interface FillLeg {
 
 export interface FillData {
 	order: Record<string, unknown>
-	options: Record<string, unknown>
-	/** Decoded gateway entrypoint, retained so capability checks cannot mistake a rate quote for legacy calldata. */
-	method: "fillOrder" | "fillOrderAtRate"
-	/** Positional rate input takes; legacy calldata is normalized to an empty array. */
-	inputs: { token: HexString; amount: bigint }[]
+	options: Record<string, unknown> & { inputs: { token: HexString; amount: bigint }[] }
+	/** ABI capability applies to every v3 bid, including empty input takes. */
+	version: FillOptionsVersion
 	/** Positional, matching the order's asset lists. A zero amount means the solver did not quote that leg. */
 	legs: FillLeg[]
 }
@@ -806,7 +803,7 @@ export function extractFillData(callData: HexString, gatewayAddress: string): Fi
 			const decoded = decodeFillOrder(call.data as HexString)
 			if (!decoded) continue
 			const order = decoded.order as unknown as Record<string, unknown>
-			const options = decoded.options as unknown as Record<string, unknown>
+			const options = decoded.options as unknown as FillData["options"]
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any
 			const assets = (order as any)?.output?.assets as { token: HexString }[] | undefined
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -817,9 +814,8 @@ export function extractFillData(callData: HexString, gatewayAddress: string): Fi
 			return {
 				order,
 				options,
-				method: decoded.method,
-				inputs: decoded.inputs,
-				legs: zipFillLegs(assets, outputs, orderInputs, decoded.inputs),
+				version: decoded.version,
+				legs: zipFillLegs(assets, outputs, orderInputs, decoded.options.inputs),
 			}
 		} catch {
 			continue
@@ -946,7 +942,7 @@ export type RateFillCapabilityReader = (
 	solverAccounts: readonly string[],
 ) => Promise<boolean>
 
-const SELECTOR_SUPPORTS_RATE_FILLS = "0xbfdcf01f"
+const SELECTOR_FILL_ORDER_SELECTOR = "0x4a010655"
 
 async function readCapabilityFlag(evmRpcUrl: string, contract: string): Promise<boolean> {
 	let response: { json(): Promise<any> }
@@ -958,7 +954,7 @@ async function readCapabilityFlag(evmRpcUrl: string, contract: string): Promise<
 				id: 1,
 				jsonrpc: "2.0",
 				method: "eth_call",
-				params: [{ to: contract, data: SELECTOR_SUPPORTS_RATE_FILLS }, "latest"],
+				params: [{ to: contract, data: SELECTOR_FILL_ORDER_SELECTOR }, "latest"],
 			}),
 		})
 	} catch (err) {
@@ -976,18 +972,14 @@ async function readCapabilityFlag(evmRpcUrl: string, contract: string): Promise<
 	// dropping a supported bid.
 	if (body?.error) {
 		const message = String(body.error.message ?? body.error).toLowerCase()
-		if (/revert|function selector|method not found|invalid opcode/.test(message)) return false
+		if (/revert|function selector|invalid opcode/.test(message)) return false
 		throw new PhantomRpcError(`Rate-fill capability RPC failed for ${contract} on ${evmRpcUrl}`, body.error)
 	}
 	if (body?.result === "0x") return false
 	if (typeof body?.result !== "string" || !/^0x[0-9a-fA-F]{64}$/.test(body.result)) {
 		throw new PhantomRpcError(`Rate-fill capability returned no usable result from ${contract} on ${evmRpcUrl}`)
 	}
-	const value = BigInt(body.result)
-	if (value > 1n) {
-		throw new PhantomRpcError(`Rate-fill capability returned an invalid bool from ${contract} on ${evmRpcUrl}`)
-	}
-	return value === 1n
+	return body.result.toLowerCase() === `${FILL_ORDER_V3_SELECTOR}${"00".repeat(28)}`
 }
 
 /**
@@ -1569,10 +1561,7 @@ async function runAggregation(
 				logger,
 			})
 			if (!verified) continue
-			if (
-				fillData.method === "fillOrderAtRate" &&
-				!(await supportsRateFills(destUrl, gatewayAddress, solver, solverAccounts))
-			) {
+			if (fillData.version === 3 && !(await supportsRateFills(destUrl, gatewayAddress, solver, solverAccounts))) {
 				logger?.warn(
 					{ solver, commitment },
 					"Rejecting rate phantom bid: destination does not support rate fills",

@@ -53,8 +53,6 @@ export interface BidParams {
 	order: Order
 	fillerBid: FillerBid
 	fillOptions: FillOptions
-	/** Positional rate-fill input takes. Omitted for legacy decoded bids. */
-	inputs?: TokenInfo[]
 	/** Prices the bid outputs in USD; bound by {@link BidManager} to the destination chain. */
 	priceOutputs: (outputs: TokenInfo[]) => Promise<Decimal | null>
 	/** Optional session-key override; looked up from storage by `order.session` if omitted. */
@@ -101,7 +99,7 @@ export class BidImpl implements Bid {
 
 		this.solverAddress = params.fillerBid.userOp.sender
 		this.outputs = params.fillOptions.outputs
-		this.inputs = params.inputs ?? []
+		this.inputs = params.fillOptions.inputs ?? []
 		this.relayerFee = params.fillOptions.relayerFee
 		this.nativeDispatchFee = params.fillOptions.nativeDispatchFee
 		this.userOp = params.fillerBid.userOp

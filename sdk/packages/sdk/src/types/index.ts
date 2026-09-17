@@ -1296,6 +1296,8 @@ export interface FillOptions {
 	 */
 	validUntil: bigint
 	outputs: TokenInfo[]
+	/** Positional input takes; omitted or empty retains order-rate settlement. Requires ABI v3. */
+	inputs?: TokenInfo[]
 }
 
 // =============================================================================
@@ -1331,8 +1333,6 @@ export interface SigningAccount {
 export interface SubmitBidOptions {
 	order: Order
 	fillOptions: FillOptions
-	/** Positional input takes signed by a rate bid. Empty or omitted denotes legacy order-rate settlement. */
-	inputs?: TokenInfo[]
 	solverAccount: HexString
 	/** Canonical signer used for bid message signing and raw-hash operations. */
 	solverSigner: SigningAccount
@@ -1360,7 +1360,7 @@ export interface SubmitBidOptions {
 
 export interface EstimateFillOrderParams {
 	order: Order
-	/** Positional input takes for `fillOrderAtRate`; omitted or empty estimates the legacy entry point. */
+	/** Positional input takes for `FillOptions.inputs`; omitted or empty retains order-rate settlement. */
 	inputs?: TokenInfo[]
 	/** Output slice offered by the solver. Defaults to the order's full requested outputs. */
 	outputs?: TokenInfo[]
@@ -1529,7 +1529,7 @@ export interface Bid {
 	readonly solverAddress: HexString
 	/** Decoded `FillOptions.outputs` — the tokens and amounts the solver offers. */
 	readonly outputs: TokenInfo[]
-	/** Positional input takes from `fillOrderAtRate`; empty for legacy bids. */
+	/** Positional input takes from `FillOptions.inputs`; empty for order-rate bids. */
 	readonly inputs: TokenInfo[]
 	/** Relayer fee from the decoded fill options. */
 	readonly relayerFee: bigint

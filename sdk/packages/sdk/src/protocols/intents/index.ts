@@ -40,7 +40,6 @@ export {
 export { CryptoUtils, SELECT_SOLVER_TYPEHASH, PACKED_USEROP_TYPEHASH, DOMAIN_TYPEHASH } from "./CryptoUtils"
 export {
 	encodeFillOrder,
-	encodeFillOrderAtRate,
 	decodeFillOrder,
 	getFillOptionsVersion,
 	resetFillOptionsVersionCache,
@@ -48,10 +47,12 @@ export {
 	LEGACY_FILL_OPTIONS_IMPLEMENTATIONS,
 	CHAINS_WITHOUT_VALID_UNTIL,
 	FILL_ORDER_V1_ABI,
-	FILL_ORDER_AT_RATE_ABI,
+	FILL_ORDER_V2_ABI,
+	FILL_ORDER_V3_SELECTOR,
+	FILL_ORDER_SELECTOR_ABI,
 	SUPPORTS_RATE_FILLS_ABI,
 } from "./fillOrderCodec"
-export type { FillOptionsVersion } from "./fillOrderCodec"
+export type { FillOptionsVersion, NormalizedFillOptions, DecodedFillOrder } from "./fillOrderCodec"
 export { previewRateFill, type RateFillPreview } from "./rateFill"
 export {
 	encodeAcceptedSourceChains,

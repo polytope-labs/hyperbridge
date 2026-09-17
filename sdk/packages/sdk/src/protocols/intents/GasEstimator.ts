@@ -1,7 +1,7 @@
 import { encodeFunctionData, toHex, pad, maxUint256, concat, keccak256, isHex, hexToString } from "viem"
 import { generatePrivateKey, privateKeyToAccount, privateKeyToAddress } from "viem/accounts"
 import { ABI as IntentGatewayV2ABI } from "@/abis/IntentGatewayV2"
-import { encodeFillOrder, encodeFillOrderAtRate, getFillOptionsVersion, supportsRateFills } from "./fillOrderCodec"
+import { encodeFillOrder, getFillOptionsVersion, supportsRateFills } from "./fillOrderCodec"
 import {
 	ADDRESS_ZERO,
 	bytes32ToBytes20,
@@ -192,6 +192,7 @@ export class GasEstimator {
 		const { bundler: bundlerStateOverrides } = stateOverridesResult
 
 		const fillOptions: FillOptions = {
+			inputs,
 			relayerFee: crossChainFees.postRequestFee,
 			// Always dispatch with the fee token (see the method docs).
 			nativeDispatchFee: 0n,
@@ -217,28 +218,21 @@ export class GasEstimator {
 
 		// The gateway may predate `FillOptions.validUntil`; the two shapes have different
 		// selectors, so encoding the wrong one makes the estimate revert on a missing function.
-		let fillOrderCalldata: HexString
-		if (inputs.length > 0) {
-			const solverAccount = this.ctx.dest.configService.getSolverAccountAddress(destStateMachineId)
+		const fillOptionsVersion = await getFillOptionsVersion(this.ctx.dest.client as any, intentGatewayV2Address)
+		if (fillOptionsVersion === 3) {
+			const implementation = this.ctx.dest.configService.getSolverAccountAddress(destStateMachineId)
 			if (
-				!solverAccount ||
-				!(await supportsRateFills(this.ctx.dest.client as any, intentGatewayV2Address, solverAccount))
+				!implementation ||
+				!(await supportsRateFills(this.ctx.dest.client as any, intentGatewayV2Address, implementation))
 			) {
-				throw new Error("Rate fills are not supported by the destination gateway and SolverAccount")
+				throw new Error("v3 fills are not supported by the destination gateway and configured SolverAccount")
 			}
-			fillOrderCalldata = encodeFillOrderAtRate(
-				transformOrderForContract(orderForEstimation) as any,
-				fillOptions,
-				inputs,
-			)
-		} else {
-			const fillOptionsVersion = await getFillOptionsVersion(this.ctx.dest.client as any, intentGatewayV2Address)
-			fillOrderCalldata = encodeFillOrder(
-				transformOrderForContract(orderForEstimation) as any,
-				fillOptions,
-				fillOptionsVersion,
-			)
 		}
+		const fillOrderCalldata = encodeFillOrder(
+			transformOrderForContract(orderForEstimation) as any,
+			fillOptions,
+			fillOptionsVersion,
+		)
 
 		let callGasLimit: bigint = 500_000n
 		let verificationGasLimit: bigint = 100_000n

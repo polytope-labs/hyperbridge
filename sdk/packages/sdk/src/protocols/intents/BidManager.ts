@@ -75,20 +75,24 @@ export class BidManager {
 			callData,
 			paymasterAndData = "0x" as HexString,
 		} = options
-		let isRateBid = (options.inputs?.length ?? 0) > 0
-		try {
-			isRateBid ||= (this.crypto.decodeERC7821Execute(callData) ?? []).some(
-				(call) => decodeFillOrder(call.data as HexString)?.method === "fillOrderAtRate",
-			)
-		} catch {
-			// Explicit inputs remain authoritative when caller-provided calldata cannot be inspected.
+		const fills = (this.crypto.decodeERC7821Execute(callData) ?? [])
+			.map((call) => decodeFillOrder(call.data as HexString))
+			.filter((fill) => fill !== null)
+		if ((options.fillOptions.inputs?.length ?? 0) > 0 && !fills.some((fill) => fill.version === 3)) {
+			throw new Error("Input takes require v3 fillOrder calldata")
 		}
-		if (isRateBid) {
-			const gateway = this.ctx.dest.configService.getIntentGatewayAddress(
-				normalizeStateMachineId(order.destination),
-			)
-			if (!(await supportsRateFills(this.ctx.dest.client as any, gateway, solverAccount))) {
-				throw new Error("Rate fills are not supported by the destination gateway and delegated solver account")
+		if (fills.some((fill) => fill.version === 3)) {
+			const chain = normalizeStateMachineId(order.destination)
+			const gateway = this.ctx.dest.configService.getIntentGatewayAddress(chain)
+			const implementation = this.ctx.dest.configService.getSolverAccountAddress(chain)
+			// Check the live account as well as the implementation used for simulation overrides.
+			const liveSupport = await supportsRateFills(this.ctx.dest.client as any, gateway, solverAccount)
+			const configuredSupport =
+				implementation && (await supportsRateFills(this.ctx.dest.client as any, gateway, implementation))
+			if (!liveSupport || !configuredSupport) {
+				throw new Error(
+					"v3 fills are not supported by the destination gateway, live delegation, and configured SolverAccount",
+				)
 			}
 		}
 
@@ -161,7 +165,6 @@ export class BidManager {
 					order,
 					fillerBid,
 					fillOptions: fill.options,
-					inputs: fill.inputs,
 					priceOutputs,
 					sessionPrivateKey,
 				}),
@@ -307,7 +310,7 @@ export class BidManager {
 	 * @param bid - A single filler bid.
 	 * @returns The decoded `FillOptions`, or `null` if extraction fails.
 	 */
-	private decodeBidFillData(bid: FillerBid): { options: FillOptions; inputs: TokenInfo[] } | null {
+	private decodeBidFillData(bid: FillerBid): { options: FillOptions } | null {
 		try {
 			const innerCalls = this.crypto.decodeERC7821Execute(bid.userOp.callData)
 			if (!innerCalls || innerCalls.length === 0) return null
@@ -318,7 +321,7 @@ export class BidManager {
 				// as 0n, which is accurate: that fill genuinely carries no bound.
 				const decoded = decodeFillOrder(call.data as HexString)
 				if (decoded && decoded.options?.outputs?.length > 0) {
-					return { options: decoded.options, inputs: decoded.inputs }
+					return { options: decoded.options }
 				}
 			}
 		} catch {

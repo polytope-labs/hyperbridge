@@ -19,11 +19,11 @@ import {
 	AGGREGATION_ATTEMPTS,
 	ENTRY_POINT_V08_ADDRESS,
 	FILL_ORDER_ABI,
-	FILL_ORDER_AT_RATE_ABI,
 	type FetchLike,
 	type HexString,
 	PhantomRpcError,
 } from "@/protocols/intents/phantom-aggregation"
+import { FILL_ORDER_V2_ABI } from "@/protocols/intents/fillOrderCodec"
 import { CryptoUtils } from "@/protocols/intents/CryptoUtils"
 import { encodeUserOpScale } from "@/chains/intentsCoprocessor"
 import type { PackedUserOperation } from "@/types"
@@ -103,7 +103,7 @@ const LEGACY_FILL_ORDER_ABI = [
 function bidCalldata(target: string = GATEWAY): HexString {
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	const fillCalldata = (encodeFunctionData as any)({
-		abi: FILL_ORDER_ABI,
+		abi: FILL_ORDER_V2_ABI,
 		functionName: "fillOrder",
 		args: [phantomOrder(), fillOptions()],
 	}) as HexString
@@ -112,12 +112,15 @@ function bidCalldata(target: string = GATEWAY): HexString {
 
 function rateBidCalldata(take: bigint, offered: bigint): HexString {
 	const fillCalldata = encodeFunctionData({
-		abi: FILL_ORDER_AT_RATE_ABI,
-		functionName: "fillOrderAtRate",
+		abi: FILL_ORDER_ABI,
+		functionName: "fillOrder",
 		args: [
 			phantomOrder() as any,
-			{ ...fillOptions(), outputs: [{ token: USDT_BYTES32, amount: offered }] } as any,
-			[{ token: USDC_BYTES32, amount: take }] as any,
+			{
+				...fillOptions(),
+				outputs: [{ token: USDT_BYTES32, amount: offered }],
+				inputs: [{ token: USDC_BYTES32, amount: take }],
+			} as any,
 		],
 	}) as HexString
 	return encodeERC7821ExecuteBatch([{ target: GATEWAY, value: 0n, data: fillCalldata }])
@@ -129,9 +132,9 @@ function customRateBidCalldata(
 	inputs: { token: HexString; amount: bigint }[],
 ): HexString {
 	const fillCalldata = encodeFunctionData({
-		abi: FILL_ORDER_AT_RATE_ABI,
-		functionName: "fillOrderAtRate",
-		args: [order as any, { ...fillOptions(), outputs } as any, inputs as any],
+		abi: FILL_ORDER_ABI,
+		functionName: "fillOrder",
+		args: [order as any, { ...fillOptions(), outputs, inputs } as any],
 	}) as HexString
 	return encodeERC7821ExecuteBatch([{ target: GATEWAY, value: 0n, data: fillCalldata }])
 }
@@ -158,7 +161,7 @@ function multiLegBidCalldata(): HexString {
 
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	const fillCalldata = (encodeFunctionData as any)({
-		abi: FILL_ORDER_ABI,
+		abi: FILL_ORDER_V2_ABI,
 		functionName: "fillOrder",
 		args: [order, options],
 	}) as HexString
@@ -210,8 +213,8 @@ describe("extractFillData", () => {
 		const result = extractFillData(rateBidCalldata(2_500_000n, 600_000n), GATEWAY)
 
 		expect(result).toMatchObject({
-			method: "fillOrderAtRate",
-			inputs: [{ token: USDC_BYTES32, amount: 2_500_000n }],
+			version: 3,
+			options: { inputs: [{ token: USDC_BYTES32, amount: 2_500_000n }] },
 		})
 		expect(result!.legs[0]).toMatchObject({
 			outputToken: USDT_BYTES32,
@@ -497,11 +500,27 @@ describe("readRateFillCapability", () => {
 				return { json: async () => ({ result: delegatedTo(SOLVER_ACCOUNT)() }) }
 			}
 			calls.push(payload.params[0].to.toLowerCase())
-			return { json: async () => ({ result: toHex(1n, { size: 32 }) }) }
+			return { json: async () => ({ result: `0x68ddf058${"00".repeat(28)}` }) }
 		})
 
 		await expect(readRateFillCapability("http://base.test", GATEWAY, solver, [SOLVER_ACCOUNT])).resolves.toBe(true)
 		expect(calls).toEqual([GATEWAY.toLowerCase(), SOLVER_ACCOUNT.toLowerCase()])
+	})
+
+	it("rejects a prior boolean marker even if both contracts return true", async () => {
+		setAggregationFetch(async (_url, init) => {
+			const payload = JSON.parse(init.body)
+			return {
+				json: async () => ({
+					result: payload.method === "eth_getCode" ? delegatedTo(SOLVER_ACCOUNT)() : toHex(1n, { size: 32 }),
+				}),
+			}
+		})
+		await expect(
+			readRateFillCapability("http://base.test", GATEWAY, privateKeyToAccount(SOLVER_KEY).address, [
+				SOLVER_ACCOUNT,
+			]),
+		).resolves.toBe(false)
 	})
 
 	it("keeps an unavailable capability RPC distinct from unsupported contracts", async () => {
@@ -602,10 +621,12 @@ describe("aggregatePhantomBids bid verification", () => {
 		expect(supportsRateFills).not.toHaveBeenCalled()
 	})
 
-	it("skips a signed rate bid when its live gateway or delegated account lacks rate-fill support", async () => {
+	it.each([false, true])("skips a signed v3 bid (empty inputs=%s) without live support", async (emptyInputs) => {
 		const userOp = await signedBidUserOp({
 			signingKey: SOLVER_KEY,
-			callData: rateBidCalldata(2_500_000n, 600_000n),
+			callData: emptyInputs
+				? customRateBidCalldata(phantomOrder(), fillOptions().outputs, [])
+				: rateBidCalldata(2_500_000n, 600_000n),
 		})
 		setAggregationFetch(mockRpc([userOp], delegatedTo(SOLVER_ACCOUNT)))
 		const supportsRateFills = vi.fn(async () => false)

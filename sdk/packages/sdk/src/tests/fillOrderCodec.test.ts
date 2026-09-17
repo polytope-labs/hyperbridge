@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeEach, vi } from "vitest"
-import { slice } from "viem"
+import { slice, keccak256 } from "viem"
 import {
 	encodeFillOrder,
-	encodeFillOrderAtRate,
+	FILL_ORDER_V2_ABI,
+	FILL_ORDER_V3_SELECTOR,
 	decodeFillOrder,
 	getFillOptionsVersion,
 	resetFillOptionsVersionCache,
@@ -23,7 +24,7 @@ const TOKEN = "0x000000000000000000000000000000000000000000000000000000000000000
 // changes the ABI shows up here rather than as a reverting fill.
 const V1_SELECTOR = "0x5cfb1ea5"
 const V2_SELECTOR = "0xa5470064"
-const RATE_SELECTOR = "0x25745288"
+const RATE_SELECTOR = "0x68ddf058"
 const ERC1967_SLOT = "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc"
 
 function order(): Order {
@@ -54,6 +55,19 @@ function client(readContract: any, chainId = 8453) {
 }
 
 describe("encodeFillOrder", () => {
+	// Hashes captured from the pre-regeneration historical ABI with the fixture below.
+	it.each([
+		[1, "0xd60307c0d08186ed7832eedc48843249591ad50990a2a8b44321425e13d99eb3"],
+		[2, "0x8f3eea94c86fbf74104043fc6176b68c80c4559b22f0a0e4309bb5b16b33eb37"],
+	] as const)("preserves frozen v%s calldata bytes", (version, goldenHash) => {
+		const data = encodeFillOrder(order(), options(999n), version)
+		expect(keccak256(data)).toBe(goldenHash)
+		expect(decodeFillOrder(data)).toMatchObject({
+			version,
+			options: { inputs: [], outputs: options(999n).outputs },
+		})
+	})
+
 	it("emits the v2 selector and round-trips validUntil", () => {
 		const data = encodeFillOrder(order(), options(999n), 2)
 
@@ -81,18 +95,18 @@ describe("decodeFillOrder", () => {
 		for (const version of [1, 2] as const) {
 			const decoded = decodeFillOrder(encodeFillOrder(order(), options(7n), version))
 			expect(decoded!.options.outputs[0].amount).toBe(500n)
-			expect(decoded).toMatchObject({ method: "fillOrder", inputs: [] })
+			expect(decoded).toMatchObject({ version, options: { inputs: [] } })
 		}
 	})
 
-	it("distinguishes fillOrderAtRate and round-trips its positional input takes", () => {
+	it("distinguishes v3 and round-trips its positional input takes", () => {
 		const inputs: TokenInfo[] = [{ token: TOKEN, amount: 400n }]
-		const encoded = encodeFillOrderAtRate(order(), options(77n), inputs)
+		const encoded = encodeFillOrder(order(), { ...options(77n), inputs }, 3)
 		const decoded = decodeFillOrder(encoded)
 
-		expect(decoded).toMatchObject({ method: "fillOrderAtRate" })
+		expect(decoded).toMatchObject({ version: 3 })
 		expect(decoded!.options.validUntil).toBe(77n)
-		expect(decoded!.inputs).toEqual(inputs)
+		expect(decoded!.options.inputs).toEqual(inputs)
 		expect(slice(encoded, 0, 4)).toBe(RATE_SELECTOR)
 	})
 
@@ -114,6 +128,7 @@ describe("getFillOptionsVersion", () => {
 	function client(impl: HexString | undefined) {
 		return {
 			chain: { id: 8453 },
+			readContract: vi.fn().mockResolvedValue("0x00000000"),
 			getStorageAt: vi.fn().mockResolvedValue(impl === undefined ? undefined : slotFor(impl)),
 		} as any
 	}
@@ -167,19 +182,19 @@ describe("getFillOptionsVersion", () => {
 		expect(await getFillOptionsVersion(c, GATEWAY)).toBe(2)
 	})
 
-	it("caches a v2 answer, which can never regress", async () => {
+	it("rechecks a v2 proxy and sees a v3 upgrade", async () => {
 		const c = client(NEW_IMPL)
 
-		await getFillOptionsVersion(c, GATEWAY)
-		await getFillOptionsVersion(c, GATEWAY)
-
-		expect(c.getStorageAt).toHaveBeenCalledTimes(1)
+		expect(await getFillOptionsVersion(c, GATEWAY)).toBe(2)
+		c.readContract.mockResolvedValue(RATE_SELECTOR)
+		expect(await getFillOptionsVersion(c, GATEWAY)).toBe(3)
+		expect(c.readContract).toHaveBeenCalledTimes(2)
 	})
 })
 
 describe("supportsRateFills", () => {
 	it("requires fresh support from both the gateway and solver-account implementation", async () => {
-		const readContract = vi.fn().mockResolvedValueOnce(true).mockResolvedValueOnce(false)
+		const readContract = vi.fn().mockResolvedValueOnce(RATE_SELECTOR).mockResolvedValueOnce(V2_SELECTOR)
 		await expect(
 			supportsRateFills({ readContract } as any, GATEWAY, "0x2222222222222222222222222222222222222222"),
 		).resolves.toBe(false)
@@ -187,12 +202,63 @@ describe("supportsRateFills", () => {
 	})
 
 	it("does not cache capability across calls", async () => {
-		const readContract = vi.fn().mockResolvedValue(true)
+		const readContract = vi.fn().mockResolvedValue(RATE_SELECTOR)
 		const c = { readContract } as any
 		const solver = "0x2222222222222222222222222222222222222222"
 
 		expect(await supportsRateFills(c, GATEWAY, solver)).toBe(true)
 		expect(await supportsRateFills(c, GATEWAY, solver)).toBe(true)
 		expect(readContract).toHaveBeenCalledTimes(4)
+	})
+})
+
+describe("v3 compatibility boundaries", () => {
+	it.each([1, 2] as const)("rejects takes when encoding historical v%s", (version) => {
+		expect(() =>
+			encodeFillOrder(order(), { ...options(1n), inputs: [{ token: TOKEN, amount: 1n }] }, version),
+		).toThrow(/inputs|takes/i)
+	})
+	it("normalizes an ordinary v3 fill and pins its compiled selector", () => {
+		const data = encodeFillOrder(order(), options(7n), 3)
+		expect(data.slice(0, 10)).toBe(RATE_SELECTOR)
+		expect(FILL_ORDER_V3_SELECTOR).toBe(RATE_SELECTOR)
+		expect(decodeFillOrder(data)).toMatchObject({ version: 3, options: { inputs: [] } })
+		expect(FILL_ORDER_V2_ABI[0].inputs[1].components).toHaveLength(4)
+	})
+	it("checks capability before legacy chain overrides", async () => {
+		expect(await getFillOptionsVersion(client(vi.fn().mockResolvedValue(RATE_SELECTOR), 84532), GATEWAY)).toBe(3)
+	})
+	it("does not share detection between identical addresses on separate chains", async () => {
+		expect(await getFillOptionsVersion(client(vi.fn().mockResolvedValue(RATE_SELECTOR), 8453), GATEWAY)).toBe(3)
+		expect(await getFillOptionsVersion(client(vi.fn().mockResolvedValue("0x00000000"), 84532), GATEWAY)).toBe(1)
+	})
+	it("propagates capability RPC failures", async () => {
+		const c = client(vi.fn().mockRejectedValue(new Error("RPC timeout")))
+		await expect(getFillOptionsVersion(c, GATEWAY)).rejects.toThrow("RPC timeout")
+		await expect(supportsRateFills(c, GATEWAY, GATEWAY)).rejects.toThrow("RPC timeout")
+	})
+	it("does not accept the old boolean marker", async () => {
+		await expect(supportsRateFills(client(vi.fn().mockResolvedValue(true)), GATEWAY, GATEWAY)).resolves.toBe(false)
+	})
+	it("rejects an unknown nonzero selector instead of downgrading", async () => {
+		await expect(getFillOptionsVersion(client(vi.fn().mockResolvedValue("0x12345678")), GATEWAY)).rejects.toThrow(
+			/selector/i,
+		)
+	})
+})
+
+describe("missing selector classification", () => {
+	it.each(["ContractFunctionZeroDataError", "ContractFunctionRevertedError"])("falls back for %s", async (name) => {
+		const c = {
+			chain: { id: 8453 },
+			readContract: vi.fn().mockRejectedValue({ name: "ContractFunctionExecutionError", cause: { name } }),
+			getStorageAt: vi.fn().mockResolvedValue(undefined),
+		} as any
+		await expect(getFillOptionsVersion(c, GATEWAY)).resolves.toBe(2)
+	})
+	it("does not downgrade a JSON-RPC method-not-found provider failure", async () => {
+		await expect(
+			getFillOptionsVersion(client(vi.fn().mockRejectedValue(new Error("method not found"))), GATEWAY),
+		).rejects.toThrow("method not found")
 	})
 })

@@ -417,7 +417,7 @@ export class OrderExecutor {
 								blockNumber: finalized.number,
 							}),
 						)
-						if (nonce > submission.userOp.nonce || finalized.number >= order.deadline) {
+						if (nonce > submission.userOp.nonce || finalized.number > order.deadline) {
 							// Reconcile progress before retirement, then read again before polling below.
 							await this.readCreditedProgress(order, commitment, [])
 							await this.readFinalizer(order, commitment)

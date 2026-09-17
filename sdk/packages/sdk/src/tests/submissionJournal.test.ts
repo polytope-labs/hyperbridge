@@ -384,7 +384,7 @@ describe("submission recovery safety", () => {
 		const f = fixture()
 		f.setFailure(new Error("timeout"))
 		await attempt(f)
-		f.ctx.dest.client.getBlock = async () => ({ number: 100n })
+		f.ctx.dest.client.getBlock = async () => ({ number: 101n })
 		f.ctx.dest.client.getBlockNumber = async () => 100n
 		const s = f.stream()
 		let value: any
@@ -574,4 +574,15 @@ describe("remaining submission boundaries", () => {
 		expect(writes.slice(0, 3)).toEqual(["pending", "terminal", "clear"])
 		expect(pending(f)).toBeUndefined()
 	})
+})
+
+it("retains a pending operation at the inclusive order deadline", async () => {
+	const f = fixture()
+	f.setFailure(new Error("timeout"))
+	await attempt(f)
+	f.ctx.dest.client.getBlock = async () => ({ number: 100n })
+	expect(await resume(f)).toMatchObject({ status: "FAILED" })
+	expect(pending(f)).toBeDefined()
+	expect(f.sent).toHaveLength(2)
+	expect(f.sent[1]).toEqual(f.sent[0])
 })

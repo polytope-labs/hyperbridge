@@ -19,6 +19,11 @@ allowBuilds:
   utf-8-validate: false
 blockExoticSubdeps: true
 minimumReleaseAge: 43200
+minimumReleaseAgeExclude:
+  - '@base-ui/react@1.8.0'
+  - '@base-ui/utils@0.4.0'
+  - 'electron@44.3.0'
+  - 'playwright-core@1.63.0'
 trustPolicy: no-downgrade
 trustPolicyExclude:
   - 'detect-port@1.6.1'
@@ -30,8 +35,3 @@ trustPolicyExclude:
   - 'semver@6.3.1 || 5.7.2'
   - 'slow-redact@0.3.2'
   - 'undici@5.29.0'
-overrides:
-  viem: 2.47.6
-  axios: 1.13.6
-  vite: 6.4.2
-  pino: "~10.3.1"

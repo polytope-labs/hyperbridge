@@ -590,11 +590,6 @@ interface IIntentGatewayV2 {
      */
     function fillOrder(Order calldata order, FillOptions calldata options) external payable;
 
-    function supportsRateFills() external pure returns (bool);
-
-    /// @notice The fillOrder selector accepted by this implementation.
-    function fillOrderSelector() external pure returns (bytes4);
-
     /**
      * @notice Cancels an order after it has expired.
      * @param order The order to be cancelled

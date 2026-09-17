@@ -11,12 +11,12 @@ import {ExtrinsicModule} from "../src/apps/intentsv2/ExtrinsicModule.sol";
 import {BaseScript} from "./BaseScript.sol";
 
 /// @dev Initialization payload for an upgrade of an existing proxy: `migrate(owner)` for a proxy
-/// at 2, nothing for one already at 3.
+/// at 2 or owner-layout 3, nothing for one already at 4.
 function intentGatewayUpgradeInitialization(IntentGatewayV2 gateway, address owner) view returns (bytes memory) {
     uint64 current = gateway.version();
-    if (current == 3) return bytes("");
-    require(current == 2, "Unsupported IntentGateway version");
-    require(owner != address(0), "GATEWAY_OWNER is unset");
+    if (current == 4) return bytes("");
+    require(current == 2 || current == 3, "Unsupported IntentGateway version");
+    if (current == 2) require(owner != address(0), "GATEWAY_OWNER is unset");
     return abi.encodeCall(IntentGatewayV2.migrate, (owner));
 }
 
@@ -30,7 +30,7 @@ abstract contract IntentGatewayScript is BaseScript {
      */
     function _deployImplementation() internal returns (IntentGatewayV2 implementation) {
         // Query the configured proxy before broadcasting any deployments. New chains initialize
-        // their fresh proxy separately; an existing v3 proxy must not re-run migrate().
+        // their fresh proxy separately; existing proxies advance through version-aware migration.
         vm.stopBroadcast();
         bool hasProxy = config.exists("INTENT_GATEWAY_V2");
         bytes memory migration;

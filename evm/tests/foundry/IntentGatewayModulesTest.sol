@@ -341,7 +341,7 @@ contract IntentGatewayModulesTest is MainnetForkBaseTest {
     bytes32 internal constant INITIALIZABLE_SLOT = 0xf0c57e16840df040f15088dc2f81fe391c3923bec73e23a9662efc9c229c6a00;
 
     /// The release's own upgrade: a proxy at version 2, as every live one is, moved to this
-    /// implementation with `migrate(owner)` as the init data lands at 3 with its state intact and
+    /// implementation with `migrate(owner)` as the init data lands at 4 with its state intact and
     /// its owner set. Pinned here because the live-fork test's precondition expires once mainnet
     /// is upgraded.
     function testUpgradeFromVersionTwoWithMigrate() public {
@@ -353,11 +353,11 @@ contract IntentGatewayModulesTest is MainnetForkBaseTest {
         PostRequest memory upgrade =
             _upgradeRequest(address(newImpl), abi.encodeCall(IntentGatewayV2.migrate, (address(this))));
         vm.expectEmit(true, true, true, true, address(gateway));
-        emit Initializable.Initialized(3);
+        emit Initializable.Initialized(4);
         vm.prank(address(host));
         gateway.onAccept(IncomingPostRequest({relayer: address(this), request: upgrade}));
 
-        assertEq(gateway.version(), 3, "migrated");
+        assertEq(gateway.version(), 4, "migrated");
         assertEq(gateway.owner(), address(this), "owner set by the migration");
         assertEq(gateway._orders(keccak256(abi.encode(order)), address(usdc)), 1000 * 1e6, "escrow survives");
         assertEq(gateway.instance(bytes("DEST_CHAIN")), address(gateway), "peers survive");
@@ -371,8 +371,16 @@ contract IntentGatewayModulesTest is MainnetForkBaseTest {
         gateway.onAccept(IncomingPostRequest({relayer: address(this), request: again}));
     }
 
-    function testUpgradeHelperUsesEmptyInitializationForVersionThree() public view {
+    function testUpgradeHelperUsesEmptyInitializationForVersionFour() public view {
         assertEq(intentGatewayUpgradeInitialization(gateway, address(this)), bytes(""));
+    }
+
+    function testUpgradeHelperMigratesVersionThreeWithoutNewOwner() public {
+        vm.store(address(gateway), INITIALIZABLE_SLOT, bytes32(uint256(3)));
+        assertEq(
+            intentGatewayUpgradeInitialization(gateway, address(0)),
+            abi.encodeCall(IntentGatewayV2.migrate, (address(0)))
+        );
     }
 
     function testUpgradeHelperMigratesVersionTwo() public {
@@ -390,7 +398,7 @@ contract IntentGatewayModulesTest is MainnetForkBaseTest {
     }
 
     function testUpgradeHelperRejectsUnsupportedVersions() public {
-        uint256[3] memory unsupported = [uint256(0), uint256(1), uint256(4)];
+        uint256[3] memory unsupported = [uint256(0), uint256(1), uint256(5)];
         for (uint256 i; i < unsupported.length; i++) {
             vm.store(address(gateway), INITIALIZABLE_SLOT, bytes32(unsupported[i]));
             vm.expectRevert("Unsupported IntentGateway version");
@@ -416,7 +424,7 @@ contract IntentGatewayModulesTest is MainnetForkBaseTest {
             assertEq(_implementationOf(address(gateway)), address(next), "implementation installed");
             assertEq(gateway.intrinsicModule(), next.intrinsicModule(), "modules follow the implementation");
             assertEq(gateway.extrinsicModule(), next.extrinsicModule());
-            assertEq(gateway.version(), 3, "no migration ran");
+            assertEq(gateway.version(), 4, "no migration ran");
             assertEq(gateway._nonce(), 1, "_nonce preserved");
             assertEq(gateway._orders(commitment, address(usdc)), 1000 * 1e6, "escrow preserved");
             assertEq(gateway.instance(bytes("DEST_CHAIN")), address(gateway), "peers preserved");

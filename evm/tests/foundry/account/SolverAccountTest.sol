@@ -79,13 +79,42 @@ contract SolverAccountTest is Test {
     // Constructor Tests
     // ============================================
 
-    function test_FillCapabilitiesIdentifyCompiledSelector() public view {
-        assertTrue(solverAccount.supportsRateFills());
-        assertTrue(intentGateway.supportsRateFills());
-        assertEq(solverAccount.fillOrderSelector(), intentGateway.fillOrder.selector);
-        assertEq(intentGateway.fillOrderSelector(), intentGateway.fillOrder.selector);
+    function test_ReleaseVersionProtectsCurrentAndHistoricalSelectors() public view {
+        assertEq(solverAccount.version(), 4);
+        assertEq(intentGateway.version(), 4);
         assertNotEq(intentGateway.fillOrder.selector, bytes4(0xa5470064));
         assertNotEq(intentGateway.fillOrder.selector, bytes4(0x5cfb1ea5));
+    }
+
+    function testVersionTwoMigrationShiftsRelayerOnce() public {
+        bytes32 initSlot = 0xf0c57e16840df040f15088dc2f81fe391c3923bec73e23a9662efc9c229c6a00;
+        vm.store(address(intentGateway), initSlot, bytes32(uint256(2)));
+        address relayer = address(0x123456);
+        vm.store(address(intentGateway), bytes32(uint256(13)), bytes32(uint256(uint160(relayer)) << 8));
+        vm.prank(intentGateway.host());
+        intentGateway.migrate(address(0xabc));
+        assertEq(intentGateway.version(), 4);
+        assertEq(intentGateway.owner(), address(0xabc));
+        assertEq(intentGateway.relayer(), relayer);
+    }
+
+    function testVersionThreeMigrationPreservesGovernanceState() public {
+        bytes32 initSlot = 0xf0c57e16840df040f15088dc2f81fe391c3923bec73e23a9662efc9c229c6a00;
+        vm.store(address(intentGateway), initSlot, bytes32(uint256(3)));
+        address relayer = address(0x123456);
+        vm.store(address(intentGateway), bytes32(uint256(13)), bytes32(uint256(uint160(relayer))));
+        intentGateway.transferOwnership(address(0xabc));
+        intentGateway.pause();
+        vm.prank(intentGateway.host());
+        intentGateway.migrate(address(0));
+        assertEq(intentGateway.version(), 4);
+        assertEq(intentGateway.owner(), address(this));
+        assertEq(intentGateway.pendingOwner(), address(0xabc));
+        assertTrue(intentGateway.paused());
+        assertEq(intentGateway.relayer(), relayer);
+        vm.prank(intentGateway.host());
+        vm.expectRevert();
+        intentGateway.migrate(address(this));
     }
 
     function test_Constructor_SetsCachedValues() public view {

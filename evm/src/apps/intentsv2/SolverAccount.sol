@@ -57,14 +57,9 @@ contract SolverAccount is Account, ERC7821, IERC1271 {
     bytes4 private constant HISTORICAL_FILL_ORDER_SELECTOR = 0xa5470064;
     bytes4 private constant HISTORICAL_FILL_ORDER_NO_EXPIRY_SELECTOR = 0x5cfb1ea5;
 
-    /// @notice Includes solver-priced fills in the signature-stripping defense.
-    function supportsRateFills() external pure returns (bool) {
-        return true;
-    }
-
-    /// @notice The current fillOrder selector protected by this account.
-    function fillOrderSelector() external pure returns (bytes4) {
-        return FILL_ORDER_SELECTOR;
+    /// @notice Account release protecting the current and historical fillOrder selectors.
+    function version() external pure returns (uint64) {
+        return 4;
     }
 
     /**

@@ -88,9 +88,8 @@ contract IntentGatewayV2 is
     address public immutable extrinsicModule;
 
     /// @dev The `Initializable` version this implementation lands a proxy on, through `initialize`
-    /// or `migrate`. 3 is the module split and the owner; bumped by every implementation that ships
-    /// a `migrate`.
-    uint64 private constant VERSION = 3;
+    /// or `migrate`. Version 4 adds solver input quotes to FillOptions.
+    uint64 private constant VERSION = 4;
 
     /**
      * @dev Sets the EIP-712 domain ("IntentGateway", "2"), records the modules, and locks this raw
@@ -188,24 +187,27 @@ contract IntentGatewayV2 is
     }
 
     /**
-     * @dev Takes a proxy from an earlier implementation to `VERSION`: moves the relayer and sets the
-     * owner. Host-only and one-shot; delivered as the calldata of the upgrade that installs this
-     * implementation, so nothing reads `_relayer` in between.
-     *
-     * Earlier implementations kept an unused `bool _paused` at slot 13 offset 0, with `_relayer`
-     * packed behind it at offset 1. That byte is gone, so `_relayer` is now read from offset 0;
-     * shifting slot 13 right by one byte moves the relayer there and drops the old flag. A proxy
-     * that never set a relayer holds zero either way. The owner and the pause flag live at
-     * OpenZeppelin's namespaced slots.
-     * @param owner_ The owner, who may pause the gateway. Must be non-zero.
+     * @dev Migrates supported version-2 or owner-layout version-3 proxies to this release.
+     * Version 2 needs the original relayer-slot shift and ownership initialization;
+     * version 3 already has that layout and keeps its governance state unchanged.
+     * Must run atomically with the host-authorized implementation upgrade.
+     * @param owner_ Initial owner for version 2; ignored for version 3.
      */
-    function migrate(address owner_) external onlyHost reinitializer(VERSION) {
-        assembly ("memory-safe") {
-            sstore(_relayer.slot, shr(8, sload(_relayer.slot)))
+    function migrate(address owner_) external onlyHost {
+        uint64 previousVersion = _getInitializedVersion();
+        if (previousVersion != 2 && previousVersion != 3) revert InvalidInitialization();
+        _migrate(previousVersion, owner_);
+    }
+
+    function _migrate(uint64 previousVersion, address owner_) private reinitializer(VERSION) {
+        if (previousVersion == 2) {
+            assembly ("memory-safe") {
+                sstore(_relayer.slot, shr(8, sload(_relayer.slot)))
+            }
+            __Ownable_init(owner_);
+            __Ownable2Step_init();
+            __Pausable_init();
         }
-        __Ownable_init(owner_);
-        __Ownable2Step_init();
-        __Pausable_init();
     }
 
     /**
@@ -481,16 +483,6 @@ contract IntentGatewayV2 is
      */
     function fillOrder(Order calldata order, FillOptions calldata options) public payable whenNotPaused nonReentrant {
         _fillOrder(order, options, options.inputs);
-    }
-
-    /// @notice Whether this implementation accepts solver-priced fills.
-    function supportsRateFills() external pure returns (bool) {
-        return true;
-    }
-
-    /// @notice The fillOrder selector accepted by this implementation.
-    function fillOrderSelector() external pure returns (bytes4) {
-        return this.fillOrder.selector;
     }
 
     function _fillOrder(Order calldata order, FillOptions calldata options, TokenInfo[] memory inputs) internal {

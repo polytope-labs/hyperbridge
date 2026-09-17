@@ -26,9 +26,17 @@ error — so they are stated here rather than rediscovered:
 - **Chaintypes come from the source file.** `subql build` writes the compiled one at the end of the
   same build that generates manifests, so testing for the artifact omits the line on any clean
   checkout. A Hyperbridge node without it cannot decode its own blocks: its hasher is keccak.
-- **The Hyperbridge node runs with `--unfinalized-blocks`.** It starts at the chain head, where the
-  best header moves under it; otherwise it dies on an assertion in `UnfinalizedBlocksService` and,
-  with `restart: always`, polls only between restarts.
+- **The Hyperbridge node indexes finalized blocks, as production does**, and its manifest starts at
+  the finalized head rather than the best one — starting above finality puts it ahead of anything it
+  can index. This is what makes the test exercise the real thing: the poll handler sees blocks
+  already trailing wall clock by the chain's finality lag (40–60 s on Nexus), which is the lag
+  `LIVE_SLACK_MS` exists to cover.
+
+  It comes at a cost. On reaching the tip the node dies on an assertion inside
+  `UnfinalizedBlocksService` ("Expect best header and checking header to be at the same height"),
+  reproduced here with and without worker threads, and `restart: always` brings it back. Discovery
+  survives that — it polls and queues within the first minute — but the node is restarting
+  underneath. The same image and flags run in production, so this is not specific to the test.
 - **Every block must carry a transaction** (`scripts/tests/anvil-heartbeat.cjs`). SubQuery treats a
   block with no transactions as light and runs no block handlers on it, and an idle fork mines nothing
   else. Live chains have this property already.

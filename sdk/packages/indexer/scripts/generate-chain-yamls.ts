@@ -78,7 +78,11 @@ const generateSubstrateYaml = async (chain: string, config: Configuration) => {
 		const rpcUrl = process.env[chain.replace(/-/g, "_").toUpperCase()]?.split(",")[0]
 		const rpc = new RpcWebSocketClient()
 		await rpc.connect(rpcUrl as string)
-		const header = (await rpc.call("chain_getHeader", [])) as { number: Hex }
+		// The FINALIZED head, not the best one: these nodes index finalized blocks, so starting them
+		// at the best head — several blocks ahead of finality — starts them ahead of anything they
+		// can index, and the node dies on an assertion inside UnfinalizedBlocksService.
+		const finalized = (await rpc.call("chain_getFinalizedHead", [])) as Hex
+		const header = (await rpc.call("chain_getHeader", [finalized])) as { number: Hex }
 		blockNumber = hexToNumber(header.number)
 	}
 

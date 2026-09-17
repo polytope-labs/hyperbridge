@@ -34,11 +34,12 @@ services:
             - --allow-schema-migration
             - --unsafe
             - --log-level=${LOG_LEVEL:-info}
-            # This node starts at the chain's head, where the best header moves under it. Without
-            # unfinalized-block tracking it dies on an assertion inside UnfinalizedBlocksService
-            # ("Expect best header and checking header to be at the same height") and, with
-            # restart: always, crash-loops — polling the watchlist only in the gaps between restarts.
-            - --unfinalized-blocks
+            # No --unfinalized-blocks, matching production: every Hyperbridge node indexes finalized
+            # blocks. That is what makes this test exercise the real thing — the poll handler sees
+            # blocks already trailing wall clock by the chain's finality lag, 40-60s on Nexus, which
+            # is the lag LIVE_SLACK_MS has to cover. The manifest's start block is the finalized
+            # head for the same reason; starting at the best head puts the node ahead of what it can
+            # index, and it dies on an assertion inside UnfinalizedBlocksService.
             - --store-cache-async=false
             - --store-cache-threshold=1
 

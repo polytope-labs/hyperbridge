@@ -56,7 +56,7 @@ export const schemaConfiguration = z.record(
 
 export type ConfigObject = z.infer<typeof schemaConfiguration>
 export type Configuration = ConfigObject[0]
-export type Environment = "local" | "testnet" | "mainnet" | "nexus-ci"
+export type Environment = "local" | "testnet" | "mainnet" | "nexus-ci" | "solver-ci"
 
 /**
  * Validate configuration for the configuration structure and validate the schema.

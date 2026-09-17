@@ -66,9 +66,9 @@ const generateSubstrateYaml = async (chain: string, config: Configuration) => {
 	const endpoints = generateEndpoints(chain)
 
 	let blockNumber: number
-	// Only connect to RPC when we actually need the live head (local/nexus-ci).
+	// Only connect to RPC when we actually need the live head (local/nexus-ci/solver-ci).
 	// For other environments we use the static startBlock from config.
-	if (skipRpc || (currentEnv !== "local" && currentEnv !== "nexus-ci")) {
+	if (skipRpc || !["local", "nexus-ci", "solver-ci"].includes(currentEnv)) {
 		blockNumber = config.startBlock
 	} else {
 		// Expect comma-separated endpoints in env var
@@ -128,9 +128,9 @@ const generateEvmYaml = async (chain: string, config: Configuration) => {
 	const endpoints = generateEndpoints(chain)
 
 	let blockNumber: number
-	// Only connect to RPC when we actually need the live head (local env).
-	// For other environments we use the static startBlock from config.
-	if (skipRpc || currentEnv !== "local") {
+	// Only connect to RPC when we actually need the live head (local/solver-ci: an anvil fork
+	// starts at whatever block it forked from). For other environments we use config's startBlock.
+	if (skipRpc || !["local", "solver-ci"].includes(currentEnv)) {
 		blockNumber = config.startBlock
 	} else {
 		// Expect comma-separated endpoints in env var

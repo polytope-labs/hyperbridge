@@ -27,6 +27,12 @@ Two consumers of that data change:
 Removing entities is a destructive migration. The substrate schema leader needs
 `SUBQL_ALLOW_DESTRUCTIVE_MIGRATION=true` for the restart that applies it, and the dropped tables' data is lost.
 
+Merging `main` removed the rest of the same machinery it had grown meanwhile:
+`IntentGatewayV3Service.publishInventoryAfterFill`, `publishInventoryAfterEscrowRelease`, and
+`filledBeneficiary`, whose only caller was the escrow-release publication. Both escrow-release
+handlers still record the release; `recordEscrowRelease` decides REDEEMED versus a non-finalizing
+partial redeem on its own.
+
 Files: `src/configs/schema.graphql`, `src/mappings/mappingHandlers.ts`, `scripts/generate-chain-yamls.ts`,
 `scripts/templates/substrate-chain.yaml.hbs`, `package.json`, `src/services/intentGatewayV3.service.ts`,
 `src/services/orderbookRates.service.ts` (new), `src/services/yieldVault.service.ts`,

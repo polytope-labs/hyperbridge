@@ -28,6 +28,12 @@ The EVM manifest gains one ERC-20 datasource per supported token and the block h
 gains the poll. `HYPERFX_WATCHLIST_URL` is a new tracked environment variable. `safeFetch` gains a timeout, 30 s
 by default.
 
+`SolverDelegation.delegated` is deliberately not indexed. In historical mode SubQuery rebuilds every
+index as GIST over (fields…, `_block_range`), and `btree_gist` has no operator class for boolean, so
+an index there makes the whole schema fail to create. Filtering on it still works, within what the
+`(chain, solver)` index has already narrowed. Enums are unaffected — `anyenum` is covered — so
+`TrackedSolver`'s `["chain", "status"]` is fine.
+
 Files: `src/configs/schema.graphql`, `src/configs/abis/Erc20.abi.json` (new),
 `src/services/solverInventory.service.ts` (new), `src/services/solverWatchlist.service.ts` (new),
 `src/handlers/events/solverInventory/tokenTransfer.event.handler.ts` (new),

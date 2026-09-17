@@ -9,19 +9,6 @@ import {
 	type WizardState,
 } from "../state"
 
-function curvesAreUntouched(points: EditorPoint[]): boolean {
-	return points.every((point) => !point.value.trim())
-}
-
-export function prefillCurves(draft: PairDraft, usdStables: string[]): Partial<PairDraft> {
-	const bothStable = usdStables.includes(normSymbol(draft.token0)) && usdStables.includes(normSymbol(draft.token1))
-	if (!bothStable) return {}
-	const patch: Partial<PairDraft> = {}
-	if (curvesAreUntouched(draft.bid)) patch.bid = [{ amount: "0", value: "1.001" }]
-	if (curvesAreUntouched(draft.ask)) patch.ask = [{ amount: "0", value: "0.999" }]
-	return patch
-}
-
 /** Derived market state and initialization rules for the strategy step. */
 export function useStrategiesModel(options: {
 	state: WizardState
@@ -66,7 +53,7 @@ export function useStrategiesModel(options: {
 				fxSeeded: true,
 				pairs: [
 					...current.pairs,
-					...drafts.map((draft) => ({ ...draft, ...prefillCurves(draft, defaults.usdStables) })),
+					...drafts,
 				],
 			}
 		})

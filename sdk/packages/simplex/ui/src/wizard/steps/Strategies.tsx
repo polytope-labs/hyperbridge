@@ -2,9 +2,9 @@ import { useState } from "react"
 import { isRegistrySymbol } from "@/config/asset-registry"
 import { TokenPairIcons } from "../../components/TokenIcon"
 import { WizardDialog } from "../../components/WizardDialog"
-import { newCrossAssetDraft, normSymbol, removeAt, type PairDraft } from "../state"
+import { newCrossAssetDraft, normSymbol, removeAt } from "../state"
 import { MarketRow } from "../strategies/MarketRow"
-import { prefillCurves, useStrategiesModel } from "../strategies/useStrategiesModel"
+import { useStrategiesModel } from "../strategies/useStrategiesModel"
 import type { StepProps } from "../Wizard"
 
 
@@ -56,6 +56,7 @@ export function StepStrategies({ state, setState, defaults }: StepProps) {
 						</div>
 					))}
 				</div>
+			</section>
 
 			<WizardDialog
 				open={editingPair !== null}
@@ -79,13 +80,7 @@ export function StepStrategies({ state, setState, defaults }: StepProps) {
 							)}
 							customAssets={state.customAssets}
 							onPatch={(patch) => patchPair(editingPairIndex, patch)}
-							onSymbolChange={(patch) => {
-								const next = { ...editingPair, ...patch }
-								patchPair(editingPairIndex, {
-									...patch,
-									...prefillCurves(next, defaults.usdStables),
-								})
-							}}
+							onSymbolChange={(patch) => patchPair(editingPairIndex, patch)}
 							onRenameAsset={(from, to) =>
 								setState((s) => {
 									const customAssets = { ...s.customAssets }

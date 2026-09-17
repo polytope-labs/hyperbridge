@@ -77,6 +77,24 @@ export function OperatorMarkets(props: OperatorMarketsProps) {
 				) : null}
 			</OperatorSheet>
 
+			<OperatorSheet
+				open={showAddMarket}
+				onClose={() => setShowAddMarket(false)}
+				wide
+				title="Create a market"
+				description="Choose the asset pair this filler should quote."
+			>
+				<CreateMarketForm
+					symbols={marketSymbols(config)}
+					chains={chains}
+					chainLabel={(id) => chainLabels?.[String(id)] ?? `Chain ${id}`}
+					onAdded={async () => {
+						setShowAddMarket(false)
+						await onChanged()
+					}}
+					onCancel={() => setShowAddMarket(false)}
+				/>
+			</OperatorSheet>
 		</>
 	)
 }

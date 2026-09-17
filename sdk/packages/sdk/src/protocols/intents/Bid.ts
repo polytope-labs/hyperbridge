@@ -13,13 +13,14 @@ import type {
 } from "@/types"
 import { ADDRESS_ZERO, bytes32ToBytes20, normalizeStateMachineId, retryPromise } from "@/utils"
 import type Decimal from "decimal.js"
-import { concat, encodeFunctionData, parseEventLogs } from "viem"
+import { concat, encodeFunctionData, parseEventLogs, toEventSelector } from "viem"
 import type { Hex } from "viem"
 import { BundlerRpcError, CryptoUtils } from "./CryptoUtils"
 import type { IntentGatewayContext } from "./types"
 import { BundlerMethod } from "./types"
 
-const USER_OPERATION_EVENT_ABI = [
+const ENTRY_POINT_EVENT_ABI = [
+	{ type: "event", name: "BeforeExecution", inputs: [] },
 	{
 		type: "event",
 		name: "UserOperationEvent",
@@ -389,40 +390,71 @@ export class BidImpl implements Bid {
 			)
 		}
 		let userOpSucceeded: boolean | undefined
+		let executionLogs: typeof chainReceipt.logs | undefined
 		try {
-			const userOpEvents = parseEventLogs({
-				abi: USER_OPERATION_EVENT_ABI,
-				logs: chainReceipt.logs,
-				eventName: "UserOperationEvent",
+			const boundaryTopics = ENTRY_POINT_EVENT_ABI.map((event) => toEventSelector(event))
+			const boundaryLogs = chainReceipt.logs.filter(
+				(log) =>
+					log.address.toLowerCase() === entryPointAddress.toLowerCase() &&
+					boundaryTopics.some((topic) => topic === log.topics[0]),
+			)
+			const boundaries = parseEventLogs({
+				abi: ENTRY_POINT_EVENT_ABI,
+				logs: boundaryLogs,
+				eventName: ["BeforeExecution", "UserOperationEvent"],
 			})
-			const matched = userOpEvents.find(
+			// Skipping a malformed boundary could attribute a previous operation's fill.
+			if (boundaries.length !== boundaryLogs.length) throw new Error("Malformed EntryPoint operation boundary")
+			const matching = boundaries.filter(
 				(event) =>
-					event.address.toLowerCase() === entryPointAddress.toLowerCase() &&
+					event.eventName === "UserOperationEvent" &&
 					event.args.userOpHash.toLowerCase() === userOpHash.toLowerCase() &&
 					event.args.sender.toLowerCase() === signedUserOp.sender.toLowerCase() &&
 					event.args.nonce === signedUserOp.nonce,
 			)
-			if (matched) userOpSucceeded = matched.args.success
+			const matched = matching.length === 1 ? matching[0] : undefined
+			if (matched?.eventName === "UserOperationEvent") {
+				userOpSucceeded = matched.args.success
+				// v0.8 emits operation logs before UserOperationEvent. The previous
+				// operation event (or BeforeExecution) separates this fill from the bundle.
+				const previous = boundaries[boundaries.indexOf(matched) - 1]
+				const start = previous?.logIndex
+				const end = matched.logIndex
+				const ordered = chainReceipt.logs.every(
+					(log, index, logs) =>
+						log.logIndex !== null &&
+						Number.isSafeInteger(log.logIndex) &&
+						log.logIndex >= 0 &&
+						(index === 0 || log.logIndex > logs[index - 1].logIndex!),
+				)
+				if (ordered && start != null && end != null && start < end) {
+					executionLogs = chainReceipt.logs.filter((log) => log.logIndex! > start && log.logIndex! < end)
+				}
+			}
 		} catch {
 			// Missing or malformed operation evidence remains pending.
 		}
 		if (userOpSucceeded === undefined)
-			throw new BidExecutionPendingError(userOpHash, "No matching EntryPoint UserOperationEvent")
+			throw new BidExecutionPendingError(userOpHash, "No unique matching EntryPoint UserOperationEvent")
 		if (userOpSucceeded === false) {
 			throw new BidExecutionRejectedError(`UserOperation failed in confirmed transaction ${txnHash}`)
+		}
+		if (!executionLogs) {
+			throw new BidExecutionPendingError(userOpHash, "Missing or ambiguous EntryPoint operation boundaries")
 		}
 
 		try {
 			const events = parseEventLogs({
 				abi: IntentGatewayV2ABI,
-				logs: chainReceipt.logs,
+				logs: executionLogs,
 				eventName: ["OrderFilled", "PartialFill"],
 			})
 			const matched = events.find((e) => {
 				if (e.address.toLowerCase() !== intentGatewayV2Address.toLowerCase()) return false
-				if (e.eventName === "OrderFilled") return e.args.commitment.toLowerCase() === commitment.toLowerCase()
-				if (e.eventName === "PartialFill") return e.args.commitment.toLowerCase() === commitment.toLowerCase()
-				return false
+				return (
+					e.args.commitment.toLowerCase() === commitment.toLowerCase() &&
+					e.args.filler.toLowerCase() === accepted.solverAddress.toLowerCase()
+				)
 			})
 			if (matched?.eventName === "OrderFilled") {
 				fillStatus = "full"

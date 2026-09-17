@@ -16,6 +16,7 @@ const COMMITMENT = `0x${"ab".repeat(32)}` as HexString
 const SESSION = "0x5555555555555555555555555555555555555555" as HexString
 
 const USER_OPERATION_EVENT_ABI = [
+	{ type: "event", name: "BeforeExecution", inputs: [] },
 	{
 		type: "event",
 		name: "UserOperationEvent",
@@ -74,8 +75,15 @@ function makeResult(userOp: PackedUserOperation, solverAddress: HexString): Sele
 	}
 }
 
-function userOperationEventLog(address: HexString, success: boolean) {
-	const userOp = makeUserOp(SOLVER_ONE)
+function beforeExecutionLog(address = ENTRY_POINT) {
+	return {
+		address,
+		topics: encodeEventTopics({ abi: USER_OPERATION_EVENT_ABI, eventName: "BeforeExecution" }),
+		data: "0x",
+	}
+}
+
+function userOperationEventLog(address: HexString, success: boolean, userOp = makeUserOp(SOLVER_ONE)) {
 	const userOpHash = CryptoUtils.computeUserOpHash(userOp, ENTRY_POINT, 8453n)
 	return {
 		address,
@@ -91,12 +99,16 @@ function userOperationEventLog(address: HexString, success: boolean) {
 	}
 }
 
-function orderFilledLog(address: HexString) {
+function orderFilledLog(
+	address: HexString,
+	filler = SOLVER_ONE,
+	eventName: "OrderFilled" | "PartialFill" = "OrderFilled",
+) {
 	return {
 		address,
 		topics: encodeEventTopics({
 			abi: IntentGatewayV2ABI,
-			eventName: "OrderFilled",
+			eventName,
 			args: { commitment: COMMITMENT },
 		}),
 		data: encodeAbiParameters(
@@ -117,7 +129,7 @@ function orderFilledLog(address: HexString) {
 					],
 				},
 			],
-			[SOLVER_ONE, [], []],
+			[filler, [], []],
 		),
 	}
 }
@@ -156,7 +168,10 @@ function concreteBidWithReceipt(params: {
 			},
 			client: {
 				chain: { id: 8453 },
-				waitForTransactionReceipt: vi.fn(async () => params.chainReceipt),
+				waitForTransactionReceipt: vi.fn(async () => ({
+					...params.chainReceipt,
+					logs: params.chainReceipt.logs.map((log, logIndex) => ({ logIndex, ...(log as object) })),
+				})),
 			},
 		},
 		sessionKeyStorage: {
@@ -183,7 +198,10 @@ describe("Order execution bid-selection integration", () => {
 	it("advances to the next bid after a chain-confirmed failed UserOperation", async () => {
 		const { ctx, bid: failed } = concreteBidWithReceipt({
 			userOpReceipt: { success: false, receipt: { transactionHash: `0x${"55".repeat(32)}` } },
-			chainReceipt: { status: "success", logs: [userOperationEventLog(ENTRY_POINT, false)] },
+			chainReceipt: {
+				status: "success",
+				logs: [beforeExecutionLog(), userOperationEventLog(ENTRY_POINT, false)],
+			},
 		})
 		vi.spyOn(failed, "simulate").mockResolvedValue()
 		const secondResult = makeResult(makeUserOp(SOLVER_TWO), SOLVER_TWO)
@@ -217,9 +235,10 @@ describe("Order execution bid-selection integration", () => {
 			chainReceipt: {
 				status: "success",
 				logs: [
+					beforeExecutionLog(),
 					userOperationEventLog(SOLVER_ONE, false),
-					userOperationEventLog(ENTRY_POINT, true),
 					orderFilledLog(SOLVER_TWO),
+					userOperationEventLog(ENTRY_POINT, true),
 				],
 			},
 		})
@@ -230,10 +249,109 @@ describe("Order execution bid-selection integration", () => {
 	it("does not accept a fill event emitted outside the configured gateway", async () => {
 		const { bid } = concreteBidWithReceipt({
 			userOpReceipt: { success: true, receipt: { transactionHash: `0x${"55".repeat(32)}` } },
-			chainReceipt: { status: "success", logs: [orderFilledLog(SOLVER_ONE)] },
+			chainReceipt: {
+				status: "success",
+				logs: [beforeExecutionLog(), orderFilledLog(SOLVER_ONE), userOperationEventLog(ENTRY_POINT, true)],
+			},
 		})
 
 		await expect(bid.execute()).rejects.toBeInstanceOf(BidExecutionPendingError)
+	})
+
+	it.each([
+		{ label: "another solver", previous: makeUserOp(SOLVER_TWO) },
+		{ label: "the same solver with another nonce", previous: { ...makeUserOp(), nonce: 0n } },
+	])("uses our full fill after an earlier partial fill from $label", async ({ previous }) => {
+		const { bid } = concreteBidWithReceipt({
+			userOpReceipt: { receipt: { transactionHash: `0x${"55".repeat(32)}` } },
+			chainReceipt: {
+				status: "success",
+				logs: [
+					beforeExecutionLog(),
+					orderFilledLog(SOLVER_TWO, previous.sender, "PartialFill"),
+					userOperationEventLog(ENTRY_POINT, true, previous),
+					orderFilledLog(SOLVER_TWO),
+					userOperationEventLog(ENTRY_POINT, true),
+				],
+			},
+		})
+
+		await expect(bid.execute()).resolves.toMatchObject({ fillStatus: "full", filledAssets: undefined })
+	})
+
+	it.each([
+		{
+			label: "the filler is another solver",
+			logs: [
+				beforeExecutionLog(),
+				orderFilledLog(SOLVER_TWO, SOLVER_TWO),
+				userOperationEventLog(ENTRY_POINT, true),
+			],
+		},
+		{
+			label: "the fill follows our terminal operation event",
+			logs: [beforeExecutionLog(), userOperationEventLog(ENTRY_POINT, true), orderFilledLog(SOLVER_TWO)],
+		},
+		{
+			label: "the first operation has no BeforeExecution boundary",
+			logs: [orderFilledLog(SOLVER_TWO), userOperationEventLog(ENTRY_POINT, true)],
+		},
+		{
+			label: "BeforeExecution comes from another address",
+			logs: [
+				beforeExecutionLog(SOLVER_TWO),
+				orderFilledLog(SOLVER_TWO),
+				userOperationEventLog(ENTRY_POINT, true),
+			],
+		},
+		{
+			label: "an earlier operation boundary is malformed",
+			logs: [
+				beforeExecutionLog(),
+				orderFilledLog(SOLVER_TWO),
+				{ ...userOperationEventLog(ENTRY_POINT, true, { ...makeUserOp(), nonce: 0n }), data: "0x" },
+				userOperationEventLog(ENTRY_POINT, true),
+			],
+		},
+		{
+			label: "the terminal log has no position",
+			logs: [
+				beforeExecutionLog(),
+				orderFilledLog(SOLVER_TWO),
+				{ ...userOperationEventLog(ENTRY_POINT, true), logIndex: null },
+			],
+		},
+		{
+			label: "receipt log positions overlap",
+			logs: [
+				beforeExecutionLog(),
+				orderFilledLog(SOLVER_TWO),
+				{ ...userOperationEventLog(ENTRY_POINT, true), logIndex: 1 },
+			],
+		},
+		{
+			label: "the matching operation event is duplicated",
+			logs: [
+				beforeExecutionLog(),
+				orderFilledLog(SOLVER_TWO),
+				userOperationEventLog(ENTRY_POINT, true),
+				userOperationEventLog(ENTRY_POINT, true),
+			],
+		},
+	])("keeps the accepted bid pending when $label", async ({ logs }) => {
+		const { ctx, bid } = concreteBidWithReceipt({
+			userOpReceipt: { receipt: { transactionHash: `0x${"55".repeat(32)}` } },
+			chainReceipt: { status: "success", logs },
+		})
+		vi.spyOn(bid, "simulate").mockResolvedValue()
+		const secondExecute = vi.fn(async () => makeResult(makeUserOp(SOLVER_TWO), SOLVER_TWO))
+		const second = makeBid({ solverAddress: SOLVER_TWO, amount: 110n, execute: secondExecute })
+		const manager = new BidManager(ctx as never, {} as never)
+
+		await expect(manager.selectAndExecuteBest(makeOrder(), [bid, second])).rejects.toBeInstanceOf(
+			BidExecutionPendingError,
+		)
+		expect(secondExecute).not.toHaveBeenCalled()
 	})
 
 	it("keeps a reverted bundle pending without proof of operation inclusion", async () => {
@@ -333,7 +451,7 @@ describe("Order execution bid-selection integration", () => {
 		["phantom", true, true],
 	] as const)("gates %s v3 signing when live=%s configured=%s", async (kind, live, configured) => {
 		const readContract = vi.fn(async ({ address }: { address: string }) =>
-			(address === SOLVER_ONE ? live : address === SESSION ? configured : true) ? "0x68ddf058" : "0x00000000",
+			(address === SOLVER_ONE ? live : address === SESSION ? configured : true) ? 4n : 3n,
 		)
 		const signTypedData = vi.fn(async () => `0x${"11".repeat(65)}` as HexString)
 		const token32 = `0x${"00".repeat(12)}${TOKEN.slice(2)}` as HexString

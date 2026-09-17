@@ -14,6 +14,7 @@ const token = `0x${"55".repeat(32)}` as HexString
 const commitment = `0x${"66".repeat(32)}` as HexString
 const transactionHash = `0x${"77".repeat(32)}` as HexString
 const eventAbi = parseAbi([
+	"event BeforeExecution()",
 	"event UserOperationEvent(bytes32 indexed userOpHash, address indexed sender, address indexed paymaster, uint256 nonce, bool success, uint256 actualGasCost, uint256 actualGasUsed)",
 ])
 const order: Order = {
@@ -40,6 +41,13 @@ function op(nonce = 1n): PackedUserOperation {
 		gasFees: `0x${"00".repeat(32)}`,
 		paymasterAndData: "0x",
 		signature: "0x12",
+	}
+}
+function beforeExecutionLog() {
+	return {
+		address: entryPoint,
+		topics: encodeEventTopics({ abi: eventAbi, eventName: "BeforeExecution" }),
+		data: "0x",
 	}
 }
 function fixture() {
@@ -135,22 +143,7 @@ function fixture() {
 		receipt = {
 			status: "success",
 			logs: [
-				{
-					address: emitter,
-					topics: encodeEventTopics({
-						abi: eventAbi,
-						eventName: "UserOperationEvent",
-						args: {
-							userOpHash: CryptoUtils.computeUserOpHash(op(nonce), entryPoint, 8453n),
-							sender,
-							paymaster: sender,
-						},
-					}),
-					data: encodeAbiParameters(
-						[{ type: "uint256" }, { type: "bool" }, { type: "uint256" }, { type: "uint256" }],
-						[nonce, success, 1n, 1n],
-					),
-				},
+				beforeExecutionLog(),
 				{
 					address: gateway,
 					topics: encodeEventTopics({ abi: ABI, eventName: "OrderFilled", args: { commitment } }),
@@ -175,7 +168,23 @@ function fixture() {
 						[sender, [], []],
 					),
 				},
-			],
+				{
+					address: emitter,
+					topics: encodeEventTopics({
+						abi: eventAbi,
+						eventName: "UserOperationEvent",
+						args: {
+							userOpHash: CryptoUtils.computeUserOpHash(op(nonce), entryPoint, 8453n),
+							sender,
+							paymaster: sender,
+						},
+					}),
+					data: encodeAbiParameters(
+						[{ type: "uint256" }, { type: "bool" }, { type: "uint256" }, { type: "uint256" }],
+						[nonce, success, 1n, 1n],
+					),
+				},
+			].map((log, logIndex) => ({ ...log, logIndex })),
 		}
 	}
 	return {
@@ -438,6 +447,27 @@ describe("submission recovery safety", () => {
 		f.confirm(true, sender)
 		await expect(f.bid().execute()).rejects.toBeInstanceOf(BidExecutionPendingError)
 	})
+	it.each(["another filler", "a fill after the operation event"])(
+		"retains the pending journal during recovery with %s",
+		async (mismatch) => {
+			const f = fixture()
+			f.setFailure(new Error("timeout"))
+			await attempt(f)
+			const stored = pending(f)![1]
+			f.confirm()
+			const receipt = await f.ctx.dest.client.waitForTransactionReceipt()
+			const [before, fill, terminal] = receipt.logs
+			if (mismatch === "another filler") {
+				// The filler is the first non-indexed address in the event data.
+				fill.data = `0x${gateway.slice(2).padStart(64, "0")}${fill.data.slice(66)}`
+			} else {
+				receipt.logs = [before, terminal, fill].map((log, logIndex) => ({ ...log, logIndex }))
+			}
+			expect(await resume(f)).toMatchObject({ status: "FAILED" })
+			expect(pending(f)?.[1]).toBe(stored)
+			expect(f.sent).toHaveLength(1)
+		},
+	)
 	it("uses matching on-chain failure even when the bundler reports success", async () => {
 		const f = fixture()
 		f.confirm(false)
@@ -546,7 +576,10 @@ describe("remaining submission boundaries", () => {
 				[sender, [], [{ token, amount: 40n }]],
 			),
 		}
-		f.setReceipt({ status: "success", logs: [operationLog, partialLog] })
+		f.setReceipt({
+			status: "success",
+			logs: [beforeExecutionLog(), partialLog, operationLog].map((log, logIndex) => ({ ...log, logIndex })),
+		})
 		const original = f.ctx.dest.client.readContract
 		f.ctx.dest.client.readContract = async (args: any) =>
 			args.functionName === "_partialFills" ? 40n : original(args)

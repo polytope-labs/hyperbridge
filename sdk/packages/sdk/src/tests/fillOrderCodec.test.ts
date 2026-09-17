@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest"
-import { slice, keccak256 } from "viem"
+import { slice, keccak256, createPublicClient, custom } from "viem"
+import { baseSepolia } from "viem/chains"
 import {
 	encodeFillOrder,
 	FILL_ORDER_V2_ABI,
@@ -247,18 +248,41 @@ describe("v3 compatibility boundaries", () => {
 	})
 })
 
-describe("missing selector classification", () => {
-	it.each(["ContractFunctionZeroDataError", "ContractFunctionRevertedError"])("falls back for %s", async (name) => {
-		const c = {
-			chain: { id: 8453 },
-			readContract: vi.fn().mockRejectedValue({ name: "ContractFunctionExecutionError", cause: { name } }),
-			getStorageAt: vi.fn().mockResolvedValue(undefined),
-		} as any
-		await expect(getFillOptionsVersion(c, GATEWAY)).resolves.toBe(2)
+describe("missing selector classification with real viem errors", () => {
+	function rpcClient(rpcError?: { code: number; message: string; data?: string }) {
+		const request = vi.fn(async ({ method }: { method: string }) => {
+			if (method !== "eth_call") throw new Error(`Unexpected RPC method: ${method}`)
+			if (rpcError) throw Object.assign(new Error(rpcError.message), rpcError)
+			return "0x"
+		})
+		return createPublicClient({ chain: baseSepolia, transport: custom({ request }, { retryCount: 0 }) })
+	}
+
+	it.each([
+		{ code: -32603, message: "upstream request timeout" },
+		{ code: -32603, message: "upstream request timeout", data: "0x" },
+		{ code: -32601, message: "method not found" },
+		{ code: -32005, message: "rate limit exceeded" },
+	])("propagates provider failure $code: $message", async (rpcError) => {
+		const c = rpcClient(rpcError)
+		await expect(getFillOptionsVersion(c, GATEWAY)).rejects.toThrow(rpcError.message)
+		await expect(supportsRateFills(c, GATEWAY, GATEWAY)).rejects.toThrow(rpcError.message)
 	})
-	it("does not downgrade a JSON-RPC method-not-found provider failure", async () => {
-		await expect(
-			getFillOptionsVersion(client(vi.fn().mockRejectedValue(new Error("method not found"))), GATEWAY),
-		).rejects.toThrow("method not found")
+
+	it.each([
+		{ code: 3, message: "execution reverted", data: "0x" },
+		{ code: -32000, message: "execution reverted", data: "0x" },
+		{ code: -32603, message: "execution reverted", data: "0x" },
+		{ code: -32000, message: "function selector was not recognized and there's no fallback function" },
+	])("retains fallback for genuine EVM failure $code: $message", async (rpcError) => {
+		const c = rpcClient(rpcError)
+		await expect(getFillOptionsVersion(c, GATEWAY)).resolves.toBe(1)
+		await expect(supportsRateFills(c, GATEWAY, GATEWAY)).resolves.toBe(false)
+	})
+
+	it("retains fallback for a successful call returning no data", async () => {
+		const c = rpcClient()
+		await expect(getFillOptionsVersion(c, GATEWAY)).resolves.toBe(1)
+		await expect(supportsRateFills(c, GATEWAY, GATEWAY)).resolves.toBe(false)
 	})
 })

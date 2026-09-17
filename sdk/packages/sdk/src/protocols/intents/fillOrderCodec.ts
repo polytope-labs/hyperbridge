@@ -238,8 +238,16 @@ export const SUPPORTS_RATE_FILLS_ABI = [
 function isMissingSelector(error: unknown): boolean {
 	let current = error
 	while (current && typeof current === "object") {
-		const item = current as { name?: string; cause?: unknown }
-		if (item.name === "ContractFunctionRevertedError" || item.name === "ContractFunctionZeroDataError") return true
+		const item = current as { name?: string; cause?: unknown; code?: number; message?: string }
+		if (item.name === "ContractFunctionZeroDataError") return true
+		// viem also labels JSON-RPC -32603 provider failures ContractFunctionRevertedError.
+		// Require an actual EVM error code or the original RPC message, never that wrapper.
+		if (item.code === 3) return true
+		if (!item.cause || typeof item.cause !== "object") {
+			return /^(?:execution reverted\b|VM Exception while processing transaction:\s*revert\b|function selector was not recognized\b)/i.test(
+				item.message ?? "",
+			)
+		}
 		current = item.cause
 	}
 	return false

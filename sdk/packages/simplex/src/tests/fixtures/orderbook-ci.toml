@@ -1,0 +1,47 @@
+# The HyperFX orderbook as CI runs it: the published image, with the indexer and both gateways
+# answered by `scripts/fake-indexer.mjs` rather than by a chain. One USDC/cNGN book on two chains,
+# matching what `orderbook.live.test.ts` posts. `127.0.0.1` reaches the runner because the container
+# runs with `--network host`; see `.github/workflows/test-simplex-orderbook.yml`.
+
+[server]
+listen = "0.0.0.0:8080"
+database = "sqlite://data/orderbook.db"
+max_orders_per_solver = 200
+max_unvalidated_orders_per_solver = 100
+max_batch_size = 50
+
+[lifecycle]
+min_order_ttl_secs = 900
+sweep_interval_secs = 10
+heartbeat_interval_secs = 60
+signature_skew_secs = 60
+
+[indexer]
+url = "http://127.0.0.1:4000/graphql"
+
+[[pairs]]
+base = "USDC"
+quote = "cNGN"
+price_granularity = "1"
+
+[min_order_size]
+cNGN = 100
+USDC = 100
+
+[chains."EVM-8453"]
+rpc_url = "http://127.0.0.1:4000/rpc/EVM-8453"
+gateway = "0xAe041F7B0CB581876832830baeB6a2Aa2a3C9716"
+solver_accounts = ["0x7cb55539d1144F62422099c3FA3405092022c88C"]
+
+[chains."EVM-8453".tokens]
+"0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" = { symbol = "USDC", decimals = 6 }
+"0x46C85152bFe9f96829aA94755D9f915F9B10EF5F" = { symbol = "cNGN", decimals = 6 }
+
+[chains."EVM-1"]
+rpc_url = "http://127.0.0.1:4000/rpc/EVM-1"
+gateway = "0xAe041F7B0CB581876832830baeB6a2Aa2a3C9716"
+solver_accounts = ["0x7cb55539d1144F62422099c3FA3405092022c88C"]
+
+[chains."EVM-1".tokens]
+"0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" = { symbol = "USDC", decimals = 6 }
+"0x46C85152bFe9f96829aA94755D9f915F9B10EF5F" = { symbol = "cNGN", decimals = 6 }

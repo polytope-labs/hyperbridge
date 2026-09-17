@@ -2,6 +2,7 @@ import { spawn, type ChildProcess } from "node:child_process"
 import { mkdtempSync, writeFileSync } from "node:fs"
 import { createServer } from "node:net"
 import { tmpdir } from "node:os"
+import { fileURLToPath } from "node:url"
 import { join } from "node:path"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import type { HexString } from "@hyperbridge/sdk"
@@ -20,7 +21,9 @@ import { BASE_CHAIN, baseAssetRegistry, BASE_CNGN, BASE_USDC, postingRig } from 
  *   HYPERFX_ORDERBOOK_BIN=/path/to/hyperfx-orderbook      a binary to run on a config written here
  *
  * The binary comes from polytope-labs/hyperfx-orderbook:
- * `cargo build --release -p hyperfx-server --bin hyperfx-orderbook`.
+ * `cargo build --release -p hyperfx-server --bin hyperfx-orderbook`. CI runs the
+ * published image instead and passes the URL, which is what
+ * `.github/workflows/test-simplex-orderbook.yml` does.
  *
  * Nothing else here talks to a real server, so this is the only test that can
  * fail on what the schema check cannot see: an argument the server reads
@@ -49,6 +52,11 @@ const REQUEST = {
 	acceptedSources: [BASE_CHAIN, "EVM-1"],
 }
 
+/** The stub this repo ships, which CI runs the same way. */
+function fakeIndexer(): string {
+	return fileURLToPath(new URL("../../../scripts/fake-indexer.mjs", import.meta.url))
+}
+
 function freePort(): Promise<number> {
 	return new Promise((resolve, reject) => {
 		const probe = createServer()
@@ -61,13 +69,12 @@ function freePort(): Promise<number> {
 	})
 }
 
-/** The server's own dev config, narrowed to the one book this test trades. */
-function configFor(port: number, directory: string): string {
+/** One USDC/cNGN book on two chains, with the indexer and both gateways stubbed. */
+function configFor(port: number, directory: string, indexer: string): string {
 	return `
 [server]
 listen = "127.0.0.1:${port}"
 database = "sqlite://${join(directory, "orderbook.db")}"
-dev_mode = true
 max_orders_per_solver = 200
 max_unvalidated_orders_per_solver = 100
 max_batch_size = 50
@@ -79,8 +86,7 @@ heartbeat_interval_secs = 60
 signature_skew_secs = 60
 
 [indexer]
-url = "http://127.0.0.1:1/graphql"
-enabled = false
+url = "${indexer}/graphql"
 
 [[pairs]]
 base = "USDC"
@@ -92,20 +98,18 @@ cNGN = 100
 USDC = 100
 
 [chains."EVM-8453"]
-rpc_url = "http://127.0.0.1:1"
+rpc_url = "${indexer}/rpc/EVM-8453"
 gateway = "${GATEWAY}"
 solver_accounts = ["0x7cb55539d1144F62422099c3FA3405092022c88C"]
-protocol_fee_bps = 0
 
 [chains."EVM-8453".tokens]
 "${BASE_USDC}" = { symbol = "USDC", decimals = 6 }
 "${BASE_CNGN}" = { symbol = "cNGN", decimals = 6 }
 
 [chains."EVM-1"]
-rpc_url = "http://127.0.0.1:1"
+rpc_url = "${indexer}/rpc/EVM-1"
 gateway = "${GATEWAY}"
 solver_accounts = ["0x7cb55539d1144F62422099c3FA3405092022c88C"]
-protocol_fee_bps = 0
 
 [chains."EVM-1".tokens]
 "${BASE_USDC}" = { symbol = "USDC", decimals = 6 }
@@ -131,6 +135,7 @@ async function awaitReady(client: OrderbookClient, deadlineMs: number): Promise<
 
 describe.skipIf(!RUNNING && !BINARY)("a limit order on a running orderbook", () => {
 	let server: ChildProcess | undefined
+	let indexer: ChildProcess | undefined
 	let client: OrderbookClient
 	let service: LimitOrderService
 	let store: MemoryDataStore
@@ -139,9 +144,10 @@ describe.skipIf(!RUNNING && !BINARY)("a limit order on a running orderbook", () 
 		let url = RUNNING
 		if (!url) {
 			const directory = mkdtempSync(join(tmpdir(), "hyperfx-"))
-			const port = await freePort()
+			const [port, stubPort] = [await freePort(), await freePort()]
+			indexer = spawn(process.execPath, [fakeIndexer(), "--port", String(stubPort)], { stdio: "ignore" })
 			const config = join(directory, "config.toml")
-			writeFileSync(config, configFor(port, directory))
+			writeFileSync(config, configFor(port, directory, `http://127.0.0.1:${stubPort}`))
 			server = spawn(BINARY!, ["--config", config], { stdio: "ignore" })
 			url = `http://127.0.0.1:${port}/graphql`
 		}
@@ -164,7 +170,10 @@ describe.skipIf(!RUNNING && !BINARY)("a limit order on a running orderbook", () 
 		)
 	}, 60_000)
 
-	afterAll(() => server?.kill())
+	afterAll(() => {
+		server?.kill()
+		indexer?.kill()
+	})
 
 	it("is posted, surfaced, resized and withdrawn", async () => {
 		const limits = await client.limits()

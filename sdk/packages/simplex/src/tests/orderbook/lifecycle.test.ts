@@ -158,6 +158,43 @@ describe("the operator's own expiry", () => {
 		expect(client.submitted).toEqual(["0x00"])
 	})
 
+	it("is never put back by reconciliation, whichever clock got there first", async () => {
+		// The sweep runs on the renewal clock and reconciliation on its own, so an
+		// expired order is reachable by a repost before anything has swept it.
+		const client = countingClient([])
+		const { service, store } = makeService(client)
+		const created = await service.create(REQUEST)
+		await service.cancel(created.order.id)
+		await store.create({ ...created.order, id: "gone", expiresAt: "2020-01-01T00:00:00.000Z" })
+
+		expect(await service.reconcile(later())).toEqual({ cancelled: 0, reposted: 0, underFunded: 0 })
+		expect((await store.get("gone"))?.status).toBe("expired")
+		// Only the create; reconciliation posted nothing.
+		expect(client.submitted).toEqual(["0x00"])
+	})
+
+	it("is put back by reconciliation while it is still live", async () => {
+		const client = countingClient([])
+		const { service, store } = makeService(client)
+		const created = await service.create(REQUEST)
+
+		expect(await service.reconcile(later())).toMatchObject({ reposted: 1 })
+		expect((await store.get(created.order.id))?.status).toBe("open")
+		expect(client.submitted).toEqual(["0x00", "0x01"])
+	})
+
+	it("is never put back by a fill that settles after it expired", async () => {
+		const client = countingClient([])
+		const { service, store } = makeService(client)
+		const created = await service.create(REQUEST)
+		await store.create({ ...created.order, id: "late", expiresAt: "2020-01-01T00:00:00.000Z" })
+
+		const settled = await service.settleFill("late", 500_000n * ONE)
+		expect(settled?.status).toBe("expired")
+		expect(settled?.commitment).toBeNull()
+		expect(client.submitted).toEqual(["0x00"])
+	})
+
 	it("treats an expiry it cannot read as no expiry at all", async () => {
 		// `create` refuses one it cannot parse, so this is a row from before that
 		// check existed. The sweep must not guess at it either way.

@@ -26,3 +26,17 @@ which is the case reconciliation exists for, and it would have to be held across
 Rejected: a `reposting` flag on the row. That is the same information `updatedAt` already carries,
 with a second write in front of every repost and a new way for a crash to leave a row lying about
 what it is doing.
+
+
+## The same lesson, applied to expiry
+
+`repost` is where a posting is made, so that is where the reasons not to make one belong. The grace
+period was first written into reconciliation alone and had to be widened to every path; the operator's
+own expiry was first written as a sweep of its own, and reconciliation and a late-settling fill could
+both put an expired order back before the sweep ran. Renewal was safe only because the lifecycle
+happens to sweep immediately before it.
+
+Both checks now sit in `repost`. They are not the same kind of rule, though. The grace period is about
+timing and belongs to the caller that can see the clock, so it stays in reconciliation; expiry is a
+property of the order and is true on whichever clock arrives, so it belongs to the posting. An expired
+order reaching `repost` is retired rather than posted, which is what the sweep would have done.

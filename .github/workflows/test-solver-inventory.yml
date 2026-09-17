@@ -88,6 +88,18 @@ jobs:
             - name: Seed solver balances and delegations
               run: node packages/indexer/scripts/tests/seed-solvers.cjs
 
+            # SubQuery's Ethereum node only runs block handlers on blocks it treats as "full", and
+            # its isFullBlock() calls a block with no transactions light. An idle fork mines nothing
+            # but empty blocks, so the solver block handler — discovery, genesis reads, the head —
+            # would never fire. A real chain never has this problem; one transaction per block here
+            # buys the same property.
+            - name: Keep the fork's blocks non-empty
+              run: |
+                  nohup node packages/indexer/scripts/tests/anvil-heartbeat.cjs > heartbeat.log 2>&1 &
+                  sleep 5
+                  head -3 heartbeat.log
+                  grep -q "one transaction every" heartbeat.log || { cat heartbeat.log; exit 1; }
+
             - name: Start the fake orderbook
               run: |
                   nohup node packages/indexer/scripts/tests/fake-orderbook.cjs > orderbook.log 2>&1 &
@@ -183,6 +195,9 @@ jobs:
                   echo "::group::Indexer"
                   cat packages/indexer/indexer_output.log || true
                   echo "::endgroup::"
+                  echo "::group::Heartbeat"
+                  tail -5 heartbeat.log || true
+                  echo "::endgroup::"
                   echo "::group::Indexer containers"
                   docker compose -f packages/indexer/docker/docker-compose.solver-ci.yml logs --tail=400 || true
                   echo "::endgroup::"
@@ -192,4 +207,5 @@ jobs:
               run: |
                   docker compose -f packages/indexer/docker/docker-compose.solver-ci.yml down -v || true
                   pkill -f "fake-orderbook.cjs" || true
+                  pkill -f "anvil-heartbeat.cjs" || true
                   pkill -f "anvil --fork-url" || true

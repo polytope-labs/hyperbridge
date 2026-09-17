@@ -2746,7 +2746,7 @@ Whether a solver's EOA is EIP-7702-delegated to one of the chain's known SolverA
 event to follow, so it is checked when the solver starts being tracked and again at each daily
 reconciliation. An undelegated solver's orders cannot be filled, so consumers gate on this.
 """
-type SolverDelegation @entity @compositeIndexes(fields: [["chain", "solver"], ["chain", "delegated"]]) {
+type SolverDelegation @entity @compositeIndexes(fields: [["chain", "solver"]]) {
 	"""
 	Composite identifier: {chain}-{solver}.
 	"""
@@ -2764,8 +2764,13 @@ type SolverDelegation @entity @compositeIndexes(fields: [["chain", "solver"], ["
 
 	"""
 	True when the account's code is exactly 0xef0100 ‖ addr, with addr a known SolverAccount.
+
+	Deliberately not indexed: in historical mode SubQuery rebuilds every index as GIST over
+	(fields…, _block_range), and btree_gist has no operator class for boolean, so an index here
+	makes the whole schema fail to create. Filtering on it still works — it is a scan within
+	whatever the (chain, solver) index has already narrowed.
 	"""
-	delegated: Boolean! @index
+	delegated: Boolean!
 
 	"""
 	The address the account delegates to, known or not; null when the code is not a delegation.

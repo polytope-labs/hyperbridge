@@ -65,7 +65,7 @@ import {
  * Module addresses are immutables, so a module upgrade is an ordinary implementation upgrade.
  * Governance reaches `upgradeToAndCall` and `setRelayer` on the extrinsic module through
  * `Execute`; neither is on this contract. The owner, held here at a namespaced slot, can only
- * pause and resume order placement.
+ * pause and resume the gateway.
  */
 contract IntentGatewayV2 is IntentsBase, HyperApp, ReentrancyGuardTransient, Initializable {
     using SafeERC20 for IERC20;
@@ -77,9 +77,9 @@ contract IntentGatewayV2 is IntentsBase, HyperApp, ReentrancyGuardTransient, Ini
     address public immutable extrinsicModule;
 
     /// @dev The `Initializable` version this implementation lands a proxy on, through `initialize`
-    /// or `migrate`. 3 is the module split, 4 the owner; bumped by every implementation that ships
+    /// or `migrate`. 3 is the module split and the owner; bumped by every implementation that ships
     /// a `migrate`.
-    uint64 private constant VERSION = 4;
+    uint64 private constant VERSION = 3;
 
     /// @dev The gateway's owner and the account a transfer is waiting on. Kept at an ERC-7201
     /// namespaced slot rather than in `IntentsBase`'s sequential layout: only this contract reads
@@ -103,13 +103,13 @@ contract IntentGatewayV2 is IntentsBase, HyperApp, ReentrancyGuardTransient, Ini
     /// @dev Emitted when the owner is set, by `initialize`, `migrate` or `acceptOwnership`.
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
 
-    /// @dev Emitted when the owner stops order placement.
+    /// @dev Emitted when the owner pauses the gateway.
     event Paused(address account);
 
-    /// @dev Emitted when the owner resumes order placement.
+    /// @dev Emitted when the owner resumes the gateway.
     event Unpaused(address account);
 
-    /// @dev Thrown by `placeOrder` while the owner has paused placement.
+    /// @dev Thrown by `placeOrder`, `fillOrder` and escrow deliveries while the gateway is paused.
     error EnforcedPause();
 
     /// @dev Reverts unless called by the owner.
@@ -201,7 +201,7 @@ contract IntentGatewayV2 is IntentsBase, HyperApp, ReentrancyGuardTransient, Ini
      * @param peerChains State-machine ids of the cross-chain peers to register, each bound to this
      * gateway's own address so no peer address is carried in the proxy's init data.
      * @param relayer_ The only relayer whose deliveries are accepted. Zero leaves the gate open.
-     * @param owner_ The owner, who may pause order placement. Part of the init data, so the same
+     * @param owner_ The owner, who may pause the gateway. Part of the init data, so the same
      * address on every chain keeps the proxy address identical across chains. Must be non-zero.
      */
     function initialize(Params memory p, bytes[] memory peerChains, address relayer_, address owner_)
@@ -224,13 +224,13 @@ contract IntentGatewayV2 is IntentsBase, HyperApp, ReentrancyGuardTransient, Ini
      * @dev Takes a proxy from an earlier implementation to `VERSION` and sets its owner. Host-only
      * and one-shot; delivered as the calldata of the upgrade that installs this implementation.
      * The storage layout is unchanged: the owner lives at its own namespaced slot.
-     * @param owner_ The owner, who may pause order placement. Must be non-zero.
+     * @param owner_ The owner, who may pause the gateway. Must be non-zero.
      */
     function migrate(address owner_) external onlyHost reinitializer(VERSION) {
         _setOwner(owner_);
     }
 
-    /// @dev The owner, who may pause and resume order placement.
+    /// @dev The owner, who may pause and resume the gateway.
     function owner() external view returns (address) {
         return _ownership().owner;
     }
@@ -240,7 +240,7 @@ contract IntentGatewayV2 is IntentsBase, HyperApp, ReentrancyGuardTransient, Ini
         return _ownership().pendingOwner;
     }
 
-    /// @dev Whether order placement is paused. Fills and cancellations are never paused.
+    /// @dev Whether the gateway is paused, see `pause`.
     function paused() external view returns (bool) {
         return _paused;
     }
@@ -269,15 +269,18 @@ contract IntentGatewayV2 is IntentsBase, HyperApp, ReentrancyGuardTransient, Ini
     }
 
     /**
-     * @dev Stops order placement. Fills, cancellations and cross-chain settlement keep working, so
-     * orders already placed can still complete or be refunded while placement is paused.
+     * @dev Pauses the gateway: `placeOrder`, `fillOrder`, and the host callbacks `onAccept` and
+     * `onGetResponse` revert `EnforcedPause`. A delivery refused while paused stays undelivered on
+     * the host and can be resubmitted once the gateway resumes. Governance deliveries (from
+     * Hyperbridge itself) are never paused, so parameter updates, upgrades and an owner replacement
+     * still land. `cancelOrder` stays open, so users can still start a refund.
      */
     function pause() external onlyOwner {
         _paused = true;
         emit Paused(msg.sender);
     }
 
-    /// @dev Resumes order placement.
+    /// @dev Resumes the gateway.
     function unpause() external onlyOwner {
         _paused = false;
         emit Unpaused(msg.sender);
@@ -303,7 +306,7 @@ contract IntentGatewayV2 is IntentsBase, HyperApp, ReentrancyGuardTransient, Ini
      * @dev Places a new intent order by escrowing the user's input tokens.
      *
      * An order swaps exactly one input for exactly one output; any other shape reverts `InvalidInput`.
-     * Reverts `EnforcedPause` while the owner has paused placement.
+     * Reverts `EnforcedPause` while the gateway is paused.
      *
      * The caller specifies the desired output tokens and destination chain. The function:
      * 1. Stamps the order with the caller's address, source chain, and a unique nonce.
@@ -537,7 +540,7 @@ contract IntentGatewayV2 is IntentsBase, HyperApp, ReentrancyGuardTransient, Ini
      * either same-chain or cross-chain fill logic based on the order's source and
      * destination chains.
      *
-     * Shared validation performed before routing:
+     * Reverts `EnforcedPause` while the gateway is paused. Shared validation performed before routing:
      * 1. Checks the order has not expired (deadline >= current block).
      * 2. Verifies the order has not already been filled.
      * 3. If solver selection is enabled, validates the caller matches the selected
@@ -548,6 +551,7 @@ contract IntentGatewayV2 is IntentsBase, HyperApp, ReentrancyGuardTransient, Ini
      * @param options Fill options including output token amounts and fee parameters.
      */
     function fillOrder(Order calldata order, FillOptions calldata options) public payable nonReentrant {
+        if (_paused) revert EnforcedPause();
         uint256 blockNumber = _blockNumber();
         if (order.deadline < blockNumber) revert Expired();
         // The solver's own bound on how long its quoted price stands. Zero means unbounded,
@@ -644,15 +648,22 @@ contract IntentGatewayV2 is IntentsBase, HyperApp, ReentrancyGuardTransient, Ini
 
     /**
      * @dev Runs `ExtrinsicIntents.onAccept` in the extrinsic module, `msg.sender` still the host.
+     * While paused, only governance deliveries (from Hyperbridge itself) are accepted; escrow
+     * redemptions and refunds from peer gateways revert and stay undelivered on the host.
      */
-    function onAccept(IncomingPostRequest calldata) external override onlyHost {
+    function onAccept(IncomingPostRequest calldata incoming) external override onlyHost {
+        if (_paused && keccak256(incoming.request.source) != keccak256(IDispatcher(host()).hyperbridge())) {
+            revert EnforcedPause();
+        }
         _delegate(extrinsicModule, msg.data);
     }
 
     /**
      * @dev Runs `ExtrinsicIntents.onGetResponse` in the extrinsic module, `msg.sender` still the host.
+     * Reverts while paused; the response stays undelivered on the host.
      */
     function onGetResponse(IncomingGetResponse calldata) external override onlyHost {
+        if (_paused) revert EnforcedPause();
         _delegate(extrinsicModule, msg.data);
     }
 

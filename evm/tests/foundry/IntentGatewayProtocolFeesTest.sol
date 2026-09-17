@@ -396,7 +396,7 @@ contract IntentGatewayProtocolFeesTest is MainnetForkBaseTest {
             abi.encodeCall(ExtrinsicIntents.upgradeToAndCall, (address(deployIntentGatewayImpl()), bytes(""))),
             true
         );
-        assertEq(gateway.version(), 4);
+        assertEq(gateway.version(), 3);
         assertEq(gateway._orders(commitment, address(usdc)), 900);
         uint256 before = usdc.balanceOf(user);
         vm.recordLogs();

@@ -41,7 +41,7 @@ Everything the SDK does in this guide ends in one contract call on the source ch
 function placeOrder(Order calldata order, bytes32 graffiti) external payable;
 ```
 
-The gateway's owner can pause order placement, for example ahead of an upgrade. While `paused()` returns `true`, `placeOrder` reverts with `EnforcedPause()`. Orders that were already placed can still be filled, cancelled and settled.
+The gateway's owner can pause it, for example during an incident or ahead of an upgrade. While `paused()` returns `true`, `placeOrder` and `fillOrder` revert with `EnforcedPause()`, and escrow redemptions and refunds arriving through Hyperbridge are refused until the gateway resumes, when they can be delivered again. `cancelOrder` stays available.
 
 ### Data structures
 

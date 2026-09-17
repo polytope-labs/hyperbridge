@@ -251,7 +251,7 @@ interface IIntentGatewayV2 {
     ///         calldata. Such orders must be filled completely in a single fill.
     error PartialFillNotAllowed();
 
-    /// @notice Thrown by `placeOrder` while the owner has paused order placement.
+    /// @notice Thrown by `placeOrder`, `fillOrder` and escrow deliveries while the gateway is paused.
     error EnforcedPause();
 
     // ============================================
@@ -398,13 +398,13 @@ interface IIntentGatewayV2 {
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
 
     /**
-     * @notice Emitted when the owner pauses order placement.
+     * @notice Emitted when the owner pauses the gateway.
      * @param account The owner that paused
      */
     event Paused(address account);
 
     /**
-     * @notice Emitted when the owner resumes order placement.
+     * @notice Emitted when the owner resumes the gateway.
      * @param account The owner that resumed
      */
     event Unpaused(address account);
@@ -472,12 +472,12 @@ interface IIntentGatewayV2 {
      *         `initialize` puts a fresh one. Host-only and one-shot; emits `Initialized`. It is the
      *         only way up for a proxy already at a version: `initialize` is refused on anything but
      *         a bare proxy. Sets the owner.
-     * @param owner The owner, who may pause order placement; must be non-zero
+     * @param owner The owner, who may pause the gateway; must be non-zero
      */
     function migrate(address owner) external;
 
     /**
-     * @notice The owner, who may pause and resume order placement.
+     * @notice The owner, who may pause and resume the gateway.
      * @return address The owner
      */
     function owner() external view returns (address);
@@ -499,22 +499,24 @@ interface IIntentGatewayV2 {
     function acceptOwnership() external;
 
     /**
-     * @notice Whether order placement is paused. Fills, cancellations and settlement never are.
-     * @return bool True while placement is paused
+     * @notice Whether the gateway is paused: `placeOrder`, `fillOrder`, and escrow redemptions,
+     *         refunds and cancel proofs delivered by Hyperbridge revert `EnforcedPause`. Governance
+     *         deliveries and `cancelOrder` are never paused; a refused delivery can be resubmitted
+     *         once the gateway resumes.
+     * @return bool True while paused
      */
     function paused() external view returns (bool);
 
-    /// @notice Pauses order placement. Owner-only.
+    /// @notice Pauses the gateway. Owner-only.
     function pause() external;
 
-    /// @notice Resumes order placement. Owner-only.
+    /// @notice Resumes the gateway. Owner-only.
     function unpause() external;
 
     /**
-     * @notice The `Initializable` version: 4 once `initialize` or `migrate` has run on the
-     *         implementation with an owner, 3 on the module-split implementation, 2 on the armed
-     *         implementation before it, 1 before the relayer gate. Reverts on implementations that
-     *         predate the gate.
+     * @notice The `Initializable` version: 3 once `initialize` or `migrate` has run on the
+     *         module-split implementation with an owner, 2 on the armed implementation before it, 1
+     *         before the relayer gate. Reverts on implementations that predate the gate.
      * @return uint64 The initialized version
      */
     function version() external view returns (uint64);

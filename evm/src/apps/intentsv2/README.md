@@ -21,7 +21,7 @@ and `extrinsicModule()` were added.
 
 | Contract | Holds | Runtime size |
 |---|---|---|
-| `IntentGatewayV2` | every external entry point and its guards, `placeOrder`, `select`, the shared validation of `fillOrder` and `cancelOrder`, `initialize`, `migrate`, the views | 15,739 bytes |
+| `IntentGatewayV2` | every external entry point and its guards, `placeOrder`, `select`, the shared validation of `fillOrder` and `cancelOrder`, `initialize`, `migrate`, the views | 16,163 bytes |
 | `IntrinsicModule` | `IntrinsicIntents`: `fillSameChain`, `cancelSameChain` | 7,714 bytes |
 | `ExtrinsicModule` | `ExtrinsicIntents`: `fillCrossChain`, `cancelFromSource`, `cancelFromDest`, the `onAccept` and `onGetResponse` handlers with governance and `Execute`, and the host-only `setRelayer` and `upgradeToAndCall` | 17,822 bytes |
 
@@ -42,7 +42,10 @@ on the extrinsic module and are not in the gateway's ABI; `Execute` is the only 
 - **The owner is the implementation's alone.** `IntentGatewayV2` keeps its owner and pending owner
   at the ERC-7201 slot `hyperbridge.storage.IntentGatewayV2.Ownership`, outside the shared
   sequential layout, so the modules never see it and the layout tests are unaffected. The owner
-  can only `pause` and `unpause` order placement. `initialize` and `migrate(owner)` set it,
+  can only `pause` and `unpause` the gateway: `placeOrder`, `fillOrder`, and the escrow deliveries
+  of `onAccept` and `onGetResponse` revert while paused, checked on the implementation before any
+  delegatecall; governance deliveries and `cancelOrder` are not paused. `initialize` and
+  `migrate(owner)` set it,
   transfers are two-step, and the host can propose a replacement through `Execute` carrying
   `upgradeToAndCall(currentImplementation, transferOwnership(next))`.
 - **Module addresses are immutables.** `intrinsicModule()` and `extrinsicModule()` are set in the

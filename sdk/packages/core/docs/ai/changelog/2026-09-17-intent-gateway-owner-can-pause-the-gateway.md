@@ -1,9 +1,12 @@
-# 2026-09-17 — Intent gateway owner pauses order placement
+# 2026-09-17 — Intent gateway owner can pause the gateway
 
 `IntentGatewayV2` has an owner whose only power is `pause()` and `unpause()`. While paused,
-`placeOrder` reverts `EnforcedPause()`; fills, cancellations and cross-chain settlement keep working,
-so placed orders can still complete or be refunded. `paused()` reads the existing `_paused` flag
-(slot 13), which is unset on every live proxy.
+`placeOrder`, `fillOrder` and `onGetResponse` revert `EnforcedPause()`, and so does `onAccept` for any
+request whose source is not Hyperbridge itself: escrow redemptions and refunds from peer gateways are
+refused, governance deliveries still land. The checks run on the implementation before delegatecalling
+a module. A refused delivery reverts, so the host deletes its receipt and the relayer can resubmit it
+after `unpause`. `cancelOrder` is not paused. `paused()` reads the existing `_paused` flag (slot 13),
+which is unset on every live proxy.
 
 The owner and a pending owner live in the implementation at the ERC-7201 slot
 `hyperbridge.storage.IntentGatewayV2.Ownership`, not in `IntentsBase`, so the modules and the
@@ -12,8 +15,8 @@ storage layout are unchanged. `owner()` and `pendingOwner()` read them. Transfer
 `acceptOwnership()` by the pending owner. Governance replaces the owner with an `Execute` carrying
 `upgradeToAndCall(currentImplementation, transferOwnership(next))`.
 
-`VERSION` is 4. `initialize(params, peerChains, relayer, owner)` sets the owner of a fresh proxy and
-`migrate(address owner)`, host-only, sets it for a proxy at 2 or 3; both reject a zero owner.
+`VERSION` stays 3. `initialize(params, peerChains, relayer, owner)` sets the owner of a fresh proxy
+and `migrate(address owner)`, host-only, sets it for a proxy at 2; both reject a zero owner.
 `DeployIntentGateway.s.sol` reads `GATEWAY_OWNER` for new proxies, and
 `intentGatewayUpgradeInitialization(gateway, owner)` builds `migrate(owner)` for upgrades.
 

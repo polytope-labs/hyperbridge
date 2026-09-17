@@ -66,6 +66,11 @@ jobs:
                   sudo apt-get install -y docker-compose netcat-openbsd
                   docker compose version
 
+            # The indexer imports `@hyperbridge/sdk/intents-helpers`, which only exists once the SDK
+            # is built, so its bundle has to be there before the indexer's own build below.
+            - name: Build the SDK
+              run: pnpm --filter "@hyperbridge/sdk" build:node
+
             # Forked, not mocked: the assertions run against the real USDC contract and the real
             # stataUSDC vault, so a wrong token layout or a vault that does not answer fails here
             # rather than passing against a stub. `--block-time` keeps blocks coming, which is what

@@ -25,8 +25,13 @@ output token get distinct proof keys. Fills with output calldata sweep each outp
 dispatcher once.
 
 Getter signatures change: `_orders(bytes32,uint256)`, `_partialFills(bytes32,uint256)` and
-`_protocolFees(bytes32,uint256)`. The SDK refund check, Simplex's source-escrow and partial-fill
-reads, and the indexer, SDK and Simplex ABIs pass the leg index.
+`_protocolFees(bytes32,uint256)`. The indexer, SDK and Simplex ABIs use the leg index. The SDK exports
+`readLegEscrow` and `readLegPartialFill`, which the SDK refund check (`isOrderRefunded`) and Simplex's
+source-escrow check and `partialFillsFor` read through: they call the per-leg getter and, when that
+call reverts, the token-keyed `_orders(bytes32,address)` or `_partialFills(bytes32,bytes32)` of a
+gateway not yet upgraded, remembering per client which one the gateway answers. Token-keyed
+implementations reject repeated input and output tokens, so a token key there is one leg. Transport
+errors never trigger the fallback.
 
 Rollout: an implementation keyed by token and one keyed by leg read the same slots differently, and
 the source chain computes the proof key the destination stores under. Upgrade only once no order
@@ -36,3 +41,6 @@ placement stopped on every chain until all of them run this implementation.
 Files: `contracts/apps/IntentGatewayV2.sol`. Gateway side: `evm/src/apps/IntentGatewayV2.sol`,
 `evm/src/apps/intentsv2/IntentsBase.sol`, `evm/src/apps/intentsv2/IntrinsicIntents.sol`,
 `evm/src/apps/intentsv2/ExtrinsicIntents.sol`, `evm/tests/foundry/IntentGatewayV2MultiLegTest.sol`.
+Off-chain: `sdk/packages/sdk/src/protocols/intents/escrowReads.ts`,
+`sdk/packages/sdk/src/protocols/intents/OrderStatusChecker.ts`, `sdk/packages/simplex/src/core/filler.ts`,
+`sdk/packages/simplex/src/services/ContractInteractionService.ts`.

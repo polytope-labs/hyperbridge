@@ -39,6 +39,9 @@ jobs:
               uses: actions/checkout@v4
               with:
                   ref: ${{ github.event.pull_request.head.sha || github.sha }}
+                  # scripts/build.sh runs protoc over proto/mpcvaultapis to generate src/proto,
+                  # and the test's import graph reaches it through the wallet service.
+                  submodules: recursive
 
             - name: Setup Node.js
               uses: actions/setup-node@v4
@@ -53,6 +56,25 @@ jobs:
             - name: Install dependencies
               working-directory: sdk
               run: pnpm install --frozen-lockfile
+
+            # Straight from GitHub releases, not apt: the runners' default apt mirror has
+            # repeatedly hung apt-get update, and nothing else here needs apt.
+            - name: Install protoc
+              run: |
+                  curl -fsSL -o /tmp/protoc.zip \
+                    https://github.com/protocolbuffers/protobuf/releases/download/v29.3/protoc-29.3-linux-x86_64.zip
+                  sudo unzip -o /tmp/protoc.zip -d /usr/local bin/protoc 'include/*'
+                  protoc --version
+
+            - name: Generate the protobuf client
+              working-directory: sdk/packages/simplex
+              run: pnpm run codegen
+
+            # The test imports `@hyperbridge/sdk`, which resolves to that package's `dist`. A fresh
+            # checkout has none, and vitest fails to collect the file before it reaches the orderbook.
+            - name: Build the SDK
+              working-directory: sdk
+              run: pnpm --filter="@hyperbridge/sdk" build
 
             - name: Start the fake indexer
               working-directory: sdk/packages/simplex

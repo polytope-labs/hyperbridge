@@ -212,28 +212,19 @@ export const FILL_ORDER_V1_ABI = [
 
 /** Compiled ABI selector, pinned by codec tests; avoid import-time hashing in VM2. */
 export const FILL_ORDER_V3_SELECTOR = "0x68ddf058" as const
-export const FILL_ORDER_SELECTOR_ABI = [
+/** Gateway release and SolverAccount code version supporting the current FillOptions ABI. */
+export const SUPPORTED_INTENTS_VERSION = 4n
+export const CONTRACT_VERSION_ABI = [
 	{
 		type: "function",
-		name: "fillOrderSelector",
-		stateMutability: "pure",
+		name: "version",
+		stateMutability: "view",
 		inputs: [],
-		outputs: [{ name: "", type: "bytes4" }],
+		outputs: [{ name: "", type: "uint64" }],
 	},
 ] as const
 
-/** Retained for callers that inspect the older informational capability flag. */
-export const SUPPORTS_RATE_FILLS_ABI = [
-	{
-		type: "function",
-		name: "supportsRateFills",
-		stateMutability: "pure",
-		inputs: [],
-		outputs: [{ name: "", type: "bool" }],
-	},
-] as const
-
-function isMissingSelector(error: unknown): boolean {
+function isMissingVersionGetter(error: unknown): boolean {
 	let current = error
 	while (current && typeof current === "object") {
 		const item = current as { name?: string; cause?: unknown; code?: number; message?: string }
@@ -251,11 +242,11 @@ function isMissingSelector(error: unknown): boolean {
 	return false
 }
 
-async function readFillOrderSelector(client: PublicClient, address: HexString): Promise<unknown> {
+async function readContractVersion(client: PublicClient, address: HexString): Promise<unknown> {
 	try {
-		return await client.readContract({ address, abi: FILL_ORDER_SELECTOR_ABI, functionName: "fillOrderSelector" })
+		return await client.readContract({ address, abi: CONTRACT_VERSION_ABI, functionName: "version" })
 	} catch (error) {
-		if (isMissingSelector(error)) return undefined
+		if (isMissingVersionGetter(error)) return undefined
 		throw error
 	}
 }
@@ -266,11 +257,11 @@ export async function supportsRateFills(
 	gateway: HexString,
 	solverAccount: HexString,
 ): Promise<boolean> {
-	const markers = await Promise.all([
-		readFillOrderSelector(client, gateway),
-		readFillOrderSelector(client, solverAccount),
+	const versions = await Promise.all([
+		readContractVersion(client, gateway),
+		readContractVersion(client, solverAccount),
 	])
-	return markers.every((marker) => marker === FILL_ORDER_V3_SELECTOR)
+	return versions.every((version) => version === SUPPORTED_INTENTS_VERSION)
 }
 
 const ERC1967_IMPLEMENTATION_SLOT = "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc" as HexString
@@ -317,10 +308,11 @@ async function resolveImplementation(client: PublicClient, gateway: HexString): 
 
 /** Probe before legacy overrides, so proxy upgrades and chain identity are always observed. */
 export async function getFillOptionsVersion(client: PublicClient, gateway: HexString): Promise<FillOptionsVersion> {
-	const selector = await readFillOrderSelector(client, gateway)
-	if (selector === FILL_ORDER_V3_SELECTOR) return 3
-	if (selector !== undefined && selector !== "0x" && selector !== "0x00000000") {
-		throw new Error(`Unsupported fillOrder selector: ${String(selector)}`)
+	const version = await readContractVersion(client, gateway)
+	if (version === SUPPORTED_INTENTS_VERSION) return 3
+	if (version === 2n || version === 3n) return 2
+	if (version !== undefined && version !== 1n) {
+		throw new Error(`Unsupported IntentGateway version: ${String(version)}`)
 	}
 	const chainId = client.chain?.id
 	if (chainId !== undefined && CHAINS_WITHOUT_VALID_UNTIL.has(chainId)) return 1

@@ -24,11 +24,7 @@ function makeService(supported = true, cache = new CacheService(), unsupportedAd
 	const client = {
 		chain: { id: 1 },
 		readContract: async ({ functionName, address }: { functionName: string; address: string }) =>
-			functionName === "fillOrderSelector"
-				? supported && address !== unsupportedAddress
-					? "0x68ddf058"
-					: "0xa5470064"
-				: 0n,
+			functionName === "version" ? (supported && address !== unsupportedAddress ? 4n : 3n) : 0n,
 	}
 	return new ContractInteractionService(
 		{ getPublicClient: () => client } as never,
@@ -69,7 +65,7 @@ describe("rate fill batches", () => {
 				{ relayerFee: 0n, nativeDispatchFee: 0n, validUntil: 99n, outputs, inputs: [{ token, amount: 400n }] },
 				0n,
 			),
-		).rejects.toThrow(/rate|selector/i)
+		).rejects.toThrow(/rate|version/i)
 	})
 	it.each([solver, implementation])("rejects empty-input v3 fills with unsupported account %s", async (address) => {
 		const outputs = [{ token, amount: 440n }]

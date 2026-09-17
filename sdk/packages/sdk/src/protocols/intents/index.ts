@@ -49,8 +49,8 @@ export {
 	FILL_ORDER_V1_ABI,
 	FILL_ORDER_V2_ABI,
 	FILL_ORDER_V3_SELECTOR,
-	FILL_ORDER_SELECTOR_ABI,
-	SUPPORTS_RATE_FILLS_ABI,
+	CONTRACT_VERSION_ABI,
+	SUPPORTED_INTENTS_VERSION,
 } from "./fillOrderCodec"
 export type { FillOptionsVersion, NormalizedFillOptions, DecodedFillOrder } from "./fillOrderCodec"
 export { previewRateFill, type RateFillPreview } from "./rateFill"

@@ -250,29 +250,37 @@ describe("extractFillData", () => {
 		expect(extractFillData(calldata, GATEWAY)).toBeNull()
 	})
 
-	it("rejects inconsistent zero take/output pairs and duplicate rate legs", () => {
+	it("rejects inconsistent zero take/output pairs", () => {
 		const zeroPair = customRateBidCalldata(
 			phantomOrder(),
 			[{ token: USDT_BYTES32, amount: 1n }],
 			[{ token: USDC_BYTES32, amount: 0n }],
 		)
 		expect(extractFillData(zeroPair, GATEWAY)).toBeNull()
+	})
 
-		const duplicate = phantomOrder()
-		duplicate.inputs.push({ ...duplicate.inputs[0] })
-		duplicate.output.assets.push({ ...duplicate.output.assets[0] })
-		const duplicateCalldata = customRateBidCalldata(
-			duplicate,
+	it("preserves unequal repeated-token rate legs by position", () => {
+		const repeated = phantomOrder()
+		repeated.inputs = [
+			{ token: USDC_BYTES32, amount: 1_000n },
+			{ token: USDC_BYTES32, amount: 2_000n },
+		]
+		repeated.output.assets.push({ ...repeated.output.assets[0] })
+		const calldata = customRateBidCalldata(
+			repeated,
 			[
-				{ token: USDT_BYTES32, amount: 1n },
-				{ token: USDT_BYTES32, amount: 1n },
+				{ token: USDT_BYTES32, amount: 440n },
+				{ token: USDT_BYTES32, amount: 900n },
 			],
 			[
-				{ token: USDC_BYTES32, amount: 1n },
-				{ token: USDC_BYTES32, amount: 1n },
+				{ token: USDC_BYTES32, amount: 400n },
+				{ token: USDC_BYTES32, amount: 600n },
 			],
 		)
-		expect(extractFillData(duplicateCalldata, GATEWAY)).toBeNull()
+		expect(extractFillData(calldata, GATEWAY)?.legs).toEqual([
+			{ outputToken: USDT_BYTES32, solverAmount: 440n, inputTake: 400n, normalizedAmount: 1_100n },
+			{ outputToken: USDT_BYTES32, solverAmount: 900n, inputTake: 600n, normalizedAmount: 3_000n },
+		])
 	})
 
 	it("rejects noncanonical bytes32 EVM token addresses", () => {
@@ -500,11 +508,51 @@ describe("readRateFillCapability", () => {
 				return { json: async () => ({ result: delegatedTo(SOLVER_ACCOUNT)() }) }
 			}
 			calls.push(payload.params[0].to.toLowerCase())
-			return { json: async () => ({ result: `0x68ddf058${"00".repeat(28)}` }) }
+			expect(payload.params[0].data).toBe("0x54fd4d50")
+			return { json: async () => ({ result: toHex(4n, { size: 32 }) }) }
 		})
 
 		await expect(readRateFillCapability("http://base.test", GATEWAY, solver, [SOLVER_ACCOUNT])).resolves.toBe(true)
 		expect(calls).toEqual([GATEWAY.toLowerCase(), SOLVER_ACCOUNT.toLowerCase()])
+	})
+
+	it.each([0n, 2n, 3n, 5n, (1n << 64n) - 1n])("rejects unsupported gateway release %s", async (version) => {
+		const solver = privateKeyToAccount(SOLVER_KEY).address
+		setAggregationFetch(async (_url, init) => {
+			const payload = JSON.parse(init.body)
+			return {
+				json: async () => ({
+					result:
+						payload.method === "eth_getCode"
+							? delegatedTo(SOLVER_ACCOUNT)()
+							: toHex(payload.params[0].to.toLowerCase() === GATEWAY.toLowerCase() ? version : 4n, {
+									size: 32,
+								}),
+				}),
+			}
+		})
+		await expect(readRateFillCapability("http://base.test", GATEWAY, solver, [SOLVER_ACCOUNT])).resolves.toBe(false)
+	})
+
+	it("rechecks an account implementation upgraded between aggregations", async () => {
+		const solver = privateKeyToAccount(SOLVER_KEY).address
+		let version = 3n
+		setAggregationFetch(async (_url, init) => {
+			const payload = JSON.parse(init.body)
+			return {
+				json: async () => ({
+					result:
+						payload.method === "eth_getCode"
+							? delegatedTo(SOLVER_ACCOUNT)()
+							: toHex(payload.params[0].to.toLowerCase() === GATEWAY.toLowerCase() ? 4n : version, {
+									size: 32,
+								}),
+				}),
+			}
+		})
+		await expect(readRateFillCapability("http://base.test", GATEWAY, solver, [SOLVER_ACCOUNT])).resolves.toBe(false)
+		version = 4n
+		await expect(readRateFillCapability("http://base.test", GATEWAY, solver, [SOLVER_ACCOUNT])).resolves.toBe(true)
 	})
 
 	it("rejects a prior boolean marker even if both contracts return true", async () => {

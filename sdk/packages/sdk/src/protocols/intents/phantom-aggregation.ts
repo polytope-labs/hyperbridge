@@ -4,14 +4,19 @@
 // viem — viem's @noble/hashes keccak throws "Uint8Array expected" in the SubQuery VM2 sandbox — so
 // it passes VM2-safe implementations; the viem-based defaults are fine for Node consumers (tests,
 // simplex).
-import { decodeFunctionData, encodeAbiParameters, keccak256, recoverAddress } from "viem"
+import { decodeFunctionResult, decodeFunctionData, encodeAbiParameters, keccak256, recoverAddress } from "viem"
 import { hexToU8a, isHex, u8aToHex } from "@polkadot/util"
 import { decodeERC7821ExecuteBatch } from "@/protocols/intents/decode-utils"
 import { decodeUserOpScale } from "@/chains/intentsCoprocessor"
 import { CryptoUtils } from "@/protocols/intents/CryptoUtils"
 import type { PackedUserOperation } from "@/types"
 import IntentGatewayV2 from "@/abis/IntentGatewayV2"
-import { decodeFillOrder, FILL_ORDER_V3_SELECTOR, type FillOptionsVersion } from "./fillOrderCodec"
+import {
+	decodeFillOrder,
+	CONTRACT_VERSION_ABI,
+	SUPPORTED_INTENTS_VERSION,
+	type FillOptionsVersion,
+} from "./fillOrderCodec"
 import {
 	decodePoolAndPositionInfo,
 	positionAmountOfToken,
@@ -548,23 +553,15 @@ export function zipFillLegs(
 		if (orderInputs.length !== assets.length || quotedInputs.length !== assets.length) {
 			throw new Error("Rate inputs, outputs, and order legs must have equal lengths")
 		}
-		const inputTokens = new Set<string>()
-		const outputTokens = new Set<string>()
 		for (const [index, quotedInput] of quotedInputs.entries()) {
 			const orderInput = orderInputs[index]
 			if (!isCanonicalEvmToken(orderInput.token) || !isCanonicalEvmToken(quotedInput.token)) {
 				throw new Error("Rate input tokens must be canonical bytes32 EVM addresses")
 			}
 			const inputToken = orderInput.token.toLowerCase()
-			const outputToken = assets[index].token.toLowerCase()
 			if (quotedInput.token.toLowerCase() !== inputToken) {
 				throw new Error("Rate input token does not match the order input token")
 			}
-			if (inputTokens.has(inputToken) || outputTokens.has(outputToken)) {
-				throw new Error("Rate fill order tokens must be unique")
-			}
-			inputTokens.add(inputToken)
-			outputTokens.add(outputToken)
 			const take = BigInt(String(quotedInput.amount))
 			const output = BigInt(String(outputs[index].amount))
 			if ((take === 0n) !== (output === 0n)) {
@@ -942,9 +939,9 @@ export type RateFillCapabilityReader = (
 	solverAccounts: readonly string[],
 ) => Promise<boolean>
 
-const SELECTOR_FILL_ORDER_SELECTOR = "0x4a010655"
+const SELECTOR_VERSION = "0x54fd4d50"
 
-async function readCapabilityFlag(evmRpcUrl: string, contract: string): Promise<boolean> {
+async function readSupportedVersion(evmRpcUrl: string, contract: string): Promise<boolean> {
 	let response: { json(): Promise<any> }
 	try {
 		response = await rpcFetch()(evmRpcUrl, {
@@ -954,7 +951,7 @@ async function readCapabilityFlag(evmRpcUrl: string, contract: string): Promise<
 				id: 1,
 				jsonrpc: "2.0",
 				method: "eth_call",
-				params: [{ to: contract, data: SELECTOR_FILL_ORDER_SELECTOR }, "latest"],
+				params: [{ to: contract, data: SELECTOR_VERSION }, "latest"],
 			}),
 		})
 	} catch (err) {
@@ -967,9 +964,8 @@ async function readCapabilityFlag(evmRpcUrl: string, contract: string): Promise<
 	} catch (err) {
 		throw new PhantomRpcError(`Invalid rate-fill capability response from ${contract} on ${evmRpcUrl}`, err)
 	}
-	// A revert is the expected answer from an older deployment that does not expose the additive
-	// capability method. Rate limits and other RPC failures remain retryable instead of silently
-	// dropping a supported bid.
+	// Older deployments may revert without a version getter. Rate limits and other RPC failures
+	// remain retryable instead of silently dropping a supported bid.
 	if (body?.error) {
 		const message = String(body.error.message ?? body.error).toLowerCase()
 		if (/revert|function selector|invalid opcode/.test(message)) return false
@@ -979,7 +975,13 @@ async function readCapabilityFlag(evmRpcUrl: string, contract: string): Promise<
 	if (typeof body?.result !== "string" || !/^0x[0-9a-fA-F]{64}$/.test(body.result)) {
 		throw new PhantomRpcError(`Rate-fill capability returned no usable result from ${contract} on ${evmRpcUrl}`)
 	}
-	return body.result.toLowerCase() === `${FILL_ORDER_V3_SELECTOR}${"00".repeat(28)}`
+	return (
+		decodeFunctionResult({
+			abi: CONTRACT_VERSION_ABI,
+			functionName: "version",
+			data: body.result as HexString,
+		}) === SUPPORTED_INTENTS_VERSION
+	)
 }
 
 /**
@@ -1005,7 +1007,7 @@ export const readRateFillCapability: RateFillCapabilityReader = async (
 	if (!code.startsWith(DELEGATION_INDICATOR_PREFIX)) return false
 	const delegate = `0x${code.slice(DELEGATION_INDICATOR_PREFIX.length)}`
 	if (!solverAccounts.some((candidate) => candidate.toLowerCase() === delegate)) return false
-	return (await readCapabilityFlag(evmRpcUrl, gatewayAddress)) && (await readCapabilityFlag(evmRpcUrl, delegate))
+	return (await readSupportedVersion(evmRpcUrl, gatewayAddress)) && (await readSupportedVersion(evmRpcUrl, delegate))
 }
 
 /**

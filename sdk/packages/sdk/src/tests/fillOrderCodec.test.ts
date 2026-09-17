@@ -129,7 +129,7 @@ describe("getFillOptionsVersion", () => {
 	function client(impl: HexString | undefined) {
 		return {
 			chain: { id: 8453 },
-			readContract: vi.fn().mockResolvedValue("0x00000000"),
+			readContract: vi.fn().mockResolvedValue(1n),
 			getStorageAt: vi.fn().mockResolvedValue(impl === undefined ? undefined : slotFor(impl)),
 		} as any
 	}
@@ -183,32 +183,58 @@ describe("getFillOptionsVersion", () => {
 		expect(await getFillOptionsVersion(c, GATEWAY)).toBe(2)
 	})
 
-	it("rechecks a v2 proxy and sees a v3 upgrade", async () => {
+	it("rechecks a version-3 proxy and sees a release-4 upgrade", async () => {
 		const c = client(NEW_IMPL)
+		c.readContract.mockResolvedValue(3n)
 
 		expect(await getFillOptionsVersion(c, GATEWAY)).toBe(2)
-		c.readContract.mockResolvedValue(RATE_SELECTOR)
+		c.readContract.mockResolvedValue(4n)
 		expect(await getFillOptionsVersion(c, GATEWAY)).toBe(3)
 		expect(c.readContract).toHaveBeenCalledTimes(2)
 	})
 })
 
+describe("contract release compatibility", () => {
+	it.each([
+		[2n, 2],
+		[3n, 2],
+		[4n, 3],
+	] as const)("maps gateway release %s before legacy chain overrides", async (release, encoding) => {
+		const readContract = vi.fn(async ({ functionName }) => {
+			if (functionName !== "version") throw new Error("Unexpected contract method")
+			return release
+		})
+		await expect(getFillOptionsVersion(client(readContract, 84532), GATEWAY)).resolves.toBe(encoding)
+	})
+	it.each([0n, 5n, (1n << 64n) - 1n])("rejects unsupported gateway release %s", async (release) => {
+		await expect(getFillOptionsVersion(client(vi.fn().mockResolvedValue(release), 84532), GATEWAY)).rejects.toThrow(
+			/version/i,
+		)
+	})
+})
+
 describe("supportsRateFills", () => {
 	it("requires fresh support from both the gateway and solver-account implementation", async () => {
-		const readContract = vi.fn().mockResolvedValueOnce(RATE_SELECTOR).mockResolvedValueOnce(V2_SELECTOR)
+		const readContract = vi.fn().mockResolvedValueOnce(4n).mockResolvedValueOnce(3n)
 		await expect(
 			supportsRateFills({ readContract } as any, GATEWAY, "0x2222222222222222222222222222222222222222"),
 		).resolves.toBe(false)
 		expect(readContract).toHaveBeenCalledTimes(2)
 	})
 
+	it.each([0n, 1n, 2n, 3n, 5n, (1n << 64n) - 1n])("rejects unsupported account release %s", async (release) => {
+		const readContract = vi.fn().mockResolvedValueOnce(4n).mockResolvedValueOnce(release)
+		await expect(supportsRateFills(client(readContract), GATEWAY, GATEWAY)).resolves.toBe(false)
+	})
+
 	it("does not cache capability across calls", async () => {
-		const readContract = vi.fn().mockResolvedValue(RATE_SELECTOR)
+		const readContract = vi.fn().mockResolvedValue(4n)
 		const c = { readContract } as any
 		const solver = "0x2222222222222222222222222222222222222222"
 
 		expect(await supportsRateFills(c, GATEWAY, solver)).toBe(true)
-		expect(await supportsRateFills(c, GATEWAY, solver)).toBe(true)
+		readContract.mockResolvedValue(3n)
+		expect(await supportsRateFills(c, GATEWAY, solver)).toBe(false)
 		expect(readContract).toHaveBeenCalledTimes(4)
 	})
 })
@@ -227,11 +253,11 @@ describe("v3 compatibility boundaries", () => {
 		expect(FILL_ORDER_V2_ABI[0].inputs[1].components).toHaveLength(4)
 	})
 	it("checks capability before legacy chain overrides", async () => {
-		expect(await getFillOptionsVersion(client(vi.fn().mockResolvedValue(RATE_SELECTOR), 84532), GATEWAY)).toBe(3)
+		expect(await getFillOptionsVersion(client(vi.fn().mockResolvedValue(4n), 84532), GATEWAY)).toBe(3)
 	})
 	it("does not share detection between identical addresses on separate chains", async () => {
-		expect(await getFillOptionsVersion(client(vi.fn().mockResolvedValue(RATE_SELECTOR), 8453), GATEWAY)).toBe(3)
-		expect(await getFillOptionsVersion(client(vi.fn().mockResolvedValue("0x00000000"), 84532), GATEWAY)).toBe(1)
+		expect(await getFillOptionsVersion(client(vi.fn().mockResolvedValue(4n), 8453), GATEWAY)).toBe(3)
+		expect(await getFillOptionsVersion(client(vi.fn().mockResolvedValue(1n), 84532), GATEWAY)).toBe(1)
 	})
 	it("propagates capability RPC failures", async () => {
 		const c = client(vi.fn().mockRejectedValue(new Error("RPC timeout")))
@@ -241,14 +267,14 @@ describe("v3 compatibility boundaries", () => {
 	it("does not accept the old boolean marker", async () => {
 		await expect(supportsRateFills(client(vi.fn().mockResolvedValue(true)), GATEWAY, GATEWAY)).resolves.toBe(false)
 	})
-	it("rejects an unknown nonzero selector instead of downgrading", async () => {
+	it("rejects malformed versions instead of downgrading", async () => {
 		await expect(getFillOptionsVersion(client(vi.fn().mockResolvedValue("0x12345678")), GATEWAY)).rejects.toThrow(
-			/selector/i,
+			/version/i,
 		)
 	})
 })
 
-describe("missing selector classification with real viem errors", () => {
+describe("missing version getter classification with real viem errors", () => {
 	function rpcClient(rpcError?: { code: number; message: string; data?: string }) {
 		const request = vi.fn(async ({ method }: { method: string }) => {
 			if (method !== "eth_call") throw new Error(`Unexpected RPC method: ${method}`)

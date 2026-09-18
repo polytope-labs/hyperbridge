@@ -2429,3 +2429,65 @@ button.operator-runtime-stop:hover:not(:disabled) {
 	justify-content: flex-end;
 	gap: 0.75rem;
 }
+
+/*
+ * Limit orders: the operator's standing offers. The rows reuse the market row,
+ * so what is new here is the detail sheet's fact list, the source-chain
+ * checkboxes on the create form, and the fills behind a shrunken `remaining`.
+ */
+.limit-order-facts {
+	display: grid;
+	gap: 0.75rem;
+	margin: 0 0 1rem;
+}
+
+.limit-order-facts > div {
+	display: grid;
+	grid-template-columns: minmax(8rem, 12rem) 1fr;
+	gap: 0.5rem 1rem;
+	align-items: baseline;
+}
+
+.limit-order-facts dt {
+	color: var(--text-dim);
+	font-size: 0.85rem;
+}
+
+.limit-order-facts dd {
+	margin: 0;
+}
+
+.limit-order-sources {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.5rem 1rem;
+}
+
+.limit-order-source {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.4rem;
+}
+
+.limit-order-fills {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+	display: grid;
+	gap: 0.4rem;
+}
+
+.limit-order-fills li {
+	display: flex;
+	justify-content: space-between;
+	gap: 1rem;
+	font-size: 0.9rem;
+}
+
+/* The two columns stack before the sheet does, since the labels are wordy. */
+@media (max-width: 30rem) {
+	.limit-order-facts > div {
+		grid-template-columns: 1fr;
+		gap: 0.15rem;
+	}
+}

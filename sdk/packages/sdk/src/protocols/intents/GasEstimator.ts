@@ -1,7 +1,7 @@
 import { encodeFunctionData, toHex, pad, maxUint256, concat, keccak256, isHex, hexToString } from "viem"
 import { generatePrivateKey, privateKeyToAccount, privateKeyToAddress } from "viem/accounts"
 import { ABI as IntentGatewayV2ABI } from "@/abis/IntentGatewayV2"
-import { encodeFillOrder, getFillOptionsVersion } from "./fillOrderCodec"
+import { encodeFillOrder, getFillOptionsVersion, supportsRateFills } from "./fillOrderCodec"
 import {
 	ADDRESS_ZERO,
 	bytes32ToBytes20,
@@ -132,6 +132,11 @@ export class GasEstimator {
 		pricingOptions: GasEstimationPricingOptions = {},
 	): Promise<FillOrderEstimate> {
 		const { order } = params
+		let inputs = (params.inputs ?? []).map((input) => ({
+			...input,
+			token: normalizeAddressForEvmBytes32(input.token),
+		}))
+		const quotedOutputs = params.outputs ?? order.output.assets
 		const orderFeeGasPriceBumpPercent = pricingOptions.orderFeeGasPriceBumpPercent ?? 0n
 		const solverPrivateKey = generatePrivateKey()
 		const solverAccountAddress = privateKeyToAddress(solverPrivateKey)
@@ -141,7 +146,7 @@ export class GasEstimator {
 		const entryPointAddress = this.ctx.dest.configService.getEntryPointV08Address(destStateMachineId)
 		const chainId = BigInt(Number.parseInt(destStateMachineId.split("-")[1]))
 
-		const totalEthValue = order.output.assets
+		const totalEthValue = quotedOutputs
 			.filter((output) => bytes32ToBytes20(output.token) === ADDRESS_ZERO)
 			.reduce((sum, output) => sum + output.amount, 0n)
 
@@ -154,7 +159,7 @@ export class GasEstimator {
 		const baseFeePerGas = latestBlock.baseFeePerGas ?? gasPrice
 
 		const feeTokenAsBytes32 = bytes20ToBytes32(destFeeToken.address)
-		const assetsForOverrides = [...order.output.assets]
+		const assetsForOverrides = [...quotedOutputs]
 		if (!assetsForOverrides.some((asset) => asset.token.toLowerCase() === feeTokenAsBytes32.toLowerCase())) {
 			assetsForOverrides.push({ token: feeTokenAsBytes32, amount: 0n })
 		}
@@ -187,6 +192,7 @@ export class GasEstimator {
 		const { bundler: bundlerStateOverrides } = stateOverridesResult
 
 		const fillOptions: FillOptions = {
+			inputs,
 			relayerFee: crossChainFees.postRequestFee,
 			// Always dispatch with the fee token (see the method docs).
 			nativeDispatchFee: 0n,
@@ -194,7 +200,7 @@ export class GasEstimator {
 			// bound here would only risk the estimate reverting on a slow bundler round trip.
 			// The caller sets the real one on the options it actually signs.
 			validUntil: 0n,
-			outputs: order.output.assets.map((asset) => ({
+			outputs: quotedOutputs.map((asset) => ({
 				...asset,
 				token: normalizeAddressForEvmBytes32(asset.token),
 			})),
@@ -213,6 +219,21 @@ export class GasEstimator {
 		// The gateway may predate `FillOptions.validUntil`; the two shapes have different
 		// selectors, so encoding the wrong one makes the estimate revert on a missing function.
 		const fillOptionsVersion = await getFillOptionsVersion(this.ctx.dest.client as any, intentGatewayV2Address)
+		if (fillOptionsVersion === 3 && params.inputs === undefined) {
+			if (params.outputs !== undefined) throw new Error("Custom output quotes require explicit inputs")
+			// A fee estimate without a solver quote simulates a full fill at the user's rate.
+			inputs = order.inputs.map((input) => ({ ...input, token: normalizeAddressForEvmBytes32(input.token) }))
+			fillOptions.inputs = inputs
+		}
+		if (fillOptionsVersion === 3) {
+			const implementation = this.ctx.dest.configService.getSolverAccountAddress(destStateMachineId)
+			if (
+				!implementation ||
+				!(await supportsRateFills(this.ctx.dest.client as any, intentGatewayV2Address, implementation))
+			) {
+				throw new Error("v3 fills are not supported by the destination gateway and configured SolverAccount")
+			}
+		}
 		const fillOrderCalldata = encodeFillOrder(
 			transformOrderForContract(orderForEstimation) as any,
 			fillOptions,
@@ -401,6 +422,7 @@ export class GasEstimator {
 			totalGasInFeeToken: totalGasInSourceFeeToken,
 			relayerFeeInSourceFeeToken: crossChainFees.relayerFeeInSourceFeeToken,
 			fillOptions,
+			inputs,
 		}
 	}
 

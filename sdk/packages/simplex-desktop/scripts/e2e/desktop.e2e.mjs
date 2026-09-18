@@ -278,6 +278,7 @@ function operatorFixture(socketPath, options = {}) {
 		},
 		pairs: [],
 		chains: [],
+		orderbook: { url: "https://orderbook.example/graphql" },
 	}
 	const operator = {
 		strategies: [],
@@ -866,6 +867,7 @@ test("first run writes a valid private config under Electron userData", async (t
 			},
 		],
 		chains: [{ rpcUrls: ["http://127.0.0.1:9"], bundlerUrl: "http://127.0.0.1:9" }],
+		orderbook: { url: "https://orderbook.example/graphql" },
 	}
 	const result = await page.evaluate(async (body) => {
 		const response = await fetch("/api/setup/save-and-start", {

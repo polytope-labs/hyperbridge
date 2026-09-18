@@ -163,6 +163,7 @@ async function assertPackagedOnboarding(socketPath, userData) {
 			},
 		],
 		chains: [{ rpcUrls: ["http://127.0.0.1:9"], bundlerUrl: "http://127.0.0.1:9" }],
+		orderbook: { url: "https://orderbook.example/graphql" },
 	}
 	const response = await socketRequest(socketPath, "/api/setup/save-and-start", "POST", { config })
 	if (response.status !== 202) {

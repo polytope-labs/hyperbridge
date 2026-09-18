@@ -1549,10 +1549,17 @@ export interface Bid {
 	 * Signs the `SelectSolver` EIP-712 message with the order's session key, packs
 	 * the final UserOp signature, and submits it to the bundler.
 	 *
+	 * `onSubmitted` runs with the complete signed operation before broadcast.
+	 * `onTerminal` runs on a verified outcome or definitive first-send rejection;
+	 * failure to persist either callback stops automatic candidate fallback.
+	 *
 	 * @returns A {@link SelectBidResult} with the submitted UserOperation, its hash,
 	 *   the solver address, transaction hash, and fill status.
 	 */
-	execute(): Promise<SelectBidResult>
+	execute(
+		onSubmitted?: (submission: SelectBidResult) => Promise<void>,
+		onTerminal?: (submission: SelectBidResult) => Promise<void>,
+	): Promise<SelectBidResult>
 	/**
 	 * Prices the bid's outputs in USD using the same on-chain DEX-quote helpers
 	 * used for sorting. Returns `null` when any output token cannot be priced.
@@ -1575,6 +1582,7 @@ export const IntentOrderStatus = Object.freeze({
 	BID_SELECTED: "BID_SELECTED",
 	FILLED: "FILLED",
 	PARTIAL_FILL: "PARTIAL_FILL",
+	CANCELLED: "CANCELLED",
 	EXPIRED: "EXPIRED",
 	FAILED: "FAILED",
 })
@@ -1622,9 +1630,15 @@ export type IntentOrderStatusUpdate =
 	| {
 			status: "FILLED"
 			commitment: HexString
-			userOpHash: HexString
-			selectedSolver: HexString
+			userOpHash?: HexString
+			selectedSolver?: HexString
 			transactionHash?: HexString
+			totalFilledAssets: TokenInfo[]
+			remainingAssets: TokenInfo[]
+	  }
+	| {
+			status: "CANCELLED"
+			commitment: HexString
 			totalFilledAssets: TokenInfo[]
 			remainingAssets: TokenInfo[]
 	  }
@@ -1672,6 +1686,8 @@ export interface ExecuteIntentOrderOptions {
 	/** Duration in ms to collect bids before selecting the best one. */
 	auctionTimeMs: number
 	pollIntervalMs?: number
+	/** Opt in to SDK-controlled rate ranking, simulation, and sequential execution. */
+	automatic?: boolean
 	/**
 	 * If set, bids are restricted to the given solver until `timeoutMs` elapses,
 	 * after which any solver is accepted.
@@ -1690,6 +1706,8 @@ export interface ResumeIntentOrderOptions {
 	/** Duration in ms to collect bids before selecting the best one. */
 	auctionTimeMs: number
 	pollIntervalMs?: number
+	/** Opt in to SDK-controlled rate ranking, simulation, and sequential execution. */
+	automatic?: boolean
 	solver?: {
 		address: HexString
 		timeoutMs: number

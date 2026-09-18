@@ -1,4 +1,5 @@
 export { IntentGateway } from "./IntentGateway"
+export { BidExecutionPendingError } from "./Bid"
 export {
 	InvalidLiquidityIndexerResponseError,
 	UnsupportedLiquidityAssetError,

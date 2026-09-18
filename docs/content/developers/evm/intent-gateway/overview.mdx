@@ -62,10 +62,17 @@ unused ERC-20 budget stays with the solver and unused native value is refunded. 
 credit or release nothing reverts with `RateFillTooSmall`. `previewRateFill` in the SDK reports
 credit, release, payment and surplus for a quote at a given progress.
 
-The SDK ranks single-leg quotes by rate and multi-leg quotes by output value normalized to
-original input amounts. Both full and partial multi-leg quotes can be selected automatically.
-Normalized amounts describe prices; signed quotes bound funding, and settlement determines actual payment.
-Submission recovery is a separate stacked change required before releasing automatic execution.
+The SDK's `automatic: true` execution option ranks single-leg quotes by rate and multi-leg quotes
+by output value normalized to the original input amounts, confirms each slice, and continues until
+the order is filled. Normalized amounts describe prices; signed quotes bound funding, and settlement
+determines actual payment.
+
+Before sending, it durably records the fully signed UserOperation as pending. On restart it reconciles
+the receipt and chain state, and may rebroadcast the identical operation, polling for its receipt as a
+first send does (`receiptPolling` on the context). Definitive first-send rejection permits fallback; an
+uncertain earlier send blocks another distinct bid until its outcome is established: a receipt, or a
+finalized block past the operation's `validUntil` or the order deadline with its nonce unconsumed.
+Manual selection remains available.
 
 Every v3 bid requires an updated delegated SolverAccount.
 Before signing, the SDK requires release `3` from `version()` on the gateway, configured account

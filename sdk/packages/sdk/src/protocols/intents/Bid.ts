@@ -11,13 +11,63 @@ import type {
 	SelectOptions,
 	TokenInfo,
 } from "@/types"
-import { ADDRESS_ZERO, bytes32ToBytes20, normalizeStateMachineId, retryPromise } from "@/utils"
+import { ADDRESS_ZERO, bytes20ToBytes32, bytes32ToBytes20, normalizeStateMachineId, retryPromise } from "@/utils"
 import type Decimal from "decimal.js"
-import { concat, encodeFunctionData, parseEventLogs } from "viem"
+import { concat, encodeFunctionData, parseEventLogs, toEventSelector } from "viem"
 import type { Hex } from "viem"
-import { CryptoUtils } from "./CryptoUtils"
+import { BundlerRpcError, CryptoUtils } from "./CryptoUtils"
 import type { IntentGatewayContext } from "./types"
 import { BundlerMethod } from "./types"
+
+const ENTRY_POINT_EVENT_ABI = [
+	{ type: "event", name: "BeforeExecution", inputs: [] },
+	{
+		type: "event",
+		name: "UserOperationEvent",
+		inputs: [
+			{ name: "userOpHash", type: "bytes32", indexed: true },
+			{ name: "sender", type: "address", indexed: true },
+			{ name: "paymaster", type: "address", indexed: true },
+			{ name: "nonce", type: "uint256", indexed: false },
+			{ name: "success", type: "bool", indexed: false },
+			{ name: "actualGasCost", type: "uint256", indexed: false },
+			{ name: "actualGasUsed", type: "uint256", indexed: false },
+		],
+	},
+] as const
+
+const DEFAULT_RECEIPT_POLLING = { maxRetries: 7, backoffMs: 2000 }
+
+export function errorMessage(error: unknown): string {
+	return error instanceof Error ? error.message : String(error)
+}
+
+/** The operation may have reached the bundler or the chain; no other bid may be sent until that is settled. */
+export class BidExecutionPendingError extends Error {
+	constructor(
+		readonly userOpHash: HexString,
+		message: string,
+	) {
+		super(message)
+		this.name = "BidExecutionPendingError"
+	}
+
+	static uncertain(userOpHash: HexString, cause: unknown): BidExecutionPendingError {
+		return new BidExecutionPendingError(userOpHash, `Bid submission outcome is uncertain: ${errorMessage(cause)}`)
+	}
+}
+
+/** The operation was rejected on its first send, or failed with verified chain evidence. */
+export class BidExecutionRejectedError extends Error {}
+
+const REJECTION_CODES = new Set([-32602, -32500, -32501, -32502, -32503, -32504, -32505, -32507, -32508])
+function isFirstSendRejection(error: unknown): boolean {
+	return (
+		error instanceof BundlerRpcError &&
+		REJECTION_CODES.has(error.code) &&
+		!/already\s+(known|seen)|AA25|nonce/i.test(error.message)
+	)
+}
 
 /** Constructor parameters for {@link BidImpl}. */
 export interface BidParams {
@@ -61,6 +111,7 @@ export class BidImpl implements Bid {
 
 	/** Cached session-key signature over the `SelectSolver` message. */
 	private cachedSignature?: HexString
+	private broadcastAttempted = false
 
 	constructor(params: BidParams) {
 		this.ctx = params.ctx
@@ -72,7 +123,7 @@ export class BidImpl implements Bid {
 
 		this.solverAddress = params.fillerBid.userOp.sender
 		this.outputs = params.fillOptions.outputs
-		this.inputs = params.fillOptions.inputs ?? []
+		this.inputs = params.fillOptions.inputs
 		this.relayerFee = params.fillOptions.relayerFee
 		this.nativeDispatchFee = params.fillOptions.nativeDispatchFee
 		this.userOp = params.fillerBid.userOp
@@ -175,7 +226,7 @@ export class BidImpl implements Bid {
 				value: simulationValue,
 			})
 		} catch (e: unknown) {
-			throw new Error(`Simulation failed: ${e instanceof Error ? e.message : String(e)}`)
+			throw new Error(`Simulation failed: ${errorMessage(e)}`)
 		}
 	}
 
@@ -190,7 +241,10 @@ export class BidImpl implements Bid {
 	 * @throws If the bundler is not configured, the session key is missing, or the
 	 *   bundler rejects the UserOperation.
 	 */
-	async execute(): Promise<SelectBidResult> {
+	async execute(
+		onSubmitted?: (submission: SelectBidResult) => Promise<void>,
+		onTerminal?: (submission: SelectBidResult) => Promise<void>,
+	): Promise<SelectBidResult> {
 		const commitment = this.order.id as HexString
 
 		if (!this.ctx.bundlerUrl) {
@@ -209,66 +263,236 @@ export class BidImpl implements Bid {
 			normalizeStateMachineId(this.order.destination),
 		)
 
-		const userOpHash = await this.crypto.sendBundler<HexString>(BundlerMethod.ETH_SEND_USER_OPERATION, [
-			CryptoUtils.prepareBundlerCall(signedUserOp),
-			entryPointAddress,
-		])
-
-		let txnHash: HexString | undefined
-		let fillStatus: "full" | "partial" | undefined
-		let filledAssets: TokenInfo[] | undefined
-		try {
-			const receipt = await retryPromise(
-				async () => {
-					const result = await this.crypto.sendBundler<{
-						receipt: { transactionHash: HexString }
-					} | null>(BundlerMethod.ETH_GET_USER_OPERATION_RECEIPT, [userOpHash])
-					if (!result?.receipt?.transactionHash) {
-						throw new Error("Receipt not available yet")
-					}
-					return result
-				},
-				{ maxRetries: 5, backoffMs: 2000, logMessage: "Fetching user operation receipt" },
-			)
-			txnHash = receipt.receipt.transactionHash
-
-			try {
-				const chainReceipt = await this.ctx.dest.client.waitForTransactionReceipt({
-					hash: txnHash,
-					confirmations: 1,
-				})
-				const events = parseEventLogs({
-					abi: IntentGatewayV2ABI,
-					logs: chainReceipt.logs,
-					eventName: ["OrderFilled", "PartialFill"],
-				})
-
-				const matched = events.find((e) => {
-					if (e.eventName === "OrderFilled")
-						return e.args.commitment.toLowerCase() === commitment.toLowerCase()
-					if (e.eventName === "PartialFill")
-						return e.args.commitment.toLowerCase() === commitment.toLowerCase()
-					return false
-				})
-
-				if (matched?.eventName === "OrderFilled") {
-					fillStatus = "full"
-				} else if (matched?.eventName === "PartialFill") {
-					fillStatus = "partial"
-					filledAssets = (matched.args.outputs ?? []) as TokenInfo[]
-				}
-			} catch {
-				throw new Error("Failed to determine fill status from logs")
-			}
-		} catch (err) {
-			throw new Error(`Failed to execute bid: ${err instanceof Error ? err.message : String(err)}`)
-		}
-
-		return {
+		// The EntryPoint hash excludes the signature, so it is deterministic before the RPC call.
+		// Persist the complete signed operation before sending: an HTTP timeout can happen after the bundler accepted the op,
+		// and treating that timeout as a safe rejection could execute a second solver bid.
+		const userOpHash = CryptoUtils.computeUserOpHash(signedUserOp, entryPointAddress, this.chainId())
+		const accepted: SelectBidResult = {
 			userOp: signedUserOp,
 			userOpHash,
 			solverAddress: this.solverAddress,
 			commitment,
+		}
+		try {
+			await onSubmitted?.(accepted)
+		} catch (err) {
+			throw new BidExecutionPendingError(
+				userOpHash,
+				`Bid submission attempt could not be recorded durably: ${errorMessage(err)}`,
+			)
+		}
+		try {
+			const replay = this.broadcastAttempted
+			this.broadcastAttempted = true
+			await BidImpl.broadcast(this.crypto, accepted, entryPointAddress, replay)
+			const receipt = await BidImpl.awaitReceipt(this.ctx, this.crypto, userOpHash)
+			const result = await BidImpl.verifyReceipt(this.ctx, this.order, accepted, receipt)
+			await this.retire(result, onTerminal)
+			return result
+		} catch (error) {
+			if (error instanceof BidExecutionRejectedError) {
+				await this.retire(accepted, onTerminal)
+				throw error
+			}
+			if (error instanceof BidExecutionPendingError) throw error
+			throw BidExecutionPendingError.uncertain(userOpHash, error)
+		}
+	}
+
+	private async retire(
+		submission: SelectBidResult,
+		onTerminal?: (submission: SelectBidResult) => Promise<void>,
+	): Promise<void> {
+		try {
+			await onTerminal?.(submission)
+		} catch (error) {
+			throw new BidExecutionPendingError(
+				submission.userOpHash,
+				`Could not retire submission durably: ${errorMessage(error)}`,
+			)
+		}
+	}
+
+	/** Replay always preserves the stored signature and never authorizes fallback on an RPC rejection. */
+	static async broadcast(
+		crypto: CryptoUtils,
+		submission: SelectBidResult,
+		entryPoint: HexString,
+		replay: boolean,
+	): Promise<void> {
+		try {
+			const hash = await crypto.sendBundler<HexString>(BundlerMethod.ETH_SEND_USER_OPERATION, [
+				CryptoUtils.prepareBundlerCall(submission.userOp),
+				entryPoint,
+			])
+			if (typeof hash !== "string" || hash.toLowerCase() !== submission.userOpHash.toLowerCase())
+				throw new Error("Bundler returned an unexpected operation hash")
+		} catch (error) {
+			if (!replay && isFirstSendRejection(error)) throw new BidExecutionRejectedError((error as Error).message)
+			throw new BidExecutionPendingError(
+				submission.userOpHash,
+				`Bid send outcome is uncertain: ${errorMessage(error)}`,
+			)
+		}
+	}
+
+	/** Polls the bundler for the operation's receipt; throws once `ctx.receiptPolling` is exhausted. */
+	static async awaitReceipt(
+		ctx: IntentGatewayContext,
+		crypto: CryptoUtils,
+		hash: HexString,
+	): Promise<{ receipt: { transactionHash: HexString } }> {
+		const { maxRetries, backoffMs } = ctx.receiptPolling ?? DEFAULT_RECEIPT_POLLING
+		return retryPromise(
+			async () => {
+				const result = await BidImpl.receipt(crypto, hash)
+				if (!result) throw new Error("Receipt not available yet")
+				return result
+			},
+			{ maxRetries, backoffMs, logMessage: "Fetching user operation receipt" },
+		)
+	}
+
+	static async receipt(
+		crypto: CryptoUtils,
+		hash: HexString,
+	): Promise<{ receipt: { transactionHash: HexString } } | null> {
+		const result = await crypto.sendBundler<{ receipt: { transactionHash: HexString } } | null>(
+			BundlerMethod.ETH_GET_USER_OPERATION_RECEIPT,
+			[hash],
+		)
+		if (result === null) return null
+		if (!/^0x[0-9a-fA-F]{64}$/.test(result?.receipt?.transactionHash))
+			throw new BidExecutionPendingError(hash, "Malformed UserOperation receipt")
+		return result
+	}
+
+	/** Shared by normal submission and recovery; bundler success flags are not chain evidence. */
+	static async verifyReceipt(
+		ctx: IntentGatewayContext,
+		order: Order,
+		accepted: SelectBidResult,
+		receipt: { receipt: { transactionHash: HexString } },
+	): Promise<SelectBidResult> {
+		const { userOpHash, userOp: signedUserOp, commitment } = accepted
+		const entryPointAddress = ctx.dest.configService.getEntryPointV08Address(
+			normalizeStateMachineId(order.destination),
+		)
+		const intentGatewayV2Address = ctx.dest.configService.getIntentGatewayAddress(
+			normalizeStateMachineId(order.destination),
+		)
+
+		const txnHash = receipt.receipt.transactionHash
+		let fillStatus: "full" | "partial" | undefined
+		let filledAssets: TokenInfo[] | undefined
+
+		let chainReceipt: Awaited<ReturnType<typeof ctx.dest.client.waitForTransactionReceipt>>
+		try {
+			chainReceipt = await ctx.dest.client.waitForTransactionReceipt({
+				hash: txnHash,
+				confirmations: 1,
+			})
+		} catch (err) {
+			throw BidExecutionPendingError.uncertain(userOpHash, err)
+		}
+		if (chainReceipt.status === "reverted") {
+			throw new BidExecutionPendingError(
+				userOpHash,
+				`Bundle reverted without proof of operation inclusion in ${txnHash}`,
+			)
+		}
+		let userOpSucceeded: boolean | undefined
+		let executionLogs: typeof chainReceipt.logs | undefined
+		try {
+			const boundaryTopics = ENTRY_POINT_EVENT_ABI.map((event) => toEventSelector(event))
+			const boundaryLogs = chainReceipt.logs.filter(
+				(log) =>
+					log.address.toLowerCase() === entryPointAddress.toLowerCase() &&
+					boundaryTopics.some((topic) => topic === log.topics[0]),
+			)
+			const boundaries = parseEventLogs({
+				abi: ENTRY_POINT_EVENT_ABI,
+				logs: boundaryLogs,
+				eventName: ["BeforeExecution", "UserOperationEvent"],
+			})
+			// Skipping a malformed boundary could attribute a previous operation's fill.
+			if (boundaries.length !== boundaryLogs.length) throw new Error("Malformed EntryPoint operation boundary")
+			const matching = boundaries.filter(
+				(event) =>
+					event.eventName === "UserOperationEvent" &&
+					event.args.userOpHash.toLowerCase() === userOpHash.toLowerCase() &&
+					event.args.sender.toLowerCase() === signedUserOp.sender.toLowerCase() &&
+					event.args.nonce === signedUserOp.nonce,
+			)
+			const matched = matching.length === 1 ? matching[0] : undefined
+			if (matched?.eventName === "UserOperationEvent") {
+				userOpSucceeded = matched.args.success
+				// v0.8 emits operation logs before UserOperationEvent. The previous
+				// operation event (or BeforeExecution) separates this fill from the bundle.
+				const previous = boundaries[boundaries.indexOf(matched) - 1]
+				const start = previous?.logIndex
+				const end = matched.logIndex
+				const ordered = chainReceipt.logs.every(
+					(log, index, logs) =>
+						log.logIndex !== null &&
+						Number.isSafeInteger(log.logIndex) &&
+						log.logIndex >= 0 &&
+						(index === 0 || log.logIndex > logs[index - 1].logIndex!),
+				)
+				if (ordered && start != null && end != null && start < end) {
+					executionLogs = chainReceipt.logs.filter((log) => log.logIndex! > start && log.logIndex! < end)
+				}
+			}
+		} catch {
+			// Missing or malformed operation evidence remains pending.
+		}
+		if (userOpSucceeded === undefined)
+			throw new BidExecutionPendingError(userOpHash, "No unique matching EntryPoint UserOperationEvent")
+		if (userOpSucceeded === false) {
+			throw new BidExecutionRejectedError(`UserOperation failed in confirmed transaction ${txnHash}`)
+		}
+		if (!executionLogs) {
+			throw new BidExecutionPendingError(userOpHash, "Missing or ambiguous EntryPoint operation boundaries")
+		}
+
+		try {
+			const events = parseEventLogs({
+				abi: IntentGatewayV2ABI,
+				logs: executionLogs,
+				eventName: ["OrderFilled", "PartialFill"],
+			})
+			const matchingFills = events.filter((e) => {
+				if (e.address.toLowerCase() !== intentGatewayV2Address.toLowerCase()) return false
+				return (
+					e.args.commitment.toLowerCase() === commitment.toLowerCase() &&
+					e.args.filler.toLowerCase() === accepted.solverAddress.toLowerCase()
+				)
+			})
+			if (matchingFills.length === 0) throw new Error("No fill event found")
+			if (matchingFills.some((event) => event.eventName === "OrderFilled")) {
+				fillStatus = "full"
+			} else {
+				fillStatus = "partial"
+				filledAssets = order.output.assets.map(({ token }) => ({ token: bytes20ToBytes32(token), amount: 0n }))
+				// One operation can fill repeatedly; each event credits its positional legs.
+				for (const { args } of matchingFills) {
+					if (args.outputs.length !== filledAssets.length)
+						throw new Error("Fill output length does not match order")
+					for (const [index, output] of args.outputs.entries()) {
+						const leg = filledAssets[index]
+						if (output.token.toLowerCase() !== leg.token.toLowerCase()) {
+							throw new Error("Fill output token does not match order leg")
+						}
+						leg.amount += output.amount
+					}
+				}
+			}
+		} catch (err) {
+			throw BidExecutionPendingError.uncertain(userOpHash, err)
+		}
+
+		return {
+			...accepted,
 			txnHash,
 			fillStatus,
 			filledAssets,

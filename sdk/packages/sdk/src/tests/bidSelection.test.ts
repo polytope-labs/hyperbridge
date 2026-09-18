@@ -57,6 +57,7 @@ function makeBid(params: { solverAddress: HexString; amount: bigint; execute: Bi
 	return {
 		solverAddress: params.solverAddress,
 		outputs: [{ token: TOKEN, amount: params.amount }],
+		inputs: [{ token: TOKEN, amount: 100n }],
 		relayerFee: 0n,
 		nativeDispatchFee: 0n,
 		userOp: makeUserOp(params.solverAddress),

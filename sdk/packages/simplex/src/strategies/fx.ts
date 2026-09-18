@@ -456,6 +456,11 @@ export class FXFiller implements FillerStrategy {
 			let partialFill = false
 
 			const fillerOutputs: TokenInfo[] = []
+			// The take signed alongside each output: the leg's full input, scaled by the same
+			// cap fraction as the output when `maxOrderSize` binds, and zero for a skipped leg.
+			// Escrow releases at the order's rate, so this is the contract's full fill of the
+			// slice at our price.
+			const fillerInputs: TokenInfo[] = []
 			// Original leg index for each entry in `fillerOutputs`. Legs can be skipped
 			// (insufficient balance, exhausted budget), so `fillerOutputs[k]` is the k-th
 			// *surviving* leg, not the k-th leg. The valuation pass below realigns to the
@@ -546,6 +551,7 @@ export class FXFiller implements FillerStrategy {
 					// solverAmount == 0 legs); a compacted array would mismatch and
 					// revert fillOrder.
 					fillerOutputs.push({ token: output.token, amount: 0n })
+					fillerInputs.push({ token: input.token, amount: 0n })
 					fillerOutputLegs.push(i)
 					continue
 				}
@@ -667,6 +673,7 @@ export class FXFiller implements FillerStrategy {
 					)
 					// Aligned zero output (see budget-exhausted case above).
 					fillerOutputs.push({ token: output.token, amount: 0n })
+					fillerInputs.push({ token: input.token, amount: 0n })
 					fillerOutputLegs.push(i)
 					continue
 				}
@@ -754,6 +761,12 @@ export class FXFiller implements FillerStrategy {
 
 				policyOutputByLeg.set(i, policyMaxOutput)
 				fillerOutputs.push({ token: output.token, amount: finalOutputAmount })
+				fillerInputs.push({
+					token: input.token,
+					amount: capFraction.gte(1)
+						? input.amount
+						: BigInt(new Decimal(input.amount.toString()).mul(capFraction).floor().toFixed(0)),
+				})
 				fillerOutputLegs.push(i)
 			}
 
@@ -768,7 +781,7 @@ export class FXFiller implements FillerStrategy {
 				return 0
 			}
 
-			this.contractService.cacheService.setFillerOutputs(order.id!, fillerOutputs)
+			this.contractService.cacheService.setFillerOutputs(order.id!, fillerOutputs, fillerInputs)
 
 			if (order.id) {
 				if (fundingCalls.length > 0) {

@@ -35,6 +35,8 @@ interface FillerOutputCache {
 
 interface FillerOutputsCache {
 	outputs: FillerOutputCache[]
+	/** Positional takes signed with `outputs`; absent on entries written before takes existed. */
+	inputs?: FillerOutputCache[]
 	timestamp: number
 }
 
@@ -271,11 +273,36 @@ export class CacheService {
 		}
 	}
 
-	setFillerOutputs(orderId: string, outputs: { token: HexString; amount: bigint }[]): void {
+	/** The takes cached with the order's filler outputs, or null when absent or stale. */
+	getFillerInputs(orderId: string): { token: HexString; amount: bigint }[] | null {
+		try {
+			const cache = this.cacheData.fillerOutputs[orderId]
+			if (cache?.inputs && this.isCacheValid(cache.timestamp)) {
+				return cache.inputs.map((o) => ({
+					token: o.token,
+					amount: BigInt(o.amount),
+				}))
+			}
+			return null
+		} catch (error) {
+			this.logger.error({ err: error }, "Error getting filler inputs")
+			return null
+		}
+	}
+
+	setFillerOutputs(
+		orderId: string,
+		outputs: { token: HexString; amount: bigint }[],
+		inputs: { token: HexString; amount: bigint }[] = [],
+	): void {
 		try {
 			this.cleanupStaleData()
 			this.cacheData.fillerOutputs[orderId] = {
 				outputs: outputs.map((o) => ({
+					token: o.token,
+					amount: o.amount.toString(),
+				})),
+				inputs: inputs.map((o) => ({
 					token: o.token,
 					amount: o.amount.toString(),
 				})),

@@ -17,7 +17,8 @@ import { parseUnits } from "viem"
 // asserted the payout. These tests drive the evaluation with mocked chain
 // access and assert the cached outputs for the three sizing outcomes: uncapped
 // (pay the curve), capped (pay the capped slice's worth at the curve), and
-// balance-limited (pay what the wallet covers).
+// balance-limited (pay what the wallet covers). The take signed alongside each
+// output is pinned too: the full input, scaled by the cap fraction when the cap binds.
 
 const CHAIN = "EVM-97"
 const STABLE = "0x1111111111111111111111111111111111111111" as HexString
@@ -52,6 +53,7 @@ const configService = {
 function makeEvalContractService(): any {
 	const classifications = new Map<string, unknown>()
 	const outputs = new Map<string, TokenInfo[]>()
+	const inputs = new Map<string, TokenInfo[]>()
 	const partials = new Map<string, boolean>()
 	return {
 		getTokenDecimals: async () => 18,
@@ -67,7 +69,10 @@ function makeEvalContractService(): any {
 			getPairClassifications: (id: string) => classifications.get(id),
 			setPairClassifications: (id: string, pairs: unknown) => classifications.set(id, pairs),
 			getFillerOutputs: (id: string) => outputs.get(id),
-			setFillerOutputs: (id: string, value: TokenInfo[]) => outputs.set(id, value),
+			setFillerOutputs: (id: string, value: TokenInfo[], takes: TokenInfo[]) => {
+				outputs.set(id, value)
+				inputs.set(id, takes)
+			},
 			clearPartialFill: (id: string) => partials.delete(id),
 			setPartialFill: (id: string, value: boolean) => partials.set(id, value),
 			getPartialFill: (id: string) => partials.get(id),
@@ -75,6 +80,7 @@ function makeEvalContractService(): any {
 			clearFundingPrepends: () => {},
 		},
 		outputs,
+		inputs,
 		partials,
 	}
 }
@@ -154,6 +160,10 @@ describe("FXFiller curve payout", () => {
 		// regression paid REQUESTED_OUTPUT (149,000) here instead.
 		expect(cached![0].amount).toBe(CURVE_OUTPUT)
 		expect(cached![0].amount).not.toBe(REQUESTED_OUTPUT)
+		// Uncapped: the take is the leg's whole input.
+		expect(contractService.inputs.get("payout-full")).toEqual([
+			{ token: bytes20ToBytes32(STABLE), amount: INPUT_AMOUNT },
+		])
 		// Paying above the ask is a full fill (the gateway splits the excess),
 		// and the fee surplus makes it score.
 		expect(contractService.partials.get("payout-full")).toBe(false)
@@ -177,6 +187,10 @@ describe("FXFiller curve payout", () => {
 		const cached = contractService.outputs.get("payout-capped")
 		expect(cached).toHaveLength(1)
 		expect(cached![0].amount).toBe(parseUnits("60000", 18))
+		// The take is scaled by the same 0.4, so the pair is the capped slice at our rate.
+		expect(contractService.inputs.get("payout-capped")).toEqual([
+			{ token: bytes20ToBytes32(STABLE), amount: parseUnits("40", 18) },
+		])
 		// The capped slice's worth is below the full ask, so this is an under-fill.
 		expect(contractService.partials.get("payout-capped")).toBe(true)
 	})
@@ -197,6 +211,9 @@ describe("FXFiller curve payout", () => {
 		const cached = contractService.outputs.get("payout-balance")
 		expect(cached).toHaveLength(1)
 		expect(cached![0].amount).toBe(parseUnits("149500", 18))
+		expect(contractService.inputs.get("payout-balance")).toEqual([
+			{ token: bytes20ToBytes32(STABLE), amount: INPUT_AMOUNT },
+		])
 		expect(contractService.partials.get("payout-balance")).toBe(false)
 		expect(profit).toBeGreaterThan(0)
 	})

@@ -21,7 +21,8 @@ function makeOrder(source: string, destination: string): Order {
 
 function makeEstimate(): FillOrderEstimate {
 	return {
-		fillOptions: { relayerFee: 0n, nativeDispatchFee: 0n, validUntil: 0n, outputs: [] },
+		fillOptions: { relayerFee: 0n, nativeDispatchFee: 0n, validUntil: 0n, outputs: [], inputs: [] },
+		inputs: [],
 		callGasLimit: 1n,
 		verificationGasLimit: 1n,
 		preVerificationGas: 1n,

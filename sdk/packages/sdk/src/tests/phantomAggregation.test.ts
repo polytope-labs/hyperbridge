@@ -7,6 +7,7 @@ import {
 	memoizedSolverBalance,
 	orderCommitmentFromDecoded,
 	recoverBidSignerViem,
+	readRateFillCapability,
 	setAggregationFetch,
 	splitBidSignature,
 	weightedMedian,
@@ -20,6 +21,7 @@ import {
 	FILL_ORDER_ABI,
 	type FetchLike,
 	type HexString,
+	PhantomRpcError,
 } from "@/protocols/intents/phantom-aggregation"
 import { CryptoUtils } from "@/protocols/intents/CryptoUtils"
 import { encodeUserOpScale } from "@/chains/intentsCoprocessor"
@@ -59,63 +61,48 @@ function fillOptions() {
 		nativeDispatchFee: 0n,
 		validUntil: 0n,
 		outputs: [{ token: USDT_BYTES32, amount: SOLVER_AMOUNT }],
+		// A take of the whole escrow, so the quoted output is also the normalized one.
+		inputs: [{ token: USDC_BYTES32, amount: 5_000_000n }],
 	}
 }
 
-/** The pre-`validUntil` FillOptions shape, still on the wire from older gateways' solvers. */
-function legacyFillOptions() {
-	const { relayerFee, nativeDispatchFee, outputs } = fillOptions()
-	return { relayerFee, nativeDispatchFee, outputs }
-}
-
-const LEGACY_FILL_ORDER_ABI = [
-	{
-		type: "function",
-		name: "fillOrder",
-		stateMutability: "payable",
-		outputs: [],
-		inputs: [
-			(FILL_ORDER_ABI as readonly any[]).find((e) => e.type === "function" && e.name === "fillOrder")!.inputs[0],
-			{
-				name: "options",
-				type: "tuple",
-				components: [
-					{ name: "relayerFee", type: "uint256" },
-					{ name: "nativeDispatchFee", type: "uint256" },
-					{
-						name: "outputs",
-						type: "tuple[]",
-						components: [
-							{ name: "token", type: "bytes32" },
-							{ name: "amount", type: "uint256" },
-						],
-					},
-				],
-			},
-		],
-	},
-] as const
-
 // Encodes a fillOrder call wrapped in an ERC-7821 execute batch, the way a solver's bid arrives.
 function bidCalldata(target: string = GATEWAY): HexString {
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	const fillCalldata = (encodeFunctionData as any)({
+	const fillCalldata = encodeFunctionData({
 		abi: FILL_ORDER_ABI,
 		functionName: "fillOrder",
-		args: [phantomOrder(), fillOptions()],
+		args: [phantomOrder() as any, fillOptions() as any],
 	}) as HexString
 	return encodeERC7821ExecuteBatch([{ target: target as HexString, value: 0n, data: fillCalldata }])
 }
 
-/** The same bid encoded in the pre-`validUntil` shape, as an older gateway's solver would send it. */
-function legacyBidCalldata(target: string = GATEWAY): HexString {
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	const fillCalldata = (encodeFunctionData as any)({
-		abi: LEGACY_FILL_ORDER_ABI,
+function rateBidCalldata(take: bigint, offered: bigint): HexString {
+	const fillCalldata = encodeFunctionData({
+		abi: FILL_ORDER_ABI,
 		functionName: "fillOrder",
-		args: [phantomOrder(), legacyFillOptions()],
+		args: [
+			phantomOrder() as any,
+			{
+				...fillOptions(),
+				outputs: [{ token: USDT_BYTES32, amount: offered }],
+				inputs: [{ token: USDC_BYTES32, amount: take }],
+			} as any,
+		],
 	}) as HexString
-	return encodeERC7821ExecuteBatch([{ target: target as HexString, value: 0n, data: fillCalldata }])
+	return encodeERC7821ExecuteBatch([{ target: GATEWAY, value: 0n, data: fillCalldata }])
+}
+
+function customRateBidCalldata(
+	order: ReturnType<typeof phantomOrder>,
+	outputs: { token: HexString; amount: bigint }[],
+	inputs: { token: HexString; amount: bigint }[],
+): HexString {
+	const fillCalldata = encodeFunctionData({
+		abi: FILL_ORDER_ABI,
+		functionName: "fillOrder",
+		args: [order as any, { ...fillOptions(), outputs, inputs } as any],
+	}) as HexString
+	return encodeERC7821ExecuteBatch([{ target: GATEWAY, value: 0n, data: fillCalldata }])
 }
 
 // A two pair order where the solver priced the first leg and declined the second by quoting zero.
@@ -126,12 +113,12 @@ function multiLegBidCalldata(): HexString {
 
 	const options = fillOptions()
 	options.outputs.push({ token: DAI_BYTES32, amount: 0n })
+	options.inputs.push({ token: USDT_BYTES32, amount: 0n })
 
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	const fillCalldata = (encodeFunctionData as any)({
+	const fillCalldata = encodeFunctionData({
 		abi: FILL_ORDER_ABI,
 		functionName: "fillOrder",
-		args: [order, options],
+		args: [order as any, options as any],
 	}) as HexString
 	return encodeERC7821ExecuteBatch([{ target: GATEWAY, value: 0n, data: fillCalldata }])
 }
@@ -167,14 +154,90 @@ describe("extractFillData", () => {
 		expect(extractFillData(bidCalldata(other), GATEWAY)).toBeNull()
 	})
 
-	it("decodes a bid encoded in the pre-validUntil FillOptions shape", () => {
-		// Gateways are upgraded per chain, so both shapes are on the wire at once. A solver
-		// bidding against an older gateway must still be priced into the aggregate, not dropped.
-		const result = extractFillData(legacyBidCalldata(), GATEWAY)
+	it("decodes and normalizes a rate quote against its positional input take", () => {
+		const result = extractFillData(rateBidCalldata(2_500_000n, 600_000n), GATEWAY)
 
-		expect(result).not.toBeNull()
-		expect(result!.legs[0].solverAmount).toBe(SOLVER_AMOUNT)
-		expect(result!.legs[0].outputToken.toLowerCase()).toBe(USDT_BYTES32.toLowerCase())
+		expect(result).toMatchObject({
+			options: { inputs: [{ token: USDC_BYTES32, amount: 2_500_000n }] },
+		})
+		expect(result!.legs[0]).toMatchObject({
+			outputToken: USDT_BYTES32,
+			solverAmount: 600_000n,
+			inputTake: 2_500_000n,
+			normalizedAmount: 1_200_000n,
+		})
+	})
+
+	it("rejects a rate quote whose positional input token does not match the order", () => {
+		const calldata = customRateBidCalldata(
+			phantomOrder(),
+			[{ token: USDT_BYTES32, amount: 1_100n }],
+			[{ token: DAI_BYTES32, amount: 1n }],
+		)
+
+		expect(extractFillData(calldata, GATEWAY)).toBeNull()
+	})
+
+	it("rejects short nonempty rate arrays instead of filling missing denominators from the order", () => {
+		const multi = phantomOrder()
+		multi.inputs.push({ token: DAI_BYTES32, amount: 1_000n })
+		multi.output.assets.push({ token: USDC_BYTES32, amount: 0n })
+		const calldata = customRateBidCalldata(
+			multi,
+			[
+				{ token: USDT_BYTES32, amount: 600_000n },
+				{ token: USDC_BYTES32, amount: 1_000n },
+			],
+			[{ token: USDC_BYTES32, amount: 2_500_000n }],
+		)
+
+		expect(extractFillData(calldata, GATEWAY)).toBeNull()
+	})
+
+	it("rejects inconsistent zero take/output pairs", () => {
+		const zeroPair = customRateBidCalldata(
+			phantomOrder(),
+			[{ token: USDT_BYTES32, amount: 1n }],
+			[{ token: USDC_BYTES32, amount: 0n }],
+		)
+		expect(extractFillData(zeroPair, GATEWAY)).toBeNull()
+	})
+
+	it("preserves unequal repeated-token rate legs by position", () => {
+		const repeated = phantomOrder()
+		repeated.inputs = [
+			{ token: USDC_BYTES32, amount: 1_000n },
+			{ token: USDC_BYTES32, amount: 2_000n },
+		]
+		repeated.output.assets.push({ ...repeated.output.assets[0] })
+		const calldata = customRateBidCalldata(
+			repeated,
+			[
+				{ token: USDT_BYTES32, amount: 440n },
+				{ token: USDT_BYTES32, amount: 900n },
+			],
+			[
+				{ token: USDC_BYTES32, amount: 400n },
+				{ token: USDC_BYTES32, amount: 600n },
+			],
+		)
+		expect(extractFillData(calldata, GATEWAY)?.legs).toEqual([
+			{ outputToken: USDT_BYTES32, solverAmount: 440n, inputTake: 400n, normalizedAmount: 1_100n },
+			{ outputToken: USDT_BYTES32, solverAmount: 900n, inputTake: 600n, normalizedAmount: 3_000n },
+		])
+	})
+
+	it("rejects noncanonical bytes32 EVM token addresses", () => {
+		const noncanonical = `0x01${"00".repeat(31)}` as HexString
+		const malformed = phantomOrder()
+		malformed.inputs[0].token = noncanonical
+		const calldata = customRateBidCalldata(
+			malformed,
+			[{ token: USDT_BYTES32, amount: 1n }],
+			[{ token: noncanonical, amount: 1n }],
+		)
+
+		expect(extractFillData(calldata, GATEWAY)).toBeNull()
 	})
 
 	it("returns null for calldata that is not an ERC-7821 batch", () => {
@@ -280,9 +343,13 @@ async function signedBidUserOp(opts: {
 	commitment?: HexString
 	nonce?: bigint
 	paymasterAndData?: HexString
+	callData?: HexString
 }): Promise<PackedUserOperation> {
 	const signer = privateKeyToAccount(opts.signingKey)
-	const userOp = unsignedUserOp(opts.sender ?? (signer.address as HexString), opts.nonce, opts.paymasterAndData)
+	const userOp = {
+		...unsignedUserOp(opts.sender ?? (signer.address as HexString), opts.nonce, opts.paymasterAndData),
+		...(opts.callData ? { callData: opts.callData } : {}),
+	}
 	const solverSignature = await signer.signTypedData(
 		CryptoUtils.packedUserOpTypedData(userOp, ENTRY_POINT_V08_ADDRESS, CHAIN_ID),
 	)
@@ -327,6 +394,10 @@ const isGatewayParamsCall = (payload: any) =>
 	payload.method === "eth_call" &&
 	payload.params[0].to?.toLowerCase() === GATEWAY.toLowerCase() &&
 	payload.params[0].data === SELECTOR_GATEWAY_PARAMS
+// `version()` on the gateway or a SolverAccount; every bid is gated on it reporting release 3.
+const SELECTOR_VERSION = "0x54fd4d50"
+const isVersionCall = (payload: any) => payload.method === "eth_call" && payload.params[0].data === SELECTOR_VERSION
+const versionResult = (release: bigint = 3n) => toHex(release, { size: 32 })
 
 // Stands in for the Hyperbridge node and the destination chain's RPC: serves the given bids, the
 // given account code, and an ERC-20 balance for any eth_call — fixed by default, or per-holder
@@ -350,7 +421,9 @@ function mockRpc(
 					? codeFor(payload.params[0])
 					: isGatewayParamsCall(payload)
 						? gatewayParamsResult(protocolFeeBps)
-						: toHex(balanceFor(balanceOfSubject(payload.params[0].data)), { size: 32 })
+						: isVersionCall(payload)
+							? versionResult()
+							: toHex(balanceFor(balanceOfSubject(payload.params[0].data)), { size: 32 })
 		return { json: async () => ({ id: payload.id, jsonrpc: "2.0", result }) }
 	}
 }
@@ -374,6 +447,86 @@ function aggregate(
 		solverAccount: SOLVER_ACCOUNT,
 	})
 }
+
+describe("readRateFillCapability", () => {
+	it("checks both the gateway and the solver account", async () => {
+		const calls: string[] = []
+		setAggregationFetch(async (_url, init) => {
+			const payload = JSON.parse(init.body)
+			if (payload.method === "eth_getCode") {
+				return { json: async () => ({ result: delegatedTo(SOLVER_ACCOUNT)() }) }
+			}
+			calls.push(payload.params[0].to.toLowerCase())
+			expect(payload.params[0].data).toBe("0x54fd4d50")
+			return { json: async () => ({ result: toHex(3n, { size: 32 }) }) }
+		})
+
+		await expect(readRateFillCapability("http://base.test", GATEWAY, SOLVER_ACCOUNT)).resolves.toBe(true)
+		expect(calls).toEqual([GATEWAY.toLowerCase(), SOLVER_ACCOUNT.toLowerCase()])
+	})
+
+	it.each([0n, 2n, 4n, 5n, (1n << 64n) - 1n])("rejects unsupported gateway release %s", async (version) => {
+		setAggregationFetch(async (_url, init) => {
+			const payload = JSON.parse(init.body)
+			return {
+				json: async () => ({
+					result:
+						payload.method === "eth_getCode"
+							? delegatedTo(SOLVER_ACCOUNT)()
+							: toHex(payload.params[0].to.toLowerCase() === GATEWAY.toLowerCase() ? version : 3n, {
+									size: 32,
+								}),
+				}),
+			}
+		})
+		await expect(readRateFillCapability("http://base.test", GATEWAY, SOLVER_ACCOUNT)).resolves.toBe(false)
+	})
+
+	it("rechecks an account implementation upgraded between aggregations", async () => {
+		let version = 2n
+		setAggregationFetch(async (_url, init) => {
+			const payload = JSON.parse(init.body)
+			return {
+				json: async () => ({
+					result:
+						payload.method === "eth_getCode"
+							? delegatedTo(SOLVER_ACCOUNT)()
+							: toHex(payload.params[0].to.toLowerCase() === GATEWAY.toLowerCase() ? 3n : version, {
+									size: 32,
+								}),
+				}),
+			}
+		})
+		await expect(readRateFillCapability("http://base.test", GATEWAY, SOLVER_ACCOUNT)).resolves.toBe(false)
+		version = 3n
+		await expect(readRateFillCapability("http://base.test", GATEWAY, SOLVER_ACCOUNT)).resolves.toBe(true)
+	})
+
+	it("rejects a prior boolean marker even if both contracts return true", async () => {
+		setAggregationFetch(async (_url, init) => {
+			const payload = JSON.parse(init.body)
+			return {
+				json: async () => ({
+					result: payload.method === "eth_getCode" ? delegatedTo(SOLVER_ACCOUNT)() : toHex(1n, { size: 32 }),
+				}),
+			}
+		})
+		await expect(readRateFillCapability("http://base.test", GATEWAY, SOLVER_ACCOUNT)).resolves.toBe(false)
+	})
+
+	it("keeps an unavailable capability RPC distinct from unsupported contracts", async () => {
+		setAggregationFetch(async (_url, init) => {
+			const payload = JSON.parse(init.body)
+			return payload.method === "eth_getCode"
+				? { json: async () => ({ result: delegatedTo(SOLVER_ACCOUNT)() }) }
+				: { json: async () => ({ result: undefined }) }
+		})
+
+		await expect(readRateFillCapability("http://base.test", GATEWAY, SOLVER_ACCOUNT)).rejects.toBeInstanceOf(
+			PhantomRpcError,
+		)
+	})
+})
 
 describe("splitBidSignature", () => {
 	it("splits a bid signature into its commitment and 65-byte solver signature", () => {
@@ -433,6 +586,94 @@ describe("recoverBidSignerViem", () => {
 })
 
 describe("aggregatePhantomBids bid verification", () => {
+	it("does not aggregate a signed malformed rate quote", async () => {
+		const malformed = customRateBidCalldata(
+			phantomOrder(),
+			[{ token: USDT_BYTES32, amount: 1_100n }],
+			[{ token: DAI_BYTES32, amount: 1n }],
+		)
+		const userOp = await signedBidUserOp({ signingKey: SOLVER_KEY, callData: malformed })
+		setAggregationFetch(mockRpc([userOp], delegatedTo(SOLVER_ACCOUNT)))
+		const supportsRateFills = vi.fn(async () => true)
+
+		const result = await aggregatePhantomBids({
+			nodeUrl: NODE_URL,
+			evmRpcUrls: { [CHAIN]: "http://base.test" },
+			chain: CHAIN,
+			gatewayAddress: GATEWAY,
+			commitment: COMMITMENT,
+			yieldVaults: { [CHAIN]: { [USDT]: [] } },
+			solverAccount: SOLVER_ACCOUNT,
+			supportsRateFills,
+		})
+
+		expect(result).toBeNull()
+		expect(supportsRateFills).not.toHaveBeenCalled()
+	})
+
+	it.each([false, true])("skips a signed bid (empty inputs=%s) without live support", async (emptyInputs) => {
+		const userOp = await signedBidUserOp({
+			signingKey: SOLVER_KEY,
+			callData: emptyInputs
+				? customRateBidCalldata(phantomOrder(), fillOptions().outputs, [])
+				: rateBidCalldata(2_500_000n, 600_000n),
+		})
+		setAggregationFetch(mockRpc([userOp], delegatedTo(SOLVER_ACCOUNT)))
+		const supportsRateFills = vi.fn(async () => false)
+
+		const result = await aggregatePhantomBids({
+			nodeUrl: NODE_URL,
+			evmRpcUrls: { [CHAIN]: "http://base.test" },
+			chain: CHAIN,
+			gatewayAddress: GATEWAY,
+			commitment: COMMITMENT,
+			yieldVaults: { [CHAIN]: { [USDT]: [] } },
+			solverAccount: SOLVER_ACCOUNT,
+			supportsRateFills,
+		})
+
+		expect(result).toBeNull()
+		if (emptyInputs) {
+			expect(supportsRateFills).not.toHaveBeenCalled()
+			return
+		}
+		expect(supportsRateFills).toHaveBeenCalledWith("http://base.test", GATEWAY, SOLVER_ACCOUNT.toLowerCase())
+	})
+
+	it("treats a missing capability method as unsupported", async () => {
+		setAggregationFetch(async (_url, init) => {
+			const payload = JSON.parse(init.body)
+			return payload.method === "eth_getCode"
+				? { json: async () => ({ result: delegatedTo(SOLVER_ACCOUNT)() }) }
+				: { json: async () => ({ error: { code: 3, message: "execution reverted" } }) }
+		})
+
+		await expect(readRateFillCapability("http://base.test", GATEWAY, SOLVER_ACCOUNT)).resolves.toBe(false)
+	})
+
+	it("counts a signed rate bid only after a fresh positive capability check", async () => {
+		const userOp = await signedBidUserOp({
+			signingKey: SOLVER_KEY,
+			callData: rateBidCalldata(2_500_000n, 600_000n),
+		})
+		setAggregationFetch(mockRpc([userOp], delegatedTo(SOLVER_ACCOUNT)))
+		const supportsRateFills = vi.fn(async () => true)
+
+		const result = await aggregatePhantomBids({
+			nodeUrl: NODE_URL,
+			evmRpcUrls: { [CHAIN]: "http://base.test" },
+			chain: CHAIN,
+			gatewayAddress: GATEWAY,
+			commitment: COMMITMENT,
+			yieldVaults: { [CHAIN]: { [USDT]: [] } },
+			solverAccount: SOLVER_ACCOUNT,
+			supportsRateFills,
+		})
+
+		expect(result!.legs[0].medianPrice).toBe(applyProtocolFeeHaircut(1_200_000n, PROTOCOL_FEE_BPS))
+		expect(supportsRateFills).toHaveBeenCalledTimes(1)
+	})
+
 	it("counts a bid whose sender signed it and is delegated to the chain's SolverAccount", async () => {
 		const userOp = await signedBidUserOp({ signingKey: SOLVER_KEY })
 
@@ -756,7 +997,9 @@ describe("aggregatePhantomBids bid verification", () => {
 					? [{ commitment: COMMITMENT, filler: `0x${"ab".repeat(32)}`, user_op: encodeUserOpScale(userOp) }]
 					: isGatewayParamsCall(payload)
 						? gatewayParamsResult(PROTOCOL_FEE_BPS)
-						: toHex(SOLVER_BALANCE, { size: 32 })
+						: isVersionCall(payload)
+							? versionResult()
+							: toHex(SOLVER_BALANCE, { size: 32 })
 			return { json: async () => ({ id: payload.id, jsonrpc: "2.0", result }) }
 		})
 
@@ -795,7 +1038,9 @@ describe("aggregatePhantomBids bid verification", () => {
 						? delegatedTo(SOLVER_ACCOUNT)()
 						: isGatewayParamsCall(payload)
 							? gatewayParamsResult(PROTOCOL_FEE_BPS)
-							: toHex(SOLVER_BALANCE, { size: 32 })
+							: isVersionCall(payload)
+								? versionResult()
+								: toHex(SOLVER_BALANCE, { size: 32 })
 			return { json: async () => ({ id: payload.id, jsonrpc: "2.0", result }) }
 		})
 
@@ -832,7 +1077,9 @@ describe("aggregatePhantomBids bid verification", () => {
 						? delegatedTo(SOLVER_ACCOUNT)()
 						: isGatewayParamsCall(payload)
 							? gatewayParamsResult(PROTOCOL_FEE_BPS)
-							: toHex(SOLVER_BALANCE, { size: 32 })
+							: isVersionCall(payload)
+								? versionResult()
+								: toHex(SOLVER_BALANCE, { size: 32 })
 			return { json: async () => ({ id: payload.id, jsonrpc: "2.0", result }) }
 		})
 
@@ -869,7 +1116,9 @@ describe("aggregatePhantomBids bid verification", () => {
 						? delegatedTo(SOLVER_ACCOUNT)()
 						: isGatewayParamsCall(payload)
 							? gatewayParamsResult(PROTOCOL_FEE_BPS)
-							: toHex(SOLVER_BALANCE, { size: 32 })
+							: isVersionCall(payload)
+								? versionResult()
+								: toHex(SOLVER_BALANCE, { size: 32 })
 			return { json: async () => ({ id: payload.id, jsonrpc: "2.0", result }) }
 		})
 
@@ -929,6 +1178,7 @@ describe("aggregatePhantomBids bid verification", () => {
 				const selector = data.slice(0, 10)
 				let result: string
 				if (isGatewayParamsCall(payload)) result = gatewayParamsResult(PROTOCOL_FEE_BPS)
+				else if (isVersionCall(payload)) result = versionResult()
 				else if (to === POSITION_MANAGER && selector === "0x6352211e") result = `0x${addrWord(owner)}`
 				else if (to === POSITION_MANAGER && selector === "0x1efeed33") result = `0x${w(LIQUIDITY)}`
 				else if (to === POSITION_MANAGER && selector === "0x7ba03aad")
@@ -1146,7 +1396,8 @@ describe("aggregatePhantomBids bid verification", () => {
 			if (
 				payload.method !== "intents_getBidsForOrder" &&
 				payload.method !== "eth_getCode" &&
-				!isGatewayParamsCall(payload)
+				!isGatewayParamsCall(payload) &&
+				!isVersionCall(payload)
 			) {
 				balanceCalls++
 			}

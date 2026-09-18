@@ -236,12 +236,26 @@ contract IntentGatewayRateFillTest is IntentGatewayV2SameChainTest {
         TokenInfo[] memory offered = new TokenInfo[](1);
         offered[0] = TokenInfo(bytes32(0), 4);
         uint256 solverBefore = solver.balance;
+        uint256 inputBefore = usdc.balanceOf(solver);
         vm.prank(solver);
         intentGateway.fillOrder{value: 4}(order, FillOptions(0, 0, 0, offered, takes));
 
         assertEq(solverBefore - solver.balance, 3);
         assertEq(address(intentGateway).balance, 1);
-        assertEq(intentGateway._partialFills(keccak256(abi.encode(order)), 0), 1);
+        bytes32 commitment = keccak256(abi.encode(order));
+        assertEq(intentGateway._partialFills(commitment, 0), 1);
+        assertEq(usdc.balanceOf(solver) - inputBefore, 3);
+
+        // The remaining seven inputs settle at a different rate without stranding escrow.
+        takes[0].amount = 10;
+        offered[0].amount = 3;
+        vm.prank(solver);
+        intentGateway.fillOrder{value: 3}(order, FillOptions(0, 0, 0, offered, takes));
+        assertEq(solverBefore - solver.balance, 6);
+        assertEq(usdc.balanceOf(solver) - inputBefore, 10);
+        assertEq(intentGateway._orders(commitment, 0), 0);
+        assertEq(intentGateway._partialFills(commitment, 0), 3);
+        assertEq(intentGateway._filled(commitment), solver);
     }
 
     function testRate_OversizedOutputCallReceivesCreditAndRetainsDerivedSurplus() public {
@@ -250,9 +264,7 @@ contract IntentGatewayRateFillTest is IntentGatewayV2SameChainTest {
         TokenInfo[] memory outputs = new TokenInfo[](1);
         outputs[0] = TokenInfo(bytes32(uint256(uint160(address(dai)))), 3);
         Call[] memory calls = new Call[](1);
-        calls[0] = Call({
-            to: address(dai), value: 0, data: abi.encodeWithSelector(IERC20.approve.selector, address(intentGateway), 3)
-        });
+        calls[0] = Call({to: address(dai), value: 0, data: abi.encodeWithSelector(IERC20.transfer.selector, user, 3)});
         Order memory order = Order(
             bytes32(uint256(uint160(user))),
             host.host(),
@@ -263,7 +275,7 @@ contract IntentGatewayRateFillTest is IntentGatewayV2SameChainTest {
             address(0),
             DispatchInfo(new TokenInfo[](0), ""),
             inputs,
-            PaymentInfo(bytes32(uint256(uint160(user))), outputs, abi.encode(calls))
+            PaymentInfo(bytes32(uint256(uint160(address(dispatcher)))), outputs, abi.encode(calls))
         );
         vm.startPrank(user);
         usdc.approve(address(intentGateway), 10);
@@ -275,6 +287,7 @@ contract IntentGatewayRateFillTest is IntentGatewayV2SameChainTest {
         TokenInfo[] memory offered = new TokenInfo[](1);
         offered[0] = TokenInfo(outputs[0].token, 11);
         uint256 solverBefore = dai.balanceOf(solver);
+        uint256 inputBefore = usdc.balanceOf(solver);
         uint256 userBefore = dai.balanceOf(user);
         uint256 protocolBefore = dai.balanceOf(address(intentGateway));
         vm.startPrank(solver);
@@ -285,7 +298,8 @@ contract IntentGatewayRateFillTest is IntentGatewayV2SameChainTest {
         assertEq(solverBefore - dai.balanceOf(solver), 10);
         assertEq(dai.balanceOf(user) - userBefore, 3);
         assertEq(dai.balanceOf(address(intentGateway)) - protocolBefore, 7);
-        assertEq(usdc.balanceOf(solver), 100000 * 1e6 + 10);
+        assertEq(usdc.balanceOf(solver) - inputBefore, 10);
+        assertEq(dai.balanceOf(address(dispatcher)), 0);
     }
 
     function testRate_RejectsInvalidLegsAndNoProgress() public {

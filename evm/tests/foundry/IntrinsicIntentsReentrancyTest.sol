@@ -35,16 +35,16 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 /**
  * @title ReentrantBeneficiary
  * @notice Malicious beneficiary contract that attempts to re-enter `fillOrder` during
- *         the ETH transfer made by `_fillSameChain` or `_fillCrossChain`.
+ *         the ETH transfer made while `fillOrder` pays a leg.
  *
  * Attack window (pre-fix):
  *
- *   _fillSameChain / _fillCrossChain:
+ *   fillOrder, in either module's `_fillOrder`:
  *     beneficiary.call{value: ...}("")   ← RE-ENTRY HERE
  *     // _filled still == address(0) pre-fix, now set at the top (CEI)
  *
- * With the CEI fix in place, `_filled[commitment]` is set to `msg.sender` at the
- * very start of both fill functions. Any reentrant `fillOrder` call therefore hits
+ * With the CEI fix in place, `_filled[commitment]` is set to `msg.sender` by
+ * `fillOrder` before either module runs. Any reentrant `fillOrder` call therefore hits
  * the `if (_filled[commitment] != address(0)) revert Filled()` guard and reverts.
  * That revert propagates through `receive()`, causing the outer ETH transfer to
  * return `(false, ...)`, which triggers `InsufficientNativeToken()` in the outer
@@ -87,13 +87,12 @@ contract ReentrantBeneficiary {
 
 /**
  * @title IntrinsicIntentsReentrancyTest
- * @notice Forge tests that confirm the CEI fix in `IntrinsicIntents._fillSameChain`
- *         and verify that `ExtrinsicIntents._fillCrossChain` is also resistant to
- *         reentrancy attacks.
+ * @notice Forge tests that confirm the CEI fix for same-chain fills and verify that
+ *         cross-chain fills are also resistant to reentrancy attacks.
  *
- * Both fill functions now open with `_filled[commitment] = msg.sender` before any
- * external calls, so a reentrant `fillOrder` attempt is always blocked by the
- * `Filled()` guard in `IntentGatewayV2.fillOrder`.
+ * `IntentGatewayV2.fillOrder` sets `_filled[commitment] = msg.sender` before it
+ * delegates to either module, so a reentrant `fillOrder` attempt is always blocked by
+ * its `Filled()` guard.
  *
  * Test matrix
  * ───────────
@@ -213,7 +212,7 @@ contract IntrinsicIntentsReentrancyTest is MainnetForkBaseTest {
         });
     }
 
-    // ── SAME-CHAIN TESTS (IntrinsicIntents._fillSameChain) ───────────────────
+    // ── SAME-CHAIN TESTS (IntrinsicIntents._fillOrder) ───────────────────────
 
     /**
      * @dev Same-chain fee theft is now blocked by the CEI fix.
@@ -221,8 +220,8 @@ contract IntrinsicIntentsReentrancyTest is MainnetForkBaseTest {
      * Before the fix: `_filled` was set only inside `_withdraw(finalize=true)`,
      * so a malicious beneficiary could re-enter and steal the escrowed tx fees.
      *
-     * After the fix: `_filled[commitment] = msg.sender` is set at the top of
-     * `_fillSameChain`, before the output loop. The reentrant `fillOrder` call
+     * After the fix: `_filled[commitment] = msg.sender` is set by `fillOrder`
+     * before the module's output loop. The reentrant `fillOrder` call
      * therefore hits `Filled()`, propagates through `receive()`, causes the ETH
      * transfer to return false, and the outer call reverts with
      * `InsufficientNativeToken()` — rolling back all state changes.
@@ -381,12 +380,11 @@ contract IntrinsicIntentsReentrancyTest is MainnetForkBaseTest {
         );
     }
 
-    // ── CROSS-CHAIN TESTS (ExtrinsicIntents._fillCrossChain) ─────────────────
+    // ── CROSS-CHAIN TESTS (ExtrinsicIntents._fillOrder) ──────────────────────
     //
-    // _fillCrossChain already applied the CEI pattern from the start (the
-    // `_filled[commitment] = msg.sender` statement was never commented out in
-    // ExtrinsicIntents.sol, unlike _fillSameChain). These tests confirm the
-    // existing protection holds for single- and multi-output cross-chain orders.
+    // Cross-chain fills are claimed by the same `_filled[commitment] = msg.sender`
+    // in `fillOrder`. These tests confirm the protection holds for single- and
+    // multi-output cross-chain orders.
     //
     // Setup difference from same-chain tests:
     //  - order.source = "EVM-2" (a remote chain, not the current host)
@@ -394,12 +392,12 @@ contract IntrinsicIntentsReentrancyTest is MainnetForkBaseTest {
     //  - No placeOrder needed; cross-chain fills don't access source-chain escrow.
     //
     // Attack flow (blocked):
-    //   1. fillOrder routes to _fillCrossChain (source != dest, dest == current)
-    //   2. _fillCrossChain sets _filled[commitment] = msg.sender immediately
+    //   1. fillOrder sets _filled[commitment] = msg.sender
+    //   2. fillOrder routes to ExtrinsicIntents._fillOrder (source != dest, dest == current)
     //   3. ETH output loop sends ETH to maliciousBeneficiary → receive() fires
     //   4. Reentrant fillOrder hits _filled[commitment] != 0 → Filled() revert
     //   5. Revert propagates through receive() → ETH .call returns false
-    //   6. _fillCrossChain throws InsufficientNativeToken() → full tx rollback
+    //   6. _payLeg throws InsufficientNativeToken() → full tx rollback
 
     /**
      * @dev Cross-chain fill with a single ETH output: reentrancy is blocked.
@@ -454,8 +452,8 @@ contract IntrinsicIntentsReentrancyTest is MainnetForkBaseTest {
 
     /**
      * @dev Cross-chain fill of two legs selling the same token (USDC for ETH, USDC for DAI): the
-     * reentrant payload skips the ETH leg and self-fills the DAI leg. `_filled` is set at the top of
-     * `_fillCrossChain`, so the reentrant call is blocked before any leg's progress is recorded.
+     * reentrant payload skips the ETH leg and self-fills the DAI leg. `_filled` is set by `fillOrder`
+     * before the module runs, so the reentrant call is blocked before any leg's progress is recorded.
      */
     function testCrossChain_ReentrancyBlocked_MultiOutput() public {
         uint256 outputDai = 500 * 1e18;

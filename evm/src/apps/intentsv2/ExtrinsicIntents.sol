@@ -47,21 +47,14 @@ abstract contract ExtrinsicIntents is IntentsBase, HyperApp {
     using RLPReader for RLPReader.RLPItem;
 
     /**
-     * @dev Returns the Hyperbridge host contract address. Overrides both IntentsBase and
-     * HyperApp to resolve the diamond inheritance conflict — both parent contracts
-     * declare a virtual `host()` function.
-     * @return The host contract address from stored params.
+     * @dev The Hyperbridge host.
      */
     function host() public view virtual override(IntentsBase, HyperApp) returns (address) {
         return _params.host;
     }
 
     /**
-     * @dev Authenticates an incoming cross-chain post request by verifying that the
-     * sender module matches the registered gateway instance for the source chain.
-     * Reverts with InvalidInput if the sender address is malformed, or Unauthorized
-     * if the sender is not the expected gateway.
-     * @param request The incoming post request to authenticate.
+     * @dev Reverts unless the request comes from the gateway registered for its source chain.
      */
     function _authenticate(PostRequest calldata request) internal view {
         if (request.from.length != 20) revert InvalidInput();
@@ -70,36 +63,32 @@ abstract contract ExtrinsicIntents is IntentsBase, HyperApp {
     }
 
     /**
-     * @dev Once a relayer is set, rejects deliveries from anyone else before the body is read. The
-     * host records the revert as undelivered, so the authorised relayer can resubmit. While unset,
-     * every delivery passes: a proxy stays open until governance arms it through `setRelayer`.
-     * @param relayer The account that submitted the message to the handler.
+     * @dev Once a relayer is set, rejects deliveries from anyone else.
      */
-    function _checkRelayer(address relayer) internal view {
+    modifier onlyRelayer(address relayer) {
         address authorised = _relayer;
         if (authorised != address(0) && relayer != authorised) revert Unauthorized();
+        _;
     }
 
     /**
-     * @dev Rotates the authorised relayer. Host-only, so reachable only through an `Execute`
-     * request, which delegatecalls it with the host still `msg.sender`. Leaves `version()` alone.
-     * @param relayer The account whose deliveries are accepted from now on. Zero reopens the gate.
+     * @dev Rotates the relayer; zero accepts any. Host-only, so reached through `Execute`.
      */
     function setRelayer(address relayer) external onlyHost {
         _setRelayer(relayer);
     }
 
     /**
-     * @dev Points the proxy at `newImplementation` and delegatecalls `data` on it in the same
-     * transaction, e.g. `migrate()`. Host-only, so reachable only through `Execute`.
-     * @param newImplementation The implementation to install; must have code.
-     * @param data Migration calldata run against the new implementation, or empty.
+     * @dev Upgrades the proxy and runs `data` on the new implementation. Host-only, so reached
+     * through `Execute`.
      */
     function upgradeToAndCall(address newImplementation, bytes calldata data) external onlyHost {
         ERC1967Utils.upgradeToAndCall(newImplementation, data);
     }
 
-    /// @dev `kind` followed by the ABI-encoded `WithdrawalRequest`.
+    /**
+     * @dev `kind` followed by the ABI-encoded `WithdrawalRequest`.
+     */
     function _body(RequestKind kind, bytes32 commitment, TokenInfo[] memory tokens, bytes32 beneficiary)
         internal
         pure
@@ -111,8 +100,10 @@ abstract contract ExtrinsicIntents is IntentsBase, HyperApp {
         );
     }
 
-    /// @dev Posts `body` to the gateway on the order's source chain, paying `nativeFee` in native
-    /// tokens when non-zero and in the fee token otherwise.
+    /**
+     * @dev Posts `body` to the source chain's gateway, paying `nativeFee` natively when non-zero
+     * and in the fee token otherwise.
+     */
     function _post(Order calldata order, bytes memory body, uint256 relayerFee, uint256 nativeFee) internal {
         DispatchPost memory request = DispatchPost({
             dest: order.source,
@@ -130,21 +121,15 @@ abstract contract ExtrinsicIntents is IntentsBase, HyperApp {
     }
 
     /**
-     * @dev Pays each leg here and asks the source chain for the escrow it earns. A partial fill
-     * sends `RedeemEscrowPartial` and reopens the order; a completing fill runs the beneficiary's
-     * calldata and sends `RedeemEscrow`, which also settles fees.
-     * @param order The cross-chain order being filled.
-     * @param options The solver's per-leg quotes and dispatch fees.
-     * @param commitment The keccak256 hash of the ABI-encoded order.
+     * @dev Pays each leg here and asks the source chain for the escrow it earns: `RedeemEscrow` for
+     * a completing fill, `RedeemEscrowPartial` otherwise. The result is net of any native dispatch
+     * fee.
      */
-    function _fillCrossChain(Order calldata order, FillOptions calldata options, bytes32 commitment) internal {
-        _filled[commitment] = msg.sender;
-        FillResult memory result = _fillLegs(order, options, commitment);
-        if (result.fullyFilled) {
-            _execute(order, order.output.assets.length);
-        } else {
-            delete _filled[commitment];
-        }
+    function _fillOrder(Order calldata order, FillOptions calldata options, bytes32 commitment)
+        internal
+        returns (FillResult memory result)
+    {
+        result = _fillLegs(order, options, commitment);
 
         uint256 nativeFee = options.nativeDispatchFee;
         if (nativeFee > result.nativeRemaining) nativeFee = 0;
@@ -153,40 +138,11 @@ abstract contract ExtrinsicIntents is IntentsBase, HyperApp {
         RequestKind requestKind = result.fullyFilled ? RequestKind.RedeemEscrow : RequestKind.RedeemEscrowPartial;
         bytes memory body = _body(requestKind, commitment, result.releasedInputs, bytes32(uint256(uint160(msg.sender))));
         _post(order, body, options.relayerFee, nativeFee);
-
-        if (result.nativeRemaining > 0) _sendValue(msg.sender, result.nativeRemaining);
-        if (result.fullyFilled) {
-            emit OrderFilled(commitment, msg.sender, result.creditedOutputs, result.releasedInputs);
-        } else {
-            emit PartialFill(commitment, msg.sender, result.creditedOutputs, result.releasedInputs);
-        }
     }
 
     /**
-     * @dev Initiates cancellation of a cross-chain order from the source chain.
-     *
-     * Only the order creator may cancel, and only after the order deadline has passed
-     * (verified by `options.height > order.deadline`). The deadline gate is what makes a
-     * proof at `options.height` a *final* snapshot of fill progress: once `block.number`
-     * passes the deadline no further fills can occur on the destination, so the proven
-     * `_partialFills` values can no longer change.
-     *
-     * Dispatches a Hyperbridge GET request reading the destination's
-     * `_partialFills[commitment][i]` slot for each leg `i`. The response is handled by
-     * `onGetResponse`, which refunds the proven-unredeemed fraction of each escrowed input — never
-     * the raw remaining escrow, so that any `RedeemEscrow` messages still in flight for fills that
-     * happened before the deadline remain covered.
-     *
-     * `placeOrder` guarantees `order.inputs.length == order.output.assets.length`, so each input is
-     * paired with the output at the same index. The proof keys are per leg, so they stay distinct
-     * even when legs repeat an output token.
-     *
-     * `cancelOrder` has already emitted `OrderCancelled`; the matching `EscrowRefunded` follows
-     * on this chain once the GET response returns through Hyperbridge.
-     *
-     * @param order The order to cancel.
-     * @param options Cancel options including the proof height and relayer fee.
-     * @param commitment The keccak256 hash of the ABI-encoded order.
+     * @dev Proves each leg's fill progress on the destination with a GET request that
+     * `onGetResponse` settles. Creator only, and only after the deadline, so the proof is final.
      */
     function _cancelFromSource(Order calldata order, CancelOptions calldata options, bytes32 commitment) internal {
         if (order.user != bytes32(uint256(uint160(msg.sender)))) revert Unauthorized();
@@ -226,27 +182,8 @@ abstract contract ExtrinsicIntents is IntentsBase, HyperApp {
     }
 
     /**
-     * @dev Initiates cancellation of a cross-chain order from the destination chain.
-     *
-     * If the order deadline has not yet passed, only the order creator may cancel.
-     * After the deadline, anyone may trigger the cancellation (e.g., a relayer acting
-     * on behalf of the user).
-     *
-     * Marks the order as filled (to prevent future fill attempts) and dispatches a
-     * RefundEscrow message via Hyperbridge to the source chain. Because this runs on the
-     * destination, `_partialFills` is read directly: only the unredeemed fraction of each escrowed
-     * input is refunded, leaving the portion already (or about to be) redeemed by partial-fill
-     * solvers untouched. Setting `_filled` and snapshotting `_partialFills` happen in the same
-     * transaction, so the snapshot is final without needing a deadline gate.
-     *
-     * `cancelOrder` has already emitted `OrderCancelled` on this chain — the only trace of the
-     * cancellation a solver watching this chain gets, since the host's `PostRequestEvent` carries
-     * no reference to the order. The matching `EscrowRefunded` follows on the source chain once
-     * Hyperbridge delivers the refund message.
-     *
-     * @param order The order to cancel.
-     * @param options Cancel options including the relayer fee.
-     * @param commitment The keccak256 hash of the ABI-encoded order.
+     * @dev Closes the order here and posts `RefundEscrow` for each leg's unfilled rest. Creator
+     * only until the deadline.
      */
     function _cancelFromDest(Order calldata order, CancelOptions calldata options, bytes32 commitment) internal {
         if (order.deadline >= _blockNumber()) {
@@ -272,33 +209,10 @@ abstract contract ExtrinsicIntents is IntentsBase, HyperApp {
     }
 
     /**
-     * @dev Handles incoming cross-chain post requests dispatched via Hyperbridge.
-     * The first byte of the request body encodes the `RequestKind`, which determines
-     * the action to take:
-     *
-     * - RedeemEscrow: Releases escrowed tokens to the solver who completed (fully filled) the
-     *   order on the destination chain, finalizing it and forwarding accumulated fees.
-     *   Authenticated against the registered gateway instance.
-     * - RedeemEscrowPartial: Releases a proportional slice of escrowed tokens to a solver who
-     *   partially filled the order, without finalizing it (so further redeems and the user's
-     *   cancel refund remain possible). Authenticated against the registered gateway instance.
-     * - RefundEscrow: Refunds escrowed tokens to the original user after a successful
-     *   cancellation from the destination chain. Authenticated against the registered gateway.
-     *   Rejected with `Filled` once the order is finalized, e.g. by a GET cancel from this chain.
-     * - NewDeployment: Registers a new gateway instance for a state machine. Only
-     *   Hyperbridge itself may dispatch this request.
-     * - UpdateParams: Updates the gateway's configuration parameters and per-destination
-     *   protocol fees. Only Hyperbridge may dispatch this request.
-     * - SweepDust: Transfers accumulated protocol dust to a specified beneficiary.
-     *   Only Hyperbridge may dispatch this request.
-     * - Execute: Delegatecalls this module with the rest of the body, the host still
-     *   `msg.sender`, so the host-only functions (`upgradeToAndCall`, `setRelayer`) are
-     *   reachable. Reverts bubble up unchanged. Only Hyperbridge may dispatch this request.
-     *
-     * @param incoming The incoming post request from Hyperbridge.
+     * @dev Handles escrow redemptions and refunds from peer gateways, and governance requests from
+     * Hyperbridge.
      */
-    function onAccept(IncomingPostRequest calldata incoming) external override onlyHost {
-        _checkRelayer(incoming.relayer);
+    function onAccept(IncomingPostRequest calldata incoming) external override onlyHost onlyRelayer(incoming.relayer) {
         RequestKind kind = RequestKind(uint8(incoming.request.body[0]));
         if (
             kind == RequestKind.RedeemEscrow || kind == RequestKind.RefundEscrow
@@ -306,15 +220,18 @@ abstract contract ExtrinsicIntents is IntentsBase, HyperApp {
         ) {
             _authenticate(incoming.request);
             WithdrawalRequest memory body = abi.decode(incoming.request.body[1:], (WithdrawalRequest));
-            // An order can be cancelled from both chains, and each only sees its own `_filled`. Once one cancel
-            // has finalized it here, a RefundEscrow from the other would refund the same unfilled slice again,
-            // out of the escrow reserved for redeems still in flight. Redeems stay allowed: they consume it.
+            // Refuse destination-chain cancel if source-chain already cancelled
             if (kind == RequestKind.RefundEscrow && _filled[body.commitment] != address(0)) revert Filled();
-            // A partial redeem must not finalize: escrow stays open for further redeems / a cancel
-            // refund, and the fee pot is left for the completing redeem. _withdraw emits EscrowReleased
-            // regardless of finalize, so the partial release is still observable on the source chain.
-            bool finalize = kind != RequestKind.RedeemEscrowPartial;
-            return _withdraw(body, kind == RequestKind.RefundEscrow, finalize);
+            // A partial redeem doesn't finalize, leaving the escrow and fees for later redeems or a cancel.
+            return _withdraw(
+                Withdrawal({
+                    commitment: body.commitment,
+                    beneficiary: body.beneficiary,
+                    tokens: body.tokens,
+                    isRefund: kind == RequestKind.RefundEscrow,
+                    finalize: kind != RequestKind.RedeemEscrowPartial
+                })
+            );
         }
 
         // only hyperbridge is permitted to perform these actions
@@ -331,18 +248,15 @@ abstract contract ExtrinsicIntents is IntentsBase, HyperApp {
     }
 
     /**
-     * @dev Handles the response to a Hyperbridge GET request dispatched during
-     * `_cancelFromSource`. The response carries the destination's `_partialFills[commitment][i]`
-     * value for each leg `i`; for each escrowed input this refunds the proven-unredeemed
-     * fraction (`escrowTotal - _cumulativeReleased(escrowTotal, filled, totalRequired)`) to the
-     * user, leaving exactly enough escrow to cover redeems still in flight. The order is marked
-     * filled for idempotency, and the user's prepaid fees are returned only if the order did not
-     * fully fill on the destination. Reverts with `Filled` on a duplicate cancel response.
-     *
-     * @param incoming The incoming GET response from Hyperbridge containing the storage proofs.
+     * @dev Settles a source-chain cancel: refunds each leg's proven unfilled rest, and the fees
+     * unless the order completed.
      */
-    function onGetResponse(IncomingGetResponse calldata incoming) external override onlyHost {
-        _checkRelayer(incoming.relayer);
+    function onGetResponse(IncomingGetResponse calldata incoming)
+        external
+        override
+        onlyHost
+        onlyRelayer(incoming.relayer)
+    {
         (bytes32 commitment, bytes32 beneficiary, TokenInfo[] memory inputs, uint256[] memory totalRequired) =
             abi.decode(incoming.response.request.context, (bytes32, bytes32, TokenInfo[], uint256[]));
 
@@ -371,22 +285,20 @@ abstract contract ExtrinsicIntents is IntentsBase, HyperApp {
         }
         _clearProofValueIndex(proofSlots);
 
-        // `_filled` is already set above for idempotency. Finalize — which flushes the prepaid fee
-        // pot to the user — only when the order did not fully fill; a fully-filled order's fees belong
-        // to the completing solver. _withdraw emits EscrowRefunded for the refunded tokens.
         _withdraw(
-            WithdrawalRequest({commitment: commitment, tokens: refunds, beneficiary: beneficiary}), true, !fullyFilled
+            Withdrawal({
+                commitment: commitment,
+                beneficiary: beneficiary,
+                tokens: refunds,
+                isRefund: true,
+                finalize: !fullyFilled
+            })
         );
     }
 
     /**
-     * @dev Indexes the response's proven values in transient storage: under the hash of each value's
-     * key, its position plus one. Every leg then finds its value with one lookup instead of rescanning
-     * the values, so a cancel proof for N legs hashes about 2N keys rather than N(N+1)/2. The first
-     * value for a key wins. A slot is the keccak256 of a storage key, a different preimage from the
-     * reentrancy guard's and solver selection's slots. `onGetResponse` clears them before any transfer.
-     * @param incoming The incoming GET response.
-     * @return slots The transient slots written, for `_clearProofValueIndex`.
+     * @dev Indexes the response's values by key in transient storage, so each leg finds its value
+     * in one lookup.
      */
     function _indexProofValues(IncomingGetResponse calldata incoming) internal returns (bytes32[] memory slots) {
         uint256 n = incoming.response.values.length;
@@ -404,14 +316,8 @@ abstract contract ExtrinsicIntents is IntentsBase, HyperApp {
     }
 
     /**
-     * @dev Returns the proof value whose storage key matches `key`, through the index
-     * `_indexProofValues` built. GET responses return values sorted by key (the responder iterates a
-     * BTreeMap), so positional indexing would mispair values with legs on multi-leg orders. Every leg
-     * has its own key, so no two legs share a value. Absent slots are still returned (with an empty
-     * value), so a matching key is always expected; reverts if none is found.
-     * @param incoming The incoming GET response.
-     * @param key The expected storage key (one of the request's keys).
-     * @return The raw (RLP-encoded) proof value bytes for that key.
+     * @dev The proven value for `key`. Responses sort values by key, not request order, so legs are
+     * matched by key.
      */
     function _proofValueForKey(IncomingGetResponse calldata incoming, bytes calldata key)
         internal
@@ -427,8 +333,10 @@ abstract contract ExtrinsicIntents is IntentsBase, HyperApp {
         return incoming.response.values[position - 1].value;
     }
 
-    /// @dev Clears the transient index `_indexProofValues` wrote, so a later call in the same
-    /// transaction cannot resolve a key against another response's values.
+    /**
+     * @dev Clears the index from transient storage, so a later response
+     * in the same transaction cannot read it.
+     */
     function _clearProofValueIndex(bytes32[] memory slots) internal {
         uint256 n = slots.length;
         for (uint256 j; j < n;) {

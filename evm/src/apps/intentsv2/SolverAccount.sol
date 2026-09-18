@@ -1,4 +1,4 @@
-/// Copyright (C) Polytope Labs Ltd.
+// Copyright (C) Polytope Labs Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -26,91 +26,60 @@ import {SelectOptions, IIntentGatewayV2} from "@hyperbridge/core/apps/IntentGate
 
 /**
  * @title SolverAccount
- * @notice ERC-4337 and ERC-7821 compliant smart contract account for solvers
- * @dev This contract extends OpenZeppelin's Account and ERC7821 implementations and integrates with the IntentGateway
- *      to enable solver delegation primarily for solver selection. Solvers can delegate to this smart
- *      contract account using EIP-7702.
- * @author Polytope Labs
+ * @author Polytope Labs (hello@polytope.technology)
+ *
+ * @dev ERC-4337 and ERC-7821 account that a solver's EOA delegates to through EIP-7702, so its bids
+ * can be selected and filled on the IntentGateway. `address(this)` is the solver's EOA, which signs
+ * every operation.
  */
 contract SolverAccount is Account, ERC7821, IERC1271 {
     /**
-     * @notice Standard length of an ECDSA signature (r: 32 bytes, s: 32 bytes, v: 1 byte)
+     * @dev A plain ECDSA signature: r, s, v.
      */
     uint256 private constant ECDSA_SIGNATURE_LENGTH = 65;
 
     /**
-     * @notice Expected signature length for intent solver selection
-     * @dev abi.encodePacked(commitment, solverSignature, sessionSignature) = 32 + 65 + 65 = 162 bytes
+     * @dev `abi.encodePacked(commitment, solverSignature, sessionSignature)`: 32 + 65 + 65 bytes.
      */
     uint256 private constant INTENT_SELECT_SIGNATURE_LENGTH = 162;
 
     /**
-     * @notice Cached select function selector
-     */
-    bytes4 private constant SELECT_SELECTOR = IIntentGatewayV2.select.selector;
-
-    /**
-     * @notice Cached fillOrder function selector
+     * @dev `IIntentGatewayV2.fillOrder`, refused on the 65-byte path.
      */
     bytes4 private constant FILL_ORDER_SELECTOR = IIntentGatewayV2.fillOrder.selector;
 
     /**
-     * @notice fillOrder selectors of earlier gateway releases, with and without `validUntil`.
-     * @dev Bids signed against them are still public, so they get the same protection as the current one.
+     * @dev `fillOrder` of earlier gateway releases, with and without `validUntil`. Bids signed
+     * against them are still public, so they are refused on the 65-byte path too.
      */
     bytes4 private constant HISTORICAL_FILL_ORDER_SELECTOR = 0xa5470064;
     bytes4 private constant HISTORICAL_FILL_ORDER_NO_EXPIRY_SELECTOR = 0x5cfb1ea5;
 
     /**
-     * @notice Cached ERC-7821 execute function selector
+     * @dev ERC-7821 `execute`, the batch a bid's calldata is wrapped in.
      */
     bytes4 private constant EXECUTE_SELECTOR = ERC7821.execute.selector;
 
     /**
-     * @notice Address of the Intent Gateway V2 contract that authorizes voucher-based transactions
-     * @dev This is set during deployment via constructor
+     * @dev The gateway this account selects and fills on.
      */
-    address private immutable INTENT_GATEWAY_V2;
+    address private immutable _intentGateway;
 
     /**
-     * @notice Constructor for SolverAccount
-     * @param intentGatewayV2 The IntentGatewayV2 contract address
-     * @dev The solver EOA (via EIP-7702) will sign all operations on behalf of this solver account.
-     *      The solver is identified by the deployed contract address (address(this)).
+     * @param gateway The IntentGateway instance this account selects and fills on.
      */
-    constructor(address intentGatewayV2) {
-        INTENT_GATEWAY_V2 = intentGatewayV2;
-    }
-
-    /// @notice The gateway release this account is built for.
-    function version() external pure returns (uint64) {
-        return 3;
+    constructor(address gateway) {
+        _intentGateway = gateway;
     }
 
     /**
-     * @notice Validates a user operation before execution
-     * @dev Two modes, discriminated by signature length:
+     * @dev A 65-byte signature is plain ECDSA over `userOpHash`. It is refused for ops that call
+     * `fillOrder`: bids are public, so a bid's solver signature could be replayed here to burn its
+     * nonce and the solver's gas.
      *
-     * 1. Standard ECDSA (65 bytes): validated by the Account base contract against
-     *    the plain userOpHash. Refused if the calldata contains a fillOrder call to
-     *    the IntentGateway: bids are public and embed a valid 65-byte solver signature
-     *    over the userOpHash, so anyone could strip the commitment and session
-     *    signature from a bid and submit the op on this path. Without a select()
-     *    staged during validation the fill reverts, but the bid's nonce would be
-     *    consumed and the solver griefed of the gas fees.
-     * 2. Intent solver selection (162 bytes): abi.encodePacked(commitment,
-     *    solverSignature, sessionSignature). The solver signs the plain userOpHash,
-     *    and the userOp's nonce key must equal the lower 192 bits of
-     *    keccak256(abi.encodePacked(commitment, sessionKey)) — binding the operation
-     *    to the order and the session key it was bid against, so neither can be
-     *    swapped after signing.
-     *
-     * @param op The packed user operation containing calldata, signature, and other fields
-     * @param userOpHash The hash of the user operation (with EntryPoint and chain ID)
-     * @param missingAccountFunds The amount of funds missing in the account to pay for gas
-     * @return validationData A packed value indicating validation result and time range
-     *         - SIG_VALIDATION_SUCCESS indicates successful validation
-     *         - SIG_VALIDATION_FAILED indicates signature validation failure
+     * A 162-byte signature is `abi.encodePacked(commitment, solverSignature, sessionSignature)`.
+     * The gateway's `select` recovers the session key, and the nonce key must derive from the
+     * commitment and that key, so neither can be swapped after signing.
      */
     function validateUserOp(PackedUserOperation calldata op, bytes32 userOpHash, uint256 missingAccountFunds)
         public
@@ -123,43 +92,36 @@ contract SolverAccount is Account, ERC7821, IERC1271 {
             return super.validateUserOp(op, userOpHash, missingAccountFunds);
         }
 
-        // Expected format: abi.encodePacked(commitment, solverSignature, sessionSignature)
-        // commitment: 32 bytes, solverSignature: 65 bytes, sessionSignature: 65 bytes
         if (op.signature.length < INTENT_SELECT_SIGNATURE_LENGTH) return ERC4337Utils.SIG_VALIDATION_FAILED;
 
         bytes32 commitment = bytes32(op.signature[0:32]);
         bytes calldata solverSignature = op.signature[32:97];
         bytes calldata sessionSignature = op.signature[97:162];
 
-        // Call IntentGatewayV2.select to recover the sessionKey. This also stages the
-        // transient-storage selection that fillOrder enforces at execution.
+        // Recovers the session key and stages the selection that `fillOrder` checks. A bad session
+        // signature fails validation instead of reverting it, as ERC-4337 requires.
         SelectOptions memory selectOptions =
             SelectOptions({commitment: commitment, solver: address(this), signature: sessionSignature});
-        bytes memory selectCalldata = abi.encodeWithSelector(SELECT_SELECTOR, selectOptions);
-        (bool success, bytes memory returnData) = INTENT_GATEWAY_V2.call(selectCalldata);
+        address sessionKey;
+        try IIntentGatewayV2(_intentGateway).select(selectOptions) returns (address recovered) {
+            sessionKey = recovered;
+        } catch {
+            return ERC4337Utils.SIG_VALIDATION_FAILED;
+        }
 
-        if (!success || returnData.length < 32) return ERC4337Utils.SIG_VALIDATION_FAILED;
-
-        address sessionKey = abi.decode(returnData, (address));
         uint192 userOpNonce = uint192(uint256(keccak256(abi.encodePacked(commitment, sessionKey))));
         if (uint192(op.nonce >> 64) != userOpNonce) return ERC4337Utils.SIG_VALIDATION_FAILED;
         if (!_rawSignatureValidation(userOpHash, solverSignature)) return ERC4337Utils.SIG_VALIDATION_FAILED;
 
-        // Pay for gas if needed
         _payPrefund(missingAccountFunds);
 
         return ERC4337Utils.SIG_VALIDATION_SUCCESS;
     }
 
     /**
-     * @notice Scans userOp calldata for a call to IntentGatewayV2.fillOrder
-     * @dev The calldata is covered by the solver's signature over the userOpHash, so a
-     *      replayed bid cannot be reshaped to hide the call — the scan only needs to
-     *      recognize the bid's ERC-7821 execute(mode, executionData) batch. abi.decode
-     *      reverts on malformed calldata, rejecting the op during validation just as
-     *      execution would.
-     * @param callData The userOp calldata to scan
-     * @return bool True if the calldata contains a fillOrder call to the IntentGateway
+     * @dev Whether `callData` is an ERC-7821 batch that calls the gateway's `fillOrder`. Only that
+     * shape matters: the solver's signature covers the calldata, so a replayed bid can't be
+     * reshaped to hide the call.
      */
     function _containsFillOrder(bytes calldata callData) private view returns (bool) {
         if (callData.length < 4 || bytes4(callData[0:4]) != EXECUTE_SELECTOR) return false;
@@ -168,48 +130,37 @@ contract SolverAccount is Account, ERC7821, IERC1271 {
         Execution[] memory calls = abi.decode(executionData, (Execution[]));
 
         for (uint256 i = 0; i < calls.length; i++) {
-            if (calls[i].target == INTENT_GATEWAY_V2 && _isFillOrder(bytes4(calls[i].callData))) return true;
+            if (calls[i].target == _intentGateway && _isFillOrder(bytes4(calls[i].callData))) return true;
         }
         return false;
     }
 
+    /**
+     * @dev Whether `selector` is a `fillOrder` of this or an earlier gateway release.
+     */
     function _isFillOrder(bytes4 selector) private pure returns (bool) {
-        return selector == FILL_ORDER_SELECTOR || selector == HISTORICAL_FILL_ORDER_SELECTOR
+        return selector == FILL_ORDER_SELECTOR 
+            || selector == HISTORICAL_FILL_ORDER_SELECTOR
             || selector == HISTORICAL_FILL_ORDER_NO_EXPIRY_SELECTOR;
     }
 
     /**
-     * @notice Validates a raw signature against a hash
-     * @dev Internal function used by the Account base contract for signature validation.
-     *      Recovers the signer from the ECDSA signature and verifies it matches address(this).
-     *      In EIP-7702 delegation, the EOA's address becomes this contract's address.
-     *      Used for both standard ERC-4337 operations and intent solver selection validation.
-     * @param hash The hash that was signed (typically userOpHash or Ethereum signed message hash)
-     * @param signature The ECDSA signature to validate (65 bytes: r, s, v)
-     * @return bool True if the recovered signer matches this contract's address, false otherwise
+     * @dev Accepts only ECDSA signatures by the solver's EOA.
      */
     function _rawSignatureValidation(bytes32 hash, bytes calldata signature) internal view override returns (bool) {
         return ECDSA.recover(hash, signature) == address(this);
     }
 
     /**
-     * @notice ERC-1271 signature validation for EIP-7702 delegated accounts.
-     * @dev Required so that protocols using OpenZeppelin's SignatureChecker (e.g. USDC's
-     *      EIP-2612 permit) can verify signatures from this account. Under EIP-7702 the
-     *      account has code, so SignatureChecker takes the ERC-1271 path instead of
-     *      ecrecover. Delegates to {_rawSignatureValidation} which performs ECDSA recovery
-     *      and checks that the recovered address equals address(this) (the delegating EOA).
+     * @dev ERC-1271, for checks like USDC's permit. The delegated EOA has code, so OpenZeppelin's
+     * `SignatureChecker` asks this instead of using `ecrecover`.
      */
     function isValidSignature(bytes32 hash, bytes calldata signature) external view override returns (bytes4) {
         return _rawSignatureValidation(hash, signature) ? bytes4(0x1626ba7e) : bytes4(0xffffffff);
     }
 
     /**
-     * @notice Validates an ERC-7821 authorized executor
-     * @param caller The address of the caller
-     * @param mode The mode of the call
-     * @param executionData The data of the call
-     * @return bool True if the caller is authorized, false otherwise
+     * @dev Also lets the EntryPoint execute batches.
      */
     function _erc7821AuthorizedExecutor(address caller, bytes32 mode, bytes calldata executionData)
         internal

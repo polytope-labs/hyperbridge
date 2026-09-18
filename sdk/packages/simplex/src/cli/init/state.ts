@@ -29,12 +29,6 @@ export interface WizardState {
 	assets?: FillerTomlConfig["assets"]
 	/** Top-level per-chain confirmation policies. */
 	confirmationPolicies?: FillerTomlConfig["confirmationPolicies"]
-	/**
-	 * Uniswap V4 venue block chosen in the pairs step. Owned by the wizard:
-	 * assembleConfig replaces any prefill `[vault.uniswapV4]` with this (or
-	 * drops it when the operator switched to curve pricing).
-	 */
-	vaultUniswapV4?: NonNullable<FillerTomlConfig["vault"]>["uniswapV4"]
 	maxConcurrentOrders: number
 	logging?: string
 	gasFeeBump?: FillerTomlConfig["simplex"]["gasFeeBump"]

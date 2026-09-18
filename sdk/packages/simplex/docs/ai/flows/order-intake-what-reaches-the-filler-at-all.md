@@ -16,6 +16,3 @@ constructor and passes to `handleNewOrder`. Fills take a separate path: `onFill`
 filler address — `filler` is `indexed: false` in the ABI, so it can never be a topic filter — and
 emits `orderFilledOnChain`.
 
-Phantom orders do not come through here. They are polled from Hyperbridge inside `IntentFiller`,
-so the leg-count filter does not apply to them and `quotePhantomLeg` still splits a bundled
-phantom order into positional single-pair legs.

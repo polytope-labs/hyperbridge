@@ -58,7 +58,6 @@ export function MarketRow(props: {
 	symbols: string[]
 	usdStables: string[]
 	chains: ChainDraft[]
-	pricing: "curves" | "uniswapV4"
 	duplicate: boolean
 	customAssets: Record<string, Record<string, string>>
 	onPatch: (patch: Partial<PairDraft>) => void
@@ -71,7 +70,6 @@ export function MarketRow(props: {
 		symbols,
 		usdStables,
 		chains,
-		pricing,
 		duplicate,
 		customAssets,
 		onPatch,
@@ -83,12 +81,11 @@ export function MarketRow(props: {
 	const custom0 = pair.custom0 ?? false
 	const custom1 = pair.custom1 ?? false
 	const samePair = normSymbol(pair.token0) !== "" && normSymbol(pair.token0) === normSymbol(pair.token1)
-	const venueNeedsStable = pricing === "uniswapV4" && !usdStables.includes(normSymbol(pair.token0))
 	const shadowed = [pair.token0, pair.token1].filter(
 		(symbol, i) => (i === 0 ? custom0 : custom1) && symbol && isRegistrySymbol(symbol),
 	)
 	const crossedAt =
-		pricing === "curves" && pair.bidEnabled && pair.askEnabled
+		pair.bidEnabled && pair.askEnabled
 			? (bookCrossedAt(toPricePoints(pair.bid), toPricePoints(pair.ask))?.amount ?? null)
 			: null
 
@@ -185,12 +182,6 @@ export function MarketRow(props: {
 					This market is already declared (a pair and its reverse are the same market — one orientation only).
 				</p>
 			)}
-			{venueNeedsStable && (
-				<p className="error">
-					Uniswap pricing needs the first asset to be a USD stablecoin. Choose USDC, USDT, or DAI first, or
-					switch to manual prices.
-				</p>
-			)}
 			{samePair && (
 				<p className="error">
 					Choose two different assets. Same-asset transfer markets are not supported here.
@@ -222,7 +213,7 @@ export function MarketRow(props: {
 				/>
 			))}
 
-			{pricing === "curves" && (
+			{!pair.referenceOnly && (
 				<div className="market-curves">
 					<div className="market-pricing-heading">
 						<div>

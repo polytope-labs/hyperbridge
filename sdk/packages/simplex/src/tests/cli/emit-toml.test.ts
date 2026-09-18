@@ -92,7 +92,7 @@ const crossAssetWithCurves: FillerConfigFile = {
 }
 
 // `side` requires pool pricing with no static curves, so this pair is curve-less
-// and priced by the Uniswap V4 venue.
+// with its own price curves.
 const kitchenSink: FillerConfigFile = {
 	simplex: {
 		signer: {
@@ -120,6 +120,7 @@ const kitchenSink: FillerConfigFile = {
 			token0: "USDC",
 			token1: "CNGN",
 			maxOrderSize: "10000",
+			askPriceCurve: [{ amount: "100", price: "1560" }],
 		},
 	],
 	confirmationPolicies: {
@@ -154,13 +155,6 @@ const kitchenSink: FillerConfigFile = {
 				redeemOnShutdown: true,
 			},
 		],
-		uniswapV4: {
-			side: "ask",
-			spreadBps: 75,
-			positions: [
-				{ chain: "EVM-8453", tokenId: "123456789", referencePrice: "1575", maxDeviationBps: 200 },
-			],
-		},
 	},
 	allowlist: {
 		users: ["0x1111111111111111111111111111111111111111"],

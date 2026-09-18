@@ -20,13 +20,6 @@ export type VaultDraft = VaultRowDraft
 
 export type SignerType = "privateKey" | "mpcVault" | "turnkey"
 
-export interface V4PositionDraft {
-	chain: string
-	tokenId: string
-	referencePrice: string
-	maxDeviationBps: string
-}
-
 /** One cross-asset trading market or reference-only price feed. */
 export interface PairDraft {
 	enabled: boolean
@@ -73,11 +66,6 @@ export interface WizardState {
 	fxSeeded?: boolean
 	/** `[assets]` entries for custom token symbols: symbol → state machine id → address. */
 	customAssets: Record<string, Record<string, string>>
-	/** Price source for the cross-asset pairs. */
-	fxPricing: "curves" | "uniswapV4"
-	fxSpreadBps: string
-	fxPositions: V4PositionDraft[]
-	fxSide: "" | "ask" | "bid"
 	vaults: VaultDraft[]
 	allowlistUsers: string[]
 	maxConcurrentOrders: string
@@ -108,9 +96,8 @@ export function curveFilled(points: EditorPoint[], check: (v: number) => boolean
  * mirrors what assembleConfig emits, so the anchor check and the step
  * validation agree with the server by construction.
  */
-export function draftHasCurve(draft: PairDraft, pricing: "curves" | "uniswapV4"): boolean {
+export function draftHasCurve(draft: PairDraft): boolean {
 	if (draft.referenceOnly) return curveFilled(draft.ask)
-	if (pricing !== "curves") return false
 	return (draft.bidEnabled && curveFilled(draft.bid)) || (draft.askEnabled && curveFilled(draft.ask))
 }
 
@@ -157,10 +144,6 @@ export function initialState(defaults: SetupDefaults): WizardState {
 			})),
 		pairs: [],
 		customAssets: {},
-		fxPricing: "curves",
-		fxSpreadBps: "",
-		fxPositions: [],
-		fxSide: "",
 		vaults: [],
 		allowlistUsers: [],
 		maxConcurrentOrders: String(defaults.maxConcurrentOrders),
@@ -188,7 +171,6 @@ export function switchNetwork(state: WizardState, defaults: SetupDefaults, netwo
 		fxSeeded: false,
 		customAssets: {},
 		vaults: [],
-		fxPositions: [],
 		alchemyStatus: undefined,
 		alchemyError: undefined,
 	}
@@ -226,7 +208,6 @@ export function patchChain(state: WizardState, chainId: number, patch: Partial<C
 /** Client-side mirror of the CLI wizard's assembleConfig; the server gate is authoritative. */
 export function assembleConfig(state: WizardState, defaults: SetupDefaults): FillerConfig {
 	const chains = enabledChains(state)
-	const usingPool = state.fxPricing === "uniswapV4"
 
 	const pairs: PairConfig[] = enabledPairs(state).map((draft) => {
 		if (draft.referenceOnly) {
@@ -237,8 +218,8 @@ export function assembleConfig(state: WizardState, defaults: SetupDefaults): Fil
 				askPriceCurve: toPricePoints(draft.ask),
 			}
 		}
-		const withBid = !usingPool && draft.bidEnabled
-		const withAsk = !usingPool && draft.askEnabled
+		const withBid = draft.bidEnabled
+		const withAsk = draft.askEnabled
 		return {
 			token0: draft.token0,
 			token1: draft.token1,
@@ -270,20 +251,6 @@ export function assembleConfig(state: WizardState, defaults: SetupDefaults): Fil
 			? Object.fromEntries(
 					chains.map((c) => [String(c.meta.chainId), { points: defaults.testnetConfirmationPoints }]),
 				)
-			: undefined
-
-	const uniswapV4 =
-		usingPool && state.fxPositions.length > 0
-			? {
-					positions: state.fxPositions.map((p) => ({
-						chain: p.chain,
-						tokenId: p.tokenId.trim(),
-						...(p.referencePrice.trim() ? { referencePrice: p.referencePrice.trim() } : {}),
-						...(p.maxDeviationBps.trim() ? { maxDeviationBps: Number(p.maxDeviationBps) } : {}),
-					})),
-					...(state.fxSide ? { side: state.fxSide } : {}),
-					...(state.fxSpreadBps.trim() ? { spreadBps: Number(state.fxSpreadBps) } : {}),
-				}
 			: undefined
 
 	const vaultRows = vaultRowsToToml(state.vaults)
@@ -330,14 +297,7 @@ export function assembleConfig(state: WizardState, defaults: SetupDefaults): Fil
 			rpcUrls: c.rpcUrls.map((u) => u.trim()).filter(Boolean),
 			bundlerUrl: c.bundlerUrl.trim(),
 		})),
-		...(vaults || uniswapV4
-			? {
-					vault: {
-						...(vaults ? { vaults } : {}),
-						...(uniswapV4 ? { uniswapV4 } : {}),
-					},
-				}
-			: {}),
+		...(vaults ? { vault: { vaults } } : {}),
 		...(allowlistUsers.length > 0 ? { allowlist: { users: allowlistUsers } } : {}),
 	}
 }

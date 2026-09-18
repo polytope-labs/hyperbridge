@@ -1,6 +1,6 @@
 import { confirm, log, select } from "@clack/prompts"
 import type { HexString } from "@hyperbridge/sdk"
-import type { UniswapV4PositionToml, ChainConfirmationPolicy } from "@/config/filler-toml"
+import type { ChainConfirmationPolicy } from "@/config/filler-toml"
 import { pickAnchorStable, unanchoredToken0Symbols, type PairConfig } from "@/config/pairs"
 import { isRegistrySymbol, normalizeSymbol, registrySymbols, USD_STABLE_SYMBOLS } from "@/config/asset-registry"
 import { bookCrossedAt, type PriceCurvePoint } from "@/config/interpolated-curve"
@@ -136,53 +136,12 @@ export async function stepStrategies(state: WizardState, prefill?: Prefill): Pro
 		})
 	}
 
-	const prefillUniswapV4 = prefill?.config.vault?.uniswapV4
-	if (prefillUniswapV4 && !state.vaultUniswapV4) {
-		const remove = guard(
-			await confirm({
-				message: "The existing Uniswap V4 positions are no longer used by any market — remove them from the config?",
-				initialValue: true,
-			}),
-		)
-		if (!remove) state.vaultUniswapV4 = JSON.parse(JSON.stringify(prefillUniswapV4))
+	if ((prefill?.config.vault as { uniswapV4?: unknown } | undefined)?.uniswapV4) {
+		log.info("Dropping the existing Uniswap V4 positions — pool pricing and pool funding are no longer supported.")
 	}
-	await chooseVenueSide(state, prefill)
 
 	await ensureUsdAnchors(state)
 	applyTestnetConfirmationPolicies(state, prefill)
-}
-
-/**
- * One-sided pool pricing (`side`) is only valid when no pair carries a static
- * curve — curves express one-sidedness by omission, and the engine rejects the
- * combination. Offer the select only when it can actually be written.
- */
-async function chooseVenueSide(state: WizardState, prefill?: Prefill): Promise<void> {
-	const venue = state.vaultUniswapV4
-	if (!venue) return
-	const anyCurves = state.pairs.some(
-		(p) => (p.bidPriceCurve?.length ?? 0) > 0 || (p.askPriceCurve?.length ?? 0) > 0,
-	)
-	if (anyCurves) {
-		if (venue.side !== undefined) delete venue.side
-		log.info(
-			"One-sided pool pricing is unavailable: some pairs carry static curves (curves express one-sidedness by omission) — pool pricing fills both directions.",
-		)
-		return
-	}
-	const side = guard(
-		await select({
-			message: "Which directions should pool pricing fill?",
-			initialValue: (prefill?.config.vault?.uniswapV4?.side as string) ?? "both",
-			options: [
-				{ value: "both", label: "Both directions" },
-				{ value: "ask", label: "Ask only", hint: "sell the base token, accumulate the quote" },
-				{ value: "bid", label: "Bid only", hint: "buy the base token, accumulate it" },
-			],
-		}),
-	)
-	if (side === "both") delete venue.side
-	else venue.side = side as "bid" | "ask"
 }
 
 /** Why a prefilled reference-only pair cannot be carried, or null when it can. */
@@ -318,40 +277,8 @@ async function buildMarketPair(
 		return pair
 	}
 
-	// Pool pricing only quotes markets with a USD-stable quote asset.
-	const venueAllowed = USD_STABLE_SYMBOLS.has(normalizeSymbol(token0))
-	let pricingSource = "curves"
-	if (venueAllowed) {
-		why(WHY.fxPricing)
-		pricingSource = guard(
-			await select({
-				message: `Price source for ${token0}/${token1}`,
-				// Venue pricing is the default only for a pair that had no curves
-				// at all — an ask-only static pair must not flip to the venue.
-				initialValue:
-					!(existing?.bidPriceCurve?.length || existing?.askPriceCurve?.length) &&
-					prefill?.config.vault?.uniswapV4?.positions?.length
-						? "uniswapV4"
-						: "curves",
-				options: [
-					{ value: "curves", label: "Static bid/ask curves", hint: "you maintain the prices" },
-					{
-						value: "uniswapV4",
-						label: "Uniswap V4 LP positions",
-						hint: "pool price is the oracle; also funds fills",
-					},
-				],
-			}),
-		)
-	} else {
-		log.info(`Pool pricing needs a USD-stable quote asset — ${token0}/${token1} uses static curves.`)
-	}
-
-	if (pricingSource === "curves") {
-		await editCrossAssetCurves(pair, existing)
-	} else {
-		await configureUniswapV4(state, prefill)
-	}
+	why(WHY.fxPricing)
+	await editCrossAssetCurves(pair, existing)
 	return pair
 }
 
@@ -459,70 +386,6 @@ async function addCustomAsset(state: WizardState): Promise<string> {
 	}
 	state.assets = { ...(state.assets ?? {}), [symbol]: addresses }
 	return symbol
-}
-
-/** Collects the top-level [vault.uniswapV4] venue block (positions, spread; side is chosen after the market loop). */
-async function configureUniswapV4(state: WizardState, prefill?: Prefill): Promise<void> {
-	if (state.vaultUniswapV4) return // already configured by an earlier pair this run
-
-	const existing = prefill?.config.vault?.uniswapV4
-	const positions: UniswapV4PositionToml[] = []
-	for (const position of existing?.positions ?? []) {
-		const guardLabel = position.referencePrice
-			? `guard ${position.referencePrice} ±${position.maxDeviationBps} bps`
-			: "no price guard"
-		const keep = guard(
-			await confirm({
-				message: `Keep position ${position.tokenId} on ${position.chain} (${guardLabel})?`,
-				initialValue: true,
-			}),
-		)
-		if (keep) positions.push({ ...position })
-	}
-	if (positions.length === 0) positions.push(await askPosition(state))
-	while (guard(await confirm({ message: "Add another Uniswap V4 position?", initialValue: false }))) {
-		positions.push(await askPosition(state))
-	}
-
-	state.vaultUniswapV4 = {
-		positions,
-		...(existing?.spreadBps !== undefined ? { spreadBps: existing.spreadBps } : {}),
-	}
-}
-
-async function askPosition(state: WizardState): Promise<UniswapV4PositionToml> {
-	if (state.chains.length === 0) throw new Error("At least one managed chain is required for this step")
-	const chain = guard(
-		await select({
-			message: "Chain the position lives on",
-			options: state.chains.map((c) => ({ value: c.meta.stateMachineId, label: c.meta.label })),
-		}),
-	)
-	const tokenId = await askText("Position token ID (from the position's URL)", {
-		required: "Token id is required",
-		validate: (value) => (/^\d+$/.test(value) ? undefined : "Enter a numeric token id"),
-	})
-	const position: UniswapV4PositionToml = { chain, tokenId }
-
-	const withGuardPrice = guard(
-		await confirm({
-			message: "Add a price guard? (rejects fills when the pool drifts from a reference price)",
-			initialValue: false,
-		}),
-	)
-	if (withGuardPrice) {
-		position.referencePrice = await askText("Reference price (base tokens per quote token)", {
-			required: "Reference price is required",
-			validate: (value) =>
-				Number.isFinite(Number(value)) && Number(value) > 0 ? undefined : "Enter a positive number",
-		})
-		position.maxDeviationBps = await askNumber(
-			"Maximum deviation from the reference (basis points, e.g. 200 = 2%)",
-			200,
-			(parsed) => (parsed > 0 && parsed <= 10_000 ? undefined : "Enter a number between 1 and 10000"),
-		)
-	}
-	return position
 }
 
 /**

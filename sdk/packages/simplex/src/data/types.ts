@@ -258,12 +258,6 @@ export interface OrderHistoryPage {
 export interface RuntimeState {
 	/** A pause set by the operator stays set across restarts. */
 	paused?: boolean
-	/**
-	 * The last phantom bid commitment per chain (state machine id) that may still
-	 * hold a deposit. The next interval's batch retracts it; without this a restart
-	 * forgot the bid and its 0.01 BRIDGE deposit was never reclaimed.
-	 */
-	phantomBids?: Record<string, string>
 }
 
 export interface StateStore {

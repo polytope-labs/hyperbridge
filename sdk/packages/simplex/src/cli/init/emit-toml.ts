@@ -169,25 +169,6 @@ export function emitFillerToml(config: FillerConfigFile, options: EmitOptions = 
 			push("]")
 		}
 		push()
-		if (config.vault.uniswapV4) {
-			push("# Uniswap V4 positions used for pool-based pricing and on-demand liquidity withdrawal.")
-			push("[vault.uniswapV4]")
-			if (config.vault.uniswapV4.side !== undefined) {
-				push(kv("side", config.vault.uniswapV4.side))
-			}
-			if (config.vault.uniswapV4.spreadBps !== undefined) {
-				push("# Slippage tolerance (bps) for LP redemptions; also the spread around pool mid.")
-				push(kv("spreadBps", config.vault.uniswapV4.spreadBps))
-			}
-			if (config.vault.uniswapV4.positions?.length) {
-				push("positions = [")
-				for (const position of config.vault.uniswapV4.positions) {
-					push(`    ${inlineTable(position)},`)
-				}
-				push("]")
-			}
-			push()
-		}
 	}
 
 	if (config.allowlist) {

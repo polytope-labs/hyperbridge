@@ -22,9 +22,8 @@ const RETIRED_STATE_DIR = ".filler-data"
  * One row per {@link RuntimeState} key, JSON-encoded, so a write touches only
  * the keys it names. That is what the JSON file this replaces could not do: it
  * was rewritten whole and non-atomically, so a crash mid-write truncated it and
- * lost both the operator's pause and the live phantom bids — precisely the two
- * things it existed to carry across a restart — while two overlapping
- * read-modify-writes could drop one another's key.
+ * lost the operator's pause, the very thing it existed to carry across a
+ * restart, while two overlapping read-modify-writes could drop one another's key.
  */
 export class SqliteStateStore implements StateStore {
 	private logger: Logger
@@ -176,8 +175,8 @@ export class SqliteStateStore implements StateStore {
 	 * which loses a concurrent writer's key; this cannot.
 	 *
 	 * The read-back is inside the guard with the write. Every production caller
-	 * reaches this store through here — `Simplex.pause/resume`, the CLI's
-	 * `setPaused`, the phantom batch — so a throw is a pause that reports failure
+	 * reaches this store through here — `Simplex.pause/resume` and the CLI's
+	 * `setPaused` — so a throw is a pause that reports failure
 	 * while the filler is actually paused, which is the one thing {@link persist}
 	 * exists to prevent. With the database unreadable the requested patch is the
 	 * most that can honestly be said about the state; the failure is in the log,

@@ -68,12 +68,10 @@ describe("migrateLegacyConfig", () => {
 		expect(pair?.token0).toBe("USDC")
 		expect(pair?.maxOrderSize).toBe("5000")
 		expect(config.confirmationPolicies?.["8453"]).toBeDefined()
-		expect(config.vault?.uniswapV4?.positions?.[0]?.tokenId).toBe("42")
-		expect(config.vault?.uniswapV4?.spreadBps).toBe(40)
-		// The pair has static curves, so the migrated `side` must be dropped —
-		// the engine rejects the combination.
-		expect(config.vault?.uniswapV4?.side).toBeUndefined()
-		expect(notes.some((n) => n.includes("dropped [vault.uniswapV4].side"))).toBe(true)
+		// Pool funding is gone, so a legacy venue block is reported and dropped
+		// rather than carried into a config that could no longer load it.
+		expect((config.vault as { uniswapV4?: unknown } | undefined)?.uniswapV4).toBeUndefined()
+		expect(notes.some((n) => n.includes("Uniswap V4 funding is no longer supported"))).toBe(true)
 		expect(() => validateConfig(config)).not.toThrow()
 	})
 

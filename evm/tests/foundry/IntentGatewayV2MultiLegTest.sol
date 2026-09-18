@@ -301,6 +301,27 @@ contract IntentGatewayV2MultiLegTest is MainnetForkBaseTest {
         assertEq(gateway._filled(commitment), solverB);
     }
 
+    function testFill_ValidatesLaterLegBeforeTokenTransfer() public {
+        (Order memory sameChain, bytes32 commitment) = _place(gateway, _ladder("", host.host()));
+        Order memory crossChain = _ladder(bytes("SOURCE_CHAIN"), host.host());
+        TokenInfo[] memory takes = _legs([usdcToken, usdcToken], [uint256(1200 * 1e6), 1000 * 1e6]);
+        TokenInfo[] memory outputs = _legs([daiToken, daiToken], [uint256(1200 * 1e18), 990 * 1e18]);
+        outputs[1].token = usdcToken;
+        vm.mockCallRevert(address(dai), abi.encodeWithSelector(IERC20.transferFrom.selector), hex"deadbeef");
+
+        vm.expectRevert(IntentsBase.InvalidInput.selector);
+        vm.prank(solverA);
+        gateway.fillOrder(sameChain, FillOptions(0, 0, 0, outputs, takes));
+        vm.expectRevert(IntentsBase.InvalidInput.selector);
+        vm.prank(solverA);
+        gateway.fillOrder(crossChain, FillOptions(0, 0, 0, outputs, takes));
+
+        vm.clearMockedCalls();
+        assertEq(gateway._partialFills(commitment, 0), 0);
+        assertEq(gateway._orders(commitment, 0), 1200 * 1e6);
+        assertEq(gateway._filled(commitment), address(0));
+    }
+
     function testRate_CompletedAndSkippedLegsStillValidateQuotes() public {
         (Order memory order, bytes32 commitment) = _place(gateway, _ladder("", host.host()));
         _rateFill(solverA, order, 1200 * 1e6, 0);

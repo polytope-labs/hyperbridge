@@ -1,3 +1,4 @@
+import type { WsProvider } from "@polkadot/api"
 import { ENV_CONFIG } from "@/constants"
 import {
 	getBlockTimestamp,
@@ -11,9 +12,18 @@ describe("Get Substrate Block Timestamp", () => {
 	const chain = "KUSAMA-4009"
 	const blockHash = "0xfc53c051dd3adc9b564fcf0e6bcfa00ecdb8faddcd5dfbd9e84f8e9c1c6f2f28"
 
+	let provider: WsProvider | undefined
+
 	beforeAll(async () => {
 		const { ApiPromise, WsProvider } = await import("@polkadot/api")
-		;(globalThis as any).api = await ApiPromise.create({ provider: new WsProvider(ENV_CONFIG[chain]) })
+		provider = new WsProvider(ENV_CONFIG[chain])
+		;(globalThis as any).api = await ApiPromise.create({ provider })
+	})
+
+	// The provider reconnects until told to stop, even when the endpoint is
+	// unreachable, and that keeps jest from exiting after the run.
+	afterAll(async () => {
+		await provider?.disconnect()
 	})
 
 	test("should get a valid milliseconds timestamp from a substrate block", async () => {

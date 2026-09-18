@@ -1295,6 +1295,7 @@ export interface FillOptions {
 	 * encoding against a gateway whose implementation predates the field.
 	 */
 	validUntil: bigint
+	/** Positional output budgets. Actual payment follows the quoted rate and released input. */
 	outputs: TokenInfo[]
 	/** Required positional maximum input takes. Paired outputs/inputs declare each leg's rate. */
 	inputs: TokenInfo[]
@@ -1527,7 +1528,7 @@ export interface SelectOptions {
 export interface Bid {
 	/** The solver account that submitted this bid (`userOp.sender`). */
 	readonly solverAddress: HexString
-	/** Decoded `FillOptions.outputs` — the tokens and amounts the solver offers. */
+	/** Decoded output budgets; these are not settlement payments or credited progress. */
 	readonly outputs: TokenInfo[]
 	/** Positional input takes from `FillOptions.inputs`; empty only for historical ABI bids. */
 	readonly inputs: TokenInfo[]

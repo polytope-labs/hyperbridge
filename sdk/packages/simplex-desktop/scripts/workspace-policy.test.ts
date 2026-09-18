@@ -31,7 +31,6 @@ describe("desktop workspace package policy", () => {
 		expect(workspace.overrides).toEqual({
 			"@hyperbridge/simplex>pino": "~10.3.1",
 			"@hyperbridge/simplex>vite": "8.0.16",
-			axios: "1.13.6",
 			viem: "2.47.6",
 			vite: "6.4.2",
 		})

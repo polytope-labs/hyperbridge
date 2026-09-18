@@ -33,6 +33,7 @@ export async function assertPackagedResources(resourcesDirectory, platform) {
 		join(resourcesDirectory, "runtime", executable),
 		join(resourcesDirectory, "simplex", "package.json"),
 		join(resourcesDirectory, "simplex", "dist", "bin", "simplex.js"),
+		join(resourcesDirectory, "simplex", "dist", "bin", "simplex.js.map"),
 		join(resourcesDirectory, "simplex", "dist", "ui", "index.html"),
 		...PACKAGED_LICENSES.map((name) => join(resourcesDirectory, "licenses", name)),
 		...EXTERNAL_RUNTIME_PACKAGES.map((name) => join(resourcesDirectory, "node_modules", name, "package.json")),

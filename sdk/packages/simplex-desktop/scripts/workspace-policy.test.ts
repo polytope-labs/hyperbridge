@@ -72,11 +72,11 @@ describe("desktop workspace package policy", () => {
 		)
 
 		expect(budgets).toEqual({
-			"darwin-arm64": 560,
-			"darwin-x64": 560,
+			"darwin-arm64": 520,
+			"darwin-x64": 520,
 			"win32-x64": 580,
-			"linux-x64": 560,
-			"linux-arm64": 560,
+			"linux-x64": 520,
+			"linux-arm64": 520,
 		})
 	})
 

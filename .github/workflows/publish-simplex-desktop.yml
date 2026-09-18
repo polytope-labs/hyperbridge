@@ -136,11 +136,11 @@ jobs:
           - target: darwin-arm64
             runner: macos-latest
             builder_args: --mac --arm64
-            size_budget_mib: 560
+            size_budget_mib: 520
           - target: darwin-x64
             runner: macos-15-intel
             builder_args: --mac --x64
-            size_budget_mib: 560
+            size_budget_mib: 520
           - target: win32-x64
             runner: windows-latest
             builder_args: --win --x64
@@ -148,11 +148,11 @@ jobs:
           - target: linux-x64
             runner: ubuntu-latest
             builder_args: --linux --x64
-            size_budget_mib: 560
+            size_budget_mib: 520
           - target: linux-arm64
             runner: ubuntu-24.04-arm
             builder_args: --linux --arm64
-            size_budget_mib: 560
+            size_budget_mib: 520
     defaults:
       run:
         working-directory: sdk

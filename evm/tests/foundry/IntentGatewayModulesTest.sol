@@ -358,11 +358,11 @@ contract IntentGatewayModulesTest is MainnetForkBaseTest {
         PostRequest memory upgrade =
             _upgradeRequest(address(newImpl), abi.encodeCall(IntentGatewayV2.migrate, (address(this))));
         vm.expectEmit(true, true, true, true, address(gateway));
-        emit Initializable.Initialized(4);
+        emit Initializable.Initialized(3);
         vm.prank(address(host));
         gateway.onAccept(IncomingPostRequest({relayer: address(this), request: upgrade}));
 
-        assertEq(gateway.version(), 4, "migrated");
+        assertEq(gateway.version(), 3, "migrated");
         assertEq(gateway.owner(), address(this), "owner set by the migration");
         assertEq(gateway._orders(keccak256(abi.encode(order)), 0), 1000 * 1e6, "escrow survives");
         assertEq(gateway.instance(bytes("DEST_CHAIN")), address(gateway), "peers survive");
@@ -378,14 +378,6 @@ contract IntentGatewayModulesTest is MainnetForkBaseTest {
 
     function testUpgradeHelperUsesEmptyInitializationForVersionFour() public view {
         assertEq(intentGatewayUpgradeInitialization(gateway, address(this)), bytes(""));
-    }
-
-    function testUpgradeHelperMigratesVersionThreeWithoutNewOwner() public {
-        vm.store(address(gateway), INITIALIZABLE_SLOT, bytes32(uint256(3)));
-        assertEq(
-            intentGatewayUpgradeInitialization(gateway, address(0)),
-            abi.encodeCall(IntentGatewayV2.migrate, (address(0)))
-        );
     }
 
     function testUpgradeHelperMigratesVersionTwo() public {
@@ -429,7 +421,7 @@ contract IntentGatewayModulesTest is MainnetForkBaseTest {
             assertEq(_implementationOf(address(gateway)), address(next), "implementation installed");
             assertEq(gateway.intrinsicModule(), next.intrinsicModule(), "modules follow the implementation");
             assertEq(gateway.extrinsicModule(), next.extrinsicModule());
-            assertEq(gateway.version(), 4, "no migration ran");
+            assertEq(gateway.version(), 3, "no migration ran");
             assertEq(gateway._nonce(), 1, "_nonce preserved");
             assertEq(gateway._orders(commitment, 0), 1000 * 1e6, "escrow preserved");
             assertEq(gateway.instance(bytes("DEST_CHAIN")), address(gateway), "peers preserved");

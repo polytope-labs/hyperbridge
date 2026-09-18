@@ -178,10 +178,13 @@ struct FillOptions {
     /// @dev Denominated in blocks, matching `order.deadline`, so both are read against the
     /// same clock (`_blockNumber()`, which is the L2 block number where that differs).
     uint256 validUntil;
-    /// @dev The output tokens with amounts the solver is willing to give
+    /// @dev Positional output budgets paired with `inputs`. Their exact ratio is the signed
+    /// solver rate; settlement derives payment from the input actually released, rounded up,
+    /// with credited output as a floor. Any unused budget remains with or is refunded to the solver.
     TokenInfo[] outputs;
     /// @dev Positional maximum input takes, matched to order.inputs and outputs by index.
-    /// Integer output credit determines actual release, which can be below these maxima.
+    /// Integer output credit determines actual release, which can be below these maxima; the
+    /// corresponding output payment can therefore be below the paired output budget.
     /// Required for every output leg, including skipped legs with paired zero amounts.
     TokenInfo[] inputs;
 }

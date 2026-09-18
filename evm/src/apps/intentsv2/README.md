@@ -111,14 +111,19 @@ the module call; the callbacks forward `msg.data` as is and pay only the cold ac
 ## Solver quotes
 
 Every `fillOrder` declares one `FillOptions.inputs` and `outputs` entry per order leg.
-The output/input ratio is the solver's rate; the input amount is its maximum take.
+The output/input ratio is the solver's exact rate; the input amount is its maximum take and
+the output amount is its maximum debit budget.
 An equal-rate quote covers an ordinary fill. Matching zero amounts skip a leg; an empty
-input array is invalid. Oversized quotes scale down to the remaining fill at their signed rate.
+input array is invalid. Every fill, including an uncapped partial fill, pays
+`max(credited output, ceil(actual released input * quoted output / quoted input))`.
 
 `IntentsBase` credits output at the order's rate, releases the difference between cumulative
-input floors, and splits payment above credited output as surplus on every fill. Events and
+input floors, and splits payment above credited output as surplus on every fill. Integer rounding
+can make the credited-output floor determine payment. Events and
 cross-chain proofs track credited output, not surplus. A quote can release less than its
-maximum because of integer rounding. Output-call orders must complete in one transaction.
+maximum because of integer rounding, so unused ERC-20 budget stays with the solver and unused
+native budget is refunded. Output-call orders must complete in one transaction; callbacks receive
+the guaranteed credited output, while any derived-payment surplus remains with the protocol.
 
 The appended inputs field changes the main-branch fill selector to `0x68ddf058` (FillOptions
 ABI 3). Gateway, modules and SolverAccount use release 4. Deploy the account and redelegate

@@ -48,19 +48,22 @@ For same-chain orders, solvers can fill any portion of the output. Escrow is rel
 ### Solver-priced fills
 
 `fillOrder(order, options)` accepts per-leg input quotes in `options.inputs`. Each entry names the
-matching order input token and the maximum input the solver takes for `options.outputs[i]`.
+matching order input token and the maximum input take. The ratio `outputs[i].amount / inputs[i].amount`
+is the solver's exact rate; the quoted output is a debit budget, not a fixed payment.
 Every fill must declare input quotes; equal-rate quotes cover ordinary fills. Appending this field changes the selector to
 `0x68ddf058`; all fills on an upgraded gateway must use the new tuple. SDK codecs continue to
 support historical v1/v2 gateways, but old signed calldata must be requoted after an upgrade.
 
 The contract credits output at the order's rate and releases the corresponding cumulative input
 slice. Integer rounding can release less than the quoted maximum; use the SDK's `previewRateFill`
-to inspect the actual release. A quote below the order's floor reverts with `RateBelowOrder`;
+to inspect credit, release, payment and surplus at a given progress. A quote below the order's floor reverts with `RateBelowOrder`;
 a positive slice too small to release input reverts with `RateFillTooSmall`.
 
-If earlier solvers leave less work than a signed quote covers, the contract caps credited progress
-and scales output against the actual input release, preserving the quote's rate. The original signed
-calldata can be used unchanged. Output above credited progress is surplus on every rate fill,
+Every fill pays `max(credited output, ceil(released input × quoted output / quoted input))`.
+The credited-output floor prevents integer rounding from underfunding recorded progress.
+If earlier solvers leave less work than the quote covers, credit and release shrink under the same
+payment rule. Unused ERC-20 budget stays with the solver; unused native value is refunded.
+The original signed calldata can be used unchanged. Payment above credited progress is surplus,
 split by `surplusShareBps`; calldata orders retain all surplus as protocol dust and must complete
 in one fill. Fill events report credited output, so surplus never advances the order twice.
 
@@ -70,12 +73,14 @@ escrow, fees and pending messages before upgrading; old per-slice rounding debt 
 No rate or surplus data is added to cross-chain redemption messages or cancellation proofs.
 
 The SDK's `automatic: true` execution option ranks single-leg quotes by rate and multi-leg quotes
-by output value normalized to the original input amounts, confirms each
-slice, and continues until the order is filled. Before sending, it durably records the fully signed
-UserOperation as pending. On restart it reconciles the receipt and chain state, and may rebroadcast
-the identical operation. Definitive first-send rejection permits fallback; an uncertain earlier send
-blocks another distinct bid until its outcome is established. Manual selection remains available. Normalized ranking amounts describe prices; actual signed quotes
-determine funding and deliverable liquidity.
+by output value normalized to the original input amounts, confirms each slice, and continues until
+the order is filled. Normalized amounts describe prices; signed quotes bound funding, and settlement
+determines actual payment.
+
+Before sending, it durably records the fully signed UserOperation as pending. On restart it reconciles
+the receipt and chain state, and may rebroadcast the identical operation. Definitive first-send rejection
+permits fallback; an uncertain earlier send blocks another distinct bid until its outcome is established.
+Manual selection remains available.
 
 Every v3 bid requires an updated delegated SolverAccount.
 Before signing, the SDK requires release `4` from `version()` on the gateway, configured account
@@ -201,6 +206,5 @@ The session signature is appended to the solver's `UserOperation` as `abi.encode
 During `SolverAccount.validateUserOp()`, `IntentGatewayV2.select()` is called which recovers the session key from the EIP-712 signature, verifies it matches the order's session key, and stores the authorized solver in transient storage (`tstore`). The account then verifies the solver's signature against the plain `userOpHash` and checks that the UserOperation's nonce key matches `keccak256(commitment ‖ recovered session key)` — rejecting, during validation rather than at the solver's expense during execution, any attempt to pair a solver's signed bid with a different order or with a session signature from a key the solver never bid against. When `fillOrder()` runs in the same transaction, it reads the authorized solver from transient storage (`tload`) and verifies `msg.sender` matches. Since transient storage is cleared after each transaction, the selection cannot be replayed or front-run.
 </Step>
 </Steps>
-
 
 

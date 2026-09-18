@@ -540,6 +540,7 @@ export class FXFiller implements FillerStrategy {
 			const remainingByPair = new Map(cappedByPair)
 			const rateFills = await this.contractService.rateFillsSupported(destChain)
 			const rateInputs: TokenInfo[] = order.inputs.map(({ token }) => ({ token, amount: 0n }))
+			const ratePreviewsByLeg = new Map<number, ReturnType<typeof previewRateFill>>()
 
 			// Rate-capable gateways support cross-chain slices. Legacy deployments
 			// retain the previous strategy policy. Calldata must still complete at once,
@@ -876,6 +877,7 @@ export class FXFiller implements FillerStrategy {
 					const take = (budgetTake * finalOutputAmount) / policyMaxOutput
 					const preview = previewRateFill(input.amount, output.amount, 0n, take, finalOutputAmount)
 					rateInputs[i].amount = take
+					ratePreviewsByLeg.set(i, preview)
 					if (preview.credit < output.amount) {
 						if (!(await partialEligible())) return 0
 						partialFill = true
@@ -939,14 +941,11 @@ export class FXFiller implements FillerStrategy {
 				// they release no escrow on-chain, so they contribute nothing to P&L.
 				if (output.amount === 0n) continue
 
-				// Escrow is released in proportion to the output actually delivered
-				// (IntrinsicIntents.sol: `inputs[i].amount * fillAmount / totalRequired`),
-				// and only a fill that COMPLETES the order sweeps the residue. Valuing an
-				// under-fill against the whole escrow overstates every leg's take — which
-				// is what the balance-shortfall path has been doing.
+				// Reuse the initial-progress estimate from quote sizing. Keep the signed
+				// output budget as the conservative cost: other fills may precede execution.
 				const requested = order.output.assets[legIndex].amount
 				const releasedInput = rateFills
-					? previewRateFill(input.amount, requested, 0n, rateInputs[legIndex].amount, output.amount).release
+					? ratePreviewsByLeg.get(legIndex)!.release
 					: output.amount >= requested
 						? input.amount
 						: (input.amount * output.amount) / requested

@@ -1,5 +1,11 @@
 import { describe, it, expect, vi } from "vitest"
-import { decodeERC7821ExecuteBatch, decodeFillOrder, type Order, type HexString } from "@hyperbridge/sdk"
+import {
+	decodeERC7821ExecuteBatch,
+	decodeFillOrder,
+	previewRateFill,
+	type Order,
+	type HexString,
+} from "@hyperbridge/sdk"
 import { ContractInteractionService } from "@/services/ContractInteractionService"
 import { CacheService } from "@/services/CacheService"
 
@@ -40,6 +46,39 @@ function makeService(supported = true, cache = new CacheService(), unsupportedAd
 	)
 }
 describe("rate fill batches", () => {
+	it("preserves the signed quote when its settlement payment rounds down", async () => {
+		const cache = new CacheService()
+		const service = makeService(true, cache)
+		const roundedOrder = {
+			...order,
+			inputs: [{ token, amount: 10n }],
+			output: { ...order.output, assets: [{ token, amount: 3n }] },
+		}
+		const inputs = [{ token, amount: 4n }]
+		const outputs = [{ token, amount: 4n }]
+
+		expect(previewRateFill(10n, 3n, 0n, 4n, 4n)).toEqual({
+			credit: 1n,
+			release: 3n,
+			delivered: 3n,
+			surplus: 2n,
+		})
+
+		cache.setFillerOutputs(order.id!, outputs, inputs)
+		expect(cache.getFillerQuote(order.id!)).toMatchObject({ inputs, outputs })
+
+		const calldata = await service.buildApprovalAndFillCalldata(
+			roundedOrder,
+			outputs,
+			{ relayerFee: 0n, nativeDispatchFee: 0n, validUntil: 99n, outputs, inputs },
+			0n,
+		)
+		const calls = decodeERC7821ExecuteBatch(calldata)!
+		const decoded = decodeFillOrder(calls[calls.length - 1].data)
+		expect(decoded?.options.inputs).toEqual(inputs)
+		expect(decoded?.options.outputs).toEqual(outputs)
+	})
+
 	it("encodes the signed take and approves the signed output", async () => {
 		const service = makeService()
 		const outputs = [{ token, amount: 440n }],

@@ -269,12 +269,12 @@ export class BidManager {
 	}
 
 	/**
-	 * Sorts a list of bids for the given order by output value.
+	 * Sorts bids by their declared price, independently of their capacity.
 	 *
 	 * Delegates to one of three strategies based on the order's output token
 	 * composition:
-	 * - Single output token: sort by offered amount descending.
-	 * - All stable outputs (USDC/USDT): sort by normalised USD value descending.
+	 * - Single output token: compare exact output/input ratios.
+	 * - All stable outputs (USDC/USDT): value quotes at the original escrow size.
 	 * - Mixed outputs: sort by DEX-quoted USD value descending, with a raw-amount
 	 *   fallback if pricing fails.
 	 *
@@ -333,7 +333,7 @@ export class BidManager {
 
 	/**
 	 * Case A: single output token.
-	 * Filter bids by token match only, sort descending by amount.
+	 * Compare exact rates; simulation determines executable progress and payment.
 	 * Partial fill bids are allowed — the contract determines fill status.
 	 */
 	private sortSingleOutput(order: Order, bids: Bid[], requiredAsset: TokenInfo): Bid[] {
@@ -347,7 +347,6 @@ export class BidManager {
 		for (const [index, bid] of bids.entries()) {
 			const bidOutput = bid.outputs[0]
 			if (!bidOutput) continue
-			const bidAmount = new Decimal(bidOutput.amount.toString())
 
 			if (bidOutput.token.toLowerCase() !== requiredAsset.token.toLowerCase()) {
 				console.warn(
@@ -355,19 +354,6 @@ export class BidManager {
 						`(bid=${bidOutput.token}, required=${requiredAsset.token})`,
 				)
 				continue
-			}
-
-			if (bidAmount.lt(requiredAmount)) {
-				console.log(
-					`[BidManager] Bid from solver=${bid.solverAddress}: partial fill candidate ` +
-						`(bid=${bidAmount.toString()}, required=${requiredAmount.toString()}, ` +
-						`covers=${bidAmount.div(requiredAmount).mul(100).toFixed(2)}%)`,
-				)
-			} else {
-				console.log(
-					`[BidManager] Bid from solver=${bid.solverAddress} ACCEPTED: amount=${bidAmount.toString()} ` +
-						`(surplus=${bidAmount.minus(requiredAmount).toString()})`,
-				)
 			}
 
 			const quotedInput = bid.inputs[0]
@@ -423,18 +409,6 @@ export class BidManager {
 				continue
 			}
 
-			if (bidUsd.lt(requiredUsd)) {
-				console.log(
-					`[BidManager] Bid from solver=${bid.solverAddress}: partial fill candidate ` +
-						`(bid=${bidUsd.toString()}, required=${requiredUsd.toString()}, ` +
-						`covers=${bidUsd.div(requiredUsd).mul(100).toFixed(2)}%)`,
-				)
-			} else {
-				console.log(
-					`[BidManager] Bid from solver=${bid.solverAddress} ACCEPTED: USD value=${bidUsd.toString()}`,
-				)
-			}
-
 			validBids.push({ bid, usdValue: bidUsd })
 		}
 
@@ -471,18 +445,6 @@ export class BidManager {
 				continue
 			}
 
-			if (bidUsd.lt(requiredUsd)) {
-				console.log(
-					`[BidManager] Bid from solver=${bid.solverAddress}: partial fill candidate ` +
-						`(bid=${bidUsd.toString()}, required=${requiredUsd.toString()}, ` +
-						`covers=${bidUsd.div(requiredUsd).mul(100).toFixed(2)}%)`,
-				)
-			} else {
-				console.log(
-					`[BidManager] Bid from solver=${bid.solverAddress} ACCEPTED: mixed USD value=${bidUsd.toString()}`,
-				)
-			}
-
 			validBids.push({ bid, usdValue: bidUsd })
 		}
 
@@ -492,9 +454,8 @@ export class BidManager {
 
 	/**
 	 * Fallback when DEX pricing is unavailable.
-	 * Computes total spread per bid. Bids missing a required token are rejected.
-	 * Bids offering less than required for a token are allowed (partial fill).
-	 * Sorted by total offered amount descending.
+	 * Sums the normalized quote amounts when token valuation is unavailable.
+	 * These amounts compare prices; they do not estimate payment or fill completion.
 	 */
 	private sortByRawAmountFallback(bids: Bid[], order: Order): Bid[] {
 		const orderOutputs = order.output.assets
@@ -523,23 +484,6 @@ export class BidManager {
 			if (!valid) {
 				console.warn(`[BidManager] Bid from solver=${bid.solverAddress} REJECTED (fallback): ${rejectReason}`)
 				continue
-			}
-
-			const totalRequired = orderOutputs.reduce(
-				(acc, o) => acc.plus(new Decimal(o.amount.toString())),
-				new Decimal(0),
-			)
-
-			if (totalOffered.lt(totalRequired)) {
-				console.log(
-					`[BidManager] Bid from solver=${bid.solverAddress}: partial fill candidate (fallback) ` +
-						`(offered=${totalOffered.toString()}, required=${totalRequired.toString()}, ` +
-						`covers=${totalOffered.div(totalRequired).mul(100).toFixed(2)}%)`,
-				)
-			} else {
-				console.log(
-					`[BidManager] Bid from solver=${bid.solverAddress} ACCEPTED (fallback): totalOffered=${totalOffered.toString()}`,
-				)
 			}
 
 			validBids.push({ bid, totalOffered })

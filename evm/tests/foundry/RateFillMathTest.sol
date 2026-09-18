@@ -66,6 +66,38 @@ contract RateFillMathTest is Test {
         assertEq(paid - credit, 8);
     }
 
+    function testRate_UncappedPaymentUsesReleasedInput() public view {
+        (uint256 credit, uint256 released, uint256 paid) = harness.quote(10, 3, 0, 4, 4);
+        assertEq(credit, 1);
+        assertEq(released, 3);
+        assertEq(paid, 3);
+    }
+
+    function testRate_PaymentCoversCreditedOutputAfterQuantization() public view {
+        (uint256 credit, uint256 released, uint256 paid) = harness.quote(3, 10, 0, 2, 7);
+        assertEq(credit, 6);
+        assertEq(released, 1);
+        assertEq(paid, 6);
+    }
+
+    function testRate_OversizedCapacityPaysOnlyForReleasedInput() public view {
+        (uint256 credit, uint256 released, uint256 paid) = harness.quote(10, 3, 0, 11, 11);
+        assertEq(credit, 3);
+        assertEq(released, 10);
+        assertEq(paid, 10);
+    }
+
+    function testRate_EqualRationalRatesSettleIdenticallyAcrossCapacityBoundary() public view {
+        (uint256 exactCredit, uint256 exactRelease, uint256 exactPayment) = harness.quote(10, 3, 0, 11, 11);
+        (uint256 oversizedCredit, uint256 oversizedRelease, uint256 oversizedPayment) = harness.quote(10, 3, 0, 20, 20);
+        assertEq(exactCredit, 3);
+        assertEq(oversizedCredit, exactCredit);
+        assertEq(exactRelease, 10);
+        assertEq(oversizedRelease, exactRelease);
+        assertEq(exactPayment, 10);
+        assertEq(oversizedPayment, exactPayment);
+    }
+
     function testRate_MaximumAmountsCappedCompletion() public view {
         (uint256 credit, uint256 released, uint256 paid) = harness.quote(
             type(uint256).max, type(uint256).max - 1, type(uint256).max - 2, type(uint256).max, type(uint256).max

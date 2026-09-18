@@ -243,6 +243,32 @@ describe("FXFiller curve payout", () => {
 		expect(previewRateFill(1000n, 99n, 0n, 373n, 37n)).toMatchObject({ credit: 36n, release: 363n })
 	})
 
+	it("keeps a rounding-sensitive funded quote at its signed take and output caps", async () => {
+		const contractService = makeEvalContractService()
+		contractService.rateFillsSupported = async () => true
+		contractService.getTokenDecimals = async () => 0
+		const filler = makeFiller({
+			contractService,
+			balances: { [EXOTIC.toLowerCase()]: 4n },
+			maxOrderSize: 4,
+			askPricePolicy: new FillerPricePolicy({ points: [{ amount: "0", price: "1" }] }),
+		})
+		const order = makeOrder("rate-payment-rounding")
+		order.inputs[0].amount = 10n
+		order.output.assets[0].amount = 3n
+
+		await filler.calculateProfitability(order)
+
+		expect(contractService.inputs.get(order.id)).toEqual([{ token: bytes20ToBytes32(STABLE), amount: 4n }])
+		expect(contractService.outputs.get(order.id)).toEqual([{ token: bytes20ToBytes32(EXOTIC), amount: 4n }])
+		expect(previewRateFill(10n, 3n, 0n, 4n, 4n)).toEqual({
+			credit: 1n,
+			release: 3n,
+			delivered: 3n,
+			surplus: 2n,
+		})
+	})
+
 	it("does not count a funding reduction at the same rate as profit", async () => {
 		const contractService = makeEvalContractService()
 		contractService.rateFillsSupported = async () => true

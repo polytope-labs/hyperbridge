@@ -10,6 +10,8 @@ import {
     PaymentInfo,
     DispatchInfo
 } from "@hyperbridge/core/apps/IntentGatewayV2.sol";
+import {Call} from "@hyperbridge/core/interfaces/ICallDispatcher.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 contract IntentGatewayRateFillTest is IntentGatewayV2SameChainTest {
     function _rateFill(Order memory order, uint256 take, uint256 offered) internal {
@@ -49,6 +51,30 @@ contract IntentGatewayRateFillTest is IntentGatewayV2SameChainTest {
         assertEq(intentGateway._partialFills(keccak256(abi.encode(order)), 0), 1);
         _rateFill(order, 10, 3);
         assertEq(usdc.balanceOf(solver) - before, 10);
+    }
+
+    function testRate_UniformPaymentTransfersAndCancelConserveEscrow() public {
+        Order memory order = _placeSameChainOrder(10, 3, 0);
+        bytes32 commitment = keccak256(abi.encode(order));
+        uint256 solverInputBefore = usdc.balanceOf(solver);
+        uint256 solverOutputBefore = dai.balanceOf(solver);
+        uint256 beneficiaryBefore = dai.balanceOf(user);
+        uint256 protocolBefore = dai.balanceOf(address(intentGateway));
+
+        _rateFill(order, 4, 4);
+
+        assertEq(usdc.balanceOf(solver) - solverInputBefore, 3);
+        assertEq(solverOutputBefore - dai.balanceOf(solver), 3);
+        assertEq(intentGateway._partialFills(commitment, 0), 1);
+        // Surplus is two; the configured 50/50 split pays one to each side.
+        assertEq(dai.balanceOf(user) - beneficiaryBefore, 2);
+        assertEq(dai.balanceOf(address(intentGateway)) - protocolBefore, 1);
+
+        uint256 userInputBefore = usdc.balanceOf(user);
+        vm.prank(user);
+        intentGateway.cancelOrder(order, CancelOptions(0, 0));
+        assertEq(usdc.balanceOf(user) - userInputBefore, 7);
+        assertEq(intentGateway._orders(commitment, 0), 0);
     }
 
     function testRate_DifferentSolversAndRatesConserveEscrowOnCancellation() public {
@@ -181,6 +207,99 @@ contract IntentGatewayRateFillTest is IntentGatewayV2SameChainTest {
         intentGateway.fillOrder{value: 550}(order, FillOptions(0, 0, 0, offered, takes));
         assertEq(before - solver.balance, 1100);
         assertEq(address(intentGateway).balance, 50);
+    }
+
+    function testRate_UncappedNativeOutputDebitsDerivedPaymentAndRefundsBudget() public {
+        TokenInfo[] memory inputs = new TokenInfo[](1);
+        inputs[0] = TokenInfo(bytes32(uint256(uint160(address(usdc)))), 10);
+        TokenInfo[] memory outputs = new TokenInfo[](1);
+        outputs[0] = TokenInfo(bytes32(0), 3);
+        Order memory order = Order(
+            bytes32(uint256(uint160(user))),
+            host.host(),
+            host.host(),
+            block.number + 100,
+            0,
+            0,
+            address(0),
+            DispatchInfo(new TokenInfo[](0), ""),
+            inputs,
+            PaymentInfo(bytes32(uint256(uint160(user))), outputs, "")
+        );
+        vm.startPrank(user);
+        usdc.approve(address(intentGateway), 10);
+        intentGateway.placeOrder(order, bytes32(0));
+        vm.stopPrank();
+
+        TokenInfo[] memory takes = new TokenInfo[](1);
+        takes[0] = TokenInfo(inputs[0].token, 4);
+        TokenInfo[] memory offered = new TokenInfo[](1);
+        offered[0] = TokenInfo(bytes32(0), 4);
+        uint256 solverBefore = solver.balance;
+        uint256 inputBefore = usdc.balanceOf(solver);
+        vm.prank(solver);
+        intentGateway.fillOrder{value: 4}(order, FillOptions(0, 0, 0, offered, takes));
+
+        assertEq(solverBefore - solver.balance, 3);
+        assertEq(address(intentGateway).balance, 1);
+        bytes32 commitment = keccak256(abi.encode(order));
+        assertEq(intentGateway._partialFills(commitment, 0), 1);
+        assertEq(usdc.balanceOf(solver) - inputBefore, 3);
+
+        // The remaining seven inputs settle at a different rate without stranding escrow.
+        takes[0].amount = 10;
+        offered[0].amount = 3;
+        vm.prank(solver);
+        intentGateway.fillOrder{value: 3}(order, FillOptions(0, 0, 0, offered, takes));
+        assertEq(solverBefore - solver.balance, 6);
+        assertEq(usdc.balanceOf(solver) - inputBefore, 10);
+        assertEq(intentGateway._orders(commitment, 0), 0);
+        assertEq(intentGateway._partialFills(commitment, 0), 3);
+        assertEq(intentGateway._filled(commitment), solver);
+    }
+
+    function testRate_OversizedOutputCallReceivesCreditAndRetainsDerivedSurplus() public {
+        TokenInfo[] memory inputs = new TokenInfo[](1);
+        inputs[0] = TokenInfo(bytes32(uint256(uint160(address(usdc)))), 10);
+        TokenInfo[] memory outputs = new TokenInfo[](1);
+        outputs[0] = TokenInfo(bytes32(uint256(uint160(address(dai)))), 3);
+        Call[] memory calls = new Call[](1);
+        calls[0] = Call({to: address(dai), value: 0, data: abi.encodeWithSelector(IERC20.transfer.selector, user, 3)});
+        Order memory order = Order(
+            bytes32(uint256(uint160(user))),
+            host.host(),
+            host.host(),
+            block.number + 100,
+            0,
+            0,
+            address(0),
+            DispatchInfo(new TokenInfo[](0), ""),
+            inputs,
+            PaymentInfo(bytes32(uint256(uint160(address(dispatcher)))), outputs, abi.encode(calls))
+        );
+        vm.startPrank(user);
+        usdc.approve(address(intentGateway), 10);
+        intentGateway.placeOrder(order, bytes32(0));
+        vm.stopPrank();
+
+        TokenInfo[] memory takes = new TokenInfo[](1);
+        takes[0] = TokenInfo(inputs[0].token, 11);
+        TokenInfo[] memory offered = new TokenInfo[](1);
+        offered[0] = TokenInfo(outputs[0].token, 11);
+        uint256 solverBefore = dai.balanceOf(solver);
+        uint256 inputBefore = usdc.balanceOf(solver);
+        uint256 userBefore = dai.balanceOf(user);
+        uint256 protocolBefore = dai.balanceOf(address(intentGateway));
+        vm.startPrank(solver);
+        dai.approve(address(intentGateway), 11);
+        intentGateway.fillOrder(order, FillOptions(0, 0, 0, offered, takes));
+        vm.stopPrank();
+
+        assertEq(solverBefore - dai.balanceOf(solver), 10);
+        assertEq(dai.balanceOf(user) - userBefore, 3);
+        assertEq(dai.balanceOf(address(intentGateway)) - protocolBefore, 7);
+        assertEq(usdc.balanceOf(solver) - inputBefore, 10);
+        assertEq(dai.balanceOf(address(dispatcher)), 0);
     }
 
     function testRate_RejectsInvalidLegsAndNoProgress() public {

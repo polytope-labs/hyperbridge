@@ -502,7 +502,8 @@ contract IntentGatewayV2 is
      *    token with its upper 12 bytes set, so `_isRepeatedToken` sees every token in one form.
      *
      * @param order The order to fill. Must match the exact order that was placed.
-     * @param options Output amounts, required paired input quotes, quote expiry, and dispatch fees.
+     * @param options Paired input capacities and output budgets defining solver rates, quote expiry,
+     * and dispatch fees. Payment is derived from input actually released and may be below its budget.
      */
     function fillOrder(Order calldata order, FillOptions calldata options) public payable whenNotPaused nonReentrant {
         uint256 blockNumber = _blockNumber();

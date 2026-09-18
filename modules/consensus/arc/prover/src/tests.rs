@@ -117,6 +117,55 @@ async fn test_arc_consensus_client() -> Result<(), anyhow::Error> {
 	Ok(())
 }
 
+/// Follows finality through exact historical heights against an endpoint with
+/// a real `eth_getProof` window (e.g. Dwellir's Arc mainnet). Exercises the
+/// deterministic height-parameterised prover path: a historical bootstrap,
+/// then 10-block jumps forward through already-finalized history.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "requires ARC_HISTORICAL_RPC_URL, an Arc endpoint serving historical eth_getProof (public testnet RPCs do not); run with --ignored"]
+async fn test_arc_historical_consensus_client() -> Result<(), anyhow::Error> {
+	init_tracing();
+
+	let Ok(rpc_url) = std::env::var("ARC_HISTORICAL_RPC_URL") else {
+		eprintln!(
+			"skipping test_arc_historical_consensus_client: set ARC_HISTORICAL_RPC_URL to an \
+			 endpoint with a historical eth_getProof window"
+		);
+		return Ok(());
+	};
+	let prover = ArcProver::new(rpc_url)?;
+
+	let tip = prover.latest_height().await?;
+	let start = tip.saturating_sub(60);
+	let mut trusted = prover.fetch_verifier_state(start).await?;
+	tracing::info!(
+		"bootstrapped historically at height {} with {} validators (total power {})",
+		trusted.finalized_height,
+		trusted.current_validators.len(),
+		trusted.current_validators.total_voting_power,
+	);
+
+	for step in 1..=UPDATES_TO_FOLLOW {
+		let target = start + step * 10;
+		let update = prover.fetch_update(target).await?;
+		assert_eq!(update.certificate.height, target);
+		assert_eq!(update.certificate.block_hash, header_hash(&update.header));
+
+		let new_state = verify_arc_update::<Keccak256Hasher>(trusted.clone(), update.clone())?;
+		assert_eq!(new_state.finalized_height, target);
+		assert!(!new_state.current_validators.is_empty());
+
+		tracing::info!(
+			"verified historical certificate for height {target} ({} signatures)",
+			update.certificate.commit_signatures.len(),
+		);
+
+		trusted = new_state;
+	}
+
+	Ok(())
+}
+
 /// The verifier must reject a certificate whose signatures were produced for a
 /// different block hash.
 #[tokio::test(flavor = "multi_thread")]

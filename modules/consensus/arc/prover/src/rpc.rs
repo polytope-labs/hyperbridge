@@ -312,6 +312,16 @@ impl ArcRpcClient {
 	) -> Result<RpcAccountProof, ProverError> {
 		self.get_proof_at_block(address, storage_keys, format!("0x{block_number:x}"))
 			.await
+			.map_err(|e| match e {
+				// reth: "distance to target block exceeds maximum proof
+				// window"; drpc: "Unknown state". Both mean the node can't
+				// prove at this height, so callers can fall back to
+				// `"latest"`-anchored capture.
+				ProverError::RpcError { message, .. }
+					if message.contains("proof window") || message.contains("Unknown state") =>
+					ProverError::HistoricalProofsUnavailable { height: block_number, message },
+				other => other,
+			})
 	}
 
 	/// Fetch account and storage proofs at the node's latest block.

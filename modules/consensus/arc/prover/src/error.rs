@@ -87,6 +87,16 @@ pub enum ProverError {
 		upper: u64,
 	},
 
+	/// The node cannot serve `eth_getProof` at the requested historical height
+	/// (reth's proof window, or a provider without historical state)
+	#[error("Historical proofs unavailable at height {height}: {message}")]
+	HistoricalProofsUnavailable {
+		/// The requested height
+		height: u64,
+		/// The node's error message
+		message: String,
+	},
+
 	/// Verification of a fetched update failed
 	#[error("Verification error: {0}")]
 	Verifier(#[from] arc_verifier::error::Error),

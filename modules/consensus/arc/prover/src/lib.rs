@@ -45,7 +45,14 @@ use geth_primitives::{CodecHeader, Header};
 use ismp::messaging::Keccak256;
 use primitive_types::{H256, U256};
 use rpc::{hex_to_bytes, ArcRpcClient, RpcAccountProof};
-use std::{collections::BTreeSet, sync::Arc, time::Duration};
+use std::{
+	collections::BTreeSet,
+	sync::{
+		atomic::{AtomicU8, Ordering},
+		Arc,
+	},
+	time::Duration,
+};
 
 /// Keccak256 hasher for the prover.
 pub struct Keccak256Hasher;
@@ -72,17 +79,37 @@ const ANCHOR_SCAN_MARGIN: u64 = 8;
 /// Attempts at fetching the commit certificate for a freshly anchored block.
 const CERTIFICATE_ATTEMPTS: usize = 5;
 
+/// Blocks behind the observed tip at which historical captures anchor,
+/// keeping the target within every load-balanced backend's view of the chain
+/// while staying cheap to prove (reth proof cost grows with distance from
+/// the tip).
+const HISTORICAL_TIP_BUFFER: u64 = 4;
+
+/// Whether the endpoint serves `eth_getProof` at historical heights.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HistoricalSupport {
+	Unknown,
+	Supported,
+	Unsupported,
+}
+
 /// Arc prover for constructing light client updates.
 #[derive(Clone)]
 pub struct ArcProver {
 	/// The underlying RPC client
 	pub rpc: Arc<ArcRpcClient>,
+	/// Whether the endpoint serves historical proofs, learned from its
+	/// responses. Shared across clones so the discovery is made once.
+	historical_support: Arc<AtomicU8>,
 }
 
 impl ArcProver {
 	/// Create a new prover for the given RPC endpoint.
 	pub fn new(endpoint: impl Into<String>) -> Result<Self, ProverError> {
-		Ok(Self { rpc: Arc::new(ArcRpcClient::new(endpoint)?) })
+		Ok(Self {
+			rpc: Arc::new(ArcRpcClient::new(endpoint)?),
+			historical_support: Arc::new(AtomicU8::new(HistoricalSupport::Unknown as u8)),
+		})
 	}
 
 	/// Create a new prover that sources commit certificates from a separate
@@ -93,7 +120,20 @@ impl ArcProver {
 	) -> Result<Self, ProverError> {
 		Ok(Self {
 			rpc: Arc::new(ArcRpcClient::with_certificate_endpoint(endpoint, certificate_endpoint)?),
+			historical_support: Arc::new(AtomicU8::new(HistoricalSupport::Unknown as u8)),
 		})
+	}
+
+	fn historical_support(&self) -> HistoricalSupport {
+		match self.historical_support.load(Ordering::Relaxed) {
+			x if x == HistoricalSupport::Supported as u8 => HistoricalSupport::Supported,
+			x if x == HistoricalSupport::Unsupported as u8 => HistoricalSupport::Unsupported,
+			_ => HistoricalSupport::Unknown,
+		}
+	}
+
+	fn set_historical_support(&self, support: HistoricalSupport) {
+		self.historical_support.store(support as u8, Ordering::Relaxed);
 	}
 
 	/// Fetch the latest block number from the node.
@@ -117,7 +157,18 @@ impl ArcProver {
 	}
 
 	/// Fetch a complete light client update anchored at the node's tip.
+	///
+	/// Prefers a deterministic historical capture just behind the tip when the
+	/// endpoint serves `eth_getProof` at numbered heights; otherwise falls
+	/// back to the `"latest"`-anchored capture (and remembers the answer).
 	pub async fn fetch_latest_update(&self) -> Result<VerifierStateUpdate, ProverError> {
+		if let Some(update) = self
+			.try_historical(|height| async move { self.fetch_update(height).await })
+			.await?
+		{
+			return Ok(update);
+		}
+
 		let (header, validator_set_proof, _) = self.fetch_latest_anchored().await?;
 		let certificate = self
 			.fetch_certificate_with_retry(header.number.low_u64(), CERTIFICATE_ATTEMPTS)
@@ -131,12 +182,61 @@ impl ArcProver {
 	/// code the on-chain verifier runs, so the bootstrapped state is exactly
 	/// what verification of subsequent updates expects.
 	pub async fn fetch_latest_verifier_state(&self) -> Result<VerifierState, ProverError> {
+		if let Some(state) = self
+			.try_historical(|height| async move { self.fetch_verifier_state(height).await })
+			.await?
+		{
+			return Ok(state);
+		}
+
 		let (header, _, current_validators) = self.fetch_latest_anchored().await?;
 		Ok(VerifierState {
 			current_validators,
 			finalized_height: header.number.low_u64(),
 			finalized_hash: header_hash(&header),
 		})
+	}
+
+	/// Run `fetch` at a height just behind the tip if the endpoint is not
+	/// known to lack historical proofs. `Ok(None)` means the caller should
+	/// use the `"latest"`-anchored fallback.
+	async fn try_historical<T, F, Fut>(&self, fetch: F) -> Result<Option<T>, ProverError>
+	where
+		F: FnOnce(u64) -> Fut,
+		Fut: core::future::Future<Output = Result<T, ProverError>>,
+	{
+		if self.historical_support() == HistoricalSupport::Unsupported {
+			return Ok(None);
+		}
+
+		let tip = self.latest_height().await?;
+		let target = tip.saturating_sub(HISTORICAL_TIP_BUFFER);
+		match fetch(target).await {
+			Ok(value) => {
+				self.set_historical_support(HistoricalSupport::Supported);
+				Ok(Some(value))
+			},
+			Err(ProverError::HistoricalProofsUnavailable { message, .. }) => {
+				log::info!(
+					target: "arc-prover",
+					"endpoint doesn't serve historical proofs ({message}), \
+					 using latest-anchored capture"
+				);
+				self.set_historical_support(HistoricalSupport::Unsupported);
+				Ok(None)
+			},
+			// A known-good endpoint failing is a transient error the caller
+			// should see; an unknown one gets the fallback without a verdict.
+			Err(e) if self.historical_support() == HistoricalSupport::Supported => Err(e),
+			Err(e) => {
+				log::debug!(
+					target: "arc-prover",
+					"historical capture attempt failed ({e}), \
+					 falling back to latest-anchored capture"
+				);
+				Ok(None)
+			},
+		}
 	}
 
 	/// Capture a `"latest"`-anchored validator set proof, returning the anchor
@@ -263,7 +363,8 @@ impl ArcProver {
 		block_number: u64,
 	) -> Result<VerifierStateUpdate, ProverError> {
 		let header = self.rpc.get_block_by_number(block_number).await?;
-		let certificate = self.fetch_certificate(block_number).await?;
+		let certificate =
+			self.fetch_certificate_with_retry(block_number, CERTIFICATE_ATTEMPTS).await?;
 		let validator_set_proof = self.fetch_validator_set_proof(block_number).await?;
 
 		Ok(VerifierStateUpdate { header, certificate, validator_set_proof })

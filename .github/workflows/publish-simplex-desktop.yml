@@ -1,0 +1,362 @@
+name: "Publish Simplex Desktop"
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - "sdk/packages/sdk/**"
+      - "sdk/packages/simplex/**"
+      - "sdk/packages/simplex-desktop/**"
+      - "sdk/package.json"
+      - "sdk/pnpm-lock.yaml"
+      - "sdk/pnpm-workspace.yaml"
+      - ".github/workflows/publish-simplex-desktop.yml"
+  push:
+    tags:
+      - "simplex-desktop-v*"
+  workflow_dispatch:
+    inputs:
+      sign_artifacts:
+        description: "Sign and notarize private validation artifacts"
+        required: true
+        default: false
+        type: boolean
+
+concurrency:
+  group: simplex-desktop-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Build portable desktop release inputs
+    runs-on: ubuntu-latest
+    outputs:
+      sign_artifacts: ${{ steps.release_mode.outputs.sign_artifacts }}
+    defaults:
+      run:
+        working-directory: sdk
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Resolve trusted release mode
+        id: release_mode
+        shell: bash
+        env:
+          REQUESTED_SIGNING: ${{ inputs.sign_artifacts || false }}
+        run: |
+          SIGN_ARTIFACTS=false
+          if [[ "$GITHUB_REF" == refs/tags/simplex-desktop-v* ]]; then
+            git fetch --no-tags origin main
+            if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+              echo "Release tags must point to a commit in origin/main" >&2
+              exit 1
+            fi
+            SIGN_ARTIFACTS=true
+          elif [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" && "$REQUESTED_SIGNING" == "true" ]]; then
+            if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+              echo "Credentialed validation runs are restricted to refs/heads/main" >&2
+              exit 1
+            fi
+            SIGN_ARTIFACTS=true
+          fi
+          echo "sign_artifacts=$SIGN_ARTIFACTS" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24.19.0"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: "11.0.0"
+
+      - name: Install protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          version: "29.3"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install desktop workspace dependencies
+        run: pnpm install --frozen-lockfile --filter="@hyperbridge/simplex-desktop..."
+
+      - name: Verify package versions
+        run: pnpm --dir packages/simplex-desktop check:versions
+
+      - name: Verify release tag
+        if: startsWith(github.ref, 'refs/tags/simplex-desktop-v')
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: node packages/simplex-desktop/scripts/verify-release-tag.mjs "$RELEASE_TAG"
+
+      # Code generation uses Unix shims. Build it once here and pass the plain
+      # JavaScript output to every native packaging job.
+      - name: Build SDK, solver, UI, and Electron main process
+        run: |
+          pnpm --filter="@hyperbridge/sdk" build
+          pnpm --filter="@hyperbridge/simplex" build
+          pnpm --dir packages/simplex-desktop build
+        env:
+          CI: "true"
+
+      - name: Verify portable release inputs
+        run: node packages/simplex-desktop/scripts/e2e/assert-artifacts.mjs
+
+      - name: Upload portable release inputs
+        uses: actions/upload-artifact@v4
+        with:
+          name: simplex-portable-release-inputs
+          path: |
+            sdk/packages/sdk/dist
+            sdk/packages/simplex/dist
+            sdk/packages/simplex/src/proto
+            sdk/packages/simplex-desktop/dist
+          if-no-files-found: error
+          retention-days: 1
+
+  build:
+    name: Desktop release (${{ matrix.target }})
+    needs: prepare
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    environment:
+      name: ${{ needs.prepare.outputs.sign_artifacts == 'true' && 'simplex-desktop-release' || 'simplex-desktop-ci' }}
+      deployment: false
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: darwin-arm64
+            runner: macos-latest
+            builder_args: --mac --arm64
+            size_budget_mib: 520
+          - target: darwin-x64
+            runner: macos-15-intel
+            builder_args: --mac --x64
+            size_budget_mib: 520
+          - target: win32-x64
+            runner: windows-latest
+            builder_args: --win --x64
+            size_budget_mib: 580
+          - target: linux-x64
+            runner: ubuntu-latest
+            builder_args: --linux --x64
+            size_budget_mib: 520
+          - target: linux-arm64
+            runner: ubuntu-24.04-arm
+            builder_args: --linux --arm64
+            size_budget_mib: 520
+    defaults:
+      run:
+        working-directory: sdk
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24.19.0"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: "11.0.0"
+
+      - name: Install desktop workspace dependencies
+        run: pnpm install --frozen-lockfile --filter="@hyperbridge/simplex-desktop..."
+
+      - name: Install pinned desktop packaging tools
+        run: pnpm --dir packages/simplex-desktop/tooling install --frozen-lockfile
+
+      - name: Download portable release inputs
+        uses: actions/download-artifact@v4
+        with:
+          name: simplex-portable-release-inputs
+          path: sdk/packages
+
+      - name: Verify and stage target Node runtime
+        run: pnpm --dir packages/simplex-desktop stage:node -- --target ${{ matrix.target }}
+
+      - name: Materialize Apple notarization key
+        if: needs.prepare.outputs.sign_artifacts == 'true' && runner.os == 'macOS'
+        shell: bash
+        env:
+          SIMPLEX_APPLE_API_KEY_P8_BASE64: ${{ secrets.SIMPLEX_APPLE_API_KEY_P8_BASE64 }}
+        run: |
+          test -n "$SIMPLEX_APPLE_API_KEY_P8_BASE64"
+          printf '%s' "$SIMPLEX_APPLE_API_KEY_P8_BASE64" | /usr/bin/base64 -D > "$RUNNER_TEMP/simplex-notary-key.p8"
+          test -s "$RUNNER_TEMP/simplex-notary-key.p8"
+          chmod 600 "$RUNNER_TEMP/simplex-notary-key.p8"
+
+      - name: Build unsigned validation installers and updater metadata
+        if: needs.prepare.outputs.sign_artifacts != 'true'
+        env:
+          SIMPLEX_DESKTOP_SIGN_RELEASE: "false"
+        run: |
+          node packages/simplex-desktop/scripts/release-signing.cjs
+          pnpm --dir packages/simplex-desktop package -- ${{ matrix.builder_args }} --publish never
+
+      - name: Build signed installers and updater metadata
+        if: needs.prepare.outputs.sign_artifacts == 'true'
+        env:
+          SIMPLEX_DESKTOP_SIGN_RELEASE: "true"
+          CSC_LINK: ${{ runner.os == 'macOS' && secrets.SIMPLEX_MACOS_CERTIFICATE_P12 || '' }}
+          CSC_KEY_PASSWORD: ${{ runner.os == 'macOS' && secrets.SIMPLEX_MACOS_CERTIFICATE_PASSWORD || '' }}
+          APPLE_API_KEY: ${{ runner.temp }}/simplex-notary-key.p8
+          APPLE_API_KEY_ID: ${{ runner.os == 'macOS' && secrets.SIMPLEX_APPLE_API_KEY_ID || '' }}
+          APPLE_API_ISSUER: ${{ runner.os == 'macOS' && secrets.SIMPLEX_APPLE_API_ISSUER || '' }}
+          APPLE_TEAM_ID: ${{ runner.os == 'macOS' && secrets.SIMPLEX_APPLE_TEAM_ID || '' }}
+          AZURE_TENANT_ID: ${{ runner.os == 'Windows' && secrets.SIMPLEX_AZURE_TENANT_ID || '' }}
+          AZURE_CLIENT_ID: ${{ runner.os == 'Windows' && secrets.SIMPLEX_AZURE_CLIENT_ID || '' }}
+          AZURE_CLIENT_SECRET: ${{ runner.os == 'Windows' && secrets.SIMPLEX_AZURE_CLIENT_SECRET || '' }}
+          SIMPLEX_WINDOWS_PUBLISHER_NAME: ${{ runner.os == 'Windows' && vars.SIMPLEX_WINDOWS_PUBLISHER_NAME || '' }}
+          SIMPLEX_AZURE_SIGNING_ENDPOINT: ${{ runner.os == 'Windows' && vars.SIMPLEX_AZURE_SIGNING_ENDPOINT || '' }}
+          SIMPLEX_AZURE_SIGNING_ACCOUNT_NAME: ${{ runner.os == 'Windows' && vars.SIMPLEX_AZURE_SIGNING_ACCOUNT_NAME || '' }}
+          SIMPLEX_AZURE_CERTIFICATE_PROFILE_NAME: ${{ runner.os == 'Windows' && vars.SIMPLEX_AZURE_CERTIFICATE_PROFILE_NAME || '' }}
+        run: |
+          node packages/simplex-desktop/scripts/release-signing.cjs
+          pnpm --dir packages/simplex-desktop package -- ${{ matrix.builder_args }} --publish never
+
+      - name: Notarize and staple macOS DMG
+        if: needs.prepare.outputs.sign_artifacts == 'true' && runner.os == 'macOS'
+        env:
+          APPLE_API_KEY: ${{ runner.temp }}/simplex-notary-key.p8
+          APPLE_API_KEY_ID: ${{ secrets.SIMPLEX_APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.SIMPLEX_APPLE_API_ISSUER }}
+        run: node packages/simplex-desktop/scripts/notarize-macos-dmg.mjs packages/simplex-desktop/release
+
+      - name: Install Linux smoke-test display
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb libfuse2t64
+          sudo chown root:root packages/simplex-desktop/release/*-unpacked/chrome-sandbox
+          sudo chmod 4755 packages/simplex-desktop/release/*-unpacked/chrome-sandbox
+
+      - name: Smoke-test unpacked app and artifact payloads on Linux
+        if: runner.os == 'Linux'
+        run: |
+          xvfb-run -a pnpm --dir packages/simplex-desktop package:smoke -- --root release
+          xvfb-run -a pnpm --dir packages/simplex-desktop package:smoke:artifacts -- --root release
+
+      - name: Smoke-test unpacked app and artifact payloads on macOS and Windows
+        if: runner.os != 'Linux'
+        run: |
+          pnpm --dir packages/simplex-desktop package:smoke -- --root release
+          pnpm --dir packages/simplex-desktop package:smoke:artifacts -- --root release
+
+      - name: Verify Developer ID signature, entitlements, and notarization
+        if: needs.prepare.outputs.sign_artifacts == 'true' && runner.os == 'macOS'
+        env:
+          APPLE_TEAM_ID: ${{ secrets.SIMPLEX_APPLE_TEAM_ID }}
+        run: node packages/simplex-desktop/scripts/verify-macos-signatures.mjs packages/simplex-desktop/release "$APPLE_TEAM_ID"
+
+      - name: Verify Authenticode signatures and timestamps
+        if: needs.prepare.outputs.sign_artifacts == 'true' && runner.os == 'Windows'
+        shell: powershell
+        env:
+          SIMPLEX_WINDOWS_PUBLISHER_NAME: ${{ vars.SIMPLEX_WINDOWS_PUBLISHER_NAME }}
+        run: >-
+          & packages/simplex-desktop/scripts/verify-windows-signatures.ps1
+          -Root packages/simplex-desktop/release
+          -PublisherName "$env:SIMPLEX_WINDOWS_PUBLISHER_NAME"
+
+      - name: Verify Windows updater publisher
+        if: needs.prepare.outputs.sign_artifacts == 'true' && runner.os == 'Windows'
+        shell: pwsh
+        env:
+          SIMPLEX_WINDOWS_PUBLISHER_NAME: ${{ vars.SIMPLEX_WINDOWS_PUBLISHER_NAME }}
+        run: >-
+          node packages/simplex-desktop/scripts/verify-windows-update-config.mjs
+          packages/simplex-desktop/release
+          "$env:SIMPLEX_WINDOWS_PUBLISHER_NAME"
+
+      - name: Enforce installed-size budget
+        run: node packages/simplex-desktop/scripts/package-size.mjs --root packages/simplex-desktop/release --budget-mib ${{ matrix.size_budget_mib }}
+
+      - name: Upload release slice
+        uses: actions/upload-artifact@v4
+        with:
+          name: simplex-desktop-${{ matrix.target }}
+          path: |
+            sdk/packages/simplex-desktop/release/*.dmg
+            sdk/packages/simplex-desktop/release/*.zip
+            sdk/packages/simplex-desktop/release/*.exe
+            sdk/packages/simplex-desktop/release/*.AppImage
+            sdk/packages/simplex-desktop/release/*.deb
+            sdk/packages/simplex-desktop/release/*.zip.blockmap
+            sdk/packages/simplex-desktop/release/*.exe.blockmap
+            sdk/packages/simplex-desktop/release/latest*.yml
+            sdk/packages/simplex-desktop/release/beta*.yml
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Remove Apple notarization key
+        if: always() && needs.prepare.outputs.sign_artifacts == 'true' && runner.os == 'macOS'
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/simplex-notary-key.p8"
+
+  release:
+    name: Publish desktop GitHub release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/simplex-desktop-v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    defaults:
+      run:
+        working-directory: sdk
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24.19.0"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: "11.0.0"
+
+      - name: Install release assembly dependencies
+        run: pnpm install --frozen-lockfile --filter="@hyperbridge/simplex-desktop" --ignore-scripts
+
+      - name: Download native release slices
+        uses: actions/download-artifact@v4
+        with:
+          path: sdk/release-input
+          pattern: simplex-desktop-*
+
+      - name: Assemble and verify release assets
+        run: |
+          VERSION="${GITHUB_REF_NAME#simplex-desktop-v}"
+          node packages/simplex-desktop/scripts/assemble-release.mjs release-input release-assets
+          node packages/simplex-desktop/scripts/assert-release-assets.mjs release-assets "$VERSION"
+
+      - name: Create, verify, and publish GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#simplex-desktop-v}"
+          PRERELEASE=""
+          case "$VERSION" in *-beta.*) PRERELEASE="--prerelease" ;; esac
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            IS_DRAFT="$(gh release view "$GITHUB_REF_NAME" --json isDraft --jq .isDraft)"
+            if [ "$IS_DRAFT" != "true" ]; then
+              echo "Refusing to replace assets on an immutable public release" >&2
+              exit 1
+            fi
+            gh release delete "$GITHUB_REF_NAME" --yes
+          fi
+          gh release create "$GITHUB_REF_NAME" release-assets/* --draft --verify-tag --generate-notes $PRERELEASE --title "Simplex Desktop v${VERSION}"
+          gh release edit "$GITHUB_REF_NAME" --draft=false

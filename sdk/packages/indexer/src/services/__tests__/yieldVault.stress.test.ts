@@ -36,8 +36,6 @@ jest.mock("@/utils/rpc.helpers", () => ({
 }))
 jest.mock("@/utils/substrate.helpers", () => ({ getHostStateMachine: (chain: string) => `EVM-${chain}` }))
 jest.mock("@/utils/safeFetch", () => ({ safeFetch: jest.fn() }))
-jest.mock("@/services/inventoryReading.service", () => ({ publishProviderInventory: jest.fn() }))
-jest.mock("@/utils/solverBalance", () => ({ inventoryReadContext: jest.fn(() => ({})) }))
 
 import { ethers } from "ethers"
 import Erc4626Abi from "@/configs/abis/Erc4626.abi.json"
@@ -73,7 +71,8 @@ const latest = (lp: string, vault = USDC, chain = BASE) =>
 	rows("VaultPositionSnapshot")
 		.filter((row) => row.lp === lp && row.vault === vault && row.chain === chain)
 		.sort((x, y) => Number(y.dayStartTimestamp - x.dayStartTimestamp))[0]
-const register = (lp: string) => records.set(`LiquidityProvider:${lp}`, { id: lp })
+/** Delegates `lp` to the Base SolverAccount, which is what makes it one of our solvers. */
+const register = (lp: string) => mockCodes.set(lp, "0xef01007cb55539d1144f62422099c3fa3405092022c88c")
 const value = (shares: bigint, vault = USDC, chain = BASE) =>
 	(shares * state(vault, chain).numerator) / state(vault, chain).denominator
 const ceil = (n: bigint, d: bigint) => (n + d - 1n) / d
@@ -378,8 +377,8 @@ it.each([
 	[false, true],
 	[false, false],
 ])("tracks the eligible sides of a share transfer (sender=%s, recipient=%s)", async (sender, recipient) => {
-	if (!sender) records.delete(`LiquidityProvider:${A}`)
-	if (!recipient) records.delete(`LiquidityProvider:${B}`)
+	if (!sender) mockCodes.delete(A)
+	if (!recipient) mockCodes.delete(B)
 	await block([{ kind: "deposit", lp: A, amount: 1000n }])
 	state().numerator = 12n
 	state().denominator = 10n
@@ -391,7 +390,7 @@ it.each([
 })
 
 it("uses a new opening basis for pre-delegation shares and continues tracking after delegation is revoked", async () => {
-	records.delete(`LiquidityProvider:${B}`)
+	mockCodes.delete(B)
 	await block([
 		{ kind: "deposit", lp: A, amount: 1000n },
 		{ kind: "share", from: A, to: B, amount: 200n },

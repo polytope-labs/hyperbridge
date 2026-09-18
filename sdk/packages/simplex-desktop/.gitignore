@@ -1,2 +1,6 @@
 /dist/
+/build/
+/release/
 /resources/node/
+/runtime/node_modules/
+/tooling/node_modules/

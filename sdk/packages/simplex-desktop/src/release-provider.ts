@@ -39,6 +39,31 @@ interface SimplexUpdateInfo extends ReturnType<typeof parseUpdateInfo> {
 	tag: string
 }
 
+const RELEASE_ARTIFACT_NAME = /^[A-Za-z0-9][A-Za-z0-9._+-]*$/
+
+export function resolveTrustedReleaseFiles(updateInfo: SimplexUpdateInfo, releaseBase: URL) {
+	const files = resolveFiles(updateInfo, releaseBase, (artifact) => {
+		if (typeof artifact !== "string" || !RELEASE_ARTIFACT_NAME.test(artifact)) {
+			throw new Error(`Update metadata contains an untrusted artifact path: ${String(artifact)}`)
+		}
+		return artifact
+	})
+	for (const file of files) {
+		if (
+			file.url.protocol !== "https:" ||
+			file.url.origin !== releaseBase.origin ||
+			!file.url.pathname.startsWith(releaseBase.pathname) ||
+			file.url.username ||
+			file.url.password ||
+			file.url.search ||
+			file.url.hash
+		) {
+			throw new Error(`Update artifact escaped its pinned GitHub release: ${file.url.href}`)
+		}
+	}
+	return files
+}
+
 function releaseVersion(release: GitHubRelease, tagPrefix: string): ReleaseVersion | undefined {
 	if (
 		typeof release?.tag_name !== "string" ||
@@ -113,10 +138,10 @@ export class SimplexReleaseProvider extends Provider<SimplexUpdateInfo> {
 			const url = new URL(
 				`https://api.github.com/repos/${this.owner}/${this.repository}/releases?per_page=${RELEASES_PER_PAGE}&page=${page}`,
 			)
-			const raw = await this.httpRequest(
-				url,
-				{ Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28" },
-			)
+			const raw = await this.httpRequest(url, {
+				Accept: "application/vnd.github+json",
+				"X-GitHub-Api-Version": "2022-11-28",
+			})
 			const releases = JSON.parse(raw ?? "null") as unknown
 			if (!Array.isArray(releases)) throw new Error("GitHub returned an invalid Simplex release list")
 			selected = selectSimplexRelease(releases as GitHubRelease[], channel, this.tagPrefix)
@@ -138,7 +163,8 @@ export class SimplexReleaseProvider extends Provider<SimplexUpdateInfo> {
 	}
 
 	resolveFiles(updateInfo: SimplexUpdateInfo) {
-		return resolveFiles(updateInfo, this.releaseDownloadBase(updateInfo.tag))
+		const releaseBase = this.releaseDownloadBase(updateInfo.tag)
+		return resolveTrustedReleaseFiles(updateInfo, releaseBase)
 	}
 
 	private releaseDownloadBase(tag: string): URL {

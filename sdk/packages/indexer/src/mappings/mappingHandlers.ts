@@ -24,8 +24,6 @@ export { handleDustSweptEventV3 } from "@/handlers/events/intentGatewayV3/dustSw
 
 // Substrate Chains Handlers
 export { handleIsmpStateMachineUpdatedEvent } from "@/handlers/events/substrateChains/handleIsmpStateMachineUpdatedEvent.handler"
-export { handlePhantomOrderRegistered } from "@/handlers/events/substrateChains/handlePhantomOrderRegistered.handler"
-export { handlePhantomOrderPrices } from "@/handlers/events/substrateChains/handlePhantomOrderPrices.handler"
 export { handleBidPlaced } from "@/handlers/events/substrateChains/handleBidPlaced.handler"
 export { handleSubstratePostRequestTimeoutHandledEvent } from "@/handlers/events/substrateChains/handlePostRequestTimeoutHandledEvent.handler"
 export { handleSubstrateRequestEvent } from "@/handlers/events/substrateChains/handleRequestEvent.handler"
@@ -37,8 +35,10 @@ export { handleSubstrateGetRequestTimeoutHandledEvent } from "@/handlers/events/
 // Price Handlers
 export { handleBridgeTokenSupplyIndexing } from "@/handlers/events/supply/handleBridgeTokenSupplyIndexing.event.handler"
 
-// Liquidity Handlers
-export { handleInventoryFold } from "@/handlers/events/liquidity/inventoryFold.block.handler"
+// Solver Inventory Handlers
+export { handleSolverTokenTransferEvent } from "@/handlers/events/solverInventory/tokenTransfer.event.handler"
+export { handleSolverInventoryBlock } from "@/handlers/events/solverInventory/inventory.block.handler"
+export { handleSolverWatchlistPoll } from "@/handlers/events/solverInventory/watchlistPoll.block.handler"
 
 // Pending Status Flush Handler
 export { handlePendingStatusFlush } from "@/handlers/events/pendingStatus/handlePendingStatusFlush.event.handler"

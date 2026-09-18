@@ -2,6 +2,7 @@ import { getBlockTimestamp } from "@/utils/rpc.helpers"
 import stringify from "safe-stable-stringify"
 import { OrderFilledLog } from "@/configs/src/types/abi-interfaces/IntentGatewayV3Abi"
 import { IntentGatewayV3Service } from "@/services/intentGatewayV3.service"
+import { discoverSolverFromFill } from "@/services/solverInventory.service"
 import { OrderStatus } from "@/configs/src/types"
 import { getHostStateMachine } from "@/utils/substrate.helpers"
 import { Hex } from "viem"
@@ -54,27 +55,22 @@ export const handleOrderFilledEventV3 = wrap(async (event: OrderFilledLog): Prom
 		filler,
 	)
 
+	// Filling an order is what makes an address a solver, so the filler starts being tracked. Store-only:
+	// the next block's handler reads its balances. Deliberately unguarded, like the store writes above it —
+	// only the store can fail it, and a lost discovery means a solver never tracked, so the block should
+	// retry rather than swallow it. That is what separates it from the best-effort volume path below.
+	await discoverSolverFromFill({
+		chain,
+		solver: filler,
+		blockNumber: BigInt(blockNumber),
+		transactionHash,
+		timestamp,
+	})
+
 	// Volume metrics are best-effort: a failure here must not fail the handler and stall indexing.
 	try {
 		await IntentGatewayV3Service.recordOrderVolume("FILLED", mappedOutputs, timestamp)
 	} catch (e: any) {
 		logger.error(`Failed to record FILLED volume for order ${commitment}: ${e.message}`)
-	}
-
-	// The fill just spent the filler's output-token inventory, which is what the pool's published
-	// depth is a sum of, so re-read the LPs backing those pools and publish the readings for the
-	// Hyperbridge node to fold in. Best-effort for the same reason as above, and doubly so here: it
-	// reads external RPCs, and stale depth is recoverable — the next phantom bid window republishes
-	// it from scratch.
-	try {
-		await IntentGatewayV3Service.publishInventoryAfterFill({
-			commitment,
-			inputs: mappedInputs,
-			outputs: mappedOutputs,
-			timestamp,
-			blockNumber,
-		})
-	} catch (e: any) {
-		logger.error(`Failed to publish pool inventory for order ${commitment}: ${e.message}`)
 	}
 })

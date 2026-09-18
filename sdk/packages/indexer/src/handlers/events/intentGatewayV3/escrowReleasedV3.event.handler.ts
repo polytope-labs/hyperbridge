@@ -39,21 +39,4 @@ export const handleEscrowReleasedEventV3 = wrap(async (event: EscrowReleasedLog)
 			logIndex,
 		},
 	)
-
-	// The release just paid the solver the order's inputs back on this chain, so its inventory here
-	// rose and every pool it backs in those tokens is understating depth. Best-effort: it reads
-	// external RPCs, and stale depth is recoverable — the next phantom bid window republishes it.
-	try {
-		await IntentGatewayV3Service.publishInventoryAfterEscrowRelease({
-			provider: solver,
-			tokens: tokens.map((token) => ({
-				token: token.token as Hex,
-				amount: BigInt(token.amount.toString()),
-			})),
-			timestamp,
-			blockNumber,
-		})
-	} catch (e: any) {
-		logger.error(`Failed to publish pool inventory for released escrow ${commitment}: ${e.message}`)
-	}
 })

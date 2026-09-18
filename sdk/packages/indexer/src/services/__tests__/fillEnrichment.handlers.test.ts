@@ -51,7 +51,6 @@ beforeEach(() => {
 		set: async (entity: string, id: string, data: any) => records.set(`${entity}:${id}`, { ...data }),
 	}
 	jest.spyOn(IntentGatewayV3Service, "updateOrderStatus").mockResolvedValue(undefined)
-	jest.spyOn(IntentGatewayV3Service, "publishInventoryAfterFill").mockResolvedValue(undefined)
 	jest.spyOn(IntentGatewayV3Service, "recordOrderVolume").mockResolvedValue(undefined)
 	jest.spyOn(IntentGatewayV3Service, "flushPendingStatuses").mockResolvedValue(undefined)
 	jest.spyOn(IntentGatewayV3Service as any, "backfillEarlyFills").mockResolvedValue(undefined)
@@ -69,7 +68,7 @@ it.each([
 	["OrderFilled", handleOrderFilledEventV3, "IOrderV3Fill", "IOrderV3FillOutputAsset"],
 	["PartialFill", handlePartialFilledEventV3, "IOrderV3PartialFill", "IOrderV3PartialFillOutputAsset"],
 ] as const)(
-	"persists %s receipt data while keeping inventory refresh and event amounts",
+	"persists %s receipt data and event amounts",
 	async (name, handle, entity, asset) => {
 		records.set(`IOrderV3OutputAsset:${commitment}-output-0`, {
 			id: `${commitment}-output-0`,
@@ -101,7 +100,6 @@ it.each([
 			orderId: commitment,
 		})
 		expect(records.get(`${asset}:${hash}.5-output-0`)).toMatchObject({ amount: 100n, amountReceived: 105n })
-		expect(IntentGatewayV3Service.publishInventoryAfterFill).toHaveBeenCalledTimes(1)
 		if (name === "OrderFilled")
 			expect(IntentGatewayV3Service.recordOrderVolume).toHaveBeenCalledWith(
 				"FILLED",
@@ -140,7 +138,6 @@ it.each([
 	expect(records.get(`${entity}:${hash}.5`).userOpHash).toBeUndefined()
 	expect(records.get(`${asset}:${hash}.5-output-0`)).toMatchObject({ token: pad(token), amount: 100n })
 	expect(records.get(`${asset}:${hash}.5-output-0`).amountReceived).toBeUndefined()
-	expect(IntentGatewayV3Service.publishInventoryAfterFill).toHaveBeenCalledTimes(1)
 	if (name === "OrderFilled") {
 		expect(IntentGatewayV3Service.updateOrderStatus).toHaveBeenCalledWith(
 			commitment,

@@ -1,0 +1,251 @@
+name: "Solver inventory E2E"
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+on:
+    push:
+        branches: [main]
+        paths:
+            - "sdk/packages/indexer/**"
+            - ".github/workflows/test-solver-inventory.yml"
+    pull_request:
+        branches: [main]
+        types: [opened, synchronize, reopened, ready_for_review]
+        paths:
+            - "sdk/packages/indexer/**"
+            - ".github/workflows/test-solver-inventory.yml"
+    workflow_dispatch:
+
+jobs:
+    # The orderbook validates the orders it publishes against each solver's balance and EIP-7702
+    # delegation, and reads both from this indexer. This runs that path for real: a stand-in for the
+    # orderbook's `GET /solvers` publishes three solvers, an anvil fork of Base gives them balances
+    # and delegations, and the indexer has to discover, seed and then event-source them.
+    #
+    # Replaces the phantom-filler E2E, whose indexing half this package no longer has.
+    solver-inventory-e2e:
+        name: Solver inventory E2E (fake orderbook + anvil fork of Base)
+        runs-on: ubuntu-latest
+        defaults:
+            run:
+                working-directory: sdk
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+              with:
+                  ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: "22"
+
+            - name: Setup pnpm
+              uses: pnpm/action-setup@v4
+              with:
+                  version: 11
+
+            - name: Install Foundry (anvil)
+              uses: foundry-rs/foundry-toolchain@v1
+              with:
+                  # Pinned for the same reason as evm.yml: Foundry v1.8.0 probes `anvil_nodeInfo` to
+                  # work out an endpoint's network family, and providers answering it with HTTP 400
+                  # fail the fork outright. v1.7.1 is the last version known to fork cleanly here.
+                  version: v1.7.1
+
+            - name: Install dependencies
+              run: pnpm install
+
+            # `start:solver-ci` shells out to docker-compose (v1), and the waits below use nc;
+            # neither is guaranteed on the runner image.
+            - name: Install Docker Compose and netcat
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y docker-compose netcat-openbsd
+                  docker compose version
+
+            # The indexer imports `@hyperbridge/sdk/intents-helpers`, which only exists once the SDK
+            # is built, so its bundle has to be there before the indexer's own build below.
+            - name: Build the SDK
+              run: pnpm --filter "@hyperbridge/sdk" build:node
+
+            # Forked, not mocked: the assertions run against the real USDC contract and the real
+            # stataUSDC vault, so a wrong token layout or a vault that does not answer fails here
+            # rather than passing against a stub. `--block-time` keeps blocks coming, which is what
+            # drives the indexer's every-block solver handler.
+            # Logged, not silenced: when anvil stops answering — which is how this fails — its own
+            # output is the only account of why. It is line-buffered through stdbuf, because Rust
+            # block-buffers stdout to a file and a hung anvil never flushes, which left the log
+            # empty exactly when it was needed. `--slots-in-an-epoch 1` finalizes locally almost at
+            # once, so the indexer's per-second `finalized` and `safe` lookups are answered from
+            # local state instead of reaching upstream, and `--no-rate-limit` stops anvil throttling
+            # its own upstream fetches into a queue.
+            - name: Start anvil (fork of Base)
+              run: |
+                  nohup stdbuf -oL -eL anvil --fork-url "${{ secrets.BASE_MAINNET }}" --port 8545 \
+                    --block-time 2 --slots-in-an-epoch 1 --no-rate-limit \
+                    --timeout 15000 --retries 2 > anvil.log 2>&1 &
+                  echo "Waiting for anvil on 8545..."
+                  for i in $(seq 1 60); do
+                    nc -z localhost 8545 && break
+                    sleep 1
+                  done
+                  nc -z localhost 8545 || { echo "anvil never came up"; cat anvil.log; exit 1; }
+
+                  # anvil resolves anything it has not cached from the fork base upstream, pinned to
+                  # the fork block. The genesis read happens minutes later, by which time that block
+                  # is past the window a non-archive endpoint serves, and anvil blocks on it forever:
+                  # it stops answering, stops mining, and the run times out having indexed nothing.
+                  # Ask for old state now, so an endpoint that cannot serve it fails here and says so.
+                  head=$(curl -s -m 20 -X POST -H 'content-type: application/json' \
+                    --data '{"jsonrpc":"2.0","id":1,"method":"eth_blockNumber","params":[]}' \
+                    http://127.0.0.1:8545 | sed -E 's/.*"result":"([^"]*)".*/\1/')
+                  echo "fork head: $head"
+                  old=$(printf '0x%x' $(( head - 200 )))
+                  probe=$(curl -s -m 60 -X POST -H 'content-type: application/json' \
+                    --data "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"eth_getCode\",\"params\":[\"0x833589fcd6edb6e08f4c7c32d4f71b54bda02913\",\"$old\"]}" \
+                    http://127.0.0.1:8545)
+                  code=$(printf '%s' "$probe" | sed -E 's/.*"result":"([^"]*)".*/\1/')
+                  if [ "${#code}" -gt 10 ]; then
+                    echo "the fork endpoint serves historical state (${#code} bytes of code at $old)"
+                  else
+                    echo "::error::BASE_MAINNET cannot serve state at $old. This test forks Base and reads state at the fork block minutes later, so it needs an archive-capable endpoint."
+                    echo "$probe"
+                    tail -30 anvil.log
+                    exit 1
+                  fi
+
+            - name: Seed solver balances and delegations
+              run: node packages/indexer/scripts/tests/seed-solvers.cjs
+
+            # SubQuery's Ethereum node only runs block handlers on blocks it treats as "full", and
+            # its isFullBlock() calls a block with no transactions light. An idle fork mines nothing
+            # but empty blocks, so the solver block handler — discovery, genesis reads, the head —
+            # would never fire. A real chain never has this problem; one transaction per block here
+            # buys the same property.
+            - name: Keep the fork's blocks non-empty
+              run: |
+                  nohup node packages/indexer/scripts/tests/anvil-heartbeat.cjs > heartbeat.log 2>&1 &
+                  sleep 5
+                  head -3 heartbeat.log
+                  grep -q "one transaction every" heartbeat.log || { cat heartbeat.log; exit 1; }
+
+            - name: Start the fake orderbook
+              run: |
+                  nohup node packages/indexer/scripts/tests/fake-orderbook.cjs > orderbook.log 2>&1 &
+                  for i in $(seq 1 30); do
+                    curl -sf http://127.0.0.1:8547/healthz > /dev/null && break
+                    sleep 1
+                  done
+                  curl -sf http://127.0.0.1:8547/healthz > /dev/null || { cat orderbook.log; exit 1; }
+                  echo "Watchlist:"
+                  curl -s http://127.0.0.1:8547/solvers
+
+            # HYPERFX_WATCHLIST_URL is read at codegen and baked into env-config.json, so it has to
+            # be set before the build below, not just at run time. The Hyperbridge node is the live
+            # Gargantua testnet: the watchlist poll only runs on blocks near wall clock, and its
+            # indexing starts at the current head.
+            - name: Set up environment variables
+              run: |
+                  cat > .env.solver-ci << EOF
+                  HYPERBRIDGE_GARGANTUA=${{ secrets.HYPERBRIDGE_GARGANTUA }}
+                  BASE_SOLVER_CI=http://127.0.0.1:8545
+                  HYPERFX_WATCHLIST_URL=http://127.0.0.1:8547/solvers
+                  EOF
+
+            - name: Login to Docker Hub
+              uses: docker/login-action@v3
+              with:
+                  username: ${{ secrets.DOCKER_USERNAME }}
+                  password: ${{ secrets.DOCKER_ACCESS_TOKEN }}
+
+            - name: Start indexer (in background)
+              env:
+                  DB_USER: "postgres"
+                  DB_PASS: "postgres"
+                  DB_DATABASE: "postgres"
+                  DB_HOST: "postgres"
+                  DB_PORT: 5432
+                  HYPERFX_WATCHLIST_URL: "http://127.0.0.1:8547/solvers"
+                  BASE_SOLVER_CI: "http://127.0.0.1:8545"
+                  LOG_LEVEL: ${{ secrets.ACTIONS_RUNNER_DEBUG == 'true' && 'debug' || 'info' }}
+              run: |
+                  cd packages/indexer
+                  nohup pnpm start:solver-ci > indexer_output.log 2>&1 &
+                  echo "Started indexer process in background"
+
+            - name: Wait for GraphQL server to be available
+              run: |
+                  echo "Waiting for GraphQL server on port 3100..."
+                  timeout=600
+                  elapsed=0
+                  while ! nc -z localhost 3100; do
+                    if [ "$elapsed" -ge "$timeout" ]; then
+                      echo "Timed out waiting for the GraphQL server"
+                      cat packages/indexer/indexer_output.log
+                      exit 1
+                    fi
+                    sleep 5
+                    elapsed=$((elapsed + 5))
+                  done
+                  echo "GraphQL server is available"
+
+            # The query service reads the database schema once at startup and never again, so an
+            # entity created after it booted is absent from the Query type for the rest of the run.
+            # The compose gate should make this a no-op; the warning says so when it is not.
+            - name: Wait for the solver entities to be queryable
+              run: |
+                  probe() {
+                    body=$(curl -s -m 10 -X POST -H 'content-type: application/json' \
+                      --data '{"query":"{ trackedSolvers(first: 1) { nodes { id } } }"}' \
+                      http://127.0.0.1:3100)
+                    case "$body" in
+                      *'"errors"'*) return 1 ;;
+                      *'"trackedSolvers"'*) return 0 ;;
+                      *) return 1 ;;
+                    esac
+                  }
+                  for i in $(seq 1 24); do probe && echo "solver entities are queryable" && exit 0; sleep 5; done
+                  echo "::warning::solver entities missing from the schema; restarting the query service"
+                  docker compose -f packages/indexer/docker/docker-compose.solver-ci.yml restart graphql-engine
+                  for i in $(seq 1 24); do probe && echo "solver entities are queryable" && exit 0; sleep 5; done
+                  echo "solver entities are still missing from the GraphQL schema"
+                  docker compose -f packages/indexer/docker/docker-compose.solver-ci.yml logs --tail=200
+                  exit 1
+
+            - name: Verify the solvers were indexed
+              run: node packages/indexer/scripts/tests/verify-solver-inventory.cjs
+
+            - name: Collect logs
+              if: always()
+              run: |
+                  echo "::group::Fake orderbook"
+                  cat orderbook.log || true
+                  echo "::endgroup::"
+                  echo "::group::Indexer"
+                  cat packages/indexer/indexer_output.log || true
+                  echo "::endgroup::"
+                  echo "::group::Fork process and runner state"
+                  ps -o pid,etime,%cpu,%mem,rss,args -C anvil || echo "anvil is NOT running"
+                  free -m || true
+                  (sudo dmesg 2>/dev/null | grep -iE "out of memory|killed process" | tail -5) || true
+                  echo "::endgroup::"
+                  echo "::group::anvil"
+                  tail -80 anvil.log || true
+                  echo "::endgroup::"
+                  echo "::group::Heartbeat"
+                  tail -5 heartbeat.log || true
+                  echo "::endgroup::"
+                  echo "::group::Indexer containers"
+                  docker compose -f packages/indexer/docker/docker-compose.solver-ci.yml logs --tail=400 || true
+                  echo "::endgroup::"
+
+            - name: Clean up
+              if: always()
+              run: |
+                  docker compose -f packages/indexer/docker/docker-compose.solver-ci.yml down -v || true
+                  pkill -f "fake-orderbook.cjs" || true
+                  pkill -f "anvil-heartbeat.cjs" || true
+                  pkill -f "anvil --fork-url" || true

@@ -59,7 +59,7 @@ jobs:
             - name: Setup pnpm
               uses: pnpm/action-setup@v4
               with:
-                  version: 11
+                  version: 11.0.0
 
             # The staging script needs openpgp and tar, but not Electron's downloaded
             # application binary. The binary under test is fetched from nodejs.org.
@@ -102,7 +102,7 @@ jobs:
             - name: Setup pnpm
               uses: pnpm/action-setup@v4
               with:
-                  version: 11
+                  version: 11.0.0
 
             - name: Install desktop workspace dependencies
               run: pnpm install --frozen-lockfile --filter="@hyperbridge/simplex-desktop..."
@@ -171,7 +171,7 @@ jobs:
             - name: Setup pnpm
               uses: pnpm/action-setup@v4
               with:
-                  version: 11
+                  version: 11.0.0
 
             - name: Install desktop workspace dependencies
               run: pnpm install --frozen-lockfile --filter="@hyperbridge/simplex-desktop..."

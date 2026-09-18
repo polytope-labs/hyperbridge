@@ -68,8 +68,8 @@ Normalized amounts describe prices; signed quotes bound funding, and settlement 
 Submission recovery is a separate stacked change required before releasing automatic execution.
 
 Every v3 bid requires an updated delegated SolverAccount.
-Before signing, the SDK requires release `4` from `version()` on the gateway, configured account
-implementation, and live delegation. Gateway release 4 uses FillOptions ABI version 3. The account protects the new and both historical selectors against
+Before signing, the SDK requires release `3` from `version()` on the gateway, configured account
+implementation, and live delegation. Gateway release 3 uses FillOptions ABI version 3. The account protects the new and both historical selectors against
 submission with the session signature stripped off. Deploy matching gateway modules and redelegate
 solvers before enabling v3 bids.
 

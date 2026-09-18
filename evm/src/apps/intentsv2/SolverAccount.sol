@@ -168,13 +168,14 @@ contract SolverAccount is Account, ERC7821, IERC1271 {
         Execution[] memory calls = abi.decode(executionData, (Execution[]));
 
         for (uint256 i = 0; i < calls.length; i++) {
-            bool hasFillOrder = calls[i].target == INTENT_GATEWAY_V2
-                && (bytes4(calls[i].callData) == FILL_ORDER_SELECTOR
-                    || bytes4(calls[i].callData) == HISTORICAL_FILL_ORDER_SELECTOR
-                    || bytes4(calls[i].callData) == HISTORICAL_FILL_ORDER_NO_EXPIRY_SELECTOR);
-            if (hasFillOrder) return true;
+            if (calls[i].target == INTENT_GATEWAY_V2 && _isFillOrder(bytes4(calls[i].callData))) return true;
         }
         return false;
+    }
+
+    function _isFillOrder(bytes4 selector) private pure returns (bool) {
+        return selector == FILL_ORDER_SELECTOR || selector == HISTORICAL_FILL_ORDER_SELECTOR
+            || selector == HISTORICAL_FILL_ORDER_NO_EXPIRY_SELECTOR;
     }
 
     /**

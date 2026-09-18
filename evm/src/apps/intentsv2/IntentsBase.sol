@@ -505,6 +505,8 @@ abstract contract IntentsBase is EIP712 {
 
     /// @dev Prices and pays every leg of a fill and records its progress. The caller releases
     /// `releasedInputs` locally or carries them to the source chain in a redemption request.
+    /// The callers' claim, unclaim and events stay with them: folding them in here puts the
+    /// via-IR frame one slot over the stack limit.
     function _fillLegs(Order calldata order, FillOptions calldata options, bytes32 commitment)
         internal
         returns (FillResult memory result)

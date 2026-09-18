@@ -13,6 +13,7 @@ import type { PackedUserOperation } from "@/types"
 import IntentGatewayV2 from "@/abis/IntentGatewayV2"
 import {
 	decodeFillOrder,
+	isCanonicalEvmToken,
 	CONTRACT_VERSION_ABI,
 	SUPPORTED_INTENTS_VERSION,
 	type FillOptionsVersion,
@@ -538,7 +539,6 @@ export function zipFillLegs(
 	orderInputs: { token: HexString; amount: unknown }[] = [],
 	quotedInputs: { token: HexString; amount: unknown }[] = [],
 ): FillLeg[] {
-	const isCanonicalEvmToken = (token: string) => /^0x0{24}[0-9a-fA-F]{40}$/.test(token)
 	if (outputs.length !== assets.length) throw new Error("Fill outputs must match order output assets positionally")
 	for (const [index, asset] of assets.entries()) {
 		if (!isCanonicalEvmToken(asset.token) || !isCanonicalEvmToken(outputs[index].token)) {
@@ -931,7 +931,7 @@ async function isDelegatedToSolverAccount(
 /** Promise-caching delegation reader produced by {@link memoizedDelegationCheck}. */
 type DelegationReader = (evmRpcUrl: string, account: string, solverAccounts: readonly string[]) => Promise<boolean>
 
-/** Live capability check used before a signed rate phantom bid can affect an aggregate. */
+/** Whether the gateway and the solver's live delegation both support rate fills. */
 export type RateFillCapabilityReader = (
 	evmRpcUrl: string,
 	gatewayAddress: string,
@@ -984,10 +984,7 @@ async function readSupportedVersion(evmRpcUrl: string, contract: string): Promis
 	)
 }
 
-/**
- * Checks the gateway and the account implementation the solver is currently delegated to.
- * Reads are intentionally uncached across aggregations so upgrades take effect immediately.
- */
+/** Reads `version()` on the gateway and on the account the solver is delegated to. Never cached, so an upgrade is seen at once. */
 export const readRateFillCapability: RateFillCapabilityReader = async (
 	evmRpcUrl,
 	gatewayAddress,
@@ -1453,7 +1450,7 @@ async function runAggregation(
 		recoverSigner?: RecoverBidSigner
 		bidNonceKey?: BidNonceKeyFn
 		orderCommitment?: OrderCommitmentFn
-		/** Injectable for VM2; defaults to fresh raw JSON-RPC reads of the gateway and live delegation target. */
+		/** Defaults to {@link readRateFillCapability}; VM2 hosts pass their own reader. */
 		supportsRateFills?: RateFillCapabilityReader
 		/**
 		 * Balance reader shared across runs; defaults to a fresh per-run memo. Pass one built with

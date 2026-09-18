@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from "vitest"
+import { describe, it, expect, vi } from "vitest"
 import { slice, keccak256, createPublicClient, custom } from "viem"
 import { baseSepolia } from "viem/chains"
 import {
@@ -7,7 +7,6 @@ import {
 	FILL_ORDER_V3_SELECTOR,
 	decodeFillOrder,
 	getFillOptionsVersion,
-	resetFillOptionsVersionCache,
 	supportsRateFills,
 } from "@/protocols/intents/fillOrderCodec"
 import type { HexString, Order, TokenInfo } from "@/types"
@@ -117,8 +116,6 @@ describe("decodeFillOrder", () => {
 })
 
 describe("getFillOptionsVersion", () => {
-	beforeEach(() => resetFillOptionsVersionCache())
-
 	const LEGACY_IMPL = "0x976B268b06f545c4A2BF44866Aa2465bd8B3C67d" as HexString
 	const NEW_IMPL = "0x2222222222222222222222222222222222222222" as HexString
 

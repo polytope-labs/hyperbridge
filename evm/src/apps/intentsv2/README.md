@@ -110,24 +110,21 @@ the module call; the callbacks forward `msg.data` as is and pay only the cold ac
 
 ## Solver quotes
 
-Every `fillOrder` declares one `FillOptions.inputs` and `outputs` entry per order leg.
-The output/input ratio is the solver's exact rate; the input amount is its maximum take and
-the output amount is its maximum debit budget.
-An equal-rate quote covers an ordinary fill. Matching zero amounts skip a leg; an empty
-input array is invalid. Every fill, including an uncapped partial fill, pays
-`max(credited output, ceil(actual released input * quoted output / quoted input))`.
+`fillOrder` takes one quote per order leg: `FillOptions.inputs[i]` is the most input the solver
+will take and `FillOptions.outputs[i]` the most output it will pay. Their ratio is the solver's
+rate, which may not be below the order's. Quoting zero on both sides skips the leg; the arrays must
+match the order's leg count.
 
-`IntentsBase` credits output at the order's rate, releases the difference between cumulative
-input floors, and splits payment above credited output as surplus on every fill. Integer rounding
-can make the credited-output floor determine payment. Events and
-cross-chain proofs track credited output, not surplus. A quote can release less than its
-maximum because of integer rounding, so unused ERC-20 budget stays with the solver and unused
-native budget is refunded. Output-call orders must complete in one transaction; callbacks receive
-the guaranteed credited output, while any derived-payment surplus remains with the protocol.
+`IntentsBase._priceLeg` settles a leg in three steps. The take priced at the order's rate, capped
+to what the leg still needs, is the credit. The credit unlocks escrow as a difference of cumulative
+floors, so the completing fill drains the leg exactly. The released escrow priced at the solver's
+rate, rounded up and never below the credit, is the payment; the excess over the credit is surplus,
+split by `surplusShareBps` or kept whole by the protocol on output-call orders. Events and
+cross-chain proofs carry the credit, not the surplus. Rounding can release less than the full take,
+so unused ERC-20 budget stays with the solver and unused native value is refunded.
 
-The appended inputs field changes the main-branch fill selector to `0x68ddf058` (FillOptions
-ABI 3). Gateway, modules and SolverAccount use release 4. Deploy the account and redelegate
-solvers before signing new bids; outstanding old-selector bids need new calldata and signatures.
+The `inputs` field gives `fillOrder` the selector `0x68ddf058`. Gateway, modules and `SolverAccount`
+report release 4. Bids signed against an earlier selector need new calldata and signatures.
 
 ## Deploying and upgrading
 
@@ -153,16 +150,18 @@ modules included, and `--mode verify` re-verifies from the broadcast artifacts.
 The upgrade itself is a Hyperbridge governance call, `execute_on_gateway(data)` on the
 intents-coprocessor pallet. The pallet prepends the `Execute` discriminator (`0x05`) itself, so
 `data` is bare `upgradeToAndCall(newImplementation, initData)` calldata, exactly what the script
-prints. For release 4, `initData` is `migrate(owner)` when upgrading a supported version-2 or
-current owner-layout version-3 proxy, and empty for an already-current proxy. Version 2 initializes
-the owner and shifts the legacy relayer slot; version 3 preserves owner, pending owner, pause state
-and relayer. Earlier module-only implementations also used version 3 with a different layout and
-are not supported predecessors; `migrate` refuses a version-3 proxy with no owner. Before upgrading, finish or cancel outstanding old orders and
-drain escrow, fees and pending messages on all chains. Keep placement stopped until matching
-gateways and modules are installed everywhere. This also excludes old per-leg partial orders:
-per-slice rounding debt can remain trapped after completion under cumulative accounting,
-and a completed order cannot be cancelled. Verify predecessor layouts and drained state before
-submitting governance calls. A relayer rotation is a separate `execute_on_gateway` carrying
+prints. `initData` is `migrate(owner)` for a proxy at version 2 or 3 and empty for one already at 4.
+From version 2, `migrate` shifts the relayer slot and sets the owner. From version 3 it keeps the
+owner, pending owner, pause state and relayer; a version-3 proxy with no owner is the earlier
+module-only layout and is refused.
+
+Upgrade only once every outstanding order is filled or cancelled and escrow, fees and pending
+messages are drained on every chain, and keep placement stopped until matching gateways and modules
+are installed everywhere. A partially filled order carried across the upgrade would settle its
+remaining legs under cumulative accounting, leaving the per-slice rounding dust of its earlier fills
+in escrow with no cancellation path once it completes.
+
+A relayer rotation is a separate `execute_on_gateway` carrying
 `setRelayer(next)`; it cannot ride in `initData`, which runs against the new implementation, where
 `setRelayer` does not exist. Whether the upgrade changes the implementation's own code, a module,
 or both, the procedure is the same: new modules if needed, new implementation, one

@@ -40,7 +40,7 @@ contract IntrinsicModule is IntrinsicIntents {
     /**
      * @dev Same-chain fill, validated by `IntentGatewayV2.fillOrder`.
      * @param order The order to fill.
-     * @param options The solver's output amounts and optional input quotes.
+     * @param options The solver's output amounts and required input quotes.
      * @param commitment The order commitment hash.
      */
     function fillSameChain(Order calldata order, FillOptions calldata options, bytes32 commitment)

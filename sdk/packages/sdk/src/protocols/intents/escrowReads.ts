@@ -124,18 +124,11 @@ async function readKeyed(client: ReadClient, gateway: HexString, read: (keying: 
 /** Whether a viem contract call failed because the call reverted or returned nothing. */
 function isRevert(error: unknown): boolean {
 	let current = error
-	while (current && typeof current === "object") {
-		const item = current as { name?: string; cause?: unknown; code?: number; message?: string }
-		if (item.name === "ContractFunctionZeroDataError") return true
-		// viem can wrap provider errors (-32603) as ContractFunctionRevertedError.
-		// Only an EVM code or the underlying revert message permits another getter.
-		if (item.code === 3) return true
-		if (!item.cause || typeof item.cause !== "object") {
-			return /^(?:execution reverted\b|VM Exception while processing transaction:\s*revert\b|function selector was not recognized\b)/i.test(
-				item.message ?? "",
-			)
+	while (current instanceof Error) {
+		if (current.name === "ContractFunctionRevertedError" || current.name === "ContractFunctionZeroDataError") {
+			return true
 		}
-		current = item.cause
+		current = current.cause
 	}
 	return false
 }

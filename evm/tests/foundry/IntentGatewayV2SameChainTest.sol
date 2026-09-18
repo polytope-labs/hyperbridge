@@ -13,6 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 pragma solidity ^0.8.17;
+import {IntentQuoteTestUtils} from "./IntentQuoteTestUtils.sol";
 
 import "forge-std/Test.sol";
 import {MainnetForkBaseTest} from "./MainnetForkBaseTest.sol";
@@ -187,7 +188,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
                 nativeDispatchFee: 0,
                 validUntil: validUntil,
                 outputs: solverOutputs,
-                inputs: new TokenInfo[](0)
+                inputs: IntentQuoteTestUtils.inputs(order, solverOutputs)
             })
         );
         vm.stopPrank();
@@ -215,7 +216,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
                 nativeDispatchFee: 0,
                 validUntil: validUntil,
                 outputs: solverOutputs,
-                inputs: new TokenInfo[](0)
+                inputs: IntentQuoteTestUtils.inputs(order, solverOutputs)
             })
         );
         vm.stopPrank();
@@ -242,7 +243,11 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         intentGateway.fillOrder(
             order,
             FillOptions({
-                relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: solverOutputs, inputs: new TokenInfo[](0)
+                relayerFee: 0,
+                nativeDispatchFee: 0,
+                validUntil: 0,
+                outputs: solverOutputs,
+                inputs: IntentQuoteTestUtils.inputs(order, solverOutputs)
             })
         );
         vm.stopPrank();
@@ -272,7 +277,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
                 nativeDispatchFee: 0,
                 validUntil: block.number + 100,
                 outputs: solverOutputs,
-                inputs: new TokenInfo[](0)
+                inputs: IntentQuoteTestUtils.inputs(order, solverOutputs)
             })
         );
         vm.stopPrank();
@@ -335,7 +340,11 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         intentGateway.fillOrder(
             order,
             FillOptions({
-                relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: solverOutputs, inputs: new TokenInfo[](0)
+                relayerFee: 0,
+                nativeDispatchFee: 0,
+                validUntil: 0,
+                outputs: solverOutputs,
+                inputs: IntentQuoteTestUtils.inputs(order, solverOutputs)
             })
         );
         vm.stopPrank();
@@ -421,7 +430,11 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         gatewayWithFees.fillOrder(
             order,
             FillOptions({
-                relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: solverOutputs, inputs: new TokenInfo[](0)
+                relayerFee: 0,
+                nativeDispatchFee: 0,
+                validUntil: 0,
+                outputs: solverOutputs,
+                inputs: IntentQuoteTestUtils.inputs(order, solverOutputs)
             })
         );
         vm.stopPrank();
@@ -490,7 +503,11 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         intentGateway.fillOrder(
             order,
             FillOptions({
-                relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: solverOutputs, inputs: new TokenInfo[](0)
+                relayerFee: 0,
+                nativeDispatchFee: 0,
+                validUntil: 0,
+                outputs: solverOutputs,
+                inputs: IntentQuoteTestUtils.inputs(order, solverOutputs)
             })
         );
         vm.stopPrank();
@@ -672,7 +689,11 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         intentGateway.fillOrder(
             order,
             FillOptions({
-                relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: solverOutputs, inputs: new TokenInfo[](0)
+                relayerFee: 0,
+                nativeDispatchFee: 0,
+                validUntil: 0,
+                outputs: solverOutputs,
+                inputs: IntentQuoteTestUtils.inputs(order, solverOutputs)
             })
         );
         vm.stopPrank();
@@ -786,7 +807,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
                 nativeDispatchFee: 0,
                 validUntil: 0,
                 outputs: order.output.assets,
-                inputs: new TokenInfo[](0)
+                inputs: IntentQuoteTestUtils.inputs(order, order.output.assets)
             })
         );
         vm.stopPrank();
@@ -811,7 +832,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
                 nativeDispatchFee: 0,
                 validUntil: 0,
                 outputs: order.output.assets,
-                inputs: new TokenInfo[](0)
+                inputs: IntentQuoteTestUtils.inputs(order, order.output.assets)
             })
         );
         vm.stopPrank();
@@ -858,7 +879,11 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         intentGateway.fillOrder(
             order,
             FillOptions({
-                relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: outputs, inputs: new TokenInfo[](0)
+                relayerFee: 0,
+                nativeDispatchFee: 0,
+                validUntil: 0,
+                outputs: outputs,
+                inputs: IntentQuoteTestUtils.inputs(order, outputs)
             })
         );
         vm.stopPrank();
@@ -955,7 +980,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
                 nativeDispatchFee: 0,
                 validUntil: 0,
                 outputs: order.output.assets,
-                inputs: new TokenInfo[](0)
+                inputs: IntentQuoteTestUtils.inputs(order, order.output.assets)
             })
         );
         vm.stopPrank();
@@ -1102,7 +1127,11 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         intentGateway.fillOrder(
             order,
             FillOptions({
-                relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: solverOutputs, inputs: new TokenInfo[](0)
+                relayerFee: 0,
+                nativeDispatchFee: 0,
+                validUntil: 0,
+                outputs: solverOutputs,
+                inputs: IntentQuoteTestUtils.inputs(order, solverOutputs)
             })
         );
         vm.stopPrank();
@@ -1212,7 +1241,11 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         intentGateway.fillOrder(
             order,
             FillOptions({
-                relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: solverOutputs, inputs: new TokenInfo[](0)
+                relayerFee: 0,
+                nativeDispatchFee: 0,
+                validUntil: 0,
+                outputs: solverOutputs,
+                inputs: IntentQuoteTestUtils.inputs(order, solverOutputs)
             })
         );
         vm.stopPrank();
@@ -1280,7 +1313,11 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         intentGateway.fillOrder(
             order,
             FillOptions({
-                relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: solverOutputs, inputs: new TokenInfo[](0)
+                relayerFee: 0,
+                nativeDispatchFee: 0,
+                validUntil: 0,
+                outputs: solverOutputs,
+                inputs: IntentQuoteTestUtils.inputs(order, solverOutputs)
             })
         );
         vm.stopPrank();
@@ -1345,7 +1382,11 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         intentGateway.fillOrder(
             order,
             FillOptions({
-                relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: solverOutputs, inputs: new TokenInfo[](0)
+                relayerFee: 0,
+                nativeDispatchFee: 0,
+                validUntil: 0,
+                outputs: solverOutputs,
+                inputs: IntentQuoteTestUtils.inputs(order, solverOutputs)
             })
         );
         vm.stopPrank();
@@ -1399,13 +1440,21 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         intentGateway.fillOrder(
             order,
             FillOptions({
-                relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: solverOutputs, inputs: new TokenInfo[](0)
+                relayerFee: 0,
+                nativeDispatchFee: 0,
+                validUntil: 0,
+                outputs: solverOutputs,
+                inputs: IntentQuoteTestUtils.inputs(order, solverOutputs)
             })
         );
         vm.stopPrank();
 
-        // User receives partial output
-        assertEq(dai.balanceOf(user), userDaiBefore + partialAmount, "User should receive partial DAI");
+        // Input quantization makes the offered output slightly exceed order credit.
+        uint256 quotedInput = (inputAmount * partialAmount) / requestedAmount;
+        uint256 credit = (quotedInput * requestedAmount) / inputAmount;
+        uint256 protocolSurplus = (partialAmount - credit) * SURPLUS_SHARE_BPS / 10_000;
+        assertEq(dai.balanceOf(user), userDaiBefore + partialAmount - protocolSurplus);
+        assertEq(dai.balanceOf(address(intentGateway)), protocolSurplus);
 
         // Solver receives proportional input: 1000 * 800 / 900 = 888.888... USDC
         uint256 expectedInputRelease = (inputAmount * partialAmount) / requestedAmount;
@@ -1468,7 +1517,11 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         intentGateway.fillOrder(
             order,
             FillOptions({
-                relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: solverOutputs, inputs: new TokenInfo[](0)
+                relayerFee: 0,
+                nativeDispatchFee: 0,
+                validUntil: 0,
+                outputs: solverOutputs,
+                inputs: IntentQuoteTestUtils.inputs(order, solverOutputs)
             })
         );
 
@@ -1477,7 +1530,11 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         intentGateway.fillOrder(
             order,
             FillOptions({
-                relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: solverOutputs, inputs: new TokenInfo[](0)
+                relayerFee: 0,
+                nativeDispatchFee: 0,
+                validUntil: 0,
+                outputs: solverOutputs,
+                inputs: IntentQuoteTestUtils.inputs(order, solverOutputs)
             })
         );
         vm.stopPrank();
@@ -1619,7 +1676,11 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         intentGateway.fillOrder(
             order,
             FillOptions({
-                relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: outputs1, inputs: new TokenInfo[](0)
+                relayerFee: 0,
+                nativeDispatchFee: 0,
+                validUntil: 0,
+                outputs: outputs1,
+                inputs: IntentQuoteTestUtils.inputs(order, outputs1)
             })
         );
         vm.stopPrank();
@@ -1635,7 +1696,11 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         intentGateway.fillOrder(
             order,
             FillOptions({
-                relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: outputs2, inputs: new TokenInfo[](0)
+                relayerFee: 0,
+                nativeDispatchFee: 0,
+                validUntil: 0,
+                outputs: outputs2,
+                inputs: IntentQuoteTestUtils.inputs(order, outputs2)
             })
         );
         vm.stopPrank();
@@ -1661,7 +1726,11 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         intentGateway.fillOrder(
             order,
             FillOptions({
-                relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: outputs1, inputs: new TokenInfo[](0)
+                relayerFee: 0,
+                nativeDispatchFee: 0,
+                validUntil: 0,
+                outputs: outputs1,
+                inputs: IntentQuoteTestUtils.inputs(order, outputs1)
             })
         );
         vm.stopPrank();
@@ -1678,7 +1747,11 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         intentGateway.fillOrder(
             order,
             FillOptions({
-                relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: outputs2, inputs: new TokenInfo[](0)
+                relayerFee: 0,
+                nativeDispatchFee: 0,
+                validUntil: 0,
+                outputs: outputs2,
+                inputs: IntentQuoteTestUtils.inputs(order, outputs2)
             })
         );
         vm.stopPrank();
@@ -1703,7 +1776,11 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         intentGateway.fillOrder(
             order,
             FillOptions({
-                relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: outputs, inputs: new TokenInfo[](0)
+                relayerFee: 0,
+                nativeDispatchFee: 0,
+                validUntil: 0,
+                outputs: outputs,
+                inputs: IntentQuoteTestUtils.inputs(order, outputs)
             })
         );
         vm.stopPrank();
@@ -1736,7 +1813,11 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         intentGateway.fillOrder(
             order,
             FillOptions({
-                relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: outputs, inputs: new TokenInfo[](0)
+                relayerFee: 0,
+                nativeDispatchFee: 0,
+                validUntil: 0,
+                outputs: outputs,
+                inputs: IntentQuoteTestUtils.inputs(order, outputs)
             })
         );
         vm.stopPrank();
@@ -1756,7 +1837,11 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         intentGateway.fillOrder(
             order,
             FillOptions({
-                relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: outputs2, inputs: new TokenInfo[](0)
+                relayerFee: 0,
+                nativeDispatchFee: 0,
+                validUntil: 0,
+                outputs: outputs2,
+                inputs: IntentQuoteTestUtils.inputs(order, outputs2)
             })
         );
         vm.stopPrank();
@@ -1808,7 +1893,11 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         intentGateway.fillOrder{value: partialETH}(
             order,
             FillOptions({
-                relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: outputs, inputs: new TokenInfo[](0)
+                relayerFee: 0,
+                nativeDispatchFee: 0,
+                validUntil: 0,
+                outputs: outputs,
+                inputs: IntentQuoteTestUtils.inputs(order, outputs)
             })
         );
         vm.stopPrank();
@@ -1828,7 +1917,11 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         intentGateway.fillOrder{value: remainingETH}(
             order,
             FillOptions({
-                relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: outputs2, inputs: new TokenInfo[](0)
+                relayerFee: 0,
+                nativeDispatchFee: 0,
+                validUntil: 0,
+                outputs: outputs2,
+                inputs: IntentQuoteTestUtils.inputs(order, outputs2)
             })
         );
         vm.stopPrank();
@@ -1837,7 +1930,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         assertEq(usdc.balanceOf(address(intentGateway)), 0, "Gateway should have no USDC");
     }
 
-    function testPartialFill_SurplusOnlyWhenNotPartiallyFilled() public {
+    function testPartialFill_LaterQuotePaysSurplus() public {
         uint256 inputAmount = 1000 * 1e6;
         uint256 outputAmount = 1000 * 1e18;
         Order memory order = _placeStandardOrder(inputAmount, outputAmount);
@@ -1850,12 +1943,16 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         intentGateway.fillOrder(
             order,
             FillOptions({
-                relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: outputs1, inputs: new TokenInfo[](0)
+                relayerFee: 0,
+                nativeDispatchFee: 0,
+                validUntil: 0,
+                outputs: outputs1,
+                inputs: IntentQuoteTestUtils.inputs(order, outputs1)
             })
         );
         vm.stopPrank();
 
-        // Solver 2 fills remaining 500 with 600 offered — excess should be capped (no surplus on partially filled pair)
+        // Solver 2 quotes 500 USDC for 600 DAI: all 100 DAI of surplus is paid.
         address solver2 = makeCleanAddr("solver2");
         deal(address(dai), solver2, 100000 * 1e18);
         uint256 solver2DaiBefore = dai.balanceOf(solver2);
@@ -1865,20 +1962,16 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         dai.approve(address(intentGateway), 600 * 1e18);
         TokenInfo[] memory outputs2 = new TokenInfo[](1);
         outputs2[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 600 * 1e18});
+        TokenInfo[] memory takes = new TokenInfo[](1);
+        takes[0] = TokenInfo(order.inputs[0].token, 500 * 1e6);
         intentGateway.fillOrder(
-            order,
-            FillOptions({
-                relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: outputs2, inputs: new TokenInfo[](0)
-            })
+            order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: outputs2, inputs: takes})
         );
         vm.stopPrank();
 
-        // Solver 2 should only spend 500 DAI (capped)
-        assertEq(dai.balanceOf(solver2), solver2DaiBefore - 500 * 1e18, "Solver2 capped to remaining");
-        // User should receive exactly 500 more DAI (no surplus)
-        assertEq(dai.balanceOf(user), userDaiBefore + 500 * 1e18, "User gets exact remaining, no surplus");
-        // No dust in gateway
-        assertEq(dai.balanceOf(address(intentGateway)), 0, "No protocol surplus on partially filled pair");
+        assertEq(dai.balanceOf(solver2), solver2DaiBefore - 600 * 1e18, "later quote pays its surplus");
+        assertEq(dai.balanceOf(user), userDaiBefore + 550 * 1e18, "beneficiary receives half the surplus");
+        assertEq(dai.balanceOf(address(intentGateway)), 50 * 1e18, "protocol receives half the surplus");
     }
 
     function testPartialFill_SurplusOnFullFill() public {
@@ -1897,7 +1990,11 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         intentGateway.fillOrder(
             order,
             FillOptions({
-                relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: outputs, inputs: new TokenInfo[](0)
+                relayerFee: 0,
+                nativeDispatchFee: 0,
+                validUntil: 0,
+                outputs: outputs,
+                inputs: IntentQuoteTestUtils.inputs(order, outputs)
             })
         );
         vm.stopPrank();
@@ -1976,7 +2073,11 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         gatewayWithFees.fillOrder(
             order,
             FillOptions({
-                relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: outputs, inputs: new TokenInfo[](0)
+                relayerFee: 0,
+                nativeDispatchFee: 0,
+                validUntil: 0,
+                outputs: outputs,
+                inputs: IntentQuoteTestUtils.inputs(order, outputs)
             })
         );
         vm.stopPrank();
@@ -1998,14 +2099,6 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
     /// does not complete the order reverts with PartialFillNotAllowed. A single full fill
     /// succeeds and executes the attached calldata.
     function testPartialFill_CalldataOrderRequiresFullFill() public {
-        _testCalldataOrderRequiresFullFill(false);
-    }
-
-    function testRate_CalldataOrderRequiresFullFill() public {
-        _testCalldataOrderRequiresFullFill(true);
-    }
-
-    function _testCalldataOrderRequiresFullFill(bool rateFill) internal {
         uint256 inputAmount = 1000 * 1e6;
         uint256 outputAmount = 1000 * 1e18;
 
@@ -2050,8 +2143,8 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         dai.approve(address(intentGateway), 500 * 1e18);
         TokenInfo[] memory outputs1 = new TokenInfo[](1);
         outputs1[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 500 * 1e18});
-        TokenInfo[] memory takes = new TokenInfo[](rateFill ? 1 : 0);
-        if (rateFill) takes[0] = TokenInfo(inputs[0].token, inputAmount / 2);
+        TokenInfo[] memory takes = new TokenInfo[](1);
+        takes[0] = TokenInfo(inputs[0].token, inputAmount / 2);
         vm.expectRevert(IntentsBase.PartialFillNotAllowed.selector);
         intentGateway.fillOrder(
             order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: outputs1, inputs: takes})
@@ -2070,7 +2163,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         assertEq(intentGateway._partialFills(commitment, 0), 0);
 
         // Full fill in a single transaction — calldata executes.
-        if (rateFill) takes[0].amount = inputAmount;
+        takes[0].amount = inputAmount;
         vm.startPrank(solver);
         dai.approve(address(intentGateway), outputAmount);
         TokenInfo[] memory outputs2 = new TokenInfo[](1);
@@ -2098,10 +2191,10 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
     function testPartialFill_RoundingDustReleasedToFinalSolver() public {
         // Choose amounts that produce rounding truncation:
         // input = 100 USDC (100e6), output = 3 DAI (3e18)
-        // Each of 3 solvers fills 1 DAI. Proportional release per fill:
+        // The first two solvers offer 1 DAI; their input takes are rounded down.
         //   100e6 * 1e18 / 3e18 = 33333333 (truncated from 33333333.33...)
-        // Without fix: 3 * 33333333 = 99999999, leaving 1 unit locked.
-        // With fix: final solver gets remaining balance = 100e6 - 2*33333333 = 33333334
+        // Quoting the same input take three times would leave one input unit.
+        // The final solver quotes the remaining 33333334 with enough output to complete.
         uint256 inputAmount = 100 * 1e6; // 100 USDC
         uint256 outputAmount = 3 * 1e18; // 3 DAI
 
@@ -2152,7 +2245,13 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         out1[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: fillPerSolver});
         intentGateway.fillOrder(
             order,
-            FillOptions({relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: out1, inputs: new TokenInfo[](0)})
+            FillOptions({
+                relayerFee: 0,
+                nativeDispatchFee: 0,
+                validUntil: 0,
+                outputs: out1,
+                inputs: IntentQuoteTestUtils.inputs(order, out1)
+            })
         );
         vm.stopPrank();
 
@@ -2174,7 +2273,13 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         out2[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: fillPerSolver});
         intentGateway.fillOrder(
             order,
-            FillOptions({relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: out2, inputs: new TokenInfo[](0)})
+            FillOptions({
+                relayerFee: 0,
+                nativeDispatchFee: 0,
+                validUntil: 0,
+                outputs: out2,
+                inputs: IntentQuoteTestUtils.inputs(order, out2)
+            })
         );
         vm.stopPrank();
 
@@ -2184,19 +2289,28 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
             "Solver2 should receive truncated proportional USDC"
         );
 
-        // --- Solver 3 fills final 1 DAI (completes the order) ---
+        // --- Solver 3 quotes the remaining input (completes the order) ---
         address solver3 = makeCleanAddr("solver3");
         vm.deal(solver3, 1 ether);
         deal(address(dai), solver3, 10 * 1e18);
         uint256 solver3UsdcBefore = usdc.balanceOf(solver3);
 
+        // The final quote covers the remaining input; its minimum output includes
+        // the credit lost to input quantization in the first two quotes.
+        uint256 finalPayment = outputAmount - 2 * ((truncatedRelease * outputAmount) / inputAmount);
         vm.startPrank(solver3);
-        dai.approve(address(intentGateway), fillPerSolver);
+        dai.approve(address(intentGateway), finalPayment);
         TokenInfo[] memory out3 = new TokenInfo[](1);
-        out3[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: fillPerSolver});
+        out3[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: finalPayment});
         intentGateway.fillOrder(
             order,
-            FillOptions({relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: out3, inputs: new TokenInfo[](0)})
+            FillOptions({
+                relayerFee: 0,
+                nativeDispatchFee: 0,
+                validUntil: 0,
+                outputs: out3,
+                inputs: IntentQuoteTestUtils.inputs(order, out3)
+            })
         );
         vm.stopPrank();
 
@@ -2217,7 +2331,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
     function testPartialFill_RoundingDustReleasedToFinalSolver_NativeETH() public {
         // input = 1 ether, output = 3 DAI
         // Per fill: 1e18 * 1e18 / 3e18 = 333333333333333333 (truncated)
-        // Without fix: 3 * 333333333333333333 = 999999999999999999, leaving 1 wei locked
+        // The final quote includes the remaining wei and the corresponding output payment.
         uint256 inputAmount = 1 ether;
         uint256 outputAmount = 3 * 1e18;
 
@@ -2266,7 +2380,13 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         out1[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: fillPerSolver});
         intentGateway.fillOrder(
             order,
-            FillOptions({relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: out1, inputs: new TokenInfo[](0)})
+            FillOptions({
+                relayerFee: 0,
+                nativeDispatchFee: 0,
+                validUntil: 0,
+                outputs: out1,
+                inputs: IntentQuoteTestUtils.inputs(order, out1)
+            })
         );
         vm.stopPrank();
 
@@ -2284,7 +2404,13 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         out2[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: fillPerSolver});
         intentGateway.fillOrder(
             order,
-            FillOptions({relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: out2, inputs: new TokenInfo[](0)})
+            FillOptions({
+                relayerFee: 0,
+                nativeDispatchFee: 0,
+                validUntil: 0,
+                outputs: out2,
+                inputs: IntentQuoteTestUtils.inputs(order, out2)
+            })
         );
         vm.stopPrank();
 
@@ -2296,13 +2422,22 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         deal(address(dai), solver3, 10 * 1e18);
         uint256 solver3EthBefore = solver3.balance;
 
+        // The final quote covers the remaining input; its minimum output includes
+        // the credit lost to input quantization in the first two quotes.
+        uint256 finalPayment = outputAmount - 2 * ((truncatedRelease * outputAmount) / inputAmount);
         vm.startPrank(solver3);
-        dai.approve(address(intentGateway), fillPerSolver);
+        dai.approve(address(intentGateway), finalPayment);
         TokenInfo[] memory out3 = new TokenInfo[](1);
-        out3[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: fillPerSolver});
+        out3[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: finalPayment});
         intentGateway.fillOrder(
             order,
-            FillOptions({relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: out3, inputs: new TokenInfo[](0)})
+            FillOptions({
+                relayerFee: 0,
+                nativeDispatchFee: 0,
+                validUntil: 0,
+                outputs: out3,
+                inputs: IntentQuoteTestUtils.inputs(order, out3)
+            })
         );
         vm.stopPrank();
 
@@ -2376,7 +2511,11 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         intentGateway.fillOrder{value: solverETH}(
             order,
             FillOptions({
-                relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: solverOutputs, inputs: new TokenInfo[](0)
+                relayerFee: 0,
+                nativeDispatchFee: 0,
+                validUntil: 0,
+                outputs: solverOutputs,
+                inputs: IntentQuoteTestUtils.inputs(order, solverOutputs)
             })
         );
         vm.stopPrank();
@@ -2564,7 +2703,11 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         intentGateway.fillOrder{value: outputAmount + overpayment}(
             order,
             FillOptions({
-                relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: solverOutputs, inputs: new TokenInfo[](0)
+                relayerFee: 0,
+                nativeDispatchFee: 0,
+                validUntil: 0,
+                outputs: solverOutputs,
+                inputs: IntentQuoteTestUtils.inputs(order, solverOutputs)
             })
         );
 
@@ -2745,7 +2888,11 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         intentGateway.fillOrder(
             order,
             FillOptions({
-                relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: solverOutputs, inputs: new TokenInfo[](0)
+                relayerFee: 0,
+                nativeDispatchFee: 0,
+                validUntil: 0,
+                outputs: solverOutputs,
+                inputs: IntentQuoteTestUtils.inputs(order, solverOutputs)
             })
         );
         vm.stopPrank();

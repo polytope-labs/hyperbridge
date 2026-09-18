@@ -13,6 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 pragma solidity ^0.8.24;
+import {IntentQuoteTestUtils} from "./IntentQuoteTestUtils.sol";
 
 import "forge-std/Test.sol";
 import {intentGatewayUpgradeInitialization} from "../../script/IntentGatewayScript.sol";
@@ -201,7 +202,11 @@ contract IntentGatewayModulesTest is MainnetForkBaseTest {
         ExtrinsicModule extrinsic = ExtrinsicModule(gateway.extrinsicModule());
         Order memory order = _sameChainOrder(1e6, 1e18);
         FillOptions memory fill = FillOptions({
-            relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: order.output.assets, inputs: new TokenInfo[](0)
+            relayerFee: 0,
+            nativeDispatchFee: 0,
+            validUntil: 0,
+            outputs: order.output.assets,
+            inputs: IntentQuoteTestUtils.inputs(order, order.output.assets)
         });
         CancelOptions memory cancel = CancelOptions({relayerFee: 0, height: 0});
         bytes32 commitment = keccak256(abi.encode(order));
@@ -276,7 +281,7 @@ contract IntentGatewayModulesTest is MainnetForkBaseTest {
                 nativeDispatchFee: 0,
                 validUntil: 0,
                 outputs: order.output.assets,
-                inputs: new TokenInfo[](0)
+                inputs: IntentQuoteTestUtils.inputs(order, order.output.assets)
             })
         );
     }
@@ -307,7 +312,7 @@ contract IntentGatewayModulesTest is MainnetForkBaseTest {
                 nativeDispatchFee: 0,
                 validUntil: 0,
                 outputs: order.output.assets,
-                inputs: new TokenInfo[](0)
+                inputs: IntentQuoteTestUtils.inputs(order, order.output.assets)
             })
         );
         vm.stopPrank();
@@ -332,7 +337,7 @@ contract IntentGatewayModulesTest is MainnetForkBaseTest {
                 nativeDispatchFee: 0,
                 validUntil: 0,
                 outputs: order.output.assets,
-                inputs: new TokenInfo[](0)
+                inputs: IntentQuoteTestUtils.inputs(order, order.output.assets)
             })
         );
     }
@@ -441,7 +446,7 @@ contract IntentGatewayModulesTest is MainnetForkBaseTest {
                 nativeDispatchFee: 0,
                 validUntil: 0,
                 outputs: order.output.assets,
-                inputs: new TokenInfo[](0)
+                inputs: IntentQuoteTestUtils.inputs(order, order.output.assets)
             })
         );
         vm.stopPrank();

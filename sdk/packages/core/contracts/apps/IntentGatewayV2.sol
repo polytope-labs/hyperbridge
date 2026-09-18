@@ -182,7 +182,7 @@ struct FillOptions {
     TokenInfo[] outputs;
     /// @dev Positional maximum input takes, matched to order.inputs and outputs by index.
     /// Integer output credit determines actual release, which can be below these maxima.
-    /// An empty array uses the order rate, including settlement of legacy rounding debt.
+    /// Required for every output leg, including skipped legs with paired zero amounts.
     TokenInfo[] inputs;
 }
 
@@ -271,7 +271,6 @@ interface IIntentGatewayV2 {
     error PartialFillNotAllowed();
     error RateBelowOrder();
     error RateFillTooSmall();
-    error LegacyRateAccounting();
 
     /// @notice Thrown by `placeOrder`, `fillOrder` and escrow deliveries while the gateway is paused,
     ///         and by `pause` when already paused.

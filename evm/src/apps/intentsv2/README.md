@@ -108,6 +108,22 @@ calldata re-encoding. Measured with `forge snapshot` before and after, on the fo
 Fills and cancels pay a cold access to the module address plus the re-encoding of the order into
 the module call; the callbacks forward `msg.data` as is and pay only the cold access and the hop.
 
+## Solver quotes
+
+Every `fillOrder` declares one `FillOptions.inputs` and `outputs` entry per order leg.
+The output/input ratio is the solver's rate; the input amount is its maximum take.
+An equal-rate quote covers an ordinary fill. Matching zero amounts skip a leg; an empty
+input array is invalid. Oversized quotes scale down to the remaining fill at their signed rate.
+
+`IntentsBase` credits output at the order's rate, releases the difference between cumulative
+input floors, and splits payment above credited output as surplus on every fill. Events and
+cross-chain proofs track credited output, not surplus. A quote can release less than its
+maximum because of integer rounding. Output-call orders must complete in one transaction.
+
+The appended inputs field changes the main-branch fill selector to `0x68ddf058` (FillOptions
+ABI 3). Gateway, modules and SolverAccount use release 4. Deploy the account and redelegate
+solvers before signing new bids; outstanding old-selector bids need new calldata and signatures.
+
 ## Deploying and upgrading
 
 `script/DeployIntentGatewayImpl.s.sol` (implementation only) and `script/DeployIntentGateway.s.sol`
@@ -136,8 +152,12 @@ prints. For release 4, `initData` is `migrate(owner)` when upgrading a supported
 current owner-layout version-3 proxy, and empty for an already-current proxy. Version 2 initializes
 the owner and shifts the legacy relayer slot; version 3 preserves owner, pending owner, pause state
 and relayer. Earlier module-only implementations also used version 3 with a different layout and
-are not supported predecessors. Token-keyed deployments must first drain escrow, fees and pending
-messages on all chains and keep placement stopped until every chain has per-leg accounting. A relayer rotation is a separate `execute_on_gateway` carrying
+are not supported predecessors. Before upgrading, finish or cancel outstanding old orders and
+drain escrow, fees and pending messages on all chains. Keep placement stopped until matching
+gateways and modules are installed everywhere. This also excludes old per-leg partial orders:
+per-slice rounding debt can remain trapped after completion under cumulative accounting,
+and a completed order cannot be cancelled. Verify predecessor layouts and drained state before
+submitting governance calls. A relayer rotation is a separate `execute_on_gateway` carrying
 `setRelayer(next)`; it cannot ride in `initData`, which runs against the new implementation, where
 `setRelayer` does not exist. Whether the upgrade changes the implementation's own code, a module,
 or both, the procedure is the same: new modules if needed, new implementation, one

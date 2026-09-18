@@ -1,5 +1,4 @@
 export { IntentGateway } from "./IntentGateway"
-export { BidExecutionPendingError } from "./Bid"
 export {
 	InvalidLiquidityIndexerResponseError,
 	UnsupportedLiquidityAssetError,
@@ -44,17 +43,11 @@ export {
 	decodeFillOrder,
 	getFillOptionsVersion,
 	resetFillOptionsVersionCache,
-	supportsRateFills,
 	LEGACY_FILL_OPTIONS_IMPLEMENTATIONS,
 	CHAINS_WITHOUT_VALID_UNTIL,
 	FILL_ORDER_V1_ABI,
-	FILL_ORDER_V2_ABI,
-	FILL_ORDER_V3_SELECTOR,
-	CONTRACT_VERSION_ABI,
-	SUPPORTED_INTENTS_VERSION,
 } from "./fillOrderCodec"
-export type { FillOptionsVersion, NormalizedFillOptions, DecodedFillOrder } from "./fillOrderCodec"
-export { previewRateFill, type RateFillPreview } from "./rateFill"
+export type { FillOptionsVersion } from "./fillOrderCodec"
 export {
 	encodeAcceptedSourceChains,
 	decodeAcceptedSourceChains,
@@ -65,13 +58,11 @@ export {
 	applyProtocolFeeHaircut,
 	applyUniswapQuoteHaircut,
 	readProtocolFeeHaircutBps,
-	readRateFillCapability,
 	UNISWAP_QUOTE_HAIRCUT_BPS,
 	PERMIT2_SPONSORSHIP_BYTES,
 	type PhantomBidDeclaration,
 	type PhantomBidPaymasterAndData,
 	type PhantomBidSponsorship,
-	type RateFillCapabilityReader,
 } from "./phantom-aggregation"
 export {
 	DEFAULT_GRAFFITI,

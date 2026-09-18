@@ -13,6 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 pragma solidity ^0.8.17;
+import {IntentQuoteTestUtils} from "./IntentQuoteTestUtils.sol";
 
 import "forge-std/Test.sol";
 import {MainnetForkBaseTest} from "./MainnetForkBaseTest.sol";
@@ -269,7 +270,7 @@ contract IntrinsicIntentsReentrancyTest is MainnetForkBaseTest {
                 nativeDispatchFee: 0,
                 validUntil: 0,
                 outputs: reentrantOutputs,
-                inputs: new TokenInfo[](0)
+                inputs: IntentQuoteTestUtils.inputs(order, reentrantOutputs)
             })
         );
 
@@ -280,7 +281,11 @@ contract IntrinsicIntentsReentrancyTest is MainnetForkBaseTest {
         intentGateway.fillOrder{value: OUTPUT_ETH}(
             order,
             FillOptions({
-                relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: outputAssets, inputs: new TokenInfo[](0)
+                relayerFee: 0,
+                nativeDispatchFee: 0,
+                validUntil: 0,
+                outputs: outputAssets,
+                inputs: IntentQuoteTestUtils.inputs(order, outputAssets)
             })
         );
 
@@ -343,7 +348,7 @@ contract IntrinsicIntentsReentrancyTest is MainnetForkBaseTest {
                 nativeDispatchFee: 0,
                 validUntil: 0,
                 outputs: reentrantOutputs,
-                inputs: new TokenInfo[](0)
+                inputs: IntentQuoteTestUtils.inputs(order, reentrantOutputs)
             })
         );
 
@@ -358,7 +363,11 @@ contract IntrinsicIntentsReentrancyTest is MainnetForkBaseTest {
         intentGateway.fillOrder{value: OUTPUT_ETH}(
             order,
             FillOptions({
-                relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: outputAssets, inputs: new TokenInfo[](0)
+                relayerFee: 0,
+                nativeDispatchFee: 0,
+                validUntil: 0,
+                outputs: outputAssets,
+                inputs: IntentQuoteTestUtils.inputs(order, outputAssets)
             })
         );
 
@@ -419,7 +428,7 @@ contract IntrinsicIntentsReentrancyTest is MainnetForkBaseTest {
                 nativeDispatchFee: 0,
                 validUntil: 0,
                 outputs: reentrantOutputs,
-                inputs: new TokenInfo[](0)
+                inputs: IntentQuoteTestUtils.inputs(order, reentrantOutputs)
             })
         );
 
@@ -430,7 +439,11 @@ contract IntrinsicIntentsReentrancyTest is MainnetForkBaseTest {
         intentGateway.fillOrder{value: OUTPUT_ETH}(
             order,
             FillOptions({
-                relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: outputAssets, inputs: new TokenInfo[](0)
+                relayerFee: 0,
+                nativeDispatchFee: 0,
+                validUntil: 0,
+                outputs: outputAssets,
+                inputs: IntentQuoteTestUtils.inputs(order, outputAssets)
             })
         );
 
@@ -478,7 +491,7 @@ contract IntrinsicIntentsReentrancyTest is MainnetForkBaseTest {
                 nativeDispatchFee: 0,
                 validUntil: 0,
                 outputs: reentrantOutputs,
-                inputs: new TokenInfo[](0)
+                inputs: IntentQuoteTestUtils.inputs(order, reentrantOutputs)
             })
         );
 
@@ -489,7 +502,11 @@ contract IntrinsicIntentsReentrancyTest is MainnetForkBaseTest {
         intentGateway.fillOrder{value: OUTPUT_ETH}(
             order,
             FillOptions({
-                relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: outputAssets, inputs: new TokenInfo[](0)
+                relayerFee: 0,
+                nativeDispatchFee: 0,
+                validUntil: 0,
+                outputs: outputAssets,
+                inputs: IntentQuoteTestUtils.inputs(order, outputAssets)
             })
         );
 

@@ -1,6 +1,6 @@
 import { decodeFunctionData, concat } from "viem"
 import { ABI as IntentGatewayV2ABI } from "@/abis/IntentGatewayV2"
-import { ADDRESS_ZERO, bytes32ToBytes20, normalizeStateMachineId } from "@/utils"
+import { ADDRESS_ZERO, bytes32ToBytes20 } from "@/utils"
 import type {
 	Order,
 	HexString,
@@ -14,8 +14,8 @@ import type {
 } from "@/types"
 import type { IntentGatewayContext } from "./types"
 import { CryptoUtils } from "./CryptoUtils"
-import { decodeFillOrder, supportsRateFills } from "./fillOrderCodec"
-import { BidExecutionPendingError, BidImpl } from "./Bid"
+import { decodeFillOrder } from "./fillOrderCodec"
+import { BidImpl } from "./Bid"
 import Decimal from "decimal.js"
 
 /**
@@ -75,26 +75,6 @@ export class BidManager {
 			callData,
 			paymasterAndData = "0x" as HexString,
 		} = options
-		const fills = (this.crypto.decodeERC7821Execute(callData) ?? [])
-			.map((call) => decodeFillOrder(call.data as HexString))
-			.filter((fill) => fill !== null)
-		if ((options.fillOptions.inputs?.length ?? 0) > 0 && !fills.some((fill) => fill.version === 3)) {
-			throw new Error("Input takes require v3 fillOrder calldata")
-		}
-		if (fills.some((fill) => fill.version === 3)) {
-			const chain = normalizeStateMachineId(order.destination)
-			const gateway = this.ctx.dest.configService.getIntentGatewayAddress(chain)
-			const implementation = this.ctx.dest.configService.getSolverAccountAddress(chain)
-			// Check the live account as well as the implementation used for simulation overrides.
-			const liveSupport = await supportsRateFills(this.ctx.dest.client as any, gateway, solverAccount)
-			const configuredSupport =
-				implementation && (await supportsRateFills(this.ctx.dest.client as any, gateway, implementation))
-			if (!liveSupport || !configuredSupport) {
-				throw new Error(
-					"v3 fills are not supported by the destination gateway, live delegation, and configured SolverAccount",
-				)
-			}
-		}
 
 		const chainId = BigInt(
 			this.ctx.dest.client.chain?.id ?? Number.parseInt(this.ctx.dest.config.stateMachineId.split("-")[1]),
@@ -153,8 +133,8 @@ export class BidManager {
 
 		const result: BidImpl[] = []
 		for (const fillerBid of bids) {
-			const fill = this.decodeBidFillData(fillerBid)
-			if (!fill) {
+			const fillOptions = this.decodeBidFillOptions(fillerBid)
+			if (!fillOptions) {
 				console.warn(`[BidManager] Failed to decode fillOptions from bid by solver=${fillerBid.userOp.sender}`)
 				continue
 			}
@@ -164,7 +144,7 @@ export class BidManager {
 					crypto: this.crypto,
 					order,
 					fillerBid,
-					fillOptions: fill.options,
+					fillOptions,
 					priceOutputs,
 					sessionPrivateKey,
 				}),
@@ -202,20 +182,9 @@ export class BidManager {
 	 * @returns A {@link SelectBidResult} for the executed bid.
 	 * @throws If no valid bids exist or every bid fails simulation/execution.
 	 */
-	async selectAndExecuteBest(
-		order: Order,
-		bids: Bid[],
-		onSubmitted?: (submission: SelectBidResult) => Promise<void>,
-		onTerminal?: (submission: SelectBidResult) => Promise<void>,
-	): Promise<SelectBidResult> {
+	async selectAndExecuteBest(order: Order, bids: Bid[]): Promise<SelectBidResult> {
 		const commitment = order.id as HexString
 		console.log(`[BidManager] selectAndExecuteBest called for commitment=${commitment}, ${bids.length} bid(s)`)
-		if (
-			(order.inputs.length !== 1 || order.output.assets.length !== 1) &&
-			bids.some((bid) => bid.inputs.length > 0)
-		) {
-			throw new Error("Automatic rate execution supports single-leg orders only")
-		}
 
 		if (!this.ctx.bundlerUrl) {
 			throw new Error("Bundler URL not configured")
@@ -250,9 +219,8 @@ export class BidManager {
 
 			console.log(`[BidManager] Bid ${idx + 1} from solver=${bid.solverAddress}: simulation PASSED`)
 			try {
-				return await bid.execute(onSubmitted, onTerminal)
+				return await bid.execute()
 			} catch (err) {
-				if (err instanceof BidExecutionPendingError) throw err
 				executionFailures += 1
 				console.warn(
 					`[BidManager] Bid ${idx + 1} from solver=${bid.solverAddress}: execution FAILED: ` +
@@ -289,7 +257,7 @@ export class BidManager {
 
 		if (outputs.length <= 1) {
 			console.log(`[BidManager] Using single-output sorting (1 output asset)`)
-			return this.sortSingleOutput(order, bids, outputs[0])
+			return this.sortSingleOutput(bids, outputs[0])
 		}
 
 		const chainId = this.ctx.dest.config.stateMachineId
@@ -311,7 +279,7 @@ export class BidManager {
 	 * @param bid - A single filler bid.
 	 * @returns The decoded `FillOptions`, or `null` if extraction fails.
 	 */
-	private decodeBidFillData(bid: FillerBid): { options: FillOptions } | null {
+	private decodeBidFillOptions(bid: FillerBid): FillOptions | null {
 		try {
 			const innerCalls = this.crypto.decodeERC7821Execute(bid.userOp.callData)
 			if (!innerCalls || innerCalls.length === 0) return null
@@ -322,7 +290,7 @@ export class BidManager {
 				// as 0n, which is accurate: that fill genuinely carries no bound.
 				const decoded = decodeFillOrder(call.data as HexString)
 				if (decoded && decoded.options?.outputs?.length > 0) {
-					return { options: decoded.options }
+					return decoded.options
 				}
 			}
 		} catch {
@@ -336,17 +304,16 @@ export class BidManager {
 	 * Filter bids by token match only, sort descending by amount.
 	 * Partial fill bids are allowed — the contract determines fill status.
 	 */
-	private sortSingleOutput(order: Order, bids: Bid[], requiredAsset: TokenInfo): Bid[] {
+	private sortSingleOutput(bids: Bid[], requiredAsset: TokenInfo): Bid[] {
 		const requiredAmount = new Decimal(requiredAsset.amount.toString())
 		console.log(
 			`[BidManager] sortSingleOutput: required token=${requiredAsset.token}, amount=${requiredAmount.toString()}`,
 		)
 
-		const validBids: { bid: Bid; output: bigint; take: bigint; index: number }[] = []
+		const validBids: { bid: Bid; amount: bigint }[] = []
 
-		for (const [index, bid] of bids.entries()) {
+		for (const bid of bids) {
 			const bidOutput = bid.outputs[0]
-			if (!bidOutput) continue
 			const bidAmount = new Decimal(bidOutput.amount.toString())
 
 			if (bidOutput.token.toLowerCase() !== requiredAsset.token.toLowerCase()) {
@@ -370,32 +337,13 @@ export class BidManager {
 				)
 			}
 
-			const quotedInput = bid.inputs[0]
-			let take: bigint
-			if (quotedInput) {
-				if (
-					bid.inputs.length !== 1 ||
-					quotedInput.token.toLowerCase() !== order.inputs[0]?.token.toLowerCase() ||
-					quotedInput.amount <= 0n ||
-					bidOutput.amount <= 0n
-				) {
-					continue
-				}
-				take = quotedInput.amount
-			} else {
-				const requiredInput = order.inputs[0]?.amount ?? 0n
-				const credited = bidOutput.amount < requiredAsset.amount ? bidOutput.amount : requiredAsset.amount
-				take = requiredAsset.amount === 0n ? 0n : (requiredInput * credited) / requiredAsset.amount
-				if (take === 0n || bidOutput.amount === 0n) continue
-			}
-
-			validBids.push({ bid, output: bidOutput.amount, take, index })
+			validBids.push({ bid, amount: bidOutput.amount })
 		}
 
 		validBids.sort((a, b) => {
-			const left = a.output * b.take
-			const right = b.output * a.take
-			return left === right ? a.index - b.index : left > right ? -1 : 1
+			const aAmt = new Decimal(a.amount.toString())
+			const bAmt = new Decimal(b.amount.toString())
+			return bAmt.comparedTo(aAmt)
 		})
 
 		return validBids.map(({ bid }) => bid)
@@ -427,9 +375,7 @@ export class BidManager {
 						`covers=${bidUsd.div(requiredUsd).mul(100).toFixed(2)}%)`,
 				)
 			} else {
-				console.log(
-					`[BidManager] Bid from solver=${bid.solverAddress} ACCEPTED: USD value=${bidUsd.toString()}`,
-				)
+				console.log(`[BidManager] Bid from solver=${bid.solverAddress} ACCEPTED: USD value=${bidUsd.toString()}`)
 			}
 
 			validBids.push({ bid, usdValue: bidUsd })
@@ -459,9 +405,7 @@ export class BidManager {
 			const bidUsd = await this.computeOutputsUsdValue(bid.outputs, chainId)
 
 			if (bidUsd === null) {
-				console.warn(
-					`[BidManager] Bid from solver=${bid.solverAddress} REJECTED: unable to price mixed outputs`,
-				)
+				console.warn(`[BidManager] Bid from solver=${bid.solverAddress} REJECTED: unable to price mixed outputs`)
 				continue
 			}
 

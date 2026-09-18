@@ -269,7 +269,6 @@ abstract contract IntentsBase is EIP712 {
     error PartialFillNotAllowed();
     error RateBelowOrder();
     error RateFillTooSmall();
-    error LegacyRateAccounting();
 
     /**
      * @dev Emitted when a new intent order is placed and input tokens are escrowed.
@@ -479,13 +478,10 @@ abstract contract IntentsBase is EIP712 {
 
     /// @dev Records each leg's credited output and delivers its payment. The caller settles
     /// released inputs locally or sends them to the source chain in a redemption request.
-    function _fillLegs(Order calldata order, FillOptions calldata options, bytes32 commitment, bool sameChain)
+    function _fillLegs(Order calldata order, FillOptions calldata options, bytes32 commitment)
         internal
         returns (FillResult memory result)
     {
-        bool useInputQuotes = options.inputs.length != 0;
-        if (useInputQuotes) _validateRateLegs(order, options);
-
         uint256 legCount = order.output.assets.length;
         result.releasedInputs = new TokenInfo[](legCount);
         result.creditedOutputs = new TokenInfo[](legCount);
@@ -494,8 +490,12 @@ abstract contract IntentsBase is EIP712 {
         bool madeProgress;
 
         for (uint256 i; i < legCount; ++i) {
+            bytes32 inputToken = order.inputs[i].token;
             bytes32 outputToken = order.output.assets[i].token;
-            if (uint256(outputToken) >> 160 != 0) revert InvalidInput();
+            if (options.inputs[i].token != inputToken) revert InvalidInput();
+            if (uint256(inputToken) >> 160 != 0 || uint256(outputToken) >> 160 != 0) revert InvalidInput();
+            // A skipped leg must quote zero input and zero output together.
+            if ((options.inputs[i].amount == 0) != (options.outputs[i].amount == 0)) revert InvalidInput();
             if (options.outputs[i].token != outputToken) revert InvalidInput();
 
             // Keep one result per leg, including skipped and already-completed legs.
@@ -508,8 +508,13 @@ abstract contract IntentsBase is EIP712 {
                 continue;
             }
 
-            (uint256 creditedOutput, uint256 releasedInput, uint256 deliveredOutput) =
-                _fillAmounts(order, options, commitment, i, previousCredit, sameChain);
+            (uint256 creditedOutput, uint256 releasedInput, uint256 deliveredOutput) = _quoteRateFill(
+                order.inputs[i].amount,
+                requiredOutput,
+                previousCredit,
+                options.inputs[i].amount,
+                options.outputs[i].amount
+            );
 
             // Surplus is paid to the beneficiary/protocol but never advances order progress.
             uint256 updatedCredit = previousCredit + creditedOutput;
@@ -523,7 +528,7 @@ abstract contract IntentsBase is EIP712 {
                 _deliverOutput(order.output, result.creditedOutputs[i], deliveredOutput, result.nativeRemaining);
         }
 
-        if (useInputQuotes && !madeProgress) revert RateFillTooSmall();
+        if (!madeProgress) revert RateFillTooSmall();
         if (order.output.call.length > 0 && !result.fullyFilled) revert PartialFillNotAllowed();
     }
 
@@ -551,58 +556,6 @@ abstract contract IntentsBase is EIP712 {
 
         if (protocolShare > 0) emit DustCollected(token, protocolShare);
         return nativeRemaining;
-    }
-
-    function _validateRateLegs(Order calldata order, FillOptions calldata options) private pure {
-        for (uint256 i; i < options.inputs.length; ++i) {
-            bytes32 inputToken = order.inputs[i].token;
-            bytes32 outputToken = order.output.assets[i].token;
-            if (options.inputs[i].token != inputToken) revert InvalidInput();
-            if (uint256(inputToken) >> 160 != 0 || uint256(outputToken) >> 160 != 0) revert InvalidInput();
-
-            // A solver may skip a leg only by quoting zero input and zero output together.
-            bool zeroInput = options.inputs[i].amount == 0;
-            bool zeroOutput = options.outputs[i].amount == 0;
-            if (zeroInput != zeroOutput) revert InvalidInput();
-        }
-    }
-
-    /// @dev Uses a solver quote when present, otherwise settles at the order's rate.
-    function _fillAmounts(
-        Order calldata order,
-        FillOptions calldata options,
-        bytes32 commitment,
-        uint256 legIndex,
-        uint256 previousCredit,
-        bool sameChain
-    ) private view returns (uint256 creditedOutput, uint256 releasedInput, uint256 deliveredOutput) {
-        uint256 escrowInput = order.inputs[legIndex].amount;
-        uint256 requiredOutput = order.output.assets[legIndex].amount;
-        uint256 offeredOutput = options.outputs[legIndex].amount;
-        uint256 quotedInput = options.inputs.length == 0 ? 0 : options.inputs[legIndex].amount;
-        uint256 previouslyReleased = _cumulativeReleased(escrowInput, previousCredit, requiredOutput);
-        uint256 remainingEscrow = sameChain ? _orders[commitment][legIndex] : 0;
-        bool hasLegacyRounding = sameChain && remainingEscrow != escrowInput - previouslyReleased;
-
-        if (quotedInput > 0) {
-            if (hasLegacyRounding) revert LegacyRateAccounting();
-            return _quoteRateFill(escrowInput, requiredOutput, previousCredit, quotedInput, offeredOutput);
-        }
-
-        creditedOutput = Math.min(offeredOutput, requiredOutput - previousCredit);
-        // Ordinary fills accept surplus only on the first fill of a leg.
-        deliveredOutput = previousCredit == 0 ? offeredOutput : creditedOutput;
-        uint256 updatedCredit = previousCredit + creditedOutput;
-
-        if (hasLegacyRounding) {
-            // Old same-chain fills rounded each slice separately. The final fill releases
-            // the actual balance so those orders can finish without stranding escrow.
-            releasedInput = updatedCredit == requiredOutput
-                ? remainingEscrow
-                : Math.mulDiv(escrowInput, creditedOutput, requiredOutput);
-        } else {
-            releasedInput = _cumulativeReleased(escrowInput, updatedCredit, requiredOutput) - previouslyReleased;
-        }
     }
 
     /// @dev A quote pairs a maximum input take with an offered output payment. Credit follows

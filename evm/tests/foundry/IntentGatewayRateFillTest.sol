@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity ^0.8.24;
+import {IntentsBase} from "../../src/apps/intentsv2/IntentsBase.sol";
 import {IntentGatewayV2SameChainTest} from "./IntentGatewayV2SameChainTest.sol";
 import {
     Order,
@@ -50,6 +51,47 @@ contract IntentGatewayRateFillTest is IntentGatewayV2SameChainTest {
         assertEq(usdc.balanceOf(solver) - before, 10);
     }
 
+    function testRate_DifferentSolversAndRatesConserveEscrowOnCancellation() public {
+        Order memory order = _placeSameChainOrder(1000, 100, 0);
+        uint256 firstBefore = usdc.balanceOf(solver);
+        _rateFill(order, 300, 36);
+        uint256 secondBefore = usdc.balanceOf(otherUser);
+        TokenInfo[] memory takes = new TokenInfo[](1);
+        takes[0] = TokenInfo(order.inputs[0].token, 400);
+        TokenInfo[] memory outputs = new TokenInfo[](1);
+        outputs[0] = TokenInfo(order.output.assets[0].token, 60);
+        deal(address(dai), otherUser, 60);
+        vm.startPrank(otherUser);
+        dai.approve(address(intentGateway), 60);
+        intentGateway.fillOrder(order, FillOptions(0, 0, 0, outputs, takes));
+        vm.stopPrank();
+        bytes32 commitment = keccak256(abi.encode(order));
+        uint256 released = usdc.balanceOf(solver) - firstBefore + usdc.balanceOf(otherUser) - secondBefore;
+        assertEq(released, 700);
+        assertEq(intentGateway._partialFills(commitment, 0), 70);
+        assertEq(released + intentGateway._orders(commitment, 0), 1000);
+        uint256 userBefore = usdc.balanceOf(user);
+        vm.prank(user);
+        intentGateway.cancelOrder(order, CancelOptions(0, 0));
+        assertEq(released + usdc.balanceOf(user) - userBefore, 1000);
+        assertEq(intentGateway._orders(commitment, 0), 0);
+        assertEq(dai.balanceOf(address(intentGateway)), 13, "surplus retained on both rates");
+    }
+
+    function testRate_DustQuoteRejectedWithoutProgress() public {
+        Order memory order = _placeSameChainOrder(1000, 100, 0);
+        TokenInfo[] memory takes = new TokenInfo[](1);
+        takes[0] = TokenInfo(order.inputs[0].token, 1);
+        TokenInfo[] memory outputs = new TokenInfo[](1);
+        outputs[0] = TokenInfo(order.output.assets[0].token, 1);
+        vm.prank(solver);
+        vm.expectRevert(IntentsBase.RateFillTooSmall.selector);
+        intentGateway.fillOrder(order, FillOptions(0, 0, 0, outputs, takes));
+        bytes32 commitment = keccak256(abi.encode(order));
+        assertEq(intentGateway._partialFills(commitment, 0), 0);
+        assertEq(intentGateway._orders(commitment, 0), 1000);
+    }
+
     function testRate_BelowFloorRejected() public {
         Order memory order = _placeSameChainOrder(1000, 1000, 0);
         TokenInfo[] memory inputs = new TokenInfo[](1);
@@ -58,64 +100,27 @@ contract IntentGatewayRateFillTest is IntentGatewayV2SameChainTest {
         outputs[0] = TokenInfo(order.output.assets[0].token, 399);
         vm.startPrank(solver);
         dai.approve(address(intentGateway), 399);
-        vm.expectRevert(bytes4(keccak256("RateBelowOrder()")));
+        vm.expectRevert(IntentsBase.RateBelowOrder.selector);
         intentGateway.fillOrder(order, FillOptions(0, 0, 0, outputs, inputs));
         vm.stopPrank();
     }
 
-    function testRate_LegacyAndRateUseCumulativeRounding() public {
-        Order memory order = _placeSameChainOrder(10, 3, 0);
-        TokenInfo[] memory outputs = new TokenInfo[](1);
-        outputs[0] = TokenInfo(order.output.assets[0].token, 1);
-        vm.startPrank(solver);
-        dai.approve(address(intentGateway), 1);
-        intentGateway.fillOrder(order, FillOptions(0, 0, 0, outputs, new TokenInfo[](0)));
-        vm.stopPrank();
+    function testRate_EqualPriceFullFill() public {
+        Order memory order = _placeSameChainOrder(100, 100, 0);
         uint256 before = usdc.balanceOf(solver);
-        _rateFill(order, 4, 2);
-        assertEq(usdc.balanceOf(solver) - before, 3);
-        outputs[0].amount = 1;
-        vm.startPrank(solver);
-        dai.approve(address(intentGateway), 1);
-        intentGateway.fillOrder(order, FillOptions(0, 0, 0, outputs, new TokenInfo[](0)));
-        vm.stopPrank();
-        assertEq(usdc.balanceOf(solver) - before, 7);
+        _rateFill(order, 100, 100);
+        assertEq(usdc.balanceOf(solver) - before, 100);
         assertEq(intentGateway._orders(keccak256(abi.encode(order)), 0), 0);
     }
 
-    function testRate_LegacyRoundingDebtRejectsRateButLegacyCompletes() public {
-        Order memory order = _placeSameChainOrder(10, 6, 0);
-        bytes32 commitment = keccak256(abi.encode(order));
-        // State after two old one-output slices: each released floor(10/6)=1.
-        // Cumulative accounting would have released floor(20/6)=3.
-        bytes32 escrowSlot = keccak256(abi.encode(uint256(0), keccak256(abi.encode(commitment, uint256(9)))));
-        bytes32 progressSlot = keccak256(abi.encode(uint256(0), keccak256(abi.encode(commitment, uint256(11)))));
-        vm.store(address(intentGateway), escrowSlot, bytes32(uint256(8)));
-        vm.store(address(intentGateway), progressSlot, bytes32(uint256(2)));
-        vm.prank(address(intentGateway));
-        usdc.transfer(solver, 2);
-        TokenInfo[] memory outputs = new TokenInfo[](1);
-        outputs[0] = TokenInfo(order.output.assets[0].token, 4);
-        TokenInfo[] memory takes = new TokenInfo[](1);
-        takes[0] = TokenInfo(order.inputs[0].token, 6);
-        vm.startPrank(solver);
-        dai.approve(address(intentGateway), 4);
-        vm.expectRevert(bytes4(keccak256("LegacyRateAccounting()")));
-        intentGateway.fillOrder(order, FillOptions(0, 0, 0, outputs, takes));
-        uint256 before = usdc.balanceOf(solver);
-        intentGateway.fillOrder(order, FillOptions(0, 0, 0, outputs, new TokenInfo[](0)));
-        vm.stopPrank();
-        assertEq(usdc.balanceOf(solver) - before, 8);
-        assertEq(intentGateway._orders(commitment, 0), 0);
-    }
-
-    function testRate_EmptyInputsPreserveOrderRateBehavior() public {
+    function testRate_EmptyInputsRejected() public {
         Order memory order = _placeSameChainOrder(100, 100, 0);
         vm.startPrank(solver);
         dai.approve(address(intentGateway), 100);
+        vm.expectRevert(IntentsBase.InvalidInput.selector);
         intentGateway.fillOrder(order, FillOptions(0, 0, 0, order.output.assets, new TokenInfo[](0)));
         vm.stopPrank();
-        assertEq(intentGateway._orders(keccak256(abi.encode(order)), 0), 0);
+        assertEq(intentGateway._orders(keccak256(abi.encode(order)), 0), 100);
     }
 
     function testRate_NativeInputReleaseAndCancellation() public {
@@ -186,16 +191,16 @@ contract IntentGatewayRateFillTest is IntentGatewayV2SameChainTest {
         outputs[0] = TokenInfo(order.output.assets[0].token, 110);
         vm.startPrank(solver);
         takes[0].token = order.output.assets[0].token;
-        vm.expectRevert(bytes4(keccak256("InvalidInput()")));
+        vm.expectRevert(IntentsBase.InvalidInput.selector);
         intentGateway.fillOrder(order, FillOptions(0, 0, 0, outputs, takes));
         takes[0].token = order.inputs[0].token;
         takes[0].amount = 0;
-        vm.expectRevert(bytes4(keccak256("InvalidInput()")));
+        vm.expectRevert(IntentsBase.InvalidInput.selector);
         intentGateway.fillOrder(order, FillOptions(0, 0, 0, outputs, takes));
         outputs[0].amount = 0;
-        vm.expectRevert(bytes4(keccak256("RateFillTooSmall()")));
+        vm.expectRevert(IntentsBase.RateFillTooSmall.selector);
         intentGateway.fillOrder(order, FillOptions(0, 0, 0, outputs, takes));
-        vm.expectRevert(bytes4(keccak256("InvalidInput()")));
+        vm.expectRevert(IntentsBase.InvalidInput.selector);
         intentGateway.fillOrder(order, FillOptions(0, 0, 0, outputs, new TokenInfo[](2)));
         vm.stopPrank();
         assertEq(intentGateway._partialFills(keccak256(abi.encode(order)), 0), 0);

@@ -502,7 +502,7 @@ contract IntentGatewayV2 is
      *    token with its upper 12 bytes set, so `_isRepeatedToken` sees every token in one form.
      *
      * @param order The order to fill. Must match the exact order that was placed.
-     * @param options Output amounts, optional paired input quotes, quote expiry, and dispatch fees.
+     * @param options Output amounts, required paired input quotes, quote expiry, and dispatch fees.
      */
     function fillOrder(Order calldata order, FillOptions calldata options) public payable whenNotPaused nonReentrant {
         uint256 blockNumber = _blockNumber();
@@ -538,7 +538,7 @@ contract IntentGatewayV2 is
         uint256 outputsLen = order.output.assets.length;
         if (options.outputs.length != outputsLen) revert InvalidInput();
         if (order.inputs.length != outputsLen) revert InvalidInput();
-        if (options.inputs.length != 0 && options.inputs.length != outputsLen) revert InvalidInput();
+        if (options.inputs.length != outputsLen) revert InvalidInput();
 
         if (isSameChain) {
             _delegate(intrinsicModule, abi.encodeCall(IntrinsicModule.fillSameChain, (order, options, commitment)));

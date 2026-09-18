@@ -13,6 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 pragma solidity ^0.8.17;
+import {IntentQuoteTestUtils} from "./IntentQuoteTestUtils.sol";
 
 import "forge-std/Test.sol";
 import {MainnetForkBaseTest} from "./MainnetForkBaseTest.sol";
@@ -213,7 +214,11 @@ contract IntentGatewayV2MultiLegTest is MainnetForkBaseTest {
         gateway.fillOrder(
             order,
             FillOptions({
-                relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: outputs, inputs: new TokenInfo[](0)
+                relayerFee: 0,
+                nativeDispatchFee: 0,
+                validUntil: 0,
+                outputs: outputs,
+                inputs: IntentQuoteTestUtils.inputs(order, outputs)
             })
         );
     }
@@ -296,6 +301,33 @@ contract IntentGatewayV2MultiLegTest is MainnetForkBaseTest {
         assertEq(gateway._filled(commitment), solverB);
     }
 
+    function testRate_CompletedAndSkippedLegsStillValidateQuotes() public {
+        (Order memory order, bytes32 commitment) = _place(gateway, _ladder("", host.host()));
+        _rateFill(solverA, order, 1200 * 1e6, 0);
+        TokenInfo[] memory takes = _legs([usdcToken, usdcToken], [uint256(0), 1000 * 1e6]);
+        TokenInfo[] memory outputs = _legs([daiToken, daiToken], [uint256(0), 990 * 1e18]);
+        takes[0].token = daiToken;
+        vm.expectRevert(IntentsBase.InvalidInput.selector);
+        vm.prank(solverB);
+        gateway.fillOrder(order, FillOptions(0, 0, 0, outputs, takes));
+        takes[0].token = usdcToken;
+        takes[0].amount = 1;
+        vm.expectRevert(IntentsBase.InvalidInput.selector);
+        vm.prank(solverB);
+        gateway.fillOrder(order, FillOptions(0, 0, 0, outputs, takes));
+        takes[0].amount = 0;
+        outputs[0].token = bytes32(uint256(daiToken) | (uint256(1) << 160));
+        vm.expectRevert(IntentsBase.InvalidInput.selector);
+        vm.prank(solverB);
+        gateway.fillOrder(order, FillOptions(0, 0, 0, outputs, takes));
+        assertEq(gateway._partialFills(commitment, 1), 0);
+        assertEq(gateway._orders(commitment, 1), 1000 * 1e6);
+        outputs[0].token = daiToken;
+        vm.prank(solverB);
+        gateway.fillOrder(order, FillOptions(0, 0, 0, outputs, takes));
+        assertEq(gateway._orders(commitment, 1), 0);
+    }
+
     function testRate_RepeatedUnequalLegsCancelEachRemainder() public {
         (Order memory order, bytes32 commitment) = _place(gateway, _ladder("", host.host()));
         _rateFill(solverA, order, 400 * 1e6, 300 * 1e6);
@@ -358,7 +390,11 @@ contract IntentGatewayV2MultiLegTest is MainnetForkBaseTest {
         gateway.fillOrder{value: 0.3 ether}(
             order,
             FillOptions({
-                relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: outputs, inputs: new TokenInfo[](0)
+                relayerFee: 0,
+                nativeDispatchFee: 0,
+                validUntil: 0,
+                outputs: outputs,
+                inputs: IntentQuoteTestUtils.inputs(order, outputs)
             })
         );
         assertEq(gateway._partialFills(commitment, 1), 0, "leg 1 is not complete because leg 0 is");
@@ -371,7 +407,11 @@ contract IntentGatewayV2MultiLegTest is MainnetForkBaseTest {
         gateway.fillOrder{value: 0.25 ether}(
             order,
             FillOptions({
-                relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: outputs, inputs: new TokenInfo[](0)
+                relayerFee: 0,
+                nativeDispatchFee: 0,
+                validUntil: 0,
+                outputs: outputs,
+                inputs: IntentQuoteTestUtils.inputs(order, outputs)
             })
         );
         assertEq(user.balance - userEth, 0.25 ether, "leg 1 paid in full");
@@ -454,7 +494,11 @@ contract IntentGatewayV2MultiLegTest is MainnetForkBaseTest {
         feeGateway.fillOrder(
             order,
             FillOptions({
-                relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: outputs, inputs: new TokenInfo[](0)
+                relayerFee: 0,
+                nativeDispatchFee: 0,
+                validUntil: 0,
+                outputs: outputs,
+                inputs: IntentQuoteTestUtils.inputs(order, outputs)
             })
         );
 

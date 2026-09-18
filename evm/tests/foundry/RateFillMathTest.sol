@@ -58,6 +58,23 @@ contract RateFillMathTest is Test {
         );
     }
 
+    function testRate_CappedQuotePaysLaterSurplus() public view {
+        (uint256 credit, uint256 released, uint256 paid) = harness.quote(1000, 100, 60, 1000, 120);
+        assertEq(credit, 40);
+        assertEq(released, 400);
+        assertEq(paid, 48);
+        assertEq(paid - credit, 8);
+    }
+
+    function testRate_MaximumAmountsCappedCompletion() public view {
+        (uint256 credit, uint256 released, uint256 paid) = harness.quote(
+            type(uint256).max, type(uint256).max - 1, type(uint256).max - 2, type(uint256).max, type(uint256).max
+        );
+        assertEq(credit, 1);
+        assertEq(released, 2);
+        assertEq(paid, 2);
+    }
+
     function testRate_MaximumAmountsUseFullPrecision() public view {
         (uint256 creditedOutput, uint256 releasedInput, uint256 deliveredOutput) =
             harness.quote(type(uint256).max, type(uint256).max, 0, type(uint256).max, type(uint256).max);

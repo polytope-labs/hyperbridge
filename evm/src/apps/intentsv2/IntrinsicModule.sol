@@ -38,23 +38,19 @@ contract IntrinsicModule is IntrinsicIntents {
     }
 
     /**
-     * @dev Same-chain fill, validated by `IntentGatewayV2.fillOrder`.
-     * @param order The order to fill.
-     * @param options The solver's per-leg quotes and fees.
-     * @param commitment The order commitment hash.
+     * @dev Same-chain fill, validated and finished by `IntentGatewayV2.fillOrder`.
      */
-    function fillSameChain(Order calldata order, FillOptions calldata options, bytes32 commitment)
+    function fillOrder(Order calldata order, FillOptions calldata options, bytes32 commitment)
         external
         payable
         onlyDelegated
+        returns (FillResult memory)
     {
-        _fillSameChain(order, options, commitment);
+        return _fillOrder(order, options, commitment);
     }
 
     /**
      * @dev Same-chain cancel, validated by `IntentGatewayV2.cancelOrder`.
-     * @param order The order to cancel.
-     * @param commitment The order commitment hash.
      */
     function cancelSameChain(Order calldata order, bytes32 commitment) external payable onlyDelegated {
         _cancelSameChain(order, commitment);

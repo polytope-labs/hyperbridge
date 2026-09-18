@@ -33,7 +33,7 @@ The gateway tracks each leg's escrow, fill progress and protocol fee separately,
 
 An order with predispatch calldata is the one exception: its escrow is swept from the dispatcher and measured per token, so its legs may not repeat an input token.
 
-Tokens are `bytes32` values holding the token address left-padded with zeros. `placeOrder` rejects an input token, and `fillOrder` an output token, whose upper 12 bytes are not zero.
+Tokens are `bytes32` values holding the token address left-padded with zeros. `placeOrder` rejects any input or output token whose upper 12 bytes are not zero.
 
 ## Same-Chain Swaps
 

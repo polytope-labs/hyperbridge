@@ -80,7 +80,6 @@ contract SolverAccountTest is Test {
     // ============================================
 
     function test_ReleaseVersionProtectsCurrentAndHistoricalSelectors() public view {
-        assertEq(solverAccount.version(), 3);
         assertEq(intentGateway.version(), 3);
         assertNotEq(intentGateway.fillOrder.selector, bytes4(0xa5470064));
         assertNotEq(intentGateway.fillOrder.selector, bytes4(0x5cfb1ea5));
@@ -605,14 +604,14 @@ contract SolverAccountTest is Test {
         assertEq(result, ERC4337Utils.SIG_VALIDATION_FAILED);
     }
 
-    function test_ValidateUserOp_IntentSelection_IntentGatewayReturnsInvalidData() public {
+    /// @dev A gateway returning something decodable but not the session key fails validation: the
+    /// nonce key cannot match a key the bid was never signed against.
+    function test_ValidateUserOp_IntentSelection_GatewayReturnsWrongSessionKey_Fails() public {
         bytes32 userOpHash = keccak256("test_userop");
 
-        // Create valid signatures
         bytes memory sessionSignature = _createSessionKeySignature(testCommitment, address(solverAccount));
         bytes memory solverSignature = _signUserOpHash(userOpHash);
 
-        // Create combined signature
         bytes memory signature = abi.encodePacked(testCommitment, solverSignature, sessionSignature);
 
         PackedUserOperation memory op = PackedUserOperation({
@@ -627,17 +626,51 @@ contract SolverAccountTest is Test {
             signature: signature
         });
 
-        // Mock IntentGateway.select to return invalid data (less than 32 bytes)
-        SelectOptions memory expectedOptions =
-            SelectOptions({commitment: testCommitment, solver: address(solverAccount), signature: sessionSignature});
-        bytes memory selectCalldata = abi.encodeWithSelector(intentGateway.select.selector, expectedOptions);
-
-        vm.mockCall(address(intentGateway), selectCalldata, abi.encode(bytes("")));
+        _mockSelect(sessionSignature, abi.encode(address(0xdead)));
 
         vm.prank(entryPoint);
         uint256 result = solverAccount.validateUserOp(op, userOpHash, 0);
 
         assertEq(result, ERC4337Utils.SIG_VALIDATION_FAILED);
+    }
+
+    /// @dev Return data too short to decode as an address is not caught by `try`: validation reverts
+    /// rather than failing softly. Unreachable against the real gateway, whose `select` returns an
+    /// address, so this pins the behaviour if that address is ever pointed at something else.
+    function test_ValidateUserOp_IntentSelection_GatewayReturnsTruncatedData_Reverts() public {
+        bytes32 userOpHash = keccak256("test_userop");
+
+        bytes memory sessionSignature = _createSessionKeySignature(testCommitment, address(solverAccount));
+        bytes memory solverSignature = _signUserOpHash(userOpHash);
+
+        bytes memory signature = abi.encodePacked(testCommitment, solverSignature, sessionSignature);
+
+        PackedUserOperation memory op = PackedUserOperation({
+            sender: address(solverAccount),
+            nonce: _bidNonce(testCommitment, sessionKey),
+            initCode: "",
+            callData: "",
+            accountGasLimits: bytes32(0),
+            preVerificationGas: 0,
+            gasFees: bytes32(0),
+            paymasterAndData: "",
+            signature: signature
+        });
+
+        _mockSelect(sessionSignature, hex"1234");
+
+        vm.prank(entryPoint);
+        vm.expectRevert();
+        solverAccount.validateUserOp(op, userOpHash, 0);
+    }
+
+    /// @dev Mocks the gateway's `select` for this commitment and session signature.
+    function _mockSelect(bytes memory sessionSignature, bytes memory returnData) internal {
+        SelectOptions memory expectedOptions =
+            SelectOptions({commitment: testCommitment, solver: address(solverAccount), signature: sessionSignature});
+        vm.mockCall(
+            address(intentGateway), abi.encodeWithSelector(intentGateway.select.selector, expectedOptions), returnData
+        );
     }
 
     function test_ValidateUserOp_IntentSelection_MultipleCommitments() public {

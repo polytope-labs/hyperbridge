@@ -29,46 +29,22 @@ abstract contract IntrinsicIntents is IntentsBase {
     using SafeERC20 for IERC20;
 
     /**
-     * @dev Pays each leg and releases the escrow it earns, all on this chain. A partial fill
-     * reopens the order for another solver; a completing fill also runs the beneficiary's calldata.
-     * `_fillLegs` rejects a partial fill that carries calldata.
-     * @param order The order being filled.
-     * @param options The solver's per-leg quotes and fees.
-     * @param commitment The keccak256 hash of the ABI-encoded order.
+     * @dev Pays each leg and releases the escrow it earns, all on this chain.
      */
-    function _fillSameChain(Order calldata order, FillOptions calldata options, bytes32 commitment) internal {
-        _filled[commitment] = msg.sender;
-        FillResult memory result = _fillLegs(order, options, commitment);
+    function _fillOrder(Order calldata order, FillOptions calldata options, bytes32 commitment)
+        internal
+        returns (FillResult memory result)
+    {
+        result = _fillLegs(order, options, commitment);
         WithdrawalRequest memory body = WithdrawalRequest({
             commitment: commitment, tokens: result.releasedInputs, beneficiary: bytes32(uint256(uint160(msg.sender)))
         });
         _withdraw(body, false, result.fullyFilled);
-
-        if (result.fullyFilled) {
-            _execute(order, order.output.assets.length);
-            emit OrderFilled(commitment, msg.sender, result.creditedOutputs, result.releasedInputs);
-        } else {
-            delete _filled[commitment];
-            emit PartialFill(commitment, msg.sender, result.creditedOutputs, result.releasedInputs);
-        }
-
-        if (result.nativeRemaining > 0) _sendValue(msg.sender, result.nativeRemaining);
     }
 
     /**
-     * @dev Cancels a same-chain order and refunds the remaining escrowed tokens to the user.
-     *
-     * The original order creator (order.user) may cancel through the deadline. Cancellation is
-     * permissionless strictly after the deadline, using `_blockNumber()` so Arbitrum deployments
-     * use their L2 block number. Collects all remaining escrow balances (which may be reduced by
-     * prior partial fills) and refunds them to the original user via `_withdraw`. `cancelOrder` is
-     * the only caller and has already established that this chain is the order's source.
-     *
-     * `cancelOrder` has already emitted `OrderCancelled`; the `EscrowRefunded` of this refund
-     * follows it in the same transaction.
-     *
-     * @param order The order to cancel.
-     * @param commitment The keccak256 hash of the ABI-encoded order.
+     * @dev Refunds the remaining escrow to the creator. Only the creator may cancel until the
+     * deadline.
      */
     function _cancelSameChain(Order calldata order, bytes32 commitment) internal {
         if (order.user != bytes32(uint256(uint160(msg.sender))) && _blockNumber() <= order.deadline) {

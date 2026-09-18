@@ -21,12 +21,16 @@ The ABI lost the host-only `setRelayer` and `upgradeToAndCall` (now reached only
 
 | Contract | Responsibility |
 |---|---|
-| `IntentGatewayV2` | External guards, placement, selection, fill/cancel validation, initialization and migration |
-| `IntrinsicModule` | Same-chain fills and cancellation |
-| `ExtrinsicModule` | Cross-chain fills, cancellation proofs, escrow settlement and governance |
+| `IntentGatewayV2` | External guards, placement, selection, fill/cancel validation, the steps every fill shares, initialization and migration |
+| `IntrinsicModule` | Same-chain leg payment and escrow release, and cancellation |
+| `ExtrinsicModule` | Cross-chain leg payment and redemption requests, cancellation proofs, escrow settlement and governance |
 
-Both fill paths use the accounting and rate arithmetic in `IntentsBase`. The gateway validates
-and delegatecalls the matching module. `setRelayer` and `upgradeToAndCall` exist only on the
+Both fill paths use the accounting and rate arithmetic in `IntentsBase`. `fillOrder` validates the
+fill, claims the order in `_filled` and delegatecalls the matching module's `fillOrder`. The module
+pays the legs, settles the released escrow for its route and returns the `FillResult`. The gateway
+then finishes the fill the same way for both routes. A completing fill runs the output calldata and
+emits `OrderFilled`. Any other fill clears the claim and emits `PartialFill`. Either way, unspent
+native value goes back to the solver. `setRelayer` and `upgradeToAndCall` exist only on the
 extrinsic module and are reached through the host-authorized `Execute` request.
 
 ## Rules
@@ -72,10 +76,10 @@ extrinsic module and are reached through the host-authorized `Execute` request.
   install any implementation. It cannot select anything on the implementation, so `migrate(owner)`
   runs only as `upgradeToAndCall` init data; an `Execute` body naming it directly fails with
   `FailedCall()`.
-- **Reverts bubble byte for byte.** `IntentGatewayV2._delegate` re-raises the module's revert
-  data verbatim, so custom errors raised inside a module such as `PartialFillNotAllowed`,
-  `NotExpired` and `UnknownOrder` keep the selectors the SDK matches, and string reasons from
-  tokens surface unchanged. `Expired`, `FillExpired`, `Filled` and `WrongChain` are raised by the
+- **Reverts bubble byte for byte.** `IntentGatewayV2._delegate` returns the module's return data,
+  which only `fillOrder` uses, and re-raises its revert data verbatim. Custom errors raised inside
+  a module such as `PartialFillNotAllowed`, `NotExpired` and `UnknownOrder` keep the selectors the
+  SDK matches, and string reasons from tokens surface unchanged. `Expired`, `FillExpired`, `Filled` and `WrongChain` are raised by the
   implementation's validation before any delegatecall, as before.
 - **Events and errors live in `IntentsBase`.** Module code emits from the proxy's address, so
   indexers see nothing new, and every ABI still contains the declarations. The OpenZeppelin
@@ -107,6 +111,10 @@ calldata re-encoding. Measured with `forge snapshot` before and after, on the fo
 Fills and cancels pay a cold access to the module address plus the re-encoding of the order into
 the module call; the callbacks forward `msg.data` as is and pay only the cold access and the hop.
 
+Fills also return their `FillResult` to the gateway, measured separately with the same method.
+That adds about 2.1k gas to a single-leg same-chain fill and about 2.6k to a single-leg
+cross-chain fill, and more for each extra leg.
+
 ## Solver quotes
 
 `fillOrder` takes one quote per order leg: `FillOptions.inputs[i]` is the most input the solver
@@ -122,9 +130,10 @@ split by `surplusShareBps` or kept whole by the protocol on output-call orders. 
 cross-chain proofs carry the credit, not the surplus. Rounding can release less than the full take,
 so unused ERC-20 budget stays with the solver and unused native value is refunded.
 
-The `inputs` field gives `fillOrder` the selector `0x68ddf058`. Gateway, modules and `SolverAccount`
-report release 3, which lands the module split, the owner and solver quotes on a proxy together.
-Bids signed against an earlier selector need new calldata and signatures.
+The `inputs` field gives `fillOrder` the selector `0x68ddf058`. Bids signed against an earlier
+selector need new calldata and signatures; `SolverAccount` still refuses those selectors on its
+plain ECDSA path. The gateway reports release 3, which lands the module split, the owner and solver
+quotes on a proxy together.
 
 ## Deploying and upgrading
 

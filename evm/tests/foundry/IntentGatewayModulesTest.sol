@@ -47,7 +47,7 @@ contract SwappedIntrinsicModule is IntentsBase {
 
     constructor() EIP712("IntentGateway", "2") {}
 
-    function fillSameChain(Order calldata, FillOptions calldata, bytes32) external payable {
+    function fillOrder(Order calldata, FillOptions calldata, bytes32) external payable {
         revert ModuleSwapped();
     }
 }
@@ -58,7 +58,7 @@ contract SwappedExtrinsicModule is IntentsBase {
 
     constructor() EIP712("IntentGateway", "2") {}
 
-    function fillCrossChain(Order calldata, FillOptions calldata, bytes32) external payable {
+    function fillOrder(Order calldata, FillOptions calldata, bytes32) external payable {
         revert ExtrinsicSwapped();
     }
 }
@@ -212,12 +212,12 @@ contract IntentGatewayModulesTest is MainnetForkBaseTest {
         bytes32 commitment = keccak256(abi.encode(order));
 
         vm.expectRevert(IntentsBase.Unauthorized.selector);
-        intrinsic.fillSameChain(order, fill, commitment);
+        intrinsic.fillOrder(order, fill, commitment);
         vm.expectRevert(IntentsBase.Unauthorized.selector);
         intrinsic.cancelSameChain(order, commitment);
 
         vm.expectRevert(IntentsBase.Unauthorized.selector);
-        extrinsic.fillCrossChain(order, fill, commitment);
+        extrinsic.fillOrder(order, fill, commitment);
         vm.expectRevert(IntentsBase.Unauthorized.selector);
         extrinsic.cancelFromSource(order, cancel, commitment);
         vm.expectRevert(IntentsBase.Unauthorized.selector);

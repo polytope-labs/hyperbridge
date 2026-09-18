@@ -608,21 +608,13 @@ contract IntentGatewayV2MultiLegTest is MainnetForkBaseTest {
         gateway.placeOrder(order, bytes32(0));
     }
 
-    /// @notice A fill refuses an output token with its upper 12 bytes set, on the same chain and on the
-    /// destination of a cross-chain order, so `_isRepeatedToken` never sees one token in two forms.
-    function testFill_RejectsOutputTokenWithUpperBytesSet() public {
-        bytes32 aliasedDai = daiToken | bytes32(uint256(1) << 255);
-
-        Order memory sameChain = _ladder("", host.host());
-        sameChain.output.assets[1].token = aliasedDai;
-        (sameChain,) = _place(gateway, sameChain);
+    /// @notice An output token with any of its upper 12 bytes set is refused too.
+    function testPlaceOrder_RejectsOutputTokenWithUpperBytesSet() public {
+        Order memory order = _ladder("", host.host());
+        order.output.assets[1].token = daiToken | bytes32(uint256(1) << 255);
+        vm.prank(user);
         vm.expectRevert(IntentsBase.InvalidInput.selector);
-        _fill(solverA, sameChain, 1200 * 1e18, 990 * 1e18);
-
-        Order memory crossChain = _ladder(bytes("SOURCE_CHAIN"), host.host());
-        crossChain.output.assets[1].token = aliasedDai;
-        vm.expectRevert(IntentsBase.InvalidInput.selector);
-        _fill(solverA, crossChain, 1200 * 1e18, 990 * 1e18);
+        gateway.placeOrder(order, bytes32(0));
     }
 
     // ── cross-chain ───────────────────────────────────────────────────────────

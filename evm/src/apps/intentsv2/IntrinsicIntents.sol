@@ -15,7 +15,7 @@
 pragma solidity ^0.8.24;
 
 import {IntentsBase} from "./IntentsBase.sol";
-import {TokenInfo, Order, Params, WithdrawalRequest, FillOptions} from "@hyperbridge/core/apps/IntentGatewayV2.sol";
+import {TokenInfo, Order, Params, FillOptions} from "@hyperbridge/core/apps/IntentGatewayV2.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
@@ -36,10 +36,15 @@ abstract contract IntrinsicIntents is IntentsBase {
         returns (FillResult memory result)
     {
         result = _fillLegs(order, options, commitment);
-        WithdrawalRequest memory body = WithdrawalRequest({
-            commitment: commitment, tokens: result.releasedInputs, beneficiary: bytes32(uint256(uint160(msg.sender)))
-        });
-        _withdraw(body, false, result.fullyFilled);
+        _withdraw(
+            Withdrawal({
+                commitment: commitment,
+                beneficiary: bytes32(uint256(uint160(msg.sender))),
+                tokens: result.releasedInputs,
+                isRefund: false,
+                finalize: result.fullyFilled
+            })
+        );
     }
 
     /**
@@ -64,9 +69,14 @@ abstract contract IntrinsicIntents is IntentsBase {
         }
         if (!hasEscrow) revert UnknownOrder();
 
-        WithdrawalRequest memory body =
-            WithdrawalRequest({commitment: commitment, tokens: remainingTokens, beneficiary: order.user});
-
-        _withdraw(body, true, true);
+        _withdraw(
+            Withdrawal({
+                commitment: commitment,
+                beneficiary: order.user,
+                tokens: remainingTokens,
+                isRefund: true,
+                finalize: true
+            })
+        );
     }
 }

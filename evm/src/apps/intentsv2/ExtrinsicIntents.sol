@@ -220,15 +220,18 @@ abstract contract ExtrinsicIntents is IntentsBase, HyperApp {
         ) {
             _authenticate(incoming.request);
             WithdrawalRequest memory body = abi.decode(incoming.request.body[1:], (WithdrawalRequest));
-            // An order can be cancelled from both chains, and each only sees its own `_filled`. Once one cancel
-            // has finalized it here, a RefundEscrow from the other would refund the same unfilled slice again,
-            // out of the escrow reserved for redeems still in flight. Redeems stay allowed: they consume it.
+            // Refuse destination-chain cancel if source-chain already cancelled
             if (kind == RequestKind.RefundEscrow && _filled[body.commitment] != address(0)) revert Filled();
-            // A partial redeem must not finalize: escrow stays open for further redeems / a cancel
-            // refund, and the fee pot is left for the completing redeem. _withdraw emits EscrowReleased
-            // regardless of finalize, so the partial release is still observable on the source chain.
-            bool finalize = kind != RequestKind.RedeemEscrowPartial;
-            return _withdraw(body, kind == RequestKind.RefundEscrow, finalize);
+            // A partial redeem doesn't finalize, leaving the escrow and fees for later redeems or a cancel.
+            return _withdraw(
+                Withdrawal({
+                    commitment: body.commitment,
+                    beneficiary: body.beneficiary,
+                    tokens: body.tokens,
+                    isRefund: kind == RequestKind.RefundEscrow,
+                    finalize: kind != RequestKind.RedeemEscrowPartial
+                })
+            );
         }
 
         // only hyperbridge is permitted to perform these actions
@@ -282,11 +285,14 @@ abstract contract ExtrinsicIntents is IntentsBase, HyperApp {
         }
         _clearProofValueIndex(proofSlots);
 
-        // `_filled` is already set above for idempotency. Finalize — which flushes the prepaid fee
-        // pot to the user — only when the order did not fully fill; a fully-filled order's fees belong
-        // to the completing solver. _withdraw emits EscrowRefunded for the refunded tokens.
         _withdraw(
-            WithdrawalRequest({commitment: commitment, tokens: refunds, beneficiary: beneficiary}), true, !fullyFilled
+            Withdrawal({
+                commitment: commitment,
+                beneficiary: beneficiary,
+                tokens: refunds,
+                isRefund: true,
+                finalize: !fullyFilled
+            })
         );
     }
 
@@ -328,7 +334,7 @@ abstract contract ExtrinsicIntents is IntentsBase, HyperApp {
     }
 
     /**
-     * @dev Clears the index from transient storage, so a later response 
+     * @dev Clears the index from transient storage, so a later response
      * in the same transaction cannot read it.
      */
     function _clearProofValueIndex(bytes32[] memory slots) internal {

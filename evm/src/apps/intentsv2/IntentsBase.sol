@@ -23,7 +23,6 @@ import {
     Params,
     ParamsUpdate,
     SweepDust,
-    WithdrawalRequest,
     SelectOptions,
     Deployment
 } from "@hyperbridge/core/apps/IntentGatewayV2.sol";
@@ -208,6 +207,20 @@ abstract contract IntentsBase is EIP712 {
         bool fullyFilled;
         /// @dev `msg.value` left after native outputs were paid.
         uint256 nativeRemaining;
+    }
+
+    /// @dev A payout from an order's escrow. Unlike `WithdrawalRequest`, never sent cross-chain.
+    struct Withdrawal {
+        /// @dev The order whose escrow is paid out.
+        bytes32 commitment;
+        /// @dev Receives the tokens, and is recorded in `_filled` on finalize.
+        bytes32 beneficiary;
+        /// @dev Amount paid out of each leg's escrow, by leg index.
+        TokenInfo[] tokens;
+        /// @dev Emits `EscrowRefunded` instead of `EscrowReleased`.
+        bool isRefund;
+        /// @dev Settles the order and its fees.
+        bool finalize;
     }
 
     /**
@@ -633,24 +646,25 @@ abstract contract IntentsBase is EIP712 {
     }
 
     /**
-     * @dev Pays `body.tokens[i]` out of leg `i`'s escrow to the beneficiary. `finalize` settles the
-     * order and its fees; `isRefund` emits `EscrowRefunded` instead of `EscrowReleased`.
+     * @dev Pays `withdrawal.tokens[i]` out of leg `i`'s escrow to the beneficiary.
      */
-    function _withdraw(WithdrawalRequest memory body, bool isRefund, bool finalize) internal {
-        address beneficiary = address(uint160(uint256(body.beneficiary)));
-        if (finalize) _filled[body.commitment] = beneficiary;
+    function _withdraw(Withdrawal memory withdrawal) internal {
+        address beneficiary = address(uint160(uint256(withdrawal.beneficiary)));
+        if (withdrawal.finalize) _filled[withdrawal.commitment] = beneficiary;
 
-        uint256 len = body.tokens.length;
+        uint256 len = withdrawal.tokens.length;
         for (uint256 i; i < len; i++) {
-            address token = address(uint160(uint256(body.tokens[i].token)));
-            uint256 amount = body.tokens[i].amount;
+            address token = address(uint160(uint256(withdrawal.tokens[i].token)));
+            uint256 amount = withdrawal.tokens[i].amount;
             // A final redeem may carry zero principal after earlier slices were delivered.
-            // Only finalize settles fees: fully-filled cancel proofs leave them for the solver redeem.
-            uint256 refund = finalize ? _settleProtocolFee(body.commitment, i, token, isRefund ? amount : 0) : 0;
+            // Only finalizing settles fees: fully-filled cancel proofs leave them for the solver redeem.
+            uint256 refund = withdrawal.finalize
+                ? _settleProtocolFee(withdrawal.commitment, i, token, withdrawal.isRefund ? amount : 0)
+                : 0;
             if (amount > 0) {
-                uint256 escrowed = _orders[body.commitment][i];
+                uint256 escrowed = _orders[withdrawal.commitment][i];
                 if (escrowed == 0) revert UnknownOrder();
-                _orders[body.commitment][i] = escrowed - amount;
+                _orders[withdrawal.commitment][i] = escrowed - amount;
             }
 
             uint256 transferAmount = amount + refund;
@@ -665,18 +679,18 @@ abstract contract IntentsBase is EIP712 {
         // Fees and the filled-marker are only settled on finalization; the release/refund event is
         // emitted for every withdrawal (including non-finalizing partial redeems and cancel refunds)
         // so escrow movement is always observable.
-        if (finalize) {
-            uint256 fees = _orders[body.commitment][TRANSACTION_FEES];
+        if (withdrawal.finalize) {
+            uint256 fees = _orders[withdrawal.commitment][TRANSACTION_FEES];
             if (fees > 0) {
-                delete _orders[body.commitment][TRANSACTION_FEES];
+                delete _orders[withdrawal.commitment][TRANSACTION_FEES];
                 IERC20(IDispatcher(host()).feeToken()).safeTransfer(beneficiary, fees);
             }
         }
 
-        if (isRefund) {
-            emit EscrowRefunded({commitment: body.commitment, tokens: body.tokens});
+        if (withdrawal.isRefund) {
+            emit EscrowRefunded({commitment: withdrawal.commitment, tokens: withdrawal.tokens});
         } else {
-            emit EscrowReleased({commitment: body.commitment, solver: beneficiary, tokens: body.tokens});
+            emit EscrowReleased({commitment: withdrawal.commitment, solver: beneficiary, tokens: withdrawal.tokens});
         }
     }
 

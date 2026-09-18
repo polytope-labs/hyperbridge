@@ -697,6 +697,7 @@ export class ContractInteractionService {
 			// they choose the moment of execution and we are committed to the old price.
 			validUntil: await this.bidValidUntilBlock(order.destination),
 			outputs: cachedFillerOutputs,
+			inputs: [],
 		}
 
 		// dispatchWithFeeToken pulls relayerFee in fee token from the solver.

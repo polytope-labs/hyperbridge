@@ -40,7 +40,7 @@ function gatewayClient(state: { keying: "leg" | "token" | "down"; values: Record
 					state.calls.push(selector)
 					if (state.keying === "down") throw new Error("fetch failed")
 					const answers = state.keying === "leg" ? LEG : TOKEN
-					if (!answers.includes(selector)) {
+					if (!answers.includes(selector as HexString)) {
 						// What an HTTP RPC returns for a call to a selector the implementation lacks.
 						throw new RpcRequestError({
 							body: {},

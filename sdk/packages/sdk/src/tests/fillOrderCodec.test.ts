@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest"
-import { slice, keccak256, createPublicClient, custom } from "viem"
+import { slice, keccak256, createPublicClient, custom, type PublicClient } from "viem"
 import { baseSepolia } from "viem/chains"
 import {
 	encodeFillOrder,
@@ -279,7 +279,10 @@ describe("missing version getter classification with real viem errors", () => {
 			if (rpcError) throw Object.assign(new Error(rpcError.message), rpcError)
 			return "0x"
 		})
-		return createPublicClient({ chain: baseSepolia, transport: custom({ request }, { retryCount: 0 }) })
+		return createPublicClient({
+			chain: baseSepolia,
+			transport: custom({ request }, { retryCount: 0 }),
+		}) as unknown as PublicClient
 	}
 
 	it.each([

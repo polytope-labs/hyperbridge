@@ -23,13 +23,14 @@ describe("previewRateFill", () => {
 	})
 
 	it("rejects zero values and invalid existing progress", () => {
-		for (const args of [
+		const cases: [bigint, bigint, bigint, bigint, bigint][] = [
 			[0n, 1n, 0n, 1n, 1n],
 			[1n, 0n, 0n, 1n, 1n],
 			[1n, 1n, 0n, 0n, 1n],
 			[1n, 1n, 0n, 1n, 0n],
 			[1n, 1n, 2n, 1n, 1n],
-		] as const) {
+		]
+		for (const args of cases) {
 			expect(() => previewRateFill(...args)).toThrow()
 		}
 	})

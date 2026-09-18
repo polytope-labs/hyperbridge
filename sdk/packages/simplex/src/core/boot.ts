@@ -513,23 +513,25 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 	// Limit orders are inventory the operator opens while the filler runs, so the
 	// service exists as soon as an orderbook is configured, whether or not any
 	// order has been created yet.
-	const limitOrderService = config.orderbook
-		? new LimitOrderService(
-				options.data.limitOrders,
-				new OrderbookClient(
-					config.orderbook.url,
-					config.orderbook.requestTimeoutMs ?? DEFAULT_ORDERBOOK_TIMEOUT_MS,
-					options.loggers,
-				),
-				contractService,
-				configService,
-				assetRegistry,
-				runtimeSigner,
-				config.orderbook.defaultTtlSecs ?? MIN_ORDER_TTL_SECONDS,
-				new DelegationService(chainClientManager, configService, runtimeSigner),
-				options.loggers,
-			)
-		: undefined
+	// `validateConfig` refuses a config without an [orderbook] section, so a filler
+	// that reached here has one. Checked rather than asserted: boot is also entered
+	// from the setup API, and a filler with no orderbook has nothing to price from.
+	if (!config.orderbook) throw new Error("an [orderbook] section is required")
+	const limitOrderService = new LimitOrderService(
+		options.data.limitOrders,
+		new OrderbookClient(
+			config.orderbook.url,
+			config.orderbook.requestTimeoutMs ?? DEFAULT_ORDERBOOK_TIMEOUT_MS,
+			options.loggers,
+		),
+		contractService,
+		configService,
+		assetRegistry,
+		runtimeSigner,
+		config.orderbook.defaultTtlSecs ?? MIN_ORDER_TTL_SECONDS,
+		new DelegationService(chainClientManager, configService, runtimeSigner),
+		options.loggers,
+	)
 
 	// Initialize (sets up EIP-7702 delegation if solver selection is configured)
 	try {

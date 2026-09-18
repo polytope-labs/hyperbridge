@@ -38,6 +38,7 @@ export function toHuman(amount: bigint): string {
 	const whole = amount / ORDERBOOK_SCALE
 	const fraction = (amount % ORDERBOOK_SCALE).toString().padStart(18, "0").replace(/0+$/, "")
 	return fraction ? `${whole}.${fraction}` : whole.toString()
+}
 
 /** A raw on-chain amount back at 1e18, the unit limit orders are kept in. */
 export function toScaled(amount: bigint, decimals: number): bigint {

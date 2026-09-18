@@ -17,7 +17,6 @@ import {
 	transformOrderForContract,
 	type TokenInfo,
 	encodeFillOrder,
-	getFillOptionsVersion,
 	readLegPartialFill,
 } from "@hyperbridge/sdk"
 import { ERC20_ABI } from "@/config/abis/ERC20"
@@ -55,8 +54,6 @@ export class ContractInteractionService {
 	public cacheService: CacheService
 	private logger: Logger
 
-	/** Chains already warned about a gateway with no validUntil support. */
-	private readonly warnedNoValidUntil = new Set<string>()
 	private sdkHelperCache: Map<string, IntentGateway> = new Map()
 	private solverAccountAddress: HexString
 	private signer: Signer
@@ -678,9 +675,10 @@ export class ContractInteractionService {
 
 		// Use cached filler outputs (calculated based on bps) for competitive bidding
 		const cachedFillerOutputs = this.cacheService.getFillerOutputs(order.id!)
+		const cachedFillerInputs = this.cacheService.getFillerInputs(order.id!)
 
-		if (!cachedFillerOutputs) {
-			throw new Error(`No cached filler outputs found for order ${order.id}. Call calculateProfitability first.`)
+		if (!cachedFillerOutputs || !cachedFillerInputs) {
+			throw new Error(`No cached filler quote found for order ${order.id}. Call calculateProfitability first.`)
 		}
 
 		const sdkHelper = await this.getIntentGateway(order.source, order.destination)
@@ -697,7 +695,8 @@ export class ContractInteractionService {
 			// they choose the moment of execution and we are committed to the old price.
 			validUntil: await this.bidValidUntilBlock(order.destination),
 			outputs: cachedFillerOutputs,
-			inputs: [],
+			// One take per leg, paired with its output; the gateway settles the pair as our rate.
+			inputs: cachedFillerInputs,
 		}
 
 		// dispatchWithFeeToken pulls relayerFee in fee token from the solver.
@@ -861,22 +860,10 @@ export class ContractInteractionService {
 			.filter((asset) => bytes32ToBytes20(asset.token) === ADDRESS_ZERO)
 			.reduce((sum, asset) => sum + asset.amount, 0n)
 
-		// Gateways predating `FillOptions.validUntil` take a differently-shaped (and
-		// differently-selectored) fillOrder, so the encoding has to match the deployment.
-		const fillOptionsVersion = await getFillOptionsVersion(destClient as any, intentGatewayV2Address)
-		if (fillOptionsVersion === 1 && fillOptions.validUntil !== 0n && !this.warnedNoValidUntil.has(chain)) {
-			this.warnedNoValidUntil.add(chain)
-			this.logger.warn(
-				{ chain, gateway: intentGatewayV2Address },
-				"IntentGateway predates FillOptions.validUntil — bids on this chain carry no expiry and stay " +
-					"executable until the order's own deadline. Upgrade the gateway to bound them.",
-			)
-		}
-
 		calls.push({
 			target: intentGatewayV2Address,
 			value: nativeOutputValue,
-			data: encodeFillOrder(transformOrderForContract(order) as any, fillOptions, fillOptionsVersion),
+			data: encodeFillOrder(transformOrderForContract(order) as any, fillOptions),
 		})
 
 		return encodeERC7821ExecuteBatch(calls)

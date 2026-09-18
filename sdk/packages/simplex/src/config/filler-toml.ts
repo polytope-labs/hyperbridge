@@ -141,7 +141,6 @@ export interface FillerTomlConfig {
 		 * executable indefinitely and is taken up only once the rate has moved against us.
 		 *
 		 * Configured in seconds but written on-chain in blocks, converted per destination chain.
-		 * Ignored on gateways predating `FillOptions.validUntil` — there is nowhere to put it.
 		 */
 		bidValiditySeconds?: number
 		/**

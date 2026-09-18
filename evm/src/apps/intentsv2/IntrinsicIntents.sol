@@ -29,12 +29,11 @@ abstract contract IntrinsicIntents is IntentsBase {
     using SafeERC20 for IERC20;
 
     /**
-     * @dev Delivers output and releases the corresponding local escrow for each leg.
-     * Partial fills reopen the order for another solver. A completing fill also executes
-     * the beneficiary's calldata; `_fillLegs` rejects incomplete fills that carry calldata.
+     * @dev Pays each leg and releases the escrow it earns, all on this chain. A partial fill
+     * reopens the order for another solver; a completing fill also runs the beneficiary's calldata.
+     * `_fillLegs` rejects a partial fill that carries calldata.
      * @param order The order being filled.
-     * @param options The solver's paired input capacities and output budgets, whose ratio prices
-     * actual released input, plus fee parameters.
+     * @param options The solver's per-leg quotes and fees.
      * @param commitment The keccak256 hash of the ABI-encoded order.
      */
     function _fillSameChain(Order calldata order, FillOptions calldata options, bytes32 commitment) internal {

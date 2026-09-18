@@ -15,7 +15,7 @@ contract RateFillMathHarness is IntentsBase {
         uint256 quotedInput,
         uint256 offeredOutput
     ) external pure returns (uint256, uint256, uint256) {
-        return _quoteRateFill(escrowInput, requiredOutput, previousCredit, quotedInput, offeredOutput);
+        return _priceLeg(escrowInput, requiredOutput, previousCredit, quotedInput, offeredOutput);
     }
 }
 

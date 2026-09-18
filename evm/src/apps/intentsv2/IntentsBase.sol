@@ -199,6 +199,17 @@ abstract contract IntentsBase is EIP712 {
     /// by (commitment, leg index) like `_orders`.
     mapping(bytes32 => mapping(uint256 => ProtocolFee)) public _protocolFees;
 
+    /// @dev One fill's per-leg outcome, handed back to the same-chain or cross-chain caller to settle.
+    struct FillResult {
+        /// @dev Escrow released to the solver per leg; zero for legs this fill did not advance.
+        TokenInfo[] releasedInputs;
+        /// @dev Output credited to the order per leg, excluding surplus.
+        TokenInfo[] creditedOutputs;
+        bool fullyFilled;
+        /// @dev `msg.value` left after native outputs were paid.
+        uint256 nativeRemaining;
+    }
+
     /**
      * @dev This contract's own address. Under delegatecall `address(this)` is the proxy instead,
      * so a module uses this to refuse direct calls and to delegatecall itself for `Execute`.
@@ -476,28 +487,26 @@ abstract contract IntentsBase is EIP712 {
         if (!sent) revert InsufficientNativeToken();
     }
 
-    struct FillResult {
-        TokenInfo[] releasedInputs;
-        TokenInfo[] creditedOutputs;
-        bool fullyFilled;
-        uint256 nativeRemaining;
-    }
-
-    /// @dev Checks every quoted leg, including skipped and completed legs, before settlement.
+    /// @dev Shape checks for every leg, skipped and completed ones included, before any transfer.
     function _validateLegs(Order calldata order, FillOptions calldata options) private pure {
         for (uint256 i; i < order.output.assets.length; ++i) {
             bytes32 inputToken = order.inputs[i].token;
             bytes32 outputToken = order.output.assets[i].token;
-            if (options.inputs[i].token != inputToken) revert InvalidInput();
+            // Every use of a token reads the address in its low 20 bytes. Anything above would let one
+            // token pass `_isRepeatedToken` as two.
             if (uint256(inputToken) >> 160 != 0 || uint256(outputToken) >> 160 != 0) revert InvalidInput();
-            // A skipped leg must quote zero input and zero output together.
+            if (options.inputs[i].token != inputToken || options.outputs[i].token != outputToken) {
+                revert InvalidInput();
+            }
+            // A leg is skipped by quoting zero on both sides, never on one.
             if ((options.inputs[i].amount == 0) != (options.outputs[i].amount == 0)) revert InvalidInput();
-            if (options.outputs[i].token != outputToken) revert InvalidInput();
         }
     }
 
-    /// @dev Records each leg's credited output and delivers its payment. The caller settles
-    /// released inputs locally or sends them to the source chain in a redemption request.
+    /// @dev Prices and pays every leg of a fill and records its progress. The caller releases
+    /// `releasedInputs` locally or carries them to the source chain in a redemption request.
+    /// The callers' claim, unclaim and events stay with them: folding them in here puts the
+    /// via-IR frame one slot over the stack limit.
     function _fillLegs(Order calldata order, FillOptions calldata options, bytes32 commitment)
         internal
         returns (FillResult memory result)
@@ -511,9 +520,9 @@ abstract contract IntentsBase is EIP712 {
         bool madeProgress;
 
         for (uint256 i; i < legCount; ++i) {
-            // Keep one result per leg, including skipped and already-completed legs.
+            bytes32 outputToken = order.output.assets[i].token;
             result.releasedInputs[i].token = order.inputs[i].token;
-            result.creditedOutputs[i].token = order.output.assets[i].token;
+            result.creditedOutputs[i].token = outputToken;
             uint256 previousCredit = _partialFills[commitment][i];
             uint256 requiredOutput = order.output.assets[i].amount;
             if (previousCredit == requiredOutput || options.outputs[i].amount == 0) {
@@ -521,7 +530,7 @@ abstract contract IntentsBase is EIP712 {
                 continue;
             }
 
-            (uint256 creditedOutput, uint256 releasedInput, uint256 deliveredOutput) = _quoteRateFill(
+            (uint256 credited, uint256 released, uint256 paid) = _priceLeg(
                 order.inputs[i].amount,
                 requiredOutput,
                 previousCredit,
@@ -529,38 +538,35 @@ abstract contract IntentsBase is EIP712 {
                 options.outputs[i].amount
             );
 
-            // Surplus is paid to the beneficiary/protocol but never advances order progress.
-            uint256 updatedCredit = previousCredit + creditedOutput;
-            _partialFills[commitment][i] = updatedCredit;
-            if (updatedCredit < requiredOutput) result.fullyFilled = false;
+            _partialFills[commitment][i] = previousCredit + credited;
+            if (previousCredit + credited < requiredOutput) result.fullyFilled = false;
             madeProgress = true;
-            result.releasedInputs[i].amount = releasedInput;
-            result.creditedOutputs[i].amount = creditedOutput;
-
-            result.nativeRemaining =
-                _deliverOutput(order.output, result.creditedOutputs[i], deliveredOutput, result.nativeRemaining);
+            result.releasedInputs[i].amount = released;
+            result.creditedOutputs[i].amount = credited;
+            result.nativeRemaining = _payLeg(order.output, outputToken, credited, paid, result.nativeRemaining);
         }
 
         if (!madeProgress) revert RateFillTooSmall();
         if (order.output.call.length > 0 && !result.fullyFilled) revert PartialFillNotAllowed();
     }
 
-    /// @dev Pays credited output and splits the surplus, retaining the protocol's share here.
-    function _deliverOutput(
+    /// @dev Transfers one leg's payment: the credited amount plus the beneficiary's share of the
+    /// surplus goes to the beneficiary, the protocol's share stays here. Returns the native value left.
+    function _payLeg(
         PaymentInfo calldata payment,
-        TokenInfo memory creditedOutput,
-        uint256 deliveredOutput,
+        bytes32 outputToken,
+        uint256 credited,
+        uint256 paid,
         uint256 nativeRemaining
     ) private returns (uint256) {
-        uint256 surplus = deliveredOutput - creditedOutput.amount;
-        (uint256 protocolShare, uint256 beneficiaryShare) = _splitSurplus(surplus, payment.call.length > 0);
-        uint256 beneficiaryAmount = creditedOutput.amount + beneficiaryShare;
-        address token = address(uint160(uint256(creditedOutput.token)));
+        (uint256 protocolShare, uint256 beneficiaryShare) = _splitSurplus(paid - credited, payment.call.length > 0);
+        uint256 beneficiaryAmount = credited + beneficiaryShare;
+        address token = address(uint160(uint256(outputToken)));
         address beneficiary = address(uint160(uint256(payment.beneficiary)));
 
         if (token == address(0)) {
-            if (nativeRemaining < deliveredOutput) revert InsufficientNativeToken();
-            nativeRemaining -= deliveredOutput;
+            if (nativeRemaining < paid) revert InsufficientNativeToken();
+            nativeRemaining -= paid;
             _sendValue(beneficiary, beneficiaryAmount);
         } else {
             IERC20(token).safeTransferFrom(msg.sender, beneficiary, beneficiaryAmount);
@@ -571,34 +577,35 @@ abstract contract IntentsBase is EIP712 {
         return nativeRemaining;
     }
 
-    /// @dev A quote pairs a maximum input take with an offered output payment. Credit follows
-    /// the order's rate; any payment above that credit is surplus.
-    function _quoteRateFill(
+    /**
+     * @dev Prices one leg of a fill against the solver's quote of `quotedInput` for `offeredOutput`.
+     *
+     * The order's rate, `requiredOutput / escrowInput`, decides what the take buys: `credited` is the
+     * quoted input at that rate, capped to what the leg still needs. `released` is the escrow that
+     * credit unlocks, taken as a difference of cumulative floors so the completing fill drains the
+     * leg exactly. `paid` is the released input at the solver's own rate, rounded up and never below
+     * `credited`; whatever exceeds `credited` is surplus.
+     */
+    function _priceLeg(
         uint256 escrowInput,
         uint256 requiredOutput,
         uint256 previousCredit,
         uint256 quotedInput,
         uint256 offeredOutput
-    ) internal pure returns (uint256 creditedOutput, uint256 releasedInput, uint256 deliveredOutput) {
+    ) internal pure returns (uint256 credited, uint256 released, uint256 paid) {
         if (escrowInput == 0 || requiredOutput == 0 || quotedInput == 0 || offeredOutput == 0) {
             revert RateFillTooSmall();
         }
 
-        // Round the minimum payment up so the quote cannot fall below the order's price.
         uint256 minimumOutput = Math.mulDiv(quotedInput, requiredOutput, escrowInput, Math.Rounding.Ceil);
         if (minimumOutput > offeredOutput) revert RateBelowOrder();
 
-        uint256 remainingOutput = requiredOutput - previousCredit;
-        creditedOutput = Math.min(Math.mulDiv(quotedInput, requiredOutput, escrowInput), remainingOutput);
+        credited = Math.min(Math.mulDiv(quotedInput, requiredOutput, escrowInput), requiredOutput - previousCredit);
+        released = _cumulativeReleased(escrowInput, previousCredit + credited, requiredOutput)
+            - _cumulativeReleased(escrowInput, previousCredit, requiredOutput);
+        if (credited == 0 || released == 0) revert RateFillTooSmall();
 
-        // Subtract cumulative floors so the completing fill releases all remaining escrow.
-        uint256 previouslyReleased = _cumulativeReleased(escrowInput, previousCredit, requiredOutput);
-        uint256 cumulativeRelease = _cumulativeReleased(escrowInput, previousCredit + creditedOutput, requiredOutput);
-        releasedInput = cumulativeRelease - previouslyReleased;
-        if (creditedOutput == 0 || releasedInput == 0) revert RateFillTooSmall();
-
-        uint256 ratePayment = Math.mulDiv(offeredOutput, releasedInput, quotedInput, Math.Rounding.Ceil);
-        deliveredOutput = Math.max(creditedOutput, ratePayment);
+        paid = Math.max(credited, Math.mulDiv(offeredOutput, released, quotedInput, Math.Rounding.Ceil));
     }
 
     /// @dev Splits overpayment between protocol and beneficiary. An order with output calldata

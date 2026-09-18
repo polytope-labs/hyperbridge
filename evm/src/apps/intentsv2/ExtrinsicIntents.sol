@@ -130,12 +130,11 @@ abstract contract ExtrinsicIntents is IntentsBase, HyperApp {
     }
 
     /**
-     * @dev Delivers output on this chain and requests the matching per-leg escrow from
-     * the source chain. Partial fills send RedeemEscrowPartial and reopen the order;
-     * a completing fill executes beneficiary calldata and sends RedeemEscrow.
+     * @dev Pays each leg here and asks the source chain for the escrow it earns. A partial fill
+     * sends `RedeemEscrowPartial` and reopens the order; a completing fill runs the beneficiary's
+     * calldata and sends `RedeemEscrow`, which also settles fees.
      * @param order The cross-chain order being filled.
-     * @param options Paired input capacities and output budgets used to price actual releases,
-     * plus dispatch fees.
+     * @param options The solver's per-leg quotes and dispatch fees.
      * @param commitment The keccak256 hash of the ABI-encoded order.
      */
     function _fillCrossChain(Order calldata order, FillOptions calldata options, bytes32 commitment) internal {

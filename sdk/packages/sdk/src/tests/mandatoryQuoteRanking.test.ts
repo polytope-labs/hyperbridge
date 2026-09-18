@@ -37,6 +37,7 @@ function manager() {
 					getUsdtAsset: () => `0x${"22".repeat(20)}`,
 					getUsdcDecimals: () => 6,
 					getUsdtDecimals: () => 6,
+					getWrappedNativeAssetWithDecimals: () => ({ asset: token, decimals: 18 }),
 				},
 			},
 		} as never,
@@ -89,9 +90,9 @@ describe("mandatory multi-leg quotes", () => {
 		const partial = quote([0n, 100n], [0n, 120n])
 		partial.outputs[0].token = exotic
 		const bids = manager()
-		;(bids as any).ctx.dest.configService.getWrappedNativeAssetWithDecimals = () => ({ asset: token, decimals: 18 })
 		// The DEX dependency refuses a zero-amount swap, as a real router does.
-		vi.spyOn(bids as any, "quoteTokenToUsdc").mockImplementation(async (_token: unknown, amount: unknown) => {
+		const dex = bids as unknown as { quoteTokenToUsdc(token: HexString, amount: bigint): Promise<bigint> }
+		vi.spyOn(dex, "quoteTokenToUsdc").mockImplementation(async (_token, amount) => {
 			if (amount === 0n) throw new Error("Zero amount swap")
 			return amount
 		})

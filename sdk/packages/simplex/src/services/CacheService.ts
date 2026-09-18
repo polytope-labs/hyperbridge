@@ -1,4 +1,4 @@
-import type { ERC7821Call } from "@hyperbridge/sdk"
+import type { ERC7821Call, TokenInfo } from "@hyperbridge/sdk"
 import type { HexString } from "@hyperbridge/sdk"
 import { defaultLoggerContext, type Logger, type LoggerContext } from "./Logger"
 
@@ -61,6 +61,37 @@ interface FundingPrependsCache {
 	timestamp: number
 }
 
+/**
+ * One bid: what a single limit order pays for an incoming order, and what funds it.
+ *
+ * An order that several limit orders can serve produces several of these, one per
+ * order, each priced against the whole input at its own rate. They are never
+ * summed: each bid is its own fill, and the gateway clamps whichever one lands
+ * against what is still outstanding.
+ */
+export interface BidPlan {
+	limitOrderId: string
+	/** What this bid draws from that limit order, at 1e18. */
+	payout: bigint
+	/** The outputs the bid signs, in the output token's own units. */
+	fillerOutputs: TokenInfo[]
+	/** The take signed beside each output: the escrow this bid's fill earns. */
+	fillerInputs: TokenInfo[]
+	fundingCalls: ERC7821Call[]
+	partialFill: boolean
+	profit: number
+}
+
+interface BidPlanCache {
+	limitOrderId: string
+	payout: string
+	outputs: FillerOutputCache[]
+	inputs: FillerOutputCache[]
+	calls: FundingCallCache[]
+	partialFill: boolean
+	profit: number
+}
+
 interface CacheData {
 	gasEstimates: Record<string, GasEstimateCache>
 	swapOperations: Record<string, SwapOperationsCache>
@@ -69,6 +100,8 @@ interface CacheData {
 	fundingPrepends: Record<string, FundingPrependsCache>
 	/** The limit order an evaluation priced against, carried to the bid that draws on it. */
 	matchedLimitOrders: Record<string, { holds: { limitOrderId: string; payout: string }[]; timestamp: number }>
+	/** The bids an evaluation decided on, one per limit order it matched. */
+	bidPlans: Record<string, { plans: BidPlanCache[]; timestamp: number }>
 	/** Orders whose evaluation concluded in a deliberate partial fill. */
 	partialFills: Record<string, { partial: boolean; timestamp: number }>
 	feeTokens: Record<string, { address: HexString; decimals: number }>
@@ -90,6 +123,7 @@ export class CacheService {
 			pairClassifications: {},
 			fundingPrepends: {},
 			matchedLimitOrders: {},
+			bidPlans: {},
 			partialFills: {},
 			feeTokens: {},
 			tokenDecimals: {},
@@ -112,6 +146,9 @@ export class CacheService {
 		})
 
 		// Clean up matched limit orders
+		for (const [orderId, data] of Object.entries(this.cacheData.bidPlans)) {
+			if (!this.isCacheValid(data.timestamp)) delete this.cacheData.bidPlans[orderId]
+		}
 		for (const [orderId, data] of Object.entries(this.cacheData.matchedLimitOrders)) {
 			if (!this.isCacheValid(data.timestamp)) delete this.cacheData.matchedLimitOrders[orderId]
 		}
@@ -335,6 +372,64 @@ export class CacheService {
 			this.logger.error({ err: error }, "Error getting matched limit order")
 			return []
 		}
+	}
+
+	getBidPlans(orderId: string): BidPlan[] {
+		try {
+			const cache = this.cacheData.bidPlans[orderId]
+			if (!cache || !this.isCacheValid(cache.timestamp)) return []
+			return cache.plans.map((plan) => ({
+				limitOrderId: plan.limitOrderId,
+				payout: BigInt(plan.payout),
+				fillerOutputs: plan.outputs.map((output) => ({ token: output.token, amount: BigInt(output.amount) })),
+				fillerInputs: (plan.inputs ?? []).map((input) => ({ token: input.token, amount: BigInt(input.amount) })),
+				fundingCalls: plan.calls.map((call) => ({
+					target: call.target as HexString,
+					value: BigInt(call.value),
+					data: call.data as HexString,
+				})),
+				partialFill: plan.partialFill,
+				profit: plan.profit,
+			}))
+		} catch (error) {
+			this.logger.error({ err: error }, "Error getting bid plans")
+			return []
+		}
+	}
+
+	setBidPlans(orderId: string, plans: BidPlan[]): void {
+		try {
+			this.cleanupStaleData()
+			this.cacheData.bidPlans[orderId] = {
+				plans: plans.map((plan) => ({
+					limitOrderId: plan.limitOrderId,
+					payout: plan.payout.toString(),
+					outputs: plan.fillerOutputs.map((output) => ({
+						token: output.token as HexString,
+						amount: output.amount.toString(),
+					})),
+					inputs: plan.fillerInputs.map((input) => ({
+						token: input.token as HexString,
+						amount: input.amount.toString(),
+					})),
+					calls: plan.fundingCalls.map((call) => ({
+						target: call.target.toLowerCase(),
+						value: call.value.toString(),
+						data: call.data,
+					})),
+					partialFill: plan.partialFill,
+					profit: plan.profit,
+				})),
+				timestamp: Date.now(),
+			}
+		} catch (error) {
+			this.logger.error({ err: error }, "Error setting bid plans")
+			throw error
+		}
+	}
+
+	clearBidPlans(orderId: string): void {
+		delete this.cacheData.bidPlans[orderId]
 	}
 
 	setMatchedLimitOrder(orderId: string, holds: { limitOrderId: string; payout: bigint }[]): void {

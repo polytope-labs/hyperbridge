@@ -45,6 +45,7 @@ function makeEvalContractService(): any {
 	const outputs = new Map<string, TokenInfo[]>()
 	const inputs = new Map<string, TokenInfo[]>()
 	const partials = new Map<string, boolean>()
+	const bidPlans = new Map<string, unknown>()
 	return {
 		getTokenDecimals: async () => 18,
 		getFeeTokenWithDecimals: async () => ({ address: STABLE, decimals: 18 }),
@@ -64,6 +65,9 @@ function makeEvalContractService(): any {
 				inputs.set(id, takes)
 			},
 			setMatchedLimitOrder: () => {},
+			setBidPlans: (id: string, plans: unknown) => bidPlans.set(id, plans),
+			getBidPlans: (id: string) => bidPlans.get(id) ?? [],
+			clearBidPlans: (id: string) => bidPlans.delete(id),
 			clearPartialFill: (id: string) => partials.delete(id),
 			setPartialFill: (id: string, value: boolean) => partials.set(id, value),
 			getPartialFill: (id: string) => partials.get(id),
@@ -73,6 +77,7 @@ function makeEvalContractService(): any {
 		outputs,
 		inputs,
 		partials,
+		plans: bidPlans,
 	}
 }
 
@@ -92,6 +97,8 @@ async function makeFiller(options: {
 	balances: Record<string, bigint>
 	/** What the operator is offering to pay out, in whole EXOTIC. Defaults to plenty. */
 	offering?: string
+	/** A whole book, when one order is not the point of the case. */
+	book?: { price: string; size: string; id?: string }[]
 }): Promise<FXFiller> {
 	const registry = new AssetRegistry(configService, { EXOTIC: { [CHAIN]: EXOTIC } })
 	const pairs: TradingPair[] = [{ token0: "USDC", token1: "EXOTIC" }]
@@ -104,17 +111,18 @@ async function makeFiller(options: {
 		pairs,
 		registry,
 		{
-			limitOrders: await limitOrderStore([
-				{
+			limitOrders: await limitOrderStore(
+				(options.book ?? [{ price: "1500", size: options.offering ?? "1000000" }]).map((order) => ({
 					base: "USDC",
 					quote: "EXOTIC",
-					side: "BID",
+					side: "BID" as const,
 					fillChain: CHAIN,
-					price: "1500",
-					size: options.offering ?? "1000000",
+					price: order.price,
+					size: order.size,
 					acceptedSources: [CHAIN, "EVM-1"],
-				},
-			]),
+					id: order.id,
+				})),
+			),
 		},
 	)
 }
@@ -141,6 +149,35 @@ function makeOrder(id: string, source: string = CHAIN): Order {
 }
 
 describe("FXFiller limit order payout", () => {
+
+	it("sends one bid per limit order, each priced against the whole input", async () => {
+		// Two orders that both clear the ask. Each is its own fill: the gateway clamps
+		// whichever lands against what is still outstanding, so neither bid is sized
+		// against the other and nothing here adds them up. Summing them would bill one
+		// input to both orders at once.
+		const contractService = makeEvalContractService()
+		const filler = await makeFiller({
+			contractService,
+			balances: { [EXOTIC.toLowerCase()]: parseUnits("1000000", 18) },
+			book: [
+				{ id: "tight", price: "1500", size: "1000000" },
+				{ id: "wide", price: "1600", size: "1000000" },
+			],
+		})
+
+		await filler.calculateProfitability(makeOrder("payout-two-orders"))
+
+		const plans = contractService.plans.get("payout-two-orders") as {
+			limitOrderId: string
+			fillerOutputs: { amount: bigint }[]
+		}[]
+		expect(plans).toHaveLength(2)
+		expect(plans.map((plan) => plan.limitOrderId)).toEqual(["tight", "wide"])
+		// Each bids the ask: both offers clear it, and the bid is never above it.
+		for (const plan of plans) {
+			expect(plan.fillerOutputs[0].amount).toBe(REQUESTED_OUTPUT)
+		}
+	})
 	it("bids the ask, not the more the limit order was willing to pay", async () => {
 		// The gateway sets `fillAmount = totalRequired` on a full fill and splits
 		// everything above it between the beneficiary and the protocol, debiting the

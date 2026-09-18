@@ -21,8 +21,7 @@ import {
 	DEFAULT_MAX_CONCURRENT_ORDERS,
 	DEFAULT_ORDERBOOK_TIMEOUT_MS,
 	DEFAULT_RECONCILE_INTERVAL_SECS,
-	DEFAULT_RENEW_MARGIN_SECS,
-} from "@/config/defaults"
+	} from "@/config/defaults"
 import { ChainClientManager } from "@/services/ChainClientManager"
 import { ContractInteractionService } from "@/services/ContractInteractionService"
 import { DelegationService } from "@/services/DelegationService"
@@ -461,7 +460,6 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 	const lifecycle = new LimitOrderLifecycle(
 		limitOrderService,
 		{
-			renewMarginSecs: config.orderbook?.renewMarginSecs ?? DEFAULT_RENEW_MARGIN_SECS,
 			reconcileIntervalSecs: config.orderbook?.reconcileIntervalSecs ?? DEFAULT_RECONCILE_INTERVAL_SECS,
 		},
 		options.loggers,

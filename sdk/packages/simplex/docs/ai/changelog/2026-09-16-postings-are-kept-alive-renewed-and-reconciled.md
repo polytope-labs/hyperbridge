@@ -1,4 +1,4 @@
-# 2026-09-16 — Postings are kept alive, renewed and reconciled
+# 2026-09-16 — Postings are kept alive, swept and reconciled
 
 `LimitOrderLifecycle` runs three jobs on their own clocks while the filler runs, and `bootFiller`
 starts and stops it with the filler. Each is also callable on its own from `LimitOrderService`.
@@ -10,9 +10,11 @@ because the orderbook only knows a solver it has accepted an order from and woul
 either is answered by re-signing once a second later. A posting that comes back `surfaced: false`
 means the solver is still suspended, so `post` fires a heartbeat on the spot.
 
-**`renewExpiring(marginSecs)`** reposts every open order whose `bookExpiresAt` falls inside the
-margin. A posting cannot be extended: the op carries its own deadline and the orderbook remembers
-every op hash it has taken, so renewal is a fresh op on a new nonce.
+**`expireStale(now)`** withdraws every order that has outlived its TTL and closes the row. That TTL
+is the order's whole life: it is written into the posting and derived into `expiresAt` when the order
+is created, and nothing renews either. When it runs out the posting lapses and the order is done, and
+the operator posts a fresh one if they still want the depth. `repost` refuses an expired order too,
+so neither the sweep nor reconciliation can put one back up.
 
 **`reconcile()`** pages through `solver(address).orders` and compares it with what is open here.
 An entry no limit order owns is cancelled, an order whose entry has gone is posted again without the
@@ -29,6 +31,6 @@ is still running. An orderbook that is down at boot does not stop the filler sta
 the local limit orders either way, and the heartbeat period falls back to
 `FALLBACK_HEARTBEAT_INTERVAL_MS` until `serverInfo` can be read.
 
-Config: `orderbook.renewMarginSecs` and `orderbook.reconcileIntervalSecs` were already accepted and
-validated but unread, and now default to `DEFAULT_RENEW_MARGIN_SECS` (120) and
-`DEFAULT_RECONCILE_INTERVAL_SECS` (300).
+Config: `orderbook.reconcileIntervalSecs` was already accepted and validated but unread, and now
+defaults to `DEFAULT_RECONCILE_INTERVAL_SECS` (300). The expiry sweep runs on a fixed 30 second
+clock, since what it acts on is each order's own TTL.

@@ -2,15 +2,10 @@ import { defaultLoggerContext, type Logger, type LoggerContext } from "@/service
 import type { LimitOrderService } from "./limit-orders"
 import { FALLBACK_HEARTBEAT_INTERVAL_MS } from "./types"
 
-/**
- * The shortest renewal sweep worth running. Renewal reads local rows only, but
- * a margin of a few seconds would otherwise have it running constantly.
- */
-const MIN_RENEW_SWEEP_MS = 15_000
+/** How often to sweep orders that have outlived their TTL off the book. */
+const EXPIRY_SWEEP_MS = 30_000
 
 export interface LifecycleOptions {
-	/** How long before a posting expires to replace it. */
-	renewMarginSecs: number
 	/** How often to check the orderbook's copy of the operator's orders. */
 	reconcileIntervalSecs: number
 }
@@ -19,9 +14,13 @@ export interface LifecycleOptions {
  * Keeps the operator's postings alive while the filler runs.
  *
  * Three jobs on three clocks, all of them work {@link LimitOrderService} already
- * knows how to do. The heartbeat stops the orderbook suspending the solver,
- * renewal replaces a posting before it expires, and reconciliation repairs what
- * a crash or an unanswered request left behind.
+ * knows how to do. The heartbeat stops the orderbook suspending the solver, the
+ * expiry sweep takes orders that have outlived their TTL off the book, and
+ * reconciliation repairs what a crash or an unanswered request left behind.
+ *
+ * Nothing renews. An order's TTL is its whole life: when it runs out the posting
+ * lapses and the order is done, and the operator posts a fresh one if they still
+ * want the depth.
  *
  * A pass that throws is logged and the clock carries on: every one of them is
  * safe to run again, and an orderbook that is briefly unreachable must not take
@@ -55,14 +54,13 @@ export class LimitOrderLifecycle {
 			this.logger.warn({ err }, "Could not read the orderbook's heartbeat interval; using the fallback")
 			return FALLBACK_HEARTBEAT_INTERVAL_MS
 		})
-		const renewMs = Math.max(MIN_RENEW_SWEEP_MS, (this.options.renewMarginSecs / 2) * 1000)
 		const reconcileMs = this.options.reconcileIntervalSecs * 1000
 
 		this.every(heartbeatMs, "heartbeat", () => this.service.heartbeat())
-		this.every(renewMs, "renewal", () => this.renew())
+		this.every(EXPIRY_SWEEP_MS, "expiry", () => this.expire())
 		this.every(reconcileMs, "reconciliation", () => this.reconcile())
 
-		this.logger.info({ heartbeatMs, renewMs, reconcileMs }, "Orderbook lifecycle started")
+		this.logger.info({ heartbeatMs, expiryMs: EXPIRY_SWEEP_MS, reconcileMs }, "Orderbook lifecycle started")
 		void this.run("reconciliation", () => this.reconcile())
 	}
 
@@ -71,16 +69,10 @@ export class LimitOrderLifecycle {
 		this.timers = []
 	}
 
-	/**
-	 * Sweeps expired orders off the book, then renews what is left.
-	 *
-	 * In that order: renewing an order that has just outlived its own expiry would
-	 * put a fresh posting up for something the matcher already refuses.
-	 */
-	private async renew(): Promise<void> {
+	/** Takes orders that have outlived their TTL off the book. */
+	private async expire(): Promise<void> {
 		const expired = await this.service.expireStale()
 		if (expired > 0) this.logger.info({ expired }, "Withdrew limit orders that had outlived their expiry")
-		await this.service.renewExpiring(this.options.renewMarginSecs)
 	}
 
 	private async reconcile(): Promise<void> {

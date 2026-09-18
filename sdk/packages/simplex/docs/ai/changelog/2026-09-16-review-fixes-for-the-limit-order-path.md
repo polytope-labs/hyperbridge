@@ -5,14 +5,13 @@ Four defects found reading the stack back.
 ## An expired limit order is now swept off the book
 
 `expiresAt` was read in one place, the matcher, so an order that outlived it stopped matching and
-nothing else changed: it stayed `open`, renewal kept its posting alive and reconciliation put the
+nothing else changed: it stayed `open` and reconciliation put the
 posting back whenever it lapsed. The orderbook went on advertising depth that the filler would always
 refuse.
 
 `LimitOrderService.expireStale()` withdraws those postings and moves the row to a new `expired`
-status. The lifecycle runs it on the renewal clock, immediately before renewing, since renewing an
-order that has just expired would put a fresh posting up for a dead one. An `expiresAt` that cannot
-be parsed counts as no expiry, which is what the matcher already does with it.
+status. The lifecycle runs it on its own 30 second clock. An `expiresAt` that cannot be parsed counts
+as no expiry, which is what the matcher already does with it.
 
 ## The matcher ranks on what an order pays, not what it quotes
 

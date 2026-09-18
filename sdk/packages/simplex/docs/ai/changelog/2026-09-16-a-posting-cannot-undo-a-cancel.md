@@ -3,7 +3,7 @@
 `setPosting` and `setStatus` write what the caller asks, so a posting that was already in flight when
 the operator cancelled the order, or when the expiry sweep took it down, wrote the row back to `open`
 with a fresh commitment and a live entry on the book. The cancel was undone and the order started
-matching swaps again. Every posting path could do it: the repost after a fill, renewal, and
+matching swaps again. Every posting path could do it: the repost after a fill and
 reconciliation.
 
 Both writes now take an optional list of statuses the row must still hold, and answer null when it

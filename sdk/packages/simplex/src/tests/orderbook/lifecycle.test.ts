@@ -91,38 +91,12 @@ describe("heartbeat", () => {
 	})
 })
 
-describe("renewal", () => {
-	const withExpiry = async (expiresAt: string) => {
-		const client = fakeClient([{ kind: "accepted", order: postedOrder({ expiresAt }), surfaced: true }])
-		const { service, store } = makeService(client)
-		const created = await service.create(REQUEST)
-		return { client, service, store, id: created.order.id }
-	}
-
-	it("posts a fresh op on a new nonce before the entry expires", async () => {
-		// The op carries its own deadline and the orderbook remembers its hash, so
-		// renewal cannot be the same op sent again.
-		const { client, service, store, id } = await withExpiry(inSeconds(60))
-
-		expect(await service.renewExpiring(120)).toBe(1)
-		expect(client.submitted).toEqual(["0x00", "0x01"])
-		expect((await store.get(id))?.orderNonce).toBe("1")
-	})
-
-	it("leaves a posting with time on it alone", async () => {
-		const { client, service } = await withExpiry(inSeconds(3600))
-
-		expect(await service.renewExpiring(120)).toBe(0)
-		expect(client.submitted).toEqual(["0x00"])
-	})
-})
-
 describe("the operator's own expiry", () => {
 	/** An order expiring in an hour, and the clock wound past it. */
 	const withExpiry = async (results: SubmitOrderResult[] = []) => {
 		const client = countingClient(results)
 		const { service, store } = makeService(client)
-		const created = await service.create({ ...REQUEST, expiresAt: inSeconds(3600) })
+		const created = await service.create({ ...REQUEST, ttlSecs: 3600 })
 		return { client, service, store, id: created.order.id, after: new Date(Date.now() + 2 * 3600 * 1000) }
 	}
 
@@ -146,15 +120,16 @@ describe("the operator's own expiry", () => {
 		expect(client.cancelled).toEqual([])
 	})
 
-	it("renews nothing once the order has expired", async () => {
-		// The posting is due for renewal on its own clock; the sweep has to have
-		// taken it down first, or renewal puts a fresh one up for a dead order.
-		const { client, service, after } = await withExpiry([
+	it("puts nothing back once the order has expired", async () => {
+		// Nothing renews a posting, so the only way a dead order could come back is
+		// reconciliation, and the sweep has already closed the row against it.
+		const { client, service, store, id, after } = await withExpiry([
 			{ kind: "accepted", order: postedOrder({ expiresAt: inSeconds(60) }), surfaced: true },
 		])
 
 		await service.expireStale(after)
-		expect(await service.renewExpiring(120)).toBe(0)
+		await service.reconcile(after)
+		expect((await store.get(id))?.status).toBe("expired")
 		expect(client.submitted).toEqual(["0x00"])
 	})
 
@@ -306,7 +281,7 @@ describe("reconciliation", () => {
  * in. Each one leaves the order in the state the next one reads, and the pair
  * that can fight over a single liability is a repost and a reconciliation.
  */
-describe("a posting through a fill, a renewal and a reconciliation", () => {
+describe("a posting through a fill and a reconciliation", () => {
 	it("ends with one entry on the book and nothing to repair", async () => {
 		const client = countingClient([
 			{ kind: "accepted", order: postedOrder({ commitment: "0xa1", expiresAt: inSeconds(60) }), surfaced: true },
@@ -322,22 +297,17 @@ describe("a posting through a fill, a renewal and a reconciliation", () => {
 		expect(resized.commitment).toBe("0xa2")
 		expect(resized.remaining).toBe((1_000_000n * ONE).toString())
 
-		// That new entry expires inside the margin, so renewal replaces it.
-		expect(await service.renewExpiring(120)).toBe(1)
-		const renewed = (await store.get(order.id))!
-		expect(renewed.commitment).toBe("0xa3")
-		expect(renewed.remaining).toBe(resized.remaining)
-
-		// Three postings, each a fresh op on a fresh nonce, and each one cancelled
-		// before its replacement went up.
-		expect(client.submitted).toEqual(["0x00", "0x01", "0x02"])
-		expect(renewed.orderNonce).toBe("2")
-		expect(client.cancelled).toEqual(["0xa1", "0xa2"])
+		// Two postings, each a fresh op on a fresh nonce, and the first cancelled
+		// before its replacement went up. Nothing renews the second: it stands until
+		// the order's own ttl runs out.
+		expect(client.submitted).toEqual(["0x00", "0x01"])
+		expect(resized.orderNonce).toBe("1")
+		expect(client.cancelled).toEqual(["0xa1"])
 
 		// The orderbook now holds exactly what the row says it does.
-		client.entries = [postedOrder({ commitment: "0xa3" })]
+		client.entries = [postedOrder({ commitment: "0xa2" })]
 		expect(await service.reconcile()).toEqual({ cancelled: 0, reposted: 0, underFunded: 0 })
-		expect(client.submitted).toHaveLength(3)
+		expect(client.submitted).toHaveLength(2)
 		expect((await store.get(order.id))?.status).toBe("open")
 	})
 })
@@ -354,7 +324,7 @@ describe("LimitOrderLifecycle", () => {
 		client.heartbeats.length = 0
 
 		vi.useFakeTimers()
-		const lifecycle = new LimitOrderLifecycle(service, { renewMarginSecs: 120, reconcileIntervalSecs: 300 })
+		const lifecycle = new LimitOrderLifecycle(service, { reconcileIntervalSecs: 300 })
 		await lifecycle.start()
 
 		await vi.advanceTimersByTimeAsync(60_000)
@@ -376,7 +346,7 @@ describe("LimitOrderLifecycle", () => {
 			return inner()
 		}
 
-		const lifecycle = new LimitOrderLifecycle(service, { renewMarginSecs: 120, reconcileIntervalSecs: 300 })
+		const lifecycle = new LimitOrderLifecycle(service, { reconcileIntervalSecs: 300 })
 		await lifecycle.start()
 		lifecycle.stop()
 
@@ -392,7 +362,7 @@ describe("LimitOrderLifecycle", () => {
 		}
 		const { service } = makeService(client)
 
-		const lifecycle = new LimitOrderLifecycle(service, { renewMarginSecs: 120, reconcileIntervalSecs: 300 })
+		const lifecycle = new LimitOrderLifecycle(service, { reconcileIntervalSecs: 300 })
 		await expect(lifecycle.start()).resolves.toBeUndefined()
 		lifecycle.stop()
 	})

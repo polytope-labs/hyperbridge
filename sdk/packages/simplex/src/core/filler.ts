@@ -1,6 +1,6 @@
 import { keccakAsU8a } from "@polkadot/util-crypto"
 import { EventMonitor } from "./event-monitor"
-import type { FillerStrategy } from "@/strategies/base"
+import type { FillerStrategy, FillResult } from "@/strategies/base"
 import {
 	type Order,
 	type FillerConfig,
@@ -962,105 +962,129 @@ export class IntentFiller {
 			// between them promise more output than the limit order has left. The
 			// reservation lives on the bid row from here, and is given back when the
 			// bid loses or converted into a draw-down when it fills.
-			const matched =
-				this.limitOrders && order.id ? this.contractService.cacheService.getMatchedLimitOrder(order.id) : []
-			const reservation = await this.holdAll(matched)
-			if (matched.length > 0 && reservation.length === 0) {
-				this.logger.info(
-					{ orderId: order.id, limitOrders: matched.map((hold) => hold.limitOrderId) },
-					"Skipping order: the limit orders that priced it no longer have room",
-				)
-				return
-			}
-			// Set the moment a bid row is on its way, because from then on the row is
-			// what owns the hold and `claimReservation` is the only safe way to give
-			// it back. Releasing directly after that point would hand the same hold
-			// back twice, once here and once when the bid is retracted.
-			let bidRow: HexString | undefined
-
-			try {
-				const execStartMs = Date.now()
-				const hyperbridgeService = solverSelectionActive ? await this.hyperbridge : undefined
-				const result = await bestStrategy.executeOrder(order, hyperbridgeService)
-				const execDurationSec = (Date.now() - execStartMs) / 1000
-				this.monitor.emit("orderTiming", {
-					orderId: order.id,
-					phase: "execution",
-					durationSec: execDurationSec,
-				})
-				this.logger.info({ orderId: order.id, result }, "Order execution completed")
-
-				// Persist the bid FIRST, before any telemetry. By this point the bid is
-				// already on Hyperbridge holding a deposit, and the only way to reclaim
-				// it is to retract it — which the sweep can only do for bids it can find
-				// here. Anything between the submission and this write is something that
-				// can strand money: a consumer's event listener throwing, an
-				// operator-supplied store rejecting on a connection blip, a disk error.
-				if (result.commitment) {
-					const commitment = result.commitment as HexString
-					if (reservation.length > 0) bidRow = commitment
-					await this.bidStorage?.store({
-						commitment,
-						bid: result.bid,
-						extrinsicHash: (result.txHash as HexString) || undefined,
-						success: result.success,
-						pending: result.pending === true,
-						error: result.error,
-						reservations: reservation,
-					})
-
-					if (this.pendingRetractions.delete(commitment)) {
-						this.logger.info({ commitment }, "OrderFilled arrived before bid was stored, retracting now")
-						this.enqueueRetraction(commitment)
-						await this.bidStorage?.markDead(commitment)
+			// One bid per limit order that priced this fill. Each is its own fill at the
+			// gateway, which clamps it against whatever is still outstanding, so the
+			// bids are sent in turn rather than added up. A plan-less order (nothing
+			// limit-order priced it) still sends the one bid it always did.
+			const plans = this.limitOrders && order.id ? this.contractService.cacheService.getBidPlans(order.id) : []
+			const cache = this.contractService.cacheService
+			let lastResult: FillResult | undefined
+			for (const plan of plans.length > 0 ? plans : [undefined]) {
+				let reservation: LimitOrderHold[] = []
+				if (plan) {
+					// What this bid signs. `executeOrder` reads these back out, so they are
+					// set per bid rather than once per order.
+					if (order.id) {
+						cache.setFillerOutputs(order.id, plan.fillerOutputs, plan.fillerInputs)
+						cache.setPartialFill(order.id, plan.partialFill)
+						if (plan.fundingCalls.length > 0) cache.setFundingPrepends(order.id, plan.fundingCalls)
+						else cache.clearFundingPrepends(order.id)
 					}
-					// A bid that failed outright holds no deposit and will never be
-					// retracted, so nothing downstream would ever give its reservation
-					// back. A pooled one might still land, so it keeps its hold.
-					if (!result.success && result.pending !== true) {
-						await this.releaseReservation(commitment)
+					// Held before the bid goes out, against this bid's own limit order: a
+					// hold that cannot be taken drops this bid, not the rest.
+					reservation = await this.holdAll([{ limitOrderId: plan.limitOrderId, payout: plan.payout }])
+					if (reservation.length === 0) {
+						this.logger.info(
+							{ orderId: order.id, limitOrder: plan.limitOrderId },
+							"Skipping a bid: the limit order that priced it no longer has room",
+						)
+						continue
 					}
-				} else if (reservation.length > 0) {
-					// No commitment means no bid row, so the holds have to be undone here.
-					await this.releaseAll(reservation)
 				}
+				let bidRow: HexString | undefined
 
-				if (result.success) {
-					this.monitor.emit("orderFilled", {
+				try {
+					const execStartMs = Date.now()
+					const hyperbridgeService = solverSelectionActive ? await this.hyperbridge : undefined
+					const result = await bestStrategy.executeOrder(order, hyperbridgeService)
+					const execDurationSec = (Date.now() - execStartMs) / 1000
+					this.monitor.emit("orderTiming", {
 						orderId: order.id,
-						hash: result.txHash,
-						volumeUsd: inputUsdValue.toNumber(),
-						profitUsd,
-						chainId: getChainId(order.source),
-						// Under solver selection "success" means the bid was accepted by
-						// Hyperbridge, not that the order is filled; the commitment says which.
-						commitment: result.commitment,
+						phase: "execution",
+						durationSec: execDurationSec,
 					})
-				}
-				this.monitor.emit("orderExecuted", {
-					orderId: order.id,
-					success: result.success,
-					txHash: result.txHash,
-					strategy: bestStrategy.name,
-					commitment: result.commitment,
-					error: result.error,
-				})
+					this.logger.info({ orderId: order.id, result }, "Order execution completed")
 
-				return result
-			} catch (error) {
-				// Before the bid row, nothing else can give this hold back, so release it
-				// here. After it, the row owns the hold: claim it, which answers null if
-				// a retraction got there first. A write that failed leaves the hold
-				// stranded rather than released twice, which is the safe way round —
-				// an overstated reservation refuses fills, an understated one oversells.
-				if (bidRow) {
-					await this.releaseReservation(bidRow)
-				} else if (reservation.length > 0) {
-					await this.releaseAll(reservation)
+					// Persist the bid FIRST, before any telemetry. By this point the bid is
+					// already on Hyperbridge holding a deposit, and the only way to reclaim
+					// it is to retract it — which the sweep can only do for bids it can find
+					// here. Anything between the submission and this write is something that
+					// can strand money: a consumer's event listener throwing, an
+					// operator-supplied store rejecting on a connection blip, a disk error.
+					if (result.commitment) {
+						const commitment = result.commitment as HexString
+						if (reservation.length > 0) bidRow = commitment
+						await this.bidStorage?.store({
+							commitment,
+							bid: result.bid,
+							extrinsicHash: (result.txHash as HexString) || undefined,
+							success: result.success,
+							pending: result.pending === true,
+							error: result.error,
+							reservations: reservation,
+						})
+
+						if (this.pendingRetractions.delete(commitment)) {
+							this.logger.info({ commitment }, "OrderFilled arrived before bid was stored, retracting now")
+							this.enqueueRetraction(commitment)
+							await this.bidStorage?.markDead(commitment)
+						}
+						// A bid that failed outright holds no deposit and will never be
+						// retracted, so nothing downstream would ever give its reservation
+						// back. A pooled one might still land, so it keeps its hold.
+						if (!result.success && result.pending !== true) {
+							await this.releaseReservation(commitment)
+						}
+					} else if (reservation.length > 0) {
+						// No commitment means no bid row, so the holds have to be undone here.
+						await this.releaseAll(reservation)
+					}
+
+					if (result.success) {
+						this.monitor.emit("orderFilled", {
+							orderId: order.id,
+							hash: result.txHash,
+							volumeUsd: inputUsdValue.toNumber(),
+							profitUsd,
+							chainId: getChainId(order.source),
+							// Under solver selection "success" means the bid was accepted by
+							// Hyperbridge, not that the order is filled; the commitment says which.
+							commitment: result.commitment,
+						})
+					}
+					this.monitor.emit("orderExecuted", {
+						orderId: order.id,
+						success: result.success,
+						txHash: result.txHash,
+						strategy: bestStrategy.name,
+						commitment: result.commitment,
+						error: result.error,
+					})
+
+					lastResult = result
+					continue
+				} catch (error) {
+					// Before the bid row, nothing else can give this hold back, so release it
+					// here. After it, the row owns the hold: claim it, which answers null if
+					// a retraction got there first. A write that failed leaves the hold
+					// stranded rather than released twice, which is the safe way round —
+					// an overstated reservation refuses fills, an understated one oversells.
+					if (bidRow) {
+						await this.releaseReservation(bidRow)
+					} else if (reservation.length > 0) {
+						await this.releaseAll(reservation)
+					}
+					// One bid failing is not the order failing. A bid that lands after the
+					// order is full reverts with `Filled()`, which is an ordinary outcome
+					// here: its hold is already back, and the next bid still deserves its
+					// turn.
+					this.logger.error({ orderId: order.id, err: error }, "Bid failed")
+					continue
 				}
-				this.logger.error({ orderId: order.id, err: error }, "Order execution failed")
-				throw error
 			}
+
+			if (!lastResult) return
+			return lastResult
 			// The queued promise is nobody's return value, so the rethrow above would be an
 			// unhandled rejection — which this process has no handler for and Node turns
 			// into an exit, stopping the retraction sweep for every other outstanding bid.

@@ -34,6 +34,24 @@ Once an order is complete `_filled[commitment]` stays set and a later bid revert
 (`IntentGatewayV2.sol`). That is an ordinary outcome, not an error: the bid gives its hold back and
 the others are unaffected.
 
+## Telling the bids apart
+
+Bids on one incoming order share a commitment, so `bidNonceKey(commitment, session)` gives them one
+ERC-4337 nonce key and only the 64-bit sequence can distinguish them. `estimateGasFillPost` reads the
+base nonce once and caches it, and `getNonce` does not move until an op executes, so signing every
+bid with the cached value would leave all but the first failing EntryPoint validation with AA25. The
+i-th bid is signed with `base + i`.
+
+That sequence is also the bid's identity. A bid row carries it, and `claimReservation` takes either
+one bid's holds (named by sequence) or every outstanding hold on the commitment, claiming row by row
+rather than taking the newest and guarding on a reservation value two rows can share. Without that,
+one bid's settlement took another's holds, and two bids holding the same amount against the same
+order had both rows cleared by a guard that could not tell them apart.
+
+Still open, and worth settling on #1259: the EntryPoint consumes a key's sequences in order, so a bid
+that never executes strands every later bid on that key. That collides with a walk that skips a
+failed bid and carries on.
+
 ## What a bid holds
 
 Each bid reserves against its own limit order alone. A hold that cannot be taken drops that bid and
@@ -45,5 +63,13 @@ The profit gate runs per bid against that bid's own payout, so a tail bid worth 
 refused on its own rather than hidden inside a combined figure. What the strategy reports for the
 order is what its bids earn together.
 
-Existing databases get a `reservations` column; the two columns it replaces are left behind rather
-than migrated, since a hold outlives its bid by minutes and nothing reads a settled one.
+When the fill lands, one bid delivered and the rest can only revert, so exactly one hold is worked
+down and the others come back. Which bid executed is not in the event, which names the shared
+commitment rather than the op: the delivery says it instead. A bid is signed for its own payout and
+the gateway clamps it to what was outstanding, so the hold matching the delivered amount is the bid
+that filled, the closest hold at or above it is the next best answer, and a tie falls back to the
+order the bids went out in.
+
+Existing databases get `reservations` and `sequence` columns; the two columns `reservations` replaces
+are left behind rather than migrated, since a hold outlives its bid by minutes and nothing reads a
+settled one.

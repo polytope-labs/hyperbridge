@@ -142,7 +142,14 @@ export interface BidStore {
 	 * a conversion that already happened. Whichever settles first claims them here;
 	 * the other gets an empty list and does nothing.
 	 */
-	claimReservation(commitment: string): Promise<LimitOrderHold[]>
+	/**
+	 * Takes the holds off a bid, exactly once, and hands them to the caller.
+	 *
+	 * With a `sequence` it claims that one bid; without, every outstanding hold on
+	 * the commitment, which is what a filled or dead order needs so no bid's hold
+	 * is left behind.
+	 */
+	claimReservation(commitment: string, sequence?: number): Promise<LimitOrderHold[]>
 	/**
 	 * Every bid that drew on a limit order, newest first. What makes a `remaining`
 	 * explicable to the operator: which bids took the difference.

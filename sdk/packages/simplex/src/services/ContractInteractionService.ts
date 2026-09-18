@@ -682,6 +682,16 @@ export class ContractInteractionService {
 	 * @returns The commitment, the encoded UserOp, and the identifier Hyperbridge files the bid under
 	 *   (`keccak256` of its calldata)
 	 */
+	/**
+	 * @param sequenceOffset Which bid this is on the order, counting from zero.
+	 *
+	 * Several limit orders can serve one incoming order, and simplex bids each of
+	 * them separately. Those bids share a commitment, so `bidNonceKey` gives them
+	 * one nonce key and only the 64-bit sequence can tell them apart. The cached
+	 * estimate holds the base `getNonce` read, which does not move until an op
+	 * executes, so signing every bid with it would leave all but the first failing
+	 * EntryPoint validation with AA25. The i-th bid carries `base + i`.
+	 */
 	async prepareBidUserOp(
 		order: Order,
 		entryPointAddress: HexString,
@@ -785,6 +795,8 @@ export class ContractInteractionService {
 			{
 				commitment,
 				solverAccount: solverAccountAddress,
+				sequenceOffset,
+				nonce: (cachedEstimate.nonce + BigInt(sequenceOffset)).toString(),
 				callGasLimit: cachedEstimate.callGasLimit.toString(),
 				maxFeePerGas: cachedEstimate.maxFeePerGas.toString(),
 			},

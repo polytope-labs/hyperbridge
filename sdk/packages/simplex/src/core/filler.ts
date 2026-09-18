@@ -32,6 +32,11 @@ import { Decimal } from "decimal.js"
 /** How long to wait for a Hyperbridge connection before giving up on it. */
 const HYPERBRIDGE_CONNECT_TIMEOUT_MS = 30_000
 
+/** Smallest hold first, for picking the tightest one that covers a delivery. */
+function byAmount(a: LimitOrderHold, b: LimitOrderHold): number {
+	return BigInt(a.amount) < BigInt(b.amount) ? -1 : BigInt(a.amount) > BigInt(b.amount) ? 1 : 0
+}
+
 export class IntentFiller {
 	public monitor: EventMonitor
 	private strategies: FillerStrategy[]
@@ -969,14 +974,17 @@ export class IntentFiller {
 			const plans = this.limitOrders && order.id ? this.contractService.cacheService.getBidPlans(order.id) : []
 			const cache = this.contractService.cacheService
 			let lastResult: FillResult | undefined
-			for (const plan of plans.length > 0 ? plans : [undefined]) {
+			for (const [sequence, plan] of (plans.length > 0 ? plans : [undefined]).entries()) {
 				let reservation: LimitOrderHold[] = []
 				if (plan) {
 					// What this bid signs. `executeOrder` reads these back out, so they are
-					// set per bid rather than once per order.
+					// set per bid rather than once per order. The sequence goes with them:
+					// these bids share a commitment and so a nonce key, and the sequence is
+					// the only thing that makes their ops distinct.
 					if (order.id) {
 						cache.setFillerOutputs(order.id, plan.fillerOutputs, plan.fillerInputs)
 						cache.setPartialFill(order.id, plan.partialFill)
+						cache.setBidSequence(order.id, sequence)
 						if (plan.fundingCalls.length > 0) cache.setFundingPrepends(order.id, plan.fundingCalls)
 						else cache.clearFundingPrepends(order.id)
 					}
@@ -1208,27 +1216,40 @@ export class IntentFiller {
 			return
 		}
 
-		// Shared out in the order the payout drew on them, each taking what it held
-		// until the delivery runs out. That is the same sequence the matcher ranked
-		// them in, so the draw-down lands where the promise was made.
+		// One fill is one bid, and every bid on this commitment is finished the moment
+		// the order is filled: the one that executed delivered, and the rest can only
+		// revert with `Filled()`. So exactly one hold is worked down and the others
+		// come straight back.
 		//
-		// One transaction over the whole settlement: the draw-downs and the releases
+		// Which one executed is not in the event, which names the commitment the bids
+		// share rather than the op that landed. The delivery says it instead: a bid is
+		// signed for its own payout and the gateway clamps it to what was outstanding,
+		// so the hold that matches the delivered amount is the bid that filled, and
+		// the closest hold at or above it is the next best answer. Ties fall back to
+		// the order the bids went out in, which is the order the matcher ranked them.
+		const settled =
+			claimed.find((hold) => BigInt(hold.amount) === delivered) ??
+			claimed.filter((hold) => BigInt(hold.amount) >= delivered).sort(byAmount)[0] ??
+			claimed[0]
+
+		// One transaction over the whole settlement: the draw-down and the releases
 		// are one decision about the same holds, and a crash between two of them
 		// would give a hold back against an order that was never worked down. Only
 		// store writes are inside; putting the order back on the book is a round trip
 		// and comes after.
 		const drawn = await this.limitOrders.transaction(async () => {
 			const worked: { order: LimitOrder; delivered: bigint }[] = []
-			let left = delivered
 			for (const hold of claimed) {
-				const share = left < BigInt(hold.amount) ? left : BigInt(hold.amount)
-				if (share > 0n) {
-					const after = await this.limitOrders!.drawDown(hold.limitOrderId, share.toString())
-					if (after) worked.push({ order: after, delivered: share })
-					left -= share
+				if (hold === settled) {
+					const share = delivered < BigInt(hold.amount) ? delivered : BigInt(hold.amount)
+					if (share > 0n) {
+						const after = await this.limitOrders!.drawDown(hold.limitOrderId, share.toString())
+						if (after) worked.push({ order: after, delivered: share })
+					}
 				}
-				// Whatever the delivery did not reach was promised output that never
-				// went out, so it takes no draw-down and simply comes back.
+				// Everything held is given back, including the part of the filling bid's
+				// hold the delivery did not reach: it was promised output that never
+				// went out.
 				await this.limitOrders!.release(hold.limitOrderId, hold.amount)
 			}
 			return worked
@@ -1278,9 +1299,13 @@ export class IntentFiller {
 	 * hands the reservation out once, so a bid that already converted its hold on
 	 * a fill releases nothing here.
 	 */
-	private async releaseReservation(commitment: HexString): Promise<void> {
+	/**
+	 * Gives back what one bid held. Without a sequence it gives back every hold on
+	 * the commitment, which is what a dead or filled order needs.
+	 */
+	private async releaseReservation(commitment: HexString, sequence?: number): Promise<void> {
 		if (!this.bidStorage || !this.limitOrders) return
-		const claimed = await this.bidStorage.claimReservation(commitment)
+		const claimed = await this.bidStorage.claimReservation(commitment, sequence)
 		if (claimed.length === 0) return
 		await this.releaseAll(claimed)
 		this.logger.debug(

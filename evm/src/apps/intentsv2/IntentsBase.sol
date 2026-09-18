@@ -491,6 +491,10 @@ abstract contract IntentsBase is EIP712 {
      */
     function _validateLegs(Order calldata order, FillOptions calldata options) private pure {
         for (uint256 i; i < order.output.assets.length; ++i) {
+            // A token is the address in its low 20 bytes; anything above would let one token pass
+            // `_isRepeatedToken` as two. Checked here too: a cross-chain fill never sees `placeOrder`.
+            if (uint256(order.inputs[i].token) >> 160 != 0) revert InvalidInput();
+            if (uint256(order.output.assets[i].token) >> 160 != 0) revert InvalidInput();
             if (options.inputs[i].token != order.inputs[i].token) revert InvalidInput();
             if (options.outputs[i].token != order.output.assets[i].token) revert InvalidInput();
             // A leg is skipped by quoting zero on both sides, never on one.

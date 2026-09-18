@@ -19,8 +19,8 @@ it runs the output calldata. The host's `PostRequestEvent` therefore precedes th
 `DustCollected`. Same-chain fills keep their order of effects and events.
 
 `placeOrder` now rejects an output token with any of its upper 12 bytes set, as it already did for
-inputs. Fills no longer check either token's upper bytes: an order can only redeem escrow if it went
-through `placeOrder`.
+inputs. Fills still check both tokens: the destination of a cross-chain order never sees
+`placeOrder`, and the output sweep's `_isRepeatedToken` needs every token in one form.
 
 `SolverAccount` drops its `version()`; nothing on chain or off it reads the value. It still refuses
 the current and the two historical `fillOrder` selectors on its plain ECDSA path, so a replayed bid

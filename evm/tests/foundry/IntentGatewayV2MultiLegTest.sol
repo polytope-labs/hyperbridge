@@ -617,6 +617,15 @@ contract IntentGatewayV2MultiLegTest is MainnetForkBaseTest {
         gateway.placeOrder(order, bytes32(0));
     }
 
+    /// @notice The destination of a cross-chain order never sees `placeOrder`, so its fill refuses an
+    /// output token with its upper 12 bytes set, and `_isRepeatedToken` never sees one token in two forms.
+    function testFill_RejectsOutputTokenWithUpperBytesSet() public {
+        Order memory crossChain = _ladder(bytes("SOURCE_CHAIN"), host.host());
+        crossChain.output.assets[1].token = daiToken | bytes32(uint256(1) << 255);
+        vm.expectRevert(IntentsBase.InvalidInput.selector);
+        _fill(solverA, crossChain, 1200 * 1e18, 990 * 1e18);
+    }
+
     // ── cross-chain ───────────────────────────────────────────────────────────
 
     /// @notice Source-side cancel proves each leg's own `_partialFills` slot, so legs repeating an output

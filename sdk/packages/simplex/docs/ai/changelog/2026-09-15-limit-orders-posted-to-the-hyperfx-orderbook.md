@@ -28,6 +28,13 @@ creating an order should have to know an asset's decimals, let alone that the or
 everything to 1e18, so the handler scales them while it validates. Anything with more than 18 decimal
 places, or that is not a plain decimal, is refused with the amount named.
 
+Creation also refuses an order the wallet cannot pay out. The orderbook backs an entry with the
+solver's real balance and cuts down what it is not holding, so an order written against money that is
+not there is refused or silently shrunk rather than filled; hearing it while creating the order is
+better. Every live order paying the same token out of the same wallet counts against that balance,
+because one wallet backs them all: three orders each promising the whole balance can only pay one of
+them. What is already promised is each order's `remaining`.
+
 `acceptedSources` is required and non-empty: it names the source chains the order accepts swaps
 from, and the orderbook refuses an order that declares none. A create emits `limit-order:posted` or
 `limit-order:rejected`, a cancel emits `limit-order:cancelled`.

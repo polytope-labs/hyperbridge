@@ -7,7 +7,7 @@ import { VaultLiquidityState } from "@/funding/vault/VaultLiquidityState"
 import { TokenSender } from "@/services/TokenSender"
 import { formatChainKey, parseChainKey } from "@/config/interpolated-curve"
 import { AssetRegistry, normalizeSymbol } from "@/config/asset-registry"
-import { assertPairSymbolsResolve, } from "@/config/pairs"
+import { assertPairSymbolsResolve, retiredPairKeys } from "@/config/pairs"
 import type { ChainConfig, FillerConfig, HexString } from "@hyperbridge/sdk"
 import {
 	FillerConfigService,
@@ -17,11 +17,16 @@ import {
 } from "@/services/FillerConfigService"
 import { assertConfirmationCoverage, validateConfig, type FillerTomlConfig, type VaultToml } from "@/config/filler-toml"
 import type { ConfirmationPolicy } from "@/config/interpolated-curve"
-import { DEFAULT_MAX_CONCURRENT_ORDERS, DEFAULT_ORDERBOOK_TIMEOUT_MS } from "@/config/defaults"
+import {
+	DEFAULT_MAX_CONCURRENT_ORDERS,
+	DEFAULT_ORDERBOOK_TIMEOUT_MS,
+	DEFAULT_RECONCILE_INTERVAL_SECS,
+	} from "@/config/defaults"
 import { ChainClientManager } from "@/services/ChainClientManager"
 import { ContractInteractionService } from "@/services/ContractInteractionService"
 import { DelegationService } from "@/services/DelegationService"
 import { OrderbookClient } from "@/orderbook/client"
+import { LimitOrderLifecycle } from "@/orderbook/lifecycle"
 import { LimitOrderService } from "@/orderbook/limit-orders"
 import { MIN_ORDER_TTL_SECONDS } from "@/orderbook/types"
 import { UserOpSender } from "@/services/UserOpSender"
@@ -171,6 +176,17 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 				logger.warn({ err }, "Cleanup step failed while unwinding a failed boot")
 			}
 		}
+	}
+
+	// Prices come from the operator's limit orders now. A config still carrying
+	// curve keys parses cleanly and quotes nothing, which is a quiet way to lose
+	// an afternoon.
+	const retired = retiredPairKeys(config.pairs ?? [])
+	if (retired.length > 0) {
+		logger.warn(
+			{ keys: retired },
+			"These [[pairs]] keys are no longer read; prices come from limit orders, and the filler fills nothing until one is posted",
+		)
 	}
 
 	logger.info("Resolving chain IDs from RPC endpoints...")
@@ -441,6 +457,15 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 	// A fill has to work its limit order down and put the rest back on the book,
 	// which the filler cannot do until the service that owns the connection exists.
 	intentFiller.setLimitOrderService(limitOrderService)
+	const lifecycle = new LimitOrderLifecycle(
+		limitOrderService,
+		{
+			reconcileIntervalSecs: config.orderbook?.reconcileIntervalSecs ?? DEFAULT_RECONCILE_INTERVAL_SECS,
+		},
+		options.loggers,
+	)
+	started.push(() => lifecycle.stop())
+	await lifecycle.start()
 
 	// Initialize (sets up EIP-7702 delegation if solver selection is configured)
 	try {

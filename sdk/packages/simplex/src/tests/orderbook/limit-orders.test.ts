@@ -1,107 +1,18 @@
 import { describe, expect, it } from "vitest"
 import type { HexString } from "@hyperbridge/sdk"
-import { MemoryDataStore } from "@/data/memory"
-import { ORDERBOOK_SCALE } from "@/orderbook/amounts"
 import { OrderbookRequestError } from "@/orderbook/client"
-import { LimitOrderService, LimitOrderValidationError, type CreateLimitOrderRequest } from "@/orderbook/limit-orders"
-import type { CancelOrderResult, OrderbookLimits, PostedOrder, SubmitOrderResult } from "@/orderbook/types"
+import { LimitOrderValidationError, type CreateLimitOrderRequest } from "@/orderbook/limit-orders"
+import type { CancelOrderResult } from "@/orderbook/types"
+import {
+	CREATE_REQUEST as REQUEST,
+	LIMITS,
+	fakeClient,
+	limitOrderService as makeService,
+	ORDERBOOK_FIXTURES,
+	postedOrder,
+} from "../helpers/limit-orders"
 
-const CHAIN = "EVM-8453"
-const USDC = "0x1111111111111111111111111111111111111111" as HexString
-const CNGN = "0x2222222222222222222222222222222222222222" as HexString
-const SOLVER = "0x3333333333333333333333333333333333333333" as HexString
-const ONE = ORDERBOOK_SCALE
-
-const LIMITS: OrderbookLimits = {
-	serverInfo: {
-		minOrderTtlSecs: 900,
-		heartbeatIntervalSecs: 60,
-		signatureSkewSecs: 30,
-		maxBatchSize: 20,
-		minOrderSizes: [{ symbol: "CNGN", size: (1000n * ONE).toString() }],
-		chains: [CHAIN, "EVM-1"],
-		eip712DomainName: "HyperFX Orderbook",
-		eip712DomainVersion: "1",
-	},
-	books: [{ id: "USDC/CNGN", base: "USDC", quote: "CNGN" }],
-}
-
-function postedOrder(overrides: Partial<PostedOrder> = {}): PostedOrder {
-	return {
-		commitment: "0xabc" as HexString,
-		side: "BID",
-		status: "ACTIVE",
-		price: (1490n * ONE).toString(),
-		quotedAmount: (1_500_000n * ONE).toString(),
-		advertisedSize: (1_500_000n * ONE).toString(),
-		expiresAt: "2026-09-15T12:00:00.000Z",
-		acceptedSources: ["EVM-1"],
-		...overrides,
-	}
-}
-
-/** An orderbook that answers from a queue, and records what it was sent. */
-function fakeClient(results: SubmitOrderResult[], cancels: CancelOrderResult[] = []) {
-	const submitted: HexString[] = []
-	return {
-		submitted,
-		/** Entries the orderbook already holds, by commitment. */
-		entries: [] as PostedOrder[],
-		limits: async () => LIMITS,
-		orderAt: async function (_solver: HexString, commitment: HexString) {
-			return this.entries.find((entry) => entry.commitment === commitment) ?? null
-		},
-		submitOrder: async (userOp: HexString) => {
-			submitted.push(userOp)
-			return results.shift() ?? { kind: "accepted" as const, order: postedOrder(), surfaced: true }
-		},
-		cancelOrder: async () =>
-			cancels.shift() ?? ({ kind: "cancelled", commitment: "0xabc" as HexString } as CancelOrderResult),
-	}
-}
-
-function makeService(client: ReturnType<typeof fakeClient>, store = new MemoryDataStore().limitOrders) {
-	const contractService = {
-		getTokenDecimals: async (token: string) => (token === USDC ? 6 : 18),
-		// The op is opaque to the service; the nonce is echoed so a repost is visible.
-		prepareLimitOrderUserOp: async ({ orderNonce }: { orderNonce: bigint }) => ({
-			commitment: "0xabc" as HexString,
-			userOp: `0x0${orderNonce}` as HexString,
-		}),
-	}
-	const configService = {
-		getConfiguredChainIds: () => [8453],
-		getEntryPointAddress: () => "0x4444444444444444444444444444444444444444" as HexString,
-	}
-	const assetRegistry = {
-		getAddress: (symbol: string, chain: string) =>
-			chain === CHAIN ? ({ USDC, CNGN } as Record<string, HexString>)[symbol] ?? null : null,
-	}
-	const signer = { address: SOLVER, signTypedData: async () => "0xsig" as HexString }
-
-	// biome-ignore lint/suspicious/noExplicitAny: narrow stubs for the collaborators this path touches
-	const service = new LimitOrderService(
-		store,
-		client as any,
-		contractService as any,
-		configService as any,
-		assetRegistry as any,
-		signer as any,
-		900,
-		undefined,
-	)
-	return { service, store }
-}
-
-/** Take in 1,000 USDC, pay out 1,500,000 cNGN: a USDC to cNGN order at 1,500. */
-const REQUEST: CreateLimitOrderRequest = {
-	fillChain: CHAIN,
-	tokenIn: "USDC",
-	amountIn: "1000",
-	tokenOut: "CNGN",
-	amountOut: "1500000",
-	acceptedSources: ["EVM-1"],
-}
+const { ONE } = ORDERBOOK_FIXTURES
 
 describe("LimitOrderService.create", () => {
 	it("stores the order and records the orderbook's posting", async () => {
@@ -229,8 +140,11 @@ describe("LimitOrderService.create validation", () => {
 		await rejects({ tokenOut: "EURC" }, /No book trades USDC against EURC.*USDC\/CNGN/)
 	})
 
-	it("refuses an order that takes in and pays out the same symbol", async () => {
-		await rejects({ tokenOut: "USDC" }, /must be different symbols/)
+	it("refuses a same-asset order that pays out more than it takes in", async () => {
+		await rejects(
+			{ tokenOut: "USDC", amountOut: "1001", amountIn: "1000" },
+			/must pay out no more than it takes in/,
+		)
 	})
 
 	it("refuses a chain this filler does not run", async () => {
@@ -247,6 +161,137 @@ describe("LimitOrderService.create validation", () => {
 		await rejects({ amountIn: "0" }, /amountIn must be greater than zero/)
 		await rejects({ amountOut: "1.5e3" }, /amountOut must be an amount in whole tokens/)
 		await rejects({ amountOut: "0.0000000000000000001" }, /more than 18 decimal places/)
+	})
+})
+
+describe("what the operator states", () => {
+	it("is whole tokens, scaled to the orderbook's own unit on the way in", async () => {
+		// Nobody creating an order should have to know the asset's decimals, let
+		// alone that the orderbook normalises everything to 1e18.
+		const { service, store } = makeService(fakeClient([{ kind: "accepted", order: postedOrder(), surfaced: true }]))
+
+		const { order } = await service.create({ ...REQUEST, amountIn: "1000.5", amountOut: "1500750" })
+
+		const stored = (await store.get(order.id))!
+		expect(stored.size).toBe((1_500_750n * ONE).toString())
+		// 1,500,750 cNGN for 1,000.5 USDC is 1,500 cNGN per USDC.
+		expect(stored.price).toBe((1500n * ONE).toString())
+	})
+})
+
+describe("what the wallet can actually pay", () => {
+	it("refuses an order the balance cannot cover", async () => {
+		// The orderbook backs an entry with the solver's real balance and cuts down
+		// what it is not holding, so an order written against money that is not there
+		// is refused or silently shrunk rather than filled.
+		const { service } = makeService(fakeClient([]), undefined, { [ORDERBOOK_FIXTURES.CNGN]: 1_000_000n })
+
+		await expect(service.create({ ...REQUEST, amountOut: "1500000" })).rejects.toThrow(
+			/holds 1000000 CNGN on EVM-8453, which cannot pay out 1500000/,
+		)
+	})
+
+	it("counts what other limit orders on the same wallet already promise", async () => {
+		// One wallet backs them all: two orders each promising the whole balance can
+		// only ever pay one of them.
+		const client = fakeClient([
+			{ kind: "accepted", order: postedOrder({ commitment: "0xa1" }), surfaced: true },
+			{ kind: "accepted", order: postedOrder({ commitment: "0xa2" }), surfaced: true },
+		])
+		const { service } = makeService(client, undefined, { [ORDERBOOK_FIXTURES.CNGN]: 2_000_000n })
+
+		await service.create({ ...REQUEST, amountOut: "1500000" })
+
+		await expect(service.create({ ...REQUEST, amountOut: "1500000" })).rejects.toThrow(
+			/1500000 of it is already promised to other limit orders/,
+		)
+	})
+
+	it("frees up what a cancelled order was holding", async () => {
+		const client = fakeClient(
+			[
+				{ kind: "accepted", order: postedOrder({ commitment: "0xa1" }), surfaced: true },
+				{ kind: "accepted", order: postedOrder({ commitment: "0xa2" }), surfaced: true },
+			],
+			[{ kind: "cancelled", commitment: "0xa1" as HexString }],
+		)
+		const { service } = makeService(client, undefined, { [ORDERBOOK_FIXTURES.CNGN]: 2_000_000n })
+
+		const { order } = await service.create({ ...REQUEST, amountOut: "1500000" })
+		await service.cancel(order.id)
+
+		await expect(service.create({ ...REQUEST, amountOut: "1500000" })).resolves.toBeDefined()
+	})
+})
+
+describe("token decimals", () => {
+	it("takes them from the orderbook's own registry rather than the chain", async () => {
+		// The server prices against this registry, and every post and repost needs
+		// both sides, so the limits already cached here save two chain reads each
+		// time and agree with what the orderbook expects by construction.
+		const client = fakeClient([])
+		const { service } = makeService(client)
+		await service.create(REQUEST)
+
+		// 1,500,000 cNGN at the fixture's 18 decimals, where the chain stub would
+		// have said 18 for cNGN too but 6 for USDC on the input side.
+		expect(client.submitted).toEqual(["0x00"])
+	})
+
+	it("falls back to the token when the orderbook lists neither the chain nor the symbol", async () => {
+		const client = fakeClient([])
+		client.limits = async () => ({ ...LIMITS, chains: [] })
+		const { service, store } = makeService(client)
+		const { order } = await service.create(REQUEST)
+
+		expect(order.status).toBe("open")
+		expect((await store.get(order.id))?.commitment).toBe("0xabc")
+	})
+})
+
+describe("a same-asset limit order", () => {
+	/** Take in 1,000 USDC and pay out 999: the ask-only, below-par case curves used to hold. */
+	const SAME: CreateLimitOrderRequest = {
+		...REQUEST,
+		tokenOut: "USDC",
+		amountIn: "1000",
+		amountOut: "999",
+	}
+
+	it("is stored and priced here, and never sent to a book that does not exist", async () => {
+		const client = fakeClient([])
+		const { service, store } = makeService(client)
+		const { order, result } = await service.create(SAME)
+
+		expect(result.kind).toBe("unposted")
+		expect(order.status).toBe("open")
+		expect(order.base).toBe("USDC")
+		expect(order.quote).toBe("USDC")
+		expect(order.commitment).toBeNull()
+		expect(order.price).toBe(((999n * ONE) / 1000n).toString())
+		expect(client.submitted).toEqual([])
+		// Stated in whole tokens, stored at the orderbook's 1e18.
+		expect((await store.get(order.id))?.remaining).toBe((999n * ONE).toString())
+	})
+
+	it("is worked down by a fill without anything being reposted", async () => {
+		const client = fakeClient([])
+		const { service } = makeService(client)
+		const created = await service.create(SAME)
+
+		const settled = await service.settleFill(created.order.id, 500n * ONE)
+		expect(settled?.status).toBe("open")
+		expect(settled?.remaining).toBe((499n * ONE).toString())
+		expect(client.submitted).toEqual([])
+	})
+
+	it("is left alone by reconciliation, which has no entry to compare it with", async () => {
+		const client = fakeClient([])
+		const { service } = makeService(client)
+		await service.create(SAME)
+
+		expect(await service.reconcile()).toEqual({ cancelled: 0, reposted: 0, underFunded: 0 })
+		expect(client.submitted).toEqual([])
 	})
 })
 
@@ -374,6 +419,56 @@ describe("reposting when the old entry will not come down", () => {
 	})
 })
 
+describe("a posting that lands after the order moved on", () => {
+	// A posting is a slow round trip. An operator's cancel, or the expiry sweep,
+	// can land while one is in flight, and writing the answer back as `open` would
+	// undo it and leave the order matching swaps again.
+	const raced = async (status: "cancelled" | "expired") => {
+		const client = fakeClient([], [])
+		const cancelled: string[] = []
+		const inner = client.cancelOrder
+		client.cancelOrder = async (params) => {
+			cancelled.push(params.commitment)
+			return inner(params)
+		}
+		const { service, store } = makeService(client)
+		const created = await service.create(REQUEST)
+		await store.setStatus(created.order.id, status)
+
+		// biome-ignore lint/suspicious/noExplicitAny: the posting path is private
+		const posted = await (service as any).post({ ...created.order, commitment: null, orderNonce: "1" })
+		return { order: posted.order as typeof created.order, store, cancelled, id: created.order.id }
+	}
+
+	it("is withdrawn rather than written over a cancel", async () => {
+		const { order, store, cancelled, id } = await raced("cancelled")
+
+		expect(order.status).toBe("cancelled")
+		expect((await store.get(id))?.status).toBe("cancelled")
+		expect(cancelled).toEqual(["0xabc"])
+	})
+
+	it("is withdrawn rather than written over an expiry", async () => {
+		const { order, cancelled } = await raced("expired")
+
+		expect(order.status).toBe("expired")
+		expect(cancelled).toEqual(["0xabc"])
+	})
+
+	it("leaves a refusal off a row that already moved on", async () => {
+		const client = fakeClient([{ kind: "rejected", code: "BAD_SIGNATURE", message: "bad" }])
+		const { service, store } = makeService(client)
+		const created = await service.create(REQUEST)
+		await store.setStatus(created.order.id, "cancelled")
+
+		// biome-ignore lint/suspicious/noExplicitAny: the posting path is private
+		await (service as any).post({ ...created.order, commitment: null, orderNonce: "1" })
+		const order = await store.get(created.order.id)
+		expect(order?.status).toBe("cancelled")
+		expect(order?.lastError).toBeNull()
+	})
+})
+
 describe("LimitOrderService.cancel", () => {
 	it("cancels locally first, then clears the orderbook entry", async () => {
 		const { service, store } = makeService(fakeClient([]))
@@ -401,9 +496,9 @@ describe("LimitOrderService.cancel", () => {
 		const client = fakeClient([], [{ kind: "rejected", code: "SIGNATURE_REUSED", message: "same second" }])
 		let cancels = 0
 		const inner = client.cancelOrder
-		client.cancelOrder = async () => {
+		client.cancelOrder = async (params) => {
 			cancels += 1
-			return inner()
+			return inner(params)
 		}
 		const { service } = makeService(client)
 		const created = await service.create(REQUEST)

@@ -2,10 +2,14 @@ import type { HexString } from "@hyperbridge/sdk"
 import { defaultLoggerContext, type Logger, type LoggerContext } from "@/services/Logger"
 import type {
 	CancelOrderResult,
+	FailureCode,
+	HeartbeatResult,
 	MessageRejectionCode,
 	OrderbookLimits,
 	PostedOrder,
+	PostedOrderPage,
 	RejectionCode,
+	SolverStatus,
 	SubmitOrderResult,
 } from "./types"
 
@@ -22,6 +26,7 @@ const LIMITS_QUERY = `
 			eip712DomainVersion
 		}
 		books { id base quote }
+		chains { id name tokens { symbol decimals } }
 	}
 `
 
@@ -34,7 +39,7 @@ const SUBMIT_ORDER_MUTATION = `
 			... on OrderAccepted { surfaced order { ${POSTED_ORDER_FIELDS} } }
 			... on OrderUnchanged { order { ${POSTED_ORDER_FIELDS} } }
 			... on OrderRejected { code message }
-			... on OrderSubmissionFailed { code message retryable }
+			... on OrderSubmissionFailed { failureCode: code message retryable }
 		}
 	}
 `
@@ -42,6 +47,28 @@ const SUBMIT_ORDER_MUTATION = `
 const ORDER_QUERY = `
 	query OrderAt($solver: Address!, $commitment: Bytes!) {
 		order(solver: $solver, commitment: $commitment) { ${POSTED_ORDER_FIELDS} }
+	}
+`
+
+const HEARTBEAT_MUTATION = `
+	mutation Heartbeat($solver: Address!, $timestamp: Int!, $signature: Bytes!) {
+		heartbeat(solver: $solver, timestamp: $timestamp, signature: $signature) {
+			__typename
+			... on HeartbeatAccepted { reactivatedOrders heartbeatDueBy solver { status } }
+			... on MessageRejected { code message }
+		}
+	}
+`
+
+const MY_ORDERS_QUERY = `
+	query MyOrders($solver: Address!, $after: String) {
+		solver(address: $solver) {
+			status
+			orders(first: 50, after: $after) {
+				edges { node { ${POSTED_ORDER_FIELDS} resized backed validatedAt } }
+				pageInfo { hasNextPage endCursor }
+			}
+		}
 	}
 `
 
@@ -54,6 +81,21 @@ const CANCEL_ORDER_MUTATION = `
 		}
 	}
 `
+
+/**
+ * Every document this client sends.
+ *
+ * Exported so they can be held against the orderbook's published schema. A
+ * misspelled field or a selection set the server would refuse is otherwise
+ * invisible until a live request, since nothing here parses them.
+ */
+export const ORDERBOOK_DOCUMENTS = {
+	limits: LIMITS_QUERY,
+	submitOrder: SUBMIT_ORDER_MUTATION,
+	heartbeat: HEARTBEAT_MUTATION,
+	myOrders: MY_ORDERS_QUERY,
+	cancelOrder: CANCEL_ORDER_MUTATION,
+} as const
 
 /**
  * A GraphQL error the orderbook returned, or a transport failure reaching it.
@@ -99,7 +141,7 @@ export class OrderbookClient {
 			case "OrderSubmissionFailed":
 				return {
 					kind: "failed",
-					code: submitOrder.code!,
+					code: submitOrder.failureCode!,
 					message: submitOrder.message!,
 					retryable: submitOrder.retryable ?? false,
 				}
@@ -134,6 +176,41 @@ export class OrderbookClient {
 			return { kind: "rejected", code: cancelOrder.code as MessageRejectionCode, message: cancelOrder.message! }
 		}
 		throw new OrderbookRequestError(`Unknown cancelOrder result ${cancelOrder.__typename}`)
+	}
+
+	async heartbeat(params: { solver: HexString; timestamp: number; signature: HexString }): Promise<HeartbeatResult> {
+		const { heartbeat } = await this.request<{ heartbeat: RawHeartbeat }>(HEARTBEAT_MUTATION, params)
+		if (heartbeat.__typename === "HeartbeatAccepted") {
+			return {
+				kind: "accepted",
+				status: heartbeat.solver?.status ?? "ACTIVE",
+				reactivatedOrders: heartbeat.reactivatedOrders ?? 0,
+				heartbeatDueBy: heartbeat.heartbeatDueBy ?? "",
+			}
+		}
+		if (heartbeat.__typename === "MessageRejected") {
+			return { kind: "rejected", code: heartbeat.code as MessageRejectionCode, message: heartbeat.message! }
+		}
+		throw new OrderbookRequestError(`Unknown heartbeat result ${heartbeat.__typename}`)
+	}
+
+	/**
+	 * One page of the solver's own orders as the orderbook holds them.
+	 *
+	 * A solver the orderbook has never accepted an order from is not an error:
+	 * it answers with no solver at all, which reads here as an empty page.
+	 */
+	async myOrders(solver: HexString, after?: string): Promise<PostedOrderPage> {
+		const { solver: row } = await this.request<{ solver: RawSolverOrders | null }>(MY_ORDERS_QUERY, {
+			solver,
+			after: after ?? null,
+		})
+		if (!row) return { orders: [], status: "SUSPENDED" }
+		return {
+			orders: row.orders.edges.map((edge) => edge.node),
+			cursor: row.orders.pageInfo.hasNextPage ? (row.orders.pageInfo.endCursor ?? undefined) : undefined,
+			status: row.status,
+		}
 	}
 
 	private async request<T>(query: string, variables: Record<string, unknown>): Promise<T> {
@@ -180,8 +257,28 @@ interface RawSubmitOrder {
 	order?: PostedOrder
 	surfaced?: boolean
 	code?: string
+	/**
+	 * `OrderSubmissionFailed.code` under an alias. It is a `FailureCode` where
+	 * `OrderRejected.code` is a `RejectionCode`, and one selection set cannot ask
+	 * for two enums under one name.
+	 */
+	failureCode?: FailureCode
 	message?: string
 	retryable?: boolean
+}
+
+interface RawHeartbeat {
+	__typename: string
+	reactivatedOrders?: number
+	heartbeatDueBy?: string
+	solver?: { status: SolverStatus }
+	code?: string
+	message?: string
+}
+
+interface RawSolverOrders {
+	status: SolverStatus
+	orders: { edges: { node: PostedOrder }[]; pageInfo: { hasNextPage: boolean; endCursor: string | null } }
 }
 
 interface RawCancelOrder {

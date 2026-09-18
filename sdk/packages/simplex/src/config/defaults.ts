@@ -6,3 +6,7 @@ export const DEFAULT_ORDERBOOK_TIMEOUT_MS = 10_000
 
 /** The orderbook simplex posts to when the config does not name another. */
 export const DEFAULT_ORDERBOOK_URL = "https://orderbook.hyperbridge.network/graphql"
+
+
+/** How often to reconcile local limit orders against the orderbook's copy. */
+export const DEFAULT_RECONCILE_INTERVAL_SECS = 300

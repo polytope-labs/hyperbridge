@@ -35,29 +35,49 @@ export interface LimitOrderMatch {
 }
 
 export function availableOn(order: LimitOrder): bigint {
+	// Floored because a fill draws `remaining` down without touching what other
+	// bids have reserved, so an order can owe more than it has left. That is
+	// nothing to draw on, not capacity in reverse.
 	const available = BigInt(order.remaining) - BigInt(order.reserved)
 	return available > 0n ? available : 0n
 }
 
 /**
- * The limit order an incoming order is priced against, or null when none serves it.
+ * The limit orders an incoming order is priced against, in the order they should
+ * be drawn on, or an empty list when none serves it.
  *
  * There is no fallback price: an order matching nothing is not filled, which is
  * the whole point of pricing from the operator's own resting orders rather than
  * from a curve that always has an answer.
  *
- * When several match, the largest offer wins, and a tie goes to the one with
- * more left. That is the order the orderbook would have served when the swapper
- * was quoted. Exactly one limit order is ever returned, which is what keeps the
- * draw-down on a fill a one-to-one piece of bookkeeping.
+ * An order takes part only if its offer covers what the swapper asked for. That
+ * is not a preference, it is what the operator's rate permits: escrow release is
+ * strictly proportional, `Released(filled) = escrowTotal * filled / totalRequired`,
+ * so a fill of `f` out of `T` releases `I * f / T` and settles at `T / I`
+ * whatever `f` is. Every fill of an order therefore pays the swapper's rate, and
+ * an order may only take part where that rate is inside its own: `T / I <= price`,
+ * which is exactly `offer >= requestedOutput`.
+ *
+ * Several may be needed, because one that clears the rate may not have the depth.
+ * The orderbook already quotes a swapper across every level that can fill the
+ * trade together, so serving only the first would advertise depth and refuse to
+ * meet it. What is paid in total is the ask, never the sum of the offers: each
+ * order funds a slice, is drawn down by that slice, and receives that fraction of
+ * the input, so every one of them settles at `T / I` too.
+ *
+ * They are drawn on tightest first, meaning the smallest offer that still clears
+ * the ask. Because the rate is the swapper's either way, which order funds a
+ * slice does not change what this swap earns; it decides what is left afterwards.
+ * A more generous order qualifies for every swap a tighter one does and for swaps
+ * it cannot serve, at the same cost per unit, so the tight end is what to spend.
  */
-export function matchLimitOrder(
+export function matchLimitOrders(
 	orders: readonly LimitOrder[],
 	incoming: IncomingOrder,
 	resolve: (symbol: string, chain: string) => HexString | null,
 	now: Date = new Date(),
-): LimitOrderMatch | null {
-	const candidates = orders
+): LimitOrderMatch[] {
+	const qualifying = orders
 		.filter((order) => serves(order, incoming, resolve, now))
 		.map((order) => {
 			const offer = offerFor({
@@ -69,13 +89,41 @@ export function matchLimitOrder(
 			const available = availableOn(order)
 			return { order, offer, available, payout: offer < available ? offer : available }
 		})
-		.filter((candidate) => candidate.offer >= incoming.requestedOutput)
+		// Below the ask is below the operator's rate, and an order with nothing left
+		// to pay serves nobody whatever it quotes.
+		.filter((candidate) => candidate.offer >= incoming.requestedOutput && candidate.payout > 0n)
+		.sort(byTightestFirst)
 
-	return candidates.reduce<LimitOrderMatch | null>((best, candidate) => {
-		if (!best) return candidate
-		if (candidate.offer !== best.offer) return candidate.offer > best.offer ? candidate : best
-		return candidate.available > best.available ? candidate : best
-	}, null)
+	// Every qualifying order, best price first. Each one clears the ask on its own,
+	// so each is a bid in its own right rather than a slice of a combined one: the
+	// caller sends them in turn and the gateway clamps whichever lands against what
+	// is still outstanding. Stopping once the ask was "covered" was the arithmetic
+	// that billed one input to several orders at once.
+	return qualifying
+}
+
+/** The first order to draw on, for callers that only need to know one exists. */
+export function matchLimitOrder(
+	orders: readonly LimitOrder[],
+	incoming: IncomingOrder,
+	resolve: (symbol: string, chain: string) => HexString | null,
+	now: Date = new Date(),
+): LimitOrderMatch | null {
+	return matchLimitOrders(orders, incoming, resolve, now)[0] ?? null
+}
+
+/**
+ * Smallest offer first, then least left, then by id.
+ *
+ * Spending the tight end keeps the generous orders resting, and finishing the
+ * smaller of two equal offers retires it rather than leaving two part-used. The
+ * last comparison is what makes the sequence reproducible, because the draw-down
+ * after a fill walks these orders in the same order.
+ */
+function byTightestFirst(a: LimitOrderMatch, b: LimitOrderMatch): number {
+	if (a.offer !== b.offer) return a.offer < b.offer ? -1 : 1
+	if (a.available !== b.available) return a.available < b.available ? -1 : 1
+	return a.order.id < b.order.id ? -1 : 1
 }
 
 function serves(

@@ -177,13 +177,20 @@ for (const backend of backends) {
 		it("finds the bids that drew on a limit order, newest first", async () => {
 			// What makes a limit order's `remaining` explicable: the fills behind it.
 			const bids = backend.create()
-			await bids.store({ commitment: COMMITMENT, success: true, limitOrderId: "limit-1", reservedAmount: "100" })
-			await bids.store({ commitment: OTHER, success: true, limitOrderId: "limit-2", reservedAmount: "200" })
-			await bids.store({ commitment: THIRD, success: true, limitOrderId: "limit-1", reservedAmount: "300" })
+			const hold = (limitOrderId: string, amount: string) => [{ limitOrderId, amount }]
+			await bids.store({ commitment: COMMITMENT, success: true, reservations: hold("limit-1", "100") })
+			await bids.store({ commitment: OTHER, success: true, reservations: hold("limit-2", "200") })
+			await bids.store({
+				commitment: THIRD,
+				success: true,
+				reservations: [...hold("limit-1", "300"), ...hold("limit-2", "50")],
+			})
 
 			const drew = await bids.byLimitOrder("limit-1")
 			expect(drew.map((bid) => bid.commitment)).toEqual([THIRD, COMMITMENT])
-			expect(drew.map((bid) => bid.reservedAmount)).toEqual(["300", "100"])
+			expect(drew.map((bid) => bid.reservations[0].amount)).toEqual(["300", "100"])
+			// A bid that drew on two orders is found under both.
+			expect((await bids.byLimitOrder("limit-2")).map((bid) => bid.commitment)).toEqual([THIRD, OTHER])
 			expect(await bids.byLimitOrder("limit-3")).toEqual([])
 		})
 	})

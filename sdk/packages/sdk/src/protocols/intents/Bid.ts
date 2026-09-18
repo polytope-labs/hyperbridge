@@ -44,6 +44,7 @@ export interface BidParams {
 export class BidImpl implements Bid {
 	readonly solverAddress: HexString
 	readonly outputs: TokenInfo[]
+	readonly inputs: TokenInfo[]
 	readonly relayerFee: bigint
 	readonly nativeDispatchFee: bigint
 	readonly userOp: PackedUserOperation
@@ -71,6 +72,7 @@ export class BidImpl implements Bid {
 
 		this.solverAddress = params.fillerBid.userOp.sender
 		this.outputs = params.fillOptions.outputs
+		this.inputs = params.fillOptions.inputs ?? []
 		this.relayerFee = params.fillOptions.relayerFee
 		this.nativeDispatchFee = params.fillOptions.nativeDispatchFee
 		this.userOp = params.fillerBid.userOp

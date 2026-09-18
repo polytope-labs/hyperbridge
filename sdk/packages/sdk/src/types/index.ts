@@ -1296,6 +1296,8 @@ export interface FillOptions {
 	 */
 	validUntil: bigint
 	outputs: TokenInfo[]
+	/** Required positional maximum input takes. Paired outputs/inputs declare each leg's rate. */
+	inputs: TokenInfo[]
 }
 
 // =============================================================================
@@ -1358,6 +1360,10 @@ export interface SubmitBidOptions {
 
 export interface EstimateFillOrderParams {
 	order: Order
+	/** Positional input takes. Required with custom outputs on ABI v3; otherwise estimates a full order-rate fill. */
+	inputs?: TokenInfo[]
+	/** Output slice offered by the solver. Defaults to the order's full requested outputs. */
+	outputs?: TokenInfo[]
 	/**
 	 * Optional ERC-7821 calls to prepend before the fillOrder call in the
 	 * simulated UserOp. Used for funding calls (e.g. LP withdrawal) so the
@@ -1380,6 +1386,8 @@ export interface EstimateFillOrderParams {
 
 export interface FillOrderEstimate {
 	fillOptions: FillOptions
+	/** Normalized positional input takes used by the estimated calldata. */
+	inputs: TokenInfo[]
 	callGasLimit: bigint
 	verificationGasLimit: bigint
 	preVerificationGas: bigint
@@ -1521,6 +1529,8 @@ export interface Bid {
 	readonly solverAddress: HexString
 	/** Decoded `FillOptions.outputs` — the tokens and amounts the solver offers. */
 	readonly outputs: TokenInfo[]
+	/** Positional input takes from `FillOptions.inputs`; empty only for historical ABI bids. */
+	readonly inputs: TokenInfo[]
 	/** Relayer fee from the decoded fill options. */
 	readonly relayerFee: bigint
 	/** Hyperbridge native dispatch fee from the decoded fill options. */

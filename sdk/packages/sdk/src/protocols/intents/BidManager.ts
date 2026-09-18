@@ -1,6 +1,6 @@
 import { decodeFunctionData, concat } from "viem"
 import { ABI as IntentGatewayV2ABI } from "@/abis/IntentGatewayV2"
-import { ADDRESS_ZERO, bytes32ToBytes20 } from "@/utils"
+import { ADDRESS_ZERO, bytes32ToBytes20, normalizeStateMachineId } from "@/utils"
 import type {
 	Order,
 	HexString,
@@ -14,7 +14,7 @@ import type {
 } from "@/types"
 import type { IntentGatewayContext } from "./types"
 import { CryptoUtils } from "./CryptoUtils"
-import { decodeFillOrder } from "./fillOrderCodec"
+import { decodeFillOrder, supportsRateFills, FILL_ORDER_V3_SELECTOR } from "./fillOrderCodec"
 import { BidImpl } from "./Bid"
 import Decimal from "decimal.js"
 
@@ -75,6 +75,32 @@ export class BidManager {
 			callData,
 			paymasterAndData = "0x" as HexString,
 		} = options
+		const fills = (this.crypto.decodeERC7821Execute(callData) ?? [])
+			.map((call) => {
+				const fill = decodeFillOrder(call.data as HexString)
+				if (call.data.slice(0, 10).toLowerCase() === FILL_ORDER_V3_SELECTOR && !fill) {
+					throw new Error("Malformed v3 fill quote; every leg requires inputs and outputs")
+				}
+				return fill
+			})
+			.filter((fill) => fill !== null)
+		if ((options.fillOptions.inputs?.length ?? 0) > 0 && !fills.some((fill) => fill.version === 3)) {
+			throw new Error("Input takes require v3 fillOrder calldata")
+		}
+		if (fills.some((fill) => fill.version === 3)) {
+			const chain = normalizeStateMachineId(order.destination)
+			const gateway = this.ctx.dest.configService.getIntentGatewayAddress(chain)
+			const implementation = this.ctx.dest.configService.getSolverAccountAddress(chain)
+			// Check the live account as well as the implementation used for simulation overrides.
+			const liveSupport = await supportsRateFills(this.ctx.dest.client as any, gateway, solverAccount)
+			const configuredSupport =
+				implementation && (await supportsRateFills(this.ctx.dest.client as any, gateway, implementation))
+			if (!liveSupport || !configuredSupport) {
+				throw new Error(
+					"v3 fills are not supported by the destination gateway, live delegation, and configured SolverAccount",
+				)
+			}
+		}
 
 		const chainId = BigInt(
 			this.ctx.dest.client.chain?.id ?? Number.parseInt(this.ctx.dest.config.stateMachineId.split("-")[1]),
@@ -133,8 +159,8 @@ export class BidManager {
 
 		const result: BidImpl[] = []
 		for (const fillerBid of bids) {
-			const fillOptions = this.decodeBidFillOptions(fillerBid)
-			if (!fillOptions) {
+			const fill = this.decodeBidFillData(fillerBid)
+			if (!fill) {
 				console.warn(`[BidManager] Failed to decode fillOptions from bid by solver=${fillerBid.userOp.sender}`)
 				continue
 			}
@@ -144,7 +170,7 @@ export class BidManager {
 					crypto: this.crypto,
 					order,
 					fillerBid,
-					fillOptions,
+					fillOptions: fill.options,
 					priceOutputs,
 					sessionPrivateKey,
 				}),
@@ -257,7 +283,7 @@ export class BidManager {
 
 		if (outputs.length <= 1) {
 			console.log(`[BidManager] Using single-output sorting (1 output asset)`)
-			return this.sortSingleOutput(bids, outputs[0])
+			return this.sortSingleOutput(order, bids, outputs[0])
 		}
 
 		const chainId = this.ctx.dest.config.stateMachineId
@@ -265,11 +291,11 @@ export class BidManager {
 
 		if (allStables) {
 			console.log(`[BidManager] Using all-stables sorting (${outputs.length} stable output assets)`)
-			return this.sortAllStables(bids, outputs, chainId)
+			return this.sortAllStables(bids, order, chainId)
 		}
 
 		console.log(`[BidManager] Using mixed-output sorting (${outputs.length} output assets, some non-stable)`)
-		return this.sortMixedOutputs(bids, outputs, chainId)
+		return this.sortMixedOutputs(bids, order, chainId)
 	}
 
 	/**
@@ -279,7 +305,7 @@ export class BidManager {
 	 * @param bid - A single filler bid.
 	 * @returns The decoded `FillOptions`, or `null` if extraction fails.
 	 */
-	private decodeBidFillOptions(bid: FillerBid): FillOptions | null {
+	private decodeBidFillData(bid: FillerBid): { options: FillOptions } | null {
 		try {
 			const innerCalls = this.crypto.decodeERC7821Execute(bid.userOp.callData)
 			if (!innerCalls || innerCalls.length === 0) return null
@@ -290,7 +316,7 @@ export class BidManager {
 				// as 0n, which is accurate: that fill genuinely carries no bound.
 				const decoded = decodeFillOrder(call.data as HexString)
 				if (decoded && decoded.options?.outputs?.length > 0) {
-					return decoded.options
+					return { options: decoded.options }
 				}
 			}
 		} catch {
@@ -304,16 +330,17 @@ export class BidManager {
 	 * Filter bids by token match only, sort descending by amount.
 	 * Partial fill bids are allowed — the contract determines fill status.
 	 */
-	private sortSingleOutput(bids: Bid[], requiredAsset: TokenInfo): Bid[] {
+	private sortSingleOutput(order: Order, bids: Bid[], requiredAsset: TokenInfo): Bid[] {
 		const requiredAmount = new Decimal(requiredAsset.amount.toString())
 		console.log(
 			`[BidManager] sortSingleOutput: required token=${requiredAsset.token}, amount=${requiredAmount.toString()}`,
 		)
 
-		const validBids: { bid: Bid; amount: bigint }[] = []
+		const validBids: { bid: Bid; output: bigint; take: bigint; index: number }[] = []
 
-		for (const bid of bids) {
+		for (const [index, bid] of bids.entries()) {
 			const bidOutput = bid.outputs[0]
+			if (!bidOutput) continue
 			const bidAmount = new Decimal(bidOutput.amount.toString())
 
 			if (bidOutput.token.toLowerCase() !== requiredAsset.token.toLowerCase()) {
@@ -337,13 +364,32 @@ export class BidManager {
 				)
 			}
 
-			validBids.push({ bid, amount: bidOutput.amount })
+			const quotedInput = bid.inputs[0]
+			let take: bigint
+			if (quotedInput) {
+				if (
+					bid.inputs.length !== 1 ||
+					quotedInput.token.toLowerCase() !== order.inputs[0]?.token.toLowerCase() ||
+					quotedInput.amount <= 0n ||
+					bidOutput.amount <= 0n
+				) {
+					continue
+				}
+				take = quotedInput.amount
+			} else {
+				const requiredInput = order.inputs[0]?.amount ?? 0n
+				const credited = bidOutput.amount < requiredAsset.amount ? bidOutput.amount : requiredAsset.amount
+				take = requiredAsset.amount === 0n ? 0n : (requiredInput * credited) / requiredAsset.amount
+				if (take === 0n || bidOutput.amount === 0n) continue
+			}
+
+			validBids.push({ bid, output: bidOutput.amount, take, index })
 		}
 
 		validBids.sort((a, b) => {
-			const aAmt = new Decimal(a.amount.toString())
-			const bAmt = new Decimal(b.amount.toString())
-			return bAmt.comparedTo(aAmt)
+			const left = a.output * b.take
+			const right = b.output * a.take
+			return left === right ? a.index - b.index : left > right ? -1 : 1
 		})
 
 		return validBids.map(({ bid }) => bid)
@@ -354,14 +400,17 @@ export class BidManager {
 	 * Sum normalised USD values (treating each stable as $1) and sort descending.
 	 * Partial fill bids are allowed.
 	 */
-	private sortAllStables(bids: Bid[], orderOutputs: TokenInfo[], chainId: string): Bid[] {
+	private sortAllStables(bids: Bid[], order: Order, chainId: string): Bid[] {
+		const orderOutputs = order.output.assets
 		const requiredUsd = this.computeStablesUsdValue(orderOutputs, chainId)
 		console.log(`[BidManager] sortAllStables: required USD value=${requiredUsd.toString()}`)
 
 		const validBids: { bid: Bid; usdValue: Decimal }[] = []
 
 		for (const bid of bids) {
-			const bidUsd = this.computeStablesUsdValue(bid.outputs, chainId)
+			const normalized = this.rankingOutputs(order, bid)
+			if (!normalized) continue
+			const bidUsd = this.computeStablesUsdValue(normalized, chainId)
 
 			if (bidUsd === null) {
 				console.warn(`[BidManager] Bid from solver=${bid.solverAddress} REJECTED: unable to compute USD value`)
@@ -375,7 +424,9 @@ export class BidManager {
 						`covers=${bidUsd.div(requiredUsd).mul(100).toFixed(2)}%)`,
 				)
 			} else {
-				console.log(`[BidManager] Bid from solver=${bid.solverAddress} ACCEPTED: USD value=${bidUsd.toString()}`)
+				console.log(
+					`[BidManager] Bid from solver=${bid.solverAddress} ACCEPTED: USD value=${bidUsd.toString()}`,
+				)
 			}
 
 			validBids.push({ bid, usdValue: bidUsd })
@@ -390,22 +441,27 @@ export class BidManager {
 	 * Price every token via on-chain DEX quotes, fall back to raw amounts
 	 * if pricing is unavailable. Partial fill bids are allowed.
 	 */
-	private async sortMixedOutputs(bids: Bid[], orderOutputs: TokenInfo[], chainId: string): Promise<Bid[]> {
+	private async sortMixedOutputs(bids: Bid[], order: Order, chainId: string): Promise<Bid[]> {
+		const orderOutputs = order.output.assets
 		const requiredUsd = await this.computeOutputsUsdValue(orderOutputs, chainId)
 
 		if (requiredUsd === null) {
 			console.warn("[BidManager] sortMixedOutputs: output tokens unpriceable, falling back to raw-amount sort")
-			return this.sortByRawAmountFallback(bids, orderOutputs)
+			return this.sortByRawAmountFallback(bids, order)
 		}
 
 		console.log(`[BidManager] sortMixedOutputs: required USD value=${requiredUsd.toString()}`)
 		const validBids: { bid: Bid; usdValue: Decimal }[] = []
 
 		for (const bid of bids) {
-			const bidUsd = await this.computeOutputsUsdValue(bid.outputs, chainId)
+			const normalized = this.rankingOutputs(order, bid)
+			if (!normalized) continue
+			const bidUsd = await this.computeOutputsUsdValue(normalized, chainId)
 
 			if (bidUsd === null) {
-				console.warn(`[BidManager] Bid from solver=${bid.solverAddress} REJECTED: unable to price mixed outputs`)
+				console.warn(
+					`[BidManager] Bid from solver=${bid.solverAddress} REJECTED: unable to price mixed outputs`,
+				)
 				continue
 			}
 
@@ -434,7 +490,8 @@ export class BidManager {
 	 * Bids offering less than required for a token are allowed (partial fill).
 	 * Sorted by total offered amount descending.
 	 */
-	private sortByRawAmountFallback(bids: Bid[], orderOutputs: TokenInfo[]): Bid[] {
+	private sortByRawAmountFallback(bids: Bid[], order: Order): Bid[] {
+		const orderOutputs = order.output.assets
 		console.log(
 			`[BidManager] sortByRawAmountFallback: checking ${bids.length} bid(s) against ${orderOutputs.length} required output(s)`,
 		)
@@ -445,8 +502,10 @@ export class BidManager {
 			let totalOffered = new Decimal(0)
 			let rejectReason = ""
 
-			for (const required of orderOutputs) {
-				const matching = bid.outputs.find((o) => o.token.toLowerCase() === required.token.toLowerCase())
+			const normalized = this.rankingOutputs(order, bid)
+			if (!normalized) continue
+			for (const [index, required] of orderOutputs.entries()) {
+				const matching = normalized[index]
 				if (!matching) {
 					valid = false
 					rejectReason = `missing output token=${required.token}`
@@ -482,6 +541,35 @@ export class BidManager {
 
 		validBids.sort((a, b) => b.totalOffered.comparedTo(a.totalOffered))
 		return validBids.map(({ bid }) => bid)
+	}
+
+	/** Compare prices at the original escrow size without changing signed funding amounts. */
+	private rankingOutputs(order: Order, bid: Bid): TokenInfo[] | null {
+		if (bid.outputs.length !== order.output.assets.length) return null
+		// Historical calldata has no explicit takes and retains its original ranking.
+		if (bid.inputs.length === 0) return bid.outputs
+		if (bid.inputs.length !== order.inputs.length || order.inputs.length !== bid.outputs.length) return null
+		const outputs: TokenInfo[] = []
+		for (let i = 0; i < bid.outputs.length; i++) {
+			const input = bid.inputs[i]
+			const output = bid.outputs[i]
+			const escrow = order.inputs[i]
+			const required = order.output.assets[i]
+			if (
+				input.token.toLowerCase() !== escrow.token.toLowerCase() ||
+				output.token.toLowerCase() !== required.token.toLowerCase() ||
+				input.amount < 0n ||
+				output.amount < 0n ||
+				(input.amount === 0n) !== (output.amount === 0n) ||
+				output.amount * escrow.amount < input.amount * required.amount
+			)
+				return null
+			outputs.push({
+				token: output.token,
+				amount: input.amount === 0n ? 0n : (output.amount * escrow.amount) / input.amount,
+			})
+		}
+		return outputs
 	}
 
 	// ── Token classification helpers ──────────────────────────────────
@@ -555,6 +643,7 @@ export class BidManager {
 		let totalUsd = new Decimal(0)
 
 		for (const output of outputs) {
+			if (output.amount === 0n) continue
 			const tokenAddr = bytes32ToBytes20(output.token)
 
 			if (this.isStableToken(tokenAddr, chainId)) {

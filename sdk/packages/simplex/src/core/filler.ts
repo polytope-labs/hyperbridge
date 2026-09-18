@@ -973,7 +973,13 @@ export class IntentFiller {
 			const plans = this.limitOrders && order.id ? this.contractService.cacheService.getBidPlans(order.id) : []
 			const cache = this.contractService.cacheService
 			let lastResult: FillResult | undefined
-			for (const [sequence, plan] of (plans.length > 0 ? plans : [undefined]).entries()) {
+			// The sequence a bid signs is spent rather than counted off: the EntryPoint
+			// consumes a key's sequences in order with no gaps, so a bid that never
+			// reaches the chain would strand every bid behind it. Signing order is
+			// execution order — best price first, the order the walk takes them in — and
+			// a bid that does not go out leaves its number to the next one.
+			let sequence = 0
+			for (const plan of plans.length > 0 ? plans : [undefined]) {
 				let reservation: LimitOrderHold[] = []
 				if (plan) {
 					// What this bid signs. `executeOrder` reads these back out, so they are
@@ -1023,6 +1029,7 @@ export class IntentFiller {
 						if (reservation.length > 0) bidRow = commitment
 						await this.bidStorage?.store({
 							commitment,
+							sequence,
 							extrinsicHash: (result.txHash as HexString) || undefined,
 							success: result.success,
 							pending: result.pending === true,
@@ -1039,7 +1046,7 @@ export class IntentFiller {
 						// retracted, so nothing downstream would ever give its reservation
 						// back. A pooled one might still land, so it keeps its hold.
 						if (!result.success && result.pending !== true) {
-							await this.releaseReservation(commitment)
+							await this.releaseReservation(commitment, sequence)
 						}
 					} else if (reservation.length > 0) {
 						// No commitment means no bid row, so the holds have to be undone here.
@@ -1068,6 +1075,10 @@ export class IntentFiller {
 					})
 
 					lastResult = result
+					// Submitted, so this number is consumed on chain and the next bid takes
+					// the one after. A pooled submission counts: it may still land, and two
+					// bids sharing a sequence is the worse failure.
+					if (result.success || result.pending === true) sequence++
 					continue
 				} catch (error) {
 					// Before the bid row, nothing else can give this hold back, so release it
@@ -1076,7 +1087,7 @@ export class IntentFiller {
 					// stranded rather than released twice, which is the safe way round —
 					// an overstated reservation refuses fills, an understated one oversells.
 					if (bidRow) {
-						await this.releaseReservation(bidRow)
+						await this.releaseReservation(bidRow, sequence)
 					} else if (reservation.length > 0) {
 						await this.releaseAll(reservation)
 					}
@@ -1085,6 +1096,9 @@ export class IntentFiller {
 					// here: its hold is already back, and the next bid still deserves its
 					// turn.
 					this.logger.error({ orderId: order.id, err: error }, "Bid failed")
+					// The op may have gone out before this threw, so the number is treated as
+					// spent rather than handed to the next bid.
+					sequence++
 					continue
 				}
 			}

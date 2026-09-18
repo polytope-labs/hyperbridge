@@ -154,3 +154,101 @@ describe("fill path safety", () => {
 		expect((await data.bids.stats()).pendingRetraction).toBe(0)
 	})
 })
+
+describe("the nonce sequence a bid signs", () => {
+	const SECOND_ORDER = "limit-1"
+
+	/** Two bid plans on one order, and a strategy answering each submission in turn. */
+	async function twoBids(results: Record<string, unknown>[]) {
+		const data = new MemoryDataStore()
+		const limitOrders = await limitOrderStore([
+			{ id: LIMIT_ORDER, base: "USDC", quote: "CNGN", side: "BID", fillChain: "EVM-1", price: "1500", size: "3000" },
+			{ id: SECOND_ORDER, base: "USDC", quote: "CNGN", side: "BID", fillChain: "EVM-1", price: "1450", size: "3000" },
+		])
+		const signed: number[] = []
+		const plan = (limitOrderId: string) => ({
+			limitOrderId,
+			payout: PAYOUT,
+			fillerOutputs: [],
+			fundingCalls: [],
+			partialFill: false,
+			profit: 1,
+		})
+		let call = 0
+		const strategy = {
+			name: "test",
+			canFill: async () => true,
+			calculateProfitability: async () => 1,
+			executeOrder: async () => results[Math.min(call++, results.length - 1)],
+			getOrderUsdValue: async () => ({ inputUsd: { toNumber: () => 1 } }),
+		}
+		const filler = new IntentFiller(
+			[{ chainId: 1 } as never],
+			[strategy as never],
+			{ maxConcurrentOrders: 1 } as never,
+			{
+				loggers: undefined,
+				getHyperbridgeWsUrl: () => undefined,
+				getSubstratePrivateKey: () => undefined,
+				getIntentGatewayAddress: () => "0xGATE",
+				getRpcUrls: () => ["https://rpc.example"],
+			} as never,
+			{} as never,
+			{
+				cacheService: {
+					getMatchedLimitOrder: () => [],
+					getBidPlans: () => [plan(LIMIT_ORDER), plan(SECOND_ORDER)],
+					setFillerOutputs: () => {},
+					setPartialFill: () => {},
+					// What each bid would sign, in the order they go out.
+					setBidSequence: (_id: string, offset: number) => signed.push(offset),
+					setFundingPrepends: () => {},
+					clearFundingPrepends: () => {},
+				},
+			} as never,
+			{ address: OUR_ADDRESS } as never,
+			{ orders: stubOrderScanner([1]) },
+			undefined,
+			data.bids,
+			limitOrders,
+		)
+		return { filler, data, signed }
+	}
+
+	it("hands a failed bid's number to the next one, which the EntryPoint requires", async () => {
+		// Sequences on a key are consumed in order with no gaps, so a bid that never
+		// reached the chain must not spend one: everything behind it would be stranded.
+		const { filler, data, signed } = await twoBids([
+			{ success: false, error: "rejected" },
+			{ success: true, commitment: COMMITMENT, txHash: "0xtx" },
+		])
+
+		await execute(filler, ORDER)
+
+		expect(signed).toEqual([0, 0])
+		expect((await data.bids.byCommitment(COMMITMENT))?.sequence).toBe(0)
+	})
+
+	it("spends a number once its bid is on its way", async () => {
+		const { filler, signed } = await twoBids([
+			{ success: true, commitment: COMMITMENT, txHash: "0xtx" },
+			{ success: true, commitment: "0xsecond" as HexString, txHash: "0xtx2" },
+		])
+
+		await execute(filler, ORDER)
+
+		expect(signed).toEqual([0, 1])
+	})
+
+	it("treats a pooled submission as having spent its number", async () => {
+		// It may still land, and two bids sharing a sequence is the worse failure.
+		const { filler, signed } = await twoBids([
+			{ success: false, pending: true, commitment: COMMITMENT, error: "1014" },
+			{ success: true, commitment: "0xsecond" as HexString, txHash: "0xtx2" },
+		])
+
+		await execute(filler, ORDER)
+
+		expect(signed).toEqual([0, 1])
+	})
+})

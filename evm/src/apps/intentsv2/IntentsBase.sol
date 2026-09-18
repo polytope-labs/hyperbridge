@@ -476,12 +476,26 @@ abstract contract IntentsBase is EIP712 {
         uint256 nativeRemaining;
     }
 
+    /// @dev Checks every quoted leg, including skipped and completed legs, before settlement.
+    function _validateLegs(Order calldata order, FillOptions calldata options) private pure {
+        for (uint256 i; i < order.output.assets.length; ++i) {
+            bytes32 inputToken = order.inputs[i].token;
+            bytes32 outputToken = order.output.assets[i].token;
+            if (options.inputs[i].token != inputToken) revert InvalidInput();
+            if (uint256(inputToken) >> 160 != 0 || uint256(outputToken) >> 160 != 0) revert InvalidInput();
+            // A skipped leg must quote zero input and zero output together.
+            if ((options.inputs[i].amount == 0) != (options.outputs[i].amount == 0)) revert InvalidInput();
+            if (options.outputs[i].token != outputToken) revert InvalidInput();
+        }
+    }
+
     /// @dev Records each leg's credited output and delivers its payment. The caller settles
     /// released inputs locally or sends them to the source chain in a redemption request.
     function _fillLegs(Order calldata order, FillOptions calldata options, bytes32 commitment)
         internal
         returns (FillResult memory result)
     {
+        _validateLegs(order, options);
         uint256 legCount = order.output.assets.length;
         result.releasedInputs = new TokenInfo[](legCount);
         result.creditedOutputs = new TokenInfo[](legCount);
@@ -490,17 +504,9 @@ abstract contract IntentsBase is EIP712 {
         bool madeProgress;
 
         for (uint256 i; i < legCount; ++i) {
-            bytes32 inputToken = order.inputs[i].token;
-            bytes32 outputToken = order.output.assets[i].token;
-            if (options.inputs[i].token != inputToken) revert InvalidInput();
-            if (uint256(inputToken) >> 160 != 0 || uint256(outputToken) >> 160 != 0) revert InvalidInput();
-            // A skipped leg must quote zero input and zero output together.
-            if ((options.inputs[i].amount == 0) != (options.outputs[i].amount == 0)) revert InvalidInput();
-            if (options.outputs[i].token != outputToken) revert InvalidInput();
-
             // Keep one result per leg, including skipped and already-completed legs.
             result.releasedInputs[i].token = order.inputs[i].token;
-            result.creditedOutputs[i].token = outputToken;
+            result.creditedOutputs[i].token = order.output.assets[i].token;
             uint256 previousCredit = _partialFills[commitment][i];
             uint256 requiredOutput = order.output.assets[i].amount;
             if (previousCredit == requiredOutput || options.outputs[i].amount == 0) {

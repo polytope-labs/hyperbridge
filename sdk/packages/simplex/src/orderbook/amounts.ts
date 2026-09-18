@@ -14,6 +14,32 @@ export function toRaw(amount: bigint, decimals: number): bigint {
 	return amount / 10n ** BigInt(18 - decimals)
 }
 
+/**
+ * A human amount ("1000", "1500.25") at 1e18, the unit limit orders are kept in.
+ *
+ * What an operator states is whole tokens: nobody creating an order should have
+ * to know what an asset's decimals are, let alone the orderbook's own scale. The
+ * string is parsed exactly, so no float ever touches the figure.
+ */
+export function fromHuman(amount: string): bigint {
+	const text = amount.trim()
+	if (!/^[0-9]+(\.[0-9]+)?$/.test(text)) {
+		throw new RangeError(`'${amount}' is not a positive decimal amount`)
+	}
+	const [whole, fraction = ""] = text.split(".")
+	if (fraction.length > 18) {
+		throw new RangeError(`'${amount}' has more than 18 decimal places`)
+	}
+	return BigInt(whole) * ORDERBOOK_SCALE + BigInt(fraction.padEnd(18, "0") || "0")
+}
+
+/** A 1e18 amount as whole tokens, for reading back to an operator. Truncates trailing zeros. */
+export function toHuman(amount: bigint): string {
+	const whole = amount / ORDERBOOK_SCALE
+	const fraction = (amount % ORDERBOOK_SCALE).toString().padStart(18, "0").replace(/0+$/, "")
+	return fraction ? `${whole}.${fraction}` : whole.toString()
+}
+
 function divCeil(numerator: bigint, denominator: bigint): bigint {
 	return (numerator + denominator - 1n) / denominator
 }

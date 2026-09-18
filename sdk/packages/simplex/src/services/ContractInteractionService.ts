@@ -522,6 +522,21 @@ export class ContractInteractionService {
 	/**
 	 * Reads the solver account's deposit balance on the ERC-4337 EntryPoint.
 	 */
+	/** What `holder` holds of an ERC-20 on `chain`, in the token's own units. */
+	async getTokenBalance(chain: string, token: HexString, holder: HexString): Promise<bigint> {
+		const client = this.clientManager.getPublicClient(chain)
+		return retryPromise(
+			() =>
+				client.readContract({
+					address: token,
+					abi: ERC20_ABI,
+					functionName: "balanceOf",
+					args: [holder],
+				}) as Promise<bigint>,
+			{ maxRetries: 3, backoffMs: 250, logMessage: "Failed to read token balance" },
+		)
+	}
+
 	async getSolverEntryPointBalance(chain: string): Promise<bigint> {
 		const entryPointAddress = this.configService.getEntryPointAddress(chain)
 		if (!entryPointAddress) {

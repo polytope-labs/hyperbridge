@@ -50,8 +50,12 @@ export interface CreateLimitOrderRequest {
 	tokenOut: string
 	amountOut: string
 	acceptedSources: string[]
+	/**
+	 * How long the order lives, in seconds. It is the TTL of the posting and the
+	 * life of the order itself: one clock, derived into `expiresAt` on the row, and
+	 * nothing renews it. When it runs out the posting lapses and the order is done.
+	 */
 	ttlSecs?: number
-	expiresAt?: string | null
 }
 
 /** The stored limit order, and what the orderbook said about its posting. */
@@ -144,7 +148,7 @@ export class LimitOrderService {
 			size: request.amountOut,
 			acceptedSources: request.acceptedSources,
 			ttlSecs,
-			expiresAt: request.expiresAt ?? null,
+			expiresAt: new Date(Date.now() + ttlSecs * 1000).toISOString(),
 		}
 		return this.post(await this.store.create(insert))
 	}

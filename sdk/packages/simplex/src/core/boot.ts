@@ -107,7 +107,7 @@ export interface FillerRuntime {
 	loggers: LoggerContext
 	/** Symbol-to-address resolution for the configured chains (send options, balance labels). */
 	assetRegistry: AssetRegistry
-	/** Creates and posts the operator's limit orders, absent unless `[orderbook]` is enabled. */
+	/** Creates and posts the operator's limit orders. */
 	limitOrders?: LimitOrderService
 	/** The live trading engine, absent when the config declared no pairs. */
 	engine?: FXFiller
@@ -513,11 +513,11 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 	// Limit orders are inventory the operator opens while the filler runs, so the
 	// service exists as soon as an orderbook is configured, whether or not any
 	// order has been created yet.
-	const limitOrderService = config.orderbook?.enabled
+	const limitOrderService = config.orderbook
 		? new LimitOrderService(
 				options.data.limitOrders,
 				new OrderbookClient(
-					config.orderbook.url!,
+					config.orderbook.url,
 					config.orderbook.requestTimeoutMs ?? DEFAULT_ORDERBOOK_TIMEOUT_MS,
 					options.loggers,
 				),

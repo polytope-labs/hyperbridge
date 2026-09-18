@@ -19,7 +19,7 @@ their own chains.
 ```
 GET    /api/limit-orders?status=&chain=&book=
 GET    /api/limit-orders/:id
-POST   /api/limit-orders     { fillChain, tokenIn, amountIn, tokenOut, amountOut, acceptedSources, ttlSecs?, expiresAt? }
+POST   /api/limit-orders     { fillChain, tokenIn, amountIn, tokenOut, amountOut, acceptedSources, ttlSecs? }
 DELETE /api/limit-orders/:id
 ```
 
@@ -53,15 +53,20 @@ has accepted, so a fresh nonce is the only way past.
 
 ```toml
 [orderbook]
-enabled = true
 url = "https://orderbook.hyperbridge.network/graphql"
 defaultTtlSecs = 900
-renewMarginSecs = 120
 reconcileIntervalSecs = 300
 requestTimeoutMs = 10000
 ```
 
-Off unless enabled, and the limit orders themselves are not configured here. They are inventory the
+The section is required. Simplex prices every fill from the operator's limit orders and those
+live on the orderbook, so there is no configuration without one.
+
+`ttlSecs` is the only clock. It is the TTL written into the posting and the life of the order
+itself: `expiresAt` is derived from it when the order is created, and nothing renews it. When it
+runs out the posting lapses and the order is done.
+
+The limit orders themselves are not configured here. They are inventory the
 operator opens and closes while the filler runs, so they live in `bids.db` and are created over the
 API.
 

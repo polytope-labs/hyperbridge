@@ -670,6 +670,9 @@ export class FXFiller implements FillerStrategy {
 				const desiredOutput = capFraction.gte(1)
 					? output.amount
 					: BigInt(new Decimal(output.amount.toString()).mul(capFraction).floor().toFixed(0))
+				const budgetTake = capFraction.gte(1)
+					? input.amount
+					: BigInt(new Decimal(input.amount.toString()).mul(capFraction).floor().toFixed(0))
 
 				// Overfill detection is warn-only: the clamp is DISABLED, so the filler
 				// fills the full computed amount even when it exceeds
@@ -788,7 +791,13 @@ export class FXFiller implements FillerStrategy {
 					continue
 				}
 
-				if (policyMaxOutput < desiredOutput) {
+				// A rate quote is accepted on chain when its output covers the take at the order's
+				// rate, so compare rates directly; the amount comparison alone lets through quotes
+				// that the preview would then reject as RateBelowOrder.
+				const belowOrderRate = rateFills
+					? policyMaxOutput * input.amount < budgetTake * output.amount
+					: policyMaxOutput < desiredOutput
+				if (belowOrderRate) {
 					// Price, not size: our curve yields less than the order's rate even
 					// for the slice the cap allows. Escrow releases at the *order's*
 					// rate, so filling a smaller piece of a bad rate is the same loss
@@ -871,7 +880,6 @@ export class FXFiller implements FillerStrategy {
 				if (rateFills) {
 					// Cap exposure in input units, then scale the take if funding shortened
 					// the output quote.
-					const budgetTake = BigInt(new Decimal(input.amount.toString()).mul(capFraction).floor().toFixed(0))
 					policyInputByLeg.set(i, budgetTake)
 					// Round down so limited funding cannot claim input above the order's price limit.
 					const take = (budgetTake * finalOutputAmount) / policyMaxOutput

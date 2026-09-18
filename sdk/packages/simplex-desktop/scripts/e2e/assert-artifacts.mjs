@@ -7,6 +7,8 @@ const desktopRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..")
 const packagesRoot = resolve(desktopRoot, "..")
 const trayStates = ["starting", "setup", "running", "paused", "stopping", "stopped", "unreachable"]
 const applicationIconSizes = [16, 32, 48, 64, 128, 256, 512]
+// Keep this list portable across E2E runners. Packaging-only inputs and their installed copies are
+// validated by electron-builder and assertPackagedResources after the native application is built.
 const requiredArtifacts = [
 	resolve(packagesRoot, "sdk/dist/node/index.js"),
 	resolve(packagesRoot, "simplex/dist/bin/simplex.js"),
@@ -15,8 +17,6 @@ const requiredArtifacts = [
 	resolve(packagesRoot, "simplex/src/proto/mpcvault/platform/v1/api.ts"),
 	resolve(desktopRoot, "dist/main.js"),
 	resolve(desktopRoot, "THIRD-PARTY-NOTICES.md"),
-	resolve(desktopRoot, "node_modules/electron/dist/LICENSE"),
-	resolve(desktopRoot, "node_modules/electron/dist/LICENSES.chromium.html"),
 	resolve(desktopRoot, "resources/icon.icns"),
 	resolve(desktopRoot, "resources/icon.ico"),
 	resolve(desktopRoot, "resources/tray/app.png"),

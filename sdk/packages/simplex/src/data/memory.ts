@@ -59,6 +59,7 @@ class MemoryBidStore implements BidStore {
 		this.rows.push({
 			id: this.nextId++,
 			commitment: bid.commitment,
+			sequence: bid.sequence ?? 0,
 			extrinsicHash: bid.extrinsicHash ?? null,
 			blockHash: bid.blockHash ?? null,
 			success: bid.success,
@@ -114,16 +115,18 @@ class MemoryBidStore implements BidStore {
 		return changed
 	}
 
-	async claimReservation(commitment: string): Promise<LimitOrderHold[]> {
-		// Newest first, matching `byCommitment`: a commitment can be re-bid.
-		for (let i = this.rows.length - 1; i >= 0; i--) {
-			const row = this.rows[i]
+	async claimReservation(commitment: string, sequence?: number): Promise<LimitOrderHold[]> {
+		// Bids on one incoming order share a commitment and differ by sequence, so a
+		// claim names the bid. Without one, every outstanding hold on the commitment
+		// comes back, which is what a filled or dead order needs.
+		const claimed: LimitOrderHold[] = []
+		for (const row of this.rows) {
 			if (row.commitment !== commitment || row.reservations.length === 0) continue
-			const claimed = row.reservations
+			if (sequence !== undefined && row.sequence !== sequence) continue
+			claimed.push(...row.reservations)
 			row.reservations = []
-			return claimed
 		}
-		return []
+		return claimed
 	}
 
 	async byLimitOrder(limitOrderId: string, limit = 100): Promise<StoredBid[]> {

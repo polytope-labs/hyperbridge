@@ -213,16 +213,23 @@ describe("a bid drawing on several limit orders", () => {
 		expect(await ctx.reserved()).toBe("0")
 	})
 
-	it("shares a fill out over the holds in the order the payout drew on them", async () => {
+	it("works down the bid that filled and gives the other bids their holds back", async () => {
+		// Two bids on one incoming order, one per limit order, each holding its own
+		// payout. One of them fills; the other can only revert with `Filled()`, so
+		// its hold comes straight back rather than being drawn down.
 		const ctx = await build()
 		await ctx.limitOrders.reserve(LIMIT_ORDER, PAYOUT)
 		await ctx.bids.store({
 			commitment: COMMITMENT,
+			sequence: 0,
 			success: true,
-			reservations: [
-				{ limitOrderId: LIMIT_ORDER, amount: (400n * 10n ** 18n).toString() },
-				{ limitOrderId: SECOND_ORDER, amount: (600n * 10n ** 18n).toString() },
-			],
+			reservations: [{ limitOrderId: LIMIT_ORDER, amount: (400n * 10n ** 18n).toString() }],
+		})
+		await ctx.bids.store({
+			commitment: COMMITMENT,
+			sequence: 1,
+			success: true,
+			reservations: [{ limitOrderId: SECOND_ORDER, amount: (600n * 10n ** 18n).toString() }],
 		})
 		const settled: Array<[string, bigint]> = []
 		// biome-ignore lint/suspicious/noExplicitAny: narrow stubs for this path
@@ -237,14 +244,34 @@ describe("a bid drawing on several limit orders", () => {
 			},
 		}
 
-		// 700 delivered: the first hold takes its 400, the second the remaining 300.
+		// 600 delivered, which is the second bid's own payout exactly: that bid is the
+		// one that executed, so its limit order is the one worked down.
 		// biome-ignore lint/suspicious/noExplicitAny: the settlement path is private
-		await (ctx.filler as any).settleFilledLimitOrder(COMMITMENT, 8453, [{ token: CNGN, amount: 700n * 10n ** 18n }])
+		await (ctx.filler as any).settleFilledLimitOrder(COMMITMENT, 8453, [{ token: CNGN, amount: 600n * 10n ** 18n }])
 
-		expect(settled).toEqual([
-			[LIMIT_ORDER, 400n * 10n ** 18n],
-			[SECOND_ORDER, 300n * 10n ** 18n],
-		])
+		expect(settled).toEqual([[SECOND_ORDER, 600n * 10n ** 18n]])
+	})
+
+	it("claims the holds of every bid on the order, so none is left behind", async () => {
+		const ctx = await build()
+		await ctx.bids.store({
+			commitment: COMMITMENT,
+			sequence: 0,
+			success: true,
+			reservations: [{ limitOrderId: LIMIT_ORDER, amount: PAYOUT }],
+		})
+		await ctx.bids.store({
+			commitment: COMMITMENT,
+			sequence: 1,
+			success: true,
+			reservations: [{ limitOrderId: SECOND_ORDER, amount: PAYOUT }],
+		})
+
+		// Naming a bid takes that bid's hold alone.
+		expect(await ctx.bids.claimReservation(COMMITMENT, 1)).toEqual([{ limitOrderId: SECOND_ORDER, amount: PAYOUT }])
+		// Without one, whatever is still outstanding on the commitment.
+		expect(await ctx.bids.claimReservation(COMMITMENT)).toEqual([{ limitOrderId: LIMIT_ORDER, amount: PAYOUT }])
+		expect(await ctx.bids.claimReservation(COMMITMENT)).toEqual([])
 	})
 })
 

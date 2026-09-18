@@ -30,6 +30,8 @@ export interface SimplexDataStore {
 export interface StoredBid {
 	id: number
 	commitment: string
+	/** Which bid of the set this is; see {@link BidInsert.sequence}. */
+	sequence: number
 	extrinsicHash: string | null
 	blockHash: string | null
 	success: boolean
@@ -68,6 +70,12 @@ export interface LimitOrderHold {
 
 export interface BidInsert {
 	commitment: string
+	/**
+	 * Which bid of the set this is, counting from zero, and the only thing that
+	 * tells bids on one incoming order apart: they share a commitment, so they
+	 * share a nonce key, and the 64-bit sequence is what differs.
+	 */
+	sequence?: number
 	/** What this bid holds against the limit orders that priced it, best first. */
 	reservations?: LimitOrderHold[]
 	extrinsicHash?: string
@@ -133,7 +141,14 @@ export interface BidStore {
 	 * a conversion that already happened. Whichever settles first claims them here;
 	 * the other gets an empty list and does nothing.
 	 */
-	claimReservation(commitment: string): Promise<LimitOrderHold[]>
+	/**
+	 * Takes the holds off a bid, exactly once, and hands them to the caller.
+	 *
+	 * With a `sequence` it claims that one bid; without, every outstanding hold on
+	 * the commitment, which is what a filled or dead order needs so no bid's hold
+	 * is left behind.
+	 */
+	claimReservation(commitment: string, sequence?: number): Promise<LimitOrderHold[]>
 	/**
 	 * Every bid that drew on a limit order, newest first. What makes a `remaining`
 	 * explicable to the operator: which bids took the difference.

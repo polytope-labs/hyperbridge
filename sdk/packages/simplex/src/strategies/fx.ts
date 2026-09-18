@@ -765,10 +765,13 @@ export class FXFiller implements FillerStrategy {
 		const solverAccountAddress = this.signer.address as HexString
 
 		// Prepare the signed UserOp for bid submission (bundles approvals + fillOrder internally)
+		// Which bid of the set this is. Bids on one order share a nonce key, so the
+		// sequence is the only thing that tells them apart.
 		const { commitment, userOp } = await this.contractService.prepareBidUserOp(
 			order,
 			entryPointAddress,
 			solverAccountAddress,
+			order.id ? this.contractService.cacheService.getBidSequence(order.id) : 0,
 		)
 
 		const bidResult = await intentsCoprocessor.submitBid(commitment, userOp)

@@ -66,6 +66,7 @@ export class SqliteBidStore implements BidStore {
 				retracted_at TEXT,
 				retract_extrinsic_hash TEXT,
 				dead INTEGER NOT NULL DEFAULT 0,
+				sequence INTEGER NOT NULL DEFAULT 0,
 				reservations TEXT
 			);
 
@@ -77,7 +78,7 @@ export class SqliteBidStore implements BidStore {
 
 		// Databases created before a column existed need it added in place.
 		const columns = columnNames(this.db, "bids")
-		for (const column of ["dead", "pending"] as const) {
+		for (const column of ["dead", "pending", "sequence"] as const) {
 			if (columns.has(column)) continue
 			this.db.exec(`ALTER TABLE bids ADD COLUMN ${column} INTEGER NOT NULL DEFAULT 0`)
 			this.logger.info({ column }, "Migrated bid storage schema")
@@ -87,6 +88,10 @@ export class SqliteBidStore implements BidStore {
 			this.db.exec(`ALTER TABLE bids ADD COLUMN ${column} TEXT`)
 			this.logger.info({ column }, "Migrated bid storage schema")
 		}
+
+		// After the migration above, not with the other indexes: a database created
+		// before `sequence` existed has no such column until the ALTER runs.
+		this.db.exec("CREATE INDEX IF NOT EXISTS idx_bids_bid ON bids(commitment, sequence)")
 	}
 
 	// biome-ignore lint/suspicious/noExplicitAny: raw sqlite row
@@ -104,11 +109,12 @@ export class SqliteBidStore implements BidStore {
 	async store(bid: BidInsert): Promise<void> {
 		const result = this.db
 			.prepare(`
-				INSERT INTO bids (commitment, extrinsic_hash, block_hash, success, pending, error, reservations)
-				VALUES (?, ?, ?, ?, ?, ?, ?)
+				INSERT INTO bids (commitment, sequence, extrinsic_hash, block_hash, success, pending, error, reservations)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 			`)
 			.run(
 				bid.commitment,
+				bid.sequence ?? 0,
 				bid.extrinsicHash || null,
 				bid.blockHash || null,
 				bid.success ? 1 : 0,
@@ -174,18 +180,32 @@ export class SqliteBidStore implements BidStore {
 		return false
 	}
 
-	async claimReservation(commitment: string): Promise<LimitOrderHold[]> {
-		const row = this.db
-			.prepare("SELECT reservations FROM bids WHERE commitment = ? AND reservations IS NOT NULL ORDER BY id DESC LIMIT 1")
-			.get(commitment) as { reservations: string } | undefined
-		if (!row) return []
+	async claimReservation(commitment: string, sequence?: number): Promise<LimitOrderHold[]> {
+		// Several bids can share a commitment: simplex bids each limit order that can
+		// serve one incoming order, and they differ only by nonce sequence. Claiming
+		// by row id is what keeps one bid's settlement from taking another's holds,
+		// and what stops two rows carrying identical reservation JSON being cleared
+		// together by a guard that cannot tell them apart.
+		const rows = (
+			sequence === undefined
+				? this.db
+						.prepare("SELECT id, reservations FROM bids WHERE commitment = ? AND reservations IS NOT NULL ORDER BY id")
+						.all(commitment)
+				: this.db
+						.prepare(
+							"SELECT id, reservations FROM bids WHERE commitment = ? AND sequence = ? AND reservations IS NOT NULL ORDER BY id",
+						)
+						.all(commitment, sequence)
+		) as { id: number; reservations: string }[]
 
-		// Guarded on the value just read, so two settlers racing the same bid cannot
-		// both come away holding it.
-		const result = this.db
-			.prepare("UPDATE bids SET reservations = NULL WHERE commitment = ? AND reservations = ?")
-			.run(commitment, row.reservations)
-		return result.changes === 1 ? parseHolds(row.reservations) : []
+		const claimed: LimitOrderHold[] = []
+		for (const row of rows) {
+			// Guarded on the row, so two settlers racing the same bid cannot both come
+			// away holding it.
+			const result = this.db.prepare("UPDATE bids SET reservations = NULL WHERE id = ? AND reservations = ?").run(row.id, row.reservations)
+			if (result.changes === 1) claimed.push(...parseHolds(row.reservations))
+		}
+		return claimed
 	}
 
 	async byLimitOrder(limitOrderId: string, limit = 100): Promise<StoredBid[]> {

@@ -699,10 +699,21 @@ export class ContractInteractionService {
 	 * @param solverAccountAddress - The solver's smart account address
 	 * @returns Object containing the commitment and encoded UserOp
 	 */
+	/**
+	 * @param sequenceOffset Which bid this is on the order, counting from zero.
+	 *
+	 * Several limit orders can serve one incoming order, and simplex bids each of
+	 * them separately. Those bids share a commitment, so `bidNonceKey` gives them
+	 * one nonce key and only the 64-bit sequence can tell them apart. The cached
+	 * estimate holds the base `getNonce` read, which does not move until an op
+	 * executes, so signing every bid with it would leave all but the first failing
+	 * EntryPoint validation with AA25. The i-th bid carries `base + i`.
+	 */
 	async prepareBidUserOp(
 		order: Order,
 		entryPointAddress: HexString,
 		solverAccountAddress: HexString,
+		sequenceOffset = 0,
 	): Promise<{ commitment: HexString; userOp: HexString }> {
 		// Use cached estimate from prior profitability check
 		const cachedEstimate = this.cacheService.getGasEstimate(order.id!)
@@ -771,7 +782,7 @@ export class ContractInteractionService {
 			fillOptions,
 			solverAccount: solverAccountAddress,
 			solverSigner: sdkSigningAccount(this.signer),
-			nonce: cachedEstimate.nonce,
+			nonce: cachedEstimate.nonce + BigInt(sequenceOffset),
 			entryPointAddress,
 			callGasLimit: cachedEstimate.callGasLimit,
 			verificationGasLimit: cachedEstimate.verificationGasLimit,
@@ -789,6 +800,8 @@ export class ContractInteractionService {
 			{
 				commitment,
 				solverAccount: solverAccountAddress,
+				sequenceOffset,
+				nonce: (cachedEstimate.nonce + BigInt(sequenceOffset)).toString(),
 				callGasLimit: cachedEstimate.callGasLimit.toString(),
 				maxFeePerGas: cachedEstimate.maxFeePerGas.toString(),
 			},

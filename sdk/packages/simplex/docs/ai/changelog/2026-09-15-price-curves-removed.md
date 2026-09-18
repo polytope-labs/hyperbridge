@@ -32,7 +32,11 @@ dollars, but the rate now comes from the limit orders, so a pair carries no rate
 `DELETE /api/strategies/:index/max-order-size`) are gone, along with `PairController.setCurve`,
 `clearCurve`, `setMaxOrderSize` and `clearMaxOrderSize`. Prices are set by posting limit orders.
 
-The wizard and the operator UI collect which markets to trade and no longer ask how they are priced.
+The operator UI collects which markets to trade and no longer asks how they are priced. The
+`simplex init` wizard no longer asks at all: its markets step is gone, it writes no `[[pairs]]`, and
+an update run carries through whatever a config already had. Declaring a market up front cannot
+express a limit order, which names two amounts and a fill chain and is created while the filler runs.
+A config with no `[[pairs]]` is a filler waiting for its first market rather than an error.
 
 Two things a market used to carry are now gaps rather than replacements. The solver link built a
 shareable swap page out of a market's curve prices and has been removed rather than left refusing

@@ -44,9 +44,6 @@ describe("CLI wizard update run", () => {
 		allowlist: { users: ["0x1111111111111111111111111111111111111111"] },
 	}
 
-	const wizardPairs = [
-		{ token0: "USDC", token1: "USDC" },
-	]
 	const wizardAssets = { BRZ: { "EVM-8453": "0x5555555555555555555555555555555555555555" as const } }
 	const wizardConfirmationPolicies = {
 		"EVM-1": {
@@ -69,7 +66,6 @@ describe("CLI wizard update run", () => {
 		state.signer = existing.simplex.signer
 		state.substratePrivateKey = existing.simplex.substratePrivateKey
 		state.hyperbridgeWsUrl = existing.simplex.hyperbridgeWsUrl
-		state.pairs = wizardPairs
 		state.assets = wizardAssets
 		state.confirmationPolicies = wizardConfirmationPolicies
 		// carryPrefillExtras equivalents
@@ -99,10 +95,12 @@ describe("CLI wizard update run", () => {
 		expect(assembled.simplex.gasFeeBump).toEqual(existing.simplex.gasFeeBump)
 	})
 
-	it("writes the wizard-managed pairs, assets and confirmation policies", () => {
+	it("leaves the existing markets alone and writes the wizard-managed assets and policies", () => {
 		const assembled = simulateUpdateRun()
 
-		expect(assembled.pairs).toEqual(wizardPairs)
+		// The wizard stopped declaring markets: limit orders say what simplex trades,
+		// so an update run carries whatever [[pairs]] the config already had.
+		expect(assembled.pairs).toEqual(existing.pairs)
 		expect(assembled.assets).toEqual(wizardAssets)
 		expect(assembled.confirmationPolicies).toEqual(wizardConfirmationPolicies)
 	})
@@ -125,7 +123,6 @@ describe("CLI wizard update run", () => {
 				bundlerUrl: "https://bundler.example",
 			},
 		]
-		state.pairs = wizardPairs
 		state.assets = wizardAssets
 		const assembled = assembleConfig(state)
 		// Prefilled entries survive; the wizard's entry wins on a symbol clash.
@@ -153,7 +150,6 @@ describe("CLI wizard update run", () => {
 		state.signer = existing.simplex.signer
 		state.substratePrivateKey = existing.simplex.substratePrivateKey
 		state.hyperbridgeWsUrl = existing.simplex.hyperbridgeWsUrl
-		state.pairs = wizardPairs
 		// A bare [allowlist.bySource] header parses to an empty table; emit
 		// drops it, so assembly must too.
 		state.allowlist = { bySource: {} }
@@ -169,7 +165,6 @@ describe("CLI wizard update run", () => {
 		state.signer = existing.simplex.signer
 		state.substratePrivateKey = existing.simplex.substratePrivateKey
 		state.hyperbridgeWsUrl = existing.simplex.hyperbridgeWsUrl
-		state.pairs = wizardPairs
 		state.rebalancing = { triggerPercentage: 0.2 } as FillerConfigFile["rebalancing"]
 		const assembled = assembleConfig(state)
 		expect(assembled.rebalancing).toBeUndefined()

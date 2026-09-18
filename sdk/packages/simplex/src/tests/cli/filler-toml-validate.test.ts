@@ -72,10 +72,10 @@ describe("validateConfig", () => {
 		expect(() => validateConfig(config)).toThrow(/hyperbridgeWsUrl is required/)
 	})
 
-	it("rejects an empty pairs list", () => {
+	it("accepts an empty pairs list: markets arrive as limit orders, not as config", () => {
 		const config = minimalConfig()
 		config.pairs = []
-		expect(() => validateConfig(config)).toThrow(/At least one \[\[pairs\]\] entry/)
+		expect(() => validateConfig(config)).not.toThrow()
 	})
 
 	it("rejects chains without rpcUrls or bundlerUrl", () => {

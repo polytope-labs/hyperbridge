@@ -24,7 +24,6 @@ export interface WizardState {
 	signer?: SignerConfig
 	substratePrivateKey?: string
 	hyperbridgeWsUrl?: string
-	pairs: PairConfig[]
 	/** `[assets]` escape hatch entries created for custom exotic tokens. */
 	assets?: FillerTomlConfig["assets"]
 	/** Top-level per-chain confirmation policies. */
@@ -59,7 +58,6 @@ export function newWizardState(): WizardState {
 		network: "mainnet",
 		chains: [],
 		passthroughChains: [],
-		pairs: [],
 		maxConcurrentOrders: DEFAULT_MAX_CONCURRENT_ORDERS,
 	}
 }

@@ -164,8 +164,8 @@ export interface OperatorContext {
 	stop(): Promise<void>
 	activity: Pick<ActivityRecorder, "recent" | "on" | "off" | "record" | "recordWalletTx" | "walletTxs" | "fills" | "orderHistory">
 	bids?: Pick<BidStore, "recent" | "stats" | "byCommitments">
-	/** The operator's limit orders. Absent unless `[orderbook]` is enabled. */
-	limitOrders?: Pick<LimitOrderController, "list" | "get" | "create" | "cancel">
+	/** The operator's limit orders. Always present: simplex prices from them. */
+	limitOrders: Pick<LimitOrderController, "list" | "get" | "create" | "cancel">
 	/** Persists an operator pause so it survives a restart. */
 	setPaused(paused: boolean): Promise<void>
 	/**
@@ -834,7 +834,7 @@ export class UiServer {
 			if (method === "GET") {
 				const params = new URL(req.url ?? "/", "http://localhost").searchParams
 				return this.handleLimitOrders(res, () =>
-					this.operator!.limitOrders!.list({
+					this.operator!.limitOrders.list({
 						status: (params.get("status") as LimitOrderFilter["status"]) ?? undefined,
 						fillChain: params.get("chain") ?? undefined,
 						book: params.get("book") ?? undefined,
@@ -851,12 +851,12 @@ export class UiServer {
 			const id = limitOrderMatch[1]
 			if (method === "GET") {
 				return this.handleLimitOrders(res, async () => {
-					const order = await this.operator!.limitOrders!.get(id)
+					const order = await this.operator!.limitOrders.get(id)
 					return order && { order }
 				})
 			}
 			if (method === "DELETE") {
-				return this.handleLimitOrders(res, () => this.operator!.limitOrders!.cancel(id))
+				return this.handleLimitOrders(res, () => this.operator!.limitOrders.cancel(id))
 			}
 			return sendJson(res, 405, { error: "Method not allowed" })
 		}
@@ -1400,9 +1400,6 @@ export class UiServer {
 	 * and an operation resolving null is a 404.
 	 */
 	private async handleLimitOrders(res: ServerResponse, run: () => Promise<unknown>): Promise<void> {
-		if (!this.operator?.limitOrders) {
-			return sendJson(res, 501, { error: "No orderbook is configured for this filler" })
-		}
 		try {
 			const payload = await run()
 			if (payload === null || payload === undefined) return sendJson(res, 404, { error: "Not found" })
@@ -1421,7 +1418,7 @@ export class UiServer {
 		} catch {
 			return sendJson(res, 400, { error: "Invalid JSON body" })
 		}
-		return this.handleLimitOrders(res, () => this.operator!.limitOrders!.create(body))
+		return this.handleLimitOrders(res, () => this.operator!.limitOrders.create(body))
 	}
 
 	private async handleMarketAdd(req: IncomingMessage, res: ServerResponse): Promise<void> {

@@ -10,7 +10,7 @@ These commands are intentionally package-local. Open a terminal in the directory
 README and `package.json`; its parent directory name is not part of the usage contract. pnpm
 discovers the workspace above it and resolves the other packages by name.
 
-Use Node 22.16 or newer to install and build the workspace:
+Use Node 24 to install and build the workspace:
 
 ```sh
 pnpm install
@@ -104,10 +104,11 @@ Simplex does not upload crash reports. Solver diagnostics remain in rotating NDJ
 `<userData>/logs`; five launches are retained, and **Open Current Log** opens the newest one. This
 avoids a remote crash-reporting path that could accidentally capture config contents or key material.
 
-Desktop removal must leave Electron's user-data directory in place. Installer work is separate, but
-neither this shell nor its uninstall contract deletes operator databases, logs, or configuration;
-operators may remove that directory manually only after confirming no reclaimable deposits or records
-are needed.
+Desktop removal leaves Electron's user-data directory in place. Neither this shell nor its installer
+contract deletes operator databases, logs, or configuration.
+Operators may remove that directory manually only after confirming no reclaimable deposits or records
+are needed. The Windows NSIS uninstaller explicitly disables app-data deletion; macOS and Linux
+removal likewise leave the per-user data directory untouched.
 
 For genuinely continuous uptime, run `polytopelabs/simplex` on a VPS and use the authenticated tunnel
 for remote viewing. Desktop login startup does not make a laptop a server.
@@ -158,16 +159,152 @@ PWA logo, and fails before creating a window if any is missing:
 - `resources/tray/<state>.png` in development, with 18px macOS `Template` and 36px `Template@2x`
   variants; packaged builds place them under `desktop/tray` in Electron resources.
 
-It never searches `PATH` for the solver runtime. Packaged resource placement and installer generation
-remain responsibilities of the desktop release build.
+It never searches `PATH` for the solver runtime. The release build keeps the Electron main process in
+`app.asar` and places the solver's `package.json` and `dist` tree under `resources/simplex`, its
+production dependency closure under `resources/node_modules`, and the independently verified Node
+executable under `resources/runtime`. The runtime dependency workspace is locked separately and
+contains the six packages intentionally left external by the Simplex bundle: `ssh2`, `pino`,
+`pino-pretty`, `thread-stream`, `@solana/web3.js`, and `@solana/spl-token`.
+
+## Build installers locally
+
+Install the release-only tools from this package directory. They use a separate lockfile so
+`electron-builder` and its platform packagers do not alter the SDK dependency graph:
+
+```sh
+pnpm --dir tooling install --frozen-lockfile
+```
+
+Then build the SDK, solver, and desktop main process, stage the verified host runtime, and package the
+current platform:
+
+```sh
+pnpm --filter @hyperbridge/sdk build
+pnpm --filter @hyperbridge/simplex build
+pnpm build
+pnpm stage:node
+pnpm package -- --mac --arm64 --publish never
+```
+
+Replace the final target arguments with `--mac --x64`, `--win --x64`, `--linux --x64`, or
+`--linux --arm64` on a matching native host. The output is written to `release/`. Smoke-test its
+unpacked application, each generated artifact payload, and enforce the installed-size budget with:
+
+```sh
+pnpm package:smoke -- --root release
+pnpm package:smoke:artifacts -- --root release
+node scripts/package-size.mjs --root release --budget-mib 520
+```
+
+The first complete macOS arm64 package measures about 495 MiB; Electron's framework alone accounts
+for about 287 MiB. Windows x64 measures about 550 MiB. CI therefore enforces target-specific
+installed-size budgets: 520 MiB for macOS and Linux, and 580 MiB for Windows. Each budget leaves
+roughly five percent growth headroom while still catching accidental duplication.
+
+Pull requests that change desktop packaging run the complete native matrix before merge. Pushing the
+exact package-version tag, for example `simplex-desktop-v0.16.2`, runs the same matrix for macOS arm64
+and x64 DMG plus updater ZIP, Windows x64 NSIS, and Linux x64 and arm64 AppImage plus deb. Pull-request
+builds and default manual runs are explicitly unsigned. A signed manual run or tag build instead fails
+before packaging unless its native signing environment is complete; an unsigned release artifact can
+never be used as a fallback.
+
+The workflow smoke-tests each unpacked application and each artifact through its private socket. It
+mounts the macOS DMG, extracts the updater ZIP, silently installs NSIS and deb packages, and launches
+the AppImage executable (using its self-extract runtime only when hosted-runner FUSE is unavailable);
+local Linux runs extract the deb instead of modifying the host. It verifies the packaged setup UI and
+also launches the packaged Node/solver pair with captured stderr so startup warnings fail the build.
+It drives packaged onboarding through config creation and a fail-closed offline boot, recomputes every
+updater SHA-512, and validates the exact asset set. The macOS jobs additionally require the app,
+Electron helpers, bundled Node, and DMG to have the expected Developer ID team, the app, helpers, and
+Node to have exactly the two JIT entitlements, the app and DMG to pass Gatekeeper assessment, and the app to have a stapled
+notarization ticket. The signed DMG is separately submitted to `notarytool` as the outer distribution
+container and must also carry a valid stapled ticket. The Windows job
+requires valid, timestamped Authenticode signatures from the configured publisher on every packaged
+executable, including `Simplex.exe`, the bundled `node.exe`, and the NSIS installer.
+
+Only after every native job passes does CI publish the GitHub release. A failed upload remains a draft,
+and CI refuses to mutate an already-public release. Desktop tags are separate from `simplex-v*`, so
+they do not publish npm or Docker artifacts. Linux packages are public for manual installation, but
+Linux automatic updates remain disabled until channel metadata has an independent signature.
+
+### Release signing configuration
+
+macOS releases use a Developer ID Application certificate, hardened runtime, and Apple's `notarytool`.
+The app and bundled Node runtime receive only
+`com.apple.security.cs.allow-jit` and
+`com.apple.security.cs.allow-unsigned-executable-memory`; automatic entitlement expansion is disabled.
+Store these as secrets in a GitHub Actions environment named `simplex-desktop-release`:
+
+- `SIMPLEX_MACOS_CERTIFICATE_P12`: base64-encoded Developer ID Application `.p12`;
+- `SIMPLEX_MACOS_CERTIFICATE_PASSWORD`: export password for that `.p12`;
+- `SIMPLEX_APPLE_API_KEY_P8_BASE64`: base64-encoded App Store Connect API `.p8` key;
+- `SIMPLEX_APPLE_API_KEY_ID`, `SIMPLEX_APPLE_API_ISSUER`, and `SIMPLEX_APPLE_TEAM_ID`.
+
+Windows releases use Azure Trusted Signing. Store its workload identity as secrets in the same
+`simplex-desktop-release` environment:
+
+- `SIMPLEX_AZURE_TENANT_ID`;
+- `SIMPLEX_AZURE_CLIENT_ID`;
+- `SIMPLEX_AZURE_CLIENT_SECRET`.
+
+Store the non-secret Trusted Signing resource identity as variables in that environment:
+
+- `SIMPLEX_WINDOWS_PUBLISHER_NAME`, exactly matching the certificate's simple subject name;
+- `SIMPLEX_AZURE_SIGNING_ENDPOINT`, an HTTPS `*.codesigning.azure.net` endpoint;
+- `SIMPLEX_AZURE_SIGNING_ACCOUNT_NAME`;
+- `SIMPLEX_AZURE_CERTIFICATE_PROFILE_NAME`.
+
+Configure the `simplex-desktop-release` environment to allow only the `main` branch and tags matching
+`simplex-desktop-v*`, and require release-maintainer approval. Unsigned builds use a separate,
+secretless `simplex-desktop-ci` environment. The workflow never uses signing secrets for
+`pull_request`, including fork pull requests. A manual
+dispatch is unsigned by default; a maintainer can explicitly enable `sign_artifacts` on `main` to
+exercise the complete credentialed pipeline and download its private workflow artifacts without
+publishing a release. Credentialed dispatches from other refs fail before any secret-bearing step. A
+pushed `simplex-desktop-v*` tag always enables signing and is the only event that publishes; CI also
+requires the tagged commit to belong to `origin/main`. Protect this tag namespace with a repository
+ruleset so only release maintainers can create or delete matching tags. Keep the signing values out of
+repository-level secrets: environment branch/tag rules cannot protect repository secrets.
+To rotate credentials, provision the replacement at Apple or Microsoft first, update the corresponding
+environment secrets (and variables if the Azure resource identity changed), run a signed manual dispatch,
+and revoke the old certificate, API key, or service-principal secret only after both native signature
+jobs and clean-machine installation checks pass. Never reuse or move an existing release tag.
+
+Apple Developer Program enrollment, creation of the Developer ID certificate and App Store Connect
+key, and creation of the Azure Trusted Signing account/profile are operational prerequisites. Download
+the artifacts from a signed manual dispatch, install the DMG on a clean macOS account and the NSIS
+installer on a clean Windows VM, complete onboarding with live credentials, and perform a real fill
+before creating the public tag. The macOS CI job already runs `spctl`; the Windows VM check is still
+required to observe SmartScreen reputation, which cannot be established by inspecting an
+Authenticode signature alone.
+
+Once the secrets and variables exist on the repository, start the private validation run from the
+merged revision with:
+
+```sh
+gh workflow run publish-simplex-desktop.yml --ref main -f sign_artifacts=true
+```
+
+Download the `simplex-desktop-darwin-*` and `simplex-desktop-win32-x64` artifacts from that run for
+the clean-machine checks. On the Mac, verify the installed copy with
+`spctl --assess --type execute --verbose=4 /Applications/Simplex.app`. On Windows, retain a screenshot
+of the SmartScreen result and use `Get-AuthenticodeSignature` on every installed `.exe`, including
+the installer, `Simplex.exe`, and `resources\runtime\node.exe`; each must report `Valid`, the
+configured publisher, and a timestamp.
 
 ## Updates and rollback
 
-Installed builds check the `simplex-desktop-v*` releases in `polytope-labs/hyperbridge` at launch and
-every six hours. Stable is the default channel; beta is opt-in from the native menu. Downloads happen
-in the background without interrupting the solver. Ordinary app quit never installs a downloaded
-update. The updater filters the repository's release API by that tag prefix, so unrelated monorepo
-releases cannot be selected.
+Trusted installed builds check the `simplex-desktop-v*` releases in `polytope-labs/hyperbridge` at
+launch and every six hours. On macOS the installed application must pass the operating system's code
+signature verification. On Windows the packaged updater configuration must contain a non-empty
+Authenticode publisher identity. Linux automatic updates remain disabled until release metadata has
+an independent signature. Unsigned packages therefore cannot download or install updates. Stable is
+the default channel and beta is opt-in from the native menu when updates are enabled.
+
+The provider accepts only plain artifact filenames and resolves them under the selected HTTPS GitHub
+release directory. Absolute URLs, foreign hosts, path traversal, query strings, and fragments are
+rejected. SHA-512 still protects download integrity, but is not treated as publisher authentication
+because the checksum and artifact list come from the same release metadata.
 
 After download, the app waits until `/api/status` reports no active evaluation, queued fill, active
 fill, bid retraction, or portfolio rebalancing work. A running solver must also have no queued
@@ -193,15 +330,15 @@ error and exits instead of failing silently. A version mismatch remains visible 
 and blocks both onboarding and the dashboard from driving the mismatched solver. Changing update
 channels ignores a download that was started on the previous channel.
 
-Update artifacts use electron-updater's SHA-512 metadata checks. macOS updates additionally require
-the app's code signature, and Windows NSIS updates retain Authenticode publisher verification. The
-release configuration explicitly fixes the GitHub owner, repository, and `simplex-desktop-v` tag
-prefix so installed copies cannot silently follow a renamed build repository.
+Update artifacts use electron-updater's SHA-512 metadata checks after the platform trust gate passes.
+macOS updates require a valid application signature and Windows NSIS updates require a configured
+Authenticode publisher. The builder configuration fixes the GitHub owner and repository, while
+`SimplexReleaseProvider` fixes the `simplex-desktop-v` tag prefix and the exact release download path.
 
-Rollback is manual. Stop the solver gracefully, download the previous signed installer from GitHub
-Releases, and install it over the current build. Previous releases and their update metadata must
-remain downloadable. Switching from beta to stable does not downgrade to a numerically older stable
-version automatically.
+Rollback is manual once signed releases are public. Stop the solver gracefully, download the previous
+signed installer from GitHub Releases, and install it over the current build. Previous releases and
+their update metadata must remain downloadable. Switching from beta to stable does not downgrade to
+a numerically older stable version automatically.
 
 ## Verification
 

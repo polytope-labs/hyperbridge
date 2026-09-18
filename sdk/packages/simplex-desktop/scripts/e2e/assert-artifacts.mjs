@@ -25,6 +25,11 @@ if (missing.length > 0) {
 	throw new Error(`Simplex desktop E2E artifacts are missing:\n${missing.map((path) => `- ${path}`).join("\n")}`)
 }
 
+const desktopMain = readFileSync(resolve(desktopRoot, "dist/main.js"), "utf8")
+if (/from ["']electron-updater["']|require\(["']electron-updater["']\)/.test(desktopMain)) {
+	throw new Error("The packaged Electron main process must bundle electron-updater")
+}
+
 function pngDimensions(path) {
 	const png = readFileSync(path)
 	return { width: png.readUInt32BE(16), height: png.readUInt32BE(20) }

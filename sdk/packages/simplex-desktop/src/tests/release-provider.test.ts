@@ -1,7 +1,7 @@
 import type { AppUpdater } from "electron-updater"
 import type { ProviderRuntimeOptions } from "electron-updater/out/providers/Provider.js"
 import { describe, expect, it, vi } from "vitest"
-import { selectSimplexRelease, SimplexReleaseProvider } from "../release-provider"
+import { resolveTrustedReleaseFiles, selectSimplexRelease, SimplexReleaseProvider } from "../release-provider"
 
 describe("Simplex desktop release provider", () => {
 	const releases = [
@@ -33,20 +33,39 @@ describe("Simplex desktop release provider", () => {
 			}
 			return "version: 1.10.0\nfiles:\n  - url: Simplex-1.10.0.dmg\n    sha512: test-hash\n"
 		})
-		const provider = new SimplexReleaseProvider(
-			{ provider: "custom" },
-			{ channel: "latest" } as AppUpdater,
-			{
-				platform: "darwin",
-				isUseMultipleRangeRequest: false,
-				executor: { request } as unknown as ProviderRuntimeOptions["executor"],
-			},
-		)
+		const provider = new SimplexReleaseProvider({ provider: "custom" }, { channel: "latest" } as AppUpdater, {
+			platform: "darwin",
+			isUseMultipleRangeRequest: false,
+			executor: { request } as unknown as ProviderRuntimeOptions["executor"],
+		})
 
 		const info = await provider.getLatestVersion()
 		expect(info).toMatchObject({ version: "1.10.0", tag: "simplex-desktop-v1.10.0" })
 		expect(provider.resolveFiles(info)[0].url.href).toBe(
 			"https://github.com/polytope-labs/hyperbridge/releases/download/simplex-desktop-v1.10.0/Simplex-1.10.0.dmg",
 		)
+	})
+
+	it.each([
+		"http://attacker.invalid/Simplex-1.10.0.dmg",
+		"https://attacker.invalid/Simplex-1.10.0.dmg",
+		"//attacker.invalid/Simplex-1.10.0.dmg",
+		"../Simplex-1.10.0.dmg",
+		"/polytope-labs/hyperbridge/releases/download/other-tag/Simplex-1.10.0.dmg",
+		"Simplex-1.10.0.dmg?download=attacker",
+	])("rejects an updater artifact outside the selected GitHub release: %s", (url) => {
+		expect(() =>
+			resolveTrustedReleaseFiles(
+				{
+					version: "1.10.0",
+					tag: "simplex-desktop-v1.10.0",
+					path: url,
+					sha512: "hash",
+					releaseDate: "2026-09-17T00:00:00.000Z",
+					files: [{ url, sha512: "hash" }],
+				},
+				new URL("https://github.com/polytope-labs/hyperbridge/releases/download/simplex-desktop-v1.10.0/"),
+			),
+		).toThrow(/untrusted artifact path|escaped its pinned GitHub release/)
 	})
 })

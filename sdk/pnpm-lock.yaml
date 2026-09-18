@@ -4,6 +4,12 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+overrides:
+  viem: 2.47.6
+  vite: 6.4.2
+  '@hyperbridge/simplex>vite': 8.0.16
+  '@hyperbridge/simplex>pino': ~10.3.1
+
 importers:
 
   .:
@@ -137,7 +143,7 @@ importers:
         specifier: ^1.6.1
         version: 1.6.1
       viem:
-        specifier: ^2.23.5
+        specifier: 2.47.6
         version: 2.47.6(bufferutil@4.1.0)(typescript@6.0.3)(utf-8-validate@5.0.10)(zod@3.25.76)
       zod:
         specifier: ^3.25.32
@@ -289,7 +295,7 @@ importers:
         specifier: 2.47.6
         version: 2.47.6(bufferutil@4.1.0)(typescript@5.7.3)(utf-8-validate@5.0.10)(zod@3.25.76)
       vite:
-        specifier: ^5.0.0 || ^6.0.0
+        specifier: 6.4.2
         version: 6.4.2(@types/node@22.19.17)(lightningcss@1.32.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3)
     devDependencies:
       '@biomejs/biome':
@@ -492,7 +498,7 @@ importers:
         specifier: ^5.7.3
         version: 5.7.3
       vite:
-        specifier: ^8.0.16
+        specifier: 8.0.16
         version: 8.0.16(@types/node@22.19.17)(esbuild@0.27.7)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3)
       vite-tsconfig-paths:
         specifier: ^5.1.4
@@ -502,23 +508,22 @@ importers:
         version: 3.2.4(@types/debug@4.1.13)(@types/node@22.19.17)(jsdom@26.1.0(bufferutil@4.1.0)(utf-8-validate@6.0.6))(lightningcss@1.32.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3)
 
   packages/simplex-desktop:
-    dependencies:
-      '@hyperbridge/simplex':
-        specifier: workspace:*
-        version: link:../simplex
-      electron-updater:
-        specifier: 6.8.9
-        version: 6.8.9
     devDependencies:
       '@biomejs/biome':
         specifier: ^1.9.4
         version: 1.9.4
+      '@hyperbridge/simplex':
+        specifier: workspace:*
+        version: link:../simplex
       '@types/node':
         specifier: ^22.13.5
         version: 22.19.17
       electron:
         specifier: 44.3.0
         version: 44.3.0
+      electron-updater:
+        specifier: 6.8.9
+        version: 6.8.9
       openpgp:
         specifier: ^6.2.2
         version: 6.3.1
@@ -540,6 +545,9 @@ importers:
       vitest:
         specifier: ^3.0.7
         version: 3.2.4(@types/debug@4.1.13)(@types/node@22.19.17)(jsdom@26.1.0(bufferutil@4.1.0)(utf-8-validate@6.0.6))(lightningcss@1.32.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3)
+      yaml:
+        specifier: 2.8.3
+        version: 2.8.3
 
 packages:
 
@@ -1364,7 +1372,7 @@ packages:
   '@circle-fin/adapter-viem-v2@1.4.0':
     resolution: {integrity: sha512-LcPeA0W4ke3mw2Shnimc4qC1nCEgILOo1F3wX8K4q4N7BV27uQM06hUdLkIG6OvgNpiEW5IkrylkKEFmtO44BQ==}
     peerDependencies:
-      viem: ^2.30.0
+      viem: 2.47.6
 
   '@circle-fin/bridge-kit@1.5.0':
     resolution: {integrity: sha512-7Ia06YXN00Dhm0E9ycW9sd10zfXdA1NqHKCsdiSxIHjyV+xktWaxMhtXEbqGjtKq6FuxiOycpBmsJyHgDZFZ+Q==}
@@ -3984,7 +3992,7 @@ packages:
     resolution: {integrity: sha512-UVCqe33EjcJ1BioeAgMxSpfZQL0ueCHjX9Ux3V9s6418Fbx1dueLozhkugIKNlNRYJ8SnpN+9BE9EX3aja9m2w==}
     engines: {node: '>=18.0.0'}
     peerDependencies:
-      viem: ^1.16.6 || ^2.24.2
+      viem: 2.47.6
 
   '@turnkey/wallet-stamper@1.1.16':
     resolution: {integrity: sha512-IdgoIRQr5RoiHAPnVag2QyaYg6cmmkZQs1rOig57/tQ/fXdPsC1+2660RisIAvv69ZFrArG8Z8wHaGSQMkStlw==}
@@ -4311,7 +4319,7 @@ packages:
     peerDependencies:
       '@rolldown/plugin-babel': ^0.1.7 || ^0.2.0
       babel-plugin-react-compiler: ^1.0.0
-      vite: ^8.0.0
+      vite: 6.4.2
     peerDependenciesMeta:
       '@rolldown/plugin-babel':
         optional: true
@@ -4334,7 +4342,7 @@ packages:
     resolution: {integrity: sha512-46ryTE9RZO/rfDd7pEqFl7etuyzekzEhUbTW3BvmeO/BcCMEgq59BKhek3dXDWgAj4oMK6OZi+vRr1wPW6qjEQ==}
     peerDependencies:
       msw: ^2.4.9
-      vite: ^5.0.0 || ^6.0.0 || ^7.0.0-0
+      vite: 6.4.2
     peerDependenciesMeta:
       msw:
         optional: true
@@ -6151,7 +6159,7 @@ packages:
     engines: {node: '>=14'}
 
   forge-std@https://codeload.github.com/foundry-rs/forge-std/tar.gz/620536fa5277db4e3fd46772d5cbc1ea0696fb43:
-    resolution: {tarball: https://codeload.github.com/foundry-rs/forge-std/tar.gz/620536fa5277db4e3fd46772d5cbc1ea0696fb43}
+    resolution: {gitHosted: true, tarball: https://codeload.github.com/foundry-rs/forge-std/tar.gz/620536fa5277db4e3fd46772d5cbc1ea0696fb43}
     version: 1.16.1
 
   form-data@4.0.5:
@@ -8149,10 +8157,6 @@ packages:
     resolution: {integrity: sha512-FfR8sjd4em2T6fb3I2MwAJU7HWVMr9zba+enmQeeWFfCbm+UOC/0X4DS8XtpUTMwWMGbjKYP7xjfNekzyGmB3A==}
     engines: {node: ^10 || ^12 || >=14}
 
-  postcss@8.5.9:
-    resolution: {integrity: sha512-7a70Nsot+EMX9fFU3064K/kdHWZqGVY+BADLyXc8Dfv+mTLLVl6JzJpPaCZ2kQL9gIJvKXSLMHhqdRRjwQeFtw==}
-    engines: {node: ^10 || ^12 || >=14}
-
   postgres-array@2.0.0:
     resolution: {integrity: sha512-VpZrUqU5A69eQyW2c5CA1jtLecCsN2U/bD6VilrFDWq5+5UIEVO7nazS3TEcHf1zuPYO/sqGvUvW62g86RXZuA==}
     engines: {node: '>=4'}
@@ -9722,7 +9726,7 @@ packages:
   vite-tsconfig-paths@5.1.4:
     resolution: {integrity: sha512-cYj0LRuLV2c2sMqhqhGpaO3LretdtMn/BVX4cPLanIZuwwrkVl+lK84E/miEXkCHWXuq65rhNN4rXsBcOB3S4w==}
     peerDependencies:
-      vite: '*'
+      vite: 6.4.2
     peerDependenciesMeta:
       vite:
         optional: true
@@ -14526,7 +14530,7 @@ snapshots:
 
   '@scure/bip32@1.7.0':
     dependencies:
-      '@noble/curves': 1.9.1
+      '@noble/curves': 1.9.7
       '@noble/hashes': 1.8.0
       '@scure/base': 1.2.6
 
@@ -21158,12 +21162,6 @@ snapshots:
       picocolors: 1.1.1
       source-map-js: 1.2.1
 
-  postcss@8.5.9:
-    dependencies:
-      nanoid: 3.3.11
-      picocolors: 1.1.1
-      source-map-js: 1.2.1
-
   postgres-array@2.0.0: {}
 
   postgres-bytea@1.0.1: {}
@@ -22928,9 +22926,9 @@ snapshots:
       esbuild: 0.25.12
       fdir: 6.5.0(picomatch@4.0.4)
       picomatch: 4.0.4
-      postcss: 8.5.9
+      postcss: 8.5.15
       rollup: 4.60.1
-      tinyglobby: 0.2.16
+      tinyglobby: 0.2.17
     optionalDependencies:
       '@types/node': 22.19.17
       fsevents: 2.3.3

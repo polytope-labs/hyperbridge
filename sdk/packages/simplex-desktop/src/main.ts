@@ -37,6 +37,7 @@ import {
 	type DesktopMenuActions,
 } from "./tray-menu"
 import { TRAY_ICON_STATES, trayIconPath, trayIconRetinaPath } from "./tray-icon"
+import { macTeamIdFromAppPackage, updateAuthenticityForInstallation } from "./update-authenticity"
 import { UpdateCoordinator, waitForSolverExit, type UpdateStatus } from "./update-coordinator"
 import { FileUpdateStore, type UpdateChannel } from "./update-store"
 
@@ -411,36 +412,47 @@ async function prepareDesktop(): Promise<void> {
 	createTray()
 	await startOrAttachSolver(true)
 	supervisor.start()
-	updateCoordinator = new UpdateCoordinator({
-		updater: autoUpdater,
+	const updateAuthenticity = updateAuthenticityForInstallation({
 		packaged: app.isPackaged,
-		appVersion: app.getVersion(),
-		store: new FileUpdateStore(dataDirectory),
-		probeSolver: () => supervisor!.pollNow(),
-		requestSolverStop: async () => {
-			intentionalStop = true
-			await sendSolverAction(socketPath, "stop")
-		},
-		restartSolver: async () => {
-			intentionalStop = false
-			if (!(await startOrAttachSolver(false))) throw new Error("Simplex could not restart the solver")
-		},
-		waitForExit: (pid) => waitForSolverExit({ pid, probe: () => probeHealth(socketPath) }),
-		onChange: (next) => {
-			updateStatus = next
-			installingUpdate = next.state === "installing"
-			refreshNativeUi()
-		},
-		notify: (title, body) => {
-			if (!Notification.isSupported()) return
-			const notification = new Notification({ title, body })
-			notification.on("click", () => void safeShowWindow())
-			notification.show()
-		},
+		platform: process.platform,
+		resourcesPath: process.resourcesPath,
+		executablePath: process.execPath,
+		expectedMacTeamId: process.platform === "darwin" ? macTeamIdFromAppPackage(app.getAppPath()) : undefined,
 	})
-	autoUpdater.setFeedURL(SIMPLEX_UPDATE_FEED)
-	updateStatus = updateCoordinator.status
-	updateCoordinator.start()
+	if (updateAuthenticity.enabled) {
+		updateCoordinator = new UpdateCoordinator({
+			updater: autoUpdater,
+			packaged: true,
+			appVersion: app.getVersion(),
+			store: new FileUpdateStore(dataDirectory),
+			probeSolver: () => supervisor!.pollNow(),
+			requestSolverStop: async () => {
+				intentionalStop = true
+				await sendSolverAction(socketPath, "stop")
+			},
+			restartSolver: async () => {
+				intentionalStop = false
+				if (!(await startOrAttachSolver(false))) throw new Error("Simplex could not restart the solver")
+			},
+			waitForExit: (pid) => waitForSolverExit({ pid, probe: () => probeHealth(socketPath) }),
+			onChange: (next) => {
+				updateStatus = next
+				installingUpdate = next.state === "installing"
+				refreshNativeUi()
+			},
+			notify: (title, body) => {
+				if (!Notification.isSupported()) return
+				const notification = new Notification({ title, body })
+				notification.on("click", () => void safeShowWindow())
+				notification.show()
+			},
+		})
+		autoUpdater.setFeedURL(SIMPLEX_UPDATE_FEED)
+		updateStatus = updateCoordinator.status
+		updateCoordinator.start()
+	} else if (app.isPackaged) {
+		console.warn(`Simplex automatic updates are disabled: ${updateAuthenticity.reason}`)
+	}
 	refreshNativeUi()
 
 	if (!openedAtLogin) {

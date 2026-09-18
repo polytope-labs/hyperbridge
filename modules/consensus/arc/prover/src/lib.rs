@@ -19,13 +19,15 @@
 //! EIP-1186 proofs of the ValidatorRegistry's active validator set, and
 //! assembles them into [`VerifierStateUpdate`]s for the on-chain client.
 //!
-//! Arc RPC nodes run reth with the default zero proof window: `eth_getProof`
-//! only serves the node's current tip, and with sub-second block times the
-//! tip is stale by the time a client observes it. The `fetch_latest_*`
-//! methods therefore request proofs at `"latest"` and discover the anchor
-//! block afterwards, by checking the account proof against candidate headers'
-//! state roots. The height-parameterised methods remain for nodes configured
-//! with a larger `--rpc.eth-proof-window`.
+//! Proofs are captured at explicit historical heights by default: the
+//! `fetch_latest_*` methods anchor a few blocks behind the observed tip and
+//! prove at that exact height, which is deterministic and race-free. Some
+//! public RPCs run reth with the default zero proof window (`eth_getProof`
+//! only at the node's current tip — which with sub-second block times is
+//! stale by the time a client observes it); when an endpoint reports this,
+//! the prover falls back to requesting proofs at `"latest"` and discovering
+//! the anchor block afterwards, by checking the account proof against
+//! candidate headers' state roots.
 
 pub mod error;
 pub mod rpc;
@@ -158,9 +160,9 @@ impl ArcProver {
 
 	/// Fetch a complete light client update anchored at the node's tip.
 	///
-	/// Prefers a deterministic historical capture just behind the tip when the
-	/// endpoint serves `eth_getProof` at numbered heights; otherwise falls
-	/// back to the `"latest"`-anchored capture (and remembers the answer).
+	/// Captures deterministically at a height just behind the tip by default;
+	/// the racy `"latest"`-anchored capture is used only for endpoints that
+	/// report they can't serve historical proofs (remembered per instance).
 	pub async fn fetch_latest_update(&self) -> Result<VerifierStateUpdate, ProverError> {
 		if let Some(update) = self
 			.try_historical(|height| async move { self.fetch_update(height).await })
@@ -197,9 +199,11 @@ impl ArcProver {
 		})
 	}
 
-	/// Run `fetch` at a height just behind the tip if the endpoint is not
-	/// known to lack historical proofs. `Ok(None)` means the caller should
-	/// use the `"latest"`-anchored fallback.
+	/// Run `fetch` at a height just behind the tip. This is the default
+	/// capture mode; `Ok(None)` — the endpoint definitively reporting that it
+	/// can't serve historical proofs — is the only outcome that sends the
+	/// caller to the `"latest"`-anchored fallback. Transient errors surface
+	/// to the caller unchanged.
 	async fn try_historical<T, F, Fut>(&self, fetch: F) -> Result<Option<T>, ProverError>
 	where
 		F: FnOnce(u64) -> Fut,
@@ -225,17 +229,7 @@ impl ArcProver {
 				self.set_historical_support(HistoricalSupport::Unsupported);
 				Ok(None)
 			},
-			// A known-good endpoint failing is a transient error the caller
-			// should see; an unknown one gets the fallback without a verdict.
-			Err(e) if self.historical_support() == HistoricalSupport::Supported => Err(e),
-			Err(e) => {
-				log::debug!(
-					target: "arc-prover",
-					"historical capture attempt failed ({e}), \
-					 falling back to latest-anchored capture"
-				);
-				Ok(None)
-			},
+			Err(e) => Err(e),
 		}
 	}
 

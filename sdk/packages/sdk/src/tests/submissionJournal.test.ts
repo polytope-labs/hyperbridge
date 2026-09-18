@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { encodeAbiParameters, encodeEventTopics, parseAbi } from "viem"
+import { encodeAbiParameters, encodeEventTopics, parseAbi, stringToHex } from "viem"
 import { ABI } from "@/abis/IntentGatewayV2"
 import { BidExecutionPendingError, BidExecutionRejectedError, BidImpl } from "@/protocols/intents/Bid"
 import { BidManager } from "@/protocols/intents/BidManager"
@@ -7,6 +7,7 @@ import { CryptoUtils } from "@/protocols/intents/CryptoUtils"
 import { SubmissionJournal } from "@/protocols/intents/submissionJournal"
 import { OrderExecutor } from "@/protocols/intents/OrderExecutor"
 import type { HexString, Order, PackedUserOperation } from "@/types"
+import { encodeFillOrder } from "@/protocols/intents/fillOrderCodec"
 const sender = `0x${"22".repeat(20)}` as HexString
 const gateway = `0x${"33".repeat(20)}` as HexString
 const entryPoint = `0x${"44".repeat(20)}` as HexString
@@ -30,12 +31,13 @@ const order: Order = {
 	inputs: [{ token, amount: 100n }],
 	output: { beneficiary: token, assets: [{ token, amount: 100n }], call: "0x" },
 }
+let opCallData: HexString = "0x1234"
 function op(nonce = 1n): PackedUserOperation {
 	return {
 		sender,
 		nonce,
 		initCode: "0x",
-		callData: "0x1234",
+		callData: opCallData,
 		accountGasLimits: `0x${"00".repeat(32)}`,
 		preVerificationGas: 1n,
 		gasFees: `0x${"00".repeat(32)}`,
@@ -59,6 +61,7 @@ function fixture() {
 	let onSend = () => {}
 	const ctx: any = {
 		bundlerUrl: "https://bundler.invalid",
+		receiptPolling: { maxRetries: 2, backoffMs: 0 },
 		intentsCoprocessor: { getBidsForOrder: vi.fn(async () => [{ filler: "solver", userOp: op(), deposit: 0n }]) },
 		sessionKeyStorage: { getSessionKeyByAddress: async () => ({ privateKey: `0x${"01".repeat(32)}` }) },
 		usedUserOpsStorage: {
@@ -207,7 +210,11 @@ function fixture() {
 		},
 	}
 }
-afterEach(() => vi.unstubAllGlobals())
+afterEach(() => {
+	vi.unstubAllGlobals()
+	vi.restoreAllMocks()
+	opCallData = "0x1234"
+})
 async function attempt(f: ReturnType<typeof fixture>) {
 	const s = f.stream()
 	expect((await s.next()).value).toMatchObject({ status: "AWAITING_BIDS" })
@@ -287,6 +294,51 @@ describe("submission recovery safety", () => {
 		expect(await resume(f)).toMatchObject({ status: "FILLED" })
 		expect(pending(f)).toBeUndefined()
 		expect(f.sent).toHaveLength(3)
+	})
+	it("waits for a rebroadcast receipt instead of failing on the first empty poll", async () => {
+		const f = fixture()
+		f.setFailure(new Error("timeout"))
+		expect(await attempt(f)).toMatchObject({ status: "FAILED" })
+		f.setFailure(undefined)
+		f.confirm()
+		vi.spyOn(BidImpl, "receipt").mockResolvedValueOnce(null).mockResolvedValueOnce(null)
+		expect(await resume(f)).toMatchObject({ status: "FILLED" })
+		expect(f.sent).toHaveLength(2)
+		expect(pending(f)).toBeUndefined()
+	})
+	it("retires a journaled operation once finalized state passes its validUntil", async () => {
+		const f = fixture()
+		const canonical = `0x${"00".repeat(12)}${"55".repeat(20)}` as HexString
+		const legs = [{ token: canonical, amount: 100n }]
+		opCallData = f.crypto.encodeERC7821Execute([
+			{
+				target: gateway,
+				value: 0n,
+				data: encodeFillOrder(
+					{
+						...order,
+						source: stringToHex(order.source),
+						destination: stringToHex(order.destination),
+						inputs: legs,
+						output: { ...order.output, assets: legs },
+					},
+					{ relayerFee: 0n, nativeDispatchFee: 0n, validUntil: 50n, outputs: legs, inputs: legs },
+					3,
+				),
+			},
+		])
+		f.setFailure(new Error("timeout"))
+		expect(await attempt(f)).toMatchObject({ status: "FAILED" })
+		expect(pending(f)).toBeDefined()
+
+		f.ctx.dest.client.getBlock = async () => ({ number: 49n })
+		expect(await resume(f)).toMatchObject({ status: "FAILED" })
+		expect(f.sent).toHaveLength(2)
+
+		f.ctx.dest.client.getBlock = async () => ({ number: 51n })
+		expect(await resume(f)).toMatchObject({ status: "AWAITING_BIDS" })
+		expect(f.sent).toHaveLength(2)
+		expect(pending(f)).toBeUndefined()
 	})
 	it("does not fall back after timeout then restart then explicit rejection", async () => {
 		const f = fixture()

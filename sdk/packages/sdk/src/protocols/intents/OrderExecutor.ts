@@ -8,6 +8,7 @@ import { ABI as IntentGatewayV2ABI } from "@/abis/IntentGatewayV2"
 import { BidExecutionPendingError, BidExecutionRejectedError, BidImpl } from "./Bid"
 import { SubmissionJournal } from "./submissionJournal"
 import { readLegPartialFill } from "./escrowReads"
+import { decodeFillOrder } from "./fillOrderCodec"
 import EntryPoint from "@/abis/entrypoint"
 import type { PublicClient } from "viem"
 
@@ -151,6 +152,15 @@ export class OrderExecutor {
 	}
 
 	/** Reads cumulative credited progress so restarts and concurrent fillers do not rely on stale local totals. */
+	/** The `validUntil` of the journaled fill, or undefined when the calldata does not decode. */
+	private journaledValidUntil(crypto: CryptoUtils, submission: SelectBidResult): bigint | undefined {
+		for (const call of crypto.decodeERC7821Execute(submission.userOp.callData) ?? []) {
+			const fill = decodeFillOrder(call.data as HexString)
+			if (fill) return fill.options.validUntil
+		}
+		return undefined
+	}
+
 	private async readCreditedProgress(
 		order: Order,
 		commitment: HexString,
@@ -412,10 +422,10 @@ export class OrderExecutor {
 								blockNumber: finalized.number,
 							}),
 						)
-						if (nonce > submission.userOp.nonce || finalized.number > order.deadline) {
-							// Reconcile progress before retirement, then read again before polling below.
-							await this.readCreditedProgress(order, commitment, [])
-							await this.readFinalizer(order, commitment)
+						// A fill past the operation's own validUntil reverts on chain, so that bound retires it too.
+						const validUntil = this.journaledValidUntil(crypto, submission)
+						const expired = validUntil !== undefined && validUntil !== 0n && finalized.number > validUntil
+						if (nonce > submission.userOp.nonce || finalized.number > order.deadline || expired) {
 							await retire(submission)
 						} else {
 							if (
@@ -427,12 +437,15 @@ export class OrderExecutor {
 								)
 							}
 							await BidImpl.broadcast(crypto, submission, entryPoint, true)
-							const replayReceipt = await BidImpl.receipt(crypto, submission.userOpHash)
-							if (!replayReceipt)
+							let replayReceipt: Awaited<ReturnType<typeof BidImpl.awaitReceipt>>
+							try {
+								replayReceipt = await BidImpl.awaitReceipt(this.ctx, crypto, submission.userOpHash)
+							} catch {
 								throw new BidExecutionPendingError(
 									submission.userOpHash,
 									"Rebroadcast operation is awaiting inclusion",
 								)
+							}
 							try {
 								recovered = await BidImpl.verifyReceipt(this.ctx, order, submission, replayReceipt)
 							} catch (error) {

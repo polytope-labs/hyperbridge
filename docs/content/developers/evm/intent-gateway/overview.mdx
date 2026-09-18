@@ -78,8 +78,10 @@ the order is filled. Normalized amounts describe prices; signed quotes bound fun
 determines actual payment.
 
 Before sending, it durably records the fully signed UserOperation as pending. On restart it reconciles
-the receipt and chain state, and may rebroadcast the identical operation. Definitive first-send rejection
-permits fallback; an uncertain earlier send blocks another distinct bid until its outcome is established.
+the receipt and chain state, and may rebroadcast the identical operation, polling for its receipt as a
+first send does (`receiptPolling` on the context). Definitive first-send rejection permits fallback; an
+uncertain earlier send blocks another distinct bid until its outcome is established: a receipt, or a
+finalized block past the operation's `validUntil` or the order deadline with its nonce unconsumed.
 Manual selection remains available.
 
 Every v3 bid requires an updated delegated SolverAccount.

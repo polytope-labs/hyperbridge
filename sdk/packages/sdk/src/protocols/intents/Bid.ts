@@ -37,6 +37,8 @@ const ENTRY_POINT_EVENT_ABI = [
 ] as const
 
 /** Submission was accepted, but inclusion/fill outcome could not be established safely. */
+const DEFAULT_RECEIPT_POLLING = { maxRetries: 7, backoffMs: 2000 }
+
 export class BidExecutionPendingError extends Error {
 	constructor(
 		readonly userOpHash: HexString,
@@ -113,7 +115,7 @@ export class BidImpl implements Bid {
 
 		this.solverAddress = params.fillerBid.userOp.sender
 		this.outputs = params.fillOptions.outputs
-		this.inputs = params.fillOptions.inputs ?? []
+		this.inputs = params.fillOptions.inputs
 		this.relayerFee = params.fillOptions.relayerFee
 		this.nativeDispatchFee = params.fillOptions.nativeDispatchFee
 		this.userOp = params.fillerBid.userOp
@@ -275,14 +277,7 @@ export class BidImpl implements Bid {
 			const replay = this.broadcastAttempted
 			this.broadcastAttempted = true
 			await BidImpl.broadcast(this.crypto, accepted, entryPointAddress, replay)
-			const receipt = await retryPromise(
-				async () => {
-					const result = await BidImpl.receipt(this.crypto, userOpHash)
-					if (!result) throw new Error("Receipt not available yet")
-					return result
-				},
-				{ maxRetries: 5, backoffMs: 2000, logMessage: "Fetching user operation receipt" },
-			)
+			const receipt = await BidImpl.awaitReceipt(this.ctx, this.crypto, userOpHash)
 			const result = await BidImpl.verifyReceipt(this.ctx, this.order, accepted, receipt)
 			await this.retire(result, onTerminal)
 			return result
@@ -334,6 +329,23 @@ export class BidImpl implements Bid {
 				`Bid send outcome is uncertain: ${error instanceof Error ? error.message : String(error)}`,
 			)
 		}
+	}
+
+	/** Polls the bundler for the operation's receipt; throws once `ctx.receiptPolling` is exhausted. */
+	static async awaitReceipt(
+		ctx: IntentGatewayContext,
+		crypto: CryptoUtils,
+		hash: HexString,
+	): Promise<{ receipt: { transactionHash: HexString } }> {
+		const { maxRetries, backoffMs } = ctx.receiptPolling ?? DEFAULT_RECEIPT_POLLING
+		return retryPromise(
+			async () => {
+				const result = await BidImpl.receipt(crypto, hash)
+				if (!result) throw new Error("Receipt not available yet")
+				return result
+			},
+			{ maxRetries, backoffMs, logMessage: "Fetching user operation receipt" },
+		)
 	}
 
 	static async receipt(

@@ -160,6 +160,12 @@ export interface IntentGatewayContext {
 	/** URL of the ERC-4337 bundler endpoint for gas estimation and UserOp submission. */
 	bundlerUrl?: string
 	/**
+	 * How long a sent UserOperation is polled for its receipt before its outcome is treated as
+	 * uncertain: `maxRetries` attempts with `backoffMs` doubling between them. Defaults to seven
+	 * attempts from two seconds, about two minutes in total.
+	 */
+	receiptPolling?: { maxRetries: number; backoffMs: number }
+	/**
 	 * In-memory TTL cache keyed by state-machine ID.
 	 * Stores fee-token address, decimals, and the timestamp of the last fetch.
 	 */

@@ -160,6 +160,11 @@ lto = "thin"
 strip = true
 
 [workspace.dependencies]
+ssz = { package = "ethereum_ssz", version = "0.10", default-features = false }
+ssz_derive = { package = "ethereum_ssz_derive", version = "0.10" }
+tree_hash = { version = "0.12", default-features = false }
+tree_hash_derive = { version = "0.12" }
+ssz_types = { version = "0.14", default-features = false }
 polkadot-sdk = { version = "=2606.0.0", default-features = false }
 
 rocksdb = { version = "0.24.0", features = ["bindgen-runtime"] }
@@ -406,3 +411,12 @@ features = ["derive"]
 [workspace.dependencies.reconnecting-jsonrpsee-ws-client]
 version = "0.5.0"
 default-features = false
+
+[patch.crates-io]
+ethereum_ssz = { git = "https://github.com/polytope-labs/ethereum_ssz", rev = "da3aaf05a91d41b8e3a882beebce142beda23b92" }
+ethereum_ssz_derive = { git = "https://github.com/polytope-labs/ethereum_ssz", rev = "da3aaf05a91d41b8e3a882beebce142beda23b92" }
+tree_hash = { git = "https://github.com/polytope-labs/tree_hash", rev = "afb7e0ee088dd1e2feee7d2b8ac36e875c4b7fb0" }
+tree_hash_derive = { git = "https://github.com/polytope-labs/tree_hash", rev = "afb7e0ee088dd1e2feee7d2b8ac36e875c4b7fb0" }
+ssz_types = { git = "https://github.com/polytope-labs/ssz_types", rev = "b7ee3e6941921a2a54ee41ab3d7a64da6a9a6072" }
+ethereum_serde_utils = { git = "https://github.com/polytope-labs/ethereum_serde_utils", rev = "bcb95c68ee907bed5c954d7920d57d3e9113d756" }
+ethereum_hashing = { git = "https://github.com/polytope-labs/ethereum_hashing", rev = "eac8922709d164b48f1717dabb1b702be7682f01" }

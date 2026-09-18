@@ -31,7 +31,7 @@ import { paymasterReserveForToken } from "@/services/paymaster"
  * The bid policy prices the filler *buying* token1 (user sends token1, receives
  * token0); the ask policy prices the filler *selling* token1. A missing policy
  * disables that direction for this pair (one-sided LP). A pair with neither
- * policy is priced from a Uniswap V4 venue (USD-stable `token0` only).
+ * policy disables that direction for the pair.
  *
  * A **same-token pair** (`token0 == token1`, e.g. USDC/USDC) is the same-asset
  * cross-chain market: ask-only, with the ask price at or below par — the gap
@@ -108,13 +108,12 @@ interface LegRates {
 	rate: Decimal
 	/** The opposite side's rate (bid for ask-legs, ask for bid-legs), when available. */
 	oppositeRate: Decimal | null
-	priceSource: "venue" | "policy"
 }
 
 /**
  * Strategy for swaps across a configurable set of trading pairs, each priced
- * and sized by its own bid/ask curves (or a Uniswap V4 venue). Supports both
- * same-chain and cross-chain orders.
+ * and sized by its own bid/ask curves. Supports both same-chain and cross-chain
+ * orders.
  *
  * Pairs are declared as `token0`/`token1` registry symbols — e.g. USDC/CNGN,
  * USDT/CNGN, ZARP/CNGN — and any number of pairs can run in one engine. Curves
@@ -157,20 +156,6 @@ export class FXFiller implements FillerStrategy {
 	private readonly maxConsecutiveClamps: number
 	confirmationPolicy?: { getConfirmationBlocks: (chainId: number, amountUsd: number) => number }
 	private fundingVenues: FundingVenue[]
-	/**
-	 * Optional Uniswap price guard, keyed by chain. When a chain has an entry, a
-	 * venue (pool) quote is only trusted if it stays within `maxDeviationBps` of the
-	 * static `reference` price (token1 per USD); a quote outside the band rejects the
-	 * order — defence against a manipulated, stale, or thin pool. Sourced from the
-	 * per-position config under `[strategies.vault.uniswapV4]`.
-	 */
-	private priceGuard?: Map<string, { reference: Decimal; maxDeviationBps: number }>
-	/**
-	 * One-sided switch for venue-priced pairs (no static curves): "bid" only buys
-	 * token1, "ask" only sells it. Curve-priced pairs express one-sidedness by
-	 * omitting a curve instead.
-	 */
-	private side?: "bid" | "ask"
 
 	/**
 	 * @param signer          Filler's signing account for UserOp signatures.
@@ -180,9 +165,7 @@ export class FXFiller implements FillerStrategy {
 	 * @param pairs           Trading pairs with their bid/ask price policies and per-order caps.
 	 * @param registry        Asset symbol registry resolving pair symbols per chain.
 	 * @param options.confirmationPolicy Optional per-chain confirmation policy for cross-chain orders.
-	 * @param options.fundingVenues  Optional funding venues for on-chain liquidity sourcing and live pricing.
-	 * @param options.side    Venue-pricing one-sided switch ("bid" buys token1, "ask" sells token1).
-	 *   Only valid when no pair has static curves; curve-priced pairs go one-sided by omitting a curve.
+	 * @param options.fundingVenues  Optional funding venues for on-chain liquidity sourcing.
 	 */
 	constructor(
 		signer: Signer,
@@ -194,28 +177,20 @@ export class FXFiller implements FillerStrategy {
 		options?: {
 			confirmationPolicy?: ConfirmationPolicy
 			fundingVenues?: FundingVenue[]
-			priceGuard?: Record<string, { referencePrice: string; maxDeviationBps: number }>
-			side?: "bid" | "ask"
 		},
 	) {
 		this.logger = moduleLogger(configService.loggers, "fx-simplex")
-		const { confirmationPolicy, fundingVenues = [], priceGuard, side } = options ?? {}
+		const { confirmationPolicy, fundingVenues = [] } = options ?? {}
 
 		if (pairs.length === 0) {
 			throw new Error("FXFiller requires at least one trading pair")
 		}
-		const hasAnyPolicy = pairs.some((p) => p.bidPricePolicy || p.askPricePolicy)
-		const hasVenues = fundingVenues.length > 0
-
-		if (!hasAnyPolicy && !hasVenues) {
-			throw new Error("FXFiller requires price curves on its pairs, or funding venues for pool pricing")
-		}
-		if (side && hasAnyPolicy) {
-			throw new Error("FXFiller 'side' only applies to venue (pool) pricing; omit pair price curves")
+		if (!pairs.some((p) => p.bidPricePolicy || p.askPricePolicy)) {
+			throw new Error("FXFiller requires price curves on its pairs")
 		}
 		const seenPairs = new Set<string>()
 		for (const pair of pairs) {
-			FXFiller.assertPairValid(pair, seenPairs, hasVenues)
+			FXFiller.assertPairValid(pair, seenPairs)
 		}
 		FXFiller.assertAnchored(pairs)
 
@@ -225,16 +200,6 @@ export class FXFiller implements FillerStrategy {
 		this.pairs = pairs
 		this.registry = registry
 		this.fundingVenues = fundingVenues
-		this.side = side
-		if (priceGuard && Object.keys(priceGuard).length > 0) {
-			this.priceGuard = new Map()
-			for (const [chain, guard] of Object.entries(priceGuard)) {
-				this.priceGuard.set(chain, {
-					reference: new Decimal(guard.referencePrice),
-					maxDeviationBps: guard.maxDeviationBps,
-				})
-			}
-		}
 
 		this.signer = signer
 		this.maxOverfillBps = configService.getMaxOverfillBps()
@@ -248,7 +213,7 @@ export class FXFiller implements FillerStrategy {
 	}
 
 	/** Per-pair invariants, shared by the constructor and addPair. Adds the accepted pair's label to `seenPairs`. */
-	private static assertPairValid(pair: TradingPair, seenPairs: Set<string>, hasVenues: boolean): void {
+	private static assertPairValid(pair: TradingPair, seenPairs: Set<string>): void {
 		const label = `${normalizeSymbol(pair.token0)}/${normalizeSymbol(pair.token1)}`
 		const reversed = `${normalizeSymbol(pair.token1)}/${normalizeSymbol(pair.token0)}`
 		if (seenPairs.has(label) || seenPairs.has(reversed)) {
@@ -304,16 +269,7 @@ export class FXFiller implements FillerStrategy {
 		// filled independently at its own curve — crossing only means a
 		// full round trip loses money.
 		if (!pair.bidPricePolicy && !pair.askPricePolicy) {
-			if (!hasVenues) {
-				throw new Error(
-					`FXFiller pair ${pair.token0}/${pair.token1}: needs a bid and/or ask policy, or funding venues`,
-				)
-			}
-			if (!USD_STABLE_SYMBOLS.has(normalizeSymbol(pair.token0))) {
-				throw new Error(
-					`FXFiller pair ${pair.token0}/${pair.token1}: venue (pool) pricing requires a USD-stable token0 — add price curves instead`,
-				)
-			}
+			throw new Error(`FXFiller pair ${pair.token0}/${pair.token1}: needs a bid and/or ask policy`)
 		}
 	}
 
@@ -344,13 +300,8 @@ export class FXFiller implements FillerStrategy {
 	 * re-scan `pairs` on every match, so the market is live immediately.
 	 */
 	addPair(pair: TradingPair): void {
-		if (this.side && (pair.bidPricePolicy || pair.askPricePolicy)) {
-			throw new Error("FXFiller 'side' only applies to venue (pool) pricing; omit pair price curves")
-		}
-		const seenPairs = new Set(
-			this.pairs.map((p) => `${normalizeSymbol(p.token0)}/${normalizeSymbol(p.token1)}`),
-		)
-		FXFiller.assertPairValid(pair, seenPairs, this.fundingVenues.length > 0)
+		const seenPairs = new Set(this.pairs.map((p) => `${normalizeSymbol(p.token0)}/${normalizeSymbol(p.token1)}`))
+		FXFiller.assertPairValid(pair, seenPairs)
 		FXFiller.assertAnchored([...this.pairs, pair])
 		this.pairs.push(pair)
 	}
@@ -380,71 +331,11 @@ export class FXFiller implements FillerStrategy {
 
 	/**
 	 * Call once at startup after construction.
-	 * Hydrates all funding venue state so venue-priced pairs quote from live pool data.
+	 * Hydrates all funding venue state before any fill sources from it.
 	 */
 	async initialise(): Promise<void> {
 		const solver = this.signer.address as HexString
 		await Promise.all(this.fundingVenues.map((v) => v.initialise(solver)))
-	}
-
-	/**
-	 * Queries funding venues for `token1Address`'s USD price on a chain.
-	 * Uniswap V4 is preferred; falls back to other venues. Returns null when no
-	 * venue can price the token there.
-	 */
-	private async getVenueUsdPrice(chain: string, token1Address: string): Promise<Decimal | null> {
-		if (this.fundingVenues.length === 0) return null
-
-		// Prefer V4, fall back to others
-		const v4 = this.fundingVenues.filter((v) => v.name === "UniswapV4")
-		const venues = v4.length > 0 ? v4 : this.fundingVenues
-
-		for (const venue of venues) {
-			const usdPrice = await venue.getExoticTokenPrice(chain, token1Address)
-			if (usdPrice?.isPositive()) return usdPrice
-		}
-		return null
-	}
-
-	/** Per-evaluation memo over `getVenueUsdPrice`, keyed by (chain, token1). */
-	private venuePriceMemo(): (chain: string, token1Address: string) => Promise<Decimal | null> {
-		const cache = new Map<string, Decimal | null>()
-		return async (chain: string, token1Address: string) => {
-			const key = `${chain}:${token1Address}`
-			const cached = cache.get(key)
-			if (cached !== undefined) return cached
-			const price = await this.getVenueUsdPrice(chain, token1Address)
-			cache.set(key, price)
-			return price
-		}
-	}
-
-	/**
-	 * Validates a live venue quote against the static reference price for the chain.
-	 * Returns true (pass) when no guard is configured, or no reference exists for the
-	 * chain. Returns false when the quote (token1 per USD) deviates from the reference
-	 * by more than `maxDeviationBps`, in which case the order must not be filled.
-	 */
-	private checkPriceGuard(orderId: string | undefined, chain: string, venueToken1PerUsd: Decimal): boolean {
-		const guard = this.priceGuard?.get(chain)
-		if (!guard || guard.reference.lte(0)) return true
-
-		const deviationBps = venueToken1PerUsd.minus(guard.reference).abs().div(guard.reference).mul(10000)
-		if (deviationBps.gt(guard.maxDeviationBps)) {
-			this.logger.warn(
-				{
-					orderId,
-					chain,
-					venuePrice: venueToken1PerUsd.toString(),
-					referencePrice: guard.reference.toString(),
-					deviationBps: deviationBps.toFixed(2),
-					maxDeviationBps: guard.maxDeviationBps,
-				},
-				"Rejecting order: Uniswap venue quote outside price-guard band",
-			)
-			return false
-		}
-		return true
 	}
 
 	async canFill(order: Order): Promise<boolean> {
@@ -526,12 +417,10 @@ export class FXFiller implements FillerStrategy {
 				return 0
 			}
 
-			const venueUsdPrice = this.venuePriceMemo()
-
 			// Per-pair token0 notionals, capped at each pair's maxOrderSize where one
 			// is set. That notional is both the curve evaluation point and the budget
 			// legs of that pair draw from.
-			const sized = await this.sizeOrder(order, legs, venueUsdPrice)
+			const sized = await this.sizeOrder(order, legs)
 			if (!sized) {
 				this.logger.info({ orderId: order.id }, "Skipping order: could not size the order's legs")
 				return 0
@@ -619,7 +508,7 @@ export class FXFiller implements FillerStrategy {
 				// the fallback is defensive only — the leg's own notional, never a cap
 				// that may not exist.
 				const cappedNotional = cappedByPair.get(leg.pair) ?? legNotionals[i]
-				const rates = await this.resolveLegRates(order.id, leg, cappedNotional, venueUsdPrice)
+				const rates = this.resolveLegRates(order.id, leg, cappedNotional)
 				if (!rates) return 0
 				legRatesByIndex.set(i, rates)
 
@@ -677,8 +566,7 @@ export class FXFiller implements FillerStrategy {
 
 				// Overfill detection is warn-only: the clamp is DISABLED, so the filler
 				// fills the full computed amount even when it exceeds
-				// (1 + maxOverfillBps) × user-requested — including venue-priced legs
-				// (e.g. Uniswap V4). NOTE: this removes the per-leg loss bound that
+				// (1 + maxOverfillBps) × user-requested. NOTE: this removes the per-leg loss bound that
 				// previously protected against a bug / stale cache / manipulated venue
 				// price. Output is no longer capped; we only emit a warning.
 				const overfillCeiling = (output.amount * (10000n + this.maxOverfillBps)) / 10000n
@@ -694,7 +582,6 @@ export class FXFiller implements FillerStrategy {
 							unclamped: rawPolicyMaxOutput.toString(),
 							ceiling: overfillCeiling.toString(),
 							maxOverfillBps: this.maxOverfillBps.toString(),
-							priceSource: rates.priceSource,
 						},
 						"Overfill ceiling exceeded — clamp disabled, filling unclamped amount",
 					)
@@ -719,9 +606,7 @@ export class FXFiller implements FillerStrategy {
 				// paying it out even when it exceeds what the user asked for is the
 				// point: IntrinsicIntents.sol has an explicit `solverAmount >
 				// totalRequired` branch that splits the excess between the beneficiary
-				// and the protocol (`surplusShareBps`), and `quotePhantomFill` publishes
-				// this same figure as our quoted rate — paying less would advertise a
-				// price we do not honour.
+				// and the protocol (`surplusShareBps`).
 				//
 				// `maxOrderSize` still bounds this: `computeLegPolicyOutput` rationed
 				// `token0ForLeg` against the pair's remaining budget before the rate was
@@ -1277,7 +1162,6 @@ export class FXFiller implements FillerStrategy {
 	private async sizeOrder(
 		order: Order,
 		legs: ResolvedLeg[],
-		venueUsdPrice: (chain: string, token1Address: string) => Promise<Decimal | null>,
 	): Promise<{
 		legNotionals: Decimal[]
 		cappedByPair: Map<TradingPair, Decimal>
@@ -1301,7 +1185,7 @@ export class FXFiller implements FillerStrategy {
 			if (leg.inputIsToken0) {
 				notional = amount
 			} else {
-				const rate = await this.referenceRate(leg, venueUsdPrice)
+				const rate = this.referenceRate(leg)
 				if (!rate) return null
 				notional = amount.div(rate)
 			}
@@ -1337,30 +1221,14 @@ export class FXFiller implements FillerStrategy {
 	}
 
 	/**
-	 * Minimum-size reference rate (token1 per token0) for a leg's pair: the
-	 * bid curve at 0 (the side token1-input legs trade at), falling back to the
-	 * ask curve, then the live venue quote for venue-priced pairs.
+	 * Minimum-size reference rate (token1 per token0) for a leg's pair: the bid
+	 * curve at 0, the side token1-input legs trade at, falling back to the ask.
 	 */
-	private async referenceRate(
-		leg: ResolvedLeg,
-		venueUsdPrice: (chain: string, token1Address: string) => Promise<Decimal | null>,
-	): Promise<Decimal | null> {
+	private referenceRate(leg: ResolvedLeg): Decimal | null {
 		const policy = leg.pair.bidPricePolicy ?? leg.pair.askPricePolicy
-		if (policy) {
-			const rate = policy.getPrice(new Decimal(0))
-			return rate.gt(0) ? rate : null
-		}
-		// Venue-priced pair: token0 is USD-stable (constructor invariant), so the
-		// venue's USD-per-token1 quote inverts straight into token1-per-token0.
-		const venueUsd = await venueUsdPrice(leg.token1Chain, leg.token1Address)
-		if (!venueUsd) return null
-		const venueRate = new Decimal(1).div(venueUsd)
-		// Same guard as trade pricing: this rate sizes the order's USD notional
-		// for confirmation depth, and a manipulated pool understating the value
-		// would shrink the reorg protection — the exact attack the guard exists
-		// to stop. Refusing to size skips the order, consistent with pricing.
-		if (!this.checkPriceGuard(undefined, leg.token1Chain, venueRate)) return null
-		return venueRate
+		if (!policy) return null
+		const rate = policy.getPrice(new Decimal(0))
+		return rate.gt(0) ? rate : null
 	}
 
 	/**
@@ -1440,31 +1308,7 @@ export class FXFiller implements FillerStrategy {
 	 * pair's capped token0 notional. Returns null when the leg cannot be priced
 	 * (guard tripped, or direction disabled).
 	 */
-	private async resolveLegRates(
-		orderId: string | undefined,
-		leg: ResolvedLeg,
-		cappedPairNotional: Decimal,
-		venueUsdPrice: (chain: string, token1Address: string) => Promise<Decimal | null>,
-	): Promise<LegRates | null> {
-		// Explicitly configured curves always win — the venue only prices pairs
-		// with no curves at all (and never same-token pairs, where a venue quote
-		// would just be the asset's own USD price, not a spread).
-		const curveless = !leg.pair.bidPricePolicy && !leg.pair.askPricePolicy
-		if (curveless && !isSameTokenPair(leg.pair) && USD_STABLE_SYMBOLS.has(normalizeSymbol(leg.pair.token0))) {
-			const venueUsd = await venueUsdPrice(leg.token1Chain, leg.token1Address)
-			if (venueUsd) {
-				// Guard compares the venue's token1-per-USD quote against the static reference.
-				if (!this.checkPriceGuard(orderId, leg.token1Chain, new Decimal(1).div(venueUsd))) {
-					return null
-				}
-				// A pool mid is ONE price, not a book: there is no opposite side
-				// to report a round-trip margin against. The price guard above is
-				// the venue-specific defense.
-				const venueRate = new Decimal(1).div(venueUsd)
-				return { rate: venueRate, oppositeRate: null, priceSource: "venue" }
-			}
-		}
-
+	private resolveLegRates(orderId: string | undefined, leg: ResolvedLeg, cappedPairNotional: Decimal): LegRates | null {
 		const askRate = leg.pair.askPricePolicy?.getPrice(cappedPairNotional) ?? null
 		const bidRate = leg.pair.bidPricePolicy?.getPrice(cappedPairNotional) ?? null
 
@@ -1476,7 +1320,7 @@ export class FXFiller implements FillerStrategy {
 			)
 			return null
 		}
-		return { rate, oppositeRate: leg.inputIsToken0 ? bidRate : askRate, priceSource: "policy" }
+		return { rate, oppositeRate: leg.inputIsToken0 ? bidRate : askRate }
 	}
 
 	/**
@@ -1578,15 +1422,8 @@ export class FXFiller implements FillerStrategy {
 	 * leg's direction is disabled.
 	 */
 	private directionEnabled(pair: TradingPair, inputIsToken0: boolean): boolean {
-		const hasCurves = !!(pair.bidPricePolicy || pair.askPricePolicy)
-		if (hasCurves) {
-			// input token0 → filler sells token1 → needs the ask curve; and vice versa.
-			return inputIsToken0 ? !!pair.askPricePolicy : !!pair.bidPricePolicy
-		}
-		if (this.side) {
-			return inputIsToken0 ? this.side === "ask" : this.side === "bid"
-		}
-		return true
+		// input token0 → filler sells token1 → needs the ask curve; and vice versa.
+		return inputIsToken0 ? !!pair.askPricePolicy : !!pair.bidPricePolicy
 	}
 
 	/**
@@ -1643,102 +1480,6 @@ export class FXFiller implements FillerStrategy {
 	}
 
 	/**
-	 * Returns the filler's proposed output amounts for a phantom order without
-	 * checking on-chain balance or estimating gas. Phantom orders are probes that
-	 * never execute; we only need the price signal.
-	 *
-	 * Returns `null` when no pair matches or the legs cannot be sized (e.g.
-	 * venue price unavailable and no fallback).
-	 */
-	async quotePhantomFill(order: Order): Promise<TokenInfo[] | null> {
-		if (!(await this.canFill(order))) return null
-
-		const legs = this.resolveOrderLegs(order)
-		if (!legs) return null
-
-		const chain = order.source
-		const venueUsdPrice = this.venuePriceMemo()
-
-		// `sizeOrder` is used here only for its per-leg notionals — the rate sample points below.
-		// Its `cappedByPair` / `capFractionByPair` outputs are exposure controls for real fills
-		// and deliberately play no part in a probe.
-		const sized = await this.sizeOrder(order, legs, venueUsdPrice)
-		if (!sized) return null
-
-		const outputs: TokenInfo[] = []
-
-		for (let i = 0; i < order.inputs.length; i++) {
-			const input = order.inputs[i]
-			const output = order.output.assets[i]
-			const leg = legs[i]
-
-			const inputDecimals = await this.contractService.getTokenDecimals(
-				bytes32ToBytes20(input.token) as HexString,
-				chain,
-			)
-			// Phantom orders are same-chain probes today, but resolve the output on
-			// the destination anyway — decimals differ per chain for some assets.
-			const outputDecimals = await this.contractService.getTokenDecimals(
-				bytes32ToBytes20(output.token) as HexString,
-				order.destination,
-			)
-
-			const token0Decimals = leg.inputIsToken0 ? inputDecimals : outputDecimals
-			const token1Decimals = leg.inputIsToken0 ? outputDecimals : inputDecimals
-
-			// Price this leg at ITS OWN notional, not the pair's exposure-capped budget. The leg
-			// is a quote for `input.amount`; sampling a sloped curve at a smaller notional would
-			// advertise a tighter rate than this filler would actually give at that size, and
-			// optimistic is the one direction a published rate must never be — a quote built
-			// from it has to stay fillable.
-			const legNotional = sized.legNotionals[i]
-			const rates = await this.resolveLegRates(order.id, leg, legNotional, venueUsdPrice)
-			if (!rates) return null
-
-			// A probe advertising more than the pair will actually fill is a config problem the
-			// operator has to see: the price is honest, but no order that size can clear it.
-			if (leg.pair.maxOrderSize !== undefined && legNotional.gt(leg.pair.maxOrderSize)) {
-				this.logger.warn(
-					{
-						orderId: order.id,
-						pair: `${leg.pair.token0}/${leg.pair.token1}`,
-						legNotional: legNotional.toString(),
-						maxOrderSize: leg.pair.maxOrderSize.toString(),
-					},
-					"Phantom probe notional exceeds the pair's maxOrderSize — the published price quotes a size this pair will not fill",
-				)
-			}
-
-			// `null` budget: a phantom leg commits no capital, so the pair's per-order exposure
-			// cap must not ration it. Clamping the quantity here would leave the output covering
-			// less than the standard amount while every consumer still divides by the FULL
-			// standard amount — publishing a proportionally worse price with nothing to signal
-			// that it happened. The cap still governs real fills, which is where exposure is
-			// actually taken.
-			const legResult = this.computeLegPolicyOutput(
-				input.amount,
-				leg.inputIsToken0,
-				token0Decimals,
-				token1Decimals,
-				null,
-				rates.rate,
-			)
-
-			if (!legResult) continue
-
-			// Phantom orders only probe price (they request a zero output), so there is no
-			// user-requested amount to cap against — quote the full policy output.
-			outputs.push({ token: output.token, amount: legResult.policyMaxOutput })
-		}
-
-		if (outputs.length === 0) return null
-
-		// Deliberately not cached: the bid is built from these outputs directly, and phantom
-		// orders never reach the execution path that reads cached filler outputs.
-		return outputs
-	}
-
-	/**
 	 * Returns the order's input basket in **USD** — each leg is sized to its
 	 * pair's token0 notional via the pair's own reference rate (curve at
 	 * minimum size, or the venue quote), converted to dollars through the
@@ -1753,7 +1494,7 @@ export class FXFiller implements FillerStrategy {
 		const legs = this.resolveOrderLegs(order)
 		if (!legs) return null
 
-		const sized = await this.sizeOrder(order, legs, this.venuePriceMemo())
+		const sized = await this.sizeOrder(order, legs)
 		if (!sized) return null
 
 		// Leg notionals are in each pair's own token0. Convert to USD through

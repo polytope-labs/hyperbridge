@@ -19,8 +19,7 @@ export const WHY = {
 	maxOrderSize: "Caps your exposure per order, in units of the pair's quote asset (token0). Larger orders are partially filled up to this cap.",
 	crossAssetCurves:
 		"Curves price token1 per 1 token0 by order size. The bid curve is what you pay when buying token1 from users; the ask is what you charge selling it. Bid must stay above ask everywhere (uncrossed book). Omit one side for one-sided LP.",
-	fxPricing:
-		"A cross-asset pair needs a price source: static bid/ask curves you maintain, or a Uniswap V4 LP position whose pool price acts as the oracle (and doubles as liquidity).",
+	fxPricing: "A cross-asset pair is priced by the bid and ask curves you maintain for it.",
 	confirmations:
 		"Blocks to wait before filling a cross-chain order, scaled by order value — protects you from reorgs unwinding the deposit after you've paid out.",
 	concurrency: "How many orders are processed at once. Lower it if your RPCs rate-limit (429s).",

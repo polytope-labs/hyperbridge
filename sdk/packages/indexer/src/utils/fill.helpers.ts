@@ -23,19 +23,42 @@ const PARTIAL_FILL_TOPIC = "0xa71fc5b4fbaf5f5f0846475fec0d0c1d6c93100f2326ddb75c
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000"
 
 const intentGatewayInterface = new Interface(IntentGatewayV3Abi)
-// FillOptions gained validUntil after the original V3 deployment; both selectors remain
-// in historical receipts and use the same order tuple / commitment.
-const legacyFillAbi = IntentGatewayV3Abi.filter((item) => item.type === "function" && item.name === "fillOrder").map(
-	(item) => ({
-		...item,
-		inputs: item.inputs!.map((input) =>
-			input.name === "options"
-				? { ...input, components: input.components!.filter((field) => field.name !== "validUntil") }
-				: input,
+
+const TOKEN_INFO_COMPONENTS = [
+	{ name: "token", type: "bytes32" },
+	{ name: "amount", type: "uint256" },
+]
+// Deployed FillOptions shapes before `inputs`, pinned so the current ABI cannot redefine their selectors.
+const HISTORICAL_FILL_OPTIONS = [
+	[
+		{ name: "relayerFee", type: "uint256" },
+		{ name: "nativeDispatchFee", type: "uint256" },
+		{ name: "outputs", type: "tuple[]", components: TOKEN_INFO_COMPONENTS },
+	],
+	[
+		{ name: "relayerFee", type: "uint256" },
+		{ name: "nativeDispatchFee", type: "uint256" },
+		{ name: "validUntil", type: "uint256" },
+		{ name: "outputs", type: "tuple[]", components: TOKEN_INFO_COMPONENTS },
+	],
+]
+const currentFillOrder = IntentGatewayV3Abi.find((item) => item.type === "function" && item.name === "fillOrder")!
+const fillOrderInterfaces = new Map<string, Interface>(
+	[
+		intentGatewayInterface,
+		...HISTORICAL_FILL_OPTIONS.map(
+			(components) =>
+				new Interface([
+					{
+						...currentFillOrder,
+						inputs: currentFillOrder.inputs!.map((input) =>
+							input.name === "options" ? { ...input, components } : input,
+						),
+					},
+				]),
 		),
-	}),
+	].map((iface) => [iface.getSighash("fillOrder").toLowerCase(), iface]),
 )
-const legacyFillInterface = new Interface(legacyFillAbi)
 
 type FillLog = Pick<EthereumLog, "address" | "logIndex" | "transactionHash"> & {
 	transaction?: EthereumTransaction
@@ -135,10 +158,7 @@ async function resolveBeneficiary(commitment: string, fillLog: FillLog, chain: s
  */
 export function tryDecodeFillOrder(calldata: string): OrderV3 | null {
 	try {
-		const parser =
-			calldata.slice(0, 10).toLowerCase() === legacyFillInterface.getSighash("fillOrder")
-				? legacyFillInterface
-				: intentGatewayInterface
+		const parser = fillOrderInterfaces.get(calldata.slice(0, 10).toLowerCase()) ?? intentGatewayInterface
 		const { name, args } = parser.parseTransaction({ data: calldata })
 		if (name !== "fillOrder") return null
 

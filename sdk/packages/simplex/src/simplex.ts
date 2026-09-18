@@ -14,8 +14,7 @@ import type { ActivityEvent, BidStats, SimplexDataStore, StoredBid, WalletTx } f
 import { patchRuntimeState } from "@/data/state"
 import { MemoryDataStore } from "@/data/memory"
 import { OrderScanner as OrderScannerImpl } from "@/scanner/order-scanner"
-import type { HyperbridgeScanner, OrderScanner } from "@/scanner/types"
-import { HyperbridgeScanner as HyperbridgeScannerImpl } from "@/scanner/hyperbridge-scanner"
+import type { OrderScanner } from "@/scanner/types"
 import type { BalanceSnapshot } from "@/services/BalanceProvider"
 import type { Signer } from "@/services/wallet"
 
@@ -78,14 +77,6 @@ export interface SimplexOptions {
 	 * closes it on `stop()`. Nothing is ever shared implicitly.
 	 */
 	orderScanner?: OrderScanner
-	/**
-	 * Hyperbridge phantom orders. Same ownership rule as `orderScanner`. Omitted
-	 * with a `hyperbridgeWsUrl` configured, the filler builds a private one.
-	 *
-	 * Bid submission is unaffected either way — it is signed with this filler's
-	 * own substrate key on its own connection.
-	 */
-	hyperbridgeScanner?: HyperbridgeScanner
 	/**
 	 * Called after any mutation that changes the effective config, so a host can
 	 * persist it however it likes.
@@ -152,8 +143,6 @@ export interface PairView {
 	sameToken: boolean
 	/** A price feed for the USD anchor graph that never opens a market. */
 	referenceOnly: boolean
-	/** No static curves — priced from a Uniswap V4 pool instead. */
-	venuePriced: boolean
 }
 
 export interface ChainView {
@@ -239,7 +228,7 @@ export class PairController {
 		const assets = options?.assets
 		const nextAssets = { ...(config.assets ?? {}), ...(assets ?? {}) }
 		const nextPairs = [...this.pairs, pair]
-		validatePairConfigs(nextPairs, nextAssets, Boolean(config.vault?.uniswapV4?.positions?.length))
+		validatePairConfigs(nextPairs, nextAssets)
 
 		if (assets && Object.keys(assets).length > 0) assetRegistry.addAssets(assets)
 		assertPairSymbolsResolve(
@@ -503,8 +492,8 @@ export class ChainController {
 	/**
 	 * Removes a chain. In-flight fills on it are drained first.
 	 *
-	 * Refuses while a vault or Uniswap V4 position still names the chain — those
-	 * hydrate per chain at boot, and one left behind would fail the next start.
+	 * Refuses while a vault still names the chain — vaults hydrate per chain at
+	 * boot, and one left behind would fail the next start.
 	 */
 	async remove(chainId: number): Promise<void> {
 		return this.serialise(async () => {
@@ -513,9 +502,6 @@ export class ChainController {
 
 			if (config.vault?.vaults?.some((vault) => vault.chain === chainKey)) {
 				throw new Error(`${chainKey} still holds a vault entry — remove it from the vault treasury first`)
-			}
-			if (config.vault?.uniswapV4?.positions?.some((position) => position.chain === chainKey)) {
-				throw new Error(`${chainKey} still holds a Uniswap V4 position — remove it first`)
 			}
 
 			const index = this.runtime.resolvedChains.findIndex((chain) => chain.chainId === chainId)
@@ -797,8 +783,8 @@ export class Simplex extends EventEmitter {
 	private constructor(
 		private runtime: FillerRuntime,
 		private options: SimplexOptions,
-		/** Scanners this filler built for itself, and must therefore close. */
-		private ownedScanners: { orders?: OrderScanner; hyperbridge?: HyperbridgeScanner } = {},
+		/** The scanner this filler built for itself, and must therefore close. */
+		private ownedScanners: { orders?: OrderScanner } = {},
 	) {
 		super()
 		this.logger = runtime.loggers.get("simplex")
@@ -839,14 +825,11 @@ export class Simplex extends EventEmitter {
 			level: options.config.simplex.logging as LogLevel | undefined,
 			sink: options.logger,
 		})
-		// Build private scanners when none were supplied, and remember that we own
-		// them: a caller's scanner outlives this filler and is theirs to close.
+		// Build a private scanner when none was supplied, and remember that we own
+		// it: a caller's scanner outlives this filler and is theirs to close.
 		const ownsOrderScanner = !options.orderScanner
-		const ownsHyperbridgeScanner = !options.hyperbridgeScanner
-		const wsUrl = options.config.simplex.hyperbridgeWsUrl
 
 		let orderScanner: OrderScanner | undefined
-		let hyperbridgeScanner: HyperbridgeScanner | undefined
 		try {
 			orderScanner =
 				options.orderScanner ??
@@ -857,13 +840,11 @@ export class Simplex extends EventEmitter {
 					// caller supplied carries whatever interval they chose for it.
 					scanIntervalSecs: options.config.simplex.blockScanIntervalSeconds,
 				}))
-			hyperbridgeScanner =
-				options.hyperbridgeScanner ?? (wsUrl ? await HyperbridgeScannerImpl.create(wsUrl, { loggers }) : undefined)
 
 			const runtime = await bootFiller(options.config, {
 				loggers,
 				signer: options.signer,
-				scanners: { orders: orderScanner, hyperbridge: hyperbridgeScanner },
+				scanners: { orders: orderScanner },
 				configPath: options.configPath,
 				data: options.data ?? new MemoryDataStore(),
 				// A store we defaulted is ours to close; one the caller passed is theirs,
@@ -873,14 +854,12 @@ export class Simplex extends EventEmitter {
 			})
 			return new Simplex(runtime, options, {
 				orders: ownsOrderScanner ? orderScanner : undefined,
-				hyperbridge: ownsHyperbridgeScanner && hyperbridgeScanner ? hyperbridgeScanner : undefined,
 			})
 		} catch (error) {
 			// A scanner we built has live timers and sockets, and the caller never
 			// receives a handle to close them — so a failed start would otherwise keep
 			// the host process alive forever. One a caller supplied is theirs; leave it.
 			if (ownsOrderScanner) await orderScanner?.close().catch(() => {})
-			if (ownsHyperbridgeScanner) await hyperbridgeScanner?.close().catch(() => {})
 			throw error
 		}
 	}
@@ -960,7 +939,6 @@ export class Simplex extends EventEmitter {
 		// Only scanners this filler built. One handed in by the caller keeps running
 		// for whoever else is reading it.
 		await attempt(() => this.ownedScanners.orders?.close())
-		await attempt(() => this.ownedScanners.hyperbridge?.close())
 		this.removeAllListeners()
 		this.stopped = true
 

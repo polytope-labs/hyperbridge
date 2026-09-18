@@ -13,7 +13,7 @@ import { FXFiller, type TradingPair } from "@/strategies/fx"
 import { FillerPricePolicy } from "@/config/interpolated-curve"
 
 // Pure unit tests for the asset registry, [[pairs]] validation, and the
-// pairs-driven FX engine's leg math (via quotePhantomFill, mocked services).
+// pairs-driven FX engine's order gating (mocked services).
 
 const CHAIN = "EVM-56"
 const OTHER_CHAIN = "EVM-8453"
@@ -251,10 +251,6 @@ describe("validatePairConfigs", () => {
 				{ token0: "USDC", token1: "USDC", maxOrderSize: SIZE, askPriceCurve: [{ amount: "0", price: "1" }] },
 			]),
 		).toThrow(/strictly below 1/)
-		// Venue pricing cannot substitute for the curve on same-token pairs.
-		expect(() =>
-			validatePairConfigs([{ token0: "USDC", token1: "USDC", maxOrderSize: SIZE }], undefined, true),
-		).toThrow(/askPriceCurve/)
 	})
 
 	it("accepts non-USD same-token pairs (e.g. CNGN/CNGN) when a USD pair anchors the asset", () => {
@@ -318,7 +314,7 @@ describe("validatePairConfigs", () => {
 		).not.toThrow()
 		// A reference pair without a curve has nothing to reference.
 		expect(() =>
-			validatePairConfigs([{ token0: "USDC", token1: "CNGN", referenceOnly: true }], assets, true),
+			validatePairConfigs([{ token0: "USDC", token1: "CNGN", referenceOnly: true }], assets),
 		).toThrow(/the curve IS the reference/)
 		// Same-token pairs carry no FX rate to reference.
 		expect(() =>
@@ -358,20 +354,16 @@ describe("validatePairConfigs", () => {
 		).toThrow(/decimal string/)
 	})
 
-	it("requires a curve unless venue pricing is available", () => {
+	it("requires a price curve on every pair", () => {
 		expect(() => validatePairConfigs([{ token0: "USDC", token1: "CNGN", maxOrderSize: SIZE }], assets)).toThrow(
 			/price curve/,
 		)
-		expect(() =>
-			validatePairConfigs([{ token0: "USDC", token1: "CNGN", maxOrderSize: SIZE }], assets, true),
-		).not.toThrow()
 	})
 })
 
 // ---------------------------------------------------------------------------
-// FX engine leg math with pair-local rates, via quotePhantomFill. A probe is a
-// price quote, not an allocation, so maxOrderSize never rations it — the cap
-// governs real fills only (see the exposure-cap and profit-gates suites).
+// FX engine pair matching and construction. Payout sizing at a pair's own rate
+// is covered by the exposure-cap and profit-gates suites.
 // ---------------------------------------------------------------------------
 
 function makeContractService(): any {
@@ -430,181 +422,6 @@ function makeOrder(id: string, input: TokenInfo, output: TokenInfo): Order {
 const size = (n: string) => new Decimal(n)
 
 describe("FXFiller pairs engine", () => {
-	it("prices the ask leg at the pair's rate (token1 per token0)", async () => {
-		const filler = makeFiller([
-			{ token0: "USDC", token1: "CNGN", maxOrderSize: size("5000"), askPricePolicy: flat("1500") },
-		])
-		const order = makeOrder(
-			"ask",
-			{ token: bytes20ToBytes32(USDC), amount: parseUnits("1000", 6) },
-			{ token: bytes20ToBytes32(CNGN), amount: 0n },
-		)
-		const outputs = await filler.quotePhantomFill(order)
-		// 1000 USDC × 1500 CNGN/USDC = 1,500,000 CNGN
-		expect(outputs?.[0].amount).toBe(parseUnits("1500000", 18))
-	})
-
-	it("routes each leg through its own pair's curve", async () => {
-		const filler = makeFiller([
-			{ token0: "USDC", token1: "CNGN", maxOrderSize: size("5000"), askPricePolicy: flat("1500") },
-			{ token0: "USDT", token1: "CNGN", maxOrderSize: size("5000"), askPricePolicy: flat("1000") },
-		])
-		const usdcLeg = makeOrder(
-			"multi-1",
-			{ token: bytes20ToBytes32(USDC), amount: parseUnits("100", 6) },
-			{ token: bytes20ToBytes32(CNGN), amount: 0n },
-		)
-		const usdtLeg = makeOrder(
-			"multi-2",
-			{ token: bytes20ToBytes32(USDT), amount: parseUnits("100", 6) },
-			{ token: bytes20ToBytes32(CNGN), amount: 0n },
-		)
-		expect((await filler.quotePhantomFill(usdcLeg))?.[0].amount).toBe(parseUnits("150000", 18))
-		expect((await filler.quotePhantomFill(usdtLeg))?.[0].amount).toBe(parseUnits("100000", 18))
-	})
-
-	it("prices ZARP-quoted pairs in token0 units; probes are not rationed by maxOrderSize", async () => {
-		// ZARP-quoted pair: pricing is denominated in ZARP. The USDC/ZARP pair
-		// only anchors ZARP for confirmation sizing.
-		const filler = makeFiller([
-			{ token0: "USDC", token1: "ZARP", maxOrderSize: size("100000"), askPricePolicy: flat("18") },
-			{ token0: "ZARP", token1: "CNGN", maxOrderSize: size("100000"), askPricePolicy: flat("100") },
-		])
-
-		const small = makeOrder(
-			"zarp-small",
-			{ token: bytes20ToBytes32(ZARP), amount: parseUnits("1000", 18) },
-			{ token: bytes20ToBytes32(CNGN), amount: 0n },
-		)
-		// 1000 ZARP (under the cap) × 100 CNGN/ZARP = 100,000 CNGN
-		expect((await filler.quotePhantomFill(small))?.[0].amount).toBe(parseUnits("100000", 18))
-		// Confirmation sizing converts the token0 notional to USD via the
-		// anchor factor: 1000 ZARP ÷ 18 ZARP-per-USDC ≈ $55.56, not "$1000".
-		const sized = await filler.getOrderUsdValue(small)
-		expect(sized?.inputUsd.toFixed(4)).toBe("55.5556")
-
-		const large = makeOrder(
-			"zarp-large",
-			{ token: bytes20ToBytes32(ZARP), amount: parseUnits("200000", 18) },
-			{ token: bytes20ToBytes32(CNGN), amount: 0n },
-		)
-		// 200,000 ZARP exceeds maxOrderSize 100,000, but a probe commits no
-		// capital, so the cap does not ration it (it only logs a config warning):
-		// 200,000 × 100 = 20,000,000 CNGN.
-		expect((await filler.quotePhantomFill(large))?.[0].amount).toBe(parseUnits("20000000", 18))
-	})
-
-	it("sizes bid legs through the pair's own curve", async () => {
-		const filler = makeFiller([
-			{ token0: "USDC", token1: "CNGN", maxOrderSize: size("5000"), bidPricePolicy: flat("1500") },
-		])
-		const order = makeOrder(
-			"bid-sizing",
-			{ token: bytes20ToBytes32(CNGN), amount: parseUnits("3000000", 18) },
-			{ token: bytes20ToBytes32(USDC), amount: 0n },
-		)
-		// 3,000,000 CNGN ÷ 1500 = 2000 USDC notional (under the 5000 cap)
-		const sized = await filler.getOrderUsdValue(order)
-		expect(sized?.inputUsd.eq(new Decimal(2000))).toBe(true)
-		expect((await filler.quotePhantomFill(order))?.[0].amount).toBe(parseUnits("2000", 6))
-
-		// 15,000,000 CNGN ÷ 1500 = 10,000 USDC notional — over the 5000 cap, but
-		// probes are not rationed by it: the full 10,000 USDC is quoted.
-		const large = makeOrder(
-			"bid-sizing-large",
-			{ token: bytes20ToBytes32(CNGN), amount: parseUnits("15000000", 18) },
-			{ token: bytes20ToBytes32(USDC), amount: 0n },
-		)
-		expect((await filler.quotePhantomFill(large))?.[0].amount).toBe(parseUnits("10000", 6))
-	})
-
-	it("quotes same-token pairs at the below-par ask, across differing decimals", async () => {
-		// USDC is 6-decimal on CHAIN and 18-decimal on CHAIN2 (à la BSC).
-		const CHAIN2 = "EVM-97"
-		const USDC18 = "0x6666666666666666666666666666666666666666" as HexString
-		const configService = {
-			getUsdcAsset: (chain: string) => (chain === CHAIN2 ? USDC18 : USDC),
-			getUsdtAsset: () => USDT,
-			getDaiAsset: () => {
-				throw new Error("not configured")
-			},
-			getCNgnAsset: () => undefined,
-			getMaxOverfillBps: () => 500n,
-			getMaxConsecutiveClamps: () => 3,
-		} as any
-		const contractService = makeContractService()
-		// Extend the decimals mock for the 18-decimal deployment.
-		const inner = contractService.getTokenDecimals
-		contractService.getTokenDecimals = async (token: string) =>
-			token.toLowerCase() === USDC18.toLowerCase() ? 18 : inner(token)
-
-		const pairs: TradingPair[] = [
-			// 50 bps spread, capped at 10,000 USDC per order.
-			{ token0: "USDC", token1: "USDC", maxOrderSize: size("10000"), askPricePolicy: flat("0.995") },
-		]
-		const registry = new AssetRegistry(configService)
-		const signer = { address: SOLVER } as any
-		const filler = new FXFiller(signer, configService, {} as any, contractService, pairs, registry)
-
-		const order = {
-			...makeOrder(
-				"same-token",
-				{ token: bytes20ToBytes32(USDC), amount: parseUnits("1000", 6) },
-				{ token: bytes20ToBytes32(USDC18), amount: 0n },
-			),
-			destination: CHAIN2,
-		} as unknown as Order
-		// 1000 USDC in → 995 USDC out (0.995), scaled to the destination's 18 decimals.
-		expect((await filler.quotePhantomFill(order))?.[0].amount).toBe(parseUnits("995", 18))
-
-		const large = {
-			...makeOrder(
-				"same-token-capped",
-				{ token: bytes20ToBytes32(USDC), amount: parseUnits("20000", 6) },
-				{ token: bytes20ToBytes32(USDC18), amount: 0n },
-			),
-			destination: CHAIN2,
-		} as unknown as Order
-		// 20,000 USDC exceeds maxOrderSize 10,000, but probes are not rationed by
-		// the cap: 20,000 × 0.995 = 19,900 out.
-		expect((await filler.quotePhantomFill(large))?.[0].amount).toBe(parseUnits("19900", 18))
-	})
-
-	it("prefers explicitly configured curves over venue pricing", async () => {
-		// The pair has curves AND a venue is available — the curve must win; the
-		// pool only prices pairs with no curves at all.
-		const venue = {
-			name: "UniswapV4",
-			initialise: async () => {},
-			getExoticTokenPrice: async () => new Decimal("0.001"), // pool says 1000 CNGN/USD
-			walletReserveForToken: () => 0n,
-			planWithdrawalForToken: async () => ({ calls: [], credited: 0n }),
-		} as any
-		const configService = {
-			...resolver,
-			getMaxOverfillBps: () => 500n,
-			getMaxConsecutiveClamps: () => 3,
-		} as any
-		const registry = new AssetRegistry(configService, { CNGN: { [CHAIN]: CNGN } })
-		const signer = { address: SOLVER } as any
-		const filler = new FXFiller(
-			signer,
-			configService,
-			{} as any,
-			makeContractService(),
-			[{ token0: "USDC", token1: "CNGN", maxOrderSize: size("5000"), askPricePolicy: flat("1500") }],
-			registry,
-			{ fundingVenues: [venue] },
-		)
-		const order = makeOrder(
-			"curve-beats-venue",
-			{ token: bytes20ToBytes32(USDC), amount: parseUnits("100", 6) },
-			{ token: bytes20ToBytes32(CNGN), amount: 0n },
-		)
-		// Curve rate 1500, venue rate would be 1000 — expect the curve's output.
-		expect((await filler.quotePhantomFill(order))?.[0].amount).toBe(parseUnits("150000", 18))
-	})
-
 	it("rejects duplicate and reverse-duplicate engine pairs", () => {
 		const registry = new AssetRegistry(resolver as any, { CNGN: { [CHAIN]: CNGN } })
 		const signer = { address: SOLVER } as any
@@ -653,7 +470,6 @@ describe("FXFiller pairs engine", () => {
 			{ token: bytes20ToBytes32(CNGN), amount: 0n },
 		)
 		expect(await filler.canFill(order)).toBe(false)
-		expect(await filler.quotePhantomFill(order)).toBeNull()
 	})
 
 	it("accepts same-chain cross-asset orders — only same-token pairs are chain-restricted", async () => {
@@ -1061,31 +877,6 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 		)
 		o.inputs.push({ token: bytes20ToBytes32(ZARP), amount: parseUnits("1000", 18) })
 		o.output.assets.push({ token: bytes20ToBytes32(CNGN), amount: parseUnits("94000", 18) }) // ≤ 1000 × 95
-		expect(await filler.calculateProfitability(o)).toBeGreaterThan(0)
-	})
-
-	it("venue-priced legs fill at the pool mid — gated by fees and the price guard only", async () => {
-		// A pool mid is one price, not a book. Like curve legs, venue legs are
-		// gated by execution cost (gate 1) and the price guard, never by a
-		// cross-curve margin.
-		const venueStub = {
-			walletReserveForToken: () => 0n,
-			planWithdrawalForToken: async () => ({ calls: [], credited: 0n }),
-		} as any
-		const filler = gateFiller(
-			[{ token0: "USDC", token1: "CNGN", maxOrderSize: size("100000") }], // curve-less → venue-priced
-			usdcOnBoth(),
-			{ fillGas: parseUnits("1", 6), relayer: parseUnits("1", 6) },
-			{ fundingVenues: [venueStub] },
-		)
-		// Pool mid: 1500 CNGN per USD (USD per CNGN = 1/1500).
-		;(filler as any).getVenueUsdPrice = async () => new Decimal(1).div(new Decimal("1500"))
-		const o = order(
-			"venue-fair",
-			{ token: bytes20ToBytes32(USDC), amount: parseUnits("100", 6) },
-			{ token: bytes20ToBytes32(CNGN), amount: parseUnits("150000", 18) }, // exactly 100 × 1500
-			parseUnits("10", 6),
-		)
 		expect(await filler.calculateProfitability(o)).toBeGreaterThan(0)
 	})
 

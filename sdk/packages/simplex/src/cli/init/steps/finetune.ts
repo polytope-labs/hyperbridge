@@ -81,11 +81,7 @@ function carryPrefillExtras(state: WizardState, prefill?: Prefill): void {
 	state.gasFeeBump = config.simplex.gasFeeBump
 	state.overfillProtection = config.simplex.overfillProtection
 	state.rebalancing = config.rebalancing
-	// The pairs step owns [vault.uniswapV4]; only the treasury half is carried.
-	if (config.vault) {
-		const { uniswapV4: _dropped, ...treasury } = config.vault
-		state.vault = Object.keys(treasury).length > 0 ? treasury : undefined
-	}
+	state.vault = config.vault
 	state.allowlist = config.allowlist
 }
 

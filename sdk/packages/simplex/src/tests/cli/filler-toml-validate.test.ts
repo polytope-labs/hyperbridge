@@ -121,8 +121,7 @@ describe("validateConfig", () => {
 			},
 			{ token0: "CNGN", token1: "ZARP", maxOrderSize: "5000" },
 		)
-		config.vault = { uniswapV4: { positions: [{ chain: "EVM-8453", tokenId: "123" }] } }
-		expect(() => validateConfig(config)).toThrow(/venue pricing needs a USD-stable token0/)
+		expect(() => validateConfig(config)).toThrow(/provide a bid and\/or ask price curve/)
 	})
 
 	it("rejects malformed confirmation policy keys and short point lists", () => {
@@ -133,16 +132,6 @@ describe("validateConfig", () => {
 		const shortPoints = minimalConfig()
 		shortPoints.confirmationPolicies = { "1": { points: [{ amount: "1", value: 1 }] } }
 		expect(() => validateConfig(shortPoints)).toThrow(/at least 2 points/)
-	})
-
-	it("rejects vault.uniswapV4 side without venue positions or with curves present", () => {
-		const noPositions = minimalConfig()
-		noPositions.vault = { uniswapV4: { side: "ask" } }
-		expect(() => validateConfig(noPositions)).toThrow(/requires \[vault.uniswapV4\].positions/)
-
-		const withCurves = minimalConfig()
-		withCurves.vault = { uniswapV4: { side: "ask", positions: [{ chain: "EVM-8453", tokenId: "1" }] } }
-		expect(() => validateConfig(withCurves)).toThrow(/only applies to pool pricing/)
 	})
 
 	it("rejects invalid allowlist addresses", () => {

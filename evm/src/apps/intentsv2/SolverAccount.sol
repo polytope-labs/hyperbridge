@@ -55,6 +55,13 @@ contract SolverAccount is Account, ERC7821, IERC1271 {
     bytes4 private constant FILL_ORDER_SELECTOR = IIntentGatewayV2.fillOrder.selector;
 
     /**
+     * @notice fillOrder selectors of earlier gateway releases, with and without `validUntil`.
+     * @dev Bids signed against them are still public, so they get the same protection as the current one.
+     */
+    bytes4 private constant HISTORICAL_FILL_ORDER_SELECTOR = 0xa5470064;
+    bytes4 private constant HISTORICAL_FILL_ORDER_NO_EXPIRY_SELECTOR = 0x5cfb1ea5;
+
+    /**
      * @notice Cached ERC-7821 execute function selector
      */
     bytes4 private constant EXECUTE_SELECTOR = ERC7821.execute.selector;
@@ -73,6 +80,11 @@ contract SolverAccount is Account, ERC7821, IERC1271 {
      */
     constructor(address intentGatewayV2) {
         INTENT_GATEWAY_V2 = intentGatewayV2;
+    }
+
+    /// @notice The gateway release this account is built for.
+    function version() external pure returns (uint64) {
+        return 3;
     }
 
     /**
@@ -156,10 +168,14 @@ contract SolverAccount is Account, ERC7821, IERC1271 {
         Execution[] memory calls = abi.decode(executionData, (Execution[]));
 
         for (uint256 i = 0; i < calls.length; i++) {
-            bool hasFillOrder = calls[i].target == INTENT_GATEWAY_V2 && bytes4(calls[i].callData) == FILL_ORDER_SELECTOR;
-            if (hasFillOrder) return true;
+            if (calls[i].target == INTENT_GATEWAY_V2 && _isFillOrder(bytes4(calls[i].callData))) return true;
         }
         return false;
+    }
+
+    function _isFillOrder(bytes4 selector) private pure returns (bool) {
+        return selector == FILL_ORDER_SELECTOR || selector == HISTORICAL_FILL_ORDER_SELECTOR
+            || selector == HISTORICAL_FILL_ORDER_NO_EXPIRY_SELECTOR;
     }
 
     /**

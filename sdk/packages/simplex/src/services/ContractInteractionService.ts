@@ -10,7 +10,6 @@ import {
 	EvmChain,
 	getChainId,
 	orderCommitment,
-	encodePhantomBidDeclaration,
 	encodeUserOpScale,
 	type FillOptions,
 	encodeERC7821ExecuteBatch,
@@ -230,8 +229,8 @@ export class ContractInteractionService {
 			// `10 ** decimals`, so a wrong value does not degrade the fill — it changes
 			// its size by orders of magnitude. Every caller on the fill path treats a
 			// throw as "skip this order" (`IntentFiller.evaluateOrder` is wrapped in a
-			// try/catch, as are the phantom-quote and USD-sizing paths), which is the
-			// outcome we want when the value is unknowable.
+			// try/catch, as is the USD-sizing path), which is the outcome we want when
+			// the value is unknowable.
 			this.logger.error(
 				{ err: error, chain, token: bytes20Address },
 				"Could not determine token decimals from RPC or configuration",
@@ -790,78 +789,6 @@ export class ContractInteractionService {
 		// Converted once, so the rounding happens in one place rather than twice.
 		const windowSec = this.configService.getBidValiditySeconds() + BID_DISCOVERY_PAD_SECONDS
 		return currentBlock + BigInt(Math.ceil(windowSec / blockTimeSec))
-	}
-
-	/**
-	 * Builds a PackedUserOperation for a phantom (expired same-chain) order bid.
-	 * Uses zero relayer fees and default gas values — no estimation needed since
-	 * the order will never execute; the indexer only reads the proposed fill amounts.
-	 *
-	 * When the filler declares accepted source chains, the declaration rides in
-	 * paymasterAndData so the userOpHash — and therefore the solver's bid signature —
-	 * covers it. Phantom bids never reach a bundler or the EntryPoint, so the field is
-	 * free for this; a real fill's paymasterAndData keeps its functional semantics.
-	 */
-	async preparePhantomBidUserOp(
-		order: Order,
-		entryPointAddress: HexString,
-		solverAccountAddress: HexString,
-		fillerOutputs: TokenInfo[],
-		acceptedSourceChains: string[],
-		uniswapV4PositionIds?: string[],
-	): Promise<{ commitment: HexString; userOp: HexString }> {
-		const sdkHelper = await this.getIntentGateway(order.source, order.destination)
-		const client = this.clientManager.getPublicClient(order.destination)
-
-		// A phantom order is already expired, so this bid can never execute regardless — the
-		// bound is set anyway so every signed artefact carries one.
-		const fillOptions: FillOptions = {
-			relayerFee: 0n,
-			nativeDispatchFee: 0n,
-			validUntil: await this.bidValidUntilBlock(order.destination),
-			outputs: fillerOutputs,
-		}
-		const callData = await this.buildApprovalAndFillCalldata(order, fillerOutputs, fillOptions, 0n)
-
-		const commitment = orderCommitment(order)
-
-		let nonce = 0n
-		try {
-			nonce = (await client.readContract({
-				address: entryPointAddress,
-				abi: ENTRYPOINT_ABI,
-				functionName: "getNonce",
-				args: [solverAccountAddress, CryptoUtils.bidNonceKey(commitment, order.session)],
-			})) as bigint
-		} catch {
-			// Nonce defaults to 0 for phantom bids — the bid is never executed on-chain
-		}
-
-		const gasPrice = await client.getGasPrice().catch(() => 1_000_000_000n)
-
-		const userOp = await sdkHelper.prepareSubmitBid({
-			order,
-			fillOptions,
-			solverAccount: solverAccountAddress,
-			solverSigner: sdkSigningAccount(this.signer),
-			nonce,
-			entryPointAddress,
-			callGasLimit: 500_000n,
-			verificationGasLimit: 150_000n,
-			preVerificationGas: 50_000n,
-			maxFeePerGas: gasPrice,
-			maxPriorityFeePerGas: gasPrice / 10n,
-			callData,
-			// Every phantom bid carries a declaration. The accepted sources are the chains this filler
-			// is configured on, so a bid with none to declare says so explicitly ([]), rather than
-			// leaving the field empty for consumers to read as "any chain".
-			paymasterAndData: encodePhantomBidDeclaration({
-				acceptedSourceChains,
-				uniswapV4Positions: uniswapV4PositionIds?.map((id) => BigInt(id)),
-			}),
-		})
-
-		return { commitment, userOp: encodeUserOpScale(userOp) }
 	}
 
 	/**

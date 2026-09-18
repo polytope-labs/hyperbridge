@@ -8,6 +8,11 @@ overrides:
   # subql's codegen CLI still passes pino 6's removed prettyPrint option, so this
   # pin covers the package that ships pino instead of the whole graph.
   '@hyperbridge/simplex>pino': ~10.3.1
+  # axios only arrives transitively (tronweb, @binance/*, subql, stellar-sdk,
+  # hardhat-deploy). Consumers stay on their own major, floored at the first
+  # release that fixes the July 2026 advisories (1.18.0 and 0.33.0).
+  'axios@>=1': ^1.18.0
+  'axios@<1': '>=0.33.0 <1'
 allowBuilds:
   '@biomejs/biome': true
   '@cosmology/protobufjs': true

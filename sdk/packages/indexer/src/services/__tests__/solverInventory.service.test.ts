@@ -46,7 +46,6 @@ import {
 	indexSolverInventoryBlock,
 	parseDelegation,
 	RECONCILE_INTERVAL_SECS,
-	resetSolverInventoryCache,
 	REVALUE_INTERVAL_SECS,
 	type TransferInput,
 } from "@/services/solverInventory.service"
@@ -177,7 +176,6 @@ beforeEach(() => {
 	mockReverting.clear()
 	multicallDeployed = true
 	jest.clearAllMocks()
-	resetSolverInventoryCache()
 	resetMulticallCache()
 	solverCode = jest.fn(async (_address: string) => DELEGATED)
 	;(global as any).api = {
@@ -367,7 +365,7 @@ describe("genesis", () => {
 })
 
 describe("events", () => {
-	test("transfers between untracked addresses cost no store read and no RPC", async () => {
+	test("transfers between untracked addresses cost a keyed read each and no RPC", async () => {
 		await trackSolver()
 		await transfer({ from: OTHER, to: "0x18f23e630077b1da3ed97c0469d0504a93fad9e2" })
 		jest.mocked(store.get).mockClear()
@@ -382,11 +380,46 @@ describe("events", () => {
 			await shareTransfer({ from, to, blockNumber: 200n + BigInt(i) })
 		}
 
-		expect(store.get).not.toHaveBeenCalled()
+		// The miss on the keyed read is the filter, so it is the only cost an untracked address
+		// carries: two per transfer, and nothing paged, no RPC, no write.
+		expect(store.get).toHaveBeenCalledTimes(2_000 * 4)
 		expect(store.getByFields).not.toHaveBeenCalled()
 		expect(ethCalls()).not.toHaveBeenCalled()
 		expect((global as any).api.getCode).not.toHaveBeenCalled()
 		expect(inventory()).toMatchObject({ wallet: 1_000n })
+	})
+
+	test("a solver another worker discovered still has its transfers applied", async () => {
+		// SubQuery runs a mapping worker per thread, each thread its own module registry, and the
+		// block dispatcher rotates batches across all of them. The tracked set used to be
+		// module-level state, so the worker that discovered a solver was the only one whose set
+		// learned about it; every other worker dropped that solver's transfers, with no store read
+		// behind the miss, until the daily reconciliation. `isolateModulesAsync` gives a second
+		// registry over the same store — a second worker — and drives the sequence that lost a fill.
+		await jest.isolateModulesAsync(async () => {
+			const other =
+				require("@/services/solverInventory.service") as typeof import("@/services/solverInventory.service")
+			const move = (from: string, to: string, value: bigint, blockNumber: bigint) =>
+				other.applyTokenTransfer({
+					chain: CHAIN,
+					token: USDC,
+					from,
+					to,
+					value,
+					blockNumber,
+					logIndex: 0,
+					timestamp: async () => T0,
+				})
+
+			// The second worker handles a batch before the solver is known anywhere.
+			await move(OTHER, "0x18f23e630077b1da3ed97c0469d0504a93fad9e2", 10n, 99n)
+			// The first worker discovers it, writing the rows every worker shares.
+			await trackSolver(1_000n, 0n)
+			// A batch carrying the solver's outgoing transfer lands on the second worker.
+			await move(SOLVER, OTHER, 400n, 300n)
+		})
+
+		expect(inventory()).toMatchObject({ wallet: 600n, balance: 600n, blockNumber: 300n })
 	})
 
 	test("incoming and outgoing transfers move wallet and balance, and observedAt never moves backwards", async () => {

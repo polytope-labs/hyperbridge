@@ -99,31 +99,13 @@ export function parseDelegation(chain: string, code: string | undefined): Delega
 
 // ─── Discovery ──────────────────────────────────────────────────────────────────────────────────
 
-// The TRACKED solvers of this node's chain. Supported-token Transfers arrive for every holder of
-// the token, so the filter that drops the overwhelming majority must cost neither a store read nor
-// an RPC. It is complete because a solver only becomes TRACKED through this process; a rollback
-// can leave a stale member, which the store read behind it then finds missing.
-let trackedCache: { chain: string; solvers: Set<string> } | null = null
-
-async function trackedSolvers(chain: string): Promise<Set<string>> {
-	if (trackedCache?.chain === chain) return trackedCache.solvers
-	const rows = await readAllPages((limit, offset) =>
-		TrackedSolver.getByFields(
-			[
-				["chain", "=", chain],
-				["status", "=", TrackedSolverStatus.TRACKED],
-			],
-			{ limit, offset, orderBy: "id", orderDirection: "ASC" },
-		),
-	)
-	trackedCache = { chain, solvers: new Set(rows.map((row) => row.solver)) }
-	return trackedCache.solvers
-}
-
-/** Drops the in-memory tracked set. For tests. */
-export function resetSolverInventoryCache(): void {
-	trackedCache = null
-}
+// Supported-token Transfers arrive for every holder of the token, so the overwhelming majority has
+// to be dropped cheaply. The per-solver store read in each handler is that filter: `SolverInventory`
+// and `SolverVaultShares` rows are written only by `applyReading`, which runs only once a solver has
+// been seeded, so a row exists for exactly the solvers this node tracks. An in-memory set cannot
+// serve here — SubQuery runs a mapping worker per `SUBQL_WORKERS` thread, each with its own module
+// state, so a set loaded once per process goes stale in every worker but the one that discovered the
+// solver, silently dropping that solver's Transfers until the next reconciliation.
 
 async function queueSolver(
 	chain: string,
@@ -510,7 +492,6 @@ async function seedPendingSolvers(chain: string, blockNumber: bigint, at: Date):
 		tracked.revaluedAt = at
 		tracked.reconciledAt = at
 		await tracked.save()
-		;(await trackedSolvers(chain)).add(tracked.solver)
 	}
 }
 
@@ -531,9 +512,7 @@ export async function applyTokenTransfer(input: TransferInput & { token: string;
 	const from = input.from.toLowerCase()
 	const to = input.to.toLowerCase()
 	if (from === to || input.value === 0n) return
-	const tracked = await trackedSolvers(input.chain)
-	const parties = [from, to].filter((address) => tracked.has(address))
-	if (parties.length === 0) return
+	const parties = [from, to]
 
 	const token = input.token.toLowerCase()
 	let at: Date | undefined
@@ -565,8 +544,7 @@ export async function applyVaultShareTransfer(input: TransferInput & { vault: st
 	const from = input.from.toLowerCase()
 	const to = input.to.toLowerCase()
 	if (from === to || input.shares === 0n) return
-	const tracked = await trackedSolvers(input.chain)
-	const parties = [from, to].filter((address) => address !== ZERO_ADDRESS && tracked.has(address))
+	const parties = [from, to].filter((address) => address !== ZERO_ADDRESS)
 	if (parties.length === 0) return
 	const vault = input.vault.toLowerCase()
 	const token = tokenForVault(input.chain, vault)

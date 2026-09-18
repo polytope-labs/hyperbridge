@@ -11,6 +11,7 @@ import {
 	IntentsCoprocessor,
 	type BidSubmissionResult,
 	type TokenInfo,
+	bytes32ToBytes20,
 	readLegEscrow,
 } from "@hyperbridge/sdk"
 import { parseChainKey } from "@/config/interpolated-curve"

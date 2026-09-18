@@ -317,6 +317,18 @@ function operatorFixture(socketPath, options = {}) {
 		configPath: join(dirname(socketPath), "filler-config.toml"),
 		chains: [],
 		strategyTypes: [],
+		// Every running filler has limit orders: they are what it prices from.
+		limitOrders: {
+			list: async () => [],
+			get: async () => null,
+			withFills: async () => null,
+			create: async () => {
+				throw new Error("not wired for this test")
+			},
+			cancel: async () => {
+				throw new Error("not wired for this test")
+			},
+		},
 	}
 	server = new UiServer({ mode: "operator", uiDistDir: join(simplexRoot, "dist/ui"), operator })
 	return {

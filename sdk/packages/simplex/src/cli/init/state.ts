@@ -1,5 +1,4 @@
 import type { FillerConfigFile, FillerTomlConfig } from "@/config/filler-toml"
-import type { PairConfig } from "@/config/pairs"
 import type { SignerConfig } from "@/services/wallet"
 import type { UserProvidedChainConfig } from "@/services/FillerConfigService"
 import type { InitChainMeta, InitNetwork } from "./chains"

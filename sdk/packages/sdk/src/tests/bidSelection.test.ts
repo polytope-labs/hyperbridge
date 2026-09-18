@@ -545,7 +545,7 @@ describe("Order execution bid-selection integration", () => {
 		["phantom", true, true],
 	] as const)("gates %s v3 signing when live=%s configured=%s", async (kind, live, configured) => {
 		const readContract = vi.fn(async ({ address }: { address: string }) =>
-			(address === SOLVER_ONE ? live : address === SESSION ? configured : true) ? 4n : 3n,
+			(address === SOLVER_ONE ? live : address === SESSION ? configured : true) ? 3n : 2n,
 		)
 		const signTypedData = vi.fn(async () => `0x${"11".repeat(65)}` as HexString)
 		const token32 = `0x${"00".repeat(12)}${TOKEN.slice(2)}` as HexString

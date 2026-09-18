@@ -6,10 +6,10 @@ settings:
 
 overrides:
   axios: 1.13.6
-  pino: ~10.3.1
   viem: 2.47.6
   vite: 6.4.2
   '@hyperbridge/simplex>vite': 8.0.16
+  '@hyperbridge/simplex>pino': ~10.3.1
 
 importers:
 
@@ -6022,6 +6022,10 @@ packages:
   fast-levenshtein@2.0.6:
     resolution: {integrity: sha512-DCXu6Ifhqcks7TZKY3Hxp3y6qphY5SJZmrWMDrKcERSOXWQdMhU9Ig/PYrzyw/ul9jOIyh0N4M0tbC5hodg8dw==}
 
+  fast-redact@3.5.0:
+    resolution: {integrity: sha512-dwsoQlS7h9hMeYUq1W++23NDcBLV4KqONnITDV9DjfS3q1SgDGVrBdvvTLUotWtPSD7asWDV9/CmsZPy8Hf70A==}
+    engines: {node: '>=6'}
+
   fast-safe-stringify@2.1.1:
     resolution: {integrity: sha512-W+KJc2dmILlPplD/H4K9l9LcAHAfPtP6BY84uVLXQ6Evcz9Lcg33Y2z1IVblT6xdY54PXYVHEv+0Wpq8Io6zkA==}
 
@@ -6111,6 +6115,9 @@ packages:
   flat@5.0.2:
     resolution: {integrity: sha512-b6suED+5/3rTpUBdG1gupIl8MPFCAMA0QXwmljLhvCUKcUvdE4gWky9zpuGCcXHOsz4J9wPGNWq6OKpmIzz3hQ==}
     hasBin: true
+
+  flatstr@1.0.12:
+    resolution: {integrity: sha512-4zPxDyhCyiN2wIAtSLI6gc82/EjqZc1onI4Mz/l0pWrAlsSfYH/2ZIcU+e3oA2wDwbzIWNKwa23F8rh6+DRWkw==}
 
   flatted@3.4.2:
     resolution: {integrity: sha512-PjDse7RzhcPkIJwy5t7KPWQSZ9cAbzQXcafsetQoD7sOJRQlGikNbx7yZp2OotDnJyrDcbyRq3Ttb18iYOqkxA==}
@@ -8079,11 +8086,22 @@ packages:
     resolution: {integrity: sha512-oXwn7ICywaZPHmu3epHGU2oJX4nPmKvHvB/bwrJHlGcbEWaVcotkpyVHMKLKmiVryWYByNp0jpgAcXpFJDXJzA==}
     hasBin: true
 
+  pino-std-serializers@3.2.0:
+    resolution: {integrity: sha512-EqX4pwDPrt3MuOAAUBMU0Tk5kR/YcCM5fNPEzgCO2zJ5HfX0vbiH9HbJglnyeQsN96Kznae6MWD47pZB5avTrg==}
+
   pino-std-serializers@7.1.0:
     resolution: {integrity: sha512-BndPH67/JxGExRgiX1dX0w1FvZck5Wa4aal9198SrRhZjH3GxKQUKIBnYJTdj2HDN3UQAS06HlfcSbQj2OHmaw==}
 
+  pino@10.0.0:
+    resolution: {integrity: sha512-eI9pKwWEix40kfvSzqEP6ldqOoBIN7dwD/o91TY5z8vQI12sAffpR/pOqAD1IVVwIVHDpHjkq0joBPdJD0rafA==}
+    hasBin: true
+
   pino@10.3.1:
     resolution: {integrity: sha512-r34yH/GlQpKZbU1BvFFqOjhISRo1MNx1tWYsYvmj6KIRHSPMT2+yHOEb1SG6NMvRoHRF0a07kCOox/9yakl1vg==}
+    hasBin: true
+
+  pino@6.14.0:
+    resolution: {integrity: sha512-iuhEDel3Z3hF9Jfe44DPXR8l07bhjuFY3GMHIXbjnY9XcafbyDDwl2sN2vw2GjMPf5Nkoe+OFao7ffn9SXaKDg==}
     hasBin: true
 
   pirates@4.0.7:
@@ -8182,6 +8200,9 @@ packages:
 
   process-nextick-args@2.0.1:
     resolution: {integrity: sha512-3ouUOpQhtgrbOa17J7+uxOTpITYWaGP7/AhoR3+A+/1e9skrzelGi/dXzEYyvbxubEF6Wn2ypscTKiKJFFn1ag==}
+
+  process-warning@1.0.0:
+    resolution: {integrity: sha512-du4wfLyj4yCZq1VupnVSZmRsPJsNuxoDQFdCFHLaYiEbFBD7QE0a+I4D7hOxrVnh78QE/YipFAj9lXHiXocV+Q==}
 
   process-warning@5.0.0:
     resolution: {integrity: sha512-a39t9ApHNx2L4+HBnQKqxxHNs1r7KF+Intd8Q/g1bUh6q0WIp9voPXJ/x0j+ZL45KF1pJd9+q2jLIRMfvEshkA==}
@@ -8759,6 +8780,9 @@ packages:
     resolution: {integrity: sha512-iOBWFgUX7caIZiuutICxVgX1SdxwAVFFKwt1EvMYYec/NWO5meOJ6K5uQxhrYBdQJne4KxiqZc+KptFOWFSI9w==}
     engines: {node: '>=18'}
 
+  slow-redact@0.3.2:
+    resolution: {integrity: sha512-MseHyi2+E/hBRqdOi5COy6wZ7j7DxXRz9NkseavNYSvvWC06D8a5cidVZX3tcG5eCW3NIyVU4zT63hw0Q486jw==}
+
   smoldot@2.0.26:
     resolution: {integrity: sha512-F+qYmH4z2s2FK+CxGj8moYcd1ekSIKH8ywkdqlOz88Dat35iB1DIYL11aILN46YSGMzQW/lbJNS307zBSDN5Ig==}
 
@@ -8775,6 +8799,9 @@ packages:
 
   solidity-bytes-utils@0.8.4:
     resolution: {integrity: sha512-/bjac5YR12i0plOKvGlhE51F5IWGP6rI8DJetCQlXcnwKWz/Hgf/vr+Qlk1BWz56xVcwVhmhCaDkTMnx5xvt0g==}
+
+  sonic-boom@1.4.1:
+    resolution: {integrity: sha512-LRHh/A8tpW7ru89lrlkU4AszXt1dbwSjVWguGrmlxE7tawVmDBlI1PILMkXAxJTwqhgsEeTHzj36D5CmHgQmNg==}
 
   sonic-boom@4.2.1:
     resolution: {integrity: sha512-w6AxtubXa2wTXAUsZMMWERrsIRAdrK0Sc+FUytWvYAhBJLyuI4llrMIC1DtlNSdI99EI86KZum2MMq3EAZlF9Q==}
@@ -9055,6 +9082,9 @@ packages:
 
   thenify@3.3.1:
     resolution: {integrity: sha512-RVZSIV5IG10Hk3enotrhvz0T9em6cyHBLkH/YAZuKqd8hRkKhSfCGIcP2KUY0EPxndzANBmNllzWPwak+bheSw==}
+
+  thread-stream@3.2.0:
+    resolution: {integrity: sha512-zLBvqpwr4Esa0kRjcrzGU6zL25lePWaCLMx0RQFrmteozIfeNdaMLpG5U7PeHzvlFkAWaRKA9/KVW4F60iB+qw==}
 
   thread-stream@4.0.0:
     resolution: {integrity: sha512-4iMVL6HAINXWf1ZKZjIPcz5wYaOdPhtO8ATvZ+Xqp3BTdaqtAwQkNmKORqcIo5YkQqGXq5cwfswDwMqqQNrpJA==}
@@ -14728,7 +14758,7 @@ snapshots:
       class-transformer: 0.5.1
       class-validator: 0.14.1
       js-yaml: 4.1.1
-      pino: 10.3.1
+      pino: 6.14.0
       reflect-metadata: 0.1.14
       typechain: 8.3.2(typescript@6.0.3)
     transitivePeerDependencies:
@@ -14750,7 +14780,7 @@ snapshots:
       class-transformer: 0.5.1
       class-validator: 0.14.1
       js-yaml: 4.1.1
-      pino: 10.3.1
+      pino: 6.14.0
       reflect-metadata: 0.1.14
       typechain: 8.3.2(typescript@6.0.3)
     transitivePeerDependencies:
@@ -14772,7 +14802,7 @@ snapshots:
       class-transformer: 0.5.1
       class-validator: 0.14.1
       js-yaml: 4.1.1
-      pino: 10.3.1
+      pino: 6.14.0
       reflect-metadata: 0.1.14
       typechain: 8.3.2(typescript@6.0.3)
     transitivePeerDependencies:
@@ -14810,7 +14840,7 @@ snapshots:
       class-transformer: 0.5.1
       class-validator: 0.14.1
       js-yaml: 4.1.1
-      pino: 10.3.1
+      pino: 6.14.0
       reflect-metadata: 0.1.14
       stellar-sdk: 10.4.1
     transitivePeerDependencies:
@@ -15191,7 +15221,7 @@ snapshots:
   '@subql/types-core@2.2.0':
     dependencies:
       package-json-type: 1.1.2
-      pino: 10.3.1
+      pino: 6.14.0
 
   '@subql/types-cosmos@4.3.0(bufferutil@4.1.0)(utf-8-validate@5.0.10)':
     dependencies:
@@ -15269,7 +15299,7 @@ snapshots:
       graphql: 15.10.2
       graphql-tag: 2.12.6(graphql@15.10.2)
       lodash: 4.18.1
-      pino: 10.3.1
+      pino: 6.14.0
       rotating-file-stream: 3.2.9
     transitivePeerDependencies:
       - ibm_db
@@ -15294,7 +15324,7 @@ snapshots:
       graphql: 15.10.2
       graphql-tag: 2.12.6(graphql@15.10.2)
       lodash: 4.18.1
-      pino: 10.3.1
+      pino: 6.14.0
       rotating-file-stream: 3.2.9
     transitivePeerDependencies:
       - ibm_db
@@ -16291,7 +16321,7 @@ snapshots:
   '@walletconnect/logger@3.0.2':
     dependencies:
       '@walletconnect/safe-json': 1.0.2
-      pino: 10.3.1
+      pino: 10.0.0
 
   '@walletconnect/relay-api@1.0.11':
     dependencies:
@@ -18371,6 +18401,8 @@ snapshots:
 
   fast-levenshtein@2.0.6: {}
 
+  fast-redact@3.5.0: {}
+
   fast-safe-stringify@2.1.1: {}
 
   fast-stable-stringify@1.0.0: {}
@@ -18478,6 +18510,8 @@ snapshots:
       keyv: 4.5.4
 
   flat@5.0.2: {}
+
+  flatstr@1.0.12: {}
 
   flatted@3.4.2: {}
 
@@ -21010,7 +21044,23 @@ snapshots:
       sonic-boom: 4.2.1
       strip-json-comments: 3.1.1
 
+  pino-std-serializers@3.2.0: {}
+
   pino-std-serializers@7.1.0: {}
+
+  pino@10.0.0:
+    dependencies:
+      atomic-sleep: 1.0.0
+      on-exit-leak-free: 2.1.2
+      pino-abstract-transport: 2.0.0
+      pino-std-serializers: 7.1.0
+      process-warning: 5.0.0
+      quick-format-unescaped: 4.0.4
+      real-require: 0.2.0
+      safe-stable-stringify: 2.5.0
+      slow-redact: 0.3.2
+      sonic-boom: 4.2.1
+      thread-stream: 3.2.0
 
   pino@10.3.1:
     dependencies:
@@ -21025,6 +21075,16 @@ snapshots:
       safe-stable-stringify: 2.5.0
       sonic-boom: 4.2.1
       thread-stream: 4.0.0
+
+  pino@6.14.0:
+    dependencies:
+      fast-redact: 3.5.0
+      fast-safe-stringify: 2.1.1
+      flatstr: 1.0.12
+      pino-std-serializers: 3.2.0
+      process-warning: 1.0.0
+      quick-format-unescaped: 4.0.4
+      sonic-boom: 1.4.1
 
   pirates@4.0.7: {}
 
@@ -21095,6 +21155,8 @@ snapshots:
       react-is: 18.3.1
 
   process-nextick-args@2.0.1: {}
+
+  process-warning@1.0.0: {}
 
   process-warning@5.0.0: {}
 
@@ -21764,6 +21826,8 @@ snapshots:
       ansi-styles: 6.2.3
       is-fullwidth-code-point: 5.1.0
 
+  slow-redact@0.3.2: {}
+
   smoldot@2.0.26(bufferutil@4.1.0)(utf-8-validate@5.0.10):
     dependencies:
       ws: 8.20.0(bufferutil@4.1.0)(utf-8-validate@5.0.10)
@@ -21805,6 +21869,11 @@ snapshots:
       - debug
 
   solidity-bytes-utils@0.8.4: {}
+
+  sonic-boom@1.4.1:
+    dependencies:
+      atomic-sleep: 1.0.0
+      flatstr: 1.0.12
 
   sonic-boom@4.2.1:
     dependencies:
@@ -22122,6 +22191,10 @@ snapshots:
   thenify@3.3.1:
     dependencies:
       any-promise: 1.3.0
+
+  thread-stream@3.2.0:
+    dependencies:
+      real-require: 0.2.0
 
   thread-stream@4.0.0:
     dependencies:

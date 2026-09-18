@@ -14,6 +14,15 @@ const rows = (entity: string) =>
 	),
 }
 
+// SubQuery's `cache` lives on the main thread; every worker proxies to that one object. Cloning on
+// the way in and out is what the host channel does, and it keeps a handler from mutating it in place.
+const cached = new Map<string, any>()
+const cacheMock = {
+	get: jest.fn(async (key: string) => structuredClone(cached.get(key))),
+	set: jest.fn(async (key: string, value: any) => void cached.set(key, structuredClone(value))),
+}
+;(global as any).cache = cacheMock
+
 /** On-chain state the pinned reads return, keyed `contract|holder`. */
 const mockOnchain = new Map<string, bigint>()
 /** Assets per share, per vault. */
@@ -43,10 +52,10 @@ import {
 	applyTokenTransfer,
 	applyVaultShareTransfer,
 	discoverSolverFromFill,
+	HEAD_INTERVAL_SECS,
 	indexSolverInventoryBlock,
 	parseDelegation,
 	RECONCILE_INTERVAL_SECS,
-	resetSolverInventoryCache,
 	REVALUE_INTERVAL_SECS,
 	type TransferInput,
 } from "@/services/solverInventory.service"
@@ -170,6 +179,7 @@ function queueWatchlist(version: number, ...solvers: string[]): void {
 
 beforeEach(() => {
 	records.clear()
+	cached.clear()
 	mockOnchain.clear()
 	mockRates.clear()
 	mockRates.set(VAULT, 2n)
@@ -177,7 +187,6 @@ beforeEach(() => {
 	mockReverting.clear()
 	multicallDeployed = true
 	jest.clearAllMocks()
-	resetSolverInventoryCache()
 	resetMulticallCache()
 	solverCode = jest.fn(async (_address: string) => DELEGATED)
 	;(global as any).api = {
@@ -372,6 +381,7 @@ describe("events", () => {
 		await transfer({ from: OTHER, to: "0x18f23e630077b1da3ed97c0469d0504a93fad9e2" })
 		jest.mocked(store.get).mockClear()
 		jest.mocked(store.getByFields).mockClear()
+		cacheMock.get.mockClear()
 		ethCalls().mockClear()
 		;(global as any).api.getCode.mockClear()
 
@@ -382,11 +392,64 @@ describe("events", () => {
 			await shareTransfer({ from, to, blockNumber: 200n + BigInt(i) })
 		}
 
+		// The cached set is the whole cost. A keyed store read in its place would be a Postgres
+		// findOne per address, every time, because `cacheModel` never caches a miss.
+		expect(cacheMock.get).toHaveBeenCalledTimes(2_000 * 2)
 		expect(store.get).not.toHaveBeenCalled()
 		expect(store.getByFields).not.toHaveBeenCalled()
 		expect(ethCalls()).not.toHaveBeenCalled()
 		expect((global as any).api.getCode).not.toHaveBeenCalled()
 		expect(inventory()).toMatchObject({ wallet: 1_000n })
+	})
+
+	test("a cached set that lost a concurrent seed repairs itself on the next head advance", async () => {
+		await trackSolver(1_000n, 0n)
+		// The race the rebuild exists for: another worker's seed reached the store, but this worker's
+		// cached set was rebuilt just before that write and so never learned the solver.
+		cached.set(`solver-inventory:tracked:${CHAIN}`, [])
+
+		// A block inside the head's throttle rebuilds nothing, so the spend is still dropped.
+		await block(300n, T0 + BigInt(HEAD_INTERVAL_SECS) - 1n)
+		await transfer({ from: SOLVER, to: OTHER, value: 400n, blockNumber: 301n })
+		expect(inventory()).toMatchObject({ wallet: 1_000n })
+
+		// The next head advance rebuilds the set from the store, and the solver is seen again.
+		await block(302n, T0 + BigInt(HEAD_INTERVAL_SECS))
+		await transfer({ from: SOLVER, to: OTHER, value: 400n, blockNumber: 303n })
+		expect(inventory()).toMatchObject({ wallet: 600n, balance: 600n })
+	})
+
+	test("a solver another worker discovered still has its transfers applied", async () => {
+		// SubQuery runs a mapping worker per thread, each thread its own module registry, and the
+		// block dispatcher rotates batches across all of them. The tracked set used to be
+		// module-level state, so the worker that discovered a solver was the only one whose set
+		// learned about it; every other worker dropped that solver's transfers, with no store read
+		// behind the miss, until the daily reconciliation. `isolateModulesAsync` gives a second
+		// registry over the same store — a second worker — and drives the sequence that lost a fill.
+		await jest.isolateModulesAsync(async () => {
+			const other =
+				require("@/services/solverInventory.service") as typeof import("@/services/solverInventory.service")
+			const move = (from: string, to: string, value: bigint, blockNumber: bigint) =>
+				other.applyTokenTransfer({
+					chain: CHAIN,
+					token: USDC,
+					from,
+					to,
+					value,
+					blockNumber,
+					logIndex: 0,
+					timestamp: async () => T0,
+				})
+
+			// The second worker handles a batch before the solver is known anywhere.
+			await move(OTHER, "0x18f23e630077b1da3ed97c0469d0504a93fad9e2", 10n, 99n)
+			// The first worker discovers it, writing the rows every worker shares.
+			await trackSolver(1_000n, 0n)
+			// A batch carrying the solver's outgoing transfer lands on the second worker.
+			await move(SOLVER, OTHER, 400n, 300n)
+		})
+
+		expect(inventory()).toMatchObject({ wallet: 600n, balance: 600n, blockNumber: 300n })
 	})
 
 	test("incoming and outgoing transfers move wallet and balance, and observedAt never moves backwards", async () => {

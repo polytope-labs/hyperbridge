@@ -99,14 +99,36 @@ export function parseDelegation(chain: string, code: string | undefined): Delega
 
 // ─── Discovery ──────────────────────────────────────────────────────────────────────────────────
 
-// The TRACKED solvers of this node's chain. Supported-token Transfers arrive for every holder of
-// the token, so the filter that drops the overwhelming majority must cost neither a store read nor
-// an RPC. It is complete because a solver only becomes TRACKED through this process; a rollback
-// can leave a stale member, which the store read behind it then finds missing.
-let trackedCache: { chain: string; solvers: Set<string> } | null = null
+/** The one cache key per chain holding that chain's tracked solvers. */
+const trackedKey = (chain: string) => `solver-inventory:tracked:${chain}`
 
+// Supported-token Transfers arrive for every holder of the token, so the overwhelming majority has
+// to be dropped without touching the database. A keyed store read cannot do that: `cacheModel.get`
+// populates its LFU only `if (record)`, so a miss — which is what every non-solver address is — is a
+// fresh `findOne` against Postgres every time.
+//
+// `cache` can. It is SubQuery's cross-worker cache: the object lives on the main thread, and each
+// worker's `WorkerInMemoryCacheService` proxies `get`/`set` to it over the same host channel that
+// `store` already uses. So a `cache.set` from the worker that seeds a solver is visible to all of
+// them, which is the property a module-level `Set` lacked — SubQuery runs a mapping worker per
+// `SUBQL_WORKERS` thread, each with its own module state, so a process-local set went stale in every
+// worker but the one that discovered the solver.
+//
+// The set is only ever a filter. Every address it admits still goes to the per-solver store read
+// below, which stays the authority on what is tracked and what its balances are.
 async function trackedSolvers(chain: string): Promise<Set<string>> {
-	if (trackedCache?.chain === chain) return trackedCache.solvers
+	const cached = (await cache.get(trackedKey(chain))) as string[] | undefined
+	return cached ? new Set(cached) : refreshTrackedSolvers(chain)
+}
+
+/**
+ * Rebuilds the cached set from the store, keeping any member the cache already had. A concurrent
+ * seed in another worker may have written a solver this read is too early to see; unioning means the
+ * rebuild cannot drop it, so a lost update repairs itself instead of persisting. Called on a cache
+ * miss, and once per `HEAD_INTERVAL_SECS` from `advanceHead`.
+ */
+async function refreshTrackedSolvers(chain: string): Promise<Set<string>> {
+	const cached = ((await cache.get(trackedKey(chain))) as string[] | undefined) ?? []
 	const rows = await readAllPages((limit, offset) =>
 		TrackedSolver.getByFields(
 			[
@@ -116,13 +138,17 @@ async function trackedSolvers(chain: string): Promise<Set<string>> {
 			{ limit, offset, orderBy: "id", orderDirection: "ASC" },
 		),
 	)
-	trackedCache = { chain, solvers: new Set(rows.map((row) => row.solver)) }
-	return trackedCache.solvers
+	const solvers = new Set([...cached, ...rows.map((row) => row.solver)])
+	await cache.set(trackedKey(chain), [...solvers])
+	return solvers
 }
 
-/** Drops the in-memory tracked set. For tests. */
-export function resetSolverInventoryCache(): void {
-	trackedCache = null
+/** Publishes a newly seeded solver to every worker, before any of them sees its next Transfer. */
+async function cacheTrackedSolver(chain: string, solver: string): Promise<void> {
+	const cached = (await cache.get(trackedKey(chain))) as string[] | undefined
+	if (!cached) return void (await refreshTrackedSolvers(chain))
+	if (cached.includes(solver)) return
+	await cache.set(trackedKey(chain), [...cached, solver])
 }
 
 async function queueSolver(
@@ -510,7 +536,7 @@ async function seedPendingSolvers(chain: string, blockNumber: bigint, at: Date):
 		tracked.revaluedAt = at
 		tracked.reconciledAt = at
 		await tracked.save()
-		;(await trackedSolvers(chain)).add(tracked.solver)
+		await cacheTrackedSolver(chain, tracked.solver)
 	}
 }
 
@@ -747,6 +773,11 @@ async function refreshPage(chain: string, blockNumber: bigint, at: Date, offset:
 async function advanceHead(chain: string, blockNumber: bigint, at: Date): Promise<void> {
 	const head = await SolverInventoryHead.get(chain)
 	if (head && elapsedSecs(head.observedAt, at) < HEAD_INTERVAL_SECS) return
+	// The cached tracked set's only clock. Seeding publishes each new solver itself, so this just
+	// bounds the window where two workers seed at once and the loser's store read predates the
+	// winner's write. It rides the head throttle so the bound is `HEAD_INTERVAL_SECS` of block time on
+	// every chain alike, and costs one query per chain rather than one per worker.
+	await refreshTrackedSolvers(chain)
 	const next = head ?? SolverInventoryHead.create({ id: chain, blockNumber, observedAt: at, refreshOffset: 0 })
 	next.refreshOffset = await refreshPage(chain, blockNumber, at, next.refreshOffset)
 	next.blockNumber = blockNumber

@@ -237,7 +237,13 @@ describe("tryDecodeFillOrder", () => {
 		const encode = (value = order) =>
 			intentGatewayInterface.encodeFunctionData("fillOrder", [
 				value,
-				{ relayerFee: 0n, nativeDispatchFee: 0n, validUntil: 0n, outputs: value.output.assets },
+				{
+					relayerFee: 0n,
+					nativeDispatchFee: 0n,
+					validUntil: 0n,
+					outputs: value.output.assets,
+					inputs: value.inputs,
+				},
 			])
 		const enrich = (input: string) =>
 			resolveFillEnrichment(
@@ -302,6 +308,7 @@ describe("tryDecodeFillOrder", () => {
 				nativeDispatchFee: 0n,
 				validUntil: 0n,
 				outputs: [{ token: pad32(TOKEN_B), amount: 200n }],
+				inputs: [{ token: pad32(TOKEN_A), amount: 100n }],
 			},
 		])
 
@@ -316,14 +323,24 @@ describe("tryDecodeFillOrder", () => {
 		expect(decoded!.fees).toBe(5n)
 	})
 
-	it("decodes historical fills before FillOptions gained validUntil", () => {
+	it("decodes the deployed fills that predate FillOptions.inputs", () => {
 		const fragment = intentGatewayInterface.getFunction("fillOrder").format("full")
-		const legacy = new Interface([fragment.replace("uint256 validUntil, ", "")])
-		const calldata = legacy.encodeFunctionData("fillOrder", [
+		const beforeInputs = fragment.replace(", tuple(bytes32 token, uint256 amount)[] inputs) options", ") options")
+		const withValidUntil = new Interface([beforeInputs])
+		const withoutValidUntil = new Interface([beforeInputs.replace("uint256 validUntil, ", "")])
+		expect(withValidUntil.getSighash("fillOrder")).toBe("0xa5470064")
+		expect(withoutValidUntil.getSighash("fillOrder")).toBe("0x5cfb1ea5")
+
+		const v2 = withValidUntil.encodeFunctionData("fillOrder", [
+			order,
+			{ relayerFee: 0n, nativeDispatchFee: 0n, validUntil: 0n, outputs: order.output.assets },
+		])
+		const v1 = withoutValidUntil.encodeFunctionData("fillOrder", [
 			order,
 			{ relayerFee: 0n, nativeDispatchFee: 0n, outputs: order.output.assets },
 		])
-		expect(tryDecodeFillOrder(calldata)?.outputs.beneficiary).toBe(pad32(BENEFICIARY))
+		expect(tryDecodeFillOrder(v2)?.outputs.beneficiary).toBe(pad32(BENEFICIARY))
+		expect(tryDecodeFillOrder(v1)?.outputs.beneficiary).toBe(pad32(BENEFICIARY))
 	})
 
 	it("returns null for other gateway calls", () => {

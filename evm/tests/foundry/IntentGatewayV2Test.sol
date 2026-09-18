@@ -4449,6 +4449,20 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         assertEq(gateway.version(), 1, "unsupported version remains unchanged");
     }
 
+    /// The module-only release also stamped 3 without an owner; its layout is refused rather than migrated.
+    function testMigrateRejectsOwnerlessVersionThree() public {
+        IntentGatewayV2 gateway = _legacyGateway();
+        vm.store(address(gateway), INITIALIZABLE_SLOT, bytes32(uint256(3)));
+        bytes32 ownerSlot =
+            keccak256(abi.encode(uint256(keccak256("openzeppelin.storage.Ownable")) - 1)) & ~bytes32(uint256(0xff));
+        vm.store(address(gateway), ownerSlot, bytes32(0));
+        assertEq(gateway.owner(), address(0));
+        vm.prank(address(host));
+        vm.expectRevert(Initializable.InvalidInitialization.selector);
+        gateway.migrate(address(this));
+        assertEq(gateway.version(), 3, "ownerless version 3 remains unchanged");
+    }
+
     function testMigrateRejectsEveryoneButHost() public {
         IntentGatewayV2 gateway = _legacyGateway();
 

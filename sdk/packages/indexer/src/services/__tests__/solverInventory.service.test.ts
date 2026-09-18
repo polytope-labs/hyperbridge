@@ -52,11 +52,11 @@ import {
 	applyTokenTransfer,
 	applyVaultShareTransfer,
 	discoverSolverFromFill,
+	HEAD_INTERVAL_SECS,
 	indexSolverInventoryBlock,
 	parseDelegation,
 	RECONCILE_INTERVAL_SECS,
 	REVALUE_INTERVAL_SECS,
-	TRACKED_REFRESH_BLOCKS,
 	type TransferInput,
 } from "@/services/solverInventory.service"
 import { MULTICALL3_ADDRESS, resetMulticallCache } from "@/utils/multicall"
@@ -388,10 +388,8 @@ describe("events", () => {
 		for (let i = 0; i < 2_000; i++) {
 			const from = `0x${(i + 1).toString(16).padStart(40, "0")}`
 			const to = `0x${(i + 2).toString(16).padStart(40, "0")}`
-			// Inside one refresh window, so the cached set answers all of them.
-			const blockNumber = 200n + BigInt(i % 400)
-			await transfer({ from, to, blockNumber })
-			await shareTransfer({ from, to, blockNumber })
+			await transfer({ from, to, blockNumber: 200n + BigInt(i) })
+			await shareTransfer({ from, to, blockNumber: 200n + BigInt(i) })
 		}
 
 		// The cached set is the whole cost. A keyed store read in its place would be a Postgres
@@ -404,16 +402,20 @@ describe("events", () => {
 		expect(inventory()).toMatchObject({ wallet: 1_000n })
 	})
 
-	test("a cached set that lost a concurrent seed repairs itself at the refresh bound", async () => {
+	test("a cached set that lost a concurrent seed repairs itself on the next head advance", async () => {
 		await trackSolver(1_000n, 0n)
-		// The race the bound exists for: another worker's seed reached the store, but this worker's
+		// The race the rebuild exists for: another worker's seed reached the store, but this worker's
 		// cached set was rebuilt just before that write and so never learned the solver.
-		cached.set(`solver-inventory:tracked:${CHAIN}`, { block: "101", solvers: [] })
+		cached.set(`solver-inventory:tracked:${CHAIN}`, [])
 
-		await transfer({ from: SOLVER, to: OTHER, value: 400n, blockNumber: 100n + TRACKED_REFRESH_BLOCKS })
+		// A block inside the head's throttle rebuilds nothing, so the spend is still dropped.
+		await block(300n, T0 + BigInt(HEAD_INTERVAL_SECS) - 1n)
+		await transfer({ from: SOLVER, to: OTHER, value: 400n, blockNumber: 301n })
 		expect(inventory()).toMatchObject({ wallet: 1_000n })
 
-		await transfer({ from: SOLVER, to: OTHER, value: 400n, blockNumber: 101n + TRACKED_REFRESH_BLOCKS })
+		// The next head advance rebuilds the set from the store, and the solver is seen again.
+		await block(302n, T0 + BigInt(HEAD_INTERVAL_SECS))
+		await transfer({ from: SOLVER, to: OTHER, value: 400n, blockNumber: 303n })
 		expect(inventory()).toMatchObject({ wallet: 600n, balance: 600n })
 	})
 

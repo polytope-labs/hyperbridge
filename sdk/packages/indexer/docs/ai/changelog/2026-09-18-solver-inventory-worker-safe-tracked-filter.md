@@ -44,25 +44,30 @@ round-trip; the difference is entirely what the main thread does with it.
 Two mechanisms, because one is not quite enough:
 
 - **`seedPendingSolvers` publishes each newly seeded solver to the cache**, right after the
-  `TrackedSolver` row is saved and before any worker can see that solver's next `Transfer`.
-- **`TRACKED_REFRESH_BLOCKS` (500) bounds the rest.** An entry older than that many blocks ahead of
-  where it was built is rebuilt from the store. This exists for one race: two workers seeding at
-  once, where the loser's store read predates the winner's write. The rebuild unions the store's rows
-  with whatever the cache already held, so a lost update repairs itself rather than persisting.
+  `TrackedSolver` row is saved and before any worker can see that solver's next `Transfer`. This is
+  the path that covers ordinary discovery.
+- **`advanceHead` rebuilds the set from the store**, past the `HEAD_INTERVAL_SECS` throttle it
+  already applies. This exists for one race: two workers seeding at once, where the loser's store
+  read predates the winner's write. The rebuild unions the store's rows with whatever the cache
+  already held, so a lost update repairs itself rather than persisting.
 
-Worker batches are not ordered relative to each other, so the block number a handler passes moves in
-both directions; only age _forward_ of where an entry was built counts against it.
+The rebuild rides the head throttle rather than carrying a bound of its own, and that choice is the
+point. The throttle is in seconds of block time, so the staleness bound is the same on every chain —
+a block count would have meant roughly two minutes on Arbitrum and a hundred on Ethereum from one
+constant. It is also gated on the shared `SolverInventoryHead` row, so the rebuild costs one
+`getByFields` per chain per interval, not one per worker. The transfer handlers cannot carry a
+seconds-based clock themselves: their `timestamp` is deliberately a lazy RPC, resolved only once a
+tracked solver is involved, so reading it per `Transfer` would cost more than the filter saves.
 
 `InMemoryCacheService` has no rollback hook, unlike the store cache, so a reorg that un-discovers a
 solver leaves a stale member. That direction is harmless: the store read behind the hit finds no row.
-The dangerous direction — a member missing — is what the publish and the refresh bound cover. The
-cache is also empty after a restart, which is correct rather than stale: the first use per chain
-rebuilds it from the store.
+The dangerous direction — a member missing — is what the publish and the rebuild cover. The cache is
+also empty after a restart, which is correct rather than stale: the first use per chain rebuilds it
+from the store.
 
 ## Interface
 
 `resetSolverInventoryCache` no longer exists. It was exported for tests and had no production caller.
-`TRACKED_REFRESH_BLOCKS` is exported so a test can sit either side of the bound.
 
 `src/types/global.d.ts` gains `cache`, which this package declared its own globals without.
 

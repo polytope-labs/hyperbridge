@@ -99,17 +99,8 @@ export function parseDelegation(chain: string, code: string | undefined): Delega
 
 // ─── Discovery ──────────────────────────────────────────────────────────────────────────────────
 
-/**
- * Blocks a cached tracked set is trusted for before it is rebuilt from the store. Seeding writes the
- * new solver into the cache itself, so this only has to bound the window where two workers seed at
- * once and the loser's read predates the winner's write.
- */
-export const TRACKED_REFRESH_BLOCKS = 500n
-
 /** The one cache key per chain holding that chain's tracked solvers. */
 const trackedKey = (chain: string) => `solver-inventory:tracked:${chain}`
-
-type TrackedCacheEntry = { block: string; solvers: string[] }
 
 // Supported-token Transfers arrive for every holder of the token, so the overwhelming majority has
 // to be dropped without touching the database. A keyed store read cannot do that: `cacheModel.get`
@@ -125,24 +116,19 @@ type TrackedCacheEntry = { block: string; solvers: string[] }
 //
 // The set is only ever a filter. Every address it admits still goes to the per-solver store read
 // below, which stays the authority on what is tracked and what its balances are.
-async function trackedSolvers(chain: string, blockNumber: bigint): Promise<Set<string>> {
-	const entry = (await cache.get(trackedKey(chain))) as TrackedCacheEntry | undefined
-	// Workers run different batches, so `blockNumber` moves in both directions here; only age forward
-	// of where the entry was built counts against it.
-	if (entry && blockNumber - BigInt(entry.block) < TRACKED_REFRESH_BLOCKS) return new Set(entry.solvers)
-	return refreshTrackedSolvers(chain, blockNumber, entry)
+async function trackedSolvers(chain: string): Promise<Set<string>> {
+	const cached = (await cache.get(trackedKey(chain))) as string[] | undefined
+	return cached ? new Set(cached) : refreshTrackedSolvers(chain)
 }
 
 /**
  * Rebuilds the cached set from the store, keeping any member the cache already had. A concurrent
  * seed in another worker may have written a solver this read is too early to see; unioning means the
- * rebuild cannot drop it, so a lost update repairs itself instead of persisting.
+ * rebuild cannot drop it, so a lost update repairs itself instead of persisting. Called on a cache
+ * miss, and once per `HEAD_INTERVAL_SECS` from `advanceHead`.
  */
-async function refreshTrackedSolvers(
-	chain: string,
-	blockNumber: bigint,
-	entry?: TrackedCacheEntry,
-): Promise<Set<string>> {
+async function refreshTrackedSolvers(chain: string): Promise<Set<string>> {
+	const cached = ((await cache.get(trackedKey(chain))) as string[] | undefined) ?? []
 	const rows = await readAllPages((limit, offset) =>
 		TrackedSolver.getByFields(
 			[
@@ -152,17 +138,17 @@ async function refreshTrackedSolvers(
 			{ limit, offset, orderBy: "id", orderDirection: "ASC" },
 		),
 	)
-	const solvers = new Set([...(entry?.solvers ?? []), ...rows.map((row) => row.solver)])
-	await cache.set(trackedKey(chain), { block: blockNumber.toString(), solvers: [...solvers] })
+	const solvers = new Set([...cached, ...rows.map((row) => row.solver)])
+	await cache.set(trackedKey(chain), [...solvers])
 	return solvers
 }
 
 /** Publishes a newly seeded solver to every worker, before any of them sees its next Transfer. */
-async function cacheTrackedSolver(chain: string, solver: string, blockNumber: bigint): Promise<void> {
-	const entry = (await cache.get(trackedKey(chain))) as TrackedCacheEntry | undefined
-	if (!entry) return void (await refreshTrackedSolvers(chain, blockNumber))
-	if (entry.solvers.includes(solver)) return
-	await cache.set(trackedKey(chain), { block: entry.block, solvers: [...entry.solvers, solver] })
+async function cacheTrackedSolver(chain: string, solver: string): Promise<void> {
+	const cached = (await cache.get(trackedKey(chain))) as string[] | undefined
+	if (!cached) return void (await refreshTrackedSolvers(chain))
+	if (cached.includes(solver)) return
+	await cache.set(trackedKey(chain), [...cached, solver])
 }
 
 async function queueSolver(
@@ -550,7 +536,7 @@ async function seedPendingSolvers(chain: string, blockNumber: bigint, at: Date):
 		tracked.revaluedAt = at
 		tracked.reconciledAt = at
 		await tracked.save()
-		await cacheTrackedSolver(chain, tracked.solver, blockNumber)
+		await cacheTrackedSolver(chain, tracked.solver)
 	}
 }
 
@@ -571,7 +557,7 @@ export async function applyTokenTransfer(input: TransferInput & { token: string;
 	const from = input.from.toLowerCase()
 	const to = input.to.toLowerCase()
 	if (from === to || input.value === 0n) return
-	const tracked = await trackedSolvers(input.chain, input.blockNumber)
+	const tracked = await trackedSolvers(input.chain)
 	const parties = [from, to].filter((address) => tracked.has(address))
 	if (parties.length === 0) return
 
@@ -605,7 +591,7 @@ export async function applyVaultShareTransfer(input: TransferInput & { vault: st
 	const from = input.from.toLowerCase()
 	const to = input.to.toLowerCase()
 	if (from === to || input.shares === 0n) return
-	const tracked = await trackedSolvers(input.chain, input.blockNumber)
+	const tracked = await trackedSolvers(input.chain)
 	const parties = [from, to].filter((address) => address !== ZERO_ADDRESS && tracked.has(address))
 	if (parties.length === 0) return
 	const vault = input.vault.toLowerCase()
@@ -787,6 +773,11 @@ async function refreshPage(chain: string, blockNumber: bigint, at: Date, offset:
 async function advanceHead(chain: string, blockNumber: bigint, at: Date): Promise<void> {
 	const head = await SolverInventoryHead.get(chain)
 	if (head && elapsedSecs(head.observedAt, at) < HEAD_INTERVAL_SECS) return
+	// The cached tracked set's only clock. Seeding publishes each new solver itself, so this just
+	// bounds the window where two workers seed at once and the loser's store read predates the
+	// winner's write. It rides the head throttle so the bound is `HEAD_INTERVAL_SECS` of block time on
+	// every chain alike, and costs one query per chain rather than one per worker.
+	await refreshTrackedSolvers(chain)
 	const next = head ?? SolverInventoryHead.create({ id: chain, blockNumber, observedAt: at, refreshOffset: 0 })
 	next.refreshOffset = await refreshPage(chain, blockNumber, at, next.refreshOffset)
 	next.blockNumber = blockNumber

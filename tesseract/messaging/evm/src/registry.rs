@@ -36,6 +36,7 @@ pub fn consensus_state_id_for_chain_id(chain_id: u64) -> Option<&'static str> {
 		84532 => "ETH0",     // Base Sepolia (L2 of Sepolia)
 		420420417 => "PAS0", // Polkadot Asset Hub Paseo (Revive), finalised by Paseo relay
 		688689 => "PHAR",    // Pharos Atlantic
+		5042002 => "ARCC",   // Arc testnet
 
 		// Mainnets.
 		1 => "ETH0",         // Ethereum

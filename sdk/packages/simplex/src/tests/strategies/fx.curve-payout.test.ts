@@ -2,7 +2,7 @@ import { FXFiller, type TradingPair } from "@/strategies/fx"
 import { FillerPricePolicy } from "@/config/interpolated-curve"
 import { AssetRegistry } from "@/config/asset-registry"
 import { bytes20ToBytes32, previewRateFill, type HexString, type Order, type TokenInfo } from "@hyperbridge/sdk"
-import { describe, it, expect } from "vitest"
+import { describe, it, expect, vi } from "vitest"
 import { Decimal } from "decimal.js"
 import { parseUnits } from "viem"
 
@@ -241,6 +241,32 @@ describe("FXFiller curve payout", () => {
 		expect(contractService.outputs.get(order.id)).toEqual([{ token: bytes20ToBytes32(EXOTIC), amount: 37n }])
 		expect(contractService.partials.get(order.id)).toBe(true)
 		expect(previewRateFill(1000n, 99n, 0n, 373n, 37n)).toMatchObject({ credit: 36n, release: 363n })
+	})
+
+	it("skips a capped quote below the order's rate at the price gate rather than as an error", async () => {
+		const contractService = makeEvalContractService()
+		contractService.rateFillsSupported = async () => true
+		contractService.getTokenDecimals = async () => 0
+		const filler = makeFiller({
+			contractService,
+			balances: { [EXOTIC.toLowerCase()]: 1000n },
+			maxOrderSize: 500,
+			askPricePolicy: new FillerPricePolicy({ points: [{ amount: "0", price: "0.098" }] }),
+		})
+		const logger = (filler as any).logger
+		const info = vi.spyOn(logger, "info")
+		const error = vi.spyOn(logger, "error")
+		const order = makeOrder("rate-price-gate")
+		order.inputs[0].amount = 1000n
+		order.output.assets[0].amount = 99n
+
+		// 49 output for a 500 take is below 99/1000; the amount gate alone (49 >= floor(99 * 0.5)) lets it through.
+		expect(() => previewRateFill(1000n, 99n, 0n, 500n, 49n)).toThrow()
+		expect(await filler.calculateProfitability(order)).toBe(0)
+
+		expect(contractService.inputs.get(order.id)).toBeUndefined()
+		expect(error).not.toHaveBeenCalled()
+		expect(info).toHaveBeenCalledWith(expect.objectContaining({ limiter: "price" }), expect.any(String))
 	})
 
 	it("keeps a rounding-sensitive funded quote at its signed take and output caps", async () => {

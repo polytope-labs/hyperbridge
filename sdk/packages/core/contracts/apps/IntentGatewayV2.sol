@@ -272,7 +272,10 @@ interface IIntentGatewayV2 {
     /// @notice Thrown when a solver attempts to partially fill an order that carries output
     ///         calldata. Such orders must be filled completely in a single fill.
     error PartialFillNotAllowed();
+    /// @notice Thrown when a leg's quoted output over quoted input is below the order's own rate.
     error RateBelowOrder();
+    /// @notice Thrown when a fill credits no output or releases no input on any leg, including
+    ///         fills whose quotes are all zero or too small to move a leg by one unit.
     error RateFillTooSmall();
 
     /// @notice Thrown by `placeOrder`, `fillOrder` and escrow deliveries while the gateway is paused,

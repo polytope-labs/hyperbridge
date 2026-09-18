@@ -157,7 +157,7 @@ prints. For release 4, `initData` is `migrate(owner)` when upgrading a supported
 current owner-layout version-3 proxy, and empty for an already-current proxy. Version 2 initializes
 the owner and shifts the legacy relayer slot; version 3 preserves owner, pending owner, pause state
 and relayer. Earlier module-only implementations also used version 3 with a different layout and
-are not supported predecessors. Before upgrading, finish or cancel outstanding old orders and
+are not supported predecessors; `migrate` refuses a version-3 proxy with no owner. Before upgrading, finish or cancel outstanding old orders and
 drain escrow, fees and pending messages on all chains. Keep placement stopped until matching
 gateways and modules are installed everywhere. This also excludes old per-leg partial orders:
 per-slice rounding debt can remain trapped after completion under cumulative accounting,

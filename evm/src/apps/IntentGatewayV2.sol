@@ -196,6 +196,8 @@ contract IntentGatewayV2 is
     function migrate(address owner_) external onlyHost {
         uint64 previousVersion = _getInitializedVersion();
         if (previousVersion != 2 && previousVersion != 3) revert InvalidInitialization();
+        // The module-only release also reported 3 but never set an owner, so its layout is not migratable.
+        if (previousVersion == 3 && owner() == address(0)) revert InvalidInitialization();
         _migrate(previousVersion, owner_);
     }
 

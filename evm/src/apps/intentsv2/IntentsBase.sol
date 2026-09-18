@@ -267,7 +267,14 @@ abstract contract IntentsBase is EIP712 {
      * output calldata. Such orders must be filled completely in a single fill.
     */
     error PartialFillNotAllowed();
+    /**
+     * @dev Thrown when a leg's quoted output over quoted input is below the order's own rate.
+     */
     error RateBelowOrder();
+    /**
+     * @dev Thrown when a fill credits no output or releases no input on any leg, including
+     * fills whose quotes are all zero or too small to move a leg by one unit.
+     */
     error RateFillTooSmall();
 
     /**

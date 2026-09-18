@@ -1,7 +1,7 @@
 import { existsSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import { LoggerContext } from "@/services/Logger"
 import { LogStore, matchesLogQuery } from "@/services/server/LogStore"
 import type { LogRecordDto } from "@/services/server/dto"
@@ -26,9 +26,33 @@ function tempDir(): string {
 	return mkdtempSync(join(tmpdir(), "simplex-logs-"))
 }
 
-/** Lets the write stream flush before a test reads the launch file back. */
-function flushed(): Promise<void> {
-	return new Promise((resolve) => setTimeout(resolve, 30))
+/** The launch file's records, oldest first. Throws until every line on disk parses. */
+function fileRecords(path: string): LogRecordDto[] {
+	return readFileSync(path, "utf-8")
+		.trim()
+		.split("\n")
+		.map((l) => JSON.parse(l) as LogRecordDto)
+}
+
+/**
+ * The write stream opens and writes on libuv's threadpool, so how long that
+ * takes depends on the machine's load. A fixed sleep can end before the records
+ * reach the disk, so these helpers wait for the outcome instead.
+ */
+const DISK = { timeout: 3_000, interval: 10 }
+
+/** Waits until this launch's file exists. */
+function opened(store: LogStore): Promise<void> {
+	return vi.waitFor(() => {
+		expect(existsSync(store.stats().path!)).toBe(true)
+	}, DISK)
+}
+
+/** Waits until the launch file holds `count` records. */
+function flushed(store: LogStore, count: number): Promise<void> {
+	return vi.waitFor(() => {
+		expect(fileRecords(store.stats().path!)).toHaveLength(count)
+	}, DISK)
 }
 
 describe("LogStore capture", () => {
@@ -214,17 +238,12 @@ describe("LogStore persistence", () => {
 		const { store, log } = storeAt("info", { dir })
 		log.info({ chain: "EVM-8453" }, "Scanned block")
 		log.error("Fill reverted")
-		await flushed()
+		await flushed(store, 2)
 
 		const stats = store.stats()
 		expect(stats.persisted).toBe(true)
 		expect(stats.captured).toBe(2)
-		expect(existsSync(stats.path!)).toBe(true)
-		const lines = readFileSync(stats.path!, "utf-8")
-			.trim()
-			.split("\n")
-			.map((l) => JSON.parse(l) as LogRecordDto)
-		expect(lines.map((r) => r.msg)).toEqual(["Scanned block", "Fill reverted"])
+		expect(fileRecords(stats.path!).map((r) => r.msg)).toEqual(["Scanned block", "Fill reverted"])
 		store.close()
 	})
 
@@ -233,7 +252,7 @@ describe("LogStore persistence", () => {
 		const dir = tempDir()
 		const { store, log } = storeAt("info", { dir, capacity: 3 })
 		for (let i = 1; i <= 10; i++) log.info(`line ${i}`)
-		await flushed()
+		await flushed(store, 10)
 
 		const all = await store.recent({})
 		expect(all.map((r) => r.msg)).toEqual(Array.from({ length: 10 }, (_, i) => `line ${i + 1}`))
@@ -247,7 +266,7 @@ describe("LogStore persistence", () => {
 		log.info("Scanned block")
 		log.error({ reason: "allowance" }, "Fill reverted")
 		for (let i = 0; i < 5; i++) log.info(`filler noise ${i}`)
-		await flushed()
+		await flushed(store, 7)
 
 		expect((await store.recent({ level: "error" })).map((r) => r.msg)).toEqual(["Fill reverted"])
 		expect((await store.recent({ q: "allowance" })).map((r) => r.msg)).toEqual(["Fill reverted"])
@@ -262,13 +281,12 @@ describe("LogStore persistence", () => {
 		log.info("logged before the file existed")
 		store.openLaunchFile(dir)
 		log.info("logged after")
-		await flushed()
+		await flushed(store, 2)
 
-		const written = readFileSync(store.stats().path!, "utf-8")
-			.trim()
-			.split("\n")
-			.map((l) => JSON.parse(l).msg)
-		expect(written).toEqual(["logged before the file existed", "logged after"])
+		expect(fileRecords(store.stats().path!).map((r) => r.msg)).toEqual([
+			"logged before the file existed",
+			"logged after",
+		])
 		store.close()
 	})
 
@@ -280,7 +298,7 @@ describe("LogStore persistence", () => {
 		writeFileSync(join(dir, "unrelated.txt"), "keep me")
 
 		const store = new LogStore({ dir, launchesKept: 2, startedAt: new Date("2026-09-04T00:00:00Z") })
-		await flushed()
+		await opened(store)
 		const names = readdirSync(dir).sort()
 		expect(names.filter((n) => n.startsWith("simplex-"))).toEqual([
 			"simplex-2026-09-03T00-00-00.log",
@@ -302,14 +320,14 @@ describe("LogStore persistence", () => {
 		const firstLoggers = new LoggerContext({ level: "info" })
 		firstLoggers.addSink(first.sink())
 		firstLoggers.get("filler").info("from the dead launch")
-		await flushed()
+		await flushed(first, 1)
 		first.close()
 
 		const second = new LogStore({ dir, capacity: 2, startedAt: new Date("2026-09-10T08:49:27.900Z") })
 		const secondLoggers = new LoggerContext({ level: "info" })
 		secondLoggers.addSink(second.sink())
 		for (let i = 1; i <= 5; i++) secondLoggers.get("filler").info(`from this launch ${i}`)
-		await flushed()
+		await flushed(second, 5)
 
 		expect(second.stats().path).not.toBe(first.stats().path)
 		const history = await second.recent({})
@@ -337,7 +355,7 @@ describe("LogStore persistence", () => {
 		const { store, log } = storeAt("info", { dir, capacity: 1 })
 		log.info("before the disk filled")
 		log.info("and another")
-		await flushed()
+		await flushed(store, 2)
 		const path = store.stats().path
 
 		// How Node delivers a write failure on an open file: the fd exists, so the
@@ -357,13 +375,16 @@ describe("LogStore persistence", () => {
 		const dir = tempDir()
 		const startedAt = new Date("2026-09-10T08:49:27.100Z")
 		const first = new LogStore({ dir, startedAt })
+		// Both opens run on the threadpool, so without this wait the second
+		// launch's open can win and the first one takes the collision instead.
+		await opened(first)
 
 		// `wx` refuses the collision, so nothing of this launch reaches that file
 		// and reading it back would report the other launch's records as ours.
 		const second = new LogStore({ dir, startedAt })
-		await flushed()
-
-		expect(second.stats().persisted).toBe(false)
+		await vi.waitFor(() => {
+			expect(second.stats().persisted).toBe(false)
+		}, DISK)
 		expect(second.stats().path).toBeUndefined()
 		first.close()
 		second.close()

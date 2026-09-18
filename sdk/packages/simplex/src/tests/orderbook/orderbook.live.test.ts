@@ -46,9 +46,9 @@ const ONE = ORDERBOOK_SCALE
 const REQUEST = {
 	fillChain: BASE_CHAIN,
 	tokenIn: "cNGN",
-	amountIn: (1_500_000n * ONE).toString(),
+	amountIn: "1500000",
 	tokenOut: "USDC",
-	amountOut: (1000n * ONE + ONE / 2n).toString(),
+	amountOut: "1000.5",
 	acceptedSources: [BASE_CHAIN, "EVM-1"],
 }
 

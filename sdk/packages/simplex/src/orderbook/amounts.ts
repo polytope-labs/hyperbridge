@@ -47,7 +47,6 @@ export function toHuman(amount: bigint): string {
 	return fraction ? `${whole}.${fraction}` : whole.toString()
 }
 
-/** A raw on-chain amount back at 1e18, the unit limit orders are kept in. */
 /** A raw on-chain amount back at 1e18, the unit limit orders are kept in. Truncates. */
 export function toScaled(amount: bigint, decimals: number): bigint {
 	const shift = 18 - decimals

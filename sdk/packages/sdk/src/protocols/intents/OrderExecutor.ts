@@ -170,13 +170,13 @@ export class OrderExecutor {
 		if (result.fillStatus === "partial") {
 			const filledAssets = result.filledAssets ?? []
 
-			totalFilledAssets = totalFilledAssets.map((a) => {
-				const filled = filledAssets.find((f) => f.token === a.token)
+			totalFilledAssets = totalFilledAssets.map((a, index) => {
+				const filled = filledAssets[index]
 				return filled ? { token: a.token, amount: a.amount + filled.amount } : { ...a }
 			})
 
-			remainingAssets = targetAssets.map((target) => {
-				const filled = totalFilledAssets.find((a) => a.token === target.token)
+			remainingAssets = targetAssets.map((target, index) => {
+				const filled = totalFilledAssets[index]
 				const filledAmt = filled?.amount ?? 0n
 				return {
 					token: target.token,

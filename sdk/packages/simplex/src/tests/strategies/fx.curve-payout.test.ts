@@ -1,8 +1,8 @@
 import { FXFiller, type TradingPair } from "@/strategies/fx"
 import { FillerPricePolicy } from "@/config/interpolated-curve"
 import { AssetRegistry } from "@/config/asset-registry"
-import { bytes20ToBytes32, type HexString, type Order, type TokenInfo } from "@hyperbridge/sdk"
-import { describe, it, expect } from "vitest"
+import { bytes20ToBytes32, previewRateFill, type HexString, type Order, type TokenInfo } from "@hyperbridge/sdk"
+import { describe, it, expect, vi } from "vitest"
 import { Decimal } from "decimal.js"
 import { parseUnits } from "viem"
 
@@ -53,7 +53,9 @@ function makeEvalContractService(): any {
 	const classifications = new Map<string, unknown>()
 	const outputs = new Map<string, TokenInfo[]>()
 	const partials = new Map<string, boolean>()
+	const inputs = new Map<string, TokenInfo[]>()
 	return {
+		rateFillsSupported: async () => false,
 		getTokenDecimals: async () => 18,
 		getFeeTokenWithDecimals: async () => ({ address: STABLE, decimals: 18 }),
 		estimateGasFillPost: async () => ({
@@ -67,7 +69,10 @@ function makeEvalContractService(): any {
 			getPairClassifications: (id: string) => classifications.get(id),
 			setPairClassifications: (id: string, pairs: unknown) => classifications.set(id, pairs),
 			getFillerOutputs: (id: string) => outputs.get(id),
-			setFillerOutputs: (id: string, value: TokenInfo[]) => outputs.set(id, value),
+			setFillerOutputs: (id: string, value: TokenInfo[], takes: TokenInfo[] = []) => {
+				outputs.set(id, value)
+				inputs.set(id, takes)
+			},
 			clearPartialFill: (id: string) => partials.delete(id),
 			setPartialFill: (id: string, value: boolean) => partials.set(id, value),
 			getPartialFill: (id: string) => partials.get(id),
@@ -75,6 +80,7 @@ function makeEvalContractService(): any {
 			clearFundingPrepends: () => {},
 		},
 		outputs,
+		inputs,
 		partials,
 	}
 }
@@ -94,6 +100,7 @@ function makeFiller(options: {
 	contractService: any
 	balances: Record<string, bigint>
 	maxOrderSize?: number
+	askPricePolicy?: FillerPricePolicy
 }): FXFiller {
 	const registry = new AssetRegistry(configService, { EXOTIC: { [CHAIN]: EXOTIC } })
 	const pairs: TradingPair[] = [
@@ -101,7 +108,7 @@ function makeFiller(options: {
 			token0: "USDC",
 			token1: "EXOTIC",
 			...(options.maxOrderSize !== undefined ? { maxOrderSize: new Decimal(options.maxOrderSize) } : {}),
-			askPricePolicy: FLAT_ASK,
+			askPricePolicy: options.askPricePolicy ?? FLAT_ASK,
 		},
 	]
 	const signer = { address: SOLVER } as any
@@ -199,5 +206,128 @@ describe("FXFiller curve payout", () => {
 		expect(cached![0].amount).toBe(parseUnits("149500", 18))
 		expect(contractService.partials.get("payout-balance")).toBe(false)
 		expect(profit).toBeGreaterThan(0)
+	})
+	it("quotes capped input at the solver rate when gateway and account support it", async () => {
+		const contractService = makeEvalContractService()
+		contractService.rateFillsSupported = async () => true
+		const filler = makeFiller({
+			contractService,
+			balances: { [EXOTIC.toLowerCase()]: parseUnits("1000000", 18) },
+			maxOrderSize: 40,
+		})
+		await filler.calculateProfitability(makeOrder("rate-capped"))
+		expect(contractService.inputs.get("rate-capped")).toEqual([
+			{ token: bytes20ToBytes32(STABLE), amount: parseUnits("40", 18) },
+		])
+		expect(contractService.outputs.get("rate-capped")[0].amount).toBe(parseUnits("60000", 18))
+		expect(contractService.partials.get("rate-capped")).toBe(true)
+	})
+
+	it("rounds balance-limited input down to stay within the order's price limit", async () => {
+		const contractService = makeEvalContractService()
+		contractService.rateFillsSupported = async () => true
+		const filler = makeFiller({
+			contractService,
+			balances: { [EXOTIC.toLowerCase()]: 37n },
+			askPricePolicy: new FillerPricePolicy({ points: [{ amount: "0", price: "0.099" }] }),
+		})
+		const order = makeOrder("rate-funded-rounding")
+		order.inputs[0].amount = 1000n
+		order.output.assets[0].amount = 99n
+
+		await filler.calculateProfitability(order)
+
+		expect(contractService.inputs.get(order.id)).toEqual([{ token: bytes20ToBytes32(STABLE), amount: 373n }])
+		expect(contractService.outputs.get(order.id)).toEqual([{ token: bytes20ToBytes32(EXOTIC), amount: 37n }])
+		expect(contractService.partials.get(order.id)).toBe(true)
+		expect(previewRateFill(1000n, 99n, 0n, 373n, 37n)).toMatchObject({ credit: 36n, release: 363n })
+	})
+
+	it("skips a capped quote below the order's rate at the price gate rather than as an error", async () => {
+		const contractService = makeEvalContractService()
+		contractService.rateFillsSupported = async () => true
+		contractService.getTokenDecimals = async () => 0
+		const filler = makeFiller({
+			contractService,
+			balances: { [EXOTIC.toLowerCase()]: 1000n },
+			maxOrderSize: 500,
+			askPricePolicy: new FillerPricePolicy({ points: [{ amount: "0", price: "0.098" }] }),
+		})
+		const logger = (filler as any).logger
+		const info = vi.spyOn(logger, "info")
+		const error = vi.spyOn(logger, "error")
+		const order = makeOrder("rate-price-gate")
+		order.inputs[0].amount = 1000n
+		order.output.assets[0].amount = 99n
+
+		// 49 output for a 500 take is below 99/1000; the amount gate alone (49 >= floor(99 * 0.5)) lets it through.
+		expect(() => previewRateFill(1000n, 99n, 0n, 500n, 49n)).toThrow()
+		expect(await filler.calculateProfitability(order)).toBe(0)
+
+		expect(contractService.inputs.get(order.id)).toBeUndefined()
+		expect(error).not.toHaveBeenCalled()
+		expect(info).toHaveBeenCalledWith(expect.objectContaining({ limiter: "price" }), expect.any(String))
+	})
+
+	it("keeps a rounding-sensitive funded quote at its signed take and output caps", async () => {
+		const contractService = makeEvalContractService()
+		contractService.rateFillsSupported = async () => true
+		contractService.getTokenDecimals = async () => 0
+		const filler = makeFiller({
+			contractService,
+			balances: { [EXOTIC.toLowerCase()]: 4n },
+			maxOrderSize: 4,
+			askPricePolicy: new FillerPricePolicy({ points: [{ amount: "0", price: "1" }] }),
+		})
+		const order = makeOrder("rate-payment-rounding")
+		order.inputs[0].amount = 10n
+		order.output.assets[0].amount = 3n
+
+		await filler.calculateProfitability(order)
+
+		expect(contractService.inputs.get(order.id)).toEqual([{ token: bytes20ToBytes32(STABLE), amount: 4n }])
+		expect(contractService.outputs.get(order.id)).toEqual([{ token: bytes20ToBytes32(EXOTIC), amount: 4n }])
+		expect(previewRateFill(10n, 3n, 0n, 4n, 4n)).toEqual({
+			credit: 1n,
+			release: 3n,
+			delivered: 3n,
+			surplus: 2n,
+		})
+	})
+
+	it("does not count a funding reduction at the same rate as profit", async () => {
+		const contractService = makeEvalContractService()
+		contractService.rateFillsSupported = async () => true
+		contractService.estimateGasFillPost = async () => ({
+			totalCostInSourceFeeToken: parseUnits("1", 18),
+			relayerFeeInSourceFeeToken: 0n,
+			dispatchFee: 0n,
+		})
+		const filler = makeFiller({
+			contractService,
+			balances: { [EXOTIC.toLowerCase()]: parseUnits("75000", 18) },
+			maxOrderSize: 5000,
+		})
+		const profit = await filler.calculateProfitability(makeOrder("rate-funded"))
+		expect(contractService.inputs.get("rate-funded")[0].amount).toBe(parseUnits("50", 18))
+		expect(profit).toBeLessThanOrEqual(0)
+	})
+	it("declares a quote for every leg of a multi-leg order", async () => {
+		const contractService = makeEvalContractService()
+		contractService.rateFillsSupported = async () => true
+		const filler = makeFiller({
+			contractService,
+			balances: { [EXOTIC.toLowerCase()]: parseUnits("1000000", 18) },
+			maxOrderSize: 5000,
+		})
+		const order = makeOrder("rate-multi")
+		order.inputs.push({ ...order.inputs[0] })
+		order.output.assets.push({ ...order.output.assets[0] })
+		await filler.calculateProfitability(order)
+		expect(contractService.inputs.get(order.id)).toEqual(order.inputs)
+		expect(contractService.outputs.get(order.id).map((asset) => asset.amount)).toEqual([
+			parseUnits("150000", 18),
+			parseUnits("150000", 18),
+		])
 	})
 })

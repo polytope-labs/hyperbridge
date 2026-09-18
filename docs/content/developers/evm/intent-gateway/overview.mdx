@@ -43,7 +43,35 @@ Intent Gateway supports same-chain swaps where source and destination are the sa
 
 ### Partial Fills
 
-For same-chain orders, solvers can fill any portion of any leg's output. The proportional share of that leg's escrowed input is released immediately (`inputs[i].amount × fillAmount / totalRequired`). The order is fully filled once every leg reaches its target amount.
+For same-chain orders, solvers can fill any portion of the output. Escrow is released immediately by the cumulative difference `floor(input × newCredit / required) − floor(input × previousCredit / required)`. The order is fully filled once all output pairs reach their target amounts.
+
+### Solver-priced fills
+
+`fillOrder(order, options)` takes one quote per leg: `options.inputs[i]` is the most input the
+solver will take and `options.outputs[i]` the most output it will pay. Their ratio is the solver's
+rate, which may not be below the order's rate or the call reverts with `RateBelowOrder`. A leg is
+skipped by quoting zero on both sides, and the arrays must cover every leg. The `inputs` field gives
+`fillOrder` the selector `0x68ddf058`, so bids signed against an earlier gateway must be requoted.
+
+Settlement credits the take at the order's rate, capped to what the leg still needs, and releases
+the escrow that credit unlocks as a difference of cumulative floors. The solver pays the released
+escrow at its own rate, rounded up and never below the credit; the excess is surplus, split by
+`surplusShareBps` or kept whole by the protocol on orders with calldata, which must complete in one
+fill. Events carry the credit, not the surplus. Rounding can release less than the full take, so
+unused ERC-20 budget stays with the solver and unused native value is refunded. A quote that would
+credit or release nothing reverts with `RateFillTooSmall`. `previewRateFill` in the SDK reports
+credit, release, payment and surplus for a quote at a given progress.
+
+The SDK ranks single-leg quotes by rate and multi-leg quotes by output value normalized to
+original input amounts. Both full and partial multi-leg quotes can be selected automatically.
+Normalized amounts describe prices; signed quotes bound funding, and settlement determines actual payment.
+Submission recovery is a separate stacked change required before releasing automatic execution.
+
+Every v3 bid requires an updated delegated SolverAccount.
+Before signing, the SDK requires release `3` from `version()` on the gateway, configured account
+implementation, and live delegation. Gateway release 3 uses FillOptions ABI version 3. The account protects the new and both historical selectors against
+submission with the session signature stripped off. Deploy matching gateway modules and redelegate
+solvers before enabling v3 bids.
 
 ## Cross-Chain Swaps
 
@@ -96,7 +124,7 @@ There are two modes for cross-chain cancellation:
 
 For orders placed after the fee-refund upgrade, protocol fees are held until settlement. A full fill earns the whole fee; cancellation returns the portion attributable to refunded input escrow, including for voluntary cancellation before expiry. The earned remainder becomes "dust" and can be swept to a treasury via Hyperbridge governance. Governance sizes sweeps from collected dust less amounts swept or already in flight; the gateway does not enforce an escrow reservation. Orders placed before the upgrade retain their original, nonrefundable fee treatment. See [Cancelling Orders](./cancelling-orders#what-is-refunded-and-what-is-not) for the refund formula.
 
-When a solver provides more tokens than required, the excess is split according to `surplusShareBps` (100% to protocol if the order has calldata). Surplus only applies on the first fill of each output token pair.
+When a solver provides more tokens than required, the excess is split according to `surplusShareBps` (100% to protocol if the order has calldata). Surplus applies to every quoted slice.
 
 ## Calldata
 
@@ -163,6 +191,5 @@ The session signature is appended to the solver's `UserOperation` as `abi.encode
 During `SolverAccount.validateUserOp()`, `IntentGatewayV2.select()` is called which recovers the session key from the EIP-712 signature, verifies it matches the order's session key, and stores the authorized solver in transient storage (`tstore`). The account then verifies the solver's signature against the plain `userOpHash` and checks that the UserOperation's nonce key matches `keccak256(commitment ‖ recovered session key)` — rejecting, during validation rather than at the solver's expense during execution, any attempt to pair a solver's signed bid with a different order or with a session signature from a key the solver never bid against. When `fillOrder()` runs in the same transaction, it reads the authorized solver from transient storage (`tload`) and verifies `msg.sender` matches. Since transient storage is cleared after each transaction, the selection cannot be replayed or front-run.
 </Step>
 </Steps>
-
 
 

@@ -7,7 +7,7 @@ Three paths leave a live row with no entry on the book for as long as a round tr
 
 - `create` inserts the row `open` with no commitment, then posts;
 - `settleFill` moves it to `resizing`, cancels the old entry and posts a new one;
-- `renewExpiring` cancels and posts, and the row stays `open` throughout.
+- `reconcile` posts a row again when its entry has gone, and the row stays `open` throughout.
 
 Reconciliation running in any of those windows sees exactly what it sees after a crash: a row that
 should have an entry, and an orderbook that does not list one. Posting from both would put two live

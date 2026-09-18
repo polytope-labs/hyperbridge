@@ -31,5 +31,5 @@ would advertise the same output twice; the gap between the two calls is at most 
 `UNKNOWN_ORDER` on the cancel is as good as cancelled. Every repost signs on a fresh nonce, since the
 orderbook remembers every op hash it has accepted.
 
-`repost` is separate from `settleFill` because renewal before expiry and reconciliation after a
+`repost` is separate from `settleFill` because reconciliation after a
 restart both want the same thing: whatever the order has left, live on the book again.

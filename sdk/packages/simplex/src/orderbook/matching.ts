@@ -94,14 +94,12 @@ export function matchLimitOrders(
 		.filter((candidate) => candidate.offer >= incoming.requestedOutput && candidate.payout > 0n)
 		.sort(byTightestFirst)
 
-	const taken: LimitOrderMatch[] = []
-	let covered = 0n
-	for (const candidate of qualifying) {
-		taken.push(candidate)
-		covered += candidate.payout
-		if (covered >= incoming.requestedOutput) break
-	}
-	return taken
+	// Every qualifying order, best price first. Each one clears the ask on its own,
+	// so each is a bid in its own right rather than a slice of a combined one: the
+	// caller sends them in turn and the gateway clamps whichever lands against what
+	// is still outstanding. Stopping once the ask was "covered" was the arithmetic
+	// that billed one input to several orders at once.
+	return qualifying
 }
 
 /** The first order to draw on, for callers that only need to know one exists. */

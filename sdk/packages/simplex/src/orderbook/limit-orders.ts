@@ -418,19 +418,6 @@ export class LimitOrderService {
 			}
 		}
 
-		// Checked here rather than left to the sweep: an unreadable expiry never
-		// arrives, and one already past creates an order that is posted, paid for
-		// and never matched.
-		if (request.expiresAt != null) {
-			const at = Date.parse(request.expiresAt)
-			if (Number.isNaN(at)) {
-				throw new LimitOrderValidationError(`expiresAt '${request.expiresAt}' is not a date this can read`)
-			}
-			if (at <= Date.now()) {
-				throw new LimitOrderValidationError(`expiresAt '${request.expiresAt}' has already passed`)
-			}
-		}
-
 		if (ttlSecs < limits.serverInfo.minOrderTtlSecs) {
 			throw new LimitOrderValidationError(
 				`ttlSecs must be at least the orderbook's minimum of ${limits.serverInfo.minOrderTtlSecs}; got ${ttlSecs}`,
@@ -600,27 +587,6 @@ export class LimitOrderService {
 		return Math.max(1, Math.floor(heartbeatIntervalSecs / 2)) * 1000
 	}
 
-	/**
-	 * Reposts every open order whose entry expires within `marginSecs`.
-	 *
-	 * A posting cannot be extended. The op carries its own deadline and the
-	 * orderbook remembers its hash, so renewal is a fresh op on a new nonce rather
-	 * than the same one sent again.
-	 */
-	async renewExpiring(marginSecs: number): Promise<number> {
-		const due = (await this.store.list({ status: "open" })).filter(
-			(order) => order.commitment && expiresWithin(order.bookExpiresAt, marginSecs),
-		)
-		for (const order of due) {
-			this.logger.info({ id: order.id, bookExpiresAt: order.bookExpiresAt }, "Renewing a limit order's posting")
-			try {
-				await this.repost(order)
-			} catch (err) {
-				this.logger.error({ id: order.id, err }, "Could not renew the limit order's posting")
-			}
-		}
-		return due.length
-	}
 
 	/**
 	 * Brings the orderbook's copy of the operator's orders back in line with ours.
@@ -958,12 +924,6 @@ function hasExpired(expiresAt: string | null, now: Date): boolean {
 	return !Number.isNaN(at) && at <= now.getTime()
 }
 
-/** Whether a posting expires within `marginSecs`, or already has. */
-function expiresWithin(bookExpiresAt: string | null, marginSecs: number): boolean {
-	if (!bookExpiresAt) return false
-	const expiry = Date.parse(bookExpiresAt)
-	return !Number.isNaN(expiry) && expiry - Date.now() <= marginSecs * 1000
-}
 
 /** How long ago a row was written. Its stamps are UTC but not marked as such. */
 function sinceMs(updatedAt: string, now: Date): number {

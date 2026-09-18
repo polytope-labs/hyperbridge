@@ -219,7 +219,7 @@ async function operatorContextFrom(
 		stop: () => stopAll(),
 		activity: runtime.activity,
 		bids: runtime.data.bids,
-		limitOrders: runtime.limitOrders ? simplex.limitOrders : undefined,
+		limitOrders: simplex.limitOrders,
 		setPaused: (paused) => patchRuntimeState(runtime.data.state, { paused }),
 		// Both contexts, not just the filler's: the dashboard shows one merged feed
 		// and reports one level for it, so leaving the process-wide context (the UI

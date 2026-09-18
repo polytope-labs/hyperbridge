@@ -6,7 +6,7 @@
  */
 import type { InitChainMeta, InitNetwork } from "@/cli/init/chains"
 import type { VaultToml } from "@/config/filler-toml"
-import type { CurvePoint, PriceCurvePoint } from "@/config/interpolated-curve"
+import type { PriceCurvePoint } from "@/config/interpolated-curve"
 import type { BalanceSnapshot as RuntimeBalanceSnapshot } from "@/services/BalanceProvider"
 import type { VaultSweepSkipReason } from "@/funding/vault/VaultFundingPlanner"
 import type { ActivityType, OrderSummary } from "@/data/types"

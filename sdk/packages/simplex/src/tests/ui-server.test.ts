@@ -140,6 +140,17 @@ function baseOperator(overrides: Partial<OperatorContext> = {}): TestOperator {
 		loggers,
 		strategies: [],
 		filler: fakePauseControl(),
+		// Every running filler has limit orders: they are what it prices from.
+		limitOrders: {
+			list: async () => ({ orders: [] }),
+			get: async () => null,
+			create: async () => {
+				throw new Error("not wired for this test")
+			},
+			cancel: async () => {
+				throw new Error("not wired for this test")
+			},
+		} as unknown as OperatorContext["limitOrders"],
 		balances: { getSnapshot: () => ({ updatedAt: null, status: "loading", chains: [], issues: [] }) },
 		haltControls: [],
 		config: fakeConfig(),

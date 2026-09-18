@@ -8,6 +8,7 @@ import { validateConfig, type FillerConfigFile } from "@/config/filler-toml"
 import { SignerType } from "@/services/wallet"
 
 const minimalSameAsset: FillerConfigFile = {
+	orderbook: { url: "https://orderbook.hyperbridge.network/graphql" },
 	simplex: {
 		signer: {
 			type: SignerType.PrivateKey,
@@ -42,6 +43,7 @@ const minimalSameAsset: FillerConfigFile = {
 }
 
 const crossAssetWithCurves: FillerConfigFile = {
+	orderbook: { url: "https://orderbook.hyperbridge.network/graphql" },
 	simplex: {
 		signer: {
 			type: SignerType.Turnkey,
@@ -94,6 +96,7 @@ const crossAssetWithCurves: FillerConfigFile = {
 // `side` requires pool pricing with no static curves, so this pair is curve-less
 // with its own price curves.
 const kitchenSink: FillerConfigFile = {
+	orderbook: { url: "https://orderbook.hyperbridge.network/graphql" },
 	simplex: {
 		signer: {
 			type: SignerType.MpcVault,

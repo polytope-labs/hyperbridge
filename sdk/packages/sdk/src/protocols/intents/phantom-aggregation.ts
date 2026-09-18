@@ -164,7 +164,7 @@ const PERMIT2_DATA_BYTES = 1 + 20 + 32 + 32 + 32 + 1 + 32 + 32
 export const PERMIT2_SPONSORSHIP_BYTES = PAYMASTER_DATA_OFFSET + PERMIT2_DATA_BYTES
 
 /** Upper bound on declared chains and positions alike; one byte of count each. */
-const MAX_DECLARED_ENTRIES = 255
+export const MAX_DECLARED_ENTRIES = 255
 
 /** Widest tokenId the codec will carry — a uint256, as minted by the V4 PositionManager. */
 const MAX_TOKEN_ID_BYTES = 32

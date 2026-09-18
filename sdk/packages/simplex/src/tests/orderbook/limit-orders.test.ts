@@ -97,9 +97,9 @@ function makeService(client: ReturnType<typeof fakeClient>, store = new MemoryDa
 const REQUEST: CreateLimitOrderRequest = {
 	fillChain: CHAIN,
 	tokenIn: "USDC",
-	amountIn: (1000n * ONE).toString(),
+	amountIn: "1000",
 	tokenOut: "CNGN",
-	amountOut: (1_500_000n * ONE).toString(),
+	amountOut: "1500000",
 	acceptedSources: ["EVM-1"],
 }
 
@@ -218,7 +218,7 @@ describe("LimitOrderService.create validation", () => {
 	})
 
 	it("refuses an amountOut under the paid token's dust floor", async () => {
-		await rejects({ amountOut: (999n * ONE).toString() }, /dust floor for CNGN/)
+		await rejects({ amountOut: "999" }, /dust floor for CNGN/)
 	})
 
 	it("refuses a ttl under the orderbook's minimum", async () => {
@@ -243,9 +243,10 @@ describe("LimitOrderService.create validation", () => {
 		await rejects({ acceptedSources: ["EVM-1", "EVM-42161"] }, /does not serve EVM-42161/)
 	})
 
-	it("refuses an amount that is not a positive 1e18 integer", async () => {
-		await rejects({ amountIn: "0" }, /amountIn must be a positive integer/)
-		await rejects({ amountOut: "1.5" }, /amountOut must be a positive integer/)
+	it("refuses an amount that is not a positive decimal in whole tokens", async () => {
+		await rejects({ amountIn: "0" }, /amountIn must be greater than zero/)
+		await rejects({ amountOut: "1.5e3" }, /amountOut must be an amount in whole tokens/)
+		await rejects({ amountOut: "0.0000000000000000001" }, /more than 18 decimal places/)
 	})
 })
 

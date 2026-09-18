@@ -7,7 +7,7 @@ import type { DelegationService } from "@/services/DelegationService"
 import type { FillerConfigService } from "@/services/FillerConfigService"
 import { defaultLoggerContext, type Logger, type LoggerContext } from "@/services/Logger"
 import type { Signer } from "@/services/wallet"
-import { rateFrom, signedAmounts } from "./amounts"
+import { fromHuman, rateFrom, signedAmounts, toHuman } from "./amounts"
 import { OrderbookClient, OrderbookRequestError } from "./client"
 import type { Book, CancelOrderResult, OrderbookLimits, PostedOrder, SubmitOrderResult } from "./types"
 
@@ -43,11 +43,13 @@ export class LimitOrderValidationError extends Error {}
  */
 export interface CreateLimitOrderRequest {
 	fillChain: string
-	/** The symbol simplex takes in, at 1e18. */
+	/** The symbol simplex takes in. */
 	tokenIn: string
+	/** Whole tokens taken in, as a decimal string: "1000", "1500.25". */
 	amountIn: string
-	/** The symbol simplex pays out, at 1e18. */
+	/** The symbol simplex pays out. */
 	tokenOut: string
+	/** Whole tokens paid out, as a decimal string. */
 	amountOut: string
 	acceptedSources: string[]
 	/**
@@ -121,14 +123,14 @@ export class LimitOrderService {
 		const limits = await this.limits()
 		const book = this.resolveBook(limits, request.tokenIn, request.tokenOut)
 		const ttlSecs = request.ttlSecs ?? this.defaultTtlSecs
-		this.validate(request, book, limits, ttlSecs)
+		const { amountIn, amountOut } = this.validate(request, book, limits, ttlSecs)
 
 		const { side, price } = rateFrom({
 			base: book.base,
 			quote: book.quote,
 			tokenIn: request.tokenIn,
-			amountIn: BigInt(request.amountIn),
-			amountOut: BigInt(request.amountOut),
+			amountIn,
+			amountOut,
 		})
 
 		if (this.delegationService && !(await this.delegationService.setupDelegation(request.fillChain))) {
@@ -145,7 +147,7 @@ export class LimitOrderService {
 			side,
 			fillChain: request.fillChain,
 			price: price.toString(),
-			size: request.amountOut,
+			size: amountOut.toString(),
 			acceptedSources: request.acceptedSources,
 			ttlSecs,
 			expiresAt: new Date(Date.now() + ttlSecs * 1000).toISOString(),
@@ -271,18 +273,28 @@ export class LimitOrderService {
 		return book
 	}
 
-	private validate(request: CreateLimitOrderRequest, book: Book, limits: OrderbookLimits, ttlSecs: number): void {
+	private validate(
+		request: CreateLimitOrderRequest,
+		book: Book,
+		limits: OrderbookLimits,
+		ttlSecs: number,
+	): { amountIn: bigint; amountOut: bigint } {
 		if (!this.configService.getConfiguredChainIds().includes(getChainId(request.fillChain) ?? -1)) {
 			throw new LimitOrderValidationError(`'${request.fillChain}' is not a chain this filler is configured for`)
 		}
 
-		for (const [name, value] of [
-			["amountIn", request.amountIn],
-			["amountOut", request.amountOut],
-		] as const) {
-			if (!/^[0-9]+$/.test(value ?? "") || BigInt(value) <= 0n) {
-				throw new LimitOrderValidationError(`${name} must be a positive integer at 1e18, as a decimal string`)
+		// Whole tokens in, 1e18 out. An operator states what they are trading, not
+		// what the orderbook's scale or the asset's decimals happen to be.
+		const scaled: Record<"amountIn" | "amountOut", bigint> = { amountIn: 0n, amountOut: 0n }
+		for (const name of ["amountIn", "amountOut"] as const) {
+			try {
+				scaled[name] = fromHuman(request[name] ?? "")
+			} catch (err) {
+				throw new LimitOrderValidationError(
+					`${name} must be an amount in whole tokens, like "1000" or "1500.25"; ${(err as Error).message}`,
+				)
 			}
+			if (scaled[name] <= 0n) throw new LimitOrderValidationError(`${name} must be greater than zero`)
 		}
 
 		const sources = request.acceptedSources ?? []
@@ -327,9 +339,9 @@ export class LimitOrderService {
 		// The dust floor applies to what the operator pays out, which is the side
 		// the orderbook advertises depth on.
 		const floor = limits.serverInfo.minOrderSizes.find((entry) => entry.symbol === request.tokenOut)
-		if (floor && BigInt(request.amountOut) < BigInt(floor.size)) {
+		if (floor && scaled.amountOut < BigInt(floor.size)) {
 			throw new LimitOrderValidationError(
-				`amountOut is below the orderbook's dust floor for ${request.tokenOut} (${floor.size} at 1e18)`,
+				`amountOut is below the orderbook's dust floor for ${request.tokenOut} (${toHuman(BigInt(floor.size))})`,
 			)
 		}
 
@@ -340,7 +352,10 @@ export class LimitOrderService {
 				throw new LimitOrderValidationError(`'${symbol}' does not resolve to a token address on ${request.fillChain}`)
 			}
 		}
+
+		return { amountIn: scaled.amountIn, amountOut: scaled.amountOut }
 	}
+
 
 	/** Builds and submits the posting, then writes the orderbook's answer onto the row. */
 	private async post(order: LimitOrder): Promise<PostedLimitOrder> {

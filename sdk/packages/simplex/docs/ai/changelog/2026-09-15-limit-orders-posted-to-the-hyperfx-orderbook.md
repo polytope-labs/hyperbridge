@@ -23,6 +23,11 @@ POST   /api/limit-orders     { fillChain, tokenIn, amountIn, tokenOut, amountOut
 DELETE /api/limit-orders/:id
 ```
 
+`amountIn` and `amountOut` are whole tokens, as decimal strings: `"1000"`, `"1500.25"`. Nobody
+creating an order should have to know an asset's decimals, let alone that the orderbook normalises
+everything to 1e18, so the handler scales them while it validates. Anything with more than 18 decimal
+places, or that is not a plain decimal, is refused with the amount named.
+
 `acceptedSources` is required and non-empty: it names the source chains the order accepts swaps
 from, and the orderbook refuses an order that declares none. A create emits `limit-order:posted` or
 `limit-order:rejected`, a cancel emits `limit-order:cancelled`.

@@ -142,7 +142,7 @@ describe("LimitOrderService.create validation", () => {
 
 	it("refuses a same-asset order that pays out more than it takes in", async () => {
 		await rejects(
-			{ tokenOut: "USDC", amountOut: (1001n * ONE).toString(), amountIn: (1000n * ONE).toString() },
+			{ tokenOut: "USDC", amountOut: "1001", amountIn: "1000" },
 			/must pay out no more than it takes in/,
 		)
 	})
@@ -161,6 +161,66 @@ describe("LimitOrderService.create validation", () => {
 		await rejects({ amountIn: "0" }, /amountIn must be greater than zero/)
 		await rejects({ amountOut: "1.5e3" }, /amountOut must be an amount in whole tokens/)
 		await rejects({ amountOut: "0.0000000000000000001" }, /more than 18 decimal places/)
+	})
+})
+
+describe("what the operator states", () => {
+	it("is whole tokens, scaled to the orderbook's own unit on the way in", async () => {
+		// Nobody creating an order should have to know the asset's decimals, let
+		// alone that the orderbook normalises everything to 1e18.
+		const { service, store } = makeService(fakeClient([{ kind: "accepted", order: postedOrder(), surfaced: true }]))
+
+		const { order } = await service.create({ ...REQUEST, amountIn: "1000.5", amountOut: "1500750" })
+
+		const stored = (await store.get(order.id))!
+		expect(stored.size).toBe((1_500_750n * ONE).toString())
+		// 1,500,750 cNGN for 1,000.5 USDC is 1,500 cNGN per USDC.
+		expect(stored.price).toBe((1500n * ONE).toString())
+	})
+})
+
+describe("what the wallet can actually pay", () => {
+	it("refuses an order the balance cannot cover", async () => {
+		// The orderbook backs an entry with the solver's real balance and cuts down
+		// what it is not holding, so an order written against money that is not there
+		// is refused or silently shrunk rather than filled.
+		const { service } = makeService(fakeClient([]), undefined, { [ORDERBOOK_FIXTURES.CNGN]: 1_000_000n })
+
+		await expect(service.create({ ...REQUEST, amountOut: "1500000" })).rejects.toThrow(
+			/holds 1000000 CNGN on EVM-8453, which cannot pay out 1500000/,
+		)
+	})
+
+	it("counts what other limit orders on the same wallet already promise", async () => {
+		// One wallet backs them all: two orders each promising the whole balance can
+		// only ever pay one of them.
+		const client = fakeClient([
+			{ kind: "accepted", order: postedOrder({ commitment: "0xa1" }), surfaced: true },
+			{ kind: "accepted", order: postedOrder({ commitment: "0xa2" }), surfaced: true },
+		])
+		const { service } = makeService(client, undefined, { [ORDERBOOK_FIXTURES.CNGN]: 2_000_000n })
+
+		await service.create({ ...REQUEST, amountOut: "1500000" })
+
+		await expect(service.create({ ...REQUEST, amountOut: "1500000" })).rejects.toThrow(
+			/1500000 of it is already promised to other limit orders/,
+		)
+	})
+
+	it("frees up what a cancelled order was holding", async () => {
+		const client = fakeClient(
+			[
+				{ kind: "accepted", order: postedOrder({ commitment: "0xa1" }), surfaced: true },
+				{ kind: "accepted", order: postedOrder({ commitment: "0xa2" }), surfaced: true },
+			],
+			[{ kind: "cancelled", commitment: "0xa1" as HexString }],
+		)
+		const { service } = makeService(client, undefined, { [ORDERBOOK_FIXTURES.CNGN]: 2_000_000n })
+
+		const { order } = await service.create({ ...REQUEST, amountOut: "1500000" })
+		await service.cancel(order.id)
+
+		await expect(service.create({ ...REQUEST, amountOut: "1500000" })).resolves.toBeDefined()
 	})
 })
 
@@ -194,8 +254,8 @@ describe("a same-asset limit order", () => {
 	const SAME: CreateLimitOrderRequest = {
 		...REQUEST,
 		tokenOut: "USDC",
-		amountIn: (1000n * ONE).toString(),
-		amountOut: (999n * ONE).toString(),
+		amountIn: "1000",
+		amountOut: "999",
 	}
 
 	it("is stored and priced here, and never sent to a book that does not exist", async () => {
@@ -210,7 +270,8 @@ describe("a same-asset limit order", () => {
 		expect(order.commitment).toBeNull()
 		expect(order.price).toBe(((999n * ONE) / 1000n).toString())
 		expect(client.submitted).toEqual([])
-		expect((await store.get(order.id))?.remaining).toBe(SAME.amountOut)
+		// Stated in whole tokens, stored at the orderbook's 1e18.
+		expect((await store.get(order.id))?.remaining).toBe((999n * ONE).toString())
 	})
 
 	it("is worked down by a fill without anything being reposted", async () => {

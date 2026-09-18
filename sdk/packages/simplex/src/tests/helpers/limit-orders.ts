@@ -148,9 +148,20 @@ export function fakeClient(results: SubmitOrderResult[], cancels: CancelOrderRes
  * A {@link LimitOrderService} over a fake orderbook, with the collaborators the
  * posting path touches stubbed down to what it reads from them.
  */
-export function limitOrderService(client: ReturnType<typeof fakeClient>, store = new MemoryDataStore().limitOrders) {
+export function limitOrderService(
+	client: ReturnType<typeof fakeClient>,
+	store = new MemoryDataStore().limitOrders,
+	/** What the wallet holds of each payout token, in whole tokens. Plenty by default. */
+	balances: Record<string, bigint> = {},
+) {
 	const contractService = {
 		getTokenDecimals: async (token: string) => (token === USDC ? 6 : 18),
+		// Creation checks the wallet can pay out what an order promises.
+		getTokenBalance: async (_chain: string, token: HexString) => {
+			const decimals = token === USDC ? 6n : 18n
+			const whole = balances[token] ?? 1_000_000_000n
+			return whole * 10n ** decimals
+		},
 		// The op is opaque to the service; the nonce is echoed so a repost is visible.
 		prepareLimitOrderUserOp: async ({ orderNonce }: { orderNonce: bigint }) => ({
 			commitment: "0xabc" as HexString,
@@ -185,8 +196,8 @@ export function limitOrderService(client: ReturnType<typeof fakeClient>, store =
 export const CREATE_REQUEST: CreateLimitOrderRequest = {
 	fillChain: CHAIN,
 	tokenIn: "USDC",
-	amountIn: (1000n * ONE).toString(),
+	amountIn: "1000",
 	tokenOut: "CNGN",
-	amountOut: (1_500_000n * ONE).toString(),
+	amountOut: "1500000",
 	acceptedSources: ["EVM-1"],
 }

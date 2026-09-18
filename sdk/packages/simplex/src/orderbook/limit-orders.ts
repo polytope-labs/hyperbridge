@@ -7,9 +7,9 @@ import type { DelegationService } from "@/services/DelegationService"
 import type { FillerConfigService } from "@/services/FillerConfigService"
 import { defaultLoggerContext, type Logger, type LoggerContext } from "@/services/Logger"
 import type { Signer } from "@/services/wallet"
-import { fromHuman, rateFrom, signedAmounts, toHuman } from "./amounts"
-import { ORDERBOOK_SCALE, rateFrom, signedAmounts } from "./amounts"
+import { fromHuman, ORDERBOOK_SCALE, rateFrom, signedAmounts, toHuman, toScaled } from "./amounts"
 import { OrderbookClient, OrderbookRequestError } from "./client"
+import { limitOrderLegs } from "./matching"
 import type {
 	Book,
 	CancelOrderResult,
@@ -212,6 +212,8 @@ export class LimitOrderService {
 				`A ${request.tokenIn} for ${request.tokenIn} order must pay out no more than it takes in`,
 			)
 		}
+
+		await this.assertWalletCanPay(request.tokenOut, request.fillChain, amountOut)
 
 		if (!sameAsset && this.delegationService && !(await this.delegationService.setupDelegation(request.fillChain))) {
 			throw new LimitOrderValidationError(
@@ -442,6 +444,44 @@ export class LimitOrderService {
 		}
 
 		return { amountIn: scaled.amountIn, amountOut: scaled.amountOut }
+	}
+
+	/**
+	 * Refuses an order the wallet cannot pay out.
+	 *
+	 * The orderbook backs an entry with the solver's actual balance and cuts down
+	 * what it is not holding, so an order written against money that is not there
+	 * is refused or silently shrunk rather than filled. Checked here, against the
+	 * balance on the fill chain, so the operator hears it while they are creating
+	 * the order.
+	 *
+	 * Every live order paying the same token out of the same wallet counts against
+	 * that balance: one wallet backs them all, and three orders each promising the
+	 * whole balance can only pay one of them. What is already promised is each
+	 * order's `remaining`, since what a fill has already delivered is gone from the
+	 * balance too.
+	 */
+	private async assertWalletCanPay(symbol: string, chain: string, payout: bigint): Promise<void> {
+		const token = this.assetRegistry.getAddress(symbol, chain)
+		if (!token) return
+
+		const decimals = await this.decimalsFor(symbol, token, chain)
+		const balance = toScaled(
+			await this.contractService.getTokenBalance(chain, token, this.signer.address as HexString),
+			decimals,
+		)
+
+		const committed = (await this.live())
+			.filter((order) => order.fillChain === chain && limitOrderLegs(order).output === symbol)
+			.reduce((total, order) => total + BigInt(order.remaining), 0n)
+
+		if (balance < committed + payout) {
+			throw new LimitOrderValidationError(
+				committed > 0n
+					? `The wallet holds ${toHuman(balance)} ${symbol} on ${chain} and ${toHuman(committed)} of it is already promised to other limit orders, so it cannot pay out ${toHuman(payout)}`
+					: `The wallet holds ${toHuman(balance)} ${symbol} on ${chain}, which cannot pay out ${toHuman(payout)}`,
+			)
+		}
 	}
 
 	/**

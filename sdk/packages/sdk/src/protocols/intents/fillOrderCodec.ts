@@ -1,5 +1,6 @@
 import { encodeFunctionData, decodeFunctionData, type PublicClient } from "viem"
 import { ABI as IntentGatewayV2ABI } from "@/abis/IntentGatewayV2"
+import { isRevert } from "./escrowReads"
 import type { FillOptions, HexString, Order, TokenInfo } from "@/types"
 
 /** Historical v1/v2 and current v3 calldata use distinct selectors. */
@@ -225,34 +226,16 @@ export const CONTRACT_VERSION_ABI = [
 	},
 ] as const
 
-function isMissingVersionGetter(error: unknown): boolean {
-	let current = error
-	while (current && typeof current === "object") {
-		const item = current as { name?: string; cause?: unknown; code?: number; message?: string }
-		if (item.name === "ContractFunctionZeroDataError") return true
-		// viem also labels JSON-RPC -32603 provider failures ContractFunctionRevertedError.
-		// Require an actual EVM error code or the original RPC message, never that wrapper.
-		if (item.code === 3) return true
-		if (!item.cause || typeof item.cause !== "object") {
-			return /^(?:execution reverted\b|VM Exception while processing transaction:\s*revert\b|function selector was not recognized\b)/i.test(
-				item.message ?? "",
-			)
-		}
-		current = item.cause
-	}
-	return false
-}
-
 async function readContractVersion(client: PublicClient, address: HexString): Promise<unknown> {
 	try {
 		return await client.readContract({ address, abi: CONTRACT_VERSION_ABI, functionName: "version" })
 	} catch (error) {
-		if (isMissingVersionGetter(error)) return undefined
+		if (isRevert(error)) return undefined
 		throw error
 	}
 }
 
-/** Exact, uncached gateway/account compatibility; transport errors remain actionable failures. */
+/** Whether both the gateway and the account report the supported release. RPC failures propagate. */
 export async function supportsRateFills(
 	client: PublicClient,
 	gateway: HexString,
@@ -297,7 +280,7 @@ export const CHAINS_WITHOUT_VALID_UNTIL = new Set<number>([
 	420420417, // Polkadot Hub Paseo
 ])
 
-/** @deprecated Version resolution is now always fresh; retained for source compatibility. */
+/** @deprecated Version resolution is no longer cached; this is a no-op kept for callers. */
 export function resetFillOptionsVersionCache(): void {}
 
 async function resolveImplementation(client: PublicClient, gateway: HexString): Promise<HexString> {
@@ -307,7 +290,7 @@ async function resolveImplementation(client: PublicClient, gateway: HexString): 
 	return /^0x0{40}$/.test(address) ? gateway : address
 }
 
-/** Probe before legacy overrides, so proxy upgrades and chain identity are always observed. */
+/** The `version()` getter decides first; the chain and implementation lists only classify gateways without one. */
 export async function getFillOptionsVersion(client: PublicClient, gateway: HexString): Promise<FillOptionsVersion> {
 	const version = await readContractVersion(client, gateway)
 	if (version === SUPPORTED_INTENTS_VERSION) return 3
@@ -321,7 +304,14 @@ export async function getFillOptionsVersion(client: PublicClient, gateway: HexSt
 	return LEGACY_FILL_OPTIONS_IMPLEMENTATIONS.has(implementation.toLowerCase()) ? 1 : 2
 }
 
-/** Validate signed quote shape without rejecting zero-output phantom order targets. */
+const CANONICAL_EVM_TOKEN = /^0x0{24}[0-9a-fA-F]{40}$/
+
+/** A bytes32 token whose upper 12 bytes are zero, the only form the gateway accepts. */
+export function isCanonicalEvmToken(token: string): boolean {
+	return CANONICAL_EVM_TOKEN.test(token)
+}
+
+/** Every leg must be quoted; a zero on both sides skips the leg. */
 function validateFillQuotes(order: Order, options: HistoricalFillOptions): void {
 	const count = order.output.assets.length
 	if (
@@ -338,8 +328,8 @@ function validateFillQuotes(order: Order, options: HistoricalFillOptions): void 
 		if (
 			input.token.toLowerCase() !== order.inputs[i].token.toLowerCase() ||
 			output.token.toLowerCase() !== order.output.assets[i].token.toLowerCase() ||
-			!/^0x0{24}[0-9a-fA-F]{40}$/.test(input.token) ||
-			!/^0x0{24}[0-9a-fA-F]{40}$/.test(output.token)
+			!isCanonicalEvmToken(input.token) ||
+			!isCanonicalEvmToken(output.token)
 		) {
 			throw new Error("Fill quote tokens must match their order legs")
 		}

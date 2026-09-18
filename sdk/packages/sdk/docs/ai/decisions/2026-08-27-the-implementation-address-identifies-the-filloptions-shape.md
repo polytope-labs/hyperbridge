@@ -1,20 +1,18 @@
 # Resolving the deployed FillOptions ABI
 
-`getFillOptionsVersion` reads gateway `version()` before applying historical chain or implementation
-rules. Gateway release 4 uses FillOptions ABI 3 (`inputs` appended after `outputs`); releases 2 and 3
-use ABI 2 (`validUntil` present). Zero, the locked raw implementation version, and unknown future
-versions are rejected. Release versions and ABI versions are different numbers. Every ABI-3 fill requires positional input
-quotes. Historical options are explicitly typed and may omit inputs only when encoding ABI 1 or 2.
+`getFillOptionsVersion` asks the gateway for `version()` first. Release 4 encodes FillOptions ABI 3
+(`inputs` after `outputs`); releases 2 and 3 encode ABI 2 (`validUntil` present). Any other
+reported version is refused, since neither ABI is known to decode there. Release numbers and ABI
+numbers are different sequences.
 
-For an absent getter or historical version 1, `CHAINS_WITHOUT_VALID_UNTIL` and the ERC-1967
-implementation address distinguish ABI 1 from ABI 2. `LEGACY_FILL_OPTIONS_IMPLEMENTATIONS` contains
-the pre-validUntil deployment address. These rules support old deployments; they do not override a
-new release detected at the same proxy address.
+Only a gateway without the getter falls through to the historical rules: `CHAINS_WITHOUT_VALID_UNTIL`
+names testnets still on the pre-`validUntil` code, and `LEGACY_FILL_OPTIONS_IMPLEMENTATIONS` holds
+that code's ERC-1967 implementation address, which CREATE2 makes the same on every chain. Anything
+else without a getter is ABI 2.
 
-Resolution is fresh for each operation so upgrades and different chains sharing a proxy address
-cannot reuse stale results. Genuine missing-function responses permit legacy resolution; provider
-and transport failures propagate. Every ABI-3 bid also requires a compatible release-4 SolverAccount,
-checked independently of the gateway before signing.
+Resolution is never cached. A proxy keeps its address across upgrades and different chains reuse
+addresses, so a cached answer could outlive the deployment it described. A missing-function error
+selects the historical rules; a transport or provider error propagates.
 
-Escrow getter compatibility is separate: release 3 includes both token-keyed and per-leg deployments.
-Use `readLegEscrow` and `readLegPartialFill` to select those getters.
+ABI 3 bids additionally require release 4 from the configured `SolverAccount` implementation and
+from the solver's live delegation, checked before signing.

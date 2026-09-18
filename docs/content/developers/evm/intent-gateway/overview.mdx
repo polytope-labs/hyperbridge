@@ -47,30 +47,20 @@ For same-chain orders, solvers can fill any portion of the output. Escrow is rel
 
 ### Solver-priced fills
 
-`fillOrder(order, options)` accepts per-leg input quotes in `options.inputs`. Each entry names the
-matching order input token and the maximum input take. The ratio `outputs[i].amount / inputs[i].amount`
-is the solver's exact rate; the quoted output is a debit budget, not a fixed payment.
-Every fill must declare input quotes; equal-rate quotes cover ordinary fills. Appending this field changes the selector to
-`0x68ddf058`; all fills on an upgraded gateway must use the new tuple. SDK codecs continue to
-support historical v1/v2 gateways, but old signed calldata must be requoted after an upgrade.
+`fillOrder(order, options)` takes one quote per leg: `options.inputs[i]` is the most input the
+solver will take and `options.outputs[i]` the most output it will pay. Their ratio is the solver's
+rate, which may not be below the order's rate or the call reverts with `RateBelowOrder`. A leg is
+skipped by quoting zero on both sides, and the arrays must cover every leg. The `inputs` field gives
+`fillOrder` the selector `0x68ddf058`, so bids signed against an earlier gateway must be requoted.
 
-The contract credits output at the order's rate and releases the corresponding cumulative input
-slice. Integer rounding can release less than the quoted maximum; use the SDK's `previewRateFill`
-to inspect credit, release, payment and surplus at a given progress. A quote below the order's floor reverts with `RateBelowOrder`;
-a positive slice too small to release input reverts with `RateFillTooSmall`.
-
-Every fill pays `max(credited output, ceil(released input × quoted output / quoted input))`.
-The credited-output floor prevents integer rounding from underfunding recorded progress.
-If earlier solvers leave less work than the quote covers, credit and release shrink under the same
-payment rule. Unused ERC-20 budget stays with the solver; unused native value is refunded.
-The original signed calldata can be used unchanged. Payment above credited progress is surplus,
-split by `surplusShareBps`; calldata orders retain all surplus as protocol dust and must complete
-in one fill. Fill events report credited output, so surplus never advances the order twice.
-
-Rate fills use canonical input and output token addresses. Repeated tokens are supported because
-escrow and credited progress are tracked independently by leg. Finish or cancel old orders and drain
-escrow, fees and pending messages before upgrading; old per-slice rounding debt is not migrated.
-No rate or surplus data is added to cross-chain redemption messages or cancellation proofs.
+Settlement credits the take at the order's rate, capped to what the leg still needs, and releases
+the escrow that credit unlocks as a difference of cumulative floors. The solver pays the released
+escrow at its own rate, rounded up and never below the credit; the excess is surplus, split by
+`surplusShareBps` or kept whole by the protocol on orders with calldata, which must complete in one
+fill. Events carry the credit, not the surplus. Rounding can release less than the full take, so
+unused ERC-20 budget stays with the solver and unused native value is refunded. A quote that would
+credit or release nothing reverts with `RateFillTooSmall`. `previewRateFill` in the SDK reports
+credit, release, payment and surplus for a quote at a given progress.
 
 The SDK ranks single-leg quotes by rate and multi-leg quotes by output value normalized to
 original input amounts. Both full and partial multi-leg quotes can be selected automatically.

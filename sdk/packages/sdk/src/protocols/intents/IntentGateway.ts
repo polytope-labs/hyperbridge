@@ -40,11 +40,7 @@ import { OrderCanceller } from "./OrderCanceller"
 import { BidManager } from "./BidManager"
 import { GasEstimator } from "./GasEstimator"
 import { OrderStatusChecker } from "./OrderStatusChecker"
-import {
-	LiquidityEngine,
-	UnsupportedLiquidityAssetError,
-	UnsupportedLiquidityChainError,
-} from "./LiquidityEngine"
+import { LiquidityEngine, UnsupportedLiquidityAssetError, UnsupportedLiquidityChainError } from "./LiquidityEngine"
 import {
 	type IntentQuoteStrategyHandler,
 	type QuoteIntentParams,
@@ -56,13 +52,7 @@ import {
 	UnsupportedIntentQuoteStrategyError,
 } from "./quote"
 import type { ERC7821Call } from "@/types"
-import {
-	DEFAULT_GRAFFITI,
-	DEFAULT_POLL_INTERVAL,
-	ADDRESS_ZERO,
-	bytes32ToBytes20,
-	sleep,
-} from "@/utils"
+import { DEFAULT_GRAFFITI, DEFAULT_POLL_INTERVAL, ADDRESS_ZERO, bytes32ToBytes20, sleep } from "@/utils"
 import { getFeeToken } from "./utils"
 
 interface OrderFeeGasPriceBumpPolicy {
@@ -394,6 +384,7 @@ export class IntentGateway {
 			maxFeePerGasBumpPercent?: number
 			pollIntervalMs?: number
 			solver?: { address: HexString; timeoutMs: number }
+			automatic?: boolean
 		},
 	): AsyncGenerator<IntentOrderStatusUpdate, void, HexString | SelectBidResult | undefined> {
 		const executionOrder: Order = { ...order }
@@ -453,6 +444,7 @@ export class IntentGateway {
 				auctionTimeMs: options.auctionTimeMs,
 				pollIntervalMs: options.pollIntervalMs,
 				solver: options.solver,
+				automatic: options.automatic,
 			}),
 		)
 
@@ -535,6 +527,7 @@ export class IntentGateway {
 				auctionTimeMs: options.auctionTimeMs,
 				pollIntervalMs: options.pollIntervalMs,
 				solver: options.solver,
+				automatic: options.automatic,
 			}),
 		)
 	}
@@ -566,25 +559,15 @@ export class IntentGateway {
 			solver?: { address: HexString; timeoutMs: number }
 		},
 	): AsyncGenerator<IntentOrderStatusUpdate, void, HexString> {
-		const gen = this.execute(order, graffiti, options)
+		const gen = this.execute(order, graffiti, { ...options, automatic: true })
 		try {
 			let input: HexString | SelectBidResult | undefined
-			let finalizedOrder: Order | undefined
 			while (true) {
 				const { value, done } = await gen.next(input)
 				input = undefined
 				if (done) break
 
-				if (value.status === "ORDER_PLACED") {
-					finalizedOrder = value.order
-					yield value
-				} else if (value.status === "BIDS_RECEIVED") {
-					if (!finalizedOrder) {
-						throw new Error("Received bids before the order was finalized")
-					}
-					yield value
-					input = await this.autoSelect(finalizedOrder, value.bids)
-				} else if (value.status === "AWAITING_PLACE_ORDER") {
+				if (value.status === "AWAITING_PLACE_ORDER") {
 					input = yield value
 				} else {
 					yield value
@@ -607,48 +590,18 @@ export class IntentGateway {
 	 * @yields {@link IntentOrderStatusUpdate} at each execution stage.
 	 */
 	async *resumeBest(order: Order, options: ResumeIntentOrderOptions): AsyncGenerator<IntentOrderStatusUpdate, void> {
-		const gen = this.resume(order, options)
+		const gen = this.resume(order, { ...options, automatic: true })
 		try {
-			let input: SelectBidResult | undefined
 			while (true) {
-				const { value, done } = await gen.next(input)
-				input = undefined
+				const { value, done } = await gen.next()
 				if (done) break
 
 				yield value
-				if (value.status === "BIDS_RECEIVED") {
-					input = await this.autoSelect(order, value.bids)
-				}
 			}
 		} finally {
 			// Propagate early teardown (consumer break / `.return()`) into the
 			// underlying resume() generator so the executor stops polling.
 			await gen.return()
-		}
-	}
-
-	/**
-	 * Auto-select wrapper used by {@link executeBest} / {@link resumeBest}.
-	 *
-	 * Runs {@link selectAndExecuteBest} and returns the {@link SelectBidResult} to
-	 * feed back to the executor. If selection fails this round — all bids fail
-	 * simulation, no valid bids, or the bundler rejects the UserOp — it swallows
-	 * the error and returns `undefined`, which tells the executor to keep polling
-	 * for fresh bids until the deadline rather than aborting the order. Swallowing
-	 * the error here (rather than letting it propagate) also keeps the executor's
-	 * `finally` teardown intact, since nothing throws across the suspended
-	 * generators.
-	 */
-	private async autoSelect(order: Order, bids: Bid[]): Promise<SelectBidResult | undefined> {
-		try {
-			return await this.selectAndExecuteBest(order, bids)
-		} catch (err) {
-			console.warn(
-				`[IntentGateway] autoSelect: bid selection failed this round, continuing to poll: ${
-					err instanceof Error ? err.message : String(err)
-				}`,
-			)
-			return undefined
 		}
 	}
 

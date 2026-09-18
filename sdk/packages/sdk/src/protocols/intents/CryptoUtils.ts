@@ -52,6 +52,17 @@ export const DOMAIN_TYPEHASH = keccak256(
 	toHex("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
 )
 
+export class BundlerRpcError extends Error {
+	constructor(
+		readonly code: number,
+		message: string,
+		readonly data?: unknown,
+	) {
+		super(message)
+		this.name = "BundlerRpcError"
+	}
+}
+
 /**
  * Crypto and encoding utilities for IntentGatewayV2.
  *
@@ -77,7 +88,12 @@ export class CryptoUtils {
 	 * @param contractAddress - Address of the verifying contract.
 	 * @returns The 32-byte domain separator as a hex string.
 	 */
-	static getDomainSeparator(contractName: string, version: string, chainId: bigint, contractAddress: HexString): HexString {
+	static getDomainSeparator(
+		contractName: string,
+		version: string,
+		chainId: bigint,
+		contractAddress: HexString,
+	): HexString {
 		return keccak256(
 			encodeAbiParameters(parseAbiParameters("bytes32, bytes32, bytes32, uint256, address"), [
 				DOMAIN_TYPEHASH,
@@ -389,10 +405,15 @@ export class CryptoUtils {
 
 		const result = await response.json()
 
-		if (result.error) {
-			throw new Error(`Bundler error: ${result.error.message || JSON.stringify(result.error)}`)
+		if (!result || result.jsonrpc !== "2.0" || result.id !== 1) throw new Error("Malformed bundler response")
+		const hasResult = Object.prototype.hasOwnProperty.call(result, "result")
+		const hasError = Object.prototype.hasOwnProperty.call(result, "error")
+		if (hasResult === hasError) throw new Error("Malformed bundler response")
+		if (hasError) {
+			if (!result.error || !Number.isInteger(result.error.code) || typeof result.error.message !== "string")
+				throw new Error("Malformed bundler error")
+			throw new BundlerRpcError(result.error.code, result.error.message, result.error.data)
 		}
-
 		return result.result
 	}
 

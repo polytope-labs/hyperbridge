@@ -15,7 +15,7 @@ import type {
 import type { IntentGatewayContext } from "./types"
 import { CryptoUtils } from "./CryptoUtils"
 import { decodeFillOrder, supportsRateFills, FILL_ORDER_V3_SELECTOR } from "./fillOrderCodec"
-import { BidImpl } from "./Bid"
+import { BidExecutionPendingError, BidImpl } from "./Bid"
 import Decimal from "decimal.js"
 
 /**
@@ -208,7 +208,12 @@ export class BidManager {
 	 * @returns A {@link SelectBidResult} for the executed bid.
 	 * @throws If no valid bids exist or every bid fails simulation/execution.
 	 */
-	async selectAndExecuteBest(order: Order, bids: Bid[]): Promise<SelectBidResult> {
+	async selectAndExecuteBest(
+		order: Order,
+		bids: Bid[],
+		onSubmitted?: (submission: SelectBidResult) => Promise<void>,
+		onTerminal?: (submission: SelectBidResult) => Promise<void>,
+	): Promise<SelectBidResult> {
 		const commitment = order.id as HexString
 		console.log(`[BidManager] selectAndExecuteBest called for commitment=${commitment}, ${bids.length} bid(s)`)
 
@@ -245,8 +250,9 @@ export class BidManager {
 
 			console.log(`[BidManager] Bid ${idx + 1} from solver=${bid.solverAddress}: simulation PASSED`)
 			try {
-				return await bid.execute()
+				return await bid.execute(onSubmitted, onTerminal)
 			} catch (err) {
+				if (err instanceof BidExecutionPendingError) throw err
 				executionFailures += 1
 				console.warn(
 					`[BidManager] Bid ${idx + 1} from solver=${bid.solverAddress}: execution FAILED: ` +

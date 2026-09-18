@@ -69,10 +69,13 @@ escrow and credited progress are tracked independently by leg. Finish or cancel 
 escrow, fees and pending messages before upgrading; old per-slice rounding debt is not migrated.
 No rate or surplus data is added to cross-chain redemption messages or cancellation proofs.
 
-The SDK ranks single-leg quotes by rate and multi-leg quotes by output value normalized to
-original input amounts. Both full and partial multi-leg quotes can be selected automatically.
-Normalized amounts describe prices; signed quotes determine funding and deliverable liquidity.
-Submission recovery is a separate stacked change required before releasing automatic execution.
+The SDK's `automatic: true` execution option ranks single-leg quotes by rate and multi-leg quotes
+by output value normalized to the original input amounts, confirms each
+slice, and continues until the order is filled. Before sending, it durably records the fully signed
+UserOperation as pending. On restart it reconciles the receipt and chain state, and may rebroadcast
+the identical operation. Definitive first-send rejection permits fallback; an uncertain earlier send
+blocks another distinct bid until its outcome is established. Manual selection remains available. Normalized ranking amounts describe prices; actual signed quotes
+determine funding and deliverable liquidity.
 
 Every v3 bid requires an updated delegated SolverAccount.
 Before signing, the SDK requires release `4` from `version()` on the gateway, configured account

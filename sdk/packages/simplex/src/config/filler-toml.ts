@@ -172,14 +172,14 @@ export interface FillerTomlConfig {
  * and closes while the filler runs rather than startup settings.
  */
 export interface OrderbookConfig {
-	/** GraphQL endpoint. Required when `enabled`. */
-	url?: string
-	/** Off unless set. A filler with no orderbook simply posts nothing. */
-	enabled?: boolean
-	/** TTL written into each posting, in seconds. At least 900, which is the orderbook's floor. */
+	/** GraphQL endpoint. */
+	url: string
+	/**
+	 * How long a limit order lives, in seconds, and the TTL written into its posting.
+	 * At least 900, the orderbook's floor. The order and its posting expire together:
+	 * there is one clock, and nothing renews it.
+	 */
 	defaultTtlSecs?: number
-	/** How long before a posting expires to repost it, in seconds. */
-	renewMarginSecs?: number
 	/** How often to reconcile local limit orders against the orderbook, in seconds. */
 	reconcileIntervalSecs?: number
 	requestTimeoutMs?: number
@@ -257,18 +257,17 @@ export function validateVaultToml(
 }
 
 /**
- * Checked at the gate rather than at first use: an orderbook that is enabled but
- * misconfigured means every limit order the operator creates is refused, and a
+ * Checked at the gate rather than at first use: a misconfigured orderbook means
+ * every limit order the operator creates is refused, and a
  * TTL under the orderbook's own floor is refused one order at a time with a
  * `TTL_TOO_SHORT` nobody sees until they try.
  */
 function validateOrderbookConfig(orderbook: OrderbookConfig): void {
 	if (!orderbook.url) {
-		throw new Error("orderbook.url is required when orderbook.enabled is true")
+		throw new Error("orderbook.url is required")
 	}
 	const positiveSeconds: [keyof OrderbookConfig, number | undefined, number][] = [
 		["defaultTtlSecs", orderbook.defaultTtlSecs, MIN_ORDER_TTL_SECONDS],
-		["renewMarginSecs", orderbook.renewMarginSecs, 1],
 		["reconcileIntervalSecs", orderbook.reconcileIntervalSecs, 1],
 		["requestTimeoutMs", orderbook.requestTimeoutMs, 1],
 	]
@@ -276,14 +275,6 @@ function validateOrderbookConfig(orderbook: OrderbookConfig): void {
 		if (value === undefined) continue
 		if (!Number.isInteger(value) || value < minimum) {
 			throw new Error(`orderbook.${name} must be an integer >= ${minimum}; got ${value}`)
-		}
-	}
-	if (orderbook.renewMarginSecs !== undefined) {
-		const ttl = orderbook.defaultTtlSecs ?? MIN_ORDER_TTL_SECONDS
-		if (orderbook.renewMarginSecs >= ttl) {
-			throw new Error(
-				`orderbook.renewMarginSecs (${orderbook.renewMarginSecs}) must be shorter than orderbook.defaultTtlSecs (${ttl}), or every posting is due for renewal the moment it lands`,
-			)
 		}
 	}
 }
@@ -367,9 +358,12 @@ export function validateConfig(config: FillerTomlConfig, cliWatchOnly = false): 
 		validateVaultToml(config.vault.vaults)
 	}
 
-	if (config.orderbook?.enabled) {
-		validateOrderbookConfig(config.orderbook)
+	// Simplex prices from the operator's limit orders and those live on the
+	// orderbook, so there is no configuration in which it is absent.
+	if (!config.orderbook) {
+		throw new Error("an [orderbook] section is required")
 	}
+	validateOrderbookConfig(config.orderbook)
 
 	// Asset registry and trading pairs — the entire trading configuration.
 	if (config.assets) {

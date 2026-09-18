@@ -11,4 +11,4 @@
 
 A malformed bid is skipped and the rest are priced; a `PhantomRpcError` aborts the whole run instead, because a partial bid set publishes a confident price built from whichever bids happened to be readable.
 
-Rate bids retain their signed `options.inputs` takes alongside raw output amounts. Before pricing, the output quote is normalized to the full input amount using that take, so differently sized slices compete by rate. Every v3 advertisement, including one with empty input quotes, requires the gateway and live SolverAccount delegation to report release `4` through `version()`; missing capability skips the bid and RPC failures retry the snapshot. The committed order is never rewritten.
+A rate bid is compared at the order's full input: each leg's output is scaled by `order input / take` before pricing, so slices of different sizes compete by rate. A bid whose calldata uses the rate ABI is dropped unless the gateway and the solver's live delegation both report release 4; an RPC failure retries the snapshot instead.

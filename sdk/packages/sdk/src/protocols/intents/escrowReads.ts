@@ -122,7 +122,7 @@ async function readKeyed(client: ReadClient, gateway: HexString, read: (keying: 
 }
 
 /** Whether a viem contract call failed because the call reverted or returned nothing. */
-function isRevert(error: unknown): boolean {
+export function isRevert(error: unknown): boolean {
 	let current = error
 	while (current && typeof current === "object") {
 		const item = current as { name?: string; cause?: unknown; code?: number; message?: string }

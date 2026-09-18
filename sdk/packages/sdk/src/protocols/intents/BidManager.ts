@@ -84,10 +84,11 @@ export class BidManager {
 				return fill
 			})
 			.filter((fill) => fill !== null)
-		if ((options.fillOptions.inputs?.length ?? 0) > 0 && !fills.some((fill) => fill.version === 3)) {
+		const hasRateQuote = fills.some((fill) => fill.version === 3)
+		if ((options.fillOptions.inputs?.length ?? 0) > 0 && !hasRateQuote) {
 			throw new Error("Input takes require v3 fillOrder calldata")
 		}
-		if (fills.some((fill) => fill.version === 3)) {
+		if (hasRateQuote) {
 			const chain = normalizeStateMachineId(order.destination)
 			const gateway = this.ctx.dest.configService.getIntentGatewayAddress(chain)
 			const implementation = this.ctx.dest.configService.getSolverAccountAddress(chain)
@@ -159,8 +160,8 @@ export class BidManager {
 
 		const result: BidImpl[] = []
 		for (const fillerBid of bids) {
-			const fill = this.decodeBidFillData(fillerBid)
-			if (!fill) {
+			const fillOptions = this.decodeBidFillOptions(fillerBid)
+			if (!fillOptions) {
 				console.warn(`[BidManager] Failed to decode fillOptions from bid by solver=${fillerBid.userOp.sender}`)
 				continue
 			}
@@ -170,7 +171,7 @@ export class BidManager {
 					crypto: this.crypto,
 					order,
 					fillerBid,
-					fillOptions: fill.options,
+					fillOptions,
 					priceOutputs,
 					sessionPrivateKey,
 				}),
@@ -305,7 +306,7 @@ export class BidManager {
 	 * @param bid - A single filler bid.
 	 * @returns The decoded `FillOptions`, or `null` if extraction fails.
 	 */
-	private decodeBidFillData(bid: FillerBid): { options: FillOptions } | null {
+	private decodeBidFillOptions(bid: FillerBid): FillOptions | null {
 		try {
 			const innerCalls = this.crypto.decodeERC7821Execute(bid.userOp.callData)
 			if (!innerCalls || innerCalls.length === 0) return null
@@ -316,7 +317,7 @@ export class BidManager {
 				// as 0n, which is accurate: that fill genuinely carries no bound.
 				const decoded = decodeFillOrder(call.data as HexString)
 				if (decoded && decoded.options?.outputs?.length > 0) {
-					return { options: decoded.options }
+					return decoded.options
 				}
 			}
 		} catch {

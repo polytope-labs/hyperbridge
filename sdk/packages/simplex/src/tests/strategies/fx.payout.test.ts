@@ -128,7 +128,7 @@ async function makeFiller(options: {
 }
 
 /** USDC→EXOTIC, same-chain unless a source is given. Partial-fill eligible: no calldata. */
-function makeOrder(id: string, source: string = CHAIN): Order {
+function makeOrder(id: string, source: string = CHAIN, outputCall: HexString = "0x" as HexString): Order {
 	const inputs: TokenInfo[] = [{ token: bytes20ToBytes32(STABLE), amount: INPUT_AMOUNT }]
 	const outputs: TokenInfo[] = [{ token: bytes20ToBytes32(EXOTIC), amount: REQUESTED_OUTPUT }]
 	return {
@@ -144,11 +144,32 @@ function makeOrder(id: string, source: string = CHAIN): Order {
 		session: "0x0000000000000000000000000000000000000000" as HexString,
 		predispatch: { assets: [], call: "0x" as HexString },
 		inputs,
-		output: { beneficiary: bytes20ToBytes32(SOLVER), assets: outputs, call: "0x" as HexString },
+		output: { beneficiary: bytes20ToBytes32(SOLVER), assets: outputs, call: outputCall },
 	} as unknown as Order
 }
 
 describe("FXFiller limit order payout", () => {
+
+	it("sends one bid only when the order carries output calldata", async () => {
+		// The attached call runs only on a full fill, so the gateway answers anything
+		// less with `PartialFillNotAllowed`. A second bid could never add to the
+		// first; it would just burn gas reverting once the first one landed.
+		const contractService = makeEvalContractService()
+		const filler = await makeFiller({
+			contractService,
+			balances: { [EXOTIC.toLowerCase()]: parseUnits("1000000", 18) },
+			book: [
+				{ id: "tight", price: "1500", size: "1000000" },
+				{ id: "wide", price: "1600", size: "1000000" },
+			],
+		})
+
+		await filler.calculateProfitability(makeOrder("payout-calldata", CHAIN, "0xdeadbeef" as HexString))
+
+		const plans = contractService.plans.get("payout-calldata") as { limitOrderId: string }[]
+		expect(plans).toHaveLength(1)
+		expect(plans[0].limitOrderId).toBe("tight")
+	})
 
 	it("sends one bid per limit order, each priced against the whole input", async () => {
 		// Two orders that both clear the ask. Each is its own fill: the gateway clamps

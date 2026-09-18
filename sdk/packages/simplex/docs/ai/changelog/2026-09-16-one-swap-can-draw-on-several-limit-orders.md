@@ -22,6 +22,10 @@ Three matching orders means three bids, not one bid for their sum and not one fo
 The full input is priced against each order independently, which is right precisely because each bid
 is its own fill.
 
+An order carrying output calldata is the exception: it takes exactly one bid. The attached call runs
+only on a full fill, so the gateway answers anything less with `PartialFillNotAllowed`, and a second
+bid could never add to the first.
+
 The gateway does the combining, and is built for it. Every fill clamps itself to what is outstanding
 (`fillAmount = solverAmount > remaining ? remaining : solverAmount`), accumulates progress in
 `_partialFills[commitment][outputToken]`, and clears `_filled[commitment]` on an under-fill so the

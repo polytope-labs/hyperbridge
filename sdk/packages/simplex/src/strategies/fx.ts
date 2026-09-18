@@ -702,6 +702,12 @@ export class FXFiller implements FillerStrategy {
 					partialFill,
 					profit: totalProfit,
 				})
+
+				// An order carrying output calldata takes exactly one bid. The attached
+				// call runs only on a full fill, so the gateway answers anything less with
+				// `PartialFillNotAllowed`: a second bid could never add to the first, and
+				// would only burn gas reverting once the first one landed.
+				if (!partialEligibleCheap) break
 			}
 
 			if (plans.length === 0) return 0

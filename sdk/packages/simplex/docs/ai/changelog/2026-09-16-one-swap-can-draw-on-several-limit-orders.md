@@ -48,9 +48,17 @@ rather than taking the newest and guarding on a reservation value two rows can s
 one bid's settlement took another's holds, and two bids holding the same amount against the same
 order had both rows cleared by a guard that could not tell them apart.
 
-Still open, and worth settling on #1259: the EntryPoint consumes a key's sequences in order, so a bid
-that never executes strands every later bid on that key. That collides with a walk that skips a
-failed bid and carries on.
+The EntryPoint consumes a key's sequences in order with no gaps, so a bid that never executes strands
+every bid behind it. Signing order is execution order here — best price first, which is the order the
+walk takes them in — and a number is spent rather than counted off: a bid whose submission fails
+leaves its number to the next bid. A pooled submission counts as spent, since it may still land and
+two bids sharing a sequence is the worse failure.
+
+That covers every drop simplex can see as it sends. A bid that is accepted but never executes — not
+selected, reverted in validation, expired past its `validUntil` — frees a number we have already
+signed past, and recovering it means retracting the bids behind it and re-signing them. Whether to
+build that or give bids distinct keys is the question #1259's walk decides, since the commitment-
+derived key rules the second out today (`BAD_NONCE_BINDING` in `verify.rs`).
 
 ## What a bid holds
 

@@ -6,6 +6,7 @@ import { parse } from "yaml"
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..")
 const workspaceRoot = resolve(packageRoot, "../..")
+const repositoryRoot = resolve(workspaceRoot, "..")
 
 function readYaml(path: string): Record<string, unknown> {
 	return parse(readFileSync(path, "utf8")) as Record<string, unknown>
@@ -52,6 +53,30 @@ describe("desktop workspace package policy", () => {
 			"@hyperbridge/simplex>vite": "8.0.16",
 			viem: "2.47.6",
 			vite: "6.4.2",
+		})
+	})
+
+	it("budgets for the installed desktop app include required license files", () => {
+		const workflow = readYaml(join(repositoryRoot, ".github/workflows/publish-simplex-desktop.yml")) as {
+			jobs?: {
+				build?: {
+					strategy?: { matrix?: { include?: Array<{ target: string; size_budget_mib: number }> } }
+				}
+			}
+		}
+		const budgets = Object.fromEntries(
+			(workflow.jobs?.build?.strategy?.matrix?.include ?? []).map(({ target, size_budget_mib }) => [
+				target,
+				size_budget_mib,
+			]),
+		)
+
+		expect(budgets).toEqual({
+			"darwin-arm64": 560,
+			"darwin-x64": 560,
+			"win32-x64": 580,
+			"linux-x64": 560,
+			"linux-arm64": 560,
 		})
 	})
 

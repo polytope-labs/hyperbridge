@@ -1,12 +1,40 @@
 # @hyperbridge/simplex
 
-Automated intent solver for the Hyperbridge IntentGateway. Run it as a standalone binary, or embed
-it in your own Node application.
+Automated intent solver for the Hyperbridge IntentGateway. Install the desktop app, run the
+standalone binary, or embed the engine in your own Node application.
 
 Full documentation:
 [docs.hyperbridge.network/developers/sdk/simplex](https://docs.hyperbridge.network/developers/sdk/simplex/)
 
-## As a library
+## Desktop app (Recommended)
+
+[Download Simplex Desktop](https://github.com/polytope-labs/hyperbridge/releases?q=simplex-desktop-v&expanded=true)
+for macOS, Windows, or Linux. Choose the newest stable `simplex-desktop-v…` release and its installer
+for your platform. The app bundles this package and the matching Node runtime, opens the setup wizard
+on first launch, and keeps the solver running from the system tray. macOS and Windows install
+authenticated updates; Linux updates remain manual until release metadata is independently signed.
+
+The desktop app and `@hyperbridge/simplex` always use the same version. Its bundle identifier is
+`network.hyperbridge.simplex` and its installed product name is **Simplex**.
+
+A fresh desktop config is stored at:
+
+- macOS: `~/Library/Application Support/Simplex/filler-config.toml`
+- Windows: `%APPDATA%\Simplex\filler-config.toml`
+- Linux: `$XDG_CONFIG_HOME/Simplex/filler-config.toml`, or `~/.config/Simplex/filler-config.toml`
+
+`filler-config.toml` contains private keys and credentials in plaintext. New files are mode `0600`
+on Unix, but software running as the operator can still read them. Keep the file out of source
+control and broadly shared backups. `simplex.substratePrivateKey` is required in every signer mode,
+so Turnkey and MPC Vault operators still have a raw Substrate key on disk.
+
+The browser-installable PWA remains the remote/mobile dashboard for an existing solver. It is a UI
+shell, not a packaged solver, and is not the preferred local installation.
+
+See the [installation guide](https://docs.hyperbridge.network/developers/evm/simplex/installation/)
+for installer names, lifecycle details, and the advanced Docker and npm paths.
+
+## Advanced: embed as a library
 
 ```bash
 npm install @hyperbridge/simplex
@@ -49,7 +77,7 @@ durable store, since bid records are how locked deposits are found again for ret
 
 See [Running as a library](https://docs.hyperbridge.network/developers/sdk/simplex).
 
-## As a binary
+## Advanced: npm binary and Docker
 
 ```bash
 npm install -g @hyperbridge/simplex

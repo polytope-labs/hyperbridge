@@ -4068,7 +4068,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         intentGateway.onAccept(IncomingPostRequest({relayer: relayer, request: request}));
 
         assertEq(intentGateway.relayer(), next);
-        assertEq(intentGateway.version(), 4, "no migration ran");
+        assertEq(intentGateway.version(), 3, "no migration ran");
         assertEq(_implementationOf(address(intentGateway)), implBefore, "implementation unchanged");
     }
 
@@ -4179,7 +4179,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         assertEq(gateway.params().host, address(host), "params set via atomic init");
         assertEq(gateway.instance(bytes("SOURCE_CHAIN")), address(gateway), "peer bound to address(this)");
         assertEq(gateway.relayer(), relayer, "relayer armed from the init data");
-        assertEq(gateway.version(), 4, "at VERSION from the init data");
+        assertEq(gateway.version(), 3, "at VERSION from the init data");
 
         vm.expectRevert();
         gateway.initialize(
@@ -4357,7 +4357,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
     function testVersionTracksInitialization() public {
         IntentGatewayV2 bare = _deployGatewayProxy();
         assertEq(bare.version(), 0, "bare proxy");
-        assertEq(intentGateway.version(), 4, "initialized");
+        assertEq(intentGateway.version(), 3, "initialized");
         address impl = _implementationOf(address(intentGateway));
         assertEq(IntentGatewayV2(payable(impl)).version(), type(uint64).max, "raw implementation is locked");
     }
@@ -4401,7 +4401,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         vm.prank(address(host));
         intentGateway.onAccept(IncomingPostRequest({relayer: relayer, request: rotate}));
         assertEq(intentGateway.relayer(), next);
-        assertEq(intentGateway.version(), 4, "a rotation is not a migration");
+        assertEq(intentGateway.version(), 3, "a rotation is not a migration");
 
         // The previous relayer is locked out immediately.
         vm.prank(address(host));
@@ -4419,7 +4419,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         vm.prank(address(host));
         vm.expectRevert(Initializable.InvalidInitialization.selector);
         intentGateway.migrate(address(this));
-        assertEq(intentGateway.version(), 4, "version unchanged");
+        assertEq(intentGateway.version(), 3, "version unchanged");
     }
 
     /// A proxy an upgrade left at an earlier version cannot be re-initialized by anyone; only the
@@ -4437,31 +4437,9 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         vm.prank(address(host));
         gateway.migrate(address(this));
-        assertEq(gateway.version(), 4);
+        assertEq(gateway.version(), 3);
     }
 
-    function testMigrateRejectsUnsupportedLegacyVersion() public {
-        IntentGatewayV2 gateway = _legacyGateway();
-        vm.store(address(gateway), INITIALIZABLE_SLOT, bytes32(uint256(1)));
-        vm.prank(address(host));
-        vm.expectRevert(Initializable.InvalidInitialization.selector);
-        gateway.migrate(address(this));
-        assertEq(gateway.version(), 1, "unsupported version remains unchanged");
-    }
-
-    /// The module-only release also stamped 3 without an owner; its layout is refused rather than migrated.
-    function testMigrateRejectsOwnerlessVersionThree() public {
-        IntentGatewayV2 gateway = _legacyGateway();
-        vm.store(address(gateway), INITIALIZABLE_SLOT, bytes32(uint256(3)));
-        bytes32 ownerSlot =
-            keccak256(abi.encode(uint256(keccak256("openzeppelin.storage.Ownable")) - 1)) & ~bytes32(uint256(0xff));
-        vm.store(address(gateway), ownerSlot, bytes32(0));
-        assertEq(gateway.owner(), address(0));
-        vm.prank(address(host));
-        vm.expectRevert(Initializable.InvalidInitialization.selector);
-        gateway.migrate(address(this));
-        assertEq(gateway.version(), 3, "ownerless version 3 remains unchanged");
-    }
 
     function testMigrateRejectsEveryoneButHost() public {
         IntentGatewayV2 gateway = _legacyGateway();
@@ -4484,14 +4462,14 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         vm.store(address(gateway), bytes32(uint256(13)), bytes32(uint256(_legacyRelayerSlot(relayer)) | 1));
 
         vm.expectEmit(true, true, true, true, address(gateway));
-        emit Initializable.Initialized(4);
+        emit Initializable.Initialized(3);
         vm.prank(address(host));
         gateway.migrate(address(this));
 
         assertEq(gateway.relayer(), relayer, "relayer moved");
         assertEq(vm.load(address(gateway), bytes32(uint256(13))), _relayerSlot(relayer), "old _paused byte dropped");
         assertFalse(gateway.paused(), "the old byte does not pause");
-        assertEq(gateway.version(), 4);
+        assertEq(gateway.version(), 3);
     }
 
     /// `initialize` arms the gate from the init data and lands at `VERSION`.
@@ -4501,10 +4479,10 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         vm.expectEmit(true, true, true, true, address(gateway));
         emit IntentsBase.RelayerUpdated(address(0), relayer);
         vm.expectEmit(true, true, true, true, address(gateway));
-        emit Initializable.Initialized(4);
+        emit Initializable.Initialized(3);
         gateway.initialize(InitParams({params: p, peerChains: new bytes[](0), relayer: relayer, owner: address(this)}));
         assertEq(gateway.relayer(), relayer);
-        assertEq(gateway.version(), 4);
+        assertEq(gateway.version(), 3);
     }
 
     /// @dev OpenZeppelin's `Initializable` namespaced slot; `_initialized` is its low 8 bytes.
@@ -4550,7 +4528,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         vm.prank(address(host));
         intentGateway.onAccept(IncomingPostRequest({relayer: relayer, request: reopen}));
         assertEq(intentGateway.relayer(), address(0));
-        assertEq(intentGateway.version(), 4, "reopening the gate is not a migration either");
+        assertEq(intentGateway.version(), 3, "reopening the gate is not a migration either");
 
         // With no relayer set the gate is open, so a delivery from anyone lands.
         uint256 before = usdc.balanceOf(filler);
@@ -4634,7 +4612,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         PostRequest memory arm = _rotateRequest(relayer);
         vm.prank(address(host));
         gateway.onAccept(IncomingPostRequest({relayer: filler, request: arm}));
-        assertEq(gateway.version(), 4, "a rotation leaves the version alone");
+        assertEq(gateway.version(), 3, "a rotation leaves the version alone");
         PostRequest memory another = _newDeploymentRequest(bytes("OTHER_CHAIN"), address(0xCAFE));
         another.from = abi.encodePacked(address(gateway));
         another.to = abi.encodePacked(address(gateway));
@@ -4679,7 +4657,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         vm.prank(address(host));
         intentGateway.onAccept(IncomingPostRequest({relayer: relayer, request: rotate}));
         assertEq(intentGateway.relayer(), next, "rotated");
-        assertEq(intentGateway.version(), 4, "neither is a migration");
+        assertEq(intentGateway.version(), 3, "neither is a migration");
         assertEq(intentGateway._nonce(), 2, "_nonce preserved");
         assertEq(intentGateway._filled(filledCommitment), filler, "_filled preserved");
         assertEq(intentGateway._orders(escrowedCommitment, 0), escrowedAmount, "_orders preserved");
@@ -4702,7 +4680,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         assertEq(_implementationOf(address(intentGateway)), address(newImpl));
         assertEq(intentGateway.relayer(), relayer, "relayer survives an implementation swap");
-        assertEq(intentGateway.version(), 4, "no migration ran, so the version is unchanged");
+        assertEq(intentGateway.version(), 3, "no migration ran, so the version is unchanged");
     }
 
     /// @dev Through the real host: a delivery the gateway refuses is recorded as undelivered, so
@@ -4800,7 +4778,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         assertTrue(implBefore != address(newImpl), "implementation actually changed");
         assertEq(live.relayer(), liveRelayer, "relayer survives the upgrade");
         assertEq(vm.load(LIVE_GATEWAY, bytes32(uint256(13))), _relayerSlot(liveRelayer), "relayer moved to offset 0");
-        assertEq(live.version(), 4, "migrated by the upgrade calldata");
+        assertEq(live.version(), 3, "migrated by the upgrade calldata");
         assertEq(live.owner(), address(this), "owner set by the upgrade calldata");
         assertFalse(live.paused(), "placement stays open");
         vm.prank(liveHost);
@@ -4833,7 +4811,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         vm.prank(liveHost);
         live.onAccept(IncomingPostRequest({relayer: liveRelayer, request: rotate}));
         assertEq(live.relayer(), next, "rotated through Execute");
-        assertEq(live.version(), 4, "a rotation leaves the version alone");
+        assertEq(live.version(), 3, "a rotation leaves the version alone");
         vm.prank(liveHost);
         vm.expectRevert(IntentsBase.Unauthorized.selector);
         live.onAccept(IncomingPostRequest({relayer: liveRelayer, request: rotate}));
@@ -5625,7 +5603,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         gateway.migrate(next);
 
         assertEq(gateway.owner(), next, "owner from the migration");
-        assertEq(gateway.version(), 4);
+        assertEq(gateway.version(), 3);
     }
 
     function testOwnershipTransferIsTwoStep() public {

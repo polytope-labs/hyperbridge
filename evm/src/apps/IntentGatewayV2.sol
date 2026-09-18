@@ -88,8 +88,8 @@ contract IntentGatewayV2 is
     address public immutable extrinsicModule;
 
     /// @dev The `Initializable` version this implementation lands a proxy on, through `initialize`
-    /// or `migrate`. Version 4 adds solver input quotes to FillOptions.
-    uint64 private constant VERSION = 4;
+    /// or `migrate`. 3 is the module split, the owner and solver quotes, which land together.
+    uint64 private constant VERSION = 3;
 
     /**
      * @dev Sets the EIP-712 domain ("IntentGateway", "2"), records the modules, and locks this raw
@@ -187,30 +187,24 @@ contract IntentGatewayV2 is
     }
 
     /**
-     * @dev Migrates supported version-2 or owner-layout version-3 proxies to this release.
-     * Version 2 needs the original relayer-slot shift and ownership initialization;
-     * version 3 already has that layout and keeps its governance state unchanged.
-     * Must run atomically with the host-authorized implementation upgrade.
-     * @param owner_ Initial owner for version 2; ignored for version 3.
+     * @dev Takes a version-2 proxy to `VERSION`: moves the relayer and sets the owner. Host-only and
+     * one-shot; delivered as the calldata of the upgrade that installs this implementation, so
+     * nothing reads `_relayer` in between.
+     *
+     * Version 2 kept an unused `bool _paused` at slot 13 offset 0, with `_relayer` packed behind it
+     * at offset 1. That byte is gone, so `_relayer` is now read from offset 0; shifting slot 13
+     * right by one byte moves the relayer there and drops the old flag. A proxy that never set a
+     * relayer holds zero either way. The owner and the pause flag live at OpenZeppelin's
+     * namespaced slots.
+     * @param owner_ The owner, who may pause the gateway. Must be non-zero.
      */
-    function migrate(address owner_) external onlyHost {
-        // Read the version here: `reinitializer` on `_migrate` overwrites it before the body runs.
-        uint64 previousVersion = _getInitializedVersion();
-        if (previousVersion != 2 && previousVersion != 3) revert InvalidInitialization();
-        // The module-only release also reported 3 but never set an owner, so its layout is not migratable.
-        if (previousVersion == 3 && owner() == address(0)) revert InvalidInitialization();
-        _migrate(previousVersion, owner_);
-    }
-
-    function _migrate(uint64 previousVersion, address owner_) private reinitializer(VERSION) {
-        if (previousVersion == 2) {
-            assembly ("memory-safe") {
-                sstore(_relayer.slot, shr(8, sload(_relayer.slot)))
-            }
-            __Ownable_init(owner_);
-            __Ownable2Step_init();
-            __Pausable_init();
+    function migrate(address owner_) external onlyHost reinitializer(VERSION) {
+        assembly ("memory-safe") {
+            sstore(_relayer.slot, shr(8, sload(_relayer.slot)))
         }
+        __Ownable_init(owner_);
+        __Ownable2Step_init();
+        __Pausable_init();
     }
 
     /**

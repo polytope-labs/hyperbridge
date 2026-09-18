@@ -215,7 +215,7 @@ export const FILL_ORDER_V1_ABI = [
 /** Compiled ABI selector, pinned by codec tests; avoid import-time hashing in VM2. */
 export const FILL_ORDER_V3_SELECTOR = "0x68ddf058" as const
 /** Gateway release and SolverAccount code version supporting the current FillOptions ABI. */
-export const SUPPORTED_INTENTS_VERSION = 4n
+export const SUPPORTED_INTENTS_VERSION = 3n
 export const CONTRACT_VERSION_ABI = [
 	{
 		type: "function",
@@ -294,7 +294,7 @@ async function resolveImplementation(client: PublicClient, gateway: HexString): 
 export async function getFillOptionsVersion(client: PublicClient, gateway: HexString): Promise<FillOptionsVersion> {
 	const version = await readContractVersion(client, gateway)
 	if (version === SUPPORTED_INTENTS_VERSION) return 3
-	if (version === 2n || version === 3n) return 2
+	if (version === 2n) return 2
 	if (version !== undefined && version !== 1n) {
 		throw new Error(`Unsupported IntentGateway version: ${String(version)}`)
 	}

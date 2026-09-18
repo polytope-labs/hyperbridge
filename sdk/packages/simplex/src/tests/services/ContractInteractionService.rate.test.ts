@@ -30,7 +30,7 @@ function makeService(supported = true, cache = new CacheService(), unsupportedAd
 	const client = {
 		chain: { id: 1 },
 		readContract: async ({ functionName, address }: { functionName: string; address: string }) =>
-			functionName === "version" ? (supported && address !== unsupportedAddress ? 4n : 3n) : 0n,
+			functionName === "version" ? (supported && address !== unsupportedAddress ? 3n : 2n) : 0n,
 	}
 	return new ContractInteractionService(
 		{ getPublicClient: () => client } as never,

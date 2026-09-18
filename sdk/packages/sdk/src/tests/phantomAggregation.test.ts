@@ -509,14 +509,14 @@ describe("readRateFillCapability", () => {
 			}
 			calls.push(payload.params[0].to.toLowerCase())
 			expect(payload.params[0].data).toBe("0x54fd4d50")
-			return { json: async () => ({ result: toHex(4n, { size: 32 }) }) }
+			return { json: async () => ({ result: toHex(3n, { size: 32 }) }) }
 		})
 
 		await expect(readRateFillCapability("http://base.test", GATEWAY, solver, [SOLVER_ACCOUNT])).resolves.toBe(true)
 		expect(calls).toEqual([GATEWAY.toLowerCase(), SOLVER_ACCOUNT.toLowerCase()])
 	})
 
-	it.each([0n, 2n, 3n, 5n, (1n << 64n) - 1n])("rejects unsupported gateway release %s", async (version) => {
+	it.each([0n, 2n, 4n, 5n, (1n << 64n) - 1n])("rejects unsupported gateway release %s", async (version) => {
 		const solver = privateKeyToAccount(SOLVER_KEY).address
 		setAggregationFetch(async (_url, init) => {
 			const payload = JSON.parse(init.body)
@@ -525,7 +525,7 @@ describe("readRateFillCapability", () => {
 					result:
 						payload.method === "eth_getCode"
 							? delegatedTo(SOLVER_ACCOUNT)()
-							: toHex(payload.params[0].to.toLowerCase() === GATEWAY.toLowerCase() ? version : 4n, {
+							: toHex(payload.params[0].to.toLowerCase() === GATEWAY.toLowerCase() ? version : 3n, {
 									size: 32,
 								}),
 				}),
@@ -536,7 +536,7 @@ describe("readRateFillCapability", () => {
 
 	it("rechecks an account implementation upgraded between aggregations", async () => {
 		const solver = privateKeyToAccount(SOLVER_KEY).address
-		let version = 3n
+		let version = 2n
 		setAggregationFetch(async (_url, init) => {
 			const payload = JSON.parse(init.body)
 			return {
@@ -544,14 +544,14 @@ describe("readRateFillCapability", () => {
 					result:
 						payload.method === "eth_getCode"
 							? delegatedTo(SOLVER_ACCOUNT)()
-							: toHex(payload.params[0].to.toLowerCase() === GATEWAY.toLowerCase() ? 4n : version, {
+							: toHex(payload.params[0].to.toLowerCase() === GATEWAY.toLowerCase() ? 3n : version, {
 									size: 32,
 								}),
 				}),
 			}
 		})
 		await expect(readRateFillCapability("http://base.test", GATEWAY, solver, [SOLVER_ACCOUNT])).resolves.toBe(false)
-		version = 4n
+		version = 3n
 		await expect(readRateFillCapability("http://base.test", GATEWAY, solver, [SOLVER_ACCOUNT])).resolves.toBe(true)
 	})
 

@@ -84,7 +84,7 @@ contract SolverAccount is Account, ERC7821, IERC1271 {
 
     /// @notice The gateway release this account is built for.
     function version() external pure returns (uint64) {
-        return 4;
+        return 3;
     }
 
     /**

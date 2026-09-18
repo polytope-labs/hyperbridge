@@ -38,8 +38,7 @@ extrinsic module and are reached through the host-authorized `Execute` request.
   applies to all three at once. `_filled` must stay at slot 2, which the SDK reads for fill status, and
   `_partialFills` at slot 11, which cross-chain cancel proves per leg as `_partialFills[commitment][index]`.
   The one exception is the unused `bool _paused` that sat at slot 13 offset 0: it was removed, so
-  `_relayer` moved from offset 1 to offset 0. Migration from version 2 shifts it once;
-  migration from the current owner-layout version 3 preserves it.
+  `_relayer` moved from offset 1 to offset 0 and `migrate` shifts it there on existing proxies.
 - **The owner is the implementation's alone.** `IntentGatewayV2` inherits OpenZeppelin's
   `Ownable2StepUpgradeable`, whose owner and pending owner sit at ERC-7201 namespaced slots outside
   the shared sequential layout, so the modules never see them and the layout tests are unaffected. The owner
@@ -47,7 +46,7 @@ extrinsic module and are reached through the host-authorized `Execute` request.
   is namespaced too. `placeOrder`, `fillOrder`, and the escrow deliveries
   of `onAccept` and `onGetResponse` revert while paused, checked on the implementation before any
   delegatecall; governance deliveries and `cancelOrder` are not paused. `initialize` and
-  `migrate(owner)` from version 2 set it, and transfers are two-step. `_checkOwner` also accepts the host, so
+  `migrate(owner)` set it and transfers are two-step. `_checkOwner` also accepts the host, so
   governance can pause, resume or propose a new owner through `Execute` carrying
   `upgradeToAndCall(currentImplementation, call)`.
 - **Module addresses are immutables.** `intrinsicModule()` and `extrinsicModule()` are set in the
@@ -124,7 +123,8 @@ cross-chain proofs carry the credit, not the surplus. Rounding can release less 
 so unused ERC-20 budget stays with the solver and unused native value is refunded.
 
 The `inputs` field gives `fillOrder` the selector `0x68ddf058`. Gateway, modules and `SolverAccount`
-report release 4. Bids signed against an earlier selector need new calldata and signatures.
+report release 3, which lands the module split, the owner and solver quotes on a proxy together.
+Bids signed against an earlier selector need new calldata and signatures.
 
 ## Deploying and upgrading
 
@@ -150,10 +150,10 @@ modules included, and `--mode verify` re-verifies from the broadcast artifacts.
 The upgrade itself is a Hyperbridge governance call, `execute_on_gateway(data)` on the
 intents-coprocessor pallet. The pallet prepends the `Execute` discriminator (`0x05`) itself, so
 `data` is bare `upgradeToAndCall(newImplementation, initData)` calldata, exactly what the script
-prints. `initData` is `migrate(owner)` for a proxy at version 2 or 3 and empty for one already at 4.
-From version 2, `migrate` shifts the relayer slot and sets the owner. From version 3 it keeps the
-owner, pending owner, pause state and relayer; a version-3 proxy with no owner is the earlier
-module-only layout and is refused.
+prints. `initData` is `migrate(owner)` for a proxy at version 2 and empty for one already at 3. That
+`migrate` is required: it moves `_relayer` to slot 13 offset 0 and sets the owner. Installing this
+implementation on a version-2 proxy with empty `initData` leaves the relayer gate reading a wrong
+address, and it would refuse every delivery, governance included.
 
 Upgrade only once every outstanding order is filled or cancelled and escrow, fees and pending
 messages are drained on every chain, and keep placement stopped until matching gateways and modules

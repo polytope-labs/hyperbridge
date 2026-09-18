@@ -14,6 +14,15 @@ const rows = (entity: string) =>
 	),
 }
 
+// SubQuery's `cache` lives on the main thread; every worker proxies to that one object. Cloning on
+// the way in and out is what the host channel does, and it keeps a handler from mutating it in place.
+const cached = new Map<string, any>()
+const cacheMock = {
+	get: jest.fn(async (key: string) => structuredClone(cached.get(key))),
+	set: jest.fn(async (key: string, value: any) => void cached.set(key, structuredClone(value))),
+}
+;(global as any).cache = cacheMock
+
 /** On-chain state the pinned reads return, keyed `contract|holder`. */
 const mockOnchain = new Map<string, bigint>()
 /** Assets per share, per vault. */
@@ -47,6 +56,7 @@ import {
 	parseDelegation,
 	RECONCILE_INTERVAL_SECS,
 	REVALUE_INTERVAL_SECS,
+	TRACKED_REFRESH_BLOCKS,
 	type TransferInput,
 } from "@/services/solverInventory.service"
 import { MULTICALL3_ADDRESS, resetMulticallCache } from "@/utils/multicall"
@@ -169,6 +179,7 @@ function queueWatchlist(version: number, ...solvers: string[]): void {
 
 beforeEach(() => {
 	records.clear()
+	cached.clear()
 	mockOnchain.clear()
 	mockRates.clear()
 	mockRates.set(VAULT, 2n)
@@ -365,28 +376,45 @@ describe("genesis", () => {
 })
 
 describe("events", () => {
-	test("transfers between untracked addresses cost a keyed read each and no RPC", async () => {
+	test("transfers between untracked addresses cost no store read and no RPC", async () => {
 		await trackSolver()
 		await transfer({ from: OTHER, to: "0x18f23e630077b1da3ed97c0469d0504a93fad9e2" })
 		jest.mocked(store.get).mockClear()
 		jest.mocked(store.getByFields).mockClear()
+		cacheMock.get.mockClear()
 		ethCalls().mockClear()
 		;(global as any).api.getCode.mockClear()
 
 		for (let i = 0; i < 2_000; i++) {
 			const from = `0x${(i + 1).toString(16).padStart(40, "0")}`
 			const to = `0x${(i + 2).toString(16).padStart(40, "0")}`
-			await transfer({ from, to, blockNumber: 200n + BigInt(i) })
-			await shareTransfer({ from, to, blockNumber: 200n + BigInt(i) })
+			// Inside one refresh window, so the cached set answers all of them.
+			const blockNumber = 200n + BigInt(i % 400)
+			await transfer({ from, to, blockNumber })
+			await shareTransfer({ from, to, blockNumber })
 		}
 
-		// The miss on the keyed read is the filter, so it is the only cost an untracked address
-		// carries: two per transfer, and nothing paged, no RPC, no write.
-		expect(store.get).toHaveBeenCalledTimes(2_000 * 4)
+		// The cached set is the whole cost. A keyed store read in its place would be a Postgres
+		// findOne per address, every time, because `cacheModel` never caches a miss.
+		expect(cacheMock.get).toHaveBeenCalledTimes(2_000 * 2)
+		expect(store.get).not.toHaveBeenCalled()
 		expect(store.getByFields).not.toHaveBeenCalled()
 		expect(ethCalls()).not.toHaveBeenCalled()
 		expect((global as any).api.getCode).not.toHaveBeenCalled()
 		expect(inventory()).toMatchObject({ wallet: 1_000n })
+	})
+
+	test("a cached set that lost a concurrent seed repairs itself at the refresh bound", async () => {
+		await trackSolver(1_000n, 0n)
+		// The race the bound exists for: another worker's seed reached the store, but this worker's
+		// cached set was rebuilt just before that write and so never learned the solver.
+		cached.set(`solver-inventory:tracked:${CHAIN}`, { block: "101", solvers: [] })
+
+		await transfer({ from: SOLVER, to: OTHER, value: 400n, blockNumber: 100n + TRACKED_REFRESH_BLOCKS })
+		expect(inventory()).toMatchObject({ wallet: 1_000n })
+
+		await transfer({ from: SOLVER, to: OTHER, value: 400n, blockNumber: 101n + TRACKED_REFRESH_BLOCKS })
+		expect(inventory()).toMatchObject({ wallet: 600n, balance: 600n })
 	})
 
 	test("a solver another worker discovered still has its transfers applied", async () => {

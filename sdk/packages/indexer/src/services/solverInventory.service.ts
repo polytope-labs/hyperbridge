@@ -99,13 +99,71 @@ export function parseDelegation(chain: string, code: string | undefined): Delega
 
 // ─── Discovery ──────────────────────────────────────────────────────────────────────────────────
 
+/**
+ * Blocks a cached tracked set is trusted for before it is rebuilt from the store. Seeding writes the
+ * new solver into the cache itself, so this only has to bound the window where two workers seed at
+ * once and the loser's read predates the winner's write.
+ */
+export const TRACKED_REFRESH_BLOCKS = 500n
+
+/** The one cache key per chain holding that chain's tracked solvers. */
+const trackedKey = (chain: string) => `solver-inventory:tracked:${chain}`
+
+type TrackedCacheEntry = { block: string; solvers: string[] }
+
 // Supported-token Transfers arrive for every holder of the token, so the overwhelming majority has
-// to be dropped cheaply. The per-solver store read in each handler is that filter: `SolverInventory`
-// and `SolverVaultShares` rows are written only by `applyReading`, which runs only once a solver has
-// been seeded, so a row exists for exactly the solvers this node tracks. An in-memory set cannot
-// serve here — SubQuery runs a mapping worker per `SUBQL_WORKERS` thread, each with its own module
-// state, so a set loaded once per process goes stale in every worker but the one that discovered the
-// solver, silently dropping that solver's Transfers until the next reconciliation.
+// to be dropped without touching the database. A keyed store read cannot do that: `cacheModel.get`
+// populates its LFU only `if (record)`, so a miss — which is what every non-solver address is — is a
+// fresh `findOne` against Postgres every time.
+//
+// `cache` can. It is SubQuery's cross-worker cache: the object lives on the main thread, and each
+// worker's `WorkerInMemoryCacheService` proxies `get`/`set` to it over the same host channel that
+// `store` already uses. So a `cache.set` from the worker that seeds a solver is visible to all of
+// them, which is the property a module-level `Set` lacked — SubQuery runs a mapping worker per
+// `SUBQL_WORKERS` thread, each with its own module state, so a process-local set went stale in every
+// worker but the one that discovered the solver.
+//
+// The set is only ever a filter. Every address it admits still goes to the per-solver store read
+// below, which stays the authority on what is tracked and what its balances are.
+async function trackedSolvers(chain: string, blockNumber: bigint): Promise<Set<string>> {
+	const entry = (await cache.get(trackedKey(chain))) as TrackedCacheEntry | undefined
+	// Workers run different batches, so `blockNumber` moves in both directions here; only age forward
+	// of where the entry was built counts against it.
+	if (entry && blockNumber - BigInt(entry.block) < TRACKED_REFRESH_BLOCKS) return new Set(entry.solvers)
+	return refreshTrackedSolvers(chain, blockNumber, entry)
+}
+
+/**
+ * Rebuilds the cached set from the store, keeping any member the cache already had. A concurrent
+ * seed in another worker may have written a solver this read is too early to see; unioning means the
+ * rebuild cannot drop it, so a lost update repairs itself instead of persisting.
+ */
+async function refreshTrackedSolvers(
+	chain: string,
+	blockNumber: bigint,
+	entry?: TrackedCacheEntry,
+): Promise<Set<string>> {
+	const rows = await readAllPages((limit, offset) =>
+		TrackedSolver.getByFields(
+			[
+				["chain", "=", chain],
+				["status", "=", TrackedSolverStatus.TRACKED],
+			],
+			{ limit, offset, orderBy: "id", orderDirection: "ASC" },
+		),
+	)
+	const solvers = new Set([...(entry?.solvers ?? []), ...rows.map((row) => row.solver)])
+	await cache.set(trackedKey(chain), { block: blockNumber.toString(), solvers: [...solvers] })
+	return solvers
+}
+
+/** Publishes a newly seeded solver to every worker, before any of them sees its next Transfer. */
+async function cacheTrackedSolver(chain: string, solver: string, blockNumber: bigint): Promise<void> {
+	const entry = (await cache.get(trackedKey(chain))) as TrackedCacheEntry | undefined
+	if (!entry) return void (await refreshTrackedSolvers(chain, blockNumber))
+	if (entry.solvers.includes(solver)) return
+	await cache.set(trackedKey(chain), { block: entry.block, solvers: [...entry.solvers, solver] })
+}
 
 async function queueSolver(
 	chain: string,
@@ -492,6 +550,7 @@ async function seedPendingSolvers(chain: string, blockNumber: bigint, at: Date):
 		tracked.revaluedAt = at
 		tracked.reconciledAt = at
 		await tracked.save()
+		await cacheTrackedSolver(chain, tracked.solver, blockNumber)
 	}
 }
 
@@ -512,7 +571,9 @@ export async function applyTokenTransfer(input: TransferInput & { token: string;
 	const from = input.from.toLowerCase()
 	const to = input.to.toLowerCase()
 	if (from === to || input.value === 0n) return
-	const parties = [from, to]
+	const tracked = await trackedSolvers(input.chain, input.blockNumber)
+	const parties = [from, to].filter((address) => tracked.has(address))
+	if (parties.length === 0) return
 
 	const token = input.token.toLowerCase()
 	let at: Date | undefined
@@ -544,7 +605,8 @@ export async function applyVaultShareTransfer(input: TransferInput & { vault: st
 	const from = input.from.toLowerCase()
 	const to = input.to.toLowerCase()
 	if (from === to || input.shares === 0n) return
-	const parties = [from, to].filter((address) => address !== ZERO_ADDRESS)
+	const tracked = await trackedSolvers(input.chain, input.blockNumber)
+	const parties = [from, to].filter((address) => address !== ZERO_ADDRESS && tracked.has(address))
 	if (parties.length === 0) return
 	const vault = input.vault.toLowerCase()
 	const token = tokenForVault(input.chain, vault)

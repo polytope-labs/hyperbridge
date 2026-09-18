@@ -1,11 +1,11 @@
-# 2026-09-18 — Solver inventory: the tracked filter is a store read, not a cached set
+# 2026-09-18 — Solver inventory: the tracked filter moves to SubQuery's cross-worker cache
 
 `applyTokenTransfer` and `applyVaultShareTransfer` decided whether a `Transfer` involved a tracked
 solver by consulting `trackedCache`, a module-level `Set` loaded once per process and mutated only by
-`seedPendingSolvers`. That set is now gone: both handlers pass both sides of the transfer to the
-per-solver store read they already performed, and let a missing row be the answer.
+`seedPendingSolvers`. That set is now gone. The filter is the same shape — one set of tracked solvers
+per chain — but it lives in `cache`, and the per-solver store read stays behind it as the authority.
 
-## Why the set could not be correct
+## Why a module-level set could not be correct
 
 SubQuery runs the mapping handlers in a worker thread per `--workers`, each thread a separate module
 registry with its own copy of every module-level binding. Every `SUBQL_WORKERS` default in this
@@ -23,26 +23,52 @@ pre-spend value and the orderbook quoted depth that was no longer there. Nothing
 the 24-hour `RECONCILE_INTERVAL_SECS` sweep or a process restart, and the solvers it hit hardest were
 the freshly discovered ones, whose first fills are the ones that matter.
 
-## Why the store read is a complete filter
+## Why the filter is `cache` and not a store read
 
-`SolverInventory` and `SolverVaultShares` rows are written only by `applyReading`, which runs only
-from `seedPendingSolvers` on the `PENDING` → `TRACKED` transition and from reconciliation. A row
-therefore exists for exactly the solvers this node tracks, and `TrackedSolverStatus` has no third
-state that could separate the two. Both handlers already read the row and already skipped on a miss,
-so removing the set in front of them changes which events reach the read, not what the read decides.
+`cache` is SubQuery's cross-worker cache. The object itself lives on the main thread
+(`InMemoryCacheService`); each worker's `WorkerInMemoryCacheService` proxies `get`/`set` to it over
+the same host channel `store` already uses, and `WorkerCoreModule` installs that override, so it is
+live under `@subql/node-ethereum`'s worker module. A `cache.set` from the worker that seeds a solver
+is therefore visible to all of them — the property module state lacked. It is declared for this
+package in `src/types/global.d.ts`, alongside `store` and `logger`.
 
-The cost is up to two keyed store reads per supported-token `Transfer` where there were none for a
-non-solver. That is the price of the correctness, and the reason the old comment claimed the filter
-"must cost neither a store read nor an RPC". If it ever shows up in throughput, the replacement is a
-cache versioned off `SolverInventoryHead` — not another set loaded once per process.
+A keyed store read cannot take the filter's place, even though `SolverInventory` and
+`SolverVaultShares` rows exist for exactly the solvers this node tracks. `cacheModel.get` populates
+its LFU only `if (record)`, so a _miss_ is never cached — and a miss is what every non-solver address
+is. Filtering on the store would mean a fresh Postgres `findOne` per address per `Transfer`, on
+tokens whose transfers are overwhelmingly not solvers'. From a worker both are the same single host
+round-trip; the difference is entirely what the main thread does with it.
+
+## Staleness, and what bounds it
+
+Two mechanisms, because one is not quite enough:
+
+- **`seedPendingSolvers` publishes each newly seeded solver to the cache**, right after the
+  `TrackedSolver` row is saved and before any worker can see that solver's next `Transfer`.
+- **`TRACKED_REFRESH_BLOCKS` (500) bounds the rest.** An entry older than that many blocks ahead of
+  where it was built is rebuilt from the store. This exists for one race: two workers seeding at
+  once, where the loser's store read predates the winner's write. The rebuild unions the store's rows
+  with whatever the cache already held, so a lost update repairs itself rather than persisting.
+
+Worker batches are not ordered relative to each other, so the block number a handler passes moves in
+both directions; only age _forward_ of where an entry was built counts against it.
+
+`InMemoryCacheService` has no rollback hook, unlike the store cache, so a reorg that un-discovers a
+solver leaves a stale member. That direction is harmless: the store read behind the hit finds no row.
+The dangerous direction — a member missing — is what the publish and the refresh bound cover. The
+cache is also empty after a restart, which is correct rather than stale: the first use per chain
+rebuilds it from the store.
 
 ## Interface
 
 `resetSolverInventoryCache` no longer exists. It was exported for tests and had no production caller.
+`TRACKED_REFRESH_BLOCKS` is exported so a test can sit either side of the bound.
+
+`src/types/global.d.ts` gains `cache`, which this package declared its own globals without.
 
 `etag` and `lastSkipReport` in `solverWatchlist.service.ts` and `deployed` in `utils/multicall.ts` are
 per-worker in the same way and are left alone: they cost a redundant fetch or a redundant `getCode`
 probe per worker, and neither can drop an event.
 
-Files: `src/services/solverInventory.service.ts`,
+Files: `src/services/solverInventory.service.ts`, `src/types/global.d.ts`,
 `src/services/__tests__/solverInventory.service.test.ts`

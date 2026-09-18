@@ -67,11 +67,15 @@ describe("setup API", () => {
 		}
 	}
 
-	it("serves wizard defaults", async () => {
+	it("serves mainnet-only wizard defaults", async () => {
 		const { base } = await startInitServer()
 		const res = await fetch(`${base}/api/setup/defaults`)
 		expect(res.status).toBe(200)
-		expect((await res.json()).chains.length).toBeGreaterThan(0)
+		const defaults = await res.json()
+		expect(defaults.chains).toHaveLength(5)
+		expect(defaults.chains.every((chain: { network: string }) => chain.network === "mainnet")).toBe(true)
+		expect(defaults.hyperbridgeWs).toEqual({ mainnet: "wss://nexus.rpc.polytope.technology" })
+		expect(defaults).not.toHaveProperty("testnetConfirmationPoints")
 	})
 
 	it("validates an RPC against the expected chain id", async () => {
@@ -84,6 +88,16 @@ describe("setup API", () => {
 		const mismatch = await (await post(base, "validate-rpc", { url: rpc.url, expectedChainId: 42161 })).json()
 		expect(mismatch.ok).toBe(false)
 		expect(mismatch.results[0].error).toContain("expected 42161")
+	})
+
+	it("uses mainnet Alchemy endpoints even when a client requests testnet", async () => {
+		const fetchChainId = vi.fn(async () => 1)
+		const { base } = await startInitServer({ deps: { fetchChainId } })
+
+		const response = await (await post(base, "validate-alchemy-key", { apiKey: "key", network: "testnet" })).json()
+		expect(response.valid).toBe(true)
+		expect(response.chains.map((chain: { chainId: number }) => chain.chainId)).toEqual([1, 42161, 8453, 137, 56])
+		expect(fetchChainId).toHaveBeenCalledWith(expect.stringContaining("eth-mainnet"))
 	})
 
 	it("rejects quorum URLs sharing a hostname", async () => {
@@ -180,28 +194,13 @@ describe("setup API", () => {
 		expect((await res.json()).error).toContain("At least one [[pairs]]")
 	})
 
-	it("rejects a chain without confirmation coverage at preview, like boot does", async () => {
+	it("rejects testnet chains at preview", async () => {
 		rpc = await startMockRpc({ chainId: 1 })
 		const { base } = await startInitServer()
 		const config = minimalConfig(rpc.url)
-		// Resolve the pair symbols on Sepolia so the coverage gate is what fires.
-		config.assets = { USDC: { "EVM-11155111": "0x1111111111111111111111111111111111111111" } }
-
-		// Sepolia has no built-in confirmation defaults and none configured.
-		const uncovered = await post(base, "preview", { config, chainIds: [11155111] })
-		expect(uncovered.status).toBe(400)
-		expect((await uncovered.json()).error).toContain("No confirmation policy")
-
-		config.confirmationPolicies = {
-			"11155111": {
-				points: [
-					{ amount: "100", value: 1 },
-					{ amount: "10000", value: 2 },
-				],
-			},
-		}
-		const covered = await post(base, "preview", { config, chainIds: [11155111] })
-		expect(covered.status).toBe(200)
+		const response = await post(base, "preview", { config, chainIds: [11155111] })
+		expect(response.status).toBe(400)
+		expect((await response.json()).error).toContain("mainnet")
 	})
 
 	it("save-and-start writes the config 0600, calls the boot callback and flips to operator", async () => {

@@ -1,7 +1,7 @@
 import { isRegistrySymbol, normalizeSymbol } from "@/config/asset-registry"
 import { toPricePoints, type EditorPoint } from "../components/curveModel"
 import { vaultRowsToToml, type VaultRowDraft } from "../lib/vault-rows"
-import type { ChainDefault, CurvePoint, FillerConfig, Network, PairConfig, SetupDefaults } from "../types"
+import type { ChainDefault, FillerConfig, PairConfig, SetupDefaults } from "../types"
 
 export interface ChainDraft {
 	meta: ChainDefault
@@ -47,7 +47,7 @@ export interface PairDraft {
 export const normSymbol = normalizeSymbol
 
 export interface WizardState {
-	network: Network
+	network: "mainnet"
 	signerType: SignerType
 	signerKey: string
 	signerAddress?: string
@@ -145,9 +145,7 @@ export function initialState(defaults: SetupDefaults): WizardState {
 		substrateKey: "",
 		hyperbridgeWsUrl: defaults.hyperbridgeWs.mainnet,
 		alchemyKey: "",
-		chains: defaults.chains
-			.filter((c) => c.network === "mainnet")
-			.map((meta) => ({
+		chains: defaults.chains.map((meta) => ({
 				meta,
 				enabled: false,
 				rpcUrls: [""],
@@ -165,32 +163,6 @@ export function initialState(defaults: SetupDefaults): WizardState {
 		allowlistUsers: [],
 		maxConcurrentOrders: String(defaults.maxConcurrentOrders),
 		logging: "info",
-	}
-}
-
-export function switchNetwork(state: WizardState, defaults: SetupDefaults, network: Network): WizardState {
-	return {
-		...state,
-		network,
-		hyperbridgeWsUrl: defaults.hyperbridgeWs[network],
-		chains: defaults.chains
-			.filter((c) => c.network === network)
-			.map((meta) => ({
-				meta,
-				enabled: false,
-				rpcUrls: [""],
-				bundlerUrl: "",
-				viaAlchemy: false,
-				watchOnly: false,
-			})),
-		// Everything keyed by the previous network's chain ids must reset with it.
-		pairs: [],
-		fxSeeded: false,
-		customAssets: {},
-		vaults: [],
-		fxPositions: [],
-		alchemyStatus: undefined,
-		alchemyError: undefined,
 	}
 }
 
@@ -264,14 +236,6 @@ export function assembleConfig(state: WizardState, defaults: SetupDefaults): Fil
 			]),
 	)
 
-	// Testnet chain ids have no built-in confirmation defaults; write explicit ones.
-	const confirmationPolicies: Record<string, { points: CurvePoint[] }> | undefined =
-		state.network === "testnet"
-			? Object.fromEntries(
-					chains.map((c) => [String(c.meta.chainId), { points: defaults.testnetConfirmationPoints }]),
-				)
-			: undefined
-
 	const uniswapV4 =
 		usingPool && state.fxPositions.length > 0
 			? {
@@ -325,7 +289,6 @@ export function assembleConfig(state: WizardState, defaults: SetupDefaults): Fil
 		},
 		...(Object.keys(assets).length > 0 ? { assets: assets as FillerConfig["assets"] } : {}),
 		pairs,
-		...(confirmationPolicies ? { confirmationPolicies } : {}),
 		chains: chains.map((c) => ({
 			rpcUrls: c.rpcUrls.map((u) => u.trim()).filter(Boolean),
 			bundlerUrl: c.bundlerUrl.trim(),

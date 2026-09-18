@@ -73,10 +73,10 @@ export interface KnownVault {
 
 /** GET /api/setup/defaults */
 export interface SetupDefaults {
-	chains: InitChainMeta[]
-	hyperbridgeWs: Record<InitNetwork, string>
+	/** The desktop and browser setup wizard only configures live deployments. */
+	chains: Array<InitChainMeta & { network: "mainnet" }>
+	hyperbridgeWs: { mainnet: string }
 	usdStables: string[]
-	testnetConfirmationPoints: CurvePoint[]
 	maxConcurrentOrders: number
 	configPath: string
 	/** Registry symbols resolvable per chain (state machine id), addresses included. */

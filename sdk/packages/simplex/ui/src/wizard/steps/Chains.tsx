@@ -23,7 +23,7 @@ export function StepChains({ state, setState }: StepProps) {
 		try {
 			const res = await api.post<{ valid: boolean; error?: string; chains: AlchemyChainRow[] }>(
 				"/api/setup/validate-alchemy-key",
-				{ apiKey: state.alchemyKey.trim(), network: state.network },
+				{ apiKey: state.alchemyKey.trim() },
 			)
 			setState((s) => ({
 				...s,

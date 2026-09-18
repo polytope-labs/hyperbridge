@@ -11,13 +11,10 @@ import { validateSignerConfig } from "@/services/wallet"
 import { deriveSubstrateKeyPair, generateSubstrateKey } from "@/services/substrate-key"
 import { ERC20_ABI } from "@/config/abis/ERC20"
 import { emitFillerToml, writeConfigFileAtomic } from "@/cli/init/emit-toml"
-import { chainsForNetwork, HYPERBRIDGE_WS_DEFAULTS, INIT_CHAINS, type InitNetwork } from "@/cli/init/chains"
+import { chainByChainId, chainsForNetwork, HYPERBRIDGE_WS_DEFAULTS } from "@/cli/init/chains"
 import { deriveAlchemyRpc } from "@/cli/init/derive/alchemy"
 import { maskSecret, withTimeout, PROBE_TIMEOUT_MS } from "@/cli/init/prompt-utils"
-import {
-	DEFAULT_MAX_CONCURRENT_ORDERS,
-	TESTNET_CONFIRMATION_POINTS,
-} from "@/cli/init/state"
+import { DEFAULT_MAX_CONCURRENT_ORDERS } from "@/cli/init/state"
 import { getLogger } from "../Logger"
 import { readBody, sendJson } from "./http-util"
 import type { SetupDefaults } from "./dto"
@@ -70,11 +67,12 @@ export async function handleSetupRequest(
 		if (method !== "GET") return sendJson(res, 405, { error: "Method not allowed" })
 		// Registry symbols and treasury vaults come from the SDK's chain registry
 		// so selection UIs offer curated entries instead of requiring pasted addresses.
+		const mainnetChains = chainsForNetwork("mainnet") as SetupDefaults["chains"]
 		const chainRegistry = new ChainConfigService({})
 		const assetRegistry = new AssetRegistry(chainRegistry)
 		const knownTokens: SetupDefaults["knownTokens"] = {}
 		const knownVaults: SetupDefaults["knownVaults"] = {}
-		for (const meta of INIT_CHAINS) {
+		for (const meta of mainnetChains) {
 			knownTokens[meta.stateMachineId] = registrySymbols().flatMap((symbol) => {
 				const address = assetRegistry.getAddress(symbol, meta.stateMachineId)
 				return address ? [{ symbol, address }] : []
@@ -82,10 +80,9 @@ export async function handleSetupRequest(
 			knownVaults[meta.stateMachineId] = chainRegistry.getKnownVaults(meta.stateMachineId)
 		}
 		const defaults: SetupDefaults = {
-			chains: INIT_CHAINS,
-			hyperbridgeWs: HYPERBRIDGE_WS_DEFAULTS,
+			chains: mainnetChains,
+			hyperbridgeWs: { mainnet: HYPERBRIDGE_WS_DEFAULTS.mainnet },
 			usdStables: [...USD_STABLE_SYMBOLS],
-			testnetConfirmationPoints: TESTNET_CONFIRMATION_POINTS,
 			maxConcurrentOrders: DEFAULT_MAX_CONCURRENT_ORDERS,
 			configPath: setup.configPath,
 			knownTokens,
@@ -139,10 +136,9 @@ export async function handleSetupRequest(
 
 export async function validateAlchemyKey(body: Record<string, unknown>, deps: Required<SetupDeps>) {
 	const apiKey = String(body.apiKey ?? "").trim()
-	const network = (body.network === "testnet" ? "testnet" : "mainnet") as InitNetwork
 	if (!apiKey) return { valid: false, error: "apiKey is required", chains: [] }
 
-	const chains = chainsForNetwork(network).map((meta) => {
+	const chains = chainsForNetwork("mainnet").map((meta) => {
 		const rpcUrl = deriveAlchemyRpc(apiKey, meta.chainId)
 		return {
 			chainId: meta.chainId,
@@ -293,6 +289,9 @@ function gateConfig(body: Record<string, unknown>): GatedConfig | { ok: false; e
 	const chainIds = Array.isArray(body.chainIds) ? body.chainIds.map(Number).filter(Number.isFinite) : []
 	if (!config || typeof config !== "object") return { ok: false, error: "Missing config object" }
 	try {
+		if (chainIds.some((chainId) => chainByChainId(chainId)?.network !== "mainnet")) {
+			throw new Error("The Simplex desktop and browser setup only support mainnet chains")
+		}
 		// The same rule `run` applies: a signer block is required unless the config
 		// is globally watch-only, and a present block is validated for completeness.
 		if (config.simplex?.signer) {

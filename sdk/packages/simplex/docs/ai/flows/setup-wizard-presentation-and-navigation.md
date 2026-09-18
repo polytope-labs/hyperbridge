@@ -13,6 +13,6 @@ two-column grid; below 900px the rail moves above the form and scrolls horizonta
 disabled while the current step has unresolved requirements, and the footer lists every blocker so
 the operator can see what must be fixed without guessing.
 
-The network choice is rendered by `ui/src/wizard/steps/Signer.tsx` and uses the same `testnet` bucket
-as `src/cli/init/steps/chains.ts`. Its copy says “EVM test networks” because that bucket contains
-Sepolia, Arbitrum Sepolia, Base Sepolia, Polygon Amoy, and BSC Chapel.
+The shared desktop and browser wizard is mainnet-only. `GET /api/setup/defaults` returns the mainnet
+catalog and Nexus WebSocket default, and setup preview/save rejects a selected testnet chain. The
+CLI initializer keeps its separate testnet bucket for advanced use.

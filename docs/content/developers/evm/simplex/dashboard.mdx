@@ -22,6 +22,14 @@ It is unauthenticated by design — the bind address is the boundary. It default
     Docker port past `127.0.0.1`. The two options below reach it from elsewhere without exposing it.
 </Callout>
 
+<Callout type="warn">
+    Loopback is machine-local, not user-local. On a shared machine, another OS user can reach the
+    unauthenticated TCP dashboard. On macOS or Linux, use `--ui-socket` in an owner-only directory
+    and forward that socket over SSH, or use the authenticated remote-access tunnel. Simplex Desktop
+    already uses a private socket and opens no TCP listener. A Windows named pipe has a weaker
+    operating-system ACL guarantee; do not treat it as an owner-only boundary from administrators.
+</Callout>
+
 ## On the machine running Simplex
 
 Open `http://localhost:8686`. That is the whole setup for a solver running on your own machine — the UI is already listening when the filler starts.
@@ -33,6 +41,7 @@ The bind address is set on `simplex run`, which is the default command (`simplex
 | Flag | Default | What it does |
 |---|---|---|
 | `--ui [host:port]` | `127.0.0.1:8686` | Where the dashboard listens. A bare number keeps the host at `127.0.0.1`, so `--ui 9000` means `127.0.0.1:9000`. The value is optional — a bare `--ui` is the default bind, spelled out. |
+| `--ui-socket <path>` | off | Serve the dashboard on a Unix socket instead of TCP. The socket is created mode `0600`; use it with SSH forwarding on a shared macOS or Linux host. On Windows this selects a named pipe, whose default ACL is weaker. |
 | `--no-ui` | off | Runs the filler headless — no dashboard, no port. |
 | `-c, --config <path>` | `./filler-config.toml`, then `$SIMPLEX_HOME/config.toml` | The TOML config. When neither exists, `run` starts the browser setup wizard instead of the filler. |
 | `-d, --data-dir <path>` | `./.simplex-data` | Bid database, runtime state, and the tunnel's keys under `tunnel/`. |
@@ -42,6 +51,7 @@ The bind address is set on `simplex run`, which is the default command (`simplex
 simplex run --ui 9000                  # 127.0.0.1:9000
 simplex run --ui 192.168.1.50:8686     # one LAN interface
 simplex run --ui 0.0.0.0:8686          # every interface — see the warning above
+simplex run --ui-socket /run/user/1000/simplex.sock
 simplex run --no-ui                    # headless
 ```
 
@@ -87,6 +97,24 @@ Open `http://localhost:8686` on your own machine while that session is up. The t
 This works from a tablet or phone too, with any SSH client that does local port forwarding: Blink or Termius on iOS, ConnectBot or JuiceSSH on Android. Point the forward at the same `8686:127.0.0.1:8686`, connect, then open `http://localhost:8686` in the device's browser.
 
 It needs a reachable SSH server, so it is the right choice for a host with a public address and the wrong one for a machine behind NAT.
+
+### Shared hosts: forward a private Unix socket
+
+On a multi-user macOS or Linux host, avoid the TCP listener entirely. Put the socket in a directory
+only the operator can traverse, then forward a local TCP port to that remote socket:
+
+```bash lineNumbers
+# On the solver host
+install -d -m 700 "$HOME/.simplex-runtime"
+simplex run --ui-socket "$HOME/.simplex-runtime/ui.sock"
+
+# On the trusted workstation
+ssh -N -L 8686:/home/operator/.simplex-runtime/ui.sock operator@your-server
+```
+
+Replace `/home/operator` with the absolute home directory on the solver host. Open
+`http://localhost:8686` on the trusted workstation. The browser talks only to the local end of the
+SSH forward; the shared host exposes no TCP dashboard, and the remote socket is mode `0600`.
 
 ## Through the remote access tunnel
 

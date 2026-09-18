@@ -23,6 +23,25 @@ function dependencySpecifiers(manifest: Record<string, unknown>): Record<string,
 }
 
 describe("desktop workspace package policy", () => {
+	it("keeps the released application identity and platform icons stable and tracks the solver version", () => {
+		const builder = readYaml(join(packageRoot, "electron-builder.yml"))
+		const desktop = JSON.parse(readFileSync(join(packageRoot, "package.json"), "utf8")) as {
+			version: string
+		}
+		const simplex = JSON.parse(readFileSync(join(packageRoot, "../simplex/package.json"), "utf8")) as {
+			version: string
+		}
+
+		expect(builder).toMatchObject({
+			appId: "network.hyperbridge.simplex",
+			productName: "Simplex",
+			mac: { icon: "resources/icon.icns" },
+			win: { icon: "resources/icon.ico" },
+			linux: { icon: "resources/icons" },
+		})
+		expect(desktop.version).toBe(simplex.version)
+	})
+
 	it("keeps build policy in the supported workspace configuration", () => {
 		const workspace = readYaml(join(workspaceRoot, "pnpm-workspace.yaml"))
 

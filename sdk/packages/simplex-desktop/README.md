@@ -4,6 +4,10 @@ Private Electron shell for the existing `@hyperbridge/simplex` UI and solver. It
 second renderer: Chromium loads `simplex://local/`, whose protocol handler streams requests to the
 solver's Unix socket or Windows named pipe.
 
+The released product name is **Simplex** and its permanent application/bundle identifier is
+`network.hyperbridge.simplex`. The desktop package deliberately tracks the exact
+`@hyperbridge/simplex` version; `pnpm check:versions` and the build fail if they diverge.
+
 ## Run from this package
 
 These commands are intentionally package-local. Open a terminal in the directory containing this
@@ -83,12 +87,15 @@ app-only quit leaves the detached solver running.
 
 ## Tray and operating-system integration
 
-The app and tray icons are rasterized from the existing Simplex PWA `mobile-logo.svg`; the tray adds
-a small status marker rather than introducing independent artwork. It appears in the macOS menu bar,
-the Windows notification area, and Linux's StatusNotifierItem/Gtk status-icon implementation. GNOME
-normally requires an AppIndicator extension. Because Linux click activation is inconsistent, every
-command—including Show, Pause, Stop, Restart, and both quit choices—is available from the context
-menu.
+The installed application icon is the current PWA `mobile-logo.svg` mark. The checked-in platform
+set is `resources/icon.icns` for macOS, `resources/icon.ico` for Windows, and the standard Linux PNG
+sizes under `resources/icons/`; `resources/tray/app.png` is the same 512px source for development
+windows.
+The stateful tray glyphs remain rasterized from the PWA's `mobile-logo.svg` and add status markers.
+They appear in the macOS menu bar, the Windows notification area, and Linux's
+StatusNotifierItem/Gtk status-icon implementation. GNOME normally requires an AppIndicator
+extension. Because Linux click activation is inconsistent, every command—including Show, Pause,
+Stop, Restart, and both quit choices—is available from the context menu.
 
 **Launch Simplex at login** is opt-in and available only in an installed build. It registers the app,
 not the detached solver, and starts it without opening a window. macOS and Windows use Electron's
@@ -158,6 +165,10 @@ PWA logo, and fails before creating a window if any is missing:
 - `@hyperbridge/simplex/dist/ui/index.html`.
 - `resources/tray/<state>.png` in development, with 18px macOS `Template` and 36px `Template@2x`
   variants; packaged builds place them under `desktop/tray` in Electron resources.
+
+Every installed build also carries `THIRD-PARTY-NOTICES.md`, Electron's MIT license, and Chromium's
+complete bundled license page under `resources/licenses` (`Contents/Resources/licenses` inside the
+macOS app). Runtime npm dependencies retain their own license files under `resources/node_modules`.
 
 It never searches `PATH` for the solver runtime. The release build keeps the Electron main process in
 `app.asar` and places the solver's `package.json` and `dist` tree under `resources/simplex`, its

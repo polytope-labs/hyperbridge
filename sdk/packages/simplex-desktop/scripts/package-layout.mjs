@@ -12,6 +12,7 @@ if (JSON.stringify(runtimePackages) !== JSON.stringify(bundlePackages)) {
 	throw new Error("The packaged runtime dependencies do not match the Simplex bundle externals")
 }
 export const EXTERNAL_RUNTIME_PACKAGES = bundlePackages
+export const PACKAGED_LICENSES = ["THIRD-PARTY-NOTICES.md", "LICENSE.electron.txt", "LICENSES.chromium.html"]
 
 export function runtimeTarget(platform, arch) {
 	if (platform === "darwin" && ["arm64", "x64", "universal"].includes(arch)) return `darwin-${arch}`
@@ -33,6 +34,7 @@ export async function assertPackagedResources(resourcesDirectory, platform) {
 		join(resourcesDirectory, "simplex", "package.json"),
 		join(resourcesDirectory, "simplex", "dist", "bin", "simplex.js"),
 		join(resourcesDirectory, "simplex", "dist", "ui", "index.html"),
+		...PACKAGED_LICENSES.map((name) => join(resourcesDirectory, "licenses", name)),
 		...EXTERNAL_RUNTIME_PACKAGES.map((name) => join(resourcesDirectory, "node_modules", name, "package.json")),
 	]
 	for (const path of required) await access(path)

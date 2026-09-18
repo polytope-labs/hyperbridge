@@ -194,6 +194,7 @@ contract IntentGatewayV2 is
      * @param owner_ Initial owner for version 2; ignored for version 3.
      */
     function migrate(address owner_) external onlyHost {
+        // Read the version here: `reinitializer` on `_migrate` overwrites it before the body runs.
         uint64 previousVersion = _getInitializedVersion();
         if (previousVersion != 2 && previousVersion != 3) revert InvalidInitialization();
         // The module-only release also reported 3 but never set an owner, so its layout is not migratable.
@@ -504,8 +505,8 @@ contract IntentGatewayV2 is
      *    token with its upper 12 bytes set, so `_isRepeatedToken` sees every token in one form.
      *
      * @param order The order to fill. Must match the exact order that was placed.
-     * @param options Paired input capacities and output budgets defining solver rates, quote expiry,
-     * and dispatch fees. Payment is derived from input actually released and may be below its budget.
+     * @param options The solver's per-leg quotes, quote expiry and fees. Each leg pays for the
+     * escrow it actually releases at the quoted rate, so a leg may pay less than its output budget.
      */
     function fillOrder(Order calldata order, FillOptions calldata options) public payable whenNotPaused nonReentrant {
         uint256 blockNumber = _blockNumber();

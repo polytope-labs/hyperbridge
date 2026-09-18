@@ -41,7 +41,7 @@ contract ExtrinsicModule is ExtrinsicIntents {
     /**
      * @dev Cross-chain fill on the destination chain, validated by `IntentGatewayV2.fillOrder`.
      * @param order The order to fill.
-     * @param options The solver's output amounts, required input quotes, and dispatch fees.
+     * @param options The solver's per-leg quotes and dispatch fees.
      * @param commitment The order commitment hash.
      */
     function fillCrossChain(Order calldata order, FillOptions calldata options, bytes32 commitment)

@@ -67,11 +67,11 @@ original input amounts. Both full and partial multi-leg quotes can be selected a
 Normalized amounts describe prices; signed quotes bound funding, and settlement determines actual payment.
 Submission recovery is a separate stacked change required before releasing automatic execution.
 
-Every v3 bid requires an updated delegated SolverAccount.
-Before signing, the SDK requires release `3` from `version()` on the gateway, configured account
-implementation, and live delegation. Gateway release 3 uses FillOptions ABI version 3. The account protects the new and both historical selectors against
-submission with the session signature stripped off. Deploy matching gateway modules and redelegate
-solvers before enabling v3 bids.
+Every bid requires a release-3 gateway and an updated delegated SolverAccount. Before signing, the
+SDK requires release `3` from `version()` on the gateway, the configured account implementation and
+the live delegation, and it encodes no earlier `fillOrder` shape. The account protects the current
+and both earlier selectors against submission with the session signature stripped off. Deploy
+matching gateway modules and redelegate solvers before enabling bids.
 
 ## Cross-Chain Swaps
 

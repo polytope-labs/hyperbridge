@@ -58,7 +58,7 @@ describe("mandatory multi-leg quotes", () => {
 		const full = quote([100n, 200n], [110n, 220n])
 		expect(await manager().selectAndExecuteBest(order, [full])).toEqual({ status: "FILLED" })
 	})
-	it("refuses malformed v3 calldata before asking the solver to sign", async () => {
+	it("refuses malformed fill calldata before asking the solver to sign", async () => {
 		const signTypedData = vi.fn()
 		const bids = new BidManager(
 			{} as never,

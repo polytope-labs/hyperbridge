@@ -41,23 +41,14 @@ export { CryptoUtils, SELECT_SOLVER_TYPEHASH, PACKED_USEROP_TYPEHASH, DOMAIN_TYP
 export {
 	encodeFillOrder,
 	decodeFillOrder,
-	getFillOptionsVersion,
-	resetFillOptionsVersionCache,
+	assertGatewayRelease,
 	supportsRateFills,
-	LEGACY_FILL_OPTIONS_IMPLEMENTATIONS,
-	CHAINS_WITHOUT_VALID_UNTIL,
-	FILL_ORDER_V1_ABI,
-	FILL_ORDER_V2_ABI,
-	FILL_ORDER_V3_SELECTOR,
+	isCanonicalEvmToken,
+	FILL_ORDER_SELECTOR,
 	CONTRACT_VERSION_ABI,
 	SUPPORTED_INTENTS_VERSION,
 } from "./fillOrderCodec"
-export type {
-	FillOptionsVersion,
-	HistoricalFillOptions,
-	NormalizedFillOptions,
-	DecodedFillOrder,
-} from "./fillOrderCodec"
+export type { DecodedFillOrder } from "./fillOrderCodec"
 export { previewRateFill, type RateFillPreview } from "./rateFill"
 export {
 	encodeAcceptedSourceChains,

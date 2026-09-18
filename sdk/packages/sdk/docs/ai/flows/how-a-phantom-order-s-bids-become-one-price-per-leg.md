@@ -11,4 +11,4 @@
 
 A malformed bid is skipped and the rest are priced; a `PhantomRpcError` aborts the whole run instead, because a partial bid set publishes a confident price built from whichever bids happened to be readable.
 
-A rate bid is compared at the order's full input: each leg's output is scaled by `order input / take` before pricing, so slices of different sizes compete by rate. A bid whose calldata uses the rate ABI is dropped unless the gateway and the solver's live delegation both report release 3; an RPC failure retries the snapshot instead.
+Every bid carries a take per leg and is compared at the order's full input: each leg's output is scaled by `order input / take` before pricing, so slices of different sizes compete by rate. A bid is dropped unless the gateway and the SolverAccount the solver is delegated to both report release 3, read once per aggregation; an RPC failure retries the snapshot instead.

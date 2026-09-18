@@ -11,13 +11,7 @@ import { decodeUserOpScale } from "@/chains/intentsCoprocessor"
 import { CryptoUtils } from "@/protocols/intents/CryptoUtils"
 import type { PackedUserOperation } from "@/types"
 import IntentGatewayV2 from "@/abis/IntentGatewayV2"
-import {
-	decodeFillOrder,
-	isCanonicalEvmToken,
-	CONTRACT_VERSION_ABI,
-	SUPPORTED_INTENTS_VERSION,
-	type FillOptionsVersion,
-} from "./fillOrderCodec"
+import { decodeFillOrder, isCanonicalEvmToken, CONTRACT_VERSION_ABI, SUPPORTED_INTENTS_VERSION } from "./fillOrderCodec"
 import {
 	decodePoolAndPositionInfo,
 	positionAmountOfToken,
@@ -508,76 +502,69 @@ export function decodeAcceptedSourceChains(paymasterAndData: string | undefined 
 /** ERC-4626 vaults per chain, keyed by chain id then lowercase underlying token address. */
 export type YieldVaultMap = Record<string, Record<string, string[]>>
 
-/** One leg of a fill: the token the solver pays out and the amount it quoted for that leg. */
+/** One leg of a fill: the token the solver pays out and the quote it signed for that leg. */
 export interface FillLeg {
 	outputToken: HexString
 	solverAmount: bigint
-	/** Input amount this quote buys; the full order input for legacy calldata. */
+	/** Input amount this quote buys. */
 	inputTake: bigint
-	/** Output quote scaled to the order's full input amount for comparable phantom pricing. */
+	/** Output quote scaled to the order's full input amount, so slices of different sizes compare by rate. */
 	normalizedAmount: bigint
 }
 
 export interface FillData {
 	order: Record<string, unknown>
-	options: Record<string, unknown> & { inputs: { token: HexString; amount: bigint }[] }
-	/** ABI capability applies to every v3 bid. */
-	version: FillOptionsVersion
+	options: Record<string, unknown> & {
+		inputs: { token: HexString; amount: bigint }[]
+		outputs: { token: HexString; amount: bigint }[]
+	}
 	/** Positional, matching the order's asset lists. A zero amount means the solver did not quote that leg. */
 	legs: FillLeg[]
 }
 
 /**
- * Zips an order's output assets with the bid's quoted amounts into positional legs. A missing or
- * null amount is the "solver declined this leg" sentinel and becomes a zero quote. Shared by the
- * viem extractor below and the indexer's VM2-safe one, so the declined-leg convention has a
- * single home while only the ABI decode differs per environment.
+ * Zips an order's legs with the bid's quoted takes and outputs into positional legs. Every leg
+ * must be quoted; a zero take with a zero output is the "solver declined this leg" sentinel.
+ * Shared by the viem extractor below and any VM2-safe decoder, so the declined-leg convention has
+ * a single home while only the ABI decode differs per environment.
  */
 export function zipFillLegs(
 	assets: { token: HexString }[],
 	outputs: { token: HexString; amount: unknown }[],
-	orderInputs: { token: HexString; amount: unknown }[] = [],
-	quotedInputs: { token: HexString; amount: unknown }[] = [],
+	orderInputs: { token: HexString; amount: unknown }[],
+	quotedInputs: { token: HexString; amount: unknown }[],
 ): FillLeg[] {
-	if (outputs.length !== assets.length) throw new Error("Fill outputs must match order output assets positionally")
-	for (const [index, asset] of assets.entries()) {
-		if (!isCanonicalEvmToken(asset.token) || !isCanonicalEvmToken(outputs[index].token)) {
+	if (
+		outputs.length !== assets.length ||
+		orderInputs.length !== assets.length ||
+		quotedInputs.length !== assets.length
+	) {
+		throw new Error("Fill inputs, outputs and order legs must have equal lengths")
+	}
+	return assets.map((asset, index) => {
+		const output = outputs[index]
+		const orderInput = orderInputs[index]
+		const quotedInput = quotedInputs[index]
+		if (
+			!isCanonicalEvmToken(asset.token) ||
+			!isCanonicalEvmToken(output.token) ||
+			!isCanonicalEvmToken(orderInput.token) ||
+			!isCanonicalEvmToken(quotedInput.token)
+		) {
 			throw new Error("Fill tokens must be canonical bytes32 EVM addresses")
 		}
-		if (outputs[index].token.toLowerCase() !== asset.token.toLowerCase()) {
+		if (output.token.toLowerCase() !== asset.token.toLowerCase()) {
 			throw new Error("Fill output token does not match the order output token")
 		}
-	}
-
-	if (quotedInputs.length > 0) {
-		if (orderInputs.length !== assets.length || quotedInputs.length !== assets.length) {
-			throw new Error("Rate inputs, outputs, and order legs must have equal lengths")
+		if (quotedInput.token.toLowerCase() !== orderInput.token.toLowerCase()) {
+			throw new Error("Fill input token does not match the order input token")
 		}
-		for (const [index, quotedInput] of quotedInputs.entries()) {
-			const orderInput = orderInputs[index]
-			if (!isCanonicalEvmToken(orderInput.token) || !isCanonicalEvmToken(quotedInput.token)) {
-				throw new Error("Rate input tokens must be canonical bytes32 EVM addresses")
-			}
-			const inputToken = orderInput.token.toLowerCase()
-			if (quotedInput.token.toLowerCase() !== inputToken) {
-				throw new Error("Rate input token does not match the order input token")
-			}
-			const take = BigInt(String(quotedInput.amount))
-			const output = BigInt(String(outputs[index].amount))
-			if ((take === 0n) !== (output === 0n)) {
-				throw new Error("Rate fill take and output must both be zero or both be positive")
-			}
+		const solverAmount = BigInt(String(output.amount))
+		const inputTake = BigInt(String(quotedInput.amount))
+		if ((inputTake === 0n) !== (solverAmount === 0n)) {
+			throw new Error("Fill take and output must both be zero or both be positive")
 		}
-	}
-
-	return assets.map((asset, index) => {
-		const rawAmount = outputs[index]?.amount
-		const solverAmount = rawAmount === undefined || rawAmount === null ? 0n : BigInt(rawAmount.toString())
-		const orderInput = orderInputs[index]?.amount
-		const orderInputAmount = orderInput === undefined || orderInput === null ? 0n : BigInt(orderInput.toString())
-		const quotedInput = quotedInputs[index]?.amount
-		const inputTake =
-			quotedInput === undefined || quotedInput === null ? orderInputAmount : BigInt(quotedInput.toString())
+		const orderInputAmount = BigInt(String(orderInput.amount))
 		return {
 			outputToken: asset.token,
 			solverAmount,
@@ -794,9 +781,6 @@ export function extractFillData(callData: HexString, gatewayAddress: string): Fi
 	for (const call of calls) {
 		if (call.target.toLowerCase() !== normalized) continue
 		try {
-			// Bids come from solvers targeting whichever gateway they run against, so the
-			// calldata may be either FillOptions shape. The selectors differ, so this cannot
-			// mis-decode one as the other.
 			const decoded = decodeFillOrder(call.data as HexString)
 			if (!decoded) continue
 			const order = decoded.order as unknown as Record<string, unknown>
@@ -805,15 +789,8 @@ export function extractFillData(callData: HexString, gatewayAddress: string): Fi
 			const assets = (order as any)?.output?.assets as { token: HexString }[] | undefined
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any
 			const orderInputs = (order as any)?.inputs as { token: HexString; amount: bigint }[] | undefined
-			// eslint-disable-next-line @typescript-eslint/no-explicit-any
-			const outputs = (options as any)?.outputs as { token: HexString; amount: bigint }[] | undefined
-			if (!assets?.length || !outputs?.length) continue
-			return {
-				order,
-				options,
-				version: decoded.version,
-				legs: zipFillLegs(assets, outputs, orderInputs, decoded.options.inputs),
-			}
+			if (!assets?.length || !orderInputs?.length) continue
+			return { order, options, legs: zipFillLegs(assets, options.outputs, orderInputs, options.inputs) }
 		} catch {
 			continue
 		}
@@ -899,15 +876,15 @@ export const recoverBidSignerViem: RecoverBidSigner = async (userOp, entryPoint,
 const DELEGATION_INDICATOR_PREFIX = "0xef0100"
 
 /**
- * Whether `account` is an EOA EIP-7702-delegated to one of `solverAccounts` on the given chain.
- * Several are accepted so a SolverAccount redeployment does not unseat solvers still delegated to
- * the previous one.
+ * The SolverAccount `account` is EIP-7702-delegated to on the given chain, lowercased, or null
+ * when it is not delegated to one of `solverAccounts`. Several are accepted so a SolverAccount
+ * redeployment does not unseat solvers still delegated to the previous one.
  */
-async function isDelegatedToSolverAccount(
+async function delegatedSolverAccount(
 	evmRpcUrl: string,
 	account: string,
 	solverAccounts: readonly string[],
-): Promise<boolean> {
+): Promise<string | null> {
 	const response = await rpcCall(evmRpcUrl, {
 		id: 1,
 		jsonrpc: "2.0",
@@ -922,21 +899,24 @@ async function isDelegatedToSolverAccount(
 	}
 
 	const code = response.result.toLowerCase()
-	if (!code.startsWith(DELEGATION_INDICATOR_PREFIX)) return false
+	if (!code.startsWith(DELEGATION_INDICATOR_PREFIX)) return null
 
 	const delegate = `0x${code.slice(DELEGATION_INDICATOR_PREFIX.length)}`
-	return solverAccounts.some((solverAccount) => solverAccount.toLowerCase() === delegate)
+	return solverAccounts.some((solverAccount) => solverAccount.toLowerCase() === delegate) ? delegate : null
 }
 
-/** Promise-caching delegation reader produced by {@link memoizedDelegationCheck}. */
-type DelegationReader = (evmRpcUrl: string, account: string, solverAccounts: readonly string[]) => Promise<boolean>
+/** Promise-caching delegation reader produced by {@link memoizedDelegationCheck}: the delegate, or null. */
+type DelegationReader = (
+	evmRpcUrl: string,
+	account: string,
+	solverAccounts: readonly string[],
+) => Promise<string | null>
 
-/** Whether the gateway and the solver's live delegation both support rate fills. */
+/** Whether the gateway and the SolverAccount a solver is delegated to both report the supported release. */
 export type RateFillCapabilityReader = (
 	evmRpcUrl: string,
 	gatewayAddress: string,
-	solver: string,
-	solverAccounts: readonly string[],
+	solverAccount: string,
 ) => Promise<boolean>
 
 const SELECTOR_VERSION = "0x54fd4d50"
@@ -964,8 +944,8 @@ async function readSupportedVersion(evmRpcUrl: string, contract: string): Promis
 	} catch (err) {
 		throw new PhantomRpcError(`Invalid rate-fill capability response from ${contract} on ${evmRpcUrl}`, err)
 	}
-	// Older deployments may revert without a version getter. Rate limits and other RPC failures
-	// remain retryable instead of silently dropping a supported bid.
+	// A deployment without the getter reverts and is unsupported. Rate limits and other RPC
+	// failures remain retryable instead of silently dropping a supported bid.
 	if (body?.error) {
 		const message = String(body.error.message ?? body.error).toLowerCase()
 		if (/revert|function selector|invalid opcode/.test(message)) return false
@@ -984,28 +964,9 @@ async function readSupportedVersion(evmRpcUrl: string, contract: string): Promis
 	)
 }
 
-/** Reads `version()` on the gateway and on the account the solver is delegated to. Never cached, so an upgrade is seen at once. */
-export const readRateFillCapability: RateFillCapabilityReader = async (
-	evmRpcUrl,
-	gatewayAddress,
-	solver,
-	solverAccounts,
-) => {
-	const response = await rpcCall(evmRpcUrl, {
-		id: 1,
-		jsonrpc: "2.0",
-		method: "eth_getCode",
-		params: [solver, "latest"],
-	})
-	if (typeof response.result !== "string") {
-		throw new PhantomRpcError(`eth_getCode returned no code for ${solver} on ${evmRpcUrl}`)
-	}
-	const code = response.result.toLowerCase()
-	if (!code.startsWith(DELEGATION_INDICATOR_PREFIX)) return false
-	const delegate = `0x${code.slice(DELEGATION_INDICATOR_PREFIX.length)}`
-	if (!solverAccounts.some((candidate) => candidate.toLowerCase() === delegate)) return false
-	return (await readSupportedVersion(evmRpcUrl, gatewayAddress)) && (await readSupportedVersion(evmRpcUrl, delegate))
-}
+/** Reads `version()` on the gateway and on the given SolverAccount. Not cached beyond one aggregation, so an upgrade is seen at once. */
+export const readRateFillCapability: RateFillCapabilityReader = async (evmRpcUrl, gatewayAddress, solverAccount) =>
+	(await readSupportedVersion(evmRpcUrl, gatewayAddress)) && (await readSupportedVersion(evmRpcUrl, solverAccount))
 
 /**
  * Caches the delegation check for the life of one aggregation, retries included.
@@ -1021,8 +982,8 @@ export const readRateFillCapability: RateFillCapabilityReader = async (
  * "not our solver" is an answer, unlike an unreachable node.
  */
 function memoizedDelegationCheck(): DelegationReader {
-	const cache = new Map<string, Promise<boolean>>()
-	return (evmRpcUrl: string, account: string, solverAccounts: readonly string[]): Promise<boolean> => {
+	const cache = new Map<string, Promise<string | null>>()
+	return (evmRpcUrl: string, account: string, solverAccounts: readonly string[]): Promise<string | null> => {
 		const targets = solverAccounts
 			.map((a) => a.toLowerCase())
 			.sort()
@@ -1030,7 +991,28 @@ function memoizedDelegationCheck(): DelegationReader {
 		const key = `${evmRpcUrl}|${account.toLowerCase()}|${targets}`
 		let pending = cache.get(key)
 		if (!pending) {
-			pending = isDelegatedToSolverAccount(evmRpcUrl, account, solverAccounts).catch((err) => {
+			pending = delegatedSolverAccount(evmRpcUrl, account, solverAccounts).catch((err) => {
+				cache.delete(key)
+				throw err
+			})
+			cache.set(key, pending)
+		}
+		return pending
+	}
+}
+
+/**
+ * Caches the capability read per gateway and SolverAccount for the life of one aggregation,
+ * retries included, on the same reasoning as {@link memoizedDelegationCheck}: a release does not
+ * change within a bid window. Rejections are evicted so a retry re-reads.
+ */
+function memoizedCapabilityCheck(read: RateFillCapabilityReader): RateFillCapabilityReader {
+	const cache = new Map<string, Promise<boolean>>()
+	return (evmRpcUrl, gatewayAddress, solverAccount) => {
+		const key = `${evmRpcUrl}|${gatewayAddress.toLowerCase()}|${solverAccount.toLowerCase()}`
+		let pending = cache.get(key)
+		if (!pending) {
+			pending = read(evmRpcUrl, gatewayAddress, solverAccount).catch((err) => {
 				cache.delete(key)
 				throw err
 			})
@@ -1412,10 +1394,11 @@ export async function aggregatePhantomBids(
 	// Built out here, not per attempt: delegation cannot change within a bid window, so a retry
 	// forced by one unrelated failed read must not re-interrogate every solver it already verified.
 	const isDelegated = memoizedDelegationCheck()
+	const supportsRateFills = memoizedCapabilityCheck(params.supportsRateFills ?? readRateFillCapability)
 	let lastErr: unknown
 	for (let attempt = 1; attempt <= AGGREGATION_ATTEMPTS; attempt++) {
 		try {
-			return await runAggregation(params, isDelegated)
+			return await runAggregation(params, isDelegated, supportsRateFills)
 		} catch (err) {
 			lastErr = err
 			params.logger?.warn(
@@ -1469,6 +1452,7 @@ async function runAggregation(
 		logger?: AggregationLogger
 	},
 	isDelegated: DelegationReader,
+	supportsRateFills: RateFillCapabilityReader,
 ): Promise<PhantomAggregation | null> {
 	const { nodeUrl, evmRpcUrls, chain, gatewayAddress, commitment, yieldVaults, logger } = params
 	const solverAccounts = (Array.isArray(params.solverAccount) ? params.solverAccount : [params.solverAccount]).filter(
@@ -1478,7 +1462,6 @@ async function runAggregation(
 	const recoverSigner = params.recoverSigner ?? recoverBidSignerViem
 	const bidNonceKey = params.bidNonceKey ?? CryptoUtils.bidNonceKey
 	const orderCommitment = params.orderCommitment ?? orderCommitmentFromDecoded
-	const supportsRateFills = params.supportsRateFills ?? readRateFillCapability
 
 	const destUrl = evmRpcUrls[chain]
 	if (!destUrl) return null
@@ -1560,10 +1543,12 @@ async function runAggregation(
 				logger,
 			})
 			if (!verified) continue
-			if (fillData.version === 3 && !(await supportsRateFills(destUrl, gatewayAddress, solver, solverAccounts))) {
+			// Memoised by the delegation check above, so this is the verified delegate without another read.
+			const delegate = await isDelegated(destUrl, solver, solverAccounts)
+			if (!delegate || !(await supportsRateFills(destUrl, gatewayAddress, delegate))) {
 				logger?.warn(
-					{ solver, commitment },
-					"Rejecting rate phantom bid: destination does not support rate fills",
+					{ solver, commitment, delegate },
+					"Rejecting phantom bid: gateway or solver account does not report the supported release",
 				)
 				continue
 			}

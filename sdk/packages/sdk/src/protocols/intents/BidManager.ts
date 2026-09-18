@@ -14,7 +14,7 @@ import type {
 } from "@/types"
 import type { IntentGatewayContext } from "./types"
 import { CryptoUtils } from "./CryptoUtils"
-import { decodeFillOrder, supportsRateFills, FILL_ORDER_V3_SELECTOR } from "./fillOrderCodec"
+import { decodeFillOrder, supportsRateFills, FILL_ORDER_SELECTOR } from "./fillOrderCodec"
 import { BidImpl } from "./Bid"
 import Decimal from "decimal.js"
 
@@ -75,32 +75,28 @@ export class BidManager {
 			callData,
 			paymasterAndData = "0x" as HexString,
 		} = options
-		const fills = (this.crypto.decodeERC7821Execute(callData) ?? [])
-			.map((call) => {
-				const fill = decodeFillOrder(call.data as HexString)
-				if (call.data.slice(0, 10).toLowerCase() === FILL_ORDER_V3_SELECTOR && !fill) {
-					throw new Error("Malformed v3 fill quote; every leg requires inputs and outputs")
-				}
-				return fill
-			})
-			.filter((fill) => fill !== null)
-		const hasRateQuote = fills.some((fill) => fill.version === 3)
-		if ((options.fillOptions.inputs?.length ?? 0) > 0 && !hasRateQuote) {
-			throw new Error("Input takes require v3 fillOrder calldata")
-		}
-		if (hasRateQuote) {
-			const chain = normalizeStateMachineId(order.destination)
-			const gateway = this.ctx.dest.configService.getIntentGatewayAddress(chain)
-			const implementation = this.ctx.dest.configService.getSolverAccountAddress(chain)
-			// Check the live account as well as the implementation used for simulation overrides.
-			const liveSupport = await supportsRateFills(this.ctx.dest.client as any, gateway, solverAccount)
-			const configuredSupport =
-				implementation && (await supportsRateFills(this.ctx.dest.client as any, gateway, implementation))
-			if (!liveSupport || !configuredSupport) {
-				throw new Error(
-					"v3 fills are not supported by the destination gateway, live delegation, and configured SolverAccount",
-				)
+		// Every fillOrder call in the bid must carry a quote for each leg, and the destination must
+		// speak the release that settles it: the gateway, the solver's live delegation and the
+		// configured SolverAccount implementation (used for simulation overrides) all report it.
+		const fills = (this.crypto.decodeERC7821Execute(callData) ?? []).filter(
+			(call) => call.data.slice(0, 10).toLowerCase() === FILL_ORDER_SELECTOR,
+		)
+		if (fills.length === 0) throw new Error("Bid calldata carries no fillOrder call")
+		for (const call of fills) {
+			if (!decodeFillOrder(call.data as HexString)) {
+				throw new Error("Malformed fill quote; every leg requires inputs and outputs")
 			}
+		}
+		const chain = normalizeStateMachineId(order.destination)
+		const gateway = this.ctx.dest.configService.getIntentGatewayAddress(chain)
+		const implementation = this.ctx.dest.configService.getSolverAccountAddress(chain)
+		const liveSupport = await supportsRateFills(this.ctx.dest.client as any, gateway, solverAccount)
+		const configuredSupport =
+			implementation && (await supportsRateFills(this.ctx.dest.client as any, gateway, implementation))
+		if (!liveSupport || !configuredSupport) {
+			throw new Error(
+				"Fills are not supported by the destination gateway, live delegation, and configured SolverAccount",
+			)
 		}
 
 		const chainId = BigInt(
@@ -352,23 +348,17 @@ export class BidManager {
 			}
 
 			const quotedInput = bid.inputs[0]
-			let take: bigint
-			if (quotedInput) {
-				if (
-					bid.inputs.length !== 1 ||
-					quotedInput.token.toLowerCase() !== order.inputs[0]?.token.toLowerCase() ||
-					quotedInput.amount <= 0n ||
-					bidOutput.amount <= 0n
-				) {
-					continue
-				}
-				take = quotedInput.amount
-			} else {
-				const requiredInput = order.inputs[0]?.amount ?? 0n
-				const credited = bidOutput.amount < requiredAsset.amount ? bidOutput.amount : requiredAsset.amount
-				take = requiredAsset.amount === 0n ? 0n : (requiredInput * credited) / requiredAsset.amount
-				if (take === 0n || bidOutput.amount === 0n) continue
+			if (
+				!quotedInput ||
+				bid.inputs.length !== 1 ||
+				quotedInput.token.toLowerCase() !== order.inputs[0]?.token.toLowerCase() ||
+				quotedInput.amount <= 0n ||
+				bidOutput.amount <= 0n
+			) {
+				console.warn(`[BidManager] Bid from solver=${bid.solverAddress} REJECTED: no valid quote for the leg`)
+				continue
 			}
+			const take = quotedInput.amount
 
 			validBids.push({ bid, output: bidOutput.amount, take, index })
 		}
@@ -491,8 +481,6 @@ export class BidManager {
 	/** Compare prices at the original escrow size without changing signed funding amounts. */
 	private rankingOutputs(order: Order, bid: Bid): TokenInfo[] | null {
 		if (bid.outputs.length !== order.output.assets.length) return null
-		// Historical calldata has no explicit takes and retains its original ranking.
-		if (bid.inputs.length === 0) return bid.outputs
 		if (bid.inputs.length !== order.inputs.length || order.inputs.length !== bid.outputs.length) return null
 		const outputs: TokenInfo[] = []
 		for (let i = 0; i < bid.outputs.length; i++) {

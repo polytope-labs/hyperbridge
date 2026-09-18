@@ -1349,7 +1349,7 @@ export interface SubmitBidOptions {
 
 export interface EstimateFillOrderParams {
 	order: Order
-	/** Positional input takes. Required with custom outputs on ABI v3; otherwise estimates a full order-rate fill. */
+	/** Positional input takes. Required with custom outputs; otherwise estimates a full fill at the order's rate. */
 	inputs?: TokenInfo[]
 	/** Output slice offered by the solver. Defaults to the order's full requested outputs. */
 	outputs?: TokenInfo[]
@@ -1518,7 +1518,7 @@ export interface Bid {
 	readonly solverAddress: HexString
 	/** Decoded output budgets; these are not settlement payments or credited progress. */
 	readonly outputs: TokenInfo[]
-	/** Positional input takes from `FillOptions.inputs`; empty only for historical ABI bids. */
+	/** Positional input takes from `FillOptions.inputs`, one per leg. */
 	readonly inputs: TokenInfo[]
 	/** Relayer fee from the decoded fill options. */
 	readonly relayerFee: bigint

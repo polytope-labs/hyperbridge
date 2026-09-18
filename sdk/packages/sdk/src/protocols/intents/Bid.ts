@@ -72,7 +72,7 @@ export class BidImpl implements Bid {
 
 		this.solverAddress = params.fillerBid.userOp.sender
 		this.outputs = params.fillOptions.outputs
-		this.inputs = params.fillOptions.inputs ?? []
+		this.inputs = params.fillOptions.inputs
 		this.relayerFee = params.fillOptions.relayerFee
 		this.nativeDispatchFee = params.fillOptions.nativeDispatchFee
 		this.userOp = params.fillerBid.userOp

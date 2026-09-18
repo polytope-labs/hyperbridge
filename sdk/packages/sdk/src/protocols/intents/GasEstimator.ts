@@ -1,7 +1,7 @@
 import { encodeFunctionData, toHex, pad, maxUint256, concat, keccak256, isHex, hexToString } from "viem"
 import { generatePrivateKey, privateKeyToAccount, privateKeyToAddress } from "viem/accounts"
 import { ABI as IntentGatewayV2ABI } from "@/abis/IntentGatewayV2"
-import { encodeFillOrder, getFillOptionsVersion, supportsRateFills } from "./fillOrderCodec"
+import { encodeFillOrder, assertGatewayRelease, supportsRateFills } from "./fillOrderCodec"
 import {
 	ADDRESS_ZERO,
 	bytes32ToBytes20,
@@ -132,7 +132,11 @@ export class GasEstimator {
 		pricingOptions: GasEstimationPricingOptions = {},
 	): Promise<FillOrderEstimate> {
 		const { order } = params
-		let inputs = (params.inputs ?? []).map((input) => ({
+		if (params.outputs !== undefined && params.inputs === undefined) {
+			throw new Error("Custom output quotes require explicit inputs")
+		}
+		// A fee estimate without a solver quote simulates a full fill at the user's rate.
+		const inputs = (params.inputs ?? order.inputs).map((input) => ({
 			...input,
 			token: normalizeAddressForEvmBytes32(input.token),
 		}))
@@ -216,29 +220,15 @@ export class GasEstimator {
 		const orderForEstimation = { ...order, session: solverAccountAddress }
 		const commitment = orderCommitment(orderForEstimation)
 
-		// The gateway may predate `FillOptions.validUntil`; the two shapes have different
-		// selectors, so encoding the wrong one makes the estimate revert on a missing function.
-		const fillOptionsVersion = await getFillOptionsVersion(this.ctx.dest.client as any, intentGatewayV2Address)
-		if (fillOptionsVersion === 3 && params.inputs === undefined) {
-			if (params.outputs !== undefined) throw new Error("Custom output quotes require explicit inputs")
-			// A fee estimate without a solver quote simulates a full fill at the user's rate.
-			inputs = order.inputs.map((input) => ({ ...input, token: normalizeAddressForEvmBytes32(input.token) }))
-			fillOptions.inputs = inputs
+		await assertGatewayRelease(this.ctx.dest.client as any, intentGatewayV2Address)
+		const implementation = this.ctx.dest.configService.getSolverAccountAddress(destStateMachineId)
+		if (
+			!implementation ||
+			!(await supportsRateFills(this.ctx.dest.client as any, intentGatewayV2Address, implementation))
+		) {
+			throw new Error("Fills are not supported by the destination gateway and configured SolverAccount")
 		}
-		if (fillOptionsVersion === 3) {
-			const implementation = this.ctx.dest.configService.getSolverAccountAddress(destStateMachineId)
-			if (
-				!implementation ||
-				!(await supportsRateFills(this.ctx.dest.client as any, intentGatewayV2Address, implementation))
-			) {
-				throw new Error("v3 fills are not supported by the destination gateway and configured SolverAccount")
-			}
-		}
-		const fillOrderCalldata = encodeFillOrder(
-			transformOrderForContract(orderForEstimation) as any,
-			fillOptions,
-			fillOptionsVersion,
-		)
+		const fillOrderCalldata = encodeFillOrder(transformOrderForContract(orderForEstimation) as any, fillOptions)
 
 		let callGasLimit: bigint = 500_000n
 		let verificationGasLimit: bigint = 100_000n

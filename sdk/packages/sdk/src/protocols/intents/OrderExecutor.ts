@@ -5,7 +5,7 @@ import type { BidManager } from "./BidManager"
 import { CryptoUtils } from "./CryptoUtils"
 import type { IntentGatewayContext } from "./types"
 import { ABI as IntentGatewayV2ABI } from "@/abis/IntentGatewayV2"
-import { BidExecutionPendingError, BidExecutionRejectedError, BidImpl } from "./Bid"
+import { BidExecutionPendingError, BidExecutionRejectedError, BidImpl, errorMessage } from "./Bid"
 import { SubmissionJournal } from "./submissionJournal"
 import { readLegPartialFill } from "./escrowReads"
 import { decodeFillOrder } from "./fillOrderCodec"
@@ -50,6 +50,27 @@ function sleepUnlessAborted(ms: number, signal: AbortSignal): Promise<boolean> {
 		}
 		signal.addEventListener("abort", onAbort, { once: true })
 	})
+}
+
+/** Per-leg output still owed after `filled`, clamped at zero. */
+function remainingAfter(targets: TokenInfo[], filled: TokenInfo[]): TokenInfo[] {
+	return targets.map((target, index) => {
+		const credited = filled[index]?.amount ?? 0n
+		return { token: target.token, amount: credited >= target.amount ? 0n : target.amount - credited }
+	})
+}
+
+/** Once `_filled` is set, progress can only mean complete or cancelled. */
+function finalizedUpdate(
+	commitment: HexString,
+	finalizer: HexString,
+	totalFilledAssets: TokenInfo[],
+	remainingAssets: TokenInfo[],
+): IntentOrderStatusUpdate {
+	if (remainingAssets.every((asset) => asset.amount === 0n)) {
+		return { status: "FILLED", commitment, selectedSolver: finalizer, totalFilledAssets, remainingAssets }
+	}
+	return { status: "CANCELLED", commitment, totalFilledAssets, remainingAssets }
 }
 
 export async function isUserOperationNonceConsumed(
@@ -151,7 +172,74 @@ export class OrderExecutor {
 		)
 	}
 
-	/** Reads cumulative credited progress so restarts and concurrent fillers do not rely on stale local totals. */
+	/**
+	 * Settles a journaled operation before any other bid is considered. Returns the verified fill
+	 * when the operation landed, undefined once it is proven dead, and throws
+	 * {@link BidExecutionPendingError} while neither can be established.
+	 */
+	private async recoverSubmission(
+		order: Order,
+		submission: SelectBidResult,
+		entryPoint: HexString,
+		retire: (submission: SelectBidResult) => Promise<void>,
+	): Promise<SelectBidResult | undefined> {
+		const crypto = new CryptoUtils(this.ctx)
+		const receipt = await BidImpl.receipt(crypto, submission.userOpHash)
+		if (receipt) return this.settleReceipt(order, submission, receipt, retire)
+
+		// Only finalized state proves this exact operation can no longer execute; providers without
+		// it fail closed.
+		const finalized = await this.ctx.dest.client.getBlock({ blockTag: "finalized" })
+		if (finalized.number === null) throw new Error("Finalized block unavailable")
+		const nonce = BigInt(
+			await this.ctx.dest.client.readContract({
+				address: entryPoint,
+				abi: EntryPoint.ABI,
+				functionName: "getNonce",
+				args: [submission.userOp.sender, submission.userOp.nonce >> 64n],
+				blockNumber: finalized.number,
+			}),
+		)
+		const validUntil = this.journaledValidUntil(crypto, submission)
+		const dead =
+			nonce > submission.userOp.nonce ||
+			finalized.number > order.deadline ||
+			(validUntil !== undefined && validUntil !== 0n && finalized.number > validUntil)
+		if (dead) {
+			await retire(submission)
+			return undefined
+		}
+
+		if (await isUserOperationNonceConsumed(this.ctx.dest.client, entryPoint, submission.userOp)) {
+			throw new BidExecutionPendingError(submission.userOpHash, "Nonce consumed; waiting for finalized state")
+		}
+		await BidImpl.broadcast(crypto, submission, entryPoint, true)
+		let replayReceipt: Awaited<ReturnType<typeof BidImpl.awaitReceipt>>
+		try {
+			replayReceipt = await BidImpl.awaitReceipt(this.ctx, crypto, submission.userOpHash)
+		} catch {
+			throw new BidExecutionPendingError(submission.userOpHash, "Rebroadcast operation is awaiting inclusion")
+		}
+		return this.settleReceipt(order, submission, replayReceipt, retire)
+	}
+
+	/** Verifies a receipt and retires the operation; a chain-proven failure retires it without a fill. */
+	private async settleReceipt(
+		order: Order,
+		submission: SelectBidResult,
+		receipt: Awaited<ReturnType<typeof BidImpl.awaitReceipt>>,
+		retire: (submission: SelectBidResult) => Promise<void>,
+	): Promise<SelectBidResult | undefined> {
+		let recovered: SelectBidResult | undefined
+		try {
+			recovered = await BidImpl.verifyReceipt(this.ctx, order, submission, receipt)
+		} catch (error) {
+			if (!(error instanceof BidExecutionRejectedError)) throw error
+		}
+		await retire(submission)
+		return recovered
+	}
+
 	/** The `validUntil` of the journaled fill, or undefined when the calldata does not decode. */
 	private journaledValidUntil(crypto: CryptoUtils, submission: SelectBidResult): bigint | undefined {
 		for (const call of crypto.decodeERC7821Execute(submission.userOp.callData) ?? []) {
@@ -161,6 +249,7 @@ export class OrderExecutor {
 		return undefined
 	}
 
+	/** Credited progress per leg, never below `fallback`, so restarts and other fillers cannot regress it. */
 	private async readCreditedProgress(
 		order: Order,
 		commitment: HexString,
@@ -385,7 +474,7 @@ export class OrderExecutor {
 			} catch (error) {
 				throw new BidExecutionPendingError(
 					submission.userOpHash,
-					`Could not retire submission durably: ${error instanceof Error ? error.message : String(error)}`,
+					`Could not retire submission durably: ${errorMessage(error)}`,
 				)
 			}
 		}
@@ -394,70 +483,15 @@ export class OrderExecutor {
 			usedUserOps = await this.loadUsedUserOps(commitment)
 			const pending = await journal.read()
 			if (pending) {
-				const submission = pending.submission
-				if (usedUserOps.has(submission.userOpHash.toLowerCase())) {
+				if (usedUserOps.has(pending.submission.userOpHash.toLowerCase())) {
 					// Crash after terminal write: no rebroadcast and no duplicate fill accounting.
 					await journal.clear()
 				} else {
-					const crypto = new CryptoUtils(this.ctx)
-					const receipt = await BidImpl.receipt(crypto, submission.userOpHash)
-					if (receipt) {
-						try {
-							recovered = await BidImpl.verifyReceipt(this.ctx, order, submission, receipt)
-						} catch (error) {
-							if (!(error instanceof BidExecutionRejectedError)) throw error
-						}
-						await retire(submission)
-					} else {
-						// A finalized nonce/deadline proves this exact operation can no longer execute.
-						// Providers without finalized state fail closed; latest state alone is insufficient.
-						const finalized = await this.ctx.dest.client.getBlock({ blockTag: "finalized" })
-						if (finalized.number === null) throw new Error("Finalized block unavailable")
-						const nonce = BigInt(
-							await this.ctx.dest.client.readContract({
-								address: entryPoint,
-								abi: EntryPoint.ABI,
-								functionName: "getNonce",
-								args: [submission.userOp.sender, submission.userOp.nonce >> 64n],
-								blockNumber: finalized.number,
-							}),
-						)
-						// A fill past the operation's own validUntil reverts on chain, so that bound retires it too.
-						const validUntil = this.journaledValidUntil(crypto, submission)
-						const expired = validUntil !== undefined && validUntil !== 0n && finalized.number > validUntil
-						if (nonce > submission.userOp.nonce || finalized.number > order.deadline || expired) {
-							await retire(submission)
-						} else {
-							if (
-								await isUserOperationNonceConsumed(this.ctx.dest.client, entryPoint, submission.userOp)
-							) {
-								throw new BidExecutionPendingError(
-									submission.userOpHash,
-									"Nonce consumed; waiting for finalized state",
-								)
-							}
-							await BidImpl.broadcast(crypto, submission, entryPoint, true)
-							let replayReceipt: Awaited<ReturnType<typeof BidImpl.awaitReceipt>>
-							try {
-								replayReceipt = await BidImpl.awaitReceipt(this.ctx, crypto, submission.userOpHash)
-							} catch {
-								throw new BidExecutionPendingError(
-									submission.userOpHash,
-									"Rebroadcast operation is awaiting inclusion",
-								)
-							}
-							try {
-								recovered = await BidImpl.verifyReceipt(this.ctx, order, submission, replayReceipt)
-							} catch (error) {
-								if (!(error instanceof BidExecutionRejectedError)) throw error
-							}
-							await retire(submission)
-						}
-					}
+					recovered = await this.recoverSubmission(order, pending.submission, entryPoint, retire)
 				}
 			}
 		} catch (error) {
-			yield { status: "FAILED", commitment, error: error instanceof Error ? error.message : String(error) }
+			yield { status: "FAILED", commitment, error: errorMessage(error) }
 			return
 		}
 
@@ -477,29 +511,12 @@ export class OrderExecutor {
 				totalFilledAssets = await this.readCreditedProgress(order, commitment, totalFilledAssets)
 			}
 		} catch (err) {
-			yield { status: "FAILED", commitment, error: err instanceof Error ? err.message : String(err) }
+			yield { status: "FAILED", commitment, error: errorMessage(err) }
 			return
 		}
-		let remainingAssets = order.output.assets.map((a) => ({ token: a.token, amount: a.amount }))
-		remainingAssets = targetAssets.map((target, index) => ({
-			token: target.token,
-			amount:
-				(totalFilledAssets[index]?.amount ?? 0n) >= target.amount
-					? 0n
-					: target.amount - (totalFilledAssets[index]?.amount ?? 0n),
-		}))
+		let remainingAssets = remainingAfter(targetAssets, totalFilledAssets)
 		if (initialFinalizer) {
-			if (remainingAssets.every((asset) => asset.amount === 0n)) {
-				yield {
-					status: "FILLED",
-					commitment,
-					selectedSolver: initialFinalizer,
-					totalFilledAssets,
-					remainingAssets,
-				}
-			} else {
-				yield { status: "CANCELLED", commitment, totalFilledAssets, remainingAssets }
-			}
+			yield finalizedUpdate(commitment, initialFinalizer, totalFilledAssets, remainingAssets)
 			return
 		}
 		if (recovered) {
@@ -575,9 +592,7 @@ export class OrderExecutor {
 							input = await this.bidManager.selectAndExecuteBest(
 								order,
 								value.bids,
-								async (submission) => {
-									await journal.write(submission)
-								},
+								(submission) => journal.write(submission),
 								retire,
 							)
 						} catch (err) {
@@ -688,40 +703,20 @@ export class OrderExecutor {
 				)
 				if (creditedProgress === ABORTED) return
 				totalFilledAssets = creditedProgress
-				remainingAssets = targetAssets.map((target, index) => ({
-					token: target.token,
-					amount:
-						(totalFilledAssets[index]?.amount ?? 0n) >= target.amount
-							? 0n
-							: target.amount - (totalFilledAssets[index]?.amount ?? 0n),
-				}))
+				remainingAssets = remainingAfter(targetAssets, totalFilledAssets)
 				const finalizer = await waitUnlessAborted(this.readFinalizer(order, commitment), signal)
 				if (finalizer === ABORTED) return
 				if (finalizer) {
+					// Progress is immutable once finalized; reread it so a fill landing between the two
+					// reads cannot look like a cancellation.
 					const finalizedProgress = await waitUnlessAborted(
 						this.readCreditedProgress(order, commitment, totalFilledAssets),
 						signal,
 					)
 					if (finalizedProgress === ABORTED) return
 					totalFilledAssets = finalizedProgress
-					remainingAssets = targetAssets.map((target, index) => ({
-						token: target.token,
-						amount:
-							(totalFilledAssets[index]?.amount ?? 0n) >= target.amount
-								? 0n
-								: target.amount - (totalFilledAssets[index]?.amount ?? 0n),
-					}))
-					if (remainingAssets.every((asset) => asset.amount === 0n)) {
-						yield {
-							status: "FILLED",
-							commitment,
-							selectedSolver: finalizer,
-							totalFilledAssets,
-							remainingAssets,
-						}
-					} else {
-						yield { status: "CANCELLED", commitment, totalFilledAssets, remainingAssets }
-					}
+					remainingAssets = remainingAfter(targetAssets, totalFilledAssets)
+					yield finalizedUpdate(commitment, finalizer, totalFilledAssets, remainingAssets)
 					return
 				}
 				let freshBids: FillerBid[]
@@ -806,7 +801,7 @@ export class OrderExecutor {
 			yield {
 				status: "FAILED",
 				commitment,
-				error: `Unexpected error: ${err instanceof Error ? err.message : String(err)}`,
+				error: `Unexpected error: ${errorMessage(err)}`,
 			}
 		}
 	}

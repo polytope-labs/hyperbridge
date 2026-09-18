@@ -36,9 +36,13 @@ const ENTRY_POINT_EVENT_ABI = [
 	},
 ] as const
 
-/** Submission was accepted, but inclusion/fill outcome could not be established safely. */
 const DEFAULT_RECEIPT_POLLING = { maxRetries: 7, backoffMs: 2000 }
 
+export function errorMessage(error: unknown): string {
+	return error instanceof Error ? error.message : String(error)
+}
+
+/** The operation may have reached the bundler or the chain; no other bid may be sent until that is settled. */
 export class BidExecutionPendingError extends Error {
 	constructor(
 		readonly userOpHash: HexString,
@@ -46,6 +50,10 @@ export class BidExecutionPendingError extends Error {
 	) {
 		super(message)
 		this.name = "BidExecutionPendingError"
+	}
+
+	static uncertain(userOpHash: HexString, cause: unknown): BidExecutionPendingError {
+		return new BidExecutionPendingError(userOpHash, `Bid submission outcome is uncertain: ${errorMessage(cause)}`)
 	}
 }
 
@@ -218,7 +226,7 @@ export class BidImpl implements Bid {
 				value: simulationValue,
 			})
 		} catch (e: unknown) {
-			throw new Error(`Simulation failed: ${e instanceof Error ? e.message : String(e)}`)
+			throw new Error(`Simulation failed: ${errorMessage(e)}`)
 		}
 	}
 
@@ -270,7 +278,7 @@ export class BidImpl implements Bid {
 		} catch (err) {
 			throw new BidExecutionPendingError(
 				userOpHash,
-				`Bid submission attempt could not be recorded durably: ${err instanceof Error ? err.message : String(err)}`,
+				`Bid submission attempt could not be recorded durably: ${errorMessage(err)}`,
 			)
 		}
 		try {
@@ -287,10 +295,7 @@ export class BidImpl implements Bid {
 				throw error
 			}
 			if (error instanceof BidExecutionPendingError) throw error
-			throw new BidExecutionPendingError(
-				userOpHash,
-				`Bid submission outcome is uncertain: ${error instanceof Error ? error.message : String(error)}`,
-			)
+			throw BidExecutionPendingError.uncertain(userOpHash, error)
 		}
 	}
 
@@ -303,7 +308,7 @@ export class BidImpl implements Bid {
 		} catch (error) {
 			throw new BidExecutionPendingError(
 				submission.userOpHash,
-				`Could not retire submission durably: ${error instanceof Error ? error.message : String(error)}`,
+				`Could not retire submission durably: ${errorMessage(error)}`,
 			)
 		}
 	}
@@ -326,7 +331,7 @@ export class BidImpl implements Bid {
 			if (!replay && isFirstSendRejection(error)) throw new BidExecutionRejectedError((error as Error).message)
 			throw new BidExecutionPendingError(
 				submission.userOpHash,
-				`Bid send outcome is uncertain: ${error instanceof Error ? error.message : String(error)}`,
+				`Bid send outcome is uncertain: ${errorMessage(error)}`,
 			)
 		}
 	}
@@ -377,11 +382,9 @@ export class BidImpl implements Bid {
 			normalizeStateMachineId(order.destination),
 		)
 
-		let txnHash: HexString | undefined
+		const txnHash = receipt.receipt.transactionHash
 		let fillStatus: "full" | "partial" | undefined
 		let filledAssets: TokenInfo[] | undefined
-
-		txnHash = receipt.receipt.transactionHash
 
 		let chainReceipt: Awaited<ReturnType<typeof ctx.dest.client.waitForTransactionReceipt>>
 		try {
@@ -390,10 +393,7 @@ export class BidImpl implements Bid {
 				confirmations: 1,
 			})
 		} catch (err) {
-			throw new BidExecutionPendingError(
-				userOpHash,
-				`Bid submission outcome is uncertain: ${err instanceof Error ? err.message : String(err)}`,
-			)
+			throw BidExecutionPendingError.uncertain(userOpHash, err)
 		}
 		if (chainReceipt.status === "reverted") {
 			throw new BidExecutionPendingError(
@@ -488,10 +488,7 @@ export class BidImpl implements Bid {
 				}
 			}
 		} catch (err) {
-			throw new BidExecutionPendingError(
-				userOpHash,
-				`Bid submission outcome is uncertain: ${err instanceof Error ? err.message : String(err)}`,
-			)
+			throw BidExecutionPendingError.uncertain(userOpHash, err)
 		}
 
 		return {

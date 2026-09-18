@@ -170,10 +170,10 @@ describe("setup API", () => {
 	it("rejects an invalid config at preview with the validation message", async () => {
 		const { base } = await startInitServer()
 		const config = minimalConfig("http://127.0.0.1:1")
-		config.pairs = []
+		config.chains = []
 		const res = await post(base, "preview", { config })
 		expect(res.status).toBe(400)
-		expect((await res.json()).error).toContain("At least one [[pairs]]")
+		expect((await res.json()).error).toContain("At least one chain")
 	})
 
 	it("rejects a chain without confirmation coverage at preview, like boot does", async () => {

@@ -370,11 +370,11 @@ export function validateConfig(config: FillerTomlConfig, cliWatchOnly = false): 
 	if (config.assets) {
 		validateAssetDefinitions(config.assets)
 	}
-	const hasPairs = (config.pairs?.length ?? 0) > 0
-	if (!hasPairs && !allChainsWatchOnly) {
-		throw new Error("At least one [[pairs]] entry must be configured (unless all chains are in watchOnly mode)")
-	}
-	if (hasPairs) {
+	// Markets are not declared up front any more: the operator's limit orders say
+	// what simplex trades, and those are created while it runs. A config may carry
+	// [[pairs]] and they are still validated, but an empty list is a filler waiting
+	// for its first market rather than a misconfiguration.
+	if ((config.pairs?.length ?? 0) > 0) {
 		validatePairConfigs(config.pairs!, config.assets)
 	}
 

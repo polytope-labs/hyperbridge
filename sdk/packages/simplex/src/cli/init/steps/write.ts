@@ -130,7 +130,6 @@ export function assembleConfig(state: WizardState): FillerConfigFile {
 				? { overfillProtection: state.overfillProtection }
 				: { overfillProtection: undefined }),
 		},
-		pairs: state.pairs,
 		assets: Object.keys(assets).length > 0 ? assets : undefined,
 		confirmationPolicies: state.confirmationPolicies,
 		// Passthrough chains first: a chain that also got re-selected as managed
@@ -166,7 +165,6 @@ function showSummary(state: WizardState, outputPath: string): void {
 	lines.push(`Signer: ${state.signer?.type}`)
 	lines.push(`Substrate key: ${maskSecret(state.substratePrivateKey ?? "")}`)
 	lines.push(`Hyperbridge: ${state.hyperbridgeWsUrl}`)
-	lines.push(`Pairs: ${state.pairs.map((p) => `${p.token0}/${p.token1}`).join(", ")}`)
 	lines.push(`Output: ${outputPath}`)
 	note(lines.join("\n"), "Summary")
 }

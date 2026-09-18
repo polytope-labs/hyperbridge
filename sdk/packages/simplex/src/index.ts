@@ -91,7 +91,7 @@ export type {
 	VaultTomlConfig,
 } from "@/config/filler-toml"
 
-export { validatePairConfigs, unanchoredToken0Symbols, pickAnchorStable } from "@/config/pairs"
+export { validatePairConfigs, pickAnchorStable } from "@/config/pairs"
 export type { PairConfig } from "@/config/pairs"
 
 export {
@@ -103,8 +103,8 @@ export {
 } from "@/config/asset-registry"
 export type { AssetDefinition } from "@/config/asset-registry"
 
-export { bookCrossedAt, parseChainKey, formatChainKey } from "@/config/interpolated-curve"
-export type { PriceCurvePoint, PriceCurveConfig, CurvePoint, CurveConfig } from "@/config/interpolated-curve"
+export { parseChainKey, formatChainKey } from "@/config/interpolated-curve"
+export type { CurvePoint, CurveConfig } from "@/config/interpolated-curve"
 
 // ─── Signing ────────────────────────────────────────────────────────────────
 // `Signer` is the contract: an identity and three operations, with no viem types

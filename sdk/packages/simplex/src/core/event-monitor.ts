@@ -7,7 +7,7 @@ import type {
 import type { FillerConfigService } from "@/services/FillerConfigService"
 import { type Logger, moduleLogger } from "@/services/Logger"
 import { reconstructOrdersFromLogs, type ReconstructDeps, type ReconstructedOrder } from "@/scanner/reconstruct"
-import type { OrderScanner, Subscription } from "@/scanner/types"
+import type { OrderScanner, ScannedFill, Subscription } from "@/scanner/types"
 
 // Re-exported from its original home so existing importers keep working.
 export { reconstructOrdersFromLogs }
@@ -88,7 +88,7 @@ export class EventMonitor extends EventEmitter {
 			},
 			onFill: (event) => {
 				if (!this.chains.has(event.chainId)) return
-				this.handleFill(event.commitment, event.filler, event.chainId, event.transactionHash)
+				this.handleFill(event)
 			},
 			onError: (error, chainId) =>
 				this.logger.error({ chainId, err: error }, "Order scanner reported a scan failure"),
@@ -124,7 +124,8 @@ export class EventMonitor extends EventEmitter {
 		this.emit("newOrder", { order, transactionHash, graffiti })
 	}
 
-	private handleFill(commitment: HexString, filler: string, chainId: number, transactionHash?: string): void {
+	private handleFill(event: ScannedFill): void {
+		const { commitment, filler, chainId, transactionHash } = event
 		const ours = filler?.toLowerCase() === this.fillerAddress
 		// Every fill on a configured chain, ours or a rival's: the activity feed
 		// uses it to settle an order's outcome after a bid.
@@ -132,7 +133,9 @@ export class EventMonitor extends EventEmitter {
 		// Never a topic filter — see the class comment.
 		if (!ours) return
 		this.logger.info({ chainId, commitment, filler }, "OrderFilled event detected for this filler")
-		this.emit("orderFilledOnChain", { commitment, filler, chainId })
+		// The amounts ride along: a fill is what draws its limit order down, and
+		// this is the only place they are reported.
+		this.emit("orderFilledOnChain", { commitment, filler, chainId, outputs: event.outputs, inputs: event.inputs })
 	}
 
 	/**

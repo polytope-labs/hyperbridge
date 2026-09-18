@@ -11,7 +11,6 @@ import { stepChains } from "./steps/chains"
 import { stepBundlers } from "./steps/bundlers"
 import { stepSigner } from "./steps/signer"
 import { stepHyperbridge } from "./steps/hyperbridge"
-import { stepStrategies } from "./steps/strategies"
 import { stepFineTune } from "./steps/finetune"
 import { stepWrite, startFiller } from "./steps/write"
 
@@ -51,23 +50,19 @@ export async function runInit(options: InitOptions): Promise<void> {
 	await stepHyperbridge(state, prefill)
 
 	// Salvage loop: a failure at the write gate must not lose everything the
-	// operator typed — offer to redo the markets steps with the same state.
+	// operator typed — offer to redo the tuning step with the same state.
 	for (;;) {
 		try {
-			await stepStrategies(state, prefill)
 			await stepFineTune(state, prefill)
 			await stepWrite(state, outputPath, prefill)
 			return
 		} catch (error) {
 			log.error(error instanceof Error ? error.message : String(error))
-			const goBack = guard(
-				await confirm({ message: "Go back and fix the markets configuration?", initialValue: true }),
-			)
+			const goBack = guard(await confirm({ message: "Go back and fix the configuration?", initialValue: true }))
 			if (!goBack) {
 				log.info("Nothing was written.")
 				process.exit(1)
 			}
-			state.pairs = []
 		}
 	}
 }

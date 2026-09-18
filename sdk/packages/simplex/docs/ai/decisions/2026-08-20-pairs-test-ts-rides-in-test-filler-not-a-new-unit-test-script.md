@@ -8,7 +8,7 @@ Alternatives rejected:
 - _A dedicated `test:unit` script plus a new workflow step._ Cleaner taxonomy (the file is
   pure-unit while most of its neighbours in `test:filler` need RPC secrets), but it adds a script
   and a CI step to maintain for one ~3s file, and the oversized `--testTimeout` it inherits is
-  harmless for unit tests. `fx.curve-payout.test.ts` set the precedent independently: it is also
+  harmless for unit tests. `fx.payout.test.ts` set the precedent independently: it is also
   pure-unit and was wired into `test:filler` the same way.
 - _Leave it unwired._ That is exactly how 12 stale failures sat on main unnoticed.
 

@@ -37,7 +37,7 @@ export function OperatorOverview(props: {
 				<Metric label="Enabled networks" value={String(status.chains.length)} />
 				<Metric
 					label="Active markets"
-					value={String(strategies.filter((strategy) => !strategy.referenceOnly).length)}
+					value={String(strategies.length)}
 				/>
 				<Metric
 					label="Available liquidity"

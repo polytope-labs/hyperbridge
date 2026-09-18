@@ -47,10 +47,25 @@ export interface StoredBid {
 	retractExtrinsicHash: string | null
 	/** The order was seen filled on-chain, so this bid can never win — reclaim its deposit now. */
 	dead: boolean
+	/**
+	 * The limit order this bid drew its payout from. Null for a bid placed before
+	 * limit orders priced anything, and how a fill finds the order to draw down.
+	 */
+	limitOrderId: string | null
+	/**
+	 * The output still held against {@link limitOrderId} on the bid's behalf, at
+	 * 1e18. Null once the reservation has been settled, whether it was released
+	 * because the bid lost or converted because the bid filled.
+	 */
+	reservedAmount: string | null
 }
 
 export interface BidInsert {
 	commitment: string
+	/** The limit order this bid drew its payout from, when one priced it. */
+	limitOrderId?: string
+	/** Output held against that limit order for this bid, at 1e18. */
+	reservedAmount?: string
 	extrinsicHash?: string
 	blockHash?: string
 	success: boolean
@@ -105,6 +120,21 @@ export interface BidStore {
 	markRetracted(commitment: string, retractExtrinsicHash: string | null): Promise<boolean>
 	/** Flags a bid dead (its order was filled on-chain). False when nothing matched. */
 	markDead(commitment: string): Promise<boolean>
+	/**
+	 * Takes the reservation this bid holds, exactly once, and returns it.
+	 *
+	 * A losing bid gives its reservation back and a winning one converts it into a
+	 * draw-down, and both routes end at the same bid row — a bid that won is still
+	 * retracted eventually, by the stale sweep, so an unguarded release would undo
+	 * a conversion that already happened. Whichever settles first claims it here;
+	 * the other gets null and does nothing.
+	 */
+	claimReservation(commitment: string): Promise<{ limitOrderId: string; amount: string } | null>
+	/**
+	 * Every bid that drew on a limit order, newest first. What makes a `remaining`
+	 * explicable to the operator: which bids took the difference.
+	 */
+	byLimitOrder(limitOrderId: string, limit?: number): Promise<StoredBid[]>
 	/** Newest first. Implementations should cap `limit` at a few hundred. */
 	recent(limit?: number): Promise<StoredBid[]>
 	/** Failed bids, newest first — for debugging. */
@@ -356,9 +386,27 @@ export interface LimitOrderStore {
 	create(order: LimitOrderInsert): Promise<LimitOrder>
 	get(id: string): Promise<LimitOrder | null>
 	list(filter?: LimitOrderFilter): Promise<LimitOrder[]>
+	/** Every `open` order, which is what the matcher prices against. */
+	open(): Promise<LimitOrder[]>
 	/** Records what the orderbook did with the current posting. */
 	setPosting(id: string, posting: LimitOrderPosting): Promise<LimitOrder | null>
 	setStatus(id: string, status: LimitOrderStatus, lastError?: string | null): Promise<LimitOrder | null>
+	/**
+	 * Adds `amount` to `reserved`, but only while the order is `open` and
+	 * `remaining - reserved` still covers it. Resolves false when it does not.
+	 *
+	 * This is the one method that must not be a read followed by a write. Two
+	 * chains bidding against the same limit order at once would both see room in
+	 * the gap, and between them promise more output than the order has.
+	 */
+	reserve(id: string, amount: string): Promise<boolean>
+	/** Gives a reservation back, after a bid was retracted, lost or found dead. */
+	release(id: string, amount: string): Promise<void>
+	/**
+	 * Works the order down by output that has actually been delivered, floored at
+	 * zero. Returns the order as it now stands, or null when there is none.
+	 */
+	drawDown(id: string, amount: string): Promise<LimitOrder | null>
 }
 
 // ===========================================================================

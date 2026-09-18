@@ -22,6 +22,7 @@ import type { BidStore, SimplexDataStore } from "@/data/types"
 
 const COMMITMENT = "0x1111111111111111111111111111111111111111111111111111111111111111" as HexString
 const OTHER = "0x2222222222222222222222222222222222222222222222222222222222222222" as HexString
+const THIRD = "0x3333333333333333333333333333333333333333333333333333333333333333" as HexString
 const HOUR_MS = 60 * 60 * 1000
 
 const dirs: string[] = []
@@ -171,6 +172,19 @@ for (const backend of backends) {
 				retracted: 1,
 				pendingRetraction: 0,
 			})
+		})
+
+		it("finds the bids that drew on a limit order, newest first", async () => {
+			// What makes a limit order's `remaining` explicable: the fills behind it.
+			const bids = backend.create()
+			await bids.store({ commitment: COMMITMENT, success: true, limitOrderId: "limit-1", reservedAmount: "100" })
+			await bids.store({ commitment: OTHER, success: true, limitOrderId: "limit-2", reservedAmount: "200" })
+			await bids.store({ commitment: THIRD, success: true, limitOrderId: "limit-1", reservedAmount: "300" })
+
+			const drew = await bids.byLimitOrder("limit-1")
+			expect(drew.map((bid) => bid.commitment)).toEqual([THIRD, COMMITMENT])
+			expect(drew.map((bid) => bid.reservedAmount)).toEqual(["300", "100"])
+			expect(await bids.byLimitOrder("limit-3")).toEqual([])
 		})
 	})
 }

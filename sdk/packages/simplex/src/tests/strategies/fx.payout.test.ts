@@ -1,37 +1,28 @@
 import { FXFiller, type TradingPair } from "@/strategies/fx"
-import { FillerPricePolicy } from "@/config/interpolated-curve"
 import { AssetRegistry } from "@/config/asset-registry"
 import { bytes20ToBytes32, type HexString, type Order, type TokenInfo } from "@hyperbridge/sdk"
 import { describe, it, expect } from "vitest"
-import { Decimal } from "decimal.js"
 import { parseUnits } from "viem"
+import { limitOrderStore } from "../helpers/limit-orders"
 
 // Pins the fill amount `calculateProfitability` caches — the figure
-// `prepareBidUserOp` signs into the bid verbatim — against the configured curve.
+// `prepareBidUserOp` signs into the bid verbatim — against the matched limit
+// order.
 //
-// Regression context: #1123 introduced `desiredOutput` for the `maxOrderSize`
-// cap and took `targetOutput = min(policyMaxOutput, desiredOutput)`. The price
-// gate right below guarantees `policyMaxOutput >= desiredOutput` for any leg
-// that survives to a fill, so every fill silently paid the user's requested
-// amount instead of the curve amount — and no test caught it, because nothing
-// asserted the payout. These tests drive the evaluation with mocked chain
-// access and assert the cached outputs for the three sizing outcomes: uncapped
-// (pay the curve), capped (pay the capped slice's worth at the curve), and
-// balance-limited (pay what the wallet covers).
+// The payout is `min(offer, remaining − reserved)` and then whatever the wallet
+// can actually cover, so these drive the evaluation with mocked chain access and
+// assert the cached output for each of those three outcomes in turn.
 
 const CHAIN = "EVM-97"
 const STABLE = "0x1111111111111111111111111111111111111111" as HexString
 const EXOTIC = "0x2222222222222222222222222222222222222222" as HexString
 const SOLVER = "0x3333333333333333333333333333333333333333" as HexString
 
-// Flat ask: the filler sells EXOTIC at 1500 per token0, at every size.
-const FLAT_ASK = new FillerPricePolicy({ points: [{ amount: "0", price: "1500" }] })
-
-// 100 token0 in; the order asks for 149,000 EXOTIC (rate 1490, below the
-// curve's 1500) so the curve amount of 150,000 strictly exceeds the ask.
+// 100 in; the order asks for 149,000 EXOTIC (rate 1490, below the limit order's
+// 1500), so what the operator offers strictly exceeds the ask.
 const INPUT_AMOUNT = parseUnits("100", 18)
 const REQUESTED_OUTPUT = parseUnits("149000", 18)
-const CURVE_OUTPUT = parseUnits("150000", 18)
+const OFFERED_OUTPUT = parseUnits("150000", 18)
 
 const configService = {
 	getUsdcAsset: () => STABLE,
@@ -68,6 +59,7 @@ function makeEvalContractService(): any {
 			setPairClassifications: (id: string, pairs: unknown) => classifications.set(id, pairs),
 			getFillerOutputs: (id: string) => outputs.get(id),
 			setFillerOutputs: (id: string, value: TokenInfo[]) => outputs.set(id, value),
+			setMatchedLimitOrder: () => {},
 			clearPartialFill: (id: string) => partials.delete(id),
 			setPartialFill: (id: string, value: boolean) => partials.set(id, value),
 			getPartialFill: (id: string) => partials.get(id),
@@ -90,20 +82,14 @@ function makeClientManager(balances: Record<string, bigint>): any {
 	return { getPublicClient: () => client }
 }
 
-function makeFiller(options: {
+async function makeFiller(options: {
 	contractService: any
 	balances: Record<string, bigint>
-	maxOrderSize?: number
-}): FXFiller {
+	/** What the operator is offering to pay out, in whole EXOTIC. Defaults to plenty. */
+	offering?: string
+}): Promise<FXFiller> {
 	const registry = new AssetRegistry(configService, { EXOTIC: { [CHAIN]: EXOTIC } })
-	const pairs: TradingPair[] = [
-		{
-			token0: "USDC",
-			token1: "EXOTIC",
-			...(options.maxOrderSize !== undefined ? { maxOrderSize: new Decimal(options.maxOrderSize) } : {}),
-			askPricePolicy: FLAT_ASK,
-		},
-	]
+	const pairs: TradingPair[] = [{ token0: "USDC", token1: "EXOTIC" }]
 	const signer = { address: SOLVER } as any
 	return new FXFiller(
 		signer,
@@ -112,17 +98,30 @@ function makeFiller(options: {
 		options.contractService,
 		pairs,
 		registry,
+		{
+			limitOrders: await limitOrderStore([
+				{
+					base: "USDC",
+					quote: "EXOTIC",
+					side: "BID",
+					fillChain: CHAIN,
+					price: "1500",
+					size: options.offering ?? "1000000",
+					acceptedSources: [CHAIN, "EVM-1"],
+				},
+			]),
+		},
 	)
 }
 
-/** Same-chain USDC→EXOTIC order (partial-fill eligible: no calldata, not cross-chain). */
-function makeOrder(id: string): Order {
+/** USDC→EXOTIC, same-chain unless a source is given. Partial-fill eligible: no calldata. */
+function makeOrder(id: string, source: string = CHAIN): Order {
 	const inputs: TokenInfo[] = [{ token: bytes20ToBytes32(STABLE), amount: INPUT_AMOUNT }]
 	const outputs: TokenInfo[] = [{ token: bytes20ToBytes32(EXOTIC), amount: REQUESTED_OUTPUT }]
 	return {
 		id,
 		user: bytes20ToBytes32(SOLVER),
-		source: CHAIN,
+		source,
 		destination: CHAIN,
 		deadline: 0n,
 		nonce: 0n,
@@ -136,13 +135,12 @@ function makeOrder(id: string): Order {
 	} as unknown as Order
 }
 
-describe("FXFiller curve payout", () => {
-	it("pays the curve amount, not the user's requested amount", async () => {
+describe("FXFiller limit order payout", () => {
+	it("pays what the limit order offers, not the user's requested amount", async () => {
 		const contractService = makeEvalContractService()
-		const filler = makeFiller({
+		const filler = await makeFiller({
 			contractService,
 			balances: { [EXOTIC.toLowerCase()]: parseUnits("1000000", 18) },
-			maxOrderSize: 5000,
 		})
 
 		const profit = await filler.calculateProfitability(makeOrder("payout-full"))
@@ -150,9 +148,9 @@ describe("FXFiller curve payout", () => {
 		const cached = contractService.outputs.get("payout-full")
 		expect(cached).toHaveLength(1)
 		expect(cached![0].token).toBe(bytes20ToBytes32(EXOTIC))
-		// 100 token0 at the flat ask of 1500 — the curve amount. The #1123
-		// regression paid REQUESTED_OUTPUT (149,000) here instead.
-		expect(cached![0].amount).toBe(CURVE_OUTPUT)
+		// 100 in at the order's rate of 1500 — what the operator offered, which is
+		// above the 149,000 asked for.
+		expect(cached![0].amount).toBe(OFFERED_OUTPUT)
 		expect(cached![0].amount).not.toBe(REQUESTED_OUTPUT)
 		// Paying above the ask is a full fill (the gateway splits the excess),
 		// and the fee surplus makes it score.
@@ -160,16 +158,14 @@ describe("FXFiller curve payout", () => {
 		expect(profit).toBeGreaterThan(0)
 	})
 
-	it("pays a capped leg the capped slice's worth at the curve, not the pro-rata ask", async () => {
+	it("pays no more than the limit order has left", async () => {
 		const contractService = makeEvalContractService()
-		// Cap 40 of the 100 token0 notional: capFraction 0.4. The ration is
-		// applied in token0 BEFORE the rate, so the payout is 40 × 1500 = 60,000 —
-		// not the pro-rata ask of 149,000 × 0.4 = 59,600 (the pre-#1155 clamp),
-		// and not the full ask.
-		const filler = makeFiller({
+		// The order has 60,000 left of what it offered, below the rate's 150,000
+		// and below the 149,000 asked for.
+		const filler = await makeFiller({
 			contractService,
 			balances: { [EXOTIC.toLowerCase()]: parseUnits("1000000", 18) },
-			maxOrderSize: 40,
+			offering: "60000",
 		})
 
 		await filler.calculateProfitability(makeOrder("payout-capped"))
@@ -177,19 +173,36 @@ describe("FXFiller curve payout", () => {
 		const cached = contractService.outputs.get("payout-capped")
 		expect(cached).toHaveLength(1)
 		expect(cached![0].amount).toBe(parseUnits("60000", 18))
-		// The capped slice's worth is below the full ask, so this is an under-fill.
+		// Short of the ask, so this is an under-fill.
 		expect(contractService.partials.get("payout-capped")).toBe(true)
+	})
+
+	it("takes a cross-chain under-fill as a partial, as the gateway now allows", async () => {
+		// `ExtrinsicIntents._fillCrossChain` keeps cumulative progress per output
+		// token, clears `_filled` on an under-fill so another solver can finish the
+		// order, and releases escrow proportionally. Refusing these would leave the
+		// operator's inventory idle against a swap it is priced to serve.
+		const contractService = makeEvalContractService()
+		const filler = await makeFiller({
+			contractService,
+			balances: { [EXOTIC.toLowerCase()]: parseUnits("1000000", 18) },
+			offering: "60000",
+		})
+
+		await filler.calculateProfitability(makeOrder("payout-cross", "EVM-1"))
+
+		expect(contractService.outputs.get("payout-cross")![0].amount).toBe(parseUnits("60000", 18))
+		expect(contractService.partials.get("payout-cross")).toBe(true)
 	})
 
 	it("pays what the wallet covers when balance-limited, still a full fill above the ask", async () => {
 		const contractService = makeEvalContractService()
-		// Wallet holds 149,500 — between the ask (149,000) and the curve amount
-		// (150,000). The payout is capped by the balance, but it still clears the
+		// Wallet holds 149,500 — between the ask (149,000) and what the order
+		// offered (150,000). The payout is capped by the balance, but it still clears the
 		// ask, so the fill is full, not partial.
-		const filler = makeFiller({
+		const filler = await makeFiller({
 			contractService,
 			balances: { [EXOTIC.toLowerCase()]: parseUnits("149500", 18) },
-			maxOrderSize: 5000,
 		})
 
 		const profit = await filler.calculateProfitability(makeOrder("payout-balance"))

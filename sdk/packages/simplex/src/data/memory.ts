@@ -68,6 +68,8 @@ class MemoryBidStore implements BidStore {
 			retractedAt: null,
 			retractExtrinsicHash: null,
 			dead: false,
+			limitOrderId: bid.limitOrderId ?? null,
+			reservedAmount: bid.reservedAmount ?? null,
 		})
 		if (this.rows.length > MAX_ROWS) {
 			// Only ever drop rows with nothing left to reclaim. A successful or pending
@@ -110,6 +112,26 @@ class MemoryBidStore implements BidStore {
 			changed = true
 		}
 		return changed
+	}
+
+	async claimReservation(commitment: string): Promise<{ limitOrderId: string; amount: string } | null> {
+		// Newest first, matching `byCommitment`: a commitment can be re-bid.
+		for (let i = this.rows.length - 1; i >= 0; i--) {
+			const row = this.rows[i]
+			if (row.commitment !== commitment || !row.limitOrderId || row.reservedAmount === null) continue
+			const claimed = { limitOrderId: row.limitOrderId, amount: row.reservedAmount }
+			row.reservedAmount = null
+			return claimed
+		}
+		return null
+	}
+
+	async byLimitOrder(limitOrderId: string, limit = 100): Promise<StoredBid[]> {
+		return this.rows
+			.filter((row) => row.limitOrderId === limitOrderId)
+			.slice(-capLimit(limit))
+			.reverse()
+			.map((row) => ({ ...row }))
 	}
 
 	async markDead(commitment: string): Promise<boolean> {
@@ -354,12 +376,39 @@ class MemoryLimitOrderStore implements LimitOrderStore {
 			.map((order) => ({ ...order }))
 	}
 
+	async open(): Promise<LimitOrder[]> {
+		return this.list({ status: "open" })
+	}
+
 	async setPosting(id: string, posting: LimitOrderPosting): Promise<LimitOrder | null> {
 		return this.patch(id, posting)
 	}
 
 	async setStatus(id: string, status: LimitOrderStatus, lastError: string | null = null): Promise<LimitOrder | null> {
 		return this.patch(id, { status, lastError })
+	}
+
+	async reserve(id: string, amount: string): Promise<boolean> {
+		const order = this.orders.get(id)
+		if (!order || order.status !== "open") return false
+		const reserved = BigInt(order.reserved) + BigInt(amount)
+		if (reserved > BigInt(order.remaining)) return false
+		this.patch(id, { reserved: reserved.toString() })
+		return true
+	}
+
+	async drawDown(id: string, amount: string): Promise<LimitOrder | null> {
+		const order = this.orders.get(id)
+		if (!order) return null
+		const remaining = BigInt(order.remaining) - BigInt(amount)
+		return this.patch(id, { remaining: (remaining > 0n ? remaining : 0n).toString() })
+	}
+
+	async release(id: string, amount: string): Promise<void> {
+		const order = this.orders.get(id)
+		if (!order) return
+		const reserved = BigInt(order.reserved) - BigInt(amount)
+		this.patch(id, { reserved: (reserved > 0n ? reserved : 0n).toString() })
 	}
 
 	private patch(id: string, fields: Partial<LimitOrder>): LimitOrder | null {

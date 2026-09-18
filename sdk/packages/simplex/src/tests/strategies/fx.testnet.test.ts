@@ -12,7 +12,6 @@ import { SqliteDataStore } from "@/data/sqlite"
 import { createSigner, SignerType } from "@/services/wallet"
 import { FXFiller, type TradingPair } from "@/strategies/fx"
 import { AssetRegistry } from "@/config/asset-registry"
-import { Decimal } from "decimal.js"
 import {
 	type ChainConfig,
 	type FillerConfig,
@@ -28,7 +27,8 @@ import {
 	ChainConfigService,
 } from "@hyperbridge/sdk"
 import { beforeAll, describe, it, expect } from "vitest"
-import { ConfirmationPolicy, FillerPricePolicy } from "@/config/interpolated-curve"
+import { ConfirmationPolicy } from "@/config/interpolated-curve"
+import { limitOrderStore } from "../helpers/limit-orders"
 import {
 	createPublicClient,
 	createWalletClient,
@@ -55,17 +55,11 @@ import { ERC20_ABI } from "@/config/abis/ERC20"
 function exoticPairs(
 	resolver: FillerConfigService,
 	token1: Record<string, HexString>,
-	maxOrderSize: number,
-	bidPricePolicy?: FillerPricePolicy,
-	askPricePolicy?: FillerPricePolicy,
 ): { pairs: TradingPair[]; registry: AssetRegistry } {
 	const registry = new AssetRegistry(resolver, { EXOTIC: token1 })
 	const pairs: TradingPair[] = ["USDC", "USDT"].map((token0) => ({
 		token0,
 		token1: "EXOTIC",
-		maxOrderSize: new Decimal(maxOrderSize),
-		bidPricePolicy,
-		askPricePolicy,
 	}))
 	return { pairs, registry }
 }
@@ -178,6 +172,7 @@ describe("Filler V2 FX - USDC -> Exotic (BSC Chapel -> Polygon Amoy)", () => {
 			fillerConfig,
 			chainConfigService,
 			polygonAmoyId,
+			bscChapelId,
 		)
 		await intentFiller.initialize()
 		intentFiller.start()
@@ -318,6 +313,7 @@ describe("Filler V2 FX - USDC -> Exotic (BSC Chapel -> Polygon Amoy)", () => {
 			fillerConfig,
 			chainConfigService,
 			polygonAmoyId,
+			bscChapelId,
 		)
 		await intentFiller.initialize()
 		intentFiller.start()
@@ -479,6 +475,7 @@ async function createFxIntentFiller(
 	fillerConfig: FillerConfig,
 	chainConfigService: FillerConfigService,
 	exoticChainId: string,
+	sourceChainId: string,
 ): Promise<{ filler: IntentFiller; orderScanner: OrderScanner }> {
 	const privateKey = process.env.PRIVATE_KEY as HexString
 	const signer = await createSigner({ type: SignerType.PrivateKey, key: privateKey })
@@ -486,22 +483,22 @@ async function createFxIntentFiller(
 	const chainClientManager = new ChainClientManager(chainConfigService, signer)
 	const contractService = new ContractInteractionService(chainClientManager, chainConfigService, signer, cacheService)
 
-	// Exotic ≈ $1 (Polygon USDC stand-in). The book must carry a real spread:
-	// the profit gate requires the FX margin to be strictly positive, so a
-	// bid == ask (zero-spread) config makes the filler refuse to bid and the
-	// E2E flow time out. 50 bps: buy exotic at 1, sell at 0.995 per USD.
-	const bidPricePolicy = new FillerPricePolicy({
-		points: [
-			{ amount: "1", price: "1" },
-			{ amount: "10000", price: "1" },
-		],
-	})
-	const askPricePolicy = new FillerPricePolicy({
-		points: [
-			{ amount: "1", price: "0.995" },
-			{ amount: "10000", price: "0.995" },
-		],
-	})
+	// Exotic ≈ $1 (Polygon USDC stand-in). The filler carries no prices of its own,
+	// so without a resting order it has nothing to bid with and the E2E times out
+	// waiting for a fill that never starts. One order, the same 50 bps edge the
+	// pair curves used to carry: take USDC in, pay 0.995 EXOTIC per USDC out on the
+	// exotic chain, and accept orders originating on the source chain.
+	const limitOrders = await limitOrderStore([
+		{
+			base: "USDC",
+			quote: "EXOTIC",
+			side: "BID",
+			fillChain: exoticChainId,
+			price: "0.995",
+			size: "100",
+			acceptedSources: [sourceChainId, exoticChainId],
+		},
+	])
 
 	const confirmationPolicy = new ConfirmationPolicy({
 		"97": {
@@ -522,10 +519,11 @@ async function createFxIntentFiller(
 		[exoticChainId]: chainConfigService.getUsdcAsset(exoticChainId),
 	}
 
-	const legacy = exoticPairs(chainConfigService, token1, 5000, bidPricePolicy, askPricePolicy)
+	const legacy = exoticPairs(chainConfigService, token1)
 	const strategies = [
 		new FXFiller(signer, chainConfigService, chainClientManager, contractService, legacy.pairs, legacy.registry, {
 			confirmationPolicy,
+			limitOrders,
 		}),
 	]
 

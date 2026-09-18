@@ -65,6 +65,11 @@ export async function postingRig(params: {
 	;(service as any).getIntentGateway = async () => gateway
 	// biome-ignore lint/suspicious/noExplicitAny: decimals are config here, not something to discover
 	;(service as any).getTokenDecimals = async () => params.decimals ?? 6
+	// Creation checks the wallet can pay out what the order promises. There is no
+	// chain behind this rig, and what it exercises is the orderbook rather than the
+	// balance rule, which has its own tests.
+	// biome-ignore lint/suspicious/noExplicitAny: no node behind this rig
+	;(service as any).getTokenBalance = async () => 10n ** 30n
 	return { service, signer }
 }
 

@@ -10,6 +10,7 @@ import {
 	type HexString,
 	IntentsCoprocessor,
 	type TokenInfo,
+	bytes32ToBytes20,
 	readLegEscrow,
 } from "@hyperbridge/sdk"
 import { parseChainKey } from "@/config/interpolated-curve"

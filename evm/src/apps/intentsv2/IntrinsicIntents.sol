@@ -33,7 +33,8 @@ abstract contract IntrinsicIntents is IntentsBase {
      * Partial fills reopen the order for another solver. A completing fill also executes
      * the beneficiary's calldata; `_fillLegs` rejects incomplete fills that carry calldata.
      * @param order The order being filled.
-     * @param options The solver's output payments, required input quotes and fee parameters.
+     * @param options The solver's paired input capacities and output budgets, whose ratio prices
+     * actual released input, plus fee parameters.
      * @param commitment The keccak256 hash of the ABI-encoded order.
      */
     function _fillSameChain(Order calldata order, FillOptions calldata options, bytes32 commitment) internal {

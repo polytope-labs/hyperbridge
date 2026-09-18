@@ -575,22 +575,17 @@ abstract contract IntentsBase is EIP712 {
         uint256 minimumOutput = Math.mulDiv(quotedInput, requiredOutput, escrowInput, Math.Rounding.Ceil);
         if (minimumOutput > offeredOutput) revert RateBelowOrder();
 
-        uint256 quotedCredit = Math.mulDiv(quotedInput, requiredOutput, escrowInput);
         uint256 remainingOutput = requiredOutput - previousCredit;
-        creditedOutput = Math.min(quotedCredit, remainingOutput);
+        creditedOutput = Math.min(Math.mulDiv(quotedInput, requiredOutput, escrowInput), remainingOutput);
 
         // Subtract cumulative floors so the completing fill releases all remaining escrow.
-        uint256 previouslyReleased = Math.mulDiv(escrowInput, previousCredit, requiredOutput);
-        uint256 cumulativeRelease = Math.mulDiv(escrowInput, previousCredit + creditedOutput, requiredOutput);
+        uint256 previouslyReleased = _cumulativeReleased(escrowInput, previousCredit, requiredOutput);
+        uint256 cumulativeRelease = _cumulativeReleased(escrowInput, previousCredit + creditedOutput, requiredOutput);
         releasedInput = cumulativeRelease - previouslyReleased;
         if (creditedOutput == 0 || releasedInput == 0) revert RateFillTooSmall();
 
-        deliveredOutput = offeredOutput;
-        if (quotedCredit > remainingOutput) {
-            // A capped final fill pays for the actual released input at the signed quote rate.
-            uint256 proratedOutput = Math.mulDiv(offeredOutput, releasedInput, quotedInput, Math.Rounding.Ceil);
-            deliveredOutput = Math.max(creditedOutput, proratedOutput);
-        }
+        uint256 ratePayment = Math.mulDiv(offeredOutput, releasedInput, quotedInput, Math.Rounding.Ceil);
+        deliveredOutput = Math.max(creditedOutput, ratePayment);
     }
 
     /// @dev Splits overpayment between protocol and beneficiary. An order with output calldata

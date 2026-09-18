@@ -52,6 +52,57 @@ const LOG_TARGET: &str = concat!("messaging", "-outbound");
 /// mainnet block gas on the hottest destinations.
 const MAX_CONSENSUS_PROOFS_PER_BATCH: usize = 3;
 
+// BEEFY consensus-proof wire prefix bytes, mirroring
+// `pallet_beefy_consensus_proofs::types::{PROOF_TYPE_NAIVE, PROOF_TYPE_SP1}`.
+const PROOF_TYPE_NAIVE: u8 = 0x00;
+const PROOF_TYPE_SP1: u8 = 0x01;
+
+/// Re-encode a BEEFY consensus proof into canonical ABI before it is sent to an
+/// EVM destination.
+///
+/// `pallet-beefy-consensus-proofs` archives the submitter's *original* wire bytes
+/// for the first proof of each rotation/messaging slot, not a re-encoding of the
+/// value it verified. Its alloy decoder ignores dirty ABI padding (a `uint8` etc.
+/// keeps only its low byte), so a submitter can flip a leading padding byte and
+/// still pass verification, while the destination's Solidity `abi.decode` runs the
+/// type validator solc inserts and reverts on the same bytes with empty
+/// returndata. A single such byte in an archived rotation would freeze every EVM
+/// destination that catches up through it (HYPERBR-2512).
+///
+/// The proof was already verified on Hyperbridge, so decoding it here and
+/// re-encoding with `abi_encode_params` yields the identical typed value with
+/// canonical (zero) padding — idempotent for an honest proof, and healing for a
+/// poisoned one. Any proof we cannot decode (unknown type byte, truncated bytes)
+/// is forwarded unchanged; canonicalisation is best-effort and never blocks
+/// delivery.
+fn canonicalize_beefy_proof(proof: &[u8]) -> Vec<u8> {
+	use alloy_sol_types::{SolType, SolValue};
+
+	let Some((&proof_type, payload)) = proof.split_first() else { return proof.to_vec() };
+	let canonical = match proof_type {
+		PROOF_TYPE_SP1 => <ismp_abi::sp1_beefy::SP1Beefy::SP1BeefyProof as SolType>::abi_decode_params(payload)
+			.ok()
+			.map(|value| [&[PROOF_TYPE_SP1], value.abi_encode_params().as_slice()].concat()),
+		PROOF_TYPE_NAIVE => <ismp_abi::ecdsa_beefy::BeefyConsensusProof as SolType>::abi_decode_params(payload)
+			.ok()
+			.map(|value| [&[PROOF_TYPE_NAIVE], value.abi_encode_params().as_slice()].concat()),
+		_ => None,
+	};
+
+	match canonical {
+		Some(bytes) if bytes != proof => {
+			tracing::debug!(
+				target: LOG_TARGET,
+				proof_type,
+				"re-encoded non-canonical BEEFY proof before dispatch",
+			);
+			bytes
+		},
+		Some(bytes) => bytes,
+		None => proof.to_vec(),
+	}
+}
+
 pub async fn run(
 	hyperbridge: Arc<dyn IsmpProvider>,
 	hyperbridge_sub: SubstrateClient<KeccakSubstrateChain>,
@@ -385,7 +436,7 @@ async fn submit_for_dest(
 	}
 
 	let consensus_msg = Message::Consensus(ConsensusMessage {
-		consensus_proof: proof_bytes,
+		consensus_proof: canonicalize_beefy_proof(&proof_bytes),
 		consensus_state_id: BEEFY_CONSENSUS_STATE_ID,
 		signer: dest.address(),
 	});
@@ -858,7 +909,7 @@ async fn catch_up_rotations(
 			.iter()
 			.map(|r| {
 				Message::Consensus(ConsensusMessage {
-					consensus_proof: r.proof.clone(),
+					consensus_proof: canonicalize_beefy_proof(&r.proof),
 					consensus_state_id: BEEFY_CONSENSUS_STATE_ID,
 					signer: dest.address(),
 				})
@@ -1112,6 +1163,86 @@ pub async fn initialize(
 
 #[cfg(test)]
 mod tests {
+
+	// ---- HYPERBR-2512: canonicalisation of archived BEEFY proofs ----
+
+	/// Build a canonical SP1 rotation wire (`[type] ++ abi_encode_params(SP1BeefyProof)`)
+	/// with `mmrLeaf.version` set to `version`. Only the integer fields matter; the rest are
+	/// zeroed, which is enough to exercise ABI padding.
+	fn sp1_wire(version: u8) -> Vec<u8> {
+		use alloy_sol_types::SolValue;
+		use ismp_abi::sp1_beefy::SP1Beefy::{
+			AuthoritySetCommitment, MiniCommitment, PartialBeefyMmrLeaf, SP1BeefyProof,
+		};
+
+		let value = SP1BeefyProof {
+			commitment: MiniCommitment {
+				blockNumber: Default::default(),
+				validatorSetId: Default::default(),
+			},
+			mmrLeaf: PartialBeefyMmrLeaf {
+				version,
+				parentNumber: 0,
+				parentHash: Default::default(),
+				nextAuthoritySet: AuthoritySetCommitment { id: 0, len: 0, root: Default::default() },
+				extra: Default::default(),
+			},
+			headers: Vec::new(),
+			proof: Default::default(),
+			nonce: Default::default(),
+		};
+		[&[super::PROOF_TYPE_SP1], value.abi_encode_params().as_slice()].concat()
+	}
+
+	#[test]
+	fn canonicalize_heals_dirty_abi_padding() {
+		let canonical = sp1_wire(0);
+
+		// Locate `mmrLeaf.version`'s low byte by diffing two encodings that differ only in it;
+		// the byte immediately before it is leading padding of the same 32-byte word.
+		let alt = sp1_wire(7);
+		let diffs: Vec<usize> = canonical
+			.iter()
+			.zip(&alt)
+			.enumerate()
+			.filter(|(_, (a, b))| a != b)
+			.map(|(i, _)| i)
+			.collect();
+		assert_eq!(diffs.len(), 1, "version is a single-byte field: exactly one byte differs");
+		let padding_byte = diffs[0] - 1;
+
+		// A submitter can flip that padding byte: the value is unchanged (alloy ignores it) but a
+		// destination's Solidity `abi.decode` reverts on it.
+		let mut dirty = canonical.clone();
+		dirty[padding_byte] = 0x01;
+		assert_ne!(dirty, canonical, "the flip is observable at the byte level");
+
+		// The relayer re-encodes it back to canonical bytes before dispatch.
+		assert_eq!(
+			super::canonicalize_beefy_proof(&dirty),
+			canonical,
+			"dirty padding must be healed to the canonical encoding"
+		);
+	}
+
+	#[test]
+	fn canonicalize_is_idempotent_on_canonical_input() {
+		let canonical = sp1_wire(1);
+		assert_eq!(super::canonicalize_beefy_proof(&canonical), canonical);
+	}
+
+	#[test]
+	fn canonicalize_passes_through_undecodable_input() {
+		// Unknown type byte, truncated SP1 body, and empty input are all forwarded unchanged —
+		// canonicalisation never blocks delivery.
+		let unknown = vec![0x7f, 1, 2, 3, 4];
+		assert_eq!(super::canonicalize_beefy_proof(&unknown), unknown);
+
+		let truncated = vec![super::PROOF_TYPE_SP1, 0xaa, 0xbb];
+		assert_eq!(super::canonicalize_beefy_proof(&truncated), truncated);
+
+		assert_eq!(super::canonicalize_beefy_proof(&[]), Vec::<u8>::new());
+	}
 	use super::*;
 	use ismp::router::PostRequest;
 	use std::sync::Arc;

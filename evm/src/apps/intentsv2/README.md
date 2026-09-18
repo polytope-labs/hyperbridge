@@ -4,8 +4,8 @@
 limit (24,367 of 24,576 bytes). The implementation now delegatecalls its heavy branches to two
 separately deployed modules. The proxy, its address and the governance upgrade path are unchanged.
 The ABI lost the host-only `setRelayer` and `upgradeToAndCall` (now reached only through
-`Execute`), `migrate(address)` became `migrate()`, `_owner()` is gone, and `intrinsicModule()`
-and `extrinsicModule()` were added.
+`Execute`). `migrate(address)` advances the gateway release, and `intrinsicModule()` and
+`extrinsicModule()` expose the configured modules.
 
 ## Layout
 
@@ -19,18 +19,15 @@ and `extrinsicModule()` were added.
                  IntrinsicModule    ExtrinsicModule   deployed modules the implementation delegatecalls
 ```
 
-| Contract | Holds | Runtime size |
-|---|---|---|
-| `IntentGatewayV2` | every external entry point and its guards, `placeOrder`, `select`, the shared validation of `fillOrder` and `cancelOrder`, `initialize`, `migrate`, the views | 16,484 bytes |
-| `IntrinsicModule` | `IntrinsicIntents`: `fillSameChain`, `cancelSameChain` | 7,675 bytes |
-| `ExtrinsicModule` | `ExtrinsicIntents`: `fillCrossChain`, `cancelFromSource`, `cancelFromDest`, the `onAccept` and `onGetResponse` handlers with governance and `Execute`, and the host-only `setRelayer` and `upgradeToAndCall` | 17,960 bytes |
+| Contract | Responsibility |
+|---|---|
+| `IntentGatewayV2` | External guards, placement, selection, fill/cancel validation, initialization and migration |
+| `IntrinsicModule` | Same-chain fills and cancellation |
+| `ExtrinsicModule` | Cross-chain fills, cancellation proofs, escrow settlement and governance |
 
-The implementation inherits nothing from the intents contracts; it validates, routes and
-delegatecalls. `IntrinsicIntents.sol` is unchanged. `ExtrinsicIntents.sol` is unchanged apart
-from `onAccept` and `onGetResponse` becoming `virtual`, `relayer()` and `_setRelayer` moving to
-`IntentsBase` because `initialize` needs them, and `Execute` delegatecalling the module's own
-address instead of the implementation. `setRelayer` and `upgradeToAndCall` therefore exist only
-on the extrinsic module and are not in the gateway's ABI; `Execute` is the only way to them.
+Both fill paths use the accounting and rate arithmetic in `IntentsBase`. The gateway validates
+and delegatecalls the matching module. `setRelayer` and `upgradeToAndCall` exist only on the
+extrinsic module and are reached through the host-authorized `Execute` request.
 
 ## Rules
 
@@ -72,7 +69,7 @@ on the extrinsic module and are not in the gateway's ABI; `Execute` is the only 
   relayer. Delegatecall nests freely; only the 1024 call depth and the 63/64 gas rule bound it.
   The body may select any module function, including the fills, with the host as `msg.sender`
   and none of the implementation's validation. That is not new power: the same request can
-  install any implementation. It cannot select anything on the implementation, so `migrate()`
+  install any implementation. It cannot select anything on the implementation, so `migrate(owner)`
   runs only as `upgradeToAndCall` init data; an `Execute` body naming it directly fails with
   `FailedCall()`.
 - **Reverts bubble byte for byte.** `IntentGatewayV2._delegate` re-raises the module's revert
@@ -110,6 +107,25 @@ calldata re-encoding. Measured with `forge snapshot` before and after, on the fo
 Fills and cancels pay a cold access to the module address plus the re-encoding of the order into
 the module call; the callbacks forward `msg.data` as is and pay only the cold access and the hop.
 
+## Solver quotes
+
+`fillOrder` takes one quote per order leg: `FillOptions.inputs[i]` is the most input the solver
+will take and `FillOptions.outputs[i]` the most output it will pay. Their ratio is the solver's
+rate, which may not be below the order's. Quoting zero on both sides skips the leg; the arrays must
+match the order's leg count.
+
+`IntentsBase._priceLeg` settles a leg in three steps. The take priced at the order's rate, capped
+to what the leg still needs, is the credit. The credit unlocks escrow as a difference of cumulative
+floors, so the completing fill drains the leg exactly. The released escrow priced at the solver's
+rate, rounded up and never below the credit, is the payment; the excess over the credit is surplus,
+split by `surplusShareBps` or kept whole by the protocol on output-call orders. Events and
+cross-chain proofs carry the credit, not the surplus. Rounding can release less than the full take,
+so unused ERC-20 budget stays with the solver and unused native value is refunded.
+
+The `inputs` field gives `fillOrder` the selector `0x68ddf058`. Gateway, modules and `SolverAccount`
+report release 3, which lands the module split, the owner and solver quotes on a proxy together.
+Bids signed against an earlier selector need new calldata and signatures.
+
 ## Deploying and upgrading
 
 `script/DeployIntentGatewayImpl.s.sol` (implementation only) and `script/DeployIntentGateway.s.sol`
@@ -134,10 +150,18 @@ modules included, and `--mode verify` re-verifies from the broadcast artifacts.
 The upgrade itself is a Hyperbridge governance call, `execute_on_gateway(data)` on the
 intents-coprocessor pallet. The pallet prepends the `Execute` discriminator (`0x05`) itself, so
 `data` is bare `upgradeToAndCall(newImplementation, initData)` calldata, exactly what the script
-prints. `initData` is `migrate(owner)` for a proxy below `VERSION`, as on the upgrade from 2 to 3,
-and empty otherwise. That `migrate` is required: it moves `_relayer` to slot 13 offset 0. Installing
-this implementation on a proxy at 2 with empty `initData` leaves the relayer gate reading a wrong
-address, and it would refuse every delivery, governance included. A relayer rotation is a separate `execute_on_gateway` carrying
+prints. `initData` is `migrate(owner)` for a proxy at version 2 and empty for one already at 3. That
+`migrate` is required: it moves `_relayer` to slot 13 offset 0 and sets the owner. Installing this
+implementation on a version-2 proxy with empty `initData` leaves the relayer gate reading a wrong
+address, and it would refuse every delivery, governance included.
+
+Upgrade only once every outstanding order is filled or cancelled and escrow, fees and pending
+messages are drained on every chain, and keep placement stopped until matching gateways and modules
+are installed everywhere. A partially filled order carried across the upgrade would settle its
+remaining legs under cumulative accounting, leaving the per-slice rounding dust of its earlier fills
+in escrow with no cancellation path once it completes.
+
+A relayer rotation is a separate `execute_on_gateway` carrying
 `setRelayer(next)`; it cannot ride in `initData`, which runs against the new implementation, where
 `setRelayer` does not exist. Whether the upgrade changes the implementation's own code, a module,
 or both, the procedure is the same: new modules if needed, new implementation, one

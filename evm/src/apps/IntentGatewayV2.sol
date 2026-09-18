@@ -88,8 +88,7 @@ contract IntentGatewayV2 is
     address public immutable extrinsicModule;
 
     /// @dev The `Initializable` version this implementation lands a proxy on, through `initialize`
-    /// or `migrate`. 3 is the module split and the owner; bumped by every implementation that ships
-    /// a `migrate`.
+    /// or `migrate`. 3 is the module split, the owner and solver quotes, which land together.
     uint64 private constant VERSION = 3;
 
     /**
@@ -188,15 +187,15 @@ contract IntentGatewayV2 is
     }
 
     /**
-     * @dev Takes a proxy from an earlier implementation to `VERSION`: moves the relayer and sets the
-     * owner. Host-only and one-shot; delivered as the calldata of the upgrade that installs this
-     * implementation, so nothing reads `_relayer` in between.
+     * @dev Takes a version-2 proxy to `VERSION`: moves the relayer and sets the owner. Host-only and
+     * one-shot; delivered as the calldata of the upgrade that installs this implementation, so
+     * nothing reads `_relayer` in between.
      *
-     * Earlier implementations kept an unused `bool _paused` at slot 13 offset 0, with `_relayer`
-     * packed behind it at offset 1. That byte is gone, so `_relayer` is now read from offset 0;
-     * shifting slot 13 right by one byte moves the relayer there and drops the old flag. A proxy
-     * that never set a relayer holds zero either way. The owner and the pause flag live at
-     * OpenZeppelin's namespaced slots.
+     * Version 2 kept an unused `bool _paused` at slot 13 offset 0, with `_relayer` packed behind it
+     * at offset 1. That byte is gone, so `_relayer` is now read from offset 0; shifting slot 13
+     * right by one byte moves the relayer there and drops the old flag. A proxy that never set a
+     * relayer holds zero either way. The owner and the pause flag live at OpenZeppelin's
+     * namespaced slots.
      * @param owner_ The owner, who may pause the gateway. Must be non-zero.
      */
     function migrate(address owner_) external onlyHost reinitializer(VERSION) {
@@ -500,7 +499,8 @@ contract IntentGatewayV2 is
      *    token with its upper 12 bytes set, so `_isRepeatedToken` sees every token in one form.
      *
      * @param order The order to fill. Must match the exact order that was placed.
-     * @param options Fill options including output token amounts and fee parameters.
+     * @param options The solver's per-leg quotes, quote expiry and fees. Each leg pays for the
+     * escrow it actually releases at the quoted rate, so a leg may pay less than its output budget.
      */
     function fillOrder(Order calldata order, FillOptions calldata options) public payable whenNotPaused nonReentrant {
         uint256 blockNumber = _blockNumber();
@@ -536,6 +536,7 @@ contract IntentGatewayV2 is
         uint256 outputsLen = order.output.assets.length;
         if (options.outputs.length != outputsLen) revert InvalidInput();
         if (order.inputs.length != outputsLen) revert InvalidInput();
+        if (options.inputs.length != outputsLen) revert InvalidInput();
 
         if (isSameChain) {
             _delegate(intrinsicModule, abi.encodeCall(IntrinsicModule.fillSameChain, (order, options, commitment)));

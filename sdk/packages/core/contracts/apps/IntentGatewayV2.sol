@@ -178,9 +178,13 @@ struct FillOptions {
     /// @dev Denominated in blocks, matching `order.deadline`, so both are read against the
     /// same clock (`_blockNumber()`, which is the L2 block number where that differs).
     uint256 validUntil;
-    /// @dev The output tokens with amounts the solver is willing to give
-    /// @dev Must be strictly >= the amounts requested in order.output.assets
+    /// @dev The most output the solver pays per leg, indexed like `order.output.assets`.
+    /// `outputs[i] / inputs[i]` is the solver's rate for leg `i`; the leg pays the input it actually
+    /// releases at that rate, rounded up, so payment never exceeds this budget.
     TokenInfo[] outputs;
+    /// @dev The most input the solver takes per leg, indexed like `order.inputs`. One entry per
+    /// leg is required; zero here and in `outputs[i]` skips the leg.
+    TokenInfo[] inputs;
 }
 
 /**
@@ -266,6 +270,11 @@ interface IIntentGatewayV2 {
     /// @notice Thrown when a solver attempts to partially fill an order that carries output
     ///         calldata. Such orders must be filled completely in a single fill.
     error PartialFillNotAllowed();
+    /// @notice Thrown when a leg's quoted output over quoted input is below the order's own rate.
+    error RateBelowOrder();
+    /// @notice Thrown when a fill credits no output or releases no input on any leg, including
+    ///         fills whose quotes are all zero or too small to move a leg by one unit.
+    error RateFillTooSmall();
 
     /// @notice Thrown by `placeOrder`, `fillOrder` and escrow deliveries while the gateway is paused,
     ///         and by `pause` when already paused.
@@ -322,7 +331,7 @@ interface IIntentGatewayV2 {
      * @notice Emitted when an order is fully filled.
      * @param commitment The unique identifier of the order
      * @param filler The address of the entity that filled the order
-     * @param outputs The output token amounts provided by the filler
+     * @param outputs The credited output amounts, excluding surplus
      * @param inputs The escrowed input tokens released to the filler
      */
     event OrderFilled(bytes32 indexed commitment, address filler, TokenInfo[] outputs, TokenInfo[] inputs);
@@ -332,7 +341,7 @@ interface IIntentGatewayV2 {
      *         support incremental fills.
      * @param commitment The unique identifier of the order
      * @param filler The address of the entity that provided this partial fill
-     * @param outputs The output token amounts provided in this fill
+     * @param outputs The credited output amounts in this fill, excluding surplus
      * @param inputs The proportional escrowed input tokens released to the filler
      */
     event PartialFill(bytes32 indexed commitment, address filler, TokenInfo[] outputs, TokenInfo[] inputs);

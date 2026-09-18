@@ -8,9 +8,6 @@ import {deployIntentGatewayImpl, deployIntentModules} from "../IntentGatewayDepl
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {
     SelectOptions,
-    Order,
-    FillOptions,
-    TokenInfo,
     Params,
     InitParams,
     DispatchInfo,
@@ -81,6 +78,25 @@ contract SolverAccountTest is Test {
     // ============================================
     // Constructor Tests
     // ============================================
+
+    function test_ReleaseVersionProtectsCurrentAndHistoricalSelectors() public view {
+        assertEq(solverAccount.version(), 3);
+        assertEq(intentGateway.version(), 3);
+        assertNotEq(intentGateway.fillOrder.selector, bytes4(0xa5470064));
+        assertNotEq(intentGateway.fillOrder.selector, bytes4(0x5cfb1ea5));
+    }
+
+    function testVersionTwoMigrationShiftsRelayerOnce() public {
+        bytes32 initSlot = 0xf0c57e16840df040f15088dc2f81fe391c3923bec73e23a9662efc9c229c6a00;
+        vm.store(address(intentGateway), initSlot, bytes32(uint256(2)));
+        address relayer = address(0x123456);
+        vm.store(address(intentGateway), bytes32(uint256(13)), bytes32(uint256(uint160(relayer)) << 8));
+        vm.prank(intentGateway.host());
+        intentGateway.migrate(address(0xabc));
+        assertEq(intentGateway.version(), 3);
+        assertEq(intentGateway.owner(), address(0xabc));
+        assertEq(intentGateway.relayer(), relayer);
+    }
 
     function test_Constructor_SetsCachedValues() public view {
         assertEq(address(solverAccount.entryPoint()), entryPoint);
@@ -163,6 +179,45 @@ contract SolverAccountTest is Test {
         Execution[] memory calls = new Execution[](1);
         calls[0] = Execution({
             target: address(intentGateway), value: 0, callData: abi.encodeWithSelector(intentGateway.fillOrder.selector)
+        });
+
+        PackedUserOperation memory op = _standardOp(_executeCalldata(calls), _signUserOpHash(userOpHash));
+
+        vm.prank(entryPoint);
+        uint256 result = solverAccount.validateUserOp(op, userOpHash, 0);
+
+        assertEq(result, ERC4337Utils.SIG_VALIDATION_FAILED);
+    }
+
+    function test_ValidateUserOp_StandardECDSA_HistoricalFillCalldata_Fails() public {
+        _assertHistoricalFillRejectsStandardSignature(0xa5470064);
+        _assertHistoricalFillRejectsStandardSignature(0x5cfb1ea5);
+    }
+
+    function _assertHistoricalFillRejectsStandardSignature(bytes4 selector) internal {
+        bytes32 userOpHash = keccak256("test_userop");
+
+        Execution[] memory calls = new Execution[](1);
+        calls[0] = Execution({target: address(intentGateway), value: 0, callData: abi.encodeWithSelector(selector)});
+
+        PackedUserOperation memory op = _standardOp(_executeCalldata(calls), _signUserOpHash(userOpHash));
+
+        vm.prank(entryPoint);
+        uint256 result = solverAccount.validateUserOp(op, userOpHash, 0);
+
+        assertEq(result, ERC4337Utils.SIG_VALIDATION_FAILED);
+    }
+
+    function test_ValidateUserOp_StandardECDSA_AppendedFillCalldata_Fails() public {
+        bytes32 userOpHash = keccak256("test_userop");
+
+        Execution[] memory calls = new Execution[](1);
+        calls[0] = Execution({
+            target: address(intentGateway),
+            value: 0,
+            callData: abi.encodeWithSignature(
+                "fillOrder((bytes32,bytes,bytes,uint256,uint256,uint256,address,((bytes32,uint256)[],bytes),(bytes32,uint256)[],(bytes32,(bytes32,uint256)[],bytes)),(uint256,uint256,uint256,(bytes32,uint256)[],(bytes32,uint256)[]))"
+            )
         });
 
         PackedUserOperation memory op = _standardOp(_executeCalldata(calls), _signUserOpHash(userOpHash));
@@ -266,6 +321,44 @@ contract SolverAccountTest is Test {
         calls[0] = Execution({
             target: address(intentGateway), value: 0, callData: abi.encodeWithSelector(intentGateway.fillOrder.selector)
         });
+
+        PackedUserOperation memory op = PackedUserOperation({
+            sender: address(solverAccount),
+            nonce: _bidNonce(testCommitment, sessionKey),
+            initCode: "",
+            callData: _executeCalldata(calls),
+            accountGasLimits: bytes32(0),
+            preVerificationGas: 0,
+            gasFees: bytes32(0),
+            paymasterAndData: "",
+            signature: signature
+        });
+
+        SelectOptions memory expectedOptions =
+            SelectOptions({commitment: testCommitment, solver: address(solverAccount), signature: sessionSignature});
+        bytes memory selectCalldata = abi.encodeWithSelector(intentGateway.select.selector, expectedOptions);
+        vm.mockCall(address(intentGateway), selectCalldata, abi.encode(sessionKey));
+
+        vm.prank(entryPoint);
+        uint256 result = solverAccount.validateUserOp(op, userOpHash, 0);
+
+        assertEq(result, ERC4337Utils.SIG_VALIDATION_SUCCESS);
+    }
+
+    function test_ValidateUserOp_IntentSelection_HistoricalFillCalldata_Success() public {
+        _assertHistoricalFillAcceptsIntentSignature(0xa5470064);
+        _assertHistoricalFillAcceptsIntentSignature(0x5cfb1ea5);
+    }
+
+    function _assertHistoricalFillAcceptsIntentSignature(bytes4 selector) internal {
+        bytes32 userOpHash = keccak256("test_userop");
+
+        bytes memory sessionSignature = _createSessionKeySignature(testCommitment, address(solverAccount));
+        bytes memory solverSignature = _signUserOpHash(userOpHash);
+        bytes memory signature = abi.encodePacked(testCommitment, solverSignature, sessionSignature);
+
+        Execution[] memory calls = new Execution[](1);
+        calls[0] = Execution({target: address(intentGateway), value: 0, callData: abi.encodeWithSelector(selector)});
 
         PackedUserOperation memory op = PackedUserOperation({
             sender: address(solverAccount),

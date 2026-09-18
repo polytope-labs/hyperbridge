@@ -13,6 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 pragma solidity ^0.8.17;
+import {IntentQuoteTestUtils} from "./IntentQuoteTestUtils.sol";
 
 import "forge-std/Test.sol";
 import {MainnetForkBaseTest} from "./MainnetForkBaseTest.sol";
@@ -263,7 +264,14 @@ contract IntrinsicIntentsReentrancyTest is MainnetForkBaseTest {
         reentrantOutputs[0] = TokenInfo({token: bytes32(0), amount: 0});
 
         maliciousBeneficiary.arm(
-            order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: reentrantOutputs})
+            order,
+            FillOptions({
+                relayerFee: 0,
+                nativeDispatchFee: 0,
+                validUntil: 0,
+                outputs: reentrantOutputs,
+                inputs: IntentQuoteTestUtils.inputs(order, reentrantOutputs)
+            })
         );
 
         // ── 3. Fill attempt reverts — reentrancy is blocked ──────────────────
@@ -271,7 +279,14 @@ contract IntrinsicIntentsReentrancyTest is MainnetForkBaseTest {
         vm.expectRevert(ERR_INSUFFICIENT_NATIVE);
         vm.prank(legitimateSolver);
         intentGateway.fillOrder{value: OUTPUT_ETH}(
-            order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: outputAssets})
+            order,
+            FillOptions({
+                relayerFee: 0,
+                nativeDispatchFee: 0,
+                validUntil: 0,
+                outputs: outputAssets,
+                inputs: IntentQuoteTestUtils.inputs(order, outputAssets)
+            })
         );
 
         // ── 4. State is completely rolled back ───────────────────────────────
@@ -327,7 +342,14 @@ contract IntrinsicIntentsReentrancyTest is MainnetForkBaseTest {
         reentrantOutputs[1] = TokenInfo({token: daiToken, amount: outputDai});
 
         maliciousBeneficiary.arm(
-            order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: reentrantOutputs})
+            order,
+            FillOptions({
+                relayerFee: 0,
+                nativeDispatchFee: 0,
+                validUntil: 0,
+                outputs: reentrantOutputs,
+                inputs: IntentQuoteTestUtils.inputs(order, reentrantOutputs)
+            })
         );
 
         // ── 3. Fill attempt reverts — reentrancy is blocked ──────────────────
@@ -339,7 +361,14 @@ contract IntrinsicIntentsReentrancyTest is MainnetForkBaseTest {
         vm.expectRevert(ERR_INSUFFICIENT_NATIVE);
         vm.prank(legitimateSolver);
         intentGateway.fillOrder{value: OUTPUT_ETH}(
-            order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: outputAssets})
+            order,
+            FillOptions({
+                relayerFee: 0,
+                nativeDispatchFee: 0,
+                validUntil: 0,
+                outputs: outputAssets,
+                inputs: IntentQuoteTestUtils.inputs(order, outputAssets)
+            })
         );
 
         // ── 4. State is completely rolled back ───────────────────────────────
@@ -393,7 +422,14 @@ contract IntrinsicIntentsReentrancyTest is MainnetForkBaseTest {
         reentrantOutputs[0] = TokenInfo({token: bytes32(0), amount: 0});
 
         maliciousBeneficiary.arm(
-            order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: reentrantOutputs})
+            order,
+            FillOptions({
+                relayerFee: 0,
+                nativeDispatchFee: 0,
+                validUntil: 0,
+                outputs: reentrantOutputs,
+                inputs: IntentQuoteTestUtils.inputs(order, reentrantOutputs)
+            })
         );
 
         // ── 3. Fill attempt reverts — reentrancy is blocked ──────────────────
@@ -401,7 +437,14 @@ contract IntrinsicIntentsReentrancyTest is MainnetForkBaseTest {
         vm.expectRevert(ERR_INSUFFICIENT_NATIVE);
         vm.prank(legitimateSolver);
         intentGateway.fillOrder{value: OUTPUT_ETH}(
-            order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: outputAssets})
+            order,
+            FillOptions({
+                relayerFee: 0,
+                nativeDispatchFee: 0,
+                validUntil: 0,
+                outputs: outputAssets,
+                inputs: IntentQuoteTestUtils.inputs(order, outputAssets)
+            })
         );
 
         // ── 4. _filled is rolled back — order remains fillable ───────────────
@@ -442,7 +485,14 @@ contract IntrinsicIntentsReentrancyTest is MainnetForkBaseTest {
         reentrantOutputs[1] = TokenInfo({token: daiToken, amount: outputDai});
 
         maliciousBeneficiary.arm(
-            order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: reentrantOutputs})
+            order,
+            FillOptions({
+                relayerFee: 0,
+                nativeDispatchFee: 0,
+                validUntil: 0,
+                outputs: reentrantOutputs,
+                inputs: IntentQuoteTestUtils.inputs(order, reentrantOutputs)
+            })
         );
 
         // ── 3. Fill attempt reverts — reentrancy is blocked ──────────────────
@@ -450,7 +500,14 @@ contract IntrinsicIntentsReentrancyTest is MainnetForkBaseTest {
         vm.expectRevert(ERR_INSUFFICIENT_NATIVE);
         vm.prank(legitimateSolver);
         intentGateway.fillOrder{value: OUTPUT_ETH}(
-            order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: outputAssets})
+            order,
+            FillOptions({
+                relayerFee: 0,
+                nativeDispatchFee: 0,
+                validUntil: 0,
+                outputs: outputAssets,
+                inputs: IntentQuoteTestUtils.inputs(order, outputAssets)
+            })
         );
 
         // ── 4. Nothing was recorded for either leg ───────────────────────────

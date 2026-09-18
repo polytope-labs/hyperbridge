@@ -13,6 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 pragma solidity ^0.8.24;
+import {IntentQuoteTestUtils} from "./IntentQuoteTestUtils.sol";
 
 import "forge-std/Test.sol";
 import {intentGatewayUpgradeInitialization} from "../../script/IntentGatewayScript.sol";
@@ -200,8 +201,13 @@ contract IntentGatewayModulesTest is MainnetForkBaseTest {
         IntrinsicModule intrinsic = IntrinsicModule(gateway.intrinsicModule());
         ExtrinsicModule extrinsic = ExtrinsicModule(gateway.extrinsicModule());
         Order memory order = _sameChainOrder(1e6, 1e18);
-        FillOptions memory fill =
-            FillOptions({relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: order.output.assets});
+        FillOptions memory fill = FillOptions({
+            relayerFee: 0,
+            nativeDispatchFee: 0,
+            validUntil: 0,
+            outputs: order.output.assets,
+            inputs: IntentQuoteTestUtils.inputs(order, order.output.assets)
+        });
         CancelOptions memory cancel = CancelOptions({relayerFee: 0, height: 0});
         bytes32 commitment = keccak256(abi.encode(order));
 
@@ -269,7 +275,14 @@ contract IntentGatewayModulesTest is MainnetForkBaseTest {
         vm.prank(solver);
         vm.expectRevert(bytes("Dai/insufficient-allowance"));
         gateway.fillOrder(
-            order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: order.output.assets})
+            order,
+            FillOptions({
+                relayerFee: 0,
+                nativeDispatchFee: 0,
+                validUntil: 0,
+                outputs: order.output.assets,
+                inputs: IntentQuoteTestUtils.inputs(order, order.output.assets)
+            })
         );
     }
 
@@ -293,7 +306,14 @@ contract IntentGatewayModulesTest is MainnetForkBaseTest {
         dai.approve(address(gateway), 900 * 1e18);
         vm.expectRevert(SwappedIntrinsicModule.ModuleSwapped.selector);
         gateway.fillOrder(
-            order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: order.output.assets})
+            order,
+            FillOptions({
+                relayerFee: 0,
+                nativeDispatchFee: 0,
+                validUntil: 0,
+                outputs: order.output.assets,
+                inputs: IntentQuoteTestUtils.inputs(order, order.output.assets)
+            })
         );
         vm.stopPrank();
     }
@@ -311,7 +331,14 @@ contract IntentGatewayModulesTest is MainnetForkBaseTest {
         vm.prank(solver);
         vm.expectRevert(SwappedExtrinsicModule.ExtrinsicSwapped.selector);
         gateway.fillOrder(
-            order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: order.output.assets})
+            order,
+            FillOptions({
+                relayerFee: 0,
+                nativeDispatchFee: 0,
+                validUntil: 0,
+                outputs: order.output.assets,
+                inputs: IntentQuoteTestUtils.inputs(order, order.output.assets)
+            })
         );
     }
 
@@ -319,7 +346,7 @@ contract IntentGatewayModulesTest is MainnetForkBaseTest {
     bytes32 internal constant INITIALIZABLE_SLOT = 0xf0c57e16840df040f15088dc2f81fe391c3923bec73e23a9662efc9c229c6a00;
 
     /// The release's own upgrade: a proxy at version 2, as every live one is, moved to this
-    /// implementation with `migrate(owner)` as the init data lands at 3 with its state intact and
+    /// implementation with `migrate(owner)` as the init data lands at 4 with its state intact and
     /// its owner set. Pinned here because the live-fork test's precondition expires once mainnet
     /// is upgraded.
     function testUpgradeFromVersionTwoWithMigrate() public {
@@ -349,7 +376,7 @@ contract IntentGatewayModulesTest is MainnetForkBaseTest {
         gateway.onAccept(IncomingPostRequest({relayer: address(this), request: again}));
     }
 
-    function testUpgradeHelperUsesEmptyInitializationForVersionThree() public view {
+    function testUpgradeHelperUsesEmptyInitializationForVersionFour() public view {
         assertEq(intentGatewayUpgradeInitialization(gateway, address(this)), bytes(""));
     }
 
@@ -368,7 +395,7 @@ contract IntentGatewayModulesTest is MainnetForkBaseTest {
     }
 
     function testUpgradeHelperRejectsUnsupportedVersions() public {
-        uint256[3] memory unsupported = [uint256(0), uint256(1), uint256(4)];
+        uint256[3] memory unsupported = [uint256(0), uint256(1), uint256(5)];
         for (uint256 i; i < unsupported.length; i++) {
             vm.store(address(gateway), INITIALIZABLE_SLOT, bytes32(unsupported[i]));
             vm.expectRevert("Unsupported IntentGateway version");
@@ -405,7 +432,14 @@ contract IntentGatewayModulesTest is MainnetForkBaseTest {
         vm.startPrank(solver);
         dai.approve(address(gateway), 900 * 1e18);
         gateway.fillOrder(
-            order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: order.output.assets})
+            order,
+            FillOptions({
+                relayerFee: 0,
+                nativeDispatchFee: 0,
+                validUntil: 0,
+                outputs: order.output.assets,
+                inputs: IntentQuoteTestUtils.inputs(order, order.output.assets)
+            })
         );
         vm.stopPrank();
         assertEq(gateway._filled(commitment), solver, "filled after three upgrades");

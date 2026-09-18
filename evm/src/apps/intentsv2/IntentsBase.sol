@@ -17,6 +17,8 @@ pragma solidity ^0.8.24;
 import {IDispatcher} from "@hyperbridge/core/interfaces/IDispatcher.sol";
 import {
     TokenInfo,
+    FillOptions,
+    PaymentInfo,
     Order,
     Params,
     ParamsUpdate,
@@ -197,6 +199,17 @@ abstract contract IntentsBase is EIP712 {
     /// by (commitment, leg index) like `_orders`.
     mapping(bytes32 => mapping(uint256 => ProtocolFee)) public _protocolFees;
 
+    /// @dev One fill's per-leg outcome, handed back to the same-chain or cross-chain caller to settle.
+    struct FillResult {
+        /// @dev Escrow released to the solver per leg; zero for legs this fill did not advance.
+        TokenInfo[] releasedInputs;
+        /// @dev Output credited to the order per leg, excluding surplus.
+        TokenInfo[] creditedOutputs;
+        bool fullyFilled;
+        /// @dev `msg.value` left after native outputs were paid.
+        uint256 nativeRemaining;
+    }
+
     /**
      * @dev This contract's own address. Under delegatecall `address(this)` is the proxy instead,
      * so a module uses this to refuse direct calls and to delegatecall itself for `Execute`.
@@ -265,6 +278,15 @@ abstract contract IntentsBase is EIP712 {
      * output calldata. Such orders must be filled completely in a single fill.
     */
     error PartialFillNotAllowed();
+    /**
+     * @dev Thrown when a leg's quoted output over quoted input is below the order's own rate.
+     */
+    error RateBelowOrder();
+    /**
+     * @dev Thrown when a fill credits no output or releases no input on any leg, including
+     * fills whose quotes are all zero or too small to move a leg by one unit.
+     */
+    error RateFillTooSmall();
 
     /**
      * @dev Emitted when a new intent order is placed and input tokens are escrowed.
@@ -304,7 +326,7 @@ abstract contract IntentsBase is EIP712 {
      * @dev Emitted when an order is fully filled by a solver.
      * @param commitment The order commitment hash.
      * @param filler The address of the solver who filled the order.
-     * @param outputs The output token amounts provided by the solver.
+     * @param outputs The credited output amounts, excluding surplus.
      * @param inputs The escrowed input tokens released to the solver.
      */
     event OrderFilled(bytes32 indexed commitment, address filler, TokenInfo[] outputs, TokenInfo[] inputs);
@@ -314,7 +336,7 @@ abstract contract IntentsBase is EIP712 {
      * to same-chain orders which support incremental fills.
      * @param commitment The order commitment hash.
      * @param filler The address of the solver who provided this partial fill.
-     * @param outputs The output token amounts provided in this fill.
+     * @param outputs The credited output amounts in this fill, excluding surplus.
      * @param inputs The proportional escrowed input tokens released to the solver.
      */
     event PartialFill(bytes32 indexed commitment, address filler, TokenInfo[] outputs, TokenInfo[] inputs);
@@ -465,6 +487,127 @@ abstract contract IntentsBase is EIP712 {
         if (!sent) revert InsufficientNativeToken();
     }
 
+    /// @dev Shape checks for every leg, skipped and completed ones included, before any transfer.
+    function _validateLegs(Order calldata order, FillOptions calldata options) private pure {
+        for (uint256 i; i < order.output.assets.length; ++i) {
+            bytes32 inputToken = order.inputs[i].token;
+            bytes32 outputToken = order.output.assets[i].token;
+            // Every use of a token reads the address in its low 20 bytes. Anything above would let one
+            // token pass `_isRepeatedToken` as two.
+            if (uint256(inputToken) >> 160 != 0 || uint256(outputToken) >> 160 != 0) revert InvalidInput();
+            if (options.inputs[i].token != inputToken || options.outputs[i].token != outputToken) {
+                revert InvalidInput();
+            }
+            // A leg is skipped by quoting zero on both sides, never on one.
+            if ((options.inputs[i].amount == 0) != (options.outputs[i].amount == 0)) revert InvalidInput();
+        }
+    }
+
+    /// @dev Prices and pays every leg of a fill and records its progress. The caller releases
+    /// `releasedInputs` locally or carries them to the source chain in a redemption request.
+    /// The callers' claim, unclaim and events stay with them: folding them in here puts the
+    /// via-IR frame one slot over the stack limit.
+    function _fillLegs(Order calldata order, FillOptions calldata options, bytes32 commitment)
+        internal
+        returns (FillResult memory result)
+    {
+        _validateLegs(order, options);
+        uint256 legCount = order.output.assets.length;
+        result.releasedInputs = new TokenInfo[](legCount);
+        result.creditedOutputs = new TokenInfo[](legCount);
+        result.fullyFilled = true;
+        result.nativeRemaining = msg.value;
+        bool madeProgress;
+
+        for (uint256 i; i < legCount; ++i) {
+            bytes32 outputToken = order.output.assets[i].token;
+            result.releasedInputs[i].token = order.inputs[i].token;
+            result.creditedOutputs[i].token = outputToken;
+            uint256 previousCredit = _partialFills[commitment][i];
+            uint256 requiredOutput = order.output.assets[i].amount;
+            if (previousCredit == requiredOutput || options.outputs[i].amount == 0) {
+                if (previousCredit < requiredOutput) result.fullyFilled = false;
+                continue;
+            }
+
+            (uint256 credited, uint256 released, uint256 paid) = _priceLeg(
+                order.inputs[i].amount,
+                requiredOutput,
+                previousCredit,
+                options.inputs[i].amount,
+                options.outputs[i].amount
+            );
+
+            _partialFills[commitment][i] = previousCredit + credited;
+            if (previousCredit + credited < requiredOutput) result.fullyFilled = false;
+            madeProgress = true;
+            result.releasedInputs[i].amount = released;
+            result.creditedOutputs[i].amount = credited;
+            result.nativeRemaining = _payLeg(order.output, outputToken, credited, paid, result.nativeRemaining);
+        }
+
+        if (!madeProgress) revert RateFillTooSmall();
+        if (order.output.call.length > 0 && !result.fullyFilled) revert PartialFillNotAllowed();
+    }
+
+    /// @dev Transfers one leg's payment: the credited amount plus the beneficiary's share of the
+    /// surplus goes to the beneficiary, the protocol's share stays here. Returns the native value left.
+    function _payLeg(
+        PaymentInfo calldata payment,
+        bytes32 outputToken,
+        uint256 credited,
+        uint256 paid,
+        uint256 nativeRemaining
+    ) private returns (uint256) {
+        (uint256 protocolShare, uint256 beneficiaryShare) = _splitSurplus(paid - credited, payment.call.length > 0);
+        uint256 beneficiaryAmount = credited + beneficiaryShare;
+        address token = address(uint160(uint256(outputToken)));
+        address beneficiary = address(uint160(uint256(payment.beneficiary)));
+
+        if (token == address(0)) {
+            if (nativeRemaining < paid) revert InsufficientNativeToken();
+            nativeRemaining -= paid;
+            _sendValue(beneficiary, beneficiaryAmount);
+        } else {
+            IERC20(token).safeTransferFrom(msg.sender, beneficiary, beneficiaryAmount);
+            if (protocolShare > 0) IERC20(token).safeTransferFrom(msg.sender, address(this), protocolShare);
+        }
+
+        if (protocolShare > 0) emit DustCollected(token, protocolShare);
+        return nativeRemaining;
+    }
+
+    /**
+     * @dev Prices one leg of a fill against the solver's quote of `quotedInput` for `offeredOutput`.
+     *
+     * The order's rate, `requiredOutput / escrowInput`, decides what the take buys: `credited` is the
+     * quoted input at that rate, capped to what the leg still needs. `released` is the escrow that
+     * credit unlocks, taken as a difference of cumulative floors so the completing fill drains the
+     * leg exactly. `paid` is the released input at the solver's own rate, rounded up and never below
+     * `credited`; whatever exceeds `credited` is surplus.
+     */
+    function _priceLeg(
+        uint256 escrowInput,
+        uint256 requiredOutput,
+        uint256 previousCredit,
+        uint256 quotedInput,
+        uint256 offeredOutput
+    ) internal pure returns (uint256 credited, uint256 released, uint256 paid) {
+        if (escrowInput == 0 || requiredOutput == 0 || quotedInput == 0 || offeredOutput == 0) {
+            revert RateFillTooSmall();
+        }
+
+        uint256 minimumOutput = Math.mulDiv(quotedInput, requiredOutput, escrowInput, Math.Rounding.Ceil);
+        if (minimumOutput > offeredOutput) revert RateBelowOrder();
+
+        credited = Math.min(Math.mulDiv(quotedInput, requiredOutput, escrowInput), requiredOutput - previousCredit);
+        released = _cumulativeReleased(escrowInput, previousCredit + credited, requiredOutput)
+            - _cumulativeReleased(escrowInput, previousCredit, requiredOutput);
+        if (credited == 0 || released == 0) revert RateFillTooSmall();
+
+        paid = Math.max(credited, Math.mulDiv(offeredOutput, released, quotedInput, Math.Rounding.Ceil));
+    }
+
     /// @dev Splits overpayment between protocol and beneficiary. An order with output calldata
     /// gives the beneficiary nothing, since the surplus is not the caller's to give.
     function _splitSurplus(uint256 dust, bool hasOutputCall)
@@ -473,7 +616,7 @@ abstract contract IntentsBase is EIP712 {
         returns (uint256 protocolShare, uint256 beneficiaryShare)
     {
         if (hasOutputCall) return (dust, 0);
-        protocolShare = (dust * _params.surplusShareBps) / 10_000;
+        protocolShare = Math.mulDiv(dust, _params.surplusShareBps, 10_000);
         beneficiaryShare = dust - protocolShare;
     }
 
@@ -515,7 +658,7 @@ abstract contract IntentsBase is EIP712 {
         returns (uint256)
     {
         if (totalRequired == 0 || filled >= totalRequired) return escrowTotal;
-        return (escrowTotal * filled) / totalRequired;
+        return Math.mulDiv(escrowTotal, filled, totalRequired);
     }
 
     /**

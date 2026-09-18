@@ -13,6 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 pragma solidity ^0.8.17;
+import {IntentQuoteTestUtils} from "./IntentQuoteTestUtils.sol";
 
 import "forge-std/Test.sol";
 import {MainnetForkBaseTest} from "./MainnetForkBaseTest.sol";
@@ -210,7 +211,16 @@ contract IntentGatewayV2MultiLegTest is MainnetForkBaseTest {
     function _fill(address solver, Order memory order, uint256 leg0, uint256 leg1) internal {
         TokenInfo[] memory outputs = _legs([order.output.assets[0].token, order.output.assets[1].token], [leg0, leg1]);
         vm.prank(solver);
-        gateway.fillOrder(order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: outputs}));
+        gateway.fillOrder(
+            order,
+            FillOptions({
+                relayerFee: 0,
+                nativeDispatchFee: 0,
+                validUntil: 0,
+                outputs: outputs,
+                inputs: IntentQuoteTestUtils.inputs(order, outputs)
+            })
+        );
     }
 
     function _partialFillSlot(bytes32 commitment, uint256 leg) internal pure returns (bytes32) {
@@ -265,6 +275,96 @@ contract IntentGatewayV2MultiLegTest is MainnetForkBaseTest {
         return IncomingPostRequest({relayer: relayer, request: request});
     }
 
+    function _rateFill(address solver, Order memory order, uint256 take0, uint256 take1) internal {
+        TokenInfo[] memory takes = _legs([usdcToken, usdcToken], [take0, take1]);
+        TokenInfo[] memory outputs =
+            _legs([daiToken, daiToken], [take0 * 1200 * 1e18 / (1200 * 1e6), take1 * 990 * 1e18 / (1000 * 1e6)]);
+        vm.prank(solver);
+        gateway.fillOrder(order, FillOptions(0, 0, 0, outputs, takes));
+    }
+
+    function testRate_RepeatedUnequalLegsCompleteIndependently() public {
+        (Order memory order, bytes32 commitment) = _place(gateway, _ladder("", host.host()));
+        uint256 solverBefore = usdc.balanceOf(solverA);
+        _rateFill(solverA, order, 1200 * 1e6, 300 * 1e6);
+        assertEq(gateway._partialFills(commitment, 0), 1200 * 1e18);
+        assertEq(gateway._partialFills(commitment, 1), 297 * 1e18);
+        assertEq(gateway._orders(commitment, 0), 0);
+        assertEq(gateway._orders(commitment, 1), 700 * 1e6);
+        assertEq(usdc.balanceOf(solverA) - solverBefore, 1500 * 1e6);
+        assertEq(gateway._filled(commitment), address(0));
+        uint256 secondSolverBefore = usdc.balanceOf(solverB);
+        _rateFill(solverB, order, 0, 1000 * 1e6);
+        assertEq(usdc.balanceOf(solverB) - secondSolverBefore, 700 * 1e6);
+        assertEq(gateway._orders(commitment, 1), 0);
+        assertEq(gateway._partialFills(commitment, 1), 990 * 1e18);
+        assertEq(gateway._filled(commitment), solverB);
+    }
+
+    function testFill_ValidatesLaterLegBeforeTokenTransfer() public {
+        (Order memory sameChain, bytes32 commitment) = _place(gateway, _ladder("", host.host()));
+        Order memory crossChain = _ladder(bytes("SOURCE_CHAIN"), host.host());
+        TokenInfo[] memory takes = _legs([usdcToken, usdcToken], [uint256(1200 * 1e6), 1000 * 1e6]);
+        TokenInfo[] memory outputs = _legs([daiToken, daiToken], [uint256(1200 * 1e18), 990 * 1e18]);
+        outputs[1].token = usdcToken;
+        vm.mockCallRevert(address(dai), abi.encodeWithSelector(IERC20.transferFrom.selector), hex"deadbeef");
+
+        vm.expectRevert(IntentsBase.InvalidInput.selector);
+        vm.prank(solverA);
+        gateway.fillOrder(sameChain, FillOptions(0, 0, 0, outputs, takes));
+        vm.expectRevert(IntentsBase.InvalidInput.selector);
+        vm.prank(solverA);
+        gateway.fillOrder(crossChain, FillOptions(0, 0, 0, outputs, takes));
+
+        vm.clearMockedCalls();
+        assertEq(gateway._partialFills(commitment, 0), 0);
+        assertEq(gateway._orders(commitment, 0), 1200 * 1e6);
+        assertEq(gateway._filled(commitment), address(0));
+    }
+
+    function testRate_CompletedAndSkippedLegsStillValidateQuotes() public {
+        (Order memory order, bytes32 commitment) = _place(gateway, _ladder("", host.host()));
+        _rateFill(solverA, order, 1200 * 1e6, 0);
+        TokenInfo[] memory takes = _legs([usdcToken, usdcToken], [uint256(0), 1000 * 1e6]);
+        TokenInfo[] memory outputs = _legs([daiToken, daiToken], [uint256(0), 990 * 1e18]);
+        takes[0].token = daiToken;
+        vm.expectRevert(IntentsBase.InvalidInput.selector);
+        vm.prank(solverB);
+        gateway.fillOrder(order, FillOptions(0, 0, 0, outputs, takes));
+        takes[0].token = usdcToken;
+        takes[0].amount = 1;
+        vm.expectRevert(IntentsBase.InvalidInput.selector);
+        vm.prank(solverB);
+        gateway.fillOrder(order, FillOptions(0, 0, 0, outputs, takes));
+        takes[0].amount = 0;
+        outputs[0].token = bytes32(uint256(daiToken) | (uint256(1) << 160));
+        vm.expectRevert(IntentsBase.InvalidInput.selector);
+        vm.prank(solverB);
+        gateway.fillOrder(order, FillOptions(0, 0, 0, outputs, takes));
+        assertEq(gateway._partialFills(commitment, 1), 0);
+        assertEq(gateway._orders(commitment, 1), 1000 * 1e6);
+        outputs[0].token = daiToken;
+        vm.prank(solverB);
+        gateway.fillOrder(order, FillOptions(0, 0, 0, outputs, takes));
+        assertEq(gateway._orders(commitment, 1), 0);
+    }
+
+    function testRate_RepeatedUnequalLegsCancelEachRemainder() public {
+        (Order memory order, bytes32 commitment) = _place(gateway, _ladder("", host.host()));
+        _rateFill(solverA, order, 400 * 1e6, 300 * 1e6);
+        assertEq(gateway._partialFills(commitment, 0), 400 * 1e18);
+        assertEq(gateway._partialFills(commitment, 1), 297 * 1e18);
+        assertEq(gateway._orders(commitment, 0), 800 * 1e6);
+        assertEq(gateway._orders(commitment, 1), 700 * 1e6);
+        uint256 userBefore = usdc.balanceOf(user);
+        vm.prank(user);
+        gateway.cancelOrder(order, CancelOptions(0, 0));
+        assertEq(usdc.balanceOf(user) - userBefore, 1500 * 1e6);
+        assertEq(gateway._orders(commitment, 0), 0);
+        assertEq(gateway._orders(commitment, 1), 0);
+        assertEq(gateway._filled(commitment), user);
+    }
+
     // ── same-chain ────────────────────────────────────────────────────────────
 
     /// @notice S3-2 and S2-15: completing one leg releases exactly that leg's escrow and leaves the other
@@ -309,7 +409,14 @@ contract IntentGatewayV2MultiLegTest is MainnetForkBaseTest {
         TokenInfo[] memory outputs = _legs([nativeToken, nativeToken], [uint256(0.3 ether), 0]);
         vm.prank(solverA);
         gateway.fillOrder{value: 0.3 ether}(
-            order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: outputs})
+            order,
+            FillOptions({
+                relayerFee: 0,
+                nativeDispatchFee: 0,
+                validUntil: 0,
+                outputs: outputs,
+                inputs: IntentQuoteTestUtils.inputs(order, outputs)
+            })
         );
         assertEq(gateway._partialFills(commitment, 1), 0, "leg 1 is not complete because leg 0 is");
         assertEq(gateway._filled(commitment), address(0), "order stays open");
@@ -319,7 +426,14 @@ contract IntentGatewayV2MultiLegTest is MainnetForkBaseTest {
         outputs = _legs([nativeToken, nativeToken], [uint256(0), 0.25 ether]);
         vm.prank(solverB);
         gateway.fillOrder{value: 0.25 ether}(
-            order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: outputs})
+            order,
+            FillOptions({
+                relayerFee: 0,
+                nativeDispatchFee: 0,
+                validUntil: 0,
+                outputs: outputs,
+                inputs: IntentQuoteTestUtils.inputs(order, outputs)
+            })
         );
         assertEq(user.balance - userEth, 0.25 ether, "leg 1 paid in full");
         assertEq(dai.balanceOf(solverB), 101_000 * 1e18, "leg 1's DAI released to its solver");
@@ -398,7 +512,16 @@ contract IntentGatewayV2MultiLegTest is MainnetForkBaseTest {
 
         TokenInfo[] memory outputs = _legs([daiToken, daiToken], [uint256(1000 * 1e18), 0]);
         vm.prank(solverA);
-        feeGateway.fillOrder(order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: outputs}));
+        feeGateway.fillOrder(
+            order,
+            FillOptions({
+                relayerFee: 0,
+                nativeDispatchFee: 0,
+                validUntil: 0,
+                outputs: outputs,
+                inputs: IntentQuoteTestUtils.inputs(order, outputs)
+            })
+        );
 
         uint256 before = usdc.balanceOf(user);
         vm.expectEmit(true, true, false, true, address(feeGateway));
@@ -648,6 +771,43 @@ contract IntentGatewayV2MultiLegTest is MainnetForkBaseTest {
         );
         _fill(solverA, order, 1200 * 1e18, 0);
         _fill(solverB, order, 0, 495 * 1e18); // half of leg 1
+        assertEq(gateway._partialFills(commitment, 0), 1200 * 1e18, "leg 0 complete");
+        assertEq(gateway._partialFills(commitment, 1), 495 * 1e18, "leg 1 half");
+        assertEq(gateway._filled(commitment), address(0), "order open while leg 1 is unpaid");
+
+        vm.recordLogs();
+        vm.prank(user);
+        gateway.cancelOrder(order, CancelOptions({relayerFee: 0, height: 0}));
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        bytes memory body;
+        for (uint256 i; i < logs.length; i++) {
+            if (logs[i].emitter != address(host) || logs[i].topics[0] != POST_REQUEST_EVENT) continue;
+            (,,,,, body,) = abi.decode(logs[i].data, (string, string, bytes, uint256, uint256, bytes, uint256));
+        }
+        assertEq(uint8(body[0]), uint8(IntentsBase.RequestKind.RefundEscrow), "refund dispatched");
+        bytes memory encoded = new bytes(body.length - 1);
+        for (uint256 i; i < encoded.length; i++) {
+            encoded[i] = body[i + 1];
+        }
+        WithdrawalRequest memory refund = abi.decode(encoded, (WithdrawalRequest));
+        assertEq(refund.tokens.length, 2, "one entry per leg");
+        assertEq(refund.tokens[0].amount, 0, "leg 0 fully redeemed by its solver");
+        assertEq(refund.tokens[1].amount, 500 * 1e6, "leg 1 unredeemed half");
+    }
+
+    function testRate_CrossChainRepeatedUnequalLegsCancelFromDestination() public {
+        Order memory order = _ladder(bytes("SOURCE_CHAIN"), host.host());
+        bytes32 commitment = keccak256(abi.encode(order));
+
+        vm.expectEmit(true, false, false, true, address(gateway));
+        emit IntentsBase.PartialFill(
+            commitment,
+            solverA,
+            _legs([daiToken, daiToken], [uint256(1200 * 1e18), 0]),
+            _legs([usdcToken, usdcToken], [uint256(1200 * 1e6), 0])
+        );
+        _rateFill(solverA, order, 1200 * 1e6, 0);
+        _rateFill(solverB, order, 0, 500 * 1e6); // half of leg 1
         assertEq(gateway._partialFills(commitment, 0), 1200 * 1e18, "leg 0 complete");
         assertEq(gateway._partialFills(commitment, 1), 495 * 1e18, "leg 1 half");
         assertEq(gateway._filled(commitment), address(0), "order open while leg 1 is unpaid");

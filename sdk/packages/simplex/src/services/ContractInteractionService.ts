@@ -20,7 +20,6 @@ import {
 	readLegPartialFill,
 	encodePhantomBidDeclaration,
 	bytes20ToBytes32,
-	type FillOptionsVersion,
 } from "@hyperbridge/sdk"
 import { ERC20_ABI } from "@/config/abis/ERC20"
 import type { ChainClientManager } from "./ChainClientManager"
@@ -46,12 +45,6 @@ const LIMIT_ORDER_CALL_GAS_LIMIT = 500_000n
 const LIMIT_ORDER_VERIFICATION_GAS_LIMIT = 150_000n
 const LIMIT_ORDER_PRE_VERIFICATION_GAS = 50_000n
 
-/**
- * Limit orders are always encoded as v2, whatever the destination gateway is.
- * The op never executes, so the deployed shape does not matter, and v1 has
- * nowhere to put `validUntil` which the orderbook requires.
- */
-const LIMIT_ORDER_FILL_OPTIONS_VERSION: FillOptionsVersion = 2
 /**
  * Handles contract interactions for tokens and other contracts
  */
@@ -839,9 +832,10 @@ export class ContractInteractionService {
 	 * fields are fixed rather than estimated, and why `paymasterAndData` carries
 	 * the accepted-source declaration instead of a paymaster.
 	 *
-	 * Always encoded as FillOptions v2. The op never runs, so the deployed
-	 * gateway's own version is beside the point, and the orderbook rejects v1 for
-	 * having nowhere to put `validUntil`.
+	 * The fill options carry `validUntil`, which the orderbook reads as the
+	 * posting's TTL, and the take beside the output: one quote for the order's one
+	 * leg, which is the rate the operator is signing. There is one `fillOrder`
+	 * shape, so there is no version to pick here.
 	 */
 	async prepareLimitOrderUserOp(params: {
 		fillChain: string
@@ -889,6 +883,10 @@ export class ContractInteractionService {
 			nativeDispatchFee: 0n,
 			validUntil: BigInt(params.ttlSecs),
 			outputs: [{ token: bytes20ToBytes32(outputToken), amount: outputAmount }],
+			// The rate itself: the whole input taken for the output paid. The order's
+			// own output amount is zero, as the orderbook requires, so this pair is
+			// where the price lives.
+			inputs: [{ token: bytes20ToBytes32(inputToken), amount: inputAmount }],
 		}
 
 		const calls: ERC7821Call[] = [
@@ -905,7 +903,7 @@ export class ContractInteractionService {
 				target: gateway,
 				value: 0n,
 				// biome-ignore lint/suspicious/noExplicitAny: the SDK's contract-order shape is not exported
-				data: encodeFillOrder(transformOrderForContract(order) as any, fillOptions, LIMIT_ORDER_FILL_OPTIONS_VERSION),
+				data: encodeFillOrder(transformOrderForContract(order) as any, fillOptions),
 			},
 		]
 

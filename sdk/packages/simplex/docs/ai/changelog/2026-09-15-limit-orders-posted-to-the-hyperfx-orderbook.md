@@ -45,9 +45,13 @@ nothing ever submits it, the orderbook only verifies the solver signature over t
 reads the amounts out of the calldata. So the gas fields are fixed rather than estimated, and
 `paymasterAndData` carries the accepted-source declaration instead of a paymaster.
 
-It is always encoded as FillOptions v2, without consulting the deployed gateway: the op never runs,
-and v1 has nowhere to put `validUntil`, which the orderbook requires. `validUntil` here is a TTL in
-seconds from the orderbook's receipt, not a block number.
+`FillOptions` takes one quote per leg, so the order's single leg carries `outputs[0]` — what the
+operator pays — and `inputs[0]`, the whole input they want for it. That pair is the rate, since the
+order's own output amount is zero as the orderbook requires. `validUntil` is a TTL in seconds from
+the orderbook's receipt, not a block number.
+
+There is one `fillOrder` shape, the one the gateway speaks, so the op is built without choosing a
+version: the encoder has no other to offer.
 
 The derived rate is rounded in simplex's favour, and so is the input the op is built from, so
 neither the stored rate nor a repost quotes better than the two amounts the operator gave. `REPLAYED` and `ORDER_EXISTS` are answered once by bumping

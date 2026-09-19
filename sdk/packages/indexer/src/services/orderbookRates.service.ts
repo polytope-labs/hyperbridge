@@ -41,6 +41,13 @@ const QUERY = `query Rates($symbol: String!) { ${STABLE_SYMBOLS.map(
 	(stable, index) => `q${index}: bestRate(tokenIn: $symbol, tokenOut: ${JSON.stringify(stable)}) { base quote rate }`,
 ).join(" ")} }`
 
+export interface PriceOptions {
+	/** Overrides the endpoint resolved from {@link ORDERBOOK_URL_VAR}. */
+	url?: string
+	/** Wall clock, injectable for tests. */
+	now?: number
+}
+
 interface Outcome {
 	price: Decimal | null
 	/** Whether the orderbook failed to answer, rather than answering that it has no rate. */
@@ -76,12 +83,7 @@ export function resetOrderbookRates(): void {
  */
 export async function fetchOrderbookUsdPrice(
 	symbol: string,
-	options: {
-		/** Overrides the endpoint resolved from {@link ORDERBOOK_URL_VAR}. */
-		url?: string
-		/** Wall clock, injectable for tests. */
-		now?: number
-	} = {},
+	options: PriceOptions = {},
 ): Promise<Decimal | null> {
 	const now = options.now ?? Date.now()
 	const url = options.url ?? orderbookEndpoint(GRAPHQL_PATH)
@@ -104,6 +106,16 @@ export async function fetchOrderbookUsdPrice(
 	})
 	cache.set(symbol, entry)
 	return entry.price
+}
+
+/**
+ * USD per one whole `symbol`: $1 for a stable, otherwise the orderbook's rate, or null when it
+ * quotes none. This is what a caller pricing a token by symbol wants — {@link fetchOrderbookUsdPrice}
+ * alone would ask the orderbook to price a dollar in dollars, which no book trades.
+ */
+export async function fetchTokenUsdPrice(symbol: string, options: PriceOptions = {}): Promise<Decimal | null> {
+	if (STABLE_SYMBOLS.includes(symbol.toUpperCase())) return new Decimal(1)
+	return fetchOrderbookUsdPrice(symbol, options)
 }
 
 /**

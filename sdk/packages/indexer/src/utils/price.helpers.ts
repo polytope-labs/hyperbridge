@@ -1,7 +1,5 @@
 import Decimal from "decimal.js"
-import { safeFetch as fetch } from "@/utils/safeFetch"
 import type { Hex } from "viem"
-import { fetchWithRetry } from "./fetch-retry.helpers"
 
 import { CHAINLINK_PRICE_FEED_CONTRACT_ADDRESSES } from "@/addresses/chainlink-price-feeds.addresses"
 import { ITokenPriceFeedDetails } from "@/constants"
@@ -14,63 +12,6 @@ import uniswapV3FactoryAbi from "@/configs/abis/UniswapV3Factory.abi.json"
 import uniswapV3PoolAbi from "@/configs/abis/UniswapV3Pool.abi.json"
 import uniswapV3QuoterV2Abi from "@/configs/abis/UniswapV3QuoterV2.abi.json"
 import uniswapV4QuoterAbi from "@/configs/abis/UniswapV4Quoter.abi.json"
-import { ErrTokenPriceUnavailable } from "@/types/errors"
-
-/**
- * CoinGecko's free API. The indexer holds no pro key, so it never reaches `pro-api.coingecko.com`
- * and is subject to the public rate limit.
- */
-const COINGECKO_BASE_URL = "https://api.coingecko.com"
-
-export interface CoinGeckoResponse {
-	[key: string]: {
-		usd: number
-	}
-}
-
-export interface GeckoTerminalPool {
-	id: string
-	type: string
-	attributes: {
-		address: string
-		name: string
-		[key: string]: unknown
-	}
-	relationships: {
-		base_token?: { data: { id: string; type: string } }
-		quote_token?: { data: { id: string; type: string } }
-		quote_tokens?: { data: Array<{ id: string; type: string }> }
-		dex?: { data: { id: string; type: string } }
-		[key: string]: unknown
-	}
-}
-
-export interface GeckoTerminalToken {
-	id: string
-	type: string
-	attributes: {
-		address: string
-		name: string
-		symbol: string
-		decimals: number
-		image_url: string | null
-		coingecko_coin_id: string | null
-		[key: string]: unknown
-	}
-}
-
-export interface GeckoTerminalResponse {
-	data: GeckoTerminalPool[]
-	included?: GeckoTerminalToken[]
-	links?: {
-		next?: string
-	}
-}
-
-export interface GeckoTerminalPoolsResult {
-	pools: GeckoTerminalPool[]
-	tokens: Map<string, GeckoTerminalToken>
-}
 
 export interface PriceResponse {
 	priceInUSD: string
@@ -357,40 +298,6 @@ export default class PriceHelper {
 		}
 	}
 
-	/**
-	 * Get Token Price From CoinGecko
-	 * @param symbols - The token symbol or an array of token symbols
-	 * @returns Price per token and total value in USD
-	 */
-	static async getTokenPriceFromCoinGecko(symbols: string | string[]): Promise<CoinGeckoResponse | Error> {
-		try {
-			const _symbols = typeof symbols === "string" ? symbols : Array.from(symbols).join(",")
-			const headers = { accept: "application/json", "content-type": "application/json" }
-
-			const response = await fetchWithRetry(
-				`${COINGECKO_BASE_URL}/api/v3/simple/price?symbols=${_symbols}&vs_currencies=usd`,
-				{
-					method: "GET",
-					headers,
-				}
-			)
-
-			if (!response.ok) {
-				throw new Error(`CoinGecko API error: ${response.status} ${response.statusText}`)
-			}
-
-			const data = (await response.json()) as CoinGeckoResponse
-			if (Object.keys(data).length === 0) {
-				return new ErrTokenPriceUnavailable(`No price found for symbols: ${symbols}`)
-			}
-
-			return data
-		} catch (error) {
-			// @ts-ignore
-			return new Error(error.message)
-		}
-	}
-
 	static getAmountValueInUSD(amount: bigint, decimals: number, price: string | number): PriceResponse {
 		const priceInUSD = new Decimal(price).toFixed(18)
 		const amountValueInUSD = new Decimal(amount.toString())
@@ -401,101 +308,6 @@ export default class PriceHelper {
 		return {
 			priceInUSD,
 			amountValueInUSD,
-		}
-	}
-
-	/**
-	 * Retrieve pools from CoinGecko OnChain DEX API for a given network.
-	 * @param networkName - Network name (e.g., "eth", "polygon_pos", "base")
-	 * @param page - Page number (default: 1)
-	 * @returns Object containing pools array and tokens map, or empty result if not available
-	 */
-	static async getGeckoTerminalPools(networkName: string, page: number = 1): Promise<GeckoTerminalPoolsResult> {
-		if (!networkName || typeof networkName !== "string") {
-			logger.warn(`[PriceHelper.getGeckoTerminalPools] Invalid network name provided: ${networkName}`)
-			return { pools: [], tokens: new Map() }
-		}
-
-		try {
-			const headers = { accept: "application/json", "content-type": "application/json" }
-
-			const url = `${COINGECKO_BASE_URL}/api/v3/onchain/networks/${networkName}/pools?include=base_token%2Cquote_token&page=${page}`
-
-			const response = await fetch(url, {
-				method: "GET",
-				headers,
-			})
-
-			if (!response.ok) {
-				logger.error(
-					`[PriceHelper.getGeckoTerminalPools] CoinGecko OnChain API error (${networkName}, page ${page}): ${response.status} ${response.statusText}`,
-				)
-				return { pools: [], tokens: new Map() }
-			}
-
-			const data = (await response.json()) as GeckoTerminalResponse
-			const pools = data.data || []
-			const tokens = new Map<string, GeckoTerminalToken>()
-
-			if (data.included) {
-				for (const token of data.included) {
-					if (token.type === "token" && token.attributes.address) {
-						const tokenAddress = token.attributes.address.toLowerCase()
-						tokens.set(tokenAddress, token)
-					}
-				}
-			}
-
-			return { pools, tokens }
-		} catch (error) {
-			logger.error(
-				`[PriceHelper.getGeckoTerminalPools] Error fetching pools for ${networkName} (page ${page}): ${error}`,
-			)
-			return { pools: [], tokens: new Map() }
-		}
-	}
-
-	/**
-	 * Get token price in USD using CoinGecko API
-	 * @param symbol - The token symbol
-	 * @param amount - Amount in token's smallest unit (e.g., wei for ETH)
-	 * @param decimals - Token decimals
-	 * @returns Price per token and total value in USD
-	 */
-	static async getTokenPriceInUSDCoingecko(symbol: string, amount: bigint, decimals: number): Promise<PriceResponse> {
-		logger.info(`getTokenPriceInUSDCoingecko(${symbol}, BitInt(${amount.toString()}), ${decimals})`)
-
-		if (!symbol) {
-			return { priceInUSD: "0", amountValueInUSD: "0" }
-		}
-
-		try {
-			const response = await this.getTokenPriceFromCoinGecko(symbol)
-			if (response instanceof Error) {
-				return { priceInUSD: "0", amountValueInUSD: "0" }
-			}
-
-			const price = response[symbol.toLowerCase()]?.usd || response[symbol.toUpperCase()]?.usd
-			if (!price || price <= 0) {
-				throw new Error(`Price not found for symbol: ${symbol}`)
-			}
-
-			const { priceInUSD, amountValueInUSD } = this.getAmountValueInUSD(amount, decimals, price.toString())
-
-			logger.info(
-				`getTokenPriceInUSDCoingecko(${symbol}, BitInt(${amount.toString()}), ${decimals}) => ${priceInUSD}, ${amountValueInUSD}`,
-			)
-
-			return {
-				priceInUSD,
-				amountValueInUSD,
-			}
-		} catch (error) {
-			logger.error(`Error fetching token price for ${symbol}: ${error}`)
-			return {
-				priceInUSD: "0",
-				amountValueInUSD: "0",
-			}
 		}
 	}
 }

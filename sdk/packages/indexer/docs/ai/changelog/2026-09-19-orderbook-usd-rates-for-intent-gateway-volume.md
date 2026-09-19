@@ -35,8 +35,24 @@ on. **Deployments setting `HYPERFX_WATCHLIST_URL` must be updated, or solver wat
 release script's dist patch — which rewrites the env config inlined into `dist/index.js` so a running indexer
 picks up new endpoints without a rebuild — anchored its match on the `COIN_GECKGO_API_KEY` key and now anchors on
 `HYPERFX_ORDERBOOK_URL`; every tracked key is written on every run, set or null, so either serves as the marker.
-`PriceHelper`'s two CoinGecko calls read the key to choose `pro-api.coingecko.com` and send `x-cg-pro-api-key`;
-they now always use the free `api.coingecko.com` and its public rate limit.
+CoinGecko is then gone entirely: `PriceHelper.getTokenPriceFromCoinGecko`, `getTokenPriceInUSDCoingecko` and
+`getGeckoTerminalPools` are deleted with their response types, and `TOKEN_REGISTRY` with them.
+
+**`TokenPriceService` prices from the orderbook.** `updateTokenPrices` now calls `fetchTokenUsdPrice` per symbol —
+$1 for a stable, otherwise the orderbook's rate — which is also what `IntentGatewayV3Service` prices with, so the
+two paths agree on what a token is worth. Consequences, in order of how much they will be noticed:
+
+- There is no whitelist any more. The orderbook decides what it can price, and a symbol it quotes no rate for is
+  left out of the result rather than stored at zero, so `getPrice` keeps returning whatever price it already held.
+- Only tokens with a book against `USDC` or `USDT` get a price at all. Every registry token without one — `DOT`,
+  `GLMR`, `ASTR`, `vDOT`, `BNC`, `CERE`, `BNB`, `POL`, `XDAI` — prices at 0, and so do the ERC-20 transfer USD
+  values derived from them through `getPriceDataFromEthereumLog`.
+- `TokenPriceLog.provider` records `HYPERFX` rather than `COINGECKO`.
+- The per-token `updateFrequencySeconds` is now one `PRICE_REFRESH_INTERVAL_MS` of ten minutes, which is what
+  every registry entry carried. It bounds how often a price is *written*; the rates service's own cache bounds how
+  often the orderbook is asked.
+- `initializePriceIndexing` and `syncAllTokenPrices` are deleted. Both existed only to walk the registry, and
+  nothing had called either since the price-indexing block handler was removed.
 
 **Caching and failures.** Answers are cached per symbol, with concurrent callers sharing one in-flight request, so
 a block's orders cost one request and a repeatedly priced token costs at most one per minute. A rate or a

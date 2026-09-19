@@ -18,12 +18,27 @@ import {
 	tron,
 } from "viem/chains"
 import { defineChain } from "viem"
-import { TronWeb } from "tronweb"
+import { base58Decode } from "@polkadot/util-crypto"
 import type { HexString } from "@/types"
 
-/** Convert a Tron base58 address to a 0x-prefixed 20-byte EVM hex address */
+/**
+ * Convert a Tron base58 address to a 0x-prefixed 20-byte EVM hex address.
+ *
+ * Decoded by hand rather than through `TronWeb.address.toHex`, because importing `tronweb` here
+ * pulls `axios` and its `https-proxy-agent` into every consumer of this module. `https-proxy-agent`
+ * loads `debug`, which deletes `process.env.DEBUG` as it initialises — and the SubQuery indexer runs
+ * mappings in a VM2 sandbox whose `process` is frozen, so that delete throws and kills the worker.
+ *
+ * A Tron address is base58check over 0x41 || 20 address bytes || a 4-byte checksum, so the EVM
+ * address is the 20 bytes between them.
+ */
 function tronAddress(base58: string): HexString {
-	return `0x${TronWeb.address.toHex(base58).slice(2)}` as HexString
+	const decoded = base58Decode(base58)
+	if (decoded.length !== 25 || decoded[0] !== 0x41) {
+		throw new Error(`Not a Tron base58 address: ${base58}`)
+	}
+	const hex = Array.from(decoded.slice(1, 21), (byte) => byte.toString(16).padStart(2, "0")).join("")
+	return `0x${hex}` as HexString
 }
 
 export enum Chains {

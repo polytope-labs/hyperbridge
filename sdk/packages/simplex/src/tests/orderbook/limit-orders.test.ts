@@ -191,9 +191,11 @@ describe("what the wallet can actually pay", () => {
 		)
 	})
 
-	it("counts what other limit orders on the same wallet already promise", async () => {
-		// One wallet backs them all: two orders each promising the whole balance can
-		// only ever pay one of them.
+	it("lets several orders rest on the same balance", async () => {
+		// One balance backs every order resting on it, which is what quoting both
+		// sides of a book is. The orderbook says the same: it advertises each entry
+		// at `min(quoted, balance)` rather than dividing the balance between them,
+		// and whichever fills first draws the inventory down.
 		const client = fakeClient([
 			{ kind: "accepted", order: postedOrder({ commitment: "0xa1" }), surfaced: true },
 			{ kind: "accepted", order: postedOrder({ commitment: "0xa2" }), surfaced: true },
@@ -201,24 +203,6 @@ describe("what the wallet can actually pay", () => {
 		const { service } = makeService(client, undefined, { [ORDERBOOK_FIXTURES.CNGN]: 2_000_000n })
 
 		await service.create({ ...REQUEST, amountOut: "1500000" })
-
-		await expect(service.create({ ...REQUEST, amountOut: "1500000" })).rejects.toThrow(
-			/1500000 of it is already promised to other limit orders/,
-		)
-	})
-
-	it("frees up what a cancelled order was holding", async () => {
-		const client = fakeClient(
-			[
-				{ kind: "accepted", order: postedOrder({ commitment: "0xa1" }), surfaced: true },
-				{ kind: "accepted", order: postedOrder({ commitment: "0xa2" }), surfaced: true },
-			],
-			[{ kind: "cancelled", commitment: "0xa1" as HexString }],
-		)
-		const { service } = makeService(client, undefined, { [ORDERBOOK_FIXTURES.CNGN]: 2_000_000n })
-
-		const { order } = await service.create({ ...REQUEST, amountOut: "1500000" })
-		await service.cancel(order.id)
 
 		await expect(service.create({ ...REQUEST, amountOut: "1500000" })).resolves.toBeDefined()
 	})

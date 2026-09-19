@@ -9,7 +9,6 @@ import { defaultLoggerContext, type Logger, type LoggerContext } from "@/service
 import type { Signer } from "@/services/wallet"
 import { fromHuman, ORDERBOOK_SCALE, rateFrom, signedAmounts, toHuman, toScaled } from "./amounts"
 import { OrderbookClient, OrderbookRequestError } from "./client"
-import { limitOrderLegs } from "./matching"
 import type {
 	Book,
 	CancelOrderResult,
@@ -455,11 +454,13 @@ export class LimitOrderService {
 	 * balance on the fill chain, so the operator hears it while they are creating
 	 * the order.
 	 *
-	 * Every live order paying the same token out of the same wallet counts against
-	 * that balance: one wallet backs them all, and three orders each promising the
-	 * whole balance can only pay one of them. What is already promised is each
-	 * order's `remaining`, since what a fill has already delivered is gone from the
-	 * balance too.
+	 * Each order is checked against the whole balance, not against what is left of
+	 * it after the others. One balance backs every order resting on it — that is
+	 * what quoting both sides of a book is — and the orderbook says as much: it
+	 * advertises each entry at `min(quoted, balance)` rather than dividing the
+	 * balance between them. Whichever order fills first draws the inventory down,
+	 * and the rest are cut to what is left. Netting them here would refuse the
+	 * second side of every book.
 	 */
 	private async assertWalletCanPay(symbol: string, chain: string, payout: bigint): Promise<void> {
 		const token = this.assetRegistry.getAddress(symbol, chain)
@@ -471,15 +472,9 @@ export class LimitOrderService {
 			decimals,
 		)
 
-		const committed = (await this.live())
-			.filter((order) => order.fillChain === chain && limitOrderLegs(order).output === symbol)
-			.reduce((total, order) => total + BigInt(order.remaining), 0n)
-
-		if (balance < committed + payout) {
+		if (balance < payout) {
 			throw new LimitOrderValidationError(
-				committed > 0n
-					? `The wallet holds ${toHuman(balance)} ${symbol} on ${chain} and ${toHuman(committed)} of it is already promised to other limit orders, so it cannot pay out ${toHuman(payout)}`
-					: `The wallet holds ${toHuman(balance)} ${symbol} on ${chain}, which cannot pay out ${toHuman(payout)}`,
+				`The wallet holds ${toHuman(balance)} ${symbol} on ${chain}, which cannot pay out ${toHuman(payout)}`,
 			)
 		}
 	}

@@ -31,9 +31,11 @@ places, or that is not a plain decimal, is refused with the amount named.
 Creation also refuses an order the wallet cannot pay out. The orderbook backs an entry with the
 solver's real balance and cuts down what it is not holding, so an order written against money that is
 not there is refused or silently shrunk rather than filled; hearing it while creating the order is
-better. Every live order paying the same token out of the same wallet counts against that balance,
-because one wallet backs them all: three orders each promising the whole balance can only pay one of
-them. What is already promised is each order's `remaining`.
+better. Each order is checked against the whole balance rather than what is left of it after the
+others: one balance backs every order resting on it, which is what quoting both sides of a book is,
+and the orderbook advertises each entry at `min(quoted, balance)` instead of dividing the balance
+between them. Whichever order fills first draws the inventory down and the rest are cut to what is
+left.
 
 `acceptedSources` is required and non-empty: it names the source chains the order accepts swaps
 from, and the orderbook refuses an order that declares none. A create emits `limit-order:posted` or

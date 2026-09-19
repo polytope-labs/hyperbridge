@@ -59,7 +59,10 @@ function makeEvalContractService(): any {
 			getPairClassifications: (id: string) => classifications.get(id),
 			setPairClassifications: (id: string, pairs: unknown) => classifications.set(id, pairs),
 			getFillerOutputs: (id: string) => outputs.get(id),
-			setFillerOutputs: (id: string, value: TokenInfo[]) => outputs.set(id, value),
+			setFillerOutputs: (id: string, value: TokenInfo[], takes: TokenInfo[]) => {
+				outputs.set(id, value)
+				inputs.set(id, takes)
+			},
 			setMatchedLimitOrder: () => {},
 			clearPartialFill: (id: string) => partials.delete(id),
 			setPartialFill: (id: string, value: boolean) => partials.set(id, value),
@@ -179,6 +182,13 @@ describe("FXFiller limit order payout", () => {
 		const cached = contractService.outputs.get("payout-capped")
 		expect(cached).toHaveLength(1)
 		expect(cached![0].amount).toBe(parseUnits("60000", 18))
+		// An under-fill takes only the escrow it earns: 60,000 of the 149,000 asked
+		// for, so 60/149 of the input. Signing the whole input for part of the
+		// output would be a worse rate than the order asked for, which the gateway
+		// refuses.
+		expect(contractService.inputs.get("payout-capped")).toEqual([
+			{ token: bytes20ToBytes32(STABLE), amount: (INPUT_AMOUNT * parseUnits("60000", 18)) / REQUESTED_OUTPUT },
+		])
 		// Short of the ask, so this is an under-fill.
 		expect(contractService.partials.get("payout-capped")).toBe(true)
 	})

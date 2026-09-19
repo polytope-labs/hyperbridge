@@ -466,8 +466,36 @@ export class FXFiller implements FillerStrategy {
 			const walletRemaining = balance - walletContribution
 			balanceCache.set(tokenAddress, walletRemaining > 0n ? walletRemaining : 0n)
 
+			// Escrow is released in proportion to the output actually delivered
+			// (IntrinsicIntents.sol: `inputs[i].amount * fillAmount / totalRequired`),
+			// and only a fill that COMPLETES the order sweeps the residue. Valuing an
+			// under-fill against the whole escrow would overstate the take.
+			const releasedInput =
+				finalOutputAmount >= output.amount
+					? input.amount
+					: (input.amount * finalOutputAmount) / output.amount
+
+			// The same number is what the bid signs as its take: `fillOrder` settles
+			// each output against the input beside it as the solver's own rate, and the
+			// gateway refuses a take above the share of escrow the fill earns
+			// (`RateBelowOrder`). Claiming the whole input for a part of the output
+			// would be exactly that.
+			if (releasedInput === 0n) {
+				this.logger.info(
+					{
+						orderId: order.id,
+						limitOrder: match.order.id,
+						payout: finalOutputAmount.toString(),
+						userRequested: output.amount.toString(),
+					},
+					"Skipping order: the payout is too small to release any escrow",
+				)
+				return 0
+			}
+
 			const fillerOutputs: TokenInfo[] = [{ token: output.token, amount: finalOutputAmount }]
-			this.contractService.cacheService.setFillerOutputs(order.id!, fillerOutputs)
+			const fillerInputs: TokenInfo[] = [{ token: input.token, amount: releasedInput }]
+			this.contractService.cacheService.setFillerOutputs(order.id!, fillerOutputs, fillerInputs)
 			if (order.id) {
 				// The bid draws on this limit order, so the reservation and the fill
 				// that later works it down both have to find the same one.
@@ -482,15 +510,6 @@ export class FXFiller implements FillerStrategy {
 			// Clamp is disabled, so a fill can never be clamped — the halt subsystem is
 			// left in place but dormant (always recorded as a clean, unclamped outcome).
 			this.recordOrderOutcome(false, order.id)
-
-			// Escrow is released in proportion to the output actually delivered
-			// (IntrinsicIntents.sol: `inputs[i].amount * fillAmount / totalRequired`),
-			// and only a fill that COMPLETES the order sweeps the residue. Valuing an
-			// under-fill against the whole escrow would overstate the take.
-			const releasedInput =
-				finalOutputAmount >= output.amount
-					? input.amount
-					: (input.amount * finalOutputAmount) / output.amount
 
 			const usdFactors = usdFactorsFrom(limitOrderUsdEdges(await this.limitOrders!.open()))
 			const outputSymbol = this.registry.symbolFor(outputToken, destChain)

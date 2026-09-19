@@ -36,8 +36,6 @@ const evmTemplate = Handlebars.compile(fs.readFileSync(path.join(templatesDir, "
 const multichainTemplate = Handlebars.compile(fs.readFileSync(path.join(templatesDir, "multichain.yaml.hbs"), "utf8"))
 
 const EVM_TRACKED = [
-	// Envrionment Variable Tracked
-	"COIN_GECKGO_API_KEY",
 	// The HyperFX orderbook's base URL. Its `solvers` watchlist discovers solvers that have never
 	// filled, and its `graphql` endpoint prices tokens without a $1 peg.
 	"HYPERFX_ORDERBOOK_URL",
@@ -409,9 +407,10 @@ const generateEnvironmentConfig = () => {
 	const distBundle = path.join(root, "dist", "index.js")
 	if (fs.existsSync(distBundle)) {
 		const bundle = fs.readFileSync(distBundle, "utf8")
-		// The bundler inlines env-config.json as JSON.parse('{...}'). Anchor on
-		// the COIN_GECKGO_API_KEY marker which is always present in the config.
-		const envConfigPattern = /JSON\.parse\('(\{[^']*COIN_GECKGO_API_KEY[^']*\})'\)/
+		// The bundler inlines env-config.json as JSON.parse('{...}'). Anchor on the
+		// HYPERFX_ORDERBOOK_URL marker: every EVM_TRACKED key is written to the config on
+		// every run, set or null, so it is always present to match on.
+		const envConfigPattern = /JSON\.parse\('(\{[^']*HYPERFX_ORDERBOOK_URL[^']*\})'\)/
 		if (!envConfigPattern.test(bundle)) {
 			console.warn("Could not find inlined env-config in dist/index.js; skipping patch")
 			return

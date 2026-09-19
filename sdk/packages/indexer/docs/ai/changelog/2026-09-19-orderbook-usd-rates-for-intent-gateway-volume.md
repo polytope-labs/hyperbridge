@@ -31,6 +31,13 @@ variable. It holds the orderbook's base URL, and `orderbookEndpoint` (`src/utils
 that already names an endpoint — the whole `.../solvers` URL the old variable held — is accepted as the host it is
 on. **Deployments setting `HYPERFX_WATCHLIST_URL` must be updated, or solver watchlist discovery stops polling.**
 
+`COIN_GECKGO_API_KEY` is removed with it, leaving `HYPERFX_ORDERBOOK_URL` as the only tracked variable. The
+release script's dist patch — which rewrites the env config inlined into `dist/index.js` so a running indexer
+picks up new endpoints without a rebuild — anchored its match on the `COIN_GECKGO_API_KEY` key and now anchors on
+`HYPERFX_ORDERBOOK_URL`; every tracked key is written on every run, set or null, so either serves as the marker.
+`PriceHelper`'s two CoinGecko calls read the key to choose `pro-api.coingecko.com` and send `x-cg-pro-api-key`;
+they now always use the free `api.coingecko.com` and its public rate limit.
+
 **Caching and failures.** Answers are cached per symbol, with concurrent callers sharing one in-flight request, so
 a block's orders cost one request and a repeatedly priced token costs at most one per minute. A rate or a
 "no book quotes this" is reused for 60 s; an unreachable or misbehaving orderbook is retried after 5 s. Nothing

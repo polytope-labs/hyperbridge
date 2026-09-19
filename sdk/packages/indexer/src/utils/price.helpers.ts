@@ -4,7 +4,7 @@ import type { Hex } from "viem"
 import { fetchWithRetry } from "./fetch-retry.helpers"
 
 import { CHAINLINK_PRICE_FEED_CONTRACT_ADDRESSES } from "@/addresses/chainlink-price-feeds.addresses"
-import { ENV_CONFIG, ITokenPriceFeedDetails } from "@/constants"
+import { ITokenPriceFeedDetails } from "@/constants"
 import { ChainLinkAggregatorV3Abi__factory } from "@/configs/src/types/contracts"
 import { ethers } from "ethers"
 import { UNISWAP_ADDRESSES } from "@/addresses/uniswap.addresses"
@@ -15,6 +15,12 @@ import uniswapV3PoolAbi from "@/configs/abis/UniswapV3Pool.abi.json"
 import uniswapV3QuoterV2Abi from "@/configs/abis/UniswapV3QuoterV2.abi.json"
 import uniswapV4QuoterAbi from "@/configs/abis/UniswapV4Quoter.abi.json"
 import { ErrTokenPriceUnavailable } from "@/types/errors"
+
+/**
+ * CoinGecko's free API. The indexer holds no pro key, so it never reaches `pro-api.coingecko.com`
+ * and is subject to the public rate limit.
+ */
+const COINGECKO_BASE_URL = "https://api.coingecko.com"
 
 export interface CoinGeckoResponse {
 	[key: string]: {
@@ -359,17 +365,10 @@ export default class PriceHelper {
 	static async getTokenPriceFromCoinGecko(symbols: string | string[]): Promise<CoinGeckoResponse | Error> {
 		try {
 			const _symbols = typeof symbols === "string" ? symbols : Array.from(symbols).join(",")
-			const headers = { accept: "application/json", "content-type": "application/json" } as Record<string, string>
-
-			const coingeckoApiKey = ENV_CONFIG["COIN_GECKGO_API_KEY"]
-			if (coingeckoApiKey) {
-				headers["x-cg-pro-api-key"] = coingeckoApiKey
-			}
-
-			const baseUrl = coingeckoApiKey ? "https://pro-api.coingecko.com" : "https://api.coingecko.com"
+			const headers = { accept: "application/json", "content-type": "application/json" }
 
 			const response = await fetchWithRetry(
-				`${baseUrl}/api/v3/simple/price?symbols=${_symbols}&vs_currencies=usd`,
+				`${COINGECKO_BASE_URL}/api/v3/simple/price?symbols=${_symbols}&vs_currencies=usd`,
 				{
 					method: "GET",
 					headers,
@@ -418,15 +417,9 @@ export default class PriceHelper {
 		}
 
 		try {
-			const headers = { accept: "application/json", "content-type": "application/json" } as Record<string, string>
+			const headers = { accept: "application/json", "content-type": "application/json" }
 
-			const coingeckoApiKey = ENV_CONFIG["COIN_GECKGO_API_KEY"]
-			if (coingeckoApiKey) {
-				headers["x-cg-pro-api-key"] = coingeckoApiKey
-			}
-
-			const baseUrl = coingeckoApiKey ? "https://pro-api.coingecko.com" : "https://api.coingecko.com"
-			const url = `${baseUrl}/api/v3/onchain/networks/${networkName}/pools?include=base_token%2Cquote_token&page=${page}`
+			const url = `${COINGECKO_BASE_URL}/api/v3/onchain/networks/${networkName}/pools?include=base_token%2Cquote_token&page=${page}`
 
 			const response = await fetch(url, {
 				method: "GET",

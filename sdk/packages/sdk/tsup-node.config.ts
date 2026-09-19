@@ -11,7 +11,13 @@ export default defineConfig({
 	platform: "node",
 	clean: true,
 	splitting: false,
-	treeshake: true,
+	// `tronweb` is declared free of side effects so that an entry which uses none of it drops the
+	// import outright. Rollup otherwise keeps a bare `import "tronweb"` in every entry of this build,
+	// including `intents-helpers` — the entry that exists to stay out of TronWeb's way. Loading it
+	// pulls axios and its https-proxy-agent, which loads `debug`, which deletes `process.env.DEBUG` as
+	// it initialises; the SubQuery indexer runs mappings in a VM2 sandbox with a frozen `process`, so
+	// that delete throws and kills the worker.
+	treeshake: { moduleSideEffects: (id: string) => id !== "tronweb" },
 	esbuildOptions: (esbuildOpt) => {
 		esbuildOpt.alias = {
 			"@/ckb-utils/web": "./src/utils/ckb-mmr-wasm/dist/node/node",

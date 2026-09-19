@@ -9,7 +9,7 @@
 // pinned to the block the EVM node consumes the request at, so tracking is correct from whichever
 // block that turns out to be. It would be wrong for anything read as a time series.
 import { SolverDiscoveryRequest, SolverWatchlist } from "@/configs/src/types"
-import { ENV_CONFIG } from "@/constants"
+import { ORDERBOOK_URL_VAR, WATCHLIST_PATH, orderbookEndpoint } from "@/utils/orderbook"
 import { safeFetch } from "@/utils/safeFetch"
 import { readAllPages } from "@/utils/store.helpers"
 import { YIELD_VAULT_ADDRESSES } from "@/yield-vault-addresses"
@@ -55,10 +55,6 @@ function reportSkip(reason: string, now: number): void {
 export function resetSolverWatchlistPoll(): void {
 	etag = undefined
 	lastSkipReport = 0
-}
-
-function configuredUrl(): string | undefined {
-	return (ENV_CONFIG as Record<string, string | null | undefined>)["HYPERFX_WATCHLIST_URL"] || undefined
 }
 
 const tracksChain = (chain: string) => Object.keys(YIELD_VAULT_ADDRESSES[chain] ?? {}).length > 0
@@ -137,13 +133,13 @@ export async function pollSolverWatchlist(params: {
 	blockTime: Date | undefined
 	/** Wall clock, injectable for tests. */
 	now?: number
-	/** Overrides HYPERFX_WATCHLIST_URL. */
+	/** Overrides the endpoint resolved from {@link ORDERBOOK_URL_VAR}. */
 	url?: string
 }): Promise<void> {
 	const now = params.now ?? Date.now()
-	const url = params.url ?? configuredUrl()
+	const url = params.url ?? orderbookEndpoint(WATCHLIST_PATH)
 	if (!url) {
-		reportSkip("HYPERFX_WATCHLIST_URL is not set", now)
+		reportSkip(`${ORDERBOOK_URL_VAR} is not set`, now)
 		return
 	}
 	// A resync from genesis would otherwise replay one fetch per historical block of a list that

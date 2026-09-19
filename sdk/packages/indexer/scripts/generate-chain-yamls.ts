@@ -38,8 +38,9 @@ const multichainTemplate = Handlebars.compile(fs.readFileSync(path.join(template
 const EVM_TRACKED = [
 	// Envrionment Variable Tracked
 	"COIN_GECKGO_API_KEY",
-	// The HyperFX orderbook's GET /solvers, polled by the Hyperbridge node to discover solvers that have never filled.
-	"HYPERFX_WATCHLIST_URL",
+	// The HyperFX orderbook's base URL. Its `solvers` watchlist discovers solvers that have never
+	// filled, and its `graphql` endpoint prices tokens without a $1 peg.
+	"HYPERFX_ORDERBOOK_URL",
 ] as const
 
 const getChainTypesPath = (chain: string) => {

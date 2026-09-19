@@ -44,7 +44,7 @@ import { getHostStateMachine } from "@/utils/substrate.helpers"
 import { PointsService } from "./points.service"
 import { VolumeService, toScaledUsd } from "./volume.service"
 import PriceHelper from "@/utils/price.helpers"
-import { fetchOrderbookUsdPrice } from "@/services/orderbookRates.service"
+import { STABLE_SYMBOLS, fetchOrderbookUsdPrice } from "@/services/orderbookRates.service"
 import stringify from "safe-stable-stringify"
 import { getOrCreateUser } from "./userActivity.services"
 export interface TokenInfo {
@@ -65,9 +65,6 @@ export interface FillEnrichment {
 const ENTITY_TYPE = "IOrderV3"
 
 export type IntentVolumeType = "PLACED" | "FILLED"
-
-// USDC and USDT are assumed to be worth exactly $1.
-const STABLE_SYMBOLS = ["USDC", "USDT"]
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000"
 

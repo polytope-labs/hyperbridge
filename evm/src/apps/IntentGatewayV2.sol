@@ -31,16 +31,10 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
 import {
-    PaymentInfo,
     TokenInfo,
-    DispatchInfo,
     Order,
-    SweepDust,
     Params,
     InitParams,
-    ParamsUpdate,
-    DestinationFee,
-    WithdrawalRequest,
     FillOptions,
     SelectOptions,
     CancelOptions,
@@ -121,13 +115,6 @@ contract IntentGatewayV2 is
      */
     function instance(bytes calldata stateMachineId) public view returns (address) {
         return _instance(stateMachineId);
-    }
-
-    /**
-     * @dev The storage key of `_filled[commitment]`, used in cancel proofs.
-     */
-    function calculateCommitmentSlotHash(bytes32 commitment) public pure returns (bytes memory) {
-        return _calculateCommitmentSlotHash(commitment);
     }
 
     /**
@@ -341,7 +328,6 @@ contract IntentGatewayV2 is
         }
         TokenInfo[] memory reducedInputs;
         uint256[] memory protocolFees = new uint256[](inputsLen);
-        bytes32 commitment;
 
         if (protocolFeeBps > 0) {
             reducedInputs = new TokenInfo[](inputsLen);
@@ -362,7 +348,7 @@ contract IntentGatewayV2 is
         } else {
             reducedInputs = order.inputs;
         }
-        commitment = keccak256(abi.encode(order));
+        bytes32 commitment = keccak256(abi.encode(order));
 
         // Phase 3: Credit escrow, per leg.
         for (uint256 i; i < inputsLen;) {
@@ -471,7 +457,7 @@ contract IntentGatewayV2 is
         FillResult memory result = abi.decode(returned, (FillResult));
 
         if (result.fullyFilled) {
-            _execute(order, outputsLen);
+            _execute(order);
             emit OrderFilled(commitment, msg.sender, result.creditedOutputs, result.releasedInputs);
         } else {
             delete _filled[commitment];

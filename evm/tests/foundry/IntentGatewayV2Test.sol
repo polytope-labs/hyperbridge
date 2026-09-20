@@ -17,8 +17,8 @@ import {IntentQuoteTestUtils} from "./IntentQuoteTestUtils.sol";
 
 import "forge-std/Test.sol";
 import {MainnetForkBaseTest} from "./MainnetForkBaseTest.sol";
+import {IntentGatewayV2} from "../../src/apps/IntentGatewayV2.sol";
 import {
-    IntentGatewayV2,
     Order,
     Params,
     InitParams,
@@ -33,7 +33,7 @@ import {
     Deployment,
     WithdrawalRequest,
     SelectOptions
-} from "../../src/apps/IntentGatewayV2.sol";
+} from "@hyperbridge/core/apps/IntentGatewayV2.sol";
 import {deployIntentGatewayImpl, deployIntentModules} from "./IntentGatewayDeploy.sol";
 import {IntentsBase} from "../../src/apps/intentsv2/IntentsBase.sol";
 import {ExtrinsicIntents} from "../../src/apps/intentsv2/ExtrinsicIntents.sol";
@@ -3306,13 +3306,6 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         assertEq(instance, gateway, "Should return stored gateway address");
     }
 
-    function testCalculateCommitmentSlotHash() public view {
-        bytes32 commitment = keccak256("test_commitment");
-        bytes memory slotHash = intentGateway.calculateCommitmentSlotHash(commitment);
-
-        assertGt(slotHash.length, 0, "Should return non-empty slot hash");
-    }
-
     function testParams() public view {
         Params memory currentParams = intentGateway.params();
 
@@ -4190,8 +4183,9 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
     function testFilledMappingStaysAtSlotTwo() public {
         (bytes32 filledCommitment,,) = _seedUpgradeState();
 
-        // _filled is `mapping(bytes32 => address)` declared at storage slot 2. The cross-chain
-        // cancel proof (FILLED_SLOT_BIG_ENDIAN_BYTES) depends on this exact slot.
+        // _filled is `mapping(bytes32 => address)` declared at storage slot 2. Nothing reads the
+        // raw slot any more, but pinning it here catches a layout shift that would move
+        // `_partialFills` off slot 11, which cross-chain cancel proofs do depend on.
         bytes32 slot = keccak256(abi.encode(filledCommitment, uint256(2)));
         address filledFromSlot = address(uint160(uint256(vm.load(address(intentGateway), slot))));
 

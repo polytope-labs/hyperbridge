@@ -21,7 +21,6 @@ import {DispatchPost, DispatchGet, PostRequest, IDispatcher} from "@hyperbridge/
 import {
     TokenInfo,
     Order,
-    Params,
     ParamsUpdate,
     SweepDust,
     WithdrawalRequest,
@@ -29,8 +28,6 @@ import {
     CancelOptions,
     Deployment
 } from "@hyperbridge/core/apps/IntentGatewayV2.sol";
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ERC1967Utils} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Utils.sol";
 import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 import {RLPReader} from "@polytope-labs/solidity-merkle-trees/src/trie/ethereum/RLPReader.sol";
@@ -42,7 +39,6 @@ import {RLPReader} from "@polytope-labs/solidity-merkle-trees/src/trie/ethereum/
  * @dev Cross-chain intent logic & HyperApp callback handlers (onAccept, onGetResponse).
  */
 abstract contract ExtrinsicIntents is IntentsBase, HyperApp {
-    using SafeERC20 for IERC20;
     using RLPReader for bytes;
     using RLPReader for RLPReader.RLPItem;
 
@@ -173,9 +169,8 @@ abstract contract ExtrinsicIntents is IntentsBase, HyperApp {
             payer: msg.sender
         });
 
-        address hostAddr = host();
         if (msg.value > 0) {
-            IDispatcher(hostAddr).dispatch{value: msg.value}(request);
+            IDispatcher(host()).dispatch{value: msg.value}(request);
         } else {
             dispatchWithFeeToken(request);
         }

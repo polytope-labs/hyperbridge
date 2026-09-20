@@ -7,9 +7,7 @@ import "stringutils/strings.sol";
 import {IntentGatewayV2, Params, InitParams} from "../src/apps/IntentGatewayV2.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {IntentGatewayScript} from "./IntentGatewayScript.sol";
-import {CallDispatcher} from "../src/utils/CallDispatcher.sol";
 import {SolverAccount} from "../src/apps/intentsv2/SolverAccount.sol";
-import {VWAPOracle} from "../src/utils/VWAPOracle.sol";
 import {StateMachine} from "@hyperbridge/core/libraries/StateMachine.sol";
 
 contract DeployScript is IntentGatewayScript {

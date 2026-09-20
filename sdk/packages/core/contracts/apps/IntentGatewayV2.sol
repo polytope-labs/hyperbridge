@@ -255,9 +255,6 @@ interface IIntentGatewayV2 {
     /// @notice Thrown when an action is attempted on an order that has already been filled.
     error Filled();
 
-    /// @notice Thrown when an action is attempted on an order that has been cancelled.
-    error Cancelled();
-
     /// @notice Thrown when an action is attempted on the wrong chain.
     error WrongChain();
 
@@ -337,8 +334,9 @@ interface IIntentGatewayV2 {
     event OrderFilled(bytes32 indexed commitment, address filler, TokenInfo[] outputs, TokenInfo[] inputs);
 
     /**
-     * @notice Emitted when an order is partially filled. Only same-chain orders
-     *         support incremental fills.
+     * @notice Emitted when an order is partially filled, on either route. A same-chain fill
+     *         releases the escrow it earns in the same transaction; a cross-chain one asks the
+     *         source chain for it with `RedeemEscrowPartial`.
      * @param commitment The unique identifier of the order
      * @param filler The address of the entity that provided this partial fill
      * @param outputs The credited output amounts in this fill, excluding surplus
@@ -561,13 +559,6 @@ interface IIntentGatewayV2 {
      * @return uint64 The initialized version
      */
     function version() external view returns (uint64);
-
-    /**
-     * @notice Calculates the commitment slot hash for storage proof verification.
-     * @param commitment The commitment hash
-     * @return bytes The calculated commitment slot hash
-     */
-    function calculateCommitmentSlotHash(bytes32 commitment) external pure returns (bytes memory);
 
     /**
      * @notice Places an order for cross-chain intent fulfillment.

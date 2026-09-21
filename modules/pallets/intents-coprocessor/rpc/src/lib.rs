@@ -44,7 +44,7 @@ pub use pallet_intents_coprocessor;
 
 const LOG_TARGET: &str = "intents-rpc";
 
-#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RpcBidInfo {
 	pub commitment: H256,
 	#[serde(with = "hex_bytes")]
@@ -56,11 +56,27 @@ pub struct RpcBidInfo {
 	pub user_op: Vec<u8>,
 }
 
-/// A bid is identified by its filler and bid identifier, so a filler's several bids on one order
-/// are kept apart and a bid placed again under the same identifier replaces the one before it.
+/// A bid is identified by its order, its filler and its bid identifier — not by its payload — so a
+/// filler's several bids on one order are kept apart and a bid placed again under the same
+/// identifier is the same bid as the one it replaces. Equality and ordering agree on that, which
+/// is what a `BTreeSet` of these relies on.
+impl RpcBidInfo {
+	fn identity(&self) -> (H256, &[u8], H256) {
+		(self.commitment, &self.filler, self.bid)
+	}
+}
+
+impl PartialEq for RpcBidInfo {
+	fn eq(&self, other: &Self) -> bool {
+		self.identity() == other.identity()
+	}
+}
+
+impl Eq for RpcBidInfo {}
+
 impl Ord for RpcBidInfo {
 	fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-		(&self.filler, self.bid).cmp(&(&other.filler, other.bid))
+		self.identity().cmp(&other.identity())
 	}
 }
 
@@ -270,6 +286,9 @@ where
 				// Bid encoding: filler.encode() ++ user_op.encode()
 				if data.len() > filler_encoded.len() {
 					if let Ok(user_op) = Vec::<u8>::decode(&mut &data[filler_encoded.len()..]) {
+						// `insert` keeps an entry already present, so where the pool holds a bid
+						// under this identifier, that newer copy is the one served: it is what
+						// replaces the stored bid once it lands.
 						bids.insert(RpcBidInfo {
 							commitment,
 							filler: filler_encoded.to_vec(),
@@ -466,6 +485,28 @@ mod tests {
 			found.iter().map(|b| (b.bid, b.user_op.clone())).collect::<Vec<_>>(),
 			vec![(bids[0], vec![10]), (bids[1], vec![11]), (bids[2], vec![12])]
 		);
+	}
+
+	#[test]
+	fn a_pending_replacement_is_served_over_the_stored_bid() {
+		let commitment = H256::random();
+		let bid = |user_op: u8| RpcBidInfo {
+			commitment,
+			filler: vec![1],
+			bid: H256::repeat_byte(1),
+			user_op: vec![user_op],
+		};
+
+		// Same order, filler and identifier: the same bid, whatever it carries.
+		assert_eq!(bid(1), bid(2));
+		assert_eq!(bid(1).cmp(&bid(2)), std::cmp::Ordering::Equal);
+
+		// The pool's copy goes in first, as in `get_bids_for_order`, and the stored one does not
+		// displace it.
+		let mut bids = BTreeSet::new();
+		bids.insert(bid(2));
+		bids.insert(bid(1));
+		assert_eq!(bids.into_iter().map(|b| b.user_op).collect::<Vec<_>>(), vec![vec![2]]);
 	}
 
 	#[test]

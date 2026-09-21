@@ -29,6 +29,7 @@ async fn run_dispute_game_verification(
 	l1_url: String,
 	l2_url: String,
 	l1_chain_id: u32,
+	l2_chain_id: u32,
 	factory_addr: H160,
 	event: DisputeGameCreated,
 	game_type_configs: Vec<GameTypeConfig>,
@@ -46,9 +47,9 @@ async fn run_dispute_game_verification(
 	};
 	let evm_config = EvmConfig {
 		rpc_urls: vec![l2_url],
-		// Placeholders: `EvmClient::new` requires these to be resolved, but the dispute-game
-		// verification path exercised here never consults the L2 state machine id or ismp host.
-		state_machine: Some(StateMachine::Evm(0)),
+		// A super game's proof is checked against the chain id, so this has to be the real one.
+		// The ismp host is a placeholder, the dispute game path never consults it.
+		state_machine: Some(StateMachine::Evm(l2_chain_id)),
 		ismp_host: Some(H160::zero()),
 		consensus_state_id: Some("ETH0".to_string()),
 		signer: Some(DUMMY_SIGNING_KEY.to_string()),
@@ -84,6 +85,7 @@ async fn run_dispute_game_verification(
 		l1_state_root,
 		factory_addr,
 		game_type_configs,
+		StateMachine::Evm(l2_chain_id),
 		Default::default(),
 	)
 	.expect("dispute-game proof must verify at latest L1 head");
@@ -124,9 +126,17 @@ async fn test_aggregate_verifier_dispute_game_verification() {
 		kind: DisputeGameImpl::AggregateVerifier,
 	}];
 
-	// Sepolia chain id = 11155111.
-	run_dispute_game_verification(l1_url, l2_url, 11155111, factory_addr, event, game_type_configs)
-		.await;
+	// Sepolia chain id = 11155111, Base Sepolia = 84532.
+	run_dispute_game_verification(
+		l1_url,
+		l2_url,
+		11155111,
+		84532,
+		factory_addr,
+		event,
+		game_type_configs,
+	)
+	.await;
 }
 
 /// End-to-end verification of a Cannon (gameType 8) dispute game created on Ethereum mainnet:
@@ -166,8 +176,9 @@ async fn test_cannon_dispute_game_verification() {
 		kind: DisputeGameImpl::FaultDisputeGame,
 	}];
 
-	// Ethereum mainnet chain id = 1.
-	run_dispute_game_verification(l1_url, l2_url, 1, factory_addr, event, game_type_configs).await;
+	// Ethereum mainnet chain id = 1, OP mainnet = 10.
+	run_dispute_game_verification(l1_url, l2_url, 1, 10, factory_addr, event, game_type_configs)
+		.await;
 }
 
 /// Exercises the full host-side flow — `latest_dispute_games` → `fetch_dispute_game_payload`
@@ -337,9 +348,138 @@ async fn test_base_sepolia_latest_and_verify() {
 		l1_state_root,
 		factory_addr,
 		game_type_configs,
+		StateMachine::Evm(84532),
 		Default::default(),
 	)
 	.expect("dispute-game proof must verify");
+
+	dbg!(intermediate_state);
+}
+
+/// End-to-end verification of a super-root dispute game (gameType 9) on OP Sepolia:
+///
+/// ```text
+/// DisputeGameCreated(
+///     proxy:     0x69C0Af72663bFDaAd091a6D90bE4De658c0c14DB,
+///     gameType:  9,
+///     rootClaim: 0xcb8081884423c7d2c2eea6c203cc9b0e95bce98ff11cd375ff88173ef6e85359,
+/// )
+/// ```
+///
+/// Factory `0x05F9613aDB30026FFd634f38e5C4dFd30a197Fa1` on L1 Sepolia. Unlike the output root
+/// games, this one's claim is a hash over the super output preimage in `extraData`, and the L2
+/// block has to be resolved from the timestamp that preimage pins. Requires `SEPOLIA_RPC_URL`
+/// (L1) and `OP_SEPOLIA_RPC_URL` (L2), and an L2 endpoint with proofs going back far enough to
+/// cover the pinned game.
+#[tokio::test]
+#[ignore]
+async fn test_super_fault_dispute_game_verification() {
+	dotenv::dotenv().ok();
+	let l1_url = std::env::var("SEPOLIA_RPC_URL")
+		.expect("SEPOLIA_RPC_URL must be set to an Ethereum Sepolia RPC endpoint");
+	let l2_url = std::env::var("OP_SEPOLIA_RPC_URL")
+		.expect("OP_SEPOLIA_RPC_URL must be set to an OP Sepolia RPC endpoint");
+
+	let event = DisputeGameCreated {
+		disputeProxy: Address::from_slice(&hex!("69c0af72663bfdaad091a6d90be4de658c0c14db")),
+		gameType: 9,
+		rootClaim: B256::from(hex!(
+			"cb8081884423c7d2c2eea6c203cc9b0e95bce98ff11cd375ff88173ef6e85359"
+		)),
+	};
+	let factory_addr = H160::from(hex!("05f9613adb30026ffd634f38e5c4dfd30a197fa1"));
+	let game_type_configs = vec![GameTypeConfig {
+		game_type: 9,
+		expected_impl: H160::from(hex!("19AF533Cc2A2A55786DCB8672aA5717e64213208")),
+		kind: DisputeGameImpl::SuperFaultDisputeGame,
+	}];
+
+	// Sepolia chain id = 11155111, OP Sepolia = 11155420.
+	run_dispute_game_verification(
+		l1_url,
+		l2_url,
+		11155111,
+		11155420,
+		factory_addr,
+		event,
+		game_type_configs,
+	)
+	.await;
+}
+
+/// Walks the relayer's own path, `latest_dispute_games` then `fetch_dispute_game_payload` then
+/// the verifier, over a recent L1 range on OP Sepolia's factory. This is the one that reproduces
+/// the stall: before super-root support, no type 9 game made it through and the payload builder
+/// returned nothing.
+#[tokio::test]
+#[ignore]
+async fn test_op_sepolia_latest_and_verify() {
+	dotenv::dotenv().ok();
+	let l1_url = std::env::var("SEPOLIA_RPC_URL")
+		.expect("SEPOLIA_RPC_URL must be set to an Ethereum Sepolia RPC endpoint");
+	let l2_url = std::env::var("OP_SEPOLIA_RPC_URL")
+		.expect("OP_SEPOLIA_RPC_URL must be set to an OP Sepolia RPC endpoint");
+
+	let factory_addr = H160::from(hex!("05f9613adb30026ffd634f38e5c4dfd30a197fa1"));
+	let game_type_configs = vec![GameTypeConfig {
+		game_type: 9,
+		expected_impl: H160::from(hex!("19AF533Cc2A2A55786DCB8672aA5717e64213208")),
+		kind: DisputeGameImpl::SuperFaultDisputeGame,
+	}];
+
+	let host = HostConfig {
+		ethereum_rpc_url: vec![l1_url],
+		l2_oracle: None,
+		message_parser: H160::from(MESSAGE_PARSER),
+		dispute_game_factory: Some(factory_addr),
+		proposer_config: None,
+		l1_state_machine: StateMachine::Evm(11155111),
+		l1_consensus_state_id: "ETH0".to_string(),
+		consensus_update_frequency: None,
+		consensus_state_id: "OPT0".to_string(),
+	};
+	let evm_config = EvmConfig {
+		rpc_urls: vec![l2_url],
+		state_machine: Some(StateMachine::Evm(11155420)),
+		ismp_host: Some(H160::zero()),
+		consensus_state_id: Some("ETH0".to_string()),
+		signer: Some(DUMMY_SIGNING_KEY.to_string()),
+		..Default::default()
+	};
+	let op_client = OpHost::new(&host, &evm_config).await.expect("Host creation failed");
+
+	let to_block = op_client.beacon_execution_client.get_block_number().await.expect("L1 head") - 8;
+	let from_block = to_block.saturating_sub(2000);
+
+	let events = op_client
+		.latest_dispute_games(from_block, to_block, game_type_configs.clone())
+		.await
+		.expect("latest_dispute_games");
+	assert!(!events.is_empty(), "no unchallenged type 9 games found in {from_block}..={to_block}",);
+
+	let l1_header = op_client
+		.beacon_execution_client
+		.get_block(BlockId::number(to_block))
+		.await
+		.expect("L1 block")
+		.expect("L1 block exists");
+	let l1_state_root = H256::from_slice(l1_header.header.state_root.as_slice());
+
+	let payload = op_client
+		.fetch_dispute_game_payload(to_block, game_type_configs.clone(), events)
+		.await
+		.expect("fetch_dispute_game_payload")
+		.expect("payload must be produced for a super game");
+
+	let intermediate_state = verify_optimism_dispute_game_proof::<Hasher>(
+		payload,
+		l1_state_root,
+		factory_addr,
+		game_type_configs,
+		StateMachine::Evm(11155420),
+		Default::default(),
+	)
+	.expect("super-root dispute-game proof must verify");
 
 	dbg!(intermediate_state);
 }

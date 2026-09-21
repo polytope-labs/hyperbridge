@@ -144,6 +144,14 @@ export class IntentFiller {
 				this.logger.error({ commitment, err }, "Failed to handle on-chain fill")
 			})
 		})
+
+		this.monitor.on("orderFillObserved", ({ commitment, filler, chainId, ours, complete }) => {
+			if (ours || !complete) return
+			this.handleRivalCompletion(commitment as HexString, filler, chainId).catch((err) => {
+				// The retraction sweep still picks this bid up once it goes stale.
+				this.logger.error({ commitment, err }, "Failed to handle a rival's completed fill")
+			})
+		})
 	}
 
 	/**
@@ -1158,6 +1166,26 @@ export class IntentFiller {
 		// flag-write suppress the retraction itself inverts the intent.
 		this.enqueueRetraction(commitment)
 		await this.bidStorage.markDead(commitment)
+	}
+
+	/**
+	 * A rival completed an order we bid on. `_filled[commitment]` is now set, so
+	 * every bid of ours on it can only revert with `Filled()`: retract them, which
+	 * returns their Hyperbridge deposits and gives their holds back to the limit
+	 * orders now rather than when the stale-bid sweep reaches them.
+	 *
+	 * Only a complete fill closes the order. After a rival's partial fill our bid
+	 * may still fill the rest, so it is left standing.
+	 *
+	 * Orders we never bid on are the common case and end here without touching
+	 * the deferral set, which would otherwise keep one entry per rival fill.
+	 */
+	private async handleRivalCompletion(commitment: HexString, filler: string, chainId: number): Promise<void> {
+		if (!this.bidStorage) return
+		const bid = await this.bidStorage.byCommitment(commitment)
+		if (!bid || bid.retracted) return
+		this.logger.info({ commitment, filler, chainId }, "A rival completed an order we bid on, retracting our bids")
+		await this.handleOrderFilledOnChain(commitment, filler, chainId)
 	}
 
 	/**

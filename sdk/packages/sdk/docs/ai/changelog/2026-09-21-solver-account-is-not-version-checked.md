@@ -19,3 +19,12 @@ The release check now reads only the gateway:
 - `GasEstimator` relies on `assertGatewayRelease` alone.
 
 Phantom aggregation still rejects a bid whose sender is not delegated to a configured `SolverAccount`.
+
+## Cross-chain order fees round their buffer up
+
+`quoteOrderFees` adds 5% to fill gas plus relayer fee for a cross-chain order. The buffer was floored,
+so with testnet gas priced at one unit (`convertGasToFeeToken` returns `1n` on testnets) the quote was
+`(2 × 105) / 100 = 2`: exactly the solver's requirement. Simplex requires a strictly positive fee
+profit, so it refused every SDK-placed cross-chain order on testnet. The buffer now rounds up,
+`(sum × 105 + 99) / 100`, keeping the fee strictly above the requirement for any positive cost.
+

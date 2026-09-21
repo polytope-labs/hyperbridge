@@ -78,6 +78,25 @@ describe("matchLimitOrder", () => {
 		expect(match?.offer).toBe(1000n * ONE)
 	})
 
+	it("matches symbols case-insensitively: the book spells cNGN, the registry CNGN", () => {
+		// The orderbook names the book's legs as it lists them ("cNGN") while the
+		// asset registry upper-cases every symbol it resolves, so an order paying
+		// cNGN in used to match nothing.
+		const order = limitOrder({ side: "ASK", book: "USDC-cNGN", quote: "cNGN" })
+		const match = matchLimitOrder(
+			[order],
+			incoming({
+				inputSymbol: "CNGN",
+				outputToken: USDC,
+				inputNet: 1_500_000n * ONE,
+				requestedOutput: 900n * ONE,
+				outputDecimals: 6,
+			}),
+			resolve,
+		)
+		expect(match?.offer).toBe(1000n * ONE)
+	})
+
 	it("does not match an order whose offer falls short of the ask", () => {
 		// Escrow release is proportional, so every fill settles at the swapper's
 		// rate whatever fraction it covers. An order whose offer is below the ask

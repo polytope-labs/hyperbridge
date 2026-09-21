@@ -539,7 +539,10 @@ export class FXFiller implements FillerStrategy {
 				// A same-asset market realizes its spread in kind: escrow released minus
 				// output paid, in the asset's own units. Positive iff the filler nets the
 				// asset — a sign check valid for any asset, since it never crosses units.
-				const sameAsset = outputSymbol !== null && outputSymbol === candidate.order.base && outputSymbol === candidate.order.quote
+				const sameAsset =
+					outputSymbol !== null &&
+					normalizeSymbol(outputSymbol) === normalizeSymbol(candidate.order.base) &&
+					normalizeSymbol(outputSymbol) === normalizeSymbol(candidate.order.quote)
 				let realizedSpreadProfit = 0n
 				let sameAssetEdgeUsd = new Decimal(0)
 				let sameAssetProfitable = true

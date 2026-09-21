@@ -292,6 +292,7 @@ export class ChainScanner {
 					// and the draw-down is skipped rather than sized from a guess.
 					outputs: args?.outputs ?? [],
 					inputs: args?.inputs ?? [],
+					complete: (log as { eventName?: string }).eventName === "OrderFilled",
 				})
 			} catch (error) {
 				this.logger.error({ err: error, log }, "Error parsing OrderFilled log")

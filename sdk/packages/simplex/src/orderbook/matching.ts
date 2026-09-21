@@ -1,5 +1,6 @@
 import type { HexString } from "@hyperbridge/sdk"
 import type { LimitOrder } from "@/data/types"
+import { normalizeSymbol } from "@/config/asset-registry"
 import { offerFor } from "./amounts"
 
 /** Which symbols a limit order takes in and pays out, from the side it sits on. */
@@ -132,8 +133,10 @@ function serves(
 	if (order.expiresAt !== null && new Date(order.expiresAt) <= now) return false
 	if (order.fillChain !== incoming.destination) return false
 
+	// Symbols are compared case-insensitively: the book spells them as the
+	// orderbook does ("cNGN") and the asset registry upper-cases them ("CNGN").
 	const legs = limitOrderLegs(order)
-	if (legs.input !== incoming.inputSymbol) return false
+	if (normalizeSymbol(legs.input) !== normalizeSymbol(incoming.inputSymbol)) return false
 
 	// Compared by address on the destination, where the order named a real token,
 	// and by symbol on the source, where the address belongs to another chain.

@@ -92,7 +92,7 @@ pub mod pallet {
 	use polkadot_sdk::sp_runtime::traits::Saturating;
 
 	/// Current storage version.
-	const STORAGE_VERSION: StorageVersion = StorageVersion::new(3);
+	const STORAGE_VERSION: StorageVersion = StorageVersion::new(2);
 
 	#[pallet::pallet]
 	#[pallet::without_storage_info]
@@ -140,8 +140,11 @@ pub mod pallet {
 	///
 	/// Allows easy discovery of all bids for a given order commitment. The actual bid data is
 	/// stored in offchain storage; the deposit amount is stored here for accurate refunds.
+	///
+	/// Named apart from the `Bids` map it replaces, which keyed one bid per filler: the new layout
+	/// lives under its own prefix, so an entry of the old shape is never read as one of these.
 	#[pallet::storage]
-	pub type Bids<T: Config> = StorageNMap<
+	pub type OrderBids<T: Config> = StorageNMap<
 		_,
 		(
 			NMapKey<Blake2_128Concat, H256>,         // commitment
@@ -371,14 +374,14 @@ pub mod pallet {
 						Error::<T>::PhantomOrderBidWindowClosed
 					);
 					ensure!(
-						Bids::<T>::iter_prefix((&commitment, &filler)).next().is_none(),
+						OrderBids::<T>::iter_prefix((&commitment, &filler)).next().is_none(),
 						Error::<T>::DuplicatePhantomBid
 					);
 				}
 			}
 
 			// If this bid already exists, unreserve the old deposit first
-			if let Some(old_deposit) = Bids::<T>::get((&commitment, &filler, &bid)) {
+			if let Some(old_deposit) = OrderBids::<T>::get((&commitment, &filler, &bid)) {
 				<T as Config>::Currency::unreserve(&filler, old_deposit);
 			}
 
@@ -394,7 +397,7 @@ pub mod pallet {
 			offchain_index::set(&offchain_key, &record.encode());
 
 			// Store deposit amount in onchain storage for discoverability and accurate refunds
-			Bids::<T>::insert((&commitment, &filler, &bid), deposit);
+			OrderBids::<T>::insert((&commitment, &filler, &bid), deposit);
 
 			Self::deposit_event(Event::BidPlaced { filler, commitment, bid, deposit });
 
@@ -416,13 +419,13 @@ pub mod pallet {
 
 			// Get the bid deposit amount
 			let deposit =
-				Bids::<T>::get((&commitment, &filler, &bid)).ok_or(Error::<T>::BidNotFound)?;
+				OrderBids::<T>::get((&commitment, &filler, &bid)).ok_or(Error::<T>::BidNotFound)?;
 
 			// Unreserve the deposit
 			<T as Config>::Currency::unreserve(&filler, deposit);
 
 			// Remove the bid marker from onchain storage
-			Bids::<T>::remove((&commitment, &filler, &bid));
+			OrderBids::<T>::remove((&commitment, &filler, &bid));
 
 			// Clear the bid from offchain storage
 			let offchain_key = Self::offchain_bid_key(&commitment, &filler, &bid);

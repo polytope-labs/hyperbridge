@@ -168,12 +168,12 @@ fn runtime_error_into_rpc_error(e: impl std::fmt::Display) -> ErrorObjectOwned {
 	ErrorObject::owned(9877, format!("{e}"), None::<String>)
 }
 
-/// Construct the storage key prefix for iterating every bid in the on-chain `Bids` map for a
+/// Construct the storage key prefix for iterating every bid in the on-chain `OrderBids` map for a
 /// given order commitment, across all fillers and their bids.
 fn bids_storage_prefix(commitment: &H256) -> Vec<u8> {
 	let mut prefix = Vec::new();
 	prefix.extend_from_slice(&sp_crypto_hashing::twox_128(b"IntentsCoprocessor"));
-	prefix.extend_from_slice(&sp_crypto_hashing::twox_128(b"Bids"));
+	prefix.extend_from_slice(&sp_crypto_hashing::twox_128(b"OrderBids"));
 	// Blake2_128Concat hasher: blake2_128(key) ++ key
 	let commitment_bytes = commitment.as_bytes();
 	prefix.extend_from_slice(&sp_crypto_hashing::blake2_128(commitment_bytes));
@@ -181,7 +181,7 @@ fn bids_storage_prefix(commitment: &H256) -> Vec<u8> {
 	prefix
 }
 
-/// Splits what follows the commitment in a `Bids` key into the encoded filler and the bid
+/// Splits what follows the commitment in an `OrderBids` key into the encoded filler and the bid
 /// identifier.
 ///
 /// The layout is `blake2_128(filler) ++ filler_encoded ++ blake2_128(bid) ++ bid`, so the filler is

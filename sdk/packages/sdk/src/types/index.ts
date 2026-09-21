@@ -1462,7 +1462,7 @@ export interface BidSubmissionResult {
 }
 
 /**
- * Represents a storage entry from pallet-intents Bids storage
+ * Represents a storage entry from pallet-intents OrderBids storage
  * StorageDoubleMap<_, Blake2_128Concat, H256, Blake2_128Concat, AccountId, Balance>
  */
 export interface BidStorageEntry {

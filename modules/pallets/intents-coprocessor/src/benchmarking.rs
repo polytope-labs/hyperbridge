@@ -53,7 +53,7 @@ mod benchmarks {
 		_(RawOrigin::Signed(caller.clone()), commitment, H256::zero(), user_op);
 
 		// Verify bid was placed
-		assert!(Bids::<T>::contains_key((&commitment, &caller, H256::zero())));
+		assert!(OrderBids::<T>::contains_key((&commitment, &caller, H256::zero())));
 	}
 
 	#[benchmark]
@@ -80,7 +80,7 @@ mod benchmarks {
 		_(RawOrigin::Signed(caller.clone()), commitment, H256::zero());
 
 		// Verify bid was removed
-		assert!(!Bids::<T>::contains_key((&commitment, &caller, H256::zero())));
+		assert!(!OrderBids::<T>::contains_key((&commitment, &caller, H256::zero())));
 	}
 
 	#[benchmark]

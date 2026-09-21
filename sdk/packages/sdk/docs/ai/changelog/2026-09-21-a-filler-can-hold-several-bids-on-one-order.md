@@ -13,7 +13,8 @@ phantom bid verifier check it.
 
 **One bid per filler on Hyperbridge.** `pallet-intents-coprocessor` kept one bid per
 `(commitment, filler)`: `place_bid` replaced the previous one, and the RPC's pool cache and
-`RpcBidInfo`'s ordering did the same. Bids are now keyed `(commitment, filler, bid)`:
+`RpcBidInfo`'s ordering did the same. Bids now live in `OrderBids`, keyed
+`(commitment, filler, bid)`:
 
 - `place_bid(commitment, bid, user_op)` and `retract_bid(commitment, bid)`. `bid` is an `H256` the
   filler chooses to tell its bids on an order apart; by convention it is `keccak256(callData)`
@@ -23,9 +24,10 @@ phantom bid verifier check it.
   `intents::bid:: ++ commitment ++ filler ++ bid`.
 - `intents_getBidsForOrder` returns every bid with its `bid`, and the pool cache replaces only on the
   same `(filler, bid)`.
-- `KeyBidsById` (storage v2 → v3) files each standing bid under the zero identifier with its deposit,
-  so it stays refundable. Its offchain data cannot be moved by the runtime, so a bid standing across
-  the upgrade stops being served over RPC until it is placed again.
+- `OrderBids` is a new storage item rather than a migrated `Bids`: the new key layout lives under its
+  own prefix, so an entry of the old shape is never read as one of the new. Nothing is migrated, and
+  a bid standing in the old `Bids` map at the upgrade is neither served nor retractable through the
+  new calls.
 
 In the SDK, `IntentsCoprocessor.submitBid(commitment, userOp, bid)` and `retractBid(commitment, bid)`
 take the identifier explicitly, and `FillerBid`, `BidStorageEntry` and the helpers' `RpcBidInfo` report

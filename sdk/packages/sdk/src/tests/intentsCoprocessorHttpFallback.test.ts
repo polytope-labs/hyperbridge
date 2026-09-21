@@ -206,9 +206,9 @@ describe("RPC queries", () => {
 				},
 				query: {
 					intentsCoprocessor: {
-						bids: {
+						orderBids: {
 							entries: async () => {
-								calls.push("bids.entries")
+								calls.push("orderBids.entries")
 								return [
 									[
 										{ args: [null, { toString: () => filler }, { toHex: () => BID }] },
@@ -239,7 +239,7 @@ describe("RPC queries", () => {
 		const entries = await coproc.getBidStorageEntries(COMMITMENT)
 
 		expect(entries).toEqual([{ commitment: COMMITMENT, filler: expect.any(String), bid: BID, deposit: 42n }])
-		expect(node.calls).toEqual(["bids.entries"])
+		expect(node.calls).toEqual(["orderBids.entries"])
 	})
 
 	// Both routes — the custom RPC and the storage fallback it degrades to — stay on HTTP.
@@ -251,7 +251,7 @@ describe("RPC queries", () => {
 		const bids = await coproc.getBidsForOrder(COMMITMENT)
 
 		expect(bids).toEqual([])
-		expect(node.calls).toEqual(["intents_getBidsForOrder", "bids.entries", "offchain.localStorageGet"])
+		expect(node.calls).toEqual(["intents_getBidsForOrder", "orderBids.entries", "offchain.localStorageGet"])
 	})
 })
 

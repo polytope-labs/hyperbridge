@@ -1078,7 +1078,7 @@ export class IntentsCoprocessor {
 	async getBidStorageEntries(commitment: HexString): Promise<BidStorageEntry[]> {
 		const api = await this.http()
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		const entries = await (api.query.intentsCoprocessor.bids as any).entries(commitment)
+		const entries = await (api.query.intentsCoprocessor.orderBids as any).entries(commitment)
 
 		return entries.map(([storageKey, depositValue]: [any, any]) => ({
 			commitment,
@@ -1131,7 +1131,7 @@ export class IntentsCoprocessor {
 	private async getBidsViaStorage(commitment: HexString): Promise<FillerBid[]> {
 		const api = await this.http()
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		const entries = await (api.query.intentsCoprocessor.bids as any).entries(commitment)
+		const entries = await (api.query.intentsCoprocessor.orderBids as any).entries(commitment)
 
 		if (entries.length === 0) return []
 

@@ -178,7 +178,6 @@ pub type Migrations = (
 	pallet_collator_manager::migrations::ReserveUnreservedBonds<Runtime>,
 	pallet_ismp::migrations::SeedCommitmentCaps<Runtime>,
 	pallet_intents_coprocessor::migrations::MigrateConfigToStorageMap<Runtime>,
-	pallet_intents_coprocessor::migrations::KeyBidsById<Runtime>,
 );
 
 /// Handles converting a weight scalar to a fee value, based on the scale and granularity of the

@@ -185,9 +185,9 @@ fn place_bid_works() {
 		));
 
 		// Verify bid was stored (deposit amount for discoverability and refunds)
-		assert!(Bids::<Test>::contains_key((&commitment, &filler, H256::zero())));
+		assert!(OrderBids::<Test>::contains_key((&commitment, &filler, H256::zero())));
 		assert_eq!(
-			Bids::<Test>::get((&commitment, &filler, H256::zero())),
+			OrderBids::<Test>::get((&commitment, &filler, H256::zero())),
 			Some(Intents::storage_deposit_fee())
 		);
 
@@ -232,7 +232,7 @@ fn filler_can_update_own_bid() {
 		));
 
 		// Verify bid exists
-		assert!(Bids::<Test>::contains_key((&commitment, &filler, H256::zero())));
+		assert!(OrderBids::<Test>::contains_key((&commitment, &filler, H256::zero())));
 		assert_eq!(Balances::reserved_balance(&filler), Intents::storage_deposit_fee());
 
 		// Update the bid with new user_op
@@ -244,7 +244,7 @@ fn filler_can_update_own_bid() {
 		));
 
 		// Verify bid still exists and deposit is still reserved (only once)
-		assert!(Bids::<Test>::contains_key((&commitment, &filler, H256::zero())));
+		assert!(OrderBids::<Test>::contains_key((&commitment, &filler, H256::zero())));
 		assert_eq!(Balances::reserved_balance(&filler), Intents::storage_deposit_fee());
 	});
 }
@@ -269,7 +269,7 @@ fn filler_holds_several_bids_on_one_order() {
 			));
 		}
 		for bid in &bids {
-			assert_eq!(Bids::<Test>::get((&commitment, &filler, bid)), Some(deposit));
+			assert_eq!(OrderBids::<Test>::get((&commitment, &filler, bid)), Some(deposit));
 		}
 		assert_eq!(Balances::reserved_balance(&filler), deposit * 3);
 
@@ -280,7 +280,7 @@ fn filler_holds_several_bids_on_one_order() {
 			bids[1],
 			BoundedVec::try_from(vec![9u8]).unwrap()
 		));
-		assert_eq!(Bids::<Test>::iter_prefix((&commitment, &filler)).count(), 3);
+		assert_eq!(OrderBids::<Test>::iter_prefix((&commitment, &filler)).count(), 3);
 		assert_eq!(Balances::reserved_balance(&filler), deposit * 3);
 
 		// Retracting one leaves the others where they are.
@@ -289,9 +289,9 @@ fn filler_holds_several_bids_on_one_order() {
 			commitment,
 			bids[1]
 		));
-		assert!(!Bids::<Test>::contains_key((&commitment, &filler, bids[1])));
-		assert!(Bids::<Test>::contains_key((&commitment, &filler, bids[0])));
-		assert!(Bids::<Test>::contains_key((&commitment, &filler, bids[2])));
+		assert!(!OrderBids::<Test>::contains_key((&commitment, &filler, bids[1])));
+		assert!(OrderBids::<Test>::contains_key((&commitment, &filler, bids[0])));
+		assert!(OrderBids::<Test>::contains_key((&commitment, &filler, bids[2])));
 		assert_eq!(Balances::reserved_balance(&filler), deposit * 2);
 
 		// An identifier the filler no longer holds is not found.
@@ -336,7 +336,7 @@ fn retract_bid_works() {
 			user_op
 		));
 
-		assert!(Bids::<Test>::contains_key((&commitment, &filler, H256::zero())));
+		assert!(OrderBids::<Test>::contains_key((&commitment, &filler, H256::zero())));
 
 		// Retract the bid
 		assert_ok!(Intents::retract_bid(
@@ -346,7 +346,7 @@ fn retract_bid_works() {
 		));
 
 		// Verify bid was removed
-		assert!(!Bids::<Test>::contains_key((&commitment, &filler, H256::zero())));
+		assert!(!OrderBids::<Test>::contains_key((&commitment, &filler, H256::zero())));
 	});
 }
 
@@ -723,8 +723,8 @@ fn multiple_fillers_can_bid_on_same_order() {
 		));
 
 		// Verify both bids exist
-		assert!(Bids::<Test>::contains_key((&commitment, &filler1, H256::zero())));
-		assert!(Bids::<Test>::contains_key((&commitment, &filler2, H256::zero())));
+		assert!(OrderBids::<Test>::contains_key((&commitment, &filler1, H256::zero())));
+		assert!(OrderBids::<Test>::contains_key((&commitment, &filler2, H256::zero())));
 	});
 }
 

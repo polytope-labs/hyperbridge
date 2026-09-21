@@ -205,60 +205,6 @@ mod v2 {
 	}
 }
 
-mod v3 {
-	use super::*;
-	use crate::BalanceOf;
-	use alloc::vec::Vec;
-	use frame_support::{
-		pallet_prelude::OptionQuery, storage_alias, traits::Get, Blake2_128Concat,
-	};
-	use primitive_types::H256;
-
-	/// `Bids` as it stood before v3: one bid per filler on an order.
-	#[storage_alias]
-	pub type Bids<T: Config> = StorageDoubleMap<
-		Pallet<T>,
-		Blake2_128Concat,
-		H256,
-		Blake2_128Concat,
-		<T as frame_system::Config>::AccountId,
-		BalanceOf<T>,
-		OptionQuery,
-	>;
-
-	/// The identifier a bid standing across the upgrade is filed under. It carried none, and a
-	/// filler held only one per order, so the zero hash is as good as any.
-	pub const MIGRATED_BID: H256 = H256::zero();
-
-	/// Moves every standing bid into the `Bids` map keyed by bid identifier, under
-	/// [`MIGRATED_BID`]: a filler held one bid per order before, so one identifier is enough.
-	///
-	/// The deposits come across unchanged, so each one stays refundable through
-	/// `retract_bid(commitment, MIGRATED_BID)`. The bid data in offchain storage does not: the
-	/// runtime cannot read it to move it, so a bid standing across the upgrade is no longer served
-	/// over RPC and its filler has to place it again to be discovered.
-	///
-	/// The old keys are a prefix of the new ones under the same storage prefix, so every old entry
-	/// is taken before any new one is written.
-	pub struct KeyBidsById<T>(PhantomData<T>);
-
-	impl<T: Config> UncheckedOnRuntimeUpgrade for KeyBidsById<T> {
-		fn on_runtime_upgrade() -> Weight {
-			let standing: Vec<_> = Bids::<T>::drain().collect();
-			let moved = standing.len() as u64;
-			for (commitment, filler, deposit) in standing {
-				crate::Bids::<T>::insert((commitment, filler, MIGRATED_BID), deposit);
-			}
-			T::DbWeight::get().reads_writes(moved, moved.saturating_mul(2))
-		}
-	}
-}
-
-/// Migration that keys `Bids` by bid identifier as well as filler (v2 → v3), so a filler can hold
-/// several bids on one order.
-pub type KeyBidsById<T> =
-	VersionedMigration<2, 3, v3::KeyBidsById<T>, Pallet<T>, <T as frame_system::Config>::DbWeight>;
-
 /// Migration that moves the phantom order configuration from a single storage value into the
 /// per-chain `PhantomOrderConfig` map (v1 → v2), so chains can be configured independently.
 pub type MigrateConfigToStorageMap<T> = VersionedMigration<
@@ -382,26 +328,6 @@ mod tests {
 				vec![reversed, usdt]
 			);
 			assert_eq!(crate::PhantomChains::<Test>::get().len(), 1);
-		});
-	}
-
-	#[test]
-	fn standing_bids_move_under_the_migrated_identifier() {
-		new_test_ext().execute_with(|| {
-			let commitment = primitive_types::H256::repeat_byte(7);
-			let (alice, bob) = (
-				sp_core::crypto::AccountId32::new([1; 32]),
-				sp_core::crypto::AccountId32::new([2; 32]),
-			);
-			v3::Bids::<Test>::insert(commitment, &alice, 100u64);
-			v3::Bids::<Test>::insert(commitment, &bob, 250u64);
-
-			v3::KeyBidsById::<Test>::on_runtime_upgrade();
-
-			// Each filler's only bid is filed under the migrated identifier, deposit and all.
-			assert_eq!(crate::Bids::<Test>::get((commitment, &alice, v3::MIGRATED_BID)), Some(100));
-			assert_eq!(crate::Bids::<Test>::get((commitment, &bob, v3::MIGRATED_BID)), Some(250));
-			assert_eq!(crate::Bids::<Test>::iter().count(), 2);
 		});
 	}
 

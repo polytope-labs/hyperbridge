@@ -7,6 +7,10 @@ export type { InitChainMeta as ChainDefault, InitNetwork as Network } from "@/cl
 export type { FillerConfigFile as FillerConfig } from "@/config/filler-toml"
 export type { CurvePoint } from "@/config/interpolated-curve"
 export type { PairConfig } from "@/config/pairs"
+// The limit-order routes answer with the stored rows themselves rather than a
+// DTO, so the browser reads the same shape the store writes.
+export type { LimitOrder, LimitOrderSide, LimitOrderStatus, StoredBid } from "@/data/types"
+export type { CreateLimitOrderRequest } from "@/orderbook/limit-orders"
 export type {
 	ActivityEventDto,
 	OrderHistoryDto,

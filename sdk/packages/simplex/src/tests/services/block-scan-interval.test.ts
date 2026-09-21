@@ -20,6 +20,7 @@ function baseToml(blockScanIntervalSeconds?: number): FillerTomlConfig {
 			blockScanIntervalSeconds,
 		},
 		chains: [{ rpcUrls: ["https://mainnet.base.org"], bundlerUrl: "https://b" }],
+		orderbook: { url: "https://orderbook.example/graphql" },
 	} as FillerTomlConfig
 }
 

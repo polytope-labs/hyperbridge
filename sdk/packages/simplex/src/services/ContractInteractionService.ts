@@ -18,6 +18,8 @@ import {
 	type TokenInfo,
 	encodeFillOrder,
 	readLegPartialFill,
+	encodePhantomBidDeclaration,
+	bytes20ToBytes32,
 } from "@hyperbridge/sdk"
 import { ERC20_ABI } from "@/config/abis/ERC20"
 import type { ChainClientManager } from "./ChainClientManager"
@@ -33,6 +35,16 @@ import { buildPaymasterAndData } from "@/services/paymaster"
 
 // Configure for financial precision
 Decimal.config({ precision: 28, rounding: 4 })
+
+/**
+ * Gas fields for a limit order's UserOp. The orderbook does not read them and no
+ * bundler ever prices the op, so they are fixed rather than estimated; they exist
+ * because the packed struct the solver signs over has the fields.
+ */
+const LIMIT_ORDER_CALL_GAS_LIMIT = 500_000n
+const LIMIT_ORDER_VERIFICATION_GAS_LIMIT = 150_000n
+const LIMIT_ORDER_PRE_VERIFICATION_GAS = 50_000n
+
 /**
  * Handles contract interactions for tokens and other contracts
  */
@@ -503,6 +515,21 @@ export class ContractInteractionService {
 	/**
 	 * Reads the solver account's deposit balance on the ERC-4337 EntryPoint.
 	 */
+	/** What `holder` holds of an ERC-20 on `chain`, in the token's own units. */
+	async getTokenBalance(chain: string, token: HexString, holder: HexString): Promise<bigint> {
+		const client = this.clientManager.getPublicClient(chain)
+		return retryPromise(
+			() =>
+				client.readContract({
+					address: token,
+					abi: ERC20_ABI,
+					functionName: "balanceOf",
+					args: [holder],
+				}) as Promise<bigint>,
+			{ maxRetries: 3, backoffMs: 250, logMessage: "Failed to read token balance" },
+		)
+	}
+
 	async getSolverEntryPointBalance(chain: string): Promise<bigint> {
 		const entryPointAddress = this.configService.getEntryPointAddress(chain)
 		if (!entryPointAddress) {
@@ -792,6 +819,118 @@ export class ContractInteractionService {
 		// Converted once, so the rounding happens in one place rather than twice.
 		const windowSec = this.configService.getBidValiditySeconds() + BID_DISCOVERY_PAD_SECONDS
 		return currentBlock + BigInt(Math.ceil(windowSec / blockTimeSec))
+	}
+
+	/**
+	 * Builds the signed, never-executed UserOperation that carries one limit order
+	 * to the HyperFX orderbook.
+	 *
+	 * The op is a `fillOrder` for a synthetic same-chain order at the operator's
+	 * rate. It is a price commitment rather than a transaction: the orderbook
+	 * verifies the solver signature over the userOpHash, reads the amounts out of
+	 * the calldata, and nothing ever submits it to a bundler. That is why the gas
+	 * fields are fixed rather than estimated, and why `paymasterAndData` carries
+	 * the accepted-source declaration instead of a paymaster.
+	 *
+	 * The fill options carry `validUntil`, which the orderbook reads as the
+	 * posting's TTL, and the take beside the output: one quote for the order's one
+	 * leg, which is the rate the operator is signing. There is one `fillOrder`
+	 * shape, so there is no version to pick here.
+	 */
+	async prepareLimitOrderUserOp(params: {
+		fillChain: string
+		entryPointAddress: HexString
+		inputToken: HexString
+		outputToken: HexString
+		inputAmount: bigint
+		outputAmount: bigint
+		orderNonce: bigint
+		/** Seconds from the orderbook's receipt, not a block number. */
+		ttlSecs: number
+		acceptedSourceChains: string[]
+	}): Promise<{ commitment: HexString; userOp: HexString }> {
+		const { fillChain, inputToken, outputToken, inputAmount, outputAmount, acceptedSourceChains } = params
+		if (acceptedSourceChains.length === 0) {
+			throw new Error("A limit order must declare at least one accepted source chain")
+		}
+
+		const sdkHelper = await this.getIntentGateway(fillChain, fillChain)
+		const gateway = this.configService.getIntentGatewayAddress(fillChain)
+
+		// The shape the orderbook recognises: one input, a single output whose
+		// amount lives in the fill options rather than the order, no session key,
+		// and source == destination so nothing is dispatched.
+		const order: Order = {
+			user: bytes20ToBytes32(ADDRESS_ZERO),
+			source: fillChain,
+			destination: fillChain,
+			deadline: 0n,
+			nonce: params.orderNonce,
+			fees: 0n,
+			session: ADDRESS_ZERO,
+			predispatch: { assets: [], call: "0x" },
+			inputs: [{ token: bytes20ToBytes32(inputToken), amount: inputAmount }],
+			output: {
+				beneficiary: bytes20ToBytes32(ADDRESS_ZERO),
+				assets: [{ token: bytes20ToBytes32(outputToken), amount: 0n }],
+				call: "0x",
+			},
+		}
+		const commitment = orderCommitment(order)
+
+		const fillOptions: FillOptions = {
+			relayerFee: 0n,
+			nativeDispatchFee: 0n,
+			validUntil: BigInt(params.ttlSecs),
+			outputs: [{ token: bytes20ToBytes32(outputToken), amount: outputAmount }],
+			// The rate itself: the whole input taken for the output paid. The order's
+			// own output amount is zero, as the orderbook requires, so this pair is
+			// where the price lives.
+			inputs: [{ token: bytes20ToBytes32(inputToken), amount: inputAmount }],
+		}
+
+		const calls: ERC7821Call[] = [
+			{
+				target: outputToken,
+				value: 0n,
+				data: encodeFunctionData({
+					abi: ERC20_ABI,
+					functionName: "approve",
+					args: [gateway, outputAmount],
+				}) as HexString,
+			},
+			{
+				target: gateway,
+				value: 0n,
+				// biome-ignore lint/suspicious/noExplicitAny: the SDK's contract-order shape is not exported
+				data: encodeFillOrder(transformOrderForContract(order) as any, fillOptions),
+			},
+		]
+
+		const callData = encodeERC7821ExecuteBatch(calls)
+
+		// `prepareSubmitBid` binds the nonce key and prefixes the signature with
+		// `order.id`, both of which have to be this commitment. Setting it here is
+		// what makes the shared builder produce a limit order's op rather than a
+		// second copy of the signing logic. The key binds the calldata too, as it
+		// does for every bid, so each posting is the first sequence of its own key.
+		const userOp = await sdkHelper.prepareSubmitBid({
+			order: { ...order, id: commitment },
+			fillOptions,
+			solverAccount: this.solverAccountAddress,
+			solverSigner: sdkSigningAccount(this.signer),
+			nonce: CryptoUtils.bidNonceKey(commitment, ADDRESS_ZERO, callData) << 64n,
+			entryPointAddress: params.entryPointAddress,
+			callGasLimit: LIMIT_ORDER_CALL_GAS_LIMIT,
+			verificationGasLimit: LIMIT_ORDER_VERIFICATION_GAS_LIMIT,
+			preVerificationGas: LIMIT_ORDER_PRE_VERIFICATION_GAS,
+			maxFeePerGas: 0n,
+			maxPriorityFeePerGas: 0n,
+			callData,
+			paymasterAndData: encodePhantomBidDeclaration({ acceptedSourceChains }),
+		})
+
+		return { commitment, userOp: encodeUserOpScale(userOp) }
 	}
 
 	/**

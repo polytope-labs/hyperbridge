@@ -14,6 +14,7 @@ import { INIT_CHAINS } from "@/cli/init/chains"
  */
 describe("CLI wizard update run", () => {
 	const existing: FillerConfigFile = {
+		orderbook: { url: "https://orderbook.hyperbridge.network/graphql" },
 		simplex: {
 			signer: { type: SignerType.PrivateKey, key: "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d" },
 			maxConcurrentOrders: 7,

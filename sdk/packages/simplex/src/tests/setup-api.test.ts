@@ -64,6 +64,7 @@ describe("setup API", () => {
 				},
 			],
 			chains: [{ rpcUrls: [rpcUrl], bundlerUrl: "https://api.pimlico.io/v2/1/rpc?apikey=secretpimlicokey" }],
+			orderbook: { url: "https://orderbook.example/graphql" },
 		}
 	}
 

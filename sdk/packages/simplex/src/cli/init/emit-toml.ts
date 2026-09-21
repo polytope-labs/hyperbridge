@@ -1,4 +1,4 @@
-import { DEFAULT_MAX_CONCURRENT_ORDERS } from "@/config/defaults"
+import { DEFAULT_MAX_CONCURRENT_ORDERS, DEFAULT_ORDERBOOK_URL } from "@/config/defaults"
 import { chmodSync, renameSync, unlinkSync, writeFileSync } from "node:fs"
 import { dirname, join, basename } from "node:path"
 import { randomBytes } from "node:crypto"
@@ -120,6 +120,18 @@ export function emitFillerToml(config: FillerConfigFile, options: EmitOptions = 
 		push("# maxConsecutiveClamps = 3")
 		push()
 	}
+
+	// Simplex prices every fill from the operator's limit orders, and those live on
+	// the orderbook, so the section is written whether or not an order exists yet.
+	push("# The orderbook simplex posts the operator's limit orders to.")
+	push("[orderbook]")
+	push(kv("url", config.orderbook?.url ?? DEFAULT_ORDERBOOK_URL))
+	if (config.orderbook?.defaultTtlSecs !== undefined) push(kv("defaultTtlSecs", config.orderbook.defaultTtlSecs))
+	if (config.orderbook?.reconcileIntervalSecs !== undefined) {
+		push(kv("reconcileIntervalSecs", config.orderbook.reconcileIntervalSecs))
+	}
+	if (config.orderbook?.requestTimeoutMs !== undefined) push(kv("requestTimeoutMs", config.orderbook.requestTimeoutMs))
+	push()
 
 	if (config.rebalancing) {
 		push("# Rebalancing: triggers when a balance falls to (1 - triggerPercentage) * baseBalance.")

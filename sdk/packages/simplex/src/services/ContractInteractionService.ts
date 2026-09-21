@@ -283,13 +283,6 @@ export class ContractInteractionService {
 			const FUNDING_GAS_PER_CALL = 400_000n
 			const fundingGasBump = funding?.calls?.length ? FUNDING_GAS_PER_CALL * BigInt(funding.calls.length) : 0n
 
-			const nonce = await client.readContract({
-				address: this.configService.getEntryPointAddress(order.destination)!,
-				abi: ENTRYPOINT_ABI,
-				functionName: "getNonce",
-				args: [this.solverAccountAddress, CryptoUtils.bidNonceKey(orderCommitment(order), order.session)],
-			})
-
 			this.logger.info({ orderId: order.id }, "Caching gas estimate")
 			this.logger.info({ estimate, fundingGasBump: fundingGasBump.toString() }, "Estimate")
 			const callGasLimit = estimate.callGasLimit + fundingGasBump
@@ -304,7 +297,6 @@ export class ContractInteractionService {
 				estimate.preVerificationGas,
 				estimate.maxFeePerGas,
 				estimate.maxPriorityFeePerGas,
-				nonce,
 				estimate.totalGasCostWei,
 			)
 			return {
@@ -660,14 +652,14 @@ export class ContractInteractionService {
 	 * @param order - The order to prepare a bid for
 	 * @param entryPointAddress - The ERC-4337 EntryPoint address on the destination chain
 	 * @param solverAccountAddress - The solver's smart account address
-	 * @returns The commitment, the encoded UserOp, and the EntryPoint sequence it signs under the
-	 *   order's nonce key, which is what Hyperbridge keys the bid by
+	 * @returns The commitment, the encoded UserOp, and the identifier Hyperbridge files the bid under
+	 *   (`keccak256` of its calldata)
 	 */
 	async prepareBidUserOp(
 		order: Order,
 		entryPointAddress: HexString,
 		solverAccountAddress: HexString,
-	): Promise<{ commitment: HexString; userOp: HexString; sequence: bigint }> {
+	): Promise<{ commitment: HexString; userOp: HexString; bid: HexString }> {
 		// Use cached estimate from prior profitability check
 		const cachedEstimate = this.cacheService.getGasEstimate(order.id!)
 		if (!cachedEstimate) {
@@ -711,6 +703,16 @@ export class ContractInteractionService {
 
 		const commitment = orderCommitment(order)
 
+		// The nonce key binds the order, its session key and this bid's calldata, so every bid is
+		// sequence 0 of its own key and executes independently of any other bid on the order. The
+		// sequence is read rather than assumed: the same calldata executed once already has moved on.
+		const nonce = await this.clientManager.getPublicClient(order.destination).readContract({
+			address: entryPointAddress,
+			abi: ENTRYPOINT_ABI,
+			functionName: "getNonce",
+			args: [solverAccountAddress, CryptoUtils.bidNonceKey(commitment, order.session, callData)],
+		})
+
 		// Build paymasterAndData — Simplex (Permit2) → EntryPoint deposit
 		const pmResult = await buildPaymasterAndData({
 			chain: order.destination,
@@ -738,7 +740,7 @@ export class ContractInteractionService {
 			fillOptions,
 			solverAccount: solverAccountAddress,
 			solverSigner: sdkSigningAccount(this.signer),
-			nonce: cachedEstimate.nonce,
+			nonce,
 			entryPointAddress,
 			callGasLimit: cachedEstimate.callGasLimit,
 			verificationGasLimit: cachedEstimate.verificationGasLimit,
@@ -762,8 +764,7 @@ export class ContractInteractionService {
 			"Prepared bid UserOp",
 		)
 
-		// The low 64 bits of the nonce are the sequence under the order's key.
-		return { commitment, userOp: encodedUserOp, sequence: cachedEstimate.nonce & ((1n << 64n) - 1n) }
+		return { commitment, userOp: encodedUserOp, bid: CryptoUtils.bidId(callData) }
 	}
 
 	/**

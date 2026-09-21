@@ -1,29 +1,39 @@
 # 2026-09-21 — A filler can hold several bids on one order
 
-A solver quoting from several resting prices sends one bid per price on the same order. Those bids
-are UserOps on one nonce key — `bidNonceKey(commitment, session)`, which `SolverAccount` checks — told
-apart by the 64-bit EntryPoint sequence each one signs, and the EntryPoint runs a key's sequences in
-order with no gaps.
+A solver quoting from several resting prices sends one bid per price on the same order, and they have
+to be able to execute independently. Two things stood in the way.
 
-`pallet-intents-coprocessor` kept one bid per `(commitment, filler)`: `place_bid` replaced the
-previous one, and the RPC's pool cache and `RpcBidInfo`'s ordering did the same. A second bid from
-the same solver silently evicted the first, leaving a bid signed at a sequence the chain could never
-reach. Bids are now keyed `(commitment, filler, sequence)`:
+**One nonce key per order.** `SolverAccount` bound a bid's nonce key to `(commitment, sessionKey)`, so
+a solver's bids on one order were sequences of a single key, which the EntryPoint runs strictly in
+order: one bid that was never selected blocked the rest. The key now also commits to the op's
+calldata — `uint192(keccak256(commitment ‖ sessionKey ‖ keccak256(callData)))` — so each bid is
+sequence 0 of its own key (`evm/docs/ai/changelog/2026-09-21-every-bid-has-its-own-nonce-key.md`).
+`CryptoUtils.bidNonceKey(commitment, sessionKey, callData)` derives it, and `BidManager` and the
+phantom bid verifier check it.
 
-- `place_bid(commitment, sequence, user_op)` and `retract_bid(commitment, sequence)`. Placing again at
-  a sequence the filler already holds replaces that bid alone, and each bid holds its own deposit.
-- `BidPlaced` and `BidRetracted` carry the `sequence`.
-- The offchain key is `intents::bid:: ++ commitment ++ filler ++ sequence (u64 LE)`.
-- `intents_getBidsForOrder` returns every bid with its `sequence`, and the pool cache replaces only on
-  the same `(filler, sequence)`.
-- `KeyBidsBySequence` (storage v2 → v3) moves each standing bid to sequence 0 with its deposit, so it
-  stays refundable. Its offchain data cannot be moved by the runtime, so a bid standing across the
-  upgrade stops being served over RPC until it is placed again.
+**One bid per filler on Hyperbridge.** `pallet-intents-coprocessor` kept one bid per
+`(commitment, filler)`: `place_bid` replaced the previous one, and the RPC's pool cache and
+`RpcBidInfo`'s ordering did the same. Bids are now keyed `(commitment, filler, bid)`:
 
-In the SDK, `IntentsCoprocessor.submitBid(commitment, userOp, sequence)` and
-`retractBid(commitment, sequence)` take the sequence explicitly, and `FillerBid`, `BidStorageEntry` and
-the helpers' `RpcBidInfo` report it. The phantom helpers keep a single bid per filler at sequence 0.
+- `place_bid(commitment, bid, user_op)` and `retract_bid(commitment, bid)`. `bid` is an `H256` the
+  filler chooses to tell its bids on an order apart; by convention it is `keccak256(callData)`
+  (`CryptoUtils.bidId`), the same hash the nonce key takes. Placing again under an identifier the
+  filler already holds replaces that bid alone, and each bid holds its own deposit.
+- `BidPlaced` and `BidRetracted` carry the `bid`. The offchain key is
+  `intents::bid:: ++ commitment ++ filler ++ bid`.
+- `intents_getBidsForOrder` returns every bid with its `bid`, and the pool cache replaces only on the
+  same `(filler, bid)`.
+- `KeyBidsById` (storage v2 → v3) files each standing bid under the zero identifier with its deposit,
+  so it stays refundable. Its offchain data cannot be moved by the runtime, so a bid standing across
+  the upgrade stops being served over RPC until it is placed again.
 
-The indexer's `FillerBid` gains `sequence`, read from `BidPlaced`, and bid data is matched to its
-extrinsic or RPC entry on commitment and sequence, so two bids on one order in one batch are not
-confused.
+In the SDK, `IntentsCoprocessor.submitBid(commitment, userOp, bid)` and `retractBid(commitment, bid)`
+take the identifier explicitly, and `FillerBid`, `BidStorageEntry` and the helpers' `RpcBidInfo` report
+it. The phantom helpers keep one bid per filler under the zero identifier.
+
+The indexer's `FillerBid` gains `bid`, read from `BidPlaced`, and bid data is matched to its extrinsic
+or RPC entry on commitment and identifier.
+
+Simplex signs each bid with the nonce its own key reports (`EntryPoint.getNonce`), files it under
+`keccak256(callData)`, and retracts every identifier its account holds on a commitment, read back
+from the pallet's storage.

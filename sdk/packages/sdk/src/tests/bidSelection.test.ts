@@ -1,3 +1,4 @@
+import { CryptoUtils } from "@/protocols/intents/CryptoUtils"
 import { BidManager } from "@/protocols/intents/BidManager"
 import { OrderExecutor } from "@/protocols/intents/OrderExecutor"
 import type { Bid, FillerBid, HexString, Order, PackedUserOperation, SelectBidResult } from "@/types"
@@ -80,7 +81,7 @@ describe("Order execution bid-selection integration", () => {
 		const second = makeBid({ solverAddress: SOLVER_TWO, amount: 110n, execute: secondExecute })
 		const rawBids: FillerBid[] = [first, second].map((bid, index) => ({
 			filler: `solver-${index}`,
-			sequence: 0n,
+			bid: CryptoUtils.bidId(bid.userOp.callData),
 			userOp: bid.userOp,
 			deposit: 0n,
 		}))

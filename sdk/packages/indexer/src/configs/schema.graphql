@@ -2403,10 +2403,10 @@ type FillerBid @entity {
 	filler: String! @index
 
 	"""
-	Which of the filler's bids on the order this is: the EntryPoint sequence its UserOp signs under
-	the order's nonce key. A filler offering several prices on one order places one bid per price.
+	Which of the filler's bids on the order this is (bytes32). A filler offering several prices on one
+	order places one bid per price; by convention the identifier is keccak256 of the UserOp's callData.
 	"""
-	sequence: BigInt!
+	bid: String! @index
 
 	"""
 	The raw bid payload — the SCALE-encoded PackedUserOperation the filler submitted, as hex. Stored

@@ -1087,20 +1087,20 @@ export class IntentFiller {
 	/**
 	 * Retracts every bid this filler holds on a commitment.
 	 *
-	 * Hyperbridge keys a bid by the EntryPoint sequence its UserOp signs, and the row here does not
-	 * record it, so the sequences are read back from the pallet's storage for this account. Holding
-	 * none is `BidNotFound`, which is what the caller already treats as nothing left to reclaim.
+	 * Hyperbridge files a bid under an identifier, and the row here does not record it, so the
+	 * identifiers are read back from the pallet's storage for this account. Holding none is
+	 * `BidNotFound`, which is what the caller already treats as nothing left to reclaim.
 	 */
 	private async retractOurBids(coprocessor: IntentsCoprocessor, commitment: HexString): Promise<BidSubmissionResult> {
 		const ours = u8aToHex(coprocessor.getKeyPair().publicKey)
-		const sequences = (await coprocessor.getBidStorageEntries(commitment))
+		const bids = (await coprocessor.getBidStorageEntries(commitment))
 			.filter((entry) => u8aToHex(decodeAddress(entry.filler)) === ours)
-			.map((entry) => entry.sequence)
-		if (sequences.length === 0) return { success: false, error: "BidNotFound" }
+			.map((entry) => entry.bid)
+		if (bids.length === 0) return { success: false, error: "BidNotFound" }
 
 		let result: BidSubmissionResult = { success: true }
-		for (const sequence of sequences) {
-			result = await coprocessor.retractBid(commitment, sequence)
+		for (const bid of bids) {
+			result = await coprocessor.retractBid(commitment, bid)
 			if (!result.success) return result
 		}
 		return result

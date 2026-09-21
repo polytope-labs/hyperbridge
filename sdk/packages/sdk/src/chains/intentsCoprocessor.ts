@@ -2,7 +2,7 @@ import { ApiPromise, Keyring, WsProvider } from "@polkadot/api"
 import type { ApiOptions, SubmittableExtrinsic } from "@polkadot/api/types"
 import type { KeyringPair } from "@polkadot/keyring/types"
 import type { RuntimeVersion } from "@polkadot/types/interfaces"
-import { bnToU8a, hexToU8a, u8aToHex, u8aConcat } from "@polkadot/util"
+import { hexToU8a, u8aToHex, u8aConcat } from "@polkadot/util"
 import { decodeAddress, keccakAsU8a, xxhashAsU8a } from "@polkadot/util-crypto"
 import { numberToBytes, bytesToBigInt, decodeAbiParameters, hexToBytes } from "viem"
 import { Bytes, Struct, u8, Vector } from "scale-ts"
@@ -26,8 +26,8 @@ const SYSTEM_EVENTS_KEY = u8aToHex(u8aConcat(xxhashAsU8a("System", 128), xxhashA
 
 /** Offchain storage key prefix for bids */
 const OFFCHAIN_BID_PREFIX = new TextEncoder().encode("intents::bid::")
-/** A phantom order takes one bid per filler, so every phantom bid sits at the first sequence. */
-const PHANTOM_BID_SEQUENCE = 0n
+/** A phantom order takes one bid per filler, so every phantom bid is filed under the same identifier. */
+const PHANTOM_BID_ID = `0x${"00".repeat(32)}` as HexString
 /** Offchain storage key prefix for phantom orders */
 const OFFCHAIN_PHANTOM_PREFIX = new TextEncoder().encode("intents::phantom::order::")
 
@@ -280,7 +280,7 @@ export function decodeUserOpScale(hex: HexString): PackedUserOperation {
 interface RpcBidInfo {
 	commitment: HexString
 	filler: HexString
-	sequence: number
+	bid: HexString
 	user_op: HexString
 }
 
@@ -877,20 +877,19 @@ export class IntentsCoprocessor {
 	/**
 	 * Submits a bid to Hyperbridge's pallet-intents
 	 *
-	 * A filler can hold several bids on one order, one per price it offers. They are UserOps on the
-	 * same nonce key, told apart by the EntryPoint sequence each one signs, and `sequence` is that
-	 * number: submitting again at a sequence the filler already holds replaces that bid alone.
+	 * A filler can hold several bids on one order, one per price it offers, and `bid` tells them
+	 * apart: submitting again under an identifier the filler already holds replaces that bid alone.
+	 * By convention it is `keccak256` of the UserOp's `callData`, which is also what gives each bid
+	 * its own nonce key on the `SolverAccount` (see `CryptoUtils.bidId`).
 	 *
 	 * @param commitment - The order commitment hash (bytes32)
 	 * @param userOp - The encoded PackedUserOperation as hex string
-	 * @param sequence - The EntryPoint sequence the UserOp signs under the order's nonce key
+	 * @param bid - Identifies this bid among the filler's bids on the order (bytes32)
 	 * @returns BidSubmissionResult with success status and block/extrinsic hash
 	 */
-	async submitBid(commitment: HexString, userOp: HexString, sequence: bigint): Promise<BidSubmissionResult> {
+	async submitBid(commitment: HexString, userOp: HexString, bid: HexString): Promise<BidSubmissionResult> {
 		try {
-			return await this.signAndSendExtrinsic((api) =>
-				api.tx.intentsCoprocessor.placeBid(commitment, sequence, userOp),
-			)
+			return await this.signAndSendExtrinsic((api) => api.tx.intentsCoprocessor.placeBid(commitment, bid, userOp))
 		} catch (error) {
 			return {
 				success: false,
@@ -905,12 +904,12 @@ export class IntentsCoprocessor {
 	 * Use this to remove unused quotes and claim back deposited BRIDGE tokens.
 	 *
 	 * @param commitment - The order commitment hash (bytes32)
-	 * @param sequence - Which of the filler's bids on the order to retract
+	 * @param bid - Which of the filler's bids on the order to retract (bytes32)
 	 * @returns BidSubmissionResult with success status and block/extrinsic hash
 	 */
-	async retractBid(commitment: HexString, sequence: bigint): Promise<BidSubmissionResult> {
+	async retractBid(commitment: HexString, bid: HexString): Promise<BidSubmissionResult> {
 		try {
-			return await this.signAndSendExtrinsic((api) => api.tx.intentsCoprocessor.retractBid(commitment, sequence))
+			return await this.signAndSendExtrinsic((api) => api.tx.intentsCoprocessor.retractBid(commitment, bid))
 		} catch (error) {
 			return {
 				success: false,
@@ -946,10 +945,10 @@ export class IntentsCoprocessor {
 	): Promise<BidSubmissionResult> {
 		try {
 			return await this.signAndSendExtrinsic((api) =>
-				// A phantom bid is the filler's only bid on its order, so it sits at sequence 0.
+				// A phantom bid is the filler's only bid on its order, so every one shares an identifier.
 				api.tx.utility.batch([
-					api.tx.intentsCoprocessor.placeBid(bidCommitment, PHANTOM_BID_SEQUENCE, userOp),
-					api.tx.intentsCoprocessor.retractBid(retractCommitment, PHANTOM_BID_SEQUENCE),
+					api.tx.intentsCoprocessor.placeBid(bidCommitment, PHANTOM_BID_ID, userOp),
+					api.tx.intentsCoprocessor.retractBid(retractCommitment, PHANTOM_BID_ID),
 				]),
 			)
 		} catch (error) {
@@ -993,11 +992,11 @@ export class IntentsCoprocessor {
 		const outcome = await this.signAndSendExtrinsic((api) =>
 			api.tx.utility.forceBatch(
 				bids.flatMap((bid) => {
-					const calls = [api.tx.intentsCoprocessor.placeBid(bid.commitment, PHANTOM_BID_SEQUENCE, bid.userOp)]
+					const calls = [api.tx.intentsCoprocessor.placeBid(bid.commitment, PHANTOM_BID_ID, bid.userOp)]
 					// Placed first so the pairing reads the same as the call order; with force_batch
 					// the ordering no longer decides whether the bid survives a failed retraction.
 					if (bid.retractCommitment) {
-						calls.push(api.tx.intentsCoprocessor.retractBid(bid.retractCommitment, PHANTOM_BID_SEQUENCE))
+						calls.push(api.tx.intentsCoprocessor.retractBid(bid.retractCommitment, PHANTOM_BID_ID))
 					}
 					return calls
 				}),
@@ -1084,7 +1083,7 @@ export class IntentsCoprocessor {
 		return entries.map(([storageKey, depositValue]: [any, any]) => ({
 			commitment,
 			filler: storageKey.args[1].toString() as string,
-			sequence: BigInt(storageKey.args[2].toString()),
+			bid: storageKey.args[2].toHex() as HexString,
 			deposit: BigInt(depositValue.toString()),
 		}))
 	}
@@ -1121,7 +1120,7 @@ export class IntentsCoprocessor {
 		return result.map((entry) => {
 			const userOp = decodeUserOpScale(entry.user_op as HexString)
 			const filler = new Keyring({ type: "sr25519" }).encodeAddress(hexToU8a(entry.filler))
-			return { filler, sequence: BigInt(entry.sequence), userOp, deposit: 0n }
+			return { filler, bid: entry.bid, userOp, deposit: 0n }
 		})
 	}
 
@@ -1139,10 +1138,10 @@ export class IntentsCoprocessor {
 		const bidPromises = entries.map(async ([storageKey, depositValue]: [any, any]) => {
 			try {
 				const filler = storageKey.args[1].toString()
-				const sequence = BigInt(storageKey.args[2].toString())
+				const bid = storageKey.args[2].toHex() as HexString
 				const deposit = BigInt(depositValue.toString())
 
-				const offchainKey = this.buildOffchainBidKey(commitment, filler, sequence)
+				const offchainKey = this.buildOffchainBidKey(commitment, filler, bid)
 				const offchainKeyHex = u8aToHex(offchainKey)
 
 				const offchainResult = await api.rpc.offchain.localStorageGet("PERSISTENT", offchainKeyHex)
@@ -1152,7 +1151,7 @@ export class IntentsCoprocessor {
 				const bidData = offchainResult.unwrap().toHex() as HexString
 				const decoded = this.decodeBid(bidData)
 
-				return { filler: decoded.filler, sequence, userOp: decoded.userOp, deposit }
+				return { filler: decoded.filler, bid, userOp: decoded.userOp, deposit }
 			} catch {
 				return null
 			}
@@ -1174,14 +1173,9 @@ export class IntentsCoprocessor {
 		return { filler, userOp }
 	}
 
-	/** Builds offchain storage key: "intents::bid::" + commitment + filler + sequence (u64, little-endian) */
-	private buildOffchainBidKey(commitment: HexString, filler: string, sequence: bigint): Uint8Array {
-		return u8aConcat(
-			OFFCHAIN_BID_PREFIX,
-			hexToU8a(commitment),
-			decodeAddress(filler),
-			bnToU8a(sequence, { bitLength: 64, isLe: true }),
-		)
+	/** Builds offchain storage key: "intents::bid::" + commitment + filler + bid */
+	private buildOffchainBidKey(commitment: HexString, filler: string, bid: HexString): Uint8Array {
+		return u8aConcat(OFFCHAIN_BID_PREFIX, hexToU8a(commitment), decodeAddress(filler), hexToU8a(bid))
 	}
 
 	/**

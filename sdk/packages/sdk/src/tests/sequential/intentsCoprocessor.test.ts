@@ -10,6 +10,7 @@ describe.sequential("IntentsCoprocessor", () => {
 	let coprocessor: IntentsCoprocessor
 
 	const testCommitment = keccak256(toHex(`test-${Date.now()}-${Math.random()}`)) as HexString
+	const BID = keccak256(toHex("test-bid")) as HexString
 
 	const fixtureUserOp = fixtureData.userOpHashVectors[0].userOp
 
@@ -59,7 +60,7 @@ describe.sequential("IntentsCoprocessor", () => {
 		console.log("UserOp nonce:", testUserOp.nonce.toString())
 		console.log("Encoded userOp length:", encodedUserOp.length)
 
-		const result = await coprocessor.submitBid(testCommitment, encodedUserOp, 0n)
+		const result = await coprocessor.submitBid(testCommitment, encodedUserOp, BID)
 
 		console.log("Submit bid result:", result)
 
@@ -114,7 +115,7 @@ describe.sequential("IntentsCoprocessor", () => {
 	it("should retract a bid", async () => {
 		console.log("Retracting bid with commitment:", testCommitment)
 
-		const result = await coprocessor.retractBid(testCommitment, 0n)
+		const result = await coprocessor.retractBid(testCommitment, BID)
 
 		console.log("Retract bid result:", result)
 

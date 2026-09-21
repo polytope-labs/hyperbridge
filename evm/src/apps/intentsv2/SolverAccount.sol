@@ -79,7 +79,13 @@ contract SolverAccount is Account, ERC7821, IERC1271 {
      *
      * A 162-byte signature is `abi.encodePacked(commitment, solverSignature, sessionSignature)`.
      * The gateway's `select` recovers the session key, and the nonce key must derive from the
-     * commitment and that key, so neither can be swapped after signing.
+     * commitment, that key and the op's calldata, so none of them can be swapped after signing.
+     *
+     * The calldata is what makes each bid's key its own. A solver bidding several prices on one
+     * order signs one op per price, and with a key shared across them the EntryPoint would run
+     * them only in sequence order: a bid that was never selected would block every one behind it.
+     * Keyed by their calldata, each bid is sequence 0 of its own key and can execute on its own,
+     * in any order, while the same calldata still executes once.
      */
     function validateUserOp(PackedUserOperation calldata op, bytes32 userOpHash, uint256 missingAccountFunds)
         public
@@ -109,8 +115,8 @@ contract SolverAccount is Account, ERC7821, IERC1271 {
             return ERC4337Utils.SIG_VALIDATION_FAILED;
         }
 
-        uint192 userOpNonce = uint192(uint256(keccak256(abi.encodePacked(commitment, sessionKey))));
-        if (uint192(op.nonce >> 64) != userOpNonce) return ERC4337Utils.SIG_VALIDATION_FAILED;
+        uint192 nonceKey = uint192(uint256(keccak256(abi.encodePacked(commitment, sessionKey, keccak256(op.callData)))));
+        if (uint192(op.nonce >> 64) != nonceKey) return ERC4337Utils.SIG_VALIDATION_FAILED;
         if (!_rawSignatureValidation(userOpHash, solverSignature)) return ERC4337Utils.SIG_VALIDATION_FAILED;
 
         _payPrefund(missingAccountFunds);

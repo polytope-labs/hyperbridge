@@ -180,14 +180,14 @@ fn place_bid_works() {
 		assert_ok!(Intents::place_bid(
 			RuntimeOrigin::signed(filler.clone()),
 			commitment,
-			0,
+			H256::zero(),
 			user_op.clone()
 		));
 
 		// Verify bid was stored (deposit amount for discoverability and refunds)
-		assert!(Bids::<Test>::contains_key((&commitment, &filler, 0)));
+		assert!(Bids::<Test>::contains_key((&commitment, &filler, H256::zero())));
 		assert_eq!(
-			Bids::<Test>::get((&commitment, &filler, 0)),
+			Bids::<Test>::get((&commitment, &filler, H256::zero())),
 			Some(Intents::storage_deposit_fee())
 		);
 
@@ -204,7 +204,12 @@ fn place_bid_fails_with_empty_user_op() {
 		let user_op = BoundedVec::try_from(vec![]).unwrap();
 
 		assert_noop!(
-			Intents::place_bid(RuntimeOrigin::signed(filler.clone()), commitment, 0, user_op),
+			Intents::place_bid(
+				RuntimeOrigin::signed(filler.clone()),
+				commitment,
+				H256::zero(),
+				user_op
+			),
 			Error::<Test>::InvalidUserOp
 		);
 	});
@@ -222,71 +227,76 @@ fn filler_can_update_own_bid() {
 		assert_ok!(Intents::place_bid(
 			RuntimeOrigin::signed(filler.clone()),
 			commitment,
-			0,
+			H256::zero(),
 			user_op_1.clone()
 		));
 
 		// Verify bid exists
-		assert!(Bids::<Test>::contains_key((&commitment, &filler, 0)));
+		assert!(Bids::<Test>::contains_key((&commitment, &filler, H256::zero())));
 		assert_eq!(Balances::reserved_balance(&filler), Intents::storage_deposit_fee());
 
 		// Update the bid with new user_op
 		assert_ok!(Intents::place_bid(
 			RuntimeOrigin::signed(filler.clone()),
 			commitment,
-			0,
+			H256::zero(),
 			user_op_2.clone()
 		));
 
 		// Verify bid still exists and deposit is still reserved (only once)
-		assert!(Bids::<Test>::contains_key((&commitment, &filler, 0)));
+		assert!(Bids::<Test>::contains_key((&commitment, &filler, H256::zero())));
 		assert_eq!(Balances::reserved_balance(&filler), Intents::storage_deposit_fee());
 	});
 }
 
 #[test]
-fn filler_holds_a_bid_per_sequence() {
+fn filler_holds_several_bids_on_one_order() {
 	new_test_ext().execute_with(|| {
 		let filler = AccountId32::new([1; 32]);
 		let commitment = H256::random();
 		let deposit = Intents::storage_deposit_fee();
+		let bids = [H256::repeat_byte(1), H256::repeat_byte(2), H256::repeat_byte(3)];
 
-		// One bid per price the filler offers, each at its own sequence under the order's nonce
-		// key: every one of them stands, and each holds its own deposit.
-		for sequence in 0..3u64 {
-			let user_op = BoundedVec::try_from(vec![sequence as u8 + 1]).unwrap();
+		// One bid per price the filler offers, each under its own identifier: every one of them
+		// stands, and each holds its own deposit.
+		for (index, bid) in bids.iter().enumerate() {
+			let user_op = BoundedVec::try_from(vec![index as u8 + 1]).unwrap();
 			assert_ok!(Intents::place_bid(
 				RuntimeOrigin::signed(filler.clone()),
 				commitment,
-				sequence,
+				*bid,
 				user_op
 			));
 		}
-		for sequence in 0..3u64 {
-			assert_eq!(Bids::<Test>::get((&commitment, &filler, sequence)), Some(deposit));
+		for bid in &bids {
+			assert_eq!(Bids::<Test>::get((&commitment, &filler, bid)), Some(deposit));
 		}
 		assert_eq!(Balances::reserved_balance(&filler), deposit * 3);
 
-		// Placing again at a sequence it already holds replaces that bid alone.
+		// Placing again under an identifier it already holds replaces that bid alone.
 		assert_ok!(Intents::place_bid(
 			RuntimeOrigin::signed(filler.clone()),
 			commitment,
-			1,
+			bids[1],
 			BoundedVec::try_from(vec![9u8]).unwrap()
 		));
 		assert_eq!(Bids::<Test>::iter_prefix((&commitment, &filler)).count(), 3);
 		assert_eq!(Balances::reserved_balance(&filler), deposit * 3);
 
 		// Retracting one leaves the others where they are.
-		assert_ok!(Intents::retract_bid(RuntimeOrigin::signed(filler.clone()), commitment, 1));
-		assert!(!Bids::<Test>::contains_key((&commitment, &filler, 1)));
-		assert!(Bids::<Test>::contains_key((&commitment, &filler, 0)));
-		assert!(Bids::<Test>::contains_key((&commitment, &filler, 2)));
+		assert_ok!(Intents::retract_bid(
+			RuntimeOrigin::signed(filler.clone()),
+			commitment,
+			bids[1]
+		));
+		assert!(!Bids::<Test>::contains_key((&commitment, &filler, bids[1])));
+		assert!(Bids::<Test>::contains_key((&commitment, &filler, bids[0])));
+		assert!(Bids::<Test>::contains_key((&commitment, &filler, bids[2])));
 		assert_eq!(Balances::reserved_balance(&filler), deposit * 2);
 
-		// A sequence the filler never placed is not found.
+		// An identifier the filler no longer holds is not found.
 		assert_noop!(
-			Intents::retract_bid(RuntimeOrigin::signed(filler.clone()), commitment, 1),
+			Intents::retract_bid(RuntimeOrigin::signed(filler.clone()), commitment, bids[1]),
 			Error::<Test>::BidNotFound
 		);
 	});
@@ -300,7 +310,12 @@ fn place_bid_fails_with_insufficient_balance() {
 		let user_op = BoundedVec::try_from(vec![1u8, 2u8, 3u8]).unwrap();
 
 		assert_noop!(
-			Intents::place_bid(RuntimeOrigin::signed(filler.clone()), commitment, 0, user_op),
+			Intents::place_bid(
+				RuntimeOrigin::signed(filler.clone()),
+				commitment,
+				H256::zero(),
+				user_op
+			),
 			Error::<Test>::InsufficientBalance
 		);
 	});
@@ -317,17 +332,21 @@ fn retract_bid_works() {
 		assert_ok!(Intents::place_bid(
 			RuntimeOrigin::signed(filler.clone()),
 			commitment,
-			0,
+			H256::zero(),
 			user_op
 		));
 
-		assert!(Bids::<Test>::contains_key((&commitment, &filler, 0)));
+		assert!(Bids::<Test>::contains_key((&commitment, &filler, H256::zero())));
 
 		// Retract the bid
-		assert_ok!(Intents::retract_bid(RuntimeOrigin::signed(filler.clone()), commitment, 0));
+		assert_ok!(Intents::retract_bid(
+			RuntimeOrigin::signed(filler.clone()),
+			commitment,
+			H256::zero()
+		));
 
 		// Verify bid was removed
-		assert!(!Bids::<Test>::contains_key((&commitment, &filler, 0)));
+		assert!(!Bids::<Test>::contains_key((&commitment, &filler, H256::zero())));
 	});
 }
 
@@ -338,7 +357,7 @@ fn retract_bid_fails_when_not_found() {
 		let commitment = H256::random();
 
 		assert_noop!(
-			Intents::retract_bid(RuntimeOrigin::signed(filler.clone()), commitment, 0),
+			Intents::retract_bid(RuntimeOrigin::signed(filler.clone()), commitment, H256::zero()),
 			Error::<Test>::BidNotFound
 		);
 	});
@@ -356,13 +375,13 @@ fn retract_bid_fails_when_not_owner() {
 		assert_ok!(Intents::place_bid(
 			RuntimeOrigin::signed(filler.clone()),
 			commitment,
-			0,
+			H256::zero(),
 			user_op
 		));
 
 		// Try to retract with different account
 		assert_noop!(
-			Intents::retract_bid(RuntimeOrigin::signed(other.clone()), commitment, 0),
+			Intents::retract_bid(RuntimeOrigin::signed(other.clone()), commitment, H256::zero()),
 			Error::<Test>::BidNotFound
 		);
 	});
@@ -692,20 +711,20 @@ fn multiple_fillers_can_bid_on_same_order() {
 		assert_ok!(Intents::place_bid(
 			RuntimeOrigin::signed(filler1.clone()),
 			commitment,
-			0,
+			H256::zero(),
 			user_op.clone()
 		));
 
 		assert_ok!(Intents::place_bid(
 			RuntimeOrigin::signed(filler2.clone()),
 			commitment,
-			0,
+			H256::zero(),
 			user_op
 		));
 
 		// Verify both bids exist
-		assert!(Bids::<Test>::contains_key((&commitment, &filler1, 0)));
-		assert!(Bids::<Test>::contains_key((&commitment, &filler2, 0)));
+		assert!(Bids::<Test>::contains_key((&commitment, &filler1, H256::zero())));
+		assert!(Bids::<Test>::contains_key((&commitment, &filler2, H256::zero())));
 	});
 }
 

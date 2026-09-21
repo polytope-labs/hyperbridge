@@ -10,7 +10,7 @@ The Pallet Intents serves as the Hyperbridge counterpart to the [IntentGatewayV2
 
 Allows fillers (solvers) to place bids for user orders by submitting signed user operations as opaque bytes to the pallet.
 
-- **Several Bids per Filler**: A filler can bid on one order once per price it offers. Each bid is a UserOp on the order's nonce key, identified by the EntryPoint sequence it signs, and `place_bid` / `retract_bid` take that `sequence`: placing again at a sequence the filler already holds replaces that bid alone
+- **Several Bids per Filler**: A filler can bid on one order once per price it offers. `place_bid` / `retract_bid` take a `bid` identifier that tells them apart — by convention `keccak256` of the UserOp's `callData` — and placing again under an identifier the filler already holds replaces that bid alone
 - **Storage Fees**: The pallet charges a configurable storage fee for storing bids on-chain
 - **Bid Retraction**: Fillers can retract their bids and receive a refund of their storage deposit
 - **Decentralized Bid Storage**: Bids are stored transparently on-chain for order matching

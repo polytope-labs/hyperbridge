@@ -19,12 +19,14 @@ async function fetchBidDataFromRpc(
 	nodeUrl: string,
 	commitment: string,
 	fillerHex: string,
-	sequence: bigint,
+	bid: string,
 ): Promise<string | undefined> {
 	try {
 		const bids = await fetchBidsForOrder(nodeUrl, commitment)
 		const match = bids.find(
-			(bid) => bid.filler?.toLowerCase() === fillerHex.toLowerCase() && BigInt(bid.sequence) === sequence,
+			(entry) =>
+				entry.filler?.toLowerCase() === fillerHex.toLowerCase() &&
+				entry.bid?.toLowerCase() === bid.toLowerCase(),
 		)
 		return match?.user_op || undefined
 	} catch (err) {
@@ -43,15 +45,15 @@ async function fetchBidDataFromRpc(
 export async function resolveBidData(params: {
 	extrinsic?: SubstrateExtrinsic
 	commitment: string
-	sequence: bigint
+	bid: string
 	fillerHex: string
 	nodeUrl?: string
 }): Promise<string | undefined> {
-	const { extrinsic, commitment, sequence, fillerHex, nodeUrl } = params
+	const { extrinsic, commitment, bid, fillerHex, nodeUrl } = params
 
-	const fromExtrinsic = extractUserOpFromExtrinsic(extrinsic, commitment, sequence)
+	const fromExtrinsic = extractUserOpFromExtrinsic(extrinsic, commitment, bid)
 	if (fromExtrinsic) return fromExtrinsic
 
 	if (!nodeUrl) return undefined
-	return fetchBidDataFromRpc(nodeUrl, commitment, fillerHex, sequence)
+	return fetchBidDataFromRpc(nodeUrl, commitment, fillerHex, bid)
 }

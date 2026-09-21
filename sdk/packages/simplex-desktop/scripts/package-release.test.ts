@@ -13,6 +13,7 @@ import { assertReleaseAssets, releaseAssetContract } from "./assert-release-asse
 import {
 	assertPackagedResources,
 	EXTERNAL_RUNTIME_PACKAGES,
+	PACKAGED_LICENSES,
 	packagedResourcesDirectory,
 	runtimeTarget,
 } from "./package-layout.mjs"
@@ -125,7 +126,9 @@ describe("desktop package and release layout", () => {
 			"runtime/node",
 			"simplex/package.json",
 			"simplex/dist/bin/simplex.js",
+			"simplex/dist/bin/simplex.js.map",
 			"simplex/dist/ui/index.html",
+			...PACKAGED_LICENSES.map((name) => `licenses/${name}`),
 			...EXTERNAL_RUNTIME_PACKAGES.map((name) => `node_modules/${name}/package.json`),
 		]
 		for (const path of required) {

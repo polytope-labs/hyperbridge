@@ -19,16 +19,29 @@ function runPnpm(args) {
 	if (result.status !== 0) throw new Error(`Runtime dependency install failed with exit code ${result.status}`)
 }
 
-export async function stageSolverResources() {
-	const solver = join(simplexRoot, "dist/bin/simplex.js")
-	const ui = join(simplexRoot, "dist/ui/index.html")
-	await Promise.all([access(solver), access(ui)])
-	await rm(output, { recursive: true, force: true })
-	await mkdir(join(output, "simplex"), { recursive: true })
+export async function stageSolverDistribution(sourceRoot, destinationRoot) {
+	const solver = join(sourceRoot, "dist/bin/simplex.js")
+	const sourceMap = join(sourceRoot, "dist/bin/simplex.js.map")
+	const ui = join(sourceRoot, "dist/ui")
+	const manifest = join(sourceRoot, "package.json")
+	await Promise.all([access(solver), access(sourceMap), access(join(ui, "index.html")), access(manifest)])
+	const parsedSourceMap = JSON.parse(await readFile(sourceMap, "utf8"))
+	if (Object.hasOwn(parsedSourceMap, "sourcesContent")) {
+		throw new Error(`${sourceMap} embeds source content; rebuild Simplex with sourcesContent disabled`)
+	}
+
+	await mkdir(join(destinationRoot, "dist/bin"), { recursive: true })
 	await Promise.all([
-		cp(join(simplexRoot, "dist"), join(output, "simplex/dist"), { recursive: true }),
-		cp(join(simplexRoot, "package.json"), join(output, "simplex/package.json")),
+		cp(solver, join(destinationRoot, "dist/bin/simplex.js")),
+		cp(sourceMap, join(destinationRoot, "dist/bin/simplex.js.map")),
+		cp(ui, join(destinationRoot, "dist/ui"), { recursive: true }),
+		cp(manifest, join(destinationRoot, "package.json")),
 	])
+}
+
+export async function stageSolverResources() {
+	await rm(output, { recursive: true, force: true })
+	await stageSolverDistribution(simplexRoot, join(output, "simplex"))
 	await mkdir(deployOutput, { recursive: true })
 	await Promise.all([
 		cp(join(packageRoot, "runtime/package.json"), join(deployOutput, "package.json")),

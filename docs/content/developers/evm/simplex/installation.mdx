@@ -1,13 +1,57 @@
 ---
 title: Installation
-description: Pull the Simplex image, run the setup wizard, and write a filler-config.toml.
+description: Install Simplex Desktop, or use the advanced Docker and npm distributions.
 ---
 
 # Installation
 
-Simplex ships as a Docker image and as an npm package. Either way the first run is a wizard that writes the config for you; the reference config at the bottom is there if you would rather write it yourself.
+Simplex Desktop is the recommended way to run a solver on a personal workstation. It bundles the
+solver, dashboard, and matching Node runtime in one application, keeps running from the system tray,
+and does not require npm or Docker. macOS and Windows builds install authenticated updates; Linux
+updates remain manual until the release metadata has its own signature.
 
-## Docker (Recommended)
+## Desktop app (Recommended)
+
+[Open the Simplex Desktop releases](https://github.com/polytope-labs/hyperbridge/releases?q=simplex-desktop-v&expanded=true),
+choose the newest stable `simplex-desktop-v…` release, and download the installer for your machine:
+
+| Platform | Download |
+|---|---|
+| macOS, Apple silicon | `Simplex-<version>-mac-arm64.dmg` |
+| macOS, Intel | `Simplex-<version>-mac-x64.dmg` |
+| Windows, x64 | `Simplex-<version>-win-x64.exe` |
+| Linux, x64 | `Simplex-<version>-linux-x86_64.AppImage` or `Simplex-<version>-linux-amd64.deb` |
+| Linux, arm64 | `Simplex-<version>-linux-arm64.AppImage` or `Simplex-<version>-linux-arm64.deb` |
+
+Open Simplex after installation. The first launch opens the same setup wizard documented below and
+writes `filler-config.toml` into the app's per-user data directory:
+
+| Platform | Default desktop config |
+|---|---|
+| macOS | `~/Library/Application Support/Simplex/filler-config.toml` |
+| Windows | `%APPDATA%\Simplex\filler-config.toml` |
+| Linux | `$XDG_CONFIG_HOME/Simplex/filler-config.toml`, or `~/.config/Simplex/filler-config.toml` |
+
+Closing the window leaves the solver running in the tray. Use **Quit Simplex (solver keeps filling)**
+to close only the app, or **Stop solver and quit** to stop both. Simplex Desktop tracks the same
+version as `@hyperbridge/simplex`, so the version shown in the app identifies the bundled solver too.
+
+<Callout type="warn">
+    The config contains private keys and credentials in plaintext. Simplex creates it atomically with
+    mode `0600` on macOS and Linux, but software running as your OS user can still read it. Keep the
+    file out of source control and broadly shared backups. `simplex.substratePrivateKey` is required
+    in every signer mode, including Turnkey and MPC Vault; those operators still have a raw key on
+    disk. See [Configuration](/developers/evm/simplex/configuration#where-the-config-lives-and-what-it-contains).
+</Callout>
+
+### What the PWA is for
+
+The install action in the browser dashboard remains available for remote and mobile access to an
+existing solver, especially through the authenticated tunnel. The PWA is only an offline-capable UI
+shell: it does not contain the solver or cache live balances and activity, and it needs the solver API
+when it reconnects. Use Simplex Desktop for the local double-clickable application.
+
+## Advanced: Docker
 
 The image is a multi-arch manifest covering `linux/amd64` and `linux/arm64`, so Linux, macOS (Intel and Apple Silicon) and Windows (Docker Desktop / WSL2) hosts all pull a natively-built image — no emulation, no per-host build.
 
@@ -29,6 +73,20 @@ docker run -d --name simplex --restart unless-stopped \
 Then open `http://localhost:8686`. The wizard writes `filler-config.toml` into `/data` and transitions straight into running the solver; on restart the container finds that config and runs directly. Mount a config you already have with `-v /path/to/filler-config.toml:/data/filler-config.toml:ro` to skip the wizard, or run it in the terminal instead with `docker run --rm -it -v simplex-data:/data polytopelabs/simplex:latest init -o /data/filler-config.toml`.
 
 The command works verbatim in PowerShell on Windows (use a backtick instead of `\` for line continuations, or put it on one line). Ports have to be published — the container binds `0.0.0.0` internally because Docker Desktop on macOS and Windows runs the daemon inside a VM and offers no `--network host`. The container's network namespace is the boundary there, so keep the `127.0.0.1:` prefix on the published ports: the UI is unauthenticated, and the wizard handles private keys.
+
+## Advanced: npm binary
+
+Use the npm distribution for a terminal-managed process or when integrating Simplex with an existing
+Node deployment:
+
+```bash lineNumbers
+npm install -g @hyperbridge/simplex
+simplex
+```
+
+The scope matters: the unscoped `simplex` package on npm is unrelated. The installed command is still
+`simplex`. A global install needs Node.js 22.16 or newer; the desktop and Docker distributions bundle
+their own runtime.
 
 ## Building a config file
 

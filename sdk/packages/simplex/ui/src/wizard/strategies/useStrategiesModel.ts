@@ -57,7 +57,7 @@ export function useStrategiesModel(options: {
 			.map((pair) => ({
 				token0: pair.token0,
 				token1: pair.token1,
-				hasCurve: draftHasCurve(pair, state.fxPricing),
+				hasCurve: draftHasCurve(pair),
 			})),
 	)
 	const defaultToken1 =

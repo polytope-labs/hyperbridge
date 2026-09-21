@@ -660,13 +660,14 @@ export class ContractInteractionService {
 	 * @param order - The order to prepare a bid for
 	 * @param entryPointAddress - The ERC-4337 EntryPoint address on the destination chain
 	 * @param solverAccountAddress - The solver's smart account address
-	 * @returns Object containing the commitment and encoded UserOp
+	 * @returns The commitment, the encoded UserOp, and the EntryPoint sequence it signs under the
+	 *   order's nonce key, which is what Hyperbridge keys the bid by
 	 */
 	async prepareBidUserOp(
 		order: Order,
 		entryPointAddress: HexString,
 		solverAccountAddress: HexString,
-	): Promise<{ commitment: HexString; userOp: HexString }> {
+	): Promise<{ commitment: HexString; userOp: HexString; sequence: bigint }> {
 		// Use cached estimate from prior profitability check
 		const cachedEstimate = this.cacheService.getGasEstimate(order.id!)
 		if (!cachedEstimate) {
@@ -761,7 +762,8 @@ export class ContractInteractionService {
 			"Prepared bid UserOp",
 		)
 
-		return { commitment, userOp: encodedUserOp }
+		// The low 64 bits of the nonce are the sequence under the order's key.
+		return { commitment, userOp: encodedUserOp, sequence: cachedEstimate.nonce & ((1n << 64n) - 1n) }
 	}
 
 	/**

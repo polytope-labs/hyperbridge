@@ -1091,13 +1091,13 @@ export class FXFiller implements FillerStrategy {
 		const solverAccountAddress = this.signer.address as HexString
 
 		// Prepare the signed UserOp for bid submission (bundles approvals + fillOrder internally)
-		const { commitment, userOp } = await this.contractService.prepareBidUserOp(
+		const { commitment, userOp, sequence } = await this.contractService.prepareBidUserOp(
 			order,
 			entryPointAddress,
 			solverAccountAddress,
 		)
 
-		const bidResult = await intentsCoprocessor.submitBid(commitment, userOp)
+		const bidResult = await intentsCoprocessor.submitBid(commitment, userOp, sequence)
 
 		const endTime = Date.now()
 		if (bidResult.success) {

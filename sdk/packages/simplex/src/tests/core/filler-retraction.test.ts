@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest"
+import { decodeAddress } from "@polkadot/util-crypto"
 import type { BidSubmissionResult, HexString } from "@hyperbridge/sdk"
 import { IntentFiller } from "@/core/filler"
 import { MemoryDataStore } from "@/data/memory"
@@ -26,6 +27,11 @@ const COMMITMENT = "0x4380111111111111111111111111111111111111111111111111111111
 const OUR_ADDRESS = "0xAAAA00000000000000000000000000000000AAAA" as HexString
 const OTHER_FILLER = "0xBBBB00000000000000000000000000000000BBBB"
 const HOUR_MS = 60 * 60 * 1000
+/** The EntryPoint sequence our bid signed, which Hyperbridge keys it by. */
+const OUR_SEQUENCE = 3n
+/** Alice and Bob, as SS58: the filler's own Hyperbridge account, and another solver's. */
+const OUR_SUBSTRATE_ADDRESS = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY"
+const SOMEONE_ELSE = "5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty"
 
 describe("IntentFiller bid retraction", () => {
 	function build(results: BidSubmissionResult[], rebalancingService?: { rebalancePortfolio(): Promise<unknown> }) {
@@ -54,7 +60,18 @@ describe("IntentFiller bid retraction", () => {
 			rebalancingService as any,
 			bidStorage,
 		)
-		;(filler as any).hyperbridge = Promise.resolve({ retractBid })
+		// The pallet holds our bid at the sequence its UserOp signed, which the row does not record,
+		// so the filler reads it back from storage for its own account before retracting.
+		const keyPair = { publicKey: decodeAddress(OUR_SUBSTRATE_ADDRESS) }
+		const getBidStorageEntries = vi.fn(async () => [
+			{ commitment: COMMITMENT, filler: OUR_SUBSTRATE_ADDRESS, sequence: OUR_SEQUENCE, deposit: 1n },
+			{ commitment: COMMITMENT, filler: SOMEONE_ELSE, sequence: 0n, deposit: 1n },
+		])
+		;(filler as any).hyperbridge = Promise.resolve({
+			retractBid,
+			getBidStorageEntries,
+			getKeyPair: () => keyPair,
+		})
 
 		return { filler, bidStorage, retractBid }
 	}
@@ -79,7 +96,9 @@ describe("IntentFiller bid retraction", () => {
 		const bid = await bidStorage.byCommitment(COMMITMENT)
 		expect(bid!.retracted).toBe(true)
 		expect(bid!.retractExtrinsicHash).toBe("0xretract")
+		// Our own bid, at the sequence it holds, and nobody else's.
 		expect(retractBid).toHaveBeenCalledTimes(1)
+		expect(retractBid).toHaveBeenCalledWith(COMMITMENT, OUR_SEQUENCE)
 	})
 
 	it("treats BidNotFound as terminal: marks retracted so the sweep never re-attempts", async () => {

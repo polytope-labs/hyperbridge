@@ -1,4 +1,5 @@
-import { keccakAsU8a } from "@polkadot/util-crypto"
+import { u8aToHex } from "@polkadot/util"
+import { decodeAddress, keccakAsU8a } from "@polkadot/util-crypto"
 import { EventMonitor } from "./event-monitor"
 import type { FillerStrategy } from "@/strategies/base"
 import {
@@ -9,6 +10,7 @@ import {
 	retryPromise,
 	type HexString,
 	IntentsCoprocessor,
+	type BidSubmissionResult,
 	type TokenInfo,
 	readLegEscrow,
 } from "@hyperbridge/sdk"
@@ -1053,7 +1055,7 @@ export class IntentFiller {
 				this.logger.info({ commitment }, "Retracting bid")
 
 				const coprocessor = await this.hyperbridge!
-				const result = await coprocessor.retractBid(commitment)
+				const result = await this.retractOurBids(coprocessor, commitment)
 
 				if (result.success) {
 					await this.bidStorage!.markRetracted(commitment, (result.extrinsicHash as HexString) ?? null)
@@ -1080,5 +1082,27 @@ export class IntentFiller {
 				this.logger.error({ commitment, err: error }, "Error retracting bid")
 			}
 		})
+	}
+
+	/**
+	 * Retracts every bid this filler holds on a commitment.
+	 *
+	 * Hyperbridge keys a bid by the EntryPoint sequence its UserOp signs, and the row here does not
+	 * record it, so the sequences are read back from the pallet's storage for this account. Holding
+	 * none is `BidNotFound`, which is what the caller already treats as nothing left to reclaim.
+	 */
+	private async retractOurBids(coprocessor: IntentsCoprocessor, commitment: HexString): Promise<BidSubmissionResult> {
+		const ours = u8aToHex(coprocessor.getKeyPair().publicKey)
+		const sequences = (await coprocessor.getBidStorageEntries(commitment))
+			.filter((entry) => u8aToHex(decodeAddress(entry.filler)) === ours)
+			.map((entry) => entry.sequence)
+		if (sequences.length === 0) return { success: false, error: "BidNotFound" }
+
+		let result: BidSubmissionResult = { success: true }
+		for (const sequence of sequences) {
+			result = await coprocessor.retractBid(commitment, sequence)
+			if (!result.success) return result
+		}
+		return result
 	}
 }

@@ -77,7 +77,7 @@ dataSources:
           filter:
             modulo: 3600 # Indexings 1 block every 6 hours (6 seconds per block indexing).
 {{/if}}
-{{#if enableSolverDiscovery}}
+{{#if isHyperbridgeChain}}
         - handler: handleSolverWatchlistPoll
           kind: substrate/BlockHandler # Every block while live: polls the orderbook's GET /solvers and queues unseen solvers for the EVM nodes. Skipped during historical sync.
 {{/if}}

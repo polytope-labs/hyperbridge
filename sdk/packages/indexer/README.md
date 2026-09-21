@@ -40,7 +40,8 @@ the others start. No renaming an entity, no reindex.
 
 Destructive changes — dropping a field, changing a field's type (a retype drops and re-adds the column), or removing an
 entity — drop the column and its data, so they are refused by default with a fatal error naming what would be lost. If
-that loss is intended, set `SUBQL_ALLOW_DESTRUCTIVE_MIGRATION=true` on the substrate node before restarting.
+that loss is intended, set `SUBQL_ALLOW_DESTRUCTIVE_MIGRATION=true` in the environment before restarting; the compose
+files pass it through to the substrate node.
 
 Note: the first restart after this feature is enabled only records the current schema as the baseline. Migration happens
 on the restarts after that, when there is a baseline to diff against.

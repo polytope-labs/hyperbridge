@@ -88,10 +88,6 @@ const generateSubstrateYaml = async (chain: string, config: Configuration) => {
 	// Check if this is a Hyperbridge chain (stateMachineId is KUSAMA-4009 or POLKADOT-3367)
 	const isHyperbridgeChain = ["KUSAMA-4009", "POLKADOT-3367"].includes(config.stateMachineId)
 
-	// Solver discovery — polling the HyperFX orderbook's watchlist for the EVM nodes to track — runs on
-	// the Hyperbridge chain only, and not on testnet.
-	const enableSolverDiscovery = isHyperbridgeChain && currentEnv !== "testnet"
-
 	const templateData = {
 		name: `${chain}-chain`,
 		description: `${chain.charAt(0).toUpperCase() + chain.slice(1)} Chain Indexer`,
@@ -106,7 +102,6 @@ const generateSubstrateYaml = async (chain: string, config: Configuration) => {
 		chainTypesConfig,
 		blockNumber,
 		isHyperbridgeChain,
-		enableSolverDiscovery,
 		handlerKind: "substrate/EventHandler",
 		handlers: [
 			{ handler: "handleIsmpStateMachineUpdatedEvent", module: "ismp", method: "StateMachineUpdated" },
@@ -177,9 +172,7 @@ const generateEvmYaml = async (chain: string, config: Configuration) => {
 						entry.vaults.map((vault) => ({ vault, underlyingToken: token })),
 					)
 				: [],
-		// Solver inventory is event-sourced from each supported token's Transfers. Gated like the
-		// Hyperbridge node's solver discovery, which polls the watchlist these nodes consume.
-		enableSolverInventory: currentEnv !== "testnet",
+		// Solver inventory is event-sourced from each supported token's Transfers.
 		supportedTokens:
 			config.type === "evm" && config.contracts?.yieldVaults
 				? Object.keys(config.contracts.yieldVaults).map((token) => token.toLowerCase())

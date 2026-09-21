@@ -149,7 +149,6 @@ dataSources:
             topics:
               - 'Transfer(address,address,uint256)'
   {{/each}}
-  {{#if enableSolverInventory}}
   {{#if supportedTokens.length}}
   # One datasource per supported token: tracked solvers' wallet balances are event-sourced from these
   # Transfers. Every other address's transfers are dropped in memory, without a store read or an RPC.
@@ -178,7 +177,6 @@ dataSources:
       handlers:
         - handler: handleSolverInventoryBlock
           kind: ethereum/BlockHandler # Every block: consumes watchlist requests, seeds newly discovered solvers, advances the inventory head.
-  {{/if}}
   {{/if}}
   {{#if yieldVaults.length}}
   - kind: ethereum/Runtime

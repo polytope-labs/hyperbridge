@@ -240,6 +240,22 @@ describe("the nonce sequence a bid signs", () => {
 		expect(signed).toEqual([0, 1])
 	})
 
+	it("keys each bid's row by the sequence its op signed", async () => {
+		// The key's sequence had already moved to 5, so the two bids sign 5 and 6.
+		// That, not the offset from it, is what Hyperbridge keys each bid by, and it
+		// keeps a later round's bids on the same order from sharing a row's number
+		// with these — which is what a reservation is claimed by.
+		const { filler, data } = await twoBids([
+			{ success: true, commitment: COMMITMENT, txHash: "0xtx", sequence: 5n },
+			{ success: true, commitment: COMMITMENT, txHash: "0xtx2", sequence: 6n },
+		])
+
+		await execute(filler, ORDER)
+
+		const rows = await data.bids.byCommitments([COMMITMENT])
+		expect(rows.map((row) => row.sequence).sort()).toEqual([5, 6])
+	})
+
 	it("treats a pooled submission as having spent its number", async () => {
 		// It may still land, and two bids sharing a sequence is the worse failure.
 		const { filler, signed } = await twoBids([

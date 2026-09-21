@@ -41,16 +41,8 @@ ask on rate, so what they add up to is depth rather than price. The total paid i
 funds a slice of it, is drawn down by that slice, and receives that fraction of the input, so every
 one of them settles at `T / I` and stays inside its own terms.
 
-That also answers the other shape this could have taken. Submitting one bid per limit order would put
-N bids on one commitment, and an ERC-4337 nonce key is derived from the commitment, so they would
-share a key whose sequences must be consumed in order. A bid that is never executed, because it was
-not selected or expired, would strand every later one. Slicing a single bid needs no second nonce, no
-second fill and no per-bid gas gate.
-
-Orders are drawn on tightest first: the smallest offer that still clears the ask. The rate is the
-swapper's whichever funds it, so the choice does not change what the swap earns, only what is left
-resting. A more generous order qualifies for every swap a tighter one does and for swaps it cannot
-serve, at the same cost per unit, so the tight end is what to spend.
+Each order in the set then bids for itself, best offer first, which
+`2026-09-16-one-swap-can-draw-on-several-limit-orders.md` covers.
 
 ## Smaller
 

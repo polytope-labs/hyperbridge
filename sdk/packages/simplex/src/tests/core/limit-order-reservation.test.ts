@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 import type { BidSubmissionResult, HexString } from "@hyperbridge/sdk"
+import { decodeAddress } from "@polkadot/util-crypto"
 import { IntentFiller } from "@/core/filler"
 import { MemoryDataStore } from "@/data/memory"
 import type { LimitOrderStore } from "@/data/types"
@@ -20,6 +21,8 @@ import { limitOrderStore } from "../helpers/limit-orders"
 
 const COMMITMENT = "0x4380111111111111111111111111111111111111111111111111111111114818" as HexString
 const OUR_ADDRESS = "0xAAAA00000000000000000000000000000000AAAA" as HexString
+/** The filler's own Hyperbridge account (Alice), as the pallet's storage reports it. */
+const OUR_SUBSTRATE_ADDRESS = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY"
 const LIMIT_ORDER = "limit-0"
 /** The identifier the bid was placed under, which retracting it names. */
 const OUR_BID = `0x${"b1".repeat(32)}` as HexString
@@ -67,7 +70,15 @@ async function build(options: { retract?: BidSubmissionResult } = {}) {
 		data.bids,
 		limitOrders,
 	)
-	;(filler as any).hyperbridge = Promise.resolve({ retractBid })
+	// Retraction reads back the sequences our account holds on the commitment; this
+	// one holds a single bid, at the first.
+	;(filler as any).hyperbridge = Promise.resolve({
+		retractBid,
+		getKeyPair: () => ({ publicKey: decodeAddress(OUR_SUBSTRATE_ADDRESS) }),
+		getBidStorageEntries: async (commitment: HexString) => [
+			{ commitment, filler: OUR_SUBSTRATE_ADDRESS, sequence: 0n, deposit: 1n },
+		],
+	})
 
 	const reserved = async () => (await limitOrders.get(LIMIT_ORDER))!.reserved
 

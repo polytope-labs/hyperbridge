@@ -5,10 +5,10 @@ convenience cost fills: when the best-priced order's depth did not cover the swa
 it cross-chain or under-filled it same-chain while holding inventory a level down that would have
 cleared the rest.
 
-`matchLimitOrders` now returns every order that can serve the swap, best price first: those whose
+`matchLimitOrders` now returns every order that can serve the swap, best offer first: those whose
 offer on the whole input clears what the swapper asked for, with something left to pay. Ordering is
-deterministic to the last comparison, payout then what is left then id. `matchLimitOrder` stays as
-the single-best wrapper for callers that only need to know whether anything matches.
+deterministic to the last comparison: largest offer, then most left, then id. `matchLimitOrder` stays
+as the single-best wrapper for callers that only need to know whether anything matches.
 
 ## Each order bids for itself
 
@@ -44,13 +44,20 @@ Bids on one incoming order share a commitment, so `bidNonceKey(commitment, sessi
 ERC-4337 nonce key and only the 64-bit sequence can distinguish them. `estimateGasFillPost` reads the
 base nonce once and caches it, and `getNonce` does not move until an op executes, so signing every
 bid with the cached value would leave all but the first failing EntryPoint validation with AA25. The
-i-th bid is signed with `base + i`.
+i-th bid is signed with `base + i`, and the bids go out best offer first, so the sequences run from
+the best price to the worst.
 
-That sequence is also the bid's identity. A bid row carries it, and `claimReservation` takes either
-one bid's holds (named by sequence) or every outstanding hold on the commitment, claiming row by row
-rather than taking the newest and guarding on a reservation value two rows can share. Without that,
-one bid's settlement took another's holds, and two bids holding the same amount against the same
-order had both rows cleared by a guard that could not tell them apart.
+That sequence is also the bid's identity, on Hyperbridge as much as here: the pallet keys a bid by
+`(commitment, filler, sequence)`, so `submitBid` places each one at the sequence its op signs and
+they stand side by side instead of the last replacing the rest. Retraction takes back every sequence
+this account holds on the commitment, read from the pallet's storage.
+
+A bid row carries the sequence its op signed, not its offset from the key's current sequence, which a
+later round of bids on the same order would repeat once the key has moved. `claimReservation` takes
+either one bid's holds (named by sequence) or every outstanding hold on the commitment, claiming row by
+row rather than taking the newest and guarding on a reservation value two rows can share. Without
+that, one bid's settlement took another's holds, and two bids holding the same amount against the
+same order had both rows cleared by a guard that could not tell them apart.
 
 The EntryPoint consumes a key's sequences in order with no gaps, so a bid that never executes strands
 every bid behind it. Signing order is execution order here — best price first, which is the order the
@@ -63,6 +70,14 @@ selected, reverted in validation, expired past its `validUntil` — frees a numb
 signed past, and recovering it means retracting the bids behind it and re-signing them. Whether to
 build that or give bids distinct keys is the question #1259's walk decides, since the commitment-
 derived key rules the second out today (`BAD_NONCE_BINDING` in `verify.rs`).
+
+## What a bid's gas covers
+
+The gas estimate is shared by every bid on the order, since the fill itself is the same, but each bid
+prepends its own funding calls, which are not simulated. The estimate is therefore cached without a
+funding allowance, and each bid adds `FUNDING_GAS_PER_CALL` for each of its own calls when it is
+signed. Baked into the shared estimate, every bid carried whichever calls were cached when it was
+taken.
 
 ## What a bid holds
 

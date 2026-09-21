@@ -168,7 +168,8 @@ describe("FXFiller limit order payout", () => {
 
 		const plans = contractService.plans.get("payout-calldata") as { limitOrderId: string }[]
 		expect(plans).toHaveLength(1)
-		expect(plans[0].limitOrderId).toBe("tight")
+		// The one bid it takes is the best offer's.
+		expect(plans[0].limitOrderId).toBe("wide")
 	})
 
 	it("sends one bid per limit order, each priced against the whole input", async () => {
@@ -193,7 +194,9 @@ describe("FXFiller limit order payout", () => {
 			fillerOutputs: { amount: bigint }[]
 		}[]
 		expect(plans).toHaveLength(2)
-		expect(plans.map((plan) => plan.limitOrderId)).toEqual(["tight", "wide"])
+		// Best offer first: that is the order the bids go out in, and so the order of
+		// the sequences they sign.
+		expect(plans.map((plan) => plan.limitOrderId)).toEqual(["wide", "tight"])
 		// Each bids the ask: both offers clear it, and the bid is never above it.
 		for (const plan of plans) {
 			expect(plan.fillerOutputs[0].amount).toBe(REQUESTED_OUTPUT)

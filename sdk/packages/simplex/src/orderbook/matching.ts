@@ -65,11 +65,10 @@ export function availableOn(order: LimitOrder): bigint {
  * order funds a slice, is drawn down by that slice, and receives that fraction of
  * the input, so every one of them settles at `T / I` too.
  *
- * They are drawn on tightest first, meaning the smallest offer that still clears
- * the ask. Because the rate is the swapper's either way, which order funds a
- * slice does not change what this swap earns; it decides what is left afterwards.
- * A more generous order qualifies for every swap a tighter one does and for swaps
- * it cannot serve, at the same cost per unit, so the tight end is what to spend.
+ * They come best offer first: the order that would pay the most for this input.
+ * That is the order each bid is sent in and the EntryPoint sequence it signs, and
+ * the EntryPoint only runs a key's sequences in order, so the best price is the
+ * one that can execute first and every bid behind it is a worse one.
  */
 export function matchLimitOrders(
 	orders: readonly LimitOrder[],
@@ -92,7 +91,7 @@ export function matchLimitOrders(
 		// Below the ask is below the operator's rate, and an order with nothing left
 		// to pay serves nobody whatever it quotes.
 		.filter((candidate) => candidate.offer >= incoming.requestedOutput && candidate.payout > 0n)
-		.sort(byTightestFirst)
+		.sort(byBestOfferFirst)
 
 	// Every qualifying order, best price first. Each one clears the ask on its own,
 	// so each is a bid in its own right rather than a slice of a combined one: the
@@ -113,16 +112,15 @@ export function matchLimitOrder(
 }
 
 /**
- * Smallest offer first, then least left, then by id.
+ * Largest offer first, then most left, then by id.
  *
- * Spending the tight end keeps the generous orders resting, and finishing the
- * smaller of two equal offers retires it rather than leaving two part-used. The
- * last comparison is what makes the sequence reproducible, because the draw-down
- * after a fill walks these orders in the same order.
+ * Of two equal offers the deeper one goes first, since it is the likelier to cover
+ * the swap on its own. The last comparison is what makes the sequence
+ * reproducible: the same set of orders always signs the same sequences.
  */
-function byTightestFirst(a: LimitOrderMatch, b: LimitOrderMatch): number {
-	if (a.offer !== b.offer) return a.offer < b.offer ? -1 : 1
-	if (a.available !== b.available) return a.available < b.available ? -1 : 1
+function byBestOfferFirst(a: LimitOrderMatch, b: LimitOrderMatch): number {
+	if (a.offer !== b.offer) return a.offer > b.offer ? -1 : 1
+	if (a.available !== b.available) return a.available > b.available ? -1 : 1
 	return a.order.id < b.order.id ? -1 : 1
 }
 

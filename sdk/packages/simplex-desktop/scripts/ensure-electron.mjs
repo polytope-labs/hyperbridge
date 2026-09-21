@@ -4,6 +4,7 @@ import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..")
+const wait = (milliseconds) => new Promise((resolveWait) => setTimeout(resolveWait, milliseconds))
 const electronExecutableByPlatform = {
 	darwin: "Electron.app/Contents/MacOS/Electron",
 	linux: "electron",
@@ -43,9 +44,23 @@ export async function ensureElectronRuntime(options = {}) {
 	const electronRoot = options.electronRoot ?? resolve(packageRoot, "node_modules/electron")
 	const platform = options.platform ?? process.platform
 	const runInstaller = options.runInstaller ?? runElectronInstaller
+	const attempts = options.attempts ?? 3
+	const retryDelayMs = options.retryDelayMs ?? 5_000
+	const sleep = options.sleep ?? wait
 	if ((await missingRuntimeFiles(electronRoot, platform)).length === 0) return false
 
-	await runInstaller(join(electronRoot, "install.js"))
+	for (let attempt = 1; attempt <= attempts; attempt += 1) {
+		try {
+			await runInstaller(join(electronRoot, "install.js"))
+			break
+		} catch (error) {
+			if (attempt === attempts) throw error
+			process.stderr.write(
+				`Electron runtime installation attempt ${attempt} failed; retrying in ${retryDelayMs}ms\n`,
+			)
+			await sleep(retryDelayMs)
+		}
+	}
 	const missing = await missingRuntimeFiles(electronRoot, platform)
 	if (missing.length > 0) {
 		throw new Error(

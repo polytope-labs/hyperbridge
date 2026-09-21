@@ -2,7 +2,7 @@ import { createHash } from "node:crypto"
 import { mkdir, mkdtemp, readFile, unlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import {
 	assembleRelease,
 	mergeUpdateMetadata,
@@ -18,7 +18,12 @@ import {
 	runtimeTarget,
 } from "./package-layout.mjs"
 import { assertInstalledSize, installedAppDirectories } from "./package-size.mjs"
-import { assertPackagingNodeVersion, builderArguments, normalizeBuilderArguments } from "./run-builder.mjs"
+import {
+	assertPackagingNodeVersion,
+	builderArguments,
+	normalizeBuilderArguments,
+	runBuilderWithRetries,
+} from "./run-builder.mjs"
 import { verifyReleaseTag } from "./verify-release-tag.mjs"
 import { artifactNamesForPlatform, isUnavailableAppImageFuse } from "./e2e/artifact-smoke.mjs"
 import { waitFor } from "./e2e/packaged-smoke.mjs"
@@ -104,6 +109,15 @@ describe("desktop package and release layout", () => {
 	it("requires Node 24 for the release toolchain", () => {
 		expect(() => assertPackagingNodeVersion("23.11.0")).toThrow(/requires Node 24/)
 		expect(() => assertPackagingNodeVersion("24.19.0")).not.toThrow()
+	})
+
+	it("retries a failed packaging process before succeeding", async () => {
+		const execute = vi.fn().mockResolvedValueOnce(1).mockResolvedValueOnce(0)
+		const sleep = vi.fn(async () => undefined)
+
+		await expect(runBuilderWithRetries(execute, { attempts: 3, sleep })).resolves.toBe(0)
+		expect(execute).toHaveBeenCalledTimes(2)
+		expect(sleep).toHaveBeenCalledOnce()
 	})
 
 	it("maps only supported package runtimes", () => {

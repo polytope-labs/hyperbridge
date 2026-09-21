@@ -10,6 +10,14 @@ getter, which returns the filler's address.
 `error Cancelled()` was declared but never thrown, on any release. It leaves the interface and the
 gateway's ABI.
 
+`select` now reverts `Filled` on an order that has already been filled, refunded or cancelled, so a
+stale bid fails there rather than in `fillOrder`. Its transient slot is also keyed by
+`(commitment, solver)` rather than by the commitment alone. Two solvers selecting on one order used
+to share the slot, and because a 4337 bundle runs every validation before any execution, only the
+last selection in a bundle survived and every earlier fill reverted `Unauthorized`. Each fill now
+reads its own selection, and the order's state decides the race: the second fill takes what is
+left, or reverts `Filled` if the first completed it. The ABI is unchanged.
+
 Three callers in `@hyperbridge/sdk` still read the removed function and need a follow-up:
 `OrderStatusChecker.isOrderFilled`, and `OrderCanceller`'s `quoteCancelFromSource` and
 `fetchDestinationProof`. The last two were already building their proof over the `_filled` slot

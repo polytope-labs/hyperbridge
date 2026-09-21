@@ -21,6 +21,8 @@ import { limitOrderStore } from "../helpers/limit-orders"
 const COMMITMENT = "0x4380111111111111111111111111111111111111111111111111111111114818" as HexString
 const OUR_ADDRESS = "0xAAAA00000000000000000000000000000000AAAA" as HexString
 const LIMIT_ORDER = "limit-0"
+/** The identifier the bid was placed under, which retracting it names. */
+const OUR_BID = `0x${"b1".repeat(32)}` as HexString
 const CNGN = "0xCCCC00000000000000000000000000000000CCCC" as HexString
 const OTHER = "0xDDDD00000000000000000000000000000000DDDD" as HexString
 /** 1,000 of an 18-decimal token, the payout each test's bid holds. */
@@ -66,6 +68,7 @@ async function placeBid(ctx: Awaited<ReturnType<typeof build>>) {
 	expect(await ctx.limitOrders.reserve(LIMIT_ORDER, PAYOUT)).toBe(true)
 	await ctx.bids.store({
 		commitment: COMMITMENT,
+		bid: OUR_BID,
 		success: true,
 		limitOrderId: LIMIT_ORDER,
 		reservedAmount: PAYOUT,

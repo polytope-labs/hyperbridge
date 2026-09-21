@@ -69,7 +69,6 @@ export class SqliteBidStore implements BidStore {
 				retracted_at TEXT,
 				retract_extrinsic_hash TEXT,
 				dead INTEGER NOT NULL DEFAULT 0,
-				bid TEXT,
 				reservations TEXT
 			);
 

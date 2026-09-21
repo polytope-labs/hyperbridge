@@ -48,9 +48,9 @@ bids execute independently: none waits on another, and one that is never selecte
 exists.
 
 The same calldata hash is the bid's identity on Hyperbridge and here. `submitBid` files each bid
-under `keccak256(callData)`, so a solver's bids on one order stand side by side there, and retraction
-takes back every identifier this account holds on the commitment, read from the pallet's storage. A
-bid row carries the identifier, and `claimReservation` takes either one bid's holds (named by
+under `keccak256(callData)`, so a solver's bids on one order stand side by side there. A bid row
+carries the identifier: retraction takes back every one recorded on the commitment, and
+`claimReservation` takes either one bid's holds (named by
 identifier) or every outstanding hold on the commitment, claiming row by row rather than taking the
 newest and guarding on a reservation value two rows can share. Without that, one bid's settlement took
 another's holds, and two bids holding the same amount against the same order had both rows cleared by

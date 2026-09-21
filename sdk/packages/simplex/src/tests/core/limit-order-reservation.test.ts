@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from "vitest"
 import type { BidSubmissionResult, HexString } from "@hyperbridge/sdk"
-import { decodeAddress } from "@polkadot/util-crypto"
 import { IntentFiller } from "@/core/filler"
 import { MemoryDataStore } from "@/data/memory"
 import type { LimitOrderStore } from "@/data/types"
@@ -21,14 +20,10 @@ import { limitOrderStore } from "../helpers/limit-orders"
 
 const COMMITMENT = "0x4380111111111111111111111111111111111111111111111111111111114818" as HexString
 const OUR_ADDRESS = "0xAAAA00000000000000000000000000000000AAAA" as HexString
-/** The filler's own Hyperbridge account (Alice), as the pallet's storage reports it. */
-const OUR_SUBSTRATE_ADDRESS = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY"
 /** The identifiers two bids on one order are filed under: keccak256 of each one's calldata. */
 const FIRST_BID = `0x${"b1".repeat(32)}`
 const SECOND_BID = `0x${"b2".repeat(32)}`
 const LIMIT_ORDER = "limit-0"
-/** The identifier the bid was placed under, which retracting it names. */
-const OUR_BID = `0x${"b1".repeat(32)}` as HexString
 /** A second resting order, for the bid that draws on more than one. */
 const SECOND_ORDER = "limit-1"
 const CNGN = "0xCCCC00000000000000000000000000000000CCCC" as HexString
@@ -73,15 +68,7 @@ async function build(options: { retract?: BidSubmissionResult } = {}) {
 		data.bids,
 		limitOrders,
 	)
-	// Retraction reads back the bids our account holds on the commitment; this one
-	// holds a single bid.
-	;(filler as any).hyperbridge = Promise.resolve({
-		retractBid,
-		getKeyPair: () => ({ publicKey: decodeAddress(OUR_SUBSTRATE_ADDRESS) }),
-		getBidStorageEntries: async (commitment: HexString) => [
-			{ commitment, filler: OUR_SUBSTRATE_ADDRESS, bid: FIRST_BID, deposit: 1n },
-		],
-	})
+	;(filler as any).hyperbridge = Promise.resolve({ retractBid })
 
 	const reserved = async () => (await limitOrders.get(LIMIT_ORDER))!.reserved
 
@@ -93,7 +80,7 @@ async function placeBid(ctx: Awaited<ReturnType<typeof build>>) {
 	expect(await ctx.limitOrders.reserve(LIMIT_ORDER, PAYOUT)).toBe(true)
 	await ctx.bids.store({
 		commitment: COMMITMENT,
-		bid: OUR_BID,
+		bid: FIRST_BID,
 		success: true,
 		reservations: [{ limitOrderId: LIMIT_ORDER, amount: PAYOUT }],
 	})

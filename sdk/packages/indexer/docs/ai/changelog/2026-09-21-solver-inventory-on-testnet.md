@@ -21,3 +21,10 @@ host environment, and it is empty unless set. This applies to the generated serv
 `--allow-schema-migration`) and to `docker-compose.{local,nexus-ci,solver-ci}.yml`. A destructive
 schema change can then be allowed for one restart with `SUBQL_ALLOW_DESTRUCTIVE_MIGRATION=true`,
 without editing the compose file.
+
+## Multichain rewind lock
+
+`--disable-multichain-rewind-lock` is removed from every node: the generated command partial and
+`docker-compose.{local,solver-ci}.yml` (`nexus-ci` never set it). Every chain now takes the multichain
+rewind lock, so when an EVM node with unfinalized blocks rewinds, the other nodes sharing the schema
+rewind with it rather than racing it.

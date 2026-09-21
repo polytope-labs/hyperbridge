@@ -35,7 +35,7 @@ subquery-{{chainName}}:
   # they may opt into autoheal (the host must run an autoheal watcher for the
   # label to take effect). Chains with --unfinalized-blocks are intentionally
   # excluded: restarting them drops the unfinalized cache and forces a multichain
-  # rewind while --disable-multichain-rewind-lock is set.
+  # rewind.
   labels:
     autoheal: "true"
 {{/unless}}

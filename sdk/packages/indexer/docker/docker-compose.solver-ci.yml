@@ -31,7 +31,6 @@ services:
             - --workers=${SUBQL_WORKERS:-2}
             - --batch-size=${SUBQL_BATCH_SIZE:-10}
             - --multi-chain
-            - --disable-multichain-rewind-lock
             - --allow-schema-migration
             - --unsafe
             - --log-level=${LOG_LEVEL:-info}
@@ -79,7 +78,6 @@ services:
             - --workers=${SUBQL_WORKERS:-2}
             - --batch-size=${SUBQL_BATCH_SIZE:-10}
             - --multi-chain
-            - --disable-multichain-rewind-lock
             - --unsafe
             - --log-level=${LOG_LEVEL:-info}
             - --historical=timestamp

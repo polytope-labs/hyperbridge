@@ -28762,6 +28762,7 @@ dependencies = [
  "messaging",
  "mmr-primitives",
  "op-host",
+ "op-verifier",
  "pallet-ismp",
  "pallet-ismp-demo",
  "pallet-ismp-rpc",

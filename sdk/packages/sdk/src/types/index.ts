@@ -1563,6 +1563,7 @@ export const IntentOrderStatus = Object.freeze({
 	BID_SELECTED: "BID_SELECTED",
 	FILLED: "FILLED",
 	PARTIAL_FILL: "PARTIAL_FILL",
+	CANCELLED: "CANCELLED",
 	EXPIRED: "EXPIRED",
 	FAILED: "FAILED",
 })
@@ -1610,9 +1611,17 @@ export type IntentOrderStatusUpdate =
 	| {
 			status: "FILLED"
 			commitment: HexString
-			userOpHash: HexString
+			/** Absent when the completing fill was not executed here, e.g. after a restart. */
+			userOpHash?: HexString
 			selectedSolver: HexString
 			transactionHash?: HexString
+			totalFilledAssets: TokenInfo[]
+			remainingAssets: TokenInfo[]
+	  }
+	| {
+			/** The order was cancelled on its destination chain before it was completely filled. */
+			status: "CANCELLED"
+			commitment: HexString
 			totalFilledAssets: TokenInfo[]
 			remainingAssets: TokenInfo[]
 	  }

@@ -4,8 +4,18 @@ import { DEFAULT_POLL_INTERVAL, normalizeStateMachineId, sleep } from "@/utils"
 import type { BidManager } from "./BidManager"
 import { CryptoUtils } from "./CryptoUtils"
 import type { IntentGatewayContext } from "./types"
+import { ABI as IntentGatewayV2ABI } from "@/abis/IntentGatewayV2"
+import { readLegPartialFill } from "./escrowReads"
 
 const USED_USEROPS_STORAGE_KEY = (commitment: HexString) => `used-userops:${commitment.toLowerCase()}`
+
+/** Per-leg output still owed after `filled`, clamped at zero. */
+function remainingAfter(targets: TokenInfo[], filled: TokenInfo[]): TokenInfo[] {
+	return targets.map((target, index) => {
+		const credited = filled[index]?.amount ?? 0n
+		return { token: target.token, amount: credited >= target.amount ? 0n : target.amount - credited }
+	})
+}
 
 /**
  * Drives the post-placement execution lifecycle of an intent order.
@@ -81,6 +91,49 @@ export class OrderExecutor {
 			USED_USEROPS_STORAGE_KEY(commitment),
 			JSON.stringify([...usedUserOps]),
 		)
+	}
+
+	/**
+	 * Reads the order's state on its destination chain into `totalFilledAssets`: the output credited
+	 * per leg from `_partialFills`, never below what is already counted, so a lagging RPC node cannot
+	 * take back a fill this executor has seen. Other solvers can fill the order too, so the chain, not
+	 * this executor's own fills, says how much is left.
+	 *
+	 * Returns the terminal update once `_filled` is set: `FILLED` when every leg is complete,
+	 * `CANCELLED` otherwise. `_filled` is read first because progress cannot change after it is set,
+	 * so a finalized order is never paired with progress from before its last fill.
+	 */
+	private async syncWithDestination(
+		order: Order,
+		commitment: HexString,
+		targetAssets: TokenInfo[],
+		totalFilledAssets: TokenInfo[],
+	): Promise<{ totalFilledAssets: TokenInfo[]; remainingAssets: TokenInfo[]; final?: IntentOrderStatusUpdate }> {
+		const client = this.ctx.dest.client
+		const gateway = this.ctx.dest.configService.getIntentGatewayAddress(normalizeStateMachineId(order.destination))
+
+		const finalizer = (await client.readContract({
+			address: gateway,
+			abi: IntentGatewayV2ABI,
+			functionName: "_filled",
+			args: [commitment],
+		})) as HexString
+		const filled = await Promise.all(
+			order.output.assets.map(async (asset, index) => {
+				const credited = await readLegPartialFill(client, gateway, commitment, index, asset.token)
+				const counted = totalFilledAssets[index]?.amount ?? 0n
+				return { token: asset.token, amount: credited > counted ? credited : counted }
+			}),
+		)
+		const remainingAssets = remainingAfter(targetAssets, filled)
+
+		if (/^0x0{40}$/i.test(finalizer)) return { totalFilledAssets: filled, remainingAssets }
+
+		const progress = { commitment, totalFilledAssets: filled, remainingAssets }
+		const final: IntentOrderStatusUpdate = remainingAssets.every((asset) => asset.amount === 0n)
+			? { status: "FILLED", selectedSolver: finalizer, ...progress }
+			: { status: "CANCELLED", ...progress }
+		return { totalFilledAssets: filled, remainingAssets, final }
 	}
 
 	/**
@@ -255,8 +308,27 @@ export class OrderExecutor {
 		const userOpHashKey = this.createUserOpHasher(order)
 
 		const targetAssets = order.output.assets.map((a) => ({ token: a.token, amount: a.amount }))
-		let totalFilledAssets = order.output.assets.map((a) => ({ token: a.token, amount: 0n }))
-		let remainingAssets = order.output.assets.map((a) => ({ token: a.token, amount: a.amount }))
+		let initial: Awaited<ReturnType<OrderExecutor["syncWithDestination"]>>
+		try {
+			initial = await this.syncWithDestination(
+				order,
+				commitment,
+				targetAssets,
+				order.output.assets.map((a) => ({ token: a.token, amount: 0n })),
+			)
+		} catch (err) {
+			yield {
+				status: "FAILED",
+				commitment,
+				error: `Could not read the order on its destination chain: ${err instanceof Error ? err.message : String(err)}`,
+			}
+			return
+		}
+		if (initial.final) {
+			yield initial.final
+			return
+		}
+		const { totalFilledAssets, remainingAssets } = initial
 
 		const executionStream = this.executionStream({
 			order,
@@ -308,7 +380,7 @@ export class OrderExecutor {
 
 				const fed = yield value
 				if (value.status === "BIDS_RECEIVED") input = fed
-				if (value.status === "EXPIRED" || value.status === "FILLED") return
+				if (value.status === "EXPIRED" || value.status === "FILLED" || value.status === "CANCELLED") return
 			}
 		} finally {
 			// Tear the streams down explicitly so neither keeps polling in the
@@ -388,12 +460,24 @@ export class OrderExecutor {
 
 			while (true) {
 				let freshBids: FillerBid[]
+				let final: IntentOrderStatusUpdate | undefined
 				try {
-					const bids = await this.fetchBids({ commitment, solver, solverLockStartTime })
-					freshBids = bids.filter(isFreshBid)
+					;({ totalFilledAssets, remainingAssets, final } = await this.syncWithDestination(
+						order,
+						commitment,
+						targetAssets,
+						totalFilledAssets,
+					))
+					freshBids = final
+						? []
+						: (await this.fetchBids({ commitment, solver, solverLockStartTime })).filter(isFreshBid)
 				} catch {
 					await sleep(pollIntervalMs)
 					continue
+				}
+				if (final) {
+					yield final
+					return
 				}
 
 				if (freshBids.length === 0) {

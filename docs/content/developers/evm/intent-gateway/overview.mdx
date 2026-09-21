@@ -65,7 +65,11 @@ credit, release, payment and surplus for a quote at a given progress.
 The SDK ranks single-leg quotes by rate and multi-leg quotes by output value normalized to
 original input amounts. Both full and partial multi-leg quotes can be selected automatically.
 Normalized amounts describe prices; signed quotes bound funding, and settlement determines actual payment.
-Submission recovery is a separate stacked change required before releasing automatic execution.
+
+The executor takes an order's progress from its destination chain: the output credited per leg in
+`_partialFills`, and `_filled` once the order is finalized. Fills by other solvers count, and an order
+resumed after a restart continues from what is already credited. A bid sent for an order that was
+finalized in the meantime fails selection on the gateway, so it never reaches a fill.
 
 Every bid requires a release-3 gateway and an updated delegated SolverAccount. Before signing, the
 SDK requires release `3` from `version()` on the gateway, the configured account implementation and

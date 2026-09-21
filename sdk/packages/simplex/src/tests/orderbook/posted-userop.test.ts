@@ -111,8 +111,9 @@ describe("the op simplex posts", () => {
 		expect(op.signature.slice(0, 66)).toBe(commitment)
 		expect(await recoverSigner(op)).toBe(signer.address)
 		// The nonce is covered by the userOpHash and the signature prefix is not, so
-		// the binding that matters is the key, exactly as SolverAccount reads it.
-		expect(BigInt(op.nonce) >> 64n).toBe(CryptoUtils.bidNonceKey(commitment, ADDRESS_ZERO))
+		// the binding that matters is the key, exactly as SolverAccount reads it:
+		// the commitment, the session key and the op's own calldata.
+		expect(BigInt(op.nonce) >> 64n).toBe(CryptoUtils.bidNonceKey(commitment, ADDRESS_ZERO, op.callData))
 		// The low 64 bits are the sequence the EntryPoint counts within that key.
 		expect(BigInt(op.nonce) & ((1n << 64n) - 1n)).toBe(0n)
 	})

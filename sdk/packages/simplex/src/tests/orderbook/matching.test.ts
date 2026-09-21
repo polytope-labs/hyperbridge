@@ -175,8 +175,7 @@ describe("matchLimitOrder", () => {
 
 	describe("choosing between several matches", () => {
 		it("puts the best offer first", () => {
-			// Its bid signs the first sequence, and the EntryPoint only runs a key's
-			// sequences in order, so the best price is the one that can land first.
+			// The bids go out in this order, so the best price is the first one sent.
 			const cheap = limitOrder({ id: "cheap", price: (1450n * ONE).toString() })
 			const generous = limitOrder({ id: "generous", price: (1600n * ONE).toString() })
 			expect(matchLimitOrder([cheap, generous], incoming(), resolve)?.order.id).toBe("generous")

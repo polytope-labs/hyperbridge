@@ -100,8 +100,6 @@ interface CacheData {
 	fundingPrepends: Record<string, FundingPrependsCache>
 	/** The limit order an evaluation priced against, carried to the bid that draws on it. */
 	matchedLimitOrders: Record<string, { holds: { limitOrderId: string; payout: string }[]; timestamp: number }>
-	/** Which bid of the set is being built, so its op carries its own nonce sequence. */
-	bidSequences: Record<string, { offset: number; timestamp: number }>
 	/** The bids an evaluation decided on, one per limit order it matched. */
 	bidPlans: Record<string, { plans: BidPlanCache[]; timestamp: number }>
 	/** Orders whose evaluation concluded in a deliberate partial fill. */
@@ -126,7 +124,6 @@ export class CacheService {
 			fundingPrepends: {},
 			matchedLimitOrders: {},
 			bidPlans: {},
-			bidSequences: {},
 			partialFills: {},
 			feeTokens: {},
 			tokenDecimals: {},
@@ -151,9 +148,6 @@ export class CacheService {
 		// Clean up matched limit orders
 		for (const [orderId, data] of Object.entries(this.cacheData.bidPlans)) {
 			if (!this.isCacheValid(data.timestamp)) delete this.cacheData.bidPlans[orderId]
-		}
-		for (const [orderId, data] of Object.entries(this.cacheData.bidSequences)) {
-			if (!this.isCacheValid(data.timestamp)) delete this.cacheData.bidSequences[orderId]
 		}
 		for (const [orderId, data] of Object.entries(this.cacheData.matchedLimitOrders)) {
 			if (!this.isCacheValid(data.timestamp)) delete this.cacheData.matchedLimitOrders[orderId]
@@ -432,16 +426,6 @@ export class CacheService {
 			this.logger.error({ err: error }, "Error setting bid plans")
 			throw error
 		}
-	}
-
-	/** Which bid of the set is being built. Zero when only one bid is going out. */
-	getBidSequence(orderId: string): number {
-		const cache = this.cacheData.bidSequences[orderId]
-		return cache && this.isCacheValid(cache.timestamp) ? cache.offset : 0
-	}
-
-	setBidSequence(orderId: string, offset: number): void {
-		this.cacheData.bidSequences[orderId] = { offset, timestamp: Date.now() }
 	}
 
 	clearBidPlans(orderId: string): void {

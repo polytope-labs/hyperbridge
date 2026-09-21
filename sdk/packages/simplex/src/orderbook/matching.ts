@@ -66,9 +66,7 @@ export function availableOn(order: LimitOrder): bigint {
  * the input, so every one of them settles at `T / I` too.
  *
  * They come best offer first: the order that would pay the most for this input.
- * That is the order each bid is sent in and the EntryPoint sequence it signs, and
- * the EntryPoint only runs a key's sequences in order, so the best price is the
- * one that can execute first and every bid behind it is a worse one.
+ * That is the order each bid is built, held against its limit order and sent in.
  */
 export function matchLimitOrders(
 	orders: readonly LimitOrder[],
@@ -115,8 +113,8 @@ export function matchLimitOrder(
  * Largest offer first, then most left, then by id.
  *
  * Of two equal offers the deeper one goes first, since it is the likelier to cover
- * the swap on its own. The last comparison is what makes the sequence
- * reproducible: the same set of orders always signs the same sequences.
+ * the swap on its own. The last comparison is what makes the order
+ * reproducible: the same set of orders always goes out the same way.
  */
 function byBestOfferFirst(a: LimitOrderMatch, b: LimitOrderMatch): number {
 	if (a.offer !== b.offer) return a.offer > b.offer ? -1 : 1

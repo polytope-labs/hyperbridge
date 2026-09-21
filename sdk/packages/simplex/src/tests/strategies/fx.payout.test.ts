@@ -194,8 +194,7 @@ describe("FXFiller limit order payout", () => {
 			fillerOutputs: { amount: bigint }[]
 		}[]
 		expect(plans).toHaveLength(2)
-		// Best offer first: that is the order the bids go out in, and so the order of
-		// the sequences they sign.
+		// Best offer first: that is the order the bids go out in.
 		expect(plans.map((plan) => plan.limitOrderId)).toEqual(["wide", "tight"])
 		// Each bids the ask: both offers clear it, and the bid is never above it.
 		for (const plan of plans) {

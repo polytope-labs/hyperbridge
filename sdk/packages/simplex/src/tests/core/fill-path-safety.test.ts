@@ -155,8 +155,10 @@ describe("fill path safety", () => {
 	})
 })
 
-describe("the nonce sequence a bid signs", () => {
+describe("every bid on one order", () => {
 	const SECOND_ORDER = "limit-1"
+	const FIRST_BID = `0x${"b1".repeat(32)}` as HexString
+	const SECOND_BID = `0x${"b2".repeat(32)}` as HexString
 
 	/** Two bid plans on one order, and a strategy answering each submission in turn. */
 	async function twoBids(results: Record<string, unknown>[]) {
@@ -165,21 +167,21 @@ describe("the nonce sequence a bid signs", () => {
 			{ id: LIMIT_ORDER, base: "USDC", quote: "CNGN", side: "BID", fillChain: "EVM-1", price: "1500", size: "3000" },
 			{ id: SECOND_ORDER, base: "USDC", quote: "CNGN", side: "BID", fillChain: "EVM-1", price: "1450", size: "3000" },
 		])
-		const signed: number[] = []
 		const plan = (limitOrderId: string) => ({
 			limitOrderId,
 			payout: PAYOUT,
 			fillerOutputs: [],
+			fillerInputs: [],
 			fundingCalls: [],
 			partialFill: false,
 			profit: 1,
 		})
-		let call = 0
+		let calls = 0
 		const strategy = {
 			name: "test",
 			canFill: async () => true,
 			calculateProfitability: async () => 1,
-			executeOrder: async () => results[Math.min(call++, results.length - 1)],
+			executeOrder: async () => results[Math.min(calls++, results.length - 1)],
 			getOrderUsdValue: async () => ({ inputUsd: { toNumber: () => 1 } }),
 		}
 		const filler = new IntentFiller(
@@ -200,8 +202,6 @@ describe("the nonce sequence a bid signs", () => {
 					getBidPlans: () => [plan(LIMIT_ORDER), plan(SECOND_ORDER)],
 					setFillerOutputs: () => {},
 					setPartialFill: () => {},
-					// What each bid would sign, in the order they go out.
-					setBidSequence: (_id: string, offset: number) => signed.push(offset),
 					setFundingPrepends: () => {},
 					clearFundingPrepends: () => {},
 				},
@@ -212,59 +212,34 @@ describe("the nonce sequence a bid signs", () => {
 			data.bids,
 			limitOrders,
 		)
-		return { filler, data, signed }
+		return { filler, data, sent: () => calls }
 	}
 
-	it("hands a failed bid's number to the next one, which the EntryPoint requires", async () => {
-		// Sequences on a key are consumed in order with no gaps, so a bid that never
-		// reached the chain must not spend one: everything behind it would be stranded.
-		const { filler, data, signed } = await twoBids([
-			{ success: false, error: "rejected" },
-			{ success: true, commitment: COMMITMENT, txHash: "0xtx" },
+	it("goes out whatever became of the bid before it", async () => {
+		// Each bid is the first sequence of its own nonce key, so nothing about one
+		// bid's fate changes what the next can sign: a rejected bid holds nothing up.
+		const { filler, data, sent } = await twoBids([
+			{ success: false, error: "rejected", commitment: COMMITMENT, bid: FIRST_BID },
+			{ success: true, commitment: COMMITMENT, txHash: "0xtx", bid: SECOND_BID },
 		])
 
 		await execute(filler, ORDER)
 
-		expect(signed).toEqual([0, 0])
-		expect((await data.bids.byCommitment(COMMITMENT))?.sequence).toBe(0)
+		expect(sent()).toBe(2)
+		expect((await data.bids.byCommitment(COMMITMENT))?.bid).toBe(SECOND_BID)
 	})
 
-	it("spends a number once its bid is on its way", async () => {
-		const { filler, signed } = await twoBids([
-			{ success: true, commitment: COMMITMENT, txHash: "0xtx" },
-			{ success: true, commitment: "0xsecond" as HexString, txHash: "0xtx2" },
-		])
-
-		await execute(filler, ORDER)
-
-		expect(signed).toEqual([0, 1])
-	})
-
-	it("keys each bid's row by the sequence its op signed", async () => {
-		// The key's sequence had already moved to 5, so the two bids sign 5 and 6.
-		// That, not the offset from it, is what Hyperbridge keys each bid by, and it
-		// keeps a later round's bids on the same order from sharing a row's number
-		// with these — which is what a reservation is claimed by.
+	it("files each bid's row under the identifier Hyperbridge knows it by", async () => {
+		// Two bids on one order share a commitment; the identifier, keccak256 of each
+		// one's calldata, is what keeps their rows and their holds apart.
 		const { filler, data } = await twoBids([
-			{ success: true, commitment: COMMITMENT, txHash: "0xtx", sequence: 5n },
-			{ success: true, commitment: COMMITMENT, txHash: "0xtx2", sequence: 6n },
+			{ success: true, commitment: COMMITMENT, txHash: "0xtx", bid: FIRST_BID },
+			{ success: true, commitment: COMMITMENT, txHash: "0xtx2", bid: SECOND_BID },
 		])
 
 		await execute(filler, ORDER)
 
 		const rows = await data.bids.byCommitments([COMMITMENT])
-		expect(rows.map((row) => row.sequence).sort()).toEqual([5, 6])
-	})
-
-	it("treats a pooled submission as having spent its number", async () => {
-		// It may still land, and two bids sharing a sequence is the worse failure.
-		const { filler, signed } = await twoBids([
-			{ success: false, pending: true, commitment: COMMITMENT, error: "1014" },
-			{ success: true, commitment: "0xsecond" as HexString, txHash: "0xtx2" },
-		])
-
-		await execute(filler, ORDER)
-
-		expect(signed).toEqual([0, 1])
+		expect(rows.map((row) => row.bid).sort()).toEqual([FIRST_BID, SECOND_BID])
 	})
 })

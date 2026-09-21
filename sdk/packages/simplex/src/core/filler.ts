@@ -974,26 +974,18 @@ export class IntentFiller {
 			const plans = this.limitOrders && order.id ? this.contractService.cacheService.getBidPlans(order.id) : []
 			const cache = this.contractService.cacheService
 			let lastResult: FillResult | undefined
-			// Each bid signs the next sequence under the order's nonce key: the key's
-			// current sequence plus `offset`. The plans come best offer first, so the
-			// sequences run from the best price to the worst, and the EntryPoint only
-			// runs a key's sequences in order with no gaps: the best bid is the one that
-			// can land first. A number is spent rather than counted off, so a bid that
-			// never goes out leaves its number to the next one instead of stranding
-			// every bid behind it.
-			let offset = 0
+			// Each bid's nonce key binds its own calldata, so every bid is the first
+			// sequence of a key no other bid shares and executes on its own: none waits
+			// on another, and one that is never selected strands nothing. The plans come
+			// best offer first, which is the order they go out in.
 			for (const plan of plans.length > 0 ? plans : [undefined]) {
 				let reservation: LimitOrderHold[] = []
 				if (plan) {
 					// What this bid signs. `executeOrder` reads these back out, so they are
-					// set per bid rather than once per order. The sequence goes with them:
-					// these bids share a commitment and so a nonce key, and the sequence is
-					// the only thing that makes their ops distinct, on chain and on
-					// Hyperbridge alike.
+					// set per bid rather than once per order.
 					if (order.id) {
 						cache.setFillerOutputs(order.id, plan.fillerOutputs, plan.fillerInputs)
 						cache.setPartialFill(order.id, plan.partialFill)
-						cache.setBidSequence(order.id, offset)
 						if (plan.fundingCalls.length > 0) cache.setFundingPrepends(order.id, plan.fundingCalls)
 						else cache.clearFundingPrepends(order.id)
 					}
@@ -1009,10 +1001,9 @@ export class IntentFiller {
 					}
 				}
 				let bidRow: HexString | undefined
-				// The row is keyed by the sequence the op actually signed, which is what
-				// Hyperbridge keys the bid by too. The offset alone would collide with a
-				// later round's bids on the same order once the key's sequence has moved.
-				let rowSequence: number | undefined
+				// The row carries the identifier Hyperbridge files the bid under, which is
+				// what tells this bid's holds from the other bids' on the same order.
+				let rowBid: string | undefined
 
 				try {
 					const execStartMs = Date.now()
@@ -1034,11 +1025,11 @@ export class IntentFiller {
 					// operator-supplied store rejecting on a connection blip, a disk error.
 					if (result.commitment) {
 						const commitment = result.commitment as HexString
-						rowSequence = result.sequence !== undefined ? Number(result.sequence) : offset
+						rowBid = result.bid
 						if (reservation.length > 0) bidRow = commitment
 						await this.bidStorage?.store({
 							commitment,
-							bid: result.bid,
+							bid: rowBid,
 							extrinsicHash: (result.txHash as HexString) || undefined,
 							success: result.success,
 							pending: result.pending === true,
@@ -1055,7 +1046,7 @@ export class IntentFiller {
 						// retracted, so nothing downstream would ever give its reservation
 						// back. A pooled one might still land, so it keeps its hold.
 						if (!result.success && result.pending !== true) {
-							await this.releaseReservation(commitment, rowSequence)
+							await this.releaseReservation(commitment, rowBid)
 						}
 					} else if (reservation.length > 0) {
 						// No commitment means no bid row, so the holds have to be undone here.
@@ -1084,10 +1075,6 @@ export class IntentFiller {
 					})
 
 					lastResult = result
-					// Submitted, so this number is consumed on chain and the next bid takes
-					// the one after. A pooled submission counts: it may still land, and two
-					// bids sharing a sequence is the worse failure.
-					if (result.success || result.pending === true) offset++
 					continue
 				} catch (error) {
 					// Before the bid row, nothing else can give this hold back, so release it
@@ -1096,7 +1083,7 @@ export class IntentFiller {
 					// stranded rather than released twice, which is the safe way round —
 					// an overstated reservation refuses fills, an understated one oversells.
 					if (bidRow) {
-						await this.releaseReservation(bidRow, rowSequence)
+						await this.releaseReservation(bidRow, rowBid)
 					} else if (reservation.length > 0) {
 						await this.releaseAll(reservation)
 					}
@@ -1105,9 +1092,6 @@ export class IntentFiller {
 					// here: its hold is already back, and the next bid still deserves its
 					// turn.
 					this.logger.error({ orderId: order.id, err: error }, "Bid failed")
-					// The op may have gone out before this threw, so the number is treated as
-					// spent rather than handed to the next bid.
-					offset++
 					continue
 				}
 			}
@@ -1321,12 +1305,12 @@ export class IntentFiller {
 	 * a fill releases nothing here.
 	 */
 	/**
-	 * Gives back what one bid held. Without a sequence it gives back every hold on
+	 * Gives back what one bid held. Without a bid identifier it gives back every hold on
 	 * the commitment, which is what a dead or filled order needs.
 	 */
-	private async releaseReservation(commitment: HexString, sequence?: number): Promise<void> {
+	private async releaseReservation(commitment: HexString, bid?: string): Promise<void> {
 		if (!this.bidStorage || !this.limitOrders) return
-		const claimed = await this.bidStorage.claimReservation(commitment, sequence)
+		const claimed = await this.bidStorage.claimReservation(commitment, bid)
 		if (claimed.length === 0) return
 		await this.releaseAll(claimed)
 		this.logger.debug(

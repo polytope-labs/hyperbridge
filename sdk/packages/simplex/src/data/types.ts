@@ -71,7 +71,8 @@ export interface LimitOrderHold {
 export interface BidInsert {
 	commitment: string
 	/**
-	 * The identifier Hyperbridge files the bid under, `keccak256` of its calldata. It is what
+	 * The identifier Hyperbridge files the bid under, `keccak256` of its calldata. Bids on one
+	 * incoming order share a commitment, and this is what tells them apart. It is also what
 	 * retracting the bid names, so it is recorded here at placement rather than looked up later:
 	 * a bid still in Hyperbridge's pool is not in its storage yet, but its retraction, sent after it
 	 * from the same account, lands after it and reclaims its deposit all the same.
@@ -145,11 +146,11 @@ export interface BidStore {
 	/**
 	 * Takes the holds off a bid, exactly once, and hands them to the caller.
 	 *
-	 * With a `sequence` it claims that one bid; without, every outstanding hold on
-	 * the commitment, which is what a filled or dead order needs so no bid's hold
-	 * is left behind.
+	 * With a `bid` it claims that one bid; without, every outstanding hold on the
+	 * commitment, which is what a filled or dead order needs so no bid's hold is
+	 * left behind.
 	 */
-	claimReservation(commitment: string, sequence?: number): Promise<LimitOrderHold[]>
+	claimReservation(commitment: string, bid?: string): Promise<LimitOrderHold[]>
 	/**
 	 * Every bid that drew on a limit order, newest first. What makes a `remaining`
 	 * explicable to the operator: which bids took the difference.

@@ -203,6 +203,23 @@ for (const backend of backends) {
 			expect((await bids.byLimitOrder("limit-2")).map((bid) => bid.commitment)).toEqual([THIRD, OTHER])
 			expect(await bids.byLimitOrder("limit-3")).toEqual([])
 		})
+
+		it("keeps two bids on one order apart by their identifier", async () => {
+			// One solver bidding two prices on one order: same commitment, each bid filed
+			// under keccak256 of its own calldata.
+			const bids = backend.create()
+			const hold = (limitOrderId: string, amount: string) => [{ limitOrderId, amount }]
+			const first = `0x${"b1".repeat(32)}`
+			const second = `0x${"b2".repeat(32)}`
+			await bids.store({ commitment: COMMITMENT, bid: first, success: true, reservations: hold("limit-1", "100") })
+			await bids.store({ commitment: COMMITMENT, bid: second, success: true, reservations: hold("limit-2", "200") })
+
+			expect((await bids.byCommitments([COMMITMENT])).map((bid) => bid.bid).sort()).toEqual([first, second])
+			// Naming a bid claims its holds alone; without one, whatever is left.
+			expect(await bids.claimReservation(COMMITMENT, second)).toEqual(hold("limit-2", "200"))
+			expect(await bids.claimReservation(COMMITMENT)).toEqual(hold("limit-1", "100"))
+			expect(await bids.claimReservation(COMMITMENT)).toEqual([])
+		})
 	})
 }
 

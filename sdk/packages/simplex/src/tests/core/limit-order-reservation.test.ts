@@ -23,6 +23,9 @@ const COMMITMENT = "0x4380111111111111111111111111111111111111111111111111111111
 const OUR_ADDRESS = "0xAAAA00000000000000000000000000000000AAAA" as HexString
 /** The filler's own Hyperbridge account (Alice), as the pallet's storage reports it. */
 const OUR_SUBSTRATE_ADDRESS = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY"
+/** The identifiers two bids on one order are filed under: keccak256 of each one's calldata. */
+const FIRST_BID = `0x${"b1".repeat(32)}`
+const SECOND_BID = `0x${"b2".repeat(32)}`
 const LIMIT_ORDER = "limit-0"
 /** The identifier the bid was placed under, which retracting it names. */
 const OUR_BID = `0x${"b1".repeat(32)}` as HexString
@@ -70,13 +73,13 @@ async function build(options: { retract?: BidSubmissionResult } = {}) {
 		data.bids,
 		limitOrders,
 	)
-	// Retraction reads back the sequences our account holds on the commitment; this
-	// one holds a single bid, at the first.
+	// Retraction reads back the bids our account holds on the commitment; this one
+	// holds a single bid.
 	;(filler as any).hyperbridge = Promise.resolve({
 		retractBid,
 		getKeyPair: () => ({ publicKey: decodeAddress(OUR_SUBSTRATE_ADDRESS) }),
 		getBidStorageEntries: async (commitment: HexString) => [
-			{ commitment, filler: OUR_SUBSTRATE_ADDRESS, sequence: 0n, deposit: 1n },
+			{ commitment, filler: OUR_SUBSTRATE_ADDRESS, bid: FIRST_BID, deposit: 1n },
 		],
 	})
 
@@ -235,13 +238,13 @@ describe("a bid drawing on several limit orders", () => {
 		await ctx.limitOrders.reserve(LIMIT_ORDER, PAYOUT)
 		await ctx.bids.store({
 			commitment: COMMITMENT,
-			sequence: 0,
+			bid: FIRST_BID,
 			success: true,
 			reservations: [{ limitOrderId: LIMIT_ORDER, amount: (400n * 10n ** 18n).toString() }],
 		})
 		await ctx.bids.store({
 			commitment: COMMITMENT,
-			sequence: 1,
+			bid: SECOND_BID,
 			success: true,
 			reservations: [{ limitOrderId: SECOND_ORDER, amount: (600n * 10n ** 18n).toString() }],
 		})
@@ -270,19 +273,19 @@ describe("a bid drawing on several limit orders", () => {
 		const ctx = await build()
 		await ctx.bids.store({
 			commitment: COMMITMENT,
-			sequence: 0,
+			bid: FIRST_BID,
 			success: true,
 			reservations: [{ limitOrderId: LIMIT_ORDER, amount: PAYOUT }],
 		})
 		await ctx.bids.store({
 			commitment: COMMITMENT,
-			sequence: 1,
+			bid: SECOND_BID,
 			success: true,
 			reservations: [{ limitOrderId: SECOND_ORDER, amount: PAYOUT }],
 		})
 
 		// Naming a bid takes that bid's hold alone.
-		expect(await ctx.bids.claimReservation(COMMITMENT, 1)).toEqual([{ limitOrderId: SECOND_ORDER, amount: PAYOUT }])
+		expect(await ctx.bids.claimReservation(COMMITMENT, SECOND_BID)).toEqual([{ limitOrderId: SECOND_ORDER, amount: PAYOUT }])
 		// Without one, whatever is still outstanding on the commitment.
 		expect(await ctx.bids.claimReservation(COMMITMENT)).toEqual([{ limitOrderId: LIMIT_ORDER, amount: PAYOUT }])
 		expect(await ctx.bids.claimReservation(COMMITMENT)).toEqual([])

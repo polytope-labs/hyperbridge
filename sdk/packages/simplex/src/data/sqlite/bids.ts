@@ -19,6 +19,7 @@ const BID_COLUMNS = `
 	retracted_at as retractedAt,
 	retract_extrinsic_hash as retractExtrinsicHash,
 	dead,
+	bid,
 	reservations
 `
 
@@ -68,7 +69,7 @@ export class SqliteBidStore implements BidStore {
 				retracted_at TEXT,
 				retract_extrinsic_hash TEXT,
 				dead INTEGER NOT NULL DEFAULT 0,
-				sequence INTEGER NOT NULL DEFAULT 0,
+				bid TEXT,
 				reservations TEXT
 			);
 
@@ -80,7 +81,7 @@ export class SqliteBidStore implements BidStore {
 
 		// Databases created before a column existed need it added in place.
 		const columns = columnNames(this.db, "bids")
-		for (const column of ["dead", "pending", "sequence"] as const) {
+		for (const column of ["dead", "pending"] as const) {
 			if (columns.has(column)) continue
 			this.db.exec(`ALTER TABLE bids ADD COLUMN ${column} INTEGER NOT NULL DEFAULT 0`)
 			this.logger.info({ column }, "Migrated bid storage schema")
@@ -94,8 +95,8 @@ export class SqliteBidStore implements BidStore {
 		}
 
 		// After the migration above, not with the other indexes: a database created
-		// before `sequence` existed has no such column until the ALTER runs.
-		this.db.exec("CREATE INDEX IF NOT EXISTS idx_bids_bid ON bids(commitment, sequence)")
+		// before `bid` existed has no such column until the ALTER runs.
+		this.db.exec("CREATE INDEX IF NOT EXISTS idx_bids_bid ON bids(commitment, bid)")
 	}
 
 	// biome-ignore lint/suspicious/noExplicitAny: raw sqlite row
@@ -184,22 +185,22 @@ export class SqliteBidStore implements BidStore {
 		return false
 	}
 
-	async claimReservation(commitment: string, sequence?: number): Promise<LimitOrderHold[]> {
+	async claimReservation(commitment: string, bid?: string): Promise<LimitOrderHold[]> {
 		// Several bids can share a commitment: simplex bids each limit order that can
-		// serve one incoming order, and they differ only by nonce sequence. Claiming
+		// serve one incoming order, and they differ by their bid identifier. Claiming
 		// by row id is what keeps one bid's settlement from taking another's holds,
 		// and what stops two rows carrying identical reservation JSON being cleared
 		// together by a guard that cannot tell them apart.
 		const rows = (
-			sequence === undefined
+			bid === undefined
 				? this.db
 						.prepare("SELECT id, reservations FROM bids WHERE commitment = ? AND reservations IS NOT NULL ORDER BY id")
 						.all(commitment)
 				: this.db
 						.prepare(
-							"SELECT id, reservations FROM bids WHERE commitment = ? AND sequence = ? AND reservations IS NOT NULL ORDER BY id",
+							"SELECT id, reservations FROM bids WHERE commitment = ? AND bid = ? AND reservations IS NOT NULL ORDER BY id",
 						)
-						.all(commitment, sequence)
+						.all(commitment, bid)
 		) as { id: number; reservations: string }[]
 
 		const claimed: LimitOrderHold[] = []

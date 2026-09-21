@@ -40,36 +40,24 @@ the others are unaffected.
 
 ## Telling the bids apart
 
-Bids on one incoming order share a commitment, so `bidNonceKey(commitment, session)` gives them one
-ERC-4337 nonce key and only the 64-bit sequence can distinguish them. `estimateGasFillPost` reads the
-base nonce once and caches it, and `getNonce` does not move until an op executes, so signing every
-bid with the cached value would leave all but the first failing EntryPoint validation with AA25. The
-i-th bid is signed with `base + i`, and the bids go out best offer first, so the sequences run from
-the best price to the worst.
+Bids on one incoming order share a commitment. `SolverAccount` derives a bid's nonce key from the
+commitment, the session key and the op's own calldata, so every bid is the first sequence of a key
+no other bid shares (`evm/docs/ai/changelog/2026-09-21-every-bid-has-its-own-nonce-key.md`). The
+bids execute independently: none waits on another, and one that is never selected strands nothing.
+`prepareBidUserOp` reads the nonce for the bid's own key when it signs the bid, once its calldata
+exists.
 
-That sequence is also the bid's identity, on Hyperbridge as much as here: the pallet keys a bid by
-`(commitment, filler, sequence)`, so `submitBid` places each one at the sequence its op signs and
-they stand side by side instead of the last replacing the rest. Retraction takes back every sequence
-this account holds on the commitment, read from the pallet's storage.
+The same calldata hash is the bid's identity on Hyperbridge and here. `submitBid` files each bid
+under `keccak256(callData)`, so a solver's bids on one order stand side by side there, and retraction
+takes back every identifier this account holds on the commitment, read from the pallet's storage. A
+bid row carries the identifier, and `claimReservation` takes either one bid's holds (named by
+identifier) or every outstanding hold on the commitment, claiming row by row rather than taking the
+newest and guarding on a reservation value two rows can share. Without that, one bid's settlement took
+another's holds, and two bids holding the same amount against the same order had both rows cleared by
+a guard that could not tell them apart.
 
-A bid row carries the sequence its op signed, not its offset from the key's current sequence, which a
-later round of bids on the same order would repeat once the key has moved. `claimReservation` takes
-either one bid's holds (named by sequence) or every outstanding hold on the commitment, claiming row by
-row rather than taking the newest and guarding on a reservation value two rows can share. Without
-that, one bid's settlement took another's holds, and two bids holding the same amount against the
-same order had both rows cleared by a guard that could not tell them apart.
-
-The EntryPoint consumes a key's sequences in order with no gaps, so a bid that never executes strands
-every bid behind it. Signing order is execution order here — best price first, which is the order the
-walk takes them in — and a number is spent rather than counted off: a bid whose submission fails
-leaves its number to the next bid. A pooled submission counts as spent, since it may still land and
-two bids sharing a sequence is the worse failure.
-
-That covers every drop simplex can see as it sends. A bid that is accepted but never executes — not
-selected, reverted in validation, expired past its `validUntil` — frees a number we have already
-signed past, and recovering it means retracting the bids behind it and re-signing them. Whether to
-build that or give bids distinct keys is the question #1259's walk decides, since the commitment-
-derived key rules the second out today (`BAD_NONCE_BINDING` in `verify.rs`).
+The bids go out best offer first. Nothing on chain orders them any more, but it is the order they are
+built and held in.
 
 ## What a bid's gas covers
 
@@ -97,6 +85,6 @@ the gateway clamps it to what was outstanding, so the hold matching the delivere
 that filled, the closest hold at or above it is the next best answer, and a tie falls back to the
 order the bids went out in.
 
-Existing databases get `reservations` and `sequence` columns; the two columns `reservations` replaces
+Existing databases get `reservations` and `bid` columns; the two columns `reservations` replaces
 are left behind rather than migrated, since a hold outlives its bid by minutes and nothing reads a
 settled one.

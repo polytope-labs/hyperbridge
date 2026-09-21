@@ -2,7 +2,9 @@ import { describe, expect, it, vi } from "vitest"
 import type { HexString } from "@hyperbridge/sdk"
 import { IntentFiller } from "@/core/filler"
 import { MemoryDataStore } from "@/data/memory"
+import type { LimitOrderStore } from "@/data/types"
 import { stubOrderScanner } from "../helpers/stub-scanner"
+import { limitOrderStore } from "../helpers/limit-orders"
 
 /**
  * The fill path holds money. By the time `executeOrder` returns, a bid may
@@ -16,8 +18,12 @@ import { stubOrderScanner } from "../helpers/stub-scanner"
 
 const COMMITMENT = "0xc0mm1tment" as HexString
 const OUR_ADDRESS = "0xAAAA00000000000000000000000000000000AAAA" as HexString
+const LIMIT_ORDER = "limit-0"
+/** 1,000 of an 18-decimal token: what the bid below holds against the limit order. */
+const PAYOUT = 1000n * 10n ** 18n
+const MATCH = { limitOrderId: LIMIT_ORDER, payout: PAYOUT }
 
-function build(result: Record<string, unknown>) {
+function build(result: Record<string, unknown>, limitOrders?: LimitOrderStore) {
 	const data = new MemoryDataStore()
 	const strategy = {
 		name: "test",
@@ -39,11 +45,13 @@ function build(result: Record<string, unknown>) {
 			getRpcUrls: () => ["https://rpc.example"],
 		} as never,
 		{} as never,
-		{} as never,
+		// The fill path reads the match this order was priced against off the cache.
+		{ cacheService: { getMatchedLimitOrder: () => MATCH } } as never,
 		{ address: OUR_ADDRESS } as never,
 		{ orders: stubOrderScanner([1]) },
 		undefined,
 		data.bids,
+		limitOrders,
 	)
 	return { filler, data, strategy }
 }
@@ -113,6 +121,30 @@ describe("fill path safety", () => {
 		expect((await data.bids.stats()).pendingRetraction).toBe(1)
 	})
 
+	it("gives a limit order's hold back exactly once when the fill path throws late", async () => {
+		// The hold belongs to the bid row from the moment it is written, so a throw
+		// after that has to claim it rather than release it: releasing here and
+		// again on the retraction would free capacity a second bid is holding.
+		const limitOrders = await limitOrderStore([
+			{ id: LIMIT_ORDER, base: "USDC", quote: "CNGN", side: "BID", fillChain: "EVM-1", price: "1500", size: "3000" },
+		])
+		// A second bid, still open, holding the same amount against the same order.
+		expect(await limitOrders.reserve(LIMIT_ORDER, PAYOUT.toString())).toBe(true)
+
+		const { filler } = build({ success: true, commitment: COMMITMENT, txHash: "0xtx" }, limitOrders)
+		filler.monitor.on("orderFilled", () => {
+			throw new Error("consumer exploded")
+		})
+
+		await execute(filler, ORDER)
+		expect((await limitOrders.get(LIMIT_ORDER))!.reserved).toBe(PAYOUT.toString())
+
+		// The retraction that follows finds the hold already claimed and takes nothing.
+		// biome-ignore lint/suspicious/noExplicitAny: the settlement path is private
+		await (filler as any).releaseReservation(COMMITMENT)
+		expect((await limitOrders.get(LIMIT_ORDER))!.reserved).toBe(PAYOUT.toString())
+	})
+
 	it("leaves an outright failed bid out of the sweep", async () => {
 		const { filler, data } = build({ success: false, commitment: COMMITMENT, error: "rejected" })
 
@@ -120,5 +152,94 @@ describe("fill path safety", () => {
 
 		expect(await data.bids.unretractedReclaimable()).toEqual([])
 		expect((await data.bids.stats()).pendingRetraction).toBe(0)
+	})
+})
+
+describe("every bid on one order", () => {
+	const SECOND_ORDER = "limit-1"
+	const FIRST_BID = `0x${"b1".repeat(32)}` as HexString
+	const SECOND_BID = `0x${"b2".repeat(32)}` as HexString
+
+	/** Two bid plans on one order, and a strategy answering each submission in turn. */
+	async function twoBids(results: Record<string, unknown>[]) {
+		const data = new MemoryDataStore()
+		const limitOrders = await limitOrderStore([
+			{ id: LIMIT_ORDER, base: "USDC", quote: "CNGN", side: "BID", fillChain: "EVM-1", price: "1500", size: "3000" },
+			{ id: SECOND_ORDER, base: "USDC", quote: "CNGN", side: "BID", fillChain: "EVM-1", price: "1450", size: "3000" },
+		])
+		const plan = (limitOrderId: string) => ({
+			limitOrderId,
+			payout: PAYOUT,
+			fillerOutputs: [],
+			fillerInputs: [],
+			fundingCalls: [],
+			partialFill: false,
+			profit: 1,
+		})
+		let calls = 0
+		const strategy = {
+			name: "test",
+			canFill: async () => true,
+			calculateProfitability: async () => 1,
+			executeOrder: async () => results[Math.min(calls++, results.length - 1)],
+			getOrderUsdValue: async () => ({ inputUsd: { toNumber: () => 1 } }),
+		}
+		const filler = new IntentFiller(
+			[{ chainId: 1 } as never],
+			[strategy as never],
+			{ maxConcurrentOrders: 1 } as never,
+			{
+				loggers: undefined,
+				getHyperbridgeWsUrl: () => undefined,
+				getSubstratePrivateKey: () => undefined,
+				getIntentGatewayAddress: () => "0xGATE",
+				getRpcUrls: () => ["https://rpc.example"],
+			} as never,
+			{} as never,
+			{
+				cacheService: {
+					getMatchedLimitOrder: () => [],
+					getBidPlans: () => [plan(LIMIT_ORDER), plan(SECOND_ORDER)],
+					setFillerOutputs: () => {},
+					setPartialFill: () => {},
+					setFundingPrepends: () => {},
+					clearFundingPrepends: () => {},
+				},
+			} as never,
+			{ address: OUR_ADDRESS } as never,
+			{ orders: stubOrderScanner([1]) },
+			undefined,
+			data.bids,
+			limitOrders,
+		)
+		return { filler, data, sent: () => calls }
+	}
+
+	it("goes out whatever became of the bid before it", async () => {
+		// Each bid is the first sequence of its own nonce key, so nothing about one
+		// bid's fate changes what the next can sign: a rejected bid holds nothing up.
+		const { filler, data, sent } = await twoBids([
+			{ success: false, error: "rejected", commitment: COMMITMENT, bid: FIRST_BID },
+			{ success: true, commitment: COMMITMENT, txHash: "0xtx", bid: SECOND_BID },
+		])
+
+		await execute(filler, ORDER)
+
+		expect(sent()).toBe(2)
+		expect((await data.bids.byCommitment(COMMITMENT))?.bid).toBe(SECOND_BID)
+	})
+
+	it("files each bid's row under the identifier Hyperbridge knows it by", async () => {
+		// Two bids on one order share a commitment; the identifier, keccak256 of each
+		// one's calldata, is what keeps their rows and their holds apart.
+		const { filler, data } = await twoBids([
+			{ success: true, commitment: COMMITMENT, txHash: "0xtx", bid: FIRST_BID },
+			{ success: true, commitment: COMMITMENT, txHash: "0xtx2", bid: SECOND_BID },
+		])
+
+		await execute(filler, ORDER)
+
+		const rows = await data.bids.byCommitments([COMMITMENT])
+		expect(rows.map((row) => row.bid).sort()).toEqual([FIRST_BID, SECOND_BID])
 	})
 })

@@ -41,6 +41,9 @@ Decimal.config({ precision: 28, rounding: 4 })
  * bundler ever prices the op, so they are fixed rather than estimated; they exist
  * because the packed struct the solver signs over has the fields.
  */
+/** Call gas allowed per funding call a bid prepends: a V4 decrease-liquidity + take costs roughly 200-350k. */
+const FUNDING_GAS_PER_CALL = 400_000n
+
 const LIMIT_ORDER_CALL_GAS_LIMIT = 500_000n
 const LIMIT_ORDER_VERIFICATION_GAS_LIMIT = 150_000n
 const LIMIT_ORDER_PRE_VERIFICATION_GAS = 50_000n
@@ -274,7 +277,6 @@ export class ContractInteractionService {
 
 			const sdkHelper = await this.getIntentGateway(order.source, order.destination)
 			const gasFeeBumpConfig = this.configService.getGasFeeBumpConfig()
-			const funding = this.cacheService.getFundingPrepends(order.id!)
 
 			// NOTE: We intentionally do NOT pass funding prepend calls to the
 			// estimation.  The V4 PositionManager's modifyLiquidities uses
@@ -289,22 +291,18 @@ export class ContractInteractionService {
 				maxFeePerGasBumpPercent: gasFeeBumpConfig?.maxFeePerGasBumpPercent,
 			})
 
-			// If funding prepend calls are present, bump callGasLimit to account
-			// for the extra V4 modifyLiquidities + take operations.  Each V4
-			// decrease-liquidity + take-pair action costs roughly 200-350k gas.
-			const FUNDING_GAS_PER_CALL = 400_000n
-			const fundingGasBump = funding?.calls?.length ? FUNDING_GAS_PER_CALL * BigInt(funding.calls.length) : 0n
-
 			this.logger.info({ orderId: order.id }, "Caching gas estimate")
-			this.logger.info({ estimate, fundingGasBump: fundingGasBump.toString() }, "Estimate")
-			const callGasLimit = estimate.callGasLimit + fundingGasBump
+			this.logger.info({ estimate }, "Estimate")
 
+			// Cached without any funding bump. The estimate is shared by every bid on the
+			// order, and each bid carries its own funding calls, so the bump is added when
+			// a bid is signed, from that bid's calls (`callGasLimitFor`).
 			this.cacheService.setGasEstimate(
 				order.id!,
 				estimate.totalGasInFeeToken,
 				estimate.relayerFeeInSourceFeeToken,
 				estimate.fillOptions.relayerFee,
-				callGasLimit,
+				estimate.callGasLimit,
 				estimate.verificationGasLimit,
 				estimate.preVerificationGas,
 				estimate.maxFeePerGas,
@@ -321,6 +319,21 @@ export class ContractInteractionService {
 			this.logger.error({ err: error }, "Error estimating gas, using generous fallback values")
 			throw new Error(`Failed to estimate gas: ${error instanceof Error ? error.message : "Unknown error"}`)
 		}
+	}
+
+	/**
+	 * The call gas a bid needs: the shared estimate plus room for the funding calls
+	 * this bid prepends.
+	 *
+	 * Funding calls are not simulated (the V4 PositionManager's flash accounting does
+	 * not resolve in the bundler's estimation context), so each one adds a fixed
+	 * allowance for its modifyLiquidities + take. They differ between the bids on one
+	 * order, since each draws on its own limit order and so on its own funding, which
+	 * is why this is worked out per bid rather than baked into the cached estimate.
+	 */
+	private callGasLimitFor(order: Order, baseCallGasLimit: bigint): bigint {
+		const funding = order.id ? this.cacheService.getFundingPrepends(order.id) : null
+		return baseCallGasLimit + FUNDING_GAS_PER_CALL * BigInt(funding?.calls?.length ?? 0)
 	}
 
 	/**
@@ -681,6 +694,10 @@ export class ContractInteractionService {
 	 * @param solverAccountAddress - The solver's smart account address
 	 * @returns The commitment, the encoded UserOp, and the identifier Hyperbridge files the bid under
 	 *   (`keccak256` of its calldata)
+	 *
+	 * Several limit orders can serve one incoming order, and simplex bids each of
+	 * them separately. Each bid's nonce key binds its own calldata, so it signs the
+	 * first sequence of a key no other bid shares, and every bid executes on its own.
 	 */
 	async prepareBidUserOp(
 		order: Order,
@@ -692,6 +709,9 @@ export class ContractInteractionService {
 		if (!cachedEstimate) {
 			throw new Error(`No cached gas estimate found for order ${order.id}. Call estimateGasFillPost first.`)
 		}
+
+		// The funding calls are this bid's own, set by the caller for each bid on the order.
+		const callGasLimit = this.callGasLimitFor(order, cachedEstimate.callGasLimit)
 
 		// Use cached filler outputs (calculated based on bps) for competitive bidding
 		const cachedFillerOutputs = this.cacheService.getFillerOutputs(order.id!)
@@ -750,7 +770,7 @@ export class ContractInteractionService {
 			configService: this.configService,
 			prefund: {
 				baseGas:
-					cachedEstimate.callGasLimit + cachedEstimate.verificationGasLimit + cachedEstimate.preVerificationGas,
+					callGasLimit + cachedEstimate.verificationGasLimit + cachedEstimate.preVerificationGas,
 				maxFeePerGas: cachedEstimate.maxFeePerGas,
 			},
 			logger: this.logger,
@@ -769,7 +789,7 @@ export class ContractInteractionService {
 			solverSigner: sdkSigningAccount(this.signer),
 			nonce,
 			entryPointAddress,
-			callGasLimit: cachedEstimate.callGasLimit,
+			callGasLimit,
 			verificationGasLimit: cachedEstimate.verificationGasLimit,
 			preVerificationGas: cachedEstimate.preVerificationGas,
 			maxFeePerGas: cachedEstimate.maxFeePerGas,
@@ -785,7 +805,8 @@ export class ContractInteractionService {
 			{
 				commitment,
 				solverAccount: solverAccountAddress,
-				callGasLimit: cachedEstimate.callGasLimit.toString(),
+				nonce: nonce.toString(),
+				callGasLimit: callGasLimit.toString(),
 				maxFeePerGas: cachedEstimate.maxFeePerGas.toString(),
 			},
 			"Prepared bid UserOp",

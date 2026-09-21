@@ -250,12 +250,16 @@ function makeContractService(): any {
 		[CNGN.toLowerCase()]: 18,
 		[ZARP.toLowerCase()]: 18,
 	}
+	const bidPlans = new Map<string, unknown>()
 	return {
 		cacheService: {
 			getPairClassifications: (id: string) => cache.get(`pc:${id}`),
 			setPairClassifications: (id: string, pairs: unknown) => cache.set(`pc:${id}`, pairs),
 			setFillerOutputs: (id: string, outputs: unknown) => cache.set(`fo:${id}`, outputs),
 			setMatchedLimitOrder: () => {},
+			setBidPlans: (id: string, plans: unknown) => bidPlans.set(id, plans),
+			getBidPlans: (id: string) => bidPlans.get(id) ?? [],
+			clearBidPlans: (id: string) => bidPlans.delete(id),
 			clearPartialFill: (id: string) => cache.delete(`pf:${id}`),
 			setPartialFill: (id: string, partial: boolean) => cache.set(`pf:${id}`, partial),
 			isPartialFill: (id: string) => cache.get(`pf:${id}`) === true,
@@ -461,12 +465,16 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 		},
 	) {
 		const cache = new Map<string, unknown>()
+		const bidPlans = new Map<string, unknown>()
 		const contractService = {
 			cacheService: {
 				getPairClassifications: (id: string) => cache.get(`pc:${id}`),
 				setPairClassifications: (id: string, v: unknown) => cache.set(`pc:${id}`, v),
 				setFillerOutputs: () => {},
 				setMatchedLimitOrder: () => {},
+				setBidPlans: (id: string, plans: unknown) => bidPlans.set(id, plans),
+				getBidPlans: (id: string) => bidPlans.get(id) ?? [],
+				clearBidPlans: (id: string) => bidPlans.delete(id),
 				setFundingPrepends: () => {},
 				clearFundingPrepends: () => {},
 				clearPartialFill: (id: string) => cache.delete(`pf:${id}`),

@@ -1,0 +1,115 @@
+name: "simplex against a live orderbook"
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# Simplex posts limit orders to a HyperFX orderbook, and every other test in the package answers
+# its client from a stub. This runs the published orderbook image and puts one limit order through
+# it for real: created, listed under the solver, heartbeated, resized by a fill, reconciled and
+# withdrawn. No chain is involved — `scripts/fake-indexer.mjs` answers the indexer and the gateways
+# the way the orderbook's own test harness does.
+on:
+    push:
+        branches: [main]
+        paths:
+            - "sdk/packages/simplex/src/orderbook/**"
+            - "sdk/packages/simplex/scripts/fake-indexer.mjs"
+            - "sdk/packages/simplex/src/tests/fixtures/orderbook-ci.toml"
+            - ".github/workflows/test-simplex-orderbook.yml"
+    # No `branches` filter, unlike the other workflows here: the simplex work is a
+    # stack of PRs whose bases are each other rather than main, and filtering on
+    # main would mean none of them ever ran this.
+    pull_request:
+        types: [opened, synchronize, reopened, ready_for_review]
+        paths:
+            - "sdk/packages/simplex/src/orderbook/**"
+            - "sdk/packages/simplex/scripts/fake-indexer.mjs"
+            - "sdk/packages/simplex/src/tests/fixtures/orderbook-ci.toml"
+            - ".github/workflows/test-simplex-orderbook.yml"
+    workflow_dispatch:
+
+jobs:
+    live:
+        runs-on: ubuntu-latest
+        env:
+            ORDERBOOK_IMAGE: polytopelabs/hyperfx-orderbook:v0.1.0
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+              with:
+                  ref: ${{ github.event.pull_request.head.sha || github.sha }}
+                  # scripts/build.sh runs protoc over proto/mpcvaultapis to generate src/proto,
+                  # and the test's import graph reaches it through the wallet service.
+                  submodules: recursive
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: "22"
+
+            - name: Setup pnpm
+              uses: pnpm/action-setup@v4
+              with:
+                  version: 11
+
+            - name: Install dependencies
+              working-directory: sdk
+              run: pnpm install --frozen-lockfile
+
+            # Straight from GitHub releases, not apt: the runners' default apt mirror has
+            # repeatedly hung apt-get update, and nothing else here needs apt.
+            - name: Install protoc
+              run: |
+                  curl -fsSL -o /tmp/protoc.zip \
+                    https://github.com/protocolbuffers/protobuf/releases/download/v29.3/protoc-29.3-linux-x86_64.zip
+                  sudo unzip -o /tmp/protoc.zip -d /usr/local bin/protoc 'include/*'
+                  protoc --version
+
+            - name: Generate the protobuf client
+              working-directory: sdk/packages/simplex
+              run: pnpm run codegen
+
+            # The test imports `@hyperbridge/sdk`, which resolves to that package's `dist`. A fresh
+            # checkout has none, and vitest fails to collect the file before it reaches the orderbook.
+            - name: Build the SDK
+              working-directory: sdk
+              run: pnpm --filter="@hyperbridge/sdk" build
+
+            - name: Start the fake indexer
+              working-directory: sdk/packages/simplex
+              run: |
+                  node scripts/fake-indexer.mjs --port 4000 --fee-bps 0 &
+                  for _ in $(seq 1 20); do
+                    curl -sf -X POST http://127.0.0.1:4000/graphql -d '{"variables":{}}' && break
+                    sleep 1
+                  done
+
+            - name: Start the orderbook
+              working-directory: sdk/packages/simplex
+              run: |
+                  docker run -d --name orderbook --network host \
+                    -v "$PWD/src/tests/fixtures/orderbook-ci.toml:/app/config.toml:ro" \
+                    "$ORDERBOOK_IMAGE"
+                  # Ready means it answers a query, not merely that the port is open.
+                  for _ in $(seq 1 60); do
+                    if curl -sf -X POST http://127.0.0.1:8080/graphql \
+                         -H 'content-type: application/json' \
+                         -d '{"query":"{ serverInfo { minOrderTtlSecs } }"}' > /dev/null; then
+                      exit 0
+                    fi
+                    sleep 1
+                  done
+                  echo "::error::The orderbook never came up"
+                  docker logs orderbook
+                  exit 1
+
+            - name: Post a limit order through it
+              working-directory: sdk/packages/simplex
+              env:
+                  HYPERFX_ORDERBOOK_URL: http://127.0.0.1:8080/graphql
+              run: pnpm exec vitest run --watch=false src/tests/orderbook/orderbook.live.test.ts
+
+            - name: Orderbook logs
+              if: always()
+              run: docker logs orderbook 2>&1 | tail -50

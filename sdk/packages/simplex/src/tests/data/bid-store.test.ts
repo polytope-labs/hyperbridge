@@ -187,14 +187,38 @@ for (const backend of backends) {
 		it("finds the bids that drew on a limit order, newest first", async () => {
 			// What makes a limit order's `remaining` explicable: the fills behind it.
 			const bids = backend.create()
-			await bids.store({ commitment: COMMITMENT, success: true, limitOrderId: "limit-1", reservedAmount: "100" })
-			await bids.store({ commitment: OTHER, success: true, limitOrderId: "limit-2", reservedAmount: "200" })
-			await bids.store({ commitment: THIRD, success: true, limitOrderId: "limit-1", reservedAmount: "300" })
+			const hold = (limitOrderId: string, amount: string) => [{ limitOrderId, amount }]
+			await bids.store({ commitment: COMMITMENT, success: true, reservations: hold("limit-1", "100") })
+			await bids.store({ commitment: OTHER, success: true, reservations: hold("limit-2", "200") })
+			await bids.store({
+				commitment: THIRD,
+				success: true,
+				reservations: [...hold("limit-1", "300"), ...hold("limit-2", "50")],
+			})
 
 			const drew = await bids.byLimitOrder("limit-1")
 			expect(drew.map((bid) => bid.commitment)).toEqual([THIRD, COMMITMENT])
-			expect(drew.map((bid) => bid.reservedAmount)).toEqual(["300", "100"])
+			expect(drew.map((bid) => bid.reservations[0].amount)).toEqual(["300", "100"])
+			// A bid that drew on two orders is found under both.
+			expect((await bids.byLimitOrder("limit-2")).map((bid) => bid.commitment)).toEqual([THIRD, OTHER])
 			expect(await bids.byLimitOrder("limit-3")).toEqual([])
+		})
+
+		it("keeps two bids on one order apart by their identifier", async () => {
+			// One solver bidding two prices on one order: same commitment, each bid filed
+			// under keccak256 of its own calldata.
+			const bids = backend.create()
+			const hold = (limitOrderId: string, amount: string) => [{ limitOrderId, amount }]
+			const first = `0x${"b1".repeat(32)}`
+			const second = `0x${"b2".repeat(32)}`
+			await bids.store({ commitment: COMMITMENT, bid: first, success: true, reservations: hold("limit-1", "100") })
+			await bids.store({ commitment: COMMITMENT, bid: second, success: true, reservations: hold("limit-2", "200") })
+
+			expect((await bids.byCommitments([COMMITMENT])).map((bid) => bid.bid).sort()).toEqual([first, second])
+			// Naming a bid claims its holds alone; without one, whatever is left.
+			expect(await bids.claimReservation(COMMITMENT, second)).toEqual(hold("limit-2", "200"))
+			expect(await bids.claimReservation(COMMITMENT)).toEqual(hold("limit-1", "100"))
+			expect(await bids.claimReservation(COMMITMENT)).toEqual([])
 		})
 	})
 }

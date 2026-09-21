@@ -13,7 +13,7 @@ export interface FillResult extends ExecutionResult {
 	pending?: boolean
 	/**
 	 * The identifier Hyperbridge files the bid under, once its op was built:
-	 * `keccak256` of its calldata. Retracting the bid names it.
+	 * `keccak256` of its calldata. It tells the bids on one order apart, and retracting the bid names it.
 	 */
 	bid?: HexString
 }

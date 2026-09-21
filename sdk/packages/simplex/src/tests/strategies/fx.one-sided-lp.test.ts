@@ -42,6 +42,7 @@ const configService = {
 function makeContractService(): any {
 	const cache = new Map<string, unknown>()
 	const outputs = new Map<string, unknown>()
+	const bidPlans = new Map<string, unknown>()
 	return {
 		getTokenDecimals: async () => 18,
 		cacheService: {
@@ -50,6 +51,9 @@ function makeContractService(): any {
 			getFillerOutputs: (id: string) => outputs.get(id),
 			setFillerOutputs: (id: string, value: unknown) => outputs.set(id, value),
 			setMatchedLimitOrder: () => {},
+			setBidPlans: (id: string, plans: unknown) => bidPlans.set(id, plans),
+			getBidPlans: (id: string) => bidPlans.get(id) ?? [],
+			clearBidPlans: (id: string) => bidPlans.delete(id),
 		},
 	}
 }

@@ -11,6 +11,7 @@ import {
 } from "@hyperbridge/sdk"
 import type { ChainClientManager, ContractInteractionService } from "@/services"
 import type { FillerConfigService } from "@/services/FillerConfigService"
+import type { BidPlan } from "@/services/CacheService"
 import { formatUnits } from "viem"
 import { type Logger , moduleLogger} from "@/services/Logger"
 import type { ConfirmationPolicy } from "@/config/interpolated-curve"
@@ -22,7 +23,7 @@ import type { Signer } from "@/services/wallet"
 import { paymasterReserveForToken } from "@/services/paymaster"
 import type { LimitOrderStore } from "@/data/types"
 import { toRaw, toScaled } from "@/orderbook/amounts"
-import { matchLimitOrder, type LimitOrderMatch } from "@/orderbook/matching"
+import { matchLimitOrders, type LimitOrderMatch } from "@/orderbook/matching"
 import { limitOrderUsdEdges, usdFactorsFrom, usdValueOf } from "@/orderbook/usd"
 
 /**
@@ -241,7 +242,7 @@ export class FXFiller implements FillerStrategy {
 				return false
 			}
 
-			if (!(await this.matchOrder(order))) {
+			if ((await this.matchOrder(order)).length === 0) {
 				this.logger.debug(
 					{ orderId: order.id, sourceChain: order.source, destChain: order.destination },
 					"No limit order matches this order",
@@ -302,11 +303,15 @@ export class FXFiller implements FillerStrategy {
 				return 0
 			}
 
-			const match = await this.matchOrder(order)
-			if (!match) {
+			const matches = await this.matchOrder(order)
+			if (matches.length === 0) {
 				this.logger.info({ orderId: order.id }, "Skipping order: no limit order matches it")
 				return 0
 			}
+			// The first speaks for the set wherever one has to be named: they trade
+			// the same pair on the same chain, and it is the one the swap draws on
+			// first.
+			const match = matches[0]
 
 			const outputToken = bytes32ToBytes20(output.token) as HexString
 			const outputDecimals = await this.contractService.getTokenDecimals(outputToken, destChain)
@@ -315,364 +320,415 @@ export class FXFiller implements FillerStrategy {
 				sourceChain,
 			)
 
-			// What the matched limit order will pay, in the output token's own units.
-			// `payout` is already `min(offer, remaining − reserved)`, so the order
-			// never offers more than it has left even when the wallet holds more.
-			const targetOutput = toRaw(match.payout, outputDecimals)
+			// One bid per limit order. Each is its own fill: the full input is priced
+			// against that order alone, and the gateway clamps whatever is left
+			// outstanding when the bid lands. Nothing is summed here — a combined bid
+			// would pay one input to several orders at once.
+			const plans: BidPlan[] = []
+			for (const candidate of matches) {
+				let partialFill = false
+				const fundingCalls: ERC7821Call[] = []
+				// What this limit order alone will pay, in the output token's own units.
+				// `payout` is already `min(offer, remaining − reserved)`, so the order
+				// never offers more than it has left even when the wallet holds more.
+				const offered = toRaw(candidate.payout, outputDecimals)
 
-			// Whether this order may be filled below what the user asked for. Both
-			// chains allow it: `ExtrinsicIntents._fillCrossChain` keeps cumulative
-			// progress in `_partialFills[commitment][outputToken]`, clears
-			// `_filled[commitment]` on an under-fill so another solver can take the
-			// rest, and releases escrow proportionally through `RedeemEscrowPartial`.
-			//
-			//  - An order carrying output calldata reverts (`PartialFillNotAllowed`):
-			//    the attached call runs only on a full fill, so the gateway will not
-			//    release escrow without it. That holds on both paths.
-			//  - An order already partially filled has had its escrow drawn down,
-			//    while the P&L below reads `order.inputs[0].amount` as if it were
-			//    intact. Refuse rather than mis-price it.
-			const partialEligibleCheap = (order.output.call ?? "0x").length <= 2
-			// The prior-partial probe is a contract read, and most orders fill fully
-			// and never consult it — so it runs only once an under-fill is actually on
-			// the table, and at most once per evaluation.
-			let priorPartialChecked: boolean | undefined
-			const partialEligible = async (): Promise<boolean> => {
-				if (!partialEligibleCheap) return false
-				if (priorPartialChecked === undefined) {
-					priorPartialChecked = !(await this.hasExistingPartialFill(order, destChain))
+				// Never more than the swapper asked for. The bid amount is `solverAmount`
+				// at the gateway, and on a full fill it sets `fillAmount = totalRequired`
+				// and splits everything above it between the beneficiary and the protocol,
+				// debiting the solver the whole amount. Paying the order's full offer when
+				// the ask is smaller hands that difference away; the escrow released is
+				// the same either way, so what is not bid is margin kept.
+				const targetOutput = offered < output.amount ? offered : output.amount
+
+				// Whether this order may be filled below what the user asked for. Both
+				// chains allow it: `ExtrinsicIntents._fillCrossChain` keeps cumulative
+				// progress in `_partialFills[commitment][outputToken]`, clears
+				// `_filled[commitment]` on an under-fill so another solver can take the
+				// rest, and releases escrow proportionally through `RedeemEscrowPartial`.
+				//
+				//  - An order carrying output calldata reverts (`PartialFillNotAllowed`):
+				//    the attached call runs only on a full fill, so the gateway will not
+				//    release escrow without it. That holds on both paths.
+				//  - An order already partially filled has had its escrow drawn down,
+				//    while the P&L below reads `order.inputs[0].amount` as if it were
+				//    intact. Refuse rather than mis-price it.
+				const partialEligibleCheap = (order.output.call ?? "0x").length <= 2
+				// The prior-partial probe is a contract read, and most orders fill fully
+				// and never consult it — so it runs only once an under-fill is actually on
+				// the table, and at most once per evaluation.
+				let priorPartialChecked: boolean | undefined
+				const partialEligible = async (): Promise<boolean> => {
+					if (!partialEligibleCheap) return false
+					if (priorPartialChecked === undefined) {
+						priorPartialChecked = !(await this.hasExistingPartialFill(order, destChain))
+					}
+					return priorPartialChecked
 				}
-				return priorPartialChecked
-			}
-			let partialFill = false
 
-			const fundingCalls: ERC7821Call[] = []
 
-			let deadlineTimestamp: bigint | undefined
-			try {
-				const latestBlock = await destClient.getBlock()
-				const blockTimeMs = destClient.chain?.blockTime
-				const blockTimeSec = blockTimeMs ? blockTimeMs / 1000 : 2
-				const remainingBlocks = order.deadline > latestBlock.number ? Number(order.deadline - latestBlock.number) : 0
-				deadlineTimestamp = BigInt(Math.floor(Number(latestBlock.timestamp) + remainingBlocks * blockTimeSec))
-			} catch (err) {
-				this.logger.warn({ err, destChain }, "Failed to estimate deadline timestamp, using fallback")
-			}
-
-			// The matcher already required the offer to cover the ask, so a shortfall
-			// here is the limit order running out rather than pricing badly.
-			if (targetOutput < output.amount && !(await partialEligible())) {
-				this.logger.info(
-					{
-						orderId: order.id,
-						limitOrder: match.order.id,
-						available: formatUnits(match.available, 18),
-						userRequested: output.amount.toString(),
-						payout: targetOutput.toString(),
-						crossChain: sourceChain !== destChain,
-					},
-					"Skipping order: the matched limit order cannot cover it and this order cannot be partially filled",
-				)
-				return 0
-			}
-			if (targetOutput < output.amount) partialFill = true
-
-			// Warn-only: the clamp is DISABLED, so the filler pays the full matched
-			// amount even when it exceeds (1 + maxOverfillBps) × requested.
-			const overfillCeiling = (output.amount * (10000n + this.maxOverfillBps)) / 10000n
-			if (targetOutput > overfillCeiling) {
-				this.logger.warn(
-					{
-						orderId: order.id,
-						limitOrder: match.order.id,
-						token: output.token,
-						userRequested: output.amount.toString(),
-						unclamped: targetOutput.toString(),
-						ceiling: overfillCeiling.toString(),
-						maxOverfillBps: this.maxOverfillBps.toString(),
-					},
-					"Overfill ceiling exceeded — clamp disabled, filling unclamped amount",
-				)
-			}
-
-			// Spend the free wallet balance first, down to the reserve — the paymaster's
-			// gas pull during validatePaymasterUserOp plus the vault's configured
-			// minBalance — then source any remaining shortfall from the funding venues.
-			const tokenAddress = outputToken.toLowerCase()
-			const balance = await this.getAndCacheBalance(tokenAddress, walletAddress, destClient, balanceCache)
-
-			let reserve = paymasterReserveForToken(destChain, tokenAddress, this.configService)
-			for (const venue of this.fundingVenues) {
-				reserve += venue.walletReserveForToken(destChain, tokenAddress)
-			}
-			const usableWallet = balance > reserve ? balance - reserve : 0n
-
-			const walletContribution = targetOutput < usableWallet ? targetOutput : usableWallet
-
-			let credited = 0n
-			let needed = targetOutput - walletContribution
-			for (const venue of this.fundingVenues) {
-				if (needed <= 0n) break
-				const planned = await venue.planWithdrawalForToken(destChain, walletAddress, tokenAddress, needed, deadlineTimestamp)
-				if (planned.calls.length > 0) {
-					fundingCalls.push(...planned.calls)
-					credited += planned.credited
-					needed -= planned.credited
+				let deadlineTimestamp: bigint | undefined
+				try {
+					const latestBlock = await destClient.getBlock()
+					const blockTimeMs = destClient.chain?.blockTime
+					const blockTimeSec = blockTimeMs ? blockTimeMs / 1000 : 2
+					const remainingBlocks = order.deadline > latestBlock.number ? Number(order.deadline - latestBlock.number) : 0
+					deadlineTimestamp = BigInt(Math.floor(Number(latestBlock.timestamp) + remainingBlocks * blockTimeSec))
+				} catch (err) {
+					this.logger.warn({ err, destChain }, "Failed to estimate deadline timestamp, using fallback")
 				}
-			}
 
-			const effectiveBalance = walletContribution + credited
-			const finalOutputAmount = effectiveBalance > targetOutput ? targetOutput : effectiveBalance
-
-			if (finalOutputAmount === 0n) {
-				this.logger.info(
-					{
-						orderId: order.id,
-						limitOrder: match.order.id,
-						token: output.token,
-						inputAmount: input.amount.toString(),
-						fillerBalance: balance.toString(),
-					},
-					"Skipping order: no available balance for the output token",
-				)
-				return 0
-			}
-
-			// Any shortfall makes this an under-fill, whatever caused it — the limit
-			// order running out, or not holding enough of the output token. The
-			// gateway does not care which: an under-fill on a cross-chain order or
-			// one carrying output calldata reverts, so both clear the same check.
-			if (finalOutputAmount < output.amount) {
-				if (!(await partialEligible())) {
+				// A shortfall is either the limit order running out or its price landing
+				// under what the swapper asked for. Cross-chain neither can be filled;
+				// same-chain both can, as far as the payout goes.
+				if (targetOutput < output.amount && !(await partialEligible())) {
 					this.logger.info(
 						{
 							orderId: order.id,
-							limitOrder: match.order.id,
-							token: output.token,
-							available: finalOutputAmount.toString(),
+							limitOrder: candidate.order.id,
+							available: formatUnits(
+								candidate.available,
+								18,
+							),
 							userRequested: output.amount.toString(),
+							payout: targetOutput.toString(),
 							crossChain: sourceChain !== destChain,
-							hasCalldata: (order.output.call ?? "0x").length > 2,
 						},
-						"Skipping order: cannot fill it in full and it cannot be partially filled",
+						"Skipping order: the matched limit order cannot cover it and this order cannot be partially filled",
 					)
-					return 0
+					continue
 				}
-				partialFill = true
-			}
+				if (targetOutput < output.amount) partialFill = true
 
-			// Decrement the wallet pool by what this fill drew from it (vault-sourced
-			// tokens are tracked by the venue's own reservations).
-			const walletRemaining = balance - walletContribution
-			balanceCache.set(tokenAddress, walletRemaining > 0n ? walletRemaining : 0n)
+				// Nothing is ever bid above the ask now, so the ceiling cannot be crossed
+				// on the way out. It still says something worth hearing: an offer far past
+				// what the swapper wanted is a limit order priced well away from the
+				// market, which is usually a mistake in the operator's terms.
+				const overfillCeiling = (output.amount * (10000n + this.maxOverfillBps)) / 10000n
+				if (offered > overfillCeiling) {
+					this.logger.warn(
+						{
+							orderId: order.id,
+							limitOrder: candidate.order.id,
+							token: output.token,
+							userRequested: output.amount.toString(),
+							offered: offered.toString(),
+							ceiling: overfillCeiling.toString(),
+							maxOverfillBps: this.maxOverfillBps.toString(),
+						},
+						"Limit order offers far more than the swapper asked for; bidding the ask",
+					)
+				}
 
-			// Escrow is released in proportion to the output actually delivered
-			// (IntrinsicIntents.sol: `inputs[i].amount * fillAmount / totalRequired`),
-			// and only a fill that COMPLETES the order sweeps the residue. Valuing an
-			// under-fill against the whole escrow would overstate the take.
-			const releasedInput =
-				finalOutputAmount >= output.amount
-					? input.amount
-					: (input.amount * finalOutputAmount) / output.amount
+				// Spend the free wallet balance first, down to the reserve — the paymaster's
+				// gas pull during validatePaymasterUserOp plus the vault's configured
+				// minBalance — then source any remaining shortfall from the funding venues.
+				const tokenAddress = outputToken.toLowerCase()
+				const balance = await this.getAndCacheBalance(tokenAddress, walletAddress, destClient, balanceCache)
 
-			// The same number is what the bid signs as its take: `fillOrder` settles
-			// each output against the input beside it as the solver's own rate, and the
-			// gateway refuses a take above the share of escrow the fill earns
-			// (`RateBelowOrder`). Claiming the whole input for a part of the output
-			// would be exactly that.
-			if (releasedInput === 0n) {
+				let reserve = paymasterReserveForToken(destChain, tokenAddress, this.configService)
+				for (const venue of this.fundingVenues) {
+					reserve += venue.walletReserveForToken(destChain, tokenAddress)
+				}
+				const usableWallet = balance > reserve ? balance - reserve : 0n
+
+				const walletContribution = targetOutput < usableWallet ? targetOutput : usableWallet
+
+				let credited = 0n
+				let needed = targetOutput - walletContribution
+				for (const venue of this.fundingVenues) {
+					if (needed <= 0n) break
+					const planned = await venue.planWithdrawalForToken(destChain, walletAddress, tokenAddress, needed, deadlineTimestamp)
+					if (planned.calls.length > 0) {
+						fundingCalls.push(...planned.calls)
+						credited += planned.credited
+						needed -= planned.credited
+					}
+				}
+
+				const effectiveBalance = walletContribution + credited
+				const finalOutputAmount = effectiveBalance > targetOutput ? targetOutput : effectiveBalance
+
+				if (finalOutputAmount === 0n) {
+					this.logger.info(
+						{
+							orderId: order.id,
+							limitOrder: candidate.order.id,
+							token: output.token,
+							inputAmount: input.amount.toString(),
+							fillerBalance: balance.toString(),
+						},
+						"Skipping order: no available balance for the output token",
+					)
+					continue
+				}
+
+				// Any shortfall makes this an under-fill, whatever caused it — the limit
+				// order running out, or not holding enough of the output token. The
+				// gateway does not care which: an under-fill on a cross-chain order or
+				// one carrying output calldata reverts, so both clear the same check.
+				if (finalOutputAmount < output.amount) {
+					if (!(await partialEligible())) {
+						this.logger.info(
+							{
+								orderId: order.id,
+								limitOrder: candidate.order.id,
+								token: output.token,
+								available: finalOutputAmount.toString(),
+								userRequested: output.amount.toString(),
+								crossChain: sourceChain !== destChain,
+								hasCalldata: (order.output.call ?? "0x").length > 2,
+							},
+							"Skipping order: cannot fill it in full and it cannot be partially filled",
+						)
+						continue
+					}
+					partialFill = true
+				}
+
+				// Decrement the wallet pool by what this fill drew from it (vault-sourced
+				// tokens are tracked by the venue's own reservations).
+				const walletRemaining = balance - walletContribution
+				balanceCache.set(tokenAddress, walletRemaining > 0n ? walletRemaining : 0n)
+
+				// The venue clamp is gone with the curves, so a fill can never be clamped —
+				// the halt subsystem is left in place but dormant (always recorded as a
+				// clean, unclamped outcome).
+				this.recordOrderOutcome(false, order.id)
+
+				// Escrow is released in proportion to the output actually delivered
+				// (IntrinsicIntents.sol: `inputs[i].amount * fillAmount / totalRequired`),
+				// and only a fill that COMPLETES the order sweeps the residue. Valuing an
+				// under-fill against the whole escrow would overstate the take.
+				//
+				// The contract divides by `totalRequired` and counts `fillAmount`, which is
+				// what it accepted rather than what was bid; this counts `finalOutputAmount`
+				// against `output.amount`. They are the same figures only because an order
+				// another solver has already touched is refused above, so `alreadyFilled`
+				// is zero and the bid is never above the ask. Both halves of that are
+				// load-bearing here.
+				const releasedInput =
+					finalOutputAmount >= output.amount
+						? input.amount
+						: (input.amount * finalOutputAmount) / output.amount
+
+				// The same number is what this bid signs as its take: `fillOrder` settles
+				// each output against the input beside it as the solver's own rate, and
+				// the gateway refuses a take above the share of escrow the fill earns
+				// (`RateBelowOrder`). Claiming the whole input for a part of the output
+				// would be exactly that.
+				if (releasedInput === 0n) {
+					this.logger.info(
+						{
+							orderId: order.id,
+							limitOrder: candidate.order.id,
+							payout: finalOutputAmount.toString(),
+							userRequested: output.amount.toString(),
+						},
+						"Skipping a bid: its payout is too small to release any escrow",
+					)
+					continue
+				}
+
+				const fillerOutputs: TokenInfo[] = [{ token: output.token, amount: finalOutputAmount }]
+				const fillerInputs: TokenInfo[] = [{ token: input.token, amount: releasedInput }]
+
+				const usdFactors = usdFactorsFrom(limitOrderUsdEdges(await this.limitOrders!.open()))
+				const outputSymbol = this.registry.symbolFor(outputToken, destChain)
+
+				// A same-asset market realizes its spread in kind: escrow released minus
+				// output paid, in the asset's own units. Positive iff the filler nets the
+				// asset — a sign check valid for any asset, since it never crosses units.
+				const sameAsset = outputSymbol !== null && outputSymbol === candidate.order.base && outputSymbol === candidate.order.quote
+				let realizedSpreadProfit = 0n
+				let sameAssetEdgeUsd = new Decimal(0)
+				let sameAssetProfitable = true
+				if (sameAsset) {
+					const convertedInput = adjustDecimalsFloor(releasedInput, inputDecimals, outputDecimals)
+					const spread = convertedInput - finalOutputAmount
+					if (spread <= 0n) sameAssetProfitable = false
+					realizedSpreadProfit = adjustDecimalsFloor(spread, outputDecimals, feeTokenDecimals)
+					const spreadUsd = outputSymbol && usdValueOf(usdFactors, outputSymbol, new Decimal(formatUnits(spread, outputDecimals)))
+					if (spreadUsd) sameAssetEdgeUsd = spreadUsd
+				}
+
+				// What the limit order was willing to pay against what the swapper asked
+				// for. The bid is the smaller of the two and the escrow released is the
+				// same either way, so the difference really is margin kept, and it is what
+				// pays for a partial fill's gas. It was booked here before the bid was
+				// clamped, when the contract was in fact taking every bit of it.
+				let payoutSurplusUsd = new Decimal(0)
+				if (!sameAsset && outputSymbol && offered > output.amount) {
+					const surplus = usdValueOf(
+						usdFactors,
+						outputSymbol,
+						new Decimal(formatUnits(offered - output.amount, outputDecimals)),
+					)
+					if (surplus) payoutSurplusUsd = surplus
+				}
+
+				const { totalCostInSourceFeeToken, relayerFeeInSourceFeeToken, dispatchFee } =
+					await this.contractService.estimateGasFillPost(order)
+
+				// `fillOrder` dispatches the escrow-release message back to the source
+				// chain, and HyperApp.dispatchWithFeeToken pulls `dispatchFee` from this
+				// same wallet in the destination host's fee token — which on most chains
+				// is the USDC the fill is already paying out. The sizing above committed
+				// the balance to outputs without knowing this figure (it is only priced
+				// here, after the funding calls it depends on exist), so the affordability
+				// check has to happen now. A cross-chain order cannot be partially filled,
+				// so shrinking the fill is not on the table: either the residue covers the
+				// dispatch or the order is not ours to take.
+				if (sourceChain !== destChain && dispatchFee > 0n) {
+					const feeToken = await this.contractService.getFeeTokenWithDecimals(destChain)
+					const feeTokenLower = feeToken.address.toLowerCase()
+					// `balanceCache` holds the output token's balance net of what the fill
+					// draws from it; a fee token the fill did not pay out is read fresh.
+					const residual = await this.getAndCacheBalance(feeTokenLower, walletAddress, destClient, balanceCache)
+					const required = dispatchFee + paymasterReserveForToken(destChain, feeTokenLower, this.configService)
+					if (residual < required) {
+						this.logger.info(
+							{
+								orderId: order.id,
+								feeToken: feeTokenLower,
+								residual: formatUnits(residual, feeToken.decimals),
+								dispatchFee: formatUnits(dispatchFee, feeToken.decimals),
+								required: formatUnits(required, feeToken.decimals),
+							},
+							"Skipping order: fill leaves too little of the fee token to dispatch the escrow release",
+						)
+						continue
+					}
+				}
+
+				// GATE 1 — execution cost (independent). order.fees exist solely to pay
+				// for execution: the fill gas plus, for cross-chain orders, the relayer
+				// fee for delivering the escrow-release message back to the source chain
+				// (RELAYER_MESSAGE_GAS priced on the source chain; 0 for same-chain). The
+				// swap spread is NOT credited here — fees must cover cost on their own.
+				const executionCost = totalCostInSourceFeeToken + relayerFeeInSourceFeeToken
+				const partialEdgeUsd = sameAssetEdgeUsd.plus(payoutSurplusUsd)
+
+				// GATE 1 — full fills only. A partial collects NO `order.fees`: the gateway
+				// releases those to whoever completes the order (`_withdraw(..., finalize)`
+				// with `finalize = isFullyFilled`), so there is no fee revenue to test. What
+				// a partial earns instead is its spread net of gas, which is exactly what
+				// `totalProfit` reports below — and the caller already refuses anything that
+				// does not score above zero.
+				if (!partialFill && order.fees < executionCost) {
+					this.logger.info(
+						{
+							orderId: order.id,
+							orderFees: formatUnits(order.fees, feeTokenDecimals),
+							fillGas: formatUnits(totalCostInSourceFeeToken, feeTokenDecimals),
+							relayerFee: formatUnits(relayerFeeInSourceFeeToken, feeTokenDecimals),
+							executionCost: formatUnits(executionCost, feeTokenDecimals),
+						},
+						"Skipping order: attached fees do not cover execution cost (fill gas + relayer fee)",
+					)
+					continue
+				}
+
+				// GATE 2 — same-asset spread (independent). A same-asset fill must net the
+				// filler the asset. Cross-asset fills are not gated: they fill at the rate
+				// the operator's own limit order signed for, which is the price they
+				// declared acceptable.
+				if (sameAsset && !sameAssetProfitable) {
+					this.logger.info(
+						{ orderId: order.id, realizedSpreadProfit: formatUnits(realizedSpreadProfit, feeTokenDecimals) },
+						"Skipping order: a same-asset fill does not net a positive spread",
+					)
+					continue
+				}
+
+				const feeProfit = order.fees - executionCost
+				// Both gates passed → the order is profitable. This number is only the
+				// ranking / >0 execute signal, never a funds gate (the two gates above
+				// already decided).
+				//
+				// Full fill: fee surplus (USD) plus the realized same-asset spread — for a
+				// non-USD same-asset market the spread term is in that asset's units, so
+				// the magnitude is a rough signal rather than a true dollar figure; its
+				// sign is always correct.
+				//
+				// Partial fill: the USD edge, gross. Gas is deliberately not netted off —
+				// a partial collects no fees, so netting gas would put every one of them
+				// at or below zero and nothing would ever fill. What pays for the gas is
+				// the margin in the operator's own limit order, which the engine cannot
+				// measure; the caller exempts partials from the profit floor for the same
+				// reason.
+				//
+				// A cross-chain partial pays one cost a same-chain one does not: the
+				// relayer fee carrying `RedeemEscrowPartial` back to the source. It is not
+				// netted here either, for the same reason and with the same consequence,
+				// so the operator's margin has to cover the message as well as the gas.
+				const totalProfit = partialFill
+					? partialEdgeUsd.toNumber()
+					: Number.parseFloat(formatUnits(feeProfit + realizedSpreadProfit, feeTokenDecimals))
+
 				this.logger.info(
 					{
 						orderId: order.id,
-						limitOrder: match.order.id,
-						payout: finalOutputAmount.toString(),
-						userRequested: output.amount.toString(),
+						sourceChain,
+						destChain,
+						crossChain: sourceChain !== destChain,
+						limitOrder: candidate.order.id,
+						book: candidate.order.book,
+						side: candidate.order.side,
+						price: candidate.order.price,
+						offer: candidate.offer.toString(),
+						limitOrders: matches.length,
+						available: candidate.available.toString(),
+						payout: targetOutput.toString(),
+						orderFees: formatUnits(order.fees, feeTokenDecimals),
+						fillGas: formatUnits(totalCostInSourceFeeToken, feeTokenDecimals),
+						relayerFee: formatUnits(relayerFeeInSourceFeeToken, feeTokenDecimals),
+						executionCost: formatUnits(executionCost, feeTokenDecimals),
+						feeProfit: formatUnits(feeProfit, feeTokenDecimals),
+						realizedSpreadProfit: formatUnits(realizedSpreadProfit, feeTokenDecimals),
+						payoutSurplusUsd: payoutSurplusUsd.toString(),
+						totalProfit,
+						profitable: totalProfit > 0,
 					},
-					"Skipping order: the payout is too small to release any escrow",
+					"FX swap profitability evaluation",
 				)
-				return 0
+
+				plans.push({
+					limitOrderId: candidate.order.id,
+					payout: toScaled(finalOutputAmount, outputDecimals),
+					fillerOutputs,
+					fillerInputs,
+					fundingCalls: [...fundingCalls],
+					partialFill,
+					profit: totalProfit,
+				})
+
+				// An order carrying output calldata takes exactly one bid. The attached
+				// call runs only on a full fill, so the gateway answers anything less with
+				// `PartialFillNotAllowed`: a second bid could never add to the first, and
+				// would only burn gas reverting once the first one landed.
+				if (!partialEligibleCheap) break
 			}
 
-			const fillerOutputs: TokenInfo[] = [{ token: output.token, amount: finalOutputAmount }]
-			const fillerInputs: TokenInfo[] = [{ token: input.token, amount: releasedInput }]
-			this.contractService.cacheService.setFillerOutputs(order.id!, fillerOutputs, fillerInputs)
+			if (plans.length === 0) return 0
 			if (order.id) {
-				// The bid draws on this limit order, so the reservation and the fill
-				// that later works it down both have to find the same one.
-				this.contractService.cacheService.setMatchedLimitOrder(order.id, match.order.id, match.payout)
-				if (fundingCalls.length > 0) {
-					this.contractService.cacheService.setFundingPrepends(order.id, fundingCalls)
+				this.contractService.cacheService.setBidPlans(order.id, plans)
+				// The first bid is what the single-bid path still reads when it asks what
+				// this order is being filled with.
+				this.contractService.cacheService.setFillerOutputs(order.id, plans[0].fillerOutputs, plans[0].fillerInputs)
+				this.contractService.cacheService.setPartialFill(order.id, plans[0].partialFill)
+				this.contractService.cacheService.setMatchedLimitOrder(order.id, [
+					{ limitOrderId: plans[0].limitOrderId, payout: plans[0].payout },
+				])
+				if (plans[0].fundingCalls.length > 0) {
+					this.contractService.cacheService.setFundingPrepends(order.id, plans[0].fundingCalls)
 				} else {
 					this.contractService.cacheService.clearFundingPrepends(order.id)
 				}
 			}
 
-			// Clamp is disabled, so a fill can never be clamped — the halt subsystem is
-			// left in place but dormant (always recorded as a clean, unclamped outcome).
-			this.recordOrderOutcome(false, order.id)
-
-			const usdFactors = usdFactorsFrom(limitOrderUsdEdges(await this.limitOrders!.open()))
-			const outputSymbol = this.registry.symbolFor(outputToken, destChain)
-
-			// A same-asset market realizes its spread in kind: escrow released minus
-			// output paid, in the asset's own units. Positive iff the filler nets the
-			// asset — a sign check valid for any asset, since it never crosses units.
-			const sameAsset = outputSymbol !== null && outputSymbol === match.order.base && outputSymbol === match.order.quote
-			let realizedSpreadProfit = 0n
-			let sameAssetEdgeUsd = new Decimal(0)
-			let sameAssetProfitable = true
-			if (sameAsset) {
-				const convertedInput = adjustDecimalsFloor(releasedInput, inputDecimals, outputDecimals)
-				const spread = convertedInput - finalOutputAmount
-				if (spread <= 0n) sameAssetProfitable = false
-				realizedSpreadProfit = adjustDecimalsFloor(spread, outputDecimals, feeTokenDecimals)
-				const spreadUsd = outputSymbol && usdValueOf(usdFactors, outputSymbol, new Decimal(formatUnits(spread, outputDecimals)))
-				if (spreadUsd) sameAssetEdgeUsd = spreadUsd
-			}
-
-			// What the limit order was willing to pay against what the order asked
-			// for. Handing over less than we were willing to is surplus we keep, and
-			// it is what pays for a partial fill's gas.
-			let payoutSurplusUsd = new Decimal(0)
-			if (!sameAsset && outputSymbol && targetOutput > output.amount) {
-				const surplus = usdValueOf(
-					usdFactors,
-					outputSymbol,
-					new Decimal(formatUnits(targetOutput - output.amount, outputDecimals)),
-				)
-				if (surplus) payoutSurplusUsd = surplus
-			}
-
-			const { totalCostInSourceFeeToken, relayerFeeInSourceFeeToken, dispatchFee } =
-				await this.contractService.estimateGasFillPost(order)
-
-			// `fillOrder` dispatches the escrow-release message back to the source
-			// chain, and HyperApp.dispatchWithFeeToken pulls `dispatchFee` from this
-			// same wallet in the destination host's fee token — which on most chains
-			// is the USDC the fill is already paying out. The sizing above committed
-			// the balance to outputs without knowing this figure (it is only priced
-			// here, after the funding calls it depends on exist), so the affordability
-			// check has to happen now. A cross-chain order cannot be partially filled,
-			// so shrinking the fill is not on the table: either the residue covers the
-			// dispatch or the order is not ours to take.
-			if (sourceChain !== destChain && dispatchFee > 0n) {
-				const feeToken = await this.contractService.getFeeTokenWithDecimals(destChain)
-				const feeTokenLower = feeToken.address.toLowerCase()
-				// `balanceCache` holds the output token's balance net of what the fill
-				// draws from it; a fee token the fill did not pay out is read fresh.
-				const residual = await this.getAndCacheBalance(feeTokenLower, walletAddress, destClient, balanceCache)
-				const required = dispatchFee + paymasterReserveForToken(destChain, feeTokenLower, this.configService)
-				if (residual < required) {
-					this.logger.info(
-						{
-							orderId: order.id,
-							feeToken: feeTokenLower,
-							residual: formatUnits(residual, feeToken.decimals),
-							dispatchFee: formatUnits(dispatchFee, feeToken.decimals),
-							required: formatUnits(required, feeToken.decimals),
-						},
-						"Skipping order: fill leaves too little of the fee token to dispatch the escrow release",
-					)
-					return 0
-				}
-			}
-
-			// GATE 1 — execution cost (independent). order.fees exist solely to pay
-			// for execution: the fill gas plus, for cross-chain orders, the relayer
-			// fee for delivering the escrow-release message back to the source chain
-			// (RELAYER_MESSAGE_GAS priced on the source chain; 0 for same-chain). The
-			// swap spread is NOT credited here — fees must cover cost on their own.
-			const executionCost = totalCostInSourceFeeToken + relayerFeeInSourceFeeToken
-			const partialEdgeUsd = sameAssetEdgeUsd.plus(payoutSurplusUsd)
-
-			// GATE 1 — full fills only. A partial collects NO `order.fees`: the gateway
-			// releases those to whoever completes the order (`_withdraw(..., finalize)`
-			// with `finalize = isFullyFilled`), so there is no fee revenue to test. What
-			// a partial earns instead is its spread net of gas, which is exactly what
-			// `totalProfit` reports below — and the caller already refuses anything that
-			// does not score above zero.
-			if (!partialFill && order.fees < executionCost) {
-				this.logger.info(
-					{
-						orderId: order.id,
-						orderFees: formatUnits(order.fees, feeTokenDecimals),
-						fillGas: formatUnits(totalCostInSourceFeeToken, feeTokenDecimals),
-						relayerFee: formatUnits(relayerFeeInSourceFeeToken, feeTokenDecimals),
-						executionCost: formatUnits(executionCost, feeTokenDecimals),
-					},
-					"Skipping order: attached fees do not cover execution cost (fill gas + relayer fee)",
-				)
-				return 0
-			}
-
-			// GATE 2 — same-asset spread (independent). A same-asset fill must net the
-			// filler the asset. Cross-asset fills are not gated: they fill at the rate
-			// the operator's own limit order signed for, which is the price they
-			// declared acceptable.
-			if (sameAsset && !sameAssetProfitable) {
-				this.logger.info(
-					{ orderId: order.id, realizedSpreadProfit: formatUnits(realizedSpreadProfit, feeTokenDecimals) },
-					"Skipping order: a same-asset fill does not net a positive spread",
-				)
-				return 0
-			}
-
-			const feeProfit = order.fees - executionCost
-			// Both gates passed → the order is profitable. This number is only the
-			// ranking / >0 execute signal, never a funds gate (the two gates above
-			// already decided).
-			//
-			// Full fill: fee surplus (USD) plus the realized same-asset spread — for a
-			// non-USD same-asset market the spread term is in that asset's units, so
-			// the magnitude is a rough signal rather than a true dollar figure; its
-			// sign is always correct.
-			//
-			// Partial fill: the USD edge, gross. Gas is deliberately not netted off —
-			// a partial collects no fees, so netting gas would put every one of them
-			// at or below zero and nothing would ever fill. What pays for the gas is
-			// the margin in the operator's own limit order, which the engine cannot
-			// measure; the caller exempts partials from the profit floor for the same
-			// reason.
-			//
-			// A cross-chain partial pays one cost a same-chain one does not: the
-			// relayer fee carrying `RedeemEscrowPartial` back to the source. It is not
-			// netted here either, for the same reason and with the same consequence,
-			// so the operator's margin has to cover the message as well as the gas.
-			const totalProfit = partialFill
-				? partialEdgeUsd.toNumber()
-				: Number.parseFloat(formatUnits(feeProfit + realizedSpreadProfit, feeTokenDecimals))
-
-			// Past both gates, so this is the evaluation's answer rather than a plan it
-			// may still abandon. Only now may the caller treat it as a partial.
-			if (order.id) this.contractService.cacheService.setPartialFill(order.id, partialFill)
-
-			this.logger.info(
-				{
-					orderId: order.id,
-					sourceChain,
-					destChain,
-					crossChain: sourceChain !== destChain,
-					limitOrder: match.order.id,
-					book: match.order.book,
-					side: match.order.side,
-					price: match.order.price,
-					offer: match.offer.toString(),
-					available: match.available.toString(),
-					payout: targetOutput.toString(),
-					orderFees: formatUnits(order.fees, feeTokenDecimals),
-					fillGas: formatUnits(totalCostInSourceFeeToken, feeTokenDecimals),
-					relayerFee: formatUnits(relayerFeeInSourceFeeToken, feeTokenDecimals),
-					executionCost: formatUnits(executionCost, feeTokenDecimals),
-					feeProfit: formatUnits(feeProfit, feeTokenDecimals),
-					realizedSpreadProfit: formatUnits(realizedSpreadProfit, feeTokenDecimals),
-					payoutSurplusUsd: payoutSurplusUsd.toString(),
-					totalProfit,
-					profitable: totalProfit > 0,
-				},
-				"FX swap profitability evaluation",
-			)
-
-			return totalProfit
+			// What the strategy is worth on this order is what all of its bids earn.
+			return plans.reduce((total, plan) => total + plan.profit, 0)
 		} catch (error) {
 			this.logger.error({ err: error }, "Error calculating profitability")
 			return 0
@@ -895,9 +951,9 @@ export class FXFiller implements FillerStrategy {
 	 * and the payout comes back in the same unit for the caller to bring down to
 	 * the output token's own decimals.
 	 */
-	private async matchOrder(order: Order): Promise<LimitOrderMatch | null> {
-		if (!this.limitOrders) return null
-		if (order.inputs.length !== 1 || order.output.assets.length !== 1) return null
+	private async matchOrder(order: Order): Promise<LimitOrderMatch[]> {
+		if (!this.limitOrders) return []
+		if (order.inputs.length !== 1 || order.output.assets.length !== 1) return []
 
 		const input = order.inputs[0]
 		const output = order.output.assets[0]
@@ -905,14 +961,14 @@ export class FXFiller implements FillerStrategy {
 		const outputToken = bytes32ToBytes20(output.token) as HexString
 
 		const inputSymbol = this.registry.symbolFor(inputToken, order.source)
-		if (!inputSymbol) return null
+		if (!inputSymbol) return []
 
 		const [inputDecimals, outputDecimals] = await Promise.all([
 			this.contractService.getTokenDecimals(inputToken, order.source),
 			this.contractService.getTokenDecimals(outputToken, order.destination),
 		])
 
-		return matchLimitOrder(
+		return matchLimitOrders(
 			await this.limitOrders.open(),
 			{
 				source: order.source,

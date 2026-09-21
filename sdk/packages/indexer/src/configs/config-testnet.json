@@ -94,6 +94,10 @@
 				"0xc043f483373072f7f27420d6e7d7ad269c018e18": {
 					"description": "USDT — listed so the LP balance sweep tracks the raw ERC-20 balance",
 					"vaults": []
+				},
+				"0x2bbbd701cfc25d37f18127e51df0933566d5778a": {
+					"description": "hyperCNGN (hCNGN) — testnet cNGN stand-in for the FX filler; listed so the LP balance sweep tracks the raw ERC-20 balance",
+					"vaults": []
 				}
 			}
 		}
@@ -112,6 +116,10 @@
 			"yieldVaults": {
 				"0xbe97e73126d66188d72fbf99029126d0340a7f18": {
 					"description": "USDC — listed so the LP balance sweep tracks the raw ERC-20 balance",
+					"vaults": []
+				},
+				"0xe4ff5d2ae65c10f530c000215029919961e8a758": {
+					"description": "hyperCNGN (hCNGN) — testnet cNGN stand-in for the FX filler; listed so the LP balance sweep tracks the raw ERC-20 balance",
 					"vaults": []
 				}
 			}

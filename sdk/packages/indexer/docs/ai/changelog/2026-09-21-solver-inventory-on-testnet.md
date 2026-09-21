@@ -7,7 +7,12 @@ environment:
   `${HYPERFX_ORDERBOOK_URL}/solvers`.
 - Every EVM chain with `yieldVaults` gets one `handleSolverTokenTransferEvent` datasource for each
   supported token, plus the `handleSolverInventoryBlock` block handler. On testnet that means
-  BSC Chapel (USDC, USDT) and Polygon Amoy (USDC).
+  BSC Chapel (USDC, USDT, hyperCNGN) and Polygon Amoy (USDC, hyperCNGN).
+
+hyperCNGN (`hCNGN`, 6 decimals, `evm/src/utils/HyperCNGN.sol`) is a testnet cNGN stand-in for the FX
+filler. The admin mints it, and it is verified at `0x2bbbd701cfC25D37f18127e51Df0933566D5778a` on BSC
+Chapel and `0xE4ff5d2AE65C10f530C000215029919961E8A758` on Polygon Amoy. It is listed in
+`yieldVaults` with no vaults, so its raw balances are tracked.
 
 The `enableSolverDiscovery` and `enableSolverInventory` template flags are removed. Discovery follows
 `isHyperbridgeChain`, and inventory follows `supportedTokens`.

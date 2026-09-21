@@ -15,6 +15,7 @@ services:
             DB_DATABASE: ${DB_DATABASE}
             DB_HOST: 127.0.0.1
             DB_PORT: ${DB_PORT}
+            SUBQL_ALLOW_DESTRUCTIVE_MIGRATION: ${SUBQL_ALLOW_DESTRUCTIVE_MIGRATION:-}
 
         depends_on:
             postgres:

@@ -7,6 +7,11 @@ subquery-{{chainName}}:
     DB_DATABASE: ${DB_DATABASE}
     DB_HOST: ${DB_HOST}
     DB_PORT: ${DB_PORT}
+{{#if allowSchemaMigration}}
+    # Destructive schema changes (dropped or retyped fields, removed entities) are refused unless
+    # this is true for the restart that applies them.
+    SUBQL_ALLOW_DESTRUCTIVE_MIGRATION: ${SUBQL_ALLOW_DESTRUCTIVE_MIGRATION:-}
+{{/if}}
   volumes:
     - {{volumesPath}}src/configs:/app
     - {{volumesPath}}dist:/app/dist

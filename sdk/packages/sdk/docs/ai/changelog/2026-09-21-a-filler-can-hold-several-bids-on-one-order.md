@@ -20,6 +20,10 @@ phantom bid verifier check it.
   filler chooses to tell its bids on an order apart; by convention it is `keccak256(callData)`
   (`CryptoUtils.bidId`), the same hash the nonce key takes. Placing again under an identifier the
   filler already holds replaces that bid alone, and each bid holds its own deposit.
+- A filler holds at most `MaxBidsPerFiller` bids on one order (5 on both runtimes); a new identifier
+  past that is refused with `TooManyBids`. The identifier is the filler's own choice, so without the
+  bound one account could fill an order's bids with its own and crowd every other filler's out of
+  what `intents_getBidsForOrder` serves.
 - `BidPlaced` and `BidRetracted` carry the `bid`. The offchain key is
   `intents::bid:: ++ commitment ++ filler ++ bid`.
 - `intents_getBidsForOrder` returns every bid with its `bid`, and the pool cache replaces only on the
@@ -34,8 +38,10 @@ take the identifier explicitly, and `FillerBid`, `BidStorageEntry` and the helpe
 it. The phantom helpers keep one bid per filler under the zero identifier.
 
 The indexer's `FillerBid` gains `bid`, read from `BidPlaced`, and bid data is matched to its extrinsic
-or RPC entry on commitment and identifier.
+or RPC entry on commitment and identifier. `BidPlaced` events from before the upgrade carry
+`(filler, commitment, deposit)` and are skipped (`bidPlacedCarriesBidId`).
 
 Simplex signs each bid with the nonce its own key reports (`EntryPoint.getNonce`), files it under
-`keccak256(callData)`, and retracts every identifier its account holds on a commitment, read back
-from the pallet's storage.
+`keccak256(callData)`, and records that identifier on the bid's row. Retraction names the recorded
+identifiers rather than reading the pallet's storage, which would miss a bid whose `place_bid` is
+still in the pool and abandon its deposit once it lands.

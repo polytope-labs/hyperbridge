@@ -1108,6 +1108,7 @@ export class FXFiller implements FillerStrategy {
 				strategyUsed: this.name,
 				processingTimeMs: endTime - startTime,
 				commitment,
+				bid,
 			}
 		}
 
@@ -1120,6 +1121,7 @@ export class FXFiller implements FillerStrategy {
 			txHash: bidResult.extrinsicHash,
 			error: bidResult.error,
 			commitment,
+			bid,
 		}
 	}
 

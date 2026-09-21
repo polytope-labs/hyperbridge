@@ -158,6 +158,16 @@ for (const backend of backends) {
 			expect(await bids.markDead(COMMITMENT)).toBe(false)
 		})
 
+		it("keeps the identifier each bid was placed under", async () => {
+			// What retracting the bid names; recorded at placement, never looked up.
+			const bids = backend.create()
+			await bids.store({ commitment: COMMITMENT, bid: `0x${"b1".repeat(32)}`, success: true })
+			await bids.store({ commitment: OTHER, success: true })
+
+			expect((await bids.byCommitment(COMMITMENT))!.bid).toBe(`0x${"b1".repeat(32)}`)
+			expect((await bids.byCommitment(OTHER))!.bid).toBeNull()
+		})
+
 		it("counts bids by state", async () => {
 			const bids = backend.create()
 			await bids.store({ commitment: COMMITMENT, success: true })
@@ -204,6 +214,8 @@ describe("SqliteBidStore migrations", () => {
 		const bid = await store.bids.byCommitment(COMMITMENT)
 		expect(bid).not.toBeNull()
 		expect(bid!.dead).toBe(false)
+		// A row from before bids carried an identifier has none.
+		expect(bid!.bid).toBeNull()
 
 		expect(await store.bids.markDead(COMMITMENT)).toBe(true)
 		expect((await store.bids.expiredUnretracted(HOUR_MS)).map((b) => b.commitment)).toEqual([COMMITMENT])

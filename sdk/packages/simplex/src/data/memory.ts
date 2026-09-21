@@ -52,6 +52,7 @@ class MemoryBidStore implements BidStore {
 		this.rows.push({
 			id: this.nextId++,
 			commitment: bid.commitment,
+			bid: bid.bid ?? null,
 			extrinsicHash: bid.extrinsicHash ?? null,
 			blockHash: bid.blockHash ?? null,
 			success: bid.success,

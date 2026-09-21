@@ -8,6 +8,7 @@ import { columnNames } from "./schema"
 const BID_COLUMNS = `
 	id,
 	commitment,
+	bid,
 	extrinsic_hash as extrinsicHash,
 	block_hash as blockHash,
 	success,
@@ -44,6 +45,7 @@ export class SqliteBidStore implements BidStore {
 			CREATE TABLE IF NOT EXISTS bids (
 				id INTEGER PRIMARY KEY AUTOINCREMENT,
 				commitment TEXT NOT NULL,
+				bid TEXT,
 				extrinsic_hash TEXT,
 				block_hash TEXT,
 				success INTEGER NOT NULL,
@@ -69,6 +71,12 @@ export class SqliteBidStore implements BidStore {
 			this.db.exec(`ALTER TABLE bids ADD COLUMN ${column} INTEGER NOT NULL DEFAULT 0`)
 			this.logger.info({ column }, "Migrated bid storage schema")
 		}
+		// Rows written before bids carried an identifier have none, and nothing to retract through
+		// the current calls.
+		if (!columns.has("bid")) {
+			this.db.exec("ALTER TABLE bids ADD COLUMN bid TEXT")
+			this.logger.info({ column: "bid" }, "Migrated bid storage schema")
+		}
 	}
 
 	// biome-ignore lint/suspicious/noExplicitAny: raw sqlite row
@@ -85,11 +93,12 @@ export class SqliteBidStore implements BidStore {
 	async store(bid: BidInsert): Promise<void> {
 		const result = this.db
 			.prepare(`
-				INSERT INTO bids (commitment, extrinsic_hash, block_hash, success, pending, error)
-				VALUES (?, ?, ?, ?, ?, ?)
+				INSERT INTO bids (commitment, bid, extrinsic_hash, block_hash, success, pending, error)
+				VALUES (?, ?, ?, ?, ?, ?, ?)
 			`)
 			.run(
 				bid.commitment,
+				bid.bid ?? null,
 				bid.extrinsicHash || null,
 				bid.blockHash || null,
 				bid.success ? 1 : 0,

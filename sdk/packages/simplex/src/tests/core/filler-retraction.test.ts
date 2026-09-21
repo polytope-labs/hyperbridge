@@ -1,5 +1,4 @@
 import { describe, expect, it, vi } from "vitest"
-import { decodeAddress } from "@polkadot/util-crypto"
 import type { BidSubmissionResult, HexString } from "@hyperbridge/sdk"
 import { IntentFiller } from "@/core/filler"
 import { MemoryDataStore } from "@/data/memory"
@@ -27,11 +26,9 @@ const COMMITMENT = "0x4380111111111111111111111111111111111111111111111111111111
 const OUR_ADDRESS = "0xAAAA00000000000000000000000000000000AAAA" as HexString
 const OTHER_FILLER = "0xBBBB00000000000000000000000000000000BBBB"
 const HOUR_MS = 60 * 60 * 1000
-/** The identifier Hyperbridge files our bid under: keccak256 of its calldata. */
+/** The identifier Hyperbridge files our bid under, keccak256 of its calldata, recorded at placement. */
 const OUR_BID = `0x${"b1".repeat(32)}` as HexString
-/** Alice and Bob, as SS58: the filler's own Hyperbridge account, and another solver's. */
-const OUR_SUBSTRATE_ADDRESS = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY"
-const SOMEONE_ELSE = "5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty"
+const OUR_OTHER_BID = `0x${"b2".repeat(32)}` as HexString
 
 describe("IntentFiller bid retraction", () => {
 	function build(results: BidSubmissionResult[], rebalancingService?: { rebalancePortfolio(): Promise<unknown> }) {
@@ -60,18 +57,9 @@ describe("IntentFiller bid retraction", () => {
 			rebalancingService as any,
 			bidStorage,
 		)
-		// The pallet files our bid under an identifier the row does not record, so the filler reads
-		// it back from storage for its own account before retracting.
-		const keyPair = { publicKey: decodeAddress(OUR_SUBSTRATE_ADDRESS) }
-		const getBidStorageEntries = vi.fn(async () => [
-			{ commitment: COMMITMENT, filler: OUR_SUBSTRATE_ADDRESS, bid: OUR_BID, deposit: 1n },
-			{ commitment: COMMITMENT, filler: SOMEONE_ELSE, bid: `0x${"b2".repeat(32)}`, deposit: 1n },
-		])
-		;(filler as any).hyperbridge = Promise.resolve({
-			retractBid,
-			getBidStorageEntries,
-			getKeyPair: () => keyPair,
-		})
+		// Retraction names each bid by the identifier recorded when it was placed; nothing is read
+		// back from Hyperbridge.
+		;(filler as any).hyperbridge = Promise.resolve({ retractBid })
 
 		return { filler, bidStorage, retractBid }
 	}
@@ -89,7 +77,7 @@ describe("IntentFiller bid retraction", () => {
 		const { filler, bidStorage, retractBid } = build([
 			{ success: true, extrinsicHash: "0xretract" as HexString, blockHash: "0xblock" as HexString },
 		])
-		await bidStorage.store({ commitment: COMMITMENT, success: true })
+		await bidStorage.store({ commitment: COMMITMENT, bid: OUR_BID, success: true })
 
 		await orderFilled(filler, COMMITMENT)
 
@@ -105,7 +93,7 @@ describe("IntentFiller bid retraction", () => {
 		const { filler, bidStorage, retractBid } = build([
 			{ success: false, error: "Dispatch error: intentsCoprocessor::BidNotFound" },
 		])
-		await bidStorage.store({ commitment: COMMITMENT, success: true })
+		await bidStorage.store({ commitment: COMMITMENT, bid: OUR_BID, success: true })
 
 		await orderFilled(filler, COMMITMENT)
 
@@ -125,7 +113,7 @@ describe("IntentFiller bid retraction", () => {
 			},
 			{ success: false, error: "Dispatch error: intentsCoprocessor::BidNotFound" },
 		])
-		await bidStorage.store({ commitment: COMMITMENT, success: true })
+		await bidStorage.store({ commitment: COMMITMENT, bid: OUR_BID, success: true })
 
 		await orderFilled(filler, COMMITMENT)
 
@@ -147,7 +135,7 @@ describe("IntentFiller bid retraction", () => {
 
 	it("marks the bid dead on OrderFilled so a failed retraction retries next sweep, not after the TTL", async () => {
 		const { filler, bidStorage } = build([{ success: false, error: "Transaction failed after 3 attempts" }])
-		await bidStorage.store({ commitment: COMMITMENT, success: true })
+		await bidStorage.store({ commitment: COMMITMENT, bid: OUR_BID, success: true })
 
 		await orderFilled(filler, COMMITMENT)
 
@@ -162,7 +150,7 @@ describe("IntentFiller bid retraction", () => {
 		const { filler, bidStorage, retractBid } = build([
 			{ success: true, extrinsicHash: "0xretract" as HexString, blockHash: "0xblock" as HexString },
 		])
-		await bidStorage.store({ commitment: COMMITMENT, success: true })
+		await bidStorage.store({ commitment: COMMITMENT, bid: OUR_BID, success: true })
 
 		// OrderFilled and a sweep race to enqueue the same commitment.
 		;(filler as any).handleOrderFilledOnChain(COMMITMENT, OTHER_FILLER, 8453)
@@ -171,6 +159,46 @@ describe("IntentFiller bid retraction", () => {
 
 		expect((await bidStorage.byCommitment(COMMITMENT))!.retracted).toBe(true)
 		expect(retractBid).toHaveBeenCalledTimes(1)
+	})
+
+	it("retracts a bid still in the pool by the identifier it was placed under", async () => {
+		// Its place_bid has not landed, so Hyperbridge's storage does not hold it yet. The
+		// retraction names it from the row regardless, goes out after it from the same account, and
+		// so reclaims its deposit once it lands, instead of marking it retracted and abandoning it.
+		const { filler, bidStorage, retractBid } = build([
+			{ success: true, extrinsicHash: "0xretract" as HexString, blockHash: "0xblock" as HexString },
+		])
+		await bidStorage.store({ commitment: COMMITMENT, bid: OUR_BID, success: false, pending: true })
+
+		await orderFilled(filler, COMMITMENT)
+
+		expect(retractBid).toHaveBeenCalledWith(COMMITMENT, OUR_BID)
+		expect((await bidStorage.byCommitment(COMMITMENT))!.retractExtrinsicHash).toBe("0xretract")
+	})
+
+	it("retracts every bid placed on the commitment, past one already gone", async () => {
+		const { filler, bidStorage, retractBid } = build([
+			{ success: false, error: "Dispatch error: intentsCoprocessor::BidNotFound" },
+			{ success: true, extrinsicHash: "0xretract" as HexString, blockHash: "0xblock" as HexString },
+		])
+		await bidStorage.store({ commitment: COMMITMENT, bid: OUR_BID, success: true })
+		await bidStorage.store({ commitment: COMMITMENT, bid: OUR_OTHER_BID, success: true })
+
+		await orderFilled(filler, COMMITMENT)
+
+		expect(retractBid.mock.calls.map((call) => (call as unknown[])[1]).sort()).toEqual([OUR_BID, OUR_OTHER_BID])
+		expect((await bidStorage.byCommitment(COMMITMENT))!.retracted).toBe(true)
+	})
+
+	it("marks a bid with no recorded identifier retracted without calling Hyperbridge", async () => {
+		// A row from before bids carried an identifier names nothing the current calls can retract.
+		const { filler, bidStorage, retractBid } = build([])
+		await bidStorage.store({ commitment: COMMITMENT, success: true })
+
+		await orderFilled(filler, COMMITMENT)
+
+		expect(retractBid).not.toHaveBeenCalled()
+		expect((await bidStorage.byCommitment(COMMITMENT))!.retracted).toBe(true)
 	})
 
 	it("reports work that stop drains without counting unmatched pending retractions", () => {

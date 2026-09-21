@@ -99,7 +99,7 @@ describe("HTTP submission fallback", () => {
 		const node = mockNode({ wsConnected: false })
 		const coproc = coprocessorWithHttp(node)
 
-		const result = await coproc.submitBid(COMMITMENT, USER_OP)
+		const result = await coproc.submitBid(COMMITMENT, USER_OP, 0n)
 
 		expect(node.submissions.map((s) => s.via)).toEqual(["http"])
 		expect(result.success).toBe(false)
@@ -112,7 +112,7 @@ describe("HTTP submission fallback", () => {
 		const node = mockNode({ wsConnected: true })
 		const coproc = coprocessorWithHttp(node)
 
-		const result = await coproc.submitBid(COMMITMENT, USER_OP)
+		const result = await coproc.submitBid(COMMITMENT, USER_OP, 0n)
 
 		expect(node.submissions.map((s) => s.via)).toEqual(["ws"])
 		expect(result.success).toBe(true)
@@ -137,7 +137,7 @@ describe("HTTP submission fallback", () => {
 		node.wsApi._rpcCore = { provider: { endpoint: "ws://127.0.0.1:1" } }
 		const coproc = IntentsCoprocessor.fromApi(node.wsApi, "//Alice")
 
-		const result = await coproc.submitBid(COMMITMENT, USER_OP)
+		const result = await coproc.submitBid(COMMITMENT, USER_OP, 0n)
 
 		expect(node.submissions).toEqual([])
 		expect(result.success).toBe(false)
@@ -152,7 +152,7 @@ describe("HTTP submission fallback", () => {
 		})
 		const coproc = coprocessorWithHttp(node)
 
-		const result = await coproc.submitBid(COMMITMENT, USER_OP)
+		const result = await coproc.submitBid(COMMITMENT, USER_OP, 0n)
 
 		expect(result.success).toBe(false)
 		expect(result.pending).toBe(true)
@@ -165,7 +165,7 @@ describe("HTTP submission fallback", () => {
 		})
 		const coproc = coprocessorWithHttp(node)
 
-		const result = await coproc.submitBid(COMMITMENT, USER_OP)
+		const result = await coproc.submitBid(COMMITMENT, USER_OP, 0n)
 
 		expect(result.success).toBe(false)
 		expect(result.pending).toBeUndefined()
@@ -207,7 +207,12 @@ describe("RPC queries", () => {
 						bids: {
 							entries: async () => {
 								calls.push("bids.entries")
-								return [[{ args: [null, { toString: () => filler }] }, { toString: () => "42" }]]
+								return [
+									[
+										{ args: [null, { toString: () => filler }, { toString: () => "3" }] },
+										{ toString: () => "42" },
+									],
+								]
 							},
 						},
 					},
@@ -231,7 +236,7 @@ describe("RPC queries", () => {
 
 		const entries = await coproc.getBidStorageEntries(COMMITMENT)
 
-		expect(entries).toEqual([{ commitment: COMMITMENT, filler: expect.any(String), deposit: 42n }])
+		expect(entries).toEqual([{ commitment: COMMITMENT, filler: expect.any(String), sequence: 3n, deposit: 42n }])
 		expect(node.calls).toEqual(["bids.entries"])
 	})
 

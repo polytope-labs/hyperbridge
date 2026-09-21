@@ -1470,6 +1470,8 @@ export interface BidStorageEntry {
 	commitment: HexString
 	/** The filler's Substrate account ID (SS58 encoded) */
 	filler: string
+	/** Which of the filler's bids on the order this is: the EntryPoint sequence its UserOp signs */
+	sequence: bigint
 	/** The deposit amount stored on-chain (BalanceOf<T> = u128) */
 	deposit: bigint
 }
@@ -1481,6 +1483,12 @@ export interface BidStorageEntry {
 export interface FillerBid {
 	/** The filler's Substrate account ID (SS58 encoded) */
 	filler: string
+	/**
+	 * Which of the filler's bids on the order this is: the EntryPoint sequence its UserOp signs
+	 * under the order's nonce key. A filler offering several prices bids once per price, and the
+	 * EntryPoint only runs a key's sequences in order.
+	 */
+	sequence: bigint
 	/** The decoded PackedUserOperation */
 	userOp: PackedUserOperation
 	/** The deposit amount stored on-chain (in plancks) */

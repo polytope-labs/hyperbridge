@@ -190,6 +190,7 @@ pub type Migrations = (
 	pallet_beefy_consensus_proofs::migrations::ClearAcceptedProofHashes<Runtime>,
 	pallet_collator_manager::migrations::MigrateBondsToReserves<Runtime>,
 	pallet_intents_coprocessor::migrations::MigrateConfigToStorageMap<Runtime>,
+	pallet_intents_coprocessor::migrations::KeyBidsBySequence<Runtime>,
 );
 
 /// Handles converting a weight scalar to a fee value, based on the scale and granularity of the

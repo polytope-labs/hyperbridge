@@ -80,6 +80,7 @@ describe("Order execution bid-selection integration", () => {
 		const second = makeBid({ solverAddress: SOLVER_TWO, amount: 110n, execute: secondExecute })
 		const rawBids: FillerBid[] = [first, second].map((bid, index) => ({
 			filler: `solver-${index}`,
+			sequence: 0n,
 			userOp: bid.userOp,
 			deposit: 0n,
 		}))

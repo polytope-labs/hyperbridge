@@ -577,6 +577,8 @@ export function zipFillLegs(
 export interface RpcBidInfo {
 	commitment: string
 	filler: string
+	/** Which of the filler's bids on the order this is: the EntryPoint sequence its UserOp signs. */
+	sequence: number
 	user_op: string
 }
 

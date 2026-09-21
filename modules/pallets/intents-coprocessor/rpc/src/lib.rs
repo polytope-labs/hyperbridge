@@ -49,13 +49,18 @@ pub struct RpcBidInfo {
 	pub commitment: H256,
 	#[serde(with = "hex_bytes")]
 	pub filler: Vec<u8>,
+	/// Which of the filler's bids on the order this is: the EntryPoint sequence its UserOp signs
+	/// under the order's nonce key.
+	pub sequence: u64,
 	#[serde(with = "hex_bytes")]
 	pub user_op: Vec<u8>,
 }
 
+/// A bid is identified by its filler and sequence, so a filler's several bids on one order are
+/// kept apart and a bid placed again at the same sequence replaces the one before it.
 impl Ord for RpcBidInfo {
 	fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-		self.filler.cmp(&other.filler)
+		(&self.filler, self.sequence).cmp(&(&other.filler, other.sequence))
 	}
 }
 
@@ -88,6 +93,7 @@ mod hex_bytes {
 #[derive(Clone, Debug)]
 struct BidEntry {
 	filler: Vec<u8>,
+	sequence: u64,
 	user_op: Vec<u8>,
 }
 
@@ -112,15 +118,18 @@ impl BidCache {
 		&self,
 		commitment: H256,
 		filler: Vec<u8>,
+		sequence: u64,
 		user_op: Vec<u8>,
 	) -> Result<(), String> {
-		let entry = BidEntry { filler: filler.clone(), user_op };
+		let entry = BidEntry { filler: filler.clone(), sequence, user_op };
 
 		let mut bids = self.bids.write().map_err(|e| format!("BidCache lock poisoned: {e}"))?;
 		let order = bids
 			.entry(commitment)
 			.or_insert_with(|| OrderBids { first_seen: Instant::now(), entries: Vec::new() });
-		if let Some(existing) = order.entries.iter_mut().find(|e| e.filler == filler) {
+		if let Some(existing) =
+			order.entries.iter_mut().find(|e| e.filler == filler && e.sequence == sequence)
+		{
 			*existing = entry;
 		} else {
 			order.entries.push(entry);
@@ -139,6 +148,7 @@ impl BidCache {
 					.map(|e| RpcBidInfo {
 						commitment: *commitment,
 						filler: e.filler.clone(),
+						sequence: e.sequence,
 						user_op: e.user_op.clone(),
 					})
 					.collect()
@@ -158,8 +168,8 @@ fn runtime_error_into_rpc_error(e: impl std::fmt::Display) -> ErrorObjectOwned {
 	ErrorObject::owned(9877, format!("{e}"), None::<String>)
 }
 
-/// Construct the storage key prefix for iterating all fillers in the on-chain
-/// `Bids` double-map for a given order commitment.
+/// Construct the storage key prefix for iterating every bid in the on-chain `Bids` map for a
+/// given order commitment, across all fillers and sequences.
 fn bids_storage_prefix(commitment: &H256) -> Vec<u8> {
 	let mut prefix = Vec::new();
 	prefix.extend_from_slice(&sp_crypto_hashing::twox_128(b"IntentsCoprocessor"));
@@ -169,6 +179,22 @@ fn bids_storage_prefix(commitment: &H256) -> Vec<u8> {
 	prefix.extend_from_slice(&sp_crypto_hashing::blake2_128(commitment_bytes));
 	prefix.extend_from_slice(commitment_bytes);
 	prefix
+}
+
+/// Splits what follows the commitment in a `Bids` key into the encoded filler and the sequence.
+///
+/// The layout is `blake2_128(filler) ++ filler_encoded ++ twox_64(sequence) ++ sequence`, with the
+/// sequence little-endian, so the filler is whatever sits between the first hash and the last 16
+/// bytes.
+fn bid_key_suffix(suffix: &[u8]) -> Option<(&[u8], u64)> {
+	const HASH: usize = 16;
+	const SEQUENCE: usize = 8 + 8;
+	if suffix.len() <= HASH + SEQUENCE {
+		return None;
+	}
+	let filler = &suffix[HASH..suffix.len() - SEQUENCE];
+	let sequence = u64::from_le_bytes(suffix[suffix.len() - 8..].try_into().ok()?);
+	Some((filler, sequence))
 }
 
 #[rpc(client, server)]
@@ -233,24 +259,26 @@ where
 		const MAX_ON_CHAIN_BIDS: usize = 30;
 
 		for key in keys.take(MAX_ON_CHAIN_BIDS) {
-			// Key layout after prefix: blake2_128(filler) ++ filler_encoded
-			let filler_start = prefix.len() + 16;
-			if key.0.len() > filler_start {
-				let filler_encoded = &key.0[filler_start..];
+			let Some((filler_encoded, sequence)) = bid_key_suffix(&key.0[prefix.len()..]) else {
+				continue;
+			};
 
-				let offchain_key =
-					pallet_intents_coprocessor::offchain_bid_key_raw(&commitment, filler_encoded);
+			let offchain_key = pallet_intents_coprocessor::offchain_bid_key_raw(
+				&commitment,
+				filler_encoded,
+				sequence,
+			);
 
-				if let Some(data) = self.offchain_storage.get(STORAGE_PREFIX, &offchain_key) {
-					// Bid encoding: filler.encode() ++ user_op.encode()
-					if data.len() > filler_encoded.len() {
-						if let Ok(user_op) = Vec::<u8>::decode(&mut &data[filler_encoded.len()..]) {
-							bids.insert(RpcBidInfo {
-								commitment,
-								filler: filler_encoded.to_vec(),
-								user_op,
-							});
-						}
+			if let Some(data) = self.offchain_storage.get(STORAGE_PREFIX, &offchain_key) {
+				// Bid encoding: filler.encode() ++ user_op.encode()
+				if data.len() > filler_encoded.len() {
+					if let Ok(user_op) = Vec::<u8>::decode(&mut &data[filler_encoded.len()..]) {
+						bids.insert(RpcBidInfo {
+							commitment,
+							filler: filler_encoded.to_vec(),
+							sequence,
+							user_op,
+						});
 					}
 				}
 			}
@@ -291,8 +319,8 @@ where
 /// Extract a bid from encoded extrinsic bytes using generic runtime types.
 ///
 /// Decodes the extrinsic and uses `IsSubType` to extract the pallet-level
-/// `place_bid` call, returning `(commitment, filler_encoded, user_op)`.
-pub fn extract_bid<T, Extra>(encoded: &[u8]) -> Option<(H256, Vec<u8>, Vec<u8>)>
+/// `place_bid` call, returning `(commitment, filler_encoded, sequence, user_op)`.
+pub fn extract_bid<T, Extra>(encoded: &[u8]) -> Option<(H256, Vec<u8>, u64, Vec<u8>)>
 where
 	T: pallet_intents_coprocessor::Config,
 	T::RuntimeCall: frame_support::traits::IsSubType<pallet_intents_coprocessor::Call<T>>
@@ -317,8 +345,8 @@ where
 	};
 
 	match xt.function.is_sub_type()? {
-		pallet_intents_coprocessor::Call::place_bid { commitment, user_op } =>
-			Some((commitment.clone(), filler, user_op.to_vec())),
+		pallet_intents_coprocessor::Call::place_bid { commitment, sequence, user_op } =>
+			Some((commitment.clone(), filler, *sequence, user_op.to_vec())),
 		_ => None,
 	}
 }
@@ -357,17 +385,17 @@ pub async fn run_bid_watcher<P, Block, T, Extra>(
 
 				let extrinsic_bytes = tx.data().encode();
 
-				if let Some((commitment, filler, user_op)) = extract_bid::<T, Extra>(&extrinsic_bytes) {
+				if let Some((commitment, filler, sequence, user_op)) = extract_bid::<T, Extra>(&extrinsic_bytes) {
 					log::info!(
 						target: LOG_TARGET,
-						"bid in mempool for {commitment:?}",
+						"bid in mempool for {commitment:?} at sequence {sequence}",
 					);
-					if let Err(e) = bid_cache.insert(commitment, filler.clone(), user_op.clone()) {
+					if let Err(e) = bid_cache.insert(commitment, filler.clone(), sequence, user_op.clone()) {
 						log::warn!(target: LOG_TARGET, "failed to cache bid: {e}");
 						continue;
 					}
 
-					let _ = bid_sender.send(RpcBidInfo { commitment, filler, user_op });
+					let _ = bid_sender.send(RpcBidInfo { commitment, filler, sequence, user_op });
 				}
 			}
 			_ = timer.tick() => {
@@ -391,7 +419,7 @@ mod tests {
 	fn insert_and_get() {
 		let c = cache();
 		let key = H256::random();
-		c.insert(key, vec![1, 2, 3], vec![4, 5, 6]).unwrap();
+		c.insert(key, vec![1, 2, 3], 0, vec![4, 5, 6]).unwrap();
 
 		let bids: Vec<_> = c.get_bids(&key).unwrap().into_iter().collect();
 		assert_eq!(bids.len(), 1);
@@ -404,8 +432,8 @@ mod tests {
 		let c = cache();
 		let key = H256::random();
 
-		c.insert(key, vec![1], vec![10]).unwrap();
-		c.insert(key, vec![2], vec![20]).unwrap();
+		c.insert(key, vec![1], 0, vec![10]).unwrap();
+		c.insert(key, vec![2], 0, vec![20]).unwrap();
 
 		let bids = c.get_bids(&key).unwrap();
 		assert_eq!(bids.len(), 2);
@@ -414,16 +442,44 @@ mod tests {
 	}
 
 	#[test]
-	fn duplicate_filler_replaces_previous_bid() {
+	fn same_filler_and_sequence_replaces_previous_bid() {
 		let c = cache();
 		let key = H256::random();
 
-		c.insert(key, vec![1], vec![10]).unwrap();
-		c.insert(key, vec![1], vec![99]).unwrap();
+		c.insert(key, vec![1], 0, vec![10]).unwrap();
+		c.insert(key, vec![1], 0, vec![99]).unwrap();
 
 		let bids: Vec<_> = c.get_bids(&key).unwrap().into_iter().collect();
 		assert_eq!(bids.len(), 1);
 		assert_eq!(bids[0].user_op, vec![99]);
+	}
+
+	#[test]
+	fn one_filler_keeps_a_bid_per_sequence() {
+		let c = cache();
+		let key = H256::random();
+
+		c.insert(key, vec![1], 0, vec![10]).unwrap();
+		c.insert(key, vec![1], 1, vec![11]).unwrap();
+		c.insert(key, vec![1], 2, vec![12]).unwrap();
+
+		let bids: Vec<_> = c.get_bids(&key).unwrap().into_iter().collect();
+		assert_eq!(
+			bids.iter().map(|b| (b.sequence, b.user_op.clone())).collect::<Vec<_>>(),
+			vec![(0, vec![10]), (1, vec![11]), (2, vec![12]),]
+		);
+	}
+
+	#[test]
+	fn bid_key_suffix_splits_filler_and_sequence() {
+		let filler = [9u8; 32];
+		let mut suffix = vec![0u8; 16];
+		suffix.extend_from_slice(&filler);
+		suffix.extend_from_slice(&[0u8; 8]);
+		suffix.extend_from_slice(&7u64.to_le_bytes());
+
+		assert_eq!(bid_key_suffix(&suffix), Some((&filler[..], 7)));
+		assert_eq!(bid_key_suffix(&suffix[..24]), None);
 	}
 
 	#[test]
@@ -436,7 +492,7 @@ mod tests {
 		let c = BidCache::new(Duration::from_millis(50));
 		let key = H256::random();
 
-		c.insert(key, vec![1], vec![10]).unwrap();
+		c.insert(key, vec![1], 0, vec![10]).unwrap();
 		std::thread::sleep(Duration::from_millis(100));
 		c.remove_expired().unwrap();
 

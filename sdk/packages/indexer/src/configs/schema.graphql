@@ -2403,6 +2403,12 @@ type FillerBid @entity {
 	filler: String! @index
 
 	"""
+	Which of the filler's bids on the order this is: the EntryPoint sequence its UserOp signs under
+	the order's nonce key. A filler offering several prices on one order places one bid per price.
+	"""
+	sequence: BigInt!
+
+	"""
 	The raw bid payload — the SCALE-encoded PackedUserOperation the filler submitted, as hex. Stored
 	undecoded so a bid stays fully re-interpretable as the fill ABI evolves, and because the pallet's
 	own copy expires. Null when neither the extrinsic nor the RPC yielded it.

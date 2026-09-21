@@ -63,11 +63,17 @@ pub const PALLET_INTENTS_ID: &[u8] = b"pallet-intents";
 /// Logging target for this pallet.
 const LOG_TARGET: &str = "runtime::intents-coprocessor";
 
-/// Generate the offchain storage key for a bid given raw commitment and filler bytes.
-pub fn offchain_bid_key_raw(commitment: &H256, filler_encoded: &[u8]) -> Vec<u8> {
+/// Generate the offchain storage key for a bid given raw commitment and filler bytes and the
+/// bid's sequence.
+///
+/// A filler can hold several bids on one order, each a UserOp on the same nonce key told apart by
+/// its sequence, so the sequence is part of the key: without it the second bid would overwrite
+/// the first.
+pub fn offchain_bid_key_raw(commitment: &H256, filler_encoded: &[u8], sequence: u64) -> Vec<u8> {
 	let mut key = b"intents::bid::".to_vec();
 	key.extend_from_slice(commitment.as_bytes());
 	key.extend_from_slice(filler_encoded);
+	key.extend_from_slice(&sequence.to_le_bytes());
 	key
 }
 
@@ -87,7 +93,7 @@ pub mod pallet {
 	use polkadot_sdk::sp_runtime::traits::Saturating;
 
 	/// Current storage version.
-	const STORAGE_VERSION: StorageVersion = StorageVersion::new(2);
+	const STORAGE_VERSION: StorageVersion = StorageVersion::new(3);
 
 	#[pallet::pallet]
 	#[pallet::without_storage_info]
@@ -125,17 +131,23 @@ pub mod pallet {
 		<T as polkadot_sdk::frame_system::Config>::AccountId,
 	>>::Balance;
 
-	/// Storage for bids indexed by commitment and filler address
-	/// Allows easy discovery of all bids for a given order commitment
-	/// The actual bid data is stored in offchain storage
-	/// We store the deposit amount here for accurate refunds
+	/// Storage for bids indexed by commitment, filler address and sequence.
+	///
+	/// A filler may hold several bids on one order: each is a UserOp on the order's nonce key, and
+	/// the EntryPoint tells them apart by the 64-bit sequence below that key, which is the
+	/// `sequence` here. Keying by it lets every one of them stand, where keying by filler alone
+	/// would leave only the last.
+	///
+	/// Allows easy discovery of all bids for a given order commitment. The actual bid data is
+	/// stored in offchain storage; the deposit amount is stored here for accurate refunds.
 	#[pallet::storage]
-	pub type Bids<T: Config> = StorageDoubleMap<
+	pub type Bids<T: Config> = StorageNMap<
 		_,
-		Blake2_128Concat,
-		H256, // commitment
-		Blake2_128Concat,
-		T::AccountId, // filler
+		(
+			NMapKey<Blake2_128Concat, H256>,         // commitment
+			NMapKey<Blake2_128Concat, T::AccountId>, // filler
+			NMapKey<Twox64Concat, u64>,              // sequence
+		),
 		BalanceOf<T>, // deposit amount, actual bid data in offchain storage
 		OptionQuery,
 	>;
@@ -200,9 +212,9 @@ pub mod pallet {
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
 	pub enum Event<T: Config> {
 		/// A bid was placed by a filler
-		BidPlaced { filler: T::AccountId, commitment: H256, deposit: BalanceOf<T> },
+		BidPlaced { filler: T::AccountId, commitment: H256, sequence: u64, deposit: BalanceOf<T> },
 		/// A bid was retracted by a filler
-		BidRetracted { filler: T::AccountId, commitment: H256, refund: BalanceOf<T> },
+		BidRetracted { filler: T::AccountId, commitment: H256, sequence: u64, refund: BalanceOf<T> },
 		/// Gateway parameters were updated
 		GatewayParamsUpdated {
 			state_machine: StateMachine,
@@ -322,8 +334,14 @@ pub mod pallet {
 	{
 		/// Place a bid for an order
 		///
+		/// A filler can bid on one order several times — one UserOp per price it offers — and
+		/// `sequence` says which bid this is. It is the EntryPoint sequence the UserOp signs
+		/// below the order's nonce key, so each bid stands on its own: placing again at a
+		/// sequence the filler already holds replaces that bid and nothing else.
+		///
 		/// # Parameters
 		/// - `commitment`: The order commitment hash
+		/// - `sequence`: The bid's EntryPoint nonce sequence under the order's nonce key
 		/// - `user_op`: The signed user operation as opaque bytes (max 1MB)
 		///
 		/// # Errors
@@ -334,6 +352,7 @@ pub mod pallet {
 		pub fn place_bid(
 			origin: OriginFor<T>,
 			commitment: H256,
+			sequence: u64,
 			user_op: BoundedVec<u8, ConstU32<1_048_576>>,
 		) -> DispatchResult {
 			let filler = ensure_signed(origin)?;
@@ -352,14 +371,14 @@ pub mod pallet {
 						Error::<T>::PhantomOrderBidWindowClosed
 					);
 					ensure!(
-						!Bids::<T>::contains_key(&commitment, &filler),
+						Bids::<T>::iter_prefix((&commitment, &filler)).next().is_none(),
 						Error::<T>::DuplicatePhantomBid
 					);
 				}
 			}
 
-			// If a bid already exists, unreserve the old deposit first
-			if let Some(old_deposit) = Bids::<T>::get(&commitment, &filler) {
+			// If this bid already exists, unreserve the old deposit first
+			if let Some(old_deposit) = Bids::<T>::get((&commitment, &filler, sequence)) {
 				<T as Config>::Currency::unreserve(&filler, old_deposit);
 			}
 
@@ -371,13 +390,13 @@ pub mod pallet {
 
 			// Store the bid in offchain storage
 			let bid = Bid { filler: filler.clone(), user_op: user_op.to_vec() };
-			let offchain_key = Self::offchain_bid_key(&commitment, &filler);
+			let offchain_key = Self::offchain_bid_key(&commitment, &filler, sequence);
 			offchain_index::set(&offchain_key, &bid.encode());
 
 			// Store deposit amount in onchain storage for discoverability and accurate refunds
-			Bids::<T>::insert(&commitment, &filler, deposit);
+			Bids::<T>::insert((&commitment, &filler, sequence), deposit);
 
-			Self::deposit_event(Event::BidPlaced { filler, commitment, deposit });
+			Self::deposit_event(Event::BidPlaced { filler, commitment, sequence, deposit });
 
 			Ok(())
 		}
@@ -386,28 +405,39 @@ pub mod pallet {
 		///
 		/// # Parameters
 		/// - `commitment`: The order commitment hash
+		/// - `sequence`: Which of the filler's bids on the order to retract
 		///
 		/// # Errors
-		/// - `BidNotFound`: If no bid exists for this filler and commitment
+		/// - `BidNotFound`: If no bid exists for this filler, commitment and sequence
 		#[pallet::call_index(1)]
 		#[pallet::weight(T::WeightInfo::retract_bid())]
-		pub fn retract_bid(origin: OriginFor<T>, commitment: H256) -> DispatchResult {
+		pub fn retract_bid(
+			origin: OriginFor<T>,
+			commitment: H256,
+			sequence: u64,
+		) -> DispatchResult {
 			let filler = ensure_signed(origin)?;
 
 			// Get the bid deposit amount
-			let deposit = Bids::<T>::get(&commitment, &filler).ok_or(Error::<T>::BidNotFound)?;
+			let deposit =
+				Bids::<T>::get((&commitment, &filler, sequence)).ok_or(Error::<T>::BidNotFound)?;
 
 			// Unreserve the deposit
 			<T as Config>::Currency::unreserve(&filler, deposit);
 
 			// Remove the bid marker from onchain storage
-			Bids::<T>::remove(&commitment, &filler);
+			Bids::<T>::remove((&commitment, &filler, sequence));
 
 			// Clear the bid from offchain storage
-			let offchain_key = Self::offchain_bid_key(&commitment, &filler);
+			let offchain_key = Self::offchain_bid_key(&commitment, &filler, sequence);
 			offchain_index::clear(&offchain_key);
 
-			Self::deposit_event(Event::BidRetracted { filler, commitment, refund: deposit });
+			Self::deposit_event(Event::BidRetracted {
+				filler,
+				commitment,
+				sequence,
+				refund: deposit,
+			});
 
 			Ok(())
 		}
@@ -1210,8 +1240,12 @@ pub mod pallet {
 		}
 
 		/// Generate offchain storage key for a bid
-		pub fn offchain_bid_key(commitment: &H256, filler: &T::AccountId) -> Vec<u8> {
-			offchain_bid_key_raw(commitment, &filler.encode())
+		pub fn offchain_bid_key(
+			commitment: &H256,
+			filler: &T::AccountId,
+			sequence: u64,
+		) -> Vec<u8> {
+			offchain_bid_key_raw(commitment, &filler.encode(), sequence)
 		}
 
 		/// Dispatch a cross-chain message to a gateway contract

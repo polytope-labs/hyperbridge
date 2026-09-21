@@ -13,7 +13,8 @@ import { FillerBid } from "@/configs/src/types"
  * Payload order:
  *   0. filler:     AccountId
  *   1. commitment: H256
- *   2. deposit:    Balance
+ *   2. sequence:   u64
+ *   3. deposit:    Balance
  *
  * The event carries no bid payload, so it is resolved separately by resolveBidData and stored raw.
  */
@@ -24,10 +25,11 @@ export const handleBidPlaced = wrap(async (event: SubstrateEvent): Promise<void>
 		extrinsic,
 	} = event
 
-	const [fillerData, commitmentData] = data
+	const [fillerData, commitmentData, sequenceData] = data
 
 	const filler = fillerData.toString()
 	const commitment = commitmentData.toHex()
+	const sequence = BigInt(sequenceData.toString())
 	const blockNumber = block.block.header.number.toBigInt()
 
 	// A filler may re-bid on the same commitment, so the block number and event index are part of the
@@ -40,6 +42,7 @@ export const handleBidPlaced = wrap(async (event: SubstrateEvent): Promise<void>
 	const bidData = await resolveBidData({
 		extrinsic,
 		commitment,
+		sequence,
 		// The RPC keys bids by the raw AccountId bytes, not the SS58 form stored on the entity.
 		fillerHex: fillerData.toHex(),
 		nodeUrl: replaceWebsocketWithHttp(ENV_CONFIG[host] ?? "") || undefined,
@@ -49,10 +52,14 @@ export const handleBidPlaced = wrap(async (event: SubstrateEvent): Promise<void>
 		id,
 		commitment,
 		filler,
+		sequence,
 		bidData,
 		extrinsicHash: extrinsic?.extrinsic.hash.toString(),
 		blockNumber,
 	}).save()
 
-	logger.info({ commitment, filler, blockNumber }, `FillerBid indexed${bidData ? "" : " (no bid data)"}`)
+	logger.info(
+		{ commitment, filler, sequence: sequence.toString(), blockNumber },
+		`FillerBid indexed${bidData ? "" : " (no bid data)"}`,
+	)
 })

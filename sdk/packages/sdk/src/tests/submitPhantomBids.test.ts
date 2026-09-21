@@ -96,11 +96,14 @@ function mockNode(options: { events?: unknown[]; dropped?: boolean; stallAttempt
 				},
 			},
 			intentsCoprocessor: {
-				placeBid: (commitment: HexString, userOp: HexString) => ({
+				placeBid: (commitment: HexString, sequence: bigint, userOp: HexString) => ({
 					call: "placeBid",
-					args: [commitment, userOp],
+					args: [commitment, sequence, userOp],
 				}),
-				retractBid: (commitment: HexString) => ({ call: "retractBid", args: [commitment] }),
+				retractBid: (commitment: HexString, sequence: bigint) => ({
+					call: "retractBid",
+					args: [commitment, sequence],
+				}),
 			},
 		},
 		registry: {

@@ -205,6 +205,61 @@ mod v2 {
 	}
 }
 
+mod v3 {
+	use super::*;
+	use crate::BalanceOf;
+	use alloc::vec::Vec;
+	use frame_support::{
+		pallet_prelude::OptionQuery, storage_alias, traits::Get, Blake2_128Concat,
+	};
+	use primitive_types::H256;
+
+	/// `Bids` as it stood before v3: one bid per filler on an order.
+	#[storage_alias]
+	pub type Bids<T: Config> = StorageDoubleMap<
+		Pallet<T>,
+		Blake2_128Concat,
+		H256,
+		Blake2_128Concat,
+		<T as frame_system::Config>::AccountId,
+		BalanceOf<T>,
+		OptionQuery,
+	>;
+
+	/// Moves every standing bid into the sequence-keyed `Bids` map at sequence 0, which is the
+	/// sequence a filler's only bid on an order signed.
+	///
+	/// The deposits come across unchanged, so each one stays refundable through
+	/// `retract_bid(commitment, 0)`. The bid data in offchain storage does not: the runtime cannot
+	/// read it to move it, so a bid standing across the upgrade is no longer served over RPC and
+	/// its filler has to place it again to be discovered.
+	///
+	/// The old keys are a prefix of the new ones under the same storage prefix, so every old entry
+	/// is taken before any new one is written.
+	pub struct KeyBidsBySequence<T>(PhantomData<T>);
+
+	impl<T: Config> UncheckedOnRuntimeUpgrade for KeyBidsBySequence<T> {
+		fn on_runtime_upgrade() -> Weight {
+			let standing: Vec<_> = Bids::<T>::drain().collect();
+			let moved = standing.len() as u64;
+			for (commitment, filler, deposit) in standing {
+				crate::Bids::<T>::insert((commitment, filler, 0u64), deposit);
+			}
+			T::DbWeight::get().reads_writes(moved, moved.saturating_mul(2))
+		}
+	}
+}
+
+/// Migration that keys `Bids` by sequence as well as filler (v2 → v3), so a filler can hold
+/// several bids on one order.
+pub type KeyBidsBySequence<T> = VersionedMigration<
+	2,
+	3,
+	v3::KeyBidsBySequence<T>,
+	Pallet<T>,
+	<T as frame_system::Config>::DbWeight,
+>;
+
 /// Migration that moves the phantom order configuration from a single storage value into the
 /// per-chain `PhantomOrderConfig` map (v1 → v2), so chains can be configured independently.
 pub type MigrateConfigToStorageMap<T> = VersionedMigration<
@@ -328,6 +383,26 @@ mod tests {
 				vec![reversed, usdt]
 			);
 			assert_eq!(crate::PhantomChains::<Test>::get().len(), 1);
+		});
+	}
+
+	#[test]
+	fn standing_bids_move_to_sequence_zero() {
+		new_test_ext().execute_with(|| {
+			let commitment = primitive_types::H256::repeat_byte(7);
+			let (alice, bob) = (
+				sp_core::crypto::AccountId32::new([1; 32]),
+				sp_core::crypto::AccountId32::new([2; 32]),
+			);
+			v3::Bids::<Test>::insert(commitment, &alice, 100u64);
+			v3::Bids::<Test>::insert(commitment, &bob, 250u64);
+
+			v3::KeyBidsBySequence::<Test>::on_runtime_upgrade();
+
+			// Each filler's only bid was the one at sequence 0, and its deposit comes with it.
+			assert_eq!(crate::Bids::<Test>::get((commitment, &alice, 0u64)), Some(100));
+			assert_eq!(crate::Bids::<Test>::get((commitment, &bob, 0u64)), Some(250));
+			assert_eq!(crate::Bids::<Test>::iter().count(), 2);
 		});
 	}
 

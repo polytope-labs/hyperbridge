@@ -87,7 +87,7 @@ function mockApi(
 /** Runs retractBid with a short watch timeout so timeout paths don't take 30s. */
 async function retractWithShortTimeout(coproc: IntentsCoprocessor, timeoutMs: number): Promise<BidSubmissionResult> {
 	return await (coproc as any).signAndSendExtrinsic(
-		(api: any) => api.tx.intentsCoprocessor.retractBid(COMMITMENT),
+		(api: any) => api.tx.intentsCoprocessor.retractBid(COMMITMENT, 0n),
 		3,
 		timeoutMs,
 	)
@@ -109,7 +109,7 @@ describe("in-flight extrinsic handling", () => {
 		)
 		const coproc = IntentsCoprocessor.fromApi(api, "//Alice")
 
-		const result = await coproc.retractBid(COMMITMENT)
+		const result = await coproc.retractBid(COMMITMENT, 0n)
 
 		expect(result.success).toBe(false)
 		expect(result.pending).toBe(true)
@@ -120,7 +120,7 @@ describe("in-flight extrinsic handling", () => {
 		const { api, calls } = mockApi(() => Promise.reject(new Error("Transaction is already in the pool")))
 		const coproc = IntentsCoprocessor.fromApi(api, "//Alice")
 
-		const result = await coproc.retractBid(COMMITMENT)
+		const result = await coproc.retractBid(COMMITMENT, 0n)
 
 		expect(result.pending).toBe(true)
 		expect(calls.count).toBe(1)
@@ -229,7 +229,7 @@ describe("in-flight extrinsic handling", () => {
 		)
 		const coproc = IntentsCoprocessor.fromApi(api, "//Alice")
 
-		const result = await coproc.retractBid(COMMITMENT)
+		const result = await coproc.retractBid(COMMITMENT, 0n)
 
 		expect(result.success).toBe(false)
 		expect(result.pending).toBeUndefined()
@@ -249,7 +249,7 @@ describe("in-flight extrinsic handling", () => {
 			})
 			const coproc = IntentsCoprocessor.fromApi(api, "//Alice")
 
-			const submission = coproc.retractBid(COMMITMENT)
+			const submission = coproc.retractBid(COMMITMENT, 0n)
 			await vi.advanceTimersByTimeAsync(20_000)
 			expect(calls.count).toBe(2)
 
@@ -280,7 +280,7 @@ describe("in-flight extrinsic handling", () => {
 		})
 		const coproc = IntentsCoprocessor.fromApi(api, "//Alice")
 
-		const result = await coproc.retractBid(COMMITMENT)
+		const result = await coproc.retractBid(COMMITMENT, 0n)
 
 		expect(result.success).toBe(false)
 		expect(result.pending).toBeUndefined()

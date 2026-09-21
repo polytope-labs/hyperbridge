@@ -50,10 +50,10 @@ mod benchmarks {
 		<T as Config>::Currency::make_free_balance_be(&caller, balance);
 
 		#[extrinsic_call]
-		_(RawOrigin::Signed(caller.clone()), commitment, user_op);
+		_(RawOrigin::Signed(caller.clone()), commitment, 0, user_op);
 
 		// Verify bid was placed
-		assert!(Bids::<T>::contains_key(&commitment, &caller));
+		assert!(Bids::<T>::contains_key((&commitment, &caller, 0u64)));
 	}
 
 	#[benchmark]
@@ -69,14 +69,18 @@ mod benchmarks {
 		<T as Config>::Currency::make_free_balance_be(&caller, balance);
 
 		// Place a bid first
-		let _ =
-			Pallet::<T>::place_bid(RawOrigin::Signed(caller.clone()).into(), commitment, user_op);
+		let _ = Pallet::<T>::place_bid(
+			RawOrigin::Signed(caller.clone()).into(),
+			commitment,
+			0,
+			user_op,
+		);
 
 		#[extrinsic_call]
-		_(RawOrigin::Signed(caller.clone()), commitment);
+		_(RawOrigin::Signed(caller.clone()), commitment, 0);
 
 		// Verify bid was removed
-		assert!(!Bids::<T>::contains_key(&commitment, &caller));
+		assert!(!Bids::<T>::contains_key((&commitment, &caller, 0u64)));
 	}
 
 	#[benchmark]

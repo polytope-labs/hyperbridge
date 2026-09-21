@@ -59,7 +59,7 @@ describe.sequential("IntentsCoprocessor", () => {
 		console.log("UserOp nonce:", testUserOp.nonce.toString())
 		console.log("Encoded userOp length:", encodedUserOp.length)
 
-		const result = await coprocessor.submitBid(testCommitment, encodedUserOp)
+		const result = await coprocessor.submitBid(testCommitment, encodedUserOp, 0n)
 
 		console.log("Submit bid result:", result)
 
@@ -114,7 +114,7 @@ describe.sequential("IntentsCoprocessor", () => {
 	it("should retract a bid", async () => {
 		console.log("Retracting bid with commitment:", testCommitment)
 
-		const result = await coprocessor.retractBid(testCommitment)
+		const result = await coprocessor.retractBid(testCommitment, 0n)
 
 		console.log("Retract bid result:", result)
 

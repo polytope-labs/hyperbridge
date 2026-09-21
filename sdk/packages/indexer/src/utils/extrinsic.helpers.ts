@@ -57,17 +57,20 @@ export function findInCallTree<T>(
 /**
  * Pulls the `user_op` argument out of the place_bid call that raised a BidPlaced event.
  *
- * Matches on commitment, not just on the call being a place_bid: one batch may carry bids for
- * several orders, and taking the first would attribute another order's quote to this event.
+ * Matches on commitment and sequence, not just on the call being a place_bid: one batch may carry
+ * bids for several orders, or several bids on one order at different prices, and taking the first
+ * would attribute another bid's quote to this event.
  */
 export function extractUserOpFromExtrinsic(
 	extrinsic: SubstrateExtrinsic | undefined,
 	commitment: string,
+	sequence: bigint,
 ): string | undefined {
 	return findInCallTree(extrinsic, (call) => {
 		if (call.section !== "intentsCoprocessor" || call.method !== "placeBid") return undefined
-		const [commitmentArg, userOpArg] = call.args
+		const [commitmentArg, sequenceArg, userOpArg] = call.args
 		if (commitmentArg?.toHex?.() !== commitment) return undefined
+		if (sequenceArg === undefined || BigInt(sequenceArg.toString()) !== sequence) return undefined
 		return userOpArg?.toHex?.() as string | undefined
 	})
 }

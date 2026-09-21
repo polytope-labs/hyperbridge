@@ -2405,8 +2405,9 @@ type FillerBid @entity {
 	"""
 	Which of the filler's bids on the order this is (bytes32). A filler offering several prices on one
 	order places one bid per price; by convention the identifier is keccak256 of the UserOp's callData.
+	Nullable so the column can be added in place; rows indexed before bids carried an identifier have none.
 	"""
-	bid: String! @index
+	bid: String @index
 
 	"""
 	The raw bid payload — the SCALE-encoded PackedUserOperation the filler submitted, as hex. Stored

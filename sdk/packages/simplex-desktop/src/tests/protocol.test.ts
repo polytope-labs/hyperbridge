@@ -1,18 +1,20 @@
 import { randomUUID } from "node:crypto"
-import { existsSync, mkdtempSync, unlinkSync } from "node:fs"
+import { existsSync, mkdtempSync, mkdirSync, rmSync, unlinkSync, writeFileSync } from "node:fs"
 import { createServer, type RequestListener, type Server } from "node:http"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
-import { proxyToSimplex } from "../protocol"
+import { handleSimplexProtocol, proxyToSimplex } from "../protocol"
 
 describe("simplex protocol proxy", () => {
 	let server: Server | undefined
 	let socketPath: string | undefined
+	const temporaryDirectories: string[] = []
 
 	afterEach(async () => {
 		if (server) await new Promise<void>((resolve) => server!.close(() => resolve()))
 		if (socketPath && existsSync(socketPath)) unlinkSync(socketPath)
+		for (const directory of temporaryDirectories.splice(0)) rmSync(directory, { recursive: true, force: true })
 		server = undefined
 		socketPath = undefined
 	})
@@ -29,6 +31,65 @@ describe("simplex protocol proxy", () => {
 		})
 		return socketPath
 	}
+
+	function uiFixture() {
+		const directory = mkdtempSync(join(tmpdir(), "simplex-desktop-ui-"))
+		temporaryDirectories.push(directory)
+		mkdirSync(join(directory, "assets"))
+		writeFileSync(join(directory, "index.html"), '<div id="root">packaged desktop UI</div>')
+		writeFileSync(join(directory, "assets", "app.js"), "globalThis.simplexDesktop = true")
+		return directory
+	}
+
+	it("serves the UI bundled with Electron instead of a stale solver UI", async () => {
+		let upstreamRequests = 0
+		const socketPath = await listen((_request, response) => {
+			upstreamRequests += 1
+			response.writeHead(200, { "Content-Type": "text/html" })
+			response.end("<h1>UI not built</h1>")
+		})
+		const response = await handleSimplexProtocol(new Request("simplex://local/"), {
+			socketPath,
+			uiDistDir: uiFixture(),
+			desktopVersion: "new-desktop",
+		})
+
+		expect(response.status).toBe(200)
+		expect(response.headers.get("content-type")).toBe("text/html; charset=utf-8")
+		expect(await response.text()).toContain("packaged desktop UI")
+		expect(upstreamRequests).toBe(0)
+	})
+
+	it("serves bundled assets and falls back to its index for client routes", async () => {
+		const uiDistDir = uiFixture()
+		const asset = await handleSimplexProtocol(new Request("simplex://local/assets/app.js"), {
+			socketPath: "/tmp/unused.sock",
+			uiDistDir,
+		})
+		const route = await handleSimplexProtocol(new Request("simplex://local/orders/active"), {
+			socketPath: "/tmp/unused.sock",
+			uiDistDir,
+		})
+
+		expect(asset.headers.get("cache-control")).toBe("public, max-age=31536000, immutable")
+		expect(await asset.text()).toContain("simplexDesktop")
+		expect(await route.text()).toContain("packaged desktop UI")
+	})
+
+	it("continues proxying API requests to the running solver", async () => {
+		const socketPath = await listen((request, response) => {
+			response.writeHead(200, { "Content-Type": "application/json" })
+			response.end(JSON.stringify({ path: request.url, version: "old-solver" }))
+		})
+		const response = await handleSimplexProtocol(new Request("simplex://local/api/status"), {
+			socketPath,
+			uiDistDir: uiFixture(),
+			desktopVersion: "new-desktop",
+		})
+
+		expect(response.headers.get("x-simplex-desktop-version")).toBe("new-desktop")
+		expect(await response.json()).toEqual({ path: "/api/status", version: "old-solver" })
+	})
 
 	it("preserves a GET path, query, status and response headers", async () => {
 		const path = await listen((request, response) => {

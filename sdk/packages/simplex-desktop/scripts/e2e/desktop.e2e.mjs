@@ -317,7 +317,11 @@ function operatorFixture(socketPath, options = {}) {
 		chains: [],
 		strategyTypes: [],
 	}
-	server = new UiServer({ mode: "operator", uiDistDir: join(simplexRoot, "dist/ui"), operator })
+	server = new UiServer({
+		mode: "operator",
+		uiDistDir: options.uiDistDir === null ? undefined : (options.uiDistDir ?? join(simplexRoot, "dist/ui")),
+		operator,
+	})
 	return {
 		server,
 		activity,
@@ -671,6 +675,23 @@ test("a solver version mismatch blocks the dashboard and offers a bundled restar
 		}),
 		{ visible: true, enabled: true },
 	)
+})
+
+test("the desktop uses its bundled UI when an attached same-version solver has no UI build", async (t) => {
+	const userDataDir = await temporaryUserData("stale-solver-ui")
+	const socketPath = socketPathFor(userDataDir)
+	let electronApp
+	const fixture = operatorFixture(socketPath, { uiDistDir: null })
+	t.after(async () => {
+		fixture.stop()
+		await cleanupDesktop(electronApp, userDataDir)
+	})
+
+	await fixture.start()
+	let page
+	;({ electronApp, page } = await launchDesktop(userDataDir))
+	await page.getByRole("heading", { name: "Overview" }).waitFor({ timeout: 30_000 })
+	assert.equal(await page.getByText("UI not built").count(), 0)
 })
 
 test("the custom protocol reconnects Orders SSE and releases streams across 20 reloads", async (t) => {

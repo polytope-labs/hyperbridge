@@ -1,8 +1,8 @@
 import { isHex, hexToString } from "viem"
 import { ABI as IntentGatewayV2ABI } from "@/abis/IntentGatewayV2"
 import { orderCommitment } from "./utils"
-import { readLegEscrow } from "./escrowReads"
-import type { Order, HexString } from "@/types"
+import { readLegEscrow, readLegPartialFill } from "./escrowReads"
+import type { Order, HexString, TokenInfo } from "@/types"
 import type { IntentGatewayContext } from "./types"
 
 /**
@@ -19,36 +19,41 @@ export class OrderStatusChecker {
 	constructor(private readonly ctx: IntentGatewayContext) {}
 
 	/**
-	 * Checks if a V2 order has been filled by reading the commitment storage slot on the destination chain.
-	 *
-	 * Reads the storage slot returned by `calculateCommitmentSlotHash` on the IntentGatewayV2 contract.
-	 * A non-zero value at that slot means the solver has called `fillOrder` and the order is complete
-	 * from the user's perspective (the beneficiary has received their tokens).
+	 * Whether the order is finalized on the destination chain, read from the gateway's `_filled`
+	 * getter. It is set by the completing fill, and by a cancellation, which records the refund
+	 * beneficiary there. A partially filled order reads false; see {@link getFillProgress}.
 	 *
 	 * @param order - The V2 order to check. `order.id` is used as the commitment; if not set it is computed.
-	 * @returns True if the order has been filled on the destination chain, false otherwise.
 	 */
 	async isOrderFilled(order: Order): Promise<boolean> {
 		const commitment = (order.id ?? orderCommitment(order)) as HexString
-		const destStateMachineId = isHex(order.destination)
-			? hexToString(order.destination as HexString)
-			: order.destination
-
-		const intentGatewayV2Address = this.ctx.dest.configService.getIntentGatewayAddress(destStateMachineId)
-
-		const filledSlot = await this.ctx.dest.client.readContract({
+		const gateway = this.ctx.dest.configService.getIntentGatewayAddress(destinationStateMachine(order))
+		const finalizer = (await this.ctx.dest.client.readContract({
 			abi: IntentGatewayV2ABI,
-			address: intentGatewayV2Address,
-			functionName: "calculateCommitmentSlotHash",
+			address: gateway,
+			functionName: "_filled",
 			args: [commitment],
-		})
+		})) as HexString
+		return !/^0x0{40}$/i.test(finalizer)
+	}
 
-		const filledStatus = await this.ctx.dest.client.getStorageAt({
-			address: intentGatewayV2Address,
-			slot: filledSlot as HexString,
-		})
-
-		return filledStatus !== "0x0000000000000000000000000000000000000000000000000000000000000000"
+	/**
+	 * Output credited to the order so far, one entry per leg, read from `_partialFills` on the
+	 * destination chain. Several solvers can each fill a slice of a same-chain or cross-chain order,
+	 * so this, not {@link isOrderFilled}, says how far along an open order is. Surplus paid above
+	 * the order's rate is not counted.
+	 *
+	 * @param order - The V2 order to check. `order.id` is used as the commitment; if not set it is computed.
+	 */
+	async getFillProgress(order: Order): Promise<TokenInfo[]> {
+		const commitment = (order.id ?? orderCommitment(order)) as HexString
+		const gateway = this.ctx.dest.configService.getIntentGatewayAddress(destinationStateMachine(order))
+		return Promise.all(
+			order.output.assets.map(async (asset, index) => ({
+				token: asset.token,
+				amount: await readLegPartialFill(this.ctx.dest.client, gateway, commitment, index, asset.token),
+			})),
+		)
 	}
 
 	/**
@@ -87,4 +92,8 @@ export class OrderStatusChecker {
 
 		return true
 	}
+}
+
+function destinationStateMachine(order: Order): string {
+	return isHex(order.destination) ? hexToString(order.destination as HexString) : order.destination
 }

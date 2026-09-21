@@ -13,6 +13,7 @@ import type {
 	AvailableLiquidity,
 	BuyAndSellRates,
 	QueryBuyAndSellRatesParams,
+	TokenInfo,
 } from "@/types"
 import type {
 	PackedUserOperation,
@@ -899,6 +900,17 @@ export class IntentGateway {
 	 */
 	async isOrderFilled(order: Order): Promise<boolean> {
 		return this.orderStatusChecker.isOrderFilled(order)
+	}
+
+	/**
+	 * Output credited to the order so far, one entry per leg.
+	 *
+	 * Delegates to {@link OrderStatusChecker.getFillProgress}.
+	 *
+	 * @param order - The order to check.
+	 */
+	async getFillProgress(order: Order): Promise<TokenInfo[]> {
+		return this.orderStatusChecker.getFillProgress(order)
 	}
 
 	/**

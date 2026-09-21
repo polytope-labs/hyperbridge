@@ -1,4 +1,4 @@
-import { parseAbi, type PublicClient } from "viem"
+import { encodePacked, keccak256, parseAbi, type PublicClient } from "viem"
 import { ABI as IntentGatewayV2ABI } from "@/abis/IntentGatewayV2"
 import type { HexString } from "@/types"
 import { bytes32ToBytes20 } from "@/utils"
@@ -138,4 +138,17 @@ export function isRevert(error: unknown): boolean {
 		current = item.cause
 	}
 	return false
+}
+
+/** Slot of the gateway's `_partialFills` mapping; a cross-chain cancel proves values under it. */
+const PARTIAL_FILLS_SLOT = 11n
+
+/**
+ * Storage slot of `_partialFills[commitment][index]` on the destination gateway. The source gateway
+ * requests one of these per leg when a cross-chain order is cancelled, so the state proof handed to
+ * Hyperbridge has to cover exactly these slots.
+ */
+export function partialFillSlot(commitment: HexString, index: number): HexString {
+	const inner = keccak256(encodePacked(["bytes32", "uint256"], [commitment, PARTIAL_FILLS_SLOT]))
+	return keccak256(encodePacked(["uint256", "bytes32"], [BigInt(index), inner]))
 }

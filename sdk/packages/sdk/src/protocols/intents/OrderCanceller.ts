@@ -1,4 +1,4 @@
-import { encodeFunctionData, concatHex, parseEventLogs, pad } from "viem"
+import { encodeAbiParameters, encodeFunctionData, concatHex, parseEventLogs, pad } from "viem"
 import { LogLevels, createConsola } from "consola"
 import { ABI as IntentGatewayV2ABI } from "@/abis/IntentGatewayV2"
 import EVM_HOST from "@/abis/evmHost"
@@ -6,7 +6,8 @@ import {
 	getRequestCommitment,
 	postRequestCommitment,
 	constructRefundEscrowRequestBody,
-	encodeWithdrawalRequest,
+	bytes20ToBytes32,
+	normalizeAddressForEvmBytes32,
 	adjustDecimals,
 	normalizeStateMachineId,
 	parseStateMachineId,
@@ -25,6 +26,7 @@ import { RequestStatus } from "@/types"
 import type { IntentGatewayContext } from "./types"
 import type { CancelEvent } from "./types"
 import { transformOrderForContract, fetchSourceProof, getFeeToken, convertGasToFeeToken } from "./utils"
+import { partialFillSlot } from "./escrowReads"
 
 /**
  * Handles cancellation of IntentGatewayV2 orders from either the source or
@@ -86,8 +88,9 @@ export class OrderCanceller {
 	/**
 	 * Quotes the native token cost of a source-initiated cross-chain cancellation.
 	 *
-	 * Constructs a mock ISMP GET request for the destination commitment slot and
-	 * calls `quoteNative` on the source host to obtain the dispatch fee.
+	 * Constructs the ISMP GET request the source gateway will dispatch, one
+	 * `_partialFills` key per leg, and calls `quoteNative` on the source host to
+	 * obtain the dispatch fee.
 	 * Returns 0 for same-chain orders (no ISMP call needed).
 	 *
 	 * @param order - The order to quote.
@@ -103,15 +106,9 @@ export class OrderCanceller {
 		const height = order.deadline + 1n
 
 		const destIntentGateway = this.ctx.dest.configService.getIntentGatewayAddress(destStateMachine)
-		const slotHash = await this.ctx.dest.client.readContract({
-			abi: IntentGatewayV2ABI,
-			address: destIntentGateway,
-			functionName: "calculateCommitmentSlotHash",
-			args: [order.id as HexString],
-		})
-		const key = concatHex([destIntentGateway as HexString, slotHash as HexString]) as HexString
-
-		const context = encodeWithdrawalRequest(order, order.user as HexString)
+		const commitment = this.orderId(order) as HexString
+		const keys = order.inputs.map((_, index) => concatHex([destIntentGateway, partialFillSlot(commitment, index)]))
+		const context = cancelFromSourceContext(order, commitment)
 
 		const getRequest: IGetRequest = {
 			source: sourceStateMachine,
@@ -119,7 +116,7 @@ export class OrderCanceller {
 			from: this.ctx.source.configService.getIntentGatewayAddress(destStateMachine),
 			nonce: await this.ctx.source.getHostNonce(),
 			height,
-			keys: [key],
+			keys,
 			timeoutTimestamp: 0n,
 			context,
 		}
@@ -570,9 +567,9 @@ export class OrderCanceller {
 	}
 
 	/**
-	 * Polls for a finalized destination-chain state proof that demonstrates
-	 * the order commitment slot is unset (i.e. the order was not filled before
-	 * the deadline).
+	 * Polls for a finalized destination-chain state proof of every leg's
+	 * `_partialFills` slot, i.e. how much of the order was filled before the
+	 * deadline.
 	 *
 	 * Waits until the latest Hyperbridge-tracked state-machine height exceeds
 	 * `order.deadline` (or the last failed probe height) before attempting to
@@ -609,15 +606,9 @@ export class OrderCanceller {
 				const intentGatewayV2Address = this.ctx.dest.configService.getIntentGatewayAddress(
 					this.ctx.dest.config.stateMachineId,
 				)
-				const orderId = this.orderId(order)
-				const slotHash = (await this.ctx.dest.client.readContract({
-					abi: IntentGatewayV2ABI,
-					address: intentGatewayV2Address,
-					functionName: "calculateCommitmentSlotHash",
-					args: [orderId as HexString],
-				})) as HexString
-
-				const proofHex = await this.ctx.dest.queryStateProof(latestHeight, [slotHash], intentGatewayV2Address)
+				const commitment = this.orderId(order) as HexString
+				const slots = order.inputs.map((_, index) => partialFillSlot(commitment, index))
+				const proofHex = await this.ctx.dest.queryStateProof(latestHeight, slots, intentGatewayV2Address)
 
 				const proof: IProof = {
 					consensusStateId: this.ctx.dest.config.consensusStateId,
@@ -842,4 +833,28 @@ export class OrderCanceller {
 
 		return (feeInDestFeeToken * 1005n) / 1000n
 	}
+}
+
+/** The context the source gateway attaches to its cancel GET: `abi.encode(commitment, user, inputs, totalRequired)`. */
+function cancelFromSourceContext(order: Order, commitment: HexString): HexString {
+	return encodeAbiParameters(
+		[
+			{ type: "bytes32" },
+			{ type: "bytes32" },
+			{
+				type: "tuple[]",
+				components: [
+					{ name: "token", type: "bytes32" },
+					{ name: "amount", type: "uint256" },
+				],
+			},
+			{ type: "uint256[]" },
+		],
+		[
+			commitment,
+			bytes20ToBytes32(order.user as HexString),
+			order.inputs.map((input) => ({ token: normalizeAddressForEvmBytes32(input.token), amount: input.amount })),
+			order.output.assets.map((asset) => asset.amount),
+		],
+	)
 }

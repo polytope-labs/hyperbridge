@@ -747,6 +747,16 @@ export enum RequestKind {
 	 * Identifies a request for refunding escrowed tokens after cancellation
 	 */
 	RefundEscrow = 4,
+
+	/**
+	 * Identifies a governance call the gateway runs against itself, such as an upgrade
+	 */
+	Execute = 5,
+
+	/**
+	 * Identifies a request for redeeming a slice of an escrow after a partial fill, leaving the order open
+	 */
+	RedeemEscrowPartial = 6,
 }
 
 /**

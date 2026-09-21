@@ -557,7 +557,7 @@ Convenience wrapper around `quoteCancelOrder(order, { from: "destination" })`.
 
 ### isOrderFilled(order)
 
-Checks whether an order has been filled on the destination chain by reading the commitment storage slot.
+Checks whether an order is finalized on the destination chain, by a completing fill or by a cancellation there. A partially filled order returns `false`; use `getFillProgress` to see how far along it is.
 
 ```typescript lineNumbers
 async isOrderFilled(order: Order): Promise<boolean>
@@ -570,6 +570,24 @@ async isOrderFilled(order: Order): Promise<boolean>
 | `order` | `Order` | The order to check |
 
 **Returns:** `Promise<boolean>` — `true` if the order has been filled
+
+---
+
+### getFillProgress(order)
+
+Reads the output credited to the order so far on the destination chain, one entry per leg. Several solvers can each fill a slice of an order, same-chain or cross-chain, so this is how to track an open order. Surplus paid above the order's rate is not counted.
+
+```typescript lineNumbers
+async getFillProgress(order: Order): Promise<TokenInfo[]>
+```
+
+**Parameters:**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `order` | `Order` | The order to check |
+
+**Returns:** `Promise<TokenInfo[]>` — the output token and credited amount of each leg, in `order.output.assets` order
 
 ---
 

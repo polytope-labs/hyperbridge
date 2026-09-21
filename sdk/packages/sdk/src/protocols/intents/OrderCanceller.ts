@@ -567,9 +567,9 @@ export class OrderCanceller {
 	}
 
 	/**
-	 * Polls for a finalized destination-chain state proof that demonstrates
-	 * the order commitment slot is unset (i.e. the order was not filled before
-	 * the deadline).
+	 * Polls for a finalized destination-chain state proof of every leg's
+	 * `_partialFills` slot, i.e. how much of the order was filled before the
+	 * deadline.
 	 *
 	 * Waits until the latest Hyperbridge-tracked state-machine height exceeds
 	 * `order.deadline` (or the last failed probe height) before attempting to

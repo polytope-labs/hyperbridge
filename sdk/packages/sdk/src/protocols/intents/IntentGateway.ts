@@ -890,13 +890,13 @@ export class IntentGateway {
 	}
 
 	/**
-	 * Checks whether an order has been filled on the destination chain.
+	 * Checks whether an order is finalized on the destination chain.
 	 *
 	 * Delegates to {@link OrderStatusChecker.isOrderFilled}.
 	 *
 	 * @param order - The order to check.
-	 * @returns `true` if the order's commitment slot on the destination chain is
-	 *   non-zero (i.e. `fillOrder` has been called successfully).
+	 * @returns `true` once a completing fill or a destination-side cancellation
+	 *   has finalized the order; `false` while it is open or only partly filled.
 	 */
 	async isOrderFilled(order: Order): Promise<boolean> {
 		return this.orderStatusChecker.isOrderFilled(order)

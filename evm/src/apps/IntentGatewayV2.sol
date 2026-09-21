@@ -407,7 +407,7 @@ contract IntentGatewayV2 is
 
     /**
      * @dev Records a solver selection signed by the order's session key, for `fillOrder` in the
-     * same transaction. Returns the session key.
+     * same transaction. Returns the session key. Reverts `Filled` on a finalized order.
      */
     function select(SelectOptions calldata options) public returns (address) {
         return _select(options);
@@ -435,12 +435,15 @@ contract IntentGatewayV2 is
         if (_filled[commitment] != address(0)) revert Filled();
 
         if (_params.solverSelection) {
+            // The caller's own selection slot, so a second selection on this order in the same
+            // bundle cannot clobber it. See `_select`.
+            bytes32 selectionSlot = keccak256(abi.encode(commitment, msg.sender));
             bytes32 storedSelectionHash;
             assembly {
-                storedSelectionHash := tload(commitment)
+                storedSelectionHash := tload(selectionSlot)
             }
 
-            bytes32 expectedSelectionHash = keccak256(abi.encode(msg.sender, order.session));
+            bytes32 expectedSelectionHash = keccak256(abi.encode(order.session));
             if (storedSelectionHash != expectedSelectionHash) revert Unauthorized();
         }
 

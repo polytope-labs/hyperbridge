@@ -777,18 +777,29 @@ abstract contract IntentsBase is EIP712 {
     }
 
     /**
-     * @dev Recovers the session key that signed the selection and stores `keccak256(solver,
-     * sessionKey)` in transient storage under the commitment.
+     * @dev Recovers the session key that signed the selection and stores `keccak256(sessionKey)` in
+     * transient storage under `keccak256(commitment, solver)`. Reverts `Filled` on an order that is
+     * already finalized, so a stale bid fails here rather than in `fillOrder`.
+     *
+     * The slot carries the solver so two selections on one order never share it. A 4337 bundle runs
+     * every validation before any execution, so a slot keyed by commitment alone would leave only
+     * the last selection standing and every earlier fill in the bundle reverting `Unauthorized`.
+     * Keyed this way each fill reads its own selection and the order's own state decides the race:
+     * the second fill takes what is left, or reverts `Filled` if the first completed it.
      */
     function _select(SelectOptions calldata options) internal returns (address) {
+        if (_filled[options.commitment] != address(0)) revert Filled();
+
         bytes32 structHash = keccak256(abi.encode(SELECT_SOLVER_TYPEHASH, options.commitment, options.solver));
         bytes32 digest = _hashTypedDataV4(structHash);
         address sessionKey = ECDSA.recover(digest, options.signature);
 
-        bytes32 commitment = options.commitment;
-        bytes32 selectionHash = keccak256(abi.encode(options.solver, sessionKey));
+        bytes32 slot = keccak256(abi.encode(options.commitment, options.solver));
+        // Hashed, never the bare key: an untouched slot reads zero, which must not match an order
+        // whose `session` is the zero address.
+        bytes32 selectionHash = keccak256(abi.encode(sessionKey));
         assembly {
-            tstore(commitment, selectionHash)
+            tstore(slot, selectionHash)
         }
 
         return sessionKey;

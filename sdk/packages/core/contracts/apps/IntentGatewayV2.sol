@@ -572,7 +572,8 @@ interface IIntentGatewayV2 {
     function placeOrder(Order memory order, bytes32 graffiti) external payable;
 
     /**
-     * @notice Selects a solver for an order (when solver selection is enabled).
+     * @notice Selects a solver for an order (when solver selection is enabled). Reverts `Filled`
+     *         if the order has already been filled, refunded or cancelled.
      * @param options The options for selecting a solver
      * @return sessionKey The recovered session key address
      */

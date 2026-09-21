@@ -907,23 +907,26 @@ export class ContractInteractionService {
 			},
 		]
 
+		const callData = encodeERC7821ExecuteBatch(calls)
+
 		// `prepareSubmitBid` binds the nonce key and prefixes the signature with
 		// `order.id`, both of which have to be this commitment. Setting it here is
 		// what makes the shared builder produce a limit order's op rather than a
-		// second copy of the signing logic.
+		// second copy of the signing logic. The key binds the calldata too, as it
+		// does for every bid, so each posting is the first sequence of its own key.
 		const userOp = await sdkHelper.prepareSubmitBid({
 			order: { ...order, id: commitment },
 			fillOptions,
 			solverAccount: this.solverAccountAddress,
 			solverSigner: sdkSigningAccount(this.signer),
-			nonce: CryptoUtils.bidNonceKey(commitment, ADDRESS_ZERO) << 64n,
+			nonce: CryptoUtils.bidNonceKey(commitment, ADDRESS_ZERO, callData) << 64n,
 			entryPointAddress: params.entryPointAddress,
 			callGasLimit: LIMIT_ORDER_CALL_GAS_LIMIT,
 			verificationGasLimit: LIMIT_ORDER_VERIFICATION_GAS_LIMIT,
 			preVerificationGas: LIMIT_ORDER_PRE_VERIFICATION_GAS,
 			maxFeePerGas: 0n,
 			maxPriorityFeePerGas: 0n,
-			callData: encodeERC7821ExecuteBatch(calls),
+			callData,
 			paymasterAndData: encodePhantomBidDeclaration({ acceptedSourceChains }),
 		})
 

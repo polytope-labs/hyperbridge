@@ -4,6 +4,7 @@ import { wrap } from "@/utils/event.utils"
 import { replaceWebsocketWithHttp } from "@/utils/rpc.helpers"
 import { getHostStateMachine } from "@/utils/substrate.helpers"
 import { resolveBidData } from "@/utils/bid-data"
+import { bidPlacedCarriesBidId } from "@/utils/bid-event.helpers"
 import { ENV_CONFIG } from "@/constants"
 import { FillerBid } from "@/configs/src/types"
 
@@ -17,6 +18,9 @@ import { FillerBid } from "@/configs/src/types"
  *   3. deposit:    Balance
  *
  * The event carries no bid payload, so it is resolved separately by resolveBidData and stored raw.
+ *
+ * Events from before the upgrade that added `bid` carry three fields, with the deposit third. They
+ * are skipped: see `bidPlacedCarriesBidId`.
  */
 export const handleBidPlaced = wrap(async (event: SubstrateEvent): Promise<void> => {
 	const {
@@ -24,6 +28,11 @@ export const handleBidPlaced = wrap(async (event: SubstrateEvent): Promise<void>
 		block,
 		extrinsic,
 	} = event
+
+	if (!bidPlacedCarriesBidId(data)) {
+		logger.debug({ blockNumber: block.block.header.number.toString() }, "Skipping pre-upgrade BidPlaced event")
+		return
+	}
 
 	const [fillerData, commitmentData, bidIdData] = data
 

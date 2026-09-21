@@ -18,11 +18,8 @@
 use alloc::{vec, vec::Vec};
 use alloy_sol_types::SolValue;
 use codec::{Decode, DecodeWithMemTracking, Encode};
-use ismp::consensus::StateMachineId;
-use polkadot_sdk::frame_support::{traits::ConstU32, BoundedBTreeMap, BoundedVec};
 use primitive_types::{H160, H256, U256};
 use scale_info::TypeInfo;
-use sp_io;
 
 /// Represents a token and amount pair for cross-chain transfers
 #[derive(Clone, Debug, Encode, Decode, DecodeWithMemTracking, TypeInfo, PartialEq, Eq)]
@@ -152,145 +149,6 @@ pub struct GatewayInfo {
 	pub gateway: H160,
 	/// Current parameters for this gateway
 	pub params: IntentGatewayParams,
-}
-
-/// Upper bound on the token pairs a single chain's config may probe. Every pair rides in the
-/// same phantom order, so this also bounds that order's asset lists and the size of the
-/// encoded body written to offchain storage.
-pub const MAX_PHANTOM_TOKEN_PAIRS: u32 = 64;
-
-/// Upper bound on the chains that may carry a phantom order configuration at once. Bounds the
-/// `PhantomChains` set the hook walks, and with it `CurrentPhantomOrder` and the work
-/// `on_initialize` performs on a generation block.
-pub const MAX_PHANTOM_CHAINS: u32 = 16;
-
-/// Upper bound on the directed legs of one phantom order: every configured pair contributes
-/// its configured direction plus the reverse.
-pub const MAX_PHANTOM_ORDER_LEGS: u32 = MAX_PHANTOM_TOKEN_PAIRS * 2;
-
-/// Tracks a phantom order recognised by the pallet.
-#[derive(Clone, Debug, Encode, Decode, DecodeWithMemTracking, TypeInfo, PartialEq, Eq)]
-pub struct PhantomOrderInfo<BlockNumber> {
-	pub created_at_block: BlockNumber,
-	/// Raw state machine identifier bytes (e.g. b"EVM-8453").
-	pub chain: Vec<u8>,
-}
-
-/// A single token pair the phantom generator probes for price and liquidity.
-///
-/// Read the note on [`standard_amount`](PhantomTokenPair::standard_amount) before you set this.
-/// It is the one field that fails silently.
-#[derive(Clone, Debug, Encode, Decode, DecodeWithMemTracking, TypeInfo, PartialEq, Eq)]
-pub struct PhantomTokenPair {
-	/// The input token being priced (tokenA). Quotes are expressed as how much `token_b`
-	/// a filler will give for `standard_amount` of this token.
-	pub token_a: H160,
-	/// The output token (tokenB) the price is quoted in.
-	pub token_b: H160,
-	/// ┌──────────────────────────────────────────────────────────────────────────────────┐
-	/// │  ⚠  A WHOLE NUMBER OF UNITS OF THE INPUT TOKEN: `n * 10^decimals(token_a)`.  ⚠  │
-	/// └──────────────────────────────────────────────────────────────────────────────────┘
-	///
-	/// This MUST be a whole multiple of one unit of `token_a`, denominated in the token's
-	/// smallest unit — that is, `n * 10^decimals(token_a)` for a whole `n`. With `n = 1000`:
-	///   • 6-decimal USDC  →  `1_000_000_000`
-	///   • 18-decimal DAI  →  `1_000_000_000_000_000_000_000`
-	///
-	/// WHY THE SHAPE MATTERS:
-	///   Every exchange rate the indexer publishes is `medianPrice / standard_amount`. This number
-	///   is the DENOMINATOR OF THE TRUTH. Set it to a value that is not a whole number of units
-	///   and every downstream rate is silently off by that factor. It will not revert. It will not
-	///   warn on chain. It will simply poison every price snapshot for this pair until a human
-	///   notices the feed has drifted — and then has to backfill it. The indexer refuses pool
-	///   attribution for a leg whose standard amount is not a whole number of units, or is
-	///   absurdly large, which is the only backstop; treat it as a tripwire, not a validator.
-	///
-	/// WHY `n` IS NOT ALWAYS 1:
-	///   A leg's quoted output integer IS the published price, to whatever precision the OUTPUT
-	///   token's decimals afford. One whole cNGN priced into 6-decimal USDC quotes ~715 base
-	///   units, so the price grid is `1/715` ≈ 0.14% coarse and a curve of 1398 cNGN/USDC cannot
-	///   be expressed more finely than 1398.6014. Raising `n` buys digits: at `n = 1000` the same
-	///   quote is ~715_307 and the grid is 0.00014%. Raise it only in step across the whole config
-	///   — a filler's per-pair size caps are consumed at the probe's notional, and a probe larger
-	///   than a pair's cap is quoted short and publishes a badly wrong price.
-	pub standard_amount: u128,
-	/// The same WHOLE-UNITS rule as [`standard_amount`](PhantomTokenPair::standard_amount), for
-	/// the REVERSE leg: `n * 10^decimals(token_b)`, the benchmark quantity when `token_b` is the
-	/// input. Everything written above applies verbatim — a wrong value silently poisons every
-	/// reverse-direction rate. Keep `n` the same as the forward leg's so both directions of a pair
-	/// are probed at a comparable size. Unused (but still required non-zero for uniformity) when
-	/// `token_a == token_b`, since a same-token pair has no distinct reverse.
-	pub standard_amount_b: u128,
-}
-
-/// One directed leg of the bundled phantom order: `standard_amount` of `token_a` quoted in
-/// `token_b`. Field names deliberately mirror [`PhantomTokenPair`] — downstream decoders read
-/// legs and configured pairs with the same shape.
-#[derive(Clone, Debug, Encode, Decode, DecodeWithMemTracking, TypeInfo, PartialEq, Eq)]
-pub struct PhantomOrderLeg {
-	/// The input token being priced.
-	pub token_a: H160,
-	/// The output token the price is quoted in.
-	pub token_b: H160,
-	/// One whole unit of `token_a` in its smallest denomination.
-	pub standard_amount: u128,
-}
-
-impl PhantomTokenPair {
-	/// The directed legs this pair contributes to the bundled order: the configured direction and
-	/// its reverse, so both sides of a pair are priced from a single config entry. A same-token
-	/// pair's reverse is the identical leg, so it contributes only one.
-	pub fn legs(&self) -> Vec<PhantomOrderLeg> {
-		let forward = PhantomOrderLeg {
-			token_a: self.token_a,
-			token_b: self.token_b,
-			standard_amount: self.standard_amount,
-		};
-		if self.token_a == self.token_b {
-			vec![forward]
-		} else {
-			vec![
-				forward,
-				PhantomOrderLeg {
-					token_a: self.token_b,
-					token_b: self.token_a,
-					standard_amount: self.standard_amount_b,
-				},
-			]
-		}
-	}
-}
-
-/// Expands the configured pairs into the phantom order's directed legs, preserving pair order:
-/// pair `i`'s forward leg precedes its reverse.
-pub fn phantom_order_legs(pairs: &[PhantomTokenPair]) -> Vec<PhantomOrderLeg> {
-	pairs.iter().flat_map(PhantomTokenPair::legs).collect()
-}
-
-/// The token pairs probed on one chain — every pair here rides in that chain's single bundled
-/// phantom order.
-///
-/// Stored per chain in the `PhantomOrderConfig` map, keyed by the chain's `StateMachineId`,
-/// whose consensus state id lets the hook look up the latest confirmed height directly instead
-/// of scanning every state machine.
-pub type PhantomTokenPairs = BoundedVec<PhantomTokenPair, ConstU32<MAX_PHANTOM_TOKEN_PAIRS>>;
-
-/// Governance-settable phantom order configuration, as `set_phantom_order_config` takes it.
-///
-/// The chains are a map so each one's pairs are addressed by its state machine id and land in
-/// their own `PhantomOrderConfig` entry: a call carries only the chains it means to configure
-/// and leaves every other chain's entry alone. `interval_blocks` is the one exception — it is a
-/// single value shared by every configured chain, so they all generate on the same block and
-/// their bid windows close together, and a call therefore sets it for all of them.
-#[derive(Clone, Debug, Encode, Decode, DecodeWithMemTracking, TypeInfo, PartialEq, Eq)]
-pub struct PhantomOrderConfiguration {
-	/// The token pairs — and their standard amounts — to probe on each chain, keyed by the
-	/// chain's state machine id. The consensus state id it carries lets the generator look up
-	/// that chain's latest confirmed height directly.
-	pub chains: BoundedBTreeMap<StateMachineId, PhantomTokenPairs, ConstU32<MAX_PHANTOM_CHAINS>>,
-	/// Blocks between generations, shared by every configured chain. Zero means generate once
-	/// and never regenerate.
-	pub interval_blocks: u32,
 }
 
 /// A bid placed by a filler for an order
@@ -439,30 +297,6 @@ pub(crate) mod sol_types {
 			uint256 amount;
 		}
 
-		struct DispatchInfo {
-			TokenInfo[] assets;
-			bytes call;
-		}
-
-		struct PaymentInfo {
-			bytes32 beneficiary;
-			TokenInfo[] assets;
-			bytes call;
-		}
-
-		struct Order {
-			bytes32 user;
-			bytes source;
-			bytes destination;
-			uint256 deadline;
-			uint256 nonce;
-			uint256 fees;
-			address session;
-			DispatchInfo predispatch;
-			TokenInfo[] inputs;
-			PaymentInfo output;
-		}
-
 		struct SweepDust {
 			address beneficiary;
 			TokenInfo[] outputs;
@@ -489,63 +323,6 @@ pub(crate) mod sol_types {
 			uint256 swapSlippageBps;
 		}
 	}
-}
-
-/// Builds the IntentGatewayV2 `Order` carrying every directed leg and returns both the
-/// ABI-encoded bytes and its `keccak256` commitment.
-///
-/// Legs are positional: leg `i` is `inputs[i]` against `output.assets[i]`, which is how
-/// fillers already walk an order's legs. Each input carries its leg's standard amount while
-/// the matching output is left at zero, since the output amount is what fillers quote.
-///
-/// `deadline` is the EVM block number beyond which the gateway treats the order
-/// as expired (`order.deadline < block.number` reverts).
-pub fn phantom_order_commitment(
-	block: u64,
-	chain: &[u8],
-	legs: &[PhantomOrderLeg],
-	deadline: u64,
-) -> (H256, Vec<u8>) {
-	use alloy_primitives::{Bytes, FixedBytes, U256 as AlloyU256};
-
-	fn to_word(token: &H160) -> FixedBytes<32> {
-		let mut bytes = [0u8; 32];
-		bytes[12..].copy_from_slice(token.as_bytes());
-		FixedBytes::from(bytes)
-	}
-
-	let order = sol_types::Order {
-		user: FixedBytes::from([0u8; 32]),
-		source: Bytes::copy_from_slice(chain),
-		destination: Bytes::copy_from_slice(chain),
-		deadline: AlloyU256::from(deadline),
-		nonce: AlloyU256::from(block),
-		fees: AlloyU256::ZERO,
-		session: alloy_primitives::Address::ZERO,
-		predispatch: sol_types::DispatchInfo { assets: vec![], call: Bytes::new() },
-		inputs: legs
-			.iter()
-			.map(|leg| sol_types::TokenInfo {
-				token: to_word(&leg.token_a),
-				amount: AlloyU256::from(leg.standard_amount),
-			})
-			.collect(),
-		output: sol_types::PaymentInfo {
-			beneficiary: FixedBytes::from([0u8; 32]),
-			assets: legs
-				.iter()
-				.map(|leg| sol_types::TokenInfo {
-					token: to_word(&leg.token_b),
-					amount: AlloyU256::ZERO,
-				})
-				.collect(),
-			call: Bytes::new(),
-		},
-	};
-
-	let encoded = order.abi_encode();
-	let commitment = sp_io::hashing::keccak_256(&encoded).into();
-	(commitment, encoded)
 }
 
 impl From<IntentGatewayParams> for sol_types::Params {

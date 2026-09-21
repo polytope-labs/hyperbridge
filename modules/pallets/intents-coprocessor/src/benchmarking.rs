@@ -18,15 +18,14 @@
 #![cfg(feature = "runtime-benchmarks")]
 
 use super::*;
-use crate::types::MAX_PHANTOM_TOKEN_PAIRS;
-use alloc::{string::ToString, vec};
+use alloc::vec;
 use frame_benchmarking::v2::*;
 use frame_support::{
-	traits::{Currency, EnsureOrigin, Hooks},
-	BoundedBTreeMap, BoundedVec,
+	traits::{Currency, EnsureOrigin},
+	BoundedVec,
 };
-use frame_system::{pallet_prelude::BlockNumberFor, RawOrigin};
-use ismp::{consensus::StateMachineId, host::StateMachine};
+use frame_system::RawOrigin;
+use ismp::host::StateMachine;
 use primitive_types::{H160, H256, U256};
 use sp_runtime::traits::ConstU32;
 
@@ -319,153 +318,6 @@ mod benchmarks {
 
 		#[extrinsic_call]
 		_(origin as T::RuntimeOrigin, state_machine, updates);
-
-		Ok(())
-	}
-
-	/// `count` distinct token pairs with disjoint unordered token sets, sized like real one-unit
-	/// standard amounts.
-	fn synthetic_pairs(
-		count: u32,
-	) -> Result<
-		BoundedVec<types::PhantomTokenPair, ConstU32<MAX_PHANTOM_TOKEN_PAIRS>>,
-		BenchmarkError,
-	> {
-		(0..count)
-			.map(|i| types::PhantomTokenPair {
-				token_a: H160::from_low_u64_be(i.into()),
-				token_b: H160::from_low_u64_be((i + MAX_PHANTOM_TOKEN_PAIRS).into()),
-				standard_amount: 1_000_000_000_000_000_000u128,
-				standard_amount_b: 1_000_000_000_000_000_000u128,
-			})
-			.collect::<Vec<_>>()
-			.try_into()
-			.map_err(|_| BenchmarkError::Stop("pair list exceeds MAX_PHANTOM_TOKEN_PAIRS"))
-	}
-
-	/// A synthetic phantom chain id, distinct per index.
-	fn phantom_chain_id(index: u32) -> StateMachineId {
-		StateMachineId { state_id: StateMachine::Evm(index), consensus_state_id: *b"ETH0" }
-	}
-
-	/// Configures `count` chains — a map entry, set membership and an active order each — so the
-	/// governance calls are measured against a full-sized chain set and order batch.
-	fn configure_chains<T: Config>(count: u32) -> Result<(), BenchmarkError> {
-		let mut chains = PhantomChains::<T>::get();
-		let mut batch = CurrentPhantomOrder::<T>::get().unwrap_or_default();
-
-		for index in 0..count {
-			let chain = phantom_chain_id(index);
-			PhantomOrderConfig::<T>::insert(chain, synthetic_pairs(1)?);
-			chains
-				.try_insert(chain)
-				.map_err(|_| BenchmarkError::Stop("chain set exceeds MAX_PHANTOM_CHAINS"))?;
-			let info = PhantomOrderInfo {
-				created_at_block: 1u32.into(),
-				chain: chain.state_id.to_string().into_bytes(),
-			};
-			let _ = batch.try_push((H256::repeat_byte(index as u8), info));
-		}
-
-		PhantomChains::<T>::put(chains);
-		CurrentPhantomOrder::<T>::put(batch);
-		Ok(())
-	}
-
-	/// `c` chains configured in one call, each carrying a full pair list: the validation walks
-	/// every pair of every chain and each chain costs its own map write, which is what the
-	/// linear term pays for.
-	#[benchmark]
-	fn set_phantom_order_config(c: Linear<1, MAX_PHANTOM_CHAINS>) -> Result<(), BenchmarkError> {
-		let origin =
-			T::GovernanceOrigin::try_successful_origin().map_err(|_| BenchmarkError::Weightless)?;
-
-		let mut chains = BoundedBTreeMap::new();
-		for index in 0..c {
-			chains
-				.try_insert(phantom_chain_id(index), synthetic_pairs(MAX_PHANTOM_TOKEN_PAIRS)?)
-				.map_err(|_| BenchmarkError::Stop("chain map exceeds MAX_PHANTOM_CHAINS"))?;
-		}
-
-		let config = types::PhantomOrderConfiguration {
-			chains,
-			// Must stay strictly above every fallback bid window this benchmark runs against, or
-			// the call is rejected with PhantomBidWindowNotShorterThanInterval. The bound is the
-			// mock's 100 (gargantua uses 5, nexus 25), and the check is `window < interval`, so
-			// 100 itself is not enough.
-			interval_blocks: 1_000,
-		};
-
-		#[extrinsic_call]
-		_(origin as T::RuntimeOrigin, config);
-
-		assert_eq!(PhantomChains::<T>::get().len() as u32, c);
-		Ok(())
-	}
-
-	/// Removing the last chain of a full set: the set write is the worst case.
-	#[benchmark]
-	fn remove_phantom_order_config() -> Result<(), BenchmarkError> {
-		let origin =
-			T::GovernanceOrigin::try_successful_origin().map_err(|_| BenchmarkError::Weightless)?;
-		configure_chains::<T>(MAX_PHANTOM_CHAINS)?;
-		let chain = phantom_chain_id(MAX_PHANTOM_CHAINS - 1);
-
-		#[extrinsic_call]
-		_(origin as T::RuntimeOrigin, chain);
-
-		assert!(PhantomOrderConfig::<T>::get(chain).is_none());
-		Ok(())
-	}
-
-	/// The on_initialize generation path, measured for a single chain: the hook sums this
-	/// weight per configured chain. Every pair expands into both directions of the chain's
-	/// order, so both the ABI encoding it hashes and the event it deposits grow with the pair
-	/// count (two legs per pair) while the storage writes stay fixed. Hence the linear
-	/// component.
-	#[benchmark]
-	fn generate_phantom_order(p: Linear<1, MAX_PHANTOM_TOKEN_PAIRS>) -> Result<(), BenchmarkError> {
-		let chain =
-			StateMachineId { state_id: StateMachine::Evm(8453), consensus_state_id: *b"ETH0" };
-		let token_pairs = synthetic_pairs(p)?;
-
-		// Written straight to storage rather than through set_phantom_order_config, so the interval
-		// is not checked against the bid window here and any value does. The hook reads it only to
-		// decide whether an interval has elapsed, which the kill below settles anyway.
-		PhantomOrderConfig::<T>::insert(chain, token_pairs);
-		PhantomOrderInterval::<T>::put(100u32);
-		let mut chains = PhantomChains::<T>::get();
-		chains
-			.try_insert(chain)
-			.map_err(|_| BenchmarkError::Stop("chain set exceeds MAX_PHANTOM_CHAINS"))?;
-		PhantomChains::<T>::put(chains);
-		// The hook needs a confirmed height on the destination chain for the deadline, and no
-		// prior generation so the interval check passes on the first block.
-		pallet_ismp::LatestStateMachineHeight::<T>::insert(chain, 42u64);
-		LastPhantomGeneration::<T>::kill();
-
-		let n: BlockNumberFor<T> = 1u32.into();
-
-		#[block]
-		{
-			<Pallet<T> as Hooks<BlockNumberFor<T>>>::on_initialize(n);
-		}
-
-		assert!(CurrentPhantomOrder::<T>::get().is_some());
-		Ok(())
-	}
-
-	#[benchmark]
-	fn set_phantom_bid_window() -> Result<(), BenchmarkError> {
-		let origin =
-			T::GovernanceOrigin::try_successful_origin().map_err(|_| BenchmarkError::Weightless)?;
-		let window: u32 = 100;
-
-		#[extrinsic_call]
-		_(origin as T::RuntimeOrigin, window);
-
-		// Verify the window was stored
-		assert_eq!(PhantomBidWindow::<T>::get(), window);
 
 		Ok(())
 	}

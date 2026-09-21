@@ -348,14 +348,12 @@ impl pallet_hyper_fungible_token::types::BenchmarkHelper<Runtime> for HftBenchma
 
 parameter_types! {
 	pub const IntentsStorageDepositFee: Balance = EXISTENTIAL_DEPOSIT * 10;
-	pub const IntentsPhantomOrderBidWindow: u32 = 25;
 }
 
 impl pallet_intents_coprocessor::Config for Runtime {
 	type Dispatcher = Ismp;
 	type Currency = Balances;
 	type StorageDepositFee = IntentsStorageDepositFee;
-	type PhantomOrderBidWindowBlocks = IntentsPhantomOrderBidWindow;
 	type GovernanceOrigin = EnsureRoot<AccountId>;
 	type WeightInfo = weights::pallet_intents_coprocessor::WeightInfo<Runtime>;
 }

@@ -7,7 +7,7 @@ export type DecodedFillOrder = { order: Order; options: FillOptions }
 
 /** `fillOrder(Order, FillOptions)` selector, pinned by codec tests; avoids import-time hashing in VM2. */
 export const FILL_ORDER_SELECTOR = "0x68ddf058" as const
-/** The gateway release and SolverAccount code version this SDK speaks. */
+/** The gateway release this SDK speaks. SolverAccount carries no version, so only the gateway is read. */
 export const SUPPORTED_INTENTS_VERSION = 3n
 export const CONTRACT_VERSION_ABI = [
 	{
@@ -28,17 +28,9 @@ async function readContractVersion(client: PublicClient, address: HexString): Pr
 	}
 }
 
-/** Whether both the gateway and the account report the supported release. RPC failures propagate. */
-export async function supportsRateFills(
-	client: PublicClient,
-	gateway: HexString,
-	solverAccount: HexString,
-): Promise<boolean> {
-	const versions = await Promise.all([
-		readContractVersion(client, gateway),
-		readContractVersion(client, solverAccount),
-	])
-	return versions.every((version) => version === SUPPORTED_INTENTS_VERSION)
+/** Whether the gateway reports the supported release. RPC failures propagate. */
+export async function supportsRateFills(client: PublicClient, gateway: HexString): Promise<boolean> {
+	return (await readContractVersion(client, gateway)) === SUPPORTED_INTENTS_VERSION
 }
 
 /** The gateway must report release {@link SUPPORTED_INTENTS_VERSION}; a missing getter or any other release throws. */

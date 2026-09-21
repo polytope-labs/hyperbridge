@@ -75,9 +75,8 @@ export class BidManager {
 			callData,
 			paymasterAndData = "0x" as HexString,
 		} = options
-		// Every fillOrder call in the bid must carry a quote for each leg, and the destination must
-		// speak the release that settles it: the gateway, the solver's live delegation and the
-		// configured SolverAccount implementation (used for simulation overrides) all report it.
+		// Every fillOrder call in the bid must carry a quote for each leg, and the destination gateway
+		// must speak the release that settles it.
 		const fills = (this.crypto.decodeERC7821Execute(callData) ?? []).filter(
 			(call) => call.data.slice(0, 10).toLowerCase() === FILL_ORDER_SELECTOR,
 		)
@@ -89,14 +88,8 @@ export class BidManager {
 		}
 		const chain = normalizeStateMachineId(order.destination)
 		const gateway = this.ctx.dest.configService.getIntentGatewayAddress(chain)
-		const implementation = this.ctx.dest.configService.getSolverAccountAddress(chain)
-		const liveSupport = await supportsRateFills(this.ctx.dest.client as any, gateway, solverAccount)
-		const configuredSupport =
-			implementation && (await supportsRateFills(this.ctx.dest.client as any, gateway, implementation))
-		if (!liveSupport || !configuredSupport) {
-			throw new Error(
-				"Fills are not supported by the destination gateway, live delegation, and configured SolverAccount",
-			)
+		if (!(await supportsRateFills(this.ctx.dest.client as any, gateway))) {
+			throw new Error("Fills are not supported by the destination gateway")
 		}
 
 		const chainId = BigInt(

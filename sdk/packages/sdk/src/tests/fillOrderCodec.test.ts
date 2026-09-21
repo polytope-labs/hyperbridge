@@ -12,7 +12,6 @@ import {
 import type { FillOptions, HexString, Order, TokenInfo } from "@/types"
 
 const GATEWAY = "0x1111111111111111111111111111111111111111" as HexString
-const ACCOUNT = "0x2222222222222222222222222222222222222222" as HexString
 const TOKEN = "0x0000000000000000000000000000000000000000000000000000000000000002" as HexString
 
 /** The pre-quote `fillOrder(Order, (relayerFee, nativeDispatchFee, validUntil, outputs))`, selector `0xa5470064`. */
@@ -154,28 +153,28 @@ describe("assertGatewayRelease", () => {
 })
 
 describe("supportsRateFills", () => {
-	it("requires the supported release from both the gateway and the solver account", async () => {
-		const readContract = vi.fn().mockResolvedValueOnce(3n).mockResolvedValueOnce(2n)
-		await expect(supportsRateFills(client(readContract), GATEWAY, ACCOUNT)).resolves.toBe(false)
-		expect(readContract).toHaveBeenCalledTimes(2)
+	it("reads only the gateway release", async () => {
+		const readContract = vi.fn().mockResolvedValue(3n)
+		await expect(supportsRateFills(client(readContract), GATEWAY)).resolves.toBe(true)
+		expect(readContract).toHaveBeenCalledTimes(1)
+		expect(readContract.mock.calls[0][0].address).toBe(GATEWAY)
 	})
 
-	it.each([0n, 1n, 2n, 4n, 5n, (1n << 64n) - 1n])("rejects account release %s", async (release) => {
-		const readContract = vi.fn().mockResolvedValueOnce(3n).mockResolvedValueOnce(release)
-		await expect(supportsRateFills(client(readContract), GATEWAY, ACCOUNT)).resolves.toBe(false)
+	it.each([0n, 1n, 2n, 4n, 5n, (1n << 64n) - 1n])("rejects gateway release %s", async (release) => {
+		await expect(supportsRateFills(client(vi.fn().mockResolvedValue(release)), GATEWAY)).resolves.toBe(false)
 	})
 
 	it("does not accept the old boolean marker", async () => {
-		await expect(supportsRateFills(client(vi.fn().mockResolvedValue(true)), GATEWAY, ACCOUNT)).resolves.toBe(false)
+		await expect(supportsRateFills(client(vi.fn().mockResolvedValue(true)), GATEWAY)).resolves.toBe(false)
 	})
 
 	it("does not cache capability across calls", async () => {
 		const c = client(vi.fn().mockResolvedValue(3n))
 
-		expect(await supportsRateFills(c, GATEWAY, ACCOUNT)).toBe(true)
+		expect(await supportsRateFills(c, GATEWAY)).toBe(true)
 		c.readContract.mockResolvedValue(2n)
-		expect(await supportsRateFills(c, GATEWAY, ACCOUNT)).toBe(false)
-		expect(c.readContract).toHaveBeenCalledTimes(4)
+		expect(await supportsRateFills(c, GATEWAY)).toBe(false)
+		expect(c.readContract).toHaveBeenCalledTimes(2)
 	})
 })
 
@@ -200,7 +199,7 @@ describe("version() failures with real viem errors", () => {
 	])("propagates provider failure $code: $message", async (rpcError) => {
 		const c = rpcClient(rpcError)
 		await expect(assertGatewayRelease(c, GATEWAY)).rejects.toThrow(rpcError.message)
-		await expect(supportsRateFills(c, GATEWAY, ACCOUNT)).rejects.toThrow(rpcError.message)
+		await expect(supportsRateFills(c, GATEWAY)).rejects.toThrow(rpcError.message)
 	})
 
 	it.each([
@@ -211,12 +210,12 @@ describe("version() failures with real viem errors", () => {
 	])("treats a genuine EVM failure $code: $message as a missing getter", async (rpcError) => {
 		const c = rpcClient(rpcError)
 		await expect(assertGatewayRelease(c, GATEWAY)).rejects.toThrow(/no version\(\)/)
-		await expect(supportsRateFills(c, GATEWAY, ACCOUNT)).resolves.toBe(false)
+		await expect(supportsRateFills(c, GATEWAY)).resolves.toBe(false)
 	})
 
 	it("treats a successful call returning no data as a missing getter", async () => {
 		const c = rpcClient()
 		await expect(assertGatewayRelease(c, GATEWAY)).rejects.toThrow(/no version\(\)/)
-		await expect(supportsRateFills(c, GATEWAY, ACCOUNT)).resolves.toBe(false)
+		await expect(supportsRateFills(c, GATEWAY)).resolves.toBe(false)
 	})
 })

@@ -44,6 +44,27 @@ describe("Electron runtime prerequisite", () => {
 		expect(runInstaller).toHaveBeenCalledOnce()
 	})
 
+	it("retries a transient Electron download failure", async () => {
+		const electronRoot = await fixture()
+		const runInstaller = vi
+			.fn()
+			.mockRejectedValueOnce(new Error("Response code 504 (Gateway Time-out)"))
+			.mockImplementationOnce(async () => {
+				for (const path of electronRuntimeFiles("darwin")) {
+					const artifact = join(electronRoot, "dist", path)
+					await mkdir(dirname(artifact), { recursive: true })
+					await writeFile(artifact, path)
+				}
+			})
+		const sleep = vi.fn(async () => undefined)
+
+		await expect(ensureElectronRuntime({ electronRoot, platform: "darwin", runInstaller, sleep })).resolves.toBe(
+			true,
+		)
+		expect(runInstaller).toHaveBeenCalledTimes(2)
+		expect(sleep).toHaveBeenCalledOnce()
+	})
+
 	it("does not reinstall a complete runtime", async () => {
 		const electronRoot = await fixture()
 		for (const path of electronRuntimeFiles("win32")) {

@@ -6,6 +6,7 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..")
 const cli = resolve(packageRoot, "tooling/node_modules/electron-builder/cli.js")
 const packageVersion = JSON.parse(readFileSync(resolve(packageRoot, "package.json"), "utf8")).version
+const wait = (milliseconds) => new Promise((resolveWait) => setTimeout(resolveWait, milliseconds))
 
 export function normalizeBuilderArguments(args) {
 	const delimiter = args.indexOf("--")
@@ -25,21 +26,41 @@ export function assertPackagingNodeVersion(version = process.versions.node) {
 	}
 }
 
-export function runBuilder(args, spawn = spawnSync) {
+export async function runBuilderWithRetries(execute, options = {}) {
+	const attempts = options.attempts ?? 1
+	const retryDelayMs = options.retryDelayMs ?? 5_000
+	const sleep = options.sleep ?? wait
+	if (!Number.isInteger(attempts) || attempts < 1) throw new Error("Packaging attempts must be a positive integer")
+	for (let attempt = 1; attempt <= attempts; attempt += 1) {
+		const status = await execute()
+		if (status === 0 || attempt === attempts) return status
+		process.stderr.write(`Desktop packaging attempt ${attempt} failed; retrying in ${retryDelayMs}ms\n`)
+		await sleep(retryDelayMs)
+	}
+	return 1
+}
+
+export async function runBuilder(args, spawn = spawnSync) {
 	assertPackagingNodeVersion()
 	try {
 		accessSync(cli)
 	} catch {
 		throw new Error("Desktop packaging tools are missing; run `pnpm --dir tooling install --frozen-lockfile` first")
 	}
-	const result = spawn(process.execPath, [cli, ...builderArguments(args)], {
-		cwd: packageRoot,
-		stdio: "inherit",
-	})
-	if (result.error) throw result.error
-	return result.status ?? 1
+	const attempts = Number.parseInt(process.env.SIMPLEX_DESKTOP_PACKAGE_ATTEMPTS ?? "1", 10)
+	return runBuilderWithRetries(
+		() => {
+			const result = spawn(process.execPath, [cli, ...builderArguments(args)], {
+				cwd: packageRoot,
+				stdio: "inherit",
+			})
+			if (result.error) throw result.error
+			return result.status ?? 1
+		},
+		{ attempts },
+	)
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-	process.exitCode = runBuilder(process.argv.slice(2))
+	process.exitCode = await runBuilder(process.argv.slice(2))
 }

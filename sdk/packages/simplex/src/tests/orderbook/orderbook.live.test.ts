@@ -100,12 +100,10 @@ USDC = 100
 [chains."EVM-8453"]
 rpc_url = "${indexer}/rpc/EVM-8453"
 gateway = "${GATEWAY}"
-solver_accounts = ["0x7cb55539d1144F62422099c3FA3405092022c88C"]
 
 [chains."EVM-1"]
 rpc_url = "${indexer}/rpc/EVM-1"
 gateway = "${GATEWAY}"
-solver_accounts = ["0x7cb55539d1144F62422099c3FA3405092022c88C"]
 `
 }
 

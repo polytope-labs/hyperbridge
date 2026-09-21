@@ -9,7 +9,7 @@ import { hexToU8a, isHex, u8aToHex } from "@polkadot/util"
 import { decodeERC7821ExecuteBatch } from "@/protocols/intents/decode-utils"
 import { decodeUserOpScale } from "@/chains/intentsCoprocessor"
 import { CryptoUtils } from "@/protocols/intents/CryptoUtils"
-import type { PackedUserOperation } from "@/types"
+import type { PackedUserOperation, RpcBidInfo } from "@/types"
 import IntentGatewayV2 from "@/abis/IntentGatewayV2"
 import { decodeFillOrder, isCanonicalEvmToken, CONTRACT_VERSION_ABI, SUPPORTED_INTENTS_VERSION } from "./fillOrderCodec"
 import {
@@ -572,14 +572,6 @@ export function zipFillLegs(
 			normalizedAmount: inputTake === 0n ? 0n : (solverAmount * orderInputAmount) / inputTake,
 		}
 	})
-}
-
-export interface RpcBidInfo {
-	commitment: string
-	filler: string
-	/** Which of the filler's bids on the order this is (bytes32; by convention `keccak256(callData)`). */
-	bid: string
-	user_op: string
 }
 
 /** One solver's measured liquidity for a configured token on one chain at this snapshot. */

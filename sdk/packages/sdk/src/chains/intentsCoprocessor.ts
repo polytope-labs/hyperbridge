@@ -7,7 +7,15 @@ import { decodeAddress, keccakAsU8a, xxhashAsU8a } from "@polkadot/util-crypto"
 import { numberToBytes, bytesToBigInt, decodeAbiParameters, hexToBytes } from "viem"
 import { Bytes, Struct, u8, Vector } from "scale-ts"
 import PQueue from "p-queue"
-import type { BidSubmissionResult, HexString, PackedUserOperation, BidStorageEntry, FillerBid, Order } from "@/types"
+import type {
+	BidSubmissionResult,
+	HexString,
+	PackedUserOperation,
+	BidStorageEntry,
+	FillerBid,
+	Order,
+	RpcBidInfo,
+} from "@/types"
 import type { SubstrateChain } from "./substrate"
 import IntentGatewayV2 from "@/abis/IntentGatewayV2"
 import { TokenBucket } from "@/utils/rateLimiter"
@@ -274,14 +282,6 @@ export function decodeUserOpScale(hex: HexString): PackedUserOperation {
 		paymasterAndData: u8aToHex(new Uint8Array(decoded.paymasterAndData)) as HexString,
 		signature: u8aToHex(new Uint8Array(decoded.signature)) as HexString,
 	}
-}
-
-/** RPC response shape from intents_getBidsForOrder */
-interface RpcBidInfo {
-	commitment: HexString
-	filler: HexString
-	bid: HexString
-	user_op: HexString
 }
 
 /** One directed leg of a phantom order: `standardAmount` of `tokenA` quoted in `tokenB`. */

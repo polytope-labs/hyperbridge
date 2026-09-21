@@ -29,6 +29,8 @@ export interface SimplexDataStore {
 export interface StoredBid {
 	id: number
 	commitment: string
+	/** The identifier Hyperbridge files the bid under; see {@link BidInsert.bid}. */
+	bid: string | null
 	extrinsicHash: string | null
 	blockHash: string | null
 	success: boolean
@@ -50,6 +52,13 @@ export interface StoredBid {
 
 export interface BidInsert {
 	commitment: string
+	/**
+	 * The identifier Hyperbridge files the bid under, `keccak256` of its calldata. It is what
+	 * retracting the bid names, so it is recorded here at placement rather than looked up later:
+	 * a bid still in Hyperbridge's pool is not in its storage yet, but its retraction, sent after it
+	 * from the same account, lands after it and reclaims its deposit all the same.
+	 */
+	bid?: string
 	extrinsicHash?: string
 	blockHash?: string
 	success: boolean

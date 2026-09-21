@@ -9,7 +9,7 @@ import { hexToU8a, isHex, u8aToHex } from "@polkadot/util"
 import { decodeERC7821ExecuteBatch } from "@/protocols/intents/decode-utils"
 import { decodeUserOpScale } from "@/chains/intentsCoprocessor"
 import { CryptoUtils } from "@/protocols/intents/CryptoUtils"
-import type { PackedUserOperation } from "@/types"
+import type { PackedUserOperation, RpcBidInfo } from "@/types"
 import IntentGatewayV2 from "@/abis/IntentGatewayV2"
 import { decodeFillOrder, isCanonicalEvmToken, CONTRACT_VERSION_ABI, SUPPORTED_INTENTS_VERSION } from "./fillOrderCodec"
 import {
@@ -574,12 +574,6 @@ export function zipFillLegs(
 	})
 }
 
-export interface RpcBidInfo {
-	commitment: string
-	filler: string
-	user_op: string
-}
-
 /** One solver's measured liquidity for a configured token on one chain at this snapshot. */
 export interface LpBalance {
 	solver: string
@@ -799,7 +793,7 @@ export function extractFillData(callData: HexString, gatewayAddress: string): Fi
 }
 
 /** Derives the 192-bit bid nonce key binding a bid to an (order, sessionKey) pair. */
-export type BidNonceKeyFn = (commitment: HexString, sessionKey: HexString) => bigint
+export type BidNonceKeyFn = (commitment: HexString, sessionKey: HexString, callData: HexString) => bigint
 
 /** Recomputes an order's commitment from the contract-shaped order decoded out of a bid's calldata. */
 export type OrderCommitmentFn = (order: Record<string, unknown>) => HexString | null
@@ -1082,10 +1076,10 @@ async function isVerifiedSolverBid(params: {
 	}
 
 	// The authoritative binding, mirroring SolverAccount.validateUserOp on-chain. The nonce IS
-	// covered by userOpHash, so a solver signature stays valid only for the (order, sessionKey) pair
-	// its nonce key was derived from. `sessionKey` is read from the bid's own calldata, which is also
-	// covered by userOpHash — so every operand here is signed, leaving nothing for a replay to swap.
-	if (BigInt(userOp.nonce) >> 64n !== bidNonceKey(commitment as HexString, sessionKey)) {
+	// covered by userOpHash, so a solver signature stays valid only for the (order, sessionKey,
+	// callData) its nonce key was derived from. `sessionKey` is read from the bid's own calldata, which
+	// is also covered by userOpHash — so every operand here is signed, leaving nothing for a replay to swap.
+	if (BigInt(userOp.nonce) >> 64n !== bidNonceKey(commitment as HexString, sessionKey, userOp.callData)) {
 		logger?.warn({ solver, commitment }, "Rejecting phantom bid: nonce does not bind order and session key")
 		return false
 	}

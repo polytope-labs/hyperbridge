@@ -189,7 +189,6 @@ pub type Migrations = (
 	pallet_beefy_consensus_proofs::migrations::ClearSp1VkeyHash<Runtime>,
 	pallet_beefy_consensus_proofs::migrations::ClearAcceptedProofHashes<Runtime>,
 	pallet_collator_manager::migrations::MigrateBondsToReserves<Runtime>,
-	pallet_intents_coprocessor::migrations::MigrateConfigToStorageMap<Runtime>,
 );
 
 /// Handles converting a weight scalar to a fee value, based on the scale and granularity of the
@@ -252,7 +251,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	spec_name: Cow::Borrowed("gargantua"),
 	impl_name: Cow::Borrowed("gargantua"),
 	authoring_version: 1,
-	spec_version: 8_400,
+	spec_version: 8_500,
 	impl_version: 0,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,

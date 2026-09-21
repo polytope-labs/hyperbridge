@@ -11,7 +11,6 @@ interface GasEstimateCache {
 	preVerificationGas: string
 	maxFeePerGas: string
 	maxPriorityFeePerGas: string
-	nonce: string
 	totalGasCostWei: string
 	timestamp: number
 }
@@ -164,7 +163,6 @@ export class CacheService {
 		preVerificationGas: bigint
 		maxFeePerGas: bigint
 		maxPriorityFeePerGas: bigint
-		nonce: bigint
 		totalGasCostWei: bigint
 	} | null {
 		try {
@@ -179,7 +177,6 @@ export class CacheService {
 					preVerificationGas: BigInt(cache.preVerificationGas),
 					maxFeePerGas: BigInt(cache.maxFeePerGas),
 					maxPriorityFeePerGas: BigInt(cache.maxPriorityFeePerGas),
-					nonce: BigInt(cache.nonce),
 					totalGasCostWei: BigInt(cache.totalGasCostWei),
 				}
 			}
@@ -200,7 +197,6 @@ export class CacheService {
 		preVerificationGas: bigint,
 		maxFeePerGas: bigint,
 		maxPriorityFeePerGas: bigint,
-		nonce: bigint,
 		totalGasCostWei: bigint,
 	): void {
 		if (totalCostInSourceFeeToken <= 0n) {
@@ -217,7 +213,6 @@ export class CacheService {
 				preVerificationGas: preVerificationGas.toString(),
 				maxFeePerGas: maxFeePerGas.toString(),
 				maxPriorityFeePerGas: maxPriorityFeePerGas.toString(),
-				nonce: nonce.toString(),
 				totalGasCostWei: totalGasCostWei.toString(),
 				timestamp: Date.now(),
 			}

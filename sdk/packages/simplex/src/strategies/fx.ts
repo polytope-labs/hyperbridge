@@ -1091,13 +1091,13 @@ export class FXFiller implements FillerStrategy {
 		const solverAccountAddress = this.signer.address as HexString
 
 		// Prepare the signed UserOp for bid submission (bundles approvals + fillOrder internally)
-		const { commitment, userOp } = await this.contractService.prepareBidUserOp(
+		const { commitment, userOp, bid } = await this.contractService.prepareBidUserOp(
 			order,
 			entryPointAddress,
 			solverAccountAddress,
 		)
 
-		const bidResult = await intentsCoprocessor.submitBid(commitment, userOp)
+		const bidResult = await intentsCoprocessor.submitBid(commitment, userOp, bid)
 
 		const endTime = Date.now()
 		if (bidResult.success) {
@@ -1108,6 +1108,7 @@ export class FXFiller implements FillerStrategy {
 				strategyUsed: this.name,
 				processingTimeMs: endTime - startTime,
 				commitment,
+				bid,
 			}
 		}
 
@@ -1120,6 +1121,7 @@ export class FXFiller implements FillerStrategy {
 			txHash: bidResult.extrinsicHash,
 			error: bidResult.error,
 			commitment,
+			bid,
 		}
 	}
 

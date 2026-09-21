@@ -1471,15 +1471,26 @@ export interface BidSubmissionResult {
 	pending?: boolean
 }
 
+/** One bid as the `intents_getBidsForOrder` RPC returns it: hex-encoded, the filler as raw AccountId bytes. */
+export interface RpcBidInfo {
+	commitment: HexString
+	filler: HexString
+	/** Which of the filler's bids on the order this is (bytes32; by convention `keccak256(callData)`). */
+	bid: HexString
+	user_op: HexString
+}
+
 /**
- * Represents a storage entry from pallet-intents Bids storage
- * StorageDoubleMap<_, Blake2_128Concat, H256, Blake2_128Concat, AccountId, Balance>
+ * Represents a storage entry from pallet-intents `OrderBids` storage:
+ * StorageNMap<(H256 commitment, AccountId filler, H256 bid), Balance>
  */
 export interface BidStorageEntry {
 	/** The order commitment hash (H256) */
 	commitment: HexString
 	/** The filler's Substrate account ID (SS58 encoded) */
 	filler: string
+	/** Which of the filler's bids on the order this is (bytes32; by convention `keccak256(callData)`) */
+	bid: HexString
 	/** The deposit amount stored on-chain (BalanceOf<T> = u128) */
 	deposit: bigint
 }
@@ -1491,6 +1502,11 @@ export interface BidStorageEntry {
 export interface FillerBid {
 	/** The filler's Substrate account ID (SS58 encoded) */
 	filler: string
+	/**
+	 * Which of the filler's bids on the order this is. A filler offering several prices bids once
+	 * per price; by convention the identifier is `keccak256` of the UserOp's `callData`.
+	 */
+	bid: HexString
 	/** The decoded PackedUserOperation */
 	userOp: PackedUserOperation
 	/** The deposit amount stored on-chain (in plancks) */

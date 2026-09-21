@@ -15,10 +15,19 @@ setAggregationFetch(safeFetch)
  * is still live on the node being queried. It is a best-effort backstop for the extrinsic path, not
  * a replacement for it.
  */
-async function fetchBidDataFromRpc(nodeUrl: string, commitment: string, fillerHex: string): Promise<string | undefined> {
+async function fetchBidDataFromRpc(
+	nodeUrl: string,
+	commitment: string,
+	fillerHex: string,
+	bid: string,
+): Promise<string | undefined> {
 	try {
 		const bids = await fetchBidsForOrder(nodeUrl, commitment)
-		const match = bids.find((bid) => bid.filler?.toLowerCase() === fillerHex.toLowerCase())
+		const match = bids.find(
+			(entry) =>
+				entry.filler?.toLowerCase() === fillerHex.toLowerCase() &&
+				entry.bid?.toLowerCase() === bid.toLowerCase(),
+		)
 		return match?.user_op || undefined
 	} catch (err) {
 		logger.warn({ err, commitment }, "intents_getBidsForOrder failed for bid enrichment")
@@ -36,14 +45,15 @@ async function fetchBidDataFromRpc(nodeUrl: string, commitment: string, fillerHe
 export async function resolveBidData(params: {
 	extrinsic?: SubstrateExtrinsic
 	commitment: string
+	bid: string
 	fillerHex: string
 	nodeUrl?: string
 }): Promise<string | undefined> {
-	const { extrinsic, commitment, fillerHex, nodeUrl } = params
+	const { extrinsic, commitment, bid, fillerHex, nodeUrl } = params
 
-	const fromExtrinsic = extractUserOpFromExtrinsic(extrinsic, commitment)
+	const fromExtrinsic = extractUserOpFromExtrinsic(extrinsic, commitment, bid)
 	if (fromExtrinsic) return fromExtrinsic
 
 	if (!nodeUrl) return undefined
-	return fetchBidDataFromRpc(nodeUrl, commitment, fillerHex)
+	return fetchBidDataFromRpc(nodeUrl, commitment, fillerHex, bid)
 }

@@ -9,6 +9,7 @@ import {
 	retryPromise,
 	type HexString,
 	IntentsCoprocessor,
+	type BidSubmissionResult,
 	type TokenInfo,
 	readLegEscrow,
 } from "@hyperbridge/sdk"
@@ -946,6 +947,7 @@ export class IntentFiller {
 					const commitment = result.commitment as HexString
 					await this.bidStorage?.store({
 						commitment,
+						bid: result.bid,
 						extrinsicHash: (result.txHash as HexString) || undefined,
 						success: result.success,
 						pending: result.pending === true,
@@ -1053,7 +1055,7 @@ export class IntentFiller {
 				this.logger.info({ commitment }, "Retracting bid")
 
 				const coprocessor = await this.hyperbridge!
-				const result = await coprocessor.retractBid(commitment)
+				const result = await this.retractStoredBids(coprocessor, commitment)
 
 				if (result.success) {
 					await this.bidStorage!.markRetracted(commitment, (result.extrinsicHash as HexString) ?? null)
@@ -1080,5 +1082,42 @@ export class IntentFiller {
 				this.logger.error({ commitment, err: error }, "Error retracting bid")
 			}
 		})
+	}
+
+	/**
+	 * Retracts every bid this filler placed on a commitment, by the identifiers recorded when each
+	 * was placed.
+	 *
+	 * The identifiers come from the bid rows rather than from Hyperbridge's storage: a bid whose
+	 * `place_bid` is still in the pool is not in storage yet, and reading storage would find
+	 * nothing and abandon its deposit once it lands. Its retraction goes out after it from the same
+	 * account, so it lands after it and reclaims it.
+	 *
+	 * The answer speaks for the commitment as a whole. A bid already gone (`BidNotFound`) is done
+	 * with; one that is pending or failed stops the pass, and the sweep comes back for the rest.
+	 * Nothing recorded to retract reads as `BidNotFound`, which the caller treats as nothing left
+	 * to reclaim.
+	 */
+	private async retractStoredBids(coprocessor: IntentsCoprocessor, commitment: HexString): Promise<BidSubmissionResult> {
+		const rows = await this.bidStorage!.byCommitments([commitment])
+		const bids = [
+			...new Set(
+				rows
+					.filter((row) => !row.retracted && (row.success || row.pending) && row.bid)
+					.map((row) => row.bid as HexString),
+			),
+		]
+
+		let retracted: BidSubmissionResult | undefined
+		for (const bid of bids) {
+			const result = await coprocessor.retractBid(commitment, bid)
+			if (result.success) {
+				retracted = result
+				continue
+			}
+			if (result.error?.includes("BidNotFound")) continue
+			return result
+		}
+		return retracted ?? { success: false, error: "BidNotFound" }
 	}
 }

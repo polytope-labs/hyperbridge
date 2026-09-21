@@ -119,12 +119,12 @@ export class BidManager {
 		}
 
 		// SolverAccount validates this signature against the plain userOpHash and
-		// requires the nonce key to bind the order commitment and session key.
+		// requires the nonce key to bind the order commitment, session key and calldata.
 		const nonceKey = BigInt(nonce) >> 64n
-		const expectedKey = CryptoUtils.bidNonceKey(order.id as HexString, order.session as HexString)
+		const expectedKey = CryptoUtils.bidNonceKey(order.id as HexString, order.session as HexString, callData)
 		if (nonceKey !== expectedKey) {
 			console.warn(
-				`[BidManager] bid nonce key does not bind the order commitment and session key; on-chain validation will fail (order=${order.id})`,
+				`[BidManager] bid nonce key does not bind the order commitment, session key and calldata; on-chain validation will fail (order=${order.id})`,
 			)
 		}
 		const solverSignature = await solverSigner.signTypedData(

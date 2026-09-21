@@ -13,6 +13,8 @@ import type { HexString } from "@/types"
 
 const COMMITMENT = "0x4380111111111111111111111111111111111111111111111111111111114818" as HexString
 const USER_OP = "0xdeadbeef" as HexString
+/** The identifier this filler files its bid under. */
+const BID = `0x${"b1".repeat(32)}` as HexString
 
 const inBlockStatus = {
 	isFuture: false,
@@ -99,7 +101,7 @@ describe("HTTP submission fallback", () => {
 		const node = mockNode({ wsConnected: false })
 		const coproc = coprocessorWithHttp(node)
 
-		const result = await coproc.submitBid(COMMITMENT, USER_OP)
+		const result = await coproc.submitBid(COMMITMENT, USER_OP, BID)
 
 		expect(node.submissions.map((s) => s.via)).toEqual(["http"])
 		expect(result.success).toBe(false)
@@ -112,7 +114,7 @@ describe("HTTP submission fallback", () => {
 		const node = mockNode({ wsConnected: true })
 		const coproc = coprocessorWithHttp(node)
 
-		const result = await coproc.submitBid(COMMITMENT, USER_OP)
+		const result = await coproc.submitBid(COMMITMENT, USER_OP, BID)
 
 		expect(node.submissions.map((s) => s.via)).toEqual(["ws"])
 		expect(result.success).toBe(true)
@@ -137,7 +139,7 @@ describe("HTTP submission fallback", () => {
 		node.wsApi._rpcCore = { provider: { endpoint: "ws://127.0.0.1:1" } }
 		const coproc = IntentsCoprocessor.fromApi(node.wsApi, "//Alice")
 
-		const result = await coproc.submitBid(COMMITMENT, USER_OP)
+		const result = await coproc.submitBid(COMMITMENT, USER_OP, BID)
 
 		expect(node.submissions).toEqual([])
 		expect(result.success).toBe(false)
@@ -152,7 +154,7 @@ describe("HTTP submission fallback", () => {
 		})
 		const coproc = coprocessorWithHttp(node)
 
-		const result = await coproc.submitBid(COMMITMENT, USER_OP)
+		const result = await coproc.submitBid(COMMITMENT, USER_OP, BID)
 
 		expect(result.success).toBe(false)
 		expect(result.pending).toBe(true)
@@ -165,7 +167,7 @@ describe("HTTP submission fallback", () => {
 		})
 		const coproc = coprocessorWithHttp(node)
 
-		const result = await coproc.submitBid(COMMITMENT, USER_OP)
+		const result = await coproc.submitBid(COMMITMENT, USER_OP, BID)
 
 		expect(result.success).toBe(false)
 		expect(result.pending).toBeUndefined()
@@ -204,10 +206,15 @@ describe("RPC queries", () => {
 				},
 				query: {
 					intentsCoprocessor: {
-						bids: {
+						orderBids: {
 							entries: async () => {
-								calls.push("bids.entries")
-								return [[{ args: [null, { toString: () => filler }] }, { toString: () => "42" }]]
+								calls.push("orderBids.entries")
+								return [
+									[
+										{ args: [null, { toString: () => filler }, { toHex: () => BID }] },
+										{ toString: () => "42" },
+									],
+								]
 							},
 						},
 					},
@@ -231,8 +238,8 @@ describe("RPC queries", () => {
 
 		const entries = await coproc.getBidStorageEntries(COMMITMENT)
 
-		expect(entries).toEqual([{ commitment: COMMITMENT, filler: expect.any(String), deposit: 42n }])
-		expect(node.calls).toEqual(["bids.entries"])
+		expect(entries).toEqual([{ commitment: COMMITMENT, filler: expect.any(String), bid: BID, deposit: 42n }])
+		expect(node.calls).toEqual(["orderBids.entries"])
 	})
 
 	// Both routes — the custom RPC and the storage fallback it degrades to — stay on HTTP.
@@ -244,7 +251,7 @@ describe("RPC queries", () => {
 		const bids = await coproc.getBidsForOrder(COMMITMENT)
 
 		expect(bids).toEqual([])
-		expect(node.calls).toEqual(["intents_getBidsForOrder", "bids.entries", "offchain.localStorageGet"])
+		expect(node.calls).toEqual(["intents_getBidsForOrder", "orderBids.entries", "offchain.localStorageGet"])
 	})
 })
 

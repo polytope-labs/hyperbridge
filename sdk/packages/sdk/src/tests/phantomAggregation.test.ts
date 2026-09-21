@@ -311,22 +311,24 @@ const IMPOSTOR_KEY = "0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804
 const COMMITMENT = orderCommitmentFromDecoded(phantomOrder())!
 const OTHER_COMMITMENT = `0x${"22".repeat(32)}` as HexString
 const SESSION_KEY = phantomOrder().session as HexString
-// A bid's nonce key binds it to (order, sessionKey); the top 192 bits of the nonce carry it.
-const BID_NONCE = CryptoUtils.bidNonceKey(COMMITMENT, SESSION_KEY) << 64n
+// A bid's nonce key binds it to (order, sessionKey, callData); the top 192 bits of the nonce carry it.
+const bidNonce = (commitment: HexString, callData: HexString = bidCalldata()) =>
+	CryptoUtils.bidNonceKey(commitment, SESSION_KEY, callData) << 64n
 const USDT = "0xdac17f958d2ee523a2206206994597c13d831ec7"
 const SOLVER_BALANCE = 500_000_000n
 const NODE_URL = "http://node.test"
 
 function unsignedUserOp(
 	sender: HexString,
-	nonce: bigint = BID_NONCE,
+	nonce?: bigint,
 	paymasterAndData: HexString = "0x",
+	callData: HexString = bidCalldata(),
 ): PackedUserOperation {
 	return {
 		sender,
-		nonce,
+		nonce: nonce ?? bidNonce(COMMITMENT, callData),
 		initCode: "0x",
-		callData: bidCalldata(),
+		callData,
 		accountGasLimits: `0x${"00".repeat(32)}`,
 		preVerificationGas: 50_000n,
 		gasFees: `0x${"00".repeat(32)}`,
@@ -346,10 +348,12 @@ async function signedBidUserOp(opts: {
 	callData?: HexString
 }): Promise<PackedUserOperation> {
 	const signer = privateKeyToAccount(opts.signingKey)
-	const userOp = {
-		...unsignedUserOp(opts.sender ?? (signer.address as HexString), opts.nonce, opts.paymasterAndData),
-		...(opts.callData ? { callData: opts.callData } : {}),
-	}
+	const userOp = unsignedUserOp(
+		opts.sender ?? (signer.address as HexString),
+		opts.nonce,
+		opts.paymasterAndData,
+		opts.callData,
+	)
 	const solverSignature = await signer.signTypedData(
 		CryptoUtils.packedUserOpTypedData(userOp, ENTRY_POINT_V08_ADDRESS, CHAIN_ID),
 	)
@@ -764,7 +768,7 @@ describe("aggregatePhantomBids bid verification", () => {
 	it("drops a bid replayed into another order by rewriting the unsigned signature prefix", async () => {
 		// Signed for OTHER_COMMITMENT (so its nonce binds to that order), then the prefix is swapped
 		// to the order being priced. The signature stays valid — only the nonce check catches this.
-		const otherNonce = CryptoUtils.bidNonceKey(OTHER_COMMITMENT, SESSION_KEY) << 64n
+		const otherNonce = bidNonce(OTHER_COMMITMENT)
 		const victim = await signedBidUserOp({ signingKey: SOLVER_KEY, nonce: otherNonce })
 		const replayed = { ...victim, signature: concat([COMMITMENT, `0x${victim.signature.slice(66)}` as HexString]) }
 

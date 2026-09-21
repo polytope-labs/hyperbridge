@@ -7,7 +7,15 @@ import { decodeAddress, keccakAsU8a, xxhashAsU8a } from "@polkadot/util-crypto"
 import { numberToBytes, bytesToBigInt, decodeAbiParameters, hexToBytes } from "viem"
 import { Bytes, Struct, u8, Vector } from "scale-ts"
 import PQueue from "p-queue"
-import type { BidSubmissionResult, HexString, PackedUserOperation, BidStorageEntry, FillerBid, Order } from "@/types"
+import type {
+	BidSubmissionResult,
+	HexString,
+	PackedUserOperation,
+	BidStorageEntry,
+	FillerBid,
+	Order,
+	RpcBidInfo,
+} from "@/types"
 import type { SubstrateChain } from "./substrate"
 import IntentGatewayV2 from "@/abis/IntentGatewayV2"
 import { TokenBucket } from "@/utils/rateLimiter"
@@ -26,6 +34,8 @@ const SYSTEM_EVENTS_KEY = u8aToHex(u8aConcat(xxhashAsU8a("System", 128), xxhashA
 
 /** Offchain storage key prefix for bids */
 const OFFCHAIN_BID_PREFIX = new TextEncoder().encode("intents::bid::")
+/** A phantom order takes one bid per filler, so every phantom bid is filed under the same identifier. */
+const PHANTOM_BID_ID = `0x${"00".repeat(32)}` as HexString
 /** Offchain storage key prefix for phantom orders */
 const OFFCHAIN_PHANTOM_PREFIX = new TextEncoder().encode("intents::phantom::order::")
 
@@ -272,13 +282,6 @@ export function decodeUserOpScale(hex: HexString): PackedUserOperation {
 		paymasterAndData: u8aToHex(new Uint8Array(decoded.paymasterAndData)) as HexString,
 		signature: u8aToHex(new Uint8Array(decoded.signature)) as HexString,
 	}
-}
-
-/** RPC response shape from intents_getBidsForOrder */
-interface RpcBidInfo {
-	commitment: HexString
-	filler: HexString
-	user_op: HexString
 }
 
 /** One directed leg of a phantom order: `standardAmount` of `tokenA` quoted in `tokenB`. */
@@ -874,13 +877,19 @@ export class IntentsCoprocessor {
 	/**
 	 * Submits a bid to Hyperbridge's pallet-intents
 	 *
+	 * A filler can hold several bids on one order, one per price it offers, and `bid` tells them
+	 * apart: submitting again under an identifier the filler already holds replaces that bid alone.
+	 * By convention it is `keccak256` of the UserOp's `callData`, which is also what gives each bid
+	 * its own nonce key on the `SolverAccount` (see `CryptoUtils.bidId`).
+	 *
 	 * @param commitment - The order commitment hash (bytes32)
 	 * @param userOp - The encoded PackedUserOperation as hex string
+	 * @param bid - Identifies this bid among the filler's bids on the order (bytes32)
 	 * @returns BidSubmissionResult with success status and block/extrinsic hash
 	 */
-	async submitBid(commitment: HexString, userOp: HexString): Promise<BidSubmissionResult> {
+	async submitBid(commitment: HexString, userOp: HexString, bid: HexString): Promise<BidSubmissionResult> {
 		try {
-			return await this.signAndSendExtrinsic((api) => api.tx.intentsCoprocessor.placeBid(commitment, userOp))
+			return await this.signAndSendExtrinsic((api) => api.tx.intentsCoprocessor.placeBid(commitment, bid, userOp))
 		} catch (error) {
 			return {
 				success: false,
@@ -895,11 +904,12 @@ export class IntentsCoprocessor {
 	 * Use this to remove unused quotes and claim back deposited BRIDGE tokens.
 	 *
 	 * @param commitment - The order commitment hash (bytes32)
+	 * @param bid - Which of the filler's bids on the order to retract (bytes32)
 	 * @returns BidSubmissionResult with success status and block/extrinsic hash
 	 */
-	async retractBid(commitment: HexString): Promise<BidSubmissionResult> {
+	async retractBid(commitment: HexString, bid: HexString): Promise<BidSubmissionResult> {
 		try {
-			return await this.signAndSendExtrinsic((api) => api.tx.intentsCoprocessor.retractBid(commitment))
+			return await this.signAndSendExtrinsic((api) => api.tx.intentsCoprocessor.retractBid(commitment, bid))
 		} catch (error) {
 			return {
 				success: false,
@@ -935,9 +945,10 @@ export class IntentsCoprocessor {
 	): Promise<BidSubmissionResult> {
 		try {
 			return await this.signAndSendExtrinsic((api) =>
+				// A phantom bid is the filler's only bid on its order, so every one shares an identifier.
 				api.tx.utility.batch([
-					api.tx.intentsCoprocessor.placeBid(bidCommitment, userOp),
-					api.tx.intentsCoprocessor.retractBid(retractCommitment),
+					api.tx.intentsCoprocessor.placeBid(bidCommitment, PHANTOM_BID_ID, userOp),
+					api.tx.intentsCoprocessor.retractBid(retractCommitment, PHANTOM_BID_ID),
 				]),
 			)
 		} catch (error) {
@@ -981,11 +992,11 @@ export class IntentsCoprocessor {
 		const outcome = await this.signAndSendExtrinsic((api) =>
 			api.tx.utility.forceBatch(
 				bids.flatMap((bid) => {
-					const calls = [api.tx.intentsCoprocessor.placeBid(bid.commitment, bid.userOp)]
+					const calls = [api.tx.intentsCoprocessor.placeBid(bid.commitment, PHANTOM_BID_ID, bid.userOp)]
 					// Placed first so the pairing reads the same as the call order; with force_batch
 					// the ordering no longer decides whether the bid survives a failed retraction.
 					if (bid.retractCommitment) {
-						calls.push(api.tx.intentsCoprocessor.retractBid(bid.retractCommitment))
+						calls.push(api.tx.intentsCoprocessor.retractBid(bid.retractCommitment, PHANTOM_BID_ID))
 					}
 					return calls
 				}),
@@ -1067,11 +1078,12 @@ export class IntentsCoprocessor {
 	async getBidStorageEntries(commitment: HexString): Promise<BidStorageEntry[]> {
 		const api = await this.http()
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		const entries = await (api.query.intentsCoprocessor.bids as any).entries(commitment)
+		const entries = await (api.query.intentsCoprocessor.orderBids as any).entries(commitment)
 
 		return entries.map(([storageKey, depositValue]: [any, any]) => ({
 			commitment,
 			filler: storageKey.args[1].toString() as string,
+			bid: storageKey.args[2].toHex() as HexString,
 			deposit: BigInt(depositValue.toString()),
 		}))
 	}
@@ -1108,7 +1120,7 @@ export class IntentsCoprocessor {
 		return result.map((entry) => {
 			const userOp = decodeUserOpScale(entry.user_op as HexString)
 			const filler = new Keyring({ type: "sr25519" }).encodeAddress(hexToU8a(entry.filler))
-			return { filler, userOp, deposit: 0n }
+			return { filler, bid: entry.bid, userOp, deposit: 0n }
 		})
 	}
 
@@ -1119,16 +1131,17 @@ export class IntentsCoprocessor {
 	private async getBidsViaStorage(commitment: HexString): Promise<FillerBid[]> {
 		const api = await this.http()
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		const entries = await (api.query.intentsCoprocessor.bids as any).entries(commitment)
+		const entries = await (api.query.intentsCoprocessor.orderBids as any).entries(commitment)
 
 		if (entries.length === 0) return []
 
 		const bidPromises = entries.map(async ([storageKey, depositValue]: [any, any]) => {
 			try {
 				const filler = storageKey.args[1].toString()
+				const bid = storageKey.args[2].toHex() as HexString
 				const deposit = BigInt(depositValue.toString())
 
-				const offchainKey = this.buildOffchainBidKey(commitment, filler)
+				const offchainKey = this.buildOffchainBidKey(commitment, filler, bid)
 				const offchainKeyHex = u8aToHex(offchainKey)
 
 				const offchainResult = await api.rpc.offchain.localStorageGet("PERSISTENT", offchainKeyHex)
@@ -1138,7 +1151,7 @@ export class IntentsCoprocessor {
 				const bidData = offchainResult.unwrap().toHex() as HexString
 				const decoded = this.decodeBid(bidData)
 
-				return { filler: decoded.filler, userOp: decoded.userOp, deposit }
+				return { filler: decoded.filler, bid, userOp: decoded.userOp, deposit }
 			} catch {
 				return null
 			}
@@ -1160,9 +1173,9 @@ export class IntentsCoprocessor {
 		return { filler, userOp }
 	}
 
-	/** Builds offchain storage key: "intents::bid::" + commitment + filler */
-	private buildOffchainBidKey(commitment: HexString, filler: string): Uint8Array {
-		return u8aConcat(OFFCHAIN_BID_PREFIX, hexToU8a(commitment), decodeAddress(filler))
+	/** Builds offchain storage key: "intents::bid::" + commitment + filler + bid */
+	private buildOffchainBidKey(commitment: HexString, filler: string, bid: HexString): Uint8Array {
+		return u8aConcat(OFFCHAIN_BID_PREFIX, hexToU8a(commitment), decodeAddress(filler), hexToU8a(bid))
 	}
 
 	/**

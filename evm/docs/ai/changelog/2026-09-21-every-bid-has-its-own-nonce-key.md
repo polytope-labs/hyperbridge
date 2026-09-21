@@ -16,7 +16,8 @@ its own key and executes on its own, in any order.
 
 The key is still derived entirely from what the op carries — the commitment in its signature, the
 session key the gateway's `select` recovers, and its calldata — so nothing in it is the solver's to
-choose. The same calldata still executes once: the EntryPoint consumes the key's first sequence.
+choose. The key does not decide whether an order can be filled again: the gateway does, through
+`_filled[commitment]`, which a full fill sets and a partial fill leaves clear so the order stays open.
 
 Hashing the calldata costs about 1.1–1.7k gas per validation on a realistic bid (1.9–3.5 KB of
 calldata), where decoding the `fillOrder` inside it would cost 4.4k–15k.

@@ -85,7 +85,8 @@ contract SolverAccount is Account, ERC7821, IERC1271 {
      * order signs one op per price, and with a key shared across them the EntryPoint would run
      * them only in sequence order: a bid that was never selected would block every one behind it.
      * Keyed by their calldata, each bid is sequence 0 of its own key and can execute on its own,
-     * in any order, while the same calldata still executes once.
+     * in any order. Whether an order can be filled again is the gateway's to decide, not the
+     * key's: `_filled[commitment]` closes it on a full fill, and a partial fill leaves it open.
      */
     function validateUserOp(PackedUserOperation calldata op, bytes32 userOpHash, uint256 missingAccountFunds)
         public

@@ -19,7 +19,7 @@ import { ensureDaemon, probeHealth, type DaemonLaunch } from "./daemon"
 import { installSessionSecurity, installWebContentsSecurity, rendererWebPreferences } from "./desktop-security"
 import { assertResources, resourcePaths, socketPathFor, userDataOverrideFromArgv } from "./desktop-paths"
 import { latestLogPath, loginItemExecutable, LoginItemController } from "./login-item"
-import { proxyToSimplex } from "./protocol"
+import { handleSimplexProtocol } from "./protocol"
 import { SIMPLEX_UPDATE_FEED } from "./release-provider"
 import {
 	holdsMachineAwake,
@@ -393,7 +393,13 @@ async function prepareDesktop(): Promise<void> {
 	if (process.platform === "darwin") app.dock?.setIcon(applicationIconPath)
 	daemonLaunch = { nodePath: resources.node, solverPath: resources.solver, socketPath, dataDir: dataDirectory }
 
-	await protocol.handle("simplex", (request) => proxyToSimplex(request, socketPath, undefined, app.getVersion()))
+	await protocol.handle("simplex", (request) =>
+		handleSimplexProtocol(request, {
+			socketPath,
+			uiDistDir: dirname(resources.ui),
+			desktopVersion: app.getVersion(),
+		}),
+	)
 	installSessionSecurity(session.defaultSession)
 	loginItem = new LoginItemController({
 		app,

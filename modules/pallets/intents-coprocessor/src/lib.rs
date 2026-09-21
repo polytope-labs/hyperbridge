@@ -98,6 +98,14 @@ pub mod pallet {
 		#[pallet::constant]
 		type StorageDepositFee: Get<BalanceOf<Self>>;
 
+		/// The most bids one filler may hold on one order at a time.
+		///
+		/// A filler bids once per price it offers, and the identifier telling those bids apart
+		/// is its own to choose, so without a bound one account could file any number of bids
+		/// on an order and crowd every other filler's out of what the RPC serves for it.
+		#[pallet::constant]
+		type MaxBidsPerFiller: Get<u32>;
+
 		/// Origin that can perform governance actions
 		type GovernanceOrigin: EnsureOrigin<Self::RuntimeOrigin>;
 
@@ -218,6 +226,9 @@ pub mod pallet {
 		InvalidPaymasterRelayer,
 		/// Invalid user operation data
 		InvalidUserOp,
+		/// The filler already holds `MaxBidsPerFiller` bids on this order. Retract one, or
+		/// place again under an identifier it already holds to replace that bid.
+		TooManyBids,
 		/// Failed to dispatch cross-chain request
 		DispatchFailed,
 	}
@@ -242,6 +253,8 @@ pub mod pallet {
 		/// # Errors
 		/// - `InsufficientBalance`: If the filler doesn't have enough balance for the deposit
 		/// - `InvalidUserOp`: If the user operation data is invalid or exceeds 1MB
+		/// - `TooManyBids`: If this is a new bid and the filler already holds `MaxBidsPerFiller`
+		///   bids on the order
 		#[pallet::call_index(0)]
 		#[pallet::weight(T::WeightInfo::place_bid())]
 		pub fn place_bid(
@@ -255,9 +268,16 @@ pub mod pallet {
 			// Validate user_op is not empty
 			ensure!(!user_op.is_empty(), Error::<T>::InvalidUserOp);
 
-			// If this bid already exists, unreserve the old deposit first
+			// If this bid already exists, unreserve the old deposit first. A new one counts
+			// against the filler's bids on the order, which the bound keeps to a few reads.
 			if let Some(old_deposit) = OrderBids::<T>::get((&commitment, &filler, &bid)) {
 				<T as Config>::Currency::unreserve(&filler, old_deposit);
+			} else {
+				let max = T::MaxBidsPerFiller::get() as usize;
+				ensure!(
+					OrderBids::<T>::iter_prefix((&commitment, &filler)).take(max).count() < max,
+					Error::<T>::TooManyBids
+				);
 			}
 
 			let deposit = Self::storage_deposit_fee();

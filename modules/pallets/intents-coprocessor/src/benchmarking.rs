@@ -48,6 +48,15 @@ mod benchmarks {
 		let balance = deposit * 10u32.into();
 		<T as Config>::Currency::make_free_balance_be(&caller, balance);
 
+		// The worst case: the caller already holds one bid short of the bound, so the new one
+		// is counted against a full walk of its bids on the order.
+		for index in 1..T::MaxBidsPerFiller::get() {
+			OrderBids::<T>::insert(
+				(&commitment, &caller, H256::from_low_u64_be(index.into())),
+				deposit,
+			);
+		}
+
 		#[extrinsic_call]
 		_(RawOrigin::Signed(caller.clone()), commitment, H256::zero(), user_op);
 

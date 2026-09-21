@@ -135,12 +135,14 @@ impl pallet_ismp::Config for Test {
 
 parameter_types! {
 	pub const StorageDepositFee: Balance = 100;
+	pub const MaxBidsPerFiller: u32 = 5;
 }
 
 impl pallet_intents::Config for Test {
 	type Dispatcher = Ismp;
 	type Currency = Balances;
 	type StorageDepositFee = StorageDepositFee;
+	type MaxBidsPerFiller = MaxBidsPerFiller;
 	type GovernanceOrigin = EnsureRoot<AccountId>;
 	type WeightInfo = ();
 }
@@ -297,6 +299,45 @@ fn filler_holds_several_bids_on_one_order() {
 			Intents::retract_bid(RuntimeOrigin::signed(filler.clone()), commitment, bids[1]),
 			Error::<Test>::BidNotFound
 		);
+	});
+}
+
+#[test]
+fn filler_holds_at_most_max_bids_per_order() {
+	new_test_ext().execute_with(|| {
+		let filler = AccountId32::new([1; 32]);
+		let other = AccountId32::new([2; 32]);
+		let commitment = H256::random();
+		let max = MaxBidsPerFiller::get() as u8;
+		let place = |who: &AccountId32, bid: H256| {
+			Intents::place_bid(
+				RuntimeOrigin::signed(who.clone()),
+				commitment,
+				bid,
+				BoundedVec::try_from(vec![1u8]).unwrap(),
+			)
+		};
+
+		for index in 0..max {
+			assert_ok!(place(&filler, H256::repeat_byte(index + 1)));
+		}
+
+		// A new identifier past the bound is refused, so one account cannot fill the order's
+		// bids with its own.
+		assert_noop!(place(&filler, H256::repeat_byte(max + 1)), Error::<Test>::TooManyBids);
+
+		// Replacing one it already holds is not a new bid, and another filler is unaffected.
+		assert_ok!(place(&filler, H256::repeat_byte(1)));
+		assert_ok!(place(&other, H256::repeat_byte(max + 1)));
+
+		// Retracting one makes room for another.
+		assert_ok!(Intents::retract_bid(
+			RuntimeOrigin::signed(filler.clone()),
+			commitment,
+			H256::repeat_byte(1)
+		));
+		assert_ok!(place(&filler, H256::repeat_byte(max + 1)));
+		assert_eq!(OrderBids::<Test>::iter_prefix((&commitment, &filler)).count(), max as usize);
 	});
 }
 

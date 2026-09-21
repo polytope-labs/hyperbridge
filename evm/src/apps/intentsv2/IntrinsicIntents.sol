@@ -15,9 +15,7 @@
 pragma solidity ^0.8.24;
 
 import {IntentsBase} from "./IntentsBase.sol";
-import {TokenInfo, Order, Params, FillOptions} from "@hyperbridge/core/apps/IntentGatewayV2.sol";
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {TokenInfo, Order, FillOptions} from "@hyperbridge/core/apps/IntentGatewayV2.sol";
 
 /**
  * @title IntrinsicIntents
@@ -26,8 +24,6 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
  * @dev Same-chain intent logic: partial fills, same-chain cancel, and escrow release.
  */
 abstract contract IntrinsicIntents is IntentsBase {
-    using SafeERC20 for IERC20;
-
     /**
      * @dev Pays each leg and releases the escrow it earns, all on this chain.
      */

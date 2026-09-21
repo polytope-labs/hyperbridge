@@ -17,8 +17,8 @@ import {IntentQuoteTestUtils} from "./IntentQuoteTestUtils.sol";
 
 import "forge-std/Test.sol";
 import {MainnetForkBaseTest} from "./MainnetForkBaseTest.sol";
+import {IntentGatewayV2} from "../../src/apps/IntentGatewayV2.sol";
 import {
-    IntentGatewayV2,
     Order,
     Params,
     InitParams,
@@ -33,7 +33,7 @@ import {
     Deployment,
     WithdrawalRequest,
     SelectOptions
-} from "../../src/apps/IntentGatewayV2.sol";
+} from "@hyperbridge/core/apps/IntentGatewayV2.sol";
 import {deployIntentGatewayImpl, deployIntentModules} from "./IntentGatewayDeploy.sol";
 import {IntentsBase} from "../../src/apps/intentsv2/IntentsBase.sol";
 import {ExtrinsicIntents} from "../../src/apps/intentsv2/ExtrinsicIntents.sol";
@@ -1603,6 +1603,49 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         intentGateway.select(SelectOptions({commitment: commitment, solver: filler, signature: sessionSignature}));
     }
 
+    function testSelectRevertsOnFinalizedOrder() public {
+        uint256 inputAmount = 1000 * 1e6;
+
+        TokenInfo[] memory inputs = new TokenInfo[](1);
+        inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: inputAmount});
+
+        TokenInfo[] memory outputAssets = new TokenInfo[](1);
+        outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
+
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
+
+        Order memory order = Order({
+            user: bytes32(uint256(uint160(user))),
+            source: host.host(),
+            destination: host.host(),
+            deadline: block.number + 1000,
+            nonce: 0,
+            fees: 0,
+            session: vm.addr(1),
+            predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
+            inputs: inputs,
+            output: output
+        });
+
+        vm.startPrank(user);
+        usdc.approve(address(intentGateway), inputAmount);
+        intentGateway.placeOrder(order, bytes32(0));
+        vm.stopPrank();
+
+        bytes32 commitment = keccak256(abi.encode(order));
+        bytes memory sessionSignature = _createSelectSolverSignature(commitment, filler, 1, address(intentGateway));
+
+        // The creator's same-chain cancel finalizes the order by writing `_filled`.
+        vm.prank(user);
+        intentGateway.cancelOrder(order, CancelOptions({relayerFee: 0, height: 0}));
+
+        // The bid is now stale, so it is refused here rather than in `fillOrder`.
+        vm.prank(filler);
+        vm.expectRevert(IntentsBase.Filled.selector);
+        intentGateway.select(SelectOptions({commitment: commitment, solver: filler, signature: sessionSignature}));
+    }
+
     function testFillOrderWithSolverSelection() public {
         // Enable solver selection
         Params memory newParams = Params({
@@ -1681,6 +1724,94 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             })
         );
         vm.stopPrank();
+    }
+
+    function testSecondSelectionDoesNotClobberTheFirst() public {
+        Params memory newParams = Params({
+            host: address(host),
+            dispatcher: address(dispatcher),
+            solverSelection: true,
+            surplusShareBps: 10000,
+            protocolFeeBps: 0,
+            priceOracle: address(0)
+        });
+
+        IntentGatewayV2 gatewayWithSelection = _deployGatewayProxy();
+        gatewayWithSelection.initialize(
+            InitParams({params: newParams, peerChains: new bytes[](0), relayer: address(0), owner: address(this)})
+        );
+
+        uint256 inputAmount = 1000 * 1e6;
+
+        TokenInfo[] memory inputs = new TokenInfo[](1);
+        inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: inputAmount});
+
+        TokenInfo[] memory outputAssets = new TokenInfo[](1);
+        outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
+
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
+
+        Order memory order = Order({
+            user: bytes32(uint256(uint160(user))),
+            source: host.host(),
+            destination: host.host(),
+            deadline: block.number + 1000,
+            nonce: 0,
+            fees: 0,
+            session: vm.addr(1),
+            predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
+            inputs: inputs,
+            output: output
+        });
+
+        vm.startPrank(user);
+        usdc.approve(address(gatewayWithSelection), inputAmount);
+        gatewayWithSelection.placeOrder(order, bytes32(0));
+        vm.stopPrank();
+
+        bytes32 commitment = keccak256(abi.encode(order));
+        address otherSolver = address(0xB0B);
+
+        // Both solvers hold a selection signed by the same session key. A 4337 bundle stages every
+        // validation before any execution, so both land before either fill runs.
+        vm.prank(filler);
+        gatewayWithSelection.select(
+            SelectOptions({
+                commitment: commitment,
+                solver: filler,
+                signature: _createSelectSolverSignature(commitment, filler, 1, address(gatewayWithSelection))
+            })
+        );
+
+        vm.prank(otherSolver);
+        gatewayWithSelection.select(
+            SelectOptions({
+                commitment: commitment,
+                solver: otherSolver,
+                signature: _createSelectSolverSignature(commitment, otherSolver, 1, address(gatewayWithSelection))
+            })
+        );
+
+        // The later selection sits in its own slot, so the first solver's fill still authorises.
+        TokenInfo[] memory solverOutputs = new TokenInfo[](1);
+        solverOutputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
+
+        vm.startPrank(filler);
+        dai.approve(address(gatewayWithSelection), type(uint256).max);
+        gatewayWithSelection.fillOrder(
+            order,
+            FillOptions({
+                relayerFee: 0,
+                nativeDispatchFee: 0,
+                validUntil: 0,
+                outputs: solverOutputs,
+                inputs: IntentQuoteTestUtils.inputs(order, solverOutputs)
+            })
+        );
+        vm.stopPrank();
+
+        assertEq(gatewayWithSelection._filled(commitment), filler, "first solver fills the order");
     }
 
     function testFillOrderWithWrongSolver() public {
@@ -3306,13 +3437,6 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         assertEq(instance, gateway, "Should return stored gateway address");
     }
 
-    function testCalculateCommitmentSlotHash() public view {
-        bytes32 commitment = keccak256("test_commitment");
-        bytes memory slotHash = intentGateway.calculateCommitmentSlotHash(commitment);
-
-        assertGt(slotHash.length, 0, "Should return non-empty slot hash");
-    }
-
     function testParams() public view {
         Params memory currentParams = intentGateway.params();
 
@@ -4190,8 +4314,9 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
     function testFilledMappingStaysAtSlotTwo() public {
         (bytes32 filledCommitment,,) = _seedUpgradeState();
 
-        // _filled is `mapping(bytes32 => address)` declared at storage slot 2. The cross-chain
-        // cancel proof (FILLED_SLOT_BIG_ENDIAN_BYTES) depends on this exact slot.
+        // _filled is `mapping(bytes32 => address)` declared at storage slot 2. Nothing reads the
+        // raw slot any more, but pinning it here catches a layout shift that would move
+        // `_partialFills` off slot 11, which cross-chain cancel proofs do depend on.
         bytes32 slot = keccak256(abi.encode(filledCommitment, uint256(2)));
         address filledFromSlot = address(uint160(uint256(vm.load(address(intentGateway), slot))));
 

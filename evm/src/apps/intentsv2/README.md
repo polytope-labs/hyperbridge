@@ -39,7 +39,7 @@ extrinsic module and are reached through the host-authorized `Execute` request.
   declares no storage and never runs an initializer. `IntentGatewayModulesTest` reads the storage
   layouts out of the forge artifacts and asserts the three contracts agree slot for slot, so
   `foundry.toml` sets `extra_output = ["storageLayout"]`. The append-only rule for storage now
-  applies to all three at once. `_filled` must stay at slot 2, which the SDK reads for fill status, and
+  applies to all three at once. `_filled` stays pinned at slot 2 as a layout-drift guard, and
   `_partialFills` at slot 11, which cross-chain cancel proves per leg as `_partialFills[commitment][index]`.
   The one exception is the unused `bool _paused` that sat at slot 13 offset 0: it was removed, so
   `_relayer` moved from offset 1 to offset 0 and `migrate` shifts it there on existing proxies.

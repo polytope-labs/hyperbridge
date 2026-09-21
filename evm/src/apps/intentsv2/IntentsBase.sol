@@ -68,13 +68,6 @@ abstract contract IntentsBase is EIP712 {
     uint256 internal constant TRANSACTION_FEES = uint160(uint256(keccak256("txFees")));
 
     /**
-     * @dev Big-endian encoding of storage slot 2 (the `_filled` mapping slot).
-     * Used to construct storage proof keys for cross-chain cancel verification.
-     */
-    bytes32 constant FILLED_SLOT_BIG_ENDIAN_BYTES =
-        hex"0000000000000000000000000000000000000000000000000000000000000002";
-
-    /**
      * @dev Big-endian encoding of storage slot 11 (the `_partialFills` mapping slot).
      * Used to construct storage proof keys for cross-chain partial-fill cancel verification.
      * Asserted against the compiled storage layout in the test suite to catch layout drift.
@@ -267,17 +260,12 @@ abstract contract IntentsBase is EIP712 {
     error Filled();
 
     /**
-     * @dev Thrown when attempting to act on an already cancelled order.
-     */
-    error Cancelled();
-
-    /**
      * @dev Thrown when an operation is invoked on the wrong chain for the given order.
      */
     error WrongChain();
 
     /**
-     * @dev Thrown when no escrow exists for the given commitment and token.
+     * @dev Thrown when no escrow exists for the given commitment and leg.
      */
     error UnknownOrder();
 
@@ -345,8 +333,9 @@ abstract contract IntentsBase is EIP712 {
     event OrderFilled(bytes32 indexed commitment, address filler, TokenInfo[] outputs, TokenInfo[] inputs);
 
     /**
-     * @dev Emitted when an order is partially filled by a solver. Only applicable
-     * to same-chain orders which support incremental fills.
+     * @dev Emitted when an order is partially filled by a solver, on either route. A same-chain
+     * fill releases the escrow it earns in the same transaction; a cross-chain one asks the source
+     * chain for it with `RedeemEscrowPartial`.
      * @param commitment The order commitment hash.
      * @param filler The address of the solver who provided this partial fill.
      * @param outputs The credited output amounts in this fill, excluding surplus.
@@ -469,13 +458,6 @@ abstract contract IntentsBase is EIP712 {
         address gateway = _instances[keccak256(stateMachineId)];
         if (gateway == address(0)) revert UnknownInstance();
         return gateway;
-    }
-
-    /**
-     * @dev The storage key of `_filled[commitment]`, used in cancel proofs.
-     */
-    function _calculateCommitmentSlotHash(bytes32 commitment) internal pure returns (bytes memory) {
-        return abi.encodePacked(keccak256(abi.encodePacked(commitment, FILLED_SLOT_BIG_ENDIAN_BYTES)));
     }
 
     /**
@@ -721,12 +703,13 @@ abstract contract IntentsBase is EIP712 {
      * @dev Runs the order's output calldata through the CallDispatcher, then sweeps the output
      * tokens left there back as dust.
      */
-    function _execute(Order calldata order, uint256 outputsLen) internal {
+    function _execute(Order calldata order) internal {
         if (order.output.call.length == 0) return;
 
         address dispatcher = _params.dispatcher;
         ICallDispatcher(dispatcher).dispatch(order.output.call);
 
+        uint256 outputsLen = order.output.assets.length;
         Call[] memory sweepCalls = new Call[](outputsLen);
         uint256 sweepCount = 0;
 
@@ -794,18 +777,22 @@ abstract contract IntentsBase is EIP712 {
     }
 
     /**
-     * @dev Recovers the session key that signed the selection and stores `keccak256(solver,
-     * sessionKey)` in transient storage under the commitment.
+     * @dev Recovers the session key that signed the selection and stores `keccak256(sessionKey)` in
+     * transient storage under `keccak256(commitment, solver)`.
      */
     function _select(SelectOptions calldata options) internal returns (address) {
+        if (_filled[options.commitment] != address(0)) revert Filled();
+
         bytes32 structHash = keccak256(abi.encode(SELECT_SOLVER_TYPEHASH, options.commitment, options.solver));
         bytes32 digest = _hashTypedDataV4(structHash);
         address sessionKey = ECDSA.recover(digest, options.signature);
 
-        bytes32 commitment = options.commitment;
-        bytes32 selectionHash = keccak256(abi.encode(options.solver, sessionKey));
+        bytes32 slot = keccak256(abi.encode(options.commitment, options.solver));
+        // Hashed, never the bare key: an untouched slot reads zero, which must not match an order
+        // whose `session` is the zero address.
+        bytes32 selectionHash = keccak256(abi.encode(sessionKey));
         assembly {
-            tstore(commitment, selectionHash)
+            tstore(slot, selectionHash)
         }
 
         return sessionKey;

@@ -19,8 +19,8 @@ import "forge-std/Test.sol";
 import {intentGatewayUpgradeInitialization} from "../../script/IntentGatewayScript.sol";
 import {MainnetForkBaseTest} from "./MainnetForkBaseTest.sol";
 import {deployIntentGatewayImpl, deployIntentModules} from "./IntentGatewayDeploy.sol";
+import {IntentGatewayV2} from "../../src/apps/IntentGatewayV2.sol";
 import {
-    IntentGatewayV2,
     Order,
     Params,
     InitParams,
@@ -29,7 +29,7 @@ import {
     DispatchInfo,
     FillOptions,
     CancelOptions
-} from "../../src/apps/IntentGatewayV2.sol";
+} from "@hyperbridge/core/apps/IntentGatewayV2.sol";
 import {HyperApp} from "@hyperbridge/core/apps/HyperApp.sol";
 import {IntentsBase} from "../../src/apps/intentsv2/IntentsBase.sol";
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";

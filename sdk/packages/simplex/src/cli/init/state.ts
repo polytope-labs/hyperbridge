@@ -1,5 +1,4 @@
 import type { FillerConfigFile, FillerTomlConfig } from "@/config/filler-toml"
-import type { PairConfig } from "@/config/pairs"
 import type { SignerConfig } from "@/services/wallet"
 import type { UserProvidedChainConfig } from "@/services/FillerConfigService"
 import type { InitChainMeta, InitNetwork } from "./chains"
@@ -24,7 +23,6 @@ export interface WizardState {
 	signer?: SignerConfig
 	substratePrivateKey?: string
 	hyperbridgeWsUrl?: string
-	pairs: PairConfig[]
 	/** `[assets]` escape hatch entries created for custom exotic tokens. */
 	assets?: FillerTomlConfig["assets"]
 	/** Top-level per-chain confirmation policies. */
@@ -48,14 +46,6 @@ export interface Prefill {
 import { DEFAULT_MAX_CONCURRENT_ORDERS } from "@/config/defaults"
 export { DEFAULT_MAX_CONCURRENT_ORDERS }
 
-/** Ask prices below par by order size — the gap to 1 is the spread on every fill. */
-export const DEFAULT_SAME_ASSET_ASK_CURVE = [
-	{ amount: "100", price: "0.99" },
-	{ amount: "1000", price: "0.995" },
-	{ amount: "10000", price: "0.9975" },
-	{ amount: "100000", price: "0.999" },
-]
-
 /** Low-value testnet default; testnet chain ids have no built-in confirmation policy. */
 export const TESTNET_CONFIRMATION_POINTS = [
 	{ amount: "100", value: 1 },
@@ -67,7 +57,6 @@ export function newWizardState(): WizardState {
 		network: "mainnet",
 		chains: [],
 		passthroughChains: [],
-		pairs: [],
 		maxConcurrentOrders: DEFAULT_MAX_CONCURRENT_ORDERS,
 	}
 }

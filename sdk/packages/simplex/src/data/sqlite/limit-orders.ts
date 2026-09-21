@@ -35,6 +35,15 @@ const LIMIT_ORDER_COLUMNS = `
 `
 
 /**
+ * A guarded write that did not apply because another writer got there first.
+ *
+ * Only reachable with a second process on one `bids.db`: everything here is
+ * synchronous and nothing awaits between the read and the write. It is an error
+ * rather than a silent no-op because both writes it guards move real money.
+ */
+export class LimitOrderWriteError extends Error {}
+
+/**
  * SQLite-backed {@link LimitOrderStore}, sharing `bids.db` with the bid store.
  *
  * Amounts are stored as the decimal strings they arrive as. SQLite's own
@@ -144,6 +153,10 @@ export class SqliteLimitOrderStore implements LimitOrderStore {
 		return rows.map((row) => this.toLimitOrder(row))
 	}
 
+	async open(): Promise<LimitOrder[]> {
+		return this.list({ status: "open" })
+	}
+
 	async setPosting(id: string, posting: LimitOrderPosting): Promise<LimitOrder | null> {
 		this.db
 			.prepare(`
@@ -169,5 +182,52 @@ export class SqliteLimitOrderStore implements LimitOrderStore {
 			.prepare("UPDATE limit_orders SET status = ?, last_error = ?, updated_at = datetime('now') WHERE id = ?")
 			.run(status, lastError, id)
 		return this.read(id)
+	}
+
+	async reserve(id: string, amount: string): Promise<boolean> {
+		const order = this.read(id)
+		if (!order || order.status !== "open") return false
+		const reserved = BigInt(order.reserved) + BigInt(amount)
+		if (reserved > BigInt(order.remaining)) return false
+
+		// Guarded on the `reserved` this decision was read against, so a caller that
+		// moved it in between loses here instead of overcommitting the order. The
+		// arithmetic cannot happen in SQL: a 1e18 amount overruns a 64-bit integer.
+		const result = this.db
+			.prepare(`
+				UPDATE limit_orders SET reserved = ?, updated_at = datetime('now')
+				WHERE id = ? AND reserved = ? AND status = 'open'
+			`)
+			.run(reserved.toString(), id, order.reserved)
+		return result.changes === 1
+	}
+
+	async drawDown(id: string, amount: string): Promise<LimitOrder | null> {
+		const order = this.read(id)
+		if (!order) return null
+		// Floored: a fill that somehow delivered more than the order had left has
+		// nothing further to give, and a negative remaining would read as capacity.
+		const remaining = BigInt(order.remaining) - BigInt(amount)
+		const result = this.db
+			.prepare("UPDATE limit_orders SET remaining = ?, updated_at = datetime('now') WHERE id = ? AND remaining = ?")
+			.run((remaining > 0n ? remaining : 0n).toString(), id, order.remaining)
+		// A guard that fails is another writer moving `remaining` between the read
+		// and the write, which only a second process on one database can do. Losing
+		// it quietly would leave the order advertising output it has already paid,
+		// so it is reported rather than swallowed.
+		if (result.changes !== 1) throw new LimitOrderWriteError(`Another writer moved limit order '${id}' mid draw-down`)
+		return this.read(id)
+	}
+
+	async release(id: string, amount: string): Promise<void> {
+		const order = this.read(id)
+		if (!order) return
+		// Floored at zero: a double release would otherwise leave a negative
+		// reservation, which hands out capacity the order does not have.
+		const reserved = BigInt(order.reserved) - BigInt(amount)
+		const result = this.db
+			.prepare("UPDATE limit_orders SET reserved = ?, updated_at = datetime('now') WHERE id = ? AND reserved = ?")
+			.run((reserved > 0n ? reserved : 0n).toString(), id, order.reserved)
+		if (result.changes !== 1) throw new LimitOrderWriteError(`Another writer moved limit order '${id}' mid release`)
 	}
 }

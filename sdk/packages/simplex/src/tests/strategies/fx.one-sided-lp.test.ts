@@ -1,10 +1,10 @@
 import { FXFiller, type TradingPair } from "@/strategies/fx"
-import { FillerPricePolicy } from "@/config/interpolated-curve"
 import { AssetRegistry } from "@/config/asset-registry"
 import { bytes20ToBytes32, type HexString, type Order, type TokenInfo } from "@hyperbridge/sdk"
 import { describe, it, expect } from "vitest"
-import { Decimal } from "decimal.js"
 import { parseUnits } from "viem"
+import type { LimitOrderSide } from "@/data/types"
+import { limitOrderStore } from "../helpers/limit-orders"
 
 // Pure unit tests for one-sided LP on FXFiller. One-sided LP is expressed per pair by
 // omitting a bid/ask price curve: a direction without a curve is disabled, so the filler
@@ -16,26 +16,13 @@ const STABLE = "0x1111111111111111111111111111111111111111" as HexString
 const EXOTIC = "0x2222222222222222222222222222222222222222" as HexString
 const SOLVER = "0x3333333333333333333333333333333333333333" as HexString
 
-const FLAT = new FillerPricePolicy({ points: [{ amount: "0", price: "1500" }] })
-// Bid for two-sided books — sits above the ask so round trips are profitable.
-const FLAT_BID = new FillerPricePolicy({ points: [{ amount: "0", price: "1520" }] })
-
 /** Builds an exotic-pair set + registry for tests: `token1` addresses traded against USDC and USDT. */
 function exoticPairs(
 	resolver: any,
 	token1: Record<string, HexString>,
-	maxOrderSize: number,
-	bidPricePolicy?: FillerPricePolicy,
-	askPricePolicy?: FillerPricePolicy,
 ): { pairs: TradingPair[]; registry: AssetRegistry } {
 	const registry = new AssetRegistry(resolver, { EXOTIC: token1 })
-	const pairs: TradingPair[] = ["USDC", "USDT"].map((token0) => ({
-		token0,
-		token1: "EXOTIC",
-		maxOrderSize: new Decimal(maxOrderSize),
-		bidPricePolicy,
-		askPricePolicy,
-	}))
+	const pairs: TradingPair[] = ["USDC", "USDT"].map((token0) => ({ token0, token1: "EXOTIC" }))
 	return { pairs, registry }
 }
 
@@ -62,30 +49,34 @@ function makeContractService(): any {
 			setPairClassifications: (id: string, pairs: unknown) => cache.set(id, pairs),
 			getFillerOutputs: (id: string) => outputs.get(id),
 			setFillerOutputs: (id: string, value: unknown) => outputs.set(id, value),
+			setMatchedLimitOrder: () => {},
 		},
 	}
 }
 
-function makeFiller(options: {
-	bidPricePolicy?: FillerPricePolicy
-	askPricePolicy?: FillerPricePolicy
+/**
+ * A filler whose operator has posted `sides` of the USDC/EXOTIC book.
+ *
+ * One-sidedness is which sides are open: a bid takes the base in and pays the
+ * quote out, an ask the other way round, so posting only one leaves the reverse
+ * direction unserved.
+ */
+async function makeFiller(options: {
+	sides: LimitOrderSide[]
 	fundingVenues?: any[]
-	side?: "bid" | "ask"
 	contractService?: any
-	maxOrderSize?: number
-}): FXFiller {
-	const { contractService: provided, bidPricePolicy, askPricePolicy, maxOrderSize, ...fillerOptions } = options
+}): Promise<FXFiller> {
+	const { contractService: provided, sides, ...fillerOptions } = options
 	const contractService = provided ?? makeContractService()
 	const signer = { address: SOLVER } as any
 
-	const { pairs, registry } = exoticPairs(
-		configService,
-		{ [CHAIN]: EXOTIC },
-		maxOrderSize ?? 5000,
-		bidPricePolicy,
-		askPricePolicy,
-	)
-	return new FXFiller(signer, configService, {} as any, contractService, pairs, registry, fillerOptions)
+	const { pairs, registry } = exoticPairs(configService, { [CHAIN]: EXOTIC })
+	return new FXFiller(signer, configService, {} as any, contractService, pairs, registry, {
+		...fillerOptions,
+		limitOrders: await limitOrderStore(
+			sides.map((side) => ({ base: "USDC", quote: "EXOTIC", side, fillChain: CHAIN, price: "1", size: "100000" })),
+		),
+	})
 }
 
 function makeOrder(id: string, input: HexString, output: HexString): Order {
@@ -107,60 +98,49 @@ function makeOrder(id: string, input: HexString, output: HexString): Order {
 }
 
 describe("FXFiller one-sided LP", () => {
-	it("fills both directions when both curves are set", async () => {
-		const filler = makeFiller({ bidPricePolicy: FLAT_BID, askPricePolicy: FLAT })
+	it("fills both directions when the operator has posted both sides", async () => {
+		const filler = await makeFiller({ sides: ["BID", "ASK"] })
 		// stable in, exotic out
 		expect(await filler.canFill(makeOrder("a", STABLE, EXOTIC))).toBe(true)
 		// exotic in, stable out
 		expect(await filler.canFill(makeOrder("b", EXOTIC, STABLE))).toBe(true)
 	})
 
-	it("ask-only accepts stable-in/exotic-out (sell exotic) and rejects the reverse", async () => {
-		const filler = makeFiller({ askPricePolicy: FLAT })
+	it("a bid alone takes the stable in and pays the exotic out, and refuses the reverse", async () => {
+		const filler = await makeFiller({ sides: ["BID"] })
 		expect(await filler.canFill(makeOrder("c", STABLE, EXOTIC))).toBe(true)
 		expect(await filler.canFill(makeOrder("d", EXOTIC, STABLE))).toBe(false)
 	})
 
-	it("bid-only accepts exotic-in/stable-out (buy exotic) and rejects the reverse", async () => {
-		const filler = makeFiller({ bidPricePolicy: FLAT })
+	it("an ask alone takes the exotic in and pays the stable out, and refuses the reverse", async () => {
+		const filler = await makeFiller({ sides: ["ASK"] })
 		expect(await filler.canFill(makeOrder("e", EXOTIC, STABLE))).toBe(true)
 		expect(await filler.canFill(makeOrder("f", STABLE, EXOTIC))).toBe(false)
 	})
 
 	// One-sidedness is per pair: two pairs on the same engine can face opposite directions.
-	it("gates each pair independently", async () => {
+	it("gates each book independently", async () => {
 		const OTHER = "0x4444444444444444444444444444444444444444" as HexString
 		const registry = new AssetRegistry(configService, {
 			CNGN2: { [CHAIN]: EXOTIC },
 			ZARP: { [CHAIN]: OTHER },
 		})
 		const pairs: TradingPair[] = [
-			// ask-only: sells CNGN2 for USDC
-			{ token0: "USDC", token1: "CNGN2", maxOrderSize: new Decimal(5000), askPricePolicy: FLAT },
-			// bid-only: buys ZARP for USDC
-			{ token0: "USDC", token1: "ZARP", maxOrderSize: new Decimal(5000), bidPricePolicy: FLAT },
+			{ token0: "USDC", token1: "CNGN2" },
+			{ token0: "USDC", token1: "ZARP" },
 		]
 		const signer = { address: SOLVER } as any
-		const filler = new FXFiller(signer, configService, {} as any, makeContractService(), pairs, registry)
+		const filler = new FXFiller(signer, configService, {} as any, makeContractService(), pairs, registry, {
+			limitOrders: await limitOrderStore([
+				// Pays CNGN2 out for USDC, and pays USDC out for ZARP.
+				{ base: "USDC", quote: "CNGN2", side: "BID", fillChain: CHAIN, price: "1", size: "100000" },
+				{ base: "USDC", quote: "ZARP", side: "ASK", fillChain: CHAIN, price: "1", size: "100000" },
+			]),
+		})
 
-		// USDC→CNGN2 allowed (ask side), CNGN2→USDC rejected.
 		expect(await filler.canFill(makeOrder("m", STABLE, EXOTIC))).toBe(true)
 		expect(await filler.canFill(makeOrder("n", EXOTIC, STABLE))).toBe(false)
-		// ZARP→USDC allowed (bid side), USDC→ZARP rejected.
 		expect(await filler.canFill(makeOrder("o", OTHER, STABLE))).toBe(true)
 		expect(await filler.canFill(makeOrder("p", STABLE, OTHER))).toBe(false)
-	})
-
-	// Regression: the gate must run even when another strategy already cached the
-	// (intrinsic) classification for this order id under the shared cache.
-	it("enforces one-sided even when the classification is already cached by another strategy", async () => {
-		const shared = makeContractService()
-		const twoSided = makeFiller({ bidPricePolicy: FLAT_BID, askPricePolicy: FLAT, contractService: shared })
-		const askOnly = makeFiller({ askPricePolicy: FLAT, contractService: shared })
-
-		// Two-sided filler classifies and caches the exotic-in order.
-		expect(await twoSided.canFill(makeOrder("shared-1", EXOTIC, STABLE))).toBe(true)
-		// Ask-only filler reads the cached classification but must still reject the bid-side order.
-		expect(await askOnly.canFill(makeOrder("shared-1", EXOTIC, STABLE))).toBe(false)
 	})
 })

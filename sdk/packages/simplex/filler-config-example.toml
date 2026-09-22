@@ -297,7 +297,7 @@ points = [
 # themselves are not configured here — they are created over the API and live in
 # bids.db, because they are inventory you open and close while the filler runs.
 [orderbook]
-url = "https://orderbook.hyperfx.finance/graphql"
+url = "https://orderbook.hyperfx.finance/mainnet/graphql"   # testnet: https://orderbook.hyperfx.finance/testnet/graphql
 # defaultTtlSecs = 31536000     # how long an order lives, and its posting's TTL; default 365 days, floor 900
 # reconcileIntervalSecs = 300   # how often to check the orderbook still matches
 # requestTimeoutMs = 10000

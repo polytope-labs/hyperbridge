@@ -7,19 +7,20 @@ description: Read rates, spreads, depth, liquidity, quotes, and price history di
 
 The HyperFX orderbook holds the quotes solvers post for Intent Gateway swaps. Each order is a solver's signed commitment to a rate and a size on one chain. The order is checked against the solver's balance before it counts toward liquidity. The SDK's [`quoteIntent`, `queryAvailableLiquidity` and `queryBuyAndSellRates`](/developers/sdk/api/intent-gateway#quoteintentparams) read from this orderbook. This page covers querying it directly.
 
-The API is GraphQL over HTTP. Send a `POST` with a JSON body to:
+The API is GraphQL over HTTP. Each network has its own deployment; send a `POST` with a JSON body to its URL:
 
-```
-https://orderbook.hyperfx.finance/graphql
-```
+| Network | Endpoint | Chains |
+|---|---|---|
+| Mainnet | `https://orderbook.hyperfx.finance/mainnet/graphql` | Mainnet chains, such as `EVM-8453` (Base) and `EVM-56` (BNB Chain) |
+| Testnet | `https://orderbook.hyperfx.finance/testnet/graphql` | `EVM-97` (BSC Chapel) and `EVM-80002` (Polygon Amoy) |
 
 ```bash
-curl -s https://orderbook.hyperfx.finance/graphql \
+curl -s https://orderbook.hyperfx.finance/testnet/graphql \
   -H 'content-type: application/json' \
   -d '{"query":"{ books { id base quote bestBid bestAsk spread mid } }"}'
 ```
 
-Everything on this page is a read-only query. No authentication is needed.
+Everything on this page is a read-only query. No authentication is needed. The examples use mainnet chain IDs; against the testnet deployment, substitute `EVM-97` and `EVM-80002`.
 
 ## Conventions
 
@@ -267,10 +268,11 @@ A bar's prices are `null` when the series had no value during it, for example wh
 Any GraphQL client works. The SDK exports a typed client, `HyperFxOrderbook`, for the queries it uses. It returns amounts and rates as 1e18 `bigint`s:
 
 ```typescript lineNumbers
-import { HyperFxOrderbook } from "@hyperbridge/sdk"
+import { HyperFxOrderbook, orderbookUrlFor } from "@hyperbridge/sdk"
 import { formatUnits } from "viem"
 
-const orderbook = new HyperFxOrderbook() // defaults to https://orderbook.hyperfx.finance/graphql
+// The deployment serving Base. With no argument, HyperFxOrderbook uses the mainnet one.
+const orderbook = new HyperFxOrderbook(orderbookUrlFor("EVM-8453"))
 
 const { book, bid, ask } = await orderbook.topOfBook({
   tokenA: "USDC",

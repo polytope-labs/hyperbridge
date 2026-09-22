@@ -2,7 +2,13 @@ import { strict as assert } from "node:assert"
 import type { GraphQLClient } from "graphql-request"
 import { parseUnits } from "viem"
 import { ChainConfigService } from "@/configs/ChainConfigService"
-import { HyperFxOrderbook, ORDERBOOK_QUERIES, OrderbookRequestError } from "@/protocols/intents/orderbook/client"
+import {
+	HyperFxOrderbook,
+	ORDERBOOK_QUERIES,
+	ORDERBOOK_URLS,
+	OrderbookRequestError,
+	orderbookUrlFor,
+} from "@/protocols/intents/orderbook/client"
 import { OrderbookMarket } from "@/protocols/intents/orderbook/market"
 import { InsufficientOrderbookLiquidityError } from "@/protocols/intents/orderbook/types"
 
@@ -322,5 +328,14 @@ describe("OrderbookMarket.buyAndSellRates", () => {
 		assert.equal(oneSidedRates.ask, null)
 		assert.equal(oneSidedRates.mid, null)
 		assert.equal(oneSidedRates.spreadBps, null)
+	})
+})
+
+describe("orderbookUrlFor", () => {
+	it("serves testnet chains from the testnet deployment and everything else from mainnet", () => {
+		assert.equal(orderbookUrlFor(CHAPEL), ORDERBOOK_URLS.testnet)
+		assert.equal(orderbookUrlFor(AMOY), ORDERBOOK_URLS.testnet)
+		assert.equal(orderbookUrlFor("EVM-8453"), ORDERBOOK_URLS.mainnet)
+		assert.equal(orderbookUrlFor("EVM-56"), ORDERBOOK_URLS.mainnet)
 	})
 })

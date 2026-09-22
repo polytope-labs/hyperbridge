@@ -1,7 +1,16 @@
 import { GraphQLClient } from "graphql-request"
+import { TESTNET_CHAINS } from "@/utils"
 
-/** The HyperFX orderbook the SDK reads rates, liquidity and quotes from unless told otherwise. */
-export const DEFAULT_ORDERBOOK_URL = "https://orderbook.hyperfx.finance/graphql"
+/** The HyperFX orderbook deployments, one per network. */
+export const ORDERBOOK_URLS = {
+	mainnet: "https://orderbook.hyperfx.finance/mainnet/graphql",
+	testnet: "https://orderbook.hyperfx.finance/testnet/graphql",
+} as const
+
+/** The orderbook deployment that serves `stateMachineId`: the testnet book for a testnet chain, else mainnet. */
+export function orderbookUrlFor(stateMachineId: string): string {
+	return TESTNET_CHAINS.has(stateMachineId) ? ORDERBOOK_URLS.testnet : ORDERBOOK_URLS.mainnet
+}
 
 /** Every amount and rate the orderbook takes or returns is fixed-point at 1e18, whatever the token's decimals. */
 export const ORDERBOOK_DECIMALS = 18
@@ -145,7 +154,7 @@ export class HyperFxOrderbook {
 	private readonly client: GraphQLClient
 
 	/** @param urlOrClient - The orderbook's GraphQL URL, or a configured `graphql-request` client. */
-	constructor(urlOrClient: string | GraphQLClient = DEFAULT_ORDERBOOK_URL) {
+	constructor(urlOrClient: string | GraphQLClient = ORDERBOOK_URLS.mainnet) {
 		this.client = typeof urlOrClient === "string" ? new GraphQLClient(urlOrClient) : urlOrClient
 	}
 

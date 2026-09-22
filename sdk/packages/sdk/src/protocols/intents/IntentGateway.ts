@@ -42,12 +42,12 @@ import { OrderStatusChecker } from "./OrderStatusChecker"
 import {
 	type AvailableLiquidity,
 	type BuyAndSellRates,
-	DEFAULT_ORDERBOOK_URL,
 	HyperFxOrderbook,
 	OrderbookMarket,
 	type QuoteIntentParams,
 	type QuoteIntentResult,
 	UnsupportedLiquidityChainError,
+	orderbookUrlFor,
 } from "./orderbook"
 import type { ERC7821Call } from "@/types"
 import { DEFAULT_GRAFFITI, DEFAULT_POLL_INTERVAL, ADDRESS_ZERO, bytes32ToBytes20, sleep } from "@/utils"
@@ -125,7 +125,7 @@ export class IntentGateway {
 	/** Estimates gas costs for filling an order and converts them to fee-token amounts. */
 	private readonly gasEstimator: GasEstimator
 	/** The HyperFX orderbook quotes, liquidity and rates are read from. */
-	private orderbook = new HyperFxOrderbook(DEFAULT_ORDERBOOK_URL)
+	private orderbook: HyperFxOrderbook
 	/** Prices intents, liquidity and rates from {@link orderbook}. */
 	private readonly market: OrderbookMarket
 
@@ -176,6 +176,7 @@ export class IntentGateway {
 		this.bidManager = bidManager
 		this.gasEstimator = gasEstimator
 		this._crypto = crypto
+		this.orderbook = new HyperFxOrderbook(orderbookUrlFor(dest.config.stateMachineId))
 		this.market = new OrderbookMarket(dest.configService, () => this.orderbook)
 	}
 
@@ -232,7 +233,8 @@ export class IntentGateway {
 
 	/**
 	 * Points quotes, liquidity and rate reads at a HyperFX orderbook other than
-	 * {@link DEFAULT_ORDERBOOK_URL}. Returns `this` for chaining.
+	 * the destination chain's network deployment ({@link ORDERBOOK_URLS}).
+	 * Returns `this` for chaining.
 	 *
 	 * @param orderbook - The orderbook's GraphQL URL, or a configured client.
 	 */

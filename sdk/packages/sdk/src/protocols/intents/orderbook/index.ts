@@ -1,7 +1,8 @@
 export {
 	HyperFxOrderbook,
 	OrderbookRequestError,
-	DEFAULT_ORDERBOOK_URL,
+	ORDERBOOK_URLS,
+	orderbookUrlFor,
 	ORDERBOOK_DECIMALS,
 	ORDERBOOK_QUERIES,
 	type OrderbookBook,

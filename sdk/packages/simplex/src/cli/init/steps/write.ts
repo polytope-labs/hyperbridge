@@ -5,10 +5,16 @@ import { resolve } from "path"
 import { isDeepStrictEqual } from "util"
 import { parse } from "toml"
 import { ChainConfigService } from "@hyperbridge/sdk"
-import { assertConfirmationCoverage, validateConfig, type FillerConfigFile, type FillerTomlConfig } from "@/config/filler-toml"
+import {
+	assertConfirmationCoverage,
+	validateConfig,
+	type FillerConfigFile,
+	type FillerTomlConfig,
+} from "@/config/filler-toml"
 import { AssetRegistry } from "@/config/asset-registry"
 import { assertPairSymbolsResolve } from "@/config/pairs"
 import { DEFAULT_CONFIRMATION_POLICIES, parseChainKey } from "@/config/interpolated-curve"
+import { DEFAULT_ORDERBOOK_URLS } from "@/config/defaults"
 import { validateSignerConfig, type SignerConfig } from "@/services/wallet"
 import { validateRpcUrls } from "@/services/FillerConfigService"
 import { emitFillerToml, writeConfigFileAtomic } from "../emit-toml"
@@ -82,9 +88,7 @@ export function assembleConfig(state: WizardState): FillerConfigFile {
 	// On an update run, overlay the wizard-managed fields onto a copy of the
 	// existing config so sections the wizard never prompts for (binance, keeper,
 	// targetGasUnits, entryPointAddress, watchOnly, …) survive verbatim.
-	const base: Partial<FillerConfigFile> = state.prefillConfig
-		? JSON.parse(JSON.stringify(state.prefillConfig))
-		: {}
+	const base: Partial<FillerConfigFile> = state.prefillConfig ? JSON.parse(JSON.stringify(state.prefillConfig)) : {}
 
 	// A legacy [[strategies]] array must never survive into the output — the
 	// pair engine rejects it at startup (the wizard migrates it to prefills).
@@ -141,6 +145,8 @@ export function assembleConfig(state: WizardState): FillerConfigFile {
 		rebalancing,
 		vault: hasVault ? vault : undefined,
 		allowlist: scrubbedAllowlist,
+		// An operator's own orderbook survives an update run; otherwise the network's.
+		orderbook: base.orderbook ?? { url: DEFAULT_ORDERBOOK_URLS[state.network] },
 	}
 }
 
@@ -197,11 +203,9 @@ function warnUncoveredPassthroughChains(state: WizardState, prefill?: Prefill): 
  */
 export function startFiller(configPath: string): Promise<never> {
 	return new Promise(() => {
-		const child = spawn(
-			process.execPath,
-			[...process.execArgv, process.argv[1], "run", "-c", configPath],
-			{ stdio: "inherit" },
-		)
+		const child = spawn(process.execPath, [...process.execArgv, process.argv[1], "run", "-c", configPath], {
+			stdio: "inherit",
+		})
 		child.on("exit", (code) => process.exit(code ?? 0))
 		child.on("error", (error) => {
 			log.error(`Failed to start the filler: ${error.message}`)

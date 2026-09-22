@@ -63,9 +63,9 @@ describe.skip("Uniswap quote helper", () => {
 	})
 })
 
-// Set HYPERFX_ORDERBOOK_URL to an orderbook serving USDC/cNGN on BSC Chapel and Polygon Amoy to run these.
-// BSC_CHAPEL and POLYGON_AMOY override the chains' default public RPCs, which rate-limit.
-describe.skipIf(!process.env.HYPERFX_ORDERBOOK_URL)("IntentGateway orderbook reads", () => {
+// Reads the testnet orderbook the gateway picks for BSC Chapel and Polygon Amoy; HYPERFX_ORDERBOOK_URL
+// points it elsewhere. BSC_CHAPEL and POLYGON_AMOY override the chains' public RPCs, which rate-limit.
+describe("IntentGateway orderbook reads", () => {
 	it("queries the best bid and ask using only symbols and chain IDs", async () => {
 		const configService = new ChainConfigService()
 		const intentGateway = await createLiveIntentGateway(CHAINS.amoy, CHAINS.chapel, configService)

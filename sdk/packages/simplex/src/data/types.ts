@@ -276,6 +276,8 @@ export interface OperatorNotification {
 	tag: string
 	/** Relative dashboard destination to open when the operator clicks the alert. */
 	url: string
+	/** Opaque, short-lived receipt used only to confirm native desktop test delivery. */
+	receiptId?: string
 }
 
 export interface StoredPushSubscription {

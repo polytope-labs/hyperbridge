@@ -38,12 +38,13 @@ export function consumeNotificationFrames(
 		try {
 			const value = JSON.parse(data) as Partial<OperatorNotification>
 			if (typeof value.title === "string" && typeof value.body === "string") {
-				onNotification({
-					title: value.title,
-					body: value.body,
-					tag: typeof value.tag === "string" ? value.tag : "simplex-alert",
-					url: typeof value.url === "string" ? value.url : "./",
-				})
+					onNotification({
+						title: value.title,
+						body: value.body,
+						tag: typeof value.tag === "string" ? value.tag : "simplex-alert",
+						url: typeof value.url === "string" ? value.url : "./",
+						...(typeof value.receiptId === "string" ? { receiptId: value.receiptId } : {}),
+					})
 			}
 		} catch {
 			// A broken frame must not take down the long-lived desktop listener.
@@ -82,6 +83,27 @@ export class DesktopNotificationClient {
 		this.request?.destroy()
 		this.response = undefined
 		this.request = undefined
+	}
+
+	/** Confirms that Electron handed a native test alert to its operating-system notification API. */
+	acknowledge(receiptId: string): void {
+		const payload = JSON.stringify({ receiptId })
+		const requestImpl = this.options.request ?? httpRequest
+		const request = requestImpl(
+			{
+				socketPath: this.options.socketPath,
+				path: "/api/notifications/receipt",
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					"Content-Length": Buffer.byteLength(payload),
+					"X-Simplex-UI": "1",
+				},
+			},
+			(response) => response.resume(),
+		)
+		request.once("error", () => undefined)
+		request.end(payload)
 	}
 
 	private connect(): void {

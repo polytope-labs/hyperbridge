@@ -170,7 +170,12 @@ export class NotificationService extends EventEmitter {
 		return this.status()
 	}
 
-	async test(options?: { endpoint?: string; native?: boolean; push?: boolean }): Promise<PushDelivery> {
+	async test(options?: {
+		endpoint?: string
+		native?: boolean
+		push?: boolean
+		receiptId?: string
+	}): Promise<PushDelivery> {
 		await this.ready
 		return this.publish(
 			{
@@ -178,6 +183,7 @@ export class NotificationService extends EventEmitter {
 				body: "This device will receive liquidity and swap alerts.",
 				tag: `simplex-test-${Date.now()}`,
 				url: "./",
+				...(options?.receiptId ? { receiptId: options.receiptId } : {}),
 			},
 			options,
 		)

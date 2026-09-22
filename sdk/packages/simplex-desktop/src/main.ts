@@ -175,11 +175,15 @@ function notifySolverFailure(status: SolverStatus): void {
 	}
 }
 
-function notifyOperator(notification: OperatorNotification): void {
+function notifyOperator(notification: OperatorNotification, onShown?: () => void): void {
 	if (!Notification.isSupported()) return
 	try {
 		const nativeNotification = new Notification({ title: notification.title, body: notification.body })
 		nativeNotification.on("click", () => void safeShowWindow(notification.url))
+		nativeNotification.once("show", () => onShown?.())
+		nativeNotification.once("failed", (_event, error) => {
+			console.error(`Simplex could not display its operator notification: ${error}`)
+		})
 		nativeNotification.show()
 	} catch (error) {
 		console.error(`Simplex could not display its operator notification: ${errorMessage(error)}`)
@@ -432,7 +436,14 @@ async function prepareDesktop(): Promise<void> {
 	app.setAboutPanelOptions({ applicationName: "Simplex", applicationVersion: app.getVersion() })
 	createTray()
 	await startOrAttachSolver(true)
-	notificationClient = new DesktopNotificationClient({ socketPath, onNotification: notifyOperator })
+	notificationClient = new DesktopNotificationClient({
+		socketPath,
+		onNotification: (notification) => {
+			notifyOperator(notification, () => {
+				if (notification.receiptId) notificationClient?.acknowledge(notification.receiptId)
+			})
+		},
+	})
 	notificationClient.start()
 	supervisor.start()
 	const updateAuthenticity = updateAuthenticityForInstallation({

@@ -244,7 +244,7 @@ export function NotificationSettings() {
 				) : null}
 			</div>
 
-			{message ? <p className="hint">✓ {message}</p> : null}
+			{message ? <p className="text-ok">✓ {message}</p> : null}
 			{error ? <p className="error">{error}</p> : null}
 		</div>
 	)

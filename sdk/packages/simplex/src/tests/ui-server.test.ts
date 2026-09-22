@@ -203,7 +203,11 @@ describe("UiServer (operator mode)", () => {
 		server = undefined
 	})
 
-	async function startServer(overrides: Partial<OperatorContext> = {}, deps?: SetupDeps) {
+	async function startServer(
+		overrides: Partial<OperatorContext> = {},
+		deps?: SetupDeps,
+		notificationAckTimeoutMs?: number,
+	) {
 		const sameAsset = new FillerPricePolicy({ points: SAME_ASSET_POINTS })
 		const bid = new FillerPricePolicy({ points: BID_POINTS })
 		const ask = new FillerPricePolicy({ points: ASK_POINTS })
@@ -255,7 +259,7 @@ describe("UiServer (operator mode)", () => {
 			},
 			...overrides,
 		})
-		server = new UiServer({ mode: "operator", operator, deps })
+		server = new UiServer({ mode: "operator", operator, deps, notificationAckTimeoutMs })
 		const port = await server.start(0)
 		return {
 			base: `http://127.0.0.1:${port}`,
@@ -355,14 +359,44 @@ describe("UiServer (operator mode)", () => {
 		const stream = await fetch(`${base}/api/notifications/stream`, { signal: controller.signal })
 		const reader = stream.body!.getReader()
 		await reader.read() // :ok
+		const testResponse = fetch(`${base}/api/notifications/test`, {
+			method: "POST",
+			headers: { ...CSRF, "Content-Type": "application/json" },
+			body: JSON.stringify({ native: true }),
+		})
+		const frame = new TextDecoder().decode((await reader.read()).value)
+		const notification = JSON.parse(frame.slice("data: ".length))
+		expect(notification).toMatchObject({ title: "Simplex notifications are working", receiptId: expect.any(String) })
+		const receipt = await fetch(`${base}/api/notifications/receipt`, {
+			method: "POST",
+			headers: { ...CSRF, "Content-Type": "application/json" },
+			body: JSON.stringify({ receiptId: notification.receiptId }),
+		})
+		expect(receipt.status).toBe(204)
+		const test = await testResponse
+		expect(test.status).toBe(200)
+		expect(await test.json()).toMatchObject({ sent: true, nativeReceived: 1 })
+		controller.abort()
+	})
+
+	it("does not claim native test delivery until Electron confirms the notification", async () => {
+		const { base } = await startServer({}, undefined, 25)
+		const controller = new AbortController()
+		const stream = await fetch(`${base}/api/notifications/stream`, { signal: controller.signal })
+		const reader = stream.body!.getReader()
+		await reader.read() // :ok
+
 		const test = await fetch(`${base}/api/notifications/test`, {
 			method: "POST",
 			headers: { ...CSRF, "Content-Type": "application/json" },
 			body: JSON.stringify({ native: true }),
 		})
-		expect(test.status).toBe(200)
-		const frame = new TextDecoder().decode((await reader.read()).value)
-		expect(frame).toContain("Simplex notifications are working")
+
+		expect(test.status).toBe(409)
+		expect(await test.json()).toMatchObject({
+			error: "The desktop app did not confirm displaying the notification",
+			nativeReceived: 0,
+		})
 		controller.abort()
 	})
 

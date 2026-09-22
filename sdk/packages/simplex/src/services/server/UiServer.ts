@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto"
 import { lstatSync, unlinkSync, type Stats } from "node:fs"
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http"
 import { connect } from "node:net"
@@ -395,6 +396,7 @@ export class UiServer {
 	private notifications?: NotificationService
 	private notificationClients = new Set<ServerResponse>()
 	private notificationListener?: (notification: OperatorNotification) => void
+	private nativeNotificationReceipts = new Map<string, { resolve: (received: boolean) => void; timer: NodeJS.Timeout }>()
 	private boundLoopback = true
 	/** How connections this server accepted arrived; stamped onto each socket. */
 	private listenProvenance: Provenance = "tcp"
@@ -409,6 +411,7 @@ export class UiServer {
 	 */
 	private configuredChainIds?: number[]
 	private readonly version: string
+	private readonly notificationAckTimeoutMs: number
 
 	constructor(opts: {
 		mode: UiMode
@@ -419,12 +422,15 @@ export class UiServer {
 		version?: string
 		/** Test injection for the operator-mode network probes (chain editor, token verify). */
 		deps?: SetupDeps
+		/** Test-only override for how long a native test waits for Electron to confirm it invoked the OS API. */
+		notificationAckTimeoutMs?: number
 	}) {
 		this.mode = opts.mode
 		this.operator = opts.operator
 		this.setup = opts.setup
 		this.uiDistDir = opts.uiDistDir
 		this.version = opts.version ?? opts.operator?.version ?? "unknown"
+		this.notificationAckTimeoutMs = opts.notificationAckTimeoutMs ?? 5_000
 		this.deps = resolveSetupDeps(opts.deps)
 		if (this.mode === "operator") this.startState = "running"
 		if (this.operator) {
@@ -694,6 +700,11 @@ export class UiServer {
 		this.notificationListener = undefined
 		this.notifications?.stop()
 		this.notifications = undefined
+		for (const { resolve, timer } of this.nativeNotificationReceipts.values()) {
+			clearTimeout(timer)
+			resolve(false)
+		}
+		this.nativeNotificationReceipts.clear()
 		for (const client of this.notificationClients) client.end()
 		this.notificationClients.clear()
 		for (const [client, unsubscribe] of this.logClients) {
@@ -771,6 +782,26 @@ export class UiServer {
 			for (const client of this.notificationClients) client.write(frame)
 		}
 		this.notifications.on("notification", this.notificationListener)
+	}
+
+	/** Resolves only when Electron confirms it passed a native test alert to the operating system. */
+	private waitForNativeNotificationReceipt(receiptId: string): Promise<boolean> {
+		return new Promise((resolve) => {
+			const timer = setTimeout(() => {
+				this.nativeNotificationReceipts.delete(receiptId)
+				resolve(false)
+			}, this.notificationAckTimeoutMs)
+			this.nativeNotificationReceipts.set(receiptId, { resolve, timer })
+		})
+	}
+
+	private acknowledgeNativeNotification(receiptId: string): boolean {
+		const pending = this.nativeNotificationReceipts.get(receiptId)
+		if (!pending) return false
+		this.nativeNotificationReceipts.delete(receiptId)
+		clearTimeout(pending.timer)
+		pending.resolve(true)
+		return true
 	}
 
 	/** Reported by /api/setup/start-status while save-and-start boots the filler. */
@@ -987,19 +1018,42 @@ export class UiServer {
 						error: "Select exactly one browser endpoint or the native desktop client",
 					})
 				}
-				const delivery = await this.notifications.test({ endpoint, native, push: !native })
 				const nativeClients = native ? this.notificationClients.size : 0
-				if (delivery.pushSent + nativeClients === 0) {
+				if (native && nativeClients === 0) {
+					return sendJson(res, 409, { error: "No connected notification device was found", nativeClients })
+				}
+				const receiptId = native ? randomUUID() : undefined
+				const nativeReceipt = receiptId ? this.waitForNativeNotificationReceipt(receiptId) : undefined
+				const delivery = await this.notifications.test({ endpoint, native, push: !native, receiptId })
+				const nativeReceived = nativeReceipt && (await nativeReceipt) ? 1 : 0
+				if (delivery.pushSent + nativeReceived === 0) {
 					return sendJson(res, delivery.pushFailed > 0 ? 502 : 409, {
 						error:
 							delivery.pushFailed > 0
 								? "The notification service could not deliver to this device"
-								: "No connected notification device was found",
+								: "The desktop app did not confirm displaying the notification",
 						...delivery,
 						nativeClients,
+						nativeReceived,
 					})
 				}
-				return sendJson(res, 200, { sent: true, ...delivery, nativeClients })
+				return sendJson(res, 200, { sent: true, ...delivery, nativeClients, nativeReceived })
+			} catch (err) {
+				return sendJson(res, 400, { error: err instanceof Error ? err.message : "Invalid JSON body" })
+			}
+		}
+
+		if (path === "/api/notifications/receipt") {
+			if (this.mode !== "operator" || !this.notifications)
+				return sendJson(res, 409, { error: "Filler is not running" })
+			if (method !== "POST") return sendJson(res, 405, { error: "Method not allowed" })
+			try {
+				const body = JSON.parse(await readBody(req)) as { receiptId?: unknown }
+				if (typeof body.receiptId !== "string") return sendJson(res, 400, { error: "receiptId is required" })
+				if (!this.acknowledgeNativeNotification(body.receiptId)) {
+					return sendJson(res, 404, { error: "Notification receipt was not found" })
+				}
+				return sendJson(res, 204, {})
 			} catch (err) {
 				return sendJson(res, 400, { error: err instanceof Error ? err.message : "Invalid JSON body" })
 			}

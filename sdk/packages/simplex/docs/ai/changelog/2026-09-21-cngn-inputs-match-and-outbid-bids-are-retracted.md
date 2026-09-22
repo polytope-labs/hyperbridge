@@ -103,3 +103,23 @@ Every bid now approves the gateway for exactly what it pays, unconditionally. It
 allowance to zero, for tokens that refuse to move a non-zero allowance. `buildApprovalAndFillCalldata`
 used to skip the approval when the allowance covered the bid at signing time. That allowance was
 spent by a sibling bid that filled first, so the next level reverted with `ERC20InsufficientAllowance`.
+
+## Limit orders default to a 365-day TTL
+
+`ttlSecs` stays optional on `POST /api/limit-orders` and `simplex.limitOrders.create`. Without it an
+order used to live `[orderbook] defaultTtlSecs`, or 900 seconds when that was unset. It now lives
+365 days (`DEFAULT_LIMIT_ORDER_TTL_SECONDS`). Both the request and the config can still set it.
+
+## Fill history survives a resize
+
+The order detail listed an order's fills from the bid rows whose holds named it. Settlement clears
+those holds, so an order that had been drawn down, and therefore resized, showed no fills.
+
+`settleFilledLimitOrder` now records each draw-down with `LimitOrderStore.recordFill`, in the same
+transaction. The record (`LimitOrderFill`) holds the swap order's commitment, the executed bid, the
+amount drawn down and the fill transaction, and is kept in the `limit_order_fills` table. The
+`orderFilledOnChain` event now carries the transaction hash.
+
+`limitOrders.withFills(id)`, which backs `GET /api/limit-orders/:id`, returns these records as
+`fills`, plus the bids still drawing on the order as `bids`. The UI lists each fill with its time,
+amount and a link to its transaction.

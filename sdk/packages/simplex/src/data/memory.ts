@@ -8,6 +8,8 @@ import type {
 	BidStats,
 	BidStore,
 	LimitOrder,
+	LimitOrderFill,
+	LimitOrderFillInsert,
 	LimitOrderFilter,
 	LimitOrderHold,
 	LimitOrderInsert,
@@ -340,6 +342,28 @@ class MemoryActivityStore implements ActivityStore {
 
 class MemoryLimitOrderStore implements LimitOrderStore {
 	private orders = new Map<string, LimitOrder>()
+	private fillRows: LimitOrderFill[] = []
+	private nextFillId = 1
+
+	async recordFill(fill: LimitOrderFillInsert): Promise<void> {
+		this.fillRows.push({
+			id: this.nextFillId++,
+			limitOrderId: fill.limitOrderId,
+			commitment: fill.commitment,
+			bid: fill.bid ?? null,
+			amount: fill.amount,
+			transactionHash: fill.transactionHash ?? null,
+			filledAt: sqliteDatetime(new Date()),
+		})
+	}
+
+	async fills(limitOrderId: string, limit = 100): Promise<LimitOrderFill[]> {
+		return this.fillRows
+			.filter((fill) => fill.limitOrderId === limitOrderId)
+			.slice(-capLimit(limit))
+			.reverse()
+			.map((fill) => ({ ...fill }))
+	}
 
 	async create(order: LimitOrderInsert): Promise<LimitOrder> {
 		const now = sqliteDatetime(new Date())
@@ -431,10 +455,12 @@ class MemoryLimitOrderStore implements LimitOrderStore {
 	 */
 	async transaction<T>(settle: () => Promise<T>): Promise<T> {
 		const snapshot = new Map([...this.orders].map(([id, order]) => [id, { ...order }]))
+		const fillCount = this.fillRows.length
 		try {
 			return await settle()
 		} catch (err) {
 			this.orders = snapshot
+			this.fillRows = this.fillRows.slice(0, fillCount)
 			throw err
 		}
 	}

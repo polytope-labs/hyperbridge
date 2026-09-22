@@ -89,9 +89,11 @@ export interface CreateLimitOrderRequest {
 	amountOut: string
 	acceptedSources: string[]
 	/**
-	 * How long the order lives, in seconds. It is the TTL of the posting and the
-	 * life of the order itself: one clock, derived into `expiresAt` on the row, and
-	 * nothing renews it. When it runs out the posting lapses and the order is done.
+	 * How long the order lives, in seconds. Optional: without it the order lives
+	 * `[orderbook] defaultTtlSecs`, or 365 days when that is unset too. It is the
+	 * TTL of the posting and the life of the order itself: one clock, derived into
+	 * `expiresAt` on the row, and nothing renews it. When it runs out the posting
+	 * lapses and the order is done.
 	 */
 	ttlSecs?: number
 }

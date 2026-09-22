@@ -298,7 +298,7 @@ points = [
 # bids.db, because they are inventory you open and close while the filler runs.
 [orderbook]
 url = "https://orderbook.hyperbridge.network/graphql"
-# defaultTtlSecs = 900          # how long an order lives, and its posting's TTL; the floor is 900
+# defaultTtlSecs = 31536000     # how long an order lives, and its posting's TTL; default 365 days, floor 900
 # reconcileIntervalSecs = 300   # how often to check the orderbook still matches
 # requestTimeoutMs = 10000
 

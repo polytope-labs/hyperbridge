@@ -384,7 +384,7 @@ describe("one solver's bids at several price levels on one order", () => {
 			},
 		}
 		const reservedOn = async (id: string) => (await ctx.limitOrders.get(id))!.reserved
-		const fill = async (credited: bigint, released: bigint, complete: boolean) => {
+		const fill = async (credited: bigint, released: bigint, complete: boolean, transactionHash?: string) => {
 			await filler.handleOrderFilledOnChain(
 				COMMITMENT,
 				OUR_ADDRESS,
@@ -392,6 +392,7 @@ describe("one solver's bids at several price levels on one order", () => {
 				[{ token: CNGN, amount: credited }],
 				[{ token: OTHER, amount: released }],
 				complete,
+				transactionHash,
 			)
 			await filler.retractionQueue.onIdle()
 		}
@@ -440,6 +441,21 @@ describe("one solver's bids at several price levels on one order", () => {
 		expect(ctx.drawn).toEqual([
 			[LIMIT_ORDER, 1000n * 10n ** 18n],
 			[SECOND_ORDER, 540n * 10n ** 18n],
+		])
+	})
+
+	it("records each fill against the limit order it drew down, with its bid and transaction", async () => {
+		const ctx = await twoLevels()
+		await ctx.fill(950n * 10n ** 18n, 100n, false, "0xfill1")
+		await ctx.fill(540n * 10n ** 18n, 60n, true, "0xfill2")
+
+		const first = await ctx.limitOrders.fills(LIMIT_ORDER)
+		const second = await ctx.limitOrders.fills(SECOND_ORDER)
+		expect(first.map((fill) => [fill.commitment, fill.bid, fill.amount, fill.transactionHash])).toEqual([
+			[COMMITMENT, FIRST_BID, (1000n * 10n ** 18n).toString(), "0xfill1"],
+		])
+		expect(second.map((fill) => [fill.commitment, fill.bid, fill.amount, fill.transactionHash])).toEqual([
+			[COMMITMENT, SECOND_BID, (540n * 10n ** 18n).toString(), "0xfill2"],
 		])
 	})
 

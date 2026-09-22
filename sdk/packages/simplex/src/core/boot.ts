@@ -28,7 +28,7 @@ import { DelegationService } from "@/services/DelegationService"
 import { OrderbookClient } from "@/orderbook/client"
 import { LimitOrderLifecycle } from "@/orderbook/lifecycle"
 import { LimitOrderService } from "@/orderbook/limit-orders"
-import { MIN_ORDER_TTL_SECONDS } from "@/orderbook/types"
+import { DEFAULT_LIMIT_ORDER_TTL_SECONDS } from "@/orderbook/types"
 import { UserOpSender } from "@/services/UserOpSender"
 import { RebalancingService } from "@/services/RebalancingService"
 import { moduleLogger, type LogLevel, type LoggerContext } from "@/services/Logger"
@@ -450,7 +450,7 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		configService,
 		assetRegistry,
 		runtimeSigner,
-		config.orderbook.defaultTtlSecs ?? MIN_ORDER_TTL_SECONDS,
+		config.orderbook.defaultTtlSecs ?? DEFAULT_LIMIT_ORDER_TTL_SECONDS,
 		new DelegationService(chainClientManager, configService, runtimeSigner),
 		options.loggers,
 	)

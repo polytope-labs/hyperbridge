@@ -273,3 +273,45 @@ describe("SqliteLimitOrderStore", () => {
 		await second.close()
 	})
 })
+
+describe.each(backends)("%s fill history", (_name, open) => {
+	it("keeps every fill against its order, newest first, across a repost", async () => {
+		const { store, close } = open()
+		await store.create(ORDER)
+		await store.recordFill({ limitOrderId: ORDER.id, commitment: "0xaa", bid: "0xb1", amount: "100", transactionHash: "0xt1" })
+		// A resize reposts the order under a new commitment; its history must not move.
+		await store.setPosting(ORDER.id, {
+			commitment: "0xnew",
+			bookExpiresAt: null,
+			bookPrice: null,
+			orderNonce: "1",
+			status: "open",
+			lastError: null,
+		})
+		await store.recordFill({ limitOrderId: ORDER.id, commitment: "0xbb", amount: "50" })
+		await store.recordFill({ limitOrderId: "someone-else", commitment: "0xcc", amount: "7" })
+
+		const fills = await store.fills(ORDER.id)
+		expect(fills.map((fill) => [fill.commitment, fill.amount, fill.bid, fill.transactionHash])).toEqual([
+			["0xbb", "50", null, null],
+			["0xaa", "100", "0xb1", "0xt1"],
+		])
+		expect(fills.every((fill) => fill.limitOrderId === ORDER.id && typeof fill.filledAt === "string")).toBe(true)
+		await close()
+	})
+
+	it("drops a fill recorded inside a settlement that failed", async () => {
+		const { store, close } = open()
+		await store.create(ORDER)
+		await expect(
+			store.transaction(async () => {
+				await store.recordFill({ limitOrderId: ORDER.id, commitment: "0xaa", amount: "100" })
+				throw new Error("settlement failed")
+			}),
+		).rejects.toThrow("settlement failed")
+
+		expect(await store.fills(ORDER.id)).toEqual([])
+		await close()
+	})
+})
+

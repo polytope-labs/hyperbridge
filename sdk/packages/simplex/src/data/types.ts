@@ -412,6 +412,33 @@ export interface LimitOrderPosting {
  * chains from paying out the same liability twice, so a store that loses writes
  * overcommits real money.
  */
+/**
+ * One fill that drew a limit order down: kept apart from the bid that priced it, whose
+ * holds are cleared on settlement, so an order keeps its history across every resize.
+ */
+export interface LimitOrderFill {
+	id: number
+	limitOrderId: string
+	/** The swap order the fill settled. */
+	commitment: string
+	/** The identifier Hyperbridge filed the executed bid under, when known. */
+	bid: string | null
+	/** What the fill drew the limit order down by, at 1e18 in the token it pays. */
+	amount: string
+	/** The fill's transaction on the order's fill chain, when the event carried it. */
+	transactionHash: string | null
+	/** SQLite-style "YYYY-MM-DD HH:MM:SS" in UTC. */
+	filledAt: string
+}
+
+export interface LimitOrderFillInsert {
+	limitOrderId: string
+	commitment: string
+	bid?: string | null
+	amount: string
+	transactionHash?: string | null
+}
+
 export interface LimitOrderStore {
 	create(order: LimitOrderInsert): Promise<LimitOrder>
 	get(id: string): Promise<LimitOrder | null>
@@ -449,6 +476,10 @@ export interface LimitOrderStore {
 	 * zero. Returns the order as it now stands, or null when there is none.
 	 */
 	drawDown(id: string, amount: string): Promise<LimitOrder | null>
+	/** Records a fill against its limit order. Called alongside the draw-down it explains. */
+	recordFill(fill: LimitOrderFillInsert): Promise<void>
+	/** A limit order's fills, newest first. */
+	fills(limitOrderId: string, limit?: number): Promise<LimitOrderFill[]>
 	/**
 	 * Runs `settle` as one unit where the backend can.
 	 *

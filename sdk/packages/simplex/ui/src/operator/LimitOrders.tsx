@@ -2,6 +2,7 @@ import { useState } from "react"
 import { ChevronRightIcon } from "../components/InterfaceIcons"
 import { OperatorSheet } from "../components/OperatorSheet"
 import { TokenPairIcons } from "../components/TokenIcon"
+import { INIT_CHAINS } from "@/cli/init/chains"
 import { formatDate, sqliteUtcToMs } from "../lib/format"
 import type { LimitOrder } from "../types"
 import { CreateLimitOrderForm } from "./limitOrders/CreateLimitOrderForm"
@@ -157,6 +158,9 @@ export function LimitOrders({ chains, chainLabels, symbols }: LimitOrdersProps) 
 	)
 }
 
+/** Each chain's block explorer, for linking a fill to its transaction. */
+const EXPLORER_BY_CHAIN = new Map(INIT_CHAINS.map((meta) => [meta.stateMachineId, meta.explorerUrl]))
+
 function LimitOrderRow(props: { order: LimitOrder; chainLabel: (id: string) => string; onOpen: () => void }) {
 	const { order, chainLabel, onOpen } = props
 	const status = statusOf(order)
@@ -242,15 +246,25 @@ function LimitOrderDetail(props: {
 
 			<h3>Fills</h3>
 			{fills.length === 0 ? (
-				<p className="hint">Nothing has drawn on this order yet.</p>
+				<p className="hint">Nothing has filled against this order yet.</p>
 			) : (
 				<ul className="limit-order-fills">
-					{fills.map((fill) => (
-						<li key={fill.commitment}>
-							<span>{formatDate(sqliteUtcToMs(fill.createdAt))}</span>
-							<span>{fill.success ? "filled" : (fill.error ?? "failed")}</span>
-						</li>
-					))}
+					{fills.map((fill) => {
+						const explorer = EXPLORER_BY_CHAIN.get(order.fillChain)
+						return (
+							<li key={fill.id}>
+								<span>{formatDate(sqliteUtcToMs(fill.filledAt))}</span>
+								<span>
+									{fromScaled(fill.amount)} {output}
+								</span>
+								{fill.transactionHash && explorer ? (
+									<a href={`${explorer}/tx/${fill.transactionHash}`} target="_blank" rel="noreferrer">
+										{fill.transactionHash.slice(0, 10)}…
+									</a>
+								) : null}
+							</li>
+						)
+					})}
 				</ul>
 			)}
 

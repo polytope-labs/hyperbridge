@@ -147,6 +147,7 @@ export class EventMonitor extends EventEmitter {
 			chainId,
 			outputs: event.outputs,
 			inputs: event.inputs,
+			transactionHash,
 			// A scanner that cannot tell leaves this unset; treated as closing the order,
 			// as every fill of ours was before partial fills were told apart.
 			complete: event.complete !== false,

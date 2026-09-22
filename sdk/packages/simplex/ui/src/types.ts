@@ -9,7 +9,7 @@ export type { CurvePoint } from "@/config/interpolated-curve"
 export type { PairConfig } from "@/config/pairs"
 // The limit-order routes answer with the stored rows themselves rather than a
 // DTO, so the browser reads the same shape the store writes.
-export type { LimitOrder, LimitOrderSide, LimitOrderStatus, StoredBid } from "@/data/types"
+export type { LimitOrder, LimitOrderFill, LimitOrderSide, LimitOrderStatus, StoredBid } from "@/data/types"
 export type { CreateLimitOrderRequest } from "@/orderbook/limit-orders"
 export type {
 	ActivityEventDto,

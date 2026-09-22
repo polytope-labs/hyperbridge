@@ -1,13 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { api, ApiError } from "../../api"
-import type { CreateLimitOrderRequest, LimitOrder, LimitOrderStatus, StoredBid } from "../../types"
+import type { CreateLimitOrderRequest, LimitOrder, LimitOrderFill, LimitOrderStatus, StoredBid } from "../../types"
 
 /** How often the list refreshes itself: a posting lands, expires or is filled without the operator acting. */
 const POLL_MS = 10_000
 
 export interface LimitOrderFills {
 	order: LimitOrder
-	fills: StoredBid[]
+	/** Every fill that drew the order down, kept across its resizes. */
+	fills: LimitOrderFill[]
+	/** The bids that drew on it and have not settled yet. */
+	bids: StoredBid[]
 }
 
 /**

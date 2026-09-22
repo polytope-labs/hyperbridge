@@ -175,9 +175,10 @@ export interface OrderbookConfig {
 	/** GraphQL endpoint. */
 	url: string
 	/**
-	 * How long a limit order lives, in seconds, and the TTL written into its posting.
-	 * At least 900, the orderbook's floor. The order and its posting expire together:
-	 * there is one clock, and nothing renews it.
+	 * How long a limit order lives, in seconds, and the TTL written into its posting,
+	 * when the create request names none. Defaults to 365 days; at least 900, the
+	 * orderbook's floor. The order and its posting expire together: there is one
+	 * clock, and nothing renews it.
 	 */
 	defaultTtlSecs?: number
 	/** How often to reconcile local limit orders against the orderbook, in seconds. */

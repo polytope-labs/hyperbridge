@@ -407,9 +407,10 @@ export class IntentsCoprocessor {
 	private rangeQueryUnavailable = false
 
 	// Serialises every extrinsic submission on this instance's substrate account. All submit/retract
-	// methods funnel through signAndSendExtrinsic, each using the API's auto-nonce; fired in parallel
-	// (bids for orders on different chains, or several phantom orders in one interval) they would grab
-	// the same nonce and all but one would fail. Concurrency 1 sequences them.
+	// methods funnel through signAndSendExtrinsic; fired in parallel (bids for orders on different
+	// chains, several bids on one order, or several phantom orders in one interval) they would grab
+	// the same nonce and all but one would fail. Concurrency 1 sequences them, and each new
+	// extrinsic signs with the pool-aware nonce so one still in the pool does not block the next.
 	private submissionQueue = new PQueue({ concurrency: 1 })
 
 	/**
@@ -627,7 +628,7 @@ export class IntentsCoprocessor {
 	 */
 	private async sendViaHttp(api: ApiPromise, build: ExtrinsicBuilder): Promise<BidSubmissionResult> {
 		try {
-			const hash = await build(api).signAndSend(this.getKeyPair(), { tip: BASE_TIP })
+			const hash = await build(api).signAndSend(this.getKeyPair(), { tip: BASE_TIP, nonce: -1 })
 			return { success: false, pending: true, extrinsicHash: hash.toHex() as HexString }
 		} catch (err) {
 			return this.classifySubmissionError(err instanceof Error ? err : new Error(String(err)))
@@ -641,7 +642,7 @@ export class IntentsCoprocessor {
 	 * Two kinds of failure are retried, and the difference is the nonce.
 	 *
 	 * An attempt that verifiably went nowhere (rejected before the pool, dropped, invalid) leaves
-	 * the account nonce free, so the next attempt simply re-signs with the auto-nonce.
+	 * the account nonce free, so the next attempt simply re-signs with the pool-aware nonce.
 	 *
 	 * An attempt that reached the pool and was still there when the watch timed out (`stalled`) is
 	 * retried as a *replacement*: the same nonce it was signed with, and double the tip. Substrate's
@@ -787,7 +788,12 @@ export class IntentsCoprocessor {
 			}, timeoutMs)
 
 			extrinsic
-				.signAndSend(keyPair, nonce === undefined ? { tip } : { tip, nonce }, (result) => {
+				// `nonce: -1` is the pool-aware next index, not the on-chain one. Submissions are
+				// serialised but a watch gives up while its extrinsic is still pooled, and the
+				// on-chain nonce does not advance until that one is in a block: the next extrinsic
+				// would sign the same nonce and bounce off it (1013/1014). Only a replacement for a
+				// stalled extrinsic pins a nonce, and it passes one here.
+				.signAndSend(keyPair, nonce === undefined ? { tip, nonce: -1 } : { tip, nonce }, (result) => {
 					if (resolved) return
 
 					if (

@@ -66,6 +66,12 @@ export interface StoredBid {
 export interface LimitOrderHold {
 	limitOrderId: string
 	amount: string
+	/**
+	 * The take the bid signed beside `amount`, in the input token's raw units. With it, settlement
+	 * works out what the gateway charged: the escrow it released at `amount / take`. Holds recorded
+	 * before bids carried their own rate have none.
+	 */
+	take?: string
 }
 
 export interface BidInsert {

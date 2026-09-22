@@ -22,7 +22,7 @@ import type { FundingVenue } from "@/funding/types"
 import type { Signer } from "@/services/wallet"
 import { paymasterReserveForToken } from "@/services/paymaster"
 import type { LimitOrderStore } from "@/data/types"
-import { toRaw, toScaled } from "@/orderbook/amounts"
+import { inputFor, toRaw, toScaled } from "@/orderbook/amounts"
 import { matchLimitOrders, type LimitOrderMatch } from "@/orderbook/matching"
 import { limitOrderUsdEdges, usdFactorsFrom, usdValueOf } from "@/orderbook/usd"
 
@@ -333,13 +333,12 @@ export class FXFiller implements FillerStrategy {
 				// never offers more than it has left even when the wallet holds more.
 				const offered = toRaw(candidate.payout, outputDecimals)
 
-				// Never more than the swapper asked for. The bid amount is `solverAmount`
-				// at the gateway, and on a full fill it sets `fillAmount = totalRequired`
-				// and splits everything above it between the beneficiary and the protocol,
-				// debiting the solver the whole amount. Paying the order's full offer when
-				// the ask is smaller hands that difference away; the escrow released is
-				// the same either way, so what is not bid is margin kept.
-				const targetOutput = offered < output.amount ? offered : output.amount
+				// The bid is the limit order's own rate: its whole offer for the input,
+				// capped by what it has left. The gateway credits the swapper the ask and
+				// pays the swapper and the protocol whatever is above it, so a better price
+				// reaches the swapper, and bids from several operators rank by price rather
+				// than all tying at the ask.
+				const targetOutput = offered
 
 				// Whether this order may be filled below what the user asked for. Both
 				// chains allow it: `ExtrinsicIntents._fillCrossChain` keeps cumulative
@@ -416,7 +415,7 @@ export class FXFiller implements FillerStrategy {
 							ceiling: overfillCeiling.toString(),
 							maxOverfillBps: this.maxOverfillBps.toString(),
 						},
-						"Limit order offers far more than the swapper asked for; bidding the ask",
+						"Limit order offers far more than the swapper asked for",
 					)
 				}
 
@@ -496,27 +495,34 @@ export class FXFiller implements FillerStrategy {
 				// clean, unclamped outcome).
 				this.recordOrderOutcome(false, order.id)
 
-				// Escrow is released in proportion to the output actually delivered
-				// (IntrinsicIntents.sol: `inputs[i].amount * fillAmount / totalRequired`),
-				// and only a fill that COMPLETES the order sweeps the residue. Valuing an
-				// under-fill against the whole escrow would overstate the take.
+				// The take signed beside the output. `fillOrder` settles the output against
+				// it as this bid's rate, credits the swapper `take * ask / escrow`, and
+				// charges the solver the escrow it releases at that rate.
 				//
-				// The contract divides by `totalRequired` and counts `fillAmount`, which is
-				// what it accepted rather than what was bid; this counts `finalOutputAmount`
-				// against `output.amount`. They are the same figures only because an order
-				// another solver has already touched is refused above, so `alreadyFilled`
-				// is zero and the bid is never above the ask. Both halves of that are
-				// load-bearing here.
+				//  - A payout that covers the ask takes the whole input, so the order can be
+				//    filled in one go. At the full offer that is exactly the limit order's
+				//    rate; a payout cut short by what is left sits between it and the ask.
+				//  - A payout below the ask is a partial fill at the limit order's rate: the
+				//    input that payout buys at its price. It is capped at the most the
+				//    gateway accepts for it (`RateBelowOrder` refuses a take whose credit
+				//    at the order's rate exceeds the output), which only binds when the
+				//    limit order's price is the ask itself.
 				const releasedInput =
 					finalOutputAmount >= output.amount
 						? input.amount
-						: (input.amount * finalOutputAmount) / output.amount
-
-				// The same number is what this bid signs as its take: `fillOrder` settles
-				// each output against the input beside it as the solver's own rate, and
-				// the gateway refuses a take above the share of escrow the fill earns
-				// (`RateBelowOrder`). Claiming the whole input for a part of the output
-				// would be exactly that.
+						: minBigInt(
+								toRaw(
+									inputFor({
+										side: candidate.order.side,
+										outputAmount: toScaled(finalOutputAmount, outputDecimals),
+										price: BigInt(candidate.order.price),
+										inputDecimals,
+									}),
+									inputDecimals,
+								),
+								(finalOutputAmount * input.amount) / output.amount,
+								input.amount,
+							)
 				if (releasedInput === 0n) {
 					this.logger.info(
 						{
@@ -555,20 +561,9 @@ export class FXFiller implements FillerStrategy {
 					if (spreadUsd) sameAssetEdgeUsd = spreadUsd
 				}
 
-				// What the limit order was willing to pay against what the swapper asked
-				// for. The bid is the smaller of the two and the escrow released is the
-				// same either way, so the difference really is margin kept, and it is what
-				// pays for a partial fill's gas. It was booked here before the bid was
-				// clamped, when the contract was in fact taking every bit of it.
-				let payoutSurplusUsd = new Decimal(0)
-				if (!sameAsset && outputSymbol && offered > output.amount) {
-					const surplus = usdValueOf(
-						usdFactors,
-						outputSymbol,
-						new Decimal(formatUnits(offered - output.amount, outputDecimals)),
-					)
-					if (surplus) payoutSurplusUsd = surplus
-				}
+				// Bidding the limit order's own rate hands anything above the ask to the
+				// swapper and the protocol, so none of it is margin this bid keeps.
+				const payoutSurplusUsd = new Decimal(0)
 
 				const { totalCostInSourceFeeToken, relayerFeeInSourceFeeToken, dispatchFee } =
 					await this.contractService.estimateGasFillPost(order)
@@ -1010,4 +1005,8 @@ export class FXFiller implements FillerStrategy {
 		const inputUsd = usdValueOf(factors, symbol, amount)
 		return inputUsd && inputUsd.gt(0) ? { inputUsd } : null
 	}
+}
+
+function minBigInt(first: bigint, ...rest: bigint[]): bigint {
+	return rest.reduce((min, value) => (value < min ? value : min), first)
 }

@@ -149,3 +149,26 @@ export function offerFor(params: {
 	const unit = outputDecimals >= 18 ? 1n : 10n ** BigInt(18 - outputDecimals)
 	return (scaled / unit) * unit
 }
+
+/**
+ * The input a limit order takes to pay `outputAmount` at its own signed rate: the inverse of
+ * {@link offerFor}, at 1e18 but quantised to the input token's raw unit.
+ *
+ * Rounded up. The gateway settles a fill at `output / take`, and the take has to earn at least
+ * the output at that rate: a take rounded down would pay out slightly above the operator's price
+ * on every fill.
+ */
+export function inputFor(params: {
+	side: LimitOrderSide
+	outputAmount: bigint
+	price: bigint
+	inputDecimals: number
+}): bigint {
+	const { side, outputAmount, price, inputDecimals } = params
+	if (price <= 0n) throw new Error("A limit order's price must be greater than zero")
+
+	const scaled =
+		side === "BID" ? divCeil(outputAmount * ORDERBOOK_SCALE, price) : divCeil(outputAmount * price, ORDERBOOK_SCALE)
+	const unit = inputDecimals >= 18 ? 1n : 10n ** BigInt(18 - inputDecimals)
+	return divCeil(scaled, unit) * unit
+}

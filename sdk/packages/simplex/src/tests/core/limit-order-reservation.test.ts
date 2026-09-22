@@ -256,6 +256,75 @@ describe("a bid drawing on several limit orders", () => {
 		expect(settled).toEqual([[SECOND_ORDER, 600n * 10n ** 18n]])
 	})
 
+	describe("bids at their own rate", () => {
+		/** Two bids at different rates, each holding its payout and the take it signed beside it. */
+		async function twoRatedBids() {
+			const ctx = await build()
+			await ctx.limitOrders.reserve(LIMIT_ORDER, (1000n * 10n ** 18n).toString())
+			await ctx.limitOrders.reserve(SECOND_ORDER, (980n * 10n ** 18n).toString())
+			await ctx.bids.store({
+				commitment: COMMITMENT,
+				bid: FIRST_BID,
+				success: true,
+				reservations: [{ limitOrderId: LIMIT_ORDER, amount: (1000n * 10n ** 18n).toString(), take: "100" }],
+			})
+			await ctx.bids.store({
+				commitment: COMMITMENT,
+				bid: SECOND_BID,
+				success: true,
+				reservations: [{ limitOrderId: SECOND_ORDER, amount: (980n * 10n ** 18n).toString(), take: "99" }],
+			})
+			const settled: Array<[string, bigint]> = []
+			// biome-ignore lint/suspicious/noExplicitAny: narrow stubs for this path
+			;(ctx.filler as any).assetRegistry = { getAddress: () => CNGN }
+			// biome-ignore lint/suspicious/noExplicitAny: narrow stubs for this path
+			;(ctx.filler as any).contractService = { getTokenDecimals: async () => 18 }
+			// biome-ignore lint/suspicious/noExplicitAny: narrow stubs for this path
+			;(ctx.filler as any).limitOrderService = {
+				resize: async (order: { id: string }, amount: bigint) => {
+					settled.push([order.id, amount])
+					return null
+				},
+			}
+			return { ...ctx, settled }
+		}
+
+		it("settles the bid whose take was released and draws it down by what it was charged", async () => {
+			// The event credits the swapper 980, the ask, while the bid that executed paid its
+			// whole 1,000: the rest went to the swapper and the protocol as surplus. Matching the
+			// credit to a hold would pick the 980 bid; the released take names the right one.
+			const ctx = await twoRatedBids()
+
+			// biome-ignore lint/suspicious/noExplicitAny: the settlement path is private
+			await (ctx.filler as any).settleFilledLimitOrder(
+				COMMITMENT,
+				8453,
+				[{ token: CNGN, amount: 980n * 10n ** 18n }],
+				[{ token: OTHER, amount: 100n }],
+			)
+
+			expect(ctx.settled).toEqual([[LIMIT_ORDER, 1000n * 10n ** 18n]])
+			expect((await ctx.limitOrders.get(SECOND_ORDER))!.reserved).toBe("0")
+		})
+
+		it("charges a fill the gateway clamped in proportion to the escrow it released", async () => {
+			// The order had only part of this bid's credit left, so the gateway released half
+			// of its take and charged half of its payout, however the credit rounds. The release
+			// fits inside both takes; the executor takes the better rate (10 against 9.9) first.
+			const ctx = await twoRatedBids()
+
+			// biome-ignore lint/suspicious/noExplicitAny: the settlement path is private
+			await (ctx.filler as any).settleFilledLimitOrder(
+				COMMITMENT,
+				8453,
+				[{ token: CNGN, amount: 490n * 10n ** 18n }],
+				[{ token: OTHER, amount: 50n }],
+			)
+
+			expect(ctx.settled).toEqual([[LIMIT_ORDER, 500n * 10n ** 18n]])
+		})
+	})
+
 	it("claims the holds of every bid on the order, so none is left behind", async () => {
 		const ctx = await build()
 		await ctx.bids.store({

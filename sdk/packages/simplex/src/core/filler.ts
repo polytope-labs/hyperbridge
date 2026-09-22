@@ -37,6 +37,30 @@ function byAmount(a: LimitOrderHold, b: LimitOrderHold): number {
 	return BigInt(a.amount) < BigInt(b.amount) ? -1 : BigInt(a.amount) > BigInt(b.amount) ? 1 : 0
 }
 
+/** Best signed rate (`amount / take`) first: the order the executor takes bids in. */
+function byBestRate(a: LimitOrderHold, b: LimitOrderHold): number {
+	const left = BigInt(a.amount) * BigInt(b.take!)
+	const right = BigInt(b.amount) * BigInt(a.take!)
+	return left === right ? 0 : left > right ? -1 : 1
+}
+
+/**
+ * What the gateway charged the bid behind `hold`, at 1e18: the escrow it released, at the rate
+ * the bid signed (`amount / take`), rounded up and never below what it credited the swapper.
+ *
+ * The fill event reports the credited output, which excludes the surplus a bid above the ask
+ * pays the swapper and the protocol. Drawing the limit order down by that would leave it claiming
+ * output it had already paid out. A hold without a take predates bids carrying their own rate,
+ * and was signed at the ask, so its charge is the delivery.
+ */
+function chargedFor(hold: LimitOrderHold, delivered: bigint, released: bigint): bigint {
+	if (hold.take === undefined || released === 0n) return delivered
+	const take = BigInt(hold.take)
+	if (take === 0n) return delivered
+	const atRate = (BigInt(hold.amount) * released + take - 1n) / take
+	return atRate > delivered ? atRate : delivered
+}
+
 export class IntentFiller {
 	public monitor: EventMonitor
 	private strategies: FillerStrategy[]
@@ -138,8 +162,8 @@ export class IntentFiller {
 			this.handleNewOrder(order, transactionHash)
 		})
 
-		this.monitor.on("orderFilledOnChain", ({ commitment, filler, chainId, outputs }) => {
-			this.handleOrderFilledOnChain(commitment as HexString, filler, chainId, outputs).catch((err) => {
+		this.monitor.on("orderFilledOnChain", ({ commitment, filler, chainId, outputs, inputs }) => {
+			this.handleOrderFilledOnChain(commitment as HexString, filler, chainId, outputs, inputs).catch((err) => {
 				// The retraction sweep still picks this bid up on its next cycle.
 				this.logger.error({ commitment, err }, "Failed to handle on-chain fill")
 			})
@@ -999,7 +1023,9 @@ export class IntentFiller {
 					}
 					// Held before the bid goes out, against this bid's own limit order: a
 					// hold that cannot be taken drops this bid, not the rest.
-					reservation = await this.holdAll([{ limitOrderId: plan.limitOrderId, payout: plan.payout }])
+					reservation = await this.holdAll([
+						{ limitOrderId: plan.limitOrderId, payout: plan.payout, take: plan.fillerInputs[0]?.amount },
+					])
 					if (reservation.length === 0) {
 						this.logger.info(
 							{ orderId: order.id, limitOrder: plan.limitOrderId },
@@ -1117,11 +1143,12 @@ export class IntentFiller {
 		filler: string,
 		chainId: number,
 		outputs: TokenInfo[] = [],
+		inputs: TokenInfo[] = [],
 	): Promise<void> {
 		// Top up EntryPoint deposit if we were the filler, but only on chains
 		// without any paymaster (paymaster chains pay gas in ERC-20 tokens).
 		if (filler.toLowerCase() === this.fillerAddress.toLowerCase()) {
-			await this.settleFilledLimitOrder(commitment, chainId, outputs)
+			await this.settleFilledLimitOrder(commitment, chainId, outputs, inputs)
 			const chain = `EVM-${chainId}`
 			if (!hasPaymaster(chain, this.configService)) {
 				const targetGasUnits = this.configService.getTargetGasUnits()
@@ -1209,7 +1236,9 @@ export class IntentFiller {
 	 * ones already taken. Reserving in the matcher's order keeps two evaluations
 	 * racing the same pair of orders from taking them in opposite sequences.
 	 */
-	private async holdAll(holds: { limitOrderId: string; payout: bigint }[]): Promise<LimitOrderHold[]> {
+	private async holdAll(
+		holds: { limitOrderId: string; payout: bigint; take?: bigint }[],
+	): Promise<LimitOrderHold[]> {
 		if (!this.limitOrders || holds.length === 0) return []
 
 		const taken: LimitOrderHold[] = []
@@ -1219,7 +1248,11 @@ export class IntentFiller {
 				await this.releaseAll(taken)
 				return []
 			}
-			taken.push({ limitOrderId: hold.limitOrderId, amount })
+			taken.push({
+				limitOrderId: hold.limitOrderId,
+				amount,
+				...(hold.take !== undefined ? { take: hold.take.toString() } : {}),
+			})
 		}
 		return taken
 	}
@@ -1234,6 +1267,7 @@ export class IntentFiller {
 		commitment: HexString,
 		chainId: number,
 		outputs: TokenInfo[],
+		inputs: TokenInfo[] = [],
 	): Promise<void> {
 		if (!this.bidStorage || !this.limitOrders) return
 		const claimed = await this.bidStorage.claimReservation(commitment)
@@ -1255,15 +1289,23 @@ export class IntentFiller {
 		// come straight back.
 		//
 		// Which one executed is not in the event, which names the commitment the bids
-		// share rather than the op that landed. The delivery says it instead: a bid is
-		// signed for its own payout and the gateway clamps it to what was outstanding,
-		// so the hold that matches the delivered amount is the bid that filled, and
-		// the closest hold at or above it is the next best answer. Ties fall back to
-		// the order the bids went out in, which is the order the matcher ranked them.
+		// share rather than the op that landed. The escrow it released says it: a bid
+		// takes its own signed take unless the gateway clamped it to what was left, so
+		// the hold whose take matches the release is the bid that filled. A clamp only
+		// happens on the fill that completes the order, and the executor takes the best
+		// rate first, so failing an exact match it is the best-rated of our bids whose
+		// take the release fits inside. Holds without a take fall back to the
+		// delivery: the hold that matches it, then the closest one at or above it,
+		// then the order the bids went out in.
+		const released = inputs.reduce((sum, input) => sum + input.amount, 0n)
+		const withTake = released > 0n ? claimed.filter((hold) => hold.take !== undefined) : []
 		const settled =
+			withTake.find((hold) => BigInt(hold.take!) === released) ??
+			withTake.filter((hold) => BigInt(hold.take!) > released).sort(byBestRate)[0] ??
 			claimed.find((hold) => BigInt(hold.amount) === delivered) ??
 			claimed.filter((hold) => BigInt(hold.amount) >= delivered).sort(byAmount)[0] ??
 			claimed[0]
+		const charged = chargedFor(settled, delivered, released)
 
 		// One transaction over the whole settlement: the draw-down and the releases
 		// are one decision about the same holds, and a crash between two of them
@@ -1274,7 +1316,7 @@ export class IntentFiller {
 			const worked: { order: LimitOrder; delivered: bigint }[] = []
 			for (const hold of claimed) {
 				if (hold === settled) {
-					const share = delivered < BigInt(hold.amount) ? delivered : BigInt(hold.amount)
+					const share = charged < BigInt(hold.amount) ? charged : BigInt(hold.amount)
 					if (share > 0n) {
 						const after = await this.limitOrders!.drawDown(hold.limitOrderId, share.toString())
 						if (after) worked.push({ order: after, delivered: share })

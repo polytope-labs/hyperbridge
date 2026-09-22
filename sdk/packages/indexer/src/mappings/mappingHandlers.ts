@@ -8,7 +8,7 @@ export { handleStateMachineUpdatedEvent } from "@/handlers/events/evmHost/stateM
 
 export { handleGetRequestEvent } from "@/handlers/events/evmHost/getRequest.event.handler"
 export { handleGetRequestHandledEvent } from "@/handlers/events/evmHost/getRequestHandled.event.handler"
-export { handleGetRequestTimeoutHandled } from "@/handlers/events/evmHost/getRequestTimeoutHandled.event.handler"
+export { handleGetRequestTimeoutHandledEvent } from "@/handlers/events/evmHost/getRequestTimeoutHandled.event.handler"
 
 // Intent Gateway V3 Handlers
 export { handleOrderPlacedEventV3 } from "@/handlers/events/intentGatewayV3/orderPlacedV3.event.handler"

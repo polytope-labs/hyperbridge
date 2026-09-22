@@ -411,6 +411,38 @@ describe("one solver's bids at several price levels on one order", () => {
 		expect(ctx.retractBid).not.toHaveBeenCalled()
 	})
 
+	it("settles fills of one order in the order they were scanned, even when they arrive together", async () => {
+		// Both levels fill in one block scan, so both events are handed over before
+		// either settlement has run. Settled side by side, both read the same holds and
+		// the first release was matched to the same bid as the second.
+		const ctx = await twoLevels()
+		// biome-ignore lint/suspicious/noExplicitAny: driving the monitor's events directly
+		const filler = ctx.filler as any
+		filler.monitor.emit("orderFilledOnChain", {
+			commitment: COMMITMENT,
+			filler: OUR_ADDRESS,
+			chainId: 8453,
+			outputs: [{ token: CNGN, amount: 950n * 10n ** 18n }],
+			inputs: [{ token: OTHER, amount: 100n }],
+			complete: false,
+		})
+		filler.monitor.emit("orderFilledOnChain", {
+			commitment: COMMITMENT,
+			filler: OUR_ADDRESS,
+			chainId: 8453,
+			outputs: [{ token: CNGN, amount: 540n * 10n ** 18n }],
+			inputs: [{ token: OTHER, amount: 60n }],
+			complete: true,
+		})
+		await filler.settlementQueue.onIdle()
+		await filler.retractionQueue.onIdle()
+
+		expect(ctx.drawn).toEqual([
+			[LIMIT_ORDER, 1000n * 10n ** 18n],
+			[SECOND_ORDER, 540n * 10n ** 18n],
+		])
+	})
+
 	it("works the next level down when it completes the order, then retracts", async () => {
 		const ctx = await twoLevels()
 		await ctx.fill(950n * 10n ** 18n, 100n, false)

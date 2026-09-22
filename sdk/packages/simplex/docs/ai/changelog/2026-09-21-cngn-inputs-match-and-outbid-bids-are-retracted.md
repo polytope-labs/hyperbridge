@@ -94,3 +94,7 @@ them are retracted once the order completes.
 `executedHold` names the executed bid for both kinds of fill. It picks the best-rated bid whose take
 covers the released escrow, which is the one the executor takes first. Bids from one solver often
 sign the same take, because a bid whose payout covers the ask takes the whole input.
+
+Fills are settled one at a time, on `IntentFiller.settlementQueue`, in the order they were scanned.
+Several fills of one order can land in one block scan. Each settlement names its bid from the holds the
+previous one left, so side by side they read the same holds, and two of them claimed the same one.

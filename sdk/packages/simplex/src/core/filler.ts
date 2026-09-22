@@ -102,6 +102,13 @@ export class IntentFiller {
 	 */
 	private limitOrderService?: LimitOrderService
 	private retractionQueue: pQueue
+	/**
+	 * Fills are settled one at a time, in the order they were scanned. Several fills of
+	 * one order can land in one scan, and each settlement names its bid from the holds
+	 * the previous ones left: run side by side, two of them read the same holds and
+	 * claim the same one.
+	 */
+	private settlementQueue: pQueue
 	private paused = false
 	private stopping = false
 	private pendingRetractions = new Set<string>()
@@ -167,6 +174,7 @@ export class IntentFiller {
 		})
 
 		this.retractionQueue = new pQueue({ concurrency: 1 })
+		this.settlementQueue = new pQueue({ concurrency: 1 })
 
 		const hyperbridgeWsUrl = configService.getHyperbridgeWsUrl()
 		const substrateKey = configService.getSubstratePrivateKey()
@@ -186,18 +194,22 @@ export class IntentFiller {
 		})
 
 		this.monitor.on("orderFilledOnChain", ({ commitment, filler, chainId, outputs, inputs, complete }) => {
-			this.handleOrderFilledOnChain(commitment as HexString, filler, chainId, outputs, inputs, complete).catch((err) => {
-				// The retraction sweep still picks this bid up on its next cycle.
-				this.logger.error({ commitment, err }, "Failed to handle on-chain fill")
-			})
+			this.settlementQueue
+				.add(() => this.handleOrderFilledOnChain(commitment as HexString, filler, chainId, outputs, inputs, complete))
+				.catch((err) => {
+					// The retraction sweep still picks this bid up on its next cycle.
+					this.logger.error({ commitment, err }, "Failed to handle on-chain fill")
+				})
 		})
 
 		this.monitor.on("orderFillObserved", ({ commitment, filler, chainId, ours, complete }) => {
 			if (ours || !complete) return
-			this.handleRivalCompletion(commitment as HexString, filler, chainId).catch((err) => {
-				// The retraction sweep still picks this bid up once it goes stale.
-				this.logger.error({ commitment, err }, "Failed to handle a rival's completed fill")
-			})
+			this.settlementQueue
+				.add(() => this.handleRivalCompletion(commitment as HexString, filler, chainId))
+				.catch((err) => {
+					// The retraction sweep still picks this bid up once it goes stale.
+					this.logger.error({ commitment, err }, "Failed to handle a rival's completed fill")
+				})
 		})
 	}
 

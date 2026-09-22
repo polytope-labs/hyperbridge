@@ -141,7 +141,16 @@ export class EventMonitor extends EventEmitter {
 		this.logger.info({ chainId, commitment, filler }, "OrderFilled event detected for this filler")
 		// The amounts ride along: a fill is what draws its limit order down, and
 		// this is the only place they are reported.
-		this.emit("orderFilledOnChain", { commitment, filler, chainId, outputs: event.outputs, inputs: event.inputs })
+		this.emit("orderFilledOnChain", {
+			commitment,
+			filler,
+			chainId,
+			outputs: event.outputs,
+			inputs: event.inputs,
+			// A scanner that cannot tell leaves this unset; treated as closing the order,
+			// as every fill of ours was before partial fills were told apart.
+			complete: event.complete !== false,
+		})
 	}
 
 	/**

@@ -75,3 +75,22 @@ any order whose inputs and outputs pair up leg by leg, and skips only unpaired o
   fill. An order carrying output calldata, which cannot be filled in parts, gets no bids.
 - `BidPlan.leg` records the leg, and a hold's take is that leg's.
 - `getOrderUsdValue` sums every leg's input for the confirmation curves.
+
+## A partial fill of ours settles only the bid that executed
+
+One solver can hold several bids on one order, one per limit order at each level of its book. When
+one of them filled part of the order, the filler did two things wrong:
+
+- It claimed the holds of every bid on the commitment and released all but one.
+- It retracted every bid.
+
+This threw away the levels that should fill the rest.
+
+`orderFilledOnChain` now carries `complete`. On a partial fill of ours, `claimExecutedBid` finds the
+executed bid among our live bids and claims its holds by bid identifier. The filler draws that limit
+order down, and nothing is retracted. The other bids keep their holds and can still fill, and all of
+them are retracted once the order completes.
+
+`executedHold` names the executed bid for both kinds of fill. It picks the best-rated bid whose take
+covers the released escrow, which is the one the executor takes first. Bids from one solver often
+sign the same take, because a bid whose payout covers the ask takes the whole input.

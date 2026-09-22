@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from "vitest"
 
 const SOLVER_ONE = "0x1111111111111111111111111111111111111111" as HexString
 const SOLVER_TWO = "0x2222222222222222222222222222222222222222" as HexString
+const SOLVER_THREE = "0x7777777777777777777777777777777777777777" as HexString
 const TOKEN = "0x3333333333333333333333333333333333333333" as HexString
 const ENTRY_POINT = "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108" as HexString
 const COMMITMENT = `0x${"ab".repeat(32)}` as HexString
@@ -251,6 +252,128 @@ describe("Order execution bid-selection integration", () => {
 		expect((await stream.next()).value).toMatchObject({
 			status: "FAILED",
 			error: expect.stringContaining("rpc down"),
+		})
+	})
+
+	describe("bids at different rates on one order", () => {
+		/** 300 in for at least 300 out: a rate of 1.00, which every bid below clears. */
+		function rateOrder(): Order {
+			return {
+				...makeOrder(),
+				inputs: [{ token: TOKEN, amount: 300n }],
+				output: { beneficiary: SOLVER_ONE, assets: [{ token: TOKEN, amount: 300n }], call: "0x" },
+			}
+		}
+
+		/** A partial quote: takes `take` of the input for `output`, so its rate is output / take. */
+		function rateBid(solverAddress: HexString, take: bigint, output: bigint, execute: Bid["execute"]): Bid {
+			return { ...makeBid({ solverAddress, amount: output, execute }), inputs: [{ token: TOKEN, amount: take }] }
+		}
+
+		it("ranks by rate, best first, whatever order the bids arrived in and whatever their size", async () => {
+			const ctx = makeContext({
+				getBidsForOrder: async () => [],
+				readContract: gatewayReads({}),
+				getBlockNumber: async () => 0n,
+			})
+			const noop = vi.fn()
+			// Arrive worst first. The largest bid has the worst rate, so size alone would pick it.
+			const worst = rateBid(SOLVER_ONE, 200n, 200n, noop) // 1.00
+			const best = rateBid(SOLVER_TWO, 100n, 130n, noop) // 1.30
+			const middle = rateBid(SOLVER_THREE, 100n, 115n, noop) // 1.15
+
+			const ranked = await new BidManager(ctx, {} as never).sortBids(rateOrder(), [worst, best, middle])
+
+			expect(ranked.map((bid) => bid.solverAddress)).toEqual([SOLVER_TWO, SOLVER_THREE, SOLVER_ONE])
+		})
+
+		it("executes the best rate first, then the next best on what is left, until the order is filled", async () => {
+			// What the destination gateway has credited so far, as the executor reads it each round.
+			const destination: { credited: bigint[]; finalizer?: HexString } = { credited: [0n] }
+			const readContract = vi.fn(
+				async ({ functionName, args }: { functionName: string; args: [HexString, bigint] }) =>
+					functionName === "_filled"
+						? (destination.finalizer ?? ZERO_ADDRESS)
+						: (destination.credited[Number(args[1])] ?? 0n),
+			)
+			const executed: HexString[] = []
+			/** Executes as the gateway would: clamps to what is outstanding and credits it. */
+			function fill(solver: HexString, output: bigint): Bid["execute"] {
+				return vi.fn(async () => {
+					executed.push(solver)
+					const outstanding = 300n - destination.credited[0]
+					const delivered = output < outstanding ? output : outstanding
+					destination.credited = [destination.credited[0] + delivered]
+					const full = destination.credited[0] >= 300n
+					if (full) destination.finalizer = solver
+					return {
+						...makeResult(makeUserOp(solver), solver),
+						fillStatus: full ? ("full" as const) : ("partial" as const),
+						filledAssets: [{ token: TOKEN, amount: delivered }],
+					}
+				})
+			}
+
+			// Worst rate arrives first; all three together cover more than the order asks for.
+			const bids: Bid[] = [
+				rateBid(SOLVER_ONE, 100n, 100n, fill(SOLVER_ONE, 100n)), // 1.00
+				rateBid(SOLVER_TWO, 100n, 130n, fill(SOLVER_TWO, 130n)), // 1.30
+				rateBid(SOLVER_THREE, 100n, 115n, fill(SOLVER_THREE, 115n)), // 1.15
+			]
+			const bySender = new Map(bids.map((bid) => [bid.userOp.sender.toLowerCase(), bid]))
+			const rawBids: FillerBid[] = bids.map((bid, index) => ({
+				filler: `solver-${index}`,
+				bid: CryptoUtils.bidId(bid.userOp.callData),
+				userOp: bid.userOp,
+				deposit: 0n,
+			}))
+
+			const deadline = pendingDeadline()
+			const ctx = makeContext({
+				getBidsForOrder: async () => rawBids,
+				readContract,
+				getBlockNumber: deadline.getBlockNumber,
+			})
+			const bidManager = new BidManager(ctx, {} as never)
+			vi.spyOn(bidManager, "buildBids").mockImplementation((_order, fillerBids) =>
+				fillerBids.map((fillerBid) => bySender.get(fillerBid.userOp.sender.toLowerCase())!),
+			)
+			const stream = new OrderExecutor(ctx, bidManager).executeOrder({
+				order: rateOrder(),
+				auctionTimeMs: 0,
+				pollIntervalMs: 0,
+			})
+
+			expect((await stream.next()).value).toMatchObject({ status: "AWAITING_BIDS" })
+
+			const updates: { status: string; selectedSolver?: HexString; remaining?: bigint }[] = []
+			let step = await stream.next()
+			while (!step.done) {
+				const update = step.value
+				if (update.status === "BIDS_RECEIVED") {
+					step = await stream.next(await bidManager.selectAndExecuteBest(rateOrder(), update.bids))
+					continue
+				}
+				updates.push({
+					status: update.status,
+					selectedSolver: "selectedSolver" in update ? (update.selectedSolver as HexString) : undefined,
+					remaining: "remainingAssets" in update ? update.remainingAssets?.[0]?.amount : undefined,
+				})
+				if (update.status === "FILLED") break
+				step = await stream.next()
+			}
+
+			// Best rate first, then the next best, then the worst takes what is left and completes it.
+			expect(executed).toEqual([SOLVER_TWO, SOLVER_THREE, SOLVER_ONE])
+			expect(updates.filter((u) => u.status !== "BID_SELECTED")).toEqual([
+				{ status: "PARTIAL_FILL", selectedSolver: SOLVER_TWO, remaining: 170n },
+				{ status: "PARTIAL_FILL", selectedSolver: SOLVER_THREE, remaining: 55n },
+				{ status: "FILLED", selectedSolver: SOLVER_ONE, remaining: 0n },
+			])
+			expect(destination.credited).toEqual([300n])
+
+			deadline.expire()
+			await stream.return()
 		})
 	})
 })

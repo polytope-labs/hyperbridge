@@ -48,10 +48,8 @@ Each order in the set then bids for itself, best offer first, which
 
 `orderbook-schema.graphql` is refreshed from `hyperfx-orderbook@main`, which has since removed
 `SwapQuote.priceBucket`, added `Query.chains` with per-chain token decimals, and rewritten the quote
-semantics. It is a pinned copy and would drift again silently, since the test
-validates against the pin rather than against the server, so
-`.github/workflows/check-orderbook-schema.yml` now fetches the schema and diffs it, weekly and on any
-change to this package's orderbook code. `schema.test.ts` carries the one command that refreshes it.
+semantics. It is a pinned copy and can drift silently, since the test validates against the pin
+rather than against the server. `schema.test.ts` carries the one command that refreshes it.
 
 Token decimals come from the orderbook's own registry too. `serverInfo` now carries `chains` with the
 tokens each one registers, `limits()` already caches it for five minutes, and every post and repost

@@ -6,10 +6,10 @@ import { ORDERBOOK_QUERIES } from "@/protocols/intents/orderbook/client"
  * The documents the SDK sends, and the examples the docs publish, against the schema the
  * orderbook serves.
  *
- * The schema is simplex's pinned copy, the one `.github/workflows/check-orderbook-schema.yml`
- * compares with the orderbook's own. Every other orderbook test answers from a stub that never
- * reads a query, so a renamed field or a wrong argument type would pass them all and fail on the
- * first real request.
+ * The schema is simplex's pinned copy of the orderbook's own; `schema.test.ts` there carries the
+ * command that refreshes it. Every other orderbook test answers from a stub that never reads a
+ * query, so a renamed field or a wrong argument type would pass them all and fail on the first
+ * real request.
  */
 const schema = buildSchema(
 	readFileSync(new URL("../../../simplex/src/tests/fixtures/orderbook-schema.graphql", import.meta.url), "utf8"),

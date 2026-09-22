@@ -197,9 +197,12 @@ export class IntentsCoprocessor {
 	// Serialises every extrinsic submission on this instance's substrate account. All submit/retract
 	// methods funnel through signAndSendExtrinsic; fired in parallel (bids for orders on different
 	// chains, or several bids on one order) they would grab the same nonce and all but one would
-	// fail. Concurrency 1 sequences them, and each new extrinsic signs with the pool-aware nonce so
-	// one still in the pool does not block the next.
+	// fail. Concurrency 1 sequences them, and {@link nextNonce} keeps consecutive submissions off
+	// each other's nonce even while the first is still in the pool.
 	private submissionQueue = new PQueue({ concurrency: 1 })
+
+	/** The highest nonce this instance has put into the pool, so the next submission clears it. */
+	private lastPooledNonce: number | undefined
 
 	/**
 	 * Creates and connects an IntentsCoprocessor to a Hyperbridge node.
@@ -393,7 +396,12 @@ export class IntentsCoprocessor {
 					return { success: false, error: err instanceof Error ? err.message : String(err) }
 				}
 			}
-			return await this.sendExtrinsicWithRetries(build(this.api), maxRetries, timeoutMs)
+			return await this.sendExtrinsicWithRetries(
+				build(this.api),
+				maxRetries,
+				timeoutMs,
+				await this.nextNonce(this.api),
+			)
 		})
 		return result ?? { success: false, error: "Submission queue returned no result" }
 	}
@@ -413,7 +421,10 @@ export class IntentsCoprocessor {
 	 */
 	private async sendViaHttp(api: ApiPromise, build: ExtrinsicBuilder): Promise<BidSubmissionResult> {
 		try {
-			const hash = await build(api).signAndSend(this.getKeyPair(), { tip: BASE_TIP, nonce: -1 })
+			const nonce = await this.nextNonce(api)
+			const options = nonce === undefined ? { tip: BASE_TIP } : { tip: BASE_TIP, nonce }
+			const hash = await build(api).signAndSend(this.getKeyPair(), options)
+			if (nonce !== undefined) this.lastPooledNonce = nonce
 			return { success: false, pending: true, extrinsicHash: hash.toHex() as HexString }
 		} catch (err) {
 			return this.classifySubmissionError(err instanceof Error ? err : new Error(String(err)))
@@ -450,12 +461,12 @@ export class IntentsCoprocessor {
 		extrinsic: SubmittableExtrinsic<"promise">,
 		maxRetries: number,
 		timeoutMs: number,
+		initialNonce?: number,
 	): Promise<SubmissionOutcome> {
 		const keyPair = this.getKeyPair()
 		let attempt = 0
-		// Set once an attempt stalls in the pool, so every later attempt replaces it instead of
-		// queueing behind it.
-		let nonce: number | undefined
+		// The nonce this submission goes out under, and the one every later attempt replaces at.
+		let nonce: number | undefined = initialNonce
 		let stalled: SubmissionOutcome | undefined
 
 		while (attempt < maxRetries) {
@@ -464,6 +475,11 @@ export class IntentsCoprocessor {
 
 			try {
 				const result = await this.sendWithTimeout(extrinsic, keyPair, currentTip, timeoutMs, nonce)
+				// Reached the pool under this nonce: the next submission must clear it, whether it
+				// lands, stalls there, or bounced off a copy of itself already pooled.
+				if (nonce !== undefined && (result.success || result.pending || result.stalled)) {
+					this.lastPooledNonce = Math.max(nonce, this.lastPooledNonce ?? nonce)
+				}
 				if (result.success || result.error?.includes("Dispatch error")) {
 					// Return immediately on success or dispatch errors (non-recoverable)
 					return result
@@ -543,6 +559,37 @@ export class IntentsCoprocessor {
 	 * replacement rather than a second extrinsic queued behind the first. Left undefined on the
 	 * first attempt, where the api's auto-nonce is correct.
 	 */
+	/**
+	 * The nonce the next submission signs with, or undefined when the node cannot be asked.
+	 *
+	 * Submissions are serialised, but a watch gives up while its extrinsic is still in the pool
+	 * (`stalled`, reported as `pending`), and a pooled extrinsic does not advance the account's
+	 * on-chain nonce. An extrinsic signed against on-chain state would then take the nonce of the
+	 * one ahead of it and bounce off it (1013/1014) instead of queueing behind it.
+	 *
+	 * `system_accountNextIndex` is the only pool-aware source here. `signAndSend`'s own `nonce: -1`
+	 * is not: on a runtime carrying `AccountNonceApi`, which Hyperbridge does, polkadot-js reads the
+	 * nonce through that runtime call and never sees the pool.
+	 *
+	 * The RPC covers the ready queue, so anything of this instance's that has left it — retried,
+	 * queued as future, or simply not counted yet — is covered by `lastPooledNonce` instead, which
+	 * is the highest nonce this instance has put into the pool. The two are combined rather than
+	 * trusted separately, so a burst never reuses a nonce and a restart still picks up the chain's.
+	 */
+	private async nextNonce(api: ApiPromise): Promise<number | undefined> {
+		try {
+			const accountNextIndex = api.rpc?.system?.accountNextIndex
+			if (!accountNextIndex) return undefined
+			const next = await accountNextIndex(this.getKeyPair().address)
+			const fromPool = Number(next.toString())
+			if (!Number.isFinite(fromPool)) return undefined
+			return this.lastPooledNonce === undefined ? fromPool : Math.max(fromPool, this.lastPooledNonce + 1)
+		} catch {
+			// Without a nonce the caller signs against on-chain state, as it always did.
+			return undefined
+		}
+	}
+
 	private async sendWithTimeout(
 		extrinsic: SubmittableExtrinsic<"promise">,
 		keyPair: KeyringPair,
@@ -573,12 +620,7 @@ export class IntentsCoprocessor {
 			}, timeoutMs)
 
 			extrinsic
-				// `nonce: -1` is the pool-aware next index, not the on-chain one. Submissions are
-				// serialised but a watch gives up while its extrinsic is still pooled, and the
-				// on-chain nonce does not advance until that one is in a block: the next extrinsic
-				// would sign the same nonce and bounce off it (1013/1014). Only a replacement for a
-				// stalled extrinsic pins a nonce, and it passes one here.
-				.signAndSend(keyPair, nonce === undefined ? { tip, nonce: -1 } : { tip, nonce }, (result) => {
+				.signAndSend(keyPair, nonce === undefined ? { tip } : { tip, nonce }, (result) => {
 					if (resolved) return
 
 					if (

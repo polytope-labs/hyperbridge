@@ -113,9 +113,9 @@ export class SqliteLimitOrderStore implements LimitOrderStore {
 			.prepare(`
 				INSERT INTO limit_orders (
 					id, book, base, quote, side, fill_chain, price, size, remaining,
-					accepted_sources, ttl_secs, expires_at, status
+					accepted_sources, ttl_secs, expires_at, order_nonce, status
 				)
-				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open')
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open')
 			`)
 			.run(
 				order.id,
@@ -130,6 +130,7 @@ export class SqliteLimitOrderStore implements LimitOrderStore {
 				JSON.stringify(order.acceptedSources),
 				order.ttlSecs,
 				order.expiresAt ?? null,
+				order.orderNonce ?? "0",
 			)
 		this.logger.info({ id: order.id, book: order.book, side: order.side }, "Limit order created")
 		return this.read(order.id)!

@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto"
+import { randomBytes, randomUUID } from "node:crypto"
 import { getChainId, MAX_DECLARED_ENTRIES, type HexString } from "@hyperbridge/sdk"
 import type { AssetRegistry } from "@/config/asset-registry"
 import type { LimitOrder, LimitOrderFilter, LimitOrderInsert, LimitOrderStore } from "@/data/types"
@@ -155,6 +155,8 @@ export class LimitOrderService {
 		private readonly defaultTtlSecs: number,
 		private readonly delegationService?: DelegationService,
 		loggers: LoggerContext = defaultLoggerContext(),
+		/** Where a new order's nonce starts; tests pin it, production draws it at random. */
+		private readonly startingNonce: () => bigint = initialOrderNonce,
 	) {
 		this.logger = loggers.get("limit-orders")
 	}
@@ -232,6 +234,7 @@ export class LimitOrderService {
 			acceptedSources: request.acceptedSources,
 			ttlSecs,
 			expiresAt: new Date(Date.now() + ttlSecs * 1000).toISOString(),
+			orderNonce: this.startingNonce().toString(),
 		}
 		const stored = await this.store.create(insert)
 		if (sameAsset) {
@@ -941,6 +944,19 @@ export class LimitOrderService {
 			acceptedSourceChains: order.acceptedSources,
 		})
 	}
+}
+
+/**
+ * Where a new order's nonce starts.
+ *
+ * The posted op is built from the order's tokens, amounts, TTL and this nonce, and nothing else, so
+ * two orders on the same terms sign byte-identical ops. The orderbook refuses any op it has seen
+ * as REPLAYED and the poster bumps the nonce once, so an order re-created on the terms of two
+ * earlier ones, which had used 0 and 1, was refused for good. A random 64-bit start keeps each
+ * order's nonces its own; a resize still steps on from it by one.
+ */
+export function initialOrderNonce(): bigint {
+	return BigInt(`0x${randomBytes(8).toString("hex")}`)
 }
 
 function nowSecs(): number {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import type { HexString } from "@hyperbridge/sdk"
 import { OrderbookRequestError } from "@/orderbook/client"
-import { LimitOrderValidationError, type CreateLimitOrderRequest } from "@/orderbook/limit-orders"
+import { initialOrderNonce, LimitOrderValidationError, type CreateLimitOrderRequest } from "@/orderbook/limit-orders"
 import type { CancelOrderResult } from "@/orderbook/types"
 import {
 	CREATE_REQUEST as REQUEST,
@@ -51,6 +51,18 @@ describe("LimitOrderService.create", () => {
 		expect(client.submitted).toEqual(["0x00", "0x01"])
 		expect(order.orderNonce).toBe("1")
 		expect(order.status).toBe("open")
+	})
+
+	it("starts orders on the same terms at different nonces, so their posted ops differ", async () => {
+		// The op is built from the terms and the nonce alone. Every order used to start at 0, and a
+		// third order on the terms of two earlier ones found 0 and 1 both REPLAYED and was refused.
+		const client = fakeClient([])
+		const { service } = makeService(client, undefined, {}, initialOrderNonce)
+		const first = await service.create(REQUEST)
+		const second = await service.create(REQUEST)
+
+		expect(first.order.orderNonce).not.toBe(second.order.orderNonce)
+		expect(new Set(client.submitted).size).toBe(2)
 	})
 
 	it("does not retry a rejection a new nonce cannot fix", async () => {

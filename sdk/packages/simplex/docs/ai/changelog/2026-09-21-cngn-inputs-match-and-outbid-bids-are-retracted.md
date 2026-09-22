@@ -20,3 +20,12 @@ is treated as not complete. `orderFillObserved` passes it through. When another 
 order this filler holds an unretracted bid on, `IntentFiller.handleRivalCompletion` retracts the
 bids at once. The retraction returns the deposit and releases the holds. A rival's partial fill
 leaves the bid standing, since it may still fill the rest.
+
+## Each limit order starts at its own nonce
+
+A posted op is built from the order's tokens, amounts, TTL and `orderNonce`, and nothing else, and
+every new order started at `orderNonce` 0. The orderbook refuses an op it has seen with `REPLAYED`,
+and the poster bumps the nonce once. So an order re-created on the terms of two earlier orders, which
+had used 0 and 1 between them, was rejected for good. `LimitOrderService.create` now starts each
+order at a random 64-bit nonce (`initialOrderNonce`), and resizes still step on from it by one.
+`LimitOrderInsert.orderNonce` carries it to the store.

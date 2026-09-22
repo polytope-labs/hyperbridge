@@ -379,6 +379,8 @@ export interface LimitOrderInsert {
 	acceptedSources: string[]
 	ttlSecs: number
 	expiresAt?: string | null
+	/** Where the order's posted-op nonce starts. Defaults to "0". */
+	orderNonce?: string
 }
 
 export interface LimitOrderFilter {

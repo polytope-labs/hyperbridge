@@ -5,6 +5,7 @@ import {
 	type OperatorContext,
 	type PauseControl,
 } from "@/services/server/UiServer"
+import { EventEmitter } from "node:events"
 import type { SetupDeps } from "@/services/server/setup-api"
 import { ActivityRecorder } from "@/data/recorder"
 import { MemoryDataStore } from "@/data/memory"
@@ -131,6 +132,54 @@ function fakeConfig(): FillerConfigFile {
 
 type TestOperator = OperatorContext & { data: MemoryDataStore; loggers: LoggerContext }
 
+function testBalanceSource(
+	initial: ReturnType<OperatorContext["balances"]["getSnapshot"]> = {
+		updatedAt: null,
+		status: "loading",
+		chains: [],
+		issues: [],
+	},
+) {
+	let current = initial
+	const source = Object.assign(new EventEmitter(), {
+		getSnapshot: () => current,
+		setSnapshot(next: typeof initial) {
+			current = next
+			source.emit("snapshot", next)
+		},
+	})
+	return source
+}
+
+function stableBalanceSnapshot(
+	available: number,
+): ReturnType<OperatorContext["balances"]["getSnapshot"]> {
+	return {
+		updatedAt: Date.now(),
+		status: "fresh",
+		issues: [],
+		chains: [
+			{
+				chainId: 8453,
+				assets: [
+					{
+						address: "0xstable",
+						symbol: "USDC",
+						wallet: available,
+						walletReserve: 0,
+						vaultPosition: 0,
+						vaultAvailable: 0,
+						total: available,
+						available,
+						vaults: [],
+						status: "fresh",
+					},
+				],
+			},
+		],
+	}
+}
+
 function baseOperator(overrides: Partial<OperatorContext> = {}): TestOperator {
 	const dataDir = mkdtempSync(join(tmpdir(), "simplex-ui-"))
 	const data = new MemoryDataStore()
@@ -140,7 +189,7 @@ function baseOperator(overrides: Partial<OperatorContext> = {}): TestOperator {
 		loggers,
 		strategies: [],
 		filler: fakePauseControl(),
-		balances: { getSnapshot: () => ({ updatedAt: null, status: "loading", chains: [], issues: [] }) },
+		balances: testBalanceSource(),
 		haltControls: [],
 		config: fakeConfig(),
 		stop: vi.fn().mockResolvedValue(undefined),
@@ -249,14 +298,12 @@ describe("UiServer (operator mode)", () => {
 				}, // one-sided LP
 			],
 			filler,
-			balances: {
-				getSnapshot: () => ({
-					updatedAt: 123,
-					status: "fresh",
-					chains: [{ chainId: 8453, usdc: 1500, assets: [] }],
-					issues: [],
-				}),
-			},
+			balances: testBalanceSource({
+				updatedAt: 123,
+				status: "fresh",
+				chains: [{ chainId: 8453, usdc: 1500, assets: [] }],
+				issues: [],
+			}),
 			...overrides,
 		})
 		server = new UiServer({ mode: "operator", operator, deps, notificationAckTimeoutMs })
@@ -403,6 +450,29 @@ describe("UiServer (operator mode)", () => {
 		expect(await test.json()).toMatchObject({
 			error: "The desktop app did not confirm displaying the notification",
 			nativeReceived: 0,
+		})
+		controller.abort()
+	})
+
+	it("streams a low-liquidity alert from a balance snapshot event", async () => {
+		const balances = testBalanceSource(stableBalanceSnapshot(500))
+		const { base } = await startServer({ balances })
+		const settings = await put(base, "/api/notifications", {
+			lowLiquidityThresholdUsd: 100,
+			swaps: false,
+		})
+		expect(settings.status).toBe(200)
+
+		const controller = new AbortController()
+		const stream = await fetch(`${base}/api/notifications/stream`, { signal: controller.signal })
+		const reader = stream.body!.getReader()
+		await reader.read() // :ok
+
+		balances.setSnapshot(stableBalanceSnapshot(50))
+		const frame = new TextDecoder().decode((await reader.read()).value)
+		expect(JSON.parse(frame.slice("data: ".length))).toMatchObject({
+			title: "Simplex liquidity is low",
+			tag: "simplex-low-liquidity",
 		})
 		controller.abort()
 	})

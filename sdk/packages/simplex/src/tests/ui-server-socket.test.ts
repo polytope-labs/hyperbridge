@@ -1,4 +1,5 @@
 import { describe, it, expect, afterEach, vi } from "vitest"
+import { EventEmitter } from "node:events"
 import { existsSync, linkSync, mkdtempSync, readFileSync, statSync, symlinkSync, writeFileSync } from "node:fs"
 import { request as httpRequest } from "node:http"
 import { createServer as createNetServer, connect as netConnect, createConnection, type Socket } from "node:net"
@@ -160,7 +161,9 @@ function operatorContext(): OperatorContext & { configPath: string } {
 			}),
 			getWatchOnly: () => ({}),
 		},
-		balances: { getSnapshot: () => ({ updatedAt: null, status: "loading", chains: [], issues: [] }) },
+		balances: Object.assign(new EventEmitter(), {
+			getSnapshot: () => ({ updatedAt: null, status: "loading" as const, chains: [], issues: [] }),
+		}),
 		haltControls: [],
 		config,
 		stop: vi.fn().mockResolvedValue(undefined),

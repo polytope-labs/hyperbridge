@@ -190,7 +190,7 @@ export interface HaltControl {
 export interface OperatorContext {
 	strategies: AdminStrategy[]
 	filler: PauseControl
-	balances: Pick<BalanceProvider, "getSnapshot">
+	balances: Pick<BalanceProvider, "getSnapshot" | "on" | "off">
 	haltControls: HaltControl[]
 	/** The running config; runtime edits (curves, allowlist, log level) are persisted back into it at configPath. */
 	/**

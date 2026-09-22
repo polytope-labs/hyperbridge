@@ -119,7 +119,8 @@ describe("operator notifications", () => {
 		activity.emit("event", { ...event, id: 10, txHash: null })
 		activity.emit("event", { ...event, id: 11, txHash: null })
 
-		expect(alerts).toHaveLength(4)
+		expect(alerts).toHaveLength(3)
+		expect(alerts.filter((alert) => alert.tag === "simplex-swap-0xorder")).toHaveLength(1)
 		expect(alerts[0]).toMatchObject({
 			title: "Swap filled",
 			body: "12.5 USDC → 25 DAI",
@@ -200,7 +201,7 @@ describe("operator notifications", () => {
 			},
 			set: (value) => persisted.set(value),
 		}
-		const service = new NotificationService(state, { getSnapshot: () => snapshot(500) }, new EventEmitter())
+		const service = new NotificationService(state, new TestBalanceSource(snapshot(500)), new EventEmitter())
 		services.push(service)
 
 		await expect(service.status()).rejects.toThrow("store unavailable")

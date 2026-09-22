@@ -10,7 +10,7 @@ import type {
 	StateStore,
 	StoredPushSubscription,
 } from "@/data/types"
-import type { BalanceSnapshot } from "@/services/BalanceProvider"
+import type { BalanceProvider, BalanceSnapshot } from "@/services/BalanceProvider"
 import { getLogger, type Logger } from "@/services/Logger"
 import { availableStablecoinLiquidity } from "@/services/stablecoin-liquidity"
 
@@ -34,11 +34,7 @@ interface ActivitySource {
 	off(event: "event", listener: (event: ActivityEvent) => void): unknown
 }
 
-interface BalanceSource {
-	getSnapshot(): BalanceSnapshot
-	on?(event: "snapshot", listener: (snapshot: BalanceSnapshot) => void): unknown
-	off?(event: "snapshot", listener: (snapshot: BalanceSnapshot) => void): unknown
-}
+type BalanceSource = Pick<BalanceProvider, "getSnapshot" | "on" | "off">
 
 function validSubscription(value: unknown): value is StoredPushSubscription {
 	if (!value || typeof value !== "object") return false
@@ -93,8 +89,9 @@ export class NotificationService extends EventEmitter {
 	private readonly notifiedSwapIds = new Set<string>()
 	private readonly onActivity = (event: ActivityEvent) => {
 		if (event.type === "filled" && this.state.settings.swaps) {
-			const fillId = event.txHash ?? `event-${event.id}`
-			const id = `${event.orderId ?? "unknown-order"}:${fillId}`
+			const id = event.txHash
+				? `${event.orderId ?? "unknown-order"}:${event.txHash}`
+				: (event.orderId ?? `event-${event.id}`)
 			if (this.notifiedSwapIds.has(id)) return
 			this.notifiedSwapIds.add(id)
 			if (this.notifiedSwapIds.size > 1_000) {
@@ -148,7 +145,7 @@ export class NotificationService extends EventEmitter {
 		if (!runtime.notifications?.vapid?.privateKey) await this.persist()
 		if (this.stopped) return
 		this.activity.on("event", this.onActivity)
-		this.balances.on?.("snapshot", this.onBalanceSnapshot)
+		this.balances.on("snapshot", this.onBalanceSnapshot)
 		void this.evaluateLiquidity().catch((error) =>
 			this.logger.error({ err: error }, "Could not evaluate initial low-liquidity notification"),
 		)
@@ -212,7 +209,7 @@ export class NotificationService extends EventEmitter {
 	stop(): void {
 		this.stopped = true
 		this.activity.off("event", this.onActivity)
-		this.balances.off?.("snapshot", this.onBalanceSnapshot)
+		this.balances.off("snapshot", this.onBalanceSnapshot)
 	}
 
 	private async evaluateLiquidity(snapshot = this.balances.getSnapshot()): Promise<void> {

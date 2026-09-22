@@ -110,6 +110,10 @@ pub enum Error {
 	/// `(chainId, outputRoot)` pairs.
 	#[error("Super output entries section is {0} bytes, not a multiple of 64")]
 	SuperOutputEntriesMalformed(u32),
+	/// The super-output entries are not strictly ascending by chain id, so they either repeat a
+	/// chain or arrive out of the order the spec requires.
+	#[error("Super output entries are not strictly ascending by chain id")]
+	SuperOutputEntriesNotAscending,
 	/// The super-output preimage's leading version byte isn't the supported `0x01` (V1).
 	#[error("Unsupported super output version {0}, expected 1")]
 	SuperOutputVersionMismatch(u8),

@@ -40,14 +40,40 @@ fn decodes_a_live_super_output() {
 
 #[test]
 fn keeps_every_chain_in_a_multi_chain_set() {
-	let mut encoded = OP_SEPOLIA_SUPER_OUTPUT.to_vec();
+	// Chain 8453 sorts before OP Sepolia's 11155420, so it comes first.
+	let mut encoded = OP_SEPOLIA_SUPER_OUTPUT[..9].to_vec();
 	encoded.extend_from_slice(&U256::from(8453u32).to_big_endian());
 	encoded.extend_from_slice(&[0xab; 32]);
+	encoded.extend_from_slice(&OP_SEPOLIA_SUPER_OUTPUT[9..]);
 
 	let super_output = parse_super_output(&encoded).unwrap();
 
 	assert_eq!(super_output.output_roots.len(), 2);
 	assert_eq!(super_output.output_roots.get(&U256::from(8453u32)), Some(&H256([0xab; 32])));
+	assert_eq!(
+		super_output.output_roots.get(&U256::from(11155420u32)),
+		Some(&H256(hex!("187b295a06cf122f419ea56ffe21f41e772a48ba41d1db682d845ed5778fad46")))
+	);
+}
+
+#[test]
+fn rejects_a_repeated_chain_id() {
+	let mut encoded = OP_SEPOLIA_SUPER_OUTPUT.to_vec();
+	encoded.extend_from_slice(&OP_SEPOLIA_SUPER_OUTPUT[9..]);
+
+	assert!(matches!(parse_super_output(&encoded), Err(Error::SuperOutputEntriesNotAscending)));
+}
+
+#[test]
+fn rejects_entries_out_of_order() {
+	// Same two chains as the multi chain case, with the higher chain id placed first.
+	let mut encoded = OP_SEPOLIA_SUPER_OUTPUT[..9].to_vec();
+	encoded.extend_from_slice(&U256::from(11155420u32).to_big_endian());
+	encoded.extend_from_slice(&[0xcd; 32]);
+	encoded.extend_from_slice(&U256::from(8453u32).to_big_endian());
+	encoded.extend_from_slice(&[0xab; 32]);
+
+	assert!(matches!(parse_super_output(&encoded), Err(Error::SuperOutputEntriesNotAscending)));
 }
 
 #[test]

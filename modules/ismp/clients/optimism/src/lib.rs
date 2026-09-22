@@ -153,15 +153,24 @@ pub fn parse_super_output(encoded: &[u8]) -> Result<SuperOutput, Error> {
 		Err(Error::SuperOutputEntriesMalformed(entries.len() as u32))?
 	}
 
+	let parsed = entries
+		.chunks_exact(ENTRY_LEN)
+		.map(|entry| (U256::from_big_endian(&entry[..32]), H256::from_slice(&entry[32..])))
+		.collect::<Vec<_>>();
+
+	// The spec has these sorted by chain id ascending. Asking for a strict increase also rules
+	// out duplicates, which would otherwise let a later entry quietly replace an earlier one
+	// and leave it ambiguous which of the two was checked.
+	if !parsed.iter().map(|(chain_id, _)| chain_id).is_sorted_by(|a, b| a < b) {
+		Err(Error::SuperOutputEntriesNotAscending)?
+	}
+
 	let mut timestamp = [0u8; 8];
 	timestamp.copy_from_slice(&encoded[1..HEADER_LEN]);
 
 	Ok(SuperOutput {
 		timestamp: u64::from_be_bytes(timestamp),
-		output_roots: entries
-			.chunks_exact(ENTRY_LEN)
-			.map(|entry| (U256::from_big_endian(&entry[..32]), H256::from_slice(&entry[32..])))
-			.collect(),
+		output_roots: parsed.into_iter().collect(),
 	})
 }
 

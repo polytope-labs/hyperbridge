@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto"
 import { lstatSync, unlinkSync, type Stats } from "node:fs"
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http"
 import { connect } from "node:net"
@@ -11,13 +12,26 @@ import { VaultFundingPlanner, type VaultSweepResult } from "@/funding/vault/Vaul
 import { chainByChainId, chainsForNetwork, INIT_CHAINS, nativeTokenSymbol, type InitNetwork } from "@/cli/init/chains"
 import { TESTNET_CONFIRMATION_POINTS } from "@/cli/init/state"
 import { ChainConfigService } from "@hyperbridge/sdk"
-import { assertConfirmationCoverage, type FillerConfigFile, type FillerTomlConfig, type VaultToml } from "@/config/filler-toml"
+import {
+	assertConfirmationCoverage,
+	type FillerConfigFile,
+	type FillerTomlConfig,
+	type VaultToml,
+} from "@/config/filler-toml"
 import { emitFillerToml, writeConfigFileAtomic } from "@/cli/init/emit-toml"
 import { formatUnits, isAddress } from "viem"
 import { validateRpcUrls, type AllowlistConfig } from "@/services/FillerConfigService"
 import { withTimeout, PROBE_TIMEOUT_MS } from "@/cli/init/prompt-utils"
 import type { ActivityRecorder } from "@/data/recorder"
-import type { ActivityEvent, BidStore, LimitOrderFilter, OrderLeg } from "@/data/types"
+import type {
+	ActivityEvent,
+	BidStore,
+	LimitOrderFilter,
+	NotificationSettings,
+	OrderLeg,
+	StateStore,
+	StoredPushSubscription,
+} from "@/data/types"
 import { OrderbookRequestError } from "@/orderbook/client"
 import { LimitOrderValidationError, type CreateLimitOrderRequest } from "@/orderbook/limit-orders"
 import type { LimitOrderController } from "@/simplex"
@@ -37,6 +51,7 @@ import {
 } from "./http-util"
 import { matchesLogQuery, type LogQuery, type LogTail } from "./LogStore"
 import { serveStatic } from "./static"
+import { NotificationService, type OperatorNotification, type PushDelivery } from "./NotificationService"
 import {
 	handleSetupRequest,
 	maskToml,
@@ -66,6 +81,35 @@ import {
 	type OrderHistoryDto,
 	type LedgerLeg,
 } from "./dto"
+
+const SSE_HEARTBEAT_INTERVAL_MS = 25_000
+
+/** Opens one self-cleaning SSE response shared by activity and native notifications. */
+function openSseStream(req: IncomingMessage, res: ServerResponse, clients: Set<ServerResponse>): void {
+	res.writeHead(200, {
+		"Content-Type": "text/event-stream",
+		"Cache-Control": "no-store",
+		Connection: "keep-alive",
+	})
+	clients.add(res)
+	res.write(":ok\n\n")
+
+	const heartbeat = setInterval(() => {
+		if (!res.destroyed) res.write(":keepalive\n\n")
+	}, SSE_HEARTBEAT_INTERVAL_MS)
+	heartbeat.unref()
+
+	const cleanup = () => {
+		clearInterval(heartbeat)
+		clients.delete(res)
+		req.off("close", cleanup)
+		res.off("close", cleanup)
+		res.off("error", cleanup)
+	}
+	req.once("close", cleanup)
+	res.once("close", cleanup)
+	res.once("error", cleanup)
+}
 
 /**
  * One curve-priced trading pair's editable price curves. The policies are the
@@ -121,7 +165,7 @@ export interface HaltControl {
 export interface OperatorContext {
 	strategies: AdminStrategy[]
 	filler: PauseControl
-	balances: Pick<BalanceProvider, "getSnapshot">
+	balances: Pick<BalanceProvider, "getSnapshot" | "on" | "off">
 	haltControls: HaltControl[]
 	/** The running config; runtime edits (curves, allowlist, log level) are persisted back into it at configPath. */
 	/**
@@ -133,7 +177,12 @@ export interface OperatorContext {
 	config: FillerConfigFile
 	/** Drains the filler and exits the process (the UI's graceful Stop). */
 	stop(): Promise<void>
-	activity: Pick<ActivityRecorder, "recent" | "on" | "off" | "record" | "recordWalletTx" | "walletTxs" | "fills" | "orderHistory">
+	activity: Pick<
+		ActivityRecorder,
+		"recent" | "on" | "off" | "record" | "recordWalletTx" | "walletTxs" | "fills" | "orderHistory"
+	>
+	/** Durable operator state shared by pause and notification preferences. */
+	state: StateStore
 	bids?: Pick<BidStore, "recent" | "stats" | "byCommitments">
 	/** The operator's limit orders. Always present: simplex prices from them. */
 	limitOrders: Pick<LimitOrderController, "list" | "get" | "withFills" | "create" | "cancel">
@@ -323,8 +372,8 @@ function assertSocketPathFits(path: string): void {
 	throw new Error(
 		`UI socket path is ${bytes} bytes, over this platform's ${SUN_PATH_MAX_BYTES}-byte limit for a Unix socket: ${path}. ` +
 			`Use a shorter path in a directory only this user can write — on Linux $XDG_RUNTIME_DIR ` +
-				`(${process.env.XDG_RUNTIME_DIR ?? "/run/user/<uid>"}) is both short and already private. ` +
-				`Avoid a shared directory such as ${tmpdir()}: anything that can create names there can take this address first.`,
+			`(${process.env.XDG_RUNTIME_DIR ?? "/run/user/<uid>"}) is both short and already private. ` +
+			`Avoid a shared directory such as ${tmpdir()}: anything that can create names there can take this address first.`,
 	)
 }
 
@@ -350,6 +399,13 @@ export class UiServer {
 	/** Open log tails, each mapped to the unsubscribe that detaches it from the buffer. */
 	private logClients = new Map<ServerResponse, () => void>()
 	private activityListener?: (event: ActivityEvent) => void
+	private notifications?: NotificationService
+	private notificationClients = new Set<ServerResponse>()
+	private notificationListener?: (notification: OperatorNotification) => void
+	private nativeNotificationReceipts = new Map<
+		string,
+		{ resolve: (received: boolean) => void; timer: NodeJS.Timeout }
+	>()
 	private boundLoopback = true
 	/** How connections this server accepted arrived; stamped onto each socket. */
 	private listenProvenance: Provenance = "tcp"
@@ -364,6 +420,7 @@ export class UiServer {
 	 */
 	private configuredChainIds?: number[]
 	private readonly version: string
+	private readonly notificationAckTimeoutMs: number
 
 	constructor(opts: {
 		mode: UiMode
@@ -374,15 +431,21 @@ export class UiServer {
 		version?: string
 		/** Test injection for the operator-mode network probes (chain editor, token verify). */
 		deps?: SetupDeps
+		/** Test-only override for how long a native test waits for Electron to confirm it invoked the OS API. */
+		notificationAckTimeoutMs?: number
 	}) {
 		this.mode = opts.mode
 		this.operator = opts.operator
 		this.setup = opts.setup
 		this.uiDistDir = opts.uiDistDir
 		this.version = opts.version ?? opts.operator?.version ?? "unknown"
+		this.notificationAckTimeoutMs = opts.notificationAckTimeoutMs ?? 5_000
 		this.deps = resolveSetupDeps(opts.deps)
 		if (this.mode === "operator") this.startState = "running"
-		if (this.operator) this.subscribeActivity()
+		if (this.operator) {
+			this.subscribeActivity()
+			this.subscribeNotifications()
+		}
 		this.server = createServer((req, res) => {
 			this.handle(req, res).catch((err) => {
 				this.logger.error({ err }, "Unhandled UI request error")
@@ -583,7 +646,9 @@ export class UiServer {
 		}
 		if (code !== "ECONNREFUSED") {
 			// EACCES on somebody else's socket, say. Not ours to delete.
-			throw new Error(`Cannot tell whether ${path} is in use (${code}); remove it by hand if no simplex is running`)
+			throw new Error(
+				`Cannot tell whether ${path} is in use (${code}); remove it by hand if no simplex is running`,
+			)
 		}
 		try {
 			unlinkSync(path)
@@ -622,7 +687,10 @@ export class UiServer {
 				this.listenProvenance = "tcp"
 				const address = this.server.address()
 				const boundPort = typeof address === "object" && address !== null ? address.port : port
-				this.logger.info({ bind: `${host}:${boundPort}` }, `Simplex UI available at http://${host}:${boundPort}/`)
+				this.logger.info(
+					{ bind: `${host}:${boundPort}` },
+					`Simplex UI available at http://${host}:${boundPort}/`,
+				)
 				resolve(boundPort)
 			})
 		})
@@ -635,6 +703,19 @@ export class UiServer {
 		}
 		for (const client of this.sseClients) client.end()
 		this.sseClients.clear()
+		if (this.notificationListener && this.notifications) {
+			this.notifications.off("notification", this.notificationListener)
+		}
+		this.notificationListener = undefined
+		this.notifications?.stop()
+		this.notifications = undefined
+		for (const { resolve, timer } of this.nativeNotificationReceipts.values()) {
+			clearTimeout(timer)
+			resolve(false)
+		}
+		this.nativeNotificationReceipts.clear()
+		for (const client of this.notificationClients) client.end()
+		this.notificationClients.clear()
 		for (const [client, unsubscribe] of this.logClients) {
 			unsubscribe()
 			client.end()
@@ -680,6 +761,7 @@ export class UiServer {
 		this.startState = "running"
 		this.startError = undefined
 		this.subscribeActivity()
+		this.subscribeNotifications()
 		this.logger.info("Setup complete — UI now in operator mode")
 	}
 
@@ -693,6 +775,51 @@ export class UiServer {
 			}
 		}
 		this.operator.activity.on("event", this.activityListener)
+	}
+
+	/** One alert source feeds native desktop SSE and every stored browser Push subscription. */
+	private subscribeNotifications(): void {
+		if (this.notifications || !this.operator) return
+		this.notifications = new NotificationService(
+			this.operator.state,
+			this.operator.balances,
+			this.operator.activity,
+			this.logger,
+		)
+		this.notificationListener = (notification) => {
+			const frame = `data: ${JSON.stringify(notification)}\n\n`
+			for (const client of this.notificationClients) client.write(frame)
+		}
+		this.notifications.on("notification", this.notificationListener)
+	}
+
+	/** Resolves only when Electron confirms it passed a native test alert to the operating system. */
+	private waitForNativeNotificationReceipt(receiptId: string): Promise<boolean> {
+		return new Promise((resolve) => {
+			const timer = setTimeout(() => {
+				this.nativeNotificationReceipts.delete(receiptId)
+				resolve(false)
+			}, this.notificationAckTimeoutMs)
+			timer.unref()
+			this.nativeNotificationReceipts.set(receiptId, { resolve, timer })
+		})
+	}
+
+	private cancelNativeNotificationReceipt(receiptId: string): void {
+		const pending = this.nativeNotificationReceipts.get(receiptId)
+		if (!pending) return
+		this.nativeNotificationReceipts.delete(receiptId)
+		clearTimeout(pending.timer)
+		pending.resolve(false)
+	}
+
+	private acknowledgeNativeNotification(receiptId: string): boolean {
+		const pending = this.nativeNotificationReceipts.get(receiptId)
+		if (!pending) return false
+		this.nativeNotificationReceipts.delete(receiptId)
+		clearTimeout(pending.timer)
+		pending.resolve(true)
+		return true
 	}
 
 	/** Reported by /api/setup/start-status while save-and-start boots the filler. */
@@ -777,7 +904,8 @@ export class UiServer {
 				if (method !== "POST") return sendJson(res, 405, { error: "Method not allowed" })
 				try {
 					const body = JSON.parse(await readBody(req)) as Record<string, unknown>
-					if (path === "/api/setup/validate-rpc") return sendJson(res, 200, await validateRpc(body, this.deps))
+					if (path === "/api/setup/validate-rpc")
+						return sendJson(res, 200, await validateRpc(body, this.deps))
 					if (path === "/api/setup/validate-bundler") {
 						return sendJson(res, 200, await validateBundler(body, this.deps))
 					}
@@ -863,6 +991,147 @@ export class UiServer {
 			return sendJson(res, 200, this.operator!.balances.getSnapshot())
 		}
 
+		if (path === "/api/notifications") {
+			if (this.mode !== "operator" || !this.notifications)
+				return sendJson(res, 409, { error: "Filler is not running" })
+			if (method === "GET") {
+				try {
+					return sendJson(res, 200, await this.notifications.status())
+				} catch (err) {
+					return sendJson(res, 503, {
+						error: `Notifications are temporarily unavailable: ${err instanceof Error ? err.message : String(err)}`,
+					})
+				}
+			}
+			if (method !== "PUT") return sendJson(res, 405, { error: "Method not allowed" })
+			let body: Partial<NotificationSettings>
+			try {
+				body = JSON.parse(await readBody(req)) as Partial<NotificationSettings>
+			} catch {
+				return sendJson(res, 400, { error: "Invalid JSON body" })
+			}
+			const threshold = body.lowLiquidityThresholdUsd
+			if (
+				threshold !== null &&
+				(typeof threshold !== "number" || !Number.isFinite(threshold) || threshold <= 0)
+			) {
+				return sendJson(res, 400, { error: "lowLiquidityThresholdUsd must be a positive number or null" })
+			}
+			if (typeof body.swaps !== "boolean") return sendJson(res, 400, { error: "swaps must be a boolean" })
+			try {
+				return sendJson(
+					res,
+					200,
+					await this.notifications.updateSettings({ lowLiquidityThresholdUsd: threshold, swaps: body.swaps }),
+				)
+			} catch (err) {
+				return sendJson(res, 503, {
+					error: `Notifications are temporarily unavailable: ${err instanceof Error ? err.message : String(err)}`,
+				})
+			}
+		}
+
+		if (path === "/api/notifications/subscription") {
+			if (this.mode !== "operator" || !this.notifications)
+				return sendJson(res, 409, { error: "Filler is not running" })
+			if (method !== "POST" && method !== "DELETE") return sendJson(res, 405, { error: "Method not allowed" })
+			let body: StoredPushSubscription | { endpoint?: unknown }
+			try {
+				body = JSON.parse(await readBody(req)) as StoredPushSubscription | { endpoint?: unknown }
+			} catch {
+				return sendJson(res, 400, { error: "Invalid JSON body" })
+			}
+			try {
+				if (method === "DELETE") {
+					if (typeof body.endpoint !== "string") return sendJson(res, 400, { error: "endpoint is required" })
+					return sendJson(res, 200, await this.notifications.unsubscribe(body.endpoint))
+				}
+				return sendJson(res, 200, await this.notifications.subscribe(body as StoredPushSubscription))
+			} catch (err) {
+				const message = err instanceof Error ? err.message : String(err)
+				return sendJson(res, message === "Invalid push subscription" ? 400 : 503, { error: message })
+			}
+		}
+
+		if (path === "/api/notifications/test") {
+			if (this.mode !== "operator" || !this.notifications)
+				return sendJson(res, 409, { error: "Filler is not running" })
+			if (method !== "POST") return sendJson(res, 405, { error: "Method not allowed" })
+			try {
+				const raw = await readBody(req)
+				const body = raw ? (JSON.parse(raw) as { endpoint?: unknown; native?: unknown }) : {}
+				if (body.endpoint !== undefined && typeof body.endpoint !== "string") {
+					return sendJson(res, 400, { error: "endpoint must be a string" })
+				}
+				if (body.native !== undefined && typeof body.native !== "boolean") {
+					return sendJson(res, 400, { error: "native must be a boolean" })
+				}
+				const endpoint = body.endpoint as string | undefined
+				const native = body.native === true
+				if ((endpoint ? 1 : 0) + (native ? 1 : 0) !== 1) {
+					return sendJson(res, 400, {
+						error: "Select exactly one browser endpoint or the native desktop client",
+					})
+				}
+				const nativeClients = native ? this.notificationClients.size : 0
+				if (native && nativeClients === 0) {
+					return sendJson(res, 409, { error: "No connected notification device was found", nativeClients })
+				}
+				const receiptId = native ? randomUUID() : undefined
+				const nativeReceipt = receiptId ? this.waitForNativeNotificationReceipt(receiptId) : undefined
+				let delivery: PushDelivery
+				try {
+					delivery = await this.notifications.test({ endpoint, native, push: !native, receiptId })
+				} catch (err) {
+					if (receiptId) this.cancelNativeNotificationReceipt(receiptId)
+					return sendJson(res, 503, {
+						error: `Notifications are temporarily unavailable: ${err instanceof Error ? err.message : String(err)}`,
+					})
+				}
+				const nativeReceived = nativeReceipt && (await nativeReceipt) ? 1 : 0
+				if (delivery.pushSent + nativeReceived === 0) {
+					return sendJson(res, delivery.pushFailed > 0 ? 502 : 409, {
+						error:
+							delivery.pushFailed > 0
+								? "The notification service could not deliver to this device"
+								: endpoint
+									? "This browser is no longer subscribed"
+									: "The desktop app did not confirm displaying the notification",
+						...delivery,
+						nativeClients,
+						nativeReceived,
+					})
+				}
+				return sendJson(res, 200, { sent: true, ...delivery, nativeClients, nativeReceived })
+			} catch (err) {
+				return sendJson(res, 400, { error: err instanceof Error ? err.message : "Invalid JSON body" })
+			}
+		}
+
+		if (path === "/api/notifications/receipt") {
+			if (this.mode !== "operator" || !this.notifications)
+				return sendJson(res, 409, { error: "Filler is not running" })
+			if (method !== "POST") return sendJson(res, 405, { error: "Method not allowed" })
+			try {
+				const body = JSON.parse(await readBody(req)) as { receiptId?: unknown }
+				if (typeof body.receiptId !== "string") return sendJson(res, 400, { error: "receiptId is required" })
+				if (!this.acknowledgeNativeNotification(body.receiptId)) {
+					return sendJson(res, 404, { error: "Notification receipt was not found" })
+				}
+				return sendJson(res, 204, {})
+			} catch (err) {
+				return sendJson(res, 400, { error: err instanceof Error ? err.message : "Invalid JSON body" })
+			}
+		}
+
+		if (path === "/api/notifications/stream") {
+			if (this.mode !== "operator" || !this.notifications)
+				return sendJson(res, 409, { error: "Filler is not running" })
+			if (method !== "GET") return sendJson(res, 405, { error: "Method not allowed" })
+			openSseStream(req, res, this.notificationClients)
+			return
+		}
+
 		if (path === "/api/activity/orders") {
 			if (this.mode !== "operator") return sendJson(res, 409, { error: "Filler is not running" })
 			if (method !== "GET") return sendJson(res, 405, { error: "Method not allowed" })
@@ -914,10 +1183,24 @@ export class UiServer {
 			}
 			// Share tokens are named after their underlying (stataUSDC, ycNGN): the logo
 			// comes from the underlying's symbol, and the vault badge says it is a share.
-			const legOf = (symbol: string | null | undefined, amount: string | null | undefined, vault: boolean): LedgerLeg | null =>
-				symbol && amount ? { symbol, amount, decimals: null, icon: vault ? underlyingOf(symbol) : symbol, vault } : null
+			const legOf = (
+				symbol: string | null | undefined,
+				amount: string | null | undefined,
+				vault: boolean,
+			): LedgerLeg | null =>
+				symbol && amount
+					? { symbol, amount, decimals: null, icon: vault ? underlyingOf(symbol) : symbol, vault }
+					: null
 			const orderLeg = (leg: OrderLeg | undefined): LedgerLeg | null =>
-				leg ? { symbol: leg.symbol ?? leg.token, amount: leg.amount, decimals: leg.decimals, icon: leg.symbol ?? "", vault: false } : null
+				leg
+					? {
+							symbol: leg.symbol ?? leg.token,
+							amount: leg.amount,
+							decimals: leg.decimals,
+							icon: leg.symbol ?? "",
+							vault: false,
+						}
+					: null
 			const txs: WalletTxDto[] = [
 				...walletTxs.map(({ tokenIn, amountIn, ...tx }) => {
 					const vaultTx = tx.kind === "sweep" || tx.kind === "redeem"
@@ -965,14 +1248,7 @@ export class UiServer {
 		if (path === "/api/events") {
 			if (this.mode !== "operator") return sendJson(res, 409, { error: "Filler is not running" })
 			if (method !== "GET") return sendJson(res, 405, { error: "Method not allowed" })
-			res.writeHead(200, {
-				"Content-Type": "text/event-stream",
-				"Cache-Control": "no-store",
-				Connection: "keep-alive",
-			})
-			res.write(":ok\n\n")
-			this.sseClients.add(res)
-			req.on("close", () => this.sseClients.delete(res))
+			openSseStream(req, res, this.sseClients)
 			return
 		}
 
@@ -989,7 +1265,9 @@ export class UiServer {
 				vaults: op.config.vault?.vaults ?? [],
 				sendTokens: this.sendTokenOptions(op),
 				knownVaults: this.knownVaultCatalog(op),
-				tunnel: op.tunnel ? { enabled: op.tunnel.status().enabled, devices: op.tunnel.status().devices.length } : undefined,
+				tunnel: op.tunnel
+					? { enabled: op.tunnel.status().enabled, devices: op.tunnel.status().devices.length }
+					: undefined,
 			}
 			return sendJson(res, 200, configDto)
 		}
@@ -1106,7 +1384,8 @@ export class UiServer {
 				return sendJson(res, 400, { error: "Invalid JSON body" })
 			}
 			if (path === "/api/tunnel/devices") {
-				if (typeof body.label !== "string" || !body.label.trim()) return sendJson(res, 400, { error: "label is required" })
+				if (typeof body.label !== "string" || !body.label.trim())
+					return sendJson(res, 400, { error: "label is required" })
 				if (body.publicKey !== undefined && typeof body.publicKey !== "string") {
 					return sendJson(res, 400, { error: "publicKey must be a string" })
 				}
@@ -1116,9 +1395,14 @@ export class UiServer {
 					return sendJson(res, 400, { error: err instanceof Error ? err.message : String(err) })
 				}
 			}
-			if (typeof body.fingerprint !== "string" || !body.fingerprint) return sendJson(res, 400, { error: "fingerprint is required" })
+			if (typeof body.fingerprint !== "string" || !body.fingerprint)
+				return sendJson(res, 400, { error: "fingerprint is required" })
 			const removed = tunnel.removeDevice(body.fingerprint)
-			return sendJson(res, removed ? 200 : 404, removed ? { removed: true } : { error: "No device with that fingerprint" })
+			return sendJson(
+				res,
+				removed ? 200 : 404,
+				removed ? { removed: true } : { error: "No device with that fingerprint" },
+			)
 		}
 
 		if (path === "/api/reset-halt") {
@@ -1132,7 +1416,8 @@ export class UiServer {
 			if (method !== "POST") return sendJson(res, 405, { error: "Method not allowed" })
 			if (this.stopping) return sendJson(res, 202, { stopping: true })
 			if (this.mode === "init") {
-				if (this.startState === "starting") return sendJson(res, 409, { error: "Filler startup is already in progress" })
+				if (this.startState === "starting")
+					return sendJson(res, 409, { error: "Filler startup is already in progress" })
 				if (!this.setup?.stop) return sendJson(res, 409, { error: "Filler is not running" })
 				this.beginStopping()
 				this.logger.warn("Graceful stop requested from the setup UI")
@@ -1257,7 +1542,11 @@ export class UiServer {
 			}
 			validatePairConfigs(next, mergedAssets)
 			const registry = new AssetRegistry(new ChainConfigService({}), mergedAssets)
-			assertPairSymbolsResolve(next, registry, op.chains.map((id) => formatChainKey(id)))
+			assertPairSymbolsResolve(
+				next,
+				registry,
+				op.chains.map((id) => formatChainKey(id)),
+			)
 		} catch (err) {
 			return sendJson(res, 400, { error: err instanceof Error ? err.message : String(err) })
 		}
@@ -1280,7 +1569,11 @@ export class UiServer {
 		const persisted = this.persistConfig()
 		const applied = Boolean(op.addPair)
 		this.logger.warn(
-			{ pair: `${candidate.token0}/${candidate.token1}`, applied, customAssets: assets ? Object.keys(assets) : undefined },
+			{
+				pair: `${candidate.token0}/${candidate.token1}`,
+				applied,
+				customAssets: assets ? Object.keys(assets) : undefined,
+			},
 			"Market added by operator",
 		)
 		return sendJson(res, 200, {
@@ -1316,10 +1609,7 @@ export class UiServer {
 		if (!op.removePair) pairs.splice(pairIndex, 1)
 		const persisted = this.persistConfig()
 		const applied = Boolean(op.removePair)
-		this.logger.warn(
-			{ pair: `${strategy.token0}/${strategy.token1}`, applied },
-			"Market removed by operator",
-		)
+		this.logger.warn({ pair: `${strategy.token0}/${strategy.token1}`, applied }, "Market removed by operator")
 		return sendJson(res, 200, { applied, restartNeeded: !applied, persisted })
 	}
 
@@ -1407,7 +1697,9 @@ export class UiServer {
 			return sendJson(res, 400, { error: "Invalid JSON body" })
 		}
 		if (!Array.isArray(body.chains) || body.chains.length === 0) {
-			return sendJson(res, 400, { error: "Provide chains as a non-empty array — the filler needs at least one chain" })
+			return sendJson(res, 400, {
+				error: "Provide chains as a non-empty array — the filler needs at least one chain",
+			})
 		}
 
 		const rows: Array<{ chainId: number; rpcUrls: string[]; bundlerUrl: string; watchOnly: boolean }> = []
@@ -1507,7 +1799,9 @@ export class UiServer {
 					throw new Error(`RPC ${url} is unreachable: ${err instanceof Error ? err.message : err}`)
 				}
 				if (reported !== chainId) {
-					throw new Error(`RPC ${url} reports chain ${reported}, expected ${chainId} (${chainLabel(chainId)})`)
+					throw new Error(
+						`RPC ${url} reports chain ${reported}, expected ${chainId} (${chainLabel(chainId)})`,
+					)
 				}
 			}),
 		)
@@ -1796,7 +2090,10 @@ export class UiServer {
 			} catch (err) {
 				return sendJson(res, 400, { error: err instanceof Error ? err.message : String(err) })
 			}
-			op.config.vault = { vaults: body.vaults, ...(body.sweepIntervalMs ? { sweepIntervalMs: body.sweepIntervalMs } : {}) }
+			op.config.vault = {
+				vaults: body.vaults,
+				...(body.sweepIntervalMs ? { sweepIntervalMs: body.sweepIntervalMs } : {}),
+			}
 			const persisted = this.persistConfig()
 			return sendJson(res, 200, { applied: false, restartNeeded: true, persisted })
 		}
@@ -1922,14 +2219,20 @@ function vaultSweepDto(result: VaultSweepResult): VaultSweepDto {
 			chain: tx.chain,
 			txHash: tx.txHash,
 			sponsored: tx.sponsored,
-			deposits: tx.deposits.map((d) => ({ vault: d.vault, symbol: d.symbol, amount: formatUnits(d.amount, d.decimals) })),
+			deposits: tx.deposits.map((d) => ({
+				vault: d.vault,
+				symbol: d.symbol,
+				amount: formatUnits(d.amount, d.decimals),
+			})),
 		})),
 		skipped: result.skipped.map((skip) => ({
 			chain: skip.chain,
 			vault: skip.vault,
 			symbol: skip.symbol,
 			reason: skip.reason,
-			...(skip.walletBalance !== undefined ? { walletBalance: formatUnits(skip.walletBalance, skip.decimals) } : {}),
+			...(skip.walletBalance !== undefined
+				? { walletBalance: formatUnits(skip.walletBalance, skip.decimals) }
+				: {}),
 			...(skip.threshold !== undefined ? { threshold: formatUnits(skip.threshold, skip.decimals) } : {}),
 		})),
 	}

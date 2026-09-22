@@ -1,8 +1,9 @@
 import { createHash } from "node:crypto"
+import { EventEmitter } from "node:events"
 import { mkdir, mkdtemp, readFile, unlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import {
 	assembleRelease,
 	mergeUpdateMetadata,
@@ -18,10 +19,15 @@ import {
 	runtimeTarget,
 } from "./package-layout.mjs"
 import { assertInstalledSize, installedAppDirectories } from "./package-size.mjs"
-import { assertPackagingNodeVersion, builderArguments, normalizeBuilderArguments } from "./run-builder.mjs"
+import {
+	assertPackagingNodeVersion,
+	builderArguments,
+	normalizeBuilderArguments,
+	runBuilderWithRetries,
+} from "./run-builder.mjs"
 import { verifyReleaseTag } from "./verify-release-tag.mjs"
 import { artifactNamesForPlatform, isUnavailableAppImageFuse } from "./e2e/artifact-smoke.mjs"
-import { waitFor } from "./e2e/packaged-smoke.mjs"
+import { stopProcess, waitFor } from "./e2e/packaged-smoke.mjs"
 
 function sha512(value: string): string {
 	return createHash("sha512").update(value).digest("base64")
@@ -57,6 +63,25 @@ describe("desktop package and release layout", () => {
 				async () => undefined,
 			),
 		).resolves.toBe("ready")
+	})
+
+	it("force-kills a packaged app that ignores the graceful shutdown deadline", async () => {
+		const child = Object.assign(new EventEmitter(), {
+			exitCode: null as number | null,
+			pid: 123,
+			kill: vi.fn((signal: NodeJS.Signals) => {
+				if (signal === "SIGKILL") {
+					child.exitCode = 137
+					queueMicrotask(() => child.emit("exit", 137, signal))
+				}
+				return true
+			}),
+		})
+
+		await stopProcess(child, { platform: "darwin", gracePeriodMs: 0 })
+
+		expect(child.kill.mock.calls.map(([signal]) => signal)).toEqual(["SIGTERM", "SIGKILL"])
+		expect(child.exitCode).toBe(137)
 	})
 
 	it("selects every launchable installer for the host platform", () => {
@@ -104,6 +129,15 @@ describe("desktop package and release layout", () => {
 	it("requires Node 24 for the release toolchain", () => {
 		expect(() => assertPackagingNodeVersion("23.11.0")).toThrow(/requires Node 24/)
 		expect(() => assertPackagingNodeVersion("24.19.0")).not.toThrow()
+	})
+
+	it("retries a failed packaging process before succeeding", async () => {
+		const execute = vi.fn().mockResolvedValueOnce(1).mockResolvedValueOnce(0)
+		const sleep = vi.fn(async () => undefined)
+
+		await expect(runBuilderWithRetries(execute, { attempts: 3, sleep })).resolves.toBe(0)
+		expect(execute).toHaveBeenCalledTimes(2)
+		expect(sleep).toHaveBeenCalledOnce()
 	})
 
 	it("maps only supported package runtimes", () => {

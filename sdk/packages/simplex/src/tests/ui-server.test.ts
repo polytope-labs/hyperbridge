@@ -5,6 +5,7 @@ import {
 	type OperatorContext,
 	type PauseControl,
 } from "@/services/server/UiServer"
+import { EventEmitter } from "node:events"
 import type { SetupDeps } from "@/services/server/setup-api"
 import { ActivityRecorder } from "@/data/recorder"
 import { MemoryDataStore } from "@/data/memory"
@@ -120,6 +121,54 @@ function fakeConfig(): FillerConfigFile {
 
 type TestOperator = OperatorContext & { data: MemoryDataStore; loggers: LoggerContext }
 
+function testBalanceSource(
+	initial: ReturnType<OperatorContext["balances"]["getSnapshot"]> = {
+		updatedAt: null,
+		status: "loading",
+		chains: [],
+		issues: [],
+	},
+) {
+	let current = initial
+	const source = Object.assign(new EventEmitter(), {
+		getSnapshot: () => current,
+		setSnapshot(next: typeof initial) {
+			current = next
+			source.emit("snapshot", next)
+		},
+	})
+	return source
+}
+
+function stableBalanceSnapshot(
+	available: number,
+): ReturnType<OperatorContext["balances"]["getSnapshot"]> {
+	return {
+		updatedAt: Date.now(),
+		status: "fresh",
+		issues: [],
+		chains: [
+			{
+				chainId: 8453,
+				assets: [
+					{
+						address: "0xstable",
+						symbol: "USDC",
+						wallet: available,
+						walletReserve: 0,
+						vaultPosition: 0,
+						vaultAvailable: 0,
+						total: available,
+						available,
+						vaults: [],
+						status: "fresh",
+					},
+				],
+			},
+		],
+	}
+}
+
 function baseOperator(overrides: Partial<OperatorContext> = {}): TestOperator {
 	const dataDir = mkdtempSync(join(tmpdir(), "simplex-ui-"))
 	const data = new MemoryDataStore()
@@ -140,11 +189,12 @@ function baseOperator(overrides: Partial<OperatorContext> = {}): TestOperator {
 				throw new Error("not wired for this test")
 			},
 		} as unknown as OperatorContext["limitOrders"],
-		balances: { getSnapshot: () => ({ updatedAt: null, status: "loading", chains: [], issues: [] }) },
+		balances: testBalanceSource(),
 		haltControls: [],
 		config: fakeConfig(),
 		stop: vi.fn().mockResolvedValue(undefined),
 		activity: new ActivityRecorder(data.activity),
+		state: data.state,
 		bids: data.bids,
 		setPaused: (paused: boolean) => data.state.set({ paused }),
 		setLogLevel: (level: LogLevel) => loggers.setLevel(level),
@@ -167,7 +217,11 @@ describe("UiServer (operator mode)", () => {
 		server = undefined
 	})
 
-	async function startServer(overrides: Partial<OperatorContext> = {}, deps?: SetupDeps) {
+	async function startServer(
+		overrides: Partial<OperatorContext> = {},
+		deps?: SetupDeps,
+		notificationAckTimeoutMs?: number,
+	) {
 		const filler = fakePauseControl()
 		const operator = baseOperator({
 			strategies: [
@@ -176,17 +230,15 @@ describe("UiServer (operator mode)", () => {
 				{ index: 2, pairIndex: 2, exotic: "USDC/ZARP", token0: "USDC", token1: "ZARP", sameToken: false },
 			],
 			filler,
-			balances: {
-				getSnapshot: () => ({
-					updatedAt: 123,
-					status: "fresh",
-					chains: [{ chainId: 8453, usdc: 1500, assets: [] }],
-					issues: [],
-				}),
-			},
+			balances: testBalanceSource({
+				updatedAt: 123,
+				status: "fresh",
+				chains: [{ chainId: 8453, usdc: 1500, assets: [] }],
+				issues: [],
+			}),
 			...overrides,
 		})
-		server = new UiServer({ mode: "operator", operator, deps })
+		server = new UiServer({ mode: "operator", operator, deps, notificationAckTimeoutMs })
 		const port = await server.start(0)
 		return {
 			base: `http://127.0.0.1:${port}`,
@@ -233,6 +285,148 @@ describe("UiServer (operator mode)", () => {
 			chains: [{ chainId: 8453, usdc: 1500, assets: [] }],
 			issues: [],
 		})
+	})
+
+	it("persists notification rules and streams a test alert to native desktop clients", async () => {
+		const { base, operator } = await startServer()
+		const initial = await (await fetch(`${base}/api/notifications`)).json()
+		expect(initial).toMatchObject({
+			settings: { lowLiquidityThresholdUsd: null, swaps: false },
+			subscriptionCount: 0,
+		})
+		expect(initial.vapidPublicKey).toEqual(expect.any(String))
+
+		const update = await put(base, "/api/notifications", { lowLiquidityThresholdUsd: 1_000, swaps: true })
+		expect(update.status).toBe(200)
+		expect((await update.json()).settings).toEqual({ lowLiquidityThresholdUsd: 1_000, swaps: true })
+		expect((await operator.state!.get()).notifications?.settings).toEqual({
+			lowLiquidityThresholdUsd: 1_000,
+			swaps: true,
+		})
+
+		const bad = await put(base, "/api/notifications", { lowLiquidityThresholdUsd: 0, swaps: true })
+		expect(bad.status).toBe(400)
+
+		const subscription = {
+			endpoint: "https://push.example/subscription-1",
+			keys: { p256dh: "public-key", auth: "auth-secret" },
+		}
+		const subscribed = await fetch(`${base}/api/notifications/subscription`, {
+			method: "POST",
+			headers: { ...CSRF, "Content-Type": "application/json" },
+			body: JSON.stringify(subscription),
+		})
+		expect((await subscribed.json()).subscriptionCount).toBe(1)
+		const unsubscribed = await fetch(`${base}/api/notifications/subscription`, {
+			method: "DELETE",
+			headers: { ...CSRF, "Content-Type": "application/json" },
+			body: JSON.stringify({ endpoint: subscription.endpoint }),
+		})
+		expect((await unsubscribed.json()).subscriptionCount).toBe(0)
+		const staleBrowser = await fetch(`${base}/api/notifications/test`, {
+			method: "POST",
+			headers: { ...CSRF, "Content-Type": "application/json" },
+			body: JSON.stringify({ endpoint: subscription.endpoint }),
+		})
+		expect(staleBrowser.status).toBe(409)
+		expect(await staleBrowser.json()).toMatchObject({ error: "This browser is no longer subscribed" })
+		const nowhere = await fetch(`${base}/api/notifications/test`, {
+			method: "POST",
+			headers: { ...CSRF, "Content-Type": "application/json" },
+			body: JSON.stringify({ native: true }),
+		})
+		expect(nowhere.status).toBe(409)
+
+		const controller = new AbortController()
+		const stream = await fetch(`${base}/api/notifications/stream`, { signal: controller.signal })
+		const reader = stream.body!.getReader()
+		await reader.read() // :ok
+		const testResponse = fetch(`${base}/api/notifications/test`, {
+			method: "POST",
+			headers: { ...CSRF, "Content-Type": "application/json" },
+			body: JSON.stringify({ native: true }),
+		})
+		const frame = new TextDecoder().decode((await reader.read()).value)
+		const notification = JSON.parse(frame.slice("data: ".length))
+		expect(notification).toMatchObject({ title: "Simplex notifications are working", receiptId: expect.any(String) })
+		const receipt = await fetch(`${base}/api/notifications/receipt`, {
+			method: "POST",
+			headers: { ...CSRF, "Content-Type": "application/json" },
+			body: JSON.stringify({ receiptId: notification.receiptId }),
+		})
+		expect(receipt.status).toBe(204)
+		const test = await testResponse
+		expect(test.status).toBe(200)
+		expect(await test.json()).toMatchObject({ sent: true, nativeReceived: 1 })
+		controller.abort()
+	})
+
+	it("does not claim native test delivery until Electron confirms the notification", async () => {
+		const { base } = await startServer({}, undefined, 25)
+		const controller = new AbortController()
+		const stream = await fetch(`${base}/api/notifications/stream`, { signal: controller.signal })
+		const reader = stream.body!.getReader()
+		await reader.read() // :ok
+
+		const test = await fetch(`${base}/api/notifications/test`, {
+			method: "POST",
+			headers: { ...CSRF, "Content-Type": "application/json" },
+			body: JSON.stringify({ native: true }),
+		})
+
+		expect(test.status).toBe(409)
+		expect(await test.json()).toMatchObject({
+			error: "The desktop app did not confirm displaying the notification",
+			nativeReceived: 0,
+		})
+		controller.abort()
+	})
+
+	it("streams a low-liquidity alert from a balance snapshot event", async () => {
+		const balances = testBalanceSource(stableBalanceSnapshot(500))
+		const { base } = await startServer({ balances })
+		const settings = await put(base, "/api/notifications", {
+			lowLiquidityThresholdUsd: 100,
+			swaps: false,
+		})
+		expect(settings.status).toBe(200)
+
+		const controller = new AbortController()
+		const stream = await fetch(`${base}/api/notifications/stream`, { signal: controller.signal })
+		const reader = stream.body!.getReader()
+		await reader.read() // :ok
+
+		balances.setSnapshot(stableBalanceSnapshot(50))
+		const frame = new TextDecoder().decode((await reader.read()).value)
+		expect(JSON.parse(frame.slice("data: ".length))).toMatchObject({
+			title: "Simplex liquidity is low",
+			tag: "simplex-low-liquidity",
+		})
+		controller.abort()
+	})
+
+	it("reports notification initialization failures and recovers on a later request", async () => {
+		const persisted = new MemoryDataStore().state
+		let unavailable = true
+		const state = {
+			get: async () => {
+				if (unavailable) throw new Error("state store unavailable")
+				return persisted.get()
+			},
+			set: (value: Awaited<ReturnType<typeof persisted.get>>) => persisted.set(value),
+		}
+		const { base } = await startServer({ state })
+
+		const failed = await fetch(`${base}/api/notifications`)
+		expect(failed.status).toBe(503)
+		expect(await failed.json()).toMatchObject({
+			error: "Notifications are temporarily unavailable: state store unavailable",
+		})
+
+		unavailable = false
+		const recovered = await fetch(`${base}/api/notifications`)
+		expect(recovered.status).toBe(200)
+		expect(await recovered.json()).toMatchObject({ subscriptionCount: 0 })
 	})
 
 	it("rejects mutating requests without the X-Simplex-UI header", async () => {

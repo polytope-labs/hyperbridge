@@ -502,6 +502,40 @@ export interface LimitOrderStore {
 export interface RuntimeState {
 	/** A pause set by the operator stays set across restarts. */
 	paused?: boolean
+	/** Notification rules, browser subscriptions, and the per-installation VAPID identity. */
+	notifications?: NotificationRuntimeState
+}
+
+export interface NotificationSettings {
+	/** Alert once when aggregate spendable USD-stable liquidity crosses below this value. */
+	lowLiquidityThresholdUsd: number | null
+	/** Alert after this filler completes a swap. */
+	swaps: boolean
+}
+
+/** Transport-safe alert payload shared by Web Push and the native desktop shell. */
+export interface OperatorNotification {
+	title: string
+	body: string
+	tag: string
+	/** Relative dashboard destination to open when the operator clicks the alert. */
+	url: string
+	/** Opaque, short-lived receipt used only to confirm native desktop test delivery. */
+	receiptId?: string
+}
+
+export interface StoredPushSubscription {
+	endpoint: string
+	expirationTime?: number | null
+	keys: { p256dh: string; auth: string }
+}
+
+export interface NotificationRuntimeState {
+	settings: NotificationSettings
+	vapid: { publicKey: string; privateKey: string }
+	subscriptions: StoredPushSubscription[]
+	/** Prevents restart/poll spam while liquidity remains below the configured threshold. */
+	lowLiquidityActive?: boolean
 }
 
 export interface StateStore {

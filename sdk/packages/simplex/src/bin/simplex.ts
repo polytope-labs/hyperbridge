@@ -218,6 +218,7 @@ async function operatorContextFrom(
 		// ctrl-C performs.
 		stop: () => stopAll(),
 		activity: runtime.activity,
+		state: runtime.data.state,
 		bids: runtime.data.bids,
 		limitOrders: simplex.limitOrders,
 		setPaused: (paused) => patchRuntimeState(runtime.data.state, { paused }),

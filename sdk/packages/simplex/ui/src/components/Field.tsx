@@ -10,6 +10,7 @@ export function Field(props: {
 	style?: CSSProperties
 	onBlur?: () => void
 	required?: boolean
+	ariaInvalid?: boolean
 }) {
 	return (
 		<label className="field" style={props.style}>
@@ -24,6 +25,7 @@ export function Field(props: {
 				required={props.required}
 				onChange={(e) => props.onChange(e.target.value)}
 				onBlur={props.onBlur}
+				aria-invalid={props.ariaInvalid}
 			/>
 		</label>
 	)

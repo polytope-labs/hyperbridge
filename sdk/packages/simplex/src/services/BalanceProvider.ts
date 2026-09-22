@@ -1,3 +1,4 @@
+import { EventEmitter } from "node:events"
 import { formatUnits } from "viem"
 import type { IntentsCoprocessor } from "@hyperbridge/sdk"
 import { nativeTokenSymbol } from "@/cli/init/chains"
@@ -100,7 +101,7 @@ export interface BalanceProviderOptions {
  * plus the BRIDGE balance of the substrate account) into a plain snapshot,
  * consumed by the UI JSON API and `wallet.balances()`.
  */
-export class BalanceProvider {
+export class BalanceProvider extends EventEmitter {
 	private snapshot: BalanceSnapshot = { updatedAt: null, status: "loading", chains: [], issues: [] }
 	private stopped = false
 	private refreshInterval?: NodeJS.Timeout
@@ -110,6 +111,7 @@ export class BalanceProvider {
 	private intervalMs: number
 
 	constructor(options: BalanceProviderOptions) {
+		super()
 		this.logger = moduleLogger(options.configService.loggers, "balances")
 		this.options = options
 		this.intervalMs = options.refreshIntervalMs ?? 60_000
@@ -196,6 +198,7 @@ export class BalanceProvider {
 			issues,
 			hyperbridge: this.snapshot.hyperbridge,
 		}
+		this.emit("snapshot", this.snapshot)
 		this.logger.debug({ chains: chainIds.length }, "Balances refreshed")
 		return this.snapshot
 	}

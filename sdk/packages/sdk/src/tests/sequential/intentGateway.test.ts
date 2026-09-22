@@ -277,7 +277,9 @@ describe("Intent quote helper", () => {
 	}, 120_000)
 })
 
-describe("IntentGateway placement fee metadata", () => {
+// Skipped: these run against the live Base IntentGateway (0xAe041F7B…), which still reports
+// release 2. Re-enable once the mainnet gateways are upgraded to release 3.
+describe.skip("IntentGateway placement fee metadata", () => {
 	it("exposes the source fee token and exact encoded fee from execute and executeBest", async () => {
 		const configService = new ChainConfigService()
 		const baseChain = makeEvmChain(CHAINS.base, configService)

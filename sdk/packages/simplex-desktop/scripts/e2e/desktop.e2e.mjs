@@ -278,6 +278,7 @@ function operatorFixture(socketPath, options = {}) {
 		},
 		pairs: [],
 		chains: [],
+		orderbook: { url: "https://orderbook.example/graphql" },
 	}
 	const operator = {
 		strategies: [],
@@ -316,6 +317,18 @@ function operatorFixture(socketPath, options = {}) {
 		configPath: join(dirname(socketPath), "filler-config.toml"),
 		chains: [],
 		strategyTypes: [],
+		// Every running filler has limit orders: they are what it prices from.
+		limitOrders: {
+			list: async () => [],
+			get: async () => null,
+			withFills: async () => null,
+			create: async () => {
+				throw new Error("not wired for this test")
+			},
+			cancel: async () => {
+				throw new Error("not wired for this test")
+			},
+		},
 	}
 	server = new UiServer({ mode: "operator", uiDistDir: join(simplexRoot, "dist/ui"), operator })
 	return {
@@ -866,6 +879,7 @@ test("first run writes a valid private config under Electron userData", async (t
 			},
 		],
 		chains: [{ rpcUrls: ["http://127.0.0.1:9"], bundlerUrl: "http://127.0.0.1:9" }],
+		orderbook: { url: "https://orderbook.example/graphql" },
 	}
 	const result = await page.evaluate(async (body) => {
 		const response = await fetch("/api/setup/save-and-start", {

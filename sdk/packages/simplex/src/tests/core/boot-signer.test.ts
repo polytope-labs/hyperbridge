@@ -37,9 +37,10 @@ function config(overrides: Partial<FillerTomlConfig["simplex"]> = {}): FillerTom
 			...overrides,
 		},
 		pairs: [
-			{ token0: "USDC", token1: "USDC", maxOrderSize: "1000", askPriceCurve: [{ amount: "0", price: "0.999" }] },
+			{ token0: "USDC", token1: "USDC" },
 		],
 		chains: [{ rpcUrls: [rpc.url], bundlerUrl: "https://bundler.example" }],
+		orderbook: { url: "https://orderbook.example/graphql" },
 	}
 }
 
@@ -99,7 +100,11 @@ describe("signerless runtime is watch-only for good", () => {
 		return {
 			signerless: true,
 			globalWatchOnly: false,
-			config: { simplex: { watchOnly: { [`EVM-${CHAIN_ID}`]: true } }, chains: [] },
+			config: {
+				simplex: { watchOnly: { [`EVM-${CHAIN_ID}`]: true } },
+				chains: [],
+				orderbook: { url: "https://orderbook.example/graphql" },
+			},
 			configService: { getConfiguredChainIds: () => [1] },
 			intentFiller: { setWatchOnly: vi.fn(), getWatchOnly: () => ({ [CHAIN_ID]: true }) },
 			resolvedChains: [],

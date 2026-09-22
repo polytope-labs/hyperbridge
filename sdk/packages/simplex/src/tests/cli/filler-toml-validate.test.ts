@@ -11,6 +11,7 @@ import {
 import { SignerType } from "@/services/wallet"
 
 const minimalConfig = (): FillerTomlConfig => ({
+	orderbook: { url: "https://orderbook.example/graphql" },
 	simplex: {
 		maxConcurrentOrders: 5,
 		queue: { maxRechecks: 10, recheckDelayMs: 30000 },
@@ -21,11 +22,6 @@ const minimalConfig = (): FillerTomlConfig => ({
 		{
 			token0: "USDC",
 			token1: "USDC",
-			maxOrderSize: "100000",
-			askPriceCurve: [
-				{ amount: "100", price: "0.99" },
-				{ amount: "100000", price: "0.999" },
-			],
 		},
 	],
 	chains: [{ rpcUrls: ["https://eth-mainnet.g.alchemy.com/v2/key"], bundlerUrl: "https://bundler.example" }],
@@ -76,10 +72,10 @@ describe("validateConfig", () => {
 		expect(() => validateConfig(config)).toThrow(/hyperbridgeWsUrl is required/)
 	})
 
-	it("rejects an empty pairs list", () => {
+	it("accepts an empty pairs list: markets arrive as limit orders, not as config", () => {
 		const config = minimalConfig()
 		config.pairs = []
-		expect(() => validateConfig(config)).toThrow(/At least one \[\[pairs\]\] entry/)
+		expect(() => validateConfig(config)).not.toThrow()
 	})
 
 	it("rejects chains without rpcUrls or bundlerUrl", () => {
@@ -100,9 +96,6 @@ describe("validateConfig", () => {
 		unknown.pairs!.push({
 			token0: "USDC",
 			token1: "BRZ",
-			maxOrderSize: "5000",
-			bidPriceCurve: [{ amount: "100", price: "6" }],
-			askPriceCurve: [{ amount: "100", price: "5.8" }],
 		})
 		expect(() => validateConfig(unknown)).toThrow(/unknown symbol 'BRZ'/)
 
@@ -116,12 +109,10 @@ describe("validateConfig", () => {
 			{
 				token0: "USDC",
 				token1: "CNGN",
-				referenceOnly: true,
-				askPriceCurve: [{ amount: "0", price: "1565" }],
 			},
-			{ token0: "CNGN", token1: "ZARP", maxOrderSize: "5000" },
+			{ token0: "CNGN", token1: "ZARP" },
 		)
-		expect(() => validateConfig(config)).toThrow(/provide a bid and\/or ask price curve/)
+		expect(() => validateConfig(config)).not.toThrow()
 	})
 
 	it("rejects malformed confirmation policy keys and short point lists", () => {
@@ -173,16 +164,39 @@ describe("validateConfig", () => {
 		).not.toThrow()
 	})
 
-	it("rejects invalid curve amounts at the gate, like the price policy does", () => {
-		const config = minimalConfig()
-		config.pairs = [
-			{
-				token0: "USDC",
-				token1: "CNGN",
-				maxOrderSize: "1000",
-				askPriceCurve: [{ amount: "-5", price: "1550" }],
-			},
-		]
-		expect(() => validateConfig(config)).toThrow(/askPriceCurve — .*invalid amount/)
+})
+
+describe("validateConfig [orderbook]", () => {
+	const withOrderbook = (orderbook: FillerTomlConfig["orderbook"]): FillerTomlConfig => ({
+		...minimalConfig(),
+		orderbook,
+	})
+
+	it("refuses a config with no orderbook at all", () => {
+		const { orderbook: _dropped, ...noOrderbook } = minimalConfig()
+		expect(() => validateConfig(noOrderbook as FillerTomlConfig)).toThrow(/an \[orderbook\] section is required/)
+	})
+
+	it("accepts a well-formed block", () => {
+		expect(() =>
+			validateConfig(
+				withOrderbook({
+					url: "https://orderbook.example/graphql",
+					defaultTtlSecs: 1800,
+					reconcileIntervalSecs: 300,
+					requestTimeoutMs: 10000,
+				}),
+			),
+		).not.toThrow()
+	})
+
+	it("requires a url, rather than failing on the first posting", () => {
+		expect(() => validateConfig(withOrderbook({ url: "" }))).toThrow(/orderbook.url is required/)
+	})
+
+	it("refuses a ttl below the orderbook's own floor", () => {
+		expect(() => validateConfig(withOrderbook({ url: "https://example", defaultTtlSecs: 60 }))).toThrow(
+			/defaultTtlSecs must be an integer >= 900/,
+		)
 	})
 })

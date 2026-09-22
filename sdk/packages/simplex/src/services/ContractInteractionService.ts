@@ -18,6 +18,8 @@ import {
 	type TokenInfo,
 	encodeFillOrder,
 	readLegPartialFill,
+	encodePhantomBidDeclaration,
+	bytes20ToBytes32,
 } from "@hyperbridge/sdk"
 import { ERC20_ABI } from "@/config/abis/ERC20"
 import type { ChainClientManager } from "./ChainClientManager"
@@ -33,6 +35,19 @@ import { buildPaymasterAndData } from "@/services/paymaster"
 
 // Configure for financial precision
 Decimal.config({ precision: 28, rounding: 4 })
+
+/**
+ * Gas fields for a limit order's UserOp. The orderbook does not read them and no
+ * bundler ever prices the op, so they are fixed rather than estimated; they exist
+ * because the packed struct the solver signs over has the fields.
+ */
+/** Call gas allowed per funding call a bid prepends: a V4 decrease-liquidity + take costs roughly 200-350k. */
+const FUNDING_GAS_PER_CALL = 400_000n
+
+const LIMIT_ORDER_CALL_GAS_LIMIT = 500_000n
+const LIMIT_ORDER_VERIFICATION_GAS_LIMIT = 150_000n
+const LIMIT_ORDER_PRE_VERIFICATION_GAS = 50_000n
+
 /**
  * Handles contract interactions for tokens and other contracts
  */
@@ -262,7 +277,6 @@ export class ContractInteractionService {
 
 			const sdkHelper = await this.getIntentGateway(order.source, order.destination)
 			const gasFeeBumpConfig = this.configService.getGasFeeBumpConfig()
-			const funding = this.cacheService.getFundingPrepends(order.id!)
 
 			// NOTE: We intentionally do NOT pass funding prepend calls to the
 			// estimation.  The V4 PositionManager's modifyLiquidities uses
@@ -277,34 +291,22 @@ export class ContractInteractionService {
 				maxFeePerGasBumpPercent: gasFeeBumpConfig?.maxFeePerGasBumpPercent,
 			})
 
-			// If funding prepend calls are present, bump callGasLimit to account
-			// for the extra V4 modifyLiquidities + take operations.  Each V4
-			// decrease-liquidity + take-pair action costs roughly 200-350k gas.
-			const FUNDING_GAS_PER_CALL = 400_000n
-			const fundingGasBump = funding?.calls?.length ? FUNDING_GAS_PER_CALL * BigInt(funding.calls.length) : 0n
-
-			const nonce = await client.readContract({
-				address: this.configService.getEntryPointAddress(order.destination)!,
-				abi: ENTRYPOINT_ABI,
-				functionName: "getNonce",
-				args: [this.solverAccountAddress, CryptoUtils.bidNonceKey(orderCommitment(order), order.session)],
-			})
-
 			this.logger.info({ orderId: order.id }, "Caching gas estimate")
-			this.logger.info({ estimate, fundingGasBump: fundingGasBump.toString() }, "Estimate")
-			const callGasLimit = estimate.callGasLimit + fundingGasBump
+			this.logger.info({ estimate }, "Estimate")
 
+			// Cached without any funding bump. The estimate is shared by every bid on the
+			// order, and each bid carries its own funding calls, so the bump is added when
+			// a bid is signed, from that bid's calls (`callGasLimitFor`).
 			this.cacheService.setGasEstimate(
 				order.id!,
 				estimate.totalGasInFeeToken,
 				estimate.relayerFeeInSourceFeeToken,
 				estimate.fillOptions.relayerFee,
-				callGasLimit,
+				estimate.callGasLimit,
 				estimate.verificationGasLimit,
 				estimate.preVerificationGas,
 				estimate.maxFeePerGas,
 				estimate.maxPriorityFeePerGas,
-				nonce,
 				estimate.totalGasCostWei,
 			)
 			return {
@@ -317,6 +319,21 @@ export class ContractInteractionService {
 			this.logger.error({ err: error }, "Error estimating gas, using generous fallback values")
 			throw new Error(`Failed to estimate gas: ${error instanceof Error ? error.message : "Unknown error"}`)
 		}
+	}
+
+	/**
+	 * The call gas a bid needs: the shared estimate plus room for the funding calls
+	 * this bid prepends.
+	 *
+	 * Funding calls are not simulated (the V4 PositionManager's flash accounting does
+	 * not resolve in the bundler's estimation context), so each one adds a fixed
+	 * allowance for its modifyLiquidities + take. They differ between the bids on one
+	 * order, since each draws on its own limit order and so on its own funding, which
+	 * is why this is worked out per bid rather than baked into the cached estimate.
+	 */
+	private callGasLimitFor(order: Order, baseCallGasLimit: bigint): bigint {
+		const funding = order.id ? this.cacheService.getFundingPrepends(order.id) : null
+		return baseCallGasLimit + FUNDING_GAS_PER_CALL * BigInt(funding?.calls?.length ?? 0)
 	}
 
 	/**
@@ -511,6 +528,21 @@ export class ContractInteractionService {
 	/**
 	 * Reads the solver account's deposit balance on the ERC-4337 EntryPoint.
 	 */
+	/** What `holder` holds of an ERC-20 on `chain`, in the token's own units. */
+	async getTokenBalance(chain: string, token: HexString, holder: HexString): Promise<bigint> {
+		const client = this.clientManager.getPublicClient(chain)
+		return retryPromise(
+			() =>
+				client.readContract({
+					address: token,
+					abi: ERC20_ABI,
+					functionName: "balanceOf",
+					args: [holder],
+				}) as Promise<bigint>,
+			{ maxRetries: 3, backoffMs: 250, logMessage: "Failed to read token balance" },
+		)
+	}
+
 	async getSolverEntryPointBalance(chain: string): Promise<bigint> {
 		const entryPointAddress = this.configService.getEntryPointAddress(chain)
 		if (!entryPointAddress) {
@@ -660,18 +692,26 @@ export class ContractInteractionService {
 	 * @param order - The order to prepare a bid for
 	 * @param entryPointAddress - The ERC-4337 EntryPoint address on the destination chain
 	 * @param solverAccountAddress - The solver's smart account address
-	 * @returns Object containing the commitment and encoded UserOp
+	 * @returns The commitment, the encoded UserOp, and the identifier Hyperbridge files the bid under
+	 *   (`keccak256` of its calldata)
+	 *
+	 * Several limit orders can serve one incoming order, and simplex bids each of
+	 * them separately. Each bid's nonce key binds its own calldata, so it signs the
+	 * first sequence of a key no other bid shares, and every bid executes on its own.
 	 */
 	async prepareBidUserOp(
 		order: Order,
 		entryPointAddress: HexString,
 		solverAccountAddress: HexString,
-	): Promise<{ commitment: HexString; userOp: HexString }> {
+	): Promise<{ commitment: HexString; userOp: HexString; bid: HexString }> {
 		// Use cached estimate from prior profitability check
 		const cachedEstimate = this.cacheService.getGasEstimate(order.id!)
 		if (!cachedEstimate) {
 			throw new Error(`No cached gas estimate found for order ${order.id}. Call estimateGasFillPost first.`)
 		}
+
+		// The funding calls are this bid's own, set by the caller for each bid on the order.
+		const callGasLimit = this.callGasLimitFor(order, cachedEstimate.callGasLimit)
 
 		// Use cached filler outputs (calculated based on bps) for competitive bidding
 		const cachedFillerOutputs = this.cacheService.getFillerOutputs(order.id!)
@@ -710,6 +750,16 @@ export class ContractInteractionService {
 
 		const commitment = orderCommitment(order)
 
+		// The nonce key binds the order, its session key and this bid's calldata, so every bid is
+		// sequence 0 of its own key and executes independently of any other bid on the order. The
+		// sequence is read rather than assumed: the same calldata executed once already has moved on.
+		const nonce = await this.clientManager.getPublicClient(order.destination).readContract({
+			address: entryPointAddress,
+			abi: ENTRYPOINT_ABI,
+			functionName: "getNonce",
+			args: [solverAccountAddress, CryptoUtils.bidNonceKey(commitment, order.session, callData)],
+		})
+
 		// Build paymasterAndData — Simplex (Permit2) → EntryPoint deposit
 		const pmResult = await buildPaymasterAndData({
 			chain: order.destination,
@@ -720,7 +770,7 @@ export class ContractInteractionService {
 			configService: this.configService,
 			prefund: {
 				baseGas:
-					cachedEstimate.callGasLimit + cachedEstimate.verificationGasLimit + cachedEstimate.preVerificationGas,
+					callGasLimit + cachedEstimate.verificationGasLimit + cachedEstimate.preVerificationGas,
 				maxFeePerGas: cachedEstimate.maxFeePerGas,
 			},
 			logger: this.logger,
@@ -737,9 +787,9 @@ export class ContractInteractionService {
 			fillOptions,
 			solverAccount: solverAccountAddress,
 			solverSigner: sdkSigningAccount(this.signer),
-			nonce: cachedEstimate.nonce,
+			nonce,
 			entryPointAddress,
-			callGasLimit: cachedEstimate.callGasLimit,
+			callGasLimit,
 			verificationGasLimit: cachedEstimate.verificationGasLimit,
 			preVerificationGas: cachedEstimate.preVerificationGas,
 			maxFeePerGas: cachedEstimate.maxFeePerGas,
@@ -755,13 +805,14 @@ export class ContractInteractionService {
 			{
 				commitment,
 				solverAccount: solverAccountAddress,
-				callGasLimit: cachedEstimate.callGasLimit.toString(),
+				nonce: nonce.toString(),
+				callGasLimit: callGasLimit.toString(),
 				maxFeePerGas: cachedEstimate.maxFeePerGas.toString(),
 			},
 			"Prepared bid UserOp",
 		)
 
-		return { commitment, userOp: encodedUserOp }
+		return { commitment, userOp: encodedUserOp, bid: CryptoUtils.bidId(callData) }
 	}
 
 	/**
@@ -792,8 +843,128 @@ export class ContractInteractionService {
 	}
 
 	/**
-	 * Builds ERC-7821 batch calldata that prepends any required ERC20 approvals
+	 * Builds the signed, never-executed UserOperation that carries one limit order
+	 * to the HyperFX orderbook.
+	 *
+	 * The op is a `fillOrder` for a synthetic same-chain order at the operator's
+	 * rate. It is a price commitment rather than a transaction: the orderbook
+	 * verifies the solver signature over the userOpHash, reads the amounts out of
+	 * the calldata, and nothing ever submits it to a bundler. That is why the gas
+	 * fields are fixed rather than estimated, and why `paymasterAndData` carries
+	 * the accepted-source declaration instead of a paymaster.
+	 *
+	 * The fill options carry `validUntil`, which the orderbook reads as the
+	 * posting's TTL, and the take beside the output: one quote for the order's one
+	 * leg, which is the rate the operator is signing. There is one `fillOrder`
+	 * shape, so there is no version to pick here.
+	 */
+	async prepareLimitOrderUserOp(params: {
+		fillChain: string
+		entryPointAddress: HexString
+		inputToken: HexString
+		outputToken: HexString
+		inputAmount: bigint
+		outputAmount: bigint
+		orderNonce: bigint
+		/** Seconds from the orderbook's receipt, not a block number. */
+		ttlSecs: number
+		acceptedSourceChains: string[]
+	}): Promise<{ commitment: HexString; userOp: HexString }> {
+		const { fillChain, inputToken, outputToken, inputAmount, outputAmount, acceptedSourceChains } = params
+		if (acceptedSourceChains.length === 0) {
+			throw new Error("A limit order must declare at least one accepted source chain")
+		}
+
+		const sdkHelper = await this.getIntentGateway(fillChain, fillChain)
+		const gateway = this.configService.getIntentGatewayAddress(fillChain)
+
+		// The shape the orderbook recognises: one input, a single output whose
+		// amount lives in the fill options rather than the order, no session key,
+		// and source == destination so nothing is dispatched.
+		const order: Order = {
+			user: bytes20ToBytes32(ADDRESS_ZERO),
+			source: fillChain,
+			destination: fillChain,
+			deadline: 0n,
+			nonce: params.orderNonce,
+			fees: 0n,
+			session: ADDRESS_ZERO,
+			predispatch: { assets: [], call: "0x" },
+			inputs: [{ token: bytes20ToBytes32(inputToken), amount: inputAmount }],
+			output: {
+				beneficiary: bytes20ToBytes32(ADDRESS_ZERO),
+				assets: [{ token: bytes20ToBytes32(outputToken), amount: 0n }],
+				call: "0x",
+			},
+		}
+		const commitment = orderCommitment(order)
+
+		const fillOptions: FillOptions = {
+			relayerFee: 0n,
+			nativeDispatchFee: 0n,
+			validUntil: BigInt(params.ttlSecs),
+			outputs: [{ token: bytes20ToBytes32(outputToken), amount: outputAmount }],
+			// The rate itself: the whole input taken for the output paid. The order's
+			// own output amount is zero, as the orderbook requires, so this pair is
+			// where the price lives.
+			inputs: [{ token: bytes20ToBytes32(inputToken), amount: inputAmount }],
+		}
+
+		const calls: ERC7821Call[] = [
+			{
+				target: outputToken,
+				value: 0n,
+				data: encodeFunctionData({
+					abi: ERC20_ABI,
+					functionName: "approve",
+					args: [gateway, outputAmount],
+				}) as HexString,
+			},
+			{
+				target: gateway,
+				value: 0n,
+				// biome-ignore lint/suspicious/noExplicitAny: the SDK's contract-order shape is not exported
+				data: encodeFillOrder(transformOrderForContract(order) as any, fillOptions),
+			},
+		]
+
+		const callData = encodeERC7821ExecuteBatch(calls)
+
+		// `prepareSubmitBid` binds the nonce key and prefixes the signature with
+		// `order.id`, both of which have to be this commitment. Setting it here is
+		// what makes the shared builder produce a limit order's op rather than a
+		// second copy of the signing logic. The key binds the calldata too, as it
+		// does for every bid, so each posting is the first sequence of its own key.
+		const userOp = await sdkHelper.prepareSubmitBid({
+			order: { ...order, id: commitment },
+			fillOptions,
+			solverAccount: this.solverAccountAddress,
+			solverSigner: sdkSigningAccount(this.signer),
+			nonce: CryptoUtils.bidNonceKey(commitment, ADDRESS_ZERO, callData) << 64n,
+			entryPointAddress: params.entryPointAddress,
+			callGasLimit: LIMIT_ORDER_CALL_GAS_LIMIT,
+			verificationGasLimit: LIMIT_ORDER_VERIFICATION_GAS_LIMIT,
+			preVerificationGas: LIMIT_ORDER_PRE_VERIFICATION_GAS,
+			maxFeePerGas: 0n,
+			maxPriorityFeePerGas: 0n,
+			callData,
+			paymasterAndData: encodePhantomBidDeclaration({ acceptedSourceChains }),
+		})
+
+		return { commitment, userOp: encodeUserOpScale(userOp) }
+	}
+
+	/**
+	 * Builds ERC-7821 batch calldata that approves exactly what this bid can pay
 	 * before the fillOrder call, all within a single UserOp payload.
+	 *
+	 * The approvals are unconditional. One solver can hold several bids on one
+	 * order, at different levels of its book, and they execute one after another:
+	 * an approval skipped because the allowance covered this bid when it was signed
+	 * is spent by a sibling that fills first, and this bid then reverts. Each bid
+	 * therefore sets the allowance itself, reset to zero first, since some tokens
+	 * (USDT on Ethereum) refuse to move a non-zero allowance to another non-zero
+	 * value and a clamped fill leaves one behind.
 	 *
 	 * Same-chain fills release escrow locally with no Hyperbridge dispatch, so the
 	 * gateway never pulls the fee token — its approval is skipped. Only cross-chain
@@ -806,7 +977,6 @@ export class ContractInteractionService {
 		requiredFeeTokenAmount: bigint,
 	): Promise<HexString> {
 		const chain = order.destination
-		const destClient = this.clientManager.getPublicClient(chain)
 		const intentGatewayV2Address = this.configService.getIntentGatewayAddress(chain)
 
 		// Aggregate required amounts per ERC20 token
@@ -824,32 +994,20 @@ export class ContractInteractionService {
 			perTokenRequired.set(feeKey, (perTokenRequired.get(feeKey) ?? 0n) + requiredFeeTokenAmount)
 		}
 
-		// Check allowances in parallel
-		const entries = [...perTokenRequired.entries()]
-		const allowances = await Promise.all(
-			entries.map(([tokenAddress]) =>
-				destClient.readContract({
-					abi: ERC20_ABI,
-					address: tokenAddress as HexString,
-					functionName: "allowance",
-					args: [this.solverAccountAddress, intentGatewayV2Address],
-				}),
-			),
-		)
-
 		const fundingPrepends = order.id ? this.cacheService.getFundingPrepends(order.id) : null
 		const prependCalls = fundingPrepends?.calls ?? []
 
 		const calls: ERC7821Call[] = [...prependCalls]
-		for (const [i, [tokenAddress, required]] of entries.entries()) {
-			if (allowances[i] < required) {
+		for (const [tokenAddress, required] of perTokenRequired) {
+			if (required === 0n) continue
+			for (const amount of [0n, required]) {
 				calls.push({
 					target: tokenAddress as HexString,
 					value: 0n,
 					data: encodeFunctionData({
 						abi: ERC20_ABI,
 						functionName: "approve",
-						args: [intentGatewayV2Address, required],
+						args: [intentGatewayV2Address, amount],
 					}) as HexString,
 				})
 			}

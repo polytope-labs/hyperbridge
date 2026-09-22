@@ -82,6 +82,17 @@ function operatorContext(tunnel?: TunnelControls): OperatorContext & { configPat
 	}
 	return {
 		strategies: [],
+		// Every running filler has limit orders: they are what it prices from.
+		limitOrders: {
+			list: async () => ({ orders: [] }),
+			get: async () => null,
+			create: async () => {
+				throw new Error("not wired for this test")
+			},
+			cancel: async () => {
+				throw new Error("not wired for this test")
+			},
+		} as never,
 		filler: {
 			pause() {},
 			resume() {},

@@ -7,6 +7,15 @@ import type {
 	BidInsert,
 	BidStats,
 	BidStore,
+	LimitOrder,
+	LimitOrderFill,
+	LimitOrderFillInsert,
+	LimitOrderFilter,
+	LimitOrderHold,
+	LimitOrderInsert,
+	LimitOrderPosting,
+	LimitOrderStatus,
+	LimitOrderStore,
 	RuntimeState,
 	SimplexDataStore,
 	StateStore,
@@ -52,6 +61,7 @@ class MemoryBidStore implements BidStore {
 		this.rows.push({
 			id: this.nextId++,
 			commitment: bid.commitment,
+			bid: bid.bid ?? null,
 			extrinsicHash: bid.extrinsicHash ?? null,
 			blockHash: bid.blockHash ?? null,
 			success: bid.success,
@@ -62,6 +72,7 @@ class MemoryBidStore implements BidStore {
 			retractedAt: null,
 			retractExtrinsicHash: null,
 			dead: false,
+			reservations: bid.reservations ?? [],
 		})
 		if (this.rows.length > MAX_ROWS) {
 			// Only ever drop rows with nothing left to reclaim. A successful or pending
@@ -104,6 +115,28 @@ class MemoryBidStore implements BidStore {
 			changed = true
 		}
 		return changed
+	}
+
+	async claimReservation(commitment: string, bid?: string): Promise<LimitOrderHold[]> {
+		// Bids on one incoming order share a commitment and differ by identifier, so a
+		// claim names the bid. Without one, every outstanding hold on the commitment
+		// comes back, which is what a filled or dead order needs.
+		const claimed: LimitOrderHold[] = []
+		for (const row of this.rows) {
+			if (row.commitment !== commitment || row.reservations.length === 0) continue
+			if (bid !== undefined && row.bid !== bid) continue
+			claimed.push(...row.reservations)
+			row.reservations = []
+		}
+		return claimed
+	}
+
+	async byLimitOrder(limitOrderId: string, limit = 100): Promise<StoredBid[]> {
+		return this.rows
+			.filter((row) => row.reservations.some((hold) => hold.limitOrderId === limitOrderId))
+			.slice(-capLimit(limit))
+			.reverse()
+			.map((row) => ({ ...row }))
 	}
 
 	async markDead(commitment: string): Promise<boolean> {
@@ -307,6 +340,141 @@ class MemoryActivityStore implements ActivityStore {
 	}
 }
 
+class MemoryLimitOrderStore implements LimitOrderStore {
+	private orders = new Map<string, LimitOrder>()
+	private fillRows: LimitOrderFill[] = []
+	private nextFillId = 1
+
+	async recordFill(fill: LimitOrderFillInsert): Promise<void> {
+		this.fillRows.push({
+			id: this.nextFillId++,
+			limitOrderId: fill.limitOrderId,
+			commitment: fill.commitment,
+			bid: fill.bid ?? null,
+			amount: fill.amount,
+			transactionHash: fill.transactionHash ?? null,
+			filledAt: sqliteDatetime(new Date()),
+		})
+	}
+
+	async fills(limitOrderId: string, limit = 100): Promise<LimitOrderFill[]> {
+		return this.fillRows
+			.filter((fill) => fill.limitOrderId === limitOrderId)
+			.slice(-capLimit(limit))
+			.reverse()
+			.map((fill) => ({ ...fill }))
+	}
+
+	async create(order: LimitOrderInsert): Promise<LimitOrder> {
+		const now = sqliteDatetime(new Date())
+		const stored: LimitOrder = {
+			...order,
+			acceptedSources: [...order.acceptedSources],
+			remaining: order.size,
+			reserved: "0",
+			expiresAt: order.expiresAt ?? null,
+			status: "open",
+			commitment: null,
+			orderNonce: order.orderNonce ?? "0",
+			bookExpiresAt: null,
+			bookPrice: null,
+			lastError: null,
+			createdAt: now,
+			updatedAt: now,
+		}
+		this.orders.set(stored.id, stored)
+		return { ...stored }
+	}
+
+	async get(id: string): Promise<LimitOrder | null> {
+		const order = this.orders.get(id)
+		return order ? { ...order } : null
+	}
+
+	async list(filter: LimitOrderFilter = {}): Promise<LimitOrder[]> {
+		return [...this.orders.values()]
+			.filter(
+				(order) =>
+					(filter.status === undefined || order.status === filter.status) &&
+					(filter.fillChain === undefined || order.fillChain === filter.fillChain) &&
+					(filter.book === undefined || order.book === filter.book),
+			)
+			.sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+			.map((order) => ({ ...order }))
+	}
+
+	async open(): Promise<LimitOrder[]> {
+		return this.list({ status: "open" })
+	}
+
+	async setPosting(
+		id: string,
+		posting: LimitOrderPosting,
+		only?: readonly LimitOrderStatus[],
+	): Promise<LimitOrder | null> {
+		return this.patch(id, posting, only)
+	}
+
+	async setStatus(
+		id: string,
+		status: LimitOrderStatus,
+		lastError: string | null = null,
+		only?: readonly LimitOrderStatus[],
+	): Promise<LimitOrder | null> {
+		return this.patch(id, { status, lastError }, only)
+	}
+
+	async reserve(id: string, amount: string): Promise<boolean> {
+		const order = this.orders.get(id)
+		if (!order || order.status !== "open") return false
+		const reserved = BigInt(order.reserved) + BigInt(amount)
+		if (reserved > BigInt(order.remaining)) return false
+		this.patch(id, { reserved: reserved.toString() })
+		return true
+	}
+
+	async drawDown(id: string, amount: string): Promise<LimitOrder | null> {
+		const order = this.orders.get(id)
+		if (!order) return null
+		const remaining = BigInt(order.remaining) - BigInt(amount)
+		return this.patch(id, { remaining: (remaining > 0n ? remaining : 0n).toString() })
+	}
+
+	async release(id: string, amount: string): Promise<void> {
+		const order = this.orders.get(id)
+		if (!order) return
+		const reserved = BigInt(order.reserved) - BigInt(amount)
+		this.patch(id, { reserved: (reserved > 0n ? reserved : 0n).toString() })
+	}
+
+	/**
+	 * Snapshot and restore, since this store is what `Simplex.start` uses when a
+	 * consumer configures no persistence. A settlement that half-landed here would
+	 * leave an order advertising output it has already paid, which is the same
+	 * money either backend is protecting.
+	 */
+	async transaction<T>(settle: () => Promise<T>): Promise<T> {
+		const snapshot = new Map([...this.orders].map(([id, order]) => [id, { ...order }]))
+		const fillCount = this.fillRows.length
+		try {
+			return await settle()
+		} catch (err) {
+			this.orders = snapshot
+			this.fillRows = this.fillRows.slice(0, fillCount)
+			throw err
+		}
+	}
+
+	private patch(id: string, fields: Partial<LimitOrder>, only?: readonly LimitOrderStatus[]): LimitOrder | null {
+		const order = this.orders.get(id)
+		if (!order) return null
+		if (only && only.length > 0 && !only.includes(order.status)) return null
+		const next = { ...order, ...fields, updatedAt: sqliteDatetime(new Date()) }
+		this.orders.set(id, next)
+		return { ...next }
+	}
+}
+
 class MemoryStateStore implements StateStore {
 	private state: RuntimeState = {}
 
@@ -332,4 +500,5 @@ export class MemoryDataStore implements SimplexDataStore {
 	readonly bids: BidStore = new MemoryBidStore()
 	readonly activity: ActivityStore = new MemoryActivityStore()
 	readonly state: StateStore = new MemoryStateStore()
+	readonly limitOrders: LimitOrderStore = new MemoryLimitOrderStore()
 }

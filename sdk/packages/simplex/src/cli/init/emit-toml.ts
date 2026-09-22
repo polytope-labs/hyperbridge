@@ -1,4 +1,4 @@
-import { DEFAULT_MAX_CONCURRENT_ORDERS } from "@/config/defaults"
+import { DEFAULT_MAX_CONCURRENT_ORDERS, DEFAULT_ORDERBOOK_URL } from "@/config/defaults"
 import { chmodSync, renameSync, unlinkSync, writeFileSync } from "node:fs"
 import { dirname, join, basename } from "node:path"
 import { randomBytes } from "node:crypto"
@@ -121,6 +121,18 @@ export function emitFillerToml(config: FillerConfigFile, options: EmitOptions = 
 		push()
 	}
 
+	// Simplex prices every fill from the operator's limit orders, and those live on
+	// the orderbook, so the section is written whether or not an order exists yet.
+	push("# The orderbook simplex posts the operator's limit orders to.")
+	push("[orderbook]")
+	push(kv("url", config.orderbook?.url ?? DEFAULT_ORDERBOOK_URL))
+	if (config.orderbook?.defaultTtlSecs !== undefined) push(kv("defaultTtlSecs", config.orderbook.defaultTtlSecs))
+	if (config.orderbook?.reconcileIntervalSecs !== undefined) {
+		push(kv("reconcileIntervalSecs", config.orderbook.reconcileIntervalSecs))
+	}
+	if (config.orderbook?.requestTimeoutMs !== undefined) push(kv("requestTimeoutMs", config.orderbook.requestTimeoutMs))
+	push()
+
 	if (config.rebalancing) {
 		push("# Rebalancing: triggers when a balance falls to (1 - triggerPercentage) * baseBalance.")
 		push("[rebalancing]")
@@ -223,37 +235,12 @@ function emitPair(push: (line?: string) => void, pair: PairConfig): void {
 	const sameToken = pair.token0.trim().toUpperCase() === pair.token1.trim().toUpperCase()
 	if (sameToken) {
 		push(`# Same-asset cross-chain market: ${pair.token0} on one chain for ${pair.token1} on another.`)
-		push("# Ask prices are the fraction paid back out — strictly below 1; the gap to par is the spread.")
 	} else {
-		push(`# Cross-asset market: curves price ${pair.token1} per 1 ${pair.token0}; maxOrderSize caps`)
-		push(`# the per-order ${pair.token0} notional. Omit one curve for one-sided LP.`)
+		push(`# Cross-asset market. Prices come from the limit orders you post, not from here.`)
 	}
 	push("[[pairs]]")
 	push(kv("token0", pair.token0))
 	push(kv("token1", pair.token1))
-	if (pair.referenceOnly !== undefined) {
-		push("# Price feed only — contributes its rate to USD anchoring but never fills orders.")
-		push(kv("referenceOnly", pair.referenceOnly))
-	}
-	if (pair.maxOrderSize !== undefined) {
-		push(kv("maxOrderSize", pair.maxOrderSize))
-	}
-	if (pair.bidPriceCurve) {
-		push(`# ${pair.token1} per ${pair.token0} when the filler *buys* ${pair.token1} from a user.`)
-		push("bidPriceCurve = [")
-		for (const point of pair.bidPriceCurve) {
-			push(`    ${inlineTable(point)},`)
-		}
-		push("]")
-	}
-	if (pair.askPriceCurve) {
-		if (!sameToken) push(`# ${pair.token1} per ${pair.token0} when the filler *sells* ${pair.token1} to a user.`)
-		push("askPriceCurve = [")
-		for (const point of pair.askPriceCurve) {
-			push(`    ${inlineTable(point)},`)
-		}
-		push("]")
-	}
 	push()
 }
 

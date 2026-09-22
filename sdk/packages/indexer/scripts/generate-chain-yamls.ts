@@ -45,13 +45,15 @@ const getChainTypesPath = (chain: string) => {
 	// Extract base chain name before the hyphen
 	const baseChainName = chain.split("-")[0]
 
-	// Decided on the source, emitted as the compiled path the node loads. `subql build` writes that
-	// compiled file later in the same build, so testing for it here means a checkout with no dist
-	// yet — every clean CI run and first deploy — silently omits the chaintypes line, and a
+	// Emitted as the compiled path the node loads, and decided on whichever of the source or the
+	// compiled file is present. A checkout has the source before `subql build` writes dist — every
+	// clean CI run and first deploy — while the release package ships dist without the source.
+	// Testing for only one of them silently omits the chaintypes line in the other, and a
 	// Hyperbridge node without it cannot decode its own blocks (its hasher is keccak, not blake2).
+	const compiled = `./dist/substrate-chaintypes/${baseChainName}.js`
 	const source = path.join(root, "src", "substrate-chaintypes", `${baseChainName}.ts`)
-	if (fs.existsSync(source)) {
-		return `./dist/substrate-chaintypes/${baseChainName}.js`
+	if (fs.existsSync(source) || fs.existsSync(path.join(root, compiled))) {
+		return compiled
 	}
 	return null
 }
@@ -88,10 +90,6 @@ const generateSubstrateYaml = async (chain: string, config: Configuration) => {
 	// Check if this is a Hyperbridge chain (stateMachineId is KUSAMA-4009 or POLKADOT-3367)
 	const isHyperbridgeChain = ["KUSAMA-4009", "POLKADOT-3367"].includes(config.stateMachineId)
 
-	// Solver discovery — polling the HyperFX orderbook's watchlist for the EVM nodes to track — runs on
-	// the Hyperbridge chain only, and not on testnet.
-	const enableSolverDiscovery = isHyperbridgeChain && currentEnv !== "testnet"
-
 	const templateData = {
 		name: `${chain}-chain`,
 		description: `${chain.charAt(0).toUpperCase() + chain.slice(1)} Chain Indexer`,
@@ -106,7 +104,6 @@ const generateSubstrateYaml = async (chain: string, config: Configuration) => {
 		chainTypesConfig,
 		blockNumber,
 		isHyperbridgeChain,
-		enableSolverDiscovery,
 		handlerKind: "substrate/EventHandler",
 		handlers: [
 			{ handler: "handleIsmpStateMachineUpdatedEvent", module: "ismp", method: "StateMachineUpdated" },
@@ -177,9 +174,7 @@ const generateEvmYaml = async (chain: string, config: Configuration) => {
 						entry.vaults.map((vault) => ({ vault, underlyingToken: token })),
 					)
 				: [],
-		// Solver inventory is event-sourced from each supported token's Transfers. Gated like the
-		// Hyperbridge node's solver discovery, which polls the watchlist these nodes consume.
-		enableSolverInventory: currentEnv !== "testnet",
+		// Solver inventory is event-sourced from each supported token's Transfers.
 		supportedTokens:
 			config.type === "evm" && config.contracts?.yieldVaults
 				? Object.keys(config.contracts.yieldVaults).map((token) => token.toLowerCase())

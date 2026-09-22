@@ -22,6 +22,7 @@ import type { BidStore, SimplexDataStore } from "@/data/types"
 
 const COMMITMENT = "0x1111111111111111111111111111111111111111111111111111111111111111" as HexString
 const OTHER = "0x2222222222222222222222222222222222222222222222222222222222222222" as HexString
+const THIRD = "0x3333333333333333333333333333333333333333333333333333333333333333" as HexString
 const HOUR_MS = 60 * 60 * 1000
 
 const dirs: string[] = []
@@ -158,6 +159,16 @@ for (const backend of backends) {
 			expect(await bids.markDead(COMMITMENT)).toBe(false)
 		})
 
+		it("keeps the identifier each bid was placed under", async () => {
+			// What retracting the bid names; recorded at placement, never looked up.
+			const bids = backend.create()
+			await bids.store({ commitment: COMMITMENT, bid: `0x${"b1".repeat(32)}`, success: true })
+			await bids.store({ commitment: OTHER, success: true })
+
+			expect((await bids.byCommitment(COMMITMENT))!.bid).toBe(`0x${"b1".repeat(32)}`)
+			expect((await bids.byCommitment(OTHER))!.bid).toBeNull()
+		})
+
 		it("counts bids by state", async () => {
 			const bids = backend.create()
 			await bids.store({ commitment: COMMITMENT, success: true })
@@ -171,6 +182,43 @@ for (const backend of backends) {
 				retracted: 1,
 				pendingRetraction: 0,
 			})
+		})
+
+		it("finds the bids that drew on a limit order, newest first", async () => {
+			// What makes a limit order's `remaining` explicable: the fills behind it.
+			const bids = backend.create()
+			const hold = (limitOrderId: string, amount: string) => [{ limitOrderId, amount }]
+			await bids.store({ commitment: COMMITMENT, success: true, reservations: hold("limit-1", "100") })
+			await bids.store({ commitment: OTHER, success: true, reservations: hold("limit-2", "200") })
+			await bids.store({
+				commitment: THIRD,
+				success: true,
+				reservations: [...hold("limit-1", "300"), ...hold("limit-2", "50")],
+			})
+
+			const drew = await bids.byLimitOrder("limit-1")
+			expect(drew.map((bid) => bid.commitment)).toEqual([THIRD, COMMITMENT])
+			expect(drew.map((bid) => bid.reservations[0].amount)).toEqual(["300", "100"])
+			// A bid that drew on two orders is found under both.
+			expect((await bids.byLimitOrder("limit-2")).map((bid) => bid.commitment)).toEqual([THIRD, OTHER])
+			expect(await bids.byLimitOrder("limit-3")).toEqual([])
+		})
+
+		it("keeps two bids on one order apart by their identifier", async () => {
+			// One solver bidding two prices on one order: same commitment, each bid filed
+			// under keccak256 of its own calldata.
+			const bids = backend.create()
+			const hold = (limitOrderId: string, amount: string) => [{ limitOrderId, amount }]
+			const first = `0x${"b1".repeat(32)}`
+			const second = `0x${"b2".repeat(32)}`
+			await bids.store({ commitment: COMMITMENT, bid: first, success: true, reservations: hold("limit-1", "100") })
+			await bids.store({ commitment: COMMITMENT, bid: second, success: true, reservations: hold("limit-2", "200") })
+
+			expect((await bids.byCommitments([COMMITMENT])).map((bid) => bid.bid).sort()).toEqual([first, second])
+			// Naming a bid claims its holds alone; without one, whatever is left.
+			expect(await bids.claimReservation(COMMITMENT, second)).toEqual(hold("limit-2", "200"))
+			expect(await bids.claimReservation(COMMITMENT)).toEqual(hold("limit-1", "100"))
+			expect(await bids.claimReservation(COMMITMENT)).toEqual([])
 		})
 	})
 }
@@ -204,6 +252,8 @@ describe("SqliteBidStore migrations", () => {
 		const bid = await store.bids.byCommitment(COMMITMENT)
 		expect(bid).not.toBeNull()
 		expect(bid!.dead).toBe(false)
+		// A row from before bids carried an identifier has none.
+		expect(bid!.bid).toBeNull()
 
 		expect(await store.bids.markDead(COMMITMENT)).toBe(true)
 		expect((await store.bids.expiredUnretracted(HOUR_MS)).map((b) => b.commitment)).toEqual([COMMITMENT])

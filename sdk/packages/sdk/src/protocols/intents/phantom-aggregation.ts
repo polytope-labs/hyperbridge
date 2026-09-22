@@ -9,7 +9,7 @@ import { hexToU8a, isHex, u8aToHex } from "@polkadot/util"
 import { decodeERC7821ExecuteBatch } from "@/protocols/intents/decode-utils"
 import { decodeUserOpScale } from "@/chains/intentsCoprocessor"
 import { CryptoUtils } from "@/protocols/intents/CryptoUtils"
-import type { PackedUserOperation } from "@/types"
+import type { PackedUserOperation, RpcBidInfo } from "@/types"
 import IntentGatewayV2 from "@/abis/IntentGatewayV2"
 import { decodeFillOrder, isCanonicalEvmToken, CONTRACT_VERSION_ABI, SUPPORTED_INTENTS_VERSION } from "./fillOrderCodec"
 import {
@@ -164,7 +164,7 @@ const PERMIT2_DATA_BYTES = 1 + 20 + 32 + 32 + 32 + 1 + 32 + 32
 export const PERMIT2_SPONSORSHIP_BYTES = PAYMASTER_DATA_OFFSET + PERMIT2_DATA_BYTES
 
 /** Upper bound on declared chains and positions alike; one byte of count each. */
-const MAX_DECLARED_ENTRIES = 255
+export const MAX_DECLARED_ENTRIES = 255
 
 /** Widest tokenId the codec will carry — a uint256, as minted by the V4 PositionManager. */
 const MAX_TOKEN_ID_BYTES = 32
@@ -574,12 +574,6 @@ export function zipFillLegs(
 	})
 }
 
-export interface RpcBidInfo {
-	commitment: string
-	filler: string
-	user_op: string
-}
-
 /** One solver's measured liquidity for a configured token on one chain at this snapshot. */
 export interface LpBalance {
 	solver: string
@@ -799,7 +793,7 @@ export function extractFillData(callData: HexString, gatewayAddress: string): Fi
 }
 
 /** Derives the 192-bit bid nonce key binding a bid to an (order, sessionKey) pair. */
-export type BidNonceKeyFn = (commitment: HexString, sessionKey: HexString) => bigint
+export type BidNonceKeyFn = (commitment: HexString, sessionKey: HexString, callData: HexString) => bigint
 
 /** Recomputes an order's commitment from the contract-shaped order decoded out of a bid's calldata. */
 export type OrderCommitmentFn = (order: Record<string, unknown>) => HexString | null
@@ -912,12 +906,8 @@ type DelegationReader = (
 	solverAccounts: readonly string[],
 ) => Promise<string | null>
 
-/** Whether the gateway and the SolverAccount a solver is delegated to both report the supported release. */
-export type RateFillCapabilityReader = (
-	evmRpcUrl: string,
-	gatewayAddress: string,
-	solverAccount: string,
-) => Promise<boolean>
+/** Whether the gateway reports the supported release. SolverAccount carries no version. */
+export type RateFillCapabilityReader = (evmRpcUrl: string, gatewayAddress: string) => Promise<boolean>
 
 const SELECTOR_VERSION = "0x54fd4d50"
 
@@ -964,9 +954,9 @@ async function readSupportedVersion(evmRpcUrl: string, contract: string): Promis
 	)
 }
 
-/** Reads `version()` on the gateway and on the given SolverAccount. Not cached beyond one aggregation, so an upgrade is seen at once. */
-export const readRateFillCapability: RateFillCapabilityReader = async (evmRpcUrl, gatewayAddress, solverAccount) =>
-	(await readSupportedVersion(evmRpcUrl, gatewayAddress)) && (await readSupportedVersion(evmRpcUrl, solverAccount))
+/** Reads `version()` on the gateway. Not cached beyond one aggregation, so an upgrade is seen at once. */
+export const readRateFillCapability: RateFillCapabilityReader = (evmRpcUrl, gatewayAddress) =>
+	readSupportedVersion(evmRpcUrl, gatewayAddress)
 
 /**
  * Caches the delegation check for the life of one aggregation, retries included.
@@ -1002,17 +992,17 @@ function memoizedDelegationCheck(): DelegationReader {
 }
 
 /**
- * Caches the capability read per gateway and SolverAccount for the life of one aggregation,
+ * Caches the capability read per gateway for the life of one aggregation,
  * retries included, on the same reasoning as {@link memoizedDelegationCheck}: a release does not
  * change within a bid window. Rejections are evicted so a retry re-reads.
  */
 function memoizedCapabilityCheck(read: RateFillCapabilityReader): RateFillCapabilityReader {
 	const cache = new Map<string, Promise<boolean>>()
-	return (evmRpcUrl, gatewayAddress, solverAccount) => {
-		const key = `${evmRpcUrl}|${gatewayAddress.toLowerCase()}|${solverAccount.toLowerCase()}`
+	return (evmRpcUrl, gatewayAddress) => {
+		const key = `${evmRpcUrl}|${gatewayAddress.toLowerCase()}`
 		let pending = cache.get(key)
 		if (!pending) {
-			pending = read(evmRpcUrl, gatewayAddress, solverAccount).catch((err) => {
+			pending = read(evmRpcUrl, gatewayAddress).catch((err) => {
 				cache.delete(key)
 				throw err
 			})
@@ -1082,10 +1072,10 @@ async function isVerifiedSolverBid(params: {
 	}
 
 	// The authoritative binding, mirroring SolverAccount.validateUserOp on-chain. The nonce IS
-	// covered by userOpHash, so a solver signature stays valid only for the (order, sessionKey) pair
-	// its nonce key was derived from. `sessionKey` is read from the bid's own calldata, which is also
-	// covered by userOpHash — so every operand here is signed, leaving nothing for a replay to swap.
-	if (BigInt(userOp.nonce) >> 64n !== bidNonceKey(commitment as HexString, sessionKey)) {
+	// covered by userOpHash, so a solver signature stays valid only for the (order, sessionKey,
+	// callData) its nonce key was derived from. `sessionKey` is read from the bid's own calldata, which
+	// is also covered by userOpHash — so every operand here is signed, leaving nothing for a replay to swap.
+	if (BigInt(userOp.nonce) >> 64n !== bidNonceKey(commitment as HexString, sessionKey, userOp.callData)) {
 		logger?.warn({ solver, commitment }, "Rejecting phantom bid: nonce does not bind order and session key")
 		return false
 	}
@@ -1545,10 +1535,10 @@ async function runAggregation(
 			if (!verified) continue
 			// Memoised by the delegation check above, so this is the verified delegate without another read.
 			const delegate = await isDelegated(destUrl, solver, solverAccounts)
-			if (!delegate || !(await supportsRateFills(destUrl, gatewayAddress, delegate))) {
+			if (!delegate || !(await supportsRateFills(destUrl, gatewayAddress))) {
 				logger?.warn(
 					{ solver, commitment, delegate },
-					"Rejecting phantom bid: gateway or solver account does not report the supported release",
+					"Rejecting phantom bid: sender is not delegated or the gateway does not report the supported release",
 				)
 				continue
 			}

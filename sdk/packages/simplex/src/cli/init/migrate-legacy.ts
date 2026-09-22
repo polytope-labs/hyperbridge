@@ -1,3 +1,4 @@
+import { DEFAULT_ORDERBOOK_URL } from "@/config/defaults"
 import { ChainConfigService, type HexString } from "@hyperbridge/sdk"
 import { AssetRegistry, normalizeSymbol, registrySymbols, USD_STABLE_SYMBOLS } from "@/config/asset-registry"
 import type { PairConfig } from "@/config/pairs"
@@ -55,12 +56,7 @@ export function migrateLegacyConfig(config: FillerTomlConfig): string[] {
 			const maxOrderSize = strategy.maxOrderUsd !== undefined ? String(strategy.maxOrderUsd) : "100000"
 			for (const symbol of ["USDC", "USDT"]) {
 				if (pairs.some((p) => normalizeSymbol(p.token0) === symbol && normalizeSymbol(p.token1) === symbol)) continue
-				pairs.push({
-					token0: symbol,
-					token1: symbol,
-					maxOrderSize,
-					askPriceCurve: askPriceCurve.map((point) => ({ ...point })),
-				})
+				pairs.push({ token0: symbol, token1: symbol })
 			}
 			notes.push(
 				`stable strategy became the USDC/USDC and USDT/USDT transfer pairs (bps margins mapped to below-par ask prices, order cap ${maxOrderSize}${strategy.maxOrderUsd !== undefined ? " from the legacy maxOrderUsd" : " by default"})`,
@@ -89,13 +85,7 @@ export function migrateLegacyConfig(config: FillerTomlConfig): string[] {
 			if (alreadyDeclared) {
 				notes.push(`hyperfx strategy for ${token1} skipped — a USDC/${token1} pair is already declared`)
 			} else {
-				pairs.push({
-					token0: "USDC",
-					token1,
-					maxOrderSize: String(strategy.maxOrderUsd ?? 5000),
-					...(strategy.bidPriceCurve?.length ? { bidPriceCurve: strategy.bidPriceCurve } : {}),
-					...(strategy.askPriceCurve?.length ? { askPriceCurve: strategy.askPriceCurve } : {}),
-				})
+				pairs.push({ token0: "USDC", token1 })
 				notes.push(`hyperfx strategy became the USDC/${token1} pair`)
 			}
 
@@ -113,6 +103,11 @@ export function migrateLegacyConfig(config: FillerTomlConfig): string[] {
 
 	delete legacy.strategies
 	config.pairs = pairs
+	// A legacy config predates the orderbook, and simplex has no prices without one.
+	if (!config.orderbook) {
+		config.orderbook = { url: DEFAULT_ORDERBOOK_URL }
+		notes.push(`Added [orderbook] pointing at ${DEFAULT_ORDERBOOK_URL}; simplex prices fills from limit orders there.`)
+	}
 	if (Object.keys(confirmationPolicies).length > 0) {
 		config.confirmationPolicies = confirmationPolicies
 	}

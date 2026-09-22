@@ -56,14 +56,10 @@ describe("setup API", () => {
 				{
 					token0: "USDC",
 					token1: "USDC",
-					maxOrderSize: "100000",
-					askPriceCurve: [
-						{ amount: "100", price: "0.99" },
-						{ amount: "100000", price: "0.999" },
-					],
 				},
 			],
 			chains: [{ rpcUrls: [rpcUrl], bundlerUrl: "https://api.pimlico.io/v2/1/rpc?apikey=secretpimlicokey" }],
+			orderbook: { url: "https://orderbook.example/graphql" },
 		}
 	}
 
@@ -188,10 +184,10 @@ describe("setup API", () => {
 	it("rejects an invalid config at preview with the validation message", async () => {
 		const { base } = await startInitServer()
 		const config = minimalConfig("http://127.0.0.1:1")
-		config.pairs = []
+		config.chains = []
 		const res = await post(base, "preview", { config })
 		expect(res.status).toBe(400)
-		expect((await res.json()).error).toContain("At least one [[pairs]]")
+		expect((await res.json()).error).toContain("At least one chain")
 	})
 
 	it("rejects testnet chains at preview", async () => {

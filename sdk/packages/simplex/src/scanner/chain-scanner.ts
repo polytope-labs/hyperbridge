@@ -1,5 +1,5 @@
 import { Mutex } from "async-mutex"
-import { type DecodedOrderPlacedLog, type HexString, retryPromise } from "@hyperbridge/sdk"
+import { type DecodedOrderPlacedLog, type HexString, type TokenInfo, retryPromise } from "@hyperbridge/sdk"
 import { INTENT_GATEWAY_V2_ABI } from "@/config/abis/IntentGatewayV2"
 import { QuorumPublicClient } from "@/services/QuorumPublicClient"
 import { DEFAULT_BLOCK_SCAN_INTERVAL_SECONDS } from "@/services/FillerConfigService"
@@ -167,11 +167,25 @@ export class ChainScanner {
 		})
 	}
 
+	/**
+	 * Where `retryPromise` records its attempts. It logs at `trace`, which the
+	 * default `info` level hides — and a retry here is not a curiosity: it holds
+	 * the scan mutex, so the chain is not being scanned while it runs. Lifted to
+	 * `warn` so the operator sees it without running the whole filler at trace.
+	 */
+	private get retryLogger(): { trace: (message: string) => void } {
+		return { trace: (message: string) => this.logger.warn({ chainId: this.target.chainId }, message) }
+	}
+
 	private async scan(): Promise<void> {
+		// One attempt: this loop runs again in `scanIntervalMs`, and a failed head
+		// read leaves the cursor untouched, so an inner retry only holds the mutex
+		// longer to do what the next tick does anyway.
 		const currentBlock = await retryPromise(() => this.quorumClient.getBlockNumber(), {
-			maxRetries: 3,
+			maxRetries: 1,
 			backoffMs: 250,
-			logMessage: "Failed to get current block number",
+			logMessage: `Failed to get current block number on chain ${this.target.chainId}`,
+			logger: this.retryLogger,
 		})
 
 		// A stop() that timed out its drain has already resolved; whatever this scan
@@ -205,7 +219,15 @@ export class ChainScanner {
 						fromBlock,
 						toBlock,
 					}),
-				{ maxRetries: 3, backoffMs: 250, logMessage: "Failed to get gateway event logs" },
+				{
+					// One retry, unlike the head read: a range the cursor is waiting on
+					// is worth a second attempt before the tick ends, and the retry line
+					// says so at `warn`.
+					maxRetries: 2,
+					backoffMs: 250,
+					logMessage: `Failed to get gateway event logs on chain ${this.target.chainId} for ${fromBlock}..${toBlock}`,
+					logger: this.retryLogger,
+				},
 			)
 		} catch (error) {
 			// The RPC has not indexed these blocks yet. Do not advance the cursor —
@@ -271,7 +293,9 @@ export class ChainScanner {
 				if (this.stopped) return
 			}
 			try {
-				const args = log.args as { commitment?: HexString; filler?: string } | undefined
+				const args = log.args as
+					| { commitment?: HexString; filler?: string; outputs?: TokenInfo[]; inputs?: TokenInfo[] }
+					| undefined
 				const commitment = args?.commitment
 				if (!commitment) {
 					this.logger.warn({ log }, "OrderFilled log missing commitment")
@@ -286,6 +310,11 @@ export class ChainScanner {
 					blockHash: coords.blockHash ?? "",
 					logIndex: coords.logIndex ?? 0,
 					transactionHash: (log as { transactionHash?: string }).transactionHash,
+					// Both events carry them; a gateway predating the fields yields none,
+					// and the draw-down is skipped rather than sized from a guess.
+					outputs: args?.outputs ?? [],
+					inputs: args?.inputs ?? [],
+					complete: (log as { eventName?: string }).eventName === "OrderFilled",
 				})
 			} catch (error) {
 				this.logger.error({ err: error, log }, "Error parsing OrderFilled log")

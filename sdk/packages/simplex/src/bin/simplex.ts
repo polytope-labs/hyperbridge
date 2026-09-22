@@ -219,6 +219,7 @@ async function operatorContextFrom(
 		stop: () => stopAll(),
 		activity: runtime.activity,
 		bids: runtime.data.bids,
+		limitOrders: simplex.limitOrders,
 		setPaused: (paused) => patchRuntimeState(runtime.data.state, { paused }),
 		// Both contexts, not just the filler's: the dashboard shows one merged feed
 		// and reports one level for it, so leaving the process-wide context (the UI
@@ -607,7 +608,10 @@ program
 			}
 			const logger = getLogger("cli")
 
-			const resolvedChains: ResolvedChainConfig[] = await resolveChainConfigs(config.chains)
+			// Startup, like the filler's: one throttled endpoint must not stop the keeper.
+			const resolvedChains: ResolvedChainConfig[] = await resolveChainConfigs(config.chains, {
+				tolerateUnreachable: true,
+			})
 			const configService = new FillerConfigService(resolvedChains, {
 				maxConcurrentOrders: config.simplex.maxConcurrentOrders ?? 1,
 				logging: config.simplex.logging as LogLevel | undefined,

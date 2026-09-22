@@ -1,0 +1,108 @@
+name: "simplex testnet swaps"
+
+# End to end on testnet: three simplex solvers post limit orders to the HyperFX orderbook, users
+# place same-chain, cross-chain, partial-fill and multi-leg orders on BSC Chapel and Polygon Amoy,
+# and the SDK executes the solvers' bids until each order is filled. Settlement through
+# Hyperbridge is not awaited. See sdk/packages/simplex/e2e/env.mjs for the variables.
+#
+# Every run spends testnet funds from the same wallets, so runs never overlap: one runs at a time
+# and a started run is never cancelled. GitHub keeps only one run pending per group, so a newer
+# run replaces a pending one, which shows as cancelled. Drafts and pull requests from forks, which
+# have no secrets, are skipped.
+concurrency:
+    group: simplex-testnet-swaps
+    cancel-in-progress: false
+
+on:
+    push:
+        branches: [main]
+        paths:
+            - "sdk/packages/simplex/src/**"
+            - "sdk/packages/simplex/e2e/**"
+            - "sdk/packages/sdk/src/protocols/intents/**"
+            - ".github/workflows/test-simplex-e2e.yml"
+    pull_request:
+        types: [opened, synchronize, reopened, ready_for_review]
+        paths:
+            - "sdk/packages/simplex/src/strategies/**"
+            - "sdk/packages/simplex/src/core/**"
+            - "sdk/packages/simplex/src/orderbook/**"
+            - "sdk/packages/simplex/e2e/**"
+            - "sdk/packages/sdk/src/protocols/intents/**"
+            - ".github/workflows/test-simplex-e2e.yml"
+    workflow_dispatch:
+        inputs:
+            scenarios:
+                description: "Comma-separated scenarios to run (empty runs all but the mixed-pair ones)"
+                required: false
+                default: ""
+
+jobs:
+    swaps:
+        if: >-
+            github.event_name != 'pull_request' ||
+            (github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft)
+        runs-on: ubuntu-latest
+        timeout-minutes: 120
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+              with:
+                  ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+            # scripts/build.sh runs protoc over proto/mpcvaultapis to generate src/proto. The
+            # repository's other submodules are Solidity libraries this job does not need.
+            - name: Fetch the protobuf definitions
+              run: git submodule update --init --recursive sdk/packages/simplex/proto/mpcvaultapis
+
+            - name: Setup pnpm
+              uses: pnpm/action-setup@v4
+              with:
+                  version: 11
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: "22"
+                  cache: pnpm
+                  cache-dependency-path: sdk/pnpm-lock.yaml
+
+            - name: Install dependencies
+              working-directory: sdk
+              run: pnpm install --frozen-lockfile
+
+            # Straight from GitHub releases, not apt: the runners' default apt mirror has
+            # repeatedly hung apt-get update, and nothing else here needs apt.
+            - name: Install protoc
+              run: |
+                  curl -fsSL -o /tmp/protoc.zip \
+                    https://github.com/protocolbuffers/protobuf/releases/download/v29.3/protoc-29.3-linux-x86_64.zip
+                  sudo unzip -o /tmp/protoc.zip -d /usr/local bin/protoc 'include/*'
+                  protoc --version
+
+            - name: Build the SDK
+              working-directory: sdk
+              run: pnpm --filter="@hyperbridge/sdk" build
+
+            - name: Build simplex
+              working-directory: sdk
+              run: pnpm --filter="@hyperbridge/simplex" build
+
+            - name: Run the swaps
+              working-directory: sdk/packages/simplex
+              env:
+                  E2E_SCENARIOS: ${{ github.event.inputs.scenarios }}
+                  E2E_WORKDIR: ${{ runner.temp }}/simplex-e2e
+                  E2E_BSC_TESTNET_RPC_URL: ${{ secrets.E2E_BSC_TESTNET_RPC_URL }}
+                  E2E_POLYGON_AMOY_RPC_URL: ${{ secrets.E2E_POLYGON_AMOY_RPC_URL }}
+                  E2E_ORDERBOOK_URL: ${{ secrets.E2E_ORDERBOOK_URL }}
+                  E2E_HYPERBRIDGE_WS_URL: ${{ secrets.E2E_HYPERBRIDGE_WS_URL }}
+                  E2E_SOLVER1_PRIVATE_KEY: ${{ secrets.E2E_SOLVER1_PRIVATE_KEY }}
+                  E2E_SOLVER2_PRIVATE_KEY: ${{ secrets.E2E_SOLVER2_PRIVATE_KEY }}
+                  E2E_SOLVER3_PRIVATE_KEY: ${{ secrets.E2E_SOLVER3_PRIVATE_KEY }}
+                  E2E_SOLVER1_SUBSTRATE_KEY: ${{ secrets.E2E_SOLVER1_SUBSTRATE_KEY }}
+                  E2E_SOLVER2_SUBSTRATE_KEY: ${{ secrets.E2E_SOLVER2_SUBSTRATE_KEY }}
+                  E2E_SOLVER3_SUBSTRATE_KEY: ${{ secrets.E2E_SOLVER3_SUBSTRATE_KEY }}
+                  E2E_USER1_PRIVATE_KEY: ${{ secrets.E2E_USER1_PRIVATE_KEY }}
+                  E2E_USER2_PRIVATE_KEY: ${{ secrets.E2E_USER2_PRIVATE_KEY }}
+              run: node e2e/run.mjs

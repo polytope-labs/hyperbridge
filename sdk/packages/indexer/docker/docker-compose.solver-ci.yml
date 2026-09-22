@@ -15,6 +15,7 @@ services:
             DB_DATABASE: ${DB_DATABASE}
             DB_HOST: 127.0.0.1
             DB_PORT: ${DB_PORT}
+            SUBQL_ALLOW_DESTRUCTIVE_MIGRATION: ${SUBQL_ALLOW_DESTRUCTIVE_MIGRATION:-}
 
         depends_on:
             postgres:
@@ -30,7 +31,6 @@ services:
             - --workers=${SUBQL_WORKERS:-2}
             - --batch-size=${SUBQL_BATCH_SIZE:-10}
             - --multi-chain
-            - --disable-multichain-rewind-lock
             - --allow-schema-migration
             - --unsafe
             - --log-level=${LOG_LEVEL:-info}
@@ -78,7 +78,6 @@ services:
             - --workers=${SUBQL_WORKERS:-2}
             - --batch-size=${SUBQL_BATCH_SIZE:-10}
             - --multi-chain
-            - --disable-multichain-rewind-lock
             - --unsafe
             - --log-level=${LOG_LEVEL:-info}
             - --historical=timestamp

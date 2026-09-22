@@ -2,7 +2,7 @@
 
 `SubmitBidOptions.solverSigner` is a `SigningAccount` (`src/types/index.ts`), supplied by the caller. `@hyperbridge/simplex` does not pass its `Signer` directly: the payload parameter types differ (`unknown` here, `TypedDataPayload` there), so its `ContractInteractionService` adapts at the call site with `sdkSigningAccount(signer)`.
 
-The bid carries one take per leg in `options.inputs`, paired with its output; every `fillOrder` call in the calldata must decode with a quote for each leg. Before signing, the gateway, the configured `SolverAccount` implementation and the solver's live delegation must all report release 3, for ordinary and phantom bids alike. `previewRateFill` shows what a take actually releases after rounding.
+The bid carries one take per leg in `options.inputs`, paired with its output; every `fillOrder` call in the calldata must decode with a quote for each leg. Before signing, the destination gateway must report release 3 (`supportsRateFills`), for ordinary and phantom bids alike. `SolverAccount` carries no `version()`, so the account itself is not version-checked. `previewRateFill` shows what a take actually releases after rounding.
 
 1. The caller assembles the bid and calls `prepareSubmitBid` (`src/protocols/intents/BidManager.ts`), passing the solver account, nonce, entry point, gas limits, pre-built ERC-7821 `callData`, and any `paymasterAndData`.
 2. `BidManager` builds the v0.7-packed `PackedUserOperation` with an empty signature, then checks the nonce key binds the order commitment and session key (`CryptoUtils.bidNonceKey`) — a mismatch is warned about, not thrown, and fails on-chain validation later.

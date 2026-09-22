@@ -1,14 +1,13 @@
 import { formatUnits } from "viem"
-import { Decimal } from "decimal.js"
 import { IntentFiller } from "@/core/filler"
 import { FXFiller, type TradingPair } from "@/strategies/fx"
 import type { VaultConfig, FundingVenue } from "@/funding/types"
 import { VaultFundingPlanner } from "@/funding/vault/VaultFundingPlanner"
 import { VaultLiquidityState } from "@/funding/vault/VaultLiquidityState"
 import { TokenSender } from "@/services/TokenSender"
-import { FillerPricePolicy, formatChainKey, parseChainKey } from "@/config/interpolated-curve"
-import { AssetRegistry, normalizeSymbol, registrySymbols } from "@/config/asset-registry"
-import { assertPairSymbolsResolve, type PairConfig } from "@/config/pairs"
+import { formatChainKey, parseChainKey } from "@/config/interpolated-curve"
+import { AssetRegistry, normalizeSymbol } from "@/config/asset-registry"
+import { assertPairSymbolsResolve, retiredPairKeys } from "@/config/pairs"
 import type { ChainConfig, FillerConfig, HexString } from "@hyperbridge/sdk"
 import {
 	FillerConfigService,
@@ -18,12 +17,21 @@ import {
 } from "@/services/FillerConfigService"
 import { assertConfirmationCoverage, validateConfig, type FillerTomlConfig, type VaultToml } from "@/config/filler-toml"
 import type { ConfirmationPolicy } from "@/config/interpolated-curve"
-import { DEFAULT_MAX_CONCURRENT_ORDERS } from "@/config/defaults"
+import {
+	DEFAULT_MAX_CONCURRENT_ORDERS,
+	DEFAULT_ORDERBOOK_TIMEOUT_MS,
+	DEFAULT_RECONCILE_INTERVAL_SECS,
+	} from "@/config/defaults"
 import { ChainClientManager } from "@/services/ChainClientManager"
 import { ContractInteractionService } from "@/services/ContractInteractionService"
+import { DelegationService } from "@/services/DelegationService"
+import { OrderbookClient } from "@/orderbook/client"
+import { LimitOrderLifecycle } from "@/orderbook/lifecycle"
+import { LimitOrderService } from "@/orderbook/limit-orders"
+import { DEFAULT_LIMIT_ORDER_TTL_SECONDS } from "@/orderbook/types"
 import { UserOpSender } from "@/services/UserOpSender"
 import { RebalancingService } from "@/services/RebalancingService"
-import { getLogger, moduleLogger, type Logger, type LogLevel, type LoggerContext } from "@/services/Logger"
+import { moduleLogger, type LogLevel, type LoggerContext } from "@/services/Logger"
 import { CacheService } from "@/services/CacheService"
 import { BalanceProvider } from "@/services/BalanceProvider"
 import { ActivityRecorder, type TokenDescriber } from "@/data/recorder"
@@ -71,7 +79,7 @@ export interface FillerRuntime {
 	intentFiller: IntentFiller
 	balanceProvider: BalanceProvider
 	vaultVenue?: VaultFundingPlanner
-	/** Live FillerPricePolicy handles shared with the trading engine, one per curve-priced pair. */
+	/** The markets this filler serves, for the operator UI. */
 	adminStrategies: AdminStrategy[]
 	/** Self-halt visibility/reset for the trading engine (overfill protection). */
 	haltControls: HaltControl[]
@@ -103,6 +111,8 @@ export interface FillerRuntime {
 	loggers: LoggerContext
 	/** Symbol-to-address resolution for the configured chains (send options, balance labels). */
 	assetRegistry: AssetRegistry
+	/** Creates and posts the operator's limit orders. */
+	limitOrders?: LimitOrderService
 	/** The live trading engine, absent when the config declared no pairs. */
 	engine?: FXFiller
 	/** The engine's live pair array (same instance), indexed 1:1 with config.pairs. */
@@ -139,106 +149,6 @@ export function allChainsWatchOnly(watchOnly: Record<number, boolean> | undefine
 	return chains.every((chain) => watchOnly[chain.chainId] === true)
 }
 
-/** One TOML pair to the engine's TradingPair shape (curves become live policies). */
-export function tradingPairFrom(pair: PairConfig): TradingPair {
-	return {
-		token0: pair.token0,
-		token1: pair.token1,
-		// Optional: absent means uncapped. Reference-only pairs never fill, so the
-		// cap is never consulted for them either way.
-		maxOrderSize: pair.maxOrderSize === undefined ? undefined : new Decimal(pair.maxOrderSize),
-		referenceOnly: pair.referenceOnly === true,
-		bidPricePolicy: pair.bidPriceCurve?.length ? new FillerPricePolicy({ points: pair.bidPriceCurve }) : undefined,
-		askPricePolicy: pair.askPriceCurve?.length ? new FillerPricePolicy({ points: pair.askPriceCurve }) : undefined,
-	}
-}
-
-/**
- * Editable view of one trading pair for the UI server, or null for
- * venue-priced (curve-less) pairs — they have nothing to edit. The
- * enableSide/disableSide/setMaxOrderSize/clearMaxOrderSize closures mutate the
- * live TradingPair:
- * the engine reads curve presence and the cap per order, so assignment opens or
- * closes a direction and resizes the market from the next evaluation.
- */
-export function adminStrategyFor(
-	pair: TradingPair,
-	pairIndex: number,
-	index: number,
-	logger: Logger = getLogger("cli"),
-): AdminStrategy | null {
-	if (!pair.bidPricePolicy && !pair.askPricePolicy) return null
-	const sameToken = normalizeSymbol(pair.token0) === normalizeSymbol(pair.token1)
-	const adminStrategy: AdminStrategy = {
-		index,
-		pairIndex,
-		exotic: `${pair.token0}/${pair.token1}${pair.referenceOnly ? " (reference)" : ""}`,
-		token0: pair.token0,
-		token1: pair.token1,
-		bid: pair.bidPricePolicy,
-		ask: pair.askPricePolicy,
-		sameToken,
-		referenceOnly: pair.referenceOnly === true,
-	}
-	// A reference pair's cap is never consulted (it never fills), so leave it
-	// absent rather than surfacing an editable field that does nothing. An
-	// uncapped pair reports no current value but can still be given one.
-	if (pair.referenceOnly !== true) {
-		adminStrategy.maxOrderSize = pair.maxOrderSize?.toString()
-		adminStrategy.setMaxOrderSize = (value) => {
-			const previous = pair.maxOrderSize?.toString() ?? "uncapped"
-			pair.maxOrderSize = new Decimal(value)
-			adminStrategy.maxOrderSize = value
-			logger.warn(
-				{ pair: `${pair.token0}/${pair.token1}`, previous, next: value },
-				"Per-order cap resized by operator",
-			)
-		}
-		adminStrategy.clearMaxOrderSize = () => {
-			const previous = pair.maxOrderSize?.toString() ?? "uncapped"
-			pair.maxOrderSize = undefined
-			adminStrategy.maxOrderSize = undefined
-			logger.warn(
-				{ pair: `${pair.token0}/${pair.token1}`, previous },
-				"Per-order cap removed by operator — market is now uncapped",
-			)
-		}
-	}
-	// Reference pairs never fill, so opening a side is a no-op; same-token
-	// markets are ask-only by engine rule.
-	if (!sameToken && !pair.referenceOnly) {
-		adminStrategy.enableSide = (side, policy) => {
-			if (side === "bid") {
-				pair.bidPricePolicy = policy
-				adminStrategy.bid = policy
-			} else {
-				pair.askPricePolicy = policy
-				adminStrategy.ask = policy
-			}
-			logger.warn(
-				{ pair: `${pair.token0}/${pair.token1}`, side },
-				"Trading direction enabled by operator with a new price curve",
-			)
-		}
-		// Clearing the policy closes the direction on the next order —
-		// the operator's path back to one-sided LP.
-		adminStrategy.disableSide = (side) => {
-			if (side === "bid") {
-				pair.bidPricePolicy = undefined
-				adminStrategy.bid = undefined
-			} else {
-				pair.askPricePolicy = undefined
-				adminStrategy.ask = undefined
-			}
-			logger.warn(
-				{ pair: `${pair.token0}/${pair.token1}`, side },
-				"Trading direction disabled by operator (one-sided LP)",
-			)
-		}
-	}
-	return adminStrategy
-}
-
 /**
  * Boots the filler from a validated config: resolves chains, wires services and
  * the pair-trading engine, starts the IntentFiller and background timers. Used
@@ -268,8 +178,23 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		}
 	}
 
+	// Prices come from the operator's limit orders now. A config still carrying
+	// curve keys parses cleanly and quotes nothing, which is a quiet way to lose
+	// an afternoon.
+	const retired = retiredPairKeys(config.pairs ?? [])
+	if (retired.length > 0) {
+		logger.warn(
+			{ keys: retired },
+			"These [[pairs]] keys are no longer read; prices come from limit orders, and the filler fills nothing until one is posted",
+		)
+	}
+
 	logger.info("Resolving chain IDs from RPC endpoints...")
-	const resolvedChains: ResolvedChainConfig[] = await resolveChainConfigs(config.chains)
+	// Boot tolerates an endpoint that cannot answer; runtime endpoint edits do not.
+	const resolvedChains: ResolvedChainConfig[] = await resolveChainConfigs(config.chains, {
+		loggers: options.loggers,
+		tolerateUnreachable: true,
+	})
 	logger.info({ chains: resolvedChains.map((c) => c.chainId) }, "Chain IDs resolved")
 
 	const fillerConfigForService: FillerServiceConfig = {
@@ -413,8 +338,7 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		assertPairSymbolsResolve(config.pairs, assetRegistry, configuredChainNames)
 	}
 
-	// Editable price curves for the UI server, collected at construction so the
-	// server mutates the exact policy instances the engine prices with.
+	// The operator's market list for the UI server.
 	const adminStrategies: AdminStrategy[] = []
 	const strategies: FXFiller[] = []
 	// Held so ChainController can install a curve for a chain added at runtime.
@@ -422,10 +346,16 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 	let tradingPairs: TradingPair[] | undefined
 	let engine: FXFiller | undefined
 	if (config.pairs?.length) {
-		tradingPairs = config.pairs.map(tradingPairFrom)
+		tradingPairs = config.pairs.map((pair) => ({ token0: pair.token0, token1: pair.token1 }))
 		tradingPairs.forEach((pair, pairIndex) => {
-			const adminStrategy = adminStrategyFor(pair, pairIndex, adminStrategies.length, logger)
-			if (adminStrategy) adminStrategies.push(adminStrategy)
+			adminStrategies.push({
+				index: pairIndex,
+				pairIndex,
+				exotic: `${pair.token0}/${pair.token1}`,
+				token0: pair.token0,
+				token1: pair.token1,
+				sameToken: normalizeSymbol(pair.token0) === normalizeSymbol(pair.token1),
+			})
 		})
 
 		// Orders can be sourced on any configured chain (watch-only ones
@@ -448,7 +378,7 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 			contractService,
 			tradingPairs,
 			assetRegistry,
-			{ confirmationPolicy, fundingVenues },
+			{ confirmationPolicy, fundingVenues, limitOrders: options.data.limitOrders },
 		)
 		logger.info("Hydrating funding venue state...")
 		await engine.initialise()
@@ -500,9 +430,46 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		options.scanners,
 		rebalancingService,
 		bidStore,
+		options.data.limitOrders,
+		assetRegistry,
 	)
 
 	started.push(() => intentFiller.stop())
+
+	// Limit orders are inventory the operator opens while the filler runs, so the
+	// service exists as soon as an orderbook is configured, whether or not any
+	// order has been created yet.
+	// `validateConfig` refuses a config without an [orderbook] section, so a filler
+	// that reached here has one. Checked rather than asserted: boot is also entered
+	// from the setup API, and a filler with no orderbook has nothing to price from.
+	if (!config.orderbook) throw new Error("an [orderbook] section is required")
+	const limitOrderService = new LimitOrderService(
+		options.data.limitOrders,
+		new OrderbookClient(
+			config.orderbook.url,
+			config.orderbook.requestTimeoutMs ?? DEFAULT_ORDERBOOK_TIMEOUT_MS,
+			options.loggers,
+		),
+		contractService,
+		configService,
+		assetRegistry,
+		runtimeSigner,
+		config.orderbook.defaultTtlSecs ?? DEFAULT_LIMIT_ORDER_TTL_SECONDS,
+		new DelegationService(chainClientManager, configService, runtimeSigner),
+		options.loggers,
+	)
+	// A fill has to work its limit order down and put the rest back on the book,
+	// which the filler cannot do until the service that owns the connection exists.
+	intentFiller.setLimitOrderService(limitOrderService)
+	const lifecycle = new LimitOrderLifecycle(
+		limitOrderService,
+		{
+			reconcileIntervalSecs: config.orderbook?.reconcileIntervalSecs ?? DEFAULT_RECONCILE_INTERVAL_SECS,
+		},
+		options.loggers,
+	)
+	started.push(() => lifecycle.stop())
+	await lifecycle.start()
 
 	// Initialize (sets up EIP-7702 delegation if solver selection is configured)
 	try {
@@ -515,10 +482,8 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 	// Order-activity feed for the operator UI. Legs are described with the
 	// registry's symbol (built-in or user-defined) and on-chain decimals so the
 	// feed can show token amounts; either lookup may fail and the row still lands.
-	const knownSymbols = [...new Set([...registrySymbols(), ...Object.keys(config.assets ?? {})])]
 	const describeToken: TokenDescriber = async (chain, token) => {
-		const symbol =
-			knownSymbols.find((candidate) => assetRegistry.getAddress(candidate, chain)?.toLowerCase() === token) ?? null
+		const symbol = assetRegistry.symbolFor(token, chain)
 		let decimals: number | null = null
 		try {
 			decimals = await contractService.getTokenDecimals(token, chain)
@@ -579,7 +544,6 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 	const token1: Record<string, string[]> = {}
 	for (const pair of config.pairs ?? []) {
 		if (normalizeSymbol(pair.token0) === normalizeSymbol(pair.token1)) continue
-		if (pair.referenceOnly) continue // price feed only — never holds fill inventory
 		for (const chainName of configuredChainNames) {
 			const address = assetRegistry.getAddress(pair.token1, chainName)
 			if (!address) continue
@@ -673,6 +637,7 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 
 	return {
 		intentFiller,
+		limitOrders: limitOrderService,
 		balanceProvider,
 		vaultVenue,
 		adminStrategies,

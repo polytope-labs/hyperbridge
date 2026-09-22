@@ -15,7 +15,14 @@
  *   console.log(`filled ${orderId} for $${profitUsd}`)
  * })
  *
- * await simplex.pairs.setCurve(0, "ask", [{ amount: "0", price: "1550" }])
+ * await simplex.limitOrders.create({
+ *   fillChain: "EVM-8453",
+ *   tokenIn: "USDC",
+ *   amountIn: "10000000000000000000000",
+ *   tokenOut: "CNGN",
+ *   amountOut: "139000000000000000000000000",
+ *   acceptedSources: ["EVM-1"],
+ * })
  * await simplex.stop()
  * ```
  *
@@ -91,7 +98,7 @@ export type {
 	VaultTomlConfig,
 } from "@/config/filler-toml"
 
-export { validatePairConfigs, unanchoredToken0Symbols, pickAnchorStable } from "@/config/pairs"
+export { validatePairConfigs, pickAnchorStable } from "@/config/pairs"
 export type { PairConfig } from "@/config/pairs"
 
 export {
@@ -103,8 +110,8 @@ export {
 } from "@/config/asset-registry"
 export type { AssetDefinition } from "@/config/asset-registry"
 
-export { bookCrossedAt, parseChainKey, formatChainKey } from "@/config/interpolated-curve"
-export type { PriceCurvePoint, PriceCurveConfig, CurvePoint, CurveConfig } from "@/config/interpolated-curve"
+export { parseChainKey, formatChainKey } from "@/config/interpolated-curve"
+export type { CurvePoint, CurveConfig } from "@/config/interpolated-curve"
 
 // ─── Signing ────────────────────────────────────────────────────────────────
 // `Signer` is the contract: an identity and three operations, with no viem types

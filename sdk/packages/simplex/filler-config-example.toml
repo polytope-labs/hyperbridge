@@ -292,6 +292,17 @@ points = [
 # ]
 
 
+# The HyperFX orderbook simplex advertises its limit orders on, and prices every
+# fill from. Required: simplex has no prices of its own. The limit orders
+# themselves are not configured here — they are created over the API and live in
+# bids.db, because they are inventory you open and close while the filler runs.
+[orderbook]
+url = "https://orderbook.hyperbridge.network/graphql"
+# defaultTtlSecs = 31536000     # how long an order lives, and its posting's TTL; default 365 days, floor 900
+# reconcileIntervalSecs = 300   # how often to check the orderbook still matches
+# requestTimeoutMs = 10000
+
+
 # Remote access from a phone. Off by default. When enabled, simplex keeps an outbound
 # SSH tunnel to a relay so a phone's SSH client can open this UI with a local port
 # forward; the phone's session terminates inside simplex, the relay only sees ciphertext.

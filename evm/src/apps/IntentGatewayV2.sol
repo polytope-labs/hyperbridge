@@ -179,8 +179,8 @@ contract IntentGatewayV2 is
     }
 
     /**
-     * @dev Escrows the caller's inputs and places the order.
-     * Leg `i` sells `order.inputs[i]` for `order.output.assets[i]`.
+     * @dev Escrows the caller's inputs and places the order. Leg `i` sells `order.inputs[i]` for
+     * `order.output.assets[i]`, and every leg trades the same pair.
      *
      * The protocol fee comes out of each input before the commitment is computed.
      * @param order The order. `user`, `source` and `nonce` are overwritten.
@@ -190,11 +190,16 @@ contract IntentGatewayV2 is
         uint256 inputsLen = order.inputs.length;
         // Inputs and outputs pair 1:1 by index; a leg without its counterpart could never be filled.
         if (inputsLen == 0 || order.output.assets.length != inputsLen) revert InvalidInput();
+
+        // A token is the address in its low 20 bytes; anything above would let the output sweep in
+        // `_execute` read one token as two. Checked on leg 0, which every other leg must then match.
+        bytes32 inputToken = order.inputs[0].token;
+        bytes32 outputToken = order.output.assets[0].token;
+        if (uint256(inputToken) >> 160 != 0 || uint256(outputToken) >> 160 != 0) revert InvalidInput();
+
         for (uint256 i; i < inputsLen;) {
-            // Tokens are read from their low 20 bytes. Anything above would let one token pass a repeated
-            // token check as two: the predispatch check below, or the output sweep in `_execute`.
-            if (uint256(order.inputs[i].token) >> 160 != 0) revert InvalidInput();
-            if (uint256(order.output.assets[i].token) >> 160 != 0) revert InvalidInput();
+            if (order.inputs[i].token != inputToken) revert InvalidInput();
+            if (order.output.assets[i].token != outputToken) revert InvalidInput();
             // A zero-amount output would strand its leg's escrow.
             if (order.output.assets[i].amount == 0) revert InvalidInput();
             unchecked {
@@ -214,18 +219,8 @@ contract IntentGatewayV2 is
         uint256 msgValue = msg.value;
         if (order.predispatch.call.length > 0 && order.predispatch.assets.length > 0) {
             address dispatcher = _params.dispatcher;
-            // Predispatch escrow is swept and measured per input token, so its legs must not share one.
-            for (uint256 i; i < inputsLen;) {
-                for (uint256 j; j < i;) {
-                    if (order.inputs[j].token == order.inputs[i].token) revert InvalidInput();
-                    unchecked {
-                        ++j;
-                    }
-                }
-                unchecked {
-                    ++i;
-                }
-            }
+            // The sweep below measures one balance per input token, so it needs a leg to itself.
+            if (inputsLen != 1) revert InvalidInput();
 
             uint256 assetsLen = order.predispatch.assets.length;
             for (uint256 i; i < assetsLen;) {

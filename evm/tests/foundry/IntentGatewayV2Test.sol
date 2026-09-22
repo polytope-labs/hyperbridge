@@ -5610,7 +5610,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
     }
 
     /// @notice Inputs and outputs pair 1:1 into legs: both arrays non-empty, equal length, every output
-    /// amount non-zero. Legs may repeat tokens, and each leg is escrowed under its own index.
+    /// amount non-zero. Every leg names the same pair, and each is escrowed under its own index.
     function testPlaceOrder_LegShape() public {
         bytes32 usdcToken = bytes32(uint256(uint160(address(usdc))));
         bytes32 daiToken = bytes32(uint256(uint160(address(dai))));

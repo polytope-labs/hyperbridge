@@ -51,5 +51,5 @@ Upgrade a source chain when it has no orders in flight.
 previous validation logic, which derives the nonce key from the commitment and session key alone
 rather than also from the op's calldata. The new account depends on the upgraded gateway. The SDK's
 `chain.ts` points every mainnet chain at it (sdk 2.8.16, simplex 0.16.5), so solvers on those
-releases can only bid once a chain's gateway is upgraded; the indexer configs still list the old
-address.
+releases can only bid once a chain's gateway is upgraded. The indexer's mainnet config lists only
+the new account, so solvers still delegated to an old one are not tracked until they re-delegate.

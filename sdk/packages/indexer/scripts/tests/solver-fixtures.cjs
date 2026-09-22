@@ -19,7 +19,7 @@ const USDC = {
 const VAULT = "0xc768c589647798a6ee01a91fde98ef2ed046dbd6"
 
 /** A SolverAccount from the Base config: delegation counts only when it points at one of these. */
-const SOLVER_ACCOUNT = "0x7cb55539d1144f62422099c3fa3405092022c88c"
+const SOLVER_ACCOUNT = "0xd5535d4deb17f050e52b6efda2fde00435f39279"
 
 /** Not a SolverAccount, so a 7702 designator pointing here is recorded but not counted. */
 const FOREIGN_DELEGATE = "0x00000000000000000000000000000000000de1e6"

@@ -40,7 +40,7 @@ jest.mock("@/yield-vault-addresses", () => ({
 	},
 }))
 jest.mock("@/solver-account-addresses", () => ({
-	SOLVER_ACCOUNT_ADDRESSES: { "EVM-8453": ["0x7cb55539d1144F62422099c3FA3405092022c88C"] },
+	SOLVER_ACCOUNT_ADDRESSES: { "EVM-8453": ["0xd5535d4DeB17F050e52B6efda2fDe00435f39279"] },
 }))
 
 import { ethers } from "ethers"
@@ -68,7 +68,7 @@ const VAULT = "0xc768c589647798a6ee01a91fde98ef2ed046dbd6"
 const SOLVER = "0xce319986ca4d5d0893751a628d0db3dc8fc91d62"
 const OTHER = "0x13e41cde1d55880cbe031c69f206c2e9bc3c94c2"
 const ZERO = "0x0000000000000000000000000000000000000000"
-const SOLVER_ACCOUNT = "0x7cb55539d1144f62422099c3fa3405092022c88c"
+const SOLVER_ACCOUNT = "0xd5535d4deb17f050e52b6efda2fde00435f39279"
 const DELEGATED = `0xef0100${SOLVER_ACCOUNT.slice(2)}`
 const T0 = 1_750_000_000n
 

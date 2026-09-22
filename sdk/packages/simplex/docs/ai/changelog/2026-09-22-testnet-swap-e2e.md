@@ -15,13 +15,13 @@ transactions.
 
 | Scenario | Order |
 | --- | --- |
-| `same-chain` | 5 USDC → cNGN on BSC Chapel |
-| `cross-chain` | 4 USDC on BSC Chapel → cNGN on Polygon Amoy |
-| `partial` | 50000 cNGN on Polygon Amoy → USDC on BSC Chapel, too large for one solver |
+| `same-chain` | 0.5 USDC → cNGN on BSC Chapel |
+| `cross-chain` | 0.4 USDC on BSC Chapel → cNGN on Polygon Amoy |
+| `partial` | 20000 cNGN on Polygon Amoy → USDC on BSC Chapel, too large for one solver |
 | `multi-leg` | USDC → cNGN and cNGN → USDC legs, each reaching different solvers |
-| `same-solver-levels` | 15 USDC, which no single level of solver 1's ladder covers |
+| `same-solver-levels` | 12 USDC, more than solver 1's best level takes |
 | `multi-leg-levels` | both pairs, solver 1's levels only |
-| `multi-leg-same-input` | two 5 USDC → cNGN legs at the same levels |
+| `multi-leg-same-input` | two 5.5 USDC → cNGN legs against a level that takes 10 |
 
 `multi-leg` and `multi-leg-levels` put two pairs in one order, which #1311 forbids (`mixedPairs`).
 They run only when named, for a gateway without that rule.
@@ -29,10 +29,14 @@ They run only when named, for a gateway without that rule.
 Pass scenario names as arguments, or through `E2E_SCENARIOS` (comma-separated, spaces allowed),
 to run a subset. Without names, every scenario except the `mixedPairs` ones runs.
 
-Sizes are close to the smallest the orderbook accepts, so a run moves little: it refuses a limit
-order paying out under 10 USDC or 15000 cNGN (`serverInfo.minOrderSizes`). Each solver's standing
-orders are 20 USDC and 30000 cNGN, and solver 1's extra levels pay out 15900 and 15850 cNGN, or
-take 15900 cNGN for 10 USDC.
+The orderbook refuses a limit order paying out under 10 USDC or 15000 cNGN
+(`serverInfo.minOrderSizes`), so every limit order is posted at that floor: 10 USDC in for 15800,
+15780 or 15600 cNGN out, and 16000 to 16200 cNGN in for 10 USDC out.
+
+Swap sizes are the scenarios' own business, and most take a fraction of one limit order: 0.5 USDC,
+0.4 USDC, 2000 cNGN. Only the ladder scenarios are larger, because reaching a second level means
+swapping more than the first level's 10 USDC. A default run spends 23.9 USDC on BSC Chapel and
+20000 cNGN on Polygon Amoy.
 
 ## Wallets
 

@@ -69,15 +69,16 @@ export const SOLVERS = [
 const dec = (x) => x.toFixed(12).replace(/\.?0+$/, "")
 
 /**
- * Sizes are close to the smallest the orderbook takes, so a run moves little and the wallets
- * last: it refuses an order paying out under 10 USDC or 15000 cNGN (`serverInfo.minOrderSizes`).
+ * The orderbook refuses a limit order paying out under 10 USDC or 15000 cNGN
+ * (`serverInfo.minOrderSizes`), so each one is posted at that floor and no larger. What a swap
+ * takes from them is the scenario's own business, and most take a fraction of one.
  */
 export function standingOrders(solver) {
 	const sources = ["EVM-97", "EVM-80002"]
 	return [
-		{ fillChain: "EVM-80002", tokenIn: "USDC", amountIn: "20", tokenOut: "cNGN", amountOut: dec(20 * solver.a), acceptedSources: sources },
-		{ fillChain: "EVM-97", tokenIn: "USDC", amountIn: "20", tokenOut: "cNGN", amountOut: dec(20 * solver.b), acceptedSources: sources },
-		{ fillChain: "EVM-97", tokenIn: "cNGN", amountIn: "30000", tokenOut: "USDC", amountOut: dec(30000 / solver.c), acceptedSources: sources },
+		{ fillChain: "EVM-80002", tokenIn: "USDC", amountIn: "10", tokenOut: "cNGN", amountOut: dec(10 * solver.a), acceptedSources: sources },
+		{ fillChain: "EVM-97", tokenIn: "USDC", amountIn: "10", tokenOut: "cNGN", amountOut: dec(10 * solver.b), acceptedSources: sources },
+		{ fillChain: "EVM-97", tokenIn: "cNGN", amountIn: dec(10 * solver.c), tokenOut: "USDC", amountOut: "10", acceptedSources: sources },
 	]
 }
 
@@ -104,22 +105,22 @@ export const SCENARIOS = {
 		user: 0,
 		source: "EVM-97",
 		dest: "EVM-97",
-		legs: [{ tokenIn: "USDC", amountIn: "5", tokenOut: "cNGN", minOut: "7785" }],
+		legs: [{ tokenIn: "USDC", amountIn: "0.5", tokenOut: "cNGN", minOut: "778.5" }],
 		minFills: 1,
 	},
 	"cross-chain": {
 		user: 0,
 		source: "EVM-97",
 		dest: "EVM-80002",
-		legs: [{ tokenIn: "USDC", amountIn: "4", tokenOut: "cNGN", minOut: "6220" }],
+		legs: [{ tokenIn: "USDC", amountIn: "0.4", tokenOut: "cNGN", minOut: "622" }],
 		minFills: 1,
 	},
-	// 50000 cNGN is more than any one solver's 30000 cNGN order takes, so it fills in parts.
+	// 20000 cNGN is more than the 16000 solver 1's order takes, so it fills in parts.
 	partial: {
 		user: 1,
 		source: "EVM-80002",
 		dest: "EVM-97",
-		legs: [{ tokenIn: "cNGN", amountIn: "50000", tokenOut: "USDC", minOut: "30.55" }],
+		legs: [{ tokenIn: "cNGN", amountIn: "20000", tokenOut: "USDC", minOut: "12.22" }],
 		minFills: 2,
 	},
 	// Legs on two pairs, each reaching a different set of limit orders: leg 0 at 1565+ cNGN per
@@ -130,19 +131,20 @@ export const SCENARIOS = {
 		source: "EVM-97",
 		dest: "EVM-97",
 		legs: [
-			{ tokenIn: "USDC", amountIn: "5", tokenOut: "cNGN", minOut: "7821" },
-			{ tokenIn: "cNGN", amountIn: "10000", tokenOut: "USDC", minOut: "6.15" },
+			{ tokenIn: "USDC", amountIn: "0.5", tokenOut: "cNGN", minOut: "782.1" },
+			{ tokenIn: "cNGN", amountIn: "2000", tokenOut: "USDC", minOut: "1.23" },
 		],
 		minFills: 2,
 	},
-	// Only solver 1 clears 1574 cNGN per USDC, and no one level of its ladder covers 15 USDC:
-	// several bids from one solver, best rate first.
+	// Only solver 1 clears 1574 cNGN per USDC, and its best level takes 10 USDC of the 12:
+	// several bids from one solver, best rate first. A ladder scenario cannot go much below the
+	// floor one limit order is posted at.
 	"same-solver-levels": {
 		user: 0,
 		source: "EVM-97",
 		dest: "EVM-97",
 		levels: ["bids"],
-		legs: [{ tokenIn: "USDC", amountIn: "15", tokenOut: "cNGN", minOut: "23613" }],
+		legs: [{ tokenIn: "USDC", amountIn: "12", tokenOut: "cNGN", minOut: "18890.4" }],
 		minFills: 2,
 	},
 	// Both pairs, solver 1's levels only on each side.
@@ -153,20 +155,21 @@ export const SCENARIOS = {
 		dest: "EVM-97",
 		levels: ["bids", "ask"],
 		legs: [
-			{ tokenIn: "USDC", amountIn: "15", tokenOut: "cNGN", minOut: "23613" },
-			{ tokenIn: "cNGN", amountIn: "10000", tokenOut: "USDC", minOut: "6.227" },
+			{ tokenIn: "USDC", amountIn: "12", tokenOut: "cNGN", minOut: "18890.4" },
+			{ tokenIn: "cNGN", amountIn: "2000", tokenOut: "USDC", minOut: "1.2454" },
 		],
 		minFills: 2,
 	},
-	// One pair at two legs, both served by solver 1's levels.
+	// One pair at two legs, 11 USDC against a level that takes 10: the second leg is sized from
+	// what the first left.
 	"multi-leg-same-input": {
 		user: 0,
 		source: "EVM-97",
 		dest: "EVM-97",
 		levels: ["bids"],
 		legs: [
-			{ tokenIn: "USDC", amountIn: "5", tokenOut: "cNGN", minOut: "7871" },
-			{ tokenIn: "USDC", amountIn: "5", tokenOut: "cNGN", minOut: "7871" },
+			{ tokenIn: "USDC", amountIn: "5.5", tokenOut: "cNGN", minOut: "8658.1" },
+			{ tokenIn: "USDC", amountIn: "5.5", tokenOut: "cNGN", minOut: "8658.1" },
 		],
 		minFills: 2,
 	},

@@ -35,26 +35,47 @@ const RATE_LIMIT_RPC_CODES = new Set([-32005, -32097, -32016, 429])
 export const RATE_LIMIT_SUSPENSION_MS = 5 * 60_000
 
 /**
- * Per-endpoint HTTP budget for quorum reads.
+ * What one quorum call is allowed to spend.
  *
- * Deliberately far tighter than the wallet/fill clients' 30s × 4 attempts. A
- * scanner polls every few seconds, so a read that has not answered within a
- * couple of seconds is already stale — waiting two more minutes for it buys
- * nothing and costs the scan mutex, which is exactly how a slow minority used
- * to stall a whole chain. One retry still absorbs a dropped connection.
+ * `deadlineMs` is the ceiling on the call itself: past it, the endpoints still
+ * outstanding are treated as failures and the call fails with a QuorumError
+ * naming them, rather than waiting out the slowest provider. It cannot rescue a
+ * call — early exit already resolves the moment the bar is reachable, over the
+ * same responses `finalize` would see — so in practice the deadline is where a
+ * doomed call dies quickly instead of slowly.
  */
-const READ_TIMEOUT_MS = 5_000
-const READ_RETRY_COUNT = 1
-const READ_RETRY_DELAY_MS = 500
+export interface QuorumBudget {
+	timeoutMs: number
+	retryCount: number
+	retryDelayMs: number
+	deadlineMs: number
+}
 
 /**
- * Hard ceiling on one quorum call. Past it, the call decides on whatever has
- * answered (when that reaches the bar) or fails loudly naming the endpoints it
- * was still waiting on — never waits out the slowest provider. Sized well above
- * a healthy call (BSC's 11-endpoint quorum settles in ~200ms) so it only fires
- * when something is genuinely wrong.
+ * Scanning: a poll every few seconds, one request per endpoint. A read that has
+ * not answered within seconds is already stale, and it holds the scan mutex
+ * while it waits — which is how a slow minority used to stall a whole chain.
  */
-export const QUORUM_CALL_DEADLINE_MS = 12_000
+export const SCAN_BUDGET: QuorumBudget = {
+	timeoutMs: 5_000,
+	retryCount: 1,
+	retryDelayMs: 500,
+	deadlineMs: 12_000,
+}
+
+/**
+ * Confirmation polling: `getTransactionConfirmations` makes two requests in
+ * sequence per endpoint (head, then receipt), so the scan budget would cut off
+ * a slow but honest endpoint mid-sequence. Roomier on both counts, and still
+ * bounded — the poller is deciding whether money is safe to pay out, so it can
+ * afford to wait longer than a scan, but not forever.
+ */
+export const CONFIRMATION_BUDGET: QuorumBudget = {
+	timeoutMs: 10_000,
+	retryCount: 1,
+	retryDelayMs: 500,
+	deadlineMs: 30_000,
+}
 
 /**
  * A provider answering with something that is not JSON at all — a plain-text
@@ -237,20 +258,24 @@ function isReceiptNotFound(error: unknown): boolean {
  * simply fails to join the agreeing group, which is what makes a lying or reorged
  * endpoint detectable rather than authoritative.
  *
- * The one piece of pausing state is rate limiting: an endpoint whose failure
- * is unambiguously a request-rate limit ({@link isSuspendableRateLimit} — HTTP
- * 429, a throttle-specific JSON-RPC code, or throttle text) is DROPPED for
- * {@link RATE_LIMIT_SUSPENSION_MS}: not queried (re-querying only deepens the
- * throttle) and not counted — each call's quorum bar is computed over the
- * endpoints actually asked. A throttled endpoint answers nothing either way;
- * keeping it in the denominator would only turn the provider's throttle into
- * the solver missing events, and a scanner that misses orders loses fills. The
- * agreement bar therefore degrades while endpoints are benched — 4-of-5
- * becomes 3-of-4 — which is the deliberate trade: the remaining voters are
- * still exclusively the operator's own endpoints. When every endpoint is
- * benched, all are queried again; there is nobody left to prefer. Every other
- * failure mode stays stateless: a chronically slow endpoint costs one failed
- * sub-request per call, never a shrunk quorum.
+ * The pausing state is the bench, and {@link benchFor} decides who goes on it:
+ * a request-rate limit ({@link isSuspendableRateLimit}), a response that is not
+ * JSON ({@link isMalformedResponse}), or a head behind the quorum's
+ * ({@link isStaleHead}). A benched endpoint is DROPPED for its window: not
+ * queried and not counted, so each call's bar is computed over the endpoints
+ * actually asked. All three share the property that earns the bench — the
+ * endpoint will keep failing the same way for a while, so keeping it in the
+ * denominator would only turn its problem into the solver missing events, and a
+ * scanner that misses orders loses fills.
+ *
+ * That is a deliberate widening of what shrinks the voter set, and worth stating
+ * plainly: 5 endpoints with 2 lagging used to fail the call, and now decide it
+ * over the remaining 3. The bar still comes from a BFT threshold over the
+ * endpoints asked, and the voters are still exclusively the operator's own, but
+ * a call CAN now be decided by fewer of them than the operator configured. When
+ * every endpoint is benched, all are queried again; there is nobody left to
+ * prefer. Every other failure mode stays stateless: a chronically slow endpoint
+ * costs one failed sub-request per call, never a shrunk quorum.
  *
  * The constructor validates that URLs resolve to distinct hostnames so a "quorum"
  * isn't secretly the same upstream in disguise.
@@ -260,7 +285,7 @@ export class QuorumPublicClient {
 	public readonly rpcUrls: string[]
 	/**
 	 * The quorum bar when every endpoint answers: `quorumThreshold(n)` over the
-	 * full set. Calls made while endpoints are rate-limit-benched use
+	 * full set. Calls made while endpoints are benched use
 	 * `quorumThreshold(queried)` — the bar always matches who was asked.
 	 */
 	public readonly threshold: number
@@ -280,22 +305,22 @@ export class QuorumPublicClient {
 		QuorumPublicClient.benchedUntil.clear()
 	}
 
-	/** Ceiling on one call; overridable so tests need not wait it out. */
+	/** What this client's calls may spend; see {@link QuorumBudget}. */
 	private readonly deadlineMs: number
 
-	constructor(chainId: number, rpcUrls: string[], loggers?: LoggerContext, deadlineMs = QUORUM_CALL_DEADLINE_MS) {
+	constructor(chainId: number, rpcUrls: string[], loggers?: LoggerContext, budget: QuorumBudget = SCAN_BUDGET) {
 		this.rpcUrls = validateRpcUrls(rpcUrls)
 		this.threshold = quorumThreshold(this.rpcUrls.length)
 		this.logger = loggers ? moduleLogger(loggers, "quorum-client") : undefined
-		this.deadlineMs = deadlineMs
+		this.deadlineMs = budget.deadlineMs
 		const chain = getViemChain(chainId) as Chain
 		this.clients = this.rpcUrls.map((url) =>
 			createPublicClient({
 				chain,
 				transport: http(url, {
-					timeout: READ_TIMEOUT_MS,
-					retryCount: READ_RETRY_COUNT,
-					retryDelay: READ_RETRY_DELAY_MS,
+					timeout: budget.timeoutMs,
+					retryCount: budget.retryCount,
+					retryDelay: budget.retryDelayMs,
 				}),
 			}),
 		)
@@ -305,7 +330,7 @@ export class QuorumPublicClient {
 		return this.clients.length
 	}
 
-	/** Endpoints currently suspended for rate limiting, by URL. */
+	/** Endpoints currently benched, by URL. See {@link benchFor} for the reasons. */
 	suspended(): string[] {
 		const now = Date.now()
 		return this.rpcUrls.filter((url) => (QuorumPublicClient.benchedUntil.get(url) ?? 0) > now)
@@ -338,8 +363,9 @@ export class QuorumPublicClient {
 	}
 
 	/**
-	 * Records a task failure against its endpoint. Only rate-limit failures
-	 * carry state: everything else stays per-call, as the class doc promises.
+	 * Records a task failure against its endpoint. Only the failures
+	 * {@link benchFor} names carry state: everything else stays per-call, as the
+	 * class doc promises.
 	 * The bench is the one silent state transition this class has, so it warns —
 	 * an operator whose bar just dropped from 2-of-2 to 1-of-1 should not need a
 	 * QuorumError to find out.
@@ -643,15 +669,15 @@ export class QuorumPublicClient {
 
 	/**
 	 * `skipped` is the participants() snapshot for THIS call, not the suspension
-	 * state at throw time — a long call (hung endpoint riding out the 30s×3
-	 * retry ladder) can outlive a suspension window, and the message must explain
+	 * state at throw time — a call that rides out its deadline can outlive a
+	 * bench window, and the message must explain
 	 * who was excluded when the call started, not who would be excluded now.
 	 */
 	private describeResponders(count: number, queried: number, skipped: number, allBenched: boolean): string {
 		const note = allBenched
-			? ` (all ${this.size} endpoints rate-limit-suspended; queried anyway)`
+			? ` (all ${this.size} endpoints benched; queried anyway)`
 			: skipped > 0
-				? ` (${skipped}/${this.size} suspended for rate limiting)`
+				? ` (${skipped}/${this.size} benched)`
 				: ""
 		return `responders: ${count}/${queried} queried${note}`
 	}

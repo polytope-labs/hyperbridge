@@ -167,15 +167,25 @@ export class ChainScanner {
 		})
 	}
 
+	/**
+	 * Where `retryPromise` records its attempts. It logs at `trace`, which the
+	 * default `info` level hides — and a retry here is not a curiosity: it holds
+	 * the scan mutex, so the chain is not being scanned while it runs. Lifted to
+	 * `warn` so the operator sees it without running the whole filler at trace.
+	 */
+	private get retryLogger(): { trace: (message: string) => void } {
+		return { trace: (message: string) => this.logger.warn({ chainId: this.target.chainId }, message) }
+	}
+
 	private async scan(): Promise<void> {
-		// `logger` is not decoration: a retrying quorum read holds the scan mutex
-		// for the whole of its budget, so without these lines a chain that is
-		// merely retrying looks identical to one that has stopped scanning.
+		// One attempt: this loop runs again in `scanIntervalMs`, and a failed head
+		// read leaves the cursor untouched, so an inner retry only holds the mutex
+		// longer to do what the next tick does anyway.
 		const currentBlock = await retryPromise(() => this.quorumClient.getBlockNumber(), {
-			maxRetries: 3,
+			maxRetries: 1,
 			backoffMs: 250,
 			logMessage: `Failed to get current block number on chain ${this.target.chainId}`,
-			logger: this.logger,
+			logger: this.retryLogger,
 		})
 
 		// A stop() that timed out its drain has already resolved; whatever this scan
@@ -210,10 +220,13 @@ export class ChainScanner {
 						toBlock,
 					}),
 				{
-					maxRetries: 3,
+					// One retry, unlike the head read: a range the cursor is waiting on
+					// is worth a second attempt before the tick ends, and the retry line
+					// says so at `warn`.
+					maxRetries: 2,
 					backoffMs: 250,
 					logMessage: `Failed to get gateway event logs on chain ${this.target.chainId} for ${fromBlock}..${toBlock}`,
-					logger: this.logger,
+					logger: this.retryLogger,
 				},
 			)
 		} catch (error) {

@@ -607,7 +607,10 @@ program
 			}
 			const logger = getLogger("cli")
 
-			const resolvedChains: ResolvedChainConfig[] = await resolveChainConfigs(config.chains)
+			// Startup, like the filler's: one throttled endpoint must not stop the keeper.
+			const resolvedChains: ResolvedChainConfig[] = await resolveChainConfigs(config.chains, {
+				tolerateUnreachable: true,
+			})
 			const configService = new FillerConfigService(resolvedChains, {
 				maxConcurrentOrders: config.simplex.maxConcurrentOrders ?? 1,
 				logging: config.simplex.logging as LogLevel | undefined,

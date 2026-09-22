@@ -270,7 +270,11 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 	}
 
 	logger.info("Resolving chain IDs from RPC endpoints...")
-	const resolvedChains: ResolvedChainConfig[] = await resolveChainConfigs(config.chains, options.loggers)
+	// Boot tolerates an endpoint that cannot answer; runtime endpoint edits do not.
+	const resolvedChains: ResolvedChainConfig[] = await resolveChainConfigs(config.chains, {
+		loggers: options.loggers,
+		tolerateUnreachable: true,
+	})
 	logger.info({ chains: resolvedChains.map((c) => c.chainId) }, "Chain IDs resolved")
 
 	const fillerConfigForService: FillerServiceConfig = {

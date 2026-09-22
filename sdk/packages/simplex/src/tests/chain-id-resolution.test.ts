@@ -27,6 +27,18 @@ afterEach(() => {
 })
 
 describe("resolveChainConfigs", () => {
+	it("refuses a silent endpoint unless the caller opts into tolerance", async () => {
+		// Runtime endpoint edits take this path: an endpoint that never answered has
+		// never been checked against the chain it would serve, and on a quiet range a
+		// wrong-chain endpoint returns [] like an honest one — so it could join a
+		// quorum on "no events".
+		stubFetch({ "https://a.example": 56, "https://b.example": { status: 429 } })
+
+		await expect(
+			resolveChainConfigs([{ rpcUrls: ["https://a.example", "https://b.example"], bundlerUrl: "" }]),
+		).rejects.toThrow(/must report their chainId before use/)
+	})
+
 	it("boots on the endpoints that answered, tolerating a throttled one", async () => {
 		stubFetch({
 			"https://a.example": { status: 429 },
@@ -34,9 +46,10 @@ describe("resolveChainConfigs", () => {
 			"https://c.example": 56,
 		})
 
-		const [resolved] = await resolveChainConfigs([
-			{ rpcUrls: ["https://a.example", "https://b.example", "https://c.example"], bundlerUrl: "" },
-		])
+		const [resolved] = await resolveChainConfigs(
+			[{ rpcUrls: ["https://a.example", "https://b.example", "https://c.example"], bundlerUrl: "" }],
+			{ tolerateUnreachable: true },
+		)
 
 		expect(resolved.chainId).toBe(56)
 		// The throttled endpoint is kept: it was probed, not adopted, and the quorum
@@ -48,7 +61,9 @@ describe("resolveChainConfigs", () => {
 		stubFetch({ "https://a.example": { status: 429 }, "https://b.example": { status: 503 } })
 
 		await expect(
-			resolveChainConfigs([{ rpcUrls: ["https://a.example", "https://b.example"], bundlerUrl: "" }]),
+			resolveChainConfigs([{ rpcUrls: ["https://a.example", "https://b.example"], bundlerUrl: "" }], {
+				tolerateUnreachable: true,
+			}),
 		).rejects.toThrow(/No configured RPC endpoint could report its chainId/)
 	})
 
@@ -68,9 +83,10 @@ describe("resolveChainConfigs", () => {
 			"https://c.example": 8453,
 		})
 
-		const [resolved] = await resolveChainConfigs([
-			{ rpcUrls: ["https://a.example", "https://b.example", "https://c.example"], bundlerUrl: "" },
-		])
+		const [resolved] = await resolveChainConfigs(
+			[{ rpcUrls: ["https://a.example", "https://b.example", "https://c.example"], bundlerUrl: "" }],
+			{ tolerateUnreachable: true },
+		)
 		expect(resolved.chainId).toBe(8453)
 	})
 })

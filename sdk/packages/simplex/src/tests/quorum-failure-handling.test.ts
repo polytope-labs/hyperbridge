@@ -8,6 +8,7 @@ import {
 	isSuspendableRateLimit,
 	MALFORMED_RESPONSE_SUSPENSION_MS,
 	STALE_HEAD_SUSPENSION_MS,
+	SCAN_BUDGET,
 } from "@/services/QuorumPublicClient"
 
 /**
@@ -21,6 +22,9 @@ import {
 
 const BASE_CHAIN_ID = 8453
 const URLS = ["https://a.example", "https://b.example", "https://c.example"]
+
+/** The scan budget with a deadline short enough that a test need not wait it out. */
+const budget = (deadlineMs: number) => ({ ...SCAN_BUDGET, deadlineMs })
 
 /** A viem-shaped error: the provider's words live in `details`, not `message`. */
 function providerError(details: string): Error {
@@ -69,7 +73,7 @@ describe("quorum call deadline", () => {
 	})
 
 	it("fails loudly instead of waiting out a hung endpoint", async () => {
-		const client = new QuorumPublicClient(BASE_CHAIN_ID, URLS, undefined, 60)
+		const client = new QuorumPublicClient(BASE_CHAIN_ID, URLS, undefined, budget(60))
 		// Two answer, one never does. The bar is 3-of-3, so it can never be met and
 		// the old code would have waited for the transport's full budget.
 		const clients = client.clients as unknown as Array<{ getBlockNumber: () => Promise<bigint> }>
@@ -83,7 +87,7 @@ describe("quorum call deadline", () => {
 	})
 
 	it("names the endpoint it was still waiting on", async () => {
-		const client = new QuorumPublicClient(BASE_CHAIN_ID, URLS, undefined, 60)
+		const client = new QuorumPublicClient(BASE_CHAIN_ID, URLS, undefined, budget(60))
 		const clients = client.clients as unknown as Array<{ getBlockNumber: () => Promise<bigint> }>
 		clients[0].getBlockNumber = async () => 100n
 		clients[1].getBlockNumber = async () => 100n
@@ -92,15 +96,32 @@ describe("quorum call deadline", () => {
 		await expect(client.getBlockNumber()).rejects.toThrow(/c\.example.*quorum deadline/s)
 	})
 
-	it("still decides on the fast responders when they reach the bar", async () => {
-		// 2-of-2 over two endpoints: the third URL is absent, so a straggler cannot
-		// hold up a call the answering endpoints already settle.
-		const client = new QuorumPublicClient(BASE_CHAIN_ID, URLS.slice(0, 2), undefined, 60)
+	it("resolves before the deadline when the answering endpoints reach the bar", async () => {
+		// Early exit, not the deadline: with both endpoints answering, the bar is met
+		// immediately. Worth pinning because it is the path the deadline must not
+		// disturb — and because the deadline itself can never resolve a call that
+		// early exit would not (both apply the same rule to the same responses).
+		const client = new QuorumPublicClient(BASE_CHAIN_ID, URLS.slice(0, 2), undefined, budget(60))
 		const clients = client.clients as unknown as Array<{ getBlockNumber: () => Promise<bigint> }>
 		clients[0].getBlockNumber = async () => 500n
 		clients[1].getBlockNumber = async () => 501n
 
+		const started = Date.now()
 		// The quorum head is the lower of the two: conservative for every consumer.
 		await expect(client.getBlockNumber()).resolves.toBe(500n)
+		expect(Date.now() - started).toBeLessThan(50)
+	})
+
+	it("rejects at the deadline even when a straggler would have completed the bar", async () => {
+		// 3-of-3 with one endpoint hanging. The two that answered agree, but the bar
+		// is over everyone asked, so the deadline can only fail the call — this is the
+		// behaviour the docs now describe, rather than "decides on whoever answered".
+		const client = new QuorumPublicClient(BASE_CHAIN_ID, URLS, undefined, budget(60))
+		const clients = client.clients as unknown as Array<{ getBlockNumber: () => Promise<bigint> }>
+		clients[0].getBlockNumber = async () => 900n
+		clients[1].getBlockNumber = async () => 900n
+		clients[2].getBlockNumber = () => new Promise(() => {})
+
+		await expect(client.getBlockNumber()).rejects.toThrow(QuorumError)
 	})
 })

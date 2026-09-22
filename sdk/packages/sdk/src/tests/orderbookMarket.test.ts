@@ -6,15 +6,16 @@ import { HyperFxOrderbook, ORDERBOOK_QUERIES, OrderbookRequestError } from "@/pr
 import { OrderbookMarket } from "@/protocols/intents/orderbook/market"
 import { InsufficientOrderbookLiquidityError } from "@/protocols/intents/orderbook/types"
 
-const BSC = "EVM-56"
-const BASE = "EVM-8453"
+const CHAPEL = "EVM-97"
+const AMOY = "EVM-80002"
 const E18 = 10n ** 18n
 const BOOKS = [{ id: "USDC-cNGN", base: "USDC", quote: "cNGN" }]
 
 const config = new ChainConfigService()
-const bscUsdc = config.getUsdcAsset(BSC) // 18 decimals
-const baseUsdc = config.getUsdcAsset(BASE) // 6 decimals
-const baseCngn = config.getCNgnAsset(BASE)! // 6 decimals
+const chapelUsdc = config.getUsdcAsset(CHAPEL) // 18 decimals
+const chapelCngn = config.getCNgnAsset(CHAPEL)! // 6 decimals
+const amoyUsdc = config.getUsdcAsset(AMOY) // 18 decimals
+const amoyCngn = config.getCNgnAsset(AMOY)! // 6 decimals
 
 type Handler = (query: string, variables: Record<string, any>) => unknown
 
@@ -74,29 +75,65 @@ function bidSide(query: string, variables: Record<string, any>) {
 	}
 }
 
+/** A USDC/cNGN ask side at 1,500 cNGN per USDC, taking cNGN (6 decimals) for USDC (18). Amounts at 1e18. */
+function askSide(query: string, variables: Record<string, any>) {
+	const rate = 1_500n * E18
+	const maxFillableIn = 7_500_000n * E18
+	if (query === ORDERBOOK_QUERIES.routeLiquidity) {
+		return {
+			books: BOOKS,
+			routeLiquidity: {
+				route: "CROSS_CHAIN",
+				bestRate: rate.toString(),
+				depthIn: maxFillableIn.toString(),
+				depthOut: (5_000n * E18).toString(),
+				availableLiquidity: (5_000n * E18).toString(),
+				maxFillableIn: maxFillableIn.toString(),
+				orderCount: 1,
+				solverCount: 1,
+			},
+		}
+	}
+	const amountIn = BigInt(variables.amountIn)
+	const amountOut = (amountIn * E18) / rate
+	return {
+		quote: {
+			route: "CROSS_CHAIN",
+			side: "ASK",
+			amountIn: amountIn.toString(),
+			amountOut: amountOut.toString(),
+			rate: rate.toString(),
+			fillable: true,
+			depth: amountIn.toString(),
+			maxFillableIn: maxFillableIn.toString(),
+			fills: [{ orderRate: rate.toString(), amountOut: amountOut.toString(), advertisedSize: "1" }],
+		},
+	}
+}
+
 describe("OrderbookMarket.quoteIntent", () => {
 	it("quotes an exact input on the route by symbol and chain, at 1e18", async () => {
 		const { market, calls } = stubOrderbook(bidSide)
 		const quote = await market.quoteIntent(
-			{ tokenIn: bscUsdc, tokenOut: baseCngn, amountIn: parseUnits("100", 18) },
-			BSC,
-			BASE,
+			{ tokenIn: chapelUsdc, tokenOut: amoyCngn, amountIn: parseUnits("100", 18) },
+			CHAPEL,
+			AMOY,
 		)
 
 		assert.equal(calls.length, 1)
 		assert.deepEqual(calls[0].variables.route, {
 			tokenIn: "USDC",
 			tokenOut: "cNGN",
-			sourceChain: BSC,
-			destinationChain: BASE,
+			sourceChain: CHAPEL,
+			destinationChain: AMOY,
 		})
 		assert.equal(calls[0].variables.amountIn, (100n * E18).toString())
 		assert.equal(quote.tradeType, "EXACT_INPUT")
 		assert.equal(quote.amountIn, parseUnits("100", 18))
 		assert.equal(quote.amountOut, parseUnits("150000", 6))
 		assert.deepEqual(quote.quoteMetadata, {
-			sourceChain: BSC,
-			destinationChain: BASE,
+			sourceChain: CHAPEL,
+			destinationChain: AMOY,
 			route: "CROSS_CHAIN",
 			side: "BID",
 			baseTokenSymbol: "USDC",
@@ -107,16 +144,23 @@ describe("OrderbookMarket.quoteIntent", () => {
 		})
 	})
 
-	it("scales a 6-decimal input up to 1e18", async () => {
-		const { market, calls } = stubOrderbook(bidSide)
-		await market.quoteIntent({ tokenIn: baseUsdc, tokenOut: baseCngn, amountIn: parseUnits("2.5", 6) }, BASE, BASE)
-		assert.equal(calls[0].variables.amountIn, parseUnits("2.5", 18).toString())
+	it("scales a 6-decimal cNGN input up to 1e18", async () => {
+		const { market, calls } = stubOrderbook(askSide)
+		const quote = await market.quoteIntent(
+			{ tokenIn: chapelCngn, tokenOut: amoyUsdc, amountIn: parseUnits("3000", 6) },
+			CHAPEL,
+			AMOY,
+		)
+		assert.equal(calls[0].variables.amountIn, parseUnits("3000", 18).toString())
+		assert.equal(quote.amountOut, parseUnits("2", 18))
+		assert.equal(quote.quoteMetadata.side, "ASK")
+		assert.equal(quote.quoteMetadata.baseTokenSymbol, "USDC")
 	})
 
 	it("raises an exact output's input until the clearing price delivers it", async () => {
 		const { market, calls } = stubOrderbook(bidSide)
 		const amountOut = parseUnits("2800000", 6)
-		const quote = await market.quoteIntent({ tokenIn: bscUsdc, tokenOut: baseCngn, amountOut }, BSC, BASE)
+		const quote = await market.quoteIntent({ tokenIn: chapelUsdc, tokenOut: amoyCngn, amountOut }, CHAPEL, AMOY)
 
 		// 2,800,000 cNGN at the best rate (1,500) needs 1,866.67 USDC, which clears at 1,400:
 		// the second round asks for 2,000 USDC, which delivers exactly 2,800,000.
@@ -128,20 +172,24 @@ describe("OrderbookMarket.quoteIntent", () => {
 	})
 
 	it("rounds an exact output's input up to a whole raw unit of the input token", async () => {
-		const { market } = stubOrderbook(bidSide)
+		const { market } = stubOrderbook(askSide)
 		const quote = await market.quoteIntent(
-			{ tokenIn: baseUsdc, tokenOut: baseCngn, amountOut: parseUnits("1000", 6) },
-			BASE,
-			BASE,
+			{ tokenIn: chapelCngn, tokenOut: amoyUsdc, amountOut: 333_333_333_333_333_333n },
+			CHAPEL,
+			AMOY,
 		)
-		// 1,000 / 1,500 = 0.666666… USDC, rounded up to 6 decimals.
-		assert.equal(quote.amountIn, 666_667n)
+		// 0.333… USDC at 1,500 needs 499.9999999999999995 cNGN, rounded up to 6 decimals.
+		assert.equal(quote.amountIn, parseUnits("500", 6))
 	})
 
 	it("refuses an exact input the route cannot fill", async () => {
 		const { market } = stubOrderbook(bidSide)
 		await assert.rejects(
-			market.quoteIntent({ tokenIn: bscUsdc, tokenOut: baseCngn, amountIn: parseUnits("6000", 18) }, BSC, BASE),
+			market.quoteIntent(
+				{ tokenIn: chapelUsdc, tokenOut: amoyCngn, amountIn: parseUnits("6000", 18) },
+				CHAPEL,
+				AMOY,
+			),
 			(error: unknown) =>
 				error instanceof InsufficientOrderbookLiquidityError && error.maxFillableIn === parseUnits("5000", 18),
 		)
@@ -151,9 +199,9 @@ describe("OrderbookMarket.quoteIntent", () => {
 		const { market, calls } = stubOrderbook(bidSide)
 		await assert.rejects(
 			market.quoteIntent(
-				{ tokenIn: bscUsdc, tokenOut: baseCngn, amountOut: parseUnits("9000000", 6) },
-				BSC,
-				BASE,
+				{ tokenIn: chapelUsdc, tokenOut: amoyCngn, amountOut: parseUnits("9000000", 6) },
+				CHAPEL,
+				AMOY,
 			),
 			InsufficientOrderbookLiquidityError,
 		)
@@ -162,7 +210,10 @@ describe("OrderbookMarket.quoteIntent", () => {
 
 	it("requires exactly one amount", async () => {
 		const { market } = stubOrderbook(bidSide)
-		await assert.rejects(market.quoteIntent({ tokenIn: bscUsdc, tokenOut: baseCngn }, BSC, BASE), /exactly one/)
+		await assert.rejects(
+			market.quoteIntent({ tokenIn: chapelUsdc, tokenOut: amoyCngn }, CHAPEL, AMOY),
+			/exactly one/,
+		)
 	})
 
 	it("surfaces an orderbook GraphQL error", async () => {
@@ -172,7 +223,7 @@ describe("OrderbookMarket.quoteIntent", () => {
 			})
 		})
 		await assert.rejects(
-			market.quoteIntent({ tokenIn: bscUsdc, tokenOut: baseCngn, amountIn: 1n }, BSC, BASE),
+			market.quoteIntent({ tokenIn: chapelUsdc, tokenOut: amoyCngn, amountIn: 1n }, CHAPEL, AMOY),
 			(error: unknown) => error instanceof OrderbookRequestError && /no book trades/.test(error.message),
 		)
 	})
@@ -181,13 +232,13 @@ describe("OrderbookMarket.quoteIntent", () => {
 describe("OrderbookMarket.availableLiquidity", () => {
 	it("labels the route's side and units from the book", async () => {
 		const { market } = stubOrderbook(bidSide)
-		const liquidity = await market.availableLiquidity({ tokenIn: bscUsdc, tokenOut: baseCngn }, BSC, BASE)
+		const liquidity = await market.availableLiquidity({ tokenIn: chapelUsdc, tokenOut: amoyCngn }, CHAPEL, AMOY)
 		assert.deepEqual(liquidity, {
-			sourceChain: BSC,
-			destinationChain: BASE,
+			sourceChain: CHAPEL,
+			destinationChain: AMOY,
 			tokenInSymbol: "USDC",
 			tokenOutSymbol: "cNGN",
-			tokenAddress: baseCngn,
+			tokenAddress: amoyCngn,
 			route: "CROSS_CHAIN",
 			side: "BID",
 			baseTokenSymbol: "USDC",
@@ -207,12 +258,12 @@ describe("OrderbookMarket.buyAndSellRates", () => {
 	function rate(side: "BID" | "ASK", value: bigint) {
 		return {
 			side,
-			fillChain: BASE,
+			fillChain: AMOY,
 			rate: value.toString(),
 			depthIn: "0",
 			depthOut: "0",
 			backingLiquidity: "0",
-			sourceChains: [BSC],
+			sourceChains: [CHAPEL],
 			orderCount: 1,
 			solverCount: 1,
 		}
@@ -226,18 +277,18 @@ describe("OrderbookMarket.buyAndSellRates", () => {
 			bToA: rate("BID", 1_580n * E18),
 		}))
 		const rates = await market.buyAndSellRates({
-			sourceChain: BSC,
-			destinationChain: BASE,
+			sourceChain: CHAPEL,
+			destinationChain: AMOY,
 			tokenInSymbol: "cngn",
 			tokenOutSymbol: "usdc",
 		})
 
-		assert.deepEqual(calls[0].variables, { tokenA: "cNGN", tokenB: "USDC", fillChain: BASE, sourceChain: BSC })
+		assert.deepEqual(calls[0].variables, { tokenA: "cNGN", tokenB: "USDC", fillChain: AMOY, sourceChain: CHAPEL })
 		assert.deepEqual(rates, {
 			baseTokenSymbol: "USDC",
 			quoteTokenSymbol: "cNGN",
-			sourceChain: BSC,
-			destinationChain: BASE,
+			sourceChain: CHAPEL,
+			destinationChain: AMOY,
 			bid: "1580",
 			ask: "1600",
 			mid: "1590",
@@ -253,8 +304,8 @@ describe("OrderbookMarket.buyAndSellRates", () => {
 			bToA: rate("ASK", 1_600n * E18),
 		}))
 		const crossedRates = await crossed.market.buyAndSellRates({
-			sourceChain: BASE,
-			destinationChain: BASE,
+			sourceChain: AMOY,
+			destinationChain: AMOY,
 			tokenInSymbol: "USDC",
 			tokenOutSymbol: "cNGN",
 		})
@@ -263,8 +314,8 @@ describe("OrderbookMarket.buyAndSellRates", () => {
 
 		const oneSided = stubOrderbook(() => ({ books: BOOKS, aToB: rate("BID", 1_580n * E18), bToA: null }))
 		const oneSidedRates = await oneSided.market.buyAndSellRates({
-			sourceChain: BASE,
-			destinationChain: BASE,
+			sourceChain: AMOY,
+			destinationChain: AMOY,
 			tokenInSymbol: "USDC",
 			tokenOutSymbol: "cNGN",
 		})

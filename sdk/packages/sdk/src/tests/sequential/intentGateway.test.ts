@@ -63,19 +63,20 @@ describe.skip("Uniswap quote helper", () => {
 	})
 })
 
-// Set HYPERFX_ORDERBOOK_URL to an orderbook serving USDC/cNGN on Base and BSC to run these.
+// Set HYPERFX_ORDERBOOK_URL to an orderbook serving USDC/cNGN on BSC Chapel and Polygon Amoy to run these.
+// BSC_CHAPEL and POLYGON_AMOY override the chains' default public RPCs, which rate-limit.
 describe.skipIf(!process.env.HYPERFX_ORDERBOOK_URL)("IntentGateway orderbook reads", () => {
 	it("queries the best bid and ask using only symbols and chain IDs", async () => {
 		const configService = new ChainConfigService()
-		const intentGateway = await createLiveIntentGateway(CHAINS.base, CHAINS.base, configService)
+		const intentGateway = await createLiveIntentGateway(CHAINS.amoy, CHAINS.chapel, configService)
 		const rates = await intentGateway.queryBuyAndSellRates({
 			tokenInSymbol: "USDC",
 			tokenOutSymbol: "cngn",
-			sourceChainId: 56,
-			destinationChainId: 8453,
+			sourceChainId: CHAINS.amoy.numericId,
+			destinationChainId: CHAINS.chapel.numericId,
 		})
 
-		console.log("[queryBuyAndSellRates] BSC USDC → Base cNGN", rates)
+		console.log("[queryBuyAndSellRates] Amoy USDC → Chapel cNGN", rates)
 		assert.equal(rates.baseTokenSymbol, "USDC")
 		assert.equal(rates.quoteTokenSymbol, "cNGN")
 		assert(rates.bid !== null || rates.ask !== null, "Expected at least one side of the USDC/cNGN book")
@@ -86,47 +87,46 @@ describe.skipIf(!process.env.HYPERFX_ORDERBOOK_URL)("IntentGateway orderbook rea
 
 	it("queries route liquidity in both directions", async () => {
 		const configService = new ChainConfigService()
-		const cNgnAddress = configService.getCNgnAsset(CHAINS.base.id)
-		assert(cNgnAddress, "Expected cNGN to be configured on Base")
-		const intentGateway = await createLiveIntentGateway(CHAINS.bsc, CHAINS.base, configService)
+		const chapelCngn = configService.getCNgnAsset(CHAINS.chapel.id)
+		assert(chapelCngn, "Expected cNGN to be configured on BSC Chapel")
 
-		const sell = await intentGateway.queryAvailableLiquidity({
-			tokenIn: configService.getUsdcAsset(CHAINS.bsc.id),
-			tokenOut: cNgnAddress,
+		const crossChain = await createLiveIntentGateway(CHAINS.amoy, CHAINS.chapel, configService)
+		const sell = await crossChain.queryAvailableLiquidity({
+			tokenIn: configService.getUsdcAsset(CHAINS.amoy.id),
+			tokenOut: chapelCngn,
 		})
-		console.log("[queryAvailableLiquidity] BSC USDC → Base cNGN", sell)
+		console.log("[queryAvailableLiquidity] Amoy USDC → Chapel cNGN", sell)
 		assert.equal(sell.route, "CROSS_CHAIN")
 		assert.equal(sell.side, "BID")
-		assert.equal(sell.tokenAddress, cNgnAddress)
+		assert.equal(sell.tokenAddress, chapelCngn)
 		assert(parseUnits(sell.availableLiquidity, 18) <= parseUnits(sell.depthOut, 18))
 
-		const same = await (
-			await createLiveIntentGateway(CHAINS.base, CHAINS.base, configService)
-		).queryAvailableLiquidity({
-			tokenIn: cNgnAddress,
-			tokenOut: configService.getUsdcAsset(CHAINS.base.id),
+		const sameChain = await createLiveIntentGateway(CHAINS.chapel, CHAINS.chapel, configService)
+		const buy = await sameChain.queryAvailableLiquidity({
+			tokenIn: chapelCngn,
+			tokenOut: configService.getUsdcAsset(CHAINS.chapel.id),
 		})
-		console.log("[queryAvailableLiquidity] Base cNGN → Base USDC", same)
-		assert.equal(same.route, "SAME_CHAIN")
-		assert.equal(same.side, "ASK")
+		console.log("[queryAvailableLiquidity] Chapel cNGN → Chapel USDC", buy)
+		assert.equal(buy.route, "SAME_CHAIN")
+		assert.equal(buy.side, "ASK")
 	}, 120_000)
 
-	it("quotes exact-input BSC USDC to Base cNGN at the clearing price", async () => {
+	it("quotes exact-input Amoy USDC to Chapel cNGN at the clearing price", async () => {
 		const configService = new ChainConfigService()
-		const cNgnAddress = configService.getCNgnAsset(CHAINS.base.id)
-		const cNgnDecimals = configService.getCNgnDecimals(CHAINS.base.id)
-		assert(cNgnAddress && cNgnDecimals !== undefined, "Expected cNGN to be configured on Base")
-		const usdcDecimals = configService.getUsdcDecimals(CHAINS.bsc.id)
-		const intentGateway = await createLiveIntentGateway(CHAINS.bsc, CHAINS.base, configService)
+		const chapelCngn = configService.getCNgnAsset(CHAINS.chapel.id)
+		const cNgnDecimals = configService.getCNgnDecimals(CHAINS.chapel.id)
+		assert(chapelCngn && cNgnDecimals !== undefined, "Expected cNGN to be configured on BSC Chapel")
+		const usdcDecimals = configService.getUsdcDecimals(CHAINS.amoy.id)
+		const intentGateway = await createLiveIntentGateway(CHAINS.amoy, CHAINS.chapel, configService)
 		const amountIn = parseUnits("10", usdcDecimals)
 
 		const quote = await intentGateway.quoteIntent({
-			tokenIn: configService.getUsdcAsset(CHAINS.bsc.id),
-			tokenOut: cNgnAddress,
+			tokenIn: configService.getUsdcAsset(CHAINS.amoy.id),
+			tokenOut: chapelCngn,
 			amountIn,
 		})
 
-		logIntentQuote("BSC USDC → Base cNGN exact input", quote)
+		logIntentQuote("Amoy USDC → Chapel cNGN exact input", quote)
 		assert.equal(quote.tradeType, "EXACT_INPUT")
 		assert.equal(quote.amountIn, amountIn)
 		assert.equal(quote.quoteMetadata.side, "BID")
@@ -138,21 +138,21 @@ describe.skipIf(!process.env.HYPERFX_ORDERBOOK_URL)("IntentGateway orderbook rea
 		assert.equal(quote.amountOut, expectedAmountOut)
 	}, 120_000)
 
-	it("quotes exact-output Base cNGN to BSC USDC", async () => {
+	it("quotes exact-output Amoy cNGN to Chapel USDC", async () => {
 		const configService = new ChainConfigService()
-		const cNgnAddress = configService.getCNgnAsset(CHAINS.base.id)
-		assert(cNgnAddress, "Expected cNGN to be configured on Base")
-		const usdcDecimals = configService.getUsdcDecimals(CHAINS.bsc.id)
-		const intentGateway = await createLiveIntentGateway(CHAINS.base, CHAINS.bsc, configService)
+		const amoyCngn = configService.getCNgnAsset(CHAINS.amoy.id)
+		assert(amoyCngn, "Expected cNGN to be configured on Polygon Amoy")
+		const usdcDecimals = configService.getUsdcDecimals(CHAINS.chapel.id)
+		const intentGateway = await createLiveIntentGateway(CHAINS.amoy, CHAINS.chapel, configService)
 		const amountOut = parseUnits("5", usdcDecimals)
 
 		const quote = await intentGateway.quoteIntent({
-			tokenIn: cNgnAddress,
-			tokenOut: configService.getUsdcAsset(CHAINS.bsc.id),
+			tokenIn: amoyCngn,
+			tokenOut: configService.getUsdcAsset(CHAINS.chapel.id),
 			amountOut,
 		})
 
-		logIntentQuote("Base cNGN → BSC USDC exact output", quote)
+		logIntentQuote("Amoy cNGN → Chapel USDC exact output", quote)
 		assert.equal(quote.tradeType, "EXACT_OUTPUT")
 		assert.equal(quote.amountOut, amountOut)
 		assert.equal(quote.quoteMetadata.side, "ASK")
@@ -378,6 +378,8 @@ const CHAINS: Record<string, ChainDef> = {
 	polygon: { id: "EVM-137", numericId: 137, rpcEnvVar: "POLYGON_MAINNET" },
 	base: { id: "EVM-8453", numericId: 8453, rpcEnvVar: "BASE_MAINNET" },
 	arbitrum: { id: "EVM-42161", numericId: 42161, rpcEnvVar: "ARBITRUM_MAINNET" },
+	chapel: { id: "EVM-97", numericId: 97, rpcEnvVar: "BSC_CHAPEL" },
+	amoy: { id: "EVM-80002", numericId: 80002, rpcEnvVar: "POLYGON_AMOY" },
 }
 
 function bundlerUrl(chainId: number): string | undefined {

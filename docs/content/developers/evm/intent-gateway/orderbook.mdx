@@ -10,11 +10,11 @@ The HyperFX orderbook holds the quotes solvers post for Intent Gateway swaps. Ea
 The API is GraphQL over HTTP. Send a `POST` with a JSON body to:
 
 ```
-https://orderbook.hyperbridge.network/graphql
+https://orderbook.hyperfx.finance/graphql
 ```
 
 ```bash
-curl -s https://orderbook.hyperbridge.network/graphql \
+curl -s https://orderbook.hyperfx.finance/graphql \
   -H 'content-type: application/json' \
   -d '{"query":"{ books { id base quote bestBid bestAsk spread mid } }"}'
 ```
@@ -270,7 +270,7 @@ Any GraphQL client works. The SDK exports a typed client, `HyperFxOrderbook`, fo
 import { HyperFxOrderbook } from "@hyperbridge/sdk"
 import { formatUnits } from "viem"
 
-const orderbook = new HyperFxOrderbook() // defaults to https://orderbook.hyperbridge.network/graphql
+const orderbook = new HyperFxOrderbook() // defaults to https://orderbook.hyperfx.finance/graphql
 
 const { book, bid, ask } = await orderbook.topOfBook({
   tokenA: "USDC",

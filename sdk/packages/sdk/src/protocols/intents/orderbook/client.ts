@@ -1,7 +1,7 @@
 import { GraphQLClient } from "graphql-request"
 
 /** The HyperFX orderbook the SDK reads rates, liquidity and quotes from unless told otherwise. */
-export const DEFAULT_ORDERBOOK_URL = "https://orderbook.hyperbridge.network/graphql"
+export const DEFAULT_ORDERBOOK_URL = "https://orderbook.hyperfx.finance/graphql"
 
 /** Every amount and rate the orderbook takes or returns is fixed-point at 1e18, whatever the token's decimals. */
 export const ORDERBOOK_DECIMALS = 18

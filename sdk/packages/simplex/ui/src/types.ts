@@ -7,6 +7,7 @@ export type { InitChainMeta as ChainDefault, InitNetwork as Network } from "@/cl
 export type { FillerConfigFile as FillerConfig } from "@/config/filler-toml"
 export type { CurvePoint, PriceCurvePoint as PricePoint } from "@/config/interpolated-curve"
 export type { PairConfig } from "@/config/pairs"
+export type { NotificationSettings, OperatorNotification, StoredPushSubscription } from "@/data/types"
 export type {
 	ActivityEventDto,
 	OrderHistoryDto,
@@ -38,3 +39,4 @@ export type {
 	VaultSweepDto,
 	WalletTxDto,
 } from "@/services/server/dto"
+export type { NotificationStatus } from "@/services/server/NotificationService"

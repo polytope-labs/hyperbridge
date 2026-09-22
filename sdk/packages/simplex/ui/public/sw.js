@@ -1,9 +1,11 @@
-const CACHE_NAME = "simplex-shell-v6"
+const CACHE_NAME = "simplex-shell-v7"
 const PRECACHE_URLS = [
 	"./",
 	"./index.html",
 	"./manifest.webmanifest",
 	"./icons/mobile-logo.svg",
+	"./icons/simplex-192.png",
+	"./icons/simplex-512.png",
 ]
 
 self.addEventListener("install", (event) => {
@@ -71,6 +73,45 @@ self.addEventListener("fetch", (event) => {
 				}
 				return response
 			})
+		}),
+	)
+})
+
+self.addEventListener("push", (event) => {
+	let notification = {
+		title: "Simplex alert",
+		body: "Open Simplex for details.",
+		tag: "simplex-alert",
+		url: "./",
+	}
+	try {
+		if (event.data) notification = { ...notification, ...event.data.json() }
+	} catch {
+		// A malformed payload still tells the operator that Simplex needs attention.
+	}
+	event.waitUntil(
+		self.registration.showNotification(notification.title, {
+			body: notification.body,
+			tag: notification.tag,
+			icon: "./icons/simplex-192.png",
+			badge: "./icons/simplex-192.png",
+			data: { url: notification.url },
+		}),
+	)
+})
+
+self.addEventListener("notificationclick", (event) => {
+	event.notification.close()
+	const target = new URL(event.notification.data?.url ?? "./", self.registration.scope).href
+	event.waitUntil(
+		self.clients.matchAll({ type: "window", includeUncontrolled: true }).then(async (windows) => {
+			for (const client of windows) {
+				if (new URL(client.url).origin === self.location.origin) {
+					await client.navigate(target)
+					return client.focus()
+				}
+			}
+			return self.clients.openWindow(target)
 		}),
 	)
 })

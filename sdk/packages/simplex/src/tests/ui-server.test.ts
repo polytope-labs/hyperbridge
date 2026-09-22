@@ -145,6 +145,7 @@ function baseOperator(overrides: Partial<OperatorContext> = {}): TestOperator {
 		config: fakeConfig(),
 		stop: vi.fn().mockResolvedValue(undefined),
 		activity: new ActivityRecorder(data.activity),
+		state: data.state,
 		bids: data.bids,
 		setPaused: (paused: boolean) => data.state.set({ paused }),
 		setLogLevel: (level: LogLevel) => loggers.setLevel(level),
@@ -305,6 +306,64 @@ describe("UiServer (operator mode)", () => {
 			chains: [{ chainId: 8453, usdc: 1500, assets: [] }],
 			issues: [],
 		})
+	})
+
+	it("persists notification rules and streams a test alert to native desktop clients", async () => {
+		const { base, operator } = await startServer()
+		const initial = await (await fetch(`${base}/api/notifications`)).json()
+		expect(initial).toMatchObject({
+			settings: { lowLiquidityThresholdUsd: null, swaps: false },
+			subscriptionCount: 0,
+		})
+		expect(initial.vapidPublicKey).toEqual(expect.any(String))
+
+		const update = await put(base, "/api/notifications", { lowLiquidityThresholdUsd: 1_000, swaps: true })
+		expect(update.status).toBe(200)
+		expect((await update.json()).settings).toEqual({ lowLiquidityThresholdUsd: 1_000, swaps: true })
+		expect((await operator.state!.get()).notifications?.settings).toEqual({
+			lowLiquidityThresholdUsd: 1_000,
+			swaps: true,
+		})
+
+		const bad = await put(base, "/api/notifications", { lowLiquidityThresholdUsd: 0, swaps: true })
+		expect(bad.status).toBe(400)
+
+		const subscription = {
+			endpoint: "https://push.example/subscription-1",
+			keys: { p256dh: "public-key", auth: "auth-secret" },
+		}
+		const subscribed = await fetch(`${base}/api/notifications/subscription`, {
+			method: "POST",
+			headers: { ...CSRF, "Content-Type": "application/json" },
+			body: JSON.stringify(subscription),
+		})
+		expect((await subscribed.json()).subscriptionCount).toBe(1)
+		const unsubscribed = await fetch(`${base}/api/notifications/subscription`, {
+			method: "DELETE",
+			headers: { ...CSRF, "Content-Type": "application/json" },
+			body: JSON.stringify({ endpoint: subscription.endpoint }),
+		})
+		expect((await unsubscribed.json()).subscriptionCount).toBe(0)
+		const nowhere = await fetch(`${base}/api/notifications/test`, {
+			method: "POST",
+			headers: { ...CSRF, "Content-Type": "application/json" },
+			body: JSON.stringify({ native: true }),
+		})
+		expect(nowhere.status).toBe(409)
+
+		const controller = new AbortController()
+		const stream = await fetch(`${base}/api/notifications/stream`, { signal: controller.signal })
+		const reader = stream.body!.getReader()
+		await reader.read() // :ok
+		const test = await fetch(`${base}/api/notifications/test`, {
+			method: "POST",
+			headers: { ...CSRF, "Content-Type": "application/json" },
+			body: JSON.stringify({ native: true }),
+		})
+		expect(test.status).toBe(200)
+		const frame = new TextDecoder().decode((await reader.read()).value)
+		expect(frame).toContain("Simplex notifications are working")
+		controller.abort()
 	})
 
 	it("rejects mutating requests without the X-Simplex-UI header", async () => {

@@ -12,13 +12,25 @@ import { VaultFundingPlanner, type VaultSweepResult } from "@/funding/vault/Vaul
 import { chainByChainId, chainsForNetwork, INIT_CHAINS, nativeTokenSymbol, type InitNetwork } from "@/cli/init/chains"
 import { TESTNET_CONFIRMATION_POINTS } from "@/cli/init/state"
 import { ChainConfigService } from "@hyperbridge/sdk"
-import { assertConfirmationCoverage, type FillerConfigFile, type FillerTomlConfig, type VaultToml } from "@/config/filler-toml"
+import {
+	assertConfirmationCoverage,
+	type FillerConfigFile,
+	type FillerTomlConfig,
+	type VaultToml,
+} from "@/config/filler-toml"
 import { emitFillerToml, writeConfigFileAtomic } from "@/cli/init/emit-toml"
 import { formatUnits, isAddress } from "viem"
 import { validateRpcUrls, type AllowlistConfig } from "@/services/FillerConfigService"
 import { withTimeout, PROBE_TIMEOUT_MS } from "@/cli/init/prompt-utils"
 import type { ActivityRecorder } from "@/data/recorder"
-import type { ActivityEvent, BidStore, OrderLeg } from "@/data/types"
+import type {
+	ActivityEvent,
+	BidStore,
+	NotificationSettings,
+	OrderLeg,
+	StateStore,
+	StoredPushSubscription,
+} from "@/data/types"
 import type { BalanceProvider } from "../BalanceProvider"
 import { getLogger, type LogLevel } from "../Logger"
 import { DEFAULT_TUNNEL_RELAY, parseRelayAddress, relayKey, type TunnelControls } from "../tunnel/TunnelService"
@@ -35,6 +47,7 @@ import {
 } from "./http-util"
 import { matchesLogQuery, type LogQuery, type LogTail } from "./LogStore"
 import { serveStatic } from "./static"
+import { NotificationService, type OperatorNotification } from "./NotificationService"
 import {
 	handleSetupRequest,
 	maskToml,
@@ -159,7 +172,12 @@ export interface OperatorContext {
 	config: FillerConfigFile
 	/** Drains the filler and exits the process (the UI's graceful Stop). */
 	stop(): Promise<void>
-	activity: Pick<ActivityRecorder, "recent" | "on" | "off" | "record" | "recordWalletTx" | "walletTxs" | "fills" | "orderHistory">
+	activity: Pick<
+		ActivityRecorder,
+		"recent" | "on" | "off" | "record" | "recordWalletTx" | "walletTxs" | "fills" | "orderHistory"
+	>
+	/** Durable operator state shared by pause and notification preferences. */
+	state: StateStore
 	bids?: Pick<BidStore, "recent" | "stats" | "byCommitments">
 	/** Persists an operator pause so it survives a restart. */
 	setPaused(paused: boolean): Promise<void>
@@ -347,8 +365,8 @@ function assertSocketPathFits(path: string): void {
 	throw new Error(
 		`UI socket path is ${bytes} bytes, over this platform's ${SUN_PATH_MAX_BYTES}-byte limit for a Unix socket: ${path}. ` +
 			`Use a shorter path in a directory only this user can write — on Linux $XDG_RUNTIME_DIR ` +
-				`(${process.env.XDG_RUNTIME_DIR ?? "/run/user/<uid>"}) is both short and already private. ` +
-				`Avoid a shared directory such as ${tmpdir()}: anything that can create names there can take this address first.`,
+			`(${process.env.XDG_RUNTIME_DIR ?? "/run/user/<uid>"}) is both short and already private. ` +
+			`Avoid a shared directory such as ${tmpdir()}: anything that can create names there can take this address first.`,
 	)
 }
 
@@ -374,6 +392,9 @@ export class UiServer {
 	/** Open log tails, each mapped to the unsubscribe that detaches it from the buffer. */
 	private logClients = new Map<ServerResponse, () => void>()
 	private activityListener?: (event: ActivityEvent) => void
+	private notifications?: NotificationService
+	private notificationClients = new Set<ServerResponse>()
+	private notificationListener?: (notification: OperatorNotification) => void
 	private boundLoopback = true
 	/** How connections this server accepted arrived; stamped onto each socket. */
 	private listenProvenance: Provenance = "tcp"
@@ -406,7 +427,10 @@ export class UiServer {
 		this.version = opts.version ?? opts.operator?.version ?? "unknown"
 		this.deps = resolveSetupDeps(opts.deps)
 		if (this.mode === "operator") this.startState = "running"
-		if (this.operator) this.subscribeActivity()
+		if (this.operator) {
+			this.subscribeActivity()
+			this.subscribeNotifications()
+		}
 		this.server = createServer((req, res) => {
 			this.handle(req, res).catch((err) => {
 				this.logger.error({ err }, "Unhandled UI request error")
@@ -607,7 +631,9 @@ export class UiServer {
 		}
 		if (code !== "ECONNREFUSED") {
 			// EACCES on somebody else's socket, say. Not ours to delete.
-			throw new Error(`Cannot tell whether ${path} is in use (${code}); remove it by hand if no simplex is running`)
+			throw new Error(
+				`Cannot tell whether ${path} is in use (${code}); remove it by hand if no simplex is running`,
+			)
 		}
 		try {
 			unlinkSync(path)
@@ -646,7 +672,10 @@ export class UiServer {
 				this.listenProvenance = "tcp"
 				const address = this.server.address()
 				const boundPort = typeof address === "object" && address !== null ? address.port : port
-				this.logger.info({ bind: `${host}:${boundPort}` }, `Simplex UI available at http://${host}:${boundPort}/`)
+				this.logger.info(
+					{ bind: `${host}:${boundPort}` },
+					`Simplex UI available at http://${host}:${boundPort}/`,
+				)
 				resolve(boundPort)
 			})
 		})
@@ -659,6 +688,14 @@ export class UiServer {
 		}
 		for (const client of this.sseClients) client.end()
 		this.sseClients.clear()
+		if (this.notificationListener && this.notifications) {
+			this.notifications.off("notification", this.notificationListener)
+		}
+		this.notificationListener = undefined
+		this.notifications?.stop()
+		this.notifications = undefined
+		for (const client of this.notificationClients) client.end()
+		this.notificationClients.clear()
 		for (const [client, unsubscribe] of this.logClients) {
 			unsubscribe()
 			client.end()
@@ -704,6 +741,7 @@ export class UiServer {
 		this.startState = "running"
 		this.startError = undefined
 		this.subscribeActivity()
+		this.subscribeNotifications()
 		this.logger.info("Setup complete — UI now in operator mode")
 	}
 
@@ -717,6 +755,22 @@ export class UiServer {
 			}
 		}
 		this.operator.activity.on("event", this.activityListener)
+	}
+
+	/** One alert source feeds native desktop SSE and every stored browser Push subscription. */
+	private subscribeNotifications(): void {
+		if (this.notifications || !this.operator) return
+		this.notifications = new NotificationService(
+			this.operator.state,
+			this.operator.balances,
+			this.operator.activity,
+			this.logger,
+		)
+		this.notificationListener = (notification) => {
+			const frame = `data: ${JSON.stringify(notification)}\n\n`
+			for (const client of this.notificationClients) client.write(frame)
+		}
+		this.notifications.on("notification", this.notificationListener)
 	}
 
 	/** Reported by /api/setup/start-status while save-and-start boots the filler. */
@@ -801,7 +855,8 @@ export class UiServer {
 				if (method !== "POST") return sendJson(res, 405, { error: "Method not allowed" })
 				try {
 					const body = JSON.parse(await readBody(req)) as Record<string, unknown>
-					if (path === "/api/setup/validate-rpc") return sendJson(res, 200, await validateRpc(body, this.deps))
+					if (path === "/api/setup/validate-rpc")
+						return sendJson(res, 200, await validateRpc(body, this.deps))
 					if (path === "/api/setup/validate-bundler") {
 						return sendJson(res, 200, await validateBundler(body, this.deps))
 					}
@@ -871,6 +926,100 @@ export class UiServer {
 			return sendJson(res, 200, this.operator!.balances.getSnapshot())
 		}
 
+		if (path === "/api/notifications") {
+			if (this.mode !== "operator" || !this.notifications)
+				return sendJson(res, 409, { error: "Filler is not running" })
+			if (method === "GET") return sendJson(res, 200, await this.notifications.status())
+			if (method !== "PUT") return sendJson(res, 405, { error: "Method not allowed" })
+			try {
+				const body = JSON.parse(await readBody(req)) as Partial<NotificationSettings>
+				const threshold = body.lowLiquidityThresholdUsd
+				if (
+					threshold !== null &&
+					(typeof threshold !== "number" || !Number.isFinite(threshold) || threshold <= 0)
+				) {
+					return sendJson(res, 400, { error: "lowLiquidityThresholdUsd must be a positive number or null" })
+				}
+				if (typeof body.swaps !== "boolean") return sendJson(res, 400, { error: "swaps must be a boolean" })
+				return sendJson(
+					res,
+					200,
+					await this.notifications.updateSettings({ lowLiquidityThresholdUsd: threshold, swaps: body.swaps }),
+				)
+			} catch (err) {
+				return sendJson(res, 400, { error: err instanceof Error ? err.message : "Invalid JSON body" })
+			}
+		}
+
+		if (path === "/api/notifications/subscription") {
+			if (this.mode !== "operator" || !this.notifications)
+				return sendJson(res, 409, { error: "Filler is not running" })
+			if (method !== "POST" && method !== "DELETE") return sendJson(res, 405, { error: "Method not allowed" })
+			try {
+				const body = JSON.parse(await readBody(req)) as StoredPushSubscription | { endpoint?: unknown }
+				if (method === "DELETE") {
+					if (typeof body.endpoint !== "string") return sendJson(res, 400, { error: "endpoint is required" })
+					return sendJson(res, 200, await this.notifications.unsubscribe(body.endpoint))
+				}
+				return sendJson(res, 200, await this.notifications.subscribe(body as StoredPushSubscription))
+			} catch (err) {
+				return sendJson(res, 400, { error: err instanceof Error ? err.message : "Invalid JSON body" })
+			}
+		}
+
+		if (path === "/api/notifications/test") {
+			if (this.mode !== "operator" || !this.notifications)
+				return sendJson(res, 409, { error: "Filler is not running" })
+			if (method !== "POST") return sendJson(res, 405, { error: "Method not allowed" })
+			try {
+				const raw = await readBody(req)
+				const body = raw ? (JSON.parse(raw) as { endpoint?: unknown; native?: unknown }) : {}
+				if (body.endpoint !== undefined && typeof body.endpoint !== "string") {
+					return sendJson(res, 400, { error: "endpoint must be a string" })
+				}
+				if (body.native !== undefined && typeof body.native !== "boolean") {
+					return sendJson(res, 400, { error: "native must be a boolean" })
+				}
+				const endpoint = body.endpoint as string | undefined
+				const native = body.native === true
+				if ((endpoint ? 1 : 0) + (native ? 1 : 0) !== 1) {
+					return sendJson(res, 400, {
+						error: "Select exactly one browser endpoint or the native desktop client",
+					})
+				}
+				const delivery = await this.notifications.test({ endpoint, native, push: !native })
+				const nativeClients = native ? this.notificationClients.size : 0
+				if (delivery.pushSent + nativeClients === 0) {
+					return sendJson(res, delivery.pushFailed > 0 ? 502 : 409, {
+						error:
+							delivery.pushFailed > 0
+								? "The notification service could not deliver to this device"
+								: "No connected notification device was found",
+						...delivery,
+						nativeClients,
+					})
+				}
+				return sendJson(res, 200, { sent: true, ...delivery, nativeClients })
+			} catch (err) {
+				return sendJson(res, 400, { error: err instanceof Error ? err.message : "Invalid JSON body" })
+			}
+		}
+
+		if (path === "/api/notifications/stream") {
+			if (this.mode !== "operator" || !this.notifications)
+				return sendJson(res, 409, { error: "Filler is not running" })
+			if (method !== "GET") return sendJson(res, 405, { error: "Method not allowed" })
+			res.writeHead(200, {
+				"Content-Type": "text/event-stream",
+				"Cache-Control": "no-store",
+				Connection: "keep-alive",
+			})
+			res.write(":ok\n\n")
+			this.notificationClients.add(res)
+			req.on("close", () => this.notificationClients.delete(res))
+			return
+		}
+
 		if (path === "/api/activity/orders") {
 			if (this.mode !== "operator") return sendJson(res, 409, { error: "Filler is not running" })
 			if (method !== "GET") return sendJson(res, 405, { error: "Method not allowed" })
@@ -922,10 +1071,24 @@ export class UiServer {
 			}
 			// Share tokens are named after their underlying (stataUSDC, ycNGN): the logo
 			// comes from the underlying's symbol, and the vault badge says it is a share.
-			const legOf = (symbol: string | null | undefined, amount: string | null | undefined, vault: boolean): LedgerLeg | null =>
-				symbol && amount ? { symbol, amount, decimals: null, icon: vault ? underlyingOf(symbol) : symbol, vault } : null
+			const legOf = (
+				symbol: string | null | undefined,
+				amount: string | null | undefined,
+				vault: boolean,
+			): LedgerLeg | null =>
+				symbol && amount
+					? { symbol, amount, decimals: null, icon: vault ? underlyingOf(symbol) : symbol, vault }
+					: null
 			const orderLeg = (leg: OrderLeg | undefined): LedgerLeg | null =>
-				leg ? { symbol: leg.symbol ?? leg.token, amount: leg.amount, decimals: leg.decimals, icon: leg.symbol ?? "", vault: false } : null
+				leg
+					? {
+							symbol: leg.symbol ?? leg.token,
+							amount: leg.amount,
+							decimals: leg.decimals,
+							icon: leg.symbol ?? "",
+							vault: false,
+						}
+					: null
 			const txs: WalletTxDto[] = [
 				...walletTxs.map(({ tokenIn, amountIn, ...tx }) => {
 					const vaultTx = tx.kind === "sweep" || tx.kind === "redeem"
@@ -997,7 +1160,9 @@ export class UiServer {
 				vaults: op.config.vault?.vaults ?? [],
 				sendTokens: this.sendTokenOptions(op),
 				knownVaults: this.knownVaultCatalog(op),
-				tunnel: op.tunnel ? { enabled: op.tunnel.status().enabled, devices: op.tunnel.status().devices.length } : undefined,
+				tunnel: op.tunnel
+					? { enabled: op.tunnel.status().enabled, devices: op.tunnel.status().devices.length }
+					: undefined,
 			}
 			return sendJson(res, 200, configDto)
 		}
@@ -1114,7 +1279,8 @@ export class UiServer {
 				return sendJson(res, 400, { error: "Invalid JSON body" })
 			}
 			if (path === "/api/tunnel/devices") {
-				if (typeof body.label !== "string" || !body.label.trim()) return sendJson(res, 400, { error: "label is required" })
+				if (typeof body.label !== "string" || !body.label.trim())
+					return sendJson(res, 400, { error: "label is required" })
 				if (body.publicKey !== undefined && typeof body.publicKey !== "string") {
 					return sendJson(res, 400, { error: "publicKey must be a string" })
 				}
@@ -1124,9 +1290,14 @@ export class UiServer {
 					return sendJson(res, 400, { error: err instanceof Error ? err.message : String(err) })
 				}
 			}
-			if (typeof body.fingerprint !== "string" || !body.fingerprint) return sendJson(res, 400, { error: "fingerprint is required" })
+			if (typeof body.fingerprint !== "string" || !body.fingerprint)
+				return sendJson(res, 400, { error: "fingerprint is required" })
 			const removed = tunnel.removeDevice(body.fingerprint)
-			return sendJson(res, removed ? 200 : 404, removed ? { removed: true } : { error: "No device with that fingerprint" })
+			return sendJson(
+				res,
+				removed ? 200 : 404,
+				removed ? { removed: true } : { error: "No device with that fingerprint" },
+			)
 		}
 
 		if (path === "/api/reset-halt") {
@@ -1140,7 +1311,8 @@ export class UiServer {
 			if (method !== "POST") return sendJson(res, 405, { error: "Method not allowed" })
 			if (this.stopping) return sendJson(res, 202, { stopping: true })
 			if (this.mode === "init") {
-				if (this.startState === "starting") return sendJson(res, 409, { error: "Filler startup is already in progress" })
+				if (this.startState === "starting")
+					return sendJson(res, 409, { error: "Filler startup is already in progress" })
 				if (!this.setup?.stop) return sendJson(res, 409, { error: "Filler is not running" })
 				this.beginStopping()
 				this.logger.warn("Graceful stop requested from the setup UI")
@@ -1257,8 +1429,12 @@ export class UiServer {
 				enabling.push({ side, points })
 			}
 		}
-		const bidAfter = disabling.includes("bid") ? false : Boolean(strategy.bid) || enabling.some((e) => e.side === "bid")
-		const askAfter = disabling.includes("ask") ? false : Boolean(strategy.ask) || enabling.some((e) => e.side === "ask")
+		const bidAfter = disabling.includes("bid")
+			? false
+			: Boolean(strategy.bid) || enabling.some((e) => e.side === "bid")
+		const askAfter = disabling.includes("ask")
+			? false
+			: Boolean(strategy.ask) || enabling.some((e) => e.side === "ask")
 		if (!bidAfter && !askAfter) {
 			return sendJson(res, 409, {
 				error: "A market needs at least one side — remove the pair from the config to retire it",
@@ -1401,7 +1577,11 @@ export class UiServer {
 			}
 			validatePairConfigs(next, mergedAssets)
 			const registry = new AssetRegistry(new ChainConfigService({}), mergedAssets)
-			assertPairSymbolsResolve(next, registry, op.chains.map((id) => formatChainKey(id)))
+			assertPairSymbolsResolve(
+				next,
+				registry,
+				op.chains.map((id) => formatChainKey(id)),
+			)
 		} catch (err) {
 			return sendJson(res, 400, { error: err instanceof Error ? err.message : String(err) })
 		}
@@ -1424,7 +1604,11 @@ export class UiServer {
 		const persisted = this.persistConfig()
 		const applied = Boolean(op.addPair)
 		this.logger.warn(
-			{ pair: `${candidate.token0}/${candidate.token1}`, applied, customAssets: assets ? Object.keys(assets) : undefined },
+			{
+				pair: `${candidate.token0}/${candidate.token1}`,
+				applied,
+				customAssets: assets ? Object.keys(assets) : undefined,
+			},
 			"Market added by operator",
 		)
 		return sendJson(res, 200, {
@@ -1556,10 +1740,7 @@ export class UiServer {
 		if (!op.removePair) pairs.splice(pairIndex, 1)
 		const persisted = this.persistConfig()
 		const applied = Boolean(op.removePair)
-		this.logger.warn(
-			{ pair: `${strategy.token0}/${strategy.token1}`, applied },
-			"Market removed by operator",
-		)
+		this.logger.warn({ pair: `${strategy.token0}/${strategy.token1}`, applied }, "Market removed by operator")
 		return sendJson(res, 200, { applied, restartNeeded: !applied, persisted })
 	}
 
@@ -1647,7 +1828,9 @@ export class UiServer {
 			return sendJson(res, 400, { error: "Invalid JSON body" })
 		}
 		if (!Array.isArray(body.chains) || body.chains.length === 0) {
-			return sendJson(res, 400, { error: "Provide chains as a non-empty array — the filler needs at least one chain" })
+			return sendJson(res, 400, {
+				error: "Provide chains as a non-empty array — the filler needs at least one chain",
+			})
 		}
 
 		const rows: Array<{ chainId: number; rpcUrls: string[]; bundlerUrl: string; watchOnly: boolean }> = []
@@ -1747,7 +1930,9 @@ export class UiServer {
 					throw new Error(`RPC ${url} is unreachable: ${err instanceof Error ? err.message : err}`)
 				}
 				if (reported !== chainId) {
-					throw new Error(`RPC ${url} reports chain ${reported}, expected ${chainId} (${chainLabel(chainId)})`)
+					throw new Error(
+						`RPC ${url} reports chain ${reported}, expected ${chainId} (${chainLabel(chainId)})`,
+					)
 				}
 			}),
 		)
@@ -2036,7 +2221,10 @@ export class UiServer {
 			} catch (err) {
 				return sendJson(res, 400, { error: err instanceof Error ? err.message : String(err) })
 			}
-			op.config.vault = { vaults: body.vaults, ...(body.sweepIntervalMs ? { sweepIntervalMs: body.sweepIntervalMs } : {}) }
+			op.config.vault = {
+				vaults: body.vaults,
+				...(body.sweepIntervalMs ? { sweepIntervalMs: body.sweepIntervalMs } : {}),
+			}
 			const persisted = this.persistConfig()
 			return sendJson(res, 200, { applied: false, restartNeeded: true, persisted })
 		}
@@ -2201,14 +2389,20 @@ function vaultSweepDto(result: VaultSweepResult): VaultSweepDto {
 			chain: tx.chain,
 			txHash: tx.txHash,
 			sponsored: tx.sponsored,
-			deposits: tx.deposits.map((d) => ({ vault: d.vault, symbol: d.symbol, amount: formatUnits(d.amount, d.decimals) })),
+			deposits: tx.deposits.map((d) => ({
+				vault: d.vault,
+				symbol: d.symbol,
+				amount: formatUnits(d.amount, d.decimals),
+			})),
 		})),
 		skipped: result.skipped.map((skip) => ({
 			chain: skip.chain,
 			vault: skip.vault,
 			symbol: skip.symbol,
 			reason: skip.reason,
-			...(skip.walletBalance !== undefined ? { walletBalance: formatUnits(skip.walletBalance, skip.decimals) } : {}),
+			...(skip.walletBalance !== undefined
+				? { walletBalance: formatUnits(skip.walletBalance, skip.decimals) }
+				: {}),
 			...(skip.threshold !== undefined ? { threshold: formatUnits(skip.threshold, skip.decimals) } : {}),
 		})),
 	}

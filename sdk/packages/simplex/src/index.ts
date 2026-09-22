@@ -68,6 +68,7 @@ export type {
 	ActivityEvent,
 	ActivityInsert,
 	ActivityType,
+	OperatorNotification,
 	WalletTx,
 	WalletTxKind,
 	RuntimeState,

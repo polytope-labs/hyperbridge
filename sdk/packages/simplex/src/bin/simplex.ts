@@ -218,8 +218,11 @@ async function operatorContextFrom(
 		// ctrl-C performs.
 		stop: () => stopAll(),
 		activity: runtime.activity,
+		state: runtime.data.state,
 		bids: runtime.data.bids,
-		setPaused: (paused) => patchRuntimeState(runtime.data.state, { paused }),
+		setPaused: async (paused) => {
+			await patchRuntimeState(runtime.data.state, { paused })
+		},
 		// Both contexts, not just the filler's: the dashboard shows one merged feed
 		// and reports one level for it, so leaving the process-wide context (the UI
 		// server, the config layer) pinned at its default would make that a lie in

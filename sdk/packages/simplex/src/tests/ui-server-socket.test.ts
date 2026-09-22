@@ -165,6 +165,7 @@ function operatorContext(): OperatorContext & { configPath: string } {
 		config,
 		stop: vi.fn().mockResolvedValue(undefined),
 		activity: new ActivityRecorder(data.activity),
+		state: data.state,
 		bids: data.bids,
 		setPaused: vi.fn(),
 		setLogLevel: vi.fn(),

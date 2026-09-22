@@ -1085,6 +1085,49 @@ button.operator-tool-row {
 	margin: 0;
 }
 
+.notification-settings .field {
+	max-width: 24rem;
+}
+
+.notification-settings .field small,
+.notification-device > small {
+	color: var(--muted);
+	font-size: 0.72rem;
+}
+
+.notification-settings .checkbox-row {
+	display: flex;
+	align-items: flex-start;
+	gap: 0.75rem;
+	padding: 0.85rem 0;
+}
+
+.notification-settings .checkbox-row input {
+	margin-top: 0.2rem;
+}
+
+.notification-settings .checkbox-row span,
+.notification-device {
+	display: grid;
+	gap: 0.3rem;
+}
+
+.notification-settings .checkbox-row small {
+	display: block;
+	color: var(--muted);
+	font-weight: 400;
+}
+
+.notification-device {
+	margin-top: 1rem;
+	padding-top: 1rem;
+	border-top: 1px solid var(--border);
+}
+
+.notification-device > button {
+	width: fit-content;
+}
+
 .operator-action-section button {
 	margin-top: 1rem;
 }

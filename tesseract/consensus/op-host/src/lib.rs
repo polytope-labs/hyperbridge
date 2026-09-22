@@ -207,6 +207,53 @@ pub(crate) async fn fetch_storage_root(
 	Ok(root)
 }
 
+/// Finds the L2 block a super root timestamp was taken at. OP Stack blocks sit exactly one
+/// block time apart, so stepping back from the head lands on it without a search. Returns
+/// `None` when the timestamp is ahead of the chain or does not line up with a block.
+pub async fn block_at_timestamp(
+	provider: &AlloyProvider,
+	timestamp: u64,
+) -> Result<Option<u64>, anyhow::Error> {
+	let head = provider
+		.get_block(BlockId::latest())
+		.await?
+		.ok_or_else(|| anyhow!("L2 head not found"))?;
+
+	if timestamp > head.header.timestamp {
+		return Ok(None);
+	}
+
+	let previous_number = head.header.number.saturating_sub(1);
+	let previous = provider
+		.get_block(BlockId::number(previous_number))
+		.await?
+		.ok_or_else(|| anyhow!("L2 block {previous_number} not found"))?;
+	let block_time = head.header.timestamp.saturating_sub(previous.header.timestamp).max(1);
+
+	// The first estimate is exact unless the head moved between those two reads, so a small
+	// number of corrections always settles it.
+	let mut number = head
+		.header
+		.number
+		.saturating_sub((head.header.timestamp - timestamp) / block_time);
+	for _ in 0..3 {
+		let Some(block) = provider.get_block(BlockId::number(number)).await? else {
+			return Ok(None);
+		};
+		if block.header.timestamp == timestamp {
+			return Ok(Some(number));
+		}
+
+		let steps = (block.header.timestamp as i128 - timestamp as i128) / block_time as i128;
+		match u64::try_from(number as i128 - steps) {
+			Ok(corrected) if steps != 0 => number = corrected,
+			_ => return Ok(None),
+		}
+	}
+
+	Ok(None)
+}
+
 impl OpHost {
 	pub async fn new(host: &HostConfig, evm: &EvmConfig) -> Result<Self, anyhow::Error> {
 		// Always overwrite the EvmConfig's consensus state id with the
@@ -373,53 +420,6 @@ impl OpHost {
 		Ok(events)
 	}
 
-	/// Finds the L2 block a super root timestamp was taken at. OP Stack blocks sit exactly one
-	/// block time apart, so stepping back from the head lands on it without a search. Returns
-	/// `None` when the timestamp is ahead of the chain or does not line up with a block.
-	pub async fn block_at_timestamp(&self, timestamp: u64) -> Result<Option<u64>, anyhow::Error> {
-		let head = self
-			.op_execution_client
-			.get_block(BlockId::latest())
-			.await?
-			.ok_or_else(|| anyhow!("L2 head not found for {}", self.state_machine))?;
-
-		if timestamp > head.header.timestamp {
-			return Ok(None);
-		}
-
-		let previous_number = head.header.number.saturating_sub(1);
-		let previous = self
-			.op_execution_client
-			.get_block(BlockId::number(previous_number))
-			.await?
-			.ok_or_else(|| anyhow!("L2 block {previous_number} not found"))?;
-		let block_time = head.header.timestamp.saturating_sub(previous.header.timestamp).max(1);
-
-		// The first estimate is exact unless the head moved between those two reads, so a small
-		// number of corrections always settles it.
-		let mut number = head
-			.header
-			.number
-			.saturating_sub((head.header.timestamp - timestamp) / block_time);
-		for _ in 0..3 {
-			let Some(block) = self.op_execution_client.get_block(BlockId::number(number)).await?
-			else {
-				return Ok(None);
-			};
-			if block.header.timestamp == timestamp {
-				return Ok(Some(number));
-			}
-
-			let steps = (block.header.timestamp as i128 - timestamp as i128) / block_time as i128;
-			match u64::try_from(number as i128 - steps) {
-				Ok(corrected) if steps != 0 => number = corrected,
-				_ => return Ok(None),
-			}
-		}
-
-		Ok(None)
-	}
-
 	pub async fn fetch_dispute_game_payload(
 		&self,
 		at: u64,
@@ -478,7 +478,9 @@ impl OpHost {
 							continue;
 						},
 					};
-					match self.block_at_timestamp(super_output.timestamp).await {
+					match block_at_timestamp(&self.op_execution_client, super_output.timestamp)
+						.await
+					{
 						Ok(Some(number)) => number,
 						Ok(None) => {
 							log::trace!(target: LOG_TARGET, "Skipping dispute game {proxy_addr:?}: no L2 block at timestamp {}", super_output.timestamp);

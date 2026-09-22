@@ -19,10 +19,13 @@ use alloy::{
 use anyhow::anyhow;
 use futures::future::join_all;
 use geth_primitives::Header;
-use ismp::{consensus::StateMachineId, host::StateMachine};
-use op_host::abi::{DisputeGameFactory, FaultDisputeGame};
-use op_verifier::calculate_output_root;
-use primitive_types::{H160, H256};
+use ismp::{consensus::StateMachineId, host::StateMachine, messaging::Keccak256};
+use op_host::{
+	abi::{DisputeGameFactory, FaultDisputeGame},
+	block_at_timestamp,
+};
+use op_verifier::{calculate_output_root, parse_super_output};
+use primitive_types::{H160, H256, U256};
 use tesseract_evm::AlloyProvider;
 use tesseract_primitives::{FishermanClaim, Hasher};
 
@@ -55,7 +58,8 @@ pub struct OpstackConfig {
 	pub targets: Vec<OpstackTarget>,
 	/// Hyperbridge substrate client — receives the `blacklist_dispute_game` extrinsics. This
 	/// is the only role hyperbridge plays in the rollup-claim watchers, so we accept the
-	/// narrower [`FishermanClaim`] trait instead of the full [`tesseract_primitives::IsmpProvider`].
+	/// narrower [`FishermanClaim`] trait instead of the full
+	/// [`tesseract_primitives::IsmpProvider`].
 	pub hyperbridge: Arc<dyn FishermanClaim + Send + Sync>,
 	/// Poll interval. Defaults to 30 s if `None`.
 	pub poll_interval: Option<Duration>,
@@ -161,8 +165,97 @@ async fn scan_target(
 	Ok(())
 }
 
+/// Which L2 block the quorum should check. An output root game names a block number directly,
+/// a super game names a timestamp, and each chain's output root in it is taken at that chain's
+/// last block at or before it.
+#[derive(Clone, Copy, Debug)]
+enum L2Block {
+	Number(u64),
+	AtOrBeforeTimestamp(u64),
+}
+
+/// The block to check and the output root the quorum has to agree with.
+struct SuperClaim {
+	at: L2Block,
+	expected: H256,
+}
+
+/// How a game's `extraData` relates to its root claim.
+enum SuperGame {
+	/// The root claim is not the hash of `extraData`, so this is an output root game.
+	NotSuper,
+	/// A super game with an output root for this chain that the quorum has to agree with.
+	Claim(SuperClaim),
+	/// A super game that makes no usable claim about this chain: its preimage doesn't decode,
+	/// or it has no entry for this chain. The verifier rejects such a game, so there is nothing
+	/// to blacklist.
+	NoClaimAboutUs,
+}
+
+/// Reads the proxy's `extraData` and decides whether the game is a super game.
+///
+/// A super game's root claim is `keccak256(extraData)`, and that equality is what identifies
+/// one, rather than whether `extraData` happens to decode as a super output. An output root
+/// game's claim is the hash of a 128 byte output root preimage, which no super output preimage
+/// can match without a keccak collision. Deciding on the decode alone would let a crafted
+/// output root game whose `extraData` also decodes skip the output root check.
+///
+/// Newly registered super game types need no change here, since nothing depends on a list of
+/// game types.
+async fn read_super_output(
+	cfg: &OpstackConfig,
+	target: &OpstackTarget,
+	proxy: H160,
+	root_claim: B256,
+	at_block: u64,
+) -> Result<SuperGame, anyhow::Error> {
+	let proxy_addr = Address::from_slice(&proxy.0);
+	let contract = FaultDisputeGame::new(proxy_addr, &*cfg.l1_provider);
+	let extra_data = contract
+		.extraData()
+		.block(BlockId::number(at_block))
+		.call()
+		.await
+		.map_err(|e| anyhow!("fish_opstack: proxy {proxy:?}.extraData() failed: {e:?}"))?;
+
+	if Hasher::keccak256(&extra_data).0 != root_claim.0 {
+		return Ok(SuperGame::NotSuper);
+	}
+
+	let super_output = match parse_super_output(&extra_data) {
+		Ok(super_output) => super_output,
+		Err(e) => {
+			log::trace!(
+				target: crate::LOG_TARGET,
+				"fish_opstack: super game {proxy:?} has an undecodable preimage ({e}), abstaining",
+			);
+			return Ok(SuperGame::NoClaimAboutUs);
+		},
+	};
+
+	let expected = match target.state_machine {
+		StateMachine::Evm(chain_id) =>
+			super_output.output_roots.get(&U256::from(chain_id)).copied(),
+		_ => None,
+	};
+	let Some(expected) = expected else {
+		log::trace!(
+			target: crate::LOG_TARGET,
+			"fish_opstack: super game {proxy:?} carries no output root for {}, abstaining",
+			target.state_machine,
+		);
+		return Ok(SuperGame::NoClaimAboutUs);
+	};
+
+	Ok(SuperGame::Claim(SuperClaim {
+		at: L2Block::AtOrBeforeTimestamp(super_output.timestamp),
+		expected,
+	}))
+}
+
 /// Verify a dispute game's claimed L2 output root against an L2 RPC quorum. Returns
-/// `Ok(true)` if the quorum agrees with the on-chain claim, `Ok(false)` if it disagrees or
+/// `Ok(true)` if the quorum agrees with the on-chain claim or the game is a super game that makes
+/// no claim the verifier would accept for this chain, and `Ok(false)` if the quorum disagrees or
 /// reports the L2 block as missing.
 async fn evaluate(
 	cfg: &OpstackConfig,
@@ -178,36 +271,60 @@ async fn evaluate(
 		));
 	}
 
-	let l2_block_number = match read_l2_block_number(&cfg.l1_provider, proxy, l1_block).await? {
-		Some(height) => height,
-		None => {
-			// An `l2SequenceNumber` that does not fit in u64 cannot correspond to any real L2
-			// block, so the game's claim is unverifiable and invalid. Blacklist it by default
-			// rather than abstaining, so a crafted out-of-range game can't slip past the
-			// fisherman.
-			log::warn!(
-				target: crate::LOG_TARGET,
-				"fish_opstack: proxy {proxy:?} on {} reports an out-of-range l2SequenceNumber; blacklisting",
-				target.state_machine,
-			);
-			return Ok(false);
+	// A super game commits to a timestamp and to a set of output roots, so neither its
+	// `l2SequenceNumber` nor its root claim can be read the way an output root game's are.
+	let super_claim = match read_super_output(cfg, target, proxy, root_claim, l1_block).await? {
+		SuperGame::Claim(claim) => claim,
+		SuperGame::NoClaimAboutUs => return Ok(true),
+		// Not a super game, so the claim is the output root of the block it names.
+		SuperGame::NotSuper => {
+			let height = match read_l2_block_number(&cfg.l1_provider, proxy, l1_block).await? {
+				Some(height) => height,
+				None => {
+					// An `l2SequenceNumber` that does not fit in u64 cannot correspond to any
+					// real L2 block, so the game's claim is unverifiable and invalid. Blacklist
+					// it by default rather than abstaining, so a crafted out-of-range game can't
+					// slip past the fisherman.
+					log::warn!(
+						target: crate::LOG_TARGET,
+						"fish_opstack: proxy {proxy:?} on {} reports an out-of-range l2SequenceNumber; blacklisting",
+						target.state_machine,
+					);
+					return Ok(false);
+				},
+			};
+			SuperClaim { at: L2Block::Number(height), expected: H256(root_claim.0) }
 		},
 	};
 
-	let outcomes = join_all(target.l2_providers.iter().map(|p| async move {
-		compute_quorum_root(p.as_ref(), &target.message_parser, l2_block_number).await
+	// Each provider resolves the timestamp itself, so a provider that disagrees about which
+	// block a timestamp names is outvoted rather than deciding the outcome alone.
+	let outcomes = join_all(target.l2_providers.iter().map(|p| {
+		let at = super_claim.at;
+		async move {
+			let height = match at {
+				L2Block::Number(height) => height,
+				L2Block::AtOrBeforeTimestamp(timestamp) =>
+					match block_at_timestamp(p.as_ref(), timestamp).await {
+						Ok(Some(height)) => height,
+						Ok(None) => return FetchOutcome::Missing,
+						Err(_) => return FetchOutcome::Errored,
+					},
+			};
+			compute_quorum_root(p.as_ref(), &target.message_parser, height).await
+		}
 	}))
 	.await;
 
-	let claim = H256(root_claim.0);
-	let decision = decide(outcomes, |computed: &H256| computed.0 == claim.0);
+	let expected = super_claim.expected;
+	let decision = decide(outcomes, |computed: &H256| computed.0 == expected.0);
 	Ok(match decision {
 		QuorumDecision::Verified => true,
 		QuorumDecision::Mismatch | QuorumDecision::MissingFromQuorum => false,
 		QuorumDecision::InsufficientQuorum => {
 			log::trace!(
 				target: crate::LOG_TARGET,
-				"fish_opstack: insufficient quorum for proxy {proxy:?} at l2 block {l2_block_number}, abstaining",
+				"fish_opstack: insufficient quorum for proxy {proxy:?} at {:?}, abstaining", super_claim.at,
 			);
 			true
 		},
@@ -256,11 +373,7 @@ async fn compute_quorum_root(
 		FetchOutcome::Errored => return FetchOutcome::Errored,
 	};
 	let parser_addr = Address::from_slice(&message_parser.0);
-	let account = match provider
-		.get_account(parser_addr)
-		.block_id(BlockId::number(height))
-		.await
-	{
+	let account = match provider.get_account(parser_addr).block_id(BlockId::number(height)).await {
 		Ok(a) => a,
 		Err(e) => {
 			log::warn!(

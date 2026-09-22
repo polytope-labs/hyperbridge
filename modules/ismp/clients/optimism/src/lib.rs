@@ -19,7 +19,10 @@ extern crate alloc;
 
 pub mod error;
 
-use alloc::format;
+#[cfg(test)]
+mod tests;
+
+use alloc::{collections::BTreeMap, format};
 use alloy_rlp::Decodable;
 pub use error::Error;
 use evm_state_machine::{
@@ -62,6 +65,14 @@ pub const FAULT_DISPUTE_CLAIM_DATA_SLOT: u64 = 2;
 /// The value is `0` for unchallenged games and `intermediateRootIndex + 1` once challenged.
 pub const AGGREGATE_VERIFIER_COUNTERED_BY_SLOT: u64 = 5;
 
+/// Slot of the `claimData[]` array inside a `SuperFaultDisputeGame` proxy. A super game commits to
+/// a timestamp instead of an L2 block number, so it carries neither `l2BlockNumberChallenged` nor
+/// `l2BlockNumberChallenger` and `claimData` lands one slot earlier than in `FaultDisputeGame`.
+pub const SUPER_FAULT_DISPUTE_CLAIM_DATA_SLOT: u64 = 1;
+
+/// Leading version byte of a V1 super output preimage.
+pub const SUPER_OUTPUT_VERSION_V1: u8 = 1;
+
 /// Known FaultDisputeGame-style implementations whose storage layouts we can verify against.
 #[derive(
 	codec::Encode,
@@ -83,6 +94,9 @@ pub enum DisputeGameImpl {
 	/// Base's multiproof `AggregateVerifier`. Unchallenged when
 	/// `counteredByIntermediateRootIndexPlusOne == 0`.
 	AggregateVerifier,
+	/// Optimism's `SuperFaultDisputeGame`. The root claim is a super root over a dependency set
+	/// rather than a bare output root, and `claimData` sits at slot 1.
+	SuperFaultDisputeGame,
 }
 
 /// Per-game-type verification configuration. Binds a `gameType` to its expected implementation
@@ -105,6 +119,59 @@ pub struct GameTypeConfig {
 	pub expected_impl: H160,
 	/// The storage layout to use when verifying the proxy's "not challenged" slot.
 	pub kind: DisputeGameImpl,
+}
+
+/// A decoded V1 super output, the structure a super game's root claim commits to. Both the
+/// verifier and the host-side prover read games through this, so the wire layout lives here only.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SuperOutput {
+	/// The timestamp every output root in the set was taken at.
+	pub timestamp: u64,
+	/// Output root of each chain in the dependency set, keyed by chain id.
+	pub output_roots: BTreeMap<U256, H256>,
+}
+
+/// Decodes the super output preimage a super game carries in its `extra_data`. The layout is a
+/// version byte, a big endian `uint64` timestamp, then one or more 64 byte `(chainId, outputRoot)`
+/// entries. Hashing the same bytes gives the game's root claim.
+pub fn parse_super_output(encoded: &[u8]) -> Result<SuperOutput, Error> {
+	/// Version byte plus the `uint64` timestamp.
+	const HEADER_LEN: usize = 9;
+	/// A `uint256` chain id followed by a `bytes32` output root.
+	const ENTRY_LEN: usize = 64;
+
+	// Anything at or below the header holds no entries, which is not a valid super output.
+	if encoded.len() <= HEADER_LEN {
+		Err(Error::SuperOutputTooShort(encoded.len() as u32))?
+	}
+	if encoded[0] != SUPER_OUTPUT_VERSION_V1 {
+		Err(Error::SuperOutputVersionMismatch(encoded[0]))?
+	}
+
+	let entries = &encoded[HEADER_LEN..];
+	if entries.len() % ENTRY_LEN != 0 {
+		Err(Error::SuperOutputEntriesMalformed(entries.len() as u32))?
+	}
+
+	let parsed = entries
+		.chunks_exact(ENTRY_LEN)
+		.map(|entry| (U256::from_big_endian(&entry[..32]), H256::from_slice(&entry[32..])))
+		.collect::<Vec<_>>();
+
+	// The spec has these sorted by chain id ascending. Asking for a strict increase also rules
+	// out duplicates, which would otherwise let a later entry quietly replace an earlier one
+	// and leave it ambiguous which of the two was checked.
+	if !parsed.iter().map(|(chain_id, _)| chain_id).is_sorted_by(|a, b| a < b) {
+		Err(Error::SuperOutputEntriesNotAscending)?
+	}
+
+	let mut timestamp = [0u8; 8];
+	timestamp.copy_from_slice(&encoded[1..HEADER_LEN]);
+
+	Ok(SuperOutput {
+		timestamp: u64::from_be_bytes(timestamp),
+		output_roots: parsed.into_iter().collect(),
+	})
 }
 
 #[derive(codec::Encode, codec::Decode, Debug)]
@@ -281,6 +348,7 @@ pub fn verify_optimism_dispute_game_proof<H: Keccak256 + Send + Sync>(
 	root: H256,
 	dispute_factory_address: H160,
 	game_type_configs: Vec<GameTypeConfig>,
+	state_machine: StateMachine,
 	consensus_state_id: ConsensusStateId,
 ) -> Result<IntermediateState, Error> {
 	// Find the per-game-type configuration for this proof's game type.
@@ -297,12 +365,31 @@ pub fn verify_optimism_dispute_game_proof<H: Keccak256 + Send + Sync>(
 			.into();
 	let l2_block_hash = Header::from(&payload.header).hash::<H>();
 
-	let root_claim = calculate_output_root::<H>(
+	let output_root = calculate_output_root::<H>(
 		payload.version,
 		payload.header.state_root,
 		payload.withdrawal_storage_root,
 		l2_block_hash,
 	);
+
+	// A super game's claim is the hash of the whole super output, so the output root we derived
+	// from the header has to be the one that super output carries for this chain. That membership
+	// check is what ties the header we are about to report back to the registered claim.
+	let root_claim = match game_config.kind {
+		DisputeGameImpl::SuperFaultDisputeGame => {
+			let chain_id = match state_machine {
+				StateMachine::Evm(id) => id,
+				other => Err(Error::UnsupportedStateMachine(other))?,
+			};
+			match parse_super_output(&payload.extra_data)?.output_roots.get(&U256::from(chain_id)) {
+				Some(committed) if *committed == output_root => {},
+				Some(_) => Err(Error::SuperOutputRootMismatch(chain_id))?,
+				None => Err(Error::SuperOutputChainNotFound(chain_id))?,
+			}
+			H::keccak256(&payload.extra_data)
+		},
+		_ => output_root,
+	};
 
 	let game_uuid = get_game_uuid::<H>(payload.game_type, root_claim, payload.extra_data);
 
@@ -404,6 +491,34 @@ fn decode_address_from_storage_value(value: &[u8]) -> Result<H160, Error> {
 	Ok(H160(addr))
 }
 
+/// Reads `claimData.length` out of a game proxy's storage proof.
+///
+/// Solidity keeps a dynamic array's element count in the declaration slot itself, with the
+/// elements living at `keccak256(slot)`, and the MPT trie path for a direct slot is
+/// `keccak256(slot)`. A freshly created game holds exactly one entry, the root claim appended in
+/// `initialize()`, and every `move()` appends another, so a length of one means nobody has
+/// countered it. An absent slot reads as zero and is rejected the same way, since a game that
+/// never registered its root claim is not something we should build on.
+fn claim_data_len<H: Keccak256 + Send + Sync>(
+	proxy_storage_root: H256,
+	challenge_proof: Vec<Vec<u8>>,
+	slot: u64,
+) -> Result<U256, Error> {
+	let trie_path = H::keccak256(&U256::from(slot).to_big_endian());
+	let value =
+		get_value_from_proof::<H>(trie_path.0.to_vec(), proxy_storage_root, challenge_proof)?
+			.ok_or(Error::ClaimDataSlotMissing)?;
+	let raw = <alloy_primitives::Bytes as Decodable>::decode(&mut &*value)
+		.map_err(|_| Error::DecodeClaimData(format!("{:?}", value)))?
+		.0
+		.to_vec();
+	if raw.len() > 32 {
+		Err(Error::ClaimDataTooLong)?
+	}
+	// RLP strips the leading zeros, so rebuild the uint256 from what is left.
+	Ok(U256::from_big_endian(&raw))
+}
+
 /// Verifies that the dispute game at `proxy_address` has not been challenged. The check varies
 /// by implementation kind. For `OPSuccinct`, no challenge mechanism exists so the proof fields
 /// are not consulted.
@@ -428,34 +543,24 @@ fn verify_not_challenged<H: Keccak256 + Send + Sync>(
 
 	match kind {
 		DisputeGameImpl::FaultDisputeGame => {
-			// `claimData` is a dynamic `ClaimData[]` at `FAULT_DISPUTE_CLAIM_DATA_SLOT`. Solidity
-			// stores a dynamic array's element count in the slot itself (the elements live at
-			// `keccak256(slot)`). A freshly created, unchallenged game holds exactly one entry —
-			// the root claim appended in `initialize()` — and every `move()` (attack or defense)
-			// appends another. So `claimData.length == 1` iff the game has not been challenged.
-			// Any other length (including absence, i.e. length 0 for a game that never registered
-			// its root claim) is rejected.
-			//
-			// The MPT trie path for a direct storage slot is `keccak256(slot)`.
-			let storage_key = U256::from(FAULT_DISPUTE_CLAIM_DATA_SLOT).to_big_endian();
-			let trie_path = H::keccak256(&storage_key);
-			let value = get_value_from_proof::<H>(
-				trie_path.0.to_vec(),
+			if claim_data_len::<H>(
 				proxy_storage_root,
 				challenge_proof,
-			)?
-			.ok_or(Error::ClaimDataSlotMissing)?;
-			let raw = <alloy_primitives::Bytes as Decodable>::decode(&mut &*value)
-				.map_err(|_| Error::DecodeClaimData(format!("{:?}", value)))?
-				.0
-				.to_vec();
-			if raw.len() > 32 {
-				Err(Error::ClaimDataTooLong)?
-			}
-			// RLP strips leading zeros from the stored length; reconstruct the uint256 and require
-			// it to be exactly one.
-			if U256::from_big_endian(&raw) != U256::one() {
+				FAULT_DISPUTE_CLAIM_DATA_SLOT,
+			)? != U256::one()
+			{
 				Err(Error::FaultDisputeGameChallenged)?
+			}
+			Ok(())
+		},
+		DisputeGameImpl::SuperFaultDisputeGame => {
+			if claim_data_len::<H>(
+				proxy_storage_root,
+				challenge_proof,
+				SUPER_FAULT_DISPUTE_CLAIM_DATA_SLOT,
+			)? != U256::one()
+			{
+				Err(Error::SuperFaultDisputeGameChallenged)?
 			}
 			Ok(())
 		},

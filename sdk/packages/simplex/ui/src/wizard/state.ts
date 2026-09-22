@@ -19,6 +19,17 @@ export type VaultDraft = VaultRowDraft
 
 export type SignerType = "privateKey" | "mpcVault" | "turnkey"
 
+export type SignerKeyValidation = "empty" | "invalid" | "checking" | "valid" | "error"
+
+export const EVM_PRIVATE_KEY_FORMAT_ERROR = "Enter a valid 64-character hexadecimal EVM private key."
+export const EVM_PRIVATE_KEY_INVALID_ERROR = "Invalid EVM private key."
+
+export function privateKeyFormatError(value: string): string | undefined {
+	const trimmed = value.trim()
+	if (!trimmed) return "Enter the EVM private key."
+	return /^(0x)?[0-9a-fA-F]{64}$/.test(trimmed) ? undefined : EVM_PRIVATE_KEY_FORMAT_ERROR
+}
+
 /** One market the filler will quote. What it pays there comes from a limit order. */
 export interface PairDraft {
 	enabled: boolean
@@ -35,6 +46,8 @@ export interface WizardState {
 	network: "mainnet"
 	signerType: SignerType
 	signerKey: string
+	signerKeyValidation: SignerKeyValidation
+	signerKeyValidationMessage?: string
 	signerAddress?: string
 	mpcVault: {
 		apiToken: string
@@ -73,6 +86,7 @@ export function initialState(defaults: SetupDefaults): WizardState {
 		network: "mainnet",
 		signerType: "privateKey",
 		signerKey: "",
+		signerKeyValidation: "empty",
 		mpcVault: {
 			apiToken: "",
 			vaultUuid: "",

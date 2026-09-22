@@ -1,9 +1,11 @@
-const CACHE_NAME = "simplex-shell-v6"
+const CACHE_NAME = "simplex-shell-v7"
 const PRECACHE_URLS = [
 	"./",
 	"./index.html",
 	"./manifest.webmanifest",
 	"./icons/mobile-logo.svg",
+	"./icons/simplex-192.png",
+	"./icons/simplex-512.png",
 ]
 
 self.addEventListener("install", (event) => {
@@ -34,8 +36,8 @@ async function precacheAppShell() {
 	// complete shell, rather than relying on a second online page load.
 	const response = await fetch("./index.html", { cache: "no-store" })
 	const html = await response.text()
-	const entryUrls = Array.from(html.matchAll(/(?:src|href)=["']([^"']+)["']/g), (match) => match[1]).filter(
-		(path) => path.startsWith("./assets/"),
+	const entryUrls = Array.from(html.matchAll(/(?:src|href)=["']([^"']+)["']/g), (match) => match[1]).filter((path) =>
+		path.startsWith("./assets/"),
 	)
 	await cache.addAll(entryUrls)
 }
@@ -46,7 +48,8 @@ self.addEventListener("fetch", (event) => {
 	if (requestUrl.origin !== self.location.origin) return
 	// API responses contain live balances, status, and operator data. They must
 	// never become stale offline cache entries.
-	if (requestUrl.pathname === "/api" || requestUrl.pathname.startsWith("/api/") || requestUrl.pathname === "/health") return
+	if (requestUrl.pathname === "/api" || requestUrl.pathname.startsWith("/api/") || requestUrl.pathname === "/health")
+		return
 
 	if (event.request.mode === "navigate") {
 		event.respondWith(
@@ -71,6 +74,47 @@ self.addEventListener("fetch", (event) => {
 				}
 				return response
 			})
+		}),
+	)
+})
+
+self.addEventListener("push", (event) => {
+	let notification = {
+		title: "Simplex alert",
+		body: "Open Simplex for details.",
+		tag: "simplex-alert",
+		url: "./",
+	}
+	try {
+		if (event.data) notification = { ...notification, ...event.data.json() }
+	} catch {
+		// A malformed payload still tells the operator that Simplex needs attention.
+	}
+	event.waitUntil(
+		self.registration.showNotification(notification.title, {
+			body: notification.body,
+			tag: notification.tag,
+			icon: "./icons/simplex-192.png",
+			badge: "./icons/simplex-192.png",
+			data: { url: notification.url },
+		}),
+	)
+})
+
+self.addEventListener("notificationclick", (event) => {
+	event.notification.close()
+	const target = new URL(event.notification.data?.url ?? "./", self.registration.scope).href
+	event.waitUntil(
+		self.clients.matchAll({ type: "window", includeUncontrolled: true }).then(async (windows) => {
+			for (const client of windows) {
+				try {
+					const navigated = await client.navigate(target)
+					if (navigated) return navigated.focus()
+				} catch {
+					// Uncontrolled windows can reject navigation; open a fresh app window below.
+				}
+			}
+			return self.clients.openWindow(target)
 		}),
 	)
 })

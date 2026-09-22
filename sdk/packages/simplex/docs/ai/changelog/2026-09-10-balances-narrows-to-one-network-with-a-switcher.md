@@ -13,10 +13,11 @@ silently. Any token with an unread contributor reads `Unavailable` — the same 
 `availableStablecoinLiquidity` already made for the headline metric, which now shares its helper.
 
 The switcher's rows carry each network's chain logo, whether it is filling or observing, and its
-available USDC+USDT; the trigger names the selected network over a plain "9 networks". No
-per-network health signal is derived from the snapshot — a network whose read failed shows
-`Unavailable` in the stables column, which is a fact the data already carries, and the
-section-level "Some balances are unavailable" notice reports the failures.
+available USD stables (`USDC`, `USDT`, and `DAI`); the trigger names the selected network over a
+plain "9 networks". During a partial snapshot, healthy rows keep their known per-network value and
+only a row with its own failed stablecoin read shows `Unavailable`. The cross-network aggregate
+remains `Unavailable` until every chain is fresh, and the section-level "Some balances are
+unavailable" notice reports the failures.
 
 The section moved to its own `OperatorBalances.tsx` with the card components; `AssetBalanceCard`
 and its null rendering are unchanged. `AppSelect` grew optional `description`/`trailing` on an

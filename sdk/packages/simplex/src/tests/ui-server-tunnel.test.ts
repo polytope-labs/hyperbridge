@@ -1,4 +1,5 @@
 import { describe, it, expect, afterEach, vi } from "vitest"
+import { EventEmitter } from "node:events"
 import { mkdtempSync, readFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -107,11 +108,14 @@ function operatorContext(tunnel?: TunnelControls): OperatorContext & { configPat
 			}),
 			getWatchOnly: () => ({}),
 		},
-		balances: { getSnapshot: () => ({ updatedAt: null, status: "loading", chains: [], issues: [] }) },
+		balances: Object.assign(new EventEmitter(), {
+			getSnapshot: () => ({ updatedAt: null, status: "loading" as const, chains: [], issues: [] }),
+		}),
 		haltControls: [],
 		config,
 		stop: vi.fn().mockResolvedValue(undefined),
 		activity: new ActivityRecorder(data.activity),
+		state: data.state,
 		bids: data.bids,
 		setPaused: vi.fn(),
 		setLogLevel: vi.fn(),

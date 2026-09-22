@@ -5,10 +5,11 @@ import { OperationLink } from "../components/OperationLink"
 import { OperatorSheet } from "../components/OperatorSheet"
 import { Chains } from "./Chains"
 import { RemoteAccess } from "./RemoteAccess"
+import { NotificationSettings } from "./NotificationSettings"
 import { useAction, usePolling } from "../lib/hooks"
 import type { ConfigDto } from "../types"
 
-export type OperationsPanel = "allowlist" | "chains" | "remote"
+export type OperationsPanel = "allowlist" | "chains" | "notifications" | "remote"
 
 /**
  * Live configuration tools. Moving funds (Send, Vault treasury) lives on the
@@ -64,6 +65,12 @@ export function Operations(props: {
 						onClick={() => setPanel("chains")}
 					/>
 					<OperationLink
+						title="Notifications"
+						description="Alert devices when liquidity is low or a swap completes."
+						meta="Liquidity & swaps"
+						onClick={() => setPanel("notifications")}
+					/>
+					<OperationLink
 						title="Remote access"
 						description="Reach this dashboard from another device through an SSH tunnel."
 						meta={
@@ -111,6 +118,15 @@ export function Operations(props: {
 						}
 					/>
 				</div>
+			</OperatorSheet>
+
+			<OperatorSheet
+				open={panel === "notifications"}
+				onClose={() => setPanel(undefined)}
+				title="Notifications"
+				description="Choose alert rules and connect this device."
+			>
+				<NotificationSettings />
 			</OperatorSheet>
 
 			<OperatorSheet

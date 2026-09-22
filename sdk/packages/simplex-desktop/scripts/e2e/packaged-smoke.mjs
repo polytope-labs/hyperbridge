@@ -54,6 +54,21 @@ export async function waitFor(check, description, timeoutMs = 120_000, pause = d
 	throw new Error(`Timed out waiting for ${description}`)
 }
 
+function waitForProcessExit(child, timeoutMs) {
+	if (child.exitCode !== null) return Promise.resolve(true)
+	return new Promise((resolveExit) => {
+		const onExit = () => {
+			clearTimeout(timer)
+			resolveExit(true)
+		}
+		const timer = setTimeout(() => {
+			child.off("exit", onExit)
+			resolveExit(false)
+		}, timeoutMs)
+		child.once("exit", onExit)
+	})
+}
+
 function executableFor(appDirectory) {
 	if (process.platform === "darwin") return join(appDirectory, "Contents", "MacOS", "Simplex")
 	if (process.platform === "win32") return join(appDirectory, "Simplex.exe")
@@ -65,14 +80,25 @@ function resourcesFor(appDirectory) {
 	return process.platform === "darwin" ? join(appDirectory, "Contents", "Resources") : join(appDirectory, "resources")
 }
 
-async function stopProcess(child) {
+export async function stopProcess(
+	child,
+	{ platform = process.platform, gracePeriodMs = 15_000, forcePeriodMs = 5_000 } = {},
+) {
 	if (child.exitCode !== null) return
 	if (!child.pid) return
-	if (process.platform === "win32") {
+	if (platform === "win32") {
 		const killer = spawn("taskkill.exe", ["/PID", String(child.pid), "/T", "/F"], { stdio: "ignore" })
 		await new Promise((resolveExit) => killer.once("exit", resolveExit))
-	} else child.kill("SIGTERM")
-	await Promise.race([new Promise((resolveExit) => child.once("exit", resolveExit)), delay(15_000)])
+		if (await waitForProcessExit(child, forcePeriodMs)) return
+		throw new Error(`Packaged app process ${child.pid} remained alive after taskkill`)
+	}
+
+	child.kill("SIGTERM")
+	if (await waitForProcessExit(child, gracePeriodMs)) return
+
+	child.kill("SIGKILL")
+	if (await waitForProcessExit(child, forcePeriodMs)) return
+	throw new Error(`Packaged app process ${child.pid} remained alive after SIGKILL`)
 }
 
 async function assertDirectSolverStartup(appDirectory) {

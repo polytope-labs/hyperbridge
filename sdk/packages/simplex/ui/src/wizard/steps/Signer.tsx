@@ -1,9 +1,15 @@
-import { useState } from "react"
+import { useRef, useState } from "react"
 import { api } from "../../api"
 import { Field } from "../../components/Field"
-import { CheckIcon, CopyIcon } from "../../components/InterfaceIcons"
+import { CheckIcon, CloseIcon, CopyIcon } from "../../components/InterfaceIcons"
 import { PillTabs } from "../../components/PillTabs"
-import { normalizeHexKey, type SignerType, type WizardState } from "../state"
+import {
+	EVM_PRIVATE_KEY_INVALID_ERROR,
+	normalizeHexKey,
+	privateKeyFormatError,
+	type SignerType,
+	type WizardState,
+} from "../state"
 import type { StepProps } from "../Wizard"
 
 const SIGNER_TABS = [
@@ -45,21 +51,56 @@ const TURNKEY_FIELDS: ReadonlyArray<{ key: keyof WizardState["turnkey"]; label: 
 ]
 
 export function StepSigner({ state, setState }: StepProps) {
-	const [error, setError] = useState<string>()
+	const validationRequest = useRef(0)
+	const [copyError, setCopyError] = useState<string>()
 	const [addressCopied, setAddressCopied] = useState(false)
 	const signerDescription = SIGNER_DESCRIPTIONS[state.signerType]
 
-	const deriveAddress = async () => {
-		setError(undefined)
-		try {
-			const { address } = await api.post<{ address: string }>("/api/setup/derive-evm-address", {
-				privateKey: normalizeHexKey(state.signerKey),
-			})
-			setState((s) => ({ ...s, signerAddress: address }))
-		} catch (err) {
-			setState((s) => ({ ...s, signerAddress: undefined }))
-			setError(err instanceof Error ? err.message : String(err))
+	const updateSignerKey = (signerKey: string) => {
+		const requestId = ++validationRequest.current
+		setAddressCopied(false)
+		setCopyError(undefined)
+		const formatError = privateKeyFormatError(signerKey)
+		if (formatError) {
+			setState((s) => ({
+				...s,
+				signerKey,
+				signerAddress: undefined,
+				signerKeyValidation: signerKey.trim() ? "invalid" : "empty",
+				signerKeyValidationMessage: formatError,
+			}))
+			return
 		}
+
+		setState((s) => ({
+			...s,
+			signerKey,
+			signerAddress: undefined,
+			signerKeyValidation: "checking",
+			signerKeyValidationMessage: undefined,
+		}))
+		void api
+			.post<{ address: string }>("/api/setup/derive-evm-address", {
+				privateKey: normalizeHexKey(signerKey),
+			})
+			.then(({ address }) => {
+				if (requestId !== validationRequest.current) return
+				setState((s) => ({
+					...s,
+					signerAddress: address,
+					signerKeyValidation: "valid",
+					signerKeyValidationMessage: undefined,
+				}))
+			})
+			.catch(() => {
+				if (requestId !== validationRequest.current) return
+				setState((s) => ({
+					...s,
+					signerAddress: undefined,
+					signerKeyValidation: "error",
+					signerKeyValidationMessage: EVM_PRIVATE_KEY_INVALID_ERROR,
+				}))
+			})
 	}
 
 	const copyFillerAddress = () => {
@@ -70,8 +111,17 @@ export function StepSigner({ state, setState }: StepProps) {
 				setAddressCopied(true)
 				window.setTimeout(() => setAddressCopied(false), 1600)
 			})
-			.catch(() => setError("Could not copy the filler wallet address. Select it and copy it manually."))
+			.catch(() => setCopyError("Could not copy the filler wallet address. Select it and copy it manually."))
 	}
+
+	const validation = state.signerKeyValidation ?? "empty"
+	const validationMessage =
+		state.signerKeyValidationMessage ??
+		(validation === "checking"
+			? "Checking the EVM private key…"
+			: validation === "valid"
+				? "EVM private key is valid."
+				: "Enter the EVM private key.")
 
 	return (
 		<div className="wizard-sections signer-step">
@@ -105,14 +155,26 @@ export function StepSigner({ state, setState }: StepProps) {
 							required
 							value={state.signerKey}
 							placeholder="0x…"
-							onChange={(signerKey) => {
-								setAddressCopied(false)
-								setState((s) => ({ ...s, signerKey, signerAddress: undefined }))
-							}}
-							onBlur={deriveAddress}
+							ariaInvalid={validation === "invalid" || validation === "error"}
+							onChange={updateSignerKey}
 						/>
+						<div className={`signer-key-validation signer-key-validation-${validation}`} role="status" aria-live="polite">
+							<span className="signer-key-validation-icon" aria-hidden="true">
+								{validation === "valid" ? (
+									<CheckIcon />
+								) : validation === "checking" ? (
+									<span className="signer-key-validation-spinner" />
+								) : validation === "empty" ? (
+									<span className="signer-key-validation-dot" />
+								) : (
+									<CloseIcon />
+								)}
+							</span>
+							<span>{validationMessage}</span>
+						</div>
 						<p className="credential-note">
-							Use a dedicated wallet and keep the generated config file protected.
+							Use a dedicated wallet and keep the generated config file protected. The key is checked by the local
+							Simplex server and never persisted by validation.
 						</p>
 						{state.signerAddress && (
 							<aside className="filler-address-callout" aria-labelledby="filler-address-title">
@@ -174,7 +236,7 @@ export function StepSigner({ state, setState }: StepProps) {
 						))}
 					</div>
 				)}
-				{error && <p className="error">{error}</p>}
+				{copyError && <p className="error">{copyError}</p>}
 			</section>
 		</div>
 	)

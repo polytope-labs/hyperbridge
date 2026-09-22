@@ -124,6 +124,8 @@ jobs:
     needs: prepare
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
+    env:
+      SIMPLEX_DESKTOP_PACKAGE_ATTEMPTS: "3"
     environment:
       name: ${{ needs.prepare.outputs.sign_artifacts == 'true' && 'simplex-desktop-release' || 'simplex-desktop-ci' }}
       deployment: false

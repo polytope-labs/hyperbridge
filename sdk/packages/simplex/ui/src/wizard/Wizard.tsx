@@ -2,7 +2,13 @@ import { useState } from "react"
 import { isRegistrySymbol } from "@/config/asset-registry"
 import { validateConfig } from "@/config/filler-toml"
 import type { SetupDefaults } from "../types"
-import { assembleConfig, initialState, normSymbol, type WizardState } from "./state"
+import {
+	assembleConfig,
+	initialState,
+	normSymbol,
+	privateKeyFormatError,
+	type WizardState,
+} from "./state"
 import { StepSigner } from "./steps/Signer"
 import { StepSubstrate } from "./steps/Substrate"
 import { StepChains } from "./steps/Chains"
@@ -23,10 +29,11 @@ export interface StepProps {
 
 function signerRequirements(state: WizardState): string[] {
 	if (state.signerType === "privateKey") {
-		if (!state.signerKey.trim()) return ["Enter the EVM private key."]
-		return /^(0x)?[0-9a-fA-F]{64}$/.test(state.signerKey.trim())
-			? []
-			: ["Enter a valid 64-character hexadecimal EVM private key."]
+		const formatError = privateKeyFormatError(state.signerKey)
+		if (formatError) return [formatError]
+		if (state.signerKeyValidation === "valid" && state.signerAddress) return []
+		if (state.signerKeyValidation === "checking") return ["Checking the EVM private key…"]
+		return [state.signerKeyValidationMessage ?? "Verify the EVM private key before continuing."]
 	}
 	if (state.signerType === "mpcVault") {
 		const fields = [

@@ -29,7 +29,9 @@ use subxt_utils::{
 	values::{messages_to_value, state_machine_id_to_value},
 	Hyperbridge, InMemorySigner,
 };
-use sync_committee_primitives::constants::ETH1_DATA_VOTES_BOUND_ETH;
+use sync_committee_primitives::constants::{
+	ETH1_DATA_VOTES_BOUND_ETH, PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM,
+};
 use tesseract_beefy::host::BeefyHost;
 use tesseract_evm::EvmConfig;
 use tesseract_grandpa::{GrandpaConfig, GrandpaHost};
@@ -46,18 +48,22 @@ async fn setup_clients() -> Result<
 		SyncCommitteeHost<
 			sync_committee_primitives::constants::sepolia::Sepolia,
 			ETH1_DATA_VOTES_BOUND_ETH,
+			PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM,
 		>,
 		ArbHost,
 		OpHost,
 	),
 	anyhow::Error,
 > {
+	// The beacon API and the L1 execution RPC are separate endpoints on most providers, so they
+	// are configured separately rather than assuming one host serves both.
 	let beacon_url = env!("BEACON_URL").to_string();
+	let l1_exec_url = env!("SEPOLIA_EXEC_URL").to_string();
 	let arb_url = env!("ARB_URL").to_string();
 	let op_url = env!("OP_URL").to_string();
 
 	let config_a = SubstrateConfig {
-		state_machine: StateMachine::Kusama(2000),
+		state_machine: Some(StateMachine::Kusama(2000)),
 		hashing: Some(HashAlgorithm::Keccak),
 		consensus_state_id: Some("PARA".to_string()),
 		rpc_ws: "ws://localhost:9944".to_string(),
@@ -72,24 +78,27 @@ async fn setup_clients() -> Result<
 	};
 
 	let host = tesseract_grandpa::HostConfig {
-		rpc: "wss://hyperbridge-paseo-rpc.blockops.network:443".to_string(),
+		rpc: "wss://gargantua.rpc.polytope.technology:443".to_string(),
 		slot_duration: 12,
 		consensus_update_frequency: Some(60),
 		para_ids: vec![],
 		max_block_range: None,
 	};
 
-	let hyperbridge_grandpa_config = GrandpaConfig { substrate: config_a, grandpa: host };
+	let hyperbridge_grandpa_config = GrandpaConfig { grandpa: host };
 
-	let hyperbridge_chain =
-		GrandpaHost::<Blake2SubstrateChain, Hyperbridge>::new(&hyperbridge_grandpa_config).await?;
+	let hyperbridge_chain = GrandpaHost::<Blake2SubstrateChain, Hyperbridge>::new(
+		&config_a,
+		&hyperbridge_grandpa_config,
+	)
+	.await?;
 
 	let sync_committee_chain = {
 		let config = EvmConfig {
-			rpc_urls: vec![beacon_url.clone()],
-			state_machine: StateMachine::Evm(11155111),
-			consensus_state_id: "ETH0".to_string(),
-			ismp_host: hex!("7BdE4Ce065400eE332C20f7df3a35d66674165f6").into(),
+			rpc_urls: vec![l1_exec_url.clone()],
+			state_machine: Some(StateMachine::Evm(11155111)),
+			consensus_state_id: Some("ETH0".to_string()),
+			ismp_host: Some(hex!("9AA003594d59C62EE17A73A569Fd7B1DbdBd71E1").into()),
 			signer: Some(
 				"6284acbdef4b15b21b64d9fbdcb7c7d4fa05f1a96364d12c2988bddc18356d84".to_string(),
 			),
@@ -105,6 +114,7 @@ async fn setup_clients() -> Result<
 		SyncCommitteeHost::<
 			sync_committee_primitives::constants::sepolia::Sepolia,
 			ETH1_DATA_VOTES_BOUND_ETH,
+			PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM,
 		>::new(&sync_commitee_config, &config, Default::default())
 		.await?
 	};
@@ -114,9 +124,9 @@ async fn setup_clients() -> Result<
 	let arbitrum_chain = {
 		let evm_config = EvmConfig {
 			rpc_urls: vec![arb_url],
-			state_machine: StateMachine::Evm(421614),
-			consensus_state_id: "ARB0".to_string(),
-			ismp_host: hex!("3435bD7e5895356535459D6087D1eB982DAd90e7").into(),
+			state_machine: Some(StateMachine::Evm(421614)),
+			consensus_state_id: Some("ARB0".to_string()),
+			ismp_host: Some(hex!("3435bD7e5895356535459D6087D1eB982DAd90e7").into()),
 			signer: Some(
 				"6284acbdef4b15b21b64d9fbdcb7c7d4fa05f1a96364d12c2988bddc18356d84".to_string(),
 			),
@@ -126,10 +136,11 @@ async fn setup_clients() -> Result<
 		};
 
 		let host = arb_host::HostConfig {
-			beacon_rpc_url: vec![beacon_url.clone()],
+			ethereum_rpc_url: vec![l1_exec_url.clone()],
 			rollup_core: H160::from(hex!("042B2E6C5E99d4c521bd49beeD5E99651D9B0Cf4")),
 			l1_state_machine: StateMachine::Evm(11155111),
 			l1_consensus_state_id: "ETH0".to_string(),
+			consensus_state_id: "ARB0".to_string(),
 			consensus_update_frequency: None,
 		};
 
@@ -149,9 +160,9 @@ async fn setup_clients() -> Result<
 	let optimism_chain = {
 		let evm_config = EvmConfig {
 			rpc_urls: vec![op_url],
-			state_machine: StateMachine::Evm(11155420),
-			consensus_state_id: "OPT0".to_string(),
-			ismp_host: hex!("6d51b678836d8060d980605d2999eF211809f3C2").into(),
+			state_machine: Some(StateMachine::Evm(11155420)),
+			consensus_state_id: Some("OPT0".to_string()),
+			ismp_host: Some(hex!("6d51b678836d8060d980605d2999eF211809f3C2").into()),
 			signer: Some(
 				"6284acbdef4b15b21b64d9fbdcb7c7d4fa05f1a96364d12c2988bddc18356d84".to_string(),
 			),
@@ -161,9 +172,10 @@ async fn setup_clients() -> Result<
 		};
 
 		let host = op_host::HostConfig {
-			beacon_rpc_url: vec![beacon_url],
+			ethereum_rpc_url: vec![l1_exec_url],
 			l1_state_machine: StateMachine::Evm(11155111),
 			l1_consensus_state_id: "ETH0".to_string(),
+			consensus_state_id: "OPT0".to_string(),
 			consensus_update_frequency: None,
 
 			l2_oracle: None,
@@ -179,11 +191,17 @@ async fn setup_clients() -> Result<
 	let optimism_state_machine_id =
 		StateMachineId { state_id: StateMachine::Evm(11155420), consensus_state_id: *b"OPT0" };
 
+	// OP Sepolia's factory stopped registering the output root game types, so type 9 is the only
+	// one still being proposed there.
 	set_optimism_config_on_hyperbridge(
 		hyperbridge_chain.clone(),
 		optimism_state_machine_id,
 		optimism_chain.host.dispute_game_factory.unwrap(),
-		vec![0, 1],
+		vec![GameTypeConfig {
+			game_type: 9,
+			expected_impl: H160::from(hex!("19AF533Cc2A2A55786DCB8672aA5717e64213208")),
+			kind: DisputeGameImpl::SuperFaultDisputeGame,
+		}],
 	)
 	.await?;
 
@@ -285,6 +303,8 @@ fn game_type_config_to_value(config: &GameTypeConfig) -> Value {
 			Value::unnamed_variant("FaultDisputeGame", Vec::<Value>::new()),
 		DisputeGameImpl::AggregateVerifier =>
 			Value::unnamed_variant("AggregateVerifier", Vec::<Value>::new()),
+		DisputeGameImpl::SuperFaultDisputeGame =>
+			Value::unnamed_variant("SuperFaultDisputeGame", Vec::<Value>::new()),
 	};
 	Value::named_composite(vec![
 		("game_type", value!(config.game_type)),

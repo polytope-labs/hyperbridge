@@ -15,19 +15,24 @@ transactions.
 
 | Scenario | Order |
 | --- | --- |
-| `same-chain` | 50 USDC → cNGN on BSC Chapel |
-| `cross-chain` | 40 USDC on BSC Chapel → cNGN on Polygon Amoy |
-| `partial` | 500000 cNGN on Polygon Amoy → USDC on BSC Chapel, too large for one solver |
+| `same-chain` | 5 USDC → cNGN on BSC Chapel |
+| `cross-chain` | 4 USDC on BSC Chapel → cNGN on Polygon Amoy |
+| `partial` | 50000 cNGN on Polygon Amoy → USDC on BSC Chapel, too large for one solver |
 | `multi-leg` | USDC → cNGN and cNGN → USDC legs, each reaching different solvers |
-| `same-solver-levels` | one leg only solver 1's three levels reach |
+| `same-solver-levels` | 15 USDC, which no single level of solver 1's ladder covers |
 | `multi-leg-levels` | both pairs, solver 1's levels only |
-| `multi-leg-same-input` | two USDC → cNGN legs at the same levels |
+| `multi-leg-same-input` | two 5 USDC → cNGN legs at the same levels |
 
 `multi-leg` and `multi-leg-levels` put two pairs in one order, which #1311 forbids (`mixedPairs`).
 They run only when named, for a gateway without that rule.
 
 Pass scenario names as arguments, or through `E2E_SCENARIOS` (comma-separated, spaces allowed),
 to run a subset. Without names, every scenario except the `mixedPairs` ones runs.
+
+Sizes are close to the smallest the orderbook accepts, so a run moves little: it refuses a limit
+order paying out under 10 USDC or 15000 cNGN (`serverInfo.minOrderSizes`). Each solver's standing
+orders are 20 USDC and 30000 cNGN, and solver 1's extra levels pay out 15900 and 15850 cNGN, or
+take 15900 cNGN for 10 USDC.
 
 ## Wallets
 

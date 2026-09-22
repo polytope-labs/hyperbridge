@@ -139,9 +139,9 @@ describe("in-flight extrinsic handling", () => {
 		const result = await retractWithShortTimeout(coproc, 100)
 
 		expect(calls.count).toBe(3)
-		// The first attempt takes the api's nonce; every bump is pinned to the nonce that attempt
+		// The first attempt takes the pool-aware nonce; every bump is pinned to the nonce that attempt
 		// was signed with, so the pool replaces the stalled copy instead of queueing behind it.
-		expect(calls.options.map((opts) => opts.nonce)).toEqual([undefined, SIGNED_NONCE, SIGNED_NONCE])
+		expect(calls.options.map((opts) => opts.nonce)).toEqual([-1, SIGNED_NONCE, SIGNED_NONCE])
 		const tips = calls.options.map((opts) => opts.tip)
 		expect(tips[1]).toBe(tips[0]! * 2n)
 		expect(tips[2]).toBe(tips[0]! * 4n)
@@ -288,5 +288,28 @@ describe("in-flight extrinsic handling", () => {
 		expect(result.pending).toBeUndefined()
 		expect(result.error).toContain("BidNotFound")
 		expect(calls.count).toBe(1)
+	})
+
+	/**
+	 * The queue serialises submissions but a watch gives up while its extrinsic is still pooled,
+	 * and the on-chain nonce only advances once that one is in a block. A second, unrelated
+	 * extrinsic signed against the on-chain nonce would bounce off the first (1013/1014) instead
+	 * of queueing behind it, which is how several bids on one order lost their auction.
+	 */
+	it("signs each new extrinsic with the pool-aware nonce, so a stalled one does not block the next", async () => {
+		const { api, calls } = mockApi(async (_attempt, cb) => {
+			cb({ status: { isReady: true }, dispatchError: undefined })
+			return () => {}
+		})
+		const coproc = IntentsCoprocessor.fromApi(api, "//Alice")
+
+		const first = await retractWithShortTimeout(coproc, 20)
+		const second = await retractWithShortTimeout(coproc, 20)
+
+		expect(first.pending).toBe(true)
+		expect(second.pending).toBe(true)
+		// Every fresh submission, and never a replacement retry, takes -1.
+		expect(calls.options.filter((opts) => opts.nonce === -1).length).toBeGreaterThanOrEqual(2)
+		expect(calls.options[0].nonce).toBe(-1)
 	})
 })

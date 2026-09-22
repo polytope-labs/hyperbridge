@@ -49,5 +49,7 @@ Upgrade a source chain when it has no orders in flight.
 
 `SolverAccount` moved from `0x7cb55539…c88C`. An EOA still delegated to the old address runs the
 previous validation logic, which derives the nonce key from the commitment and session key alone
-rather than also from the op's calldata. The new account depends on the upgraded gateway, so switch
-`chain.ts` and the indexer configs to it as each chain is upgraded, not before.
+rather than also from the op's calldata. The new account depends on the upgraded gateway. The SDK's
+`chain.ts` points every mainnet chain at it (sdk 2.8.16, simplex 0.16.5), so solvers on those
+releases can only bid once a chain's gateway is upgraded; the indexer configs still list the old
+address.

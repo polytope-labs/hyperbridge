@@ -72,7 +72,7 @@ const latest = (lp: string, vault = USDC, chain = BASE) =>
 		.filter((row) => row.lp === lp && row.vault === vault && row.chain === chain)
 		.sort((x, y) => Number(y.dayStartTimestamp - x.dayStartTimestamp))[0]
 /** Delegates `lp` to the Base SolverAccount, which is what makes it one of our solvers. */
-const register = (lp: string) => mockCodes.set(lp, "0xef01007cb55539d1144f62422099c3fa3405092022c88c")
+const register = (lp: string) => mockCodes.set(lp, "0xef0100d5535d4deb17f050e52b6efda2fde00435f39279")
 const value = (shares: bigint, vault = USDC, chain = BASE) =>
 	(shares * state(vault, chain).numerator) / state(vault, chain).denominator
 const ceil = (n: bigint, d: bigint) => (n + d - 1n) / d
@@ -398,7 +398,7 @@ it("uses a new opening basis for pre-delegation shares and continues tracking af
 	expect(position(B)).toBeUndefined()
 	state().numerator = 12n
 	state().denominator = 10n
-	mockCodes.set(B, "0xef01007cb55539d1144f62422099c3fa3405092022c88c")
+	mockCodes.set(B, "0xef0100d5535d4deb17f050e52b6efda2fde00435f39279")
 	state().cash.set(B, 240n) // B's measurement starts here; pre-tracking appreciation is excluded.
 	await block([{ kind: "deposit", lp: B, amount: 120n }])
 	expect(position(B)).toMatchObject({ openingShares: 200n, openingPrincipal: 240n })

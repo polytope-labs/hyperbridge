@@ -48,7 +48,7 @@ const LP = "0xce319986ca4d5d0893751a628d0db3dc8fc91d62"
 const OTHER = "0x13e41cde1d55880cbe031c69f206c2e9bc3c94c2"
 const THIRD = "0x18f23e630077b1da3ed97c0469d0504a93fad9e2"
 /** EIP-7702 designator for the Base SolverAccount: what makes an LP one of our solvers. */
-const DELEGATED = "0xef01007cb55539d1144f62422099c3fa3405092022c88c"
+const DELEGATED = "0xef0100d5535d4deb17f050e52b6efda2fde00435f39279"
 const position = (lp = LP) => records.get(`VaultLpPosition:${CHAIN}-${VAULT}-${lp}`)
 const getSnapshot = (lp = LP) => rows("VaultPositionSnapshot").find((row) => row.lp === lp)
 const movements = jest.mocked(readVaultBlockMovements)
@@ -135,7 +135,7 @@ it("seeds shares received before delegation as opening capital at the first trac
 	;(global as any).api.getCode.mockResolvedValue("0x")
 	await Service.recordTransfer(transfer())
 	expect(position()).toBeUndefined()
-	;(global as any).api.getCode.mockResolvedValue("0xef01007cb55539d1144f62422099c3fa3405092022c88c")
+	;(global as any).api.getCode.mockResolvedValue("0xef0100d5535d4deb17f050e52b6efda2fde00435f39279")
 	balances.set(LP, 1020n)
 	blockEvents(ledger())
 	await Service.recordLedger(ledger())
@@ -383,7 +383,7 @@ it("matches configured vaults and SolverAccount addresses case-insensitively", a
 	expect(Service.configuredVaults("EVM-999")).toEqual([])
 	expect(Service.configuredVaults(CHAIN)).toContainEqual({ vault: VAULT, underlyingToken: TOKEN })
 	expect(Service.underlyingTokenFor(CHAIN, ethers.utils.getAddress(VAULT))).toBe(TOKEN)
-	;(global as any).api.getCode.mockResolvedValue("0xEF01007CB55539D1144F62422099C3FA3405092022C88C")
+	;(global as any).api.getCode.mockResolvedValue("0xEF0100D5535D4DEB17F050E52B6EFDA2FDE00435F39279")
 	expect(await Service.isDelegatedSolver(CHAIN, LP)).toBe(true)
 	expect(await Service.isDelegatedSolver("EVM-999", LP)).toBe(false)
 })

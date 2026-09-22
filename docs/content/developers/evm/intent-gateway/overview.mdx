@@ -22,7 +22,9 @@ Each order is **auctioned** to competing solvers. Solvers bid by signing `UserOp
 
 ## Order Legs
 
-An order is a list of legs: leg `i` sells `inputs[i]` for `output.assets[i]`. `inputs` and `output.assets` must be non-empty and the same length, and every output amount must be non-zero. Legs may repeat tokens, for example one pair offered at several prices:
+An order is a list of legs: leg `i` sells `inputs[i]` for `output.assets[i]`. `inputs` and `output.assets` must be non-empty and the same length, and every output amount must be non-zero.
+
+Every leg trades the same pair. `placeOrder` requires all of `inputs` to name one token and all of `output.assets` to name one token, so an order is a single pair quoted at one or more prices:
 
 | Leg | Input | Output |
 |-----|-------|--------|
@@ -31,7 +33,7 @@ An order is a list of legs: leg `i` sells `inputs[i]` for `output.assets[i]`. `i
 
 The gateway tracks each leg's escrow, fill progress and protocol fee separately, keyed by the order commitment and the leg index (`_orders`, `_partialFills` and `_protocolFees`). Different solvers can fill different legs, and filling or cancelling one leg never releases another leg's escrow.
 
-An order with predispatch calldata is the one exception: its escrow is swept from the dispatcher and measured per token, so its legs may not repeat an input token.
+An order with predispatch calldata must be single-leg: its escrow is swept from the dispatcher and measured per token, and every leg holds the same token.
 
 Tokens are `bytes32` values holding the token address left-padded with zeros. `placeOrder` and `fillOrder` both reject an input or output token whose upper 12 bytes are not zero, since the destination of a cross-chain order never sees `placeOrder`.
 

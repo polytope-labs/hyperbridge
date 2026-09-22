@@ -299,14 +299,13 @@ contract IntrinsicIntentsReentrancyTest is MainnetForkBaseTest {
     }
 
     /**
-     * @dev Same-chain order with two legs selling the same token: USDC for ETH and USDC for DAI.
-     * The reentrant payload skips the ETH leg and self-fills the DAI leg to claim that leg's USDC
-     * escrow. Reentrancy is blocked, and both legs' escrow survives the revert.
+     * @dev Same-chain order selling USDC for ETH at two prices. The reentrant payload skips leg 0
+     * and self-fills leg 1 to claim that leg's USDC escrow. Reentrancy is blocked, and both legs'
+     * escrow survives the revert.
      */
     function testReentrancy_EscrowTheft_MultiOutput() public {
-        uint256 outputDai = 500 * 1e18;
+        uint256 outputEth2 = 0.5 ether;
         bytes32 usdcToken = bytes32(uint256(uint160(address(usdc))));
-        bytes32 daiToken = bytes32(uint256(uint160(address(dai))));
 
         // ── 1. Place a two-leg same-chain order ──────────────────────────────
 
@@ -316,7 +315,7 @@ contract IntrinsicIntentsReentrancyTest is MainnetForkBaseTest {
 
         TokenInfo[] memory outputAssets = new TokenInfo[](2);
         outputAssets[0] = TokenInfo({token: bytes32(0), amount: OUTPUT_ETH});
-        outputAssets[1] = TokenInfo({token: daiToken, amount: outputDai});
+        outputAssets[1] = TokenInfo({token: bytes32(0), amount: outputEth2});
 
         Order memory order = _sameChainOrder(inputs, outputAssets, 0);
 
@@ -333,12 +332,9 @@ contract IntrinsicIntentsReentrancyTest is MainnetForkBaseTest {
 
         // ── 2. Arm the malicious beneficiary ─────────────────────────────────
 
-        deal(address(dai), address(maliciousBeneficiary), outputDai);
-        maliciousBeneficiary.approveGateway(address(dai), outputDai);
-
         TokenInfo[] memory reentrantOutputs = new TokenInfo[](2);
         reentrantOutputs[0] = TokenInfo({token: bytes32(0), amount: 0});
-        reentrantOutputs[1] = TokenInfo({token: daiToken, amount: outputDai});
+        reentrantOutputs[1] = TokenInfo({token: bytes32(0), amount: outputEth2});
 
         maliciousBeneficiary.arm(
             order,
@@ -353,13 +349,9 @@ contract IntrinsicIntentsReentrancyTest is MainnetForkBaseTest {
 
         // ── 3. Fill attempt reverts — reentrancy is blocked ──────────────────
 
-        deal(address(dai), legitimateSolver, outputDai);
-        vm.prank(legitimateSolver);
-        dai.approve(address(intentGateway), outputDai);
-
         vm.expectRevert(ERR_INSUFFICIENT_NATIVE);
         vm.prank(legitimateSolver);
-        intentGateway.fillOrder{value: OUTPUT_ETH}(
+        intentGateway.fillOrder{value: OUTPUT_ETH + outputEth2}(
             order,
             FillOptions({
                 relayerFee: 0,

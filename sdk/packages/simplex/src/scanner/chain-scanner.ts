@@ -168,10 +168,14 @@ export class ChainScanner {
 	}
 
 	private async scan(): Promise<void> {
+		// `logger` is not decoration: a retrying quorum read holds the scan mutex
+		// for the whole of its budget, so without these lines a chain that is
+		// merely retrying looks identical to one that has stopped scanning.
 		const currentBlock = await retryPromise(() => this.quorumClient.getBlockNumber(), {
 			maxRetries: 3,
 			backoffMs: 250,
-			logMessage: "Failed to get current block number",
+			logMessage: `Failed to get current block number on chain ${this.target.chainId}`,
+			logger: this.logger,
 		})
 
 		// A stop() that timed out its drain has already resolved; whatever this scan
@@ -205,7 +209,12 @@ export class ChainScanner {
 						fromBlock,
 						toBlock,
 					}),
-				{ maxRetries: 3, backoffMs: 250, logMessage: "Failed to get gateway event logs" },
+				{
+					maxRetries: 3,
+					backoffMs: 250,
+					logMessage: `Failed to get gateway event logs on chain ${this.target.chainId} for ${fromBlock}..${toBlock}`,
+					logger: this.logger,
+				},
 			)
 		} catch (error) {
 			// The RPC has not indexed these blocks yet. Do not advance the cursor —

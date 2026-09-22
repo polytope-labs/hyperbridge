@@ -35,6 +35,47 @@ const RATE_LIMIT_RPC_CODES = new Set([-32005, -32097, -32016, 429])
 export const RATE_LIMIT_SUSPENSION_MS = 5 * 60_000
 
 /**
+ * Per-endpoint HTTP budget for quorum reads.
+ *
+ * Deliberately far tighter than the wallet/fill clients' 30s × 4 attempts. A
+ * scanner polls every few seconds, so a read that has not answered within a
+ * couple of seconds is already stale — waiting two more minutes for it buys
+ * nothing and costs the scan mutex, which is exactly how a slow minority used
+ * to stall a whole chain. One retry still absorbs a dropped connection.
+ */
+const READ_TIMEOUT_MS = 5_000
+const READ_RETRY_COUNT = 1
+const READ_RETRY_DELAY_MS = 500
+
+/**
+ * Hard ceiling on one quorum call. Past it, the call decides on whatever has
+ * answered (when that reaches the bar) or fails loudly naming the endpoints it
+ * was still waiting on — never waits out the slowest provider. Sized well above
+ * a healthy call (BSC's 11-endpoint quorum settles in ~200ms) so it only fires
+ * when something is genuinely wrong.
+ */
+export const QUORUM_CALL_DEADLINE_MS = 12_000
+
+/**
+ * A provider answering with something that is not JSON at all — a plain-text
+ * throttle notice, an HTML error page — is not going to answer the next poll
+ * correctly either, so it sits out briefly. Shorter than the rate-limit bench
+ * because the cause is unknown; long enough to stop it being queried on every
+ * 3-second scan. (BSC's thirdweb endpoint returns its quota notice this way:
+ * viem surfaces it as a JSON parse error, so the rate-limit classifier never
+ * matched it and the endpoint was re-queried until it timed out, every scan.)
+ */
+export const MALFORMED_RESPONSE_SUSPENSION_MS = 30_000
+
+/**
+ * An endpoint whose head is behind the quorum's cannot answer for a range at
+ * that head — it fails the query deterministically until it catches up. Benched
+ * only briefly: lag is transient, and over-benching shrinks the voter set,
+ * which is the one thing the quorum exists to protect.
+ */
+export const STALE_HEAD_SUSPENSION_MS = 15_000
+
+/**
  * Whether an error looks rate-limit related — HTTP 429, a rate-limit-ish
  * JSON-RPC code, or rate-limit text anywhere in the message chain. Deliberately
  * loose: it only labels failures in diagnostics, where a false positive costs a
@@ -130,6 +171,57 @@ function suspensionMsFor(error: unknown): number {
 	return RATE_LIMIT_SUSPENSION_MS
 }
 
+/**
+ * Whether the provider answered with something that is not JSON. viem reports
+ * these as parse failures, so no status code or JSON-RPC code is available —
+ * the message is all there is. Exported for tests.
+ */
+export function isMalformedResponse(error: unknown): boolean {
+	let current: unknown = error
+	for (let depth = 0; depth < 6 && current instanceof Error; depth++) {
+		const e = current as { message?: string; details?: string; shortMessage?: string; cause?: unknown }
+		const text = [e.details, e.shortMessage, e.message].filter(Boolean).join(" ")
+		if (/is not valid JSON|Unexpected token|invalid json|Unexpected end of JSON input/i.test(text)) return true
+		current = e.cause
+	}
+	return false
+}
+
+/**
+ * Whether the provider is behind the block range it was asked for. Distinct
+ * from a malformed query: the same request succeeds on endpoints that have
+ * caught up, and will succeed here too, later. Exported for tests.
+ */
+export function isStaleHead(error: unknown): boolean {
+	let current: unknown = error
+	for (let depth = 0; depth < 6 && current instanceof Error; depth++) {
+		const e = current as { message?: string; details?: string; shortMessage?: string; cause?: unknown }
+		const text = [e.details, e.shortMessage, e.message].filter(Boolean).join(" ")
+		if (
+			/beyond the latest block|header not found|block not found|unknown block|not yet (been )?indexed/i.test(text)
+		)
+			return true
+		current = e.cause
+	}
+	return false
+}
+
+/**
+ * Whether a failure is worth benching the endpoint over, and for how long.
+ *
+ * The three cases share one property: the endpoint will keep failing the same
+ * way for a while, so re-querying it on the next poll only spends the call's
+ * time budget. Everything else — a bad query, a one-off 5xx, a hiccup — stays
+ * per-call, as the class doc promises. Exported for tests.
+ */
+export function benchFor(error: unknown): { durationMs: number; reason: string } | null {
+	if (isSuspendableRateLimit(error)) return { durationMs: suspensionMsFor(error), reason: "rate-limited" }
+	if (isMalformedResponse(error))
+		return { durationMs: MALFORMED_RESPONSE_SUSPENSION_MS, reason: "returned a malformed response" }
+	if (isStaleHead(error)) return { durationMs: STALE_HEAD_SUSPENSION_MS, reason: "behind the quorum head" }
+	return null
+}
+
 /** Whether a getTransactionReceipt rejection means "no such receipt" (a valid answer, not a fault). */
 function isReceiptNotFound(error: unknown): boolean {
 	return error instanceof Error && error.name === "TransactionReceiptNotFoundError"
@@ -188,18 +280,22 @@ export class QuorumPublicClient {
 		QuorumPublicClient.benchedUntil.clear()
 	}
 
-	constructor(chainId: number, rpcUrls: string[], loggers?: LoggerContext) {
+	/** Ceiling on one call; overridable so tests need not wait it out. */
+	private readonly deadlineMs: number
+
+	constructor(chainId: number, rpcUrls: string[], loggers?: LoggerContext, deadlineMs = QUORUM_CALL_DEADLINE_MS) {
 		this.rpcUrls = validateRpcUrls(rpcUrls)
 		this.threshold = quorumThreshold(this.rpcUrls.length)
 		this.logger = loggers ? moduleLogger(loggers, "quorum-client") : undefined
+		this.deadlineMs = deadlineMs
 		const chain = getViemChain(chainId) as Chain
 		this.clients = this.rpcUrls.map((url) =>
 			createPublicClient({
 				chain,
 				transport: http(url, {
-					timeout: 30_000,
-					retryCount: 3,
-					retryDelay: 1000,
+					timeout: READ_TIMEOUT_MS,
+					retryCount: READ_RETRY_COUNT,
+					retryDelay: READ_RETRY_DELAY_MS,
 				}),
 			}),
 		)
@@ -249,20 +345,21 @@ export class QuorumPublicClient {
 	 * QuorumError to find out.
 	 */
 	private noteFailure(idx: number, error: unknown): void {
-		if (!isSuspendableRateLimit(error)) return
+		const bench = benchFor(error)
+		if (!bench) return
 		const url = this.rpcUrls[idx]
-		const durationMs = suspensionMsFor(error)
-		QuorumPublicClient.benchedUntil.set(url, Date.now() + durationMs)
+		QuorumPublicClient.benchedUntil.set(url, Date.now() + bench.durationMs)
 		const remaining = this.size - this.suspended().length
 		this.logger?.warn(
 			{
 				url,
-				durationMs,
+				reason: bench.reason,
+				durationMs: bench.durationMs,
 				queriedAfter: remaining > 0 ? remaining : this.size,
 				quorumAfter: quorumThreshold(remaining > 0 ? remaining : this.size),
 				of: this.size,
 			},
-			"Endpoint rate-limited; suspending it and recomputing the quorum bar over the rest",
+			`Endpoint ${bench.reason}; suspending it and recomputing the quorum bar over the rest`,
 		)
 	}
 
@@ -287,6 +384,14 @@ export class QuorumPublicClient {
 	 * the QuorumError when the full response set still has no quorum). Early
 	 * exit never weakens the trust model — a decision still requires the same
 	 * quorum, it just doesn't wait for votes it no longer needs.
+	 *
+	 * `deadlineMs` bounds the other direction: when the bar is NOT reachable
+	 * from the fast responders, the call used to wait out every straggler, and
+	 * the caller's own retry loop multiplied that into minutes of a chain not
+	 * being scanned at all, silently. At the deadline the outstanding endpoints
+	 * are treated as failures — named in the QuorumError, so the operator sees
+	 * which ones held the call up — and `finalize` decides on the rest. The
+	 * trust model is untouched: a decision still needs the same quorum.
 	 */
 	private settleUntilQuorum<T, R>(
 		tasks: Array<{ idx: number; task: Promise<T> }>,
@@ -299,25 +404,31 @@ export class QuorumPublicClient {
 		return new Promise<R>((resolve, reject) => {
 			const fulfilled: Array<{ idx: number; value: T }> = []
 			const failures: Array<{ idx: number; error: unknown }> = []
+			const settled = new Set<number>()
 			let outstanding = tasks.length
 			let done = false
+			let timer: ReturnType<typeof setTimeout> | undefined
+
+			const finish = (action: () => void) => {
+				done = true
+				if (timer) clearTimeout(timer)
+				action()
+			}
 
 			const evaluate = () => {
 				if (done) return
 				try {
 					const early = tryDecide(fulfilled)
 					if (early !== undefined) {
-						done = true
-						resolve(early)
+						finish(() => resolve(early))
 						return
 					}
 					if (outstanding === 0) {
-						done = true
-						resolve(finalize(fulfilled, failures))
+						const value = finalize(fulfilled, failures)
+						finish(() => resolve(value))
 					}
 				} catch (error) {
-					done = true
-					reject(error)
+					finish(() => reject(error))
 				}
 			}
 
@@ -325,9 +436,31 @@ export class QuorumPublicClient {
 				evaluate()
 				return
 			}
+
+			timer = setTimeout(() => {
+				if (done) return
+				// Not benched: slow is not the same as broken, and a deadline says
+				// nothing about which endpoint was at fault. The names go into the
+				// error instead.
+				const stragglers = tasks
+					.filter(({ idx }) => !settled.has(idx))
+					.map(({ idx }) => ({
+						idx,
+						error: new Error(`no answer within the ${this.deadlineMs}ms quorum deadline`),
+					}))
+				try {
+					const value = finalize(fulfilled, [...failures, ...stragglers])
+					finish(() => resolve(value))
+				} catch (error) {
+					finish(() => reject(error))
+				}
+			}, this.deadlineMs)
+			// A pending quorum read must never be the reason the process stays alive.
+			timer.unref?.()
 			tasks.forEach(({ idx, task }) => {
 				task.then(
 					(value) => {
+						settled.add(idx)
 						outstanding--
 						fulfilled.push({ idx, value })
 						evaluate()
@@ -336,6 +469,7 @@ export class QuorumPublicClient {
 						// Recorded even for stragglers that settle after the call decided:
 						// a rate limit learned late still spares the endpoint next call.
 						this.noteFailure(idx, error)
+						settled.add(idx)
 						outstanding--
 						failures.push({ idx, error })
 						evaluate()
@@ -526,7 +660,13 @@ export class QuorumPublicClient {
 		if (failures.length === 0) return "No provider errors."
 		const parts = failures.map((f) => {
 			const url = f.idx >= 0 ? this.rpcUrls[f.idx] : "unknown"
-			const label = isRateLimited(f.error) ? " [rate-limited]" : ""
+			const label = isRateLimited(f.error)
+				? " [rate-limited]"
+				: isMalformedResponse(f.error)
+					? " [malformed response]"
+					: isStaleHead(f.error)
+						? " [behind the head]"
+						: ""
 			return `${url}${label}: ${providerMessage(f.error)}`
 		})
 		return `Failures (${failures.length}): ${parts.join("; ")}`

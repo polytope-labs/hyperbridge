@@ -196,6 +196,12 @@ const SOLVER_RESERVE = { USDC: "400", cNGN: "800000" }
  * what the users spent; moving it back keeps the wallets going with nothing but gas.
  */
 async function preflight() {
+	const probe = await fetch(env.orderbook, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ query: "{ serverInfo { minOrderTtlSecs } }" }),
+	}).catch((error) => ({ ok: false, status: String(error) }))
+	if (!probe.ok) throw new Error(`The orderbook does not answer GraphQL at E2E_ORDERBOOK_URL: ${probe.status}`)
 	const need = spending()
 	const users = [env.user1Key, env.user2Key].map((key) => privateKeyToAccount(key))
 	const solvers = solverKeys.map(({ key }) => privateKeyToAccount(key))

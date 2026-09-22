@@ -44,7 +44,7 @@ by another simplex instance.
 | --- | --- |
 | `E2E_BSC_TESTNET_RPC_URL` | BSC Chapel RPC; also the bundler unless `E2E_BSC_TESTNET_BUNDLER_URL` is set |
 | `E2E_POLYGON_AMOY_RPC_URL` | Polygon Amoy RPC; also the bundler unless `E2E_POLYGON_AMOY_BUNDLER_URL` is set |
-| `E2E_ORDERBOOK_URL` | HyperFX orderbook GraphQL endpoint |
+| `E2E_ORDERBOOK_URL` | HyperFX orderbook URL; `/graphql` is appended unless it already ends with it |
 | `E2E_HYPERBRIDGE_WS_URL` | Hyperbridge (Gargantua) WebSocket endpoint |
 | `E2E_SOLVER{1,2,3}_PRIVATE_KEY` | solver EVM keys, funded on both chains |
 | `E2E_SOLVER{1,2,3}_SUBSTRATE_KEY` | solver Hyperbridge accounts (mnemonic or hex seed) holding BRIDGE for bid fees |

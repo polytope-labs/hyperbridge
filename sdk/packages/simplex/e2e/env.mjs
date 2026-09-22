@@ -24,6 +24,9 @@ export function readEnv() {
 	// A bundler is optional: Alchemy serves ERC-4337 on the same endpoint as the RPC.
 	env.bscBundler = process.env.E2E_BSC_TESTNET_BUNDLER_URL || env.bscRpc
 	env.amoyBundler = process.env.E2E_POLYGON_AMOY_BUNDLER_URL || env.amoyRpc
+	// Simplex posts to the orderbook URL as given; a deployment's base URL serves GraphQL under it.
+	const orderbook = env.orderbook.replace(/\/+$/, "")
+	env.orderbook = orderbook.endsWith("/graphql") ? orderbook : `${orderbook}/graphql`
 	return env
 }
 

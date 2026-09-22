@@ -955,8 +955,16 @@ export class ContractInteractionService {
 	}
 
 	/**
-	 * Builds ERC-7821 batch calldata that prepends any required ERC20 approvals
+	 * Builds ERC-7821 batch calldata that approves exactly what this bid can pay
 	 * before the fillOrder call, all within a single UserOp payload.
+	 *
+	 * The approvals are unconditional. One solver can hold several bids on one
+	 * order, at different levels of its book, and they execute one after another:
+	 * an approval skipped because the allowance covered this bid when it was signed
+	 * is spent by a sibling that fills first, and this bid then reverts. Each bid
+	 * therefore sets the allowance itself, reset to zero first, since some tokens
+	 * (USDT on Ethereum) refuse to move a non-zero allowance to another non-zero
+	 * value and a clamped fill leaves one behind.
 	 *
 	 * Same-chain fills release escrow locally with no Hyperbridge dispatch, so the
 	 * gateway never pulls the fee token — its approval is skipped. Only cross-chain
@@ -969,7 +977,6 @@ export class ContractInteractionService {
 		requiredFeeTokenAmount: bigint,
 	): Promise<HexString> {
 		const chain = order.destination
-		const destClient = this.clientManager.getPublicClient(chain)
 		const intentGatewayV2Address = this.configService.getIntentGatewayAddress(chain)
 
 		// Aggregate required amounts per ERC20 token
@@ -987,32 +994,20 @@ export class ContractInteractionService {
 			perTokenRequired.set(feeKey, (perTokenRequired.get(feeKey) ?? 0n) + requiredFeeTokenAmount)
 		}
 
-		// Check allowances in parallel
-		const entries = [...perTokenRequired.entries()]
-		const allowances = await Promise.all(
-			entries.map(([tokenAddress]) =>
-				destClient.readContract({
-					abi: ERC20_ABI,
-					address: tokenAddress as HexString,
-					functionName: "allowance",
-					args: [this.solverAccountAddress, intentGatewayV2Address],
-				}),
-			),
-		)
-
 		const fundingPrepends = order.id ? this.cacheService.getFundingPrepends(order.id) : null
 		const prependCalls = fundingPrepends?.calls ?? []
 
 		const calls: ERC7821Call[] = [...prependCalls]
-		for (const [i, [tokenAddress, required]] of entries.entries()) {
-			if (allowances[i] < required) {
+		for (const [tokenAddress, required] of perTokenRequired) {
+			if (required === 0n) continue
+			for (const amount of [0n, required]) {
 				calls.push({
 					target: tokenAddress as HexString,
 					value: 0n,
 					data: encodeFunctionData({
 						abi: ERC20_ABI,
 						functionName: "approve",
-						args: [intentGatewayV2Address, required],
+						args: [intentGatewayV2Address, amount],
 					}) as HexString,
 				})
 			}

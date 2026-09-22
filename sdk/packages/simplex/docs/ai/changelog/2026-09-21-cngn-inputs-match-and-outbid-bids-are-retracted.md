@@ -98,3 +98,8 @@ sign the same take, because a bid whose payout covers the ask takes the whole in
 Fills are settled one at a time, on `IntentFiller.settlementQueue`, in the order they were scanned.
 Several fills of one order can land in one block scan. Each settlement names its bid from the holds the
 previous one left, so side by side they read the same holds, and two of them claimed the same one.
+
+Every bid now approves the gateway for exactly what it pays, unconditionally. It first resets the
+allowance to zero, for tokens that refuse to move a non-zero allowance. `buildApprovalAndFillCalldata`
+used to skip the approval when the allowance covered the bid at signing time. That allowance was
+spent by a sibling bid that filled first, so the next level reverted with `ERC20InsufficientAllowance`.

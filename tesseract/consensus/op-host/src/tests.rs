@@ -483,3 +483,92 @@ async fn test_op_sepolia_latest_and_verify() {
 
 	dbg!(intermediate_state);
 }
+
+/// Resolves `timestamp` against a chain whose block `n` has timestamp `chain[n]`, with the last
+/// entry as the head, the way `block_at_timestamp` would against a node serving that chain.
+async fn resolve(chain: &[u64], timestamp: u64) -> Option<u64> {
+	let head = chain.len() - 1;
+	let block_time = chain[head] - chain[head - 1];
+	crate::last_block_at_or_before(head as u64, chain[head], block_time, timestamp, |number| {
+		let found = chain.get(number as usize).copied();
+		async move { Ok(found) }
+	})
+	.await
+	.unwrap()
+}
+
+/// The highest block with a timestamp at or before `timestamp`, found by scanning.
+fn last_block_by_scan(chain: &[u64], timestamp: u64) -> Option<u64> {
+	chain.iter().rposition(|&block| block <= timestamp).map(|number| number as u64)
+}
+
+fn evenly_spaced(genesis: u64, block_time: u64, blocks: u64) -> Vec<u64> {
+	(0..blocks).map(|number| genesis + number * block_time).collect()
+}
+
+#[tokio::test]
+async fn resolves_every_timestamp_to_the_last_block_at_or_before_it() {
+	// Even and odd genesis times, and a 1s chain, so timestamps land both on and between blocks.
+	for chain in [
+		evenly_spaced(1_789_979_000, 2, 600),
+		evenly_spaced(1_789_979_001, 2, 600),
+		evenly_spaced(1_789_979_000, 1, 600),
+	] {
+		let head = *chain.last().unwrap();
+		let block_time = head - chain[chain.len() - 2];
+		for timestamp in chain[0] - 5..head + block_time {
+			assert_eq!(
+				resolve(&chain, timestamp).await,
+				last_block_by_scan(&chain, timestamp),
+				"timestamp {timestamp} on a {block_time}s chain starting at {}",
+				chain[0],
+			);
+		}
+	}
+}
+
+#[tokio::test]
+async fn chains_in_one_super_root_resolve_to_their_own_blocks() {
+	// One super root timestamp across a 2s chain with an even genesis and a 1s chain. It is a
+	// block time on the 1s chain only, so the 2s chain commits to its block a second earlier.
+	let two_second = evenly_spaced(1_789_979_000, 2, 1_000);
+	let one_second = evenly_spaced(1_789_979_000, 1, 2_000);
+	let timestamp = 1_789_980_029;
+
+	let on_two_second = resolve(&two_second, timestamp).await.unwrap();
+	assert_eq!(two_second[on_two_second as usize], 1_789_980_028);
+	let on_one_second = resolve(&one_second, timestamp).await.unwrap();
+	assert_eq!(one_second[on_one_second as usize], 1_789_980_029);
+}
+
+#[tokio::test]
+async fn timestamps_the_node_cannot_settle_yet_resolve_to_nothing() {
+	let chain = evenly_spaced(1_789_979_000, 2, 600);
+	let head = *chain.last().unwrap();
+
+	// Before the next block could exist the head is the answer, even if this node is behind.
+	assert_eq!(resolve(&chain, head + 1).await, Some(chain.len() as u64 - 1));
+	// From the next block's time on, the answer may be a block this node hasn't seen.
+	assert_eq!(resolve(&chain, head + 2).await, None);
+	assert_eq!(resolve(&chain, head + 1_000).await, None);
+	// Nothing comes before genesis.
+	assert_eq!(resolve(&chain, chain[0] - 1).await, None);
+}
+
+#[tokio::test]
+async fn uneven_spacing_never_resolves_to_the_wrong_block() {
+	// Blocks that don't sit one block time apart, like a chain's pre-Bedrock history. The block
+	// time only guides the estimate, so the search either finds the right block or gives up.
+	let mut chain = vec![1_789_970_000, 1_789_970_013, 1_789_970_014, 1_789_970_500];
+	chain.extend(evenly_spaced(1_789_971_000, 2, 400));
+	let head = *chain.last().unwrap();
+	for timestamp in chain[0]..head + 2 {
+		if let Some(found) = resolve(&chain, timestamp).await {
+			assert_eq!(Some(found), last_block_by_scan(&chain, timestamp), "timestamp {timestamp}");
+		}
+	}
+	// Within the evenly spaced part it always settles.
+	for timestamp in 1_789_971_000..head + 2 {
+		assert_eq!(resolve(&chain, timestamp).await, last_block_by_scan(&chain, timestamp));
+	}
+}

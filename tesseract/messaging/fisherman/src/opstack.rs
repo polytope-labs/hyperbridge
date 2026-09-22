@@ -166,11 +166,12 @@ async fn scan_target(
 }
 
 /// Which L2 block the quorum should check. An output root game names a block number directly,
-/// a super game names the timestamp its output roots were taken at.
+/// a super game names a timestamp, and each chain's output root in it is taken at that chain's
+/// last block at or before it.
 #[derive(Clone, Copy, Debug)]
 enum L2Block {
 	Number(u64),
-	AtTimestamp(u64),
+	AtOrBeforeTimestamp(u64),
 }
 
 /// The block to check and the output root the quorum has to agree with.
@@ -246,7 +247,10 @@ async fn read_super_output(
 		return Ok(SuperGame::NoClaimAboutUs);
 	};
 
-	Ok(SuperGame::Claim(SuperClaim { at: L2Block::AtTimestamp(super_output.timestamp), expected }))
+	Ok(SuperGame::Claim(SuperClaim {
+		at: L2Block::AtOrBeforeTimestamp(super_output.timestamp),
+		expected,
+	}))
 }
 
 /// Verify a dispute game's claimed L2 output root against an L2 RPC quorum. Returns
@@ -300,7 +304,7 @@ async fn evaluate(
 		async move {
 			let height = match at {
 				L2Block::Number(height) => height,
-				L2Block::AtTimestamp(timestamp) =>
+				L2Block::AtOrBeforeTimestamp(timestamp) =>
 					match block_at_timestamp(p.as_ref(), timestamp).await {
 						Ok(Some(height)) => height,
 						Ok(None) => return FetchOutcome::Missing,

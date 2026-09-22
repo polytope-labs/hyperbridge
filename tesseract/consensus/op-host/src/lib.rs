@@ -207,9 +207,13 @@ pub(crate) async fn fetch_storage_root(
 	Ok(root)
 }
 
-/// Finds the L2 block a super root timestamp was taken at. OP Stack blocks sit exactly one
-/// block time apart, so stepping back from the head lands on it without a search. Returns
-/// `None` when the timestamp is ahead of the chain or does not line up with a block.
+/// Finds the L2 block a super root timestamp was taken at: the highest block whose timestamp is
+/// at or before it. This matches op-node's `TargetBlockNumber`, which rounds down, so a super root
+/// at a timestamp that falls between two of this chain's blocks still commits to this chain's
+/// last block before it. That is the usual case for a dependency set whose chains have
+/// different block times or genesis times, and anyone can propose a permissionless game at any
+/// timestamp. Returns `None` when the chain has no block that can be settled as the answer yet,
+/// or the timestamp predates the chain.
 pub async fn block_at_timestamp(
 	provider: &AlloyProvider,
 	timestamp: u64,
@@ -219,10 +223,6 @@ pub async fn block_at_timestamp(
 		.await?
 		.ok_or_else(|| anyhow!("L2 head not found"))?;
 
-	if timestamp > head.header.timestamp {
-		return Ok(None);
-	}
-
 	let previous_number = head.header.number.saturating_sub(1);
 	let previous = provider
 		.get_block(BlockId::number(previous_number))
@@ -230,25 +230,68 @@ pub async fn block_at_timestamp(
 		.ok_or_else(|| anyhow!("L2 block {previous_number} not found"))?;
 	let block_time = head.header.timestamp.saturating_sub(previous.header.timestamp).max(1);
 
-	// The first estimate is exact unless the head moved between those two reads, so a small
-	// number of corrections always settles it.
-	let mut number = head
-		.header
-		.number
-		.saturating_sub((head.header.timestamp - timestamp) / block_time);
-	for _ in 0..3 {
-		let Some(block) = provider.get_block(BlockId::number(number)).await? else {
-			return Ok(None);
-		};
-		if block.header.timestamp == timestamp {
-			return Ok(Some(number));
+	last_block_at_or_before(
+		head.header.number,
+		head.header.timestamp,
+		block_time,
+		timestamp,
+		|number| async move {
+			Ok(provider
+				.get_block(BlockId::number(number))
+				.await?
+				.map(|block| block.header.timestamp))
+		},
+	)
+	.await
+}
+
+/// How many times [`last_block_at_or_before`] will move its estimate before giving up. The first
+/// estimate is exact unless the head moved between reads, so this is never reached in practice.
+const MAX_BLOCK_ESTIMATE_CORRECTIONS: usize = 4;
+
+/// Resolves the highest block with a timestamp at or before `timestamp`, reading timestamps
+/// through `timestamp_of` so the search can be tested without a node. `block_time` only shapes
+/// the estimate, the answer is settled by reading the candidate and the block after it.
+pub(crate) async fn last_block_at_or_before<F, Fut>(
+	head_number: u64,
+	head_timestamp: u64,
+	block_time: u64,
+	timestamp: u64,
+	mut timestamp_of: F,
+) -> Result<Option<u64>, anyhow::Error>
+where
+	F: FnMut(u64) -> Fut,
+	Fut: std::future::Future<Output = Result<Option<u64>, anyhow::Error>>,
+{
+	let block_time = block_time.max(1);
+
+	if timestamp >= head_timestamp {
+		// The block after the head can't be earlier than one block time past it, so if the
+		// timestamp comes before that the head is the answer however far behind this node is.
+		// Past that, the answer may be a block this node hasn't seen.
+		return Ok((timestamp - head_timestamp < block_time).then_some(head_number));
+	}
+
+	// Blocks before the head, so the answer is below it and `number + 1` always exists.
+	let mut number = head_number.saturating_sub((head_timestamp - timestamp).div_ceil(block_time));
+	for _ in 0..MAX_BLOCK_ESTIMATE_CORRECTIONS {
+		let Some(candidate) = timestamp_of(number).await? else { return Ok(None) };
+		if candidate > timestamp {
+			// Too late. At block zero there is nothing earlier, so the chain started after it.
+			if number == 0 {
+				return Ok(None);
+			}
+			number = number.saturating_sub((candidate - timestamp).div_ceil(block_time));
+			continue;
 		}
 
-		let steps = (block.header.timestamp as i128 - timestamp as i128) / block_time as i128;
-		match u64::try_from(number as i128 - steps) {
-			Ok(corrected) if steps != 0 => number = corrected,
-			_ => return Ok(None),
+		// The candidate is at or before the timestamp. It is the answer only if the next block
+		// is after it, which is checked rather than assumed from the block time.
+		let Some(next) = timestamp_of(number + 1).await? else { return Ok(None) };
+		if next > timestamp {
+			return Ok(Some(number));
 		}
+		number = (number + 1 + (timestamp - next) / block_time).min(head_number);
 	}
 
 	Ok(None)
@@ -467,8 +510,8 @@ impl OpHost {
 			// Cannon encodes it alone, AggregateVerifier prefixes it before the intermediate
 			// roots and final root claim. A super game instead carries the super output preimage,
 			// which pins a timestamp rather than a block number, so that has to be resolved
-			// against the chain. Decoding here avoids depending on a top-level
-			// `l2SequenceNumber()` getter that not every implementation exposes.
+			// against the chain to the last block at or before it. Decoding here avoids depending
+			// on a top-level `l2SequenceNumber()` getter that not every implementation exposes.
 			let l2_block_num = match config.kind {
 				DisputeGameImpl::SuperFaultDisputeGame => {
 					let super_output = match parse_super_output(&extra_data) {
@@ -483,7 +526,7 @@ impl OpHost {
 					{
 						Ok(Some(number)) => number,
 						Ok(None) => {
-							log::trace!(target: LOG_TARGET, "Skipping dispute game {proxy_addr:?}: no L2 block at timestamp {}", super_output.timestamp);
+							log::trace!(target: LOG_TARGET, "Skipping dispute game {proxy_addr:?}: no settled L2 block at or before timestamp {}", super_output.timestamp);
 							continue;
 						},
 						Err(e) => {

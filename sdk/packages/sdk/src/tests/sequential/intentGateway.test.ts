@@ -1,9 +1,10 @@
 import "log-timestamp"
 
 import { strict as assert } from "node:assert"
+import { vi } from "vitest"
 import { decodeFunctionData, formatUnits, parseUnits, type PublicClient } from "viem"
 import { ABI as IntentGatewayV2ABI } from "@/abis/IntentGatewayV2"
-import type { AvailableLiquidity, BuyAndSellRates, HexString, Order, TokenInfo } from "@/types"
+import type { AvailableLiquidity, BuyAndSellRates, FillOrderEstimate, HexString, Order, TokenInfo } from "@/types"
 import { EvmChain } from "@/chain"
 import { IntentGateway } from "@/protocols/intents/IntentGateway"
 import { LiquidityEngine } from "@/protocols/intents/LiquidityEngine"
@@ -343,6 +344,26 @@ describe("IntentGateway placement fee metadata", () => {
 		const configService = new ChainConfigService()
 		const baseChain = makeEvmChain(CHAINS.base, configService)
 		const intentGateway = await IntentGateway.create(baseChain, baseChain)
+		// What is under test is how `execute` turns a fill estimate into the placement's
+		// fee and native value, not the estimate itself. The live Base gateway still
+		// reports release 2, which the fill estimator refuses, so the estimate is fixed
+		// here and everything after it (fee token, placeOrder encoding) stays live.
+		const estimate: FillOrderEstimate = {
+			fillOptions: { relayerFee: 0n, nativeDispatchFee: 0n, validUntil: 0n, outputs: [], inputs: [] },
+			inputs: [],
+			callGasLimit: 500_000n,
+			verificationGasLimit: 100_000n,
+			preVerificationGas: 100_000n,
+			paymasterVerificationGasLimit: 0n,
+			paymasterPostOpGasLimit: 0n,
+			maxFeePerGas: 1_000_000_000n,
+			maxPriorityFeePerGas: 1_000_000n,
+			totalGasCostWei: 700_000_000_000_000n,
+			totalGasInFeeToken: 2_500n,
+			relayerFeeInSourceFeeToken: 0n,
+		}
+		// biome-ignore lint/suspicious/noExplicitAny: the estimator is private; this pins its answer
+		vi.spyOn((intentGateway as any).gasEstimator, "estimateFillOrder").mockResolvedValue(estimate)
 		const order = buildOrder(
 			CHAINS.base.id,
 			CHAINS.base.id,
@@ -360,6 +381,9 @@ describe("IntentGateway placement fee metadata", () => {
 		assert.equal(result.value.value, 0n, "Expected no native input value for an ERC-20 order")
 		assert(result.value.nativeFee > 0n, "Expected a positive native fee for a zero-fee order")
 		assert(result.value.feeTokenAmount > 0n, "Expected a positive estimated fee-token amount")
+		// A same-chain order is quoted at twice the fill gas, and the native value carries a 2% buffer.
+		assert.equal(result.value.feeTokenAmount, estimate.totalGasInFeeToken * 2n)
+		assert.equal(result.value.nativeFee, estimate.totalGasCostWei + (estimate.totalGasCostWei * 2n) / 100n)
 
 		const decoded = decodeFunctionData({ abi: IntentGatewayV2ABI, data: result.value.data })
 		assert.equal(decoded.functionName, "placeOrder")

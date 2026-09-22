@@ -298,6 +298,24 @@ button.operator-text-button:hover:not(:disabled) {
 	color: var(--text);
 }
 
+/* The page's one call to action, so it reads as a button rather than a link. */
+button.limit-order-new-button {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.45rem;
+	min-height: 2.25rem;
+	padding: 0 1rem;
+	border-radius: 999px;
+	font-size: 0.8rem;
+	font-weight: 600;
+	white-space: nowrap;
+}
+
+button.limit-order-new-button > span {
+	font-size: 1rem;
+	line-height: 1;
+}
+
 .operator-market-list,
 .operator-tool-list {
 	border-top: 1px solid var(--border);
@@ -2473,15 +2491,75 @@ button.operator-runtime-stop:hover:not(:disabled) {
 	list-style: none;
 	margin: 0;
 	padding: 0;
-	display: grid;
-	gap: 0.4rem;
+	border: 1px solid var(--border);
+	border-radius: 0.75rem;
+	overflow: hidden;
 }
 
 .limit-order-fills li {
-	display: flex;
-	justify-content: space-between;
+	display: grid;
+	grid-template-columns: minmax(8rem, 1.2fr) minmax(7rem, 1fr) minmax(8rem, 1fr);
 	gap: 1rem;
-	font-size: 0.9rem;
+	align-items: baseline;
+	padding: 0.65rem 0.9rem;
+	border-top: 1px solid var(--border);
+	font-size: 0.85rem;
+}
+
+.limit-order-fills li:first-child {
+	border-top: 0;
+}
+
+.limit-order-fills li:not(.limit-order-fills-head):hover {
+	background: var(--card-raised);
+}
+
+.limit-order-fills-head {
+	color: var(--muted);
+	font-size: 0.7rem !important;
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+	background: var(--control);
+}
+
+.limit-order-fills time {
+	color: var(--text-secondary);
+}
+
+.limit-order-fills strong {
+	font-variant-numeric: tabular-nums;
+	font-weight: 600;
+}
+
+.limit-order-fills strong small {
+	color: var(--muted);
+	font-weight: 400;
+}
+
+.limit-order-fills a,
+.limit-order-fills-none {
+	font-family: var(--font-mono);
+	font-size: 0.75rem;
+	justify-self: end;
+}
+
+.limit-order-fills a {
+	color: var(--text-secondary);
+}
+
+.limit-order-fills a:hover {
+	color: var(--text);
+}
+
+.limit-order-fills-none {
+	color: var(--muted);
+}
+
+.limit-order-fills-total {
+	margin: 0.6rem 0 0;
+	color: var(--muted);
+	font-size: 0.8rem;
+	text-align: right;
 }
 
 /* The two columns stack before the sheet does, since the labels are wordy. */
@@ -2489,5 +2567,17 @@ button.operator-runtime-stop:hover:not(:disabled) {
 	.limit-order-facts > div {
 		grid-template-columns: 1fr;
 		gap: 0.15rem;
+	}
+
+	.limit-order-fills li {
+		grid-template-columns: 1fr auto;
+	}
+
+	.limit-order-fills li > :first-child {
+		grid-column: 1 / -1;
+	}
+
+	.limit-order-fills-head {
+		display: none !important;
 	}
 }

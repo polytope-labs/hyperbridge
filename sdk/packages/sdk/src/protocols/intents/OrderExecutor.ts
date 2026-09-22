@@ -1,4 +1,4 @@
-import type { HexString, Order, TokenInfo } from "@/types"
+import type { Bid, HexString, Order, TokenInfo } from "@/types"
 import type { ExecuteIntentOrderOptions, FillerBid, IntentOrderStatusUpdate, SelectBidResult } from "@/types"
 import { DEFAULT_POLL_INTERVAL, normalizeStateMachineId, sleep } from "@/utils"
 import type { BidManager } from "./BidManager"
@@ -485,7 +485,12 @@ export class OrderExecutor {
 					continue
 				}
 
-				const bids = this.bidManager.buildBids(order, freshBids, sessionPrivateKey)
+				// A bid that quotes only legs the destination has already completed can only
+				// revert (`RateFillTooSmall`): the gateway credits nothing on a finished leg.
+				// Handing it on would cost a simulation every round until the order is done.
+				const bids = this.bidManager
+					.buildBids(order, freshBids, sessionPrivateKey)
+					.filter((bid) => servesOpenLeg(bid, remainingAssets))
 				if (bids.length === 0) {
 					await sleep(pollIntervalMs)
 					continue
@@ -535,4 +540,14 @@ export class OrderExecutor {
 			}
 		}
 	}
+}
+
+/**
+ * Whether a bid still has something to fill: it quotes a non-zero output on at least one
+ * leg that is not yet complete. A bid whose quote does not line up leg for leg with the
+ * order is kept, and left to validation to judge.
+ */
+function servesOpenLeg(bid: Bid, remainingAssets: TokenInfo[]): boolean {
+	if (bid.outputs.length !== remainingAssets.length) return true
+	return bid.outputs.some((output, leg) => output.amount > 0n && remainingAssets[leg].amount > 0n)
 }

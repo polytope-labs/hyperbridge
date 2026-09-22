@@ -28,3 +28,11 @@ so with testnet gas priced at one unit (`convertGasToFeeToken` returns `1n` on t
 profit, so it refused every SDK-placed cross-chain order on testnet. The buffer now rounds up,
 `(sum × 105 + 99) / 100`, keeping the fee strictly above the requirement for any positive cost.
 
+
+## Bids on a completed leg are not offered
+
+For a multi-leg order, `OrderExecutor` kept offering bids whose only non-zero outputs were on legs
+the destination had already credited in full. Executing one reverted in simulation with
+`RateFillTooSmall`. Each round now drops a bid unless it pays into at least one leg that still has
+an amount outstanding (`servesOpenLeg`). A bid whose outputs don't line up with the order's legs is
+still offered.

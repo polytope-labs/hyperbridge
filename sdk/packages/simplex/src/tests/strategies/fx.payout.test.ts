@@ -363,6 +363,27 @@ describe("FXFiller limit order payout", () => {
 			expect(amounts(plans[1].fillerInputs)).toEqual([0n, REQUESTED_OUTPUT])
 		})
 
+		it("sizes a later leg from what an earlier leg left on a shared limit order", async () => {
+			// Both legs take STABLE for EXOTIC and match the one 1,500 order, which has 200,000
+			// left. Leg 0 bids its full 150,000; leg 1 bids the 50,000 left rather than being
+			// planned at full size and dropped when its hold finds no room.
+			const contractService = makeEvalContractService()
+			const filler = await makeFiller({ contractService, balances: plenty, book: [{ id: "bid", price: "1500", size: "200000" }] })
+			const order = twoLegOrder("multi-shared")
+			order.inputs[1] = { token: bytes20ToBytes32(STABLE), amount: INPUT_AMOUNT }
+			order.output.assets[1] = { token: bytes20ToBytes32(EXOTIC), amount: REQUESTED_OUTPUT }
+
+			await filler.calculateProfitability(order)
+
+			const plans = contractService.plans.get("multi-shared") as Plan[]
+			expect(plans.map((plan) => plan.leg)).toEqual([0, 1])
+			expect(amounts(plans[0].fillerOutputs)).toEqual([OFFERED_OUTPUT, 0n])
+			expect(amounts(plans[1].fillerOutputs)).toEqual([0n, parseUnits("50000", 18)])
+			// 50,000 at the order's own rate of 1,500 takes 33.33… STABLE, rounded up.
+			expect(plans[1].fillerInputs[1].amount).toBe((parseUnits("50000", 18) * 10n ** 18n + parseUnits("1500", 18) - 1n) / parseUnits("1500", 18))
+			expect(plans[1].partialFill).toBe(true)
+		})
+
 		it("does not bid on one leg of an order whose output calldata forbids partial fills", async () => {
 			const contractService = makeEvalContractService()
 			const filler = await makeFiller({ contractService, balances: plenty, book: [{ id: "bid", price: "1500", size: "1000000" }] })

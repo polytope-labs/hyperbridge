@@ -299,6 +299,12 @@ export class FXFiller implements FillerStrategy {
 			// some legs of an order bids on those, and others can fill the rest.
 			const multiLeg = order.inputs.length > 1
 			const plans: BidPlan[] = []
+			// What this evaluation has already planned against each limit order, at 1e18.
+			// Legs taking the same input can match the same limit order; each bid holds its
+			// payout when it goes out, so a later leg sized from the order's whole
+			// availability would find no room and be dropped. Sized from what is left, it
+			// bids a smaller partial instead.
+			const plannedOn = new Map<string, bigint>()
 			for (let leg = 0; leg < order.inputs.length; leg++) {
 				const input = order.inputs[leg]
 				const output = order.output.assets[leg]
@@ -331,10 +337,20 @@ export class FXFiller implements FillerStrategy {
 				for (const candidate of matches) {
 					let partialFill = false
 					const fundingCalls: ERC7821Call[] = []
-					// What this limit order alone will pay, in the output token's own units.
-					// `payout` is already `min(offer, remaining − reserved)`, so the order
-					// never offers more than it has left even when the wallet holds more.
-					const offered = toRaw(candidate.payout, outputDecimals)
+					// What this limit order alone will pay, in the output token's own units:
+					// `min(offer, remaining − reserved)`, less whatever an earlier leg of this
+					// order already planned against it, so the order never offers more than it
+					// has left even when the wallet holds more.
+					const left = candidate.available - (plannedOn.get(candidate.order.id) ?? 0n)
+					if (left <= 0n) {
+						this.logger.info(
+							{ orderId: order.id, leg, limitOrder: candidate.order.id },
+							"Skipping a bid: an earlier leg of this order already planned everything the limit order has left",
+						)
+						continue
+					}
+					const offered = toRaw(candidate.offer < left ? candidate.offer : left, outputDecimals)
+					if (offered === 0n) continue
 
 					// The bid is the limit order's own rate: its whole offer for the input,
 					// capped by what it has left. The gateway credits the swapper the ask and
@@ -716,6 +732,10 @@ export class FXFiller implements FillerStrategy {
 						"FX swap profitability evaluation",
 					)
 
+					plannedOn.set(
+						candidate.order.id,
+						(plannedOn.get(candidate.order.id) ?? 0n) + toScaled(finalOutputAmount, outputDecimals),
+					)
 					plans.push({
 						limitOrderId: candidate.order.id,
 						leg,

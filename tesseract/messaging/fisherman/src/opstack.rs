@@ -19,7 +19,7 @@ use alloy::{
 use anyhow::anyhow;
 use futures::future::join_all;
 use geth_primitives::Header;
-use ismp::{consensus::StateMachineId, host::StateMachine};
+use ismp::{consensus::StateMachineId, host::StateMachine, messaging::Keccak256};
 use op_host::{
 	abi::{DisputeGameFactory, FaultDisputeGame},
 	block_at_timestamp,
@@ -179,23 +179,35 @@ struct SuperClaim {
 	expected: H256,
 }
 
-/// Reads the proxy's `extraData` and, when it decodes as a super output, returns the timestamp
-/// and the output root that super output carries for this chain.
+/// How a game's `extraData` relates to its root claim.
+enum SuperGame {
+	/// The root claim is not the hash of `extraData`, so this is an output root game.
+	NotSuper,
+	/// A super game with an output root for this chain that the quorum has to agree with.
+	Claim(SuperClaim),
+	/// A super game that makes no usable claim about this chain: its preimage doesn't decode,
+	/// or it has no entry for this chain. The verifier rejects such a game, so there is nothing
+	/// to blacklist.
+	NoClaimAboutUs,
+}
+
+/// Reads the proxy's `extraData` and decides whether the game is a super game.
 ///
-/// Whether a game is a super game is decided by the preimage itself rather than by a list of
-/// game types, so a newly registered super type needs no change here. An output root game's
-/// `extraData` starts with the high byte of a `uint256` block number, which is zero, so it
-/// never passes the version check.
+/// A super game's root claim is `keccak256(extraData)`, and that equality is what identifies
+/// one, rather than whether `extraData` happens to decode as a super output. An output root
+/// game's claim is the hash of a 128 byte output root preimage, which no super output preimage
+/// can match without a keccak collision. Deciding on the decode alone would let a crafted
+/// output root game whose `extraData` also decodes skip the output root check.
 ///
-/// Returns `Ok(None)` for a game that is not a super game, and abstains (`Ok(None)` with a log)
-/// for a super game whose set has no entry for this chain, since such a game makes no claim
-/// about us and the verifier rejects it anyway.
+/// Newly registered super game types need no change here, since nothing depends on a list of
+/// game types.
 async fn read_super_output(
 	cfg: &OpstackConfig,
 	target: &OpstackTarget,
 	proxy: H160,
+	root_claim: B256,
 	at_block: u64,
-) -> Result<Option<SuperClaim>, anyhow::Error> {
+) -> Result<SuperGame, anyhow::Error> {
 	let proxy_addr = Address::from_slice(&proxy.0);
 	let contract = FaultDisputeGame::new(proxy_addr, &*cfg.l1_provider);
 	let extra_data = contract
@@ -205,28 +217,41 @@ async fn read_super_output(
 		.await
 		.map_err(|e| anyhow!("fish_opstack: proxy {proxy:?}.extraData() failed: {e:?}"))?;
 
-	let Ok(super_output) = parse_super_output(&extra_data) else {
-		return Ok(None);
+	if Hasher::keccak256(&extra_data).0 != root_claim.0 {
+		return Ok(SuperGame::NotSuper);
+	}
+
+	let super_output = match parse_super_output(&extra_data) {
+		Ok(super_output) => super_output,
+		Err(e) => {
+			log::trace!(
+				target: crate::LOG_TARGET,
+				"fish_opstack: super game {proxy:?} has an undecodable preimage ({e}), abstaining",
+			);
+			return Ok(SuperGame::NoClaimAboutUs);
+		},
 	};
 
-	let StateMachine::Evm(chain_id) = target.state_machine else {
-		return Ok(None);
+	let expected = match target.state_machine {
+		StateMachine::Evm(chain_id) =>
+			super_output.output_roots.get(&U256::from(chain_id)).copied(),
+		_ => None,
 	};
-
-	let Some(expected) = super_output.output_roots.get(&U256::from(chain_id)).copied() else {
+	let Some(expected) = expected else {
 		log::trace!(
 			target: crate::LOG_TARGET,
 			"fish_opstack: super game {proxy:?} carries no output root for {}, abstaining",
 			target.state_machine,
 		);
-		return Ok(None);
+		return Ok(SuperGame::NoClaimAboutUs);
 	};
 
-	Ok(Some(SuperClaim { at: L2Block::AtTimestamp(super_output.timestamp), expected }))
+	Ok(SuperGame::Claim(SuperClaim { at: L2Block::AtTimestamp(super_output.timestamp), expected }))
 }
 
 /// Verify a dispute game's claimed L2 output root against an L2 RPC quorum. Returns
-/// `Ok(true)` if the quorum agrees with the on-chain claim, `Ok(false)` if it disagrees or
+/// `Ok(true)` if the quorum agrees with the on-chain claim or the game is a super game that makes
+/// no claim the verifier would accept for this chain, and `Ok(false)` if the quorum disagrees or
 /// reports the L2 block as missing.
 async fn evaluate(
 	cfg: &OpstackConfig,
@@ -244,10 +269,11 @@ async fn evaluate(
 
 	// A super game commits to a timestamp and to a set of output roots, so neither its
 	// `l2SequenceNumber` nor its root claim can be read the way an output root game's are.
-	let super_claim = match read_super_output(cfg, target, proxy, l1_block).await? {
-		Some(claim) => claim,
+	let super_claim = match read_super_output(cfg, target, proxy, root_claim, l1_block).await? {
+		SuperGame::Claim(claim) => claim,
+		SuperGame::NoClaimAboutUs => return Ok(true),
 		// Not a super game, so the claim is the output root of the block it names.
-		None => {
+		SuperGame::NotSuper => {
 			let height = match read_l2_block_number(&cfg.l1_provider, proxy, l1_block).await? {
 				Some(height) => height,
 				None => {

@@ -76,26 +76,25 @@ describe("mandatory multi-leg quotes", () => {
 		).rejects.toThrow(/quote|malformed/i)
 		expect(signTypedData).not.toHaveBeenCalled()
 	})
-	it("ranks a mixed-token partial quote without pricing its skipped leg", async () => {
-		const exotic = `0x${"00".repeat(12)}${"33".repeat(20)}` as HexString
-		const mixed = {
-			...order,
-			output: {
-				assets: [
-					{ token: exotic, amount: 100n },
-					{ token, amount: 200n },
-				],
-			},
-		} as Order
-		const partial = quote([0n, 100n], [0n, 120n])
-		partial.outputs[0].token = exotic
+	it("ranks by rate across legs, drops a quote below the order, and prices nothing", async () => {
+		// Rates: 330/300 = 1.10, 180/150 = 1.20 on both legs, 240/200 = 1.20 on leg 1 alone.
+		const both = quote([100n, 200n], [110n, 220n])
+		const betterBoth = quote([50n, 100n], [60n, 120n])
+		const legOneOnly = quote([0n, 200n], [0n, 240n])
+		// Leg 0 at 0.90 is below the order's 1.00, however good leg 1 is.
+		const belowOrder = quote([100n, 100n], [90n, 200n])
 		const bids = manager()
-		// The DEX dependency refuses a zero-amount swap, as a real router does.
-		const dex = bids as unknown as { quoteTokenToUsdc(token: HexString, amount: bigint): Promise<bigint> }
-		vi.spyOn(dex, "quoteTokenToUsdc").mockImplementation(async (_token, amount) => {
-			if (amount === 0n) throw new Error("Zero amount swap")
-			return amount
-		})
-		expect(await bids.sortBids(mixed, [partial])).toEqual([partial])
+		expect(await bids.sortBids(order, [both, belowOrder, legOneOnly, betterBoth])).toEqual([
+			legOneOnly,
+			betterBoth,
+			both,
+		])
+	})
+
+	it("drops a quote that names no leg or quotes an input without an output", async () => {
+		const empty = quote([0n, 0n], [0n, 0n])
+		const unpaid = quote([100n, 0n], [0n, 0n])
+		const good = quote([100n, 200n], [100n, 200n])
+		expect(await manager().sortBids(order, [empty, unpaid, good])).toEqual([good])
 	})
 })

@@ -68,24 +68,28 @@ export const SOLVERS = [
 /** Human decimal string with at most 12 fractional digits. */
 const dec = (x) => x.toFixed(12).replace(/\.?0+$/, "")
 
+/**
+ * Sizes are close to the smallest the orderbook takes, so a run moves little and the wallets
+ * last: it refuses an order paying out under 10 USDC or 15000 cNGN (`serverInfo.minOrderSizes`).
+ */
 export function standingOrders(solver) {
 	const sources = ["EVM-97", "EVM-80002"]
 	return [
-		{ fillChain: "EVM-80002", tokenIn: "USDC", amountIn: "200", tokenOut: "cNGN", amountOut: dec(200 * solver.a), acceptedSources: sources },
-		{ fillChain: "EVM-97", tokenIn: "USDC", amountIn: "200", tokenOut: "cNGN", amountOut: dec(200 * solver.b), acceptedSources: sources },
-		{ fillChain: "EVM-97", tokenIn: "cNGN", amountIn: "300000", tokenOut: "USDC", amountOut: dec(300000 / solver.c), acceptedSources: sources },
+		{ fillChain: "EVM-80002", tokenIn: "USDC", amountIn: "20", tokenOut: "cNGN", amountOut: dec(20 * solver.a), acceptedSources: sources },
+		{ fillChain: "EVM-97", tokenIn: "USDC", amountIn: "20", tokenOut: "cNGN", amountOut: dec(20 * solver.b), acceptedSources: sources },
+		{ fillChain: "EVM-97", tokenIn: "cNGN", amountIn: "30000", tokenOut: "USDC", amountOut: dec(30000 / solver.c), acceptedSources: sources },
 	]
 }
 
-/** Extra solver 1 levels on BSC Chapel, above every standing order. */
+/** Extra solver 1 levels on BSC Chapel, above every standing order, each at the dust floor. */
 export const EXTRA_LEVELS = {
 	// Buy cNGN at 1590 and 1585.
 	bids: [
-		{ fillChain: "EVM-97", tokenIn: "USDC", amountIn: "25", tokenOut: "cNGN", amountOut: "39750", acceptedSources: ["EVM-97", "EVM-80002"] },
-		{ fillChain: "EVM-97", tokenIn: "USDC", amountIn: "20", tokenOut: "cNGN", amountOut: "31700", acceptedSources: ["EVM-97", "EVM-80002"] },
+		{ fillChain: "EVM-97", tokenIn: "USDC", amountIn: "10", tokenOut: "cNGN", amountOut: "15900", acceptedSources: ["EVM-97", "EVM-80002"] },
+		{ fillChain: "EVM-97", tokenIn: "USDC", amountIn: "10", tokenOut: "cNGN", amountOut: "15850", acceptedSources: ["EVM-97", "EVM-80002"] },
 	],
 	// Sell cNGN at 1590.
-	ask: [{ fillChain: "EVM-97", tokenIn: "cNGN", amountIn: "47700", tokenOut: "USDC", amountOut: "30", acceptedSources: ["EVM-97", "EVM-80002"] }],
+	ask: [{ fillChain: "EVM-97", tokenIn: "cNGN", amountIn: "15900", tokenOut: "USDC", amountOut: "10", acceptedSources: ["EVM-97", "EVM-80002"] }],
 }
 
 /**
@@ -100,22 +104,22 @@ export const SCENARIOS = {
 		user: 0,
 		source: "EVM-97",
 		dest: "EVM-97",
-		legs: [{ tokenIn: "USDC", amountIn: "50", tokenOut: "cNGN", minOut: "77850" }],
+		legs: [{ tokenIn: "USDC", amountIn: "5", tokenOut: "cNGN", minOut: "7785" }],
 		minFills: 1,
 	},
 	"cross-chain": {
 		user: 0,
 		source: "EVM-97",
 		dest: "EVM-80002",
-		legs: [{ tokenIn: "USDC", amountIn: "40", tokenOut: "cNGN", minOut: "62200" }],
+		legs: [{ tokenIn: "USDC", amountIn: "4", tokenOut: "cNGN", minOut: "6220" }],
 		minFills: 1,
 	},
-	// 500000 cNGN is more than any one solver's 300000 cNGN order takes, so it fills in parts.
+	// 50000 cNGN is more than any one solver's 30000 cNGN order takes, so it fills in parts.
 	partial: {
 		user: 1,
 		source: "EVM-80002",
 		dest: "EVM-97",
-		legs: [{ tokenIn: "cNGN", amountIn: "500000", tokenOut: "USDC", minOut: "305.5" }],
+		legs: [{ tokenIn: "cNGN", amountIn: "50000", tokenOut: "USDC", minOut: "30.55" }],
 		minFills: 2,
 	},
 	// Legs on two pairs, each reaching a different set of limit orders: leg 0 at 1565+ cNGN per
@@ -126,19 +130,19 @@ export const SCENARIOS = {
 		source: "EVM-97",
 		dest: "EVM-97",
 		legs: [
-			{ tokenIn: "USDC", amountIn: "50", tokenOut: "cNGN", minOut: "78210" },
-			{ tokenIn: "cNGN", amountIn: "100000", tokenOut: "USDC", minOut: "61.5" },
+			{ tokenIn: "USDC", amountIn: "5", tokenOut: "cNGN", minOut: "7821" },
+			{ tokenIn: "cNGN", amountIn: "10000", tokenOut: "USDC", minOut: "6.15" },
 		],
 		minFills: 2,
 	},
-	// Only solver 1 clears 1574 cNGN per USDC, and its two extra levels cannot cover it alone:
+	// Only solver 1 clears 1574 cNGN per USDC, and no one level of its ladder covers 15 USDC:
 	// several bids from one solver, best rate first.
 	"same-solver-levels": {
 		user: 0,
 		source: "EVM-97",
 		dest: "EVM-97",
 		levels: ["bids"],
-		legs: [{ tokenIn: "USDC", amountIn: "50", tokenOut: "cNGN", minOut: "78710" }],
+		legs: [{ tokenIn: "USDC", amountIn: "15", tokenOut: "cNGN", minOut: "23613" }],
 		minFills: 2,
 	},
 	// Both pairs, solver 1's levels only on each side.
@@ -149,8 +153,8 @@ export const SCENARIOS = {
 		dest: "EVM-97",
 		levels: ["bids", "ask"],
 		legs: [
-			{ tokenIn: "USDC", amountIn: "50", tokenOut: "cNGN", minOut: "78710" },
-			{ tokenIn: "cNGN", amountIn: "100000", tokenOut: "USDC", minOut: "62.27" },
+			{ tokenIn: "USDC", amountIn: "15", tokenOut: "cNGN", minOut: "23613" },
+			{ tokenIn: "cNGN", amountIn: "10000", tokenOut: "USDC", minOut: "6.227" },
 		],
 		minFills: 2,
 	},
@@ -161,8 +165,8 @@ export const SCENARIOS = {
 		dest: "EVM-97",
 		levels: ["bids"],
 		legs: [
-			{ tokenIn: "USDC", amountIn: "50", tokenOut: "cNGN", minOut: "78710" },
-			{ tokenIn: "USDC", amountIn: "50", tokenOut: "cNGN", minOut: "78710" },
+			{ tokenIn: "USDC", amountIn: "5", tokenOut: "cNGN", minOut: "7871" },
+			{ tokenIn: "USDC", amountIn: "5", tokenOut: "cNGN", minOut: "7871" },
 		],
 		minFills: 2,
 	},

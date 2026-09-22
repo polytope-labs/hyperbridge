@@ -270,7 +270,7 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 	}
 
 	logger.info("Resolving chain IDs from RPC endpoints...")
-	const resolvedChains: ResolvedChainConfig[] = await resolveChainConfigs(config.chains)
+	const resolvedChains: ResolvedChainConfig[] = await resolveChainConfigs(config.chains, options.loggers)
 	logger.info({ chains: resolvedChains.map((c) => c.chainId) }, "Chain IDs resolved")
 
 	const fillerConfigForService: FillerServiceConfig = {

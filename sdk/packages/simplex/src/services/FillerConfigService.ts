@@ -1,5 +1,5 @@
 import type { ChainConfig, HexString } from "@hyperbridge/sdk"
-import { defaultLoggerContext, type LoggerContext } from "./Logger"
+import { defaultLoggerContext, moduleLogger, type LoggerContext } from "./Logger"
 import { ChainConfigService, bytes32ToBytes20 } from "@hyperbridge/sdk"
 import type { LogLevel } from "./Logger"
 
@@ -78,23 +78,60 @@ export async function fetchChainId(rpcUrl: string): Promise<number> {
 
 /**
  * Resolves chain IDs for all user-provided chain configs by querying each RPC.
- * When multiple RPC URLs are configured for a chain, every URL is queried and all
- * must agree on the chainId.
+ *
+ * Every URL is probed and every URL that ANSWERS must agree on the chain — but a
+ * URL that cannot answer no longer stops the filler from starting. A public
+ * endpoint answering 429 is an ordinary state, one the quorum client already
+ * handles by benching it; boot was the one place where a single throttled
+ * endpoint among a dozen healthy ones aborted the whole process. Unreachable
+ * endpoints stay in the list: they are probed here, not adopted, and the quorum
+ * client decides per call whether they can vote.
+ *
+ * Two cases are still fatal, because both mean the operator's config is wrong
+ * rather than an endpoint being briefly unavailable:
+ *  - endpoints that disagree about which chain they serve,
+ *  - a chain where nothing answered at all.
  */
-export async function resolveChainConfigs(chains: UserProvidedChainConfig[]): Promise<ResolvedChainConfig[]> {
+export async function resolveChainConfigs(
+	chains: UserProvidedChainConfig[],
+	loggers?: LoggerContext,
+): Promise<ResolvedChainConfig[]> {
+	const logger = loggers ? moduleLogger(loggers, "chain-config") : undefined
 	return Promise.all(
 		chains.map(async (chain) => {
 			const rpcUrls = validateRpcUrls(chain.rpcUrls)
-			const chainIds = await Promise.all(rpcUrls.map((url) => fetchChainId(url)))
-			const [first, ...rest] = chainIds
-			for (let i = 0; i < rest.length; i++) {
-				if (rest[i] !== first) {
+			const probes = await Promise.allSettled(rpcUrls.map((url) => fetchChainId(url)))
+			const answered: Array<{ url: string; chainId: number }> = []
+			const silent: Array<{ url: string; error: unknown }> = []
+			probes.forEach((probe, i) => {
+				if (probe.status === "fulfilled") answered.push({ url: rpcUrls[i], chainId: probe.value })
+				else silent.push({ url: rpcUrls[i], error: probe.reason })
+			})
+
+			if (answered.length === 0) {
+				throw new Error(
+					`No configured RPC endpoint could report its chainId: ${silent
+						.map(({ url, error }) => `${url}: ${error instanceof Error ? error.message : String(error)}`)
+						.join("; ")}`,
+				)
+			}
+
+			const [first, ...rest] = answered
+			for (const other of rest) {
+				if (other.chainId !== first.chainId) {
 					throw new Error(
-						`Quorum RPC URLs disagree on chainId: ${rpcUrls[0]} returned ${first} but ${rpcUrls[i + 1]} returned ${rest[i]}`,
+						`Quorum RPC URLs disagree on chainId: ${first.url} returned ${first.chainId} but ${other.url} returned ${other.chainId}`,
 					)
 				}
 			}
-			return { chainId: first, rpcUrls, bundlerUrl: chain.bundlerUrl }
+
+			for (const { url, error } of silent) {
+				logger?.warn(
+					{ url, chainId: first.chainId, answered: answered.length, of: rpcUrls.length, err: error },
+					"RPC endpoint could not report its chainId at startup; keeping it for the quorum to judge per call",
+				)
+			}
+			return { chainId: first.chainId, rpcUrls, bundlerUrl: chain.bundlerUrl }
 		}),
 	)
 }

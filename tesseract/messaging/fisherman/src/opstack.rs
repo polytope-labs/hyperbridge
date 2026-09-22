@@ -167,7 +167,7 @@ async fn scan_target(
 
 /// Which L2 block the quorum should check. An output root game names a block number directly,
 /// a super game names the timestamp its output roots were taken at.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 enum L2Block {
 	Number(u64),
 	AtTimestamp(u64),
@@ -294,7 +294,7 @@ async fn evaluate(
 		QuorumDecision::InsufficientQuorum => {
 			log::trace!(
 				target: crate::LOG_TARGET,
-				"fish_opstack: insufficient quorum for proxy {proxy:?} at l2 block {l2_block_number}, abstaining",
+				"fish_opstack: insufficient quorum for proxy {proxy:?} at {:?}, abstaining", super_claim.at,
 			);
 			true
 		},

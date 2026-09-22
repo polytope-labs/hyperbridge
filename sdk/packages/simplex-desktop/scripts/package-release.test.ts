@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto"
+import { EventEmitter } from "node:events"
 import { mkdir, mkdtemp, readFile, unlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -26,7 +27,7 @@ import {
 } from "./run-builder.mjs"
 import { verifyReleaseTag } from "./verify-release-tag.mjs"
 import { artifactNamesForPlatform, isUnavailableAppImageFuse } from "./e2e/artifact-smoke.mjs"
-import { waitFor } from "./e2e/packaged-smoke.mjs"
+import { stopProcess, waitFor } from "./e2e/packaged-smoke.mjs"
 
 function sha512(value: string): string {
 	return createHash("sha512").update(value).digest("base64")
@@ -62,6 +63,25 @@ describe("desktop package and release layout", () => {
 				async () => undefined,
 			),
 		).resolves.toBe("ready")
+	})
+
+	it("force-kills a packaged app that ignores the graceful shutdown deadline", async () => {
+		const child = Object.assign(new EventEmitter(), {
+			exitCode: null as number | null,
+			pid: 123,
+			kill: vi.fn((signal: NodeJS.Signals) => {
+				if (signal === "SIGKILL") {
+					child.exitCode = 137
+					queueMicrotask(() => child.emit("exit", 137, signal))
+				}
+				return true
+			}),
+		})
+
+		await stopProcess(child, { platform: "darwin", gracePeriodMs: 0 })
+
+		expect(child.kill.mock.calls.map(([signal]) => signal)).toEqual(["SIGTERM", "SIGKILL"])
+		expect(child.exitCode).toBe(137)
 	})
 
 	it("selects every launchable installer for the host platform", () => {

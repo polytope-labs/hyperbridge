@@ -134,3 +134,18 @@ the rate direction, the dust floor and the published decimals all look symbols u
 
 The operator UI no longer shows a limit order's expiry, in the list or the detail. With a 365-day
 default it was noise; an order that does lapse still shows as `Expired`.
+
+## A later leg is sized from what an earlier leg left on the limit order
+
+When two legs of one order matched the same limit order, each leg's bid was sized from the order's
+full `available`. Together they promised more than the order holds, so the later leg was dropped at
+reservation and that leg got no bid. `calculateProfitability` now tracks what each limit order has
+already committed to earlier legs of the same swap order (`plannedOn`). A later leg bids on what is
+left, as a partial fill, and is skipped only when nothing is left.
+
+## Operator UI: limit order list and fills
+
+- The live and closed limit order lists are paginated, 10 orders per page.
+- `New limit order` is a primary pill button.
+- The detail panel lists fills as a table (when, amount paid out, transaction link), with the total
+  paid out across all fills below it.

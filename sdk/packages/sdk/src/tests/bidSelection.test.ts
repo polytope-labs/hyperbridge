@@ -376,4 +376,100 @@ describe("Order execution bid-selection integration", () => {
 			await stream.return()
 		})
 	})
+
+	it("stops offering bids that only quote a leg the destination has completed", async () => {
+		// Two legs of 100 each. One bid fills leg 1, a second quotes only leg 1, a third only
+		// leg 0. Once leg 1 is done the second can only revert, so it is not handed on again.
+		const twoLegs: Order = {
+			...makeOrder(),
+			inputs: [
+				{ token: TOKEN, amount: 100n },
+				{ token: TOKEN, amount: 100n },
+			],
+			output: {
+				beneficiary: SOLVER_ONE,
+				assets: [
+					{ token: TOKEN, amount: 100n },
+					{ token: TOKEN, amount: 100n },
+				],
+				call: "0x",
+			},
+		}
+		const destination: { credited: bigint[]; finalizer?: HexString } = { credited: [0n, 0n] }
+		const readContract = vi.fn(async ({ functionName, args }: { functionName: string; args: [HexString, bigint] }) =>
+			functionName === "_filled"
+				? (destination.finalizer ?? ZERO_ADDRESS)
+				: (destination.credited[Number(args[1])] ?? 0n),
+		)
+		const legBid = (solver: HexString, leg: number, output: bigint, onExecute: () => void): Bid => {
+			const outputs = [0n, 0n].map((amount, i) => ({ token: TOKEN, amount: i === leg ? output : amount }))
+			return {
+				...makeBid({
+					solverAddress: solver,
+					amount: 0n,
+					execute: vi.fn(async () => {
+						onExecute()
+						const full = destination.credited.every((amount) => amount >= 100n)
+						if (full) destination.finalizer = solver
+						return {
+							...makeResult(makeUserOp(solver), solver),
+							fillStatus: full ? ("full" as const) : ("partial" as const),
+							filledAssets: destination.credited.map((amount) => ({ token: TOKEN, amount })),
+						}
+					}),
+				}),
+				outputs,
+				inputs: [0n, 0n].map((amount, i) => ({ token: TOKEN, amount: i === leg ? 100n : amount })),
+			}
+		}
+		const fillsLegOne = legBid(SOLVER_ONE, 1, 130n, () => {
+			destination.credited = [destination.credited[0], 100n]
+		})
+		const deadLegOne = legBid(SOLVER_TWO, 1, 120n, () => {
+			throw new Error("a bid on a completed leg was executed")
+		})
+		const fillsLegZero = legBid(SOLVER_THREE, 0, 110n, () => {
+			destination.credited = [100n, destination.credited[1]]
+		})
+		const bids = [fillsLegOne, deadLegOne, fillsLegZero]
+		const bySender = new Map(bids.map((bid) => [bid.userOp.sender.toLowerCase(), bid]))
+		const rawBids: FillerBid[] = bids.map((bid, index) => ({
+			filler: `solver-${index}`,
+			bid: CryptoUtils.bidId(bid.userOp.callData),
+			userOp: bid.userOp,
+			deposit: 0n,
+		}))
+
+		const deadline = pendingDeadline()
+		const ctx = makeContext({ getBidsForOrder: async () => rawBids, readContract, getBlockNumber: deadline.getBlockNumber })
+		const bidManager = new BidManager(ctx, {} as never)
+		vi.spyOn(bidManager, "buildBids").mockImplementation((_order, fillerBids) =>
+			fillerBids.map((fillerBid) => bySender.get(fillerBid.userOp.sender.toLowerCase())!),
+		)
+		const stream = new OrderExecutor(ctx, bidManager).executeOrder({ order: twoLegs, auctionTimeMs: 0, pollIntervalMs: 0 })
+
+		expect((await stream.next()).value).toMatchObject({ status: "AWAITING_BIDS" })
+		const rounds: HexString[][] = []
+		let step = await stream.next()
+		while (!step.done) {
+			const update = step.value
+			if (update.status === "BIDS_RECEIVED") {
+				rounds.push(update.bids.map((bid) => bid.solverAddress))
+				// The first round takes leg 1 first; later rounds take whatever is offered.
+				const pick = update.bids.find((bid) => bid === fillsLegOne) ?? update.bids[0]
+				step = await stream.next(await pick.execute())
+				continue
+			}
+			if (update.status === "FILLED") break
+			step = await stream.next()
+		}
+
+		expect(rounds[0]).toEqual([SOLVER_ONE, SOLVER_TWO, SOLVER_THREE])
+		// Leg 1 is complete: only the leg-0 bid is left to offer.
+		expect(rounds[1]).toEqual([SOLVER_THREE])
+		expect(destination.credited).toEqual([100n, 100n])
+
+		deadline.expire()
+		await stream.return()
+	})
 })

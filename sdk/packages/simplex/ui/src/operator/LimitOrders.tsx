@@ -1,6 +1,7 @@
 import { useState } from "react"
 import { ChevronRightIcon } from "../components/InterfaceIcons"
 import { OperatorSheet } from "../components/OperatorSheet"
+import { Pager } from "../components/Pager"
 import { TokenPairIcons } from "../components/TokenIcon"
 import { INIT_CHAINS } from "@/cli/init/chains"
 import { formatDate, sqliteUtcToMs } from "../lib/format"
@@ -8,6 +9,9 @@ import type { LimitOrder } from "../types"
 import { CreateLimitOrderForm } from "./limitOrders/CreateLimitOrderForm"
 import { available, describeRate, fromScaled, legs, statusOf } from "./limitOrders/limitOrderModel"
 import { type LimitOrderFills, useLimitOrders } from "./limitOrders/useLimitOrders"
+
+/** Orders per page, live and closed each: a solver re-posting all day builds a long closed list. */
+const PAGE_SIZE = 10
 
 interface LimitOrdersProps {
 	/** Chain ids the filler runs. A limit order names them as state machine ids. */
@@ -32,6 +36,8 @@ export function LimitOrders({ chains, chainLabels, symbols }: LimitOrdersProps) 
 	const [detail, setDetail] = useState<LimitOrderFills>()
 	const [busy, setBusy] = useState(false)
 	const [actionError, setActionError] = useState<string>()
+	const [livePage, setLivePage] = useState(1)
+	const [closedPage, setClosedPage] = useState(1)
 
 	// The status feed counts chains by id; an order names them the way the gateway
 	// does, so the page speaks both.
@@ -71,6 +77,11 @@ export function LimitOrders({ chains, chainLabels, symbols }: LimitOrdersProps) 
 
 	const live = orders.filter((order) => order.status === "open" || order.status === "resizing")
 	const closed = orders.filter((order) => order.status !== "open" && order.status !== "resizing")
+	// A page that emptied under a refresh (orders filled or cancelled) shows the last one instead.
+	const liveCurrent = Math.min(livePage, Math.max(1, Math.ceil(live.length / PAGE_SIZE)))
+	const closedCurrent = Math.min(closedPage, Math.max(1, Math.ceil(closed.length / PAGE_SIZE)))
+	const livePageOrders = live.slice((liveCurrent - 1) * PAGE_SIZE, liveCurrent * PAGE_SIZE)
+	const closedPageOrders = closed.slice((closedCurrent - 1) * PAGE_SIZE, closedCurrent * PAGE_SIZE)
 
 	return (
 		<>
@@ -80,15 +91,16 @@ export function LimitOrders({ chains, chainLabels, symbols }: LimitOrdersProps) 
 						<span className="eyebrow">Pricing</span>
 						<h2>Limit orders</h2>
 					</div>
-					<button type="button" className="operator-text-button" onClick={() => setCreating(true)}>
-						+ New limit order
+					<button type="button" className="primary limit-order-new-button" onClick={() => setCreating(true)}>
+						<span aria-hidden="true">+</span>
+						New limit order
 					</button>
 				</div>
 
 				{error ? <p className="error">{error}</p> : null}
 
 				<div className="operator-market-list">
-					{live.map((order) => (
+					{livePageOrders.map((order) => (
 						<LimitOrderRow key={order.id} order={order} chainLabel={chainLabel} onOpen={() => void open(order)} />
 					))}
 					{live.length === 0 && !loading ? (
@@ -97,6 +109,9 @@ export function LimitOrders({ chains, chainLabels, symbols }: LimitOrdersProps) 
 						</p>
 					) : null}
 				</div>
+				{live.length > PAGE_SIZE ? (
+					<Pager page={liveCurrent} pageSize={PAGE_SIZE} total={live.length} noun="orders" onPage={setLivePage} />
+				) : null}
 
 				{closed.length > 0 ? (
 					<>
@@ -106,7 +121,7 @@ export function LimitOrders({ chains, chainLabels, symbols }: LimitOrdersProps) 
 							</div>
 						</div>
 						<div className="operator-market-list">
-							{closed.map((order) => (
+							{closedPageOrders.map((order) => (
 								<LimitOrderRow
 									key={order.id}
 									order={order}
@@ -115,6 +130,15 @@ export function LimitOrders({ chains, chainLabels, symbols }: LimitOrdersProps) 
 								/>
 							))}
 						</div>
+						{closed.length > PAGE_SIZE ? (
+							<Pager
+								page={closedCurrent}
+								pageSize={PAGE_SIZE}
+								total={closed.length}
+								noun="orders"
+								onPage={setClosedPage}
+							/>
+						) : null}
 					</>
 				) : null}
 			</section>
@@ -242,24 +266,48 @@ function LimitOrderDetail(props: {
 			{fills.length === 0 ? (
 				<p className="hint">Nothing has filled against this order yet.</p>
 			) : (
-				<ul className="limit-order-fills">
-					{fills.map((fill) => {
-						const explorer = EXPLORER_BY_CHAIN.get(order.fillChain)
-						return (
-							<li key={fill.id}>
-								<span>{formatDate(sqliteUtcToMs(fill.filledAt))}</span>
-								<span>
-									{fromScaled(fill.amount)} {output}
-								</span>
-								{fill.transactionHash && explorer ? (
-									<a href={`${explorer}/tx/${fill.transactionHash}`} target="_blank" rel="noreferrer">
-										{fill.transactionHash.slice(0, 10)}…
-									</a>
-								) : null}
-							</li>
-						)
-					})}
-				</ul>
+				<>
+					<table className="limit-order-fills">
+						<thead>
+							<tr>
+								<th scope="col">When</th>
+								<th scope="col">Paid out</th>
+								<th scope="col">Transaction</th>
+							</tr>
+						</thead>
+						<tbody>
+							{fills.map((fill) => {
+								const explorer = EXPLORER_BY_CHAIN.get(order.fillChain)
+								const hash = fill.transactionHash
+								return (
+									<tr key={fill.id}>
+										<td>
+											<time>{formatDate(sqliteUtcToMs(fill.filledAt))}</time>
+										</td>
+										<td>
+											<strong>
+												{fromScaled(fill.amount)} <small>{output}</small>
+											</strong>
+										</td>
+										<td>
+											{hash && explorer ? (
+												<a href={`${explorer}/tx/${hash}`} target="_blank" rel="noreferrer">
+													{hash.slice(0, 8)}…{hash.slice(-6)}
+												</a>
+											) : (
+												<span className="limit-order-fills-none">—</span>
+											)}
+										</td>
+									</tr>
+								)
+							})}
+						</tbody>
+					</table>
+					<p className="limit-order-fills-total">
+						{fromScaled(fills.reduce((sum, fill) => sum + BigInt(fill.amount), 0n).toString())} {output} paid out
+						across {fills.length} {fills.length === 1 ? "fill" : "fills"}
+					</p>
+				</>
 			)}
 
 			<footer className="market-dialog-footer">

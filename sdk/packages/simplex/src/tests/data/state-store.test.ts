@@ -8,6 +8,12 @@ import { MemoryDataStore } from "@/data/memory"
 import { patchRuntimeState } from "@/data/state"
 import { SqliteDataStore } from "@/data/sqlite"
 import { SqliteStateStore } from "@/data/sqlite/state"
+import type { RuntimeState } from "@/data/types"
+
+// The store keeps one row per key and never reads their shape, so these tests
+// carry a marker key alongside `paused` to exercise the per-key merge.
+type MarkedState = RuntimeState & { marker?: string }
+const marked = (state: MarkedState): RuntimeState => state
 
 const dataDir = () => mkdtempSync(join(tmpdir(), "simplex-state-"))
 
@@ -58,37 +64,37 @@ describe("SqliteStateStore", () => {
 
 	it("survives a reopen of the same data directory", async () => {
 		const first = openStore()
-		await first.state.set({ paused: true, phantomBids: { "EVM-8453": "0xabc" } })
+		await first.state.set(marked({ paused: true, marker: "a" }))
 		await first.close()
 
 		const second = openStore(first.dir)
-		expect(await second.state.get()).toEqual({ paused: true, phantomBids: { "EVM-8453": "0xabc" } })
+		expect(await second.state.get()).toEqual({ paused: true, marker: "a" })
 	})
 
 	it("patches one key without reading or rewriting the others", async () => {
 		const { state } = openStore()
-		await state.set({ paused: true, phantomBids: { "EVM-8453": "0xabc" } })
+		await state.set(marked({ paused: true, marker: "a" }))
 
-		// The whole point of the atomic merge: a pause and a phantom bid landing
-		// concurrently must not drop one another.
+		// The whole point of the atomic merge: two keys landing concurrently must
+		// not drop one another.
 		await Promise.all([
 			patchRuntimeState(state, { paused: false }),
-			patchRuntimeState(state, { phantomBids: { "EVM-1": "0xdef" } }),
+			patchRuntimeState(state, marked({ marker: "b" })),
 		])
 
-		expect(await state.get()).toEqual({ paused: false, phantomBids: { "EVM-1": "0xdef" } })
+		expect(await state.get()).toEqual({ paused: false, marker: "b" })
 	})
 
 	it("drops a key set to undefined", async () => {
 		const { state } = openStore()
-		await state.set({ paused: true, phantomBids: { "EVM-8453": "0xabc" } })
-		await patchRuntimeState(state, { phantomBids: undefined })
+		await state.set(marked({ paused: true, marker: "a" }))
+		await patchRuntimeState(state, marked({ marker: undefined }))
 		expect(await state.get()).toEqual({ paused: true })
 	})
 
 	it("replaces the whole record on set", async () => {
 		const { state } = openStore()
-		await state.set({ paused: true, phantomBids: { "EVM-8453": "0xabc" } })
+		await state.set(marked({ paused: true, marker: "a" }))
 		await state.set({ paused: false })
 		expect(await state.get()).toEqual({ paused: false })
 	})
@@ -102,8 +108,8 @@ describe("SqliteStateStore", () => {
 	})
 
 	it("does not reject from patch on an unwritable store either", async () => {
-		// `patch` is the only path production takes — `Simplex.pause`, the CLI's
-		// `setPaused` and the phantom batch all route through `patchRuntimeState`.
+		// `patch` is the only path production takes — `Simplex.pause` and the CLI's
+		// `setPaused` both route through `patchRuntimeState`.
 		// A rejection here tells the operator the pause failed while the filler is
 		// in fact paused, and returns a 500 from POST /api/pause.
 		const store = openStore()
@@ -138,11 +144,11 @@ describe("retired runtime-state.json", () => {
 	it("is imported on first open and then deleted", async () => {
 		const dir = dataDir()
 		const file = join(dir, "runtime-state.json")
-		writeFileSync(file, JSON.stringify({ paused: true, phantomBids: { "EVM-8453": "0xabc" } }))
+		writeFileSync(file, JSON.stringify({ paused: true, marker: "a" }))
 
 		const { state } = openStore(dir)
 
-		expect(await state.get()).toEqual({ paused: true, phantomBids: { "EVM-8453": "0xabc" } })
+		expect(await state.get()).toEqual({ paused: true, marker: "a" })
 		expect(existsSync(file)).toBe(false)
 	})
 
@@ -225,7 +231,7 @@ describe("retired runtime-state.json", () => {
 	it.skipIf(process.getuid?.() === 0)("keeps a file it could not read instead of deleting it", async () => {
 		const dir = dataDir()
 		const file = join(dir, "runtime-state.json")
-		writeFileSync(file, JSON.stringify({ paused: true, phantomBids: { "EVM-8453": "0xabc" } }))
+		writeFileSync(file, JSON.stringify({ paused: true, marker: "a" }))
 		chmodSync(file, 0o000)
 
 		try {
@@ -272,7 +278,7 @@ describe("MemoryDataStore state", () => {
 	it("merges through the get-then-set fallback", async () => {
 		const store = new MemoryDataStore()
 		await store.state.set({ paused: true })
-		await patchRuntimeState(store.state, { phantomBids: { "EVM-1": "0xdef" } })
-		expect(await store.state.get()).toEqual({ paused: true, phantomBids: { "EVM-1": "0xdef" } })
+		await patchRuntimeState(store.state, marked({ marker: "b" }))
+		expect(await store.state.get()).toEqual({ paused: true, marker: "b" })
 	})
 })

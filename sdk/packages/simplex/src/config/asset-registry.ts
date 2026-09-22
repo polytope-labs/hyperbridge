@@ -51,12 +51,10 @@ const BUILTIN_ASSETS: Record<string, BuiltinSpec> = {
 }
 
 /**
- * Symbols pegged to 1 USD. Two roles: gating Uniswap venue pricing (a pool's
- * USD-per-token quote only inverts into a pair rate when token0 is a dollar),
- * and seeding the USD anchor graph at $1 — the roots from which every pair's
- * token0 must be reachable so confirmation depth can be sized in USD (see
- * `unanchoredToken0Symbols` and `FXFiller.usdFactors`). Trade pricing never
- * uses this as a price.
+ * Symbols pegged to 1 USD. They seed the USD anchor graph at $1 — the roots
+ * from which every pair's token0 must be reachable so confirmation depth can be
+ * sized in USD (see `unanchoredToken0Symbols` and `FXFiller.usdFactors`). Trade
+ * pricing never uses this as a price.
  */
 export const USD_STABLE_SYMBOLS: ReadonlySet<string> = new Set(["USDC", "USDT", "DAI"])
 
@@ -214,5 +212,19 @@ export class AssetRegistry {
 		const result = isRealAddress(address) ? address : null
 		this.addressCache.set(cacheKey, result)
 		return result
+	}
+
+	/**
+	 * The symbol `address` is known by on `chain`, or null when nothing in the
+	 * registry resolves to it.
+	 *
+	 * Every symbol this registry can name is tried, user `[assets]` first so an
+	 * overridden address reports the name the operator gave it. Two symbols
+	 * resolving to one address would be a registry mistake; the first wins.
+	 */
+	symbolFor(address: string, chain: string): string | null {
+		const target = address.toLowerCase()
+		const known = [...this.userAssets.keys(), ...registrySymbols()]
+		return known.find((symbol) => this.getAddress(symbol, chain)?.toLowerCase() === target) ?? null
 	}
 }

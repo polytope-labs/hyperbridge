@@ -8,9 +8,6 @@ import {deployIntentGatewayImpl, deployIntentModules} from "../IntentGatewayDepl
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {
     SelectOptions,
-    Order,
-    FillOptions,
-    TokenInfo,
     Params,
     InitParams,
     DispatchInfo,
@@ -81,6 +78,24 @@ contract SolverAccountTest is Test {
     // ============================================
     // Constructor Tests
     // ============================================
+
+    function test_ReleaseVersionProtectsCurrentAndHistoricalSelectors() public view {
+        assertEq(intentGateway.version(), 3);
+        assertNotEq(intentGateway.fillOrder.selector, bytes4(0xa5470064));
+        assertNotEq(intentGateway.fillOrder.selector, bytes4(0x5cfb1ea5));
+    }
+
+    function testVersionTwoMigrationShiftsRelayerOnce() public {
+        bytes32 initSlot = 0xf0c57e16840df040f15088dc2f81fe391c3923bec73e23a9662efc9c229c6a00;
+        vm.store(address(intentGateway), initSlot, bytes32(uint256(2)));
+        address relayer = address(0x123456);
+        vm.store(address(intentGateway), bytes32(uint256(13)), bytes32(uint256(uint160(relayer)) << 8));
+        vm.prank(intentGateway.host());
+        intentGateway.migrate(address(0xabc));
+        assertEq(intentGateway.version(), 3);
+        assertEq(intentGateway.owner(), address(0xabc));
+        assertEq(intentGateway.relayer(), relayer);
+    }
 
     function test_Constructor_SetsCachedValues() public view {
         assertEq(address(solverAccount.entryPoint()), entryPoint);
@@ -173,6 +188,45 @@ contract SolverAccountTest is Test {
         assertEq(result, ERC4337Utils.SIG_VALIDATION_FAILED);
     }
 
+    function test_ValidateUserOp_StandardECDSA_HistoricalFillCalldata_Fails() public {
+        _assertHistoricalFillRejectsStandardSignature(0xa5470064);
+        _assertHistoricalFillRejectsStandardSignature(0x5cfb1ea5);
+    }
+
+    function _assertHistoricalFillRejectsStandardSignature(bytes4 selector) internal {
+        bytes32 userOpHash = keccak256("test_userop");
+
+        Execution[] memory calls = new Execution[](1);
+        calls[0] = Execution({target: address(intentGateway), value: 0, callData: abi.encodeWithSelector(selector)});
+
+        PackedUserOperation memory op = _standardOp(_executeCalldata(calls), _signUserOpHash(userOpHash));
+
+        vm.prank(entryPoint);
+        uint256 result = solverAccount.validateUserOp(op, userOpHash, 0);
+
+        assertEq(result, ERC4337Utils.SIG_VALIDATION_FAILED);
+    }
+
+    function test_ValidateUserOp_StandardECDSA_AppendedFillCalldata_Fails() public {
+        bytes32 userOpHash = keccak256("test_userop");
+
+        Execution[] memory calls = new Execution[](1);
+        calls[0] = Execution({
+            target: address(intentGateway),
+            value: 0,
+            callData: abi.encodeWithSignature(
+                "fillOrder((bytes32,bytes,bytes,uint256,uint256,uint256,address,((bytes32,uint256)[],bytes),(bytes32,uint256)[],(bytes32,(bytes32,uint256)[],bytes)),(uint256,uint256,uint256,(bytes32,uint256)[],(bytes32,uint256)[]))"
+            )
+        });
+
+        PackedUserOperation memory op = _standardOp(_executeCalldata(calls), _signUserOpHash(userOpHash));
+
+        vm.prank(entryPoint);
+        uint256 result = solverAccount.validateUserOp(op, userOpHash, 0);
+
+        assertEq(result, ERC4337Utils.SIG_VALIDATION_FAILED);
+    }
+
     function test_ValidateUserOp_StandardECDSA_NonFillOrderBatch_Success() public {
         bytes32 userOpHash = keccak256("test_userop");
 
@@ -232,7 +286,7 @@ contract SolverAccountTest is Test {
 
         PackedUserOperation memory op = PackedUserOperation({
             sender: address(solverAccount),
-            nonce: _bidNonce(testCommitment, sessionKey),
+            nonce: _bidNonce(testCommitment, sessionKey, ""),
             initCode: "",
             callData: "",
             accountGasLimits: bytes32(0),
@@ -269,7 +323,45 @@ contract SolverAccountTest is Test {
 
         PackedUserOperation memory op = PackedUserOperation({
             sender: address(solverAccount),
-            nonce: _bidNonce(testCommitment, sessionKey),
+            nonce: _bidNonce(testCommitment, sessionKey, _executeCalldata(calls)),
+            initCode: "",
+            callData: _executeCalldata(calls),
+            accountGasLimits: bytes32(0),
+            preVerificationGas: 0,
+            gasFees: bytes32(0),
+            paymasterAndData: "",
+            signature: signature
+        });
+
+        SelectOptions memory expectedOptions =
+            SelectOptions({commitment: testCommitment, solver: address(solverAccount), signature: sessionSignature});
+        bytes memory selectCalldata = abi.encodeWithSelector(intentGateway.select.selector, expectedOptions);
+        vm.mockCall(address(intentGateway), selectCalldata, abi.encode(sessionKey));
+
+        vm.prank(entryPoint);
+        uint256 result = solverAccount.validateUserOp(op, userOpHash, 0);
+
+        assertEq(result, ERC4337Utils.SIG_VALIDATION_SUCCESS);
+    }
+
+    function test_ValidateUserOp_IntentSelection_HistoricalFillCalldata_Success() public {
+        _assertHistoricalFillAcceptsIntentSignature(0xa5470064);
+        _assertHistoricalFillAcceptsIntentSignature(0x5cfb1ea5);
+    }
+
+    function _assertHistoricalFillAcceptsIntentSignature(bytes4 selector) internal {
+        bytes32 userOpHash = keccak256("test_userop");
+
+        bytes memory sessionSignature = _createSessionKeySignature(testCommitment, address(solverAccount));
+        bytes memory solverSignature = _signUserOpHash(userOpHash);
+        bytes memory signature = abi.encodePacked(testCommitment, solverSignature, sessionSignature);
+
+        Execution[] memory calls = new Execution[](1);
+        calls[0] = Execution({target: address(intentGateway), value: 0, callData: abi.encodeWithSelector(selector)});
+
+        PackedUserOperation memory op = PackedUserOperation({
+            sender: address(solverAccount),
+            nonce: _bidNonce(testCommitment, sessionKey, _executeCalldata(calls)),
             initCode: "",
             callData: _executeCalldata(calls),
             accountGasLimits: bytes32(0),
@@ -300,7 +392,7 @@ contract SolverAccountTest is Test {
 
         bytes memory signature = abi.encodePacked(testCommitment, solverSignature, sessionSignature);
 
-        // ...but the userOp's nonce key is not keccak256(commitment ‖ sessionKey):
+        // ...but the userOp's nonce key is not keccak256(commitment ‖ sessionKey ‖ keccak256(callData)):
         // the signed userOp is not bound to the order/session being selected, so
         // validation must fail.
         PackedUserOperation memory op = PackedUserOperation({
@@ -326,6 +418,52 @@ contract SolverAccountTest is Test {
         assertEq(result, ERC4337Utils.SIG_VALIDATION_FAILED);
     }
 
+    /// @dev A solver bidding two prices on one order signs two ops. Each is keyed by its own
+    ///      calldata, so each is sequence 0 of its own key and validates on its own, in either
+    ///      order: neither waits on the other.
+    function test_ValidateUserOp_IntentSelection_TwoBidsOnOneOrder_EachOnItsOwnKey() public {
+        bytes memory sessionSignature = _createSessionKeySignature(testCommitment, address(solverAccount));
+        SelectOptions memory expectedOptions =
+            SelectOptions({commitment: testCommitment, solver: address(solverAccount), signature: sessionSignature});
+        vm.mockCall(
+            address(intentGateway),
+            abi.encodeWithSelector(intentGateway.select.selector, expectedOptions),
+            abi.encode(sessionKey)
+        );
+
+        bytes memory first = _fillCalldata(hex"01");
+        bytes memory second = _fillCalldata(hex"02");
+        uint256 firstNonce = _bidNonce(testCommitment, sessionKey, first);
+        uint256 secondNonce = _bidNonce(testCommitment, sessionKey, second);
+
+        assertTrue(firstNonce != secondNonce, "each bid has its own key");
+        assertEq(firstNonce & type(uint64).max, 0, "and signs its first sequence");
+        assertEq(secondNonce & type(uint64).max, 0);
+
+        // The second bid validates first: nothing orders them.
+        assertEq(_validateBid(second, secondNonce, sessionSignature), ERC4337Utils.SIG_VALIDATION_SUCCESS);
+        assertEq(_validateBid(first, firstNonce, sessionSignature), ERC4337Utils.SIG_VALIDATION_SUCCESS);
+    }
+
+    /// @dev The key commits to the calldata, so an op carrying calldata other than the one its
+    ///      key was derived from is refused.
+    function test_ValidateUserOp_IntentSelection_NonceKeyFromOtherCalldata_Fails() public {
+        bytes memory sessionSignature = _createSessionKeySignature(testCommitment, address(solverAccount));
+        SelectOptions memory expectedOptions =
+            SelectOptions({commitment: testCommitment, solver: address(solverAccount), signature: sessionSignature});
+        vm.mockCall(
+            address(intentGateway),
+            abi.encodeWithSelector(intentGateway.select.selector, expectedOptions),
+            abi.encode(sessionKey)
+        );
+
+        uint256 keyedOnFirst = _bidNonce(testCommitment, sessionKey, _fillCalldata(hex"01"));
+
+        assertEq(
+            _validateBid(_fillCalldata(hex"02"), keyedOnFirst, sessionSignature), ERC4337Utils.SIG_VALIDATION_FAILED
+        );
+    }
+
     /// @dev The pre-upgrade composite format (EIP-191 over (userOpHash, commitment,
     ///      sessionKey)) is no longer accepted — older solvers remain delegated to
     ///      the previous SolverAccount deployment instead.
@@ -343,7 +481,7 @@ contract SolverAccountTest is Test {
 
         PackedUserOperation memory op = PackedUserOperation({
             sender: address(solverAccount),
-            nonce: _bidNonce(testCommitment, sessionKey),
+            nonce: _bidNonce(testCommitment, sessionKey, ""),
             initCode: "",
             callData: "",
             accountGasLimits: bytes32(0),
@@ -449,7 +587,7 @@ contract SolverAccountTest is Test {
 
         PackedUserOperation memory op = PackedUserOperation({
             sender: address(solverAccount),
-            nonce: _bidNonce(testCommitment, sessionKey),
+            nonce: _bidNonce(testCommitment, sessionKey, ""),
             initCode: "",
             callData: "",
             accountGasLimits: bytes32(0),
@@ -488,7 +626,7 @@ contract SolverAccountTest is Test {
 
         PackedUserOperation memory op = PackedUserOperation({
             sender: address(solverAccount),
-            nonce: _bidNonce(testCommitment, sessionKey),
+            nonce: _bidNonce(testCommitment, sessionKey, ""),
             initCode: "",
             callData: "",
             accountGasLimits: bytes32(0),
@@ -512,19 +650,19 @@ contract SolverAccountTest is Test {
         assertEq(result, ERC4337Utils.SIG_VALIDATION_FAILED);
     }
 
-    function test_ValidateUserOp_IntentSelection_IntentGatewayReturnsInvalidData() public {
+    /// @dev A gateway returning something decodable but not the session key fails validation: the
+    /// nonce key cannot match a key the bid was never signed against.
+    function test_ValidateUserOp_IntentSelection_GatewayReturnsWrongSessionKey_Fails() public {
         bytes32 userOpHash = keccak256("test_userop");
 
-        // Create valid signatures
         bytes memory sessionSignature = _createSessionKeySignature(testCommitment, address(solverAccount));
         bytes memory solverSignature = _signUserOpHash(userOpHash);
 
-        // Create combined signature
         bytes memory signature = abi.encodePacked(testCommitment, solverSignature, sessionSignature);
 
         PackedUserOperation memory op = PackedUserOperation({
             sender: address(solverAccount),
-            nonce: _bidNonce(testCommitment, sessionKey),
+            nonce: _bidNonce(testCommitment, sessionKey, ""),
             initCode: "",
             callData: "",
             accountGasLimits: bytes32(0),
@@ -534,17 +672,51 @@ contract SolverAccountTest is Test {
             signature: signature
         });
 
-        // Mock IntentGateway.select to return invalid data (less than 32 bytes)
-        SelectOptions memory expectedOptions =
-            SelectOptions({commitment: testCommitment, solver: address(solverAccount), signature: sessionSignature});
-        bytes memory selectCalldata = abi.encodeWithSelector(intentGateway.select.selector, expectedOptions);
-
-        vm.mockCall(address(intentGateway), selectCalldata, abi.encode(bytes("")));
+        _mockSelect(sessionSignature, abi.encode(address(0xdead)));
 
         vm.prank(entryPoint);
         uint256 result = solverAccount.validateUserOp(op, userOpHash, 0);
 
         assertEq(result, ERC4337Utils.SIG_VALIDATION_FAILED);
+    }
+
+    /// @dev Return data too short to decode as an address is not caught by `try`: validation reverts
+    /// rather than failing softly. Unreachable against the real gateway, whose `select` returns an
+    /// address, so this pins the behaviour if that address is ever pointed at something else.
+    function test_ValidateUserOp_IntentSelection_GatewayReturnsTruncatedData_Reverts() public {
+        bytes32 userOpHash = keccak256("test_userop");
+
+        bytes memory sessionSignature = _createSessionKeySignature(testCommitment, address(solverAccount));
+        bytes memory solverSignature = _signUserOpHash(userOpHash);
+
+        bytes memory signature = abi.encodePacked(testCommitment, solverSignature, sessionSignature);
+
+        PackedUserOperation memory op = PackedUserOperation({
+            sender: address(solverAccount),
+            nonce: _bidNonce(testCommitment, sessionKey, ""),
+            initCode: "",
+            callData: "",
+            accountGasLimits: bytes32(0),
+            preVerificationGas: 0,
+            gasFees: bytes32(0),
+            paymasterAndData: "",
+            signature: signature
+        });
+
+        _mockSelect(sessionSignature, hex"1234");
+
+        vm.prank(entryPoint);
+        vm.expectRevert();
+        solverAccount.validateUserOp(op, userOpHash, 0);
+    }
+
+    /// @dev Mocks the gateway's `select` for this commitment and session signature.
+    function _mockSelect(bytes memory sessionSignature, bytes memory returnData) internal {
+        SelectOptions memory expectedOptions =
+            SelectOptions({commitment: testCommitment, solver: address(solverAccount), signature: sessionSignature});
+        vm.mockCall(
+            address(intentGateway), abi.encodeWithSelector(intentGateway.select.selector, expectedOptions), returnData
+        );
     }
 
     function test_ValidateUserOp_IntentSelection_MultipleCommitments() public {
@@ -561,7 +733,7 @@ contract SolverAccountTest is Test {
 
         PackedUserOperation memory op1 = PackedUserOperation({
             sender: address(solverAccount),
-            nonce: _bidNonce(commitment1, sessionKey),
+            nonce: _bidNonce(commitment1, sessionKey, ""),
             initCode: "",
             callData: "",
             accountGasLimits: bytes32(0),
@@ -587,7 +759,7 @@ contract SolverAccountTest is Test {
 
         PackedUserOperation memory op2 = PackedUserOperation({
             sender: address(solverAccount),
-            nonce: _bidNonce(commitment2, sessionKey),
+            nonce: _bidNonce(commitment2, sessionKey, ""),
             initCode: "",
             callData: "",
             accountGasLimits: bytes32(0),
@@ -632,7 +804,7 @@ contract SolverAccountTest is Test {
 
         PackedUserOperation memory op = PackedUserOperation({
             sender: address(solverAccount),
-            nonce: _bidNonce(testCommitment, sessionKey),
+            nonce: _bidNonce(testCommitment, sessionKey, ""),
             initCode: "",
             callData: "",
             accountGasLimits: bytes32(0),
@@ -661,8 +833,9 @@ contract SolverAccountTest is Test {
     function test_BidNonceKey_MatchesSdkVector() public pure {
         bytes32 commitment = keccak256("test_order_commitment");
         address sessionKeyAddr = address(0x00000000000000000000000000000000000000AA);
-        uint192 key = uint192(uint256(keccak256(abi.encodePacked(commitment, sessionKeyAddr))));
-        assertEq(uint256(key), 0x31c77a0860bd1b3f77fde0d2d875914d69220cf6b18ad191);
+        bytes memory callData = hex"deadbeef";
+        uint192 key = uint192(uint256(keccak256(abi.encodePacked(commitment, sessionKeyAddr, keccak256(callData)))));
+        assertEq(uint256(key), 0xbc2d417670f508428573098858469957bf350bc5ba31cc25);
     }
 
     // ============================================
@@ -748,8 +921,45 @@ contract SolverAccountTest is Test {
 
     /// @notice The 4337 nonce binding a bid to its order and session key:
     ///         key = lower 192 bits of keccak256(commitment ‖ sessionKey), sequence 0.
-    function _bidNonce(bytes32 commitment, address sessionKeyAddr) internal pure returns (uint256) {
-        return uint256(uint192(uint256(keccak256(abi.encodePacked(commitment, sessionKeyAddr))))) << 64;
+    /// @dev A bid's batch calling fillOrder on the gateway; `tag` stands in for the quote, which is
+    ///      what differs between two bids on one order.
+    function _fillCalldata(bytes memory tag) internal view returns (bytes memory) {
+        Execution[] memory calls = new Execution[](1);
+        calls[0] = Execution({
+            target: address(intentGateway), value: 0, callData: abi.encodePacked(intentGateway.fillOrder.selector, tag)
+        });
+        return _executeCalldata(calls);
+    }
+
+    /// @dev Validates a selected bid carrying `callData` and `nonce`, signed by the solver.
+    function _validateBid(bytes memory callData, uint256 nonce, bytes memory sessionSignature)
+        internal
+        returns (uint256)
+    {
+        bytes32 userOpHash = keccak256(abi.encode(callData, nonce));
+        bytes memory signature = abi.encodePacked(testCommitment, _signUserOpHash(userOpHash), sessionSignature);
+        PackedUserOperation memory op = PackedUserOperation({
+            sender: address(solverAccount),
+            nonce: nonce,
+            initCode: "",
+            callData: callData,
+            accountGasLimits: bytes32(0),
+            preVerificationGas: 0,
+            gasFees: bytes32(0),
+            paymasterAndData: "",
+            signature: signature
+        });
+        vm.prank(entryPoint);
+        return solverAccount.validateUserOp(op, userOpHash, 0);
+    }
+
+    function _bidNonce(bytes32 commitment, address sessionKeyAddr, bytes memory callData)
+        internal
+        pure
+        returns (uint256)
+    {
+        return uint256(uint192(uint256(keccak256(abi.encodePacked(commitment, sessionKeyAddr, keccak256(callData))))))
+            << 64;
     }
 }
 

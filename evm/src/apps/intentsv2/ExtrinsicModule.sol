@@ -39,24 +39,20 @@ contract ExtrinsicModule is ExtrinsicIntents {
     }
 
     /**
-     * @dev Cross-chain fill on the destination chain, validated by `IntentGatewayV2.fillOrder`.
-     * @param order The order to fill.
-     * @param options The solver's output amounts and dispatch fees.
-     * @param commitment The order commitment hash.
+     * @dev Cross-chain fill on the destination chain, validated and finished by
+     * `IntentGatewayV2.fillOrder`.
      */
-    function fillCrossChain(Order calldata order, FillOptions calldata options, bytes32 commitment)
+    function fillOrder(Order calldata order, FillOptions calldata options, bytes32 commitment)
         external
         payable
         onlyDelegated
+        returns (FillResult memory)
     {
-        _fillCrossChain(order, options, commitment);
+        return _fillOrder(order, options, commitment);
     }
 
     /**
      * @dev Cancel from the source chain, validated by `IntentGatewayV2.cancelOrder`.
-     * @param order The order to cancel.
-     * @param options The proof height and relayer fee.
-     * @param commitment The order commitment hash.
      */
     function cancelFromSource(Order calldata order, CancelOptions calldata options, bytes32 commitment)
         external
@@ -68,9 +64,6 @@ contract ExtrinsicModule is ExtrinsicIntents {
 
     /**
      * @dev Cancel from the destination chain, validated by `IntentGatewayV2.cancelOrder`.
-     * @param order The order to cancel.
-     * @param options The relayer fee.
-     * @param commitment The order commitment hash.
      */
     function cancelFromDest(Order calldata order, CancelOptions calldata options, bytes32 commitment)
         external

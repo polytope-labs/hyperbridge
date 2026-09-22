@@ -143,16 +143,17 @@ jobs:
                   echo "Watchlist:"
                   curl -s http://127.0.0.1:8547/solvers
 
-            # HYPERFX_WATCHLIST_URL is read at codegen and baked into env-config.json, so it has to
-            # be set before the build below, not just at run time. The Hyperbridge node is the live
-            # Gargantua testnet: the watchlist poll only runs on blocks near wall clock, and its
-            # indexing starts at the current head.
+            # HYPERFX_ORDERBOOK_URL is read at codegen and baked into env-config.json, so it has
+            # to be set before the build below, not just at run time. It is the orderbook's base
+            # URL; the indexer resolves `solvers` and `graphql` against it. The Hyperbridge node is
+            # the live Gargantua testnet: the watchlist poll only runs on blocks near wall clock,
+            # and its indexing starts at the current head.
             - name: Set up environment variables
               run: |
                   cat > .env.solver-ci << EOF
                   HYPERBRIDGE_GARGANTUA=${{ secrets.HYPERBRIDGE_GARGANTUA }}
                   BASE_SOLVER_CI=http://127.0.0.1:8545
-                  HYPERFX_WATCHLIST_URL=http://127.0.0.1:8547/solvers
+                  HYPERFX_ORDERBOOK_URL=http://127.0.0.1:8547
                   EOF
 
             - name: Login to Docker Hub
@@ -168,7 +169,7 @@ jobs:
                   DB_DATABASE: "postgres"
                   DB_HOST: "postgres"
                   DB_PORT: 5432
-                  HYPERFX_WATCHLIST_URL: "http://127.0.0.1:8547/solvers"
+                  HYPERFX_ORDERBOOK_URL: "http://127.0.0.1:8547"
                   BASE_SOLVER_CI: "http://127.0.0.1:8545"
                   LOG_LEVEL: ${{ secrets.ACTIONS_RUNNER_DEBUG == 'true' && 'debug' || 'info' }}
               run: |

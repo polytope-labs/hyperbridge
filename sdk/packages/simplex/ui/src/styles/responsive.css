@@ -176,14 +176,6 @@
 		padding: 1.1rem 1rem 1.2rem;
 	}
 
-	.network-options {
-		grid-template-columns: 1fr;
-	}
-
-	.network-option {
-		min-height: 4rem;
-	}
-
 	.markets-section-heading,
 	.uniswap-positions-heading,
 	.markets-pricing,

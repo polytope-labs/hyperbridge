@@ -13,11 +13,64 @@ import type {
 } from "@/types"
 import { ADDRESS_ZERO, bytes32ToBytes20, normalizeStateMachineId, retryPromise } from "@/utils"
 import type Decimal from "decimal.js"
-import { concat, encodeFunctionData, parseEventLogs } from "viem"
-import type { Hex } from "viem"
+import { concat, decodeEventLog, encodeFunctionData, parseEventLogs, toEventSelector } from "viem"
+import type { Hex, Log } from "viem"
 import { CryptoUtils } from "./CryptoUtils"
 import type { IntentGatewayContext } from "./types"
 import { BundlerMethod } from "./types"
+
+/** The EntryPoint events that delimit one operation's logs inside a bundle transaction. */
+const ENTRY_POINT_EVENT_ABI = [
+	{ type: "event", name: "BeforeExecution", inputs: [] },
+	{
+		type: "event",
+		name: "UserOperationEvent",
+		inputs: [
+			{ name: "userOpHash", type: "bytes32", indexed: true },
+			{ name: "sender", type: "address", indexed: true },
+			{ name: "paymaster", type: "address", indexed: true },
+			{ name: "nonce", type: "uint256", indexed: false },
+			{ name: "success", type: "bool", indexed: false },
+			{ name: "actualGasCost", type: "uint256", indexed: false },
+			{ name: "actualGasUsed", type: "uint256", indexed: false },
+		],
+	},
+] as const
+
+/**
+ * The logs `userOpHash` emitted inside a bundle transaction. A bundle can carry other operations,
+ * including other fills of the same order, so fill events are only read from this range. The
+ * EntryPoint emits an operation's logs and then its `UserOperationEvent`; the range opens at the
+ * previous such event, or at `BeforeExecution` for the first operation.
+ *
+ * @throws If the operation is not in the transaction, or it reverted.
+ */
+export function userOperationLogs(logs: Log[], entryPoint: HexString, userOpHash: HexString): Log[] {
+	const [beforeExecution, userOperationEvent] = ENTRY_POINT_EVENT_ABI.map((event) => toEventSelector(event))
+	const isBoundary = (log: Log) =>
+		log.address.toLowerCase() === entryPoint.toLowerCase() &&
+		(log.topics[0] === beforeExecution || log.topics[0] === userOperationEvent)
+
+	const end = logs.findIndex(
+		(log) =>
+			isBoundary(log) &&
+			log.topics[0] === userOperationEvent &&
+			log.topics[1]?.toLowerCase() === userOpHash.toLowerCase(),
+	)
+	if (end === -1) throw new Error(`UserOperation ${userOpHash} is not in the transaction`)
+
+	const { args } = decodeEventLog({
+		abi: ENTRY_POINT_EVENT_ABI,
+		eventName: "UserOperationEvent",
+		data: logs[end].data,
+		topics: logs[end].topics,
+	})
+	if (!args.success) throw new Error(`UserOperation ${userOpHash} reverted`)
+
+	let start = end - 1
+	while (start >= 0 && !isBoundary(logs[start])) start--
+	return logs.slice(start + 1, end)
+}
 
 /** Constructor parameters for {@link BidImpl}. */
 export interface BidParams {
@@ -44,6 +97,7 @@ export interface BidParams {
 export class BidImpl implements Bid {
 	readonly solverAddress: HexString
 	readonly outputs: TokenInfo[]
+	readonly inputs: TokenInfo[]
 	readonly relayerFee: bigint
 	readonly nativeDispatchFee: bigint
 	readonly userOp: PackedUserOperation
@@ -71,6 +125,7 @@ export class BidImpl implements Bid {
 
 		this.solverAddress = params.fillerBid.userOp.sender
 		this.outputs = params.fillOptions.outputs
+		this.inputs = params.fillOptions.inputs
 		this.relayerFee = params.fillOptions.relayerFee
 		this.nativeDispatchFee = params.fillOptions.nativeDispatchFee
 		this.userOp = params.fillerBid.userOp
@@ -230,33 +285,32 @@ export class BidImpl implements Bid {
 			)
 			txnHash = receipt.receipt.transactionHash
 
-			try {
-				const chainReceipt = await this.ctx.dest.client.waitForTransactionReceipt({
-					hash: txnHash,
-					confirmations: 1,
-				})
-				const events = parseEventLogs({
-					abi: IntentGatewayV2ABI,
-					logs: chainReceipt.logs,
-					eventName: ["OrderFilled", "PartialFill"],
-				})
+			const chainReceipt = await this.ctx.dest.client.waitForTransactionReceipt({
+				hash: txnHash,
+				confirmations: 1,
+			})
+			const gateway = this.ctx.dest.configService.getIntentGatewayAddress(
+				normalizeStateMachineId(this.order.destination),
+			)
+			const fills = parseEventLogs({
+				abi: IntentGatewayV2ABI,
+				logs: userOperationLogs(chainReceipt.logs, entryPointAddress, userOpHash),
+				eventName: ["OrderFilled", "PartialFill"],
+			}).filter(
+				(event) =>
+					event.address.toLowerCase() === gateway.toLowerCase() &&
+					event.args.commitment.toLowerCase() === commitment.toLowerCase(),
+			)
 
-				const matched = events.find((e) => {
-					if (e.eventName === "OrderFilled")
-						return e.args.commitment.toLowerCase() === commitment.toLowerCase()
-					if (e.eventName === "PartialFill")
-						return e.args.commitment.toLowerCase() === commitment.toLowerCase()
-					return false
-				})
-
-				if (matched?.eventName === "OrderFilled") {
-					fillStatus = "full"
-				} else if (matched?.eventName === "PartialFill") {
-					fillStatus = "partial"
-					filledAssets = (matched.args.outputs ?? []) as TokenInfo[]
-				}
-			} catch {
-				throw new Error("Failed to determine fill status from logs")
+			if (fills.some((event) => event.eventName === "OrderFilled")) {
+				fillStatus = "full"
+			} else if (fills.length > 0) {
+				fillStatus = "partial"
+				// An operation can call `fillOrder` more than once; each event credits its legs by index.
+				filledAssets = fills[0].args.outputs.map(({ token }, index) => ({
+					token,
+					amount: fills.reduce((sum, event) => sum + (event.args.outputs[index]?.amount ?? 0n), 0n),
+				}))
 			}
 		} catch (err) {
 			throw new Error(`Failed to execute bid: ${err instanceof Error ? err.message : String(err)}`)

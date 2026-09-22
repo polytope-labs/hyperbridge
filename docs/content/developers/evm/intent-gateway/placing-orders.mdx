@@ -377,11 +377,14 @@ for await (const update of run) {
       console.log("Solver fill submitted:", update.transactionHash)
       break
     case IntentOrderStatus.PARTIAL_FILL:
-      // Same-chain only. The SDK automatically seeks a fill for the remainder.
+      // The SDK automatically seeks a fill for the remainder.
       console.log("Partial fill; remaining:", update.remainingAssets)
       break
     case IntentOrderStatus.FILLED:
       console.log("Swap complete:", update.transactionHash)
+      break
+    case IntentOrderStatus.CANCELLED:
+      console.warn("Order was cancelled on its destination chain; remaining:", update.remainingAssets)
       break
     case IntentOrderStatus.EXPIRED:
       console.warn("Order was not fully filled; cancel it to reclaim its remaining escrow.")

@@ -1,5 +1,5 @@
 import { Mutex } from "async-mutex"
-import { type DecodedOrderPlacedLog, type HexString, retryPromise } from "@hyperbridge/sdk"
+import { type DecodedOrderPlacedLog, type HexString, type TokenInfo, retryPromise } from "@hyperbridge/sdk"
 import { INTENT_GATEWAY_V2_ABI } from "@/config/abis/IntentGatewayV2"
 import { QuorumPublicClient } from "@/services/QuorumPublicClient"
 import { DEFAULT_BLOCK_SCAN_INTERVAL_SECONDS } from "@/services/FillerConfigService"
@@ -293,7 +293,9 @@ export class ChainScanner {
 				if (this.stopped) return
 			}
 			try {
-				const args = log.args as { commitment?: HexString; filler?: string } | undefined
+				const args = log.args as
+					| { commitment?: HexString; filler?: string; outputs?: TokenInfo[]; inputs?: TokenInfo[] }
+					| undefined
 				const commitment = args?.commitment
 				if (!commitment) {
 					this.logger.warn({ log }, "OrderFilled log missing commitment")
@@ -308,6 +310,11 @@ export class ChainScanner {
 					blockHash: coords.blockHash ?? "",
 					logIndex: coords.logIndex ?? 0,
 					transactionHash: (log as { transactionHash?: string }).transactionHash,
+					// Both events carry them; a gateway predating the fields yields none,
+					// and the draw-down is skipped rather than sized from a guess.
+					outputs: args?.outputs ?? [],
+					inputs: args?.inputs ?? [],
+					complete: (log as { eventName?: string }).eventName === "OrderFilled",
 				})
 			} catch (error) {
 				this.logger.error({ err: error, log }, "Error parsing OrderFilled log")

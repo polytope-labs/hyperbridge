@@ -18,12 +18,27 @@ import {
 	tron,
 } from "viem/chains"
 import { defineChain } from "viem"
-import { TronWeb } from "tronweb"
+import { base58Decode } from "@polkadot/util-crypto"
 import type { HexString } from "@/types"
 
-/** Convert a Tron base58 address to a 0x-prefixed 20-byte EVM hex address */
+/**
+ * Convert a Tron base58 address to a 0x-prefixed 20-byte EVM hex address.
+ *
+ * Decoded by hand rather than through `TronWeb.address.toHex`, because importing `tronweb` here
+ * pulls `axios` and its `https-proxy-agent` into every consumer of this module. `https-proxy-agent`
+ * loads `debug`, which deletes `process.env.DEBUG` as it initialises — and the SubQuery indexer runs
+ * mappings in a VM2 sandbox whose `process` is frozen, so that delete throws and kills the worker.
+ *
+ * A Tron address is base58check over 0x41 || 20 address bytes || a 4-byte checksum, so the EVM
+ * address is the 20 bytes between them.
+ */
 function tronAddress(base58: string): HexString {
-	return `0x${TronWeb.address.toHex(base58).slice(2)}` as HexString
+	const decoded = base58Decode(base58)
+	if (decoded.length !== 25 || decoded[0] !== 0x41) {
+		throw new Error(`Not a Tron base58 address: ${base58}`)
+	}
+	const hex = Array.from(decoded.slice(1, 21), (byte) => byte.toString(16).padStart(2, "0")).join("")
+	return `0x${hex}` as HexString
 }
 
 export enum Chains {
@@ -268,7 +283,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			UniswapV3Quoter: "0x0000000000000000000000000000000000000000",
 			UniswapV4Quoter: "0x0000000000000000000000000000000000000000",
 			EntryPointV08: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
-			SolverAccount: "0x110C7E1814c923127469Ca8939a12dAa70B96a17",
+			SolverAccount: "0x153DB990FE3b761B54ad71D0f1A0987dF11740DB",
 		},
 		rpcEnvKey: "BSC_CHAPEL",
 		defaultRpcUrl: "https://bnb-testnet.api.onfinality.io/public",
@@ -756,7 +771,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			Calldispatcher: "0x876F1891982E260026630c233A4897160A281Fb8",
 			Permit2: "0x000000000022D473030F116dDEE9F6B43aC78BA3",
 			EntryPointV08: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
-			SolverAccount: "0x110C7E1814c923127469Ca8939a12dAa70B96a17",
+			SolverAccount: "0x153DB990FE3b761B54ad71D0f1A0987dF11740DB",
 		},
 		rpcEnvKey: "POLYGON_AMOY",
 		defaultRpcUrl: "https://rpc-amoy.polygon.technology",

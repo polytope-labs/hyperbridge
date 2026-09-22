@@ -13,6 +13,7 @@ import type {
 	AvailableLiquidity,
 	BuyAndSellRates,
 	QueryBuyAndSellRatesParams,
+	TokenInfo,
 } from "@/types"
 import type {
 	PackedUserOperation,
@@ -848,10 +849,12 @@ export class IntentGateway {
 		// buffer must cover the relayer component too — a buffer on fill gas
 		// alone is dwarfed whenever the source chain is expensive and the
 		// destination cheap (relayer fee >> fill gas), and every SDK-placed
-		// order would come up short and be refused.
+		// order would come up short and be refused. The buffer rounds up, so the fee
+		// stays strictly above the requirement however small it is: on testnets gas
+		// prices at 1 unit, and a floored 5% of 2 units is nothing.
 		const fees = isSameChain
 			? estimate.totalGasInFeeToken * 2n
-			: ((estimate.totalGasInFeeToken + estimate.relayerFeeInSourceFeeToken) * 105n) / 100n
+			: ((estimate.totalGasInFeeToken + estimate.relayerFeeInSourceFeeToken) * 105n + 99n) / 100n
 
 		const { address: feeToken } = await this.source.getFeeTokenWithDecimals()
 
@@ -889,16 +892,27 @@ export class IntentGateway {
 	}
 
 	/**
-	 * Checks whether an order has been filled on the destination chain.
+	 * Checks whether an order is finalized on the destination chain.
 	 *
 	 * Delegates to {@link OrderStatusChecker.isOrderFilled}.
 	 *
 	 * @param order - The order to check.
-	 * @returns `true` if the order's commitment slot on the destination chain is
-	 *   non-zero (i.e. `fillOrder` has been called successfully).
+	 * @returns `true` once a completing fill or a destination-side cancellation
+	 *   has finalized the order; `false` while it is open or only partly filled.
 	 */
 	async isOrderFilled(order: Order): Promise<boolean> {
 		return this.orderStatusChecker.isOrderFilled(order)
+	}
+
+	/**
+	 * Output credited to the order so far, one entry per leg.
+	 *
+	 * Delegates to {@link OrderStatusChecker.getFillProgress}.
+	 *
+	 * @param order - The order to check.
+	 */
+	async getFillProgress(order: Order): Promise<TokenInfo[]> {
+		return this.orderStatusChecker.getFillProgress(order)
 	}
 
 	/**

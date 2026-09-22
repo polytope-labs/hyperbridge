@@ -12,7 +12,7 @@ A token is the address in the low 20 bytes of its `bytes32`, and its upper 12 by
 the address, so `T` and `T | 1 << 255` would pass as two tokens. With a token whose `transfer` returns
 false instead of reverting, two such predispatch legs would each credit the one sweep that landed, and
 a cancel would pay the second copy out of other orders' escrow in that token
-(`testPlaceOrder_PredispatchRejectsAliasedInputToken`). Output tokens are checked at fill, on the
+(`testPlaceOrder_RejectsLegsOnAnotherPair`). Output tokens are checked at fill, on the
 chain they belong to, rather than at placement.
 
 `_orders`, `_partialFills` and `_protocolFees` are keyed by `(commitment, leg index)` instead of by

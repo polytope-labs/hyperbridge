@@ -17,6 +17,12 @@ extraResources:
       to: node_modules
     - from: resources/tray
       to: desktop/tray
+    - from: THIRD-PARTY-NOTICES.md
+      to: licenses/THIRD-PARTY-NOTICES.md
+    - from: node_modules/electron/dist/LICENSE
+      to: licenses/LICENSE.electron.txt
+    - from: node_modules/electron/dist/LICENSES.chromium.html
+      to: licenses/LICENSES.chromium.html
 
 # The hook selects the independently verified Node slice for the target
 # architecture. Signed Windows releases also sign the staged child executable
@@ -32,13 +38,13 @@ publish:
 
 mac:
     category: public.app-category.finance
-    icon: resources/tray/app.png
+    icon: resources/icon.icns
     target:
         - dmg
         - zip
 
 win:
-    icon: resources/tray/app.png
+    icon: resources/icon.ico
     target:
         - nsis
     # Signed release configuration supplies the publisher used by the updater.

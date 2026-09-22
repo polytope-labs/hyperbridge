@@ -3,7 +3,7 @@ import { api } from "../../api"
 import { Field } from "../../components/Field"
 import { CheckIcon, CopyIcon } from "../../components/InterfaceIcons"
 import { PillTabs } from "../../components/PillTabs"
-import { normalizeHexKey, switchNetwork, type SignerType, type WizardState } from "../state"
+import { normalizeHexKey, type SignerType, type WizardState } from "../state"
 import type { StepProps } from "../Wizard"
 
 const SIGNER_TABS = [
@@ -44,7 +44,7 @@ const TURNKEY_FIELDS: ReadonlyArray<{ key: keyof WizardState["turnkey"]; label: 
 	{ key: "signWith", label: "Wallet address to sign with (0x…)" },
 ]
 
-export function StepSigner({ state, setState, defaults }: StepProps) {
+export function StepSigner({ state, setState }: StepProps) {
 	const [error, setError] = useState<string>()
 	const [addressCopied, setAddressCopied] = useState(false)
 	const signerDescription = SIGNER_DESCRIPTIONS[state.signerType]
@@ -75,34 +75,6 @@ export function StepSigner({ state, setState, defaults }: StepProps) {
 
 	return (
 		<div className="wizard-sections signer-step">
-			<section className="card network-card" aria-labelledby="network-title">
-				<div className="card-heading">
-					<h2 id="network-title">Network</h2>
-				</div>
-				<div className="network-options">
-					{(["mainnet", "testnet"] as const).map((network) => (
-						<label key={network} className="network-option" data-active={state.network === network}>
-							<input
-								type="radio"
-								name="network"
-								checked={state.network === network}
-								onChange={() => setState((s) => switchNetwork(s, defaults, network))}
-							/>
-							<span className="network-option-radio" aria-hidden="true" />
-							<span className="network-option-copy">
-								<strong>{network === "mainnet" ? "Mainnet" : "Testnet"}</strong>
-								<span>
-									{network === "mainnet" ? "Live funds and orders" : "EVM test networks"}
-								</span>
-							</span>
-							<span className={`badge ${network === "mainnet" ? "ok" : ""}`}>
-								{network === "mainnet" ? "Live" : "Sandbox"}
-							</span>
-						</label>
-					))}
-				</div>
-			</section>
-
 			<section className="card signer-card" aria-labelledby="signer-title">
 				<div className="card-heading">
 					<h2 id="signer-title">Filler wallet</h2>

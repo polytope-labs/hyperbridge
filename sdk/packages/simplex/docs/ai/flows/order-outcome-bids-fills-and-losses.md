@@ -4,8 +4,12 @@ With solver selection, `IntentFiller` "executing" an order submits a bid: `order
 `commitment`) and `orderExecuted` (with `commitment`) fire on acceptance. `ActivityRecorder` skips
 `orderFilled` when it carries a commitment and records `orderExecuted` with a commitment and
 `success` as a `bid` row (txHash = extrinsic hash). `ChainScanner` passes each OrderFilled log's
-`transactionHash` in `ScannedFill`; `EventMonitor.handleFill` emits `orderFillObserved` for every
-fill with `ours` (filler address match), then the existing `orderFilledOnChain` for ours only. The
+`transactionHash` in `ScannedFill`, with `complete` set for `OrderFilled` and cleared for
+`PartialFill`; `EventMonitor.handleFill` emits `orderFillObserved` for every fill with `ours`
+(filler address match) and `complete`, then the existing `orderFilledOnChain` for ours only. When a
+rival completes an order we hold an unretracted bid on, `IntentFiller.handleRivalCompletion`
+retracts it at once, which returns the Hyperbridge deposit and the limit-order holds; a rival's
+partial fill leaves the bid standing. The
 recorder's `settle` records `filled` (ours) or `lost` (reason = winner) for orders it knows
 (summary cache or `ActivityStore.knowsOrder`). `Orders.tsx` ranks Filled > Outbid (neutral badge, winner address beneath) > Bid placed /
 Bid retracted (latest bid) > Executed/Failed > Skipped > Detected, shows the latest bid's standing

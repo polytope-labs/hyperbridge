@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react"
 
-export type OperatorTab = "overview" | "orders" | "wallet" | "logs" | "operations"
+export type OperatorTab = "overview" | "limit-orders" | "orders" | "wallet" | "logs" | "operations"
 
 /**
  * One path per sidebar page. Single segments only: index.html loads its
@@ -10,6 +10,7 @@ export type OperatorTab = "overview" | "orders" | "wallet" | "logs" | "operation
  */
 export const TAB_PATHS: Record<OperatorTab, string> = {
 	overview: "/",
+	"limit-orders": "/limit-orders",
 	orders: "/orders",
 	wallet: "/wallet",
 	logs: "/logs",

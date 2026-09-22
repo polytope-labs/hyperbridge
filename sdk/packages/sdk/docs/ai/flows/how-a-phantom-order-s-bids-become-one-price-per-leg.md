@@ -10,3 +10,5 @@
 6. Per leg: drop every zero-weight quote — from the median, from `bidCount`, and from `bidders` alike — and drop the leg entirely if none is left. Otherwise `weightedMedian` picks the price, and `lowestPrice`/`highestPrice` are set to that same median rather than the raw bid extremes.
 
 A malformed bid is skipped and the rest are priced; a `PhantomRpcError` aborts the whole run instead, because a partial bid set publishes a confident price built from whichever bids happened to be readable.
+
+Every bid carries a take per leg and is compared at the order's full input: each leg's output is scaled by `order input / take` before pricing, so slices of different sizes compete by rate. A bid is dropped unless the gateway and the SolverAccount the solver is delegated to both report release 3, read once per aggregation; an RPC failure retries the snapshot instead.

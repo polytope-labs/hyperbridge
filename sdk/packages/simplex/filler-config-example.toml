@@ -292,20 +292,15 @@ points = [
 # ]
 
 
-# Phantom order generator (optional)
-# Places expired same-chain swaps to collect price and liquidity bids from fillers.
-# Requires hyperbridgeWsUrl and substratePrivateKey to be set in [simplex].
-#
-# [phantom_generator]
-# enabled = true
-# chain = "EVM-8453"        # Chain where phantom orders are placed
-# interval_hours = 1        # How often to run a round (default: 1 hour)
-#
-# [[phantom_generator.token_pairs]]
-# token_a = "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"  # USDC
-# token_b = "0xdac17f958d2ee523a2206206994597c13d831ec7"  # USDT
-# standard_amount = "1000000000"   # 1000 USDC (6 decimals)
-# min_output = "990000000"         # 990 USDT minimum
+# The HyperFX orderbook simplex advertises its limit orders on, and prices every
+# fill from. Required: simplex has no prices of its own. The limit orders
+# themselves are not configured here — they are created over the API and live in
+# bids.db, because they are inventory you open and close while the filler runs.
+[orderbook]
+url = "https://orderbook.hyperbridge.network/graphql"
+# defaultTtlSecs = 31536000     # how long an order lives, and its posting's TTL; default 365 days, floor 900
+# reconcileIntervalSecs = 300   # how often to check the orderbook still matches
+# requestTimeoutMs = 10000
 
 
 # Remote access from a phone. Off by default. When enabled, simplex keeps an outbound

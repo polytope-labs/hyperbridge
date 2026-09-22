@@ -1,9 +1,6 @@
 import { useEffect } from "react"
-import { unanchoredToken0Symbols } from "@/config/pairs"
-import type { EditorPoint } from "../../components/curveModel"
 import type { SetupDefaults } from "../../types"
 import {
-	draftHasCurve,
 	enabledChains,
 	newCrossAssetDraft,
 	normSymbol,
@@ -11,19 +8,6 @@ import {
 	type PairDraft,
 	type WizardState,
 } from "../state"
-
-function curvesAreUntouched(points: EditorPoint[]): boolean {
-	return points.every((point) => !point.value.trim())
-}
-
-export function prefillCurves(draft: PairDraft, usdStables: string[]): Partial<PairDraft> {
-	const bothStable = usdStables.includes(normSymbol(draft.token0)) && usdStables.includes(normSymbol(draft.token1))
-	if (!bothStable) return {}
-	const patch: Partial<PairDraft> = {}
-	if (curvesAreUntouched(draft.bid)) patch.bid = [{ amount: "0", value: "1.001" }]
-	if (curvesAreUntouched(draft.ask)) patch.ask = [{ amount: "0", value: "0.999" }]
-	return patch
-}
 
 /** Derived market state and initialization rules for the strategy step. */
 export function useStrategiesModel(options: {
@@ -51,15 +35,6 @@ export function useStrategiesModel(options: {
 		if (seen.has(key) || seen.has(reverse)) duplicateKeys.add(key)
 		seen.add(key)
 	}
-	const unanchored = unanchoredToken0Symbols(
-		enabled
-			.filter((pair) => pair.token0.trim() && pair.token1.trim())
-			.map((pair) => ({
-				token0: pair.token0,
-				token1: pair.token1,
-				hasCurve: draftHasCurve(pair, state.fxPricing),
-			})),
-	)
 	const defaultToken1 =
 		availableSymbols.find((symbol) => normSymbol(symbol) === "CNGN") ??
 		availableSymbols.find((symbol) => !defaults.usdStables.includes(normSymbol(symbol))) ??
@@ -78,7 +53,7 @@ export function useStrategiesModel(options: {
 				fxSeeded: true,
 				pairs: [
 					...current.pairs,
-					...drafts.map((draft) => ({ ...draft, ...prefillCurves(draft, defaults.usdStables) })),
+					...drafts,
 				],
 			}
 		})
@@ -93,7 +68,6 @@ export function useStrategiesModel(options: {
 		marketRows,
 		enabled,
 		duplicateKeys,
-		unanchored,
 		defaultToken1,
 		patchPair,
 	}

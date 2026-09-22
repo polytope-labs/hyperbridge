@@ -6,7 +6,7 @@ import { ChainController } from "@/simplex"
 import { LoggerContext } from "@/services/Logger"
 import { MemoryDataStore } from "@/data/memory"
 import { startMockRpc, type MockRpc } from "../helpers/mock-rpc"
-import { stubHyperbridgeScanner, stubOrderScanner } from "../helpers/stub-scanner"
+import { stubOrderScanner } from "../helpers/stub-scanner"
 
 /**
  * The signer requirement used to live in `validateConfig` and was tested there;
@@ -37,16 +37,17 @@ function config(overrides: Partial<FillerTomlConfig["simplex"]> = {}): FillerTom
 			...overrides,
 		},
 		pairs: [
-			{ token0: "USDC", token1: "USDC", maxOrderSize: "1000", askPriceCurve: [{ amount: "0", price: "0.999" }] },
+			{ token0: "USDC", token1: "USDC" },
 		],
 		chains: [{ rpcUrls: [rpc.url], bundlerUrl: "https://bundler.example" }],
+		orderbook: { url: "https://orderbook.example/graphql" },
 	}
 }
 
 function bootOptions() {
 	return {
 		loggers: new LoggerContext({}),
-		scanners: { orders: stubOrderScanner([CHAIN_ID]), hyperbridge: stubHyperbridgeScanner() },
+		scanners: { orders: stubOrderScanner([CHAIN_ID]) },
 		data: new MemoryDataStore(),
 		ownsData: true,
 	}
@@ -99,7 +100,11 @@ describe("signerless runtime is watch-only for good", () => {
 		return {
 			signerless: true,
 			globalWatchOnly: false,
-			config: { simplex: { watchOnly: { [`EVM-${CHAIN_ID}`]: true } }, chains: [] },
+			config: {
+				simplex: { watchOnly: { [`EVM-${CHAIN_ID}`]: true } },
+				chains: [],
+				orderbook: { url: "https://orderbook.example/graphql" },
+			},
 			configService: { getConfiguredChainIds: () => [1] },
 			intentFiller: { setWatchOnly: vi.fn(), getWatchOnly: () => ({ [CHAIN_ID]: true }) },
 			resolvedChains: [],

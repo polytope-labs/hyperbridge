@@ -142,6 +142,17 @@ function operatorContext(): OperatorContext & { configPath: string } {
 	let paused = false
 	return {
 		strategies: [],
+		// Every running filler has limit orders: they are what it prices from.
+		limitOrders: {
+			list: async () => ({ orders: [] }),
+			get: async () => null,
+			create: async () => {
+				throw new Error("not wired for this test")
+			},
+			cancel: async () => {
+				throw new Error("not wired for this test")
+			},
+		} as never,
 		filler: {
 			pause() {
 				paused = true

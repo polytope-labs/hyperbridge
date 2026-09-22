@@ -13,11 +13,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 pragma solidity ^0.8.17;
+import {IntentQuoteTestUtils} from "./IntentQuoteTestUtils.sol";
 
 import "forge-std/Test.sol";
 import {MainnetForkBaseTest} from "./MainnetForkBaseTest.sol";
+import {IntentGatewayV2} from "../../src/apps/IntentGatewayV2.sol";
 import {
-    IntentGatewayV2,
     Order,
     Params,
     InitParams,
@@ -26,24 +27,23 @@ import {
     DispatchInfo,
     FillOptions,
     Deployment
-} from "../../src/apps/IntentGatewayV2.sol";
+} from "@hyperbridge/core/apps/IntentGatewayV2.sol";
 import {deployIntentGatewayImpl, deployIntentModules} from "./IntentGatewayDeploy.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 /**
  * @title ReentrantBeneficiary
  * @notice Malicious beneficiary contract that attempts to re-enter `fillOrder` during
- *         the ETH transfer made by `_fillSameChain` or `_fillCrossChain`.
+ *         the ETH transfer made while `fillOrder` pays a leg.
  *
  * Attack window (pre-fix):
  *
- *   _fillSameChain / _fillCrossChain:
+ *   fillOrder, in either module's `_fillOrder`:
  *     beneficiary.call{value: ...}("")   ← RE-ENTRY HERE
  *     // _filled still == address(0) pre-fix, now set at the top (CEI)
  *
- * With the CEI fix in place, `_filled[commitment]` is set to `msg.sender` at the
- * very start of both fill functions. Any reentrant `fillOrder` call therefore hits
+ * With the CEI fix in place, `_filled[commitment]` is set to `msg.sender` by
+ * `fillOrder` before either module runs. Any reentrant `fillOrder` call therefore hits
  * the `if (_filled[commitment] != address(0)) revert Filled()` guard and reverts.
  * That revert propagates through `receive()`, causing the outer ETH transfer to
  * return `(false, ...)`, which triggers `InsufficientNativeToken()` in the outer
@@ -54,6 +54,7 @@ contract ReentrantBeneficiary {
 
     Order private storedOrder;
     FillOptions private storedOptions;
+    uint256 private storedValue;
     bool private armed;
     bool private reentered;
 
@@ -61,15 +62,12 @@ contract ReentrantBeneficiary {
         gateway = IntentGatewayV2(_gateway);
     }
 
-    /// @notice Pre-approve the gateway to pull an ERC-20 from this contract.
-    function approveGateway(address token, uint256 amount) external {
-        IERC20(token).approve(address(gateway), amount);
-    }
-
-    /// @notice Load the reentrant payload before the outer fill is triggered.
-    function arm(Order calldata order, FillOptions calldata options) external {
+    /// @notice Load the reentrant payload before the outer fill is triggered. `value` funds a
+    ///         native output leg, paid out of the ETH this contract has just been sent.
+    function arm(Order calldata order, FillOptions calldata options, uint256 value) external {
         storedOrder = order;
         storedOptions = options;
+        storedValue = value;
         armed = true;
     }
 
@@ -79,27 +77,26 @@ contract ReentrantBeneficiary {
     receive() external payable {
         if (armed && !reentered) {
             reentered = true;
-            gateway.fillOrder(storedOrder, storedOptions);
+            gateway.fillOrder{value: storedValue}(storedOrder, storedOptions);
         }
     }
 }
 
 /**
  * @title IntrinsicIntentsReentrancyTest
- * @notice Forge tests that confirm the CEI fix in `IntrinsicIntents._fillSameChain`
- *         and verify that `ExtrinsicIntents._fillCrossChain` is also resistant to
- *         reentrancy attacks.
+ * @notice Forge tests that confirm the CEI fix for same-chain fills and verify that
+ *         cross-chain fills are also resistant to reentrancy attacks.
  *
- * Both fill functions now open with `_filled[commitment] = msg.sender` before any
- * external calls, so a reentrant `fillOrder` attempt is always blocked by the
- * `Filled()` guard in `IntentGatewayV2.fillOrder`.
+ * `IntentGatewayV2.fillOrder` sets `_filled[commitment] = msg.sender` before it
+ * delegates to either module, so a reentrant `fillOrder` attempt is always blocked by
+ * its `Filled()` guard.
  *
  * Test matrix
  * ───────────
  *  testReentrancy_FeeTheft                    same-chain, 1 ETH output   → InsufficientNativeToken
- *  testReentrancy_EscrowTheft_MultiOutput     same-chain, two legs selling one token → InsufficientNativeToken
+ *  testReentrancy_EscrowTheft_MultiOutput     same-chain, one pair at two prices → InsufficientNativeToken
  *  testCrossChain_ReentrancyBlocked           cross-chain, 1 ETH output  → InsufficientNativeToken
- *  testCrossChain_ReentrancyBlocked_MultiOutput cross-chain, two legs selling one token → InsufficientNativeToken
+ *  testCrossChain_ReentrancyBlocked_MultiOutput cross-chain, one pair at two prices → InsufficientNativeToken
  */
 contract IntrinsicIntentsReentrancyTest is MainnetForkBaseTest {
     // ── constants ────────────────────────────────────────────────────────────
@@ -140,6 +137,10 @@ contract IntrinsicIntentsReentrancyTest is MainnetForkBaseTest {
         legitimateSolver = makeAddr("legitimateSolver");
 
         intentGateway = _deployGatewayProxy();
+        // The cross-chain tests dispatch a redeem back to "EVM-2"; without the peer the fill dies on
+        // `UnknownInstance` before any guard is reached.
+        bytes[] memory peers = new bytes[](1);
+        peers[0] = bytes("EVM-2");
         intentGateway.initialize(
             InitParams({
                 params: Params({
@@ -150,7 +151,7 @@ contract IntrinsicIntentsReentrancyTest is MainnetForkBaseTest {
                     protocolFeeBps: 0,
                     priceOracle: address(0)
                 }),
-                peerChains: new bytes[](0),
+                peerChains: peers,
                 relayer: address(0),
                 owner: address(this)
             })
@@ -212,7 +213,7 @@ contract IntrinsicIntentsReentrancyTest is MainnetForkBaseTest {
         });
     }
 
-    // ── SAME-CHAIN TESTS (IntrinsicIntents._fillSameChain) ───────────────────
+    // ── SAME-CHAIN TESTS (IntrinsicIntents._fillOrder) ───────────────────────
 
     /**
      * @dev Same-chain fee theft is now blocked by the CEI fix.
@@ -220,8 +221,8 @@ contract IntrinsicIntentsReentrancyTest is MainnetForkBaseTest {
      * Before the fix: `_filled` was set only inside `_withdraw(finalize=true)`,
      * so a malicious beneficiary could re-enter and steal the escrowed tx fees.
      *
-     * After the fix: `_filled[commitment] = msg.sender` is set at the top of
-     * `_fillSameChain`, before the output loop. The reentrant `fillOrder` call
+     * After the fix: `_filled[commitment] = msg.sender` is set by `fillOrder`
+     * before the module's output loop. The reentrant `fillOrder` call
      * therefore hits `Filled()`, propagates through `receive()`, causes the ETH
      * transfer to return false, and the outer call reverts with
      * `InsufficientNativeToken()` — rolling back all state changes.
@@ -263,7 +264,15 @@ contract IntrinsicIntentsReentrancyTest is MainnetForkBaseTest {
         reentrantOutputs[0] = TokenInfo({token: bytes32(0), amount: 0});
 
         maliciousBeneficiary.arm(
-            order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: reentrantOutputs})
+            order,
+            FillOptions({
+                relayerFee: 0,
+                nativeDispatchFee: 0,
+                validUntil: 0,
+                outputs: reentrantOutputs,
+                inputs: IntentQuoteTestUtils.inputs(order, reentrantOutputs)
+            }),
+            0
         );
 
         // ── 3. Fill attempt reverts — reentrancy is blocked ──────────────────
@@ -271,7 +280,14 @@ contract IntrinsicIntentsReentrancyTest is MainnetForkBaseTest {
         vm.expectRevert(ERR_INSUFFICIENT_NATIVE);
         vm.prank(legitimateSolver);
         intentGateway.fillOrder{value: OUTPUT_ETH}(
-            order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: outputAssets})
+            order,
+            FillOptions({
+                relayerFee: 0,
+                nativeDispatchFee: 0,
+                validUntil: 0,
+                outputs: outputAssets,
+                inputs: IntentQuoteTestUtils.inputs(order, outputAssets)
+            })
         );
 
         // ── 4. State is completely rolled back ───────────────────────────────
@@ -285,14 +301,13 @@ contract IntrinsicIntentsReentrancyTest is MainnetForkBaseTest {
     }
 
     /**
-     * @dev Same-chain order with two legs selling the same token: USDC for ETH and USDC for DAI.
-     * The reentrant payload skips the ETH leg and self-fills the DAI leg to claim that leg's USDC
-     * escrow. Reentrancy is blocked, and both legs' escrow survives the revert.
+     * @dev Same-chain order selling USDC for ETH at two prices. The reentrant payload skips leg 0
+     * and self-fills leg 1 to claim that leg's USDC escrow, funded by the ETH leg 0 just paid it,
+     * so nothing but the reentrancy block stands in its way. Both legs' escrow survives the revert.
      */
     function testReentrancy_EscrowTheft_MultiOutput() public {
-        uint256 outputDai = 500 * 1e18;
+        uint256 outputEth2 = 0.5 ether;
         bytes32 usdcToken = bytes32(uint256(uint160(address(usdc))));
-        bytes32 daiToken = bytes32(uint256(uint160(address(dai))));
 
         // ── 1. Place a two-leg same-chain order ──────────────────────────────
 
@@ -302,7 +317,7 @@ contract IntrinsicIntentsReentrancyTest is MainnetForkBaseTest {
 
         TokenInfo[] memory outputAssets = new TokenInfo[](2);
         outputAssets[0] = TokenInfo({token: bytes32(0), amount: OUTPUT_ETH});
-        outputAssets[1] = TokenInfo({token: daiToken, amount: outputDai});
+        outputAssets[1] = TokenInfo({token: bytes32(0), amount: outputEth2});
 
         Order memory order = _sameChainOrder(inputs, outputAssets, 0);
 
@@ -319,27 +334,35 @@ contract IntrinsicIntentsReentrancyTest is MainnetForkBaseTest {
 
         // ── 2. Arm the malicious beneficiary ─────────────────────────────────
 
-        deal(address(dai), address(maliciousBeneficiary), outputDai);
-        maliciousBeneficiary.approveGateway(address(dai), outputDai);
-
         TokenInfo[] memory reentrantOutputs = new TokenInfo[](2);
         reentrantOutputs[0] = TokenInfo({token: bytes32(0), amount: 0});
-        reentrantOutputs[1] = TokenInfo({token: daiToken, amount: outputDai});
+        reentrantOutputs[1] = TokenInfo({token: bytes32(0), amount: outputEth2});
 
         maliciousBeneficiary.arm(
-            order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: reentrantOutputs})
+            order,
+            FillOptions({
+                relayerFee: 0,
+                nativeDispatchFee: 0,
+                validUntil: 0,
+                outputs: reentrantOutputs,
+                inputs: IntentQuoteTestUtils.inputs(order, reentrantOutputs)
+            }),
+            outputEth2
         );
 
         // ── 3. Fill attempt reverts — reentrancy is blocked ──────────────────
 
-        deal(address(dai), legitimateSolver, outputDai);
-        vm.prank(legitimateSolver);
-        dai.approve(address(intentGateway), outputDai);
-
         vm.expectRevert(ERR_INSUFFICIENT_NATIVE);
         vm.prank(legitimateSolver);
-        intentGateway.fillOrder{value: OUTPUT_ETH}(
-            order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: outputAssets})
+        intentGateway.fillOrder{value: OUTPUT_ETH + outputEth2}(
+            order,
+            FillOptions({
+                relayerFee: 0,
+                nativeDispatchFee: 0,
+                validUntil: 0,
+                outputs: outputAssets,
+                inputs: IntentQuoteTestUtils.inputs(order, outputAssets)
+            })
         );
 
         // ── 4. State is completely rolled back ───────────────────────────────
@@ -352,12 +375,11 @@ contract IntrinsicIntentsReentrancyTest is MainnetForkBaseTest {
         );
     }
 
-    // ── CROSS-CHAIN TESTS (ExtrinsicIntents._fillCrossChain) ─────────────────
+    // ── CROSS-CHAIN TESTS (ExtrinsicIntents._fillOrder) ──────────────────────
     //
-    // _fillCrossChain already applied the CEI pattern from the start (the
-    // `_filled[commitment] = msg.sender` statement was never commented out in
-    // ExtrinsicIntents.sol, unlike _fillSameChain). These tests confirm the
-    // existing protection holds for single- and multi-output cross-chain orders.
+    // Cross-chain fills are claimed by the same `_filled[commitment] = msg.sender`
+    // in `fillOrder`. These tests confirm the protection holds for single- and
+    // multi-output cross-chain orders.
     //
     // Setup difference from same-chain tests:
     //  - order.source = "EVM-2" (a remote chain, not the current host)
@@ -365,12 +387,12 @@ contract IntrinsicIntentsReentrancyTest is MainnetForkBaseTest {
     //  - No placeOrder needed; cross-chain fills don't access source-chain escrow.
     //
     // Attack flow (blocked):
-    //   1. fillOrder routes to _fillCrossChain (source != dest, dest == current)
-    //   2. _fillCrossChain sets _filled[commitment] = msg.sender immediately
+    //   1. fillOrder sets _filled[commitment] = msg.sender
+    //   2. fillOrder routes to ExtrinsicIntents._fillOrder (source != dest, dest == current)
     //   3. ETH output loop sends ETH to maliciousBeneficiary → receive() fires
     //   4. Reentrant fillOrder hits _filled[commitment] != 0 → Filled() revert
     //   5. Revert propagates through receive() → ETH .call returns false
-    //   6. _fillCrossChain throws InsufficientNativeToken() → full tx rollback
+    //   6. _payLeg throws InsufficientNativeToken() → full tx rollback
 
     /**
      * @dev Cross-chain fill with a single ETH output: reentrancy is blocked.
@@ -393,7 +415,15 @@ contract IntrinsicIntentsReentrancyTest is MainnetForkBaseTest {
         reentrantOutputs[0] = TokenInfo({token: bytes32(0), amount: 0});
 
         maliciousBeneficiary.arm(
-            order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: reentrantOutputs})
+            order,
+            FillOptions({
+                relayerFee: 0,
+                nativeDispatchFee: 0,
+                validUntil: 0,
+                outputs: reentrantOutputs,
+                inputs: IntentQuoteTestUtils.inputs(order, reentrantOutputs)
+            }),
+            0
         );
 
         // ── 3. Fill attempt reverts — reentrancy is blocked ──────────────────
@@ -401,7 +431,14 @@ contract IntrinsicIntentsReentrancyTest is MainnetForkBaseTest {
         vm.expectRevert(ERR_INSUFFICIENT_NATIVE);
         vm.prank(legitimateSolver);
         intentGateway.fillOrder{value: OUTPUT_ETH}(
-            order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: outputAssets})
+            order,
+            FillOptions({
+                relayerFee: 0,
+                nativeDispatchFee: 0,
+                validUntil: 0,
+                outputs: outputAssets,
+                inputs: IntentQuoteTestUtils.inputs(order, outputAssets)
+            })
         );
 
         // ── 4. _filled is rolled back — order remains fillable ───────────────
@@ -410,14 +447,14 @@ contract IntrinsicIntentsReentrancyTest is MainnetForkBaseTest {
     }
 
     /**
-     * @dev Cross-chain fill of two legs selling the same token (USDC for ETH, USDC for DAI): the
-     * reentrant payload skips the ETH leg and self-fills the DAI leg. `_filled` is set at the top of
-     * `_fillCrossChain`, so the reentrant call is blocked before any leg's progress is recorded.
+     * @dev Cross-chain fill of two legs selling USDC for ETH at two prices: the reentrant payload
+     * skips leg 0 and self-fills leg 1, funded by the ETH leg 0 just paid it. `_filled` is set by
+     * `fillOrder` before the module runs, so the reentrant call is blocked before any leg's
+     * progress is recorded.
      */
     function testCrossChain_ReentrancyBlocked_MultiOutput() public {
-        uint256 outputDai = 500 * 1e18;
+        uint256 outputEth2 = 0.5 ether;
         bytes32 usdcToken = bytes32(uint256(uint160(address(usdc))));
-        bytes32 daiToken = bytes32(uint256(uint160(address(dai))));
 
         // ── 1. Build a two-leg cross-chain order ─────────────────────────────
 
@@ -427,30 +464,42 @@ contract IntrinsicIntentsReentrancyTest is MainnetForkBaseTest {
 
         TokenInfo[] memory outputAssets = new TokenInfo[](2);
         outputAssets[0] = TokenInfo({token: bytes32(0), amount: OUTPUT_ETH});
-        outputAssets[1] = TokenInfo({token: daiToken, amount: outputDai});
+        outputAssets[1] = TokenInfo({token: bytes32(0), amount: outputEth2});
 
         Order memory order = _crossChainOrder(inputs, outputAssets);
         bytes32 commitment = keccak256(abi.encode(order));
 
         // ── 2. Arm with a self-fill reentrant payload ────────────────────────
 
-        deal(address(dai), address(maliciousBeneficiary), outputDai);
-        maliciousBeneficiary.approveGateway(address(dai), outputDai);
-
         TokenInfo[] memory reentrantOutputs = new TokenInfo[](2);
         reentrantOutputs[0] = TokenInfo({token: bytes32(0), amount: 0});
-        reentrantOutputs[1] = TokenInfo({token: daiToken, amount: outputDai});
+        reentrantOutputs[1] = TokenInfo({token: bytes32(0), amount: outputEth2});
 
         maliciousBeneficiary.arm(
-            order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: reentrantOutputs})
+            order,
+            FillOptions({
+                relayerFee: 0,
+                nativeDispatchFee: 0,
+                validUntil: 0,
+                outputs: reentrantOutputs,
+                inputs: IntentQuoteTestUtils.inputs(order, reentrantOutputs)
+            }),
+            outputEth2
         );
 
         // ── 3. Fill attempt reverts — reentrancy is blocked ──────────────────
 
         vm.expectRevert(ERR_INSUFFICIENT_NATIVE);
         vm.prank(legitimateSolver);
-        intentGateway.fillOrder{value: OUTPUT_ETH}(
-            order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: outputAssets})
+        intentGateway.fillOrder{value: OUTPUT_ETH + outputEth2}(
+            order,
+            FillOptions({
+                relayerFee: 0,
+                nativeDispatchFee: 0,
+                validUntil: 0,
+                outputs: outputAssets,
+                inputs: IntentQuoteTestUtils.inputs(order, outputAssets)
+            })
         );
 
         // ── 4. Nothing was recorded for either leg ───────────────────────────

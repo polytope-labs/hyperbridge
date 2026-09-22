@@ -15,9 +15,7 @@
 pragma solidity ^0.8.24;
 
 import {IntentsBase} from "./IntentsBase.sol";
-import {TokenInfo, Order, Params, WithdrawalRequest, FillOptions} from "@hyperbridge/core/apps/IntentGatewayV2.sol";
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {TokenInfo, Order, FillOptions} from "@hyperbridge/core/apps/IntentGatewayV2.sol";
 
 /**
  * @title IntrinsicIntents
@@ -26,145 +24,28 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
  * @dev Same-chain intent logic: partial fills, same-chain cancel, and escrow release.
  */
 abstract contract IntrinsicIntents is IntentsBase {
-    using SafeERC20 for IERC20;
-
     /**
-     * @dev Fills a same-chain order, supporting both partial and full fills.
-     *
-     * For each output asset, the solver provides tokens directly to the beneficiary.
-     * The function tracks cumulative partial fill progress per leg in `_partialFills` and computes
-     * proportional escrowed input amounts to release to the solver. Leg `i` pairs
-     * `order.inputs[i]` with `order.output.assets[i]`; its progress and escrow are its own, so
-     * legs that repeat a token (e.g. one pair at several prices) settle independently.
-     *
-     * Surplus handling (when solver overpays on a fresh, unfilled order):
-     * - If the order has attached calldata, all surplus goes to the protocol as dust.
-     * - Otherwise, surplus is split between the beneficiary and protocol according to `surplusShareBps`.
-     *
-     * On full fill: releases all remaining escrow, executes any attached calldata,
-     * and emits OrderFilled.
-     * On partial fill: releases proportional escrow and emits PartialFill.
-     *
-     * Orders that carry output calldata cannot be partially filled — they must be
-     * completed in a single fill, otherwise the call reverts with PartialFillNotAllowed.
-     *
-     * @param order The order to fill.
-     * @param options The fill options containing the solver's output token amounts.
-     * @param commitment The keccak256 hash of the ABI-encoded order.
+     * @dev Pays each leg and releases the escrow it earns, all on this chain.
      */
-    function _fillSameChain(Order calldata order, FillOptions calldata options, bytes32 commitment) internal {
-        uint256 outputsLen = order.output.assets.length;
-
-        _filled[commitment] = msg.sender;
-
-        uint256 msgValue = msg.value;
-        address beneficiary = address(uint160(uint256(order.output.beneficiary)));
-        bool isFullyFilled = true;
-
-        TokenInfo[] memory escrowedInputs = new TokenInfo[](outputsLen);
-        TokenInfo[] memory outputFills = new TokenInfo[](outputsLen);
-
-        for (uint256 i; i < outputsLen; i++) {
-            bytes32 outputToken = order.output.assets[i].token;
-            // Every use of a token reads the address in its low 20 bytes. Anything above would let one
-            // token pass `_isRepeatedToken` as two.
-            if (uint256(outputToken) >> 160 != 0) revert InvalidInput();
-            if (options.outputs[i].token != outputToken) revert InvalidInput();
-
-            address token = address(uint160(uint256(outputToken)));
-            uint256 totalRequired = order.output.assets[i].amount;
-            uint256 solverAmount = options.outputs[i].amount;
-
-            uint256 alreadyFilled = _partialFills[commitment][i];
-            uint256 remaining = totalRequired - alreadyFilled;
-            if (remaining == 0 || solverAmount == 0) {
-                if (solverAmount == 0 && remaining > 0) isFullyFilled = false;
-                // Record the real tokens (with zero amounts) so emitted events carry token identity.
-                escrowedInputs[i] = TokenInfo({token: order.inputs[i].token, amount: 0});
-                outputFills[i] = TokenInfo({token: outputToken, amount: 0});
-                continue;
-            }
-            uint256 fillAmount;
-
-            uint256 beneficiaryShare = 0;
-            uint256 protocolShare = 0;
-            if (alreadyFilled == 0 && solverAmount > totalRequired) {
-                fillAmount = totalRequired;
-                (protocolShare, beneficiaryShare) =
-                    _splitSurplus(solverAmount - totalRequired, order.output.call.length > 0);
-            } else {
-                fillAmount = solverAmount > remaining ? remaining : solverAmount;
-            }
-
-            uint256 amountFilled = alreadyFilled + fillAmount;
-            _partialFills[commitment][i] = amountFilled;
-            uint256 beneficiaryTotal = fillAmount + beneficiaryShare;
-
-            if (token == address(0)) {
-                if (msgValue < beneficiaryTotal + protocolShare) revert InsufficientNativeToken();
-                msgValue -= (beneficiaryTotal + protocolShare);
-                // Inline, not `_sendValue`: this loop is at the via-ir stack limit.
-                (bool sent,) = beneficiary.call{value: beneficiaryTotal}("");
-                if (!sent) revert InsufficientNativeToken();
-            } else {
-                IERC20(token).safeTransferFrom(msg.sender, beneficiary, beneficiaryTotal);
-                if (protocolShare > 0) {
-                    IERC20(token).safeTransferFrom(msg.sender, address(this), protocolShare);
-                }
-            }
-
-            if (totalRequired > amountFilled) isFullyFilled = false;
-            if (protocolShare > 0) emit DustCollected(token, protocolShare);
-
-            uint256 escrowedAmount;
-            if (amountFilled == totalRequired) {
-                // Completing the leg releases what remains of this leg's escrow, never another leg's.
-                escrowedAmount = _orders[commitment][i];
-            } else {
-                escrowedAmount = (order.inputs[i].amount * fillAmount) / totalRequired;
-            }
-            escrowedInputs[i] = TokenInfo({token: order.inputs[i].token, amount: escrowedAmount});
-            outputFills[i] = TokenInfo({token: outputToken, amount: fillAmount});
-        }
-
-        // Orders carrying output calldata must be filled completely in a single fill.
-        // The attached call is only executed on a full fill, so a partial fill would
-        // leave the intended side effect unexecuted while releasing proportional escrow.
-        if (order.output.call.length > 0 && !isFullyFilled) revert PartialFillNotAllowed();
-
-        WithdrawalRequest memory body = WithdrawalRequest({
-            commitment: commitment, tokens: escrowedInputs, beneficiary: bytes32(uint256(uint160(msg.sender)))
-        });
-        _withdraw(body, false, isFullyFilled);
-
-        if (isFullyFilled) {
-            _execute(order, outputsLen);
-            emit OrderFilled({commitment: commitment, filler: msg.sender, outputs: outputFills, inputs: escrowedInputs});
-        } else {
-            delete _filled[commitment];
-            emit PartialFill({commitment: commitment, filler: msg.sender, outputs: outputFills, inputs: escrowedInputs});
-        }
-
-        // Refund any unspent native tokens to the solver.
-        if (msgValue > 0) {
-            _sendValue(msg.sender, msgValue);
-        }
+    function _fillOrder(Order calldata order, FillOptions calldata options, bytes32 commitment)
+        internal
+        returns (FillResult memory result)
+    {
+        result = _fillLegs(order, options, commitment);
+        _withdraw(
+            Withdrawal({
+                commitment: commitment,
+                beneficiary: bytes32(uint256(uint160(msg.sender))),
+                tokens: result.releasedInputs,
+                isRefund: false,
+                finalize: result.fullyFilled
+            })
+        );
     }
 
     /**
-     * @dev Cancels a same-chain order and refunds the remaining escrowed tokens to the user.
-     *
-     * The original order creator (order.user) may cancel through the deadline. Cancellation is
-     * permissionless strictly after the deadline, using `_blockNumber()` so Arbitrum deployments
-     * use their L2 block number. Collects all remaining escrow balances (which may be reduced by
-     * prior partial fills) and refunds them to the original user via `_withdraw`. `cancelOrder` is
-     * the only caller and has already established that this chain is the order's source.
-     *
-     * `cancelOrder` has already emitted `OrderCancelled`; the `EscrowRefunded` of this refund
-     * follows it in the same transaction.
-     *
-     * @param order The order to cancel.
-     * @param commitment The keccak256 hash of the ABI-encoded order.
+     * @dev Refunds the remaining escrow to the creator. Only the creator may cancel until the
+     * deadline.
      */
     function _cancelSameChain(Order calldata order, bytes32 commitment) internal {
         if (order.user != bytes32(uint256(uint160(msg.sender))) && _blockNumber() <= order.deadline) {
@@ -184,9 +65,14 @@ abstract contract IntrinsicIntents is IntentsBase {
         }
         if (!hasEscrow) revert UnknownOrder();
 
-        WithdrawalRequest memory body =
-            WithdrawalRequest({commitment: commitment, tokens: remainingTokens, beneficiary: order.user});
-
-        _withdraw(body, true, true);
+        _withdraw(
+            Withdrawal({
+                commitment: commitment,
+                beneficiary: order.user,
+                tokens: remainingTokens,
+                isRefund: true,
+                finalize: true
+            })
+        );
     }
 }

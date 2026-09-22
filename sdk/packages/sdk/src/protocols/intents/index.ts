@@ -41,13 +41,15 @@ export { CryptoUtils, SELECT_SOLVER_TYPEHASH, PACKED_USEROP_TYPEHASH, DOMAIN_TYP
 export {
 	encodeFillOrder,
 	decodeFillOrder,
-	getFillOptionsVersion,
-	resetFillOptionsVersionCache,
-	LEGACY_FILL_OPTIONS_IMPLEMENTATIONS,
-	CHAINS_WITHOUT_VALID_UNTIL,
-	FILL_ORDER_V1_ABI,
+	assertGatewayRelease,
+	supportsRateFills,
+	isCanonicalEvmToken,
+	FILL_ORDER_SELECTOR,
+	CONTRACT_VERSION_ABI,
+	SUPPORTED_INTENTS_VERSION,
 } from "./fillOrderCodec"
-export type { FillOptionsVersion } from "./fillOrderCodec"
+export type { DecodedFillOrder } from "./fillOrderCodec"
+export { previewRateFill, type RateFillPreview } from "./rateFill"
 export {
 	encodeAcceptedSourceChains,
 	decodeAcceptedSourceChains,
@@ -58,11 +60,14 @@ export {
 	applyProtocolFeeHaircut,
 	applyUniswapQuoteHaircut,
 	readProtocolFeeHaircutBps,
+	readRateFillCapability,
 	UNISWAP_QUOTE_HAIRCUT_BPS,
 	PERMIT2_SPONSORSHIP_BYTES,
+	MAX_DECLARED_ENTRIES,
 	type PhantomBidDeclaration,
 	type PhantomBidPaymasterAndData,
 	type PhantomBidSponsorship,
+	type RateFillCapabilityReader,
 } from "./phantom-aggregation"
 export {
 	DEFAULT_GRAFFITI,

@@ -2,10 +2,11 @@ import type { TunnelConfig } from "@/services/tunnel/TunnelService"
 import { isAddress } from "viem"
 import type { HexString } from "@hyperbridge/sdk"
 import { ConfirmationPolicy, DEFAULT_CONFIRMATION_POLICIES } from "@/config/interpolated-curve"
-import { USD_STABLE_SYMBOLS, validateAssetDefinitions, type AssetDefinition } from "@/config/asset-registry"
+import { validateAssetDefinitions, type AssetDefinition } from "@/config/asset-registry"
 import { validatePairConfigs, type PairConfig } from "@/config/pairs"
 import type { SignerConfig } from "@/services/wallet"
 import { MIN_BLOCK_SCAN_INTERVAL_SECONDS } from "@/services/FillerConfigService"
+import { MIN_ORDER_TTL_SECONDS } from "@/orderbook/types"
 import type { UserProvidedChainConfig, AllowlistConfig } from "@/services/FillerConfigService"
 import type { PaymasterKeeperConfig } from "@/services/PaymasterKeeperService"
 
@@ -18,21 +19,6 @@ export interface ChainConfirmationPolicy {
 		amount: string
 		value: number
 	}>
-}
-
-/** TOML row for a Uniswap V4 position; only chain + tokenId required. */
-export interface UniswapV4PositionToml {
-	chain: string
-	tokenId: string // bigint as string in TOML
-	/**
-	 * Optional price guard. When set (alongside `maxDeviationBps`), the filler rejects
-	 * orders whenever the pool quote on this chain drifts more than `maxDeviationBps`
-	 * from this static reference price (exotic per USD, same units as the bid/ask curves).
-	 * Guards against a manipulated, stale, or thin pool.
-	 */
-	referencePrice?: string
-	/** Tolerance in basis points for the price guard. Required when `referencePrice` is set. */
-	maxDeviationBps?: number
 }
 
 /**
@@ -48,28 +34,10 @@ export interface VaultToml {
 	redeemOnShutdown?: boolean
 }
 
-/**
- * Top-level `[vault]` config — every on-chain liquidity venue in one place:
- * ERC-4626 treasury vaults (withdraw sourcing + threshold sweeping) and
- * Uniswap V4 LP positions (exotic funding + pool-based pricing).
- */
+/** Top-level `[vault]` config: ERC-4626 treasury vaults, for withdraw sourcing and threshold sweeping. */
 export interface VaultTomlConfig {
 	vaults?: VaultToml[]
 	sweepIntervalMs?: number
-	uniswapV4?: {
-		positions?: UniswapV4PositionToml[]
-		/**
-		 * One-sided LP under pool pricing. "bid" only buys token1; "ask" only
-		 * sells it. Only valid when no pair has static curves (curves express
-		 * one-sidedness by omission). Omit to fill both directions.
-		 */
-		side?: "bid" | "ask"
-		/**
-		 * Slippage tolerance (basis points) for LP redemptions and the symmetric
-		 * spread around pool mid when venue pricing is used. Default 50.
-		 */
-		spreadBps?: number
-	}
 }
 
 export interface QueueConfig {
@@ -158,9 +126,7 @@ export interface FillerTomlConfig {
 		/**
 		 * Overfill protection knobs. Defaults: maxOverfillBps=500, maxConsecutiveClamps=3.
 		 * `maxOverfillBps` clamps the per-leg output ceiling on every strategy.
-		 * `maxConsecutiveClamps` only halts FXFiller, and only when the clamped legs
-		 * were priced by an on-chain venue (e.g. Uniswap V4). Offline-curve clamps warn
-		 * but never halt.
+		 * `maxConsecutiveClamps` only halts FXFiller. Curve clamps warn but never halt.
 		 */
 		overfillProtection?: {
 			maxOverfillBps?: number
@@ -176,7 +142,6 @@ export interface FillerTomlConfig {
 		 * executable indefinitely and is taken up only once the rate has moved against us.
 		 *
 		 * Configured in seconds but written on-chain in blocks, converted per destination chain.
-		 * Ignored on gateways predating `FillOptions.validUntil` — there is nowhere to put it.
 		 */
 		bidValiditySeconds?: number
 		/**
@@ -195,6 +160,30 @@ export interface FillerTomlConfig {
 	allowlist?: AllowlistConfig
 	/** SimplexPaymaster fee-recycling keeper (`paymaster-keeper` subcommand). */
 	keeper?: PaymasterKeeperConfig
+	/** The HyperFX orderbook simplex posts its limit orders to. */
+	orderbook?: OrderbookConfig
+}
+
+/**
+ * Where the operator's limit orders are advertised.
+ *
+ * The limit orders themselves are not configured here: they live in `bids.db`
+ * and are created over the API, because they are inventory the operator opens
+ * and closes while the filler runs rather than startup settings.
+ */
+export interface OrderbookConfig {
+	/** GraphQL endpoint. */
+	url: string
+	/**
+	 * How long a limit order lives, in seconds, and the TTL written into its posting,
+	 * when the create request names none. Defaults to 365 days; at least 900, the
+	 * orderbook's floor. The order and its posting expire together: there is one
+	 * clock, and nothing renews it.
+	 */
+	defaultTtlSecs?: number
+	/** How often to reconcile local limit orders against the orderbook, in seconds. */
+	reconcileIntervalSecs?: number
+	requestTimeoutMs?: number
 }
 
 /**
@@ -269,17 +258,24 @@ export function validateVaultToml(
 }
 
 /**
- * Validates raw TOML `[vault.uniswapV4].positions` entries. Pure and
- * browser-safe — shared by `validateConfig` and the funding planner.
- * Throws on missing/invalid required fields.
+ * Checked at the gate rather than at first use: a misconfigured orderbook means
+ * every limit order the operator creates is refused, and a
+ * TTL under the orderbook's own floor is refused one order at a time with a
+ * `TTL_TOO_SHORT` nobody sees until they try.
  */
-export function validateUniswapV4Positions(positions: { chain?: string; tokenId?: string }[]): void {
-	for (const pos of positions) {
-		if (!pos.chain?.trim()) {
-			throw new Error("Each UniswapV4 vault position must have a non-empty 'chain' (e.g. EVM-8453)")
-		}
-		if (!pos.tokenId) {
-			throw new Error("Each UniswapV4 position must include a 'tokenId'")
+function validateOrderbookConfig(orderbook: OrderbookConfig): void {
+	if (!orderbook.url) {
+		throw new Error("orderbook.url is required")
+	}
+	const positiveSeconds: [keyof OrderbookConfig, number | undefined, number][] = [
+		["defaultTtlSecs", orderbook.defaultTtlSecs, MIN_ORDER_TTL_SECONDS],
+		["reconcileIntervalSecs", orderbook.reconcileIntervalSecs, 1],
+		["requestTimeoutMs", orderbook.requestTimeoutMs, 1],
+	]
+	for (const [name, value, minimum] of positiveSeconds) {
+		if (value === undefined) continue
+		if (!Number.isInteger(value) || value < minimum) {
+			throw new Error(`orderbook.${name} must be an integer >= ${minimum}; got ${value}`)
 		}
 	}
 }
@@ -289,7 +285,7 @@ export function validateConfig(config: FillerTomlConfig, cliWatchOnly = false): 
 	// stable strategy — fail loudly so stale configs are migrated, not ignored.
 	if ("strategies" in config) {
 		throw new Error(
-			"[[strategies]] was removed — declare top-level [[pairs]] instead (a same-token pair like USDC/USDC with an ask curve below par replaces the stable strategy; engine settings moved to [confirmationPolicies] and [vault.uniswapV4])",
+			"[[strategies]] was removed — declare top-level [[pairs]] instead (a same-token pair like USDC/USDC with an ask curve below par replaces the stable strategy; engine settings moved to [confirmationPolicies])",
 		)
 	}
 
@@ -363,31 +359,23 @@ export function validateConfig(config: FillerTomlConfig, cliWatchOnly = false): 
 		validateVaultToml(config.vault.vaults)
 	}
 
+	// Simplex prices from the operator's limit orders and those live on the
+	// orderbook, so there is no configuration in which it is absent.
+	if (!config.orderbook) {
+		throw new Error("an [orderbook] section is required")
+	}
+	validateOrderbookConfig(config.orderbook)
+
 	// Asset registry and trading pairs — the entire trading configuration.
 	if (config.assets) {
 		validateAssetDefinitions(config.assets)
 	}
-	const hasPairs = (config.pairs?.length ?? 0) > 0
-	if (!hasPairs && !allChainsWatchOnly) {
-		throw new Error("At least one [[pairs]] entry must be configured (unless all chains are in watchOnly mode)")
-	}
-	const hasVenuePricing = (config.vault?.uniswapV4?.positions?.length ?? 0) > 0
-	if (hasPairs) {
-		validatePairConfigs(config.pairs!, config.assets, hasVenuePricing)
-		// The engine only venue-prices pairs whose quote side is a dollar (a
-		// pool's USD quote must invert into a pair rate). validatePairConfigs
-		// accepts curve-less pairs whenever venues exist, so enforce the
-		// stable-quote rule here — at the gate, not first at boot.
-		if (hasVenuePricing) {
-			for (const pair of config.pairs!) {
-				const curveless = (pair.bidPriceCurve?.length ?? 0) === 0 && (pair.askPriceCurve?.length ?? 0) === 0
-				if (curveless && !USD_STABLE_SYMBOLS.has(pair.token0.trim().toUpperCase())) {
-					throw new Error(
-						`pairs.${pair.token0}/${pair.token1}: venue pricing needs a USD-stable token0 — add bid/ask curves or quote against USDC/USDT/DAI`,
-					)
-				}
-			}
-		}
+	// Markets are not declared up front any more: the operator's limit orders say
+	// what simplex trades, and those are created while it runs. A config may carry
+	// [[pairs]] and they are still validated, but an empty list is a filler waiting
+	// for its first market rather than a misconfiguration.
+	if ((config.pairs?.length ?? 0) > 0) {
+		validatePairConfigs(config.pairs!, config.assets)
 	}
 
 	// Per-chain confirmation policies (merged over built-in defaults at
@@ -395,79 +383,5 @@ export function validateConfig(config: FillerTomlConfig, cliWatchOnly = false): 
 	// validation — chain-id keys, ≥ 2 points, non-negative integer values.
 	if (config.confirmationPolicies) {
 		void new ConfirmationPolicy(config.confirmationPolicies)
-	}
-
-	// Uniswap V4 venue config ([vault.uniswapV4]): positions, price guards,
-	// one-sided switch, redemption slippage.
-	const uniswapV4 = config.vault?.uniswapV4
-	if (uniswapV4?.positions?.length) {
-		validateUniswapV4Positions(uniswapV4.positions)
-	}
-
-	if (uniswapV4?.spreadBps !== undefined) {
-		if (!Number.isFinite(uniswapV4.spreadBps) || uniswapV4.spreadBps < 0 || uniswapV4.spreadBps > 10_000) {
-			throw new Error("vault.uniswapV4: 'spreadBps' must be a number between 0 and 10000")
-		}
-	}
-
-	// Per-position price guard: referencePrice and maxDeviationBps are optional but
-	// must be set together. A given chain may not carry conflicting guard values.
-	const guardByChain: Record<string, { referencePrice: string; maxDeviationBps: number }> = {}
-	for (const position of uniswapV4?.positions ?? []) {
-		const hasRef = position.referencePrice !== undefined
-		const hasBps = position.maxDeviationBps !== undefined
-		if (hasRef !== hasBps) {
-			throw new Error(
-				"vault.uniswapV4: a position price guard needs both 'referencePrice' and 'maxDeviationBps', or neither",
-			)
-		}
-		if (!hasRef) continue
-
-		const parsedRef = Number(position.referencePrice)
-		if (!Number.isFinite(parsedRef) || parsedRef <= 0) {
-			throw new Error(
-				`vault.uniswapV4: position 'referencePrice' for chain '${position.chain}' must be a positive number`,
-			)
-		}
-		if (
-			!Number.isFinite(position.maxDeviationBps!) ||
-			position.maxDeviationBps! <= 0 ||
-			position.maxDeviationBps! > 10_000
-		) {
-			throw new Error(
-				`vault.uniswapV4: position 'maxDeviationBps' for chain '${position.chain}' must be a number between 0 (exclusive) and 10000`,
-			)
-		}
-		const existing = guardByChain[position.chain]
-		if (
-			existing &&
-			(existing.referencePrice !== position.referencePrice || existing.maxDeviationBps !== position.maxDeviationBps)
-		) {
-			throw new Error(`vault.uniswapV4: conflicting price guard values for chain '${position.chain}'`)
-		}
-		guardByChain[position.chain] = {
-			referencePrice: position.referencePrice!,
-			maxDeviationBps: position.maxDeviationBps!,
-		}
-	}
-
-	// One-sided LP under pool pricing: `side` enables a single direction. Only valid
-	// with venue pricing and no static curves (curves express one-sided by omission).
-	const side = uniswapV4?.side
-	if (side !== undefined) {
-		if (side !== "bid" && side !== "ask") {
-			throw new Error("vault.uniswapV4: 'side' must be either 'bid' or 'ask'")
-		}
-		if (!hasVenuePricing) {
-			throw new Error("vault.uniswapV4: 'side' requires [vault.uniswapV4].positions")
-		}
-		const anyCurves = (config.pairs ?? []).some(
-			(p) => (p.bidPriceCurve?.length ?? 0) > 0 || (p.askPriceCurve?.length ?? 0) > 0,
-		)
-		if (anyCurves) {
-			throw new Error(
-				"vault.uniswapV4: 'side' only applies to pool pricing; omit the pair price curves (or drop one curve to do one-sided LP with static pricing)",
-			)
-		}
 	}
 }

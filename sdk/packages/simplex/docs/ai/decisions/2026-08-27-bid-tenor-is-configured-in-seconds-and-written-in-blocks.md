@@ -42,6 +42,5 @@ Alternatives rejected:
 - _Per-pair tenors._ Right in the long run — a stablecoin pair could safely carry a longer expiry — but one
   conservative global default fixes the exposure now without adding a config surface to get wrong.
 
-On a gateway predating the field the bound is dropped rather than the fill refused. Refusing would take the filler
-off any chain not yet upgraded, which trades a bounded risk for a certain outage; the one-per-chain warning is there
-so the gap is visible rather than assumed away.
+Every gateway the filler bids on carries the field: the SDK refuses any gateway that does not report release 3, so
+the bound is never dropped.

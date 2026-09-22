@@ -755,6 +755,16 @@ export enum RequestKind {
 	 * Identifies a request for refunding escrowed tokens after cancellation
 	 */
 	RefundEscrow = 4,
+
+	/**
+	 * Identifies a governance call the gateway runs against itself, such as an upgrade
+	 */
+	Execute = 5,
+
+	/**
+	 * Identifies a request for redeeming a slice of an escrow after a partial fill, leaving the order open
+	 */
+	RedeemEscrowPartial = 6,
 }
 
 /**
@@ -822,18 +832,6 @@ export interface FillerConfig {
 	 * Example: { 1: true, 56: false } - watch-only on Ethereum, normal execution on BSC
 	 */
 	watchOnly?: Record<number, boolean>
-
-	/**
-	 * Uniswap V4 position tokenIds this filler holds, per chain (state machine id -> tokenIds as
-	 * decimal strings), declared inside its phantom bids' paymasterAndData for the bid's own chain.
-	 *
-	 * Liquidity parked in a V4 position is invisible to the snapshot's inventory read, which sees
-	 * only ERC-20 balances and ERC-4626 vault shares — so without this a venue-funded filler is
-	 * weighted at zero and its quotes are discarded. The declaration is only a POINTER: the indexer
-	 * reads each position's liquidity on-chain and checks it is owned by the solver that signed the
-	 * bid, so naming a position cannot inflate it and naming someone else's achieves nothing.
-	 */
-	uniswapV4PositionsByChain?: Record<string, string[]>
 }
 
 /**
@@ -1303,7 +1301,10 @@ export interface FillOptions {
 	 * encoding against a gateway whose implementation predates the field.
 	 */
 	validUntil: bigint
+	/** Positional output budgets. Actual payment follows the quoted rate and released input. */
 	outputs: TokenInfo[]
+	/** Required positional maximum input takes. Paired outputs/inputs declare each leg's rate. */
+	inputs: TokenInfo[]
 }
 
 // =============================================================================
@@ -1366,6 +1367,10 @@ export interface SubmitBidOptions {
 
 export interface EstimateFillOrderParams {
 	order: Order
+	/** Positional input takes. Required with custom outputs; otherwise estimates a full fill at the order's rate. */
+	inputs?: TokenInfo[]
+	/** Output slice offered by the solver. Defaults to the order's full requested outputs. */
+	outputs?: TokenInfo[]
 	/**
 	 * Optional ERC-7821 calls to prepend before the fillOrder call in the
 	 * simulated UserOp. Used for funding calls (e.g. LP withdrawal) so the
@@ -1388,6 +1393,8 @@ export interface EstimateFillOrderParams {
 
 export interface FillOrderEstimate {
 	fillOptions: FillOptions
+	/** Normalized positional input takes used by the estimated calldata. */
+	inputs: TokenInfo[]
 	callGasLimit: bigint
 	verificationGasLimit: bigint
 	preVerificationGas: bigint
@@ -1472,15 +1479,26 @@ export interface BidSubmissionResult {
 	pending?: boolean
 }
 
+/** One bid as the `intents_getBidsForOrder` RPC returns it: hex-encoded, the filler as raw AccountId bytes. */
+export interface RpcBidInfo {
+	commitment: HexString
+	filler: HexString
+	/** Which of the filler's bids on the order this is (bytes32; by convention `keccak256(callData)`). */
+	bid: HexString
+	user_op: HexString
+}
+
 /**
- * Represents a storage entry from pallet-intents Bids storage
- * StorageDoubleMap<_, Blake2_128Concat, H256, Blake2_128Concat, AccountId, Balance>
+ * Represents a storage entry from pallet-intents `OrderBids` storage:
+ * StorageNMap<(H256 commitment, AccountId filler, H256 bid), Balance>
  */
 export interface BidStorageEntry {
 	/** The order commitment hash (H256) */
 	commitment: HexString
 	/** The filler's Substrate account ID (SS58 encoded) */
 	filler: string
+	/** Which of the filler's bids on the order this is (bytes32; by convention `keccak256(callData)`) */
+	bid: HexString
 	/** The deposit amount stored on-chain (BalanceOf<T> = u128) */
 	deposit: bigint
 }
@@ -1492,6 +1510,11 @@ export interface BidStorageEntry {
 export interface FillerBid {
 	/** The filler's Substrate account ID (SS58 encoded) */
 	filler: string
+	/**
+	 * Which of the filler's bids on the order this is. A filler offering several prices bids once
+	 * per price; by convention the identifier is `keccak256` of the UserOp's `callData`.
+	 */
+	bid: HexString
 	/** The decoded PackedUserOperation */
 	userOp: PackedUserOperation
 	/** The deposit amount stored on-chain (in plancks) */
@@ -1527,8 +1550,10 @@ export interface SelectOptions {
 export interface Bid {
 	/** The solver account that submitted this bid (`userOp.sender`). */
 	readonly solverAddress: HexString
-	/** Decoded `FillOptions.outputs` — the tokens and amounts the solver offers. */
+	/** Decoded output budgets; these are not settlement payments or credited progress. */
 	readonly outputs: TokenInfo[]
+	/** Positional input takes from `FillOptions.inputs`, one per leg. */
+	readonly inputs: TokenInfo[]
 	/** Relayer fee from the decoded fill options. */
 	readonly relayerFee: bigint
 	/** Hyperbridge native dispatch fee from the decoded fill options. */
@@ -1572,6 +1597,7 @@ export const IntentOrderStatus = Object.freeze({
 	BID_SELECTED: "BID_SELECTED",
 	FILLED: "FILLED",
 	PARTIAL_FILL: "PARTIAL_FILL",
+	CANCELLED: "CANCELLED",
 	EXPIRED: "EXPIRED",
 	FAILED: "FAILED",
 })
@@ -1619,9 +1645,17 @@ export type IntentOrderStatusUpdate =
 	| {
 			status: "FILLED"
 			commitment: HexString
-			userOpHash: HexString
+			/** Absent when the completing fill was not executed here, e.g. after a restart. */
+			userOpHash?: HexString
 			selectedSolver: HexString
 			transactionHash?: HexString
+			totalFilledAssets: TokenInfo[]
+			remainingAssets: TokenInfo[]
+	  }
+	| {
+			/** The order was cancelled on its destination chain before it was completely filled. */
+			status: "CANCELLED"
+			commitment: HexString
 			totalFilledAssets: TokenInfo[]
 			remainingAssets: TokenInfo[]
 	  }

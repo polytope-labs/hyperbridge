@@ -1,6 +1,7 @@
 // Copyright (C) Polytope Labs Ltd.
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity ^0.8.24;
+import {IntentQuoteTestUtils} from "./IntentQuoteTestUtils.sol";
 
 import {MainnetForkBaseTest} from "./MainnetForkBaseTest.sol";
 import {deployIntentGatewayImpl} from "./IntentGatewayDeploy.sol";
@@ -108,7 +109,16 @@ contract IntentGatewayProtocolFeesTest is MainnetForkBaseTest {
     function _fill(Order memory order, uint256 output) internal {
         vm.startPrank(solver);
         dai.approve(address(gateway), output);
-        gateway.fillOrder(order, FillOptions(0, 0, 0, _tokens(address(dai), output)));
+        gateway.fillOrder(
+            order,
+            FillOptions(
+                0,
+                0,
+                0,
+                _tokens(address(dai), output),
+                IntentQuoteTestUtils.inputs(order, _tokens(address(dai), output))
+            )
+        );
         vm.stopPrank();
     }
 
@@ -337,7 +347,7 @@ contract IntentGatewayProtocolFeesTest is MainnetForkBaseTest {
 
     function testFeeRefundRoundsDownUsingRefundablePrincipal() public {
         Order memory order = _place(address(usdc), 101, 91, false);
-        _fill(order, 50); // 45 principal released, 46 remains, refund floor(10*46/91)=5.
+        _fill(order, 51); // Quote 46 input: 50 credit, 45 released, refund floor(10*46/91)=5.
         uint256 before = usdc.balanceOf(user);
         vm.recordLogs();
         _cancel(order);
@@ -345,10 +355,13 @@ contract IntentGatewayProtocolFeesTest is MainnetForkBaseTest {
         _assertEvents(vm.getRecordedLogs(), keccak256(abi.encode(order)), address(usdc), 5, 5);
     }
 
-    function testTinyPrincipalRoundingCanRefundEntireFeeAfterPartialOutput() public {
+    function testTinyPrincipalRejectsBelowFloorQuoteAndRefundsEntireFee() public {
         _rate(5000);
         Order memory order = _place(address(usdc), 2, 1, false);
-        _fill(order, 99); // Output paid but floor(1*99/100)=0 principal released.
+        vm.prank(solver);
+        vm.expectRevert(IntentsBase.RateBelowOrder.selector);
+        gateway.fillOrder(order, FillOptions(0, 0, 0, _tokens(address(dai), 99), order.inputs));
+        assertEq(gateway._partialFills(keccak256(abi.encode(order)), 0), 0);
         uint256 before = usdc.balanceOf(user);
         _cancel(order);
         assertEq(usdc.balanceOf(user) - before, 2);
@@ -386,11 +399,11 @@ contract IntentGatewayProtocolFeesTest is MainnetForkBaseTest {
         assertEq(usdc.balanceOf(user), 999_000);
     }
 
-    function testVersionThreeUpgradePreservesLegacyEscrowWithoutRetroactiveRefund() public {
+    function testUpgradePreservesEscrowWithoutRecordedProtocolFees() public {
         Order memory order = _place(address(usdc), 1000, 900, false);
         bytes32 commitment = keccak256(abi.encode(order));
-        // Reconstruct the pre-accounting v3 snapshot: historical net escrow and fee balance,
-        // with the newly appended mapping still empty. Historical fees may already be swept.
+        // An escrow with no recorded protocol fee remains refundable after an upgrade.
+        // Unrecorded fees may already have been swept and must not be refunded retroactively.
         bytes32 feeSlot = keccak256(abi.encode(uint256(0), keccak256(abi.encode(commitment, uint256(14)))));
         vm.store(address(gateway), feeSlot, bytes32(0));
         vm.store(address(gateway), bytes32(uint256(feeSlot) + 1), bytes32(0));

@@ -1,4 +1,4 @@
-import type { HexString, Order, PhantomOrderEvent } from "@hyperbridge/sdk"
+import type { HexString, Order, TokenInfo } from "@hyperbridge/sdk"
 import type { LoggerContext } from "@/services/Logger"
 
 /**
@@ -60,6 +60,21 @@ export interface ScannedFill {
 	logIndex: number
 	/** Hash of the transaction that filled the order, when the log carried it. */
 	transactionHash?: string
+	/**
+	 * What the filler handed over, as the log reported it. This is the amount a
+	 * limit order is drawn down by, so a fill that carries none leaves the order
+	 * untouched rather than guessed at.
+	 */
+	outputs: TokenInfo[]
+	/** What the filler received: the escrow the gateway released for those outputs. */
+	inputs: TokenInfo[]
+	/**
+	 * Whether this fill completed the order: `true` for `OrderFilled`, which the
+	 * gateway emits only once every leg is filled, `false` for `PartialFill`. A
+	 * scanner that cannot tell leaves it unset, and the fill is not treated as
+	 * closing the order.
+	 */
+	complete?: boolean
 }
 
 /** What {@link OrderScanner.create} needs to start scanning. */
@@ -114,32 +129,5 @@ export interface OrderScanner {
 	/** Stops scanning a chain. Subscribers simply stop seeing it. */
 	removeChain(chainId: number): Promise<void>
 	/** Stops every scan loop. The scanner cannot be reused afterwards. */
-	close(): Promise<void>
-}
-
-export interface HyperbridgeScannerHandlers {
-	/**
-	 * One call per Hyperbridge block, carrying every phantom order registered in
-	 * it. The batch boundary is load-bearing: the pallet registers one order per
-	 * configured chain in the same block, and a solver bids on the whole set in
-	 * a single extrinsic — per-order delivery would put every chain's bid behind
-	 * the previous one's inclusion on the account nonce.
-	 */
-	onPhantomOrders(orders: PhantomOrderEvent[]): void
-	onError?(error: unknown): void
-}
-
-/**
- * A live feed of Hyperbridge phantom orders.
- *
- * The heavier of the two to share: phantom polling re-reads every Hyperbridge
- * block, and it goes through `offchain_localStorageGet`, which needs
- * `--rpc-methods=unsafe` — so it can only ever hit an operator's own node.
- *
- * Reads only. Bids are signed with a filler's own substrate key on its own
- * connection and never come through here.
- */
-export interface HyperbridgeScanner {
-	subscribe(handlers: HyperbridgeScannerHandlers): Subscription
 	close(): Promise<void>
 }

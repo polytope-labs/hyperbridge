@@ -4,7 +4,7 @@ import { assembleConfig } from "@/cli/init/steps/write"
 import { emitFillerToml } from "@/cli/init/emit-toml"
 import { validateConfig, type FillerConfigFile } from "@/config/filler-toml"
 import { SignerType } from "@/services/wallet"
-import { newWizardState, DEFAULT_SAME_ASSET_ASK_CURVE } from "@/cli/init/state"
+import { newWizardState } from "@/cli/init/state"
 import { INIT_CHAINS } from "@/cli/init/chains"
 
 /**
@@ -14,6 +14,7 @@ import { INIT_CHAINS } from "@/cli/init/chains"
  */
 describe("CLI wizard update run", () => {
 	const existing: FillerConfigFile = {
+		orderbook: { url: "https://orderbook.hyperbridge.network/graphql" },
 		simplex: {
 			signer: { type: SignerType.PrivateKey, key: "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d" },
 			maxConcurrentOrders: 7,
@@ -35,11 +36,6 @@ describe("CLI wizard update run", () => {
 			{
 				token0: "USDC",
 				token1: "USDC",
-				maxOrderSize: "100000",
-				askPriceCurve: [
-					{ amount: "100", price: "0.99" },
-					{ amount: "100000", price: "0.999" },
-				],
 			},
 		],
 		chains: [{ rpcUrls: ["https://eth.example/rpc"], bundlerUrl: "https://bundler.example" }],
@@ -48,9 +44,6 @@ describe("CLI wizard update run", () => {
 		allowlist: { users: ["0x1111111111111111111111111111111111111111"] },
 	}
 
-	const wizardPairs = [
-		{ token0: "USDC", token1: "USDC", maxOrderSize: "100000", askPriceCurve: DEFAULT_SAME_ASSET_ASK_CURVE },
-	]
 	const wizardAssets = { BRZ: { "EVM-8453": "0x5555555555555555555555555555555555555555" as const } }
 	const wizardConfirmationPolicies = {
 		"EVM-1": {
@@ -73,7 +66,6 @@ describe("CLI wizard update run", () => {
 		state.signer = existing.simplex.signer
 		state.substratePrivateKey = existing.simplex.substratePrivateKey
 		state.hyperbridgeWsUrl = existing.simplex.hyperbridgeWsUrl
-		state.pairs = wizardPairs
 		state.assets = wizardAssets
 		state.confirmationPolicies = wizardConfirmationPolicies
 		// carryPrefillExtras equivalents
@@ -103,10 +95,12 @@ describe("CLI wizard update run", () => {
 		expect(assembled.simplex.gasFeeBump).toEqual(existing.simplex.gasFeeBump)
 	})
 
-	it("writes the wizard-managed pairs, assets and confirmation policies", () => {
+	it("leaves the existing markets alone and writes the wizard-managed assets and policies", () => {
 		const assembled = simulateUpdateRun()
 
-		expect(assembled.pairs).toEqual(wizardPairs)
+		// The wizard stopped declaring markets: limit orders say what simplex trades,
+		// so an update run carries whatever [[pairs]] the config already had.
+		expect(assembled.pairs).toEqual(existing.pairs)
 		expect(assembled.assets).toEqual(wizardAssets)
 		expect(assembled.confirmationPolicies).toEqual(wizardConfirmationPolicies)
 	})
@@ -129,7 +123,6 @@ describe("CLI wizard update run", () => {
 				bundlerUrl: "https://bundler.example",
 			},
 		]
-		state.pairs = wizardPairs
 		state.assets = wizardAssets
 		const assembled = assembleConfig(state)
 		// Prefilled entries survive; the wizard's entry wins on a symbol clash.
@@ -157,7 +150,6 @@ describe("CLI wizard update run", () => {
 		state.signer = existing.simplex.signer
 		state.substratePrivateKey = existing.simplex.substratePrivateKey
 		state.hyperbridgeWsUrl = existing.simplex.hyperbridgeWsUrl
-		state.pairs = wizardPairs
 		// A bare [allowlist.bySource] header parses to an empty table; emit
 		// drops it, so assembly must too.
 		state.allowlist = { bySource: {} }
@@ -173,7 +165,6 @@ describe("CLI wizard update run", () => {
 		state.signer = existing.simplex.signer
 		state.substratePrivateKey = existing.simplex.substratePrivateKey
 		state.hyperbridgeWsUrl = existing.simplex.hyperbridgeWsUrl
-		state.pairs = wizardPairs
 		state.rebalancing = { triggerPercentage: 0.2 } as FillerConfigFile["rebalancing"]
 		const assembled = assembleConfig(state)
 		expect(assembled.rebalancing).toBeUndefined()

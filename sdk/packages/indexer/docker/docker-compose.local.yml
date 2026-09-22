@@ -9,6 +9,7 @@ services:
             DB_DATABASE: ${DB_DATABASE}
             DB_HOST: 0.0.0.0
             DB_PORT: ${DB_PORT}
+            SUBQL_ALLOW_DESTRUCTIVE_MIGRATION: ${SUBQL_ALLOW_DESTRUCTIVE_MIGRATION:-}
 
         depends_on:
             postgres:
@@ -24,7 +25,6 @@ services:
             - --workers=${SUBQL_WORKERS:-6}
             - --batch-size=${SUBQL_BATCH_SIZE:-10}
             - --multi-chain
-            - --disable-multichain-rewind-lock
             - --allow-schema-migration
             - --unsafe
             - --log-level=${LOG_LEVEL:-info}
@@ -103,7 +103,6 @@ services:
             - --log-level=${LOG_LEVEL:-info}
             - --historical=timestamp
             - --unfinalized-blocks
-            - --disable-multichain-rewind-lock
             - --block-confirmations=${SUBQL_BLOCK_CONFIRMATIONS:-3}
             - --store-cache-async=false
             - --store-cache-threshold=1
@@ -144,7 +143,6 @@ services:
             - --log-level=${LOG_LEVEL:-info}
             - --historical=timestamp
             - --unfinalized-blocks
-            - --disable-multichain-rewind-lock
             - --block-confirmations=${SUBQL_BLOCK_CONFIRMATIONS:-3}
             - --store-cache-async=false
             - --store-cache-threshold=1
@@ -181,7 +179,6 @@ services:
             - --workers=${SUBQL_WORKERS:-6}
             - --batch-size=${SUBQL_BATCH_SIZE:-10}
             - --multi-chain
-            - --disable-multichain-rewind-lock
             - --unsafe
             - --log-level=${LOG_LEVEL:-info}
             - --store-cache-async=false

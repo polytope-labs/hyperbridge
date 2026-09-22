@@ -557,7 +557,7 @@ Convenience wrapper around `quoteCancelOrder(order, { from: "destination" })`.
 
 ### isOrderFilled(order)
 
-Checks whether an order has been filled on the destination chain by reading the commitment storage slot.
+Checks whether an order is finalized on the destination chain, by a completing fill or by a cancellation there. A partially filled order returns `false`; use `getFillProgress` to see how far along it is.
 
 ```typescript lineNumbers
 async isOrderFilled(order: Order): Promise<boolean>
@@ -570,6 +570,24 @@ async isOrderFilled(order: Order): Promise<boolean>
 | `order` | `Order` | The order to check |
 
 **Returns:** `Promise<boolean>` — `true` if the order has been filled
+
+---
+
+### getFillProgress(order)
+
+Reads the output credited to the order so far on the destination chain, one entry per leg. Several solvers can each fill a slice of an order, same-chain or cross-chain, so this is how to track an open order. Surplus paid above the order's rate is not counted.
+
+```typescript lineNumbers
+async getFillProgress(order: Order): Promise<TokenInfo[]>
+```
+
+**Parameters:**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `order` | `Order` | The order to check |
+
+**Returns:** `Promise<TokenInfo[]>` — the output token and credited amount of each leg, in `order.output.assets` order
 
 ---
 
@@ -772,8 +790,9 @@ type IntentOrderStatusUpdate =
   | { status: "NEW_BID"; commitment: HexString; bid: Bid }
   | { status: "BIDS_RECEIVED"; commitment: HexString; bidCount: number; bids: Bid[] }
   | { status: "BID_SELECTED"; commitment: HexString; selectedSolver: HexString; userOpHash: HexString; userOp: PackedUserOperation; transactionHash?: HexString }
-  | { status: "FILLED"; commitment: HexString; userOpHash: HexString; selectedSolver: HexString; transactionHash?: HexString; totalFilledAssets: TokenInfo[]; remainingAssets: TokenInfo[] }
+  | { status: "FILLED"; commitment: HexString; userOpHash?: HexString; selectedSolver: HexString; transactionHash?: HexString; totalFilledAssets: TokenInfo[]; remainingAssets: TokenInfo[] }
   | { status: "PARTIAL_FILL"; commitment: HexString; userOpHash: HexString; selectedSolver: HexString; transactionHash?: HexString; filledAssets: TokenInfo[]; totalFilledAssets: TokenInfo[]; remainingAssets: TokenInfo[] }
+  | { status: "CANCELLED"; commitment: HexString; totalFilledAssets: TokenInfo[]; remainingAssets: TokenInfo[] }
   | { status: "EXPIRED"; commitment: HexString; totalFilledAssets?: TokenInfo[]; remainingAssets?: TokenInfo[]; error: string }
   | { status: "FAILED"; commitment?: HexString; totalFilledAssets?: TokenInfo[]; remainingAssets?: TokenInfo[]; error: string }
 ```
@@ -786,8 +805,9 @@ type IntentOrderStatusUpdate =
 | `NEW_BID` | `commitment`, `bid` | A previously unseen bid arrived during the auction (informational; one [`Bid`](#bid)) |
 | `BIDS_RECEIVED` | `commitment`, `bidCount`, `bids` | Auction round complete; `bids` is an array of executable [`Bid`](#bid) objects to select from |
 | `BID_SELECTED` | `commitment`, `selectedSolver`, `userOpHash`, `userOp`, `transactionHash?` | Best bid selected and UserOperation submitted to the bundler |
-| `FILLED` | `commitment`, `userOpHash`, `selectedSolver`, `transactionHash?`, `totalFilledAssets`, `remainingAssets` | Order fully filled on the destination chain |
+| `FILLED` | `commitment`, `userOpHash?`, `selectedSolver`, `transactionHash?`, `totalFilledAssets`, `remainingAssets` | Order fully filled on the destination chain — terminal. `userOpHash` is absent when the completing fill was not executed in this session |
 | `PARTIAL_FILL` | `commitment`, `userOpHash`, `selectedSolver`, `transactionHash?`, `filledAssets`, `totalFilledAssets`, `remainingAssets` | Order partially filled; more fills may follow |
+| `CANCELLED` | `commitment`, `totalFilledAssets`, `remainingAssets` | Order was cancelled on the destination chain before it was completely filled — terminal |
 | `EXPIRED` | `commitment`, `totalFilledAssets?`, `remainingAssets?`, `error` | Order deadline reached or no new bids available — terminal |
 | `FAILED` | `commitment?`, `totalFilledAssets?`, `remainingAssets?`, `error` | Retryable error (e.g. bundler rejection, simulation failure) — executor retries automatically |
 

@@ -40,7 +40,7 @@ function gatewayClient(state: { keying: "leg" | "token" | "down"; values: Record
 					state.calls.push(selector)
 					if (state.keying === "down") throw new Error("fetch failed")
 					const answers = state.keying === "leg" ? LEG : TOKEN
-					if (!answers.includes(selector)) {
+					if (!answers.includes(selector as HexString)) {
 						// What an HTTP RPC returns for a call to a selector the implementation lacks.
 						throw new RpcRequestError({
 							body: {},
@@ -116,5 +116,48 @@ describe("readLegPartialFill", () => {
 		const token = { keying: "token" as const, values: { [USDC]: 250n }, calls: [] as string[] }
 		expect(await readLegPartialFill(gatewayClient(token), GATEWAY, COMMITMENT, 0, USDC)).toBe(250n)
 		expect(token.calls).toEqual([LEG[1], TOKEN[1]])
+	})
+})
+
+describe("escrow getter failures", () => {
+	it.each([
+		["escrow", readLegEscrow, LEG[0]],
+		["progress", readLegPartialFill, LEG[1]],
+	] as const)(
+		"does not turn a wrapped %s RPC timeout into a zero from another getter",
+		async (_name, read, selector) => {
+			const client = createPublicClient({
+				transport: custom(
+					{
+						async request({ method, params }) {
+							if (method !== "eth_call") throw new Error(`Unexpected method ${method}`)
+							const data = (params as [{ data: HexString }])[0].data
+							if (data.slice(0, 10) === selector)
+								throw new RpcRequestError({
+									body: {},
+									error: { code: -32603, message: "upstream request timeout", data: "0x" },
+									url: "https://rpc.example",
+								})
+							return encodeAbiParameters([{ type: "uint256" }], [0n])
+						},
+					},
+					{ retryCount: 0 },
+				),
+			})
+			await expect(read(client, GATEWAY, COMMITMENT, 0, USDC)).rejects.toThrow("upstream request timeout")
+		},
+	)
+
+	it("switches cached token progress to independent leg values after an upgrade", async () => {
+		const state = {
+			keying: "token" as "leg" | "token",
+			values: { [USDC]: 250n, "0": 40n, "1": 90n },
+			calls: [] as string[],
+		}
+		const client = gatewayClient(state)
+		expect(await readLegPartialFill(client, GATEWAY, COMMITMENT, 0, USDC)).toBe(250n)
+		state.keying = "leg"
+		expect(await readLegPartialFill(client, GATEWAY, COMMITMENT, 0, USDC)).toBe(40n)
+		expect(await readLegPartialFill(client, GATEWAY, COMMITMENT, 1, USDC)).toBe(90n)
 	})
 })

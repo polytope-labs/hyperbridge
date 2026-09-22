@@ -65,8 +65,13 @@ function mockApi(events: unknown[], capturedBatch: { calls: any[] | null }) {
 				},
 			},
 			intentsCoprocessor: {
-				placeBid: (commitment: HexString, userOp: HexString) => ({ call: "placeBid", commitment, userOp }),
-				retractBid: (commitment: HexString) => ({ call: "retractBid", commitment }),
+				placeBid: (commitment: HexString, bid: HexString, userOp: HexString) => ({
+					call: "placeBid",
+					commitment,
+					bid,
+					userOp,
+				}),
+				retractBid: (commitment: HexString, bid: HexString) => ({ call: "retractBid", commitment, bid }),
 			},
 		},
 		registry: {
@@ -87,8 +92,15 @@ describe("submitBidWithRetraction", () => {
 		await coproc.submitBidWithRetraction(RETRACT, BID, USER_OP)
 
 		expect(captured.calls?.map((c) => c.call)).toEqual(["placeBid", "retractBid"])
-		expect(captured.calls?.[0]).toMatchObject({ call: "placeBid", commitment: BID })
-		expect(captured.calls?.[1]).toMatchObject({ call: "retractBid", commitment: RETRACT })
+		// A phantom bid is the filler's only bid on its order, so every one shares the zero identifier.
+		const PHANTOM_BID_ID = `0x${"00".repeat(32)}`
+		expect(captured.calls?.[0]).toMatchObject({
+			call: "placeBid",
+			commitment: BID,
+			bid: PHANTOM_BID_ID,
+			userOp: USER_OP,
+		})
+		expect(captured.calls?.[1]).toMatchObject({ call: "retractBid", commitment: RETRACT, bid: PHANTOM_BID_ID })
 	})
 
 	it("reports SUCCESS when only the trailing retract (index 1) is interrupted — the bid still landed", async () => {

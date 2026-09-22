@@ -93,6 +93,9 @@ export default defineConfig([
 		noExternal: [/.*/],
 		esbuildOptions(options, context) {
 			options.external = ALWAYS_EXTERNAL
+			// Node only needs the mappings to report original source locations. Keeping
+			// every dependency's source text adds about 19 MiB to the desktop app.
+			options.sourcesContent = false
 			if (context.format === "esm") options.banner = ESM_REQUIRE_SHIM
 		},
 	},

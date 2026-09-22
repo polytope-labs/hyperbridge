@@ -1,14 +1,20 @@
-import stringify from "safe-stable-stringify"
 import { TokenPrice, TokenPriceLog } from "@/configs/src/types"
-import { normalizeTimestamp, timestampToDate } from "@/utils/date.helpers"
-import PriceHelper from "@/utils/price.helpers"
+import { fetchTokenUsdPrice } from "@/services/orderbookRates.service"
 import { fulfilled } from "@/utils/data.helper"
-import { ErrTokenPriceUnavailable } from "@/types/errors"
+import { normalizeTimestamp, timestampToDate } from "@/utils/date.helpers"
 import { getHostStateMachine } from "@/utils/substrate.helpers"
 import { TESTNET_STATE_MACHINE_IDS } from "@/testnet-state-machine-ids"
-import { TOKEN_REGISTRY, TokenConfig } from "@/addresses/token-registry.addresses"
 
-const DEFAULT_PROVIDER = "COINGECKO" as const
+/** What `TokenPriceLog.provider` records: prices come from the HyperFX orderbook. */
+const PROVIDER = "HYPERFX" as const
+
+/**
+ * How old a stored price may be before it is fetched again.
+ *
+ * It is not the only thing keeping requests down: the rates service caches each symbol's rate for a
+ * minute of its own, so this bounds how often a price is *written*, not how often one is asked for.
+ */
+export const PRICE_REFRESH_INTERVAL_MS = 600_000
 
 /**
  * Check if current chain is a testnet chain
@@ -24,29 +30,25 @@ function isTestnetChain(): boolean {
 }
 
 /**
- * Get token configuration from TOKEN_REGISTRY
- */
-function getTokenConfig(symbol: string): TokenConfig | undefined {
-	return TOKEN_REGISTRY.find((cfg) => cfg.symbol === symbol)
-}
-
-/**
  * Check if token price is stale and needs updating
  */
-function isPriceStale(config: TokenConfig, lastPriceUpdate: bigint, currentTimestamp: bigint): boolean {
+function isPriceStale(symbol: string, lastPriceUpdate: bigint, currentTimestamp: bigint): boolean {
 	const timeSinceUpdateMs = Number(normalizeTimestamp(currentTimestamp)) - Number(lastPriceUpdate)
-	const frequencyMs = config.updateFrequencySeconds * 1000 // Convert to milliseconds
-	const needsUpdate = timeSinceUpdateMs >= frequencyMs
+	const needsUpdate = timeSinceUpdateMs >= PRICE_REFRESH_INTERVAL_MS
 
 	logger.debug(
-		`[TokenPriceService.isPriceStale] Token ${config.symbol}: timeSinceUpdate=${timeSinceUpdateMs}ms, frequency=${frequencyMs}ms, needsUpdate=${needsUpdate}`,
+		`[TokenPriceService.isPriceStale] Token ${symbol}: timeSinceUpdate=${timeSinceUpdateMs}ms, frequency=${PRICE_REFRESH_INTERVAL_MS}ms, needsUpdate=${needsUpdate}`,
 	)
 
 	return needsUpdate
 }
 
 /**
- * Token Price Service fetches prices from CoinGecko adapter and stores them in the TokenPrice (current) and TokenPriceLog (historical).
+ * Token Price Service prices tokens from the HyperFX orderbook and stores them in the TokenPrice
+ * (current) and TokenPriceLog (historical).
+ *
+ * There is no whitelist: the orderbook decides what it can price, and a token it quotes no rate for
+ * is worth 0 here. That is every token without a book against a $1 stable.
  */
 export class TokenPriceService {
 	/**
@@ -63,25 +65,11 @@ export class TokenPriceService {
 		}
 
 		try {
-			// Check if token is in the whitelist
-			const config = getTokenConfig(symbol)
-			if (!config) {
-				logger.warn(`[TokenPriceService.getPrice] Skipping price for non-whitelisted token: ${symbol}`)
-				return 0
-			}
-
 			// Try to get existing token price
 			let tokenPrice = await TokenPrice.get(symbol)
 			if (!tokenPrice) {
 				// No price exists, fetch and store new price
 				const updatedTokenPrices = await this.updateTokenPrices([symbol], currentTimestamp)
-				if (updatedTokenPrices instanceof Error) {
-					logger.error(
-						`[TokenPriceService.getPrice] Failed to update token price for ${symbol}`,
-						updatedTokenPrices,
-					)
-					return 0
-				}
 				if (updatedTokenPrices.length === 0) {
 					logger.error(`[TokenPriceService.getPrice] No token prices updated for ${symbol}`)
 					return 0
@@ -90,21 +78,13 @@ export class TokenPriceService {
 			}
 
 			// Check if price is stale
-			const stale = isPriceStale(config, tokenPrice.lastUpdatedAt, currentTimestamp)
+			const stale = isPriceStale(symbol, tokenPrice.lastUpdatedAt, currentTimestamp)
 			if (!stale) {
 				return parseFloat(tokenPrice.price)
 			}
 
 			// Price is stale, update it
 			const updatedTokenPrices = await this.updateTokenPrices([symbol], currentTimestamp)
-			if (updatedTokenPrices instanceof Error) {
-				logger.error(
-					`[TokenPriceService.getPrice] Failed to update stale token price for ${symbol}`,
-					updatedTokenPrices,
-				)
-				// Return the stale price rather than 0
-				return parseFloat(tokenPrice.price)
-			}
 			if (updatedTokenPrices.length === 0) {
 				logger.error(`[TokenPriceService.getPrice] No token prices updated for stale ${symbol}`)
 				// Return the stale price rather than 0
@@ -113,11 +93,6 @@ export class TokenPriceService {
 
 			return parseFloat(updatedTokenPrices[0].price)
 		} catch (error) {
-			if (ErrTokenPriceUnavailable.isError(error)) {
-				logger.warn(`[TokenPriceService.getPrice] Price unavailable for ${symbol}, returning 0`)
-				return 0
-			}
-
 			logger.error(`[TokenPriceService.getPrice] Failed to get token price for ${symbol}`, error)
 			return 0
 		}
@@ -152,7 +127,7 @@ export class TokenPriceService {
 			symbol,
 			currency: "USD",
 			price: price.toString(),
-			provider: DEFAULT_PROVIDER,
+			provider: PROVIDER,
 			timestamp: normalizedTimestamp,
 			createdAt: timestampToDate(blockTimestamp),
 		})
@@ -164,73 +139,27 @@ export class TokenPriceService {
 	}
 
 	/**
-	 * initializePriceIndexing syncs all token prices from TOKEN_REGISTRY
-	 * @param currentTimestamp - Current timestamp
-	 */
-	static async initializePriceIndexing(currentTimestamp: bigint): Promise<void> {
-		logger.info(`[TokenPriceService.initializePriceIndexing] Initializing price indexing for ${TOKEN_REGISTRY.length} tokens`)
-		await this.syncAllTokenPrices(currentTimestamp)
-	}
-
-	/**
-	 * syncAllTokenPrices updates prices for all tokens that require updates
-	 * @param currentTimestamp - Current timestamp
-	 */
-	static async syncAllTokenPrices(currentTimestamp: bigint): Promise<void> {
-		// Check which tokens need price updates
-		const tokensToUpdate = await Promise.all(
-			TOKEN_REGISTRY.map(async (config) => {
-				const tokenPrice = await TokenPrice.get(config.symbol)
-				
-				// If no price exists, needs update
-				if (!tokenPrice) {
-					return config.symbol
-				}
-
-				// Check if price is stale
-				const isStale = isPriceStale(config, tokenPrice.lastUpdatedAt, currentTimestamp)
-				return isStale ? config.symbol : null
-			})
-		)
-
-		const symbolsNeedingUpdate = tokensToUpdate.filter((symbol) => symbol !== null) as string[]
-		
-		if (symbolsNeedingUpdate.length === 0) {
-			logger.info(`[TokenPriceService.syncAllTokenPrices] All token prices are up to date`)
-			return
-		}
-
-		logger.info(`[TokenPriceService.syncAllTokenPrices] Updating ${symbolsNeedingUpdate.length} token prices`)
-		const result = await this.updateTokenPrices(symbolsNeedingUpdate, currentTimestamp)
-		if (result instanceof Error) {
-			logger.error(`[TokenPriceService.syncAllTokenPrices] Failed to update token prices`, result)
-		}
-	}
-
-	/**
-	 * updateTokenPrices fetches prices from CoinGecko and stores them
+	 * updateTokenPrices prices symbols from the orderbook and stores them. A symbol the orderbook
+	 * quotes no rate for is left out of the result rather than stored at zero, so the caller keeps
+	 * whatever price it already held.
 	 * @param symbols - Array of token symbols to update
 	 * @param blockTimestamp - Timestamp of the block to update prices for
-	 * @returns Array of updated TokenPrice entities or Error
+	 * @returns Array of updated TokenPrice entities
 	 */
-	static async updateTokenPrices(symbols: string[], blockTimestamp: bigint): Promise<TokenPrice[] | Error> {
+	static async updateTokenPrices(symbols: string[], blockTimestamp: bigint): Promise<TokenPrice[]> {
 		logger.info(`[TokenPriceService.updateTokenPrices] Syncing prices for: ${symbols.join(", ")}`)
 
-		const response = await PriceHelper.getTokenPriceFromCoinGecko(symbols)
-		if (response instanceof Error) {
-			return response
-		}
+		const priced = await Promise.all(
+			symbols.map(async (symbol) => ({ symbol, price: await fetchTokenUsdPrice(symbol) })),
+		)
 
-		logger.info(`[TokenPriceService.updateTokenPrices] CoinGecko response: ${stringify(response)}`)
-
-		const storePromises = symbols.flatMap((symbol) => {
-			const prices = (response[symbol.toLowerCase()] || response[symbol.toUpperCase()])?.usd
-			if (!prices) {
-				logger.warn(`[TokenPriceService.updateTokenPrices] No price data for ${symbol}`)
+		const storePromises = priced.flatMap(({ symbol, price }) => {
+			if (!price || price.lte(0)) {
+				logger.warn(`[TokenPriceService.updateTokenPrices] The orderbook quotes no price for ${symbol}`)
 				return []
 			}
 
-			return this.storeTokenPrice(symbol, prices, blockTimestamp)
+			return this.storeTokenPrice(symbol, price.toNumber(), blockTimestamp)
 		})
 
 		const updatedTokensPromise = await Promise.allSettled(storePromises)

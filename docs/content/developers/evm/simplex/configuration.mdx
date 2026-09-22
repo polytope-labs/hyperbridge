@@ -7,6 +7,30 @@ description: The [simplex] block, signer backends, EIP-7702 delegation and gas p
 
 Everything here lives in `filler-config.toml`. Only the `[simplex]` block and its signer are required — the rest tunes behaviour that has a working default.
 
+## Where the config lives and what it contains
+
+Simplex Desktop writes a new config into its per-user data directory:
+
+| Platform | Default path |
+|---|---|
+| macOS | `~/Library/Application Support/Simplex/filler-config.toml` |
+| Windows | `%APPDATA%\Simplex\filler-config.toml` |
+| Linux | `$XDG_CONFIG_HOME/Simplex/filler-config.toml`, or `~/.config/Simplex/filler-config.toml` |
+
+The npm binary looks for `./filler-config.toml`, then `$SIMPLEX_HOME/config.toml`; `-c <path>` selects
+another file explicitly. Docker examples mount the file at `/data/filler-config.toml`.
+
+<Callout type="warn">
+    This file contains signing material in plaintext. On Unix, Simplex creates a new config atomically
+    with mode `0600`; that blocks other OS users, not software already running as the operator. Windows
+    has no equivalent mode bit. Keep the config out of source control, cloud-synced folders, and
+    broadly shared backups, and restrict the containing directory to the operator account.
+</Callout>
+
+`simplex.substratePrivateKey` is a raw Substrate seed or mnemonic used to sign Hyperbridge bid
+extrinsics, and it is required in **every** signer mode. Turnkey and MPC Vault protect the EVM signer,
+but they do not remove this raw key from disk. Their API credentials are also stored in this file.
+
 ## `[simplex]`
 
 ```toml lineNumbers

@@ -1,7 +1,6 @@
 import { isRegistrySymbol, normalizeSymbol } from "@/config/asset-registry"
-import { toPricePoints, type EditorPoint } from "../components/curveModel"
 import { vaultRowsToToml, type VaultRowDraft } from "../lib/vault-rows"
-import type { ChainDefault, CurvePoint, FillerConfig, Network, PairConfig, SetupDefaults } from "../types"
+import type { ChainDefault, FillerConfig, PairConfig, SetupDefaults } from "../types"
 
 export interface ChainDraft {
 	meta: ChainDefault
@@ -20,34 +19,20 @@ export type VaultDraft = VaultRowDraft
 
 export type SignerType = "privateKey" | "mpcVault" | "turnkey"
 
-export interface V4PositionDraft {
-	chain: string
-	tokenId: string
-	referencePrice: string
-	maxDeviationBps: string
-}
-
-/** One cross-asset trading market or reference-only price feed. */
+/** One market the filler will quote. What it pays there comes from a limit order. */
 export interface PairDraft {
 	enabled: boolean
 	token0: string
 	token1: string
-	maxOrderSize: string
-	/** Price feed only: anchors token1 in USD without opening a market. */
-	referenceOnly?: boolean
 	/** UI mode of the symbol pickers — lives on the draft so it survives row reordering. */
 	custom0?: boolean
 	custom1?: boolean
-	bidEnabled: boolean
-	askEnabled: boolean
-	bid: EditorPoint[]
-	ask: EditorPoint[]
 }
 
 export const normSymbol = normalizeSymbol
 
 export interface WizardState {
-	network: Network
+	network: "mainnet"
 	signerType: SignerType
 	signerKey: string
 	signerAddress?: string
@@ -73,11 +58,6 @@ export interface WizardState {
 	fxSeeded?: boolean
 	/** `[assets]` entries for custom token symbols: symbol → state machine id → address. */
 	customAssets: Record<string, Record<string, string>>
-	/** Price source for the cross-asset pairs. */
-	fxPricing: "curves" | "uniswapV4"
-	fxSpreadBps: string
-	fxPositions: V4PositionDraft[]
-	fxSide: "" | "ask" | "bid"
 	vaults: VaultDraft[]
 	allowlistUsers: string[]
 	maxConcurrentOrders: string
@@ -85,48 +65,7 @@ export interface WizardState {
 }
 
 export function newCrossAssetDraft(token1: string, token0 = "USDC"): PairDraft {
-	return {
-		enabled: true,
-		token0,
-		token1,
-		maxOrderSize: "",
-		bidEnabled: true,
-		askEnabled: true,
-		bid: [{ amount: "1", value: "" }],
-		ask: [{ amount: "1", value: "" }],
-	}
-}
-
-/** A curve editor whose filled points parse into a policy the engine accepts. */
-export function curveFilled(points: EditorPoint[], check: (v: number) => boolean = (v) => v > 0): boolean {
-	const filled = points.filter((p) => p.amount.trim() && p.value.trim())
-	return filled.length > 0 && filled.every((p) => Number(p.amount) >= 0 && check(Number(p.value)))
-}
-
-/**
- * Whether a draft will contribute a curve edge to the emitted config —
- * mirrors what assembleConfig emits, so the anchor check and the step
- * validation agree with the server by construction.
- */
-export function draftHasCurve(draft: PairDraft, pricing: "curves" | "uniswapV4"): boolean {
-	if (draft.referenceOnly) return curveFilled(draft.ask)
-	if (pricing !== "curves") return false
-	return (draft.bidEnabled && curveFilled(draft.bid)) || (draft.askEnabled && curveFilled(draft.ask))
-}
-
-/** A reference-only <stable>/<symbol> price feed, inserted by the anchor helper. */
-export function newReferenceDraft(token1: string, token0: string): PairDraft {
-	return {
-		enabled: true,
-		token0,
-		token1,
-		maxOrderSize: "",
-		referenceOnly: true,
-		bidEnabled: false,
-		askEnabled: true,
-		bid: [],
-		ask: [{ amount: "0", value: "" }],
-	}
+	return { enabled: true, token0, token1 }
 }
 
 export function initialState(defaults: SetupDefaults): WizardState {
@@ -145,9 +84,7 @@ export function initialState(defaults: SetupDefaults): WizardState {
 		substrateKey: "",
 		hyperbridgeWsUrl: defaults.hyperbridgeWs.mainnet,
 		alchemyKey: "",
-		chains: defaults.chains
-			.filter((c) => c.network === "mainnet")
-			.map((meta) => ({
+		chains: defaults.chains.map((meta) => ({
 				meta,
 				enabled: false,
 				rpcUrls: [""],
@@ -157,40 +94,10 @@ export function initialState(defaults: SetupDefaults): WizardState {
 			})),
 		pairs: [],
 		customAssets: {},
-		fxPricing: "curves",
-		fxSpreadBps: "",
-		fxPositions: [],
-		fxSide: "",
 		vaults: [],
 		allowlistUsers: [],
 		maxConcurrentOrders: String(defaults.maxConcurrentOrders),
 		logging: "info",
-	}
-}
-
-export function switchNetwork(state: WizardState, defaults: SetupDefaults, network: Network): WizardState {
-	return {
-		...state,
-		network,
-		hyperbridgeWsUrl: defaults.hyperbridgeWs[network],
-		chains: defaults.chains
-			.filter((c) => c.network === network)
-			.map((meta) => ({
-				meta,
-				enabled: false,
-				rpcUrls: [""],
-				bundlerUrl: "",
-				viaAlchemy: false,
-				watchOnly: false,
-			})),
-		// Everything keyed by the previous network's chain ids must reset with it.
-		pairs: [],
-		fxSeeded: false,
-		customAssets: {},
-		vaults: [],
-		fxPositions: [],
-		alchemyStatus: undefined,
-		alchemyError: undefined,
 	}
 }
 
@@ -226,30 +133,11 @@ export function patchChain(state: WizardState, chainId: number, patch: Partial<C
 /** Client-side mirror of the CLI wizard's assembleConfig; the server gate is authoritative. */
 export function assembleConfig(state: WizardState, defaults: SetupDefaults): FillerConfig {
 	const chains = enabledChains(state)
-	const usingPool = state.fxPricing === "uniswapV4"
 
-	const pairs: PairConfig[] = enabledPairs(state).map((draft) => {
-		if (draft.referenceOnly) {
-			return {
-				token0: draft.token0,
-				token1: draft.token1,
-				referenceOnly: true,
-				askPriceCurve: toPricePoints(draft.ask),
-			}
-		}
-		const withBid = !usingPool && draft.bidEnabled
-		const withAsk = !usingPool && draft.askEnabled
-		return {
-			token0: draft.token0,
-			token1: draft.token1,
-			// Omitted entirely when blank: the cap is optional, and an empty string
-			// would fail config validation as a malformed decimal rather than read
-			// as "no cap".
-			...(draft.maxOrderSize.trim() ? { maxOrderSize: draft.maxOrderSize.trim() } : {}),
-			...(withBid ? { bidPriceCurve: toPricePoints(draft.bid) } : {}),
-			...(withAsk ? { askPriceCurve: toPricePoints(draft.ask) } : {}),
-		}
-	})
+	const pairs: PairConfig[] = enabledPairs(state).map((draft) => ({
+		token0: draft.token0,
+		token1: draft.token1,
+	}))
 
 	// Only [assets] entries actually referenced by a pair are emitted — and
 	// never for registry symbols: an accidental override would silently repoint
@@ -263,28 +151,6 @@ export function assembleConfig(state: WizardState, defaults: SetupDefaults): Fil
 				Object.fromEntries(Object.entries(byChain).filter(([, address]) => address.trim())),
 			]),
 	)
-
-	// Testnet chain ids have no built-in confirmation defaults; write explicit ones.
-	const confirmationPolicies: Record<string, { points: CurvePoint[] }> | undefined =
-		state.network === "testnet"
-			? Object.fromEntries(
-					chains.map((c) => [String(c.meta.chainId), { points: defaults.testnetConfirmationPoints }]),
-				)
-			: undefined
-
-	const uniswapV4 =
-		usingPool && state.fxPositions.length > 0
-			? {
-					positions: state.fxPositions.map((p) => ({
-						chain: p.chain,
-						tokenId: p.tokenId.trim(),
-						...(p.referencePrice.trim() ? { referencePrice: p.referencePrice.trim() } : {}),
-						...(p.maxDeviationBps.trim() ? { maxDeviationBps: Number(p.maxDeviationBps) } : {}),
-					})),
-					...(state.fxSide ? { side: state.fxSide } : {}),
-					...(state.fxSpreadBps.trim() ? { spreadBps: Number(state.fxSpreadBps) } : {}),
-				}
-			: undefined
 
 	const vaultRows = vaultRowsToToml(state.vaults)
 	const vaults = vaultRows.length > 0 ? vaultRows : undefined
@@ -325,19 +191,11 @@ export function assembleConfig(state: WizardState, defaults: SetupDefaults): Fil
 		},
 		...(Object.keys(assets).length > 0 ? { assets: assets as FillerConfig["assets"] } : {}),
 		pairs,
-		...(confirmationPolicies ? { confirmationPolicies } : {}),
 		chains: chains.map((c) => ({
 			rpcUrls: c.rpcUrls.map((u) => u.trim()).filter(Boolean),
 			bundlerUrl: c.bundlerUrl.trim(),
 		})),
-		...(vaults || uniswapV4
-			? {
-					vault: {
-						...(vaults ? { vaults } : {}),
-						...(uniswapV4 ? { uniswapV4 } : {}),
-					},
-				}
-			: {}),
+		...(vaults ? { vault: { vaults } } : {}),
 		...(allowlistUsers.length > 0 ? { allowlist: { users: allowlistUsers } } : {}),
 	}
 }

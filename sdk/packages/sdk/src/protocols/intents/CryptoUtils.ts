@@ -143,18 +143,43 @@ export class CryptoUtils {
 
 	/**
 	 * Derives the ERC-4337 nonce key that binds a bid UserOperation to its
-	 * order and session key: the lower 192 bits of
-	 * `keccak256(commitment ‖ sessionKey)`. `SolverAccount` rejects bid
-	 * operations whose nonce key differs — this is what lets the solver sign
-	 * the plain userOpHash while staying committed to the order and to the
-	 * session key it bid against.
+	 * order, session key and calldata: the lower 192 bits of
+	 * `keccak256(commitment ‖ sessionKey ‖ keccak256(callData))`. `SolverAccount`
+	 * rejects bid operations whose nonce key differs — this is what lets the
+	 * solver sign the plain userOpHash while staying committed to the order and
+	 * to the session key it bid against.
+	 *
+	 * The calldata gives every bid its own key. A solver bidding several prices
+	 * on one order signs one op per price, and each is sequence 0 of its own key,
+	 * so they execute independently rather than in a sequence where one bid that
+	 * is never selected blocks the rest.
 	 *
 	 * @param commitment - The order commitment (`order.id`).
 	 * @param sessionKey - The order's session key address (`order.session`).
+	 * @param callData - The UserOperation's `callData`.
 	 * @returns The 192-bit nonce key as a bigint (pass to `EntryPoint.getNonce`).
 	 */
-	static bidNonceKey(commitment: HexString, sessionKey: HexString): bigint {
-		return BigInt(keccak256(encodePacked(["bytes32", "address"], [commitment, sessionKey]))) & ((1n << 192n) - 1n)
+	static bidNonceKey(commitment: HexString, sessionKey: HexString, callData: HexString): bigint {
+		return (
+			BigInt(
+				keccak256(
+					encodePacked(["bytes32", "address", "bytes32"], [commitment, sessionKey, keccak256(callData)]),
+				),
+			) &
+			((1n << 192n) - 1n)
+		)
+	}
+
+	/**
+	 * The identifier Hyperbridge files a bid under: `keccak256` of the UserOp's
+	 * `callData`. It is the same hash {@link bidNonceKey} takes, so a bid's
+	 * identifier and its nonce key both follow from the op itself, and one
+	 * solver's bids on one order are kept apart for the same reason on both sides.
+	 *
+	 * @param callData - The UserOperation's `callData`.
+	 */
+	static bidId(callData: HexString): HexString {
+		return keccak256(callData)
 	}
 
 	/**

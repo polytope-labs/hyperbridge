@@ -38,5 +38,4 @@ the on-disk format changed, so whichever release picks this up owes at least a m
 Files: `src/data/sqlite/state.ts`, `src/data/sqlite/index.ts`, `src/data/state.ts`,
 `src/data/types.ts`, `src/tests/data/state-store.test.ts`,
 `docs/ai/flows/operator-state-on-disk.md`,
-`docs/ai/flows/opening-an-operator-data-directory.md`,
-`docs/ai/flows/phantom-bid-deposits-across-restarts.md`.
+`docs/ai/flows/opening-an-operator-data-directory.md`.

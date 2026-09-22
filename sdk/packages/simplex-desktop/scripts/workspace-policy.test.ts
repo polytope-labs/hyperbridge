@@ -6,6 +6,7 @@ import { parse } from "yaml"
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..")
 const workspaceRoot = resolve(packageRoot, "../..")
+const repositoryRoot = resolve(workspaceRoot, "..")
 
 function readYaml(path: string): Record<string, unknown> {
 	return parse(readFileSync(path, "utf8")) as Record<string, unknown>
@@ -23,6 +24,25 @@ function dependencySpecifiers(manifest: Record<string, unknown>): Record<string,
 }
 
 describe("desktop workspace package policy", () => {
+	it("keeps the released application identity and platform icons stable and tracks the solver version", () => {
+		const builder = readYaml(join(packageRoot, "electron-builder.yml"))
+		const desktop = JSON.parse(readFileSync(join(packageRoot, "package.json"), "utf8")) as {
+			version: string
+		}
+		const simplex = JSON.parse(readFileSync(join(packageRoot, "../simplex/package.json"), "utf8")) as {
+			version: string
+		}
+
+		expect(builder).toMatchObject({
+			appId: "network.hyperbridge.simplex",
+			productName: "Simplex",
+			mac: { icon: "resources/icon.icns" },
+			win: { icon: "resources/icon.ico" },
+			linux: { icon: "resources/icons" },
+		})
+		expect(desktop.version).toBe(simplex.version)
+	})
+
 	it("keeps build policy in the supported workspace configuration", () => {
 		const workspace = readYaml(join(workspaceRoot, "pnpm-workspace.yaml"))
 
@@ -35,6 +55,30 @@ describe("desktop workspace package policy", () => {
 			"axios@>=1": "^1.18.0",
 			viem: "2.47.6",
 			vite: "6.4.2",
+		})
+	})
+
+	it("budgets for the installed desktop app include required license files", () => {
+		const workflow = readYaml(join(repositoryRoot, ".github/workflows/publish-simplex-desktop.yml")) as {
+			jobs?: {
+				build?: {
+					strategy?: { matrix?: { include?: Array<{ target: string; size_budget_mib: number }> } }
+				}
+			}
+		}
+		const budgets = Object.fromEntries(
+			(workflow.jobs?.build?.strategy?.matrix?.include ?? []).map(({ target, size_budget_mib }) => [
+				target,
+				size_budget_mib,
+			]),
+		)
+
+		expect(budgets).toEqual({
+			"darwin-arm64": 520,
+			"darwin-x64": 520,
+			"win32-x64": 580,
+			"linux-x64": 520,
+			"linux-arm64": 520,
 		})
 	})
 

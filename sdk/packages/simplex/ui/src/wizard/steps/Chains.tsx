@@ -3,6 +3,7 @@ import * as Collapsible from "@radix-ui/react-collapsible"
 import { toast } from "sonner"
 import { api } from "../../api"
 import { ChainLogo } from "../../components/ChainLogo"
+import { EndpointVerificationStatus } from "../../components/EndpointVerificationStatus"
 import { patchChain, type ChainDraft } from "../state"
 import type { StepProps } from "../Wizard"
 
@@ -38,7 +39,8 @@ export function StepChains({ state, setState }: StepProps) {
 								rpcUrls: [row.rpcUrl, ...c.rpcUrls.slice(1)],
 								bundlerUrl: row.bundlerUrl ?? c.bundlerUrl,
 								viaAlchemy: true,
-								rpcStatus: undefined,
+								verificationState: undefined,
+								verificationMessage: undefined,
 							}
 						})
 					: s.chains,
@@ -64,10 +66,10 @@ export function StepChains({ state, setState }: StepProps) {
 	}
 
 	const verifyChain = async (chain: ChainDraft) => {
-		const toastId = toast.loading(`Verifying ${chain.meta.label}`, {
-			description: "Checking the RPC and bundler endpoints.",
+		patch(chain.meta.chainId, {
+			verificationState: "checking",
+			verificationMessage: "Checking RPC and bundler endpoints…",
 		})
-		patch(chain.meta.chainId, { rpcStatus: "checking", rpcError: undefined, bundlerWarning: undefined })
 		const urls = chain.rpcUrls.map((u) => u.trim()).filter(Boolean)
 		try {
 			const rpc = await api.post<{ ok: boolean; results: Array<{ error?: string }>; error?: string }>(
@@ -76,20 +78,17 @@ export function StepChains({ state, setState }: StepProps) {
 			)
 			if (!rpc.ok) {
 				const firstError = rpc.error ?? rpc.results.find((r) => r.error)?.error ?? "RPC check failed"
-				patch(chain.meta.chainId, { rpcStatus: "err", rpcError: firstError })
-				toast.error(`${chain.meta.label} RPC could not be verified`, {
-					description: firstError,
-					id: toastId,
+				patch(chain.meta.chainId, {
+					verificationState: "error",
+					verificationMessage: `RPC could not be verified: ${firstError}`,
 				})
 				return
 			}
-			patch(chain.meta.chainId, { rpcStatus: "ok" })
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err)
-			patch(chain.meta.chainId, { rpcStatus: "err", rpcError: message })
-			toast.error(`${chain.meta.label} RPC could not be verified`, {
-				description: message,
-				id: toastId,
+			patch(chain.meta.chainId, {
+				verificationState: "error",
+				verificationMessage: `RPC could not be verified: ${message}`,
 			})
 			return
 		}
@@ -100,33 +99,28 @@ export function StepChains({ state, setState }: StepProps) {
 					url: chain.bundlerUrl.trim(),
 					chainId: chain.meta.chainId,
 				})
-				patch(chain.meta.chainId, { bundlerWarning: bundler.warning, bundlerOk: !bundler.warning })
 				if (bundler.warning) {
-					toast.warning(`${chain.meta.label} RPC verified`, {
-						description: bundler.warning,
-						id: toastId,
+					patch(chain.meta.chainId, {
+						verificationState: "warning",
+						verificationMessage: `RPC verified. Bundler warning: ${bundler.warning}`,
 					})
 					return
 				}
 			} catch (err) {
 				const message = `Bundler check failed: ${err instanceof Error ? err.message : err}`
 				patch(chain.meta.chainId, {
-					bundlerWarning: message,
-					bundlerOk: false,
-				})
-				toast.error(`${chain.meta.label} bundler could not be verified`, {
-					description: message,
-					id: toastId,
+					verificationState: "error",
+					verificationMessage: message,
 				})
 				return
 			}
 		}
 
-		toast.success(`${chain.meta.label} endpoints verified`, {
-			description: chain.bundlerUrl.trim()
+		patch(chain.meta.chainId, {
+			verificationState: "success",
+			verificationMessage: chain.bundlerUrl.trim()
 				? "RPC and bundler connections are ready."
 				: "RPC connection is ready.",
-			id: toastId,
 		})
 	}
 
@@ -205,7 +199,8 @@ export function StepChains({ state, setState }: StepProps) {
 													rpcUrls: chain.rpcUrls.map((u, i) =>
 														i === index ? e.target.value : u,
 													),
-													rpcStatus: undefined,
+													verificationState: undefined,
+													verificationMessage: undefined,
 													viaAlchemy: index === 0 ? false : chain.viaAlchemy,
 												})
 											}
@@ -216,6 +211,8 @@ export function StepChains({ state, setState }: StepProps) {
 												onClick={() =>
 													patch(chain.meta.chainId, {
 														rpcUrls: chain.rpcUrls.filter((_, i) => i !== index),
+														verificationState: undefined,
+														verificationMessage: undefined,
 													})
 												}
 											>
@@ -230,7 +227,13 @@ export function StepChains({ state, setState }: StepProps) {
 									className="chain-add-backup-button"
 									type="button"
 									title="A backup RPC lets Simplex compare independent providers before it acts on chain data."
-									onClick={() => patch(chain.meta.chainId, { rpcUrls: [...chain.rpcUrls, ""] })}
+									onClick={() =>
+										patch(chain.meta.chainId, {
+											rpcUrls: [...chain.rpcUrls, ""],
+											verificationState: undefined,
+											verificationMessage: undefined,
+										})
+									}
 								>
 									<span aria-hidden="true">+</span>
 									Add backup RPC
@@ -252,19 +255,33 @@ export function StepChains({ state, setState }: StepProps) {
 									type="text"
 									value={chain.bundlerUrl}
 									required
-									onChange={(e) => patch(chain.meta.chainId, { bundlerUrl: e.target.value })}
+									onChange={(e) =>
+										patch(chain.meta.chainId, {
+											bundlerUrl: e.target.value,
+											verificationState: undefined,
+											verificationMessage: undefined,
+										})
+									}
 									placeholder="https://api.pimlico.io/v2/<chainId>/rpc?apikey=…"
 								/>
 							</label>
 
-							<div className="chain-configuration-actions">
+						<div className="chain-configuration-actions">
+							<div className="chain-verification-control">
 								<button
 									type="button"
-									disabled={!chain.rpcUrls[0]?.trim() || chain.rpcStatus === "checking"}
+									disabled={
+										!chain.rpcUrls[0]?.trim() || chain.verificationState === "checking"
+									}
 									onClick={() => verifyChain(chain)}
 								>
-									{chain.rpcStatus === "checking" ? "Verifying…" : "Verify"}
+									{chain.verificationState === "checking" ? "Verifying…" : "Verify"}
 								</button>
+								<EndpointVerificationStatus
+									state={chain.verificationState}
+									message={chain.verificationMessage}
+								/>
+							</div>
 								<label className="chain-watch-toggle">
 									<input
 										type="checkbox"

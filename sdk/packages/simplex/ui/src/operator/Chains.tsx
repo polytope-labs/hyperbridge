@@ -1,5 +1,6 @@
 import * as Collapsible from "@radix-ui/react-collapsible"
 import { ChainLogo } from "../components/ChainLogo"
+import { EndpointVerificationStatus } from "../components/EndpointVerificationStatus"
 import { useChainSettings } from "./chains/useChainSettings"
 
 export function Chains() {
@@ -96,7 +97,8 @@ export function Chains() {
 													rpcUrls: chain.rpcUrls.map((item, itemIndex) =>
 														itemIndex === index ? e.target.value : item,
 													),
-													rpcStatus: undefined,
+													verificationState: undefined,
+													verificationMessage: undefined,
 													viaAlchemy: index === 0 ? false : chain.viaAlchemy,
 												})
 											}
@@ -110,6 +112,8 @@ export function Chains() {
 														rpcUrls: chain.rpcUrls.filter(
 															(_, itemIndex) => itemIndex !== index,
 														),
+														verificationState: undefined,
+														verificationMessage: undefined,
 													})
 												}
 											>
@@ -123,7 +127,13 @@ export function Chains() {
 								<button
 									className="chain-add-backup-button"
 									type="button"
-									onClick={() => patch(chain.meta.chainId, { rpcUrls: [...chain.rpcUrls, ""] })}
+									onClick={() =>
+										patch(chain.meta.chainId, {
+											rpcUrls: [...chain.rpcUrls, ""],
+											verificationState: undefined,
+											verificationMessage: undefined,
+										})
+									}
 								>
 									<span aria-hidden="true">+</span> Add backup RPC
 								</button>
@@ -144,19 +154,33 @@ export function Chains() {
 									value={chain.bundlerUrl}
 									required
 									onChange={(e) =>
-										patch(chain.meta.chainId, { bundlerUrl: e.target.value, bundlerOk: false })
+										patch(chain.meta.chainId, {
+											bundlerUrl: e.target.value,
+											verificationState: undefined,
+											verificationMessage: undefined,
+										})
 									}
 									placeholder="https://api.pimlico.io/v2/<chainId>/rpc?apikey=…"
 								/>
 							</label>
 							<div className="chain-configuration-actions">
-								<button
-									type="button"
-									disabled={!chain.rpcUrls[0]?.trim() || chain.rpcStatus === "checking"}
-									onClick={() => verifyChain(chain)}
-								>
-									{chain.rpcStatus === "checking" ? "Verifying…" : "Verify endpoints"}
-								</button>
+								<div className="chain-verification-control">
+									<button
+										type="button"
+										disabled={
+											!chain.rpcUrls[0]?.trim() || chain.verificationState === "checking"
+										}
+										onClick={() => verifyChain(chain)}
+									>
+										{chain.verificationState === "checking"
+											? "Verifying…"
+											: "Verify endpoints"}
+									</button>
+									<EndpointVerificationStatus
+										state={chain.verificationState}
+										message={chain.verificationMessage}
+									/>
+								</div>
 								<label
 									className="chain-watch-toggle"
 									title={

@@ -98,7 +98,7 @@ async function makeFiller(options: {
 	/** What the operator is offering to pay out, in whole EXOTIC. Defaults to plenty. */
 	offering?: string
 	/** A whole book, when one order is not the point of the case. */
-	book?: { price: string; size: string; id?: string }[]
+	book?: { price: string; size: string; id?: string; side?: "BID" | "ASK" }[]
 }): Promise<FXFiller> {
 	const registry = new AssetRegistry(configService, { EXOTIC: { [CHAIN]: EXOTIC } })
 	const pairs: TradingPair[] = [{ token0: "USDC", token1: "EXOTIC" }]
@@ -115,7 +115,7 @@ async function makeFiller(options: {
 				(options.book ?? [{ price: "1500", size: options.offering ?? "1000000" }]).map((order) => ({
 					base: "USDC",
 					quote: "EXOTIC",
-					side: "BID" as const,
+					side: order.side ?? ("BID" as const),
 					fillChain: CHAIN,
 					price: order.price,
 					size: order.size,
@@ -292,4 +292,84 @@ describe("FXFiller limit order payout", () => {
 		expect(contractService.partials.get("payout-balance")).toBe(false)
 		expect(profit).toBeGreaterThan(0)
 	})
+
+	describe("a multi-leg order", () => {
+		/**
+		 * Two legs: 100 STABLE for at least 149,000 EXOTIC, and 149,000 EXOTIC for at least
+		 * 90 STABLE. A 1,500 bid serves the first; a 1,600 ask (93.125 for 149,000) the second.
+		 */
+		function twoLegOrder(id: string, outputCall: HexString = "0x" as HexString): Order {
+			const order = makeOrder(id, CHAIN, outputCall)
+			return {
+				...order,
+				inputs: [
+					{ token: bytes20ToBytes32(STABLE), amount: INPUT_AMOUNT },
+					{ token: bytes20ToBytes32(EXOTIC), amount: REQUESTED_OUTPUT },
+				],
+				output: {
+					...order.output,
+					assets: [
+						{ token: bytes20ToBytes32(EXOTIC), amount: REQUESTED_OUTPUT },
+						{ token: bytes20ToBytes32(STABLE), amount: parseUnits("90", 18) },
+					],
+				},
+			} as Order
+		}
+
+		const plenty = {
+			[EXOTIC.toLowerCase()]: parseUnits("1000000", 18),
+			[STABLE.toLowerCase()]: parseUnits("1000000", 18),
+		}
+
+		type Plan = { leg: number; limitOrderId: string; partialFill: boolean; fillerOutputs: TokenInfo[]; fillerInputs: TokenInfo[] }
+		const amounts = (assets: TokenInfo[]) => assets.map((asset) => asset.amount)
+
+		it("bids only on the leg its limit order serves, quoting zero on the others", async () => {
+			const contractService = makeEvalContractService()
+			const filler = await makeFiller({ contractService, balances: plenty, book: [{ id: "bid", price: "1500", size: "1000000" }] })
+
+			await filler.calculateProfitability(twoLegOrder("multi-one"))
+
+			const plans = contractService.plans.get("multi-one") as Plan[]
+			expect(plans).toHaveLength(1)
+			expect(plans[0].leg).toBe(0)
+			expect(amounts(plans[0].fillerOutputs)).toEqual([OFFERED_OUTPUT, 0n])
+			expect(amounts(plans[0].fillerInputs)).toEqual([INPUT_AMOUNT, 0n])
+			// The other leg stays open, so this bid is a partial fill of the order.
+			expect(plans[0].partialFill).toBe(true)
+		})
+
+		it("sends one bid per leg its limit orders serve, each at that order's own rate", async () => {
+			const contractService = makeEvalContractService()
+			const filler = await makeFiller({
+				contractService,
+				balances: plenty,
+				book: [
+					{ id: "bid", price: "1500", size: "1000000" },
+					{ id: "ask", price: "1600", size: "1000", side: "ASK" },
+				],
+			})
+
+			await filler.calculateProfitability(twoLegOrder("multi-both"))
+
+			const plans = contractService.plans.get("multi-both") as Plan[]
+			expect(plans.map((plan) => [plan.leg, plan.limitOrderId])).toEqual([
+				[0, "bid"],
+				[1, "ask"],
+			])
+			expect(amounts(plans[0].fillerOutputs)).toEqual([OFFERED_OUTPUT, 0n])
+			// 149,000 EXOTIC in at 1,600 pays 93.125 STABLE.
+			expect(amounts(plans[1].fillerOutputs)).toEqual([0n, parseUnits("93.125", 18)])
+			expect(amounts(plans[1].fillerInputs)).toEqual([0n, REQUESTED_OUTPUT])
+		})
+
+		it("does not bid on one leg of an order whose output calldata forbids partial fills", async () => {
+			const contractService = makeEvalContractService()
+			const filler = await makeFiller({ contractService, balances: plenty, book: [{ id: "bid", price: "1500", size: "1000000" }] })
+
+			expect(await filler.calculateProfitability(twoLegOrder("multi-calldata", "0xdeadbeef" as HexString))).toBe(0)
+			expect(contractService.plans.get("multi-calldata")).toBeUndefined()
+		})
+	})
 })
+

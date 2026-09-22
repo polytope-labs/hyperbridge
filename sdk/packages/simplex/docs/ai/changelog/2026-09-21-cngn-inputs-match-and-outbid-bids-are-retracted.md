@@ -58,3 +58,20 @@ by it:
 - It draws that bid's limit order down by what it was charged: `amount * released / take`, rounded
   up and never below the credit (`chargedFor`).
 - A hold without a take falls back to the credited output.
+
+## Multi-leg orders are filled leg by leg
+
+`EventMonitor` dropped every order that did not have exactly one input and one output. It now passes
+any order whose inputs and outputs pair up leg by leg, and skips only unpaired ones
+(`Unpaired order legs`).
+
+`FXFiller.calculateProfitability` prices each leg on its own:
+
+- Matching: `matchLeg(order, leg)` matches the leg's input and output against the limit orders, and
+  each matching limit order gets a bid on that leg.
+- Quotes: a bid quotes its leg and zero on every other leg (`FillOptions.inputs` / `outputs`), which
+  the gateway reads as skipping those legs.
+- Partial fills: a bid on one leg of a multi-leg order leaves the others open, so it is a partial
+  fill. An order carrying output calldata, which cannot be filled in parts, gets no bids.
+- `BidPlan.leg` records the leg, and a hold's take is that leg's.
+- `getOrderUsdValue` sums every leg's input for the confirmation curves.

@@ -211,7 +211,7 @@ describe("EventMonitor chain lifecycle", () => {
 		expect(seen).toEqual(["0xorder"])
 	})
 
-	it("forwards only single-leg orders", async () => {
+	it("forwards orders whose inputs and outputs pair up, single- or multi-leg", async () => {
 		const { monitor, handlers } = monitorFor([1])
 		await monitor.startListening()
 
@@ -224,23 +224,24 @@ describe("EventMonitor chain lifecycle", () => {
 			handlers()!.onOrder({ order, transactionHash: "0xtx", chainId: 1 } as never)
 
 		deliver(singleLegOrder("0xsingle"))
+		deliver(singleLegOrder("0xtwo-legs", 2, 2))
 		deliver(singleLegOrder("0xtwo-in", 2, 1))
 		deliver(singleLegOrder("0xtwo-out", 1, 2))
 		deliver(singleLegOrder("0xno-legs", 0, 0))
 
-		expect(seen).toEqual(["0xsingle"])
+		expect(seen).toEqual(["0xsingle", "0xtwo-legs"])
 		expect(skipped.map((event) => event.orderId)).toEqual(["0xtwo-in", "0xtwo-out", "0xno-legs"])
-		expect(skipped.every((event) => event.reason === "Multi-leg order")).toBe(true)
+		expect(skipped.every((event) => event.reason === "Unpaired order legs")).toBe(true)
 	})
 
-	it("does not let a rejected multi-leg order occupy the de-duplication set", async () => {
+	it("does not let a rejected order occupy the de-duplication set", async () => {
 		const { monitor, handlers } = monitorFor([1])
 		await monitor.startListening()
 
 		const seen: string[] = []
 		monitor.on("newOrder", ({ order }) => seen.push(order.id))
 
-		handlers()!.onOrder({ order: singleLegOrder("0xid", 2, 2), transactionHash: "0xtx", chainId: 1 } as never)
+		handlers()!.onOrder({ order: singleLegOrder("0xid", 2, 1), transactionHash: "0xtx", chainId: 1 } as never)
 		handlers()!.onOrder({ order: singleLegOrder("0xid"), transactionHash: "0xtx", chainId: 1 } as never)
 
 		expect(seen).toEqual(["0xid"])

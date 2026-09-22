@@ -71,6 +71,8 @@ interface FundingPrependsCache {
  */
 export interface BidPlan {
 	limitOrderId: string
+	/** The order leg this bid fills; every other leg is quoted at zero. */
+	leg: number
 	/** What this bid draws from that limit order, at 1e18. */
 	payout: bigint
 	/** The outputs the bid signs, in the output token's own units. */
@@ -84,6 +86,7 @@ export interface BidPlan {
 
 interface BidPlanCache {
 	limitOrderId: string
+	leg?: number
 	payout: string
 	outputs: FillerOutputCache[]
 	inputs: FillerOutputCache[]
@@ -380,9 +383,13 @@ export class CacheService {
 			if (!cache || !this.isCacheValid(cache.timestamp)) return []
 			return cache.plans.map((plan) => ({
 				limitOrderId: plan.limitOrderId,
+				leg: plan.leg ?? 0,
 				payout: BigInt(plan.payout),
 				fillerOutputs: plan.outputs.map((output) => ({ token: output.token, amount: BigInt(output.amount) })),
-				fillerInputs: (plan.inputs ?? []).map((input) => ({ token: input.token, amount: BigInt(input.amount) })),
+				fillerInputs: (plan.inputs ?? []).map((input) => ({
+					token: input.token,
+					amount: BigInt(input.amount),
+				})),
 				fundingCalls: plan.calls.map((call) => ({
 					target: call.target as HexString,
 					value: BigInt(call.value),
@@ -403,6 +410,7 @@ export class CacheService {
 			this.cacheData.bidPlans[orderId] = {
 				plans: plans.map((plan) => ({
 					limitOrderId: plan.limitOrderId,
+					leg: plan.leg,
 					payout: plan.payout.toString(),
 					outputs: plan.fillerOutputs.map((output) => ({
 						token: output.token as HexString,

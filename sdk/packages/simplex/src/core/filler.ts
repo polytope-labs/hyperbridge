@@ -1024,7 +1024,7 @@ export class IntentFiller {
 					// Held before the bid goes out, against this bid's own limit order: a
 					// hold that cannot be taken drops this bid, not the rest.
 					reservation = await this.holdAll([
-						{ limitOrderId: plan.limitOrderId, payout: plan.payout, take: plan.fillerInputs[0]?.amount },
+						{ limitOrderId: plan.limitOrderId, payout: plan.payout, take: plan.fillerInputs[plan.leg]?.amount },
 					])
 					if (reservation.length === 0) {
 						this.logger.info(

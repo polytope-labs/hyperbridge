@@ -35,6 +35,68 @@ const RATE_LIMIT_RPC_CODES = new Set([-32005, -32097, -32016, 429])
 export const RATE_LIMIT_SUSPENSION_MS = 5 * 60_000
 
 /**
+ * What one quorum call is allowed to spend.
+ *
+ * `deadlineMs` is the ceiling on the call itself: past it, the endpoints still
+ * outstanding are treated as failures and the call fails with a QuorumError
+ * naming them, rather than waiting out the slowest provider. It cannot rescue a
+ * call — early exit already resolves the moment the bar is reachable, over the
+ * same responses `finalize` would see — so in practice the deadline is where a
+ * doomed call dies quickly instead of slowly.
+ */
+export interface QuorumBudget {
+	timeoutMs: number
+	retryCount: number
+	retryDelayMs: number
+	deadlineMs: number
+}
+
+/**
+ * Scanning: a poll every few seconds, one request per endpoint. A read that has
+ * not answered within seconds is already stale, and it holds the scan mutex
+ * while it waits — which is how a slow minority used to stall a whole chain.
+ */
+export const SCAN_BUDGET: QuorumBudget = {
+	timeoutMs: 5_000,
+	retryCount: 1,
+	retryDelayMs: 500,
+	deadlineMs: 12_000,
+}
+
+/**
+ * Confirmation polling: `getTransactionConfirmations` makes two requests in
+ * sequence per endpoint (head, then receipt), so the scan budget would cut off
+ * a slow but honest endpoint mid-sequence. Roomier on both counts, and still
+ * bounded — the poller is deciding whether money is safe to pay out, so it can
+ * afford to wait longer than a scan, but not forever.
+ */
+export const CONFIRMATION_BUDGET: QuorumBudget = {
+	timeoutMs: 10_000,
+	retryCount: 1,
+	retryDelayMs: 500,
+	deadlineMs: 30_000,
+}
+
+/**
+ * A provider answering with something that is not JSON at all — a plain-text
+ * throttle notice, an HTML error page — is not going to answer the next poll
+ * correctly either, so it sits out briefly. Shorter than the rate-limit bench
+ * because the cause is unknown; long enough to stop it being queried on every
+ * 3-second scan. (BSC's thirdweb endpoint returns its quota notice this way:
+ * viem surfaces it as a JSON parse error, so the rate-limit classifier never
+ * matched it and the endpoint was re-queried until it timed out, every scan.)
+ */
+export const MALFORMED_RESPONSE_SUSPENSION_MS = 30_000
+
+/**
+ * An endpoint whose head is behind the quorum's cannot answer for a range at
+ * that head — it fails the query deterministically until it catches up. Benched
+ * only briefly: lag is transient, and over-benching shrinks the voter set,
+ * which is the one thing the quorum exists to protect.
+ */
+export const STALE_HEAD_SUSPENSION_MS = 15_000
+
+/**
  * Whether an error looks rate-limit related — HTTP 429, a rate-limit-ish
  * JSON-RPC code, or rate-limit text anywhere in the message chain. Deliberately
  * loose: it only labels failures in diagnostics, where a false positive costs a
@@ -130,6 +192,57 @@ function suspensionMsFor(error: unknown): number {
 	return RATE_LIMIT_SUSPENSION_MS
 }
 
+/**
+ * Whether the provider answered with something that is not JSON. viem reports
+ * these as parse failures, so no status code or JSON-RPC code is available —
+ * the message is all there is. Exported for tests.
+ */
+export function isMalformedResponse(error: unknown): boolean {
+	let current: unknown = error
+	for (let depth = 0; depth < 6 && current instanceof Error; depth++) {
+		const e = current as { message?: string; details?: string; shortMessage?: string; cause?: unknown }
+		const text = [e.details, e.shortMessage, e.message].filter(Boolean).join(" ")
+		if (/is not valid JSON|Unexpected token|invalid json|Unexpected end of JSON input/i.test(text)) return true
+		current = e.cause
+	}
+	return false
+}
+
+/**
+ * Whether the provider is behind the block range it was asked for. Distinct
+ * from a malformed query: the same request succeeds on endpoints that have
+ * caught up, and will succeed here too, later. Exported for tests.
+ */
+export function isStaleHead(error: unknown): boolean {
+	let current: unknown = error
+	for (let depth = 0; depth < 6 && current instanceof Error; depth++) {
+		const e = current as { message?: string; details?: string; shortMessage?: string; cause?: unknown }
+		const text = [e.details, e.shortMessage, e.message].filter(Boolean).join(" ")
+		if (
+			/beyond the latest block|header not found|block not found|unknown block|not yet (been )?indexed/i.test(text)
+		)
+			return true
+		current = e.cause
+	}
+	return false
+}
+
+/**
+ * Whether a failure is worth benching the endpoint over, and for how long.
+ *
+ * The three cases share one property: the endpoint will keep failing the same
+ * way for a while, so re-querying it on the next poll only spends the call's
+ * time budget. Everything else — a bad query, a one-off 5xx, a hiccup — stays
+ * per-call, as the class doc promises. Exported for tests.
+ */
+export function benchFor(error: unknown): { durationMs: number; reason: string } | null {
+	if (isSuspendableRateLimit(error)) return { durationMs: suspensionMsFor(error), reason: "rate-limited" }
+	if (isMalformedResponse(error))
+		return { durationMs: MALFORMED_RESPONSE_SUSPENSION_MS, reason: "returned a malformed response" }
+	if (isStaleHead(error)) return { durationMs: STALE_HEAD_SUSPENSION_MS, reason: "behind the quorum head" }
+	return null
+}
+
 /** Whether a getTransactionReceipt rejection means "no such receipt" (a valid answer, not a fault). */
 function isReceiptNotFound(error: unknown): boolean {
 	return error instanceof Error && error.name === "TransactionReceiptNotFoundError"
@@ -145,20 +258,24 @@ function isReceiptNotFound(error: unknown): boolean {
  * simply fails to join the agreeing group, which is what makes a lying or reorged
  * endpoint detectable rather than authoritative.
  *
- * The one piece of pausing state is rate limiting: an endpoint whose failure
- * is unambiguously a request-rate limit ({@link isSuspendableRateLimit} — HTTP
- * 429, a throttle-specific JSON-RPC code, or throttle text) is DROPPED for
- * {@link RATE_LIMIT_SUSPENSION_MS}: not queried (re-querying only deepens the
- * throttle) and not counted — each call's quorum bar is computed over the
- * endpoints actually asked. A throttled endpoint answers nothing either way;
- * keeping it in the denominator would only turn the provider's throttle into
- * the solver missing events, and a scanner that misses orders loses fills. The
- * agreement bar therefore degrades while endpoints are benched — 4-of-5
- * becomes 3-of-4 — which is the deliberate trade: the remaining voters are
- * still exclusively the operator's own endpoints. When every endpoint is
- * benched, all are queried again; there is nobody left to prefer. Every other
- * failure mode stays stateless: a chronically slow endpoint costs one failed
- * sub-request per call, never a shrunk quorum.
+ * The pausing state is the bench, and {@link benchFor} decides who goes on it:
+ * a request-rate limit ({@link isSuspendableRateLimit}), a response that is not
+ * JSON ({@link isMalformedResponse}), or a head behind the quorum's
+ * ({@link isStaleHead}). A benched endpoint is DROPPED for its window: not
+ * queried and not counted, so each call's bar is computed over the endpoints
+ * actually asked. All three share the property that earns the bench — the
+ * endpoint will keep failing the same way for a while, so keeping it in the
+ * denominator would only turn its problem into the solver missing events, and a
+ * scanner that misses orders loses fills.
+ *
+ * That is a deliberate widening of what shrinks the voter set, and worth stating
+ * plainly: 5 endpoints with 2 lagging used to fail the call, and now decide it
+ * over the remaining 3. The bar still comes from a BFT threshold over the
+ * endpoints asked, and the voters are still exclusively the operator's own, but
+ * a call CAN now be decided by fewer of them than the operator configured. When
+ * every endpoint is benched, all are queried again; there is nobody left to
+ * prefer. Every other failure mode stays stateless: a chronically slow endpoint
+ * costs one failed sub-request per call, never a shrunk quorum.
  *
  * The constructor validates that URLs resolve to distinct hostnames so a "quorum"
  * isn't secretly the same upstream in disguise.
@@ -168,7 +285,7 @@ export class QuorumPublicClient {
 	public readonly rpcUrls: string[]
 	/**
 	 * The quorum bar when every endpoint answers: `quorumThreshold(n)` over the
-	 * full set. Calls made while endpoints are rate-limit-benched use
+	 * full set. Calls made while endpoints are benched use
 	 * `quorumThreshold(queried)` — the bar always matches who was asked.
 	 */
 	public readonly threshold: number
@@ -188,18 +305,22 @@ export class QuorumPublicClient {
 		QuorumPublicClient.benchedUntil.clear()
 	}
 
-	constructor(chainId: number, rpcUrls: string[], loggers?: LoggerContext) {
+	/** What this client's calls may spend; see {@link QuorumBudget}. */
+	private readonly deadlineMs: number
+
+	constructor(chainId: number, rpcUrls: string[], loggers?: LoggerContext, budget: QuorumBudget = SCAN_BUDGET) {
 		this.rpcUrls = validateRpcUrls(rpcUrls)
 		this.threshold = quorumThreshold(this.rpcUrls.length)
 		this.logger = loggers ? moduleLogger(loggers, "quorum-client") : undefined
+		this.deadlineMs = budget.deadlineMs
 		const chain = getViemChain(chainId) as Chain
 		this.clients = this.rpcUrls.map((url) =>
 			createPublicClient({
 				chain,
 				transport: http(url, {
-					timeout: 30_000,
-					retryCount: 3,
-					retryDelay: 1000,
+					timeout: budget.timeoutMs,
+					retryCount: budget.retryCount,
+					retryDelay: budget.retryDelayMs,
 				}),
 			}),
 		)
@@ -209,7 +330,7 @@ export class QuorumPublicClient {
 		return this.clients.length
 	}
 
-	/** Endpoints currently suspended for rate limiting, by URL. */
+	/** Endpoints currently benched, by URL. See {@link benchFor} for the reasons. */
 	suspended(): string[] {
 		const now = Date.now()
 		return this.rpcUrls.filter((url) => (QuorumPublicClient.benchedUntil.get(url) ?? 0) > now)
@@ -242,27 +363,29 @@ export class QuorumPublicClient {
 	}
 
 	/**
-	 * Records a task failure against its endpoint. Only rate-limit failures
-	 * carry state: everything else stays per-call, as the class doc promises.
+	 * Records a task failure against its endpoint. Only the failures
+	 * {@link benchFor} names carry state: everything else stays per-call, as the
+	 * class doc promises.
 	 * The bench is the one silent state transition this class has, so it warns —
 	 * an operator whose bar just dropped from 2-of-2 to 1-of-1 should not need a
 	 * QuorumError to find out.
 	 */
 	private noteFailure(idx: number, error: unknown): void {
-		if (!isSuspendableRateLimit(error)) return
+		const bench = benchFor(error)
+		if (!bench) return
 		const url = this.rpcUrls[idx]
-		const durationMs = suspensionMsFor(error)
-		QuorumPublicClient.benchedUntil.set(url, Date.now() + durationMs)
+		QuorumPublicClient.benchedUntil.set(url, Date.now() + bench.durationMs)
 		const remaining = this.size - this.suspended().length
 		this.logger?.warn(
 			{
 				url,
-				durationMs,
+				reason: bench.reason,
+				durationMs: bench.durationMs,
 				queriedAfter: remaining > 0 ? remaining : this.size,
 				quorumAfter: quorumThreshold(remaining > 0 ? remaining : this.size),
 				of: this.size,
 			},
-			"Endpoint rate-limited; suspending it and recomputing the quorum bar over the rest",
+			`Endpoint ${bench.reason}; suspending it and recomputing the quorum bar over the rest`,
 		)
 	}
 
@@ -287,6 +410,14 @@ export class QuorumPublicClient {
 	 * the QuorumError when the full response set still has no quorum). Early
 	 * exit never weakens the trust model — a decision still requires the same
 	 * quorum, it just doesn't wait for votes it no longer needs.
+	 *
+	 * `deadlineMs` bounds the other direction: when the bar is NOT reachable
+	 * from the fast responders, the call used to wait out every straggler, and
+	 * the caller's own retry loop multiplied that into minutes of a chain not
+	 * being scanned at all, silently. At the deadline the outstanding endpoints
+	 * are treated as failures — named in the QuorumError, so the operator sees
+	 * which ones held the call up — and `finalize` decides on the rest. The
+	 * trust model is untouched: a decision still needs the same quorum.
 	 */
 	private settleUntilQuorum<T, R>(
 		tasks: Array<{ idx: number; task: Promise<T> }>,
@@ -299,25 +430,31 @@ export class QuorumPublicClient {
 		return new Promise<R>((resolve, reject) => {
 			const fulfilled: Array<{ idx: number; value: T }> = []
 			const failures: Array<{ idx: number; error: unknown }> = []
+			const settled = new Set<number>()
 			let outstanding = tasks.length
 			let done = false
+			let timer: ReturnType<typeof setTimeout> | undefined
+
+			const finish = (action: () => void) => {
+				done = true
+				if (timer) clearTimeout(timer)
+				action()
+			}
 
 			const evaluate = () => {
 				if (done) return
 				try {
 					const early = tryDecide(fulfilled)
 					if (early !== undefined) {
-						done = true
-						resolve(early)
+						finish(() => resolve(early))
 						return
 					}
 					if (outstanding === 0) {
-						done = true
-						resolve(finalize(fulfilled, failures))
+						const value = finalize(fulfilled, failures)
+						finish(() => resolve(value))
 					}
 				} catch (error) {
-					done = true
-					reject(error)
+					finish(() => reject(error))
 				}
 			}
 
@@ -325,9 +462,31 @@ export class QuorumPublicClient {
 				evaluate()
 				return
 			}
+
+			timer = setTimeout(() => {
+				if (done) return
+				// Not benched: slow is not the same as broken, and a deadline says
+				// nothing about which endpoint was at fault. The names go into the
+				// error instead.
+				const stragglers = tasks
+					.filter(({ idx }) => !settled.has(idx))
+					.map(({ idx }) => ({
+						idx,
+						error: new Error(`no answer within the ${this.deadlineMs}ms quorum deadline`),
+					}))
+				try {
+					const value = finalize(fulfilled, [...failures, ...stragglers])
+					finish(() => resolve(value))
+				} catch (error) {
+					finish(() => reject(error))
+				}
+			}, this.deadlineMs)
+			// A pending quorum read must never be the reason the process stays alive.
+			timer.unref?.()
 			tasks.forEach(({ idx, task }) => {
 				task.then(
 					(value) => {
+						settled.add(idx)
 						outstanding--
 						fulfilled.push({ idx, value })
 						evaluate()
@@ -336,6 +495,7 @@ export class QuorumPublicClient {
 						// Recorded even for stragglers that settle after the call decided:
 						// a rate limit learned late still spares the endpoint next call.
 						this.noteFailure(idx, error)
+						settled.add(idx)
 						outstanding--
 						failures.push({ idx, error })
 						evaluate()
@@ -509,15 +669,15 @@ export class QuorumPublicClient {
 
 	/**
 	 * `skipped` is the participants() snapshot for THIS call, not the suspension
-	 * state at throw time — a long call (hung endpoint riding out the 30s×3
-	 * retry ladder) can outlive a suspension window, and the message must explain
+	 * state at throw time — a call that rides out its deadline can outlive a
+	 * bench window, and the message must explain
 	 * who was excluded when the call started, not who would be excluded now.
 	 */
 	private describeResponders(count: number, queried: number, skipped: number, allBenched: boolean): string {
 		const note = allBenched
-			? ` (all ${this.size} endpoints rate-limit-suspended; queried anyway)`
+			? ` (all ${this.size} endpoints benched; queried anyway)`
 			: skipped > 0
-				? ` (${skipped}/${this.size} suspended for rate limiting)`
+				? ` (${skipped}/${this.size} benched)`
 				: ""
 		return `responders: ${count}/${queried} queried${note}`
 	}
@@ -526,7 +686,13 @@ export class QuorumPublicClient {
 		if (failures.length === 0) return "No provider errors."
 		const parts = failures.map((f) => {
 			const url = f.idx >= 0 ? this.rpcUrls[f.idx] : "unknown"
-			const label = isRateLimited(f.error) ? " [rate-limited]" : ""
+			const label = isRateLimited(f.error)
+				? " [rate-limited]"
+				: isMalformedResponse(f.error)
+					? " [malformed response]"
+					: isStaleHead(f.error)
+						? " [behind the head]"
+						: ""
 			return `${url}${label}: ${providerMessage(f.error)}`
 		})
 		return `Failures (${failures.length}): ${parts.join("; ")}`

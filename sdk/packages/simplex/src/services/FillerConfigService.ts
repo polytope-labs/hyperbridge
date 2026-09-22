@@ -1,5 +1,5 @@
 import type { ChainConfig, HexString } from "@hyperbridge/sdk"
-import { defaultLoggerContext, type LoggerContext } from "./Logger"
+import { defaultLoggerContext, moduleLogger, type LoggerContext } from "./Logger"
 import { ChainConfigService, bytes32ToBytes20 } from "@hyperbridge/sdk"
 import type { LogLevel } from "./Logger"
 
@@ -76,25 +76,87 @@ export async function fetchChainId(rpcUrl: string): Promise<number> {
 	return Number(json.result)
 }
 
+/** How a caller wants unanswered chain-id probes treated. */
+export interface ResolveChainOptions {
+	loggers?: LoggerContext
+	/**
+	 * Accept a chain as long as ONE endpoint answered, logging the rest. Boot sets
+	 * this; runtime endpoint edits must not, because an endpoint that never
+	 * answered has never been checked against the chain it would serve.
+	 */
+	tolerateUnreachable?: boolean
+}
+
 /**
  * Resolves chain IDs for all user-provided chain configs by querying each RPC.
- * When multiple RPC URLs are configured for a chain, every URL is queried and all
- * must agree on the chainId.
+ * Every URL that answers must agree on the chain.
+ *
+ * With `tolerateUnreachable`, a URL that cannot answer does not stop the filler
+ * from starting. A public endpoint answering 429 is an ordinary state, one the
+ * quorum client already handles by benching it; boot was the one place where a
+ * single throttled endpoint among a dozen healthy ones aborted the whole
+ * process. Those endpoints stay in the list: they were probed, not adopted, and
+ * the quorum client decides per call whether they can vote.
+ *
+ * Two cases are fatal either way, because both mean the config is wrong rather
+ * than an endpoint being briefly unavailable:
+ *  - endpoints that disagree about which chain they serve,
+ *  - a chain where nothing answered at all.
  */
-export async function resolveChainConfigs(chains: UserProvidedChainConfig[]): Promise<ResolvedChainConfig[]> {
+export async function resolveChainConfigs(
+	chains: UserProvidedChainConfig[],
+	options: ResolveChainOptions = {},
+): Promise<ResolvedChainConfig[]> {
+	const { loggers, tolerateUnreachable = false } = options
+	const logger = loggers ? moduleLogger(loggers, "chain-config") : undefined
 	return Promise.all(
 		chains.map(async (chain) => {
 			const rpcUrls = validateRpcUrls(chain.rpcUrls)
-			const chainIds = await Promise.all(rpcUrls.map((url) => fetchChainId(url)))
-			const [first, ...rest] = chainIds
-			for (let i = 0; i < rest.length; i++) {
-				if (rest[i] !== first) {
+			const probes = await Promise.allSettled(rpcUrls.map((url) => fetchChainId(url)))
+			const answered: Array<{ url: string; chainId: number }> = []
+			const silent: Array<{ url: string; error: unknown }> = []
+			probes.forEach((probe, i) => {
+				if (probe.status === "fulfilled") answered.push({ url: rpcUrls[i], chainId: probe.value })
+				else silent.push({ url: rpcUrls[i], error: probe.reason })
+			})
+
+			// Adding endpoints to a running filler is the strict case: an endpoint
+			// that never answered has never been checked against the chain it is
+			// about to serve, and a wrong-chain endpoint returns `[]` on a quiet
+			// range just like an honest one — so it can join a quorum on "no
+			// events". Boot is the case that tolerates silence.
+			if (!tolerateUnreachable && silent.length > 0) {
+				throw new Error(
+					`RPC endpoints must report their chainId before use: ${silent
+						.map(({ url, error }) => `${url}: ${error instanceof Error ? error.message : String(error)}`)
+						.join("; ")}`,
+				)
+			}
+
+			if (answered.length === 0) {
+				throw new Error(
+					`No configured RPC endpoint could report its chainId: ${silent
+						.map(({ url, error }) => `${url}: ${error instanceof Error ? error.message : String(error)}`)
+						.join("; ")}`,
+				)
+			}
+
+			const [first, ...rest] = answered
+			for (const other of rest) {
+				if (other.chainId !== first.chainId) {
 					throw new Error(
-						`Quorum RPC URLs disagree on chainId: ${rpcUrls[0]} returned ${first} but ${rpcUrls[i + 1]} returned ${rest[i]}`,
+						`Quorum RPC URLs disagree on chainId: ${first.url} returned ${first.chainId} but ${other.url} returned ${other.chainId}`,
 					)
 				}
 			}
-			return { chainId: first, rpcUrls, bundlerUrl: chain.bundlerUrl }
+
+			for (const { url, error } of silent) {
+				logger?.warn(
+					{ url, chainId: first.chainId, answered: answered.length, of: rpcUrls.length, err: error },
+					"RPC endpoint could not report its chainId at startup; keeping it for the quorum to judge per call",
+				)
+			}
+			return { chainId: first.chainId, rpcUrls, bundlerUrl: chain.bundlerUrl }
 		}),
 	)
 }

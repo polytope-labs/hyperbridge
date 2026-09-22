@@ -1,4 +1,3 @@
-import type { ConsolaInstance } from "consola"
 import type Decimal from "decimal.js"
 import type { GraphQLClient } from "graphql-request"
 import type { Chain, ContractFunctionArgs, Hex, Log, PublicClient, TransactionReceipt } from "viem"
@@ -158,7 +157,16 @@ export interface RetryConfig {
 	 */
 	backoffMs: number
 	logMessage?: string
-	logger?: ConsolaInstance
+	/**
+	 * Where retry attempts are recorded. Structural on purpose: `retryPromise`
+	 * only ever calls `trace`, and callers outside this package log through
+	 * their own stack (pino, in simplex's case). Typing it as a full
+	 * `ConsolaInstance` forced those callers to omit the logger entirely, which
+	 * sent every retry to the silent default and made a retrying call — up to
+	 * `maxRetries` × the transport's own timeout budget — indistinguishable
+	 * from a hang.
+	 */
+	logger?: { trace: (message: string) => void }
 	/** Return false to stop retrying and immediately rethrow the error. */
 	shouldRetry?: (error: unknown) => boolean
 }

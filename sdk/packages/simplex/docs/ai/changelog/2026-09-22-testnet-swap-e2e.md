@@ -30,10 +30,16 @@ Pass scenario names as arguments, or through `E2E_SCENARIOS` (comma-separated), 
 
 ## Wallets
 
-Before the solvers start, any user short of what the run spends is topped up from the solver
-holding the most of that token. A solver keeps back 400 USDC or 800000 cNGN for its own limit
-orders. Users pay the solvers one token and are paid the other, so the wallets need only gas. The
-run fails early if a top-up is impossible or a wallet has no gas.
+Users pay the solvers one token and are paid the other, so between them the wallets always hold
+what a run needs, and only gas is consumed. Funds are moved back in both directions:
+
+- **Before the run:** any user short of what its scenarios spend is topped up from the solver
+  holding the most of that token. The solver keeps back what its largest book pays out.
+- **Before each scenario's book is posted:** any solver that can't back its limit orders is topped
+  up from the user holding the most of that token. The user keeps back what the run spends.
+
+A top-up adds half again over the shortfall. The run fails early if no wallet can spare a top-up,
+or if a wallet has no gas.
 
 CI runs never overlap (`concurrency: simplex-testnet-swaps`). The wallets must not also be in use
 by another simplex instance.

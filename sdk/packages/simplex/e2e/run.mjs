@@ -170,31 +170,82 @@ async function create(solver, body) {
 /** Posts the standing book, plus solver 1's extra levels the scenario names. */
 async function postBook(levels = []) {
 	await clearBook()
+	await fundSolvers(levels)
 	for (const solver of SOLVERS) for (const body of standingOrders(solver)) await create(solver, body)
 	for (const level of levels) for (const body of EXTRA_LEVELS[level]) await create(SOLVERS[0], body)
 }
 
+const USERS = [env.user1Key, env.user2Key].map((key) => privateKeyToAccount(key))
+const SOLVER_ACCOUNTS = solverKeys.map(({ key }) => privateKeyToAccount(key))
+const clients = Object.fromEntries(
+	Object.entries(CHAINS).map(([chain, config]) => [chain, createPublicClient({ chain: config.viem, transport: http(config.rpc) })]),
+)
+const balanceOf = (chain, symbol, address) =>
+	clients[chain].readContract({ address: TOKENS[chain][symbol].address, abi: erc20Abi, functionName: "balanceOf", args: [address] })
+const amount = (chain, symbol, human) => parseUnits(String(human), TOKENS[chain][symbol].decimals)
+const human = (chain, symbol, raw) => formatUnits(raw, TOKENS[chain][symbol].decimals)
+
 /** What the selected scenarios spend, by user, chain and token. */
-function spending() {
-	const need = {}
+function spending(user, chain, symbol) {
+	let total = 0n
 	for (const name of selected) {
 		const s = SCENARIOS[name]
-		for (const leg of s.legs) {
-			const key = `${s.user}:${s.source}:${leg.tokenIn}`
-			need[key] = (need[key] ?? 0) + Number(leg.amountIn)
-		}
+		if (s.user !== user || s.source !== chain) continue
+		for (const leg of s.legs) if (leg.tokenIn === symbol) total += amount(chain, symbol, leg.amountIn)
 	}
-	return need
+	return total
 }
 
-/** What a solver keeps back to post its own limit orders when it tops up a user. */
-const SOLVER_RESERVE = { USDC: "400", cNGN: "800000" }
+/** What a solver's limit orders pay out, by fill chain and token: what it must hold to post them. */
+function bookNeeds(index, levels = []) {
+	const orders = [...standingOrders(SOLVERS[index]), ...(index === 0 ? levels.flatMap((level) => EXTRA_LEVELS[level]) : [])]
+	const needs = {}
+	for (const order of orders) {
+		const key = `${order.fillChain}:${order.tokenOut}`
+		needs[key] = (needs[key] ?? 0n) + amount(order.fillChain, order.tokenOut, order.amountOut)
+	}
+	return needs
+}
 
 /**
- * Tops each user up from a solver, and fails early, and legibly, on a wallet that still cannot
- * pay for the run. Users pay the solvers one token and are paid the other, so the solvers hold
- * what the users spent; moving it back keeps the wallets going with nothing but gas.
+ * Brings `address` up to `required` of a token, plus half again so it is not needed every time,
+ * from whichever donor holds the most while keeping what it needs itself. Users pay the solvers
+ * one token and are paid the other, so between them the wallets hold what the run needs, and
+ * moving it back keeps them going with nothing but gas. Returns false when no donor can spare it.
  */
+async function topUp(label, address, chain, symbol, required, donors) {
+	const held = await balanceOf(chain, symbol, address)
+	if (held >= required) return true
+	const shortfall = (required * 3n) / 2n - held
+	let donor
+	let most = 0n
+	for (const { account, keep } of donors) {
+		const balance = await balanceOf(chain, symbol, account.address)
+		if (balance - shortfall >= keep && balance > most) [donor, most] = [account, balance]
+	}
+	if (!donor) return false
+	const wallet = createWalletClient({ account: donor, chain: CHAINS[chain].viem, transport: http(CHAINS[chain].rpc) })
+	const token = TOKENS[chain][symbol].address
+	const hash = await wallet.writeContract({ address: token, abi: erc20Abi, functionName: "transfer", args: [address, shortfall] })
+	await clients[chain].waitForTransactionReceipt({ hash })
+	log(`topped up ${label} with ${human(chain, symbol, shortfall)} ${symbol} on ${chain} from ${donor.address}: ${hash}`)
+	return true
+}
+
+/** Tops up any solver that cannot back the book a scenario posts, from the users. */
+async function fundSolvers(levels) {
+	const donors = (chain, symbol) => USERS.map((account, user) => ({ account, keep: spending(user, chain, symbol) }))
+	for (const [index, solver] of SOLVER_ACCOUNTS.entries()) {
+		for (const [key, required] of Object.entries(bookNeeds(index, levels))) {
+			const [chain, symbol] = key.split(":")
+			if (!(await topUp(SOLVERS[index].name, solver.address, chain, symbol, required, donors(chain, symbol)))) {
+				throw new Error(`${SOLVERS[index].name} cannot post its book: it needs ${human(chain, symbol, required)} ${symbol} on ${chain}, and no user can spare it`)
+			}
+		}
+	}
+}
+
+/** Tops up each user from the solvers, and fails early, and legibly, on a wallet that still cannot pay for the run. */
 async function preflight() {
 	const probe = await fetch(env.orderbook, {
 		method: "POST",
@@ -202,50 +253,29 @@ async function preflight() {
 		body: JSON.stringify({ query: "{ serverInfo { minOrderTtlSecs } }" }),
 	}).catch((error) => ({ ok: false, status: String(error) }))
 	if (!probe.ok) throw new Error(`The orderbook does not answer GraphQL at E2E_ORDERBOOK_URL: ${probe.status}`)
-	const need = spending()
-	const users = [env.user1Key, env.user2Key].map((key) => privateKeyToAccount(key))
-	const solvers = solverKeys.map(({ key }) => privateKeyToAccount(key))
 	const problems = []
-	for (const [chain, config] of Object.entries(CHAINS)) {
-		const client = createPublicClient({ chain: config.viem, transport: http(config.rpc) })
-		const balanceOf = (token, address) => client.readContract({ address: token.address, abi: erc20Abi, functionName: "balanceOf", args: [address] })
-		for (const [index, user] of users.entries()) {
-			for (const [symbol, token] of Object.entries(TOKENS[chain])) {
-				const spends = need[`${index}:${chain}:${symbol}`]
-				if (!spends) continue
-				const required = parseUnits(String(spends), token.decimals)
-				const held = await balanceOf(token, user.address)
-				if (held >= required) continue
-				// Half as much again, so a top-up is not needed on every run.
-				const amount = (required * 3n) / 2n - held
-				const reserve = parseUnits(SOLVER_RESERVE[symbol], token.decimals)
-				let donor
-				let most = 0n
-				for (const solver of solvers) {
-					const balance = await balanceOf(token, solver.address)
-					if (balance - amount >= reserve && balance > most) [donor, most] = [solver, balance]
+	// A solver keeps back the most any scenario's book asks of it.
+	const allLevels = Object.keys(EXTRA_LEVELS)
+	for (const chain of Object.keys(CHAINS)) {
+		for (const symbol of Object.keys(TOKENS[chain])) {
+			const donors = SOLVER_ACCOUNTS.map((account, index) => ({ account, keep: bookNeeds(index, allLevels)[`${chain}:${symbol}`] ?? 0n }))
+			for (const [index, user] of USERS.entries()) {
+				const required = spending(index, chain, symbol)
+				if (required === 0n) continue
+				if (!(await topUp(`user${index + 1}`, user.address, chain, symbol, required, donors))) {
+					problems.push(`user${index + 1} ${user.address} needs ${human(chain, symbol, required)} ${symbol} on ${chain}, and no solver can spare it`)
 				}
-				if (!donor) {
-					problems.push(`user${index + 1} ${user.address} holds ${formatUnits(held, token.decimals)} ${symbol} on ${chain}, the run spends ${spends}, and no solver can spare it`)
-					continue
-				}
-				const wallet = createWalletClient({ account: donor, chain: config.viem, transport: http(config.rpc) })
-				const hash = await wallet.writeContract({ address: token.address, abi: erc20Abi, functionName: "transfer", args: [user.address, amount] })
-				await client.waitForTransactionReceipt({ hash })
-				log(`topped up user${index + 1} with ${formatUnits(amount, token.decimals)} ${symbol} on ${chain} from ${donor.address}: ${hash}`)
 			}
 		}
 		for (const [role, accounts] of [
-			["user", users],
-			["solver", solvers],
+			["user", USERS],
+			["solver", SOLVER_ACCOUNTS],
 		]) {
 			for (const [index, { address }] of accounts.entries()) {
-				const gas = await client.getBalance({ address })
+				const gas = await clients[chain].getBalance({ address })
 				if (gas === 0n) problems.push(`${role}${index + 1} ${address} has no gas on ${chain}`)
 				const held = []
-				for (const [symbol, token] of Object.entries(TOKENS[chain])) {
-					held.push(`${formatUnits(await balanceOf(token, address), token.decimals)} ${symbol}`)
-				}
+				for (const symbol of Object.keys(TOKENS[chain])) held.push(`${human(chain, symbol, await balanceOf(chain, symbol, address))} ${symbol}`)
 				log(`${role}${index + 1} ${address} on ${chain}: ${formatEther(gas)} gas, ${held.join(", ")}`)
 			}
 		}

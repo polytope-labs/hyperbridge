@@ -7,6 +7,7 @@ import { ABI as IntentGatewayV2ABI } from "@/abis/IntentGatewayV2"
 import type { FillOrderEstimate, HexString, Order, TokenInfo } from "@/types"
 import { EvmChain } from "@/chain"
 import { IntentGateway } from "@/protocols/intents/IntentGateway"
+import { InsufficientOrderbookLiquidityError } from "@/protocols/intents/orderbook/types"
 import { DEFAULT_GRAFFITI } from "@/protocols/intents/types"
 import { ChainConfigService } from "@/configs/ChainConfigService"
 import { bytes20ToBytes32 } from "@/utils"
@@ -64,7 +65,8 @@ describe.skip("Uniswap quote helper", () => {
 })
 
 // Reads the testnet orderbook the gateway picks for BSC Chapel and Polygon Amoy; HYPERFX_ORDERBOOK_URL
-// points it elsewhere. BSC_CHAPEL and POLYGON_AMOY override the chains' public RPCs, which rate-limit.
+// points it elsewhere. The book is live and solvers come and go, so each test checks whichever state it
+// finds: prices and amounts while orders serve the route, a consistent "nothing fillable" while none do. BSC_CHAPEL and POLYGON_AMOY override the chains' public RPCs, which rate-limit.
 describe("IntentGateway orderbook reads", () => {
 	it("queries the best bid and ask using only symbols and chain IDs", async () => {
 		const configService = new ChainConfigService()
@@ -79,7 +81,10 @@ describe("IntentGateway orderbook reads", () => {
 		console.log("[queryBuyAndSellRates] Amoy USDC → Chapel cNGN", rates)
 		assert.equal(rates.baseTokenSymbol, "USDC")
 		assert.equal(rates.quoteTokenSymbol, "cNGN")
-		assert(rates.bid !== null || rates.ask !== null, "Expected at least one side of the USDC/cNGN book")
+		if (rates.bid === null || rates.ask === null) {
+			assert.equal(rates.mid, null)
+			assert.equal(rates.spreadBps, null)
+		}
 		if (rates.bid && rates.ask && rates.spread) {
 			assert.equal(parseUnits(rates.ask, 18) - parseUnits(rates.bid, 18), parseUnits(rates.spread, 18))
 		}
@@ -120,11 +125,22 @@ describe("IntentGateway orderbook reads", () => {
 		const intentGateway = await createLiveIntentGateway(CHAINS.amoy, CHAINS.chapel, configService)
 		const amountIn = parseUnits("10", usdcDecimals)
 
-		const quote = await intentGateway.quoteIntent({
-			tokenIn: configService.getUsdcAsset(CHAINS.amoy.id),
-			tokenOut: chapelCngn,
-			amountIn,
-		})
+		const route = { tokenIn: configService.getUsdcAsset(CHAINS.amoy.id), tokenOut: chapelCngn }
+		const liquidity = await intentGateway.queryAvailableLiquidity(route)
+		const fillableIn = parseUnits(liquidity.maxFillableIn, usdcDecimals)
+		if (fillableIn < amountIn) {
+			console.log(
+				`[quoteIntent] Amoy USDC → Chapel cNGN: route fills ${liquidity.maxFillableIn} USDC, expecting a refusal`,
+			)
+			await assert.rejects(
+				intentGateway.quoteIntent({ ...route, amountIn }),
+				(error: unknown) =>
+					error instanceof InsufficientOrderbookLiquidityError && error.maxFillableIn === fillableIn,
+			)
+			return
+		}
+
+		const quote = await intentGateway.quoteIntent({ ...route, amountIn })
 
 		logIntentQuote("Amoy USDC → Chapel cNGN exact input", quote)
 		assert.equal(quote.tradeType, "EXACT_INPUT")
@@ -146,11 +162,17 @@ describe("IntentGateway orderbook reads", () => {
 		const intentGateway = await createLiveIntentGateway(CHAINS.amoy, CHAINS.chapel, configService)
 		const amountOut = parseUnits("5", usdcDecimals)
 
-		const quote = await intentGateway.quoteIntent({
-			tokenIn: amoyCngn,
-			tokenOut: configService.getUsdcAsset(CHAINS.chapel.id),
-			amountOut,
+		const route = { tokenIn: amoyCngn, tokenOut: configService.getUsdcAsset(CHAINS.chapel.id) }
+		const liquidity = await intentGateway.queryAvailableLiquidity(route)
+		const quote = await intentGateway.quoteIntent({ ...route, amountOut }).catch((error: unknown) => {
+			// Too little depth for the output, or none: the refusal must agree with the route's liquidity.
+			if (!(error instanceof InsufficientOrderbookLiquidityError)) throw error
+			console.log(`[quoteIntent] Amoy cNGN → Chapel USDC: route fills ${liquidity.maxFillableIn} cNGN, refused`)
+			const cNgnDecimals = configService.getCNgnDecimals(CHAINS.amoy.id)!
+			assert.equal(error.maxFillableIn, parseUnits(liquidity.maxFillableIn, cNgnDecimals))
+			return undefined
 		})
+		if (!quote) return
 
 		logIntentQuote("Amoy cNGN → Chapel USDC exact output", quote)
 		assert.equal(quote.tradeType, "EXACT_OUTPUT")

@@ -1,9 +1,5 @@
 import { EventEmitter } from "events"
-import type {
-	ChainConfig,
-	Order,
-	HexString,
-} from "@hyperbridge/sdk"
+import type { ChainConfig, Order, HexString } from "@hyperbridge/sdk"
 import type { FillerConfigService } from "@/services/FillerConfigService"
 import { type Logger, moduleLogger } from "@/services/Logger"
 import { reconstructOrdersFromLogs, type ReconstructDeps, type ReconstructedOrder } from "@/scanner/reconstruct"
@@ -31,9 +27,9 @@ const SEEN_LIMIT = 5_000
  *  - the `OrderFilled` filler-address filter. `filler` is `indexed: false` on
  *    both `OrderFilled` and `PartialFill`, so it can never be a topic filter;
  *    every consumer receives every fill and narrows it locally.
- *  - the single-leg filter. Only orders with exactly one input and one output
- *    asset reach the filler; a multi-leg order is skipped at the door rather
- *    than split into legs downstream.
+ *  - the leg filter. An order reaches the filler only when its inputs and
+ *    outputs pair up leg by leg; the strategy then bids on each leg one of its
+ *    limit orders serves.
  *  - de-duplication. Exactly-once used to be emergent — a private monotonic
  *    cursor made a repeat impossible. A shared feed can replay from a cursor
  *    after a reconnect, so the seen-set below is what preserves the property
@@ -97,12 +93,14 @@ export class EventMonitor extends EventEmitter {
 	}
 
 	private handleOrder(order: Order, transactionHash: string, graffiti?: HexString): void {
-		if (order.inputs.length !== 1 || order.output.assets.length !== 1) {
+		// Multi-leg orders pass: the strategy bids on each leg a limit order serves.
+		// Legs pair inputs with outputs by index, so anything else cannot be filled.
+		if (order.inputs.length === 0 || order.inputs.length !== order.output.assets.length) {
 			this.logger.debug(
 				{ orderId: order.id, inputs: order.inputs.length, outputs: order.output.assets.length },
-				"Multi-leg order, ignoring",
+				"Order legs do not pair inputs with outputs, ignoring",
 			)
-			this.emit("orderSkipped", { orderId: order.id, reason: "Multi-leg order" })
+			this.emit("orderSkipped", { orderId: order.id, reason: "Unpaired order legs" })
 			return
 		}
 
@@ -128,14 +126,32 @@ export class EventMonitor extends EventEmitter {
 		const { commitment, filler, chainId, transactionHash } = event
 		const ours = filler?.toLowerCase() === this.fillerAddress
 		// Every fill on a configured chain, ours or a rival's: the activity feed
-		// uses it to settle an order's outcome after a bid.
-		this.emit("orderFillObserved", { commitment, filler, chainId, txHash: transactionHash, ours })
+		// uses it to settle an order's outcome after a bid, and the filler retracts
+		// its own bids on an order a rival completed.
+		this.emit("orderFillObserved", {
+			commitment,
+			filler,
+			chainId,
+			txHash: transactionHash,
+			ours,
+			complete: event.complete === true,
+		})
 		// Never a topic filter — see the class comment.
 		if (!ours) return
 		this.logger.info({ chainId, commitment, filler }, "OrderFilled event detected for this filler")
 		// The amounts ride along: a fill is what draws its limit order down, and
 		// this is the only place they are reported.
-		this.emit("orderFilledOnChain", { commitment, filler, chainId, outputs: event.outputs, inputs: event.inputs })
+		this.emit("orderFilledOnChain", {
+			commitment,
+			filler,
+			chainId,
+			outputs: event.outputs,
+			inputs: event.inputs,
+			transactionHash,
+			// A scanner that cannot tell leaves this unset; treated as closing the order,
+			// as every fill of ours was before partial fills were told apart.
+			complete: event.complete !== false,
+		})
 	}
 
 	/**

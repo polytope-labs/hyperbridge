@@ -251,4 +251,48 @@ describe("IntentFiller bid retraction", () => {
 			vi.useRealTimers()
 		}
 	})
+
+	describe("a rival's fill", () => {
+		async function observe(filler: IntentFiller, complete: boolean): Promise<void> {
+			;(filler as any).monitor.emit("orderFillObserved", {
+				commitment: COMMITMENT,
+				filler: OTHER_FILLER,
+				chainId: 8453,
+				ours: false,
+				complete,
+			})
+			// The listener reads the bid store before anything is enqueued; let it get there.
+			await new Promise((resolve) => setTimeout(resolve, 0))
+			await (filler as any).retractionQueue.onIdle()
+		}
+
+		it("retracts our bid once a rival completes the order", async () => {
+			const { filler, bidStorage, retractBid } = build([{ success: true, extrinsicHash: "0x01" as HexString }])
+			await bidStorage.store({ commitment: COMMITMENT, bid: OUR_BID, success: true })
+
+			await observe(filler, true)
+
+			expect(retractBid).toHaveBeenCalledTimes(1)
+			expect((await bidStorage.byCommitment(COMMITMENT))!.retracted).toBe(true)
+		})
+
+		it("leaves our bid standing after a rival's partial fill, which it may still complete", async () => {
+			const { filler, bidStorage, retractBid } = build([])
+			await bidStorage.store({ commitment: COMMITMENT, bid: OUR_BID, success: true })
+
+			await observe(filler, false)
+
+			expect(retractBid).not.toHaveBeenCalled()
+			expect((await bidStorage.byCommitment(COMMITMENT))!.retracted).toBe(false)
+		})
+
+		it("does nothing for an order we never bid on", async () => {
+			const { filler, retractBid } = build([])
+
+			await observe(filler, true)
+
+			expect(retractBid).not.toHaveBeenCalled()
+			expect((filler as any).pendingRetractions.size).toBe(0)
+		})
+	})
 })

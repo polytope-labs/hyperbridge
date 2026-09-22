@@ -33,7 +33,7 @@ jobs:
     live:
         runs-on: ubuntu-latest
         env:
-            ORDERBOOK_IMAGE: polytopelabs/hyperfx-orderbook:v0.1.0
+            ORDERBOOK_IMAGE: polytopelabs/hyperfx-orderbook:v0.3.0
         steps:
             - name: Checkout repository
               uses: actions/checkout@v4

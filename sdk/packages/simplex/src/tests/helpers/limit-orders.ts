@@ -153,6 +153,8 @@ export function limitOrderService(
 	store = new MemoryDataStore().limitOrders,
 	/** What the wallet holds of each payout token, in whole tokens. Plenty by default. */
 	balances: Record<string, bigint> = {},
+	/** Where a new order's nonce starts. Pinned to 0 so the tests can name the nonces a posting walks through. */
+	startingNonce: () => bigint = () => 0n,
 ) {
 	const contractService = {
 		getTokenDecimals: async (token: string) => (token === USDC ? 6 : 18),
@@ -188,6 +190,8 @@ export function limitOrderService(
 		signer as any,
 		900,
 		undefined,
+		undefined,
+		startingNonce,
 	)
 	return { service, store }
 }

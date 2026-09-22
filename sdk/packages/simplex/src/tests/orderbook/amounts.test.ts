@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { offerFor, ORDERBOOK_SCALE, rateFrom, signedAmounts, toRaw, toScaled } from "@/orderbook/amounts"
+import { inputFor, offerFor, ORDERBOOK_SCALE, rateFrom, signedAmounts, toRaw, toScaled } from "@/orderbook/amounts"
 
 /** 1,500 quote per 1 base, the shape a USDC/cNGN book reads at. */
 const PRICE = 1500n * ORDERBOOK_SCALE
@@ -138,3 +138,27 @@ describe("tokens finer than the orderbook's own unit", () => {
 		expect(offer).toBe(999999999999999999n)
 	})
 })
+
+describe("inputFor", () => {
+	it("inverts offerFor on both sides of the book", () => {
+		const price = 1600n * ORDERBOOK_SCALE
+		// A bid pays the quote: 1,600 per unit of base in, so 160,000 out costs 100 in.
+		expect(inputFor({ side: "BID", outputAmount: 160_000n * ORDERBOOK_SCALE, price, inputDecimals: 18 })).toBe(
+			100n * ORDERBOOK_SCALE,
+		)
+		// An ask pays the base: 187.5 out costs 300,000 of the quote in.
+		expect(inputFor({ side: "ASK", outputAmount: (1875n * ORDERBOOK_SCALE) / 10n, price, inputDecimals: 6 })).toBe(
+			300_000n * ORDERBOOK_SCALE,
+		)
+	})
+
+	it("rounds up to the input token's unit, so a fill never pays above the operator's price", () => {
+		// 100 out at 3 per unit is 33.33…, which a 6-decimal token takes as 33.333334.
+		const input = inputFor({ side: "BID", outputAmount: 100n * ORDERBOOK_SCALE, price: 3n * ORDERBOOK_SCALE, inputDecimals: 6 })
+		expect(input).toBe(33_333_334n * 10n ** 12n)
+		expect(offerFor({ side: "BID", inputAmount: input, price: 3n * ORDERBOOK_SCALE, outputDecimals: 18 })).toBeGreaterThanOrEqual(
+			100n * ORDERBOOK_SCALE,
+		)
+	})
+})
+

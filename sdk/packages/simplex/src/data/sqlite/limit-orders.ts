@@ -2,6 +2,8 @@ import type { DatabaseSync } from "node:sqlite"
 import { defaultLoggerContext, type Logger, type LoggerContext } from "@/services/Logger"
 import type {
 	LimitOrder,
+	LimitOrderFill,
+	LimitOrderFillInsert,
 	LimitOrderFilter,
 	LimitOrderInsert,
 	LimitOrderPosting,
@@ -95,6 +97,18 @@ export class SqliteLimitOrderStore implements LimitOrderStore {
 			CREATE INDEX IF NOT EXISTS idx_limit_orders_status ON limit_orders(status);
 			CREATE INDEX IF NOT EXISTS idx_limit_orders_fill_chain ON limit_orders(fill_chain);
 			CREATE INDEX IF NOT EXISTS idx_limit_orders_commitment ON limit_orders(commitment);
+
+			CREATE TABLE IF NOT EXISTS limit_order_fills (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				limit_order_id TEXT NOT NULL,
+				commitment TEXT NOT NULL,
+				bid TEXT,
+				amount TEXT NOT NULL,
+				transaction_hash TEXT,
+				filled_at TEXT NOT NULL DEFAULT (datetime('now'))
+			);
+
+			CREATE INDEX IF NOT EXISTS idx_limit_order_fills_order ON limit_order_fills(limit_order_id);
 		`)
 	}
 
@@ -113,9 +127,9 @@ export class SqliteLimitOrderStore implements LimitOrderStore {
 			.prepare(`
 				INSERT INTO limit_orders (
 					id, book, base, quote, side, fill_chain, price, size, remaining,
-					accepted_sources, ttl_secs, expires_at, status
+					accepted_sources, ttl_secs, expires_at, order_nonce, status
 				)
-				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open')
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open')
 			`)
 			.run(
 				order.id,
@@ -130,6 +144,7 @@ export class SqliteLimitOrderStore implements LimitOrderStore {
 				JSON.stringify(order.acceptedSources),
 				order.ttlSecs,
 				order.expiresAt ?? null,
+				order.orderNonce ?? "0",
 			)
 		this.logger.info({ id: order.id, book: order.book, side: order.side }, "Limit order created")
 		return this.read(order.id)!
@@ -240,6 +255,24 @@ export class SqliteLimitOrderStore implements LimitOrderStore {
 			}
 			throw err
 		}
+	}
+
+	async recordFill(fill: LimitOrderFillInsert): Promise<void> {
+		this.db
+			.prepare(
+				"INSERT INTO limit_order_fills (limit_order_id, commitment, bid, amount, transaction_hash) VALUES (?, ?, ?, ?, ?)",
+			)
+			.run(fill.limitOrderId, fill.commitment, fill.bid ?? null, fill.amount, fill.transactionHash ?? null)
+	}
+
+	async fills(limitOrderId: string, limit = 100): Promise<LimitOrderFill[]> {
+		return this.db
+			.prepare(
+				`SELECT id, limit_order_id as limitOrderId, commitment, bid, amount, transaction_hash as transactionHash,
+					filled_at as filledAt
+				FROM limit_order_fills WHERE limit_order_id = ? ORDER BY id DESC LIMIT ?`,
+			)
+			.all(limitOrderId, Math.min(Math.max(limit, 1), 500)) as unknown as LimitOrderFill[]
 	}
 
 	async drawDown(id: string, amount: string): Promise<LimitOrder | null> {

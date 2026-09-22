@@ -19,7 +19,7 @@ function makeOrder(source: string, destination: string): Order {
 	}
 }
 
-function makeEstimate(): FillOrderEstimate {
+function makeEstimate(overrides: Partial<FillOrderEstimate> = {}): FillOrderEstimate {
 	return {
 		fillOptions: { relayerFee: 0n, nativeDispatchFee: 0n, validUntil: 0n, outputs: [], inputs: [] },
 		inputs: [],
@@ -33,11 +33,16 @@ function makeEstimate(): FillOrderEstimate {
 		totalGasCostWei: 1_000n,
 		totalGasInFeeToken: 100n,
 		relayerFeeInSourceFeeToken: 20n,
+		...overrides,
 	}
 }
 
-function makeGateway(sourceStateMachineId: string, destinationStateMachineId: string) {
-	const estimateFillOrder = vi.fn().mockResolvedValue(makeEstimate())
+function makeGateway(
+	sourceStateMachineId: string,
+	destinationStateMachineId: string,
+	estimate: FillOrderEstimate = makeEstimate(),
+) {
+	const estimateFillOrder = vi.fn().mockResolvedValue(estimate)
 	return {
 		gateway: {
 			gasEstimator: { estimateFillOrder },
@@ -69,4 +74,43 @@ describe("IntentGateway order-fee gas-price policy", () => {
 			})
 		},
 	)
+})
+
+describe("IntentGateway cross-chain order fee buffer", () => {
+	it("keeps the fee strictly above fill gas plus relayer fee when the costs are a few units", async () => {
+		// Testnets price gas at 1 unit, so a floored 5% of 2 units vanished and the
+		// order paid exactly what the solver requires, which it refuses.
+		const estimate = makeEstimate({ totalGasInFeeToken: 1n, relayerFeeInSourceFeeToken: 1n })
+		const { gateway } = makeGateway("EVM-97", "EVM-80002", estimate)
+
+		const { fees } = await IntentGateway.prototype.quoteOrderFees.call(
+			gateway as never,
+			makeOrder("EVM-97", "EVM-80002"),
+		)
+
+		expect(fees).toBe(3n)
+	})
+
+	it("adds exactly 5% when the sum divides evenly", async () => {
+		const { gateway } = makeGateway("EVM-42161", "EVM-8453")
+
+		const { fees } = await IntentGateway.prototype.quoteOrderFees.call(
+			gateway as never,
+			makeOrder("EVM-42161", "EVM-8453"),
+		)
+
+		expect(fees).toBe(126n)
+	})
+
+	it("rounds a fractional buffer up", async () => {
+		const estimate = makeEstimate({ totalGasInFeeToken: 101n, relayerFeeInSourceFeeToken: 0n })
+		const { gateway } = makeGateway("EVM-42161", "EVM-8453", estimate)
+
+		const { fees } = await IntentGateway.prototype.quoteOrderFees.call(
+			gateway as never,
+			makeOrder("EVM-42161", "EVM-8453"),
+		)
+
+		expect(fees).toBe(107n)
+	})
 })

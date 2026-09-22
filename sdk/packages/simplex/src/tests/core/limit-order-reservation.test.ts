@@ -256,6 +256,75 @@ describe("a bid drawing on several limit orders", () => {
 		expect(settled).toEqual([[SECOND_ORDER, 600n * 10n ** 18n]])
 	})
 
+	describe("bids at their own rate", () => {
+		/** Two bids at different rates, each holding its payout and the take it signed beside it. */
+		async function twoRatedBids() {
+			const ctx = await build()
+			await ctx.limitOrders.reserve(LIMIT_ORDER, (1000n * 10n ** 18n).toString())
+			await ctx.limitOrders.reserve(SECOND_ORDER, (980n * 10n ** 18n).toString())
+			await ctx.bids.store({
+				commitment: COMMITMENT,
+				bid: FIRST_BID,
+				success: true,
+				reservations: [{ limitOrderId: LIMIT_ORDER, amount: (1000n * 10n ** 18n).toString(), take: "100" }],
+			})
+			await ctx.bids.store({
+				commitment: COMMITMENT,
+				bid: SECOND_BID,
+				success: true,
+				reservations: [{ limitOrderId: SECOND_ORDER, amount: (980n * 10n ** 18n).toString(), take: "99" }],
+			})
+			const settled: Array<[string, bigint]> = []
+			// biome-ignore lint/suspicious/noExplicitAny: narrow stubs for this path
+			;(ctx.filler as any).assetRegistry = { getAddress: () => CNGN }
+			// biome-ignore lint/suspicious/noExplicitAny: narrow stubs for this path
+			;(ctx.filler as any).contractService = { getTokenDecimals: async () => 18 }
+			// biome-ignore lint/suspicious/noExplicitAny: narrow stubs for this path
+			;(ctx.filler as any).limitOrderService = {
+				resize: async (order: { id: string }, amount: bigint) => {
+					settled.push([order.id, amount])
+					return null
+				},
+			}
+			return { ...ctx, settled }
+		}
+
+		it("settles the bid whose take was released and draws it down by what it was charged", async () => {
+			// The event credits the swapper 980, the ask, while the bid that executed paid its
+			// whole 1,000: the rest went to the swapper and the protocol as surplus. Matching the
+			// credit to a hold would pick the 980 bid; the released take names the right one.
+			const ctx = await twoRatedBids()
+
+			// biome-ignore lint/suspicious/noExplicitAny: the settlement path is private
+			await (ctx.filler as any).settleFilledLimitOrder(
+				COMMITMENT,
+				8453,
+				[{ token: CNGN, amount: 980n * 10n ** 18n }],
+				[{ token: OTHER, amount: 100n }],
+			)
+
+			expect(ctx.settled).toEqual([[LIMIT_ORDER, 1000n * 10n ** 18n]])
+			expect((await ctx.limitOrders.get(SECOND_ORDER))!.reserved).toBe("0")
+		})
+
+		it("charges a fill the gateway clamped in proportion to the escrow it released", async () => {
+			// The order had only part of this bid's credit left, so the gateway released half
+			// of its take and charged half of its payout, however the credit rounds. The release
+			// fits inside both takes; the executor takes the better rate (10 against 9.9) first.
+			const ctx = await twoRatedBids()
+
+			// biome-ignore lint/suspicious/noExplicitAny: the settlement path is private
+			await (ctx.filler as any).settleFilledLimitOrder(
+				COMMITMENT,
+				8453,
+				[{ token: CNGN, amount: 490n * 10n ** 18n }],
+				[{ token: OTHER, amount: 50n }],
+			)
+
+			expect(ctx.settled).toEqual([[LIMIT_ORDER, 500n * 10n ** 18n]])
+		})
+	})
+
 	it("claims the holds of every bid on the order, so none is left behind", async () => {
 		const ctx = await build()
 		await ctx.bids.store({
@@ -276,6 +345,136 @@ describe("a bid drawing on several limit orders", () => {
 		// Without one, whatever is still outstanding on the commitment.
 		expect(await ctx.bids.claimReservation(COMMITMENT)).toEqual([{ limitOrderId: LIMIT_ORDER, amount: PAYOUT }])
 		expect(await ctx.bids.claimReservation(COMMITMENT)).toEqual([])
+	})
+})
+
+describe("one solver's bids at several price levels on one order", () => {
+	/**
+	 * Two limit orders of ours at different prices, each with its own bid on the same
+	 * order: 1,000 out for 100 in (rate 10) and 900 out for 100 in (rate 9). The executor
+	 * takes the better rate first.
+	 */
+	async function twoLevels() {
+		const ctx = await build()
+		await ctx.limitOrders.reserve(LIMIT_ORDER, (1000n * 10n ** 18n).toString())
+		await ctx.limitOrders.reserve(SECOND_ORDER, (900n * 10n ** 18n).toString())
+		await ctx.bids.store({
+			commitment: COMMITMENT,
+			bid: FIRST_BID,
+			success: true,
+			reservations: [{ limitOrderId: LIMIT_ORDER, amount: (1000n * 10n ** 18n).toString(), take: "100" }],
+		})
+		await ctx.bids.store({
+			commitment: COMMITMENT,
+			bid: SECOND_BID,
+			success: true,
+			reservations: [{ limitOrderId: SECOND_ORDER, amount: (900n * 10n ** 18n).toString(), take: "100" }],
+		})
+		const drawn: Array<[string, bigint]> = []
+		// biome-ignore lint/suspicious/noExplicitAny: narrow stubs for the fill path
+		const filler = ctx.filler as any
+		filler.assetRegistry = { getAddress: () => CNGN }
+		filler.contractService = { getTokenDecimals: async () => 18 }
+		// A paymaster on the chain, so the fill path skips the EntryPoint top-up.
+		filler.configService.getSimplexPaymasterAddress = () => "0x0000000000000000000000000000000000000001"
+		filler.limitOrderService = {
+			resize: async (order: { id: string }, amount: bigint) => {
+				drawn.push([order.id, amount])
+				return null
+			},
+		}
+		const reservedOn = async (id: string) => (await ctx.limitOrders.get(id))!.reserved
+		const fill = async (credited: bigint, released: bigint, complete: boolean, transactionHash?: string) => {
+			await filler.handleOrderFilledOnChain(
+				COMMITMENT,
+				OUR_ADDRESS,
+				8453,
+				[{ token: CNGN, amount: credited }],
+				[{ token: OTHER, amount: released }],
+				complete,
+				transactionHash,
+			)
+			await filler.retractionQueue.onIdle()
+		}
+		return { ...ctx, drawn, reservedOn, fill }
+	}
+
+	it("settles only the bid a partial fill executed and leaves the other level bidding", async () => {
+		const ctx = await twoLevels()
+
+		// The better level fills first and leaves the order open.
+		await ctx.fill(950n * 10n ** 18n, 100n, false)
+
+		expect(ctx.drawn).toEqual([[LIMIT_ORDER, 1000n * 10n ** 18n]])
+		expect(await ctx.reservedOn(LIMIT_ORDER)).toBe("0")
+		// The other level still holds its payout and its bid is still on Hyperbridge.
+		expect(await ctx.reservedOn(SECOND_ORDER)).toBe((900n * 10n ** 18n).toString())
+		expect(ctx.retractBid).not.toHaveBeenCalled()
+	})
+
+	it("settles fills of one order in the order they were scanned, even when they arrive together", async () => {
+		// Both levels fill in one block scan, so both events are handed over before
+		// either settlement has run. Settled side by side, both read the same holds and
+		// the first release was matched to the same bid as the second.
+		const ctx = await twoLevels()
+		// biome-ignore lint/suspicious/noExplicitAny: driving the monitor's events directly
+		const filler = ctx.filler as any
+		filler.monitor.emit("orderFilledOnChain", {
+			commitment: COMMITMENT,
+			filler: OUR_ADDRESS,
+			chainId: 8453,
+			outputs: [{ token: CNGN, amount: 950n * 10n ** 18n }],
+			inputs: [{ token: OTHER, amount: 100n }],
+			complete: false,
+		})
+		filler.monitor.emit("orderFilledOnChain", {
+			commitment: COMMITMENT,
+			filler: OUR_ADDRESS,
+			chainId: 8453,
+			outputs: [{ token: CNGN, amount: 540n * 10n ** 18n }],
+			inputs: [{ token: OTHER, amount: 60n }],
+			complete: true,
+		})
+		await filler.settlementQueue.onIdle()
+		await filler.retractionQueue.onIdle()
+
+		expect(ctx.drawn).toEqual([
+			[LIMIT_ORDER, 1000n * 10n ** 18n],
+			[SECOND_ORDER, 540n * 10n ** 18n],
+		])
+	})
+
+	it("records each fill against the limit order it drew down, with its bid and transaction", async () => {
+		const ctx = await twoLevels()
+		await ctx.fill(950n * 10n ** 18n, 100n, false, "0xfill1")
+		await ctx.fill(540n * 10n ** 18n, 60n, true, "0xfill2")
+
+		const first = await ctx.limitOrders.fills(LIMIT_ORDER)
+		const second = await ctx.limitOrders.fills(SECOND_ORDER)
+		expect(first.map((fill) => [fill.commitment, fill.bid, fill.amount, fill.transactionHash])).toEqual([
+			[COMMITMENT, FIRST_BID, (1000n * 10n ** 18n).toString(), "0xfill1"],
+		])
+		expect(second.map((fill) => [fill.commitment, fill.bid, fill.amount, fill.transactionHash])).toEqual([
+			[COMMITMENT, SECOND_BID, (540n * 10n ** 18n).toString(), "0xfill2"],
+		])
+	})
+
+	it("works the next level down when it completes the order, then retracts", async () => {
+		const ctx = await twoLevels()
+		await ctx.fill(950n * 10n ** 18n, 100n, false)
+
+		// The next level fills what is left: the gateway clamps it to 60 of its 100 take,
+		// charging 60% of its 900.
+		await ctx.fill(540n * 10n ** 18n, 60n, true)
+
+		expect(ctx.drawn).toEqual([
+			[LIMIT_ORDER, 1000n * 10n ** 18n],
+			[SECOND_ORDER, 540n * 10n ** 18n],
+		])
+		expect(await ctx.reservedOn(SECOND_ORDER)).toBe("0")
+		// The order is complete, so our bids on it are retracted.
+		expect(ctx.retractBid).toHaveBeenCalled()
+		expect((await ctx.bids.byCommitment(COMMITMENT))!.retracted).toBe(true)
 	})
 })
 

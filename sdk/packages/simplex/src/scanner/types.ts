@@ -68,6 +68,13 @@ export interface ScannedFill {
 	outputs: TokenInfo[]
 	/** What the filler received: the escrow the gateway released for those outputs. */
 	inputs: TokenInfo[]
+	/**
+	 * Whether this fill completed the order: `true` for `OrderFilled`, which the
+	 * gateway emits only once every leg is filled, `false` for `PartialFill`. A
+	 * scanner that cannot tell leaves it unset, and the fill is not treated as
+	 * closing the order.
+	 */
+	complete?: boolean
 }
 
 /** What {@link OrderScanner.create} needs to start scanning. */

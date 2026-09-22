@@ -9,7 +9,7 @@ import { assertConfirmationCoverage, type VaultToml } from "@/config/filler-toml
 import type { ChainConfirmationPolicy, FillerTomlConfig, RebalancingConfig } from "@/config/filler-toml"
 import { resolveChainConfigs, validateRpcUrls, type AllowlistConfig } from "@/services/FillerConfigService"
 import { LoggerContext, type Logger, type LogLevel, type LogSink } from "@/services/Logger"
-import type { ActivityEvent, BidStats, SimplexDataStore, StoredBid, WalletTx } from "@/data/types"
+import type { ActivityEvent, BidStats, LimitOrderFill, SimplexDataStore, StoredBid, WalletTx } from "@/data/types"
 import { patchRuntimeState } from "@/data/state"
 import { MemoryDataStore } from "@/data/memory"
 import { OrderScanner as OrderScannerImpl } from "@/scanner/order-scanner"
@@ -219,15 +219,22 @@ export class LimitOrderController {
 	}
 
 	/**
-	 * One limit order with the bids that drew on it, newest first.
+	 * One limit order with its fills and the bids still drawing on it, newest first.
 	 *
-	 * What makes `remaining` explicable: a size that shrank is the sum of the
-	 * fills behind it, and the operator can see which ones.
+	 * What makes `remaining` explicable: a size that shrank is the sum of the fills
+	 * behind it, and the operator can see which ones. Fills are recorded when they
+	 * settle, so they outlive the resize and repost each one causes.
 	 */
-	async withFills(id: string): Promise<{ order: LimitOrder; fills: StoredBid[] } | null> {
+	async withFills(
+		id: string,
+	): Promise<{ order: LimitOrder; fills: LimitOrderFill[]; bids: StoredBid[] } | null> {
 		const order = await this.service.get(id)
 		if (!order) return null
-		return { order, fills: await this.runtime.data.bids.byLimitOrder(id) }
+		const [fills, bids] = await Promise.all([
+			this.runtime.data.limitOrders.fills(id),
+			this.runtime.data.bids.byLimitOrder(id),
+		])
+		return { order, fills, bids }
 	}
 
 	/** Creates the order, posts it, and reports what the orderbook made of it. */

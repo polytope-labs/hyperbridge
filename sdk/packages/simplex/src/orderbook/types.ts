@@ -18,6 +18,13 @@ import type { HexString } from "@hyperbridge/sdk"
 export const MIN_ORDER_TTL_SECONDS = 900
 
 /**
+ * How long a limit order lives when neither the request nor `[orderbook]
+ * defaultTtlSecs` says: 365 days. An order is inventory the operator opens and
+ * closes; it should not lapse on its own within a working session.
+ */
+export const DEFAULT_LIMIT_ORDER_TTL_SECONDS = 365 * 24 * 60 * 60
+
+/**
  * The heartbeat period to fall back on when `serverInfo` cannot be read.
  *
  * Deliberately short. Heartbeating more often than the server asks costs one

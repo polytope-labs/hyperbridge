@@ -1,7 +1,7 @@
 import { encodeFunctionData, toHex, pad, maxUint256, concat, keccak256, isHex, hexToString } from "viem"
 import { generatePrivateKey, privateKeyToAccount, privateKeyToAddress } from "viem/accounts"
 import { ABI as IntentGatewayV2ABI } from "@/abis/IntentGatewayV2"
-import { encodeFillOrder, assertGatewayRelease, supportsRateFills } from "./fillOrderCodec"
+import { encodeFillOrder, assertGatewayRelease } from "./fillOrderCodec"
 import {
 	ADDRESS_ZERO,
 	bytes32ToBytes20,
@@ -221,13 +221,6 @@ export class GasEstimator {
 		const commitment = orderCommitment(orderForEstimation)
 
 		await assertGatewayRelease(this.ctx.dest.client as any, intentGatewayV2Address)
-		const implementation = this.ctx.dest.configService.getSolverAccountAddress(destStateMachineId)
-		if (
-			!implementation ||
-			!(await supportsRateFills(this.ctx.dest.client as any, intentGatewayV2Address, implementation))
-		) {
-			throw new Error("Fills are not supported by the destination gateway and configured SolverAccount")
-		}
 		const fillOrderCalldata = encodeFillOrder(transformOrderForContract(orderForEstimation) as any, fillOptions)
 
 		let callGasLimit: bigint = 500_000n

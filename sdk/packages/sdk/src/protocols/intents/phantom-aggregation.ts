@@ -906,12 +906,8 @@ type DelegationReader = (
 	solverAccounts: readonly string[],
 ) => Promise<string | null>
 
-/** Whether the gateway and the SolverAccount a solver is delegated to both report the supported release. */
-export type RateFillCapabilityReader = (
-	evmRpcUrl: string,
-	gatewayAddress: string,
-	solverAccount: string,
-) => Promise<boolean>
+/** Whether the gateway reports the supported release. SolverAccount carries no version. */
+export type RateFillCapabilityReader = (evmRpcUrl: string, gatewayAddress: string) => Promise<boolean>
 
 const SELECTOR_VERSION = "0x54fd4d50"
 
@@ -958,9 +954,9 @@ async function readSupportedVersion(evmRpcUrl: string, contract: string): Promis
 	)
 }
 
-/** Reads `version()` on the gateway and on the given SolverAccount. Not cached beyond one aggregation, so an upgrade is seen at once. */
-export const readRateFillCapability: RateFillCapabilityReader = async (evmRpcUrl, gatewayAddress, solverAccount) =>
-	(await readSupportedVersion(evmRpcUrl, gatewayAddress)) && (await readSupportedVersion(evmRpcUrl, solverAccount))
+/** Reads `version()` on the gateway. Not cached beyond one aggregation, so an upgrade is seen at once. */
+export const readRateFillCapability: RateFillCapabilityReader = (evmRpcUrl, gatewayAddress) =>
+	readSupportedVersion(evmRpcUrl, gatewayAddress)
 
 /**
  * Caches the delegation check for the life of one aggregation, retries included.
@@ -996,17 +992,17 @@ function memoizedDelegationCheck(): DelegationReader {
 }
 
 /**
- * Caches the capability read per gateway and SolverAccount for the life of one aggregation,
+ * Caches the capability read per gateway for the life of one aggregation,
  * retries included, on the same reasoning as {@link memoizedDelegationCheck}: a release does not
  * change within a bid window. Rejections are evicted so a retry re-reads.
  */
 function memoizedCapabilityCheck(read: RateFillCapabilityReader): RateFillCapabilityReader {
 	const cache = new Map<string, Promise<boolean>>()
-	return (evmRpcUrl, gatewayAddress, solverAccount) => {
-		const key = `${evmRpcUrl}|${gatewayAddress.toLowerCase()}|${solverAccount.toLowerCase()}`
+	return (evmRpcUrl, gatewayAddress) => {
+		const key = `${evmRpcUrl}|${gatewayAddress.toLowerCase()}`
 		let pending = cache.get(key)
 		if (!pending) {
-			pending = read(evmRpcUrl, gatewayAddress, solverAccount).catch((err) => {
+			pending = read(evmRpcUrl, gatewayAddress).catch((err) => {
 				cache.delete(key)
 				throw err
 			})
@@ -1539,10 +1535,10 @@ async function runAggregation(
 			if (!verified) continue
 			// Memoised by the delegation check above, so this is the verified delegate without another read.
 			const delegate = await isDelegated(destUrl, solver, solverAccounts)
-			if (!delegate || !(await supportsRateFills(destUrl, gatewayAddress, delegate))) {
+			if (!delegate || !(await supportsRateFills(destUrl, gatewayAddress))) {
 				logger?.warn(
 					{ solver, commitment, delegate },
-					"Rejecting phantom bid: gateway or solver account does not report the supported release",
+					"Rejecting phantom bid: sender is not delegated or the gateway does not report the supported release",
 				)
 				continue
 			}

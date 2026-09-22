@@ -1,5 +1,6 @@
 import type { HexString } from "@hyperbridge/sdk"
 import type { LimitOrder } from "@/data/types"
+import { normalizeSymbol } from "@/config/asset-registry"
 import { offerFor } from "./amounts"
 
 /** Which symbols a limit order takes in and pays out, from the side it sits on. */
@@ -50,13 +51,13 @@ export function availableOn(order: LimitOrder): bigint {
  * the whole point of pricing from the operator's own resting orders rather than
  * from a curve that always has an answer.
  *
- * An order takes part only if its offer covers what the swapper asked for. That
- * is not a preference, it is what the operator's rate permits: escrow release is
- * strictly proportional, `Released(filled) = escrowTotal * filled / totalRequired`,
- * so a fill of `f` out of `T` releases `I * f / T` and settles at `T / I`
- * whatever `f` is. Every fill of an order therefore pays the swapper's rate, and
- * an order may only take part where that rate is inside its own: `T / I <= price`,
- * which is exactly `offer >= requestedOutput`.
+ * An order takes part only if its offer covers what the swapper asked for. The
+ * gateway credits the swapper `take * T / I` for a bid's take and refuses a bid
+ * whose own rate is below the order's (`RateBelowOrder`), so an order may only
+ * take part where the swapper's rate is inside its own: `T / I <= price`, which
+ * is exactly `offer >= requestedOutput`. Each bid then quotes the order's own
+ * rate, and whatever it pays above the credit goes to the swapper and the
+ * protocol.
  *
  * Several may be needed, because one that clears the rate may not have the depth.
  * The orderbook already quotes a swapper across every level that can fill the
@@ -132,8 +133,10 @@ function serves(
 	if (order.expiresAt !== null && new Date(order.expiresAt) <= now) return false
 	if (order.fillChain !== incoming.destination) return false
 
+	// Symbols are compared case-insensitively: the book spells them as the
+	// orderbook does ("cNGN") and the asset registry upper-cases them ("CNGN").
 	const legs = limitOrderLegs(order)
-	if (legs.input !== incoming.inputSymbol) return false
+	if (normalizeSymbol(legs.input) !== normalizeSymbol(incoming.inputSymbol)) return false
 
 	// Compared by address on the destination, where the order named a real token,
 	// and by symbol on the source, where the address belongs to another chain.

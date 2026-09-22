@@ -453,82 +453,41 @@ function aggregate(
 }
 
 describe("readRateFillCapability", () => {
-	it("checks both the gateway and the solver account", async () => {
+	it("reads only the gateway release", async () => {
 		const calls: string[] = []
 		setAggregationFetch(async (_url, init) => {
 			const payload = JSON.parse(init.body)
-			if (payload.method === "eth_getCode") {
-				return { json: async () => ({ result: delegatedTo(SOLVER_ACCOUNT)() }) }
-			}
 			calls.push(payload.params[0].to.toLowerCase())
 			expect(payload.params[0].data).toBe("0x54fd4d50")
 			return { json: async () => ({ result: toHex(3n, { size: 32 }) }) }
 		})
 
-		await expect(readRateFillCapability("http://base.test", GATEWAY, SOLVER_ACCOUNT)).resolves.toBe(true)
-		expect(calls).toEqual([GATEWAY.toLowerCase(), SOLVER_ACCOUNT.toLowerCase()])
+		await expect(readRateFillCapability("http://base.test", GATEWAY)).resolves.toBe(true)
+		expect(calls).toEqual([GATEWAY.toLowerCase()])
 	})
 
 	it.each([0n, 2n, 4n, 5n, (1n << 64n) - 1n])("rejects unsupported gateway release %s", async (version) => {
-		setAggregationFetch(async (_url, init) => {
-			const payload = JSON.parse(init.body)
-			return {
-				json: async () => ({
-					result:
-						payload.method === "eth_getCode"
-							? delegatedTo(SOLVER_ACCOUNT)()
-							: toHex(payload.params[0].to.toLowerCase() === GATEWAY.toLowerCase() ? version : 3n, {
-									size: 32,
-								}),
-				}),
-			}
-		})
-		await expect(readRateFillCapability("http://base.test", GATEWAY, SOLVER_ACCOUNT)).resolves.toBe(false)
+		setAggregationFetch(async () => ({ json: async () => ({ result: toHex(version, { size: 32 }) }) }))
+		await expect(readRateFillCapability("http://base.test", GATEWAY)).resolves.toBe(false)
 	})
 
-	it("rechecks an account implementation upgraded between aggregations", async () => {
+	it("rechecks a gateway upgraded between aggregations", async () => {
 		let version = 2n
-		setAggregationFetch(async (_url, init) => {
-			const payload = JSON.parse(init.body)
-			return {
-				json: async () => ({
-					result:
-						payload.method === "eth_getCode"
-							? delegatedTo(SOLVER_ACCOUNT)()
-							: toHex(payload.params[0].to.toLowerCase() === GATEWAY.toLowerCase() ? 3n : version, {
-									size: 32,
-								}),
-				}),
-			}
-		})
-		await expect(readRateFillCapability("http://base.test", GATEWAY, SOLVER_ACCOUNT)).resolves.toBe(false)
+		setAggregationFetch(async () => ({ json: async () => ({ result: toHex(version, { size: 32 }) }) }))
+		await expect(readRateFillCapability("http://base.test", GATEWAY)).resolves.toBe(false)
 		version = 3n
-		await expect(readRateFillCapability("http://base.test", GATEWAY, SOLVER_ACCOUNT)).resolves.toBe(true)
+		await expect(readRateFillCapability("http://base.test", GATEWAY)).resolves.toBe(true)
 	})
 
-	it("rejects a prior boolean marker even if both contracts return true", async () => {
-		setAggregationFetch(async (_url, init) => {
-			const payload = JSON.parse(init.body)
-			return {
-				json: async () => ({
-					result: payload.method === "eth_getCode" ? delegatedTo(SOLVER_ACCOUNT)() : toHex(1n, { size: 32 }),
-				}),
-			}
-		})
-		await expect(readRateFillCapability("http://base.test", GATEWAY, SOLVER_ACCOUNT)).resolves.toBe(false)
+	it("rejects a prior boolean marker", async () => {
+		setAggregationFetch(async () => ({ json: async () => ({ result: toHex(1n, { size: 32 }) }) }))
+		await expect(readRateFillCapability("http://base.test", GATEWAY)).resolves.toBe(false)
 	})
 
-	it("keeps an unavailable capability RPC distinct from unsupported contracts", async () => {
-		setAggregationFetch(async (_url, init) => {
-			const payload = JSON.parse(init.body)
-			return payload.method === "eth_getCode"
-				? { json: async () => ({ result: delegatedTo(SOLVER_ACCOUNT)() }) }
-				: { json: async () => ({ result: undefined }) }
-		})
+	it("keeps an unavailable capability RPC distinct from an unsupported gateway", async () => {
+		setAggregationFetch(async () => ({ json: async () => ({ result: undefined }) }))
 
-		await expect(readRateFillCapability("http://base.test", GATEWAY, SOLVER_ACCOUNT)).rejects.toBeInstanceOf(
-			PhantomRpcError,
-		)
+		await expect(readRateFillCapability("http://base.test", GATEWAY)).rejects.toBeInstanceOf(PhantomRpcError)
 	})
 })
 
@@ -641,7 +600,7 @@ describe("aggregatePhantomBids bid verification", () => {
 			expect(supportsRateFills).not.toHaveBeenCalled()
 			return
 		}
-		expect(supportsRateFills).toHaveBeenCalledWith("http://base.test", GATEWAY, SOLVER_ACCOUNT.toLowerCase())
+		expect(supportsRateFills).toHaveBeenCalledWith("http://base.test", GATEWAY)
 	})
 
 	it("treats a missing capability method as unsupported", async () => {
@@ -652,7 +611,7 @@ describe("aggregatePhantomBids bid verification", () => {
 				: { json: async () => ({ error: { code: 3, message: "execution reverted" } }) }
 		})
 
-		await expect(readRateFillCapability("http://base.test", GATEWAY, SOLVER_ACCOUNT)).resolves.toBe(false)
+		await expect(readRateFillCapability("http://base.test", GATEWAY)).resolves.toBe(false)
 	})
 
 	it("counts a signed rate bid only after a fresh positive capability check", async () => {

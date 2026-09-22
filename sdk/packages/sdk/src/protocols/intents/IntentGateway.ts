@@ -849,10 +849,12 @@ export class IntentGateway {
 		// buffer must cover the relayer component too — a buffer on fill gas
 		// alone is dwarfed whenever the source chain is expensive and the
 		// destination cheap (relayer fee >> fill gas), and every SDK-placed
-		// order would come up short and be refused.
+		// order would come up short and be refused. The buffer rounds up, so the fee
+		// stays strictly above the requirement however small it is: on testnets gas
+		// prices at 1 unit, and a floored 5% of 2 units is nothing.
 		const fees = isSameChain
 			? estimate.totalGasInFeeToken * 2n
-			: ((estimate.totalGasInFeeToken + estimate.relayerFeeInSourceFeeToken) * 105n) / 100n
+			: ((estimate.totalGasInFeeToken + estimate.relayerFeeInSourceFeeToken) * 105n + 99n) / 100n
 
 		const { address: feeToken } = await this.source.getFeeTokenWithDecimals()
 

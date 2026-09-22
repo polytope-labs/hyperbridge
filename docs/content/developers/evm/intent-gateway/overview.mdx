@@ -33,7 +33,7 @@ Every leg trades the same pair. `placeOrder` requires all of `inputs` to name on
 
 The gateway tracks each leg's escrow, fill progress and protocol fee separately, keyed by the order commitment and the leg index (`_orders`, `_partialFills` and `_protocolFees`). Different solvers can fill different legs, and filling or cancelling one leg never releases another leg's escrow.
 
-An order with predispatch calldata must be single-leg: its escrow is swept from the dispatcher and measured per token, and every leg holds the same token.
+An order carrying both predispatch calldata and predispatch assets must be single-leg: its escrow is swept from the dispatcher and measured per token, and every leg holds the same token. Predispatch runs only when both fields are set.
 
 Tokens are `bytes32` values holding the token address left-padded with zeros. `placeOrder` and `fillOrder` both reject an input or output token whose upper 12 bytes are not zero, since the destination of a cross-chain order never sees `placeOrder`.
 

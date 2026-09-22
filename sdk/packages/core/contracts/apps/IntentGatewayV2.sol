@@ -564,7 +564,8 @@ interface IIntentGatewayV2 {
      * @notice Places an order for cross-chain intent fulfillment.
      * @dev Leg `i` sells `order.inputs[i]` for `order.output.assets[i]`. Every leg trades the same
      *      pair: all inputs name one token and all outputs name one token, so an order is one pair
-     *      quoted at one or more prices. An order with predispatch calldata must be single-leg.
+     *      quoted at one or more prices. An order carrying both predispatch calldata and
+     *      predispatch assets must be single-leg.
      * @dev If protocolFeeBps is configured, a protocol fee is deducted from each input token amount.
      *      The full input amounts are escrowed, but the OrderPlaced event emits reduced amounts (after fee).
      *      Protocol fees stay reserved until final settlement. Cancellation refunds the fee

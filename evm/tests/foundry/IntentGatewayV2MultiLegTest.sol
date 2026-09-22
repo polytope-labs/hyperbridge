@@ -565,7 +565,8 @@ contract IntentGatewayV2MultiLegTest is MainnetForkBaseTest {
     // ── one pair per order ────────────────────────────────────────────────────
 
     /// @notice An order is one pair quoted at one or more prices, so legs naming a different input or a
-    /// different output token are refused.
+    /// different output token are refused. A token is the address in its low 20 bytes, so a later leg
+    /// naming the same address in another form — `T` against `T | 1 << 255` — is a different token too.
     function testPlaceOrder_RejectsLegsOnAnotherPair() public {
         Order memory mixedInputs = _ladder("", host.host());
         mixedInputs.inputs[1].token = daiToken;
@@ -574,44 +575,39 @@ contract IntentGatewayV2MultiLegTest is MainnetForkBaseTest {
         Order memory mixedOutputs = _ladder("", host.host());
         mixedOutputs.output.assets[1].token = usdcToken;
         _placeReverts(mixedOutputs);
+
+        Order memory aliasedInput = _ladder("", host.host());
+        aliasedInput.inputs[1].token = usdcToken | bytes32(uint256(1) << 255);
+        _placeReverts(aliasedInput);
+
+        Order memory aliasedOutput = _ladder("", host.host());
+        aliasedOutput.output.assets[1].token = daiToken | bytes32(uint256(1) << 255);
+        _placeReverts(aliasedOutput);
     }
 
-    /// @notice A token is the address in the low 20 bytes, so `T` and `T | 1 << 255` are one token. Legs must
-    /// name it in one form: otherwise, with a token whose `transfer` returns false instead of reverting, the
-    /// two copies would each credit the one deposit that landed, and a cancel would pay the second copy out of
-    /// other orders' escrow in that token.
-    function testPlaceOrder_RejectsAliasedInputToken() public {
-        FalseReturningToken token = new FalseReturningToken();
-        bytes32 t = bytes32(uint256(uint160(address(token))));
-        uint256 amount = 1_000_000;
-
-        // Another order's escrow in the same token.
-        TokenInfo[] memory otherInputs = new TokenInfo[](1);
-        otherInputs[0] = TokenInfo({token: t, amount: amount});
-        TokenInfo[] memory otherOutputs = new TokenInfo[](1);
-        otherOutputs[0] = TokenInfo({token: daiToken, amount: 1e18});
-        token.mint(solverB, amount);
-        vm.startPrank(solverB);
-        token.approve(address(gateway), amount);
-        gateway.placeOrder(_order("", host.host(), otherInputs, otherOutputs), bytes32(0));
-        vm.stopPrank();
-        assertEq(token.balanceOf(address(gateway)), amount, "other order's escrow");
-
-        // Two legs naming the same token in two forms.
+    /// @notice A native-input ladder takes each leg's amount out of `msg.value` in turn and refunds
+    /// whatever is left over.
+    function testPlaceOrder_NativeInputLadderDeductsPerLegAndRefunds() public {
+        bytes32 nativeToken = bytes32(0);
         Order memory order = _order(
             "",
             host.host(),
-            _legs([t, t | bytes32(uint256(1) << 255)], [amount, amount]),
-            _legs([daiToken, daiToken], [uint256(1e18), 1e18])
+            _legs([nativeToken, nativeToken], [uint256(0.6 ether), 0.4 ether]),
+            _legs([daiToken, daiToken], [uint256(1200 * 1e18), 760 * 1e18])
         );
-        token.mint(user, amount);
-        vm.startPrank(user);
-        token.approve(address(gateway), amount);
-        vm.expectRevert(IntentsBase.InvalidInput.selector);
-        gateway.placeOrder(order, bytes32(0));
-        vm.stopPrank();
 
-        assertEq(token.balanceOf(address(gateway)), amount, "other order's escrow untouched");
+        uint256 balanceBefore = user.balance;
+        uint256 nonce = gateway._nonce();
+        vm.prank(user);
+        gateway.placeOrder{value: 1.5 ether}(order, bytes32(0));
+        order.source = host.host();
+        order.nonce = nonce;
+        bytes32 commitment = keccak256(abi.encode(order));
+
+        assertEq(gateway._orders(commitment, 0), 0.6 ether, "leg 0 escrowed on its own");
+        assertEq(gateway._orders(commitment, 1), 0.4 ether, "leg 1 escrowed on its own");
+        assertEq(balanceBefore - user.balance, 1 ether, "only the legs' total was taken");
+        assertEq(address(gateway).balance, 1 ether, "both legs held");
     }
 
     /// @notice Legs agreeing on an input token does not make it valid: the upper 12 bytes must be zero.
@@ -883,38 +879,5 @@ contract IntentGatewayV2MultiLegTest is MainnetForkBaseTest {
         );
         assertEq(gateway._orders(commitment, 1), 0, "leg 1 redeemed");
         assertEq(gateway._filled(commitment), solverB, "completing redeem finalizes");
-    }
-}
-
-/// @dev A ZRX-style token: `transfer` and `transferFrom` return false instead of reverting when the
-/// balance or allowance is short.
-contract FalseReturningToken {
-    mapping(address => uint256) public balanceOf;
-    mapping(address => mapping(address => uint256)) public allowance;
-
-    function mint(address to, uint256 amount) external {
-        balanceOf[to] += amount;
-    }
-
-    function approve(address spender, uint256 amount) external returns (bool) {
-        allowance[msg.sender][spender] = amount;
-        return true;
-    }
-
-    function transfer(address to, uint256 amount) external returns (bool) {
-        return _move(msg.sender, to, amount);
-    }
-
-    function transferFrom(address from, address to, uint256 amount) external returns (bool) {
-        if (allowance[from][msg.sender] < amount || balanceOf[from] < amount) return false;
-        allowance[from][msg.sender] -= amount;
-        return _move(from, to, amount);
-    }
-
-    function _move(address from, address to, uint256 amount) internal returns (bool) {
-        if (balanceOf[from] < amount) return false;
-        balanceOf[from] -= amount;
-        balanceOf[to] += amount;
-        return true;
     }
 }

@@ -145,9 +145,19 @@ export function assembleConfig(state: WizardState): FillerConfigFile {
 		rebalancing,
 		vault: hasVault ? vault : undefined,
 		allowlist: scrubbedAllowlist,
-		// An operator's own orderbook survives an update run; otherwise the network's.
-		orderbook: base.orderbook ?? { url: DEFAULT_ORDERBOOK_URLS[state.network] },
+		orderbook: orderbookFor(state, base.orderbook),
 	}
+}
+
+/**
+ * An operator's own orderbook survives an update run. A built-in default, or none, becomes
+ * the selected network's default, so a config first written for one network and updated
+ * for the other does not keep the wrong book.
+ */
+function orderbookFor(state: WizardState, current: FillerConfigFile["orderbook"]): FillerConfigFile["orderbook"] {
+	const builtIn = Object.values(DEFAULT_ORDERBOOK_URLS) as string[]
+	if (current && !builtIn.includes(current.url)) return current
+	return { ...current, url: DEFAULT_ORDERBOOK_URLS[state.network] }
 }
 
 function chainComments(state: WizardState): string[] {

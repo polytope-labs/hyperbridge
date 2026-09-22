@@ -65,22 +65,3 @@ export function statusOf(order: LimitOrder): { label: string; tone: Tone; detail
 	if (!order.commitment) return { label: "Posting", tone: "warn", detail: "not on the book yet" }
 	return { label: "On the book", tone: "ok" }
 }
-
-/** Seconds until the order's own expiry, negative once it has passed. */
-export function secondsLeft(expiresAt: string | null, now = Date.now()): number | null {
-	if (!expiresAt) return null
-	const at = Date.parse(expiresAt)
-	return Number.isNaN(at) ? null : Math.round((at - now) / 1000)
-}
-
-/** "in 12m", "in 2h 5m", "expired" — the clock an operator reads before topping up. */
-export function describeExpiry(expiresAt: string | null, now = Date.now()): string | null {
-	const left = secondsLeft(expiresAt, now)
-	if (left === null) return null
-	if (left <= 0) return "expired"
-	const hours = Math.floor(left / 3600)
-	const minutes = Math.floor((left % 3600) / 60)
-	if (hours > 0) return `in ${hours}h ${minutes}m`
-	if (minutes > 0) return `in ${minutes}m`
-	return `in ${left}s`
-}

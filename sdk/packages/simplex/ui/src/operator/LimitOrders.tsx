@@ -6,7 +6,7 @@ import { INIT_CHAINS } from "@/cli/init/chains"
 import { formatDate, sqliteUtcToMs } from "../lib/format"
 import type { LimitOrder } from "../types"
 import { CreateLimitOrderForm } from "./limitOrders/CreateLimitOrderForm"
-import { available, describeExpiry, describeRate, fromScaled, legs, statusOf } from "./limitOrders/limitOrderModel"
+import { available, describeRate, fromScaled, legs, statusOf } from "./limitOrders/limitOrderModel"
 import { type LimitOrderFills, useLimitOrders } from "./limitOrders/useLimitOrders"
 
 interface LimitOrdersProps {
@@ -165,7 +165,6 @@ function LimitOrderRow(props: { order: LimitOrder; chainLabel: (id: string) => s
 	const { order, chainLabel, onOpen } = props
 	const status = statusOf(order)
 	const { input, output } = legs(order)
-	const expiry = describeExpiry(order.expiresAt)
 
 	return (
 		<button type="button" className="operator-market-row" onClick={onOpen}>
@@ -176,7 +175,6 @@ function LimitOrderRow(props: { order: LimitOrder; chainLabel: (id: string) => s
 				</strong>
 				<small>
 					takes {input} on {chainLabel(order.fillChain)}
-					{expiry ? ` · ${expiry}` : ""}
 				</small>
 			</span>
 			<span className={`badge ${status.tone}`}>{status.label}</span>
@@ -234,10 +232,6 @@ function LimitOrderDetail(props: {
 				<div>
 					<dt>Accepts swaps from</dt>
 					<dd>{order.acceptedSources.map(chainLabel).join(", ")}</dd>
-				</div>
-				<div>
-					<dt>Expires</dt>
-					<dd>{describeExpiry(order.expiresAt) ?? "does not expire"}</dd>
 				</div>
 			</dl>
 

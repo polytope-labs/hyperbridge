@@ -123,3 +123,14 @@ amount drawn down and the fill transaction, and is kept in the `limit_order_fill
 `limitOrders.withFills(id)`, which backs `GET /api/limit-orders/:id`, returns these records as
 `fills`, plus the bids still drawing on the order as `bids`. The UI lists each fill with its time,
 amount and a link to its transaction.
+
+## Creating a limit order matches the book however symbols are cased
+
+`LimitOrderService.create` looked books up by exact symbol. The operator UI sends the asset
+registry's spelling (`CNGN`), and the orderbook lists `USDC-cNGN`, so posting a USDC/cNGN order from
+the UI failed with `No book trades USDC against CNGN`. `resolveBook` now compares through
+`normalizeSymbol`. The request is then carried on in the book's own spelling (`spelledAs`), because
+the rate direction, the dust floor and the published decimals all look symbols up by it.
+
+The operator UI no longer shows a limit order's expiry, in the list or the detail. With a 365-day
+default it was noise; an order that does lapse still shows as `Expired`.

@@ -1,6 +1,6 @@
 import { randomBytes, randomUUID } from "node:crypto"
 import { getChainId, MAX_DECLARED_ENTRIES, type HexString } from "@hyperbridge/sdk"
-import type { AssetRegistry } from "@/config/asset-registry"
+import { type AssetRegistry, normalizeSymbol } from "@/config/asset-registry"
 import type { LimitOrder, LimitOrderFilter, LimitOrderInsert, LimitOrderStore } from "@/data/types"
 import type { ContractInteractionService } from "@/services/ContractInteractionService"
 import type { DelegationService } from "@/services/DelegationService"
@@ -188,14 +188,20 @@ export class LimitOrderService {
 	 * delegation, runs before the row is written: the orderbook deletes an
 	 * undelegated solver's orders outright, so posting without it achieves nothing.
 	 */
-	async create(request: CreateLimitOrderRequest): Promise<PostedLimitOrder> {
+	async create(given: CreateLimitOrderRequest): Promise<PostedLimitOrder> {
 		const limits = await this.limits()
 		// No book trades a symbol against itself, so a same-asset quote is ours
 		// alone: it prices swaps here and is never advertised.
-		const sameAsset = request.tokenIn === request.tokenOut
+		const sameAsset = normalizeSymbol(given.tokenIn) === normalizeSymbol(given.tokenOut)
 		const book = sameAsset
-			? { id: request.tokenIn, base: request.tokenIn, quote: request.tokenIn }
-			: this.resolveBook(limits, request.tokenIn, request.tokenOut)
+			? { id: given.tokenIn, base: given.tokenIn, quote: given.tokenIn }
+			: this.resolveBook(limits, given.tokenIn, given.tokenOut)
+		// Symbols are matched however they were cased (the asset registry spells cNGN
+		// "CNGN") and carried on as the book spells them, which is how the rate, the
+		// dust floor and the published decimals below look them up.
+		const request = sameAsset
+			? given
+			: { ...given, tokenIn: spelledAs(book, given.tokenIn), tokenOut: spelledAs(book, given.tokenOut) }
 		const ttlSecs = request.ttlSecs ?? this.defaultTtlSecs
 		const { amountIn, amountOut } = this.validate(request, book, limits, ttlSecs)
 
@@ -351,13 +357,15 @@ export class LimitOrderService {
 		}
 	}
 
-	/** The book that trades this pair of symbols, whichever way round they were given. */
+	/** The book that trades this pair of symbols, whichever way round and however cased they were given. */
 	private resolveBook(limits: OrderbookLimits, tokenIn: string, tokenOut: string): Book {
-		const book = limits.books.find(
-			(candidate) =>
-				(candidate.base === tokenIn && candidate.quote === tokenOut) ||
-				(candidate.quote === tokenIn && candidate.base === tokenOut),
-		)
+		const tin = normalizeSymbol(tokenIn)
+		const tout = normalizeSymbol(tokenOut)
+		const book = limits.books.find((candidate) => {
+			const base = normalizeSymbol(candidate.base)
+			const quote = normalizeSymbol(candidate.quote)
+			return (base === tin && quote === tout) || (quote === tin && base === tout)
+		})
 		if (!book) {
 			const known = limits.books.map((candidate) => candidate.id).join(", ")
 			throw new LimitOrderValidationError(
@@ -959,6 +967,11 @@ export class LimitOrderService {
  */
 export function initialOrderNonce(): bigint {
 	return BigInt(`0x${randomBytes(8).toString("hex")}`)
+}
+
+/** `symbol` as `book` spells it: its base or its quote, whichever it names. */
+function spelledAs(book: { base: string; quote: string }, symbol: string): string {
+	return normalizeSymbol(symbol) === normalizeSymbol(book.base) ? book.base : book.quote
 }
 
 function nowSecs(): number {

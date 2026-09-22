@@ -31,6 +31,18 @@ describe("LimitOrderService.create", () => {
 		expect(await store.get(order.id)).toEqual(order)
 	})
 
+	it("finds the book however the symbols are cased, and keeps the book's spelling", async () => {
+		// The asset registry upper-cases symbols (CNGN) where the orderbook lists cNGN, so the
+		// operator UI asked for a book the lookup could not see.
+		const { service } = makeService(fakeClient([]))
+		const { order, result } = await service.create({ ...REQUEST, tokenIn: "usdc", tokenOut: "cngn" })
+
+		expect(result.kind).toBe("accepted")
+		expect(order.book).toBe("USDC/CNGN")
+		expect([order.base, order.quote, order.side]).toEqual(["USDC", "CNGN", "BID"])
+		expect(order.price).toBe((1500n * ONE).toString())
+	})
+
 	it("keeps a rejected order with the reason on it rather than dropping the request", async () => {
 		const client = fakeClient([{ kind: "rejected", code: "UNSUPPORTED_PAIR", message: "no such market" }])
 		const { service, store } = makeService(client)

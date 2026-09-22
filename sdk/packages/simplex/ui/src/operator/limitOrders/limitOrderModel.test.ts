@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { LimitOrder } from "../../types"
-import { available, describeExpiry, describeRate, fromScaled, legs, statusOf } from "./limitOrderModel"
+import { available, describeRate, fromScaled, legs, statusOf } from "./limitOrderModel"
 
 const ONE = 10n ** 18n
 
@@ -74,23 +74,5 @@ describe("what the operator sees at a glance", () => {
 		expect(statusOf(order({ status: "expired" })).label).toBe("Expired")
 		expect(statusOf(order({ status: "cancelled" })).label).toBe("Cancelled")
 		expect(statusOf(order({ status: "filled" }))).toMatchObject({ label: "Filled", tone: "ok" })
-	})
-})
-
-describe("the expiry clock", () => {
-	const now = Date.parse("2026-09-19T10:00:00.000Z")
-
-	it("counts down in the units an operator thinks in", () => {
-		expect(describeExpiry("2026-09-19T10:12:00.000Z", now)).toBe("in 12m")
-		expect(describeExpiry("2026-09-19T12:05:00.000Z", now)).toBe("in 2h 5m")
-		expect(describeExpiry("2026-09-19T10:00:30.000Z", now)).toBe("in 30s")
-	})
-
-	it("says so once the order is past it", () => {
-		expect(describeExpiry("2026-09-19T09:59:00.000Z", now)).toBe("expired")
-	})
-
-	it("has nothing to say about an order with no expiry", () => {
-		expect(describeExpiry(null, now)).toBeNull()
 	})
 })

@@ -91,6 +91,9 @@ export const EXTRA_LEVELS = {
 /**
  * Each scenario runs against a freshly posted book: the standing orders, plus the extra
  * solver 1 levels it names. `minFills` is the fewest fill transactions it must take.
+ *
+ * `mixedPairs` scenarios put two pairs in one order, which #1311 forbids. They pass only against
+ * a gateway without that rule, so they run only when named.
  */
 export const SCENARIOS = {
 	"same-chain": {
@@ -118,6 +121,7 @@ export const SCENARIOS = {
 	// Legs on two pairs, each reaching a different set of limit orders: leg 0 at 1565+ cNGN per
 	// USDC (solver 1 and 2), leg 1 at up to ~1625 (all three).
 	"multi-leg": {
+		mixedPairs: true,
 		user: 0,
 		source: "EVM-97",
 		dest: "EVM-97",
@@ -139,6 +143,7 @@ export const SCENARIOS = {
 	},
 	// Both pairs, solver 1's levels only on each side.
 	"multi-leg-levels": {
+		mixedPairs: true,
 		user: 0,
 		source: "EVM-97",
 		dest: "EVM-97",

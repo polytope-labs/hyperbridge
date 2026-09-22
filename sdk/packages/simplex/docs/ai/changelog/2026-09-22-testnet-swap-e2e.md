@@ -23,10 +23,11 @@ transactions.
 | `multi-leg-levels` | both pairs, solver 1's levels only |
 | `multi-leg-same-input` | two USDC → cNGN legs at the same levels |
 
-`multi-leg` and `multi-leg-levels` put two pairs in one order. Once #1311 is deployed to the
-testnet gateway, `placeOrder` rejects those, and both scenarios must be removed.
+`multi-leg` and `multi-leg-levels` put two pairs in one order, which #1311 forbids (`mixedPairs`).
+They run only when named, for a gateway without that rule.
 
-Pass scenario names as arguments, or through `E2E_SCENARIOS` (comma-separated), to run a subset.
+Pass scenario names as arguments, or through `E2E_SCENARIOS` (comma-separated, spaces allowed),
+to run a subset. Without names, every scenario except the `mixedPairs` ones runs.
 
 ## Wallets
 
@@ -41,7 +42,9 @@ what a run needs, and only gas is consumed. Funds are moved back in both directi
 A top-up adds half again over the shortfall. The run fails early if no wallet can spare a top-up,
 or if a wallet has no gas.
 
-CI runs never overlap (`concurrency: simplex-testnet-swaps`). The wallets must not also be in use
+CI runs never overlap (`concurrency: simplex-testnet-swaps`), and a started run is never
+cancelled. GitHub keeps one pending run per group, so a newer run replaces a pending one. Draft
+pull requests and pull requests from forks are skipped. The wallets must not also be in use
 by another simplex instance.
 
 ## Variables
@@ -57,5 +60,6 @@ by another simplex instance.
 | `E2E_USER{1,2}_PRIVATE_KEY` | user EVM keys with gas on both chains |
 
 Optional: `E2E_SCENARIO_TIMEOUT_MIN` (default 10) and `E2E_WORKDIR` (default a temp directory).
-Solver logs are printed redacted when a scenario fails and are never uploaded, since they quote
-endpoints.
+Output is redacted against every `E2E_*` value, both as given and as completed (the orderbook URL
+with `/graphql`). Solver logs are printed, redacted, when a scenario fails, and are never uploaded,
+since they quote endpoints.

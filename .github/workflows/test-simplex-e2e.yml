@@ -5,8 +5,10 @@ name: "simplex testnet swaps"
 # and the SDK executes the solvers' bids until each order is filled. Settlement through
 # Hyperbridge is not awaited. See sdk/packages/simplex/e2e/env.mjs for the variables.
 #
-# Every run spends testnet funds from the same wallets, so runs never overlap and never cancel
-# one another. Pull requests from forks have no secrets and are skipped.
+# Every run spends testnet funds from the same wallets, so runs never overlap: one runs at a time
+# and a started run is never cancelled. GitHub keeps only one run pending per group, so a newer
+# run replaces a pending one, which shows as cancelled. Drafts and pull requests from forks, which
+# have no secrets, are skipped.
 concurrency:
     group: simplex-testnet-swaps
     cancel-in-progress: false
@@ -31,13 +33,15 @@ on:
     workflow_dispatch:
         inputs:
             scenarios:
-                description: "Comma-separated scenarios to run (empty runs all)"
+                description: "Comma-separated scenarios to run (empty runs all but the mixed-pair ones)"
                 required: false
                 default: ""
 
 jobs:
     swaps:
-        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        if: >-
+            github.event_name != 'pull_request' ||
+            (github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft)
         runs-on: ubuntu-latest
         timeout-minutes: 120
         steps:
@@ -45,18 +49,23 @@ jobs:
               uses: actions/checkout@v4
               with:
                   ref: ${{ github.event.pull_request.head.sha || github.sha }}
-                  # scripts/build.sh runs protoc over proto/mpcvaultapis to generate src/proto.
-                  submodules: recursive
 
-            - name: Setup Node.js
-              uses: actions/setup-node@v4
-              with:
-                  node-version: "22"
+            # scripts/build.sh runs protoc over proto/mpcvaultapis to generate src/proto. The
+            # repository's other submodules are Solidity libraries this job does not need.
+            - name: Fetch the protobuf definitions
+              run: git submodule update --init --recursive sdk/packages/simplex/proto/mpcvaultapis
 
             - name: Setup pnpm
               uses: pnpm/action-setup@v4
               with:
                   version: 11
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: "22"
+                  cache: pnpm
+                  cache-dependency-path: sdk/pnpm-lock.yaml
 
             - name: Install dependencies
               working-directory: sdk

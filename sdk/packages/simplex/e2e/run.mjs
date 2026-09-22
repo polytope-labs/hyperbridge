@@ -24,11 +24,21 @@ const env = readEnv()
 const CHAINS = chains(env)
 const workdir = process.env.E2E_WORKDIR || fs.mkdtempSync(path.join(os.tmpdir(), "simplex-e2e-"))
 fs.mkdirSync(workdir, { recursive: true })
-const selected = process.argv.slice(2).length > 0 ? process.argv.slice(2) : (process.env.E2E_SCENARIOS || Object.keys(SCENARIOS).join(",")).split(",")
+const named = process.argv.length > 2 ? process.argv.slice(2) : (process.env.E2E_SCENARIOS ?? "").split(",")
+const trimmed = named.map((name) => name.trim()).filter(Boolean)
+const selected = trimmed.length > 0 ? trimmed : Object.keys(SCENARIOS).filter((name) => !SCENARIOS[name].mixedPairs)
 for (const name of selected) if (!SCENARIOS[name]) throw new Error(`Unknown scenario ${name}`)
 
-// Keys and endpoints never reach a report, whatever an error message quotes.
-const SECRETS = Object.values(env).filter((value) => value && value.length > 8)
+// Keys and endpoints never reach a report, whatever an error message quotes: both as given and as
+// `readEnv` completes them (the orderbook URL gains `/graphql`). Longest first, so a value is never
+// half-redacted by one it contains.
+const NOT_SECRET = new Set(["E2E_SCENARIOS", "E2E_WORKDIR", "E2E_SCENARIO_TIMEOUT_MIN"])
+const given = Object.entries(process.env)
+	.filter(([name]) => name.startsWith("E2E_") && !NOT_SECRET.has(name))
+	.map(([, value]) => value)
+const SECRETS = [...new Set([...Object.values(env), ...given])]
+	.filter((value) => value && value.length > 8)
+	.sort((a, b) => b.length - a.length)
 const redact = (text) => SECRETS.reduce((out, secret) => out.split(secret).join("***"), String(text))
 const log = (line) => console.log(redact(`${new Date().toISOString()} ${line}`))
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms))

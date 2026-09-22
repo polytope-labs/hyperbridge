@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import { ChevronRightIcon } from "../components/InterfaceIcons"
 import { OperatorSheet } from "../components/OperatorSheet"
 import { Pager } from "../components/Pager"
@@ -77,15 +77,11 @@ export function LimitOrders({ chains, chainLabels, symbols }: LimitOrdersProps) 
 
 	const live = orders.filter((order) => order.status === "open" || order.status === "resizing")
 	const closed = orders.filter((order) => order.status !== "open" && order.status !== "resizing")
-	// A page that emptied under a refresh (orders filled or cancelled) falls back to the last one.
-	const liveLast = Math.max(1, Math.ceil(live.length / PAGE_SIZE))
-	const closedLast = Math.max(1, Math.ceil(closed.length / PAGE_SIZE))
-	useEffect(() => {
-		if (livePage > liveLast) setLivePage(liveLast)
-		if (closedPage > closedLast) setClosedPage(closedLast)
-	}, [livePage, liveLast, closedPage, closedLast])
-	const livePageOrders = live.slice((livePage - 1) * PAGE_SIZE, livePage * PAGE_SIZE)
-	const closedPageOrders = closed.slice((closedPage - 1) * PAGE_SIZE, closedPage * PAGE_SIZE)
+	// A page that emptied under a refresh (orders filled or cancelled) shows the last one instead.
+	const liveCurrent = Math.min(livePage, Math.max(1, Math.ceil(live.length / PAGE_SIZE)))
+	const closedCurrent = Math.min(closedPage, Math.max(1, Math.ceil(closed.length / PAGE_SIZE)))
+	const livePageOrders = live.slice((liveCurrent - 1) * PAGE_SIZE, liveCurrent * PAGE_SIZE)
+	const closedPageOrders = closed.slice((closedCurrent - 1) * PAGE_SIZE, closedCurrent * PAGE_SIZE)
 
 	return (
 		<>
@@ -114,7 +110,7 @@ export function LimitOrders({ chains, chainLabels, symbols }: LimitOrdersProps) 
 					) : null}
 				</div>
 				{live.length > PAGE_SIZE ? (
-					<Pager page={livePage} pageSize={PAGE_SIZE} total={live.length} noun="orders" onPage={setLivePage} />
+					<Pager page={liveCurrent} pageSize={PAGE_SIZE} total={live.length} noun="orders" onPage={setLivePage} />
 				) : null}
 
 				{closed.length > 0 ? (
@@ -136,7 +132,7 @@ export function LimitOrders({ chains, chainLabels, symbols }: LimitOrdersProps) 
 						</div>
 						{closed.length > PAGE_SIZE ? (
 							<Pager
-								page={closedPage}
+								page={closedCurrent}
 								pageSize={PAGE_SIZE}
 								total={closed.length}
 								noun="orders"
@@ -271,32 +267,42 @@ function LimitOrderDetail(props: {
 				<p className="hint">Nothing has filled against this order yet.</p>
 			) : (
 				<>
-					<ol className="limit-order-fills">
-						<li className="limit-order-fills-head" aria-hidden="true">
-							<span>When</span>
-							<span>Paid out</span>
-							<span>Transaction</span>
-						</li>
-						{fills.map((fill) => {
-							const explorer = EXPLORER_BY_CHAIN.get(order.fillChain)
-							const hash = fill.transactionHash
-							return (
-								<li key={fill.id}>
-									<time>{formatDate(sqliteUtcToMs(fill.filledAt))}</time>
-									<strong>
-										{fromScaled(fill.amount)} <small>{output}</small>
-									</strong>
-									{hash && explorer ? (
-										<a href={`${explorer}/tx/${hash}`} target="_blank" rel="noreferrer">
-											{hash.slice(0, 8)}…{hash.slice(-6)}
-										</a>
-									) : (
-										<span className="limit-order-fills-none">—</span>
-									)}
-								</li>
-							)
-						})}
-					</ol>
+					<table className="limit-order-fills">
+						<thead>
+							<tr>
+								<th scope="col">When</th>
+								<th scope="col">Paid out</th>
+								<th scope="col">Transaction</th>
+							</tr>
+						</thead>
+						<tbody>
+							{fills.map((fill) => {
+								const explorer = EXPLORER_BY_CHAIN.get(order.fillChain)
+								const hash = fill.transactionHash
+								return (
+									<tr key={fill.id}>
+										<td>
+											<time>{formatDate(sqliteUtcToMs(fill.filledAt))}</time>
+										</td>
+										<td>
+											<strong>
+												{fromScaled(fill.amount)} <small>{output}</small>
+											</strong>
+										</td>
+										<td>
+											{hash && explorer ? (
+												<a href={`${explorer}/tx/${hash}`} target="_blank" rel="noreferrer">
+													{hash.slice(0, 8)}…{hash.slice(-6)}
+												</a>
+											) : (
+												<span className="limit-order-fills-none">—</span>
+											)}
+										</td>
+									</tr>
+								)
+							})}
+						</tbody>
+					</table>
 					<p className="limit-order-fills-total">
 						{fromScaled(fills.reduce((sum, fill) => sum + BigInt(fill.amount), 0n).toString())} {output} paid out
 						across {fills.length} {fills.length === 1 ? "fill" : "fills"}

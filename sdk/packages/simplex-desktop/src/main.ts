@@ -15,10 +15,12 @@ import {
 	Tray,
 } from "electron"
 import electronUpdater from "electron-updater"
+import type { OperatorNotification } from "@hyperbridge/simplex"
 import { ensureDaemon, probeHealth, type DaemonLaunch } from "./daemon"
 import { installSessionSecurity, installWebContentsSecurity, rendererWebPreferences } from "./desktop-security"
 import { assertResources, resourcePaths, socketPathFor, userDataOverrideFromArgv } from "./desktop-paths"
 import { latestLogPath, loginItemExecutable, LoginItemController } from "./login-item"
+import { DesktopNotificationClient, desktopNotificationUrl } from "./notification-client"
 import { handleSimplexProtocol } from "./protocol"
 import { SIMPLEX_UPDATE_FEED } from "./release-provider"
 import {
@@ -65,6 +67,7 @@ let quitting = false
 let installingUpdate = false
 let intentionalStop = false
 let updateCoordinator: UpdateCoordinator | undefined
+let notificationClient: DesktopNotificationClient | undefined
 let updateStatus: UpdateStatus = { state: "disabled", channel: "stable" }
 
 const userDataSwitch = app.commandLine.getSwitchValue("user-data-dir")
@@ -169,6 +172,21 @@ function notifySolverFailure(status: SolverStatus): void {
 		notification.show()
 	} catch (error) {
 		console.error(`Simplex could not display its solver notification: ${errorMessage(error)}`)
+	}
+}
+
+function notifyOperator(notification: OperatorNotification, onShown?: () => void): void {
+	if (!Notification.isSupported()) return
+	try {
+		const nativeNotification = new Notification({ title: notification.title, body: notification.body })
+		nativeNotification.on("click", () => void safeShowWindow(notification.url))
+		nativeNotification.once("show", () => onShown?.())
+		nativeNotification.once("failed", (_event, error) => {
+			console.error(`Simplex could not display its operator notification: ${error}`)
+		})
+		nativeNotification.show()
+	} catch (error) {
+		console.error(`Simplex could not display its operator notification: ${errorMessage(error)}`)
 	}
 }
 
@@ -302,11 +320,16 @@ async function stopAndQuit(): Promise<void> {
 	if (await stopSolver()) quitApp()
 }
 
-async function createWindow(): Promise<void> {
+async function createWindow(notificationPath?: string): Promise<void> {
 	if (mainWindow && !mainWindow.isDestroyed()) {
 		if (mainWindow.isMinimized()) mainWindow.restore()
 		mainWindow.show()
 		mainWindow.focus()
+		if (notificationPath) {
+			void mainWindow
+				.loadURL(desktopNotificationUrl(notificationPath))
+				.catch((error) => console.error(`Simplex could not open the notification page: ${errorMessage(error)}`))
+		}
 		return
 	}
 	if (!supervisor) return
@@ -340,17 +363,17 @@ async function createWindow(): Promise<void> {
 	})
 	window.once("ready-to-show", () => window.show())
 	refreshNativeUi()
-	await window.loadURL("simplex://local/")
+	await window.loadURL(notificationPath ? desktopNotificationUrl(notificationPath) : "simplex://local/")
 }
 
-async function showWindow(): Promise<void> {
+async function showWindow(notificationPath?: string): Promise<void> {
 	if (process.platform === "darwin") await app.dock?.show()
-	await createWindow()
+	await createWindow(notificationPath)
 }
 
-async function safeShowWindow(): Promise<void> {
+async function safeShowWindow(notificationPath?: string): Promise<void> {
 	try {
-		await showWindow()
+		await showWindow(notificationPath)
 	} catch (error) {
 		reportActionError("Simplex could not open its window", error)
 	}
@@ -417,6 +440,15 @@ async function prepareDesktop(): Promise<void> {
 	app.setAboutPanelOptions({ applicationName: "Simplex", applicationVersion: app.getVersion() })
 	createTray()
 	await startOrAttachSolver(true)
+	notificationClient = new DesktopNotificationClient({
+		socketPath,
+		onNotification: (notification) => {
+			notifyOperator(notification, () => {
+				if (notification.receiptId) notificationClient?.acknowledge(notification.receiptId)
+			})
+		},
+	})
+	notificationClient.start()
 	supervisor.start()
 	const updateAuthenticity = updateAuthenticityForInstallation({
 		packaged: app.isPackaged,
@@ -491,6 +523,7 @@ if (!app.requestSingleInstanceLock()) {
 	app.on("before-quit", () => {
 		quitting = true
 		supervisor?.stop()
+		notificationClient?.stop()
 		updateCoordinator?.dispose()
 		if (powerSaveBlockerId !== undefined && powerSaveBlocker.isStarted(powerSaveBlockerId)) {
 			powerSaveBlocker.stop(powerSaveBlockerId)

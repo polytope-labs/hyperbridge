@@ -50,9 +50,12 @@ function makeProvider(
 describe("BalanceProvider", () => {
 	it("collects native, stable and exotic balances into a snapshot", async () => {
 		const provider = makeProvider()
+		const refreshed = vi.fn()
+		provider.on("snapshot", refreshed)
 		expect(provider.getSnapshot().updatedAt).toBeNull()
 
 		const snapshot = await provider.refresh()
+		expect(refreshed).toHaveBeenCalledWith(snapshot)
 		expect(snapshot.updatedAt).toBeTypeOf("number")
 		expect(snapshot.chains).toEqual([
 			{

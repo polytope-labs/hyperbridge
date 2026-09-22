@@ -1,4 +1,8 @@
 import { type CSSProperties, useState } from "react"
+import {
+	availableStablecoinLiquidity as aggregateStablecoinLiquidity,
+	sumAvailableStablecoins,
+} from "@/services/stablecoin-liquidity"
 import { AppSelect, type AppSelectOption } from "../components/AppSelect"
 import { ChainLogo } from "../components/ChainLogo"
 import { TokenIcon } from "../components/TokenIcon"
@@ -11,8 +15,6 @@ type SnapshotStatus = BalanceSnapshot["status"]
 
 /** Tokens past this are named in the truncation note rather than dropped in silence. */
 const MAX_TOTAL_CELLS = 4
-
-const STABLES = new Set(["USDC", "USDT"])
 
 /**
  * Liquidity, one network at a time. A nine-chain config stacked every network's token grid
@@ -285,21 +287,14 @@ function chainLabel(status: StatusOperator, chainId: number): string {
 }
 
 /**
- * Available USDC and USDT across `assets`, or null when any contributing read failed. Refusing
+ * Available USD stablecoins across `assets`, or null when any contributing read failed. Refusing
  * to estimate is the point: a sum quietly missing a leg understates liquidity without saying so.
  */
 export function availableStablecoins(assets: AssetBalance[], snapshot: SnapshotStatus): number | null {
 	if (snapshot === "loading") return null
-	const stables = assets.filter((asset) => STABLES.has(asset.symbol.trim().toUpperCase()))
-	if (stables.length === 0) return snapshot === "fresh" ? 0 : null
-	if (stables.some((asset) => asset.available === null)) return null
-	return stables.reduce((total, asset) => total + (asset.available ?? 0), 0)
+	return sumAvailableStablecoins(assets)
 }
 
 export function availableStablecoinLiquidity(balances: BalanceSnapshot | undefined): number | null {
-	if (!balances) return null
-	return availableStablecoins(
-		balances.chains.flatMap((chain) => chain.assets),
-		balances.status,
-	)
+	return aggregateStablecoinLiquidity(balances)
 }

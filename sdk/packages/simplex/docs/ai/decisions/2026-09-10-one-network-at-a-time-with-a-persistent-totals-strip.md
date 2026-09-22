@@ -18,10 +18,12 @@ Why tokens are not sorted by size: they are different assets. 151,744 cNGN is no
 order it is, with a `+2 more EURC, DAI` note when there are more tokens than cells, so a token is
 never dropped without saying so.
 
-Why a token with one unread contributor reads `Unavailable`: `availableStablecoinLiquidity` already
-refuses to estimate — one null `available` and the whole figure is null. A strip that quietly summed
-the legs it could read would understate liquidity in exactly the situation where the operator is
-least able to notice. Both now share `availableStablecoins()`.
+Why a token with one unread contributor reads `Unavailable`: the cross-network aggregate refuses to
+estimate whenever the snapshot is partial, unavailable, or has a null `available` contributor. A
+strip that quietly summed the legs it could read would understate liquidity in exactly the situation
+where the operator is least able to notice. A switcher row is narrower in scope: it continues to show
+that network's known USD-stable total during a partial refresh and reads `Unavailable` only when that
+row's own stablecoin data failed. Both rules use the shared stablecoin-liquidity helpers.
 
 Why there is no per-network health signal in the switcher: a first cut gave each row a status dot
 and rolled "2 with unread balances" into the trigger, derived from `issues[]` and `asset.status`.

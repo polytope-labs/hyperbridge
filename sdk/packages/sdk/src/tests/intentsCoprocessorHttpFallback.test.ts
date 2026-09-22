@@ -73,7 +73,6 @@ function mockNode(options: { wsConnected: boolean; httpResult?: () => Promise<un
 			placeBid: () => sendable,
 			retractBid: () => sendable,
 		},
-		utility: { batch: () => sendable },
 	})
 
 	const registry = { findMetaError: () => ({ section: "intentsCoprocessor", name: "BidNotFound" }) }
@@ -121,11 +120,11 @@ describe("HTTP submission fallback", () => {
 		expect(result.blockHash).toBe("0xwsblockhash")
 	})
 
-	it("routes a batched bid+retraction over HTTP too, built against the HTTP api", async () => {
+	it("routes a retraction over HTTP too, built against the HTTP api", async () => {
 		const node = mockNode({ wsConnected: false })
 		const coproc = coprocessorWithHttp(node)
 
-		const result = await coproc.submitBidWithRetraction(COMMITMENT, COMMITMENT, USER_OP)
+		const result = await coproc.retractBid(COMMITMENT, BID)
 
 		expect(node.submissions.map((s) => s.via)).toEqual(["http"])
 		expect(result.pending).toBe(true)

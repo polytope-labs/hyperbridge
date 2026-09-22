@@ -147,13 +147,6 @@ export type ConfiguredAssetSymbolInput =
 	| Lowercase<ConfiguredAssetSymbol>
 	| Uppercase<ConfiguredAssetSymbol>
 
-export interface UniswapV4PoolConfigData {
-	tokens: readonly [ConfiguredAssetSymbol, ConfiguredAssetSymbol]
-	fee: number
-	tickSpacing: number
-	hooks?: `0x${string}`
-}
-
 /** A known ERC-4626 vault fillers can use as a stablecoin treasury. */
 export interface Erc4626VaultConfigData {
 	/** Display label, e.g. "Aave stataUSDC" */
@@ -244,7 +237,6 @@ export interface ChainConfigData {
 	consensusStateId: string
 	coingeckoId: string
 	popularTokens?: string[]
-	uniswapV4Pools?: UniswapV4PoolConfigData[]
 	/** Known ERC-4626 treasury vaults on this chain */
 	erc4626Vaults?: Erc4626VaultConfigData[]
 	/** LayerZero Endpoint ID for cross-chain messaging */
@@ -631,7 +623,6 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 		consensusStateId: "ETH0",
 		coingeckoId: "base",
 		layerZeroEid: 30184,
-		uniswapV4Pools: [{ tokens: ["USDC", "cNGN"], fee: 1500, tickSpacing: 30 }],
 		erc4626Vaults: [
 			{ label: "Aave stataUSDC", address: "0xC768c589647798a6EE01A91FdE98EF2ed046DBD6", asset: "USDC" },
 			{ label: "Yield Bearing cNGN", address: "0xa82A3531021317240Fb32E67f9c7bC091F737D3b", asset: "cNGN" },

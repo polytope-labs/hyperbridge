@@ -8,7 +8,7 @@ import {
 	encodePhantomBidPaymasterAndData,
 	PERMIT2_SPONSORSHIP_BYTES,
 	type HexString,
-} from "@/protocols/intents/phantom-aggregation"
+} from "@/protocols/intents/phantom-bid"
 
 describe("accepted source chains declaration", () => {
 	it("round-trips a list of state machine ids", () => {

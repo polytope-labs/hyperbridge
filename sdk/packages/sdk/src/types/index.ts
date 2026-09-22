@@ -7,7 +7,7 @@ import type { Account } from "viem/accounts"
 export type { Account as ViemAccount } from "viem/accounts"
 import type HandlerV2 from "@/abis/handlerV2"
 import type { IChain } from "@/chain"
-import type { Chains, ConfiguredAssetSymbol, ConfiguredAssetSymbolInput } from "@/configs/chain"
+import type { ConfiguredAssetSymbolInput } from "@/configs/chain"
 import { Struct, Vector, Bytes, u8 } from "scale-ts"
 
 export type EstimateGasCallData = ContractFunctionArgs<
@@ -1124,77 +1124,7 @@ export interface OrderResponse {
 	}
 }
 
-export interface PhantomOrderPriceSnapshot {
-	commitment: HexString
-	tokenA: HexString
-	tokenB: HexString
-	standardAmount: bigint
-	blockNumber: bigint
-	medianPrice: bigint
-	lowestPrice?: bigint
-	highestPrice?: bigint
-	bidCount: number
-	snapshotTime: Date
-}
-
-export interface PhantomOrderPriceSnapshotsResponse {
-	phantomOrderPriceSnapshots: {
-		nodes: Array<{
-			commitment: string
-			tokenA: string
-			tokenB: string
-			standardAmount: string
-			blockNumber: string
-			medianPrice: string | null
-			lowestPrice: string | null
-			highestPrice: string | null
-			bidCount: number
-			snapshotTime: string
-		}>
-	}
-}
-
-/** One independently reported slice of indexed liquidity. */
-export interface LiquiditySlice {
-	totalLiquidity: string
-	providerCount: number
-}
-
-/**
- * Indexed destination capacity and its source-routing slices.
- *
- * The SDK reports the indexer's facts separately and does not decide whether a
- * source chain is covered by the legacy unrestricted-bidder policy.
- */
-export interface AvailableLiquidity {
-	sourceChain: Chains
-	destinationChain: Chains
-	tokenAddress: HexString
-	updatedAt: Date
-	destination: LiquiditySlice
-	unrestricted: LiquiditySlice
-	explicitRoute: (LiquiditySlice & { updatedAt: Date }) | null
-}
-
-/**
- * Aggregate indexed pool buy and sell rates expressed as quote-token units per
- * one base token. The quote token is the less valuable currency when the rates
- * establish an ordering (for example, cNGN in a USDC/cNGN pair).
- */
-export interface BuyAndSellRates {
-	baseTokenSymbol: ConfiguredAssetSymbol
-	quoteTokenSymbol: ConfiguredAssetSymbol
-	sourceChain: Chains
-	destinationChain: Chains
-	/** Quote-token units received when buying the quote token with one base token. */
-	buyRate: string | null
-	/** Quote-token units sold to receive one base token. */
-	sellRate: string | null
-	buyRateUpdatedAt: Date | null
-	sellRateUpdatedAt: Date | null
-}
-
-/** Symbol-only input for querying an indexed pool's rates. */
+/** Symbol-only input for querying a pair's orderbook rates on a route. */
 export interface QueryBuyAndSellRatesParams {
 	tokenInSymbol: ConfiguredAssetSymbolInput
 	tokenOutSymbol: ConfiguredAssetSymbolInput

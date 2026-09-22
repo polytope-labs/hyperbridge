@@ -6,6 +6,7 @@ import {
 	type HyperFxOrderbook,
 	ORDERBOOK_DECIMALS,
 	ORDERBOOK_SCALE,
+	OrderbookRequestError,
 	type OrderbookRoute,
 	type OrderbookSide,
 	type OrderbookSwapQuote,
@@ -15,6 +16,7 @@ import {
 	type BuyAndSellRates,
 	InsufficientOrderbookLiquidityError,
 	type IntentQuoteTradeType,
+	OrderbookQuoteNotConvergedError,
 	type QuoteIntentParams,
 	type QuoteIntentResult,
 	UnsupportedLiquidityAssetError,
@@ -153,15 +155,22 @@ export class OrderbookMarket {
 
 		const inputUnit = toOrderbookAmount(1n, tokenIn.decimals)
 		let amountIn = roundUpTo(requiredInput(liquidity.side, targetOut, liquidity.bestRate), inputUnit)
+		let lastAmountIn = amountIn
 		for (let round = 0; round < MAX_EXACT_OUTPUT_ROUNDS; round++) {
-			if (amountIn > liquidity.maxFillableIn) break
+			// Past the most the route can fill, no input delivers the output.
+			if (amountIn > liquidity.maxFillableIn) throw this.insufficient(route, liquidity.maxFillableIn, tokenIn)
 			const quote = await orderbook.quote(route, amountIn)
 			if (quote.fillable && quote.amountOut >= targetOut) return quote
+			lastAmountIn = amountIn
 			const next =
 				quote.rate === null ? amountIn : roundUpTo(requiredInput(quote.side, targetOut, quote.rate), inputUnit)
 			amountIn = next > amountIn ? next : amountIn + inputUnit
 		}
-		throw this.insufficient(route, liquidity.maxFillableIn, tokenIn)
+		throw new OrderbookQuoteNotConvergedError(
+			route,
+			MAX_EXACT_OUTPUT_ROUNDS,
+			fromOrderbookAmount(lastAmountIn, tokenIn.decimals),
+		)
 	}
 
 	private insufficient(
@@ -237,6 +246,7 @@ function buildQuote(
 	tokenIn: ResolvedAsset,
 	tokenOut: ResolvedAsset,
 ): QuoteIntentResult {
+	if (quote.rate === null) throw new OrderbookRequestError("the orderbook served a fillable quote with no rate")
 	const [base, quoteToken] = quote.side === "BID" ? [tokenIn, tokenOut] : [tokenOut, tokenIn]
 	return {
 		tradeType,
@@ -249,7 +259,7 @@ function buildQuote(
 			side: quote.side,
 			baseTokenSymbol: base.symbol,
 			quoteTokenSymbol: quoteToken.symbol,
-			rate: format(quote.rate as bigint),
+			rate: format(quote.rate),
 			maxFillableIn: fromOrderbookAmount(quote.maxFillableIn, tokenIn.decimals),
 			orderCount: quote.fills.length,
 		},

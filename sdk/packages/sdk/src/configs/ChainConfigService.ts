@@ -149,11 +149,7 @@ export class ChainConfigService {
 		const config = this.getConfig(chain)
 		const tokens: Array<{ symbol: string; address: HexString; decimals?: number }> = []
 		if (config?.assets?.cNGN) {
-			tokens.push({
-				symbol: "cNGN",
-				address: config.assets.cNGN as HexString,
-				decimals: config.tokenDecimals?.cNGN,
-			})
+			tokens.push({ symbol: "cNGN", address: config.assets.cNGN as HexString, decimals: config.tokenDecimals?.cNGN })
 		}
 		return tokens
 	}

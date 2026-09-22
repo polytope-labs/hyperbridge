@@ -7,6 +7,7 @@ export {
 	ORDERBOOK_DECIMALS,
 	ORDERBOOK_QUERIES,
 	InsufficientOrderbookLiquidityError,
+	OrderbookQuoteNotConvergedError,
 	UnsupportedLiquidityAssetError,
 	UnsupportedLiquidityChainError,
 } from "./orderbook"

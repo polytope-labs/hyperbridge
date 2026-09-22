@@ -660,11 +660,22 @@ type RateBar {
 
 """
 One price level of a direction on one fill chain. `rate` is its best price, quote per 1 base:
-the rate served for the level.
+the rate served for the level. `base` and `quote` name the units, so a consumer need not work
+them out from `side`.
 """
 type RateEntry {
 	tokenIn: String!
 	tokenOut: String!
+	"""
+	The pair's base symbol: what every rate here is quoted *per 1 of*. One of tokenIn and
+	tokenOut, whichever the book calls the base.
+	"""
+	base: String!
+	"""
+	The pair's quote symbol: the units every rate here is *in*. The other of tokenIn and
+	tokenOut.
+	"""
+	quote: String!
 	"""
 	BID when tokenIn is the base (a sell: higher is better), ASK when it is the quote (a buy:
 	lower is better).
@@ -740,7 +751,6 @@ enum RejectionCode {
 	UNSUPPORTED_CHAIN
 	UNSUPPORTED_SHAPE
 	NOT_PHANTOM
-	MISSING_VALID_UNTIL
 	TTL_TOO_SHORT
 	UNSUPPORTED_PAIR
 	BAD_SIGNATURE

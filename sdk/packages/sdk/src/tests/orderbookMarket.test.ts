@@ -10,7 +10,10 @@ import {
 	orderbookUrlFor,
 } from "@/protocols/intents/orderbook/client"
 import { OrderbookMarket } from "@/protocols/intents/orderbook/market"
-import { InsufficientOrderbookLiquidityError } from "@/protocols/intents/orderbook/types"
+import {
+	InsufficientOrderbookLiquidityError,
+	OrderbookQuoteNotConvergedError,
+} from "@/protocols/intents/orderbook/types"
 
 const CHAPEL = "EVM-97"
 const AMOY = "EVM-80002"
@@ -212,6 +215,41 @@ describe("OrderbookMarket.quoteIntent", () => {
 			InsufficientOrderbookLiquidityError,
 		)
 		assert.equal(calls.filter((call) => call.query === ORDERBOOK_QUERIES.quote).length, 0)
+	})
+
+	it("reports an exact output it cannot converge on apart from insufficient liquidity", async () => {
+		// Deep enough, but every quote delivers one raw unit less than asked, so no round ever settles.
+		const { market, calls } = stubOrderbook((query, variables) => {
+			const answer = bidSide(query, variables) as { quote?: { amountOut: string } }
+			if (answer.quote)
+				answer.quote.amountOut = (BigInt(answer.quote.amountOut) / 10n ** 12n - 1n).toString() + "0".repeat(12)
+			return answer
+		})
+		await assert.rejects(
+			market.quoteIntent(
+				{ tokenIn: chapelUsdc, tokenOut: amoyCngn, amountOut: parseUnits("1000", 6) },
+				CHAPEL,
+				AMOY,
+			),
+			(error: unknown) => error instanceof OrderbookQuoteNotConvergedError && error.rounds === 16,
+		)
+		assert.equal(calls.filter((call) => call.query === ORDERBOOK_QUERIES.quote).length, 16)
+	})
+
+	it("refuses a fillable quote the orderbook served with no rate", async () => {
+		const { market } = stubOrderbook((query, variables) => {
+			const answer = bidSide(query, variables) as { quote: { rate: string | null } }
+			answer.quote.rate = null
+			return answer
+		})
+		await assert.rejects(
+			market.quoteIntent(
+				{ tokenIn: chapelUsdc, tokenOut: amoyCngn, amountIn: parseUnits("100", 18) },
+				CHAPEL,
+				AMOY,
+			),
+			(error: unknown) => error instanceof OrderbookRequestError && /no rate/.test(error.message),
+		)
 	})
 
 	it("requires exactly one amount", async () => {

@@ -5,9 +5,10 @@ concurrency:
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 # `sdk/packages/simplex/src/tests/fixtures/orderbook-schema.graphql` is a copy of the
-# orderbook's own schema, and `schema.test.ts` validates every document simplex sends
-# against it. A copy that has fallen behind still passes, which is the one failure the
-# test exists to prevent, so the copy is compared with the server here instead.
+# orderbook's own schema. simplex's `schema.test.ts` validates every document simplex sends
+# against it, and the SDK's `orderbookSchema.test.ts` the SDK's documents and the docs'
+# examples. A copy that has fallen behind still passes, which is the one failure the tests
+# exist to prevent, so the copy is compared with the server here instead.
 on:
     schedule:
         - cron: "17 6 * * 1"
@@ -16,6 +17,8 @@ on:
         types: [opened, synchronize, reopened, ready_for_review]
         paths:
             - "sdk/packages/simplex/src/orderbook/**"
+            - "sdk/packages/sdk/src/protocols/intents/orderbook/**"
+            - "docs/content/developers/evm/intent-gateway/orderbook.mdx"
             - "sdk/packages/simplex/src/tests/fixtures/orderbook-schema.graphql"
             - ".github/workflows/check-orderbook-schema.yml"
     workflow_dispatch:

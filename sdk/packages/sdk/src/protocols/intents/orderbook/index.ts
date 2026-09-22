@@ -17,6 +17,7 @@ export {
 export { OrderbookMarket } from "./market"
 export {
 	InsufficientOrderbookLiquidityError,
+	OrderbookQuoteNotConvergedError,
 	UnsupportedLiquidityAssetError,
 	UnsupportedLiquidityChainError,
 	type AvailableLiquidity,

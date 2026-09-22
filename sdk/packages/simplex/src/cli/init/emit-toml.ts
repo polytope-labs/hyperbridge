@@ -130,8 +130,7 @@ export function emitFillerToml(config: FillerConfigFile, options: EmitOptions = 
 	if (config.orderbook?.reconcileIntervalSecs !== undefined) {
 		push(kv("reconcileIntervalSecs", config.orderbook.reconcileIntervalSecs))
 	}
-	if (config.orderbook?.requestTimeoutMs !== undefined)
-		push(kv("requestTimeoutMs", config.orderbook.requestTimeoutMs))
+	if (config.orderbook?.requestTimeoutMs !== undefined) push(kv("requestTimeoutMs", config.orderbook.requestTimeoutMs))
 	push()
 
 	if (config.rebalancing) {

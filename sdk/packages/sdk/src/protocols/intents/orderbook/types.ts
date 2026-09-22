@@ -113,6 +113,25 @@ export class UnsupportedLiquidityChainError extends Error {
 	}
 }
 
+/**
+ * An exact-output quote did not settle on an input within its rounds: each quoted input's clearing
+ * price still fell short of the output. The route may have the depth; the book moved or its levels
+ * are too steep to converge on in time. Retrying, or quoting an exact input, may succeed.
+ */
+export class OrderbookQuoteNotConvergedError extends Error {
+	constructor(
+		readonly route: { tokenIn: string; tokenOut: string; sourceChain: string; destinationChain: string },
+		readonly rounds: number,
+		/** The last input quoted, in the source token's raw units. */
+		readonly lastAmountIn: bigint,
+	) {
+		super(
+			`No input for ${route.tokenIn} -> ${route.tokenOut} on ${route.sourceChain} -> ${route.destinationChain} delivered the requested output within ${rounds} quotes; the last tried ${lastAmountIn} raw units`,
+		)
+		this.name = "OrderbookQuoteNotConvergedError"
+	}
+}
+
 /** The orderbook cannot fill the requested amount on this route. */
 export class InsufficientOrderbookLiquidityError extends Error {
 	constructor(

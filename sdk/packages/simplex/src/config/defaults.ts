@@ -10,5 +10,8 @@ export const DEFAULT_ORDERBOOK_URLS = {
 	testnet: "https://orderbook.hyperfx.finance/testnet/graphql",
 } as const
 
+/** Defaults earlier releases wrote, which no longer serve an orderbook. The wizard replaces them. */
+export const RETIRED_ORDERBOOK_URLS: readonly string[] = ["https://orderbook.hyperbridge.network/graphql"]
+
 /** How often to reconcile local limit orders against the orderbook's copy. */
 export const DEFAULT_RECONCILE_INTERVAL_SECS = 300

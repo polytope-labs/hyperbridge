@@ -15,7 +15,7 @@ import { DEFAULT_ORDERBOOK_URLS } from "@/config/defaults"
  */
 describe("CLI wizard update run", () => {
 	const existing: FillerConfigFile = {
-		orderbook: { url: "https://orderbook.hyperbridge.network/graphql" },
+		orderbook: { url: "https://orderbook.example/graphql" },
 		simplex: {
 			signer: { type: SignerType.PrivateKey, key: "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d" },
 			maxConcurrentOrders: 7,
@@ -193,6 +193,15 @@ describe("CLI wizard update run", () => {
 		)
 		state.signer = existing.simplex.signer
 		expect(assembleConfig(state).orderbook).toEqual({ url: DEFAULT_ORDERBOOK_URLS.testnet, defaultTtlSecs: 3600 })
+	})
+
+	it("replaces a retired default orderbook with the selected network's", () => {
+		const state = newWizardState()
+		state.prefillConfig = JSON.parse(
+			JSON.stringify({ ...existing, orderbook: { url: "https://orderbook.hyperbridge.network/graphql" } }),
+		)
+		state.signer = existing.simplex.signer
+		expect(assembleConfig(state).orderbook).toEqual({ url: DEFAULT_ORDERBOOK_URLS.mainnet })
 	})
 
 	it("keeps an operator's own orderbook whatever the network", () => {

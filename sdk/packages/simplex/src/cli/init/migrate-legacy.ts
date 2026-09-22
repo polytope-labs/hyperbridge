@@ -55,8 +55,7 @@ export function migrateLegacyConfig(config: FillerTomlConfig): string[] {
 			})
 			const maxOrderSize = strategy.maxOrderUsd !== undefined ? String(strategy.maxOrderUsd) : "100000"
 			for (const symbol of ["USDC", "USDT"]) {
-				if (pairs.some((p) => normalizeSymbol(p.token0) === symbol && normalizeSymbol(p.token1) === symbol))
-					continue
+				if (pairs.some((p) => normalizeSymbol(p.token0) === symbol && normalizeSymbol(p.token1) === symbol)) continue
 				pairs.push({ token0: symbol, token1: symbol })
 			}
 			notes.push(
@@ -108,7 +107,9 @@ export function migrateLegacyConfig(config: FillerTomlConfig): string[] {
 	// wizard swaps this default for the selected network's before it writes the file.
 	if (!config.orderbook) {
 		config.orderbook = { url: DEFAULT_ORDERBOOK_URLS.mainnet }
-		notes.push("Added [orderbook] for the selected network; simplex prices fills from limit orders there.")
+		notes.push(
+			`Added [orderbook] pointing at ${DEFAULT_ORDERBOOK_URLS.mainnet}; the wizard switches it to the selected network's orderbook.`,
+		)
 	}
 	if (Object.keys(confirmationPolicies).length > 0) {
 		config.confirmationPolicies = confirmationPolicies

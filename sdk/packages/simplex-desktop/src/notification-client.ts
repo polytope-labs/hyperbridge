@@ -38,13 +38,13 @@ export function consumeNotificationFrames(
 		try {
 			const value = JSON.parse(data) as Partial<OperatorNotification>
 			if (typeof value.title === "string" && typeof value.body === "string") {
-					onNotification({
-						title: value.title,
-						body: value.body,
-						tag: typeof value.tag === "string" ? value.tag : "simplex-alert",
-						url: typeof value.url === "string" ? value.url : "./",
-						...(typeof value.receiptId === "string" ? { receiptId: value.receiptId } : {}),
-					})
+				onNotification({
+					title: value.title,
+					body: value.body,
+					tag: typeof value.tag === "string" ? value.tag : "simplex-alert",
+					url: typeof value.url === "string" ? value.url : "./",
+					...(typeof value.receiptId === "string" ? { receiptId: value.receiptId } : {}),
+				})
 			}
 		} catch {
 			// A broken frame must not take down the long-lived desktop listener.

@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events"
+import { formatUnits } from "viem"
 import * as webPush from "web-push"
-import { USD_STABLE_SYMBOLS } from "@/config/asset-registry"
 import { patchRuntimeState } from "@/data/state"
 import type {
 	ActivityEvent,
@@ -12,8 +12,8 @@ import type {
 } from "@/data/types"
 import type { BalanceSnapshot } from "@/services/BalanceProvider"
 import { getLogger, type Logger } from "@/services/Logger"
+import { availableStablecoinLiquidity } from "@/services/stablecoin-liquidity"
 
-const BALANCE_CHECK_INTERVAL_MS = 15_000
 const DEFAULT_SETTINGS: NotificationSettings = { lowLiquidityThresholdUsd: null, swaps: false }
 
 export type { OperatorNotification } from "@/data/types"
@@ -32,6 +32,12 @@ export interface PushDelivery {
 interface ActivitySource {
 	on(event: "event", listener: (event: ActivityEvent) => void): unknown
 	off(event: "event", listener: (event: ActivityEvent) => void): unknown
+}
+
+interface BalanceSource {
+	getSnapshot(): BalanceSnapshot
+	on?(event: "snapshot", listener: (snapshot: BalanceSnapshot) => void): unknown
+	off?(event: "snapshot", listener: (snapshot: BalanceSnapshot) => void): unknown
 }
 
 function validSubscription(value: unknown): value is StoredPushSubscription {
@@ -65,12 +71,7 @@ function initialState(saved?: NotificationRuntimeState): NotificationRuntimeStat
 
 function displayAmount(raw: string, decimals: number | null): string {
 	if (decimals === null) return raw
-	const negative = raw.startsWith("-")
-	const digits = negative ? raw.slice(1) : raw
-	const padded = digits.padStart(decimals + 1, "0")
-	const whole = decimals === 0 ? padded : padded.slice(0, -decimals) || "0"
-	const fraction = decimals === 0 ? "" : padded.slice(-decimals).replace(/0+$/, "").slice(0, 4)
-	return `${negative ? "-" : ""}${whole}${fraction ? `.${fraction}` : ""}`
+	return formatUnits(BigInt(raw), decimals)
 }
 
 function swapBody(event: ActivityEvent): string {
@@ -85,14 +86,15 @@ function swapBody(event: ActivityEvent): string {
 /** Durable alert rules plus Web Push delivery for one running operator. */
 export class NotificationService extends EventEmitter {
 	private state!: NotificationRuntimeState
-	private ready: Promise<void>
-	private interval?: NodeJS.Timeout
+	private initialization?: Promise<void>
+	private initialized = false
 	private stopped = false
 	private readonly logger: Logger
 	private readonly notifiedSwapIds = new Set<string>()
 	private readonly onActivity = (event: ActivityEvent) => {
 		if (event.type === "filled" && this.state.settings.swaps) {
-			const id = event.orderId ?? `event-${event.id}`
+			const fillId = event.txHash ?? `event-${event.id}`
+			const id = `${event.orderId ?? "unknown-order"}:${fillId}`
 			if (this.notifiedSwapIds.has(id)) return
 			this.notifiedSwapIds.add(id)
 			if (this.notifiedSwapIds.size > 1_000) {
@@ -102,22 +104,42 @@ export class NotificationService extends EventEmitter {
 			void this.publish({
 				title: "Swap filled",
 				body: swapBody(event),
-				tag: `simplex-swap-${event.orderId ?? event.id}`,
+				tag: `simplex-swap-${id}`,
 				url: "./orders",
 			}).catch((error) => this.logger.error({ err: error }, "Could not publish swap notification"))
 		}
 	}
+	private readonly onBalanceSnapshot = (snapshot: BalanceSnapshot) => {
+		void this.evaluateLiquidity(snapshot).catch((error) =>
+			this.logger.error({ err: error }, "Could not evaluate low-liquidity notification"),
+		)
+	}
 
 	constructor(
 		private readonly store: StateStore,
-		private readonly balances: { getSnapshot(): BalanceSnapshot },
+		private readonly balances: BalanceSource,
 		private readonly activity: ActivitySource,
 		logger: Logger = getLogger("notifications"),
 	) {
 		super()
 		this.logger = logger
-		this.ready = this.initialize()
-		void this.ready.catch((error) => this.logger.error({ err: error }, "Notification service could not start"))
+		void this.ensureReady().catch(() => undefined)
+	}
+
+	private ensureReady(): Promise<void> {
+		if (this.initialized) return Promise.resolve()
+		if (!this.initialization) {
+			const attempt = this.initialize().then(() => {
+				this.initialized = true
+			})
+			this.initialization = attempt
+			void attempt
+				.catch((error) => this.logger.error({ err: error }, "Notification service could not start"))
+				.finally(() => {
+					if (!this.initialized && this.initialization === attempt) this.initialization = undefined
+				})
+		}
+		return this.initialization
 	}
 
 	private async initialize(): Promise<void> {
@@ -126,16 +148,14 @@ export class NotificationService extends EventEmitter {
 		if (!runtime.notifications?.vapid?.privateKey) await this.persist()
 		if (this.stopped) return
 		this.activity.on("event", this.onActivity)
-		this.interval = setInterval(() => {
-			void this.evaluateLiquidity().catch((error) =>
-				this.logger.error({ err: error }, "Could not evaluate low-liquidity notification"),
-			)
-		}, BALANCE_CHECK_INTERVAL_MS)
-		this.interval.unref()
+		this.balances.on?.("snapshot", this.onBalanceSnapshot)
+		void this.evaluateLiquidity().catch((error) =>
+			this.logger.error({ err: error }, "Could not evaluate initial low-liquidity notification"),
+		)
 	}
 
 	async status(): Promise<NotificationStatus> {
-		await this.ready
+		await this.ensureReady()
 		return {
 			settings: { ...this.state.settings },
 			vapidPublicKey: this.state.vapid.publicKey,
@@ -144,7 +164,7 @@ export class NotificationService extends EventEmitter {
 	}
 
 	async updateSettings(settings: NotificationSettings): Promise<NotificationStatus> {
-		await this.ready
+		await this.ensureReady()
 		this.state.settings = settings
 		if (settings.lowLiquidityThresholdUsd === null) this.state.lowLiquidityActive = false
 		await this.persist()
@@ -153,7 +173,7 @@ export class NotificationService extends EventEmitter {
 	}
 
 	async subscribe(subscription: StoredPushSubscription): Promise<NotificationStatus> {
-		await this.ready
+		await this.ensureReady()
 		if (!validSubscription(subscription)) throw new Error("Invalid push subscription")
 		this.state.subscriptions = [
 			...this.state.subscriptions.filter((item) => item.endpoint !== subscription.endpoint),
@@ -164,7 +184,7 @@ export class NotificationService extends EventEmitter {
 	}
 
 	async unsubscribe(endpoint: string): Promise<NotificationStatus> {
-		await this.ready
+		await this.ensureReady()
 		this.state.subscriptions = this.state.subscriptions.filter((item) => item.endpoint !== endpoint)
 		await this.persist()
 		return this.status()
@@ -176,7 +196,7 @@ export class NotificationService extends EventEmitter {
 		push?: boolean
 		receiptId?: string
 	}): Promise<PushDelivery> {
-		await this.ready
+		await this.ensureReady()
 		return this.publish(
 			{
 				title: "Simplex notifications are working",
@@ -192,33 +212,26 @@ export class NotificationService extends EventEmitter {
 	stop(): void {
 		this.stopped = true
 		this.activity.off("event", this.onActivity)
-		if (this.interval) clearInterval(this.interval)
-		this.interval = undefined
+		this.balances.off?.("snapshot", this.onBalanceSnapshot)
 	}
 
-	private async evaluateLiquidity(): Promise<void> {
+	private async evaluateLiquidity(snapshot = this.balances.getSnapshot()): Promise<void> {
 		const threshold = this.state.settings.lowLiquidityThresholdUsd
 		if (threshold === null) return
-		const snapshot = this.balances.getSnapshot()
-		// A partial snapshot can omit an entire failed chain, which would make the
-		// known subtotal look lower than the operator's actual liquidity.
-		if (snapshot.status !== "fresh") return
-		const stableAssets = snapshot.chains.flatMap((chain) =>
-			chain.assets.filter((asset) => USD_STABLE_SYMBOLS.has(asset.symbol.trim().toUpperCase())),
-		)
-		if (stableAssets.length === 0 || stableAssets.some((asset) => asset.available === null)) return
-		const liquidity = stableAssets.reduce((total, asset) => total + (asset.available ?? 0), 0)
+		const liquidity = availableStablecoinLiquidity(snapshot)
+		if (liquidity === null) return
 		const low = liquidity < threshold
 		if (low === this.state.lowLiquidityActive) return
+		if (low) {
+			await this.publish({
+				title: "Simplex liquidity is low",
+				body: `$${liquidity.toLocaleString(undefined, { maximumFractionDigits: 2 })} is available to fill, below your $${threshold.toLocaleString()} alert threshold.`,
+				tag: "simplex-low-liquidity",
+				url: "./",
+			})
+		}
 		this.state.lowLiquidityActive = low
 		await this.persist()
-		if (!low) return
-		await this.publish({
-			title: "Simplex liquidity is low",
-			body: `$${liquidity.toLocaleString(undefined, { maximumFractionDigits: 2 })} is available to fill, below your $${threshold.toLocaleString()} alert threshold.`,
-			tag: "simplex-low-liquidity",
-			url: "./",
-		})
 	}
 
 	private async publish(

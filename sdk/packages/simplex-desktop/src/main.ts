@@ -322,10 +322,14 @@ async function stopAndQuit(): Promise<void> {
 
 async function createWindow(notificationPath?: string): Promise<void> {
 	if (mainWindow && !mainWindow.isDestroyed()) {
-		if (notificationPath) await mainWindow.loadURL(desktopNotificationUrl(notificationPath))
 		if (mainWindow.isMinimized()) mainWindow.restore()
 		mainWindow.show()
 		mainWindow.focus()
+		if (notificationPath) {
+			void mainWindow
+				.loadURL(desktopNotificationUrl(notificationPath))
+				.catch((error) => console.error(`Simplex could not open the notification page: ${errorMessage(error)}`))
+		}
 		return
 	}
 	if (!supervisor) return

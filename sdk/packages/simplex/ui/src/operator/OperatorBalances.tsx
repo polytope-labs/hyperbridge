@@ -1,5 +1,8 @@
 import { type CSSProperties, useState } from "react"
-import { USD_STABLE_SYMBOLS } from "@/config/asset-registry"
+import {
+	availableStablecoinLiquidity as aggregateStablecoinLiquidity,
+	sumAvailableStablecoins,
+} from "@/services/stablecoin-liquidity"
 import { AppSelect, type AppSelectOption } from "../components/AppSelect"
 import { ChainLogo } from "../components/ChainLogo"
 import { TokenIcon } from "../components/TokenIcon"
@@ -288,17 +291,10 @@ function chainLabel(status: StatusOperator, chainId: number): string {
  * to estimate is the point: a sum quietly missing a leg understates liquidity without saying so.
  */
 export function availableStablecoins(assets: AssetBalance[], snapshot: SnapshotStatus): number | null {
-	if (snapshot !== "fresh") return null
-	const stables = assets.filter((asset) => USD_STABLE_SYMBOLS.has(asset.symbol.trim().toUpperCase()))
-	if (stables.length === 0) return 0
-	if (stables.some((asset) => asset.available === null)) return null
-	return stables.reduce((total, asset) => total + (asset.available ?? 0), 0)
+	if (snapshot === "loading") return null
+	return sumAvailableStablecoins(assets)
 }
 
 export function availableStablecoinLiquidity(balances: BalanceSnapshot | undefined): number | null {
-	if (!balances) return null
-	return availableStablecoins(
-		balances.chains.flatMap((chain) => chain.assets),
-		balances.status,
-	)
+	return aggregateStablecoinLiquidity(balances)
 }

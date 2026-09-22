@@ -1,7 +1,7 @@
 import { EventEmitter } from "node:events"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { MemoryDataStore } from "@/data/memory"
-import type { ActivityEvent } from "@/data/types"
+import type { ActivityEvent, StateStore } from "@/data/types"
 import type { BalanceSnapshot } from "@/services/BalanceProvider"
 import { NotificationService, type OperatorNotification } from "@/services/server/NotificationService"
 
@@ -44,11 +44,26 @@ afterEach(() => {
 	webPush.sendNotification.mockReset().mockResolvedValue({})
 })
 
+class TestBalanceSource extends EventEmitter {
+	constructor(public current: BalanceSnapshot) {
+		super()
+	}
+
+	getSnapshot(): BalanceSnapshot {
+		return this.current
+	}
+
+	refresh(next: BalanceSnapshot): void {
+		this.current = next
+		this.emit("snapshot", next)
+	}
+}
+
 function serviceAt(available: number) {
 	const activity = new EventEmitter()
 	const state = new MemoryDataStore().state
-	const balance = { current: snapshot(available) }
-	const service = new NotificationService(state, { getSnapshot: () => balance.current }, activity)
+	const balance = new TestBalanceSource(snapshot(available))
+	const service = new NotificationService(state, balance, activity)
 	services.push(service)
 	return { service, state, activity, balance }
 }
@@ -99,14 +114,99 @@ describe("operator notifications", () => {
 			},
 		} satisfies ActivityEvent
 		activity.emit("event", event)
-		activity.emit("event", { ...event, id: 8, txHash: "0xobserved" })
+		activity.emit("event", { ...event, id: 8 })
+		activity.emit("event", { ...event, id: 9, txHash: "0xpartial-fill" })
+		activity.emit("event", { ...event, id: 10, txHash: null })
+		activity.emit("event", { ...event, id: 11, txHash: null })
 
-		expect(alerts).toHaveLength(1)
+		expect(alerts).toHaveLength(4)
 		expect(alerts[0]).toMatchObject({
 			title: "Swap filled",
 			body: "12.5 USDC → 25 DAI",
-			tag: "simplex-swap-0xorder",
+			tag: "simplex-swap-0xorder:0xtx",
 		})
+	})
+
+	it("preserves non-zero token amounts smaller than four decimal places", async () => {
+		const { service, activity } = serviceAt(500)
+		await service.updateSettings({ lowLiquidityThresholdUsd: null, swaps: true })
+		const alerts: OperatorNotification[] = []
+		service.on("notification", (notification) => alerts.push(notification))
+		activity.emit("event", {
+			id: 10,
+			ts: Date.now(),
+			type: "filled",
+			orderId: "0xsmall",
+			chainId: 1,
+			strategy: null,
+			success: true,
+			reason: null,
+			volumeUsd: null,
+			profitUsd: null,
+			txHash: "0xsmall-fill",
+			order: {
+				user: "0xuser",
+				source: "EVM-1",
+				destination: "EVM-2",
+				placedTxHash: null,
+				referrer: null,
+				deadline: "1",
+				inputs: [{ token: "0x1", amount: "12", symbol: "WETH", decimals: 6 }],
+				outputs: [{ token: "0x2", amount: "1", symbol: "USDC", decimals: 6 }],
+			},
+		} satisfies ActivityEvent)
+
+		expect(alerts[0]?.body).toBe("0.000012 WETH → 0.000001 USDC")
+	})
+
+	it("retries a low-liquidity alert when delivery fails", async () => {
+		const { service, state } = serviceAt(50)
+		const fail = () => {
+			throw new Error("native delivery failed")
+		}
+		service.on("notification", fail)
+
+		await expect(service.updateSettings({ lowLiquidityThresholdUsd: 100, swaps: false })).rejects.toThrow(
+			"native delivery failed",
+		)
+		expect((await state.get()).notifications?.lowLiquidityActive).toBe(false)
+
+		service.off("notification", fail)
+		const delivered = vi.fn()
+		service.on("notification", delivered)
+		await service.updateSettings({ lowLiquidityThresholdUsd: 100, swaps: false })
+		expect(delivered).toHaveBeenCalledOnce()
+		expect((await state.get()).notifications?.lowLiquidityActive).toBe(true)
+	})
+
+	it("evaluates low liquidity when a new balance snapshot arrives", async () => {
+		const { service, balance } = serviceAt(500)
+		await service.updateSettings({ lowLiquidityThresholdUsd: 100, swaps: false })
+		const delivered = vi.fn()
+		service.on("notification", delivered)
+
+		balance.refresh(snapshot(50))
+		await vi.waitFor(() => expect(delivered).toHaveBeenCalledOnce())
+	})
+
+	it("can initialize again after a transient state-store read failure", async () => {
+		const persisted = new MemoryDataStore().state
+		let reads = 0
+		const state: StateStore = {
+			async get() {
+				reads++
+				if (reads === 1) throw new Error("store unavailable")
+				return persisted.get()
+			},
+			set: (value) => persisted.set(value),
+		}
+		const service = new NotificationService(state, { getSnapshot: () => snapshot(500) }, new EventEmitter())
+		services.push(service)
+
+		await expect(service.status()).rejects.toThrow("store unavailable")
+		await Promise.resolve()
+		await expect(service.status()).resolves.toMatchObject({ subscriptionCount: 0 })
+		expect(reads).toBeGreaterThanOrEqual(2)
 	})
 
 	it("does not infer low liquidity from a partial stablecoin snapshot", async () => {

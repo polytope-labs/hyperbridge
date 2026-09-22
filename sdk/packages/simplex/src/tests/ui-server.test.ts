@@ -348,6 +348,13 @@ describe("UiServer (operator mode)", () => {
 			body: JSON.stringify({ endpoint: subscription.endpoint }),
 		})
 		expect((await unsubscribed.json()).subscriptionCount).toBe(0)
+		const staleBrowser = await fetch(`${base}/api/notifications/test`, {
+			method: "POST",
+			headers: { ...CSRF, "Content-Type": "application/json" },
+			body: JSON.stringify({ endpoint: subscription.endpoint }),
+		})
+		expect(staleBrowser.status).toBe(409)
+		expect(await staleBrowser.json()).toMatchObject({ error: "This browser is no longer subscribed" })
 		const nowhere = await fetch(`${base}/api/notifications/test`, {
 			method: "POST",
 			headers: { ...CSRF, "Content-Type": "application/json" },
@@ -398,6 +405,30 @@ describe("UiServer (operator mode)", () => {
 			nativeReceived: 0,
 		})
 		controller.abort()
+	})
+
+	it("reports notification initialization failures and recovers on a later request", async () => {
+		const persisted = new MemoryDataStore().state
+		let unavailable = true
+		const state = {
+			get: async () => {
+				if (unavailable) throw new Error("state store unavailable")
+				return persisted.get()
+			},
+			set: (value: Awaited<ReturnType<typeof persisted.get>>) => persisted.set(value),
+		}
+		const { base } = await startServer({ state })
+
+		const failed = await fetch(`${base}/api/notifications`)
+		expect(failed.status).toBe(503)
+		expect(await failed.json()).toMatchObject({
+			error: "Notifications are temporarily unavailable: state store unavailable",
+		})
+
+		unavailable = false
+		const recovered = await fetch(`${base}/api/notifications`)
+		expect(recovered.status).toBe(200)
+		expect(await recovered.json()).toMatchObject({ subscriptionCount: 0 })
 	})
 
 	it("rejects mutating requests without the X-Simplex-UI header", async () => {

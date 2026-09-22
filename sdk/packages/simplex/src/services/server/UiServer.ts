@@ -48,7 +48,7 @@ import {
 } from "./http-util"
 import { matchesLogQuery, type LogQuery, type LogTail } from "./LogStore"
 import { serveStatic } from "./static"
-import { NotificationService, type OperatorNotification } from "./NotificationService"
+import { NotificationService, type OperatorNotification, type PushDelivery } from "./NotificationService"
 import {
 	handleSetupRequest,
 	maskToml,
@@ -78,6 +78,35 @@ import {
 	type OrderHistoryDto,
 	type LedgerLeg,
 } from "./dto"
+
+const SSE_HEARTBEAT_INTERVAL_MS = 25_000
+
+/** Opens one self-cleaning SSE response shared by activity and native notifications. */
+function openSseStream(req: IncomingMessage, res: ServerResponse, clients: Set<ServerResponse>): void {
+	res.writeHead(200, {
+		"Content-Type": "text/event-stream",
+		"Cache-Control": "no-store",
+		Connection: "keep-alive",
+	})
+	clients.add(res)
+	res.write(":ok\n\n")
+
+	const heartbeat = setInterval(() => {
+		if (!res.destroyed) res.write(":keepalive\n\n")
+	}, SSE_HEARTBEAT_INTERVAL_MS)
+	heartbeat.unref()
+
+	const cleanup = () => {
+		clearInterval(heartbeat)
+		clients.delete(res)
+		req.off("close", cleanup)
+		res.off("close", cleanup)
+		res.off("error", cleanup)
+	}
+	req.once("close", cleanup)
+	res.once("close", cleanup)
+	res.once("error", cleanup)
+}
 
 /**
  * One curve-priced trading pair's editable price curves. The policies are the
@@ -396,7 +425,10 @@ export class UiServer {
 	private notifications?: NotificationService
 	private notificationClients = new Set<ServerResponse>()
 	private notificationListener?: (notification: OperatorNotification) => void
-	private nativeNotificationReceipts = new Map<string, { resolve: (received: boolean) => void; timer: NodeJS.Timeout }>()
+	private nativeNotificationReceipts = new Map<
+		string,
+		{ resolve: (received: boolean) => void; timer: NodeJS.Timeout }
+	>()
 	private boundLoopback = true
 	/** How connections this server accepted arrived; stamped onto each socket. */
 	private listenProvenance: Provenance = "tcp"
@@ -791,8 +823,17 @@ export class UiServer {
 				this.nativeNotificationReceipts.delete(receiptId)
 				resolve(false)
 			}, this.notificationAckTimeoutMs)
+			timer.unref()
 			this.nativeNotificationReceipts.set(receiptId, { resolve, timer })
 		})
+	}
+
+	private cancelNativeNotificationReceipt(receiptId: string): void {
+		const pending = this.nativeNotificationReceipts.get(receiptId)
+		if (!pending) return
+		this.nativeNotificationReceipts.delete(receiptId)
+		clearTimeout(pending.timer)
+		pending.resolve(false)
 	}
 
 	private acknowledgeNativeNotification(receiptId: string): boolean {
@@ -960,25 +1001,40 @@ export class UiServer {
 		if (path === "/api/notifications") {
 			if (this.mode !== "operator" || !this.notifications)
 				return sendJson(res, 409, { error: "Filler is not running" })
-			if (method === "GET") return sendJson(res, 200, await this.notifications.status())
-			if (method !== "PUT") return sendJson(res, 405, { error: "Method not allowed" })
-			try {
-				const body = JSON.parse(await readBody(req)) as Partial<NotificationSettings>
-				const threshold = body.lowLiquidityThresholdUsd
-				if (
-					threshold !== null &&
-					(typeof threshold !== "number" || !Number.isFinite(threshold) || threshold <= 0)
-				) {
-					return sendJson(res, 400, { error: "lowLiquidityThresholdUsd must be a positive number or null" })
+			if (method === "GET") {
+				try {
+					return sendJson(res, 200, await this.notifications.status())
+				} catch (err) {
+					return sendJson(res, 503, {
+						error: `Notifications are temporarily unavailable: ${err instanceof Error ? err.message : String(err)}`,
+					})
 				}
-				if (typeof body.swaps !== "boolean") return sendJson(res, 400, { error: "swaps must be a boolean" })
+			}
+			if (method !== "PUT") return sendJson(res, 405, { error: "Method not allowed" })
+			let body: Partial<NotificationSettings>
+			try {
+				body = JSON.parse(await readBody(req)) as Partial<NotificationSettings>
+			} catch {
+				return sendJson(res, 400, { error: "Invalid JSON body" })
+			}
+			const threshold = body.lowLiquidityThresholdUsd
+			if (
+				threshold !== null &&
+				(typeof threshold !== "number" || !Number.isFinite(threshold) || threshold <= 0)
+			) {
+				return sendJson(res, 400, { error: "lowLiquidityThresholdUsd must be a positive number or null" })
+			}
+			if (typeof body.swaps !== "boolean") return sendJson(res, 400, { error: "swaps must be a boolean" })
+			try {
 				return sendJson(
 					res,
 					200,
 					await this.notifications.updateSettings({ lowLiquidityThresholdUsd: threshold, swaps: body.swaps }),
 				)
 			} catch (err) {
-				return sendJson(res, 400, { error: err instanceof Error ? err.message : "Invalid JSON body" })
+				return sendJson(res, 503, {
+					error: `Notifications are temporarily unavailable: ${err instanceof Error ? err.message : String(err)}`,
+				})
 			}
 		}
 
@@ -986,15 +1042,21 @@ export class UiServer {
 			if (this.mode !== "operator" || !this.notifications)
 				return sendJson(res, 409, { error: "Filler is not running" })
 			if (method !== "POST" && method !== "DELETE") return sendJson(res, 405, { error: "Method not allowed" })
+			let body: StoredPushSubscription | { endpoint?: unknown }
 			try {
-				const body = JSON.parse(await readBody(req)) as StoredPushSubscription | { endpoint?: unknown }
+				body = JSON.parse(await readBody(req)) as StoredPushSubscription | { endpoint?: unknown }
+			} catch {
+				return sendJson(res, 400, { error: "Invalid JSON body" })
+			}
+			try {
 				if (method === "DELETE") {
 					if (typeof body.endpoint !== "string") return sendJson(res, 400, { error: "endpoint is required" })
 					return sendJson(res, 200, await this.notifications.unsubscribe(body.endpoint))
 				}
 				return sendJson(res, 200, await this.notifications.subscribe(body as StoredPushSubscription))
 			} catch (err) {
-				return sendJson(res, 400, { error: err instanceof Error ? err.message : "Invalid JSON body" })
+				const message = err instanceof Error ? err.message : String(err)
+				return sendJson(res, message === "Invalid push subscription" ? 400 : 503, { error: message })
 			}
 		}
 
@@ -1024,14 +1086,24 @@ export class UiServer {
 				}
 				const receiptId = native ? randomUUID() : undefined
 				const nativeReceipt = receiptId ? this.waitForNativeNotificationReceipt(receiptId) : undefined
-				const delivery = await this.notifications.test({ endpoint, native, push: !native, receiptId })
+				let delivery: PushDelivery
+				try {
+					delivery = await this.notifications.test({ endpoint, native, push: !native, receiptId })
+				} catch (err) {
+					if (receiptId) this.cancelNativeNotificationReceipt(receiptId)
+					return sendJson(res, 503, {
+						error: `Notifications are temporarily unavailable: ${err instanceof Error ? err.message : String(err)}`,
+					})
+				}
 				const nativeReceived = nativeReceipt && (await nativeReceipt) ? 1 : 0
 				if (delivery.pushSent + nativeReceived === 0) {
 					return sendJson(res, delivery.pushFailed > 0 ? 502 : 409, {
 						error:
 							delivery.pushFailed > 0
 								? "The notification service could not deliver to this device"
-								: "The desktop app did not confirm displaying the notification",
+								: endpoint
+									? "This browser is no longer subscribed"
+									: "The desktop app did not confirm displaying the notification",
 						...delivery,
 						nativeClients,
 						nativeReceived,
@@ -1063,14 +1135,7 @@ export class UiServer {
 			if (this.mode !== "operator" || !this.notifications)
 				return sendJson(res, 409, { error: "Filler is not running" })
 			if (method !== "GET") return sendJson(res, 405, { error: "Method not allowed" })
-			res.writeHead(200, {
-				"Content-Type": "text/event-stream",
-				"Cache-Control": "no-store",
-				Connection: "keep-alive",
-			})
-			res.write(":ok\n\n")
-			this.notificationClients.add(res)
-			req.on("close", () => this.notificationClients.delete(res))
+			openSseStream(req, res, this.notificationClients)
 			return
 		}
 
@@ -1190,14 +1255,7 @@ export class UiServer {
 		if (path === "/api/events") {
 			if (this.mode !== "operator") return sendJson(res, 409, { error: "Filler is not running" })
 			if (method !== "GET") return sendJson(res, 405, { error: "Method not allowed" })
-			res.writeHead(200, {
-				"Content-Type": "text/event-stream",
-				"Cache-Control": "no-store",
-				Connection: "keep-alive",
-			})
-			res.write(":ok\n\n")
-			this.sseClients.add(res)
-			req.on("close", () => this.sseClients.delete(res))
+			openSseStream(req, res, this.sseClients)
 			return
 		}
 

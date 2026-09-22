@@ -36,8 +36,8 @@ async function precacheAppShell() {
 	// complete shell, rather than relying on a second online page load.
 	const response = await fetch("./index.html", { cache: "no-store" })
 	const html = await response.text()
-	const entryUrls = Array.from(html.matchAll(/(?:src|href)=["']([^"']+)["']/g), (match) => match[1]).filter(
-		(path) => path.startsWith("./assets/"),
+	const entryUrls = Array.from(html.matchAll(/(?:src|href)=["']([^"']+)["']/g), (match) => match[1]).filter((path) =>
+		path.startsWith("./assets/"),
 	)
 	await cache.addAll(entryUrls)
 }
@@ -48,7 +48,8 @@ self.addEventListener("fetch", (event) => {
 	if (requestUrl.origin !== self.location.origin) return
 	// API responses contain live balances, status, and operator data. They must
 	// never become stale offline cache entries.
-	if (requestUrl.pathname === "/api" || requestUrl.pathname.startsWith("/api/") || requestUrl.pathname === "/health") return
+	if (requestUrl.pathname === "/api" || requestUrl.pathname.startsWith("/api/") || requestUrl.pathname === "/health")
+		return
 
 	if (event.request.mode === "navigate") {
 		event.respondWith(
@@ -106,9 +107,11 @@ self.addEventListener("notificationclick", (event) => {
 	event.waitUntil(
 		self.clients.matchAll({ type: "window", includeUncontrolled: true }).then(async (windows) => {
 			for (const client of windows) {
-				if (new URL(client.url).origin === self.location.origin) {
-					await client.navigate(target)
-					return client.focus()
+				try {
+					const navigated = await client.navigate(target)
+					if (navigated) return navigated.focus()
+				} catch {
+					// Uncontrolled windows can reject navigation; open a fresh app window below.
 				}
 			}
 			return self.clients.openWindow(target)

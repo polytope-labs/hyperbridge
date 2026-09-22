@@ -9,6 +9,7 @@ import { assertConfirmationCoverage, validateConfig, type FillerConfigFile, type
 import { AssetRegistry } from "@/config/asset-registry"
 import { assertPairSymbolsResolve } from "@/config/pairs"
 import { DEFAULT_CONFIRMATION_POLICIES, parseChainKey } from "@/config/interpolated-curve"
+import { DEFAULT_ORDERBOOK_URLS, RETIRED_ORDERBOOK_URLS } from "@/config/defaults"
 import { validateSignerConfig, type SignerConfig } from "@/services/wallet"
 import { validateRpcUrls } from "@/services/FillerConfigService"
 import { emitFillerToml, writeConfigFileAtomic } from "../emit-toml"
@@ -141,7 +142,19 @@ export function assembleConfig(state: WizardState): FillerConfigFile {
 		rebalancing,
 		vault: hasVault ? vault : undefined,
 		allowlist: scrubbedAllowlist,
+		orderbook: orderbookFor(state, base.orderbook),
 	}
+}
+
+/**
+ * An operator's own orderbook survives an update run. A built-in default, a retired one, or
+ * none becomes the selected network's default, so a config first written for one network and
+ * updated for the other does not keep the wrong book, and none keeps a host that is gone.
+ */
+function orderbookFor(state: WizardState, current: FillerConfigFile["orderbook"]): FillerConfigFile["orderbook"] {
+	const builtIn = [...Object.values(DEFAULT_ORDERBOOK_URLS), ...RETIRED_ORDERBOOK_URLS]
+	if (current && !builtIn.includes(current.url)) return current
+	return { ...current, url: DEFAULT_ORDERBOOK_URLS[state.network] }
 }
 
 function chainComments(state: WizardState): string[] {
@@ -197,11 +210,9 @@ function warnUncoveredPassthroughChains(state: WizardState, prefill?: Prefill): 
  */
 export function startFiller(configPath: string): Promise<never> {
 	return new Promise(() => {
-		const child = spawn(
-			process.execPath,
-			[...process.execArgv, process.argv[1], "run", "-c", configPath],
-			{ stdio: "inherit" },
-		)
+		const child = spawn(process.execPath, [...process.execArgv, process.argv[1], "run", "-c", configPath], {
+			stdio: "inherit",
+		})
 		child.on("exit", (code) => process.exit(code ?? 0))
 		child.on("error", (error) => {
 			log.error(`Failed to start the filler: ${error.message}`)

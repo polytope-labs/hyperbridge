@@ -1,4 +1,4 @@
-import { DEFAULT_ORDERBOOK_URL } from "@/config/defaults"
+import { DEFAULT_ORDERBOOK_URLS } from "@/config/defaults"
 import { ChainConfigService, type HexString } from "@hyperbridge/sdk"
 import { AssetRegistry, normalizeSymbol, registrySymbols, USD_STABLE_SYMBOLS } from "@/config/asset-registry"
 import type { PairConfig } from "@/config/pairs"
@@ -103,10 +103,13 @@ export function migrateLegacyConfig(config: FillerTomlConfig): string[] {
 
 	delete legacy.strategies
 	config.pairs = pairs
-	// A legacy config predates the orderbook, and simplex has no prices without one.
+	// A legacy config predates the orderbook, and simplex has no prices without one. The
+	// wizard swaps this default for the selected network's before it writes the file.
 	if (!config.orderbook) {
-		config.orderbook = { url: DEFAULT_ORDERBOOK_URL }
-		notes.push(`Added [orderbook] pointing at ${DEFAULT_ORDERBOOK_URL}; simplex prices fills from limit orders there.`)
+		config.orderbook = { url: DEFAULT_ORDERBOOK_URLS.mainnet }
+		notes.push(
+			`Added [orderbook] pointing at ${DEFAULT_ORDERBOOK_URLS.mainnet}; the wizard switches it to the selected network's orderbook.`,
+		)
 	}
 	if (Object.keys(confirmationPolicies).length > 0) {
 		config.confirmationPolicies = confirmationPolicies

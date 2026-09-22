@@ -1,0 +1,296 @@
+---
+title: Querying the Orderbook
+description: Read rates, spreads, depth, liquidity, quotes, and price history directly from the HyperFX orderbook's GraphQL API.
+---
+
+# Querying the Orderbook
+
+The HyperFX orderbook holds the quotes solvers post for Intent Gateway swaps. Each order is a solver's signed commitment to a rate and a size on one chain. The order is checked against the solver's balance before it counts toward liquidity. The SDK's [`quoteIntent`, `queryAvailableLiquidity` and `queryBuyAndSellRates`](/developers/sdk/api/intent-gateway#quoteintentparams) read from this orderbook. This page covers querying it directly.
+
+The API is GraphQL over HTTP. Each network has its own deployment; send a `POST` with a JSON body to its URL:
+
+| Network | Endpoint | Chains |
+|---|---|---|
+| Mainnet | `https://orderbook.hyperfx.finance/mainnet/graphql` | Mainnet chains, such as `EVM-8453` (Base) and `EVM-56` (BNB Chain) |
+| Testnet | `https://orderbook.hyperfx.finance/testnet/graphql` | `EVM-97` (BSC Chapel) and `EVM-80002` (Polygon Amoy) |
+
+```bash
+curl -s https://orderbook.hyperfx.finance/testnet/graphql \
+  -H 'content-type: application/json' \
+  -d '{"query":"{ books { id base quote bestBid bestAsk spread mid } }"}'
+```
+
+Everything on this page is a read-only query. No authentication is needed. The examples use mainnet chain IDs; against the testnet deployment, substitute `EVM-97` and `EVM-80002`.
+
+## Conventions
+
+| | |
+|---|---|
+| **Tokens** | Named by symbol: `USDC`, `USDT`, `cNGN`. Symbols are case-sensitive. |
+| **Chains** | Named by state machine id: `EVM-8453` for Base, `EVM-56` for BNB Chain. |
+| **Amounts** | `BigInt` strings, fixed-point at **1e18 whatever the token's decimals**. `"1000000000000000000000"` is 1,000 USDC on every chain, even where USDC has 6 decimals. |
+| **Rates** | Always **quote per 1 base** at 1e18, on both sides of a book. A USDC/cNGN book reads about 1,500 whichever way you trade. |
+| **Fees** | Rates already include the Intent Gateway protocol fee. Do not deduct it again. |
+
+### Books, bases, and sides
+
+A book is a pair, `BASE-QUOTE`, such as `USDC-cNGN`. The direction of a swap picks the side of the book it trades against:
+
+| Swap | Side | Best price | Solver pays out |
+|---|---|---|---|
+| Sell base for quote (`USDC → cNGN`) | `BID` | The **highest** bid | quote |
+| Buy base with quote (`cNGN → USDC`) | `ASK` | The **lowest** ask | base |
+
+Queries that take a `tokenIn` and a `tokenOut` work out the side for you. Every `RateEntry` also returns `base` and `quote`, so you can read a rate's units from the response.
+
+### Routes
+
+A route is `(tokenIn, tokenOut, sourceChain, destinationChain)`. The destination is the chain the solver fills on and where the swapper receives `tokenOut`.
+
+- A **same-chain** route (source = destination) can use every order on that chain.
+- A **cross-chain** route can only use orders whose solver has signed a declaration accepting the source chain.
+
+The `sourceChain` argument on the rate and book queries applies this filter.
+
+### Virtual and true liquidity
+
+- **Virtual depth** (`depthIn`, `depthOut`, `baseSize`, `quoteSize`) sums every surfaced order's size. One balance can back several orders, so this can exceed what solvers hold.
+- **True liquidity** (`availableLiquidity`, `backingLiquidity`, `liquidity`) counts each solver once: its largest order that a balance check has confirmed. Use it when you need to know what can actually be delivered.
+
+## Discover what is traded
+
+```graphql
+{
+  books { id base quote }
+  chains { id name tokens { symbol decimals } }
+  serverInfo {
+    chains
+    minOrderSizes { symbol size }
+    priceGranularities { book granularity }
+  }
+}
+```
+
+- `chains` lists every chain the orderbook serves and the tokens registered on each, with their decimals on that chain. Use the decimals to convert 1e18 amounts to raw token units.
+- `minOrderSizes` is the smallest order each token can be quoted in.
+- `priceGranularities` is the bucket width orders are grouped into levels by.
+
+## Best bid, best ask, and the spread
+
+Every book reports its top of book across all fill chains:
+
+```graphql
+{
+  book(id: "USDC-cNGN") {
+    bestBid
+    bestAsk
+    spread
+    mid
+  }
+}
+```
+
+- `spread` is `bestAsk − bestBid`. It is `null` when a side is empty, or when the book is crossed: the best bid and the best ask can sit on different fill chains.
+- `mid` is the midpoint of the two, rounded down. It is still reported for a crossed book.
+
+The spread in basis points is `spread × 10,000 / mid`. For example, a bid of 1,577.21 and an ask of 1,600.80 give a spread of 23.59, which is 148 bps of the 1,589.01 mid.
+
+### The spread a specific route can reach
+
+The book's top of book spans every chain. For one route, ask for the best rate in each direction on the fill chain, restricted to orders that serve the source chain:
+
+```graphql
+{
+  bid: bestRate(tokenIn: "USDC", tokenOut: "cNGN", fillChain: "EVM-8453", sourceChain: "EVM-56") {
+    rate side fillChain backingLiquidity
+  }
+  ask: bestRate(tokenIn: "cNGN", tokenOut: "USDC", fillChain: "EVM-8453", sourceChain: "EVM-56") {
+    rate side fillChain backingLiquidity
+  }
+}
+```
+
+Either result is `null` when no order serves that direction. `ask.rate − bid.rate` is the route's spread. A negative difference means the route is crossed.
+
+## Rates
+
+`bestRate` returns the best price level for a direction. `rates` returns every level, best first: asks ascending, bids descending.
+
+```graphql
+{
+  bestRate(tokenIn: "USDC", tokenOut: "cNGN") {
+    base quote side fillChain rate depthIn depthOut backingLiquidity sourceChains orderCount solverCount
+  }
+  rates(tokenIn: "USDC", tokenOut: "cNGN", fillChain: "EVM-8453", limit: 10) {
+    fillChain priceBucket rate aggregateRate worstRate depthOut backingLiquidity orderCount solverCount
+  }
+}
+```
+
+A `RateEntry` is one price level on one fill chain:
+
+| Field | Meaning |
+|---|---|
+| `rate` | The level's best single-order price. This is the rate served for the level. |
+| `worstRate` | The level's worst single-order price. |
+| `aggregateRate` | For information only: the average of each solver's best price in the level. |
+| `depthIn`, `depthOut` | Virtual depth of the level, in `tokenIn` and `tokenOut`. |
+| `backingLiquidity` | True liquidity of the level, in `tokenOut`. |
+| `sourceChains` | Every source chain the level's orders accept. |
+
+Optional arguments narrow the orders that are counted:
+
+- `fillChain`: only levels on that chain.
+- `sourceChain`: only orders a swap from that chain can use.
+- `minSize` (1e18, in `tokenOut`): only levels holding an order that pays out at least that much. Use it to skip levels too small for your trade.
+- `limit` (`rates` only): at most this many levels, up to 1,000. The default is 100.
+
+## Available liquidity
+
+`routeLiquidity` summarises everything that can serve a route, with no amount given:
+
+```graphql
+{
+  routeLiquidity(route: {
+    tokenIn: "USDC"
+    tokenOut: "cNGN"
+    sourceChain: "EVM-56"
+    destinationChain: "EVM-8453"
+  }) {
+    route bestRate depthIn depthOut availableLiquidity maxFillableIn orderCount solverCount
+  }
+}
+```
+
+- `availableLiquidity` is true liquidity in `tokenOut`.
+- `maxFillableIn` is the largest `tokenIn` amount the route could fill with its orders combined. Use it to cap a swap form's input.
+
+For one side of a book, optionally narrowed to a chain, use `availableLiquidity` on the book. It is denominated in the token that side pays out: quote for `BID`, base for `ASK`.
+
+```graphql
+{
+  book(id: "USDC-cNGN") {
+    bidLiquidity: availableLiquidity(side: BID, fillChain: "EVM-8453")
+    askLiquidity: availableLiquidity(side: ASK, fillChain: "EVM-8453")
+  }
+}
+```
+
+To total the balances solvers hold, per chain and token, read the `totals` of `balances`:
+
+```graphql
+{
+  balances(filter: { chain: "EVM-8453", symbol: "cNGN" }, first: 1) {
+    totals { chain symbol total liquidity solvers }
+  }
+}
+```
+
+`total` is what solvers hold, wallets and ERC-4626 vaults combined. `liquidity` is how much of it they have offered in orders the orderbook has checked. `totals` covers the whole filter, not just the returned page.
+
+## Order book depth
+
+`book.levels` returns the ladder for one side: one entry per fill chain and price bucket, best price first.
+
+```graphql
+{
+  book(id: "USDC-cNGN") {
+    bids: levels(side: BID, fillChain: "EVM-8453") {
+      price worstPrice baseSize quoteSize orderCount solverCount
+    }
+    asks: levels(side: ASK, fillChain: "EVM-8453") {
+      price worstPrice baseSize quoteSize orderCount solverCount
+    }
+  }
+}
+```
+
+`baseSize` and `quoteSize` are the level's virtual depth in each token. Running totals of them give a depth chart.
+
+## Quote an amount
+
+`quote` prices an exact input on a route. The price is the **clearing price**: the best price at which the orders at that price or better can fill the whole amount together. One trade can combine several solvers' orders.
+
+```graphql
+{
+  quote(
+    route: { tokenIn: "USDC", tokenOut: "cNGN", sourceChain: "EVM-56", destinationChain: "EVM-8453" }
+    amountIn: "1000000000000000000000"
+  ) {
+    side rate amountIn amountOut fillable depth maxFillableIn
+    fills { orderRate amountOut advertisedSize }
+  }
+}
+```
+
+- `amountIn` is floored to a whole raw unit of `tokenIn` on the source chain. `amountOut` is floored to a whole raw unit of `tokenOut` on the destination.
+- When the route cannot fill the amount, `fillable` is `false`, `rate` is `null` and `amountOut` is `0`. `maxFillableIn` then says how much it could fill.
+- An `amountIn` below one raw unit of `tokenIn` is an error.
+
+`quote` only takes an input amount. To price an exact output, compute the input from `routeLiquidity.bestRate`, then quote it. If the quote falls short of the output you need, raise the input at the returned `rate` and quote again. `quoteIntent` in the SDK does this for you.
+
+## Price history
+
+Each validation cycle records the book's top of book, depth and liquidity, on each fill chain and across chains. Recorded history is kept for 30 days.
+
+`rateBars` returns OHLC bars of the best bid (`BEST_BID`), the best ask (`BEST_ASK`) or the mid (`MID`). Intervals are `M1`, `M5`, `M15`, `H1`, `H4` and `D1`, and a request can return at most 1,000 bars:
+
+```graphql
+{
+  rateBars(
+    book: "USDC-cNGN"
+    fillChain: "EVM-8453"
+    series: MID
+    interval: H1
+    from: "2026-09-21T00:00:00Z"
+    to: "2026-09-22T00:00:00Z"
+  ) {
+    time open high low close bidLiquidity askLiquidity
+  }
+}
+```
+
+A bar's prices are `null` when the series had no value during it, for example while a side of the book was empty.
+
+`bookHistory` returns the raw recorded points, oldest first, 50 per page by default and up to 500. Leave out `fillChain` to get the book across all chains:
+
+```graphql
+{
+  bookHistory(book: "USDC-cNGN", from: "2026-09-21T00:00:00Z", to: "2026-09-22T00:00:00Z", first: 100) {
+    edges { node { recordedAt bestBid bestAsk mid spread bidLiquidity askLiquidity bidSolvers askSolvers } }
+    pageInfo { hasNextPage endCursor }
+  }
+}
+```
+
+## From TypeScript
+
+Any GraphQL client works. The SDK exports a typed client, `HyperFxOrderbook`, for the queries it uses. It returns amounts and rates as 1e18 `bigint`s:
+
+```typescript lineNumbers
+import { HyperFxOrderbook, orderbookUrlFor } from "@hyperbridge/sdk"
+import { formatUnits } from "viem"
+
+// The deployment serving Base. With no argument, HyperFxOrderbook uses the mainnet one.
+const orderbook = new HyperFxOrderbook(orderbookUrlFor("EVM-8453"))
+
+const { book, bid, ask } = await orderbook.topOfBook({
+  tokenA: "USDC",
+  tokenB: "cNGN",
+  fillChain: "EVM-8453",
+  sourceChain: "EVM-56",
+})
+if (bid && ask) {
+  console.log(`${book.quote} per ${book.base}: bid ${formatUnits(bid.rate, 18)}, ask ${formatUnits(ask.rate, 18)}`)
+}
+
+const liquidity = await orderbook.routeLiquidity({
+  tokenIn: "USDC",
+  tokenOut: "cNGN",
+  sourceChain: "EVM-56",
+  destinationChain: "EVM-8453",
+})
+console.log("Max input:", formatUnits(liquidity.maxFillableIn, 18), "USDC")
+```
+
+To convert a 1e18 amount to a token's raw units, divide by `10^(18 − decimals)`, using the decimals `chains` reports for that token on that chain. To go the other way, multiply.

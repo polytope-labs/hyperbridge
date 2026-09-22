@@ -11,10 +11,8 @@ import { FAILURE_CODES, MESSAGE_REJECTION_CODES, REJECTION_CODES } from "@/order
  * Refresh it with
  * `gh api repos/polytope-labs/hyperfx-orderbook/contents/schema.graphql -q .content | base64 -d`.
  *
- * A copy that has fallen behind still passes everything below, which is the one
- * failure this file exists to prevent, so `.github/workflows/check-orderbook-schema.yml`
- * compares it with the server on a schedule and on any change to this package's
- * orderbook code.
+ * A copy that has fallen behind still passes everything below, so refresh it
+ * whenever the orderbook's schema changes.
  *
  * Every other test in this package answers the client from a stub that never
  * reads a query, so a field renamed on the server, an argument of the wrong

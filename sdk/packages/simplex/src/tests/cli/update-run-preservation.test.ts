@@ -6,6 +6,7 @@ import { validateConfig, type FillerConfigFile } from "@/config/filler-toml"
 import { SignerType } from "@/services/wallet"
 import { newWizardState } from "@/cli/init/state"
 import { INIT_CHAINS } from "@/cli/init/chains"
+import { DEFAULT_ORDERBOOK_URLS } from "@/config/defaults"
 
 /**
  * An update run (`simplex init` over an existing config) must preserve every
@@ -14,7 +15,7 @@ import { INIT_CHAINS } from "@/cli/init/chains"
  */
 describe("CLI wizard update run", () => {
 	const existing: FillerConfigFile = {
-		orderbook: { url: "https://orderbook.hyperbridge.network/graphql" },
+		orderbook: { url: "https://orderbook.example/graphql" },
 		simplex: {
 			signer: { type: SignerType.PrivateKey, key: "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d" },
 			maxConcurrentOrders: 7,
@@ -174,5 +175,40 @@ describe("CLI wizard update run", () => {
 		const config = JSON.parse(JSON.stringify(existing)) as FillerConfigFile
 		config.rebalancing = { triggerPercentage: 0.2 } as FillerConfigFile["rebalancing"]
 		expect(() => emitFillerToml(config)).not.toThrow()
+	})
+
+	it("writes the selected network's orderbook on a fresh run", () => {
+		const state = newWizardState()
+		state.network = "testnet"
+		state.chains = [{ meta: INIT_CHAINS.find((c) => c.chainId === 97)!, rpcUrls: ["https://bsc.example/rpc"], bundlerUrl: "https://bundler.example" }]
+		state.signer = existing.simplex.signer
+		expect(assembleConfig(state).orderbook).toEqual({ url: DEFAULT_ORDERBOOK_URLS.testnet })
+	})
+
+	it("swaps a built-in default orderbook for the selected network's and keeps its other settings", () => {
+		const state = newWizardState()
+		state.network = "testnet"
+		state.prefillConfig = JSON.parse(
+			JSON.stringify({ ...existing, orderbook: { url: DEFAULT_ORDERBOOK_URLS.mainnet, defaultTtlSecs: 3600 } }),
+		)
+		state.signer = existing.simplex.signer
+		expect(assembleConfig(state).orderbook).toEqual({ url: DEFAULT_ORDERBOOK_URLS.testnet, defaultTtlSecs: 3600 })
+	})
+
+	it("replaces a retired default orderbook with the selected network's", () => {
+		const state = newWizardState()
+		state.prefillConfig = JSON.parse(
+			JSON.stringify({ ...existing, orderbook: { url: "https://orderbook.hyperbridge.network/graphql" } }),
+		)
+		state.signer = existing.simplex.signer
+		expect(assembleConfig(state).orderbook).toEqual({ url: DEFAULT_ORDERBOOK_URLS.mainnet })
+	})
+
+	it("keeps an operator's own orderbook whatever the network", () => {
+		const state = newWizardState()
+		state.network = "testnet"
+		state.prefillConfig = JSON.parse(JSON.stringify(existing))
+		state.signer = existing.simplex.signer
+		expect(assembleConfig(state).orderbook).toEqual(existing.orderbook)
 	})
 })

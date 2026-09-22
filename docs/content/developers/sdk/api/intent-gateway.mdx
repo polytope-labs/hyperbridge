@@ -173,140 +173,140 @@ while (true) {
 
 ---
 
+### withOrderbook(orderbook)
+
+By default, `quoteIntent`, `queryAvailableLiquidity` and `queryBuyAndSellRates` read the HyperFX orderbook deployment for the destination chain's network:
+
+- `https://orderbook.hyperfx.finance/testnet/graphql` for testnet chains;
+- `https://orderbook.hyperfx.finance/mainnet/graphql` for everything else.
+
+`withOrderbook` points them at another orderbook. Returns `this` for chaining.
+
+```typescript lineNumbers
+withOrderbook(orderbook: string | HyperFxOrderbook): this
+```
+
+```typescript lineNumbers
+const gateway = (await IntentGateway.create(source, dest)).withOrderbook("https://orderbook.example/graphql")
+```
+
+To query the orderbook without a gateway, see [Querying the Orderbook](/developers/evm/intent-gateway/orderbook).
+
 ### quoteIntent(params)
 
-Quotes an intent from the latest aggregate pool buy or sell rate published by the indexer. The pool rate is depth-weighted from fresh chain samples. Pass token addresses directly—the SDK resolves their configured symbols and decimals. No `strategy` option is needed for indexed-rate quotes.
-
-Indexed-rate quotes require an attached Hyperbridge indexer client. There is no automatic fallback to another price source.
-
-Use `amountIn` and `amountOut` when constructing the `inputs` and `output.assets` for an IntentGateway V2 order.
+Quotes an intent from the HyperFX orderbook. Pass token addresses on the gateway's source and destination chains. The SDK resolves their symbols and decimals from its chain configuration. Provide exactly one of `amountIn` or `amountOut`, in raw token units.
 
 ```typescript lineNumbers
-import { createQueryClient, IntentGateway } from "@hyperbridge/sdk";
-
-const gateway = (await IntentGateway.create(source, dest)).withQueryClient(
-  createQueryClient({ url: "https://nexus.indexer.polytope.technology" }),
-);
-
-const quote = await gateway.quoteIntent({
-  tokenIn: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
-  tokenOut: "0x46C85152bFe9f96829aA94755D9f915F9B10EF5F",
-  amountIn: 100_000_000n,
-});
-
-console.log(quote.amountIn, quote.amountOut);
-if (quote.strategy === "indexed_rates") {
-  console.log(quote.quoteMetadata.rateSide, quote.quoteMetadata.rate);
-}
+async quoteIntent(params: {
+  tokenIn: HexString
+  tokenOut: HexString
+  amountIn?: bigint
+  amountOut?: bigint
+}): Promise<QuoteIntentResult>
 ```
-
-The order's source and destination chains select the configured token deployments. The SDK uses the pool's indexed buy rate when the order buys the quote token with the base token, and the indexed sell rate for the reverse direction. If that direction has no indexed rate, the quote fails clearly instead of using a different market.
-
-The previous Phantom snapshot source remains available with `strategy: "phantom_snapshot"`. Pass `strategy: "uniswap_v4"` only when explicitly requesting a Uniswap quote.
-
-For non-Phantom pairs whose pools are not configured by the SDK, pass an explicit Uniswap V4 PoolKey:
 
 ```typescript lineNumbers
+import { IntentGateway } from "@hyperbridge/sdk"
+
+const gateway = await IntentGateway.create(source, dest)
+
 const quote = await gateway.quoteIntent({
-  strategy: "uniswap_v4",
-  tokenIn,
-  tokenOut,
-  amountOut: 50_000_000n,
-  uniswapV4: {
-    poolKey: {
-      currency0: "0x...",
-      currency1: "0x...",
-      fee: 1500,
-      tickSpacing: 30,
-      hooks: "0x0000000000000000000000000000000000000000",
-      quoterAddress: "0x0d5e0f971ed27fbff6c2837bf31316121532048d",
-    },
-  },
-});
+  tokenIn: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", // USDC on Base
+  tokenOut: "0x46C85152bFe9f96829aA94755D9f915F9B10EF5F", // cNGN on Base
+  amountIn: 100_000_000n, // 100 USDC
+})
+
+console.log(quote.amountIn, quote.amountOut)
+console.log(`${quote.quoteMetadata.rate} ${quote.quoteMetadata.quoteTokenSymbol} per ${quote.quoteMetadata.baseTokenSymbol}`)
 ```
 
-When passing an explicit PoolKey for cross-chain Uniswap quotes, also pass `currencyIn` inside the `poolKey` override — the Base-side address of the input currency. It defaults to `tokenIn`, which only works when that address is part of the Base pool, and must equal `currency0` or `currency1`.
+- **Exact input:** the quote is the orderbook's clearing price for `amountIn`. That is the best price at which the orders at that price or better can fill the whole amount together, which may combine several solvers' orders.
+- **Exact output:** the SDK finds the smallest input whose clearing price delivers `amountOut`, rounded up to a whole raw unit of `tokenIn`.
+- **Cross-chain routes** only count orders whose solvers accept swaps from the source chain.
 
-The result includes `amountIn`, `amountOut`, and strategy-specific quote metadata. Indexed-rate metadata contains the source and destination chains, base and quote symbols, the buy or sell rate used, its update time, and the source-chain protocol fee.
+Use `amountIn` and `amountOut` as the order's `inputs` and `output.assets`. The orderbook's rates already include the IntentGateway protocol fee, so do not deduct it again.
 
-`amountIn` and `amountOut` already account for the IntentGateway protocol fee that the gateway deducts from order inputs. Exact-input quotes price the swap against the post-fee input, so `amountOut` is the snapshot-priced output; exact-output quotes return the gross `amountIn` required to produce the requested `amountOut`. Use the returned amounts directly as the order's `inputs` and `output.assets`—no further fee or slippage adjustment is required.
+`quoteMetadata` contains:
 
-For exact-input quotes, the SDK deducts the gateway fee before applying the directional rate. For exact-output quotes, it calculates the required net input from that rate and then grosses the input up for the gateway fee. Token decimals are read from SDK chain configuration. A missing indexer, missing directional rate, or invalid rate throws an explicit error.
+| Field | Description |
+|-------|-------------|
+| `sourceChain`, `destinationChain` | The route's chains |
+| `route` | `SAME_CHAIN`, or `CROSS_CHAIN` |
+| `side` | `BID` when the order sells the book's base token, `ASK` when it buys it |
+| `baseTokenSymbol`, `quoteTokenSymbol` | The units of `rate` |
+| `rate` | The clearing price, in quote-token units per one base token |
+| `maxFillableIn` | The largest `amountIn` the route can fill right now, in raw source-token units |
+| `orderCount` | How many orders the quote combines |
+
+**Errors:**
+- `InsufficientOrderbookLiquidityError` when the route cannot fill the amount. Its `maxFillableIn` holds the largest input it can fill.
+- `OrderbookRequestError` when the orderbook cannot be reached, or trades no book for the pair.
+- `UnsupportedLiquidityAssetError` or `UnsupportedLiquidityChainError` when a token or chain is not in the SDK's configuration.
 
 ### queryAvailableLiquidity(params)
 
-Returns output-token liquidity from the indexer's latest pair-centric pool
-sample. The result reports destination capacity, unrestricted capacity, and the
-matching explicit cross-chain route separately. The SDK does not decide whether
-the source chain is covered by the legacy unrestricted-bidder policy.
+Returns what the orderbook holds for a swap of `tokenIn` on the source chain for `tokenOut` on the destination chain, with no amount given.
 
 ```typescript lineNumbers
-import { createQueryClient, IntentGateway } from "@hyperbridge/sdk"
+async queryAvailableLiquidity(params: {
+  tokenIn: HexString
+  tokenOut: HexString
+}): Promise<AvailableLiquidity>
+```
 
-const gateway = (await IntentGateway.create(source, dest)).withQueryClient(
-  createQueryClient({ url: "https://nexus.indexer.polytope.technology" }),
-)
-
+```typescript lineNumbers
 const liquidity = await gateway.queryAvailableLiquidity({
   tokenIn: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
   tokenOut: "0x46C85152bFe9f96829aA94755D9f915F9B10EF5F",
 })
 
-if (liquidity) {
-  console.log("Destination:", liquidity.destination.totalLiquidity)
-  console.log("Unrestricted:", liquidity.unrestricted.totalLiquidity)
-  console.log("Explicit route:", liquidity.explicitRoute?.totalLiquidity ?? "none")
-  console.log("Updated at:", liquidity.updatedAt)
-}
+console.log("Deliverable:", liquidity.availableLiquidity, liquidity.tokenOutSymbol)
+console.log("Largest input:", liquidity.maxFillableIn, liquidity.tokenInSymbol)
 ```
 
-```typescript
-async queryAvailableLiquidity(params: {
-  tokenIn: HexString
-  tokenOut: HexString
-}): Promise<AvailableLiquidity | undefined>
-```
+Amounts are decimal strings in whole tokens.
 
-Each liquidity value is a decimal string formatted from the indexer's
-18-decimal normalized depth. `destination` is the complete destination-chain
-capacity. `unrestricted` is the subset from bidders without an accepted-source
-declaration. `explicitRoute` is the capacity from bidders that explicitly accept
-the requested source chain, or `null` when there is no such route. Consumers can
-combine the explicit and unrestricted slices when their transport policy allows
-it.
+| Field | Description |
+|-------|-------------|
+| `route`, `side` | The route kind, and the side of the book it trades against |
+| `baseTokenSymbol`, `quoteTokenSymbol` | The units of `bestRate` |
+| `bestRate` | The best rate serving the route, or `null` when no order serves it |
+| `availableLiquidity` | True liquidity in `tokenOut`: each serving solver's largest balance-checked order, summed |
+| `depthIn`, `depthOut` | Virtual depth: every serving order's size summed. One balance can back several orders, so this can exceed `availableLiquidity`. |
+| `maxFillableIn` | The largest `tokenIn` amount the route can fill with its orders combined |
+| `orderCount`, `solverCount` | How many orders and solvers serve the route |
 
-This is indexed availability, not reserved liquidity or a fill guarantee. The
-method returns `undefined` only when the destination has no indexed pool sample.
+These figures describe the live book. They are not reservations or fill guarantees.
 
 ### queryBuyAndSellRates(params)
 
-Returns the indexer's aggregate buy and sell rates for a token pool. Callers
-provide token symbols and numeric chain IDs; token addresses and canonical
-symbol casing are resolved internally from the SDK configuration.
+Returns the orderbook's best bid and ask for a token pair, with the mid and the spread. Pass token symbols and numeric chain IDs; the SDK resolves addresses and canonical symbol casing from its configuration. Only orders filled on the destination chain that accept swaps from the source chain are counted.
 
 ```typescript lineNumbers
 const rates = await gateway.queryBuyAndSellRates({
   tokenInSymbol: "USDC",
   tokenOutSymbol: "cNGN",
-  sourceChainId: 1,
+  sourceChainId: 56,
   destinationChainId: 8453,
 })
 
-if (rates) {
-  console.log(`${rates.quoteTokenSymbol} per ${rates.baseTokenSymbol}`)
-  console.log("Buy rate:", rates.buyRate)
-  console.log("Sell rate:", rates.sellRate)
-}
+console.log(`${rates.quoteTokenSymbol} per ${rates.baseTokenSymbol}`)
+console.log("Bid:", rates.bid, "Ask:", rates.ask, "Spread:", rates.spreadBps, "bps")
 ```
 
-Both rates use the less valuable token as the quote currency. For USDC/cNGN,
-both values are therefore cNGN per one USDC. Nexus depth-weights fresh per-chain
-samples into the pool's `buyRate` and `sellRate`; the SDK orients those fields
-into the same units. Either rate and its matching timestamp can be `null` when
-that pool direction has not been priced.
+Every value is in quote-token units per one base token, as the orderbook's book defines them. For USDC/cNGN, that is cNGN per one USDC, whichever way round you name the pair.
 
-Symbol matching is case-insensitive, so `"cNGN"`, `"cngn"`, and `"CNGN"` all
-resolve to the canonical `"cNGN"` pool symbol.
+| Field | Description |
+|-------|-------------|
+| `bid` | The highest bid: what a seller of one base token receives |
+| `ask` | The lowest ask: what a buyer of one base token pays |
+| `mid` | The midpoint of `bid` and `ask` |
+| `spread` | `ask − bid` |
+| `spreadBps` | `spread` over `mid`, in basis points to two decimal places |
+
+`bid` or `ask` is `null` while its side has no orders, and `mid`, `spread` and `spreadBps` are then `null` too. `spread` is also `null` when the book is crossed.
+
+Symbol matching is case-insensitive, so `"cNGN"`, `"cngn"`, and `"CNGN"` all resolve to the canonical `"cNGN"` symbol.
 
 ---
 

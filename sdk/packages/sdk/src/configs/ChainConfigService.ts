@@ -5,7 +5,6 @@ import {
 	hyperbridgeAddress,
 	type ConfiguredAssetSymbol,
 	type Erc4626VaultConfigData,
-	type UniswapV4PoolConfigData,
 } from "@/configs/chain"
 
 export class ChainConfigService {
@@ -216,10 +215,6 @@ export class ChainConfigService {
 
 	getUniswapV4StateViewAddress(chain: string): HexString {
 		return (this.getConfig(chain)?.addresses.UniswapV4StateView ?? "0x") as HexString
-	}
-
-	getUniswapV4PoolConfigs(chain: string): UniswapV4PoolConfigData[] {
-		return this.getConfig(chain)?.uniswapV4Pools ?? []
 	}
 
 	getPermit2Address(chain: string): HexString {

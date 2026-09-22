@@ -147,13 +147,6 @@ export type ConfiguredAssetSymbolInput =
 	| Lowercase<ConfiguredAssetSymbol>
 	| Uppercase<ConfiguredAssetSymbol>
 
-export interface UniswapV4PoolConfigData {
-	tokens: readonly [ConfiguredAssetSymbol, ConfiguredAssetSymbol]
-	fee: number
-	tickSpacing: number
-	hooks?: `0x${string}`
-}
-
 /** A known ERC-4626 vault fillers can use as a stablecoin treasury. */
 export interface Erc4626VaultConfigData {
 	/** Display label, e.g. "Aave stataUSDC" */
@@ -244,7 +237,6 @@ export interface ChainConfigData {
 	consensusStateId: string
 	coingeckoId: string
 	popularTokens?: string[]
-	uniswapV4Pools?: UniswapV4PoolConfigData[]
 	/** Known ERC-4626 treasury vaults on this chain */
 	erc4626Vaults?: Erc4626VaultConfigData[]
 	/** LayerZero Endpoint ID for cross-chain messaging */
@@ -263,10 +255,12 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			DAI: "0x1938165569a5463327fb206be06d8d9253aa06b7",
 			USDC: "0xA801da100bF16D07F668F4A49E1f71fc54D05177",
 			USDT: "0xc043f483373072f7f27420d6e7d7ad269c018e18",
+			cNGN: "0x2bbbd701cfc25d37f18127e51df0933566d5778a",
 		},
 		tokenDecimals: {
 			USDC: 18,
 			USDT: 18,
+			cNGN: 6,
 		},
 		tokenStorageSlots: {
 			USDC: { balanceSlot: 1, allowanceSlot: 2 },
@@ -631,7 +625,6 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 		consensusStateId: "ETH0",
 		coingeckoId: "base",
 		layerZeroEid: 30184,
-		uniswapV4Pools: [{ tokens: ["USDC", "cNGN"], fee: 1500, tickSpacing: 30 }],
 		erc4626Vaults: [
 			{ label: "Aave stataUSDC", address: "0xC768c589647798a6EE01A91FdE98EF2ed046DBD6", asset: "USDC" },
 			{ label: "Yield Bearing cNGN", address: "0xa82A3531021317240Fb32E67f9c7bC091F737D3b", asset: "cNGN" },
@@ -755,10 +748,12 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			DAI: "0x0000000000000000000000000000000000000000",
 			USDC: "0xBE97E73126D66188d72fbF99029126D0340a7f18",
 			USDT: "0x0000000000000000000000000000000000000000",
+			cNGN: "0xe4ff5d2ae65c10f530c000215029919961e8a758",
 		},
 		tokenDecimals: {
 			USDC: 18,
 			USDT: 18,
+			cNGN: 6,
 		},
 		tokenStorageSlots: {
 			USDT: { balanceSlot: 0, allowanceSlot: 1 },

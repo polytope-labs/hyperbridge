@@ -2,20 +2,13 @@ import "log-timestamp"
 
 import { strict as assert } from "node:assert"
 import { vi } from "vitest"
-import { decodeFunctionData, formatUnits, parseUnits, type PublicClient } from "viem"
+import { decodeFunctionData, parseUnits, type PublicClient } from "viem"
 import { ABI as IntentGatewayV2ABI } from "@/abis/IntentGatewayV2"
-import type { AvailableLiquidity, BuyAndSellRates, FillOrderEstimate, HexString, Order, TokenInfo } from "@/types"
+import type { FillOrderEstimate, HexString, Order, TokenInfo } from "@/types"
 import { EvmChain } from "@/chain"
 import { IntentGateway } from "@/protocols/intents/IntentGateway"
-import { LiquidityEngine } from "@/protocols/intents/LiquidityEngine"
+import { InsufficientOrderbookLiquidityError } from "@/protocols/intents/orderbook/types"
 import { DEFAULT_GRAFFITI } from "@/protocols/intents/types"
-import { createQueryClient } from "@/queryClient"
-import {
-	deductProtocolFee,
-	grossUpForProtocolFee,
-	UNISWAP_INTENT_QUOTE_CHAIN,
-} from "@/protocols/intents/quote/uniswapV4"
-import { divCeil } from "@/protocols/intents/quote/shared"
 import { ChainConfigService } from "@/configs/ChainConfigService"
 import { bytes20ToBytes32 } from "@/utils"
 import { UniswapQuoteEngine, type UniswapQuoteAdapter, type UniswapQuoteToken } from "@/utils/uniswapQuote"
@@ -71,209 +64,121 @@ describe.skip("Uniswap quote helper", () => {
 	})
 })
 
-describe("Intent quote helper", () => {
-	const BASE_CHAIN = "EVM-8453"
-
-	it.skip("applies the gateway protocol fee to quoted amounts", () => {
-		assert.equal(UNISWAP_INTENT_QUOTE_CHAIN, BASE_CHAIN)
-		// 30 bps fee: exact-input nets less to the swap, exact-output grosses up.
-		assert.equal(deductProtocolFee(1_000_000n, 30n), 997_000n)
-		assert.equal(grossUpForProtocolFee(997_000n, 30n), 1_000_000n)
-		// Gross-up rounds up so the post-fee net never falls short.
-		assert.equal(grossUpForProtocolFee(1n, 30n), 2n)
-		// Zero fee is a no-op in both directions.
-		assert.equal(deductProtocolFee(1_000_000n, 0n), 1_000_000n)
-		assert.equal(grossUpForProtocolFee(1_000_000n, 0n), 1_000_000n)
-	})
-
-	it("queries live USDC to cNGN liquidity", async () => {
+// Reads the testnet orderbook the gateway picks for BSC Chapel and Polygon Amoy; HYPERFX_ORDERBOOK_URL
+// points it elsewhere. The book is live and solvers come and go, so each test checks whichever state it
+// finds: prices and amounts while orders serve the route, a consistent "nothing fillable" while none do. BSC_CHAPEL and POLYGON_AMOY override the chains' public RPCs, which rate-limit.
+describe("IntentGateway orderbook reads", () => {
+	it("queries the best bid and ask using only symbols and chain IDs", async () => {
 		const configService = new ChainConfigService()
-		const cNgnAddress = configService.getCNgnAsset(BASE_CHAIN)
-		assert(cNgnAddress, "Expected cNGN to be configured on Base")
-
-		const intentGateway = await createLiveBaseIntentGateway(configService)
-		const liquidity = await intentGateway.queryAvailableLiquidity({
-			tokenIn: configService.getUsdcAsset(BASE_CHAIN),
-			tokenOut: cNgnAddress,
-		})
-
-		assertAndLogLiquidity("USDC → cNGN", liquidity, cNgnAddress)
-	}, 120_000)
-
-	it("queries live cNGN to USDC liquidity", async () => {
-		const configService = new ChainConfigService()
-		const cNgnAddress = configService.getCNgnAsset(BASE_CHAIN)
-		const usdcAddress = configService.getUsdcAsset(BASE_CHAIN)
-		assert(cNgnAddress, "Expected cNGN to be configured on Base")
-
-		const intentGateway = await createLiveBaseIntentGateway(configService)
-		const liquidity = await intentGateway.queryAvailableLiquidity({ tokenIn: cNgnAddress, tokenOut: usdcAddress })
-
-		assertAndLogLiquidity("cNGN → USDC", liquidity, usdcAddress)
-	}, 120_000)
-
-	it("queries the indexed Base USDT to cNGN pool directly", async () => {
-		const configService = new ChainConfigService()
-		const cNgnAddress = configService.getCNgnAsset(BASE_CHAIN)
-		assert(cNgnAddress, "Expected cNGN to be configured on Base")
-
-		const intentGateway = await createLiveBaseIntentGateway(configService)
-		const liquidity = await intentGateway.queryAvailableLiquidity({
-			tokenIn: configService.getUsdtAsset(BASE_CHAIN),
-			tokenOut: cNgnAddress,
-		})
-
-		logLiquidity("USDT → cNGN", liquidity)
-		assert(liquidity, "Expected an indexed Base USDT → cNGN pool sample")
-		assert.equal(liquidity.tokenAddress, cNgnAddress.toLowerCase())
-		assert(!Number.isNaN(liquidity.updatedAt.getTime()))
-		assert(parseUnits(liquidity.destination.totalLiquidity, 18) >= 0n)
-		assert(liquidity.destination.providerCount >= 0)
-	}, 120_000)
-
-	it("reports destination, unrestricted, and explicit cross-chain liquidity separately", async () => {
-		const configService = new ChainConfigService()
-		const cNgnAddress = configService.getCNgnAsset(BASE_CHAIN)
-		assert(cNgnAddress, "Expected cNGN to be configured on Base")
-		const sourceUsdc = configService.getUsdcAsset(CHAINS.eth.id)
-		const sourceToken = configService.getAssetMetadataByAddress(CHAINS.eth.id, sourceUsdc)
-		const destinationToken = configService.getAssetMetadataByAddress(BASE_CHAIN, cNgnAddress)
-		assert(sourceToken, "Expected Ethereum USDC metadata")
-		assert(destinationToken, "Expected Base cNGN metadata")
-
-		const engine = new LiquidityEngine(
-			createQueryClient({ url: "https://nexus.indexer.polytope.technology/" }),
-		)
-		const liquidity = await engine.getAvailableLiquidity({
-			source: { chain: CHAINS.eth.id, ...sourceToken },
-			destination: { chain: BASE_CHAIN, ...destinationToken },
-		})
-
-		logLiquidity("Ethereum USDC → Base cNGN", liquidity)
-		assert(liquidity, "Expected indexed Base destination liquidity")
-		assert.equal(liquidity.sourceChain, CHAINS.eth.id)
-		assert.equal(liquidity.destinationChain, BASE_CHAIN)
-		assert.equal(liquidity.tokenAddress, cNgnAddress.toLowerCase())
-		assert(parseUnits(liquidity.destination.totalLiquidity, 18) > 0n)
-		assert(
-			parseUnits(liquidity.unrestricted.totalLiquidity, 18) <=
-				parseUnits(liquidity.destination.totalLiquidity, 18),
-		)
-		assert(liquidity.unrestricted.providerCount <= liquidity.destination.providerCount)
-		if (liquidity.explicitRoute) {
-			assert(
-				parseUnits(liquidity.explicitRoute.totalLiquidity, 18) <=
-					parseUnits(liquidity.destination.totalLiquidity, 18),
-			)
-			assert(liquidity.explicitRoute.providerCount <= liquidity.destination.providerCount)
-		}
-	}, 120_000)
-
-	it("queries buy and sell rates using only symbols and chain IDs", async () => {
-		const configService = new ChainConfigService()
-		const intentGateway = await createLiveBaseIntentGateway(configService)
+		const intentGateway = await createLiveIntentGateway(CHAINS.amoy, CHAINS.chapel, configService)
 		const rates = await intentGateway.queryBuyAndSellRates({
 			tokenInSymbol: "USDC",
 			tokenOutSymbol: "cngn",
-			sourceChainId: 1,
-			destinationChainId: 8453,
+			sourceChainId: CHAINS.amoy.numericId,
+			destinationChainId: CHAINS.chapel.numericId,
 		})
 
-		logRates("Ethereum USDC → Base cNGN", rates)
-		assert(rates, "Expected live chain-specific cNGN/USDC rates from Nexus")
+		console.log("[queryBuyAndSellRates] Amoy USDC → Chapel cNGN", rates)
 		assert.equal(rates.baseTokenSymbol, "USDC")
 		assert.equal(rates.quoteTokenSymbol, "cNGN")
-		assert(rates.buyRate && parseUnits(rates.buyRate, 18) > 1_000n * 10n ** 18n)
-		assert(rates.sellRate && parseUnits(rates.sellRate, 18) > 1_000n * 10n ** 18n)
-		assert(rates.buyRateUpdatedAt && !Number.isNaN(rates.buyRateUpdatedAt.getTime()))
-		assert(rates.sellRateUpdatedAt && !Number.isNaN(rates.sellRateUpdatedAt.getTime()))
+		if (rates.bid === null || rates.ask === null) {
+			assert.equal(rates.mid, null)
+			assert.equal(rates.spreadBps, null)
+		}
+		if (rates.bid && rates.ask && rates.spread) {
+			assert.equal(parseUnits(rates.ask, 18) - parseUnits(rates.bid, 18), parseUnits(rates.spread, 18))
+		}
 	}, 120_000)
 
-	it("quotes exact-input BSC USDC to Base cNGN from indexed rates", async () => {
+	it("queries route liquidity in both directions", async () => {
 		const configService = new ChainConfigService()
-		const cNgnAddress = configService.getCNgnAsset(CHAINS.base.id)
-		const cNgnDecimals = configService.getCNgnDecimals(CHAINS.base.id)
-		assert(cNgnAddress, "Expected cNGN to be configured on Base")
-		assert(cNgnDecimals !== undefined, "Expected cNGN decimals to be configured on Base")
-		const intentGateway = await createLiveIntentGateway(CHAINS.bsc, CHAINS.base, configService)
-		const usdcDecimals = configService.getUsdcDecimals(CHAINS.bsc.id)
-		const amountIn = parseUnits("100", usdcDecimals)
+		const chapelCngn = configService.getCNgnAsset(CHAINS.chapel.id)
+		assert(chapelCngn, "Expected cNGN to be configured on BSC Chapel")
 
-		const quote = await intentGateway.quoteIntent({
-			tokenIn: configService.getUsdcAsset(CHAINS.bsc.id),
-			tokenOut: cNgnAddress,
-			amountIn,
+		const crossChain = await createLiveIntentGateway(CHAINS.amoy, CHAINS.chapel, configService)
+		const sell = await crossChain.queryAvailableLiquidity({
+			tokenIn: configService.getUsdcAsset(CHAINS.amoy.id),
+			tokenOut: chapelCngn,
 		})
+		console.log("[queryAvailableLiquidity] Amoy USDC → Chapel cNGN", sell)
+		assert.equal(sell.route, "CROSS_CHAIN")
+		assert.equal(sell.side, "BID")
+		assert.equal(sell.tokenAddress, chapelCngn)
+		assert(parseUnits(sell.availableLiquidity, 18) <= parseUnits(sell.depthOut, 18))
 
-		logIntentQuote("BSC USDC → Base cNGN exact input", quote)
-		assert.equal(quote.strategy, "indexed_rates")
-		if (quote.strategy !== "indexed_rates") throw new Error("Expected indexed rate quote")
-		const scaledRate = parseUnits(quote.quoteMetadata.rate, 18)
-		const netAmountIn = deductProtocolFee(amountIn, quote.quoteMetadata.protocolFeeBps)
-		const expectedAmountOut =
-			(netAmountIn * scaledRate * 10n ** BigInt(cNgnDecimals)) /
-			(10n ** BigInt(usdcDecimals) * 10n ** 18n)
+		const sameChain = await createLiveIntentGateway(CHAINS.chapel, CHAINS.chapel, configService)
+		const buy = await sameChain.queryAvailableLiquidity({
+			tokenIn: chapelCngn,
+			tokenOut: configService.getUsdcAsset(CHAINS.chapel.id),
+		})
+		console.log("[queryAvailableLiquidity] Chapel cNGN → Chapel USDC", buy)
+		assert.equal(buy.route, "SAME_CHAIN")
+		assert.equal(buy.side, "ASK")
+	}, 120_000)
+
+	it("quotes exact-input Amoy USDC to Chapel cNGN at the clearing price", async () => {
+		const configService = new ChainConfigService()
+		const chapelCngn = configService.getCNgnAsset(CHAINS.chapel.id)
+		const cNgnDecimals = configService.getCNgnDecimals(CHAINS.chapel.id)
+		assert(chapelCngn && cNgnDecimals !== undefined, "Expected cNGN to be configured on BSC Chapel")
+		const usdcDecimals = configService.getUsdcDecimals(CHAINS.amoy.id)
+		const intentGateway = await createLiveIntentGateway(CHAINS.amoy, CHAINS.chapel, configService)
+		const amountIn = parseUnits("10", usdcDecimals)
+
+		const route = { tokenIn: configService.getUsdcAsset(CHAINS.amoy.id), tokenOut: chapelCngn }
+		const liquidity = await intentGateway.queryAvailableLiquidity(route)
+		const fillableIn = parseUnits(liquidity.maxFillableIn, usdcDecimals)
+		if (fillableIn < amountIn) {
+			console.log(
+				`[quoteIntent] Amoy USDC → Chapel cNGN: route fills ${liquidity.maxFillableIn} USDC, expecting a refusal`,
+			)
+			await assert.rejects(
+				intentGateway.quoteIntent({ ...route, amountIn }),
+				(error: unknown) =>
+					error instanceof InsufficientOrderbookLiquidityError && error.maxFillableIn === fillableIn,
+			)
+			return
+		}
+
+		const quote = await intentGateway.quoteIntent({ ...route, amountIn })
+
+		logIntentQuote("Amoy USDC → Chapel cNGN exact input", quote)
 		assert.equal(quote.tradeType, "EXACT_INPUT")
 		assert.equal(quote.amountIn, amountIn)
+		assert.equal(quote.quoteMetadata.side, "BID")
+		assert.equal(quote.quoteMetadata.route, "CROSS_CHAIN")
+		// The clearing price applies to the whole input, floored to a raw cNGN unit.
+		const expectedAmountOut =
+			(amountIn * parseUnits(quote.quoteMetadata.rate, 18) * 10n ** BigInt(cNgnDecimals)) /
+			(10n ** BigInt(usdcDecimals) * 10n ** 18n)
 		assert.equal(quote.amountOut, expectedAmountOut)
-		assert(netAmountIn < amountIn, "Expected the on-chain protocol fee to reduce the priced input")
-		assert(quote.amountOut > parseUnits("100000", cNgnDecimals))
-		assert.equal(quote.quoteMetadata.sourceChain, CHAINS.bsc.id)
-		assert.equal(quote.quoteMetadata.destinationChain, CHAINS.base.id)
-		assert.equal(quote.quoteMetadata.rateSide, "buy")
-		assert(scaledRate > 1_000n * 10n ** 18n)
-		assert(!Number.isNaN(quote.quoteMetadata.rateUpdatedAt.getTime()))
-		console.log("Fee-adjusted buy quote:", {
-			amountIn: `${formatUnits(quote.amountIn, usdcDecimals)} USDC`,
-			amountOut: `${formatUnits(quote.amountOut, cNgnDecimals)} cNGN`,
-		})
 	}, 120_000)
 
-	it("quotes exact-output Base cNGN to BSC USDC from indexed rates", async () => {
+	it("quotes exact-output Amoy cNGN to Chapel USDC", async () => {
 		const configService = new ChainConfigService()
-		const cNgnAddress = configService.getCNgnAsset(CHAINS.base.id)
-		const cNgnDecimals = configService.getCNgnDecimals(CHAINS.base.id)
-		assert(cNgnAddress, "Expected cNGN to be configured on Base")
-		assert(cNgnDecimals !== undefined, "Expected cNGN decimals to be configured on Base")
-		const intentGateway = await createLiveIntentGateway(CHAINS.base, CHAINS.bsc, configService)
-		const usdcDecimals = configService.getUsdcDecimals(CHAINS.bsc.id)
-		const amountOut = parseUnits("100", usdcDecimals)
+		const amoyCngn = configService.getCNgnAsset(CHAINS.amoy.id)
+		assert(amoyCngn, "Expected cNGN to be configured on Polygon Amoy")
+		const usdcDecimals = configService.getUsdcDecimals(CHAINS.chapel.id)
+		const intentGateway = await createLiveIntentGateway(CHAINS.amoy, CHAINS.chapel, configService)
+		const amountOut = parseUnits("5", usdcDecimals)
 
-		const quote = await intentGateway.quoteIntent({
-			tokenIn: cNgnAddress,
-			tokenOut: configService.getUsdcAsset(CHAINS.bsc.id),
-			amountOut,
+		const route = { tokenIn: amoyCngn, tokenOut: configService.getUsdcAsset(CHAINS.chapel.id) }
+		const liquidity = await intentGateway.queryAvailableLiquidity(route)
+		const quote = await intentGateway.quoteIntent({ ...route, amountOut }).catch((error: unknown) => {
+			// Too little depth for the output, or none: the refusal must agree with the route's liquidity.
+			if (!(error instanceof InsufficientOrderbookLiquidityError)) throw error
+			console.log(`[quoteIntent] Amoy cNGN → Chapel USDC: route fills ${liquidity.maxFillableIn} cNGN, refused`)
+			const cNgnDecimals = configService.getCNgnDecimals(CHAINS.amoy.id)!
+			assert.equal(error.maxFillableIn, parseUnits(liquidity.maxFillableIn, cNgnDecimals))
+			return undefined
 		})
+		if (!quote) return
 
-		logIntentQuote("Base cNGN → BSC USDC exact output", quote)
-		assert.equal(quote.strategy, "indexed_rates")
-		if (quote.strategy !== "indexed_rates") throw new Error("Expected indexed rate quote")
-		const scaledRate = parseUnits(quote.quoteMetadata.rate, 18)
-		const requiredNetAmountIn = divCeil(
-			amountOut * 10n ** BigInt(cNgnDecimals) * scaledRate,
-			10n ** BigInt(usdcDecimals) * 10n ** 18n,
-		)
-		const expectedAmountIn = grossUpForProtocolFee(
-			requiredNetAmountIn,
-			quote.quoteMetadata.protocolFeeBps,
-		)
+		logIntentQuote("Amoy cNGN → Chapel USDC exact output", quote)
 		assert.equal(quote.tradeType, "EXACT_OUTPUT")
 		assert.equal(quote.amountOut, amountOut)
-		assert.equal(quote.amountIn, expectedAmountIn)
-		assert(
-			deductProtocolFee(quote.amountIn, quote.quoteMetadata.protocolFeeBps) >= requiredNetAmountIn,
-			"Expected the gross input to cover the required net input after the on-chain protocol fee",
-		)
-		assert(quote.amountIn > parseUnits("100000", cNgnDecimals))
-		assert.equal(quote.quoteMetadata.sourceChain, CHAINS.base.id)
-		assert.equal(quote.quoteMetadata.destinationChain, CHAINS.bsc.id)
-		assert.equal(quote.quoteMetadata.rateSide, "sell")
-		assert(scaledRate > 1_000n * 10n ** 18n)
-		assert(!Number.isNaN(quote.quoteMetadata.rateUpdatedAt.getTime()))
-		console.log("Fee-adjusted sell quote:", {
-			amountIn: `${formatUnits(quote.amountIn, cNgnDecimals)} cNGN`,
-			amountOut: `${formatUnits(quote.amountOut, usdcDecimals)} USDC`,
-		})
+		assert.equal(quote.quoteMetadata.side, "ASK")
+		assert(quote.amountIn > 0n && quote.amountIn <= quote.quoteMetadata.maxFillableIn)
 	}, 120_000)
 })
 
@@ -495,6 +400,8 @@ const CHAINS: Record<string, ChainDef> = {
 	polygon: { id: "EVM-137", numericId: 137, rpcEnvVar: "POLYGON_MAINNET" },
 	base: { id: "EVM-8453", numericId: 8453, rpcEnvVar: "BASE_MAINNET" },
 	arbitrum: { id: "EVM-42161", numericId: 42161, rpcEnvVar: "ARBITRUM_MAINNET" },
+	chapel: { id: "EVM-97", numericId: 97, rpcEnvVar: "BSC_CHAPEL" },
+	amoy: { id: "EVM-80002", numericId: 80002, rpcEnvVar: "POLYGON_AMOY" },
 }
 
 function bundlerUrl(chainId: number): string | undefined {
@@ -517,10 +424,6 @@ function makeEvmChain(chain: ChainDef, configService: ChainConfigService, bundle
 	})
 }
 
-async function createLiveBaseIntentGateway(configService: ChainConfigService): Promise<IntentGateway> {
-	return createLiveIntentGateway(CHAINS.base, CHAINS.base, configService)
-}
-
 async function createLiveIntentGateway(
 	source: ChainDef,
 	destination: ChainDef,
@@ -530,7 +433,7 @@ async function createLiveIntentGateway(
 		makeEvmChain(source, configService),
 		makeEvmChain(destination, configService),
 	)
-	return gateway.withQueryClient(createQueryClient({ url: "https://nexus.indexer.polytope.technology/" }))
+	return process.env.HYPERFX_ORDERBOOK_URL ? gateway.withOrderbook(process.env.HYPERFX_ORDERBOOK_URL) : gateway
 }
 
 function logIntentQuote(label: string, quote: Awaited<ReturnType<IntentGateway["quoteIntent"]>>): void {
@@ -539,58 +442,8 @@ function logIntentQuote(label: string, quote: Awaited<ReturnType<IntentGateway["
 		...quote,
 		amountIn: quote.amountIn.toString(),
 		amountOut: quote.amountOut.toString(),
-		quoteMetadata: {
-			...quote.quoteMetadata,
-			protocolFeeBps: quote.quoteMetadata.protocolFeeBps.toString(),
-			...(quote.strategy === "indexed_rates"
-				? { rateUpdatedAt: quote.quoteMetadata.rateUpdatedAt.toISOString() }
-				: {}),
-		},
+		quoteMetadata: { ...quote.quoteMetadata, maxFillableIn: quote.quoteMetadata.maxFillableIn.toString() },
 	})
-}
-
-function logLiquidity(label: string, liquidity: AvailableLiquidity | undefined): void {
-	console.log(`[queryAvailableLiquidity] ${label}`)
-	console.log(
-		liquidity
-			? {
-					...liquidity,
-					updatedAt: liquidity.updatedAt.toISOString(),
-					explicitRoute: liquidity.explicitRoute
-						? { ...liquidity.explicitRoute, updatedAt: liquidity.explicitRoute.updatedAt.toISOString() }
-						: null,
-				}
-			: undefined,
-	)
-}
-
-function logRates(label: string, rates: BuyAndSellRates | undefined): void {
-	console.log(`[queryBuyAndSellRates] ${label}`)
-	console.log(
-		rates
-			? {
-					...rates,
-					buyRateUpdatedAt: rates.buyRateUpdatedAt?.toISOString() ?? null,
-					sellRateUpdatedAt: rates.sellRateUpdatedAt?.toISOString() ?? null,
-				}
-			: undefined,
-	)
-}
-
-function assertAndLogLiquidity(
-	pair: string,
-	liquidity: AvailableLiquidity | undefined,
-	expectedTokenAddress: HexString,
-): asserts liquidity is AvailableLiquidity {
-	logLiquidity(pair, liquidity)
-	assert(liquidity, `Expected live ${pair} indexed pool liquidity from Nexus`)
-	assert.notEqual(liquidity.destination.totalLiquidity, "0")
-	assert(liquidity.destination.providerCount > 0)
-	assert.equal(liquidity.tokenAddress, expectedTokenAddress.toLowerCase())
-	assert(!Number.isNaN(liquidity.updatedAt.getTime()))
-	assert(
-		parseUnits(liquidity.unrestricted.totalLiquidity, 18) <= parseUnits(liquidity.destination.totalLiquidity, 18),
-	)
 }
 
 function buildOrder(

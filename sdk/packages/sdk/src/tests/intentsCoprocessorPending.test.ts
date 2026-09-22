@@ -47,6 +47,9 @@ function rpcError(code: number, message: string): Error {
 	return err
 }
 
+/** What `system_accountNextIndex` reports: the next nonce clear of the ready queue. */
+const POOL_NONCE = 41
+
 /** The nonce a signed extrinsic reports, which a replacement must be pinned to. */
 const SIGNED_NONCE = 7
 
@@ -74,6 +77,10 @@ function mockApi(
 	const api = {
 		// A live socket: submission only diverts to the HTTP fallback when this is false.
 		isConnected: true,
+		// The pool-aware nonce source. It counts the ready queue, so it keeps reporting the same
+		// index while an extrinsic of ours sits there: the instance's own bookkeeping is what moves
+		// the next submission past it.
+		rpc: { system: { accountNextIndex: async () => ({ toString: () => String(POOL_NONCE) }) } },
 		tx: {
 			intentsCoprocessor: {
 				retractBid: () => sendable,
@@ -139,9 +146,9 @@ describe("in-flight extrinsic handling", () => {
 		const result = await retractWithShortTimeout(coproc, 100)
 
 		expect(calls.count).toBe(3)
-		// The first attempt takes the api's nonce; every bump is pinned to the nonce that attempt
+		// The first attempt takes the pool-aware nonce; every bump is pinned to the nonce that attempt
 		// was signed with, so the pool replaces the stalled copy instead of queueing behind it.
-		expect(calls.options.map((opts) => opts.nonce)).toEqual([undefined, SIGNED_NONCE, SIGNED_NONCE])
+		expect(calls.options.map((opts) => opts.nonce)).toEqual([POOL_NONCE, POOL_NONCE, POOL_NONCE])
 		const tips = calls.options.map((opts) => opts.tip)
 		expect(tips[1]).toBe(tips[0]! * 2n)
 		expect(tips[2]).toBe(tips[0]! * 4n)
@@ -171,7 +178,7 @@ describe("in-flight extrinsic handling", () => {
 		const result = await retractWithShortTimeout(coproc, 100)
 
 		expect(calls.count).toBe(2)
-		expect(calls.options[1].nonce).toBe(SIGNED_NONCE)
+		expect(calls.options[1].nonce).toBe(POOL_NONCE)
 		expect(result.success).toBe(true)
 		expect(result.blockHash).toBe("0xblockhash")
 	})
@@ -181,11 +188,14 @@ describe("in-flight extrinsic handling", () => {
 	 * one, an unpinned retry could take the next nonce and land a second copy alongside the first,
 	 * which is exactly the duplicate this whole path exists to prevent.
 	 */
-	it("does not retry a stalled extrinsic whose signed nonce cannot be read", async () => {
+	it("does not retry a stalled extrinsic whose nonce is neither supplied nor readable", async () => {
 		const { api, calls } = mockApi((_attempt, cb) => {
 			queueMicrotask(() => cb({ dispatchError: undefined, status: readyStatus, events: [] }))
 			return Promise.resolve(() => {})
 		}, null)
+		// No accountNextIndex to ask, so the submission signs against on-chain state and the only
+		// nonce a replacement could pin is the one the signed extrinsic does not report.
+		api.rpc = {}
 		const coproc = IntentsCoprocessor.fromApi(api, "//Alice")
 
 		const result = await retractWithShortTimeout(coproc, 100)
@@ -288,5 +298,50 @@ describe("in-flight extrinsic handling", () => {
 		expect(result.pending).toBeUndefined()
 		expect(result.error).toContain("BidNotFound")
 		expect(calls.count).toBe(1)
+	})
+
+	/**
+	 * The queue serialises submissions but a watch gives up while its extrinsic is still pooled,
+	 * and neither the on-chain nonce nor the ready queue has moved on from it yet. A second,
+	 * unrelated extrinsic signed against either would take the same nonce and bounce off the first
+	 * (1013/1014) instead of queueing behind it, which is how several bids on one order lost their
+	 * auction. `signAndSend`'s own `nonce: -1` is no help: on a runtime carrying `AccountNonceApi`,
+	 * as Hyperbridge has, polkadot-js reads that runtime call and never sees the pool.
+	 */
+	it("moves each new extrinsic past the nonce it last put in the pool", async () => {
+		const { api, calls } = mockApi(async (_attempt, cb) => {
+			cb({ status: { isReady: true }, dispatchError: undefined })
+			return () => {}
+		})
+		const coproc = IntentsCoprocessor.fromApi(api, "//Alice")
+
+		const first = await retractWithShortTimeout(coproc, 20)
+		const second = await retractWithShortTimeout(coproc, 20)
+
+		// Both stalled in the pool, and the RPC still reports the same index for the second.
+		expect(first.pending).toBe(true)
+		expect(second.pending).toBe(true)
+		expect(calls.options[0].nonce).toBe(POOL_NONCE)
+		expect(calls.options.at(-1)?.nonce).toBe(POOL_NONCE + 1)
+	})
+
+	it("signs against on-chain state when the node has no accountNextIndex to ask", async () => {
+		const inBlock = {
+			...readyStatus,
+			isReady: false,
+			isInBlock: true,
+			asInBlock: { toHex: () => "0xblockhash" },
+			type: "InBlock",
+		}
+		const { api, calls } = mockApi((_attempt, cb) => {
+			queueMicrotask(() => cb({ dispatchError: undefined, status: inBlock, events: [] }))
+			return Promise.resolve(() => {})
+		})
+		api.rpc = {}
+
+		const result = await retractWithShortTimeout(IntentsCoprocessor.fromApi(api, "//Alice"), 100)
+
+		expect(result.success).toBe(true)
+		expect(calls.options[0].nonce).toBeUndefined()
 	})
 })

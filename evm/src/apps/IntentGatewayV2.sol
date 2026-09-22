@@ -179,9 +179,8 @@ contract IntentGatewayV2 is
     }
 
     /**
-     * @dev Escrows the caller's inputs and places the order.
-     * Leg `i` sells `order.inputs[i]` for `order.output.assets[i]`, and every leg trades the same
-     * pair, so an order is one pair quoted at one or more prices.
+     * @dev Escrows the caller's inputs and places the order. Leg `i` sells `order.inputs[i]` for
+     * `order.output.assets[i]`, and every leg trades the same pair.
      *
      * The protocol fee comes out of each input before the commitment is computed.
      * @param order The order. `user`, `source` and `nonce` are overwritten.
@@ -192,9 +191,8 @@ contract IntentGatewayV2 is
         // Inputs and outputs pair 1:1 by index; a leg without its counterpart could never be filled.
         if (inputsLen == 0 || order.output.assets.length != inputsLen) revert InvalidInput();
 
-        // Every leg trades the same pair. Tokens are read from their low 20 bytes, and anything above
-        // would let one token pass the output sweep in `_execute` as two, so leg 0's are checked here
-        // and the rest must equal leg 0 byte for byte, which rules out an alias of the same address.
+        // A token is the address in its low 20 bytes; anything above would let the output sweep in
+        // `_execute` read one token as two. Checked on leg 0, which every other leg must then match.
         bytes32 inputToken = order.inputs[0].token;
         bytes32 outputToken = order.output.assets[0].token;
         if (uint256(inputToken) >> 160 != 0 || uint256(outputToken) >> 160 != 0) revert InvalidInput();
@@ -221,8 +219,7 @@ contract IntentGatewayV2 is
         uint256 msgValue = msg.value;
         if (order.predispatch.call.length > 0 && order.predispatch.assets.length > 0) {
             address dispatcher = _params.dispatcher;
-            // Predispatch escrow is swept and measured per input token, so its legs must not share
-            // one. Every leg holds the same token, so a predispatch order is single-leg.
+            // The sweep below measures one balance per input token, so it needs a leg to itself.
             if (inputsLen != 1) revert InvalidInput();
 
             uint256 assetsLen = order.predispatch.assets.length;

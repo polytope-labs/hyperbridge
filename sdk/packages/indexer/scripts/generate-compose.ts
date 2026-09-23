@@ -6,8 +6,8 @@ import { fileURLToPath } from "node:url"
 import Handlebars from "handlebars"
 import { getEnv, getValidChains } from "../src/configs"
 
-const EVM_IMAGE = "subquerynetwork/subql-node-ethereum:v6.5.0"
-const SUBSTRATE_IMAGE = "polytopelabs/subql-node-substrate:v6.4.8-0"
+const EVM_IMAGE = "polytopelabs/subql-node-ethereum:v6.5.0"
+const SUBSTRATE_IMAGE = "polytopelabs/subql-node-substrate:v6.4.9-0"
 
 // Setup paths
 const root = process.cwd()

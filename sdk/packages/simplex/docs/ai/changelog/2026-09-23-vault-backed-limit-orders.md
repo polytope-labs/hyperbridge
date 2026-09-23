@@ -23,3 +23,11 @@ and counts what those vaults hold of the payout token on the fill chain, alongsi
 
 An operator running no vaults is unaffected: `vaultBalances` is undefined and the check reads the
 wallet alone.
+
+## The operator UI drops the markets section
+
+The overview no longer carries the `Active markets` metric or the markets panel that listed each
+strategy's pair, its curve editor and the create-market form. `OperatorMarkets`,
+`StrategyMarketEditor`, `CreateMarketForm`, `useStrategyEditor` and `useCreateMarket` are gone, as
+is the `/api/strategies` read that fed them; `marketSymbols` stays, because the limit order form
+lists the same symbols. The server's strategy endpoints are untouched.

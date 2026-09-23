@@ -1,19 +1,15 @@
 import { formatAmount } from "../lib/format"
-import type { AdminStrategyDto, BalanceSnapshot, ConfigDto, StatusOperator } from "../types"
+import type { BalanceSnapshot, StatusOperator } from "../types"
 import { availableStablecoinLiquidity, OperatorBalances } from "./OperatorBalances"
-import { OperatorMarkets } from "./OperatorMarkets"
 
 export function OperatorOverview(props: {
 	status: StatusOperator
 	balances: BalanceSnapshot | undefined
-	strategies: AdminStrategyDto[]
-	config: ConfigDto | undefined
 	onResetHalt: () => void
-	onMarketsChanged: () => Promise<void>
 	/** Pause/resume and stop, rendered inline so the page that shows health also controls it. */
 	runtime: { pending: boolean; onTogglePause: () => void; onStop: () => void }
 }) {
-	const { status, balances, strategies, config, onResetHalt, onMarketsChanged, runtime } = props
+	const { status, balances, onResetHalt, runtime } = props
 	const stablecoinLiquidity = availableStablecoinLiquidity(balances)
 
 	return (
@@ -35,10 +31,6 @@ export function OperatorOverview(props: {
 
 			<section className="operator-metrics" aria-label="Runtime summary">
 				<Metric label="Enabled networks" value={String(status.chains.length)} />
-				<Metric
-					label="Active markets"
-					value={String(strategies.length)}
-				/>
 				<Metric
 					label="Available liquidity"
 					value={stablecoinLiquidity === null ? "—" : `$${formatAmount(stablecoinLiquidity)}`}
@@ -75,15 +67,6 @@ export function OperatorOverview(props: {
 			</section>
 
 			<OperatorBalances status={status} balances={balances} />
-
-			<OperatorMarkets
-				strategies={strategies}
-				config={config}
-				chains={status.chains}
-				chainLabels={status.chainLabels}
-				solverAddress={status.addresses?.evm}
-				onChanged={onMarketsChanged}
-			/>
 		</div>
 	)
 }

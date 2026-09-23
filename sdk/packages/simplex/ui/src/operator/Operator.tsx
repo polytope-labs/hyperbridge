@@ -15,7 +15,7 @@ import {
 import { OperatorSheet } from "../components/OperatorSheet"
 import { InstallAppButton } from "../components/InstallAppButton"
 import { useAction, useIsHandheld, usePolling } from "../lib/hooks"
-import type { AdminStrategyDto, BalanceSnapshot, ConfigDto, StatusOperator } from "../types"
+import type { BalanceSnapshot, ConfigDto, StatusOperator } from "../types"
 import { LimitOrders } from "./LimitOrders"
 import { marketSymbols } from "./markets/marketModel"
 import { Orders } from "./Orders"
@@ -100,7 +100,6 @@ export function Operator(props: { status: StatusOperator; refresh: () => void })
 	// Set when another page sends the operator to a specific Operations sheet.
 	const [operationsPanel, setOperationsPanel] = useState<OperationsPanel>()
 	const [balances, setBalances] = useState<BalanceSnapshot>()
-	const [strategies, setStrategies] = useState<AdminStrategyDto[]>([])
 	const [config, setConfig] = useState<ConfigDto>()
 	const [showEnvironment, setShowEnvironment] = useState(false)
 	const [loadError, setLoadError] = useState<string>()
@@ -116,14 +115,12 @@ export function Operator(props: { status: StatusOperator; refresh: () => void })
 		try {
 			// Status is polled too so runtime changes (overfill self-halt, an
 			// external pause) surface without a manual action.
-			const [balanceSnapshot, strategyList, configDto] = await Promise.all([
+			const [balanceSnapshot, configDto] = await Promise.all([
 				api.get<BalanceSnapshot>("/api/balances"),
-				api.get<{ strategies: AdminStrategyDto[] }>("/api/strategies"),
 				api.get<ConfigDto>("/api/config"),
 				refresh(),
 			])
 			setBalances(balanceSnapshot)
-			setStrategies(strategyList.strategies)
 			setConfig(configDto)
 			setLoadError(undefined)
 		} catch (err) {
@@ -225,10 +222,7 @@ export function Operator(props: { status: StatusOperator; refresh: () => void })
 						<OperatorOverview
 							status={status}
 							balances={balances}
-							strategies={strategies}
-							config={config}
 							onResetHalt={resetHalt}
-							onMarketsChanged={load}
 							runtime={{ pending, onTogglePause: togglePause, onStop: stopFiller }}
 						/>
 					) : null}

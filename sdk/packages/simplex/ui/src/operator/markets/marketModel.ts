@@ -1,10 +1,4 @@
-import type { AdminStrategyDto, ConfigDto } from "../../types"
-
-export const CUSTOM_TOKEN = "__custom__"
-
-export function marketDescription(strategy: AdminStrategyDto): string {
-	return strategy.sameToken ? "Cross-chain transfer market" : "Buy and sell"
-}
+import type { ConfigDto } from "../../types"
 
 /** Registry + configured asset symbols available to the running filler. */
 export function marketSymbols(config: ConfigDto | undefined): string[] {

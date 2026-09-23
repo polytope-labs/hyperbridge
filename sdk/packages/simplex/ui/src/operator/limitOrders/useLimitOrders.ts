@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { api, ApiError } from "../../api"
-import type { CreateLimitOrderRequest, LimitOrder, LimitOrderFill, LimitOrderStatus, StoredBid } from "../../types"
+import type {
+	CreateLimitOrderRequest,
+	LimitOrder,
+	LimitOrderFill,
+	LimitOrderStatus,
+	OrderbookBook,
+	StoredBid,
+} from "../../types"
 
 /** How often the list refreshes itself: a posting lands, expires or is filled without the operator acting. */
 const POLL_MS = 10_000
@@ -72,4 +79,38 @@ export function useLimitOrders(options: { status?: LimitOrderStatus | "" } = {})
 	const withFills = useCallback((id: string) => api.get<LimitOrderFills>(`/api/limit-orders/${id}`), [])
 
 	return { orders, loading, error, reload: load, create, cancel, withFills }
+}
+
+/**
+ * The books the orderbook lists, which are the only pairs an order can name.
+ *
+ * Read once when the form opens: books change when the orderbook is redeployed, not while an
+ * operator is typing, and the create path refuses anything that is not one of them anyway.
+ */
+export function useOrderbookBooks() {
+	const [books, setBooks] = useState<OrderbookBook[]>([])
+	const [loading, setLoading] = useState(true)
+	const [error, setError] = useState<string>()
+
+	useEffect(() => {
+		let live = true
+		api.get<{ books: OrderbookBook[] }>("/api/orderbook/books")
+			.then((body) => {
+				if (!live) return
+				setBooks(body.books)
+				setError(undefined)
+			})
+			.catch((err) => {
+				if (!live) return
+				setError(err instanceof ApiError ? err.message : "Could not read the orderbook's pairs")
+			})
+			.finally(() => {
+				if (live) setLoading(false)
+			})
+		return () => {
+			live = false
+		}
+	}, [])
+
+	return { books, loading, error }
 }

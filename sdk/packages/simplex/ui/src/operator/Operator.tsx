@@ -15,9 +15,8 @@ import {
 import { OperatorSheet } from "../components/OperatorSheet"
 import { InstallAppButton } from "../components/InstallAppButton"
 import { useAction, useIsHandheld, usePolling } from "../lib/hooks"
-import type { BalanceSnapshot, ConfigDto, StatusOperator } from "../types"
+import type { BalanceSnapshot, StatusOperator } from "../types"
 import { LimitOrders } from "./LimitOrders"
-import { marketSymbols } from "./markets/marketModel"
 import { Orders } from "./Orders"
 import { Operations, type OperationsPanel } from "./Operations"
 import { Logs } from "./Logs"
@@ -100,7 +99,6 @@ export function Operator(props: { status: StatusOperator; refresh: () => void })
 	// Set when another page sends the operator to a specific Operations sheet.
 	const [operationsPanel, setOperationsPanel] = useState<OperationsPanel>()
 	const [balances, setBalances] = useState<BalanceSnapshot>()
-	const [config, setConfig] = useState<ConfigDto>()
 	const [showEnvironment, setShowEnvironment] = useState(false)
 	const [loadError, setLoadError] = useState<string>()
 	const [stopped, setStopped] = useState(false)
@@ -115,13 +113,8 @@ export function Operator(props: { status: StatusOperator; refresh: () => void })
 		try {
 			// Status is polled too so runtime changes (overfill self-halt, an
 			// external pause) surface without a manual action.
-			const [balanceSnapshot, configDto] = await Promise.all([
-				api.get<BalanceSnapshot>("/api/balances"),
-				api.get<ConfigDto>("/api/config"),
-				refresh(),
-			])
+			const [balanceSnapshot] = await Promise.all([api.get<BalanceSnapshot>("/api/balances"), refresh()])
 			setBalances(balanceSnapshot)
-			setConfig(configDto)
 			setLoadError(undefined)
 		} catch (err) {
 			setLoadError(err instanceof Error ? err.message : String(err))
@@ -228,11 +221,7 @@ export function Operator(props: { status: StatusOperator; refresh: () => void })
 					) : null}
 
 					{tab === "limit-orders" ? (
-						<LimitOrders
-							chains={status.chains}
-							chainLabels={status.chainLabels}
-							symbols={marketSymbols(config)}
-						/>
+						<LimitOrders chains={status.chains} chainLabels={status.chainLabels} />
 					) : null}
 					{tab === "orders" ? <Orders chainLabels={status.chainLabels} /> : null}
 					{tab === "logs" && !handheld ? <Logs /> : null}

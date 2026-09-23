@@ -20,6 +20,7 @@ export type {
 	StoredPushSubscription,
 } from "@/data/types"
 export type { CreateLimitOrderRequest } from "@/orderbook/limit-orders"
+export type { Book as OrderbookBook, TokenMinSize } from "@/orderbook/types"
 export type {
 	ActivityEventDto,
 	OrderHistoryDto,

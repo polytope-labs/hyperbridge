@@ -8,7 +8,7 @@ import { formatDate, sqliteUtcToMs } from "../lib/format"
 import type { LimitOrder } from "../types"
 import { CreateLimitOrderForm } from "./limitOrders/CreateLimitOrderForm"
 import { available, describeRate, fromScaled, legs, statusOf } from "./limitOrders/limitOrderModel"
-import { type LimitOrderFills, useLimitOrders } from "./limitOrders/useLimitOrders"
+import { type LimitOrderFills, useLimitOrders, useOrderbookBooks } from "./limitOrders/useLimitOrders"
 
 /** Orders per page, live and closed each: a solver re-posting all day builds a long closed list. */
 const PAGE_SIZE = 10
@@ -17,8 +17,6 @@ interface LimitOrdersProps {
 	/** Chain ids the filler runs. A limit order names them as state machine ids. */
 	chains: number[]
 	chainLabels?: Record<string, string>
-	/** Symbols the operator can trade, from what the filler knows how to send. */
-	symbols: string[]
 }
 
 /**
@@ -29,8 +27,10 @@ interface LimitOrdersProps {
  * fills at the rate they imply until the order runs out, so the page is a book
  * of standing offers rather than a curve to shape.
  */
-export function LimitOrders({ chains, chainLabels, symbols }: LimitOrdersProps) {
+export function LimitOrders({ chains, chainLabels }: LimitOrdersProps) {
 	const { orders, loading, error, create, cancel, withFills, reload } = useLimitOrders()
+	// Only the pairs the orderbook keeps: it refuses an order naming anything else.
+	const { books } = useOrderbookBooks()
 	const [creating, setCreating] = useState(false)
 	const [selected, setSelected] = useState<LimitOrder>()
 	const [detail, setDetail] = useState<LimitOrderFills>()
@@ -148,10 +148,10 @@ export function LimitOrders({ chains, chainLabels, symbols }: LimitOrdersProps) 
 				onClose={() => setCreating(false)}
 				wide
 				title="New limit order"
-				description="Say what you take in and what you pay out. Simplex fills at the rate the two imply."
+				description="Pick a pair, a side, how much and at what rate. Simplex works out the two amounts."
 			>
 				<CreateLimitOrderForm
-					symbols={symbols}
+					books={books}
 					chains={chainOptions.map((chain) => chain.stateMachineId)}
 					chainLabel={chainLabel}
 					create={create}

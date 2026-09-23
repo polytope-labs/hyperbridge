@@ -203,6 +203,17 @@ describe("what the operator states", () => {
 	})
 })
 
+describe("the pairs on offer", () => {
+	it("reports the orderbook's books and its dust floors, which is all a create may name", async () => {
+		const { service } = makeService(fakeClient([]))
+
+		expect(await service.books()).toEqual({
+			books: [{ id: "USDC/CNGN", base: "USDC", quote: "CNGN" }],
+			minOrderSizes: [{ symbol: "CNGN", size: (1000n * ONE).toString() }],
+		})
+	})
+})
+
 describe("what the wallet can actually pay", () => {
 	it("refuses an order the balance cannot cover", async () => {
 		// The orderbook backs an entry with the solver's real balance and cuts down

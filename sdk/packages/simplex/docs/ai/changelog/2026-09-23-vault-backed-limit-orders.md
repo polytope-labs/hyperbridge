@@ -31,3 +31,21 @@ strategy's pair, its curve editor and the create-market form. `OperatorMarkets`,
 `StrategyMarketEditor`, `CreateMarketForm`, `useStrategyEditor` and `useCreateMarket` are gone, as
 is the `/api/strategies` read that fed them; `marketSymbols` stays, because the limit order form
 lists the same symbols. The server's strategy endpoints are untouched.
+
+## Limit orders are stated as a pair, a side, a size and a rate
+
+The create form asked for two amounts and showed the rate they implied. It now asks for what the
+operator is actually choosing:
+
+- **Pair** — only the books the orderbook lists (`GET /api/orderbook/books`, backed by
+  `LimitOrderService.books()`). `resolveBook` refuses anything else, and a book's own spelling of
+  its symbols is what a request must carry.
+- **Buy / Sell** — sub-tabs over the book's base. Buy takes the base in and pays the quote out
+  (a `BID`); Sell takes the quote in and pays the base out (an `ASK`).
+- **Amount** in the book's base, and **rate** in quote per base, the way the book is quoted.
+
+`requestFrom` derives the two amounts: buying takes `amount` base in and pays `amount × rate` quote
+out, selling pays `amount` base out and takes `amount × rate` quote in. The arithmetic is exact at
+1e18 rather than in floating point, and rounds so the posted price is never better for the taker
+than the rate stated — a bid pays out no more quote, an ask takes in no less. A size that rounds
+away to nothing is refused rather than posted. The form shows the derived amounts before posting.

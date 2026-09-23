@@ -17,6 +17,7 @@ import type {
 	OrderbookLimits,
 	PostedOrder,
 	SubmitOrderResult,
+	TokenMinSize,
 } from "./types"
 
 /** How long a read of `serverInfo` and `books` is reused before being refreshed. */
@@ -342,6 +343,17 @@ export class LimitOrderService {
 			if (err instanceof OrderbookRequestError) return { kind: "failed", message: err.message }
 			throw err
 		}
+	}
+
+	/**
+	 * The pairs an order can be written against, and the smallest payout each token may carry.
+	 *
+	 * The orderbook lists the books; `resolveBook` refuses a request naming anything else, so the
+	 * operator is offered exactly these and no combination of symbols they could not post.
+	 */
+	async books(): Promise<{ books: Book[]; minOrderSizes: TokenMinSize[] }> {
+		const limits = await this.limits()
+		return { books: limits.books, minOrderSizes: limits.serverInfo.minOrderSizes }
 	}
 
 	/**

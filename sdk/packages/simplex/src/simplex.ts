@@ -21,6 +21,7 @@ import type {
 	LimitOrderService,
 	PostedLimitOrder,
 } from "@/orderbook/limit-orders"
+import type { Book, TokenMinSize } from "@/orderbook/types"
 import type { BalanceSnapshot } from "@/services/BalanceProvider"
 import type { Signer } from "@/services/wallet"
 
@@ -235,6 +236,11 @@ export class LimitOrderController {
 			this.runtime.data.bids.byLimitOrder(id),
 		])
 		return { order, fills, bids }
+	}
+
+	/** The pairs the orderbook lists, and the smallest payout each token may carry. */
+	books(): Promise<{ books: Book[]; minOrderSizes: TokenMinSize[] }> {
+		return this.service.books()
 	}
 
 	/** Creates the order, posts it, and reports what the orderbook made of it. */

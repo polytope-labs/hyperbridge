@@ -2530,6 +2530,41 @@ button.operator-runtime-stop:hover:not(:disabled) {
 	gap: 0.4rem;
 }
 
+/* Buy and sell, as two halves of one control rather than a dropdown. */
+.limit-order-sides {
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: 0.25rem;
+	padding: 0.25rem;
+	border: 1px solid var(--border);
+	border-radius: 0.75rem;
+	background: var(--control);
+}
+
+button.limit-order-side {
+	border: 0;
+	border-radius: 0.55rem;
+	padding: 0.5rem 0.75rem;
+	background: transparent;
+	color: var(--text-secondary);
+	font-weight: 600;
+	cursor: pointer;
+}
+
+button.limit-order-side:hover:not(.is-selected) {
+	color: var(--text);
+}
+
+button.limit-order-side.is-selected {
+	background: var(--card-raised);
+	color: var(--text);
+	box-shadow: 0 1px 2px rgb(0 0 0 / 12%);
+}
+
+.limit-order-derived {
+	font-variant-numeric: tabular-nums;
+}
+
 .limit-order-fills {
 	width: 100%;
 	border: 1px solid var(--border);

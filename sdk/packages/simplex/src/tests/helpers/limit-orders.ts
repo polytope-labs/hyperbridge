@@ -2,7 +2,7 @@ import type { HexString } from "@hyperbridge/sdk"
 import { MemoryDataStore } from "@/data/memory"
 import type { LimitOrderSide, LimitOrderStore } from "@/data/types"
 import { ORDERBOOK_SCALE } from "@/orderbook/amounts"
-import { LimitOrderService, type CreateLimitOrderRequest } from "@/orderbook/limit-orders"
+import { LimitOrderService, type CreateLimitOrderRequest, type VaultHoldings } from "@/orderbook/limit-orders"
 import type {
 	CancelOrderResult,
 	HeartbeatResult,
@@ -155,6 +155,8 @@ export function limitOrderService(
 	balances: Record<string, bigint> = {},
 	/** Where a new order's nonce starts. Pinned to 0 so the tests can name the nonces a posting walks through. */
 	startingNonce: () => bigint = () => 0n,
+	/** The configured vaults' holdings, when the case has any. */
+	vaultBalances?: VaultHoldings,
 ) {
 	const contractService = {
 		getTokenDecimals: async (token: string) => (token === USDC ? 6 : 18),
@@ -192,6 +194,7 @@ export function limitOrderService(
 		undefined,
 		undefined,
 		startingNonce,
+		vaultBalances,
 	)
 	return { service, store }
 }

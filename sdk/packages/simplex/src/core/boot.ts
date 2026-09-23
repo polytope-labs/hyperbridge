@@ -27,7 +27,7 @@ import { ContractInteractionService } from "@/services/ContractInteractionServic
 import { DelegationService } from "@/services/DelegationService"
 import { OrderbookClient } from "@/orderbook/client"
 import { LimitOrderLifecycle } from "@/orderbook/lifecycle"
-import { LimitOrderService } from "@/orderbook/limit-orders"
+import { LimitOrderService, initialOrderNonce } from "@/orderbook/limit-orders"
 import { DEFAULT_LIMIT_ORDER_TTL_SECONDS } from "@/orderbook/types"
 import { UserOpSender } from "@/services/UserOpSender"
 import { RebalancingService } from "@/services/RebalancingService"
@@ -457,6 +457,9 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		config.orderbook.defaultTtlSecs ?? DEFAULT_LIMIT_ORDER_TTL_SECONDS,
 		new DelegationService(chainClientManager, configService, runtimeSigner),
 		options.loggers,
+		initialOrderNonce,
+		// A fill withdraws a payout shortfall from the vaults, so what they hold backs an order too.
+		vaultVenue,
 	)
 	// A fill has to work its limit order down and put the rest back on the book,
 	// which the filler cannot do until the service that owns the connection exists.

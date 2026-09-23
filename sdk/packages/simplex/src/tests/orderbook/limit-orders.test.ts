@@ -12,7 +12,7 @@ import {
 	postedOrder,
 } from "../helpers/limit-orders"
 
-const { ONE } = ORDERBOOK_FIXTURES
+const { ONE, CHAIN } = ORDERBOOK_FIXTURES
 
 describe("LimitOrderService.create", () => {
 	it("stores the order and records the orderbook's posting", async () => {
@@ -213,6 +213,88 @@ describe("what the wallet can actually pay", () => {
 		await expect(service.create({ ...REQUEST, amountOut: "1500000" })).rejects.toThrow(
 			/holds 1000000 CNGN on EVM-8453, which cannot pay out 1500000/,
 		)
+	})
+
+	/**
+	 * A fill pays out of the wallet and withdraws any shortfall from the configured vaults in the
+	 * same batch, so vault holdings back an order as much as the wallet does. Counting the wallet
+	 * alone refused orders the filler would have filled, which is every order once an operator
+	 * sweeps inventory into a vault.
+	 */
+	describe("with inventory in a vault", () => {
+		/** A vault position of `positionAssets` cNGN on the fill chain, in whole tokens. */
+		const vaultHolding = (whole: bigint, overrides: Record<string, unknown> = {}) => ({
+			getBalanceSnapshot: async () => [
+				{
+					chain: CHAIN,
+					vault: "0x9999999999999999999999999999999999999999" as HexString,
+					asset: ORDERBOOK_FIXTURES.CNGN,
+					symbol: "CNGN",
+					decimals: 18,
+					positionAssets: whole * 10n ** 18n,
+					availableAssets: whole * 10n ** 18n,
+					walletReserve: 0n,
+					acceptsDeposits: true,
+					...overrides,
+				},
+			],
+		})
+
+		it("backs an order the wallet alone could not pay", async () => {
+			const { service } = makeService(
+				fakeClient([{ kind: "accepted", order: postedOrder(), surfaced: true }]),
+				undefined,
+				{ [ORDERBOOK_FIXTURES.CNGN]: 1_000_000n },
+				undefined,
+				vaultHolding(600_000n),
+			)
+
+			const { order } = await service.create({ ...REQUEST, amountOut: "1500000" })
+
+			expect(order.size).toBe((1_500_000n * ONE).toString())
+		})
+
+		it("still refuses what the wallet and the vaults together cannot pay, and says what is where", async () => {
+			const { service } = makeService(fakeClient([]), undefined, { [ORDERBOOK_FIXTURES.CNGN]: 1_000_000n }, undefined, vaultHolding(200_000n))
+
+			await expect(service.create({ ...REQUEST, amountOut: "1500000" })).rejects.toThrow(
+				/holds 1000000 in the wallet and 200000 in vaults CNGN on EVM-8453, which cannot pay out 1500000/,
+			)
+		})
+
+		it("counts only vaults holding the payout token on the fill chain", async () => {
+			const otherToken = makeService(fakeClient([]), undefined, { [ORDERBOOK_FIXTURES.CNGN]: 1_000_000n }, undefined, {
+				getBalanceSnapshot: async () => [
+					{
+						chain: CHAIN,
+						vault: "0x9999999999999999999999999999999999999999" as HexString,
+						asset: ORDERBOOK_FIXTURES.USDC,
+						symbol: "USDC",
+						decimals: 6,
+						positionAssets: 600_000n * 10n ** 6n,
+						availableAssets: 600_000n * 10n ** 6n,
+						walletReserve: 0n,
+						acceptsDeposits: true,
+					},
+				],
+			})
+
+			await expect(otherToken.service.create({ ...REQUEST, amountOut: "1500000" })).rejects.toThrow(
+				/cannot pay out 1500000/,
+			)
+		})
+
+		it("falls back to the wallet when the vault snapshot cannot be read", async () => {
+			const { service } = makeService(fakeClient([]), undefined, { [ORDERBOOK_FIXTURES.CNGN]: 1_000_000n }, undefined, {
+				getBalanceSnapshot: async () => {
+					throw new Error("rpc down")
+				},
+			})
+
+			await expect(service.create({ ...REQUEST, amountOut: "1500000" })).rejects.toThrow(
+				/holds 1000000 CNGN on EVM-8453, which cannot pay out 1500000/,
+			)
+		})
 	})
 
 	it("lets several orders rest on the same balance", async () => {

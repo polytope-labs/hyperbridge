@@ -6,6 +6,7 @@ import type { ContractInteractionService } from "@/services/ContractInteractionS
 import type { DelegationService } from "@/services/DelegationService"
 import type { FillerConfigService } from "@/services/FillerConfigService"
 import { defaultLoggerContext, type Logger, type LoggerContext } from "@/services/Logger"
+import type { VaultBalancePosition } from "@/funding/types"
 import type { Signer } from "@/services/wallet"
 import { fromHuman, ORDERBOOK_SCALE, rateFrom, signedAmounts, toHuman, toScaled } from "./amounts"
 import { OrderbookClient, OrderbookRequestError } from "./client"
@@ -142,6 +143,14 @@ export interface ReconcileReport {
  * orderbook's answer is then written back onto that row: an accepted order
  * carries its commitment, a rejected one carries the reason.
  */
+/**
+ * The configured ERC-4626 vaults' holdings, as `VaultFundingPlanner` reports them. A fill sources
+ * a payout shortfall from these, so they back a limit order as much as the wallet does.
+ */
+export interface VaultHoldings {
+	getBalanceSnapshot(chain?: string): Promise<VaultBalancePosition[]>
+}
+
 export class LimitOrderService {
 	private logger: Logger
 	private cachedLimits?: { limits: OrderbookLimits; readAt: number }
@@ -159,6 +168,8 @@ export class LimitOrderService {
 		loggers: LoggerContext = defaultLoggerContext(),
 		/** Where a new order's nonce starts; tests pin it, production draws it at random. */
 		private readonly startingNonce: () => bigint = initialOrderNonce,
+		/** The configured ERC-4626 vaults, when the operator runs any. */
+		private readonly vaultBalances?: VaultHoldings,
 	) {
 		this.logger = loggers.get("limit-orders")
 	}
@@ -467,29 +478,63 @@ export class LimitOrderService {
 	 * balance on the fill chain, so the operator hears it while they are creating
 	 * the order.
 	 *
+	 * A fill pays out of the wallet and then withdraws any shortfall from the
+	 * configured ERC-4626 vaults in the same batch, so what those vaults hold of
+	 * the payout token backs the order too and is counted here. Without it an
+	 * operator who sweeps inventory into a vault is refused orders their filler
+	 * would have filled.
+	 *
 	 * Each order is checked against the whole balance, not against what is left of
 	 * it after the others. One balance backs every order resting on it — that is
 	 * what quoting both sides of a book is — and the orderbook says as much: it
 	 * advertises each entry at `min(quoted, balance)` rather than dividing the
 	 * balance between them. Whichever order fills first draws the inventory down,
 	 * and the rest are cut to what is left. Netting them here would refuse the
-	 * second side of every book.
+	 * second side of every book. Vault positions are counted the same way: the
+	 * whole position, not what is left after reservations for fills in flight.
 	 */
 	private async assertWalletCanPay(symbol: string, chain: string, payout: bigint): Promise<void> {
 		const token = this.assetRegistry.getAddress(symbol, chain)
 		if (!token) return
 
 		const decimals = await this.decimalsFor(symbol, token, chain)
-		const balance = toScaled(
+		const wallet = toScaled(
 			await this.contractService.getTokenBalance(chain, token, this.signer.address as HexString),
 			decimals,
 		)
+		const vaults = await this.vaultHoldings(token, chain)
 
-		if (balance < payout) {
+		if (wallet + vaults < payout) {
+			const held = vaults > 0n ? `${toHuman(wallet)} in the wallet and ${toHuman(vaults)} in vaults` : toHuman(wallet)
 			throw new LimitOrderValidationError(
-				`The wallet holds ${toHuman(balance)} ${symbol} on ${chain}, which cannot pay out ${toHuman(payout)}`,
+				`The wallet holds ${held} ${symbol} on ${chain}, which cannot pay out ${toHuman(payout)}`,
 			)
 		}
+	}
+
+	/**
+	 * What the configured vaults hold of `token` on `chain`, in scaled units.
+	 *
+	 * Zero when no vault is configured. A snapshot that cannot be read is also
+	 * zero: the wallet alone then has to cover the order, which refuses one the
+	 * filler might have managed rather than accepting one it could not.
+	 */
+	private async vaultHoldings(token: HexString, chain: string): Promise<bigint> {
+		if (!this.vaultBalances) return 0n
+		let positions: VaultBalancePosition[]
+		try {
+			positions = await this.vaultBalances.getBalanceSnapshot(chain)
+		} catch (err) {
+			this.logger.warn({ chain, token, err }, "Could not read vault balances; backing the order on the wallet alone")
+			return 0n
+		}
+		const wanted = token.toLowerCase()
+		let total = 0n
+		for (const position of positions) {
+			if (position.chain !== chain || position.asset.toLowerCase() !== wanted) continue
+			total += toScaled(position.positionAssets, position.decimals)
+		}
+		return total
 	}
 
 	/**

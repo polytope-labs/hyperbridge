@@ -2555,10 +2555,27 @@ button.limit-order-side:hover:not(.is-selected) {
 	color: var(--text);
 }
 
+/* Buying reads green and selling red, as a book is quoted everywhere else. */
 button.limit-order-side.is-selected {
-	background: var(--card-raised);
-	color: var(--text);
 	box-shadow: 0 1px 2px rgb(0 0 0 / 12%);
+}
+
+button.limit-order-side[data-side="BID"].is-selected {
+	background: color-mix(in srgb, var(--ok) 16%, var(--card-raised));
+	color: var(--ok);
+}
+
+button.limit-order-side[data-side="ASK"].is-selected {
+	background: color-mix(in srgb, var(--err) 16%, var(--card-raised));
+	color: var(--err);
+}
+
+button.limit-order-side[data-side="BID"]:hover:not(.is-selected) {
+	color: color-mix(in srgb, var(--ok) 70%, var(--text));
+}
+
+button.limit-order-side[data-side="ASK"]:hover:not(.is-selected) {
+	color: color-mix(in srgb, var(--err) 70%, var(--text));
 }
 
 .limit-order-derived {

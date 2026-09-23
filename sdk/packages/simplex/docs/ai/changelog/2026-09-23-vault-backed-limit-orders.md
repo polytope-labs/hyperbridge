@@ -40,8 +40,9 @@ operator is actually choosing:
 - **Pair** — only the books the orderbook lists (`GET /api/orderbook/books`, backed by
   `LimitOrderService.books()`). `resolveBook` refuses anything else, and a book's own spelling of
   its symbols is what a request must carry.
-- **Buy / Sell** — sub-tabs over the book's base. Buy takes the base in and pays the quote out
-  (a `BID`); Sell takes the quote in and pays the base out (an `ASK`).
+- **Buy / Sell** — sub-tabs over the book's base, the selected one green for buying and red for
+  selling. Buy takes the base in and pays the quote out (a `BID`); Sell takes the quote in and
+  pays the base out (an `ASK`).
 - **Amount** in the book's base, and **rate** in quote per base, the way the book is quoted.
 
 `requestFrom` derives the two amounts: buying takes `amount` base in and pays `amount × rate` quote

@@ -110,6 +110,8 @@ export function CreateLimitOrderForm(props: {
 							type="button"
 							role="tab"
 							aria-selected={side === value}
+							// The side drives its colour: buying reads green, selling red.
+							data-side={value}
 							className={`limit-order-side${side === value ? " is-selected" : ""}`}
 							onClick={() => setSide(value)}
 							title={hint}

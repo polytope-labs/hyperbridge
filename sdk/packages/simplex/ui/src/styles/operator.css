@@ -743,8 +743,9 @@ button.operator-tool-row {
 	text-align: left;
 }
 
+/* Pair icons, side, what is left and at what rate, status, chevron. */
 button.operator-market-row {
-	grid-template-columns: 3.25rem minmax(10rem, 1.4fr) minmax(7rem, 0.8fr) minmax(9rem, 1fr) minmax(8rem, 0.8fr) 1.2rem;
+	grid-template-columns: 3.25rem 4.25rem minmax(10rem, 1fr) minmax(7rem, auto) 1.2rem;
 	gap: 0.85rem;
 }
 
@@ -2580,6 +2581,29 @@ button.limit-order-side[data-side="ASK"]:hover:not(.is-selected) {
 
 .limit-order-derived {
 	font-variant-numeric: tabular-nums;
+}
+
+/* The same green and red in the list and the detail, so a row reads at a glance. */
+.limit-order-side-tag {
+	flex: none;
+	min-width: 3.1rem;
+	padding: 0.15rem 0.45rem;
+	border-radius: 0.4rem;
+	font-size: 0.7rem;
+	font-weight: 600;
+	letter-spacing: 0.03em;
+	text-align: center;
+	text-transform: uppercase;
+}
+
+.limit-order-side-tag[data-side="BID"] {
+	background: color-mix(in srgb, var(--ok) 16%, var(--card-raised));
+	color: var(--ok);
+}
+
+.limit-order-side-tag[data-side="ASK"] {
+	background: color-mix(in srgb, var(--err) 16%, var(--card-raised));
+	color: var(--err);
 }
 
 .limit-order-fills {

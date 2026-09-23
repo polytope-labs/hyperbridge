@@ -50,3 +50,6 @@ out, selling pays `amount` base out and takes `amount × rate` quote in. The ari
 1e18 rather than in floating point, and rounds so the posted price is never better for the taker
 than the rate stated — a bid pays out no more quote, an ask takes in no less. A size that rounds
 away to nothing is refused rather than posted. The form shows the derived amounts before posting.
+
+Each row in the list, and the order detail, carries the same Buy/Sell tag in the same green and
+red, so a side reads without working it out from which token the order takes in.

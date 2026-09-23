@@ -7,7 +7,7 @@ import { INIT_CHAINS } from "@/cli/init/chains"
 import { formatDate, sqliteUtcToMs } from "../lib/format"
 import type { LimitOrder } from "../types"
 import { CreateLimitOrderForm } from "./limitOrders/CreateLimitOrderForm"
-import { available, describeRate, fromScaled, legs, statusOf } from "./limitOrders/limitOrderModel"
+import { available, describeRate, fromScaled, legs, sideLabel, statusOf } from "./limitOrders/limitOrderModel"
 import { type LimitOrderFills, useLimitOrders, useOrderbookBooks } from "./limitOrders/useLimitOrders"
 
 /** Orders per page, live and closed each: a solver re-posting all day builds a long closed list. */
@@ -193,6 +193,9 @@ function LimitOrderRow(props: { order: LimitOrder; chainLabel: (id: string) => s
 	return (
 		<button type="button" className="operator-market-row" onClick={onOpen}>
 			<TokenPairIcons tokenA={input} tokenB={output} />
+			<span className="limit-order-side-tag" data-side={order.side}>
+				{sideLabel(order.side)}
+			</span>
 			<span className="operator-market-copy">
 				<strong>
 					{fromScaled(order.remaining)} {output} left at {describeRate(order)}
@@ -229,6 +232,15 @@ function LimitOrderDetail(props: {
 					<dd>
 						<span className={`badge ${status.tone}`}>{status.label}</span>
 						{status.detail ? <small> {status.detail}</small> : null}
+					</dd>
+				</div>
+				<div>
+					<dt>Side</dt>
+					<dd>
+						<span className="limit-order-side-tag" data-side={order.side}>
+							{sideLabel(order.side)}
+						</span>{" "}
+						<small>{order.base}</small>
 					</dd>
 				</div>
 				<div>

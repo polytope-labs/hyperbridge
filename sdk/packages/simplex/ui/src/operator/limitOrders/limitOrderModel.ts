@@ -69,6 +69,11 @@ export function statusOf(order: LimitOrder): { label: string; tone: Tone; detail
 /** Which way round the operator trades the book's base: buying it in, or selling it out. */
 export type OrderSide = "BID" | "ASK"
 
+/** A side as the operator reads it: a bid buys the book's base, an ask sells it. */
+export function sideLabel(side: OrderSide): string {
+	return side === "BID" ? "Buy" : "Sell"
+}
+
 /**
  * The order as the operator states it: a book, a side, how much of the book's base, and the rate
  * in quote per base. The book's own spelling of its symbols is carried, because that is what the

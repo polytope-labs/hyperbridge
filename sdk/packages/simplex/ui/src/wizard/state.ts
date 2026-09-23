@@ -100,7 +100,9 @@ export function initialState(defaults: SetupDefaults): WizardState {
 		chains: defaults.chains.map((meta) => ({
 				meta,
 				enabled: false,
-				rpcUrls: [""],
+				// Public endpoints where the registry has them, so the operator only
+				// has to supply a bundler. One empty field otherwise, to type into.
+				rpcUrls: meta.defaultRpcUrls?.length ? [...meta.defaultRpcUrls] : [""],
 				bundlerUrl: "",
 				viaAlchemy: false,
 				watchOnly: false,

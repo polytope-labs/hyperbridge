@@ -34,10 +34,13 @@ export function StepChains({ state, setState }: StepProps) {
 					? s.chains.map((c) => {
 							const row = res.chains.find((r) => r.chainId === c.meta.chainId)
 							if (!row?.rpcUrl) return c
+							// Bundler only. The scan reads from the public quorum, which
+							// costs nothing and spreads across providers; sending it to
+							// Alchemy instead would burn the key's quota on polling and
+							// leave the chain on a single provider.
 							return {
 								...c,
-								rpcUrls: [row.rpcUrl, ...c.rpcUrls.slice(1)],
-								bundlerUrl: row.bundlerUrl ?? c.bundlerUrl,
+								bundlerUrl: row.bundlerUrl ?? row.rpcUrl,
 								viaAlchemy: true,
 								verificationState: undefined,
 								verificationMessage: undefined,
@@ -46,8 +49,8 @@ export function StepChains({ state, setState }: StepProps) {
 					: s.chains,
 			}))
 			if (res.valid) {
-				toast.success("Provider endpoints added", {
-					description: "Supported chain endpoints were filled from your Alchemy key.",
+				toast.success("Bundlers configured", {
+					description: "Every supported chain now submits fills through your Alchemy key.",
 				})
 			} else {
 				toast.error("Alchemy key could not be validated", { description: res.error })
@@ -127,12 +130,12 @@ export function StepChains({ state, setState }: StepProps) {
 	return (
 		<div className="wizard-sections chains-step">
 			<div className="card">
-				<h2>Provider key</h2>
+				<h2>Bundler key</h2>
 				<p className="hint">
-					One Alchemy API key can fill in the RPC and bundler URL for every supported chain — Alchemy serves
-					ERC-4337 bundler methods on the same endpoint. Use premium endpoints with archive access; free tiers
-					rate-limit and break event scanning. Every field stays editable if you prefer other providers (e.g.
-					a Pimlico bundler).
+					One Alchemy API key configures the ERC-4337 bundler for every supported chain, which is the only
+					endpoint you have to bring. Reading the chain is already covered: each chain below starts with
+					several public RPC endpoints that are cross-checked against each other, so no single one has to be
+					reliable. Every field stays editable if you prefer your own providers (e.g. a Pimlico bundler).
 				</p>
 				<div className="chain-provider-controls">
 					<input
@@ -163,7 +166,7 @@ export function StepChains({ state, setState }: StepProps) {
 							<ChainLogo label={chain.meta.label} />
 							<div>
 								<h2>{chain.meta.label}</h2>
-								{chain.viaAlchemy && <span className="chain-source">Configured with Alchemy</span>}
+								{chain.viaAlchemy && <span className="chain-source">Bundler via Alchemy</span>}
 							</div>
 						</div>
 						<label className="chain-enable-toggle">
@@ -181,12 +184,15 @@ export function StepChains({ state, setState }: StepProps) {
 							{chain.rpcUrls.map((url, index) => (
 								<label className="field" key={index}>
 									<span className="field-label">
-										{index === 0 ? "RPC endpoint" : "Backup RPC endpoint"}
+										{index === 0 ? "RPC endpoint" : `RPC endpoint ${index + 1}`}
 										{index === 0 ? <span className="field-required">Required</span> : null}
 									</span>
 									{index === 0 && <small>Used to read the chain and find orders.</small>}
-									{index > 0 && (
-										<small>A second provider helps protect against bad or unavailable data.</small>
+									{index === 1 && (
+										<small>
+											Reads are agreed across every endpoint listed, so a wrong or unavailable
+											answer from any one of them cannot mislead the filler.
+										</small>
 									)}
 									<div className="row">
 										<input
@@ -201,7 +207,6 @@ export function StepChains({ state, setState }: StepProps) {
 													),
 													verificationState: undefined,
 													verificationMessage: undefined,
-													viaAlchemy: index === 0 ? false : chain.viaAlchemy,
 												})
 											}
 										/>

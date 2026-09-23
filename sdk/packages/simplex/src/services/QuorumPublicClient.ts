@@ -43,11 +43,16 @@ export const RATE_LIMIT_SUSPENSION_MS = 5 * 60_000
  * call — early exit already resolves the moment the bar is reachable, over the
  * same responses `finalize` would see — so in practice the deadline is where a
  * doomed call dies quickly instead of slowly.
+ *
+ * `timeoutMs` bounds one endpoint's attempt, and there is only ever one: the
+ * transports are built with `retryCount: 0`, so an endpoint's whole
+ * contribution to a call is a single request. That is what keeps the two
+ * numbers independent — a task cannot approach `deadlineMs` by retrying inside
+ * itself, so a deadline that fires means something outside the budget went
+ * wrong rather than an endpoint using the budget as designed.
  */
 export interface QuorumBudget {
 	timeoutMs: number
-	retryCount: number
-	retryDelayMs: number
 	deadlineMs: number
 }
 
@@ -58,8 +63,6 @@ export interface QuorumBudget {
  */
 export const SCAN_BUDGET: QuorumBudget = {
 	timeoutMs: 5_000,
-	retryCount: 1,
-	retryDelayMs: 500,
 	deadlineMs: 12_000,
 }
 
@@ -72,8 +75,6 @@ export const SCAN_BUDGET: QuorumBudget = {
  */
 export const CONFIRMATION_BUDGET: QuorumBudget = {
 	timeoutMs: 10_000,
-	retryCount: 1,
-	retryDelayMs: 500,
 	deadlineMs: 30_000,
 }
 
@@ -319,8 +320,14 @@ export class QuorumPublicClient {
 				chain,
 				transport: http(url, {
 					timeout: budget.timeoutMs,
-					retryCount: budget.retryCount,
-					retryDelay: budget.retryDelayMs,
+					// No transport-level retry. viem's retry sleeps for the provider's
+					// `Retry-After` verbatim and uncapped, which reaches the socket
+					// before {@link suspensionMsFor} can apply its clamp — and even
+					// without that header, retrying inside the task is what makes a
+					// task's worst case (timeout, backoff, timeout) approach the
+					// deadline that is supposed to bound it. One attempt per endpoint
+					// per call; `retryPromise` above the quorum owns the retry policy.
+					retryCount: 0,
 				}),
 			}),
 		)

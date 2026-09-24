@@ -983,8 +983,17 @@ export class IntentFiller {
 		this.monitor.emit("orderTiming", { orderId: order.id, phase: "evaluation", durationSec: evalDurationSec })
 
 		if (validStrategies.length === 0) {
-			this.logger.warn({ orderId: order.id }, "No profitable strategy found for order")
-			this.monitor.emit("orderSkipped", { orderId: order.id, reason: "No profitable strategy" })
+			// Nothing able to fill it is not a price that loses money. Each strategy logs its
+			// own reason just before this line.
+			const priced = eligibleStrategies.some((s) => s !== null)
+			this.logger.warn(
+				{ orderId: order.id },
+				priced ? "No profitable strategy found for order" : "No strategy can fill this order",
+			)
+			this.monitor.emit("orderSkipped", {
+				orderId: order.id,
+				reason: priced ? "No profitable strategy" : "No strategy can fill this order",
+			})
 			return null
 		}
 

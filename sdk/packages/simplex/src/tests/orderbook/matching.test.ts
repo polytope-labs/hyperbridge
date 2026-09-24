@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 import type { HexString } from "@hyperbridge/sdk"
 import type { LimitOrder } from "@/data/types"
 import { ORDERBOOK_SCALE } from "@/orderbook/amounts"
-import { availableOn, matchLimitOrder, matchLimitOrders, type IncomingOrder } from "@/orderbook/matching"
+import { availableOn, matchLimitOrder, matchLimitOrders, type IncomingOrder, whyUnmatched } from "@/orderbook/matching"
 
 const ONE = ORDERBOOK_SCALE
 const BASE_CHAIN = "EVM-8453"
@@ -274,6 +274,48 @@ describe("matchLimitOrder", () => {
 
 	it("returns null when nothing matches, rather than falling back to a price", () => {
 		expect(matchLimitOrder([], incoming(), resolve)).toBeNull()
+	})
+})
+
+describe("whyUnmatched", () => {
+	it("says so when no limit order is open", () => {
+		expect(whyUnmatched([], incoming(), resolve)).toBe("no limit order is open")
+		expect(whyUnmatched([limitOrder({ status: "cancelled" })], incoming(), resolve)).toBe("no limit order is open")
+	})
+
+	it("names the furthest check any order got to", () => {
+		// One on the wrong chain, one on the right chain taking the wrong token: the second is nearer.
+		const orders = [limitOrder({ id: "L1", fillChain: "EVM-1" }), limitOrder({ id: "L2", side: "ASK" })]
+		expect(whyUnmatched(orders, incoming(), resolve)).toBe("no limit order on EVM-8453 takes USDC in")
+	})
+
+	it("names the chain, the output or the source when that is what fails", () => {
+		expect(whyUnmatched([limitOrder({ fillChain: "EVM-1" })], incoming(), resolve)).toBe(
+			"no open limit order fills on EVM-8453",
+		)
+		expect(whyUnmatched([limitOrder()], incoming({ outputToken: EURC }), resolve)).toBe(
+			"no limit order on EVM-8453 taking USDC in pays out the token this order asks for",
+		)
+		expect(whyUnmatched([limitOrder()], incoming({ source: "EVM-56" }), resolve)).toBe(
+			"no limit order for this pair on EVM-8453 accepts swaps from EVM-56",
+		)
+	})
+
+	it("sets the ask against the best offer when the rate is what fails", () => {
+		// 1,000 USDC at 1,390 offers 1,390,000 cNGN against an ask of 1,400,000.
+		const orders = [
+			limitOrder({ id: "L1", price: (1380n * ONE).toString() }),
+			limitOrder({ id: "L2", price: (1390n * ONE).toString() }),
+		]
+		expect(whyUnmatched(orders, incoming(), resolve)).toBe(
+			"it asks for 1,400,000 CNGN; the best limit order offers 1,390,000 CNGN",
+		)
+	})
+
+	it("says the depth is gone when an order meets the rate but has nothing left", () => {
+		expect(whyUnmatched([limitOrder({ remaining: "0" })], incoming(), resolve)).toBe(
+			"the limit orders that meet its rate have nothing left to pay out",
+		)
 	})
 })
 

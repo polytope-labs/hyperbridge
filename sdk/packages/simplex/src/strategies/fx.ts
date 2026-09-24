@@ -23,7 +23,7 @@ import type { Signer } from "@/services/wallet"
 import { paymasterReserveForToken } from "@/services/paymaster"
 import type { LimitOrderStore } from "@/data/types"
 import { inputFor, toRaw, toScaled } from "@/orderbook/amounts"
-import { matchLimitOrders, type LimitOrderMatch } from "@/orderbook/matching"
+import { type IncomingOrder, matchLimitOrders, type LimitOrderMatch, whyUnmatched } from "@/orderbook/matching"
 import { limitOrderUsdEdges, usdFactorsFrom, usdValueOf } from "@/orderbook/usd"
 
 /**
@@ -235,16 +235,21 @@ export class FXFiller implements FillerStrategy {
 		}
 		try {
 			if (order.inputs.length !== order.output.assets.length) {
-				this.logger.debug(
-					{ inputs: order.inputs.length, outputs: order.output.assets.length },
+				this.logger.info(
+					{ orderId: order.id, inputs: order.inputs.length, outputs: order.output.assets.length },
 					"Order input/output length mismatch or empty",
 				)
 				return false
 			}
 
 			if ((await this.matchOrder(order)).length === 0) {
-				this.logger.debug(
-					{ orderId: order.id, sourceChain: order.source, destChain: order.destination },
+				this.logger.info(
+					{
+						orderId: order.id,
+						sourceChain: order.source,
+						destChain: order.destination,
+						reason: await this.explainUnmatched(order),
+					},
 					"No limit order matches this order",
 				)
 				return false
@@ -1004,33 +1009,57 @@ export class FXFiller implements FillerStrategy {
 	 */
 	private async matchLeg(order: Order, leg: number): Promise<LimitOrderMatch[]> {
 		if (!this.limitOrders) return []
+		const incoming = await this.incomingFor(order, leg)
+		if (!incoming) return []
+		return matchLimitOrders(await this.limitOrders.open(), incoming, (symbol, chain) =>
+			this.registry.getAddress(symbol, chain),
+		)
+	}
+
+	/** Why no limit order serves the order, leg by leg, for the line that says it was passed over. */
+	private async explainUnmatched(order: Order): Promise<string> {
+		if (!this.limitOrders) return "limit orders are not loaded"
+		const open = await this.limitOrders.open()
+		const reasons: string[] = []
+		for (let leg = 0; leg < order.inputs.length; leg++) {
+			const incoming = await this.incomingFor(order, leg)
+			const reason = incoming
+				? whyUnmatched(open, incoming, (symbol, chain) => this.registry.getAddress(symbol, chain))
+				: `its input token is not in the asset registry on ${order.source}`
+			reasons.push(order.inputs.length > 1 ? `leg ${leg}: ${reason}` : reason)
+		}
+		return reasons.join("; ")
+	}
+
+	/**
+	 * One leg as the matcher sees it, or null when its input token is not one the asset
+	 * registry knows on the source chain.
+	 *
+	 * Amounts cross into the matcher at 1e18, the unit limit orders are kept in.
+	 */
+	private async incomingFor(order: Order, leg: number): Promise<IncomingOrder | null> {
 		const input = order.inputs[leg]
 		const output = order.output.assets[leg]
-		if (!input || !output) return []
+		if (!input || !output) return null
 		const inputToken = bytes32ToBytes20(input.token) as HexString
 		const outputToken = bytes32ToBytes20(output.token) as HexString
 
 		const inputSymbol = this.registry.symbolFor(inputToken, order.source)
-		if (!inputSymbol) return []
+		if (!inputSymbol) return null
 
 		const [inputDecimals, outputDecimals] = await Promise.all([
 			this.contractService.getTokenDecimals(inputToken, order.source),
 			this.contractService.getTokenDecimals(outputToken, order.destination),
 		])
-
-		return matchLimitOrders(
-			await this.limitOrders.open(),
-			{
-				source: order.source,
-				destination: order.destination,
-				inputSymbol,
-				outputToken,
-				inputNet: toScaled(input.amount, inputDecimals),
-				requestedOutput: toScaled(output.amount, outputDecimals),
-				outputDecimals,
-			},
-			(symbol, chain) => this.registry.getAddress(symbol, chain),
-		)
+		return {
+			source: order.source,
+			destination: order.destination,
+			inputSymbol,
+			outputToken,
+			inputNet: toScaled(input.amount, inputDecimals),
+			requestedOutput: toScaled(output.amount, outputDecimals),
+			outputDecimals,
+		}
 	}
 
 	/**

@@ -259,9 +259,10 @@ export class IntentGateway {
 	 *
 	 * Every `amountOut` already has the destination's protocol fee taken off. For
 	 * an exact output, the quote is for an input that delivers `amountOut`. A
+	 * route that cannot fill the trade returns the orderbook's quote with
+	 * `fillable: false` and its `maxFillableIn`, rather than throwing. A
 	 * cross-chain route only counts orders whose solvers accept the source chain.
 	 *
-	 * @throws {InsufficientOrderbookLiquidityError} When the route cannot fill the amount.
 	 * @throws {OrderbookQuoteNotConvergedError} When an exact-output quote does not settle on an input.
 	 * @throws {OrderbookRequestError} When the orderbook is unreachable or trades no book for the pair.
 	 */

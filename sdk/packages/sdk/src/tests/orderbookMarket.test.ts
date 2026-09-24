@@ -10,11 +10,7 @@ import {
 	orderbookUrlFor,
 } from "@/protocols/intents/orderbook/client"
 import { OrderbookMarket } from "@/protocols/intents/orderbook/market"
-import {
-	InsufficientOrderbookLiquidityError,
-	OrderbookQuoteNotConvergedError,
-	type QuoteIntentResult,
-} from "@/protocols/intents/orderbook/types"
+import { OrderbookQuoteNotConvergedError, type QuoteIntentResult } from "@/protocols/intents/orderbook/types"
 
 const CHAPEL = "EVM-97"
 const AMOY = "EVM-80002"
@@ -270,30 +266,79 @@ describe("OrderbookMarket.quoteIntent optimistic", () => {
 		assert.equal(quote.amountIn, parseUnits("500", 6))
 	})
 
-	it("refuses an exact input the route cannot fill", async () => {
+	it("returns an exact input the route cannot fill as unfillable", async () => {
 		const { market } = stubOrderbook(bidSide())
-		await assert.rejects(
-			market.quoteIntent(
-				{ tokenIn: chapelUsdc, tokenOut: amoyCngn, amountIn: parseUnits("6000", 18), optimistic: true },
-				CHAPEL,
-				AMOY,
-			),
-			(error: unknown) =>
-				error instanceof InsufficientOrderbookLiquidityError && error.maxFillableIn === parseUnits("5000", 18),
+		const quote = await market.quoteIntent(
+			{ tokenIn: chapelUsdc, tokenOut: amoyCngn, amountIn: parseUnits("6000", 18), optimistic: true },
+			CHAPEL,
+			AMOY,
 		)
+		assert.deepEqual(quote, {
+			route: "CROSS_CHAIN",
+			side: "BID",
+			amountIn: parseUnits("6000", 18),
+			slippageBps: 0,
+			fillable: false,
+			maxFillableIn: parseUnits("5000", 18),
+			legs: [],
+		})
 	})
 
-	it("refuses an exact output past the route's depth without quoting it", async () => {
+	it("returns an exact output past the route's depth as the orderbook's unfillable quote", async () => {
 		const { market, calls } = stubOrderbook(bidSide())
-		await assert.rejects(
-			market.quoteIntent(
-				{ tokenIn: chapelUsdc, tokenOut: amoyCngn, amountOut: parseUnits("9000000", 6), optimistic: true },
-				CHAPEL,
-				AMOY,
-			),
-			InsufficientOrderbookLiquidityError,
+		const quote = await market.quoteIntent(
+			{ tokenIn: chapelUsdc, tokenOut: amoyCngn, amountOut: parseUnits("9000000", 6), optimistic: true },
+			CHAPEL,
+			AMOY,
 		)
-		assert.equal(quotes(calls, ORDERBOOK_QUERIES.quote), 0)
+		// 9,000,000 cNGN at the best rate (1,500) needs 6,000 USDC, past the 5,000 the route fills.
+		assert.equal(quote.fillable, false)
+		assert.equal(quote.amountIn, parseUnits("6000", 18))
+		assert.equal(quote.maxFillableIn, parseUnits("5000", 18))
+		assert.deepEqual(quote.legs, [])
+		assert.equal(quotes(calls, ORDERBOOK_QUERIES.quote), 1)
+	})
+
+	it("returns an exact output on a route no order serves as unfillable", async () => {
+		const { market } = stubOrderbook((query, variables) => {
+			if (query === ORDERBOOK_QUERIES.routeLiquidity) {
+				return {
+					books: BOOKS,
+					routeLiquidity: {
+						route: "CROSS_CHAIN",
+						bestRate: null,
+						slippageBps: 0,
+						depthIn: "0",
+						depthOut: "0",
+						availableLiquidity: "0",
+						maxFillableIn: "0",
+						orderCount: 0,
+						solverCount: 0,
+					},
+				}
+			}
+			return {
+				quotePessimistic: {
+					route: "CROSS_CHAIN",
+					side: "BID",
+					amountIn: variables.amountIn,
+					amountOut: "0",
+					rate: null,
+					priceBucket: null,
+					slippageBps: 0,
+					fillable: false,
+					maxFillableIn: "0",
+				},
+			}
+		})
+		const quote = await market.quoteIntent(
+			{ tokenIn: chapelUsdc, tokenOut: amoyCngn, amountOut: parseUnits("1000", 6) },
+			CHAPEL,
+			AMOY,
+		)
+		assert.equal(quote.fillable, false)
+		assert.equal(quote.amountOut, 0n)
+		assert.equal(quote.maxFillableIn, 0n)
 	})
 
 	it("reports an exact output it cannot converge on apart from insufficient liquidity", async () => {
@@ -398,17 +443,24 @@ describe("OrderbookMarket.quoteIntent pessimistic (default)", () => {
 		assert.equal(quotes(calls, ORDERBOOK_QUERIES.quotePessimistic), 2)
 	})
 
-	it("refuses an exact input the route cannot fill", async () => {
+	it("returns an exact input the route cannot fill as unfillable", async () => {
 		const { market } = stubOrderbook(bidSide())
-		await assert.rejects(
-			market.quoteIntent(
-				{ tokenIn: chapelUsdc, tokenOut: amoyCngn, amountIn: parseUnits("6000", 18) },
-				CHAPEL,
-				AMOY,
-			),
-			(error: unknown) =>
-				error instanceof InsufficientOrderbookLiquidityError && error.maxFillableIn === parseUnits("5000", 18),
+		const quote = await market.quoteIntent(
+			{ tokenIn: chapelUsdc, tokenOut: amoyCngn, amountIn: parseUnits("6000", 18) },
+			CHAPEL,
+			AMOY,
 		)
+		assert.deepEqual(quote, {
+			route: "CROSS_CHAIN",
+			side: "BID",
+			amountIn: parseUnits("6000", 18),
+			amountOut: 0n,
+			rate: null,
+			priceBucket: null,
+			slippageBps: 0,
+			fillable: false,
+			maxFillableIn: parseUnits("5000", 18),
+		})
 	})
 
 	it("refuses a fillable quote the orderbook served with no rate", async () => {

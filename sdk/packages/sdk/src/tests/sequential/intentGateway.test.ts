@@ -7,7 +7,6 @@ import { ABI as IntentGatewayV2ABI } from "@/abis/IntentGatewayV2"
 import type { FillOrderEstimate, HexString, Order, TokenInfo } from "@/types"
 import { EvmChain } from "@/chain"
 import { IntentGateway } from "@/protocols/intents/IntentGateway"
-import { InsufficientOrderbookLiquidityError } from "@/protocols/intents/orderbook/types"
 import { DEFAULT_GRAFFITI } from "@/protocols/intents/types"
 import { ChainConfigService } from "@/configs/ChainConfigService"
 import { bytes20ToBytes32 } from "@/utils"
@@ -128,22 +127,18 @@ describe("IntentGateway orderbook reads", () => {
 		const route = { tokenIn: configService.getUsdcAsset(CHAINS.amoy.id), tokenOut: chapelCngn }
 		const liquidity = await intentGateway.queryAvailableLiquidity(route)
 		const fillableIn = parseUnits(liquidity.maxFillableIn, usdcDecimals)
-		if (fillableIn < amountIn) {
-			console.log(
-				`[quoteIntent] Amoy USDC → Chapel cNGN: route fills ${liquidity.maxFillableIn} USDC, expecting a refusal`,
-			)
-			await assert.rejects(
-				intentGateway.quoteIntent({ ...route, amountIn, optimistic: true }),
-				(error: unknown) =>
-					error instanceof InsufficientOrderbookLiquidityError && error.maxFillableIn === fillableIn,
-			)
-			return
-		}
-
 		const quote = await intentGateway.quoteIntent({ ...route, amountIn, optimistic: true })
 
 		logIntentQuote("Amoy USDC → Chapel cNGN exact input", quote)
 		assert.equal(quote.amountIn, amountIn)
+		if (fillableIn < amountIn) {
+			// Too little depth: the orderbook's unfillable quote, not an error.
+			assert.equal(quote.fillable, false)
+			assert.equal(quote.maxFillableIn, fillableIn)
+			assert.deepEqual(quote.legs, [])
+			return
+		}
+		assert(quote.fillable)
 		assert.equal(quote.side, "BID")
 		assert.equal(quote.route, "CROSS_CHAIN")
 		assert(quote.legs.length > 0)
@@ -169,17 +164,17 @@ describe("IntentGateway orderbook reads", () => {
 		const amountIn = parseUnits("10", usdcDecimals)
 
 		const route = { tokenIn: configService.getUsdcAsset(CHAINS.amoy.id), tokenOut: chapelCngn }
-		const quote = await intentGateway.quoteIntent({ ...route, amountIn }).catch((error: unknown) => {
-			if (!(error instanceof InsufficientOrderbookLiquidityError)) throw error
-			console.log(`[quoteIntent] Amoy USDC → Chapel cNGN: route cannot fill, refused`)
-			return undefined
-		})
-		if (!quote) return
+		const quote = await intentGateway.quoteIntent({ ...route, amountIn })
 
 		logIntentQuote("Amoy USDC → Chapel cNGN pessimistic exact input", quote)
 		assert.equal(quote.amountIn, amountIn)
 		assert.equal(quote.side, "BID")
-		assert(quote.fillable && quote.rate !== null && quote.amountOut > 0n)
+		if (!quote.fillable) {
+			// Too little depth: the orderbook's unfillable quote, not an error.
+			assert(quote.rate === null && quote.amountOut === 0n && quote.maxFillableIn < amountIn)
+			return
+		}
+		assert(quote.rate !== null && quote.amountOut > 0n)
 		// One price for the whole trade, no better than the optimistic quote's worst leg.
 		const optimistic = await intentGateway.quoteIntent({ ...route, amountIn, optimistic: true })
 		assert(quote.rate <= (optimistic.legs.at(-1)?.orderRate ?? 0n))
@@ -195,21 +190,16 @@ describe("IntentGateway orderbook reads", () => {
 
 		const route = { tokenIn: amoyCngn, tokenOut: configService.getUsdcAsset(CHAINS.chapel.id) }
 		const liquidity = await intentGateway.queryAvailableLiquidity(route)
-		const quote = await intentGateway
-			.quoteIntent({ ...route, amountOut, optimistic: true })
-			.catch((error: unknown) => {
-				// Too little depth for the output, or none: the refusal must agree with the route's liquidity.
-				if (!(error instanceof InsufficientOrderbookLiquidityError)) throw error
-				console.log(
-					`[quoteIntent] Amoy cNGN → Chapel USDC: route fills ${liquidity.maxFillableIn} cNGN, refused`,
-				)
-				const cNgnDecimals = configService.getCNgnDecimals(CHAINS.amoy.id)!
-				assert.equal(error.maxFillableIn, parseUnits(liquidity.maxFillableIn, cNgnDecimals))
-				return undefined
-			})
-		if (!quote) return
+		const quote = await intentGateway.quoteIntent({ ...route, amountOut, optimistic: true })
 
 		logIntentQuote("Amoy cNGN → Chapel USDC exact output", quote)
+		if (!quote.fillable) {
+			// Too little depth for the output, or none: the unfillable quote agrees with the route's liquidity.
+			const cNgnDecimals = configService.getCNgnDecimals(CHAINS.amoy.id)!
+			assert.equal(quote.maxFillableIn, parseUnits(liquidity.maxFillableIn, cNgnDecimals))
+			assert.deepEqual(quote.legs, [])
+			return
+		}
 		assert(quote.legs.reduce((total, leg) => total + leg.amountOut, 0n) >= amountOut)
 		assert.equal(quote.side, "ASK")
 		assert(quote.amountIn > 0n && quote.amountIn <= quote.maxFillableIn)

@@ -6,7 +6,6 @@ export {
 	orderbookUrlFor,
 	ORDERBOOK_DECIMALS,
 	ORDERBOOK_QUERIES,
-	InsufficientOrderbookLiquidityError,
 	OrderbookQuoteNotConvergedError,
 	UnsupportedLiquidityAssetError,
 	UnsupportedLiquidityChainError,

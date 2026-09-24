@@ -18,6 +18,7 @@ import type {
 	SubmitBidOptions,
 	EstimateFillOrderParams,
 	FillOrderEstimate,
+	BidPreVerificationGasParams,
 	OrderFeesQuote,
 	IntentOrderStatusUpdate,
 	SelectBidResult,
@@ -765,6 +766,17 @@ export class IntentGateway {
 	 */
 	async estimateFillOrder(params: EstimateFillOrderParams): Promise<FillOrderEstimate> {
 		return this.gasEstimator.estimateFillOrder(params)
+	}
+
+	/**
+	 * Asks the bundler for the `preVerificationGas` of a bid as it will be signed, priced at
+	 * the gas price its bundle pays. Call it with the final calldata and `paymasterAndData`,
+	 * before {@link prepareSubmitBid} signs the op.
+	 *
+	 * Delegates to {@link GasEstimator.estimateBidPreVerificationGas}.
+	 */
+	async estimateBidPreVerificationGas(params: BidPreVerificationGasParams): Promise<bigint> {
+		return this.gasEstimator.estimateBidPreVerificationGas(params)
 	}
 
 	/**

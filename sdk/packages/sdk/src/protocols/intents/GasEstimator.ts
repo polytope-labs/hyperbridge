@@ -14,7 +14,13 @@ import {
 } from "@/utils"
 import { orderCommitment } from "./utils"
 import { calculateBalanceMappingLocation } from "@/utils"
-import type { PackedUserOperation, EstimateFillOrderParams, FillOrderEstimate, FillOptions } from "@/types"
+import type {
+	PackedUserOperation,
+	EstimateFillOrderParams,
+	FillOrderEstimate,
+	FillOptions,
+	BidPreVerificationGasParams,
+} from "@/types"
 import type { HexString } from "@/types"
 import type { IntentGatewayContext } from "./types"
 import { BundlerMethod } from "./types"
@@ -75,6 +81,31 @@ export const NO_BUNDLER_FILL_GAS_PER_OUTPUT = 150_000n
  */
 export const NO_BUNDLER_PAYMASTER_VERIFICATION_GAS = 250_000n
 export const NO_BUNDLER_PAYMASTER_POST_OP_GAS = 100_000n
+
+/**
+ * Code the bundler runs in place of the solver account while it estimates a bid's
+ * `preVerificationGas`. It answers `isValidSignature` with the ERC-1271 magic value, so
+ * Permit2 accepts the paymaster's permit, and every other call with 32 zero bytes, so
+ * `validateUserOp` succeeds and `execute` does nothing. The estimate then prices the
+ * bid's real bytes without running a fill that cannot pass in simulation: the session's
+ * selection is missing and funding calls do not resolve there.
+ */
+export const BID_PVG_ESTIMATION_ACCOUNT_CODE =
+	"0x60003560e01c631626ba7e1460145760206000f35b631626ba7e60e01b60005260206000f3" as HexString
+
+/**
+ * A bid's signature once the user selects it: the order commitment, the solver's signature
+ * and the session key's selection signature. The bundler prices these bytes, so the
+ * estimate carries a signature of this length.
+ */
+const SELECTED_BID_SIGNATURE_BYTES = 32 + 65 + 65
+
+/**
+ * Headroom over the bundler's `preVerificationGas` for a bid. The bid executes up to a
+ * minute or two after it is signed, and on an L2 the L1 data fee inside the figure moves
+ * with L1 prices in the meantime.
+ */
+export const BID_PVG_HEADROOM_PERCENT = 10n
 
 /** Internal pricing policy used by SDK order-fee quotes. */
 interface GasEstimationPricingOptions {
@@ -409,6 +440,59 @@ export class GasEstimator {
 			fillOptions,
 			inputs,
 		}
+	}
+
+	/**
+	 * Asks the bundler for the `preVerificationGas` of the bid UserOperation that will
+	 * actually be signed, with every funding call, approval and signature byte in it.
+	 *
+	 * On an L2, `preVerificationGas` also pays the L1 data fee for the op's bytes, a fixed
+	 * amount of wei that the bundler converts to gas at the price the op pays. A bundler
+	 * admits an op priced at its `maxFeePerGas`, but bundles it at the base fee plus its
+	 * priority fee, where the same wei costs more gas. An op sized only for admission is
+	 * accepted and then skipped in every bundle until it expires. The estimate is taken
+	 * at the bundle's price: the latest base fee plus the op's priority fee, capped at its
+	 * `maxFeePerGas`.
+	 *
+	 * The solver account's code is overridden with {@link BID_PVG_ESTIMATION_ACCOUNT_CODE}
+	 * for the call, so only the bytes are priced and the fill itself is not simulated.
+	 *
+	 * @param params - The bid's fields as they will be signed.
+	 * @returns The `preVerificationGas` to sign, with {@link BID_PVG_HEADROOM_PERCENT} added.
+	 * @throws If no bundler is configured or the bundler rejects the estimate.
+	 */
+	async estimateBidPreVerificationGas(params: BidPreVerificationGasParams): Promise<bigint> {
+		const { solverAccount, maxFeePerGas, maxPriorityFeePerGas } = params
+		const latestBlock = await this.ctx.dest.client.getBlock({ blockTag: "latest" })
+		const baseFeePerGas = latestBlock.baseFeePerGas
+		const bundlePrice =
+			baseFeePerGas == null || baseFeePerGas + maxPriorityFeePerGas > maxFeePerGas
+				? maxFeePerGas
+				: baseFeePerGas + maxPriorityFeePerGas
+		const priorityFee = maxPriorityFeePerGas < bundlePrice ? maxPriorityFeePerGas : bundlePrice
+
+		const userOp: PackedUserOperation = {
+			sender: solverAccount,
+			nonce: params.nonce,
+			initCode: "0x" as HexString,
+			callData: params.callData,
+			accountGasLimits: CryptoUtils.packGasLimits(params.verificationGasLimit, params.callGasLimit),
+			// Bundlers return a non-zero preVerificationGas as given rather than estimating it.
+			preVerificationGas: 0n,
+			gasFees: CryptoUtils.packGasFees(priorityFee, bundlePrice),
+			paymasterAndData: params.paymasterAndData ?? ("0x" as HexString),
+			signature: `0x${"ff".repeat(SELECTED_BID_SIGNATURE_BYTES)}` as HexString,
+		}
+
+		const estimate = await this.crypto.sendBundler<BundlerGasEstimate>(
+			BundlerMethod.ETH_ESTIMATE_USER_OPERATION_GAS,
+			[
+				CryptoUtils.prepareBundlerCall(userOp),
+				params.entryPointAddress,
+				{ [solverAccount]: { code: BID_PVG_ESTIMATION_ACCOUNT_CODE } },
+			],
+		)
+		return (BigInt(estimate.preVerificationGas) * (100n + BID_PVG_HEADROOM_PERCENT)) / 100n
 	}
 
 	/**

@@ -217,11 +217,13 @@ export class GasEstimator {
 		let maxPriorityFeePerGas = gasPrice + (gasPrice * BigInt(priorityFeeBumpPercent)) / 100n
 		let maxFeePerGas = gasPrice + (gasPrice * BigInt(maxFeeBumpPercent)) / 100n
 
-		const orderForEstimation = { ...order, session: solverAccountAddress }
-		const commitment = orderCommitment(orderForEstimation)
+		// The real order: a same-chain fill releases the escrow held under its commitment, and
+		// any other commitment reverts `UnknownOrder`. The selection check it would then fail,
+		// since only the user holds the session key, is turned off by `buildStateOverride`.
+		const commitment = orderCommitment(order)
 
 		await assertGatewayRelease(this.ctx.dest.client as any, intentGatewayV2Address)
-		const fillOrderCalldata = encodeFillOrder(transformOrderForContract(orderForEstimation) as any, fillOptions)
+		const fillOrderCalldata = encodeFillOrder(transformOrderForContract(order) as any, fillOptions)
 
 		let callGasLimit: bigint = 500_000n
 		let verificationGasLimit: bigint = 100_000n
@@ -497,6 +499,9 @@ export class GasEstimator {
 		> = {}
 
 		if (intentGatewayV2Address) {
+			// Params slot 5 packs the call dispatcher with `solverSelection` in the byte above it.
+			// Written back with that byte cleared, the simulated fill skips the selection check,
+			// which is what lets `estimateFillOrder` simulate the user's real order.
 			const paramsSlot5 = pad(toHex(5n), { size: 32 }) as HexString
 			const dispatcherAddress = this.ctx.dest.configService.getCalldispatcherAddress(chain)
 			const newSlot5Value = ("0x" + "0".repeat(22) + "00" + dispatcherAddress.slice(2).toLowerCase()) as HexString

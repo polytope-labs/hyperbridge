@@ -254,3 +254,76 @@
 .card-heading h2 {
 	margin-bottom: 0;
 }
+
+/* Launch screen: boot reports no stages, so an indeterminate bar and a clock. */
+.review-launching-heading {
+	display: flex;
+	align-items: center;
+	gap: 0.75rem;
+	margin-bottom: 1.1rem;
+}
+
+/* Inside the heading row it is no longer the card's direct child, so restate the card heading size. */
+.review-launching-heading h2 {
+	margin: 0;
+	font-size: 0.9375rem;
+	letter-spacing: -0.015em;
+}
+
+.review-launching-spinner {
+	flex: none;
+	width: 1rem;
+	height: 1rem;
+	border: 2px solid var(--border-strong);
+	border-top-color: var(--focus);
+	border-radius: 50%;
+	animation: review-spin 700ms linear infinite;
+}
+
+.review-launching-clock {
+	margin-left: auto;
+	color: var(--muted);
+	font-family: var(--font-mono);
+	font-size: 0.8125rem;
+	font-variant-numeric: tabular-nums;
+}
+
+.review-launching-bar {
+	position: relative;
+	height: 3px;
+	margin-bottom: 1.1rem;
+	overflow: hidden;
+	border-radius: 999px;
+	background: var(--border);
+}
+
+/* The same gradient as the step progress bar above it. */
+.review-launching-bar > span {
+	position: absolute;
+	top: 0;
+	bottom: 0;
+	left: -40%;
+	width: 40%;
+	border-radius: inherit;
+	background: linear-gradient(90deg, #4adeff, #ffffff 48%, #ffed4a);
+	animation: review-launching-slide 1.6s var(--ease-out) infinite;
+}
+
+@keyframes review-launching-slide {
+	to {
+		left: 100%;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.review-launching-spinner {
+		animation: none;
+	}
+
+	.review-launching-bar > span {
+		left: 0;
+		width: 100%;
+		opacity: 0.45;
+		animation: none;
+	}
+}

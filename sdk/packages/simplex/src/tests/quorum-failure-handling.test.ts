@@ -9,6 +9,7 @@ import {
 	MALFORMED_RESPONSE_SUSPENSION_MS,
 	STALE_HEAD_SUSPENSION_MS,
 	SCAN_BUDGET,
+	CONFIRMATION_BUDGET,
 } from "@/services/QuorumPublicClient"
 
 /**
@@ -123,5 +124,49 @@ describe("quorum call deadline", () => {
 		clients[2].getBlockNumber = () => new Promise(() => {})
 
 		await expect(client.getBlockNumber()).rejects.toThrow(QuorumError)
+	})
+})
+
+/**
+ * The transports underneath a quorum call.
+ *
+ * A 19h mainnet run hit the 12s deadline 311 times. The endpoints were fine —
+ * the box was running CI — but the margin that let host jitter through was
+ * viem's own retry: timeout, backoff, timeout put a task's worst case at 10.5s
+ * against a 12s deadline. viem also sleeps for a provider's `Retry-After`
+ * verbatim and uncapped, which lands on the socket before
+ * {@link suspensionMsFor} can clamp it.
+ */
+describe("quorum transports", () => {
+	const URLS = ["https://a.example", "https://b.example", "https://c.example"]
+
+	/** viem exposes a transport's resolved config on the client. */
+	function transportsOf(client: QuorumPublicClient) {
+		// biome-ignore lint/suspicious/noExplicitAny: reading the private client list
+		return ((client as any).clients as Array<{ transport: { retryCount: number; timeout: number } }>).map(
+			(c) => c.transport,
+		)
+	}
+
+	it("never retry inside a task, so one endpoint means one request", () => {
+		for (const budget of [SCAN_BUDGET, CONFIRMATION_BUDGET]) {
+			const client = new QuorumPublicClient(1, URLS, undefined, budget)
+			for (const transport of transportsOf(client)) {
+				expect(transport.retryCount).toBe(0)
+			}
+		}
+	})
+
+	it("leave a task's worst case well inside the deadline that bounds it", () => {
+		for (const budget of [SCAN_BUDGET, CONFIRMATION_BUDGET]) {
+			const client = new QuorumPublicClient(1, URLS, undefined, budget)
+			for (const transport of transportsOf(client)) {
+				expect(transport.timeout).toBe(budget.timeoutMs)
+				// One attempt, so the worst case IS timeoutMs. Headroom was 1.5s when
+				// the transport retried; the deadline should now only fire for
+				// something the budget does not describe.
+				expect(transport.timeout * 2).toBeLessThan(budget.deadlineMs)
+			}
+		}
 	})
 })

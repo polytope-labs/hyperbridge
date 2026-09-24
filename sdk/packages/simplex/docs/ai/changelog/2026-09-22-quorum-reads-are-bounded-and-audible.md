@@ -15,10 +15,13 @@ now lists the endpoints that never answered.
 
 ## Budgets, per call site
 
-| | timeout | retries | deadline |
-|---|---|---|---|
-| `SCAN_BUDGET` | 5s | 1 | 12s |
-| `CONFIRMATION_BUDGET` | 10s | 1 | 30s |
+| | timeout | deadline |
+|---|---|---|
+| `SCAN_BUDGET` | 5s | 12s |
+| `CONFIRMATION_BUDGET` | 10s | 30s |
+
+Both budgets carried a transport-level retry when this shipped. They no longer do — see
+[the follow-up note](./2026-09-23-quorum-transports-do-not-retry.md) for why.
 
 Scanning polls every 3s, so a read that has not answered in seconds is stale and is holding the scan
 mutex. Confirmation polling goes through the same class (`ChainClientManager.getQuorumClient`) but

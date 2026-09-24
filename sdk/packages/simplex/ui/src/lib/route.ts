@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react"
 
-export type OperatorTab = "overview" | "limit-orders" | "orders" | "wallet" | "logs" | "operations"
+export type OperatorTab = "overview" | "history" | "wallet" | "logs" | "operations"
 
 /**
  * One path per sidebar page. Single segments only: index.html loads its
@@ -10,17 +10,23 @@ export type OperatorTab = "overview" | "limit-orders" | "orders" | "wallet" | "l
  */
 export const TAB_PATHS: Record<OperatorTab, string> = {
 	overview: "/",
-	"limit-orders": "/limit-orders",
-	orders: "/orders",
+	history: "/history",
 	wallet: "/wallet",
 	logs: "/logs",
 	operations: "/operations",
 }
 
+/**
+ * Paths pages used to live at. `/orders` is what History was called, and swap
+ * notifications already delivered still open it. `/limit-orders` needs no entry:
+ * the orders moved onto the overview, which is where an unknown path lands.
+ */
+const RENAMED_PATHS: Record<string, OperatorTab> = { "/orders": "history" }
+
 export function tabFromPath(pathname: string): OperatorTab {
 	const trimmed = pathname.replace(/\/+$/, "") || "/"
 	const match = (Object.entries(TAB_PATHS) as Array<[OperatorTab, string]>).find(([, path]) => path === trimmed)
-	return match?.[0] ?? "overview"
+	return match?.[0] ?? RENAMED_PATHS[trimmed] ?? "overview"
 }
 
 /**

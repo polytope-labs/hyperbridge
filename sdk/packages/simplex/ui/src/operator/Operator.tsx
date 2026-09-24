@@ -5,7 +5,6 @@ import hyperfxLogo from "../assets/hyperfx-logo.webp"
 import { CopyHash } from "../components/CopyHash"
 import {
 	ActivityIcon,
-	ChartLineIcon,
 	LogsIcon,
 	OperationsIcon,
 	OverviewIcon,
@@ -16,7 +15,6 @@ import { OperatorSheet } from "../components/OperatorSheet"
 import { InstallAppButton } from "../components/InstallAppButton"
 import { useAction, useIsHandheld, usePolling } from "../lib/hooks"
 import type { BalanceSnapshot, StatusOperator } from "../types"
-import { LimitOrders } from "./LimitOrders"
 import { Orders } from "./Orders"
 import { Operations, type OperationsPanel } from "./Operations"
 import { Logs } from "./Logs"
@@ -33,9 +31,8 @@ const PAGE_TABS: Array<{
 	/** Hidden on handhelds — see {@link Operator} for why Logs is desktop-only. */
 	desktopOnly?: true
 }> = [
-	{ value: "overview", label: "Overview", description: "Health and liquidity", icon: OverviewIcon },
-	{ value: "limit-orders", label: "Limit orders", description: "What you are offering", icon: ChartLineIcon },
-	{ value: "orders", label: "Orders", description: "History and bids", icon: ActivityIcon },
+	{ value: "overview", label: "Overview", description: "Orders, health and liquidity", icon: OverviewIcon },
+	{ value: "history", label: "History", description: "Orders and bids", icon: ActivityIcon },
 	{ value: "wallet", label: "Wallet", description: "Funds and history", icon: WalletIcon },
 	{ value: "logs", label: "Logs", description: "Live filler output", icon: LogsIcon, desktopOnly: true },
 	{ value: "operations", label: "Operations", description: "Live configuration", icon: OperationsIcon },
@@ -45,16 +42,11 @@ const PAGE_COPY: Record<Tab, { eyebrow: string; title: string; description: stri
 	overview: {
 		eyebrow: "Live workspace",
 		title: "Overview",
-		description: "Monitor liquidity, market coverage, and the health of your running filler.",
+		description: "Post what simplex will pay, and watch your liquidity and the health of your running filler.",
 	},
-	"limit-orders": {
-		eyebrow: "Your book",
-		title: "Limit orders",
-		description: "Post what simplex will pay, and watch what is left of each order as fills draw it down.",
-	},
-	orders: {
+	history: {
 		eyebrow: "Execution feed",
-		title: "Orders",
+		title: "History",
 		description: "Follow orders from detection through bidding and execution.",
 	},
 	wallet: {
@@ -220,10 +212,7 @@ export function Operator(props: { status: StatusOperator; refresh: () => void })
 						/>
 					) : null}
 
-					{tab === "limit-orders" ? (
-						<LimitOrders chains={status.chains} chainLabels={status.chainLabels} />
-					) : null}
-					{tab === "orders" ? <Orders chainLabels={status.chainLabels} /> : null}
+					{tab === "history" ? <Orders chainLabels={status.chainLabels} /> : null}
 					{tab === "logs" && !handheld ? <Logs /> : null}
 					{tab === "wallet" ? (
 						<Wallet

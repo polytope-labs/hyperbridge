@@ -360,98 +360,6 @@ button.operator-tool-row:last-child {
 	height: 1.5rem;
 }
 
-/*
- * Narrowing the cards to one network must not lose the aggregate, so every tracked token keeps
- * its cross-network total here, with the selected network's share of it underneath.
- */
-.operator-balance-totals-heading {
-	display: flex;
-	align-items: baseline;
-	justify-content: space-between;
-	gap: 1rem;
-	padding-top: 1.1rem;
-	border-top: 1px solid var(--border);
-	color: var(--muted);
-	font-size: 0.6875rem;
-}
-
-.operator-balance-totals-heading small {
-	font-family: var(--font-mono);
-	font-size: 0.625rem;
-}
-
-/* One column per token held, so a two-token config does not leave two dead cells. */
-.operator-balance-totals {
-	display: grid;
-	grid-template-columns: repeat(var(--balance-total-columns, 1), minmax(0, 1fr));
-	padding: 0.75rem 0 1.1rem;
-}
-
-.operator-balance-total {
-	--token-accent: #7d8ca5;
-	display: grid;
-	align-content: start;
-	gap: 0.35rem;
-	min-width: 0;
-	padding: 0 1.25rem;
-	border-left: 1px solid var(--border);
-}
-
-.operator-balance-total:first-child {
-	padding-left: 0;
-	border-left: 0;
-}
-
-.operator-balance-total-token {
-	display: flex;
-	align-items: center;
-	gap: 0.4rem;
-	color: var(--text-secondary);
-	font-size: 0.6875rem;
-}
-
-.operator-balance-total > strong {
-	overflow: hidden;
-	font-family: var(--font-mono);
-	font-size: 1.125rem;
-	font-weight: 500;
-	font-variant-numeric: tabular-nums;
-	letter-spacing: -0.02em;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-}
-
-.operator-balance-total > small {
-	color: var(--text-secondary);
-	font-size: 0.625rem;
-}
-
-.operator-balance-total > strong[data-unavailable],
-.operator-balance-total > small[data-muted] {
-	color: var(--muted);
-}
-
-.operator-balance-share {
-	display: block;
-	height: 0.25rem;
-	overflow: hidden;
-	border-radius: 999px;
-	background: rgba(255, 255, 255, 0.07);
-}
-
-.operator-balance-share i {
-	display: block;
-	height: 100%;
-	border-radius: 999px;
-	background: var(--token-accent);
-}
-
-/* A total nothing can be read for fills the track in warning, rather than claiming a share. */
-.operator-balance-share[data-unavailable] i {
-	background: var(--warn);
-	opacity: 0.25;
-}
-
 .operator-balance-focus {
 	display: flex;
 	align-items: center;
@@ -536,28 +444,23 @@ button.operator-tool-row:last-child {
 	content: "";
 }
 
-.operator-asset-balance[data-token="usdc"],
-.operator-balance-total[data-token="usdc"] {
+.operator-asset-balance[data-token="usdc"] {
 	--token-accent: #2775ca;
 }
 
-.operator-asset-balance[data-token="usdt"],
-.operator-balance-total[data-token="usdt"] {
+.operator-asset-balance[data-token="usdt"] {
 	--token-accent: #26a17b;
 }
 
-.operator-asset-balance[data-token="cngn"],
-.operator-balance-total[data-token="cngn"] {
+.operator-asset-balance[data-token="cngn"] {
 	--token-accent: #7c4dff;
 }
 
-.operator-asset-balance[data-token="dai"],
-.operator-balance-total[data-token="dai"] {
+.operator-asset-balance[data-token="dai"] {
 	--token-accent: #f4b731;
 }
 
-.operator-asset-balance[data-token="eurc"],
-.operator-balance-total[data-token="eurc"] {
+.operator-asset-balance[data-token="eurc"] {
 	--token-accent: #5a6edb;
 }
 

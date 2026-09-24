@@ -84,7 +84,17 @@ describe("what the operator sees at a glance", () => {
 	it("names the terminal states plainly", () => {
 		expect(statusOf(order({ status: "expired" })).label).toBe("Expired")
 		expect(statusOf(order({ status: "cancelled" })).label).toBe("Cancelled")
-		expect(statusOf(order({ status: "filled" }))).toMatchObject({ label: "Filled", tone: "ok" })
+		expect(statusOf(order({ status: "filled", remaining: "0" }))).toEqual({
+			label: "Filled",
+			tone: "ok",
+			detail: undefined,
+		})
+	})
+
+	it("says a filled order with something left was closed under the dust floor", () => {
+		const closed = statusOf(order({ status: "filled", quote: "cNGN", remaining: "3624688001000000000000" }))
+		expect(closed).toMatchObject({ label: "Filled", tone: "ok" })
+		expect(closed.detail).toBe("closed with 3,624.688001 cNGN left, below the orderbook's dust floor")
 	})
 })
 

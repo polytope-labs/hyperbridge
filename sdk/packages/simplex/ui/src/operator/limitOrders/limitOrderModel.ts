@@ -52,7 +52,19 @@ export type Tone = "" | "ok" | "warn" | "err"
 export function statusOf(order: LimitOrder): { label: string; tone: Tone; detail?: string } {
 	if (order.status === "cancelled") return { label: "Cancelled", tone: "" }
 	if (order.status === "expired") return { label: "Expired", tone: "" }
-	if (order.status === "filled") return { label: "Filled", tone: "ok" }
+	if (order.status === "filled") {
+		// Simplex closes an order once what is left is under the orderbook's dust floor for the
+		// token it pays, since the orderbook refuses a posting that small. A closed order with
+		// anything left was closed for that.
+		const left = BigInt(order.remaining) > 0n
+		return {
+			label: "Filled",
+			tone: "ok",
+			detail: left
+				? `closed with ${fromScaled(order.remaining)} ${legs(order).output} left, below the orderbook's dust floor`
+				: undefined,
+		}
+	}
 	if (order.status === "rejected") {
 		return { label: "Refused", tone: "err", detail: order.lastError ?? undefined }
 	}

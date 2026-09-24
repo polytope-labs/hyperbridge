@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react"
+import { type ReactNode, useEffect, useRef, useState } from "react"
 import { ChainLogo } from "./ChainLogo"
 import { CheckIcon, ChevronDownIcon } from "./InterfaceIcons"
 
@@ -9,7 +9,8 @@ import { CheckIcon, ChevronDownIcon } from "./InterfaceIcons"
  */
 export function ChainMultiSelect(props: {
 	ariaLabel: string
-	options: Array<{ value: string; label: string }>
+	/** `leading` replaces the chain's logo on the row; `trailing` sits at its right edge. */
+	options: Array<{ value: string; label: string; leading?: ReactNode; trailing?: ReactNode }>
 	value: string[]
 	onValueChange: (value: string[]) => void
 }) {
@@ -95,13 +96,15 @@ export function ChainMultiSelect(props: {
 										checked={checked}
 										onChange={() => toggle(option.value)}
 									/>
-									<ChainLogo label={option.label} />
-									<span>{option.label}</span>
-									{checked ? (
-										<span className="app-select-indicator">
-											<CheckIcon aria-hidden="true" />
-										</span>
-									) : null}
+									{option.leading ?? <ChainLogo label={option.label} />}
+									<span className="chain-multiselect-label">{option.label}</span>
+									{option.trailing === undefined ? null : (
+										<span className="app-select-item-trailing">{option.trailing}</span>
+									)}
+									{/* Always laid out, so trailing values line up whether or not a row is ticked. */}
+									<span className="app-select-indicator" data-hidden={checked ? undefined : true}>
+										<CheckIcon aria-hidden="true" />
+									</span>
 								</label>
 							)
 						})}

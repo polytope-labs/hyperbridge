@@ -5,14 +5,7 @@ import { TokenOnChainIcon } from "../../components/TokenIcon"
 import { formatAmount } from "../../lib/format"
 import type { BalanceSnapshot, CreateLimitOrderRequest, OrderbookBook } from "../../types"
 import { ApiError } from "../../api"
-import {
-	AMOUNT_PATTERN,
-	groupThousands,
-	type LimitOrderDraft,
-	type OrderSide,
-	parseAmount,
-	requestFrom,
-} from "./limitOrderModel"
+import { AMOUNT_PATTERN, groupThousands, type OrderSide, parseAmount, requestFrom } from "./limitOrderModel"
 
 /**
  * States a limit order the way a book is quoted: a pair, a side, a size in the book's base, and a
@@ -38,7 +31,8 @@ export function CreateLimitOrderForm(props: {
 	const [side, setSide] = useState<OrderSide>("BID")
 	const [amount, setAmount] = useState("")
 	const [rate, setRate] = useState("")
-	const [fillChain, setFillChain] = useState(() => chains[0] ?? "")
+	/** Chains the operator picked for "Fills on"; null until they do, while it follows the balances. */
+	const [pickedFillChains, setPickedFillChains] = useState<string[] | null>(null)
 	// A swap can reach the fill chain from anywhere the filler watches, and an order that accepts
 	// nothing is one the orderbook refuses outright.
 	const [acceptedSources, setAcceptedSources] = useState<string[]>(chains)
@@ -46,24 +40,56 @@ export function CreateLimitOrderForm(props: {
 	const [error, setError] = useState<string>()
 
 	const book = books.find((entry) => entry.id === bookId)
-	const draft: LimitOrderDraft | null = book
-		? { book, side, amount, rate, fillChain, acceptedSources }
-		: null
-	const request = useMemo(() => (draft ? requestFrom(draft) : null), [draft])
-	const amountsTyped = parseAmount(amount) !== null && parseAmount(rate) !== null
-	const ready = request !== null && !busy
 	// Buying the base pays out the quote; selling it pays out the base.
 	const paysOut = book ? (side === "BID" ? book.quote : book.base) : ""
+	// An order pays out on one chain, so filling on several means one order on each. By default
+	// that is every chain holding the token paid out: an order on an empty balance fills nothing.
+	const heldOn = chains.filter((chain) => shownAsHeld(payOutAsset(balances, chain, paysOut)?.available))
+	const fillChains = pickedFillChains ?? heldOn
+	const requests = useMemo(
+		() =>
+			book
+				? fillChains.map((fillChain) => requestFrom({ book, side, amount, rate, fillChain, acceptedSources }))
+				: [],
+		[book, side, amount, rate, fillChains, acceptedSources],
+	)
+	const valid = requests.length > 0 && requests.every((request) => request !== null)
+	const request = valid ? requests[0] : null
+	const amountsTyped = parseAmount(amount) !== null && parseAmount(rate) !== null
+	const ready = valid && !busy
+	const heldTotal = consolidated(balances, fillChains, paysOut)
+
+	// The default follows the token paid out, and a side or pair change changes it, so a pick made
+	// for the old token does not carry over.
+	const choosePair = (id: string) => {
+		setBookId(id)
+		setPickedFillChains(null)
+	}
+	const chooseSide = (next: OrderSide) => {
+		setSide(next)
+		setPickedFillChains(null)
+	}
 
 	const submit = async () => {
-		if (!request || busy) return
+		if (!ready || busy) return
 		setBusy(true)
 		setError(undefined)
+		const posted: string[] = []
 		try {
-			await create(request)
+			for (const next of requests as CreateLimitOrderRequest[]) {
+				await create(next)
+				posted.push(next.fillChain)
+			}
 			await onCreated()
 		} catch (err) {
-			setError(err instanceof ApiError ? err.message : "Could not create the limit order")
+			const reason = err instanceof ApiError ? err.message : "Could not create the limit order"
+			// What went through must not be posted again by a retry.
+			if (posted.length > 0) {
+				setPickedFillChains(fillChains.filter((chain) => !posted.includes(chain)))
+				setError(`Posted on ${posted.map(chainLabel).join(", ")}. The rest failed: ${reason}`)
+			} else {
+				setError(reason)
+			}
 		} finally {
 			setBusy(false)
 		}
@@ -90,7 +116,7 @@ export function CreateLimitOrderForm(props: {
 					ariaLabel="Pair"
 					value={bookId}
 					options={books.map((entry) => ({ value: entry.id, label: `${entry.base} / ${entry.quote}` }))}
-					onValueChange={setBookId}
+					onValueChange={choosePair}
 				/>
 			</div>
 
@@ -111,7 +137,7 @@ export function CreateLimitOrderForm(props: {
 							// The side drives its colour: buying reads green, selling red.
 							data-side={value}
 							className={`limit-order-side${side === value ? " is-selected" : ""}`}
-							onClick={() => setSide(value)}
+							onClick={() => chooseSide(value)}
 							title={hint}
 						>
 							{label} {book?.base}
@@ -122,7 +148,14 @@ export function CreateLimitOrderForm(props: {
 
 			<div className="market-asset-grid limit-order-amounts">
 				<label className="field">
-					<span className="field-label">Amount ({book?.base})</span>
+					<span className="field-label">
+						<span>Amount ({book?.base})</span>
+						{heldTotal === undefined ? null : (
+							<span className="limit-order-balance">
+								{heldTotal === null ? "Balance unavailable" : `${formatAmount(heldTotal)} ${paysOut} held`}
+							</span>
+						)}
+					</span>
 					<DecimalInput
 						value={amount}
 						onChange={setAmount}
@@ -145,7 +178,7 @@ export function CreateLimitOrderForm(props: {
 
 			{request ? (
 				<p className="hint limit-order-derived">
-					Takes in{" "}
+					{requests.length > 1 ? `${requests.length} orders, one on each chain. Each takes in ` : "Takes in "}
 					<strong>
 						{groupThousands(request.amountIn)} {request.tokenIn}
 					</strong>
@@ -156,21 +189,24 @@ export function CreateLimitOrderForm(props: {
 					.
 				</p>
 			) : null}
-			{!request && amountsTyped ? <p className="error">State an amount and a rate above zero.</p> : null}
+			{!request && amountsTyped && fillChains.length > 0 ? (
+				<p className="error">State an amount and a rate above zero.</p>
+			) : null}
 
 			<div className="field">
 				<span className="field-label">Fills on</span>
-				<AppSelect
-					ariaLabel="Chain the order is filled on"
-					value={fillChain}
+				<ChainMultiSelect
+					ariaLabel="Chains the order is filled on"
 					options={chains.map((chain) => ({
 						value: chain,
 						label: chainLabel(chain),
 						leading: <TokenOnChainIcon symbol={paysOut} chain={chainLabel(chain)} />,
 						trailing: payOutBalance(balances, chain, paysOut),
 					}))}
-					onValueChange={setFillChain}
+					value={fillChains}
+					onValueChange={setPickedFillChains}
 				/>
+				{fillChains.length === 0 ? <p className="error">Pick at least one chain.</p> : null}
 			</div>
 
 			<div className="field">
@@ -191,7 +227,7 @@ export function CreateLimitOrderForm(props: {
 					Cancel
 				</button>
 				<button type="button" className="primary" onClick={() => void submit()} disabled={!ready}>
-					{busy ? "Posting…" : "Post limit order"}
+					{busy ? "Posting…" : requests.length > 1 ? `Post ${requests.length} limit orders` : "Post limit order"}
 				</button>
 			</footer>
 		</section>
@@ -204,13 +240,46 @@ export function CreateLimitOrderForm(props: {
  */
 function payOutBalance(balances: BalanceSnapshot | undefined, chain: string, symbol: string): string | undefined {
 	if (!balances || !symbol) return undefined
-	const chainId = Number(chain.replace(/^EVM-/, ""))
-	const asset = balances.chains
-		.find((row) => row.chainId === chainId)
-		?.assets.find((entry) => entry.symbol.trim().toUpperCase() === symbol.trim().toUpperCase())
+	const asset = payOutAsset(balances, chain, symbol)
 	if (!asset) return "—"
 	if (asset.available === null) return "Unavailable"
 	return `${formatAmount(asset.available)} ${symbol}`
+}
+
+/**
+ * Whether the menu shows a balance at all. It prints four decimals, so dust under that reads as 0
+ * there, and a chain the operator sees holding nothing is not picked for them either.
+ */
+function shownAsHeld(available: number | null | undefined): boolean {
+	return available !== null && available !== undefined && Math.round(available * 10_000) > 0
+}
+
+/** The token as one chain's balances report it, or undefined when that chain does not carry it. */
+function payOutAsset(balances: BalanceSnapshot | undefined, chain: string, symbol: string) {
+	if (!balances || !symbol) return undefined
+	const chainId = Number(chain.replace(/^EVM-/, ""))
+	return balances.chains
+		.find((row) => row.chainId === chainId)
+		?.assets.find((entry) => entry.symbol.trim().toUpperCase() === symbol.trim().toUpperCase())
+}
+
+/**
+ * The token held across the fill chains, beside the amount. Undefined before balances arrive;
+ * null when any chain's read failed, since a total quietly missing one would understate it.
+ */
+function consolidated(
+	balances: BalanceSnapshot | undefined,
+	chains: string[],
+	symbol: string,
+): number | null | undefined {
+	if (!balances || !symbol || chains.length === 0) return undefined
+	let total = 0
+	for (const chain of chains) {
+		const available = payOutAsset(balances, chain, symbol)?.available
+		if (available === null) return null
+		total += available ?? 0
+	}
+	return total
 }
 
 /**

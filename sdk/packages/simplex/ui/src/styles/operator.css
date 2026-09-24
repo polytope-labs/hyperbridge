@@ -2655,6 +2655,19 @@ button.limit-order-side[data-side="ASK"]:hover:not(.is-selected) {
 	color: var(--text);
 }
 
+.chain-multiselect-label {
+	flex: 1;
+	min-width: 0;
+}
+
+.chain-multiselect-content .app-select-indicator {
+	margin-left: 0;
+}
+
+.chain-multiselect-content .app-select-indicator[data-hidden] {
+	visibility: hidden;
+}
+
 .chain-multiselect .chain-logo {
 	width: 1.5rem;
 	height: 1.5rem;
@@ -2694,4 +2707,13 @@ button.limit-order-side[data-side="ASK"]:hover:not(.is-selected) {
 	width: 0.85rem;
 	height: 0.85rem;
 	box-shadow: 0 0 0 2px var(--card-raised);
+}
+
+/* The token the orders pay out, held across the chains they fill on. */
+.limit-order-balance {
+	color: var(--muted);
+	font-family: var(--font-mono);
+	font-size: 0.75rem;
+	font-variant-numeric: tabular-nums;
+	font-weight: 400;
 }

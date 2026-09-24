@@ -173,7 +173,7 @@
 
 .chain-configuration-fields {
 	display: grid;
-	grid-template-columns: repeat(2, minmax(0, 1fr));
+	grid-template-columns: minmax(0, 1fr);
 	gap: 1.25rem 1.5rem;
 	margin: 1.45rem 0 0 3rem;
 	padding-top: 1.35rem;
@@ -234,7 +234,6 @@
 }
 
 .chain-configuration .field:first-child,
-.chain-rpc-field,
 .chain-backup-rpc,
 .chain-configuration-actions {
 	grid-column: 1 / -1;

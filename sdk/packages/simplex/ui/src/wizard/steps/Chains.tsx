@@ -180,7 +180,7 @@ export function StepChains({ state, setState }: StepProps) {
 					<Collapsible.Content className="chain-collapsible-content">
 						<div className="chain-configuration-fields">
 							{chain.rpcUrls.map((url, index) => (
-								<label className="field chain-rpc-field" key={index}>
+								<label className="field" key={index}>
 									<span className="field-label">
 										{index === 0 ? "RPC endpoint" : `RPC endpoint ${index + 1}`}
 										{index === 0 ? <span className="field-required">Required</span> : null}

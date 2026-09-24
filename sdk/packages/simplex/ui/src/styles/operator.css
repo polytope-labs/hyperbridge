@@ -743,8 +743,9 @@ button.operator-tool-row {
 	text-align: left;
 }
 
+/* Pair icons, side, what is left and at what rate, status, chevron. */
 button.operator-market-row {
-	grid-template-columns: 3.25rem minmax(10rem, 1.4fr) minmax(7rem, 0.8fr) minmax(9rem, 1fr) minmax(8rem, 0.8fr) 1.2rem;
+	grid-template-columns: 3.25rem 4.25rem minmax(10rem, 1fr) minmax(7rem, auto) 1.2rem;
 	gap: 0.85rem;
 }
 
@@ -2528,6 +2529,81 @@ button.operator-runtime-stop:hover:not(:disabled) {
 	display: inline-flex;
 	align-items: center;
 	gap: 0.4rem;
+}
+
+/* Buy and sell, as two halves of one control rather than a dropdown. */
+.limit-order-sides {
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: 0.25rem;
+	padding: 0.25rem;
+	border: 1px solid var(--border);
+	border-radius: 0.75rem;
+	background: var(--control);
+}
+
+button.limit-order-side {
+	border: 0;
+	border-radius: 0.55rem;
+	padding: 0.5rem 0.75rem;
+	background: transparent;
+	color: var(--text-secondary);
+	font-weight: 600;
+	cursor: pointer;
+}
+
+button.limit-order-side:hover:not(.is-selected) {
+	color: var(--text);
+}
+
+/* Buying reads green and selling red, as a book is quoted everywhere else. */
+button.limit-order-side.is-selected {
+	box-shadow: 0 1px 2px rgb(0 0 0 / 12%);
+}
+
+button.limit-order-side[data-side="BID"].is-selected {
+	background: color-mix(in srgb, var(--ok) 16%, var(--card-raised));
+	color: var(--ok);
+}
+
+button.limit-order-side[data-side="ASK"].is-selected {
+	background: color-mix(in srgb, var(--err) 16%, var(--card-raised));
+	color: var(--err);
+}
+
+button.limit-order-side[data-side="BID"]:hover:not(.is-selected) {
+	color: color-mix(in srgb, var(--ok) 70%, var(--text));
+}
+
+button.limit-order-side[data-side="ASK"]:hover:not(.is-selected) {
+	color: color-mix(in srgb, var(--err) 70%, var(--text));
+}
+
+.limit-order-derived {
+	font-variant-numeric: tabular-nums;
+}
+
+/* The same green and red in the list and the detail, so a row reads at a glance. */
+.limit-order-side-tag {
+	flex: none;
+	min-width: 3.1rem;
+	padding: 0.15rem 0.45rem;
+	border-radius: 0.4rem;
+	font-size: 0.7rem;
+	font-weight: 600;
+	letter-spacing: 0.03em;
+	text-align: center;
+	text-transform: uppercase;
+}
+
+.limit-order-side-tag[data-side="BID"] {
+	background: color-mix(in srgb, var(--ok) 16%, var(--card-raised));
+	color: var(--ok);
+}
+
+.limit-order-side-tag[data-side="ASK"] {
+	background: color-mix(in srgb, var(--err) 16%, var(--card-raised));
+	color: var(--err);
 }
 
 .limit-order-fills {

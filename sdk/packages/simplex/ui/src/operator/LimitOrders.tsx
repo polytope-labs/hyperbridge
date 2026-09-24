@@ -7,8 +7,8 @@ import { INIT_CHAINS } from "@/cli/init/chains"
 import { formatDate, sqliteUtcToMs } from "../lib/format"
 import type { LimitOrder } from "../types"
 import { CreateLimitOrderForm } from "./limitOrders/CreateLimitOrderForm"
-import { available, describeRate, fromScaled, legs, statusOf } from "./limitOrders/limitOrderModel"
-import { type LimitOrderFills, useLimitOrders } from "./limitOrders/useLimitOrders"
+import { available, describeRate, fromScaled, legs, sideLabel, statusOf } from "./limitOrders/limitOrderModel"
+import { type LimitOrderFills, useLimitOrders, useOrderbookBooks } from "./limitOrders/useLimitOrders"
 
 /** Orders per page, live and closed each: a solver re-posting all day builds a long closed list. */
 const PAGE_SIZE = 10
@@ -17,8 +17,6 @@ interface LimitOrdersProps {
 	/** Chain ids the filler runs. A limit order names them as state machine ids. */
 	chains: number[]
 	chainLabels?: Record<string, string>
-	/** Symbols the operator can trade, from what the filler knows how to send. */
-	symbols: string[]
 }
 
 /**
@@ -29,8 +27,10 @@ interface LimitOrdersProps {
  * fills at the rate they imply until the order runs out, so the page is a book
  * of standing offers rather than a curve to shape.
  */
-export function LimitOrders({ chains, chainLabels, symbols }: LimitOrdersProps) {
+export function LimitOrders({ chains, chainLabels }: LimitOrdersProps) {
 	const { orders, loading, error, create, cancel, withFills, reload } = useLimitOrders()
+	// Only the pairs the orderbook keeps: it refuses an order naming anything else.
+	const { books } = useOrderbookBooks()
 	const [creating, setCreating] = useState(false)
 	const [selected, setSelected] = useState<LimitOrder>()
 	const [detail, setDetail] = useState<LimitOrderFills>()
@@ -148,10 +148,10 @@ export function LimitOrders({ chains, chainLabels, symbols }: LimitOrdersProps) 
 				onClose={() => setCreating(false)}
 				wide
 				title="New limit order"
-				description="Say what you take in and what you pay out. Simplex fills at the rate the two imply."
+				description="Pick a pair, a side, how much and at what rate. Simplex works out the two amounts."
 			>
 				<CreateLimitOrderForm
-					symbols={symbols}
+					books={books}
 					chains={chainOptions.map((chain) => chain.stateMachineId)}
 					chainLabel={chainLabel}
 					create={create}
@@ -193,6 +193,9 @@ function LimitOrderRow(props: { order: LimitOrder; chainLabel: (id: string) => s
 	return (
 		<button type="button" className="operator-market-row" onClick={onOpen}>
 			<TokenPairIcons tokenA={input} tokenB={output} />
+			<span className="limit-order-side-tag" data-side={order.side}>
+				{sideLabel(order.side)}
+			</span>
 			<span className="operator-market-copy">
 				<strong>
 					{fromScaled(order.remaining)} {output} left at {describeRate(order)}
@@ -229,6 +232,15 @@ function LimitOrderDetail(props: {
 					<dd>
 						<span className={`badge ${status.tone}`}>{status.label}</span>
 						{status.detail ? <small> {status.detail}</small> : null}
+					</dd>
+				</div>
+				<div>
+					<dt>Side</dt>
+					<dd>
+						<span className="limit-order-side-tag" data-side={order.side}>
+							{sideLabel(order.side)}
+						</span>{" "}
+						<small>{order.base}</small>
 					</dd>
 				</div>
 				<div>

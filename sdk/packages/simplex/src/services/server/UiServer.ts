@@ -185,7 +185,7 @@ export interface OperatorContext {
 	state: StateStore
 	bids?: Pick<BidStore, "recent" | "stats" | "byCommitments">
 	/** The operator's limit orders. Always present: simplex prices from them. */
-	limitOrders: Pick<LimitOrderController, "list" | "get" | "withFills" | "create" | "cancel">
+	limitOrders: Pick<LimitOrderController, "list" | "get" | "withFills" | "create" | "cancel" | "books">
 	/** Persists an operator pause so it survives a restart. */
 	setPaused(paused: boolean): Promise<void>
 	/**
@@ -942,6 +942,13 @@ export class UiServer {
 			}
 			if (method === "POST") return this.handleLimitOrderCreate(req, res)
 			return sendJson(res, 405, { error: "Method not allowed" })
+		}
+
+		// Ahead of the by-id route below, which would otherwise read "books" as an order id.
+		if (path === "/api/orderbook/books") {
+			if (this.mode !== "operator") return sendJson(res, 409, { error: "Filler is not running" })
+			if (method !== "GET") return sendJson(res, 405, { error: "Method not allowed" })
+			return this.handleLimitOrders(res, () => this.operator!.limitOrders.books())
 		}
 
 		const limitOrderMatch = path.match(/^\/api\/limit-orders\/([\w-]+)$/)

@@ -107,6 +107,25 @@ export const ORDERBOOK_DOCUMENTS = {
 export class OrderbookRequestError extends Error {}
 
 /**
+ * The GraphQL endpoint for a configured orderbook URL.
+ *
+ * A deployment serves GraphQL under its base URL (`https://host/mainnet/graphql`), and an
+ * operator who configures the base alone gets no useful failure: the host redirects to the
+ * landing page, which refuses POST, and every request fails with `HTTP 405 Method Not Allowed`
+ * — on the heartbeat interval, on reconciliation, and on every limit order. The suffix is added
+ * here rather than demanded of the config.
+ *
+ * A URL that already ends in `/graphql`, and a query string or a custom path the operator meant,
+ * are left alone.
+ */
+export function graphqlEndpoint(url: string): string {
+	const trimmed = url.trim()
+	if (trimmed.includes("?")) return trimmed
+	const withoutTrailingSlash = trimmed.replace(/\/+$/, "")
+	return withoutTrailingSlash.endsWith("/graphql") ? withoutTrailingSlash : `${withoutTrailingSlash}/graphql`
+}
+
+/**
  * Talks to one HyperFX orderbook over GraphQL.
  *
  * Stateless apart from the endpoint and timeout. Every method either returns the
@@ -115,12 +134,15 @@ export class OrderbookRequestError extends Error {}
  */
 export class OrderbookClient {
 	private logger: Logger
+	/** The configured endpoint, with `/graphql` if it was left off. */
+	private readonly url: string
 
 	constructor(
-		private readonly url: string,
+		url: string,
 		private readonly requestTimeoutMs: number,
 		loggers: LoggerContext = defaultLoggerContext(),
 	) {
+		this.url = graphqlEndpoint(url)
 		this.logger = loggers.get("orderbook")
 	}
 
@@ -231,7 +253,9 @@ export class OrderbookClient {
 		}
 
 		if (!response.ok) {
-			throw new OrderbookRequestError(`Orderbook returned HTTP ${response.status} ${response.statusText}`)
+			throw new OrderbookRequestError(
+				`Orderbook at ${this.url} returned HTTP ${response.status} ${response.statusText}`,
+			)
 		}
 
 		const body = (await response.json().catch((err) => {

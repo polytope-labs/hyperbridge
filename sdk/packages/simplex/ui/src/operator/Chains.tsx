@@ -1,10 +1,12 @@
 import * as Collapsible from "@radix-ui/react-collapsible"
+import { ChainCollapseTrigger, isHeaderControl, useChainPanels } from "../components/ChainPanel"
 import { ChainLogo } from "../components/ChainLogo"
 import { EndpointVerificationStatus } from "../components/EndpointVerificationStatus"
 import { useChainSettings } from "./chains/useChainSettings"
 
 export function Chains() {
 	const model = useChainSettings()
+	const panels = useChainPanels()
 	const {
 		dto,
 		chains,
@@ -49,9 +51,16 @@ export function Chains() {
 					className="card chain-configuration"
 					data-enabled={chain.enabled}
 					key={chain.meta.chainId}
-					open={chain.enabled}
+					open={panels.isOpen(chain.meta.chainId, chain.enabled)}
+					onOpenChange={(open) => panels.setOpen(chain.meta.chainId, open)}
 				>
-					<div className="chain-configuration-header">
+					<div
+						className="chain-configuration-header"
+						onClick={(e) => {
+							if (isHeaderControl(e)) return
+							panels.setOpen(chain.meta.chainId, !panels.isOpen(chain.meta.chainId, chain.enabled))
+						}}
+					>
 						<div className="chain-identity">
 							<ChainLogo label={chain.meta.label} />
 							<div>
@@ -64,15 +73,21 @@ export function Chains() {
 								) : null}
 							</div>
 						</div>
-						<label className="chain-enable-toggle">
-							<input
-								type="checkbox"
-								checked={chain.enabled}
-								onChange={(e) => toggleChain(chain, e.target.checked)}
-							/>
-							<span className="chain-enable-switch" aria-hidden="true" />
-							<span>Enable fills</span>
-						</label>
+						<div className="chain-header-controls">
+							<label className="chain-enable-toggle">
+								<input
+									type="checkbox"
+									checked={chain.enabled}
+									onChange={(e) => {
+										toggleChain(chain, e.target.checked)
+										panels.setOpen(chain.meta.chainId, e.target.checked)
+									}}
+								/>
+								<span className="chain-enable-switch" aria-hidden="true" />
+								<span>Enable fills</span>
+							</label>
+							<ChainCollapseTrigger label={chain.meta.label} />
+						</div>
 					</div>
 					<Collapsible.Content className="chain-collapsible-content">
 						<div className="chain-configuration-fields">

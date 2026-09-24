@@ -2,6 +2,7 @@ import { useState } from "react"
 import * as Collapsible from "@radix-ui/react-collapsible"
 import { toast } from "sonner"
 import { api } from "../../api"
+import { ChainCollapseTrigger, isHeaderControl, useChainPanels } from "../../components/ChainPanel"
 import { ChainLogo } from "../../components/ChainLogo"
 import { EndpointVerificationStatus } from "../../components/EndpointVerificationStatus"
 import { patchChain, type ChainDraft } from "../state"
@@ -15,6 +16,7 @@ interface AlchemyChainRow {
 
 export function StepChains({ state, setState }: StepProps) {
 	const [busy, setBusy] = useState(false)
+	const panels = useChainPanels()
 
 	const patch = (chainId: number, changes: Partial<ChainDraft>) => setState((s) => patchChain(s, chainId, changes))
 
@@ -157,9 +159,16 @@ export function StepChains({ state, setState }: StepProps) {
 					className="card chain-configuration"
 					data-enabled={chain.enabled}
 					key={chain.meta.chainId}
-					open={chain.enabled}
+					open={panels.isOpen(chain.meta.chainId, chain.enabled)}
+					onOpenChange={(open) => panels.setOpen(chain.meta.chainId, open)}
 				>
-					<div className="chain-configuration-header">
+					<div
+						className="chain-configuration-header"
+						onClick={(e) => {
+							if (isHeaderControl(e)) return
+							panels.setOpen(chain.meta.chainId, !panels.isOpen(chain.meta.chainId, chain.enabled))
+						}}
+					>
 						<div className="chain-identity">
 							<ChainLogo label={chain.meta.label} />
 							<div>
@@ -167,15 +176,21 @@ export function StepChains({ state, setState }: StepProps) {
 								{chain.viaAlchemy && <span className="chain-source">Bundler via Alchemy</span>}
 							</div>
 						</div>
-						<label className="chain-enable-toggle">
-							<input
-								type="checkbox"
-								checked={chain.enabled}
-								onChange={(e) => patch(chain.meta.chainId, { enabled: e.target.checked })}
-							/>
-							<span className="chain-enable-switch" aria-hidden="true" />
-							<span>Enable fills</span>
-						</label>
+						<div className="chain-header-controls">
+							<label className="chain-enable-toggle">
+								<input
+									type="checkbox"
+									checked={chain.enabled}
+									onChange={(e) => {
+										patch(chain.meta.chainId, { enabled: e.target.checked })
+										panels.setOpen(chain.meta.chainId, e.target.checked)
+									}}
+								/>
+								<span className="chain-enable-switch" aria-hidden="true" />
+								<span>Enable fills</span>
+							</label>
+							<ChainCollapseTrigger label={chain.meta.label} />
+						</div>
 					</div>
 					<Collapsible.Content className="chain-collapsible-content">
 						<div className="chain-configuration-fields">

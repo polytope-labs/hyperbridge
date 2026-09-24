@@ -17,6 +17,12 @@
 	padding-block: 1.8rem;
 }
 
+/* In the wizard and the operator settings a card is a flat row between dividers.
+   The header carries the row's vertical padding, so its hover fills the row. */
+.wizard-sections > .card.chain-configuration {
+	padding-block: 0;
+}
+
 .chain-configuration-header,
 .chain-identity,
 .chain-enable-toggle,
@@ -29,6 +35,11 @@
 .chain-configuration-header {
 	justify-content: space-between;
 	gap: 1rem;
+	/* The hover reaches a little past the content, which stays aligned with the page. */
+	margin-inline: -0.75rem;
+	padding: 1.75rem 0.75rem;
+	border-radius: 0.75rem;
+	transition: background-color 180ms var(--ease-out);
 }
 
 .chain-identity {
@@ -175,7 +186,7 @@
 	display: grid;
 	grid-template-columns: minmax(0, 1fr);
 	gap: 1.25rem 1.5rem;
-	margin: 1.45rem 0 0 3rem;
+	margin: 0 0 1.75rem 3rem;
 	padding-top: 1.35rem;
 	border-top: 1px solid var(--border);
 }
@@ -566,4 +577,46 @@
 .filler-address-value button svg {
 	width: 0.9rem;
 	height: 0.9rem;
+}
+
+/* The whole header row opens and closes its chain; the chevron is the keyboard path. */
+.chain-configuration-header {
+	cursor: pointer;
+}
+
+.chain-configuration-header:hover {
+	background: rgba(255, 255, 255, 0.035);
+}
+
+.chain-header-controls {
+	display: flex;
+	align-items: center;
+	gap: 0.75rem;
+}
+
+.chain-collapse-trigger {
+	width: 2rem;
+	min-height: 2rem;
+	height: 2rem;
+	padding: 0;
+	border: 0;
+	background: none;
+	color: var(--muted);
+}
+
+.chain-collapse-trigger:hover:not(:disabled) {
+	border: 0;
+	background: none;
+	color: var(--text);
+}
+
+.chain-collapse-trigger svg {
+	width: 1rem;
+	height: 1rem;
+	transition: transform 180ms var(--ease-out);
+}
+
+/* The icon turns, not the button: buttons scale on press, which would fight a rotation. */
+.chain-collapse-trigger[data-state="open"] svg {
+	transform: rotate(180deg);
 }

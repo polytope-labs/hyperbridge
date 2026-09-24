@@ -82,7 +82,11 @@ export function sideLabel(side: OrderSide): string {
 export interface LimitOrderDraft {
 	book: { id: string; base: string; quote: string }
 	side: OrderSide
-	/** Whole base tokens, as the operator would say them out loud. */
+	/**
+	 * Whole tokens of what the order pays out: the quote when buying the base, the base when
+	 * selling it. The same token the balance beside the field counts, and the one the
+	 * orderbook's dust floor applies to.
+	 */
 	amount: string
 	/** Quote per base: 1590 means 1590 cNGN for each USDC. */
 	rate: string
@@ -122,21 +126,22 @@ function toDecimal(value: bigint): string {
 }
 
 /**
- * `amount × rate`, at 1e18, rounded so the posted price is never better for the taker than the
- * rate the operator stated: a bid pays out no more quote than the rate implies, an ask takes in
- * no less.
+ * The side taken in, at 1e18, rounded up so the posted price is never better for the taker than
+ * the rate the operator stated. Both sides take in: a bid takes in no less base than `amount ÷
+ * rate`, an ask no less quote than `amount × rate`. Rounding up also means a positive order can
+ * never ask for nothing in return.
  */
-function multiply(amount: bigint, rate: bigint, rounding: "down" | "up"): bigint {
-	const product = amount * rate
-	return rounding === "down" ? product / SCALE : (product + SCALE - 1n) / SCALE
+function takenIn(side: OrderSide, amount: bigint, rate: bigint): bigint {
+	return side === "BID" ? (amount * SCALE + rate - 1n) / rate : (amount * rate + SCALE - 1n) / SCALE
 }
 
 /**
  * The create request a draft stands for, or null while it is not yet a whole order.
  *
- * Every book is priced in quote per base, so the two amounts follow from the side: buying the
- * base takes `amount` base in and pays `amount × rate` quote out, and selling it pays `amount`
- * base out and takes `amount × rate` quote in. The operator never states the second amount.
+ * The amount is what the order pays out, and every book is priced in quote per base, so the
+ * side decides the rest: buying the base pays `amount` quote out and takes `amount ÷ rate` base
+ * in; selling it pays `amount` base out and takes `amount × rate` quote in. The operator never
+ * states the second amount.
  */
 export function requestFrom(draft: LimitOrderDraft): CreateLimitOrderRequest | null {
 	const amount = parseAmount(draft.amount)
@@ -145,24 +150,13 @@ export function requestFrom(draft: LimitOrderDraft): CreateLimitOrderRequest | n
 	if (!draft.fillChain || draft.acceptedSources.length === 0) return null
 
 	const { base, quote } = draft.book
-	const counter = multiply(amount, rate, draft.side === "BID" ? "down" : "up")
-	if (counter <= 0n) return null
-
-	return draft.side === "BID"
-		? {
-				fillChain: draft.fillChain,
-				tokenIn: base,
-				amountIn: toDecimal(amount),
-				tokenOut: quote,
-				amountOut: toDecimal(counter),
-				acceptedSources: draft.acceptedSources,
-			}
-		: {
-				fillChain: draft.fillChain,
-				tokenIn: quote,
-				amountIn: toDecimal(counter),
-				tokenOut: base,
-				amountOut: toDecimal(amount),
-				acceptedSources: draft.acceptedSources,
-			}
+	const buying = draft.side === "BID"
+	return {
+		fillChain: draft.fillChain,
+		tokenIn: buying ? base : quote,
+		amountIn: toDecimal(takenIn(draft.side, amount, rate)),
+		tokenOut: buying ? quote : base,
+		amountOut: toDecimal(amount),
+		acceptedSources: draft.acceptedSources,
+	}
 }

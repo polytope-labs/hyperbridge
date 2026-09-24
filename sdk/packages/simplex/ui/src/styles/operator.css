@@ -2422,11 +2422,39 @@ button.operator-runtime-stop:hover:not(:disabled) {
 	margin: 0;
 }
 
-/* Amount and rate share the full row evenly. The markets grid they borrow has a third column
-   and a 48rem cap, both meant for the curve editor. */
-.market-asset-grid.limit-order-amounts {
+/* Two fields sharing the full row: amount and rate, then the two chain pickers. */
+.limit-order-row {
+	display: grid;
 	grid-template-columns: repeat(2, minmax(0, 1fr));
-	max-width: none;
+	gap: 0.8rem;
+	align-items: start;
+}
+
+@media (max-width: 44rem) {
+	.limit-order-row {
+		grid-template-columns: minmax(0, 1fr);
+	}
+}
+
+/* The amount is a div, not a label (it holds Max), so it misses the label type the shared rule gives a span. */
+.limit-order-amount > .field-label {
+	margin-bottom: 0.45rem;
+	color: var(--text-secondary);
+	font-size: 0.8125rem;
+	font-weight: 500;
+	line-height: 1.4;
+}
+
+.limit-order-max {
+	min-height: 0;
+	margin-left: 0.5rem;
+	padding: 0.1rem 0.45rem;
+	border-radius: 0.35rem;
+	font-family: var(--font-mono);
+	font-size: 0.6875rem;
+	letter-spacing: 0.04em;
+	line-height: 1;
+	text-transform: uppercase;
 }
 
 /* Buy and sell, as two halves of one control rather than a dropdown. */

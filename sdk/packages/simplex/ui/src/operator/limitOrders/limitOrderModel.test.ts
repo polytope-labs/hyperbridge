@@ -98,8 +98,8 @@ describe("the order a draft stands for", () => {
 		...overrides,
 	})
 
-	it("buys the base: takes the amount in, pays amount × rate out", () => {
-		expect(requestFrom(draft())).toEqual({
+	it("buys the base: pays the amount out in the quote, takes amount ÷ rate of the base in", () => {
+		expect(requestFrom(draft({ amount: "15900" }))).toEqual({
 			fillChain: "EVM-97",
 			tokenIn: "USDC",
 			amountIn: "10",
@@ -120,23 +120,30 @@ describe("the order a draft stands for", () => {
 
 	it("keeps fractional amounts and rates exact, without floating point", () => {
 		// 0.1 × 0.2 is 0.020000000000000004 in binary floating point.
-		expect(requestFrom(draft({ amount: "0.1", rate: "0.2" }))).toMatchObject({ amountOut: "0.02" })
-		expect(requestFrom(draft({ amount: "1234.5678", rate: "1590.25" }))).toMatchObject({
-			amountOut: "1963271.44395",
+		expect(requestFrom(draft({ side: "ASK", amount: "0.1", rate: "0.2" }))).toMatchObject({ amountIn: "0.02" })
+		expect(requestFrom(draft({ side: "ASK", amount: "1234.5678", rate: "1590.25" }))).toMatchObject({
+			amountIn: "1963271.44395",
 		})
+		// And back: the division is exact when the rate divides the amount.
+		expect(requestFrom(draft({ amount: "1963271.44395", rate: "1590.25" }))).toMatchObject({ amountIn: "1234.5678" })
 	})
 
 	it("rounds so the posted rate is never better for the taker than the one stated", () => {
-		// Half of the smallest unit the orderbook carries, three times over: a bid pays out no more
-		// quote than the rate implies, an ask takes in no less.
-		const half = { amount: "0.5", rate: "0.000000000000000003" }
-		expect(requestFrom(draft(half))).toMatchObject({ amountOut: "0.000000000000000001" })
-		expect(requestFrom(draft({ ...half, side: "ASK" }))).toMatchObject({ amountIn: "0.000000000000000002" })
+		// Both sides take in, and both round what they take in up. A bid paying out one unit of
+		// quote at 3 per base takes in a whole unit of base, not a third of one...
+		expect(requestFrom(draft({ amount: "0.000000000000000001", rate: "3" }))).toMatchObject({
+			amountIn: "0.000000000000000001",
+		})
+		// ...and an ask paying out half a base at 3e-18 quote each takes in two units, not one and a half.
+		const half = { amount: "0.5", rate: "0.000000000000000003", side: "ASK" as const }
+		expect(requestFrom(draft(half))).toMatchObject({ amountIn: "0.000000000000000002" })
 	})
 
-	it("refuses a size that would round away to nothing", () => {
-		// Below the smallest unit the orderbook carries there is no order to post.
-		expect(requestFrom(draft({ amount: "0.4", rate: "0.000000000000000001" }))).toBeNull()
+	it("never asks for nothing in return, however small the order", () => {
+		// Rounding what is taken in up keeps it at least the smallest unit the orderbook carries.
+		expect(requestFrom(draft({ side: "ASK", amount: "0.4", rate: "0.000000000000000001" }))).toMatchObject({
+			amountIn: "0.000000000000000001",
+		})
 	})
 
 	it("is nothing until the draft is a whole order", () => {

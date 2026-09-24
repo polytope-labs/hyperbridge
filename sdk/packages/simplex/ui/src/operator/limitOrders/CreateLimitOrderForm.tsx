@@ -1,4 +1,4 @@
-import { useLayoutEffect, useMemo, useRef, useState } from "react"
+import { useId, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { AppSelect } from "../../components/AppSelect"
 import { ChainMultiSelect } from "../../components/ChainMultiSelect"
 import { TokenOnChainIcon } from "../../components/TokenIcon"
@@ -59,14 +59,19 @@ export function CreateLimitOrderForm(props: {
 	const ready = valid && !busy
 	const heldTotal = consolidated(balances, fillChains, paysOut)
 
-	// The default follows the token paid out, and a side or pair change changes it, so a pick made
-	// for the old token does not carry over.
+	const amountId = useId()
+
+	// A side or pair change changes the token paid out. The amount is in that token, so it is
+	// cleared rather than silently reread in the new one; the fill-chain default follows it, so
+	// a pick made for the old token does not carry over. The rate is quote per base either way.
 	const choosePair = (id: string) => {
 		setBookId(id)
+		setAmount("")
 		setPickedFillChains(null)
 	}
 	const chooseSide = (next: OrderSide) => {
 		setSide(next)
+		setAmount("")
 		setPickedFillChains(null)
 	}
 
@@ -146,23 +151,30 @@ export function CreateLimitOrderForm(props: {
 				</div>
 			</div>
 
-			<div className="market-asset-grid limit-order-amounts">
-				<label className="field">
-					<span className="field-label">
-						<span>Amount ({book?.base})</span>
+			<div className="limit-order-row">
+				{/* Not a <label>: it holds the Max button, which a label would claim as its control. */}
+				<div className="field limit-order-amount">
+					<div className="field-label">
+						<label htmlFor={amountId}>Amount ({paysOut})</label>
 						{heldTotal === undefined ? null : (
 							<span className="limit-order-balance">
 								{heldTotal === null ? "Balance unavailable" : `${formatAmount(heldTotal)} ${paysOut} held`}
+								{heldTotal ? (
+									<button type="button" className="limit-order-max" onClick={() => setAmount(maxAmount(heldTotal))}>
+										Max
+									</button>
+								) : null}
 							</span>
 						)}
-					</span>
+					</div>
 					<DecimalInput
+						id={amountId}
 						value={amount}
 						onChange={setAmount}
-						placeholder="10"
-						ariaLabel={`Amount in ${book?.base}`}
+						placeholder={side === "BID" ? "15,900" : "10"}
+						ariaLabel={`Amount in ${paysOut}`}
 					/>
-				</label>
+				</div>
 				<label className="field">
 					<span className="field-label">
 						Rate ({book?.quote} per {book?.base})
@@ -180,11 +192,11 @@ export function CreateLimitOrderForm(props: {
 				<p className="hint limit-order-derived">
 					{requests.length > 1 ? `${requests.length} orders, one on each chain. Each takes in ` : "Takes in "}
 					<strong>
-						{groupThousands(request.amountIn)} {request.tokenIn}
+						{readable(request.amountIn)} {request.tokenIn}
 					</strong>
 					, pays out{" "}
 					<strong>
-						{groupThousands(request.amountOut)} {request.tokenOut}
+						{readable(request.amountOut)} {request.tokenOut}
 					</strong>
 					.
 				</p>
@@ -193,31 +205,32 @@ export function CreateLimitOrderForm(props: {
 				<p className="error">State an amount and a rate above zero.</p>
 			) : null}
 
-			<div className="field">
-				<span className="field-label">Fills on</span>
-				<ChainMultiSelect
-					ariaLabel="Chains the order is filled on"
-					options={chains.map((chain) => ({
-						value: chain,
-						label: chainLabel(chain),
-						leading: <TokenOnChainIcon symbol={paysOut} chain={chainLabel(chain)} />,
-						trailing: payOutBalance(balances, chain, paysOut),
-					}))}
-					value={fillChains}
-					onValueChange={setPickedFillChains}
-				/>
-				{fillChains.length === 0 ? <p className="error">Pick at least one chain.</p> : null}
-			</div>
-
-			<div className="field">
-				<span className="field-label">Accepts swaps from</span>
-				<ChainMultiSelect
-					ariaLabel="Chains the order accepts swaps from"
-					options={chains.map((chain) => ({ value: chain, label: chainLabel(chain) }))}
-					value={acceptedSources}
-					onValueChange={setAcceptedSources}
-				/>
-				{acceptedSources.length === 0 ? <p className="error">Pick at least one chain.</p> : null}
+			<div className="limit-order-row">
+				<div className="field">
+					<span className="field-label">Accepts swaps from</span>
+					<ChainMultiSelect
+						ariaLabel="Chains the order accepts swaps from"
+						options={chains.map((chain) => ({ value: chain, label: chainLabel(chain) }))}
+						value={acceptedSources}
+						onValueChange={setAcceptedSources}
+					/>
+					{acceptedSources.length === 0 ? <p className="error">Pick at least one chain.</p> : null}
+				</div>
+				<div className="field">
+					<span className="field-label">Fills on</span>
+					<ChainMultiSelect
+						ariaLabel="Chains the order is filled on"
+						options={chains.map((chain) => ({
+							value: chain,
+							label: chainLabel(chain),
+							leading: <TokenOnChainIcon symbol={paysOut} chain={chainLabel(chain)} />,
+							trailing: payOutBalance(balances, chain, paysOut),
+						}))}
+						value={fillChains}
+						onValueChange={setPickedFillChains}
+					/>
+					{fillChains.length === 0 ? <p className="error">Pick at least one chain.</p> : null}
+				</div>
 			</div>
 
 			{error ? <p className="error">{error}</p> : null}
@@ -283,17 +296,37 @@ function consolidated(
 }
 
 /**
+ * A request amount for the summary line: grouped, and cut to six decimals. Dividing by the rate
+ * gives eighteen, which the order posts exactly but nobody reads.
+ */
+function readable(decimal: string): string {
+	const [whole, fraction = ""] = decimal.split(".")
+	const kept = fraction.slice(0, 6).replace(/0+$/, "")
+	return groupThousands(kept ? `${whole}.${kept}` : whole)
+}
+
+/**
+ * Everything held, as a figure the amount field takes. Balances arrive as floats, so this rounds
+ * down to six decimals: an order a hair over the balance buys nothing, a figure in exponent
+ * notation the field would refuse.
+ */
+function maxAmount(held: number): string {
+	return (Math.floor(held * 1e6) / 1e6).toFixed(6).replace(/\.?0+$/, "")
+}
+
+/**
  * A decimal field that shows its figure grouped in thousands but hands back the bare one. The
  * caret goes back after the same number of digits it followed, or each comma a keystroke adds
  * would throw it to the end of the field.
  */
 function DecimalInput(props: {
+	id?: string
 	value: string
 	onChange: (value: string) => void
 	placeholder: string
 	ariaLabel: string
 }) {
-	const { value, onChange, placeholder, ariaLabel } = props
+	const { id, value, onChange, placeholder, ariaLabel } = props
 	const input = useRef<HTMLInputElement>(null)
 	/** Digits and point before the caret after the last keystroke, until it is put back. */
 	const caret = useRef<number | null>(null)
@@ -315,6 +348,7 @@ function DecimalInput(props: {
 	return (
 		<input
 			ref={input}
+			id={id}
 			type="text"
 			inputMode="decimal"
 			placeholder={placeholder}

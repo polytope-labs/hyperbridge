@@ -462,11 +462,13 @@ export interface LimitOrderStore {
 	): Promise<LimitOrder | null>
 	/**
 	 * Adds `amount` to `reserved`, but only while the order is `open` and
-	 * `remaining - reserved` still covers it. Resolves false when it does not.
+	 * `remaining` covers this one hold. Resolves false when it does not.
 	 *
-	 * This is the one method that must not be a read followed by a write. Two
-	 * chains bidding against the same limit order at once would both see room in
-	 * the gap, and between them promise more output than the order has.
+	 * Other bids' holds do not count against it: a pending bid must not stop the
+	 * next one going out, so the limit order bounds each bid and what fills draw
+	 * down, not the sum of bids still waiting. The hold is bookkeeping, turned into
+	 * a draw-down if the bid wins and given back if it loses. The write is still
+	 * guarded on the `reserved` it read, so two holds landing together both count.
 	 */
 	reserve(id: string, amount: string): Promise<boolean>
 	/** Gives a reservation back, after a bid was retracted, lost or found dead. */

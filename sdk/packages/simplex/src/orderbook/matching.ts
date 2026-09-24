@@ -29,18 +29,13 @@ export interface LimitOrderMatch {
 	order: LimitOrder
 	/** What the order pays for `inputNet` at its own signed rate, at 1e18. */
 	offer: bigint
-	/** `remaining - reserved`: what is left to draw on, at 1e18. */
+	/**
+	 * `remaining`: what the order has left to pay out, at 1e18. Other bids' holds do
+	 * not count against it, so a pending bid never stops the next one going out.
+	 */
 	available: bigint
 	/** `min(offer, available)`: what simplex will actually pay. */
 	payout: bigint
-}
-
-export function availableOn(order: LimitOrder): bigint {
-	// Floored because a fill draws `remaining` down without touching what other
-	// bids have reserved, so an order can owe more than it has left. That is
-	// nothing to draw on, not capacity in reverse.
-	const available = BigInt(order.remaining) - BigInt(order.reserved)
-	return available > 0n ? available : 0n
 }
 
 /**
@@ -84,7 +79,7 @@ export function matchLimitOrders(
 				price: BigInt(order.price),
 				outputDecimals: incoming.outputDecimals,
 			})
-			const available = availableOn(order)
+			const available = BigInt(order.remaining)
 			return { order, offer, available, payout: offer < available ? offer : available }
 		})
 		// Below the ask is below the operator's rate, and an order with nothing left

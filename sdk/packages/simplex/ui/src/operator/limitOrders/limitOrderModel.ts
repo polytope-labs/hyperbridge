@@ -42,16 +42,6 @@ export function describeRate(order: Pick<LimitOrder, "side" | "base" | "quote" |
 	return `${fromScaled(order.price, 6, "nearest")} ${order.quote} per ${order.base}`
 }
 
-/** How much of what the order promised is still available to a swapper. */
-export function available(order: Pick<LimitOrder, "remaining" | "reserved">): bigint {
-	try {
-		const left = BigInt(order.remaining) - BigInt(order.reserved)
-		return left > 0n ? left : 0n
-	} catch {
-		return 0n
-	}
-}
-
 export type Tone = "" | "ok" | "warn" | "err"
 
 /**

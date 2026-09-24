@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest"
 import type { LimitOrder } from "../../types"
 import {
 	groupThousands,
-	available,
 	describeRate,
 	fromScaled,
 	legs,
@@ -65,13 +64,6 @@ describe("reading a limit order back", () => {
 		expect(describeRate(order({ price: (1373n * ONE + ONE / 2n).toString() }))).toBe("1,373.5 CNGN per USDC")
 		// An amount is never shown as more than is there.
 		expect(fromScaled(typed)).toBe("1,373.999999")
-	})
-
-	it("counts what live bids are holding out of what is left", () => {
-		const held = order({ remaining: (1_000_000n * ONE).toString(), reserved: (400_000n * ONE).toString() })
-		expect(available(held)).toBe(600_000n * ONE)
-		// Never negative: a reservation can briefly outrun a draw-down.
-		expect(available(order({ remaining: "0", reserved: ONE.toString() }))).toBe(0n)
 	})
 })
 

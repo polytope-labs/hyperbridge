@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 import type { HexString } from "@hyperbridge/sdk"
 import type { LimitOrder } from "@/data/types"
 import { ORDERBOOK_SCALE } from "@/orderbook/amounts"
-import { availableOn, matchLimitOrder, matchLimitOrders, type IncomingOrder, whyUnmatched } from "@/orderbook/matching"
+import { matchLimitOrder, matchLimitOrders, type IncomingOrder, whyUnmatched } from "@/orderbook/matching"
 
 const ONE = ORDERBOOK_SCALE
 const BASE_CHAIN = "EVM-8453"
@@ -106,7 +106,8 @@ describe("matchLimitOrder", () => {
 	})
 
 	it("does not match an order with nothing left to pay", () => {
-		const order = limitOrder({ remaining: (1_000n * ONE).toString(), reserved: (1_000n * ONE).toString() })
+		// Drawn down to nothing by fills. Holds alone never get it here.
+		const order = limitOrder({ remaining: "0" })
 		expect(matchLimitOrder([order], incoming(), resolve)).toBeNull()
 	})
 
@@ -253,12 +254,13 @@ describe("matchLimitOrder", () => {
 			expect(match?.payout).toBe(1_450_000n * ONE)
 		})
 
-		it("counts a reservation against what is left", () => {
+		it("does not count other bids' holds against what is left", () => {
+			// A pending bid must not stop the next one going out.
 			const order = limitOrder({
 				remaining: (1_500_000n * ONE).toString(),
-				reserved: (500_000n * ONE).toString(),
+				reserved: (1_500_000n * ONE).toString(),
 			})
-			expect(matchLimitOrder([order], incoming(), resolve)?.payout).toBe(1_000_000n * ONE)
+			expect(matchLimitOrder([order], incoming(), resolve)?.payout).toBe(1_500_000n * ONE)
 		})
 
 		it("still matches on the offer, so a short order is a decision for the caller", () => {
@@ -316,11 +318,5 @@ describe("whyUnmatched", () => {
 		expect(whyUnmatched([limitOrder({ remaining: "0" })], incoming(), resolve)).toBe(
 			"the limit orders that meet its rate have nothing left to pay out",
 		)
-	})
-})
-
-describe("availableOn", () => {
-	it("never reports less than nothing, even if a reservation overran", () => {
-		expect(availableOn(limitOrder({ remaining: "100", reserved: "250" }))).toBe(0n)
 	})
 })

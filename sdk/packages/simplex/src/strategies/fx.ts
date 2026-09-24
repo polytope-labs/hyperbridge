@@ -343,9 +343,9 @@ export class FXFiller implements FillerStrategy {
 					let partialFill = false
 					const fundingCalls: ERC7821Call[] = []
 					// What this limit order alone will pay, in the output token's own units:
-					// `min(offer, remaining − reserved)`, less whatever an earlier leg of this
-					// order already planned against it, so the order never offers more than it
-					// has left even when the wallet holds more.
+					// `min(offer, remaining)`, less whatever an earlier leg of this order
+					// already planned against it, so one bid never offers more than the order
+					// has left even when the wallet holds more. Other bids' holds do not count.
 					const left = candidate.available - (plannedOn.get(candidate.order.id) ?? 0n)
 					if (left <= 0n) {
 						this.logger.info(

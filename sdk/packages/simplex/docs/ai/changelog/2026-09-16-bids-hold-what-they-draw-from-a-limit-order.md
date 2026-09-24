@@ -1,5 +1,8 @@
 # 2026-09-16 — Bids hold what they draw from a limit order
 
+Changed 2026-09-24: a hold no longer shrinks what the next bid can draw on. It is still taken, drawn
+down on a win and given back on a loss — see [the follow-up note](./2026-09-24-filler-says-why-it-passed-on-an-order.md).
+
 A bid now takes its payout out of the matched limit order before it goes out, and gives it back when
 it loses. Without the hold, two chains evaluating at once both read the same `remaining` and between
 them promise more output than the order has.

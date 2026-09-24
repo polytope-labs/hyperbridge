@@ -219,11 +219,11 @@ export class SqliteLimitOrderStore implements LimitOrderStore {
 	async reserve(id: string, amount: string): Promise<boolean> {
 		const order = this.read(id)
 		if (!order || order.status !== "open") return false
+		if (BigInt(amount) > BigInt(order.remaining)) return false
 		const reserved = BigInt(order.reserved) + BigInt(amount)
-		if (reserved > BigInt(order.remaining)) return false
 
-		// Guarded on the `reserved` this decision was read against, so a caller that
-		// moved it in between loses here instead of overcommitting the order. The
+		// Guarded on the `reserved` this decision was read against, so a hold that
+		// moved it in between loses here instead of being overwritten. The
 		// arithmetic cannot happen in SQL: a 1e18 amount overruns a 64-bit integer.
 		const result = this.db
 			.prepare(`

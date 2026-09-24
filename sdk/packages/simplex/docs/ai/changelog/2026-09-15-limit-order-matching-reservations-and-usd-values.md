@@ -33,6 +33,9 @@ place.
 chains bidding against one limit order would otherwise both see room in the gap between the two and,
 between them, promise more output than the order has.
 
+Changed 2026-09-24: other bids' holds no longer count against `remaining`, so a pending bid never
+stops the next one going out — see [the follow-up note](./2026-09-24-filler-says-why-it-passed-on-an-order.md).
+
 ## USD values
 
 `usdFactorsFrom` in `src/orderbook/usd.ts` derives dollars from the limit orders themselves, which is

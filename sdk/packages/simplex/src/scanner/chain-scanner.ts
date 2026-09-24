@@ -28,6 +28,10 @@ const GATEWAY_EVENTS = INTENT_GATEWAY_V2_ABI.filter(
  * one would. `blockScanIntervalSeconds` overrides it.
  */
 const DEFAULT_SCAN_INTERVAL_MS = DEFAULT_BLOCK_SCAN_INTERVAL_SECONDS * 1000
+/**
+ * The widest range one pass reads, as `toBlock - fromBlock`. The live bound is
+ * the scanner's `span`, which starts here and narrows while reads fail.
+ */
 const MAX_BLOCK_RANGE = 1_000n
 /**
  * Events published in one synchronous stretch before yielding to the consumers'
@@ -99,6 +103,18 @@ export class ChainScanner {
 	private stopped = false
 	/** Set while a scan pass holds the mutex, undefined between passes. */
 	private pass?: InFlightPass
+	/**
+	 * How far past the cursor the next pass reads, as `toBlock - fromBlock`:
+	 * halved after a failed read, doubled after a good one, between 0 (one block)
+	 * and {@link MAX_BLOCK_RANGE}.
+	 *
+	 * Free endpoints cap `eth_getLogs` ranges far below the full span — on
+	 * Arbitrum three of seven refused 100 blocks — and the cursor never moves
+	 * past a range it failed to read. At a fixed span a catch-up that outgrew
+	 * those caps was stuck for good: the range only grew, so the capped endpoints
+	 * never rejoined and the quorum never formed.
+	 */
+	private span = MAX_BLOCK_RANGE
 
 	constructor(
 		private readonly target: ScanTarget,
@@ -297,7 +313,7 @@ export class ChainScanner {
 		if (currentBlock <= this.cursor) return
 
 		const fromBlock = this.cursor + 1n
-		const toBlock = fromBlock + MAX_BLOCK_RANGE > currentBlock ? currentBlock : fromBlock + MAX_BLOCK_RANGE
+		const toBlock = fromBlock + this.span > currentBlock ? currentBlock : fromBlock + this.span
 
 		this.logger.debug(
 			{ chainId: this.target.chainId, fromBlock, toBlock, gap: Number(toBlock - fromBlock) },
@@ -329,6 +345,7 @@ export class ChainScanner {
 			// The RPC has not indexed these blocks yet. Do not advance the cursor —
 			// with one shared cursor, skipping a range loses it for every consumer.
 			if (isBlockRangeError(error)) return
+			this.narrow(toBlock - fromBlock)
 			throw error
 		}
 
@@ -362,6 +379,33 @@ export class ChainScanner {
 		// tolerate.
 		if (this.stopped) return
 		this.cursor = toBlock
+		this.widen()
+	}
+
+	/**
+	 * Halves the span below the range that just failed, so the next pass asks
+	 * for something a range-capped endpoint will answer. Halving the attempted
+	 * range rather than the span matters near the head, where a pass reads fewer
+	 * blocks than the span allows.
+	 */
+	private narrow(attempted: bigint): void {
+		const next = attempted / 2n
+		if (next >= this.span) return
+		this.span = next
+		this.logger.warn(
+			{ chainId: this.target.chainId, span: Number(next) },
+			"Narrowing the block scan range after a failed read",
+		)
+	}
+
+	/** Doubles the span back toward {@link MAX_BLOCK_RANGE} after a good read. */
+	private widen(): void {
+		if (this.span >= MAX_BLOCK_RANGE) return
+		const next = this.span === 0n ? 1n : this.span * 2n
+		this.span = next > MAX_BLOCK_RANGE ? MAX_BLOCK_RANGE : next
+		if (this.span === MAX_BLOCK_RANGE) {
+			this.logger.info({ chainId: this.target.chainId }, "Block scan range back to full")
+		}
 	}
 
 	private async publishOrders(logs: DecodedOrderPlacedLog[]): Promise<void> {

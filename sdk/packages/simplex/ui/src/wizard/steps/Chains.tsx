@@ -1,9 +1,13 @@
 import { useState } from "react"
 import * as Collapsible from "@radix-ui/react-collapsible"
 import { toast } from "sonner"
+import externalLinks from "@/config/external-links.json"
 import { api } from "../../api"
+import { ChainCollapseTrigger, isHeaderControl, useChainPanels } from "../../components/ChainPanel"
 import { ChainLogo } from "../../components/ChainLogo"
 import { EndpointVerificationStatus } from "../../components/EndpointVerificationStatus"
+import { ExternalLinkIcon } from "../../components/InterfaceIcons"
+import { loadOrderbook } from "../orderbook"
 import { patchChain, type ChainDraft } from "../state"
 import type { StepProps } from "../Wizard"
 
@@ -15,6 +19,7 @@ interface AlchemyChainRow {
 
 export function StepChains({ state, setState }: StepProps) {
 	const [busy, setBusy] = useState(false)
+	const panels = useChainPanels()
 
 	const patch = (chainId: number, changes: Partial<ChainDraft>) => setState((s) => patchChain(s, chainId, changes))
 
@@ -34,10 +39,13 @@ export function StepChains({ state, setState }: StepProps) {
 					? s.chains.map((c) => {
 							const row = res.chains.find((r) => r.chainId === c.meta.chainId)
 							if (!row?.rpcUrl) return c
+							// Bundler only. The scan reads from the public quorum, which
+							// costs nothing and spreads across providers; sending it to
+							// Alchemy instead would burn the key's quota on polling and
+							// leave the chain on a single provider.
 							return {
 								...c,
-								rpcUrls: [row.rpcUrl, ...c.rpcUrls.slice(1)],
-								bundlerUrl: row.bundlerUrl ?? c.bundlerUrl,
+								bundlerUrl: row.bundlerUrl ?? row.rpcUrl,
 								viaAlchemy: true,
 								verificationState: undefined,
 								verificationMessage: undefined,
@@ -46,8 +54,8 @@ export function StepChains({ state, setState }: StepProps) {
 					: s.chains,
 			}))
 			if (res.valid) {
-				toast.success("Provider endpoints added", {
-					description: "Supported chain endpoints were filled from your Alchemy key.",
+				toast.success("Bundlers configured", {
+					description: "Every supported chain now submits fills through your Alchemy key.",
 				})
 			} else {
 				toast.error("Alchemy key could not be validated", { description: res.error })
@@ -127,12 +135,14 @@ export function StepChains({ state, setState }: StepProps) {
 	return (
 		<div className="wizard-sections chains-step">
 			<div className="card">
-				<h2>Provider key</h2>
+				<h2>Bundler key</h2>
 				<p className="hint">
-					One Alchemy API key can fill in the RPC and bundler URL for every supported chain — Alchemy serves
-					ERC-4337 bundler methods on the same endpoint. Use premium endpoints with archive access; free tiers
-					rate-limit and break event scanning. Every field stays editable if you prefer other providers (e.g.
-					a Pimlico bundler).
+					One{" "}
+					<a className="hint-link" href={externalLinks.alchemyDashboard} target="_blank" rel="noreferrer">
+						Alchemy API key
+						<ExternalLinkIcon aria-hidden="true" />
+					</a>{" "}
+					sets up the bundler on every chain, and the RPC endpoints below are already filled in.
 				</p>
 				<div className="chain-provider-controls">
 					<input
@@ -151,42 +161,67 @@ export function StepChains({ state, setState }: StepProps) {
 				</div>
 			</div>
 
+			{state.orderbookError ? (
+				<div className="card">
+					<p className="error">{state.orderbookError}</p>
+					<button type="button" onClick={() => void loadOrderbook(setState)}>
+						Retry
+					</button>
+				</div>
+			) : null}
+
 			{state.chains.map((chain) => (
 				<Collapsible.Root
 					className="card chain-configuration"
 					data-enabled={chain.enabled}
 					key={chain.meta.chainId}
-					open={chain.enabled}
+					open={panels.isOpen(chain.meta.chainId, chain.enabled)}
+					onOpenChange={(open) => panels.setOpen(chain.meta.chainId, open)}
 				>
-					<div className="chain-configuration-header">
+					<div
+						className="chain-configuration-header"
+						onClick={(e) => {
+							if (isHeaderControl(e)) return
+							panels.setOpen(chain.meta.chainId, !panels.isOpen(chain.meta.chainId, chain.enabled))
+						}}
+					>
 						<div className="chain-identity">
 							<ChainLogo label={chain.meta.label} />
 							<div>
 								<h2>{chain.meta.label}</h2>
-								{chain.viaAlchemy && <span className="chain-source">Configured with Alchemy</span>}
+								{chain.viaAlchemy && <span className="chain-source">Bundler via Alchemy</span>}
 							</div>
 						</div>
-						<label className="chain-enable-toggle">
-							<input
-								type="checkbox"
-								checked={chain.enabled}
-								onChange={(e) => patch(chain.meta.chainId, { enabled: e.target.checked })}
-							/>
-							<span className="chain-enable-switch" aria-hidden="true" />
-							<span>Enable fills</span>
-						</label>
+						<div className="chain-header-controls">
+							<label className="chain-enable-toggle">
+								<input
+									type="checkbox"
+									checked={chain.enabled}
+									onChange={(e) => {
+										patch(chain.meta.chainId, { enabled: e.target.checked })
+										panels.setOpen(chain.meta.chainId, e.target.checked)
+									}}
+								/>
+								<span className="chain-enable-switch" aria-hidden="true" />
+								<span>Enable fills</span>
+							</label>
+							<ChainCollapseTrigger label={chain.meta.label} />
+						</div>
 					</div>
 					<Collapsible.Content className="chain-collapsible-content">
 						<div className="chain-configuration-fields">
 							{chain.rpcUrls.map((url, index) => (
 								<label className="field" key={index}>
 									<span className="field-label">
-										{index === 0 ? "RPC endpoint" : "Backup RPC endpoint"}
+										{index === 0 ? "RPC endpoint" : `RPC endpoint ${index + 1}`}
 										{index === 0 ? <span className="field-required">Required</span> : null}
 									</span>
 									{index === 0 && <small>Used to read the chain and find orders.</small>}
-									{index > 0 && (
-										<small>A second provider helps protect against bad or unavailable data.</small>
+									{index === 1 && (
+										<small>
+											Reads are agreed across every endpoint listed, so a wrong or unavailable
+											answer from any one of them cannot mislead the filler.
+										</small>
 									)}
 									<div className="row">
 										<input
@@ -201,7 +236,6 @@ export function StepChains({ state, setState }: StepProps) {
 													),
 													verificationState: undefined,
 													verificationMessage: undefined,
-													viaAlchemy: index === 0 ? false : chain.viaAlchemy,
 												})
 											}
 										/>

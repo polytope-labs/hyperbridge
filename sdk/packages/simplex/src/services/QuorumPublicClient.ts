@@ -38,11 +38,10 @@ export const RATE_LIMIT_SUSPENSION_MS = 5 * 60_000
  * What one quorum call is allowed to spend.
  *
  * `deadlineMs` is the ceiling on the call itself: past it, the endpoints still
- * outstanding are treated as failures and the call fails with a QuorumError
- * naming them, rather than waiting out the slowest provider. It cannot rescue a
- * call — early exit already resolves the moment the bar is reachable, over the
- * same responses `finalize` would see — so in practice the deadline is where a
- * doomed call dies quickly instead of slowly.
+ * outstanding are treated as failures, so they stop voting and the call is
+ * decided over the endpoints that answered, or fails with a QuorumError naming
+ * them. Early exit decides as soon as the endpoints still out could not change
+ * the outcome; the deadline decides when one of them never answers.
  *
  * `timeoutMs` bounds one endpoint's attempt, and there is only ever one: the
  * transports are built with `retryCount: 0`, so an endpoint's whole
@@ -252,31 +251,31 @@ function isReceiptNotFound(error: unknown): boolean {
 /**
  * Wraps multiple viem `PublicClient`s — one per configured RPC URL — and runs
  * selected read paths (`getLogs`, `getBlockNumber`, `getTransactionConfirmations`)
- * as a **BFT quorum**: a result is accepted only when `quorumThreshold(n)` of the
- * operator's endpoints agree on it.
+ * as a **BFT quorum**: a result is accepted only when `quorumThreshold(m)` of the
+ * `m` endpoints that answered agree on it.
  *
  * A provider that *answers with divergent data* is never special-cased away — it
  * simply fails to join the agreeing group, which is what makes a lying or reorged
  * endpoint detectable rather than authoritative.
  *
- * The pausing state is the bench, and {@link benchFor} decides who goes on it:
- * a request-rate limit ({@link isSuspendableRateLimit}), a response that is not
- * JSON ({@link isMalformedResponse}), or a head behind the quorum's
- * ({@link isStaleHead}). A benched endpoint is DROPPED for its window: not
- * queried and not counted, so each call's bar is computed over the endpoints
- * actually asked. All three share the property that earns the bench — the
- * endpoint will keep failing the same way for a while, so keeping it in the
- * denominator would only turn its problem into the solver missing events, and a
- * scanner that misses orders loses fills.
+ * A provider that *fails* does not vote. A failed request says nothing about the
+ * chain, so it must not outvote the endpoints that agree: the threshold guards
+ * against endpoints that answer wrongly, and every answer still counts. Six
+ * endpoints with two failing decide over the other four, three of which must
+ * agree. The price, worth stating plainly, is that a call can be decided by fewer
+ * endpoints than the operator configured; at the limit, one endpoint answering
+ * while the rest fail decides alone. The voters are still exclusively the
+ * operator's own.
  *
- * That is a deliberate widening of what shrinks the voter set, and worth stating
- * plainly: 5 endpoints with 2 lagging used to fail the call, and now decide it
- * over the remaining 3. The bar still comes from a BFT threshold over the
- * endpoints asked, and the voters are still exclusively the operator's own, but
- * a call CAN now be decided by fewer of them than the operator configured. When
- * every endpoint is benched, all are queried again; there is nobody left to
- * prefer. Every other failure mode stays stateless: a chronically slow endpoint
- * costs one failed sub-request per call, never a shrunk quorum.
+ * The bench is the one state this class keeps, and {@link benchFor} decides who
+ * goes on it: a request-rate limit ({@link isSuspendableRateLimit}), a response
+ * that is not JSON ({@link isMalformedResponse}), or a head behind the quorum's
+ * ({@link isStaleHead}). All three share the property that earns it — the
+ * endpoint will keep failing the same way for a while — so a benched endpoint is
+ * not asked for its window: asking would spend its quota, or hold the call open
+ * for an answer already known to fail. When every endpoint is benched, all are
+ * queried again; there is nobody left to prefer. Every other failure is per
+ * call, and the endpoint is asked again next time.
  *
  * The constructor validates that URLs resolve to distinct hostnames so a "quorum"
  * isn't secretly the same upstream in disguise.
@@ -286,8 +285,8 @@ export class QuorumPublicClient {
 	public readonly rpcUrls: string[]
 	/**
 	 * The quorum bar when every endpoint answers: `quorumThreshold(n)` over the
-	 * full set. Calls made while endpoints are benched use
-	 * `quorumThreshold(queried)` — the bar always matches who was asked.
+	 * full set. Each call's bar is `quorumThreshold` over the endpoints that answer
+	 * it, so this is the most it can be.
 	 */
 	public readonly threshold: number
 	private readonly logger?: Logger
@@ -344,16 +343,14 @@ export class QuorumPublicClient {
 	}
 
 	/**
-	 * The endpoints this call queries — everyone not benched — and the quorum
-	 * bar for exactly that set. A benched endpoint is dropped outright: it
-	 * answers nothing while throttled, so counting it could only fail calls the
-	 * remaining endpoints agree on. With every endpoint benched, everyone is
-	 * queried again; there is nobody left to prefer.
+	 * The endpoints this call queries: everyone not benched. A benched endpoint is
+	 * dropped outright: it answers nothing while throttled, so asking it could only
+	 * cost a request. With every endpoint benched, everyone is queried again; there
+	 * is nobody left to prefer.
 	 */
 	private participants(): {
 		queried: Array<{ idx: number; client: PublicClient }>
 		skipped: number
-		threshold: number
 		allBenched: boolean
 	} {
 		const now = Date.now()
@@ -361,12 +358,7 @@ export class QuorumPublicClient {
 		const active = all.filter(({ idx }) => (QuorumPublicClient.benchedUntil.get(this.rpcUrls[idx]) ?? 0) <= now)
 		const allBenched = active.length === 0
 		const queried = allBenched ? all : active
-		return {
-			queried,
-			skipped: all.length - queried.length,
-			threshold: quorumThreshold(queried.length),
-			allBenched,
-		}
+		return { queried, skipped: all.length - queried.length, allBenched }
 	}
 
 	/**
@@ -414,24 +406,29 @@ export class QuorumPublicClient {
 	 * retries would otherwise stall every confirmation poll). Stragglers settle
 	 * out of band and are ignored. `tryDecide` returns undefined to keep
 	 * waiting; once every task has settled, `finalize` must decide (it throws
-	 * the QuorumError when the full response set still has no quorum). Early
-	 * exit never weakens the trust model — a decision still requires the same
-	 * quorum, it just doesn't wait for votes it no longer needs.
+	 * the QuorumError when the full response set still has no quorum).
+	 *
+	 * Both are handed the bar: the BFT threshold over the endpoints that have not
+	 * failed, answered or still out. A failure lowers it rather than counting
+	 * against it. Counting the pending endpoints keeps an early decision to a bar
+	 * no lower than the full response set would get, so a vote it did not wait for
+	 * could never have reversed it.
 	 *
 	 * `deadlineMs` bounds the other direction: when the bar is NOT reachable
 	 * from the fast responders, the call used to wait out every straggler, and
 	 * the caller's own retry loop multiplied that into minutes of a chain not
 	 * being scanned at all, silently. At the deadline the outstanding endpoints
 	 * are treated as failures — named in the QuorumError, so the operator sees
-	 * which ones held the call up — and `finalize` decides on the rest. The
-	 * trust model is untouched: a decision still needs the same quorum.
+	 * which ones held the call up — and `finalize` decides over the endpoints
+	 * that answered.
 	 */
 	private settleUntilQuorum<T, R>(
 		tasks: Array<{ idx: number; task: Promise<T> }>,
-		tryDecide: (fulfilled: ReadonlyArray<{ idx: number; value: T }>) => R | undefined,
+		tryDecide: (fulfilled: ReadonlyArray<{ idx: number; value: T }>, threshold: number) => R | undefined,
 		finalize: (
 			fulfilled: ReadonlyArray<{ idx: number; value: T }>,
 			failures: ReadonlyArray<{ idx: number; error: unknown }>,
+			threshold: number,
 		) => R,
 	): Promise<R> {
 		return new Promise<R>((resolve, reject) => {
@@ -451,13 +448,14 @@ export class QuorumPublicClient {
 			const evaluate = () => {
 				if (done) return
 				try {
-					const early = tryDecide(fulfilled)
+					const threshold = quorumThreshold(tasks.length - failures.length)
+					const early = tryDecide(fulfilled, threshold)
 					if (early !== undefined) {
 						finish(() => resolve(early))
 						return
 					}
 					if (outstanding === 0) {
-						const value = finalize(fulfilled, failures)
+						const value = finalize(fulfilled, failures, threshold)
 						finish(() => resolve(value))
 					}
 				} catch (error) {
@@ -482,7 +480,7 @@ export class QuorumPublicClient {
 						error: new Error(`no answer within the ${this.deadlineMs}ms quorum deadline`),
 					}))
 				try {
-					const value = finalize(fulfilled, [...failures, ...stragglers])
+					const value = finalize(fulfilled, [...failures, ...stragglers], quorumThreshold(fulfilled.length))
 					finish(() => resolve(value))
 				} catch (error) {
 					finish(() => reject(error))
@@ -513,23 +511,23 @@ export class QuorumPublicClient {
 	}
 
 	/**
-	 * Highest block head backed by a full quorum. Throws {@link QuorumError}
-	 * when fewer than `threshold` endpoints respond.
+	 * Highest block head backed by a quorum of the endpoints that answer. Throws
+	 * {@link QuorumError} when none do.
 	 */
 	async getBlockNumber(): Promise<bigint> {
-		const { queried, skipped, threshold, allBenched } = this.participants()
+		const { queried, skipped, allBenched } = this.participants()
 		return this.settleUntilQuorum(
 			queried.map(({ idx, client }) => ({ idx, task: client.getBlockNumber() })),
 			// Early exit as soon as a quorum is satisfiable. Late voters could
 			// only raise the reported head; the earlier (lower) head is
 			// conservative for every consumer (fewer confirmations counted,
 			// smaller scan windows).
-			(fulfilled) =>
+			(fulfilled, threshold) =>
 				this.quorumHead(
 					fulfilled.map((f) => f.value),
 					threshold,
 				) ?? undefined,
-			(fulfilled, failures) => {
+			(fulfilled, failures, threshold) => {
 				const head = this.quorumHead(
 					fulfilled.map((f) => f.value),
 					threshold,
@@ -574,7 +572,7 @@ export class QuorumPublicClient {
 			return views
 		}
 
-		const { queried, skipped, threshold, allBenched } = this.participants()
+		const { queried, skipped, allBenched } = this.participants()
 		return this.settleUntilQuorum(
 			queried.map(({ idx, client }) => ({
 				idx,
@@ -595,8 +593,8 @@ export class QuorumPublicClient {
 			// Early exit only on a POSITIVE quorum: an agreeing inclusion group can
 			// only grow, so the first satisfiable quorum is final. Not-found votes
 			// never decide early — "not confirmed" needs the full response set.
-			(fulfilled) => aggregateConfirmations(toViews(fulfilled), threshold) ?? undefined,
-			(fulfilled, failures) => {
+			(fulfilled, threshold) => aggregateConfirmations(toViews(fulfilled), threshold) ?? undefined,
+			(fulfilled, failures, threshold) => {
 				const confirmations = aggregateConfirmations(toViews(fulfilled), threshold)
 				if (confirmations === null) {
 					throw new QuorumError(
@@ -641,7 +639,7 @@ export class QuorumPublicClient {
 			return groups
 		}
 
-		const { queried, skipped, threshold, allBenched } = this.participants()
+		const { queried, skipped, allBenched } = this.participants()
 		return this.settleUntilQuorum(
 			queried.map(({ idx, client }) => ({
 				idx,
@@ -653,13 +651,13 @@ export class QuorumPublicClient {
 			// two disjoint groups can't both hold one), so the first satisfiable
 			// agreement is final — no need to wait out stragglers that could
 			// only join or lose.
-			(fulfilled) => {
+			(fulfilled, threshold) => {
 				for (const group of groupOf(fulfilled).values()) {
 					if (group.providerIdxs.length >= threshold) return group.result
 				}
 				return undefined
 			},
-			(fulfilled, failures) => {
+			(fulfilled, failures, threshold) => {
 				const groups = groupOf(fulfilled)
 				for (const group of groups.values()) {
 					if (group.providerIdxs.length >= threshold) return group.result

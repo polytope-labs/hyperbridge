@@ -181,6 +181,23 @@ describe("LimitOrderService.create validation", () => {
 		await rejects({ acceptedSources: ["EVM-1", "EVM-42161"] }, /does not serve EVM-42161/)
 	})
 
+	it("refuses a source chain the orderbook registers no input token on", async () => {
+		// The other half: Ethereum is served but listed with USDC only, so a swapper there has no
+		// cNGN to pay an order taking cNGN in. Arbitrum is the live case.
+		const client = fakeClient([])
+		client.limits = async () => ({
+			...LIMITS,
+			chains: [...LIMITS.chains, { id: "EVM-1", name: "Ethereum", tokens: [{ symbol: "USDC", decimals: 6 }] }],
+		})
+		const { service } = makeService(client)
+		const selling = { ...REQUEST, tokenIn: "CNGN", amountIn: "1500000", tokenOut: "USDC", amountOut: "1000" }
+
+		await expect(service.create(selling)).rejects.toThrow(/has no CNGN on EVM-1/)
+		expect(client.submitted).toHaveLength(0)
+		// The same chain still serves an order taking USDC in.
+		await expect(service.create(REQUEST)).resolves.toBeDefined()
+	})
+
 	it("refuses an amount that is not a positive decimal in whole tokens", async () => {
 		await rejects({ amountIn: "0" }, /amountIn must be greater than zero/)
 		await rejects({ amountOut: "1.5e3" }, /amountOut must be an amount in whole tokens/)
@@ -204,12 +221,13 @@ describe("what the operator states", () => {
 })
 
 describe("the pairs on offer", () => {
-	it("reports the orderbook's books and its dust floors, which is all a create may name", async () => {
+	it("reports the orderbook's books, dust floors and tokens per chain, which is all a create may name", async () => {
 		const { service } = makeService(fakeClient([]))
 
 		expect(await service.books()).toEqual({
 			books: [{ id: "USDC/CNGN", base: "USDC", quote: "CNGN" }],
 			minOrderSizes: [{ symbol: "CNGN", size: (1000n * ONE).toString() }],
+			chains: LIMITS.chains,
 		})
 	})
 })

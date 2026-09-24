@@ -109,13 +109,11 @@ export interface PostedOrder {
  * Every code the orderbook's `RejectionCode` enum can send, listed rather than
  * written as a union so a test can hold it against the published schema.
  *
- * Why the orderbook refuses an order. `MIN_ORDER_SIZE` and `TTL_TOO_SHORT` are
- * prevented by validation before posting; `REPLAYED` and `ORDER_EXISTS` are
- * answered by bumping the nonce; the rest are encoding bugs on our side.
- *
- * `UNSUPPORTED_SOURCE_CHAIN` is the exception: a declared source chain has to
- * register the order's input symbol on the server, which is the server's own
- * config and nothing here can check ahead of asking.
+ * Why the orderbook refuses an order. `MIN_ORDER_SIZE`, `TTL_TOO_SHORT` and
+ * `UNSUPPORTED_SOURCE_CHAIN` are prevented by validation before posting, the last
+ * against the chains the server serves and the tokens its registry lists on each;
+ * `REPLAYED` and `ORDER_EXISTS` are answered by bumping the nonce; the rest are
+ * encoding bugs on our side.
  */
 export const REJECTION_CODES = [
 	"MALFORMED_USER_OP",

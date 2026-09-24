@@ -5,7 +5,7 @@ import { Pager } from "../components/Pager"
 import { TokenPairIcons } from "../components/TokenIcon"
 import { INIT_CHAINS } from "@/cli/init/chains"
 import { formatDate, sqliteUtcToMs } from "../lib/format"
-import type { LimitOrder } from "../types"
+import type { BalanceSnapshot, LimitOrder } from "../types"
 import { CreateLimitOrderForm } from "./limitOrders/CreateLimitOrderForm"
 import { available, describeRate, fromScaled, legs, sideLabel, statusOf } from "./limitOrders/limitOrderModel"
 import { type LimitOrderFills, useLimitOrders, useOrderbookBooks } from "./limitOrders/useLimitOrders"
@@ -17,6 +17,8 @@ interface LimitOrdersProps {
 	/** Chain ids the filler runs. A limit order names them as state machine ids. */
 	chains: number[]
 	chainLabels?: Record<string, string>
+	/** Shown beside each chain in the new order's "Fills on" menu. */
+	balances?: BalanceSnapshot
 }
 
 /**
@@ -27,10 +29,11 @@ interface LimitOrdersProps {
  * fills at the rate they imply until the order runs out, so the page is a book
  * of standing offers rather than a curve to shape.
  */
-export function LimitOrders({ chains, chainLabels }: LimitOrdersProps) {
+export function LimitOrders({ chains, chainLabels, balances }: LimitOrdersProps) {
 	const { orders, loading, error, create, cancel, withFills, reload } = useLimitOrders()
-	// Only the pairs the orderbook keeps: it refuses an order naming anything else.
-	const { books } = useOrderbookBooks()
+	// Only the pairs the orderbook keeps, and the chains it registers their tokens on: it refuses
+	// an order naming anything else.
+	const { books, chains: orderbookChains } = useOrderbookBooks()
 	const [creating, setCreating] = useState(false)
 	const [selected, setSelected] = useState<LimitOrder>()
 	const [detail, setDetail] = useState<LimitOrderFills>()
@@ -148,12 +151,13 @@ export function LimitOrders({ chains, chainLabels }: LimitOrdersProps) {
 				onClose={() => setCreating(false)}
 				wide
 				title="New limit order"
-				description="Pick a pair, a side, how much and at what rate. Simplex works out the two amounts."
 			>
 				<CreateLimitOrderForm
 					books={books}
+					orderbookChains={orderbookChains}
 					chains={chainOptions.map((chain) => chain.stateMachineId)}
 					chainLabel={chainLabel}
+					balances={balances}
 					create={create}
 					onCreated={() => setCreating(false)}
 					onCancel={() => setCreating(false)}

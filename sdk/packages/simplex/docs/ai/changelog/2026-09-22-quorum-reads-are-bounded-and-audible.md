@@ -13,6 +13,9 @@ it applies the same rule to the same responses `finalize` would see, so a deadli
 always a call that was going to fail — it just fails in seconds rather than minutes. `QuorumError`
 now lists the endpoints that never answered.
 
+The deadline can rescue a call now: an endpoint still out at the deadline stops voting — see
+[the follow-up note](./2026-09-24-quorum-failures-do-not-vote.md).
+
 ## Budgets, per call site
 
 | | timeout | deadline |

@@ -1,11 +1,24 @@
-import { useState } from "react"
+import { useRef, useState } from "react"
 import { api } from "../../api"
 import { Field } from "../../components/Field"
 import { RecoveryPhraseDialog } from "../../components/RecoveryPhraseDialog"
 import type { StepProps } from "../Wizard"
 
+/**
+ * Whether a pasted key is whole enough to derive: a 32-byte hex seed or a full
+ * BIP-39 phrase. Anything else (a phrase mid-typing, a `//` dev path) waits for
+ * blur, so the server is not asked about every partial keystroke.
+ */
+function looksComplete(key: string): boolean {
+	const trimmed = key.trim()
+	if (/^(0x)?[0-9a-fA-F]{64}$/.test(trimmed)) return true
+	return [12, 15, 18, 21, 24].includes(trimmed.split(/\s+/).length)
+}
+
 export function StepSubstrate({ state, setState }: StepProps) {
 	const [busy, setBusy] = useState(false)
+	// Drops a slow reply for a key the operator has since edited.
+	const deriveRequest = useRef(0)
 	const [error, setError] = useState<string>()
 	const [addressCopyStatus, setAddressCopyStatus] = useState<"idle" | "copied" | "failed">("idle")
 
@@ -25,15 +38,18 @@ export function StepSubstrate({ state, setState }: StepProps) {
 		}
 	}
 
-	const deriveFromPasted = async () => {
-		if (!state.substrateKey.trim()) return
+	const derive = async (key: string) => {
+		if (!key.trim()) return
+		const requestId = ++deriveRequest.current
 		try {
 			const { address } = await api.post<{ address: string }>("/api/setup/generate-substrate-key", {
-				key: state.substrateKey.trim(),
+				key: key.trim(),
 			})
+			if (requestId !== deriveRequest.current) return
 			setAddressCopyStatus("idle")
 			setState((s) => ({ ...s, substrateAddress: address, generatedMnemonic: undefined }))
 		} catch (err) {
+			if (requestId !== deriveRequest.current) return
 			setError(err instanceof Error ? err.message : String(err))
 		}
 	}
@@ -100,15 +116,22 @@ export function StepSubstrate({ state, setState }: StepProps) {
 						required
 						value={state.substrateKey}
 						onChange={(substrateKey) => {
+							deriveRequest.current++
 							setAddressCopyStatus("idle")
+							setError(undefined)
 							setState((s) => ({
 								...s,
 								substrateKey,
+								substrateAddress: undefined,
 								generatedMnemonic: undefined,
 								balanceCheck: undefined,
 							}))
+							if (looksComplete(substrateKey)) void derive(substrateKey)
 						}}
-						onBlur={deriveFromPasted}
+						onBlur={() => {
+							// Already derived while typing; nothing changed since.
+							if (!state.substrateAddress) void derive(state.substrateKey)
+						}}
 					/>
 				</section>
 			</div>

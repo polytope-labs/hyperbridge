@@ -1,5 +1,6 @@
 {
 	"hyperfxApp": "https://app.hyperfx.finance",
+	"alchemyDashboard": "https://dashboard.alchemy.com/",
 	"hyperbridgeExplorers": {
 		"mainnet": "https://nexus.statescan.io",
 		"testnet": "https://gargantua.statescan.io"

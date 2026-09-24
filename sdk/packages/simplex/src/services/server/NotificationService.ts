@@ -102,7 +102,7 @@ export class NotificationService extends EventEmitter {
 				title: "Swap filled",
 				body: swapBody(event),
 				tag: `simplex-swap-${id}`,
-				url: "./orders",
+				url: "./history",
 			}).catch((error) => this.logger.error({ err: error }, "Could not publish swap notification"))
 		}
 	}

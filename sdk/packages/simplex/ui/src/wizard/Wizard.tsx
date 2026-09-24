@@ -1,18 +1,11 @@
-import { useState } from "react"
-import { isRegistrySymbol } from "@/config/asset-registry"
+import { useEffect, useState } from "react"
 import { validateConfig } from "@/config/filler-toml"
 import type { SetupDefaults } from "../types"
-import {
-	assembleConfig,
-	initialState,
-	normSymbol,
-	privateKeyFormatError,
-	type WizardState,
-} from "./state"
+import { loadOrderbook } from "./orderbook"
+import { assembleConfig, initialState, orderbookPairs, privateKeyFormatError, type WizardState } from "./state"
 import { StepSigner } from "./steps/Signer"
 import { StepSubstrate } from "./steps/Substrate"
 import { StepChains } from "./steps/Chains"
-import { StepStrategies } from "./steps/Strategies"
 import { StepTreasury } from "./steps/Treasury"
 import { StepAdvanced } from "./steps/Advanced"
 import { StepReview } from "./steps/Review"
@@ -64,56 +57,35 @@ function substrateRequirements(state: WizardState): string[] {
 	return issues
 }
 
-function chainRequirements(state: WizardState): string[] {
+function chainRequirements(state: WizardState, defaults: SetupDefaults): string[] {
 	const enabled = state.chains.filter((chain) => chain.enabled)
 	if (enabled.length === 0) return ["Enable fills for at least one chain."]
-	return enabled.flatMap((chain) => {
-		const issues: string[] = []
-		if (!chain.rpcUrls[0]?.trim()) issues.push(`Enter the RPC endpoint for ${chain.meta.label}.`)
-		if (!chain.bundlerUrl.trim()) issues.push(`Enter the bundler endpoint for ${chain.meta.label}.`)
-		return issues
+	const issues = enabled.flatMap((chain) => {
+		const missing: string[] = []
+		if (!chain.rpcUrls[0]?.trim()) missing.push(`Enter the RPC endpoint for ${chain.meta.label}.`)
+		if (!chain.bundlerUrl.trim()) missing.push(`Enter the bundler endpoint for ${chain.meta.label}.`)
+		return missing
 	})
-}
-
-function marketRequirements(state: WizardState, defaults: SetupDefaults): string[] {
-	const enabled = state.pairs.filter((pair) => pair.enabled)
-	if (enabled.length === 0) return ["Enable or add at least one market."]
-	const enabledChainDrafts = state.chains.filter((chain) => chain.enabled)
-	const availableOnEnabled = new Set(
-		enabledChainDrafts.flatMap((chain) =>
-			(defaults.knownTokens[chain.meta.stateMachineId] ?? []).map((token) => normSymbol(token.symbol)),
-		),
-	)
-	const enabledChainIds = new Set(enabledChainDrafts.map((chain) => chain.meta.stateMachineId))
-	for (const pair of enabled) {
-		if (pair.token0.trim() && normSymbol(pair.token0) === normSymbol(pair.token1)) {
-			return ["Choose two different assets for every market."]
-		}
-		for (const symbol of [pair.token0, pair.token1]) {
-			if (!symbol.trim()) return ["Choose both assets for every enabled market."]
-			if (isRegistrySymbol(symbol)) {
-				if (state.customAssets[symbol])
-					return [`Select ${symbol} from the asset list instead of defining it as custom.`]
-				if (!availableOnEnabled.has(normSymbol(symbol))) {
-					return [`${symbol} is not available on any enabled chain.`]
-				}
-			} else {
-				const addresses = state.customAssets[symbol]
-				if (
-					!addresses ||
-					!Object.entries(addresses).some(([chain, address]) => enabledChainIds.has(chain) && address.trim())
-				) {
-					return [`Enter a contract address for custom asset ${symbol} on an enabled chain.`]
-				}
-			}
-		}
-	}
-	try {
-		validateConfig(assembleConfig(state, defaults))
-	} catch (error) {
-		return [error instanceof Error ? error.message : "Review the enabled market settings."]
+	if (issues.length > 0) return issues
+	// The markets come from the orderbook's books, so a chain selection that can
+	// carry none of them would boot a filler with nothing to trade.
+	if (state.orderbookError) return [state.orderbookError]
+	if (!state.orderbook) return ["Reading the orderbook's markets…"]
+	if (orderbookPairs(state, defaults).length === 0) {
+		const books = state.orderbook.books.map((book) => `${book.base}/${book.quote}`).join(", ")
+		return [`None of the orderbook's markets (${books || "none listed"}) trade on the enabled chains.`]
 	}
 	return []
+}
+
+/** The last word before launch: the whole config, through the same check the server gate runs. */
+function reviewRequirements(state: WizardState, defaults: SetupDefaults): string[] {
+	try {
+		validateConfig(assembleConfig(state, defaults))
+		return []
+	} catch (error) {
+		return [error instanceof Error ? error.message : "Review the configuration."]
+	}
 }
 
 const STEPS: Array<{
@@ -145,13 +117,6 @@ const STEPS: Array<{
 		requirements: chainRequirements,
 	},
 	{
-		id: "strategies",
-		title: "Markets",
-		description: "Define the asset pairs, pricing curves, and liquidity sources Simplex is allowed to serve.",
-		component: StepStrategies,
-		requirements: marketRequirements,
-	},
-	{
 		id: "treasury",
 		title: "Treasury",
 		description: "Optionally connect vaults that keep idle liquidity productive and available for fills.",
@@ -170,13 +135,17 @@ const STEPS: Array<{
 		title: "Review & launch",
 		description: "Confirm the accounts and generated configuration before starting the solver.",
 		component: StepReview,
-		requirements: () => [],
+		requirements: reviewRequirements,
 	},
 ]
 
 export function Wizard(props: { defaults: SetupDefaults }) {
 	const [state, setState] = useState<WizardState>(() => initialState(props.defaults))
 	const [stepIndex, setStepIndex] = useState(0)
+
+	useEffect(() => {
+		void loadOrderbook(setState)
+	}, [])
 
 	const step = STEPS[stepIndex]
 	const StepComponent = step.component

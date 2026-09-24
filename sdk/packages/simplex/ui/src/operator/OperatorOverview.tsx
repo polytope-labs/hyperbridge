@@ -1,5 +1,6 @@
 import { formatAmount } from "../lib/format"
 import type { BalanceSnapshot, StatusOperator } from "../types"
+import { LimitOrders } from "./LimitOrders"
 import { availableStablecoinLiquidity, OperatorBalances } from "./OperatorBalances"
 
 export function OperatorOverview(props: {
@@ -67,6 +68,8 @@ export function OperatorOverview(props: {
 			</section>
 
 			<OperatorBalances status={status} balances={balances} />
+
+			<LimitOrders chains={status.chains} chainLabels={status.chainLabels} balances={balances} />
 		</div>
 	)
 }

@@ -1,5 +1,8 @@
 # 2026-08-19 — REVERSED: a benched endpoint is dropped from the bar, not just the traffic
 
+Extended 2026-09-24: every endpoint that fails a call is now dropped from that call's bar, benched
+or not — see [the changelog note](../changelog/2026-09-24-quorum-failures-do-not-vote.md).
+
 Chosen (maintainer decision, reversing the entry below): a rate-limited endpoint is excluded from the query set AND the quorum bar — each call's threshold is `quorumThreshold(endpoints actually queried)`. With every endpoint benched, all are queried again.
 
 What it replaces: the first design kept the threshold over the full set and queried benched endpoints whenever the quorum was impossible without them, preserving the trust model exactly at the cost of availability — at n ≤ 3 a sustained 429 meant every call failed for the whole window.

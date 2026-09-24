@@ -76,13 +76,7 @@ export function StepReview({ state, defaults }: StepProps) {
 	if (phase === "starting") {
 		return (
 			<div className="wizard-sections review-step">
-				<div className="card">
-					<h2>Starting the filler…</h2>
-					<p className="hint">
-						Resolving chains, hydrating funding venues and setting up EIP-7702 delegation — this takes up to
-						a minute. This page switches to the dashboard automatically.
-					</p>
-				</div>
+				<LaunchProgress />
 			</div>
 		)
 	}
@@ -232,6 +226,45 @@ export function StepReview({ state, defaults }: StepProps) {
 				</button>
 				<p>The dashboard opens automatically when the solver is ready.</p>
 			</div>
+		</div>
+	)
+}
+
+/** Past this, the launch is slower than the hint promised, and the screen says so. */
+const LAUNCH_EXPECTED_SECS = 60
+
+/**
+ * The launch screen. Boot reports no stages, so the bar is indeterminate and the
+ * clock is the only measure — anything that ticked stages off would be invented.
+ */
+function LaunchProgress() {
+	const [elapsed, setElapsed] = useState(0)
+
+	useEffect(() => {
+		const startedAt = Date.now()
+		const timer = setInterval(() => setElapsed(Math.floor((Date.now() - startedAt) / 1000)), 1000)
+		return () => clearInterval(timer)
+	}, [])
+
+	const clock = `${Math.floor(elapsed / 60)}:${String(elapsed % 60).padStart(2, "0")}`
+
+	return (
+		<div className="card review-launching">
+			<div className="review-launching-heading">
+				<span className="review-launching-spinner" aria-hidden="true" />
+				<h2>Starting the filler…</h2>
+				<span className="review-launching-clock">{clock}</span>
+			</div>
+			<div className="review-launching-bar" role="progressbar" aria-label="Starting the filler">
+				<span />
+			</div>
+			<p className="hint">
+				Resolving chains, hydrating funding venues and setting up EIP-7702 delegation — this takes up to a
+				minute. This page switches to the dashboard automatically.
+			</p>
+			{elapsed >= LAUNCH_EXPECTED_SECS ? (
+				<p className="hint">Still working. Slow RPC endpoints can stretch this past a minute.</p>
+			) : null}
 		</div>
 	)
 }

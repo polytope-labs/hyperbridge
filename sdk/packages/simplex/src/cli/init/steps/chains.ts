@@ -116,6 +116,23 @@ async function collectRpcUrls(state: WizardState, prefill?: Prefill): Promise<vo
 		const existing = prefillRpcFor(chain.meta.chainId, prefill)
 		const derived = alchemy.candidate(chain.meta.chainId)
 
+		// The bundled public set, when the operator has not already said what to
+		// use. Taking it skips both the URL prompt and the quorum follow-up —
+		// the set is already a quorum.
+		const bundled = chain.meta.defaultRpcUrls
+		if (!existing?.length && !derived && bundled?.length) {
+			const usePublic = guard(
+				await confirm({
+					message: `Use ${bundled.length} public RPC endpoints for ${chain.meta.label}?`,
+					initialValue: true,
+				}),
+			)
+			if (usePublic) {
+				chain.rpcUrls = [...bundled]
+				continue
+			}
+		}
+
 		let url: string
 		if (existing?.length) {
 			url = await askRpcUrl(chain.meta, existing[0])

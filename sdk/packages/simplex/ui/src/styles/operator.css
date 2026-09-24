@@ -2422,16 +2422,11 @@ button.operator-runtime-stop:hover:not(:disabled) {
 	margin: 0;
 }
 
-.limit-order-sources {
-	display: flex;
-	flex-wrap: wrap;
-	gap: 0.5rem 1rem;
-}
-
-.limit-order-source {
-	display: inline-flex;
-	align-items: center;
-	gap: 0.4rem;
+/* Amount and rate share the full row evenly. The markets grid they borrow has a third column
+   and a 48rem cap, both meant for the curve editor. */
+.market-asset-grid.limit-order-amounts {
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	max-width: none;
 }
 
 /* Buy and sell, as two halves of one control rather than a dropdown. */
@@ -2617,4 +2612,86 @@ button.limit-order-side[data-side="ASK"]:hover:not(.is-selected) {
 		grid-column: 1 / -1;
 		padding-bottom: 0;
 	}
+}
+
+/* Several chains from a menu that looks like AppSelect's. Not portalled, so it sits under its trigger. */
+.chain-multiselect {
+	position: relative;
+}
+
+.chain-multiselect .app-select-trigger {
+	width: 100%;
+}
+
+.chain-multiselect-content {
+	position: absolute;
+	top: calc(100% + 6px);
+	right: 0;
+	left: 0;
+	max-height: 22rem;
+	overflow-y: auto;
+}
+
+.chain-multiselect-content .app-select-item {
+	cursor: pointer;
+}
+
+/* The checkbox carries focus and state; the row is what shows them. */
+.chain-multiselect-check {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	opacity: 0;
+	pointer-events: none;
+}
+
+.chain-multiselect-content .app-select-item:hover,
+.chain-multiselect-content .app-select-item:has(.chain-multiselect-check:focus-visible) {
+	background: color-mix(in srgb, var(--focus) 9%, var(--card-raised));
+	color: var(--text);
+}
+
+.chain-multiselect-content .app-select-item[data-state="checked"] {
+	color: var(--text);
+}
+
+.chain-multiselect .chain-logo {
+	width: 1.5rem;
+	height: 1.5rem;
+}
+
+.chain-multiselect-logos {
+	display: inline-flex;
+	flex: none;
+}
+
+.chain-multiselect-logos .chain-logo {
+	width: 1.35rem;
+	height: 1.35rem;
+	box-shadow: 0 0 0 2px var(--card);
+}
+
+.chain-multiselect-logos .chain-logo + .chain-logo {
+	margin-left: -0.4rem;
+}
+
+/* A token on one chain: the token's icon, the chain's logo on its corner. Global, because the
+   "Fills on" menu is portalled out of the form. */
+.token-on-chain {
+	position: relative;
+	display: inline-flex;
+	flex: none;
+}
+
+.token-on-chain-badge {
+	position: absolute;
+	right: -0.25rem;
+	bottom: -0.2rem;
+	display: inline-flex;
+}
+
+.token-on-chain-badge .chain-logo {
+	width: 0.85rem;
+	height: 0.85rem;
+	box-shadow: 0 0 0 2px var(--card-raised);
 }

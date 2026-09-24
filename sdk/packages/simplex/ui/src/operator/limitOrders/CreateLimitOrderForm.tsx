@@ -1,8 +1,18 @@
-import { useMemo, useState } from "react"
+import { useLayoutEffect, useMemo, useRef, useState } from "react"
 import { AppSelect } from "../../components/AppSelect"
-import type { CreateLimitOrderRequest, OrderbookBook } from "../../types"
+import { ChainMultiSelect } from "../../components/ChainMultiSelect"
+import { TokenOnChainIcon } from "../../components/TokenIcon"
+import { formatAmount } from "../../lib/format"
+import type { BalanceSnapshot, CreateLimitOrderRequest, OrderbookBook } from "../../types"
 import { ApiError } from "../../api"
-import { AMOUNT_PATTERN, type LimitOrderDraft, type OrderSide, parseAmount, requestFrom } from "./limitOrderModel"
+import {
+	AMOUNT_PATTERN,
+	groupThousands,
+	type LimitOrderDraft,
+	type OrderSide,
+	parseAmount,
+	requestFrom,
+} from "./limitOrderModel"
 
 /**
  * States a limit order the way a book is quoted: a pair, a side, a size in the book's base, and a
@@ -17,11 +27,13 @@ export function CreateLimitOrderForm(props: {
 	books: OrderbookBook[]
 	chains: string[]
 	chainLabel: (id: string) => string
+	/** What each chain holds of the token the order pays out, shown beside it in "Fills on". */
+	balances?: BalanceSnapshot
 	onCreated: () => Promise<void> | void
 	onCancel: () => void
 	create: (request: CreateLimitOrderRequest) => Promise<void>
 }) {
-	const { books, chains, chainLabel, onCreated, onCancel, create } = props
+	const { books, chains, chainLabel, balances, onCreated, onCancel, create } = props
 	const [bookId, setBookId] = useState(() => books[0]?.id ?? "")
 	const [side, setSide] = useState<OrderSide>("BID")
 	const [amount, setAmount] = useState("")
@@ -40,6 +52,8 @@ export function CreateLimitOrderForm(props: {
 	const request = useMemo(() => (draft ? requestFrom(draft) : null), [draft])
 	const amountsTyped = parseAmount(amount) !== null && parseAmount(rate) !== null
 	const ready = request !== null && !busy
+	// Buying the base pays out the quote; selling it pays out the base.
+	const paysOut = book ? (side === "BID" ? book.quote : book.base) : ""
 
 	const submit = async () => {
 		if (!request || busy) return
@@ -54,11 +68,6 @@ export function CreateLimitOrderForm(props: {
 			setBusy(false)
 		}
 	}
-
-	const toggleSource = (chain: string) =>
-		setAcceptedSources((current) =>
-			current.includes(chain) ? current.filter((source) => source !== chain) : [...current, chain],
-		)
 
 	if (books.length === 0) {
 		return (
@@ -75,17 +84,6 @@ export function CreateLimitOrderForm(props: {
 
 	return (
 		<section className="market-editor operator-market-editor">
-			<div className="market-editor-heading">
-				<div>
-					<span className="markets-kicker">What you are offering</span>
-					<h3>Pick a pair and a rate</h3>
-					<p className="hint">
-						Amounts are whole tokens and the rate is {book ? `${book.quote} per ${book.base}` : "quote per base"}.
-						The order fills at that rate until it runs out.
-					</p>
-				</div>
-			</div>
-
 			<div className="field">
 				<span className="field-label">Pair</span>
 				<AppSelect
@@ -120,36 +118,27 @@ export function CreateLimitOrderForm(props: {
 						</button>
 					))}
 				</div>
-				<small className="hint">
-					{side === "BID"
-						? `You take ${book?.base} in and pay ${book?.quote} out.`
-						: `You take ${book?.quote} in and pay ${book?.base} out.`}
-				</small>
 			</div>
 
-			<div className="market-asset-grid">
+			<div className="market-asset-grid limit-order-amounts">
 				<label className="field">
 					<span className="field-label">Amount ({book?.base})</span>
-					<input
-						type="text"
-						inputMode="decimal"
-						placeholder="10"
-						aria-label={`Amount in ${book?.base}`}
+					<DecimalInput
 						value={amount}
-						onChange={(event) => AMOUNT_PATTERN.test(event.target.value) && setAmount(event.target.value)}
+						onChange={setAmount}
+						placeholder="10"
+						ariaLabel={`Amount in ${book?.base}`}
 					/>
 				</label>
 				<label className="field">
 					<span className="field-label">
 						Rate ({book?.quote} per {book?.base})
 					</span>
-					<input
-						type="text"
-						inputMode="decimal"
-						placeholder="1590"
-						aria-label={`Rate in ${book?.quote} per ${book?.base}`}
+					<DecimalInput
 						value={rate}
-						onChange={(event) => AMOUNT_PATTERN.test(event.target.value) && setRate(event.target.value)}
+						onChange={setRate}
+						placeholder="1,590"
+						ariaLabel={`Rate in ${book?.quote} per ${book?.base}`}
 					/>
 				</label>
 			</div>
@@ -158,11 +147,11 @@ export function CreateLimitOrderForm(props: {
 				<p className="hint limit-order-derived">
 					Takes in{" "}
 					<strong>
-						{request.amountIn} {request.tokenIn}
+						{groupThousands(request.amountIn)} {request.tokenIn}
 					</strong>
 					, pays out{" "}
 					<strong>
-						{request.amountOut} {request.tokenOut}
+						{groupThousands(request.amountOut)} {request.tokenOut}
 					</strong>
 					.
 				</p>
@@ -174,25 +163,25 @@ export function CreateLimitOrderForm(props: {
 				<AppSelect
 					ariaLabel="Chain the order is filled on"
 					value={fillChain}
-					options={chains.map((chain) => ({ value: chain, label: chainLabel(chain) }))}
+					options={chains.map((chain) => ({
+						value: chain,
+						label: chainLabel(chain),
+						leading: <TokenOnChainIcon symbol={paysOut} chain={chainLabel(chain)} />,
+						trailing: payOutBalance(balances, chain, paysOut),
+					}))}
 					onValueChange={setFillChain}
 				/>
-				<small className="hint">Where you hold the token you are paying out.</small>
 			</div>
 
 			<div className="field">
 				<span className="field-label">Accepts swaps from</span>
-				<div className="limit-order-sources">
-					{chains.map((chain) => (
-						<label key={chain} className="limit-order-source">
-							<input type="checkbox" checked={acceptedSources.includes(chain)} onChange={() => toggleSource(chain)} />
-							<span>{chainLabel(chain)}</span>
-						</label>
-					))}
-				</div>
-				{acceptedSources.length === 0 ? (
-					<p className="error">Name at least one source chain, or the orderbook refuses the order.</p>
-				) : null}
+				<ChainMultiSelect
+					ariaLabel="Chains the order accepts swaps from"
+					options={chains.map((chain) => ({ value: chain, label: chainLabel(chain) }))}
+					value={acceptedSources}
+					onValueChange={setAcceptedSources}
+				/>
+				{acceptedSources.length === 0 ? <p className="error">Pick at least one chain.</p> : null}
 			</div>
 
 			{error ? <p className="error">{error}</p> : null}
@@ -206,5 +195,69 @@ export function CreateLimitOrderForm(props: {
 				</button>
 			</footer>
 		</section>
+	)
+}
+
+/**
+ * What a chain holds of the token an order would pay out there, for "Fills on". A token the
+ * chain does not carry reads "—"; one whose read failed says so rather than showing zero.
+ */
+function payOutBalance(balances: BalanceSnapshot | undefined, chain: string, symbol: string): string | undefined {
+	if (!balances || !symbol) return undefined
+	const chainId = Number(chain.replace(/^EVM-/, ""))
+	const asset = balances.chains
+		.find((row) => row.chainId === chainId)
+		?.assets.find((entry) => entry.symbol.trim().toUpperCase() === symbol.trim().toUpperCase())
+	if (!asset) return "—"
+	if (asset.available === null) return "Unavailable"
+	return `${formatAmount(asset.available)} ${symbol}`
+}
+
+/**
+ * A decimal field that shows its figure grouped in thousands but hands back the bare one. The
+ * caret goes back after the same number of digits it followed, or each comma a keystroke adds
+ * would throw it to the end of the field.
+ */
+function DecimalInput(props: {
+	value: string
+	onChange: (value: string) => void
+	placeholder: string
+	ariaLabel: string
+}) {
+	const { value, onChange, placeholder, ariaLabel } = props
+	const input = useRef<HTMLInputElement>(null)
+	/** Digits and point before the caret after the last keystroke, until it is put back. */
+	const caret = useRef<number | null>(null)
+	const shown = groupThousands(value)
+
+	useLayoutEffect(() => {
+		const element = input.current
+		if (!element || caret.current === null || document.activeElement !== element) return
+		let seen = 0
+		let position = 0
+		while (position < shown.length && seen < caret.current) {
+			if (shown[position] !== ",") seen++
+			position++
+		}
+		element.setSelectionRange(position, position)
+		caret.current = null
+	}, [shown])
+
+	return (
+		<input
+			ref={input}
+			type="text"
+			inputMode="decimal"
+			placeholder={placeholder}
+			aria-label={ariaLabel}
+			value={shown}
+			onChange={(event) => {
+				const typed = event.target.value
+				const bare = typed.replace(/,/g, "")
+				if (!AMOUNT_PATTERN.test(bare)) return
+				caret.current = typed.slice(0, event.target.selectionStart ?? typed.length).replace(/,/g, "").length
+				onChange(bare)
+			}}
+		/>
 	)
 }

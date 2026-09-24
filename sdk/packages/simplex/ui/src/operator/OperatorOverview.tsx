@@ -69,7 +69,7 @@ export function OperatorOverview(props: {
 
 			<OperatorBalances status={status} balances={balances} />
 
-			<LimitOrders chains={status.chains} chainLabels={status.chainLabels} />
+			<LimitOrders chains={status.chains} chainLabels={status.chainLabels} balances={balances} />
 		</div>
 	)
 }

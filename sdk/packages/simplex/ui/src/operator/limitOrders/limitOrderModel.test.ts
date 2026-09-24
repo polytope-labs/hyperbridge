@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import type { LimitOrder } from "../../types"
 import {
+	groupThousands,
 	available,
 	describeRate,
 	fromScaled,
@@ -146,5 +147,19 @@ describe("the order a draft stands for", () => {
 		expect(requestFrom(draft({ fillChain: "" }))).toBeNull()
 		// More decimals than the orderbook carries would be silently dropped.
 		expect(requestFrom(draft({ amount: `0.${"0".repeat(18)}1` }))).toBeNull()
+	})
+})
+
+describe("groupThousands", () => {
+	it("groups the whole part and leaves the fraction as typed", () => {
+		expect(groupThousands("1590")).toBe("1,590")
+		expect(groupThousands("1590000.12345")).toBe("1,590,000.12345")
+		expect(groupThousands("100")).toBe("100")
+	})
+
+	it("keeps a figure mid-keystroke intact", () => {
+		expect(groupThousands("")).toBe("")
+		expect(groupThousands("1000.")).toBe("1,000.")
+		expect(groupThousands(".5")).toBe(".5")
 	})
 })

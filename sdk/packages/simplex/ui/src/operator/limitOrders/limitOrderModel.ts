@@ -93,6 +93,17 @@ export interface LimitOrderDraft {
 /** A decimal figure as typed, including the half-written ones a field holds mid-keystroke. */
 export const AMOUNT_PATTERN = /^[0-9]*\.?[0-9]*$/
 
+/**
+ * A decimal figure with its whole part grouped in thousands: "1590000.5" reads "1,590,000.5".
+ * Only for display — the field keeps the bare figure, so a half-typed "10." stays "10." and the
+ * fraction is never regrouped.
+ */
+export function groupThousands(value: string): string {
+	const [whole, fraction] = value.split(".")
+	const grouped = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ",")
+	return fraction === undefined ? grouped : `${grouped}.${fraction}`
+}
+
 /** A decimal string at 1e18, or null when it is not a usable number. */
 export function parseAmount(value: string): bigint | null {
 	const trimmed = value.trim()

@@ -11,6 +11,8 @@ export {
 	type OrderbookRouteKind,
 	type OrderbookRouteLiquidity,
 	type OrderbookSide,
+	type OrderbookLevelQuote,
+	type OrderbookQuoteFill,
 	type OrderbookSwapQuote,
 	type OrderbookTopOfBook,
 } from "./client"
@@ -22,8 +24,8 @@ export {
 	UnsupportedLiquidityChainError,
 	type AvailableLiquidity,
 	type BuyAndSellRates,
-	type IntentQuoteMetadata,
-	type IntentQuoteTradeType,
+	type IntentQuoteLeg,
+	type PessimisticQuoteIntentResult,
 	type QuoteIntentParams,
 	type QuoteIntentResult,
 } from "./types"

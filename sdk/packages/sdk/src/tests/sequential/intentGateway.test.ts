@@ -116,7 +116,7 @@ describe("IntentGateway orderbook reads", () => {
 		assert.equal(buy.side, "ASK")
 	}, 120_000)
 
-	it("quotes exact-input Amoy USDC to Chapel cNGN at the clearing price", async () => {
+	it("quotes exact-input Amoy USDC to Chapel cNGN as one leg per order", async () => {
 		const configService = new ChainConfigService()
 		const chapelCngn = configService.getCNgnAsset(CHAINS.chapel.id)
 		const cNgnDecimals = configService.getCNgnDecimals(CHAINS.chapel.id)
@@ -133,25 +133,56 @@ describe("IntentGateway orderbook reads", () => {
 				`[quoteIntent] Amoy USDC → Chapel cNGN: route fills ${liquidity.maxFillableIn} USDC, expecting a refusal`,
 			)
 			await assert.rejects(
-				intentGateway.quoteIntent({ ...route, amountIn }),
+				intentGateway.quoteIntent({ ...route, amountIn, optimistic: true }),
 				(error: unknown) =>
 					error instanceof InsufficientOrderbookLiquidityError && error.maxFillableIn === fillableIn,
 			)
 			return
 		}
 
-		const quote = await intentGateway.quoteIntent({ ...route, amountIn })
+		const quote = await intentGateway.quoteIntent({ ...route, amountIn, optimistic: true })
 
 		logIntentQuote("Amoy USDC → Chapel cNGN exact input", quote)
-		assert.equal(quote.tradeType, "EXACT_INPUT")
 		assert.equal(quote.amountIn, amountIn)
-		assert.equal(quote.quoteMetadata.side, "BID")
-		assert.equal(quote.quoteMetadata.route, "CROSS_CHAIN")
-		// The clearing price applies to the whole input, floored to a raw cNGN unit.
-		const expectedAmountOut =
-			(amountIn * parseUnits(quote.quoteMetadata.rate, 18) * 10n ** BigInt(cNgnDecimals)) /
-			(10n ** BigInt(usdcDecimals) * 10n ** 18n)
-		assert.equal(quote.amountOut, expectedAmountOut)
+		assert.equal(quote.side, "BID")
+		assert.equal(quote.route, "CROSS_CHAIN")
+		assert(quote.legs.length > 0)
+		assert.equal(
+			quote.legs.reduce((total, leg) => total + leg.amountIn, 0n),
+			amountIn,
+		)
+		// Each leg fills at its own price, less the protocol fee, floored to a raw cNGN unit.
+		for (const leg of quote.legs) {
+			const grossOut =
+				(leg.amountIn * leg.orderRate * 10n ** BigInt(cNgnDecimals)) /
+				(10n ** BigInt(usdcDecimals) * 10n ** 18n)
+			assert(leg.amountOut <= grossOut)
+		}
+	}, 120_000)
+
+	it("quotes exact-input Amoy USDC to Chapel cNGN pessimistically at one price", async () => {
+		const configService = new ChainConfigService()
+		const chapelCngn = configService.getCNgnAsset(CHAINS.chapel.id)
+		assert(chapelCngn, "Expected cNGN to be configured on BSC Chapel")
+		const usdcDecimals = configService.getUsdcDecimals(CHAINS.amoy.id)
+		const intentGateway = await createLiveIntentGateway(CHAINS.amoy, CHAINS.chapel, configService)
+		const amountIn = parseUnits("10", usdcDecimals)
+
+		const route = { tokenIn: configService.getUsdcAsset(CHAINS.amoy.id), tokenOut: chapelCngn }
+		const quote = await intentGateway.quoteIntent({ ...route, amountIn }).catch((error: unknown) => {
+			if (!(error instanceof InsufficientOrderbookLiquidityError)) throw error
+			console.log(`[quoteIntent] Amoy USDC → Chapel cNGN: route cannot fill, refused`)
+			return undefined
+		})
+		if (!quote) return
+
+		logIntentQuote("Amoy USDC → Chapel cNGN pessimistic exact input", quote)
+		assert.equal(quote.amountIn, amountIn)
+		assert.equal(quote.side, "BID")
+		assert(quote.fillable && quote.rate !== null && quote.amountOut > 0n)
+		// One price for the whole trade, no better than the optimistic quote's worst leg.
+		const optimistic = await intentGateway.quoteIntent({ ...route, amountIn, optimistic: true })
+		assert(quote.rate <= (optimistic.legs.at(-1)?.orderRate ?? 0n))
 	}, 120_000)
 
 	it("quotes exact-output Amoy cNGN to Chapel USDC", async () => {
@@ -164,21 +195,24 @@ describe("IntentGateway orderbook reads", () => {
 
 		const route = { tokenIn: amoyCngn, tokenOut: configService.getUsdcAsset(CHAINS.chapel.id) }
 		const liquidity = await intentGateway.queryAvailableLiquidity(route)
-		const quote = await intentGateway.quoteIntent({ ...route, amountOut }).catch((error: unknown) => {
-			// Too little depth for the output, or none: the refusal must agree with the route's liquidity.
-			if (!(error instanceof InsufficientOrderbookLiquidityError)) throw error
-			console.log(`[quoteIntent] Amoy cNGN → Chapel USDC: route fills ${liquidity.maxFillableIn} cNGN, refused`)
-			const cNgnDecimals = configService.getCNgnDecimals(CHAINS.amoy.id)!
-			assert.equal(error.maxFillableIn, parseUnits(liquidity.maxFillableIn, cNgnDecimals))
-			return undefined
-		})
+		const quote = await intentGateway
+			.quoteIntent({ ...route, amountOut, optimistic: true })
+			.catch((error: unknown) => {
+				// Too little depth for the output, or none: the refusal must agree with the route's liquidity.
+				if (!(error instanceof InsufficientOrderbookLiquidityError)) throw error
+				console.log(
+					`[quoteIntent] Amoy cNGN → Chapel USDC: route fills ${liquidity.maxFillableIn} cNGN, refused`,
+				)
+				const cNgnDecimals = configService.getCNgnDecimals(CHAINS.amoy.id)!
+				assert.equal(error.maxFillableIn, parseUnits(liquidity.maxFillableIn, cNgnDecimals))
+				return undefined
+			})
 		if (!quote) return
 
 		logIntentQuote("Amoy cNGN → Chapel USDC exact output", quote)
-		assert.equal(quote.tradeType, "EXACT_OUTPUT")
-		assert.equal(quote.amountOut, amountOut)
-		assert.equal(quote.quoteMetadata.side, "ASK")
-		assert(quote.amountIn > 0n && quote.amountIn <= quote.quoteMetadata.maxFillableIn)
+		assert(quote.legs.reduce((total, leg) => total + leg.amountOut, 0n) >= amountOut)
+		assert.equal(quote.side, "ASK")
+		assert(quote.amountIn > 0n && quote.amountIn <= quote.maxFillableIn)
 	}, 120_000)
 })
 
@@ -436,14 +470,9 @@ async function createLiveIntentGateway(
 	return process.env.HYPERFX_ORDERBOOK_URL ? gateway.withOrderbook(process.env.HYPERFX_ORDERBOOK_URL) : gateway
 }
 
-function logIntentQuote(label: string, quote: Awaited<ReturnType<IntentGateway["quoteIntent"]>>): void {
+function logIntentQuote(label: string, quote: object): void {
 	console.log(`[quoteIntent] ${label}`)
-	console.log({
-		...quote,
-		amountIn: quote.amountIn.toString(),
-		amountOut: quote.amountOut.toString(),
-		quoteMetadata: { ...quote.quoteMetadata, maxFillableIn: quote.quoteMetadata.maxFillableIn.toString() },
-	})
+	console.log(JSON.stringify(quote, (_key, value) => (typeof value === "bigint" ? value.toString() : value), 2))
 }
 
 function buildOrder(

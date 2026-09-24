@@ -62,8 +62,10 @@ export interface OrderbookRouteLiquidity {
 	book: OrderbookBook
 	/** `BID` when tokenIn is the book's base, `ASK` when it is the quote. */
 	side: OrderbookSide
-	/** Quote per 1 base; null when no order serves the route. */
+	/** Quote per 1 base, before the protocol fee; null when no order serves the route. */
 	bestRate: bigint | null
+	/** The destination chain's protocol fee in basis points, which the gateway takes out of what the orders deliver. */
+	slippageBps: number
 	/** Virtual depth: the serving orders' sizes summed, in tokenIn and tokenOut. */
 	depthIn: bigint
 	depthOut: bigint
@@ -75,23 +77,58 @@ export interface OrderbookRouteLiquidity {
 	solverCount: number
 }
 
-/** A quote for an input amount on a route. Amounts and rates at 1e18. */
+/** One order an optimistic quote takes, at the order's own price. Amounts and rates at 1e18. */
+export interface OrderbookQuoteFill {
+	/** The order's full advertised size, not just the part this fill takes. */
+	advertisedSize: bigint
+	/** The order's own price, quote per 1 base, before the protocol fee: what this fill settles at. */
+	orderRate: bigint
+	/** The tokenIn this fill takes, in whole raw units on the source chain. */
+	amountIn: bigint
+	/** The tokenOut this fill delivers, after the protocol fee, floored to a whole raw unit on the destination chain. */
+	amountOut: bigint
+}
+
+/**
+ * An optimistic quote for an input amount on a route: the trade split across the route's orders,
+ * best price first, each at its own price. There is no one rate and no total output; the fills are
+ * the quote. Amounts and rates at 1e18.
+ */
 export interface OrderbookSwapQuote {
 	route: OrderbookRouteKind
 	side: OrderbookSide
 	/** The tokenIn priced, floored to a whole raw unit on the source chain. */
 	amountIn: bigint
-	/** The tokenOut delivered, floored to a whole raw unit on the destination chain; 0 when not fillable. */
-	amountOut: bigint
-	/** The clearing price, quote per 1 base; null when the route cannot fill the amount. */
-	rate: bigint | null
+	/** The destination chain's protocol fee in basis points, already taken off every fill's `amountOut`. */
+	slippageBps: number
 	fillable: boolean
-	/** The tokenIn the route can absorb at `rate` or better. */
-	depth: bigint
-	/** The largest tokenIn amount the route could fill. */
+	/** The largest tokenIn amount the route's orders could take together, each at its own price. */
 	maxFillableIn: bigint
-	/** The orders used, best first. */
-	fills: { orderRate: bigint; amountOut: bigint; advertisedSize: bigint }[]
+	/** The orders used, best price first; empty when not fillable. */
+	fills: OrderbookQuoteFill[]
+}
+
+/**
+ * A pessimistic quote for an input amount on a route: one price, from the first level, best first,
+ * deep enough to fill the whole trade by itself, or else the route's worst price when its levels
+ * together can. Amounts and rates at 1e18.
+ */
+export interface OrderbookLevelQuote {
+	route: OrderbookRouteKind
+	side: OrderbookSide
+	/** The tokenIn priced, floored to a whole raw unit on the source chain. */
+	amountIn: bigint
+	/** The tokenOut delivered at `rate`, after the protocol fee, floored to a whole raw unit on the destination chain; 0 when not fillable. */
+	amountOut: bigint
+	/** The worst single-order price in the level that fills it, quote per 1 base, before the protocol fee; null when not fillable. */
+	rate: bigint | null
+	/** The price bucket of that level; null when not fillable. */
+	priceBucket: bigint | null
+	/** The destination chain's protocol fee in basis points, already taken off `amountOut`. */
+	slippageBps: number
+	fillable: boolean
+	/** The largest tokenIn amount this quote could fill: any one level at its worst price, or the whole route at its worst. */
+	maxFillableIn: bigint
 }
 
 /** The best bid and ask a route can reach, with the book that orients them. */
@@ -124,15 +161,22 @@ const ROUTE_LIQUIDITY_QUERY = `
 query RouteLiquidity($route: RouteInput!) {
   books { id base quote }
   routeLiquidity(route: $route) {
-    route bestRate depthIn depthOut availableLiquidity maxFillableIn orderCount solverCount
+    route bestRate slippageBps depthIn depthOut availableLiquidity maxFillableIn orderCount solverCount
   }
 }`
 
 const QUOTE_QUERY = `
 query Quote($route: RouteInput!, $amountIn: BigInt!) {
   quote(route: $route, amountIn: $amountIn) {
-    route side amountIn amountOut rate fillable depth maxFillableIn
-    fills { orderRate amountOut advertisedSize }
+    route side amountIn slippageBps fillable maxFillableIn
+    fills { advertisedSize orderRate amountIn amountOut }
+  }
+}`
+
+const QUOTE_PESSIMISTIC_QUERY = `
+query QuotePessimistic($route: RouteInput!, $amountIn: BigInt!) {
+  quotePessimistic(route: $route, amountIn: $amountIn) {
+    route side amountIn amountOut rate priceBucket slippageBps fillable maxFillableIn
   }
 }`
 
@@ -141,6 +185,7 @@ export const ORDERBOOK_QUERIES = {
 	topOfBook: TOP_OF_BOOK_QUERY,
 	routeLiquidity: ROUTE_LIQUIDITY_QUERY,
 	quote: QUOTE_QUERY,
+	quotePessimistic: QUOTE_PESSIMISTIC_QUERY,
 } as const
 
 /**
@@ -192,8 +237,9 @@ export class HyperFxOrderbook {
 		return {
 			route: raw.route,
 			book,
-			side: book.base === route.tokenIn ? "BID" : "ASK",
-			bestRate: raw.bestRate === null ? null : BigInt(raw.bestRate),
+			side: sameSymbol(book.base, route.tokenIn) ? "BID" : "ASK",
+			bestRate: optionalBigInt(raw.bestRate),
+			slippageBps: raw.slippageBps,
 			depthIn: BigInt(raw.depthIn),
 			depthOut: BigInt(raw.depthOut),
 			availableLiquidity: BigInt(raw.availableLiquidity),
@@ -203,7 +249,10 @@ export class HyperFxOrderbook {
 		}
 	}
 
-	/** The clearing price for `amountIn` (1e18 tokenIn) on a route, which may combine several solvers' orders. */
+	/**
+	 * The optimistic quote for `amountIn` (1e18 tokenIn) on a route: the route's orders, best price
+	 * first, each taking what it can at its own price. The fills' `amountOut`s sum to the output.
+	 */
 	async quote(route: OrderbookRoute, amountIn: bigint): Promise<OrderbookSwapQuote> {
 		const { quote: raw } = await this.request<{ quote: RawSwapQuote }>(QUOTE_QUERY, {
 			route,
@@ -213,16 +262,38 @@ export class HyperFxOrderbook {
 			route: raw.route,
 			side: raw.side,
 			amountIn: BigInt(raw.amountIn),
-			amountOut: BigInt(raw.amountOut),
-			rate: raw.rate === null ? null : BigInt(raw.rate),
+			slippageBps: raw.slippageBps,
 			fillable: raw.fillable,
-			depth: BigInt(raw.depth),
 			maxFillableIn: BigInt(raw.maxFillableIn),
 			fills: raw.fills.map((fill) => ({
-				orderRate: BigInt(fill.orderRate),
-				amountOut: BigInt(fill.amountOut),
 				advertisedSize: BigInt(fill.advertisedSize),
+				orderRate: BigInt(fill.orderRate),
+				amountIn: BigInt(fill.amountIn),
+				amountOut: BigInt(fill.amountOut),
 			})),
+		}
+	}
+
+	/**
+	 * The pessimistic quote for `amountIn` (1e18 tokenIn) on a route: one price, from the first level
+	 * deep enough to fill the whole trade by itself, at which every order in it fills; the route's
+	 * worst price when no one level can but its levels together can.
+	 */
+	async quotePessimistic(route: OrderbookRoute, amountIn: bigint): Promise<OrderbookLevelQuote> {
+		const { quotePessimistic: raw } = await this.request<{ quotePessimistic: RawLevelQuote }>(
+			QUOTE_PESSIMISTIC_QUERY,
+			{ route, amountIn: amountIn.toString() },
+		)
+		return {
+			route: raw.route,
+			side: raw.side,
+			amountIn: BigInt(raw.amountIn),
+			amountOut: BigInt(raw.amountOut),
+			rate: optionalBigInt(raw.rate),
+			priceBucket: optionalBigInt(raw.priceBucket),
+			slippageBps: raw.slippageBps,
+			fillable: raw.fillable,
+			maxFillableIn: BigInt(raw.maxFillableIn),
 		}
 	}
 
@@ -241,12 +312,23 @@ function describeError(error: unknown): string {
 	return error instanceof Error ? error.message : String(error)
 }
 
+/** The orderbook matches symbols without regard to case, and answers in its configured spelling. */
+function sameSymbol(a: string, b: string): boolean {
+	return a.toLowerCase() === b.toLowerCase()
+}
+
 function findBook(books: OrderbookBook[], tokenA: string, tokenB: string): OrderbookBook {
 	const book = books.find(
-		(b) => (b.base === tokenA && b.quote === tokenB) || (b.base === tokenB && b.quote === tokenA),
+		(b) =>
+			(sameSymbol(b.base, tokenA) && sameSymbol(b.quote, tokenB)) ||
+			(sameSymbol(b.base, tokenB) && sameSymbol(b.quote, tokenA)),
 	)
 	if (!book) throw new OrderbookRequestError(`no book trades ${tokenA} for ${tokenB}`)
 	return book
+}
+
+function optionalBigInt(value: string | null): bigint | null {
+	return value === null ? null : BigInt(value)
 }
 
 function parseRate(raw: RawRate): OrderbookRate {
@@ -278,6 +360,7 @@ interface RawRate {
 interface RawRouteLiquidity {
 	route: OrderbookRouteKind
 	bestRate: string | null
+	slippageBps: number
 	depthIn: string
 	depthOut: string
 	availableLiquidity: string
@@ -290,10 +373,20 @@ interface RawSwapQuote {
 	route: OrderbookRouteKind
 	side: OrderbookSide
 	amountIn: string
+	slippageBps: number
+	fillable: boolean
+	maxFillableIn: string
+	fills: { advertisedSize: string; orderRate: string; amountIn: string; amountOut: string }[]
+}
+
+interface RawLevelQuote {
+	route: OrderbookRouteKind
+	side: OrderbookSide
+	amountIn: string
 	amountOut: string
 	rate: string | null
+	priceBucket: string | null
+	slippageBps: number
 	fillable: boolean
-	depth: string
 	maxFillableIn: string
-	fills: { orderRate: string; amountOut: string; advertisedSize: string }[]
 }

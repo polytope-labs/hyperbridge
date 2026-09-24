@@ -44,6 +44,7 @@ import {
 	type BuyAndSellRates,
 	HyperFxOrderbook,
 	OrderbookMarket,
+	type PessimisticQuoteIntentResult,
 	type QuoteIntentParams,
 	type QuoteIntentResult,
 	UnsupportedLiquidityChainError,
@@ -246,20 +247,28 @@ export class IntentGateway {
 	/**
 	 * Quotes an intent between this gateway's source and destination chains from
 	 * the HyperFX orderbook. Provide exactly one of `amountIn` or `amountOut`, in
-	 * raw token units.
+	 * raw token units. The result has the orderbook's shape, in raw token units.
 	 *
-	 * An exact-input quote is the orderbook's clearing price for `amountIn`,
-	 * which may combine several solvers' orders. An exact-output quote finds the
-	 * smallest input whose clearing price delivers `amountOut`. A cross-chain
-	 * route only counts orders whose solvers accept the source chain.
+	 * By default the quote is pessimistic (`PessimisticQuoteIntentResult`): the
+	 * whole trade at one price, the worst single-order price of the first level,
+	 * best first, deep enough to fill it by itself, or the route's worst price
+	 * when no one level can. With `optimistic: true` it is the orderbook's
+	 * optimistic quote (`QuoteIntentResult`): the route's orders, best price
+	 * first, each filling what it can of the trade at its own price, one leg per
+	 * order. There is no total output; the legs' `amountOut`s sum to it.
 	 *
-	 * The orderbook's rates already carry the gateway protocol fee, so the
-	 * returned amounts can be placed as the order's inputs and outputs directly.
+	 * Every `amountOut` already has the destination's protocol fee taken off. For
+	 * an exact output, the quote is for an input that delivers `amountOut`. A
+	 * cross-chain route only counts orders whose solvers accept the source chain.
 	 *
 	 * @throws {InsufficientOrderbookLiquidityError} When the route cannot fill the amount.
+	 * @throws {OrderbookQuoteNotConvergedError} When an exact-output quote does not settle on an input.
 	 * @throws {OrderbookRequestError} When the orderbook is unreachable or trades no book for the pair.
 	 */
-	async quoteIntent(params: QuoteIntentParams): Promise<QuoteIntentResult> {
+	quoteIntent(params: QuoteIntentParams & { optimistic: true }): Promise<QuoteIntentResult>
+	quoteIntent(params: QuoteIntentParams & { optimistic?: false }): Promise<PessimisticQuoteIntentResult>
+	quoteIntent(params: QuoteIntentParams): Promise<QuoteIntentResult | PessimisticQuoteIntentResult>
+	async quoteIntent(params: QuoteIntentParams): Promise<QuoteIntentResult | PessimisticQuoteIntentResult> {
 		return this.market.quoteIntent(params, this.source.config.stateMachineId, this.dest.config.stateMachineId)
 	}
 

@@ -7,6 +7,7 @@ import {
 	ORDERBOOK_DECIMALS,
 	ORDERBOOK_SCALE,
 	OrderbookRequestError,
+	type OrderbookLevelQuote,
 	type OrderbookRoute,
 	type OrderbookSide,
 	type OrderbookSwapQuote,
@@ -15,8 +16,8 @@ import {
 	type AvailableLiquidity,
 	type BuyAndSellRates,
 	InsufficientOrderbookLiquidityError,
-	type IntentQuoteTradeType,
 	OrderbookQuoteNotConvergedError,
+	type PessimisticQuoteIntentResult,
 	type QuoteIntentParams,
 	type QuoteIntentResult,
 	UnsupportedLiquidityAssetError,
@@ -24,11 +25,28 @@ import {
 } from "./types"
 
 /**
- * Round trips an exact-output quote may take. Each one quotes a larger input at
- * the clearing price the last one found, which only worsens with size, so a
- * route with the depth converges in a few.
+ * Round trips an exact-output quote may take. Each one re-prices the part of the
+ * last one filled at its worst rate, which only worsens with size, so a route
+ * with the depth converges in a few.
  */
 const MAX_EXACT_OUTPUT_ROUNDS = 16
+
+/** What pricing an intent reads from either orderbook quote. Amounts at 1e18. */
+interface QuoteTotals {
+	side: OrderbookSide
+	amountIn: bigint
+	/** The total tokenOut delivered, after the protocol fee; 0 when not fillable. */
+	amountOut: bigint
+	fillable: boolean
+	maxFillableIn: bigint
+	/**
+	 * The input and output filled at the quote's worst price, output after the protocol fee: an
+	 * optimistic quote's last fill, a pessimistic quote's whole trade. Their ratio prices more
+	 * input at that price.
+	 */
+	worstIn: bigint
+	worstOut: bigint
+}
 
 interface ResolvedAsset {
 	chain: Chains
@@ -49,33 +67,107 @@ export class OrderbookMarket {
 		private readonly orderbook: () => HyperFxOrderbook,
 	) {}
 
+	/**
+	 * Quotes an intent from the orderbook, in raw token units. By default this is
+	 * `quotePessimistic`: one price, from the first level deep enough to fill the
+	 * whole trade by itself, at which every order in it fills, or the route's
+	 * worst price when no one level can. With `optimistic` it is the optimistic
+	 * `quote`: the route's orders, best price first, each filling what it can at
+	 * its own price, one leg per order.
+	 */
+	quoteIntent(
+		params: QuoteIntentParams & { optimistic: true },
+		sourceChain: string,
+		destinationChain: string,
+	): Promise<QuoteIntentResult>
+	quoteIntent(
+		params: QuoteIntentParams & { optimistic?: false },
+		sourceChain: string,
+		destinationChain: string,
+	): Promise<PessimisticQuoteIntentResult>
+	quoteIntent(
+		params: QuoteIntentParams,
+		sourceChain: string,
+		destinationChain: string,
+	): Promise<QuoteIntentResult | PessimisticQuoteIntentResult>
 	async quoteIntent(
 		params: QuoteIntentParams,
 		sourceChain: string,
 		destinationChain: string,
-	): Promise<QuoteIntentResult> {
+	): Promise<QuoteIntentResult | PessimisticQuoteIntentResult> {
+		const orderbook = this.orderbook()
+		if (!params.optimistic) {
+			const { quote, tokenIn, tokenOut } = await this.priceIntent(
+				params,
+				sourceChain,
+				destinationChain,
+				(route, amountIn) => orderbook.quotePessimistic(route, amountIn),
+				levelQuoteTotals,
+			)
+			return {
+				route: quote.route,
+				side: quote.side,
+				amountIn: fromOrderbookAmount(quote.amountIn, tokenIn.decimals),
+				amountOut: fromOrderbookAmount(quote.amountOut, tokenOut.decimals),
+				rate: quote.rate,
+				priceBucket: quote.priceBucket,
+				slippageBps: quote.slippageBps,
+				fillable: quote.fillable,
+				maxFillableIn: fromOrderbookAmount(quote.maxFillableIn, tokenIn.decimals),
+			}
+		}
+
+		const { quote, tokenIn, tokenOut } = await this.priceIntent(
+			params,
+			sourceChain,
+			destinationChain,
+			(route, amountIn) => orderbook.quote(route, amountIn),
+			swapQuoteTotals,
+		)
+		return {
+			route: quote.route,
+			side: quote.side,
+			amountIn: fromOrderbookAmount(quote.amountIn, tokenIn.decimals),
+			slippageBps: quote.slippageBps,
+			fillable: quote.fillable,
+			maxFillableIn: fromOrderbookAmount(quote.maxFillableIn, tokenIn.decimals),
+			legs: quote.fills.map((fill) => ({
+				advertisedSize: fromOrderbookAmount(fill.advertisedSize, tokenOut.decimals),
+				orderRate: fill.orderRate,
+				amountIn: fromOrderbookAmount(fill.amountIn, tokenIn.decimals),
+				amountOut: fromOrderbookAmount(fill.amountOut, tokenOut.decimals),
+			})),
+		}
+	}
+
+	/**
+	 * The fillable quote for an exact input, or for the input found to deliver an
+	 * exact output, with the assets it trades.
+	 */
+	private async priceIntent<Q>(
+		params: QuoteIntentParams,
+		sourceChain: string,
+		destinationChain: string,
+		price: (route: OrderbookRoute, amountIn: bigint) => Promise<Q>,
+		totals: (quote: Q) => QuoteTotals,
+	): Promise<{ quote: Q; tokenIn: ResolvedAsset; tokenOut: ResolvedAsset }> {
 		validateQuoteParams(params)
 		const tokenIn = this.assetByAddress(sourceChain, params.tokenIn)
 		const tokenOut = this.assetByAddress(destinationChain, params.tokenOut)
 		const route = toRoute(tokenIn, tokenOut)
 
 		if (params.amountIn !== undefined) {
-			const quote = await this.orderbook().quote(route, toOrderbookAmount(params.amountIn, tokenIn.decimals))
-			const amountOut = quote.fillable ? fromOrderbookAmount(quote.amountOut, tokenOut.decimals) : 0n
-			if (amountOut === 0n) throw this.insufficient(route, quote.maxFillableIn, tokenIn)
-			return buildQuote("EXACT_INPUT", params.amountIn, amountOut, quote, tokenIn, tokenOut)
+			const quote = await price(route, toOrderbookAmount(params.amountIn, tokenIn.decimals))
+			const { fillable, amountOut, maxFillableIn } = totals(quote)
+			if (!fillable || fromOrderbookAmount(amountOut, tokenOut.decimals) === 0n) {
+				throw this.insufficient(route, maxFillableIn, tokenIn)
+			}
+			return { quote, tokenIn, tokenOut }
 		}
 
-		const amountOut = params.amountOut as bigint
-		const quote = await this.quoteExactOutput(route, toOrderbookAmount(amountOut, tokenOut.decimals), tokenIn)
-		return buildQuote(
-			"EXACT_OUTPUT",
-			fromOrderbookAmount(quote.amountIn, tokenIn.decimals),
-			amountOut,
-			quote,
-			tokenIn,
-			tokenOut,
-		)
+		const targetOut = toOrderbookAmount(params.amountOut as bigint, tokenOut.decimals)
+		const quote = await this.quoteExactOutput(route, targetOut, tokenIn, price, totals)
+		return { quote, tokenIn, tokenOut }
 	}
 
 	async availableLiquidity(
@@ -141,16 +233,19 @@ export class OrderbookMarket {
 
 	/**
 	 * The orderbook only quotes an input amount, so an output is priced by
-	 * guessing the input from the best rate and raising it at each clearing
-	 * price until the quote delivers `targetOut`.
+	 * guessing the input from the best rate, then keeping the part of each quote
+	 * filled better than its worst rate and re-pricing the rest of `targetOut` at
+	 * the input-to-output ratio that part filled at, until a quote delivers it.
+	 * That ratio is the orderbook's own, with the protocol fee already taken off.
 	 */
-	private async quoteExactOutput(
+	private async quoteExactOutput<Q>(
 		route: OrderbookRoute,
 		targetOut: bigint,
 		tokenIn: ResolvedAsset,
-	): Promise<OrderbookSwapQuote> {
-		const orderbook = this.orderbook()
-		const liquidity = await orderbook.routeLiquidity(route)
+		price: (route: OrderbookRoute, amountIn: bigint) => Promise<Q>,
+		totals: (quote: Q) => QuoteTotals,
+	): Promise<Q> {
+		const liquidity = await this.orderbook().routeLiquidity(route)
 		if (liquidity.bestRate === null) throw this.insufficient(route, 0n, tokenIn)
 
 		const inputUnit = toOrderbookAmount(1n, tokenIn.decimals)
@@ -159,11 +254,16 @@ export class OrderbookMarket {
 		for (let round = 0; round < MAX_EXACT_OUTPUT_ROUNDS; round++) {
 			// Past the most the route can fill, no input delivers the output.
 			if (amountIn > liquidity.maxFillableIn) throw this.insufficient(route, liquidity.maxFillableIn, tokenIn)
-			const quote = await orderbook.quote(route, amountIn)
-			if (quote.fillable && quote.amountOut >= targetOut) return quote
+			const served = await price(route, amountIn)
+			const quote = totals(served)
+			if (quote.fillable && quote.amountOut >= targetOut) return served
 			lastAmountIn = amountIn
+			const betterIn = quote.amountIn - quote.worstIn
+			const betterOut = quote.amountOut - quote.worstOut
 			const next =
-				quote.rate === null ? amountIn : roundUpTo(requiredInput(quote.side, targetOut, quote.rate), inputUnit)
+				quote.fillable && quote.worstOut > 0n
+					? betterIn + roundUpTo(divCeil((targetOut - betterOut) * quote.worstIn, quote.worstOut), inputUnit)
+					: amountIn
 			amountIn = next > amountIn ? next : amountIn + inputUnit
 		}
 		throw new OrderbookQuoteNotConvergedError(
@@ -238,31 +338,34 @@ function requiredInput(side: OrderbookSide, amountOut: bigint, rate: bigint): bi
 	return side === "BID" ? divCeil(amountOut * ORDERBOOK_SCALE, rate) : divCeil(amountOut * rate, ORDERBOOK_SCALE)
 }
 
-function buildQuote(
-	tradeType: IntentQuoteTradeType,
-	amountIn: bigint,
-	amountOut: bigint,
-	quote: OrderbookSwapQuote,
-	tokenIn: ResolvedAsset,
-	tokenOut: ResolvedAsset,
-): QuoteIntentResult {
-	if (quote.rate === null) throw new OrderbookRequestError("the orderbook served a fillable quote with no rate")
-	const [base, quoteToken] = quote.side === "BID" ? [tokenIn, tokenOut] : [tokenOut, tokenIn]
+function swapQuoteTotals(quote: OrderbookSwapQuote): QuoteTotals {
+	// Fills come best price first.
+	const worstFill = quote.fills.at(-1)
+	if (quote.fillable && !worstFill)
+		throw new OrderbookRequestError("the orderbook served a fillable quote with no fills")
 	return {
-		tradeType,
-		amountIn,
-		amountOut,
-		quoteMetadata: {
-			sourceChain: tokenIn.chain,
-			destinationChain: tokenOut.chain,
-			route: quote.route,
-			side: quote.side,
-			baseTokenSymbol: base.symbol,
-			quoteTokenSymbol: quoteToken.symbol,
-			rate: format(quote.rate),
-			maxFillableIn: fromOrderbookAmount(quote.maxFillableIn, tokenIn.decimals),
-			orderCount: quote.fills.length,
-		},
+		side: quote.side,
+		amountIn: quote.amountIn,
+		amountOut: quote.fills.reduce((total, fill) => total + fill.amountOut, 0n),
+		fillable: quote.fillable,
+		maxFillableIn: quote.maxFillableIn,
+		worstIn: worstFill?.amountIn ?? 0n,
+		worstOut: worstFill?.amountOut ?? 0n,
+	}
+}
+
+function levelQuoteTotals(quote: OrderbookLevelQuote): QuoteTotals {
+	if (quote.fillable && quote.rate === null) {
+		throw new OrderbookRequestError("the orderbook served a fillable quote with no rate")
+	}
+	return {
+		side: quote.side,
+		amountIn: quote.amountIn,
+		amountOut: quote.amountOut,
+		fillable: quote.fillable,
+		maxFillableIn: quote.maxFillableIn,
+		worstIn: quote.amountIn,
+		worstOut: quote.amountOut,
 	}
 }
 

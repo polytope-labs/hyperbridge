@@ -105,9 +105,9 @@ export function enabledChains(state: WizardState): ChainDraft[] {
  * The markets the config declares: every book the orderbook lists whose two
  * assets are each deployed on some enabled chain.
  *
- * A pair only says a market exists; what the filler pays there comes from a
- * limit order, so declaring every book costs nothing. Declaring none would
- * leave boot with no trading engine, and no market could be added at runtime.
+ * A pair only says a market exists, for the dashboard's market list; what the
+ * filler pays there comes from a limit order, so declaring every book costs
+ * nothing.
  */
 export function orderbookPairs(state: WizardState, defaults: SetupDefaults): PairConfig[] {
 	// Registry spelling by normalized symbol: books write "cNGN", the registry "CNGN".

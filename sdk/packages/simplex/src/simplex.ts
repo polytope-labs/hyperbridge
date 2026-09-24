@@ -305,10 +305,7 @@ export class PairController {
 	 * the pair's symbols have to resolve before the market can be hydrated.
 	 */
 	async add(pair: PairConfig, options?: { assets?: Record<string, AssetDefinition> }): Promise<PairView> {
-		const { engine, tradingPairs, assetRegistry, adminStrategies, balanceTokens, config } = this.runtime
-		if (!engine || !tradingPairs) {
-			throw new Error("No trading engine is running — this filler was started without pairs")
-		}
+		const { engine, assetRegistry, adminStrategies, balanceTokens, config } = this.runtime
 
 		const assets = options?.assets
 		const nextAssets = { ...(config.assets ?? {}), ...(assets ?? {}) }
@@ -357,7 +354,6 @@ export class PairController {
 	/** Closes a market. Orders already in flight against it still complete. */
 	async remove(index: number): Promise<void> {
 		const { engine, tradingPairs, adminStrategies, config } = this.runtime
-		if (!engine || !tradingPairs) throw new Error("No trading engine is running")
 		if (index < 0 || index >= this.pairs.length) throw new Error(`Unknown pair ${index}`)
 
 		// Splices the engine's live array (same instance as tradingPairs).
@@ -375,7 +371,7 @@ export class PairController {
 	}
 
 	private livePair(index: number) {
-		const pair = this.runtime.tradingPairs?.[index]
+		const pair = this.runtime.tradingPairs[index]
 		if (!pair) throw new Error(`Unknown pair ${index}`)
 		return pair
 	}
@@ -508,11 +504,11 @@ export class ChainController {
 			// Without this the engine has no curve for the chain and every cross-chain
 			// order sourced on it throws per order and is swallowed as a generic error.
 			const curve = confirmationPolicies[String(chainId)]
-			if (curve) this.runtime.confirmationPolicy?.add(chainId, curve)
-			else if (!this.runtime.confirmationPolicy?.has(chainId)) {
+			if (curve) this.runtime.confirmationPolicy.add(chainId, curve)
+			else if (!this.runtime.confirmationPolicy.has(chainId)) {
 				// assertConfirmationCoverage passed, so a built-in default covers this
 				// chain; copy it across from the set it just resolved.
-				this.runtime.confirmationPolicy?.adopt(chainId, resolvedPolicy)
+				this.runtime.confirmationPolicy.adopt(chainId, resolvedPolicy)
 			}
 
 			this.runtime.resolvedChains.push(resolved)
@@ -546,7 +542,7 @@ export class ChainController {
 			await intentFiller.removeChain(chainId)
 			if (this.ownsScanner) await this.scanner.removeChain(chainId)
 			configService.removeChain(chainId)
-			this.runtime.confirmationPolicy?.remove(chainId)
+			this.runtime.confirmationPolicy.remove(chainId)
 			this.runtime.chainClientManager.invalidate(chainKey)
 			this.runtime.resolvedChains.splice(index, 1)
 			config.chains = config.chains.filter((_, i) => i !== index)

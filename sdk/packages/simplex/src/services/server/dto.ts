@@ -83,6 +83,15 @@ export interface SetupDefaults {
 	knownVaults: Record<string, KnownVault[]>
 }
 
+/**
+ * GET /api/setup/orderbook — the orderbook a new config posts to, and the books
+ * it lists. The wizard declares one market per book; limit orders price them.
+ */
+export interface SetupOrderbook {
+	url: string
+	books: Array<{ id: string; base: string; quote: string }>
+}
+
 /** GET /api/status in init mode */
 export interface StatusInit {
 	mode: "init"

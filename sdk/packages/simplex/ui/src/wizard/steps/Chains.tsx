@@ -5,6 +5,7 @@ import { api } from "../../api"
 import { ChainCollapseTrigger, isHeaderControl, useChainPanels } from "../../components/ChainPanel"
 import { ChainLogo } from "../../components/ChainLogo"
 import { EndpointVerificationStatus } from "../../components/EndpointVerificationStatus"
+import { loadOrderbook } from "../orderbook"
 import { patchChain, type ChainDraft } from "../state"
 import type { StepProps } from "../Wizard"
 
@@ -153,6 +154,15 @@ export function StepChains({ state, setState }: StepProps) {
 					</button>
 				</div>
 			</div>
+
+			{state.orderbookError ? (
+				<div className="card">
+					<p className="error">{state.orderbookError}</p>
+					<button type="button" onClick={() => void loadOrderbook(setState)}>
+						Retry
+					</button>
+				</div>
+			) : null}
 
 			{state.chains.map((chain) => (
 				<Collapsible.Root

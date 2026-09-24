@@ -41,6 +41,7 @@ export type {
 	LogsDto,
 	SendTokenOption,
 	SetupDefaults,
+	SetupOrderbook,
 	SolverWork,
 	Status,
 	StatusInit,

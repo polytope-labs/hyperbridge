@@ -15,9 +15,11 @@ import { chainByChainId, chainsForNetwork, HYPERBRIDGE_WS_DEFAULTS } from "@/cli
 import { deriveAlchemyRpc } from "@/cli/init/derive/alchemy"
 import { maskSecret, withTimeout, PROBE_TIMEOUT_MS } from "@/cli/init/prompt-utils"
 import { DEFAULT_MAX_CONCURRENT_ORDERS } from "@/cli/init/state"
+import { DEFAULT_ORDERBOOK_TIMEOUT_MS, DEFAULT_ORDERBOOK_URLS } from "@/config/defaults"
+import { OrderbookClient } from "@/orderbook/client"
 import { getLogger } from "../Logger"
 import { readBody, sendJson } from "./http-util"
-import type { SetupDefaults } from "./dto"
+import type { SetupDefaults, SetupOrderbook } from "./dto"
 import type { SetupContext, UiServer } from "./UiServer"
 
 
@@ -89,6 +91,21 @@ export async function handleSetupRequest(
 			knownVaults,
 		}
 		return sendJson(res, 200, defaults)
+	}
+
+	if (endpoint === "orderbook") {
+		if (method !== "GET") return sendJson(res, 405, { error: "Method not allowed" })
+		// Limit orders can name only the books the orderbook lists, so those are the
+		// markets a new config declares. Read live: books change when it is redeployed.
+		const url = DEFAULT_ORDERBOOK_URLS.mainnet
+		try {
+			const { books } = await new OrderbookClient(url, DEFAULT_ORDERBOOK_TIMEOUT_MS).limits()
+			const orderbook: SetupOrderbook = { url, books }
+			return sendJson(res, 200, orderbook)
+		} catch (err) {
+			const reason = err instanceof Error ? err.message : String(err)
+			return sendJson(res, 502, { error: `Could not read the orderbook's markets: ${reason}` })
+		}
 	}
 
 	if (method !== "POST") return sendJson(res, 405, { error: "Method not allowed" })

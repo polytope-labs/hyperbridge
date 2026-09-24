@@ -51,3 +51,19 @@ keys rot.
 
 The sets are a starting point, not a promise. Free endpoints come and go, both wizards leave every
 field editable, and an operator with a provider account should use it.
+
+## Markets come from the orderbook
+
+The web wizard has no Markets step. Prices come from limit orders, and limit orders can name only
+the books the orderbook lists, so the wizard declares one `[[pairs]]` entry per book whose two
+assets are deployed on some enabled chain. It reads the books from `GET /api/setup/orderbook` when it
+opens, and writes `[orderbook]` with the mainnet URL.
+
+The pairs are still required. A pair declares only that a market exists, and one with no limit order
+quotes nothing, so declaring every book costs nothing. But boot builds the trading engine only when
+`[[pairs]]` is non-empty, and adding a market at runtime needs that engine, so a config with no pairs
+could never trade and could not be repaired from the UI. The Chains step therefore will not continue
+until the enabled chains carry at least one book.
+
+Before this, the web wizard could not finish on main at all: it never wrote `[orderbook]`, which
+`validateConfig` requires, and the Markets step ran that check.

@@ -300,6 +300,53 @@
 	flex: 0 0 auto;
 }
 
+.chain-verification-control,
+.chain-endpoint-status {
+	display: flex;
+	align-items: center;
+}
+
+.chain-verification-control {
+	flex-wrap: wrap;
+	gap: 0.7rem;
+	min-width: 0;
+}
+
+.chain-endpoint-status {
+	gap: 0.45rem;
+	max-width: 28rem;
+	margin: 0;
+	color: var(--muted);
+	font-size: 0.78rem;
+	line-height: 1.4;
+}
+
+.chain-endpoint-status[data-status="success"] {
+	color: var(--ok);
+}
+
+.chain-endpoint-status[data-status="warning"] {
+	color: var(--warn);
+}
+
+.chain-endpoint-status[data-status="error"] {
+	color: var(--err);
+}
+
+.chain-endpoint-status-icon {
+	display: inline-grid;
+	width: 1.05rem;
+	height: 1.05rem;
+	flex: 0 0 auto;
+	place-items: center;
+	border: 1px solid currentColor;
+	border-radius: 50%;
+	font-family: var(--font-mono);
+	font-size: 0.68rem;
+	font-weight: 600;
+	line-height: 1;
+}
+
 .chain-watch-toggle {
 	gap: 0.55rem;
 	margin-left: auto;

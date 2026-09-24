@@ -2,6 +2,7 @@ import { useCallback, useRef, useState } from "react"
 import { toast } from "sonner"
 import { api } from "../../api"
 import { useAction, usePolling } from "../../lib/hooks"
+import type { EndpointVerificationState } from "../../components/EndpointVerificationStatus"
 import type { ChainDefault, ChainsDto } from "../../types"
 
 interface AlchemyChainRow {
@@ -18,10 +19,8 @@ export interface ChainDraft {
 	viaAlchemy: boolean
 	watchOnly: boolean
 	running: boolean
-	rpcStatus?: "ok" | "err" | "checking"
-	rpcError?: string
-	bundlerWarning?: string
-	bundlerOk?: boolean
+	verificationState?: EndpointVerificationState
+	verificationMessage?: string
 }
 
 function seedDrafts(dto: ChainsDto): ChainDraft[] {
@@ -102,7 +101,8 @@ export function useChainSettings() {
 						rpcUrls: [filled.rpcUrl, ...row.rpcUrls.slice(1)],
 						bundlerUrl: filled.bundlerUrl ?? row.bundlerUrl,
 						viaAlchemy: true,
-						rpcStatus: undefined,
+						verificationState: undefined,
+						verificationMessage: undefined,
 					}
 				}),
 			)
@@ -121,10 +121,10 @@ export function useChainSettings() {
 	const verifyChain = async (chain: ChainDraft) => {
 		if (verifyingRef.current.has(chain.meta.chainId)) return
 		verifyingRef.current.add(chain.meta.chainId)
-		const toastId = toast.loading(`Verifying ${chain.meta.label}`, {
-			description: "Checking the RPC and bundler endpoints.",
+		patch(chain.meta.chainId, {
+			verificationState: "checking",
+			verificationMessage: "Checking RPC and bundler endpoints…",
 		})
-		patch(chain.meta.chainId, { rpcStatus: "checking", rpcError: undefined, bundlerWarning: undefined })
 		try {
 			const urls = chain.rpcUrls.map((url) => url.trim()).filter(Boolean)
 			try {
@@ -132,18 +132,21 @@ export function useChainSettings() {
 					"/api/setup/validate-rpc",
 					{ urls, expectedChainId: chain.meta.chainId },
 				)
-				if (rpc.ok) patch(chain.meta.chainId, { rpcStatus: "ok" })
-				else {
+				if (!rpc.ok) {
 					const description =
 						rpc.error ?? rpc.results.find((result) => result.error)?.error ?? "RPC check failed"
-					patch(chain.meta.chainId, { rpcStatus: "err", rpcError: description })
-					toast.error(`${chain.meta.label} RPC could not be verified`, { description, id: toastId })
+					patch(chain.meta.chainId, {
+						verificationState: "error",
+						verificationMessage: `RPC could not be verified: ${description}`,
+					})
 					return
 				}
 			} catch (cause) {
 				const description = cause instanceof Error ? cause.message : String(cause)
-				patch(chain.meta.chainId, { rpcStatus: "err", rpcError: description })
-				toast.error(`${chain.meta.label} RPC could not be verified`, { description, id: toastId })
+				patch(chain.meta.chainId, {
+					verificationState: "error",
+					verificationMessage: `RPC could not be verified: ${description}`,
+				})
 				return
 			}
 
@@ -153,23 +156,27 @@ export function useChainSettings() {
 						url: chain.bundlerUrl.trim(),
 						chainId: chain.meta.chainId,
 					})
-					patch(chain.meta.chainId, { bundlerWarning: bundler.warning, bundlerOk: !bundler.warning })
 					if (bundler.warning) {
-						toast.warning(`${chain.meta.label} RPC verified`, { description: bundler.warning, id: toastId })
+						patch(chain.meta.chainId, {
+							verificationState: "warning",
+							verificationMessage: `RPC verified. Bundler warning: ${bundler.warning}`,
+						})
 						return
 					}
 				} catch (cause) {
 					const description = `Bundler check failed: ${cause instanceof Error ? cause.message : cause}`
-					patch(chain.meta.chainId, { bundlerWarning: description, bundlerOk: false })
-					toast.error(`${chain.meta.label} bundler could not be verified`, { description, id: toastId })
+					patch(chain.meta.chainId, {
+						verificationState: "error",
+						verificationMessage: description,
+					})
 					return
 				}
 			}
-			toast.success(`${chain.meta.label} endpoints verified`, {
-				description: chain.bundlerUrl.trim()
+			patch(chain.meta.chainId, {
+				verificationState: "success",
+				verificationMessage: chain.bundlerUrl.trim()
 					? "RPC and bundler connections are ready."
 					: "RPC connection is ready.",
-				id: toastId,
 			})
 		} finally {
 			verifyingRef.current.delete(chain.meta.chainId)

@@ -1,5 +1,6 @@
 import { isRegistrySymbol, normalizeSymbol } from "@/config/asset-registry"
 import { vaultRowsToToml, type VaultRowDraft } from "../lib/vault-rows"
+import type { EndpointVerificationState } from "../components/EndpointVerificationStatus"
 import type { ChainDefault, FillerConfig, PairConfig, SetupDefaults } from "../types"
 
 export interface ChainDraft {
@@ -9,10 +10,8 @@ export interface ChainDraft {
 	bundlerUrl: string
 	viaAlchemy: boolean
 	watchOnly: boolean
-	rpcStatus?: "ok" | "err" | "checking"
-	rpcError?: string
-	bundlerWarning?: string
-	bundlerOk?: boolean
+	verificationState?: EndpointVerificationState
+	verificationMessage?: string
 }
 
 export type VaultDraft = VaultRowDraft

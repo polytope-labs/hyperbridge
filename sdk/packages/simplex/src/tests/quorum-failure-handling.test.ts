@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest"
 import {
 	QuorumPublicClient,
-	QuorumError,
 	benchFor,
 	isMalformedResponse,
 	isStaleHead,
@@ -73,26 +72,25 @@ describe("quorum call deadline", () => {
 		QuorumPublicClient.clearAllSuspensions()
 	})
 
-	it("fails loudly instead of waiting out a hung endpoint", async () => {
+	it("decides over the endpoints that answered instead of waiting out a hung one", async () => {
 		const client = new QuorumPublicClient(BASE_CHAIN_ID, URLS, undefined, budget(60))
-		// Two answer, one never does. The bar is 3-of-3, so it can never be met and
-		// the old code would have waited for the transport's full budget.
+		// Two answer, one never does. At the deadline the hung one is a failure, so
+		// it stops voting and the two that answered decide, rather than the call
+		// waiting for the transport's full budget.
 		const clients = client.clients as unknown as Array<{ getBlockNumber: () => Promise<bigint> }>
 		clients[0].getBlockNumber = async () => 100n
 		clients[1].getBlockNumber = async () => 100n
 		clients[2].getBlockNumber = () => new Promise(() => {})
 
 		const started = Date.now()
-		await expect(client.getBlockNumber()).rejects.toThrow(QuorumError)
+		await expect(client.getBlockNumber()).resolves.toBe(100n)
 		expect(Date.now() - started).toBeLessThan(2_000)
 	})
 
-	it("names the endpoint it was still waiting on", async () => {
+	it("names the endpoints it was still waiting on when none answered", async () => {
 		const client = new QuorumPublicClient(BASE_CHAIN_ID, URLS, undefined, budget(60))
 		const clients = client.clients as unknown as Array<{ getBlockNumber: () => Promise<bigint> }>
-		clients[0].getBlockNumber = async () => 100n
-		clients[1].getBlockNumber = async () => 100n
-		clients[2].getBlockNumber = () => new Promise(() => {})
+		for (const entry of clients) entry.getBlockNumber = () => new Promise(() => {})
 
 		await expect(client.getBlockNumber()).rejects.toThrow(/c\.example.*quorum deadline/s)
 	})
@@ -113,17 +111,19 @@ describe("quorum call deadline", () => {
 		expect(Date.now() - started).toBeLessThan(50)
 	})
 
-	it("rejects at the deadline even when a straggler would have completed the bar", async () => {
-		// 3-of-3 with one endpoint hanging. The two that answered agree, but the bar
-		// is over everyone asked, so the deadline can only fail the call — this is the
-		// behaviour the docs now describe, rather than "decides on whoever answered".
+	it("counts an endpoint still out as a voter until the deadline", async () => {
+		// Its answer could still change the outcome, so early exit does not decide
+		// over the two that answered: the call waits for it, and only the deadline
+		// takes its vote away.
 		const client = new QuorumPublicClient(BASE_CHAIN_ID, URLS, undefined, budget(60))
 		const clients = client.clients as unknown as Array<{ getBlockNumber: () => Promise<bigint> }>
 		clients[0].getBlockNumber = async () => 900n
 		clients[1].getBlockNumber = async () => 900n
 		clients[2].getBlockNumber = () => new Promise(() => {})
 
-		await expect(client.getBlockNumber()).rejects.toThrow(QuorumError)
+		const started = Date.now()
+		await expect(client.getBlockNumber()).resolves.toBe(900n)
+		expect(Date.now() - started).toBeGreaterThanOrEqual(55)
 	})
 })
 

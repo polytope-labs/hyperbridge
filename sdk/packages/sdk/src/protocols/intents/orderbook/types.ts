@@ -2,8 +2,6 @@ import type { Chains, ConfiguredAssetSymbol } from "@/configs/chain"
 import type { HexString } from "@/types"
 import type { OrderbookRouteKind, OrderbookSide } from "./client"
 
-export type IntentQuoteTradeType = "EXACT_INPUT" | "EXACT_OUTPUT"
-
 /**
  * Parameters for `IntentGateway.quoteIntent`. The source and destination chains
  * come from the gateway instance itself. `tokenIn` and `tokenOut` are token
@@ -17,37 +15,73 @@ export interface QuoteIntentParams {
 	tokenOut: HexString
 	amountIn?: bigint
 	amountOut?: bigint
+	/**
+	 * Return the orderbook's optimistic quote (`QuoteIntentResult`): one leg per
+	 * order, each at its own price. Defaults to the pessimistic quote
+	 * (`PessimisticQuoteIntentResult`): the whole trade at one price.
+	 */
+	optimistic?: boolean
 }
 
-export interface IntentQuoteMetadata {
-	sourceChain: Chains
-	destinationChain: Chains
+/**
+ * One order an optimistic intent quote takes, at the order's own price. Amounts
+ * are raw token units; the rate stays at 1e18.
+ */
+export interface IntentQuoteLeg {
+	/** The order's full advertised size in `tokenOut`, not just the part this leg takes. */
+	advertisedSize: bigint
+	/** The order's own price, quote per 1 base at 1e18, before the protocol fee: what this leg settles at. */
+	orderRate: bigint
+	/** The `tokenIn` this leg takes. The legs' inputs sum to the quote's `amountIn`. */
+	amountIn: bigint
+	/** The `tokenOut` this leg delivers, with the destination's protocol fee already taken off. */
+	amountOut: bigint
+}
+
+/**
+ * `quoteIntent`'s result with `optimistic: true`, the orderbook's optimistic `quote`: the trade split across the
+ * route's orders, best price first, each at its own price. There is no single
+ * rate or total output; the legs are the quote, and their `amountOut`s sum to
+ * what the order should require. Amounts are raw token units.
+ */
+export interface QuoteIntentResult {
 	/** `SAME_CHAIN`, or `CROSS_CHAIN` when only orders accepting the source chain can fill it. */
 	route: OrderbookRouteKind
 	/** `BID` when the order sells the book's base token, `ASK` when it buys it. */
 	side: OrderbookSide
-	baseTokenSymbol: ConfiguredAssetSymbol
-	quoteTokenSymbol: ConfiguredAssetSymbol
-	/** The clearing price the order was quoted at, in quote-token units per one base token. */
-	rate: string
-	/** The largest `amountIn` the route can fill right now, in the source token's raw units. */
+	/** The `tokenIn` priced: the requested input, or the input found to deliver the requested output. */
+	amountIn: bigint
+	/** The destination's protocol fee in basis points, already taken off every leg's `amountOut`. */
+	slippageBps: number
+	fillable: boolean
+	/** The largest `amountIn` the route's orders could take together, each at its own price. */
 	maxFillableIn: bigint
-	/** How many orders the quote combines. */
-	orderCount: number
+	/** The orders used, best price first. */
+	legs: IntentQuoteLeg[]
 }
 
 /**
- * A quote priced from the HyperFX orderbook.
- *
- * `amountIn` and `amountOut` are raw token units and can be used directly as
- * the order's `inputs` and `output.assets`. The orderbook's rates already carry
- * the IntentGateway protocol fee, so no further fee adjustment is needed.
+ * `quoteIntent`'s default result, the orderbook's `quotePessimistic`: the whole trade at one
+ * price, the worst single-order price of the first level, best first, deep
+ * enough to fill it by itself, or the route's worst price when no one level
+ * can. Amounts are raw token units; rates stay at 1e18.
  */
-export interface QuoteIntentResult {
-	tradeType: IntentQuoteTradeType
+export interface PessimisticQuoteIntentResult {
+	route: OrderbookRouteKind
+	side: OrderbookSide
+	/** The `tokenIn` priced: the requested input, or the input found to deliver the requested output. */
 	amountIn: bigint
+	/** The `tokenOut` delivered at `rate`, with the destination's protocol fee already taken off. */
 	amountOut: bigint
-	quoteMetadata: IntentQuoteMetadata
+	/** Quote per 1 base, before the protocol fee: every order in the level fills at it. */
+	rate: bigint | null
+	/** The price bucket of that level. */
+	priceBucket: bigint | null
+	/** The destination's protocol fee in basis points, already taken off `amountOut`. */
+	slippageBps: number
+	fillable: boolean
+	/** The largest `amountIn` this quote could fill: any one level at its worst price, or the whole route at its worst. */
+	maxFillableIn: bigint
 }
 
 /**

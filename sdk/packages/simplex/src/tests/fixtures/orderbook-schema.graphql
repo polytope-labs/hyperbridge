@@ -282,6 +282,49 @@ type HeartbeatAccepted {
 
 union HeartbeatResult = HeartbeatAccepted | MessageRejected
 
+"""
+A pessimistic quote: one price, from the first level on the route, best first, deep enough to
+fill the whole trade by itself, or else the route's worst price when its levels together can.
+"""
+type LevelQuote {
+	route: RouteKind!
+	"""
+	ASK for a buy (tokenIn is the quote), BID for a sell (tokenIn is the base).
+	"""
+	side: Side!
+	"""
+	The tokenIn priced (1e18), floored to a whole raw unit on sourceChain.
+	"""
+	amountIn: BigInt!
+	"""
+	The tokenOut the swapper receives at `rate` (1e18), after destinationChain's protocol fee,
+	floored to a whole raw unit there; 0 when not fillable.
+	"""
+	amountOut: BigInt!
+	"""
+	The worst single-order price in the level that fills it, quote per 1 base (1e18), before
+	the protocol fee: every order in the level, or on the route when no one level can, fills at
+	it. Null when the route's orders together cannot fill the trade.
+	"""
+	rate: BigInt
+	"""
+	The price bucket of that level: the route's worst level when no one level fills it. Null
+	when not fillable.
+	"""
+	priceBucket: BigInt
+	"""
+	destinationChain's protocol fee, in basis points: the least slippage from `rate` the swapper
+	should allow for. `amountOut` already has it taken off.
+	"""
+	slippageBps: Int!
+	fillable: Boolean!
+	"""
+	The largest amountIn this quote could fill (1e18 tokenIn, whole raw units): any one level at
+	its worst price, or the whole route at its worst.
+	"""
+	maxFillableIn: BigInt!
+}
+
 type MessageRejected {
 	code: MessageRejectionCode!
 	message: String!
@@ -335,8 +378,8 @@ type Order {
 	"""
 	tokenOut: String!
 	"""
-	This order's price and its rate, one number: quote per 1 base (1e18). Bids round down, asks
-	up.
+	This order's price and its rate, one number: quote per 1 base (1e18), on its signed amounts,
+	before the protocol fee. Bids round down, asks up.
 	"""
 	price: BigInt!
 	"""
@@ -344,8 +387,8 @@ type Order {
 	"""
 	inputAmount: BigInt!
 	"""
-	The signed output (1e18), before the haircut: what the solver pays, checked against the
-	balance.
+	The signed output (1e18), before the protocol fee: what the solver pays, checked against
+	the balance.
 	"""
 	quotedAmount: BigInt!
 	"""
@@ -368,7 +411,6 @@ type Order {
 	The input scaled to the advertised size (1e18).
 	"""
 	inputSize: BigInt!
-	haircutBps: Int!
 	ttlSecs: Int!
 	receivedAt: DateTime!
 	expiresAt: DateTime!
@@ -547,10 +589,21 @@ type Query {
 	"""
 	rates(tokenIn: String!, tokenOut: String!, minSize: BigInt, fillChain: String, sourceChain: String, limit: Int = 100): [RateEntry!]!
 	"""
-	The best rate that can fill an input amount (1e18): the clearing price of the orders
-	serving the route, which may combine several solvers' orders on either route kind.
+	The optimistic quote for an input amount (1e18): the route's orders, best price first, each
+	taking what it can of the trade at its own price, on either route kind. Each fill says the
+	tokenIn it takes and the tokenOut it delivers after destinationChain's protocol fee, which
+	`slippageBps` reports; there is no total output.
 	"""
 	quote(route: RouteInput!, amountIn: BigInt!): SwapQuote!
+	"""
+	The pessimistic quote for an input amount (1e18): one price, from the first price level on
+	the route, best first, whose own depth fills the whole trade at the level's worst
+	single-order price, at which every order in it fills. Levels better than it do not add to
+	its depth. When no one level can, but the route's levels together can, it serves the route's
+	worst price; it is unfillable only when they together cannot. `amountOut` has
+	destinationChain's protocol fee taken off, and `slippageBps` reports it.
+	"""
+	quotePessimistic(route: RouteInput!, amountIn: BigInt!): LevelQuote!
 	"""
 	Total liquidity on a same-chain or cross-chain route, no amount required.
 	"""
@@ -604,7 +657,7 @@ type Query {
 }
 
 """
-One order used by a quote. Every fill settles at the quote's served rate.
+One order a `quote` takes, at the order's own price.
 """
 type QuoteFill {
 	"""
@@ -612,12 +665,18 @@ type QuoteFill {
 	"""
 	advertisedSize: BigInt!
 	"""
-	The order's own price, at or better than the served rate for the side (1e18).
+	The order's own price, quote per 1 base (1e18), before the protocol fee: what this fill
+	settles at.
 	"""
 	orderRate: BigInt!
 	"""
-	The tokenOut it contributes at the served rate (1e18); the fills sum to the quote's
-	amountOut.
+	The tokenIn this fill takes (1e18), in whole raw units on sourceChain. The fills' inputs sum
+	to the quote's amountIn.
+	"""
+	amountIn: BigInt!
+	"""
+	The tokenOut this fill delivers to the swapper (1e18): amountIn at orderRate, less
+	destinationChain's protocol fee, floored to a whole raw unit there.
 	"""
 	amountOut: BigInt!
 }
@@ -703,6 +762,12 @@ type RateEntry {
 	The worst single-order price in the level (1e18): the lowest bid or the highest ask.
 	"""
 	worstRate: BigInt!
+	"""
+	The fill chain's protocol fee, in basis points: the least slippage from `rate` a swapper
+	should allow for. Rates are the solvers' signed prices, and the gateway takes the fee out of
+	what they deliver.
+	"""
+	slippageBps: Int!
 	"""
 	Virtual: the level's orders' summed input sizes (1e18).
 	"""
@@ -807,10 +872,15 @@ What a route holds, with no amount given.
 type RouteLiquidity {
 	route: RouteKind!
 	"""
-	The best price on the route, quote per 1 base: the lowest ask for a buy, the highest bid
-	for a sell.
+	The best price on the route, quote per 1 base, before the protocol fee: the lowest ask for
+	a buy, the highest bid for a sell.
 	"""
 	bestRate: BigInt
+	"""
+	destinationChain's protocol fee, in basis points: the least slippage from `bestRate` a
+	swapper should allow for, since the gateway takes it out of what the orders deliver.
+	"""
+	slippageBps: Int!
 	"""
 	Virtual (1e18 tokenIn).
 	"""
@@ -825,8 +895,8 @@ type RouteLiquidity {
 	"""
 	availableLiquidity: BigInt!
 	"""
-	The largest amountIn the route could fill with its orders combined (1e18 tokenIn, whole
-	raw units).
+	The largest amountIn the route's orders could take together, each at its own price, as
+	`quote` fills them (1e18 tokenIn, whole raw units).
 	"""
 	maxFillableIn: BigInt!
 	orderCount: Int!
@@ -971,7 +1041,8 @@ enum SolverStatus {
 union SubmitOrderResult = OrderAccepted | OrderUnchanged | OrderRejected | OrderSubmissionFailed
 
 """
-A quote for an input amount on a route.
+An optimistic quote: the trade split across the route's orders best price first, each at its
+own price. There is no one rate and no total output; the fills are the quote.
 """
 type SwapQuote {
 	route: RouteKind!
@@ -984,25 +1055,18 @@ type SwapQuote {
 	"""
 	amountIn: BigInt!
 	"""
-	The tokenOut (1e18), floored to a whole raw unit on destinationChain; 0 when not fillable.
+	destinationChain's protocol fee, in basis points: the least slippage from each fill's
+	orderRate the swapper should allow for. Every fill's amountOut already has it taken off.
 	"""
-	amountOut: BigInt!
-	"""
-	The served rate, quote per 1 base (1e18): the clearing price, the best at which the orders
-	at it or better can fill the trade together. Null when the route can't fill it.
-	"""
-	rate: BigInt
+	slippageBps: Int!
 	fillable: Boolean!
 	"""
-	The tokenIn (1e18) the route can absorb at the served price or better.
-	"""
-	depth: BigInt!
-	"""
-	The largest amountIn this route could fill (1e18 tokenIn, whole raw units).
+	The largest amountIn the route's orders could take together, each at its own price (1e18
+	tokenIn, whole raw units).
 	"""
 	maxFillableIn: BigInt!
 	"""
-	The orders used, best first: one, or several across solvers.
+	The orders used, best price first; empty when not fillable.
 	"""
 	fills: [QuoteFill!]!
 }

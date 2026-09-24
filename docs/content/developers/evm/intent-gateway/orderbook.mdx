@@ -26,11 +26,11 @@ Everything on this page is a read-only query. No authentication is needed. The e
 
 | | |
 |---|---|
-| **Tokens** | Named by symbol: `USDC`, `USDT`, `cNGN`. Symbols are case-sensitive. |
+| **Tokens** | Named by symbol: `USDC`, `USDT`, `cNGN`. Symbols and book ids are case-insensitive in queries, so `cngn`, `CNGN` and `usdc-cngn` all work. Responses always use the configured spelling, such as `cNGN`. |
 | **Chains** | Named by state machine id: `EVM-8453` for Base, `EVM-56` for BNB Chain. |
 | **Amounts** | `BigInt` strings, fixed-point at **1e18 whatever the token's decimals**. `"1000000000000000000000"` is 1,000 USDC on every chain, even where USDC has 6 decimals. |
 | **Rates** | Always **quote per 1 base** at 1e18, on both sides of a book. A USDC/cNGN book reads about 1,500 whichever way you trade. |
-| **Fees** | Rates already include the Intent Gateway protocol fee. Do not deduct it again. |
+| **Fees** | Rates are the solvers' signed prices, before the Intent Gateway protocol fee. Quotes take the destination's fee off `amountOut` and report it as `slippageBps`. Do not deduct it again. |
 
 ### Books, bases, and sides
 
@@ -209,7 +209,9 @@ To total the balances solvers hold, per chain and token, read the `totals` of `b
 
 ## Quote an amount
 
-`quote` prices an exact input on a route. The price is the **clearing price**: the best price at which the orders at that price or better can fill the whole amount together. One trade can combine several solvers' orders.
+The orderbook prices an exact input on a route two ways. Both take the same arguments.
+
+`quote` is **optimistic**: it splits the trade across the route's orders, best price first, and each order fills what it can at its own price. One trade can combine several solvers' orders. There is no single rate and no total output: the fills are the quote, and their `amountOut`s sum to what the swapper receives.
 
 ```graphql
 {
@@ -217,17 +219,31 @@ To total the balances solvers hold, per chain and token, read the `totals` of `b
     route: { tokenIn: "USDC", tokenOut: "cNGN", sourceChain: "EVM-56", destinationChain: "EVM-8453" }
     amountIn: "1000000000000000000000"
   ) {
-    side rate amountIn amountOut fillable depth maxFillableIn
-    fills { orderRate amountOut advertisedSize }
+    side amountIn slippageBps fillable maxFillableIn
+    fills { orderRate amountIn amountOut advertisedSize }
   }
 }
 ```
 
-- `amountIn` is floored to a whole raw unit of `tokenIn` on the source chain. `amountOut` is floored to a whole raw unit of `tokenOut` on the destination.
-- When the route cannot fill the amount, `fillable` is `false`, `rate` is `null` and `amountOut` is `0`. `maxFillableIn` then says how much it could fill.
+`quotePessimistic` prices the whole trade at **one price**: the worst single-order price of the first price level, best first, deep enough to fill the trade by itself. Every order in that level fills at it. Better levels do not add to its depth. When no one level can fill the trade, but the route's levels together can, it uses the route's worst price.
+
+```graphql
+{
+  quotePessimistic(
+    route: { tokenIn: "USDC", tokenOut: "cNGN", sourceChain: "EVM-56", destinationChain: "EVM-8453" }
+    amountIn: "1000000000000000000000"
+  ) {
+    side rate priceBucket amountIn amountOut slippageBps fillable maxFillableIn
+  }
+}
+```
+
+- `orderRate` and `rate` are the solvers' signed prices, before the protocol fee. `amountOut`, on each fill or on the pessimistic quote, already has the destination chain's protocol fee taken off. `slippageBps` reports that fee: the least slippage from the rate to allow for.
+- `amountIn` is floored to a whole raw unit of `tokenIn` on the source chain. Every `amountOut` is floored to a whole raw unit of `tokenOut` on the destination.
+- When the route cannot fill the amount, `fillable` is `false`. `quote` then returns no fills, and `quotePessimistic` returns a `null` `rate` and an `amountOut` of `0`. `maxFillableIn` says how much each could fill.
 - An `amountIn` below one raw unit of `tokenIn` is an error.
 
-`quote` only takes an input amount. To price an exact output, compute the input from `routeLiquidity.bestRate`, then quote it. If the quote falls short of the output you need, raise the input at the returned `rate` and quote again. `quoteIntent` in the SDK does this for you.
+Both only take an input amount. To price an exact output, compute the input from `routeLiquidity.bestRate` and quote it. If the quote falls short, keep the fills better than its worst price, re-price the rest of the output at the worst fill's `amountIn` to `amountOut` ratio, and quote again. The SDK's `quoteIntent` does this for you, with either quote.
 
 ## Price history
 

@@ -113,7 +113,7 @@ For orders placed after the fee-refund upgrade, the gateway records the exact fe
 The commitment hash is computed over the **fee-reduced inputs** — solvers read the reduced amounts from the `OrderPlaced` event and only need to match those. On either an early or expired cancellation, the gateway refunds `floor(placement fee × refundable net principal / original net input)`. The unrefunded remainder is earned protocol revenue and is emitted as `DustCollected` when the order reaches final settlement. Orders placed before the fee-refund upgrade have no stored fee record and retain the previous nonrefundable treatment.
 
 <Callout type="warn">
-Do not build an order by reducing the input yourself to account for the protocol fee. Send the gross input amount and use the amounts returned by `quoteIntent()`. The orderbook rates it quotes from already include the fee; reducing the input again would make the order smaller than intended.
+Do not build an order by reducing the input yourself to account for the protocol fee. Send the gross input amount and use the amounts returned by `quoteIntent()`. The orderbook already takes the fee off the output it quotes; reducing the input again would make the order smaller than intended.
 </Callout>
 
 ### Graffiti
@@ -191,7 +191,7 @@ const walletClient = createWalletClient({ account, transport: http(SOURCE_RPC_UR
 
 ### Quote the swap and create the order
 
-`quoteIntent()` prices the swap from the [HyperFX orderbook](/developers/evm/intent-gateway/orderbook): the clearing price of the solver orders that can fill it. For an exact-input order, `amountIn` is the amount you send and `amountOut` is the quoted output you require from the solver.
+`quoteIntent()` prices the swap from the [HyperFX orderbook](/developers/evm/intent-gateway/orderbook) at one price that every order in the filling level accepts. For an exact-input order, `amountIn` is the amount you send and `amountOut` is the quoted output you require from the solver. Pass `optimistic: true` for a quote split across orders, each at its own price.
 
 ```typescript title="create-order.ts" lineNumbers
 import { type Order } from "@hyperbridge/sdk"

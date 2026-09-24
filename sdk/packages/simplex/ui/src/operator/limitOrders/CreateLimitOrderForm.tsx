@@ -3,7 +3,7 @@ import { AppSelect } from "../../components/AppSelect"
 import { ChainMultiSelect } from "../../components/ChainMultiSelect"
 import { TokenOnChainIcon } from "../../components/TokenIcon"
 import { formatAmount } from "../../lib/format"
-import type { BalanceSnapshot, CreateLimitOrderRequest, OrderbookBook } from "../../types"
+import type { BalanceSnapshot, CreateLimitOrderRequest, OrderbookBook, OrderbookChain } from "../../types"
 import { ApiError } from "../../api"
 import { AMOUNT_PATTERN, groupThousands, type OrderSide, parseAmount, requestFrom } from "./limitOrderModel"
 
@@ -18,6 +18,8 @@ import { AMOUNT_PATTERN, groupThousands, type OrderSide, parseAmount, requestFro
  */
 export function CreateLimitOrderForm(props: {
 	books: OrderbookBook[]
+	/** The tokens the orderbook registers on each chain, which rule out source chains. */
+	orderbookChains: OrderbookChain[]
 	chains: string[]
 	chainLabel: (id: string) => string
 	/** What each chain holds of the token the order pays out, shown beside it in "Fills on". */
@@ -26,22 +28,27 @@ export function CreateLimitOrderForm(props: {
 	onCancel: () => void
 	create: (request: CreateLimitOrderRequest) => Promise<void>
 }) {
-	const { books, chains, chainLabel, balances, onCreated, onCancel, create } = props
+	const { books, orderbookChains, chains, chainLabel, balances, onCreated, onCancel, create } = props
 	const [bookId, setBookId] = useState(() => books[0]?.id ?? "")
 	const [side, setSide] = useState<OrderSide>("BID")
 	const [amount, setAmount] = useState("")
 	const [rate, setRate] = useState("")
 	/** Chains the operator picked for "Fills on"; null until they do, while it follows the balances. */
 	const [pickedFillChains, setPickedFillChains] = useState<string[] | null>(null)
-	// A swap can reach the fill chain from anywhere the filler watches, and an order that accepts
-	// nothing is one the orderbook refuses outright.
-	const [acceptedSources, setAcceptedSources] = useState<string[]>(chains)
+	/** Chains the operator picked for "Accepts swaps from"; null until they do, while it takes them all. */
+	const [pickedSources, setPickedSources] = useState<string[] | null>(null)
 	const [busy, setBusy] = useState(false)
 	const [error, setError] = useState<string>()
 
 	const book = books.find((entry) => entry.id === bookId)
 	// Buying the base pays out the quote; selling it pays out the base.
 	const paysOut = book ? (side === "BID" ? book.quote : book.base) : ""
+	const takesIn = book ? (side === "BID" ? book.base : book.quote) : ""
+	// A swap can reach the fill chain from anywhere the filler watches, but a swapper pays the token
+	// taken in on their own chain, and the orderbook refuses the whole order over a source chain it
+	// has no such token on. An order that accepts nothing it refuses outright.
+	const sourceChains = chains.filter((chain) => registers(orderbookChains, chain, takesIn))
+	const acceptedSources = pickedSources ?? sourceChains
 	// An order pays out on one chain, so filling on several means one order on each. By default
 	// that is every chain holding the token paid out: an order on an empty balance fills nothing.
 	const heldOn = chains.filter((chain) => shownAsHeld(payOutAsset(balances, chain, paysOut)?.available))
@@ -61,18 +68,20 @@ export function CreateLimitOrderForm(props: {
 
 	const amountId = useId()
 
-	// A side or pair change changes the token paid out. The amount is in that token, so it is
-	// cleared rather than silently reread in the new one; the fill-chain default follows it, so
-	// a pick made for the old token does not carry over. The rate is quote per base either way.
+	// A side or pair change changes the tokens paid out and taken in. The amount is in the first,
+	// so it is cleared rather than silently reread in the new one; the chain defaults follow both,
+	// so a pick made for the old tokens does not carry over. The rate is quote per base either way.
 	const choosePair = (id: string) => {
 		setBookId(id)
 		setAmount("")
 		setPickedFillChains(null)
+		setPickedSources(null)
 	}
 	const chooseSide = (next: OrderSide) => {
 		setSide(next)
 		setAmount("")
 		setPickedFillChains(null)
+		setPickedSources(null)
 	}
 
 	const submit = async () => {
@@ -210,9 +219,9 @@ export function CreateLimitOrderForm(props: {
 					<span className="field-label">Accepts swaps from</span>
 					<ChainMultiSelect
 						ariaLabel="Chains the order accepts swaps from"
-						options={chains.map((chain) => ({ value: chain, label: chainLabel(chain) }))}
+						options={sourceChains.map((chain) => ({ value: chain, label: chainLabel(chain) }))}
 						value={acceptedSources}
-						onValueChange={setAcceptedSources}
+						onValueChange={setPickedSources}
 					/>
 					{acceptedSources.length === 0 ? <p className="error">Pick at least one chain.</p> : null}
 				</div>
@@ -265,6 +274,15 @@ function payOutBalance(balances: BalanceSnapshot | undefined, chain: string, sym
  */
 function shownAsHeld(available: number | null | undefined): boolean {
 	return available !== null && available !== undefined && Math.round(available * 10_000) > 0
+}
+
+/**
+ * Whether the orderbook registers the token on the chain. A chain its registry does not list is
+ * not ruled out, so a registry that failed to load leaves the orderbook the last word.
+ */
+function registers(orderbookChains: OrderbookChain[], chain: string, symbol: string): boolean {
+	const listed = orderbookChains.find((entry) => entry.id === chain)
+	return !listed || listed.tokens.some((token) => token.symbol.toUpperCase() === symbol.toUpperCase())
 }
 
 /** The token as one chain's balances report it, or undefined when that chain does not carry it. */

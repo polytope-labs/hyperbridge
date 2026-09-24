@@ -6,6 +6,7 @@ import type {
 	LimitOrderFill,
 	LimitOrderStatus,
 	OrderbookBook,
+	OrderbookChain,
 	StoredBid,
 } from "../../types"
 
@@ -82,22 +83,25 @@ export function useLimitOrders(options: { status?: LimitOrderStatus | "" } = {})
 }
 
 /**
- * The books the orderbook lists, which are the only pairs an order can name.
+ * The books the orderbook lists, which are the only pairs an order can name, and the tokens it
+ * registers on each chain, which decide the source chains an order can accept.
  *
- * Read once when the form opens: books change when the orderbook is redeployed, not while an
- * operator is typing, and the create path refuses anything that is not one of them anyway.
+ * Read once when the form opens: both change when the orderbook is redeployed, not while an
+ * operator is typing, and the create path refuses anything they rule out anyway.
  */
 export function useOrderbookBooks() {
 	const [books, setBooks] = useState<OrderbookBook[]>([])
+	const [chains, setChains] = useState<OrderbookChain[]>([])
 	const [loading, setLoading] = useState(true)
 	const [error, setError] = useState<string>()
 
 	useEffect(() => {
 		let live = true
-		api.get<{ books: OrderbookBook[] }>("/api/orderbook/books")
+		api.get<{ books: OrderbookBook[]; chains?: OrderbookChain[] }>("/api/orderbook/books")
 			.then((body) => {
 				if (!live) return
 				setBooks(body.books)
+				setChains(body.chains ?? [])
 				setError(undefined)
 			})
 			.catch((err) => {
@@ -112,5 +116,5 @@ export function useOrderbookBooks() {
 		}
 	}, [])
 
-	return { books, loading, error }
+	return { books, chains, loading, error }
 }

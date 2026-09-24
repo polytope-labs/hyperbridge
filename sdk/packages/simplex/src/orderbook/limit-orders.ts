@@ -13,6 +13,7 @@ import { OrderbookClient, OrderbookRequestError } from "./client"
 import type {
 	Book,
 	CancelOrderResult,
+	ChainInfo,
 	HeartbeatResult,
 	OrderbookLimits,
 	PostedOrder,
@@ -346,14 +347,16 @@ export class LimitOrderService {
 	}
 
 	/**
-	 * The pairs an order can be written against, and the smallest payout each token may carry.
+	 * The pairs an order can be written against, the smallest payout each token may carry, and
+	 * the tokens the orderbook registers on each chain.
 	 *
 	 * The orderbook lists the books; `resolveBook` refuses a request naming anything else, so the
-	 * operator is offered exactly these and no combination of symbols they could not post.
+	 * operator is offered exactly these and no combination of symbols they could not post. The
+	 * chains do the same for the source chains an order can accept.
 	 */
-	async books(): Promise<{ books: Book[]; minOrderSizes: TokenMinSize[] }> {
+	async books(): Promise<{ books: Book[]; minOrderSizes: TokenMinSize[]; chains: ChainInfo[] }> {
 		const limits = await this.limits()
-		return { books: limits.books, minOrderSizes: limits.serverInfo.minOrderSizes }
+		return { books: limits.books, minOrderSizes: limits.serverInfo.minOrderSizes, chains: limits.chains ?? [] }
 	}
 
 	/**
@@ -443,14 +446,29 @@ export class LimitOrderService {
 
 		// The orderbook lists the chains it serves, so a typo in a source chain is
 		// worth catching here rather than as an `UNSUPPORTED_SOURCE_CHAIN` against a
-		// row already stored. It only answers half the question: whether the input
-		// symbol is registered on that chain is the server's own config.
+		// row already stored.
 		const served = limits.serverInfo.chains ?? []
 		if (served.length > 0) {
 			const unknown = [request.fillChain, ...sources].filter((chain) => !served.includes(chain))
 			if (unknown.length > 0) {
 				throw new LimitOrderValidationError(
 					`The orderbook does not serve ${unknown.join(", ")}. It serves: ${served.join(", ")}`,
+				)
+			}
+		}
+
+		// The other half of `UNSUPPORTED_SOURCE_CHAIN`: a swapper on a source chain pays the
+		// order's input there, so the orderbook must register it on that chain. Only chains its
+		// registry lists are judged. A same-asset order is never posted, so the rule is not its.
+		if (book.base !== book.quote) {
+			const input = normalizeSymbol(request.tokenIn)
+			const lacking = sources.filter((source) => {
+				const listed = limits.chains?.find((chain) => chain.id === source)
+				return listed && !listed.tokens.some((token) => normalizeSymbol(token.symbol) === input)
+			})
+			if (lacking.length > 0) {
+				throw new LimitOrderValidationError(
+					`The orderbook has no ${request.tokenIn} on ${lacking.join(", ")}, so swaps from there cannot pay this order`,
 				)
 			}
 		}

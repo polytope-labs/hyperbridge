@@ -21,7 +21,7 @@ import type {
 	LimitOrderService,
 	PostedLimitOrder,
 } from "@/orderbook/limit-orders"
-import type { Book, TokenMinSize } from "@/orderbook/types"
+import type { Book, ChainInfo, TokenMinSize } from "@/orderbook/types"
 import type { BalanceSnapshot } from "@/services/BalanceProvider"
 import type { Signer } from "@/services/wallet"
 
@@ -238,8 +238,8 @@ export class LimitOrderController {
 		return { order, fills, bids }
 	}
 
-	/** The pairs the orderbook lists, and the smallest payout each token may carry. */
-	books(): Promise<{ books: Book[]; minOrderSizes: TokenMinSize[] }> {
+	/** The pairs the orderbook lists, the smallest payout each token may carry, and its tokens per chain. */
+	books(): Promise<{ books: Book[]; minOrderSizes: TokenMinSize[]; chains: ChainInfo[] }> {
 		return this.service.books()
 	}
 

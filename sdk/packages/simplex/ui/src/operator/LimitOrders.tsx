@@ -31,8 +31,9 @@ interface LimitOrdersProps {
  */
 export function LimitOrders({ chains, chainLabels, balances }: LimitOrdersProps) {
 	const { orders, loading, error, create, cancel, withFills, reload } = useLimitOrders()
-	// Only the pairs the orderbook keeps: it refuses an order naming anything else.
-	const { books } = useOrderbookBooks()
+	// Only the pairs the orderbook keeps, and the chains it registers their tokens on: it refuses
+	// an order naming anything else.
+	const { books, chains: orderbookChains } = useOrderbookBooks()
 	const [creating, setCreating] = useState(false)
 	const [selected, setSelected] = useState<LimitOrder>()
 	const [detail, setDetail] = useState<LimitOrderFills>()
@@ -153,6 +154,7 @@ export function LimitOrders({ chains, chainLabels, balances }: LimitOrdersProps)
 			>
 				<CreateLimitOrderForm
 					books={books}
+					orderbookChains={orderbookChains}
 					chains={chainOptions.map((chain) => chain.stateMachineId)}
 					chainLabel={chainLabel}
 					balances={balances}

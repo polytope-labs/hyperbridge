@@ -11,3 +11,9 @@ The estimate now simulates the real order. The selection check it would then fai
 the user holds the session key, is already switched off in simulation: `buildStateOverride`
 rewrites params slot 5, which packs the call dispatcher with `solverSelection` in the byte above
 it, with that byte cleared. The live mainnet gateway was checked to hold exactly that layout.
+
+With the real order, the same-chain simulation got further and reverted inside USDC instead. The
+estimator faked the solver's token balances at `maxUint256 / 2`, which is exactly FiatTokenV2_2's
+cap of 2^255 - 1, and a same-chain fill then credits the solver the released input. The fake
+balances, deposit and allowances are now 2^128: far more than any real amount, and far below any
+cap.

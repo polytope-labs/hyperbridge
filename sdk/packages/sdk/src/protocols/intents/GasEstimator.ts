@@ -486,7 +486,10 @@ export class GasEstimator {
 	}> {
 		const { accountAddress, chain, outputAssets, spenderAddress, intentGatewayV2Address, entryPointAddress } =
 			params
-		const testValue = toHex(maxUint256 / 2n, { size: 32 }) as HexString
+		// Far more than any real balance, and far below any cap. USDC (FiatTokenV2_2) refuses a
+		// balance over 2^255 - 1, and a same-chain fill credits the solver the released input, so
+		// a value at that cap reverts the fill whenever the input is USDC.
+		const testValue = toHex(2n ** 128n, { size: 32 }) as HexString
 
 		const viemOverrides: {
 			address: HexString

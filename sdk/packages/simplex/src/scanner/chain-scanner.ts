@@ -45,6 +45,33 @@ const yieldToConsumers = () => new Promise<void>((resolve) => setImmediate(resol
 const STOP_DRAIN_TIMEOUT_MS = 5_000
 
 /**
+ * How long a pass may hold the mutex before the watchdog calls it a stall.
+ *
+ * The quorum budgets cap a pass at roughly 36s — one head read (1 attempt, 12s)
+ * plus one log read (2 attempts, 24s). Past 45s the pass is outside anything the
+ * budgets allow, so it is stuck somewhere they do not cover.
+ */
+const STALL_THRESHOLD_MS = 45_000
+
+/** How often the watchdog repeats itself while one pass stays stuck. */
+const STALL_REPORT_INTERVAL_MS = 60_000
+
+/**
+ * Where a scan pass can be waiting. Reported by the watchdog, which is the only
+ * reason it is tracked: a stalled pass logs nothing itself, so the phase is the
+ * only evidence of which await never settled.
+ */
+type ScanPhase = "head" | "logs" | "publish-orders" | "publish-fills"
+
+/** The in-flight pass the watchdog is timing. */
+interface InFlightPass {
+	phase: ScanPhase
+	startedAt: number
+	/** When the watchdog last spoke about this pass, or 0 if it never has. */
+	reportedAt: number
+}
+
+/**
  * One block-scan loop for one (chain, gateway, endpoint set), feeding any number
  * of fillers.
  *
@@ -70,6 +97,8 @@ export class ChainScanner {
 	private timer?: NodeJS.Timeout
 	private cursor: bigint | undefined
 	private stopped = false
+	/** Set while a scan pass holds the mutex, undefined between passes. */
+	private pass?: InFlightPass
 
 	constructor(
 		private readonly target: ScanTarget,
@@ -125,8 +154,12 @@ export class ChainScanner {
 
 		this.logger.info({ chainId: this.target.chainId }, "Block scanner started")
 		this.timer = setInterval(() => {
-			if (this.mutex.isLocked()) return
+			// A tick that finds the mutex held is the only outward sign of a pass
+			// that is taking too long, and on its own it is silent: a pass stuck for
+			// an hour looks exactly like a chain with nothing to scan.
+			if (this.mutex.isLocked()) return this.reportStall()
 			void this.mutex.runExclusive(async () => {
+				this.pass = { phase: "head", startedAt: Date.now(), reportedAt: 0 }
 				try {
 					await this.scan()
 				} catch (error) {
@@ -143,9 +176,71 @@ export class ChainScanner {
 						"Error in block scanner",
 					)
 					this.errorHandler(error)
+				} finally {
+					this.notePassEnd()
 				}
 			})
 		}, this.scanIntervalMs)
+	}
+
+	/**
+	 * Records which await the current pass is sitting on, for the watchdog.
+	 *
+	 * A no-op when no pass is registered — `scan()` is driven directly by tests
+	 * and by nothing else, so there is no watchdog to inform.
+	 */
+	private enter(phase: ScanPhase): void {
+		if (this.pass) this.pass.phase = phase
+	}
+
+	/**
+	 * Says that a pass has outlived the quorum budgets and names the phase it is
+	 * stuck in, then repeats every {@link STALL_REPORT_INTERVAL_MS} until it ends.
+	 *
+	 * Observation only: the pass is left alone. Aborting it would need a cancel
+	 * path through the quorum client that does not exist, and the cursor is safe
+	 * either way — a pass that never completes never advances it.
+	 */
+	private reportStall(): void {
+		const pass = this.pass
+		if (!pass) return
+
+		const now = Date.now()
+		const heldMs = now - pass.startedAt
+		if (heldMs < STALL_THRESHOLD_MS) return
+		if (pass.reportedAt !== 0 && now - pass.reportedAt < STALL_REPORT_INTERVAL_MS) return
+
+		pass.reportedAt = now
+		this.logger.warn(
+			{
+				chainId: this.target.chainId,
+				phase: pass.phase,
+				heldMs,
+				cursor: this.cursor?.toString(),
+				rpcUrls: this.target.rpcUrls,
+			},
+			"Block scan pass has outlived its budget — this chain is not being scanned",
+		)
+	}
+
+	/**
+	 * Closes out a pass, and says so if the watchdog complained about it — without
+	 * this the log shows a chain going quiet and never shows it coming back.
+	 */
+	private notePassEnd(): void {
+		const pass = this.pass
+		this.pass = undefined
+		if (!pass || pass.reportedAt === 0) return
+
+		this.logger.warn(
+			{
+				chainId: this.target.chainId,
+				phase: pass.phase,
+				heldMs: Date.now() - pass.startedAt,
+				cursor: this.cursor?.toString(),
+			},
+			"Block scan pass finished after outliving its budget — scanning has resumed",
+		)
 	}
 
 	/**
@@ -209,6 +304,7 @@ export class ChainScanner {
 			"Scanning blocks",
 		)
 
+		this.enter("logs")
 		let logs: Array<Record<string, unknown>>
 		try {
 			logs = await retryPromise(
@@ -246,6 +342,7 @@ export class ChainScanner {
 				{ chainId: this.target.chainId, fromBlock, toBlock, eventCount: placed.length },
 				"Found OrderPlaced events in block scan",
 			)
+			this.enter("publish-orders")
 			await this.publishOrders(placed as unknown as DecodedOrderPlacedLog[])
 		}
 
@@ -254,6 +351,7 @@ export class ChainScanner {
 				{ chainId: this.target.chainId, fromBlock, toBlock, eventCount: filled.length },
 				"Found OrderFilled events in block scan",
 			)
+			this.enter("publish-fills")
 			await this.publishFills(filled)
 		}
 

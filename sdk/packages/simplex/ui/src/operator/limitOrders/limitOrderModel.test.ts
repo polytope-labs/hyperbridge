@@ -57,6 +57,16 @@ describe("reading a limit order back", () => {
 		expect(describeRate(order())).toBe("1,500 CNGN per USDC")
 	})
 
+	it("rounds the rate, where an amount is cut", () => {
+		// Buying with 20,000 CNGN at 1374 takes in 20,000 ÷ 1374 USDC, rounded up, which
+		// divides back to a price 44e-18 short of 1374.
+		const typed = "1373999999999999999956"
+		expect(describeRate(order({ price: typed }))).toBe("1,374 CNGN per USDC")
+		expect(describeRate(order({ price: (1373n * ONE + ONE / 2n).toString() }))).toBe("1,373.5 CNGN per USDC")
+		// An amount is never shown as more than is there.
+		expect(fromScaled(typed)).toBe("1,373.999999")
+	})
+
 	it("counts what live bids are holding out of what is left", () => {
 		const held = order({ remaining: (1_000_000n * ONE).toString(), reserved: (400_000n * ONE).toString() })
 		expect(available(held)).toBe(600_000n * ONE)

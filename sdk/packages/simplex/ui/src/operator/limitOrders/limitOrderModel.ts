@@ -7,15 +7,18 @@ const SCALE = 10n ** 18n
  * A 1e18 figure as whole tokens, trimmed of trailing zeros.
  *
  * The operator states amounts in whole tokens and reads them back the same way:
- * what the orderbook normalises to is not their problem.
+ * what the orderbook normalises to is not their problem. Digits past `maxFraction`
+ * are cut by default, so an amount left is never overstated.
  */
-export function fromScaled(value: string, maxFraction = 6): string {
+export function fromScaled(value: string, maxFraction = 6, rounding: "down" | "nearest" = "down"): string {
 	let raw: bigint
 	try {
 		raw = BigInt(value)
 	} catch {
 		return value
 	}
+	// Half of the last digit shown, so the cut below lands on the nearest.
+	if (rounding === "nearest") raw += 10n ** BigInt(18 - maxFraction) / 2n
 	const whole = raw / SCALE
 	const fraction = (raw % SCALE)
 		.toString()
@@ -31,9 +34,12 @@ export function legs(order: Pick<LimitOrder, "side" | "base" | "quote">): { inpu
 	return order.side === "BID" ? { input: order.base, output: order.quote } : { input: order.quote, output: order.base }
 }
 
-/** "1,500 CNGN per USDC" — the rate as the operator stated it. */
+/**
+ * "1,500 CNGN per USDC" — the rate as the operator stated it. Rounded, not cut: the price is
+ * one amount divided by the other, so a rate typed as 1374 can be stored a few 1e-18 under it.
+ */
 export function describeRate(order: Pick<LimitOrder, "side" | "base" | "quote" | "price">): string {
-	return `${fromScaled(order.price)} ${order.quote} per ${order.base}`
+	return `${fromScaled(order.price, 6, "nearest")} ${order.quote} per ${order.base}`
 }
 
 /** How much of what the order promised is still available to a swapper. */

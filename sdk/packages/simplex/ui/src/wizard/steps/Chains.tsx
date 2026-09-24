@@ -132,10 +132,8 @@ export function StepChains({ state, setState }: StepProps) {
 			<div className="card">
 				<h2>Bundler key</h2>
 				<p className="hint">
-					One Alchemy API key configures the ERC-4337 bundler for every supported chain, which is the only
-					endpoint you have to bring. Reading the chain is already covered: each chain below starts with
-					several public RPC endpoints that are cross-checked against each other, so no single one has to be
-					reliable. Every field stays editable if you prefer your own providers (e.g. a Pimlico bundler).
+					One Alchemy API key sets up the bundler on every chain, and the RPC endpoints below are already
+					filled in.
 				</p>
 				<div className="chain-provider-controls">
 					<input
@@ -182,7 +180,7 @@ export function StepChains({ state, setState }: StepProps) {
 					<Collapsible.Content className="chain-collapsible-content">
 						<div className="chain-configuration-fields">
 							{chain.rpcUrls.map((url, index) => (
-								<label className="field" key={index}>
+								<label className="field chain-rpc-field" key={index}>
 									<span className="field-label">
 										{index === 0 ? "RPC endpoint" : `RPC endpoint ${index + 1}`}
 										{index === 0 ? <span className="field-required">Required</span> : null}

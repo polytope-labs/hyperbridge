@@ -77,7 +77,7 @@ export function Chains() {
 					<Collapsible.Content className="chain-collapsible-content">
 						<div className="chain-configuration-fields">
 							{chain.rpcUrls.map((url, index) => (
-								<label className="field" key={index}>
+								<label className="field chain-rpc-field" key={index}>
 									<span className="field-label">
 										{index === 0 ? "RPC endpoint" : "Backup RPC endpoint"}
 										{index === 0 ? <span className="field-required">Required</span> : null}

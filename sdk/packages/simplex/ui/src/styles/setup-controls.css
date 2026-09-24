@@ -234,6 +234,7 @@
 }
 
 .chain-configuration .field:first-child,
+.chain-rpc-field,
 .chain-backup-rpc,
 .chain-configuration-actions {
 	grid-column: 1 / -1;

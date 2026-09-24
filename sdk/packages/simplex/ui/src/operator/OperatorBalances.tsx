@@ -13,6 +13,27 @@ type ChainBalances = BalanceSnapshot["chains"][number]
 type AssetBalance = ChainBalances["assets"][number]
 type SnapshotStatus = BalanceSnapshot["status"]
 
+/** The network the balances were last narrowed to, kept across pages and reloads. */
+const NETWORK_KEY = "simplex.balances.network"
+
+function storedNetwork(): number | null {
+	try {
+		const chainId = Number(localStorage.getItem(NETWORK_KEY))
+		return Number.isInteger(chainId) && chainId > 0 ? chainId : null
+	} catch {
+		// Storage can be unavailable (private windows, locked-down webviews).
+		return null
+	}
+}
+
+function storeNetwork(chainId: number): void {
+	try {
+		localStorage.setItem(NETWORK_KEY, String(chainId))
+	} catch {
+		// Remembering is a convenience; the switcher works without it.
+	}
+}
+
 /**
  * Liquidity, one network at a time. A nine-chain config stacked every network's token grid
  * down one page, so the switcher narrows the cards to a single network. A token the network
@@ -23,8 +44,13 @@ export function OperatorBalances(props: { status: StatusOperator; balances: Bala
 	const chains = balances?.chains ?? []
 	const snapshot: SnapshotStatus = balances?.status ?? "loading"
 
-	const [picked, setPicked] = useState<number | null>(null)
+	// A remembered network that is no longer enabled falls back to the first, as before.
+	const [picked, setPicked] = useState<number | null>(storedNetwork)
 	const selected = chains.find((row) => row.chainId === picked) ?? chains[0]
+	const pick = (chainId: number) => {
+		setPicked(chainId)
+		storeNetwork(chainId)
+	}
 
 	const label = selected ? chainLabel(status, selected.chainId) : ""
 	// Known to be zero, not merely unread: a failed read is null and keeps its card, so a
@@ -43,7 +69,7 @@ export function OperatorBalances(props: { status: StatusOperator; balances: Bala
 						<div className="operator-network-switcher">
 							<AppSelect
 								value={String(selected.chainId)}
-								onValueChange={(value) => setPicked(Number(value))}
+								onValueChange={(value) => pick(Number(value))}
 								ariaLabel="Network to show balances for"
 								caption={`${chains.length} ${chains.length === 1 ? "network" : "networks"}`}
 								contentClassName="operator-network-menu"

@@ -212,6 +212,7 @@ With `optimistic: true` the result is typed as `QuoteIntentResult`. If you omit 
 - **Exact output:** the quote is for an input that delivers at least `amountOut`, rounded up to a whole raw unit of `tokenIn`. It can exceed the least such input by less than one raw unit of `tokenOut`'s worth.
 - **Cross-chain routes** only count orders whose solvers accept swaps from the source chain.
 - **Protocol fee:** the orderbook takes the IntentGateway protocol fee off every `amountOut` already, so do not deduct it again.
+- **Insufficient liquidity:** `quoteIntent` does not throw. It returns the orderbook's quote with `fillable: false`, and `maxFillableIn` says how much the route could fill. For an exact output, `amountIn` is then the input the SDK last tried. Check `fillable` before placing an order.
 
 #### Pessimistic quote (default)
 
@@ -240,7 +241,7 @@ console.log(quote.rate, quote.amountIn, quote.amountOut)
 | `rate` | The one price every order fills at, quote per one base token at 1e18, before the protocol fee |
 | `priceBucket` | The price bucket of the level that fills it |
 | `slippageBps` | The destination's protocol fee in basis points, already taken off `amountOut`: the least slippage from `rate` to allow for |
-| `fillable` | Whether the route can fill `amountIn` |
+| `fillable` | Whether the route can fill `amountIn`. When `false`, `amountOut` is `0` and `rate` and `priceBucket` are `null` |
 | `maxFillableIn` | The largest `amountIn` this quote could fill: any one level at its worst price, or the whole route at its worst |
 
 #### Optimistic quote
@@ -258,7 +259,7 @@ const amountOut = quote.legs.reduce((total, leg) => total + leg.amountOut, 0n)
 |-------|-------------|
 | `route`, `side`, `amountIn` | As for the pessimistic quote |
 | `slippageBps` | The destination's protocol fee in basis points, already taken off every leg's `amountOut`: the least slippage from each `orderRate` to allow for |
-| `fillable` | Whether the route can fill `amountIn` |
+| `fillable` | Whether the route can fill `amountIn`. When `false`, `legs` is empty |
 | `maxFillableIn` | The largest `amountIn` the route's orders could take together, in raw source-token units |
 | `legs` | The orders used, best price first |
 
@@ -272,7 +273,6 @@ Each leg has:
 | `amountOut` | The `tokenOut` this leg delivers after the protocol fee, in raw destination-token units |
 
 **Errors:**
-- `InsufficientOrderbookLiquidityError` when the route cannot fill the amount. Its `maxFillableIn` holds the largest input it can fill.
 - `OrderbookQuoteNotConvergedError` when an exact-output quote does not settle on an input within 16 quotes.
 - `OrderbookRequestError` when the orderbook cannot be reached, or trades no book for the pair.
 - `UnsupportedLiquidityAssetError` or `UnsupportedLiquidityChainError` when a token or chain is not in the SDK's configuration.

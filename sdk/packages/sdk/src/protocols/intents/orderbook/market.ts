@@ -15,7 +15,6 @@ import {
 import {
 	type AvailableLiquidity,
 	type BuyAndSellRates,
-	InsufficientOrderbookLiquidityError,
 	OrderbookQuoteNotConvergedError,
 	type PessimisticQuoteIntentResult,
 	type QuoteIntentParams,
@@ -141,8 +140,9 @@ export class OrderbookMarket {
 	}
 
 	/**
-	 * The fillable quote for an exact input, or for the input found to deliver an
-	 * exact output, with the assets it trades.
+	 * The orderbook's quote for an exact input, or for the input found to deliver
+	 * an exact output, with the assets it trades. A route that cannot fill the
+	 * trade answers with an unfillable quote rather than an error.
 	 */
 	private async priceIntent<Q>(
 		params: QuoteIntentParams,
@@ -158,10 +158,8 @@ export class OrderbookMarket {
 
 		if (params.amountIn !== undefined) {
 			const quote = await price(route, toOrderbookAmount(params.amountIn, tokenIn.decimals))
-			const { fillable, amountOut, maxFillableIn } = totals(quote)
-			if (!fillable || fromOrderbookAmount(amountOut, tokenOut.decimals) === 0n) {
-				throw this.insufficient(route, maxFillableIn, tokenIn)
-			}
+			// Checks the quote is well formed; an unfillable one is still the answer.
+			totals(quote)
 			return { quote, tokenIn, tokenOut }
 		}
 
@@ -237,6 +235,10 @@ export class OrderbookMarket {
 	 * filled better than its worst rate and re-pricing the rest of `targetOut` at
 	 * the input-to-output ratio that part filled at, until a quote delivers it.
 	 * That ratio is the orderbook's own, with the protocol fee already taken off.
+	 *
+	 * An output the route cannot deliver is answered by quoting an input past its
+	 * `maxFillableIn`, which the orderbook serves as unfillable: the smallest such
+	 * input guessed from the best rate, or one raw unit when no order serves it.
 	 */
 	private async quoteExactOutput<Q>(
 		route: OrderbookRoute,
@@ -246,17 +248,18 @@ export class OrderbookMarket {
 		totals: (quote: Q) => QuoteTotals,
 	): Promise<Q> {
 		const liquidity = await this.orderbook().routeLiquidity(route)
-		if (liquidity.bestRate === null) throw this.insufficient(route, 0n, tokenIn)
-
 		const inputUnit = toOrderbookAmount(1n, tokenIn.decimals)
-		let amountIn = roundUpTo(requiredInput(liquidity.side, targetOut, liquidity.bestRate), inputUnit)
+		let amountIn =
+			liquidity.bestRate === null
+				? inputUnit
+				: roundUpTo(requiredInput(liquidity.side, targetOut, liquidity.bestRate), inputUnit)
 		let lastAmountIn = amountIn
 		for (let round = 0; round < MAX_EXACT_OUTPUT_ROUNDS; round++) {
-			// Past the most the route can fill, no input delivers the output.
-			if (amountIn > liquidity.maxFillableIn) throw this.insufficient(route, liquidity.maxFillableIn, tokenIn)
 			const served = await price(route, amountIn)
 			const quote = totals(served)
 			if (quote.fillable && quote.amountOut >= targetOut) return served
+			// Past the most the route can fill, no input delivers the output.
+			if (!quote.fillable && amountIn > liquidity.maxFillableIn) return served
 			lastAmountIn = amountIn
 			const betterIn = quote.amountIn - quote.worstIn
 			const betterOut = quote.amountOut - quote.worstOut
@@ -271,14 +274,6 @@ export class OrderbookMarket {
 			MAX_EXACT_OUTPUT_ROUNDS,
 			fromOrderbookAmount(lastAmountIn, tokenIn.decimals),
 		)
-	}
-
-	private insufficient(
-		route: OrderbookRoute,
-		maxFillableIn: bigint,
-		tokenIn: ResolvedAsset,
-	): InsufficientOrderbookLiquidityError {
-		return new InsufficientOrderbookLiquidityError(route, fromOrderbookAmount(maxFillableIn, tokenIn.decimals))
 	}
 
 	private assetByAddress(chain: string, address: HexString): ResolvedAsset {

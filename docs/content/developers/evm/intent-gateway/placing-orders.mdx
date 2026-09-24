@@ -211,6 +211,8 @@ const quote = await gateway.quoteIntent({
   tokenOut: cngnDestination,
   amountIn: parseUnits("100", 6), // 100 USDC
 })
+// A route without the depth answers with fillable: false rather than throwing.
+if (!quote.fillable) throw new Error(`The orderbook can fill at most ${quote.maxFillableIn} USDC units`)
 
 const order: Order = {
   // The gateway stamps user, source, and nonce; the SDK creates a one-time session key.

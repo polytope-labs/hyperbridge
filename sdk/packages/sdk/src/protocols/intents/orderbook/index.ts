@@ -18,7 +18,6 @@ export {
 } from "./client"
 export { OrderbookMarket } from "./market"
 export {
-	InsufficientOrderbookLiquidityError,
 	OrderbookQuoteNotConvergedError,
 	UnsupportedLiquidityAssetError,
 	UnsupportedLiquidityChainError,

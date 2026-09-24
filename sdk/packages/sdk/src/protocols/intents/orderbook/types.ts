@@ -53,6 +53,10 @@ export interface QuoteIntentResult {
 	amountIn: bigint
 	/** The destination's protocol fee in basis points, already taken off every leg's `amountOut`. */
 	slippageBps: number
+	/**
+	 * False when the route cannot fill the trade: `legs` is empty and `maxFillableIn` says how much
+	 * it could. For an exact output, `amountIn` is then the input the SDK last tried.
+	 */
 	fillable: boolean
 	/** The largest `amountIn` the route's orders could take together, each at its own price. */
 	maxFillableIn: bigint
@@ -79,6 +83,11 @@ export interface PessimisticQuoteIntentResult {
 	priceBucket: bigint | null
 	/** The destination's protocol fee in basis points, already taken off `amountOut`. */
 	slippageBps: number
+	/**
+	 * False when the route cannot fill the trade: `amountOut` is 0, `rate` and `priceBucket` are
+	 * null, and `maxFillableIn` says how much it could. For an exact output, `amountIn` is then the
+	 * input the SDK last tried.
+	 */
 	fillable: boolean
 	/** The largest `amountIn` this quote could fill: any one level at its worst price, or the whole route at its worst. */
 	maxFillableIn: bigint
@@ -163,19 +172,5 @@ export class OrderbookQuoteNotConvergedError extends Error {
 			`No input for ${route.tokenIn} -> ${route.tokenOut} on ${route.sourceChain} -> ${route.destinationChain} delivered the requested output within ${rounds} quotes; the last tried ${lastAmountIn} raw units`,
 		)
 		this.name = "OrderbookQuoteNotConvergedError"
-	}
-}
-
-/** The orderbook cannot fill the requested amount on this route. */
-export class InsufficientOrderbookLiquidityError extends Error {
-	constructor(
-		readonly route: { tokenIn: string; tokenOut: string; sourceChain: string; destinationChain: string },
-		/** The largest `amountIn` the route can fill, in the source token's raw units. */
-		readonly maxFillableIn: bigint,
-	) {
-		super(
-			`The HyperFX orderbook cannot fill ${route.tokenIn} -> ${route.tokenOut} on ${route.sourceChain} -> ${route.destinationChain}; max fillable input is ${maxFillableIn} raw units`,
-		)
-		this.name = "InsufficientOrderbookLiquidityError"
 	}
 }

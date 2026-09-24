@@ -1,7 +1,9 @@
 import * as Collapsible from "@radix-ui/react-collapsible"
+import externalLinks from "@/config/external-links.json"
 import { ChainCollapseTrigger, isHeaderControl, useChainPanels } from "../components/ChainPanel"
 import { ChainLogo } from "../components/ChainLogo"
 import { EndpointVerificationStatus } from "../components/EndpointVerificationStatus"
+import { ExternalLinkIcon } from "../components/InterfaceIcons"
 import { useChainSettings } from "./chains/useChainSettings"
 
 export function Chains() {
@@ -29,7 +31,12 @@ export function Chains() {
 			<div className="card">
 				<h2>Provider key</h2>
 				<p className="hint">
-					Use one Alchemy key to fill supported RPC and bundler endpoints, or enter providers manually below.
+					Use one{" "}
+					<a className="hint-link" href={externalLinks.alchemyDashboard} target="_blank" rel="noreferrer">
+						Alchemy key
+						<ExternalLinkIcon aria-hidden="true" />
+					</a>{" "}
+					to fill supported RPC and bundler endpoints, or enter providers manually below.
 					Premium endpoints with archive access are recommended for reliable event scanning.
 				</p>
 				<div className="chain-provider-controls">

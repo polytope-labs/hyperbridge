@@ -620,3 +620,24 @@
 .chain-collapse-trigger[data-state="open"] svg {
 	transform: rotate(180deg);
 }
+
+/* A link inside hint text, e.g. to where a provider key is issued. The hint is muted, so the
+   link is set in the full text colour with a quiet underline to read as one. */
+.hint-link {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.2rem;
+	color: var(--text);
+	text-decoration: underline;
+	text-decoration-color: var(--border-strong);
+	text-underline-offset: 0.2em;
+}
+
+.hint-link:hover {
+	text-decoration-color: currentColor;
+}
+
+.hint-link svg {
+	width: 0.85em;
+	height: 0.85em;
+}

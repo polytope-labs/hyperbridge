@@ -1,10 +1,12 @@
 import { useState } from "react"
 import * as Collapsible from "@radix-ui/react-collapsible"
 import { toast } from "sonner"
+import externalLinks from "@/config/external-links.json"
 import { api } from "../../api"
 import { ChainCollapseTrigger, isHeaderControl, useChainPanels } from "../../components/ChainPanel"
 import { ChainLogo } from "../../components/ChainLogo"
 import { EndpointVerificationStatus } from "../../components/EndpointVerificationStatus"
+import { ExternalLinkIcon } from "../../components/InterfaceIcons"
 import { loadOrderbook } from "../orderbook"
 import { patchChain, type ChainDraft } from "../state"
 import type { StepProps } from "../Wizard"
@@ -135,8 +137,12 @@ export function StepChains({ state, setState }: StepProps) {
 			<div className="card">
 				<h2>Bundler key</h2>
 				<p className="hint">
-					One Alchemy API key sets up the bundler on every chain, and the RPC endpoints below are already
-					filled in.
+					One{" "}
+					<a className="hint-link" href={externalLinks.alchemyDashboard} target="_blank" rel="noreferrer">
+						Alchemy API key
+						<ExternalLinkIcon aria-hidden="true" />
+					</a>{" "}
+					sets up the bundler on every chain, and the RPC endpoints below are already filled in.
 				</p>
 				<div className="chain-provider-controls">
 					<input

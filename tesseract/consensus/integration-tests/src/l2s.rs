@@ -305,6 +305,14 @@ fn game_type_config_to_value(config: &GameTypeConfig) -> Value {
 			Value::unnamed_variant("AggregateVerifier", Vec::<Value>::new()),
 		DisputeGameImpl::SuperFaultDisputeGame =>
 			Value::unnamed_variant("SuperFaultDisputeGame", Vec::<Value>::new()),
+		DisputeGameImpl::SuperPermissionedDisputeGame { anchor_state_registry } =>
+			Value::named_variant(
+				"SuperPermissionedDisputeGame",
+				vec![(
+					"anchor_state_registry",
+					Value::from_bytes(anchor_state_registry.0.to_vec()),
+				)],
+			),
 	};
 	Value::named_composite(vec![
 		("game_type", value!(config.game_type)),

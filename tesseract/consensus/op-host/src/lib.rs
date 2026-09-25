@@ -17,8 +17,8 @@ use ismp::{consensus::ConsensusStateId, host::StateMachine};
 use op_verifier::{
 	calculate_output_root, get_game_uuid, parse_super_output, DisputeGameImpl, GameTypeConfig,
 	OptimismDisputeGameProof, OptimismPayloadProof, AGGREGATE_VERIFIER_COUNTERED_BY_SLOT,
-	DISPUTE_GAMES_SLOT, FAULT_DISPUTE_CLAIM_DATA_SLOT, GAME_IMPLS_SLOT, L2_OUTPUTS_SLOT,
-	SUPER_FAULT_DISPUTE_CLAIM_DATA_SLOT,
+	ANCHOR_STATE_REGISTRY_BLACKLIST_SLOT, DISPUTE_GAMES_SLOT, FAULT_DISPUTE_CLAIM_DATA_SLOT,
+	GAME_IMPLS_SLOT, L2_OUTPUTS_SLOT, SUPER_FAULT_DISPUTE_CLAIM_DATA_SLOT,
 };
 use primitive_types::{H160, H256, U256};
 use reqwest::Client;
@@ -155,26 +155,51 @@ pub fn game_is_challenged(kind: &DisputeGameImpl, slot_value: alloy::primitives:
 		// slot differs.
 		DisputeGameImpl::FaultDisputeGame | DisputeGameImpl::SuperFaultDisputeGame =>
 			slot_value != alloy::primitives::U256::from(1),
-		// `counteredByIntermediateRootIndexPlusOne == 0` iff unchallenged.
-		DisputeGameImpl::AggregateVerifier => !slot_value.is_zero(),
+		// `counteredByIntermediateRootIndexPlusOne` for the aggregate verifier, and the registry's
+		// blacklist entry for a permissioned super game. Both stand while the slot reads zero.
+		DisputeGameImpl::AggregateVerifier |
+		DisputeGameImpl::SuperPermissionedDisputeGame { .. } => !slot_value.is_zero(),
 	}
 }
 
-/// The storage slot(s) to prove on the game proxy to establish "not challenged". Returned as
-/// `B256` keys for `eth_getProof`. Empty for `OPSuccinct` games, which have no challenge state.
-pub fn challenge_slot_keys(kind: &DisputeGameImpl) -> Vec<B256> {
-	let slot = match kind {
-		DisputeGameImpl::OPSuccinct => return Vec::new(),
-		// `claimData.length` lives directly in the array's declaration slot (dynamic arrays store
-		// their element count in the slot itself).
-		DisputeGameImpl::FaultDisputeGame => FAULT_DISPUTE_CLAIM_DATA_SLOT,
-		DisputeGameImpl::SuperFaultDisputeGame => SUPER_FAULT_DISPUTE_CLAIM_DATA_SLOT,
-		DisputeGameImpl::AggregateVerifier => AGGREGATE_VERIFIER_COUNTERED_BY_SLOT,
-	};
+/// The account holding the state that decides whether `proxy` still stands. That is the game
+/// itself for every kind except a permissioned super game, which keeps none and is retired
+/// through the registry instead.
+pub fn challenge_account(kind: &DisputeGameImpl, proxy: Address) -> Address {
+	match kind {
+		DisputeGameImpl::SuperPermissionedDisputeGame { anchor_state_registry } =>
+			Address::from_slice(&anchor_state_registry.0),
+		_ => proxy,
+	}
+}
 
+/// The `eth_getProof` storage key of a value declared directly at `slot`.
+fn slot_key(slot: u64) -> B256 {
 	let mut key = [0u8; 32];
 	key[24..].copy_from_slice(&slot.to_be_bytes());
-	vec![B256::from_slice(&key)]
+	B256::from_slice(&key)
+}
+
+/// The storage slot(s) to prove on [`challenge_account`] to establish "not challenged". Returned
+/// as `B256` keys for `eth_getProof`. Empty for `OPSuccinct` games, which have no challenge state.
+pub fn challenge_slot_keys(kind: &DisputeGameImpl, proxy: Address) -> Vec<B256> {
+	let key = match kind {
+		DisputeGameImpl::OPSuccinct => return Vec::new(),
+		// The registry keys its blacklist by game address, so this one is a mapping lookup
+		// rather than a bare slot.
+		DisputeGameImpl::SuperPermissionedDisputeGame { .. } => {
+			let mut key = vec![0u8; 12];
+			key.extend_from_slice(proxy.as_slice());
+			B256::from_slice(&derive_map_key(key, ANCHOR_STATE_REGISTRY_BLACKLIST_SLOT).0)
+		},
+		// `claimData.length` lives directly in the array's declaration slot (dynamic arrays store
+		// their element count in the slot itself).
+		DisputeGameImpl::FaultDisputeGame => slot_key(FAULT_DISPUTE_CLAIM_DATA_SLOT),
+		DisputeGameImpl::SuperFaultDisputeGame => slot_key(SUPER_FAULT_DISPUTE_CLAIM_DATA_SLOT),
+		DisputeGameImpl::AggregateVerifier => slot_key(AGGREGATE_VERIFIER_COUNTERED_BY_SLOT),
+	};
+
+	vec![key]
 }
 
 /// Fetch the storage root of `addr` at `block` by racing `eth_getProof` and `eth_getAccount`
@@ -429,23 +454,22 @@ impl OpHost {
 			.filter(|a| game_type_configs.iter().any(|c| c.game_type == a.gameType))
 			.collect();
 
-		// Drop events whose game has already been challenged — they will always fail
-		// verification downstream, so there's no point carrying them further. Reads the proxy's
-		// "not challenged" storage slot directly via `eth_getStorageAt` (cheaper than
-		// `eth_getProof`, which `fetch_dispute_game_payload` does anyway for payloads we keep).
+		// Drop events whose game has already been challenged, since they would fail verification
+		// downstream anyway. Reads the deciding slot directly via `eth_getStorageAt`, cheaper than
+		// the `eth_getProof` that `fetch_dispute_game_payload` does for payloads we keep.
 		let mut events = Vec::with_capacity(candidates.len());
 		for event in candidates {
 			let Some(config) = game_type_configs.iter().find(|c| c.game_type == event.gameType)
 			else {
 				continue;
 			};
-			let challenged = match challenge_slot_keys(&config.kind).first() {
+			let challenged = match challenge_slot_keys(&config.kind, event.disputeProxy).first() {
 				None => false,
 				Some(slot) => {
 					let value = self
 						.beacon_execution_client
 						.get_storage_at(
-							event.disputeProxy,
+							challenge_account(&config.kind, event.disputeProxy),
 							alloy::primitives::U256::from_be_slice(slot.as_slice()),
 						)
 						.block_id(to.into())
@@ -513,7 +537,8 @@ impl OpHost {
 			// against the chain to the last block at or before it. Decoding here avoids depending
 			// on a top-level `l2SequenceNumber()` getter that not every implementation exposes.
 			let l2_block_num = match config.kind {
-				DisputeGameImpl::SuperFaultDisputeGame => {
+				DisputeGameImpl::SuperFaultDisputeGame |
+				DisputeGameImpl::SuperPermissionedDisputeGame { .. } => {
 					let super_output = match parse_super_output(&extra_data) {
 						Ok(v) => v,
 						Err(e) => {
@@ -605,11 +630,12 @@ impl OpHost {
 			let game_impl_proof =
 				game_impl_storage.proof.into_iter().map(|node| node.to_vec()).collect();
 
-			// Account + storage proof for the proxy's "not challenged" slot.
-			let challenge_slots = challenge_slot_keys(&config.kind);
+			// Account and storage proof for whichever account decides this game. For a
+			// permissioned super game that is the registry, not the proxy.
+			let challenge_slots = challenge_slot_keys(&config.kind, proxy_addr);
 			let proxy_proof = match self
 				.beacon_execution_client
-				.get_proof(proxy_addr, challenge_slots.clone())
+				.get_proof(challenge_account(&config.kind, proxy_addr), challenge_slots.clone())
 				.block_id(at.into())
 				.await
 			{
@@ -703,7 +729,8 @@ impl OpHost {
 			// the whole super output, so check our chain's entry inside it instead, which is also
 			// what catches a block resolved from the wrong timestamp.
 			let claims_our_output = match config.kind {
-				DisputeGameImpl::SuperFaultDisputeGame => {
+				DisputeGameImpl::SuperFaultDisputeGame |
+				DisputeGameImpl::SuperPermissionedDisputeGame { .. } => {
 					let chain_id = match self.state_machine {
 						StateMachine::Evm(id) => id,
 						other => {

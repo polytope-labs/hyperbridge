@@ -209,7 +209,7 @@ async fn test_base_sepolia_latest_and_verify() {
 		},
 		GameTypeConfig {
 			game_type: 621,
-			expected_impl: H160::from(hex!("c45dC8a279b2fDB7efEF72044e53514eD1bc2c08")),
+			expected_impl: H160::from(hex!("d702aaE6221f36Dfe7e8EBC4315D64344A9dB4CB")),
 			kind: DisputeGameImpl::AggregateVerifier,
 		},
 	];
@@ -405,6 +405,41 @@ async fn test_super_fault_dispute_game_verification() {
 		game_type_configs,
 	)
 	.await;
+}
+
+/// Soneium mainnet, game type 5 (`SUPER_PERMISSIONED`). The game resolves for the defender as
+/// soon as it is created and keeps no claim data, so what stands in for the "not challenged"
+/// check is the `AnchorStateRegistry.disputeGameBlacklist` entry for its proxy. Requires
+/// `MAINNET_RPC_URL` (L1, archive, since the proofs are read at the creating block) and
+/// `SONEIUM_RPC_URL` (L2).
+#[tokio::test]
+#[ignore]
+async fn test_super_permissioned_dispute_game_verification() {
+	dotenv::dotenv().ok();
+	let l1_url = std::env::var("MAINNET_RPC_URL")
+		.expect("MAINNET_RPC_URL must be set to an Ethereum mainnet RPC endpoint");
+	let l2_url = std::env::var("SONEIUM_RPC_URL")
+		.expect("SONEIUM_RPC_URL must be set to a Soneium mainnet RPC endpoint");
+
+	let event = DisputeGameCreated {
+		disputeProxy: Address::from_slice(&hex!("bf81861e0533818f95d27d71252ec7885e9000f8")),
+		gameType: 5,
+		rootClaim: B256::from(hex!(
+			"5c0f2b49f727c5309fdc7c895187cc2acf6c9775d23a6dcccf48191a22124f1d"
+		)),
+	};
+	let factory_addr = H160::from(hex!("512a3d2c7a43bd9261d2b8e8c9c70d4bd4d503c0"));
+	let game_type_configs = vec![GameTypeConfig {
+		game_type: 5,
+		expected_impl: H160::from(hex!("5c3eb47cb0174aea522a2a9ae79487139a53d691")),
+		kind: DisputeGameImpl::SuperPermissionedDisputeGame {
+			anchor_state_registry: H160::from(hex!("4890928941e62e273da359374b105f803329f473")),
+		},
+	}];
+
+	// Ethereum mainnet chain id = 1, Soneium = 1868.
+	run_dispute_game_verification(l1_url, l2_url, 1, 1868, factory_addr, event, game_type_configs)
+		.await;
 }
 
 /// Walks the relayer's own path, `latest_dispute_games` then `fetch_dispute_game_payload` then

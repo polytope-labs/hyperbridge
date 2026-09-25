@@ -70,6 +70,11 @@ pub const AGGREGATE_VERIFIER_COUNTERED_BY_SLOT: u64 = 5;
 /// `l2BlockNumberChallenger` and `claimData` lands one slot earlier than in `FaultDisputeGame`.
 pub const SUPER_FAULT_DISPUTE_CLAIM_DATA_SLOT: u64 = 1;
 
+/// Slot of `disputeGameBlacklist` in the `AnchorStateRegistry`, a `mapping(IDisputeGame => bool)`.
+/// A permissioned super game carries no challenge state, so this mapping is the only thing that
+/// can retire one.
+pub const ANCHOR_STATE_REGISTRY_BLACKLIST_SLOT: u64 = 5;
+
 /// Leading version byte of a V1 super output preimage.
 pub const SUPER_OUTPUT_VERSION_V1: u8 = 1;
 
@@ -97,6 +102,16 @@ pub enum DisputeGameImpl {
 	/// Optimism's `SuperFaultDisputeGame`. The root claim is a super root over a dependency set
 	/// rather than a bare output root, and `claimData` sits at slot 1.
 	SuperFaultDisputeGame,
+	/// Optimism's `SuperPermissionedDisputeGame`. It resolves in favour of the defender the moment
+	/// it is created and holds no challenge state of its own, so there is nothing on the proxy to
+	/// read. A proposal is instead invalidated by blacklisting it in the `AnchorStateRegistry`,
+	/// which is where this kind looks.
+	SuperPermissionedDisputeGame {
+		/// The `AnchorStateRegistry` whose `disputeGameBlacklist` decides whether this game still
+		/// counts. Carried per game type so governance sets it alongside the implementation, and
+		/// so it is never taken from the proof.
+		anchor_state_registry: H160,
+	},
 }
 
 /// Per-game-type verification configuration. Binds a `gameType` to its expected implementation
@@ -297,10 +312,13 @@ pub struct OptimismDisputeGameProof {
 	/// Storage proof against the DisputeFactory for `gameImpls[game_type]`. Used to bind the
 	/// proxy's storage layout to a known implementation.
 	pub game_impl_proof: Vec<Vec<u8>>,
-	/// Account proof for the dispute-game proxy in the ethereum world trie.
+	/// Account proof, in the ethereum world trie, for whichever account holds the state that
+	/// decides this game. That is the dispute game proxy for every kind but
+	/// `SuperPermissionedDisputeGame`, which keeps none and is decided by its anchor state
+	/// registry instead.
 	pub proxy_account_proof: Vec<Vec<u8>>,
-	/// Storage proof against the proxy for the "not challenged" slot. Empty for `OPSuccinct`
-	/// games, which have no challenge mechanism.
+	/// Storage proof for the "not challenged" slot against the account above. Empty for
+	/// `OPSuccinct` games, which have no challenge mechanism.
 	pub challenge_proof: Vec<Vec<u8>>,
 	/// Dispute game proxy address
 	pub proxy: H160,
@@ -376,7 +394,10 @@ pub fn verify_optimism_dispute_game_proof<H: Keccak256 + Send + Sync>(
 	// from the header has to be the one that super output carries for this chain. That membership
 	// check is what ties the header we are about to report back to the registered claim.
 	let root_claim = match game_config.kind {
-		DisputeGameImpl::SuperFaultDisputeGame => {
+		// Both super kinds commit to a super output rather than a bare output root, and both
+		// carry that preimage in `extra_data`.
+		DisputeGameImpl::SuperFaultDisputeGame |
+		DisputeGameImpl::SuperPermissionedDisputeGame { .. } => {
 			let chain_id = match state_machine {
 				StateMachine::Evm(id) => id,
 				other => Err(Error::UnsupportedStateMachine(other))?,
@@ -519,6 +540,27 @@ fn claim_data_len<H: Keccak256 + Send + Sync>(
 	Ok(U256::from_big_endian(&raw))
 }
 
+/// Whether a storage slot proved against `storage_root` reads as zero. An absent key counts as
+/// zero, since a mapping entry that was never written leaves no leaf in the trie at all.
+fn storage_slot_is_zero<H: Keccak256 + Send + Sync>(
+	storage_root: H256,
+	trie_path: H256,
+	proof: Vec<Vec<u8>>,
+) -> Result<bool, Error> {
+	let Some(value) = get_value_from_proof::<H>(trie_path.0.to_vec(), storage_root, proof)? else {
+		return Ok(true);
+	};
+	let raw = <alloy_primitives::Bytes as Decodable>::decode(&mut &*value)
+		.map_err(|_| Error::DecodeStorageValue(format!("{:?}", value)))?
+		.0
+		.to_vec();
+	if raw.len() > 32 {
+		Err(Error::StorageValueTooLong)?
+	}
+	// RLP strips the leading zeros, so anything left over that is non-zero means the slot is set.
+	Ok(raw.iter().all(|byte| *byte == 0))
+}
+
 /// Verifies that the dispute game at `proxy_address` has not been challenged. The check varies
 /// by implementation kind. For `OPSuccinct`, no challenge mechanism exists so the proof fields
 /// are not consulted.
@@ -535,19 +577,22 @@ fn verify_not_challenged<H: Keccak256 + Send + Sync>(
 		return Ok(());
 	}
 
-	let proxy_storage_root =
-		get_contract_account::<H>(proxy_account_proof, &proxy_address.0, root)?
-			.storage_root
-			.0
-			.into();
+	// For every other kind the deciding state lives on the game proxy. A permissioned super game
+	// keeps none, so the account to prove is the registry that can blacklist it instead.
+	let account = match kind {
+		DisputeGameImpl::SuperPermissionedDisputeGame { anchor_state_registry } =>
+			*anchor_state_registry,
+		_ => proxy_address,
+	};
+	let storage_root = get_contract_account::<H>(proxy_account_proof, &account.0, root)?
+		.storage_root
+		.0
+		.into();
 
 	match kind {
 		DisputeGameImpl::FaultDisputeGame => {
-			if claim_data_len::<H>(
-				proxy_storage_root,
-				challenge_proof,
-				FAULT_DISPUTE_CLAIM_DATA_SLOT,
-			)? != U256::one()
+			if claim_data_len::<H>(storage_root, challenge_proof, FAULT_DISPUTE_CLAIM_DATA_SLOT)? !=
+				U256::one()
 			{
 				Err(Error::FaultDisputeGameChallenged)?
 			}
@@ -555,7 +600,7 @@ fn verify_not_challenged<H: Keccak256 + Send + Sync>(
 		},
 		DisputeGameImpl::SuperFaultDisputeGame => {
 			if claim_data_len::<H>(
-				proxy_storage_root,
+				storage_root,
 				challenge_proof,
 				SUPER_FAULT_DISPUTE_CLAIM_DATA_SLOT,
 			)? != U256::one()
@@ -565,39 +610,29 @@ fn verify_not_challenged<H: Keccak256 + Send + Sync>(
 			Ok(())
 		},
 		DisputeGameImpl::AggregateVerifier => {
-			// `counteredByIntermediateRootIndexPlusOne` is a uint256 at a fixed slot.
-			// Unchallenged <=> value is zero, which in the storage trie means either absent or
-			// encoded as zero. `get_value_from_proof` returns `None` for absent keys.
-			//
-			// The MPT trie path for a direct storage slot is `keccak256(slot)`.
+			// `counteredByIntermediateRootIndexPlusOne` is a uint256 at a fixed slot, zero while
+			// the game stands. The MPT trie path for a direct storage slot is `keccak256(slot)`.
 			let storage_key =
 				H256(U256::from(AGGREGATE_VERIFIER_COUNTERED_BY_SLOT).to_big_endian());
 			let trie_path = H::keccak256(&storage_key.0);
-			let value = get_value_from_proof::<H>(
-				trie_path.0.to_vec(),
-				proxy_storage_root,
-				challenge_proof,
-			)?;
-			match value {
-				None => Ok(()),
-				Some(v) => {
-					let raw = <alloy_primitives::Bytes as Decodable>::decode(&mut &*v)
-						.map_err(|_| Error::DecodeCounteredBy(format!("{:?}", v)))?
-						.0
-						.to_vec();
-					if raw.len() > 32 {
-						Err(Error::CounteredByTooLong)?
-					}
-					// RLP strips leading zeros from the stored uint256. Compare against a slice
-					// of zeros of the same length: any non-zero byte means the value is non-zero
-					// and the game has been challenged.
-					const ZERO_WORD: [u8; 32] = [0u8; 32];
-					if raw.as_slice() != &ZERO_WORD[..raw.len()] {
-						Err(Error::AggregateVerifierChallenged)?
-					}
-					Ok(())
-				},
+			if !storage_slot_is_zero::<H>(storage_root, trie_path, challenge_proof)? {
+				Err(Error::AggregateVerifierChallenged)?
 			}
+			Ok(())
+		},
+		DisputeGameImpl::SuperPermissionedDisputeGame { .. } => {
+			// The game resolved in favour of the defender the moment it was created, so the only
+			// thing that can retire it is the registry blacklisting its proxy. That mapping is
+			// keyed by the game address, and an entry that was never written reads as zero.
+			let trie_path = {
+				let mut key = vec![0u8; 32];
+				key[12..].copy_from_slice(&proxy_address.0);
+				derive_map_key::<H>(key, ANCHOR_STATE_REGISTRY_BLACKLIST_SLOT)
+			};
+			if !storage_slot_is_zero::<H>(storage_root, trie_path, challenge_proof)? {
+				Err(Error::SuperPermissionedGameBlacklisted(proxy_address))?
+			}
+			Ok(())
 		},
 		DisputeGameImpl::OPSuccinct => unreachable!("handled above"),
 	}

@@ -40,13 +40,6 @@ pub enum Error {
 	/// The `claimData` length storage word is longer than 32 bytes.
 	#[error("claimData length storage value longer than 32 bytes")]
 	ClaimDataTooLong,
-	/// The `AggregateVerifier.counteredByIntermediateRootIndexPlusOne` storage value
-	/// couldn't be RLP-decoded.
-	#[error("Error decoding counteredByIntermediateRootIndexPlusOne value {0}")]
-	DecodeCounteredBy(String),
-	/// The `counteredByIntermediateRootIndexPlusOne` storage value is longer than 32 bytes.
-	#[error("counteredByIntermediateRootIndexPlusOne value longer than 32 bytes")]
-	CounteredByTooLong,
 	/// The L2 output root slot wasn't present in the storage proof.
 	#[error("Output root slot not found in L2Oracle storage proof")]
 	OutputRootSlotMissing,
@@ -98,6 +91,10 @@ pub enum Error {
 		counteredByIntermediateRootIndexPlusOne != 0"
 	)]
 	AggregateVerifierChallenged,
+	/// The `AnchorStateRegistry` has blacklisted this proxy, which is how a permissioned super
+	/// game is invalidated since it carries no challenge state of its own.
+	#[error("SuperPermissionedDisputeGame {0:?} is blacklisted by the anchor state registry")]
+	SuperPermissionedGameBlacklisted(H160),
 	/// The dispute game proxy referenced by this proof has been blacklisted by the fishermen
 	/// pallet. The consensus verifier refuses to process any further proofs for it.
 	#[error("Dispute game proxy {0:?} has been blacklisted by fishermen")]

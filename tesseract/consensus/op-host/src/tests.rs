@@ -243,7 +243,9 @@ async fn test_base_sepolia_latest_and_verify() {
 	// Walk the same steps `latest_dispute_games` does, printing each stage, so we can see
 	// whether a valid game is being filtered out as "challenged".
 	{
-		use crate::{abi::DisputeGameFactory, challenge_slot_keys, game_is_challenged};
+		use crate::{
+			abi::DisputeGameFactory, challenge_account, challenge_slot_keys, game_is_challenged,
+		};
 		use alloy::{rpc::types::Filter, sol_types::SolEvent};
 
 		let rollup_addr = Address::from_slice(&factory_addr.0);
@@ -261,13 +263,13 @@ async fn test_base_sepolia_latest_and_verify() {
 
 		for ev in &candidates {
 			let config = game_type_configs.iter().find(|c| c.game_type == ev.gameType).unwrap();
-			let slot = challenge_slot_keys(&config.kind).into_iter().next();
+			let slot = challenge_slot_keys(&config.kind, ev.disputeProxy).into_iter().next();
 			let slot_value = match slot {
 				None => alloy::primitives::U256::ZERO,
 				Some(s) => op_client
 					.beacon_execution_client
 					.get_storage_at(
-						ev.disputeProxy,
+						challenge_account(&config.kind, ev.disputeProxy),
 						alloy::primitives::U256::from_be_slice(s.as_slice()),
 					)
 					.block_id(to_block.into())

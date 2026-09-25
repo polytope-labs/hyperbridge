@@ -24,7 +24,8 @@ has.
 `LimitOrderService.settleFill` then either closes the order, when what is left is under the
 orderbook's dust floor for the token it pays, or reposts it at its new size. The status moves to
 `resizing` and the new size is written before the orderbook is touched, so a crash mid-way leaves a
-row that says what it was doing.
+row that says what it was doing. A closed order keeps what it had left in `remaining`, and the
+operator page shows a `filled` order with anything left as closed below the orderbook's dust floor.
 
 The old entry is cancelled before the new one is posted, because two live entries for one liability
 would advertise the same output twice; the gap between the two calls is at most one request. An

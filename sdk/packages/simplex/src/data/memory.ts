@@ -427,8 +427,8 @@ class MemoryLimitOrderStore implements LimitOrderStore {
 	async reserve(id: string, amount: string): Promise<boolean> {
 		const order = this.orders.get(id)
 		if (!order || order.status !== "open") return false
+		if (BigInt(amount) > BigInt(order.remaining)) return false
 		const reserved = BigInt(order.reserved) + BigInt(amount)
-		if (reserved > BigInt(order.remaining)) return false
 		this.patch(id, { reserved: reserved.toString() })
 		return true
 	}

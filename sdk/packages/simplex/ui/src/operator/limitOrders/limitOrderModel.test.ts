@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest"
 import type { LimitOrder } from "../../types"
 import {
 	groupThousands,
-	available,
 	describeRate,
 	fromScaled,
 	legs,
@@ -66,13 +65,6 @@ describe("reading a limit order back", () => {
 		// An amount is never shown as more than is there.
 		expect(fromScaled(typed)).toBe("1,373.999999")
 	})
-
-	it("counts what live bids are holding out of what is left", () => {
-		const held = order({ remaining: (1_000_000n * ONE).toString(), reserved: (400_000n * ONE).toString() })
-		expect(available(held)).toBe(600_000n * ONE)
-		// Never negative: a reservation can briefly outrun a draw-down.
-		expect(available(order({ remaining: "0", reserved: ONE.toString() }))).toBe(0n)
-	})
 })
 
 describe("what the operator sees at a glance", () => {
@@ -92,7 +84,17 @@ describe("what the operator sees at a glance", () => {
 	it("names the terminal states plainly", () => {
 		expect(statusOf(order({ status: "expired" })).label).toBe("Expired")
 		expect(statusOf(order({ status: "cancelled" })).label).toBe("Cancelled")
-		expect(statusOf(order({ status: "filled" }))).toMatchObject({ label: "Filled", tone: "ok" })
+		expect(statusOf(order({ status: "filled", remaining: "0" }))).toEqual({
+			label: "Filled",
+			tone: "ok",
+			detail: undefined,
+		})
+	})
+
+	it("says a filled order with something left was closed under the dust floor", () => {
+		const closed = statusOf(order({ status: "filled", quote: "cNGN", remaining: "3624688001000000000000" }))
+		expect(closed).toMatchObject({ label: "Filled", tone: "ok" })
+		expect(closed.detail).toBe("closed with 3,624.688001 cNGN left, below the orderbook's dust floor")
 	})
 })
 

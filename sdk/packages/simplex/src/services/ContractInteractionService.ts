@@ -782,20 +782,37 @@ export class ContractInteractionService {
 			this.logger.warn({ reason: pmResult.reason }, "No paymaster for bid UserOp; relying on EntryPoint deposit")
 		}
 
-		const userOp = await sdkHelper.prepareSubmitBid({
-			order,
-			fillOptions,
+		const bidGas = {
 			solverAccount: solverAccountAddress,
-			solverSigner: sdkSigningAccount(this.signer),
 			nonce,
 			entryPointAddress,
 			callGasLimit,
 			verificationGasLimit: cachedEstimate.verificationGasLimit,
-			preVerificationGas: cachedEstimate.preVerificationGas,
 			maxFeePerGas: cachedEstimate.maxFeePerGas,
 			maxPriorityFeePerGas: cachedEstimate.maxPriorityFeePerGas,
 			callData,
 			paymasterAndData,
+		}
+		// The cached estimate priced a lone fillOrder at the op's max fee. This bid also carries
+		// its funding calls and approvals, and is bundled at the base fee plus its tip, so on an
+		// L2 its L1 data fee needs more preVerificationGas than that estimate gave: enough for
+		// the bundler to admit it, not to bundle it. Priced on this op, at the bundle's price.
+		let preVerificationGas = cachedEstimate.preVerificationGas
+		try {
+			preVerificationGas = await sdkHelper.estimateBidPreVerificationGas(bidGas)
+		} catch (err) {
+			this.logger.warn(
+				{ orderId: order.id, err, preVerificationGas: preVerificationGas.toString() },
+				"Could not estimate the bid's preVerificationGas; using the fill estimate's",
+			)
+		}
+
+		const userOp = await sdkHelper.prepareSubmitBid({
+			...bidGas,
+			order,
+			fillOptions,
+			solverSigner: sdkSigningAccount(this.signer),
+			preVerificationGas,
 		})
 
 		// Encode the UserOp as bytes for submission to Hyperbridge
@@ -807,6 +824,7 @@ export class ContractInteractionService {
 				solverAccount: solverAccountAddress,
 				nonce: nonce.toString(),
 				callGasLimit: callGasLimit.toString(),
+				preVerificationGas: preVerificationGas.toString(),
 				maxFeePerGas: cachedEstimate.maxFeePerGas.toString(),
 			},
 			"Prepared bid UserOp",

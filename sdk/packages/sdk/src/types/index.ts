@@ -1295,6 +1295,23 @@ export interface SubmitBidOptions {
 	paymasterAndData?: HexString
 }
 
+/**
+ * The fields of a bid UserOperation that decide its `preVerificationGas`: everything the
+ * solver signs except the signature and the `preVerificationGas` itself.
+ */
+export type BidPreVerificationGasParams = Pick<
+	SubmitBidOptions,
+	| "solverAccount"
+	| "nonce"
+	| "entryPointAddress"
+	| "callGasLimit"
+	| "verificationGasLimit"
+	| "maxFeePerGas"
+	| "maxPriorityFeePerGas"
+	| "callData"
+	| "paymasterAndData"
+>
+
 export interface EstimateFillOrderParams {
 	order: Order
 	/** Positional input takes. Required with custom outputs; otherwise estimates a full fill at the order's rate. */

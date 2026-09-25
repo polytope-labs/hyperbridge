@@ -1,4 +1,14 @@
-import { encodeFunctionData, toHex, pad, maxUint256, concat, keccak256, isHex, hexToString } from "viem"
+import {
+	encodeAbiParameters,
+	encodeFunctionData,
+	toHex,
+	pad,
+	maxUint256,
+	concat,
+	keccak256,
+	isHex,
+	hexToString,
+} from "viem"
 import { generatePrivateKey, privateKeyToAccount, privateKeyToAddress } from "viem/accounts"
 import { ABI as IntentGatewayV2ABI } from "@/abis/IntentGatewayV2"
 import { encodeFillOrder, assertGatewayRelease } from "./fillOrderCodec"
@@ -14,7 +24,13 @@ import {
 } from "@/utils"
 import { orderCommitment } from "./utils"
 import { calculateBalanceMappingLocation } from "@/utils"
-import type { PackedUserOperation, EstimateFillOrderParams, FillOrderEstimate, FillOptions } from "@/types"
+import type {
+	PackedUserOperation,
+	EstimateFillOrderParams,
+	FillOrderEstimate,
+	FillOptions,
+	BidPreVerificationGasParams,
+} from "@/types"
 import type { HexString } from "@/types"
 import type { IntentGatewayContext } from "./types"
 import { BundlerMethod } from "./types"
@@ -75,6 +91,46 @@ export const NO_BUNDLER_FILL_GAS_PER_OUTPUT = 150_000n
  */
 export const NO_BUNDLER_PAYMASTER_VERIFICATION_GAS = 250_000n
 export const NO_BUNDLER_PAYMASTER_POST_OP_GAS = 100_000n
+
+/**
+ * Code the bundler runs in place of the solver account while it estimates a bid's
+ * `preVerificationGas`. It answers `isValidSignature` with the ERC-1271 magic value, so
+ * Permit2 accepts the paymaster's permit, and every other call with 32 zero bytes, so
+ * `validateUserOp` succeeds and `execute` does nothing. The estimate then prices the
+ * bid's real bytes without running a fill that cannot pass in simulation: the session's
+ * selection is missing and funding calls do not resolve there.
+ */
+export const BID_PVG_ESTIMATION_ACCOUNT_CODE =
+	"0x60003560e01c631626ba7e1460145760206000f35b631626ba7e60e01b60005260206000f3" as HexString
+
+/**
+ * A bid's signature once the user selects it: the order commitment, the solver's signature
+ * and the session key's selection signature. The bundler prices these bytes, so the
+ * estimate carries a signature of this length.
+ */
+const SELECTED_BID_SIGNATURE_BYTES = 32 + 65 + 65
+
+/**
+ * Headroom over the bundler's `preVerificationGas` for a bid. The bid executes up to a
+ * minute or two after it is signed, and on an L2 the L1 data fee inside the figure moves
+ * with L1 prices in the meantime.
+ */
+export const BID_PVG_HEADROOM_PERCENT = 10n
+
+/**
+ * Storage slot of the gateway's `_orders`: the escrow each order holds, by commitment and
+ * leg. Checked against the live mainnet gateway, whose slot 9 holds the escrow of placed
+ * orders.
+ */
+const ESCROW_MAPPING_SLOT = 9n
+
+/** The slot of `_orders[commitment][leg]`. */
+function escrowSlot(commitment: HexString, leg: number): HexString {
+	const byCommitment = keccak256(
+		encodeAbiParameters([{ type: "bytes32" }, { type: "uint256" }], [commitment, ESCROW_MAPPING_SLOT]),
+	)
+	return keccak256(encodeAbiParameters([{ type: "uint256" }, { type: "bytes32" }], [BigInt(leg), byCommitment]))
+}
 
 /** Internal pricing policy used by SDK order-fee quotes. */
 interface GasEstimationPricingOptions {
@@ -170,6 +226,11 @@ export class GasEstimator {
 
 		const isSameChain = souceStateMachineId === destStateMachineId
 
+		// The real order: a same-chain fill releases the escrow held under its commitment, and
+		// any other commitment reverts `UnknownOrder`. The selection check it would then fail,
+		// since only the user holds the session key, is turned off by `buildStateOverride`.
+		const commitment = orderCommitment(order)
+
 		// State overrides only feed the bundler estimate; without a bundler the
 		// gas budget is flat, so skip the storage-slot resolution entirely.
 		const [stateOverridesResult, crossChainFees] = await Promise.all([
@@ -181,6 +242,17 @@ export class GasEstimator {
 						spenderAddress: intentGatewayV2Address,
 						intentGatewayV2Address,
 						entryPointAddress,
+						// A fee quote runs before the order is placed, so nothing is escrowed under
+						// its commitment yet. Cross-chain fills release escrow on the source chain.
+						escrow: isSameChain
+							? {
+									commitment: commitment as HexString,
+									inputs: order.inputs.map((input) => ({
+										token: normalizeAddressForEvmBytes32(input.token),
+										amount: input.amount,
+									})),
+								}
+							: undefined,
 					})
 				: Promise.resolve({ viem: [], bundler: {} }),
 			isSameChain
@@ -217,11 +289,8 @@ export class GasEstimator {
 		let maxPriorityFeePerGas = gasPrice + (gasPrice * BigInt(priorityFeeBumpPercent)) / 100n
 		let maxFeePerGas = gasPrice + (gasPrice * BigInt(maxFeeBumpPercent)) / 100n
 
-		const orderForEstimation = { ...order, session: solverAccountAddress }
-		const commitment = orderCommitment(orderForEstimation)
-
 		await assertGatewayRelease(this.ctx.dest.client as any, intentGatewayV2Address)
-		const fillOrderCalldata = encodeFillOrder(transformOrderForContract(orderForEstimation) as any, fillOptions)
+		const fillOrderCalldata = encodeFillOrder(transformOrderForContract(order) as any, fillOptions)
 
 		let callGasLimit: bigint = 500_000n
 		let verificationGasLimit: bigint = 100_000n
@@ -237,7 +306,8 @@ export class GasEstimator {
 					{ target: intentGatewayV2Address, value: totalNativeValue, data: fillOrderCalldata },
 				])
 
-				const accountGasLimits = CryptoUtils.packGasLimits(100_000n, callGasLimit)
+				// Zero gas limits: bundlers return a non-zero limit as given rather than estimating it.
+				const accountGasLimits = CryptoUtils.packGasLimits(0n, 0n)
 				const gasFees = CryptoUtils.packGasFees(maxPriorityFeePerGas, maxFeePerGas)
 
 				const nonce = 0n
@@ -248,7 +318,7 @@ export class GasEstimator {
 					initCode: "0x" as HexString,
 					callData: callData,
 					accountGasLimits,
-					preVerificationGas: 100_000n,
+					preVerificationGas: 0n,
 					gasFees,
 					paymasterAndData: "0x" as HexString,
 					signature: "0x" as HexString,
@@ -410,6 +480,59 @@ export class GasEstimator {
 	}
 
 	/**
+	 * Asks the bundler for the `preVerificationGas` of the bid UserOperation that will
+	 * actually be signed, with every funding call, approval and signature byte in it.
+	 *
+	 * On an L2, `preVerificationGas` also pays the L1 data fee for the op's bytes, a fixed
+	 * amount of wei that the bundler converts to gas at the price the op pays. A bundler
+	 * admits an op priced at its `maxFeePerGas`, but bundles it at the base fee plus its
+	 * priority fee, where the same wei costs more gas. An op sized only for admission is
+	 * accepted and then skipped in every bundle until it expires. The estimate is taken
+	 * at the bundle's price: the latest base fee plus the op's priority fee, capped at its
+	 * `maxFeePerGas`.
+	 *
+	 * The solver account's code is overridden with {@link BID_PVG_ESTIMATION_ACCOUNT_CODE}
+	 * for the call, so only the bytes are priced and the fill itself is not simulated.
+	 *
+	 * @param params - The bid's fields as they will be signed.
+	 * @returns The `preVerificationGas` to sign, with {@link BID_PVG_HEADROOM_PERCENT} added.
+	 * @throws If no bundler is configured or the bundler rejects the estimate.
+	 */
+	async estimateBidPreVerificationGas(params: BidPreVerificationGasParams): Promise<bigint> {
+		const { solverAccount, maxFeePerGas, maxPriorityFeePerGas } = params
+		const latestBlock = await this.ctx.dest.client.getBlock({ blockTag: "latest" })
+		const baseFeePerGas = latestBlock.baseFeePerGas
+		const bundlePrice =
+			baseFeePerGas == null || baseFeePerGas + maxPriorityFeePerGas > maxFeePerGas
+				? maxFeePerGas
+				: baseFeePerGas + maxPriorityFeePerGas
+		const priorityFee = maxPriorityFeePerGas < bundlePrice ? maxPriorityFeePerGas : bundlePrice
+
+		const userOp: PackedUserOperation = {
+			sender: solverAccount,
+			nonce: params.nonce,
+			initCode: "0x" as HexString,
+			callData: params.callData,
+			accountGasLimits: CryptoUtils.packGasLimits(params.verificationGasLimit, params.callGasLimit),
+			// Bundlers return a non-zero preVerificationGas as given rather than estimating it.
+			preVerificationGas: 0n,
+			gasFees: CryptoUtils.packGasFees(priorityFee, bundlePrice),
+			paymasterAndData: params.paymasterAndData ?? ("0x" as HexString),
+			signature: `0x${"ff".repeat(SELECTED_BID_SIGNATURE_BYTES)}` as HexString,
+		}
+
+		const estimate = await this.crypto.sendBundler<BundlerGasEstimate>(
+			BundlerMethod.ETH_ESTIMATE_USER_OPERATION_GAS,
+			[
+				CryptoUtils.prepareBundlerCall(userOp),
+				params.entryPointAddress,
+				{ [solverAccount]: { code: BID_PVG_ESTIMATION_ACCOUNT_CODE } },
+			],
+		)
+		return (BigInt(estimate.preVerificationGas) * (100n + BID_PVG_HEADROOM_PERCENT)) / 100n
+	}
+
+	/**
 	 * Estimates the cross-chain ISMP POST request fee (the relayer fee for the
 	 * RedeemEscrow message), in both the source and destination fee tokens.
 	 * The dispatch is always paid in the fee token — the native rail was
@@ -478,13 +601,29 @@ export class GasEstimator {
 		spenderAddress: HexString
 		intentGatewayV2Address?: HexString
 		entryPointAddress?: HexString
+		/**
+		 * A same-chain order's commitment and inputs. The gateway is given that escrow and
+		 * enough of each input token to release it, so the fill simulates whether or not the
+		 * order has been placed.
+		 */
+		escrow?: { commitment: HexString; inputs: { token: HexString; amount: bigint }[] }
 	}): Promise<{
 		viem: { address: HexString; balance?: bigint; stateDiff?: { slot: HexString; value: HexString }[] }[]
 		bundler: Record<string, { balance?: string; stateDiff?: Record<string, string>; code?: string }>
 	}> {
-		const { accountAddress, chain, outputAssets, spenderAddress, intentGatewayV2Address, entryPointAddress } =
-			params
-		const testValue = toHex(maxUint256 / 2n, { size: 32 }) as HexString
+		const {
+			accountAddress,
+			chain,
+			outputAssets,
+			spenderAddress,
+			intentGatewayV2Address,
+			entryPointAddress,
+			escrow,
+		} = params
+		// Far more than any real balance, and far below any cap. USDC (FiatTokenV2_2) refuses a
+		// balance over 2^255 - 1, and a same-chain fill credits the solver the released input, so
+		// a value at that cap reverts the fill whenever the input is USDC.
+		const testValue = toHex(2n ** 128n, { size: 32 }) as HexString
 
 		const viemOverrides: {
 			address: HexString
@@ -497,16 +636,30 @@ export class GasEstimator {
 		> = {}
 
 		if (intentGatewayV2Address) {
+			// Params slot 5 packs the call dispatcher with `solverSelection` in the byte above it.
+			// Written back with that byte cleared, the simulated fill skips the selection check,
+			// which is what lets `estimateFillOrder` simulate the user's real order.
 			const paramsSlot5 = pad(toHex(5n), { size: 32 }) as HexString
 			const dispatcherAddress = this.ctx.dest.configService.getCalldispatcherAddress(chain)
 			const newSlot5Value = ("0x" + "0".repeat(22) + "00" + dispatcherAddress.slice(2).toLowerCase()) as HexString
 
+			const gatewayDiffs = [{ slot: paramsSlot5, value: newSlot5Value }]
+			for (const [leg, input] of (escrow?.inputs ?? []).entries()) {
+				gatewayDiffs.push({
+					slot: escrowSlot(escrow!.commitment, leg),
+					value: toHex(input.amount, { size: 32 }) as HexString,
+				})
+			}
+			const releasesNative = escrow?.inputs.some((input) => bytes32ToBytes20(input.token) === ADDRESS_ZERO)
+
 			viemOverrides.push({
 				address: intentGatewayV2Address,
-				stateDiff: [{ slot: paramsSlot5, value: newSlot5Value }],
+				...(releasesNative ? { balance: 2n ** 128n } : {}),
+				stateDiff: gatewayDiffs,
 			})
 			bundlerOverrides[intentGatewayV2Address] = {
-				stateDiff: { [paramsSlot5]: newSlot5Value },
+				...(releasesNative ? { balance: testValue } : {}),
+				stateDiff: Object.fromEntries(gatewayDiffs.map(({ slot, value }) => [slot, value])),
 			}
 		}
 
@@ -542,6 +695,27 @@ export class GasEstimator {
 			}
 		}
 
+		// The gateway pays the released escrow out of its own balance of each input token.
+		if (intentGatewayV2Address && escrow) {
+			const gatewayBalances = await Promise.all(
+				escrow.inputs.map((input) => this.tokenBalanceSlot(input.token, intentGatewayV2Address, chain)),
+			)
+			for (const override of gatewayBalances) {
+				if (!override) continue
+				const existing = viemOverrides.find((entry) => entry.address === override.address && entry.stateDiff)
+				if (existing) existing.stateDiff!.push({ slot: override.slot, value: testValue })
+				else
+					viemOverrides.push({
+						address: override.address,
+						stateDiff: [{ slot: override.slot, value: testValue }],
+					})
+				bundlerOverrides[override.address] = {
+					...bundlerOverrides[override.address],
+					stateDiff: { ...bundlerOverrides[override.address]?.stateDiff, [override.slot]: testValue },
+				}
+			}
+		}
+
 		const solverAccountContract = this.ctx.dest.configService.getSolverAccountAddress(chain)
 		if (solverAccountContract) {
 			try {
@@ -567,6 +741,26 @@ export class GasEstimator {
 		}
 
 		return { viem: viemOverrides, bundler: bundlerOverrides }
+	}
+
+	/**
+	 * The balance slot of `holder` in an ERC-20 token, for overriding. `null` for the native
+	 * token or when the slot cannot be discovered.
+	 */
+	private async tokenBalanceSlot(
+		tokenHex: HexString,
+		holder: HexString,
+		chain: string,
+	): Promise<{ address: HexString; slot: HexString } | null> {
+		const tokenAddress = bytes32ToBytes20(tokenHex)
+		if (tokenAddress === ADDRESS_ZERO) return null
+		try {
+			const balanceData = (ERC20Method.BALANCE_OF + bytes20ToBytes32(holder).slice(2)) as HexString
+			const slot = await getOrFetchStorageSlot(this.ctx.dest.client, chain, tokenAddress, balanceData)
+			return slot ? { address: tokenAddress, slot: slot as HexString } : null
+		} catch {
+			return null
+		}
 	}
 
 	/**

@@ -7,7 +7,7 @@ import { INIT_CHAINS } from "@/cli/init/chains"
 import { formatDate, sqliteUtcToMs } from "../lib/format"
 import type { BalanceSnapshot, LimitOrder } from "../types"
 import { CreateLimitOrderForm } from "./limitOrders/CreateLimitOrderForm"
-import { available, describeRate, fromScaled, legs, sideLabel, statusOf } from "./limitOrders/limitOrderModel"
+import { describeRate, fromScaled, legs, sideLabel, statusOf } from "./limitOrders/limitOrderModel"
 import { type LimitOrderFills, useLimitOrders, useOrderbookBooks } from "./limitOrders/useLimitOrders"
 
 /** Orders per page, live and closed each: a solver re-posting all day builds a long closed list. */
@@ -260,7 +260,7 @@ function LimitOrderDetail(props: {
 				<div>
 					<dt>Held by live bids</dt>
 					<dd>
-						{fromScaled(order.reserved)} {output}, leaving {fromScaled(available(order).toString())} to draw on
+						{fromScaled(order.reserved)} {output}
 					</dd>
 				</div>
 				<div>

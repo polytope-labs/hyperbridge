@@ -119,28 +119,37 @@ describe.each(backends)("%s", (_name, open) => {
 			await close()
 		})
 
-		it("refuses to reserve more than the order has left", async () => {
+		it("does not count other bids' holds against what the order has left", async () => {
+			// A pending bid must not stop the next one going out.
 			const { store, close } = open()
 			await store.create({ ...ORDER, size: "1000" })
 
 			expect(await store.reserve(ORDER.id, "600")).toBe(true)
-			expect(await store.reserve(ORDER.id, "500")).toBe(false)
-			expect((await store.get(ORDER.id))?.reserved).toBe("600")
+			expect(await store.reserve(ORDER.id, "500")).toBe(true)
+			expect((await store.get(ORDER.id))?.reserved).toBe("1100")
 			await close()
 		})
 
-		it("holds the cap when several callers reserve against one order", async () => {
+		it("refuses a single hold larger than what the order has left", async () => {
 			const { store, close } = open()
 			await store.create({ ...ORDER, size: "1000" })
 
-			// Five chains bidding, each wanting most of the order. Both backends run
-			// synchronously underneath, so this pins the invariant rather than an
-			// interleaving; the cross-connection test below is what exercises the
-			// database guard itself.
+			expect(await store.reserve(ORDER.id, "1001")).toBe(false)
+			expect((await store.get(ORDER.id))?.reserved).toBe("0")
+			await close()
+		})
+
+		it("records every hold when several callers reserve against one order", async () => {
+			const { store, close } = open()
+			await store.create({ ...ORDER, size: "1000" })
+
+			// Five chains bidding at once, each wanting most of the order. Every hold
+			// goes through and none is lost; the cross-connection test below is what
+			// exercises the database guard itself.
 			const results = await Promise.all([600, 600, 600, 600, 600].map(() => store.reserve(ORDER.id, "600")))
 
-			expect(results.filter(Boolean)).toHaveLength(1)
-			expect((await store.get(ORDER.id))?.reserved).toBe("600")
+			expect(results.every(Boolean)).toBe(true)
+			expect((await store.get(ORDER.id))?.reserved).toBe("3000")
 			await close()
 		})
 
@@ -226,18 +235,18 @@ describe.each(backends)("%s", (_name, open) => {
 })
 
 describe("SqliteLimitOrderStore", () => {
-	it("counts another connection's reservation against the same order", async () => {
-		// Two solvers sharing a data directory. The guard has to live in the
-		// database, not in one process's memory, or each would see the full size.
+	it("adds another connection's hold to the same order's total", async () => {
+		// Two solvers sharing a data directory. The total has to live in the
+		// database, not in one process's memory, or each would overwrite the other.
 		const dir = dataDir()
 		const first = new SqliteDataStore(dir, new LoggerContext({ level: "warn" }))
 		const second = new SqliteDataStore(dir, new LoggerContext({ level: "warn" }))
 
 		await first.limitOrders.create({ ...ORDER, size: "1000" })
 		expect(await first.limitOrders.reserve(ORDER.id, "600")).toBe(true)
-		expect(await second.limitOrders.reserve(ORDER.id, "600")).toBe(false)
-		expect(await second.limitOrders.reserve(ORDER.id, "400")).toBe(true)
-		expect((await first.limitOrders.get(ORDER.id))?.reserved).toBe("1000")
+		expect(await second.limitOrders.reserve(ORDER.id, "600")).toBe(true)
+		expect(await second.limitOrders.reserve(ORDER.id, "1001")).toBe(false)
+		expect((await first.limitOrders.get(ORDER.id))?.reserved).toBe("1200")
 
 		await first.close()
 		await second.close()

@@ -106,17 +106,17 @@ export interface FillerRuntime {
 	 */
 	signerless: boolean
 	/** The live confirmation policy the engine prices with; runtime chain adds install into it. */
-	confirmationPolicy?: ConfirmationPolicy
+	confirmationPolicy: ConfirmationPolicy
 	/** This filler's logging destination. */
 	loggers: LoggerContext
 	/** Symbol-to-address resolution for the configured chains (send options, balance labels). */
 	assetRegistry: AssetRegistry
 	/** Creates and posts the operator's limit orders. */
 	limitOrders?: LimitOrderService
-	/** The live trading engine, absent when the config declared no pairs. */
-	engine?: FXFiller
+	/** The live trading engine. It runs whether or not the config names any pairs. */
+	engine: FXFiller
 	/** The engine's live pair array (same instance), indexed 1:1 with config.pairs. */
-	tradingPairs?: TradingPair[]
+	tradingPairs: TradingPair[]
 	/** BalanceProvider's live token1 map (chain name to exotic addresses); mutations apply on its next refresh. */
 	balanceTokens: Record<string, string[]>
 	rebalancingService?: RebalancingService
@@ -323,7 +323,7 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		)
 	}
 
-	// Build the trading engine from top-level [[pairs]].
+	// Build the trading engine, which prices from the operator's limit orders.
 	logger.info("Initializing trading engine...")
 
 	// Asset symbol registry: built-ins (USDC/USDT/DAI/CNGN) resolved from the
@@ -338,64 +338,56 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		assertPairSymbolsResolve(config.pairs, assetRegistry, configuredChainNames)
 	}
 
-	// The operator's market list for the UI server.
+	// The operator's market list for the UI server. [[pairs]] only names markets:
+	// prices come from limit orders, so the engine below runs with or without them.
 	const adminStrategies: AdminStrategy[] = []
-	const strategies: FXFiller[] = []
-	// Held so ChainController can install a curve for a chain added at runtime.
-	let confirmationPolicy: ConfirmationPolicy | undefined
-	let tradingPairs: TradingPair[] | undefined
-	let engine: FXFiller | undefined
-	if (config.pairs?.length) {
-		tradingPairs = config.pairs.map((pair) => ({ token0: pair.token0, token1: pair.token1 }))
-		tradingPairs.forEach((pair, pairIndex) => {
-			adminStrategies.push({
-				index: pairIndex,
-				pairIndex,
-				exotic: `${pair.token0}/${pair.token1}`,
-				token0: pair.token0,
-				token1: pair.token1,
-				sameToken: normalizeSymbol(pair.token0) === normalizeSymbol(pair.token1),
-			})
+	const tradingPairs: TradingPair[] = (config.pairs ?? []).map((pair) => ({
+		token0: pair.token0,
+		token1: pair.token1,
+	}))
+	tradingPairs.forEach((pair, pairIndex) => {
+		adminStrategies.push({
+			index: pairIndex,
+			pairIndex,
+			exotic: `${pair.token0}/${pair.token1}`,
+			token0: pair.token0,
+			token1: pair.token1,
+			sameToken: normalizeSymbol(pair.token0) === normalizeSymbol(pair.token1),
 		})
+	})
 
-		// Orders can be sourced on any configured chain (watch-only ones
-		// included), so each needs a confirmation curve — fail at boot,
-		// not with silently dropped orders at fill time. Same construction the
-		// wizard write gates run against the selected chain ids.
-		confirmationPolicy = assertConfirmationCoverage(
-			config.confirmationPolicies,
-			resolvedChains.map((c) => c.chainId),
-		)
+	// Orders can be sourced on any configured chain (watch-only ones
+	// included), so each needs a confirmation curve — fail at boot,
+	// not with silently dropped orders at fill time. Same construction the
+	// wizard write gates run against the selected chain ids. Held so
+	// ChainController can install a curve for a chain added at runtime.
+	const confirmationPolicy = assertConfirmationCoverage(
+		config.confirmationPolicies,
+		resolvedChains.map((c) => c.chainId),
+	)
 
-		// The idle-yield treasury is the only place a fill sources from beyond
-		// the wallet itself.
-		const fundingVenues: FundingVenue[] = vaultVenue ? [vaultVenue] : []
+	// The idle-yield treasury is the only place a fill sources from beyond
+	// the wallet itself.
+	const fundingVenues: FundingVenue[] = vaultVenue ? [vaultVenue] : []
 
-		engine = new FXFiller(
-			runtimeSigner,
-			configService,
-			chainClientManager,
-			contractService,
-			tradingPairs,
-			assetRegistry,
-			{ confirmationPolicy, fundingVenues, limitOrders: options.data.limitOrders },
-		)
-		logger.info("Hydrating funding venue state...")
-		await engine.initialise()
-		strategies.push(engine)
-	}
+	const engine = new FXFiller(
+		runtimeSigner,
+		configService,
+		chainClientManager,
+		contractService,
+		tradingPairs,
+		assetRegistry,
+		{ confirmationPolicy, fundingVenues, limitOrders: options.data.limitOrders },
+	)
+	logger.info("Hydrating funding venue state...")
+	await engine.initialise()
+	const strategies: FXFiller[] = [engine]
 
 	const haltControls: HaltControl[] = strategies.map((engine, index) => ({
 		index,
 		isHalted: () => engine.isHalted(),
 		resetHalt: () => engine.resetHalt(),
 	}))
-
-	// Ensure the shared vault venue is hydrated even if no strategy
-	// initialised it, so the sweep timer has live state. Idempotent.
-	if (vaultVenue) {
-		await vaultVenue.initialise(runtimeSigner.address as HexString)
-	}
 
 	// Initialize rebalancing service only if fully configured
 	let rebalancingService: RebalancingService | undefined

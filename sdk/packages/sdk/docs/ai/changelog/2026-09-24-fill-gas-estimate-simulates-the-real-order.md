@@ -17,3 +17,14 @@ estimator faked the solver's token balances at `maxUint256 / 2`, which is exactl
 cap of 2^255 - 1, and a same-chain fill then credits the solver the released input. The fake
 balances, deposit and allowances are now 2^128: far more than any real amount, and far below any
 cap.
+
+The real order only has escrow once it is placed. `IntentGateway.execute` quotes `order.fees`
+through this estimate before placing it, so that same-chain simulation still reverted
+`UnknownOrder` and fell back. For a same-chain order, `buildStateOverride` now also writes the
+order's escrow into the gateway, `_orders[commitment][leg]` at storage slot 9 (checked against
+the live mainnet gateway), set to each leg's input amount, and gives the gateway 2^128 of each
+input token (or native balance) to release it.
+
+The simulated op carries zero gas limits and `preVerificationGas`. Bundlers such as Alchemy's
+return a non-zero value as given rather than estimating it, so the fixed placeholders came back as
+the estimate.

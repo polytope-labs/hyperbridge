@@ -13,6 +13,7 @@ use arb_host::ArbConfig;
 use evm_host::EvmHostConfig;
 use ismp::messaging::CreateConsensusState;
 use op_host::OpConfig;
+use tesseract_arc::ArcConfig;
 use tesseract_beefy::{
 	host::{BeefyHost, BeefyHostConfig},
 	prover::{Prover, ProverConfig},
@@ -108,6 +109,11 @@ pub enum AnyConfig {
 	Pharos {
 		#[serde(flatten)]
 		inner: PharosConfig,
+	},
+	/// Arc chain config
+	Arc {
+		#[serde(flatten)]
+		inner: ArcConfig,
 	},
 }
 
@@ -239,8 +245,9 @@ impl HyperbridgeHostConfig {
 		let host = match self.host {
 			ConsensusHost::Beefy { substrate, prover, beefy, redis } => {
 				let client = SubstrateClient::<P>::new(substrate).await?;
-				// Commit the submission signer as the SP1 nonce (see `pallet-beefy-consensus-proofs`).
-				// `SubstrateClient::address` is the signer's 32-byte sr25519 public key.
+				// Commit the submission signer as the SP1 nonce (see
+				// `pallet-beefy-consensus-proofs`). `SubstrateClient::address` is the signer's
+				// 32-byte sr25519 public key.
 				let account: H256 = <[u8; 32]>::try_from(client.address.as_slice())
 					.map_err(|_| anyhow!("beefy submission signer account must be 32 bytes"))?
 					.into();
@@ -345,6 +352,7 @@ pub async fn create_client_map(
 			(AnyConfig::Polygon { inner }, HostKind::Evm(evm)) => inner.into_client(evm).await?,
 			(AnyConfig::Tendermint { inner }, HostKind::Evm(evm)) => inner.into_client(evm).await?,
 			(AnyConfig::EvmHost { inner }, HostKind::Evm(evm)) => inner.into_client(evm).await?,
+			(AnyConfig::Arc { inner }, HostKind::Evm(evm)) => inner.into_client(evm).await?,
 			(AnyConfig::Pharos { inner }, HostKind::Evm(evm)) => {
 				// Need the chain id to select between Testnet/Mainnet. Prefer
 				// the explicit state_machine in config; fall back to an

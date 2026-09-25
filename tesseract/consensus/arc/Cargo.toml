@@ -1,0 +1,23 @@
+[package]
+name = "tesseract-arc"
+version = "0.1.0"
+edition = "2021"
+description = "Arc consensus relayer for tesseract"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+
+[dependencies]
+anyhow = { workspace = true, default-features = true }
+async-trait = "0.1.88"
+codec = { package = "parity-scale-codec", version = "3.2.2", features = ["derive"] }
+ismp = { workspace = true, default-features = true }
+ismp-arc = { workspace = true, default-features = true }
+arc-primitives = { workspace = true, default-features = true }
+arc-prover = { workspace = true, default-features = true }
+arc-verifier = { workspace = true, default-features = true }
+log = { workspace = true, default-features = true }
+serde = { version = "1.0", features = ["derive"] }
+tesseract-evm = { workspace = true }
+tesseract-primitives = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+geth-primitives = { workspace = true, default-features = true }
+primitive-types = { workspace = true, default-features = true }

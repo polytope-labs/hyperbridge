@@ -10,8 +10,9 @@ On a fresh launch, valid `desktop-vault.json` metadata selects login; absent met
 creation unless the config is already encrypted, in which case restoring missing metadata is required.
 Reopening a hidden window in the same unlocked Electron session does not require another login.
 An OS-protected `deviceKey` wrapper in `desktop-vault.json` lets the host resume the solver at launch
-after a reboot, launch-at-login, or update while the dashboard remains locked. The updater's receipt
-check runs at launch. Installer failure restarts the stopped solver with a key retained separately
+after a reboot, launch-at-login, or update while the dashboard remains locked. With a usable restart
+key, the updater's receipt check runs at launch; otherwise updates wait for an interactive unlock.
+Installer failure restarts the stopped solver with a key retained separately
 from the password unlock buffer. On Linux `basic_text` or `unknown` key-store backends, background
 restart is disabled and the unlock screen tells the operator to sign in before filling resumes.
 Supported Macs can additionally enroll Touch ID; Windows and Linux show password and recovery-code

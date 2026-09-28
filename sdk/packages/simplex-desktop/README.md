@@ -368,7 +368,8 @@ relaunch, Electron rechecks the feed so its updater instance revalidates the cac
 stopping anything. If the installer reports an error after the updater stopped the solver, the app
 clears the attempted marker, restarts that solver using its retained protected key, and leaves the
 update available for a later retry. On successful relaunch, the OS-protected copy resumes the solver
-and the update receipt check runs even while the dashboard remains locked.
+and the update receipt check runs even while the dashboard remains locked. Without a usable restart
+key, updater activity waits for an interactive unlock so it cannot stop a solver it cannot restart.
 
 Before installing, the app records the old and target versions in `desktop-updates.json` under
 Electron user data. The relaunched app clears that receipt only after a healthy setup or operator

@@ -529,6 +529,7 @@ async function prepareDesktop(): Promise<void> {
 			appVersion: app.getVersion(),
 			store: new FileUpdateStore(dataDirectory),
 			probeSolver: () => supervisor!.pollNow(),
+			canRestartSolver: () => Boolean(daemonLaunch?.configKey),
 			requestSolverStop: async () => {
 				intentionalStop = true
 				await sendSolverAction(socketPath, "stop")
@@ -566,14 +567,13 @@ async function prepareDesktop(): Promise<void> {
 				hasBackgroundKey = true
 				void startOrAttachSolver(false, true)
 					.then((started) => {
-						if (!started && openedAtLogin) void safeShowWindow()
+						if (started) updateCoordinator?.start()
+						else if (openedAtLogin) void safeShowWindow()
 					})
 					.catch((error) => {
 						console.warn(`Simplex could not resume the solver in the background: ${errorMessage(error)}`)
 						if (openedAtLogin) void safeShowWindow()
 					})
-					.finally(() => updateCoordinator?.start())
-					.catch((error) => console.error(`Simplex updater could not start: ${errorMessage(error)}`))
 			} finally {
 				key.fill(0)
 			}
@@ -581,7 +581,6 @@ async function prepareDesktop(): Promise<void> {
 	} catch (error) {
 		console.warn(`Simplex needs an interactive unlock before the solver can resume: ${errorMessage(error)}`)
 	}
-	if (!hasBackgroundKey) updateCoordinator?.start()
 	refreshNativeUi()
 
 	if (!openedAtLogin || !hasBackgroundKey) {

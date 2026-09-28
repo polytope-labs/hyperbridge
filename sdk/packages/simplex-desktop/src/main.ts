@@ -437,8 +437,9 @@ async function prepareDesktop(): Promise<void> {
 		dataDir: dataDirectory,
 		biometrics: touchIdUnlock,
 		needsRestart: async () => {
+			// A slow or foreign listener must not hide the login screen; prepare()
+			// and start() report it once the user has authenticated.
 			const health = await probeHealth(socketPath)
-			if (health.state === "occupied" || health.state === "unavailable") throw new Error(health.detail)
 			return "mode" in health && !health.configEncrypted
 		},
 		prepare: async (restartAllowed) => {

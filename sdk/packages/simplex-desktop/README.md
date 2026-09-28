@@ -43,7 +43,8 @@ for the old password. Choose a new password and save the replacement recovery co
 effect when you confirm that you saved it. Recovery preserves the configuration and does not restart
 an already protected solver. Recovery authorization expires after ten minutes. Cancelling before
 confirmation leaves the existing credentials unchanged. Without either recovery method, the app
-does not delete or reset the profile. Older profiles enroll a recovery code after successful authentication.
+does not delete or reset the profile. A reset keeps the same config key, so it does not revoke old
+credentials: an old `desktop-vault.json` copy plus its password or recovery code still decrypts the config.
 
 Touch ID is offered only on supported Macs with secure storage available. Windows and Linux use
 passwords and recovery codes; Windows Hello and Linux biometric integrations are not implemented.
@@ -111,7 +112,9 @@ extension. Because Linux click activation is inconsistent, every command—inclu
 Stop, Restart, and both quit choices—is available from the context menu.
 
 **Launch Simplex at login** is opt-in and available only in an installed build. It registers the app,
-not the detached solver, and opens the unlock screen before starting or attaching to it. macOS and Windows use Electron's
+not the detached solver, and opens the unlock screen before starting or attaching to it. After a
+reboot, filling stays paused until someone unlocks the app; the same applies after an update that
+stopped the solver. macOS and Windows use Electron's
 login-item API; Linux uses the equivalent per-user XDG autostart entry. Development runs do not
 register the Electron development binary.
 

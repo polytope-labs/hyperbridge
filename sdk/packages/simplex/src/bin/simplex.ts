@@ -24,7 +24,11 @@ import { openBrowser } from "@/cli/open-browser"
 import { logFormatFromArgv, type LogFormat } from "@/cli/log-format"
 import { addLogSink, getLogger, configureLogger, type LogLevel, type LogSink } from "@/services/Logger"
 import prettyStream from "pino-pretty"
-import { FillerConfigService, type ResolvedChainConfig, resolveChainConfigs } from "@/services/FillerConfigService"
+import {
+	FillerConfigService,
+	type ResolvedChainConfig,
+	resolveChainConfigs,
+} from "@/services/FillerConfigService"
 import { ChainClientManager } from "@/services/ChainClientManager"
 import { PaymasterKeeperService } from "@/services/PaymasterKeeperService"
 import { signerFromToml, type Signer } from "@/services/wallet"
@@ -235,15 +239,7 @@ async function operatorContextFrom(
 					sweepNow: () => runtime.vaultVenue!.sweepExcessToVault(),
 					redeemAll: () => runtime.vaultVenue!.redeemAll(),
 					reconfigure: (vaults, sweepIntervalMs) => {
-						const vaultsByChain: Record<
-							string,
-							{
-								vault: `0x${string}`
-								threshold?: string
-								minBalance?: string
-								redeemOnShutdown?: boolean
-							}[]
-						> = {}
+						const vaultsByChain: Record<string, { vault: `0x${string}`; threshold?: string; minBalance?: string; redeemOnShutdown?: boolean }[]> = {}
 						for (const row of vaults) {
 							if (!vaultsByChain[row.chain]) vaultsByChain[row.chain] = []
 							vaultsByChain[row.chain].push({
@@ -314,6 +310,7 @@ addRunOptions(program.command("run", { isDefault: true }))
 
 			const logger = getLogger("cli")
 
+
 			const uiEnabled = options.ui !== false
 			const uiSocket = options.uiSocket
 			// An empty value would be falsy at every use below, so the UI would quietly
@@ -326,9 +323,7 @@ addRunOptions(program.command("run", { isDefault: true }))
 			// is on. Only an explicit `--ui <addr>` conflicts — a bare `--ui` just turns
 			// the UI on and names no address, so it pairs with a socket fine.
 			if (uiSocket && !uiEnabled) {
-				throw new Error(
-					"--ui-socket and --no-ui contradict each other: one serves the UI, the other turns it off",
-				)
+				throw new Error("--ui-socket and --no-ui contradict each other: one serves the UI, the other turns it off")
 			}
 			if (uiSocket && typeof options.ui === "string") {
 				throw new Error(
@@ -484,29 +479,17 @@ addRunOptions(program.command("run", { isDefault: true }))
 					} catch (err) {
 						// Once the lock is released no partially started filler may survive to
 						// race a replacement process on the same signer and data directory.
-						await tunnel
-							?.stop()
-							.catch((cleanupError) =>
-								logger.error({ err: cleanupError }, "Could not stop the tunnel after failed startup"),
-							)
+						await tunnel?.stop().catch((cleanupError) =>
+							logger.error({ err: cleanupError }, "Could not stop the tunnel after failed startup"),
+						)
 						if (simplex) {
-							await simplex
-								.stop()
-								.catch((cleanupError) =>
-									logger.error(
-										{ err: cleanupError },
-										"Could not stop the filler after failed startup",
-									),
-								)
-						}
-						await dataStore
-							?.close?.()
-							.catch((cleanupError: unknown) =>
-								logger.error(
-									{ err: cleanupError },
-									"Could not close the data store after failed startup",
-								),
+							await simplex.stop().catch((cleanupError) =>
+								logger.error({ err: cleanupError }, "Could not stop the filler after failed startup"),
 							)
+						}
+						await dataStore?.close?.().catch((cleanupError: unknown) =>
+							logger.error({ err: cleanupError }, "Could not close the data store after failed startup"),
+						)
 						server.stop()
 						uiServer = undefined
 						throw err
@@ -538,10 +521,7 @@ addRunOptions(program.command("run", { isDefault: true }))
 					} catch (err) {
 						// The filler is the primary workload; a bind failure (e.g. port in use)
 						// costs the UI, not the process.
-						logger.error(
-							{ err, bind: uiSocket ?? `${uiBind.host}:${uiBind.port}` },
-							"UI server failed to start",
-						)
+						logger.error({ err, bind: uiSocket ?? `${uiBind.host}:${uiBind.port}` }, "UI server failed to start")
 						uiServer = undefined
 						await tunnel?.stop()
 						tunnel = undefined
@@ -595,8 +575,7 @@ addRunOptions(program.command("run", { isDefault: true }))
 				await server.start({ socketPath: uiSocket })
 				// Same rule as the TCP announcement below: in json mode this is a record,
 				// not prose, or it is the one non-JSON line in a stream someone is parsing.
-				if (logFormat === "json")
-					logger.info({ socket: uiSocket }, "No config found, starting the setup wizard")
+				if (logFormat === "json") logger.info({ socket: uiSocket }, "No config found, starting the setup wizard")
 				else console.log(`\n  No config found — the setup wizard is serving on ${uiSocket}\n`)
 				// The server keeps the event loop alive until the wizard completes.
 				return
@@ -669,7 +648,12 @@ program
 			const runtimeSigner: Signer = chainClientManager.getSigner()
 
 			const chains = resolvedChains.map((chain) => `EVM-${chain.chainId}`)
-			const keeper = new PaymasterKeeperService(chainClientManager, configService, runtimeSigner, config.keeper)
+			const keeper = new PaymasterKeeperService(
+				chainClientManager,
+				configService,
+				runtimeSigner,
+				config.keeper,
+			)
 			keeper.start(chains)
 
 			const shutdown = (signal: string) => {

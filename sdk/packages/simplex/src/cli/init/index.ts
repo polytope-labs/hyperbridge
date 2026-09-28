@@ -110,10 +110,7 @@ async function handleExistingConfig(outputPath: string): Promise<Prefill | undef
 	if (!config || invalidReason) {
 		log.warn(`Found ${outputPath}, but it doesn't pass validation: ${invalidReason}`)
 		const fresh = guard(
-			await confirm({
-				message: "Start fresh? (the file is only replaced after you confirm)",
-				initialValue: true,
-			}),
+			await confirm({ message: "Start fresh? (the file is only replaced after you confirm)", initialValue: true }),
 		)
 		if (!fresh) {
 			log.info("Nothing changed. Fix the file by hand or re-run simplex init.")
@@ -127,11 +124,7 @@ async function handleExistingConfig(outputPath: string): Promise<Prefill | undef
 			message: `Found an existing config at ${outputPath} — what do you want to do?`,
 			options: [
 				{ value: "start", label: "Start the filler with it as-is" },
-				{
-					value: "update",
-					label: "Update values",
-					hint: "walk through the wizard with current values prefilled",
-				},
+				{ value: "update", label: "Update values", hint: "walk through the wizard with current values prefilled" },
 				{ value: "fresh", label: "Start fresh", hint: "ignore the existing values" },
 			],
 		}),

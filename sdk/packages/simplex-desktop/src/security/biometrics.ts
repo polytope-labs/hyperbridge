@@ -1,7 +1,10 @@
 import { safeStorage, systemPreferences } from "electron"
 import type { BiometricUnlock } from "./vault"
 
-/** Touch ID authorizes app access; macOS Keychain protects the optional wrapped key at rest. */
+/**
+ * Touch ID authorizes app access; macOS Keychain protects the optional wrapped key at rest.
+ * The Keychain item is not biometrics-bound: the Touch ID prompt is an app-level gate.
+ */
 export function createTouchIdUnlock(platform: NodeJS.Platform = process.platform): BiometricUnlock {
 	const requireMac = () => {
 		if (platform !== "darwin") throw new Error("Touch ID is only available on supported Macs")

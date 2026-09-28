@@ -128,20 +128,15 @@ describe("desktop config vault", () => {
 		await fixture(f.dataDir).unlock({ method: "password", password })
 	})
 
-	it("enrolls version-1 profiles only after an authenticated login", async () => {
+	it("rejects security files without a recovery wrapper or with malformed JSON", async () => {
 		const f = fixture()
 		await enroll(f)
-		const legacy = JSON.parse(readFileSync(f.metadata, "utf8"))
-		legacy.version = 1
-		delete legacy.recoveryKey
-		writeFileSync(f.metadata, JSON.stringify(legacy))
-		const next = fixture(f.dataDir)
-		expect((await next.vault.state()).recoveryEnabled).toBe(false)
-		await next.vault.unlock({ method: "password", password })
-		expect((await next.vault.state()).mode).toBe("save-recovery")
-		expect(JSON.parse(readFileSync(f.metadata, "utf8")).version).toBe(1)
-		await next.vault.confirmRecovery(true)
-		expect(JSON.parse(readFileSync(f.metadata, "utf8")).version).toBe(2)
+		const record = JSON.parse(readFileSync(f.metadata, "utf8"))
+		delete record.recoveryKey
+		writeFileSync(f.metadata, JSON.stringify(record))
+		await expect(fixture(f.dataDir).vault.state()).rejects.toThrow(/invalid desktop security file/)
+		writeFileSync(f.metadata, "{not json")
+		await expect(fixture(f.dataDir).vault.state()).rejects.toThrow(/invalid desktop security file/)
 	})
 
 	it("recovers with previously enrolled Touch ID without asking for the forgotten password", async () => {
@@ -207,9 +202,20 @@ describe("desktop config vault", () => {
 			)
 			expect(response.status).toBe(403)
 		}
-		const request = () => new Request("simplex://local/api/desktop/recovery-code")
+		const request = () =>
+			new Request("simplex://local/api/desktop/recovery-code", { headers: { "X-Simplex-UI": "1" } })
 		expect((await f.vault.handle(request())).status).toBe(400)
 		await f.vault.unlock(create)
+		expect((await f.vault.handle(new Request("simplex://local/api/desktop/recovery-code"))).status).toBe(403)
+		expect(
+			(
+				await f.vault.handle(
+					new Request("simplex://local/api/desktop/recovery-code", {
+						headers: { "X-Simplex-UI": "1", Origin: "https://evil.example" },
+					}),
+				)
+			).status,
+		).toBe(403)
 		const response = await f.vault.handle(request())
 		expect(response.headers.get("cache-control")).toBe("no-store")
 		expect((await response.json()).code).toBe(f.vault.recoveryCode())

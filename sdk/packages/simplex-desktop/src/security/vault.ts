@@ -14,12 +14,14 @@ import {
 import { createRecoveryKey, recoverConfigKey } from "./recovery"
 
 type VaultRecord = {
-	version: 1 | 2
+	version: 2
 	salt: string
 	wrappedKey: SealedSecret
 	biometricKey?: string
-	recoveryKey?: SealedSecret
+	recoveryKey: SealedSecret
 }
+/** Credential wrappers before a recovery code is attached; never persisted in this shape. */
+type Credentials = Omit<VaultRecord, "version" | "recoveryKey">
 export interface BiometricUnlock {
 	available(): Promise<boolean>
 	confirm(): Promise<void>
@@ -52,6 +54,7 @@ export class DesktopVault {
 	private key?: Buffer
 	private recovery?: AuthorizedRecovery
 	private pending?: PendingSave
+	private expiryTimer?: NodeJS.Timeout
 	private busy = false
 	private nextAttempt = 0
 	constructor(
@@ -71,6 +74,7 @@ export class DesktopVault {
 		return this.key !== undefined
 	}
 	lock(): void {
+		clearTimeout(this.expiryTimer)
 		this.key?.fill(0)
 		this.recovery?.key.fill(0)
 		this.pending?.key.fill(0)
@@ -89,6 +93,12 @@ export class DesktopVault {
 			this.pending = undefined
 		}
 	}
+	/** Zero recovery keys when their session lapses, not only on the next request. */
+	private scheduleExpiry(): void {
+		clearTimeout(this.expiryTimer)
+		this.expiryTimer = setTimeout(() => this.expire(), RECOVERY_SESSION_MS + 1)
+		this.expiryTimer.unref()
+	}
 	private revision(): string | undefined {
 		if (!existsSync(this.vaultPath)) return undefined
 		if (statSync(this.vaultPath).size > 16_384) throw new Error("Invalid desktop security file")
@@ -101,13 +111,18 @@ export class DesktopVault {
 				throw new Error("The security file is missing. Restore desktop-vault.json from your backup.")
 			return undefined
 		}
-		const record = JSON.parse(content) as VaultRecord
+		let record: VaultRecord
+		try {
+			record = JSON.parse(content) as VaultRecord
+		} catch {
+			throw new Error("Unsupported or invalid desktop security file")
+		}
 		if (
 			!record ||
-			(record.version !== 1 && record.version !== 2) ||
+			record.version !== 2 ||
 			!/^[a-f0-9]{32}$/.test(record.salt) ||
 			!record.wrappedKey ||
-			(record.version === 2 && !record.recoveryKey) ||
+			!record.recoveryKey ||
 			(record.biometricKey !== undefined &&
 				(typeof record.biometricKey !== "string" || !/^(?:[a-f0-9]{2})+$/.test(record.biometricKey)))
 		)
@@ -129,7 +144,7 @@ export class DesktopVault {
 							: "create",
 			biometricAvailable: await this.options.biometrics.available(),
 			biometricEnabled: Boolean(record?.biometricKey),
-			recoveryEnabled: Boolean(record?.recoveryKey),
+			recoveryEnabled: Boolean(record),
 			needsRestart: !this.key && (await this.options.needsRestart()),
 		}
 	}
@@ -158,11 +173,12 @@ export class DesktopVault {
 		await this.options.biometrics.confirm()
 		return this.options.biometrics.unprotect(record.biometricKey)
 	}
-	private async wrapPassword(
-		key: Buffer,
-		password: unknown,
-		confirmation: unknown,
-	): Promise<Pick<VaultRecord, "salt" | "wrappedKey">> {
+	private async enrollBiometrics(key: Buffer): Promise<string> {
+		if (!(await this.options.biometrics.available())) throw new Error("Touch ID is unavailable on this device")
+		await this.options.biometrics.confirm()
+		return this.options.biometrics.protect(key)
+	}
+	private async wrapPassword(key: Buffer, password: unknown, confirmation: unknown): Promise<Credentials> {
 		if (typeof password !== "string" || password.length < 12 || password.length > 1024)
 			throw new Error("Use a password with 12–1024 characters")
 		if (password !== confirmation) throw new Error("Passwords do not match")
@@ -174,37 +190,44 @@ export class DesktopVault {
 			wrappingKey.fill(0)
 		}
 	}
-	private stage(key: Buffer, record: VaultRecord, revision: string | undefined, restartAllowed: boolean): void {
+	private stage(key: Buffer, credentials: Credentials, revision: string | undefined, restartAllowed: boolean): void {
 		const { code, wrappedKey } = createRecoveryKey(key)
 		this.pending = {
 			key,
-			record: { ...record, version: 2, recoveryKey: wrappedKey },
+			record: { ...credentials, version: 2, recoveryKey: wrappedKey },
 			revision,
 			code,
 			restartAllowed,
 			committed: false,
 			expiresAt: Date.now() + RECOVERY_SESSION_MS,
 		}
+		this.scheduleExpiry()
 	}
 	private async activate(key: Buffer): Promise<void> {
 		await this.options.start(key)
 		this.key = key
 		this.options.onUnlocked?.()
 	}
-	/** Old profiles enroll a recovery code on their next successful login. */
 	async unlock(request: UnlockRequest): Promise<void> {
 		await this.exclusive(async () => {
 			if (this.key) return
 			if (this.pending || this.recovery) throw new Error("Finish or cancel the current recovery step first")
 			const revision = this.revision()
-			let record = this.record()
+			const record = this.record()
 			let key: Buffer | undefined
 			try {
 				if (!record) {
 					if (request.method !== "create") throw new Error("Create a password to continue")
 					key = randomBytes(32)
-					record = { version: 1, ...(await this.wrapPassword(key, request.password, request.confirmation)) }
-				} else if (request.method === "biometric") key = await this.biometricKey(record)
+					const credentials = await this.wrapPassword(key, request.password, request.confirmation)
+					this.checkConfig(key)
+					if (request.useBiometrics === true) credentials.biometricKey = await this.enrollBiometrics(key)
+					// A new profile commits only after its recovery code is acknowledged.
+					this.stage(key, credentials, revision, request.restartSolver === true)
+					key = undefined
+					return
+				}
+				if (request.method === "biometric") key = await this.biometricKey(record)
 				else {
 					if (
 						request.method !== "password" ||
@@ -223,17 +246,8 @@ export class DesktopVault {
 					}
 				}
 				this.checkConfig(key)
-				if (request.useBiometrics === true && request.method !== "biometric") {
-					if (!(await this.options.biometrics.available()))
-						throw new Error("Touch ID is unavailable on this device")
-					await this.options.biometrics.confirm()
-					record.biometricKey = await this.options.biometrics.protect(key)
-				}
-				if (!record.recoveryKey) {
-					this.stage(key, record, revision, request.restartSolver === true)
-					key = undefined
-					return
-				}
+				if (request.useBiometrics === true && request.method !== "biometric")
+					record.biometricKey = await this.enrollBiometrics(key)
 				await this.persistAndPrepare(record, key, revision, request.restartSolver === true)
 				await this.activate(key)
 				key = undefined
@@ -252,11 +266,11 @@ export class DesktopVault {
 			let key: Buffer | undefined
 			try {
 				if (request.method === "biometric") key = await this.biometricKey(record)
-				else if (request.method === "code" && record.recoveryKey)
-					key = recoverConfigKey(request.recoveryCode, record.recoveryKey)
+				else if (request.method === "code") key = recoverConfigKey(request.recoveryCode, record.recoveryKey)
 				else throw new Error("This recovery method is not available")
 				this.checkConfig(key)
 				this.recovery = { key, record, revision, expiresAt: Date.now() + RECOVERY_SESSION_MS }
+				this.scheduleExpiry()
 				key = undefined
 			} finally {
 				key?.fill(0)
@@ -335,17 +349,19 @@ export class DesktopVault {
 				headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
 			})
 		const path = new URL(request.url).pathname
+		const origin = request.headers.get("origin")
+		const fromUi = request.headers.get("x-simplex-ui") === "1" && (!origin || origin === "simplex://local")
 		try {
 			if (path === "/api/desktop/security" && request.method === "GET") return json(await this.state())
-			if (path === "/api/desktop/recovery-code" && request.method === "GET")
+			if (path === "/api/desktop/recovery-code" && request.method === "GET") {
+				if (!fromUi) return json({ error: "Forbidden" }, 403)
 				return json({ code: this.recoveryCode() })
+			}
 			const routes = ["unlock", "recover", "reset-password", "confirm-recovery", "cancel-recovery"]
 			const route = path.replace("/api/desktop/", "")
 			if (!routes.includes(route)) return json({ error: "Not found" }, 404)
 			if (request.method !== "POST") return json({ error: "Method not allowed" }, 405)
-			const origin = request.headers.get("origin")
-			if (request.headers.get("x-simplex-ui") !== "1" || (origin && origin !== "simplex://local"))
-				return json({ error: "Forbidden" }, 403)
+			if (!fromUi) return json({ error: "Forbidden" }, 403)
 			const reader = request.body?.getReader()
 			if (!reader) return json({ error: "Missing request" }, 400)
 			let text = "",

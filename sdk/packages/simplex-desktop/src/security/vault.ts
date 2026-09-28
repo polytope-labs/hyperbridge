@@ -12,6 +12,7 @@ import {
 	type SealedSecret,
 } from "@hyperbridge/simplex/config-storage"
 import { createRecoveryKey, recoverConfigKey } from "./recovery"
+import type { DeviceKeyStore } from "./device-key-store"
 
 type VaultRecord = {
 	version: 2
@@ -19,6 +20,7 @@ type VaultRecord = {
 	wrappedKey: SealedSecret
 	biometricKey?: string
 	recoveryKey: SealedSecret
+	deviceKey?: string
 }
 /** Credential wrappers before a recovery code is attached; never persisted in this shape. */
 type Credentials = Omit<VaultRecord, "version" | "recoveryKey">
@@ -33,6 +35,8 @@ export interface DesktopAccessState {
 	biometricAvailable: boolean
 	biometricEnabled: boolean
 	recoveryEnabled: boolean
+	backgroundResumeAvailable: boolean
+	secureDeviceStorageAvailable: boolean
 	needsRestart: boolean
 }
 type UnlockRequest = {
@@ -61,6 +65,7 @@ export class DesktopVault {
 		private readonly options: {
 			dataDir: string
 			biometrics: BiometricUnlock
+			deviceKeyStore: DeviceKeyStore
 			needsRestart(): Promise<boolean>
 			prepare(restartAllowed: boolean): Promise<void>
 			start(key: Buffer): Promise<void>
@@ -123,6 +128,8 @@ export class DesktopVault {
 			!/^[a-f0-9]{32}$/.test(record.salt) ||
 			!record.wrappedKey ||
 			!record.recoveryKey ||
+			(record.deviceKey !== undefined &&
+				(typeof record.deviceKey !== "string" || !/^(?:[a-f0-9]{2})+$/.test(record.deviceKey))) ||
 			(record.biometricKey !== undefined &&
 				(typeof record.biometricKey !== "string" || !/^(?:[a-f0-9]{2})+$/.test(record.biometricKey)))
 		)
@@ -132,6 +139,7 @@ export class DesktopVault {
 	async state(): Promise<DesktopAccessState> {
 		this.expire()
 		const record = this.record()
+		const secureDeviceStorageAvailable = await this.options.deviceKeyStore.available()
 		return {
 			mode: this.key
 				? "unlocked"
@@ -145,6 +153,9 @@ export class DesktopVault {
 			biometricAvailable: await this.options.biometrics.available(),
 			biometricEnabled: Boolean(record?.biometricKey),
 			recoveryEnabled: Boolean(record),
+			backgroundResumeAvailable:
+				Boolean(this.pending?.record.deviceKey ?? record?.deviceKey) && secureDeviceStorageAvailable,
+			secureDeviceStorageAvailable,
 			needsRestart: !this.key && (await this.options.needsRestart()),
 		}
 	}
@@ -177,6 +188,27 @@ export class DesktopVault {
 		if (!(await this.options.biometrics.available())) throw new Error("Touch ID is unavailable on this device")
 		await this.options.biometrics.confirm()
 		return this.options.biometrics.protect(key)
+	}
+	private async wrapDeviceKey(key: Buffer): Promise<string | undefined> {
+		try {
+			if (await this.options.deviceKeyStore.available()) return await this.options.deviceKeyStore.protect(key)
+		} catch {
+			// Keep password unlock available when the OS key store is unavailable.
+		}
+		return undefined
+	}
+	/** Return an OS-protected key for solver startup without opening the UI/API gate. */
+	async backgroundKey(): Promise<Buffer | undefined> {
+		const record = this.record()
+		if (!record?.deviceKey || !(await this.options.deviceKeyStore.available())) return undefined
+		const key = await this.options.deviceKeyStore.unprotect(record.deviceKey)
+		try {
+			this.checkConfig(key)
+			return key
+		} catch (error) {
+			key.fill(0)
+			throw error
+		}
 	}
 	private async wrapPassword(key: Buffer, password: unknown, confirmation: unknown): Promise<Credentials> {
 		if (typeof password !== "string" || password.length < 12 || password.length > 1024)
@@ -220,6 +252,7 @@ export class DesktopVault {
 					if (request.method !== "create") throw new Error("Create a password to continue")
 					key = randomBytes(32)
 					const credentials = await this.wrapPassword(key, request.password, request.confirmation)
+					credentials.deviceKey = await this.wrapDeviceKey(key)
 					this.checkConfig(key)
 					if (request.useBiometrics === true) credentials.biometricKey = await this.enrollBiometrics(key)
 					// A new profile commits only after its recovery code is acknowledged.
@@ -246,6 +279,7 @@ export class DesktopVault {
 					}
 				}
 				this.checkConfig(key)
+				record.deviceKey = (await this.wrapDeviceKey(key)) ?? record.deviceKey
 				if (request.useBiometrics === true && request.method !== "biometric")
 					record.biometricKey = await this.enrollBiometrics(key)
 				await this.persistAndPrepare(record, key, revision, request.restartSolver === true)
@@ -282,9 +316,10 @@ export class DesktopVault {
 			const recovery = this.recovery
 			if (!recovery) throw new Error("Verify your recovery code or Touch ID again")
 			const password = await this.wrapPassword(recovery.key, request.password, request.confirmation)
+			const deviceKey = (await this.wrapDeviceKey(recovery.key)) ?? recovery.record.deviceKey
 			this.stage(
 				recovery.key,
-				{ ...recovery.record, ...password },
+				{ ...recovery.record, ...password, deviceKey },
 				recovery.revision,
 				request.restartSolver === true,
 			)

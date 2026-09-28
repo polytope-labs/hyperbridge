@@ -7,6 +7,8 @@ type AccessState = {
 	biometricAvailable: boolean
 	biometricEnabled: boolean
 	recoveryEnabled: boolean
+	backgroundResumeAvailable: boolean
+	secureDeviceStorageAvailable: boolean
 	needsRestart: boolean
 }
 type Perform = (route: string, body?: Record<string, unknown>) => Promise<void>
@@ -191,6 +193,16 @@ function Login({ access, perform, forgot }: { access: AccessState; perform: Perf
 					? "Keep your settings and wallet details safe on this device."
 					: "Enter your password to continue."}
 			</p>
+			{!access.secureDeviceStorageAvailable && (
+				<p className="hint" role="note">
+					Secure key storage is unavailable. After a reboot or update, sign in to resume filling.
+				</p>
+			)}
+			{!creating && access.secureDeviceStorageAvailable && !access.backgroundResumeAvailable && (
+				<p className="hint" role="note">
+					Sign in once to enable automatic solver restarts on this device.
+				</p>
+			)}
 			<PasswordFields {...{ creating, password, confirmation, setPassword, setConfirmation }} />
 			{access.biometricAvailable && !access.biometricEnabled && (
 				<label className="desktop-unlock-choice">
@@ -231,7 +243,7 @@ function Recover({ access, perform, cancel }: { access: AccessState; perform: Pe
 		<form
 			onSubmit={(event) => {
 				event.preventDefault()
-				void perform("recover", { method: "code", recoveryCode }).then(() => setRecoveryCode(""))
+				void perform("recover", { method: "code", recoveryCode })
 			}}
 		>
 			<h1>Reset your password</h1>
@@ -285,10 +297,7 @@ function NewPassword({ access, perform, cancel }: { access: AccessState; perform
 		<form
 			onSubmit={(event) => {
 				event.preventDefault()
-				void perform("reset-password", { password, confirmation, restartSolver }).then(() => {
-					setPassword("")
-					setConfirmation("")
-				})
+				void perform("reset-password", { password, confirmation, restartSolver })
 			}}
 		>
 			<h1>Create a new password</h1>

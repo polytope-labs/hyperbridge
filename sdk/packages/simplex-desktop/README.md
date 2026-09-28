@@ -37,7 +37,8 @@ Run `pnpm stage:node` again only when the pinned runtime or the host target chan
 
 On first launch, create a password (at least 12 characters), save the recovery code, then complete the setup wizard.
 The wizard writes an encrypted `filler-config.toml` under Electron's `app.getPath("userData")`.
-Every fresh Electron launch requires the password, or Touch ID if enabled on a supported Mac.
+Every fresh Electron launch locks the dashboard until the password or previously enabled Touch ID
+is provided.
 **Forgot password?** accepts the saved recovery code or previously enabled Touch ID, without asking
 for the old password. Choose a new password and save the replacement recovery code; changes take
 effect when you confirm that you saved it. Recovery preserves the configuration and does not restart
@@ -72,8 +73,10 @@ This flag is optional. Omit it to use the normal desktop profile and onboarding 
 
 ## Process lifecycle
 
-After unlock, Electron attaches to one solver address derived from its user-data directory. If no recognized
-Simplex process answers `/health`, it launches the existing Simplex binary with the staged runtime.
+On launch, Electron uses the OS-protected restart key to attach to or start the protected solver
+while the dashboard remains locked. If secure OS storage is unavailable, it waits for authentication.
+The solver address is derived from Electron's user-data directory. If no recognized Simplex process
+answers `/health`, it launches the existing Simplex binary with the staged runtime.
 It refuses to replace a live, unrecognized listener.
 
 Closing the window hides it to the system tray and intentionally leaves the solver running so UI
@@ -112,11 +115,11 @@ extension. Because Linux click activation is inconsistent, every command—inclu
 Stop, Restart, and both quit choices—is available from the context menu.
 
 **Launch Simplex at login** is opt-in and available only in an installed build. It registers the app,
-not the detached solver, and opens the unlock screen before starting or attaching to it. After a
-reboot, filling stays paused until someone unlocks the app; the same applies after an update that
-stopped the solver. macOS and Windows use Electron's
-login-item API; Linux uses the equivalent per-user XDG autostart entry. Development runs do not
-register the Electron development binary.
+which starts or attaches to a protected solver in the background when its OS-protected restart key
+is available. The dashboard still asks for the password or Touch ID. On a system without secure OS
+key storage, filling waits for an interactive unlock after a reboot or update. macOS and Windows use
+Electron's login-item API; Linux uses the equivalent per-user XDG autostart entry. Development runs
+do not register the Electron development binary.
 
 Native menus also provide About, Open Data Directory, Open Current Log, update checks, and a
 stable/beta channel selector while preserving the platform Edit and Window roles and their keyboard
@@ -156,15 +159,20 @@ same-machine contexts may still be able to inspect or connect to the pipe. On ev
 software already running as the same OS user remains inside the trust boundary.
 
 Desktop encrypts `filler-config.toml` with AES-256-GCM using a random 256-bit key. A scrypt-derived
-password key wraps that key in `desktop-vault.json`. Optional macOS Touch ID authorizes unlock before
-Electron's `safeStorage` unwraps a second copy protected by the macOS Keychain. This is an app-level
-Touch ID gate, not a biometrics-bound Keychain item; password recovery remains available. Windows
+password key wraps that key in `desktop-vault.json`. A separate `deviceKey` wrapper uses Electron's
+`safeStorage` to resume the solver under the OS user without unlocking the dashboard. It is created
+on setup and refreshed on authentication. The Linux `basic_text` and `unknown` backends are refused;
+there, the app tells the operator an interactive unlock is needed after restart. Optional macOS
+Touch ID authorizes unlock before Electron's `safeStorage` unwraps another copy protected by the
+macOS Keychain. This is an app-level Touch ID gate, not a biometrics-bound Keychain item. Windows
 and Linux use password unlock. Passwords and unwrapped keys are not saved in renderer storage,
 logs, argv, environment variables, or temporary files. Electron hands the key to the solver over a
 one-shot stdin pipe. Setup and runtime config edits use the same encrypted writer.
 
-The UI/API and solver-changing menus stay locked until authentication. A solver left running by
-app-only quit retains its in-memory key and keeps filling; reopening Electron requires login again.
+The OS-protected restart copy has the trust level of the logged-in OS user: software running as
+that user may be able to use or request it. The UI/API and solver-changing menus stay locked until
+authentication. A solver left running by app-only quit retains its in-memory key and keeps filling;
+reopening Electron requires login again.
 Closing/reopening its existing window is not a logout. This protects the config at rest, not process
 memory, database contents, an already-authorized remote tunnel, or a compromised OS user. Full-disk
 encryption remains advisable for swap and old snapshots. The CLI/PWA still uses plaintext configs;
@@ -358,12 +366,14 @@ staged until the app is supervising a PID-reporting solver, so updater safety is
 A staged update is also left untouched while the operator has intentionally stopped the solver. On
 relaunch, Electron rechecks the feed so its updater instance revalidates the cached artifact before
 stopping anything. If the installer reports an error after the updater stopped the solver, the app
-clears the attempted marker, restarts that solver, and leaves the update available for a later retry.
+clears the attempted marker, restarts that solver using its retained protected key, and leaves the
+update available for a later retry. On successful relaunch, the OS-protected copy resumes the solver
+and the update receipt check runs even while the dashboard remains locked.
 
 Before installing, the app records the old and target versions in `desktop-updates.json` under
 Electron user data. The relaunched app clears that receipt only after a healthy setup or operator
-solver reports the same version as the desktop app. A solver boot failure uses the native startup
-error and exits instead of failing silently. A version mismatch remains visible in the native menu
+solver reports the same version as the desktop app. A background solver boot failure is reported
+and leaves the app at the unlock screen. A version mismatch remains visible in the native menu
 and blocks both onboarding and the dashboard from driving the mismatched solver. Changing update
 channels ignores a download that was started on the previous channel.
 

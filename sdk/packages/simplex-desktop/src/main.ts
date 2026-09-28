@@ -24,6 +24,7 @@ import { DesktopNotificationClient, desktopNotificationUrl } from "./notificatio
 import { handleSimplexProtocol } from "./protocol"
 import { DesktopVault } from "./security/vault"
 import { touchIdUnlock } from "./security/biometrics"
+import { deviceKeyStore } from "./security/device-key-store"
 import { SIMPLEX_UPDATE_FEED } from "./release-provider"
 import {
 	holdsMachineAwake,
@@ -204,17 +205,22 @@ function onSolverStatusChanged(next: SolverStatus, previous: SolverStatus): void
 	if (shouldNotifySolverFailure(previous, next, intentionalStop)) notifySolverFailure(next)
 }
 
-async function startOrAttachSolver(fatal: boolean): Promise<boolean> {
-	if (vault && !vault.isUnlocked()) {
+async function startOrAttachSolver(fatal: boolean, background = false): Promise<boolean> {
+	if (vault && !vault.isUnlocked() && !background) {
 		await safeShowWindow()
 		return false
 	}
+	if (background && !daemonLaunch?.configKey) throw new Error("No protected key is available to restart the solver")
 	if (startPromise) return startPromise
 	startPromise = (async () => {
 		if (!daemonLaunch || !supervisor) throw new Error("The Simplex desktop runtime is not initialized")
+		const launch = {
+			...daemonLaunch,
+			configKey: daemonLaunch.configKey ? Buffer.from(daemonLaunch.configKey) : undefined,
+		}
 		supervisor.setStatus({ state: "starting" })
 		try {
-			await ensureDaemon({ launch: daemonLaunch })
+			await ensureDaemon({ launch })
 			await supervisor.pollNow()
 			return true
 		} catch (error) {
@@ -223,6 +229,7 @@ async function startOrAttachSolver(fatal: boolean): Promise<boolean> {
 			reportActionError("Simplex could not restart the solver", error)
 			return false
 		} finally {
+			launch.configKey?.fill(0)
 			startPromise = undefined
 		}
 	})()
@@ -436,6 +443,7 @@ async function prepareDesktop(): Promise<void> {
 	vault = new DesktopVault({
 		dataDir: dataDirectory,
 		biometrics: touchIdUnlock,
+		deviceKeyStore,
 		needsRestart: async () => {
 			// A slow or foreign listener must not hide the login screen; prepare()
 			// and start() report it once the user has authenticated.
@@ -454,11 +462,18 @@ async function prepareDesktop(): Promise<void> {
 			}
 		},
 		start: async (key) => {
-			const launch = { ...daemonLaunch!, configKey: key }
+			if (startPromise) await startPromise
+			const launch = { ...daemonLaunch!, configKey: Buffer.from(key) }
 			intentionalStop = false
-			await ensureDaemon({ launch })
-			daemonLaunch = launch
-			await supervisor?.pollNow()
+			try {
+				await ensureDaemon({ launch })
+				daemonLaunch?.configKey?.fill(0)
+				daemonLaunch = launch
+				await supervisor?.pollNow()
+			} catch (error) {
+				if (daemonLaunch !== launch) launch.configKey.fill(0)
+				throw error
+			}
 		},
 		onUnlocked: () => {
 			notificationClient?.start()
@@ -520,7 +535,9 @@ async function prepareDesktop(): Promise<void> {
 			},
 			restartSolver: async () => {
 				intentionalStop = false
-				if (!(await startOrAttachSolver(false))) throw new Error("Simplex could not restart the solver")
+				quitting = false
+				if (!(await startOrAttachSolver(false, true))) throw new Error("Simplex could not restart the solver")
+				await safeShowWindow()
 			},
 			waitForExit: (pid) => waitForSolverExit({ pid, probe: () => probeHealth(socketPath) }),
 			onChange: (next) => {
@@ -540,9 +557,34 @@ async function prepareDesktop(): Promise<void> {
 	} else if (app.isPackaged) {
 		console.warn(`Simplex automatic updates are disabled: ${updateAuthenticity.reason}`)
 	}
+	let hasBackgroundKey = false
+	try {
+		const key = await vault.backgroundKey()
+		if (key) {
+			try {
+				daemonLaunch = { ...daemonLaunch, configKey: Buffer.from(key) }
+				hasBackgroundKey = true
+				void startOrAttachSolver(false, true)
+					.then((started) => {
+						if (!started && openedAtLogin) void safeShowWindow()
+					})
+					.catch((error) => {
+						console.warn(`Simplex could not resume the solver in the background: ${errorMessage(error)}`)
+						if (openedAtLogin) void safeShowWindow()
+					})
+					.finally(() => updateCoordinator?.start())
+					.catch((error) => console.error(`Simplex updater could not start: ${errorMessage(error)}`))
+			} finally {
+				key.fill(0)
+			}
+		}
+	} catch (error) {
+		console.warn(`Simplex needs an interactive unlock before the solver can resume: ${errorMessage(error)}`)
+	}
+	if (!hasBackgroundKey) updateCoordinator?.start()
 	refreshNativeUi()
 
-	if (!openedAtLogin || !vault.isUnlocked()) {
+	if (!openedAtLogin || !hasBackgroundKey) {
 		await createWindow()
 	}
 }
@@ -572,9 +614,12 @@ if (!app.requestSingleInstanceLock()) {
 	app.on("before-quit", () => {
 		quitting = true
 		vault?.lock()
-		supervisor?.stop()
-		notificationClient?.stop()
-		updateCoordinator?.dispose()
+		if (!installingUpdate) {
+			daemonLaunch?.configKey?.fill(0)
+			supervisor?.stop()
+			notificationClient?.stop()
+			updateCoordinator?.dispose()
+		}
 		if (powerSaveBlockerId !== undefined && powerSaveBlocker.isStarted(powerSaveBlockerId)) {
 			powerSaveBlocker.stop(powerSaveBlockerId)
 		}

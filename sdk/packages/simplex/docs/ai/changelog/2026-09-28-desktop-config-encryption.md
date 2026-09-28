@@ -9,21 +9,26 @@ Cancel returns to password creation if setup has not been saved, or to login for
 On a fresh launch, valid `desktop-vault.json` metadata selects login; absent metadata selects password
 creation unless the config is already encrypted, in which case restoring missing metadata is required.
 Reopening a hidden window in the same unlocked Electron session does not require another login.
-The solver does not start until unlock, so after a reboot (including **Launch Simplex at login**) or an
-update that stopped the solver, filling stays paused until someone authenticates. A solver still running
-from a previous session keeps filling while the app is locked.
-Supported Macs can additionally enroll Touch ID;
-Windows and Linux show password and recovery-code options only (no Windows Hello integration).
+An OS-protected `deviceKey` wrapper in `desktop-vault.json` lets the host resume the solver at launch
+after a reboot, launch-at-login, or update while the dashboard remains locked. The updater's receipt
+check runs at launch. Installer failure restarts the stopped solver with a key retained separately
+from the password unlock buffer. On Linux `basic_text` or `unknown` key-store backends, background
+restart is disabled and the unlock screen tells the operator to sign in before filling resumes.
+Supported Macs can additionally enroll Touch ID; Windows and Linux show password and recovery-code
+options only (no Windows Hello integration).
 The native login gate blocks solver APIs and privileged menu actions until unlock. Web/PWA behavior
 is unchanged, including plaintext CLI config storage.
 
 Desktop owns `<userData>/filler-config.toml`, encrypted with AES-256-GCM and a random 32-byte key.
-`desktop-vault.json` (version 2, the only accepted format) stores a scrypt password-wrapped key (N=131072, r=8, p=1; random
-16-byte salt). Touch ID authorizes access to an optional macOS Keychain-backed `safeStorage` wrapper;
-the wrapper is not itself biometric-bound. A random 256-bit recovery code separately wraps the same
-config key; the raw code is never persisted by the app. Metadata without a recovery wrapper is
-rejected as invalid. Both files use atomic private writes. Backups require both files plus
-the password or recovery code. Refresh metadata backups after recovery.
+`desktop-vault.json` (version 2, the only accepted format) stores a scrypt password-wrapped key
+(N=131072, r=8, p=1; random 16-byte salt). Touch ID authorizes access to an optional macOS
+Keychain-backed `safeStorage` wrapper. That wrapper is not itself biometric-bound. The separate
+`deviceKey` wrapper uses Electron `safeStorage` (macOS Keychain, Windows DPAPI, or a secure Linux
+key store). It can be used by software running as the same OS user, matching the running solver's
+trust level. A random 256-bit recovery code separately wraps the same config key; the raw code is
+never persisted by the app. Metadata without a recovery wrapper is rejected as invalid. Both files use atomic private
+writes. Backups require both files plus the password or recovery code. Refresh metadata backups
+after recovery.
 
 **Forgot password?** verifies a recovery code or previously enabled Touch ID without requiring the
 old password. A ten-minute, in-memory authorization (keys are zeroed when it lapses) permits choosing a new password and saving a

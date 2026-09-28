@@ -4,6 +4,7 @@ import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { decryptConfig, encryptedConfigStore, isEncryptedConfig } from "@hyperbridge/simplex/config-storage"
 import { DesktopVault, type BiometricUnlock } from "../security/vault"
+import type { DeviceKeyStore } from "../security/device-key-store"
 
 const password = "test-only password 1330"
 const directories: string[] = []
@@ -25,7 +26,20 @@ function fixture(dataDir = directory(), extra: Partial<ConstructorParameters<typ
 		protect: vi.fn(async () => "aabb"),
 		unprotect: vi.fn(async () => Buffer.alloc(32)),
 	}
-	const vault = new DesktopVault({ dataDir, start, prepare, biometrics, needsRestart: async () => false, ...extra })
+	const deviceKeyStore: DeviceKeyStore = {
+		available: vi.fn(async () => true),
+		protect: vi.fn(async (key: Buffer) => Buffer.from(key.map((byte) => byte ^ 0xa5)).toString("hex")),
+		unprotect: vi.fn(async (value: string) => Buffer.from(Buffer.from(value, "hex").map((byte) => byte ^ 0xa5))),
+	}
+	const vault = new DesktopVault({
+		dataDir,
+		start,
+		prepare,
+		biometrics,
+		deviceKeyStore,
+		needsRestart: async () => false,
+		...extra,
+	})
 	return {
 		vault,
 		unlock: async (request: Parameters<DesktopVault["unlock"]>[0]) => {
@@ -36,6 +50,7 @@ function fixture(dataDir = directory(), extra: Partial<ConstructorParameters<typ
 		start,
 		prepare,
 		biometrics,
+		deviceKeyStore,
 		path: join(dataDir, "filler-config.toml"),
 		metadata: join(dataDir, "desktop-vault.json"),
 	}
@@ -50,6 +65,36 @@ async function enroll(f: ReturnType<typeof fixture>, useBiometrics = false) {
 }
 
 describe("desktop config vault", () => {
+	it("stores a separate OS wrapper and resumes the solver key while the UI stays locked", async () => {
+		const f = fixture()
+		const code = await enroll(f)
+		const record = JSON.parse(readFileSync(f.metadata, "utf8"))
+		expect(record.deviceKey).toMatch(/^[a-f0-9]{64}$/)
+		expect(record.deviceKey).not.toBe(record.biometricKey)
+		expect(record.deviceKey).not.toBe(code.replace(/-/g, "").toLowerCase())
+		const relaunch = fixture(f.dataDir)
+		const key = await relaunch.vault.backgroundKey()
+		expect(key).toEqual(f.start.mock.calls[0][0])
+		expect(relaunch.vault.isUnlocked()).toBe(false)
+		expect(relaunch.start).not.toHaveBeenCalled()
+		expect((await relaunch.vault.state()).backgroundResumeAvailable).toBe(true)
+		key?.fill(0)
+	})
+
+	it("leaves profiles locked when secure OS storage is absent and enrolls it on the next password login", async () => {
+		const f = fixture()
+		f.deviceKeyStore.available = vi.fn(async () => false)
+		await enroll(f)
+		expect(JSON.parse(readFileSync(f.metadata, "utf8")).deviceKey).toBeUndefined()
+		const relaunch = fixture(f.dataDir)
+		relaunch.deviceKeyStore.available = vi.fn(async () => false)
+		expect(await relaunch.vault.backgroundKey()).toBeUndefined()
+		expect((await relaunch.vault.state()).secureDeviceStorageAvailable).toBe(false)
+		relaunch.deviceKeyStore.available = vi.fn(async () => true)
+		await relaunch.unlock({ method: "password", password })
+		expect(JSON.parse(readFileSync(f.metadata, "utf8")).deviceKey).toMatch(/^[a-f0-9]{64}$/)
+	})
+
 	it("does not start or write anything until the recovery code is acknowledged", async () => {
 		const f = fixture()
 		await f.vault.unlock(create)

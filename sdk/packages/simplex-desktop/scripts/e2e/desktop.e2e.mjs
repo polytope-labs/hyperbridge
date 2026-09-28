@@ -663,6 +663,10 @@ test("configured startup owns the socket before filling and relaunch attaches wh
 
 	await quitElectron(electronApp)
 	electronApp = undefined
+	const vaultPath = join(userDataDir, "desktop-vault.json")
+	const metadata = JSON.parse(await readFile(vaultPath, "utf8"))
+	delete metadata.deviceKey
+	await writeFile(vaultPath, JSON.stringify(metadata), { mode: 0o600 })
 	electronApp = await _electron.launch({
 		executablePath: electronExecutable,
 		args: desktopArguments(packageRoot, userDataDir, { hidden: true }),
@@ -675,7 +679,11 @@ test("configured startup owns the socket before filling and relaunch attaches wh
 		return JSON.parse(response.body).status === "starting"
 	}, "the relaunched desktop to observe startup in progress")
 	assert.deepEqual(await daemonPids(userDataDir), [daemonPid], "relaunch must not spawn a second booting solver")
-	assert.equal(await electronApp.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length), 0)
+	const page = await waitFor(() => electronApp.windows()[0], "the locked Simplex window")
+	await page.waitForURL("simplex://local/**")
+	assert.equal(await electronApp.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length), 1)
+	await page.locator("#desktop-password").waitFor()
+	assert.equal(await page.evaluate(async () => (await fetch("/api/status")).status), 423)
 })
 
 test("Stop solver and quit closes Electron after shutdown is accepted", async (t) => {

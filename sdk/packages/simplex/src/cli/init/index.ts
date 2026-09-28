@@ -1,5 +1,6 @@
 import { confirm, intro, log, select, spinner } from "@clack/prompts"
-import { existsSync, readFileSync } from "fs"
+import { existsSync } from "fs"
+import { readConfigFile } from "@/config/storage"
 import { resolve } from "path"
 import { parse } from "toml"
 import { validateConfig, type FillerConfigFile } from "@/config/filler-toml"
@@ -75,8 +76,11 @@ async function handleExistingConfig(outputPath: string): Promise<Prefill | undef
 	let config: FillerConfigFile | undefined
 	let invalidReason: string | undefined
 	let degraded = false
+	// An encrypted desktop config is not invalid TOML to replace via "Start fresh".
+	// Require desktop authentication instead of offering a plaintext overwrite.
+	const content = readConfigFile(outputPath)
 	try {
-		config = parse(readFileSync(outputPath, "utf-8")) as FillerConfigFile
+		config = parse(content) as FillerConfigFile
 		// Pre-pair-engine configs ([[strategies]]) are migrated to pairs so an
 		// update run offers the old values as prefills instead of failing.
 		if ("strategies" in config) {
@@ -106,7 +110,10 @@ async function handleExistingConfig(outputPath: string): Promise<Prefill | undef
 	if (!config || invalidReason) {
 		log.warn(`Found ${outputPath}, but it doesn't pass validation: ${invalidReason}`)
 		const fresh = guard(
-			await confirm({ message: "Start fresh? (the file is only replaced after you confirm)", initialValue: true }),
+			await confirm({
+				message: "Start fresh? (the file is only replaced after you confirm)",
+				initialValue: true,
+			}),
 		)
 		if (!fresh) {
 			log.info("Nothing changed. Fix the file by hand or re-run simplex init.")
@@ -120,7 +127,11 @@ async function handleExistingConfig(outputPath: string): Promise<Prefill | undef
 			message: `Found an existing config at ${outputPath} — what do you want to do?`,
 			options: [
 				{ value: "start", label: "Start the filler with it as-is" },
-				{ value: "update", label: "Update values", hint: "walk through the wizard with current values prefilled" },
+				{
+					value: "update",
+					label: "Update values",
+					hint: "walk through the wizard with current values prefilled",
+				},
 				{ value: "fresh", label: "Start fresh", hint: "ignore the existing values" },
 			],
 		}),

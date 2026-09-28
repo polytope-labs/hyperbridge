@@ -11,6 +11,7 @@ import { fileURLToPath } from "url"
 import { parse } from "toml"
 import { existsSync } from "fs"
 import { validateConfig, type FillerConfigFile } from "@/config/filler-toml"
+import { encryptedConfigStore, readConfigFile, readConfigKey } from "@/config/storage"
 import { parseChainKey } from "@/config/interpolated-curve"
 import type { AssetDefinition } from "@/config/asset-registry"
 import type { PairConfig } from "@/config/pairs"
@@ -23,11 +24,7 @@ import { openBrowser } from "@/cli/open-browser"
 import { logFormatFromArgv, type LogFormat } from "@/cli/log-format"
 import { addLogSink, getLogger, configureLogger, type LogLevel, type LogSink } from "@/services/Logger"
 import prettyStream from "pino-pretty"
-import {
-	FillerConfigService,
-	type ResolvedChainConfig,
-	resolveChainConfigs,
-} from "@/services/FillerConfigService"
+import { FillerConfigService, type ResolvedChainConfig, resolveChainConfigs } from "@/services/FillerConfigService"
 import { ChainClientManager } from "@/services/ChainClientManager"
 import { PaymasterKeeperService } from "@/services/PaymasterKeeperService"
 import { signerFromToml, type Signer } from "@/services/wallet"
@@ -171,6 +168,7 @@ async function operatorContextFrom(
 	simplex: Simplex,
 	stopAll: () => Promise<never>,
 	tunnel?: TunnelService,
+	writeConfigFile?: (path: string, content: string) => void,
 ): Promise<OperatorContext> {
 	const runtime = simplex.internals
 	const substrateAddress = await deriveSubstrateKeyPair(runtime.config.simplex.substratePrivateKey)
@@ -237,7 +235,15 @@ async function operatorContextFrom(
 					sweepNow: () => runtime.vaultVenue!.sweepExcessToVault(),
 					redeemAll: () => runtime.vaultVenue!.redeemAll(),
 					reconfigure: (vaults, sweepIntervalMs) => {
-						const vaultsByChain: Record<string, { vault: `0x${string}`; threshold?: string; minBalance?: string; redeemOnShutdown?: boolean }[]> = {}
+						const vaultsByChain: Record<
+							string,
+							{
+								vault: `0x${string}`
+								threshold?: string
+								minBalance?: string
+								redeemOnShutdown?: boolean
+							}[]
+						> = {}
 						for (const row of vaults) {
 							if (!vaultsByChain[row.chain]) vaultsByChain[row.chain] = []
 							vaultsByChain[row.chain].push({
@@ -266,6 +272,7 @@ async function operatorContextFrom(
 		version: packageJson.version,
 		startedAt: runtime.startedAt,
 		configPath: runtime.configPath,
+		writeConfigFile,
 		chains: runtime.resolvedChains.map((c) => c.chainId),
 		strategyTypes,
 	}
@@ -307,7 +314,6 @@ addRunOptions(program.command("run", { isDefault: true }))
 
 			const logger = getLogger("cli")
 
-
 			const uiEnabled = options.ui !== false
 			const uiSocket = options.uiSocket
 			// An empty value would be falsy at every use below, so the UI would quietly
@@ -320,7 +326,9 @@ addRunOptions(program.command("run", { isDefault: true }))
 			// is on. Only an explicit `--ui <addr>` conflicts — a bare `--ui` just turns
 			// the UI on and names no address, so it pairs with a socket fine.
 			if (uiSocket && !uiEnabled) {
-				throw new Error("--ui-socket and --no-ui contradict each other: one serves the UI, the other turns it off")
+				throw new Error(
+					"--ui-socket and --no-ui contradict each other: one serves the UI, the other turns it off",
+				)
 			}
 			if (uiSocket && typeof options.ui === "string") {
 				throw new Error(
@@ -338,6 +346,15 @@ addRunOptions(program.command("run", { isDefault: true }))
 			}
 
 			let simplex: Simplex | undefined
+			if (options.configKeyStdin && (!uiSocket || !options.dataDir || options.config)) {
+				throw new Error("Protected desktop mode requires --ui-socket and --data-dir, without --config")
+			}
+			const protectedStore = options.configKeyStdin
+				? encryptedConfigStore(
+						resolve(options.dataDir!, DEFAULT_CONFIG_FILENAME),
+						await readConfigKey(process.stdin),
+					)
+				: undefined
 			let dataStore: SqliteDataStore | undefined
 			let runtime: FillerRuntime | undefined
 			let uiServer: UiServer | undefined
@@ -424,12 +441,16 @@ addRunOptions(program.command("run", { isDefault: true }))
 			process.on("SIGINT", () => void shutdown("SIGINT"))
 			process.on("SIGTERM", () => void shutdown("SIGTERM"))
 
-			const configPath = options.config
-				? resolve(process.cwd(), options.config)
-				: discoverConfigPath(process.cwd(), options.dataDir)
+			const configPath = protectedStore
+				? protectedStore.exists()
+					? protectedStore.path
+					: undefined
+				: options.config
+					? resolve(process.cwd(), options.config)
+					: discoverConfigPath(process.cwd(), options.dataDir)
 
 			if (configPath) {
-				const tomlContent = readFileSync(configPath, "utf-8")
+				const tomlContent = protectedStore ? protectedStore.read() : readConfigFile(configPath)
 				const config = parse(tomlContent) as FillerConfigFile
 				validateConfig(config, options.watchOnly === true)
 				// validateConfig no longer owns this rule — the signer is an argument to
@@ -446,6 +467,7 @@ addRunOptions(program.command("run", { isDefault: true }))
 				if (uiEnabled && uiSocket) {
 					const server = new UiServer({
 						mode: "init",
+						configEncrypted: Boolean(protectedStore),
 						version: packageJson.version,
 						uiDistDir: resolveUiDistDir(),
 					})
@@ -455,22 +477,36 @@ addRunOptions(program.command("run", { isDefault: true }))
 						await server.start({ socketPath: uiSocket })
 						await startFiller(config, configPath)
 						tunnel = createTunnel(config)
-						server.enterOperatorMode(await operatorContextFrom(simplex!, () => shutdown("UI"), tunnel))
+						server.enterOperatorMode(
+							await operatorContextFrom(simplex!, () => shutdown("UI"), tunnel, protectedStore?.write),
+						)
 						startTunnel()
 					} catch (err) {
 						// Once the lock is released no partially started filler may survive to
 						// race a replacement process on the same signer and data directory.
-						await tunnel?.stop().catch((cleanupError) =>
-							logger.error({ err: cleanupError }, "Could not stop the tunnel after failed startup"),
-						)
-						if (simplex) {
-							await simplex.stop().catch((cleanupError) =>
-								logger.error({ err: cleanupError }, "Could not stop the filler after failed startup"),
+						await tunnel
+							?.stop()
+							.catch((cleanupError) =>
+								logger.error({ err: cleanupError }, "Could not stop the tunnel after failed startup"),
 							)
+						if (simplex) {
+							await simplex
+								.stop()
+								.catch((cleanupError) =>
+									logger.error(
+										{ err: cleanupError },
+										"Could not stop the filler after failed startup",
+									),
+								)
 						}
-						await dataStore?.close?.().catch((cleanupError: unknown) =>
-							logger.error({ err: cleanupError }, "Could not close the data store after failed startup"),
-						)
+						await dataStore
+							?.close?.()
+							.catch((cleanupError: unknown) =>
+								logger.error(
+									{ err: cleanupError },
+									"Could not close the data store after failed startup",
+								),
+							)
 						server.stop()
 						uiServer = undefined
 						throw err
@@ -502,7 +538,10 @@ addRunOptions(program.command("run", { isDefault: true }))
 					} catch (err) {
 						// The filler is the primary workload; a bind failure (e.g. port in use)
 						// costs the UI, not the process.
-						logger.error({ err, bind: uiSocket ?? `${uiBind.host}:${uiBind.port}` }, "UI server failed to start")
+						logger.error(
+							{ err, bind: uiSocket ?? `${uiBind.host}:${uiBind.port}` },
+							"UI server failed to start",
+						)
 						uiServer = undefined
 						await tunnel?.stop()
 						tunnel = undefined
@@ -524,20 +563,25 @@ addRunOptions(program.command("run", { isDefault: true }))
 			// A desktop host passes its user-data directory through --data-dir. Keep
 			// ordinary CLI first-run behaviour unchanged, while making the app's
 			// config stable across the meaningless cwd assigned to a double-click.
-			const outputPath = resolve(options.dataDir ?? process.cwd(), DEFAULT_CONFIG_FILENAME)
+			const outputPath =
+				protectedStore?.path ?? resolve(options.dataDir ?? process.cwd(), DEFAULT_CONFIG_FILENAME)
 			const server = new UiServer({
 				mode: "init",
+				configEncrypted: Boolean(protectedStore),
 				version: packageJson.version,
 				uiDistDir: resolveUiDistDir(),
 				setup: {
 					configPath: outputPath,
+					writeConfigFile: protectedStore?.write,
 					stop: () => shutdown("UI"),
 					onSaveAndStart: async (config, _toml, path) => {
 						await startFiller(config, path)
 						// The wizard's own server is already bound, so the tunnel has a UI
 						// to point at the moment it comes up.
 						tunnel = createTunnel(config)
-						server.enterOperatorMode(await operatorContextFrom(simplex!, () => shutdown("UI"), tunnel))
+						server.enterOperatorMode(
+							await operatorContextFrom(simplex!, () => shutdown("UI"), tunnel, protectedStore?.write),
+						)
 						startTunnel()
 					},
 				},
@@ -551,7 +595,8 @@ addRunOptions(program.command("run", { isDefault: true }))
 				await server.start({ socketPath: uiSocket })
 				// Same rule as the TCP announcement below: in json mode this is a record,
 				// not prose, or it is the one non-JSON line in a stream someone is parsing.
-				if (logFormat === "json") logger.info({ socket: uiSocket }, "No config found, starting the setup wizard")
+				if (logFormat === "json")
+					logger.info({ socket: uiSocket }, "No config found, starting the setup wizard")
 				else console.log(`\n  No config found — the setup wizard is serving on ${uiSocket}\n`)
 				// The server keeps the event loop alive until the wizard completes.
 				return
@@ -594,7 +639,7 @@ program
 	.action(async (options: { config: string }) => {
 		try {
 			const configPath = resolve(process.cwd(), options.config)
-			const config = parse(readFileSync(configPath, "utf-8")) as FillerConfigFile
+			const config = parse(readConfigFile(configPath)) as FillerConfigFile
 
 			// Only [[chains]], [simplex.signer] and the optional [keeper] block are used.
 			if (!config.chains || config.chains.length === 0) {
@@ -624,12 +669,7 @@ program
 			const runtimeSigner: Signer = chainClientManager.getSigner()
 
 			const chains = resolvedChains.map((chain) => `EVM-${chain.chainId}`)
-			const keeper = new PaymasterKeeperService(
-				chainClientManager,
-				configService,
-				runtimeSigner,
-				config.keeper,
-			)
+			const keeper = new PaymasterKeeperService(chainClientManager, configService, runtimeSigner, config.keeper)
 			keeper.start(chains)
 
 			const shutdown = (signal: string) => {

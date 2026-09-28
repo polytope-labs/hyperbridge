@@ -243,6 +243,8 @@ export interface OperatorContext {
 	startedAt: number
 	/** Where runtime config edits are written back. Absent for a config-object filler. */
 	configPath?: string
+	/** Desktop persistence encrypts every config edit before it reaches disk. */
+	writeConfigFile?: (path: string, content: string) => void
 	chains: number[]
 	strategyTypes: string[]
 	/** Filler accounts, shown permanently on the dashboard for funding. */
@@ -252,6 +254,7 @@ export interface OperatorContext {
 export interface SetupContext {
 	/** Default path the wizard writes the config to. */
 	configPath: string
+	writeConfigFile?: (path: string, content: string) => void
 	/** Writes the config and boots the filler; the caller flips the server into operator mode. */
 	onSaveAndStart(config: FillerConfigFile, toml: string, path: string): Promise<void>
 	/** Stops the init-mode process when onboarding has not started booting the filler. */
@@ -421,9 +424,11 @@ export class UiServer {
 	private configuredChainIds?: number[]
 	private readonly version: string
 	private readonly notificationAckTimeoutMs: number
+	private readonly configEncrypted: boolean
 
 	constructor(opts: {
 		mode: UiMode
+		configEncrypted?: boolean
 		uiDistDir?: string
 		setup?: SetupContext
 		operator?: OperatorContext
@@ -435,6 +440,7 @@ export class UiServer {
 		notificationAckTimeoutMs?: number
 	}) {
 		this.mode = opts.mode
+		this.configEncrypted = opts.configEncrypted === true
 		this.operator = opts.operator
 		this.setup = opts.setup
 		this.uiDistDir = opts.uiDistDir
@@ -886,7 +892,12 @@ export class UiServer {
 
 		if (path === "/health") {
 			const status = this.stopping ? "stopping" : this.startState === "starting" ? "starting" : "ok"
-			return sendJson(res, 200, { status, mode: this.mode, pid: process.pid })
+			return sendJson(res, 200, {
+				status,
+				mode: this.mode,
+				pid: process.pid,
+				...(this.configEncrypted ? { configEncrypted: true } : {}),
+			})
 		}
 
 		if (path === "/api/status") {
@@ -1633,7 +1644,7 @@ export class UiServer {
 		if (!op.configPath) return false
 		try {
 			const chainComments = this.configChainIds().map((id) => chainLabel(id))
-			writeConfigFileAtomic(op.configPath, emitFillerToml(op.config, { chainComments }))
+			;(op.writeConfigFile ?? writeConfigFileAtomic)(op.configPath, emitFillerToml(op.config, { chainComments }))
 			return true
 		} catch (err) {
 			this.logger.warn({ err, configPath: op.configPath }, "Change applied in memory but could not be persisted")
@@ -2203,7 +2214,6 @@ function serializeStrategy(strategy: AdminStrategy): AdminStrategyDto {
 function chainLabel(chainId: number): string {
 	return INIT_CHAINS.find((meta) => meta.chainId === chainId)?.label ?? `chain ${chainId}`
 }
-
 
 /** Wire shape of a sweep pass: base units formatted once here so the dashboard never sees bigints. */
 /** One network per filler: testnet if any running chain is a testnet, else mainnet. */

@@ -23,6 +23,7 @@ import { get } from "http"
 import { tmpdir } from "os"
 import { dirname, join } from "path"
 import { parse } from "toml"
+import { encryptedConfigStore, isEncryptedConfig } from "@/config/storage"
 
 /** fetch() normalizes `..` out of URLs and forbids Host, so these tests need a raw socket. */
 function rawRequest(port: number, path: string, host = "127.0.0.1"): Promise<string> {
@@ -140,9 +141,7 @@ function testBalanceSource(
 	return source
 }
 
-function stableBalanceSnapshot(
-	available: number,
-): ReturnType<OperatorContext["balances"]["getSnapshot"]> {
+function stableBalanceSnapshot(available: number): ReturnType<OperatorContext["balances"]["getSnapshot"]> {
 	return {
 		updatedAt: Date.now(),
 		status: "fresh",
@@ -348,7 +347,10 @@ describe("UiServer (operator mode)", () => {
 		})
 		const frame = new TextDecoder().decode((await reader.read()).value)
 		const notification = JSON.parse(frame.slice("data: ".length))
-		expect(notification).toMatchObject({ title: "Simplex notifications are working", receiptId: expect.any(String) })
+		expect(notification).toMatchObject({
+			title: "Simplex notifications are working",
+			receiptId: expect.any(String),
+		})
 		const receipt = await fetch(`${base}/api/notifications/receipt`, {
 			method: "POST",
 			headers: { ...CSRF, "Content-Type": "application/json" },
@@ -646,6 +648,25 @@ describe("UiServer (operator mode)", () => {
 			body: JSON.stringify({ users: ["nope"] }),
 		})
 		expect(bad.status).toBe(400)
+	})
+
+	it("keeps runtime config edits encrypted through the desktop persistence adapter", async () => {
+		const key = Buffer.alloc(32, 9)
+		const { base, operator } = await startServer({
+			writeConfigFile: (path, content) => encryptedConfigStore(path, key).write(path, content),
+		})
+		const response = await fetch(`${base}/api/log-level`, {
+			method: "PUT",
+			headers: CSRF,
+			body: JSON.stringify({ level: "warn" }),
+		})
+		expect(await response.json()).toEqual({ level: "warn", persisted: true })
+		const ciphertext = readFileSync(operator.configPath!, "utf8")
+		expect(isEncryptedConfig(ciphertext)).toBe(true)
+		expect(ciphertext).not.toContain("0xab")
+		const written = parse(encryptedConfigStore(operator.configPath!, key).read()) as FillerConfigFile
+		expect(written.simplex.logging).toBe("warn")
+		expect(written.simplex.signer).toEqual(operator.config.simplex.signer)
 	})
 
 	it("exposes vault controls only when a vault is configured", async () => {

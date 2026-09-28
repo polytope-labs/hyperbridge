@@ -17,13 +17,17 @@ pre-caches only versioned static shell assets and uses navigation fallback so th
 can open offline without persisting live `/api` balance or activity responses.
 
 `InstallAppProvider` owns the captured `beforeinstallprompt` event, standalone detection, install
-dialog state, and toast feedback. `InstallAppButton` renders in the setup brandbar and permanently in
-the operator navigation. Both open the same desktop-only `InstallGuidePanel`: identify the install
-icon, confirm Install, then open Simplex from the desktop/app list. Native prompt cancellation closes
-nothing and writes no inline state; Sonner displays the retry message.
+dialog state, and toast feedback when the renderer is served by a browser. `InstallAppButton` renders
+in the setup brandbar and operator navigation for the browser/PWA path only; the native Electron
+renderer uses the `simplex:` protocol and omits the control and its PWA install listeners. Browser
+buttons open the same desktop-only `InstallGuidePanel`: identify the install icon, confirm Install,
+then open Simplex from the desktop/app list. Native prompt cancellation closes nothing and writes no
+inline state; Sonner displays the retry message.
 
-Every install path writes private keys to `filler-config.toml` in plaintext. Unix creation is atomic
-and mode `0600`; `simplex.substratePrivateKey` remains required even when the EVM signer is Turnkey or
+CLI/PWA installs write private keys to `filler-config.toml` in plaintext. Native desktop instead
+requires password setup/unlock (optional Touch ID on macOS) and encrypts its profile config and all
+subsequent runtime edits. Unix creation is atomic and mode `0600`;
+`simplex.substratePrivateKey` remains required even when the EVM signer is Turnkey or
 MPC Vault. The CLI's TCP dashboard is unauthenticated and loopback is shared by all local users, so a
 shared macOS or Linux host uses `--ui-socket` plus SSH forwarding, or the authenticated tunnel. The
 native desktop path already uses its private socket and opens no TCP listener.

@@ -4,9 +4,9 @@ import { request as httpRequest } from "node:http"
 
 export type SimplexMode = "init" | "operator"
 export type HealthProbe =
-	| { state: "ready"; mode: SimplexMode; pid?: number }
-	| { state: "starting"; mode: SimplexMode; pid?: number }
-	| { state: "stopping"; mode: SimplexMode; pid?: number }
+	| { state: "ready"; mode: SimplexMode; pid?: number; configEncrypted?: boolean }
+	| { state: "starting"; mode: SimplexMode; pid?: number; configEncrypted?: boolean }
+	| { state: "stopping"; mode: SimplexMode; pid?: number; configEncrypted?: boolean }
 	| { state: "spawnable"; reason: "absent" | "stale" }
 	| { state: "occupied"; detail: string }
 	| { state: "unavailable"; detail: string }
@@ -21,7 +21,12 @@ export function probeHealth(socketPath: string, timeoutMs = 1_000): Promise<Heal
 			})
 			response.on("end", () => {
 				try {
-					const parsed = JSON.parse(body) as { status?: unknown; mode?: unknown; pid?: unknown }
+					const parsed = JSON.parse(body) as {
+						status?: unknown
+						mode?: unknown
+						pid?: unknown
+						configEncrypted?: unknown
+					}
 					const pidIsValid =
 						typeof parsed.pid === "number" && Number.isSafeInteger(parsed.pid) && parsed.pid > 0
 					if (
@@ -29,9 +34,10 @@ export function probeHealth(socketPath: string, timeoutMs = 1_000): Promise<Heal
 						(parsed.mode === "init" || parsed.mode === "operator") &&
 						(parsed.pid === undefined || pidIsValid)
 					) {
-						const identity: { mode: SimplexMode; pid?: number } = pidIsValid
+						const identity: { mode: SimplexMode; pid?: number; configEncrypted?: boolean } = pidIsValid
 							? { mode: parsed.mode, pid: parsed.pid as number }
 							: { mode: parsed.mode }
+						if (parsed.configEncrypted === true) identity.configEncrypted = true
 						if (parsed.status === "ok") resolve({ state: "ready", ...identity })
 						else if (parsed.status === "starting") resolve({ state: "starting", ...identity })
 						else if (parsed.status === "stopping") resolve({ state: "stopping", ...identity })
@@ -64,6 +70,7 @@ export interface DaemonLaunch {
 	solverPath: string
 	socketPath: string
 	dataDir: string
+	configKey?: Buffer
 }
 
 export function daemonArgs(launch: DaemonLaunch): string[] {
@@ -79,6 +86,7 @@ export function daemonArgs(launch: DaemonLaunch): string[] {
 		"json",
 		"--data-dir",
 		launch.dataDir,
+		...(launch.configKey ? ["--config-key-stdin"] : []),
 	]
 }
 
@@ -102,8 +110,16 @@ export function spawnDaemon(
 	platform: NodeJS.Platform = process.platform,
 ): ChildProcess {
 	const start = (stdio: StdioOptions) => {
+		if (launch.configKey) {
+			if (launch.configKey.length !== 32) throw new Error("Invalid desktop encryption key")
+			stdio = Array.isArray(stdio) ? ["pipe", ...stdio.slice(1)] : ["pipe", "ignore", "ignore"]
+		}
 		const options: SpawnOptions = { detached: true, stdio, windowsHide: true }
 		const child = spawnImpl(launch.nodePath, daemonArgs(launch), options)
+		if (launch.configKey) {
+			child.stdin?.on("error", () => {})
+			child.stdin?.end(launch.configKey)
+		}
 		child.unref()
 		return child
 	}
@@ -127,6 +143,9 @@ export async function ensureDaemon(options: {
 }): Promise<{ attached: boolean; mode: SimplexMode }> {
 	const probe = options.probe ?? probeHealth
 	const initial = await probe(options.launch.socketPath)
+	if (options.launch.configKey && "mode" in initial && !initial.configEncrypted) {
+		throw new Error("The running solver must be restarted before encrypted config access")
+	}
 	if (initial.state === "ready") return { attached: true, mode: initial.mode }
 	if (initial.state === "stopping") return { attached: true, mode: initial.mode }
 	if (initial.state === "occupied") throw new Error(`The Simplex socket is occupied: ${initial.detail}`)
@@ -156,6 +175,9 @@ export async function ensureDaemon(options: {
 			)
 		}
 		const health = await probe(options.launch.socketPath)
+		if (options.launch.configKey && "mode" in health && !health.configEncrypted) {
+			throw new Error("The solver does not support encrypted config storage")
+		}
 		if (health.state === "ready") return { attached, mode: health.mode }
 		if (health.state === "stopping") return { attached, mode: health.mode }
 		if (attached && health.state === "spawnable") {

@@ -35,18 +35,31 @@ Run `pnpm stage:node` again only when the pinned runtime or the host target chan
 
 ## First run and configuration
 
-With no existing config, `pnpm dev` opens the setup wizard. Complete onboarding normally; the wizard
-writes `filler-config.toml` and all desktop runtime data under Electron's
-`app.getPath("userData")`. On Unix, a newly written config is mode `0600`.
+On first launch, create a password (at least 12 characters), save the recovery code, then complete the setup wizard.
+The wizard writes an encrypted `filler-config.toml` under Electron's `app.getPath("userData")`.
+Every fresh Electron launch requires the password, or Touch ID if enabled on a supported Mac.
+**Forgot password?** accepts the saved recovery code or previously enabled Touch ID, without asking
+for the old password. Choose a new password and save the replacement recovery code; changes take
+effect when you confirm that you saved it. Recovery preserves the configuration and does not restart
+an already protected solver. Recovery authorization expires after ten minutes. Cancelling before
+confirmation leaves the existing credentials unchanged. Without either recovery method, the app
+does not delete or reset the profile. Older profiles enroll a recovery code after successful authentication.
 
-Config discovery preserves the CLI precedence:
+Touch ID is offered only on supported Macs with secure storage available. Windows and Linux use
+passwords and recovery codes; Windows Hello and Linux biometric integrations are not implemented.
 
-1. `filler-config.toml` in the process working directory;
-2. `$SIMPLEX_HOME/config.toml`;
-3. `filler-config.toml` in the Electron user-data directory.
+Desktop reads and writes only its profile's config, never a working-directory config or
+`$SIMPLEX_HOME/config.toml`. To migrate either legacy external location, stop the old solver and
+place the config at `<userData>/filler-config.toml` before first password setup. External copies and
+old backups remain plaintext and must be secured separately. The CLI keeps its existing discovery.
 
-An existing config found in either legacy location is used in place and is not copied. Consequently,
-a config in this package directory or a configured `SIMPLEX_HOME` suppresses the first-run wizard.
+Existing plaintext profile configs are encrypted in place after password setup. If the previous
+unencrypted solver is still running, the screen requires consent to stop it gracefully and restart
+with encryption. Migration waits for shutdown and includes its final config writes. No plaintext
+backup or temporary file is created. Config and security metadata writes are atomic and mode `0600`
+on Unix. Back up **both** `filler-config.toml` and `desktop-vault.json` and retain the password or
+recovery code. Refresh the metadata backup after recovery. Replaced credentials cannot unlock the
+current profile, but may still unlock older backups containing their old key wrappers.
 
 For a disposable profile, pass an explicit Chromium user-data directory:
 
@@ -58,7 +71,7 @@ This flag is optional. Omit it to use the normal desktop profile and onboarding 
 
 ## Process lifecycle
 
-Electron attaches to one solver address derived from its user-data directory. If no recognized
+After unlock, Electron attaches to one solver address derived from its user-data directory. If no recognized
 Simplex process answers `/health`, it launches the existing Simplex binary with the staged runtime.
 It refuses to replace a live, unrecognized listener.
 
@@ -98,7 +111,7 @@ extension. Because Linux click activation is inconsistent, every command—inclu
 Stop, Restart, and both quit choices—is available from the context menu.
 
 **Launch Simplex at login** is opt-in and available only in an installed build. It registers the app,
-not the detached solver, and starts it without opening a window. macOS and Windows use Electron's
+not the detached solver, and opens the unlock screen before starting or attaching to it. macOS and Windows use Electron's
 login-item API; Linux uses the equivalent per-user XDG autostart entry. Development runs do not
 register the Electron development binary.
 
@@ -139,10 +152,20 @@ an equivalent portable owner-only guarantee through Node's current APIs; adminis
 same-machine contexts may still be able to inspect or connect to the pipe. On every platform,
 software already running as the same OS user remains inside the trust boundary.
 
-`filler-config.toml` contains private signing material in plaintext. Simplex writes new files
-atomically with a prominent warning and mode `0600` on Unix, but operators must still keep the file
-out of source control and broadly shared backups. Desktop does not copy keys into renderer storage,
-logs, or crash-report uploads, and it does not configure a crash-report uploader.
+Desktop encrypts `filler-config.toml` with AES-256-GCM using a random 256-bit key. A scrypt-derived
+password key wraps that key in `desktop-vault.json`. Optional macOS Touch ID authorizes unlock before
+Electron's `safeStorage` unwraps a second copy protected by the macOS Keychain. This is an app-level
+Touch ID gate, not a biometrics-bound Keychain item; password recovery remains available. Windows
+and Linux use password unlock. Passwords and unwrapped keys are not saved in renderer storage,
+logs, argv, environment variables, or temporary files. Electron hands the key to the solver over a
+one-shot stdin pipe. Setup and runtime config edits use the same encrypted writer.
+
+The UI/API and solver-changing menus stay locked until authentication. A solver left running by
+app-only quit retains its in-memory key and keeps filling; reopening Electron requires login again.
+Closing/reopening its existing window is not a logout. This protects the config at rest, not process
+memory, database contents, an already-authorized remote tunnel, or a compromised OS user. Full-disk
+encryption remains advisable for swap and old snapshots. The CLI/PWA still uses plaintext configs;
+it refuses to open an encrypted desktop config without desktop unlock. No crash-report uploader is configured.
 
 The CLI's normal `127.0.0.1` web UI is a machine-local, unauthenticated interface—not a per-user
 boundary. On a shared machine, another local OS user may be able to reach it and invoke operator

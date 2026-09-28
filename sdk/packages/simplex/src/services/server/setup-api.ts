@@ -22,7 +22,6 @@ import { readBody, sendJson } from "./http-util"
 import type { SetupDefaults, SetupOrderbook } from "./dto"
 import type { SetupContext, UiServer } from "./UiServer"
 
-
 /** Network-facing validators, injectable so tests never hit real providers. */
 export interface SetupDeps {
 	fetchChainId?: typeof fetchChainId
@@ -218,7 +217,10 @@ export async function validateBundler(body: Record<string, unknown>, deps: Requi
 		)
 		return { ok: true, entryPoints }
 	} catch (err) {
-		return { ok: true, warning: `Bundler did not answer eth_supportedEntryPoints: ${err instanceof Error ? err.message : err}` }
+		return {
+			ok: true,
+			warning: `Bundler did not answer eth_supportedEntryPoints: ${err instanceof Error ? err.message : err}`,
+		}
 	}
 }
 
@@ -271,7 +273,11 @@ async function checkSubstrateBalance(body: Record<string, unknown>) {
 	const pair = await deriveSubstrateKeyPair(key)
 	const { ApiPromise, WsProvider } = await import("@polkadot/api")
 	const provider = new WsProvider(wsUrl, 1_000)
-	const api = await withTimeout(ApiPromise.create({ provider, throwOnConnect: true }), 20_000, "Hyperbridge connection")
+	const api = await withTimeout(
+		ApiPromise.create({ provider, throwOnConnect: true }),
+		20_000,
+		"Hyperbridge connection",
+	)
 	try {
 		// biome-ignore lint/suspicious/noExplicitAny: polkadot API type
 		const account = (await api.query.system.account(pair.address)) as any
@@ -391,7 +397,7 @@ function saveAndStart(server: UiServer, setup: SetupContext, body: Record<string
 
 	const path = typeof body.path === "string" && body.path.trim() ? body.path.trim() : setup.configPath
 	try {
-		writeConfigFileAtomic(path, result.toml)
+		;(setup.writeConfigFile ?? writeConfigFileAtomic)(path, result.toml)
 	} catch (err) {
 		return sendJson(res, 500, { error: `Could not write ${path}: ${err instanceof Error ? err.message : err}` })
 	}

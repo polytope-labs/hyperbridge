@@ -4,6 +4,7 @@ import { fstatSync, mkdtempSync, readdirSync, rmSync } from "node:fs"
 import { createServer } from "node:http"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { PassThrough } from "node:stream"
 import { describe, expect, it, vi } from "vitest"
 import {
 	daemonArgs,
@@ -34,6 +35,38 @@ function sequence(states: HealthProbe[]) {
 }
 
 describe("daemon lifecycle", () => {
+	it("hands the config key over stdin without exposing it in arguments or environment", async () => {
+		const configKey = Buffer.alloc(32, 42)
+		const secured = { ...launch, configKey }
+		const spawned = child()
+		const stdin = new PassThrough()
+		Object.defineProperty(spawned, "stdin", { value: stdin })
+		const chunks: Buffer[] = []
+		stdin.on("data", (chunk) => chunks.push(chunk))
+		const spawn = vi.fn(() => spawned)
+		spawnDaemon(secured, spawn as never, "darwin")
+		expect(daemonArgs(secured)).toContain("--config-key-stdin")
+		expect(daemonArgs(secured).join(" ")).not.toContain(configKey.toString("hex"))
+		expect(spawn).toHaveBeenCalledWith(launch.nodePath, daemonArgs(secured), {
+			detached: true,
+			stdio: ["pipe", "ignore", "ignore"],
+			windowsHide: true,
+		})
+		expect(Buffer.concat(chunks)).toEqual(configKey)
+	})
+
+	it("refuses to attach an encrypted desktop session to an older plaintext solver", async () => {
+		const spawn = vi.fn()
+		await expect(
+			ensureDaemon({
+				launch: { ...launch, configKey: Buffer.alloc(32) },
+				probe: sequence([{ state: "ready", mode: "operator" }]),
+				spawn,
+			}),
+		).rejects.toThrow(/restarted/)
+		expect(spawn).not.toHaveBeenCalled()
+	})
+
 	it("builds the exact bundled-runtime command line", () => {
 		const args = daemonArgs(launch)
 		expect(args).toEqual([

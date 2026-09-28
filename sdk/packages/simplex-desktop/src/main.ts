@@ -22,6 +22,8 @@ import { assertResources, resourcePaths, socketPathFor, userDataOverrideFromArgv
 import { latestLogPath, loginItemExecutable, LoginItemController } from "./login-item"
 import { DesktopNotificationClient, desktopNotificationUrl } from "./notification-client"
 import { handleSimplexProtocol } from "./protocol"
+import { DesktopVault } from "./security/vault"
+import { touchIdUnlock } from "./security/biometrics"
 import { SIMPLEX_UPDATE_FEED } from "./release-provider"
 import {
 	holdsMachineAwake,
@@ -68,6 +70,7 @@ let installingUpdate = false
 let intentionalStop = false
 let updateCoordinator: UpdateCoordinator | undefined
 let notificationClient: DesktopNotificationClient | undefined
+let vault: DesktopVault | undefined
 let updateStatus: UpdateStatus = { state: "disabled", channel: "stable" }
 
 const userDataSwitch = app.commandLine.getSwitchValue("user-data-dir")
@@ -137,6 +140,7 @@ function refreshNativeUi(): void {
 	const status = supervisor.status
 	const model = {
 		status,
+		locked: Boolean(vault && !vault.isUnlocked()),
 		loginItemSupported: loginItem.supported,
 		loginItemEnabled: loginItem.isEnabled(),
 		logAvailable: Boolean(dataDirectory && latestLogPath(dataDirectory)),
@@ -201,6 +205,10 @@ function onSolverStatusChanged(next: SolverStatus, previous: SolverStatus): void
 }
 
 async function startOrAttachSolver(fatal: boolean): Promise<boolean> {
+	if (vault && !vault.isUnlocked()) {
+		await safeShowWindow()
+		return false
+	}
 	if (startPromise) return startPromise
 	startPromise = (async () => {
 		if (!daemonLaunch || !supervisor) throw new Error("The Simplex desktop runtime is not initialized")
@@ -233,6 +241,7 @@ async function waitForStopAccepted(): Promise<void> {
 }
 
 async function togglePause(): Promise<void> {
+	if (vault && !vault.isUnlocked()) return
 	if (!daemonLaunch || !supervisor) return
 	const action = supervisor.status.state === "paused" ? "resume" : "pause"
 	try {
@@ -244,6 +253,7 @@ async function togglePause(): Promise<void> {
 }
 
 async function stopSolver(): Promise<boolean> {
+	if (vault && !vault.isUnlocked()) return false
 	if (!daemonLaunch || !supervisor) return false
 	intentionalStop = true
 	try {
@@ -263,6 +273,10 @@ async function restartSolver(): Promise<void> {
 }
 
 async function restartBundledSolver(): Promise<void> {
+	if (vault && !vault.isUnlocked()) {
+		await safeShowWindow()
+		return
+	}
 	if (!daemonLaunch || !supervisor) return
 	const status = await supervisor.pollNow()
 	if (status.state === "running" || status.state === "paused" || status.state === "setup") {
@@ -302,6 +316,7 @@ async function openDataDirectory(): Promise<void> {
 }
 
 async function openCurrentLog(): Promise<void> {
+	if (vault && !vault.isUnlocked()) return
 	if (!dataDirectory) return
 	const path = latestLogPath(dataDirectory)
 	if (!path) {
@@ -333,7 +348,10 @@ async function createWindow(notificationPath?: string): Promise<void> {
 		return
 	}
 	if (!supervisor) return
-	if (supervisor.status.state === "stopped" || supervisor.status.state === "unreachable") {
+	if (
+		(!vault || vault.isUnlocked()) &&
+		(supervisor.status.state === "stopped" || supervisor.status.state === "unreachable")
+	) {
 		await dialog.showMessageBox({
 			type: "warning",
 			title: "Simplex solver is not running",
@@ -415,12 +433,45 @@ async function prepareDesktop(): Promise<void> {
 	}
 	if (process.platform === "darwin") app.dock?.setIcon(applicationIconPath)
 	daemonLaunch = { nodePath: resources.node, solverPath: resources.solver, socketPath, dataDir: dataDirectory }
+	vault = new DesktopVault({
+		dataDir: dataDirectory,
+		biometrics: touchIdUnlock,
+		needsRestart: async () => {
+			const health = await probeHealth(socketPath)
+			if (health.state === "occupied" || health.state === "unavailable") throw new Error(health.detail)
+			return "mode" in health && !health.configEncrypted
+		},
+		prepare: async (restartAllowed) => {
+			const health = await probeHealth(socketPath)
+			if (health.state === "spawnable" || ("mode" in health && health.configEncrypted)) return
+			if (!("mode" in health)) throw new Error(health.detail)
+			if (!restartAllowed) throw new Error("Confirm the solver restart to protect your existing config")
+			intentionalStop = true
+			if (health.state !== "stopping") await sendSolverAction(socketPath, "stop")
+			if (!(await waitForSolverExit({ pid: health.pid, probe: () => probeHealth(socketPath) }))) {
+				throw new Error("The solver has not finished stopping. Retry once it has drained its orders.")
+			}
+		},
+		start: async (key) => {
+			const launch = { ...daemonLaunch!, configKey: key }
+			intentionalStop = false
+			await ensureDaemon({ launch })
+			daemonLaunch = launch
+			await supervisor?.pollNow()
+		},
+		onUnlocked: () => {
+			notificationClient?.start()
+			updateCoordinator?.start()
+			refreshNativeUi()
+		},
+	})
 
 	await protocol.handle("simplex", (request) =>
 		handleSimplexProtocol(request, {
 			socketPath,
 			uiDistDir: dirname(resources.ui),
 			desktopVersion: app.getVersion(),
+			access: vault,
 		}),
 	)
 	installSessionSecurity(session.defaultSession)
@@ -439,7 +490,6 @@ async function prepareDesktop(): Promise<void> {
 	})
 	app.setAboutPanelOptions({ applicationName: "Simplex", applicationVersion: app.getVersion() })
 	createTray()
-	await startOrAttachSolver(true)
 	notificationClient = new DesktopNotificationClient({
 		socketPath,
 		onNotification: (notification) => {
@@ -448,7 +498,6 @@ async function prepareDesktop(): Promise<void> {
 			})
 		},
 	})
-	notificationClient.start()
 	supervisor.start()
 	const updateAuthenticity = updateAuthenticityForInstallation({
 		packaged: app.isPackaged,
@@ -487,13 +536,12 @@ async function prepareDesktop(): Promise<void> {
 		})
 		autoUpdater.setFeedURL(SIMPLEX_UPDATE_FEED)
 		updateStatus = updateCoordinator.status
-		updateCoordinator.start()
 	} else if (app.isPackaged) {
 		console.warn(`Simplex automatic updates are disabled: ${updateAuthenticity.reason}`)
 	}
 	refreshNativeUi()
 
-	if (!openedAtLogin) {
+	if (!openedAtLogin || !vault.isUnlocked()) {
 		await createWindow()
 	}
 }
@@ -522,6 +570,7 @@ if (!app.requestSingleInstanceLock()) {
 	app.on("activate", () => void safeShowWindow())
 	app.on("before-quit", () => {
 		quitting = true
+		vault?.lock()
 		supervisor?.stop()
 		notificationClient?.stop()
 		updateCoordinator?.dispose()

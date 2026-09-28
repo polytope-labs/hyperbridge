@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from "node:fs"
+import { execFileSync } from "node:child_process"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { PNG } from "pngjs"
@@ -34,6 +35,8 @@ if (missing.length > 0) {
 }
 
 const desktopMain = readFileSync(resolve(desktopRoot, "dist/main.js"), "utf8")
+// Bundled library banners can collide with the desktop's ESM require shim.
+execFileSync(process.execPath, ["--check", resolve(desktopRoot, "dist/main.js")])
 if (/from ["']electron-updater["']|require\(["']electron-updater["']\)/.test(desktopMain)) {
 	throw new Error("The packaged Electron main process must bundle electron-updater")
 }

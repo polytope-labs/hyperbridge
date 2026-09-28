@@ -6,9 +6,11 @@ import { tmpdir } from "node:os"
 import { basename, join, resolve } from "node:path"
 import { setTimeout as delay } from "node:timers/promises"
 import { fileURLToPath } from "node:url"
+import { _electron } from "playwright-core"
 import { daemonArgs } from "../../src/daemon.ts"
 import { socketPathFor } from "../../src/desktop-paths.ts"
 import { installedAppDirectories } from "../package-size.mjs"
+import { decryptedTestConfig, unlockDesktop } from "./desktop-access.mjs"
 
 function socketRequest(socketPath, path, method = "GET", body = undefined) {
 	return new Promise((resolveRequest, reject) => {
@@ -22,16 +24,13 @@ function socketRequest(socketPath, path, method = "GET", body = undefined) {
 							? { "Content-Type": "application/json", "Content-Length": String(encodedBody.byteLength) }
 							: {}),
 					}
-		const request = httpRequest(
-			{ socketPath, path, method, headers },
-			(response) => {
-				const chunks = []
-				response.on("data", (chunk) => chunks.push(chunk))
-				response.on("end", () =>
-					resolveRequest({ status: response.statusCode ?? 0, body: Buffer.concat(chunks).toString("utf8") }),
-				)
-			},
-		)
+		const request = httpRequest({ socketPath, path, method, headers }, (response) => {
+			const chunks = []
+			response.on("data", (chunk) => chunks.push(chunk))
+			response.on("end", () =>
+				resolveRequest({ status: response.statusCode ?? 0, body: Buffer.concat(chunks).toString("utf8") }),
+			)
+		})
 		request.on("error", reject)
 		request.end(encodedBody)
 	})
@@ -200,7 +199,9 @@ async function assertPackagedOnboarding(socketPath, userData) {
 		throw new Error(`Packaged setup wrote ${result.configPath}, expected ${configPath}`)
 	}
 	await waitFor(() => existsSync(configPath), "packaged first-run config")
-	const written = await readFile(configPath, "utf8")
+	const ciphertext = await readFile(configPath, "utf8")
+	if (ciphertext.includes(PACKAGED_SETUP_KEY)) throw new Error("Packaged config contains a plaintext key")
+	const written = await decryptedTestConfig(userData)
 	if (!written.includes("WARNING: contains secrets") || !written.includes(PACKAGED_SETUP_KEY)) {
 		throw new Error("Packaged first-run config is incomplete")
 	}
@@ -221,23 +222,22 @@ export async function smokePackagedApp(appDirectory, options = {}) {
 	const userData = await realpath(await mkdtemp(join(tmpdir(), "simplex-packaged-smoke-")))
 	const socketPath = socketPathFor(userData)
 	const args = [`--user-data-dir=${userData}`, "--hidden"]
-	const child = spawn(options.executable ?? executableFor(appDirectory), args, {
-		env: options.environment,
-		stdio: ["ignore", "pipe", "pipe"],
-		windowsHide: true,
-	})
-	let stderr = ""
-	let spawnError
-	child.once("error", (error) => {
-		spawnError = error
-	})
-	child.stderr?.on("data", (chunk) => {
-		stderr += chunk.toString()
-	})
+	let electronApp
 	try {
+		electronApp = await _electron.launch({
+			executablePath: options.executable ?? executableFor(appDirectory),
+			args,
+			env: options.environment ?? process.env,
+			timeout: 120_000,
+		})
+		const page = await electronApp.firstWindow()
+		await page.waitForURL("simplex://local/**")
+		if ((await page.evaluate(async () => (await fetch("/api/status")).status)) !== 423) {
+			throw new Error("Packaged app did not gate its API before unlock")
+		}
+		await unlockDesktop(page)
 		const health = await waitFor(async () => {
-			if (spawnError) throw spawnError
-			if (child.exitCode !== null) throw new Error(`packaged app exited ${child.exitCode}: ${stderr}`)
+			if (electronApp.process().exitCode !== null) throw new Error("Packaged app exited during startup")
 			try {
 				const response = await socketRequest(socketPath, "/health")
 				if (response.status !== 200) return false
@@ -249,6 +249,7 @@ export async function smokePackagedApp(appDirectory, options = {}) {
 			}
 		}, `packaged Simplex health on ${socketPath}`)
 		if (!health.pid) throw new Error("Packaged solver health did not report a PID")
+		if (!health.configEncrypted) throw new Error("Packaged solver did not enable encrypted config storage")
 		if (health.mode !== "init") throw new Error(`Fresh packaged app opened in ${health.mode} mode instead of setup`)
 		const wizard = await socketRequest(socketPath, "/")
 		if (wizard.status !== 200 || !wizard.body.includes('<div id="root"></div>')) {
@@ -266,9 +267,13 @@ export async function smokePackagedApp(appDirectory, options = {}) {
 				return true
 			}
 		}, "packaged solver shutdown")
-		process.stdout.write(`Packaged smoke passed setup, config write, and fail-closed boot for ${basename(appDirectory)}\n`)
+		process.stdout.write(
+			`Packaged smoke passed setup, config write, and fail-closed boot for ${basename(appDirectory)}\n`,
+		)
 	} finally {
-		await stopProcess(child)
+		// Stop the detached test solver even if an assertion failed after unlock.
+		await socketRequest(socketPath, "/api/stop", "POST").catch(() => {})
+		if (electronApp) await stopProcess(electronApp.process())
 		await rm(userData, { recursive: true, force: true, maxRetries: 10, retryDelay: 250 })
 	}
 }

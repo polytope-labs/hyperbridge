@@ -1,0 +1,62 @@
+.desktop-unlock {
+	display: grid;
+	min-height: 100dvh;
+	place-items: center;
+	padding: 2rem 1rem;
+}
+
+.desktop-unlock > .card {
+	display: grid;
+	gap: 1rem;
+	width: min(100%, 30rem);
+	padding: 2rem;
+}
+
+.desktop-unlock form {
+	display: grid;
+	gap: 0.75rem;
+}
+
+.desktop-recovery-code {
+	overflow-wrap: anywhere;
+	min-width: 0;
+	user-select: text;
+}
+
+.desktop-recovery-code code {
+	font: inherit;
+}
+
+.desktop-unlock h1 {
+	margin: 0;
+	font-size: 1.9rem;
+	letter-spacing: -0.04em;
+}
+
+.desktop-unlock fieldset {
+	display: grid;
+	gap: 0.75rem;
+	margin: 0;
+	padding: 0;
+	border: 0;
+	min-width: 0;
+}
+
+.desktop-unlock .desktop-unlock-choice {
+	display: flex;
+	align-items: flex-start;
+	gap: 0.65rem;
+	font-size: 0.85rem;
+	line-height: 1.5;
+}
+
+.desktop-unlock-choice input {
+	width: auto;
+	flex: 0 0 auto;
+	margin-top: 0.2rem;
+}
+
+.desktop-unlock-error {
+	color: var(--err);
+	overflow-wrap: anywhere;
+}

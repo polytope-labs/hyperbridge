@@ -1,6 +1,7 @@
 import assert from "node:assert/strict"
 import { execFile } from "node:child_process"
 import { createRequire } from "node:module"
+import { EventEmitter } from "node:events"
 import { existsSync } from "node:fs"
 import { mkdtemp, readFile, readdir, readlink, realpath, rm, stat, writeFile } from "node:fs/promises"
 import { request as httpRequest } from "node:http"
@@ -16,8 +17,10 @@ import externalLinks from "../../../simplex/src/config/external-links.json" with
 import { MemoryDataStore } from "../../../simplex/src/data/memory.ts"
 import { UiServer } from "../../../simplex/src/services/server/UiServer.ts"
 import { socketPathFor } from "../../src/desktop-paths.ts"
+import { spawnDaemon } from "../../src/daemon.ts"
 import { blackholeServer } from "./blackhole-server.ts"
 import { desktopArguments, directElectronArguments, electronProcessExit } from "./electron-launch.ts"
+import { decryptedTestConfig, TEST_PASSWORD, unlockDesktop } from "./desktop-access.mjs"
 
 const execFileAsync = promisify(execFile)
 const require = createRequire(import.meta.url)
@@ -102,9 +105,9 @@ async function launchDesktop(userDataDir, options = {}) {
 		env: { ...process.env, ELECTRON_DISABLE_SECURITY_WARNINGS: "true" },
 		timeout: 120_000,
 	})
-	if (options.hidden) return { electronApp }
 	const page = await waitFor(() => electronApp.windows()[0], "the Simplex BrowserWindow", 120_000)
 	await page.waitForURL("simplex://local/**", { timeout: 120_000 })
+	if (!options.locked) await unlockDesktop(page, { pending: options.pending })
 	return { electronApp, page }
 }
 
@@ -213,7 +216,7 @@ async function cleanupDesktop(electronApp, userDataDir) {
 	}
 	for (const pid of await daemonPids(userDataDir)) await killProcess(pid)
 	await waitFor(async () => (await daemonPids(userDataDir)).length === 0, "detached daemon cleanup").catch(() => {})
-	await stopLeftoverElectron()
+	await stopLeftoverElectron(userDataDir)
 	// Windows releases a killed process's file handles asynchronously.
 	await rm(userDataDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 250 })
 }
@@ -221,9 +224,9 @@ async function cleanupDesktop(electronApp, userDataDir) {
 // Helper processes can outlive a killed main process for a moment. Any left
 // running hold profile files and Playwright's stdio pipes, which keep the test
 // process alive until the job timeout. Name each one, then stop it.
-async function stopLeftoverElectron() {
+async function stopLeftoverElectron(userDataDir) {
 	for (const row of await processRows()) {
-		if (!row.includes(electronExecutable)) continue
+		if (!row.includes(electronExecutable) || !row.includes(userDataDir)) continue
 		const pid = Number(row.trim().split(/\s+/, 1)[0])
 		if (!Number.isInteger(pid)) continue
 		console.log(`cleanup: stopping leftover Electron ${row.match(/--type=(\S+)/)?.[1] ?? "main"} process ${pid}`)
@@ -296,7 +299,9 @@ function operatorFixture(socketPath, options = {}) {
 			}),
 			getWatchOnly: () => ({}),
 		},
-		balances: { getSnapshot: () => ({ updatedAt: null, status: "loading", chains: [], issues: [] }) },
+		balances: Object.assign(new EventEmitter(), {
+			getSnapshot: () => ({ updatedAt: null, status: "loading", chains: [], issues: [] }),
+		}),
 		haltControls: [],
 		config,
 		stop: async () => {
@@ -332,6 +337,7 @@ function operatorFixture(socketPath, options = {}) {
 	}
 	server = new UiServer({
 		mode: "operator",
+		configEncrypted: true,
 		uiDistDir: options.uiDistDir === null ? undefined : (options.uiDistDir ?? join(simplexRoot, "dist/ui")),
 		operator,
 	})
@@ -434,21 +440,129 @@ test("window close, app quit, hard crash, and second launch preserve one detache
 	await waitForHealth(socketPath, "init")
 })
 
-test("a hidden login launch starts the app and solver without opening a window", async (t) => {
+test("a login launch requires unlock before starting a solver and gates the API", async (t) => {
 	const userDataDir = await temporaryUserData("login")
 	const socketPath = socketPathFor(userDataDir)
 	let electronApp
 	t.after(async () => cleanupDesktop(electronApp, userDataDir))
-	;({ electronApp } = await launchDesktop(userDataDir, { hidden: true }))
+	let page
+	;({ electronApp, page } = await launchDesktop(userDataDir, { hidden: true, locked: true }))
+	await page.locator("#desktop-password").waitFor()
+	assert.equal(await electronApp.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length), 1)
+	assert.deepEqual(await daemonPids(userDataDir), [])
+	assert.equal(await page.evaluate(async () => (await fetch("/api/status")).status), 423)
+	await unlockDesktop(page)
 	await waitForHealth(socketPath, "init")
 	await waitForDaemonPids(userDataDir)
-	assert.equal(await electronApp.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length), 0)
 	assert.ok(
 		await electronApp.evaluate(({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById("show-simplex")?.enabled),
 	)
 	await quitElectron(electronApp)
 	electronApp = undefined
 	await waitForHealth(socketPath, "init")
+	;({ electronApp, page } = await launchDesktop(userDataDir, { locked: true }))
+	await page.locator("#desktop-password").waitFor()
+	assert.equal(await page.evaluate(async () => (await fetch("/api/status")).status), 423)
+	await page.locator("#desktop-password").fill("incorrect-password")
+	await page.getByRole("button", { name: "Unlock", exact: true }).click()
+	await page.getByRole("alert").filter({ hasText: "Incorrect password" }).waitFor()
+	assert.equal(await page.evaluate(async () => (await fetch("/api/status")).status), 423)
+	await delay(1100)
+	await unlockDesktop(page)
+})
+
+test("legacy solver migration requires consent and replaces the plaintext writer", async (t) => {
+	const userDataDir = await temporaryUserData("encryption-migration")
+	const socketPath = socketPathFor(userDataDir)
+	let electronApp
+	t.after(async () => cleanupDesktop(electronApp, userDataDir))
+	spawnDaemon({
+		nodePath: process.execPath,
+		solverPath: join(simplexRoot, "dist/bin/simplex.js"),
+		socketPath,
+		dataDir: userDataDir,
+	})
+	const legacy = await waitForHealth(socketPath, "init")
+	assert.equal(legacy.configEncrypted, undefined)
+	let page
+	;({ electronApp, page } = await launchDesktop(userDataDir, { locked: true }))
+	const consent = page.getByRole("checkbox", { name: /Stop and restart the running solver/ })
+	await consent.waitFor()
+	assert.equal(await consent.isChecked(), false)
+	assert.equal(await page.getByRole("button", { name: "Continue", exact: true }).isDisabled(), true)
+	assert.equal((await waitForHealth(socketPath, "init")).pid, legacy.pid)
+	await unlockDesktop(page, { restartSolver: true })
+	const protectedHealth = await waitForHealth(socketPath, "init")
+	assert.equal(protectedHealth.configEncrypted, true)
+	assert.notEqual(protectedHealth.pid, legacy.pid)
+	assert.deepEqual(await daemonPids(userDataDir), [protectedHealth.pid])
+})
+
+test("forgotten passwords recover without the old password or a solver restart", async (t) => {
+	const userDataDir = await temporaryUserData("recovery")
+	const socketPath = socketPathFor(userDataDir)
+	let electronApp, page
+	t.after(async () => cleanupDesktop(electronApp, userDataDir))
+	;({ electronApp, page } = await launchDesktop(userDataDir, { locked: true }))
+	await page.locator("#desktop-password").waitFor()
+	if (process.platform !== "darwin") {
+		assert.equal(await page.getByText("Also enable Touch ID on this Mac").count(), 0)
+	}
+	await page.locator("#desktop-password").fill(TEST_PASSWORD)
+	await page.locator("#desktop-confirmation").fill(TEST_PASSWORD)
+	await page.getByRole("button", { name: "Continue", exact: true }).click()
+	await page.locator("#saved-recovery-code").waitFor()
+	assert.equal(await page.getByRole("button", { name: "Back to login", exact: true }).count(), 0)
+	await page.getByRole("button", { name: "Cancel", exact: true }).click()
+	await page.getByRole("heading", { name: "Create a password", exact: true }).waitFor()
+	assert.equal(existsSync(join(userDataDir, "desktop-vault.json")), false)
+	await delay(1100)
+	const code = await unlockDesktop(page)
+	assert.ok(code)
+	const health = await waitForHealth(socketPath, "init")
+	await quitElectron(electronApp)
+	electronApp = undefined
+	;({ electronApp, page } = await launchDesktop(userDataDir, { locked: true }))
+	await page.getByRole("button", { name: "Forgot password?" }).click()
+	assert.equal(await page.locator("#desktop-password").count(), 0, "recovery must not ask for the old password")
+	if (process.platform !== "darwin") assert.equal(await page.getByRole("button", { name: "Verify with Touch ID" }).count(), 0)
+	await page.locator("#recovery-code").fill(code)
+	await page.getByRole("button", { name: "Continue", exact: true }).click()
+	await page.getByRole("heading", { name: "Create a new password" }).waitFor()
+	assert.equal(await page.evaluate(async () => (await fetch("/api/status")).status), 423)
+	const oldMetadata = await readFile(join(userDataDir, "desktop-vault.json"), "utf8")
+	const newPassword = "recovered-test-password-only"
+	await page.locator("#desktop-password").fill(newPassword)
+	await page.locator("#desktop-confirmation").fill(newPassword)
+	await page.getByRole("button", { name: "Save password" }).click()
+	await page.locator("#saved-recovery-code").waitFor()
+	const newCode = await page.locator("#saved-recovery-code").textContent()
+	assert.equal(await page.locator("pre.code-block > code#saved-recovery-code").count(), 1)
+	assert.equal(await page.getByText("Continuing activates this code", { exact: false }).count(), 0)
+	assert.equal(await page.getByRole("button", { name: "Continue", exact: true }).isDisabled(), true)
+	assert.notEqual(newCode, code)
+	await page.reload()
+	assert.equal(await page.locator("#saved-recovery-code").textContent(), newCode, "reload preserves the same pending code")
+	assert.equal(await readFile(join(userDataDir, "desktop-vault.json"), "utf8"), oldMetadata)
+	await page.getByRole("checkbox", { name: "I've saved my recovery code" }).check()
+	await page.getByRole("button", { name: "Continue", exact: true }).click()
+	await page.locator(".desktop-unlock").waitFor({ state: "detached" })
+	assert.equal((await waitForHealth(socketPath, "init")).pid, health.pid)
+	await quitElectron(electronApp)
+	electronApp = undefined
+	;({ electronApp, page } = await launchDesktop(userDataDir, { locked: true }))
+	await page.getByRole("button", { name: "Forgot password?" }).click()
+	await page.locator("#recovery-code").fill(code)
+	await page.getByRole("button", { name: "Continue", exact: true }).click()
+	await page.getByRole("alert").filter({ hasText: "Invalid recovery code" }).waitFor()
+	await page.getByRole("button", { name: "Back to login" }).click()
+	await delay(1100)
+	await page.locator("#desktop-password").fill(newPassword)
+	await page.getByRole("button", { name: "Unlock", exact: true }).click()
+	await page.locator(".desktop-unlock").waitFor({ state: "detached" })
+	await quitElectron(electronApp)
+	electronApp = undefined
+	await assertSecretsExistOnlyInConfig(userDataDir, "", [code, newCode, code.replaceAll("-", "").toLowerCase(), newPassword])
 })
 
 test("configured startup owns the socket before filling and relaunch attaches while booting", async (t) => {
@@ -486,7 +600,7 @@ test("configured startup owns the socket before filling and relaunch attaches wh
 		],
 	}
 	await writeFile(join(userDataDir, "filler-config.toml"), emitFillerToml(config), { mode: 0o600 })
-	;({ electronApp } = await launchDesktop(userDataDir, { hidden: true }))
+	;({ electronApp } = await launchDesktop(userDataDir, { hidden: true, pending: true }))
 	await waitFor(async () => {
 		const response = await socketRequest(socketPath, "/health")
 		return JSON.parse(response.body).status === "starting"
@@ -495,7 +609,7 @@ test("configured startup owns the socket before filling and relaunch attaches wh
 
 	await quitElectron(electronApp)
 	electronApp = undefined
-	;({ electronApp } = await launchDesktop(userDataDir, { hidden: true }))
+	;({ electronApp } = await launchDesktop(userDataDir, { hidden: true, pending: true }))
 	await waitFor(async () => {
 		const response = await socketRequest(socketPath, "/health")
 		return JSON.parse(response.body).status === "starting"
@@ -874,6 +988,7 @@ test("first run writes a valid private config under Electron userData", async (t
 	await page.reload()
 	await waitForHealth(socketPath, "init")
 	await page.locator(".wizard-shell").waitFor({ timeout: 30_000 })
+	assert.equal(await page.getByRole("button", { name: "Install app", exact: true }).count(), 0)
 	assert.deepEqual(
 		await page.evaluate(() => globalThis.__simplexCspViolations ?? []),
 		[],
@@ -914,7 +1029,9 @@ test("first run writes a valid private config under Electron userData", async (t
 	assert.equal(result.status, 202)
 	assert.equal(result.json.configPath, configPath)
 	await waitFor(() => existsSync(configPath), "first-run config file")
-	const written = await readFile(configPath, "utf8")
+	const ciphertext = await readFile(configPath, "utf8")
+	assert.ok(!ciphertext.includes(TEST_KEY) && !ciphertext.includes(TEST_SEED))
+	const written = await decryptedTestConfig(userDataDir)
 	assert.match(written, /WARNING: contains secrets/)
 	assert.match(written, /\[simplex\.signer\]/)
 	assert.match(written, /\[\[pairs\]\]/)
@@ -931,5 +1048,5 @@ test("first run writes a valid private config under Electron userData", async (t
 	await quitElectron(electronApp)
 	electronApp = undefined
 	await waitForHealth(socketPath, "init")
-	await assertSecretsExistOnlyInConfig(userDataDir, configPath, [TEST_KEY, TEST_SEED])
+	await assertSecretsExistOnlyInConfig(userDataDir, configPath, [TEST_KEY, TEST_SEED, TEST_PASSWORD])
 })

@@ -380,7 +380,7 @@ pub mod devnet {
 	}
 
 	/// Config for the ethpandaops glamsterdam devnets, the only networks running Gloas today.
-	/// These values track the current devnet, which is devnet-11; the genesis root comes from
+	/// These values track the current devnet, which is devnet-8; the genesis root comes from
 	/// `/eth/v1/beacon/genesis` and the fork versions and epochs from `/eth/v1/config/spec`.
 	/// Devnets are retired every few weeks and each one picks fresh fork versions, so expect to
 	/// refresh these against whichever devnet is live. Gloas activates partway through the chain
@@ -392,21 +392,21 @@ pub mod devnet {
 		const SLOTS_PER_EPOCH: Slot = 32;
 		const GENESIS_VALIDATORS_ROOT: [u8; 32] =
 			hex_literal::hex!("bb4a1a9e3f7f4e10edcd734e4acc3b5ffd4f830efe0af2748fa458cfee5d2658");
-		const GENESIS_FORK_VERSION: Version = hex!("10126241");
-		const ALTAIR_FORK_VERSION: Version = hex!("20126241");
-		const BELLATRIX_FORK_VERSION: Version = hex!("30126241");
-		const CAPELLA_FORK_VERSION: Version = hex!("40126241");
-		const DENEB_FORK_VERSION: Version = hex!("50126241");
-		const ELECTRA_FORK_VERSION: Version = hex!("60126241");
-		const FULU_FORK_VERSION: Version = hex!("70126241");
-		const GLOAS_FORK_VERSION: Version = hex!("80126241");
+		const GENESIS_FORK_VERSION: Version = hex!("10733183");
+		const ALTAIR_FORK_VERSION: Version = hex!("20733183");
+		const BELLATRIX_FORK_VERSION: Version = hex!("30733183");
+		const CAPELLA_FORK_VERSION: Version = hex!("40733183");
+		const DENEB_FORK_VERSION: Version = hex!("50733183");
+		const ELECTRA_FORK_VERSION: Version = hex!("60733183");
+		const FULU_FORK_VERSION: Version = hex!("70733183");
+		const GLOAS_FORK_VERSION: Version = hex!("80733183");
 		const ALTAIR_FORK_EPOCH: Epoch = 0;
 		const BELLATRIX_FORK_EPOCH: Epoch = 0;
 		const CAPELLA_FORK_EPOCH: Epoch = 0;
 		const DENEB_FORK_EPOCH: Epoch = 0;
 		const ELECTRA_FORK_EPOCH: Epoch = 0;
 		const FULU_FORK_EPOCH: Epoch = 0;
-		const GLOAS_FORK_EPOCH: Epoch = 1125;
+		const GLOAS_FORK_EPOCH: Epoch = 1536;
 		const EPOCHS_PER_SYNC_COMMITTEE_PERIOD: Epoch = 256;
 		const EXECUTION_PAYLOAD_STATE_ROOT_INDEX: u64 = 34;
 		const EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX: u64 = 38;

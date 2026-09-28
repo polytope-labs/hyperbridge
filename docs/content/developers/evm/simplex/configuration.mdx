@@ -53,7 +53,7 @@ hyperbridgeWsUrl    = "wss://nexus.rpc.polytope.technology"
 
 ## Signer Configuration
 
-The `[simplex.signer]` section defines how the binary signs EVM transactions. Three backends are supported:
+The `[simplex.signer]` section defines how the binary signs EVM transactions. Four backends are supported:
 
 The signer is a tagged union — set `type` to select the variant, then add the variant's fields directly under `[simplex.signer]`:
 
@@ -64,6 +64,17 @@ The signer is a tagged union — set `type` to select the variant, then add the 
 type = "privateKey"
 key  = "0x..."
 ```
+
+**Secret Phrase** — Signs transactions locally using one wallet derived from a BIP-39 secret phrase:
+
+```toml lineNumbers
+[simplex.signer]
+type         = "secretPhrase"
+phrase       = "word1 word2 word3 word4 word5 word6 word7 word8 word9 word10 word11 word12"
+# accountIndex = 0  # optional, this is the default
+```
+
+The phrase must have 12, 15, 18, 21, or 24 words from the BIP-39 English wordlist and a valid checksum. The wallet is at `m/44'/60'/0'/0/accountIndex`, and `accountIndex` must be an integer from 0 to 2147483647. The phrase is stored in this file in plaintext, the same as a private key.
 
 **MPC Vault** — Signs transactions via [MPC Vault](https://mpcvault.com), an institutional custody service that uses MPC for signing ceremonies:
 

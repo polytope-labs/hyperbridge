@@ -555,12 +555,16 @@ A solver needs a signer unless every chain is watch-only.
 | `AuthorizationRequest` | The tuple an EIP-7702 signature covers: `chainId`, `contractAddress`, `nonce` |
 | `SignerTransaction` | The transaction handed to `signTransaction`: `chainId`, `type?`, `to?`, `value?`, `data?`, `nonce?`, `gas?`, `maxFeePerGas?`, `maxPriorityFeePerGas?`, `authorizationList?` |
 | `Eip7702Authorization` | A signed authorization tuple: `chainId`, `address`, `nonce` and the `Signature` fields |
+| `DerivingSigner` | A `Signer` plus `accountIndex` and `derive(index)`, which returns the `Signer` for the wallet at that index |
 
 ### Implementations
 
 | Function | Signature | Notes |
 |----------|-----------|-------|
 | `privateKeySigner(key)` | `(key: HexString) => Signer` | A raw key held in this process |
+| `secretPhraseSigner(config)` | `(config: SecretPhraseSignerConfig) => DerivingSigner` | A BIP-39 secret phrase held in this process. `config` is `phrase` and an optional `accountIndex` (default 0, an integer from 0 to 2147483647); the wallet is `m/44'/60'/0'/0/accountIndex`. Throws on an invalid phrase or index |
+| `validateSecretPhrase(phrase)` | `(phrase: string) => void` | Throws unless the phrase has 12, 15, 18, 21 or 24 words from the BIP-39 English wordlist and a valid checksum. The error never quotes the phrase |
+| `canDerive(signer)` | `(signer: Signer) => signer is DerivingSigner` | Type guard: whether a signer has `accountIndex` and `derive(index)` |
 | `turnkeySigner(config)` | `(config: TurnkeySignerConfig) => Promise<Signer>` | Turnkey signs transactions and EIP-7702 authorizations through its own structured encodings, so its policy engine sees both |
 | `mpcVaultSigner(config)` | `(config: MpcVaultSignerConfig) => Signer` | Signs transactions through the vault API; hashes the authorization tuple itself, and serialises set-code transactions, since the structured request carries no authorization list |
 | `viemSigner(account)` | `(account: LocalAccount) => Signer` | Adapts any viem local account. Falls back to `sign` for authorizations when the account has no `signAuthorization`; throws if it has neither, since the solver could then never delegate |
@@ -917,9 +921,9 @@ Exported from `@hyperbridge/simplex`:
 `SimplexConfig`, `SimplexOptions`, `SimplexEvents`, `SimplexStatus`, `PairView`, `ChainView`,
 `ChainInput`, `PairConfig`, `AssetDefinition`, `PriceCurvePoint`, `PriceCurveConfig`, `CurvePoint`,
 `CurveConfig`, `ChainConfirmationPolicy`, `QueueConfig`, `RebalancingConfig`, `BinanceConfig`,
-`VaultToml`, `VaultTomlConfig`, `UniswapV4PositionToml`, `FillerConfigFile`, `Signer`, `Signature`, `TypedDataPayload`, `SignerTransaction`,
+`VaultToml`, `VaultTomlConfig`, `UniswapV4PositionToml`, `FillerConfigFile`, `Signer`, `DerivingSigner`, `Signature`, `TypedDataPayload`, `SignerTransaction`,
 `AuthorizationRequest`, `Eip7702Authorization`, `SignerConfig`, `SignerType`,
-`PrivateKeySignerConfig`, `MpcVaultSignerConfig`, `TurnkeySignerConfig`, `AllowlistConfig`,
+`PrivateKeySignerConfig`, `SecretPhraseSignerConfig`, `MpcVaultSignerConfig`, `TurnkeySignerConfig`, `AllowlistConfig`,
 `UserProvidedChainConfig`, `ResolvedChainConfig`, `BalanceSnapshot`, `ChainBalanceRow`,
 `HyperbridgeBalance`, `SimplexDataStore`, `BidStore`, `ActivityStore`, `StateStore`, `StoredBid`,
 `BidInsert`, `BidStats`, `ActivityEvent`, `ActivityInsert`, `ActivityType`, `WalletTx`,

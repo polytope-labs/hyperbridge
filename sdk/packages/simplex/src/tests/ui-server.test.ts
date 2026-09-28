@@ -140,9 +140,7 @@ function testBalanceSource(
 	return source
 }
 
-function stableBalanceSnapshot(
-	available: number,
-): ReturnType<OperatorContext["balances"]["getSnapshot"]> {
+function stableBalanceSnapshot(available: number): ReturnType<OperatorContext["balances"]["getSnapshot"]> {
 	return {
 		updatedAt: Date.now(),
 		status: "fresh",
@@ -348,7 +346,10 @@ describe("UiServer (operator mode)", () => {
 		})
 		const frame = new TextDecoder().decode((await reader.read()).value)
 		const notification = JSON.parse(frame.slice("data: ".length))
-		expect(notification).toMatchObject({ title: "Simplex notifications are working", receiptId: expect.any(String) })
+		expect(notification).toMatchObject({
+			title: "Simplex notifications are working",
+			receiptId: expect.any(String),
+		})
 		const receipt = await fetch(`${base}/api/notifications/receipt`, {
 			method: "POST",
 			headers: { ...CSRF, "Content-Type": "application/json" },
@@ -888,6 +889,23 @@ describe("UiServer (operator mode)", () => {
 			body: JSON.stringify({ triggerPercentage: 1.5, baseBalances: { USDC: { "1": "10" } } }),
 		})
 		expect(badTrigger.status).toBe(400)
+	})
+
+	it("serves the running config without any word of a secret phrase", async () => {
+		const phrase = "zebra walnut giraffe umbrella quantum lizard oyster pumpkin volcano kangaroo jaguar tomato"
+		const config = fakeConfig()
+		config.simplex.signer = { type: SignerType.SecretPhrase, phrase, accountIndex: 2 }
+		const { base } = await startServer({ config })
+
+		const response = await fetch(`${base}/api/config`)
+		expect(response.status).toBe(200)
+		const text = await response.text()
+		for (const word of phrase.split(" ")) expect(text.toLowerCase()).not.toContain(word)
+		expect(parse(JSON.parse(text).toml).simplex.signer).toEqual({
+			type: "secretPhrase",
+			phrase: "****",
+			accountIndex: 2,
+		})
 	})
 
 	it("serves the masked running config", async () => {

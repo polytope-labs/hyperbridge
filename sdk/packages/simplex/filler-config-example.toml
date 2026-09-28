@@ -28,6 +28,12 @@
 # apiPublicKey = ""
 # apiPrivateKey = ""
 # signWith = "0xYourWalletAddress"
+#
+# 4) Secret phrase signer (BIP-39 mnemonic, English wordlist):
+# [simplex.signer]
+# type = "secretPhrase"
+# phrase = "word1 word2 word3 word4 word5 word6 word7 word8 word9 word10 word11 word12"
+# accountIndex = 0 # optional; wallet at m/44'/60'/0'/0/accountIndex, 0 when omitted
 
 maxConcurrentOrders = 5
 

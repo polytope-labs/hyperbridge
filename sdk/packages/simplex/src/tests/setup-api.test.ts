@@ -5,13 +5,25 @@ import { join } from "path"
 import { parse } from "toml"
 import { UiServer, type SetupContext } from "@/services/server/UiServer"
 import { validateConfig, type FillerConfigFile } from "@/config/filler-toml"
-import { SignerType } from "@/services/wallet"
+import { SignerType, signerFromToml } from "@/services/wallet"
+import { SECRET_PHRASE_MASK } from "@/services/server/setup-api"
 import { deriveSubstrateKeyPair } from "@/services/substrate-key"
 import { startMockRpc, type MockRpc } from "./helpers/mock-rpc"
 
 const CSRF = { "Content-Type": "application/json", "X-Simplex-UI": "1" }
 const TEST_KEY = "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"
 const TEST_ADDRESS = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
+const TEST_PHRASE = "test test test test test test test test test test test junk"
+const TEST_PHRASE_ADDRESS = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+// Words no error message or TOML comment uses, so finding one in a response means the phrase leaked.
+const DISTINCT_PHRASE = "zebra walnut giraffe umbrella quantum lizard oyster pumpkin volcano kangaroo jaguar tomato"
+
+function expectNoPhraseWords(text: string, phrase: string) {
+	const lower = text.toLowerCase()
+	for (const word of phrase.toLowerCase().split(/\s+/).filter(Boolean)) {
+		expect(lower).not.toContain(word)
+	}
+}
 
 describe("setup API", () => {
 	let server: UiServer | undefined
@@ -157,6 +169,66 @@ describe("setup API", () => {
 		expect(bad.status).toBe(400)
 	})
 
+	it("derives the EVM address for a secret phrase at the requested account index", async () => {
+		const { base } = await startInitServer()
+		const first = await post(base, "derive-evm-address", { phrase: TEST_PHRASE })
+		expect(first.status).toBe(200)
+		expect(await first.json()).toEqual({ address: TEST_PHRASE_ADDRESS })
+
+		const second = await post(base, "derive-evm-address", { phrase: TEST_PHRASE, accountIndex: 1 })
+		expect(second.status).toBe(200)
+		expect(await second.json()).toEqual({ address: TEST_ADDRESS })
+
+		const untidy = await post(base, "derive-evm-address", { phrase: `  ${TEST_PHRASE.toUpperCase()}\n` })
+		expect(await untidy.json()).toEqual({ address: TEST_PHRASE_ADDRESS })
+	})
+
+	it("rejects a bad secret phrase request without echoing any of its words", async () => {
+		const { base } = await startInitServer()
+		const words = DISTINCT_PHRASE.split(" ")
+		const badChecksum = [...words.slice(0, -1), "hedgehog"].join(" ")
+		const cases: Array<{ body: Record<string, unknown>; phrase: string; error: string }> = [
+			{ body: { phrase: badChecksum }, phrase: badChecksum, error: "checksum" },
+			{ body: { phrase: words.slice(0, 11).join(" ") }, phrase: DISTINCT_PHRASE, error: "got 11" },
+			{
+				body: { phrase: [...words.slice(0, -1), "xylophonist"].join(" ") },
+				phrase: `${DISTINCT_PHRASE} xylophonist`,
+				error: "wordlist",
+			},
+			{ body: { phrase: DISTINCT_PHRASE, accountIndex: -1 }, phrase: DISTINCT_PHRASE, error: "accountIndex" },
+			{ body: { phrase: DISTINCT_PHRASE, accountIndex: 1.5 }, phrase: DISTINCT_PHRASE, error: "accountIndex" },
+			{
+				body: { phrase: DISTINCT_PHRASE, accountIndex: DISTINCT_PHRASE },
+				phrase: DISTINCT_PHRASE,
+				error: "accountIndex",
+			},
+			{ body: { phrase: DISTINCT_PHRASE, privateKey: TEST_KEY }, phrase: DISTINCT_PHRASE, error: "not both" },
+			{ body: { phrase: words }, phrase: DISTINCT_PHRASE, error: "must be a string" },
+		]
+
+		for (const { body, phrase, error } of cases) {
+			const res = await post(base, "derive-evm-address", body)
+			expect(res.status).toBe(400)
+			const text = await res.text()
+			expect(JSON.parse(text).error).toContain(error)
+			expectNoPhraseWords(text, phrase)
+			expect(text).not.toContain(TEST_KEY)
+		}
+	})
+
+	it("does not echo a malformed request body", async () => {
+		const { base } = await startInitServer()
+		const res = await fetch(`${base}/api/setup/derive-evm-address`, {
+			method: "POST",
+			headers: CSRF,
+			body: `{"phrase": "${DISTINCT_PHRASE}`,
+		})
+		expect(res.status).toBe(400)
+		const text = await res.text()
+		expect(JSON.parse(text)).toEqual({ error: "Invalid JSON body" })
+		expectNoPhraseWords(text, DISTINCT_PHRASE)
+	})
+
 	it("generates a substrate key whose address matches re-derivation", async () => {
 		const { base } = await startInitServer()
 		const res = await (await post(base, "generate-substrate-key", {})).json()
@@ -179,6 +251,85 @@ describe("setup API", () => {
 		expect(res.toml).not.toContain("basket hold race")
 		expect(res.toml).not.toContain("secretpimlicokey")
 		expect(res.toml).toContain("[simplex.signer]")
+	})
+
+	it("previews a secret phrase signer with the whole phrase masked", async () => {
+		rpc = await startMockRpc({ chainId: 1 })
+		const { base } = await startInitServer()
+		const config = minimalConfig(rpc.url)
+		config.simplex.signer = { type: SignerType.SecretPhrase, phrase: DISTINCT_PHRASE, accountIndex: 3 }
+
+		const res = await post(base, "preview", { config })
+		expect(res.status).toBe(200)
+		const text = await res.text()
+		expectNoPhraseWords(text, DISTINCT_PHRASE)
+		const { toml } = JSON.parse(text)
+		expect(parse(toml).simplex.signer).toEqual({
+			type: "secretPhrase",
+			phrase: SECRET_PHRASE_MASK,
+			accountIndex: 3,
+		})
+	})
+
+	it("masks every secret phrase to the same placeholder, whatever its length", async () => {
+		rpc = await startMockRpc({ chainId: 1 })
+		const { base } = await startInitServer()
+		const phrases = [
+			TEST_PHRASE,
+			"abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon art",
+		]
+		for (const phrase of phrases) {
+			const config = minimalConfig(rpc.url)
+			config.simplex.signer = { type: SignerType.SecretPhrase, phrase }
+			const { toml } = await (await post(base, "preview", { config })).json()
+			expect(parse(toml).simplex.signer.phrase).toBe("****")
+		}
+	})
+
+	it("rejects an invalid secret phrase signer at preview and save without echoing it", async () => {
+		rpc = await startMockRpc({ chainId: 1 })
+		const { base, configPath, onSaveAndStart } = await startInitServer()
+		const words = DISTINCT_PHRASE.split(" ")
+		const badChecksum = [...words.slice(0, -1), "hedgehog"].join(" ")
+		const signers = [
+			{ signer: { type: SignerType.SecretPhrase, phrase: badChecksum }, error: "checksum" },
+			{ signer: { type: SignerType.SecretPhrase, phrase: words.slice(0, 11).join(" ") }, error: "got 11" },
+			{
+				signer: { type: SignerType.SecretPhrase, phrase: DISTINCT_PHRASE, accountIndex: -1 },
+				error: "accountIndex",
+			},
+			{ signer: { type: SignerType.SecretPhrase, phrase: SECRET_PHRASE_MASK }, error: "got 1" },
+		]
+
+		for (const { signer, error } of signers) {
+			for (const endpoint of ["preview", "save-and-start"]) {
+				const config = { ...minimalConfig(rpc.url), simplex: { ...minimalConfig(rpc.url).simplex, signer } }
+				const res = await post(base, endpoint, { config })
+				expect(res.status).toBe(400)
+				const text = await res.text()
+				expect(JSON.parse(text).error).toContain(error)
+				expectNoPhraseWords(text, `${DISTINCT_PHRASE} hedgehog`)
+			}
+		}
+		expect(existsSync(configPath)).toBe(false)
+		expect(onSaveAndStart).not.toHaveBeenCalled()
+	})
+
+	it("rejects a phrase pasted into accountIndex at preview and save without echoing it", async () => {
+		rpc = await startMockRpc({ chainId: 1 })
+		const { base, configPath, onSaveAndStart } = await startInitServer()
+		const signer = { type: SignerType.SecretPhrase, phrase: TEST_PHRASE, accountIndex: DISTINCT_PHRASE }
+
+		for (const endpoint of ["preview", "save-and-start"]) {
+			const config = { ...minimalConfig(rpc.url), simplex: { ...minimalConfig(rpc.url).simplex, signer } }
+			const res = await post(base, endpoint, { config })
+			expect(res.status).toBe(400)
+			const text = await res.text()
+			expect(JSON.parse(text).error).toContain("accountIndex must be an integer")
+			expectNoPhraseWords(text, DISTINCT_PHRASE)
+		}
+		expect(existsSync(configPath)).toBe(false)
+		expect(onSaveAndStart).not.toHaveBeenCalled()
 	})
 
 	it("rejects an invalid config at preview with the validation message", async () => {
@@ -220,6 +371,30 @@ describe("setup API", () => {
 		expect(path).toBe(configPath)
 		expect(toml).toContain("[[pairs]]")
 		expect(JSON.parse(JSON.stringify(bootedConfig))).toEqual(JSON.parse(JSON.stringify(config)))
+	})
+
+	it("save-and-start writes a normalised secret phrase that loads back to its wallet", async () => {
+		rpc = await startMockRpc({ chainId: 1 })
+		const { base, configPath, onSaveAndStart } = await startInitServer()
+		const config = minimalConfig(rpc.url)
+		config.simplex.signer = {
+			type: SignerType.SecretPhrase,
+			phrase: `  ${TEST_PHRASE.toUpperCase().split(" ").join("  ")}\n`,
+			accountIndex: 1,
+		}
+
+		const res = await post(base, "save-and-start", { config })
+		expect(res.status).toBe(202)
+		expect(await res.text()).not.toContain("junk")
+
+		expect(statSync(configPath).mode & 0o777).toBe(0o600)
+		const written = parse(readFileSync(configPath, "utf-8")) as FillerConfigFile
+		expect(written.simplex.signer).toEqual({ type: "secretPhrase", phrase: TEST_PHRASE, accountIndex: 1 })
+		expect((await signerFromToml(written.simplex.signer))?.address).toBe(TEST_ADDRESS)
+
+		await vi.waitFor(() => expect(onSaveAndStart).toHaveBeenCalledTimes(1))
+		const [bootedConfig] = onSaveAndStart.mock.calls[0]
+		expect(bootedConfig.simplex.signer.phrase).toBe(TEST_PHRASE)
 	})
 
 	it("rejects invalid configs before writing anything", async () => {

@@ -123,6 +123,9 @@ export type { CurvePoint, CurveConfig } from "@/config/interpolated-curve"
 
 export {
 	privateKeySigner,
+	secretPhraseSigner,
+	canDerive,
+	validateSecretPhrase,
 	turnkeySigner,
 	mpcVaultSigner,
 	viemSigner,
@@ -132,6 +135,7 @@ export {
 } from "@/services/wallet"
 export type {
 	Signer,
+	DerivingSigner,
 	Signature,
 	TypedDataPayload,
 	AuthorizationRequest,
@@ -146,6 +150,7 @@ export { SignerType } from "@/services/wallet/types"
 export type {
 	SignerConfig,
 	PrivateKeySignerConfig,
+	SecretPhraseSignerConfig,
 	MpcVaultSignerConfig,
 	TurnkeySignerConfig,
 } from "@/services/wallet/types"

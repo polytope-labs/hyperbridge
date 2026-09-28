@@ -111,12 +111,6 @@ function openSseStream(req: IncomingMessage, res: ServerResponse, clients: Set<S
 	res.once("error", cleanup)
 }
 
-/**
- * One curve-priced trading pair's editable price curves. The policies are the
- * same instances the running engine prices with, so `replacePoints` takes
- * effect on the next order evaluation. A side is absent when it cannot be
- * edited: disabled (one-sided LP) or venue-priced (both sides absent).
- */
 /** One market the engine serves, as the operator's market list shows it. */
 export interface AdminStrategy {
 	/** Stable identifier for the API. */
@@ -380,8 +374,8 @@ function assertSocketPathFits(path: string): void {
 /**
  * Loopback HTTP server embedded in the simplex process. Serves the bundled SPA
  * and a JSON API in one of two modes: `init` (setup wizard endpoints, before a
- * config exists) or `operator` (status/pause/balances plus inflight price curve
- * updates on the running strategies). Unauthenticated: binding is the boundary —
+ * config exists) or `operator` (status/pause/balances, limit orders and the
+ * other runtime controls). Unauthenticated: binding is the boundary —
  * init mode refuses non-loopback hosts outright.
  */
 export class UiServer {
@@ -1593,7 +1587,7 @@ export class UiServer {
 
 	/**
 	 * DELETE /api/strategies/:index — removes a market. The remaining config
-	 * must still validate (at least one market, no orphaned USD anchor) before
+	 * must still validate (at least one market) before
 	 * anything mutates. Funds are never touched: vault treasury is per-asset
 	 * and stays configured regardless of markets.
 	 */

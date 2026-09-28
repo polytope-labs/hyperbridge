@@ -18,9 +18,9 @@
  * await simplex.limitOrders.create({
  *   fillChain: "EVM-8453",
  *   tokenIn: "USDC",
- *   amountIn: "10000000000000000000000",
+ *   amountIn: "10000",
  *   tokenOut: "CNGN",
- *   amountOut: "139000000000000000000000000",
+ *   amountOut: "15500000",
  *   acceptedSources: ["EVM-1"],
  * })
  * await simplex.stop()
@@ -42,6 +42,7 @@
 // `import { PairController }` type-checked and was undefined at run time.
 export {
 	Simplex,
+	LimitOrderController,
 	PairController,
 	ChainController,
 	VaultController,
@@ -59,6 +60,19 @@ export type {
 	ChainView,
 } from "@/simplex"
 
+// ─── Limit orders ───────────────────────────────────────────────────────────
+// Reached as `simplex.limitOrders`. Amounts in a create request are whole tokens
+// as decimal strings; the stored rows carry them at 1e18. The error class is what
+// `create` throws for a request it refuses before anything is stored.
+
+export { LimitOrderValidationError } from "@/orderbook/limit-orders"
+export type {
+	CreateLimitOrderRequest,
+	PostedLimitOrder,
+	CancelledLimitOrder,
+	PostingOutcome,
+} from "@/orderbook/limit-orders"
+
 // ─── Persistence ────────────────────────────────────────────────────────────
 // The SQLite implementation lives at `@hyperbridge/simplex/sqlite`. It is built
 // on `node:sqlite`, so it needs nothing installed — see `engines.node`.
@@ -69,6 +83,16 @@ export type {
 	BidStore,
 	ActivityStore,
 	StateStore,
+	LimitOrderStore,
+	LimitOrder,
+	LimitOrderInsert,
+	LimitOrderFilter,
+	LimitOrderPosting,
+	LimitOrderSide,
+	LimitOrderStatus,
+	LimitOrderFill,
+	LimitOrderFillInsert,
+	LimitOrderHold,
 	StoredBid,
 	BidInsert,
 	BidStats,

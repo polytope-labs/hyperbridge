@@ -11,22 +11,24 @@ import {
  *
  * ```toml
  * [[pairs]]
- * token0 = "USDC"   # quote side — any symbol in the asset registry
- * token1 = "CNGN"   # base side — any symbol in the asset registry
+ * token0 = "USDC"   # the book's base — any symbol in the asset registry
+ * token1 = "CNGN"   # the book's quote — any symbol in the asset registry
  * ```
  *
  * A pair declares that a market exists and nothing more. What the filler will
  * pay on it comes from the operator's limit orders, which carry the rate and the
  * size they are good for.
  *
- * One orientation only: declaring both `A/B` and `B/A` would make matching
- * depend on declaration order. `token0 == token1` is the same-asset cross-chain
- * market.
+ * The orientation follows the orderbook's books, which the setup wizard copies:
+ * `token0` is the book's base and `token1` its quote, so the `USDC-cNGN` book
+ * (priced in cNGN per USDC) becomes `token0 = "USDC"`, `token1 = "CNGN"`. One
+ * orientation only: `A/B` and `B/A` are the same market and declaring both is
+ * refused. `token0 == token1` is the same-asset cross-chain market.
  */
 export interface PairConfig {
-	/** Quote-side symbol (e.g. "USDC", "USDT", "ZARP"). */
+	/** The book's base symbol (e.g. "USDC", "USDT"). Any symbol in the registry. */
 	token0: string
-	/** Base-side symbol (e.g. "CNGN"). Any symbol in the registry. */
+	/** The book's quote symbol, which the book prices the base in (e.g. "CNGN"). Any symbol in the registry. */
 	token1: string
 }
 

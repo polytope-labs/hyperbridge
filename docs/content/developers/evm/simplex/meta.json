@@ -5,6 +5,7 @@
         "installation",
         "configuration",
         "limit-orders",
+        "limit-orders-api",
         "treasury",
         "confirmations",
         "dashboard",

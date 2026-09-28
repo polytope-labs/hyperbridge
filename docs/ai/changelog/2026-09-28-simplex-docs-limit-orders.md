@@ -5,9 +5,10 @@ limit orders on the HyperFX orderbook, replacing the price-curve and Uniswap V4 
 
 - `limit-orders.mdx` is new. It covers creating an order from the dashboard step by step (pair,
   side, amount in the paid-out token, rate in quote per base, accepted sources, fill chains),
-  reading and cancelling orders, how orders are matched and filled (including the fee check and
-  partial fills), and managing orders directly over `/api/limit-orders` and
-  `/api/orderbook/books`. It includes same-asset quotes, which only the API can create.
+  reading and cancelling orders, and how orders are matched and filled (including the fee check
+  and partial fills).
+- `limit-orders-api.mdx` is new. It covers managing orders directly over `/api/limit-orders` and
+  `/api/orderbook/books`, including same-asset quotes, which only the API can create.
 - `pricing.mdx` (Uniswap V4 funding and pool pricing) and `markets.mdx` (pairs and curves) are
   removed. `docs/vercel.json` redirects both to the limit orders page.
 - `configuration.mdx` documents the required `[orderbook]` section and its defaults. The

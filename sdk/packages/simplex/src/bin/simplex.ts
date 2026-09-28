@@ -480,7 +480,7 @@ addRunOptions(program.command("run", { isDefault: true }))
 
 				await startFiller(config, configPath)
 
-				// Local web UI (status, pause/resume, inflight price curve updates).
+				// Local web UI (status, pause/resume, balances, limit orders).
 				// On by default at 127.0.0.1; disable with --no-ui.
 				// No UI, no tunnel: the tunnel exists to carry devices to this dashboard,
 				// and with nothing bound it would forward to whatever else holds the port.

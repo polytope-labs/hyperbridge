@@ -1,6 +1,6 @@
 /**
  * One-line "why" explanations shown before each prompt. Sourced from
- * docs/content/developers/evm/intent-gateway/simplex.mdx — keep the two in sync.
+ * docs/content/developers/evm/simplex/ — keep the two in sync.
  */
 export const WHY = {
 	chains: "Simplex listens for orders and fills only on the chains you pick. Each chain needs its own RPC, an ERC-4337 bundler, and funded balances (native gas + stablecoins).",
@@ -12,14 +12,14 @@ export const WHY = {
 	substrateKey:
 		"Solver-selection orders are won by submitting signed bids to Hyperbridge. This Substrate account signs those bid extrinsics and must hold BRIDGE tokens for fees — the fees are claimed back automatically after fills.",
 	hyperbridgeWs: "WebSocket endpoint of the Hyperbridge chain, used to submit and track solver bids.",
-	pairs: "Every market you serve is a pair of assets. Same asset on both sides (USDC/USDC) fills cross-chain transfers — ask prices sit just below 1 and the gap is your spread; same-chain same-asset swaps are never filled. Different assets (USDC/CNGN, USDC/USDT, ZARP/CNGN) market-make both directions with your bid/ask curves, same-chain and cross-chain. Assets are referenced by symbol; addresses come from the built-in registry.",
+	pairs: "Markets name the asset pairs the dashboard lists (USDC/CNGN, USDT/CNGN). They carry no prices: simplex fills only against the limit orders you post from the dashboard once it is running, each stating what it takes in, what it pays out, and on which chain. Assets are referenced by symbol; addresses come from the built-in registry.",
 	confirmations:
 		"Blocks to wait before filling a cross-chain order, scaled by order value — protects you from reorgs unwinding the deposit after you've paid out.",
 	concurrency: "How many orders are processed at once. Lower it if your RPCs rate-limit (429s).",
 	gasFeeBump:
 		"Percentages added on top of the base gas price for your fill UserOperations. Higher values win more fill races but cost more gas.",
 	overfill:
-		"Safety clamp against pricing bugs: output is capped at maxOverfillBps above what the user asked for, and the strategy halts after maxConsecutiveClamps consecutive clamped orders.",
+		"A warning, not a clamp: simplex logs a limit order whose offer exceeds what the swapper asked for by more than maxOverfillBps, which usually means the order is mispriced. maxConsecutiveClamps is kept for older configs and no longer halts anything.",
 	vault: "ERC-4626 treasury (e.g. Aave stataUSDC): fills pull missing balance from the vault atomically, and idle wallet balance above a threshold is swept in to earn yield.",
 	allowlist: "Restricts filling to orders placed by specific user addresses. Leave off to fill for everyone.",
 	logging: "Log verbosity. 'info' for normal operation, 'debug' when troubleshooting.",
@@ -30,4 +30,5 @@ export const FUNDING_CHECKLIST = [
 	"Keep at least 1 USDC or USDT on each chain for the Simplex gas paymaster. A chain whose fee token has no EIP-2612 permit (BNB Chain) also needs native dust once, to approve that token to Permit2.",
 	"Fund the Substrate account with BRIDGE tokens for bid fees (claimed back automatically).",
 	"Use premium RPC endpoints with archive access; free tiers will rate-limit.",
+	"Once the solver is running, post limit orders from the dashboard: simplex fills nothing until one is open.",
 ].join("\n")

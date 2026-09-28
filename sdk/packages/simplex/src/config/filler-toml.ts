@@ -72,18 +72,21 @@ export interface FillerTomlConfig {
 	 */
 	assets?: Record<string, AssetDefinition>
 	/**
-	 * Trading pairs — the entire trading configuration. Each pair prices
-	 * `token1` in units of `token0` via its own bid/ask curves and carries a
-	 * per-order `maxOrderSize` cap; a same-token pair (token0 == token1) is the
-	 * same-asset cross-chain market. Required unless running watch-only.
+	 * Markets the operator dashboard lists, as `token0`/`token1` symbol pairs.
+	 * They carry no prices and do not gate matching: the filler prices every
+	 * fill from the operator's limit orders. Optional; the browser setup wizard
+	 * writes one per book the orderbook lists. Keys left over from the curve
+	 * era (`bidPriceCurve`, `askPriceCurve`, `maxOrderSize`, `referenceOnly`)
+	 * are ignored.
 	 */
 	pairs?: PairConfig[]
 	/**
 	 * Per-chain confirmation policies for cross-chain orders, keyed by chain id.
 	 * Merged over built-in defaults (ETH, BSC, Polygon, Base, Arbitrum,
 	 * Unichain); every configured chain must be covered or startup fails. The
-	 * curve amount axis is the order's USD value, derived from the pair curves
-	 * via the USD anchors.
+	 * policy's amount axis is the order's USD value: USD stables count at $1 and
+	 * other tokens are valued through the open limit orders' rates. An order no
+	 * limit order connects to a dollar waits for the policy's maximum depth.
 	 */
 	confirmationPolicies?: Record<string, ChainConfirmationPolicy>
 	simplex: {
@@ -125,8 +128,10 @@ export interface FillerTomlConfig {
 		}
 		/**
 		 * Overfill protection knobs. Defaults: maxOverfillBps=500, maxConsecutiveClamps=3.
-		 * `maxOverfillBps` clamps the per-leg output ceiling on every strategy.
-		 * `maxConsecutiveClamps` only halts FXFiller. Curve clamps warn but never halt.
+		 * `maxOverfillBps` is warn-only: FXFiller logs a limit order whose offer exceeds
+		 * the swapper's ask by more than this, and clamps nothing. `maxConsecutiveClamps`
+		 * is accepted but dormant: the clamp that fed it was for Uniswap V4 venue pricing,
+		 * which is gone, so FXFiller never halts.
 		 */
 		overfillProtection?: {
 			maxOverfillBps?: number

@@ -206,7 +206,7 @@ export class LimitOrderController {
 	private get service(): LimitOrderService {
 		const service = this.runtime.limitOrders
 		if (!service) {
-			throw new Error("No orderbook is configured — set [orderbook] enabled and url to use limit orders")
+			throw new Error("No orderbook is configured — set [orderbook] url to use limit orders")
 		}
 		return service
 	}

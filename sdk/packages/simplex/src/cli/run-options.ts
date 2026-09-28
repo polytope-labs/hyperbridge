@@ -45,7 +45,7 @@ export function addRunOptions(command: Command): Command {
 		.option("--watch-only", "Watch-only mode: monitor orders without executing fills", false)
 		.option(
 			"--ui [host:port]",
-			`Bind address for the local web UI (status, pause/resume, price curves); a bare port keeps the host at 127.0.0.1. Unauthenticated; default 127.0.0.1:${DEFAULT_UI_PORT}`,
+			`Bind address for the local web UI (status, pause/resume, limit orders); a bare port keeps the host at 127.0.0.1. Unauthenticated; default 127.0.0.1:${DEFAULT_UI_PORT}`,
 		)
 		.option(
 			"--ui-socket <path>",

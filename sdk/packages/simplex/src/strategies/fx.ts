@@ -52,68 +52,48 @@ function adjustDecimalsFloor(amount: bigint, fromDecimals: number, toDecimals: n
 	return amount / BigInt(10 ** (fromDecimals - toDecimals))
 }
 
-/** A leg matched to a configured pair, with everything needed to price it. */
-interface ResolvedLeg {
-	pair: TradingPair
-	/** True when the leg's input is the pair's token0 (filler sells token1). */
-	inputIsToken0: boolean
-	/** token1 address on the chain where the exotic side of this leg settles. */
-	token1Address: string
-	/** Chain (state machine id) where the token1 side of this leg lives. */
-	token1Chain: string
-}
-
-/** Rate context resolved for a leg: pricing rate plus the opposite side for margin telemetry. */
-interface LegRates {
-	/** token1 per token0 used to price this leg's output. */
-	rate: Decimal
-	/** The opposite side's rate (bid for ask-legs, ask for bid-legs), when available. */
-	oppositeRate: Decimal | null
-}
-
 /**
- * Strategy for swaps across a configurable set of trading pairs, each priced
- * and sized by its own bid/ask curves. Supports both same-chain and cross-chain
- * orders.
+ * Strategy for swaps priced by the operator's limit orders. Supports both
+ * same-chain and cross-chain orders.
  *
- * Pairs are declared as `token0`/`token1` registry symbols — e.g. USDC/CNGN,
- * USDT/CNGN, ZARP/CNGN — and any number of pairs can run in one engine. Curves
- * are quoted in **token1 per token0**; nothing assumes the quote side is a USD
- * stablecoin and no external price feed is consulted. Trade sizing is
- * pair-local in token0 units (the per-order `maxOrderSize` cap and the curve
- * amount axis); only confirmation sizing converts to USD, using the curves
- * themselves as the price feed (see `usdFactors`).
+ * Every leg is matched against the open limit orders (`matchLimitOrders`): an
+ * order serves a leg when it fills on the destination chain, takes the leg's
+ * input, pays out its output, accepts its source chain and, at its own rate,
+ * pays at least what the swapper asked for. Each matching order gets its own
+ * bid, best offer first, sized `min(offer, remaining)`; there is no fallback
+ * price, so a leg nothing matches is not bid on. No external price feed is
+ * consulted. Confirmation sizing is the only place a dollar value is needed,
+ * and it is derived from the limit orders' own rates (see `usdFactorsFrom`).
  *
- * For each (input, output) leg the engine finds the configured pair matching
- * the leg's direction:
- *  - input = token0, output = token1 → the filler *sells* token1 at the ask.
- *  - input = token1, output = token0 → the filler *buys* token1 at the bid.
+ * Payouts are bounded by the filler's real balances plus funding-venue
+ * withdrawals. Because the IntentGateway releases inputs proportionally to the
+ * fraction of outputs provided, partial fills need no extra on-chain logic.
  *
- * The filler holds inventory on both sides of its pairs. Profitability
- * evaluation caps each pair's legs at the pair's `maxOrderSize`, prices each
- * leg with its pair's curve (or venue), and bounds outputs by the filler's
- * real balances plus funding-venue withdrawals. Because the IntentGateway
- * releases inputs proportionally to the fraction of outputs provided, partial
- * fills (and overfills) need no extra on-chain logic.
+ * `[[pairs]]` markets do not gate matching; they name the markets the operator
+ * dashboard lists.
  */
 export class FXFiller implements FillerStrategy {
 	name = "FXFiller"
 	private clientManager: ChainClientManager
 	private contractService: ContractInteractionService
 	private configService: FillerConfigService
-	/** Trading pairs served by this engine; each with its own bid/ask policies and cap. */
+	/** Markets the dashboard lists. Informational only: matching reads the limit orders. */
 	private pairs: TradingPair[]
 	/** Symbol → per-chain address resolution (built-ins + curated + user `[assets]`). */
 	private registry: AssetRegistry
 	private signer: Signer
 	private logger: Logger
-	/** Consecutive orders where overfill clamp activated. */
+	/**
+	 * Consecutive orders where the overfill clamp activated. Dormant: the clamp
+	 * existed for venue-priced legs, which went with Uniswap V4 pricing, so every
+	 * outcome is now recorded unclamped and this never climbs. See `recordOrderOutcome`.
+	 */
 	private consecutiveClamps = 0
-	/** Once set, the filler refuses all orders until restart — systemic pricing error suspected. */
+	/** Once set, the filler refuses all orders until reset. Unreachable while the clamp is dormant. */
 	private halted = false
-	/** Ceiling bps above user-requested output. Sourced from filler config. */
+	/** Bps above the swapper's ask past which a limit order's offer is logged as suspicious. Warn only. */
 	private readonly maxOverfillBps: bigint
-	/** Consecutive clamped evaluations before halting. Sourced from filler config. */
+	/** Consecutive clamped evaluations before halting. Dormant, as `consecutiveClamps` is. */
 	private readonly maxConsecutiveClamps: number
 	confirmationPolicy?: { getConfirmationBlocks: (chainId: number, amountUsd: number) => number }
 	private fundingVenues: FundingVenue[]
@@ -198,10 +178,9 @@ export class FXFiller implements FillerStrategy {
 	}
 
 	/**
-	 * Removes a market from the running engine. All-or-nothing: at least one
-	 * market must remain and no other pair may lose its USD anchor (removing a
-	 * reference feed that anchors a dependent market is rejected). In-flight
-	 * rechecks of orders on the removed pair simply stop matching.
+	 * Removes a market from the running engine. At least one market must remain.
+	 * Matching reads the limit orders rather than the pairs, so removing a market
+	 * changes what the dashboard lists, not what the filler fills.
 	 */
 	removePair(pair: TradingPair): void {
 		const index = this.pairs.indexOf(pair)
@@ -263,22 +242,20 @@ export class FXFiller implements FillerStrategy {
 	}
 
 	/**
-	 * Evaluates whether an order is profitable to fill under the per-pair
-	 * `maxOrderSize` caps (where set) and the filler's current token balances.
+	 * Evaluates whether an order is profitable to fill against the operator's
+	 * limit orders and the filler's current token balances.
 	 *
 	 * High-level flow:
-	 * - Resolve each (input, output) leg to a configured pair and direction.
-	 * - Estimate each pair's total token0 notional in the order and cap it at
-	 *   the pair's `maxOrderSize` when one is set; pair curves are evaluated at
-	 *   that (possibly uncapped) notional.
-	 * - Walk the legs, allocating from each pair's capped token0 budget and
-	 *   pricing outputs at the pair's rate.
-	 * - Further cap each leg by the filler's current token balance plus
-	 *   funding-venue withdrawals.
-	 * - Cache the resulting outputs for later use in `executeOrder`.
-	 *
-	 * Note: we may intentionally overfill relative to the user's requested
-	 * outputs if the pair pricing makes that attractive. This is how we stay competitive.
+	 * - Match each (input, output) leg against the open limit orders.
+	 * - Build one bid per matching order, best offer first, each paying the
+	 *   order's whole offer for the input at its own rate, capped by what the
+	 *   order has left. The gateway credits the swapper the ask and splits
+	 *   anything above it between the swapper and the protocol.
+	 * - Treat a payout below the ask as a partial fill, which only orders
+	 *   without output calldata and without an earlier partial fill allow.
+	 * - Cap each payout by the filler's balance plus funding-venue withdrawals,
+	 *   then gate it on fees (full fills) and the same-asset spread.
+	 * - Cache the resulting bids for later use in `executeOrder`.
 	 */
 	async calculateProfitability(order: Order): Promise<number> {
 		// Cleared up front: the caller exempts partial fills from its profit floor,
@@ -401,9 +378,9 @@ export class FXFiller implements FillerStrategy {
 						this.logger.warn({ err, destChain }, "Failed to estimate deadline timestamp, using fallback")
 					}
 
-					// A shortfall is either the limit order running out or its price landing
-					// under what the swapper asked for. Cross-chain neither can be filled;
-					// same-chain both can, as far as the payout goes.
+					// A shortfall is the limit order running out before it covers the ask. It
+					// is a partial fill, which same-chain and cross-chain orders both allow
+					// unless `partialEligible` rules the order out.
 					if (targetOutput < output.amount && !(await partialEligible())) {
 						this.logger.info(
 							{
@@ -423,10 +400,11 @@ export class FXFiller implements FillerStrategy {
 					}
 					if (targetOutput < output.amount) partialFill = true
 
-					// Nothing is ever bid above the ask now, so the ceiling cannot be crossed
-					// on the way out. It still says something worth hearing: an offer far past
-					// what the swapper wanted is a limit order priced well away from the
-					// market, which is usually a mistake in the operator's terms.
+					// The bid is the whole offer, so it can sit above the ask; the gateway
+					// hands the excess to the swapper and the protocol rather than to us.
+					// Nothing is clamped here. An offer far past what the swapper wanted
+					// is still worth a warning: it is a limit order priced well away from
+					// the market, which is usually a mistake in the operator's terms.
 					const overfillCeiling = (output.amount * (10000n + this.maxOverfillBps)) / 10000n
 					if (offered > overfillCeiling) {
 						this.logger.warn(
@@ -528,7 +506,7 @@ export class FXFiller implements FillerStrategy {
 					const walletRemaining = balance - walletContribution
 					balanceCache.set(tokenAddress, walletRemaining > 0n ? walletRemaining : 0n)
 
-					// The venue clamp is gone with the curves, so a fill can never be clamped —
+					// The venue clamp went with Uniswap V4 pricing, so a fill can never be clamped —
 					// the halt subsystem is left in place but dormant (always recorded as a
 					// clean, unclamped outcome).
 					this.recordOrderOutcome(false, order.id)
@@ -619,9 +597,9 @@ export class FXFiller implements FillerStrategy {
 					// is the USDC the fill is already paying out. The sizing above committed
 					// the balance to outputs without knowing this figure (it is only priced
 					// here, after the funding calls it depends on exist), so the affordability
-					// check has to happen now. A cross-chain order cannot be partially filled,
-					// so shrinking the fill is not on the table: either the residue covers the
-					// dispatch or the order is not ours to take.
+					// check has to happen now. Shrinking the fill to make room would mean
+					// replanning the funding calls it was sized with, so it is not attempted:
+					// either the residue covers the dispatch or this bid is skipped.
 					if (sourceChain !== destChain && dispatchFee > 0n) {
 						const feeToken = await this.contractService.getFeeTokenWithDecimals(destChain)
 						const feeTokenLower = feeToken.address.toLowerCase()
@@ -881,10 +859,14 @@ export class FXFiller implements FillerStrategy {
 
 	/**
 	 * Update consecutive-clamp counter after a successful order evaluation.
-	 * Only venue-priced legs feed this counter (see clamp site) — a streak of those
-	 * is the signal that a live market source has gone off (stale pool, manipulated
-	 * venue) and the filler should stop until an operator investigates. Offline
-	 * price-curve clamps warn but never reach here.
+	 *
+	 * Dormant. Only venue-priced legs ever fed a clamped outcome here: a streak
+	 * of those meant a live market source had gone off (stale pool, manipulated
+	 * venue). Venue pricing went with Uniswap V4, and limit orders are prices the
+	 * operator set, so the only caller records `false` and the filler never
+	 * halts. `isHalted`, `resetHalt` and `[simplex.overfillProtection]
+	 * maxConsecutiveClamps` are kept so existing configs and the halt API still
+	 * load; they can go once nothing reads them.
 	 */
 	private recordOrderOutcome(clamped: boolean, orderId: string | undefined) {
 		if (clamped) {
@@ -913,18 +895,6 @@ export class FXFiller implements FillerStrategy {
 		this.logger.warn("FXFiller halt reset by operator — resuming order evaluation")
 	}
 
-	/**
-	 * Given a single (input, output) leg and the remaining token0 budget of its
-	 * pair, computes how much token0 notional to allocate to this leg and the
-	 * corresponding maximum output amount at the pair's rate.
-	 *
-	 * `rate` is **token1 per 1 token0**:
-	 * - token0 input → token1 output: token0 × rate → token1 amount.
-	 * - token1 input → token0 output: token1 ÷ rate → token0 amount.
-	 *
-	 * Returns `null` when this leg cannot consume any of the pair's remaining
-	 * budget (e.g. the cap has already been exhausted).
-	 */
 	/**
 	 * Whether any solver has already delivered output against this order.
 	 *

@@ -44,6 +44,16 @@
       "source": "/developers/evm/simplex",
       "destination": "/developers/evm/simplex/overview",
       "permanent": true
+    },
+    {
+      "source": "/developers/evm/simplex/pricing",
+      "destination": "/developers/evm/simplex/limit-orders",
+      "permanent": true
+    },
+    {
+      "source": "/developers/evm/simplex/markets",
+      "destination": "/developers/evm/simplex/limit-orders",
+      "permanent": true
     }
   ]
 }

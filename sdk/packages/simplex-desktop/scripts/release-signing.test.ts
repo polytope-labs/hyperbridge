@@ -19,11 +19,12 @@ const {
 async function macEnvironment() {
 	const directory = await mkdtemp(join(tmpdir(), "simplex-signing-"))
 	const apiKey = join(directory, "AuthKey_TEST.p8")
+	const keychain = join(directory, "signing.keychain-db")
 	await writeFile(apiKey, "fixture")
+	await writeFile(keychain, "fixture")
 	return {
 		SIMPLEX_DESKTOP_SIGN_RELEASE: "true",
-		CSC_LINK: "base64-p12",
-		CSC_KEY_PASSWORD: "password",
+		CSC_KEYCHAIN: keychain,
 		APPLE_API_KEY: apiKey,
 		APPLE_API_KEY_ID: "KEYID",
 		APPLE_API_ISSUER: "issuer",
@@ -63,12 +64,21 @@ describe("desktop release signing", () => {
 		expect(() => assertReleaseSigningEnvironment("darwin", env)).toThrow(/APPLE_API_ISSUER/)
 	})
 
+	it("signs macOS releases from the CI keychain rather than CSC_LINK", async () => {
+		const env = await macEnvironment()
+		expect(() => assertReleaseSigningEnvironment("darwin", { ...env, CSC_LINK: "base64-p12" })).toThrow(/unset CSC_LINK/)
+		expect(() => assertReleaseSigningEnvironment("darwin", { ...env, CSC_KEYCHAIN: "/missing.keychain-db" })).toThrow(
+			/CSC_KEYCHAIN does not exist/,
+		)
+	})
+
 	it("configures the app and bundled Node with only the hardened-runtime entitlements", async () => {
 		const config = loadBuilderConfig(await macEnvironment(), "darwin")
 		expect(config.forceCodeSigning).toBe(true)
 		expect(config.dmg).toMatchObject({ sign: true })
 		expect(config.extraMetadata).toMatchObject({ simplexMacTeamId: "TEAMID" })
 		expect(config.mac).toMatchObject({
+			identity: "TEAMID",
 			hardenedRuntime: true,
 			entitlements: "resources/entitlements.mac.plist",
 			entitlementsInherit: "resources/entitlements.mac.plist",

@@ -278,6 +278,9 @@ macOS releases use a Developer ID Application certificate, hardened runtime, and
 The app and bundled Node runtime receive only
 `com.apple.security.cs.allow-jit` and
 `com.apple.security.cs.allow-unsigned-executable-memory`; automatic entitlement expansion is disabled.
+CI imports the `.p12` into a temporary keychain and passes it to electron-builder through
+`CSC_KEYCHAIN`. The builder signs with the identity for `APPLE_TEAM_ID` and refuses a `CSC_LINK`
+certificate: electron-builder's own import fails to unlock its keychain on macOS 26 runners.
 Store these as secrets in a GitHub Actions environment named `simplex-desktop-release`:
 
 - `SIMPLEX_MACOS_CERTIFICATE_P12`: base64-encoded Developer ID Application `.p12`;

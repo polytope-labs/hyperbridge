@@ -3,6 +3,8 @@ import { AssetRegistry } from "@/config/asset-registry"
 import { bytes20ToBytes32, type HexString, type Order, type TokenInfo } from "@hyperbridge/sdk"
 import { describe, it, expect } from "vitest"
 import { parseUnits } from "viem"
+import type { LimitOrderStore } from "@/data/types"
+import { budgetIdFor, toRaw } from "@/orderbook/amounts"
 import { limitOrderStore } from "../helpers/limit-orders"
 
 // Pins the fill amount `calculateProfitability` caches — the figure
@@ -40,14 +42,14 @@ const configService = {
  * gas priced at zero so the payout under test is the only moving part. Exposes
  * the filler-output and partial-fill caches for assertions.
  */
-function makeEvalContractService(): any {
+function makeEvalContractService(decimals: Record<string, number> = {}): any {
 	const classifications = new Map<string, unknown>()
 	const outputs = new Map<string, TokenInfo[]>()
 	const inputs = new Map<string, TokenInfo[]>()
 	const partials = new Map<string, boolean>()
 	const bidPlans = new Map<string, unknown>()
 	return {
-		getTokenDecimals: async () => 18,
+		getTokenDecimals: async (token: string) => decimals[token.toLowerCase()] ?? 18,
 		getFeeTokenWithDecimals: async () => ({ address: STABLE, decimals: 18 }),
 		estimateGasFillPost: async () => ({
 			totalCostInSourceFeeToken: 0n,
@@ -99,6 +101,8 @@ async function makeFiller(options: {
 	offering?: string
 	/** A whole book, when one order is not the point of the case. */
 	book?: { price: string; size: string; id?: string; side?: "BID" | "ASK" }[]
+	/** A store the case keeps hold of, to work its orders down between evaluations. */
+	limitOrders?: LimitOrderStore
 }): Promise<FXFiller> {
 	const registry = new AssetRegistry(configService, { EXOTIC: { [CHAIN]: EXOTIC } })
 	const pairs: TradingPair[] = [{ token0: "USDC", token1: "EXOTIC" }]
@@ -111,18 +115,20 @@ async function makeFiller(options: {
 		pairs,
 		registry,
 		{
-			limitOrders: await limitOrderStore(
-				(options.book ?? [{ price: "1500", size: options.offering ?? "1000000" }]).map((order) => ({
-					base: "USDC",
-					quote: "EXOTIC",
-					side: order.side ?? ("BID" as const),
-					fillChain: CHAIN,
-					price: order.price,
-					size: order.size,
-					acceptedSources: [CHAIN, "EVM-1"],
-					id: order.id,
-				})),
-			),
+			limitOrders:
+				options.limitOrders ??
+				(await limitOrderStore(
+					(options.book ?? [{ price: "1500", size: options.offering ?? "1000000" }]).map((order) => ({
+						base: "USDC",
+						quote: "EXOTIC",
+						side: order.side ?? ("BID" as const),
+						fillChain: CHAIN,
+						price: order.price,
+						size: order.size,
+						acceptedSources: [CHAIN, "EVM-1"],
+						id: order.id,
+					})),
+				)),
 		},
 	)
 }
@@ -394,3 +400,189 @@ describe("FXFiller limit order payout", () => {
 	})
 })
 
+describe("FXFiller limit order budget", () => {
+	const FIRST = "3f2b8c1e-9d4a-4f6b-8a7c-5e1d2c3b4a59"
+	const SECOND = "b7a1d2c4-0e5f-4a3b-9c8d-1f2e3d4c5b6a"
+	const SIX = { [EXOTIC.toLowerCase()]: 6 }
+
+	type Plan = { limitOrderId: string; payout: bigint; fillerOutputs: TokenInfo[]; budget?: unknown }
+
+	/** The same swap as `makeOrder`, asking for an output token that does not have 18 decimals. */
+	function sixDecimalOrder(id: string, input = INPUT_AMOUNT, requested = parseUnits("149000", 6)): Order {
+		const order = makeOrder(id)
+		return {
+			...order,
+			inputs: [{ token: bytes20ToBytes32(STABLE), amount: input }],
+			output: { ...order.output, assets: [{ token: bytes20ToBytes32(EXOTIC), amount: requested }] },
+		} as Order
+	}
+
+	it("caps an 18-decimal payout at the order's size, under the order's own id", async () => {
+		const contractService = makeEvalContractService()
+		const filler = await makeFiller({
+			contractService,
+			balances: { [EXOTIC.toLowerCase()]: parseUnits("1000000", 18) },
+			book: [{ id: FIRST, price: "1500", size: "1000000" }],
+		})
+
+		await filler.calculateProfitability(makeOrder("budget-18"))
+
+		const plans = contractService.plans.get("budget-18") as Plan[]
+		expect(plans).toHaveLength(1)
+		expect(plans[0].budget).toEqual({
+			budgetId: budgetIdFor(FIRST),
+			cap: parseUnits("1000000", 18),
+			token: EXOTIC,
+		})
+	})
+
+	it("states the cap in the output token's own units", async () => {
+		const contractService = makeEvalContractService(SIX)
+		const filler = await makeFiller({
+			contractService,
+			balances: { [EXOTIC.toLowerCase()]: parseUnits("1000000", 6) },
+			book: [{ id: FIRST, price: "1500", size: "1000000" }],
+		})
+
+		await filler.calculateProfitability(sixDecimalOrder("budget-6"))
+
+		const plans = contractService.plans.get("budget-6") as Plan[]
+		expect(plans[0].fillerOutputs[0].amount).toBe(parseUnits("150000", 6))
+		expect(plans[0].budget).toEqual({
+			budgetId: budgetIdFor(FIRST),
+			cap: parseUnits("1000000", 6),
+			token: EXOTIC,
+		})
+	})
+
+	it("gives each bid the budget of the limit order that priced it", async () => {
+		const contractService = makeEvalContractService()
+		const filler = await makeFiller({
+			contractService,
+			balances: { [EXOTIC.toLowerCase()]: parseUnits("1000000", 18) },
+			book: [
+				{ id: FIRST, price: "1500", size: "400000" },
+				{ id: SECOND, price: "1600", size: "900000" },
+			],
+		})
+
+		await filler.calculateProfitability(makeOrder("budget-two"))
+
+		const plans = contractService.plans.get("budget-two") as Plan[]
+		expect(plans.map((plan) => [plan.limitOrderId, plan.budget])).toEqual([
+			[SECOND, { budgetId: budgetIdFor(SECOND), cap: parseUnits("900000", 18), token: EXOTIC }],
+			[FIRST, { budgetId: budgetIdFor(FIRST), cap: parseUnits("400000", 18), token: EXOTIC }],
+		])
+	})
+
+	it("keeps the cap at the order's whole size once fills have drawn it down", async () => {
+		// The tally the cap is checked against counts from the order's first fill, so a
+		// cap that shrank with `remaining` would count what was already paid twice.
+		const limitOrders = await limitOrderStore([
+			{ id: FIRST, base: "USDC", quote: "EXOTIC", side: "BID", fillChain: CHAIN, price: "1500", size: "200000" },
+		])
+		await limitOrders.drawDown(FIRST, parseUnits("140000", 18).toString())
+		const contractService = makeEvalContractService()
+		const filler = await makeFiller({
+			contractService,
+			balances: { [EXOTIC.toLowerCase()]: parseUnits("1000000", 18) },
+			limitOrders,
+		})
+
+		await filler.calculateProfitability(makeOrder("budget-drawn"))
+
+		const plans = contractService.plans.get("budget-drawn") as Plan[]
+		expect(plans[0].fillerOutputs[0].amount).toBe(parseUnits("60000", 18))
+		expect(plans[0].budget).toEqual({
+			budgetId: budgetIdFor(FIRST),
+			cap: parseUnits("200000", 18),
+			token: EXOTIC,
+		})
+	})
+
+	it("signs whole 1e18 units of a finer token when the wallet's balance sizes the bid", async () => {
+		// The hold is kept at 1e18, so an output finer than that is one the hold cannot
+		// express, and the fill would be charged at a rate the draw-down cannot follow.
+		const contractService = makeEvalContractService({ [EXOTIC.toLowerCase()]: 20 })
+		const filler = await makeFiller({
+			contractService,
+			// Between the ask and the offer, and not on a whole 1e18 unit.
+			balances: { [EXOTIC.toLowerCase()]: parseUnits("149500", 20) + 137n },
+			book: [{ id: FIRST, price: "1500", size: "1000000" }],
+		})
+
+		await filler.calculateProfitability(sixDecimalOrder("budget-20", INPUT_AMOUNT, parseUnits("149000", 20)))
+
+		const plans = contractService.plans.get("budget-20") as Plan[]
+		const signed = plans[0].fillerOutputs[0].amount
+		expect(signed).toBe(parseUnits("149500", 20) + 100n)
+		expect(signed % 100n).toBe(0n)
+		expect(signed).toBe(toRaw(plans[0].payout, 20))
+		expect(contractService.outputs.get("budget-20")![0].amount).toBe(signed)
+	})
+
+	it("signs the wallet's balance as it stands for a token no finer than 1e18", async () => {
+		const contractService = makeEvalContractService(SIX)
+		const balance = parseUnits("149500.000001", 6)
+		const filler = await makeFiller({
+			contractService,
+			balances: { [EXOTIC.toLowerCase()]: balance },
+			book: [{ id: FIRST, price: "1500", size: "1000000" }],
+		})
+
+		await filler.calculateProfitability(sixDecimalOrder("budget-6-balance"))
+
+		const plans = contractService.plans.get("budget-6-balance") as Plan[]
+		expect(plans[0].fillerOutputs[0].amount).toBe(balance)
+		expect(plans[0].fillerOutputs[0].amount).toBe(toRaw(plans[0].payout, 6))
+	})
+
+	it("leaves the part of a size the token cannot express unbid, beneath the cap", async () => {
+		// 1000.0000005 of a six-decimal token: the size is finer than the token, so the
+		// cap truncates to 1000.000000. Each bid is sized from what is left, truncated
+		// the same way. Every fill here pays its bid in full, so this says nothing about
+		// a fill the gateway clamps: only that the dust in the size is never bid.
+		const limitOrders = await limitOrderStore([
+			{
+				id: FIRST,
+				base: "USDC",
+				quote: "EXOTIC",
+				side: "BID",
+				fillChain: CHAIN,
+				price: "1.333333333333333333",
+				size: "1000.0000005",
+			},
+		])
+		const contractService = makeEvalContractService(SIX)
+		const filler = await makeFiller({
+			contractService,
+			balances: { [EXOTIC.toLowerCase()]: parseUnits("1000000", 6) },
+			limitOrders,
+		})
+		const cap = parseUnits("1000", 6)
+
+		let paid = 0n
+		let fills = 0
+		for (; fills < 50; fills++) {
+			const id = `budget-rounding-${fills}`
+			// Inputs that never land on a whole unit of the output token.
+			const input = parseUnits("77.777777777777777777", 18) + BigInt(fills) * 1_234_567_891_234_567n
+			await filler.calculateProfitability(sixDecimalOrder(id, input, parseUnits("100", 6)))
+
+			const plans = contractService.plans.get(id) as Plan[] | undefined
+			if (!plans) break
+			expect(plans).toHaveLength(1)
+			expect(plans[0].budget).toMatchObject({ cap })
+
+			paid += plans[0].fillerOutputs[0].amount
+			expect(paid).toBeLessThanOrEqual(cap)
+			await limitOrders.drawDown(FIRST, plans[0].payout.toString())
+		}
+
+		expect(fills).toBeGreaterThan(1)
+		expect(fills).toBeLessThan(50)
+		// Worked down to the dust the token cannot express, and not a unit past the cap.
+		expect(BigInt((await limitOrders.get(FIRST))!.remaining)).toBe(5n * 10n ** 11n)
+		expect(paid).toBe(cap)
+	})
+})

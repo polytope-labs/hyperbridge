@@ -1,5 +1,6 @@
 import type { ERC7821Call, TokenInfo } from "@hyperbridge/sdk"
 import type { HexString } from "@hyperbridge/sdk"
+import type { LimitOrderBudget } from "@/orderbook/amounts"
 import { defaultLoggerContext, type Logger, type LoggerContext } from "./Logger"
 
 interface GasEstimateCache {
@@ -32,10 +33,18 @@ interface FillerOutputCache {
 	amount: string
 }
 
+interface BudgetCache {
+	budgetId: HexString
+	cap: string
+	token: HexString
+}
+
 interface FillerOutputsCache {
 	outputs: FillerOutputCache[]
 	/** Positional takes signed with `outputs`; absent on entries written before takes existed. */
 	inputs?: FillerOutputCache[]
+	/** The budget of the limit order that priced `outputs`; absent when none did. */
+	budget?: BudgetCache
 	timestamp: number
 }
 
@@ -82,11 +91,14 @@ export interface BidPlan {
 	fundingCalls: ERC7821Call[]
 	partialFill: boolean
 	profit: number
+	/** That limit order's budget, which the bid settles against on the fill chain. */
+	budget?: LimitOrderBudget
 }
 
 interface BidPlanCache {
 	limitOrderId: string
 	leg?: number
+	budget?: BudgetCache
 	payout: string
 	outputs: FillerOutputCache[]
 	inputs: FillerOutputCache[]
@@ -110,6 +122,14 @@ interface CacheData {
 	feeTokens: Record<string, { address: HexString; decimals: number }>
 	tokenDecimals: Record<string, Record<HexString, number>>
 	solverSelection: Record<string, boolean>
+}
+
+function budgetToCache(budget: LimitOrderBudget): BudgetCache {
+	return { budgetId: budget.budgetId, cap: budget.cap.toString(), token: budget.token }
+}
+
+function budgetFromCache(budget: BudgetCache): LimitOrderBudget {
+	return { budgetId: budget.budgetId, cap: BigInt(budget.cap), token: budget.token }
 }
 
 export class CacheService {
@@ -333,10 +353,29 @@ export class CacheService {
 		}
 	}
 
+	/**
+	 * The budget of the limit order that priced the outputs cached for this order, or
+	 * null when no limit order did.
+	 *
+	 * Kept on the same entry as the outputs, so the two are replaced and expire
+	 * together: a bid can never sign one limit order's payout beside another's budget.
+	 */
+	getBidBudget(orderId: string): LimitOrderBudget | null {
+		try {
+			const cache = this.cacheData.fillerOutputs[orderId]
+			if (cache?.budget && this.isCacheValid(cache.timestamp)) return budgetFromCache(cache.budget)
+			return null
+		} catch (error) {
+			this.logger.error({ err: error }, "Error getting bid budget")
+			return null
+		}
+	}
+
 	setFillerOutputs(
 		orderId: string,
 		outputs: { token: HexString; amount: bigint }[],
 		inputs: { token: HexString; amount: bigint }[] = [],
+		budget?: LimitOrderBudget,
 	): void {
 		try {
 			this.cleanupStaleData()
@@ -349,6 +388,7 @@ export class CacheService {
 					token: o.token,
 					amount: o.amount.toString(),
 				})),
+				...(budget ? { budget: budgetToCache(budget) } : {}),
 				timestamp: Date.now(),
 			}
 		} catch (error) {
@@ -397,6 +437,7 @@ export class CacheService {
 				})),
 				partialFill: plan.partialFill,
 				profit: plan.profit,
+				...(plan.budget ? { budget: budgetFromCache(plan.budget) } : {}),
 			}))
 		} catch (error) {
 			this.logger.error({ err: error }, "Error getting bid plans")
@@ -427,6 +468,7 @@ export class CacheService {
 					})),
 					partialFill: plan.partialFill,
 					profit: plan.profit,
+					...(plan.budget ? { budget: budgetToCache(plan.budget) } : {}),
 				})),
 				timestamp: Date.now(),
 			}

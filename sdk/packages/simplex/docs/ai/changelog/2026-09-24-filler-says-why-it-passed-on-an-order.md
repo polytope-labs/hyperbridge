@@ -45,6 +45,7 @@ order was refunded, so a few pending bids could stop an order bidding for an hou
 bid was cut to 877 of the 1,374 cNGN it would have offered, because earlier bids held the rest.
 
 The trade: the order's size now bounds each bid and the fills that draw it down, not the total
-promised across bids still pending. If several of those win at once, fills can pay out more than
-the order's size, up to what the wallet holds. The dashboard shows what live bids hold, without
+promised across bids still pending. If several of those win at once, the solver account reverts
+the fill that would take the payout past the order's size (see
+`2026-09-29-limit-order-budget-on-chain.md`). The dashboard shows what live bids hold, without
 "leaving … to draw on".

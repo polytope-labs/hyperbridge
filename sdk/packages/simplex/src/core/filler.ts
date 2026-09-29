@@ -20,7 +20,7 @@ import { type ChainClientManager, type ContractInteractionService, DelegationSer
 import type { BidStore, LimitOrder, LimitOrderHold, LimitOrderStore } from "@/data/types"
 import type { AssetRegistry } from "@/config/asset-registry"
 import type { LimitOrderService } from "@/orderbook/limit-orders"
-import { toScaled } from "@/orderbook/amounts"
+import { toRaw, toScaled, toScaledUp } from "@/orderbook/amounts"
 import type { OrderScanner } from "@/scanner/types"
 import type { FillerConfigService } from "@/services/FillerConfigService"
 import type { SolverWork } from "@/services/server/dto"
@@ -67,6 +67,15 @@ function byBestRate(a: LimitOrderHold, b: LimitOrderHold): number {
 	return left === right ? 0 : left > right ? -1 : 1
 }
 
+/** What a fill delivered of the token a limit order pays. */
+interface Delivery {
+	/** At 1e18, the unit holds are kept in. */
+	scaled: bigint
+	/** In the token's own units, as the gateway counted it. */
+	raw: bigint
+	decimals: number
+}
+
 /**
  * What the gateway charged the bid behind `hold`, at 1e18: the escrow it released, at the rate
  * the bid signed (`amount / take`), rounded up and never below what it credited the swapper.
@@ -75,13 +84,18 @@ function byBestRate(a: LimitOrderHold, b: LimitOrderHold): number {
  * pays the swapper and the protocol. Drawing the limit order down by that would leave it claiming
  * output it had already paid out. A hold without a take predates bids carrying their own rate,
  * and was signed at the ask, so its charge is the delivery.
+ *
+ * The charge is worked out in the token's own units, where the gateway rounds it, and only then
+ * brought to 1e18. Rounded at 1e18 instead it comes out up to one unit of the token short of what
+ * the order's on-chain budget counted, and the order would go on to bid output the budget no
+ * longer has room for.
  */
-function chargedFor(hold: LimitOrderHold, delivered: bigint, released: bigint): bigint {
-	if (hold.take === undefined || released === 0n) return delivered
-	const take = BigInt(hold.take)
-	if (take === 0n) return delivered
-	const atRate = (BigInt(hold.amount) * released + take - 1n) / take
-	return atRate > delivered ? atRate : delivered
+function chargedFor(hold: LimitOrderHold, delivered: Delivery, released: bigint): bigint {
+	const take = hold.take === undefined ? 0n : BigInt(hold.take)
+	if (take === 0n || released === 0n) return toScaledUp(delivered.raw, delivered.decimals)
+	const offered = toRaw(BigInt(hold.amount), delivered.decimals)
+	const atRate = (offered * released + take - 1n) / take
+	return toScaledUp(atRate > delivered.raw ? atRate : delivered.raw, delivered.decimals)
 }
 
 export class IntentFiller {
@@ -1070,7 +1084,7 @@ export class IntentFiller {
 					// What this bid signs. `executeOrder` reads these back out, so they are
 					// set per bid rather than once per order.
 					if (order.id) {
-						cache.setFillerOutputs(order.id, plan.fillerOutputs, plan.fillerInputs)
+						cache.setFillerOutputs(order.id, plan.fillerOutputs, plan.fillerInputs, plan.budget)
 						cache.setPartialFill(order.id, plan.partialFill)
 						if (plan.fundingCalls.length > 0) cache.setFundingPrepends(order.id, plan.fundingCalls)
 						else cache.clearFundingPrepends(order.id)
@@ -1360,7 +1374,7 @@ export class IntentFiller {
 		// finished: the one that executed delivered, and the rest can only revert with
 		// `Filled()`. So exactly one hold is worked down and the others come straight
 		// back. On a partial fill only the executed bid's holds were claimed.
-		const settled = executedHold(claimed, delivered, released)
+		const settled = executedHold(claimed, delivered.scaled, released)
 		const charged = chargedFor(settled, delivered, released)
 		const settledBid =
 			rows.find((row) =>
@@ -1437,7 +1451,7 @@ export class IntentFiller {
 
 		const settled = executedHold(
 			holds.map((entry) => entry.hold),
-			delivered,
+			delivered.scaled,
 			released,
 		)
 		const row = holds.find((entry) => entry.hold === settled)!.row
@@ -1445,14 +1459,14 @@ export class IntentFiller {
 	}
 
 	/**
-	 * What this fill delivered of the token the limit order pays, at 1e18, or null
-	 * when the fill names none of it.
+	 * What this fill delivered of the token the limit order pays, or null when the
+	 * fill names none of it.
 	 */
 	private async deliveredAgainst(
 		limitOrderId: string,
 		chainId: number,
 		outputs: TokenInfo[],
-	): Promise<bigint | null> {
+	): Promise<Delivery | null> {
 		const order = await this.limitOrders?.get(limitOrderId)
 		if (!order || outputs.length === 0) return null
 
@@ -1469,7 +1483,7 @@ export class IntentFiller {
 		if (total === 0n) return null
 
 		const decimals = await this.contractService.getTokenDecimals(address, chain)
-		return toScaled(total, decimals)
+		return { scaled: toScaled(total, decimals), raw: total, decimals }
 	}
 
 	/**

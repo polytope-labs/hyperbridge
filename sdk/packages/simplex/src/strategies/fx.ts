@@ -22,7 +22,7 @@ import type { FundingVenue } from "@/funding/types"
 import type { Signer } from "@/services/wallet"
 import { paymasterReserveForToken } from "@/services/paymaster"
 import type { LimitOrderStore } from "@/data/types"
-import { inputFor, toRaw, toScaled } from "@/orderbook/amounts"
+import { budgetFor, inputFor, toRaw, toScaled } from "@/orderbook/amounts"
 import { type IncomingOrder, matchLimitOrders, type LimitOrderMatch, whyUnmatched } from "@/orderbook/matching"
 import { limitOrderUsdEdges, usdFactorsFrom, usdValueOf } from "@/orderbook/usd"
 
@@ -470,7 +470,13 @@ export class FXFiller implements FillerStrategy {
 					}
 
 					const effectiveBalance = walletContribution + credited
-					const finalOutputAmount = effectiveBalance > targetOutput ? targetOutput : effectiveBalance
+					// Brought down to a whole 1e18 unit, the unit the hold beside it is kept in:
+					// a token finer than that could otherwise sign an output its hold cannot
+					// express. No other token is changed by it.
+					const finalOutputAmount = toRaw(
+						toScaled(effectiveBalance > targetOutput ? targetOutput : effectiveBalance, outputDecimals),
+						outputDecimals,
+					)
 
 					if (finalOutputAmount === 0n) {
 						this.logger.info(
@@ -750,6 +756,7 @@ export class FXFiller implements FillerStrategy {
 						fundingCalls: [...fundingCalls],
 						partialFill,
 						profit: totalProfit,
+						budget: budgetFor(candidate.order, outputToken, outputDecimals),
 					})
 
 					// An order carrying output calldata takes exactly one bid. The attached
@@ -765,7 +772,12 @@ export class FXFiller implements FillerStrategy {
 				this.contractService.cacheService.setBidPlans(order.id, plans)
 				// The first bid is what the single-bid path still reads when it asks what
 				// this order is being filled with.
-				this.contractService.cacheService.setFillerOutputs(order.id, plans[0].fillerOutputs, plans[0].fillerInputs)
+				this.contractService.cacheService.setFillerOutputs(
+					order.id,
+					plans[0].fillerOutputs,
+					plans[0].fillerInputs,
+					plans[0].budget,
+				)
 				this.contractService.cacheService.setPartialFill(order.id, plans[0].partialFill)
 				this.contractService.cacheService.setMatchedLimitOrder(order.id, [
 					{ limitOrderId: plans[0].limitOrderId, payout: plans[0].payout },

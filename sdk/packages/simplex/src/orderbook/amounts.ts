@@ -1,4 +1,6 @@
-import type { LimitOrderSide } from "@/data/types"
+import type { HexString } from "@hyperbridge/sdk"
+import { keccak256, stringToBytes } from "viem"
+import type { LimitOrder, LimitOrderSide } from "@/data/types"
 
 /**
  * The unit every amount and price crosses the orderbook boundary in.
@@ -19,6 +21,34 @@ export const ORDERBOOK_SCALE = 10n ** 18n
 export function toRaw(amount: bigint, decimals: number): bigint {
 	const shift = 18 - decimals
 	return shift >= 0 ? amount / 10n ** BigInt(shift) : amount * 10n ** BigInt(-shift)
+}
+
+/** What a limit order may pay out over its whole life, as the fill chain enforces it. */
+export interface LimitOrderBudget {
+	budgetId: HexString
+	/** The order's whole size in the output token's own units. */
+	cap: bigint
+	/** The token the order pays on its fill chain. */
+	token: HexString
+}
+
+/** The key a limit order's payouts are tallied under on chain: `keccak256` of its id as stored. */
+export function budgetIdFor(limitOrderId: string): HexString {
+	return keccak256(stringToBytes(limitOrderId))
+}
+
+/**
+ * The budget a bid priced by `order` carries.
+ *
+ * The cap is `size`, not `remaining`: the tally it is checked against counts every
+ * payout since the order was created, so it has to be measured against the whole.
+ */
+export function budgetFor(
+	order: Pick<LimitOrder, "id" | "size">,
+	token: HexString,
+	decimals: number,
+): LimitOrderBudget {
+	return { budgetId: budgetIdFor(order.id), cap: toRaw(BigInt(order.size), decimals), token }
 }
 
 /**
@@ -51,6 +81,15 @@ export function toHuman(amount: bigint): string {
 export function toScaled(amount: bigint, decimals: number): bigint {
 	const shift = 18 - decimals
 	return shift >= 0 ? amount * 10n ** BigInt(shift) : amount / 10n ** BigInt(-shift)
+}
+
+/**
+ * {@link toScaled}, rounded up. Exact for a token of 18 decimals or fewer; a finer one
+ * comes out at the next whole 1e18 unit rather than the one below.
+ */
+export function toScaledUp(amount: bigint, decimals: number): bigint {
+	const shift = 18 - decimals
+	return shift >= 0 ? amount * 10n ** BigInt(shift) : divCeil(amount, 10n ** BigInt(-shift))
 }
 
 function divCeil(numerator: bigint, denominator: bigint): bigint {

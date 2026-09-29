@@ -1,5 +1,16 @@
 import { describe, expect, it } from "vitest"
-import { inputFor, offerFor, ORDERBOOK_SCALE, rateFrom, signedAmounts, toRaw, toScaled } from "@/orderbook/amounts"
+import {
+	budgetFor,
+	budgetIdFor,
+	inputFor,
+	offerFor,
+	ORDERBOOK_SCALE,
+	rateFrom,
+	signedAmounts,
+	toRaw,
+	toScaled,
+	toScaledUp,
+} from "@/orderbook/amounts"
 
 /** 1,500 quote per 1 base, the shape a USDC/cNGN book reads at. */
 const PRICE = 1500n * ORDERBOOK_SCALE
@@ -162,3 +173,50 @@ describe("inputFor", () => {
 	})
 })
 
+describe("budgetIdFor", () => {
+	const ID = "3f2b8c1e-9d4a-4f6b-8a7c-5e1d2c3b4a59"
+
+	it("is keccak256 of the id's UTF-8 bytes, exactly as stored", () => {
+		expect(budgetIdFor(ID)).toBe("0x5d1ce7c7cdecc103fc507d5742bd4f6c75c11162193c26f832df9791e9170484")
+	})
+
+	it("is the same for the same id and different for any other", () => {
+		expect(budgetIdFor(ID)).toBe(budgetIdFor(ID))
+		expect(budgetIdFor("3f2b8c1e-9d4a-4f6b-8a7c-5e1d2c3b4a5a")).not.toBe(budgetIdFor(ID))
+		// Neither the case nor the hyphens are normalised away.
+		expect(budgetIdFor(ID.toUpperCase())).not.toBe(budgetIdFor(ID))
+		expect(budgetIdFor(ID.replace(/-/g, ""))).not.toBe(budgetIdFor(ID))
+	})
+})
+
+describe("budgetFor", () => {
+	const TOKEN = "0x2222222222222222222222222222222222222222"
+	const order = { id: "3f2b8c1e-9d4a-4f6b-8a7c-5e1d2c3b4a59", size: (1000n * ONE).toString() }
+
+	it("caps the order at its size in the token's own units", () => {
+		expect(budgetFor(order, TOKEN, 6)).toEqual({
+			budgetId: budgetIdFor(order.id),
+			cap: 1_000_000_000n,
+			token: TOKEN,
+		})
+		expect(budgetFor(order, TOKEN, 18).cap).toBe(1000n * ONE)
+	})
+
+	it("truncates a size finer than the token, so the cap is never more than was offered", () => {
+		// 1000.0000005 of a 6-decimal token.
+		expect(budgetFor({ ...order, size: (1000n * ONE + 5n * 10n ** 11n).toString() }, TOKEN, 6).cap).toBe(1_000_000_000n)
+	})
+})
+
+describe("toScaledUp", () => {
+	it("is exact for a token no finer than 1e18", () => {
+		expect(toScaledUp(1_000_001n, 6)).toBe(toScaled(1_000_001n, 6))
+		expect(toScaledUp(ONE + 1n, 18)).toBe(ONE + 1n)
+	})
+
+	it("rounds a finer token up, where toScaled truncates", () => {
+		expect(toScaled(101n, 20)).toBe(1n)
+		expect(toScaledUp(101n, 20)).toBe(2n)
+		expect(toScaledUp(100n, 20)).toBe(1n)
+	})
+})

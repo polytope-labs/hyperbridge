@@ -1,7 +1,7 @@
 {
 	"name": "@hyperbridge/simplex-desktop",
 	"productName": "Simplex",
-	"version": "0.16.8",
+	"version": "0.16.9",
 	"private": true,
 	"description": "Native desktop shell for the Simplex intent solver",
 	"author": "Polytope Labs <hello@polytope.technology>",

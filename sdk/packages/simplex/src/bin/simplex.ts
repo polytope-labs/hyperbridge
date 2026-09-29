@@ -11,6 +11,7 @@ import { fileURLToPath } from "url"
 import { parse } from "toml"
 import { existsSync } from "fs"
 import { validateConfig, type FillerConfigFile } from "@/config/filler-toml"
+import { encryptedConfigStore, readConfigFile, readConfigKey } from "@/config/storage"
 import { parseChainKey } from "@/config/interpolated-curve"
 import type { AssetDefinition } from "@/config/asset-registry"
 import type { PairConfig } from "@/config/pairs"
@@ -171,6 +172,7 @@ async function operatorContextFrom(
 	simplex: Simplex,
 	stopAll: () => Promise<never>,
 	tunnel?: TunnelService,
+	writeConfigFile?: (path: string, content: string) => void,
 ): Promise<OperatorContext> {
 	const runtime = simplex.internals
 	const substrateAddress = await deriveSubstrateKeyPair(runtime.config.simplex.substratePrivateKey)
@@ -266,6 +268,7 @@ async function operatorContextFrom(
 		version: packageJson.version,
 		startedAt: runtime.startedAt,
 		configPath: runtime.configPath,
+		writeConfigFile,
 		chains: runtime.resolvedChains.map((c) => c.chainId),
 		strategyTypes,
 	}
@@ -338,6 +341,15 @@ addRunOptions(program.command("run", { isDefault: true }))
 			}
 
 			let simplex: Simplex | undefined
+			if (options.configKeyStdin && (!uiSocket || !options.dataDir || options.config)) {
+				throw new Error("Protected desktop mode requires --ui-socket and --data-dir, without --config")
+			}
+			const protectedStore = options.configKeyStdin
+				? encryptedConfigStore(
+						resolve(options.dataDir!, DEFAULT_CONFIG_FILENAME),
+						await readConfigKey(process.stdin),
+					)
+				: undefined
 			let dataStore: SqliteDataStore | undefined
 			let runtime: FillerRuntime | undefined
 			let uiServer: UiServer | undefined
@@ -424,12 +436,16 @@ addRunOptions(program.command("run", { isDefault: true }))
 			process.on("SIGINT", () => void shutdown("SIGINT"))
 			process.on("SIGTERM", () => void shutdown("SIGTERM"))
 
-			const configPath = options.config
-				? resolve(process.cwd(), options.config)
-				: discoverConfigPath(process.cwd(), options.dataDir)
+			const configPath = protectedStore
+				? protectedStore.exists()
+					? protectedStore.path
+					: undefined
+				: options.config
+					? resolve(process.cwd(), options.config)
+					: discoverConfigPath(process.cwd(), options.dataDir)
 
 			if (configPath) {
-				const tomlContent = readFileSync(configPath, "utf-8")
+				const tomlContent = protectedStore ? protectedStore.read() : readConfigFile(configPath)
 				const config = parse(tomlContent) as FillerConfigFile
 				validateConfig(config, options.watchOnly === true)
 				// validateConfig no longer owns this rule — the signer is an argument to
@@ -446,6 +462,7 @@ addRunOptions(program.command("run", { isDefault: true }))
 				if (uiEnabled && uiSocket) {
 					const server = new UiServer({
 						mode: "init",
+						configEncrypted: Boolean(protectedStore),
 						version: packageJson.version,
 						uiDistDir: resolveUiDistDir(),
 					})
@@ -455,7 +472,9 @@ addRunOptions(program.command("run", { isDefault: true }))
 						await server.start({ socketPath: uiSocket })
 						await startFiller(config, configPath)
 						tunnel = createTunnel(config)
-						server.enterOperatorMode(await operatorContextFrom(simplex!, () => shutdown("UI"), tunnel))
+						server.enterOperatorMode(
+							await operatorContextFrom(simplex!, () => shutdown("UI"), tunnel, protectedStore?.write),
+						)
 						startTunnel()
 					} catch (err) {
 						// Once the lock is released no partially started filler may survive to
@@ -524,20 +543,25 @@ addRunOptions(program.command("run", { isDefault: true }))
 			// A desktop host passes its user-data directory through --data-dir. Keep
 			// ordinary CLI first-run behaviour unchanged, while making the app's
 			// config stable across the meaningless cwd assigned to a double-click.
-			const outputPath = resolve(options.dataDir ?? process.cwd(), DEFAULT_CONFIG_FILENAME)
+			const outputPath =
+				protectedStore?.path ?? resolve(options.dataDir ?? process.cwd(), DEFAULT_CONFIG_FILENAME)
 			const server = new UiServer({
 				mode: "init",
+				configEncrypted: Boolean(protectedStore),
 				version: packageJson.version,
 				uiDistDir: resolveUiDistDir(),
 				setup: {
 					configPath: outputPath,
+					writeConfigFile: protectedStore?.write,
 					stop: () => shutdown("UI"),
 					onSaveAndStart: async (config, _toml, path) => {
 						await startFiller(config, path)
 						// The wizard's own server is already bound, so the tunnel has a UI
 						// to point at the moment it comes up.
 						tunnel = createTunnel(config)
-						server.enterOperatorMode(await operatorContextFrom(simplex!, () => shutdown("UI"), tunnel))
+						server.enterOperatorMode(
+							await operatorContextFrom(simplex!, () => shutdown("UI"), tunnel, protectedStore?.write),
+						)
 						startTunnel()
 					},
 				},
@@ -594,7 +618,7 @@ program
 	.action(async (options: { config: string }) => {
 		try {
 			const configPath = resolve(process.cwd(), options.config)
-			const config = parse(readFileSync(configPath, "utf-8")) as FillerConfigFile
+			const config = parse(readConfigFile(configPath)) as FillerConfigFile
 
 			// Only [[chains]], [simplex.signer] and the optional [keeper] block are used.
 			if (!config.chains || config.chains.length === 0) {

@@ -108,10 +108,22 @@ async function regularFile(path: string): Promise<boolean> {
 /** Serves the renderer shipped with Electron while keeping solver APIs on the private socket. */
 export async function handleSimplexProtocol(
 	request: Request,
-	options: { socketPath: string; uiDistDir: string; desktopVersion?: string },
+	options: {
+		socketPath: string
+		uiDistDir: string
+		desktopVersion?: string
+		access?: { isUnlocked(): boolean; handle(request: Request): Promise<Response> }
+	},
 ): Promise<Response> {
 	const url = simplexUrl(request)
+	if (options.access && url.pathname.startsWith("/api/desktop/")) return options.access.handle(request)
 	if (url.pathname === "/health" || url.pathname.startsWith("/api/")) {
+		if (options.access && !options.access.isUnlocked()) {
+			return new Response(JSON.stringify({ error: "Unlock Simplex to continue" }), {
+				status: 423,
+				headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+			})
+		}
 		return proxyToSimplex(request, options.socketPath, undefined, options.desktopVersion)
 	}
 	if (request.method !== "GET" && request.method !== "HEAD") {

@@ -1,5 +1,6 @@
 import { confirm, intro, log, select, spinner } from "@clack/prompts"
-import { existsSync, readFileSync } from "fs"
+import { existsSync } from "fs"
+import { readConfigFile } from "@/config/storage"
 import { resolve } from "path"
 import { parse } from "toml"
 import { validateConfig, type FillerConfigFile } from "@/config/filler-toml"
@@ -75,8 +76,11 @@ async function handleExistingConfig(outputPath: string): Promise<Prefill | undef
 	let config: FillerConfigFile | undefined
 	let invalidReason: string | undefined
 	let degraded = false
+	// An encrypted desktop config is not invalid TOML to replace via "Start fresh".
+	// Require desktop authentication instead of offering a plaintext overwrite.
+	const content = readConfigFile(outputPath)
 	try {
-		config = parse(readFileSync(outputPath, "utf-8")) as FillerConfigFile
+		config = parse(content) as FillerConfigFile
 		// Pre-pair-engine configs ([[strategies]]) are migrated to pairs so an
 		// update run offers the old values as prefills instead of failing.
 		if ("strategies" in config) {

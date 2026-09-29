@@ -30,6 +30,16 @@
 				"default": "./dist/sqlite.cjs"
 			}
 		},
+		"./config-storage": {
+			"import": {
+				"types": "./dist/config-storage.d.ts",
+				"default": "./dist/config-storage.js"
+			},
+			"require": {
+				"types": "./dist/config-storage.d.cts",
+				"default": "./dist/config-storage.cjs"
+			}
+		},
 		"./package.json": "./package.json"
 	},
 	"files": [

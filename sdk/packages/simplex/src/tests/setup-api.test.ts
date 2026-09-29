@@ -8,6 +8,7 @@ import { validateConfig, type FillerConfigFile } from "@/config/filler-toml"
 import { SignerType } from "@/services/wallet"
 import { deriveSubstrateKeyPair } from "@/services/substrate-key"
 import { startMockRpc, type MockRpc } from "./helpers/mock-rpc"
+import { encryptedConfigStore, isEncryptedConfig } from "@/config/storage"
 
 const CSRF = { "Content-Type": "application/json", "X-Simplex-UI": "1" }
 const TEST_KEY = "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"
@@ -220,6 +221,21 @@ describe("setup API", () => {
 		expect(path).toBe(configPath)
 		expect(toml).toContain("[[pairs]]")
 		expect(JSON.parse(JSON.stringify(bootedConfig))).toEqual(JSON.parse(JSON.stringify(config)))
+	})
+
+	it("encrypts initial setup through the desktop writer without changing the in-memory boot config", async () => {
+		const key = Buffer.alloc(32, 7)
+		const { base, configPath, onSaveAndStart } = await startInitServer({
+			writeConfigFile: (path, content) => encryptedConfigStore(path, key).write(path, content),
+		})
+		const res = await post(base, "save-and-start", { config: minimalConfig("http://127.0.0.1:9") })
+		expect(res.status).toBe(202)
+		const ciphertext = readFileSync(configPath, "utf8")
+		expect(isEncryptedConfig(ciphertext)).toBe(true)
+		expect(ciphertext).not.toContain(TEST_KEY)
+		expect(encryptedConfigStore(configPath, key).read()).toContain(TEST_KEY)
+		await vi.waitFor(() => expect(onSaveAndStart).toHaveBeenCalledTimes(1))
+		expect(onSaveAndStart.mock.calls[0][1]).toContain(TEST_KEY)
 	})
 
 	it("rejects invalid configs before writing anything", async () => {

@@ -391,7 +391,7 @@ function saveAndStart(server: UiServer, setup: SetupContext, body: Record<string
 
 	const path = typeof body.path === "string" && body.path.trim() ? body.path.trim() : setup.configPath
 	try {
-		writeConfigFileAtomic(path, result.toml)
+		;(setup.writeConfigFile ?? writeConfigFileAtomic)(path, result.toml)
 	} catch (err) {
 		return sendJson(res, 500, { error: `Could not write ${path}: ${err instanceof Error ? err.message : err}` })
 	}

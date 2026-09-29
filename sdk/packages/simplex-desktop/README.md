@@ -35,18 +35,33 @@ Run `pnpm stage:node` again only when the pinned runtime or the host target chan
 
 ## First run and configuration
 
-With no existing config, `pnpm dev` opens the setup wizard. Complete onboarding normally; the wizard
-writes `filler-config.toml` and all desktop runtime data under Electron's
-`app.getPath("userData")`. On Unix, a newly written config is mode `0600`.
+On first launch, create a password (at least 12 characters), save the recovery code, then complete the setup wizard.
+The wizard writes an encrypted `filler-config.toml` under Electron's `app.getPath("userData")`.
+Every fresh Electron launch locks the dashboard until the password or previously enabled Touch ID
+is provided.
+**Forgot password?** accepts the saved recovery code or previously enabled Touch ID, without asking
+for the old password. Choose a new password and save the replacement recovery code; changes take
+effect when you confirm that you saved it. Recovery preserves the configuration and does not restart
+an already protected solver. Recovery authorization expires after ten minutes. Cancelling before
+confirmation leaves the existing credentials unchanged. Without either recovery method, the app
+does not delete or reset the profile. A reset keeps the same config key, so it does not revoke old
+credentials: an old `desktop-vault.json` copy plus its password or recovery code still decrypts the config.
 
-Config discovery preserves the CLI precedence:
+Touch ID is offered only on supported Macs with secure storage available. Windows and Linux use
+passwords and recovery codes; Windows Hello and Linux biometric integrations are not implemented.
 
-1. `filler-config.toml` in the process working directory;
-2. `$SIMPLEX_HOME/config.toml`;
-3. `filler-config.toml` in the Electron user-data directory.
+Desktop reads and writes only its profile's config, never a working-directory config or
+`$SIMPLEX_HOME/config.toml`. To migrate either legacy external location, stop the old solver and
+place the config at `<userData>/filler-config.toml` before first password setup. External copies and
+old backups remain plaintext and must be secured separately. The CLI keeps its existing discovery.
 
-An existing config found in either legacy location is used in place and is not copied. Consequently,
-a config in this package directory or a configured `SIMPLEX_HOME` suppresses the first-run wizard.
+Existing plaintext profile configs are encrypted in place after password setup. If the previous
+unencrypted solver is still running, the screen requires consent to stop it gracefully and restart
+with encryption. Migration waits for shutdown and includes its final config writes. No plaintext
+backup or temporary file is created. Config and security metadata writes are atomic and mode `0600`
+on Unix. Back up **both** `filler-config.toml` and `desktop-vault.json` and retain the password or
+recovery code. Refresh the metadata backup after recovery. Replaced credentials cannot unlock the
+current profile, but may still unlock older backups containing their old key wrappers.
 
 For a disposable profile, pass an explicit Chromium user-data directory:
 
@@ -58,8 +73,10 @@ This flag is optional. Omit it to use the normal desktop profile and onboarding 
 
 ## Process lifecycle
 
-Electron attaches to one solver address derived from its user-data directory. If no recognized
-Simplex process answers `/health`, it launches the existing Simplex binary with the staged runtime.
+On launch, Electron uses the OS-protected restart key to attach to or start the protected solver
+while the dashboard remains locked. If secure OS storage is unavailable, it waits for authentication.
+The solver address is derived from Electron's user-data directory. If no recognized Simplex process
+answers `/health`, it launches the existing Simplex binary with the staged runtime.
 It refuses to replace a live, unrecognized listener.
 
 Closing the window hides it to the system tray and intentionally leaves the solver running so UI
@@ -98,9 +115,11 @@ extension. Because Linux click activation is inconsistent, every command—inclu
 Stop, Restart, and both quit choices—is available from the context menu.
 
 **Launch Simplex at login** is opt-in and available only in an installed build. It registers the app,
-not the detached solver, and starts it without opening a window. macOS and Windows use Electron's
-login-item API; Linux uses the equivalent per-user XDG autostart entry. Development runs do not
-register the Electron development binary.
+which starts or attaches to a protected solver in the background when its OS-protected restart key
+is available. The dashboard still asks for the password or Touch ID. On a system without secure OS
+key storage, filling waits for an interactive unlock after a reboot or update. macOS and Windows use
+Electron's login-item API; Linux uses the equivalent per-user XDG autostart entry. Development runs
+do not register the Electron development binary.
 
 Native menus also provide About, Open Data Directory, Open Current Log, update checks, and a
 stable/beta channel selector while preserving the platform Edit and Window roles and their keyboard
@@ -139,10 +158,25 @@ an equivalent portable owner-only guarantee through Node's current APIs; adminis
 same-machine contexts may still be able to inspect or connect to the pipe. On every platform,
 software already running as the same OS user remains inside the trust boundary.
 
-`filler-config.toml` contains private signing material in plaintext. Simplex writes new files
-atomically with a prominent warning and mode `0600` on Unix, but operators must still keep the file
-out of source control and broadly shared backups. Desktop does not copy keys into renderer storage,
-logs, or crash-report uploads, and it does not configure a crash-report uploader.
+Desktop encrypts `filler-config.toml` with AES-256-GCM using a random 256-bit key. A scrypt-derived
+password key wraps that key in `desktop-vault.json`. A separate `deviceKey` wrapper uses Electron's
+`safeStorage` to resume the solver under the OS user without unlocking the dashboard. It is created
+on setup and refreshed on authentication. The Linux `basic_text` and `unknown` backends are refused;
+there, the app tells the operator an interactive unlock is needed after restart. Optional macOS
+Touch ID authorizes unlock before Electron's `safeStorage` unwraps another copy protected by the
+macOS Keychain. This is an app-level Touch ID gate, not a biometrics-bound Keychain item. Windows
+and Linux use password unlock. Passwords and unwrapped keys are not saved in renderer storage,
+logs, argv, environment variables, or temporary files. Electron hands the key to the solver over a
+one-shot stdin pipe. Setup and runtime config edits use the same encrypted writer.
+
+The OS-protected restart copy has the trust level of the logged-in OS user: software running as
+that user may be able to use or request it. The UI/API and solver-changing menus stay locked until
+authentication. A solver left running by app-only quit retains its in-memory key and keeps filling;
+reopening Electron requires login again.
+Closing/reopening its existing window is not a logout. This protects the config at rest, not process
+memory, database contents, an already-authorized remote tunnel, or a compromised OS user. Full-disk
+encryption remains advisable for swap and old snapshots. The CLI/PWA still uses plaintext configs;
+it refuses to open an encrypted desktop config without desktop unlock. No crash-report uploader is configured.
 
 The CLI's normal `127.0.0.1` web UI is a machine-local, unauthenticated interface—not a per-user
 boundary. On a shared machine, another local OS user may be able to reach it and invoke operator
@@ -212,10 +246,11 @@ for about 287 MiB. Windows x64 measures about 550 MiB. CI therefore enforces tar
 installed-size budgets: 520 MiB for macOS and Linux, and 580 MiB for Windows. Each budget leaves
 roughly five percent growth headroom while still catching accidental duplication.
 
-Pull requests that change desktop packaging run the complete native matrix before merge. Pushing the
-exact package-version tag, for example `simplex-desktop-v0.16.2`, runs the same matrix for macOS arm64
-and x64 DMG plus updater ZIP, Windows x64 NSIS, and Linux x64 and arm64 AppImage plus deb. Pull-request
-builds and default manual runs are explicitly unsigned. A signed manual run or tag build instead fails
+The packaging matrix does not run on pull requests. Pull requests that change
+`sdk/packages/simplex-desktop` run only the `@hyperbridge/simplex-desktop` test workflow. Pushing the
+exact package-version tag, for example `simplex-desktop-v0.16.2`, runs the packaging matrix for macOS
+arm64 and x64 DMG plus updater ZIP, Windows x64 NSIS, and Linux x64 and arm64 AppImage plus deb. A
+manual run of `publish-simplex-desktop.yml` runs the same matrix and is unsigned by default. A signed manual run or tag build instead fails
 before packaging unless its native signing environment is complete; an unsigned release artifact can
 never be used as a fallback.
 
@@ -244,6 +279,9 @@ macOS releases use a Developer ID Application certificate, hardened runtime, and
 The app and bundled Node runtime receive only
 `com.apple.security.cs.allow-jit` and
 `com.apple.security.cs.allow-unsigned-executable-memory`; automatic entitlement expansion is disabled.
+CI imports the `.p12` into a temporary keychain and passes it to electron-builder through
+`CSC_KEYCHAIN`. The builder signs with the identity for `APPLE_TEAM_ID` and refuses a `CSC_LINK`
+certificate: electron-builder's own import fails to unlock its keychain on macOS 26 runners.
 Store these as secrets in a GitHub Actions environment named `simplex-desktop-release`:
 
 - `SIMPLEX_MACOS_CERTIFICATE_P12`: base64-encoded Developer ID Application `.p12`;
@@ -267,8 +305,8 @@ Store the non-secret Trusted Signing resource identity as variables in that envi
 
 Configure the `simplex-desktop-release` environment to allow only the `main` branch and tags matching
 `simplex-desktop-v*`, and require release-maintainer approval. Unsigned builds use a separate,
-secretless `simplex-desktop-ci` environment. The workflow never uses signing secrets for
-`pull_request`, including fork pull requests. A manual
+secretless `simplex-desktop-ci` environment. The workflow has no `pull_request` trigger, so fork
+pull requests never reach signing secrets. A manual
 dispatch is unsigned by default; a maintainer can explicitly enable `sign_artifacts` on `main` to
 exercise the complete credentialed pipeline and download its private workflow artifacts without
 publishing a release. Credentialed dispatches from other refs fail before any secret-bearing step. A
@@ -332,12 +370,15 @@ staged until the app is supervising a PID-reporting solver, so updater safety is
 A staged update is also left untouched while the operator has intentionally stopped the solver. On
 relaunch, Electron rechecks the feed so its updater instance revalidates the cached artifact before
 stopping anything. If the installer reports an error after the updater stopped the solver, the app
-clears the attempted marker, restarts that solver, and leaves the update available for a later retry.
+clears the attempted marker, restarts that solver using its retained protected key, and leaves the
+update available for a later retry. On successful relaunch, the OS-protected copy resumes the solver
+and the update receipt check runs even while the dashboard remains locked. Without a usable restart
+key, updater activity waits for an interactive unlock so it cannot stop a solver it cannot restart.
 
 Before installing, the app records the old and target versions in `desktop-updates.json` under
 Electron user data. The relaunched app clears that receipt only after a healthy setup or operator
-solver reports the same version as the desktop app. A solver boot failure uses the native startup
-error and exits instead of failing silently. A version mismatch remains visible in the native menu
+solver reports the same version as the desktop app. A background solver boot failure is reported
+and leaves the app at the unlock screen. A version mismatch remains visible in the native menu
 and blocks both onboarding and the dashboard from driving the mismatched solver. Changing update
 channels ignores a download that was started on the previous channel.
 

@@ -23,6 +23,29 @@ function run(command, args, options = {}) {
 	})
 }
 
+const wait = (milliseconds) => new Promise((resolveWait) => setTimeout(resolveWait, milliseconds))
+
+/**
+ * Detaches a smoke-test DMG. The detached solver and Electron helpers can still
+ * be exiting from the volume after the app stops, so a busy volume is retried
+ * before it is forced off.
+ */
+export async function detachDmg(mount, runCommand = run, sleep = wait, attempts = 20) {
+	for (let attempt = 1; attempt <= attempts; attempt += 1) {
+		try {
+			await runCommand("hdiutil", ["detach", mount])
+			return
+		} catch (error) {
+			if (attempt === attempts) {
+				process.stderr.write(`DMG volume still busy; forcing detach: ${error.message}\n`)
+				await runCommand("hdiutil", ["detach", "-force", mount])
+				return
+			}
+			await sleep(1_000)
+		}
+	}
+}
+
 function exactlyOne(names, predicate, description) {
 	const matches = names.filter(predicate)
 	if (matches.length !== 1) throw new Error(`Expected one ${description}, found ${matches.join(", ") || "none"}`)
@@ -69,7 +92,7 @@ async function smokeMacArtifact(artifact, temporary) {
 	try {
 		await smokePackagedApp(join(mount, "Simplex.app"))
 	} finally {
-		await run("hdiutil", ["detach", mount])
+		await detachDmg(mount)
 	}
 }
 
@@ -121,13 +144,20 @@ export async function smokeReleaseArtifacts(releaseRoot) {
 	const artifacts = artifactNamesForPlatform(names).map((name) => join(directory, name))
 	for (const artifact of artifacts) {
 		const temporary = await mkdtemp(join(tmpdir(), "simplex-artifact-smoke-"))
+		let passed = false
 		try {
 			if (process.platform === "darwin") await smokeMacArtifact(artifact, temporary)
 			else if (process.platform === "win32") await smokeWindowsArtifact(artifact, temporary)
 			else await smokeLinuxArtifact(artifact, temporary)
 			process.stdout.write(`Artifact smoke passed for ${artifact}\n`)
+			passed = true
 		} finally {
-			await rm(temporary, { recursive: true, force: true, maxRetries: 10, retryDelay: 250 })
+			// A failed smoke can leave the temporary directory busy. Report the
+			// smoke failure rather than the cleanup error it causes.
+			await rm(temporary, { recursive: true, force: true, maxRetries: 10, retryDelay: 250 }).catch((error) => {
+				if (passed) throw error
+				process.stderr.write(`Could not remove ${temporary}: ${error.message}\n`)
+			})
 		}
 	}
 }

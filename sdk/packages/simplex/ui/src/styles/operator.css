@@ -2016,7 +2016,8 @@ button.operator-runtime-stop:hover:not(:disabled) {
 	min-width: 0;
 }
 
-.tunnel-command {
+.tunnel-command,
+.code-block {
 	margin: 0.75rem 0 0;
 	padding: 0.8rem 0.9rem;
 	border: 1px solid var(--border);

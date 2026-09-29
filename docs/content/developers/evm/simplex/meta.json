@@ -3,9 +3,9 @@
     "pages": [
         "overview",
         "installation",
-        "markets",
-        "pricing",
         "configuration",
+        "limit-orders",
+        "limit-orders-api",
         "treasury",
         "confirmations",
         "dashboard",

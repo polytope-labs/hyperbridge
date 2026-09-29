@@ -91,6 +91,31 @@ describe("simplex protocol proxy", () => {
 		expect(await response.json()).toEqual({ path: "/api/status", version: "old-solver" })
 	})
 
+	it("blocks solver APIs until desktop unlock, while still serving the unlock UI", async () => {
+		let requests = 0
+		const socketPath = await listen((_request, response) => {
+			requests++
+			response.end("{}")
+		})
+		let unlocked = false
+		const options = {
+			socketPath,
+			uiDistDir: uiFixture(),
+			access: { isUnlocked: () => unlocked, handle: async () => new Response('{"mode":"unlock"}') },
+		}
+		for (const path of ["/api/status", "/api/setup/preview", "/api/tunnel", "/health"]) {
+			expect((await handleSimplexProtocol(new Request(`simplex://local${path}`), options)).status).toBe(423)
+		}
+		expect((await handleSimplexProtocol(new Request("simplex://local/"), options)).status).toBe(200)
+		expect(
+			await (await handleSimplexProtocol(new Request("simplex://local/api/desktop/security"), options)).json(),
+		).toEqual({ mode: "unlock" })
+		expect(requests).toBe(0)
+		unlocked = true
+		expect((await handleSimplexProtocol(new Request("simplex://local/api/status"), options)).status).toBe(200)
+		expect(requests).toBe(1)
+	})
+
 	it("preserves a GET path, query, status and response headers", async () => {
 		const path = await listen((request, response) => {
 			response.writeHead(206, { "Content-Type": "application/json", "X-Upstream": "simplex" })

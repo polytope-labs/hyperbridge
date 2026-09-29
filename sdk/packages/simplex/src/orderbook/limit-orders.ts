@@ -75,8 +75,8 @@ export class LimitOrderValidationError extends Error {}
  * One limit order as the operator states it: what simplex takes in, and what it
  * pays out for that.
  *
- * "10000 USDC for 139000000 CNGN" is `tokenIn: "USDC", amountIn: 10000e18,
- * tokenOut: "CNGN", amountOut: 139000000e18`. The rate and the side of the book
+ * "10000 USDC for 15500000 CNGN" is `tokenIn: "USDC", amountIn: "10000",
+ * tokenOut: "CNGN", amountOut: "15500000"`, in whole tokens. The rate and the side of the book
  * follow from those, so the order is directional by construction: it prices
  * USDC to CNGN swaps and never the reverse.
  */

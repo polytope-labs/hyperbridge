@@ -3,8 +3,17 @@ import { AppScreen } from "./app/AppScreen"
 import { useAppBootstrap } from "./app/useAppBootstrap"
 import { ScreenErrorBoundary } from "./components/ScreenErrorBoundary"
 import { InstallAppProvider } from "./components/InstallAppButton"
+import { DesktopAccess } from "./app/DesktopAccess"
 
 export function App() {
+	return (
+		<DesktopAccess>
+			<AppContent />
+		</DesktopAccess>
+	)
+}
+
+function AppContent() {
 	const { state, refresh } = useAppBootstrap()
 
 	return (

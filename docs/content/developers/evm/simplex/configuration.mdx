@@ -1,11 +1,11 @@
 ---
 title: Configuration
-description: The [simplex] block, signer backends, EIP-7702 delegation and gas payment, allowlists, and scan intervals.
+description: The [simplex] block, signer backends, the [orderbook] section, EIP-7702 delegation and gas payment, allowlists, and scan intervals.
 ---
 
 # Configuration
 
-Everything here lives in `filler-config.toml`. Only the `[simplex]` block and its signer are required — the rest tunes behaviour that has a working default.
+Everything here lives in `filler-config.toml`. The `[simplex]` block, its signer and the `[orderbook]` section are required. Everything else tunes behaviour that already has a working default.
 
 ## Where the config lives and what it contains
 
@@ -50,6 +50,30 @@ substratePrivateKey = "0x.."
 hyperbridgeWsUrl    = "wss://nexus.rpc.polytope.technology"
 
 ```
+
+## `[orderbook]`
+
+Simplex has no prices of its own. It prices every fill from your [limit orders](/developers/evm/simplex/limit-orders), and advertises them on the HyperFX orderbook this section points at. The section is required, and the setup wizard writes it for the network you choose.
+
+```toml lineNumbers
+[orderbook]
+url = "https://orderbook.hyperfx.finance/mainnet/graphql"
+# testnet: https://orderbook.hyperfx.finance/testnet/graphql
+
+# Optional — the defaults are shown
+defaultTtlSecs        = 31536000  # lifetime of a new limit order (365 days). Minimum 900.
+reconcileIntervalSecs = 300       # how often postings are checked against the orderbook
+requestTimeoutMs      = 10000     # per-request timeout for orderbook calls
+```
+
+| Field | Default | Description |
+|---|---|---|
+| `url` | none (required) | The orderbook's GraphQL endpoint. A base URL such as `https://orderbook.hyperfx.finance/mainnet` has `/graphql` added automatically. |
+| `defaultTtlSecs` | `31536000` (365 days) | How long a limit order lives when it is created without its own `ttlSecs`. This is the order's whole life, and nothing renews it. Must be at least `900`, and the orderbook may enforce a higher minimum. |
+| `reconcileIntervalSecs` | `300` | How often Simplex compares its open orders with the orderbook. It reposts any entry that has gone missing and cancels any entry no longer owned by an order. |
+| `requestTimeoutMs` | `10000` | Timeout for each orderbook request. |
+
+The limit orders themselves are not in this file. They are inventory you open and close while the filler runs, so they are stored in `bids.db` in the data directory and created from the dashboard or the API.
 
 ## Signer Configuration
 

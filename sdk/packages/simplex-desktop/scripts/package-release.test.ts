@@ -26,7 +26,7 @@ import {
 	runBuilderWithRetries,
 } from "./run-builder.mjs"
 import { verifyReleaseTag } from "./verify-release-tag.mjs"
-import { artifactNamesForPlatform, isUnavailableAppImageFuse } from "./e2e/artifact-smoke.mjs"
+import { artifactNamesForPlatform, detachDmg, isUnavailableAppImageFuse } from "./e2e/artifact-smoke.mjs"
 import { stopProcess, waitFor } from "./e2e/packaged-smoke.mjs"
 
 function sha512(value: string): string {
@@ -95,6 +95,25 @@ describe("desktop package and release layout", () => {
 	it("falls back only for the hosted runner's known AppImage FUSE failure", () => {
 		expect(isUnavailableAppImageFuse(new Error("fusermount3: mount failed: Operation not permitted"))).toBe(true)
 		expect(isUnavailableAppImageFuse(new Error("Simplex exited 1: application startup failed"))).toBe(false)
+	})
+
+	it("retries a busy smoke-test DMG before forcing it off", async () => {
+		const sleep = vi.fn(async () => {})
+		const busy = vi.fn(async (_command: string, args: string[]) => {
+			if (!args.includes("-force")) throw new Error("hdiutil: couldn't unmount disk - Resource busy")
+		})
+		await detachDmg("/mnt/simplex", busy, sleep, 3)
+		expect(busy.mock.calls.map(([, args]) => args)).toEqual([
+			["detach", "/mnt/simplex"],
+			["detach", "/mnt/simplex"],
+			["detach", "/mnt/simplex"],
+			["detach", "-force", "/mnt/simplex"],
+		])
+		expect(sleep).toHaveBeenCalledTimes(2)
+
+		const released = vi.fn().mockRejectedValueOnce(new Error("busy")).mockResolvedValue("")
+		await detachDmg("/mnt/simplex", released, sleep, 3)
+		expect(released).toHaveBeenCalledTimes(2)
 	})
 
 	it("forwards pnpm-delimited builder target arguments", () => {

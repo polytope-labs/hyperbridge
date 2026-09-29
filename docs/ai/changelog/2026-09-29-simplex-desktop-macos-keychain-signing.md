@@ -26,3 +26,13 @@ before tagging.
 `test-simplex-desktop.yml` runs only when `sdk/packages/simplex-desktop/**` or the workflow file
 changes. Changes to `sdk/packages/sdk`, `sdk/packages/simplex` or the pnpm lockfile no longer trigger
 it.
+
+## macOS DMG smoke test
+
+`artifact-smoke.mjs` failed intermittently on macOS with `EBUSY ... rmdir .../dmg`. The packaged
+smoke test stops the detached solver, but that Node process and Electron's helpers can still be
+running from the mounted DMG. `hdiutil detach` then fails, and removing the temporary directory hits
+the still-mounted volume. That EBUSY error replaced the detach error.
+
+`detachDmg` now retries `hdiutil detach` for up to 20 seconds, then uses `hdiutil detach -force`. A
+failed smoke test reports its own error; a cleanup error is only raised when the smoke test passed.

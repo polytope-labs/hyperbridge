@@ -193,6 +193,20 @@ export function buildApplicationMenuTemplate(
 					],
 				}
 			: { role: "windowMenu" }
+	// Zoom only, not Electron's viewMenu role, which also adds reload and devtools.
+	// Cmd+= is the key most people press for zoom in; the Plus accelerator stays
+	// working through a hidden duplicate.
+	const viewMenu: MenuItemConstructorOptions = {
+		label: "View",
+		submenu: [
+			{ role: "resetZoom" },
+			{ role: "zoomIn", accelerator: "CmdOrCtrl+=" },
+			{ role: "zoomIn", accelerator: "CmdOrCtrl+Plus", visible: false, acceleratorWorksWhenHidden: true },
+			{ role: "zoomOut" },
+			{ type: "separator" },
+			{ role: "togglefullscreen" },
+		],
+	}
 	return [
 		{
 			label: "Simplex",
@@ -226,6 +240,7 @@ export function buildApplicationMenuTemplate(
 			],
 		},
 		{ role: "editMenu" },
+		viewMenu,
 		windowMenu,
 	]
 }

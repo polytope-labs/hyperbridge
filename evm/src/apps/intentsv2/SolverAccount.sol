@@ -21,6 +21,8 @@ import {PackedUserOperation} from "@openzeppelin/contracts/interfaces/draft-IERC
 import {Execution} from "@openzeppelin/contracts/interfaces/draft-IERC7579.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import {SelectOptions, IIntentGatewayV2} from "@hyperbridge/core/apps/IntentGatewayV2.sol";
 
@@ -33,6 +35,29 @@ import {SelectOptions, IIntentGatewayV2} from "@hyperbridge/core/apps/IntentGate
  * every operation.
  */
 contract SolverAccount is Account, ERC7821, IERC1271 {
+    using SafeERC20 for IERC20;
+
+    /**
+     * @dev What each limit order has paid out so far, by budget id.
+     *
+     * @custom:storage-location erc7201:hyperbridge.storage.SolverAccount.Budgets
+     */
+    struct Budgets {
+        mapping(bytes32 => uint256) spent;
+    }
+
+    /**
+     * @dev The payout would take `budgetId` to `total`, past its `cap`.
+     */
+    error BudgetExceeded(bytes32 budgetId, uint256 total, uint256 cap);
+
+    /**
+     * @dev `keccak256(abi.encode(uint256(keccak256("hyperbridge.storage.SolverAccount.Budgets")) - 1))`
+     * with its last byte cleared. Namespaced because the storage is the EOA's own, shared with
+     * whatever else it delegates to.
+     */
+    bytes32 private constant BUDGETS_STORAGE_SLOT = 0xef37eedb8cd243d7bb1074a6cb5a4fad8c39bd328408761135c4a5a7d5c29900;
+
     /**
      * @dev A plain ECDSA signature: r, s, v.
      */
@@ -164,6 +189,48 @@ contract SolverAccount is Account, ERC7821, IERC1271 {
      */
     function isValidSignature(bytes32 hash, bytes calldata signature) external view override returns (bytes4) {
         return _rawSignatureValidation(hash, signature) ? bytes4(0x1626ba7e) : bytes4(0xffffffff);
+    }
+
+    /**
+     * @dev Adds what a fill paid out in `token` to the tally of `budgetId`, and reverts the batch if
+     * that takes it past `cap`. Called by the account on itself, last in a fill's batch.
+     *
+     * The payout is read off the gateway's allowance: what the batch approved, less what is left,
+     * less the dispatch fee the gateway drew from the same allowance. The allowance is then cleared.
+     * @param budgetId The limit order the fill counts against.
+     * @param cap The most the order may pay out in total.
+     * @param token The token the fill paid out.
+     * @param approved The allowance the batch gave the gateway for `token`.
+     * @param fee The dispatch fee the gateway pulls from this token's allowance, zero when the fee
+     * token is another one or the dispatch is paid in the native token.
+     */
+    function settleBudget(bytes32 budgetId, uint256 cap, address token, uint256 approved, uint256 fee) external {
+        if (msg.sender != address(this)) revert AccountUnauthorized(msg.sender);
+
+        uint256 used = approved - IERC20(token).allowance(address(this), _intentGateway) - fee;
+        Budgets storage budgets = _budgets();
+        uint256 total = budgets.spent[budgetId] + used;
+        if (total > cap) revert BudgetExceeded(budgetId, total, cap);
+        budgets.spent[budgetId] = total;
+
+        IERC20(token).forceApprove(_intentGateway, 0);
+    }
+
+    /**
+     * @dev What `budgetId` has paid out so far.
+     */
+    function spent(bytes32 budgetId) external view returns (uint256) {
+        return _budgets().spent[budgetId];
+    }
+
+    /**
+     * @dev The budgets, at their namespaced slot.
+     */
+    function _budgets() private pure returns (Budgets storage budgets) {
+        bytes32 slot = BUDGETS_STORAGE_SLOT;
+        assembly {
+            budgets.slot := slot
+        }
     }
 
     /**

@@ -246,10 +246,11 @@ for about 287 MiB. Windows x64 measures about 550 MiB. CI therefore enforces tar
 installed-size budgets: 520 MiB for macOS and Linux, and 580 MiB for Windows. Each budget leaves
 roughly five percent growth headroom while still catching accidental duplication.
 
-Pull requests that change desktop packaging run the complete native matrix before merge. Pushing the
-exact package-version tag, for example `simplex-desktop-v0.16.2`, runs the same matrix for macOS arm64
-and x64 DMG plus updater ZIP, Windows x64 NSIS, and Linux x64 and arm64 AppImage plus deb. Pull-request
-builds and default manual runs are explicitly unsigned. A signed manual run or tag build instead fails
+The packaging matrix does not run on pull requests. Pull requests that change
+`sdk/packages/simplex-desktop` run only the `@hyperbridge/simplex-desktop` test workflow. Pushing the
+exact package-version tag, for example `simplex-desktop-v0.16.2`, runs the packaging matrix for macOS
+arm64 and x64 DMG plus updater ZIP, Windows x64 NSIS, and Linux x64 and arm64 AppImage plus deb. A
+manual run of `publish-simplex-desktop.yml` runs the same matrix and is unsigned by default. A signed manual run or tag build instead fails
 before packaging unless its native signing environment is complete; an unsigned release artifact can
 never be used as a fallback.
 
@@ -304,8 +305,8 @@ Store the non-secret Trusted Signing resource identity as variables in that envi
 
 Configure the `simplex-desktop-release` environment to allow only the `main` branch and tags matching
 `simplex-desktop-v*`, and require release-maintainer approval. Unsigned builds use a separate,
-secretless `simplex-desktop-ci` environment. The workflow never uses signing secrets for
-`pull_request`, including fork pull requests. A manual
+secretless `simplex-desktop-ci` environment. The workflow has no `pull_request` trigger, so fork
+pull requests never reach signing secrets. A manual
 dispatch is unsigned by default; a maintainer can explicitly enable `sign_artifacts` on `main` to
 exercise the complete credentialed pipeline and download its private workflow artifacts without
 publishing a release. Credentialed dispatches from other refs fail before any secret-bearing step. A

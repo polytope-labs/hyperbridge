@@ -16,3 +16,13 @@ failing electron-builder path cannot come back silently. It also sets `mac.ident
 `APPLE_TEAM_ID`, which pins signing to the Developer ID identity for that team.
 
 The GitHub secrets are unchanged.
+
+## When the desktop workflows run
+
+`publish-simplex-desktop.yml` no longer runs on pull requests. It runs on a pushed
+`simplex-desktop-v*` tag, or on a manual dispatch, which is how a signed build is validated on `main`
+before tagging.
+
+`test-simplex-desktop.yml` runs only when `sdk/packages/simplex-desktop/**` or the workflow file
+changes. Changes to `sdk/packages/sdk`, `sdk/packages/simplex` or the pnpm lockfile no longer trigger
+it.

@@ -1,17 +1,6 @@
 name: "Publish Simplex Desktop"
 
 on:
-  pull_request:
-    branches: [main]
-    types: [opened, synchronize, reopened, ready_for_review]
-    paths:
-      - "sdk/packages/sdk/**"
-      - "sdk/packages/simplex/**"
-      - "sdk/packages/simplex-desktop/**"
-      - "sdk/package.json"
-      - "sdk/pnpm-lock.yaml"
-      - "sdk/pnpm-workspace.yaml"
-      - ".github/workflows/publish-simplex-desktop.yml"
   push:
     tags:
       - "simplex-desktop-v*"

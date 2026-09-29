@@ -115,6 +115,17 @@ describe("native desktop menus", () => {
 		expect((window?.submenu as MenuItemConstructorOptions[]).some((entry) => entry.role === "close")).toBe(true)
 	})
 
+	it("zooms from the View menu without exposing reload or devtools", () => {
+		const template = buildApplicationMenuTemplate(runningModel, actions(), "darwin")
+		const view = template.find((entry) => entry.label === "View")
+		const roles = (view?.submenu as MenuItemConstructorOptions[]).map((entry) => entry.role).filter(Boolean)
+		expect(roles).toEqual(expect.arrayContaining(["resetZoom", "zoomIn", "zoomOut"]))
+		expect(roles).not.toContain("reload")
+		expect(roles).not.toContain("toggleDevTools")
+		const zoomIn = (view?.submenu as MenuItemConstructorOptions[]).filter((entry) => entry.role === "zoomIn")
+		expect(zoomIn.map((entry) => entry.accelerator)).toEqual(["CmdOrCtrl+=", "CmdOrCtrl+Plus"])
+	})
+
 	it("surfaces staged updates and a version-skew restart", () => {
 		const template = buildTrayMenuTemplate(
 			{

@@ -50,8 +50,7 @@ function assertReleaseSigningEnvironment(platform = process.platform, env = proc
 		requireEnvironment(
 			env,
 			[
-				"CSC_LINK",
-				"CSC_KEY_PASSWORD",
+				"CSC_KEYCHAIN",
 				"APPLE_API_KEY",
 				"APPLE_API_KEY_ID",
 				"APPLE_API_ISSUER",
@@ -59,6 +58,14 @@ function assertReleaseSigningEnvironment(platform = process.platform, env = proc
 			],
 			"macOS",
 		)
+		// electron-builder's own CSC_LINK import cannot unlock its keychain on
+		// macOS 26, so CI imports the certificate into CSC_KEYCHAIN instead.
+		if (env.CSC_LINK) {
+			throw new Error("Signed macOS releases sign from CSC_KEYCHAIN; unset CSC_LINK")
+		}
+		if (!existsSync(env.CSC_KEYCHAIN)) {
+			throw new Error(`CSC_KEYCHAIN does not exist: ${env.CSC_KEYCHAIN}`)
+		}
 		if (!existsSync(env.APPLE_API_KEY)) {
 			throw new Error(`APPLE_API_KEY does not exist: ${env.APPLE_API_KEY}`)
 		}
@@ -109,6 +116,8 @@ function loadBuilderConfig(env = process.env, platform = process.platform) {
 		config.extraMetadata = { ...config.extraMetadata, simplexMacTeamId: signing.teamId }
 		config.mac = {
 			...config.mac,
+			// Matches the identity whose name ends in "(TEAMID)".
+			identity: signing.teamId,
 			hardenedRuntime: true,
 			entitlements: ENTITLEMENTS_PATH,
 			entitlementsInherit: ENTITLEMENTS_PATH,

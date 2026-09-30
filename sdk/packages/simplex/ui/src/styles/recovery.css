@@ -1,0 +1,232 @@
+.recovery-dialog {
+	position: fixed;
+	top: 50%;
+	left: 50%;
+	z-index: 51;
+	width: min(calc(100% - 2rem), 38rem);
+	max-height: calc(100dvh - 2rem);
+	transform: translate(-50%, -50%);
+	padding: 0;
+	border: 1px solid var(--border-strong);
+	border-radius: 1.25rem;
+	background: #1c1e23;
+	color: var(--text);
+	box-shadow: 0 2rem 6rem rgba(0, 0, 0, 0.52);
+	overflow-y: auto;
+}
+
+.recovery-dialog-header {
+	padding: 1.5rem 1.5rem 1.25rem;
+	border-bottom: 1px solid var(--border);
+}
+
+.recovery-dialog-header h2 {
+	margin: 0.55rem 0 0.5rem;
+	font-size: 1.5rem;
+	font-weight: 500;
+	letter-spacing: -0.035em;
+}
+
+.recovery-dialog-header p {
+	max-width: 31rem;
+	margin: 0;
+	color: var(--muted);
+	font-size: 0.8125rem;
+	line-height: 1.55;
+}
+
+.recovery-warning {
+	display: flex;
+	align-items: flex-start;
+	gap: 0.7rem;
+	margin: 1.25rem 1.5rem 0;
+	padding: 0.8rem 0.9rem;
+	border: 1px solid rgba(255, 219, 105, 0.2);
+	border-radius: 0.75rem;
+	background: rgba(255, 219, 105, 0.055);
+}
+
+.recovery-warning > span {
+	display: grid;
+	place-items: center;
+	flex: 0 0 1.25rem;
+	width: 1.25rem;
+	height: 1.25rem;
+	border: 1px solid rgba(255, 219, 105, 0.45);
+	border-radius: 50%;
+	color: var(--warn);
+	font-family: var(--font-mono);
+	font-size: 0.6875rem;
+	font-weight: 500;
+}
+
+.recovery-warning p {
+	margin: 0;
+	color: var(--text-secondary);
+	font-size: 0.75rem;
+	line-height: 1.5;
+}
+
+.recovery-warning strong {
+	color: var(--warn);
+	font-weight: 500;
+}
+
+.recovery-words {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 0.5rem;
+	margin: 1.25rem 1.5rem 0;
+	padding: 0;
+	list-style: none;
+}
+
+.recovery-words li {
+	display: grid;
+	grid-template-columns: 1.5rem minmax(0, 1fr);
+	align-items: center;
+	min-height: 2.75rem;
+	padding: 0.55rem 0.7rem;
+	border: 1px solid var(--border);
+	border-radius: 0.65rem;
+	background: var(--control);
+}
+
+.recovery-words li > span {
+	color: #68717e;
+	font-family: var(--font-mono);
+	font-size: 0.625rem;
+	font-variant-numeric: tabular-nums;
+}
+
+.recovery-words li > strong {
+	overflow: hidden;
+	font-family: var(--font-mono);
+	font-size: 0.8125rem;
+	font-weight: 500;
+	text-overflow: ellipsis;
+}
+
+.recovery-copy-row {
+	display: flex;
+	align-items: center;
+	gap: 0.75rem;
+	min-height: 2.75rem;
+	margin: 0.85rem 1.5rem 0;
+}
+
+.recovery-copy-row button {
+	min-height: 2.5rem;
+	padding-block: 0.5rem;
+}
+
+.recovery-copy-status {
+	color: var(--err);
+	font-size: 0.6875rem;
+	line-height: 1.4;
+}
+
+.recovery-copy-status[data-state="copied"] {
+	color: var(--ok);
+}
+
+.recovery-acknowledgement {
+	display: flex;
+	align-items: flex-start;
+	gap: 0.7rem;
+	margin: 1.25rem 1.5rem;
+	color: var(--text-secondary);
+	font-size: 0.8125rem;
+	line-height: 1.45;
+	cursor: pointer;
+}
+
+.recovery-acknowledgement input {
+	flex: 0 0 auto;
+	margin-top: 0.1rem;
+}
+
+.recovery-dialog-footer {
+	display: flex;
+	justify-content: flex-end;
+	padding: 1rem 1.5rem 1.25rem;
+	border-top: 1px solid var(--border);
+	background: rgba(255, 255, 255, 0.012);
+}
+
+.recovery-dialog-footer button {
+	min-width: 9rem;
+}
+
+.footer-nav {
+	display: flex;
+	align-items: center;
+	justify-content: flex-end;
+	gap: 1rem;
+	margin-top: 2rem;
+	padding-top: 1.25rem;
+	border-top: 1px solid var(--border);
+}
+
+.footer-nav > :first-child {
+	margin-right: auto;
+}
+
+.wizard-requirements {
+	display: flex;
+	align-items: flex-start;
+	gap: 0.55rem;
+	min-width: 0;
+	max-width: 24rem;
+	margin-left: auto;
+	color: var(--warn);
+}
+
+.wizard-requirements-icon {
+	display: inline-grid;
+	width: 1.1rem;
+	height: 1.1rem;
+	flex: 0 0 auto;
+	place-items: center;
+	margin-top: 0.05rem;
+	border: 1px solid currentColor;
+	border-radius: 50%;
+	font-family: var(--font-mono);
+	font-size: 0.65rem;
+	line-height: 1;
+}
+
+.wizard-requirements strong,
+.wizard-requirements ul {
+	display: block;
+}
+
+.wizard-requirements strong {
+	font-size: 0.75rem;
+	font-weight: 500;
+	line-height: 1.2;
+}
+
+.wizard-requirements ul {
+	display: grid;
+	gap: 0.12rem;
+	margin: 0.22rem 0 0;
+	padding: 0;
+	list-style: none;
+	color: var(--text-secondary);
+	font-size: 0.75rem;
+	line-height: 1.4;
+}
+
+.wizard-requirements li::before {
+	content: "•";
+	margin-right: 0.38rem;
+	color: var(--warn);
+}
+
+.mono {
+	font-family: var(--font-mono);
+	font-size: 0.85em;
+	font-variant-numeric: tabular-nums;
+	word-break: break-all;
+}

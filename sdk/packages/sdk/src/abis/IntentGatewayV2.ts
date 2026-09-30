@@ -3,7 +3,12 @@ export const ABI = [
 		type: "constructor",
 		inputs: [
 			{
-				name: "admin",
+				name: "intrinsic",
+				type: "address",
+				internalType: "address",
+			},
+			{
+				name: "extrinsic",
 				type: "address",
 				internalType: "address",
 			},
@@ -80,25 +85,6 @@ export const ABI = [
 	},
 	{
 		type: "function",
-		name: "_instances",
-		inputs: [
-			{
-				name: "",
-				type: "bytes32",
-				internalType: "bytes32",
-			},
-		],
-		outputs: [
-			{
-				name: "",
-				type: "address",
-				internalType: "address",
-			},
-		],
-		stateMutability: "view",
-	},
-	{
-		type: "function",
 		name: "_nonce",
 		inputs: [],
 		outputs: [
@@ -121,8 +107,8 @@ export const ABI = [
 			},
 			{
 				name: "",
-				type: "address",
-				internalType: "address",
+				type: "uint256",
+				internalType: "uint256",
 			},
 		],
 		outputs: [
@@ -145,8 +131,8 @@ export const ABI = [
 			},
 			{
 				name: "",
-				type: "bytes32",
-				internalType: "bytes32",
+				type: "uint256",
+				internalType: "uint256",
 			},
 		],
 		outputs: [
@@ -157,6 +143,42 @@ export const ABI = [
 			},
 		],
 		stateMutability: "view",
+	},
+	{
+		type: "function",
+		name: "_protocolFees",
+		inputs: [
+			{
+				name: "",
+				type: "bytes32",
+				internalType: "bytes32",
+			},
+			{
+				name: "",
+				type: "uint256",
+				internalType: "uint256",
+			},
+		],
+		outputs: [
+			{
+				name: "amount",
+				type: "uint256",
+				internalType: "uint256",
+			},
+			{
+				name: "committed",
+				type: "uint256",
+				internalType: "uint256",
+			},
+		],
+		stateMutability: "view",
+	},
+	{
+		type: "function",
+		name: "acceptOwnership",
+		inputs: [],
+		outputs: [],
+		stateMutability: "nonpayable",
 	},
 	{
 		type: "function",
@@ -369,6 +391,19 @@ export const ABI = [
 	},
 	{
 		type: "function",
+		name: "extrinsicModule",
+		inputs: [],
+		outputs: [
+			{
+				name: "",
+				type: "address",
+				internalType: "address",
+			},
+		],
+		stateMutability: "view",
+	},
+	{
+		type: "function",
 		name: "fillOrder",
 		inputs: [
 			{
@@ -530,6 +565,23 @@ export const ABI = [
 							},
 						],
 					},
+					{
+						name: "inputs",
+						type: "tuple[]",
+						internalType: "struct TokenInfo[]",
+						components: [
+							{
+								name: "token",
+								type: "bytes32",
+								internalType: "bytes32",
+							},
+							{
+								name: "amount",
+								type: "uint256",
+								internalType: "uint256",
+							},
+						],
+					},
 				],
 			},
 		],
@@ -551,6 +603,73 @@ export const ABI = [
 	},
 	{
 		type: "function",
+		name: "initialize",
+		inputs: [
+			{
+				name: "init",
+				type: "tuple",
+				internalType: "struct InitParams",
+				components: [
+					{
+						name: "params",
+						type: "tuple",
+						internalType: "struct Params",
+						components: [
+							{
+								name: "host",
+								type: "address",
+								internalType: "address",
+							},
+							{
+								name: "dispatcher",
+								type: "address",
+								internalType: "address",
+							},
+							{
+								name: "solverSelection",
+								type: "bool",
+								internalType: "bool",
+							},
+							{
+								name: "surplusShareBps",
+								type: "uint256",
+								internalType: "uint256",
+							},
+							{
+								name: "protocolFeeBps",
+								type: "uint256",
+								internalType: "uint256",
+							},
+							{
+								name: "priceOracle",
+								type: "address",
+								internalType: "address",
+							},
+						],
+					},
+					{
+						name: "peerChains",
+						type: "bytes[]",
+						internalType: "bytes[]",
+					},
+					{
+						name: "relayer",
+						type: "address",
+						internalType: "address",
+					},
+					{
+						name: "owner",
+						type: "address",
+						internalType: "address",
+					},
+				],
+			},
+		],
+		outputs: [],
+		stateMutability: "nonpayable",
+	},
+	{
+		type: "function",
 		name: "instance",
 		inputs: [
 			{
@@ -567,6 +686,32 @@ export const ABI = [
 			},
 		],
 		stateMutability: "view",
+	},
+	{
+		type: "function",
+		name: "intrinsicModule",
+		inputs: [],
+		outputs: [
+			{
+				name: "",
+				type: "address",
+				internalType: "address",
+			},
+		],
+		stateMutability: "view",
+	},
+	{
+		type: "function",
+		name: "migrate",
+		inputs: [
+			{
+				name: "owner_",
+				type: "address",
+				internalType: "address",
+			},
+		],
+		outputs: [],
+		stateMutability: "nonpayable",
 	},
 	{
 		type: "function",
@@ -635,7 +780,7 @@ export const ABI = [
 		name: "onGetResponse",
 		inputs: [
 			{
-				name: "incoming",
+				name: "",
 				type: "tuple",
 				internalType: "struct IncomingGetResponse",
 				components: [
@@ -852,6 +997,19 @@ export const ABI = [
 	},
 	{
 		type: "function",
+		name: "owner",
+		inputs: [],
+		outputs: [
+			{
+				name: "",
+				type: "address",
+				internalType: "address",
+			},
+		],
+		stateMutability: "view",
+	},
+	{
+		type: "function",
 		name: "params",
 		inputs: [],
 		outputs: [
@@ -891,6 +1049,39 @@ export const ABI = [
 						internalType: "address",
 					},
 				],
+			},
+		],
+		stateMutability: "view",
+	},
+	{
+		type: "function",
+		name: "pause",
+		inputs: [],
+		outputs: [],
+		stateMutability: "nonpayable",
+	},
+	{
+		type: "function",
+		name: "paused",
+		inputs: [],
+		outputs: [
+			{
+				name: "",
+				type: "bool",
+				internalType: "bool",
+			},
+		],
+		stateMutability: "view",
+	},
+	{
+		type: "function",
+		name: "pendingOwner",
+		inputs: [],
+		outputs: [
+			{
+				name: "",
+				type: "address",
+				internalType: "address",
 			},
 		],
 		stateMutability: "view",
@@ -1079,7 +1270,7 @@ export const ABI = [
 				internalType: "uint256",
 			},
 		],
-		stateMutability: "view",
+		stateMutability: "nonpayable",
 	},
 	{
 		type: "function",
@@ -1135,7 +1326,27 @@ export const ABI = [
 				internalType: "uint256",
 			},
 		],
+		stateMutability: "nonpayable",
+	},
+	{
+		type: "function",
+		name: "relayer",
+		inputs: [],
+		outputs: [
+			{
+				name: "",
+				type: "address",
+				internalType: "address",
+			},
+		],
 		stateMutability: "view",
+	},
+	{
+		type: "function",
+		name: "renounceOwnership",
+		inputs: [],
+		outputs: [],
+		stateMutability: "nonpayable",
 	},
 	{
 		type: "function",
@@ -1175,65 +1386,55 @@ export const ABI = [
 	},
 	{
 		type: "function",
-		name: "init",
+		name: "transferOwnership",
 		inputs: [
 			{
-				name: "p",
-				type: "tuple",
-				internalType: "struct Params",
-				components: [
-					{
-						name: "host",
-						type: "address",
-						internalType: "address",
-					},
-					{
-						name: "dispatcher",
-						type: "address",
-						internalType: "address",
-					},
-					{
-						name: "solverSelection",
-						type: "bool",
-						internalType: "bool",
-					},
-					{
-						name: "surplusShareBps",
-						type: "uint256",
-						internalType: "uint256",
-					},
-					{
-						name: "protocolFeeBps",
-						type: "uint256",
-						internalType: "uint256",
-					},
-					{
-						name: "priceOracle",
-						type: "address",
-						internalType: "address",
-					},
-				],
-			},
-			{
-				name: "deployments",
-				type: "tuple[]",
-				internalType: "struct Deployment[]",
-				components: [
-					{
-						name: "chain",
-						type: "bytes",
-						internalType: "bytes",
-					},
-					{
-						name: "gateway",
-						type: "address",
-						internalType: "address",
-					},
-				],
+				name: "newOwner",
+				type: "address",
+				internalType: "address",
 			},
 		],
 		outputs: [],
 		stateMutability: "nonpayable",
+	},
+	{
+		type: "function",
+		name: "unpause",
+		inputs: [],
+		outputs: [],
+		stateMutability: "nonpayable",
+	},
+	{
+		type: "function",
+		name: "version",
+		inputs: [],
+		outputs: [
+			{
+				name: "",
+				type: "uint64",
+				internalType: "uint64",
+			},
+		],
+		stateMutability: "view",
+	},
+	{
+		type: "event",
+		name: "DeploymentAdded",
+		inputs: [
+			{
+				name: "chain",
+				type: "string",
+				indexed: false,
+				internalType: "string",
+			},
+			{
+				name: "gateway",
+				type: "address",
+				indexed: false,
+				internalType: "address",
+			},
+		],
+		anonymous: false,
 	},
 	{
 		type: "event",
@@ -1346,6 +1547,12 @@ export const ABI = [
 				internalType: "bytes32",
 			},
 			{
+				name: "solver",
+				type: "address",
+				indexed: false,
+				internalType: "address",
+			},
+			{
 				name: "tokens",
 				type: "tuple[]",
 				indexed: false,
@@ -1368,16 +1575,29 @@ export const ABI = [
 	},
 	{
 		type: "event",
-		name: "DeploymentAdded",
+		name: "Initialized",
 		inputs: [
 			{
-				name: "chain",
-				type: "string",
+				name: "version",
+				type: "uint64",
 				indexed: false,
-				internalType: "string",
+				internalType: "uint64",
+			},
+		],
+		anonymous: false,
+	},
+	{
+		type: "event",
+		name: "OrderCancelled",
+		inputs: [
+			{
+				name: "commitment",
+				type: "bytes32",
+				indexed: true,
+				internalType: "bytes32",
 			},
 			{
-				name: "gateway",
+				name: "canceller",
 				type: "address",
 				indexed: false,
 				internalType: "address",
@@ -1569,6 +1789,44 @@ export const ABI = [
 	},
 	{
 		type: "event",
+		name: "OwnershipTransferStarted",
+		inputs: [
+			{
+				name: "previousOwner",
+				type: "address",
+				indexed: true,
+				internalType: "address",
+			},
+			{
+				name: "newOwner",
+				type: "address",
+				indexed: true,
+				internalType: "address",
+			},
+		],
+		anonymous: false,
+	},
+	{
+		type: "event",
+		name: "OwnershipTransferred",
+		inputs: [
+			{
+				name: "previousOwner",
+				type: "address",
+				indexed: true,
+				internalType: "address",
+			},
+			{
+				name: "newOwner",
+				type: "address",
+				indexed: true,
+				internalType: "address",
+			},
+		],
+		anonymous: false,
+	},
+	{
+		type: "event",
 		name: "ParamsUpdated",
 		inputs: [
 			{
@@ -1706,13 +1964,78 @@ export const ABI = [
 		anonymous: false,
 	},
 	{
-		type: "error",
-		name: "Cancelled",
-		inputs: [],
+		type: "event",
+		name: "Paused",
+		inputs: [
+			{
+				name: "account",
+				type: "address",
+				indexed: false,
+				internalType: "address",
+			},
+		],
+		anonymous: false,
+	},
+	{
+		type: "event",
+		name: "ProtocolFeeRefunded",
+		inputs: [
+			{
+				name: "commitment",
+				type: "bytes32",
+				indexed: true,
+				internalType: "bytes32",
+			},
+			{
+				name: "token",
+				type: "address",
+				indexed: true,
+				internalType: "address",
+			},
+			{
+				name: "amount",
+				type: "uint256",
+				indexed: false,
+				internalType: "uint256",
+			},
+		],
+		anonymous: false,
+	},
+	{
+		type: "event",
+		name: "RelayerUpdated",
+		inputs: [
+			{
+				name: "previous",
+				type: "address",
+				indexed: false,
+				internalType: "address",
+			},
+			{
+				name: "current",
+				type: "address",
+				indexed: false,
+				internalType: "address",
+			},
+		],
+		anonymous: false,
+	},
+	{
+		type: "event",
+		name: "Unpaused",
+		inputs: [
+			{
+				name: "account",
+				type: "address",
+				indexed: false,
+				internalType: "address",
+			},
+		],
+		anonymous: false,
 	},
 	{
 		type: "error",
-		name: "UnknownInstance",
+		name: "Cancelled",
 		inputs: [],
 	},
 	{
@@ -1744,7 +2067,22 @@ export const ABI = [
 	},
 	{
 		type: "error",
+		name: "EnforcedPause",
+		inputs: [],
+	},
+	{
+		type: "error",
+		name: "ExpectedPause",
+		inputs: [],
+	},
+	{
+		type: "error",
 		name: "Expired",
+		inputs: [],
+	},
+	{
+		type: "error",
+		name: "FillExpired",
 		inputs: [],
 	},
 	{
@@ -1755,6 +2093,11 @@ export const ABI = [
 	{
 		type: "error",
 		name: "InsufficientNativeToken",
+		inputs: [],
+	},
+	{
+		type: "error",
+		name: "InvalidInitialization",
 		inputs: [],
 	},
 	{
@@ -1770,6 +2113,53 @@ export const ABI = [
 	{
 		type: "error",
 		name: "NotExpired",
+		inputs: [],
+	},
+	{
+		type: "error",
+		name: "NotInitializing",
+		inputs: [],
+	},
+	{
+		type: "error",
+		name: "OwnableInvalidOwner",
+		inputs: [
+			{
+				name: "owner",
+				type: "address",
+				internalType: "address",
+			},
+		],
+	},
+	{
+		type: "error",
+		name: "OwnableUnauthorizedAccount",
+		inputs: [
+			{
+				name: "account",
+				type: "address",
+				internalType: "address",
+			},
+		],
+	},
+	{
+		type: "error",
+		name: "PartialFillNotAllowed",
+		inputs: [],
+	},
+	{
+		type: "error",
+		name: "RateBelowOrder",
+		inputs: [],
+	},
+	{
+		type: "error",
+		name: "RateFillTooSmall",
+		inputs: [],
+	},
+	{
+		type: "error",
+		name: "ReentrancyGuardReentrantCall",
 		inputs: [],
 	},
 	{
@@ -1807,6 +2197,11 @@ export const ABI = [
 	{
 		type: "error",
 		name: "UnexpectedCall",
+		inputs: [],
+	},
+	{
+		type: "error",
+		name: "UnknownInstance",
 		inputs: [],
 	},
 	{

@@ -14,8 +14,9 @@ import {
  * The quorum is formed from the official public endpoint (`mainnet.base.org`) and
  * a second endpoint supplied by the operator via the `BASE_MAINNET` env var —
  * typically a premium node in `.env.local`. With N=2 the threshold is 2, so both
- * providers must succeed and agree for every batch; this is the smallest useful
- * quorum and the one operators most commonly run.
+ * providers must agree whenever both answer; one that fails does not vote, and
+ * leaves the other to decide. This is the smallest useful quorum and the one
+ * operators most commonly run.
  *
  * Tests that need the real network are skipped if `BASE_MAINNET` is unset so the
  * suite still runs (constructor-only coverage) in environments without credentials.
@@ -116,7 +117,9 @@ describeIfNetwork("QuorumPublicClient.getLogs — N=2 Base RPCs", () => {
 		}
 	}, 60_000)
 
-	it("fails the batch when one of the two providers is unreachable", async () => {
+	it("decides over the reachable provider when the other is unreachable", async () => {
+		// The unreachable one fails, so it does not vote: the answer that came back
+		// is the only one there is.
 		const client = new QuorumPublicClient(BASE_CHAIN_ID, [
 			OFFICIAL_BASE_RPC,
 			"https://this-host-should-never-resolve.invalid",
@@ -125,19 +128,18 @@ describeIfNetwork("QuorumPublicClient.getLogs — N=2 Base RPCs", () => {
 		const singleProvider = new QuorumPublicClient(BASE_CHAIN_ID, [OFFICIAL_BASE_RPC])
 		const latestBlockNumber = await singleProvider.getBlockNumber()
 
-		await expect(
-			client.getLogs({
-				address: USDC_ON_BASE,
-				events: [TRANSFER_EVENT],
-				fromBlock: latestBlockNumber - BLOCK_WINDOW,
-				toBlock: latestBlockNumber,
-			}),
-		).rejects.toBeInstanceOf(QuorumError)
+		const logs = await client.getLogs({
+			address: USDC_ON_BASE,
+			events: [TRANSFER_EVENT],
+			fromBlock: latestBlockNumber - BLOCK_WINDOW,
+			toBlock: latestBlockNumber,
+		})
+		expect(Array.isArray(logs)).toBe(true)
 	}, 60_000)
 
-	it("surfaces the offending provider URL in the QuorumError", async () => {
+	it("surfaces the offending provider URLs when no provider answers", async () => {
 		const badUrl = "https://another-unresolvable-host.invalid"
-		const client = new QuorumPublicClient(BASE_CHAIN_ID, [OFFICIAL_BASE_RPC, badUrl])
+		const client = new QuorumPublicClient(BASE_CHAIN_ID, ["https://a-third-unresolvable-host.invalid", badUrl])
 
 		const singleProvider = new QuorumPublicClient(BASE_CHAIN_ID, [OFFICIAL_BASE_RPC])
 		const latestBlockNumber = await singleProvider.getBlockNumber()
@@ -173,12 +175,12 @@ describeIfNetwork("QuorumPublicClient.getBlockNumber — N=2 Base RPCs", () => {
 		}
 	}, 60_000)
 
-	it("fails when one of the two providers is unreachable", async () => {
+	it("reads the head from the reachable provider when the other is unreachable", async () => {
 		const client = new QuorumPublicClient(BASE_CHAIN_ID, [
 			OFFICIAL_BASE_RPC,
 			"https://getblock-number-unreachable.invalid",
 		])
-		await expect(client.getBlockNumber()).rejects.toBeInstanceOf(QuorumError)
+		await expect(client.getBlockNumber()).resolves.toBeGreaterThan(0n)
 	}, 60_000)
 })
 
@@ -260,10 +262,19 @@ describe("QuorumPublicClient — failure handling (stubbed clients)", () => {
 		expect(c.threshold).toBe(3)
 	})
 
-	it("getBlockNumber fails when fewer than the threshold respond", async () => {
-		const c = makeClient(3) // threshold 3
-		c.clients[0] = okHead(100n)
+	it("a failed endpoint does not vote: the bar is over the endpoints that answered", async () => {
+		const c = makeClient(3) // threshold 3 when all answer
+		c.clients[0] = okHead(101n)
 		c.clients[1] = okHead(100n)
+		c.clients[2] = errHead("down")
+		// Two answered, so both must back the head: the 2nd-highest, 100.
+		await expect(c.getBlockNumber()).resolves.toBe(100n)
+	})
+
+	it("getBlockNumber fails only when no endpoint answers", async () => {
+		const c = makeClient(3)
+		c.clients[0] = errHead("down")
+		c.clients[1] = errHead("down")
 		c.clients[2] = errHead("down")
 		await expect(c.getBlockNumber()).rejects.toThrow(/Quorum not reached/)
 	})
@@ -340,6 +351,33 @@ describe("QuorumPublicClient — failure handling (stubbed clients)", () => {
 		c.clients[2] = withLogs([logA])
 		c.clients[3] = withLogs([]) // lagging or pruned node
 		await expect(c.getLogs({} as any)).resolves.toEqual([logA])
+	})
+
+	it("getLogs: six endpoints with two failing decide over the other four", async () => {
+		// The BSC case: 4 of 6 answered alike, 2 errored. Over all six the bar was 5 and
+		// the read failed; over the four that answered it is 3.
+		const c = makeClient(6)
+		const withLogs = (logs: unknown[]) => ({ getLogs: async () => logs }) as any
+		const failing = { getLogs: async () => Promise.reject(new Error("HTTP request failed.")) } as any
+		for (const i of [0, 1, 2, 3]) c.clients[i] = withLogs([])
+		c.clients[4] = failing
+		c.clients[5] = failing
+		await expect(c.getLogs({} as any)).resolves.toEqual([])
+	})
+
+	it("getLogs: the endpoints that answer must still agree past their own bar", async () => {
+		const c = makeClient(6)
+		const logA = { address: "0xa", blockHash: "0xb", blockNumber: 1n, data: "0x", logIndex: 0, removed: false, topics: [], transactionHash: "0xt", transactionIndex: 0 }
+		const withLogs = (logs: unknown[]) => ({ getLogs: async () => logs }) as any
+		const failing = { getLogs: async () => Promise.reject(new Error("HTTP request failed.")) } as any
+		c.clients[0] = withLogs([logA])
+		c.clients[1] = withLogs([logA])
+		c.clients[2] = withLogs([])
+		c.clients[3] = withLogs([])
+		c.clients[4] = failing
+		c.clients[5] = failing
+		// Four answered, split two and two: neither side reaches 3.
+		await expect(c.getLogs({} as any)).rejects.toThrow(/Quorum not reached/)
 	})
 
 	it("getLogs fails when no group reaches the threshold", async () => {

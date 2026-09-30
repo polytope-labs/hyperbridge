@@ -6,7 +6,11 @@ export interface SafeFetchOptions {
 	method?: string
 	headers?: Record<string, string>
 	body?: string
+	/** Milliseconds of socket inactivity before the request is abandoned. */
+	timeoutMs?: number
 }
+
+const DEFAULT_TIMEOUT_MS = 30_000
 
 export interface SafeFetchResponse {
 	ok: boolean
@@ -77,6 +81,8 @@ export function safeFetch(url: string, options: SafeFetchOptions = {}): Promise<
 
 		req.on("error", reject)
 
+		// Without a timeout a peer that accepts the connection and never answers hangs the handler forever.
+		req.setTimeout(options.timeoutMs ?? DEFAULT_TIMEOUT_MS)
 		req.on("timeout", () => {
 			req.destroy()
 			reject(new Error(`RequestV2 to ${url} timed out`))

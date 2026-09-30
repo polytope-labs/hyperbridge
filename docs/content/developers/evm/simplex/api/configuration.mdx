@@ -1,0 +1,185 @@
+---
+title: Configuration
+description: Read the running config, and change the chains, the order allowlist and the markets over the solver's HTTP API.
+---
+
+# Configuration
+
+These routes read and change the solver's configuration while it runs. The dashboard's **Operations** page uses them.
+
+Changes made here are written back to the config file, so they survive a restart. Each response says whether that worked, as `persisted`. It is `false` when the filler was started from a config object rather than a file, or when the file could not be written.
+
+The [configuration guide](/developers/evm/simplex/configuration) explains the settings themselves.
+
+## GET /api/config
+
+Returns the running config, with its secrets masked, plus the lists the dashboard's forms offer.
+
+```bash lineNumbers
+curl -s $SIMPLEX/api/config
+```
+
+```json lineNumbers
+{
+  "configPath": "/home/operator/filler-config.toml",
+  "toml": "[simplex]\nmaxConcurrentOrders = 5\n…",
+  "logLevel": "info",
+  "vaultConfigured": true,
+  "allowlistUsers": [],
+  "vaults": [
+    { "chain": "EVM-8453", "vault": "0xC768c589647798a6EE01A91FdE98EF2ed046DBD6",
+      "threshold": "5000", "minBalance": "3000" }
+  ],
+  "sendTokens": {
+    "EVM-8453": [
+      { "symbol": "ETH", "address": "native" },
+      { "symbol": "USDC", "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" }
+    ]
+  },
+  "knownVaults": {
+    "EVM-8453": [ { "label": "Aave stataUSDC", "address": "0x…", "asset": "USDC" } ]
+  },
+  "tunnel": { "enabled": true, "devices": 1 }
+}
+```
+
+| Field | Description |
+|---|---|
+| `configPath` | The config file changes are saved to. Absent when the filler was started from a config object. |
+| `toml` | The running config as TOML. The signer's key and API credentials, the Substrate key, Binance credentials, and API keys inside RPC and bundler URLs are masked. |
+| `logLevel` | The current log level. |
+| `vaultConfigured` | Whether the solver started with a vault treasury. |
+| `allowlistUsers` | The addresses on the order allowlist. Empty means every address is accepted. |
+| `vaults` | The configured vaults. |
+| `sendTokens` | For each chain, the tokens the dashboard's Send form offers: the native token, and each token in the asset registry. |
+| `knownVaults` | For each chain on the network, the vaults the dashboard offers when adding one to the treasury. |
+| `tunnel` | Whether remote access is on, and how many devices are paired. Absent when the filler has no remote access. |
+
+## GET /api/chains
+
+Returns the configured chains, and every chain that could be added on the same network.
+
+```bash lineNumbers
+curl -s $SIMPLEX/api/chains
+```
+
+```json lineNumbers
+{
+  "chains": [
+    { "chainId": 8453, "stateMachineId": "EVM-8453", "label": "Base",
+      "rpcUrls": ["https://base-mainnet.g.alchemy.com/v2/…", "https://…"],
+      "bundlerUrl": "https://…", "watchOnly": false, "running": true }
+  ],
+  "catalog": [
+    { "chainId": 1, "stateMachineId": "EVM-1", "label": "Ethereum", "network": "mainnet", "…": "…" }
+  ],
+  "network": "mainnet",
+  "globalWatchOnly": false
+}
+```
+
+<Callout type="warn">
+    Unlike `/api/config`, this route returns RPC and bundler URLs in full, with any API keys in them,
+    so that the chain editor can send them back unchanged.
+</Callout>
+
+| Field | Description |
+|---|---|
+| `chains` | One entry per `[[chains]]` block in the config. `running` is `false` for a chain added since the solver started. It starts filling after a restart. |
+| `catalog` | Every chain the setup wizard offers on this network, with its label, explorer and default RPC endpoints. |
+| `network` | `mainnet` or `testnet`. A solver runs on one network. |
+| `globalWatchOnly` | `true` when `watchOnly` in `[simplex]` is a single on/off value for every chain. Per-chain `watchOnly` changes are then ignored. |
+
+## PUT /api/chains
+
+Replaces the chain set: which chains the solver runs on, their RPC endpoints, their bundlers, and which are watch-only. The body lists every chain you want to keep.
+
+```bash lineNumbers
+curl -s -X PUT $SIMPLEX/api/chains \
+    -H 'Content-Type: application/json' -H 'X-Simplex-UI: 1' \
+    -d '{
+          "chains": [
+            { "chainId": 8453,
+              "rpcUrls": ["https://base-mainnet.g.alchemy.com/v2/KEY", "https://base-rpc.publicnode.com"],
+              "bundlerUrl": "https://base-mainnet.g.alchemy.com/v2/KEY",
+              "watchOnly": false }
+          ]
+        }'
+# → { "applied": false, "restartNeeded": true, "persisted": true, "chains": [8453], "removed": [56] }
+```
+
+| Field | Description |
+|---|---|
+| `chainId` | The chain's numeric ID. |
+| `rpcUrls` | At least one RPC URL, each on a different domain, as the [RPC quorum](/developers/evm/simplex/confirmations#rpc-quorum) needs. |
+| `bundlerUrl` | Required. The bundler that submits fill UserOperations. |
+| `watchOnly` | Optional. Watch this chain without filling on it. |
+
+Chains are wired up when the solver starts, so the new set is saved and takes effect on the next restart. The response always has `applied: false` and `restartNeeded: true`. `removed` lists the chains that were dropped.
+
+Every chain is checked the way a restart would check it, and a failure answers `400` with nothing saved:
+
+- Each RPC URL that is new for its chain must answer, and must report that chain's ID.
+- Each chain needs a confirmation policy. Mainnet chains have built-in ones, and testnet chains get a default.
+- Every market's tokens must still resolve on the new chain set.
+- A chain that still has a vault in the treasury cannot be dropped. Remove the vault first.
+
+## PUT /api/allowlist
+
+Replaces the order allowlist. Simplex then fills only orders placed by these addresses. The change applies straight away.
+
+```bash lineNumbers
+curl -s -X PUT $SIMPLEX/api/allowlist \
+    -H 'Content-Type: application/json' -H 'X-Simplex-UI: 1' \
+    -d '{ "users": ["0x1234567890abcdef1234567890abcdef12345678"] }'
+# → { "users": ["0x1234567890abcdef1234567890abcdef12345678"], "persisted": true }
+```
+
+An empty list accepts orders from everyone. This route sets the global list only. Per-source-chain lists under `[allowlist.bySource]` are left as they are. An invalid address answers `400`.
+
+## GET /api/strategies
+
+Lists the markets in the config, one per `[[pairs]]` entry. A market does not set prices, and does not decide which orders are filled. Limit orders do both. Adding a market whose two tokens differ makes the solver track its second token's balances.
+
+```bash lineNumbers
+curl -s $SIMPLEX/api/strategies
+```
+
+```json lineNumbers
+{
+  "strategies": [
+    { "index": 0, "exotic": "USDC/CNGN", "token0": "USDC", "token1": "CNGN", "sameToken": false }
+  ]
+}
+```
+
+`index` is what [`DELETE /api/strategies/:index`](#delete-apistrategiesindex) takes. `sameToken` is `true` for a market such as `USDC/USDC`.
+
+## POST /api/strategies
+
+Adds a market. Both tokens must be symbols in the asset registry. To add a token the registry does not know, define it in `assets`, with its address on each chain.
+
+```bash lineNumbers
+curl -s -X POST $SIMPLEX/api/strategies \
+    -H 'Content-Type: application/json' -H 'X-Simplex-UI: 1' \
+    -d '{ "token0": "USDC", "token1": "MYTOKEN",
+          "assets": { "MYTOKEN": { "EVM-8453": "0x…" } } }'
+# → { "applied": true, "restartNeeded": false, "persisted": true, "strategy": { "index": 1, ... } }
+```
+
+The new market applies straight away. A symbol that is already defined cannot be redefined while the solver runs, and trying answers `400`.
+
+## DELETE /api/strategies/:index
+
+Removes a market. It never touches funds.
+
+```bash lineNumbers
+curl -s -X DELETE -H 'X-Simplex-UI: 1' $SIMPLEX/api/strategies/1
+# → { "applied": true, "restartNeeded": false, "persisted": true }
+```
+
+An unknown index answers `404`. The last market cannot be removed while the solver runs. Edit the config and restart instead.
+
+## Validation probes
+
+The dashboard's chain editor checks RPC endpoints, bundlers and Alchemy keys before it saves them. It uses four routes from the setup wizard, which stay open while the solver runs. See [Validation probes](/developers/evm/simplex/api/setup#validation-probes) on the setup wizard page.

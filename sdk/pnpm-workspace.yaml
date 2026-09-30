@@ -1,20 +1,41 @@
 packages:
   - 'packages/*'
+overrides:
+  viem: 2.47.6
+  vite: 6.4.2
+  # Simplex uses @vitejs/plugin-react 6, which requires Vite 8's internal API.
+  '@hyperbridge/simplex>vite': 8.0.16
+  # subql's codegen CLI still passes pino 6's removed prettyPrint option, so this
+  # pin covers the package that ships pino instead of the whole graph.
+  '@hyperbridge/simplex>pino': ~10.3.1
+  # axios only arrives transitively (tronweb, @binance/*, subql, stellar-sdk,
+  # hardhat-deploy). Consumers stay on their own major, floored at the first
+  # release that fixes the July 2026 advisories (1.18.0 and 0.33.0).
+  'axios@>=1': ^1.18.0
+  'axios@<1': '>=0.33.0 <1'
 allowBuilds:
   '@biomejs/biome': true
   '@cosmology/protobufjs': true
   '@nestjs/core': true
-  better-sqlite3: true
   bufferutil: true
+  cpu-features: false
   es5-ext: false
   esbuild: true
+  electron: true
   keccak: true
   protobufjs: true
   secp256k1: true
   sodium-native: true
-  utf-8-validate: true
+  ssh2: false
+  # ws treats this as an optional performance dependency. Node 24 arm64 has no
+  # compatible prebuild, and compiling it is not required by the desktop app.
+  utf-8-validate: false
 blockExoticSubdeps: true
 minimumReleaseAge: 43200
+minimumReleaseAgeExclude:
+  # Desktop packaging is pinned to the reviewed release before it ages through
+  # the workspace quarantine window.
+  - 'electron@44.3.0'
 trustPolicy: no-downgrade
 trustPolicyExclude:
   - 'detect-port@1.6.1'

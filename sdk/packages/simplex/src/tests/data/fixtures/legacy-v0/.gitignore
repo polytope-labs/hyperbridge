@@ -1,0 +1,3 @@
+# The repo-wide `**/*.db` rule in the root .gitignore would swallow these.
+# They are committed on purpose: see scripts/make-legacy-db-fixture.mjs.
+!*.db

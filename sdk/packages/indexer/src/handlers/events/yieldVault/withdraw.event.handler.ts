@@ -10,25 +10,28 @@ import { wrap } from "@/utils/event.utils"
  * Both `withdraw` and `redeem` emit this; `owner` is the LP whose shares were burned, `receiver`
  * the address that got the assets, `sender` the caller.
  */
-export const handleVaultWithdrawEvent = wrap(async (event: WithdrawLog): Promise<void> => {
-	if (!event.args) return
+export const handleVaultWithdrawEvent = wrap(
+	async (event: WithdrawLog): Promise<void> => {
+		if (!event.args) throw new Error("[yield-vault] Missing decoded Withdraw arguments")
 
-	const { args, address, blockNumber, blockHash, transactionHash, logIndex } = event
-	const chain = getHostStateMachine(chainId)
-	const timestamp = await getBlockTimestamp(blockHash, chain)
+		const { args, address, blockNumber, blockHash, transactionHash, logIndex } = event
+		const chain = getHostStateMachine(chainId)
+		const timestamp = await getBlockTimestamp(blockHash, chain)
 
-	await YieldVaultService.recordLedger({
-		chain,
-		vault: address,
-		lp: args.owner,
-		caller: args.sender,
-		receiver: args.receiver,
-		assets: BigInt(args.assets.toString()),
-		shares: BigInt(args.shares.toString()),
-		eventType: VaultLedgerEventType.WITHDRAW,
-		blockNumber: BigInt(blockNumber),
-		transactionHash,
-		logIndex,
-		timestamp,
-	})
-})
+		await YieldVaultService.recordLedger({
+			chain,
+			vault: address,
+			lp: args.owner,
+			caller: args.sender,
+			receiver: args.receiver,
+			assets: BigInt(args.assets.toString()),
+			shares: BigInt(args.shares.toString()),
+			eventType: VaultLedgerEventType.WITHDRAW,
+			blockNumber: BigInt(blockNumber),
+			transactionHash,
+			logIndex,
+			timestamp,
+		})
+	},
+	{ rethrowDecodeErrors: true },
+)

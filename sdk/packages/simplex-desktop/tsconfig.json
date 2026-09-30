@@ -1,0 +1,13 @@
+{
+	"$schema": "https://json.schemastore.org/tsconfig.json",
+	"extends": "../../tsconfig.base.json",
+	"compilerOptions": {
+		"module": "ESNext",
+		"moduleResolution": "bundler",
+		"outDir": "./dist",
+		"rootDir": ".",
+		"types": ["node", "electron", "vitest/globals"]
+	},
+	"include": ["src/**/*.ts", "scripts/**/*.mjs", "tsup.config.ts", "vitest.config.ts"],
+	"exclude": ["dist", "node_modules", "resources"]
+}

@@ -72,14 +72,16 @@ hyperbridgeWsUrl = ""
 # maxFeePerGasBumpPercent = 10          # Percentage added to gasPrice for max fee (default: 10)
 
 # Overfill protection (optional)
-# Bounds per-leg loss when internal pricing is wrong (bug, stale cache, manipulated venue).
-# The filler clamps its computed output to at most (1 + maxOverfillBps) × user-requested amount.
-# After `maxConsecutiveClamps` consecutive orders where the clamp activated, the strategy
-# halts itself — likely a systemic pricing error — and requires operator restart.
+# A bid offers the matched limit order's whole payout at its rate (capped by what the
+# order has left), which can be more than the swapper asked for: the gateway credits the
+# swapper the requested amount and splits the surplus between swapper and protocol.
+# Nothing is clamped. The filler logs a warning when an offer exceeds
+# (1 + maxOverfillBps / 10000) × the requested output, which usually means a limit order's
+# amounts are mistyped. `maxConsecutiveClamps` is accepted but never halts the filler.
 # If not provided, defaults will be used (maxOverfillBps = 500, maxConsecutiveClamps = 3)
 # [simplex.overfillProtection]
-# maxOverfillBps = 500          # 5% ceiling above user-requested output (default: 500)
-# maxConsecutiveClamps = 3      # Halt threshold (default: 3)
+# maxOverfillBps = 500          # warn when an offer is 5% above the requested output (default: 500)
+# maxConsecutiveClamps = 3      # accepted, currently unused (default: 3)
 
 
 # Logging level: trace, debug, info, warn, error
@@ -158,101 +160,31 @@ triggerPercentage = 0.5
 # "EVM-1"     = ["0x2222222222222222222222222222222222222222"]  # Ethereum-only partner
 # "EVM-42161" = ["0x3333333333333333333333333333333333333333"]  # Arbitrum-only partner
 
-# ===== Trading pairs =====
+# ===== Markets =====
 #
-# Every market Simplex serves is a [[pairs]] entry: cross-asset swaps
-# (USDC/CNGN) and same-asset cross-chain markets (USDC/USDC) alike. Assets are
+# Prices do not live in this file. Simplex fills only against the limit orders
+# you post to the orderbook (see [orderbook] below) while it runs: each one
+# names what it takes in, what it pays out for that, and the chain it fills on.
+# An incoming order that matches no limit order is not filled.
+#
+# [[pairs]] only names the markets the dashboard lists (and adds each
+# cross-asset pair's token1 to the balances it tracks). It does not gate
+# matching, and a config with no [[pairs]] at all is valid. Assets are
 # referenced by symbol from Simplex's built-in registry — no address
 # configuration needed. The registry ships USDC, USDT, DAI, CNGN (per-chain via
 # the SDK, testnets included) plus curated mainnet deployments of USDR, ZARP,
-# EURC, XSGD and TRYB, all verified on-chain. The registry holds addresses only;
-# the pair curves are the only price source.
+# EURC, XSGD and TRYB, all verified on-chain.
 #
-# Each pair is priced by its own curves in token1 per 1 token0 and capped per
-# order by maxOrderSize, both denominated in token0 (the curve amount axis and
-# the cap share that unit). Confirmation policies are the exception: they are
-# fed the order's USD value, derived from these curves via the USD anchors.
-# Omit one curve for one-sided LP (keep only askPriceCurve to sell token1 /
-# accumulate token0; only bidPriceCurve to buy token1). Omit both curves only
-# with [vault.uniswapV4] pool pricing. Orders whose legs match no pair are
-# rejected.
-
-# Same-asset cross-chain market (replaces the old "stable" strategy): ask-only,
-# prices strictly below par — the gap to 1 is your spread, realized on every
-# fill (par or above is a zero-or-negative spread and fails startup).
-[[pairs]]
-token0 = "USDC"
-token1 = "USDC"
-maxOrderSize = "100000"
-askPriceCurve = [
-    { amount = "100",    price = "0.99"  },   # $100 orders: 1% spread
-    { amount = "1000",   price = "0.995" },   # $1000 orders: 0.5%
-    { amount = "10000",  price = "0.9975" },  # $10k orders: 0.25%
-    { amount = "100000", price = "0.999" },   # $100k orders: 0.1%
-]
-
-[[pairs]]
-token0 = "USDT"
-token1 = "USDT"
-maxOrderSize = "100000"
-askPriceCurve = [
-    { amount = "100",    price = "0.99"  },
-    { amount = "100000", price = "0.999" },
-]
-
-# Cross-asset markets (e.g. stablecoin <-> cNGN) — uncomment and configure:
+# One orientation per market: declaring both USDC/CNGN and CNGN/USDC is refused.
+# token0 == token1 is the same-asset cross-chain market.
 #
 # [[pairs]]
 # token0 = "USDC"
 # token1 = "CNGN"
-# maxOrderSize = "5000"       # per-order cap in token0 units (5000 USDC)
-# bidPriceCurve = [           # CNGN per USDC when *buying* CNGN from a user
-#     { amount = "100",  price = "1580" },
-#     { amount = "1000", price = "1575" },
-#     { amount = "5000", price = "1570" },
-# ]
-# askPriceCurve = [           # CNGN per USDC when *selling* CNGN to a user
-#     { amount = "100",  price = "1560" },
-#     { amount = "1000", price = "1555" },
-#     { amount = "5000", price = "1550" },
-# ]
-#
-# [[pairs]]
-# token0 = "USDT"             # priced independently of the USDC pair
-# token1 = "CNGN"
-# maxOrderSize = "5000"
-# bidPriceCurve = [ { amount = "0", price = "1578" } ]
-# askPriceCurve = [ { amount = "0", price = "1552" } ]
-#
-# [[pairs]]
-# token0 = "ZARP"             # non-USD quote side — shipped by the registry
-# token1 = "CNGN"
-# maxOrderSize = "90000"      # 90,000 ZARP per order
-# bidPriceCurve = [ { amount = "0", price = "86" } ]
-# askPriceCurve = [ { amount = "0", price = "84" } ]
-#
-# Every pair's token0 must have a USD anchor: be a USD stable, or connect to
-# one through your own curve-priced pairs — confirmation depth is sized in USD
-# and your curves are the only price feed. ZARP above is anchored transitively:
-# USDC/CNGN prices CNGN in USD, and ZARP/CNGN's curve prices ZARP through CNGN.
-# A config whose token0 cannot be anchored fails at startup.
-#
-# To anchor an asset WITHOUT opening a market for it, declare the anchoring
-# pair referenceOnly: it contributes its rate to the anchor graph but never
-# fills orders (maxOrderSize not needed). E.g. a lone cNGN/cNGN transfer
-# market anchored by a reference USDC/CNGN quote:
 #
 # [[pairs]]
 # token0 = "USDC"
-# token1 = "CNGN"
-# referenceOnly = true        # price feed only — no USDC/CNGN market opened
-# askPriceCurve = [ { amount = "0", price = "1565" } ]
-#
-# [[pairs]]
-# token0 = "CNGN"
-# token1 = "CNGN"
-# maxOrderSize = "5000000"
-# askPriceCurve = [ { amount = "0", price = "0.995" } ]
+# token1 = "USDC"
 #
 # [assets] is an OPTIONAL escape hatch: only needed for assets the registry
 # does not ship, or to override a shipped address for your deployment.
@@ -261,9 +193,9 @@ askPriceCurve = [
 
 # Per-chain confirmation policies for cross-chain orders (optional).
 # Merged over built-in defaults (ETH, BSC, Polygon, Base, Arbitrum, Unichain);
-# every configured chain must be covered or startup fails. The curve amount
-# axis is the order's USD value, derived from your pair curves via the USD
-# anchors — honest for non-USD pairs too.
+# every configured chain must be covered or startup fails, testnets included.
+# The curve amount axis is the order's USD value: USD stables count at $1, and
+# other tokens are valued through the rates of your open limit orders.
 [confirmationPolicies."1"]  # Ethereum Mainnet
 points = [
     { amount = "5", value = 3 },
@@ -278,35 +210,27 @@ points = [
     { amount = "5000", value = 15 },
 ]
 
-# Uniswap V4 LP positions (optional) — exotic-token funding and pool-based
-# pricing for cross-asset pairs without curves (USD-stable token0 only).
-# Optional per-position price guard: referencePrice (token1 per USD) +
-# maxDeviationBps reject orders when the live pool quote drifts out of band.
-# One-sided pool pricing: side = "ask" (sell token1) or "bid" (buy token1).
-#
-# [vault.uniswapV4]
-# spreadBps = 50              # LP redemption slippage tolerance (default 50)
-# side = "ask"
-# positions = [
-#     { chain = "EVM-8453", tokenId = "2087350", referencePrice = "1575", maxDeviationBps = 200 },
-# ]
+# The HyperFX orderbook simplex advertises its limit orders on. Required: every
+# fill is priced from those limit orders, and simplex has no prices of its own.
+# The limit orders themselves are not configured here — they are created from
+# the dashboard's Limit orders page or POST /api/limit-orders and live in
+# bids.db, because they are inventory you open and close while the filler runs.
+# A URL without /graphql has it appended.
+[orderbook]
+url = "https://orderbook.hyperfx.finance/mainnet/graphql"   # testnet: https://orderbook.hyperfx.finance/testnet/graphql
+# defaultTtlSecs = 31536000     # how long an order lives, and its posting's TTL; default 365 days, floor 900
+# reconcileIntervalSecs = 300   # how often to check the orderbook still matches (default 300)
+# requestTimeoutMs = 10000      # per orderbook request (default 10000)
 
 
-# Phantom order generator (optional)
-# Places expired same-chain swaps to collect price and liquidity bids from fillers.
-# Requires hyperbridgeWsUrl and substratePrivateKey to be set in [simplex].
-#
-# [phantom_generator]
+# Remote access from a phone. Off by default. When enabled, simplex keeps an outbound
+# SSH tunnel to a relay so a phone's SSH client can open this UI with a local port
+# forward; the phone's session terminates inside simplex, the relay only sees ciphertext.
+# Pair devices from the UI (Operations > Remote access); keys live under <data-dir>/tunnel/.
+# [simplex.tunnel]
 # enabled = true
-# chain = "EVM-8453"        # Chain where phantom orders are placed
-# interval_hours = 1        # How often to run a round (default: 1 hour)
-#
-# [[phantom_generator.token_pairs]]
-# token_a = "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"  # USDC
-# token_b = "0xdac17f958d2ee523a2206206994597c13d831ec7"  # USDT
-# standard_amount = "1000000000"   # 1000 USDC (6 decimals)
-# min_output = "990000000"         # 990 USDT minimum
-
+# relay = "simplex.tunnel.polytope.technology:443"   # host[:port], port defaults to 443
+# relayHostKey = "SHA256:..."                          # pin for a self-hosted relay; the hosted one is built in
 
 # Chain configuration - RPC and bundler URLs are required
 # Chain IDs are resolved automatically from the RPC endpoints.

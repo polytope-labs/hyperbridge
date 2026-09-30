@@ -298,7 +298,7 @@ contract BandwidthManagerTest is Test {
             stateMachines: stateMachines
         });
         h = new TestHost(params);
-        hm.setIsmpHost(address(h));
+        hm.init(address(h));
     }
 
     function _setTier(BandwidthManager m, TestHost h, uint256 tier, uint256 price18d) internal {

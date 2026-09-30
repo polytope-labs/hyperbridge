@@ -48,9 +48,9 @@ alloy_sol_macro::sol! {
 	function setIsmpHost(address hostAddr, address tokenFaucet) external;
 }
 
-fn host_manager_set_ismp_host(addr: Address) -> Vec<u8> {
+fn host_manager_init(addr: Address) -> Vec<u8> {
 	let selector: [u8; 4] =
-		alloy_primitives::keccak256(b"setIsmpHost(address)").0[..4].try_into().unwrap();
+		alloy_primitives::keccak256(b"init(address)").0[..4].try_into().unwrap();
 	let mut calldata = selector.to_vec();
 	calldata.extend_from_slice(&addr.abi_encode());
 	calldata
@@ -158,7 +158,8 @@ impl TestEnv {
 			(env.sender, "HyperUSD".to_string(), "USD.h".to_string()).abi_encode_params();
 		env.fee_token = env.deploy_raw([bytecode, constructor_args].concat());
 
-		// 4. Deploy HostManager: constructor(HostManagerParams)
+		// 4. Deploy HostManager: constructor(HostManagerParams). `sender` is its admin: the only
+		// account allowed to bind the host, and the only relayer every test delivers as.
 		let bytecode = load_and_link_artifact(&mut env, &out_dir, "HostManager");
 		let params = HostManagerParams { admin: env.sender, host: Address::ZERO };
 		let constructor_args = SolValue::abi_encode(&params);
@@ -194,8 +195,8 @@ impl TestEnv {
 		);
 		env.evm.ctx.block.timestamp = U256::from(1);
 
-		// 8. Configure: setIsmpHost on HostManager
-		env.call(env.manager, host_manager_set_ismp_host(env.host));
+		// 8. Configure: bind the HostManager to the host.
+		env.call(env.manager, host_manager_init(env.host));
 
 		// 9. Token approvals
 		env.call(

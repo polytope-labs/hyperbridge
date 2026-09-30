@@ -1,4 +1,4 @@
-import type { Order, ExecutionResult, IntentsCoprocessor, TokenInfo } from "@hyperbridge/sdk"
+import type { Order, ExecutionResult, HexString, IntentsCoprocessor } from "@hyperbridge/sdk"
 
 /**
  * An execution outcome that can also report a still-pooled bid.
@@ -11,6 +11,11 @@ import type { Order, ExecutionResult, IntentsCoprocessor, TokenInfo } from "@hyp
  */
 export interface FillResult extends ExecutionResult {
 	pending?: boolean
+	/**
+	 * The identifier Hyperbridge files the bid under, once its op was built:
+	 * `keccak256` of its calldata. It tells the bids on one order apart, and retracting the bid names it.
+	 */
+	bid?: HexString
 }
 import type { Decimal } from "decimal.js"
 
@@ -36,11 +41,4 @@ export interface FillerStrategy {
 	confirmationPolicy?: {
 		getConfirmationBlocks: (chainId: number, amountUsd: number) => number
 	}
-
-	/**
-	 * Quote fill outputs for a phantom (expired same-chain) order.
-	 * Returns the token amounts the strategy would provide without gas estimation.
-	 * Returns null when the strategy cannot handle this token pair.
-	 */
-	quotePhantomFill?(order: Order): Promise<TokenInfo[] | null>
 }

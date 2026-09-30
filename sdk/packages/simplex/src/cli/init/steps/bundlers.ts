@@ -1,8 +1,8 @@
 import { confirm } from "@clack/prompts"
-import { isAlchemyUrl } from "../derive/alchemy"
+import { deriveAlchemyRpc, isAlchemyUrl } from "../derive/alchemy"
 import { parsePimlicoUrl, derivePimlicoBundler } from "../derive/pimlico"
 import { ProviderDerivation, askDerivedOrCustom } from "../derive-flow"
-import { guard, why, askUrl } from "../prompt-utils"
+import { guard, why, askUrl, askSecret } from "../prompt-utils"
 import { WHY } from "../help-text"
 import type { Prefill, WizardState } from "../state"
 
@@ -26,6 +26,27 @@ export async function stepBundlers(state: WizardState, prefill?: Prefill): Promi
 		)
 		if (reuse) {
 			for (const chain of alchemyChains) chain.bundlerUrl = chain.rpcUrls[0]
+		}
+	}
+
+	// With public RPC sets the operator may have no Alchemy URL anywhere in the
+	// config, so there is nothing for the shortcut above to reuse. Alchemy serves
+	// bundler methods on its ordinary endpoint, so the key alone is enough — and
+	// with the reads already covered, it is the only account this wizard needs.
+	const alchemyCapable = state.chains.filter((chain) => !chain.bundlerUrl && chain.meta.alchemySubdomain)
+	if (alchemyCapable.length > 0) {
+		const useKey = guard(
+			await confirm({
+				message: `Configure the bundler for ${alchemyCapable.map((c) => c.meta.label).join(", ")} from one Alchemy API key?`,
+				initialValue: true,
+			}),
+		)
+		if (useKey) {
+			const apiKey = await askSecret("Alchemy API key")
+			for (const chain of alchemyCapable) {
+				const url = deriveAlchemyRpc(apiKey, chain.meta.chainId)
+				if (url) chain.bundlerUrl = url
+			}
 		}
 	}
 

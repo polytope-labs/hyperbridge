@@ -17,17 +17,19 @@ pragma solidity ^0.8.24;
 import {IDispatcher} from "@hyperbridge/core/interfaces/IDispatcher.sol";
 import {
     TokenInfo,
+    FillOptions,
+    PaymentInfo,
     Order,
     Params,
     ParamsUpdate,
     SweepDust,
-    WithdrawalRequest,
     SelectOptions,
     Deployment
 } from "@hyperbridge/core/apps/IntentGatewayV2.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 
@@ -59,18 +61,19 @@ abstract contract IntentsBase is EIP712 {
     bytes32 public constant SELECT_SOLVER_TYPEHASH = keccak256("SelectSolver(bytes32 commitment,address solver)");
 
     /**
-     * @dev Sentinel address used as the key for storing Hyperbridge relayer fees
-     * in the `_orders` mapping. Derived from keccak256("txFees") to avoid
-     * collisions with real token addresses.
+     * @dev Sentinel key under which the Hyperbridge relayer fees are held in `_orders`. The low
+     * 160 bits of keccak256("txFees"), far above any leg index, and the same slot the fee pot
+     * occupied when `_orders` was keyed by token address.
      */
-    address internal constant TRANSACTION_FEES = address(uint160(uint256(keccak256("txFees"))));
+    uint256 internal constant TRANSACTION_FEES = uint160(uint256(keccak256("txFees")));
 
     /**
-     * @dev Big-endian encoding of storage slot 2 (the `_filled` mapping slot).
-     * Used to construct storage proof keys for cross-chain cancel verification.
+     * @dev Big-endian encoding of storage slot 11 (the `_partialFills` mapping slot).
+     * Used to construct storage proof keys for cross-chain partial-fill cancel verification.
+     * Asserted against the compiled storage layout in the test suite to catch layout drift.
      */
-    bytes32 constant FILLED_SLOT_BIG_ENDIAN_BYTES =
-        hex"0000000000000000000000000000000000000000000000000000000000000002";
+    bytes32 constant PARTIAL_FILLS_SLOT_BIG_ENDIAN_BYTES =
+        hex"000000000000000000000000000000000000000000000000000000000000000b";
 
     /**
      * @dev The ArbSys precompile address on Arbitrum chains.
@@ -110,9 +113,19 @@ abstract contract IntentsBase is EIP712 {
          */
         RefundEscrow,
         /**
-         * @dev Upgrade the gateway implementation behind its ERC-1967 proxy.
+         * @dev Delegatecall the extrinsic module with the rest of the body as calldata, the host
+         * still `msg.sender`. Governance's one door to the host-only functions:
+         * `upgradeToAndCall` for upgrades, `setRelayer` for rotations. Same discriminator as the
+         * `UpgradeContract` action of earlier implementations, whose `(address, bytes)` body
+         * selects no function here and reverts.
          */
-        UpgradeContract
+        Execute,
+        /**
+         * @dev Release a proportional slice of escrowed tokens to the solver after a
+         * cross-chain partial fill, without finalizing the order. The completing fill
+         * uses `RedeemEscrow` (which finalizes and forwards accumulated fees).
+         */
+        RedeemEscrowPartial
     }
 
     /**
@@ -134,22 +147,26 @@ abstract contract IntentsBase is EIP712 {
     Params internal _params;
 
     /**
-     * @dev Maps (commitment, token address) to the escrowed amount for that token.
-     * Decremented as tokens are released via fills or refunds.
+     * @dev Maps (commitment, leg index) to the escrow still held for `order.inputs[index]`, and
+     * `TRANSACTION_FEES` to the relayer fee pot. Decremented as the leg is released via fills or
+     * refunds. Keyed by leg rather than token so legs that repeat a token never share a balance.
      */
-    mapping(bytes32 => mapping(address => uint256)) public _orders;
+    mapping(bytes32 => mapping(uint256 => uint256)) public _orders;
 
     /**
      * @dev Maps keccak256(stateMachineId) to the registered gateway address for
      * that chain. Used for authenticating cross-chain messages and routing dispatches.
+     * Read through `instance(bytes)`; the auto-generated getter was dropped for EIP-170 room.
      */
-    mapping(bytes32 => address) public _instances;
+    mapping(bytes32 => address) internal _instances;
 
     /**
-     * @dev Maps (commitment, output token) to the cumulative amount already filled.
-     * Used to track partial fill progress for same-chain orders.
+     * @dev Maps (commitment, leg index) to the cumulative amount of `order.output.assets[index]`
+     * already filled, on the chain the order is filled on. Keyed by leg rather than token so legs
+     * that repeat an output token track their progress independently. Proven cross-chain by
+     * source-side cancellation, see `_calculatePartialFillSlotHash`.
      */
-    mapping(bytes32 => mapping(bytes32 => uint256)) public _partialFills;
+    mapping(bytes32 => mapping(uint256 => uint256)) public _partialFills;
 
     /**
      * @dev Maps keccak256(stateMachineId) to a destination-specific protocol fee
@@ -157,8 +174,53 @@ abstract contract IntentsBase is EIP712 {
      */
     mapping(bytes32 => uint256) public _destinationProtocolFees;
 
-    /// @dev Appended last to preserve existing storage slots.
-    bool public _paused;
+    /**
+     * @dev Once set, the only relayer whose deliveries `onAccept` and `onGetResponse` accept. Slot 13
+     * offset 0. Earlier implementations packed it at offset 1, behind an unused `bool _paused` that
+     * has since been removed; `IntentGatewayV2.migrate` moves it.
+     */
+    address internal _relayer;
+
+    /// @dev Exact placement fee and original post-fee input; absent for legacy and zero-fee orders.
+    struct ProtocolFee {
+        uint256 amount;
+        uint256 committed;
+    }
+
+    /// @dev Appended accounting shared by the implementation and both delegatecall modules, keyed
+    /// by (commitment, leg index) like `_orders`.
+    mapping(bytes32 => mapping(uint256 => ProtocolFee)) public _protocolFees;
+
+    /// @dev One fill's per-leg outcome, returned by a module's `fillOrder`.
+    struct FillResult {
+        /// @dev Escrow released to the solver per leg; zero for legs this fill did not advance.
+        TokenInfo[] releasedInputs;
+        /// @dev Output credited to the order per leg, excluding surplus.
+        TokenInfo[] creditedOutputs;
+        bool fullyFilled;
+        /// @dev `msg.value` left after native outputs were paid.
+        uint256 nativeRemaining;
+    }
+
+    /// @dev A payout from an order's escrow. Unlike `WithdrawalRequest`, never sent cross-chain.
+    struct Withdrawal {
+        /// @dev The order whose escrow is paid out.
+        bytes32 commitment;
+        /// @dev Receives the tokens, and is recorded in `_filled` on finalize.
+        bytes32 beneficiary;
+        /// @dev Amount paid out of each leg's escrow, by leg index.
+        TokenInfo[] tokens;
+        /// @dev Emits `EscrowRefunded` instead of `EscrowReleased`.
+        bool isRefund;
+        /// @dev Settles the order and its fees.
+        bool finalize;
+    }
+
+    /**
+     * @dev This contract's own address. Under delegatecall `address(this)` is the proxy instead,
+     * so a module uses this to refuse direct calls and to delegatecall itself for `Execute`.
+     */
+    address internal immutable __self = address(this);
 
     /**
      * @dev Thrown when the caller is not authorized to perform the action.
@@ -198,17 +260,12 @@ abstract contract IntentsBase is EIP712 {
     error Filled();
 
     /**
-     * @dev Thrown when attempting to act on an already cancelled order.
-     */
-    error Cancelled();
-
-    /**
      * @dev Thrown when an operation is invoked on the wrong chain for the given order.
      */
     error WrongChain();
 
     /**
-     * @dev Thrown when no escrow exists for the given commitment and token.
+     * @dev Thrown when no escrow exists for the given commitment and leg.
      */
     error UnknownOrder();
 
@@ -222,6 +279,15 @@ abstract contract IntentsBase is EIP712 {
      * output calldata. Such orders must be filled completely in a single fill.
     */
     error PartialFillNotAllowed();
+    /**
+     * @dev Thrown when a leg's quoted output over quoted input is below the order's own rate.
+     */
+    error RateBelowOrder();
+    /**
+     * @dev Thrown when a fill credits no output or releases no input on any leg, including
+     * fills whose quotes are all zero or too small to move a leg by one unit.
+     */
+    error RateFillTooSmall();
 
     /**
      * @dev Emitted when a new intent order is placed and input tokens are escrowed.
@@ -261,27 +327,30 @@ abstract contract IntentsBase is EIP712 {
      * @dev Emitted when an order is fully filled by a solver.
      * @param commitment The order commitment hash.
      * @param filler The address of the solver who filled the order.
-     * @param outputs The output token amounts provided by the solver.
+     * @param outputs The credited output amounts, excluding surplus.
      * @param inputs The escrowed input tokens released to the solver.
      */
     event OrderFilled(bytes32 indexed commitment, address filler, TokenInfo[] outputs, TokenInfo[] inputs);
 
     /**
-     * @dev Emitted when an order is partially filled by a solver. Only applicable
-     * to same-chain orders which support incremental fills.
+     * @dev Emitted when an order is partially filled by a solver, on either route. A same-chain
+     * fill releases the escrow it earns in the same transaction; a cross-chain one asks the source
+     * chain for it with `RedeemEscrowPartial`.
      * @param commitment The order commitment hash.
      * @param filler The address of the solver who provided this partial fill.
-     * @param outputs The output token amounts provided in this fill.
+     * @param outputs The credited output amounts in this fill, excluding surplus.
      * @param inputs The proportional escrowed input tokens released to the solver.
      */
     event PartialFill(bytes32 indexed commitment, address filler, TokenInfo[] outputs, TokenInfo[] inputs);
 
     /**
-     * @dev Emitted when escrowed tokens are released to the solver after a successful fill.
+     * @dev Emitted when escrowed tokens are released to the solver after a successful (full or
+     * partial) fill. For cross-chain partial fills this is the only source-chain signal of release.
      * @param commitment The order commitment hash.
+     * @param solver The recipient of the released escrow.
      * @param tokens The tokens and amounts released.
      */
-    event EscrowReleased(bytes32 indexed commitment, TokenInfo[] tokens);
+    event EscrowReleased(bytes32 indexed commitment, address solver, TokenInfo[] tokens);
 
     /**
      * @dev Emitted when escrowed tokens are refunded to the original user after cancellation.
@@ -290,14 +359,17 @@ abstract contract IntentsBase is EIP712 {
      */
     event EscrowRefunded(bytes32 indexed commitment, TokenInfo[] tokens);
 
+    /// @dev Protocol fee returned on cancellation, separate from principal in EscrowRefunded.
+    event ProtocolFeeRefunded(bytes32 indexed commitment, address indexed token, uint256 amount);
+
     /**
      * @dev Emitted when an order's cancellation is initiated, on the chain it is initiated from.
      * For same-chain orders the refund is processed in the same transaction and `EscrowRefunded`
      * follows; for cross-chain orders `EscrowRefunded` follows on the source chain once the
      * cancellation has travelled through Hyperbridge.
      * @param commitment The order commitment hash.
-     * @param canceller The account that initiated the cancellation. The destination-side route is
-     * permissionless after expiry, so this is not necessarily the order's creator.
+     * @param canceller The account that initiated the cancellation. Destination-side cancellation
+     * and expired same-chain cancellation are permissionless, so this may be a third party.
      */
     event OrderCancelled(bytes32 indexed commitment, address canceller);
 
@@ -317,7 +389,7 @@ abstract contract IntentsBase is EIP712 {
 
     /**
      * @dev Emitted when surplus tokens are retained by the protocol. This includes
-     * protocol fee deductions, surplus shares from overpayment, and residual
+     * settled protocol fees, surplus shares from overpayment, and residual
      * balances swept from the CallDispatcher after calldata execution.
      * @param token The token address (address(0) for native token).
      * @param amount The amount collected.
@@ -340,31 +412,37 @@ abstract contract IntentsBase is EIP712 {
     event DestinationProtocolFeeUpdated(string chain, uint256 feeBps);
 
     /**
-     * @dev Returns the address of the Hyperbridge host contract. This function is virtual
-     * to allow derived contracts to resolve diamond inheritance conflicts.
-     * @return The host contract address from stored params.
+     * @dev Emitted when the authorised relayer is replaced.
+     * @param previous The relayer that was authorised before this change.
+     * @param current The relayer authorised from now on.
+     */
+    event RelayerUpdated(address previous, address current);
+
+    /**
+     * @dev The Hyperbridge host.
      */
     function host() public view virtual returns (address) {
         return _params.host;
     }
 
     /**
-     * @dev Returns the EIP-712 domain separator for this contract. Used by off-chain
-     * signers to construct typed data hashes for solver selection signatures.
-     * @return The EIP-712 domain separator hash.
+     * @dev The EIP-712 domain separator for solver selection signatures.
      */
     function DOMAIN_SEPARATOR() public view returns (bytes32) {
         return _domainSeparatorV4();
     }
 
     /**
-     * @dev Returns the current block number of the host chain. Order deadlines are
-     * denominated in the block heights Hyperbridge tracks for each state machine —
-     * for Arbitrum chains that is the L2 block number, but the `block.number` opcode
-     * there returns the approximate L1 block number, so the ArbSys precompile is
-     * queried instead. The chain id check keeps the bytecode identical across all
-     * chains, preserving the deterministic CREATE2 deployment addresses.
-     * @return The chain-appropriate current block number.
+     * @notice The only relayer whose deliveries are accepted, or zero while the gate is open.
+     */
+    function relayer() external view returns (address) {
+        return _relayer;
+    }
+
+    /**
+     * @dev The block number order deadlines use. On Arbitrum that is the L2 block from ArbSys;
+     * checking the chain id keeps the bytecode, and so the CREATE2 address, the same on every
+     * chain.
      */
     function _blockNumber() internal view returns (uint256) {
         if (block.chainid == ARBITRUM_ONE || block.chainid == ARBITRUM_NOVA || block.chainid == ARBITRUM_SEPOLIA) {
@@ -374,10 +452,7 @@ abstract contract IntentsBase is EIP712 {
     }
 
     /**
-     * @dev Resolves the IntentGateway instance address for a given state machine.
-     * Reverts with `UnknownInstance` if no remote deployment has been registered for that chain.
-     * @param stateMachineId The raw state machine identifier bytes.
-     * @return The gateway address for the given state machine.
+     * @dev The gateway registered for `stateMachineId`. Reverts `UnknownInstance` if there is none.
      */
     function _instance(bytes calldata stateMachineId) internal view returns (address) {
         address gateway = _instances[keccak256(stateMachineId)];
@@ -386,90 +461,269 @@ abstract contract IntentsBase is EIP712 {
     }
 
     /**
-     * @dev Computes the storage slot hash for a given commitment in the `_filled` mapping.
-     * This is used to construct storage proof keys for cross-chain cancellation verification
-     * via Hyperbridge GET requests.
-     * @param commitment The order commitment hash.
-     * @return The ABI-encoded storage slot hash.
+     * @dev Sends native tokens, reverting `InsufficientNativeToken` if refused.
      */
-    function _calculateCommitmentSlotHash(bytes32 commitment) internal pure returns (bytes memory) {
-        return abi.encodePacked(keccak256(abi.encodePacked(commitment, FILLED_SLOT_BIG_ENDIAN_BYTES)));
+    function _sendValue(address to, uint256 amount) internal {
+        (bool sent,) = to.call{value: amount}("");
+        if (!sent) revert InsufficientNativeToken();
     }
 
     /**
-     * @dev Releases escrowed tokens to a beneficiary. Iterates over the withdrawal request's
-     * token list, decrements the escrow balance for each, and transfers tokens out.
-     *
-     * When `finalize` is true, the order is marked as filled in the `_filled` mapping,
-     * any accumulated transaction fees (in the protocol fee token) are forwarded to the
-     * beneficiary, and the appropriate event (EscrowReleased or EscrowRefunded) is emitted.
-     *
-     * When `finalize` is false (partial fills), only the proportional token amounts are
-     * released without finalizing the order.
-     *
-     * @param body The withdrawal request containing the commitment, token amounts, and beneficiary.
-     * @param isRefund If true, emits EscrowRefunded instead of EscrowReleased on finalization.
-     * @param finalize If true, marks the order as complete and releases accumulated fees.
+     * @dev Checks every leg's shape, skipped and completed legs included, before any transfer.
      */
-    function _withdraw(WithdrawalRequest memory body, bool isRefund, bool finalize) internal {
-        address beneficiary = address(uint160(uint256(body.beneficiary)));
-        if (finalize) _filled[body.commitment] = beneficiary;
+    function _validateLegs(Order calldata order, FillOptions calldata options) private pure {
+        for (uint256 i; i < order.output.assets.length; ++i) {
+            // A token is the address in its low 20 bytes; anything above would let one token pass
+            // `_isRepeatedToken` as two. Checked here too: a cross-chain fill never sees `placeOrder`.
+            if (uint256(order.inputs[i].token) >> 160 != 0) revert InvalidInput();
+            if (uint256(order.output.assets[i].token) >> 160 != 0) revert InvalidInput();
+            if (options.inputs[i].token != order.inputs[i].token) revert InvalidInput();
+            if (options.outputs[i].token != order.output.assets[i].token) revert InvalidInput();
+            // A leg is skipped by quoting zero on both sides, never on one.
+            if ((options.inputs[i].amount == 0) != (options.outputs[i].amount == 0)) revert InvalidInput();
+        }
+    }
 
-        uint256 len = body.tokens.length;
+    /**
+     * @dev Prices and pays every leg of a fill and records its progress.
+     */
+    function _fillLegs(Order calldata order, FillOptions calldata options, bytes32 commitment)
+        internal
+        returns (FillResult memory result)
+    {
+        _validateLegs(order, options);
+        uint256 legCount = order.output.assets.length;
+        result.releasedInputs = new TokenInfo[](legCount);
+        result.creditedOutputs = new TokenInfo[](legCount);
+        result.fullyFilled = true;
+        result.nativeRemaining = msg.value;
+        bool madeProgress;
+
+        for (uint256 i; i < legCount; ++i) {
+            madeProgress = _fillLeg(order, options, commitment, i, result) || madeProgress;
+        }
+
+        if (!madeProgress) revert RateFillTooSmall();
+        if (order.output.call.length > 0 && !result.fullyFilled) revert PartialFillNotAllowed();
+    }
+
+    /**
+     * @dev Prices, records and pays leg `i`. Returns whether it advanced. Its own function because
+     * the extrinsic module's `fillOrder` runs out of stack when this is inlined.
+     */
+    function _fillLeg(
+        Order calldata order,
+        FillOptions calldata options,
+        bytes32 commitment,
+        uint256 i,
+        FillResult memory result
+    ) private returns (bool) {
+        bytes32 outputToken = order.output.assets[i].token;
+        result.releasedInputs[i].token = order.inputs[i].token;
+        result.creditedOutputs[i].token = outputToken;
+        uint256 previousCredit = _partialFills[commitment][i];
+        uint256 requiredOutput = order.output.assets[i].amount;
+        if (previousCredit == requiredOutput || options.outputs[i].amount == 0) {
+            if (previousCredit < requiredOutput) result.fullyFilled = false;
+            return false;
+        }
+
+        (uint256 credited, uint256 released, uint256 paid) = _priceLeg(
+            order.inputs[i].amount, requiredOutput, previousCredit, options.inputs[i].amount, options.outputs[i].amount
+        );
+
+        _partialFills[commitment][i] = previousCredit + credited;
+        if (previousCredit + credited < requiredOutput) result.fullyFilled = false;
+        result.releasedInputs[i].amount = released;
+        result.creditedOutputs[i].amount = credited;
+        result.nativeRemaining = _payLeg(order.output, outputToken, credited, paid, result.nativeRemaining);
+        return true;
+    }
+
+    /**
+     * @dev Pays the beneficiary the credit plus its share of the surplus; the protocol keeps the
+     * rest. Returns the native value left.
+     */
+    function _payLeg(
+        PaymentInfo calldata payment,
+        bytes32 outputToken,
+        uint256 credited,
+        uint256 paid,
+        uint256 nativeRemaining
+    ) private returns (uint256) {
+        (uint256 protocolShare, uint256 beneficiaryShare) = _splitSurplus(paid - credited, payment.call.length > 0);
+        uint256 beneficiaryAmount = credited + beneficiaryShare;
+        address token = address(uint160(uint256(outputToken)));
+        address beneficiary = address(uint160(uint256(payment.beneficiary)));
+
+        if (token == address(0)) {
+            if (nativeRemaining < paid) revert InsufficientNativeToken();
+            nativeRemaining -= paid;
+            _sendValue(beneficiary, beneficiaryAmount);
+        } else {
+            IERC20(token).safeTransferFrom(msg.sender, beneficiary, beneficiaryAmount);
+            if (protocolShare > 0) IERC20(token).safeTransferFrom(msg.sender, address(this), protocolShare);
+        }
+
+        if (protocolShare > 0) emit DustCollected(token, protocolShare);
+        return nativeRemaining;
+    }
+
+    /**
+     * @dev Prices one leg against the solver's quote. `credited` is the quoted input at the order's
+     * rate, capped to what the leg still needs. `released` is the escrow that credit unlocks.
+     * `paid` is `released` at the solver's rate, rounded up and at least `credited`.
+     */
+    function _priceLeg(
+        uint256 escrowInput,
+        uint256 requiredOutput,
+        uint256 previousCredit,
+        uint256 quotedInput,
+        uint256 offeredOutput
+    ) internal pure returns (uint256 credited, uint256 released, uint256 paid) {
+        if (escrowInput == 0 || requiredOutput == 0 || quotedInput == 0 || offeredOutput == 0) {
+            revert RateFillTooSmall();
+        }
+
+        uint256 minimumOutput = Math.mulDiv(quotedInput, requiredOutput, escrowInput, Math.Rounding.Ceil);
+        if (minimumOutput > offeredOutput) revert RateBelowOrder();
+
+        credited = Math.min(Math.mulDiv(quotedInput, requiredOutput, escrowInput), requiredOutput - previousCredit);
+        released = _cumulativeReleased(escrowInput, previousCredit + credited, requiredOutput)
+            - _cumulativeReleased(escrowInput, previousCredit, requiredOutput);
+        if (credited == 0 || released == 0) revert RateFillTooSmall();
+
+        paid = Math.max(credited, Math.mulDiv(offeredOutput, released, quotedInput, Math.Rounding.Ceil));
+    }
+
+    /**
+     * @dev Splits surplus between protocol and beneficiary. Orders with output calldata give it all
+     * to the protocol.
+     */
+    function _splitSurplus(uint256 dust, bool hasOutputCall)
+        internal
+        view
+        returns (uint256 protocolShare, uint256 beneficiaryShare)
+    {
+        if (hasOutputCall) return (dust, 0);
+        protocolShare = Math.mulDiv(dust, _params.surplusShareBps, 10_000);
+        beneficiaryShare = dust - protocolShare;
+    }
+
+    /**
+     * @dev The storage key of `_partialFills[commitment][index]`, used in cancel proofs.
+     */
+    function _calculatePartialFillSlotHash(bytes32 commitment, uint256 index) internal pure returns (bytes memory) {
+        bytes32 innerSlot = keccak256(abi.encodePacked(commitment, PARTIAL_FILLS_SLOT_BIG_ENDIAN_BYTES));
+        return abi.encodePacked(keccak256(abi.encodePacked(index, innerSlot)));
+    }
+
+    /**
+     * @dev Escrow released once `filled` of `totalRequired` is filled, rounded down until the leg
+     * completes. Redeems and cancel refunds all use it, so they always add up to `escrowTotal`.
+     */
+    function _cumulativeReleased(uint256 escrowTotal, uint256 filled, uint256 totalRequired)
+        internal
+        pure
+        returns (uint256)
+    {
+        if (totalRequired == 0 || filled >= totalRequired) return escrowTotal;
+        return Math.mulDiv(escrowTotal, filled, totalRequired);
+    }
+
+    /**
+     * @dev Pays `withdrawal.tokens[i]` out of leg `i`'s escrow to the beneficiary.
+     */
+    function _withdraw(Withdrawal memory withdrawal) internal {
+        address beneficiary = address(uint160(uint256(withdrawal.beneficiary)));
+        if (withdrawal.finalize) _filled[withdrawal.commitment] = beneficiary;
+
+        uint256 len = withdrawal.tokens.length;
         for (uint256 i; i < len; i++) {
-            address token = address(uint160(uint256(body.tokens[i].token)));
-            uint256 amount = body.tokens[i].amount;
-            if (amount == 0) continue;
+            address token = address(uint160(uint256(withdrawal.tokens[i].token)));
+            uint256 amount = withdrawal.tokens[i].amount;
+            // A final redeem may carry zero principal after earlier slices were delivered.
+            // Only finalizing settles fees: fully-filled cancel proofs leave them for the solver redeem.
+            uint256 refund = withdrawal.finalize
+                ? _settleProtocolFee(withdrawal.commitment, i, token, withdrawal.isRefund ? amount : 0)
+                : 0;
+            if (amount > 0) {
+                uint256 escrowed = _orders[withdrawal.commitment][i];
+                if (escrowed == 0) revert UnknownOrder();
+                _orders[withdrawal.commitment][i] = escrowed - amount;
+            }
 
-            uint256 escrowed = _orders[body.commitment][token];
-            if (escrowed == 0) revert UnknownOrder();
-
-            _orders[body.commitment][token] = escrowed - amount;
+            uint256 transferAmount = amount + refund;
+            if (transferAmount == 0) continue;
             if (token == address(0)) {
-                (bool sent,) = beneficiary.call{value: amount}("");
-                if (!sent) revert InsufficientNativeToken();
+                _sendValue(beneficiary, transferAmount);
             } else {
-                IERC20(token).safeTransfer(beneficiary, amount);
+                IERC20(token).safeTransfer(beneficiary, transferAmount);
             }
         }
 
-        if (finalize) {
-            uint256 fees = _orders[body.commitment][TRANSACTION_FEES];
+        // Fees and the filled-marker are only settled on finalization; the release/refund event is
+        // emitted for every withdrawal (including non-finalizing partial redeems and cancel refunds)
+        // so escrow movement is always observable.
+        if (withdrawal.finalize) {
+            uint256 fees = _orders[withdrawal.commitment][TRANSACTION_FEES];
             if (fees > 0) {
-                delete _orders[body.commitment][TRANSACTION_FEES];
+                delete _orders[withdrawal.commitment][TRANSACTION_FEES];
                 IERC20(IDispatcher(host()).feeToken()).safeTransfer(beneficiary, fees);
             }
+        }
 
-            if (isRefund) {
-                emit EscrowRefunded({commitment: body.commitment, tokens: body.tokens});
-            } else {
-                emit EscrowReleased({commitment: body.commitment, tokens: body.tokens});
-            }
+        if (withdrawal.isRefund) {
+            emit EscrowRefunded({commitment: withdrawal.commitment, tokens: withdrawal.tokens});
+        } else {
+            emit EscrowReleased({commitment: withdrawal.commitment, solver: beneficiary, tokens: withdrawal.tokens});
         }
     }
 
     /**
-     * @dev Executes arbitrary calldata attached to an order's output via the CallDispatcher.
-     * After dispatching the calls, any residual token balances left on the dispatcher
-     * are swept back to this contract and accounted for as protocol dust.
-     *
-     * This enables composable order fulfillment — solvers can route through DEXes,
-     * lending protocols, or other DeFi primitives as part of filling an order.
-     *
-     * @param order The order containing the output calldata to execute.
-     * @param outputsLen The number of output assets to sweep after execution.
+     * @dev Settles leg `index`'s held fee once: refunds the share matching `principalRefund`,
+     * rounded down, and books the rest as revenue.
      */
-    function _execute(Order calldata order, uint256 outputsLen) internal {
+    function _settleProtocolFee(bytes32 commitment, uint256 index, address token, uint256 principalRefund)
+        internal
+        returns (uint256 refund)
+    {
+        ProtocolFee memory fee = _protocolFees[commitment][index];
+        if (fee.amount == 0) return 0;
+
+        refund = Math.mulDiv(fee.amount, principalRefund, fee.committed);
+        uint256 earned = fee.amount - refund;
+        delete _protocolFees[commitment][index];
+
+        if (refund > 0) emit ProtocolFeeRefunded(commitment, token, refund);
+        if (earned > 0) emit DustCollected(token, earned);
+    }
+
+    /**
+     * @dev Runs the order's output calldata through the CallDispatcher, then sweeps the output
+     * tokens left there back as dust.
+     */
+    function _execute(Order calldata order) internal {
         if (order.output.call.length == 0) return;
 
         address dispatcher = _params.dispatcher;
         ICallDispatcher(dispatcher).dispatch(order.output.call);
 
+        uint256 outputsLen = order.output.assets.length;
         Call[] memory sweepCalls = new Call[](outputsLen);
         uint256 sweepCount = 0;
 
         for (uint256 i; i < outputsLen;) {
             address token = address(uint160(uint256(order.output.assets[i].token)));
+
+            // Legs may repeat an output token. Sweep each token at its first leg only: a second
+            // call for the same balance would fail the whole dispatch and report the dust twice.
+            if (_isRepeatedToken(order.output.assets, i)) {
+                unchecked {
+                    ++i;
+                }
+                continue;
+            }
 
             if (token == address(0)) {
                 uint256 balance = dispatcher.balance;
@@ -509,38 +763,43 @@ abstract contract IntentsBase is EIP712 {
     }
 
     /**
-     * @dev Verifies an EIP-712 solver selection signature and stores a commitment to
-     * `keccak256(abi.encode(solver, sessionKey))` in transient storage. The hash is
-     * stored using `tstore` so it is only available within the same transaction —
-     * this ensures atomicity between `select` and `fillOrder` calls.
-     *
-     * The session key is recovered from the EIP-712 signature over the (commitment, solver)
-     * tuple. At fill time, `fillOrder` re-derives the same hash from `msg.sender` and
-     * `order.session` and compares it against the value stored at the commitment slot.
-     *
-     * @param options The selection options containing the commitment, solver address, and signature.
-     * @return The recovered session key address.
+     * @dev Whether an earlier leg has the same token as leg `i`.
+     */
+    function _isRepeatedToken(TokenInfo[] calldata assets, uint256 i) internal pure returns (bool) {
+        bytes32 token = assets[i].token;
+        for (uint256 j; j < i;) {
+            if (assets[j].token == token) return true;
+            unchecked {
+                ++j;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * @dev Recovers the session key that signed the selection and stores `keccak256(sessionKey)` in
+     * transient storage under `keccak256(commitment, solver)`.
      */
     function _select(SelectOptions calldata options) internal returns (address) {
+        if (_filled[options.commitment] != address(0)) revert Filled();
+
         bytes32 structHash = keccak256(abi.encode(SELECT_SOLVER_TYPEHASH, options.commitment, options.solver));
         bytes32 digest = _hashTypedDataV4(structHash);
         address sessionKey = ECDSA.recover(digest, options.signature);
 
-        bytes32 commitment = options.commitment;
-        bytes32 selectionHash = keccak256(abi.encode(options.solver, sessionKey));
+        bytes32 slot = keccak256(abi.encode(options.commitment, options.solver));
+        // Hashed, never the bare key: an untouched slot reads zero, which must not match an order
+        // whose `session` is the zero address.
+        bytes32 selectionHash = keccak256(abi.encode(sessionKey));
         assembly {
-            tstore(commitment, selectionHash)
+            tstore(slot, selectionHash)
         }
 
         return sessionKey;
     }
 
     /**
-     * @dev Registers a new IntentGateway deployment for a remote state machine.
-     * Called when Hyperbridge governance adds support for a new chain. The gateway
-     * address is stored in `_instances` keyed by the hash of the state machine ID.
-     *
-     * @param body The deployment info containing the state machine ID and gateway address.
+     * @dev Registers the gateway for a state machine.
      */
     function _addDeployment(Deployment memory body) internal {
         _instances[keccak256(body.chain)] = body.gateway;
@@ -548,10 +807,15 @@ abstract contract IntentsBase is EIP712 {
     }
 
     /**
-     * @dev Validates gateway configuration parameters. Reverts with InvalidInput if any
-     * value would brick the gateway or cause arithmetic errors in fee calculations.
-     *
-     * @param p The parameters to validate.
+     * @dev The only writer of `_relayer`, behind `initialize` and `setRelayer`.
+     */
+    function _setRelayer(address relayer_) internal {
+        emit RelayerUpdated({previous: _relayer, current: relayer_});
+        _relayer = relayer_;
+    }
+
+    /**
+     * @dev Reverts `InvalidInput` on params that would brick the gateway or break the fee math.
      */
     function _validateParams(Params memory p) internal view {
         if (p.host == address(0) || p.host.code.length == 0) revert InvalidInput();
@@ -562,15 +826,7 @@ abstract contract IntentsBase is EIP712 {
     }
 
     /**
-     * @dev Updates the gateway's configuration parameters and per-destination protocol fees.
-     * Called by Hyperbridge governance to modify fee settings, host address, dispatcher,
-     * price oracle, and other operational parameters.
-     *
-     * Validates all params before applying. Emits ParamsUpdated with the old and new params,
-     * then iterates over any destination-specific fee overrides and applies them to
-     * `_destinationProtocolFees`.
-     *
-     * @param update The parameter update containing new params and destination fee overrides.
+     * @dev Applies new params and per-destination protocol fees.
      */
     function _updateParams(ParamsUpdate memory update) internal {
         _validateParams(update.params);
@@ -592,13 +848,7 @@ abstract contract IntentsBase is EIP712 {
     }
 
     /**
-     * @dev Transfers accumulated protocol dust (surplus tokens) to a specified beneficiary.
-     * Called by Hyperbridge governance to sweep protocol-owned tokens that have accumulated
-     * from fees, surplus splits, and calldata execution residuals.
-     *
-     * Supports both native tokens and ERC-20 tokens.
-     *
-     * @param req The sweep request containing the beneficiary address and token amounts.
+     * @dev Sends protocol-owned balances to the beneficiary.
      */
     function _sweepDust(SweepDust memory req) internal {
         uint256 outputsLen = req.outputs.length;
@@ -608,8 +858,7 @@ abstract contract IntentsBase is EIP712 {
             uint256 amount = info.amount;
 
             if (token == address(0)) {
-                (bool sent,) = req.beneficiary.call{value: amount}("");
-                if (!sent) revert InsufficientNativeToken();
+                _sendValue(req.beneficiary, amount);
             } else {
                 IERC20(token).safeTransfer(req.beneficiary, amount);
             }

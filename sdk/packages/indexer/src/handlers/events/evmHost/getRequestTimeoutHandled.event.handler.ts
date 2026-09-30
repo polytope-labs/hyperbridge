@@ -17,7 +17,7 @@ import { VolumeService } from "@/services/volume.service"
 /**
  * Handles the GetRequestTimeoutHandled event from EVMHost
  */
-export const handleGetRequestTimeoutHandled = wrap(async (event: GetRequestTimeoutHandledLog): Promise<void> => {
+export const handleGetRequestTimeoutHandledEvent = wrap(async (event: GetRequestTimeoutHandledLog): Promise<void> => {
 	if (!event.args) return
 
 	const { args, block, transactionHash, blockNumber, blockHash, transaction } = event

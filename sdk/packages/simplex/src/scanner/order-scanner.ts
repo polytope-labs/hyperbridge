@@ -1,6 +1,11 @@
 import { ChainConfigService, type HexString } from "@hyperbridge/sdk"
 import { defaultLoggerContext, type Logger, type LoggerContext } from "@/services/Logger"
-import { fetchChainId, MIN_BLOCK_SCAN_INTERVAL_SECONDS, validateRpcUrls } from "@/services/FillerConfigService"
+import {
+	fetchChainId,
+	MIN_BLOCK_SCAN_INTERVAL_SECONDS,
+	resolveChainConfigs,
+	validateRpcUrls,
+} from "@/services/FillerConfigService"
 import { ChainScanner } from "./chain-scanner"
 import { FanOut } from "./fan-out"
 import type {
@@ -62,7 +67,8 @@ export class OrderScanner implements OrderScannerContract {
 	 * back from its own endpoints, which also proves they answer for one chain
 	 * before a filler ever depends on them.
 	 *
-	 * @throws if an endpoint set is invalid or unreachable, if two entries resolve
+	 * @throws if an endpoint set is invalid, if none of a chain's endpoints answer,
+	 *   if its endpoints disagree on the chain, if two entries resolve
 	 *   to the same chain, or if `scanIntervalSecs` is below the minimum.
 	 */
 	static async create(options: OrderScannerOptions): Promise<OrderScanner> {
@@ -141,7 +147,17 @@ export class OrderScanner implements OrderScannerContract {
 		if (this.closed) throw new Error("This OrderScanner is closed")
 
 		const rpcUrls = validateRpcUrls(chain.rpcUrls)
-		const chainId = chain.chainId ?? (await fetchChainId(rpcUrls[0]))
+		// Only boot omits the chain id; runtime edits pass one they already
+		// checked. So this follows boot's rule: an endpoint that cannot answer is
+		// kept for the quorum to judge, and only a chain where none answer fails.
+		const chainId =
+			chain.chainId ??
+			(
+				await resolveChainConfigs([{ rpcUrls, bundlerUrl: chain.bundlerUrl ?? "" }], {
+					loggers: this.loggers,
+					tolerateUnreachable: true,
+				})
+			)[0].chainId
 		// Re-checked after the probe: close() may have run while it was in flight.
 		if (this.closed) throw new Error("This OrderScanner is closed")
 		if (this.scanners.has(chainId)) {

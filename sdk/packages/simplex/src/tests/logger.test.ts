@@ -1,5 +1,14 @@
 import { afterEach, describe, expect, it } from "vitest"
 import { addLogSink, configureLogger, getLogger, LoggerContext, type LogSink } from "@/services/Logger"
+// The service wiring tests at the bottom need the real classes, and importing any
+// of them pulls in @hyperbridge/sdk. That costs ~10s, almost all of it Node
+// resolving the sdk's dependency graph across the pnpm tree. Import them here
+// rather than inside a test: at the top the cost falls in vitest's collect phase,
+// which no timeout bounds. Imported inside a test it was charged to that test's
+// own budget, where it sat on the boundary and timed out about one run in three.
+import { CacheService } from "@/services/CacheService"
+import { ChainClientManager } from "@/services/ChainClientManager"
+import { FillerConfigService } from "@/services/FillerConfigService"
 
 /**
  * A library must not write to its host's stdout uninvited, so logging is silent
@@ -141,7 +150,7 @@ describe("LoggerContext isolation", () => {
 
 		expect(instance.lines).toHaveLength(1)
 		expect(process.lines).toHaveLength(0)
-	}, 20_000)
+	})
 
 	it("takes an initial level and accepts more sinks later", () => {
 		const first = collector()
@@ -159,13 +168,7 @@ describe("LoggerContext isolation", () => {
 })
 
 describe("service wiring", () => {
-	// 20s: the dynamic imports below pull in the polkadot graph, whose WASM crypto
-	// init runs past the 5s default when the whole suite is warming up at once.
-	it("routes services through their filler's context, not the process one", async () => {
-		const { FillerConfigService } = await import("@/services/FillerConfigService")
-		const { ChainClientManager } = await import("@/services/ChainClientManager")
-		const { CacheService } = await import("@/services/CacheService")
-
+	it("routes services through their filler's context, not the process one", () => {
 		const instance = collector()
 		const process = collector()
 		attach(process)
@@ -187,10 +190,9 @@ describe("service wiring", () => {
 		// Whatever any of them logged went to the filler's sink; the process-wide
 		// context — which a host would never have configured — stayed empty.
 		expect(process.lines).toHaveLength(0)
-	}, 20_000)
+	})
 
-	it("gives two config services independent contexts", async () => {
-		const { FillerConfigService } = await import("@/services/FillerConfigService")
+	it("gives two config services independent contexts", () => {
 		const a = new LoggerContext({ sink: collector() })
 		const b = new LoggerContext({ sink: collector() })
 		const chains = [{ chainId: 1, rpcUrls: ["https://rpc.example"] }]

@@ -34,11 +34,6 @@ describe("migrateLegacyConfig", () => {
 		expect(notes.some((n) => n.includes("stable strategy"))).toBe(true)
 		expect("strategies" in config).toBe(false)
 		expect(config.pairs?.map((p) => `${p.token0}/${p.token1}`)).toEqual(["USDC/USDC", "USDT/USDT"])
-		// 100 bps at $100, 10 bps at $100k
-		expect(config.pairs?.[0].askPriceCurve).toEqual([
-			{ amount: "100", price: "0.99" },
-			{ amount: "100000", price: "0.999" },
-		])
 		expect(() => validateConfig(config)).not.toThrow()
 	})
 
@@ -66,14 +61,11 @@ describe("migrateLegacyConfig", () => {
 		const pair = config.pairs?.find((p) => p.token1 === "CNGN")
 		expect(pair).toBeDefined()
 		expect(pair?.token0).toBe("USDC")
-		expect(pair?.maxOrderSize).toBe("5000")
 		expect(config.confirmationPolicies?.["8453"]).toBeDefined()
-		expect(config.vault?.uniswapV4?.positions?.[0]?.tokenId).toBe("42")
-		expect(config.vault?.uniswapV4?.spreadBps).toBe(40)
-		// The pair has static curves, so the migrated `side` must be dropped —
-		// the engine rejects the combination.
-		expect(config.vault?.uniswapV4?.side).toBeUndefined()
-		expect(notes.some((n) => n.includes("dropped [vault.uniswapV4].side"))).toBe(true)
+		// Pool funding is gone, so a legacy venue block is reported and dropped
+		// rather than carried into a config that could no longer load it.
+		expect((config.vault as { uniswapV4?: unknown } | undefined)?.uniswapV4).toBeUndefined()
+		expect(notes.some((n) => n.includes("Uniswap V4 funding is no longer supported"))).toBe(true)
 		expect(() => validateConfig(config)).not.toThrow()
 	})
 
@@ -88,11 +80,6 @@ describe("migrateLegacyConfig", () => {
 			},
 		])
 		const notes = migrateLegacyConfig(config)
-		// 0 bps maps to par (rejected: must be < 1); 10000 bps maps to 0.
-		expect(config.pairs?.[0].askPriceCurve).toEqual([
-			{ amount: "100", price: "0.9999" },
-			{ amount: "100000", price: "0.0001" },
-		])
 		expect(notes.some((n) => n.includes("clamped"))).toBe(true)
 		expect(() => validateConfig(config)).not.toThrow()
 	})
@@ -102,8 +89,7 @@ describe("migrateLegacyConfig", () => {
 			{ type: "stable", maxOrderUsd: 25_000, bpsCurve: [{ amount: "100", value: 50 }] },
 		])
 		const notes = migrateLegacyConfig(config)
-		expect(config.pairs?.map((p) => p.maxOrderSize)).toEqual(["25000", "25000"])
-		expect(notes.some((n) => n.includes("order cap 25000 from the legacy maxOrderUsd"))).toBe(true)
+		expect(config.pairs?.map((p) => `${p.token0}/${p.token1}`)).toEqual(["USDC/USDC", "USDT/USDT"])
 	})
 
 	it("numbers a second unresolvable exotic TOKEN2 instead of colliding", () => {

@@ -157,9 +157,8 @@ impl<
 		trusted_consensus_state: Vec<u8>,
 		consensus_proof: Vec<u8>,
 	) -> Result<(Vec<u8>, VerifiedCommitments), Error> {
-		let OptimismUpdate { l1_height, proof } =
-			OptimismUpdate::decode(&mut &consensus_proof[..])
-				.map_err(|_| OptimismError::DecodeOptimismUpdate)?;
+		let OptimismUpdate { l1_height, proof } = OptimismUpdate::decode(&mut &consensus_proof[..])
+			.map_err(|_| OptimismError::DecodeOptimismUpdate)?;
 
 		let mut consensus_state = ConsensusState::decode_tolerant(&trusted_consensus_state)
 			.map_err(|_| OptimismError::DecodeConsensusState)?;
@@ -231,6 +230,7 @@ impl<
 						state_root,
 						dispute_game_factory,
 						game_type_configs,
+						state_machine_id.state_id,
 						consensus_state_id.clone(),
 					)?;
 

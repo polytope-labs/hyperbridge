@@ -1,5 +1,6 @@
 import { confirm, intro, log, select, spinner } from "@clack/prompts"
-import { existsSync, readFileSync } from "fs"
+import { existsSync } from "fs"
+import { readConfigFile } from "@/config/storage"
 import { resolve } from "path"
 import { parse } from "toml"
 import { validateConfig, type FillerConfigFile } from "@/config/filler-toml"
@@ -11,7 +12,6 @@ import { stepChains } from "./steps/chains"
 import { stepBundlers } from "./steps/bundlers"
 import { stepSigner } from "./steps/signer"
 import { stepHyperbridge } from "./steps/hyperbridge"
-import { stepStrategies } from "./steps/strategies"
 import { stepFineTune } from "./steps/finetune"
 import { stepWrite, startFiller } from "./steps/write"
 
@@ -51,23 +51,19 @@ export async function runInit(options: InitOptions): Promise<void> {
 	await stepHyperbridge(state, prefill)
 
 	// Salvage loop: a failure at the write gate must not lose everything the
-	// operator typed — offer to redo the markets steps with the same state.
+	// operator typed — offer to redo the tuning step with the same state.
 	for (;;) {
 		try {
-			await stepStrategies(state, prefill)
 			await stepFineTune(state, prefill)
 			await stepWrite(state, outputPath, prefill)
 			return
 		} catch (error) {
 			log.error(error instanceof Error ? error.message : String(error))
-			const goBack = guard(
-				await confirm({ message: "Go back and fix the markets configuration?", initialValue: true }),
-			)
+			const goBack = guard(await confirm({ message: "Go back and fix the configuration?", initialValue: true }))
 			if (!goBack) {
 				log.info("Nothing was written.")
 				process.exit(1)
 			}
-			state.pairs = []
 		}
 	}
 }
@@ -80,8 +76,11 @@ async function handleExistingConfig(outputPath: string): Promise<Prefill | undef
 	let config: FillerConfigFile | undefined
 	let invalidReason: string | undefined
 	let degraded = false
+	// An encrypted desktop config is not invalid TOML to replace via "Start fresh".
+	// Require desktop authentication instead of offering a plaintext overwrite.
+	const content = readConfigFile(outputPath)
 	try {
-		config = parse(readFileSync(outputPath, "utf-8")) as FillerConfigFile
+		config = parse(content) as FillerConfigFile
 		// Pre-pair-engine configs ([[strategies]]) are migrated to pairs so an
 		// update run offers the old values as prefills instead of failing.
 		if ("strategies" in config) {

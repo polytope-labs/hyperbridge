@@ -5,11 +5,13 @@ import {
 	type OperatorContext,
 	type PauseControl,
 } from "@/services/server/UiServer"
+import { EventEmitter } from "node:events"
 import type { SetupDeps } from "@/services/server/setup-api"
 import { ActivityRecorder } from "@/data/recorder"
 import { MemoryDataStore } from "@/data/memory"
 import { LoggerContext, type LogLevel } from "@/services/Logger"
-import { FillerPricePolicy } from "@/config/interpolated-curve"
+import { LogStore } from "@/services/server/LogStore"
+import type { LogRecordDto } from "@/services/server/dto"
 import type { FillerConfigFile } from "@/config/filler-toml"
 import { SignerType } from "@/services/wallet"
 import type { PairConfig } from "@/config/pairs"
@@ -17,10 +19,11 @@ import type { AssetDefinition } from "@/config/asset-registry"
 import { describe, it, expect, afterEach, vi } from "vitest"
 import { existsSync, mkdtempSync, readFileSync, writeFileSync, mkdirSync } from "fs"
 import { createConnection } from "net"
+import { get } from "http"
 import { tmpdir } from "os"
 import { dirname, join } from "path"
 import { parse } from "toml"
-import Decimal from "decimal.js"
+import { encryptedConfigStore, isEncryptedConfig } from "@/config/storage"
 
 /** fetch() normalizes `..` out of URLs and forbids Host, so these tests need a raw socket. */
 function rawRequest(port: number, path: string, host = "127.0.0.1"): Promise<string> {
@@ -69,6 +72,16 @@ function fakePauseControl(): PauseControl & { paused: boolean } {
 		isPaused() {
 			return this.paused
 		},
+		getWorkSnapshot() {
+			return {
+				queuedEvaluations: 0,
+				evaluating: 0,
+				queuedFills: 0,
+				activeFills: 0,
+				retractions: 0,
+				rebalancing: 0,
+			}
+		},
 		getWatchOnly() {
 			return { 56: true }
 		},
@@ -99,24 +112,61 @@ function fakeConfig(): FillerConfigFile {
 			hyperbridgeWsUrl: "wss://example",
 		},
 		pairs: [
-			{ token0: "USDC", token1: "USDC", maxOrderSize: "100000", askPriceCurve: SAME_ASSET_POINTS },
-			{
-				token0: "USDC",
-				token1: "CNGN",
-				maxOrderSize: "5000",
-				bidPriceCurve: BID_POINTS,
-				askPriceCurve: ASK_POINTS,
-			},
-			// venue-priced: no curves
-			{ token0: "USDC", token1: "CNGN", maxOrderSize: "5000" },
-			// one-sided LP
-			{ token0: "USDC", token1: "ZARP", maxOrderSize: "5000", askPriceCurve: ASK_POINTS },
+			{ token0: "USDC", token1: "USDC" },
+			{ token0: "USDC", token1: "CNGN" },
+			{ token0: "USDC", token1: "ZARP" },
 		],
 		chains: [{ rpcUrls: ["https://rpc.example"], bundlerUrl: "https://bundler.example" }],
 	}
 }
 
 type TestOperator = OperatorContext & { data: MemoryDataStore; loggers: LoggerContext }
+
+function testBalanceSource(
+	initial: ReturnType<OperatorContext["balances"]["getSnapshot"]> = {
+		updatedAt: null,
+		status: "loading",
+		chains: [],
+		issues: [],
+	},
+) {
+	let current = initial
+	const source = Object.assign(new EventEmitter(), {
+		getSnapshot: () => current,
+		setSnapshot(next: typeof initial) {
+			current = next
+			source.emit("snapshot", next)
+		},
+	})
+	return source
+}
+
+function stableBalanceSnapshot(available: number): ReturnType<OperatorContext["balances"]["getSnapshot"]> {
+	return {
+		updatedAt: Date.now(),
+		status: "fresh",
+		issues: [],
+		chains: [
+			{
+				chainId: 8453,
+				assets: [
+					{
+						address: "0xstable",
+						symbol: "USDC",
+						wallet: available,
+						walletReserve: 0,
+						vaultPosition: 0,
+						vaultAvailable: 0,
+						total: available,
+						available,
+						vaults: [],
+						status: "fresh",
+					},
+				],
+			},
+		],
+	}
+}
 
 function baseOperator(overrides: Partial<OperatorContext> = {}): TestOperator {
 	const dataDir = mkdtempSync(join(tmpdir(), "simplex-ui-"))
@@ -127,11 +177,24 @@ function baseOperator(overrides: Partial<OperatorContext> = {}): TestOperator {
 		loggers,
 		strategies: [],
 		filler: fakePauseControl(),
-		balances: { getSnapshot: () => ({ updatedAt: null, chains: [] }) },
+		// Every running filler has limit orders: they are what it prices from.
+		limitOrders: {
+			list: async () => ({ orders: [] }),
+			get: async () => null,
+			create: async () => {
+				throw new Error("not wired for this test")
+			},
+			cancel: async () => {
+				throw new Error("not wired for this test")
+			},
+		} as unknown as OperatorContext["limitOrders"],
+		balances: testBalanceSource(),
 		haltControls: [],
 		config: fakeConfig(),
 		stop: vi.fn().mockResolvedValue(undefined),
 		activity: new ActivityRecorder(data.activity),
+		state: data.state,
+		bids: data.bids,
 		setPaused: (paused: boolean) => data.state.set({ paused }),
 		setLogLevel: (level: LogLevel) => loggers.setLevel(level),
 		applyAllowlist: vi.fn(),
@@ -145,41 +208,6 @@ function baseOperator(overrides: Partial<OperatorContext> = {}): TestOperator {
 	}
 }
 
-describe("FillerPricePolicy runtime mutation", () => {
-	it("getPoints returns points sorted by amount as strings", () => {
-		const policy = new FillerPricePolicy({
-			points: [
-				{ amount: "5000", price: "1570" },
-				{ amount: "100", price: "1580" },
-			],
-		})
-		expect(policy.getPoints()).toEqual([
-			{ amount: "100", price: "1580" },
-			{ amount: "5000", price: "1570" },
-		])
-	})
-
-	it("replacePoints changes what getPrice returns on the same instance", () => {
-		const policy = new FillerPricePolicy({ points: [{ amount: "0", price: "1500" }] })
-		expect(policy.getPrice(new Decimal(1000)).toString()).toBe("1500")
-
-		policy.replacePoints({
-			points: [
-				{ amount: "0", price: "1600" },
-				{ amount: "2000", price: "1700" },
-			],
-		})
-		expect(policy.getPrice(new Decimal(1000)).toString()).toBe("1650")
-	})
-
-	it("replacePoints rejects invalid input and leaves the curve unchanged", () => {
-		const policy = new FillerPricePolicy({ points: BID_POINTS })
-		expect(() => policy.replacePoints({ points: [{ amount: "0", price: "-5" }] })).toThrow(/positive/)
-		expect(() => policy.replacePoints({ points: [] })).toThrow(/at least 1 point/)
-		expect(policy.getPoints()).toEqual(BID_POINTS)
-	})
-})
-
 describe("UiServer (operator mode)", () => {
 	let server: UiServer | undefined
 
@@ -188,31 +216,31 @@ describe("UiServer (operator mode)", () => {
 		server = undefined
 	})
 
-	async function startServer(overrides: Partial<OperatorContext> = {}, deps?: SetupDeps) {
-		const sameAsset = new FillerPricePolicy({ points: SAME_ASSET_POINTS })
-		const bid = new FillerPricePolicy({ points: BID_POINTS })
-		const ask = new FillerPricePolicy({ points: ASK_POINTS })
-		const askOnly = new FillerPricePolicy({ points: ASK_POINTS })
+	async function startServer(
+		overrides: Partial<OperatorContext> = {},
+		deps?: SetupDeps,
+		notificationAckTimeoutMs?: number,
+	) {
 		const filler = fakePauseControl()
 		const operator = baseOperator({
 			strategies: [
-				{ index: 0, pairIndex: 0, exotic: "USDC/USDC", token0: "USDC", token1: "USDC", ask: sameAsset, sameToken: true, maxOrderSize: "100000" },
-				{ index: 1, pairIndex: 1, exotic: "USDC/CNGN", token0: "USDC", token1: "CNGN", bid, ask, sameToken: false, maxOrderSize: "5000" },
-				{ index: 2, pairIndex: 2, token0: "USDC", token1: "CNGN", sameToken: false }, // venue-priced: no editable curves
-				{ index: 3, pairIndex: 3, exotic: "USDC/ZARP", token0: "USDC", token1: "ZARP", ask: askOnly, sameToken: false, maxOrderSize: "5000" }, // one-sided LP
+				{ index: 0, pairIndex: 0, exotic: "USDC/USDC", token0: "USDC", token1: "USDC", sameToken: true },
+				{ index: 1, pairIndex: 1, exotic: "USDC/CNGN", token0: "USDC", token1: "CNGN", sameToken: false },
+				{ index: 2, pairIndex: 2, exotic: "USDC/ZARP", token0: "USDC", token1: "ZARP", sameToken: false },
 			],
 			filler,
-			balances: { getSnapshot: () => ({ updatedAt: 123, chains: [{ chainId: 8453, usdc: 1500 }] }) },
+			balances: testBalanceSource({
+				updatedAt: 123,
+				status: "fresh",
+				chains: [{ chainId: 8453, usdc: 1500, assets: [] }],
+				issues: [],
+			}),
 			...overrides,
 		})
-		server = new UiServer({ mode: "operator", operator, deps })
+		server = new UiServer({ mode: "operator", operator, deps, notificationAckTimeoutMs })
 		const port = await server.start(0)
 		return {
 			base: `http://127.0.0.1:${port}`,
-			sameAsset,
-			bid,
-			ask,
-			askOnly,
 			filler,
 			dataDir: dirname(operator.configPath!),
 			operator,
@@ -230,26 +258,184 @@ describe("UiServer (operator mode)", () => {
 	it("serves health and status", async () => {
 		const { base } = await startServer()
 		const health = await fetch(`${base}/health`)
-		expect(await health.json()).toEqual({ status: "ok", mode: "operator" })
+		expect(await health.json()).toEqual({ status: "ok", mode: "operator", pid: process.pid })
 
 		const status = await fetch(`${base}/api/status`)
 		expect(status.status).toBe(200)
 		const payload = await status.json()
 		expect(payload.mode).toBe("operator")
 		expect(payload.paused).toBe(false)
+		expect(payload.work).toEqual({
+			queuedEvaluations: 0,
+			evaluating: 0,
+			queuedFills: 0,
+			activeFills: 0,
+			retractions: 0,
+			rebalancing: 0,
+		})
 		expect(payload.chains).toEqual([8453, 56])
 		expect(payload.watchOnly).toEqual({ "56": true })
 		expect(payload.strategyTypes).toEqual(["USDC/CNGN"])
 
 		const balances = await fetch(`${base}/api/balances`)
-		expect(await balances.json()).toEqual({ updatedAt: 123, chains: [{ chainId: 8453, usdc: 1500 }] })
+		expect(await balances.json()).toEqual({
+			updatedAt: 123,
+			status: "fresh",
+			chains: [{ chainId: 8453, usdc: 1500, assets: [] }],
+			issues: [],
+		})
+	})
+
+	it("persists notification rules and streams a test alert to native desktop clients", async () => {
+		const { base, operator } = await startServer()
+		const initial = await (await fetch(`${base}/api/notifications`)).json()
+		expect(initial).toMatchObject({
+			settings: { lowLiquidityThresholdUsd: null, swaps: false },
+			subscriptionCount: 0,
+		})
+		expect(initial.vapidPublicKey).toEqual(expect.any(String))
+
+		const update = await put(base, "/api/notifications", { lowLiquidityThresholdUsd: 1_000, swaps: true })
+		expect(update.status).toBe(200)
+		expect((await update.json()).settings).toEqual({ lowLiquidityThresholdUsd: 1_000, swaps: true })
+		expect((await operator.state!.get()).notifications?.settings).toEqual({
+			lowLiquidityThresholdUsd: 1_000,
+			swaps: true,
+		})
+
+		const bad = await put(base, "/api/notifications", { lowLiquidityThresholdUsd: 0, swaps: true })
+		expect(bad.status).toBe(400)
+
+		const subscription = {
+			endpoint: "https://push.example/subscription-1",
+			keys: { p256dh: "public-key", auth: "auth-secret" },
+		}
+		const subscribed = await fetch(`${base}/api/notifications/subscription`, {
+			method: "POST",
+			headers: { ...CSRF, "Content-Type": "application/json" },
+			body: JSON.stringify(subscription),
+		})
+		expect((await subscribed.json()).subscriptionCount).toBe(1)
+		const unsubscribed = await fetch(`${base}/api/notifications/subscription`, {
+			method: "DELETE",
+			headers: { ...CSRF, "Content-Type": "application/json" },
+			body: JSON.stringify({ endpoint: subscription.endpoint }),
+		})
+		expect((await unsubscribed.json()).subscriptionCount).toBe(0)
+		const staleBrowser = await fetch(`${base}/api/notifications/test`, {
+			method: "POST",
+			headers: { ...CSRF, "Content-Type": "application/json" },
+			body: JSON.stringify({ endpoint: subscription.endpoint }),
+		})
+		expect(staleBrowser.status).toBe(409)
+		expect(await staleBrowser.json()).toMatchObject({ error: "This browser is no longer subscribed" })
+		const nowhere = await fetch(`${base}/api/notifications/test`, {
+			method: "POST",
+			headers: { ...CSRF, "Content-Type": "application/json" },
+			body: JSON.stringify({ native: true }),
+		})
+		expect(nowhere.status).toBe(409)
+
+		const controller = new AbortController()
+		const stream = await fetch(`${base}/api/notifications/stream`, { signal: controller.signal })
+		const reader = stream.body!.getReader()
+		await reader.read() // :ok
+		const testResponse = fetch(`${base}/api/notifications/test`, {
+			method: "POST",
+			headers: { ...CSRF, "Content-Type": "application/json" },
+			body: JSON.stringify({ native: true }),
+		})
+		const frame = new TextDecoder().decode((await reader.read()).value)
+		const notification = JSON.parse(frame.slice("data: ".length))
+		expect(notification).toMatchObject({
+			title: "Simplex notifications are working",
+			receiptId: expect.any(String),
+		})
+		const receipt = await fetch(`${base}/api/notifications/receipt`, {
+			method: "POST",
+			headers: { ...CSRF, "Content-Type": "application/json" },
+			body: JSON.stringify({ receiptId: notification.receiptId }),
+		})
+		expect(receipt.status).toBe(204)
+		const test = await testResponse
+		expect(test.status).toBe(200)
+		expect(await test.json()).toMatchObject({ sent: true, nativeReceived: 1 })
+		controller.abort()
+	})
+
+	it("does not claim native test delivery until Electron confirms the notification", async () => {
+		const { base } = await startServer({}, undefined, 25)
+		const controller = new AbortController()
+		const stream = await fetch(`${base}/api/notifications/stream`, { signal: controller.signal })
+		const reader = stream.body!.getReader()
+		await reader.read() // :ok
+
+		const test = await fetch(`${base}/api/notifications/test`, {
+			method: "POST",
+			headers: { ...CSRF, "Content-Type": "application/json" },
+			body: JSON.stringify({ native: true }),
+		})
+
+		expect(test.status).toBe(409)
+		expect(await test.json()).toMatchObject({
+			error: "The desktop app did not confirm displaying the notification",
+			nativeReceived: 0,
+		})
+		controller.abort()
+	})
+
+	it("streams a low-liquidity alert from a balance snapshot event", async () => {
+		const balances = testBalanceSource(stableBalanceSnapshot(500))
+		const { base } = await startServer({ balances })
+		const settings = await put(base, "/api/notifications", {
+			lowLiquidityThresholdUsd: 100,
+			swaps: false,
+		})
+		expect(settings.status).toBe(200)
+
+		const controller = new AbortController()
+		const stream = await fetch(`${base}/api/notifications/stream`, { signal: controller.signal })
+		const reader = stream.body!.getReader()
+		await reader.read() // :ok
+
+		balances.setSnapshot(stableBalanceSnapshot(50))
+		const frame = new TextDecoder().decode((await reader.read()).value)
+		expect(JSON.parse(frame.slice("data: ".length))).toMatchObject({
+			title: "Simplex liquidity is low",
+			tag: "simplex-low-liquidity",
+		})
+		controller.abort()
+	})
+
+	it("reports notification initialization failures and recovers on a later request", async () => {
+		const persisted = new MemoryDataStore().state
+		let unavailable = true
+		const state = {
+			get: async () => {
+				if (unavailable) throw new Error("state store unavailable")
+				return persisted.get()
+			},
+			set: (value: Awaited<ReturnType<typeof persisted.get>>) => persisted.set(value),
+		}
+		const { base } = await startServer({ state })
+
+		const failed = await fetch(`${base}/api/notifications`)
+		expect(failed.status).toBe(503)
+		expect(await failed.json()).toMatchObject({
+			error: "Notifications are temporarily unavailable: state store unavailable",
+		})
+
+		unavailable = false
+		const recovered = await fetch(`${base}/api/notifications`)
+		expect(recovered.status).toBe(200)
+		expect(await recovered.json()).toMatchObject({ subscriptionCount: 0 })
 	})
 
 	it("rejects mutating requests without the X-Simplex-UI header", async () => {
-		const { base, bid } = await startServer()
-		const res = await put(base, "/api/strategies/1/curves", { bidPriceCurve: BID_POINTS }, {})
+		const { base, filler } = await startServer()
+		const res = await fetch(`${base}/api/pause`, { method: "POST" })
 		expect(res.status).toBe(403)
-		expect(bid.getPoints()).toEqual(BID_POINTS)
+		expect(filler.paused).toBe(false)
 
 		const pause = await fetch(`${base}/api/pause`, { method: "POST" })
 		expect(pause.status).toBe(403)
@@ -262,159 +448,50 @@ describe("UiServer (operator mode)", () => {
 		expect(await rawRequest(port, "/api/status", "evil.example.com")).toContain("403")
 		expect(await rawRequest(port, "/api/status", "evil.example.com:1234")).toContain("403")
 		expect(await rawRequest(port, "/health", "evil.example.com")).toContain("403")
+		// DNS names that a "startsWith(127.)" prefix test would have accepted: a
+		// leading-digit label is a legal hostname, so these must all be rejected.
+		expect(await rawRequest(port, "/api/status", "127.0.0.1.evil.example.com")).toContain("403")
+		expect(await rawRequest(port, "/api/status", "127.evil.example.com")).toContain("403")
+		expect(await rawRequest(port, "/api/status", `127.0.0.1.nip.io:${port}`)).toContain("403")
+		expect(await rawRequest(port, "/api/status", "127.")).toContain("403")
 		// Legitimate local access keeps working.
 		expect(await rawRequest(port, "/api/status", `127.0.0.1:${port}`)).toContain("200")
+		expect(await rawRequest(port, "/api/status", `127.0.0.2:${port}`)).toContain("200")
 		expect(await rawRequest(port, "/api/status", "localhost")).toContain("200")
 	})
 
-	it("lists strategies with their curves", async () => {
+	it("forbids framing on every response, including rejections", async () => {
 		const { base } = await startServer()
-		const res = await fetch(`${base}/api/strategies`)
-		expect(res.status).toBe(200)
-		expect(await res.json()).toEqual({
-			strategies: [
-				{
-					index: 0,
-					exotic: "USDC/USDC",
-					token0: "USDC",
-					token1: "USDC",
-					pricingMode: "static",
-					sameToken: true,
-					referenceOnly: false,
-					maxOrderSize: "100000",
-					ask: SAME_ASSET_POINTS,
-				},
-				{
-					index: 1,
-					exotic: "USDC/CNGN",
-					token0: "USDC",
-					token1: "CNGN",
-					pricingMode: "static",
-					sameToken: false,
-					referenceOnly: false,
-					maxOrderSize: "5000",
-					bid: BID_POINTS,
-					ask: ASK_POINTS,
-				},
-				{ index: 2, token0: "USDC", token1: "CNGN", pricingMode: "venue", sameToken: false, referenceOnly: false },
-				{
-					index: 3,
-					exotic: "USDC/ZARP",
-					token0: "USDC",
-					token1: "ZARP",
-					pricingMode: "static",
-					sameToken: false,
-					referenceOnly: false,
-					maxOrderSize: "5000",
-					ask: ASK_POINTS,
-				},
-			],
-		})
-	})
-
-	it("applies a curve update to the live policy instance and persists it to the config", async () => {
-		const { base, bid, ask, operator } = await startServer()
-		const newAsk = [
-			{ amount: "0", price: "1540" },
-			{ amount: "1000", price: "1535" },
-		]
-		const res = await put(base, "/api/strategies/1/curves", { askPriceCurve: newAsk })
-		expect(res.status).toBe(200)
-		expect(await res.json()).toEqual({
-			index: 1,
-			exotic: "USDC/CNGN",
-			token0: "USDC",
-			token1: "CNGN",
-			pricingMode: "static",
-			sameToken: false,
-			referenceOnly: false,
-			maxOrderSize: "5000",
-			bid: BID_POINTS,
-			ask: newAsk,
-			persisted: true,
-		})
-		expect(ask.getPoints()).toEqual(newAsk)
-		expect(bid.getPoints()).toEqual(BID_POINTS)
-
-		// restarts keep the change: the config file now carries the new curve
-		expect(existsSync(operator.configPath!)).toBe(true)
-		const written = parse(readFileSync(operator.configPath!, "utf-8")) as FillerConfigFile
-		expect(written.pairs?.[1]?.askPriceCurve).toEqual(newAsk)
-		expect(written.pairs?.[1]?.bidPriceCurve).toEqual(BID_POINTS)
-		// ...and the signer block rode along. The library's config type does not
-		// declare it, so a regression in persistConfig/emitFillerToml would delete
-		// the operator's signer from disk on an unrelated edit — the exact hazard
-		// the FillerConfigFile split was designed around.
-		expect(written.simplex.signer).toEqual(fakeConfig().simplex.signer)
-	})
-
-	it("rejects same-token ask prices at or above par, judged against the live invariants", async () => {
-		const { base, sameAsset } = await startServer()
-		const res = await put(base, "/api/strategies/0/curves", {
-			askPriceCurve: [{ amount: "0", price: "1" }],
-		})
-		expect(res.status).toBe(400)
-		expect((await res.json()).error).toContain("below 1")
-		expect(sameAsset.getPoints()).toEqual(SAME_ASSET_POINTS)
-	})
-
-	it("rejects enabling a bid on a same-token market", async () => {
-		const { base } = await startServer()
-		const res = await put(base, "/api/strategies/0/curves", { bidPriceCurve: [{ amount: "0", price: "0.9" }] })
-		expect(res.status).toBe(409)
-		expect((await res.json()).error).toContain("ask-only")
-	})
-
-	it("accepts an edit that crosses the book — sides are quoted independently", async () => {
-		const { base, bid, ask } = await startServer()
-		// New ask above the existing bid at every size: crossed, but allowed —
-		// each side fills at its own curve.
-		const res = await put(base, "/api/strategies/1/curves", {
-			askPriceCurve: [{ amount: "0", price: "1650" }],
-		})
-		expect(res.status).toBe(200)
-		expect(bid.getPoints()).toEqual(BID_POINTS)
-		expect(ask.getPoints()).toEqual([{ amount: "0", price: "1650" }])
-	})
-
-	it("rejects malformed bodies with 400", async () => {
-		const { base } = await startServer()
-		expect((await put(base, "/api/strategies/1/curves", {})).status).toBe(400)
-		expect((await put(base, "/api/strategies/1/curves", { bidPriceCurve: "flat" })).status).toBe(400)
-		expect((await put(base, "/api/strategies/1/curves", { bidPriceCurve: [{ amount: 5, price: "1" }] })).status).toBe(
-			400,
-		)
-		expect((await put(base, "/api/strategies/1/curves", { unexpected: true })).status).toBe(400)
-	})
-
-	it("is all-or-nothing: an invalid ask rejects the whole update including a valid bid", async () => {
-		const { base, bid, ask } = await startServer()
-		const res = await put(base, "/api/strategies/1/curves", {
-			bidPriceCurve: [{ amount: "0", price: "1600" }],
-			askPriceCurve: [{ amount: "0", price: "-5" }],
-		})
-		expect(res.status).toBe(400)
-		expect(bid.getPoints()).toEqual(BID_POINTS)
-		expect(ask.getPoints()).toEqual(ASK_POINTS)
+		// A framing page cannot read or script this origin, but it does not need
+		// to: an invisible overlay makes the operator click the real UI's own
+		// buttons. Pause, reset-halt and vault redeem are one click each.
+		const expectFramingDenied = async (path: string, init?: Parameters<typeof fetch>[1]) => {
+			const res = await fetch(`${base}${path}`, init)
+			await res.arrayBuffer()
+			expect(res.headers.get("content-security-policy")).toBe("frame-ancestors 'none'")
+			expect(res.headers.get("x-frame-options")).toBe("DENY")
+			return res
+		}
+		// The HTML an operator's browser loads, and the JSON API behind it.
+		await expectFramingDenied("/")
+		await expectFramingDenied("/api/status")
+		// Rejections carry it too: the headers are set before any route can
+		// return, so every writeHead downstream merges rather than drops them.
+		expect((await expectFramingDenied("/api/pause", { method: "POST" })).status).toBe(403)
 	})
 
 	it("returns 404 for unknown strategies and routes", async () => {
 		const { base } = await startServer()
-		expect((await put(base, "/api/strategies/9/curves", { bidPriceCurve: BID_POINTS })).status).toBe(404)
+		expect((await fetch(`${base}/api/strategies/9`, { method: "DELETE", headers: CSRF })).status).toBe(404)
 		expect((await fetch(`${base}/api/nope`)).status).toBe(404)
-	})
-
-	it("returns 409 for venue-priced strategies and disabled sides", async () => {
-		const { base, askOnly } = await startServer()
-		expect((await put(base, "/api/strategies/2/curves", { bidPriceCurve: BID_POINTS })).status).toBe(409)
-		expect((await put(base, "/api/strategies/3/curves", { bidPriceCurve: BID_POINTS })).status).toBe(409)
-		expect(askOnly.getPoints()).toEqual(ASK_POINTS)
 	})
 
 	it("returns 405 for wrong methods", async () => {
 		const { base } = await startServer()
 		expect((await fetch(`${base}/api/strategies`, { method: "PUT", headers: CSRF, body: "{}" })).status).toBe(405)
-		expect((await fetch(`${base}/api/strategies/1`, { method: "POST", headers: CSRF, body: "{}" })).status).toBe(405)
+		expect((await fetch(`${base}/api/strategies/1`, { method: "POST", headers: CSRF, body: "{}" })).status).toBe(
+			405,
+		)
 	})
 
 	it("pause/resume toggles the filler and persists the state", async () => {
@@ -449,7 +526,42 @@ describe("UiServer (operator mode)", () => {
 		const res = await fetch(`${base}/api/stop`, { method: "POST", headers: CSRF })
 		expect(res.status).toBe(202)
 		expect(await res.json()).toEqual({ stopping: true })
+		expect(await (await fetch(`${base}/health`)).json()).toEqual({
+			status: "stopping",
+			mode: "operator",
+			pid: process.pid,
+		})
 		await vi.waitFor(() => expect(operator.stop).toHaveBeenCalledTimes(1))
+	})
+
+	it("serves order history one page at a time with each order's bids folded in", async () => {
+		const { base, operator } = await startServer()
+		const activity = operator.data.activity
+		await activity.record({ type: "detected", orderId: "order-1" })
+		await activity.record({ type: "skipped", orderId: "order-1", reason: "No profitable strategy" })
+		await activity.record({ type: "rebalance", success: true, reason: "1/1 transfers executed" })
+		await activity.record({ type: "detected", orderId: "order-2" })
+		await activity.record({ type: "filled", orderId: "order-2", volumeUsd: 120, profitUsd: 1.2, chainId: 8453 })
+		await operator.data.bids.store({ commitment: "order-2", success: false, error: "InsufficientDeposit" })
+		await operator.data.bids.store({ commitment: "order-2", success: true, extrinsicHash: "0xext" })
+
+		const first = await (await fetch(`${base}/api/activity/history?page=1&pageSize=1`)).json()
+		expect(first.page).toBe(1)
+		expect(first.network).toBe("mainnet")
+		expect(first.total).toBe(2)
+		expect(first.orders).toHaveLength(1)
+		expect(first.orders[0].orderId).toBe("order-2")
+		expect(first.orders[0].events.map((e: { type: string }) => e.type)).toEqual(["filled", "detected"])
+		expect(first.orders[0].bids.map((b: { success: boolean }) => b.success)).toEqual([true, false])
+		expect(first.other.map((e: { type: string }) => e.type)).toEqual(["rebalance"])
+
+		const second = await (await fetch(`${base}/api/activity/history?page=2&pageSize=1`)).json()
+		expect(second.orders.map((o: { orderId: string }) => o.orderId)).toEqual(["order-1"])
+		expect(second.orders[0].bids).toEqual([])
+
+		const beyond = await (await fetch(`${base}/api/activity/history?page=9&pageSize=1`)).json()
+		expect(beyond.orders).toEqual([])
+		expect(beyond.total).toBe(2)
 	})
 
 	it("serves the order activity feed with paging", async () => {
@@ -464,9 +576,7 @@ describe("UiServer (operator mode)", () => {
 		expect(res.events[0].type).toBe("filled")
 		expect(res.events[1].reason).toBe("No profitable strategy")
 
-		const older = await (
-			await fetch(`${base}/api/activity/orders?limit=10&before=${res.events[1].id}`)
-		).json()
+		const older = await (await fetch(`${base}/api/activity/orders?limit=10&before=${res.events[1].id}`)).json()
 		expect(older.events).toHaveLength(1)
 		expect(older.events[0].type).toBe("detected")
 	})
@@ -540,17 +650,70 @@ describe("UiServer (operator mode)", () => {
 		expect(bad.status).toBe(400)
 	})
 
+	it("keeps runtime config edits encrypted through the desktop persistence adapter", async () => {
+		const key = Buffer.alloc(32, 9)
+		const { base, operator } = await startServer({
+			writeConfigFile: (path, content) => encryptedConfigStore(path, key).write(path, content),
+		})
+		const response = await fetch(`${base}/api/log-level`, {
+			method: "PUT",
+			headers: CSRF,
+			body: JSON.stringify({ level: "warn" }),
+		})
+		expect(await response.json()).toEqual({ level: "warn", persisted: true })
+		const ciphertext = readFileSync(operator.configPath!, "utf8")
+		expect(isEncryptedConfig(ciphertext)).toBe(true)
+		expect(ciphertext).not.toContain("0xab")
+		const written = parse(encryptedConfigStore(operator.configPath!, key).read()) as FillerConfigFile
+		expect(written.simplex.logging).toBe("warn")
+		expect(written.simplex.signer).toEqual(operator.config.simplex.signer)
+	})
+
 	it("exposes vault controls only when a vault is configured", async () => {
 		const none = await startServer()
 		expect((await fetch(`${none.base}/api/vault/sweep`, { method: "POST", headers: CSRF })).status).toBe(409)
 		server?.stop()
 
-		const sweepNow = vi.fn().mockResolvedValue(undefined)
+		const vault = "0x00000000000000000000000000000000000000aa"
+		const asset = "0x00000000000000000000000000000000000000bb"
+		const sweepNow = vi.fn().mockResolvedValue({
+			submitted: [],
+			skipped: [
+				{
+					chain: "EVM-8453",
+					vault,
+					asset,
+					symbol: "USDC",
+					decimals: 6,
+					reason: "deposits-closed",
+					walletBalance: 8_000_000_000n,
+					threshold: 5_000_000_000n,
+					maxDeposit: 0n,
+				},
+			],
+		})
 		const redeemAll = vi.fn().mockResolvedValue(undefined)
 		const reconfigure = vi.fn().mockResolvedValue(undefined)
 		const { base } = await startServer({ vault: { sweepNow, redeemAll, reconfigure } })
-		expect((await fetch(`${base}/api/vault/sweep`, { method: "POST", headers: CSRF })).status).toBe(200)
+		const sweep = await fetch(`${base}/api/vault/sweep`, { method: "POST", headers: CSRF })
+		expect(sweep.status).toBe(200)
 		expect(sweepNow).toHaveBeenCalledTimes(1)
+		// The pass's outcome reaches the dashboard with amounts already formatted, so an empty
+		// sweep can say whether the wallet or the vault is the reason.
+		expect(await sweep.json()).toEqual({
+			ok: true,
+			submitted: [],
+			skipped: [
+				{
+					chain: "EVM-8453",
+					vault,
+					symbol: "USDC",
+					reason: "deposits-closed",
+					walletBalance: "8000",
+					threshold: "5000",
+				},
+			],
+		})
 		expect((await fetch(`${base}/api/vault/redeem`, { method: "POST", headers: CSRF })).status).toBe(200)
 		expect(redeemAll).toHaveBeenCalledTimes(1)
 	})
@@ -570,74 +733,6 @@ describe("UiServer (operator mode)", () => {
 		expect(res.triggers).toEqual({ triggeredChains: [] })
 	})
 
-	it("enables a disabled side on a curve-priced strategy and persists the curve", async () => {
-		const { base, operator } = await startServer()
-		// strategy 3 is ask-only; wire an enableSide like boot does for curve-priced FX
-		const strategy3 = operator.strategies.find((s) => s.index === 3)!
-		const enableSide = vi.fn()
-		strategy3.enableSide = enableSide
-
-		const newBid = [{ amount: "0", price: "1600" }]
-		const res = await put(base, "/api/strategies/3/curves", { bidPriceCurve: newBid })
-		expect(res.status).toBe(200)
-		const bodyJson = await res.json()
-		expect(bodyJson.bid).toEqual(newBid)
-		expect(enableSide).toHaveBeenCalledTimes(1)
-		expect(enableSide.mock.calls[0][0]).toBe("bid")
-		expect(strategy3.bid?.getPoints()).toEqual(newBid)
-
-		// invalid curve neither enables nor mutates
-		const bad = await put(base, "/api/strategies/3/curves", { bidPriceCurve: [{ amount: "0", price: "-1" }] })
-		expect(bad.status).toBe(400)
-		expect(enableSide).toHaveBeenCalledTimes(1)
-	})
-
-	it("disables a side with an empty curve and persists the removal (one-sided LP)", async () => {
-		const { base, operator } = await startServer()
-		const strategy1 = operator.strategies.find((s) => s.index === 1)!
-		const disableSide = vi.fn()
-		strategy1.disableSide = disableSide
-
-		const res = await put(base, "/api/strategies/1/curves", { askPriceCurve: [] })
-		expect(res.status).toBe(200)
-		const bodyJson = await res.json()
-		expect(bodyJson.ask).toBeUndefined()
-		expect(bodyJson.bid).toEqual(BID_POINTS)
-		expect(disableSide).toHaveBeenCalledWith("ask")
-		expect(strategy1.ask).toBeUndefined()
-		const written = parse(readFileSync(operator.configPath!, "utf-8")) as FillerConfigFile
-		expect(written.pairs?.[1]?.askPriceCurve).toBeUndefined()
-		expect(written.pairs?.[1]?.bidPriceCurve).toBeDefined()
-	})
-
-	it("rejects disabling the only remaining side", async () => {
-		const { base, operator } = await startServer()
-		const strategy3 = operator.strategies.find((s) => s.index === 3)! // ask-only
-		strategy3.disableSide = vi.fn()
-		const res = await put(base, "/api/strategies/3/curves", { askPriceCurve: [] })
-		expect(res.status).toBe(409)
-		expect((await res.json()).error).toContain("at least one side")
-		expect(strategy3.disableSide).not.toHaveBeenCalled()
-	})
-
-	it("rejects deleting the ask of a same-token market", async () => {
-		const { base } = await startServer()
-		const res = await put(base, "/api/strategies/0/curves", { askPriceCurve: [] })
-		expect(res.status).toBe(409)
-		expect((await res.json()).error).toContain("ask-only")
-	})
-
-	it("treats an empty curve on an already-absent side as a no-op", async () => {
-		const { base } = await startServer()
-		// strategy 3 is ask-only: empty bid does nothing, the ask update applies.
-		const res = await put(base, "/api/strategies/3/curves", {
-			bidPriceCurve: [],
-			askPriceCurve: [{ amount: "0", price: "1500" }],
-		})
-		expect(res.status).toBe(200)
-		expect((await res.json()).bid).toBeUndefined()
-	})
-
 	it("updates the vault set at runtime and persists it", async () => {
 		const sweepNow = vi.fn().mockResolvedValue(undefined)
 		const redeemAll = vi.fn().mockResolvedValue(undefined)
@@ -645,7 +740,12 @@ describe("UiServer (operator mode)", () => {
 		const { base, operator } = await startServer({ vault: { sweepNow, redeemAll, reconfigure } })
 
 		const vaults = [
-			{ chain: "EVM-8453", vault: "0xC768c589647798a6EE01A91FdE98EF2ed046DBD6", threshold: "5000", minBalance: "3000" },
+			{
+				chain: "EVM-8453",
+				vault: "0xC768c589647798a6EE01A91FdE98EF2ed046DBD6",
+				threshold: "5000",
+				minBalance: "3000",
+			},
 		]
 		const res = await fetch(`${base}/api/vault`, { method: "PUT", headers: CSRF, body: JSON.stringify({ vaults }) })
 		expect(await res.json()).toEqual({ applied: true, restartNeeded: false, persisted: true })
@@ -657,7 +757,9 @@ describe("UiServer (operator mode)", () => {
 		const bad = await fetch(`${base}/api/vault`, {
 			method: "PUT",
 			headers: CSRF,
-			body: JSON.stringify({ vaults: [{ chain: "EVM-8453", vault: "0xabc", threshold: "10", minBalance: "20" }] }),
+			body: JSON.stringify({
+				vaults: [{ chain: "EVM-8453", vault: "0xabc", threshold: "10", minBalance: "20" }],
+			}),
 		})
 		expect(bad.status).toBe(400)
 	})
@@ -715,7 +817,11 @@ describe("UiServer (operator mode)", () => {
 			{ ...body, amount: "" },
 			{ chain: "EVM-8453" },
 		]) {
-			const rejected = await fetch(`${base}/api/send`, { method: "POST", headers: CSRF, body: JSON.stringify(bad) })
+			const rejected = await fetch(`${base}/api/send`, {
+				method: "POST",
+				headers: CSRF,
+				body: JSON.stringify(bad),
+			})
 			expect(rejected.status).toBe(400)
 		}
 		expect(send).toHaveBeenCalledTimes(1)
@@ -734,9 +840,21 @@ describe("UiServer (operator mode)", () => {
 		const { base } = await startServer({ config })
 		const configDto = await (await fetch(`${base}/api/config`)).json()
 		const tokens = configDto.sendTokens["EVM-8453"] as Array<{ address: string; symbol: string }>
-		expect(tokens[0]).toEqual({ symbol: "native", address: "native" })
+		expect(tokens[0]).toEqual({ symbol: "ETH", address: "native" })
+		expect(configDto.sendTokens["EVM-56"][0]).toEqual({ symbol: "BNB", address: "native" })
 		expect(tokens.some((t) => t.address.toLowerCase() === vaultAddress.toLowerCase())).toBe(false)
 		expect(configDto.knownVaults["EVM-8453"].length).toBeGreaterThan(0)
+	})
+
+	it("lists curated vaults for every chain on the running network, not only the running ones", async () => {
+		const { base } = await startServer()
+		const configDto = await (await fetch(`${base}/api/config`)).json()
+		const chains = Object.keys(configDto.knownVaults)
+		// Running chain plus the other mainnet chains that ship Aave stata vaults.
+		expect(chains).toEqual(expect.arrayContaining(["EVM-8453", "EVM-1", "EVM-42161", "EVM-137", "EVM-56"]))
+		expect(chains.some((key) => key === "EVM-11155111")).toBe(false)
+		const ethereum = configDto.knownVaults["EVM-1"] as Array<{ label: string; asset: string }>
+		expect(ethereum.map((v) => v.asset)).toEqual(expect.arrayContaining(["USDC", "USDT"]))
 	})
 
 	it("records operator sends in the wallet history and merges fill txs", async () => {
@@ -806,8 +924,8 @@ describe("UiServer (operator mode)", () => {
 	function marketConfig(): FillerConfigFile {
 		const config = fakeConfig()
 		config.pairs = [
-			{ token0: "USDC", token1: "USDC", maxOrderSize: "100000", askPriceCurve: SAME_ASSET_POINTS },
-			{ token0: "USDC", token1: "CNGN", maxOrderSize: "5000", bidPriceCurve: BID_POINTS, askPriceCurve: ASK_POINTS },
+			{ token0: "USDC", token1: "USDC" },
+			{ token0: "USDC", token1: "CNGN" },
 		]
 		return config
 	}
@@ -829,12 +947,7 @@ describe("UiServer (operator mode)", () => {
 			}
 		})
 		const { base, operator } = await startServer({ config: cfg, addPair })
-		const body = {
-			token0: "USDC",
-			token1: "EURC",
-			maxOrderSize: "5000",
-			askPriceCurve: [{ amount: "0", price: "0.92" }],
-		}
+		const body = { token0: "USDC", token1: "EURC" }
 		const res = await fetch(`${base}/api/strategies`, { method: "POST", headers: CSRF, body: JSON.stringify(body) })
 		expect(res.status).toBe(200)
 		const payload = await res.json()
@@ -865,22 +978,6 @@ describe("UiServer (operator mode)", () => {
 		expect(addPair).not.toHaveBeenCalled()
 		expect(operator.config.pairs).toHaveLength(2)
 		expect(existsSync(operator.configPath!)).toBe(false)
-	})
-
-	it("rejects an unanchored market with the validator's message", async () => {
-		const { base } = await startServer({ config: marketConfig(), addPair: vi.fn() })
-		const res = await fetch(`${base}/api/strategies`, {
-			method: "POST",
-			headers: CSRF,
-			body: JSON.stringify({
-				token0: "EURC",
-				token1: "ZARP",
-				maxOrderSize: "5000",
-				askPriceCurve: [{ amount: "0", price: "19.4" }],
-			}),
-		})
-		expect(res.status).toBe(400)
-		expect((await res.json()).error).toContain("no USD anchor")
 	})
 
 	it("adds a custom-token market, persisting its [assets] entry", async () => {
@@ -932,13 +1029,7 @@ describe("UiServer (operator mode)", () => {
 
 	it("removes a market at runtime and remaps later strategies to the right config rows", async () => {
 		const config = marketConfig()
-		config.pairs!.push({
-			token0: "USDC",
-			token1: "ZARP",
-			maxOrderSize: "5000",
-			askPriceCurve: [{ amount: "0", price: "17.8" }],
-		})
-		const zarpAsk = new FillerPricePolicy({ points: [{ amount: "0", price: "17.8" }] })
+		config.pairs!.push({ token0: "USDC", token1: "ZARP" })
 		const strategies: AdminStrategy[] = [
 			{
 				index: 0,
@@ -946,7 +1037,6 @@ describe("UiServer (operator mode)", () => {
 				exotic: "USDC/USDC",
 				token0: "USDC",
 				token1: "USDC",
-				ask: new FillerPricePolicy({ points: SAME_ASSET_POINTS }),
 				sameToken: true,
 			},
 			{
@@ -955,11 +1045,9 @@ describe("UiServer (operator mode)", () => {
 				exotic: "USDC/CNGN",
 				token0: "USDC",
 				token1: "CNGN",
-				bid: new FillerPricePolicy({ points: BID_POINTS }),
-				ask: new FillerPricePolicy({ points: ASK_POINTS }),
 				sameToken: false,
 			},
-			{ index: 2, pairIndex: 2, exotic: "USDC/ZARP", token0: "USDC", token1: "ZARP", ask: zarpAsk, sameToken: false },
+			{ index: 2, pairIndex: 2, exotic: "USDC/ZARP", token0: "USDC", token1: "ZARP", sameToken: false },
 		]
 		const removePair = vi.fn(async (index: number) => {
 			const position = strategies.findIndex((s) => s.index === index)
@@ -978,35 +1066,26 @@ describe("UiServer (operator mode)", () => {
 		expect(removePair).toHaveBeenCalledWith(1)
 		expect(operator.config.pairs).toHaveLength(2)
 
-		// The ZARP strategy (index 2) now maps to config row 1 — a curve edit must land on the right pair.
-		const put = await fetch(`${base}/api/strategies/2/curves`, {
-			method: "PUT",
-			headers: CSRF,
-			body: JSON.stringify({ askPriceCurve: [{ amount: "0", price: "18" }] }),
-		})
-		expect(put.status).toBe(200)
+		// The ZARP market now maps to config row 1 — the rows must reindex with it.
 		const written = parse(readFileSync(operator.configPath!, "utf-8")) as FillerConfigFile
 		expect(written.pairs).toHaveLength(2)
 		expect(written.pairs?.[1]?.token1).toBe("ZARP")
-		expect(written.pairs?.[1]?.askPriceCurve?.[0]?.price).toBe("18")
 	})
 
-	it("refuses removals that orphan an anchor, empty the market list, or name an unknown strategy", async () => {
+	it("refuses removals that empty the market list or name an unknown strategy", async () => {
 		const config = marketConfig()
 		config.pairs = [
-			{ token0: "USDC", token1: "ZARP", referenceOnly: true, askPriceCurve: [{ amount: "0", price: "17.8" }] },
-			{ token0: "ZARP", token1: "CNGN", maxOrderSize: "90000", askPriceCurve: [{ amount: "0", price: "5.2" }] },
+			{ token0: "USDC", token1: "ZARP" },
+			{ token0: "ZARP", token1: "CNGN" },
 		]
 		const strategies: AdminStrategy[] = [
 			{
 				index: 0,
 				pairIndex: 0,
-				exotic: "USDC/ZARP (reference)",
+				exotic: "USDC/ZARP",
 				token0: "USDC",
 				token1: "ZARP",
-				ask: new FillerPricePolicy({ points: [{ amount: "0", price: "17.8" }] }),
 				sameToken: false,
-				referenceOnly: true,
 			},
 			{
 				index: 1,
@@ -1014,17 +1093,11 @@ describe("UiServer (operator mode)", () => {
 				exotic: "ZARP/CNGN",
 				token0: "ZARP",
 				token1: "CNGN",
-				ask: new FillerPricePolicy({ points: [{ amount: "0", price: "5.2" }] }),
 				sameToken: false,
 			},
 		]
 		const removePair = vi.fn()
 		const { base, operator } = await startServer({ config, strategies, removePair })
-
-		// Removing the reference feed would orphan ZARP/CNGN's USD anchor.
-		const orphan = await fetch(`${base}/api/strategies/0`, { method: "DELETE", headers: CSRF })
-		expect(orphan.status).toBe(400)
-		expect((await orphan.json()).error).toContain("no USD anchor")
 
 		const missing = await fetch(`${base}/api/strategies/99`, { method: "DELETE", headers: CSRF })
 		expect(missing.status).toBe(404)
@@ -1044,8 +1117,6 @@ describe("UiServer (operator mode)", () => {
 					exotic: "USDC/CNGN",
 					token0: "USDC",
 					token1: "CNGN",
-					bid: new FillerPricePolicy({ points: BID_POINTS }),
-					ask: new FillerPricePolicy({ points: ASK_POINTS }),
 					sameToken: false,
 				},
 			],
@@ -1060,6 +1131,8 @@ describe("UiServer (operator mode)", () => {
 	it("serves static SPA files with an index.html fallback", async () => {
 		const uiDistDir = mkdtempSync(join(tmpdir(), "simplex-dist-"))
 		writeFileSync(join(uiDistDir, "index.html"), "<html>spa</html>")
+		writeFileSync(join(uiDistDir, "manifest.webmanifest"), "{}")
+		writeFileSync(join(uiDistDir, "sw.js"), "self.addEventListener('fetch', () => {})")
 		mkdirSync(join(uiDistDir, "assets"))
 		writeFileSync(join(uiDistDir, "assets", "app.js"), "console.log(1)")
 
@@ -1070,60 +1143,15 @@ describe("UiServer (operator mode)", () => {
 		expect(await (await fetch(base)).text()).toBe("<html>spa</html>")
 		const js = await fetch(`${base}/assets/app.js`)
 		expect(js.headers.get("content-type")).toContain("text/javascript")
+		const manifest = await fetch(`${base}/manifest.webmanifest`)
+		expect(manifest.headers.get("content-type")).toContain("application/manifest+json")
+		const serviceWorker = await fetch(`${base}/sw.js`)
+		expect(serviceWorker.headers.get("content-type")).toContain("text/javascript")
 		// client-routed path falls back to the SPA shell
 		expect(await (await fetch(`${base}/setup/step-2`)).text()).toBe("<html>spa</html>")
 		// traversal is blocked (fetch normalizes ../, so send the raw path over a socket)
 		const traversal = await rawRequest(port, "/../secret.txt")
 		expect(traversal).toContain("403")
-	})
-
-	it("resizes a market's per-order cap on the live pair and persists it", async () => {
-		const { base, operator } = await startServer({ config: marketConfig() })
-		const setMaxOrderSize = vi.fn()
-		operator.strategies.find((s) => s.index === 1)!.setMaxOrderSize = setMaxOrderSize
-
-		const res = await put(base, "/api/strategies/1", { maxOrderSize: "12500" })
-		expect(res.status).toBe(200)
-		const payload = await res.json()
-		expect(payload.applied).toBe(true)
-		expect(payload.restartNeeded).toBe(false)
-		expect(payload.maxOrderSize).toBe("12500")
-		expect(setMaxOrderSize).toHaveBeenCalledWith("12500")
-		expect(operator.config.pairs?.[1]?.maxOrderSize).toBe("12500")
-		const written = parse(readFileSync(operator.configPath!, "utf-8")) as FillerConfigFile
-		expect(written.pairs?.[1]?.maxOrderSize).toBe("12500")
-	})
-
-	it("persists a cap for restart when the pair cannot be resized live", async () => {
-		const { base, operator } = await startServer({ config: marketConfig() })
-		// No setMaxOrderSize hook: no engine ran at boot.
-		const res = await put(base, "/api/strategies/1", { maxOrderSize: "7500" })
-		expect(await res.json()).toMatchObject({ applied: false, restartNeeded: true, persisted: true })
-		expect(operator.config.pairs?.[1]?.maxOrderSize).toBe("7500")
-	})
-
-	it("rejects non-positive caps and reference-only markets, leaving the pair untouched", async () => {
-		const { base, operator } = await startServer({ config: marketConfig() })
-		const strategy = operator.strategies.find((s) => s.index === 1)!
-		strategy.setMaxOrderSize = vi.fn()
-
-		for (const value of ["0", "-5", "abc", ""]) {
-			const res = await put(base, "/api/strategies/1", { maxOrderSize: value })
-			expect(res.status).toBe(400)
-			expect((await res.json()).error).toMatch(/maxOrderSize must be a (positive number|decimal string)/)
-		}
-		const unknown = await put(base, "/api/strategies/1", { maxOrderSize: "1", token0: "USDC" })
-		expect(unknown.status).toBe(400)
-		expect((await unknown.json()).error).toContain("Unknown fields")
-
-		strategy.referenceOnly = true
-		const reference = await put(base, "/api/strategies/1", { maxOrderSize: "1000" })
-		expect(reference.status).toBe(409)
-		expect((await reference.json()).error).toContain("never fill")
-
-		expect(strategy.setMaxOrderSize).not.toHaveBeenCalled()
-		expect(operator.config.pairs?.[1]?.maxOrderSize).toBe("5000")
-		expect(existsSync(operator.configPath!)).toBe(false)
 	})
 
 	/** Two chain rows aligned with the operator's running chain ids. */
@@ -1190,7 +1218,12 @@ describe("UiServer (operator mode)", () => {
 					rpcUrls: ["https://base.example", "https://base-two.example"],
 					bundlerUrl: "https://base-bundler.example",
 				},
-				{ chainId: 42161, rpcUrls: ["https://arb.example"], bundlerUrl: "https://arb-bundler.example", watchOnly: true },
+				{
+					chainId: 42161,
+					rpcUrls: ["https://arb.example"],
+					bundlerUrl: "https://arb-bundler.example",
+					watchOnly: true,
+				},
 			],
 		})
 		expect(res.status).toBe(200)
@@ -1219,7 +1252,11 @@ describe("UiServer (operator mode)", () => {
 	it("rejects chain edits that boot would reject, with nothing persisted", async () => {
 		const fetchChainId = vi.fn(async () => 999)
 		const { base, operator } = await startServer({ config: chainsConfig() }, { fetchChainId })
-		const base8453 = { chainId: 8453, rpcUrls: ["https://base.example"], bundlerUrl: "https://base-bundler.example" }
+		const base8453 = {
+			chainId: 8453,
+			rpcUrls: ["https://base.example"],
+			bundlerUrl: "https://base-bundler.example",
+		}
 
 		const empty = await put(base, "/api/chains", { chains: [] })
 		expect((await empty.json()).error).toContain("at least one chain")
@@ -1259,7 +1296,10 @@ describe("UiServer (operator mode)", () => {
 	})
 
 	it("writes a testnet confirmation policy for an added testnet chain", async () => {
-		const { base, operator } = await startServer({ config: chainsConfig() }, { fetchChainId: vi.fn(async () => 84532) })
+		const { base, operator } = await startServer(
+			{ config: chainsConfig() },
+			{ fetchChainId: vi.fn(async () => 84532) },
+		)
 		const res = await put(base, "/api/chains", {
 			chains: [
 				{ chainId: 8453, rpcUrls: ["https://base.example"], bundlerUrl: "https://base-bundler.example" },
@@ -1311,9 +1351,304 @@ describe("UiServer (operator mode)", () => {
 		expect(base8453.bundlerUrl).toBe(base8453.rpcUrl)
 
 		expect((await fetch(`${base}/api/setup/defaults`)).status).toBe(410)
-		expect((await fetch(`${base}/api/setup/save-and-start`, { method: "POST", headers: CSRF, body: "{}" })).status).toBe(410)
+		expect(
+			(await fetch(`${base}/api/setup/save-and-start`, { method: "POST", headers: CSRF, body: "{}" })).status,
+		).toBe(410)
 	})
 
+	// The dashboard's Logs page: a backfill request, then an SSE tail that
+	// resumes from the last seq the page holds. Both filter identically.
+	describe("logs", () => {
+		/** A buffer wired to its own context, so a test writes records by logging them. */
+		function logSource(level: LogLevel = "trace") {
+			const logs = new LogStore()
+			const loggers = new LoggerContext({ level })
+			loggers.addSink(logs.sink())
+			return { logs, loggers, log: loggers.get("filler") }
+		}
+
+		/**
+		 * Opens an SSE tail and resolves once `expect` records have arrived (or the
+		 * deadline passes). Event-driven rather than deadline-driven: a fixed
+		 * collection window turns a loaded CI box into a spurious failure.
+		 */
+		function tail(
+			base: string,
+			path: string,
+			options: { expect?: number; deadlineMs?: number; whileOpen?: () => void } = {},
+		): Promise<{
+			records: LogRecordDto[]
+			headers: Record<string, string | string[] | undefined>
+			events: string[]
+		}> {
+			const { expect: wanted = 0, deadlineMs = 3000, whileOpen } = options
+			return new Promise((resolve, reject) => {
+				const request = get(`${base}${path}`, (res) => {
+					const records: LogRecordDto[] = []
+					const events: string[] = []
+					let settled = false
+					const finish = () => {
+						if (settled) return
+						settled = true
+						clearTimeout(deadline)
+						request.destroy()
+						resolve({ records, headers: res.headers, events })
+					}
+					const deadline = setTimeout(finish, deadlineMs)
+					// A frame larger than a TCP segment arrives split across chunks, so
+					// only whole lines can be parsed; the remainder carries over.
+					let buffer = ""
+					res.setEncoding("utf-8")
+					res.on("data", (chunk: string) => {
+						buffer += chunk
+						const lines = buffer.split("\n")
+						buffer = lines.pop() ?? ""
+						for (const line of lines) {
+							if (line.startsWith("data: ")) records.push(JSON.parse(line.slice(6)))
+							else if (line.startsWith("event: ")) events.push(line.slice(7).trim())
+						}
+						if (wanted > 0 && records.length >= wanted) finish()
+					})
+					// The replay is written before the response is readable here, so the
+					// side effect runs once a first chunk has landed.
+					if (whileOpen) setTimeout(whileOpen, 20)
+					if (wanted === 0) finish()
+				})
+				request.on("error", (err) => {
+					// destroy() to end the tail surfaces here; the records are already resolved.
+					if ((err as NodeJS.ErrnoException).code !== "ECONNRESET") reject(err)
+				})
+			})
+		}
+
+		it("GET /api/logs reports the level actually configured, with launch coverage", async () => {
+			const { logs, log } = logSource()
+			log.info({ chain: "EVM-8453" }, "Scanned block")
+			log.error({ reason: "insufficient allowance" }, "Fill reverted")
+			const config = fakeConfig()
+			// Not the route's `?? "info"` fallback: a configured level must survive.
+			config.simplex.logging = "warn"
+			const { base } = await startServer({ logs, config })
+
+			const dto = await (await fetch(`${base}/api/logs`)).json()
+			expect(dto.level).toBe("warn")
+			expect(dto.captured).toBe(2)
+			expect(dto.capacity).toBeGreaterThanOrEqual(2)
+			expect(dto.persisted).toBe(false)
+			expect(dto.records.map((r: LogRecordDto) => r.msg)).toEqual(["Scanned block", "Fill reverted"])
+		})
+
+		it("GET /api/logs filters by level, search and after", async () => {
+			const { logs, log } = logSource()
+			log.debug("Curve quote resolved")
+			log.warn({ endpoint: "https://rpc.example" }, "Provider fell behind")
+			log.error("Fill reverted")
+			const { base } = await startServer({ logs })
+
+			const at = async (query: string) =>
+				(await (await fetch(`${base}/api/logs?${query}`)).json()).records.map((r: LogRecordDto) => r.msg)
+
+			expect(await at("level=warn")).toEqual(["Provider fell behind", "Fill reverted"])
+			expect(await at("q=rpc.example")).toEqual(["Provider fell behind"])
+			expect(await at("after=2")).toEqual(["Fill reverted"])
+			expect(await at("limit=1")).toEqual(["Fill reverted"])
+			// An unknown level is not a 400: it falls back to no level filter.
+			expect(await at("level=nonsense")).toHaveLength(3)
+		})
+
+		it("caps ?limit= however large the caller asks for", async () => {
+			const { logs, log } = logSource()
+			for (let i = 0; i < 12; i++) log.info(`line ${i}`)
+			const { base } = await startServer({ logs })
+
+			const dto = await (await fetch(`${base}/api/logs?limit=999999`)).json()
+			// MAX_LOG_PAGE, not the caller's number — an operator cannot ask the
+			// filler to serialize an unbounded page.
+			expect(dto.records.length).toBeLessThanOrEqual(2000)
+			expect(dto.records).toHaveLength(12)
+		})
+
+		it("the log routes report unavailable when nothing registered a store", async () => {
+			const { base } = await startServer()
+
+			expect((await fetch(`${base}/api/logs`)).status).toBe(409)
+			expect((await fetch(`${base}/api/logs/stream`)).status).toBe(409)
+		})
+
+		it("the log routes reject the wrong method and non-operator mode", async () => {
+			const { logs } = logSource()
+			const { base } = await startServer({ logs })
+
+			expect((await fetch(`${base}/api/logs`, { method: "POST", headers: CSRF })).status).toBe(405)
+			expect((await fetch(`${base}/api/logs/stream`, { method: "POST", headers: CSRF })).status).toBe(405)
+		})
+
+		it("GET /api/logs/stream serves an event stream, replays the backfill, then streams new records", async () => {
+			const { logs, log } = logSource()
+			log.info("Scanned block")
+			log.error("Fill reverted")
+			const { base } = await startServer({ logs })
+
+			const { records, headers } = await tail(base, "/api/logs/stream?level=info", {
+				expect: 3,
+				whileOpen: () => log.warn("Provider fell behind"),
+			})
+			// EventSource refuses any other content type outright.
+			expect(headers["content-type"]).toBe("text/event-stream")
+			expect(records.map((r) => r.msg)).toEqual(["Scanned block", "Fill reverted", "Provider fell behind"])
+		})
+
+		it("after skips the replay without silencing the live tail", async () => {
+			const { logs, log } = logSource()
+			log.info("Scanned block")
+			const { base } = await startServer({ logs })
+
+			const { records } = await tail(base, "/api/logs/stream?after=1", {
+				expect: 1,
+				whileOpen: () => log.info("Order detected"),
+			})
+			expect(records.map((r) => r.msg)).toEqual(["Order detected"])
+		})
+
+		it("a stale after — a seq from before the filler restarted — still replays and streams", async () => {
+			const { logs, log } = logSource()
+			log.info("Scanned block")
+			const { base } = await startServer({ logs })
+
+			// `after` resumes the replay; a seq that outlived the process it came
+			// from must not leave the page permanently blank.
+			const { records } = await tail(base, "/api/logs/stream?after=99999", {
+				expect: 2,
+				whileOpen: () => log.info("Order detected"),
+			})
+			expect(records.map((r) => r.msg)).toEqual(["Scanned block", "Order detected"])
+		})
+
+		it("the stream's level and search apply to live records too", async () => {
+			const { logs, log } = logSource()
+			const { base } = await startServer({ logs })
+
+			const { records } = await tail(base, "/api/logs/stream?level=warn&q=quorum", {
+				expect: 1,
+				whileOpen: () => {
+					log.info({ module: "quorum" }, "quorum is fine")
+					log.warn("Provider fell behind")
+					log.error({ endpoint: "quorum-rpc" }, "Fill reverted")
+				},
+			})
+			expect(records.map((r) => r.msg)).toEqual(["Fill reverted"])
+		})
+
+		it("records logged while the replay is in flight are not lost", async () => {
+			const { logs, log } = logSource()
+			log.info("from the backfill")
+			const { base } = await startServer({ logs })
+
+			// The replay is awaited (it can read the launch file), so anything logged
+			// during it has to be held and emitted in seq order afterwards.
+			const { records } = await tail(base, "/api/logs/stream", {
+				expect: 2,
+				whileOpen: () => log.info("logged during the replay"),
+			})
+			expect(records.map((r) => r.msg)).toEqual(["from the backfill", "logged during the replay"])
+			expect(records.map((r) => r.seq)).toEqual([1, 2])
+		})
+
+		it("PUT /api/log-level moves the filler in both directions and persists it", async () => {
+			const { logs, loggers, log } = logSource("info")
+			const operator = baseOperator({ logs, setLogLevel: (level: LogLevel) => loggers.setLevel(level) })
+			const { base } = await startServer(operator)
+
+			expect((await put(base, "/api/log-level", { level: "debug" })).status).toBe(200)
+			log.debug("now recorded")
+			expect(operator.config.simplex.logging).toBe("debug")
+
+			// Lowering is allowed: it is how an operator stops a long-running filler
+			// from writing a log file it does not want.
+			expect((await put(base, "/api/log-level", { level: "error" })).status).toBe(200)
+			log.warn("no longer recorded")
+			log.error("still recorded")
+			expect(operator.config.simplex.logging).toBe("error")
+
+			const dto = await (await fetch(`${base}/api/logs`)).json()
+			expect(dto.level).toBe("error")
+			expect(dto.records.map((r: LogRecordDto) => r.msg)).toEqual(["now recorded", "still recorded"])
+		})
+
+		it("PUT /api/log-level rejects a level that is not one of the five", async () => {
+			const { logs } = logSource()
+			const { base } = await startServer({ logs })
+
+			const response = await put(base, "/api/log-level", { level: "chatty" })
+			expect(response.status).toBe(400)
+			expect((await response.json()).error).toContain("must be one of")
+		})
+
+		/**
+		 * The record that says the level changed carries a `level` field of its own,
+		 * which collides with pino's — the one line documenting the change used to
+		 * vanish from the page it was logged for.
+		 */
+		it("the level-change record itself survives into the feed", async () => {
+			const { logs } = logSource()
+			const { base } = await startServer({ logs })
+			await put(base, "/api/log-level", { level: "debug" })
+
+			// The UI server logs on the process-wide context, so drive the store the
+			// same way handleLogLevel does and assert the record survives parsing.
+			const processLike = new LoggerContext({ level: "info" })
+			processLike.addSink(logs.sink())
+			processLike.get("ui").warn({ level: "debug" }, "Log level changed from the UI")
+
+			const dto = await (await fetch(`${base}/api/logs?q=Log+level+changed`)).json()
+			expect(dto.records).toHaveLength(1)
+			expect(dto.records[0].level).toBe("warn")
+			expect(JSON.parse(dto.records[0].detail)).toEqual({ level: "debug" })
+		})
+
+		/**
+		 * The replay writes its whole page without yielding, so the socket cannot
+		 * drain during it. A byte-threshold guard therefore fired on a reader who
+		 * was never given the chance, and the `gap` it emitted made the page re-run
+		 * the feed, replay the same page, and trip again — a livelock on a healthy
+		 * operator over the tunnel.
+		 */
+		it("a large replay reports no gap to a reader that is keeping up", async () => {
+			const { logs, log } = logSource()
+			for (let i = 0; i < 1200; i++) log.info({ blob: "x".repeat(2000) }, `line ${i}`)
+			const { base } = await startServer({ logs })
+
+			// ~2.4MB of frames — comfortably past the 1MB the old guard allowed.
+			const { records, events } = await tail(base, "/api/logs/stream", { expect: 1200, deadlineMs: 10_000 })
+			expect(events).not.toContain("gap")
+			expect(records).toHaveLength(1200)
+			expect(records[0].msg).toBe("line 0")
+			expect(records[1199].msg).toBe("line 1199")
+		})
+
+		it("stop() ends open log tails instead of leaving them hanging", async () => {
+			const { logs } = logSource()
+			const { base } = await startServer({ logs })
+			// Resolves "ended" only if the server actually terminated the response.
+			const ended = new Promise<string>((resolve) => {
+				const request = get(`${base}/api/logs/stream`, (res) => {
+					res.resume()
+					res.on("end", () => resolve("ended"))
+					res.on("close", () => resolve("ended"))
+				})
+				request.on("error", () => resolve("errored"))
+				setTimeout(() => {
+					request.destroy()
+					resolve("still open")
+				}, 2000)
+			})
+			await new Promise((r) => setTimeout(r, 50))
+
+			server!.stop()
+			server = undefined
+			expect(await ended).toBe("ended")
+		})
+	})
 })
 
 describe("UiServer (init mode)", () => {
@@ -1333,17 +1668,46 @@ describe("UiServer (init mode)", () => {
 	})
 
 	it("reports init status and gates operator endpoints", async () => {
+		const stop = vi.fn().mockResolvedValue(undefined)
 		server = new UiServer({
 			mode: "init",
-			setup: { configPath: "/tmp/x.toml", onSaveAndStart: async () => {} },
+			version: "0.16.2",
+			setup: { configPath: "/tmp/x.toml", onSaveAndStart: async () => {}, stop },
 		})
 		const port = await server.start(0)
 		const base = `http://127.0.0.1:${port}`
 
-		expect(await (await fetch(`${base}/api/status`)).json()).toEqual({ mode: "init", starting: false })
+		expect(await (await fetch(`${base}/api/status`)).json()).toEqual({
+			mode: "init",
+			version: "0.16.2",
+			starting: false,
+		})
 		expect((await fetch(`${base}/api/strategies`)).status).toBe(409)
 		expect((await fetch(`${base}/api/balances`)).status).toBe(409)
 		expect((await fetch(`${base}/api/pause`, { method: "POST", headers: CSRF })).status).toBe(409)
+
+		const stopResponse = await fetch(`${base}/api/stop`, { method: "POST", headers: CSRF })
+		expect(stopResponse.status).toBe(202)
+		expect(await stopResponse.json()).toEqual({ stopping: true })
+		expect(await (await fetch(`${base}/health`)).json()).toEqual({
+			status: "stopping",
+			mode: "init",
+			pid: process.pid,
+		})
+		await vi.waitFor(() => expect(stop).toHaveBeenCalledOnce())
+	})
+
+	it("refuses to stop setup while save-and-start is booting", async () => {
+		const stop = vi.fn().mockResolvedValue(undefined)
+		server = new UiServer({
+			mode: "init",
+			setup: { configPath: "/tmp/x.toml", onSaveAndStart: async () => {}, stop },
+		})
+		server.setStartState("starting")
+		const port = await server.start(0)
+		const response = await fetch(`http://127.0.0.1:${port}/api/stop`, { method: "POST", headers: CSRF })
+		expect(response.status).toBe(409)
+		expect(stop).not.toHaveBeenCalled()
 	})
 
 	it("enterOperatorMode flips the live server", async () => {

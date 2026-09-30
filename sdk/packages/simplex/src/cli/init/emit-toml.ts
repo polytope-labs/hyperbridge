@@ -1,4 +1,4 @@
-import { DEFAULT_MAX_CONCURRENT_ORDERS } from "@/config/defaults"
+import { DEFAULT_MAX_CONCURRENT_ORDERS, DEFAULT_ORDERBOOK_URLS } from "@/config/defaults"
 import { chmodSync, renameSync, unlinkSync, writeFileSync } from "node:fs"
 import { dirname, join, basename } from "node:path"
 import { randomBytes } from "node:crypto"
@@ -58,13 +58,10 @@ export function emitFillerToml(config: FillerConfigFile, options: EmitOptions = 
 	push(kv("substratePrivateKey", config.simplex.substratePrivateKey))
 	push("# Hyperbridge WebSocket endpoint used to submit solver bids.")
 	push(kv("hyperbridgeWsUrl", config.simplex.hyperbridgeWsUrl))
+	if (config.simplex.indexerUrl) push(kv("indexerUrl", config.simplex.indexerUrl))
 	if (config.simplex.blockScanIntervalSeconds !== undefined) {
 		push("# Seconds between block scans per chain. Default 3, minimum 0.1.")
 		push(kv("blockScanIntervalSeconds", config.simplex.blockScanIntervalSeconds))
-	}
-	if (config.simplex.acceptedSourceChains !== undefined) {
-		push("# Source chains (state machine ids) accepted for payment, declared in phantom bids.")
-		push(kv("acceptedSourceChains", config.simplex.acceptedSourceChains))
 	}
 	if (config.simplex.targetGasUnits !== undefined) {
 		push("# Gas units to keep deposited at the ERC-4337 EntryPoint on chains without a paymaster.")
@@ -98,6 +95,16 @@ export function emitFillerToml(config: FillerConfigFile, options: EmitOptions = 
 		push()
 	}
 
+	if (config.simplex.tunnel) {
+		push("# Remote access: outbound SSH tunnel to a relay so a phone's SSH client can open the web UI.")
+		push("# Pair devices from the UI (Operations > Remote access). Keys live under <data-dir>/tunnel/.")
+		push("[simplex.tunnel]")
+		for (const [key, value] of Object.entries(config.simplex.tunnel)) {
+			if (value !== undefined) push(kv(key, value))
+		}
+		push()
+	}
+
 	if (config.simplex.overfillProtection) {
 		push("# Bounds per-leg loss when internal pricing is wrong (bug, stale cache, manipulated venue).")
 		push("[simplex.overfillProtection]")
@@ -113,6 +120,18 @@ export function emitFillerToml(config: FillerConfigFile, options: EmitOptions = 
 		push("# maxConsecutiveClamps = 3")
 		push()
 	}
+
+	// Simplex prices every fill from the operator's limit orders, and those live on
+	// the orderbook, so the section is written whether or not an order exists yet.
+	push("# The orderbook simplex posts the operator's limit orders to.")
+	push("[orderbook]")
+	push(kv("url", config.orderbook?.url ?? DEFAULT_ORDERBOOK_URLS.mainnet))
+	if (config.orderbook?.defaultTtlSecs !== undefined) push(kv("defaultTtlSecs", config.orderbook.defaultTtlSecs))
+	if (config.orderbook?.reconcileIntervalSecs !== undefined) {
+		push(kv("reconcileIntervalSecs", config.orderbook.reconcileIntervalSecs))
+	}
+	if (config.orderbook?.requestTimeoutMs !== undefined) push(kv("requestTimeoutMs", config.orderbook.requestTimeoutMs))
+	push()
 
 	if (config.rebalancing) {
 		push("# Rebalancing: triggers when a balance falls to (1 - triggerPercentage) * baseBalance.")
@@ -162,25 +181,6 @@ export function emitFillerToml(config: FillerConfigFile, options: EmitOptions = 
 			push("]")
 		}
 		push()
-		if (config.vault.uniswapV4) {
-			push("# Uniswap V4 positions used for pool-based pricing and on-demand liquidity withdrawal.")
-			push("[vault.uniswapV4]")
-			if (config.vault.uniswapV4.side !== undefined) {
-				push(kv("side", config.vault.uniswapV4.side))
-			}
-			if (config.vault.uniswapV4.spreadBps !== undefined) {
-				push("# Slippage tolerance (bps) for LP redemptions; also the spread around pool mid.")
-				push(kv("spreadBps", config.vault.uniswapV4.spreadBps))
-			}
-			if (config.vault.uniswapV4.positions?.length) {
-				push("positions = [")
-				for (const position of config.vault.uniswapV4.positions) {
-					push(`    ${inlineTable(position)},`)
-				}
-				push("]")
-			}
-			push()
-		}
 	}
 
 	if (config.allowlist) {
@@ -235,37 +235,12 @@ function emitPair(push: (line?: string) => void, pair: PairConfig): void {
 	const sameToken = pair.token0.trim().toUpperCase() === pair.token1.trim().toUpperCase()
 	if (sameToken) {
 		push(`# Same-asset cross-chain market: ${pair.token0} on one chain for ${pair.token1} on another.`)
-		push("# Ask prices are the fraction paid back out — strictly below 1; the gap to par is the spread.")
 	} else {
-		push(`# Cross-asset market: curves price ${pair.token1} per 1 ${pair.token0}; maxOrderSize caps`)
-		push(`# the per-order ${pair.token0} notional. Omit one curve for one-sided LP.`)
+		push(`# Cross-asset market. Prices come from the limit orders you post, not from here.`)
 	}
 	push("[[pairs]]")
 	push(kv("token0", pair.token0))
 	push(kv("token1", pair.token1))
-	if (pair.referenceOnly !== undefined) {
-		push("# Price feed only — contributes its rate to USD anchoring but never fills orders.")
-		push(kv("referenceOnly", pair.referenceOnly))
-	}
-	if (pair.maxOrderSize !== undefined) {
-		push(kv("maxOrderSize", pair.maxOrderSize))
-	}
-	if (pair.bidPriceCurve) {
-		push(`# ${pair.token1} per ${pair.token0} when the filler *buys* ${pair.token1} from a user.`)
-		push("bidPriceCurve = [")
-		for (const point of pair.bidPriceCurve) {
-			push(`    ${inlineTable(point)},`)
-		}
-		push("]")
-	}
-	if (pair.askPriceCurve) {
-		if (!sameToken) push(`# ${pair.token1} per ${pair.token0} when the filler *sells* ${pair.token1} to a user.`)
-		push("askPriceCurve = [")
-		for (const point of pair.askPriceCurve) {
-			push(`    ${inlineTable(point)},`)
-		}
-		push("]")
-	}
 	push()
 }
 

@@ -1,8 +1,10 @@
 import { OrderCanceller } from "@/protocols/intents/OrderCanceller"
 import * as intentUtils from "@/protocols/intents/utils"
+import { ABI as IntentGatewayV2ABI } from "@/abis/IntentGatewayV2"
 import { LEGACY_STORAGE_KEYS, STORAGE_KEYS, createCancellationStorage } from "@/storage"
-import type { HexString, Order } from "@/types"
+import type { CancelOrderOptions, HexString, Order } from "@/types"
 import { MissingConsensusUpdateTimeError } from "@/utils/exceptions"
+import { decodeFunctionData, encodeAbiParameters, encodeEventTopics, parseEventLogs } from "viem"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 vi.mock("@/protocols/intents/utils", async (importOriginal) => ({
@@ -11,7 +13,14 @@ vi.mock("@/protocols/intents/utils", async (importOriginal) => ({
 }))
 
 const ADDR_20 = "0xEa4f68301aCec0dc9Bbe10F15730c59FB79d237E" as HexString
+const USER_BYTES32 = "0x000000000000000000000000ea4f68301acec0dc9bbe10f15730c59fb79d237e" as HexString
+const KEEPER = "0x1234567890123456789012345678901234567890" as HexString
+const GATEWAY = "0x9876543210987654321098765432109876543210" as HexString
 const SLOT_HASH = `0x${"11".repeat(32)}` as HexString
+const TX_HASH = `0x${"22".repeat(32)}` as HexString
+const RAW_TRANSACTION = "0x02deadbeef" as HexString
+const BLOCK_NUMBER = 456n
+const EVM_1_HEX = "0x45564d2d31"
 
 function makeOrder(overrides: Partial<Order> = {}): Order {
 	return {
@@ -28,6 +37,80 @@ function makeOrder(overrides: Partial<Order> = {}): Order {
 		output: { beneficiary: ADDR_20, assets: [{ token: ADDR_20, amount: 990n }], call: "0x" },
 		...overrides,
 	}
+}
+
+function orderCancelledLog() {
+	return {
+		address: GATEWAY,
+		topics: encodeEventTopics({
+			abi: IntentGatewayV2ABI,
+			eventName: "OrderCancelled",
+			args: { commitment: SLOT_HASH },
+		}),
+		data: encodeAbiParameters([{ type: "address" }], [KEEPER]),
+	}
+}
+
+function escrowRefundedLog() {
+	return {
+		address: GATEWAY,
+		topics: encodeEventTopics({
+			abi: IntentGatewayV2ABI,
+			eventName: "EscrowRefunded",
+			args: { commitment: SLOT_HASH },
+		}),
+		data: encodeAbiParameters(
+			[
+				{
+					type: "tuple[]",
+					components: [
+						{ name: "token", type: "bytes32" },
+						{ name: "amount", type: "uint256" },
+					],
+				},
+			],
+			[[{ token: USER_BYTES32, amount: 1_000n }]],
+		),
+	}
+}
+
+function makeReceipt(logs = [orderCancelledLog(), escrowRefundedLog()]) {
+	return {
+		blockNumber: BLOCK_NUMBER,
+		transactionHash: TX_HASH,
+		from: KEEPER,
+		to: GATEWAY,
+		logs,
+	}
+}
+
+function makeLocalCancellationContext(receipt = makeReceipt()) {
+	const unexpected = (name: string) =>
+		vi.fn(() => {
+			throw new Error(`${name} must not be called for same-chain cancellation`)
+		})
+	const getTransactionReceipt = vi.fn(async () => receipt)
+	const broadcastTransaction = vi.fn(async () => receipt)
+	const ctx = {
+		source: {
+			configService: { getIntentGatewayAddress: vi.fn(() => GATEWAY) },
+			getTransactionReceipt,
+			broadcastTransaction,
+			quoteNative: unexpected("source fee quotation"),
+			queryStateProof: unexpected("source proof fetching"),
+		},
+		dest: {
+			quoteNative: unexpected("destination fee quotation"),
+			queryStateProof: unexpected("destination proof fetching"),
+		},
+	}
+	const indexerClient = {
+		queryLatestStateMachineHeight: unexpected("proof height fetching"),
+		getRequestStatusStream: unexpected("GET status streaming"),
+		postRequestStatusStream: unexpected("POST status streaming"),
+	}
+
+	return { ctx, indexerClient, getTransactionReceipt, broadcastTransaction }
 }
 
 describe("OrderCanceller recovery", () => {
@@ -198,5 +281,118 @@ describe("OrderCanceller recovery", () => {
 		expect((await canceller.cancelOrder(order, {} as never, { from: "destination" }).next()).value).toMatchObject({
 			status: "AWAITING_CANCEL_TRANSACTION",
 		})
+	})
+})
+
+describe("OrderCanceller same-chain cancellation", () => {
+	beforeEach(() => {
+		vi.mocked(intentUtils.convertGasToFeeToken).mockReset()
+	})
+
+	const cases: Array<{
+		name: string
+		source: string
+		destination: string
+		options?: CancelOrderOptions
+	}> = [
+		{ name: "explicit source route with text IDs", source: "EVM-1", destination: "EVM-1", options: { from: "source" } },
+		{
+			name: "explicit destination route with mixed text and hex IDs",
+			source: "EVM-1",
+			destination: EVM_1_HEX,
+			options: { from: "destination" },
+		},
+		{ name: "default route with hex IDs", source: EVM_1_HEX, destination: EVM_1_HEX },
+	]
+
+	it.each(cases)("encodes and confirms the local transaction for $name", async ({ source, destination, options }) => {
+		const order = makeOrder({ source, destination })
+		const { ctx, indexerClient, getTransactionReceipt, broadcastTransaction } = makeLocalCancellationContext()
+		const canceller = new OrderCanceller(ctx as never)
+		const cancellation = canceller.cancelOrder(order, indexerClient as never, options)
+
+		const pending = await cancellation.next()
+		expect(pending.done).toBe(false)
+		expect(pending.value).toMatchObject({
+			status: "AWAITING_CANCEL_TRANSACTION",
+			to: GATEWAY,
+			value: 0n,
+		})
+		if (pending.done || pending.value.status !== "AWAITING_CANCEL_TRANSACTION") {
+			throw new Error("Expected same-chain cancellation transaction")
+		}
+
+		const decoded = decodeFunctionData({ abi: IntentGatewayV2ABI, data: pending.value.data })
+		expect(decoded.functionName).toBe("cancelOrder")
+		if (decoded.functionName !== "cancelOrder") throw new Error("Expected cancelOrder calldata")
+		const [encodedOrder, cancelOptions] = decoded.args
+		expect(encodedOrder.user).toBe(USER_BYTES32)
+		expect(encodedOrder.user.slice(-40).toLowerCase()).toBe(order.user.slice(-40).toLowerCase())
+		expect(encodedOrder.source).toBe(EVM_1_HEX)
+		expect(encodedOrder.destination).toBe(EVM_1_HEX)
+		expect(cancelOptions).toEqual({ relayerFee: 0n, height: 0n })
+
+		const complete = await cancellation.next(TX_HASH)
+		expect(complete).toEqual({
+			done: false,
+			value: {
+				status: "CANCELLATION_COMPLETE",
+				blockNumber: Number(BLOCK_NUMBER),
+				transactionHash: TX_HASH,
+			},
+		})
+		expect(getTransactionReceipt).toHaveBeenCalledWith(TX_HASH)
+		expect(broadcastTransaction).not.toHaveBeenCalled()
+		const receipt = makeReceipt()
+		expect(receipt.from).toBe(KEEPER)
+		expect(receipt.from.toLowerCase()).not.toBe(order.user.toLowerCase())
+		expect(parseEventLogs({ abi: IntentGatewayV2ABI, logs: receipt.logs })).toMatchObject([
+			{ eventName: "OrderCancelled", args: { commitment: SLOT_HASH, canceller: KEEPER } },
+			{ eventName: "EscrowRefunded", args: { commitment: SLOT_HASH } },
+		])
+		expect(intentUtils.convertGasToFeeToken).not.toHaveBeenCalled()
+	})
+
+	it("broadcasts a signed raw transaction before confirming the keeper refund", async () => {
+		const { ctx, indexerClient, getTransactionReceipt, broadcastTransaction } = makeLocalCancellationContext()
+		const cancellation = new OrderCanceller(ctx as never).cancelOrder(
+			makeOrder({ destination: EVM_1_HEX }),
+			indexerClient as never,
+		)
+
+		await cancellation.next()
+		const complete = await cancellation.next(RAW_TRANSACTION)
+
+		expect(broadcastTransaction).toHaveBeenCalledWith(RAW_TRANSACTION)
+		expect(getTransactionReceipt).not.toHaveBeenCalled()
+		expect(complete.value).toMatchObject({ status: "CANCELLATION_COMPLETE", transactionHash: TX_HASH })
+	})
+
+	it.each([{ from: "source" as const }, { from: "destination" as const }])(
+		"quotes zero fees for a same-chain $from route without external fee access",
+		async (options) => {
+			const { ctx } = makeLocalCancellationContext()
+			const quote = await new OrderCanceller(ctx as never).quoteCancelOrder(
+				makeOrder({ destination: EVM_1_HEX }),
+				options,
+			)
+
+			expect(quote).toEqual({ nativeValue: 0n, relayerFee: 0n })
+			expect(intentUtils.convertGasToFeeToken).not.toHaveBeenCalled()
+		},
+	)
+
+	it("does not report completion without the EscrowRefunded event", async () => {
+		const receipt = makeReceipt([orderCancelledLog()])
+		const { ctx, indexerClient } = makeLocalCancellationContext(receipt)
+		const cancellation = new OrderCanceller(ctx as never).cancelOrder(
+			makeOrder({ destination: EVM_1_HEX }),
+			indexerClient as never,
+		)
+
+		await cancellation.next()
+		await expect(cancellation.next(TX_HASH)).rejects.toThrow(
+			"EscrowRefunded event not found in cancel transaction receipt",
+		)
 	})
 })

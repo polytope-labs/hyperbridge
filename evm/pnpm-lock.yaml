@@ -17,6 +17,9 @@ importers:
       '@openzeppelin/contracts':
         specifier: ^5.4.0
         version: 5.4.0
+      '@openzeppelin/contracts-upgradeable':
+        specifier: ^5.6.1
+        version: 5.6.1(@openzeppelin/contracts@5.4.0)
       '@polytope-labs/solidity-merkle-trees':
         specifier: 1.1.0
         version: 1.1.0

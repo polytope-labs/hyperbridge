@@ -53,7 +53,6 @@ function build() {
 	// Base Sepolia carries none of these in the SDK registry; point the service at the probe deployment.
 	Object.assign(configService, {
 		getSimplexPaymasterAddress: () => PAYMASTER,
-		getCirclePaymasterAddress: () => undefined,
 		getUsdcAsset: () => TOKEN,
 		getUsdcDecimals: () => 6,
 		getUsdtAsset: () => "0x" as HexString,

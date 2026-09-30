@@ -37,12 +37,29 @@ The Solidity test helper contract is `evm/tests/foundry/AbiEncodeTest.sol`.
 
 ## AI workflow docs
 
-Each package under `sdk/packages/*` keeps AI workflow docs in `docs/ai/`:
+This rule applies to every PR and package, including indexer, simplex, SDK, and core.
 
-- `ChangeLog.md` — append an entry for every AI-assisted code change (date, what changed, files touched).
-- `Decisions.md` — record non-obvious choices with the alternatives considered and why they lost.
-- `Flow.md` — how the code paths actually execute; update it when documented control flow changes, and add flows as they are read and verified. Never document a flow speculatively.
+- Document the final feature or fix: what the PR does, the resulting behavior, and any
+  interfaces, fields, or constraints a reader needs to understand it.
+- Keep the minimum useful Markdown. Prefer one concise note when it covers the change;
+  update that note during review instead of adding a file for each iteration.
+- Omit work logs, implementation history, rejected cleanup approaches, and narratives
+  about routine refactoring, deduplication, optimization, or testing. These are expected
+  engineering work. Describe them only when they are the actual purpose of the PR.
+- Use concrete feature and field names instead of generic labels such as "enrichment."
+- Before finalizing a PR, review every added or modified Markdown file. Delete redundant
+  or process-only notes and remove references to deleted files. Keep the PR description
+  focused on the final change, with concise validation results there.
 
-When changing code in a package that has `docs/ai/`, updating these files is part of the change, not optional follow-up. When starting substantial work in a package that has no `docs/ai/` yet (e.g. simplex, sdk, core, lz-endpoint), create the three files as the first step and seed them from that task's actual work — never with empty templates.
+Read relevant existing package notes before changing code to preserve documented
+assumptions. Use `docs/ai/changelog/YYYY-MM-DD-short-title.md` for a needed feature note.
+Add a decision or flow document only when it explains a distinct, lasting constraint or
+code path that the feature note does not cover. Update an existing flow when its behavior
+changes; never document a flow speculatively.
 
-These are not release notes. Package `CHANGELOG.md` files are changesets release logs managed separately; `ChangeLog.md` lives in `docs/ai/` partly because the two names collide on case-insensitive filesystems.
+Use a separate filename for each PR's note to avoid conflicts between concurrent PRs.
+Revise or consolidate notes added by the current PR rather than accumulating review
+history. Do not append to shared `ChangeLog.md` files or create empty documentation
+directories and templates merely because code changed.
+
+Package `CHANGELOG.md` files remain release logs managed by changesets.

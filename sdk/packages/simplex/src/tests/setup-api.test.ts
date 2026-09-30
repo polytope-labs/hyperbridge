@@ -8,6 +8,7 @@ import { validateConfig, type FillerConfigFile } from "@/config/filler-toml"
 import { SignerType } from "@/services/wallet"
 import { deriveSubstrateKeyPair } from "@/services/substrate-key"
 import { startMockRpc, type MockRpc } from "./helpers/mock-rpc"
+import { encryptedConfigStore, isEncryptedConfig } from "@/config/storage"
 
 const CSRF = { "Content-Type": "application/json", "X-Simplex-UI": "1" }
 const TEST_KEY = "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"
@@ -56,22 +57,22 @@ describe("setup API", () => {
 				{
 					token0: "USDC",
 					token1: "USDC",
-					maxOrderSize: "100000",
-					askPriceCurve: [
-						{ amount: "100", price: "0.99" },
-						{ amount: "100000", price: "0.999" },
-					],
 				},
 			],
 			chains: [{ rpcUrls: [rpcUrl], bundlerUrl: "https://api.pimlico.io/v2/1/rpc?apikey=secretpimlicokey" }],
+			orderbook: { url: "https://orderbook.example/graphql" },
 		}
 	}
 
-	it("serves wizard defaults", async () => {
+	it("serves mainnet-only wizard defaults", async () => {
 		const { base } = await startInitServer()
 		const res = await fetch(`${base}/api/setup/defaults`)
 		expect(res.status).toBe(200)
-		expect((await res.json()).chains.length).toBeGreaterThan(0)
+		const defaults = await res.json()
+		expect(defaults.chains).toHaveLength(5)
+		expect(defaults.chains.every((chain: { network: string }) => chain.network === "mainnet")).toBe(true)
+		expect(defaults.hyperbridgeWs).toEqual({ mainnet: "wss://nexus.rpc.polytope.technology" })
+		expect(defaults).not.toHaveProperty("testnetConfirmationPoints")
 	})
 
 	it("validates an RPC against the expected chain id", async () => {
@@ -86,12 +87,20 @@ describe("setup API", () => {
 		expect(mismatch.results[0].error).toContain("expected 42161")
 	})
 
+	it("uses mainnet Alchemy endpoints even when a client requests testnet", async () => {
+		const fetchChainId = vi.fn(async () => 1)
+		const { base } = await startInitServer({ deps: { fetchChainId } })
+
+		const response = await (await post(base, "validate-alchemy-key", { apiKey: "key", network: "testnet" })).json()
+		expect(response.valid).toBe(true)
+		expect(response.chains.map((chain: { chainId: number }) => chain.chainId)).toEqual([1, 42161, 8453, 137, 56])
+		expect(fetchChainId).toHaveBeenCalledWith(expect.stringContaining("eth-mainnet"))
+	})
+
 	it("rejects quorum URLs sharing a hostname", async () => {
 		rpc = await startMockRpc({ chainId: 1 })
 		const { base } = await startInitServer()
-		const res = await (
-			await post(base, "validate-rpc", { urls: [rpc.url, rpc.url], expectedChainId: 1 })
-		).json()
+		const res = await (await post(base, "validate-rpc", { urls: [rpc.url, rpc.url], expectedChainId: 1 })).json()
 		expect(res.ok).toBe(false)
 		expect(res.error).toContain("different domains")
 	})
@@ -114,7 +123,10 @@ describe("setup API", () => {
 		const { base } = await startInitServer()
 
 		const ok = await (
-			await post(base, "validate-token", { rpcUrl: rpc.url, address: "0x1111111111111111111111111111111111111111" })
+			await post(base, "validate-token", {
+				rpcUrl: rpc.url,
+				address: "0x1111111111111111111111111111111111111111",
+			})
 		).json()
 		expect(ok).toEqual({ ok: true, symbol: "cNGN", decimals: 6 })
 
@@ -126,7 +138,10 @@ describe("setup API", () => {
 		rpc = await startMockRpc({ code: "0x" })
 		const { base } = await startInitServer()
 		const res = await (
-			await post(base, "validate-token", { rpcUrl: rpc.url, address: "0x1111111111111111111111111111111111111111" })
+			await post(base, "validate-token", {
+				rpcUrl: rpc.url,
+				address: "0x1111111111111111111111111111111111111111",
+			})
 		).json()
 		expect(res).toEqual({ ok: false, error: "No contract deployed at this address" })
 	})
@@ -170,34 +185,19 @@ describe("setup API", () => {
 	it("rejects an invalid config at preview with the validation message", async () => {
 		const { base } = await startInitServer()
 		const config = minimalConfig("http://127.0.0.1:1")
-		config.pairs = []
+		config.chains = []
 		const res = await post(base, "preview", { config })
 		expect(res.status).toBe(400)
-		expect((await res.json()).error).toContain("At least one [[pairs]]")
+		expect((await res.json()).error).toContain("At least one chain")
 	})
 
-	it("rejects a chain without confirmation coverage at preview, like boot does", async () => {
+	it("rejects testnet chains at preview", async () => {
 		rpc = await startMockRpc({ chainId: 1 })
 		const { base } = await startInitServer()
 		const config = minimalConfig(rpc.url)
-		// Resolve the pair symbols on Sepolia so the coverage gate is what fires.
-		config.assets = { USDC: { "EVM-11155111": "0x1111111111111111111111111111111111111111" } }
-
-		// Sepolia has no built-in confirmation defaults and none configured.
-		const uncovered = await post(base, "preview", { config, chainIds: [11155111] })
-		expect(uncovered.status).toBe(400)
-		expect((await uncovered.json()).error).toContain("No confirmation policy")
-
-		config.confirmationPolicies = {
-			"11155111": {
-				points: [
-					{ amount: "100", value: 1 },
-					{ amount: "10000", value: 2 },
-				],
-			},
-		}
-		const covered = await post(base, "preview", { config, chainIds: [11155111] })
-		expect(covered.status).toBe(200)
+		const response = await post(base, "preview", { config, chainIds: [11155111] })
+		expect(response.status).toBe(400)
+		expect((await response.json()).error).toContain("mainnet")
 	})
 
 	it("save-and-start writes the config 0600, calls the boot callback and flips to operator", async () => {
@@ -221,6 +221,21 @@ describe("setup API", () => {
 		expect(path).toBe(configPath)
 		expect(toml).toContain("[[pairs]]")
 		expect(JSON.parse(JSON.stringify(bootedConfig))).toEqual(JSON.parse(JSON.stringify(config)))
+	})
+
+	it("encrypts initial setup through the desktop writer without changing the in-memory boot config", async () => {
+		const key = Buffer.alloc(32, 7)
+		const { base, configPath, onSaveAndStart } = await startInitServer({
+			writeConfigFile: (path, content) => encryptedConfigStore(path, key).write(path, content),
+		})
+		const res = await post(base, "save-and-start", { config: minimalConfig("http://127.0.0.1:9") })
+		expect(res.status).toBe(202)
+		const ciphertext = readFileSync(configPath, "utf8")
+		expect(isEncryptedConfig(ciphertext)).toBe(true)
+		expect(ciphertext).not.toContain(TEST_KEY)
+		expect(encryptedConfigStore(configPath, key).read()).toContain(TEST_KEY)
+		await vi.waitFor(() => expect(onSaveAndStart).toHaveBeenCalledTimes(1))
+		expect(onSaveAndStart.mock.calls[0][1]).toContain(TEST_KEY)
 	})
 
 	it("rejects invalid configs before writing anything", async () => {
@@ -262,7 +277,23 @@ describe("setup API", () => {
 		const config = minimalConfig(rpc.url)
 
 		expect((await post(base, "save-and-start", { config })).status).toBe(202)
+		expect(await (await fetch(`${base}/health`)).json()).toEqual({
+			status: "starting",
+			mode: "init",
+			pid: process.pid,
+		})
 		expect((await post(base, "save-and-start", { config })).status).toBe(409)
 		resolveBoot()
+	})
+
+	it("rejects save-and-start after graceful shutdown begins", async () => {
+		rpc = await startMockRpc({ chainId: 1 })
+		const { base, onSaveAndStart } = await startInitServer()
+		server!.beginStopping()
+
+		const response = await post(base, "save-and-start", { config: minimalConfig(rpc.url) })
+		expect(response.status).toBe(409)
+		expect(await response.json()).toEqual({ error: "Simplex is stopping" })
+		expect(onSaveAndStart).not.toHaveBeenCalled()
 	})
 })

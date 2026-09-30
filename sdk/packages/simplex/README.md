@@ -1,12 +1,40 @@
 # @hyperbridge/simplex
 
-Automated intent solver for the Hyperbridge IntentGateway. Run it as a standalone binary, or embed
-it in your own Node application.
+Automated intent solver for the Hyperbridge IntentGateway. Install the desktop app, run the
+standalone binary, or embed the engine in your own Node application.
 
 Full documentation:
 [docs.hyperbridge.network/developers/sdk/simplex](https://docs.hyperbridge.network/developers/sdk/simplex/)
 
-## As a library
+## Desktop app (Recommended)
+
+[Download Simplex Desktop](https://github.com/polytope-labs/hyperbridge/releases?q=simplex-desktop-v&expanded=true)
+for macOS, Windows, or Linux. Choose the newest stable `simplex-desktop-v…` release and its installer
+for your platform. The app bundles this package and the matching Node runtime, opens the setup wizard
+on first launch, and keeps the solver running from the system tray. macOS and Windows install
+authenticated updates; Linux updates remain manual until release metadata is independently signed.
+
+The desktop app and `@hyperbridge/simplex` always use the same version. Its bundle identifier is
+`network.hyperbridge.simplex` and its installed product name is **Simplex**.
+
+A fresh desktop config is stored at:
+
+- macOS: `~/Library/Application Support/Simplex/filler-config.toml`
+- Windows: `%APPDATA%\Simplex\filler-config.toml`
+- Linux: `$XDG_CONFIG_HOME/Simplex/filler-config.toml`, or `~/.config/Simplex/filler-config.toml`
+
+`filler-config.toml` contains private keys and credentials in plaintext. New files are mode `0600`
+on Unix, but software running as the operator can still read them. Keep the file out of source
+control and broadly shared backups. `simplex.substratePrivateKey` is required in every signer mode,
+so Turnkey and MPC Vault operators still have a raw Substrate key on disk.
+
+The browser-installable PWA remains the remote/mobile dashboard for an existing solver. It is a UI
+shell, not a packaged solver, and is not the preferred local installation.
+
+See the [installation guide](https://docs.hyperbridge.network/developers/evm/simplex/installation/)
+for installer names, lifecycle details, and the advanced Docker and npm paths.
+
+## Advanced: embed as a library
 
 ```bash
 npm install @hyperbridge/simplex
@@ -27,14 +55,24 @@ simplex.on("order:filled", ({ orderId, profitUsd }) => {
 })
 
 // Every runtime control the dashboard offers is a method — nothing needs a restart.
-await simplex.pairs.setCurve(0, "ask", [{ amount: "0", price: "1550" }])
+// Prices come from limit orders posted to the HyperFX orderbook: 10,000 USDC in for
+// 13,900,000 CNGN out, filled on Base, for swaps from Ethereum or Base.
+await simplex.limitOrders.create({
+    fillChain: "EVM-8453",
+    tokenIn: "USDC",
+    amountIn: "10000",
+    tokenOut: "CNGN",
+    amountOut: "13900000",
+    acceptedSources: ["EVM-1", "EVM-8453"],
+})
 await simplex.chains.setRpcUrls(8453, ["https://base-new.example"])
 
 await simplex.stop()
 ```
 
 `Simplex.start` takes a plain config object — no TOML file required — and returns once the solver is
-running. It logs nothing until you point `logger` at a sink, so importing the package never writes to
+running. The config must name an `orderbook`; it carries no prices, and the solver fills only against
+the limit orders you create while it runs. It logs nothing until you point `logger` at a sink, so importing the package never writes to
 your stdout.
 
 Signing is an interface, not a setting. `Signer` is an identity and three operations — sign this
@@ -49,7 +87,7 @@ durable store, since bid records are how locked deposits are found again for ret
 
 See [Running as a library](https://docs.hyperbridge.network/developers/sdk/simplex).
 
-## As a binary
+## Advanced: npm binary and Docker
 
 ```bash
 npm install -g @hyperbridge/simplex
@@ -62,7 +100,7 @@ still `simplex`. Prefer a container? The same binary ships as
 Hub page.
 
 With no config present, `simplex` opens a local browser wizard that walks through the minimum setup
-(chains, RPCs, bundlers, signer, Hyperbridge account, strategies), validates every endpoint live,
+(chains, RPCs, bundlers, signer, Hyperbridge account), validates every endpoint live,
 writes a commented `filler-config.toml` (mode 600) and starts the solver in the same process.
 `simplex init` is the equivalent terminal wizard.
 
@@ -73,12 +111,11 @@ With a config present (`./filler-config.toml`, `$SIMPLEX_HOME/config.toml`, or `
 
 The solver serves a local web UI at `127.0.0.1:8686` by default:
 
-- setup wizard (when no config exists) — private key, MPCVault or Turnkey signer, static curves or Uniswap V4 pool pricing
+- setup wizard (when no config exists) — private key, MPCVault or Turnkey signer, chains and endpoints
 - status, pause/resume (persists across restarts), graceful stop, balances per chain
 - live activity feed (orders detected/filled/skipped, bids, rebalances) streamed over SSE
+- limit orders: post, inspect with the fills that drew them down, and cancel
 - operations: manual vault sweep/redeem, runtime allowlist editing, log level switch, rebalancing trigger view, masked config view
-- inflight FX price curve updates without a restart, persisted back to the config file
-- overfill-protection self-halts surfaced with an operator reset
 
 Flags:
 
@@ -86,23 +123,74 @@ Flags:
 simplex run -c filler-config.toml            # UI on 127.0.0.1:8686
 simplex run -c filler-config.toml --ui 9000  # custom port
 simplex run -c filler-config.toml --no-ui    # headless
+simplex run --no-open                        # start the wizard, don't launch a browser
+simplex run --log-format json                # NDJSON on stdout instead of colourised lines
 ```
 
-The curve-update API:
+`--no-open` and `--log-format json` are for running the solver under a supervisor. The wizard still
+starts and still reports its URL under `--no-open`; only the browser launch is skipped. `json` makes
+every line simplex writes to stdout one JSON object, with no ANSI escapes, which is what a captured log
+file needs. (One caveat: `@polkadot/api` prints a plain-text line to stdout if the Hyperbridge runtime
+upgrades while the solver is running, so parse defensively.)
+
+The limit-order API:
 
 ```bash
-curl http://127.0.0.1:8686/api/strategies
-curl -X PUT http://127.0.0.1:8686/api/strategies/0/curves \
+curl http://127.0.0.1:8686/api/orderbook/books           # books, dust floors, tokens per chain
+curl http://127.0.0.1:8686/api/limit-orders?status=open  # also ?chain= and ?book=
+curl -X POST http://127.0.0.1:8686/api/limit-orders \
     -H "Content-Type: application/json" -H "X-Simplex-UI: 1" \
-    -d '{"askPriceCurve": [{"amount": "0", "price": "1550"}]}'
+    -d '{"fillChain": "EVM-8453", "tokenIn": "USDC", "amountIn": "10000",
+         "tokenOut": "CNGN", "amountOut": "13900000", "acceptedSources": ["EVM-1", "EVM-8453"]}'
+curl http://127.0.0.1:8686/api/limit-orders/<id>          # { order, fills, bids }
+curl -X DELETE http://127.0.0.1:8686/api/limit-orders/<id> -H "X-Simplex-UI: 1"
 ```
 
-Curve changes apply immediately and are written back to the config file (regenerated with standard
-comments) so restarts keep them. Venue-priced strategies and disabled sides (one-sided LP) are not
-editable. The server is unauthenticated — mutating requests need the `X-Simplex-UI: 1` header (CSRF
+Amounts are whole tokens as decimal strings. `acceptedSources` must name at least one source chain,
+and `ttlSecs` is optional (default `[orderbook] defaultTtlSecs`, or 365 days). Orders live in
+`bids.db`, not the config file: a fill draws an order down and reposts the rest, and it lapses when
+its TTL runs out. See the
+[limit orders guide](https://docs.hyperbridge.network/developers/evm/simplex/limit-orders/).
+
+The server is unauthenticated — mutating requests need the `X-Simplex-UI: 1` header (CSRF
 hygiene), and both the wizard and the operator UI bind loopback unless told otherwise. Only bind
 another interface (e.g. `--ui 0.0.0.0:8686`, which the docker image does inside its own network
 namespace) on a trusted network.
+
+Loopback is machine-local, not user-local. On a shared machine, another OS user may be able to reach
+the unauthenticated TCP UI and invoke operator actions. Prefer `--ui-socket` in an owner-only
+directory or the authenticated, opt-in tunnel when other local users are not trusted. The generated
+`filler-config.toml` stores signing keys in plaintext; it is written atomically with mode `0600` on
+Unix, but must still be kept out of source control and broadly shared backups.
+
+## Remote access from a phone
+
+The UI is loopback-only, and most operator machines sit behind NAT. Remote access keeps an
+outbound SSH tunnel from simplex to a relay ([polytope-labs/simplex-tunnel](https://github.com/polytope-labs/simplex-tunnel),
+hosted at `simplex.tunnel.polytope.technology`) that leases this simplex a stable public port.
+A phone's SSH client connects to that port with a local port forward, and the browser opens
+`http://localhost:8686`.
+
+The phone's SSH session terminates in an SSH server embedded in simplex, not in sshd and not in
+the relay, so the relay only ever carries ciphertext. That server accepts public-key auth against
+the devices paired in the UI and `direct-tcpip` channels to the UI bind, and nothing else: no
+shell, exec, PTY or other destinations.
+
+It is off by default. Turn it on and pair devices under **Operations > Remote access** in the UI;
+the choice is written to `[simplex.tunnel]` in the config. To pair, create a key in the phone's SSH
+app and paste its public key into the panel, so the private key never leaves the phone; for apps
+that cannot make their own, simplex can generate a pair instead and shows the private key exactly
+once, as text and as a QR code. Either way the panel shows the host, port, username, host-key
+fingerprint and local forward to enter in the SSH app (Blink and Termius on iOS, ConnectBot and
+JuiceSSH on Android). A paired key opens the whole dashboard, including the
+Send and treasury tools, so keep it on the device and revoke it from the same panel if the
+device is lost. Keys live under `<data-dir>/tunnel/` in plain OpenSSH formats.
+
+The hosted relay's host key is pinned in the binary, so first contact is verified. A self-hosted
+relay is pinned on first contact unless `relayHostKey` in `[simplex.tunnel]` names its fingerprint.
+
+The tunnel is best-effort: it retries with backoff and never affects filling. It only runs in
+operator mode, never while the setup wizard holds secrets.
 
 ## Development
 

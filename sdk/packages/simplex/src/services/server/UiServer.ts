@@ -1,23 +1,57 @@
+import { randomUUID } from "node:crypto"
+import { lstatSync, unlinkSync, type Stats } from "node:fs"
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http"
-import { Decimal } from "decimal.js"
-import { FillerPricePolicy, formatChainKey, parseChainKey, type PriceCurvePoint } from "@/config/interpolated-curve"
+import { connect } from "node:net"
+import { tmpdir } from "node:os"
+import { resolve as resolvePath } from "node:path"
+import type { Duplex } from "node:stream"
+import { formatChainKey, parseChainKey } from "@/config/interpolated-curve"
 import { AssetRegistry, registrySymbols, validateAssetDefinitions, type AssetDefinition } from "@/config/asset-registry"
 import { assertPairSymbolsResolve, validatePairConfigs, type PairConfig } from "@/config/pairs"
-import { VaultFundingPlanner } from "@/funding/vault/VaultFundingPlanner"
-import { chainsForNetwork, INIT_CHAINS, type InitNetwork } from "@/cli/init/chains"
+import { VaultFundingPlanner, type VaultSweepResult } from "@/funding/vault/VaultFundingPlanner"
+import { chainByChainId, chainsForNetwork, INIT_CHAINS, nativeTokenSymbol, type InitNetwork } from "@/cli/init/chains"
 import { TESTNET_CONFIRMATION_POINTS } from "@/cli/init/state"
 import { ChainConfigService } from "@hyperbridge/sdk"
-import { assertConfirmationCoverage, type FillerConfigFile, type FillerTomlConfig, type VaultToml } from "@/config/filler-toml"
+import {
+	assertConfirmationCoverage,
+	type FillerConfigFile,
+	type FillerTomlConfig,
+	type VaultToml,
+} from "@/config/filler-toml"
 import { emitFillerToml, writeConfigFileAtomic } from "@/cli/init/emit-toml"
-import { isAddress } from "viem"
+import { formatUnits, isAddress } from "viem"
 import { validateRpcUrls, type AllowlistConfig } from "@/services/FillerConfigService"
 import { withTimeout, PROBE_TIMEOUT_MS } from "@/cli/init/prompt-utils"
 import type { ActivityRecorder } from "@/data/recorder"
-import type { ActivityEvent, BidStore } from "@/data/types"
+import type {
+	ActivityEvent,
+	BidStore,
+	LimitOrderFilter,
+	NotificationSettings,
+	OrderLeg,
+	StateStore,
+	StoredPushSubscription,
+} from "@/data/types"
+import { OrderbookRequestError } from "@/orderbook/client"
+import { LimitOrderValidationError, type CreateLimitOrderRequest } from "@/orderbook/limit-orders"
+import type { LimitOrderController } from "@/simplex"
 import type { BalanceProvider } from "../BalanceProvider"
 import { getLogger, type LogLevel } from "../Logger"
-import { readBody, sendJson, isLoopbackHost, isContainerized, hostHeaderAllowed } from "./http-util"
+import { DEFAULT_TUNNEL_RELAY, parseRelayAddress, relayKey, type TunnelControls } from "../tunnel/TunnelService"
+import {
+	readBody,
+	sendJson,
+	isLoopbackHost,
+	isContainerized,
+	hostHeaderAllowed,
+	isTunnelled,
+	markProvenance,
+	provenanceOf,
+	type Provenance,
+} from "./http-util"
+import { matchesLogQuery, type LogQuery, type LogTail } from "./LogStore"
 import { serveStatic } from "./static"
+import { NotificationService, type OperatorNotification, type PushDelivery } from "./NotificationService"
 import {
 	handleSetupRequest,
 	maskToml,
@@ -30,71 +64,88 @@ import {
 } from "./setup-api"
 import {
 	LOG_LEVELS,
+	LOG_LEVEL_RANK,
 	type AdminStrategyDto,
 	type ChainRowDto,
 	type ChainsDto,
 	type ConfigDto,
+	type LogRecordDto,
+	type LogRecordLevel,
+	type LogsDto,
 	type SendTokenOption,
+	type SolverWork,
 	type StatusInit,
 	type StatusOperator,
 	type WalletTxDto,
+	type VaultSweepDto,
+	type OrderHistoryDto,
+	type LedgerLeg,
 } from "./dto"
 
-/**
- * One curve-priced trading pair's editable price curves. The policies are the
- * same instances the running engine prices with, so `replacePoints` takes
- * effect on the next order evaluation. A side is absent when it cannot be
- * edited: disabled (one-sided LP) or venue-priced (both sides absent).
- */
+const SSE_HEARTBEAT_INTERVAL_MS = 25_000
+
+/** Opens one self-cleaning SSE response shared by activity and native notifications. */
+function openSseStream(req: IncomingMessage, res: ServerResponse, clients: Set<ServerResponse>): void {
+	res.writeHead(200, {
+		"Content-Type": "text/event-stream",
+		"Cache-Control": "no-store",
+		Connection: "keep-alive",
+	})
+	clients.add(res)
+	res.write(":ok\n\n")
+
+	const heartbeat = setInterval(() => {
+		if (!res.destroyed) res.write(":keepalive\n\n")
+	}, SSE_HEARTBEAT_INTERVAL_MS)
+	heartbeat.unref()
+
+	const cleanup = () => {
+		clearInterval(heartbeat)
+		clients.delete(res)
+		req.off("close", cleanup)
+		res.off("close", cleanup)
+		res.off("error", cleanup)
+	}
+	req.once("close", cleanup)
+	res.once("close", cleanup)
+	res.once("error", cleanup)
+}
+
+/** One market the engine serves, as the operator's market list shows it. */
 export interface AdminStrategy {
-	/** Position among curve-priced pairs; stable identifier for the API. */
+	/** Stable identifier for the API. */
 	index: number
-	/** Position in the TOML `[[pairs]]` array — where curve edits are persisted. */
+	/** Position in the TOML `[[pairs]]` array. */
 	pairIndex: number
 	/** Pair label, e.g. "USDC/CNGN" (display-only). */
 	exotic?: string
 	token0: string
 	token1: string
-	bid?: FillerPricePolicy
-	ask?: FillerPricePolicy
-	/**
-	 * Per-order cap in token0 units, as configured; absent when the market is
-	 * uncapped. Kept in step with `setMaxOrderSize` and `clearMaxOrderSize`.
-	 */
-	maxOrderSize?: string
-	/**
-	 * Applies a new per-order cap to the live TradingPair — the engine reads it
-	 * per order, so the cap binds on the next evaluation. Absent when no engine
-	 * ran at boot (the edit is then persisted for the next start).
-	 */
-	setMaxOrderSize?: (value: string) => void
-	/**
-	 * Removes the per-order cap from the live TradingPair, leaving the market
-	 * uncapped — it then fills every order at its full notional. Same
-	 * availability as `setMaxOrderSize`.
-	 */
-	clearMaxOrderSize?: () => void
-	/** Same-asset cross-chain market: ask-only, prices strictly below par. */
+	/** Same-asset cross-chain market, where the spread is realized in kind. */
 	sameToken?: boolean
-	/** Price feed only — the pair never fills; curves stay editable, sides are never opened. */
-	referenceOnly?: boolean
-	/**
-	 * Opens a direction configured as one-sided LP with a fresh policy. Present
-	 * only for cross-asset curve-priced pairs — same-token markets stay
-	 * ask-only and venue-priced sides stay uneditable.
-	 */
-	enableSide?: (side: "bid" | "ask", policy: FillerPricePolicy) => void
-	/** Closes a direction (back to one-sided LP); same availability as enableSide. */
-	disableSide?: (side: "bid" | "ask") => void
 }
 
 export type UiMode = "init" | "operator"
+
+/**
+ * Where the UI server listens.
+ *
+ * A TCP port is the CLI's mode and reaches every local user, so it carries the
+ * host-header defense and the loopback rules below. A `socketPath` binds a Unix
+ * domain socket instead (a named pipe on Windows) — the filesystem decides who
+ * may connect, and no web page can open one at all, which is what lets an
+ * embedding application (the desktop app) expose the API without a port.
+ *
+ * The two are alternatives, not layers: a server listens on one or the other.
+ */
+export type ListenTarget = { host?: string; port: number } | { socketPath: string }
 
 /** Narrow view of the IntentFiller, so tests can stub it. */
 export interface PauseControl {
 	pause(): void
 	resume(): void
 	isPaused(): boolean
+	getWorkSnapshot(): SolverWork
 	getWatchOnly(): Record<number, boolean>
 }
 
@@ -108,7 +159,7 @@ export interface HaltControl {
 export interface OperatorContext {
 	strategies: AdminStrategy[]
 	filler: PauseControl
-	balances: Pick<BalanceProvider, "getSnapshot">
+	balances: Pick<BalanceProvider, "getSnapshot" | "on" | "off">
 	haltControls: HaltControl[]
 	/** The running config; runtime edits (curves, allowlist, log level) are persisted back into it at configPath. */
 	/**
@@ -120,8 +171,15 @@ export interface OperatorContext {
 	config: FillerConfigFile
 	/** Drains the filler and exits the process (the UI's graceful Stop). */
 	stop(): Promise<void>
-	activity: Pick<ActivityRecorder, "recent" | "on" | "off" | "record" | "recordWalletTx" | "walletTxs" | "fills">
-	bids?: Pick<BidStore, "recent" | "stats">
+	activity: Pick<
+		ActivityRecorder,
+		"recent" | "on" | "off" | "record" | "recordWalletTx" | "walletTxs" | "fills" | "orderHistory"
+	>
+	/** Durable operator state shared by pause and notification preferences. */
+	state: StateStore
+	bids?: Pick<BidStore, "recent" | "stats" | "byCommitments">
+	/** The operator's limit orders. Always present: simplex prices from them. */
+	limitOrders: Pick<LimitOrderController, "list" | "get" | "withFills" | "create" | "cancel" | "books">
 	/** Persists an operator pause so it survives a restart. */
 	setPaused(paused: boolean): Promise<void>
 	/**
@@ -130,8 +188,15 @@ export interface OperatorContext {
 	 * leaves this filler's own output untouched.
 	 */
 	setLogLevel(level: LogLevel): void
+	/**
+	 * This launch's log history, as read by the Logs page. Absent when nothing
+	 * registered a {@link LogStore} — an embedded filler, or a test — and the log
+	 * routes then report the page as unavailable rather than showing an empty feed.
+	 */
+	logs?: LogTail
 	vault?: {
-		sweepNow(): Promise<void>
+		/** Runs one sweep pass now and reports what it did — and, per vault, why it did nothing. */
+		sweepNow(): Promise<VaultSweepResult>
 		redeemAll(): Promise<void>
 		/** Re-hydrates the shared venue with a new vault set; rejects on bad vaults. */
 		reconfigure(vaults: VaultToml[], sweepIntervalMs?: number): Promise<void>
@@ -166,10 +231,14 @@ export interface OperatorContext {
 		sponsored: boolean
 		redeemed: boolean
 	}>
+	/** Remote-access tunnel controls; absent when the binary runs without a data dir for keys (embedded fillers). */
+	tunnel?: TunnelControls
 	version: string
 	startedAt: number
 	/** Where runtime config edits are written back. Absent for a config-object filler. */
 	configPath?: string
+	/** Desktop persistence encrypts every config edit before it reaches disk. */
+	writeConfigFile?: (path: string, content: string) => void
 	chains: number[]
 	strategyTypes: string[]
 	/** Filler accounts, shown permanently on the dashboard for funding. */
@@ -179,8 +248,11 @@ export interface OperatorContext {
 export interface SetupContext {
 	/** Default path the wizard writes the config to. */
 	configPath: string
+	writeConfigFile?: (path: string, content: string) => void
 	/** Writes the config and boots the filler; the caller flips the server into operator mode. */
 	onSaveAndStart(config: FillerConfigFile, toml: string, path: string): Promise<void>
+	/** Stops the init-mode process when onboarding has not started booting the filler. */
+	stop?: () => Promise<void>
 	/** Test injection for the network-facing validators. */
 	deps?: SetupDeps
 }
@@ -195,6 +267,53 @@ const OPERATOR_PROBES = [
 	"/api/setup/validate-alchemy-key",
 ]
 
+const LOGS_UNAVAILABLE = "Log capture is not enabled for this filler"
+
+/**
+ * Records a log tail will hold for a reader that is behind before it starts
+ * dropping the oldest.
+ *
+ * Counted in records rather than in `res.writableLength`: the replay writes its
+ * whole page without yielding, so socket bytes accumulate monotonically through
+ * it and a byte threshold fires on a *healthy* reader who was simply never given
+ * a chance to drain. Sized above `MAX_LOG_PAGE` so a legitimate replay can never
+ * trip it, leaving it to mean what it says — a reader that has stopped reading.
+ */
+const MAX_LOG_STREAM_QUEUE = 5000
+
+/** The most records one `GET /api/logs` will return, whatever the caller asks for. */
+const MAX_LOG_PAGE = 2000
+
+/** `?level=&q=&after=&limit=` for both log routes. Unparseable values fall back rather than 400. */
+function logQueryFrom(url: string | undefined): LogQuery {
+	const params = new URL(url ?? "/", "http://localhost").searchParams
+	const level = params.get("level")
+	const q = params.get("q")?.trim()
+	const after = Number(params.get("after"))
+	const limit = Number(params.get("limit"))
+	return {
+		level: level && level in LOG_LEVEL_RANK ? (level as LogRecordLevel) : undefined,
+		q: q ? q.slice(0, 200) : undefined,
+		after: Number.isFinite(after) && after > 0 ? after : undefined,
+		limit: Number.isFinite(limit) && limit > 0 ? Math.min(limit, MAX_LOG_PAGE) : MAX_LOG_PAGE,
+	}
+}
+
+/** Resolves on the response's next drain, or as soon as it can no longer drain. */
+function drained(res: ServerResponse): Promise<void> {
+	return new Promise((resolve) => {
+		const done = () => {
+			res.removeListener("drain", done)
+			res.removeListener("close", done)
+			res.removeListener("error", done)
+			resolve()
+		}
+		res.once("drain", done)
+		res.once("close", done)
+		res.once("error", done)
+	})
+}
+
 const UI_NOT_BUILT_HTML = `<!doctype html><meta charset="utf-8"><title>simplex</title>
 <body style="font-family:system-ui;margin:4rem auto;max-width:32rem">
 <h1>UI not built</h1><p>The simplex web UI is missing from this build.
@@ -202,10 +321,64 @@ Run <code>pnpm ui:build</code> (or a full <code>pnpm build</code>) and restart.<
 <p>The JSON API under <code>/api</code> is unaffected.</p></body>`
 
 /**
+ * `sun_path` in `sockaddr_un` is a fixed-size field: 108 bytes on Linux, 104 on
+ * macOS and the BSDs, terminating NUL included. Past it bind(2) fails with a
+ * message naming neither the limit nor the offending path.
+ *
+ * It bites in practice rather than in theory: a desktop application's natural
+ * home for such a file is its user-data directory, which on macOS is already
+ * `~/Library/Application Support/<app>/` before a filename is added.
+ */
+const SUN_PATH_MAX_BYTES = process.platform === "darwin" ? 103 : 107
+
+/**
+ * Windows names a pipe `\\.\pipe\name`, which is not a filesystem path.
+ *
+ * Gated on the platform as well as the shape: on Linux such a string is just an
+ * oddly-named file, and treating it as a pipe there would skip the path
+ * resolution and the cleanup that every other path gets.
+ */
+function isWindowsPipe(path: string): boolean {
+	return process.platform === "win32" && /^\\\\[.?]\\pipe\\/i.test(path)
+}
+
+/** Names what is sitting at a socket path, for an error the operator can act on. */
+function describeEntry(entry: Stats): string {
+	if (entry.isSymbolicLink()) return "a symbolic link"
+	if (entry.isDirectory()) return "a directory"
+	if (entry.isFIFO()) return "a FIFO"
+	if (entry.isFile()) return "a regular file"
+	return "not a socket"
+}
+
+/**
+ * Refuses an over-long socket path up front, with the limit and a way out,
+ * rather than letting bind(2) produce an opaque failure.
+ *
+ * Refusing beats silently relocating to a shorter path: the caller uses this
+ * path to find the daemon again, so moving it would trade a clear error at
+ * startup for a daemon nothing can attach to.
+ */
+function assertSocketPathFits(path: string): void {
+	// A Windows pipe is not a sockaddr_un; its own cap is the 256-character pipe
+	// name, which no plausible path approaches.
+	if (process.platform === "win32") return
+	// Bytes, not characters: a non-ASCII path spends more of the field than it looks.
+	const bytes = Buffer.byteLength(path)
+	if (bytes <= SUN_PATH_MAX_BYTES) return
+	throw new Error(
+		`UI socket path is ${bytes} bytes, over this platform's ${SUN_PATH_MAX_BYTES}-byte limit for a Unix socket: ${path}. ` +
+			`Use a shorter path in a directory only this user can write — on Linux $XDG_RUNTIME_DIR ` +
+			`(${process.env.XDG_RUNTIME_DIR ?? "/run/user/<uid>"}) is both short and already private. ` +
+			`Avoid a shared directory such as ${tmpdir()}: anything that can create names there can take this address first.`,
+	)
+}
+
+/**
  * Loopback HTTP server embedded in the simplex process. Serves the bundled SPA
  * and a JSON API in one of two modes: `init` (setup wizard endpoints, before a
- * config exists) or `operator` (status/pause/balances plus inflight price curve
- * updates on the running strategies). Unauthenticated: binding is the boundary —
+ * config exists) or `operator` (status/pause/balances, limit orders and the
+ * other runtime controls). Unauthenticated: binding is the boundary —
  * init mode refuses non-loopback hosts outright.
  */
 export class UiServer {
@@ -217,9 +390,24 @@ export class UiServer {
 	private uiDistDir?: string
 	private startState: StartState = "idle"
 	private startError?: string
+	/** Keeps the listener recognizable while the filler drains during graceful shutdown. */
+	private stopping = false
 	private sseClients = new Set<ServerResponse>()
+	/** Open log tails, each mapped to the unsubscribe that detaches it from the buffer. */
+	private logClients = new Map<ServerResponse, () => void>()
 	private activityListener?: (event: ActivityEvent) => void
+	private notifications?: NotificationService
+	private notificationClients = new Set<ServerResponse>()
+	private notificationListener?: (notification: OperatorNotification) => void
+	private nativeNotificationReceipts = new Map<
+		string,
+		{ resolve: (received: boolean) => void; timer: NodeJS.Timeout }
+	>()
 	private boundLoopback = true
+	/** How connections this server accepted arrived; stamped onto each socket. */
+	private listenProvenance: Provenance = "tcp"
+	/** Set while a Unix socket is bound, so shutdown can take the path back down with it. */
+	private socketPath?: string
 	private deps: Required<SetupDeps>
 	/**
 	 * Chain ids aligned with `config.chains` rows. The TOML records no chain id
@@ -228,22 +416,36 @@ export class UiServer {
 	 * ids stand in (the file is authoritative again on the next boot).
 	 */
 	private configuredChainIds?: number[]
+	private readonly version: string
+	private readonly notificationAckTimeoutMs: number
+	private readonly configEncrypted: boolean
 
 	constructor(opts: {
 		mode: UiMode
+		configEncrypted?: boolean
 		uiDistDir?: string
 		setup?: SetupContext
 		operator?: OperatorContext
+		/** Binary version, required by setup mode before an operator context exists. */
+		version?: string
 		/** Test injection for the operator-mode network probes (chain editor, token verify). */
 		deps?: SetupDeps
+		/** Test-only override for how long a native test waits for Electron to confirm it invoked the OS API. */
+		notificationAckTimeoutMs?: number
 	}) {
 		this.mode = opts.mode
+		this.configEncrypted = opts.configEncrypted === true
 		this.operator = opts.operator
 		this.setup = opts.setup
 		this.uiDistDir = opts.uiDistDir
+		this.version = opts.version ?? opts.operator?.version ?? "unknown"
+		this.notificationAckTimeoutMs = opts.notificationAckTimeoutMs ?? 5_000
 		this.deps = resolveSetupDeps(opts.deps)
 		if (this.mode === "operator") this.startState = "running"
-		if (this.operator) this.subscribeActivity()
+		if (this.operator) {
+			this.subscribeActivity()
+			this.subscribeNotifications()
+		}
 		this.server = createServer((req, res) => {
 			this.handle(req, res).catch((err) => {
 				this.logger.error({ err }, "Unhandled UI request error")
@@ -252,10 +454,211 @@ export class UiServer {
 				}
 			})
 		})
+		// Prepended so the stamp lands before http's own connection listener attaches
+		// a parser, which makes `provenanceOf(req.socket)` total by the time `handle`
+		// runs. `accept()` stamps its channels first and `markProvenance` keeps the
+		// first stamp, so an injected connection is never relabelled as a listened-for
+		// one. Tagging the socket, rather than reading what the server happens to be
+		// listening on, is what keeps the rules right for a server serving both.
+		this.server.prependListener("connection", (socket) => markProvenance(socket, this.listenProvenance))
+	}
+
+	/**
+	 * Serves one connection handed over by the remote-access tunnel. It never
+	 * touches the network: the device's SSH channel becomes this server's socket
+	 * directly, which is also what lets `handle` tell the two apart.
+	 */
+	accept(socket: Duplex): boolean {
+		if (!this.server.listening) return false
+		// The tunnel is the only caller, and this is the one place that holds
+		// regardless of how the channel was built — so the tunnel provenance is
+		// settled here, ahead of the listener stamp the emit below would otherwise
+		// apply.
+		markProvenance(socket, "tunnel")
+		this.server.emit("connection", socket)
+		return true
 	}
 
 	/** Resolves with the bound port once listening (pass port 0 for an ephemeral port). */
-	start(port: number, host = "127.0.0.1"): Promise<number> {
+	start(port: number, host?: string): Promise<number>
+	/** Resolves once listening; the bound port for a TCP target, 0 for a Unix socket. */
+	start(target: ListenTarget): Promise<number>
+	async start(target: number | ListenTarget, host = "127.0.0.1"): Promise<number> {
+		if (typeof target === "number") return this.listenOnPort(target, host)
+		if ("socketPath" in target) return this.listenOnSocket(target.socketPath)
+		return this.listenOnPort(target.port, target.host ?? host)
+	}
+
+	/**
+	 * Binds a Unix domain socket (a named pipe on Windows) rather than a port.
+	 * Node's `listen(path)` speaks HTTP over one natively, so the route table,
+	 * the handlers and the SSE stream are the same code either way.
+	 *
+	 * Resolves 0: there is no port to report. A listening TCP server never reports
+	 * 0 either, so the two are not confusable.
+	 */
+	private async listenOnSocket(socketPath: string): Promise<number> {
+		// A named pipe name is not a filesystem path; resolving one would mangle it.
+		const path = isWindowsPipe(socketPath) ? socketPath : resolvePath(socketPath)
+		assertSocketPathFits(path)
+		// Refused rather than attempted: `listen` throws ERR_SERVER_ALREADY_LISTEN here,
+		// and the provenance set below decides whether the DNS-rebinding check runs.
+		// Setting it for a bind that cannot happen would relabel a live TCP listener's
+		// connections as socket-arrived and switch that check off for them.
+		if (this.server.listening) {
+			throw new Error("This UI server is already listening; build a second UiServer for a second address")
+		}
+		await this.clearStaleSocket(path)
+		await new Promise<void>((resolve, reject) => {
+			this.server.once("error", reject)
+			this.listenPrivate(path, () => {
+				// Assigned here, not before the bind: these describe how requests on this
+				// server are judged, so they must describe a listener that came up. The
+				// callback runs before the loop can deliver a connection, so nothing is
+				// ever served under the previous values.
+				//
+				// A socket file is reachable by strictly fewer callers than loopback is, so
+				// the loopback branch of the host rule is the right default for anything
+				// that consults it — though `handle` skips that check outright here.
+				this.boundLoopback = true
+				this.listenProvenance = "unix"
+				resolve()
+			})
+		})
+		this.socketPath = path
+		try {
+			this.assertSocketIsPrivate(path)
+		} catch (err) {
+			// Never keep serving a fund-moving API on a socket we cannot prove is
+			// owner-only. The bind succeeded, so it has to be taken back down.
+			this.server.close()
+			this.unlinkSocket()
+			throw err
+		}
+		this.logger.info({ bind: path }, `Simplex UI available on the socket at ${path}`)
+		return 0
+	}
+
+	/**
+	 * Binds the socket with a umask that makes it `0600` at creation.
+	 *
+	 * It cannot be narrowed after the fact instead. libuv creates the file with
+	 * `0777 & ~umask` — 0775 under the common `umask 002` — and Linux checks that
+	 * mode at connect(2) and never again, so a local user who connects in the gap
+	 * before a follow-up chmod keeps a fully privileged, unauthenticated session for
+	 * the life of the daemon: tightening the mode does not revoke a connection that
+	 * already exists. The gap is around a millisecond, which a connect loop wins
+	 * reliably. The mode has to be right before the socket is reachable at all.
+	 *
+	 * `process.umask` is process-wide, which is why this wraps only the synchronous
+	 * `listen` call: libuv binds inside it, and no other JavaScript in this process
+	 * can run in between. It throws on a worker thread, hence the guard.
+	 */
+	private listenPrivate(path: string, onListening: () => void): void {
+		if (process.platform === "win32" || isWindowsPipe(path)) {
+			// A named pipe carries no file mode; see docs/ai/Decisions.md.
+			this.server.listen(path, onListening)
+			return
+		}
+		let previous: number | undefined
+		try {
+			previous = process.umask(0o177)
+		} catch {
+			previous = undefined
+		}
+		try {
+			this.server.listen(path, onListening)
+		} finally {
+			if (previous !== undefined) process.umask(previous)
+		}
+	}
+
+	/**
+	 * Proves the socket is owner-only, and refuses to serve when it is not.
+	 *
+	 * `listenPrivate` has already made it `0600`; this is purely the post-condition.
+	 * It asserts rather than repairs on purpose: a chmod here would "fix" the mode
+	 * only after the socket had been reachable at the wrong one, which is precisely
+	 * the window `listenPrivate` exists to close — so a repair would hide the very
+	 * regression this checks for, while leaving the vulnerability in place.
+	 *
+	 * `lstat`, not `stat`, so a symlink swapped in at the path is rejected rather
+	 * than followed.
+	 *
+	 * Fails closed deliberately. This mode is the entire access control for the
+	 * socket listen mode, and an earlier version logged a warning and kept serving.
+	 */
+	private assertSocketIsPrivate(path: string): void {
+		if (process.platform === "win32" || isWindowsPipe(path)) return
+		const entry = lstatSync(path)
+		if (!entry.isSocket()) {
+			throw new Error(`${path} is ${describeEntry(entry)}, not the socket just bound — refusing to serve`)
+		}
+		const mode = entry.mode & 0o777
+		if (mode !== 0o600) {
+			throw new Error(
+				`${path} was created mode 0${mode.toString(8)} rather than 0600, so other users could reach the UI. ` +
+					"A default ACL on the containing directory is the usual cause; use a directory without one.",
+			)
+		}
+	}
+
+	/**
+	 * Clears a socket file left behind by a run that was killed before it could
+	 * remove its own; without this a `SIGKILL`ed predecessor makes every later
+	 * start fail with EADDRINUSE.
+	 *
+	 * Existence proves nothing — a live socket has a file too — so the test is to
+	 * dial it. `ECONNREFUSED` means the file outlived its listener and is a corpse.
+	 * Anything that answers belongs to a running instance, and taking its path
+	 * would silently steal its clients, so that is an error instead. That doubles
+	 * as the single-instance lock an embedding application wants.
+	 *
+	 * Windows needs none of it: a named pipe is refcounted by its handles and
+	 * vanishes with the process that made it, so nothing stale can exist and the
+	 * existence check below returns first.
+	 */
+	private async clearStaleSocket(path: string): Promise<void> {
+		// `lstat`, not `existsSync`: existsSync follows symlinks, so a dangling one
+		// reads as absent, nothing is cleaned up, and the bind then fails EADDRINUSE.
+		const entry = lstatSync(path, { throwIfNoEntry: false })
+		if (!entry) return
+		// The type test comes before the probe, not after: connect(2) answers
+		// ECONNREFUSED for a regular file, a FIFO and a directory exactly as it does
+		// for an orphaned socket, so probing alone would read an operator's file as a
+		// corpse and delete it. Only a socket is ever a candidate for removal.
+		if (!entry.isSocket()) {
+			throw new Error(`${path} already exists and is ${describeEntry(entry)}; refusing to remove it`)
+		}
+		const code = await new Promise<string | undefined>((resolve) => {
+			const probe = connect(path)
+			const settle = (result: string | undefined) => {
+				probe.destroy()
+				resolve(result)
+			}
+			probe.once("connect", () => settle(undefined))
+			probe.once("error", (err) => settle((err as NodeJS.ErrnoException).code ?? "UNKNOWN"))
+		})
+		// Vanished between the check and the dial: nothing to clear.
+		if (code === "ENOENT") return
+		if (code === undefined) {
+			throw new Error(`Another simplex is already serving its UI on ${path}`)
+		}
+		if (code !== "ECONNREFUSED") {
+			// EACCES on somebody else's socket, say. Not ours to delete.
+			throw new Error(
+				`Cannot tell whether ${path} is in use (${code}); remove it by hand if no simplex is running`,
+			)
+		}
+		try {
+			unlinkSync(path)
+			this.logger.warn({ path }, "Removed a stale UI socket left behind by a previous run")
+		} catch (err) {
+			if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err
+		}
+	}
+
+	private listenOnPort(port: number, host: string): Promise<number> {
 		if (this.mode === "init" && !isLoopbackHost(host)) {
 			// Outside a container the host's interfaces are the real ones, and the wizard
 			// collects private keys — the bind is refused. Inside one, see isContainerized().
@@ -275,13 +678,19 @@ export class UiServer {
 				"UI server binding a non-loopback address — it is unauthenticated, make sure the network is trusted",
 			)
 		}
-		this.boundLoopback = isLoopbackHost(host)
 		return new Promise((resolve, reject) => {
 			this.server.once("error", reject)
 			this.server.listen(port, host, () => {
+				// Set once the listener is actually up: these say how this server judges
+				// requests, so they must never describe a bind that did not happen.
+				this.boundLoopback = isLoopbackHost(host)
+				this.listenProvenance = "tcp"
 				const address = this.server.address()
 				const boundPort = typeof address === "object" && address !== null ? address.port : port
-				this.logger.info({ bind: `${host}:${boundPort}` }, `Simplex UI available at http://${host}:${boundPort}/`)
+				this.logger.info(
+					{ bind: `${host}:${boundPort}` },
+					`Simplex UI available at http://${host}:${boundPort}/`,
+				)
 				resolve(boundPort)
 			})
 		})
@@ -294,7 +703,55 @@ export class UiServer {
 		}
 		for (const client of this.sseClients) client.end()
 		this.sseClients.clear()
+		if (this.notificationListener && this.notifications) {
+			this.notifications.off("notification", this.notificationListener)
+		}
+		this.notificationListener = undefined
+		this.notifications?.stop()
+		this.notifications = undefined
+		for (const { resolve, timer } of this.nativeNotificationReceipts.values()) {
+			clearTimeout(timer)
+			resolve(false)
+		}
+		this.nativeNotificationReceipts.clear()
+		for (const client of this.notificationClients) client.end()
+		this.notificationClients.clear()
+		for (const [client, unsubscribe] of this.logClients) {
+			unsubscribe()
+			client.end()
+		}
+		this.logClients.clear()
 		this.server.close()
+		this.unlinkSocket()
+	}
+
+	/** Marks graceful shutdown without releasing the socket-based process lock. */
+	beginStopping(): void {
+		this.stopping = true
+	}
+
+	isStopping(): boolean {
+		return this.stopping
+	}
+
+	/**
+	 * Removes the socket file on the way out, so the next run has nothing to
+	 * recover. `server.close()` unlinks too, but only once it has drained every
+	 * connection; doing it here frees the path the moment we stop serving and
+	 * covers a close that never completes.
+	 */
+	private unlinkSocket(): void {
+		const path = this.socketPath
+		if (!path) return
+		this.socketPath = undefined
+		if (isWindowsPipe(path)) return
+		try {
+			unlinkSync(path)
+		} catch (err) {
+			if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+				this.logger.debug({ err, path }, "Could not remove the UI socket")
+			}
+		}
 	}
 
 	/** Flips a live init-mode server into operator mode; the listener keeps running. */
@@ -304,6 +761,7 @@ export class UiServer {
 		this.startState = "running"
 		this.startError = undefined
 		this.subscribeActivity()
+		this.subscribeNotifications()
 		this.logger.info("Setup complete — UI now in operator mode")
 	}
 
@@ -317,6 +775,51 @@ export class UiServer {
 			}
 		}
 		this.operator.activity.on("event", this.activityListener)
+	}
+
+	/** One alert source feeds native desktop SSE and every stored browser Push subscription. */
+	private subscribeNotifications(): void {
+		if (this.notifications || !this.operator) return
+		this.notifications = new NotificationService(
+			this.operator.state,
+			this.operator.balances,
+			this.operator.activity,
+			this.logger,
+		)
+		this.notificationListener = (notification) => {
+			const frame = `data: ${JSON.stringify(notification)}\n\n`
+			for (const client of this.notificationClients) client.write(frame)
+		}
+		this.notifications.on("notification", this.notificationListener)
+	}
+
+	/** Resolves only when Electron confirms it passed a native test alert to the operating system. */
+	private waitForNativeNotificationReceipt(receiptId: string): Promise<boolean> {
+		return new Promise((resolve) => {
+			const timer = setTimeout(() => {
+				this.nativeNotificationReceipts.delete(receiptId)
+				resolve(false)
+			}, this.notificationAckTimeoutMs)
+			timer.unref()
+			this.nativeNotificationReceipts.set(receiptId, { resolve, timer })
+		})
+	}
+
+	private cancelNativeNotificationReceipt(receiptId: string): void {
+		const pending = this.nativeNotificationReceipts.get(receiptId)
+		if (!pending) return
+		this.nativeNotificationReceipts.delete(receiptId)
+		clearTimeout(pending.timer)
+		pending.resolve(false)
+	}
+
+	private acknowledgeNativeNotification(receiptId: string): boolean {
+		const pending = this.nativeNotificationReceipts.get(receiptId)
+		if (!pending) return false
+		this.nativeNotificationReceipts.delete(receiptId)
+		clearTimeout(pending.timer)
+		pending.resolve(true)
+		return true
 	}
 
 	/** Reported by /api/setup/start-status while save-and-start boots the filler. */
@@ -337,11 +840,31 @@ export class UiServer {
 		const path = (req.url ?? "/").split("?")[0]
 		const method = req.method ?? "GET"
 
+		// Framing defense: the API is unauthenticated by design — the bind is the
+		// boundary — so a page that frames this UI never needs to read or script
+		// it. It only needs the operator to tap through an invisible overlay: the
+		// click lands in the real UI, same-origin, with its own X-Simplex-UI header.
+		// That reaches pause, reset-halt and vault sweep/redeem, which are one
+		// click each. `frame-ancestors` is the directive browsers honour today;
+		// X-Frame-Options is the fallback for older WebViews that ignore CSP.
+		// Set here, before anything can return, so 403s carry it too — and via
+		// setHeader so every writeHead downstream merges rather than drops it.
+		res.setHeader("Content-Security-Policy", "frame-ancestors 'none'")
+		res.setHeader("X-Frame-Options", "DENY")
+
+		const provenance = provenanceOf(req.socket)
+
 		// DNS-rebinding defense: an attacker page resolving its own domain to
 		// this address becomes same-origin and could drive every endpoint,
 		// including /api/send. A rebound origin always carries its DNS name in
 		// Host, so only IP-literal/localhost Hosts are served.
-		if (!hostHeaderAllowed(req.headers.host, this.boundLoopback)) {
+		//
+		// Skipped, not relaxed, for a connection that arrived on a Unix socket:
+		// there is no name to rebind onto one and no browser that can open one, so
+		// the check defends nothing there — while an HTTP client over a socket puts
+		// whatever it likes in Host (node:http sends "localhost", others send the
+		// URL's authority), which would make an arbitrary base URL a 403.
+		if (provenance !== "unix" && !hostHeaderAllowed(req.headers.host, this.boundLoopback)) {
 			return sendJson(res, 403, { error: "Host header is not allowed" })
 		}
 
@@ -351,8 +874,24 @@ export class UiServer {
 			return sendJson(res, 403, { error: "Missing X-Simplex-UI header" })
 		}
 
+		// A device on the tunnel reaches this server with exactly the operator's
+		// privileges, so remote access cannot be managed from there: pairing a
+		// second key would otherwise survive revoking the first, and repointing
+		// the relay would move the tunnel to one the holder runs.
+		if (path.startsWith("/api/tunnel") && method !== "GET" && method !== "HEAD" && isTunnelled(req.socket)) {
+			return sendJson(res, 403, {
+				error: "Remote access can only be changed from the machine running Simplex",
+			})
+		}
+
 		if (path === "/health") {
-			return sendJson(res, 200, { status: "ok", mode: this.mode })
+			const status = this.stopping ? "stopping" : this.startState === "starting" ? "starting" : "ok"
+			return sendJson(res, 200, {
+				status,
+				mode: this.mode,
+				pid: process.pid,
+				...(this.configEncrypted ? { configEncrypted: true } : {}),
+			})
 		}
 
 		if (path === "/api/status") {
@@ -370,7 +909,8 @@ export class UiServer {
 				if (method !== "POST") return sendJson(res, 405, { error: "Method not allowed" })
 				try {
 					const body = JSON.parse(await readBody(req)) as Record<string, unknown>
-					if (path === "/api/setup/validate-rpc") return sendJson(res, 200, await validateRpc(body, this.deps))
+					if (path === "/api/setup/validate-rpc")
+						return sendJson(res, 200, await validateRpc(body, this.deps))
 					if (path === "/api/setup/validate-bundler") {
 						return sendJson(res, 200, await validateBundler(body, this.deps))
 					}
@@ -393,6 +933,44 @@ export class UiServer {
 			return handleSetupRequest(this, this.setup, req, res, path, method)
 		}
 
+		if (path === "/api/limit-orders") {
+			if (this.mode !== "operator") return sendJson(res, 409, { error: "Filler is not running" })
+			if (method === "GET") {
+				const params = new URL(req.url ?? "/", "http://localhost").searchParams
+				return this.handleLimitOrders(res, () =>
+					this.operator!.limitOrders.list({
+						status: (params.get("status") as LimitOrderFilter["status"]) ?? undefined,
+						fillChain: params.get("chain") ?? undefined,
+						book: params.get("book") ?? undefined,
+					}).then((orders) => ({ orders })),
+				)
+			}
+			if (method === "POST") return this.handleLimitOrderCreate(req, res)
+			return sendJson(res, 405, { error: "Method not allowed" })
+		}
+
+		// Ahead of the by-id route below, which would otherwise read "books" as an order id.
+		if (path === "/api/orderbook/books") {
+			if (this.mode !== "operator") return sendJson(res, 409, { error: "Filler is not running" })
+			if (method !== "GET") return sendJson(res, 405, { error: "Method not allowed" })
+			return this.handleLimitOrders(res, () => this.operator!.limitOrders.books())
+		}
+
+		const limitOrderMatch = path.match(/^\/api\/limit-orders\/([\w-]+)$/)
+		if (limitOrderMatch) {
+			if (this.mode !== "operator") return sendJson(res, 409, { error: "Filler is not running" })
+			const id = limitOrderMatch[1]
+			if (method === "GET") {
+				// The order and the bids that drew on it: a `remaining` that shrank is
+				// only explicable alongside the fills that took the difference.
+				return this.handleLimitOrders(res, () => this.operator!.limitOrders.withFills(id))
+			}
+			if (method === "DELETE") {
+				return this.handleLimitOrders(res, () => this.operator!.limitOrders.cancel(id))
+			}
+			return sendJson(res, 405, { error: "Method not allowed" })
+		}
+
 		if (path === "/api/strategies") {
 			if (this.mode !== "operator") return sendJson(res, 409, { error: "Filler is not running" })
 			if (method === "GET") {
@@ -406,22 +984,7 @@ export class UiServer {
 		if (strategyMatch) {
 			if (this.mode !== "operator") return sendJson(res, 409, { error: "Filler is not running" })
 			if (method === "DELETE") return this.handleMarketRemove(res, Number(strategyMatch[1]))
-			if (method === "PUT") return this.handleMarketUpdate(req, res, Number(strategyMatch[1]))
 			return sendJson(res, 405, { error: "Method not allowed" })
-		}
-
-		const capMatch = path.match(/^\/api\/strategies\/(\d+)\/max-order-size$/)
-		if (capMatch) {
-			if (this.mode !== "operator") return sendJson(res, 409, { error: "Filler is not running" })
-			if (method !== "DELETE") return sendJson(res, 405, { error: "Method not allowed" })
-			return this.handleMaxOrderSizeClear(res, Number(capMatch[1]))
-		}
-
-		const curvesMatch = path.match(/^\/api\/strategies\/(\d+)\/curves$/)
-		if (curvesMatch) {
-			if (this.mode !== "operator") return sendJson(res, 409, { error: "Filler is not running" })
-			if (method !== "PUT") return sendJson(res, 405, { error: "Method not allowed" })
-			return this.handleCurveUpdate(req, res, Number(curvesMatch[1]))
 		}
 
 		if (path === "/api/pause" || path === "/api/resume") {
@@ -440,6 +1003,147 @@ export class UiServer {
 			return sendJson(res, 200, this.operator!.balances.getSnapshot())
 		}
 
+		if (path === "/api/notifications") {
+			if (this.mode !== "operator" || !this.notifications)
+				return sendJson(res, 409, { error: "Filler is not running" })
+			if (method === "GET") {
+				try {
+					return sendJson(res, 200, await this.notifications.status())
+				} catch (err) {
+					return sendJson(res, 503, {
+						error: `Notifications are temporarily unavailable: ${err instanceof Error ? err.message : String(err)}`,
+					})
+				}
+			}
+			if (method !== "PUT") return sendJson(res, 405, { error: "Method not allowed" })
+			let body: Partial<NotificationSettings>
+			try {
+				body = JSON.parse(await readBody(req)) as Partial<NotificationSettings>
+			} catch {
+				return sendJson(res, 400, { error: "Invalid JSON body" })
+			}
+			const threshold = body.lowLiquidityThresholdUsd
+			if (
+				threshold !== null &&
+				(typeof threshold !== "number" || !Number.isFinite(threshold) || threshold <= 0)
+			) {
+				return sendJson(res, 400, { error: "lowLiquidityThresholdUsd must be a positive number or null" })
+			}
+			if (typeof body.swaps !== "boolean") return sendJson(res, 400, { error: "swaps must be a boolean" })
+			try {
+				return sendJson(
+					res,
+					200,
+					await this.notifications.updateSettings({ lowLiquidityThresholdUsd: threshold, swaps: body.swaps }),
+				)
+			} catch (err) {
+				return sendJson(res, 503, {
+					error: `Notifications are temporarily unavailable: ${err instanceof Error ? err.message : String(err)}`,
+				})
+			}
+		}
+
+		if (path === "/api/notifications/subscription") {
+			if (this.mode !== "operator" || !this.notifications)
+				return sendJson(res, 409, { error: "Filler is not running" })
+			if (method !== "POST" && method !== "DELETE") return sendJson(res, 405, { error: "Method not allowed" })
+			let body: StoredPushSubscription | { endpoint?: unknown }
+			try {
+				body = JSON.parse(await readBody(req)) as StoredPushSubscription | { endpoint?: unknown }
+			} catch {
+				return sendJson(res, 400, { error: "Invalid JSON body" })
+			}
+			try {
+				if (method === "DELETE") {
+					if (typeof body.endpoint !== "string") return sendJson(res, 400, { error: "endpoint is required" })
+					return sendJson(res, 200, await this.notifications.unsubscribe(body.endpoint))
+				}
+				return sendJson(res, 200, await this.notifications.subscribe(body as StoredPushSubscription))
+			} catch (err) {
+				const message = err instanceof Error ? err.message : String(err)
+				return sendJson(res, message === "Invalid push subscription" ? 400 : 503, { error: message })
+			}
+		}
+
+		if (path === "/api/notifications/test") {
+			if (this.mode !== "operator" || !this.notifications)
+				return sendJson(res, 409, { error: "Filler is not running" })
+			if (method !== "POST") return sendJson(res, 405, { error: "Method not allowed" })
+			try {
+				const raw = await readBody(req)
+				const body = raw ? (JSON.parse(raw) as { endpoint?: unknown; native?: unknown }) : {}
+				if (body.endpoint !== undefined && typeof body.endpoint !== "string") {
+					return sendJson(res, 400, { error: "endpoint must be a string" })
+				}
+				if (body.native !== undefined && typeof body.native !== "boolean") {
+					return sendJson(res, 400, { error: "native must be a boolean" })
+				}
+				const endpoint = body.endpoint as string | undefined
+				const native = body.native === true
+				if ((endpoint ? 1 : 0) + (native ? 1 : 0) !== 1) {
+					return sendJson(res, 400, {
+						error: "Select exactly one browser endpoint or the native desktop client",
+					})
+				}
+				const nativeClients = native ? this.notificationClients.size : 0
+				if (native && nativeClients === 0) {
+					return sendJson(res, 409, { error: "No connected notification device was found", nativeClients })
+				}
+				const receiptId = native ? randomUUID() : undefined
+				const nativeReceipt = receiptId ? this.waitForNativeNotificationReceipt(receiptId) : undefined
+				let delivery: PushDelivery
+				try {
+					delivery = await this.notifications.test({ endpoint, native, push: !native, receiptId })
+				} catch (err) {
+					if (receiptId) this.cancelNativeNotificationReceipt(receiptId)
+					return sendJson(res, 503, {
+						error: `Notifications are temporarily unavailable: ${err instanceof Error ? err.message : String(err)}`,
+					})
+				}
+				const nativeReceived = nativeReceipt && (await nativeReceipt) ? 1 : 0
+				if (delivery.pushSent + nativeReceived === 0) {
+					return sendJson(res, delivery.pushFailed > 0 ? 502 : 409, {
+						error:
+							delivery.pushFailed > 0
+								? "The notification service could not deliver to this device"
+								: endpoint
+									? "This browser is no longer subscribed"
+									: "The desktop app did not confirm displaying the notification",
+						...delivery,
+						nativeClients,
+						nativeReceived,
+					})
+				}
+				return sendJson(res, 200, { sent: true, ...delivery, nativeClients, nativeReceived })
+			} catch (err) {
+				return sendJson(res, 400, { error: err instanceof Error ? err.message : "Invalid JSON body" })
+			}
+		}
+
+		if (path === "/api/notifications/receipt") {
+			if (this.mode !== "operator" || !this.notifications)
+				return sendJson(res, 409, { error: "Filler is not running" })
+			if (method !== "POST") return sendJson(res, 405, { error: "Method not allowed" })
+			try {
+				const body = JSON.parse(await readBody(req)) as { receiptId?: unknown }
+				if (typeof body.receiptId !== "string") return sendJson(res, 400, { error: "receiptId is required" })
+				if (!this.acknowledgeNativeNotification(body.receiptId)) {
+					return sendJson(res, 404, { error: "Notification receipt was not found" })
+				}
+				return sendJson(res, 204, {})
+			} catch (err) {
+				return sendJson(res, 400, { error: err instanceof Error ? err.message : "Invalid JSON body" })
+			}
+		}
+
+		if (path === "/api/notifications/stream") {
+			if (this.mode !== "operator" || !this.notifications)
+				return sendJson(res, 409, { error: "Filler is not running" })
+			if (method !== "GET") return sendJson(res, 405, { error: "Method not allowed" })
+			openSseStream(req, res, this.notificationClients)
+			return
+		}
+
 		if (path === "/api/activity/orders") {
 			if (this.mode !== "operator") return sendJson(res, 409, { error: "Filler is not running" })
 			if (method !== "GET") return sendJson(res, 405, { error: "Method not allowed" })
@@ -449,6 +1153,33 @@ export class UiServer {
 			return sendJson(res, 200, { events: await this.operator!.activity.recent(limit, before) })
 		}
 
+		if (path === "/api/activity/history") {
+			if (this.mode !== "operator") return sendJson(res, 409, { error: "Filler is not running" })
+			if (method !== "GET") return sendJson(res, 405, { error: "Method not allowed" })
+			const params = new URL(req.url ?? "/", "http://localhost").searchParams
+			const page = Math.max(1, Number(params.get("page") ?? 1) || 1)
+			const pageSize = Math.min(Math.max(Number(params.get("pageSize") ?? 20) || 20, 1), 100)
+			const activity = this.operator!.activity
+			const [history, newest] = await Promise.all([activity.orderHistory(page, pageSize), activity.recent(100)])
+			const commitments = history.orders.map((order) => order.orderId)
+			const bids = this.operator!.bids ? await this.operator!.bids.byCommitments(commitments) : []
+			const bidsByOrder = new Map<string, typeof bids>()
+			for (const bid of bids) {
+				const list = bidsByOrder.get(bid.commitment) ?? []
+				list.push(bid)
+				bidsByOrder.set(bid.commitment, list)
+			}
+			const dto: OrderHistoryDto = {
+				page: history.page,
+				pageSize: history.pageSize,
+				total: history.total,
+				network: runningNetwork(this.operator!.chains),
+				orders: history.orders.map((order) => ({ ...order, bids: bidsByOrder.get(order.orderId) ?? [] })),
+				other: newest.filter((event) => event.orderId === null),
+			}
+			return sendJson(res, 200, dto)
+		}
+
 		if (path === "/api/wallet/history") {
 			if (this.mode !== "operator") return sendJson(res, 409, { error: "Filler is not running" })
 			if (method !== "GET") return sendJson(res, 405, { error: "Method not allowed" })
@@ -456,8 +1187,43 @@ export class UiServer {
 			const limit = Math.min(Math.max(Number(params.get("limit") ?? 100), 1), 500)
 			const activity = this.operator!.activity
 			const [walletTxs, fillTxs] = await Promise.all([activity.walletTxs(limit), activity.fills(limit)])
+			const chainRegistry = new ChainConfigService({})
+			const vaultLabel = (chainId: number | null, address: string | null): string | null => {
+				if (chainId === null || !address) return null
+				const known = chainRegistry.getKnownVaults(formatChainKey(chainId))
+				return known.find((vault) => vault.address.toLowerCase() === address.toLowerCase())?.label ?? null
+			}
+			// Share tokens are named after their underlying (stataUSDC, ycNGN): the logo
+			// comes from the underlying's symbol, and the vault badge says it is a share.
+			const legOf = (
+				symbol: string | null | undefined,
+				amount: string | null | undefined,
+				vault: boolean,
+			): LedgerLeg | null =>
+				symbol && amount
+					? { symbol, amount, decimals: null, icon: vault ? underlyingOf(symbol) : symbol, vault }
+					: null
+			const orderLeg = (leg: OrderLeg | undefined): LedgerLeg | null =>
+				leg
+					? {
+							symbol: leg.symbol ?? leg.token,
+							amount: leg.amount,
+							decimals: leg.decimals,
+							icon: leg.symbol ?? "",
+							vault: false,
+						}
+					: null
 			const txs: WalletTxDto[] = [
-				...walletTxs.map((tx) => ({ ...tx, id: `wallet-${tx.id}` })),
+				...walletTxs.map(({ tokenIn, amountIn, ...tx }) => {
+					const vaultTx = tx.kind === "sweep" || tx.kind === "redeem"
+					return {
+						...tx,
+						id: `wallet-${tx.id}`,
+						label: vaultTx ? vaultLabel(tx.chainId, tx.to) : null,
+						in: legOf(tokenIn, amountIn, tx.kind === "sweep"),
+						out: legOf(tx.token, tx.amount, tx.kind === "redeem"),
+					}
+				}),
 				...fillTxs.map((event) => ({
 					id: `fill-${event.id}`,
 					ts: event.ts,
@@ -468,6 +1234,9 @@ export class UiServer {
 					to: null,
 					txHash: event.txHash as string,
 					sponsored: null,
+					label: null,
+					in: orderLeg(event.order?.inputs[0]),
+					out: orderLeg(event.order?.outputs[0]),
 				})),
 			]
 				.sort((a, b) => b.ts - a.ts)
@@ -491,14 +1260,7 @@ export class UiServer {
 		if (path === "/api/events") {
 			if (this.mode !== "operator") return sendJson(res, 409, { error: "Filler is not running" })
 			if (method !== "GET") return sendJson(res, 405, { error: "Method not allowed" })
-			res.writeHead(200, {
-				"Content-Type": "text/event-stream",
-				"Cache-Control": "no-store",
-				Connection: "keep-alive",
-			})
-			res.write(":ok\n\n")
-			this.sseClients.add(res)
-			req.on("close", () => this.sseClients.delete(res))
+			openSseStream(req, res, this.sseClients)
 			return
 		}
 
@@ -515,6 +1277,9 @@ export class UiServer {
 				vaults: op.config.vault?.vaults ?? [],
 				sendTokens: this.sendTokenOptions(op),
 				knownVaults: this.knownVaultCatalog(op),
+				tunnel: op.tunnel
+					? { enabled: op.tunnel.status().enabled, devices: op.tunnel.status().devices.length }
+					: undefined,
 			}
 			return sendJson(res, 200, configDto)
 		}
@@ -530,6 +1295,30 @@ export class UiServer {
 			if (this.mode !== "operator") return sendJson(res, 409, { error: "Filler is not running" })
 			if (method !== "PUT") return sendJson(res, 405, { error: "Method not allowed" })
 			return this.handleLogLevel(req, res)
+		}
+
+		if (path === "/api/logs") {
+			if (this.mode !== "operator") return sendJson(res, 409, { error: "Filler is not running" })
+			if (method !== "GET") return sendJson(res, 405, { error: "Method not allowed" })
+			const logs = this.operator!.logs
+			if (!logs) return sendJson(res, 409, { error: LOGS_UNAVAILABLE })
+			const stats = logs.stats()
+			const dto: LogsDto = {
+				level: this.operator!.config.simplex.logging ?? "info",
+				capacity: stats.capacity,
+				captured: stats.captured,
+				persisted: stats.persisted,
+				path: stats.path,
+				records: await logs.recent(logQueryFrom(req.url)),
+			}
+			return sendJson(res, 200, dto)
+		}
+
+		if (path === "/api/logs/stream") {
+			if (this.mode !== "operator") return sendJson(res, 409, { error: "Filler is not running" })
+			if (method !== "GET") return sendJson(res, 405, { error: "Method not allowed" })
+			if (!this.operator!.logs) return sendJson(res, 409, { error: LOGS_UNAVAILABLE })
+			return await this.streamLogs(req, res)
 		}
 
 		if (path === "/api/allowlist") {
@@ -559,8 +1348,8 @@ export class UiServer {
 			const vault = this.operator!.vault
 			if (!vault) return sendJson(res, 409, { error: "No vault configured" })
 			try {
-				if (path === "/api/vault/sweep") await vault.sweepNow()
-				else await vault.redeemAll()
+				if (path === "/api/vault/sweep") return sendJson(res, 200, vaultSweepDto(await vault.sweepNow()))
+				await vault.redeemAll()
 				return sendJson(res, 200, { ok: true })
 			} catch (err) {
 				return sendJson(res, 500, { error: err instanceof Error ? err.message : String(err) })
@@ -586,6 +1375,48 @@ export class UiServer {
 			}
 		}
 
+		if (path === "/api/tunnel") {
+			if (this.mode !== "operator") return sendJson(res, 409, { error: "Filler is not running" })
+			const tunnel = this.operator!.tunnel
+			if (!tunnel) return sendJson(res, 404, { error: "Remote access is not available in this filler" })
+			if (method === "GET") return sendJson(res, 200, { ...tunnel.status(), readOnly: isTunnelled(req.socket) })
+			if (method === "PUT") return this.handleTunnelUpdate(req, res, tunnel)
+			return sendJson(res, 405, { error: "Method not allowed" })
+		}
+
+		if (path === "/api/tunnel/devices" || path === "/api/tunnel/devices/revoke") {
+			if (this.mode !== "operator") return sendJson(res, 409, { error: "Filler is not running" })
+			if (method !== "POST") return sendJson(res, 405, { error: "Method not allowed" })
+			const tunnel = this.operator!.tunnel
+			if (!tunnel) return sendJson(res, 404, { error: "Remote access is not available in this filler" })
+			let body: { label?: unknown; fingerprint?: unknown; publicKey?: unknown }
+			try {
+				body = JSON.parse(await readBody(req))
+			} catch {
+				return sendJson(res, 400, { error: "Invalid JSON body" })
+			}
+			if (path === "/api/tunnel/devices") {
+				if (typeof body.label !== "string" || !body.label.trim())
+					return sendJson(res, 400, { error: "label is required" })
+				if (body.publicKey !== undefined && typeof body.publicKey !== "string") {
+					return sendJson(res, 400, { error: "publicKey must be a string" })
+				}
+				try {
+					return sendJson(res, 201, tunnel.addDevice(body.label, body.publicKey))
+				} catch (err) {
+					return sendJson(res, 400, { error: err instanceof Error ? err.message : String(err) })
+				}
+			}
+			if (typeof body.fingerprint !== "string" || !body.fingerprint)
+				return sendJson(res, 400, { error: "fingerprint is required" })
+			const removed = tunnel.removeDevice(body.fingerprint)
+			return sendJson(
+				res,
+				removed ? 200 : 404,
+				removed ? { removed: true } : { error: "No device with that fingerprint" },
+			)
+		}
+
 		if (path === "/api/reset-halt") {
 			if (this.mode !== "operator") return sendJson(res, 409, { error: "Filler is not running" })
 			if (method !== "POST") return sendJson(res, 405, { error: "Method not allowed" })
@@ -594,8 +1425,20 @@ export class UiServer {
 		}
 
 		if (path === "/api/stop") {
-			if (this.mode !== "operator") return sendJson(res, 409, { error: "Filler is not running" })
 			if (method !== "POST") return sendJson(res, 405, { error: "Method not allowed" })
+			if (this.stopping) return sendJson(res, 202, { stopping: true })
+			if (this.mode === "init") {
+				if (this.startState === "starting")
+					return sendJson(res, 409, { error: "Filler startup is already in progress" })
+				if (!this.setup?.stop) return sendJson(res, 409, { error: "Filler is not running" })
+				this.beginStopping()
+				this.logger.warn("Graceful stop requested from the setup UI")
+				sendJson(res, 202, { stopping: true })
+				setTimeout(() => void this.setup?.stop?.(), 100)
+				return
+			}
+			if (!this.operator) return sendJson(res, 409, { error: "Filler is not running" })
+			this.beginStopping()
 			this.logger.warn("Graceful stop requested from the UI")
 			sendJson(res, 202, { stopping: true })
 			// Let the response flush before draining the filler and exiting.
@@ -624,6 +1467,7 @@ export class UiServer {
 		if (this.mode === "init" || !this.operator) {
 			const status: StatusInit = {
 				mode: "init",
+				version: this.version,
 				starting: this.startState === "starting",
 				startError: this.startError,
 			}
@@ -636,6 +1480,7 @@ export class UiServer {
 			uptimeSec: Math.floor((Date.now() - op.startedAt) / 1000),
 			paused: op.filler.isPaused(),
 			halted: op.haltControls.filter((h) => h.isHalted()).map((h) => h.index),
+			work: op.filler.getWorkSnapshot(),
 			watchOnly: op.filler.getWatchOnly(),
 			chains: op.chains,
 			strategies: op.strategies.map((s) => ({ index: s.index, exotic: s.exotic })),
@@ -647,168 +1492,38 @@ export class UiServer {
 		return sendJson(res, 200, status)
 	}
 
-	private async handleCurveUpdate(req: IncomingMessage, res: ServerResponse, index: number): Promise<void> {
-		const strategy = this.operator!.strategies.find((s) => s.index === index)
-		if (!strategy) {
-			return sendJson(res, 404, { error: `No strategy with index ${index}` })
+	/**
+	 * Runs one limit-order operation and maps its failures onto status codes: an
+	 * operator mistake is a 400, an orderbook that could not be reached is a 502,
+	 * and an operation resolving null is a 404.
+	 */
+	private async handleLimitOrders(res: ServerResponse, run: () => Promise<unknown>): Promise<void> {
+		try {
+			const payload = await run()
+			if (payload === null || payload === undefined) return sendJson(res, 404, { error: "Not found" })
+			return sendJson(res, 200, payload)
+		} catch (err) {
+			if (err instanceof LimitOrderValidationError) return sendJson(res, 400, { error: err.message })
+			if (err instanceof OrderbookRequestError) return sendJson(res, 502, { error: err.message })
+			throw err
 		}
+	}
 
-		let body: unknown
+	private async handleLimitOrderCreate(req: IncomingMessage, res: ServerResponse): Promise<void> {
+		let body: CreateLimitOrderRequest
 		try {
 			body = JSON.parse(await readBody(req))
-		} catch (err) {
-			return sendJson(res, 400, { error: err instanceof Error ? err.message : "Invalid JSON body" })
+		} catch {
+			return sendJson(res, 400, { error: "Invalid JSON body" })
 		}
-
-		const shapeError = validateCurveUpdateShape(body)
-		if (shapeError) {
-			return sendJson(res, 400, { error: shapeError })
-		}
-		const update = body as { bidPriceCurve?: PriceCurvePoint[]; askPriceCurve?: PriceCurvePoint[] }
-
-		// Per provided side: a non-empty curve on an absent side *enables* it
-		// (one-sided LP opened by the operator), an empty curve on a present
-		// side *disables* it (back to one-sided LP), an empty curve on an
-		// absent side is a no-op. Venue-priced pairs expose neither hook, and
-		// same-token markets are ask-only by construction.
-		const enabling: Array<{ side: "bid" | "ask"; points: PriceCurvePoint[] }> = []
-		const disabling: Array<"bid" | "ask"> = []
-		for (const side of ["bid", "ask"] as const) {
-			const points = side === "bid" ? update.bidPriceCurve : update.askPriceCurve
-			const current = side === "bid" ? strategy.bid : strategy.ask
-			if (points === undefined) continue
-			if (points.length === 0) {
-				if (!current) continue
-				if (!strategy.disableSide) {
-					return sendJson(res, 409, {
-						error: strategy.sameToken
-							? "Same-token markets are ask-only — deleting the ask would remove the market; remove the pair from the config instead"
-							: strategy.referenceOnly
-								? "The curve is the reference price feed — remove the pair from the config to retire it"
-								: `The ${side} side of this strategy is not editable (venue-priced)`,
-					})
-				}
-				disabling.push(side)
-			} else if (!current) {
-				if (!strategy.enableSide) {
-					return sendJson(res, 409, {
-						error:
-							strategy.sameToken && side === "bid"
-								? "Same-token markets are ask-only — the bid side cannot be enabled"
-								: `The ${side} side of this strategy is not editable (venue-priced)`,
-					})
-				}
-				enabling.push({ side, points })
-			}
-		}
-		const bidAfter = disabling.includes("bid") ? false : Boolean(strategy.bid) || enabling.some((e) => e.side === "bid")
-		const askAfter = disabling.includes("ask") ? false : Boolean(strategy.ask) || enabling.some((e) => e.side === "ask")
-		if (!bidAfter && !askAfter) {
-			return sendJson(res, 409, {
-				error: "A market needs at least one side — remove the pair from the config to retire it",
-			})
-		}
-
-		// Apply all-or-nothing: validate every curve before touching any policy.
-		const sides: Array<{ label: "bid" | "ask"; policy: FillerPricePolicy; points: PriceCurvePoint[] }> = []
-		if (update.bidPriceCurve?.length && strategy.bid)
-			sides.push({ label: "bid", policy: strategy.bid, points: update.bidPriceCurve })
-		if (update.askPriceCurve?.length && strategy.ask)
-			sides.push({ label: "ask", policy: strategy.ask, points: update.askPriceCurve })
-		const enabled: Array<{ side: "bid" | "ask"; policy: FillerPricePolicy }> = []
-		try {
-			for (const side of sides) {
-				// Constructing a throwaway policy runs full validation without mutating.
-				void new FillerPricePolicy({ points: side.points })
-			}
-			for (const enable of enabling) {
-				enabled.push({ side: enable.side, policy: new FillerPricePolicy({ points: enable.points }) })
-			}
-
-			// Live edits keep the same startup invariants. A crossed book is
-			// allowed (the sides are quoted independently; the crossed region
-			// never fills), but a same-token ask must stay strictly below par.
-			const nextAsk = update.askPriceCurve?.length
-				? new FillerPricePolicy({ points: update.askPriceCurve })
-				: strategy.ask
-			if (strategy.sameToken && nextAsk) {
-				for (const point of nextAsk.getPoints()) {
-					if (new Decimal(point.price).gte(1)) {
-						throw new Error(
-							`same-token ask prices must be strictly below 1 — '${point.price}' would fill at or above par`,
-						)
-					}
-				}
-			}
-		} catch (err) {
-			return sendJson(res, 400, { error: err instanceof Error ? err.message : String(err) })
-		}
-
-		for (const side of sides) {
-			const previous = side.policy.getPoints()
-			side.policy.replacePoints({ points: side.points })
-			this.logger.info(
-				{ strategy: index, side: side.label, previous, next: side.policy.getPoints() },
-				"Price curve updated on the running strategy",
-			)
-		}
-		for (const { side, policy } of enabled) {
-			strategy.enableSide!(side, policy)
-			if (side === "bid") strategy.bid = policy
-			else strategy.ask = policy
-			this.logger.warn(
-				{ strategy: index, side, points: policy.getPoints() },
-				"One-sided LP direction enabled from the UI",
-			)
-		}
-		for (const side of disabling) {
-			strategy.disableSide!(side)
-			if (side === "bid") strategy.bid = undefined
-			else strategy.ask = undefined
-			this.logger.warn({ strategy: index, side }, "Trading direction disabled from the UI (one-sided LP)")
-		}
-
-		const persisted = this.persistCurveUpdate(strategy, update)
-		sendJson(res, 200, { ...serializeStrategy(strategy), persisted })
+		return this.handleLimitOrders(res, () => this.operator!.limitOrders.create(body))
 	}
 
-	/**
-	 * Writes the updated curves back into the config file so restarts keep them.
-	 * The file is regenerated from the parsed config: hand-written comments are
-	 * replaced by the generated ones, values are preserved.
-	 */
-	private persistCurveUpdate(
-		strategy: AdminStrategy,
-		update: { bidPriceCurve?: PriceCurvePoint[]; askPriceCurve?: PriceCurvePoint[] },
-	): boolean {
-		const op = this.operator!
-		const pair = op.config.pairs?.[strategy.pairIndex]
-		if (!pair) return false
-		if (update.bidPriceCurve !== undefined) {
-			if (update.bidPriceCurve.length) pair.bidPriceCurve = update.bidPriceCurve
-			else delete pair.bidPriceCurve
-		}
-		if (update.askPriceCurve !== undefined) {
-			if (update.askPriceCurve.length) pair.askPriceCurve = update.askPriceCurve
-			else delete pair.askPriceCurve
-		}
-		return this.persistConfig()
-	}
-
-	/**
-	 * POST /api/strategies — adds a market. The candidate is validated against
-	 * the FULL prospective config (duplicate/reverse orientation, USD anchor
-	 * graph, symbol resolution on the running chains) before anything mutates,
-	 * hydrated into the running engine when possible, and persisted either way.
-	 */
 	private async handleMarketAdd(req: IncomingMessage, res: ServerResponse): Promise<void> {
 		const op = this.operator!
 		let body: {
 			token0?: string
 			token1?: string
-			maxOrderSize?: string
-			bidPriceCurve?: PriceCurvePoint[]
-			askPriceCurve?: PriceCurvePoint[]
 			assets?: Record<string, AssetDefinition>
 		}
 		try {
@@ -820,13 +1535,7 @@ export class UiServer {
 			return sendJson(res, 400, { error: "token0 and token1 are required" })
 		}
 
-		const candidate: PairConfig = {
-			token0: body.token0.trim(),
-			token1: body.token1.trim(),
-			...(String(body.maxOrderSize ?? "").trim() ? { maxOrderSize: String(body.maxOrderSize).trim() } : {}),
-			...(body.bidPriceCurve?.length ? { bidPriceCurve: body.bidPriceCurve } : {}),
-			...(body.askPriceCurve?.length ? { askPriceCurve: body.askPriceCurve } : {}),
-		}
+		const candidate: PairConfig = { token0: body.token0.trim(), token1: body.token1.trim() }
 		const assets = body.assets && Object.keys(body.assets).length > 0 ? body.assets : undefined
 		const mergedAssets = { ...(op.config.assets ?? {}) }
 		const next = [...(op.config.pairs ?? []), candidate]
@@ -843,10 +1552,13 @@ export class UiServer {
 				}
 				Object.assign(mergedAssets, assets)
 			}
-			const hasVenuePricing = Boolean(op.config.vault?.uniswapV4?.positions?.length)
-			validatePairConfigs(next, mergedAssets, hasVenuePricing)
+			validatePairConfigs(next, mergedAssets)
 			const registry = new AssetRegistry(new ChainConfigService({}), mergedAssets)
-			assertPairSymbolsResolve(next, registry, op.chains.map((id) => formatChainKey(id)))
+			assertPairSymbolsResolve(
+				next,
+				registry,
+				op.chains.map((id) => formatChainKey(id)),
+			)
 		} catch (err) {
 			return sendJson(res, 400, { error: err instanceof Error ? err.message : String(err) })
 		}
@@ -869,7 +1581,11 @@ export class UiServer {
 		const persisted = this.persistConfig()
 		const applied = Boolean(op.addPair)
 		this.logger.warn(
-			{ pair: `${candidate.token0}/${candidate.token1}`, applied, customAssets: assets ? Object.keys(assets) : undefined },
+			{
+				pair: `${candidate.token0}/${candidate.token1}`,
+				applied,
+				customAssets: assets ? Object.keys(assets) : undefined,
+			},
 			"Market added by operator",
 		)
 		return sendJson(res, 200, {
@@ -881,104 +1597,8 @@ export class UiServer {
 	}
 
 	/**
-	 * PUT /api/strategies/:index — edits a live market's per-order cap. The
-	 * engine reads `maxOrderSize` while sizing each order, so a new cap binds on
-	 * the next evaluation; it is persisted to the pair's config entry either way.
-	 */
-	private async handleMarketUpdate(req: IncomingMessage, res: ServerResponse, index: number): Promise<void> {
-		const op = this.operator!
-		const strategy = op.strategies.find((s) => s.index === index)
-		if (!strategy) return sendJson(res, 404, { error: `No strategy with index ${index}` })
-
-		let body: Record<string, unknown>
-		try {
-			body = JSON.parse(await readBody(req))
-		} catch {
-			return sendJson(res, 400, { error: "Invalid JSON body" })
-		}
-		const { maxOrderSize, ...rest } = body
-		if (Object.keys(rest).length > 0) {
-			return sendJson(res, 400, { error: `Unknown fields: ${Object.keys(rest).join(", ")}` })
-		}
-		if (maxOrderSize === undefined) {
-			return sendJson(res, 400, { error: "Provide maxOrderSize" })
-		}
-		if (strategy.referenceOnly) {
-			return sendJson(res, 409, {
-				error: "Reference-only markets never fill orders — their order cap is never consulted",
-			})
-		}
-		const value = String(maxOrderSize).trim()
-		let parsed: Decimal
-		try {
-			parsed = new Decimal(value)
-		} catch {
-			return sendJson(res, 400, { error: `maxOrderSize must be a decimal string, got '${value}'` })
-		}
-		if (!parsed.isFinite() || parsed.lte(0)) {
-			return sendJson(res, 400, { error: `maxOrderSize must be a positive number, got '${value}'` })
-		}
-
-		strategy.setMaxOrderSize?.(value)
-		strategy.maxOrderSize = value
-		const pair = op.config.pairs?.[strategy.pairIndex]
-		if (pair) pair.maxOrderSize = value
-		const persisted = this.persistConfig()
-		const applied = Boolean(strategy.setMaxOrderSize)
-		this.logger.warn(
-			{ strategy: index, pair: `${strategy.token0}/${strategy.token1}`, maxOrderSize: value, applied },
-			"Max order size updated by operator",
-		)
-		return sendJson(res, 200, {
-			...serializeStrategy(strategy),
-			applied,
-			restartNeeded: !applied,
-			persisted,
-		})
-	}
-
-	/**
-	 * DELETE /api/strategies/:index/max-order-size — removes a market's per-order
-	 * cap, leaving it uncapped. Its own route rather than a null on the PUT:
-	 * DELETE /api/strategies/:index already means "remove the market", and a cap
-	 * removal that a typo could turn into a market removal is not a trade worth
-	 * making for one fewer endpoint.
-	 *
-	 * Idempotent — clearing an already-uncapped market succeeds and reports the
-	 * same state, so the UI does not have to know which it is.
-	 */
-	private async handleMaxOrderSizeClear(res: ServerResponse, index: number): Promise<void> {
-		const op = this.operator!
-		const strategy = op.strategies.find((s) => s.index === index)
-		if (!strategy) return sendJson(res, 404, { error: `No strategy with index ${index}` })
-		if (strategy.referenceOnly) {
-			return sendJson(res, 409, {
-				error: "Reference-only markets never fill orders — their order cap is never consulted",
-			})
-		}
-
-		const previous = strategy.maxOrderSize
-		strategy.clearMaxOrderSize?.()
-		strategy.maxOrderSize = undefined
-		const pair = op.config.pairs?.[strategy.pairIndex]
-		if (pair) pair.maxOrderSize = undefined
-		const persisted = this.persistConfig()
-		const applied = Boolean(strategy.clearMaxOrderSize)
-		this.logger.warn(
-			{ strategy: index, pair: `${strategy.token0}/${strategy.token1}`, previous, applied },
-			"Max order size removed by operator — market is now uncapped",
-		)
-		return sendJson(res, 200, {
-			...serializeStrategy(strategy),
-			applied,
-			restartNeeded: !applied,
-			persisted,
-		})
-	}
-
-	/**
 	 * DELETE /api/strategies/:index — removes a market. The remaining config
-	 * must still validate (at least one market, no orphaned USD anchor) before
+	 * must still validate (at least one market) before
 	 * anything mutates. Funds are never touched: vault treasury is per-asset
 	 * and stays configured regardless of markets.
 	 */
@@ -993,8 +1613,7 @@ export class UiServer {
 			if (remaining.length === 0) {
 				throw new Error("The last market cannot be removed live — edit the config and restart instead")
 			}
-			const hasVenuePricing = Boolean(op.config.vault?.uniswapV4?.positions?.length)
-			validatePairConfigs(remaining, op.config.assets, hasVenuePricing)
+			validatePairConfigs(remaining, op.config.assets)
 			await op.removePair?.(index)
 		} catch (err) {
 			return sendJson(res, 400, { error: err instanceof Error ? err.message : String(err) })
@@ -1002,10 +1621,7 @@ export class UiServer {
 		if (!op.removePair) pairs.splice(pairIndex, 1)
 		const persisted = this.persistConfig()
 		const applied = Boolean(op.removePair)
-		this.logger.warn(
-			{ pair: `${strategy.token0}/${strategy.token1}`, applied },
-			"Market removed by operator",
-		)
+		this.logger.warn({ pair: `${strategy.token0}/${strategy.token1}`, applied }, "Market removed by operator")
 		return sendJson(res, 200, { applied, restartNeeded: !applied, persisted })
 	}
 
@@ -1022,7 +1638,7 @@ export class UiServer {
 		if (!op.configPath) return false
 		try {
 			const chainComments = this.configChainIds().map((id) => chainLabel(id))
-			writeConfigFileAtomic(op.configPath, emitFillerToml(op.config, { chainComments }))
+			;(op.writeConfigFile ?? writeConfigFileAtomic)(op.configPath, emitFillerToml(op.config, { chainComments }))
 			return true
 		} catch (err) {
 			this.logger.warn({ err, configPath: op.configPath }, "Change applied in memory but could not be persisted")
@@ -1093,7 +1709,9 @@ export class UiServer {
 			return sendJson(res, 400, { error: "Invalid JSON body" })
 		}
 		if (!Array.isArray(body.chains) || body.chains.length === 0) {
-			return sendJson(res, 400, { error: "Provide chains as a non-empty array — the filler needs at least one chain" })
+			return sendJson(res, 400, {
+				error: "Provide chains as a non-empty array — the filler needs at least one chain",
+			})
 		}
 
 		const rows: Array<{ chainId: number; rpcUrls: string[]; bundlerUrl: string; watchOnly: boolean }> = []
@@ -1149,11 +1767,6 @@ export class UiServer {
 						`${chainLabel(chainId)} still holds a vault entry — remove it from the vault treasury before dropping the chain`,
 					)
 				}
-				if (op.config.vault?.uniswapV4?.positions?.some((position) => position.chain === chainKey)) {
-					throw new Error(
-						`${chainLabel(chainId)} still holds a Uniswap V4 position — remove it from the config before dropping the chain`,
-					)
-				}
 			}
 			// Probe only what the operator newly asserts: an unreachable endpoint
 			// or one answering for another chain would brick the next boot.
@@ -1198,10 +1811,63 @@ export class UiServer {
 					throw new Error(`RPC ${url} is unreachable: ${err instanceof Error ? err.message : err}`)
 				}
 				if (reported !== chainId) {
-					throw new Error(`RPC ${url} reports chain ${reported}, expected ${chainId} (${chainLabel(chainId)})`)
+					throw new Error(
+						`RPC ${url} reports chain ${reported}, expected ${chainId} (${chainLabel(chainId)})`,
+					)
 				}
 			}),
 		)
+	}
+
+	/**
+	 * Enables/disables the tunnel or points it at another relay. The config
+	 * block is rewritten so the choice survives a restart; the tunnel applies
+	 * it live either way.
+	 */
+	private async handleTunnelUpdate(req: IncomingMessage, res: ServerResponse, tunnel: TunnelControls): Promise<void> {
+		let body: { enabled?: unknown; relay?: unknown }
+		try {
+			body = JSON.parse(await readBody(req))
+		} catch {
+			return sendJson(res, 400, { error: "Invalid JSON body" })
+		}
+		if (body.enabled !== undefined && typeof body.enabled !== "boolean") {
+			return sendJson(res, 400, { error: "enabled must be a boolean" })
+		}
+		if (body.relay !== undefined && typeof body.relay !== "string") {
+			return sendJson(res, 400, { error: "relay must be a string" })
+		}
+		if (typeof body.relay === "string") {
+			try {
+				parseRelayAddress(body.relay)
+			} catch (err) {
+				return sendJson(res, 400, { error: err instanceof Error ? err.message : String(err) })
+			}
+		}
+		const update = {
+			enabled: body.enabled as boolean | undefined,
+			relay: typeof body.relay === "string" ? body.relay.trim() : undefined,
+		}
+		const op = this.operator!
+		const block = { ...(op.config.simplex.tunnel ?? {}) }
+		if (update.enabled !== undefined) block.enabled = update.enabled
+		if (update.relay !== undefined) {
+			// The pin belongs to the relay it was set for; keeping it across a relay
+			// change locks remote access out entirely.
+			if (block.relayHostKey && relayKey(update.relay) !== relayKey(block.relay ?? DEFAULT_TUNNEL_RELAY)) {
+				block.relayHostKey = undefined
+			}
+			block.relay = update.relay
+		}
+		op.config.simplex.tunnel = block
+		const persisted = this.persistConfig()
+		try {
+			await tunnel.configure(update)
+		} catch (err) {
+			return sendJson(res, 500, { error: err instanceof Error ? err.message : String(err) })
+		}
+		this.logger.warn({ ...update }, "Remote access settings changed from the UI")
+		return sendJson(res, 200, { ...tunnel.status(), persisted })
 	}
 
 	private async handleLogLevel(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -1223,6 +1889,98 @@ export class UiServer {
 	}
 
 	/**
+	 * Server-sent tail of the log buffer. The client passes the seq of the last
+	 * record it holds as `after`, so whatever was logged between its `GET
+	 * /api/logs` and this connection is replayed before the live feed starts —
+	 * a plain "live only" stream drops exactly the records an operator was
+	 * watching for.
+	 */
+	private async streamLogs(req: IncomingMessage, res: ServerResponse): Promise<void> {
+		const logs = this.operator!.logs!
+		const query = logQueryFrom(req.url)
+		res.writeHead(200, {
+			"Content-Type": "text/event-stream",
+			"Cache-Control": "no-store",
+			Connection: "keep-alive",
+		})
+		res.write(":ok\n\n")
+
+		// Everything leaves through one queue drained by `pump`, so a slow socket
+		// applies backpressure instead of being written past. Writing the replay
+		// straight out in a loop cannot work: it never yields, so the socket never
+		// drains during it, and any byte-based guard fires on a reader who was
+		// never given the chance.
+		const queue: LogRecordDto[] = []
+		let closed = false
+		let pumping = false
+		let dropped = false
+		let lastQueued = 0
+
+		const pump = async (): Promise<void> => {
+			if (pumping) return
+			pumping = true
+			try {
+				while (queue.length > 0 && !closed) {
+					const record = queue.shift()!
+					if (dropped) {
+						// Say there is a hole rather than let the client splice two
+						// non-adjacent stretches together and believe the feed is whole.
+						dropped = false
+						res.write("event: gap\ndata: {}\n\n")
+					}
+					if (!res.write(`data: ${JSON.stringify(record)}\n\n`)) await drained(res)
+				}
+			} catch {
+				// A dead socket is the client's problem; `close` tears the rest down.
+			} finally {
+				pumping = false
+			}
+		}
+
+		const enqueue = (record: LogRecordDto) => {
+			if (closed || record.seq <= lastQueued) return
+			lastQueued = record.seq
+			queue.push(record)
+			// A reader that has stopped reading (a phone that walked out of signal
+			// mid-tunnel) would otherwise buffer the whole firehose in this process.
+			if (queue.length > MAX_LOG_STREAM_QUEUE) {
+				queue.shift()
+				dropped = true
+			}
+			void pump()
+		}
+
+		// Subscribed before the replay is awaited: reading history can hit the
+		// launch file, and anything logged while that I/O is in flight has to be
+		// held rather than missed. It is queued after the replay so the feed stays
+		// in seq order.
+		const pending: LogRecordDto[] = []
+		let replaying = true
+		const live: LogQuery = { level: query.level, q: query.q }
+		const unsubscribe = logs.subscribe((record) => {
+			if (!matchesLogQuery(record, live)) return
+			if (replaying) pending.push(record)
+			else enqueue(record)
+		})
+		this.logClients.set(res, unsubscribe)
+		req.on("close", () => {
+			closed = true
+			queue.length = 0
+			unsubscribe()
+			this.logClients.delete(res)
+		})
+
+		try {
+			for (const record of await logs.recent(query)) enqueue(record)
+		} catch {
+			// History unreadable: the live tail below still works.
+		}
+		replaying = false
+		for (const record of pending) enqueue(record)
+		pending.length = 0
+	}
+
+	/**
 	 * Token choices for the dashboard Send card, per state machine id: native
 	 * plus the chain's stablecoins/exotics from the SDK registry. Vault shares
 	 * are not listed — sends of the underlying draw on the vault when the
@@ -1239,7 +1997,7 @@ export class UiServer {
 		const options: Record<string, SendTokenOption[]> = {}
 		for (const chainId of op.chains) {
 			const stateMachineId = formatChainKey(chainId)
-			const tokens: SendTokenOption[] = [{ symbol: "native", address: "native" }]
+			const tokens: SendTokenOption[] = [{ symbol: nativeTokenSymbol(chainId), address: "native" }]
 			for (const symbol of symbols) {
 				const address = registry.getAddress(symbol, stateMachineId)
 				if (address) tokens.push({ symbol, address })
@@ -1249,13 +2007,21 @@ export class UiServer {
 		return options
 	}
 
-	/** Registry vault catalog for the running chains, same source as the setup wizard's. */
+	/**
+	 * Registry vault catalog for every chain on the running network (mainnet or
+	 * testnet), same source as the setup wizard's. Chains the filler is not
+	 * running are included so the treasury editor can show what becomes
+	 * available once a chain is enabled; the UI keeps those rows unselectable.
+	 */
 	private knownVaultCatalog(op: OperatorContext): ConfigDto["knownVaults"] {
 		const chainRegistry = new ChainConfigService({})
 		const catalog: ConfigDto["knownVaults"] = {}
-		for (const chainId of op.chains) {
-			const stateMachineId = formatChainKey(chainId)
-			catalog[stateMachineId] = chainRegistry.getKnownVaults(stateMachineId)
+		const network = runningNetwork(op.chains)
+		const running = new Set(op.chains.map((chainId) => formatChainKey(chainId)))
+		const stateMachineIds = new Set([...running, ...chainsForNetwork(network).map((meta) => meta.stateMachineId)])
+		for (const stateMachineId of stateMachineIds) {
+			const vaults = chainRegistry.getKnownVaults(stateMachineId)
+			if (vaults.length > 0 || running.has(stateMachineId)) catalog[stateMachineId] = vaults
 		}
 		return catalog
 	}
@@ -1336,7 +2102,10 @@ export class UiServer {
 			} catch (err) {
 				return sendJson(res, 400, { error: err instanceof Error ? err.message : String(err) })
 			}
-			op.config.vault = { vaults: body.vaults, ...(body.sweepIntervalMs ? { sweepIntervalMs: body.sweepIntervalMs } : {}) }
+			op.config.vault = {
+				vaults: body.vaults,
+				...(body.sweepIntervalMs ? { sweepIntervalMs: body.sweepIntervalMs } : {}),
+			}
 			const persisted = this.persistConfig()
 			return sendJson(res, 200, { applied: false, restartNeeded: true, persisted })
 		}
@@ -1431,12 +2200,7 @@ function serializeStrategy(strategy: AdminStrategy): AdminStrategyDto {
 		exotic: strategy.exotic,
 		token0: strategy.token0,
 		token1: strategy.token1,
-		pricingMode: strategy.bid || strategy.ask ? ("static" as const) : ("venue" as const),
 		sameToken: strategy.sameToken ?? false,
-		referenceOnly: strategy.referenceOnly ?? false,
-		maxOrderSize: strategy.maxOrderSize,
-		bid: strategy.bid?.getPoints(),
-		ask: strategy.ask?.getPoints(),
 	}
 }
 
@@ -1445,37 +2209,43 @@ function chainLabel(chainId: number): string {
 	return INIT_CHAINS.find((meta) => meta.chainId === chainId)?.label ?? `chain ${chainId}`
 }
 
-/** Returns an error message when the body is not a well-formed curve update, else null. */
-function validateCurveUpdateShape(body: unknown): string | null {
-	if (typeof body !== "object" || body === null || Array.isArray(body)) {
-		return "Body must be a JSON object"
+
+/** Wire shape of a sweep pass: base units formatted once here so the dashboard never sees bigints. */
+/** One network per filler: testnet if any running chain is a testnet, else mainnet. */
+function runningNetwork(chains: number[]): InitNetwork {
+	return chains.some((chainId) => chainByChainId(chainId)?.network === "testnet") ? "testnet" : "mainnet"
+}
+
+/** The token a vault share token wraps, by naming convention: stataUSDC → USDC, ycNGN → cNGN, aUSDT → USDT. */
+function underlyingOf(shareSymbol: string): string {
+	for (const known of ["USDC", "USDT", "CNGN", "DAI", "EURC", "ZARP"]) {
+		if (shareSymbol.toUpperCase().includes(known)) return known
 	}
-	const { bidPriceCurve, askPriceCurve, ...rest } = body as Record<string, unknown>
-	if (Object.keys(rest).length > 0) {
-		return `Unknown fields: ${Object.keys(rest).join(", ")}`
+	return shareSymbol
+}
+
+function vaultSweepDto(result: VaultSweepResult): VaultSweepDto {
+	return {
+		ok: true,
+		submitted: result.submitted.map((tx) => ({
+			chain: tx.chain,
+			txHash: tx.txHash,
+			sponsored: tx.sponsored,
+			deposits: tx.deposits.map((d) => ({
+				vault: d.vault,
+				symbol: d.symbol,
+				amount: formatUnits(d.amount, d.decimals),
+			})),
+		})),
+		skipped: result.skipped.map((skip) => ({
+			chain: skip.chain,
+			vault: skip.vault,
+			symbol: skip.symbol,
+			reason: skip.reason,
+			...(skip.walletBalance !== undefined
+				? { walletBalance: formatUnits(skip.walletBalance, skip.decimals) }
+				: {}),
+			...(skip.threshold !== undefined ? { threshold: formatUnits(skip.threshold, skip.decimals) } : {}),
+		})),
 	}
-	if (bidPriceCurve === undefined && askPriceCurve === undefined) {
-		return "Provide at least one of bidPriceCurve/askPriceCurve"
-	}
-	for (const [name, curve] of [
-		["bidPriceCurve", bidPriceCurve],
-		["askPriceCurve", askPriceCurve],
-	] as const) {
-		if (curve === undefined) continue
-		// An empty array is meaningful: it disables that side (one-sided LP).
-		if (!Array.isArray(curve)) {
-			return `${name} must be an array of points`
-		}
-		for (const point of curve) {
-			if (
-				typeof point !== "object" ||
-				point === null ||
-				typeof (point as PriceCurvePoint).amount !== "string" ||
-				typeof (point as PriceCurvePoint).price !== "string"
-			) {
-				return `Each ${name} point must have string 'amount' and 'price'`
-			}
-		}
-	}
-	return null
 }

@@ -5,12 +5,11 @@ import type { ApiPromise } from "@polkadot/api"
 import { IntentsCoprocessor } from "@/chains/intentsCoprocessor"
 
 /**
- * Hyperbridge's public endpoints police the instantaneous request rate, and every read the
- * coprocessor makes arrives in bursts: a poll tick fires its whole block range back-to-back, and a
- * phantom order interval fans out one offchain read per configured chain at once. A poll interval
- * measured in seconds says nothing about either. The pacing therefore lives at the provider, where
- * the endpoint's whole traffic is visible, rather than at any one caller — which is also what lets
- * several fillers in one process stay collectively within one budget instead of each pacing to it.
+ * Hyperbridge's public endpoints police the instantaneous request rate, and the coprocessor's reads
+ * arrive in bursts, such as one offchain read per bid when fetching an order's bids. The pacing
+ * therefore lives at the provider, where the endpoint's whole traffic is visible, rather than at
+ * any one caller — which is also what lets several fillers in one process stay collectively within
+ * one budget instead of each pacing to it.
  *
  * These use sequential calls throughout. Concurrent ones would be coalesced into a single batched
  * request by the provider and cost a single token, which is the subject of
@@ -116,10 +115,7 @@ describe("coprocessor HTTP request pacing", () => {
 	// Several fillers in one process each hold their own coprocessor, and the limit they are up
 	// against counts requests per address. A bucket per instance would exceed it by their count.
 	it("shares one budget across every coprocessor pointed at the same endpoint", async () => {
-		const [first, second] = await Promise.all([
-			provider(coprocessorFor(port)),
-			provider(coprocessorFor(port)),
-		])
+		const [first, second] = await Promise.all([provider(coprocessorFor(port)), provider(coprocessorFor(port))])
 
 		const started = Date.now()
 		// Interleaved and sequential, so each call is its own request against a shared budget.

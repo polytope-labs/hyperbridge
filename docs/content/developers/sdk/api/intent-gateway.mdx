@@ -173,140 +173,174 @@ while (true) {
 
 ---
 
+### withOrderbook(orderbook)
+
+By default, `quoteIntent`, `queryAvailableLiquidity` and `queryBuyAndSellRates` read the HyperFX orderbook deployment for the destination chain's network:
+
+- `https://orderbook.hyperfx.finance/testnet/graphql` for testnet chains;
+- `https://orderbook.hyperfx.finance/mainnet/graphql` for everything else.
+
+`withOrderbook` points them at another orderbook. Returns `this` for chaining.
+
+```typescript lineNumbers
+withOrderbook(orderbook: string | HyperFxOrderbook): this
+```
+
+```typescript lineNumbers
+const gateway = (await IntentGateway.create(source, dest)).withOrderbook("https://orderbook.example/graphql")
+```
+
+To query the orderbook without a gateway, see [Querying the Orderbook](/developers/evm/intent-gateway/orderbook).
+
 ### quoteIntent(params)
 
-Quotes an intent from the latest aggregate pool buy or sell rate published by the indexer. The pool rate is depth-weighted from fresh chain samples. Pass token addresses directly—the SDK resolves their configured symbols and decimals. No `strategy` option is needed for indexed-rate quotes.
-
-Indexed-rate quotes require an attached Hyperbridge indexer client. There is no automatic fallback to another price source.
-
-Use `amountIn` and `amountOut` when constructing the `inputs` and `output.assets` for an IntentGateway V2 order.
+Returns the HyperFX orderbook's quote for an intent: `quotePessimistic` by default, or the optimistic `quote` with `optimistic: true`. Pass token addresses on the gateway's source and destination chains. The SDK resolves their symbols and decimals from its chain configuration. Provide exactly one of `amountIn` or `amountOut`, in raw token units.
 
 ```typescript lineNumbers
-import { createQueryClient, IntentGateway } from "@hyperbridge/sdk";
-
-const gateway = (await IntentGateway.create(source, dest)).withQueryClient(
-  createQueryClient({ url: "https://nexus.indexer.polytope.technology" }),
-);
-
-const quote = await gateway.quoteIntent({
-  tokenIn: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
-  tokenOut: "0x46C85152bFe9f96829aA94755D9f915F9B10EF5F",
-  amountIn: 100_000_000n,
-});
-
-console.log(quote.amountIn, quote.amountOut);
-if (quote.strategy === "indexed_rates") {
-  console.log(quote.quoteMetadata.rateSide, quote.quoteMetadata.rate);
-}
+async quoteIntent(params: {
+  tokenIn: HexString
+  tokenOut: HexString
+  amountIn?: bigint
+  amountOut?: bigint
+  optimistic?: boolean
+}): Promise<PessimisticQuoteIntentResult | QuoteIntentResult>
 ```
 
-The order's source and destination chains select the configured token deployments. The SDK uses the pool's indexed buy rate when the order buys the quote token with the base token, and the indexed sell rate for the reverse direction. If that direction has no indexed rate, the quote fails clearly instead of using a different market.
+With `optimistic: true` the result is typed as `QuoteIntentResult`. If you omit it or pass `false`, it is typed as `PessimisticQuoteIntentResult`. Either way, the result has the orderbook's shape, with amounts in raw token units.
 
-The previous Phantom snapshot source remains available with `strategy: "phantom_snapshot"`. Pass `strategy: "uniswap_v4"` only when explicitly requesting a Uniswap quote.
+- **Exact input:** the quote is for `amountIn`.
+- **Exact output:** the quote is for an input that delivers at least `amountOut`, rounded up to a whole raw unit of `tokenIn`. It can exceed the least such input by less than one raw unit of `tokenOut`'s worth.
+- **Cross-chain routes** only count orders whose solvers accept swaps from the source chain.
+- **Protocol fee:** the orderbook takes the IntentGateway protocol fee off every `amountOut` already, so do not deduct it again.
+- **Insufficient liquidity:** `quoteIntent` does not throw. It returns the orderbook's quote with `fillable: false`, and `maxFillableIn` says how much the route could fill. For an exact output, `amountIn` is then the input the SDK last tried. Check `fillable` before placing an order.
 
-For non-Phantom pairs whose pools are not configured by the SDK, pass an explicit Uniswap V4 PoolKey:
+#### Pessimistic quote (default)
+
+The whole trade is priced at one price. That price is the worst single-order price of the first price level, best first, deep enough to fill the trade by itself, and every order in that level fills at it. When no one level can fill the trade, but the route's levels together can, it is the route's worst price. Use `amountIn` and `amountOut` as the order's `inputs` and `output.assets`.
 
 ```typescript lineNumbers
+import { IntentGateway } from "@hyperbridge/sdk"
+
+const gateway = await IntentGateway.create(source, dest)
+
 const quote = await gateway.quoteIntent({
-  strategy: "uniswap_v4",
-  tokenIn,
-  tokenOut,
-  amountOut: 50_000_000n,
-  uniswapV4: {
-    poolKey: {
-      currency0: "0x...",
-      currency1: "0x...",
-      fee: 1500,
-      tickSpacing: 30,
-      hooks: "0x0000000000000000000000000000000000000000",
-      quoterAddress: "0x0d5e0f971ed27fbff6c2837bf31316121532048d",
-    },
-  },
-});
+  tokenIn: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", // USDC on Base
+  tokenOut: "0x46C85152bFe9f96829aA94755D9f915F9B10EF5F", // cNGN on Base
+  amountIn: 100_000_000n, // 100 USDC
+})
+
+console.log(quote.rate, quote.amountIn, quote.amountOut)
 ```
 
-When passing an explicit PoolKey for cross-chain Uniswap quotes, also pass `currencyIn` inside the `poolKey` override — the Base-side address of the input currency. It defaults to `tokenIn`, which only works when that address is part of the Base pool, and must equal `currency0` or `currency1`.
+| Field | Description |
+|-------|-------------|
+| `route` | `SAME_CHAIN`, or `CROSS_CHAIN` |
+| `side` | `BID` when the order sells the book's base token, `ASK` when it buys it |
+| `amountIn` | The `tokenIn` priced, in raw source-token units |
+| `amountOut` | The `tokenOut` delivered at `rate` after the protocol fee, in raw destination-token units |
+| `rate` | The one price every order fills at, quote per one base token at 1e18, before the protocol fee |
+| `priceBucket` | The price bucket of the level that fills it |
+| `slippageBps` | The destination's protocol fee in basis points, already taken off `amountOut`: the least slippage from `rate` to allow for |
+| `fillable` | Whether the route can fill `amountIn`. When `false`, `amountOut` is `0` and `rate` and `priceBucket` are `null` |
+| `maxFillableIn` | The largest `amountIn` this quote could fill: any one level at its worst price, or the whole route at its worst |
 
-The result includes `amountIn`, `amountOut`, and strategy-specific quote metadata. Indexed-rate metadata contains the source and destination chains, base and quote symbols, the buy or sell rate used, its update time, and the source-chain protocol fee.
+#### Optimistic quote
 
-`amountIn` and `amountOut` already account for the IntentGateway protocol fee that the gateway deducts from order inputs. Exact-input quotes price the swap against the post-fee input, so `amountOut` is the snapshot-priced output; exact-output quotes return the gross `amountIn` required to produce the requested `amountOut`. Use the returned amounts directly as the order's `inputs` and `output.assets`—no further fee or slippage adjustment is required.
+With `optimistic: true`, the route's orders fill the trade best price first, each at its own price, one leg per order. The legs can come from several solvers. There is no single rate or total output: the legs' `amountOut`s sum to what the order should require.
 
-For exact-input quotes, the SDK deducts the gateway fee before applying the directional rate. For exact-output quotes, it calculates the required net input from that rate and then grosses the input up for the gateway fee. Token decimals are read from SDK chain configuration. A missing indexer, missing directional rate, or invalid rate throws an explicit error.
+```typescript lineNumbers
+const quote = await gateway.quoteIntent({ tokenIn, tokenOut, amountIn: 100_000_000n, optimistic: true })
+
+for (const leg of quote.legs) console.log(leg.orderRate, leg.amountIn, leg.amountOut)
+const amountOut = quote.legs.reduce((total, leg) => total + leg.amountOut, 0n)
+```
+
+| Field | Description |
+|-------|-------------|
+| `route`, `side`, `amountIn` | As for the pessimistic quote |
+| `slippageBps` | The destination's protocol fee in basis points, already taken off every leg's `amountOut`: the least slippage from each `orderRate` to allow for |
+| `fillable` | Whether the route can fill `amountIn`. When `false`, `legs` is empty |
+| `maxFillableIn` | The largest `amountIn` the route's orders could take together, in raw source-token units |
+| `legs` | The orders used, best price first |
+
+Each leg has:
+
+| Field | Description |
+|-------|-------------|
+| `advertisedSize` | The order's full advertised size in raw `tokenOut` units, not just the part this leg takes |
+| `orderRate` | The order's own price, quote per one base token at 1e18, before the protocol fee |
+| `amountIn` | The `tokenIn` this leg takes, in raw source-token units |
+| `amountOut` | The `tokenOut` this leg delivers after the protocol fee, in raw destination-token units |
+
+**Errors:**
+- `OrderbookQuoteNotConvergedError` when an exact-output quote does not settle on an input within 16 quotes.
+- `OrderbookRequestError` when the orderbook cannot be reached, or trades no book for the pair.
+- `UnsupportedLiquidityAssetError` or `UnsupportedLiquidityChainError` when a token or chain is not in the SDK's configuration.
 
 ### queryAvailableLiquidity(params)
 
-Returns output-token liquidity from the indexer's latest pair-centric pool
-sample. The result reports destination capacity, unrestricted capacity, and the
-matching explicit cross-chain route separately. The SDK does not decide whether
-the source chain is covered by the legacy unrestricted-bidder policy.
+Returns what the orderbook holds for a swap of `tokenIn` on the source chain for `tokenOut` on the destination chain, with no amount given.
 
 ```typescript lineNumbers
-import { createQueryClient, IntentGateway } from "@hyperbridge/sdk"
+async queryAvailableLiquidity(params: {
+  tokenIn: HexString
+  tokenOut: HexString
+}): Promise<AvailableLiquidity>
+```
 
-const gateway = (await IntentGateway.create(source, dest)).withQueryClient(
-  createQueryClient({ url: "https://nexus.indexer.polytope.technology" }),
-)
-
+```typescript lineNumbers
 const liquidity = await gateway.queryAvailableLiquidity({
   tokenIn: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
   tokenOut: "0x46C85152bFe9f96829aA94755D9f915F9B10EF5F",
 })
 
-if (liquidity) {
-  console.log("Destination:", liquidity.destination.totalLiquidity)
-  console.log("Unrestricted:", liquidity.unrestricted.totalLiquidity)
-  console.log("Explicit route:", liquidity.explicitRoute?.totalLiquidity ?? "none")
-  console.log("Updated at:", liquidity.updatedAt)
-}
+console.log("Deliverable:", liquidity.availableLiquidity, liquidity.tokenOutSymbol)
+console.log("Largest input:", liquidity.maxFillableIn, liquidity.tokenInSymbol)
 ```
 
-```typescript
-async queryAvailableLiquidity(params: {
-  tokenIn: HexString
-  tokenOut: HexString
-}): Promise<AvailableLiquidity | undefined>
-```
+Amounts are decimal strings in whole tokens.
 
-Each liquidity value is a decimal string formatted from the indexer's
-18-decimal normalized depth. `destination` is the complete destination-chain
-capacity. `unrestricted` is the subset from bidders without an accepted-source
-declaration. `explicitRoute` is the capacity from bidders that explicitly accept
-the requested source chain, or `null` when there is no such route. Consumers can
-combine the explicit and unrestricted slices when their transport policy allows
-it.
+| Field | Description |
+|-------|-------------|
+| `route`, `side` | The route kind, and the side of the book it trades against |
+| `baseTokenSymbol`, `quoteTokenSymbol` | The units of `bestRate` |
+| `bestRate` | The best rate serving the route, or `null` when no order serves it |
+| `availableLiquidity` | True liquidity in `tokenOut`: each serving solver's largest balance-checked order, summed |
+| `depthIn`, `depthOut` | Virtual depth: every serving order's size summed. One balance can back several orders, so this can exceed `availableLiquidity`. |
+| `maxFillableIn` | The largest `tokenIn` amount the route can fill with its orders combined |
+| `orderCount`, `solverCount` | How many orders and solvers serve the route |
 
-This is indexed availability, not reserved liquidity or a fill guarantee. The
-method returns `undefined` only when the destination has no indexed pool sample.
+These figures describe the live book. They are not reservations or fill guarantees.
 
 ### queryBuyAndSellRates(params)
 
-Returns the indexer's aggregate buy and sell rates for a token pool. Callers
-provide token symbols and numeric chain IDs; token addresses and canonical
-symbol casing are resolved internally from the SDK configuration.
+Returns the orderbook's best bid and ask for a token pair, with the mid and the spread. Pass token symbols and numeric chain IDs; the SDK resolves addresses and canonical symbol casing from its configuration. Only orders filled on the destination chain that accept swaps from the source chain are counted.
 
 ```typescript lineNumbers
 const rates = await gateway.queryBuyAndSellRates({
   tokenInSymbol: "USDC",
   tokenOutSymbol: "cNGN",
-  sourceChainId: 1,
+  sourceChainId: 56,
   destinationChainId: 8453,
 })
 
-if (rates) {
-  console.log(`${rates.quoteTokenSymbol} per ${rates.baseTokenSymbol}`)
-  console.log("Buy rate:", rates.buyRate)
-  console.log("Sell rate:", rates.sellRate)
-}
+console.log(`${rates.quoteTokenSymbol} per ${rates.baseTokenSymbol}`)
+console.log("Bid:", rates.bid, "Ask:", rates.ask, "Spread:", rates.spreadBps, "bps")
 ```
 
-Both rates use the less valuable token as the quote currency. For USDC/cNGN,
-both values are therefore cNGN per one USDC. Nexus depth-weights fresh per-chain
-samples into the pool's `buyRate` and `sellRate`; the SDK orients those fields
-into the same units. Either rate and its matching timestamp can be `null` when
-that pool direction has not been priced.
+Every value is in quote-token units per one base token, as the orderbook's book defines them. For USDC/cNGN, that is cNGN per one USDC, whichever way round you name the pair.
 
-Symbol matching is case-insensitive, so `"cNGN"`, `"cngn"`, and `"CNGN"` all
-resolve to the canonical `"cNGN"` pool symbol.
+| Field | Description |
+|-------|-------------|
+| `bid` | The highest bid: what a seller of one base token receives |
+| `ask` | The lowest ask: what a buyer of one base token pays |
+| `mid` | The midpoint of `bid` and `ask` |
+| `spread` | `ask − bid` |
+| `spreadBps` | `spread` over `mid`, in basis points to two decimal places |
+
+`bid` or `ask` is `null` while its side has no orders, and `mid`, `spread` and `spreadBps` are then `null` too. `spread` is also `null` when the book is crossed.
+
+Symbol matching is case-insensitive, so `"cNGN"`, `"cngn"`, and `"CNGN"` all resolve to the canonical `"cNGN"` symbol.
 
 ---
 
@@ -557,7 +591,7 @@ Convenience wrapper around `quoteCancelOrder(order, { from: "destination" })`.
 
 ### isOrderFilled(order)
 
-Checks whether an order has been filled on the destination chain by reading the commitment storage slot.
+Checks whether an order is finalized on the destination chain, by a completing fill or by a cancellation there. A partially filled order returns `false`; use `getFillProgress` to see how far along it is.
 
 ```typescript lineNumbers
 async isOrderFilled(order: Order): Promise<boolean>
@@ -570,6 +604,24 @@ async isOrderFilled(order: Order): Promise<boolean>
 | `order` | `Order` | The order to check |
 
 **Returns:** `Promise<boolean>` — `true` if the order has been filled
+
+---
+
+### getFillProgress(order)
+
+Reads the output credited to the order so far on the destination chain, one entry per leg. Several solvers can each fill a slice of an order, same-chain or cross-chain, so this is how to track an open order. Surplus paid above the order's rate is not counted.
+
+```typescript lineNumbers
+async getFillProgress(order: Order): Promise<TokenInfo[]>
+```
+
+**Parameters:**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `order` | `Order` | The order to check |
+
+**Returns:** `Promise<TokenInfo[]>` — the output token and credited amount of each leg, in `order.output.assets` order
 
 ---
 
@@ -772,8 +824,9 @@ type IntentOrderStatusUpdate =
   | { status: "NEW_BID"; commitment: HexString; bid: Bid }
   | { status: "BIDS_RECEIVED"; commitment: HexString; bidCount: number; bids: Bid[] }
   | { status: "BID_SELECTED"; commitment: HexString; selectedSolver: HexString; userOpHash: HexString; userOp: PackedUserOperation; transactionHash?: HexString }
-  | { status: "FILLED"; commitment: HexString; userOpHash: HexString; selectedSolver: HexString; transactionHash?: HexString; totalFilledAssets: TokenInfo[]; remainingAssets: TokenInfo[] }
+  | { status: "FILLED"; commitment: HexString; userOpHash?: HexString; selectedSolver: HexString; transactionHash?: HexString; totalFilledAssets: TokenInfo[]; remainingAssets: TokenInfo[] }
   | { status: "PARTIAL_FILL"; commitment: HexString; userOpHash: HexString; selectedSolver: HexString; transactionHash?: HexString; filledAssets: TokenInfo[]; totalFilledAssets: TokenInfo[]; remainingAssets: TokenInfo[] }
+  | { status: "CANCELLED"; commitment: HexString; totalFilledAssets: TokenInfo[]; remainingAssets: TokenInfo[] }
   | { status: "EXPIRED"; commitment: HexString; totalFilledAssets?: TokenInfo[]; remainingAssets?: TokenInfo[]; error: string }
   | { status: "FAILED"; commitment?: HexString; totalFilledAssets?: TokenInfo[]; remainingAssets?: TokenInfo[]; error: string }
 ```
@@ -786,8 +839,9 @@ type IntentOrderStatusUpdate =
 | `NEW_BID` | `commitment`, `bid` | A previously unseen bid arrived during the auction (informational; one [`Bid`](#bid)) |
 | `BIDS_RECEIVED` | `commitment`, `bidCount`, `bids` | Auction round complete; `bids` is an array of executable [`Bid`](#bid) objects to select from |
 | `BID_SELECTED` | `commitment`, `selectedSolver`, `userOpHash`, `userOp`, `transactionHash?` | Best bid selected and UserOperation submitted to the bundler |
-| `FILLED` | `commitment`, `userOpHash`, `selectedSolver`, `transactionHash?`, `totalFilledAssets`, `remainingAssets` | Order fully filled on the destination chain |
+| `FILLED` | `commitment`, `userOpHash?`, `selectedSolver`, `transactionHash?`, `totalFilledAssets`, `remainingAssets` | Order fully filled on the destination chain — terminal. `userOpHash` is absent when the completing fill was not executed in this session |
 | `PARTIAL_FILL` | `commitment`, `userOpHash`, `selectedSolver`, `transactionHash?`, `filledAssets`, `totalFilledAssets`, `remainingAssets` | Order partially filled; more fills may follow |
+| `CANCELLED` | `commitment`, `totalFilledAssets`, `remainingAssets` | Order was cancelled on the destination chain before it was completely filled — terminal |
 | `EXPIRED` | `commitment`, `totalFilledAssets?`, `remainingAssets?`, `error` | Order deadline reached or no new bids available — terminal |
 | `FAILED` | `commitment?`, `totalFilledAssets?`, `remainingAssets?`, `error` | Retryable error (e.g. bundler rejection, simulation failure) — executor retries automatically |
 

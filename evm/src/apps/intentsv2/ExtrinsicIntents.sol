@@ -21,7 +21,6 @@ import {DispatchPost, DispatchGet, PostRequest, IDispatcher} from "@hyperbridge/
 import {
     TokenInfo,
     Order,
-    Params,
     ParamsUpdate,
     SweepDust,
     WithdrawalRequest,
@@ -29,10 +28,9 @@ import {
     CancelOptions,
     Deployment
 } from "@hyperbridge/core/apps/IntentGatewayV2.sol";
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ERC1967Utils} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Utils.sol";
-
+import {Address} from "@openzeppelin/contracts/utils/Address.sol";
+import {RLPReader} from "@polytope-labs/solidity-merkle-trees/src/trie/ethereum/RLPReader.sol";
 
 /**
  * @title ExtrinsicIntents
@@ -41,24 +39,18 @@ import {ERC1967Utils} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Utils.s
  * @dev Cross-chain intent logic & HyperApp callback handlers (onAccept, onGetResponse).
  */
 abstract contract ExtrinsicIntents is IntentsBase, HyperApp {
-    using SafeERC20 for IERC20;
+    using RLPReader for bytes;
+    using RLPReader for RLPReader.RLPItem;
 
     /**
-     * @dev Returns the Hyperbridge host contract address. Overrides both IntentsBase and
-     * HyperApp to resolve the diamond inheritance conflict — both parent contracts
-     * declare a virtual `host()` function.
-     * @return The host contract address from stored params.
+     * @dev The Hyperbridge host.
      */
     function host() public view virtual override(IntentsBase, HyperApp) returns (address) {
         return _params.host;
     }
 
     /**
-     * @dev Authenticates an incoming cross-chain post request by verifying that the
-     * sender module matches the registered gateway instance for the source chain.
-     * Reverts with InvalidInput if the sender address is malformed, or Unauthorized
-     * if the sender is not the expected gateway.
-     * @param request The incoming post request to authenticate.
+     * @dev Reverts unless the request comes from the gateway registered for its source chain.
      */
     function _authenticate(PostRequest calldata request) internal view {
         if (request.from.length != 20) revert InvalidInput();
@@ -67,126 +59,86 @@ abstract contract ExtrinsicIntents is IntentsBase, HyperApp {
     }
 
     /**
-     * @dev Fills a cross-chain order on the destination chain. The solver provides output
-     * tokens directly to the beneficiary, and a Hyperbridge post request is dispatched
-     * back to the source chain to release the escrowed input tokens to the solver.
-     *
-     * Unlike same-chain fills, cross-chain fills are all-or-nothing — partial fills
-     * are not supported. The solver must provide at least the full required amount
-     * for every output asset.
-     *
-     * Surplus handling (when solver overpays):
-     * - If the order has attached calldata, all surplus goes to the protocol.
-     * - Otherwise, surplus is split between beneficiary and protocol per `surplusShareBps`.
-     *
-     * After transferring tokens and executing any attached calldata, dispatches a
-     * RedeemEscrow message to the source chain gateway via Hyperbridge.
-     *
-     * @param order The cross-chain order to fill.
-     * @param options Fill options including output amounts, relayer fee, and native dispatch fee.
-     * @param commitment The keccak256 hash of the ABI-encoded order.
+     * @dev Once a relayer is set, rejects deliveries from anyone else.
      */
-    function _fillCrossChain(Order calldata order, FillOptions calldata options, bytes32 commitment) internal {
-        uint256 outputsLen = order.output.assets.length;
+    modifier onlyRelayer(address relayer) {
+        address authorised = _relayer;
+        if (authorised != address(0) && relayer != authorised) revert Unauthorized();
+        _;
+    }
 
-        _filled[commitment] = msg.sender;
+    /**
+     * @dev Rotates the relayer; zero accepts any. Host-only, so reached through `Execute`.
+     */
+    function setRelayer(address relayer) external onlyHost {
+        _setRelayer(relayer);
+    }
 
-        uint256 msgValue = msg.value;
-        address beneficiary = address(uint160(uint256(order.output.beneficiary)));
-        TokenInfo[] memory outputFills = new TokenInfo[](outputsLen);
+    /**
+     * @dev Upgrades the proxy and runs `data` on the new implementation. Host-only, so reached
+     * through `Execute`.
+     */
+    function upgradeToAndCall(address newImplementation, bytes calldata data) external onlyHost {
+        ERC1967Utils.upgradeToAndCall(newImplementation, data);
+    }
 
-        for (uint256 i; i < outputsLen; i++) {
-            bytes32 outputToken = order.output.assets[i].token;
-            if (options.outputs[i].token != outputToken) revert InvalidInput();
-
-            address token = address(uint160(uint256(outputToken)));
-            uint256 totalRequired = order.output.assets[i].amount;
-            uint256 solverAmount = options.outputs[i].amount;
-
-            if (solverAmount < totalRequired) revert InvalidInput();
-
-            uint256 dust = solverAmount - totalRequired;
-            uint256 beneficiaryShare = 0;
-            uint256 protocolShare = 0;
-
-            if (dust > 0) {
-                if (order.output.call.length > 0) {
-                    protocolShare = dust;
-                } else {
-                    protocolShare = (dust * _params.surplusShareBps) / 10_000;
-                    beneficiaryShare = dust - protocolShare;
-                }
-            }
-
-            if (token == address(0)) {
-                if (msgValue < solverAmount) revert InsufficientNativeToken();
-                uint256 beneficiaryTotal = totalRequired + beneficiaryShare;
-                (bool sent,) = beneficiary.call{value: beneficiaryTotal}("");
-                if (!sent) revert InsufficientNativeToken();
-                msgValue -= (beneficiaryTotal + protocolShare);
-            } else {
-                IERC20(token).safeTransferFrom(msg.sender, beneficiary, totalRequired + beneficiaryShare);
-                if (protocolShare > 0) {
-                    IERC20(token).safeTransferFrom(msg.sender, address(this), protocolShare);
-                }
-            }
-            if (protocolShare > 0) emit DustCollected(token, protocolShare);
-            outputFills[i] = TokenInfo({token: outputToken, amount: totalRequired});
-        }
-
-        _execute(order, outputsLen);
-
-        address hostAddr = host();
-        bytes memory body = bytes.concat(
-            bytes1(uint8(RequestKind.RedeemEscrow)),
-            abi.encode(
-                WithdrawalRequest({
-                    commitment: commitment, tokens: order.inputs, beneficiary: bytes32(uint256(uint160(msg.sender)))
-                })
-            )
+    /**
+     * @dev `kind` followed by the ABI-encoded `WithdrawalRequest`.
+     */
+    function _body(RequestKind kind, bytes32 commitment, TokenInfo[] memory tokens, bytes32 beneficiary)
+        internal
+        pure
+        returns (bytes memory)
+    {
+        return bytes.concat(
+            bytes1(uint8(kind)),
+            abi.encode(WithdrawalRequest({commitment: commitment, tokens: tokens, beneficiary: beneficiary}))
         );
+    }
+
+    /**
+     * @dev Posts `body` to the source chain's gateway, paying `nativeFee` natively when non-zero
+     * and in the fee token otherwise.
+     */
+    function _post(Order calldata order, bytes memory body, uint256 relayerFee, uint256 nativeFee) internal {
         DispatchPost memory request = DispatchPost({
             dest: order.source,
             to: abi.encodePacked(_instance(order.source)),
             body: body,
             timeout: 0,
-            fee: options.relayerFee,
+            fee: relayerFee,
             payer: msg.sender
         });
-
-        if (options.nativeDispatchFee > 0 && msgValue >= options.nativeDispatchFee) {
-            IDispatcher(hostAddr).dispatch{value: options.nativeDispatchFee}(request);
-            msgValue -= options.nativeDispatchFee;
+        if (nativeFee > 0) {
+            IDispatcher(host()).dispatch{value: nativeFee}(request);
         } else {
             dispatchWithFeeToken(request);
         }
-
-        // Refund any unspent native tokens to the solver.
-        if (msgValue > 0) {
-            (bool sent,) = msg.sender.call{value: msgValue}("");
-            if (!sent) revert InsufficientNativeToken();
-        }
-
-        emit OrderFilled({commitment: commitment, filler: msg.sender, outputs: outputFills, inputs: order.inputs});
     }
 
     /**
-     * @dev Initiates cancellation of a cross-chain order from the source chain.
-     *
-     * Only the order creator may cancel, and only after the order deadline has passed
-     * (verified by `options.height > order.deadline`). Dispatches a Hyperbridge GET
-     * request to the destination chain to verify that the `_filled` storage slot for
-     * this commitment is empty (i.e., the order was never filled on the destination).
-     *
-     * The GET response is handled by `onGetResponse`, which refunds the escrow if
-     * the slot is indeed empty.
-     *
-     * `cancelOrder` has already emitted `OrderCancelled`; the matching `EscrowRefunded` follows
-     * on this chain once the GET response returns through Hyperbridge.
-     *
-     * @param order The order to cancel.
-     * @param options Cancel options including the proof height and relayer fee.
-     * @param commitment The keccak256 hash of the ABI-encoded order.
+     * @dev Pays each leg here and asks the source chain for the escrow it earns: `RedeemEscrow` for
+     * a completing fill, `RedeemEscrowPartial` otherwise. The result is net of any native dispatch
+     * fee.
+     */
+    function _fillOrder(Order calldata order, FillOptions calldata options, bytes32 commitment)
+        internal
+        returns (FillResult memory result)
+    {
+        result = _fillLegs(order, options, commitment);
+
+        uint256 nativeFee = options.nativeDispatchFee;
+        if (nativeFee > result.nativeRemaining) nativeFee = 0;
+        result.nativeRemaining -= nativeFee;
+
+        RequestKind requestKind = result.fullyFilled ? RequestKind.RedeemEscrow : RequestKind.RedeemEscrowPartial;
+        bytes memory body = _body(requestKind, commitment, result.releasedInputs, bytes32(uint256(uint160(msg.sender))));
+        _post(order, body, options.relayerFee, nativeFee);
+    }
+
+    /**
+     * @dev Proves each leg's fill progress on the destination with a GET request that
+     * `onGetResponse` settles. Creator only, and only after the deadline, so the proof is final.
      */
     function _cancelFromSource(Order calldata order, CancelOptions calldata options, bytes32 commitment) internal {
         if (order.user != bytes32(uint256(uint160(msg.sender)))) revert Unauthorized();
@@ -194,19 +146,19 @@ abstract contract ExtrinsicIntents is IntentsBase, HyperApp {
         if (options.height <= order.deadline) revert NotExpired();
 
         uint256 inputsLen = order.inputs.length;
-        for (uint256 i; i < inputsLen;) {
-            if (_orders[commitment][address(uint160(uint256(order.inputs[i].token)))] == 0) revert UnknownOrder();
+        address destGateway = _instance(order.destination);
 
+        bytes[] memory keys = new bytes[](inputsLen);
+        uint256[] memory totalRequired = new uint256[](inputsLen);
+        for (uint256 i; i < inputsLen;) {
+            keys[i] = bytes.concat(abi.encodePacked(destGateway), _calculatePartialFillSlotHash(commitment, i));
+            totalRequired[i] = order.output.assets[i].amount;
             unchecked {
                 ++i;
             }
         }
+        bytes memory context = abi.encode(commitment, order.user, order.inputs, totalRequired);
 
-        bytes memory context =
-            abi.encode(WithdrawalRequest({commitment: commitment, tokens: order.inputs, beneficiary: order.user}));
-
-        bytes[] memory keys = new bytes[](1);
-        keys[0] = bytes.concat(abi.encodePacked(_instance(order.destination)), _calculateCommitmentSlotHash(commitment));
         DispatchGet memory request = DispatchGet({
             dest: order.destination,
             keys: keys,
@@ -217,89 +169,64 @@ abstract contract ExtrinsicIntents is IntentsBase, HyperApp {
             payer: msg.sender
         });
 
-        address hostAddr = host();
         if (msg.value > 0) {
-            IDispatcher(hostAddr).dispatch{value: msg.value}(request);
+            IDispatcher(host()).dispatch{value: msg.value}(request);
         } else {
             dispatchWithFeeToken(request);
         }
     }
 
     /**
-     * @dev Initiates cancellation of a cross-chain order from the destination chain.
-     *
-     * If the order deadline has not yet passed, only the order creator may cancel.
-     * After the deadline, anyone may trigger the cancellation (e.g., a relayer acting
-     * on behalf of the user).
-     *
-     * Marks the order as filled (to prevent future fill attempts) and dispatches a
-     * RefundEscrow message via Hyperbridge to the source chain to release the escrowed
-     * tokens back to the original user.
-     *
-     * `cancelOrder` has already emitted `OrderCancelled` on this chain — the only trace of the
-     * cancellation a solver watching this chain gets, since the host's `PostRequestEvent` carries
-     * no reference to the order. The matching `EscrowRefunded` follows on the source chain once
-     * Hyperbridge delivers the refund message.
-     *
-     * @param order The order to cancel.
-     * @param options Cancel options including the relayer fee.
-     * @param commitment The keccak256 hash of the ABI-encoded order.
+     * @dev Closes the order here and posts `RefundEscrow` for each leg's unfilled rest. Creator
+     * only until the deadline.
      */
     function _cancelFromDest(Order calldata order, CancelOptions calldata options, bytes32 commitment) internal {
         if (order.deadline >= _blockNumber()) {
             if (order.user != bytes32(uint256(uint160(msg.sender)))) revert Unauthorized();
         }
 
+        // Freeze the order, then snapshot fill progress in the same tx and refund the unredeemed rest.
         _filled[commitment] = address(uint160(uint256(order.user)));
 
-        bytes memory body = bytes.concat(
-            bytes1(uint8(RequestKind.RefundEscrow)),
-            abi.encode(WithdrawalRequest({commitment: commitment, tokens: order.inputs, beneficiary: order.user}))
-        );
-
-        DispatchPost memory request = DispatchPost({
-            dest: order.source,
-            to: abi.encodePacked(_instance(order.source)),
-            body: body,
-            timeout: 0,
-            fee: options.relayerFee,
-            payer: msg.sender
-        });
-
-        address hostAddr = host();
-        if (msg.value > 0) {
-            IDispatcher(hostAddr).dispatch{value: msg.value}(request);
-        } else {
-            dispatchWithFeeToken(request);
+        uint256 inputsLen = order.inputs.length;
+        TokenInfo[] memory refunds = new TokenInfo[](inputsLen);
+        for (uint256 i; i < inputsLen;) {
+            uint256 escrowTotal = order.inputs[i].amount;
+            uint256 filled = _partialFills[commitment][i];
+            uint256 refund = escrowTotal - _cumulativeReleased(escrowTotal, filled, order.output.assets[i].amount);
+            refunds[i] = TokenInfo({token: order.inputs[i].token, amount: refund});
+            unchecked {
+                ++i;
+            }
         }
+
+        _post(order, _body(RequestKind.RefundEscrow, commitment, refunds, order.user), options.relayerFee, msg.value);
     }
 
     /**
-     * @dev Handles incoming cross-chain post requests dispatched via Hyperbridge.
-     * The first byte of the request body encodes the `RequestKind`, which determines
-     * the action to take:
-     *
-     * - RedeemEscrow: Releases escrowed tokens to the solver who filled the order
-     *   on the destination chain. Authenticated against the registered gateway instance.
-     * - RefundEscrow: Refunds escrowed tokens to the original user after a successful
-     *   cancellation from the destination chain. Authenticated against the registered gateway.
-     * - NewDeployment: Registers a new gateway instance for a state machine. Only
-     *   Hyperbridge itself may dispatch this request.
-     * - UpdateParams: Updates the gateway's configuration parameters and per-destination
-     *   protocol fees. Only Hyperbridge may dispatch this request.
-     * - SweepDust: Transfers accumulated protocol dust to a specified beneficiary.
-     *   Only Hyperbridge may dispatch this request.
-     * - UpgradeContract: Points the ERC-1967 proxy at a new implementation, optionally
-     *   running migration calldata atomically. Only Hyperbridge may dispatch this request.
-     *
-     * @param incoming The incoming post request from Hyperbridge.
+     * @dev Handles escrow redemptions and refunds from peer gateways, and governance requests from
+     * Hyperbridge.
      */
-    function onAccept(IncomingPostRequest calldata incoming) external override onlyHost {
+    function onAccept(IncomingPostRequest calldata incoming) external override onlyHost onlyRelayer(incoming.relayer) {
         RequestKind kind = RequestKind(uint8(incoming.request.body[0]));
-        if (kind == RequestKind.RedeemEscrow || kind == RequestKind.RefundEscrow) {
+        if (
+            kind == RequestKind.RedeemEscrow || kind == RequestKind.RefundEscrow
+                || kind == RequestKind.RedeemEscrowPartial
+        ) {
             _authenticate(incoming.request);
             WithdrawalRequest memory body = abi.decode(incoming.request.body[1:], (WithdrawalRequest));
-            return _withdraw(body, kind == RequestKind.RefundEscrow, true);
+            // Refuse destination-chain cancel if source-chain already cancelled
+            if (kind == RequestKind.RefundEscrow && _filled[body.commitment] != address(0)) revert Filled();
+            // A partial redeem doesn't finalize, leaving the escrow and fees for later redeems or a cancel.
+            return _withdraw(
+                Withdrawal({
+                    commitment: body.commitment,
+                    beneficiary: body.beneficiary,
+                    tokens: body.tokens,
+                    isRefund: kind == RequestKind.RefundEscrow,
+                    finalize: kind != RequestKind.RedeemEscrowPartial
+                })
+            );
         }
 
         // only hyperbridge is permitted to perform these actions
@@ -310,24 +237,111 @@ abstract contract ExtrinsicIntents is IntentsBase, HyperApp {
             _updateParams(abi.decode(incoming.request.body[1:], (ParamsUpdate)));
         } else if (kind == RequestKind.SweepDust) {
             _sweepDust(abi.decode(incoming.request.body[1:], (SweepDust)));
-        } else if (kind == RequestKind.UpgradeContract) {
-            (address newImpl, bytes memory initData) = abi.decode(incoming.request.body[1:], (address, bytes));
-            ERC1967Utils.upgradeToAndCall(newImpl, initData);
+        } else if (kind == RequestKind.Execute) {
+            Address.functionDelegateCall(__self, incoming.request.body[1:]);
         }
     }
 
     /**
-     * @dev Handles the response to a Hyperbridge GET request dispatched during
-     * `_cancelFromSource`. Verifies that the `_filled` storage slot on the destination
-     * chain is empty (meaning the order was never filled), then refunds the escrowed
-     * tokens to the original user. Reverts with `Filled` if the slot is non-empty.
-     *
-     * @param incoming The incoming GET response from Hyperbridge containing the storage proof.
+     * @dev Settles a source-chain cancel: refunds each leg's proven unfilled rest, and the fees
+     * unless the order completed.
      */
-    function onGetResponse(IncomingGetResponse calldata incoming) external override onlyHost {
-        if (incoming.response.values[0].value.length != 0) revert Filled();
+    function onGetResponse(IncomingGetResponse calldata incoming)
+        external
+        override
+        onlyHost
+        onlyRelayer(incoming.relayer)
+    {
+        (bytes32 commitment, bytes32 beneficiary, TokenInfo[] memory inputs, uint256[] memory totalRequired) =
+            abi.decode(incoming.response.request.context, (bytes32, bytes32, TokenInfo[], uint256[]));
 
-        WithdrawalRequest memory body = abi.decode(incoming.response.request.context, (WithdrawalRequest));
-        _withdraw(body, true, true);
+        // Idempotency: block duplicate/concurrent cancel responses before releasing any funds.
+        if (_filled[commitment] != address(0)) revert Filled();
+        _filled[commitment] = address(uint160(uint256(beneficiary)));
+
+        uint256 len = inputs.length;
+        TokenInfo[] memory refunds = new TokenInfo[](len);
+        bool fullyFilled = true;
+        bytes32[] memory proofSlots = _indexProofValues(incoming);
+        for (uint256 i; i < len;) {
+            // Values come back sorted by key, not in request order, so match by key. request.keys[i]
+            // is leg i's slot, and the request is verified against its committed hash.
+            bytes calldata raw = _proofValueForKey(incoming, incoming.response.request.keys[i]);
+            uint256 filled = raw.length == 0 ? 0 : raw.toRlpItem().toUint();
+
+            // Refund only the unredeemed fraction; the complement is what pre-deadline fills will redeem.
+            uint256 escrowTotal = inputs[i].amount;
+            uint256 refund = escrowTotal - _cumulativeReleased(escrowTotal, filled, totalRequired[i]);
+            if (filled < totalRequired[i]) fullyFilled = false;
+            refunds[i] = TokenInfo({token: inputs[i].token, amount: refund});
+            unchecked {
+                ++i;
+            }
+        }
+        _clearProofValueIndex(proofSlots);
+
+        _withdraw(
+            Withdrawal({
+                commitment: commitment,
+                beneficiary: beneficiary,
+                tokens: refunds,
+                isRefund: true,
+                finalize: !fullyFilled
+            })
+        );
+    }
+
+    /**
+     * @dev Indexes the response's values by key in transient storage, so each leg finds its value
+     * in one lookup.
+     */
+    function _indexProofValues(IncomingGetResponse calldata incoming) internal returns (bytes32[] memory slots) {
+        uint256 n = incoming.response.values.length;
+        slots = new bytes32[](n);
+        for (uint256 j; j < n;) {
+            bytes32 slot = keccak256(incoming.response.values[j].key);
+            slots[j] = slot;
+            assembly ("memory-safe") {
+                if iszero(tload(slot)) { tstore(slot, add(j, 1)) }
+            }
+            unchecked {
+                ++j;
+            }
+        }
+    }
+
+    /**
+     * @dev The proven value for `key`. Responses sort values by key, not request order, so legs are
+     * matched by key.
+     */
+    function _proofValueForKey(IncomingGetResponse calldata incoming, bytes calldata key)
+        internal
+        view
+        returns (bytes calldata)
+    {
+        bytes32 slot = keccak256(key);
+        uint256 position;
+        assembly ("memory-safe") {
+            position := tload(slot)
+        }
+        if (position == 0) revert InvalidInput();
+        return incoming.response.values[position - 1].value;
+    }
+
+    /**
+     * @dev Clears the index from transient storage, so a later response
+     * in the same transaction cannot read it.
+     */
+    function _clearProofValueIndex(bytes32[] memory slots) internal {
+        uint256 n = slots.length;
+        for (uint256 j; j < n;) {
+            bytes32 slot = slots[j];
+            assembly ("memory-safe") {
+                tstore(slot, 0)
+            }
+            unchecked {
+                ++j;
+            }
+        }
     }
 }

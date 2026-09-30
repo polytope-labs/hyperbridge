@@ -15,27 +15,26 @@
 pragma solidity ^0.8.24;
 
 import {IntentsBase} from "./intentsv2/IntentsBase.sol";
-import {IntrinsicIntents} from "./intentsv2/IntrinsicIntents.sol";
-import {ExtrinsicIntents} from "./intentsv2/ExtrinsicIntents.sol";
+import {IntrinsicModule} from "./intentsv2/IntrinsicModule.sol";
+import {ExtrinsicModule} from "./intentsv2/ExtrinsicModule.sol";
 
+import {HyperApp} from "@hyperbridge/core/apps/HyperApp.sol";
+import {IncomingPostRequest, IncomingGetResponse} from "@hyperbridge/core/interfaces/IApp.sol";
 import {ICallDispatcher, Call} from "@hyperbridge/core/interfaces/ICallDispatcher.sol";
 import {IDispatcher} from "@hyperbridge/core/interfaces/IDispatcher.sol";
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
+import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
+import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
 import {
-    PaymentInfo,
     TokenInfo,
-    DispatchInfo,
     Order,
-    SweepDust,
     Params,
-    ParamsUpdate,
-    DestinationFee,
-    WithdrawalRequest,
+    InitParams,
     FillOptions,
     SelectOptions,
     CancelOptions,
@@ -46,139 +45,163 @@ import {
  * @title IntentGatewayV2
  * @author Polytope Labs (hello@polytope.technology)
  *
- * @dev The IntentGateway allows for the creation and fulfillment of same-chain & cross-chain orders.
- * This is the concrete entry-point contract that composes all intent logic via inheritance:
+ * @dev Creates and fills same-chain and cross-chain orders. This is the proxy implementation: it
+ * holds the entry points and shared fill steps, and delegatecalls route-specific logic to
+ * `IntrinsicModule` (same-chain) and `ExtrinsicModule` (cross-chain) to stay under EIP-170.
  *
- *            EIP712
- *              |
- *          IntentsBase
- *           /       \
- *  IntrinsicIntents  ExtrinsicIntents
- *           \       /
- *        IntentGatewayV2
+ * Governance upgrades the gateway and sets the relayer through `Execute`. The owner can only
+ * pause and unpause it.
  */
-contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardTransient, Initializable {
+contract IntentGatewayV2 is
+    IntentsBase,
+    HyperApp,
+    ReentrancyGuardTransient,
+    Initializable,
+    Ownable2StepUpgradeable,
+    PausableUpgradeable
+{
     using SafeERC20 for IERC20;
 
-    /// @dev Privileged admin for future upgrade-gated actions (e.g. pausing). Immutable, so it must
-    /// be identical across chains or the deterministic proxy address diverges. Does not gate
-    /// `initialize`; atomic CREATE2 deployment already binds the init data to the canonical address.
-    address public immutable _owner;
+    /// @dev Same-chain fills and cancels.
+    address public immutable intrinsicModule;
 
-    /// @dev Sets the EIP-712 domain ("IntentGateway", "2"), records the admin, and locks this raw
-    /// implementation against direct initialization.
-    /// @param owner The privileged admin address.
-    constructor(address owner) EIP712("IntentGateway", "2") {
-        _owner = owner;
+    /// @dev Cross-chain fills, cancels and escrow settlement.
+    address public immutable extrinsicModule;
+
+    /// @dev The `Initializable` version this implementation lands a proxy on, through `initialize`
+    /// or `migrate`. 3 is the module split, the owner and solver quotes, which land together.
+    uint64 private constant VERSION = 3;
+
+    /**
+     * @dev Records the modules and locks this implementation against initialization. Modules must
+     * have code: a delegatecall to an empty address succeeds and does nothing.
+     */
+    constructor(address intrinsic, address extrinsic) EIP712("IntentGateway", "2") {
+        if (intrinsic.code.length == 0 || extrinsic.code.length == 0) revert InvalidInput();
+        intrinsicModule = intrinsic;
+        extrinsicModule = extrinsic;
         _disableInitializers();
     }
 
     /**
-     * @dev Allows the contract to receive native tokens (ETH/DOT/etc).
-     * Required for escrow deposits with native tokens and for receiving
-     * swept balances from the CallDispatcher.
+     * @dev Accepts native tokens, e.g. balances swept back from the CallDispatcher.
      */
     receive() external payable {}
 
     /**
-     * @dev Returns the Hyperbridge host contract address. Overrides both IntentsBase
-     * and ExtrinsicIntents to resolve the diamond inheritance conflict at the
-     * final concrete contract level.
-     * @return The host contract address from stored params.
+     * @dev The Hyperbridge host.
      */
-    function host() public view override(IntentsBase, ExtrinsicIntents) returns (address) {
+    function host() public view override(IntentsBase, HyperApp) returns (address) {
         return _params.host;
     }
 
     /**
-     * @dev One-time init (the `initializer` modifier caps it to a single call). Registers the
-     * initial cross-chain peers, each bound to `address(this)`; `_instance` reverts with
-     * `UnknownInstance` for any chain not registered here or later via `onAccept` governance.
-     *
-     * @param p The initial gateway configuration parameters.
-     * @param peerChains State-machine ids of the cross-chain peers to register. Each is bound to
-     * this gateway's own address, identical across chains under deterministic CREATE2, so no peer
-     * address is carried in the proxy's init data.
+     * @dev The initialized version: 0 on a bare proxy, `VERSION` once `initialize` or `migrate` has
+     * run.
      */
-    function initialize(Params memory p, bytes[] memory peerChains) public initializer {
-        uint256 peersLength = peerChains.length;
-        for (uint256 i = 0; i < peersLength; i++) {
-            Deployment memory deployment = Deployment({chain: peerChains[i], gateway: address(this)});
-            _addDeployment(deployment);
-        }
-        _validateParams(p);
-        _params = p;
+    function version() external view returns (uint64) {
+        return _getInitializedVersion();
     }
 
     /**
-     * @dev Returns the current gateway configuration parameters.
-     * @return The full Params struct containing host, dispatcher, fee settings, etc.
+     * @dev The gateway's configuration.
      */
     function params() external view returns (Params memory) {
         return _params;
     }
 
     /**
-     * @dev Returns the registered gateway address for a given state machine.
-     * Reverts with `UnknownInstance` if no remote deployment is registered.
-     * @param stateMachineId The raw state machine identifier bytes.
-     * @return The gateway address for the given state machine.
+     * @dev The gateway registered for `stateMachineId`. Reverts `UnknownInstance` if there is none.
      */
     function instance(bytes calldata stateMachineId) public view returns (address) {
         return _instance(stateMachineId);
     }
 
     /**
-     * @dev Computes the storage slot hash used for cross-chain cancel verification.
-     * External callers (e.g., relayers) can use this to construct storage proof keys.
-     * @param commitment The order commitment hash.
-     * @return The ABI-encoded storage slot hash for the commitment in the `_filled` mapping.
+     * @dev Refuses an initialized proxy. Only the host-only `migrate` advances one.
      */
-    function calculateCommitmentSlotHash(bytes32 commitment) public pure returns (bytes memory) {
-        return _calculateCommitmentSlotHash(commitment);
+    modifier onlyFresh() {
+        if (_getInitializedVersion() != 0) revert InvalidInitialization();
+        _;
     }
 
     /**
-     * @dev Places a new intent order by escrowing the user's input tokens.
-     *
-     * The caller specifies the desired output tokens and destination chain. The function:
-     * 1. Stamps the order with the caller's address, source chain, and a unique nonce.
-     * 2. Deducts a protocol fee (in basis points) from each input amount. The commitment
-     *    hash is computed over the fee-reduced inputs so solvers only need to match
-     *    the post-fee amounts.
-     * 3. If the order includes predispatch calldata, executes it via the CallDispatcher
-     *    (e.g., unwrapping LP tokens) before escrowing the resulting balances.
-     * 4. Otherwise, transfers input tokens directly from the caller into escrow.
-     * 5. If the order includes solver fees, collects them in the protocol
-     *    fee token — swapping from native token via Uniswap V2 if necessary.
-     *
-     * @param order The order struct. `user`, `source`, and `nonce` are overwritten by this function.
-     * @param graffiti Attribution tag emitted in the OrderPlaced event for off-chain indexers.
+     * @dev Initializes a bare proxy with its peers, params, relayer and owner.
      */
-    function placeOrder(Order memory order, bytes32 graffiti) public payable nonReentrant {
-        if (order.inputs.length == 0) revert InvalidInput();
-
-        // Reject duplicate output tokens
-        uint256 outputsLen_ = order.output.assets.length;
-        for (uint256 i; i < outputsLen_;) {
-            bytes32 token = order.output.assets[i].token;
-            assembly ("memory-safe") {
-                if tload(token) {
-                    mstore(0, 0xb4fa3fb3) // InvalidInput.selector
-                    revert(0x1c, 0x04)
-                }
-                tstore(token, 1)
-            }
-            unchecked {
-                ++i;
-            }
+    function initialize(InitParams memory init) public onlyFresh reinitializer(VERSION) {
+        uint256 peersLength = init.peerChains.length;
+        for (uint256 i = 0; i < peersLength; i++) {
+            Deployment memory deployment = Deployment({chain: init.peerChains[i], gateway: address(this)});
+            _addDeployment(deployment);
         }
-        // Clean up transient storage so repeated placeOrder calls in the same tx don't false-positive.
-        for (uint256 i; i < outputsLen_;) {
-            bytes32 token = order.output.assets[i].token;
-            assembly ("memory-safe") {
-                tstore(token, 0)
-            }
+        _validateParams(init.params);
+        _params = init.params;
+        _setRelayer(init.relayer);
+        __Ownable_init(init.owner);
+        __Ownable2Step_init();
+        __Pausable_init();
+    }
+
+    /**
+     * @dev Takes a version-2 proxy to `VERSION`, as the init data of its upgrade. Moves `_relayer`
+     * from slot 13 offset 1 to offset 0, dropping the removed `_paused` byte, and sets the owner.
+     */
+    function migrate(address owner_) external onlyHost reinitializer(VERSION) {
+        assembly ("memory-safe") {
+            sstore(_relayer.slot, shr(8, sload(_relayer.slot)))
+        }
+        __Ownable_init(owner_);
+        __Ownable2Step_init();
+        __Pausable_init();
+    }
+
+    /**
+     * @dev Also accepts the host, so governance can pause, resume or replace the owner through
+     * `Execute`.
+     */
+    function _checkOwner() internal view override {
+        address sender = _msgSender();
+        if (sender != owner() && sender != host()) revert OwnableUnauthorizedAccount(sender);
+    }
+
+    /**
+     * @dev Pauses placement, fills and escrow deliveries. Cancels and governance still work.
+     */
+    function pause() external onlyOwner {
+        _pause();
+    }
+
+    /**
+     * @dev Resumes the gateway.
+     */
+    function unpause() external onlyOwner {
+        _unpause();
+    }
+
+    /**
+     * @dev Escrows the caller's inputs and places the order. Leg `i` sells `order.inputs[i]` for
+     * `order.output.assets[i]`, and every leg trades the same pair.
+     *
+     * The protocol fee comes out of each input before the commitment is computed.
+     * @param order The order. `user`, `source` and `nonce` are overwritten.
+     * @param graffiti Attribution tag emitted in `OrderPlaced`.
+     */
+    function placeOrder(Order memory order, bytes32 graffiti) public payable whenNotPaused nonReentrant {
+        uint256 inputsLen = order.inputs.length;
+        // Inputs and outputs pair 1:1 by index; a leg without its counterpart could never be filled.
+        if (inputsLen == 0 || order.output.assets.length != inputsLen) revert InvalidInput();
+
+        // A token is the address in its low 20 bytes; anything above would let the output sweep in
+        // `_execute` read one token as two. Checked on leg 0, which every other leg must then match.
+        bytes32 inputToken = order.inputs[0].token;
+        bytes32 outputToken = order.output.assets[0].token;
+        if (uint256(inputToken) >> 160 != 0 || uint256(outputToken) >> 160 != 0) revert InvalidInput();
+
+        for (uint256 i; i < inputsLen;) {
+            if (order.inputs[i].token != inputToken) revert InvalidInput();
+            if (order.output.assets[i].token != outputToken) revert InvalidInput();
+            // A zero-amount output would strand its leg's escrow.
+            if (order.output.assets[i].amount == 0) revert InvalidInput();
             unchecked {
                 ++i;
             }
@@ -189,8 +212,6 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardT
         order.source = IDispatcher(hostAddr).host();
         order.nonce = _nonce++;
 
-        uint256 inputsLen = order.inputs.length;
-
         // Phase 1: Transfer tokens and record actual received amounts.
         // For fee-on-transfer tokens, the gateway receives less than the requested amount.
         // We mutate order.inputs to reflect actual received so the commitment and escrow
@@ -198,6 +219,8 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardT
         uint256 msgValue = msg.value;
         if (order.predispatch.call.length > 0 && order.predispatch.assets.length > 0) {
             address dispatcher = _params.dispatcher;
+            // The sweep below measures one balance per input token, so it needs a leg to itself.
+            if (inputsLen != 1) revert InvalidInput();
 
             uint256 assetsLen = order.predispatch.assets.length;
             for (uint256 i; i < assetsLen;) {
@@ -209,8 +232,7 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardT
                     if (amount > msgValue) revert InsufficientNativeToken();
                     msgValue -= amount;
 
-                    (bool sent,) = dispatcher.call{value: amount}("");
-                    if (!sent) revert InsufficientNativeToken();
+                    _sendValue(dispatcher, amount);
                 } else {
                     IERC20(token).safeTransferFrom(msg.sender, dispatcher, amount);
                 }
@@ -300,7 +322,7 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardT
             protocolFeeBps = _params.protocolFeeBps;
         }
         TokenInfo[] memory reducedInputs;
-        bytes32 commitment;
+        uint256[] memory protocolFees = new uint256[](inputsLen);
 
         if (protocolFeeBps > 0) {
             reducedInputs = new TokenInfo[](inputsLen);
@@ -309,9 +331,7 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardT
                 if (originalAmount == 0) revert InvalidInput();
                 uint256 protocolFee = (originalAmount * protocolFeeBps) / 10_000;
                 uint256 reducedAmount = originalAmount - protocolFee;
-                address token = address(uint160(uint256(order.inputs[i].token)));
-
-                if (protocolFee > 0) emit DustCollected(token, protocolFee);
+                protocolFees[i] = protocolFee;
 
                 reducedInputs[i] = TokenInfo({token: order.inputs[i].token, amount: reducedAmount});
                 unchecked {
@@ -320,18 +340,18 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardT
             }
 
             order.inputs = reducedInputs;
-            commitment = keccak256(abi.encode(order));
         } else {
             reducedInputs = order.inputs;
-            commitment = keccak256(abi.encode(order));
         }
+        bytes32 commitment = keccak256(abi.encode(order));
 
-        // Phase 3: Credit escrow.
+        // Phase 3: Credit escrow, per leg.
         for (uint256 i; i < inputsLen;) {
-            address token = address(uint160(uint256(order.inputs[i].token)));
-            // Reject duplicate input tokens
-            if (_orders[commitment][token] != 0) revert InvalidInput();
-            _orders[commitment][token] = reducedInputs[i].amount;
+            _orders[commitment][i] = reducedInputs[i].amount;
+            uint256 fee = protocolFees[i];
+            if (fee > 0) {
+                _protocolFees[commitment][i] = ProtocolFee({amount: fee, committed: reducedInputs[i].amount});
+            }
 
             unchecked {
                 ++i;
@@ -345,7 +365,7 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardT
                 address WETH = IUniswapV2Router02(uniswapV2).WETH();
                 address[] memory path = new address[](2);
                 path[0] = WETH;
-                path[1] = IDispatcher(hostAddr).feeToken();
+                path[1] = feeToken;
                 uint256[] memory amounts = IUniswapV2Router02(uniswapV2).swapETHForExactTokens{value: msgValue}(
                     order.fees, path, address(this), block.timestamp
                 );
@@ -359,8 +379,7 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardT
 
         // Refund any unspent native tokens to the user.
         if (msgValue > 0) {
-            (bool sent,) = msg.sender.call{value: msgValue}("");
-            if (!sent) revert InsufficientNativeToken();
+            _sendValue(msg.sender, msgValue);
         }
 
         emit OrderPlaced({
@@ -382,38 +401,20 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardT
     }
 
     /**
-     * @dev Verifies and stores a solver selection for a given order commitment. Must be
-     * called in the same transaction as `fillOrder` when solver selection is enabled.
-     * Uses transient storage to atomically bind the solver to the commitment.
-     * @param options The selection options containing commitment, solver address, and EIP-712 signature.
-     * @return The recovered session key address from the signature.
+     * @dev Records a solver selection signed by the order's session key, for `fillOrder` in the
+     * same transaction. Returns the session key. Reverts `Filled` on a finalized order.
      */
     function select(SelectOptions calldata options) public returns (address) {
         return _select(options);
     }
 
     /**
-     * @dev Fills an existing order by providing the requested output tokens. Routes to
-     * either same-chain or cross-chain fill logic based on the order's source and
-     * destination chains.
-     *
-     * Shared validation performed before routing:
-     * 1. Checks the order has not expired (deadline >= current block).
-     * 2. Verifies the order has not already been filled.
-     * 3. If solver selection is enabled, validates the caller matches the selected
-     *    solver stored in transient storage (set by a prior `select` call).
-     * 4. Validates input/output array length consistency.
-     *
-     * @param order The order to fill. Must match the exact order that was placed.
-     * @param options Fill options including output token amounts and fee parameters.
+     * @dev Fills an order. The route's module pays the legs and settles the released escrow; the
+     * rest of the fill happens here, the same for both routes.
      */
-    function fillOrder(Order calldata order, FillOptions calldata options) public payable nonReentrant {
+    function fillOrder(Order calldata order, FillOptions calldata options) public payable whenNotPaused nonReentrant {
         uint256 blockNumber = _blockNumber();
         if (order.deadline < blockNumber) revert Expired();
-        // The solver's own bound on how long its quoted price stands. Zero means unbounded,
-        // which is the right default for a solver filling directly — it is only at risk from
-        // its own staleness. It matters for a bid signed through the coprocessor, where the
-        // order placer chooses the moment of execution and nothing else caps the wait.
         if (options.validUntil != 0 && blockNumber > options.validUntil) revert FillExpired();
         bytes32 commitment = keccak256(abi.encode(order));
 
@@ -429,45 +430,44 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardT
         if (_filled[commitment] != address(0)) revert Filled();
 
         if (_params.solverSelection) {
+            // The caller's own selection slot, so a second selection on this order in the same
+            // bundle cannot clobber it. See `_select`.
+            bytes32 selectionSlot = keccak256(abi.encode(commitment, msg.sender));
             bytes32 storedSelectionHash;
             assembly {
-                storedSelectionHash := tload(commitment)
+                storedSelectionHash := tload(selectionSlot)
             }
 
-            bytes32 expectedSelectionHash = keccak256(abi.encode(msg.sender, order.session));
+            bytes32 expectedSelectionHash = keccak256(abi.encode(order.session));
             if (storedSelectionHash != expectedSelectionHash) revert Unauthorized();
         }
 
         uint256 outputsLen = order.output.assets.length;
         if (options.outputs.length != outputsLen) revert InvalidInput();
         if (order.inputs.length != outputsLen) revert InvalidInput();
+        if (options.inputs.length != outputsLen) revert InvalidInput();
 
-        if (isSameChain) {
-            _fillSameChain(order, options, commitment);
+        // Claimed for the whole fill; released below if the order stays open.
+        _filled[commitment] = msg.sender;
+        bytes memory returned = isSameChain
+            ? _delegate(intrinsicModule, abi.encodeCall(IntrinsicModule.fillOrder, (order, options, commitment)))
+            : _delegate(extrinsicModule, abi.encodeCall(ExtrinsicModule.fillOrder, (order, options, commitment)));
+        FillResult memory result = abi.decode(returned, (FillResult));
+
+        if (result.fullyFilled) {
+            _execute(order);
+            emit OrderFilled(commitment, msg.sender, result.creditedOutputs, result.releasedInputs);
         } else {
-            _fillCrossChain(order, options, commitment);
+            delete _filled[commitment];
+            emit PartialFill(commitment, msg.sender, result.creditedOutputs, result.releasedInputs);
         }
+
+        if (result.nativeRemaining > 0) _sendValue(msg.sender, result.nativeRemaining);
     }
 
     /**
-     * @dev Cancels an existing order and initiates the refund of escrowed tokens.
-     * Routes to the appropriate cancellation logic based on the order type and
-     * the current chain:
-     *
-     * - Same-chain orders: Refunds escrow directly on this chain.
-     * - Cross-chain, called from source: Dispatches a Hyperbridge GET request to
-     *   verify the order was not filled on the destination chain.
-     * - Cross-chain, called from destination: Marks the order as filled (preventing
-     *   future fills) and dispatches a RefundEscrow message to the source chain.
-     *
-     * Reverts if the order has already been filled or if called from the wrong chain.
-     *
-     * Emits `OrderCancelled` on whichever chain the cancellation is initiated from. `EscrowRefunded`
-     * remains the terminal event: same transaction for a same-chain cancel, on the source chain
-     * after a Hyperbridge round trip for a cross-chain one.
-     *
-     * @param order The order to cancel. Must match the exact order that was placed.
-     * @param options Cancel options including proof height and relayer fee for cross-chain cancels.
+     * @dev Cancels an order. A same-chain order is refunded here, a cross-chain one on its source
+     * chain after a Hyperbridge round trip. Only the creator may cancel before the deadline.
      */
     function cancelOrder(Order calldata order, CancelOptions calldata options) public payable nonReentrant {
         bytes32 commitment = keccak256(abi.encode(order));
@@ -480,26 +480,51 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardT
         bytes32 orderDest = keccak256(order.destination);
         bool isSameChain = orderSource == orderDest;
 
-        // Emitted here, once, rather than from each of the three routes below. Every check those
-        // routes make — Unauthorized, NotExpired, UnknownOrder — reverts, and a revert discards
-        // logs, so an early emit can never announce a cancellation that did not happen. Emitting
-        // before the branch also keeps `EscrowRefunded` the last log on the same-chain route, where
-        // the refund is processed in this same transaction. Three emit sites cost bytecode this
-        // contract does not have: it sits within ~100 bytes of the EIP-170 limit.
+        // Safe to emit early: a failed route reverts and discards the log.
         emit OrderCancelled({commitment: commitment, canceller: msg.sender});
 
         if (isSameChain) {
-            // Checked here rather than inside `_cancelSameChain`, which used to re-read `host()`,
-            // re-query the host's state machine id and re-hash `order.source` to reach the same
-            // answer this function already has. Same check, one external call fewer.
+            // Checked here, where the chain ids are already known, rather than in the module.
             if (currentChain != orderSource) revert WrongChain();
-            _cancelSameChain(order, commitment);
+            _delegate(intrinsicModule, abi.encodeCall(IntrinsicModule.cancelSameChain, (order, commitment)));
         } else if (currentChain == orderSource) {
-            _cancelFromSource(order, options, commitment);
+            _delegate(extrinsicModule, abi.encodeCall(ExtrinsicModule.cancelFromSource, (order, options, commitment)));
         } else if (currentChain == orderDest) {
-            _cancelFromDest(order, options, commitment);
+            _delegate(extrinsicModule, abi.encodeCall(ExtrinsicModule.cancelFromDest, (order, options, commitment)));
         } else {
             revert WrongChain();
+        }
+    }
+
+    /**
+     * @dev Forwards to the extrinsic module. While paused, only governance requests are accepted.
+     */
+    function onAccept(IncomingPostRequest calldata incoming) external override onlyHost {
+        bool isGovernance = keccak256(incoming.request.source) == keccak256(IDispatcher(host()).hyperbridge());
+        if (paused() && !isGovernance) revert EnforcedPause();
+        _delegate(extrinsicModule, msg.data);
+    }
+
+    /**
+     * @dev Forwards to the extrinsic module. Reverts while paused.
+     */
+    function onGetResponse(IncomingGetResponse calldata) external override onlyHost whenNotPaused {
+        _delegate(extrinsicModule, msg.data);
+    }
+
+    /**
+     * @dev Delegatecalls `module` and returns its return data. Reverts are re-raised byte for byte,
+     * so custom error selectors survive.
+     */
+    function _delegate(address module, bytes memory data) internal returns (bytes memory returned) {
+        assembly ("memory-safe") {
+            let ok := delegatecall(gas(), module, add(data, 0x20), mload(data), 0, 0)
+            let size := returndatasize()
+            returned := mload(0x40)
+            returndatacopy(add(returned, 0x20), 0, size)
+            if iszero(ok) { revert(add(returned, 0x20), size) }
+            mstore(returned, size)
+            mstore(0x40, add(add(returned, 0x20), and(add(size, 0x1f), not(0x1f))))
         }
     }
 }

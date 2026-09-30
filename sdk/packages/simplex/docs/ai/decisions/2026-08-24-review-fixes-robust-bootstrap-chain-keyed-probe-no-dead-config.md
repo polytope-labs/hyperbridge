@@ -1,0 +1,9 @@
+# 2026-08-24 — Review fixes: robust bootstrap, chain-keyed probe, no dead config (#1147 review)
+
+Seun's high-effort review surfaced several correctness gaps, resolved here:
+
+- **Batched delegation fails open, not closed.** Folding `approve(Permit2, max)` into the native delegation coupled the delegation's success to the approve's. Now the batched tx is attempted, and on any revert the delegation retries as a plain self-call (approval defers to the first sponsored op). Otherwise a token that rejects the approve — USDT's non-zero→non-zero rule, a blacklist, insufficient batched gas — would have blocked delegation permanently, since the resolver recomputes the same approval each attempt.
+- **Zero-first approve.** `sendFundedApprove` now resets a stale non-zero allowance to zero before approving max, so Ethereum USDT (which rejects a non-zero→non-zero change) can be bootstrapped even when a leftover Permit2 allowance from another integration exists.
+- **PERMIT2() probe: narrowed catch + chain-keyed cache.** Only a genuine contract revert marks a deployment as lacking PERMIT2 mode; a transport error (429/timeout) now propagates rather than being cached as "unsupported" (which would have dropped a migrated solver back to a native-funded standing paymaster allowance). The support cache is keyed by `${chainId}:${address}` so a CREATE2 redeploy sharing an address across chains can't have the first-upgraded chain mark it supported everywhere.
+- **Dropped `permit2DeadlineSeconds`.** It was threaded through the builder but no production caller could set it, and the "overridable per call" doc claim had no runtime path. Removed the field; the fixed 1-hour deadline applies everywhere.
+- **`_prefund` uses `prefunder_`.** The mode-0x02 branch now reads the base's `prefunder_` parameter instead of re-reading `userOp.sender`, keeping it aligned with the mode-0/1 branch that forwards it to `super._prefund`.

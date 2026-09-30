@@ -39,7 +39,7 @@ contract EvmHostTest is BaseTest {
         HostParams memory params = host.hostParams();
         params.hostManager = address(mainnetManager);
         mainnetHost = new MainnetTestHost(params);
-        mainnetManager.setIsmpHost(address(mainnetHost));
+        mainnetManager.init(address(mainnetHost));
     }
 
     // on TestnetHost the admin can set consensus state as many times as they want

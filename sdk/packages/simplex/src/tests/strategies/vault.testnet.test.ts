@@ -11,7 +11,6 @@ import {
 import { createSigner, SignerType } from "@/services/wallet"
 import { FXFiller, type TradingPair } from "@/strategies/fx"
 import { AssetRegistry } from "@/config/asset-registry"
-import { Decimal } from "decimal.js"
 import { VaultFundingPlanner } from "@/funding/vault/VaultFundingPlanner"
 import { ERC4626_ABI } from "@/config/abis/Erc4626"
 import {
@@ -28,7 +27,7 @@ import {
 	DEFAULT_GRAFFITI,
 } from "@hyperbridge/sdk"
 import { describe, it, expect } from "vitest"
-import { ConfirmationPolicy, FillerPricePolicy } from "@/config/interpolated-curve"
+import { ConfirmationPolicy } from "@/config/interpolated-curve"
 import {
 	formatUnits,
 	getContract,
@@ -51,8 +50,6 @@ function sameTokenPairs(maxOrderSize: number): TradingPair[] {
 	return ["USDC", "USDT"].map((symbol) => ({
 		token0: symbol,
 		token1: symbol,
-		maxOrderSize: new Decimal(maxOrderSize),
-		askPricePolicy: new FillerPricePolicy({ points: [{ amount: "0", price: "0.995" }] }),
 	}))
 }
 

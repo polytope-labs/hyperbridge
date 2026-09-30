@@ -16,6 +16,9 @@ package-lock.json
 
 packages/indexer/configs/*.yaml
 packages/indexer/src/configs/*.yaml
+# generate-compose.ts writes one service file per chain under docker/<env>/; the hand-written
+# docker-compose.<env>.yml files next to them are the committed ones.
+packages/indexer/docker/*/
 packages/indexer/configs/src/types*
 packages/indexer/src/configs/src/types*
 packages/indexer/docker/testnet/

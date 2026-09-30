@@ -71,3 +71,34 @@ describe("ChainScanner stop() during a publish burst", () => {
 		await scanner.stop()
 	})
 })
+
+describe("ChainScanner fill completeness", () => {
+	const TARGET = { chain: "EVM-1", chainId: 1, gateway: "0xAA" as const, rpcUrls: ["https://x.example"] }
+
+	it("marks OrderFilled complete and PartialFill not", async () => {
+		const scanner = new ChainScanner(TARGET)
+		let head = 99n
+		// biome-ignore lint/suspicious/noExplicitAny: replacing the private client with a stub
+		;(scanner as any).quorumClient = {
+			getBlockNumber: async () => head,
+			getLogs: async () => [
+				{ eventName: "PartialFill", args: { commitment: `0x${"01".repeat(32)}`, filler: "0xF" }, blockNumber: 100n, blockHash: "0xb", logIndex: 0 },
+				{ eventName: "OrderFilled", args: { commitment: `0x${"02".repeat(32)}`, filler: "0xF" }, blockNumber: 100n, blockHash: "0xb", logIndex: 1 },
+			],
+		}
+		const seen: { commitment: string; complete?: boolean }[] = []
+		scanner.onFill((event) => seen.push({ commitment: event.commitment, complete: event.complete }))
+
+		// biome-ignore lint/suspicious/noExplicitAny: driving the private loop directly
+		await (scanner as any).scan()
+		head = 100n
+		// biome-ignore lint/suspicious/noExplicitAny: driving the private loop directly
+		await (scanner as any).scan()
+
+		expect(seen).toEqual([
+			{ commitment: `0x${"01".repeat(32)}`, complete: false },
+			{ commitment: `0x${"02".repeat(32)}`, complete: true },
+		])
+		await scanner.stop()
+	})
+})

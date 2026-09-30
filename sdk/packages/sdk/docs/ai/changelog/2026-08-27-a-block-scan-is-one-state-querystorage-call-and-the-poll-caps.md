@@ -1,0 +1,11 @@
+# 2026-08-27 — A block scan is one `state_queryStorage` call, and the poll caps at 10 blocks
+
+The previous entry left the scan at one request per block for events. `state_queryStorage(keys, from, to)` reads a key across a whole block range in one call, so the scan's request cost no longer depends on how many blocks it covers: a tick is now four requests flat — head, runtime version, the range's two bounding block hashes as one batched request, and the ranged read. `maxBlocksPerPoll` drops from 20 to 10 at the same time, because the cost moved rather than vanished (`sc-rpc` warns the method is `O(|keys| * dist(from, to))` in time and memory) and because it still bounds the per-block fallback.
+
+`getPhantomOrdersInRange` is the new read; the event decoding it shares with `getPhantomOrdersAtHash` moved into a `phantomOrdersFrom` helper. polkadot-js formats a `Vec<StorageChangeSet>` reply into `[blockHash, valuesPerKey]` pairs with each value already typed from the storage key's metadata, so nothing is decoded by hand.
+
+Two properties of the RPC drive the rest of the change. It answers with **diffs** — `query_storage_unfiltered` drops a block's change set when the value matches the previous block's — so a quiet chain's consecutive blocks come back as one entry. That is safe because a `PhantomOrderRegistered` commitment is derived from the block number, so a block that registered orders can never encode identically to another; absent provably means no orders. And it is **gated by `--rpc-methods`**, answered as `Method not found` when denied. The node here already runs unsafe RPC to serve `offchain_localStorageGet`, so it is normally available; a refusal switches the poll to the per-block path permanently and is handled rather than reported.
+
+`scanRangeAtOnce` also declines the ranged read when the tick has no confirmed runtime version, or when that version is no longer the one the api's registry was built for — `state_queryStorage` declares no historic block hash, so rpc-core decodes its reply against the connect-time registry, which an upgrade leaves stale. After an upgrade the poll stays on the per-block path, which resolves the right registry, until the process restarts.
+
+Files: `src/chains/intentsCoprocessor.ts`, `src/tests/pollPhantomOrders.test.ts`, `docs/ai/ChangeLog.md`, `docs/ai/Decisions.md`, `docs/ai/Flow.md`.

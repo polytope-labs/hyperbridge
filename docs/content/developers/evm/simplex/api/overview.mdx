@@ -1,0 +1,184 @@
+---
+title: Overview
+description: The HTTP API behind the Simplex dashboard, the rules every call follows, and an index of every route.
+---
+
+# Simplex API
+
+Everything the [dashboard](/developers/evm/simplex/dashboard) does goes through an HTTP API on the solver. You can call it directly from a script, a cron job, or your own tooling. It takes and returns JSON, and it is served on the same address as the dashboard.
+
+<Callout type="warn">
+    The API has no authentication. Anyone who can reach it can do everything the dashboard can,
+    including sending tokens out of the wallet. Keep it on loopback or a private Unix socket. To reach
+    it from another machine, use SSH or the remote access tunnel, as the
+    [dashboard page](/developers/evm/simplex/dashboard) describes.
+</Callout>
+
+## Base URL
+
+The API listens where the dashboard does, which is `127.0.0.1:8686` by default. `--ui` moves it, `--ui-socket` serves it on a Unix socket instead, and `--no-ui` turns it off. See [Command-line flags](/developers/evm/simplex/dashboard#command-line-flags).
+
+The examples in this section keep the base URL in a shell variable:
+
+```bash lineNumbers
+SIMPLEX=http://127.0.0.1:8686
+curl -s $SIMPLEX/api/status
+```
+
+On a Unix socket, pass the socket to curl. The host in the URL is not checked there, so `localhost` is fine:
+
+```bash lineNumbers
+curl -s --unix-socket "$HOME/.simplex-runtime/ui.sock" http://localhost/api/status
+```
+
+## Rules for every call
+
+- A request with any method other than `GET` or `HEAD` must carry the header `X-Simplex-UI: 1`. Without it, the server answers `403`. A web page in your browser cannot add this header to a cross-origin request, so it cannot call the API behind your back.
+- Over TCP, the `Host` header must be an IP address or `localhost`. When the API is bound to loopback, it must be a loopback address. A DNS name is refused with `403`, which blocks DNS rebinding. curl sends an acceptable `Host` when the URL uses the IP address.
+- Request bodies are JSON, up to 1 MiB.
+- Responses are JSON and are never cached, except for the three [streams](#streams).
+- Errors are JSON in the form `{ "error": "..." }`. The message says what went wrong.
+
+## Setup mode and operator mode
+
+The server runs in one of two modes. When `simplex run` finds no config, it opens the [setup wizard](/developers/evm/simplex/api/setup), and the server is in setup mode. When the wizard starts the filler, the server switches to operator mode on the same address. With a config, it starts in operator mode.
+
+In setup mode, only `/health`, `/api/status`, `/api/stop` and the setup routes answer. Every other route answers `409` with `Filler is not running`.
+
+In operator mode, the setup routes answer `410`. The exceptions are the four [validation probes](/developers/evm/simplex/api/setup#validation-probes), which the dashboard's forms still use.
+
+[`GET /api/status`](/developers/evm/simplex/api/status#get-apistatus) and [`GET /health`](/developers/evm/simplex/api/status#get-health) report the mode. They call setup mode `init`.
+
+## Status codes
+
+| Code | Meaning |
+|---|---|
+| `200` | Done. |
+| `201` | A device was paired for remote access. |
+| `202` | Accepted and still in progress: a stop, or the wizard starting the filler. |
+| `400` | The request was refused. The message says why. |
+| `403` | The `X-Simplex-UI` header is missing, the `Host` header is not allowed, or remote access was changed through the tunnel. |
+| `404` | No such route, order or device. |
+| `405` | The route exists, but not with this method. |
+| `409` | The filler is not running, or a feature the route needs is not configured. |
+| `410` | A setup route was called after setup finished. |
+| `500` | The action failed on the solver, for example a vault transaction that reverted. |
+| `502` | The orderbook, or a push notification service, could not be reached. |
+| `503` | Notifications are temporarily unavailable. |
+
+## Streams
+
+Three routes stream [Server-Sent Events](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events) instead of returning JSON once: [`/api/events`](/developers/evm/simplex/api/activity#get-apievents), [`/api/logs/stream`](/developers/evm/simplex/api/logs#get-apilogsstream) and [`/api/notifications/stream`](/developers/evm/simplex/api/notifications#get-apinotificationsstream). Each event is a `data:` line holding one JSON object.
+
+Read one with `curl -N`, which prints events as they arrive:
+
+```bash lineNumbers
+curl -sN $SIMPLEX/api/events
+```
+
+`/api/events` and `/api/notifications/stream` send a `:keepalive` comment every 25 seconds, so a quiet stream is not mistaken for a dead one.
+
+## Routes
+
+### [Limit orders](/developers/evm/simplex/api/limit-orders)
+
+| Method | Route | What it does |
+|---|---|---|
+| `GET` | [`/api/orderbook/books`](/developers/evm/simplex/api/limit-orders#get-apiorderbookbooks) | The books, minimum sizes and tokens the orderbook serves |
+| `POST` | [`/api/limit-orders`](/developers/evm/simplex/api/limit-orders#post-apilimit-orders) | Create a limit order and post it to the orderbook |
+| `GET` | [`/api/limit-orders`](/developers/evm/simplex/api/limit-orders#get-apilimit-orders) | List limit orders |
+| `GET` | [`/api/limit-orders/:id`](/developers/evm/simplex/api/limit-orders#get-apilimit-ordersid) | One order, with its fills and pending bids |
+| `DELETE` | [`/api/limit-orders/:id`](/developers/evm/simplex/api/limit-orders#delete-apilimit-ordersid) | Cancel an order |
+
+### [Status and control](/developers/evm/simplex/api/status)
+
+| Method | Route | What it does |
+|---|---|---|
+| `GET` | [`/health`](/developers/evm/simplex/api/status#get-health) | Whether the server is up, and in which mode |
+| `GET` | [`/api/status`](/developers/evm/simplex/api/status#get-apistatus) | Version, uptime, pause state and work in progress |
+| `POST` | [`/api/pause`](/developers/evm/simplex/api/status#post-apipause) | Stop taking new orders |
+| `POST` | [`/api/resume`](/developers/evm/simplex/api/status#post-apiresume) | Start taking new orders again |
+| `POST` | [`/api/stop`](/developers/evm/simplex/api/status#post-apistop) | Drain in-flight fills and exit |
+| `POST` | [`/api/reset-halt`](/developers/evm/simplex/api/status#post-apireset-halt) | Does nothing in current versions |
+
+### [Activity](/developers/evm/simplex/api/activity)
+
+| Method | Route | What it does |
+|---|---|---|
+| `GET` | [`/api/activity/history`](/developers/evm/simplex/api/activity#get-apiactivityhistory) | Orders page by page, with their events and bids |
+| `GET` | [`/api/activity/orders`](/developers/evm/simplex/api/activity#get-apiactivityorders) | The raw activity feed |
+| `GET` | [`/api/activity/bids`](/developers/evm/simplex/api/activity#get-apiactivitybids) | Recent bids, and totals across all bids |
+| `GET` | [`/api/events`](/developers/evm/simplex/api/activity#get-apievents) | A stream of activity as it happens |
+
+### [Wallet and treasury](/developers/evm/simplex/api/wallet)
+
+| Method | Route | What it does |
+|---|---|---|
+| `GET` | [`/api/balances`](/developers/evm/simplex/api/wallet#get-apibalances) | Balances per chain and token, vault positions included |
+| `GET` | [`/api/wallet/history`](/developers/evm/simplex/api/wallet#get-apiwallethistory) | Sends, vault deposits and withdrawals, and fills |
+| `POST` | [`/api/send`](/developers/evm/simplex/api/wallet#post-apisend) | Send tokens out of the wallet |
+| `PUT` | [`/api/vault`](/developers/evm/simplex/api/wallet#put-apivault) | Replace the vault treasury |
+| `POST` | [`/api/vault/sweep`](/developers/evm/simplex/api/wallet#post-apivaultsweep) | Run a vault sweep now |
+| `POST` | [`/api/vault/redeem`](/developers/evm/simplex/api/wallet#post-apivaultredeem) | Redeem every vault position |
+| `GET` | [`/api/rebalancing`](/developers/evm/simplex/api/wallet#get-apirebalancing) | Rebalancing settings, and which balances are below their trigger |
+| `PUT` | [`/api/rebalancing`](/developers/evm/simplex/api/wallet#put-apirebalancing) | Change rebalancing settings |
+
+### [Configuration](/developers/evm/simplex/api/configuration)
+
+| Method | Route | What it does |
+|---|---|---|
+| `GET` | [`/api/config`](/developers/evm/simplex/api/configuration#get-apiconfig) | The running config with secrets masked |
+| `GET` | [`/api/chains`](/developers/evm/simplex/api/configuration#get-apichains) | The configured chains, and the chains that can be added |
+| `PUT` | [`/api/chains`](/developers/evm/simplex/api/configuration#put-apichains) | Replace the chain set, from the next restart |
+| `PUT` | [`/api/allowlist`](/developers/evm/simplex/api/configuration#put-apiallowlist) | Replace the order allowlist |
+| `GET` | [`/api/strategies`](/developers/evm/simplex/api/configuration#get-apistrategies) | List markets |
+| `POST` | [`/api/strategies`](/developers/evm/simplex/api/configuration#post-apistrategies) | Add a market |
+| `DELETE` | [`/api/strategies/:index`](/developers/evm/simplex/api/configuration#delete-apistrategiesindex) | Remove a market |
+
+### [Logs](/developers/evm/simplex/api/logs)
+
+| Method | Route | What it does |
+|---|---|---|
+| `GET` | [`/api/logs`](/developers/evm/simplex/api/logs#get-apilogs) | Log records since launch, filtered |
+| `GET` | [`/api/logs/stream`](/developers/evm/simplex/api/logs#get-apilogsstream) | A stream of log records as they are written |
+| `PUT` | [`/api/log-level`](/developers/evm/simplex/api/logs#put-apilog-level) | Change the log level |
+
+### [Notifications](/developers/evm/simplex/api/notifications)
+
+| Method | Route | What it does |
+|---|---|---|
+| `GET` | [`/api/notifications`](/developers/evm/simplex/api/notifications#get-apinotifications) | Alert settings, and the key browsers subscribe with |
+| `PUT` | [`/api/notifications`](/developers/evm/simplex/api/notifications#put-apinotifications) | Change alert settings |
+| `POST` | [`/api/notifications/subscription`](/developers/evm/simplex/api/notifications#post-apinotificationssubscription) | Subscribe a browser to push alerts |
+| `DELETE` | [`/api/notifications/subscription`](/developers/evm/simplex/api/notifications#delete-apinotificationssubscription) | Unsubscribe a browser |
+| `POST` | [`/api/notifications/test`](/developers/evm/simplex/api/notifications#post-apinotificationstest) | Send a test alert |
+| `GET` | [`/api/notifications/stream`](/developers/evm/simplex/api/notifications#get-apinotificationsstream) | A stream of alerts, for Simplex Desktop |
+| `POST` | [`/api/notifications/receipt`](/developers/evm/simplex/api/notifications#post-apinotificationsreceipt) | Confirm a test alert was shown, for Simplex Desktop |
+
+### [Remote access](/developers/evm/simplex/api/remote-access)
+
+| Method | Route | What it does |
+|---|---|---|
+| `GET` | [`/api/tunnel`](/developers/evm/simplex/api/remote-access#get-apitunnel) | Tunnel state, connection details and paired devices |
+| `PUT` | [`/api/tunnel`](/developers/evm/simplex/api/remote-access#put-apitunnel) | Turn the tunnel on or off, or change the relay |
+| `POST` | [`/api/tunnel/devices`](/developers/evm/simplex/api/remote-access#post-apitunneldevices) | Pair a device |
+| `POST` | [`/api/tunnel/devices/revoke`](/developers/evm/simplex/api/remote-access#post-apitunneldevicesrevoke) | Revoke a device |
+
+### [Setup wizard](/developers/evm/simplex/api/setup)
+
+| Method | Route | What it does |
+|---|---|---|
+| `GET` | [`/api/setup/defaults`](/developers/evm/simplex/api/setup#get-apisetupdefaults) | Chains, tokens and vaults the wizard offers |
+| `GET` | [`/api/setup/orderbook`](/developers/evm/simplex/api/setup#get-apisetuporderbook) | The orderbook a new config posts to, and its books |
+| `POST` | [`/api/setup/validate-alchemy-key`](/developers/evm/simplex/api/setup#post-apisetupvalidate-alchemy-key) | Check an Alchemy key and derive RPC URLs from it |
+| `POST` | [`/api/setup/validate-rpc`](/developers/evm/simplex/api/setup#post-apisetupvalidate-rpc) | Check RPC endpoints |
+| `POST` | [`/api/setup/validate-bundler`](/developers/evm/simplex/api/setup#post-apisetupvalidate-bundler) | Check a bundler endpoint |
+| `POST` | [`/api/setup/validate-token`](/developers/evm/simplex/api/setup#post-apisetupvalidate-token) | Read a token's symbol and decimals |
+| `POST` | [`/api/setup/derive-evm-address`](/developers/evm/simplex/api/setup#post-apisetupderive-evm-address) | The address of an EVM private key |
+| `POST` | [`/api/setup/generate-substrate-key`](/developers/evm/simplex/api/setup#post-apisetupgenerate-substrate-key) | Generate a Hyperbridge account, or derive one's address |
+| `POST` | [`/api/setup/check-substrate-balance`](/developers/evm/simplex/api/setup#post-apisetupcheck-substrate-balance) | A Hyperbridge account's BRIDGE balance |
+| `POST` | [`/api/setup/preview`](/developers/evm/simplex/api/setup#post-apisetuppreview) | Validate a config and render it as TOML |
+| `POST` | [`/api/setup/save-and-start`](/developers/evm/simplex/api/setup#post-apisetupsave-and-start) | Write the config and start the filler |
+| `GET` | [`/api/setup/start-status`](/developers/evm/simplex/api/setup#get-apisetupstart-status) | Whether the filler has started |
+
+The library exposes most of these operations directly, without HTTP. See the [Simplex SDK guide](/developers/sdk/simplex).

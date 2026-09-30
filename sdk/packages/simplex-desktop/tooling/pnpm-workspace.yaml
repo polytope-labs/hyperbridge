@@ -1,0 +1,17 @@
+packages: []
+overrides:
+    # Keep electron-builder's blockmap implementation on the dependency graph
+    # validated with the pinned builder; other consumers retain their own major.
+    "app-builder-lib>@noble/hashes": "2.3.0"
+allowBuilds:
+    electron-winstaller: true
+blockExoticSubdeps: true
+minimumReleaseAge: 43200
+minimumReleaseAgeExclude:
+    - "@peculiar/asn1-schema@2.9.4"
+    - "@xmldom/xmldom@0.8.15"
+    - "node-abi@4.35.0"
+    - "undici@6.28.1"
+trustPolicy: no-downgrade
+trustPolicyExclude:
+    - "semver@6.3.1 || 5.7.2"

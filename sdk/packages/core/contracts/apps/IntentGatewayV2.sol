@@ -107,6 +107,22 @@ struct Params {
 }
 
 /**
+ * @dev Arguments to `IntentGatewayV2.initialize`. All of it is part of the proxy's init data, so the
+ * same values on every chain keep the proxy address identical across chains.
+ */
+struct InitParams {
+    /// @dev The initial gateway configuration.
+    Params params;
+    /// @dev State-machine ids of the cross-chain peers to register, each bound to the gateway's own
+    /// address so no peer address is carried in the init data.
+    bytes[] peerChains;
+    /// @dev The only relayer whose deliveries are accepted. Zero leaves the gate open.
+    address relayer;
+    /// @dev The owner, who may pause the gateway. Must be non-zero.
+    address owner;
+}
+
+/**
  * @dev Struct to define the destination fee parameters.
  */
 struct DestinationFee {
@@ -162,9 +178,13 @@ struct FillOptions {
     /// @dev Denominated in blocks, matching `order.deadline`, so both are read against the
     /// same clock (`_blockNumber()`, which is the L2 block number where that differs).
     uint256 validUntil;
-    /// @dev The output tokens with amounts the solver is willing to give
-    /// @dev Must be strictly >= the amounts requested in order.output.assets
+    /// @dev The most output the solver pays per leg, indexed like `order.output.assets`.
+    /// `outputs[i] / inputs[i]` is the solver's rate for leg `i`; the leg pays the input it actually
+    /// releases at that rate, rounded up, so payment never exceeds this budget.
     TokenInfo[] outputs;
+    /// @dev The most input the solver takes per leg, indexed like `order.inputs`. One entry per
+    /// leg is required; zero here and in `outputs[i]` skips the leg.
+    TokenInfo[] inputs;
 }
 
 /**
@@ -235,9 +255,6 @@ interface IIntentGatewayV2 {
     /// @notice Thrown when an action is attempted on an order that has already been filled.
     error Filled();
 
-    /// @notice Thrown when an action is attempted on an order that has been cancelled.
-    error Cancelled();
-
     /// @notice Thrown when an action is attempted on the wrong chain.
     error WrongChain();
 
@@ -250,6 +267,24 @@ interface IIntentGatewayV2 {
     /// @notice Thrown when a solver attempts to partially fill an order that carries output
     ///         calldata. Such orders must be filled completely in a single fill.
     error PartialFillNotAllowed();
+    /// @notice Thrown when a leg's quoted output over quoted input is below the order's own rate.
+    error RateBelowOrder();
+    /// @notice Thrown when a fill credits no output or releases no input on any leg, including
+    ///         fills whose quotes are all zero or too small to move a leg by one unit.
+    error RateFillTooSmall();
+
+    /// @notice Thrown by `placeOrder`, `fillOrder` and escrow deliveries while the gateway is paused,
+    ///         and by `pause` when already paused.
+    error EnforcedPause();
+
+    /// @notice Thrown by `unpause` when the gateway is not paused.
+    error ExpectedPause();
+
+    /// @notice Thrown when an owner-only function is called by anyone but the owner or the host.
+    error OwnableUnauthorizedAccount(address account);
+
+    /// @notice Thrown when `initialize` or `migrate` is given a zero owner.
+    error OwnableInvalidOwner(address owner);
 
     // ============================================
     // Events
@@ -293,17 +328,18 @@ interface IIntentGatewayV2 {
      * @notice Emitted when an order is fully filled.
      * @param commitment The unique identifier of the order
      * @param filler The address of the entity that filled the order
-     * @param outputs The output token amounts provided by the filler
+     * @param outputs The credited output amounts, excluding surplus
      * @param inputs The escrowed input tokens released to the filler
      */
     event OrderFilled(bytes32 indexed commitment, address filler, TokenInfo[] outputs, TokenInfo[] inputs);
 
     /**
-     * @notice Emitted when an order is partially filled. Only same-chain orders
-     *         support incremental fills.
+     * @notice Emitted when an order is partially filled, on either route. A same-chain fill
+     *         releases the escrow it earns in the same transaction; a cross-chain one asks the
+     *         source chain for it with `RedeemEscrowPartial`.
      * @param commitment The unique identifier of the order
      * @param filler The address of the entity that provided this partial fill
-     * @param outputs The output token amounts provided in this fill
+     * @param outputs The credited output amounts in this fill, excluding surplus
      * @param inputs The proportional escrowed input tokens released to the filler
      */
     event PartialFill(bytes32 indexed commitment, address filler, TokenInfo[] outputs, TokenInfo[] inputs);
@@ -314,8 +350,8 @@ interface IIntentGatewayV2 {
      *         the same transaction for a same-chain cancel, and on the source chain once
      *         the cancellation has travelled through Hyperbridge for a cross-chain one.
      * @param commitment The unique identifier of the order
-     * @param canceller The account that initiated the cancellation. The destination-side
-     *        route is permissionless after expiry, so this is not necessarily the creator.
+     * @param canceller The account that initiated the cancellation. Destination-side cancellation
+     *        and expired same-chain cancellation are permissionless, so this may be a third party.
      */
     event OrderCancelled(bytes32 indexed commitment, address canceller);
 
@@ -324,7 +360,7 @@ interface IIntentGatewayV2 {
      * @param commitment The unique identifier of the order
      * @param tokens The tokens and amounts released
      */
-    event EscrowReleased(bytes32 indexed commitment, TokenInfo[] tokens);
+    event EscrowReleased(bytes32 indexed commitment, address solver, TokenInfo[] tokens);
 
     /**
      * @notice Emitted when an escrow is refunded to the original user.
@@ -332,6 +368,9 @@ interface IIntentGatewayV2 {
      * @param tokens The tokens and amounts refunded
      */
     event EscrowRefunded(bytes32 indexed commitment, TokenInfo[] tokens);
+
+    /// @dev Protocol fee returned on cancellation, separate from principal in EscrowRefunded.
+    event ProtocolFeeRefunded(bytes32 indexed commitment, address indexed token, uint256 amount);
 
     /**
      * @notice Emitted when parameters are updated.
@@ -369,6 +408,42 @@ interface IIntentGatewayV2 {
      */
     event DestinationProtocolFeeUpdated(string chain, uint256 feeBps);
 
+    /**
+     * @notice Emitted when the relayer authorised to deliver cross-chain messages is replaced.
+     * @param previous The relayer that was authorised before this change
+     * @param current The relayer authorised from now on
+     */
+    event RelayerUpdated(address previous, address current);
+
+    /**
+     * @notice Emitted when the owner or the host proposes a new owner (OpenZeppelin
+     *         `Ownable2StepUpgradeable`); the transfer completes when `newOwner` calls
+     *         `acceptOwnership`. A proposal of zero withdraws a pending one.
+     * @param previousOwner The current owner
+     * @param newOwner The proposed owner
+     */
+    event OwnershipTransferStarted(address indexed previousOwner, address indexed newOwner);
+
+    /**
+     * @notice Emitted when the owner is set, by `initialize`, `migrate`, `acceptOwnership` or
+     *         `renounceOwnership`.
+     * @param previousOwner The owner before this change
+     * @param newOwner The owner from now on
+     */
+    event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
+
+    /**
+     * @notice Emitted when the owner pauses the gateway.
+     * @param account The owner that paused
+     */
+    event Paused(address account);
+
+    /**
+     * @notice Emitted when the owner resumes the gateway.
+     * @param account The owner that resumed
+     */
+    event Unpaused(address account);
+
     // ============================================
     // Constants
     // ============================================
@@ -401,10 +476,16 @@ interface IIntentGatewayV2 {
     function instance(bytes calldata stateMachineId) external view returns (address);
 
     /**
-     * @notice Sets the parameters for the IntentGateway module.
-     * @param p The parameters to be set, encapsulated in a Params struct
+     * @notice The module that runs same-chain fills and cancels under delegatecall
+     * @return address The `IntrinsicModule` this implementation was deployed with
      */
-    function setParams(Params memory p) external;
+    function intrinsicModule() external view returns (address);
+
+    /**
+     * @notice The module that runs cross-chain fills, cancels and settlement under delegatecall
+     * @return address The `ExtrinsicModule` this implementation was deployed with
+     */
+    function extrinsicModule() external view returns (address);
 
     /**
      * @notice Returns the current parameters of the module.
@@ -412,25 +493,91 @@ interface IIntentGatewayV2 {
      */
     function params() external view returns (Params memory);
 
+    /// @notice Held placement fee and original post-fee principal of leg `index`
+    /// (`order.inputs[index]`); zero for zero-fee or settled legs.
+    function _protocolFees(bytes32 commitment, uint256 index) external view returns (uint256 amount, uint256 committed);
+
     /**
-     * @notice Calculates the commitment slot hash for storage proof verification.
-     * @param commitment The commitment hash
-     * @return bytes The calculated commitment slot hash
+     * @notice The only relayer whose `onAccept` and `onGetResponse` deliveries are accepted.
+     * @return address The authorised relayer, or zero while every relayer is accepted
      */
-    function calculateCommitmentSlotHash(bytes32 commitment) external pure returns (bytes memory);
+    function relayer() external view returns (address);
+
+    /**
+     * @notice Takes a proxy from an earlier implementation to the current version, where
+     *         `initialize` puts a fresh one. Host-only and one-shot; emits `Initialized`. It is the
+     *         only way up for a proxy already at a version: `initialize` is refused on anything but
+     *         a bare proxy. Moves the relayer from slot 13 offset 1 to offset 0 and sets the owner.
+     * @param owner The owner, who may pause the gateway; must be non-zero
+     */
+    function migrate(address owner) external;
+
+    /**
+     * @notice The owner, who may pause and resume the gateway.
+     * @return address The owner
+     */
+    function owner() external view returns (address);
+
+    /**
+     * @notice The account a proposed ownership transfer is waiting on.
+     * @return address The pending owner, or zero
+     */
+    function pendingOwner() external view returns (address);
+
+    /**
+     * @notice Proposes a new owner, who takes over on `acceptOwnership`. Callable by the owner and
+     *         by the host, so governance can replace the owner. Zero withdraws a pending proposal.
+     * @param newOwner The proposed owner
+     */
+    function transferOwnership(address newOwner) external;
+
+    /// @notice Completes a proposed ownership transfer. Callable only by the pending owner.
+    function acceptOwnership() external;
+
+    /// @notice Clears the owner. Owner or host; governance can propose a new one afterwards.
+    function renounceOwnership() external;
+
+    /**
+     * @notice Whether the gateway is paused: `placeOrder`, `fillOrder`, and escrow redemptions,
+     *         refunds and cancel proofs delivered by Hyperbridge revert `EnforcedPause`. Governance
+     *         deliveries and `cancelOrder` are never paused; a refused delivery can be resubmitted
+     *         once the gateway resumes.
+     * @return bool True while paused
+     */
+    function paused() external view returns (bool);
+
+    /// @notice Pauses the gateway. Callable by the owner or the host; reverts `EnforcedPause` if already paused.
+    function pause() external;
+
+    /// @notice Resumes the gateway. Callable by the owner or the host; reverts `ExpectedPause` if not paused.
+    function unpause() external;
+
+    /**
+     * @notice The `Initializable` version: 3 once `initialize` or `migrate` has run on the
+     *         module-split implementation with an owner, 2 on the armed implementation before it, 1
+     *         before the relayer gate. Reverts on implementations that predate the gate.
+     * @return uint64 The initialized version
+     */
+    function version() external view returns (uint64);
 
     /**
      * @notice Places an order for cross-chain intent fulfillment.
+     * @dev Leg `i` sells `order.inputs[i]` for `order.output.assets[i]`. Every leg trades the same
+     *      pair: all inputs name one token and all outputs name one token, so an order is one pair
+     *      quoted at one or more prices. An order carrying both predispatch calldata and
+     *      predispatch assets must be single-leg.
      * @dev If protocolFeeBps is configured, a protocol fee is deducted from each input token amount.
      *      The full input amounts are escrowed, but the OrderPlaced event emits reduced amounts (after fee).
-     *      Protocol fees are retained as dust and can be swept via SweepDust requests.
+     *      Protocol fees stay reserved until final settlement. Cancellation refunds the fee
+     *      attributable to unfilled principal; only the earned remainder becomes sweepable dust.
      * @param order The order to be placed
      * @param graffiti The arbitrary data used for identification purposes
      */
     function placeOrder(Order memory order, bytes32 graffiti) external payable;
 
     /**
-     * @notice Selects a solver for an order (when solver selection is enabled).
+     * @notice Selects a solver for an order (when solver selection is enabled). Reverts `Filled`
+     *         if the order has already been filled, refunded or cancelled.
      * @param options The options for selecting a solver
      * @return sessionKey The recovered session key address
      */

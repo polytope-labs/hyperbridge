@@ -16,6 +16,7 @@ async fn author_place_bid(
 	client: &subxt::OnlineClient<Hyperbridge>,
 	rpc_client: &subxt::backend::rpc::RpcClient,
 	commitment: &H256,
+	bid: &H256,
 	user_op: &[u8],
 	who: Keyring,
 ) -> Result<Bytes, anyhow::Error> {
@@ -24,6 +25,7 @@ async fn author_place_bid(
 		"place_bid",
 		vec![
 			subxt::dynamic::Value::from_bytes(commitment.as_bytes()),
+			subxt::dynamic::Value::from_bytes(bid.as_bytes()),
 			subxt::dynamic::Value::from_bytes(user_op),
 		],
 	);
@@ -53,12 +55,20 @@ async fn test_bid_discovery_via_rpc() -> Result<(), anyhow::Error> {
 	let bob_op: Vec<u8> = vec![0xDD, 0xEE, 0xFF];
 
 	// Push bids from Alice and Bob into the mempool
-	let alice_ext =
-		author_place_bid(&client, &rpc_client, &commitment, &alice_op, Keyring::Alice).await?;
+	let alice_ext = author_place_bid(
+		&client,
+		&rpc_client,
+		&commitment,
+		&H256::zero(),
+		&alice_op,
+		Keyring::Alice,
+	)
+	.await?;
 	let _: H256 = rpc_client.request("author_submitExtrinsic", rpc_params![alice_ext]).await?;
 
 	let bob_ext =
-		author_place_bid(&client, &rpc_client, &commitment, &bob_op, Keyring::Bob).await?;
+		author_place_bid(&client, &rpc_client, &commitment, &H256::zero(), &bob_op, Keyring::Bob)
+			.await?;
 	let _: H256 = rpc_client.request("author_submitExtrinsic", rpc_params![bob_ext]).await?;
 
 	// Allow the tx-pool watcher to process import notifications.
@@ -81,11 +91,34 @@ async fn test_bid_discovery_via_rpc() -> Result<(), anyhow::Error> {
 		rpc_client.request("intents_getBidsForOrder", rpc_params![commitment]).await?;
 	assert_eq!(bids.len(), 2, "finalized bids should persist from offchain storage");
 
-	// Submit a new mempool-only bid from Charlie
+	// Submit a new mempool-only bid from Charlie, and a second bid from Alice under another
+	// identifier: one filler's bids on one order stand side by side.
 	let charlie_op: Vec<u8> = vec![0x11, 0x22, 0x33];
-	let charlie_ext =
-		author_place_bid(&client, &rpc_client, &commitment, &charlie_op, Keyring::Charlie).await?;
+	let charlie_ext = author_place_bid(
+		&client,
+		&rpc_client,
+		&commitment,
+		&H256::zero(),
+		&charlie_op,
+		Keyring::Charlie,
+	)
+	.await?;
 	let _: H256 = rpc_client.request("author_submitExtrinsic", rpc_params![charlie_ext]).await?;
+
+	let alice_second_op: Vec<u8> = vec![0xAA, 0x01];
+	let alice_second_bid = H256::repeat_byte(0xA1);
+	let alice_second_ext = author_place_bid(
+		&client,
+		&rpc_client,
+		&commitment,
+		&alice_second_bid,
+		&alice_second_op,
+		Keyring::Alice,
+	)
+	.await?;
+	let _: H256 = rpc_client
+		.request("author_submitExtrinsic", rpc_params![alice_second_ext])
+		.await?;
 
 	tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
@@ -93,15 +126,20 @@ async fn test_bid_discovery_via_rpc() -> Result<(), anyhow::Error> {
 		rpc_client.request("intents_getBidsForOrder", rpc_params![commitment]).await?;
 	assert_eq!(
 		bids.len(),
-		3,
-		"RPC should return offchain bids (Alice, Bob) and mempool bid (Charlie)"
+		4,
+		"RPC should return offchain bids (Alice, Bob) and mempool bids (Charlie, Alice's second)"
 	);
 
-	// Verify all three user_ops are present.
+	// Verify all four user_ops are present.
 	let user_ops: Vec<&Vec<u8>> = bids.iter().map(|b| &b.user_op).collect();
 	assert!(user_ops.contains(&&alice_op), "Alice's bid missing");
 	assert!(user_ops.contains(&&bob_op), "Bob's bid missing");
 	assert!(user_ops.contains(&&charlie_op), "Charlie's mempool-only bid missing");
+	assert!(user_ops.contains(&&alice_second_op), "Alice's second bid missing");
+	assert!(
+		bids.iter().any(|b| b.user_op == alice_second_op && b.bid == alice_second_bid),
+		"Alice's second bid should carry its identifier"
+	);
 
 	// All bids should reference the same commitment.
 	assert!(bids.iter().all(|b| b.commitment == commitment));

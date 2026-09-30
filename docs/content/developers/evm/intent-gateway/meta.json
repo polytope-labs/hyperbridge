@@ -4,7 +4,7 @@
         "overview",
         "placing-orders",
         "cancelling-orders",
-        "simplex"
+        "orderbook"
     ],
     "defaultOpen": false
 }

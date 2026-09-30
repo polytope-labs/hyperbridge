@@ -1,5 +1,13 @@
 import { useState } from "react"
+import * as Collapsible from "@radix-ui/react-collapsible"
+import { toast } from "sonner"
+import externalLinks from "@/config/external-links.json"
 import { api } from "../../api"
+import { ChainCollapseTrigger, isHeaderControl, useChainPanels } from "../../components/ChainPanel"
+import { ChainLogo } from "../../components/ChainLogo"
+import { EndpointVerificationStatus } from "../../components/EndpointVerificationStatus"
+import { ExternalLinkIcon } from "../../components/InterfaceIcons"
+import { loadOrderbook } from "../orderbook"
 import { patchChain, type ChainDraft } from "../state"
 import type { StepProps } from "../Wizard"
 
@@ -11,6 +19,7 @@ interface AlchemyChainRow {
 
 export function StepChains({ state, setState }: StepProps) {
 	const [busy, setBusy] = useState(false)
+	const panels = useChainPanels()
 
 	const patch = (chainId: number, changes: Partial<ChainDraft>) => setState((s) => patchChain(s, chainId, changes))
 
@@ -20,7 +29,7 @@ export function StepChains({ state, setState }: StepProps) {
 		try {
 			const res = await api.post<{ valid: boolean; error?: string; chains: AlchemyChainRow[] }>(
 				"/api/setup/validate-alchemy-key",
-				{ apiKey: state.alchemyKey.trim(), network: state.network },
+				{ apiKey: state.alchemyKey.trim() },
 			)
 			setState((s) => ({
 				...s,
@@ -30,29 +39,45 @@ export function StepChains({ state, setState }: StepProps) {
 					? s.chains.map((c) => {
 							const row = res.chains.find((r) => r.chainId === c.meta.chainId)
 							if (!row?.rpcUrl) return c
+							// Bundler only. The scan reads from the public quorum, which
+							// costs nothing and spreads across providers; sending it to
+							// Alchemy instead would burn the key's quota on polling and
+							// leave the chain on a single provider.
 							return {
 								...c,
-								rpcUrls: [row.rpcUrl, ...c.rpcUrls.slice(1)],
-								bundlerUrl: row.bundlerUrl ?? c.bundlerUrl,
+								bundlerUrl: row.bundlerUrl ?? row.rpcUrl,
 								viaAlchemy: true,
-								rpcStatus: undefined,
+								verificationState: undefined,
+								verificationMessage: undefined,
 							}
 						})
 					: s.chains,
 			}))
+			if (res.valid) {
+				toast.success("Bundlers configured", {
+					description: "Every supported chain now submits fills through your Alchemy key.",
+				})
+			} else {
+				toast.error("Alchemy key could not be validated", { description: res.error })
+			}
 		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err)
 			setState((s) => ({
 				...s,
 				alchemyStatus: "err",
-				alchemyError: err instanceof Error ? err.message : String(err),
+				alchemyError: message,
 			}))
+			toast.error("Alchemy key could not be validated", { description: message })
 		} finally {
 			setBusy(false)
 		}
 	}
 
 	const verifyChain = async (chain: ChainDraft) => {
-		patch(chain.meta.chainId, { rpcStatus: "checking", rpcError: undefined, bundlerWarning: undefined })
+		patch(chain.meta.chainId, {
+			verificationState: "checking",
+			verificationMessage: "Checking RPC and bundler endpoints…",
+		})
 		const urls = chain.rpcUrls.map((u) => u.trim()).filter(Boolean)
 		try {
 			const rpc = await api.post<{ ok: boolean; results: Array<{ error?: string }>; error?: string }>(
@@ -61,12 +86,18 @@ export function StepChains({ state, setState }: StepProps) {
 			)
 			if (!rpc.ok) {
 				const firstError = rpc.error ?? rpc.results.find((r) => r.error)?.error ?? "RPC check failed"
-				patch(chain.meta.chainId, { rpcStatus: "err", rpcError: firstError })
+				patch(chain.meta.chainId, {
+					verificationState: "error",
+					verificationMessage: `RPC could not be verified: ${firstError}`,
+				})
 				return
 			}
-			patch(chain.meta.chainId, { rpcStatus: "ok" })
 		} catch (err) {
-			patch(chain.meta.chainId, { rpcStatus: "err", rpcError: err instanceof Error ? err.message : String(err) })
+			const message = err instanceof Error ? err.message : String(err)
+			patch(chain.meta.chainId, {
+				verificationState: "error",
+				verificationMessage: `RPC could not be verified: ${message}`,
+			})
 			return
 		}
 
@@ -76,75 +107,135 @@ export function StepChains({ state, setState }: StepProps) {
 					url: chain.bundlerUrl.trim(),
 					chainId: chain.meta.chainId,
 				})
-				patch(chain.meta.chainId, { bundlerWarning: bundler.warning, bundlerOk: !bundler.warning })
+				if (bundler.warning) {
+					patch(chain.meta.chainId, {
+						verificationState: "warning",
+						verificationMessage: `RPC verified. Bundler warning: ${bundler.warning}`,
+					})
+					return
+				}
 			} catch (err) {
+				const message = `Bundler check failed: ${err instanceof Error ? err.message : err}`
 				patch(chain.meta.chainId, {
-					bundlerWarning: `Bundler check failed: ${err instanceof Error ? err.message : err}`,
-					bundlerOk: false,
+					verificationState: "error",
+					verificationMessage: message,
 				})
+				return
 			}
 		}
+
+		patch(chain.meta.chainId, {
+			verificationState: "success",
+			verificationMessage: chain.bundlerUrl.trim()
+				? "RPC and bundler connections are ready."
+				: "RPC connection is ready.",
+		})
 	}
 
 	return (
-		<div>
+		<div className="wizard-sections chains-step">
 			<div className="card">
-				<h2>Provider key</h2>
+				<h2>Bundler key</h2>
 				<p className="hint">
-					One Alchemy API key can fill in the RPC and bundler URL for every supported chain — Alchemy serves
-					ERC-4337 bundler methods on the same endpoint. Use premium endpoints with archive access; free tiers
-					rate-limit and break event scanning. Every field stays editable if you prefer other providers (e.g. a
-					Pimlico bundler).
+					One{" "}
+					<a className="hint-link" href={externalLinks.alchemyDashboard} target="_blank" rel="noreferrer">
+						Alchemy API key
+						<ExternalLinkIcon aria-hidden="true" />
+					</a>{" "}
+					sets up the bundler on every chain, and the RPC endpoints below are already filled in.
 				</p>
-				<div className="row">
+				<div className="chain-provider-controls">
 					<input
 						type="password"
+						aria-label="Alchemy API key"
 						style={{ maxWidth: "24rem" }}
 						placeholder="Alchemy API key (optional)"
 						value={state.alchemyKey}
-						onChange={(e) => setState((s) => ({ ...s, alchemyKey: e.target.value, alchemyStatus: undefined }))}
+						onChange={(e) =>
+							setState((s) => ({ ...s, alchemyKey: e.target.value, alchemyStatus: undefined }))
+						}
 					/>
 					<button type="button" onClick={applyAlchemyKey} disabled={busy || !state.alchemyKey.trim()}>
 						Validate & prefill
 					</button>
-					{state.alchemyStatus === "ok" && <span className="badge ok">key valid — URLs prefilled</span>}
-					{state.alchemyStatus === "err" && <span className="badge err">{state.alchemyError}</span>}
 				</div>
 			</div>
 
+			{state.orderbookError ? (
+				<div className="card">
+					<p className="error">{state.orderbookError}</p>
+					<button type="button" onClick={() => void loadOrderbook(setState)}>
+						Retry
+					</button>
+				</div>
+			) : null}
+
 			{state.chains.map((chain) => (
-				<div className="card" key={chain.meta.chainId}>
-					<div className="spread">
-						<h2>
-							{chain.meta.label} <span className="badge">chainId {chain.meta.chainId}</span>{" "}
-							{chain.viaAlchemy && <span className="badge ok">via Alchemy</span>}
-						</h2>
-						<label className="row">
-							<input
-								type="checkbox"
-								checked={chain.enabled}
-								onChange={(e) => patch(chain.meta.chainId, { enabled: e.target.checked })}
-							/>
-							fill on this chain
-						</label>
+				<Collapsible.Root
+					className="card chain-configuration"
+					data-enabled={chain.enabled}
+					key={chain.meta.chainId}
+					open={panels.isOpen(chain.meta.chainId, chain.enabled)}
+					onOpenChange={(open) => panels.setOpen(chain.meta.chainId, open)}
+				>
+					<div
+						className="chain-configuration-header"
+						onClick={(e) => {
+							if (isHeaderControl(e)) return
+							panels.setOpen(chain.meta.chainId, !panels.isOpen(chain.meta.chainId, chain.enabled))
+						}}
+					>
+						<div className="chain-identity">
+							<ChainLogo label={chain.meta.label} />
+							<div>
+								<h2>{chain.meta.label}</h2>
+								{chain.viaAlchemy && <span className="chain-source">Bundler via Alchemy</span>}
+							</div>
+						</div>
+						<div className="chain-header-controls">
+							<label className="chain-enable-toggle">
+								<input
+									type="checkbox"
+									checked={chain.enabled}
+									onChange={(e) => {
+										patch(chain.meta.chainId, { enabled: e.target.checked })
+										panels.setOpen(chain.meta.chainId, e.target.checked)
+									}}
+								/>
+								<span className="chain-enable-switch" aria-hidden="true" />
+								<span>Enable fills</span>
+							</label>
+							<ChainCollapseTrigger label={chain.meta.label} />
+						</div>
 					</div>
-					{chain.meta.note && <p className="hint">Note: {chain.meta.note}</p>}
-					{chain.enabled && (
-						<div>
+					<Collapsible.Content className="chain-collapsible-content">
+						<div className="chain-configuration-fields">
 							{chain.rpcUrls.map((url, index) => (
-								// biome-ignore lint/suspicious/noArrayIndexKey: positional quorum rows
 								<label className="field" key={index}>
-									<span>{index === 0 ? "RPC URL" : "Additional RPC (different provider)"}</span>
+									<span className="field-label">
+										{index === 0 ? "RPC endpoint" : `RPC endpoint ${index + 1}`}
+										{index === 0 ? <span className="field-required">Required</span> : null}
+									</span>
+									{index === 0 && <small>Used to read the chain and find orders.</small>}
+									{index === 1 && (
+										<small>
+											Reads are agreed across every endpoint listed, so a wrong or unavailable
+											answer from any one of them cannot mislead the filler.
+										</small>
+									)}
 									<div className="row">
 										<input
 											type="text"
 											style={{ flex: 1 }}
 											value={url}
+											required={index === 0}
 											onChange={(e) =>
 												patch(chain.meta.chainId, {
-													rpcUrls: chain.rpcUrls.map((u, i) => (i === index ? e.target.value : u)),
-													rpcStatus: undefined,
-													viaAlchemy: index === 0 ? false : chain.viaAlchemy,
+													rpcUrls: chain.rpcUrls.map((u, i) =>
+														i === index ? e.target.value : u,
+													),
+													verificationState: undefined,
+													verificationMessage: undefined,
 												})
 											}
 										/>
@@ -154,6 +245,8 @@ export function StepChains({ state, setState }: StepProps) {
 												onClick={() =>
 													patch(chain.meta.chainId, {
 														rpcUrls: chain.rpcUrls.filter((_, i) => i !== index),
+														verificationState: undefined,
+														verificationMessage: undefined,
 													})
 												}
 											>
@@ -163,50 +256,81 @@ export function StepChains({ state, setState }: StepProps) {
 									</div>
 								</label>
 							))}
-							<div className="row">
+							<div className="chain-backup-rpc">
 								<button
+									className="chain-add-backup-button"
 									type="button"
-									title="Order scans require a quorum of providers to agree, so one lying RPC can't feed you fake orders. The quorum is exactly the URLs you list here — add at least two organisationally independent providers; four or more to tolerate a faulty one."
-									onClick={() => patch(chain.meta.chainId, { rpcUrls: [...chain.rpcUrls, ""] })}
+									title="A backup RPC lets Simplex compare independent providers before it acts on chain data."
+									onClick={() =>
+										patch(chain.meta.chainId, {
+											rpcUrls: [...chain.rpcUrls, ""],
+											verificationState: undefined,
+											verificationMessage: undefined,
+										})
+									}
 								>
-									+ quorum RPC
+									<span aria-hidden="true">+</span>
+									Add backup RPC
 								</button>
+								<p className="chain-info-text">
+									<span className="chain-info-icon" aria-hidden="true">
+										i
+									</span>
+									<span>A backup lets Simplex compare providers before it acts on chain data.</span>
+								</p>
 							</div>
 
 							<label className="field">
-								<span>Bundler URL</span>
+								<span className="field-label">
+									Bundler endpoint <span className="field-required">Required</span>
+								</span>
+								<small>Used to submit sponsored fills on this chain.</small>
 								<input
 									type="text"
 									value={chain.bundlerUrl}
-									onChange={(e) => patch(chain.meta.chainId, { bundlerUrl: e.target.value })}
+									required
+									onChange={(e) =>
+										patch(chain.meta.chainId, {
+											bundlerUrl: e.target.value,
+											verificationState: undefined,
+											verificationMessage: undefined,
+										})
+									}
 									placeholder="https://api.pimlico.io/v2/<chainId>/rpc?apikey=…"
 								/>
 							</label>
 
-							<div className="row">
+						<div className="chain-configuration-actions">
+							<div className="chain-verification-control">
 								<button
 									type="button"
-									disabled={!chain.rpcUrls[0]?.trim() || chain.rpcStatus === "checking"}
+									disabled={
+										!chain.rpcUrls[0]?.trim() || chain.verificationState === "checking"
+									}
 									onClick={() => verifyChain(chain)}
 								>
-									{chain.rpcStatus === "checking" ? "Verifying…" : "Verify"}
+									{chain.verificationState === "checking" ? "Verifying…" : "Verify"}
 								</button>
-								{chain.rpcStatus === "ok" && <span className="badge ok">RPC verified</span>}
-								{chain.rpcStatus === "err" && <span className="badge err">{chain.rpcError}</span>}
-								{chain.bundlerOk && <span className="badge ok">bundler ok</span>}
-								{chain.bundlerWarning && <span className="badge warn">{chain.bundlerWarning}</span>}
-								<label className="row">
+								<EndpointVerificationStatus
+									state={chain.verificationState}
+									message={chain.verificationMessage}
+								/>
+							</div>
+								<label className="chain-watch-toggle">
 									<input
 										type="checkbox"
 										checked={chain.watchOnly}
 										onChange={(e) => patch(chain.meta.chainId, { watchOnly: e.target.checked })}
 									/>
-									watch-only (observe orders, never fill)
+									<span>
+										<strong>Observe only</strong>
+										<small>Monitor orders without filling them.</small>
+									</span>
 								</label>
 							</div>
 						</div>
-					)}
-				</div>
+					</Collapsible.Content>
+				</Collapsible.Root>
 			))}
 		</div>
 	)

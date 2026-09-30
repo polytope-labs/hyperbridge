@@ -5,21 +5,21 @@ description: Embed a Simplex intent solver in your own Node application — star
 
 # Simplex
 
-[Simplex](/developers/evm/intent-gateway/simplex) is an automated solver for the Intent Gateway. It
+[Simplex](/developers/evm/simplex/overview) is an automated solver for the Intent Gateway. It
 ships as a binary, and as `@hyperbridge/simplex` — the same engine, running inside your own process.
 No TOML file, no separate service, and every runtime control the web dashboard offers is a method on
 the object you get back.
 
 Reach for the library when the solver is one component of a larger system: you already have a
-database, a dashboard, an alerting pipeline, or pricing logic that needs to move curves as the market
-does. If you just want a solver running, the [binary](/developers/evm/intent-gateway/simplex) is
+database, a dashboard, an alerting pipeline, or pricing logic that needs to post and cancel limit
+orders as the market moves. If you just want a solver running, the [binary](/developers/evm/simplex/overview) is
 less work.
 
 ```bash lineNumbers
 npm install @hyperbridge/simplex
 ```
 
-Node.js 22 or later. The package ships ESM and CJS builds with bundled types.
+Node.js 22.16 or later. The package ships ESM and CJS builds with bundled types.
 
 ## Starting a solver
 
@@ -51,16 +51,10 @@ const config: SimplexConfig = {
             bundlerUrl: "https://bundler.example/arb",
         },
     ],
-    pairs: [
-        {
-            token0: "USDC",
-            token1: "USDC",
-            maxOrderSize: "5000",
-            // Same-asset market: ask-only, strictly below par.
-            // The gap to 1 is your spread.
-            askPriceCurve: [{ amount: "0", price: "0.9995" }],
-        },
-    ],
+    // Required. Prices come from the limit orders you post here.
+    orderbook: {
+        url: "https://orderbook.hyperfx.finance/mainnet/graphql",
+    },
 }
 
 const simplex = await Simplex.start({
@@ -68,6 +62,9 @@ const simplex = await Simplex.start({
     signer: privateKeySigner(process.env.SOLVER_KEY as `0x${string}`),
 })
 ```
+
+The config carries no prices. Simplex fills only against the [limit orders](#limit-orders) you
+create once it is running, so a solver that has just started quotes nothing until you post one.
 
 `start` rejects if the config is invalid, a chain's RPCs are unreachable, or delegation fails on
 every chain. It never returns a half-started solver, so there is no "is it ready yet" state to poll.
@@ -78,7 +75,7 @@ marked `redeemOnShutdown`, and never calls `process.exit`.
 <Callout type="warn">
     The config object is the shape the binary's `filler-config.toml` parses into, minus
     `[simplex.signer]` — signing is an argument, not config. The
-    [configuration reference](/developers/evm/intent-gateway/simplex#configuration) documents every
+    [configuration reference](/developers/evm/simplex/configuration) documents every
     other field; read the TOML tables there as object keys.
 </Callout>
 
@@ -245,17 +242,17 @@ const audited: Signer = {
 
 ## Persistence
 
-Simplex remembers three things across a restart: the bids it submitted, its activity feed, and
-whether the operator paused it. That lives behind the `SimplexDataStore` interface.
+Simplex remembers four things across a restart: the bids it submitted, the limit orders you
+created, its activity feed, and whether the operator paused it. That lives behind the
+`SimplexDataStore` interface.
 
 The default is in-memory and lost on exit, which is fine for tests and watch-only observers. **A
 solver that submits bids needs a durable store** — a successful bid locks a deposit on Hyperbridge
 that is only reclaimable by retracting it, and the retraction sweep finds what to reclaim by
 querying the bid store. Lose those records and you leak deposits.
 
-The bundled SQLite store is a separate entry point, so nothing native is loaded unless you import
-it. `better-sqlite3` is an optional dependency — installed by default, but free to fail to build
-without breaking the package:
+The bundled SQLite store is a separate entry point. It runs on Node's built-in `node:sqlite`, so
+there is no native module to install or compile — the package just needs Node 22.16 or newer:
 
 ```ts lineNumbers
 import { SqliteDataStore } from "@hyperbridge/simplex/sqlite"
@@ -278,11 +275,14 @@ const store: SimplexDataStore = {
     activity: myActivityLog,
     // get, set
     state: myStateStore,
+    // create, get, list, open, reserve, release, drawDown, recordFill, fills, …
+    limitOrders: myLimitOrderStore,
 }
 ```
 
-Every method is async. Only `bids` is correctness-critical: `store` must be durable before it
-resolves. `activity` is observability — prune, sample or cap it freely.
+Every method is async. `bids` and `limitOrders` are correctness-critical: `store` must be durable
+before it resolves, and a limit order's `remaining` and `reserved` are what stop two chains paying
+out the same liability twice. `activity` is observability — prune, sample or cap it freely.
 
 ## Reacting to orders
 
@@ -301,6 +301,8 @@ simplex.on("order:timing", ({ orderId, phase, durationSec }) => { /* … */ })
 simplex.on("rebalance", ({ success, transferCount, executedCount }) => {
     /* … */
 })
+// A fill worked a limit order down and it went back on the book at its new size.
+simplex.on("limit-order:resized", ({ order, delivered }) => { /* … */ })
 // Every row written to the activity store.
 simplex.on("activity", (event) => {
     /* … */
@@ -316,49 +318,103 @@ them, with nothing privileged left inside.
 
 Every mutation applies to the live solver and binds on the next order. Nothing here needs a restart.
 
-### Pairs
+### Limit orders
+
+Prices come from limit orders. A limit order states what the solver takes in and what it pays out
+for that — "10,000 USDC in for 13,900,000 CNGN out" — and the rate and side of the book follow from
+those two amounts. An order is directional by construction: that one prices USDC → CNGN swaps and
+never the reverse, which needs its own order. Simplex posts each order to the HyperFX orderbook
+named in `config.orderbook`, and matches every incoming swap against all of its open orders. An
+order that matches nothing is not filled; there is no fallback price.
 
 ```ts lineNumbers
-simplex.pairs.list()
+// The pairs the orderbook lists, its dust floor per token, and the tokens it knows per chain.
+const { books, minOrderSizes, chains } = await simplex.limitOrders.books()
 
-// Pair 0 above is the same-token USDC/USDC market: ask-only, strictly
-// below par. Widen its spread to 10 bps.
-await simplex.pairs.setCurve(0, "ask", [{ amount: "0", price: "0.999" }])
-await simplex.pairs.setMaxOrderSize(0, "10000")
-
-// Open a cross-asset market — it lands at index 1.
-await simplex.pairs.add({
-    token0: "USDC",
-    token1: "CNGN",
-    maxOrderSize: "5000",
-    // Both curves are CNGN per USDC. Bid is the solver buying CNGN, so it
-    // wants more CNGN per USDC; ask is selling, so it wants to give fewer.
-    // An uncrossed book therefore has bid ABOVE ask — the gap is the spread.
-    bidPriceCurve: [{ amount: "0", price: "1550" }],
-    askPriceCurve: [{ amount: "0", price: "1545" }],
+const { order, result } = await simplex.limitOrders.create({
+    fillChain: "EVM-8453",
+    tokenIn: "USDC",
+    amountIn: "10000",        // whole tokens, as a decimal string
+    tokenOut: "CNGN",
+    amountOut: "13900000",
+    // Source chains whose swaps this order serves. Must not be empty.
+    acceptedSources: ["EVM-1", "EVM-42161", "EVM-8453"],
+    // Optional. Defaults to config.orderbook.defaultTtlSecs, or 365 days.
+    ttlSecs: 7 * 24 * 60 * 60,
 })
 
-// One-sided LP: stop buying CNGN, keep selling it.
-await simplex.pairs.clearCurve(1, "bid")
+if (result.kind === "rejected" || result.kind === "failed") {
+    console.warn(`${result.code}: ${result.message}`)
+}
+
+await simplex.limitOrders.list({ status: "open" })
+await simplex.limitOrders.withFills(order.id) // { order, fills, bids }
+await simplex.limitOrders.cancel(order.id)
 ```
 
-`setCurve` mutates the policy instance the engine prices with, so the new curve is live on the next
-evaluation. `pairs.remove(index)` closes a market; indices shift down, so remove from the highest
-index first if you are closing several. New pairs are validated against the same rules boot applies — a pair accepted here is
-one a restart would also accept.
+Amounts are whole tokens — `"1000"`, `"1500.25"` — whatever decimals the token uses on its own
+chain; anything with more than 18 decimal places is refused. The two symbols must be the two sides
+of a book the orderbook lists, in either orientation. `create` validates everything the orderbook
+would refuse for before storing anything: the fill chain must be one this solver is configured
+for, it and every accepted source must be chains the orderbook serves, the orderbook must list
+`tokenIn` on each source, the order must be over the orderbook's dust floor for `tokenOut`, and the
+TTL must meet the orderbook's minimum. The solver must also be EIP-7702 delegated on the fill chain,
+since the orderbook deletes an undelegated solver's orders; `create` sets delegation up if it can. It also refuses an order the
+solver cannot pay: what the wallet plus any configured vault holds of `tokenOut` on the fill chain
+must cover `amountOut`. Each order is checked against that whole balance, not what other orders
+leave of it, because the orderbook backs every entry with the same balance. Validation failures
+throw.
 
-Repricing from a market feed is the common case:
+The order is stored before it is posted, so a posting the orderbook refuses leaves a row carrying
+the reason (`status: "rejected"`, `lastError`) rather than a request that vanished. A same-asset
+order (`tokenIn === tokenOut`) has no book to sit on: it is stored and prices swaps locally, comes
+back as `{ kind: "unposted" }`, and must pay out no more than it takes in.
+
+A running order looks after itself. A fill draws it down by what was actually delivered and
+reposts the rest; once what is left falls under the orderbook's dust floor the order closes as
+`filled`. While anything is posted the solver heartbeats the orderbook, reconciles its postings
+against the orderbook's copy every `reconcileIntervalSecs`, and withdraws each order when its TTL
+runs out — nothing renews an order, so post a
+fresh one if you still want the depth. The operator-facing walkthrough is in
+[Limit orders](/developers/evm/simplex/limit-orders).
+
+Repricing from a market feed means replacing orders:
 
 ```ts lineNumbers
-// Pair 1 is the cross-asset market added above — two-sided, so both
-// curves apply. A same-token pair takes an ask curve only.
+let live: string | undefined
+
 feed.on("tick", async ({ mid }) => {
-    const bid = (mid * 1.001).toFixed(4)
-    const ask = (mid * 0.999).toFixed(4)
-    await simplex.pairs.setCurve(1, "bid", [{ amount: "0", price: bid }])
-    await simplex.pairs.setCurve(1, "ask", [{ amount: "0", price: ask }])
+    // mid is CNGN per USDC. Take 10,000 USDC in, pay out 0.1% under mid.
+    const out = (10_000 * mid * 0.999).toFixed(6)
+    if (live) await simplex.limitOrders.cancel(live)
+    const { order } = await simplex.limitOrders.create({
+        fillChain: "EVM-8453",
+        tokenIn: "USDC",
+        amountIn: "10000",
+        tokenOut: "CNGN",
+        amountOut: out,
+        acceptedSources: ["EVM-8453"],
+    })
+    live = order.id
 })
 ```
+
+### Markets
+
+`config.pairs` and `simplex.pairs` name the markets the dashboard lists, and a cross-asset pair's
+`token1` is added to the balances the solver tracks. They do not gate matching: the matcher reads the
+limit orders alone, so adding or removing a pair does not change what the solver fills. A config
+with no pairs is valid.
+
+```ts lineNumbers
+simplex.pairs.list() // [{ index, token0, token1, sameToken }]
+await simplex.pairs.add({ token0: "USDC", token1: "CNGN" })
+await simplex.pairs.remove(0)
+```
+
+`add` is validated against the same rules boot applies — no duplicate or reversed market, and every
+symbol must resolve on a configured chain. `remove` refuses the last pair; indices shift down, so
+remove from the highest index first if you are closing several.
 
 ### Chains
 
@@ -391,7 +447,9 @@ drains in-flight fills first, then stops scanning the chain.
 // Validate against chain state, change nothing.
 await simplex.vaults.preflight(vaults)
 await simplex.vaults.set(vaults)
-await simplex.vaults.sweepNow()
+// Reports what was deposited and, per vault, why nothing was — e.g. "deposits-closed"
+// when the wallet is over its threshold but the vault's maxDeposit is 0.
+const sweep = await simplex.vaults.sweepNow()
 await simplex.vaults.redeemAll()
 
 await simplex.assets.add({ BRZ: { "EVM-137": "0x…" } })
@@ -476,31 +534,25 @@ real fleet size the scanning, not the filling, is what exhausts an RPC quota.
 
 ### Singleton Scanners
 
-Build one `OrderScanner` and one `HyperbridgeScanner` and hand them to every solver that should
-share them. The scan runs once, and each solver receives every event:
+Build one `OrderScanner` and hand it to every solver that should share it. The scan runs once, and
+each solver receives every event:
 
 ```ts lineNumbers
-import { Simplex, OrderScanner, HyperbridgeScanner } from "@hyperbridge/simplex"
+import { Simplex, OrderScanner } from "@hyperbridge/simplex"
 
 const orders = await OrderScanner.create({ chains: config.chains })
-const hyperbridge = await HyperbridgeScanner.create(
-    config.simplex.hyperbridgeWsUrl,
-)
 
 const solverA = await Simplex.start({
     config: configA,
     orderScanner: orders,
-    hyperbridgeScanner: hyperbridge,
 })
 const solverB = await Simplex.start({
     config: configB,
     orderScanner: orders,
-    hyperbridgeScanner: hyperbridge,
 })
 
 // Yours to close, whenever both solvers are done with it.
 await orders.close()
-await hyperbridge.close()
 ```
 
 `chains` takes the same array as your config's, so it can be passed straight through. The scanner
@@ -515,17 +567,15 @@ const orders = await OrderScanner.create({
     scanIntervalSecs: 0.5,
 })
 ```
- Entries without a `chainId` have it read back from the first endpoint listed, which also proves
-that endpoint answers before a solver depends on it.
 
-`HyperbridgeScanner` carries phantom orders — the quote requests solvers respond to, which is how
-Hyperbridge indexes prices. One poll feeds every solver reading it.
+Entries without a `chainId` have it read back from the first endpoint listed, which also proves
+that endpoint answers before a solver depends on it.
 
 A scanner you build is yours. Solvers subscribe and unsubscribe; none of them closes it, and a
 solver's `stop()` leaves it running for whoever else is reading.
 
 <Callout type="info">
-    Omit both and a solver builds private scanners from its own config and closes them on `stop()`.
+    Omit it and a solver builds a private scanner from its own config and closes it on `stop()`.
     Nothing is ever shared implicitly — sharing is something you do on purpose.
 </Callout>
 
@@ -639,18 +689,16 @@ database, an API — before committing to a start:
 import {
     validateConfig,
     validatePairConfigs,
-    bookCrossedAt,
 } from "@hyperbridge/simplex"
 
 // Both throw with a descriptive message.
 validateConfig(config)
-validatePairConfigs(config.pairs!, config.assets, false)
-
-// A crossed book is legal but means a full round trip loses money —
-// worth warning on.
-const crossed = bookCrossedAt(pair.bidPriceCurve!, pair.askPriceCurve!)
-if (crossed) console.warn(`book crosses at ${crossed.amount}`)
+if (config.pairs?.length) validatePairConfigs(config.pairs, config.assets)
 ```
+
+`validateConfig` refuses a config with no `orderbook` section, and one whose `defaultTtlSecs` is
+under the orderbook's 900-second floor. Limit orders themselves are not config, so nothing here
+checks them — `simplex.limitOrders.create` does that against the live orderbook.
 
 ## API reference
 

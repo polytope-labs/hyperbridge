@@ -2,6 +2,9 @@ import type { Keyring } from "@polkadot/api"
 
 type KeyringPair = ReturnType<Keyring["addFromUri"]>
 
+/** SS58 prefix used by Polkadot's unified account format across the ecosystem. */
+export const POLKADOT_UNIFIED_SS58_PREFIX = 0
+
 /**
  * Derives an sr25519 keypair from any of the accepted substratePrivateKey forms:
  * a `//Uri` derivation path, a mnemonic phrase, or a hex seed (with or without 0x).
@@ -12,7 +15,10 @@ export async function deriveSubstrateKeyPair(key: string): Promise<KeyringPair> 
 	const { cryptoWaitReady } = await import("@polkadot/util-crypto")
 	await cryptoWaitReady()
 
-	const keyring = new Keyring({ type: "sr25519" })
+	const keyring = new Keyring({
+		type: "sr25519",
+		ss58Format: POLKADOT_UNIFIED_SS58_PREFIX,
+	})
 	if (key.startsWith("//")) {
 		return keyring.addFromUri(key)
 	}

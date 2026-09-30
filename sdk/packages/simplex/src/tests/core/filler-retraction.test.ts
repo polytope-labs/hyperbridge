@@ -26,9 +26,12 @@ const COMMITMENT = "0x4380111111111111111111111111111111111111111111111111111111
 const OUR_ADDRESS = "0xAAAA00000000000000000000000000000000AAAA" as HexString
 const OTHER_FILLER = "0xBBBB00000000000000000000000000000000BBBB"
 const HOUR_MS = 60 * 60 * 1000
+/** The identifier Hyperbridge files our bid under, keccak256 of its calldata, recorded at placement. */
+const OUR_BID = `0x${"b1".repeat(32)}` as HexString
+const OUR_OTHER_BID = `0x${"b2".repeat(32)}` as HexString
 
 describe("IntentFiller bid retraction", () => {
-	function build(results: BidSubmissionResult[]) {
+	function build(results: BidSubmissionResult[], rebalancingService?: { rebalancePortfolio(): Promise<unknown> }) {
 		const bidStorage = new MemoryDataStore().bids
 
 		const retractBid = vi.fn(async (): Promise<BidSubmissionResult> => {
@@ -51,9 +54,11 @@ describe("IntentFiller bid retraction", () => {
 			{} as any, // ContractInteractionService — unused on the retraction path
 			{ address: OUR_ADDRESS } as any,
 			{ orders: stubOrderScanner() },
-			undefined,
+			rebalancingService as any,
 			bidStorage,
 		)
+		// Retraction names each bid by the identifier recorded when it was placed; nothing is read
+		// back from Hyperbridge.
 		;(filler as any).hyperbridge = Promise.resolve({ retractBid })
 
 		return { filler, bidStorage, retractBid }
@@ -72,21 +77,23 @@ describe("IntentFiller bid retraction", () => {
 		const { filler, bidStorage, retractBid } = build([
 			{ success: true, extrinsicHash: "0xretract" as HexString, blockHash: "0xblock" as HexString },
 		])
-		await bidStorage.store({ commitment: COMMITMENT, success: true })
+		await bidStorage.store({ commitment: COMMITMENT, bid: OUR_BID, success: true })
 
 		await orderFilled(filler, COMMITMENT)
 
 		const bid = await bidStorage.byCommitment(COMMITMENT)
 		expect(bid!.retracted).toBe(true)
 		expect(bid!.retractExtrinsicHash).toBe("0xretract")
+		// Our own bid, under the identifier it holds, and nobody else's.
 		expect(retractBid).toHaveBeenCalledTimes(1)
+		expect(retractBid).toHaveBeenCalledWith(COMMITMENT, OUR_BID)
 	})
 
 	it("treats BidNotFound as terminal: marks retracted so the sweep never re-attempts", async () => {
 		const { filler, bidStorage, retractBid } = build([
 			{ success: false, error: "Dispatch error: intentsCoprocessor::BidNotFound" },
 		])
-		await bidStorage.store({ commitment: COMMITMENT, success: true })
+		await bidStorage.store({ commitment: COMMITMENT, bid: OUR_BID, success: true })
 
 		await orderFilled(filler, COMMITMENT)
 
@@ -106,7 +113,7 @@ describe("IntentFiller bid retraction", () => {
 			},
 			{ success: false, error: "Dispatch error: intentsCoprocessor::BidNotFound" },
 		])
-		await bidStorage.store({ commitment: COMMITMENT, success: true })
+		await bidStorage.store({ commitment: COMMITMENT, bid: OUR_BID, success: true })
 
 		await orderFilled(filler, COMMITMENT)
 
@@ -128,7 +135,7 @@ describe("IntentFiller bid retraction", () => {
 
 	it("marks the bid dead on OrderFilled so a failed retraction retries next sweep, not after the TTL", async () => {
 		const { filler, bidStorage } = build([{ success: false, error: "Transaction failed after 3 attempts" }])
-		await bidStorage.store({ commitment: COMMITMENT, success: true })
+		await bidStorage.store({ commitment: COMMITMENT, bid: OUR_BID, success: true })
 
 		await orderFilled(filler, COMMITMENT)
 
@@ -143,7 +150,7 @@ describe("IntentFiller bid retraction", () => {
 		const { filler, bidStorage, retractBid } = build([
 			{ success: true, extrinsicHash: "0xretract" as HexString, blockHash: "0xblock" as HexString },
 		])
-		await bidStorage.store({ commitment: COMMITMENT, success: true })
+		await bidStorage.store({ commitment: COMMITMENT, bid: OUR_BID, success: true })
 
 		// OrderFilled and a sweep race to enqueue the same commitment.
 		;(filler as any).handleOrderFilledOnChain(COMMITMENT, OTHER_FILLER, 8453)
@@ -152,5 +159,140 @@ describe("IntentFiller bid retraction", () => {
 
 		expect((await bidStorage.byCommitment(COMMITMENT))!.retracted).toBe(true)
 		expect(retractBid).toHaveBeenCalledTimes(1)
+	})
+
+	it("retracts a bid still in the pool by the identifier it was placed under", async () => {
+		// Its place_bid has not landed, so Hyperbridge's storage does not hold it yet. The
+		// retraction names it from the row regardless, goes out after it from the same account, and
+		// so reclaims its deposit once it lands, instead of marking it retracted and abandoning it.
+		const { filler, bidStorage, retractBid } = build([
+			{ success: true, extrinsicHash: "0xretract" as HexString, blockHash: "0xblock" as HexString },
+		])
+		await bidStorage.store({ commitment: COMMITMENT, bid: OUR_BID, success: false, pending: true })
+
+		await orderFilled(filler, COMMITMENT)
+
+		expect(retractBid).toHaveBeenCalledWith(COMMITMENT, OUR_BID)
+		expect((await bidStorage.byCommitment(COMMITMENT))!.retractExtrinsicHash).toBe("0xretract")
+	})
+
+	it("retracts every bid placed on the commitment, past one already gone", async () => {
+		const { filler, bidStorage, retractBid } = build([
+			{ success: false, error: "Dispatch error: intentsCoprocessor::BidNotFound" },
+			{ success: true, extrinsicHash: "0xretract" as HexString, blockHash: "0xblock" as HexString },
+		])
+		await bidStorage.store({ commitment: COMMITMENT, bid: OUR_BID, success: true })
+		await bidStorage.store({ commitment: COMMITMENT, bid: OUR_OTHER_BID, success: true })
+
+		await orderFilled(filler, COMMITMENT)
+
+		expect(retractBid.mock.calls.map((call) => (call as unknown[])[1]).sort()).toEqual([OUR_BID, OUR_OTHER_BID])
+		expect((await bidStorage.byCommitment(COMMITMENT))!.retracted).toBe(true)
+	})
+
+	it("marks a bid with no recorded identifier retracted without calling Hyperbridge", async () => {
+		// A row from before bids carried an identifier names nothing the current calls can retract.
+		const { filler, bidStorage, retractBid } = build([])
+		await bidStorage.store({ commitment: COMMITMENT, success: true })
+
+		await orderFilled(filler, COMMITMENT)
+
+		expect(retractBid).not.toHaveBeenCalled()
+		expect((await bidStorage.byCommitment(COMMITMENT))!.retracted).toBe(true)
+	})
+
+	it("reports work that stop drains without counting unmatched pending retractions", () => {
+		const { filler } = build([])
+		;(filler as any).globalQueue = { size: 2, pending: 1 }
+		;(filler as any).chainQueues = new Map([
+			[1, { size: 3, pending: 1 }],
+			[2, { size: 4, pending: 2 }],
+		])
+		;(filler as any).pendingRetractions = new Set([COMMITMENT])
+		;(filler as any).retractionQueue = { size: 5, pending: 1 }
+
+		expect(filler.getWorkSnapshot()).toEqual({
+			queuedEvaluations: 2,
+			evaluating: 1,
+			queuedFills: 7,
+			activeFills: 3,
+			retractions: 6,
+			rebalancing: 0,
+		})
+	})
+
+	it("reports and drains a rebalance already in flight before stopping", async () => {
+		vi.useFakeTimers()
+		let finishRebalance!: (value: { success: boolean; transfers: never[]; executedTransfers: never[] }) => void
+		const rebalancePortfolio = vi.fn(
+			() =>
+				new Promise<{ success: boolean; transfers: never[]; executedTransfers: never[] }>((resolve) => {
+					finishRebalance = resolve
+				}),
+		)
+		const { filler } = build([], { rebalancePortfolio })
+		try {
+			filler.start()
+			await vi.advanceTimersByTimeAsync(30_000)
+			expect(rebalancePortfolio).toHaveBeenCalledOnce()
+			expect(filler.getWorkSnapshot().rebalancing).toBe(1)
+
+			let stopped = false
+			const stop = filler.stop().then(() => {
+				stopped = true
+			})
+			await Promise.resolve()
+			expect(stopped).toBe(false)
+
+			finishRebalance({ success: true, transfers: [], executedTransfers: [] })
+			await stop
+			expect(filler.getWorkSnapshot().rebalancing).toBe(0)
+		} finally {
+			vi.useRealTimers()
+		}
+	})
+
+	describe("a rival's fill", () => {
+		async function observe(filler: IntentFiller, complete: boolean): Promise<void> {
+			;(filler as any).monitor.emit("orderFillObserved", {
+				commitment: COMMITMENT,
+				filler: OTHER_FILLER,
+				chainId: 8453,
+				ours: false,
+				complete,
+			})
+			// The listener reads the bid store before anything is enqueued; let it get there.
+			await new Promise((resolve) => setTimeout(resolve, 0))
+			await (filler as any).retractionQueue.onIdle()
+		}
+
+		it("retracts our bid once a rival completes the order", async () => {
+			const { filler, bidStorage, retractBid } = build([{ success: true, extrinsicHash: "0x01" as HexString }])
+			await bidStorage.store({ commitment: COMMITMENT, bid: OUR_BID, success: true })
+
+			await observe(filler, true)
+
+			expect(retractBid).toHaveBeenCalledTimes(1)
+			expect((await bidStorage.byCommitment(COMMITMENT))!.retracted).toBe(true)
+		})
+
+		it("leaves our bid standing after a rival's partial fill, which it may still complete", async () => {
+			const { filler, bidStorage, retractBid } = build([])
+			await bidStorage.store({ commitment: COMMITMENT, bid: OUR_BID, success: true })
+
+			await observe(filler, false)
+
+			expect(retractBid).not.toHaveBeenCalled()
+			expect((await bidStorage.byCommitment(COMMITMENT))!.retracted).toBe(false)
+		})
+
+		it("does nothing for an order we never bid on", async () => {
+			const { filler, retractBid } = build([])
+
+			await observe(filler, true)
+
+			expect(retractBid).not.toHaveBeenCalled()
+			expect((filler as any).pendingRetractions.size).toBe(0)
+		})
 	})
 })

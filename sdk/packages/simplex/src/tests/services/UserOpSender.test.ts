@@ -4,15 +4,15 @@ import type { HexString } from "@hyperbridge/sdk"
 
 import { UserOpSender, type Eip7702Authorization } from "@/services/UserOpSender"
 import { buildPaymasterAndData } from "@/services/paymaster"
-import { packPaymasterAndData, VERIFICATION_GAS_LIMIT_APPROVE, POST_OP_GAS_LIMIT_SIMPLEX } from "@/services/paymaster/types"
+import { packPaymasterAndData, VERIFICATION_GAS_LIMIT_PERMIT2, POST_OP_GAS_LIMIT_SIMPLEX } from "@/services/paymaster/types"
 import type { ChainClientManager } from "@/services/ChainClientManager"
 import type { FillerConfigService } from "@/services/FillerConfigService"
 import type { Signer } from "@/services/wallet"
 
 /**
- * Regression tests for the approve-mode nonce race (#1070): building Simplex
- * paymaster data can send an on-chain `approve` from the authority EOA. An
- * EIP-7702 authorization signed *before* that tx embeds the pre-approve nonce,
+ * Regression tests for the bootstrap-approve nonce race: building Simplex
+ * paymaster data can send an on-chain `approve(Permit2, max)` from the authority
+ * EOA. An EIP-7702 authorization signed *before* that tx embeds the pre-approve nonce,
  * so the bundler rejects the op ("EIP-7702 nonce mismatch"). The sender must
  * therefore resolve the authorization factory only after paymaster data is
  * built — and treat any preparation failure as "never submitted" (null).
@@ -56,10 +56,10 @@ const signer = {
 	signTypedData: async () => ("0x" + "11".repeat(65)) as HexString,
 } as unknown as Signer
 
-const approveModePaymasterAndData = packPaymasterAndData({
+const permit2ModePaymasterAndData = packPaymasterAndData({
 	paymaster: PAYMASTER,
-	paymasterData: "0x01" as HexString,
-	paymasterVerificationGasLimit: VERIFICATION_GAS_LIMIT_APPROVE,
+	paymasterData: "0x02" as HexString,
+	paymasterVerificationGasLimit: VERIFICATION_GAS_LIMIT_PERMIT2,
 	paymasterPostOpGasLimit: POST_OP_GAS_LIMIT_SIMPLEX,
 })
 
@@ -93,11 +93,11 @@ afterEach(() => {
 describe("UserOpSender EIP-7702 authorization ordering", () => {
 	it("signs the authorization after paymaster data is built, so the approve tx nonce is reflected", async () => {
 		// Simulates the BSC incident: the EOA starts at nonce 0, and building
-		// approve-mode paymaster data mines an approve tx that bumps it to 1.
+		// the Permit2 bootstrap approve mines a tx that bumps it to 1.
 		let eoaNonce = 0
 		vi.mocked(buildPaymasterAndData).mockImplementation(async () => {
 			eoaNonce += 1
-			return { paymasterAndData: approveModePaymasterAndData, type: "simplex", address: PAYMASTER, token: TOKEN }
+			return { paymasterAndData: permit2ModePaymasterAndData, type: "simplex", address: PAYMASTER, token: TOKEN }
 		})
 
 		// Mirrors DelegationService.buildAuthorization: reads the nonce at signing time.

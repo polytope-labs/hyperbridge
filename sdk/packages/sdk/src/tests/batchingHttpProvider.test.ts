@@ -6,10 +6,9 @@ import { TokenBucket } from "@/utils/rateLimiter"
 
 /**
  * The endpoint's limit is counted in HTTP requests, and the reads this SDK makes arrive as bursts of
- * concurrent calls — one offchain read per configured chain on a phantom order interval, one block
- * hash per block in a scan. JSON-RPC 2.0 lets a burst travel as one request. These pin that it does,
- * that a lone call is still sent the way the base provider sends it, and that a server which refuses
- * batches costs correctness nothing.
+ * concurrent calls, such as one offchain read per bid when fetching an order's bids. JSON-RPC 2.0
+ * lets a burst travel as one request. These pin that it does, that a lone call is still sent the
+ * way the base provider sends it, and that a server which refuses batches costs correctness nothing.
  */
 
 /** One HTTP request as the node saw it: the parsed body, and whether it was an array. */
@@ -249,8 +248,7 @@ describe("BatchingHttpProvider", () => {
 
 	it("reports a call's own error without failing the rest of the batch", async () => {
 		const url = await start({
-			errorFor: (call) =>
-				call.method === "bad" ? { code: -32601, message: "Method not found" } : undefined,
+			errorFor: (call) => (call.method === "bad" ? { code: -32601, message: "Method not found" } : undefined),
 		})
 		provider = new BatchingHttpProvider(url, {}, openBucket())
 

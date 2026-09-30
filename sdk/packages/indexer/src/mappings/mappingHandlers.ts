@@ -8,21 +8,22 @@ export { handleStateMachineUpdatedEvent } from "@/handlers/events/evmHost/stateM
 
 export { handleGetRequestEvent } from "@/handlers/events/evmHost/getRequest.event.handler"
 export { handleGetRequestHandledEvent } from "@/handlers/events/evmHost/getRequestHandled.event.handler"
-export { handleGetRequestTimeoutHandled } from "@/handlers/events/evmHost/getRequestTimeoutHandled.event.handler"
+export { handleGetRequestTimeoutHandledEvent } from "@/handlers/events/evmHost/getRequestTimeoutHandled.event.handler"
 
 // Intent Gateway V3 Handlers
 export { handleOrderPlacedEventV3 } from "@/handlers/events/intentGatewayV3/orderPlacedV3.event.handler"
 export { handleOrderFilledEventV3 } from "@/handlers/events/intentGatewayV3/orderFilledV3.event.handler"
 export { handlePartialFilledEventV3 } from "@/handlers/events/intentGatewayV3/partialFilledV3.event.handler"
 export { handleEscrowReleasedEventV3 } from "@/handlers/events/intentGatewayV3/escrowReleasedV3.event.handler"
+export { handleEscrowReleasedEventV3Legacy } from "@/handlers/events/intentGatewayV3/escrowReleasedV3Legacy.event.handler"
 export { handleEscrowRefundedEventV3 } from "@/handlers/events/intentGatewayV3/escrowRefundedV3.event.handler"
+export { handleProtocolFeeRefundedEventV3 } from "@/handlers/events/intentGatewayV3/protocolFeeRefunded.event.handler"
+export { handleOrderCancelledEventV3 } from "@/handlers/events/intentGatewayV3/orderCancelledV3.event.handler"
 export { handleDustCollectedEventV3 } from "@/handlers/events/intentGatewayV3/dustCollected.event.handler"
 export { handleDustSweptEventV3 } from "@/handlers/events/intentGatewayV3/dustSwept.event.handler"
 
 // Substrate Chains Handlers
 export { handleIsmpStateMachineUpdatedEvent } from "@/handlers/events/substrateChains/handleIsmpStateMachineUpdatedEvent.handler"
-export { handlePhantomOrderRegistered } from "@/handlers/events/substrateChains/handlePhantomOrderRegistered.handler"
-export { handlePhantomOrderPrices } from "@/handlers/events/substrateChains/handlePhantomOrderPrices.handler"
 export { handleBidPlaced } from "@/handlers/events/substrateChains/handleBidPlaced.handler"
 export { handleSubstratePostRequestTimeoutHandledEvent } from "@/handlers/events/substrateChains/handlePostRequestTimeoutHandledEvent.handler"
 export { handleSubstrateRequestEvent } from "@/handlers/events/substrateChains/handleRequestEvent.handler"
@@ -32,8 +33,12 @@ export { handleSubstrateGetRequestHandledEvent } from "@/handlers/events/substra
 export { handleSubstrateGetRequestTimeoutHandledEvent } from "@/handlers/events/substrateChains/handleGetRequestTimeoutHandledEvent.handler"
 
 // Price Handlers
-export { handlePriceIndexing } from "@/handlers/events/price/handlePriceIndexing.event.handler"
 export { handleBridgeTokenSupplyIndexing } from "@/handlers/events/supply/handleBridgeTokenSupplyIndexing.event.handler"
+
+// Solver Inventory Handlers
+export { handleSolverTokenTransferEvent } from "@/handlers/events/solverInventory/tokenTransfer.event.handler"
+export { handleSolverInventoryBlock } from "@/handlers/events/solverInventory/inventory.block.handler"
+export { handleSolverWatchlistPoll } from "@/handlers/events/solverInventory/watchlistPoll.block.handler"
 
 // Pending Status Flush Handler
 export { handlePendingStatusFlush } from "@/handlers/events/pendingStatus/handlePendingStatusFlush.event.handler"
@@ -42,6 +47,7 @@ export { handlePendingStatusFlushEvm } from "@/handlers/events/pendingStatus/han
 // Yield Vault Handlers
 export { handleVaultDepositEvent } from "@/handlers/events/yieldVault/deposit.event.handler"
 export { handleVaultWithdrawEvent } from "@/handlers/events/yieldVault/withdraw.event.handler"
+export { handleVaultTransferEvent } from "@/handlers/events/yieldVault/transfer.event.handler"
 export { handleVaultSnapshotIndexing } from "@/handlers/events/yieldVault/snapshot.block.handler"
 
 export { handleRelayerRewardedEvent } from "@/handlers/events/incentives/relayerRewarded.event.handler"

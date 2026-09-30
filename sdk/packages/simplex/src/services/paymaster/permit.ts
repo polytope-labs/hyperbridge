@@ -1,11 +1,17 @@
 import { maxUint256, getContract, type PublicClient } from "viem"
 import type { HexString } from "@hyperbridge/sdk"
 import { EIP2612_ABI } from "@/config/abis/EIP2612"
+import { normalizeSignature65 } from "./permit2"
 import type { Signer } from "@/services/wallet/types"
 
 /**
- * Signs an EIP-2612 permit for USDC, granting a spending allowance to the
- * Circle Paymaster via off-chain signature rather than an on-chain approve.
+ * Signs an EIP-2612 permit granting `spender` an allowance via off-chain signature
+ * rather than an on-chain approve.
+ *
+ * Simplex signs one of these only to bootstrap a chain: a first-time delegation on an
+ * account with no Permit2 allowance yet. Every other sponsored op authorizes through
+ * Permit2, whose unordered-bitmap nonces let concurrent ops proceed without sharing
+ * the single sequential counter this signs against — see {@link signPermit2Transfer}.
  *
  * Uses `deadline = maxUint256` because paymaster contracts cannot access
  * `block.timestamp` due to ERC-4337 opcode restrictions.
@@ -63,5 +69,8 @@ export async function signEip2612Permit(
 		},
 	}
 
-	return signer.signTypedData(typedData)
+	// Same normalization the Permit2 signer applies: a backend may return a 64-byte EIP-2098
+	// compact signature or v in {0,1}, and `buildPermitMode` splits v straight out of the hex
+	// for a contract that expects {27,28}. A correct 65-byte signature passes through unchanged.
+	return normalizeSignature65(await signer.signTypedData(typedData))
 }

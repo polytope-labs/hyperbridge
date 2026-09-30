@@ -1,0 +1,242 @@
+---
+title: Limit orders
+description: Set Simplex's prices by posting limit orders to the HyperFX orderbook, then watch them fill, resize and close from the dashboard.
+---
+
+# Limit orders
+
+Simplex has no prices of its own. You set them by posting **limit orders**. Each one is a standing offer: _on this chain, I will pay out up to this much of one token, at this rate, for another token_. Simplex advertises every open order on the [HyperFX orderbook](https://hyperfx.finance), where swappers are quoted against it. It fills an incoming swap only when one of your orders covers it. If none does, it has no fallback price and the swap is skipped.
+
+A limit order goes in one direction. An order that sells USDC for cNGN prices cNGN-to-USDC swaps only, and is never turned around to buy USDC at the inverse rate. To make a two-sided market, post one order on each side. You can hold as many orders as you like, across any pairs and chains.
+
+Limit orders live in the solver's database (`bids.db` in the data directory), not in `filler-config.toml`. You create and cancel them while the filler runs, and they survive restarts.
+
+<Callout type="info">
+    This guide uses the [dashboard](/developers/evm/simplex/dashboard). To manage limit orders from a
+    script or a pricing bot instead, use the [limit orders API](/developers/evm/simplex/api/limit-orders).
+</Callout>
+
+## Before you start
+
+- The filler is running, and its `[orderbook]` section points at the orderbook for your network. The setup wizard writes this section for you. See [Configuration](/developers/evm/simplex/configuration#orderbook).
+- The chain you want to fill on holds the token the order pays out. Simplex refuses an order that the wallet and the [treasury vaults](/developers/evm/simplex/treasury) on that chain cannot cover.
+
+Limit orders are on the **Overview** page of the [dashboard](/developers/evm/simplex/dashboard), under **Pricing**, below the balances.
+
+<figure style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+
+![The Limit orders list on the Overview page, with live orders above and closed orders below](./images/limit-orders-list.png)
+
+<figcaption>Live orders sit at the top and closed ones under their own heading. Each row shows the side, what is left, the rate, the token taken in, the fill chain and the status.</figcaption>
+</figure>
+
+## Creating a limit order
+
+Click **New limit order**. The form asks for a pair, a side, an amount and a rate. Simplex works out both token amounts from those, so you never do the arithmetic yourself.
+
+<Steps>
+<Step>
+### Choose the pair
+
+The **Pair** menu lists only the books the orderbook keeps, such as `USDC / cNGN` and `USDT / cNGN`. The orderbook refuses any other pair. Every book is quoted as _quote per base_. For `USDC / cNGN`, USDC is the base and cNGN is the quote.
+
+<figure style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+
+![The New limit order form with the Pair menu open, listing USDC / cNGN and USDT / cNGN](./images/limit-order-pair.png)
+
+<figcaption>Only the orderbook's own books can be picked.</figcaption>
+</figure>
+</Step>
+
+<Step>
+### Pick a side, then state the amount and rate
+
+The side is always relative to the book's base:
+
+| Side | Simplex takes in | Simplex pays out | Fills swaps from |
+|---|---|---|---|
+| **Buy USDC** | USDC | cNGN | USDC to cNGN |
+| **Sell USDC** | cNGN | USDC | cNGN to USDC |
+
+**Amount** is how much of the paid-out token the order offers: cNGN when buying, USDC when selling. The label beside it shows how much of that token is held across the chains selected under **Fills on**. **Max** fills in the whole balance.
+
+**Rate** is in quote per base, such as `1,550` cNGN per USDC. A higher rate works in your favour when you sell the base, and a lower rate when you buy it. Keep your sell rate above your buy rate. The gap between them is your spread.
+
+When both fields are filled in, the line below them shows the two amounts the order will be posted with. The amount taken in is rounded up, so the posted order never gives the swapper a better price than the rate you entered.
+
+<figure style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+
+![Sell USDC selected with an amount of 5,000 and a rate of 1,550, and a summary line saying the order takes in 7,750,000 cNGN and pays out 5,000 USDC](./images/limit-order-terms.png)
+
+<figcaption>Selling 5,000 USDC at 1,550 cNGN per USDC takes in 7,750,000 cNGN.</figcaption>
+</figure>
+
+Changing the pair or the side clears the amount, because the amount is in whichever token is paid out.
+</Step>
+
+<Step>
+### Choose which source chains to accept
+
+**Accepts swaps from** lists the chains a swap may start on. By default, every chain the filler watches is selected, except those where the orderbook does not list the token being taken in. In the example above, Arbitrum is not offered, because the orderbook does not list cNGN on Arbitrum. A swap that starts on the fill chain itself is always accepted. At least one chain must be selected.
+
+<figure style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+
+![The Accepts swaps from menu open with Ethereum, BNB Chain, Polygon and Base selected](./images/limit-order-sources.png)
+
+<figcaption>Deselect a source chain to stop taking cross-chain swaps from it.</figcaption>
+</figure>
+</Step>
+
+<Step>
+### Choose the fill chains
+
+**Fills on** is where Simplex pays out. The menu shows how much of the paid-out token each chain holds. By default, every chain holding some of that token is selected.
+
+<figure style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+
+![The Fills on menu open, showing each chain's USDC balance](./images/limit-order-fill-chains.png)
+
+<figcaption>Each chain shows its balance of the token the order pays out.</figcaption>
+</figure>
+
+An order pays out on one chain only. If you select several chains, the form posts **one order per chain**, each with the full amount, and the button changes to **Post N limit orders**. To offer 5,000 USDC in total instead of 5,000 on each chain, select one chain, or post separate smaller orders.
+
+<figure style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+
+![The completed form filling on Base only, with the Post limit order button enabled](./images/limit-order-ready.png)
+
+<figcaption>One fill chain means one order. The summary line and the button both reflect that.</figcaption>
+</figure>
+</Step>
+
+<Step>
+### Post it
+
+Click **Post limit order**. Simplex checks the order before storing it:
+
+- **The chain can pay it out.** The wallet balance plus the treasury vault positions for that token on the fill chain must cover the amount. The check uses the whole balance, not whatever is left after your other orders. One balance backs every order that rests on it, and the orderbook advertises each order at the lower of its size and your balance. Whichever order fills first reduces what the others can offer.
+- **It is above the dust floor.** The orderbook has a minimum size for each token. An amount below it is refused, with the minimum named in the error.
+- **The pair, tokens and chains are ones the orderbook serves.** The orderbook must list the token being taken in on every accepted source chain.
+- **The solver account is delegated on the fill chain.** If it is not, Simplex sets up the delegation first and refuses the order only if that fails.
+
+If any check fails, the form shows why and nothing is posted. If you are posting to several chains and one fails partway through, the form tells you which chains succeeded and deselects them, so that retrying does not post them again.
+
+The new order appears in the list straight away. It shows **Posting** until the orderbook accepts it, then **On the book**.
+
+<figure style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+
+![The Limit orders list with the new 5,000 USDC sell order at the top, on the book](./images/limit-orders-posted.png)
+
+<figcaption>The new order at the top of the live list, on the book on Base.</figcaption>
+</figure>
+</Step>
+</Steps>
+
+An order created from the dashboard lives for `[orderbook] defaultTtlSecs`, which is one year by default. That is its whole life: nothing renews it. When it runs out, Simplex withdraws the order and marks it **Expired**. Post a new one if you still want to offer that depth.
+
+## Managing limit orders
+
+### Reading the list
+
+The list refreshes every 10 seconds, because orders fill, resize and expire without you doing anything. Each row reads as the offer it makes, such as `7,520 USDC left at 1,545 cNGN per USDC`, followed by the token taken in and the fill chain. The **Buy** or **Sell** tag is green or red, so you can see the side at a glance.
+
+The status badge shows whether the order is actually working:
+
+| Badge | Meaning |
+|---|---|
+| **On the book** (green) | Posted and live on the orderbook. |
+| **Posting** (amber) | Stored, but the orderbook has not accepted it yet. |
+| **On the book** (amber) | Still open, but the last posting or check reported a problem. Open the order to see the reason. Simplex retries on its next cycle. |
+| **Resizing** (amber) | A fill is being settled and the order is being reposted at its new size. |
+| **Filled** | Everything has been paid out. If an order is closed with a small amount left, that amount was below the orderbook's dust floor. |
+| **Cancelled** | You cancelled it. |
+| **Expired** | Its TTL ran out. |
+| **Refused** | The orderbook rejected the posting. The reason is shown on the order. |
+
+An amber **On the book** that reads `UNDER_FUNDED` means your balance no longer covers the order, so the orderbook is advertising less than the order's size. Top up the fill chain or cancel the order. Reposting it would only get it cut down again.
+
+### Opening an order
+
+Click a row to see its details and the fills that drew it down.
+
+<figure style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+
+![A limit order's detail panel: status, side, rate, 7,520 USDC left of 10,000, held by live bids, takes in, accepted sources, and three fills with transaction links](./images/limit-order-detail.png)
+
+<figcaption>The fills explain why an order has shrunk: 10,000 USDC less 2,480 paid out across three fills leaves 7,520.</figcaption>
+</figure>
+
+| Field | What it shows |
+|---|---|
+| **Rate** | The rate you set, in quote per base. |
+| **Pays out** | What is left of the order, out of its original size. |
+| **Held by live bids** | Output promised to bids that have neither filled nor been retracted. |
+| **Takes in** | The input token, and the chain the order fills on. |
+| **Accepts swaps from** | The source chains the order accepts. |
+| **Fills** | Each fill: when it happened, how much it paid out, and a link to the transaction on the fill chain's explorer. |
+
+**Refresh** reloads the details. If the orderbook refused the last posting, the error appears above the fills.
+
+### Cancelling an order
+
+Open the order and click **Cancel order**. Simplex withdraws the order from the orderbook and moves it under **Closed**. Bids already placed against it can still settle. Cancelling stops new bids, not ones already in flight.
+
+<figure style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+
+![The Limit orders list after cancelling: the 7,520 USDC order now appears under Closed as Cancelled](./images/limit-orders-closed.png)
+
+<figcaption>The cancelled order moves to the Closed list and keeps its history.</figcaption>
+</figure>
+
+You cannot edit an order. To change its rate or size, cancel it and post a new one.
+
+## How orders are matched and filled
+
+When a swap arrives, Simplex checks it against every open limit order. An order can serve the swap only if all of these are true:
+
+1. It fills on the swap's destination chain.
+2. It takes in the token the swapper is paying, and pays out the token they want.
+3. For a cross-chain swap, the source chain is one the order accepts.
+4. At its rate, the order would pay at least what the swapper asked for.
+5. It has something left to pay out.
+
+**No match, no fill.** When no order serves a swap, the log explains why at `info` level: `No limit order matches this order`, with a `reason` naming the check that the closest order failed. That might be no open orders, the wrong destination chain, the wrong tokens, a source chain not accepted, the rate (`it asks for X; the best limit order offers Y`), or depth.
+
+**Simplex bids at your rate.** Each bid offers everything the order would pay for the swapper's input at its rate, capped at what the order has left. The gateway credits the swapper what they asked for, and splits anything above that between the swapper and the protocol. A better rate therefore reaches the swapper, and bids from competing solvers are ranked by price. Your margin is the rate you set.
+
+**Several orders can fill one swap.** If more than one order can serve a swap, Simplex sends one bid per order, best rate first. The IntentGateway clamps each fill to what the swap still needs, so the swap is never paid out twice. If the best order cannot cover the whole swap, the others can supply the rest.
+
+**Every bid must still be profitable.** Rate is not the only test. A matched order is also skipped when any of the following is true:
+
+- `order.fees` do not cover the fill's gas, plus the relayer fee for a cross-chain fill. The relayer fee pays for delivering the escrow-release message back to the source chain, roughly 1M gas priced on that chain. Your rate's margin never counts toward this.
+- A same-asset transfer, such as USDC to USDC across chains, would not leave the solver with more of the asset than it sent.
+- The wallet on the fill chain cannot cover the payout and the dispatch fee, even after withdrawing from [treasury vaults](/developers/evm/simplex/treasury).
+
+The log names which check failed: `No profitable strategy found for order` means the order was priced, but at a loss.
+
+**Partial fills.** If your matching orders cannot cover a whole swap, Simplex fills what they can. The gateway releases escrow in proportion to the output delivered. This works for same-chain and cross-chain orders. A partial fill collects no `order.fees`, because those go only to whoever completes the order, so partial fills are exempt from the fee check. Your rate's margin pays for their gas. Two kinds of order are never partially filled: orders carrying output calldata, which the gateway runs only on a full fill, and orders another solver has already partially filled.
+
+**Multi-leg orders** are priced leg by leg. A bid on only some of the legs is a partial fill, with the same limits.
+
+**A fill resizes the order.** When a fill lands, Simplex reduces the order by what was actually delivered, releases whatever that bid was holding, and reposts the order at its new size. When what is left drops below the orderbook's dust floor, the order closes as **Filled**.
+
+**A pending bid does not block the next one.** Each bid holds its payout against its order until it settles. The next bid is still sized from the order's full remaining amount. So if several pending bids win at once, fills can briefly pay out more than the order's size, up to what the wallet holds.
+
+<Callout type="info">
+    Simplex keeps the orderbook in sync on its own. It sends heartbeats so your postings stay live, withdraws expired orders every 30 seconds, and reconciles against the orderbook every `reconcileIntervalSecs` (5 minutes by default). Reconciliation reposts any order the orderbook has lost and cancels any entry that no longer has an order. If the orderbook is unreachable when Simplex starts, filling still works, because Simplex prices from its local copy of your orders.
+</Callout>
+
+## Example: a two-sided USDC/cNGN market
+
+To buy and sell cNGN on Base with a 30 cNGN spread, post two orders:
+
+| Order | Side | Amount | Rate | Result |
+|---|---|---|---|---|
+| 1 | **Sell USDC** | 10,000 (USDC) | 1,545 | Pays up to 10,000 USDC to swappers selling cNGN, taking 1,545 cNGN per USDC. |
+| 2 | **Buy USDC** | 15,000,000 (cNGN) | 1,515 | Pays up to 15,000,000 cNGN to swappers selling USDC, at 1,515 cNGN per USDC. |
+
+Filling both sides in equal volume earns 30 cNGN per USDC. To lean into one side, post only that order, or give the other one less depth. That is the equivalent of a one-sided LP.
+
+## Scripting limit orders
+
+Everything above can also be done without the dashboard, over the solver's HTTP API. This is useful for scripts, scheduled jobs and pricing bots. The [limit orders API reference](/developers/evm/simplex/api/limit-orders) covers each call, with a repricing script and the same-asset orders only the API can create.

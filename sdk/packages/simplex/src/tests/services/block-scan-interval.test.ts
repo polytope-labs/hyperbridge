@@ -11,7 +11,7 @@ const intervalOf = (scanner: ChainScanner) => (scanner as unknown as { scanInter
 
 function baseToml(blockScanIntervalSeconds?: number): FillerTomlConfig {
 	return {
-		pairs: [{ token0: "USDC", token1: "USDC", maxOrderSize: "100", askPriceCurve: [{ amount: "0", price: "0.99" }] }],
+		pairs: [{ token0: "USDC", token1: "USDC" }],
 		simplex: {
 			signer: { type: "privateKey", key: `0x${"11".repeat(32)}` },
 			maxConcurrentOrders: 1,
@@ -20,6 +20,7 @@ function baseToml(blockScanIntervalSeconds?: number): FillerTomlConfig {
 			blockScanIntervalSeconds,
 		},
 		chains: [{ rpcUrls: ["https://mainnet.base.org"], bundlerUrl: "https://b" }],
+		orderbook: { url: "https://orderbook.example/graphql" },
 	} as FillerTomlConfig
 }
 

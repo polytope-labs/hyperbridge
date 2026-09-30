@@ -30,12 +30,12 @@ export function getSafeEvent<T>(event: T): T & { args: object } {
 	})
 }
 
-export function wrap<const T>(handler: (event: T) => Promise<void>) {
+export function wrap<const T>(handler: (event: T) => Promise<void>, options: { rethrowDecodeErrors?: boolean } = {}) {
 	return async (event: T) => {
 		try {
 			await handler(getSafeEvent(event))
 		} catch (error) {
-			if (error instanceof EventDecodeError) {
+			if (error instanceof EventDecodeError && !options.rethrowDecodeErrors) {
 				logger.error(`Error decoding event: ${error.message}`)
 				return
 			}

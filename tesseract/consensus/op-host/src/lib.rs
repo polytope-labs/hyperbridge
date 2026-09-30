@@ -15,9 +15,10 @@ use anyhow::anyhow;
 use geth_primitives::{alloy_u256_to_primitive, Header};
 use ismp::{consensus::ConsensusStateId, host::StateMachine};
 use op_verifier::{
-	calculate_output_root, get_game_uuid, DisputeGameImpl, GameTypeConfig,
+	calculate_output_root, get_game_uuid, parse_super_output, DisputeGameImpl, GameTypeConfig,
 	OptimismDisputeGameProof, OptimismPayloadProof, AGGREGATE_VERIFIER_COUNTERED_BY_SLOT,
 	DISPUTE_GAMES_SLOT, FAULT_DISPUTE_CLAIM_DATA_SLOT, GAME_IMPLS_SLOT, L2_OUTPUTS_SLOT,
+	SUPER_FAULT_DISPUTE_CLAIM_DATA_SLOT,
 };
 use primitive_types::{H160, H256, U256};
 use reqwest::Client;
@@ -143,18 +144,17 @@ pub fn derive_array_item_key(index_in_array: u64, offset: u64) -> H256 {
 
 /// Whether the game's "not challenged" storage slot, read as a 32-byte big-endian word,
 /// indicates the game has been challenged. `OPSuccinct` games have no challenge mechanism and
-/// are never challenged. For the other two kinds the check follows the verifier's on-chain
-/// contract layouts exactly so filtered games are precisely those that `verify_not_challenged`
-/// would reject.
+/// are never challenged. Every other kind follows the verifier's on-chain contract layouts
+/// exactly so filtered games are precisely those that `verify_not_challenged` would reject.
 pub fn game_is_challenged(kind: &DisputeGameImpl, slot_value: alloy::primitives::U256) -> bool {
 	match kind {
 		DisputeGameImpl::OPSuccinct => false,
-		DisputeGameImpl::FaultDisputeGame => {
-			// `claimData` is a dynamic array; its slot stores the element count. An unchallenged
-			// game holds exactly the root claim (length 1); every `move()` appends an entry. So
-			// the game is challenged iff `claimData.length != 1`.
-			slot_value != alloy::primitives::U256::from(1)
-		},
+		// `claimData` is a dynamic array; its slot stores the element count. An unchallenged game
+		// holds exactly the root claim (length 1); every `move()` appends an entry. So the game is
+		// challenged iff `claimData.length != 1`. Both fault game layouts work this way, only the
+		// slot differs.
+		DisputeGameImpl::FaultDisputeGame | DisputeGameImpl::SuperFaultDisputeGame =>
+			slot_value != alloy::primitives::U256::from(1),
 		// `counteredByIntermediateRootIndexPlusOne == 0` iff unchallenged.
 		DisputeGameImpl::AggregateVerifier => !slot_value.is_zero(),
 	}
@@ -163,21 +163,18 @@ pub fn game_is_challenged(kind: &DisputeGameImpl, slot_value: alloy::primitives:
 /// The storage slot(s) to prove on the game proxy to establish "not challenged". Returned as
 /// `B256` keys for `eth_getProof`. Empty for `OPSuccinct` games, which have no challenge state.
 pub fn challenge_slot_keys(kind: &DisputeGameImpl) -> Vec<B256> {
-	match kind {
-		DisputeGameImpl::OPSuccinct => Vec::new(),
-		DisputeGameImpl::FaultDisputeGame => {
-			// `claimData.length` lives directly in the array's declaration slot (dynamic arrays
-			// store their element count in the slot itself).
-			let mut key = [0u8; 32];
-			key[24..].copy_from_slice(&FAULT_DISPUTE_CLAIM_DATA_SLOT.to_be_bytes());
-			vec![B256::from_slice(&key)]
-		},
-		DisputeGameImpl::AggregateVerifier => {
-			let mut key = [0u8; 32];
-			key[24..].copy_from_slice(&AGGREGATE_VERIFIER_COUNTERED_BY_SLOT.to_be_bytes());
-			vec![B256::from_slice(&key)]
-		},
-	}
+	let slot = match kind {
+		DisputeGameImpl::OPSuccinct => return Vec::new(),
+		// `claimData.length` lives directly in the array's declaration slot (dynamic arrays store
+		// their element count in the slot itself).
+		DisputeGameImpl::FaultDisputeGame => FAULT_DISPUTE_CLAIM_DATA_SLOT,
+		DisputeGameImpl::SuperFaultDisputeGame => SUPER_FAULT_DISPUTE_CLAIM_DATA_SLOT,
+		DisputeGameImpl::AggregateVerifier => AGGREGATE_VERIFIER_COUNTERED_BY_SLOT,
+	};
+
+	let mut key = [0u8; 32];
+	key[24..].copy_from_slice(&slot.to_be_bytes());
+	vec![B256::from_slice(&key)]
 }
 
 /// Fetch the storage root of `addr` at `block` by racing `eth_getProof` and `eth_getAccount`
@@ -208,6 +205,96 @@ pub(crate) async fn fetch_storage_root(
 		anyhow!("eth_getProof and eth_getAccount both failed for {addr:?} at block {block}: {e:?}")
 	})?;
 	Ok(root)
+}
+
+/// Finds the L2 block a super root timestamp was taken at: the highest block whose timestamp is
+/// at or before it. This matches op-node's `TargetBlockNumber`, which rounds down, so a super root
+/// at a timestamp that falls between two of this chain's blocks still commits to this chain's
+/// last block before it. That is the usual case for a dependency set whose chains have
+/// different block times or genesis times, and anyone can propose a permissionless game at any
+/// timestamp. Returns `None` when the chain has no block that can be settled as the answer yet,
+/// or the timestamp predates the chain.
+pub async fn block_at_timestamp(
+	provider: &AlloyProvider,
+	timestamp: u64,
+) -> Result<Option<u64>, anyhow::Error> {
+	let head = provider
+		.get_block(BlockId::latest())
+		.await?
+		.ok_or_else(|| anyhow!("L2 head not found"))?;
+
+	let previous_number = head.header.number.saturating_sub(1);
+	let previous = provider
+		.get_block(BlockId::number(previous_number))
+		.await?
+		.ok_or_else(|| anyhow!("L2 block {previous_number} not found"))?;
+	let block_time = head.header.timestamp.saturating_sub(previous.header.timestamp).max(1);
+
+	last_block_at_or_before(
+		head.header.number,
+		head.header.timestamp,
+		block_time,
+		timestamp,
+		|number| async move {
+			Ok(provider
+				.get_block(BlockId::number(number))
+				.await?
+				.map(|block| block.header.timestamp))
+		},
+	)
+	.await
+}
+
+/// How many times [`last_block_at_or_before`] will move its estimate before giving up. The first
+/// estimate is exact unless the head moved between reads, so this is never reached in practice.
+const MAX_BLOCK_ESTIMATE_CORRECTIONS: usize = 4;
+
+/// Resolves the highest block with a timestamp at or before `timestamp`, reading timestamps
+/// through `timestamp_of` so the search can be tested without a node. `block_time` only shapes
+/// the estimate, the answer is settled by reading the candidate and the block after it.
+pub(crate) async fn last_block_at_or_before<F, Fut>(
+	head_number: u64,
+	head_timestamp: u64,
+	block_time: u64,
+	timestamp: u64,
+	mut timestamp_of: F,
+) -> Result<Option<u64>, anyhow::Error>
+where
+	F: FnMut(u64) -> Fut,
+	Fut: std::future::Future<Output = Result<Option<u64>, anyhow::Error>>,
+{
+	let block_time = block_time.max(1);
+
+	if timestamp >= head_timestamp {
+		// The block after the head can't be earlier than one block time past it, so if the
+		// timestamp comes before that the head is the answer however far behind this node is.
+		// Past that, the answer may be a block this node hasn't seen.
+		return Ok((timestamp - head_timestamp < block_time).then_some(head_number));
+	}
+
+	// Blocks before the head, so the answer is below it and `number + 1` always exists.
+	let mut number = head_number.saturating_sub((head_timestamp - timestamp).div_ceil(block_time));
+	for _ in 0..MAX_BLOCK_ESTIMATE_CORRECTIONS {
+		let Some(candidate) = timestamp_of(number).await? else { return Ok(None) };
+		if candidate > timestamp {
+			// Too late. At block zero there is nothing earlier, so the chain started after it.
+			if number == 0 {
+				return Ok(None);
+			}
+			number = number.saturating_sub((candidate - timestamp).div_ceil(block_time));
+			continue;
+		}
+
+		// The candidate is at or before the timestamp. It is the answer only if the next block
+		// is after it, which is checked rather than assumed from the block time.
+		let Some(next) = timestamp_of(number + 1).await? else { return Ok(None) };
+		if next > timestamp {
+			return Ok(Some(number));
+		}
+		number = (number + 1 + (timestamp - next) / block_time).min(head_number);
+	}
+
+	Ok(None)
 }
 
 impl OpHost {
@@ -411,17 +498,53 @@ impl OpHost {
 				},
 			};
 
-			// All game types we support lay out their `extraData` with the L2 block number as
-			// the first 32 bytes: Cannon encodes it alone, AggregateVerifier prefixes it before
-			// the intermediate roots and final root claim. Decoding here avoids depending on
-			// a top-level `l2SequenceNumber()` getter that not every implementation exposes.
-			if extra_data.len() < 32 {
-				log::trace!(target: LOG_TARGET, "Skipping dispute game with extraData shorter than 32 bytes ({} bytes)", extra_data.len());
-				continue;
-			}
-			let l2_block_num = alloy::primitives::U256::from_be_slice(&extra_data[..32])
-				.try_into()
-				.unwrap_or(u64::MAX);
+			let config = match game_type_configs.iter().find(|c| c.game_type == event.gameType) {
+				Some(config) => config.clone(),
+				None => {
+					log::trace!(target: LOG_TARGET, "Found a dispute game event with wrong game type {}", event.gameType);
+					continue;
+				},
+			};
+
+			// Output root games put the L2 block number in the first 32 bytes of `extraData`:
+			// Cannon encodes it alone, AggregateVerifier prefixes it before the intermediate
+			// roots and final root claim. A super game instead carries the super output preimage,
+			// which pins a timestamp rather than a block number, so that has to be resolved
+			// against the chain to the last block at or before it. Decoding here avoids depending
+			// on a top-level `l2SequenceNumber()` getter that not every implementation exposes.
+			let l2_block_num = match config.kind {
+				DisputeGameImpl::SuperFaultDisputeGame => {
+					let super_output = match parse_super_output(&extra_data) {
+						Ok(v) => v,
+						Err(e) => {
+							log::trace!(target: LOG_TARGET, "Skipping dispute game {proxy_addr:?} (game_type {}): {e}", event.gameType);
+							continue;
+						},
+					};
+					match block_at_timestamp(&self.op_execution_client, super_output.timestamp)
+						.await
+					{
+						Ok(Some(number)) => number,
+						Ok(None) => {
+							log::trace!(target: LOG_TARGET, "Skipping dispute game {proxy_addr:?}: no settled L2 block at or before timestamp {}", super_output.timestamp);
+							continue;
+						},
+						Err(e) => {
+							log::warn!(target: LOG_TARGET, "Skipping dispute game {proxy_addr:?} (game_type {}): resolving timestamp {} failed: {e:?}", event.gameType, super_output.timestamp);
+							continue;
+						},
+					}
+				},
+				_ => {
+					if extra_data.len() < 32 {
+						log::trace!(target: LOG_TARGET, "Skipping dispute game with extraData shorter than 32 bytes ({} bytes)", extra_data.len());
+						continue;
+					}
+					alloy::primitives::U256::from_be_slice(&extra_data[..32])
+						.try_into()
+						.unwrap_or(u64::MAX)
+				},
+			};
 
 			// Since anyone can create dispute games including bots we need to be sure the block
 			// number exists
@@ -436,14 +559,6 @@ impl OpHost {
 				log::trace!(target: LOG_TARGET, "Found a dispute game event with a block number that does not exist {l2_block_num}");
 				continue;
 			}
-
-			let config = match game_type_configs.iter().find(|c| c.game_type == event.gameType) {
-				Some(config) => config.clone(),
-				None => {
-					log::trace!(target: LOG_TARGET, "Found a dispute game event with wrong game type {}", event.gameType);
-					continue;
-				},
-			};
 
 			let game_uuid = get_game_uuid::<Hasher>(
 				event.gameType,
@@ -576,7 +691,6 @@ impl OpHost {
 				game_type: event.gameType,
 			};
 
-			// Check if rootClaim matches derived output root.
 			let output_root = calculate_output_root::<Hasher>(
 				payload.version,
 				payload.header.state_root,
@@ -584,7 +698,30 @@ impl OpHost {
 				l2_block_hash,
 			);
 
-			if output_root.0 != event.rootClaim.0 {
+			// The game's claim has to be about the block we just built the payload from. For an
+			// output root game the claim is that output root. For a super game it is a hash over
+			// the whole super output, so check our chain's entry inside it instead, which is also
+			// what catches a block resolved from the wrong timestamp.
+			let claims_our_output = match config.kind {
+				DisputeGameImpl::SuperFaultDisputeGame => {
+					let chain_id = match self.state_machine {
+						StateMachine::Evm(id) => id,
+						other => {
+							log::warn!(target: LOG_TARGET, "Skipping dispute game {proxy_addr:?}: {other:?} is not an evm state machine");
+							continue;
+						},
+					};
+					parse_super_output(&payload.extra_data)
+						.ok()
+						.and_then(|super_output| {
+							super_output.output_roots.get(&U256::from(chain_id)).copied()
+						})
+						.is_some_and(|committed| committed == output_root)
+				},
+				_ => output_root.0 == event.rootClaim.0,
+			};
+
+			if !claims_our_output {
 				log::trace!(target: LOG_TARGET, "Found a dispute game event with an invalid output root, Expected: {output_root:?}, Found: {:?}", event.rootClaim);
 				continue;
 			}

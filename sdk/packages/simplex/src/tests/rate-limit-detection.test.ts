@@ -169,9 +169,13 @@ describe("isRateLimited against real HTTP responses (local server)", () => {
 		const client2 = new QuorumPublicClient(BASE_CHAIN_ID, [ok1, ok2, ok3, broken])
 		await expect(client2.getBlockNumber()).resolves.toBe(100n)
 
-		// But if a 429 drops the responders below the threshold, the call fails.
+		// A 429 does not vote, so it cannot fail a call the others agree on: with two
+		// healthy endpoints left, those two decide.
 		const client3 = new QuorumPublicClient(BASE_CHAIN_ID, [ok1, ok2, bad])
-		await expect(client3.getBlockNumber()).rejects.toThrow(/Quorum not reached/)
+		await expect(client3.getBlockNumber()).resolves.toBe(100n)
+
+		// A call fails only when nobody answers.
+		await expect(new QuorumPublicClient(BASE_CHAIN_ID, [bad]).getBlockNumber()).rejects.toThrow(/Quorum not reached/)
 	}, 60_000)
 })
 
@@ -243,16 +247,14 @@ describe("rate-limit suspension", () => {
 		await waitSuspended(client, bad)
 	}, 30_000)
 
-	it("drops a suspended endpoint from the bar: the remaining endpoints keep serving reads", async () => {
-		// 2 endpoints. The first call needs both (threshold 2) and fails on the
-		// 429 — but instead of five minutes of guaranteed failures, the healthy
-		// endpoint alone (threshold 1) carries reads for the suspension window.
-		// A throttled endpoint answers nothing either way; counting it would
-		// only make the solver miss events.
+	it("benches a 429ing endpoint, so the rest serve reads without asking it", async () => {
+		// 2 endpoints. The 429 does not vote, so the healthy endpoint decides the
+		// first call alone, and the bench then keeps the throttled one from being
+		// asked for its window.
 		const [ok1, bad] = await Promise.all([rpcServer(HOSTS[0], "ok"), limitedServer(HOSTS[1])])
 		const client = new QuorumPublicClient(BASE_CHAIN_ID, [ok1, bad])
 
-		await expect(client.getBlockNumber()).rejects.toThrow(/Quorum not reached/)
+		await expect(client.getBlockNumber()).resolves.toBe(100n)
 		await waitSuspended(client, bad)
 
 		const hitsAfterFirst = hitCount(bad)
@@ -260,12 +262,10 @@ describe("rate-limit suspension", () => {
 		expect(hitCount(bad)).toBe(hitsAfterFirst)
 	}, 30_000)
 
-	it("recomputes the bar over the endpoints actually queried", async () => {
-		// 5 endpoints, threshold 4. First call: 3 ok + 1 broken + 1 limited =
-		// 3 responders < 4, fails, and the limited endpoint is benched. Second
-		// call queries the 4 unsuspended with a bar of quorumThreshold(4) = 3 —
-		// the 3 healthy responders now suffice. The bar always matches who was
-		// asked, so a benched endpoint cannot fail calls the rest agree on.
+	it("benches only the throttled endpoint while the ones that answer decide", async () => {
+		// 5 endpoints. First call: 3 ok, 1 broken, 1 limited. Neither failure votes,
+		// so the 3 healthy answers decide it, 3 of 3. Only the limited endpoint is
+		// benched; the broken one is asked again next call.
 		const [ok1, ok2, ok3, flaky, bad] = await Promise.all([
 			rpcServer(HOSTS[0], "ok"),
 			rpcServer(HOSTS[1], "ok"),
@@ -275,7 +275,7 @@ describe("rate-limit suspension", () => {
 		])
 		const client = new QuorumPublicClient(BASE_CHAIN_ID, [ok1, ok2, ok3, flaky, bad])
 
-		await expect(client.getBlockNumber()).rejects.toThrow(/Quorum not reached/)
+		await expect(client.getBlockNumber()).resolves.toBe(100n)
 		await waitSuspended(client, bad)
 
 		await expect(client.getLogs({ fromBlock: 1n, toBlock: 1n })).resolves.toEqual([])
@@ -341,9 +341,9 @@ describe("rate-limit suspension", () => {
 		const client = new QuorumPublicClient(BASE_CHAIN_ID, [ok1, ok2, ok3, brokenWithScaryUrl])
 
 		await expect(client.getBlockNumber()).resolves.toBe(100n)
-		// Let the 500's retries settle so a late noteFailure cannot slip in
-		// after the assertion.
-		await vi.waitFor(() => expect(hitCount(brokenBase)).toBeGreaterThanOrEqual(4))
+		// Let the 500 land so a late noteFailure cannot slip in after the assertion.
+		// The transports never retry, so that is one request.
+		await vi.waitFor(() => expect(hitCount(brokenBase)).toBeGreaterThanOrEqual(1))
 		expect(client.suspended()).toEqual([])
 	}, 30_000)
 
@@ -375,10 +375,9 @@ describe("rate-limit suspension", () => {
 		const client = new QuorumPublicClient(BASE_CHAIN_ID, [ok1, ok2, ok3, broken])
 
 		await expect(client.getBlockNumber()).resolves.toBe(100n)
-		// Let the first call's retries finish before measuring: the transport
-		// retries 3 times, so call 1 lands 4 hits — capturing earlier would let
-		// its own stragglers satisfy the greater-than below.
-		await vi.waitFor(() => expect(hitCount(broken)).toBeGreaterThanOrEqual(4))
+		// Let the first call's request land before measuring, or it could satisfy
+		// the greater-than below. The transports never retry, so that is one hit.
+		await vi.waitFor(() => expect(hitCount(broken)).toBeGreaterThanOrEqual(1))
 		const afterFirst = hitCount(broken)
 		// getLogs: uncached, so the second call really goes to the network.
 		await expect(client.getLogs({ fromBlock: 1n, toBlock: 1n })).resolves.toEqual([])

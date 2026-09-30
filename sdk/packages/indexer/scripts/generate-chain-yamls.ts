@@ -36,18 +36,24 @@ const evmTemplate = Handlebars.compile(fs.readFileSync(path.join(templatesDir, "
 const multichainTemplate = Handlebars.compile(fs.readFileSync(path.join(templatesDir, "multichain.yaml.hbs"), "utf8"))
 
 const EVM_TRACKED = [
-	// Envrionment Variable Tracked
-	"COIN_GECKGO_API_KEY",
+	// The HyperFX orderbook's base URL. Its `solvers` watchlist discovers solvers that have never
+	// filled, and its `graphql` endpoint prices tokens without a $1 peg.
+	"HYPERFX_ORDERBOOK_URL",
 ] as const
 
 const getChainTypesPath = (chain: string) => {
 	// Extract base chain name before the hyphen
 	const baseChainName = chain.split("-")[0]
-	const potentialPath = `./dist/substrate-chaintypes/${baseChainName}.js`
 
-	// Check if file exists
-	if (fs.existsSync(potentialPath)) {
-		return potentialPath
+	// Emitted as the compiled path the node loads, and decided on whichever of the source or the
+	// compiled file is present. A checkout has the source before `subql build` writes dist — every
+	// clean CI run and first deploy — while the release package ships dist without the source.
+	// Testing for only one of them silently omits the chaintypes line in the other, and a
+	// Hyperbridge node without it cannot decode its own blocks (its hasher is keccak, not blake2).
+	const compiled = `./dist/substrate-chaintypes/${baseChainName}.js`
+	const source = path.join(root, "src", "substrate-chaintypes", `${baseChainName}.ts`)
+	if (fs.existsSync(source) || fs.existsSync(path.join(root, compiled))) {
+		return compiled
 	}
 	return null
 }
@@ -64,24 +70,25 @@ const generateSubstrateYaml = async (chain: string, config: Configuration) => {
 	const endpoints = generateEndpoints(chain)
 
 	let blockNumber: number
-	// Only connect to RPC when we actually need the live head (local/nexus-ci).
+	// Only connect to RPC when we actually need the live head (local/nexus-ci/solver-ci).
 	// For other environments we use the static startBlock from config.
-	if (skipRpc || (currentEnv !== "local" && currentEnv !== "nexus-ci")) {
+	if (skipRpc || !["local", "nexus-ci", "solver-ci"].includes(currentEnv)) {
 		blockNumber = config.startBlock
 	} else {
 		// Expect comma-separated endpoints in env var
 		const rpcUrl = process.env[chain.replace(/-/g, "_").toUpperCase()]?.split(",")[0]
 		const rpc = new RpcWebSocketClient()
 		await rpc.connect(rpcUrl as string)
-		const header = (await rpc.call("chain_getHeader", [])) as { number: Hex }
+		// The FINALIZED head, not the best one: these nodes index finalized blocks, so starting them
+		// at the best head — several blocks ahead of finality — starts them ahead of anything they
+		// can index, and the node dies on an assertion inside UnfinalizedBlocksService.
+		const finalized = (await rpc.call("chain_getFinalizedHead", [])) as Hex
+		const header = (await rpc.call("chain_getHeader", [finalized])) as { number: Hex }
 		blockNumber = hexToNumber(header.number)
 	}
 
 	// Check if this is a Hyperbridge chain (stateMachineId is KUSAMA-4009 or POLKADOT-3367)
 	const isHyperbridgeChain = ["KUSAMA-4009", "POLKADOT-3367"].includes(config.stateMachineId)
-
-	// Check if price indexing should be enabled (Hyperbridge chain but not testnet)
-	const enablePriceIndexing = isHyperbridgeChain && currentEnv !== "testnet"
 
 	const templateData = {
 		name: `${chain}-chain`,
@@ -97,7 +104,6 @@ const generateSubstrateYaml = async (chain: string, config: Configuration) => {
 		chainTypesConfig,
 		blockNumber,
 		isHyperbridgeChain,
-		enablePriceIndexing,
 		handlerKind: "substrate/EventHandler",
 		handlers: [
 			{ handler: "handleIsmpStateMachineUpdatedEvent", module: "ismp", method: "StateMachineUpdated" },
@@ -125,9 +131,9 @@ const generateEvmYaml = async (chain: string, config: Configuration) => {
 	const endpoints = generateEndpoints(chain)
 
 	let blockNumber: number
-	// Only connect to RPC when we actually need the live head (local env).
-	// For other environments we use the static startBlock from config.
-	if (skipRpc || currentEnv !== "local") {
+	// Only connect to RPC when we actually need the live head (local/solver-ci: an anvil fork
+	// starts at whatever block it forked from). For other environments we use config's startBlock.
+	if (skipRpc || !["local", "solver-ci"].includes(currentEnv)) {
 		blockNumber = config.startBlock
 	} else {
 		// Expect comma-separated endpoints in env var
@@ -167,6 +173,11 @@ const generateEvmYaml = async (chain: string, config: Configuration) => {
 				? Object.entries(config.contracts.yieldVaults).flatMap(([token, entry]) =>
 						entry.vaults.map((vault) => ({ vault, underlyingToken: token })),
 					)
+				: [],
+		// Solver inventory is event-sourced from each supported token's Transfers.
+		supportedTokens:
+			config.type === "evm" && config.contracts?.yieldVaults
+				? Object.keys(config.contracts.yieldVaults).map((token) => token.toLowerCase())
 				: [],
 		handlerKind: "ethereum/LogHandler",
 		handlers: [
@@ -296,19 +307,22 @@ const generateYieldVaultAddresses = () => {
 }
 
 const generateSolverAccountAddresses = () => {
-	const solverAccounts: Record<string, string> = {}
+	const solverAccounts: Record<string, string[]> = {}
 
 	validChains.forEach((config) => {
 		if (config.type === "evm" && config.contracts?.solverAccount) {
-			solverAccounts[config.stateMachineId] = config.contracts.solverAccount
+			const configured = config.contracts.solverAccount
+			solverAccounts[config.stateMachineId] = Array.isArray(configured) ? configured : [configured]
 		}
 	})
 
 	const value = `// Auto-generated, DO NOT EDIT
-// SolverAccount contract address per chain (EIP-7702 delegation target for our solver EOAs).
+// SolverAccount contract addresses per chain (EIP-7702 delegation targets for our solver EOAs).
+// A bid or vault position counts when its account delegates to any of them, so a replaced
+// SolverAccount can stay listed until every solver has re-delegated.
 // To add or update entries, edit the "solverAccount" field in the relevant chain entry
 // in src/configs/config-mainnet.json (or config-testnet.json) and re-run codegen.
-export const SOLVER_ACCOUNT_ADDRESSES: Record<string, string> = ${JSON.stringify(solverAccounts, null, 2)}`
+export const SOLVER_ACCOUNT_ADDRESSES: Record<string, string[]> = ${JSON.stringify(solverAccounts, null, 2)}`
 
 	fs.writeFileSync(root + "/src/solver-account-addresses.ts", value)
 	console.log("Generated solver-account-addresses.ts")
@@ -388,9 +402,10 @@ const generateEnvironmentConfig = () => {
 	const distBundle = path.join(root, "dist", "index.js")
 	if (fs.existsSync(distBundle)) {
 		const bundle = fs.readFileSync(distBundle, "utf8")
-		// The bundler inlines env-config.json as JSON.parse('{...}'). Anchor on
-		// the COIN_GECKGO_API_KEY marker which is always present in the config.
-		const envConfigPattern = /JSON\.parse\('(\{[^']*COIN_GECKGO_API_KEY[^']*\})'\)/
+		// The bundler inlines env-config.json as JSON.parse('{...}'). Anchor on the
+		// HYPERFX_ORDERBOOK_URL marker: every EVM_TRACKED key is written to the config on
+		// every run, set or null, so it is always present to match on.
+		const envConfigPattern = /JSON\.parse\('(\{[^']*HYPERFX_ORDERBOOK_URL[^']*\})'\)/
 		if (!envConfigPattern.test(bundle)) {
 			console.warn("Could not find inlined env-config in dist/index.js; skipping patch")
 			return

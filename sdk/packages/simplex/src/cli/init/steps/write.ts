@@ -9,6 +9,7 @@ import { assertConfirmationCoverage, validateConfig, type FillerConfigFile, type
 import { AssetRegistry } from "@/config/asset-registry"
 import { assertPairSymbolsResolve } from "@/config/pairs"
 import { DEFAULT_CONFIRMATION_POLICIES, parseChainKey } from "@/config/interpolated-curve"
+import { DEFAULT_ORDERBOOK_URLS, RETIRED_ORDERBOOK_URLS } from "@/config/defaults"
 import { validateSignerConfig, type SignerConfig } from "@/services/wallet"
 import { validateRpcUrls } from "@/services/FillerConfigService"
 import { emitFillerToml, writeConfigFileAtomic } from "../emit-toml"
@@ -103,17 +104,9 @@ export function assembleConfig(state: WizardState): FillerConfigFile {
 			? state.rebalancing
 			: undefined
 
-	// The pairs step owns [vault.uniswapV4] wholesale: the block it configured
-	// this run replaces whatever the prefill had (or drops it when the operator
-	// switched to curve pricing).
 	const vault: NonNullable<FillerTomlConfig["vault"]> = { ...(state.vault ?? {}) }
-	delete vault.uniswapV4
 	if (vault.vaults && vault.vaults.length === 0) delete vault.vaults
-	if (state.vaultUniswapV4) {
-		vault.uniswapV4 = { ...state.vaultUniswapV4 }
-		if (vault.uniswapV4.positions && vault.uniswapV4.positions.length === 0) delete vault.uniswapV4.positions
-	}
-	const hasVault = Boolean(vault.vaults?.length || vault.uniswapV4 || vault.sweepIntervalMs !== undefined)
+	const hasVault = Boolean(vault.vaults?.length || vault.sweepIntervalMs !== undefined)
 
 	// Merge, prefill first: a custom token added this run must not drop the
 	// existing [assets] entries.
@@ -138,7 +131,6 @@ export function assembleConfig(state: WizardState): FillerConfigFile {
 				? { overfillProtection: state.overfillProtection }
 				: { overfillProtection: undefined }),
 		},
-		pairs: state.pairs,
 		assets: Object.keys(assets).length > 0 ? assets : undefined,
 		confirmationPolicies: state.confirmationPolicies,
 		// Passthrough chains first: a chain that also got re-selected as managed
@@ -150,7 +142,19 @@ export function assembleConfig(state: WizardState): FillerConfigFile {
 		rebalancing,
 		vault: hasVault ? vault : undefined,
 		allowlist: scrubbedAllowlist,
+		orderbook: orderbookFor(state, base.orderbook),
 	}
+}
+
+/**
+ * An operator's own orderbook survives an update run. A built-in default, a retired one, or
+ * none becomes the selected network's default, so a config first written for one network and
+ * updated for the other does not keep the wrong book, and none keeps a host that is gone.
+ */
+function orderbookFor(state: WizardState, current: FillerConfigFile["orderbook"]): FillerConfigFile["orderbook"] {
+	const builtIn = [...Object.values(DEFAULT_ORDERBOOK_URLS), ...RETIRED_ORDERBOOK_URLS]
+	if (current && !builtIn.includes(current.url)) return current
+	return { ...current, url: DEFAULT_ORDERBOOK_URLS[state.network] }
 }
 
 function chainComments(state: WizardState): string[] {
@@ -174,7 +178,6 @@ function showSummary(state: WizardState, outputPath: string): void {
 	lines.push(`Signer: ${state.signer?.type}`)
 	lines.push(`Substrate key: ${maskSecret(state.substratePrivateKey ?? "")}`)
 	lines.push(`Hyperbridge: ${state.hyperbridgeWsUrl}`)
-	lines.push(`Pairs: ${state.pairs.map((p) => `${p.token0}/${p.token1}`).join(", ")}`)
 	lines.push(`Output: ${outputPath}`)
 	note(lines.join("\n"), "Summary")
 }
@@ -207,11 +210,9 @@ function warnUncoveredPassthroughChains(state: WizardState, prefill?: Prefill): 
  */
 export function startFiller(configPath: string): Promise<never> {
 	return new Promise(() => {
-		const child = spawn(
-			process.execPath,
-			[...process.execArgv, process.argv[1], "run", "-c", configPath],
-			{ stdio: "inherit" },
-		)
+		const child = spawn(process.execPath, [...process.execArgv, process.argv[1], "run", "-c", configPath], {
+			stdio: "inherit",
+		})
 		child.on("exit", (code) => process.exit(code ?? 0))
 		child.on("error", (error) => {
 			log.error(`Failed to start the filler: ${error.message}`)

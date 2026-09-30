@@ -4,8 +4,9 @@ import { assembleConfig } from "@/cli/init/steps/write"
 import { emitFillerToml } from "@/cli/init/emit-toml"
 import { validateConfig, type FillerConfigFile } from "@/config/filler-toml"
 import { SignerType } from "@/services/wallet"
-import { newWizardState, DEFAULT_SAME_ASSET_ASK_CURVE } from "@/cli/init/state"
+import { newWizardState } from "@/cli/init/state"
 import { INIT_CHAINS } from "@/cli/init/chains"
+import { DEFAULT_ORDERBOOK_URLS } from "@/config/defaults"
 
 /**
  * An update run (`simplex init` over an existing config) must preserve every
@@ -14,6 +15,7 @@ import { INIT_CHAINS } from "@/cli/init/chains"
  */
 describe("CLI wizard update run", () => {
 	const existing: FillerConfigFile = {
+		orderbook: { url: "https://orderbook.example/graphql" },
 		simplex: {
 			signer: { type: SignerType.PrivateKey, key: "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d" },
 			maxConcurrentOrders: 7,
@@ -28,7 +30,6 @@ describe("CLI wizard update run", () => {
 			// dead knob must be stripped, the live knobs must survive emission.
 			queue: { maxRechecks: 10, recheckDelayMs: 30000 },
 			blockScanIntervalSeconds: 5,
-			acceptedSourceChains: ["EVM-8453"],
 			gasFeeBump: { maxPriorityFeePerGasBumpPercent: 12, maxFeePerGasBumpPercent: 15 },
 			overfillProtection: { maxOverfillBps: 300, maxConsecutiveClamps: 2 },
 		},
@@ -36,11 +37,6 @@ describe("CLI wizard update run", () => {
 			{
 				token0: "USDC",
 				token1: "USDC",
-				maxOrderSize: "100000",
-				askPriceCurve: [
-					{ amount: "100", price: "0.99" },
-					{ amount: "100000", price: "0.999" },
-				],
 			},
 		],
 		chains: [{ rpcUrls: ["https://eth.example/rpc"], bundlerUrl: "https://bundler.example" }],
@@ -49,9 +45,6 @@ describe("CLI wizard update run", () => {
 		allowlist: { users: ["0x1111111111111111111111111111111111111111"] },
 	}
 
-	const wizardPairs = [
-		{ token0: "USDC", token1: "USDC", maxOrderSize: "100000", askPriceCurve: DEFAULT_SAME_ASSET_ASK_CURVE },
-	]
 	const wizardAssets = { BRZ: { "EVM-8453": "0x5555555555555555555555555555555555555555" as const } }
 	const wizardConfirmationPolicies = {
 		"EVM-1": {
@@ -74,7 +67,6 @@ describe("CLI wizard update run", () => {
 		state.signer = existing.simplex.signer
 		state.substratePrivateKey = existing.simplex.substratePrivateKey
 		state.hyperbridgeWsUrl = existing.simplex.hyperbridgeWsUrl
-		state.pairs = wizardPairs
 		state.assets = wizardAssets
 		state.confirmationPolicies = wizardConfirmationPolicies
 		// carryPrefillExtras equivalents
@@ -99,16 +91,17 @@ describe("CLI wizard update run", () => {
 		expect(assembled.simplex.solverAccountContractAddress).toBeUndefined()
 		expect(assembled.simplex.queue).toBeUndefined()
 		expect(assembled.simplex.blockScanIntervalSeconds).toBe(5)
-		expect(assembled.simplex.acceptedSourceChains).toEqual(["EVM-8453"])
 		expect(assembled.simplex.watchOnly).toEqual({ "56": true })
 		expect(assembled.simplex.logging).toBe("warn")
 		expect(assembled.simplex.gasFeeBump).toEqual(existing.simplex.gasFeeBump)
 	})
 
-	it("writes the wizard-managed pairs, assets and confirmation policies", () => {
+	it("leaves the existing markets alone and writes the wizard-managed assets and policies", () => {
 		const assembled = simulateUpdateRun()
 
-		expect(assembled.pairs).toEqual(wizardPairs)
+		// The wizard stopped declaring markets: limit orders say what simplex trades,
+		// so an update run carries whatever [[pairs]] the config already had.
+		expect(assembled.pairs).toEqual(existing.pairs)
 		expect(assembled.assets).toEqual(wizardAssets)
 		expect(assembled.confirmationPolicies).toEqual(wizardConfirmationPolicies)
 	})
@@ -131,7 +124,6 @@ describe("CLI wizard update run", () => {
 				bundlerUrl: "https://bundler.example",
 			},
 		]
-		state.pairs = wizardPairs
 		state.assets = wizardAssets
 		const assembled = assembleConfig(state)
 		// Prefilled entries survive; the wizard's entry wins on a symbol clash.
@@ -159,7 +151,6 @@ describe("CLI wizard update run", () => {
 		state.signer = existing.simplex.signer
 		state.substratePrivateKey = existing.simplex.substratePrivateKey
 		state.hyperbridgeWsUrl = existing.simplex.hyperbridgeWsUrl
-		state.pairs = wizardPairs
 		// A bare [allowlist.bySource] header parses to an empty table; emit
 		// drops it, so assembly must too.
 		state.allowlist = { bySource: {} }
@@ -175,7 +166,6 @@ describe("CLI wizard update run", () => {
 		state.signer = existing.simplex.signer
 		state.substratePrivateKey = existing.simplex.substratePrivateKey
 		state.hyperbridgeWsUrl = existing.simplex.hyperbridgeWsUrl
-		state.pairs = wizardPairs
 		state.rebalancing = { triggerPercentage: 0.2 } as FillerConfigFile["rebalancing"]
 		const assembled = assembleConfig(state)
 		expect(assembled.rebalancing).toBeUndefined()
@@ -185,5 +175,40 @@ describe("CLI wizard update run", () => {
 		const config = JSON.parse(JSON.stringify(existing)) as FillerConfigFile
 		config.rebalancing = { triggerPercentage: 0.2 } as FillerConfigFile["rebalancing"]
 		expect(() => emitFillerToml(config)).not.toThrow()
+	})
+
+	it("writes the selected network's orderbook on a fresh run", () => {
+		const state = newWizardState()
+		state.network = "testnet"
+		state.chains = [{ meta: INIT_CHAINS.find((c) => c.chainId === 97)!, rpcUrls: ["https://bsc.example/rpc"], bundlerUrl: "https://bundler.example" }]
+		state.signer = existing.simplex.signer
+		expect(assembleConfig(state).orderbook).toEqual({ url: DEFAULT_ORDERBOOK_URLS.testnet })
+	})
+
+	it("swaps a built-in default orderbook for the selected network's and keeps its other settings", () => {
+		const state = newWizardState()
+		state.network = "testnet"
+		state.prefillConfig = JSON.parse(
+			JSON.stringify({ ...existing, orderbook: { url: DEFAULT_ORDERBOOK_URLS.mainnet, defaultTtlSecs: 3600 } }),
+		)
+		state.signer = existing.simplex.signer
+		expect(assembleConfig(state).orderbook).toEqual({ url: DEFAULT_ORDERBOOK_URLS.testnet, defaultTtlSecs: 3600 })
+	})
+
+	it("replaces a retired default orderbook with the selected network's", () => {
+		const state = newWizardState()
+		state.prefillConfig = JSON.parse(
+			JSON.stringify({ ...existing, orderbook: { url: "https://orderbook.hyperbridge.network/graphql" } }),
+		)
+		state.signer = existing.simplex.signer
+		expect(assembleConfig(state).orderbook).toEqual({ url: DEFAULT_ORDERBOOK_URLS.mainnet })
+	})
+
+	it("keeps an operator's own orderbook whatever the network", () => {
+		const state = newWizardState()
+		state.network = "testnet"
+		state.prefillConfig = JSON.parse(JSON.stringify(existing))
+		state.signer = existing.simplex.signer
+		expect(assembleConfig(state).orderbook).toEqual(existing.orderbook)
 	})
 })

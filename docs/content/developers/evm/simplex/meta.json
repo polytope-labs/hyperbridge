@@ -1,0 +1,15 @@
+{
+    "title": "Simplex",
+    "pages": [
+        "overview",
+        "installation",
+        "configuration",
+        "dashboard",
+        "limit-orders",
+        "treasury",
+        "confirmations",
+        "troubleshooting",
+        "api"
+    ],
+    "defaultOpen": false
+}

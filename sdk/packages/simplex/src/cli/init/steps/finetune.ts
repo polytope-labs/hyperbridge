@@ -81,11 +81,7 @@ function carryPrefillExtras(state: WizardState, prefill?: Prefill): void {
 	state.gasFeeBump = config.simplex.gasFeeBump
 	state.overfillProtection = config.simplex.overfillProtection
 	state.rebalancing = config.rebalancing
-	// The pairs step owns [vault.uniswapV4]; only the treasury half is carried.
-	if (config.vault) {
-		const { uniswapV4: _dropped, ...treasury } = config.vault
-		state.vault = Object.keys(treasury).length > 0 ? treasury : undefined
-	}
+	state.vault = config.vault
 	state.allowlist = config.allowlist
 }
 
@@ -183,11 +179,11 @@ async function tuneVault(state: WizardState): Promise<void> {
 			// notation (1e21) would not survive as a valid TOML decimal.
 			const plainDecimal = (n: number): string | undefined =>
 				/^\d+(\.\d+)?$/.test(String(n)) ? undefined : "Enter a plain decimal number"
-			const threshold = await askNumber("Sweep when wallet balance reaches (USD)", 5000, (n) =>
+			const threshold = await askNumber("Sweep when wallet balance reaches (underlying token units)", 5000, (n) =>
 				n > 0 ? plainDecimal(n) : "Must be positive",
 			)
 			const minBalance = await askNumber(
-				"Sweep down to (USD; cover fill float + gas spend)",
+				"Sweep down to (underlying token units; cover fill float + gas spend)",
 				Math.max(1, Math.min(3000, threshold - 1)),
 				(n) => (n > 0 && n < threshold ? plainDecimal(n) : `Must be positive and below ${threshold}`),
 			)

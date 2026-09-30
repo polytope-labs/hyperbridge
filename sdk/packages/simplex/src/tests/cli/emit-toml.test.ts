@@ -8,6 +8,7 @@ import { validateConfig, type FillerConfigFile } from "@/config/filler-toml"
 import { SignerType } from "@/services/wallet"
 
 const minimalSameAsset: FillerConfigFile = {
+	orderbook: { url: "https://orderbook.hyperbridge.network/graphql" },
 	simplex: {
 		signer: {
 			type: SignerType.PrivateKey,
@@ -21,12 +22,6 @@ const minimalSameAsset: FillerConfigFile = {
 		{
 			token0: "USDC",
 			token1: "USDC",
-			maxOrderSize: "100000",
-			askPriceCurve: [
-				{ amount: "100", price: "0.99" },
-				{ amount: "1000", price: "0.995" },
-				{ amount: "100000", price: "0.999" },
-			],
 		},
 	],
 	chains: [
@@ -42,6 +37,7 @@ const minimalSameAsset: FillerConfigFile = {
 }
 
 const crossAssetWithCurves: FillerConfigFile = {
+	orderbook: { url: "https://orderbook.hyperbridge.network/graphql" },
 	simplex: {
 		signer: {
 			type: SignerType.Turnkey,
@@ -59,22 +55,11 @@ const crossAssetWithCurves: FillerConfigFile = {
 		{
 			token0: "USDC",
 			token1: "CNGN",
-			maxOrderSize: "5000",
-			bidPriceCurve: [
-				{ amount: "100", price: "1580" },
-				{ amount: "5000", price: "1570" },
-			],
-			askPriceCurve: [
-				{ amount: "100", price: "1560" },
-				{ amount: "5000", price: "1550" },
-			],
 		},
 		// Anchors ZARP through CNGN without opening a ZARP/CNGN market.
 		{
 			token0: "ZARP",
 			token1: "CNGN",
-			referenceOnly: true,
-			askPriceCurve: [{ amount: "0", price: "85" }],
 		},
 	],
 	confirmationPolicies: {
@@ -92,8 +77,9 @@ const crossAssetWithCurves: FillerConfigFile = {
 }
 
 // `side` requires pool pricing with no static curves, so this pair is curve-less
-// and priced by the Uniswap V4 venue.
+// with its own price curves.
 const kitchenSink: FillerConfigFile = {
+	orderbook: { url: "https://orderbook.hyperbridge.network/graphql" },
 	simplex: {
 		signer: {
 			type: SignerType.MpcVault,
@@ -119,7 +105,6 @@ const kitchenSink: FillerConfigFile = {
 		{
 			token0: "USDC",
 			token1: "CNGN",
-			maxOrderSize: "10000",
 		},
 	],
 	confirmationPolicies: {
@@ -154,13 +139,6 @@ const kitchenSink: FillerConfigFile = {
 				redeemOnShutdown: true,
 			},
 		],
-		uniswapV4: {
-			side: "ask",
-			spreadBps: 75,
-			positions: [
-				{ chain: "EVM-8453", tokenId: "123456789", referencePrice: "1575", maxDeviationBps: 200 },
-			],
-		},
 	},
 	allowlist: {
 		users: ["0x1111111111111111111111111111111111111111"],

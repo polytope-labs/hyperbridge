@@ -1,0 +1,165 @@
+.substrate-card {
+	width: 100%;
+}
+
+.substrate-account-options {
+	display: grid;
+	grid-template-columns: minmax(12rem, 0.75fr) minmax(0, 1.25fr);
+	gap: 2.5rem;
+}
+
+.substrate-account-option {
+	min-width: 0;
+}
+
+.substrate-import-option {
+	padding-left: 2.5rem;
+	border-left: 1px solid var(--border);
+}
+
+.substrate-account-option h3,
+.substrate-section-heading h3 {
+	margin: 0;
+	color: var(--text);
+	font-size: 0.9375rem;
+	font-weight: 500;
+	letter-spacing: -0.015em;
+}
+
+.substrate-account-option > p,
+.substrate-section-heading p {
+	margin: 0.35rem 0 0;
+	color: var(--muted);
+	font-size: 0.75rem;
+	line-height: 1.5;
+}
+
+.substrate-card .substrate-generate-button {
+	min-height: 2.85rem;
+	margin-top: 1.2rem;
+	padding-inline: 1rem;
+}
+
+.substrate-import-option .field {
+	margin: 1.05rem 0 0;
+}
+
+.substrate-address,
+.substrate-connection,
+.substrate-balance {
+	margin-top: 2rem;
+	padding-top: 1.5rem;
+	border-top: 1px solid var(--border);
+}
+
+.substrate-address {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	align-items: center;
+	gap: 0.75rem 1rem;
+}
+
+.substrate-address > div {
+	display: grid;
+	gap: 0.4rem;
+	min-width: 0;
+}
+
+.substrate-address > div > span {
+	color: var(--muted);
+	font-size: 0.75rem;
+	font-weight: 500;
+}
+
+.substrate-address code {
+	color: var(--text);
+	font-family: var(--font-mono);
+	font-size: 0.875rem;
+	font-weight: 500;
+	line-height: 1.5;
+	overflow-wrap: anywhere;
+}
+
+.substrate-card button.substrate-copy-button {
+	min-height: auto;
+	padding: 0.35rem 0;
+	border: 0;
+	background: transparent;
+	color: var(--text-secondary);
+}
+
+.substrate-card button.substrate-copy-button:hover:not(:disabled) {
+	background: transparent;
+	color: var(--text);
+}
+
+.substrate-address-status {
+	grid-column: 1 / -1;
+	margin: 0;
+	color: var(--muted);
+	font-size: 0.75rem;
+	line-height: 1.45;
+}
+
+.substrate-address-status[data-state="copied"] {
+	color: var(--ok);
+}
+
+.substrate-address-status[data-state="failed"] {
+	color: var(--err);
+}
+
+.substrate-connection .field {
+	margin: 1rem 0 0;
+}
+
+.substrate-balance {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	align-items: end;
+	gap: 1rem;
+}
+
+.substrate-card button.substrate-balance-button {
+	border-color: var(--border-strong);
+	background: var(--card-raised);
+}
+
+.substrate-card button.substrate-balance-button:hover:not(:disabled) {
+	border-color: rgba(255, 255, 255, 0.26);
+	background: oklch(0.3227 0.02 273.23);
+}
+
+.substrate-balance-state {
+	display: flex;
+	align-items: flex-start;
+	gap: 0.65rem;
+	grid-column: 1 / -1;
+}
+
+.substrate-balance-state > span {
+	width: 0.45rem;
+	height: 0.45rem;
+	flex: 0 0 auto;
+	margin-top: 0.34rem;
+	border-radius: 50%;
+	background: var(--warn);
+}
+
+.substrate-balance-state strong {
+	display: block;
+	color: var(--text-secondary);
+	font-size: 0.8125rem;
+	font-weight: 500;
+}
+
+.substrate-balance-state p {
+	margin: 0.15rem 0 0;
+	color: var(--muted);
+	font-size: 0.75rem;
+	line-height: 1.45;
+}
+
+.substrate-balance-state[data-state="funded"] > span {
+	background: var(--ok);
+}

@@ -29,9 +29,8 @@ function configFor(assets: ChainAssets): FillerConfigService {
 		getUsdtAsset: () => assets.usdt ?? ZERO,
 		getUsdcDecimals: () => assets.usdcDecimals ?? 6,
 		getUsdtDecimals: () => assets.usdtDecimals ?? 6,
-		getCirclePaymasterAddress: () =>
-			assets.paymaster === false ? undefined : ("0x0578cfb241215b77442a541325d6a4e6dfe700ec" as HexString),
-		getSimplexPaymasterAddress: () => undefined,
+		getSimplexPaymasterAddress: () =>
+			assets.paymaster === false ? undefined : ("0x000000000000000000000000000000000051391e" as HexString),
 	} as unknown as FillerConfigService
 }
 

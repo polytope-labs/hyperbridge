@@ -345,7 +345,10 @@ export async function retryPromise<T>(operation: () => Promise<T>, retryConfig: 
 			return await operation()
 		} catch (error) {
 			if (shouldRetry && !shouldRetry(error)) throw error
-			logger.trace(`Retrying(${i}) > ${logMessage}`)
+			// The error, not just the intent: "retrying getLogs" tells an operator
+			// nothing about whether the endpoint refused, timed out, or disagreed.
+			const detail = error instanceof Error ? error.message.split("\n")[0] : String(error)
+			logger.trace(`Retrying(${i}) > ${logMessage}: ${detail.slice(0, 200)}`)
 			lastError = error
 			if (i === retryConfig.maxRetries - 1) break
 			await new Promise((resolve) => setTimeout(resolve, retryConfig.backoffMs * 2 ** i))

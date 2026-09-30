@@ -1,10 +1,10 @@
-import type { HyperbridgeScanner, OrderScanner, OrderScannerHandlers } from "@/scanner/types"
+import type { OrderScanner, OrderScannerHandlers } from "@/scanner/types"
 
 /**
  * An order scanner that scans nothing.
  *
  * `IntentFiller` requires one, but plenty of tests exercise paths that never
- * involve a scan — retraction, phantom gating, strategy pricing. `emit` lets a
+ * involve a scan — retraction, order routing, strategy pricing. `emit` lets a
  * test push an event through as if a chain had produced it.
  */
 export function stubOrderScanner(chains: number[] = []): OrderScanner & {
@@ -26,12 +26,5 @@ export function stubOrderScanner(chains: number[] = []): OrderScanner & {
 			onFill: (event) => handlers?.onFill(event),
 			onError: (error, chainId) => handlers?.onError?.(error, chainId),
 		},
-	}
-}
-
-export function stubHyperbridgeScanner(): HyperbridgeScanner {
-	return {
-		subscribe: () => ({ close: () => {}, dropped: 0 }),
-		close: async () => {},
 	}
 }

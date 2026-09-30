@@ -12,7 +12,7 @@ Use the same flow for other supported token pairs. The only difference between t
 | Mode | `sourceChain` | `destChain` | Settlement |
 | --- | --- | --- | --- |
 | Same-chain | Base, for example | The same Base chain instance | Atomic on one chain; partial fills are possible |
-| Cross-chain | Ethereum, for example | Arbitrum, for example | The solver fills on the destination, then Hyperbridge releases the source-chain escrow; fills are all-or-nothing |
+| Cross-chain | Ethereum, for example | Arbitrum, for example | The solver fills on the destination; without output calldata, each partial fill releases the corresponding source-chain escrow |
 
 ## Before you begin
 
@@ -40,6 +40,8 @@ Everything the SDK does in this guide ends in one contract call on the source ch
 ```solidity
 function placeOrder(Order calldata order, bytes32 graffiti) external payable;
 ```
+
+The gateway's owner can pause it, for example during an incident or ahead of an upgrade. While `paused()` returns `true`, `placeOrder` and `fillOrder` revert with `EnforcedPause()`, and escrow redemptions and refunds arriving through Hyperbridge are refused until the gateway resumes, when they can be delivered again. `cancelOrder` stays available.
 
 ### Data structures
 
@@ -100,7 +102,7 @@ protocolFee = input.amount × protocolFeeBps / 10_000
 reducedAmount = input.amount − protocolFee
 ```
 
-The fee is retained in the gateway as dust (emitting `DustCollected`), and per-destination overrides take precedence over the global `protocolFeeBps` when set. Current deployments charge **5 bps (0.05%)**. For a 100 USDC input:
+For orders placed after the fee-refund upgrade, the gateway records the exact fee deducted from each input and holds it until final settlement. Placement does not emit `DustCollected` for these held fees. Per-destination overrides take precedence over the global `protocolFeeBps` when set. For example, with a configured rate of **5 bps (0.05%)**, a 100 USDC input is split as follows:
 
 | Item | Amount |
 | --- | ---: |
@@ -108,10 +110,10 @@ The fee is retained in the gateway as dust (emitting `DustCollected`), and per-d
 | Protocol fee: `100 × 5 / 10,000` | 0.050000 USDC |
 | Amount actually escrowed and offered to solvers | 99.950000 USDC |
 
-The commitment hash is computed over the **fee-reduced inputs** — solvers read the reduced amounts from the `OrderPlaced` event and only need to match those. The fee is deducted at placement and is **not refunded** if the order expires, receives no bids, or is cancelled; a cancellation returns the remaining escrow and `order.fees`, but not the protocol fee.
+The commitment hash is computed over the **fee-reduced inputs** — solvers read the reduced amounts from the `OrderPlaced` event and only need to match those. On either an early or expired cancellation, the gateway refunds `floor(placement fee × refundable net principal / original net input)`. The unrefunded remainder is earned protocol revenue and is emitted as `DustCollected` when the order reaches final settlement. Orders placed before the fee-refund upgrade have no stored fee record and retain the previous nonrefundable treatment.
 
 <Callout type="warn">
-Do not build an order by reducing the input yourself to account for the protocol fee. Send the gross input amount and use the amounts returned by `quoteIntent()`. The quote prices the fee-reduced escrow amount; reducing it again would make the order smaller than intended.
+Do not build an order by reducing the input yourself to account for the protocol fee. Send the gross input amount and use the amounts returned by `quoteIntent()`. The orderbook already takes the fee off the output it quotes; reducing the input again would make the order smaller than intended.
 </Callout>
 
 ### Graffiti
@@ -189,7 +191,7 @@ const walletClient = createWalletClient({ account, transport: http(SOURCE_RPC_UR
 
 ### Quote the swap and create the order
 
-`quoteIntent()` reads the latest aggregate pool buy or sell rate through the indexer attached in setup. For an exact-input order, `amountIn` is the amount you send and `amountOut` is the quoted output you require from the solver.
+`quoteIntent()` prices the swap from the [HyperFX orderbook](/developers/evm/intent-gateway/orderbook) at one price that every order in the filling level accepts. For an exact-input order, `amountIn` is the amount you send and `amountOut` is the quoted output you require from the solver. Pass `optimistic: true` for a quote split across orders, each at its own price.
 
 ```typescript title="create-order.ts" lineNumbers
 import { type Order } from "@hyperbridge/sdk"
@@ -209,6 +211,8 @@ const quote = await gateway.quoteIntent({
   tokenOut: cngnDestination,
   amountIn: parseUnits("100", 6), // 100 USDC
 })
+// A route without the depth answers with fillable: false rather than throwing.
+if (!quote.fillable) throw new Error(`The orderbook can fill at most ${quote.maxFillableIn} USDC units`)
 
 const order: Order = {
   // The gateway stamps user, source, and nonce; the SDK creates a one-time session key.
@@ -375,11 +379,14 @@ for await (const update of run) {
       console.log("Solver fill submitted:", update.transactionHash)
       break
     case IntentOrderStatus.PARTIAL_FILL:
-      // Same-chain only. The SDK automatically seeks a fill for the remainder.
+      // The SDK automatically seeks a fill for the remainder.
       console.log("Partial fill; remaining:", update.remainingAssets)
       break
     case IntentOrderStatus.FILLED:
       console.log("Swap complete:", update.transactionHash)
+      break
+    case IntentOrderStatus.CANCELLED:
+      console.warn("Order was cancelled on its destination chain; remaining:", update.remainingAssets)
       break
     case IntentOrderStatus.EXPIRED:
       console.warn("Order was not fully filled; cancel it to reclaim its remaining escrow.")
@@ -477,11 +484,13 @@ The placement transaction has four distinct costs.
 | Cost | Paid by | How it is handled |
 | --- | --- | --- |
 | Input amount | You, on the source chain | `quote.amountIn` USDC is transferred into escrow after approval. |
-| Protocol fee | You, from the input amount | 5 bps is deducted at successful placement. It is not returned on expiry or cancellation. The quote already accounts for it. |
+| Protocol fee | You, from the input amount | The configured fee is deducted and held at placement; the quote already accounts for it. Cancellation refunds the portion attributable to unfilled escrow for orders placed after the fee-refund upgrade. |
 | Solver fee (`order.fees`) | You, in the Hyperbridge fee token | The gas cost the solver spends on filling the order — paid in the fee token directly, or in native token that the gateway swaps for the fee token. For cross-chain orders it includes the `RedeemEscrow` relayer fee. |
 | Source-chain transaction gas | You, in native token | Paid by the wallet when it submits the approval and placement transactions. |
 
 Do not manually add the protocol fee to `order.fees`: they are different charges. `order.fees` pays the solver and, cross-chain, the settlement relayer; the protocol fee is deducted from the input before the order commitment is created.
+
+The protocol earns the held fee when the order settles. A full fill earns the whole fee; a cancellation refunds `floor(placement fee × refundable net principal / original net input)`, where the original net input is the post-fee committed amount. This includes voluntary cancellation before expiry. See [Cancelling Orders](./cancelling-orders#what-is-refunded-and-what-is-not) for partial-fill examples and the treatment of orders placed before the upgrade.
 
 <Callout type="warn">
 The placement transaction's `msg.value` is the `value` from `AWAITING_PLACE_ORDER` — the order's native-token input amounts — plus the quoted `nativeValue` when paying the solver fee in native token. Never zero out `value`.
@@ -491,6 +500,6 @@ The placement transaction's `msg.value` is the `value` from `AWAITING_PLACE_ORDE
 
 For a same-chain swap, `FILLED` means the output was delivered and the input escrow released to the solver. Partial fills can occur before the final update.
 
-For a cross-chain swap, `BID_SELECTED` means the solver fill was submitted on the destination. Hyperbridge then delivers the settlement message and releases the source escrow asynchronously; cross-chain fills cannot be partial. Persist `finalizedOrder`, and if the deadline expires before the order completes, reclaim unfilled escrow with the [cancellation guide](./cancelling-orders).
+For a cross-chain swap, `BID_SELECTED` means the solver fill was submitted on the destination. Without output calldata, fills can be partial: each redemption releases the corresponding share of source escrow, and the final redemption settles the remaining protocol and solver fees. Output calldata requires a full fill. Persist `finalizedOrder`, and if the deadline expires before the order completes, reclaim unfilled escrow with the [cancellation guide](./cancelling-orders).
 
 For advanced order fields, custom bid selection, native-token inputs, and pre/post-dispatch calls, refer to the SDK API reference or contact the Hyperbridge team.

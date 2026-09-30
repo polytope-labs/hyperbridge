@@ -50,6 +50,7 @@ divide_range = "0.1.1"
 substrate-state-machine = { workspace = true }
 arb-host = { workspace = true }
 op-host = { workspace = true }
+op-verifier = { workspace = true }
 grandpa-verifier-primitives = { workspace = true }
 tesseract-pharos = { workspace = true }
 ismp-pharos = { workspace = true }

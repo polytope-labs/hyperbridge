@@ -10,7 +10,8 @@ const evmContractsSchema = z.object({
 	handlerV1: z.string().min(3, "Invalid Ethereum address"),
 	erc6160ext20: z.string().min(3, "Invalid Ethereum address"),
 	intentGatewayV3: z.string().optional(),
-	solverAccount: z.string().optional(),
+	// One address, or several so bids from solvers still delegated to a replaced SolverAccount count.
+	solverAccount: z.union([z.string(), z.array(z.string())]).optional(),
 	yieldVaults: z
 		.record(
 			z.string(),
@@ -55,7 +56,7 @@ export const schemaConfiguration = z.record(
 
 export type ConfigObject = z.infer<typeof schemaConfiguration>
 export type Configuration = ConfigObject[0]
-export type Environment = "local" | "testnet" | "mainnet" | "nexus-ci"
+export type Environment = "local" | "testnet" | "mainnet" | "nexus-ci" | "solver-ci"
 
 /**
  * Validate configuration for the configuration structure and validate the schema.

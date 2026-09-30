@@ -177,7 +177,6 @@ pub type Migrations = (
 	pallet_collator_manager::migrations::MigrateBondsToReserves<Runtime>,
 	pallet_collator_manager::migrations::ReserveUnreservedBonds<Runtime>,
 	pallet_ismp::migrations::SeedCommitmentCaps<Runtime>,
-	pallet_intents_coprocessor::migrations::MigrateConfigToStorageMap<Runtime>,
 	frame_support::migrations::RemovePallet<IsmpTendermintPalletName, RocksDbWeight>,
 );
 
@@ -245,7 +244,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	spec_name: Cow::Borrowed("nexus"),
 	impl_name: Cow::Borrowed("nexus"),
 	authoring_version: 1,
-	spec_version: 8_400,
+	spec_version: 8_600,
 	impl_version: 0,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,

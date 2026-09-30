@@ -1,4 +1,3 @@
-import type { ConsolaInstance } from "consola"
 import type Decimal from "decimal.js"
 import type { GraphQLClient } from "graphql-request"
 import type { Chain, ContractFunctionArgs, Hex, Log, PublicClient, TransactionReceipt } from "viem"
@@ -8,7 +7,7 @@ import type { Account } from "viem/accounts"
 export type { Account as ViemAccount } from "viem/accounts"
 import type HandlerV2 from "@/abis/handlerV2"
 import type { IChain } from "@/chain"
-import type { Chains, ConfiguredAssetSymbol, ConfiguredAssetSymbolInput } from "@/configs/chain"
+import type { ConfiguredAssetSymbolInput } from "@/configs/chain"
 import { Struct, Vector, Bytes, u8 } from "scale-ts"
 
 export type EstimateGasCallData = ContractFunctionArgs<
@@ -158,7 +157,16 @@ export interface RetryConfig {
 	 */
 	backoffMs: number
 	logMessage?: string
-	logger?: ConsolaInstance
+	/**
+	 * Where retry attempts are recorded. Structural on purpose: `retryPromise`
+	 * only ever calls `trace`, and callers outside this package log through
+	 * their own stack (pino, in simplex's case). Typing it as a full
+	 * `ConsolaInstance` forced those callers to omit the logger entirely, which
+	 * sent every retry to the silent default and made a retrying call — up to
+	 * `maxRetries` × the transport's own timeout budget — indistinguishable
+	 * from a hang.
+	 */
+	logger?: { trace: (message: string) => void }
 	/** Return false to stop retrying and immediately rethrow the error. */
 	shouldRetry?: (error: unknown) => boolean
 }
@@ -215,6 +223,8 @@ export enum OrderStatus {
 	FILLED = "FILLED",
 	REDEEMED = "REDEEMED",
 	REFUNDED = "REFUNDED",
+	/** Cancellation has been initiated; escrow refund is still pending. */
+	CANCELLED = "CANCELLED",
 }
 
 export enum TeleportStatus {
@@ -745,6 +755,16 @@ export enum RequestKind {
 	 * Identifies a request for refunding escrowed tokens after cancellation
 	 */
 	RefundEscrow = 4,
+
+	/**
+	 * Identifies a governance call the gateway runs against itself, such as an upgrade
+	 */
+	Execute = 5,
+
+	/**
+	 * Identifies a request for redeeming a slice of an escrow after a partial fill, leaving the order open
+	 */
+	RedeemEscrowPartial = 6,
 }
 
 /**
@@ -812,26 +832,6 @@ export interface FillerConfig {
 	 * Example: { 1: true, 56: false } - watch-only on Ethereum, normal execution on BSC
 	 */
 	watchOnly?: Record<number, boolean>
-
-	/**
-	 * Source chains (state machine ids, e.g. "EVM-8453") this filler accepts payment from when
-	 * filling cross-chain orders, declared inside its phantom bids' paymasterAndData. Omit to
-	 * declare nothing, which downstream consumers read as "accepts all CCTP/USDT0-covered
-	 * chains"; an empty array declares that no source chain is accepted.
-	 */
-	acceptedSourceChains?: string[]
-
-	/**
-	 * Uniswap V4 position tokenIds this filler holds, per chain (state machine id -> tokenIds as
-	 * decimal strings), declared inside its phantom bids' paymasterAndData for the bid's own chain.
-	 *
-	 * Liquidity parked in a V4 position is invisible to the snapshot's inventory read, which sees
-	 * only ERC-20 balances and ERC-4626 vault shares — so without this a venue-funded filler is
-	 * weighted at zero and its quotes are discarded. The declaration is only a POINTER: the indexer
-	 * reads each position's liquidity on-chain and checks it is owned by the solver that signed the
-	 * bid, so naming a position cannot inflate it and naming someone else's achieves nothing.
-	 */
-	uniswapV4PositionsByChain?: Record<string, string[]>
 }
 
 /**
@@ -1124,77 +1124,7 @@ export interface OrderResponse {
 	}
 }
 
-export interface PhantomOrderPriceSnapshot {
-	commitment: HexString
-	tokenA: HexString
-	tokenB: HexString
-	standardAmount: bigint
-	blockNumber: bigint
-	medianPrice: bigint
-	lowestPrice?: bigint
-	highestPrice?: bigint
-	bidCount: number
-	snapshotTime: Date
-}
-
-export interface PhantomOrderPriceSnapshotsResponse {
-	phantomOrderPriceSnapshots: {
-		nodes: Array<{
-			commitment: string
-			tokenA: string
-			tokenB: string
-			standardAmount: string
-			blockNumber: string
-			medianPrice: string | null
-			lowestPrice: string | null
-			highestPrice: string | null
-			bidCount: number
-			snapshotTime: string
-		}>
-	}
-}
-
-/** One independently reported slice of indexed liquidity. */
-export interface LiquiditySlice {
-	totalLiquidity: string
-	providerCount: number
-}
-
-/**
- * Indexed destination capacity and its source-routing slices.
- *
- * The SDK reports the indexer's facts separately and does not decide whether a
- * source chain is covered by the legacy unrestricted-bidder policy.
- */
-export interface AvailableLiquidity {
-	sourceChain: Chains
-	destinationChain: Chains
-	tokenAddress: HexString
-	updatedAt: Date
-	destination: LiquiditySlice
-	unrestricted: LiquiditySlice
-	explicitRoute: (LiquiditySlice & { updatedAt: Date }) | null
-}
-
-/**
- * Aggregate indexed pool buy and sell rates expressed as quote-token units per
- * one base token. The quote token is the less valuable currency when the rates
- * establish an ordering (for example, cNGN in a USDC/cNGN pair).
- */
-export interface BuyAndSellRates {
-	baseTokenSymbol: ConfiguredAssetSymbol
-	quoteTokenSymbol: ConfiguredAssetSymbol
-	sourceChain: Chains
-	destinationChain: Chains
-	/** Quote-token units received when buying the quote token with one base token. */
-	buyRate: string | null
-	/** Quote-token units sold to receive one base token. */
-	sellRate: string | null
-	buyRateUpdatedAt: Date | null
-	sellRateUpdatedAt: Date | null
-}
-
-/** Symbol-only input for querying an indexed pool's rates. */
+/** Symbol-only input for querying a pair's orderbook rates on a route. */
 export interface QueryBuyAndSellRatesParams {
 	tokenInSymbol: ConfiguredAssetSymbolInput
 	tokenOutSymbol: ConfiguredAssetSymbolInput
@@ -1301,7 +1231,10 @@ export interface FillOptions {
 	 * encoding against a gateway whose implementation predates the field.
 	 */
 	validUntil: bigint
+	/** Positional output budgets. Actual payment follows the quoted rate and released input. */
 	outputs: TokenInfo[]
+	/** Required positional maximum input takes. Paired outputs/inputs declare each leg's rate. */
+	inputs: TokenInfo[]
 }
 
 // =============================================================================
@@ -1362,8 +1295,29 @@ export interface SubmitBidOptions {
 	paymasterAndData?: HexString
 }
 
+/**
+ * The fields of a bid UserOperation that decide its `preVerificationGas`: everything the
+ * solver signs except the signature and the `preVerificationGas` itself.
+ */
+export type BidPreVerificationGasParams = Pick<
+	SubmitBidOptions,
+	| "solverAccount"
+	| "nonce"
+	| "entryPointAddress"
+	| "callGasLimit"
+	| "verificationGasLimit"
+	| "maxFeePerGas"
+	| "maxPriorityFeePerGas"
+	| "callData"
+	| "paymasterAndData"
+>
+
 export interface EstimateFillOrderParams {
 	order: Order
+	/** Positional input takes. Required with custom outputs; otherwise estimates a full fill at the order's rate. */
+	inputs?: TokenInfo[]
+	/** Output slice offered by the solver. Defaults to the order's full requested outputs. */
+	outputs?: TokenInfo[]
 	/**
 	 * Optional ERC-7821 calls to prepend before the fillOrder call in the
 	 * simulated UserOp. Used for funding calls (e.g. LP withdrawal) so the
@@ -1386,6 +1340,8 @@ export interface EstimateFillOrderParams {
 
 export interface FillOrderEstimate {
 	fillOptions: FillOptions
+	/** Normalized positional input takes used by the estimated calldata. */
+	inputs: TokenInfo[]
 	callGasLimit: bigint
 	verificationGasLimit: bigint
 	preVerificationGas: bigint
@@ -1414,8 +1370,9 @@ export interface OrderFeesQuote {
 	/**
 	 * The amount to set as `Order.fees`, denominated in the source-chain fee
 	 * token. Same-chain fills carry a 2x margin over the estimated fill gas without
-	 * a gas-price bump. Cross-chain gas is priced with 10% SDK-only headroom before
-	 * adding the settlement relayer fee and a further 5% buffer over the whole sum.
+	 * a gas-price bump. Cross-chain orders originating on Ethereum mainnet use 50%
+	 * SDK-only gas-price headroom; other source chains use 10%. The settlement
+	 * relayer fee is then added with a further 5% buffer over the whole sum.
 	 */
 	fees: bigint
 	/**
@@ -1469,15 +1426,26 @@ export interface BidSubmissionResult {
 	pending?: boolean
 }
 
+/** One bid as the `intents_getBidsForOrder` RPC returns it: hex-encoded, the filler as raw AccountId bytes. */
+export interface RpcBidInfo {
+	commitment: HexString
+	filler: HexString
+	/** Which of the filler's bids on the order this is (bytes32; by convention `keccak256(callData)`). */
+	bid: HexString
+	user_op: HexString
+}
+
 /**
- * Represents a storage entry from pallet-intents Bids storage
- * StorageDoubleMap<_, Blake2_128Concat, H256, Blake2_128Concat, AccountId, Balance>
+ * Represents a storage entry from pallet-intents `OrderBids` storage:
+ * StorageNMap<(H256 commitment, AccountId filler, H256 bid), Balance>
  */
 export interface BidStorageEntry {
 	/** The order commitment hash (H256) */
 	commitment: HexString
 	/** The filler's Substrate account ID (SS58 encoded) */
 	filler: string
+	/** Which of the filler's bids on the order this is (bytes32; by convention `keccak256(callData)`) */
+	bid: HexString
 	/** The deposit amount stored on-chain (BalanceOf<T> = u128) */
 	deposit: bigint
 }
@@ -1489,6 +1457,11 @@ export interface BidStorageEntry {
 export interface FillerBid {
 	/** The filler's Substrate account ID (SS58 encoded) */
 	filler: string
+	/**
+	 * Which of the filler's bids on the order this is. A filler offering several prices bids once
+	 * per price; by convention the identifier is `keccak256` of the UserOp's `callData`.
+	 */
+	bid: HexString
 	/** The decoded PackedUserOperation */
 	userOp: PackedUserOperation
 	/** The deposit amount stored on-chain (in plancks) */
@@ -1524,8 +1497,10 @@ export interface SelectOptions {
 export interface Bid {
 	/** The solver account that submitted this bid (`userOp.sender`). */
 	readonly solverAddress: HexString
-	/** Decoded `FillOptions.outputs` — the tokens and amounts the solver offers. */
+	/** Decoded output budgets; these are not settlement payments or credited progress. */
 	readonly outputs: TokenInfo[]
+	/** Positional input takes from `FillOptions.inputs`, one per leg. */
+	readonly inputs: TokenInfo[]
 	/** Relayer fee from the decoded fill options. */
 	readonly relayerFee: bigint
 	/** Hyperbridge native dispatch fee from the decoded fill options. */
@@ -1569,6 +1544,7 @@ export const IntentOrderStatus = Object.freeze({
 	BID_SELECTED: "BID_SELECTED",
 	FILLED: "FILLED",
 	PARTIAL_FILL: "PARTIAL_FILL",
+	CANCELLED: "CANCELLED",
 	EXPIRED: "EXPIRED",
 	FAILED: "FAILED",
 })
@@ -1616,9 +1592,17 @@ export type IntentOrderStatusUpdate =
 	| {
 			status: "FILLED"
 			commitment: HexString
-			userOpHash: HexString
+			/** Absent when the completing fill was not executed here, e.g. after a restart. */
+			userOpHash?: HexString
 			selectedSolver: HexString
 			transactionHash?: HexString
+			totalFilledAssets: TokenInfo[]
+			remainingAssets: TokenInfo[]
+	  }
+	| {
+			/** The order was cancelled on its destination chain before it was completely filled. */
+			status: "CANCELLED"
+			commitment: HexString
 			totalFilledAssets: TokenInfo[]
 			remainingAssets: TokenInfo[]
 	  }

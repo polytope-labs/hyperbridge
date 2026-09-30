@@ -45,13 +45,11 @@ pnpm format
 
 ## Contributing
 
-Create a changeset when making changes:
+Changesets are not currently configured in this workspace. Do not add standalone
+`.changeset` files: private workspace packages do not require release metadata,
+and maintainers coordinate version changes for publishable packages separately.
 
-```bash
-pnpm changeset
-```
-
-Commit your changes along with the changeset:
+Commit your changes:
 
 ```bash
 git add .

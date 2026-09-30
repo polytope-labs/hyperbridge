@@ -11,17 +11,15 @@ import { validateSignerConfig } from "@/services/wallet"
 import { deriveSubstrateKeyPair, generateSubstrateKey } from "@/services/substrate-key"
 import { ERC20_ABI } from "@/config/abis/ERC20"
 import { emitFillerToml, writeConfigFileAtomic } from "@/cli/init/emit-toml"
-import { chainsForNetwork, HYPERBRIDGE_WS_DEFAULTS, INIT_CHAINS, type InitNetwork } from "@/cli/init/chains"
+import { chainByChainId, chainsForNetwork, HYPERBRIDGE_WS_DEFAULTS } from "@/cli/init/chains"
 import { deriveAlchemyRpc } from "@/cli/init/derive/alchemy"
 import { maskSecret, withTimeout, PROBE_TIMEOUT_MS } from "@/cli/init/prompt-utils"
-import {
-	DEFAULT_MAX_CONCURRENT_ORDERS,
-	DEFAULT_SAME_ASSET_ASK_CURVE,
-	TESTNET_CONFIRMATION_POINTS,
-} from "@/cli/init/state"
+import { DEFAULT_MAX_CONCURRENT_ORDERS } from "@/cli/init/state"
+import { DEFAULT_ORDERBOOK_TIMEOUT_MS, DEFAULT_ORDERBOOK_URLS } from "@/config/defaults"
+import { OrderbookClient } from "@/orderbook/client"
 import { getLogger } from "../Logger"
 import { readBody, sendJson } from "./http-util"
-import type { SetupDefaults } from "./dto"
+import type { SetupDefaults, SetupOrderbook } from "./dto"
 import type { SetupContext, UiServer } from "./UiServer"
 
 
@@ -71,11 +69,12 @@ export async function handleSetupRequest(
 		if (method !== "GET") return sendJson(res, 405, { error: "Method not allowed" })
 		// Registry symbols and treasury vaults come from the SDK's chain registry
 		// so selection UIs offer curated entries instead of requiring pasted addresses.
+		const mainnetChains = chainsForNetwork("mainnet") as SetupDefaults["chains"]
 		const chainRegistry = new ChainConfigService({})
 		const assetRegistry = new AssetRegistry(chainRegistry)
 		const knownTokens: SetupDefaults["knownTokens"] = {}
 		const knownVaults: SetupDefaults["knownVaults"] = {}
-		for (const meta of INIT_CHAINS) {
+		for (const meta of mainnetChains) {
 			knownTokens[meta.stateMachineId] = registrySymbols().flatMap((symbol) => {
 				const address = assetRegistry.getAddress(symbol, meta.stateMachineId)
 				return address ? [{ symbol, address }] : []
@@ -83,17 +82,30 @@ export async function handleSetupRequest(
 			knownVaults[meta.stateMachineId] = chainRegistry.getKnownVaults(meta.stateMachineId)
 		}
 		const defaults: SetupDefaults = {
-			chains: INIT_CHAINS,
-			hyperbridgeWs: HYPERBRIDGE_WS_DEFAULTS,
+			chains: mainnetChains,
+			hyperbridgeWs: { mainnet: HYPERBRIDGE_WS_DEFAULTS.mainnet },
 			usdStables: [...USD_STABLE_SYMBOLS],
-			sameAssetAskCurve: DEFAULT_SAME_ASSET_ASK_CURVE,
-			testnetConfirmationPoints: TESTNET_CONFIRMATION_POINTS,
 			maxConcurrentOrders: DEFAULT_MAX_CONCURRENT_ORDERS,
 			configPath: setup.configPath,
 			knownTokens,
 			knownVaults,
 		}
 		return sendJson(res, 200, defaults)
+	}
+
+	if (endpoint === "orderbook") {
+		if (method !== "GET") return sendJson(res, 405, { error: "Method not allowed" })
+		// Limit orders can name only the books the orderbook lists, so those are the
+		// markets a new config declares. Read live: books change when it is redeployed.
+		const url = DEFAULT_ORDERBOOK_URLS.mainnet
+		try {
+			const { books } = await new OrderbookClient(url, DEFAULT_ORDERBOOK_TIMEOUT_MS).limits()
+			const orderbook: SetupOrderbook = { url, books }
+			return sendJson(res, 200, orderbook)
+		} catch (err) {
+			const reason = err instanceof Error ? err.message : String(err)
+			return sendJson(res, 502, { error: `Could not read the orderbook's markets: ${reason}` })
+		}
 	}
 
 	if (method !== "POST") return sendJson(res, 405, { error: "Method not allowed" })
@@ -141,10 +153,9 @@ export async function handleSetupRequest(
 
 export async function validateAlchemyKey(body: Record<string, unknown>, deps: Required<SetupDeps>) {
 	const apiKey = String(body.apiKey ?? "").trim()
-	const network = (body.network === "testnet" ? "testnet" : "mainnet") as InitNetwork
 	if (!apiKey) return { valid: false, error: "apiKey is required", chains: [] }
 
-	const chains = chainsForNetwork(network).map((meta) => {
+	const chains = chainsForNetwork("mainnet").map((meta) => {
 		const rpcUrl = deriveAlchemyRpc(apiKey, meta.chainId)
 		return {
 			chainId: meta.chainId,
@@ -295,6 +306,9 @@ function gateConfig(body: Record<string, unknown>): GatedConfig | { ok: false; e
 	const chainIds = Array.isArray(body.chainIds) ? body.chainIds.map(Number).filter(Number.isFinite) : []
 	if (!config || typeof config !== "object") return { ok: false, error: "Missing config object" }
 	try {
+		if (chainIds.some((chainId) => chainByChainId(chainId)?.network !== "mainnet")) {
+			throw new Error("The Simplex desktop and browser setup only support mainnet chains")
+		}
 		// The same rule `run` applies: a signer block is required unless the config
 		// is globally watch-only, and a present block is validated for completeness.
 		if (config.simplex?.signer) {
@@ -366,6 +380,9 @@ function maskUrlKey(url: string): string {
 }
 
 function saveAndStart(server: UiServer, setup: SetupContext, body: Record<string, unknown>, res: ServerResponse): void {
+	if (server.isStopping()) {
+		return sendJson(res, 409, { error: "Simplex is stopping" })
+	}
 	if (server.getStartState() === "starting") {
 		return sendJson(res, 409, { error: "A start is already in progress" })
 	}
@@ -374,7 +391,7 @@ function saveAndStart(server: UiServer, setup: SetupContext, body: Record<string
 
 	const path = typeof body.path === "string" && body.path.trim() ? body.path.trim() : setup.configPath
 	try {
-		writeConfigFileAtomic(path, result.toml)
+		;(setup.writeConfigFile ?? writeConfigFileAtomic)(path, result.toml)
 	} catch (err) {
 		return sendJson(res, 500, { error: `Could not write ${path}: ${err instanceof Error ? err.message : err}` })
 	}

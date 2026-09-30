@@ -13,8 +13,9 @@ use ismp::{
 use pallet_ismp_host_executive::HostParam;
 use pallet_ismp_relayer::withdrawal::WithdrawalProof;
 use parity_scale_codec::Codec;
-use primitive_types::{H256, U256};
+use primitive_types::{H160, H256, U256};
 use std::{
+	collections::BTreeMap,
 	sync::{Arc, Mutex},
 	time::Duration,
 };
@@ -34,6 +35,11 @@ pub struct MockHost<C> {
 	pub name: Arc<Mutex<String>>,
 	/// The consensus state id embedded in [`IsmpProvider::state_machine_id`].
 	pub consensus_state_id: Arc<Mutex<ConsensusStateId>>,
+	/// Commitments this host has a delivery receipt for, keyed to the relayer
+	/// that delivered them.
+	pub request_receipts: Arc<Mutex<BTreeMap<H256, Vec<u8>>>>,
+	/// The timestamp returned by [`IsmpProvider::query_timestamp`].
+	pub timestamp: Arc<Mutex<Duration>>,
 }
 
 impl<C> MockHost<C> {
@@ -47,6 +53,8 @@ impl<C> MockHost<C> {
 			address: Arc::new(Mutex::new(Vec::new())),
 			name: Arc::new(Mutex::new("Mock".to_string())),
 			consensus_state_id: Arc::new(Mutex::new(*b"Mock")),
+			request_receipts: Arc::new(Mutex::new(BTreeMap::new())),
+			timestamp: Arc::new(Mutex::new(Duration::from_secs(0))),
 		}
 	}
 
@@ -72,6 +80,17 @@ impl<C> MockHost<C> {
 
 	pub fn with_consensus_state_id(self, id: ConsensusStateId) -> Self {
 		*self.consensus_state_id.lock().unwrap() = id;
+		self
+	}
+
+	/// Record `commitment` as already delivered by `relayer`.
+	pub fn with_request_receipt(self, commitment: H256, relayer: Vec<u8>) -> Self {
+		self.request_receipts.lock().unwrap().insert(commitment, relayer);
+		self
+	}
+
+	pub fn with_timestamp(self, timestamp: Duration) -> Self {
+		*self.timestamp.lock().unwrap() = timestamp;
 		self
 	}
 }
@@ -170,7 +189,7 @@ impl<C: Codec + Send + Sync> IsmpProvider for MockHost<C> {
 	}
 
 	async fn query_timestamp(&self) -> Result<Duration, Error> {
-		Ok(Duration::from_secs(0))
+		Ok(*self.timestamp.lock().unwrap())
 	}
 
 	async fn query_requests_proof(
@@ -310,8 +329,9 @@ impl<C: Codec + Send + Sync> IsmpProvider for MockHost<C> {
 		todo!()
 	}
 
-	async fn query_request_receipt(&self, _hash: H256) -> Result<Vec<u8>, anyhow::Error> {
-		todo!()
+	async fn query_request_receipt(&self, hash: H256) -> Result<Vec<u8>, anyhow::Error> {
+		let receipts = self.request_receipts.lock().unwrap();
+		Ok(receipts.get(&hash).cloned().unwrap_or_else(|| H160::zero().0.to_vec()))
 	}
 
 	async fn query_response_receipt(&self, _hash: H256) -> Result<Vec<u8>, anyhow::Error> {
@@ -334,6 +354,8 @@ impl<C: Send + Sync> Clone for MockHost<C> {
 			address: self.address.clone(),
 			name: self.name.clone(),
 			consensus_state_id: self.consensus_state_id.clone(),
+			request_receipts: self.request_receipts.clone(),
+			timestamp: self.timestamp.clone(),
 		}
 	}
 }

@@ -1,6 +1,6 @@
 import { decodeFunctionData, concat } from "viem"
 import { ABI as IntentGatewayV2ABI } from "@/abis/IntentGatewayV2"
-import { ADDRESS_ZERO, bytes32ToBytes20 } from "@/utils"
+import { ADDRESS_ZERO, bytes32ToBytes20, normalizeStateMachineId } from "@/utils"
 import type {
 	Order,
 	HexString,
@@ -14,7 +14,7 @@ import type {
 } from "@/types"
 import type { IntentGatewayContext } from "./types"
 import { CryptoUtils } from "./CryptoUtils"
-import { decodeFillOrder } from "./fillOrderCodec"
+import { decodeFillOrder, supportsRateFills, FILL_ORDER_SELECTOR } from "./fillOrderCodec"
 import { BidImpl } from "./Bid"
 import Decimal from "decimal.js"
 
@@ -26,11 +26,11 @@ import Decimal from "decimal.js"
  *   Hyperbridge coprocessor as bids (`prepareSubmitBid`).
  * - Decoding raw filler bids into first-class {@link Bid} objects (`buildBids`)
  *   that consumers can rank, simulate, and execute themselves.
- * - Sorting bids by output value (`sortBids`) and providing the autopilot
+ * - Sorting bids by rate (`sortBids`) and providing the autopilot
  *   sort-simulate-execute helper (`selectAndExecuteBest`) for consumers that do
  *   not need custom selection logic.
- * - Pricing bid outputs using on-chain DEX quotes so that the highest-value
- *   solver is preferred.
+ * - Pricing bid outputs in USD using on-chain DEX quotes, for
+ *   {@link Bid.outputUsdValue}.
  */
 export class BidManager {
 	/**
@@ -75,6 +75,22 @@ export class BidManager {
 			callData,
 			paymasterAndData = "0x" as HexString,
 		} = options
+		// Every fillOrder call in the bid must carry a quote for each leg, and the destination gateway
+		// must speak the release that settles it.
+		const fills = (this.crypto.decodeERC7821Execute(callData) ?? []).filter(
+			(call) => call.data.slice(0, 10).toLowerCase() === FILL_ORDER_SELECTOR,
+		)
+		if (fills.length === 0) throw new Error("Bid calldata carries no fillOrder call")
+		for (const call of fills) {
+			if (!decodeFillOrder(call.data as HexString)) {
+				throw new Error("Malformed fill quote; every leg requires inputs and outputs")
+			}
+		}
+		const chain = normalizeStateMachineId(order.destination)
+		const gateway = this.ctx.dest.configService.getIntentGatewayAddress(chain)
+		if (!(await supportsRateFills(this.ctx.dest.client as any, gateway))) {
+			throw new Error("Fills are not supported by the destination gateway")
+		}
 
 		const chainId = BigInt(
 			this.ctx.dest.client.chain?.id ?? Number.parseInt(this.ctx.dest.config.stateMachineId.split("-")[1]),
@@ -96,12 +112,12 @@ export class BidManager {
 		}
 
 		// SolverAccount validates this signature against the plain userOpHash and
-		// requires the nonce key to bind the order commitment and session key.
+		// requires the nonce key to bind the order commitment, session key and calldata.
 		const nonceKey = BigInt(nonce) >> 64n
-		const expectedKey = CryptoUtils.bidNonceKey(order.id as HexString, order.session as HexString)
+		const expectedKey = CryptoUtils.bidNonceKey(order.id as HexString, order.session as HexString, callData)
 		if (nonceKey !== expectedKey) {
 			console.warn(
-				`[BidManager] bid nonce key does not bind the order commitment and session key; on-chain validation will fail (order=${order.id})`,
+				`[BidManager] bid nonce key does not bind the order commitment, session key and calldata; on-chain validation will fail (order=${order.id})`,
 			)
 		}
 		const solverSignature = await solverSigner.signTypedData(
@@ -172,7 +188,7 @@ export class BidManager {
 	}
 
 	/**
-	 * Autopilot bid selection: sorts the given bids by output value, simulates
+	 * Autopilot bid selection: sorts the given bids by rate, simulates
 	 * each in order and attempts execution. Any bid that fails simulation or
 	 * execution is skipped once so the next ranked bid can be attempted in the
 	 * same round. For consumers that do not need custom selection logic.
@@ -237,39 +253,61 @@ export class BidManager {
 	}
 
 	/**
-	 * Sorts a list of bids for the given order by output value.
+	 * Sorts bids by rate, best to worst, independently of how much each one fills.
 	 *
-	 * Delegates to one of three strategies based on the order's output token
-	 * composition:
-	 * - Single output token: sort by offered amount descending.
-	 * - All stable outputs (USDC/USDT): sort by normalised USD value descending.
-	 * - Mixed outputs: sort by DEX-quoted USD value descending, with a raw-amount
-	 *   fallback if pricing fails.
+	 * A leg's rate is what the bid pays out for what it takes: `output / input` for
+	 * that leg. Every leg of an order trades the same pair, so a bid's rate is its
+	 * total output over its total input across the legs it quotes. Rates are
+	 * compared exactly, by cross-multiplication; equal rates keep arrival order.
 	 *
-	 * Bids that cannot satisfy the order's token set are dropped.
+	 * A bid is dropped when it does not quote the order's legs one for one, names
+	 * another token on a leg, quotes an input without an output (or the reverse),
+	 * quotes no leg at all, or quotes a leg below the rate the order requires.
 	 *
-	 * @param order - The placed order whose output spec drives sorting logic.
+	 * @param order - The placed order the bids compete to fill.
 	 * @param bids - Executable bids to sort (from {@link buildBids}).
-	 * @returns Sorted array of `Bid` objects ready for simulation.
+	 * @returns The valid bids, best rate first, ready for simulation.
 	 */
 	async sortBids(order: Order, bids: Bid[]): Promise<Bid[]> {
-		const outputs = order.output.assets
+		const legs = order.inputs.length
+		const ranked: { bid: Bid; input: bigint; output: bigint; index: number }[] = []
 
-		if (outputs.length <= 1) {
-			console.log(`[BidManager] Using single-output sorting (1 output asset)`)
-			return this.sortSingleOutput(bids, outputs[0])
+		for (const [index, bid] of bids.entries()) {
+			if (bid.inputs.length !== legs || bid.outputs.length !== legs || order.output.assets.length !== legs) {
+				console.warn(`[BidManager] Bid from solver=${bid.solverAddress} REJECTED: does not quote the order's legs`)
+				continue
+			}
+			let input = 0n
+			let output = 0n
+			let reason = ""
+			for (let leg = 0; leg < legs && !reason; leg++) {
+				const take = bid.inputs[leg]
+				const pay = bid.outputs[leg]
+				const escrow = order.inputs[leg]
+				const required = order.output.assets[leg]
+				if (take.token.toLowerCase() !== escrow.token.toLowerCase()) reason = `input token mismatch on leg ${leg}`
+				else if (pay.token.toLowerCase() !== required.token.toLowerCase()) reason = `output token mismatch on leg ${leg}`
+				else if (take.amount < 0n || pay.amount < 0n || (take.amount === 0n) !== (pay.amount === 0n))
+					reason = `no valid quote on leg ${leg}`
+				// output / take >= required / escrow: the leg's rate clears what the user asked for.
+				else if (pay.amount * escrow.amount < take.amount * required.amount) reason = `rate below the order on leg ${leg}`
+				input += take.amount
+				output += pay.amount
+			}
+			if (!reason && input === 0n) reason = "quotes no leg"
+			if (reason) {
+				console.warn(`[BidManager] Bid from solver=${bid.solverAddress} REJECTED: ${reason}`)
+				continue
+			}
+			ranked.push({ bid, input, output, index })
 		}
 
-		const chainId = this.ctx.dest.config.stateMachineId
-		const allStables = outputs.every((o) => this.isStableToken(bytes32ToBytes20(o.token), chainId))
-
-		if (allStables) {
-			console.log(`[BidManager] Using all-stables sorting (${outputs.length} stable output assets)`)
-			return this.sortAllStables(bids, outputs, chainId)
-		}
-
-		console.log(`[BidManager] Using mixed-output sorting (${outputs.length} output assets, some non-stable)`)
-		return this.sortMixedOutputs(bids, outputs, chainId)
+		ranked.sort((a, b) => {
+			const left = a.output * b.input
+			const right = b.output * a.input
+			return left === right ? a.index - b.index : left > right ? -1 : 1
+		})
+		return ranked.map(({ bid }) => bid)
 	}
 
 	/**
@@ -297,191 +335,6 @@ export class BidManager {
 			// decode failed
 		}
 		return null
-	}
-
-	/**
-	 * Case A: single output token.
-	 * Filter bids by token match only, sort descending by amount.
-	 * Partial fill bids are allowed — the contract determines fill status.
-	 */
-	private sortSingleOutput(bids: Bid[], requiredAsset: TokenInfo): Bid[] {
-		const requiredAmount = new Decimal(requiredAsset.amount.toString())
-		console.log(
-			`[BidManager] sortSingleOutput: required token=${requiredAsset.token}, amount=${requiredAmount.toString()}`,
-		)
-
-		const validBids: { bid: Bid; amount: bigint }[] = []
-
-		for (const bid of bids) {
-			const bidOutput = bid.outputs[0]
-			const bidAmount = new Decimal(bidOutput.amount.toString())
-
-			if (bidOutput.token.toLowerCase() !== requiredAsset.token.toLowerCase()) {
-				console.warn(
-					`[BidManager] Bid from solver=${bid.solverAddress} REJECTED: token mismatch ` +
-						`(bid=${bidOutput.token}, required=${requiredAsset.token})`,
-				)
-				continue
-			}
-
-			if (bidAmount.lt(requiredAmount)) {
-				console.log(
-					`[BidManager] Bid from solver=${bid.solverAddress}: partial fill candidate ` +
-						`(bid=${bidAmount.toString()}, required=${requiredAmount.toString()}, ` +
-						`covers=${bidAmount.div(requiredAmount).mul(100).toFixed(2)}%)`,
-				)
-			} else {
-				console.log(
-					`[BidManager] Bid from solver=${bid.solverAddress} ACCEPTED: amount=${bidAmount.toString()} ` +
-						`(surplus=${bidAmount.minus(requiredAmount).toString()})`,
-				)
-			}
-
-			validBids.push({ bid, amount: bidOutput.amount })
-		}
-
-		validBids.sort((a, b) => {
-			const aAmt = new Decimal(a.amount.toString())
-			const bAmt = new Decimal(b.amount.toString())
-			return bAmt.comparedTo(aAmt)
-		})
-
-		return validBids.map(({ bid }) => bid)
-	}
-
-	/**
-	 * Case B: all outputs are USDC/USDT.
-	 * Sum normalised USD values (treating each stable as $1) and sort descending.
-	 * Partial fill bids are allowed.
-	 */
-	private sortAllStables(bids: Bid[], orderOutputs: TokenInfo[], chainId: string): Bid[] {
-		const requiredUsd = this.computeStablesUsdValue(orderOutputs, chainId)
-		console.log(`[BidManager] sortAllStables: required USD value=${requiredUsd.toString()}`)
-
-		const validBids: { bid: Bid; usdValue: Decimal }[] = []
-
-		for (const bid of bids) {
-			const bidUsd = this.computeStablesUsdValue(bid.outputs, chainId)
-
-			if (bidUsd === null) {
-				console.warn(`[BidManager] Bid from solver=${bid.solverAddress} REJECTED: unable to compute USD value`)
-				continue
-			}
-
-			if (bidUsd.lt(requiredUsd)) {
-				console.log(
-					`[BidManager] Bid from solver=${bid.solverAddress}: partial fill candidate ` +
-						`(bid=${bidUsd.toString()}, required=${requiredUsd.toString()}, ` +
-						`covers=${bidUsd.div(requiredUsd).mul(100).toFixed(2)}%)`,
-				)
-			} else {
-				console.log(`[BidManager] Bid from solver=${bid.solverAddress} ACCEPTED: USD value=${bidUsd.toString()}`)
-			}
-
-			validBids.push({ bid, usdValue: bidUsd })
-		}
-
-		validBids.sort((a, b) => b.usdValue.comparedTo(a.usdValue))
-		return validBids.map(({ bid }) => bid)
-	}
-
-	/**
-	 * Case C: mixed output tokens (at least one non-stable).
-	 * Price every token via on-chain DEX quotes, fall back to raw amounts
-	 * if pricing is unavailable. Partial fill bids are allowed.
-	 */
-	private async sortMixedOutputs(bids: Bid[], orderOutputs: TokenInfo[], chainId: string): Promise<Bid[]> {
-		const requiredUsd = await this.computeOutputsUsdValue(orderOutputs, chainId)
-
-		if (requiredUsd === null) {
-			console.warn("[BidManager] sortMixedOutputs: output tokens unpriceable, falling back to raw-amount sort")
-			return this.sortByRawAmountFallback(bids, orderOutputs)
-		}
-
-		console.log(`[BidManager] sortMixedOutputs: required USD value=${requiredUsd.toString()}`)
-		const validBids: { bid: Bid; usdValue: Decimal }[] = []
-
-		for (const bid of bids) {
-			const bidUsd = await this.computeOutputsUsdValue(bid.outputs, chainId)
-
-			if (bidUsd === null) {
-				console.warn(`[BidManager] Bid from solver=${bid.solverAddress} REJECTED: unable to price mixed outputs`)
-				continue
-			}
-
-			if (bidUsd.lt(requiredUsd)) {
-				console.log(
-					`[BidManager] Bid from solver=${bid.solverAddress}: partial fill candidate ` +
-						`(bid=${bidUsd.toString()}, required=${requiredUsd.toString()}, ` +
-						`covers=${bidUsd.div(requiredUsd).mul(100).toFixed(2)}%)`,
-				)
-			} else {
-				console.log(
-					`[BidManager] Bid from solver=${bid.solverAddress} ACCEPTED: mixed USD value=${bidUsd.toString()}`,
-				)
-			}
-
-			validBids.push({ bid, usdValue: bidUsd })
-		}
-
-		validBids.sort((a, b) => b.usdValue.comparedTo(a.usdValue))
-		return validBids.map(({ bid }) => bid)
-	}
-
-	/**
-	 * Fallback when DEX pricing is unavailable.
-	 * Computes total spread per bid. Bids missing a required token are rejected.
-	 * Bids offering less than required for a token are allowed (partial fill).
-	 * Sorted by total offered amount descending.
-	 */
-	private sortByRawAmountFallback(bids: Bid[], orderOutputs: TokenInfo[]): Bid[] {
-		console.log(
-			`[BidManager] sortByRawAmountFallback: checking ${bids.length} bid(s) against ${orderOutputs.length} required output(s)`,
-		)
-		const validBids: { bid: Bid; totalOffered: Decimal }[] = []
-
-		for (const bid of bids) {
-			let valid = true
-			let totalOffered = new Decimal(0)
-			let rejectReason = ""
-
-			for (const required of orderOutputs) {
-				const matching = bid.outputs.find((o) => o.token.toLowerCase() === required.token.toLowerCase())
-				if (!matching) {
-					valid = false
-					rejectReason = `missing output token=${required.token}`
-					break
-				}
-				totalOffered = totalOffered.plus(new Decimal(matching.amount.toString()))
-			}
-
-			if (!valid) {
-				console.warn(`[BidManager] Bid from solver=${bid.solverAddress} REJECTED (fallback): ${rejectReason}`)
-				continue
-			}
-
-			const totalRequired = orderOutputs.reduce(
-				(acc, o) => acc.plus(new Decimal(o.amount.toString())),
-				new Decimal(0),
-			)
-
-			if (totalOffered.lt(totalRequired)) {
-				console.log(
-					`[BidManager] Bid from solver=${bid.solverAddress}: partial fill candidate (fallback) ` +
-						`(offered=${totalOffered.toString()}, required=${totalRequired.toString()}, ` +
-						`covers=${totalOffered.div(totalRequired).mul(100).toFixed(2)}%)`,
-				)
-			} else {
-				console.log(
-					`[BidManager] Bid from solver=${bid.solverAddress} ACCEPTED (fallback): totalOffered=${totalOffered.toString()}`,
-				)
-			}
-
-			validBids.push({ bid, totalOffered })
-		}
-
-		validBids.sort((a, b) => b.totalOffered.comparedTo(a.totalOffered))
-		return validBids.map(({ bid }) => bid)
 	}
 
 	// ── Token classification helpers ──────────────────────────────────
@@ -519,24 +372,6 @@ export class BidManager {
 	// ── Basket valuation helpers ──────────────────────────────────────
 
 	/**
-	 * Sums the USD value of a basket of stable tokens (USDC/USDT only),
-	 * normalising each amount by its decimal count and treating each token as $1.
-	 *
-	 * @param outputs - List of token/amount pairs where every token is a stable.
-	 * @param chainId - State-machine ID used to look up decimals.
-	 * @returns Total USD value as a `Decimal`.
-	 */
-	private computeStablesUsdValue(outputs: TokenInfo[], chainId: string): Decimal {
-		let total = new Decimal(0)
-		for (const output of outputs) {
-			const tokenAddr = bytes32ToBytes20(output.token)
-			const decimals = this.getStableDecimals(tokenAddr, chainId)
-			total = total.plus(new Decimal(output.amount.toString()).div(new Decimal(10).pow(decimals)))
-		}
-		return total
-	}
-
-	/**
 	 * Prices every token in the basket via on-chain DEX quotes (token → USDC).
 	 * Stables are valued at $1. Non-stables are quoted through Uniswap
 	 * (direct to USDC, or via WETH→USDC as fallback).
@@ -555,6 +390,7 @@ export class BidManager {
 		let totalUsd = new Decimal(0)
 
 		for (const output of outputs) {
+			if (output.amount === 0n) continue
 			const tokenAddr = bytes32ToBytes20(output.token)
 
 			if (this.isStableToken(tokenAddr, chainId)) {

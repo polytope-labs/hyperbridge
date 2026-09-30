@@ -1,6 +1,6 @@
 import { keccakAsU8a } from "@polkadot/util-crypto"
 import { EventMonitor } from "./event-monitor"
-import type { FillerStrategy } from "@/strategies/base"
+import type { FillerStrategy, FillResult } from "@/strategies/base"
 import {
 	type Order,
 	type FillerConfig,
@@ -9,20 +9,21 @@ import {
 	retryPromise,
 	type HexString,
 	IntentsCoprocessor,
-	type PhantomOrderEvent,
-	bytes32ToBytes20,
+	type BidSubmissionResult,
 	type TokenInfo,
-	type PhantomBid,
-	ADDRESS_ZERO,
+	bytes32ToBytes20,
+	readLegEscrow,
 } from "@hyperbridge/sdk"
 import { parseChainKey } from "@/config/interpolated-curve"
-import { INTENT_GATEWAY_V2_ABI } from "@/config/abis/IntentGatewayV2"
-import type { Address } from "viem"
 import pQueue from "p-queue"
 import { type ChainClientManager, type ContractInteractionService, DelegationService, type RebalancingService } from "@/services"
-import type { BidStore } from "@/data/types"
-import type { HyperbridgeScanner, OrderScanner, Subscription } from "@/scanner/types"
+import type { BidStore, LimitOrder, LimitOrderHold, LimitOrderStore } from "@/data/types"
+import type { AssetRegistry } from "@/config/asset-registry"
+import type { LimitOrderService } from "@/orderbook/limit-orders"
+import { toScaled } from "@/orderbook/amounts"
+import type { OrderScanner } from "@/scanner/types"
 import type { FillerConfigService } from "@/services/FillerConfigService"
+import type { SolverWork } from "@/services/server/dto"
 import { type Logger , moduleLogger} from "@/services/Logger"
 import type { Signer } from "@/services/wallet"
 import { hasPaymaster } from "@/services/paymaster"
@@ -31,13 +32,56 @@ import { Decimal } from "decimal.js"
 /** How long to wait for a Hyperbridge connection before giving up on it. */
 const HYPERBRIDGE_CONNECT_TIMEOUT_MS = 30_000
 
-/** One chain's phantom bid, quoted and built, waiting to ride in the interval's batch. */
-interface PreparedPhantomBid {
-	chain: string
-	/** Legs that got a non-zero quote, and how many the order carried — for logging only. */
-	quotedLegs: number
-	legs: number
-	bid: PhantomBid
+/** Smallest hold first, for picking the tightest one that covers a delivery. */
+function byAmount(a: LimitOrderHold, b: LimitOrderHold): number {
+	return BigInt(a.amount) < BigInt(b.amount) ? -1 : BigInt(a.amount) > BigInt(b.amount) ? 1 : 0
+}
+
+/**
+ * The hold of the bid a fill executed.
+ *
+ * Which one executed is not in the event, which names the commitment the bids share
+ * rather than the op that landed. The escrow it released narrows it: a bid releases
+ * its own signed take, or less when the gateway clamps it to what the order has left,
+ * so only a bid whose take covers the release can have been it. Several can: a bid
+ * whose payout covers the ask takes the whole input, so one solver's bids at several
+ * levels of its book all sign the same take. Among them it is the best rate, which is
+ * the one the executor takes first. Holds without a take fall back to the delivery:
+ * the hold that matches it, then the closest one at or above it, then the order the
+ * bids went out in.
+ */
+function executedHold(holds: LimitOrderHold[], delivered: bigint, released: bigint): LimitOrderHold {
+	const withTake = released > 0n ? holds.filter((hold) => hold.take !== undefined) : []
+	return (
+		withTake.filter((hold) => BigInt(hold.take!) >= released).sort(byBestRate)[0] ??
+		holds.find((hold) => BigInt(hold.amount) === delivered) ??
+		holds.filter((hold) => BigInt(hold.amount) >= delivered).sort(byAmount)[0] ??
+		holds[0]
+	)
+}
+
+/** Best signed rate (`amount / take`) first: the order the executor takes bids in. */
+function byBestRate(a: LimitOrderHold, b: LimitOrderHold): number {
+	const left = BigInt(a.amount) * BigInt(b.take!)
+	const right = BigInt(b.amount) * BigInt(a.take!)
+	return left === right ? 0 : left > right ? -1 : 1
+}
+
+/**
+ * What the gateway charged the bid behind `hold`, at 1e18: the escrow it released, at the rate
+ * the bid signed (`amount / take`), rounded up and never below what it credited the swapper.
+ *
+ * The fill event reports the credited output, which excludes the surplus a bid above the ask
+ * pays the swapper and the protocol. Drawing the limit order down by that would leave it claiming
+ * output it had already paid out. A hold without a take predates bids carrying their own rate,
+ * and was signed at the ask, so its charge is the delivery.
+ */
+function chargedFor(hold: LimitOrderHold, delivered: bigint, released: bigint): bigint {
+	if (hold.take === undefined || released === 0n) return delivered
+	const take = BigInt(hold.take)
+	if (take === 0n) return delivered
+	const atRate = (BigInt(hold.amount) * released + take - 1n) / take
+	return atRate > delivered ? atRate : delivered
 }
 
 export class IntentFiller {
@@ -50,18 +94,28 @@ export class IntentFiller {
 	private delegationService?: DelegationService
 	private rebalancingService?: RebalancingService
 	private bidStorage?: BidStore
+	private limitOrders?: LimitOrderStore
+	private assetRegistry?: AssetRegistry
+	/**
+	 * Set after construction: the service owns the orderbook connection and is
+	 * built from this same store, so it cannot exist before the filler does.
+	 */
+	private limitOrderService?: LimitOrderService
 	private retractionQueue: pQueue
+	/**
+	 * Fills are settled one at a time, in the order they were scanned. Several fills of
+	 * one order can land in one scan, and each settlement names its bid from the holds
+	 * the previous ones left: run side by side, two of them read the same holds and
+	 * claim the same one.
+	 */
+	private settlementQueue: pQueue
 	private paused = false
 	private stopping = false
 	private pendingRetractions = new Set<string>()
 	private rebalancingInterval?: NodeJS.Timeout
 	private initialRebalanceTimer?: NodeJS.Timeout
+	private activeRebalances = new Set<Promise<void>>()
 	private retractionSweepInterval?: NodeJS.Timeout
-	private stopPhantomPolling: (() => void) | null = null
-	// Last phantom bid commitment per chain. The pallet bundles every configured pair into a single
-	// order per interval, so one commitment per chain is live at a time and a new interval's bid
-	// retracts exactly the one it replaces.
-	private lastPhantomCommitmentByChain = new Map<string, HexString>()
 	private hyperbridge: Promise<IntentsCoprocessor> | undefined = undefined
 	private hyperbridgeEndpoint?: { wsUrl: string; substrateKey: string }
 	/** The ApiPromise behind `hyperbridge` — ours, so stop() can disconnect it. */
@@ -80,8 +134,6 @@ export class IntentFiller {
 	private signer: Signer
 	private fillerAddress: HexString
 	private logger: Logger
-	private hyperbridgeScanner?: HyperbridgeScanner
-	private phantomSubscription?: Subscription
 
 	constructor(
 		chainConfigs: ChainConfig[],
@@ -91,9 +143,11 @@ export class IntentFiller {
 		chainClientManager: ChainClientManager,
 		contractService: ContractInteractionService,
 		signer: Signer,
-		scanners: { orders: OrderScanner; hyperbridge?: HyperbridgeScanner },
+		scanners: { orders: OrderScanner },
 		rebalancingService?: RebalancingService,
 		bidStorage?: BidStore,
+		limitOrders?: LimitOrderStore,
+		assetRegistry?: AssetRegistry,
 	) {
 		this.logger = moduleLogger(configService.loggers, "intent-filler")
 		this.configService = configService
@@ -103,8 +157,9 @@ export class IntentFiller {
 		this.contractService = contractService
 		this.rebalancingService = rebalancingService
 		this.bidStorage = bidStorage
+		this.limitOrders = limitOrders
+		this.assetRegistry = assetRegistry
 		this.monitor = new EventMonitor(chainConfigs, configService, this.fillerAddress, scanners.orders)
-		this.hyperbridgeScanner = scanners.hyperbridge
 		this.strategies = strategies
 		this.config = config
 
@@ -119,6 +174,7 @@ export class IntentFiller {
 		})
 
 		this.retractionQueue = new pQueue({ concurrency: 1 })
+		this.settlementQueue = new pQueue({ concurrency: 1 })
 
 		const hyperbridgeWsUrl = configService.getHyperbridgeWsUrl()
 		const substrateKey = configService.getSubstratePrivateKey()
@@ -137,11 +193,33 @@ export class IntentFiller {
 			this.handleNewOrder(order, transactionHash)
 		})
 
-		this.monitor.on("orderFilledOnChain", ({ commitment, filler, chainId }) => {
-			this.handleOrderFilledOnChain(commitment as HexString, filler, chainId).catch((err) => {
-				// The retraction sweep still picks this bid up on its next cycle.
-				this.logger.error({ commitment, err }, "Failed to handle on-chain fill")
-			})
+		this.monitor.on("orderFilledOnChain", ({ commitment, filler, chainId, outputs, inputs, complete, transactionHash }) => {
+			this.settlementQueue
+				.add(() =>
+					this.handleOrderFilledOnChain(
+						commitment as HexString,
+						filler,
+						chainId,
+						outputs,
+						inputs,
+						complete,
+						transactionHash,
+					),
+				)
+				.catch((err) => {
+					// The retraction sweep still picks this bid up on its next cycle.
+					this.logger.error({ commitment, err }, "Failed to handle on-chain fill")
+				})
+		})
+
+		this.monitor.on("orderFillObserved", ({ commitment, filler, chainId, ours, complete }) => {
+			if (ours || !complete) return
+			this.settlementQueue
+				.add(() => this.handleRivalCompletion(commitment as HexString, filler, chainId))
+				.catch((err) => {
+					// The retraction sweep still picks this bid up once it goes stale.
+					this.logger.error({ commitment, err }, "Failed to handle a rival's completed fill")
+				})
 		})
 	}
 
@@ -150,6 +228,11 @@ export class IntentFiller {
 	 * depositing the target amount to the EntryPoint on chains where solver
 	 * selection is active. This should be called before start().
 	 */
+	/** Hands the filler the service that keeps the orderbook in step with a fill. */
+	public setLimitOrderService(service: LimitOrderService): void {
+		this.limitOrderService = service
+	}
+
 	/** Whether the given chain id is configured for watch-only (monitor, never fill). */
 	private isChainWatchOnly(chainId: number): boolean {
 		const watchOnly = this.config.watchOnly
@@ -255,7 +338,7 @@ export class IntentFiller {
 		}
 
 		// Ensure EntryPoint deposit covers target gas units on chains
-		// that do NOT have any paymaster (Circle or Simplex) configured.
+		// that do NOT have the Simplex paymaster configured.
 		// Chains with a paymaster pay gas in stablecoins instead.
 		// Paymaster authorization is handled per-order inside buildPaymasterAndData.
 		const targetGasUnits = this.configService.getTargetGasUnits()
@@ -336,10 +419,6 @@ export class IntentFiller {
 		if (this.bidStorage && this.hyperbridge) {
 			this.startRetractionSweep()
 		}
-
-		if (this.hyperbridge) {
-			this.startPhantomBidding()
-		}
 	}
 
 	/**
@@ -363,6 +442,24 @@ export class IntentFiller {
 
 	public isPaused(): boolean {
 		return this.paused
+	}
+
+	/** Work that must finish before the desktop may stop the process for an update. */
+	public getWorkSnapshot(): SolverWork {
+		let queuedFills = 0
+		let activeFills = 0
+		for (const queue of this.chainQueues.values()) {
+			queuedFills += queue.size
+			activeFills += queue.pending
+		}
+		return {
+			queuedEvaluations: this.globalQueue.size,
+			evaluating: this.globalQueue.pending,
+			queuedFills,
+			activeFills,
+			retractions: this.retractionQueue.size + this.retractionQueue.pending,
+			rebalancing: this.activeRebalances.size,
+		}
 	}
 
 	/** Takes effect immediately: evaluateOrder reads the map on every order. */
@@ -396,22 +493,29 @@ export class IntentFiller {
 		// Run initial check after 30 seconds (to let the filler start up). Tracked so
 		// it cannot fire after stop() has resolved.
 		this.initialRebalanceTimer = setTimeout(() => {
-			this.checkAndRebalance().catch((error) => {
-				this.logger.error({ error }, "Error in initial rebalancing check")
-			})
+			this.initialRebalanceTimer = undefined
+			void this.runTrackedRebalance()
 		}, 30_000)
 
 		// Then check every 5 minutes
 		this.rebalancingInterval = setInterval(
 			() => {
-				this.checkAndRebalance().catch((error) => {
-					this.logger.error({ error }, "Error in periodic rebalancing check")
-				})
+				void this.runTrackedRebalance()
 			},
 			5 * 60 * 1000,
 		) // 5 minutes
 
 		this.logger.info("Periodic rebalancing checks started (every 5 minutes)")
+	}
+
+	private runTrackedRebalance(): Promise<void> {
+		if (this.stopping) return Promise.resolve()
+		const task = this.checkAndRebalance().catch((error) => {
+			this.logger.error({ error }, "Error in periodic rebalancing check")
+		})
+		this.activeRebalances.add(task)
+		void task.then(() => this.activeRebalances.delete(task))
+		return task
 	}
 
 	/**
@@ -491,13 +595,6 @@ export class IntentFiller {
 		this.hyperbridgeApi = undefined
 		this.hyperbridge = undefined
 
-		this.phantomSubscription?.close()
-		this.phantomSubscription = undefined
-		if (this.stopPhantomPolling) {
-			this.stopPhantomPolling()
-			this.stopPhantomPolling = null
-		}
-
 		// Stop rebalancing interval
 		if (this.initialRebalanceTimer) {
 			clearTimeout(this.initialRebalanceTimer)
@@ -530,6 +627,7 @@ export class IntentFiller {
 		})
 		promises.push(this.globalQueue.onIdle())
 		promises.push(this.retractionQueue.onIdle())
+		promises.push(...this.activeRebalances)
 
 		await Promise.all(promises)
 
@@ -550,15 +648,18 @@ export class IntentFiller {
 
 		try {
 			const escrows = await Promise.all(
-				order.inputs.map((input: TokenInfo) =>
+				// Escrow is held per leg, keyed by the input's index; a gateway not yet upgraded to per-leg
+				// escrow is read by token.
+				order.inputs.map((input: TokenInfo, index: number) =>
 					retryPromise(
 						() =>
-							sourceClient.readContract({
-								address: intentGatewayAddress,
-								abi: INTENT_GATEWAY_V2_ABI,
-								functionName: "_orders",
-								args: [commitment, bytes32ToBytes20(input.token) as Address],
-							}) as Promise<bigint>,
+							readLegEscrow(
+								sourceClient,
+								intentGatewayAddress as HexString,
+								commitment,
+								index,
+								input.token as HexString,
+							),
 						{
 							maxRetries: 3,
 							backoffMs: 250,
@@ -620,10 +721,14 @@ export class IntentFiller {
 					return
 				}
 				if (this.isChainWatchOnly(destinationChainId)) {
-					this.logger.debug(
+					this.logger.info(
 						{ orderId: order.id, destination: order.destination },
 						"Order destination is watch-only, skipping",
 					)
+					// Same skip `evaluateOrder` records for its own watch-only check; this
+					// intake check runs first, so without it the feed showed watch-only
+					// orders as merely "detected" with no reason.
+					this.monitor.emit("orderSkipped", { orderId: order.id, reason: "watch-only" })
 					return
 				}
 
@@ -677,6 +782,10 @@ export class IntentFiller {
 				}
 
 				let inputUsdValue = baseInputUsd
+				// Whether anything could put a dollar figure on this order at all. The
+				// stable-only base reads zero for an exotic input, and a zero would size
+				// the confirmation wait at the shallowest point of the curve.
+				let valued = baseInputUsd.gt(0)
 				for (const [strategy, canFill] of canFillCache) {
 					if (!canFill || typeof strategy.getOrderUsdValue !== "function") continue
 					try {
@@ -684,6 +793,7 @@ export class IntentFiller {
 
 						if (stratValue != null) {
 							inputUsdValue = Decimal.max(baseInputUsd, stratValue.inputUsd)
+							valued = true
 							break
 						}
 					} catch (err) {
@@ -712,14 +822,22 @@ export class IntentFiller {
 						)
 						return
 					}
+					// An order nothing could value waits as long as the deepest order on
+					// the curve. The curve clamps at its last point, so this is its top.
+					// Treating unknown as zero would be the shallowest wait on the order
+					// there is least reason to trust.
+					if (!valued) {
+						this.logger.warn(
+							{ orderId: order.id, source: order.source },
+							"No dollar value for this order; waiting the deepest confirmation the policy allows",
+						)
+					}
+					const depthUsd = valued ? inputUsdValue.toNumber() : Number.MAX_SAFE_INTEGER
 					for (const [strategy, canFill] of canFillCache) {
 						if (!canFill || !strategy.confirmationPolicy) continue
 						requiredConfirmations = Math.max(
 							requiredConfirmations,
-							strategy.confirmationPolicy.getConfirmationBlocks(
-								getChainId(order.source)!,
-								inputUsdValue.toNumber(),
-							),
+							strategy.confirmationPolicy.getConfirmationBlocks(getChainId(order.source)!, depthUsd),
 						)
 					}
 				}
@@ -865,8 +983,17 @@ export class IntentFiller {
 		this.monitor.emit("orderTiming", { orderId: order.id, phase: "evaluation", durationSec: evalDurationSec })
 
 		if (validStrategies.length === 0) {
-			this.logger.warn({ orderId: order.id }, "No profitable strategy found for order")
-			this.monitor.emit("orderSkipped", { orderId: order.id, reason: "No profitable strategy" })
+			// Nothing able to fill it is not a price that loses money. Each strategy logs its
+			// own reason just before this line.
+			const priced = eligibleStrategies.some((s) => s !== null)
+			this.logger.warn(
+				{ orderId: order.id },
+				priced ? "No profitable strategy found for order" : "No strategy can fill this order",
+			)
+			this.monitor.emit("orderSkipped", {
+				orderId: order.id,
+				reason: priced ? "No profitable strategy" : "No strategy can fill this order",
+			})
 			return null
 		}
 
@@ -922,75 +1049,163 @@ export class IntentFiller {
 				"Executing order",
 			)
 
-			try {
-				const execStartMs = Date.now()
-				const hyperbridgeService = solverSelectionActive ? await this.hyperbridge : undefined
-				const result = await bestStrategy.executeOrder(order, hyperbridgeService)
-				const execDurationSec = (Date.now() - execStartMs) / 1000
-				this.monitor.emit("orderTiming", {
-					orderId: order.id,
-					phase: "execution",
-					durationSec: execDurationSec,
-				})
-				this.logger.info({ orderId: order.id, result }, "Order execution completed")
+			// Held before the bid goes out, so two chains bidding at once cannot
+			// between them promise more output than the limit order has left. The
+			// reservation lives on the bid row from here, and is given back when the
+			// bid loses or converted into a draw-down when it fills.
+			// One bid per limit order that priced this fill. Each is its own fill at the
+			// gateway, which clamps it against whatever is still outstanding, so the
+			// bids are sent in turn rather than added up. A plan-less order (nothing
+			// limit-order priced it) still sends the one bid it always did.
+			const plans = this.limitOrders && order.id ? this.contractService.cacheService.getBidPlans(order.id) : []
+			const cache = this.contractService.cacheService
+			let lastResult: FillResult | undefined
+			// Each bid's nonce key binds its own calldata, so every bid is the first
+			// sequence of a key no other bid shares and executes on its own: none waits
+			// on another, and one that is never selected strands nothing. The plans come
+			// best offer first, which is the order they go out in.
+			for (const plan of plans.length > 0 ? plans : [undefined]) {
+				let reservation: LimitOrderHold[] = []
+				if (plan) {
+					// What this bid signs. `executeOrder` reads these back out, so they are
+					// set per bid rather than once per order.
+					if (order.id) {
+						cache.setFillerOutputs(order.id, plan.fillerOutputs, plan.fillerInputs)
+						cache.setPartialFill(order.id, plan.partialFill)
+						if (plan.fundingCalls.length > 0) cache.setFundingPrepends(order.id, plan.fundingCalls)
+						else cache.clearFundingPrepends(order.id)
+					}
+					// Held before the bid goes out, against this bid's own limit order: a
+					// hold that cannot be taken drops this bid, not the rest.
+					reservation = await this.holdAll([
+						{ limitOrderId: plan.limitOrderId, payout: plan.payout, take: plan.fillerInputs[plan.leg]?.amount },
+					])
+					if (reservation.length === 0) {
+						this.logger.info(
+							{ orderId: order.id, limitOrder: plan.limitOrderId },
+							"Skipping a bid: the limit order that priced it no longer has room",
+						)
+						continue
+					}
+				}
+				let bidRow: HexString | undefined
+				// The row carries the identifier Hyperbridge files the bid under, which is
+				// what tells this bid's holds from the other bids' on the same order.
+				let rowBid: string | undefined
 
-				// Persist the bid FIRST, before any telemetry. By this point the bid is
-				// already on Hyperbridge holding a deposit, and the only way to reclaim
-				// it is to retract it — which the sweep can only do for bids it can find
-				// here. Anything between the submission and this write is something that
-				// can strand money: a consumer's event listener throwing, an
-				// operator-supplied store rejecting on a connection blip, a disk error.
-				if (result.commitment) {
-					const commitment = result.commitment as HexString
-					await this.bidStorage?.store({
-						commitment,
-						extrinsicHash: (result.txHash as HexString) || undefined,
+				try {
+					const execStartMs = Date.now()
+					const hyperbridgeService = solverSelectionActive ? await this.hyperbridge : undefined
+					const result = await bestStrategy.executeOrder(order, hyperbridgeService)
+					const execDurationSec = (Date.now() - execStartMs) / 1000
+					this.monitor.emit("orderTiming", {
+						orderId: order.id,
+						phase: "execution",
+						durationSec: execDurationSec,
+					})
+					this.logger.info({ orderId: order.id, result }, "Order execution completed")
+
+					// Persist the bid FIRST, before any telemetry. By this point the bid is
+					// already on Hyperbridge holding a deposit, and the only way to reclaim
+					// it is to retract it — which the sweep can only do for bids it can find
+					// here. Anything between the submission and this write is something that
+					// can strand money: a consumer's event listener throwing, an
+					// operator-supplied store rejecting on a connection blip, a disk error.
+					if (result.commitment) {
+						const commitment = result.commitment as HexString
+						rowBid = result.bid
+						if (reservation.length > 0) bidRow = commitment
+						await this.bidStorage?.store({
+							commitment,
+							bid: rowBid,
+							extrinsicHash: (result.txHash as HexString) || undefined,
+							success: result.success,
+							pending: result.pending === true,
+							error: result.error,
+							reservations: reservation,
+						})
+
+						if (this.pendingRetractions.delete(commitment)) {
+							this.logger.info({ commitment }, "OrderFilled arrived before bid was stored, retracting now")
+							this.enqueueRetraction(commitment)
+							await this.bidStorage?.markDead(commitment)
+						}
+						// A bid that failed outright holds no deposit and will never be
+						// retracted, so nothing downstream would ever give its reservation
+						// back. A pooled one might still land, so it keeps its hold.
+						if (!result.success && result.pending !== true) {
+							await this.releaseReservation(commitment, rowBid)
+						}
+					} else if (reservation.length > 0) {
+						// No commitment means no bid row, so the holds have to be undone here.
+						await this.releaseAll(reservation)
+					}
+
+					if (result.success) {
+						this.monitor.emit("orderFilled", {
+							orderId: order.id,
+							hash: result.txHash,
+							volumeUsd: inputUsdValue.toNumber(),
+							profitUsd,
+							chainId: getChainId(order.source),
+							// Under solver selection "success" means the bid was accepted by
+							// Hyperbridge, not that the order is filled; the commitment says which.
+							commitment: result.commitment,
+						})
+					}
+					this.monitor.emit("orderExecuted", {
+						orderId: order.id,
 						success: result.success,
-						pending: result.pending === true,
+						txHash: result.txHash,
+						strategy: bestStrategy.name,
+						commitment: result.commitment,
 						error: result.error,
 					})
 
-					if (this.pendingRetractions.delete(commitment)) {
-						this.logger.info({ commitment }, "OrderFilled arrived before bid was stored, retracting now")
-						this.enqueueRetraction(commitment)
-						await this.bidStorage?.markDead(commitment)
+					lastResult = result
+					continue
+				} catch (error) {
+					// Before the bid row, nothing else can give this hold back, so release it
+					// here. After it, the row owns the hold: claim it, which answers null if
+					// a retraction got there first. A write that failed leaves the hold
+					// stranded rather than released twice, which is the safe way round —
+					// an overstated reservation refuses fills, an understated one oversells.
+					if (bidRow) {
+						await this.releaseReservation(bidRow, rowBid)
+					} else if (reservation.length > 0) {
+						await this.releaseAll(reservation)
 					}
+					// One bid failing is not the order failing. A bid that lands after the
+					// order is full reverts with `Filled()`, which is an ordinary outcome
+					// here: its hold is already back, and the next bid still deserves its
+					// turn.
+					this.logger.error({ orderId: order.id, err: error }, "Bid failed")
+					continue
 				}
-
-				if (result.success) {
-					this.monitor.emit("orderFilled", {
-						orderId: order.id,
-						hash: result.txHash,
-						volumeUsd: inputUsdValue.toNumber(),
-						profitUsd,
-						chainId: getChainId(order.source),
-					})
-				}
-				this.monitor.emit("orderExecuted", {
-					orderId: order.id,
-					success: result.success,
-					txHash: result.txHash,
-					strategy: bestStrategy.name,
-					commitment: result.commitment,
-					error: result.error,
-				})
-
-				return result
-			} catch (error) {
-				this.logger.error({ orderId: order.id, err: error }, "Order execution failed")
-				throw error
 			}
+
+			if (!lastResult) return
+			return lastResult
 			// The queued promise is nobody's return value, so the rethrow above would be an
 			// unhandled rejection — which this process has no handler for and Node turns
 			// into an exit, stopping the retraction sweep for every other outstanding bid.
-			// Same guard the phantom path already applies.
 		}).catch((err) => this.logger.error({ orderId: order.id, err }, "Order execution task failed"))
 	}
 
-	private async handleOrderFilledOnChain(commitment: HexString, filler: string, chainId: number): Promise<void> {
+	private async handleOrderFilledOnChain(
+		commitment: HexString,
+		filler: string,
+		chainId: number,
+		outputs: TokenInfo[] = [],
+		inputs: TokenInfo[] = [],
+		complete = true,
+		transactionHash?: string,
+	): Promise<void> {
+		const ours = filler.toLowerCase() === this.fillerAddress.toLowerCase()
 		// Top up EntryPoint deposit if we were the filler, but only on chains
 		// without any paymaster (paymaster chains pay gas in ERC-20 tokens).
-		if (filler.toLowerCase() === this.fillerAddress.toLowerCase()) {
+		if (ours) {
+			await this.settleFilledLimitOrder(commitment, chainId, outputs, inputs, complete, transactionHash)
 			const chain = `EVM-${chainId}`
 			if (!hasPaymaster(chain, this.configService)) {
 				const targetGasUnits = this.configService.getTargetGasUnits()
@@ -1003,6 +1218,11 @@ export class IntentFiller {
 		if (!this.bidStorage || !this.hyperbridge) {
 			return
 		}
+
+		// Our own partial fill leaves the order open, and our other bids on it, at
+		// other levels of our book, may fill the rest. They are retracted when the
+		// order completes, whoever completes it, or by the stale-bid sweep.
+		if (ours && !complete) return
 
 		// Flag the deferral before reading, not after. The bid write on the fill path
 		// is now awaited, so it can land in the gap between these two statements; with
@@ -1037,6 +1257,243 @@ export class IntentFiller {
 		await this.bidStorage.markDead(commitment)
 	}
 
+	/**
+	 * A rival completed an order we bid on. `_filled[commitment]` is now set, so
+	 * every bid of ours on it can only revert with `Filled()`: retract them, which
+	 * returns their Hyperbridge deposits and gives their holds back to the limit
+	 * orders now rather than when the stale-bid sweep reaches them.
+	 *
+	 * Only a complete fill closes the order. After a rival's partial fill our bid
+	 * may still fill the rest, so it is left standing.
+	 *
+	 * Orders we never bid on are the common case and end here without touching
+	 * the deferral set, which would otherwise keep one entry per rival fill.
+	 */
+	private async handleRivalCompletion(commitment: HexString, filler: string, chainId: number): Promise<void> {
+		if (!this.bidStorage) return
+		const bid = await this.bidStorage.byCommitment(commitment)
+		if (!bid || bid.retracted) return
+		this.logger.info({ commitment, filler, chainId }, "A rival completed an order we bid on, retracting our bids")
+		await this.handleOrderFilledOnChain(commitment, filler, chainId)
+	}
+
+	/**
+	 * Turns the hold a filled bid was carrying into an actual draw-down.
+	 *
+	 * The hold and the delivery are two different numbers: the hold is what the
+	 * bid promised, the delivery is what the gateway recorded going out. Giving
+	 * the hold back and taking the delivery off `remaining` is what leaves the
+	 * order describing the output it still has.
+	 *
+	 * A fill with no amounts leaves the order alone. Sizing a draw-down from a
+	 * guess would either advertise output already paid or quietly retire output
+	 * still available, and both are worse than an order that looks unchanged
+	 * until reconciliation notices.
+	 */
+	/**
+	 * Takes a hold on every limit order the payout draws on, or none at all.
+	 *
+	 * A bid that reserved only part of what it means to pay would promise output
+	 * no order is holding for it, so a hold that cannot be taken gives back the
+	 * ones already taken. Reserving in the matcher's order keeps two evaluations
+	 * racing the same pair of orders from taking them in opposite sequences.
+	 */
+	private async holdAll(
+		holds: { limitOrderId: string; payout: bigint; take?: bigint }[],
+	): Promise<LimitOrderHold[]> {
+		if (!this.limitOrders || holds.length === 0) return []
+
+		const taken: LimitOrderHold[] = []
+		for (const hold of holds) {
+			const amount = hold.payout.toString()
+			if (!(await this.limitOrders.reserve(hold.limitOrderId, amount))) {
+				await this.releaseAll(taken)
+				return []
+			}
+			taken.push({
+				limitOrderId: hold.limitOrderId,
+				amount,
+				...(hold.take !== undefined ? { take: hold.take.toString() } : {}),
+			})
+		}
+		return taken
+	}
+
+	private async releaseAll(holds: readonly LimitOrderHold[]): Promise<void> {
+		for (const hold of holds) {
+			await this.limitOrders?.release(hold.limitOrderId, hold.amount)
+		}
+	}
+
+	private async settleFilledLimitOrder(
+		commitment: HexString,
+		chainId: number,
+		outputs: TokenInfo[],
+		inputs: TokenInfo[] = [],
+		complete = true,
+		transactionHash?: string,
+	): Promise<void> {
+		if (!this.bidStorage || !this.limitOrders) return
+		const released = inputs.reduce((sum, input) => sum + input.amount, 0n)
+		// Read before claiming, which clears the holds: the fill record names the bid
+		// that executed, and only the rows still carry which hold was whose.
+		const rows = await this.bidStorage.byCommitments([commitment])
+		// A fill that completes the order finishes every bid on it. A partial fill
+		// finishes only the bid that executed: our other bids, at other levels of our
+		// book, may still fill the rest, so their holds stay where they are.
+		const claimed = complete
+			? await this.bidStorage.claimReservation(commitment)
+			: await this.claimExecutedBid(commitment, chainId, outputs, released)
+		if (claimed.length === 0) return
+
+		const delivered = await this.deliveredAgainst(claimed[0].limitOrderId, chainId, outputs)
+		if (delivered === null) {
+			this.logger.warn(
+				{ commitment, limitOrders: claimed.map((hold) => hold.limitOrderId) },
+				"Fill carried no output these limit orders pay; leaving them at their current size",
+			)
+			await this.releaseAll(claimed)
+			return
+		}
+
+		// One fill is one bid. On a completing fill every bid on this commitment is
+		// finished: the one that executed delivered, and the rest can only revert with
+		// `Filled()`. So exactly one hold is worked down and the others come straight
+		// back. On a partial fill only the executed bid's holds were claimed.
+		const settled = executedHold(claimed, delivered, released)
+		const charged = chargedFor(settled, delivered, released)
+		const settledBid =
+			rows.find((row) =>
+				row.reservations.some(
+					(hold) =>
+						hold.limitOrderId === settled.limitOrderId &&
+						hold.amount === settled.amount &&
+						hold.take === settled.take,
+				),
+			)?.bid ?? null
+
+		// One transaction over the whole settlement: the draw-down and the releases
+		// are one decision about the same holds, and a crash between two of them
+		// would give a hold back against an order that was never worked down. Only
+		// store writes are inside; putting the order back on the book is a round trip
+		// and comes after.
+		const drawn = await this.limitOrders.transaction(async () => {
+			const worked: { order: LimitOrder; delivered: bigint }[] = []
+			for (const hold of claimed) {
+				if (hold === settled) {
+					const share = charged < BigInt(hold.amount) ? charged : BigInt(hold.amount)
+					if (share > 0n) {
+						const after = await this.limitOrders!.drawDown(hold.limitOrderId, share.toString())
+						if (after) worked.push({ order: after, delivered: share })
+						// Kept apart from the bid row, whose holds this settlement clears, so the
+						// order's history survives every resize and repost.
+						await this.limitOrders!.recordFill({
+							limitOrderId: hold.limitOrderId,
+							commitment,
+							bid: settledBid,
+							amount: share.toString(),
+							transactionHash: transactionHash ?? null,
+						})
+					}
+				}
+				// Everything held is given back, including the part of the filling bid's
+				// hold the delivery did not reach: it was promised output that never
+				// went out.
+				await this.limitOrders!.release(hold.limitOrderId, hold.amount)
+			}
+			return worked
+		})
+
+		for (const { order, delivered: share } of drawn) {
+			this.logger.info(
+				{ commitment, limitOrder: order.id, delivered: share.toString() },
+				"Worked the limit order down by what the fill delivered",
+			)
+			await this.limitOrderService?.resize(order, share)
+		}
+	}
+
+	/**
+	 * Claims the holds of the one bid of ours a partial fill executed, and nothing
+	 * else. It is found among our live bids on the order the same way a completing
+	 * fill names it, then claimed by its bid identifier, so the other bids keep their
+	 * holds and can still fill the rest. A fill that names none of what our limit
+	 * orders pay claims nothing.
+	 */
+	private async claimExecutedBid(
+		commitment: HexString,
+		chainId: number,
+		outputs: TokenInfo[],
+		released: bigint,
+	): Promise<LimitOrderHold[]> {
+		const rows = (await this.bidStorage!.byCommitments([commitment])).filter(
+			(row) => !row.retracted && row.reservations.length > 0,
+		)
+		const holds = rows.flatMap((row) => row.reservations.map((hold) => ({ row, hold })))
+		if (holds.length === 0) return []
+
+		const delivered = await this.deliveredAgainst(holds[0].hold.limitOrderId, chainId, outputs)
+		if (delivered === null) return []
+
+		const settled = executedHold(
+			holds.map((entry) => entry.hold),
+			delivered,
+			released,
+		)
+		const row = holds.find((entry) => entry.hold === settled)!.row
+		return this.bidStorage!.claimReservation(commitment, row.bid ?? undefined)
+	}
+
+	/**
+	 * What this fill delivered of the token the limit order pays, at 1e18, or null
+	 * when the fill names none of it.
+	 */
+	private async deliveredAgainst(
+		limitOrderId: string,
+		chainId: number,
+		outputs: TokenInfo[],
+	): Promise<bigint | null> {
+		const order = await this.limitOrders?.get(limitOrderId)
+		if (!order || outputs.length === 0) return null
+
+		const paid = order.side === "BID" ? order.quote : order.base
+		const chain = `EVM-${chainId}`
+		const address = this.assetRegistry?.getAddress(paid, chain)
+		if (!address) return null
+
+		let total = 0n
+		for (const output of outputs) {
+			if (bytes32ToBytes20(output.token).toLowerCase() !== address.toLowerCase()) continue
+			total += output.amount
+		}
+		if (total === 0n) return null
+
+		const decimals = await this.contractService.getTokenDecimals(address, chain)
+		return toScaled(total, decimals)
+	}
+
+	/**
+	 * Gives back whatever this bid still holds against its limit order.
+	 *
+	 * Safe to call more than once and from either settlement route: the store
+	 * hands the reservation out once, so a bid that already converted its hold on
+	 * a fill releases nothing here.
+	 */
+	/**
+	 * Gives back what one bid held. Without a bid identifier it gives back every hold on
+	 * the commitment, which is what a dead or filled order needs.
+	 */
+	private async releaseReservation(commitment: HexString, bid?: string): Promise<void> {
+		if (!this.bidStorage || !this.limitOrders) return
+		const claimed = await this.bidStorage.claimReservation(commitment, bid)
+		if (claimed.length === 0) return
+		await this.releaseAll(claimed)
+		this.logger.debug(
+			{ commitment, limitOrders: claimed.map((hold) => hold.limitOrderId) },
+			"Released what this bid held against the limit orders that priced it",
+		)
+	}
+
 	private enqueueRetraction(commitment: HexString): void {
 		this.retractionQueue.add(async () => {
 			try {
@@ -1049,10 +1506,11 @@ export class IntentFiller {
 				this.logger.info({ commitment }, "Retracting bid")
 
 				const coprocessor = await this.hyperbridge!
-				const result = await coprocessor.retractBid(commitment)
+				const result = await this.retractStoredBids(coprocessor, commitment)
 
 				if (result.success) {
 					await this.bidStorage!.markRetracted(commitment, (result.extrinsicHash as HexString) ?? null)
+					await this.releaseReservation(commitment)
 					this.logger.info({ commitment, retractHash: result.extrinsicHash }, "Bid retracted successfully")
 				} else if (result.error?.includes("BidNotFound")) {
 					// Terminal, not retryable: bids only leave the pallet by retraction, so "no bid"
@@ -1060,6 +1518,7 @@ export class IntentFiller {
 					// someone retracted manually, or the placement never landed. Anything else seeds
 					// a zombie the sweep re-retracts forever.
 					await this.bidStorage!.markRetracted(commitment, null)
+					await this.releaseReservation(commitment)
 					this.logger.debug({ commitment }, "No bid on chain, marked as retracted")
 				} else if (result.pending) {
 					// Our extrinsic is still in the Hyperbridge tx pool. Resubmitting can only bounce
@@ -1078,312 +1537,40 @@ export class IntentFiller {
 		})
 	}
 
-	private startPhantomBidding(): void {
-		if (!this.hyperbridge) return
-		const scanner = this.hyperbridgeScanner
-		if (!scanner) return
-		this.hyperbridge
-			.then((coprocessor) => {
-				// connect() can resolve long after stop() was called against a slow
-				// endpoint; installing the poller then would leave it running forever.
-				if (this.stopping) return
-				// Reads come from the shared poller — every filler used to re-read every
-				// Hyperbridge block itself. Bids still go through this instance's own
-				// coprocessor, which holds its substrate key.
-				this.phantomSubscription = scanner.subscribe({
-					onPhantomOrders: (orders: PhantomOrderEvent[]) => {
-						// The queued promise is nobody's return value, so an escaping throw would be an
-						// unhandled rejection — which this process has no handler for and Node turns into
-						// an exit. Contain it here so a bad phantom order can never take the filler down.
-						void this.globalQueue
-							.add(() => this.handlePhantomOrders(orders, coprocessor))
-							.catch((err) =>
-								this.logger.error(
-									{ err, chains: orders.map((order) => order.chain) },
-									"Unhandled error while processing phantom orders",
-								),
-							)
-					},
-					onError: (err: unknown) => this.logger.warn({ err }, "Phantom order poll failed, will retry"),
-				})
-				this.logger.info("Phantom order polling active")
-			})
-			.catch((err) => {
-				this.logger.error({ err }, "Failed to start phantom order polling")
-			})
-	}
-
 	/**
-	 * Quotes one leg of a bundled phantom order. Legs are positional, so narrowing the order to
-	 * `inputs[index]` and `output.assets[index]` produces the single pair order the strategies
-	 * already know how to price. `quotePhantomFill` does its own canFill gating and returns null
-	 * for a leg it does not handle, so there is no pre-check here — one canFill per strategy,
-	 * not two. The synthetic leg carries no id so nothing keys the shared TTL caches with
-	 * per-interval throwaway entries.
-	 */
-	private async quotePhantomLeg(order: Order, index: number, chain: string): Promise<TokenInfo | null> {
-		const leg: Order = {
-			...order,
-			id: undefined,
-			inputs: [order.inputs[index]],
-			output: { ...order.output, assets: [order.output.assets[index]] },
-		}
-
-		for (const candidate of this.strategies) {
-			if (typeof candidate.quotePhantomFill !== "function") continue
-			try {
-				const outputs = await candidate.quotePhantomFill(leg)
-				if (outputs?.length) return outputs[0]
-			} catch (err) {
-				this.logger.warn(
-					{ err, commitment: order.id, chain, index, strategy: candidate.name },
-					"Phantom leg quote failed",
-				)
-			}
-		}
-
-		return null
-	}
-
-	/**
-	 * Quotes and builds one chain's phantom bid, ready to be batched with the rest of the interval's.
-	 * Returns null when the chain is skipped, nothing quoted, or the userOp could not be built —
-	 * one chain dropping out never costs the others their bid.
-	 */
-	/**
-	 * Quotes and builds one chain's phantom bid, ready to be batched with the rest of the interval's.
-	 * Returns null when the chain is skipped, nothing quoted, or the userOp could not be built —
-	 * one chain dropping out never costs the others their bid.
-	 */
-	private async preparePhantomBid(
-		event: PhantomOrderEvent,
-		coprocessor: IntentsCoprocessor,
-	): Promise<PreparedPhantomBid | null> {
-		// A phantom bid is a public quote — it advertises that this filler stands ready to fill that
-		// chain's pairs at the quoted rate. The pallet registers one order per chain *it* knows about,
-		// which is a superset of what any single operator runs, and the strategies price legs off the
-		// shared asset registry rather than the operator's config, so an unconfigured chain quotes
-		// happily. Bidding there advertises liquidity no real order could ever draw on: without RPCs
-		// or a bundler for the chain, the fill path cannot even see the order, let alone fill it.
-		// Watch-only chains are the same story — `evaluateOrder` refuses to fill them by design.
-		const chainId = getChainId(event.chain)
-		if (chainId === undefined || !this.configService.getConfiguredChainIds().includes(chainId)) {
-			this.logger.debug({ chain: event.chain }, "Phantom order chain is not configured, skipping")
-			return null
-		}
-		if (this.isChainWatchOnly(chainId)) {
-			this.logger.debug({ chain: event.chain }, "Phantom order chain is watch-only, skipping")
-			return null
-		}
-
-		const entryPointAddress = this.configService.getEntryPointAddress(`EVM-${chainId}`)
-		if (!entryPointAddress) {
-			this.logger.debug({ chain: event.chain }, "No entry point configured for phantom order chain, skipping")
-			return null
-		}
-
-		// Fetch the exact ABI-encoded order the pallet committed to from offchain storage. The read
-		// throws rather than returning empty when the node does not serve the offchain RPC at all,
-		// which is the common misconfiguration — a public endpoint runs safe methods only.
-		let phantomOrder: Order | null
-		try {
-			phantomOrder = await coprocessor.fetchPhantomOrder(event.commitment)
-		} catch (err) {
-			this.logger.error(
-				{ err, commitment: event.commitment, chain: event.chain },
-				"Could not read the phantom order from offchain storage — the Hyperbridge node must run with " +
-					"--enable-offchain-indexing=true and expose offchain_localStorageGet (--rpc-methods=unsafe)",
-			)
-			return null
-		}
-		if (!phantomOrder) {
-			this.logger.warn(
-				{ commitment: event.commitment, chain: event.chain },
-				"Phantom order not found in offchain storage — node may not be an offchain worker or order expired",
-			)
-			return null
-		}
-
-		// Everything below establishes that this order body really is the pallet's.
-		//
-		// It arrives from a single Hyperbridge node's offchain storage, and `fetchPhantomOrder`
-		// assigns the commitment from the event rather than re-deriving it from the bytes, so the
-		// body is unauthenticated. That matters because `quotePhantomFill` deliberately runs with
-		// no budget, no wallet-balance read and neither profit gate — the amounts we sign are
-		// bounded only by the body. A forged body would turn that unbounded quote into a signed,
-		// executable authorization to fill an order of someone else's choosing.
-		//
-		// `phantom_order_commitment` fixes every one of these fields, so each check is free and
-		// each one independently makes the bid unexecutable. `session` is the load-bearing one:
-		// `_select` recovers a session key with `ECDSA.recover`, which can never return the zero
-		// address, so a genuine phantom order can never have a solver selected at all.
-		const invariant =
-			phantomOrder.session?.toLowerCase() !== ADDRESS_ZERO.toLowerCase()
-				? "session key is not the zero address"
-				: phantomOrder.output.assets.some((asset) => asset.amount !== 0n)
-					? "an output leg requests a non-zero amount"
-					: phantomOrder.source !== event.chain || phantomOrder.destination !== event.chain
-						? "source/destination do not both match the announced chain"
-						: null
-		if (invariant) {
-			this.logger.error(
-				{
-					commitment: event.commitment,
-					chain: event.chain,
-					source: phantomOrder.source,
-					destination: phantomOrder.destination,
-					session: phantomOrder.session,
-					reason: invariant,
-				},
-				"Phantom order does not match the shape the pallet generates — refusing to quote. The " +
-					"order body did not come from the pallet.",
-			)
-			return null
-		}
-
-		// Defence in depth on top of the structural checks: the pallet stamps the chain's latest
-		// *confirmed* height as the deadline precisely so the order "can never be executed for
-		// real", and `fillOrder` reverts `Expired()` once `deadline < block.number`. A body that is
-		// still fillable is not the pallet's whatever else it looks like.
-		//
-		// Best-effort: a failed head read only costs this cross-check, and the invariants above
-		// already carry the security property without touching an RPC. Hard-failing here would let
-		// one flaky endpoint stop this filler bidding altogether — and this runs inside the
-		// on-chain bid window, so it must not become a latency cliff either.
-		try {
-			const currentBlock = await this.chainClientManager.getPublicClient(event.chain).getBlockNumber()
-			if (phantomOrder.deadline >= currentBlock) {
-				this.logger.error(
-					{
-						commitment: event.commitment,
-						chain: event.chain,
-						deadline: phantomOrder.deadline.toString(),
-						currentBlock: currentBlock.toString(),
-					},
-					"Phantom order is still fillable — refusing to quote. A genuine phantom order carries a " +
-						"past confirmed height as its deadline.",
-				)
-				return null
-			}
-		} catch (err) {
-			this.logger.warn(
-				{ err, commitment: event.commitment, chain: event.chain },
-				"Could not read the current block to cross-check the phantom order deadline; " +
-					"continuing on the structural checks alone",
-			)
-		}
-
-		// Every leg of every configured pair rides in this one order, so quote leg by leg —
-		// concurrently, because legs are independent and the bid has to land inside the on-chain
-		// bid window (as few as 5 blocks), which a sequential walk over a large order would miss.
-		// A leg no strategy handles is quoted at zero instead of sinking the whole order, and legs
-		// belonging to different strategies each get the one that actually prices them.
-		const quotes = await Promise.all(
-			phantomOrder.output.assets.map((_, index) => this.quotePhantomLeg(phantomOrder, index, event.chain)),
-		)
-		const fillerOutputs: TokenInfo[] = quotes.map(
-			(quote, index) => quote ?? { token: phantomOrder.output.assets[index].token, amount: 0n },
-		)
-
-		if (fillerOutputs.every((output) => output.amount === 0n)) {
-			this.logger.debug({ chain: event.chain }, "No strategy quoted any leg of the phantom order")
-			return null
-		}
-
-		const solverAccountAddress = this.signer.address as HexString
-
-		try {
-			const { userOp } = await this.contractService.preparePhantomBidUserOp(
-				phantomOrder,
-				entryPointAddress,
-				solverAccountAddress,
-				fillerOutputs,
-				this.config.acceptedSourceChains,
-				// Positions are declared per chain because the bid is: the tokenIds that back a quote
-				// on this chain are the ones held here.
-				this.config.uniswapV4PositionsByChain?.[event.chain],
-			)
-
-			// Use event.commitment directly — re-deriving it from the decoded order risks parity
-			// divergence if the encode round-trip doesn't perfectly reproduce the pallet's bytes.
-			// When the previous interval's bid on this chain is still live it rides along as a
-			// retraction, so the old deposit comes back in the same extrinsic.
-			const prevCommitment = this.lastPhantomCommitmentByChain.get(event.chain)
-			return {
-				chain: event.chain,
-				quotedLegs: fillerOutputs.filter((output) => output.amount > 0n).length,
-				legs: fillerOutputs.length,
-				bid: {
-					commitment: event.commitment,
-					userOp,
-					retractCommitment:
-						prevCommitment && prevCommitment !== event.commitment ? prevCommitment : undefined,
-				},
-			}
-		} catch (err) {
-			this.logger.error({ err, chain: event.chain }, "Failed to prepare phantom bid")
-			return null
-		}
-	}
-
-	/**
-	 * Bids on every phantom order registered in one block, in a single extrinsic.
+	 * Retracts every bid this filler placed on a commitment, by the identifiers recorded when each
+	 * was placed.
 	 *
-	 * The pallet registers one order per configured chain in the same block, so this is the whole
-	 * interval's set. Quoting stays per chain and runs concurrently; only the submission is shared.
-	 * One bid per chain used to mean one extrinsic per chain, each waiting for inclusion behind the
-	 * last because submissions are serialised on the account nonce — so the final chain's bid was
-	 * many blocks behind the first, against a bid window measured in tens of blocks.
+	 * The identifiers come from the bid rows rather than from Hyperbridge's storage: a bid whose
+	 * `place_bid` is still in the pool is not in storage yet, and reading storage would find
+	 * nothing and abandon its deposit once it lands. Its retraction goes out after it from the same
+	 * account, so it lands after it and reclaims it.
+	 *
+	 * The answer speaks for the commitment as a whole. A bid already gone (`BidNotFound`) is done
+	 * with; one that is pending or failed stops the pass, and the sweep comes back for the rest.
+	 * Nothing recorded to retract reads as `BidNotFound`, which the caller treats as nothing left
+	 * to reclaim.
 	 */
-	private async handlePhantomOrders(events: PhantomOrderEvent[], coprocessor: IntentsCoprocessor): Promise<void> {
-		const prepared = (await Promise.all(events.map((event) => this.preparePhantomBid(event, coprocessor)))).filter(
-			(entry): entry is PreparedPhantomBid => entry !== null,
-		)
-		if (prepared.length === 0) return
+	private async retractStoredBids(coprocessor: IntentsCoprocessor, commitment: HexString): Promise<BidSubmissionResult> {
+		const rows = await this.bidStorage!.byCommitments([commitment])
+		const bids = [
+			...new Set(
+				rows
+					.filter((row) => !row.retracted && (row.success || row.pending) && row.bid)
+					.map((row) => row.bid as HexString),
+			),
+		]
 
-		const result = await coprocessor.submitPhantomBids(prepared.map((entry) => entry.bid))
-
-		const landed: string[] = []
-		prepared.forEach((entry, index) => {
-			const outcome = result.bids[index]
-			if (outcome?.success) {
-				landed.push(entry.chain)
-				this.lastPhantomCommitmentByChain.set(entry.chain, entry.bid.commitment)
-				return
+		let retracted: BidSubmissionResult | undefined
+		for (const bid of bids) {
+			const result = await coprocessor.retractBid(commitment, bid)
+			if (result.success) {
+				retracted = result
+				continue
 			}
-			if (result.pending) {
-				// The extrinsic reached the tx pool but inclusion wasn't observed — it will almost
-				// certainly land. Record the commitment so the next interval's batch retracts it;
-				// if it never lands, that retraction degrades to a harmless trailing BidNotFound.
-				this.lastPhantomCommitmentByChain.set(entry.chain, entry.bid.commitment)
-				return
-			}
-			this.logger.warn(
-				{ commitment: entry.bid.commitment, chain: entry.chain, error: outcome?.error ?? result.error },
-				"Phantom bid rejected",
-			)
-		})
-
-		if (result.pending) {
-			this.logger.info(
-				{ bids: prepared.length, chains: prepared.map((entry) => entry.chain), error: result.error },
-				"Phantom bids in flight, inclusion not yet observed",
-			)
-			return
+			if (result.error?.includes("BidNotFound")) continue
+			return result
 		}
-
-		this.logger.info(
-			{
-				bids: prepared.length,
-				landed: landed.length,
-				chains: landed,
-				quotedLegs: prepared.reduce((sum, entry) => sum + entry.quotedLegs, 0),
-				legs: prepared.reduce((sum, entry) => sum + entry.legs, 0),
-				txHash: result.extrinsicHash,
-				blockHash: result.blockHash,
-				error: result.error,
-			},
-			landed.length > 0 ? "Phantom bids submitted" : "Phantom bid batch landed no bids",
-		)
+		return retracted ?? { success: false, error: "BidNotFound" }
 	}
 }

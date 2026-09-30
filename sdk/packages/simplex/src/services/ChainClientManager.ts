@@ -14,7 +14,7 @@ import type { Account, LocalAccount } from "viem/accounts"
 import type { FillerConfigService } from "./FillerConfigService"
 import { parseChainKey } from "@/config/interpolated-curve"
 import type { LoggerContext } from "./Logger"
-import { QuorumPublicClient } from "./QuorumPublicClient"
+import { CONFIRMATION_BUDGET, QuorumPublicClient } from "./QuorumPublicClient"
 import type { Signer } from "./wallet"
 import { privateKeySigner } from "./wallet/accounts/privatekey"
 import { accountFor } from "./wallet/account"
@@ -170,7 +170,14 @@ export class ChainClientManager {
 		const config = this.configService.getChainConfig(chain)
 		let client = this.quorumClients.get(config.chainId)
 		if (!client) {
-			client = new QuorumPublicClient(config.chainId, this.configService.getRpcUrls(chain), this.loggers)
+			// Confirmation polling, not scanning: two sequential requests per
+			// endpoint, and the answer gates paying out.
+			client = new QuorumPublicClient(
+				config.chainId,
+				this.configService.getRpcUrls(chain),
+				this.loggers,
+				CONFIRMATION_BUDGET,
+			)
 			this.quorumClients.set(config.chainId, client)
 		}
 		return client

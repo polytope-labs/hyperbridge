@@ -1,19 +1,27 @@
 import { EventEmitter } from "node:events"
-import { Decimal } from "decimal.js"
+import type { VaultSweepResult } from "@/funding/vault/VaultFundingPlanner"
 import type { HexString, Order } from "@hyperbridge/sdk"
-import { adminStrategyFor, bootFiller, tradingPairFrom, type FillerRuntime } from "@/core/boot"
-import { FillerPricePolicy, formatChainKey, type PriceCurvePoint } from "@/config/interpolated-curve"
+import { bootFiller, type FillerRuntime } from "@/core/boot"
+import { formatChainKey } from "@/config/interpolated-curve"
 import { normalizeSymbol, type AssetDefinition } from "@/config/asset-registry"
 import { assertPairSymbolsResolve, validatePairConfigs, type PairConfig } from "@/config/pairs"
 import { assertConfirmationCoverage, type VaultToml } from "@/config/filler-toml"
 import type { ChainConfirmationPolicy, FillerTomlConfig, RebalancingConfig } from "@/config/filler-toml"
 import { resolveChainConfigs, validateRpcUrls, type AllowlistConfig } from "@/services/FillerConfigService"
 import { LoggerContext, type Logger, type LogLevel, type LogSink } from "@/services/Logger"
-import type { ActivityEvent, BidStats, SimplexDataStore, StoredBid, WalletTx } from "@/data/types"
+import type { ActivityEvent, BidStats, LimitOrderFill, SimplexDataStore, StoredBid, WalletTx } from "@/data/types"
+import { patchRuntimeState } from "@/data/state"
 import { MemoryDataStore } from "@/data/memory"
 import { OrderScanner as OrderScannerImpl } from "@/scanner/order-scanner"
-import type { HyperbridgeScanner, OrderScanner } from "@/scanner/types"
-import { HyperbridgeScanner as HyperbridgeScannerImpl } from "@/scanner/hyperbridge-scanner"
+import type { OrderScanner } from "@/scanner/types"
+import type { LimitOrder, LimitOrderFilter } from "@/data/types"
+import type {
+	CancelledLimitOrder,
+	CreateLimitOrderRequest,
+	LimitOrderService,
+	PostedLimitOrder,
+} from "@/orderbook/limit-orders"
+import type { Book, ChainInfo, TokenMinSize } from "@/orderbook/types"
 import type { BalanceSnapshot } from "@/services/BalanceProvider"
 import type { Signer } from "@/services/wallet"
 
@@ -77,14 +85,6 @@ export interface SimplexOptions {
 	 */
 	orderScanner?: OrderScanner
 	/**
-	 * Hyperbridge phantom orders. Same ownership rule as `orderScanner`. Omitted
-	 * with a `hyperbridgeWsUrl` configured, the filler builds a private one.
-	 *
-	 * Bid submission is unaffected either way — it is signed with this filler's
-	 * own substrate key on its own connection.
-	 */
-	hyperbridgeScanner?: HyperbridgeScanner
-	/**
 	 * Called after any mutation that changes the effective config, so a host can
 	 * persist it however it likes.
 	 */
@@ -116,8 +116,17 @@ export interface SimplexEvents {
 		durationSec: number
 	}
 	"order:filled-onchain": { commitment: HexString; filler: string; chainId: number }
+	/** Every OrderFilled seen on a configured chain; `ours` says whether this filler won it. */
+	"order:fill-observed": { commitment: HexString; filler: string; chainId: number; txHash?: string; ours: boolean }
 	rebalance: { success: boolean; transferCount?: number; executedCount?: number; error?: string }
 	activity: ActivityEvent
+	"limit-order:posted": { order: LimitOrder }
+	"limit-order:rejected": { order: LimitOrder; code: string; message: string }
+	"limit-order:cancelled": { order: LimitOrder }
+	/** A fill worked the order down and it went back on the book at its new size. */
+	"limit-order:resized": { order: LimitOrder; delivered: string }
+	/** A fill took the order under the orderbook's dust floor, so it is done. */
+	"limit-order:filled": { order: LimitOrder }
 }
 
 /** Internal monitor event name to public event name. */
@@ -128,6 +137,7 @@ const EVENT_MAP: Record<string, keyof SimplexEvents> = {
 	orderExecuted: "order:executed",
 	orderTiming: "order:timing",
 	orderFilledOnChain: "order:filled-onchain",
+	orderFillObserved: "order:fill-observed",
 	rebalanceExecuted: "rebalance",
 }
 
@@ -139,16 +149,8 @@ export interface PairView {
 	index: number
 	token0: string
 	token1: string
-	/** Per-order cap in token0 units; absent for reference-only pairs. */
-	maxOrderSize?: string
-	bid?: PriceCurvePoint[]
-	ask?: PriceCurvePoint[]
-	/** token0 === token1: the same-asset cross-chain market, ask-only below par. */
+	/** token0 === token1: the same-asset cross-chain market. */
 	sameToken: boolean
-	/** A price feed for the USD anchor graph that never opens a market. */
-	referenceOnly: boolean
-	/** No static curves — priced from a Uniswap V4 pool instead. */
-	venuePriced: boolean
 }
 
 export interface ChainView {
@@ -188,6 +190,94 @@ export interface SimplexStatus {
 // ===========================================================================
 
 /** Trading pairs of the running engine. Every mutation binds on the next order. */
+/**
+ * The operator's limit orders: what simplex offers to pay, and what the
+ * orderbook advertises on its behalf.
+ *
+ * Every method rejects when the filler was started without `[orderbook]`
+ * enabled, rather than quietly doing nothing.
+ */
+export class LimitOrderController {
+	constructor(
+		private runtime: FillerRuntime,
+		private emit: LimitOrderEmitter,
+	) {}
+
+	private get service(): LimitOrderService {
+		const service = this.runtime.limitOrders
+		if (!service) {
+			throw new Error("No orderbook is configured — set [orderbook] url to use limit orders")
+		}
+		return service
+	}
+
+	list(filter?: LimitOrderFilter): Promise<LimitOrder[]> {
+		return this.service.list(filter)
+	}
+
+	get(id: string): Promise<LimitOrder | null> {
+		return this.service.get(id)
+	}
+
+	/**
+	 * One limit order with its fills and the bids still drawing on it, newest first.
+	 *
+	 * What makes `remaining` explicable: a size that shrank is the sum of the fills
+	 * behind it, and the operator can see which ones. Fills are recorded when they
+	 * settle, so they outlive the resize and repost each one causes.
+	 */
+	async withFills(
+		id: string,
+	): Promise<{ order: LimitOrder; fills: LimitOrderFill[]; bids: StoredBid[] } | null> {
+		const order = await this.service.get(id)
+		if (!order) return null
+		const [fills, bids] = await Promise.all([
+			this.runtime.data.limitOrders.fills(id),
+			this.runtime.data.bids.byLimitOrder(id),
+		])
+		return { order, fills, bids }
+	}
+
+	/** The pairs the orderbook lists, the smallest payout each token may carry, and its tokens per chain. */
+	books(): Promise<{ books: Book[]; minOrderSizes: TokenMinSize[]; chains: ChainInfo[] }> {
+		return this.service.books()
+	}
+
+	/** Creates the order, posts it, and reports what the orderbook made of it. */
+	async create(request: CreateLimitOrderRequest): Promise<PostedLimitOrder> {
+		const posted = await this.service.create(request)
+		if (posted.result.kind === "rejected" || posted.result.kind === "failed") {
+			this.emit("limit-order:rejected", {
+				order: posted.order,
+				code: posted.result.code,
+				message: posted.result.message,
+			})
+		} else {
+			this.emit("limit-order:posted", { order: posted.order })
+		}
+		return posted
+	}
+
+	async cancel(id: string): Promise<CancelledLimitOrder> {
+		const cancelled = await this.service.cancel(id)
+		this.emit("limit-order:cancelled", { order: cancelled.order })
+		return cancelled
+	}
+}
+
+/** How the controller publishes an outcome on the `Simplex` it belongs to. */
+type LimitOrderEmitter = <
+	E extends
+		| "limit-order:posted"
+		| "limit-order:rejected"
+		| "limit-order:cancelled"
+		| "limit-order:resized"
+		| "limit-order:filled",
+>(
+	event: E,
+	payload: SimplexEvents[E],
+) => void
+
 export class PairController {
 	constructor(
 		private runtime: FillerRuntime,
@@ -199,23 +289,12 @@ export class PairController {
 	}
 
 	list(): PairView[] {
-		const live = this.runtime.tradingPairs ?? []
-		return this.pairs.map((pair, index) => {
-			const tradingPair = live[index]
-			const bid = tradingPair?.bidPricePolicy?.getPoints()
-			const ask = tradingPair?.askPricePolicy?.getPoints()
-			return {
-				index,
-				token0: pair.token0,
-				token1: pair.token1,
-				maxOrderSize: pair.referenceOnly ? undefined : tradingPair?.maxOrderSize?.toString(),
-				bid,
-				ask,
-				sameToken: normalizeSymbol(pair.token0) === normalizeSymbol(pair.token1),
-				referenceOnly: pair.referenceOnly === true,
-				venuePriced: !bid && !ask,
-			}
-		})
+		return this.pairs.map((pair, index) => ({
+			index,
+			token0: pair.token0,
+			token1: pair.token1,
+			sameToken: normalizeSymbol(pair.token0) === normalizeSymbol(pair.token1),
+		}))
 	}
 
 	/**
@@ -226,15 +305,12 @@ export class PairController {
 	 * the pair's symbols have to resolve before the market can be hydrated.
 	 */
 	async add(pair: PairConfig, options?: { assets?: Record<string, AssetDefinition> }): Promise<PairView> {
-		const { engine, tradingPairs, assetRegistry, adminStrategies, balanceTokens, config } = this.runtime
-		if (!engine || !tradingPairs) {
-			throw new Error("No trading engine is running — this filler was started without pairs")
-		}
+		const { engine, assetRegistry, adminStrategies, balanceTokens, config } = this.runtime
 
 		const assets = options?.assets
 		const nextAssets = { ...(config.assets ?? {}), ...(assets ?? {}) }
 		const nextPairs = [...this.pairs, pair]
-		validatePairConfigs(nextPairs, nextAssets, Boolean(config.vault?.uniswapV4?.positions?.length))
+		validatePairConfigs(nextPairs, nextAssets)
 
 		if (assets && Object.keys(assets).length > 0) assetRegistry.addAssets(assets)
 		assertPairSymbolsResolve(
@@ -243,7 +319,7 @@ export class PairController {
 			this.runtime.resolvedChains.map((chain) => formatChainKey(chain.chainId)),
 		)
 
-		const tradingPair = tradingPairFrom(pair)
+		const tradingPair = { token0: pair.token0, token1: pair.token1 }
 		// Pushes into the engine's live array — the same instance as
 		// `tradingPairs`, so config.pairs indexes stay aligned.
 		engine.addPair(tradingPair)
@@ -251,7 +327,7 @@ export class PairController {
 		if (assets && Object.keys(assets).length > 0) config.assets = nextAssets
 
 		// Track the exotic side's balances from the next refresh.
-		if (normalizeSymbol(pair.token0) !== normalizeSymbol(pair.token1) && pair.referenceOnly !== true) {
+		if (normalizeSymbol(pair.token0) !== normalizeSymbol(pair.token1)) {
 			for (const chain of this.runtime.resolvedChains) {
 				const chainName = formatChainKey(chain.chainId)
 				const address = assetRegistry.getAddress(pair.token1, chainName)
@@ -262,9 +338,14 @@ export class PairController {
 		}
 
 		const pairIndex = nextPairs.length - 1
-		const index = adminStrategies.reduce((max, s) => Math.max(max, s.index), -1) + 1
-		const adminStrategy = adminStrategyFor(tradingPair, pairIndex, index, this.runtime.loggers.get("cli"))
-		if (adminStrategy) adminStrategies.push(adminStrategy)
+		adminStrategies.push({
+			index: adminStrategies.reduce((max, s) => Math.max(max, s.index), -1) + 1,
+			pairIndex,
+			exotic: `${pair.token0}/${pair.token1}`,
+			token0: pair.token0,
+			token1: pair.token1,
+			sameToken: normalizeSymbol(pair.token0) === normalizeSymbol(pair.token1),
+		})
 
 		await this.persist()
 		return this.list()[pairIndex]
@@ -273,7 +354,6 @@ export class PairController {
 	/** Closes a market. Orders already in flight against it still complete. */
 	async remove(index: number): Promise<void> {
 		const { engine, tradingPairs, adminStrategies, config } = this.runtime
-		if (!engine || !tradingPairs) throw new Error("No trading engine is running")
 		if (index < 0 || index >= this.pairs.length) throw new Error(`Unknown pair ${index}`)
 
 		// Splices the engine's live array (same instance as tradingPairs).
@@ -290,66 +370,12 @@ export class PairController {
 		await this.persist()
 	}
 
-	/** Replaces one side's price curve. Takes effect on the next order evaluation. */
-	async setCurve(index: number, side: "bid" | "ask", points: PriceCurvePoint[]): Promise<void> {
-		const pair = this.livePair(index)
-		const policy = side === "bid" ? pair.bidPricePolicy : pair.askPricePolicy
-		if (policy) {
-			// Mutating the live policy, not replacing it: the engine holds this
-			// exact instance, so a swap would leave it pricing on the old curve.
-			policy.replacePoints({ points })
-		} else {
-			const fresh = new FillerPricePolicy({ points })
-			if (side === "bid") pair.bidPricePolicy = fresh
-			else pair.askPricePolicy = fresh
-		}
-		this.writeCurveToConfig(index, side, points)
-		await this.persist()
-	}
-
-	/** Closes a direction (one-sided LP). The other side keeps filling. */
-	async clearCurve(index: number, side: "bid" | "ask"): Promise<void> {
-		const pair = this.livePair(index)
-		if (side === "bid") pair.bidPricePolicy = undefined
-		else pair.askPricePolicy = undefined
-		this.writeCurveToConfig(index, side, undefined)
-		await this.persist()
-	}
-
-	/** Resizes the per-order cap, in token0 units. Binds on the next order. */
-	async setMaxOrderSize(index: number, value: string): Promise<void> {
-		const pair = this.livePair(index)
-		const parsed = new Decimal(value)
-		if (!parsed.isFinite() || parsed.lte(0)) {
-			throw new Error(`maxOrderSize must be a positive number, got '${value}'`)
-		}
-		pair.maxOrderSize = parsed
-		this.pairs[index].maxOrderSize = value
-		await this.persist()
-	}
-
-	/**
-	 * Removes the per-order cap, leaving the pair uncapped — it then fills every
-	 * order at its full notional. Binds on the next order.
-	 */
-	async clearMaxOrderSize(index: number): Promise<void> {
-		const pair = this.livePair(index)
-		pair.maxOrderSize = undefined
-		this.pairs[index].maxOrderSize = undefined
-		await this.persist()
-	}
-
 	private livePair(index: number) {
-		const pair = this.runtime.tradingPairs?.[index]
+		const pair = this.runtime.tradingPairs[index]
 		if (!pair) throw new Error(`Unknown pair ${index}`)
 		return pair
 	}
 
-	private writeCurveToConfig(index: number, side: "bid" | "ask", points: PriceCurvePoint[] | undefined): void {
-		const entry = this.pairs[index]
-		if (side === "bid") entry.bidPriceCurve = points
-		else entry.askPriceCurve = points
-	}
 }
 
 /** The chain set of the running filler. */
@@ -478,11 +504,11 @@ export class ChainController {
 			// Without this the engine has no curve for the chain and every cross-chain
 			// order sourced on it throws per order and is swallowed as a generic error.
 			const curve = confirmationPolicies[String(chainId)]
-			if (curve) this.runtime.confirmationPolicy?.add(chainId, curve)
-			else if (!this.runtime.confirmationPolicy?.has(chainId)) {
+			if (curve) this.runtime.confirmationPolicy.add(chainId, curve)
+			else if (!this.runtime.confirmationPolicy.has(chainId)) {
 				// assertConfirmationCoverage passed, so a built-in default covers this
 				// chain; copy it across from the set it just resolved.
-				this.runtime.confirmationPolicy?.adopt(chainId, resolvedPolicy)
+				this.runtime.confirmationPolicy.adopt(chainId, resolvedPolicy)
 			}
 
 			this.runtime.resolvedChains.push(resolved)
@@ -498,8 +524,8 @@ export class ChainController {
 	/**
 	 * Removes a chain. In-flight fills on it are drained first.
 	 *
-	 * Refuses while a vault or Uniswap V4 position still names the chain — those
-	 * hydrate per chain at boot, and one left behind would fail the next start.
+	 * Refuses while a vault still names the chain — vaults hydrate per chain at
+	 * boot, and one left behind would fail the next start.
 	 */
 	async remove(chainId: number): Promise<void> {
 		return this.serialise(async () => {
@@ -509,9 +535,6 @@ export class ChainController {
 			if (config.vault?.vaults?.some((vault) => vault.chain === chainKey)) {
 				throw new Error(`${chainKey} still holds a vault entry — remove it from the vault treasury first`)
 			}
-			if (config.vault?.uniswapV4?.positions?.some((position) => position.chain === chainKey)) {
-				throw new Error(`${chainKey} still holds a Uniswap V4 position — remove it first`)
-			}
 
 			const index = this.runtime.resolvedChains.findIndex((chain) => chain.chainId === chainId)
 			if (index < 0) throw new Error(`Chain ${chainId} is not configured`)
@@ -519,7 +542,7 @@ export class ChainController {
 			await intentFiller.removeChain(chainId)
 			if (this.ownsScanner) await this.scanner.removeChain(chainId)
 			configService.removeChain(chainId)
-			this.runtime.confirmationPolicy?.remove(chainId)
+			this.runtime.confirmationPolicy.remove(chainId)
 			this.runtime.chainClientManager.invalidate(chainKey)
 			this.runtime.resolvedChains.splice(index, 1)
 			config.chains = config.chains.filter((_, i) => i !== index)
@@ -666,8 +689,12 @@ export class VaultController {
 		await this.persist()
 	}
 
-	/** Deposits wallet balance above each vault's threshold, down to its floor. */
-	sweepNow(): Promise<void> {
+	/**
+	 * Deposits wallet balance above each vault's threshold, down to its floor. The result says what
+	 * was submitted and, for every vault left alone, why — `deposits-closed` means the wallet is
+	 * over its trigger but the vault reports `maxDeposit(solver) == 0`.
+	 */
+	sweepNow(): Promise<VaultSweepResult> {
 		const venue = this.runtime.vaultVenue
 		if (!venue) throw new Error("This filler was started without a vault treasury")
 		return venue.sweepExcessToVault()
@@ -781,6 +808,7 @@ export class Simplex extends EventEmitter {
 	readonly assets: AssetController
 	readonly wallet: WalletController
 	readonly rebalancing: RebalanceController
+	readonly limitOrders: LimitOrderController
 
 	private logger: Logger
 	private stopped = false
@@ -788,8 +816,8 @@ export class Simplex extends EventEmitter {
 	private constructor(
 		private runtime: FillerRuntime,
 		private options: SimplexOptions,
-		/** Scanners this filler built for itself, and must therefore close. */
-		private ownedScanners: { orders?: OrderScanner; hyperbridge?: HyperbridgeScanner } = {},
+		/** The scanner this filler built for itself, and must therefore close. */
+		private ownedScanners: { orders?: OrderScanner } = {},
 	) {
 		super()
 		this.logger = runtime.loggers.get("simplex")
@@ -800,6 +828,7 @@ export class Simplex extends EventEmitter {
 		this.assets = new AssetController(runtime, persist)
 		this.wallet = new WalletController(runtime)
 		this.rebalancing = new RebalanceController(runtime, persist)
+		this.limitOrders = new LimitOrderController(runtime, (event, payload) => this.emit(event, payload))
 		this.forwardEvents()
 	}
 
@@ -830,14 +859,11 @@ export class Simplex extends EventEmitter {
 			level: options.config.simplex.logging as LogLevel | undefined,
 			sink: options.logger,
 		})
-		// Build private scanners when none were supplied, and remember that we own
-		// them: a caller's scanner outlives this filler and is theirs to close.
+		// Build a private scanner when none was supplied, and remember that we own
+		// it: a caller's scanner outlives this filler and is theirs to close.
 		const ownsOrderScanner = !options.orderScanner
-		const ownsHyperbridgeScanner = !options.hyperbridgeScanner
-		const wsUrl = options.config.simplex.hyperbridgeWsUrl
 
 		let orderScanner: OrderScanner | undefined
-		let hyperbridgeScanner: HyperbridgeScanner | undefined
 		try {
 			orderScanner =
 				options.orderScanner ??
@@ -848,13 +874,11 @@ export class Simplex extends EventEmitter {
 					// caller supplied carries whatever interval they chose for it.
 					scanIntervalSecs: options.config.simplex.blockScanIntervalSeconds,
 				}))
-			hyperbridgeScanner =
-				options.hyperbridgeScanner ?? (wsUrl ? await HyperbridgeScannerImpl.create(wsUrl, { loggers }) : undefined)
 
 			const runtime = await bootFiller(options.config, {
 				loggers,
 				signer: options.signer,
-				scanners: { orders: orderScanner, hyperbridge: hyperbridgeScanner },
+				scanners: { orders: orderScanner },
 				configPath: options.configPath,
 				data: options.data ?? new MemoryDataStore(),
 				// A store we defaulted is ours to close; one the caller passed is theirs,
@@ -864,14 +888,12 @@ export class Simplex extends EventEmitter {
 			})
 			return new Simplex(runtime, options, {
 				orders: ownsOrderScanner ? orderScanner : undefined,
-				hyperbridge: ownsHyperbridgeScanner && hyperbridgeScanner ? hyperbridgeScanner : undefined,
 			})
 		} catch (error) {
 			// A scanner we built has live timers and sockets, and the caller never
 			// receives a handle to close them — so a failed start would otherwise keep
 			// the host process alive forever. One a caller supplied is theirs; leave it.
 			if (ownsOrderScanner) await orderScanner?.close().catch(() => {})
-			if (ownsHyperbridgeScanner) await hyperbridgeScanner?.close().catch(() => {})
 			throw error
 		}
 	}
@@ -897,6 +919,16 @@ export class Simplex extends EventEmitter {
 				this.logger.error({ err, event: "activity" }, "Event listener threw; continuing")
 			}
 		})
+		// A resize or a close is the one change to a limit order the operator did not
+		// ask for, so it is the one they most need told about. The service isolates a
+		// listener that throws, the same way the fill path does above.
+		this.runtime.limitOrders?.listen((event) => {
+			if (event.kind === "resized") {
+				this.emit("limit-order:resized", { order: event.order, delivered: event.delivered.toString() })
+			} else {
+				this.emit("limit-order:filled", { order: event.order })
+			}
+		})
 	}
 
 	/** Renames the couple of internal payload keys that differ from the public shape. */
@@ -917,12 +949,12 @@ export class Simplex extends EventEmitter {
 	 */
 	async pause(): Promise<void> {
 		this.runtime.intentFiller.pause()
-		await this.runtime.data.state.set({ paused: true })
+		await patchRuntimeState(this.runtime.data.state, { paused: true })
 	}
 
 	async resume(): Promise<void> {
 		this.runtime.intentFiller.resume()
-		await this.runtime.data.state.set({ paused: false })
+		await patchRuntimeState(this.runtime.data.state, { paused: false })
 	}
 
 	isPaused(): boolean {
@@ -951,7 +983,6 @@ export class Simplex extends EventEmitter {
 		// Only scanners this filler built. One handed in by the caller keeps running
 		// for whoever else is reading it.
 		await attempt(() => this.ownedScanners.orders?.close())
-		await attempt(() => this.ownedScanners.hyperbridge?.close())
 		this.removeAllListeners()
 		this.stopped = true
 

@@ -1,0 +1,4 @@
+# 2026-09-07 — Wallet-funded phantom bids pay the protocol fee haircut, read from the gateway
+
+The wallet-funded haircut returns, but as a live value rather than a constant: `readProtocolFeeHaircutBps` calls `IntentGateway.params()` on the phantom order's own chain once per aggregation run and takes `protocolFeeBps` from it; `applyProtocolFeeHaircut` shades every bid that declares no Uniswap V4 positions by that amount. Pool-priced bids still pay the fixed 10bps `UNISWAP_QUOTE_HAIRCUT_BPS` instead, never both. A gateway that answers with no code or a fee at or above 100% throws a `PhantomRpcError`, so the run is retried and then abandoned rather than priced unhaircut. Both new functions are exported from `@/protocols/intents` and the `intents-helpers` sub-path.
+Files: `src/protocols/intents/phantom-aggregation.ts`, `src/protocols/intents/index.ts`, `src/intents-helpers.ts`, `src/tests/phantomAggregation.test.ts`, `docs/ai/Flow.md`, `docs/ai/Decisions.md`.

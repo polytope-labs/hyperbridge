@@ -7,7 +7,7 @@
 		"packages/*"
 	],
 	"scripts": {
-		"build": "pnpm --filter=\"@hyperbridge/sdk\" build && pnpm --filter=\"@hyperbridge/indexer\" build && pnpm --filter=\"@hyperbridge/simplex\" build",
+		"build": "pnpm --filter=\"@hyperbridge/sdk\" build && pnpm --filter=\"@hyperbridge/indexer\" build && pnpm --filter=\"@hyperbridge/simplex\" build && pnpm --filter=\"@hyperbridge/simplex-desktop\" build",
 		"test": "pnpm --filter=\"*\" test",
 		"lint": "pnpm --filter=\"*\" lint",
 		"format": "pnpm --filter=\"*\" format",
@@ -52,20 +52,6 @@
 			"prettier --write",
 			"eslint --fix"
 		]
-	},
-	"pnpm": {
-		"onlyBuiltDependencies": [
-			"better-sqlite3",
-			"bufferutil",
-			"utf-8-validate",
-			"esbuild"
-		],
-		"overrides": {
-			"viem": "2.47.6",
-			"axios": "1.13.6",
-			"vite": "6.4.2",
-			"pino": "~10.3.1"
-		}
 	},
 	"engines": {
 		"node": ">=22",

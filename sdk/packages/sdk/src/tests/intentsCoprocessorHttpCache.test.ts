@@ -6,12 +6,12 @@ import { IntentsCoprocessor } from "@/chains/intentsCoprocessor"
 
 /**
  * polkadot-js's `HttpProvider` caches every request that names a block hash, and what it caches is
- * the request promise itself — a rejected one included — under a TTL that every hit refreshes. The
- * phantom order poll retries the block it failed on with identical parameters on every tick, so a
- * single reset connection turned into the same rejection replayed from memory for as long as the
- * process lived; the node never saw a second request. The coprocessor builds its HTTP provider with
- * that cache off. These pin both halves: the hazard in the dependency, so the workaround rests on a
- * check rather than a memory, and the provider the coprocessor actually builds being free of it.
+ * the request promise itself — a rejected one included — under a TTL that every hit refreshes. A
+ * caller retrying a failed read with identical parameters would get the same rejection replayed
+ * from memory, and the node would never see a second request. The coprocessor builds its HTTP
+ * provider with that cache off. These pin both halves: the hazard in the dependency, so the
+ * workaround rests on a check rather than a memory, and the provider the coprocessor actually
+ * builds being free of it.
  */
 
 const BLOCK_HASH = `0x${"de".repeat(32)}`

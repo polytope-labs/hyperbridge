@@ -3,7 +3,9 @@ use alloy_primitives::{Address, U256};
 use alloy_sol_types::{SolCall, SolValue};
 use ismp::{host::StateMachine, router};
 use ismp_abi::evm_host::EvmHost::PostRequest as EvmPostRequest;
-use pallet_ismp_host_executive::{encode_host_params, EvmHostParamsAbi, WithdrawalParams};
+use pallet_ismp_host_executive::{
+	encode_host_params, encode_set_admin, EvmHostParamsAbi, WithdrawalParams,
+};
 use polkadot_sdk::*;
 use primitive_types::{H160, U256 as SubstrateU256};
 
@@ -36,6 +38,11 @@ alloy_sol_macro::sol! {
 		bytes body;
 	}
 
+	struct HostManagerParamsLocal {
+		address admin;
+		address host;
+	}
+
 	function onAccept(IncomingPostRequestLocal incoming) external;
 
 	function balanceOf(address account) external view returns (uint256);
@@ -43,6 +50,8 @@ alloy_sol_macro::sol! {
 	function mint(address to, uint256 amount) external;
 
 	function hostParams() external view returns (HostParams);
+
+	function params() external view returns (HostManagerParamsLocal);
 }
 
 /// Build calldata for HostManager.onAccept(IncomingPostRequest) from an EvmPostRequest
@@ -211,4 +220,50 @@ fn test_host_manager_set_host_params() {
 
 	let updated = host_params(&mut env);
 	assert_eq!(updated.challengePeriod, new_challenge_period);
+}
+
+/// A `SetAdmin` request encoded by the pallet's `encode_set_admin` is decoded by the manager, and
+/// from then on only the new admin can deliver.
+#[test]
+fn test_host_manager_set_admin() {
+	let mut env = TestEnv::new();
+	let manager = host_manager_of(&mut env);
+	let host_addr = env.host;
+	let next = Address::repeat_byte(0x42);
+
+	let set_admin = |nonce: u64, admin: Address| -> EvmPostRequest {
+		router::PostRequest {
+			source: StateMachine::Kusama(2000),
+			dest: StateMachine::Evm(1),
+			nonce,
+			from: vec![],
+			to: vec![],
+			timeout_timestamp: 100,
+			body: encode_set_admin(H160::from_slice(admin.as_slice())),
+		}
+		.into()
+	};
+	let manager_params = |env: &mut TestEnv| {
+		let result = env.call(manager, paramsCall {}.abi_encode());
+		<paramsCall as SolCall>::abi_decode_returns(&result).unwrap()
+	};
+
+	// Delivered by the current admin (`sender`), through the host.
+	env.call_as(host_addr, manager, onaccept_calldata(set_admin(0, next), env.sender));
+	let params = manager_params(&mut env);
+	assert_eq!(params.admin, next);
+	assert_eq!(params.host, env.host, "the host binding is untouched");
+
+	// The outgoing admin is locked out: UnauthorizedAction(), the same error as any other wrong
+	// party.
+	let rotate_back = set_admin(1, env.sender);
+	let err = env
+		.call_as_may_revert(host_addr, manager, onaccept_calldata(rotate_back.clone(), env.sender))
+		.expect_err("expected revert");
+	let selector = &alloy_primitives::keccak256(b"UnauthorizedAction()").0[..4];
+	assert_eq!(&err[..4], selector);
+
+	// The new admin can deliver, here rotating back.
+	env.call_as(host_addr, manager, onaccept_calldata(rotate_back, next));
+	assert_eq!(manager_params(&mut env).admin, env.sender);
 }

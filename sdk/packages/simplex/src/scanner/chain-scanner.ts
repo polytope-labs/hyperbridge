@@ -1,5 +1,5 @@
 import { Mutex } from "async-mutex"
-import { type DecodedOrderPlacedLog, type HexString, retryPromise } from "@hyperbridge/sdk"
+import { type DecodedOrderPlacedLog, type HexString, type TokenInfo, retryPromise } from "@hyperbridge/sdk"
 import { INTENT_GATEWAY_V2_ABI } from "@/config/abis/IntentGatewayV2"
 import { QuorumPublicClient } from "@/services/QuorumPublicClient"
 import { DEFAULT_BLOCK_SCAN_INTERVAL_SECONDS } from "@/services/FillerConfigService"
@@ -28,6 +28,10 @@ const GATEWAY_EVENTS = INTENT_GATEWAY_V2_ABI.filter(
  * one would. `blockScanIntervalSeconds` overrides it.
  */
 const DEFAULT_SCAN_INTERVAL_MS = DEFAULT_BLOCK_SCAN_INTERVAL_SECONDS * 1000
+/**
+ * The widest range one pass reads, as `toBlock - fromBlock`. The live bound is
+ * the scanner's `span`, which starts here and narrows while reads fail.
+ */
 const MAX_BLOCK_RANGE = 1_000n
 /**
  * Events published in one synchronous stretch before yielding to the consumers'
@@ -43,6 +47,33 @@ const yieldToConsumers = () => new Promise<void>((resolve) => setImmediate(resol
 
 /** How long stop() waits for an in-flight scan before giving up on a clean drain. */
 const STOP_DRAIN_TIMEOUT_MS = 5_000
+
+/**
+ * How long a pass may hold the mutex before the watchdog calls it a stall.
+ *
+ * The quorum budgets cap a pass at roughly 36s — one head read (1 attempt, 12s)
+ * plus one log read (2 attempts, 24s). Past 45s the pass is outside anything the
+ * budgets allow, so it is stuck somewhere they do not cover.
+ */
+const STALL_THRESHOLD_MS = 45_000
+
+/** How often the watchdog repeats itself while one pass stays stuck. */
+const STALL_REPORT_INTERVAL_MS = 60_000
+
+/**
+ * Where a scan pass can be waiting. Reported by the watchdog, which is the only
+ * reason it is tracked: a stalled pass logs nothing itself, so the phase is the
+ * only evidence of which await never settled.
+ */
+type ScanPhase = "head" | "logs" | "publish-orders" | "publish-fills"
+
+/** The in-flight pass the watchdog is timing. */
+interface InFlightPass {
+	phase: ScanPhase
+	startedAt: number
+	/** When the watchdog last spoke about this pass, or 0 if it never has. */
+	reportedAt: number
+}
 
 /**
  * One block-scan loop for one (chain, gateway, endpoint set), feeding any number
@@ -70,6 +101,20 @@ export class ChainScanner {
 	private timer?: NodeJS.Timeout
 	private cursor: bigint | undefined
 	private stopped = false
+	/** Set while a scan pass holds the mutex, undefined between passes. */
+	private pass?: InFlightPass
+	/**
+	 * How far past the cursor the next pass reads, as `toBlock - fromBlock`:
+	 * halved after a failed read, doubled after a good one, between 0 (one block)
+	 * and {@link MAX_BLOCK_RANGE}.
+	 *
+	 * Free endpoints cap `eth_getLogs` ranges far below the full span — on
+	 * Arbitrum three of seven refused 100 blocks — and the cursor never moves
+	 * past a range it failed to read. At a fixed span a catch-up that outgrew
+	 * those caps was stuck for good: the range only grew, so the capped endpoints
+	 * never rejoined and the quorum never formed.
+	 */
+	private span = MAX_BLOCK_RANGE
 
 	constructor(
 		private readonly target: ScanTarget,
@@ -125,8 +170,12 @@ export class ChainScanner {
 
 		this.logger.info({ chainId: this.target.chainId }, "Block scanner started")
 		this.timer = setInterval(() => {
-			if (this.mutex.isLocked()) return
+			// A tick that finds the mutex held is the only outward sign of a pass
+			// that is taking too long, and on its own it is silent: a pass stuck for
+			// an hour looks exactly like a chain with nothing to scan.
+			if (this.mutex.isLocked()) return this.reportStall()
 			void this.mutex.runExclusive(async () => {
+				this.pass = { phase: "head", startedAt: Date.now(), reportedAt: 0 }
 				try {
 					await this.scan()
 				} catch (error) {
@@ -143,9 +192,71 @@ export class ChainScanner {
 						"Error in block scanner",
 					)
 					this.errorHandler(error)
+				} finally {
+					this.notePassEnd()
 				}
 			})
 		}, this.scanIntervalMs)
+	}
+
+	/**
+	 * Records which await the current pass is sitting on, for the watchdog.
+	 *
+	 * A no-op when no pass is registered — `scan()` is driven directly by tests
+	 * and by nothing else, so there is no watchdog to inform.
+	 */
+	private enter(phase: ScanPhase): void {
+		if (this.pass) this.pass.phase = phase
+	}
+
+	/**
+	 * Says that a pass has outlived the quorum budgets and names the phase it is
+	 * stuck in, then repeats every {@link STALL_REPORT_INTERVAL_MS} until it ends.
+	 *
+	 * Observation only: the pass is left alone. Aborting it would need a cancel
+	 * path through the quorum client that does not exist, and the cursor is safe
+	 * either way — a pass that never completes never advances it.
+	 */
+	private reportStall(): void {
+		const pass = this.pass
+		if (!pass) return
+
+		const now = Date.now()
+		const heldMs = now - pass.startedAt
+		if (heldMs < STALL_THRESHOLD_MS) return
+		if (pass.reportedAt !== 0 && now - pass.reportedAt < STALL_REPORT_INTERVAL_MS) return
+
+		pass.reportedAt = now
+		this.logger.warn(
+			{
+				chainId: this.target.chainId,
+				phase: pass.phase,
+				heldMs,
+				cursor: this.cursor?.toString(),
+				rpcUrls: this.target.rpcUrls,
+			},
+			"Block scan pass has outlived its budget — this chain is not being scanned",
+		)
+	}
+
+	/**
+	 * Closes out a pass, and says so if the watchdog complained about it — without
+	 * this the log shows a chain going quiet and never shows it coming back.
+	 */
+	private notePassEnd(): void {
+		const pass = this.pass
+		this.pass = undefined
+		if (!pass || pass.reportedAt === 0) return
+
+		this.logger.warn(
+			{
+				chainId: this.target.chainId,
+				phase: pass.phase,
+				heldMs: Date.now() - pass.startedAt,
+				cursor: this.cursor?.toString(),
+			},
+			"Block scan pass finished after outliving its budget — scanning has resumed",
+		)
 	}
 
 	/**
@@ -167,11 +278,25 @@ export class ChainScanner {
 		})
 	}
 
+	/**
+	 * Where `retryPromise` records its attempts. It logs at `trace`, which the
+	 * default `info` level hides — and a retry here is not a curiosity: it holds
+	 * the scan mutex, so the chain is not being scanned while it runs. Lifted to
+	 * `warn` so the operator sees it without running the whole filler at trace.
+	 */
+	private get retryLogger(): { trace: (message: string) => void } {
+		return { trace: (message: string) => this.logger.warn({ chainId: this.target.chainId }, message) }
+	}
+
 	private async scan(): Promise<void> {
+		// One attempt: this loop runs again in `scanIntervalMs`, and a failed head
+		// read leaves the cursor untouched, so an inner retry only holds the mutex
+		// longer to do what the next tick does anyway.
 		const currentBlock = await retryPromise(() => this.quorumClient.getBlockNumber(), {
-			maxRetries: 3,
+			maxRetries: 1,
 			backoffMs: 250,
-			logMessage: "Failed to get current block number",
+			logMessage: `Failed to get current block number on chain ${this.target.chainId}`,
+			logger: this.retryLogger,
 		})
 
 		// A stop() that timed out its drain has already resolved; whatever this scan
@@ -188,13 +313,14 @@ export class ChainScanner {
 		if (currentBlock <= this.cursor) return
 
 		const fromBlock = this.cursor + 1n
-		const toBlock = fromBlock + MAX_BLOCK_RANGE > currentBlock ? currentBlock : fromBlock + MAX_BLOCK_RANGE
+		const toBlock = fromBlock + this.span > currentBlock ? currentBlock : fromBlock + this.span
 
 		this.logger.debug(
 			{ chainId: this.target.chainId, fromBlock, toBlock, gap: Number(toBlock - fromBlock) },
 			"Scanning blocks",
 		)
 
+		this.enter("logs")
 		let logs: Array<Record<string, unknown>>
 		try {
 			logs = await retryPromise(
@@ -205,12 +331,21 @@ export class ChainScanner {
 						fromBlock,
 						toBlock,
 					}),
-				{ maxRetries: 3, backoffMs: 250, logMessage: "Failed to get gateway event logs" },
+				{
+					// One retry, unlike the head read: a range the cursor is waiting on
+					// is worth a second attempt before the tick ends, and the retry line
+					// says so at `warn`.
+					maxRetries: 2,
+					backoffMs: 250,
+					logMessage: `Failed to get gateway event logs on chain ${this.target.chainId} for ${fromBlock}..${toBlock}`,
+					logger: this.retryLogger,
+				},
 			)
 		} catch (error) {
 			// The RPC has not indexed these blocks yet. Do not advance the cursor —
 			// with one shared cursor, skipping a range loses it for every consumer.
 			if (isBlockRangeError(error)) return
+			this.narrow(toBlock - fromBlock)
 			throw error
 		}
 
@@ -224,6 +359,7 @@ export class ChainScanner {
 				{ chainId: this.target.chainId, fromBlock, toBlock, eventCount: placed.length },
 				"Found OrderPlaced events in block scan",
 			)
+			this.enter("publish-orders")
 			await this.publishOrders(placed as unknown as DecodedOrderPlacedLog[])
 		}
 
@@ -232,6 +368,7 @@ export class ChainScanner {
 				{ chainId: this.target.chainId, fromBlock, toBlock, eventCount: filled.length },
 				"Found OrderFilled events in block scan",
 			)
+			this.enter("publish-fills")
 			await this.publishFills(filled)
 		}
 
@@ -242,6 +379,33 @@ export class ChainScanner {
 		// tolerate.
 		if (this.stopped) return
 		this.cursor = toBlock
+		this.widen()
+	}
+
+	/**
+	 * Halves the span below the range that just failed, so the next pass asks
+	 * for something a range-capped endpoint will answer. Halving the attempted
+	 * range rather than the span matters near the head, where a pass reads fewer
+	 * blocks than the span allows.
+	 */
+	private narrow(attempted: bigint): void {
+		const next = attempted / 2n
+		if (next >= this.span) return
+		this.span = next
+		this.logger.warn(
+			{ chainId: this.target.chainId, span: Number(next) },
+			"Narrowing the block scan range after a failed read",
+		)
+	}
+
+	/** Doubles the span back toward {@link MAX_BLOCK_RANGE} after a good read. */
+	private widen(): void {
+		if (this.span >= MAX_BLOCK_RANGE) return
+		const next = this.span === 0n ? 1n : this.span * 2n
+		this.span = next > MAX_BLOCK_RANGE ? MAX_BLOCK_RANGE : next
+		if (this.span === MAX_BLOCK_RANGE) {
+			this.logger.info({ chainId: this.target.chainId }, "Block scan range back to full")
+		}
 	}
 
 	private async publishOrders(logs: DecodedOrderPlacedLog[]): Promise<void> {
@@ -271,7 +435,9 @@ export class ChainScanner {
 				if (this.stopped) return
 			}
 			try {
-				const args = log.args as { commitment?: HexString; filler?: string } | undefined
+				const args = log.args as
+					| { commitment?: HexString; filler?: string; outputs?: TokenInfo[]; inputs?: TokenInfo[] }
+					| undefined
 				const commitment = args?.commitment
 				if (!commitment) {
 					this.logger.warn({ log }, "OrderFilled log missing commitment")
@@ -285,6 +451,12 @@ export class ChainScanner {
 					blockNumber: coords.blockNumber ?? 0n,
 					blockHash: coords.blockHash ?? "",
 					logIndex: coords.logIndex ?? 0,
+					transactionHash: (log as { transactionHash?: string }).transactionHash,
+					// Both events carry them; a gateway predating the fields yields none,
+					// and the draw-down is skipped rather than sized from a guess.
+					outputs: args?.outputs ?? [],
+					inputs: args?.inputs ?? [],
+					complete: (log as { eventName?: string }).eventName === "OrderFilled",
 				})
 			} catch (error) {
 				this.logger.error({ err: error, log }, "Error parsing OrderFilled log")

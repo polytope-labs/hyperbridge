@@ -61,10 +61,13 @@ contract SimplexPaymasterPermit2ProbeScript is Script {
                     swapSlippageBps: 200
                 }),
                 tokens,
-                oracles
+                oracles,
+                // Probe deployment: nothing delivers governance here, so the gate stays open.
+                address(0)
             )
         );
-        SimplexPaymaster paymaster = SimplexPaymaster(payable(address(new ERC1967Proxy(address(implementation), initData))));
+        SimplexPaymaster paymaster =
+            SimplexPaymaster(payable(address(new ERC1967Proxy(address(implementation), initData))));
 
         ERC4337Utils.ENTRYPOINT_V08.depositTo{value: 0.05 ether}(address(paymaster));
         paymaster.addStake{value: 0.1 ether}(86_400);

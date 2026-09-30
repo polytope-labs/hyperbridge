@@ -46,8 +46,8 @@ describe("packedUserOpTypedData", () => {
 	it("bidNonceKey matches the SolverAccount derivation vector", () => {
 		const commitment = keccak256(toHex("test_order_commitment"))
 		const session = "0x00000000000000000000000000000000000000AA" as HexString
-		expect(CryptoUtils.bidNonceKey(commitment, session).toString(16)).toBe(
-			"31c77a0860bd1b3f77fde0d2d875914d69220cf6b18ad191",
+		expect(CryptoUtils.bidNonceKey(commitment, session, "0xdeadbeef").toString(16)).toBe(
+			"bc2d417670f508428573098858469957bf350bc5ba31cc25",
 		)
 	})
 })

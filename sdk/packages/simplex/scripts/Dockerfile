@@ -4,33 +4,28 @@
 # it runs natively on Intel/AMD Linux and Windows (WSL2) hosts as well as Apple Silicon
 # Macs and Windows-on-ARM, with no QEMU emulation.
 #
-# Nothing below is arch-specific: the node images and the Debian build deps are multi-arch, and
-# better-sqlite3 resolves a per-arch prebuild (falling back to a source build with the
-# toolchain installed in the builder stage). Build both arches with:
+# Nothing below is arch-specific: the node images are multi-arch and the tree compiles no
+# native addon, so there is no per-arch artifact to resolve. Build both arches with:
 #   docker buildx build --platform linux/amd64,linux/arm64 -f packages/simplex/scripts/Dockerfile sdk
 #
-# The base tags are pinned to an exact patch on purpose. The floating `node:24` tag rolled to
-# 24.19.0, which added cleanup-hook registration to `node::ObjectWrap`'s constructor/destructor
-# (src/node_object_wrap.h). ~ObjectWrap then calls node::RemoveEnvironmentCleanupHook, which
-# CHECKs on Environment::GetCurrent(isolate) != nullptr — null whenever no context is entered.
-# Any ObjectWrap-derived object finalised by an idle/background GC therefore aborts the process
-# (SIGABRT), which read as a container crash-loop. better-sqlite3 <13 wrapped every Statement in
-# node::ObjectWrap, so each db.prepare() was a live landmine. Fixed by moving to better-sqlite3
-# 13.x (N-API, no node::ObjectWrap); the pin keeps the toolchain reproducible so a base-image
-# roll can never silently change the compiled addon again. Bump both stages together — the
-# builder's headers are what get compiled into any native addon.
+# The base tags are pinned to an exact patch on purpose, and both stages move together. SQLite
+# is now the runtime's own (`node:sqlite`) rather than a compiled module, which makes the base
+# image the thing that supplies the database engine: these tags must stay at or above the
+# `engines.node` floor in package.json, and a bump is a change to what the store runs on.
 
 # ---------------------------------------------------------------------------
 # Builder — installs the toolchain, compiles protos, bundles the CLI and web UI.
 # ---------------------------------------------------------------------------
 FROM node:24.19.0 AS builder
 
-# protoc is needed by packages/simplex/scripts/build.sh; python3/make/g++ are the fallback
-# path for native modules (better-sqlite3) on an arch with no matching prebuild.
-RUN apt-get update && apt-get install -y python3 make g++ git curl protobuf-compiler libprotobuf-dev --no-install-recommends && rm -rf /var/lib/apt/lists/*
+# protoc is needed by packages/simplex/scripts/build.sh. There is deliberately no python3,
+# make or g++ here: nothing in the tree compiles any more, so node-gyp has nothing to fall
+# back to and the toolchain is dead weight in the builder layer.
+RUN apt-get update && apt-get install -y git curl protobuf-compiler libprotobuf-dev --no-install-recommends && rm -rf /var/lib/apt/lists/*
 
-# Install pnpm
-RUN npm install -g pnpm
+# Install pnpm, pinned to the major the workspace's packageManager field names: pnpm 12
+# refuses to resolve pnpm@11.0.0 as a trust downgrade, so an unpinned install broke the image.
+RUN npm install -g pnpm@11
 
 # Set working directory
 WORKDIR /app
@@ -66,8 +61,7 @@ RUN groupadd -g 1001 simplex && \
 WORKDIR /app
 
 # The whole tree, pnpm's symlinked store included — COPY preserves the relative symlinks
-# under node_modules/.pnpm, and the native builds match this arch because each platform is
-# built on a runner of its own architecture.
+# under node_modules/.pnpm.
 COPY --from=builder --chown=simplex:simplex /app /app
 
 # Default persistent data location (bids database, runtime state). Mount a volume here to
@@ -107,5 +101,5 @@ WORKDIR /data
 # the filler once it is saved; with one, it runs the filler directly. `init` is the same
 # flow in the terminal, for headless hosts:
 #   docker run --rm -it -v simplex-data:/data <image> init -o /data/filler-config.toml
-ENTRYPOINT ["node", "--enable-source-maps", "/app/packages/simplex/dist/bin/simplex.js"]
+ENTRYPOINT ["node", "--enable-source-maps", "--disable-warning=ExperimentalWarning", "/app/packages/simplex/dist/bin/simplex.js"]
 CMD ["run", "--data-dir", "/data", "--ui", "0.0.0.0:8686"]

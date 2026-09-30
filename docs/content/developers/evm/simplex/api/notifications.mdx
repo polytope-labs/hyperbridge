@@ -1,0 +1,122 @@
+---
+title: Notifications
+description: Configure low-liquidity and swap alerts, subscribe browsers to push notifications, and send a test alert.
+---
+
+# Notifications
+
+Simplex can alert you in two cases: when the stablecoin liquidity it can fill with drops below a threshold, and when it completes a swap. Alerts reach browsers through Web Push, and Simplex Desktop through a stream. These routes back the **Notifications** panel on the dashboard's Operations page.
+
+## Alerts
+
+Every alert has the same shape, whether it arrives by push or on the stream:
+
+```json lineNumbers
+{
+  "title": "Simplex liquidity is low",
+  "body": "$4,210.5 is available to fill, below your $5,000 alert threshold.",
+  "tag": "simplex-low-liquidity",
+  "url": "./"
+}
+```
+
+`url` is the dashboard page to open when the alert is clicked. The low-liquidity alert fires once when liquidity falls below the threshold. It fires again only after liquidity has recovered above it.
+
+## GET /api/notifications
+
+Returns the alert settings, and the key a browser needs to subscribe to push.
+
+```bash lineNumbers
+curl -s $SIMPLEX/api/notifications
+```
+
+```json lineNumbers
+{
+  "settings": { "lowLiquidityThresholdUsd": 5000, "swaps": true },
+  "vapidPublicKey": "BN…",
+  "subscriptionCount": 2
+}
+```
+
+| Field | Description |
+|---|---|
+| `settings.lowLiquidityThresholdUsd` | Alert when the USD stablecoin liquidity available to fill drops below this. `null` turns the alert off. |
+| `settings.swaps` | Alert each time this solver completes a swap. |
+| `vapidPublicKey` | The key browsers subscribe with. It is generated once per installation. |
+| `subscriptionCount` | How many browsers are subscribed. |
+
+`PUT /api/notifications` and both subscription routes return this same shape. All four routes answer `503` when the notification settings cannot be read or saved.
+
+## PUT /api/notifications
+
+Replaces the alert settings. Both fields are required.
+
+```bash lineNumbers
+curl -s -X PUT $SIMPLEX/api/notifications \
+    -H 'Content-Type: application/json' -H 'X-Simplex-UI: 1' \
+    -d '{ "lowLiquidityThresholdUsd": 5000, "swaps": true }'
+```
+
+`lowLiquidityThresholdUsd` must be a positive number, or `null`. `swaps` must be `true` or `false`.
+
+## POST /api/notifications/subscription
+
+Subscribes a browser to push alerts. The body is the browser's push subscription, as `PushSubscription.toJSON()` returns it after subscribing with `vapidPublicKey`:
+
+```json lineNumbers
+{
+  "endpoint": "https://fcm.googleapis.com/fcm/send/…",
+  "expirationTime": null,
+  "keys": { "p256dh": "…", "auth": "…" }
+}
+```
+
+The `endpoint` must be an `https` URL. Subscribing the same endpoint again replaces it. An invalid subscription answers `400`.
+
+## DELETE /api/notifications/subscription
+
+Unsubscribes a browser. The body names its endpoint:
+
+```bash lineNumbers
+curl -s -X DELETE $SIMPLEX/api/notifications/subscription \
+    -H 'Content-Type: application/json' -H 'X-Simplex-UI: 1' \
+    -d '{ "endpoint": "https://fcm.googleapis.com/fcm/send/…" }'
+```
+
+Simplex also drops a subscription by itself when the push service reports it has expired.
+
+## POST /api/notifications/test
+
+Sends a test alert to one device. Name either a browser, by its push `endpoint`, or Simplex Desktop, with `native: true`. Not both.
+
+```bash lineNumbers
+curl -s -X POST $SIMPLEX/api/notifications/test \
+    -H 'Content-Type: application/json' -H 'X-Simplex-UI: 1' \
+    -d '{ "endpoint": "https://fcm.googleapis.com/fcm/send/…" }'
+# → { "sent": true, "pushSent": 1, "pushFailed": 0, "nativeClients": 0, "nativeReceived": 0 }
+```
+
+When the alert was not delivered, the route answers `409` or `502`, with the same counts and an `error`:
+
+| Code | Meaning |
+|---|---|
+| `409` | The browser is no longer subscribed, no Simplex Desktop is connected, or Simplex Desktop did not confirm showing the alert within five seconds. |
+| `502` | The push service refused the alert. |
+
+## GET /api/notifications/stream
+
+A [stream](/developers/evm/simplex/api/overview#streams) of alerts, one per `data:` line. Simplex Desktop reads it to show alerts as native notifications. It carries every alert, whether or not any browser is subscribed.
+
+```bash lineNumbers
+curl -sN $SIMPLEX/api/notifications/stream
+```
+
+## POST /api/notifications/receipt
+
+Simplex Desktop calls this to confirm it showed a test alert. A test alert sent with `native: true` carries a `receiptId`, and the body sends it back:
+
+```json lineNumbers
+{ "receiptId": "4f5c2b8e-…" }
+```
+
+It answers `204` when the receipt matches a test in progress, and `404` when it does not.

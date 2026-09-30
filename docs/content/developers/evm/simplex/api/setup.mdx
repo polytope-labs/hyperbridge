@@ -1,0 +1,192 @@
+---
+title: Setup wizard
+description: The routes behind the browser setup wizard, which validate endpoints and keys, write the config and start the filler.
+---
+
+# Setup wizard
+
+When `simplex run` finds no config, it opens the browser setup wizard instead of starting the filler. These are the routes the wizard calls. They let you script a first setup too: validate the pieces, preview the config, then save it and start the filler.
+
+The wizard only configures mainnet chains. Its requests carry private keys, so outside a container it only listens on loopback, and Simplex never logs the request bodies. See [Installation](/developers/evm/simplex/installation#building-a-config-file) for the wizard itself.
+
+These routes work only while the wizard is open. Once the filler runs, they answer `410`, except the [validation probes](#validation-probes) and [`GET /api/setup/start-status`](#get-apisetupstart-status).
+
+## GET /api/setup/defaults
+
+Returns what the wizard offers: the chains, the Hyperbridge endpoint, and the tokens and vaults known on each chain.
+
+```bash lineNumbers
+curl -s $SIMPLEX/api/setup/defaults
+```
+
+| Field | Description |
+|---|---|
+| `chains` | Each mainnet chain the wizard can configure, with its label, explorer and default RPC endpoints. |
+| `hyperbridgeWs` | The default Hyperbridge WebSocket endpoint, as `mainnet`. |
+| `usdStables` | The symbols counted as US dollar stablecoins. |
+| `maxConcurrentOrders` | The default for `[simplex] maxConcurrentOrders`. |
+| `configPath` | Where the wizard writes the config unless told otherwise. |
+| `knownTokens` | For each chain, the token symbols and addresses in the asset registry. |
+| `knownVaults` | For each chain, the curated vaults the treasury step offers. |
+
+## GET /api/setup/orderbook
+
+Returns the HyperFX orderbook a new config posts limit orders to, and the books it lists. It reads the orderbook live, and answers `502` when it cannot be reached.
+
+```bash lineNumbers
+curl -s $SIMPLEX/api/setup/orderbook
+# → { "url": "https://orderbook.hyperfx.finance/mainnet/graphql", "books": [ { "id": "USDC-cNGN", "base": "USDC", "quote": "cNGN" } ] }
+```
+
+## Validation probes
+
+These four routes check a value against the network before it goes into the config. They also stay open once the filler runs, because the dashboard's chain editor uses them. They only take `POST`.
+
+A probe that runs but finds a problem still answers `200`. The problem is in the body, as `ok: false` or `valid: false` with an `error`.
+
+### POST /api/setup/validate-rpc
+
+Checks that RPC endpoints answer, and that they are on the expected chain.
+
+```bash lineNumbers
+curl -s -X POST $SIMPLEX/api/setup/validate-rpc \
+    -H 'Content-Type: application/json' -H 'X-Simplex-UI: 1' \
+    -d '{ "urls": ["https://base-rpc.publicnode.com", "https://base.gateway.tenderly.co"], "expectedChainId": 8453 }'
+```
+
+```json lineNumbers
+{
+  "ok": true,
+  "results": [
+    { "url": "https://base-rpc.publicnode.com", "chainId": 8453 },
+    { "url": "https://base.gateway.tenderly.co", "chainId": 8453 }
+  ]
+}
+```
+
+Send `urls`, or a single `url`. `expectedChainId` is optional. The URLs must be valid and each on a different domain. When they are not, `results` is empty and `error` says why. Otherwise `ok` is `true` only when every URL answered for the expected chain, and each failing entry in `results` carries an `error`.
+
+### POST /api/setup/validate-bundler
+
+Checks that a bundler answers `eth_supportedEntryPoints`. A bundler that does not answer is a warning, not a failure, so `ok` is `true` unless the URL is empty.
+
+```bash lineNumbers
+curl -s -X POST $SIMPLEX/api/setup/validate-bundler \
+    -H 'Content-Type: application/json' -H 'X-Simplex-UI: 1' \
+    -d '{ "url": "https://api.pimlico.io/v2/8453/rpc?apikey=KEY" }'
+# → { "ok": true, "entryPoints": ["0x…"] }
+```
+
+When the bundler does not answer, the response has a `warning` in place of `entryPoints`.
+
+### POST /api/setup/validate-alchemy-key
+
+Checks an Alchemy API key, and derives an RPC URL for each mainnet chain Alchemy serves. Alchemy serves bundler methods on the same endpoint, so each chain's `bundlerUrl` is the same URL.
+
+```bash lineNumbers
+curl -s -X POST $SIMPLEX/api/setup/validate-alchemy-key \
+    -H 'Content-Type: application/json' -H 'X-Simplex-UI: 1' \
+    -d '{ "apiKey": "KEY" }'
+```
+
+```json lineNumbers
+{
+  "valid": true,
+  "chains": [
+    { "chainId": 8453, "stateMachineId": "EVM-8453", "label": "Base",
+      "rpcUrl": "https://base-mainnet.g.alchemy.com/v2/KEY",
+      "bundlerUrl": "https://base-mainnet.g.alchemy.com/v2/KEY" }
+  ]
+}
+```
+
+A chain Alchemy does not serve has no `rpcUrl`. When the key fails, `valid` is `false` and `error` says why.
+
+### POST /api/setup/validate-token
+
+Reads a token's symbol and decimals from its contract.
+
+```bash lineNumbers
+curl -s -X POST $SIMPLEX/api/setup/validate-token \
+    -H 'Content-Type: application/json' -H 'X-Simplex-UI: 1' \
+    -d '{ "rpcUrl": "https://base-rpc.publicnode.com", "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" }'
+# → { "ok": true, "symbol": "USDC", "decimals": 6 }
+```
+
+Once the filler runs, you can send `chain`, a state machine ID such as `"EVM-8453"`, instead of `rpcUrl`. The chain's configured RPC is used.
+
+## POST /api/setup/derive-evm-address
+
+Returns the address of an EVM private key, so the wizard can show which account it will fund.
+
+```bash lineNumbers
+curl -s -X POST $SIMPLEX/api/setup/derive-evm-address \
+    -H 'Content-Type: application/json' -H 'X-Simplex-UI: 1' \
+    -d '{ "privateKey": "0x…" }'
+# → { "address": "0x…" }
+```
+
+The key must be 64 hex characters, with or without `0x`. Anything else answers `400`.
+
+## POST /api/setup/generate-substrate-key
+
+Creates the Hyperbridge account that places bids. With an empty body, it generates a new account and returns its mnemonic and address. With `key`, a seed or mnemonic you already have, it returns only that account's address.
+
+```bash lineNumbers
+curl -s -X POST -H 'X-Simplex-UI: 1' $SIMPLEX/api/setup/generate-substrate-key
+# → { "mnemonic": "…", "address": "5F…" }
+```
+
+## POST /api/setup/check-substrate-balance
+
+Reads a Hyperbridge account's BRIDGE balance. Bids need BRIDGE for fees and deposits.
+
+```bash lineNumbers
+curl -s -X POST $SIMPLEX/api/setup/check-substrate-balance \
+    -H 'Content-Type: application/json' -H 'X-Simplex-UI: 1' \
+    -d '{ "wsUrl": "wss://nexus.rpc.polytope.technology", "key": "…" }'
+# → { "address": "5F…", "free": "…", "reserved": "0", "decimals": 12, "funded": true }
+```
+
+`free` and `reserved` are in the token's smallest unit, so divide by 10 to the power of `decimals`. `funded` is `true` when the free balance is above zero.
+
+## POST /api/setup/preview
+
+Validates a config and returns it as TOML, with every secret masked.
+
+The body holds the config as JSON under `config`, in the same structure as `filler-config.toml`. `chainIds` lists the chain IDs the config enables, so the checks that depend on them can run. `chainLabels` optionally names each `[[chains]]` block in the rendered TOML.
+
+```bash lineNumbers
+curl -s -X POST $SIMPLEX/api/setup/preview \
+    -H 'Content-Type: application/json' -H 'X-Simplex-UI: 1' \
+    -d @setup.json
+# → { "ok": true, "toml": "[simplex]\n…" }
+```
+
+It runs the same checks `simplex run` would. Only mainnet chains are accepted, and a signer is required unless the config is watch-only. A config that fails answers `400` with `ok: false` and an `error`.
+
+## POST /api/setup/save-and-start
+
+Validates the config like [`/api/setup/preview`](#post-apisetuppreview), writes it, and starts the filler. It takes the same body, plus an optional `path` to write to instead of the default.
+
+```bash lineNumbers
+curl -s -X POST $SIMPLEX/api/setup/save-and-start \
+    -H 'Content-Type: application/json' -H 'X-Simplex-UI: 1' \
+    -d @setup.json
+# → 202 { "ok": true, "configPath": "/data/filler-config.toml", "status": "starting" }
+```
+
+It answers `202` as soon as the file is written. Starting the filler takes tens of seconds, so poll [`GET /api/setup/start-status`](#get-apisetupstart-status) until it is running. The server then switches to operator mode on the same address.
+
+It answers `409` while another start is in progress or Simplex is stopping, and `500` when the file cannot be written.
+
+## GET /api/setup/start-status
+
+Reports how starting the filler is going. It works in both modes.
+
+```bash lineNumbers
+curl -s $SIMPLEX/api/setup/start-status
+# → { "state": "starting" }
+```
+
+`state` is `idle` before anything was started, `starting`, `running`, or `failed`. When it is `failed`, `error` says why, and you can correct the config and save it again.

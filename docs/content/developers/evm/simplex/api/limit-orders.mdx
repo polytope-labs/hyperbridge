@@ -1,0 +1,284 @@
+---
+title: Limit orders
+description: Create, list, inspect and cancel Simplex limit orders over the solver's HTTP API.
+---
+
+# Limit orders API
+
+These routes manage the limit orders that set Simplex's prices. The dashboard's **Limit orders** list and **New limit order** form use them. You can call them yourself from a script, a scheduled job, or a pricing bot that reprices from a market feed.
+
+<Callout type="info">
+    New to limit orders? Read the [limit orders guide](/developers/evm/simplex/limit-orders) first. It
+    explains what an order is, how its side and rate work, and how orders are matched and filled. This
+    page covers the calls.
+</Callout>
+
+Every route here needs the filler to be running. The [rules for every call](/developers/evm/simplex/api/overview#rules-for-every-call) apply, and the examples use `$SIMPLEX` for the base URL.
+
+## Amounts
+
+Requests take amounts in whole tokens, as decimal strings such as `"7750000"` or `"1500.25"`, with at most 18 decimal places.
+
+Responses carry amounts and rates as integers scaled by 10¹⁸, whatever the token's own decimals. So `"5000000000000000000000"` is 5,000 tokens. Divide by 10¹⁸ to read them. This applies to an order's `price`, `size`, `remaining` and `reserved`, to a fill's `amount`, and to the orderbook's minimum sizes.
+
+## GET /api/orderbook/books
+
+Lists the books the orderbook trades, the smallest amount an order may pay out in each token, and the tokens the orderbook registers on each chain. A limit order can only name one of these books. Its input token must be registered on every chain it accepts swaps from.
+
+```bash lineNumbers
+curl -s $SIMPLEX/api/orderbook/books
+```
+
+```json lineNumbers
+{
+  "books": [
+    { "id": "USDC-cNGN", "base": "USDC", "quote": "cNGN" },
+    { "id": "USDT-cNGN", "base": "USDT", "quote": "cNGN" }
+  ],
+  "minOrderSizes": [ { "symbol": "USDC", "size": "…" } ],
+  "chains": [
+    { "id": "EVM-8453", "name": "Base",
+      "tokens": [ { "symbol": "USDC", "decimals": 6 }, { "symbol": "cNGN", "decimals": 6 } ] }
+  ]
+}
+```
+
+| Field | Description |
+|---|---|
+| `books` | Each book's `id`, with its `base` and `quote` symbols. Rates are quoted in quote per base. |
+| `minOrderSizes` | The dust floor for each token, 1e18-scaled. An order must pay out at least this much. |
+| `chains` | Each chain the orderbook serves, by state machine ID, with the tokens it registers there and their decimals on that chain. |
+
+Simplex keeps what it reads for five minutes. The route answers `502` when the orderbook cannot be reached and nothing has been read yet.
+
+## POST /api/limit-orders
+
+Creates a limit order and posts it to the orderbook.
+
+The API does not take a side and a rate like the dashboard form. Instead, you state what Simplex takes in and what it pays out. The side and the rate follow from those two amounts.
+
+```bash lineNumbers
+# Sell 5,000 USDC on Base at 1,550 cNGN per USDC:
+# take in 5,000 × 1,550 = 7,750,000 cNGN, pay out 5,000 USDC.
+curl -s -X POST $SIMPLEX/api/limit-orders \
+    -H 'Content-Type: application/json' -H 'X-Simplex-UI: 1' \
+    -d '{
+          "fillChain": "EVM-8453",
+          "tokenIn": "cNGN",  "amountIn": "7750000",
+          "tokenOut": "USDC", "amountOut": "5000",
+          "acceptedSources": ["EVM-1", "EVM-56", "EVM-137", "EVM-8453"]
+        }'
+```
+
+| Field | Required | Description |
+|---|---|---|
+| `fillChain` | yes | State machine ID of the chain Simplex pays out on, such as `"EVM-8453"`. Must be a chain in your config that the orderbook serves. |
+| `tokenIn` | yes | Symbol Simplex takes in. Case-insensitive, so `CNGN` and `cNGN` both work. |
+| `amountIn` | yes | Whole tokens taken in, as a decimal string. |
+| `tokenOut` | yes | Symbol Simplex pays out. |
+| `amountOut` | yes | Whole tokens paid out, as a decimal string. This is the order's size. |
+| `acceptedSources` | yes | Source chains to accept swaps from. Must be non-empty, with no repeats, and every chain must be served by the orderbook with `tokenIn` registered. |
+| `ttlSecs` | no | The order's lifetime in seconds. Defaults to `[orderbook] defaultTtlSecs`, which is one year. Must meet the orderbook's minimum TTL. |
+
+`tokenIn` and `tokenOut` together pick the book. When `tokenIn` is the book's base, the order is a **Buy** (a `BID`). When `tokenIn` is the quote, it is a **Sell** (an `ASK`). The rate is always stored as quote per base. It is rounded so that it is never better for the swapper than your two amounts imply.
+
+To go from a rate you have in mind to the two amounts:
+
+| You want to | `tokenIn` | `amountIn` | `tokenOut` | `amountOut` |
+|---|---|---|---|---|
+| Buy the base at `rate`, paying `Q` quote | base | `Q ÷ rate` | quote | `Q` |
+| Sell `B` base at `rate` | quote | `B × rate` | base | `B` |
+
+Round `amountIn` up if it does not divide exactly. Rounding down would quote a slightly better rate than you meant.
+
+Before storing the order, Simplex runs the same checks as the dashboard form. The pair and chains must be ones the orderbook serves, the payout must be above the dust floor, the wallet and vaults on the fill chain must cover it, and the solver account must be delegated on the fill chain. The [guide](/developers/evm/simplex/limit-orders#post-it) explains each check. If one fails, the route answers `400` and nothing is stored. The message names the problem:
+
+```json lineNumbers
+{ "error": "The wallet holds 1000 in the wallet and 200 in vaults USDC on EVM-8453, which cannot pay out 1500" }
+```
+
+It answers `502` when the orderbook's books and limits cannot be read, also before anything is stored.
+
+A successful response holds the stored order and what the orderbook did with it:
+
+```json lineNumbers
+{
+  "order": {
+    "id": "9f1c2e6a-3b4d-4c1e-9a55-0d7f2b8e41aa",
+    "book": "USDC-cNGN", "base": "USDC", "quote": "cNGN", "side": "ASK",
+    "fillChain": "EVM-8453",
+    "price":     "1550000000000000000000",
+    "size":      "5000000000000000000000",
+    "remaining": "5000000000000000000000",
+    "reserved":  "0",
+    "acceptedSources": ["EVM-1", "EVM-56", "EVM-137", "EVM-8453"],
+    "ttlSecs": 31536000,
+    "expiresAt": "2027-09-30T11:52:03.412Z",
+    "status": "open",
+    "commitment": "0x…",
+    "orderNonce": "11409538210675092315",
+    "bookExpiresAt": "…",
+    "bookPrice": "…",
+    "lastError": null,
+    "createdAt": "2026-09-30 11:52:03",
+    "updatedAt": "2026-09-30 11:52:04"
+  },
+  "result": { "kind": "accepted", "order": { "commitment": "0x…", "status": "ACTIVE" }, "surfaced": true }
+}
+```
+
+[The limit order object](#the-limit-order-object) describes every field of `order`. `result.kind` says what the orderbook did:
+
+| `kind` | Meaning |
+|---|---|
+| `accepted` | On the book. `surfaced: false` means the orderbook has your solver suspended, and Simplex sends a heartbeat straight away to bring it back. |
+| `unchanged` | The orderbook already held this exact posting. |
+| `rejected` | The orderbook refused it. The order's `status` is `rejected`, and `code` and `message` say why. |
+| `failed` | The request did not get through. The order stays `open` with `lastError` set, and reconciliation posts it again. |
+| `unposted` | A [same-asset order](#same-asset-orders). It is stored and used for matching, but not advertised. |
+
+An order pays out on one chain. To offer the same size on several chains, send one request per `fillChain`, as the dashboard does.
+
+## GET /api/limit-orders
+
+Lists limit orders, newest first. All three filters are optional:
+
+| Parameter | Description |
+|---|---|
+| `status` | `open`, `resizing`, `filled`, `cancelled`, `expired` or `rejected`. |
+| `chain` | The fill chain, such as `EVM-8453`. |
+| `book` | A book ID, such as `USDC-cNGN`. |
+
+```bash lineNumbers
+curl -s "$SIMPLEX/api/limit-orders?status=open&chain=EVM-8453&book=USDC-cNGN"
+# → { "orders": [ { "id": "...", "status": "open", "remaining": "...", ... } ] }
+```
+
+Each entry in `orders` is a [limit order object](#the-limit-order-object).
+
+## GET /api/limit-orders/:id
+
+Returns one order, with the fills that drew it down and the bids still holding part of it. It answers `404` when no order has that ID.
+
+```bash lineNumbers
+curl -s $SIMPLEX/api/limit-orders/9f1c2e6a-3b4d-4c1e-9a55-0d7f2b8e41aa
+```
+
+```json lineNumbers
+{
+  "order": { "id": "9f1c2e6a-…", "status": "open", "remaining": "3520000000000000000000", "…": "…" },
+  "fills": [
+    { "id": 12, "limitOrderId": "9f1c2e6a-…", "commitment": "0x…", "bid": "0x…",
+      "amount": "1480000000000000000000", "transactionHash": "0x…", "filledAt": "2026-09-30 12:20:41" }
+  ],
+  "bids": []
+}
+```
+
+`fills` lists up to 100 fills, newest first:
+
+| Field | Description |
+|---|---|
+| `commitment` | The swap order the fill settled. |
+| `bid` | The ID Hyperbridge filed the winning bid under, when known. |
+| `amount` | How much the fill drew the order down by, 1e18-scaled in the token paid out. |
+| `transactionHash` | The fill's transaction on the fill chain, when known. |
+| `filledAt` | When the fill settled, in UTC, as `YYYY-MM-DD HH:MM:SS`. |
+
+`bids` lists bids that have neither filled nor been retracted, newest first, in the [bid shape](/developers/evm/simplex/api/activity#the-bid-object). Each bid's `reservations` say how much of this order it holds.
+
+An order with no `commitment` and a `lastError` has not reached the book. Read `lastError` to see why. The dashboard's [status badges](/developers/evm/simplex/limit-orders#reading-the-list) map directly onto `status`, `commitment` and `lastError`.
+
+## DELETE /api/limit-orders/:id
+
+Cancels an order and withdraws it from the orderbook.
+
+```bash lineNumbers
+curl -s -X DELETE -H 'X-Simplex-UI: 1' $SIMPLEX/api/limit-orders/9f1c2e6a-3b4d-4c1e-9a55-0d7f2b8e41aa
+# → { "order": { "status": "cancelled", ... }, "result": { "kind": "cancelled", "commitment": "0x…" } }
+```
+
+The order is closed locally first, so nothing new can draw on it even if the orderbook call fails. Bids already placed against it can still settle.
+
+| `result.kind` | Meaning |
+|---|---|
+| `cancelled` | Withdrawn from the orderbook. `commitment` is `0x` when nothing was posted to withdraw. |
+| `rejected` | The orderbook refused the cancel, and `code` and `message` say why. `UNKNOWN_ORDER` means the entry was already gone, which counts as done. |
+| `failed` | The request did not get through. |
+
+After any other rejection, or a failure, the entry may still be live on the orderbook. Simplex keeps its `commitment` on the order and sets `lastError`, and the next reconciliation withdraws the entry.
+
+An ID that matches no order answers `400`, not `404`.
+
+## Repricing
+
+There is no update route. To reprice, cancel the order and create a new one:
+
+```bash lineNumbers
+#!/usr/bin/env bash
+# Reprice a USDC sell order on Base from a new rate: cancel, then re-create.
+set -euo pipefail
+SIMPLEX=http://127.0.0.1:8686
+RATE=$1          # cNGN per USDC, such as 1560
+SIZE=5000        # USDC to offer
+
+for id in $(curl -s "$SIMPLEX/api/limit-orders?status=open&chain=EVM-8453&book=USDC-cNGN" \
+            | jq -r '.orders[] | select(.side == "ASK") | .id'); do
+    curl -s -X DELETE -H 'X-Simplex-UI: 1' "$SIMPLEX/api/limit-orders/$id" > /dev/null
+done
+
+curl -s -X POST "$SIMPLEX/api/limit-orders" \
+    -H 'Content-Type: application/json' -H 'X-Simplex-UI: 1' \
+    -d "$(jq -n --arg in "$(echo "$SIZE * $RATE" | bc)" --arg out "$SIZE" '{
+          fillChain: "EVM-8453", tokenIn: "cNGN", amountIn: $in,
+          tokenOut: "USDC", amountOut: $out,
+          acceptedSources: ["EVM-1", "EVM-56", "EVM-137", "EVM-8453"] }')" \
+    | jq '{id: .order.id, status: .order.status, posted: .result.kind}'
+```
+
+Between the cancel and the new posting there is a short gap with no ask on the book. If that matters to you, create the new order first, then cancel the old one. Both orders are checked against the same balance, so the balance only needs to cover the larger of the two.
+
+## Same-asset orders
+
+The API can create an order that takes in and pays out the same token, such as USDC in on any source chain and USDC out on Base, for cross-chain transfers. The dashboard form cannot.
+
+The orderbook lists no such books, so this order is never advertised. It is stored with `result.kind: "unposted"`, and matched against incoming same-asset swaps like any other order. It must pay out no more than it takes in. The shortfall below par is your spread:
+
+```bash lineNumbers
+# Pay out up to 10,000 USDC on Base, taking in 10,005 USDC for it (5 bps).
+curl -s -X POST $SIMPLEX/api/limit-orders \
+    -H 'Content-Type: application/json' -H 'X-Simplex-UI: 1' \
+    -d '{ "fillChain": "EVM-8453",
+          "tokenIn": "USDC", "amountIn": "10005",
+          "tokenOut": "USDC", "amountOut": "10000",
+          "acceptedSources": ["EVM-1", "EVM-42161", "EVM-137"] }'
+```
+
+## The limit order object
+
+Every route on this page returns orders in this shape.
+
+| Field | Description |
+|---|---|
+| `id` | The order's ID. It stays the same across every repost. |
+| `book`, `base`, `quote` | The book the order is on, and its base and quote symbols. A same-asset order uses the token's symbol for all three. |
+| `side` | `BID` to buy the base, `ASK` to sell it. |
+| `fillChain` | The state machine ID of the chain Simplex pays out on. |
+| `price` | The rate in quote per base, 1e18-scaled. |
+| `size` | What the order offered to pay out when it was created, 1e18-scaled in the token paid out. |
+| `remaining` | What it has left to pay out. |
+| `reserved` | What is promised to bids that have neither filled nor been retracted. |
+| `acceptedSources` | The source chains it accepts swaps from. |
+| `ttlSecs` | Its lifetime in seconds. |
+| `expiresAt` | When it expires, as an ISO 8601 timestamp. Nothing renews it. |
+| `status` | `open`, `resizing` while a fill settles and the order is reposted, `filled`, `cancelled`, `expired` or `rejected`. |
+| `commitment` | The current posting's ID on the orderbook, or `null` when nothing is posted. It changes on every repost. |
+| `orderNonce` | Bumped on every repost, so each posting is distinct. |
+| `bookExpiresAt` | When the current posting expires, as the orderbook reported it. Simplex renews postings long before this. |
+| `bookPrice` | The rate the orderbook advertises, after its fee. |
+| `lastError` | The last problem with this order, such as a refusal as `CODE: message`, or `null`. |
+| `createdAt`, `updatedAt` | UTC, as `YYYY-MM-DD HH:MM:SS`. |
+
+## From the library
+
+To embed Simplex as a library rather than run the binary, the same operations are available as `simplex.limitOrders.books()`, `create()`, `list()`, `get()`, `withFills()` and `cancel()`. They emit `limit-order:posted`, `limit-order:rejected`, `limit-order:cancelled`, `limit-order:resized` and `limit-order:filled` events. See the [Simplex SDK guide](/developers/sdk/simplex).

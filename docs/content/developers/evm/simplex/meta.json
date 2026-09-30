@@ -4,12 +4,12 @@
         "overview",
         "installation",
         "configuration",
+        "dashboard",
         "limit-orders",
-        "limit-orders-api",
         "treasury",
         "confirmations",
-        "dashboard",
-        "troubleshooting"
+        "troubleshooting",
+        "api"
     ],
     "defaultOpen": false
 }

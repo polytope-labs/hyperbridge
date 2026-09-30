@@ -1,0 +1,156 @@
+---
+title: Activity
+description: Read the orders the solver has seen, the bids it placed, and a live stream of what it does.
+---
+
+# Activity
+
+The solver records what happens to every order it sees: when it detected the order, whether it bid, and who filled it. These routes read that record. The dashboard's **History** page uses them.
+
+## Activity events
+
+Every route on this page returns activity events. Each event is one step in an order's life, or a rebalance.
+
+```json lineNumbers
+{
+  "id": 1824,
+  "ts": 1790243521334,
+  "type": "filled",
+  "orderId": "0x9c…",
+  "chainId": 8453,
+  "strategy": null,
+  "success": null,
+  "reason": null,
+  "volumeUsd": null,
+  "profitUsd": null,
+  "txHash": "0x…",
+  "order": {
+    "user": "0x…",
+    "source": "EVM-56",
+    "destination": "EVM-8453",
+    "placedTxHash": "0x…",
+    "referrer": null,
+    "inputs":  [ { "token": "0x…", "amount": "2294000000000", "symbol": "CNGN", "decimals": 6 } ],
+    "outputs": [ { "token": "0x…", "amount": "1480000000", "symbol": "USDC", "decimals": 6 } ],
+    "deadline": "53291004"
+  }
+}
+```
+
+`type` says what happened:
+
+| `type` | Meaning |
+|---|---|
+| `detected` | The solver saw the order being placed. |
+| `skipped` | It decided not to fill the order. `reason` says why. |
+| `bid` | Hyperbridge accepted its bid. `txHash` is the bid's extrinsic. |
+| `executed` | A bid attempt that Hyperbridge did not accept. `reason` holds the error. |
+| `filled` | This solver filled the order. `txHash` is the fill transaction. |
+| `lost` | Another solver filled the order. `reason` holds that solver's address. |
+| `rebalance` | A rebalancing transfer. It belongs to no order. |
+
+The other fields:
+
+| Field | Description |
+|---|---|
+| `id` | The event's ID. IDs only increase, so they order events and page through them. |
+| `ts` | When it was recorded, in milliseconds since the Unix epoch. |
+| `orderId` | The order's commitment. `null` for a rebalance. |
+| `chainId` | The chain the event happened on, when it has one. |
+| `strategy`, `success` | Set on `bid` and `executed` events. |
+| `volumeUsd`, `profitUsd` | The fill's USD volume and profit, when known. Usually `null`. |
+| `order` | The order as the solver saw it when it was placed, repeated on every event so each one stands alone. |
+
+In `order`, `source` and `destination` are state machine IDs, and `deadline` is a block number. `referrer` is the address from the order's graffiti tag, or `null` when the order was not attributed. Each leg's `amount` is in the token's raw on-chain units. Its `symbol` and `decimals` are `null` when the solver could not read them, and the zero address stands for the chain's native token.
+
+## GET /api/activity/history
+
+Returns orders one page at a time, most recent activity first, each with its events and bids. This is what the History page shows.
+
+| Parameter | Default | Description |
+|---|---|---|
+| `page` | `1` | The page to return, counting from 1. |
+| `pageSize` | `20` | Orders per page, at most 100. |
+
+```bash lineNumbers
+curl -s "$SIMPLEX/api/activity/history?page=1&pageSize=20"
+```
+
+```json lineNumbers
+{
+  "page": 1,
+  "pageSize": 20,
+  "total": 214,
+  "network": "mainnet",
+  "orders": [
+    { "orderId": "0x9c…", "events": [ "…" ], "bids": [ "…" ] }
+  ],
+  "other": [ "…" ]
+}
+```
+
+| Field | Description |
+|---|---|
+| `total` | How many orders the solver has recorded. |
+| `network` | `mainnet` or `testnet`, from the chains the filler runs on. |
+| `orders` | Each order's `events`, newest first, and the `bids` this solver placed on it, newest first, in the [bid shape](#the-bid-object). |
+| `other` | Recent events that belong to no order, such as rebalances. They come from the newest 100 events, whatever the page. |
+
+## GET /api/activity/orders
+
+Returns the raw event feed, newest first.
+
+| Parameter | Default | Description |
+|---|---|---|
+| `limit` | `100` | Events to return, at most 500. |
+| `before` | none | An event `id`. Only older events are returned, which pages back through the feed. |
+
+```bash lineNumbers
+curl -s "$SIMPLEX/api/activity/orders?limit=50"
+# → { "events": [ ... ] }
+```
+
+## GET /api/activity/bids
+
+Returns the most recent bids, and totals across every bid the solver has placed.
+
+| Parameter | Default | Description |
+|---|---|---|
+| `limit` | `100` | Bids to return, at most 500. |
+
+```bash lineNumbers
+curl -s "$SIMPLEX/api/activity/bids?limit=20"
+```
+
+```json lineNumbers
+{
+  "bids": [ "…" ],
+  "stats": { "total": 402, "successful": 390, "failed": 12, "retracted": 371, "pendingRetraction": 19 }
+}
+```
+
+`pendingRetraction` counts deposits that are still locked: bids that were accepted, or may still land, and have not been retracted.
+
+### The bid object
+
+| Field | Description |
+|---|---|
+| `id` | The bid's row ID. |
+| `commitment` | The order the bid is for. |
+| `bid` | The ID Hyperbridge files the bid under. Bids on one order share a commitment, and this tells them apart. |
+| `extrinsicHash`, `blockHash` | Where the bid landed on Hyperbridge. |
+| `success` | Whether Hyperbridge accepted the bid. |
+| `pending` | The submission timed out while the extrinsic was still in Hyperbridge's pool, so it may still land. |
+| `error` | Why the bid failed, or `null`. |
+| `createdAt` | When it was placed, in UTC, as `YYYY-MM-DD HH:MM:SS`. |
+| `retracted`, `retractedAt`, `retractExtrinsicHash` | Whether the bid's deposit has been reclaimed, when, and in which extrinsic. |
+| `dead` | The order was filled on-chain, so the bid can never win. Its deposit is reclaimed straight away. |
+| `reservations` | What the bid holds against your [limit orders](/developers/evm/simplex/api/limit-orders): each `limitOrderId` and `amount`, 1e18-scaled. Empty once the bid has settled. |
+
+## GET /api/events
+
+A [stream](/developers/evm/simplex/api/overview#streams) of activity events as they are recorded. Each `data:` line is one event, in the shape above.
+
+```bash lineNumbers
+curl -sN $SIMPLEX/api/events
+```

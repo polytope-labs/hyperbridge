@@ -73,7 +73,7 @@ requestTimeoutMs      = 10000     # per-request timeout for orderbook calls
 | `reconcileIntervalSecs` | `300` | How often Simplex compares its open orders with the orderbook. It reposts any entry that has gone missing and cancels any entry no longer owned by an order. |
 | `requestTimeoutMs` | `10000` | Timeout for each orderbook request. |
 
-The limit orders themselves are not in this file. They are inventory you open and close while the filler runs, so they are stored in `bids.db` in the data directory and created from the dashboard or the API.
+The limit orders themselves are not in this file. They are inventory you open and close while the filler runs, so they are stored in `bids.db` in the data directory and created from the dashboard or the [API](/developers/evm/simplex/api/limit-orders).
 
 ## Signer Configuration
 

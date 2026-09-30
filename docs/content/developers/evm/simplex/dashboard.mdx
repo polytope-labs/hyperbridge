@@ -1,11 +1,11 @@
 ---
 title: Dashboard
-description: The web UI is unauthenticated by design — reach it from the same machine, over SSH, or through the remote access tunnel.
+description: The web UI for a running solver — what each page is for, and how to reach it from the same machine, over SSH, or through the remote access tunnel.
 ---
 
-# Accessing the dashboard
+# Dashboard
 
-The dashboard is where a running solver is watched and steered: balances per chain, the [limit orders](/developers/evm/simplex/limit-orders) that set its prices, order history, and the treasury tools.
+The dashboard is where you watch and steer a running solver. The solver serves it itself, at `http://localhost:8686` by default, from the moment the filler starts. Simplex Desktop shows it in the app's own window.
 
 <figure style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
 
@@ -14,7 +14,23 @@ The dashboard is where a running solver is watched and steered: balances per cha
 <figcaption>The Overview page: liquidity per chain and per token, and the filling switch. Your limit orders are listed below the balances.</figcaption>
 </figure>
 
-It is unauthenticated by design — the bind address is the boundary. It defaults to `127.0.0.1:8686`, so only the machine running the solver can reach it, and it refuses any request whose `Host` header is a DNS name rather than a loopback literal, which closes the DNS-rebinding path into it. Move it with `--ui`, or turn it off with `--no-ui` — see [Command-line flags](#command-line-flags) below.
+## What is on it
+
+The sidebar has five pages:
+
+- **Overview** is where you set your prices, by posting [limit orders](/developers/evm/simplex/limit-orders). It also shows your balances per chain and per token, and has the controls to pause filling or stop the solver. You will use this page the most.
+- **History** follows every order the solver has seen, from detection through its bid to who filled it.
+- **Wallet** sends funds out of the solver wallet, manages the [vault treasury](/developers/evm/simplex/treasury), and lists the wallet's transactions.
+- **Logs** shows everything the solver has logged since it started, with a level picker and a search box. It is hidden on phones.
+- **Operations** holds live settings: the order allowlist, chains and RPC endpoints, notifications, and [remote access](#through-the-remote-access-tunnel).
+
+The status button at the top opens the **Environment** panel. It shows the solver's wallet address, its Hyperbridge account, its uptime and its config file. Settings you change on the dashboard are saved to that file. Limit orders are not settings, so they are kept in the solver's database instead.
+
+Everything the dashboard does goes through the solver's HTTP API, so you can also script any of it. See the [API reference](/developers/evm/simplex/api/overview).
+
+## Keeping it private
+
+The dashboard is unauthenticated by design — the bind address is the boundary. It defaults to `127.0.0.1:8686`, so only the machine running the solver can reach it, and it refuses any request whose `Host` header is a DNS name rather than a loopback literal, which closes the DNS-rebinding path into it. Move it with `--ui`, or turn it off with `--no-ui` — see [Command-line flags](#command-line-flags) below.
 
 <Callout type="warn">
     Anyone who reaches the dashboard can pause filling, post and cancel limit orders, move treasury funds and

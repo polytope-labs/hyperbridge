@@ -11,9 +11,15 @@ after 3 attempts`. Only solver 1 could bid. Every other scenario is fillable by 
 `partial` is deliberately larger than one solver's order, so after solver 1's partial fill nothing
 else ever bid.
 
-Preflight now reads each solver's balance on Hyperbridge and refuses to run below `MIN_BRIDGE`
-(1 tBRIDGE), naming the solver and its address. Without it, an unfunded solver looks exactly like a
-solver that chose not to bid.
+Preflight now reads each solver's balance on Hyperbridge and tops up anything below `MIN_BRIDGE`
+(1 tBRIDGE, `E2E_MIN_BRIDGE`) to `TARGET_BRIDGE` (10, `E2E_TARGET_BRIDGE`), from the account in
+`SECRET_PHRASE` — the repository secret the SDK tests already use. The funder keeps 1 tBRIDGE for
+its own fees.
+
+Without a `SECRET_PHRASE`, or with a funder that cannot spare the amount, the shortfall is named
+and the run refuses to start rather than reporting a scenario nobody bid on. This is the same
+two-way arrangement the EVM balances already have: the wallets hold what a run needs between them,
+and the run says so plainly when they do not.
 
 ## A scenario that nobody bids on now times out rather than vanishing
 

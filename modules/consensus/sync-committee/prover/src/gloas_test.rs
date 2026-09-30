@@ -6,7 +6,8 @@
 use super::*;
 use sync_committee_primitives::{
 	constants::{
-		devnet::GlamsterdamDevnet, ETH1_DATA_VOTES_BOUND_ETH, PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM,
+		devnet::GlamsterdamDevnet, ETH1_DATA_VOTES_BOUND_ETH, GLOAS_EXECUTION_PAYLOAD_INDEX,
+		PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM,
 	},
 	execution_header::{execution_block_hash, ExecutionHeader},
 	util::compute_epoch_at_slot,
@@ -83,7 +84,7 @@ async fn execution_header_recovers_the_execution_state_root() {
 	assert!(is_valid_merkle_branch(
 		Hash256::from(execution_block_hash(execution_header)),
 		&payload_branch,
-		GlamsterdamDevnet::EXECUTION_PAYLOAD_INDEX,
+		GLOAS_EXECUTION_PAYLOAD_INDEX,
 		Hash256::from(&finalized_header.state_root),
 	));
 

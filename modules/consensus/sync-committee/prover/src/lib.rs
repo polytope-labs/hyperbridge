@@ -19,7 +19,8 @@ use sync_committee_primitives::{
 	consensus_types::{BeaconBlockHeader, Checkpoint, Validator},
 	constants::{
 		BlsPublicKey, Config, Root, BYTES_PER_LOGS_BLOOM, EPOCHS_PER_HISTORICAL_VECTOR,
-		EPOCHS_PER_SLASHINGS_VECTOR, HISTORICAL_ROOTS_LIMIT, MAX_ATTESTATIONS,
+		EPOCHS_PER_SLASHINGS_VECTOR, GLOAS_EXECUTION_PAYLOAD_INDEX, GLOAS_FINALIZED_ROOT_INDEX,
+		GLOAS_NEXT_SYNC_COMMITTEE_INDEX, HISTORICAL_ROOTS_LIMIT, MAX_ATTESTATIONS,
 		MAX_ATTESTER_SLASHINGS, MAX_BLS_TO_EXECUTION_CHANGES, MAX_BYTES_PER_TRANSACTION,
 		MAX_COMMITTEES_PER_SLOT, MAX_CONSOLIDATION_REQUESTS_PER_PAYLOAD, MAX_DEPOSITS,
 		MAX_DEPOSIT_REQUESTS_PER_PAYLOAD, MAX_EXTRA_DATA_BYTES, MAX_PROPOSER_SLASHINGS,
@@ -537,7 +538,10 @@ pub fn prove_execution_payload<
 ) -> anyhow::Result<ExecutionPayloadProof> {
 	trace!(target: "sync-committee-prover", "Proving execution payload");
 
-	let execution_payload_branch = prove_state_field(beacon_state, C::EXECUTION_PAYLOAD_INDEX)?;
+	let execution_payload_branch = prove_state_field(
+		beacon_state,
+		gindex(beacon_state, C::EXECUTION_PAYLOAD_INDEX, GLOAS_EXECUTION_PAYLOAD_INDEX),
+	)?;
 
 	let proof = match beacon_state {
 		BeaconState::Gloas(_) => {
@@ -589,6 +593,18 @@ pub fn prove_execution_payload<
 	Ok(ExecutionPayloadProof { execution_payload_branch, proof })
 }
 
+/// Pick a field's generalized index for the layout this state actually has.
+fn gindex<ETH1_DATA_VOTES_BOUND: Unsigned, PROPOSER_LOOK_AHEAD_LIMIT: Unsigned>(
+	state: &BeaconStateType<ETH1_DATA_VOTES_BOUND, PROPOSER_LOOK_AHEAD_LIMIT>,
+	legacy: u64,
+	gloas: u64,
+) -> u64 {
+	match state {
+		BeaconState::Gloas(_) => gloas,
+		BeaconState::Electra(_) => legacy,
+	}
+}
+
 /// Prove a single beacon state field, addressed by generalized index.
 ///
 /// The state is a plain container before Gloas and a progressive one from Gloas, and the two
@@ -609,7 +625,8 @@ pub fn prove_sync_committee_update<
 	state: &mut BeaconStateType<ETH1_DATA_VOTES_BOUND, PROPOSER_LOOK_AHEAD_LIMIT>,
 ) -> anyhow::Result<Vec<Root>> {
 	trace!(target: "sync-committee-prover", "Proving sync committee update");
-	prove_state_field(state, C::NEXT_SYNC_COMMITTEE_INDEX)
+	let index = gindex(state, C::NEXT_SYNC_COMMITTEE_INDEX, GLOAS_NEXT_SYNC_COMMITTEE_INDEX);
+	prove_state_field(state, index)
 }
 
 #[instrument(level = "trace", target = "sync-committee-prover", skip_all)]
@@ -621,7 +638,8 @@ pub fn prove_finalized_header<
 	state: &mut BeaconStateType<ETH1_DATA_VOTES_BOUND, PROPOSER_LOOK_AHEAD_LIMIT>,
 ) -> anyhow::Result<Vec<Root>> {
 	trace!(target: "sync-committee-prover", "Proving finalized head");
-	prove_state_field(state, C::FINALIZED_ROOT_INDEX)
+	let index = gindex(state, C::FINALIZED_ROOT_INDEX, GLOAS_FINALIZED_ROOT_INDEX);
+	prove_state_field(state, index)
 }
 
 pub fn eth_aggregate_public_keys(points: &[BlsPublicKey]) -> anyhow::Result<BlsPublicKey> {

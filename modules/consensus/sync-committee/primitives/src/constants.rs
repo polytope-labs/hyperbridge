@@ -146,6 +146,14 @@ pub mod bounds {
 
 pub use bounds::*;
 
+/// Generalized indices into the Gloas beacon state. The state is a progressive container from
+/// Gloas, so a field sits at the index its position on the spine gives it rather than at
+/// `64 + position` in a padded tree, and the branches are no longer all the same length. The
+/// layout is fixed by the spec, so these are the same on every network.
+pub const GLOAS_FINALIZED_ROOT_INDEX: u64 = 367;
+pub const GLOAS_NEXT_SYNC_COMMITTEE_INDEX: u64 = 2946;
+pub const GLOAS_EXECUTION_PAYLOAD_INDEX: u64 = 2947;
+
 pub trait Config {
 	const SLOTS_PER_EPOCH: Slot;
 	const GENESIS_VALIDATORS_ROOT: [u8; 32];
@@ -172,13 +180,40 @@ pub trait Config {
 	const ELECTRA_FORK_EPOCH: Epoch;
 	const FULU_FORK_VERSION: Version;
 	const FULU_FORK_EPOCH: Epoch;
-	/// Gloas has not been scheduled on mainnet or any public testnet. Until it is, the epoch is
-	/// [`FAR_FUTURE_EPOCH`] and the version is a placeholder continuing the network's sequence,
-	/// so it is never selected by `compute_fork_version`. Both must be set once the fork is
-	/// announced.
+	/// Where Gloas has not been scheduled, the epoch is [`FAR_FUTURE_EPOCH`] and the version is a
+	/// placeholder continuing the network's sequence, so it is never selected by
+	/// `compute_fork_version`. Both must be set once the fork is announced.
 	const GLOAS_FORK_VERSION: Version;
 	const GLOAS_FORK_EPOCH: Epoch;
 	const ID: [u8; 4];
+
+	/// Index of the finalized checkpoint root in a state from `epoch`.
+	fn finalized_root_index(epoch: Epoch) -> u64 {
+		if epoch >= Self::GLOAS_FORK_EPOCH {
+			GLOAS_FINALIZED_ROOT_INDEX
+		} else {
+			Self::FINALIZED_ROOT_INDEX
+		}
+	}
+
+	/// Index of the next sync committee in a state from `epoch`.
+	fn next_sync_committee_index(epoch: Epoch) -> u64 {
+		if epoch >= Self::GLOAS_FORK_EPOCH {
+			GLOAS_NEXT_SYNC_COMMITTEE_INDEX
+		} else {
+			Self::NEXT_SYNC_COMMITTEE_INDEX
+		}
+	}
+
+	/// Index of the execution payload header, or of the execution block hash from Gloas, in a
+	/// state from `epoch`.
+	fn execution_payload_index(epoch: Epoch) -> u64 {
+		if epoch >= Self::GLOAS_FORK_EPOCH {
+			GLOAS_EXECUTION_PAYLOAD_INDEX
+		} else {
+			Self::EXECUTION_PAYLOAD_INDEX
+		}
+	}
 }
 
 use crate::ssz::ByteVector;
@@ -217,7 +252,7 @@ pub mod sepolia {
 		const ELECTRA_FORK_EPOCH: Epoch = 222464;
 		const FULU_FORK_EPOCH: Epoch = 272640;
 		const FULU_FORK_VERSION: Version = hex_literal::hex!("90000075");
-		const GLOAS_FORK_EPOCH: Epoch = FAR_FUTURE_EPOCH;
+		const GLOAS_FORK_EPOCH: Epoch = 353024;
 		const GLOAS_FORK_VERSION: Version = hex_literal::hex!("90000076");
 		const ID: [u8; 4] = BEACON_CONSENSUS_ID;
 	}
@@ -411,15 +446,30 @@ pub mod devnet {
 		const EXECUTION_PAYLOAD_STATE_ROOT_INDEX: u64 = 34;
 		const EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX: u64 = 38;
 		const EXECUTION_PAYLOAD_TIMESTAMP_INDEX: u64 = 41;
-		// The state is a progressive container from Gloas, so a field sits at the index its
-		// position on the spine gives it rather than at `64 + position` in a padded tree, and the
-		// branches are no longer all the same length.
-		const EXECUTION_PAYLOAD_INDEX: u64 = 2947;
-		const NEXT_SYNC_COMMITTEE_INDEX: u64 = 2946;
-		const FINALIZED_ROOT_INDEX: u64 = 367;
-		const FINALIZED_ROOT_INDEX_LOG2: u64 = 8;
-		const EXECUTION_PAYLOAD_INDEX_LOG2: u64 = 11;
-		const NEXT_SYNC_COMMITTEE_INDEX_LOG2: u64 = 11;
+		const EXECUTION_PAYLOAD_INDEX: u64 = 88;
+		const NEXT_SYNC_COMMITTEE_INDEX: u64 = 87;
+		const FINALIZED_ROOT_INDEX: u64 = 84;
+		const FINALIZED_ROOT_INDEX_LOG2: u64 = 6;
+		const EXECUTION_PAYLOAD_INDEX_LOG2: u64 = 6;
+		const NEXT_SYNC_COMMITTEE_INDEX_LOG2: u64 = 6;
 		const ID: [u8; 4] = BEACON_CONSENSUS_ID;
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::{sepolia::Sepolia, *};
+
+	#[test]
+	fn indices_switch_at_the_gloas_fork() {
+		let before = Sepolia::GLOAS_FORK_EPOCH - 1;
+		assert_eq!(Sepolia::finalized_root_index(before), Sepolia::FINALIZED_ROOT_INDEX);
+		assert_eq!(Sepolia::next_sync_committee_index(before), Sepolia::NEXT_SYNC_COMMITTEE_INDEX);
+		assert_eq!(Sepolia::execution_payload_index(before), Sepolia::EXECUTION_PAYLOAD_INDEX);
+
+		let at = Sepolia::GLOAS_FORK_EPOCH;
+		assert_eq!(Sepolia::finalized_root_index(at), GLOAS_FINALIZED_ROOT_INDEX);
+		assert_eq!(Sepolia::next_sync_committee_index(at), GLOAS_NEXT_SYNC_COMMITTEE_INDEX);
+		assert_eq!(Sepolia::execution_payload_index(at), GLOAS_EXECUTION_PAYLOAD_INDEX);
 	}
 }

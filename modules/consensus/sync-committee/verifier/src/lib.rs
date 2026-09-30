@@ -39,13 +39,21 @@ pub fn verify_sync_committee_attestation<C: Config>(
 	// sync-committee update. The previous combined `&&` chain only triggered when ALL three
 	// subconditions held, so a malformed finality branch was accepted whenever the update
 	// lacked a sync-committee section or carried a correctly-sized next-committee branch.
-	if update.finality_proof.finality_branch.len() != C::FINALIZED_ROOT_INDEX_LOG2 as usize {
+	//
+	// Both branches are proven against the attested state, whose layout is set by the fork the
+	// attested header belongs to. Across the Gloas boundary the attested and finalized headers
+	// can sit in different forks, so each index is looked up against the state it is proven in.
+	let attested_epoch = compute_epoch_at_slot::<C>(update.attested_header.slot);
+	let finalized_root_index = C::finalized_root_index(attested_epoch);
+	let next_sync_committee_index = C::next_sync_committee_index(attested_epoch);
+
+	if update.finality_proof.finality_branch.len() != finalized_root_index.ilog2() as usize {
 		Err(Error::InvalidUpdate("Finality branch is incorrect".into()))?
 	}
 
 	if let Some(sync_committee_update) = update.sync_committee_update.as_ref() {
 		if sync_committee_update.next_sync_committee_branch.len() !=
-			C::NEXT_SYNC_COMMITTEE_INDEX_LOG2 as usize
+			next_sync_committee_index.ilog2() as usize
 		{
 			Err(Error::InvalidUpdate("Next sync committee branch is incorrect".into()))?
 		}
@@ -169,7 +177,7 @@ pub fn verify_sync_committee_attestation<C: Config>(
 	let is_merkle_branch_valid = is_valid_merkle_branch(
 		finalized_checkpoint.tree_hash_root(),
 		&finality_branch,
-		C::FINALIZED_ROOT_INDEX,
+		finalized_root_index,
 		(&update.attested_header.state_root).into(),
 	);
 
@@ -184,6 +192,7 @@ pub fn verify_sync_committee_attestation<C: Config>(
 	// handles either side of the fork without a rebuild.
 	let execution_payload = &update.execution_payload;
 	let finalized_epoch = compute_epoch_at_slot::<C>(update.finalized_header.slot);
+	let execution_payload_index = C::execution_payload_index(finalized_epoch);
 	let verified_execution_payload =
 		match (finalized_epoch >= C::GLOAS_FORK_EPOCH, &execution_payload.proof) {
 			// Pre-Gloas: the execution payload header lives in the beacon state, so its state_root,
@@ -222,7 +231,7 @@ pub fn verify_sync_committee_attestation<C: Config>(
 				let is_merkle_branch_valid = is_valid_merkle_branch(
 					execution_payload_root,
 					&payload_branch,
-					C::EXECUTION_PAYLOAD_INDEX,
+					execution_payload_index,
 					(&update.finalized_header.state_root).into(),
 				);
 
@@ -250,7 +259,7 @@ pub fn verify_sync_committee_attestation<C: Config>(
 						.iter()
 						.map(Into::into)
 						.collect::<Vec<Hash256>>(),
-					C::EXECUTION_PAYLOAD_INDEX,
+					execution_payload_index,
 					(&update.finalized_header.state_root).into(),
 				);
 
@@ -284,7 +293,7 @@ pub fn verify_sync_committee_attestation<C: Config>(
 		let is_merkle_branch_valid = is_valid_merkle_branch(
 			sync_root,
 			&sync_branch,
-			C::NEXT_SYNC_COMMITTEE_INDEX,
+			next_sync_committee_index,
 			(&update.attested_header.state_root).into(),
 		);
 

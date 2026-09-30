@@ -204,3 +204,102 @@ async fn verifier_rejects_tampered_gloas_updates() -> anyhow::Result<()> {
 
 	Ok(())
 }
+
+/// Follow a devnet through its Gloas fork the way the on chain client does, verifying each new
+/// finalized update against the state the previous one produced. Across the fork the attested
+/// state can already be Gloas while the finalized one is not, and the finality and sync committee
+/// branches are then proven at the Gloas indices while the execution branch still uses the legacy
+/// one. Start a local devnet whose Gloas epoch is a few epochs after genesis, set
+/// `GlamsterdamDevnet` to its genesis root, fork versions and Gloas epoch, point this at it
+/// before the fork, and it returns once it has verified an update on each side and one straddling
+/// the boundary. The first finalized checkpoint after the fork is the one to watch: its state
+/// still commits to the last execution block from before Amsterdam.
+#[tokio::test]
+#[ignore]
+async fn verifier_follows_the_chain_across_the_gloas_fork() -> anyhow::Result<()> {
+	let prover = setup_prover();
+	let block_id = |root: Root| format!("0x{}", hex::encode(root.as_ref()));
+	let is_gloas = |slot: u64| {
+		compute_epoch_at_slot::<GlamsterdamDevnet>(slot) >= GlamsterdamDevnet::GLOAS_FORK_EPOCH
+	};
+
+	let mut trusted_state: Option<VerifierState> = None;
+	let (mut before, mut straddling, mut after) = (false, false, false);
+	let deadline = std::time::Instant::now() + std::time::Duration::from_secs(40 * 60);
+
+	while !(before && straddling && after) {
+		if std::time::Instant::now() > deadline {
+			anyhow::bail!(
+				"timed out, verified before={before} straddling={straddling} after={after}; \
+				 start this before the fork"
+			);
+		}
+		tokio::time::sleep(std::time::Duration::from_secs(8)).await;
+
+		let current = prover.fetch_finalized_checkpoint(None).await?.finalized;
+		if current.epoch == 0 {
+			continue
+		}
+
+		let Some(state) = trusted_state.clone() else {
+			let header = prover.fetch_header(&block_id(current.root.clone())).await?;
+			let beacon_state = prover.fetch_beacon_state(&header.slot.to_string()).await?;
+			println!("trusting finalized epoch {} at slot {}", current.epoch, header.slot);
+			trusted_state = Some(VerifierState {
+				latest_finalized_epoch: compute_epoch_at_slot::<GlamsterdamDevnet>(header.slot),
+				current_sync_committee: beacon_state.current_sync_committee().clone(),
+				next_sync_committee: beacon_state.next_sync_committee().clone(),
+				state_period: compute_sync_committee_period_at_slot::<GlamsterdamDevnet>(
+					header.slot,
+				),
+				finalized_header: header,
+			});
+			continue
+		};
+
+		if current.epoch <= state.latest_finalized_epoch {
+			continue
+		}
+
+		let Some(update) = prover.fetch_light_client_update(state.clone(), current, None).await?
+		else {
+			continue
+		};
+
+		let attested_gloas = is_gloas(update.attested_header.slot);
+		let finalized_gloas = is_gloas(update.finalized_header.slot);
+		assert_eq!(
+			update.execution_payload.execution_header().is_some(),
+			finalized_gloas,
+			"the prover built a proof for the wrong side of the fork"
+		);
+
+		let (new_state, _) =
+			verify_sync_committee_attestation::<GlamsterdamDevnet>(state, update.clone()).map_err(
+				|e| {
+					anyhow::anyhow!(
+				"verifier rejected the update attested at slot {} (gloas {attested_gloas}) \
+				 finalizing slot {} (gloas {finalized_gloas}): {e:?}",
+				update.attested_header.slot,
+				update.finalized_header.slot,
+			)
+				},
+			)?;
+
+		println!(
+			"verified update attested at slot {} (gloas {attested_gloas}) finalizing slot {} \
+			 (gloas {finalized_gloas})",
+			update.attested_header.slot, update.finalized_header.slot,
+		);
+		match (attested_gloas, finalized_gloas) {
+			(false, false) => before = true,
+			(true, false) => straddling = true,
+			(true, true) => after = true,
+			(false, true) =>
+				unreachable!("the finalized header cannot be newer than the attested one"),
+		}
+		trusted_state = Some(new_state);
+	}
+
+	Ok(())
+}

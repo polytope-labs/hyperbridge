@@ -240,6 +240,23 @@ pub mod as_hex_quantity {
 		let value = deserializer.deserialize_any(QuantityVisitor)?;
 		T::try_from(value).map_err(|_| Error::custom("quantity is out of range"))
 	}
+
+	/// Deserialize an optional integer, where `null` is `None`. Pair it with `#[serde(default)]`
+	/// for a field that may be missing altogether.
+	pub fn deserialize_option<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+	where
+		D: Deserializer<'de>,
+		T: TryFrom<u64>,
+	{
+		#[derive(serde::Deserialize)]
+		struct Quantity(#[serde(deserialize_with = "deserialize")] u64);
+
+		<Option<Quantity> as serde::Deserialize>::deserialize(deserializer)?
+			.map(|Quantity(value)| {
+				T::try_from(value).map_err(|_| Error::custom("quantity is out of range"))
+			})
+			.transpose()
+	}
 }
 
 /// String serializer and deserializer
@@ -379,7 +396,11 @@ pub mod seq_of_seq_of_str {
 	use super::*;
 	// `ToString` is needed by the integer visitors below; without it this module does not build
 	// for a no_std target, which is where the runtime consumes it.
-	use alloc::{format, string::{String, ToString}, vec::Vec};
+	use alloc::{
+		format,
+		string::{String, ToString},
+		vec::Vec,
+	};
 	use core::{fmt, str::FromStr};
 	use serde::{
 		de::{Deserialize, Deserializer, Error},

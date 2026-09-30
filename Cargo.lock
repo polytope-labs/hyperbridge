@@ -28072,6 +28072,7 @@ dependencies = [
  "primitive-types 0.13.1",
  "serde",
  "serde-hex-utils",
+ "serde_json",
  "ssz_types",
  "tree_hash",
  "tree_hash_derive",

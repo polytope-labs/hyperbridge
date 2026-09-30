@@ -55,8 +55,8 @@ import {GetRequest, GetResponse, Message} from "@hyperbridge/core/libraries/Mess
 import {StateMachine} from "@hyperbridge/core/libraries/StateMachine.sol";
 import {StorageValue} from "@polytope-labs/solidity-merkle-trees/src/trie/Node.sol";
 
-/// @dev `initialize` as the live mainnet implementation (version 2) declares it, before the owner.
-interface ILiveGatewayInitialize {
+/// @dev `initialize` as implementations without an owner declare it.
+interface ILegacyGatewayInitialize {
     function initialize(Params memory p, bytes[] memory peerChains, address relayer_) external;
 }
 
@@ -4849,18 +4849,20 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         assertGt(LIVE_GATEWAY.code.length, 0, "live gateway present on the fork");
         address liveRelayer = live.relayer();
         assertTrue(liveRelayer != address(0), "live proxy is armed");
-        assertEq(live.version(), 2, "live proxy has been migrated");
-        assertEq(
-            vm.load(LIVE_GATEWAY, bytes32(uint256(13))),
-            _legacyRelayerSlot(liveRelayer),
-            "relayer packed behind an unset _paused in slot 13"
-        );
+        uint64 liveVersion = live.version();
+        // Without init data the upgrade below cannot migrate, so the proxy must need no migration.
+        assertGe(liveVersion, intentGateway.version(), "live proxy needs no migration");
+        assertEq(vm.load(LIVE_GATEWAY, bytes32(uint256(13))), _relayerSlot(liveRelayer), "relayer alone in slot 13");
 
         address implBefore = _implementationOf(LIVE_GATEWAY);
         uint256 nonce = live._nonce();
         Params memory p = live.params();
         bytes32 domain = live.DOMAIN_SEPARATOR();
         address liveHost = live.host();
+        address liveOwner = live.owner();
+        assertTrue(liveOwner != address(0), "live proxy has an owner");
+        address livePendingOwner = live.pendingOwner();
+        bool livePaused = live.paused();
         bytes[] memory peers = _livePeers();
         address[] memory instances = new address[](peers.length);
         uint256[] memory fees = new uint256[](peers.length);
@@ -4869,12 +4871,22 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             fees[i] = live._destinationProtocolFees(keccak256(peers[i]));
         }
 
-        // Nobody can initialise it again, through the `initialize` its current implementation has.
+        // Nobody can initialise it again, and the host cannot migrate it again.
+        InitParams memory init = InitParams({params: p, peerChains: peers, relayer: filler, owner: address(this)});
         vm.expectRevert(Initializable.InvalidInitialization.selector);
-        ILiveGatewayInitialize(LIVE_GATEWAY).initialize(p, peers, filler);
+        live.initialize(init);
+        vm.prank(liveHost);
+        vm.expectRevert(Initializable.InvalidInitialization.selector);
+        live.migrate(address(this));
+        // The legacy `initialize` is not an entry point of the live implementation: the call
+        // reverts with no data, as any unknown selector does.
+        (bool legacyInitialized, bytes memory legacyReturn) =
+            LIVE_GATEWAY.call(abi.encodeCall(ILegacyGatewayInitialize.initialize, (p, peers, filler)));
+        assertFalse(legacyInitialized, "legacy initialize fails");
+        assertEq(legacyReturn.length, 0, "legacy initialize is absent");
 
-        // The next upgrade is an Execute request carrying `migrate(owner)`. Anyone but the relayer is
-        // refused before the body is read...
+        // The next upgrade is an Execute request. Anyone but the relayer is refused before the body
+        // is read...
         IntentGatewayV2 newImpl = deployIntentGatewayImpl();
         PostRequest memory upgrade = PostRequest({
             source: IDispatcher(liveHost).hyperbridge(),
@@ -4884,10 +4896,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             to: abi.encodePacked(LIVE_GATEWAY),
             body: bytes.concat(
                 bytes1(uint8(IntentsBase.RequestKind.Execute)),
-                abi.encodeCall(
-                    ExtrinsicIntents.upgradeToAndCall,
-                    (address(newImpl), abi.encodeCall(IntentGatewayV2.migrate, (address(this))))
-                )
+                abi.encodeCall(ExtrinsicIntents.upgradeToAndCall, (address(newImpl), ""))
             ),
             timeoutTimestamp: 0
         });
@@ -4902,15 +4911,16 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         assertEq(_implementationOf(LIVE_GATEWAY), address(newImpl), "implementation slot updated");
         assertTrue(implBefore != address(newImpl), "implementation actually changed");
         assertEq(live.relayer(), liveRelayer, "relayer survives the upgrade");
-        assertEq(vm.load(LIVE_GATEWAY, bytes32(uint256(13))), _relayerSlot(liveRelayer), "relayer moved to offset 0");
-        assertEq(live.version(), 3, "migrated by the upgrade calldata");
-        assertEq(live.owner(), address(this), "owner set by the upgrade calldata");
-        assertFalse(live.paused(), "placement stays open");
+        assertEq(vm.load(LIVE_GATEWAY, bytes32(uint256(13))), _relayerSlot(liveRelayer), "slot 13 preserved");
+        assertEq(live.version(), liveVersion, "version preserved");
+        assertEq(live.owner(), liveOwner, "owner preserved");
+        assertEq(live.pendingOwner(), livePendingOwner, "pending owner preserved");
+        assertEq(live.paused(), livePaused, "pause state preserved");
         vm.prank(liveHost);
         vm.expectRevert(Initializable.InvalidInitialization.selector);
         live.migrate(address(this));
         vm.expectRevert(Initializable.InvalidInitialization.selector);
-        live.initialize(InitParams({params: p, peerChains: peers, relayer: filler, owner: address(this)}));
+        live.initialize(init);
         assertEq(live._nonce(), nonce, "_nonce preserved");
         Params memory q = live.params();
         assertEq(q.host, p.host, "params.host preserved");
@@ -4936,7 +4946,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         vm.prank(liveHost);
         live.onAccept(IncomingPostRequest({relayer: liveRelayer, request: rotate}));
         assertEq(live.relayer(), next, "rotated through Execute");
-        assertEq(live.version(), 3, "a rotation leaves the version alone");
+        assertEq(live.version(), liveVersion, "a rotation leaves the version alone");
         vm.prank(liveHost);
         vm.expectRevert(IntentsBase.Unauthorized.selector);
         live.onAccept(IncomingPostRequest({relayer: liveRelayer, request: rotate}));

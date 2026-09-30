@@ -4,16 +4,27 @@ pragma solidity ^0.8.17;
 import "forge-std/Test.sol";
 import {SolverAccount} from "../../../src/apps/intentsv2/SolverAccount.sol";
 import {IntentGatewayV2} from "../../../src/apps/IntentGatewayV2.sol";
+import {IntentsBase} from "../../../src/apps/intentsv2/IntentsBase.sol";
 import {deployIntentGatewayImpl, deployIntentModules} from "../IntentGatewayDeploy.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {IntentQuoteTestUtils} from "../IntentQuoteTestUtils.sol";
+import {ERC20Token} from "../mocks/ERC20Token.sol";
 import {
     SelectOptions,
     Params,
     InitParams,
     DispatchInfo,
     PaymentInfo,
-    Deployment
+    Deployment,
+    Order,
+    TokenInfo,
+    FillOptions
 } from "@hyperbridge/core/apps/IntentGatewayV2.sol";
+import {IncomingPostRequest} from "@hyperbridge/core/interfaces/IApp.sol";
+import {PostRequest, DispatchPost} from "@hyperbridge/core/interfaces/IDispatcher.sol";
+import {Account as AccountBase} from "@openzeppelin/contracts/account/Account.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {PackedUserOperation} from "@openzeppelin/contracts/interfaces/draft-IERC4337.sol";
 import {Execution} from "@openzeppelin/contracts/interfaces/draft-IERC7579.sol";
 
@@ -31,6 +42,18 @@ contract SolverAccountTest is Test {
     uint256 public sessionKeyPrivateKey;
 
     bytes32 public testCommitment;
+
+    // An account delegated to code whose gateway is a mock that only pulls tokens.
+    SolverAccount public budgetAccount;
+    MockGateway public budgetGateway;
+    ERC20Token public token;
+    address public beneficiary = address(0xB0B);
+    bytes32 public orderId = keccak256("limit_order");
+
+    bytes32 internal constant BATCH_MODE = bytes32(uint256(0x01) << 248);
+    bytes internal constant CHAIN = bytes("EVM-31337");
+    bytes internal constant PEER_CHAIN = bytes("EVM-1");
+    bytes internal constant HYPERBRIDGE = bytes("POLKADOT-3367");
 
     function _deployGatewayProxy() internal returns (IntentGatewayV2) {
         IntentGatewayV2 implementation = deployIntentGatewayImpl();
@@ -73,6 +96,14 @@ contract SolverAccountTest is Test {
 
         // Create test commitment
         testCommitment = keccak256("test_order_commitment");
+
+        budgetGateway = new MockGateway();
+        address budgetSolver = makeAddr("budgetSolver");
+        vm.etch(budgetSolver, address(new SolverAccount(address(budgetGateway))).code);
+        budgetAccount = SolverAccount(payable(budgetSolver));
+
+        token = new ERC20Token("Output", "OUT", 18);
+        token.mint(budgetSolver, 1_000_000e18);
     }
 
     // ============================================
@@ -862,8 +893,360 @@ contract SolverAccountTest is Test {
     }
 
     // ============================================
+    // debitOrder Tests
+    // ============================================
+
+    function test_DebitOrder_NotSelf_Reverts() public {
+        address[3] memory callers = [entryPoint, address(budgetGateway), address(0xBAD)];
+
+        for (uint256 i = 0; i < callers.length; i++) {
+            vm.expectRevert(abi.encodeWithSelector(AccountBase.AccountUnauthorized.selector, callers[i]));
+            vm.prank(callers[i]);
+            budgetAccount.debitOrder(orderId, 100e18, address(token), 0, 0);
+        }
+
+        assertEq(budgetAccount.spent(orderId), 0);
+    }
+
+    function test_DebitOrder_RecordsPayoutAndClearsAllowance() public {
+        _executeBatch(_budgetBatch(orderId, address(token), 45e18, 40e18, 0, 100e18));
+
+        assertEq(budgetAccount.spent(orderId), 40e18);
+        assertEq(token.balanceOf(beneficiary), 40e18);
+        assertEq(token.allowance(address(budgetAccount), address(budgetGateway)), 0);
+    }
+
+    function test_DebitOrder_AccumulatesPerOrder() public {
+        bytes32 otherOrder = keccak256("other_limit_order");
+
+        _executeBatch(_budgetBatch(orderId, address(token), 40e18, 40e18, 0, 100e18));
+        _executeBatch(_budgetBatch(otherOrder, address(token), 7e18, 7e18, 0, 100e18));
+        _executeBatch(_budgetBatch(orderId, address(token), 25e18, 25e18, 0, 100e18));
+
+        assertEq(budgetAccount.spent(orderId), 65e18);
+        assertEq(budgetAccount.spent(otherOrder), 7e18);
+    }
+
+    function test_DebitOrder_PastCap_RevertsAndUndoesPayout() public {
+        _executeBatch(_budgetBatch(orderId, address(token), 60e18, 60e18, 0, 100e18));
+        uint256 accountBalance = token.balanceOf(address(budgetAccount));
+
+        Execution[] memory calls = _budgetBatch(orderId, address(token), 41e18, 41e18, 0, 100e18);
+        vm.expectRevert(abi.encodeWithSelector(SolverAccount.LimitOrderExceeded.selector, orderId, 101e18, 100e18));
+        _executeBatch(calls);
+
+        assertEq(budgetAccount.spent(orderId), 60e18);
+        assertEq(token.balanceOf(beneficiary), 60e18);
+        assertEq(token.balanceOf(address(budgetAccount)), accountBalance);
+        assertEq(token.allowance(address(budgetAccount), address(budgetGateway)), 0);
+    }
+
+    function test_DebitOrder_ReachingCap_Succeeds() public {
+        _executeBatch(_budgetBatch(orderId, address(token), 60e18, 60e18, 0, 100e18));
+        _executeBatch(_budgetBatch(orderId, address(token), 40e18, 40e18, 0, 100e18));
+
+        assertEq(budgetAccount.spent(orderId), 100e18);
+        assertEq(token.balanceOf(beneficiary), 100e18);
+    }
+
+    /// @dev The dispatch fee leaves through the same allowance as the payout but is not part of it.
+    function test_DebitOrder_FeeIsNotCounted() public {
+        uint256 payout = 40e18;
+        uint256 extra = 5e18;
+        uint256 fee = 2e18;
+
+        _executeBatch(_budgetBatch(orderId, address(token), payout + extra + fee, payout, fee, payout));
+
+        assertEq(budgetAccount.spent(orderId), payout);
+        assertEq(token.balanceOf(beneficiary), payout);
+        assertEq(token.balanceOf(address(budgetGateway)), fee);
+        assertEq(token.allowance(address(budgetAccount), address(budgetGateway)), 0);
+    }
+
+    function test_DebitOrder_PartialPull_CountsWhatWasPulled() public {
+        _executeBatch(_budgetBatch(orderId, address(token), 40e18, 15e18, 0, 100e18));
+
+        assertEq(budgetAccount.spent(orderId), 15e18);
+        assertEq(token.balanceOf(beneficiary), 15e18);
+        assertEq(token.allowance(address(budgetAccount), address(budgetGateway)), 0);
+    }
+
+    function test_DebitOrder_TokenWithoutApproveReturnValue() public {
+        NoReturnToken usdt = new NoReturnToken();
+        usdt.mint(address(budgetAccount), 1_000e6);
+
+        _executeBatch(_budgetBatch(orderId, address(usdt), 400e6, 400e6, 0, 1_000e6));
+        _executeBatch(_budgetBatch(orderId, address(usdt), 400e6, 150e6, 0, 1_000e6));
+
+        assertEq(budgetAccount.spent(orderId), 550e6);
+        assertEq(usdt.balanceOf(beneficiary), 550e6);
+        assertEq(usdt.allowance(address(budgetAccount), address(budgetGateway)), 0);
+    }
+
+    /// @dev An `approved` below what the gateway was really given underflows, and the batch reverts.
+    function test_DebitOrder_UnderstatedApproval_Panics() public {
+        Execution[] memory calls = _budgetBatch(orderId, address(token), 40e18, 10e18, 0, 100e18);
+        calls[3].callData = abi.encodeCall(SolverAccount.debitOrder, (orderId, 100e18, address(token), 29e18, 0));
+
+        vm.expectRevert(stdError.arithmeticError);
+        _executeBatch(calls);
+
+        assertEq(budgetAccount.spent(orderId), 0);
+        assertEq(token.balanceOf(beneficiary), 0);
+    }
+
+    /// @dev A `fee` above what left the allowance underflows too.
+    function test_DebitOrder_OverstatedFee_Panics() public {
+        Execution[] memory calls = _budgetBatch(orderId, address(token), 40e18, 1e18, 0, 100e18);
+        calls[3].callData = abi.encodeCall(SolverAccount.debitOrder, (orderId, 100e18, address(token), 40e18, 2e18));
+
+        vm.expectRevert(stdError.arithmeticError);
+        _executeBatch(calls);
+
+        assertEq(budgetAccount.spent(orderId), 0);
+        assertEq(token.balanceOf(beneficiary), 0);
+    }
+
+    function test_DebitOrder_TallyLivesAtItsNamespacedSlot() public {
+        bytes32 namespace = keccak256(abi.encode(uint256(keccak256("hyperbridge.storage.SolverAccount.Budgets")) - 1))
+            & ~bytes32(uint256(0xff));
+        assertEq(namespace, 0xef37eedb8cd243d7bb1074a6cb5a4fad8c39bd328408761135c4a5a7d5c29900);
+
+        _executeBatch(_budgetBatch(orderId, address(token), 40e18, 40e18, 0, 100e18));
+
+        bytes32 tallySlot = keccak256(abi.encode(orderId, namespace));
+        assertEq(uint256(vm.load(address(budgetAccount), tallySlot)), 40e18);
+    }
+
+    /// @dev A selected bid against the gateway itself: validated, filled and debited in one op.
+    function test_DebitOrder_GatewayFill() public {
+        uint256 inputAmount = 1000e18;
+        uint256 outputAmount = 900e18;
+        uint256 extra = 5e18;
+        ERC20Token inputToken = new ERC20Token("Input", "IN", 18);
+        token.mint(address(solverAccount), outputAmount + extra);
+
+        Order memory order = _placeOrder(inputToken, inputAmount, outputAmount);
+        FillOptions memory options = _fillOptions(order, outputAmount, 0);
+
+        _runBid(order, _gatewayBatch(order, options, outputAmount + extra, outputAmount));
+
+        assertEq(solverAccount.spent(orderId), outputAmount);
+        assertEq(token.balanceOf(beneficiary), outputAmount);
+        assertEq(token.balanceOf(address(solverAccount)), extra);
+        assertEq(inputToken.balanceOf(address(solverAccount)), inputAmount);
+        assertEq(token.allowance(address(solverAccount), address(intentGateway)), 0);
+    }
+
+    /// @dev A cross-chain fill that pays its dispatch fee in the output token, by a solver offering
+    ///      above the order's rate. The tally takes the payout and the protocol's share of the
+    ///      surplus, and leaves out the fee and the part of the approval the gateway never pulled.
+    function test_DebitOrder_GatewayCrossChainFill_FeeInOutputToken() public {
+        uint256 required = 900e18;
+        uint256 offered = 1000e18;
+        uint256 relayerFee = 3e18;
+        uint256 extra = 5e18;
+        uint256 approved = offered + extra + relayerFee;
+        token.mint(address(solverAccount), approved);
+
+        address host = _useHost(address(token));
+        _addPeer(PEER_CHAIN, address(0xCAFE));
+
+        Order memory order = _order(address(0x1111), 1000e18, required);
+        order.user = bytes32(uint256(uint160(makeAddr("user"))));
+        order.source = PEER_CHAIN;
+        FillOptions memory options = _fillOptions(order, offered, relayerFee);
+
+        _runBid(order, _gatewayBatch(order, options, approved, offered));
+
+        // Half of the surplus goes to the beneficiary and half to the protocol.
+        uint256 surplus = offered - required;
+        assertEq(token.balanceOf(beneficiary), required + surplus / 2);
+        assertEq(token.balanceOf(address(intentGateway)), surplus / 2);
+        assertEq(token.balanceOf(host), relayerFee);
+
+        assertEq(solverAccount.spent(orderId), offered);
+        assertEq(token.balanceOf(address(solverAccount)), extra);
+        assertEq(token.allowance(address(solverAccount), address(intentGateway)), 0);
+    }
+
+    // ============================================
     // Helper Functions
     // ============================================
+
+    function _approval(address asset, address spender, uint256 amount) internal pure returns (Execution memory) {
+        return Execution({target: asset, value: 0, callData: abi.encodeCall(IERC20.approve, (spender, amount))});
+    }
+
+    /// @dev A fill's batch against the mock gateway: the approvals, the gateway pulling `payout` and
+    ///      `fee`, then the debit.
+    function _budgetBatch(bytes32 id, address asset, uint256 approved, uint256 payout, uint256 fee, uint256 cap)
+        internal
+        view
+        returns (Execution[] memory calls)
+    {
+        calls = new Execution[](4);
+        calls[0] = _approval(asset, address(budgetGateway), 0);
+        calls[1] = _approval(asset, address(budgetGateway), approved);
+        calls[2] = Execution({
+            target: address(budgetGateway),
+            value: 0,
+            callData: abi.encodeCall(MockGateway.fill, (asset, beneficiary, payout, fee))
+        });
+        calls[3] = Execution({
+            target: address(budgetAccount),
+            value: 0,
+            callData: abi.encodeCall(SolverAccount.debitOrder, (id, cap, asset, approved, fee))
+        });
+    }
+
+    function _executeBatch(Execution[] memory calls) internal {
+        vm.prank(entryPoint);
+        budgetAccount.execute(BATCH_MODE, abi.encode(calls));
+    }
+
+    /// @dev Puts a host that answers the gateway at the gateway's host address.
+    function _useHost(address feeToken) internal returns (address host) {
+        host = intentGateway.host();
+        vm.etch(host, address(new MockHost()).code);
+        MockHost(host).configure(CHAIN, HYPERBRIDGE, feeToken);
+    }
+
+    /// @dev Registers `gateway` as the gateway's peer on `chain`, as governance does.
+    function _addPeer(bytes memory chain, address gateway) internal {
+        PostRequest memory request = PostRequest({
+            source: HYPERBRIDGE,
+            dest: CHAIN,
+            nonce: 0,
+            from: abi.encodePacked(address(intentGateway)),
+            to: abi.encodePacked(address(intentGateway)),
+            timeoutTimestamp: 0,
+            body: bytes.concat(
+                bytes1(uint8(IntentsBase.RequestKind.NewDeployment)),
+                abi.encode(Deployment({chain: chain, gateway: gateway}))
+            )
+        });
+
+        address host = intentGateway.host();
+        vm.prank(host);
+        intentGateway.onAccept(IncomingPostRequest({request: request, relayer: address(0)}));
+    }
+
+    /// @dev An order for this chain selling `inputToken` for `token`, selected by `sessionKey`.
+    function _order(address inputToken, uint256 inputAmount, uint256 outputAmount)
+        internal
+        view
+        returns (Order memory)
+    {
+        TokenInfo[] memory inputs = new TokenInfo[](1);
+        inputs[0] = TokenInfo({token: bytes32(uint256(uint160(inputToken))), amount: inputAmount});
+        TokenInfo[] memory outputs = new TokenInfo[](1);
+        outputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(token)))), amount: outputAmount});
+
+        return Order({
+            user: bytes32(0),
+            source: "",
+            destination: CHAIN,
+            deadline: block.number + 1000,
+            nonce: 0,
+            fees: 0,
+            session: sessionKey,
+            predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
+            inputs: inputs,
+            output: PaymentInfo({beneficiary: bytes32(uint256(uint160(beneficiary))), assets: outputs, call: ""})
+        });
+    }
+
+    /// @dev Places `_order` on the gateway as a same-chain order.
+    function _placeOrder(ERC20Token inputToken, uint256 inputAmount, uint256 outputAmount)
+        internal
+        returns (Order memory order)
+    {
+        _useHost(address(0));
+        address user = makeAddr("user");
+        inputToken.mint(user, inputAmount);
+        order = _order(address(inputToken), inputAmount, outputAmount);
+
+        vm.startPrank(user);
+        inputToken.approve(address(intentGateway), inputAmount);
+        intentGateway.placeOrder(order, bytes32(0));
+        vm.stopPrank();
+
+        order.user = bytes32(uint256(uint160(user)));
+        order.source = CHAIN;
+    }
+
+    /// @dev A quote for all of `order`'s input, offering `offered` of the output token.
+    function _fillOptions(Order memory order, uint256 offered, uint256 relayerFee)
+        internal
+        pure
+        returns (FillOptions memory)
+    {
+        TokenInfo[] memory outputs = new TokenInfo[](1);
+        outputs[0] = TokenInfo({token: order.output.assets[0].token, amount: offered});
+
+        return FillOptions({
+            relayerFee: relayerFee,
+            nativeDispatchFee: 0,
+            validUntil: 0,
+            outputs: outputs,
+            inputs: IntentQuoteTestUtils.inputs(order, outputs)
+        });
+    }
+
+    /// @dev A fill's batch against the gateway: the approvals, `fillOrder`, then the debit.
+    function _gatewayBatch(Order memory order, FillOptions memory options, uint256 approved, uint256 cap)
+        internal
+        view
+        returns (Execution[] memory calls)
+    {
+        calls = new Execution[](4);
+        calls[0] = _approval(address(token), address(intentGateway), 0);
+        calls[1] = _approval(address(token), address(intentGateway), approved);
+        calls[2] = Execution({
+            target: address(intentGateway),
+            value: 0,
+            callData: abi.encodeCall(intentGateway.fillOrder, (order, options))
+        });
+        calls[3] = Execution({
+            target: address(solverAccount),
+            value: 0,
+            callData: abi.encodeCall(
+                SolverAccount.debitOrder, (orderId, cap, address(token), approved, options.relayerFee)
+            )
+        });
+    }
+
+    /// @dev Runs a selected bid on `order` as the EntryPoint does: validation, then the batch.
+    function _runBid(Order memory order, Execution[] memory calls) internal {
+        bytes32 commitment = keccak256(abi.encode(order));
+        bytes memory callData = _executeCalldata(calls);
+        bytes32 userOpHash = keccak256(callData);
+        bytes memory sessionSignature = _createSessionKeySignature(commitment, address(solverAccount));
+
+        PackedUserOperation memory op = PackedUserOperation({
+            sender: address(solverAccount),
+            nonce: _bidNonce(commitment, sessionKey, callData),
+            initCode: "",
+            callData: callData,
+            accountGasLimits: bytes32(0),
+            preVerificationGas: 0,
+            gasFees: bytes32(0),
+            paymasterAndData: "",
+            signature: abi.encodePacked(commitment, _signUserOpHash(userOpHash), sessionSignature)
+        });
+
+        vm.prank(entryPoint);
+        assertEq(solverAccount.validateUserOp(op, userOpHash, 0), ERC4337Utils.SIG_VALIDATION_SUCCESS);
+
+        vm.prank(entryPoint);
+        (bool ok, bytes memory returned) = address(solverAccount).call(callData);
+        if (!ok) {
+            assembly {
+                revert(add(returned, 0x20), mload(returned))
+            }
+        }
+    }
 
     /// @notice ERC-7821 execute(mode, executionData) calldata for a batch of calls
     function _executeCalldata(Execution[] memory calls) internal view returns (bytes memory) {
@@ -965,4 +1348,59 @@ contract SolverAccountTest is Test {
 
 contract MockContract {
     fallback() external payable {}
+}
+
+/// @dev Answers what the gateway asks its host, and takes the dispatch fee from it as the host does.
+contract MockHost {
+    bytes public host;
+    bytes public hyperbridge;
+    address public feeToken;
+
+    function configure(bytes memory host_, bytes memory hyperbridge_, address feeToken_) external {
+        host = host_;
+        hyperbridge = hyperbridge_;
+        feeToken = feeToken_;
+    }
+
+    function dispatch(DispatchPost memory request) external payable returns (bytes32) {
+        IERC20(feeToken).transferFrom(msg.sender, address(this), request.fee);
+        return keccak256(abi.encode(request));
+    }
+}
+
+/// @dev Pulls a payout and a fee from its caller, as the gateway does from a filler.
+contract MockGateway {
+    using SafeERC20 for IERC20;
+
+    function fill(address token, address beneficiary, uint256 payout, uint256 fee) external {
+        IERC20(token).safeTransferFrom(msg.sender, beneficiary, payout);
+        if (fee > 0) IERC20(token).safeTransferFrom(msg.sender, address(this), fee);
+    }
+}
+
+/// @dev Mainnet USDT's shape: nothing is returned, and a non-zero allowance must be cleared before
+///      it is set again.
+contract NoReturnToken {
+    mapping(address => uint256) public balanceOf;
+    mapping(address => mapping(address => uint256)) public allowance;
+
+    function mint(address to, uint256 amount) external {
+        balanceOf[to] += amount;
+    }
+
+    function approve(address spender, uint256 amount) external {
+        require(amount == 0 || allowance[msg.sender][spender] == 0, "allowance not cleared");
+        allowance[msg.sender][spender] = amount;
+    }
+
+    function transfer(address to, uint256 amount) external {
+        balanceOf[msg.sender] -= amount;
+        balanceOf[to] += amount;
+    }
+
+    function transferFrom(address from, address to, uint256 amount) external {
+        allowance[from][msg.sender] -= amount;
+        balanceOf[from] -= amount;
+        balanceOf[to] += amount;
+    }
 }

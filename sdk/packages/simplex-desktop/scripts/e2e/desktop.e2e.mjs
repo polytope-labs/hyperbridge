@@ -664,6 +664,8 @@ test("legacy solver migration requires consent and replaces the plaintext writer
 	assert.equal(legacy.configEncrypted, undefined)
 	let page
 	;({ electronApp, page } = await launchDesktop(userDataDir, { locked: true }))
+	// Passkey-capable hosts open on the passkey screen, which has no Continue button.
+	await usePasswordLogin(page)
 	const consent = page.getByRole("checkbox", { name: /Stop and restart the running solver/ })
 	await consent.waitFor()
 	assert.equal(await consent.isChecked(), false)

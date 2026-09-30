@@ -1370,10 +1370,8 @@ export interface OrderFeesQuote {
 	/**
 	 * The amount to set as `Order.fees`, denominated in the source-chain fee
 	 * token. Same-chain fills carry a 2x margin over the estimated fill gas without
-	 * a gas-price bump. Cross-chain orders originating on Ethereum mainnet use 50%
-	 * SDK-only gas-price headroom, BNB Chain and Polygon mainnet 25%; other source
-	 * chains use 10%. The settlement
-	 * relayer fee is then added with a further 5% buffer over the whole sum.
+	 * a gas-price bump. Cross-chain orders use 50% SDK-only gas-price headroom.
+	 * The settlement relayer fee is then added with a further 5% buffer over the whole sum.
 	 */
 	fees: bigint
 	/**

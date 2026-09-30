@@ -11,6 +11,8 @@ import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
+import { ApiPromise, Keyring, WsProvider } from "@polkadot/api"
+import { cryptoWaitReady, keccakAsU8a } from "@polkadot/util-crypto"
 import { createPublicClient, createWalletClient, erc20Abi, formatEther, formatUnits, http, parseUnits } from "viem"
 import { privateKeyToAccount } from "viem/accounts"
 import { EXTRA_LEVELS, SCENARIOS, SOLVERS, TOKENS, chains, readEnv, standingOrders } from "./env.mjs"
@@ -290,7 +292,57 @@ async function preflight() {
 			}
 		}
 	}
+	problems.push(...(await bridgeShortfalls()))
 	if (problems.length > 0) throw new Error(`Fund these wallets first:\n${problems.join("\n")}`)
+}
+
+/**
+ * The least BRIDGE a solver needs on Hyperbridge to bid through a run. A bid is an extrinsic with
+ * a tip, and the fee is claimed back after a fill, so this is a float rather than a spend.
+ */
+const MIN_BRIDGE = 1
+
+/**
+ * Solvers that cannot pay for their bid extrinsics.
+ *
+ * A solver out of BRIDGE bids nothing: the extrinsic is refused with `1010: Inability to pay some
+ * fees` and the order simply never hears from it. That reads as a scenario nobody bid on, which is
+ * the same shape as a genuine pricing failure, so it is checked up front and named.
+ */
+async function bridgeShortfalls() {
+	const mnemonics = [env.solver1Substrate, env.solver2Substrate, env.solver3Substrate]
+	let api
+	try {
+		await cryptoWaitReady()
+		api = await ApiPromise.create({
+			provider: new WsProvider(env.hyperbridge),
+			noInitWarn: true,
+			// Hyperbridge hashes with keccak; the default blake2 registry signs and reads wrongly.
+			typesBundle: { spec: { nexus: { hasher: keccakAsU8a }, gargantua: { hasher: keccakAsU8a } } },
+		})
+		const keyring = new Keyring({ type: "sr25519" })
+		const decimals = api.registry.chainDecimals[0]
+		const symbol = api.registry.chainTokens[0]
+		const floor = BigInt(MIN_BRIDGE) * 10n ** BigInt(decimals)
+		const short = []
+		for (const [index, mnemonic] of mnemonics.entries()) {
+			const { address } = keyring.addFromUri(mnemonic)
+			const { data } = await api.query.system.account(address)
+			const free = BigInt(data.free.toString())
+			const held = (Number(free) / 10 ** decimals).toFixed(4)
+			log(`${SOLVERS[index].name} ${address} on Hyperbridge: ${held} ${symbol}`)
+			if (free < floor) {
+				short.push(`${SOLVERS[index].name} ${address} holds ${held} ${symbol} on Hyperbridge and cannot pay for its bids; it needs ${MIN_BRIDGE}`)
+			}
+		}
+		return short
+	} catch (error) {
+		// A node that cannot be reached is the run's problem either way, but say which check failed.
+		log(`could not read the solvers' Hyperbridge balances: ${error?.message ?? error}`)
+		return []
+	} finally {
+		await api?.disconnect().catch(() => {})
+	}
 }
 
 function runScenario(name) {

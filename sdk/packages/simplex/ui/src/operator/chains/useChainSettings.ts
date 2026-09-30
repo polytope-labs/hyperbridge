@@ -30,7 +30,7 @@ function seedDrafts(dto: ChainsDto): ChainDraft[] {
 		return {
 			meta,
 			enabled: Boolean(row),
-			rpcUrls: row ? [...row.rpcUrls] : [""],
+			rpcUrls: row ? [...row.rpcUrls] : meta.defaultRpcUrls?.length ? [...meta.defaultRpcUrls] : [""],
 			bundlerUrl: row?.bundlerUrl ?? "",
 			viaAlchemy: false,
 			watchOnly: row?.watchOnly ?? false,
@@ -95,19 +95,22 @@ export function useChainSettings() {
 			setDrafts((rows) =>
 				rows?.map((row) => {
 					const filled = result.chains.find((candidate) => candidate.chainId === row.meta.chainId)
-					if (!filled?.rpcUrl) return row
+					const bundlerUrl = filled?.bundlerUrl ?? filled?.rpcUrl
+					if (!bundlerUrl) return row
+					// Match the wizard: Alchemy submits fills while scanning keeps
+					// the public quorum or the operator's saved RPC providers.
 					return {
 						...row,
-						rpcUrls: [filled.rpcUrl, ...row.rpcUrls.slice(1)],
-						bundlerUrl: filled.bundlerUrl ?? row.bundlerUrl,
+						bundlerUrl,
 						viaAlchemy: true,
 						verificationState: undefined,
 						verificationMessage: undefined,
 					}
 				}),
 			)
-			toast.success("Provider endpoints added", {
-				description: "Supported chain endpoints were filled from your Alchemy key.",
+			toast.success("Bundlers configured", {
+				description:
+					"Supported chain bundlers were filled from your Alchemy key. RPC endpoints were preserved.",
 			})
 		} catch (cause) {
 			const description = cause instanceof Error ? cause.message : String(cause)

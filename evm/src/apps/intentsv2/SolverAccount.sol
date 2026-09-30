@@ -38,7 +38,7 @@ contract SolverAccount is Account, ERC7821, IERC1271 {
     using SafeERC20 for IERC20;
 
     /**
-     * @dev What each limit order has paid out so far, by budget id.
+     * @dev What each limit order has paid out so far, by order id.
      *
      * @custom:storage-location erc7201:hyperbridge.storage.SolverAccount.Budgets
      */
@@ -47,9 +47,9 @@ contract SolverAccount is Account, ERC7821, IERC1271 {
     }
 
     /**
-     * @dev The payout would take `budgetId` to `total`, past its `cap`.
+     * @dev The payout would take `orderId` to `total`, past its `cap`.
      */
-    error BudgetExceeded(bytes32 budgetId, uint256 total, uint256 cap);
+    error LimitOrderExceeded(bytes32 orderId, uint256 total, uint256 cap);
 
     /**
      * @dev `keccak256(abi.encode(uint256(keccak256("hyperbridge.storage.SolverAccount.Budgets")) - 1))`
@@ -192,39 +192,39 @@ contract SolverAccount is Account, ERC7821, IERC1271 {
     }
 
     /**
-     * @dev Adds what a fill paid out in `token` to the tally of `budgetId`, and reverts the batch if
+     * @dev Adds what a fill paid out in `token` to the tally of `orderId`, and reverts the batch if
      * that takes it past `cap`. Called by the account on itself, last in a fill's batch.
      *
      * The payout is read off the gateway's allowance: what the batch approved, less what is left,
      * less the dispatch fee the gateway drew from the same allowance. The allowance is then cleared.
-     * @param budgetId The limit order the fill counts against.
+     * @param orderId The limit order the fill counts against.
      * @param cap The most the order may pay out in total.
      * @param token The token the fill paid out.
      * @param approved The allowance the batch gave the gateway for `token`.
      * @param fee The dispatch fee the gateway pulls from this token's allowance, zero when the fee
      * token is another one or the dispatch is paid in the native token.
      */
-    function settleBudget(bytes32 budgetId, uint256 cap, address token, uint256 approved, uint256 fee) external {
+    function debitOrder(bytes32 orderId, uint256 cap, address token, uint256 approved, uint256 fee) external {
         if (msg.sender != address(this)) revert AccountUnauthorized(msg.sender);
 
         uint256 used = approved - IERC20(token).allowance(address(this), _intentGateway) - fee;
         Budgets storage budgets = _budgets();
-        uint256 total = budgets.spent[budgetId] + used;
-        if (total > cap) revert BudgetExceeded(budgetId, total, cap);
-        budgets.spent[budgetId] = total;
+        uint256 total = budgets.spent[orderId] + used;
+        if (total > cap) revert LimitOrderExceeded(orderId, total, cap);
+        budgets.spent[orderId] = total;
 
         IERC20(token).forceApprove(_intentGateway, 0);
     }
 
     /**
-     * @dev What `budgetId` has paid out so far.
+     * @dev What the limit order `orderId` has paid out so far.
      */
-    function spent(bytes32 budgetId) external view returns (uint256) {
-        return _budgets().spent[budgetId];
+    function spent(bytes32 orderId) external view returns (uint256) {
+        return _budgets().spent[orderId];
     }
 
     /**
-     * @dev The budgets, at their namespaced slot.
+     * @dev The limit orders' tallies, at their namespaced slot.
      */
     function _budgets() private pure returns (Budgets storage budgets) {
         bytes32 slot = BUDGETS_STORAGE_SLOT;

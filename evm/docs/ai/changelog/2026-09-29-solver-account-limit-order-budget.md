@@ -6,16 +6,16 @@ pending fill bids can each promise what a limit order has left, so without a lim
 limit order could pay out more than its size.
 
 ```solidity
-function settleBudget(bytes32 budgetId, uint256 cap, address token, uint256 approved, uint256 fee) external;
-function spent(bytes32 budgetId) external view returns (uint256);
-error BudgetExceeded(bytes32 budgetId, uint256 total, uint256 cap);
+function debitOrder(bytes32 orderId, uint256 cap, address token, uint256 approved, uint256 fee) external;
+function spent(bytes32 orderId) external view returns (uint256);
+error LimitOrderExceeded(bytes32 orderId, uint256 total, uint256 cap);
 ```
 
-`settleBudget` is the last call of a fill bid's ERC-7821 batch, after the approvals and `fillOrder`.
+`debitOrder` is the last call of a fill bid's ERC-7821 batch, after the approvals and `fillOrder`.
 Only the account itself may call it; any other caller gets `AccountUnauthorized(address)`. It:
 
 1. reads the payout off the gateway's allowance: `used = approved - allowance(account, gateway) - fee`;
-2. reverts with `BudgetExceeded` when `total = spent[budgetId] + used` is greater than `cap`. The
+2. reverts with `LimitOrderExceeded` when `total = spent[orderId] + used` is greater than `cap`. The
    revert takes the whole batch with it, so the payout is undone. A fill that lands exactly on the
    cap passes;
 3. stores `total` and sets the token's allowance to the gateway to zero with `forceApprove`, which
@@ -29,7 +29,7 @@ implementation and does not clash with other delegates.
 
 | Argument | Value |
 |---|---|
-| `budgetId` | The limit order the fill counts against. The tally has no unit, so a `budgetId` must always be settled in the same token. |
+| `orderId` | The limit order the fill counts against. The tally has no unit, so an `orderId` must always be debited in the same token. |
 | `cap` | The most the order may pay out in total. Passed on every call and not stored; the solver's signature over the operation's calldata protects it. |
 | `token` | The token the fill paid out. |
 | `approved` | The exact total the batch approved to the gateway for `token`. |
@@ -59,4 +59,4 @@ pulled is not counted.
 The budget needs a new `SolverAccount` implementation and solver EOAs re-delegated to it.
 `script/DeploySolverAccount.s.sol` deploys it with CREATE2 and the shared salt, so the new bytecode
 has one new address, the same on every chain with the same `INTENT_GATEWAY_V2` address. An EOA
-delegated to an implementation without `settleBudget` reverts any batch that calls it.
+delegated to an implementation without `debitOrder` reverts any batch that calls it.

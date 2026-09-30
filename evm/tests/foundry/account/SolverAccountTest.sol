@@ -48,7 +48,7 @@ contract SolverAccountTest is Test {
     MockGateway public budgetGateway;
     ERC20Token public token;
     address public beneficiary = address(0xB0B);
-    bytes32 public budgetId = keccak256("limit_order");
+    bytes32 public orderId = keccak256("limit_order");
 
     bytes32 internal constant BATCH_MODE = bytes32(uint256(0x01) << 248);
     bytes internal constant CHAIN = bytes("EVM-31337");
@@ -893,133 +893,133 @@ contract SolverAccountTest is Test {
     }
 
     // ============================================
-    // settleBudget Tests
+    // debitOrder Tests
     // ============================================
 
-    function test_SettleBudget_NotSelf_Reverts() public {
+    function test_DebitOrder_NotSelf_Reverts() public {
         address[3] memory callers = [entryPoint, address(budgetGateway), address(0xBAD)];
 
         for (uint256 i = 0; i < callers.length; i++) {
             vm.expectRevert(abi.encodeWithSelector(AccountBase.AccountUnauthorized.selector, callers[i]));
             vm.prank(callers[i]);
-            budgetAccount.settleBudget(budgetId, 100e18, address(token), 0, 0);
+            budgetAccount.debitOrder(orderId, 100e18, address(token), 0, 0);
         }
 
-        assertEq(budgetAccount.spent(budgetId), 0);
+        assertEq(budgetAccount.spent(orderId), 0);
     }
 
-    function test_SettleBudget_RecordsPayoutAndClearsAllowance() public {
-        _executeBatch(_budgetBatch(budgetId, address(token), 45e18, 40e18, 0, 100e18));
+    function test_DebitOrder_RecordsPayoutAndClearsAllowance() public {
+        _executeBatch(_budgetBatch(orderId, address(token), 45e18, 40e18, 0, 100e18));
 
-        assertEq(budgetAccount.spent(budgetId), 40e18);
+        assertEq(budgetAccount.spent(orderId), 40e18);
         assertEq(token.balanceOf(beneficiary), 40e18);
         assertEq(token.allowance(address(budgetAccount), address(budgetGateway)), 0);
     }
 
-    function test_SettleBudget_AccumulatesPerBudget() public {
-        bytes32 otherBudget = keccak256("other_limit_order");
+    function test_DebitOrder_AccumulatesPerOrder() public {
+        bytes32 otherOrder = keccak256("other_limit_order");
 
-        _executeBatch(_budgetBatch(budgetId, address(token), 40e18, 40e18, 0, 100e18));
-        _executeBatch(_budgetBatch(otherBudget, address(token), 7e18, 7e18, 0, 100e18));
-        _executeBatch(_budgetBatch(budgetId, address(token), 25e18, 25e18, 0, 100e18));
+        _executeBatch(_budgetBatch(orderId, address(token), 40e18, 40e18, 0, 100e18));
+        _executeBatch(_budgetBatch(otherOrder, address(token), 7e18, 7e18, 0, 100e18));
+        _executeBatch(_budgetBatch(orderId, address(token), 25e18, 25e18, 0, 100e18));
 
-        assertEq(budgetAccount.spent(budgetId), 65e18);
-        assertEq(budgetAccount.spent(otherBudget), 7e18);
+        assertEq(budgetAccount.spent(orderId), 65e18);
+        assertEq(budgetAccount.spent(otherOrder), 7e18);
     }
 
-    function test_SettleBudget_PastCap_RevertsAndUndoesPayout() public {
-        _executeBatch(_budgetBatch(budgetId, address(token), 60e18, 60e18, 0, 100e18));
+    function test_DebitOrder_PastCap_RevertsAndUndoesPayout() public {
+        _executeBatch(_budgetBatch(orderId, address(token), 60e18, 60e18, 0, 100e18));
         uint256 accountBalance = token.balanceOf(address(budgetAccount));
 
-        Execution[] memory calls = _budgetBatch(budgetId, address(token), 41e18, 41e18, 0, 100e18);
-        vm.expectRevert(abi.encodeWithSelector(SolverAccount.BudgetExceeded.selector, budgetId, 101e18, 100e18));
+        Execution[] memory calls = _budgetBatch(orderId, address(token), 41e18, 41e18, 0, 100e18);
+        vm.expectRevert(abi.encodeWithSelector(SolverAccount.LimitOrderExceeded.selector, orderId, 101e18, 100e18));
         _executeBatch(calls);
 
-        assertEq(budgetAccount.spent(budgetId), 60e18);
+        assertEq(budgetAccount.spent(orderId), 60e18);
         assertEq(token.balanceOf(beneficiary), 60e18);
         assertEq(token.balanceOf(address(budgetAccount)), accountBalance);
         assertEq(token.allowance(address(budgetAccount), address(budgetGateway)), 0);
     }
 
-    function test_SettleBudget_ReachingCap_Succeeds() public {
-        _executeBatch(_budgetBatch(budgetId, address(token), 60e18, 60e18, 0, 100e18));
-        _executeBatch(_budgetBatch(budgetId, address(token), 40e18, 40e18, 0, 100e18));
+    function test_DebitOrder_ReachingCap_Succeeds() public {
+        _executeBatch(_budgetBatch(orderId, address(token), 60e18, 60e18, 0, 100e18));
+        _executeBatch(_budgetBatch(orderId, address(token), 40e18, 40e18, 0, 100e18));
 
-        assertEq(budgetAccount.spent(budgetId), 100e18);
+        assertEq(budgetAccount.spent(orderId), 100e18);
         assertEq(token.balanceOf(beneficiary), 100e18);
     }
 
     /// @dev The dispatch fee leaves through the same allowance as the payout but is not part of it.
-    function test_SettleBudget_FeeIsNotCounted() public {
+    function test_DebitOrder_FeeIsNotCounted() public {
         uint256 payout = 40e18;
         uint256 extra = 5e18;
         uint256 fee = 2e18;
 
-        _executeBatch(_budgetBatch(budgetId, address(token), payout + extra + fee, payout, fee, payout));
+        _executeBatch(_budgetBatch(orderId, address(token), payout + extra + fee, payout, fee, payout));
 
-        assertEq(budgetAccount.spent(budgetId), payout);
+        assertEq(budgetAccount.spent(orderId), payout);
         assertEq(token.balanceOf(beneficiary), payout);
         assertEq(token.balanceOf(address(budgetGateway)), fee);
         assertEq(token.allowance(address(budgetAccount), address(budgetGateway)), 0);
     }
 
-    function test_SettleBudget_PartialPull_CountsWhatWasPulled() public {
-        _executeBatch(_budgetBatch(budgetId, address(token), 40e18, 15e18, 0, 100e18));
+    function test_DebitOrder_PartialPull_CountsWhatWasPulled() public {
+        _executeBatch(_budgetBatch(orderId, address(token), 40e18, 15e18, 0, 100e18));
 
-        assertEq(budgetAccount.spent(budgetId), 15e18);
+        assertEq(budgetAccount.spent(orderId), 15e18);
         assertEq(token.balanceOf(beneficiary), 15e18);
         assertEq(token.allowance(address(budgetAccount), address(budgetGateway)), 0);
     }
 
-    function test_SettleBudget_TokenWithoutApproveReturnValue() public {
+    function test_DebitOrder_TokenWithoutApproveReturnValue() public {
         NoReturnToken usdt = new NoReturnToken();
         usdt.mint(address(budgetAccount), 1_000e6);
 
-        _executeBatch(_budgetBatch(budgetId, address(usdt), 400e6, 400e6, 0, 1_000e6));
-        _executeBatch(_budgetBatch(budgetId, address(usdt), 400e6, 150e6, 0, 1_000e6));
+        _executeBatch(_budgetBatch(orderId, address(usdt), 400e6, 400e6, 0, 1_000e6));
+        _executeBatch(_budgetBatch(orderId, address(usdt), 400e6, 150e6, 0, 1_000e6));
 
-        assertEq(budgetAccount.spent(budgetId), 550e6);
+        assertEq(budgetAccount.spent(orderId), 550e6);
         assertEq(usdt.balanceOf(beneficiary), 550e6);
         assertEq(usdt.allowance(address(budgetAccount), address(budgetGateway)), 0);
     }
 
     /// @dev An `approved` below what the gateway was really given underflows, and the batch reverts.
-    function test_SettleBudget_UnderstatedApproval_Panics() public {
-        Execution[] memory calls = _budgetBatch(budgetId, address(token), 40e18, 10e18, 0, 100e18);
-        calls[3].callData = abi.encodeCall(SolverAccount.settleBudget, (budgetId, 100e18, address(token), 29e18, 0));
+    function test_DebitOrder_UnderstatedApproval_Panics() public {
+        Execution[] memory calls = _budgetBatch(orderId, address(token), 40e18, 10e18, 0, 100e18);
+        calls[3].callData = abi.encodeCall(SolverAccount.debitOrder, (orderId, 100e18, address(token), 29e18, 0));
 
         vm.expectRevert(stdError.arithmeticError);
         _executeBatch(calls);
 
-        assertEq(budgetAccount.spent(budgetId), 0);
+        assertEq(budgetAccount.spent(orderId), 0);
         assertEq(token.balanceOf(beneficiary), 0);
     }
 
     /// @dev A `fee` above what left the allowance underflows too.
-    function test_SettleBudget_OverstatedFee_Panics() public {
-        Execution[] memory calls = _budgetBatch(budgetId, address(token), 40e18, 1e18, 0, 100e18);
-        calls[3].callData = abi.encodeCall(SolverAccount.settleBudget, (budgetId, 100e18, address(token), 40e18, 2e18));
+    function test_DebitOrder_OverstatedFee_Panics() public {
+        Execution[] memory calls = _budgetBatch(orderId, address(token), 40e18, 1e18, 0, 100e18);
+        calls[3].callData = abi.encodeCall(SolverAccount.debitOrder, (orderId, 100e18, address(token), 40e18, 2e18));
 
         vm.expectRevert(stdError.arithmeticError);
         _executeBatch(calls);
 
-        assertEq(budgetAccount.spent(budgetId), 0);
+        assertEq(budgetAccount.spent(orderId), 0);
         assertEq(token.balanceOf(beneficiary), 0);
     }
 
-    function test_SettleBudget_TallyLivesAtItsNamespacedSlot() public {
+    function test_DebitOrder_TallyLivesAtItsNamespacedSlot() public {
         bytes32 namespace = keccak256(abi.encode(uint256(keccak256("hyperbridge.storage.SolverAccount.Budgets")) - 1))
             & ~bytes32(uint256(0xff));
         assertEq(namespace, 0xef37eedb8cd243d7bb1074a6cb5a4fad8c39bd328408761135c4a5a7d5c29900);
 
-        _executeBatch(_budgetBatch(budgetId, address(token), 40e18, 40e18, 0, 100e18));
+        _executeBatch(_budgetBatch(orderId, address(token), 40e18, 40e18, 0, 100e18));
 
-        bytes32 tallySlot = keccak256(abi.encode(budgetId, namespace));
+        bytes32 tallySlot = keccak256(abi.encode(orderId, namespace));
         assertEq(uint256(vm.load(address(budgetAccount), tallySlot)), 40e18);
     }
 
-    /// @dev A selected bid against the gateway itself: validated, filled and settled in one op.
-    function test_SettleBudget_GatewayFill() public {
+    /// @dev A selected bid against the gateway itself: validated, filled and debited in one op.
+    function test_DebitOrder_GatewayFill() public {
         uint256 inputAmount = 1000e18;
         uint256 outputAmount = 900e18;
         uint256 extra = 5e18;
@@ -1031,7 +1031,7 @@ contract SolverAccountTest is Test {
 
         _runBid(order, _gatewayBatch(order, options, outputAmount + extra, outputAmount));
 
-        assertEq(solverAccount.spent(budgetId), outputAmount);
+        assertEq(solverAccount.spent(orderId), outputAmount);
         assertEq(token.balanceOf(beneficiary), outputAmount);
         assertEq(token.balanceOf(address(solverAccount)), extra);
         assertEq(inputToken.balanceOf(address(solverAccount)), inputAmount);
@@ -1041,7 +1041,7 @@ contract SolverAccountTest is Test {
     /// @dev A cross-chain fill that pays its dispatch fee in the output token, by a solver offering
     ///      above the order's rate. The tally takes the payout and the protocol's share of the
     ///      surplus, and leaves out the fee and the part of the approval the gateway never pulled.
-    function test_SettleBudget_GatewayCrossChainFill_FeeInOutputToken() public {
+    function test_DebitOrder_GatewayCrossChainFill_FeeInOutputToken() public {
         uint256 required = 900e18;
         uint256 offered = 1000e18;
         uint256 relayerFee = 3e18;
@@ -1065,7 +1065,7 @@ contract SolverAccountTest is Test {
         assertEq(token.balanceOf(address(intentGateway)), surplus / 2);
         assertEq(token.balanceOf(host), relayerFee);
 
-        assertEq(solverAccount.spent(budgetId), offered);
+        assertEq(solverAccount.spent(orderId), offered);
         assertEq(token.balanceOf(address(solverAccount)), extra);
         assertEq(token.allowance(address(solverAccount), address(intentGateway)), 0);
     }
@@ -1079,7 +1079,7 @@ contract SolverAccountTest is Test {
     }
 
     /// @dev A fill's batch against the mock gateway: the approvals, the gateway pulling `payout` and
-    ///      `fee`, then the settlement.
+    ///      `fee`, then the debit.
     function _budgetBatch(bytes32 id, address asset, uint256 approved, uint256 payout, uint256 fee, uint256 cap)
         internal
         view
@@ -1096,7 +1096,7 @@ contract SolverAccountTest is Test {
         calls[3] = Execution({
             target: address(budgetAccount),
             value: 0,
-            callData: abi.encodeCall(SolverAccount.settleBudget, (id, cap, asset, approved, fee))
+            callData: abi.encodeCall(SolverAccount.debitOrder, (id, cap, asset, approved, fee))
         });
     }
 
@@ -1194,7 +1194,7 @@ contract SolverAccountTest is Test {
         });
     }
 
-    /// @dev A fill's batch against the gateway: the approvals, `fillOrder`, then the settlement.
+    /// @dev A fill's batch against the gateway: the approvals, `fillOrder`, then the debit.
     function _gatewayBatch(Order memory order, FillOptions memory options, uint256 approved, uint256 cap)
         internal
         view
@@ -1212,7 +1212,7 @@ contract SolverAccountTest is Test {
             target: address(solverAccount),
             value: 0,
             callData: abi.encodeCall(
-                SolverAccount.settleBudget, (budgetId, cap, address(token), approved, options.relayerFee)
+                SolverAccount.debitOrder, (orderId, cap, address(token), approved, options.relayerFee)
             )
         });
     }

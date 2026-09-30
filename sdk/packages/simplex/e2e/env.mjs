@@ -98,7 +98,8 @@ export const EXTRA_LEVELS = {
 
 /**
  * Each scenario runs against a freshly posted book: the standing orders, plus the extra
- * solver 1 levels it names. `minFills` is the fewest fill transactions it must take.
+ * solver 1 levels it names. `minFills` is the fewest fill transactions it must take. A scenario
+ * with `check: "limit"` must also pass the checks of the on-chain limit in e2e/budget.mjs.
  *
  * `mixedPairs` scenarios put two pairs in one order, which #1311 forbids. They pass only against
  * a gateway without that rule, so they run only when named.
@@ -175,5 +176,15 @@ export const SCENARIOS = {
 			{ tokenIn: "USDC", amountIn: "5.5", tokenOut: "cNGN", minOut: "8658.1" },
 		],
 		minFills: 2,
+	},
+	// The `same-chain` swap again. The limit order that pays it is then read back from its solver's
+	// account, which must have tallied the payout and must refuse, in simulation, one past its size.
+	"onchain-limit": {
+		check: "limit",
+		user: 0,
+		source: "EVM-97",
+		dest: "EVM-97",
+		legs: [{ tokenIn: "USDC", amountIn: "0.5", tokenOut: "cNGN", minOut: "778.5" }],
+		minFills: 1,
 	},
 }

@@ -5,7 +5,8 @@
 //
 // Each scenario gets a freshly posted book, so one scenario's fills never starve the next.
 // A scenario passes when its order is filled on the destination chain in at least `minFills`
-// transactions. Settlement through Hyperbridge is not awaited.
+// transactions. Settlement through Hyperbridge is not awaited. After every scenario the limit orders
+// posted for it are checked against the tallies the solvers' accounts keep on chain (e2e/budget.mjs).
 import { spawn } from "node:child_process"
 import fs from "node:fs"
 import os from "node:os"
@@ -15,6 +16,7 @@ import { ApiPromise, Keyring, WsProvider } from "@polkadot/api"
 import { cryptoWaitReady, keccakAsU8a } from "@polkadot/util-crypto"
 import { createPublicClient, createWalletClient, erc20Abi, formatEther, formatUnits, http, parseUnits } from "viem"
 import { privateKeyToAccount } from "viem/accounts"
+import { checkBudgets, keep } from "./budget.mjs"
 import { EXTRA_LEVELS, SCENARIOS, SOLVERS, TOKENS, chains, readEnv, standingOrders } from "./env.mjs"
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
@@ -178,15 +180,21 @@ async function clearBook() {
 	log("warning: some limit orders could not be withdrawn")
 }
 
+/** The limit orders posted for the scenario in hand, as `keep` records them. */
+let book = []
+
 async function create(solver, body) {
 	const created = await api(solver.port, "POST", "/api/limit-orders", body)
 	const line = `${body.amountIn} ${body.tokenIn} -> ${body.amountOut} ${body.tokenOut} on ${body.fillChain}`
 	if (!created.ok) throw new Error(`${solver.name} could not post ${line}: ${created.status} ${JSON.stringify(created.json).slice(0, 300)}`)
-	log(`${solver.name} posted ${line}`)
+	const id = created.json.order?.id
+	if (id) book.push(keep(solver, SOLVER_ACCOUNTS[SOLVERS.indexOf(solver)].address, id, body))
+	log(`${solver.name} posted ${line}${id ? ` as ${id}` : ""}`)
 }
 
 /** Posts the standing book, plus solver 1's extra levels the scenario names. */
 async function postBook(levels = []) {
+	book = []
 	await clearBook()
 	await fundSolvers(levels)
 	for (const solver of SOLVERS) for (const body of standingOrders(solver)) await create(solver, body)
@@ -450,6 +458,17 @@ async function main() {
 			result.passed = result.outcome === "FILLED" && result.fills.length >= scenario.minFills
 			if (result.outcome === "FILLED" && !result.passed) result.reason = `expected ${scenario.minFills}+ fills`
 			if (result.error) result.reason = result.error.slice(0, 200)
+			const breach = await checkBudgets({ clients, api, log }, scenario, result, book).catch((error) => {
+				const failure = `the limit checks could not run: ${String(error?.message ?? error).slice(0, 200)}`
+				if (scenario.check === "limit") return failure
+				log(`${name}: ${failure}`)
+				return undefined
+			})
+			if (breach) {
+				log(`${name}: ${breach}`)
+				result.passed = false
+				result.reason = result.reason ? `${result.reason}; ${breach}` : breach
+			}
 			log(`== ${name}: ${result.passed ? "passed" : "FAILED"} (${result.outcome}, ${result.fills.length} fills)`)
 			results.push(result)
 			// Let the solvers settle the fills against their limit orders before the book is reposted.

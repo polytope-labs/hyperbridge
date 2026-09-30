@@ -11,7 +11,9 @@ main, on pull requests that touch the strategy, core, orderbook or SDK intents c
 Each scenario gets a freshly posted book, so an earlier scenario's fills never starve a later one.
 Every solver posts three standing orders (`standingOrders`); some scenarios add solver 1 levels
 (`EXTRA_LEVELS`). A scenario passes when its order reaches `FILLED` in at least `minFills` fill
-transactions.
+transactions and no limit order posted for it has paid out more than its size: after every
+scenario, `spent` is read from the posting solver's account for each posted limit order and must
+not exceed the order's size. A tally that cannot be read is logged and does not fail the scenario.
 
 | Scenario | Order |
 | --- | --- |
@@ -22,9 +24,23 @@ transactions.
 | `same-solver-levels` | 12 USDC, more than solver 1's best level takes |
 | `multi-leg-levels` | both pairs, solver 1's levels only |
 | `multi-leg-same-input` | two 5.5 USDC → cNGN legs against a level that takes 10 |
+| `onchain-limit` | 0.5 USDC for cNGN on BSC Chapel, then the checks of the on-chain limit |
 
 `multi-leg` and `multi-leg-levels` put two pairs in one order, which #1311 forbids (`mixedPairs`).
 They run only when named, for a gateway without that rule.
+
+`onchain-limit` (`check: "limit"`) checks the limit a solver's account puts on a limit order's
+size (`e2e/budget.mjs`). Once its order is filled, the limit orders on the fill chain must show:
+
+- `spent` above zero on at least one of them, and in total no less than the order's minimum output
+- the same figure in the solver's own record: `size - remaining` from `GET /api/limit-orders/<id>`
+  equals `spent`, polled for up to 90 seconds while the solver settles the fill
+- a `debitOrder` that lands on the order's size is accepted, and one a unit past it is refused
+  with `LimitOrderExceeded`. Both are simulated with `eth_call` from the account to itself at one
+  block, and nothing is sent.
+
+It fails whatever its outcome when a solver's account on the fill chain is not delegated to an
+implementation with `spent`, and the reason names what the account delegates to.
 
 Pass scenario names as arguments, or through `E2E_SCENARIOS` (comma-separated, spaces allowed),
 to run a subset. Without names, every scenario except the `mixedPairs` ones runs.
@@ -35,7 +51,7 @@ The orderbook refuses a limit order paying out under 10 USDC or 15000 cNGN
 
 Swap sizes are the scenarios' own business, and most take a fraction of one limit order: 0.5 USDC,
 0.4 USDC, 2000 cNGN. Only the ladder scenarios are larger, because reaching a second level means
-swapping more than the first level's 10 USDC. A default run spends 23.9 USDC on BSC Chapel and
+swapping more than the first level's 10 USDC. A default run spends 24.4 USDC on BSC Chapel and
 20000 cNGN on Polygon Amoy.
 
 ## Wallets

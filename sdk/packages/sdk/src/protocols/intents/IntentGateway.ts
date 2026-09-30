@@ -64,6 +64,8 @@ const ORDER_FEE_GAS_PRICE_BUMP_POLICY: OrderFeeGasPriceBumpPolicy = {
 	defaultPercent: 10n,
 	bySourceStateMachineId: {
 		[Chains.MAINNET]: 50n,
+		[Chains.BSC_MAINNET]: 50n,
+		[Chains.POLYGON_MAINNET]: 50n,
 	},
 }
 
@@ -320,8 +322,8 @@ export class IntentGateway {
 	 * 1. If `order.fees` is unset or zero, prices the fee on an internal copy
 	 *    via {@link quoteOrderFees}: same-chain fees are twice the fill-gas
 	 *    estimate without a gas-price bump; cross-chain order fees originating on
-	 *    Ethereum price gas 50% above the live price, while other source chains use
-	 *    10%, before attaching (fill gas + the settlement relayer fee)
+	 *    Ethereum, BNB Chain or Polygon price gas 50% above the live price, while
+	 *    other source chains use 10%, before attaching (fill gas + the settlement relayer fee)
 	 *    with a further 5% buffer over the whole sum — strictly above the solver's
 	 *    unpadded requirement. Direct solver estimates remain unbumped. The wei
 	 *    cost used for the `value` field receives a 2% buffer.
@@ -791,7 +793,8 @@ export class IntentGateway {
 	 *
 	 * @param order - The order to quote. `order.fees` is ignored and not mutated.
 	 * Gas prices used to derive cross-chain `fees` receive 50% SDK-only headroom
-	 * when the source chain is Ethereum mainnet and 10% for other source chains.
+	 * when the source chain is Ethereum, BNB Chain or Polygon mainnet and 10% for
+	 * other source chains.
 	 * Same-chain quotes and direct calls to {@link estimateFillOrder}, including
 	 * Simplex solver estimates, remain unbumped.
 	 *

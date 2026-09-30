@@ -911,6 +911,23 @@ describe("UiServer (operator mode)", () => {
 		expect(badTrigger.status).toBe(400)
 	})
 
+	it("serves the running config without any word of a secret phrase", async () => {
+		const phrase = "zebra walnut giraffe umbrella quantum lizard oyster pumpkin volcano kangaroo jaguar tomato"
+		const config = fakeConfig()
+		config.simplex.signer = { type: SignerType.SecretPhrase, phrase, accountIndex: 2 }
+		const { base } = await startServer({ config })
+
+		const response = await fetch(`${base}/api/config`)
+		expect(response.status).toBe(200)
+		const text = await response.text()
+		for (const word of phrase.split(" ")) expect(text.toLowerCase()).not.toContain(word)
+		expect(parse(JSON.parse(text).toml).simplex.signer).toEqual({
+			type: "secretPhrase",
+			phrase: "****",
+			accountIndex: 2,
+		})
+	})
+
 	it("serves the masked running config", async () => {
 		const { base } = await startServer()
 		const res = await (await fetch(`${base}/api/config`)).json()

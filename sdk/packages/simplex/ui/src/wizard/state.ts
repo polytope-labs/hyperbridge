@@ -17,7 +17,7 @@ export interface ChainDraft {
 
 export type VaultDraft = VaultRowDraft
 
-export type SignerType = "privateKey" | "mpcVault" | "turnkey"
+export type SignerType = "privateKey" | "secretPhrase" | "mpcVault" | "turnkey"
 
 export type SignerKeyValidation = "empty" | "invalid" | "checking" | "valid" | "error"
 
@@ -30,10 +30,41 @@ export function privateKeyFormatError(value: string): string | undefined {
 	return /^(0x)?[0-9a-fA-F]{64}$/.test(trimmed) ? undefined : EVM_PRIVATE_KEY_FORMAT_ERROR
 }
 
+const SECRET_PHRASE_WORD_COUNTS = [12, 15, 18, 21, 24]
+const MAX_ACCOUNT_INDEX = 2147483647
+
+export function secretPhraseFormatError(value: string): string | undefined {
+	const trimmed = value.trim()
+	if (!trimmed) return "Enter the secret phrase."
+	const words = trimmed.split(/\s+/).length
+	return SECRET_PHRASE_WORD_COUNTS.includes(words)
+		? undefined
+		: `Secret phrase must have 12, 15, 18, 21 or 24 words; got ${words}.`
+}
+
+export function accountIndexFormatError(value: string): string | undefined {
+	const trimmed = value.trim()
+	if (!trimmed) return undefined
+	return /^\d+$/.test(trimmed) && Number(trimmed) <= MAX_ACCOUNT_INDEX
+		? undefined
+		: `Account index must be a whole number between 0 and ${MAX_ACCOUNT_INDEX}.`
+}
+
+/** The phrase and its wallet index as the server takes them; index 0 is the default and left out. */
+export function secretPhraseCredentials(
+	phrase: string,
+	accountIndex: string,
+): { phrase: string; accountIndex?: number } {
+	const index = Number(accountIndex.trim() || 0)
+	return { phrase: phrase.trim(), ...(index > 0 ? { accountIndex: index } : {}) }
+}
+
 export interface WizardState {
 	network: "mainnet"
 	signerType: SignerType
 	signerKey: string
+	signerPhrase: string
+	signerAccountIndex: string
 	signerKeyValidation: SignerKeyValidation
 	signerKeyValidationMessage?: string
 	signerAddress?: string
@@ -68,6 +99,8 @@ export function initialState(defaults: SetupDefaults): WizardState {
 		network: "mainnet",
 		signerType: "privateKey",
 		signerKey: "",
+		signerPhrase: "",
+		signerAccountIndex: "",
 		signerKeyValidation: "empty",
 		mpcVault: {
 			apiToken: "",
@@ -131,6 +164,21 @@ export function normalizeHexKey(key: string): string {
 	return trimmed && !trimmed.startsWith("0x") ? `0x${trimmed}` : trimmed
 }
 
+/** Switching signers clears the key and the phrase, so a private key and a phrase are never both submitted. */
+export function switchSignerType(state: WizardState, signerType: SignerType): WizardState {
+	if (signerType === state.signerType) return state
+	return {
+		...state,
+		signerType,
+		signerKey: "",
+		signerPhrase: "",
+		signerAccountIndex: "",
+		signerAddress: undefined,
+		signerKeyValidation: "empty",
+		signerKeyValidationMessage: undefined,
+	}
+}
+
 export function patchChain(state: WizardState, chainId: number, patch: Partial<ChainDraft>): WizardState {
 	return {
 		...state,
@@ -154,22 +202,27 @@ export function assembleConfig(state: WizardState, defaults: SetupDefaults): Fil
 	const signer =
 		state.signerType === "privateKey"
 			? { type: "privateKey" as const, key: normalizeHexKey(state.signerKey) }
-			: state.signerType === "mpcVault"
+			: state.signerType === "secretPhrase"
 				? {
-						type: "mpcVault" as const,
-						apiToken: state.mpcVault.apiToken.trim(),
-						vaultUuid: state.mpcVault.vaultUuid.trim(),
-						accountAddress: state.mpcVault.accountAddress.trim(),
-						callbackClientSignerPublicKey: state.mpcVault.callbackClientSignerPublicKey.trim(),
-						...(state.mpcVault.grpcTarget.trim() ? { grpcTarget: state.mpcVault.grpcTarget.trim() } : {}),
+						type: "secretPhrase" as const,
+						...secretPhraseCredentials(state.signerPhrase, state.signerAccountIndex),
 					}
-				: {
-						type: "turnkey" as const,
-						organizationId: state.turnkey.organizationId.trim(),
-						apiPublicKey: state.turnkey.apiPublicKey.trim(),
-						apiPrivateKey: state.turnkey.apiPrivateKey.trim(),
-						signWith: state.turnkey.signWith.trim(),
-					}
+				: state.signerType === "mpcVault"
+					? {
+							type: "mpcVault" as const,
+							apiToken: state.mpcVault.apiToken.trim(),
+							vaultUuid: state.mpcVault.vaultUuid.trim(),
+							accountAddress: state.mpcVault.accountAddress.trim(),
+							callbackClientSignerPublicKey: state.mpcVault.callbackClientSignerPublicKey.trim(),
+							...(state.mpcVault.grpcTarget.trim() ? { grpcTarget: state.mpcVault.grpcTarget.trim() } : {}),
+						}
+					: {
+							type: "turnkey" as const,
+							organizationId: state.turnkey.organizationId.trim(),
+							apiPublicKey: state.turnkey.apiPublicKey.trim(),
+							apiPrivateKey: state.turnkey.apiPrivateKey.trim(),
+							signWith: state.turnkey.signWith.trim(),
+						}
 
 	return {
 		simplex: {

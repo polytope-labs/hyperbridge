@@ -35,7 +35,8 @@ export interface SimplexOptions {
 	 * transaction it sends. Required unless every chain is watch-only.
 	 *
 	 * {@link Signer} is an interface, not a menu: `privateKeySigner`,
-	 * `turnkeySigner` and `mpcVaultSigner` are the implementations that ship here,
+	 * `secretPhraseSigner`, `turnkeySigner` and `mpcVaultSigner` are the
+	 * implementations that ship here,
 	 * `viemSigner` adapts any viem account (a `toAccount` wrapper around an HSM or
 	 * a remote signing service included), and anything else that satisfies the
 	 * interface works the same way.
@@ -226,9 +227,7 @@ export class LimitOrderController {
 	 * behind it, and the operator can see which ones. Fills are recorded when they
 	 * settle, so they outlive the resize and repost each one causes.
 	 */
-	async withFills(
-		id: string,
-	): Promise<{ order: LimitOrder; fills: LimitOrderFill[]; bids: StoredBid[] } | null> {
+	async withFills(id: string): Promise<{ order: LimitOrder; fills: LimitOrderFill[]; bids: StoredBid[] } | null> {
 		const order = await this.service.get(id)
 		if (!order) return null
 		const [fills, bids] = await Promise.all([
@@ -375,7 +374,6 @@ export class PairController {
 		if (!pair) throw new Error(`Unknown pair ${index}`)
 		return pair
 	}
-
 }
 
 /** The chain set of the running filler. */
@@ -850,7 +848,7 @@ export class Simplex extends EventEmitter {
 			throw new Error(
 				"config.simplex.signer describes a signer but none was passed. Simplex.start takes a Signer " +
 					"instance: `signer: await createSigner(config.simplex.signer)`, or build one directly with " +
-					"privateKeySigner/turnkeySigner/mpcVaultSigner/viemSigner.",
+					"privateKeySigner/secretPhraseSigner/turnkeySigner/mpcVaultSigner/viemSigner.",
 			)
 		}
 		// This filler's own logging destination — not a process-wide one, so two

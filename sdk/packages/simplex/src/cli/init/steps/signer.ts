@@ -1,6 +1,13 @@
 import { select } from "@clack/prompts"
 import type { HexString } from "@hyperbridge/sdk"
-import { SignerType, validateSignerConfig, type SignerConfig } from "@/services/wallet"
+import {
+	SignerType,
+	normaliseSecretPhrase,
+	validateSecretPhrase,
+	validateSignerConfig,
+	type SignerConfig,
+} from "@/services/wallet"
+import { assertDerivationIndex } from "@/services/wallet/accounts/secretphrase"
 import { guard, why, askText, askAddress, askSecret } from "../prompt-utils"
 import { WHY } from "../help-text"
 import type { Prefill, WizardState } from "../state"
@@ -20,6 +27,11 @@ export async function stepSigner(state: WizardState, prefill?: Prefill): Promise
 					hint: "raw key on this machine — simplest, guard the config file",
 				},
 				{
+					value: SignerType.SecretPhrase,
+					label: "Secret phrase",
+					hint: "BIP-39 phrase on this machine; guard the config file",
+				},
+				{
 					value: SignerType.MpcVault,
 					label: "MPCVault",
 					hint: "institutional MPC custody; needs a vault + client-signer setup",
@@ -37,9 +49,29 @@ export async function stepSigner(state: WizardState, prefill?: Prefill): Promise
 		const key = await askSecret(
 			"EVM private key (64 hex chars, 0x prefix optional)",
 			existing?.type === SignerType.PrivateKey ? existing.key : undefined,
-			(value) => (/^(0x)?[0-9a-fA-F]{64}$/.test(value) ? undefined : "Expected 64 hex characters (0x prefix optional)"),
+			(value) =>
+				/^(0x)?[0-9a-fA-F]{64}$/.test(value) ? undefined : "Expected 64 hex characters (0x prefix optional)",
 		)
 		state.signer = { type: SignerType.PrivateKey, key: (key.startsWith("0x") ? key : `0x${key}`) as HexString }
+	} else if (type === SignerType.SecretPhrase) {
+		why(WHY.secretPhrase)
+		const prev = existing?.type === SignerType.SecretPhrase ? existing : undefined
+		const phrase = await askSecret("Secret phrase (12 to 24 words, separated by spaces)", prev?.phrase, (value) =>
+			errorMessage(() => validateSecretPhrase(value)),
+		)
+		const accountIndex = await askText("Account index under the phrase (empty for 0)", {
+			initial: prev?.accountIndex !== undefined ? String(prev.accountIndex) : undefined,
+			required: false,
+			validate: (trimmed) =>
+				/^\d+$/.test(trimmed)
+					? errorMessage(() => assertDerivationIndex(Number(trimmed), "Account index"))
+					: "Enter a whole number, 0 or greater",
+		})
+		state.signer = {
+			type: SignerType.SecretPhrase,
+			phrase: normaliseSecretPhrase(phrase),
+			...(accountIndex ? { accountIndex: Number(accountIndex) } : {}),
+		}
 	} else if (type === SignerType.MpcVault) {
 		const prev = existing?.type === SignerType.MpcVault ? existing : undefined
 		const signer = {
@@ -59,7 +91,7 @@ export async function stepSigner(state: WizardState, prefill?: Prefill): Promise
 			required: false,
 		})
 		state.signer = { ...signer, ...(grpcTarget ? { grpcTarget } : {}) }
-	} else {
+	} else if (type === SignerType.Turnkey) {
 		const prev = existing?.type === SignerType.Turnkey ? existing : undefined
 		state.signer = {
 			type: SignerType.Turnkey,
@@ -74,7 +106,18 @@ export async function stepSigner(state: WizardState, prefill?: Prefill): Promise
 			apiPrivateKey: await askSecret("Turnkey API private key", prev?.apiPrivateKey),
 			signWith: await askAddress("Wallet address to sign with (0x...)", { initial: prev?.signWith }),
 		}
+	} else {
+		throw new Error(`Unsupported signer mode: ${String(type)}`)
 	}
 
 	validateSignerConfig(state.signer as SignerConfig)
+}
+
+function errorMessage(check: () => void): string | undefined {
+	try {
+		check()
+		return undefined
+	} catch (error) {
+		return error instanceof Error ? error.message : String(error)
+	}
 }

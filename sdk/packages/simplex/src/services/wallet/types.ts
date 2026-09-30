@@ -56,6 +56,7 @@ export enum SignerType {
 	PrivateKey = "privateKey",
 	MpcVault = "mpcVault",
 	Turnkey = "turnkey",
+	SecretPhrase = "secretPhrase",
 }
 
 export interface TurnkeySignerConfig {
@@ -67,6 +68,16 @@ export interface TurnkeySignerConfig {
 
 export interface PrivateKeySignerConfig {
 	key: HexString
+}
+
+export interface SecretPhraseSignerConfig {
+	/** BIP-39 mnemonic from the English wordlist. */
+	phrase: string
+	/**
+	 * Which wallet under the phrase is the hot wallet: the last component of
+	 * `m/44'/60'/0'/0/i`. Defaults to 0.
+	 */
+	accountIndex?: number
 }
 
 /**
@@ -84,6 +95,9 @@ export type SignerConfig =
 	| ({
 			type: SignerType.Turnkey
 	  } & TurnkeySignerConfig)
+	| ({
+			type: SignerType.SecretPhrase
+	  } & SecretPhraseSignerConfig)
 
 /**
  * A secp256k1 signature in split form, which is how EIP-7702 and raw digests
@@ -198,6 +212,17 @@ export interface Signer {
 	 * produces it from a signed digest.
 	 */
 	signTransaction(tx: SignerTransaction): Promise<HexString>
+}
+
+/**
+ * A {@link Signer} backed by a key tree rather than a single key, so it can hand
+ * out signers for sibling wallets.
+ */
+export interface DerivingSigner extends Signer {
+	/** Index of the wallet this signer itself signs with. */
+	readonly accountIndex: number
+	/** The signer for the wallet at `index`, which may be this signer's own. */
+	derive(index: number): Signer
 }
 
 /** The tuple an EIP-7702 authorization signature covers. */

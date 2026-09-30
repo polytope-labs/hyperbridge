@@ -1,6 +1,7 @@
 import { SignerType, type SignerConfig, type Signer } from "./types"
 import { mpcVaultSigner } from "./accounts/mpc"
 import { privateKeySigner } from "./accounts/privatekey"
+import { assertDerivationIndex, secretPhraseSigner, validateSecretPhrase } from "./accounts/secretphrase"
 import { turnkeySigner } from "./accounts/turnkey"
 
 /**
@@ -14,6 +15,7 @@ export async function createSigner(config: SignerConfig): Promise<Signer> {
 	if (config.type === SignerType.PrivateKey) return privateKeySigner(config.key)
 	if (config.type === SignerType.MpcVault) return mpcVaultSigner(config)
 	if (config.type === SignerType.Turnkey) return turnkeySigner(config)
+	if (config.type === SignerType.SecretPhrase) return secretPhraseSigner(config)
 	throw new Error(`Unsupported signer mode: ${(config as { type?: string }).type ?? "unknown"}`)
 }
 
@@ -40,6 +42,15 @@ export function validateSignerConfig(config: SignerConfig): void {
 		if (!config.apiPublicKey) throw new Error("simplex.signer.apiPublicKey is required")
 		if (!config.apiPrivateKey) throw new Error("simplex.signer.apiPrivateKey is required")
 		if (!config.signWith) throw new Error("simplex.signer.signWith is required")
+		return
+	}
+
+	if (config.type === SignerType.SecretPhrase) {
+		if (!config.phrase) {
+			throw new Error("simplex.signer.phrase is required when simplex.signer.type=secretPhrase")
+		}
+		validateSecretPhrase(config.phrase)
+		if (config.accountIndex !== undefined) assertDerivationIndex(config.accountIndex, "simplex.signer.accountIndex")
 		return
 	}
 

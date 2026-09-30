@@ -119,6 +119,7 @@
 		"@safe-global/api-kit": "^3.0.1",
 		"@safe-global/protocol-kit": "^6.0.4",
 		"@safe-global/types-kit": "^2.0.1",
+		"@scure/bip39": "1.6.0",
 		"@turnkey/sdk-server": "^5.3.0",
 		"@turnkey/viem": "^0.14.28",
 		"@uniswap/sdk-core": "^7.13.0",

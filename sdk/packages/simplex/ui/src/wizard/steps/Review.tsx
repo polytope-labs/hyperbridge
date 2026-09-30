@@ -82,11 +82,11 @@ export function StepReview({ state, defaults }: StepProps) {
 	}
 
 	const evmAddress =
-		state.signerType === "privateKey"
-			? state.signerAddress
-			: state.signerType === "mpcVault"
-				? state.mpcVault.accountAddress
-				: state.turnkey.signWith
+		state.signerType === "mpcVault"
+			? state.mpcVault.accountAddress
+			: state.signerType === "turnkey"
+				? state.turnkey.signWith
+				: state.signerAddress
 	const displayStartError = startError
 		? formatSetupStartError(startError, new Map(enabled.map((chain) => [chain.meta.chainId, chain.meta.label])))
 		: undefined

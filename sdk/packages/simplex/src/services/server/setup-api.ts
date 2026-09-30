@@ -7,7 +7,7 @@ import { assertPairSymbolsResolve } from "@/config/pairs"
 import { formatChainKey } from "@/config/interpolated-curve"
 import { AssetRegistry, registrySymbols, USD_STABLE_SYMBOLS } from "@/config/asset-registry"
 import { fetchChainId, validateRpcUrls } from "@/services/FillerConfigService"
-import { validateSignerConfig } from "@/services/wallet"
+import { normaliseSecretPhrase, secretPhraseSigner, SignerType, validateSignerConfig } from "@/services/wallet"
 import { deriveSubstrateKeyPair, generateSubstrateKey } from "@/services/substrate-key"
 import { ERC20_ABI } from "@/config/abis/ERC20"
 import { emitFillerToml, writeConfigFileAtomic } from "@/cli/init/emit-toml"
@@ -22,7 +22,6 @@ import { readBody, sendJson } from "./http-util"
 import type { SetupDefaults, SetupOrderbook } from "./dto"
 import type { SetupContext, UiServer } from "./UiServer"
 
-
 /** Network-facing validators, injectable so tests never hit real providers. */
 export interface SetupDeps {
 	fetchChainId?: typeof fetchChainId
@@ -30,6 +29,13 @@ export interface SetupDeps {
 }
 
 const logger = getLogger("setup")
+
+/**
+ * What a secret phrase is shown as. The whole value is replaced: the leading and
+ * trailing characters `maskSecret` keeps would give away most of two words, and a
+ * mask sized to the phrase would give away its word count.
+ */
+export const SECRET_PHRASE_MASK = "****"
 
 async function defaultRpcRequest(url: string, method: string, params: unknown[]): Promise<unknown> {
 	const response = await fetch(url, {
@@ -52,8 +58,8 @@ export function resolveSetupDeps(deps?: SetupDeps): Required<SetupDeps> {
 }
 
 /**
- * Routes /api/setup/* requests in init mode. Request bodies carry private keys
- * and API tokens — they are never logged and never echoed back unmasked.
+ * Routes /api/setup/* requests in init mode. Request bodies carry private keys,
+ * secret phrases and API tokens — they are never logged and never echoed back unmasked.
  */
 export async function handleSetupRequest(
 	server: UiServer,
@@ -110,12 +116,18 @@ export async function handleSetupRequest(
 
 	if (method !== "POST") return sendJson(res, 405, { error: "Method not allowed" })
 
+	let raw: string
+	try {
+		raw = await readBody(req)
+	} catch (err) {
+		return sendJson(res, 400, { error: err instanceof Error ? err.message : "Could not read the request body" })
+	}
 	let body: Record<string, unknown>
 	try {
-		const raw = await readBody(req)
 		body = raw ? JSON.parse(raw) : {}
-	} catch (err) {
-		return sendJson(res, 400, { error: err instanceof Error ? err.message : "Invalid JSON body" })
+	} catch {
+		// The parser's own message quotes the text around the fault, which can be part of a secret.
+		return sendJson(res, 400, { error: "Invalid JSON body" })
 	}
 
 	const deps = resolveSetupDeps(setup.deps)
@@ -218,7 +230,10 @@ export async function validateBundler(body: Record<string, unknown>, deps: Requi
 		)
 		return { ok: true, entryPoints }
 	} catch (err) {
-		return { ok: true, warning: `Bundler did not answer eth_supportedEntryPoints: ${err instanceof Error ? err.message : err}` }
+		return {
+			ok: true,
+			warning: `Bundler did not answer eth_supportedEntryPoints: ${err instanceof Error ? err.message : err}`,
+		}
 	}
 }
 
@@ -245,12 +260,34 @@ export async function validateToken(body: Record<string, unknown>) {
 }
 
 function deriveEvmAddress(body: Record<string, unknown>, res: ServerResponse): void {
+	const hasKey = body.privateKey !== undefined && body.privateKey !== null
+	const hasPhrase = body.phrase !== undefined && body.phrase !== null
+	if (hasKey && hasPhrase) {
+		return sendJson(res, 400, { error: "Provide either privateKey or phrase, not both" })
+	}
+	if (hasPhrase) return deriveSecretPhraseAddress(body, res)
+
 	const raw = String(body.privateKey ?? "").trim()
 	const privateKey = raw.startsWith("0x") ? raw : `0x${raw}`
 	if (!/^0x[0-9a-fA-F]{64}$/.test(privateKey)) {
 		return sendJson(res, 400, { error: "Expected 64 hex characters (0x prefix optional)" })
 	}
 	return sendJson(res, 200, { address: privateKeyToAccount(privateKey as `0x${string}`).address })
+}
+
+function deriveSecretPhraseAddress(body: Record<string, unknown>, res: ServerResponse): void {
+	const { phrase, accountIndex } = body
+	if (typeof phrase !== "string") return sendJson(res, 400, { error: "Secret phrase must be a string" })
+	if (accountIndex !== undefined && typeof accountIndex !== "number") {
+		return sendJson(res, 400, { error: "accountIndex must be a number" })
+	}
+	let address: string
+	try {
+		address = secretPhraseSigner({ phrase, accountIndex }).address
+	} catch (err) {
+		return sendJson(res, 400, { error: err instanceof Error ? err.message : "Invalid secret phrase" })
+	}
+	return sendJson(res, 200, { address })
 }
 
 async function substrateKey(body: Record<string, unknown>) {
@@ -271,7 +308,11 @@ async function checkSubstrateBalance(body: Record<string, unknown>) {
 	const pair = await deriveSubstrateKeyPair(key)
 	const { ApiPromise, WsProvider } = await import("@polkadot/api")
 	const provider = new WsProvider(wsUrl, 1_000)
-	const api = await withTimeout(ApiPromise.create({ provider, throwOnConnect: true }), 20_000, "Hyperbridge connection")
+	const api = await withTimeout(
+		ApiPromise.create({ provider, throwOnConnect: true }),
+		20_000,
+		"Hyperbridge connection",
+	)
 	try {
 		// biome-ignore lint/suspicious/noExplicitAny: polkadot API type
 		const account = (await api.query.system.account(pair.address)) as any
@@ -313,6 +354,9 @@ function gateConfig(body: Record<string, unknown>): GatedConfig | { ok: false; e
 		// is globally watch-only, and a present block is validated for completeness.
 		if (config.simplex?.signer) {
 			validateSignerConfig(config.simplex.signer)
+			if (config.simplex.signer.type === SignerType.SecretPhrase) {
+				config.simplex.signer.phrase = normaliseSecretPhrase(config.simplex.signer.phrase)
+			}
 		} else if (config.simplex?.watchOnly !== true) {
 			throw new Error("Signer configuration is required via [simplex.signer]")
 		}
@@ -343,6 +387,7 @@ export function maskToml(config: FillerConfigFile, chainLabels?: string[]): stri
 		for (const field of ["key", "apiToken", "apiPrivateKey"]) {
 			if (signer[field]) signer[field] = maskSecret(signer[field])
 		}
+		if (signer.phrase !== undefined) signer.phrase = SECRET_PHRASE_MASK
 	}
 	if (masked.simplex.substratePrivateKey) {
 		masked.simplex.substratePrivateKey = maskSecret(masked.simplex.substratePrivateKey)

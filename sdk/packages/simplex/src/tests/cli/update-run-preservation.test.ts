@@ -3,7 +3,7 @@ import { parse } from "toml"
 import { assembleConfig } from "@/cli/init/steps/write"
 import { emitFillerToml } from "@/cli/init/emit-toml"
 import { validateConfig, type FillerConfigFile } from "@/config/filler-toml"
-import { SignerType } from "@/services/wallet"
+import { SignerType, signerFromToml } from "@/services/wallet"
 import { newWizardState } from "@/cli/init/state"
 import { INIT_CHAINS } from "@/cli/init/chains"
 import { DEFAULT_ORDERBOOK_URLS } from "@/config/defaults"
@@ -17,7 +17,10 @@ describe("CLI wizard update run", () => {
 	const existing: FillerConfigFile = {
 		orderbook: { url: "https://orderbook.example/graphql" },
 		simplex: {
-			signer: { type: SignerType.PrivateKey, key: "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d" },
+			signer: {
+				type: SignerType.PrivateKey,
+				key: "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d",
+			},
 			maxConcurrentOrders: 7,
 			logging: "warn",
 			watchOnly: { "56": true },
@@ -55,26 +58,32 @@ describe("CLI wizard update run", () => {
 		},
 	}
 
-	function simulateUpdateRun(): FillerConfigFile {
+	function simulateUpdateRun(config: FillerConfigFile = existing): FillerConfigFile {
 		// Mirrors runInit: prefillConfig stored, then each step overwrites its
 		// managed fields (here with the same values, as if the user pressed Enter
 		// through every prompt), then carryPrefillExtras seeds the finetune state.
 		const state = newWizardState()
 		// A pre-pairs config may still carry a legacy [[strategies]] array —
 		// assembleConfig must strip it, the pair engine rejects it at startup.
-		state.prefillConfig = JSON.parse(JSON.stringify({ ...existing, strategies: [{ type: "stable" }] }))
-		state.chains = [{ meta: INIT_CHAINS.find((c) => c.chainId === 1)!, rpcUrls: ["https://eth.example/rpc"], bundlerUrl: "https://bundler.example" }]
-		state.signer = existing.simplex.signer
-		state.substratePrivateKey = existing.simplex.substratePrivateKey
-		state.hyperbridgeWsUrl = existing.simplex.hyperbridgeWsUrl
+		state.prefillConfig = JSON.parse(JSON.stringify({ ...config, strategies: [{ type: "stable" }] }))
+		state.chains = [
+			{
+				meta: INIT_CHAINS.find((c) => c.chainId === 1)!,
+				rpcUrls: ["https://eth.example/rpc"],
+				bundlerUrl: "https://bundler.example",
+			},
+		]
+		state.signer = config.simplex.signer
+		state.substratePrivateKey = config.simplex.substratePrivateKey
+		state.hyperbridgeWsUrl = config.simplex.hyperbridgeWsUrl
 		state.assets = wizardAssets
 		state.confirmationPolicies = wizardConfirmationPolicies
 		// carryPrefillExtras equivalents
-		state.maxConcurrentOrders = existing.simplex.maxConcurrentOrders ?? state.maxConcurrentOrders
-		state.logging = existing.simplex.logging
-		state.gasFeeBump = existing.simplex.gasFeeBump
-		state.overfillProtection = existing.simplex.overfillProtection
-		state.allowlist = existing.allowlist
+		state.maxConcurrentOrders = config.simplex.maxConcurrentOrders ?? state.maxConcurrentOrders
+		state.logging = config.simplex.logging
+		state.gasFeeBump = config.simplex.gasFeeBump
+		state.overfillProtection = config.simplex.overfillProtection
+		state.allowlist = config.allowlist
 		return assembleConfig(state)
 	}
 
@@ -138,6 +147,23 @@ describe("CLI wizard update run", () => {
 		expect("strategies" in assembled).toBe(false)
 	})
 
+	it("preserves a secret phrase signer through the emit round-trip", async () => {
+		const signer = {
+			type: SignerType.SecretPhrase as const,
+			phrase: "test test test test test test test test test test test junk",
+			accountIndex: 2,
+		}
+		const assembled = simulateUpdateRun({ ...existing, simplex: { ...existing.simplex, signer } })
+		expect(assembled.simplex.signer).toEqual(signer)
+
+		const parsed = parse(emitFillerToml(assembled)) as FillerConfigFile
+		expect(() => validateConfig(parsed)).not.toThrow()
+		expect(JSON.parse(JSON.stringify(parsed))).toEqual(JSON.parse(JSON.stringify(assembled)))
+		expect((await signerFromToml(parsed.simplex.signer))?.address).toBe(
+			"0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC",
+		)
+	})
+
 	it("survives the emit round-trip with unmanaged sections intact", () => {
 		const assembled = simulateUpdateRun()
 		const parsed = parse(emitFillerToml(assembled)) as FillerConfigFile
@@ -147,7 +173,13 @@ describe("CLI wizard update run", () => {
 
 	it("scrubs a carried empty [allowlist.bySource] so the round-trip gate cannot trip", () => {
 		const state = newWizardState()
-		state.chains = [{ meta: INIT_CHAINS.find((c) => c.chainId === 1)!, rpcUrls: ["https://eth.example/rpc"], bundlerUrl: "https://bundler.example" }]
+		state.chains = [
+			{
+				meta: INIT_CHAINS.find((c) => c.chainId === 1)!,
+				rpcUrls: ["https://eth.example/rpc"],
+				bundlerUrl: "https://bundler.example",
+			},
+		]
 		state.signer = existing.simplex.signer
 		state.substratePrivateKey = existing.simplex.substratePrivateKey
 		state.hyperbridgeWsUrl = existing.simplex.hyperbridgeWsUrl
@@ -162,7 +194,13 @@ describe("CLI wizard update run", () => {
 
 	it("drops a carried [rebalancing] without baseBalances instead of crashing the emit", () => {
 		const state = newWizardState()
-		state.chains = [{ meta: INIT_CHAINS.find((c) => c.chainId === 1)!, rpcUrls: ["https://eth.example/rpc"], bundlerUrl: "https://bundler.example" }]
+		state.chains = [
+			{
+				meta: INIT_CHAINS.find((c) => c.chainId === 1)!,
+				rpcUrls: ["https://eth.example/rpc"],
+				bundlerUrl: "https://bundler.example",
+			},
+		]
 		state.signer = existing.simplex.signer
 		state.substratePrivateKey = existing.simplex.substratePrivateKey
 		state.hyperbridgeWsUrl = existing.simplex.hyperbridgeWsUrl
@@ -180,7 +218,13 @@ describe("CLI wizard update run", () => {
 	it("writes the selected network's orderbook on a fresh run", () => {
 		const state = newWizardState()
 		state.network = "testnet"
-		state.chains = [{ meta: INIT_CHAINS.find((c) => c.chainId === 97)!, rpcUrls: ["https://bsc.example/rpc"], bundlerUrl: "https://bundler.example" }]
+		state.chains = [
+			{
+				meta: INIT_CHAINS.find((c) => c.chainId === 97)!,
+				rpcUrls: ["https://bsc.example/rpc"],
+				bundlerUrl: "https://bundler.example",
+			},
+		]
 		state.signer = existing.simplex.signer
 		expect(assembleConfig(state).orderbook).toEqual({ url: DEFAULT_ORDERBOOK_URLS.testnet })
 	})

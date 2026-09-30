@@ -74,6 +74,8 @@ key = ${q(solverKeys[index].key)}
 
 [orderbook]
 url = ${q(env.orderbook)}
+# Brings a limit order in line with its on-chain tally within a scenario, not five minutes on.
+reconcileIntervalSecs = 30
 
 [assets.CNGN]
 "EVM-97" = ${q(TOKENS["EVM-97"].cNGN.address)}

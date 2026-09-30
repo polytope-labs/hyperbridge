@@ -25,6 +25,7 @@ not exceed the order's size. A tally that cannot be read is logged and does not 
 | `multi-leg-levels` | both pairs, solver 1's levels only |
 | `multi-leg-same-input` | two 5.5 USDC → cNGN legs against a level that takes 10 |
 | `onchain-limit` | 0.5 USDC for cNGN on BSC Chapel, then the checks of the on-chain limit |
+| `onchain-limit-refusal` | the same swap, with the best bid's limit order left one unit short of what it pays |
 
 `multi-leg` and `multi-leg-levels` put two pairs in one order, which #1311 forbids (`mixedPairs`).
 They run only when named, for a gateway without that rule.
@@ -39,8 +40,23 @@ size (`e2e/budget.mjs`). Once its order is filled, the limit orders on the fill 
   with `LimitOrderExceeded`. Both are simulated with `eth_call` from the account to itself at one
   block, and nothing is sent.
 
-It fails whatever its outcome when a solver's account on the fill chain is not delegated to an
-implementation with `spent`, and the reason names what the account delegates to.
+`onchain-limit-refusal` (`check: "refusal"`) has the limit refuse a real fill. When the bids
+arrive, and before the SDK picks one, the swap worker (`e2e/refusal.mjs`) takes the bid paying the
+most. Its solver's key sends a `debitOrder` from the account to itself that uses up the bid's limit
+order until one unit less than the bid pays is left. The bid is then simulated as the SDK does, and
+sent to the bundler anyway. The bid must take the whole order with no fee, so that its payout is
+exactly what it approved. The runner then reads from the chain that:
+
+- the SDK's own simulation refused the bid
+- the operation is in a bundle, failed, and logged `LimitOrderExceeded` at the tally plus what the
+  bid pays, and its execution moved no token out of the solver's account
+- the tally is still where the `debitOrder` left it, and the solver filled nothing on the order
+- the order was filled by another solver, whose own record matches its tally as in `onchain-limit`
+- within 150 seconds, the solver has lowered the limit order to the room left on chain, or closed
+  it. The solvers run with `reconcileIntervalSecs = 30`, so the correction lands within the scenario.
+
+Both scenarios fail whatever their outcome when a solver's account on the fill chain is not
+delegated to an implementation with `spent`, and the reason names what the account delegates to.
 
 Pass scenario names as arguments, or through `E2E_SCENARIOS` (comma-separated, spaces allowed),
 to run a subset. Without names, every scenario except the `mixedPairs` ones runs.

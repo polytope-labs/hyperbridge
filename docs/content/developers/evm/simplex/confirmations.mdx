@@ -28,7 +28,7 @@ Values between the min and max order amounts are linearly interpolated.
 
 ### Custom Overrides
 
-Confirmation policies are configured at the top level under `[confirmationPolicies."<chainId>"]`. Unlisted chains keep their defaults. The curve's `amount` axis is the order's USD value, computed from your pair curves via the USD anchors — honest for non-USD pairs too, so one curve per chain is correctly calibrated for every market on it:
+Confirmation policies are configured at the top level under `[confirmationPolicies."<chainId>"]`. Unlisted chains keep their defaults. The curve's `amount` axis is the order's USD value. USDC, USDT and DAI count at $1, and other tokens are valued through your [limit orders'](/developers/evm/simplex/limit-orders) rates, so one curve per chain works for every market on it. An order in a token none of your limit orders connects to a dollar stablecoin waits for the curve's maximum depth:
 
 ```toml lineNumbers
 [confirmationPolicies."1"]     # Ethereum Mainnet (~12s blocks)

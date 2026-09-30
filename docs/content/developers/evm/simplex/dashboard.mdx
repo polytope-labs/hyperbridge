@@ -5,19 +5,19 @@ description: The web UI is unauthenticated by design — reach it from the same 
 
 # Accessing the dashboard
 
-The dashboard is where a running solver is watched and steered: balances per chain, the markets it quotes, price curves edited live, order history, and the treasury tools.
+The dashboard is where a running solver is watched and steered: balances per chain, the [limit orders](/developers/evm/simplex/limit-orders) that set its prices, order history, and the treasury tools.
 
 <figure style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
 
-![The Simplex dashboard, showing balances by network and the configured markets](./images/dashboard-overview.png)
+![The Simplex dashboard Overview page, showing runtime metrics, the filling switch and balances by network](./images/dashboard-overview.png)
 
-<figcaption>The Overview page: liquidity per chain and per token, the filling switch, and every market the solver quotes.</figcaption>
+<figcaption>The Overview page: liquidity per chain and per token, and the filling switch. Your limit orders are listed below the balances.</figcaption>
 </figure>
 
 It is unauthenticated by design — the bind address is the boundary. It defaults to `127.0.0.1:8686`, so only the machine running the solver can reach it, and it refuses any request whose `Host` header is a DNS name rather than a loopback literal, which closes the DNS-rebinding path into it. Move it with `--ui`, or turn it off with `--no-ui` — see [Command-line flags](#command-line-flags) below.
 
 <Callout type="warn">
-    Anyone who reaches the dashboard can pause filling, edit price curves, move treasury funds and
+    Anyone who reaches the dashboard can pause filling, post and cancel limit orders, move treasury funds and
     send tokens out of the wallet. Do not bind it to a public interface, and do not publish its
     Docker port past `127.0.0.1`. The two options below reach it from elsewhere without exposing it.
 </Callout>

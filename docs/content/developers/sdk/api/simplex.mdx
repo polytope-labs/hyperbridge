@@ -42,7 +42,6 @@ static async start(options: SimplexOptions): Promise<Simplex>
 | `options.watchOnly` | `boolean` | Optional. Forces watch-only on every chain, whatever the config says |
 | `options.logger` | `LogSink` | Optional. Where to send log records, one NDJSON line each. Omit and the solver logs nothing |
 | `options.orderScanner` | `OrderScanner` | Optional. Gateway events for this solver. Pass one instance to several solvers to share a scan loop. Omit and the solver builds a private scanner and closes it on `stop()` |
-| `options.hyperbridgeScanner` | `HyperbridgeScanner` | Optional. Phantom orders, same ownership rule. Omit with a `hyperbridgeWsUrl` configured and the solver builds a private one |
 | `options.onConfigChange` | `(config: SimplexConfig) => void \| Promise<void>` | Optional. Called after any mutation that changes the effective config |
 
 **Returns:** `Promise<Simplex>` — a solver that is already scanning
@@ -72,11 +71,12 @@ const simplex = await Simplex.start({
 
 ## Properties
 
-### pairs, chains, vaults, assets, wallet, rebalancing
+### limitOrders, pairs, chains, vaults, assets, wallet, rebalancing
 
 The controllers. Each is documented in its own section below.
 
 ```typescript lineNumbers
+readonly limitOrders: LimitOrderController
 readonly pairs: PairController
 readonly chains: ChainController
 readonly vaults: VaultController
@@ -155,12 +155,13 @@ status(): SimplexStatus
 | Field | Type | Description |
 |------|------|-------------|
 | `paused` | `boolean` | |
+| `halted` | `boolean` | Same as `isHalted()` |
 | `address` | `HexString` | The solver's EVM account; same value as `simplex.address` |
 | `startedAt` | `number` | Epoch ms |
 | `uptimeSec` | `number` | |
 | `chains` | `number[]` | Configured chain ids |
 | `watchOnly` | `Record<number, boolean>` | |
-| `pairs` | `number` | Count of configured pairs |
+| `pairs` | `number` | Count of configured `pairs` (markets listed, not what is filled) |
 
 ### activity(limit?, beforeId?)
 
@@ -188,6 +189,17 @@ bidStats(): Promise<BidStats>
 
 **Returns:** `{ total, successful, failed, retracted, pendingRetraction }`. Watch
 `pendingRetraction` — those are deposits still locked in the solver-selection pallet.
+
+### isHalted() / resetHalt()
+
+Whether a strategy has halted itself, and a reset for it. A halted solver refuses every order until
+`resetHalt()`. With pricing on limit orders nothing currently trips the halt, so `isHalted()` stays
+`false` in practice.
+
+```typescript lineNumbers
+isHalted(): boolean
+resetHalt(): void
+```
 
 ### setAllowlist(allowlist)
 
@@ -228,6 +240,12 @@ on<E extends keyof SimplexEvents>(
 | `order:executed` | `{ orderId: string; success: boolean; strategy?: string; commitment?: HexString; txHash?: HexString; error?: string }` |
 | `order:timing` | `{ orderId: string; phase: "evaluation" \| "confirmation" \| "queue_wait" \| "execution"; durationSec: number }` |
 | `order:filled-onchain` | `{ commitment: HexString; filler: string; chainId: number }` |
+| `order:fill-observed` | `{ commitment: HexString; filler: string; chainId: number; txHash?: string; ours: boolean }` — every `OrderFilled` on a configured chain; `ours` says whether this solver won it |
+| `limit-order:posted` | `{ order: LimitOrder }` — `limitOrders.create` stored the order and the orderbook accepted it (or, for a same-asset order, it was stored unposted) |
+| `limit-order:rejected` | `{ order: LimitOrder; code: string; message: string }` — the order was stored but the orderbook refused or never answered the posting |
+| `limit-order:cancelled` | `{ order: LimitOrder }` — `limitOrders.cancel` |
+| `limit-order:resized` | `{ order: LimitOrder; delivered: string }` — a fill drew the order down by `delivered` (1e18 scale) and it went back on the book at its new size |
+| `limit-order:filled` | `{ order: LimitOrder }` — a fill took the order under the orderbook's dust floor, so it closed |
 | `rebalance` | `{ success: boolean; transferCount?: number; executedCount?: number; error?: string }` |
 | `activity` | `ActivityEvent` — every row written to the activity store |
 
@@ -243,9 +261,167 @@ simplex.on("order:filled", ({ orderId, profitUsd, chainId }) => {
 This is the whole telemetry surface — anything the solver knows about its own activity arrives
 through these events, so metrics and alerting build on them with no privileged access.
 
+## LimitOrderController
+
+`simplex.limitOrders`. The operator's limit orders: what the solver offers to pay, and what the
+HyperFX orderbook in `config.orderbook` advertises on its behalf. Every incoming swap is priced
+against the open orders, and one that matches none is not filled. The operator workflow is in
+[Limit orders](/developers/evm/simplex/limit-orders).
+
+### create(request)
+
+Validates, stores and posts one limit order, then emits `limit-order:posted` or
+`limit-order:rejected`.
+
+```typescript lineNumbers
+create(request: CreateLimitOrderRequest): Promise<PostedLimitOrder>
+```
+
+**Parameters:**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `request.fillChain` | `string` | State machine id the order fills on, e.g. `"EVM-8453"`. Must be a configured chain |
+| `request.tokenIn` | `string` | Symbol the solver takes in |
+| `request.amountIn` | `string` | Whole tokens taken in, as a decimal string: `"1000"`, `"1500.25"`. At most 18 decimal places |
+| `request.tokenOut` | `string` | Symbol the solver pays out |
+| `request.amountOut` | `string` | Whole tokens paid out, as a decimal string |
+| `request.acceptedSources` | `string[]` | Source chains whose swaps the order serves. Non-empty, no repeats |
+| `request.ttlSecs` | `number` | Optional. How long the order lives, and the TTL of its posting. Defaults to `orderbook.defaultTtlSecs`, or 365 days. Nothing renews it |
+
+The two amounts fix the rate and the side. `tokenIn` and `tokenOut` must be the two sides of a book
+the orderbook lists (see `books()`), in either orientation: taking the book's base in and paying its
+quote out is a `BID`, the other way an `ASK`. The stored rate is rounded in the solver's favour. A
+same-asset order (`tokenIn === tokenOut`) is stored and prices swaps locally but is never posted,
+and must pay out no more than it takes in.
+
+**Returns:** `PostedLimitOrder` — `{ order: LimitOrder; result }`, where `result.kind` is
+`"accepted"`, `"unchanged"`, `"rejected"` (with `code` and `message`), `"failed"` (the request got
+no usable answer, with `code`, `message` and `retryable`) or `"unposted"` for a same-asset order.
+
+**Throws:** `LimitOrderValidationError` before anything is stored when the request is malformed, the
+fill chain is not configured, the orderbook does not serve the fill chain or a source, the
+orderbook lists no `tokenIn` on a source, the pair is not a listed book, the TTL is under the
+orderbook's minimum, `amountOut` is under the orderbook's dust floor for `tokenOut`, a symbol does
+not resolve on the fill chain, the wallet plus configured vaults on the fill chain hold less
+`tokenOut` than `amountOut`, or EIP-7702 delegation on the fill chain cannot be set up. A posting
+the orderbook refuses does not throw: the row is kept as `rejected` with the reason in `lastError`.
+A retryable `failed` posting leaves the order `open` with `lastError` set, and reconciliation posts
+it again.
+
+**Example:**
+
+```typescript lineNumbers
+const { order, result } = await simplex.limitOrders.create({
+    fillChain: "EVM-8453",
+    tokenIn: "USDC",
+    amountIn: "10000",
+    tokenOut: "CNGN",
+    amountOut: "13900000",
+    acceptedSources: ["EVM-1", "EVM-8453"],
+})
+```
+
+### cancel(id)
+
+Withdraws an order and emits `limit-order:cancelled`. The row is marked `cancelled` first, so
+nothing new draws on it even if the orderbook call fails; a refusal is recorded in `lastError`.
+
+```typescript lineNumbers
+cancel(id: string): Promise<CancelledLimitOrder>
+```
+
+**Returns:** `{ order: LimitOrder; result }`, `result.kind` being `"cancelled"`, `"rejected"` or
+`"failed"`. **Throws:** `LimitOrderValidationError` for an unknown id.
+
+### list(filter?) / get(id)
+
+```typescript lineNumbers
+list(filter?: { status?: LimitOrderStatus; fillChain?: string; book?: string }): Promise<LimitOrder[]>
+get(id: string): Promise<LimitOrder | null>
+```
+
+### withFills(id)
+
+One order with the fills that drew it down and the bids that drew on it, newest first. A
+`remaining` that shrank is explained by its fills.
+
+```typescript lineNumbers
+withFills(id: string): Promise<{
+    order: LimitOrder
+    fills: LimitOrderFill[]
+    bids: StoredBid[]
+} | null>
+```
+
+### books()
+
+What the orderbook will take: the books it lists, the smallest payout (dust floor, 1e18 scale) it
+accepts per token, and the tokens it registers on each chain it serves.
+
+```typescript lineNumbers
+books(): Promise<{
+    books: { id: string; base: string; quote: string }[]
+    minOrderSizes: { symbol: string; size: string }[]
+    chains: { id: string; name: string; tokens: { symbol: string; decimals: number }[] }[]
+}>
+```
+
+### LimitOrder
+
+Amounts and prices are decimal strings at 1e18, the orderbook's unit, whatever decimals the tokens
+use on their own chains.
+
+| Field | Type | Description |
+|------|------|-------------|
+| `id` | `string` | Stable across every repost |
+| `book`, `base`, `quote` | `string` | The orderbook book and its symbols |
+| `side` | `"BID" \| "ASK"` | `BID` takes the base in and pays the quote out; `ASK` the reverse |
+| `fillChain` | `string` | State machine id the order fills on |
+| `price` | `string` | Quote per 1 base, as signed |
+| `size` | `string` | Output offered when the order was created |
+| `remaining` | `string` | Output not yet delivered |
+| `reserved` | `string` | Output held by bids that have neither filled nor been retracted |
+| `acceptedSources` | `string[]` | Never empty |
+| `ttlSecs` | `number` | |
+| `expiresAt` | `string \| null` | When the order and its posting lapse |
+| `status` | `LimitOrderStatus` | `open`, `resizing` (a fill is being settled), `filled`, `cancelled`, `expired` or `rejected` |
+| `commitment` | `string \| null` | The live posting's commitment; `null` while nothing is posted |
+| `orderNonce` | `string` | Bumped on every repost |
+| `bookExpiresAt`, `bookPrice` | `string \| null` | The live posting's expiry, and its price after the orderbook's fee |
+| `lastError` | `string \| null` | The last refusal, as `"CODE: message"` |
+| `createdAt`, `updatedAt` | `string` | SQLite-style `"YYYY-MM-DD HH:MM:SS"` in UTC |
+
+`LimitOrderFill`: `id`, `limitOrderId`, `commitment` (the swap it settled), `bid`, `amount` (what
+it drew the order down by, 1e18 in the payout token), `transactionHash`, `filledAt`.
+
+### Over HTTP
+
+The binary's operator server exposes the same controller. Mutating requests need the
+`X-Simplex-UI: 1` header. A validation error is a `400`, an unreachable orderbook a `502`, and an
+unknown id a `404`.
+
+| Route | Controller call | Response |
+|------|-----------------|----------|
+| `GET /api/limit-orders?status=&chain=&book=` | `list({ status, fillChain: chain, book })` | `{ orders: LimitOrder[] }` |
+| `POST /api/limit-orders` | `create(body)` | `{ order, result }` |
+| `GET /api/limit-orders/:id` | `withFills(id)` | `{ order, fills, bids }` |
+| `DELETE /api/limit-orders/:id` | `cancel(id)` | `{ order, result }` |
+| `GET /api/orderbook/books` | `books()` | `{ books, minOrderSizes, chains }` |
+
+### Lifecycle
+
+While the solver runs, a fill draws its order down by what was delivered and reposts the remainder,
+closing it as `filled` once what is left is under the dust floor. The solver heartbeats the
+orderbook while anything is posted, reconciles against the orderbook's copy every
+`orderbook.reconcileIntervalSecs` (default 300) — withdrawing entries no order owns and reposting
+orders whose entry has gone — and sweeps expired orders every 30 seconds.
+
 ## PairController
 
-`simplex.pairs`. Every mutation applies to the live engine and binds on the next order evaluation.
+`simplex.pairs`. The markets the operator dashboard lists. Pairs do not gate matching or carry
+prices — the solver fills against limit orders alone — and a config may have none. Adding a
+cross-asset pair also adds its `token1` to the balances the solver tracks.
 
 ### list()
 
@@ -259,15 +435,11 @@ list(): PairView[]
 |------|------|-------------|
 | `index` | `number` | Position in `config.pairs` |
 | `token0`, `token1` | `string` | Registry symbols |
-| `maxOrderSize` | `string` | Per-order cap in token0 units. Absent for reference-only pairs |
-| `bid`, `ask` | `PriceCurvePoint[]` | Absent when that direction is closed |
 | `sameToken` | `boolean` | `token0 === token1`: the same-asset cross-chain market |
-| `referenceOnly` | `boolean` | Price feed for the USD anchor graph; never opens a market |
-| `venuePriced` | `boolean` | No static curves — priced from a Uniswap V4 pool |
 
 ### add(pair, options?)
 
-Opens a new market. Validated against the same rules boot applies, so a pair accepted here is one a
+Adds a market. Validated against the same rules boot applies, so a pair accepted here is one a
 restart would also accept.
 
 ```typescript lineNumbers
@@ -281,61 +453,21 @@ add(
 
 | Name | Type | Description |
 |------|------|-------------|
-| `pair` | `PairConfig` | `token0`, `token1`, `maxOrderSize`, and bid/ask curves |
+| `pair` | `PairConfig` | `{ token0, token1 }` |
 | `options.assets` | `Record<string, AssetDefinition>` | Optional. Custom tokens to register first, so the pair's symbols resolve |
 
-**Throws:** If the pair duplicates an existing market or its reverse, a symbol does not resolve to a
-deployed contract on any configured chain, or the resulting book has no USD anchor.
+**Throws:** If the pair duplicates an existing market or its reverse, a symbol is unknown, or a
+symbol does not resolve to a deployed contract on any configured chain.
 
 ### remove(index)
 
-Closes a market. Orders already in flight against it still complete.
+Removes a market. Indices after it shift down.
 
 ```typescript lineNumbers
 remove(index: number): Promise<void>
 ```
 
-### setCurve(index, side, points)
-
-Replaces one side's price curve. Mutates the policy instance the engine prices with, so the new curve
-is live on the next evaluation.
-
-```typescript lineNumbers
-setCurve(
-    index: number,
-    side: "bid" | "ask",
-    points: PriceCurvePoint[],
-): Promise<void>
-```
-
-**Example:**
-
-```typescript lineNumbers
-feed.on("tick", async ({ mid }) => {
-    const bid = (mid * 0.999).toFixed(4)
-    const ask = (mid * 1.001).toFixed(4)
-    await simplex.pairs.setCurve(0, "bid", [{ amount: "0", price: bid }])
-    await simplex.pairs.setCurve(0, "ask", [{ amount: "0", price: ask }])
-})
-```
-
-### clearCurve(index, side)
-
-Closes a direction — the pair becomes a one-sided LP. The other side keeps filling.
-
-```typescript lineNumbers
-clearCurve(index: number, side: "bid" | "ask"): Promise<void>
-```
-
-### setMaxOrderSize(index, value)
-
-Resizes the per-order cap, in token0 units.
-
-```typescript lineNumbers
-setMaxOrderSize(index: number, value: string): Promise<void>
-```
-
-**Throws:** If `value` is not a positive finite decimal string.
+**Throws:** For an unknown index, or when it is the last pair.
 
 ## ChainController
 
@@ -382,8 +514,8 @@ Drains in-flight fills first, then stops scanning the chain and drops it from th
 remove(chainId: number): Promise<void>
 ```
 
-**Throws:** If a vault or Uniswap V4 position still names the chain. Those hydrate per chain at boot,
-and one left behind would fail the next start.
+**Throws:** If a vault entry still names the chain. Vaults hydrate per chain at boot, and one left
+behind would fail the next start.
 
 ### setRpcUrls(chainId, rpcUrls)
 
@@ -595,14 +727,15 @@ const signer = digestSigner({
 
 ## Persistence
 
-Three things survive a restart: the bids submitted, the activity feed, and whether the operator
-paused. They live behind `SimplexDataStore`.
+Four things survive a restart: the bids submitted, the operator's limit orders, the activity feed,
+and whether the operator paused. They live behind `SimplexDataStore`.
 
 ```typescript lineNumbers
 interface SimplexDataStore {
     bids: BidStore
     activity: ActivityStore
     state: StateStore
+    limitOrders: LimitOrderStore
     close?(): Promise<void>
 }
 ```
@@ -615,6 +748,7 @@ promises. The async signature is what lets a consumer back these with Postgres, 
 ```typescript lineNumbers
 store(bid: BidInsert): Promise<void>
 byCommitment(commitment: string): Promise<StoredBid | null>
+byCommitments(commitments: string[]): Promise<StoredBid[]>
 unretractedReclaimable(): Promise<StoredBid[]>
 expiredUnretracted(maxAgeMs: number): Promise<StoredBid[]>
 markRetracted(
@@ -622,6 +756,8 @@ markRetracted(
     retractExtrinsicHash: string | null,
 ): Promise<boolean>
 markDead(commitment: string): Promise<boolean>
+claimReservation(commitment: string, bid?: string): Promise<LimitOrderHold[]>
+byLimitOrder(limitOrderId: string, limit?: number): Promise<StoredBid[]>
 recent(limit?: number): Promise<StoredBid[]>
 failed(limit?: number): Promise<StoredBid[]>
 byDateRange(from: Date, to: Date): Promise<StoredBid[]>
@@ -642,8 +778,14 @@ failed attempt retries on the next sweep rather than waiting out the TTL.
 retraction, so "no bid" means there is nothing left to reclaim and no hash is available. Both mark
 methods resolve `false` when nothing matched, which callers treat as success rather than an error.
 
-`StoredBid`: `id`, `commitment`, `extrinsicHash`, `blockHash`, `success`, `pending`, `error`,
-`createdAt`, `retracted`, `retractedAt`, `retractExtrinsicHash`, `dead`.
+`StoredBid`: `id`, `commitment`, `bid`, `extrinsicHash`, `blockHash`, `success`, `pending`, `error`,
+`createdAt`, `retracted`, `retractedAt`, `retractExtrinsicHash`, `dead`, `reservations`.
+
+Several bids can share a commitment — the solver sends one bid per matching limit order — so `bid`
+(the identifier Hyperbridge files it under) tells them apart. `reservations` lists the
+`{ limitOrderId, amount }` holds a bid took against limit orders; `claimReservation` hands them over
+exactly once when the bid settles, for one named bid or every outstanding hold on the commitment.
+`byLimitOrder` reads back the bids that drew on an order.
 
 `pending` marks a submission that timed out with its extrinsic still in Hyperbridge's pool. It is
 neither success nor failure: the extrinsic may yet land and reserve a deposit, so a pending row
@@ -659,13 +801,22 @@ recent(limit?: number, beforeId?: number): Promise<ActivityEvent[]>
 fills(limit?: number): Promise<ActivityEvent[]>
 recordWalletTx(tx: Omit<WalletTx, "id" | "ts">): Promise<void>
 walletTxs(limit?: number): Promise<WalletTx[]>
+walletTxsWithoutAmounts(limit?: number): Promise<WalletTx[]>
+updateWalletTx(id: number, patch: Pick<WalletTx, "token" | "amount" | "to" | "tokenIn" | "amountIn">): Promise<void>
+orderIdsMissingSummary(limit?: number): Promise<string[]>
+attachOrder(orderId: string, order: OrderSummary): Promise<ActivityEvent[]>
+orderHistory(page: number, pageSize: number): Promise<OrderHistoryPage>
+knowsOrder(orderId: string): Promise<boolean>
+unsettledOrders(limit?: number): Promise<string[]>
+retypeLegacyBid(orderId: string): Promise<ActivityEvent[]>
 ```
 
 Observability rather than correctness: dropping a row costs a line in the activity view and nothing
 else, so an implementation may prune, sample or cap history freely.
 
-`ActivityEvent`: `id`, `ts`, `type` (`"detected" | "filled" | "executed" | "skipped" | "rebalance"`),
-`orderId`, `chainId`, `strategy`, `success`, `reason`, `volumeUsd`, `profitUsd`, `txHash`.
+`ActivityEvent`: `id`, `ts`, `type` (`"detected" | "bid" | "filled" | "lost" | "executed" | "skipped" | "rebalance"`),
+`orderId`, `chainId`, `strategy`, `success`, `reason`, `volumeUsd`, `profitUsd`, `txHash`, `order`
+(an `OrderSummary` of the swap, or `null`).
 
 ### StateStore
 
@@ -675,13 +826,43 @@ set(state: RuntimeState): Promise<void>
 patch?(patch: Partial<RuntimeState>): Promise<RuntimeState>
 ```
 
-`RuntimeState` is `{ paused?: boolean, phantomBids?: Record<string, string> }`.
+`RuntimeState` is `{ paused?: boolean }`.
 
 `set` replaces the whole record. `patch` is optional and merges, leaving keys it does not name
 untouched — implement it if your backend can do that atomically. The fallback when you do not is a
-read, a merge and a write back, which loses a key another writer set in between. That race is real
-on a running filler: `paused` is written by the operator and `phantomBids` by the bid batch, from
-different places at unrelated times.
+read, a merge and a write back, which loses a key another writer set in between.
+
+### LimitOrderStore
+
+```typescript lineNumbers
+create(order: LimitOrderInsert): Promise<LimitOrder>
+get(id: string): Promise<LimitOrder | null>
+list(filter?: LimitOrderFilter): Promise<LimitOrder[]>
+open(): Promise<LimitOrder[]>
+setPosting(id: string, posting: LimitOrderPosting, only?: LimitOrderStatus[]): Promise<LimitOrder | null>
+setStatus(id: string, status: LimitOrderStatus, lastError?: string | null, only?: LimitOrderStatus[]):
+    Promise<LimitOrder | null>
+reserve(id: string, amount: string): Promise<boolean>
+release(id: string, amount: string): Promise<void>
+drawDown(id: string, amount: string): Promise<LimitOrder | null>
+recordFill(fill: LimitOrderFillInsert): Promise<void>
+fills(limitOrderId: string, limit?: number): Promise<LimitOrderFill[]>
+transaction<T>(settle: () => Promise<T>): Promise<T>
+```
+
+<Callout type="warn">
+    Correctness-critical, like `BidStore`. `remaining` and `reserved` are inventory: they are what
+    stop two chains paying out the same liability twice, so a store that loses writes overcommits
+    real money.
+</Callout>
+
+`open()` is what the matcher prices against. `setPosting` and `setStatus` take an optional `only`
+list and write only while the row still holds one of those statuses, answering `null` otherwise, so
+a slow orderbook answer cannot undo a cancel or expiry that landed first. `reserve` adds a hold
+only while the order is `open` and `remaining` covers that one hold. `drawDown` works the order down
+by delivered output, floored at zero. `transaction` runs a fill's settlement — claim the bid's
+holds, draw the order down, record the fill — as one unit where the backend can; the bundled SQLite
+store keeps limit orders in the same database as bids for that reason.
 
 ### Implementations
 
@@ -691,8 +872,8 @@ different places at unrelated times.
 | `SqliteDataStore` | `@hyperbridge/simplex/sqlite` | Durable. Built on `node:sqlite`, so nothing to install |
 
 `SqliteDataStore(dataDir)` keeps `bids.db` and `activity.db` in the given directory, so a data
-directory written by the binary is picked up unchanged. Operator state rides in `bids.db` beside
-the bids, and implements `patch`; a `runtime-state.json` from an earlier version is imported once
+directory written by the binary is picked up unchanged. Limit orders and operator state ride in
+`bids.db` beside the bids, and implements `patch`; a `runtime-state.json` from an earlier version is imported once
 and then removed. It is built on Node's
 built-in `node:sqlite`, so there is no native module to install or compile — which is why the
 package requires Node 22.16 or newer.
@@ -706,6 +887,7 @@ const store: SimplexDataStore = {
     bids: new PostgresBidStore(pool),
     activity: new PostgresActivityStore(pool),
     state: new RedisStateStore(redis),
+    limitOrders: new PostgresLimitOrderStore(pool),
     close: () => pool.end(),
 }
 
@@ -779,28 +961,6 @@ gap. It throws on a chain the scanner does not have.
 
 Every `ScannedFill` reaches every subscriber: `filler` is `indexed: false` on both `OrderFilled` and
 `PartialFill`, so it can never be narrowed to a topic filter.
-
-### HyperbridgeScanner.create(wsUrl, options?)
-
-```typescript lineNumbers
-static async create(
-    wsUrl: string,
-    options?: { loggers?: LoggerContext },
-): Promise<HyperbridgeScanner>
-
-subscribe(handlers: {
-    // One call per Hyperbridge block: every phantom order registered in it.
-    // Solvers bid on the whole batch in a single extrinsic.
-    onPhantomOrders(orders: PhantomOrderEvent[]): void
-    onError?(error: unknown): void
-}): Subscription
-close(): Promise<void>
-```
-
-Carries phantom orders — the quote requests solvers respond to, which is how Hyperbridge indexes
-prices. One poll feeds every solver reading it, instead of one poll per solver.
-
-Reads only. Bids are signed with a solver's own substrate key on its own connection.
 
 ### Scanner ownership
 
@@ -900,36 +1060,50 @@ Useful for gating input from a form, a database or an API before committing to a
 | Function | Purpose |
 |----------|---------|
 | `validateConfig(config, cliWatchOnly?)` | The full config |
-| `validatePairConfigs(pairs, userAssets?, hasVenuePricing?)` | `pairs` against the asset table |
+| `validatePairConfigs(pairs, userAssets?)` | A non-empty `pairs` array against the asset table: no duplicate or reversed market, every symbol known |
 | `validateAssetDefinitions(assets)` | Custom asset entries |
 | `assertConfirmationCoverage(policies, chainIds)` | Every configured chain has a confirmation curve |
 | `validateVaultToml(vaults)` | Vault treasury entries; takes the array, not one entry |
-| `validateUniswapV4Positions(positions)` | V4 position entries |
-| `bookCrossedAt(bid, ask)` | First amount where bid ≤ ask, or `null`. A crossed book is legal but means a full round trip loses money |
-| `unanchoredToken0Symbols(pairs)` | token0 symbols with no path to a USD anchor. Each entry needs `{ token0, token1, hasCurve }` |
-| `pickAnchorStable(pairs, symbol)` | Which USD stable can carry a reference feed for a symbol |
+| `pickAnchorStable(pairs, symbol)` | The first USD stable with no market against a symbol yet, or `null` |
 | `normalizeSymbol(symbol)` | Trimmed, uppercased |
 | `isRegistrySymbol(symbol)` / `registrySymbols()` | Built-in registry membership |
 | `parseChainKey(key)` / `formatChainKey(id)` | `"EVM-1"` ↔ `1` |
 
-`USD_STABLE_SYMBOLS` is the set of symbols pegged to one dollar, used to seed the USD anchor graph.
+`validateConfig` requires an `orderbook` section with a `url`, and checks `defaultTtlSecs` (at least
+900), `reconcileIntervalSecs` and `requestTimeoutMs` are positive integers. Limit orders are not
+config and are validated by `limitOrders.create` against the live orderbook.
+
+`USD_STABLE_SYMBOLS` is the set of symbols pegged to one dollar. Confirmation depth is sized in USD,
+and a token's USD value is derived from these stables through the rates of the operator's open
+limit orders.
 
 ## Types
 
 Exported from `@hyperbridge/simplex`:
 
 `SimplexConfig`, `SimplexOptions`, `SimplexEvents`, `SimplexStatus`, `PairView`, `ChainView`,
-`ChainInput`, `PairConfig`, `AssetDefinition`, `PriceCurvePoint`, `PriceCurveConfig`, `CurvePoint`,
-`CurveConfig`, `ChainConfirmationPolicy`, `QueueConfig`, `RebalancingConfig`, `BinanceConfig`,
-`VaultToml`, `VaultTomlConfig`, `UniswapV4PositionToml`, `FillerConfigFile`, `Signer`, `DerivingSigner`, `Signature`, `TypedDataPayload`, `SignerTransaction`,
-`AuthorizationRequest`, `Eip7702Authorization`, `SignerConfig`, `SignerType`,
-`PrivateKeySignerConfig`, `SecretPhraseSignerConfig`, `MpcVaultSignerConfig`, `TurnkeySignerConfig`, `AllowlistConfig`,
-`UserProvidedChainConfig`, `ResolvedChainConfig`, `BalanceSnapshot`, `ChainBalanceRow`,
-`HyperbridgeBalance`, `SimplexDataStore`, `BidStore`, `ActivityStore`, `StateStore`, `StoredBid`,
-`BidInsert`, `BidStats`, `ActivityEvent`, `ActivityInsert`, `ActivityType`, `WalletTx`,
+`ChainInput`, `PairConfig`, `AssetDefinition`, `CurvePoint`, `CurveConfig`, `ChainConfirmationPolicy`,
+`QueueConfig`, `RebalancingConfig`, `BinanceConfig`, `VaultToml`, `VaultTomlConfig`,
+`FillerTomlConfig`, `FillerConfigFile`, `Signer`, `DerivingSigner`, `Signature`, `TypedDataPayload`,
+`SignerTransaction`, `AuthorizationRequest`, `Eip7702Authorization`, `SignerConfig`, `SignerType`,
+`PrivateKeySignerConfig`, `SecretPhraseSignerConfig`, `MpcVaultSignerConfig`, `TurnkeySignerConfig`,
+`AllowlistConfig`,
+`UserProvidedChainConfig`, `ResolvedChainConfig`, `BalanceSnapshot`, `BalanceIssue`,
+`AssetBalanceRow`, `ChainBalanceRow`, `VaultBalanceRow`, `HyperbridgeBalance`, `VaultSweepResult`,
+`VaultSweepDeposit`, `VaultSweepSkip`, `VaultSweepSkipReason`, `VaultSweepSubmission`, `SolverWork`,
+`SimplexDataStore`, `BidStore`, `ActivityStore`, `StateStore`, `StoredBid`, `BidInsert`, `BidStats`,
+`ActivityEvent`, `ActivityInsert`, `ActivityType`, `OperatorNotification`, `WalletTx`,
 `WalletTxKind`, `RuntimeState`, `LogLevel`, `Logger`, `LogSink`, `LoggerContext`, `OrderScanner`,
-`HyperbridgeScanner`, `OrderScannerHandlers`, `HyperbridgeScannerHandlers`, `ScannerChainConfig`,
+`OrderScannerContract`, `OrderScannerHandlers`, `OrderScannerOptions`, `ScannerChainConfig`,
 `ScannedOrder`, `ScannedFill`, `Subscription`.
 
-Controller classes are exported as types too: `PairController`, `ChainController`, `VaultController`,
-`AssetController`, `WalletController`, `RebalanceController`.
+Controller classes are exported as values: `PairController`, `ChainController`, `VaultController`,
+`AssetController`, `WalletController`, `RebalanceController`. You receive them from a `Simplex`;
+never construct one.
+
+<Callout type="info">
+    `LimitOrderController` and the limit-order types — `LimitOrder`, `LimitOrderFill`,
+    `LimitOrderStore`, `CreateLimitOrderRequest`, `PostedLimitOrder` — are not yet exported from the
+    package root. Reach them through `simplex.limitOrders` and inference, e.g.
+    `Parameters<Simplex["limitOrders"]["create"]>[0]`.
+</Callout>

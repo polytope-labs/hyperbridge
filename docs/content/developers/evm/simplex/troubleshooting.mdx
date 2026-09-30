@@ -5,34 +5,72 @@ description: What the common Simplex failures mean and what to change.
 
 # Troubleshooting
 
-For verbose output, set `logging = "debug"` in `[simplex]`. Report bugs to the Hyperbridge GitHub with full logs (redact private keys).
+For verbose output, set `logging = "debug"` in `[simplex]`, or pick a level on the dashboard's **Logs** page. Report bugs to the Hyperbridge GitHub with full logs (redact private keys).
+
+## **Nothing is being filled**
+
+Check the **Limit orders** list on the Overview page. Simplex fills only against open limit orders, so a solver with none posted skips every order. If orders are open, look in the log for `No limit order matches this order`. Its `reason` names the check the closest order failed:
+
+| Reason | What to change |
+|---|---|
+| no limit order is open | Post a [limit order](/developers/evm/simplex/limit-orders). |
+| none fills on the order's destination chain | Post an order that fills on that chain. |
+| none takes the order's input token in / none pays out the token the order asks for | You have no order in that direction. Remember that each order is one-way. |
+| none accepts swaps from the order's source chain | Post a new order that includes that chain in **Accepts swaps from**. |
+| it asks for X; the best limit order offers Y | Your rate is worse than the swapper wants. |
+| the orders that meet its rate have nothing left to pay out | Your orders at that rate are used up. Post more depth. |
+
+---
 
 ## **No profitable strategy found**
-Gas prices may be too high relative to the order fee, or your pair curves may be set too conservatively. Check balances on the destination chain and review current gas prices.
+
+The order matched, but `order.fees` do not cover gas plus, for cross-chain orders, the relayer fee. Or a same-asset transfer would not net a positive spread. See [How orders are matched and filled](/developers/evm/simplex/limit-orders#how-orders-are-matched-and-filled). This is normal for orders with low fees.
+
+---
+
+## **A limit order is refused when posting**
+
+The form shows the reason. The common ones are:
+
+- **The wallet cannot pay it out**, for example `The wallet holds 1000 in the wallet and 200 in vaults USDC on EVM-8453, which cannot pay out 1500`. Fund the fill chain, or post a smaller amount.
+- **Below the orderbook's dust floor.** The amount paid out is under the orderbook's minimum for that token.
+- **The pair, token or chain is not served.** The orderbook does not list that token on the fill chain or on one of the accepted source chains.
+
+---
+
+## **A limit order is amber, or shows `UNDER_FUNDED`**
+
+An amber **On the book** badge means the order is open, but the last posting or check reported a problem. Open the order to read it. A failed posting is retried on the next reconciliation. `UNDER_FUNDED` means your balance on the fill chain no longer covers the order, so the orderbook advertises less than its size. Top up the chain or cancel the order.
+
+---
+
+## **`Orderbook at <url> returned HTTP 405`, or other orderbook errors**
+
+Check `[orderbook] url`. It should be the HyperFX GraphQL endpoint for your network, such as `https://orderbook.hyperfx.finance/mainnet/graphql`. While the orderbook is unreachable, Simplex keeps filling against its local copy of your limit orders, but cannot post new ones.
 
 ---
 
 ## **Insufficient token balances**
-Deposit more stablecoins (and non-USD tokens for cross-asset pairs) on the destination chains.
+
+Deposit more of the token your limit orders pay out on their fill chains, or let your [treasury vaults](/developers/evm/simplex/treasury) hold it.
 
 ---
 
 ## **RPC rate limiting (429 errors)**
-Switch to a premium RPC provider or reduce `maxConcurrentOrders`.
+
+Switch to a premium RPC provider, reduce `maxConcurrentOrders`, or raise `blockScanIntervalSeconds`.
 
 ---
 
 ## **Bid submission fails**
-Confirm `substratePrivateKey`, `hyperbridgeWsUrl`, and `bundlerUrl` are set in `[simplex]`, and that your Substrate account has BRIDGE tokens. On chains with a paymaster (Circle or Simplex), make sure the solver's smart account holds at least 1 USDC (or 1 USDT, for the `SimplexPaymaster`) so the paymaster can cover gas. On chains without any paymaster, the solver needs native balance — Simplex automatically tops up the ERC-4337 EntryPoint deposit to cover `targetGasUnits` (default 3M) at current gas price. If using MPC Vault, verify the client-signer container is running and reachable.
+
+- Confirm that `substratePrivateKey`, `hyperbridgeWsUrl`, and each chain's `bundlerUrl` are set, and that your Substrate account holds BRIDGE tokens.
+- On chains with a paymaster (Circle or Simplex), make sure the solver's smart account holds at least 1 USDC (or 1 USDT for the `SimplexPaymaster`), so the paymaster can cover gas.
+- On chains without a paymaster, the solver needs a native balance. Simplex automatically tops up the ERC-4337 EntryPoint deposit to cover `targetGasUnits` (3M by default) at the current gas price.
+- If you use MPC Vault, verify that the client-signer container is running and reachable.
 
 ---
 
-## **Funding venue withdrawal failed**
-Confirm the LP position has sufficient liquidity and that the token addresses match the pair's configured tokens. Verify the `tokenId` exists and is owned by the solver account. Check logs for specific revert reasons.
+## **Vault withdrawal failed**
 
----
-
-## **Venue price returns null / bid-ask not updating**
-Confirm the configured positions contain a pool that pairs the exotic token with **USDC or USDT**. Pools with other quote tokens cannot derive a USD price from the Uniswap V4 venue. Check that the position's `tokenId` is valid and owned by the solver.
-
----
+A fill withdraws any shortfall from your ERC-4626 vaults in the same transaction. Check that the vault holds enough of the underlying token, and that it is not paused or capping withdrawals. The log includes the revert reason.

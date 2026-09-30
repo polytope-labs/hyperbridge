@@ -20,8 +20,8 @@ export interface CurveConfig {
 /**
  * Built-in per-chain confirmation curves for the supported mainnets, merged
  * under any user-supplied `[confirmationPolicies]` entries at startup. The
- * curve amount axis is the order's USD value (derived from the pair curves
- * via the USD anchors); the value is the confirmation depth in blocks.
+ * curve amount axis is the order's USD value (USD stables at $1, other tokens
+ * through the open limit orders' rates); the value is the confirmation depth in blocks.
  */
 export const DEFAULT_CONFIRMATION_POLICIES: Record<string, CurveConfig> = {
 	"1": {

@@ -55,14 +55,24 @@ simplex.on("order:filled", ({ orderId, profitUsd }) => {
 })
 
 // Every runtime control the dashboard offers is a method — nothing needs a restart.
-await simplex.pairs.setCurve(0, "ask", [{ amount: "0", price: "1550" }])
+// Prices come from limit orders posted to the HyperFX orderbook: 10,000 USDC in for
+// 13,900,000 CNGN out, filled on Base, for swaps from Ethereum or Base.
+await simplex.limitOrders.create({
+    fillChain: "EVM-8453",
+    tokenIn: "USDC",
+    amountIn: "10000",
+    tokenOut: "CNGN",
+    amountOut: "13900000",
+    acceptedSources: ["EVM-1", "EVM-8453"],
+})
 await simplex.chains.setRpcUrls(8453, ["https://base-new.example"])
 
 await simplex.stop()
 ```
 
 `Simplex.start` takes a plain config object — no TOML file required — and returns once the solver is
-running. It logs nothing until you point `logger` at a sink, so importing the package never writes to
+running. The config must name an `orderbook`; it carries no prices, and the solver fills only against
+the limit orders you create while it runs. It logs nothing until you point `logger` at a sink, so importing the package never writes to
 your stdout.
 
 Signing is an interface, not a setting. `Signer` is an identity and three operations — sign this
@@ -90,7 +100,7 @@ still `simplex`. Prefer a container? The same binary ships as
 Hub page.
 
 With no config present, `simplex` opens a local browser wizard that walks through the minimum setup
-(chains, RPCs, bundlers, signer, Hyperbridge account, strategies), validates every endpoint live,
+(chains, RPCs, bundlers, signer, Hyperbridge account), validates every endpoint live,
 writes a commented `filler-config.toml` (mode 600) and starts the solver in the same process.
 `simplex init` is the equivalent terminal wizard.
 
@@ -101,12 +111,11 @@ With a config present (`./filler-config.toml`, `$SIMPLEX_HOME/config.toml`, or `
 
 The solver serves a local web UI at `127.0.0.1:8686` by default:
 
-- setup wizard (when no config exists) — private key, secret phrase, MPCVault or Turnkey signer, static curves or Uniswap V4 pool pricing
+- setup wizard (when no config exists) — private key, secret phrase, MPCVault or Turnkey signer, chains and endpoints
 - status, pause/resume (persists across restarts), graceful stop, balances per chain
 - live activity feed (orders detected/filled/skipped, bids, rebalances) streamed over SSE
+- limit orders: post, inspect with the fills that drew them down, and cancel
 - operations: manual vault sweep/redeem, runtime allowlist editing, log level switch, rebalancing trigger view, masked config view
-- inflight FX price curve updates without a restart, persisted back to the config file
-- overfill-protection self-halts surfaced with an operator reset
 
 Flags:
 
@@ -124,18 +133,26 @@ every line simplex writes to stdout one JSON object, with no ANSI escapes, which
 file needs. (One caveat: `@polkadot/api` prints a plain-text line to stdout if the Hyperbridge runtime
 upgrades while the solver is running, so parse defensively.)
 
-The curve-update API:
+The limit-order API:
 
 ```bash
-curl http://127.0.0.1:8686/api/strategies
-curl -X PUT http://127.0.0.1:8686/api/strategies/0/curves \
+curl http://127.0.0.1:8686/api/orderbook/books           # books, dust floors, tokens per chain
+curl http://127.0.0.1:8686/api/limit-orders?status=open  # also ?chain= and ?book=
+curl -X POST http://127.0.0.1:8686/api/limit-orders \
     -H "Content-Type: application/json" -H "X-Simplex-UI: 1" \
-    -d '{"askPriceCurve": [{"amount": "0", "price": "1550"}]}'
+    -d '{"fillChain": "EVM-8453", "tokenIn": "USDC", "amountIn": "10000",
+         "tokenOut": "CNGN", "amountOut": "13900000", "acceptedSources": ["EVM-1", "EVM-8453"]}'
+curl http://127.0.0.1:8686/api/limit-orders/<id>          # { order, fills, bids }
+curl -X DELETE http://127.0.0.1:8686/api/limit-orders/<id> -H "X-Simplex-UI: 1"
 ```
 
-Curve changes apply immediately and are written back to the config file (regenerated with standard
-comments) so restarts keep them. Venue-priced strategies and disabled sides (one-sided LP) are not
-editable. The server is unauthenticated — mutating requests need the `X-Simplex-UI: 1` header (CSRF
+Amounts are whole tokens as decimal strings. `acceptedSources` must name at least one source chain,
+and `ttlSecs` is optional (default `[orderbook] defaultTtlSecs`, or 365 days). Orders live in
+`bids.db`, not the config file: a fill draws an order down and reposts the rest, and it lapses when
+its TTL runs out. See the
+[limit orders guide](https://docs.hyperbridge.network/developers/evm/simplex/limit-orders/).
+
+The server is unauthenticated — mutating requests need the `X-Simplex-UI: 1` header (CSRF
 hygiene), and both the wizard and the operator UI bind loopback unless told otherwise. Only bind
 another interface (e.g. `--ui 0.0.0.0:8686`, which the docker image does inside its own network
 namespace) on a trusted network.

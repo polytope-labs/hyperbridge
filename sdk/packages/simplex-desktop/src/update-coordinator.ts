@@ -95,6 +95,7 @@ export class UpdateCoordinator {
 			appVersion: string
 			store: UpdateStore
 			probeSolver: () => Promise<SolverStatus>
+			canRestartSolver: () => boolean
 			requestSolverStop: () => Promise<void>
 			restartSolver: () => Promise<void>
 			waitForExit: (pid: number) => Promise<boolean>
@@ -366,6 +367,10 @@ export class UpdateCoordinator {
 		}
 		if (!solver.pid) {
 			this.defer(new Error("Solver did not report its process id"))
+			return this.scheduleIdleRetry()
+		}
+		if (!this.options.canRestartSolver()) {
+			this.defer(new Error("Unlock Simplex to install the staged update"))
 			return this.scheduleIdleRetry()
 		}
 

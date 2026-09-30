@@ -111,12 +111,6 @@ function openSseStream(req: IncomingMessage, res: ServerResponse, clients: Set<S
 	res.once("error", cleanup)
 }
 
-/**
- * One curve-priced trading pair's editable price curves. The policies are the
- * same instances the running engine prices with, so `replacePoints` takes
- * effect on the next order evaluation. A side is absent when it cannot be
- * edited: disabled (one-sided LP) or venue-priced (both sides absent).
- */
 /** One market the engine serves, as the operator's market list shows it. */
 export interface AdminStrategy {
 	/** Stable identifier for the API. */
@@ -243,6 +237,8 @@ export interface OperatorContext {
 	startedAt: number
 	/** Where runtime config edits are written back. Absent for a config-object filler. */
 	configPath?: string
+	/** Desktop persistence encrypts every config edit before it reaches disk. */
+	writeConfigFile?: (path: string, content: string) => void
 	chains: number[]
 	strategyTypes: string[]
 	/** Filler accounts, shown permanently on the dashboard for funding. */
@@ -252,6 +248,7 @@ export interface OperatorContext {
 export interface SetupContext {
 	/** Default path the wizard writes the config to. */
 	configPath: string
+	writeConfigFile?: (path: string, content: string) => void
 	/** Writes the config and boots the filler; the caller flips the server into operator mode. */
 	onSaveAndStart(config: FillerConfigFile, toml: string, path: string): Promise<void>
 	/** Stops the init-mode process when onboarding has not started booting the filler. */
@@ -380,8 +377,8 @@ function assertSocketPathFits(path: string): void {
 /**
  * Loopback HTTP server embedded in the simplex process. Serves the bundled SPA
  * and a JSON API in one of two modes: `init` (setup wizard endpoints, before a
- * config exists) or `operator` (status/pause/balances plus inflight price curve
- * updates on the running strategies). Unauthenticated: binding is the boundary —
+ * config exists) or `operator` (status/pause/balances, limit orders and the
+ * other runtime controls). Unauthenticated: binding is the boundary —
  * init mode refuses non-loopback hosts outright.
  */
 export class UiServer {
@@ -421,9 +418,11 @@ export class UiServer {
 	private configuredChainIds?: number[]
 	private readonly version: string
 	private readonly notificationAckTimeoutMs: number
+	private readonly configEncrypted: boolean
 
 	constructor(opts: {
 		mode: UiMode
+		configEncrypted?: boolean
 		uiDistDir?: string
 		setup?: SetupContext
 		operator?: OperatorContext
@@ -435,6 +434,7 @@ export class UiServer {
 		notificationAckTimeoutMs?: number
 	}) {
 		this.mode = opts.mode
+		this.configEncrypted = opts.configEncrypted === true
 		this.operator = opts.operator
 		this.setup = opts.setup
 		this.uiDistDir = opts.uiDistDir
@@ -886,7 +886,12 @@ export class UiServer {
 
 		if (path === "/health") {
 			const status = this.stopping ? "stopping" : this.startState === "starting" ? "starting" : "ok"
-			return sendJson(res, 200, { status, mode: this.mode, pid: process.pid })
+			return sendJson(res, 200, {
+				status,
+				mode: this.mode,
+				pid: process.pid,
+				...(this.configEncrypted ? { configEncrypted: true } : {}),
+			})
 		}
 
 		if (path === "/api/status") {
@@ -1593,7 +1598,7 @@ export class UiServer {
 
 	/**
 	 * DELETE /api/strategies/:index — removes a market. The remaining config
-	 * must still validate (at least one market, no orphaned USD anchor) before
+	 * must still validate (at least one market) before
 	 * anything mutates. Funds are never touched: vault treasury is per-asset
 	 * and stays configured regardless of markets.
 	 */
@@ -1633,7 +1638,7 @@ export class UiServer {
 		if (!op.configPath) return false
 		try {
 			const chainComments = this.configChainIds().map((id) => chainLabel(id))
-			writeConfigFileAtomic(op.configPath, emitFillerToml(op.config, { chainComments }))
+			;(op.writeConfigFile ?? writeConfigFileAtomic)(op.configPath, emitFillerToml(op.config, { chainComments }))
 			return true
 		} catch (err) {
 			this.logger.warn({ err, configPath: op.configPath }, "Change applied in memory but could not be persisted")

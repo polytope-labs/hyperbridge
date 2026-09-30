@@ -135,6 +135,24 @@ describe("native desktop menus", () => {
 		expect(item(stopping, "update-channel").enabled).toBe(false)
 	})
 
+	it("disables privileged menu actions until this desktop session is unlocked", () => {
+		const template = buildTrayMenuTemplate({ ...runningModel, locked: true, versionSkew: true }, actions())
+		for (const id of [
+			"toggle-pause",
+			"stop-solver",
+			"restart-solver",
+			"restart-bundled-solver",
+			"stop-and-quit",
+			"open-current-log",
+			"check-for-updates",
+			"update-channel",
+		]) {
+			expect(item(template, id).enabled).toBe(false)
+		}
+		expect(item(template, "solver-status").label).toBe("Simplex locked")
+		expect(item(template, "show-simplex").enabled).not.toBe(false)
+	})
+
 	it("labels every solver status", () => {
 		for (const [state, label] of [
 			["starting", "Solver: Starting…"],

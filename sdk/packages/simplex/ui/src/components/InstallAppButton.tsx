@@ -17,6 +17,7 @@ import {
 	ResponsiveDialogDescription,
 	ResponsiveDialogTitle,
 } from "./ui/ResponsiveDialog"
+import { isNativeDesktopProtocol } from "../lib/runtime"
 
 interface BeforeInstallPromptEvent extends Event {
 	prompt(): Promise<void>
@@ -41,12 +42,15 @@ interface InstallAppContextValue {
 const InstallAppContext = createContext<InstallAppContextValue | null>(null)
 
 export function InstallAppProvider(props: { children: ReactNode }) {
+	const nativeDesktop = isNativeDesktopProtocol(window.location.protocol)
 	const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent>()
 	const [installed, setInstalled] = useState(isStandalone)
 	const [guideOpen, setGuideOpen] = useState(false)
 	const platform = installPlatform()
 
 	useEffect(() => {
+		if (nativeDesktop) return
+
 		const handleBeforeInstallPrompt = (event: Event) => {
 			event.preventDefault()
 			setDeferredPrompt(event as BeforeInstallPromptEvent)
@@ -63,7 +67,7 @@ export function InstallAppProvider(props: { children: ReactNode }) {
 			window.removeEventListener("beforeinstallprompt", handleBeforeInstallPrompt)
 			window.removeEventListener("appinstalled", handleAppInstalled)
 		}
-	}, [])
+	}, [nativeDesktop])
 
 	const status: InstallStatus = installed ? "installed" : deferredPrompt ? "prompt-ready" : "manual"
 	const openGuide = useCallback(() => {
@@ -113,6 +117,8 @@ export function InstallAppProvider(props: { children: ReactNode }) {
 
 export function InstallAppButton(props: { variant?: "header" | "nav" }) {
 	const { status, openGuide } = useInstallApp()
+	if (isNativeDesktopProtocol(window.location.protocol)) return null
+
 	const installed = status === "installed"
 	const Icon = installed ? CheckIcon : DownloadIcon
 	if (props.variant === "nav") {

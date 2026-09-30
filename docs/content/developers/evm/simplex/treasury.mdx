@@ -11,9 +11,7 @@ Idle stablecoins do not have to sit in the wallet doing nothing, and balances do
 
 The optional top-level `[vault]` section configures a **solver-wide stablecoin treasury** backed by ERC-4626 vaults. Any ERC-4626 vault works — for example Aave's `stataToken` for USDC — so idle treasury earns yield while remaining available for fills. Each entry needs a `chain` and a `vault` address; the underlying asset and its decimals are resolved on-chain at startup.
 
-<Callout type="info">
-This is distinct from the [`[vault.uniswapV4]`](/developers/evm/simplex/pricing#uniswap-v4-lp-funding) source, which shares the `[vault]` section. The ERC-4626 treasury sources **stablecoins**; `[vault.uniswapV4]` sources and prices the **exotic** token.
-</Callout>
+Vault positions count toward what a [limit order](/developers/evm/simplex/limit-orders) can pay out. When you post an order, Simplex checks that the wallet and the vaults holding that token on the fill chain can cover it together, so inventory swept into a vault still backs your orders.
 
 One vault list drives three behaviours:
 

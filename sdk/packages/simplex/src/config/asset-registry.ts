@@ -51,10 +51,9 @@ const BUILTIN_ASSETS: Record<string, BuiltinSpec> = {
 }
 
 /**
- * Symbols pegged to 1 USD. They seed the USD anchor graph at $1 — the roots
- * from which every pair's token0 must be reachable so confirmation depth can be
- * sized in USD (see `unanchoredToken0Symbols` and `FXFiller.usdFactors`). Trade
- * pricing never uses this as a price.
+ * Symbols pegged to 1 USD. They are pinned at $1 when an order's USD value is
+ * derived from the limit orders' rates (see `usdFactorsFrom`), which is what
+ * sizes confirmation depth. Trade pricing never uses this as a price.
  */
 export const USD_STABLE_SYMBOLS: ReadonlySet<string> = new Set(["USDC", "USDT", "DAI"])
 

@@ -56,6 +56,7 @@ function coordinator(overrides: Partial<ConstructorParameters<typeof UpdateCoord
 		appVersion: "0.16.2",
 		store,
 		probeSolver: vi.fn(async () => idleSolver()),
+		canRestartSolver: () => true,
 		requestSolverStop: vi.fn(async () => undefined),
 		restartSolver: vi.fn(async () => undefined),
 		waitForExit: vi.fn(async () => true),
@@ -256,6 +257,28 @@ describe("desktop update coordinator", () => {
 		await vi.waitFor(() => expect(test.updater.checkForUpdates).toHaveBeenCalled())
 		expect(test.updater.quitAndInstall).not.toHaveBeenCalled()
 		finishDownload(test.updater, "0.17.0")
+		await vi.waitFor(() => expect(test.updater.quitAndInstall).toHaveBeenCalledWith(false, true))
+		test.instance.dispose()
+	})
+
+	it("keeps a staged update from stopping a solver until a restart key is available", async () => {
+		let hasRestartKey = false
+		const store = new MemoryUpdateStore({
+			channel: "stable",
+			receipt: { fromVersion: "0.16.2", targetVersion: "0.17.0", downloadedAt: 1 },
+		})
+		const test = coordinator({ store, canRestartSolver: () => hasRestartKey })
+		test.instance.start()
+		await vi.waitFor(() => expect(test.updater.checkForUpdates).toHaveBeenCalled())
+		finishDownload(test.updater, "0.17.0")
+		await vi.waitFor(() => expect(test.options.probeSolver).toHaveBeenCalled())
+		await new Promise((resolve) => setTimeout(resolve, 0))
+		expect(test.options.requestSolverStop).not.toHaveBeenCalled()
+		expect(test.updater.quitAndInstall).not.toHaveBeenCalled()
+		expect(test.instance.status).toMatchObject({ state: "deferred", detail: expect.stringContaining("Unlock Simplex") })
+
+		hasRestartKey = true
+		await test.instance.checkNow()
 		await vi.waitFor(() => expect(test.updater.quitAndInstall).toHaveBeenCalledWith(false, true))
 		test.instance.dispose()
 	})

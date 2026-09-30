@@ -21,6 +21,7 @@ export interface DesktopMenuActions {
 
 export interface DesktopMenuModel {
 	status: SolverStatus
+	locked?: boolean
 	loginItemSupported: boolean
 	loginItemEnabled: boolean
 	logAvailable: boolean
@@ -60,11 +61,15 @@ export function solverStatusLabel(status: SolverStatus): string {
 }
 
 function operationItems(model: DesktopMenuModel, actions: DesktopMenuActions): MenuItemConstructorOptions[] {
-	const canPause = model.status.state === "running" || model.status.state === "paused"
-	const canStop = canPause || model.status.state === "setup"
-	const canRestart = model.status.state === "stopped" || model.status.state === "unreachable"
+	const canPause = !model.locked && (model.status.state === "running" || model.status.state === "paused")
+	const canStop = !model.locked && (canPause || model.status.state === "setup")
+	const canRestart = !model.locked && (model.status.state === "stopped" || model.status.state === "unreachable")
 	return [
-		{ id: "solver-status", label: solverStatusLabel(model.status), enabled: false },
+		{
+			id: "solver-status",
+			label: model.locked ? "Simplex locked" : solverStatusLabel(model.status),
+			enabled: false,
+		},
 		{
 			id: "sleep-prevention",
 			label: `Sleep prevention: ${model.sleepPreventionActive ? "On" : "Off"}`,
@@ -96,14 +101,14 @@ function updateItems(model: DesktopMenuModel, actions: DesktopMenuActions): Menu
 			id: "check-for-updates",
 			label: updateMenuLabel(model.update),
 			visible: model.updatesEnabled,
-			enabled: model.update.state !== "checking" && model.update.state !== "installing",
+			enabled: !model.locked && model.update.state !== "checking" && model.update.state !== "installing",
 			click: run(actions.checkForUpdates),
 		},
 		{
 			id: "update-channel",
 			label: "Update Channel",
 			visible: model.updatesEnabled,
-			enabled: model.update.state !== "stopping-solver" && model.update.state !== "installing",
+			enabled: !model.locked && model.update.state !== "stopping-solver" && model.update.state !== "installing",
 			submenu: (["stable", "beta"] as const).map((channel) => ({
 				id: `update-channel-${channel}`,
 				label: channel === "stable" ? "Stable" : "Beta",
@@ -134,7 +139,12 @@ export function buildTrayMenuTemplate(
 		{ id: "about-simplex", label: "About Simplex", click: actions.showAbout },
 		...updateItems(model, actions),
 		{ id: "open-data-directory", label: "Open Data Directory", click: run(actions.openDataDirectory) },
-		{ id: "open-current-log", label: "Open Current Log", enabled: model.logAvailable, click: run(actions.openLog) },
+		{
+			id: "open-current-log",
+			label: "Open Current Log",
+			enabled: !model.locked && model.logAvailable,
+			click: run(actions.openLog),
+		},
 		{ type: "separator" },
 		{
 			id: "quit-simplex",
@@ -145,7 +155,7 @@ export function buildTrayMenuTemplate(
 		{
 			id: "stop-and-quit",
 			label: "Stop solver and quit",
-			enabled: canStopSolver(model.status),
+			enabled: !model.locked && canStopSolver(model.status),
 			click: run(actions.stopAndQuit),
 		},
 	]

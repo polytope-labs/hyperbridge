@@ -533,9 +533,9 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		}
 	}
 
-	// Collect exotic token addresses (the non-quote side of cross-asset pairs)
-	// via the asset registry; same-token pairs have no exotic side. Every
-	// pair's token1 is tracked — keying one address per chain would silently
+	// Collect the non-USD token of each cross-asset market (its token1, the
+	// book's quote, such as CNGN) for balance tracking; same-token pairs have
+	// no second token. Every pair's token1 is tracked — keying one address per chain would silently
 	// drop all but the last pair's balances.
 	const token1: Record<string, string[]> = {}
 	for (const pair of config.pairs ?? []) {

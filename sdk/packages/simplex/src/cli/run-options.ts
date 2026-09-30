@@ -17,6 +17,8 @@ export interface RunOptions {
 	ui?: string | boolean
 	/** A socket path from `--ui-socket <path>`; absent when the flag is not passed. */
 	uiSocket?: string
+	/** Desktop-only, one-shot encryption key inherited on stdin. */
+	configKeyStdin?: boolean
 	/** `false` from `--no-open`, otherwise `true`. Only the wizard path reads it. */
 	open?: boolean
 	/**
@@ -45,7 +47,7 @@ export function addRunOptions(command: Command): Command {
 		.option("--watch-only", "Watch-only mode: monitor orders without executing fills", false)
 		.option(
 			"--ui [host:port]",
-			`Bind address for the local web UI (status, pause/resume, price curves); a bare port keeps the host at 127.0.0.1. Unauthenticated; default 127.0.0.1:${DEFAULT_UI_PORT}`,
+			`Bind address for the local web UI (status, pause/resume, limit orders); a bare port keeps the host at 127.0.0.1. Unauthenticated; default 127.0.0.1:${DEFAULT_UI_PORT}`,
 		)
 		.option(
 			"--ui-socket <path>",
@@ -53,6 +55,7 @@ export function addRunOptions(command: Command): Command {
 		)
 		.option("--no-ui", "Disable the local web UI")
 		.option("--no-open", "Don't launch a browser for the setup wizard; it still starts and reports its URL")
+		.addOption(new Option("--config-key-stdin", "Read the desktop config key from stdin").hideHelp())
 		.addOption(
 			new Option("--log-format <format>", "How to render this process's logs on stdout")
 				.choices([...LOG_FORMATS])

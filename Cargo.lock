@@ -13318,7 +13318,6 @@ dependencies = [
  "ismp-pharos",
  "ismp-polygon",
  "ismp-sync-committee",
- "ismp-tendermint",
  "log",
  "mmr-primitives",
  "pallet-bandwidth",

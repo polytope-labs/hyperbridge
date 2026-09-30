@@ -178,7 +178,12 @@ pub type Migrations = (
 	pallet_collator_manager::migrations::ReserveUnreservedBonds<Runtime>,
 	pallet_ismp::migrations::SeedCommitmentCaps<Runtime>,
 	pallet_intents_coprocessor::migrations::MigrateConfigToStorageMap<Runtime>,
+	frame_support::migrations::RemovePallet<IsmpTendermintPalletName, RocksDbWeight>,
 );
+
+parameter_types! {
+	pub const IsmpTendermintPalletName: &'static str = "IsmpTendermint";
+}
 
 /// Handles converting a weight scalar to a fee value, based on the scale and granularity of the
 /// node's balance type.
@@ -1161,8 +1166,6 @@ mod runtime {
 	pub type HyperFungibleToken = pallet_hyper_fungible_token;
 
 	// consensus clients
-	#[runtime::pallet_index(254)]
-	pub type IsmpTendermint = ismp_tendermint::pallet;
 	#[runtime::pallet_index(255)]
 	pub type IsmpGrandpa = ismp_grandpa;
 }

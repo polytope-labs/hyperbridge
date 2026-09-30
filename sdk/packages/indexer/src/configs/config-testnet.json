@@ -85,7 +85,10 @@
 			"handlerV1": "0x53184b424971d4b5944fdf6f52f18c3fcc4d0925",
 			"erc6160ext20": "0xBe97E73126d66188d72FBf99029126d0340a7f18",
 			"intentGatewayV3": "0x6CF42FA9BecbC5b6a26884964956b113530f7cFA",
-			"solverAccount": ["0x153DB990FE3b761B54ad71D0f1A0987dF11740DB"],
+			"solverAccount": [
+				"0x153DB990FE3b761B54ad71D0f1A0987dF11740DB",
+				"0xf98E484858F59C30e31D2695ac18F92bc7C7b799"
+			],
 			"yieldVaults": {
 				"0xa801da100bf16d07f668f4a49e1f71fc54d05177": {
 					"description": "USDC — listed so the LP balance sweep tracks the raw ERC-20 balance",
@@ -113,7 +116,10 @@
 			"handlerV1": "0x53184b424971d4b5944fdf6f52f18c3fcc4d0925",
 			"erc6160ext20": "0xBe97E73126d66188d72FBf99029126d0340a7f18",
 			"intentGatewayV3": "0x6CF42FA9BecbC5b6a26884964956b113530f7cFA",
-			"solverAccount": ["0x153DB990FE3b761B54ad71D0f1A0987dF11740DB"],
+			"solverAccount": [
+				"0x153DB990FE3b761B54ad71D0f1A0987dF11740DB",
+				"0xf98E484858F59C30e31D2695ac18F92bc7C7b799"
+			],
 			"yieldVaults": {
 				"0xbe97e73126d66188d72fbf99029126d0340a7f18": {
 					"description": "USDC — listed so the LP balance sweep tracks the raw ERC-20 balance",

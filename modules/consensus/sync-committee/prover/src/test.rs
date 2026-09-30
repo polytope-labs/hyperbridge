@@ -7,10 +7,7 @@ use sync_committee_primitives::{
 	util::compute_epoch_at_slot,
 };
 use tree_hash::{
-	proof::{
-		generate_multiproof, is_valid_merkle_branch, multiproof::calculate_multi_merkle_root,
-		ContainerFields,
-	},
+	proof::{is_valid_merkle_branch, multiproof::calculate_multi_merkle_root},
 	Hash256, TreeHash,
 };
 
@@ -86,77 +83,19 @@ async fn fetch_finality_checkpoints_work() {
 async fn test_finalized_header() {
 	let sync_committee_prover = setup_prover();
 	let mut state = sync_committee_prover.fetch_beacon_state("head").await.unwrap();
+	let index =
+		KurtosisDevnet::finalized_root_index(compute_epoch_at_slot::<KurtosisDevnet>(state.slot()));
 
-	let proof = state.prove_gindex(KurtosisDevnet::FINALIZED_ROOT_INDEX).unwrap();
+	let proof = state.prove_gindex(index).unwrap();
 
 	let leaves = vec![state.finalized_checkpoint().tree_hash_root()];
 	let root = calculate_multi_merkle_root(
 		&leaves,
 		&proof.iter().map(Into::into).collect::<Vec<Hash256>>(),
-		&[KurtosisDevnet::FINALIZED_ROOT_INDEX],
+		&[index],
 	)
 	.unwrap();
 	assert_eq!(root, state.tree_hash_root());
-}
-
-#[allow(non_snake_case)]
-#[tokio::test]
-#[ignore]
-async fn test_execution_payload_proof() {
-	let sync_committee_prover = setup_prover();
-
-	let mut finalized_state = sync_committee_prover.fetch_beacon_state("head").await.unwrap();
-	let block_id = finalized_state.slot().to_string();
-	let execution_payload_proof = prove_execution_payload::<
-		KurtosisDevnet,
-		ETH1_DATA_VOTES_BOUND_ETH,
-		PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM,
-	>(&finalized_state, None)
-	.unwrap();
-
-	let finalized_header = sync_committee_prover.fetch_header(&block_id).await.unwrap();
-
-	// verify the associated execution header of the finalized beacon header.
-	let execution_payload = execution_payload_proof.clone();
-	let ExecutionProof::Legacy { state_root, block_number, timestamp, multi_proof } =
-		execution_payload.proof.clone()
-	else {
-		panic!("expected a legacy execution proof")
-	};
-	let execution_payload_root = calculate_multi_merkle_root(
-		&[
-			Hash256::from_slice(state_root.as_ref()),
-			block_number.tree_hash_root(),
-			timestamp.tree_hash_root(),
-		],
-		&multi_proof.iter().map(Into::into).collect::<Vec<Hash256>>(),
-		&[
-			KurtosisDevnet::EXECUTION_PAYLOAD_STATE_ROOT_INDEX,
-			KurtosisDevnet::EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX,
-			KurtosisDevnet::EXECUTION_PAYLOAD_TIMESTAMP_INDEX,
-		],
-	)
-	.unwrap();
-
-	let BeaconState::Electra(ref electra_state) = finalized_state else {
-		panic!("the kurtosis devnet is pre-gloas")
-	};
-	let execution_payload_hash_tree_root =
-		electra_state.latest_execution_payload_header.clone().tree_hash_root();
-
-	assert_eq!(execution_payload_root, execution_payload_hash_tree_root);
-
-	let execution_payload_branch: Vec<Hash256> =
-		execution_payload.execution_payload_branch.iter().map(Into::into).collect();
-
-	let is_merkle_branch_valid = is_valid_merkle_branch(
-		execution_payload_root,
-		&execution_payload_branch,
-		KurtosisDevnet::EXECUTION_PAYLOAD_INDEX,
-		Hash256::from(&finalized_header.state_root),
-	);
-
-	assert!(is_merkle_branch_valid);
 }
 
 #[allow(non_snake_case)]
@@ -170,6 +109,9 @@ async fn test_sync_committee_update_proof() {
 	let mut finalized_state = sync_committee_prover.fetch_beacon_state("head").await.unwrap();
 	let block_id = finalized_state.slot().to_string();
 	let finalized_header = sync_committee_prover.fetch_header(&block_id).await.unwrap();
+	let index = KurtosisDevnet::next_sync_committee_index(compute_epoch_at_slot::<KurtosisDevnet>(
+		finalized_header.slot,
+	));
 
 	let sync_committee_proof = prove_sync_committee_update::<
 		KurtosisDevnet,
@@ -183,7 +125,7 @@ async fn test_sync_committee_update_proof() {
 	let calculated_finalized_root = calculate_multi_merkle_root(
 		&[sync_committee.tree_hash_root()],
 		&sync_committee_proof.iter().map(Into::into).collect::<Vec<Hash256>>(),
-		&[KurtosisDevnet::NEXT_SYNC_COMMITTEE_INDEX],
+		&[index],
 	)
 	.unwrap();
 
@@ -193,7 +135,7 @@ async fn test_sync_committee_update_proof() {
 	let is_merkle_branch_valid = is_valid_merkle_branch(
 		sync_committee.tree_hash_root(),
 		&sync_committee_branch,
-		KurtosisDevnet::NEXT_SYNC_COMMITTEE_INDEX,
+		index,
 		Hash256::from(&finalized_header.state_root),
 	);
 
@@ -330,10 +272,9 @@ fn setup_prover() -> SyncCommitteeProver<
 	dotenv::dotenv().ok();
 	let consensus_url =
 		std::env::var("CONSENSUS_NODE_URL").unwrap_or("http://localhost:53001".to_string());
-	// Required unconditionally now that the prover picks the fork at runtime; a pre-Gloas chain
-	// never calls it.
+	// The execution rpc Kurtosis publishes for the devnet's first node.
 	let execution_url =
-		std::env::var("EXECUTION_NODE_URL").unwrap_or("http://localhost:53002".to_string());
+		std::env::var("EXECUTION_NODE_URL").unwrap_or("http://localhost:52003".to_string());
 	SyncCommitteeProver::<
 		KurtosisDevnet,
 		ETH1_DATA_VOTES_BOUND_ETH,

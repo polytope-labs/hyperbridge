@@ -1,18 +1,26 @@
 participants:
-  - el_type: geth
+  # Pinned by digest: ePBS is still moving and a floating tag can stop the chain at any time.
+  # reth v2.7.0-43a93db and lighthouse v8.2.2-3f1304b.
+  - el_type: reth
+    el_image: ethpandaops/reth@sha256:ebee2cfe3266aed9c6be96ead2c4cddf617f1a80f82d1f757d0dac7347c4bb09
     cl_type: lighthouse
+    cl_image: ethpandaops/lighthouse@sha256:4bc603b200a0e228b977235a5325bfa162fe43577592714e03d30887e1c27312
+    vc_image: ethpandaops/lighthouse@sha256:4bc603b200a0e228b977235a5325bfa162fe43577592714e03d30887e1c27312
     count: 1
 
 network_params:
   preset: mainnet
   genesis_delay: 20
   seconds_per_slot: 4
-  # All forks active at epoch 0 so the devnet starts on Electra (Pectra CL) immediately
+  slot_duration_ms: 4000
+  # Every fork active at genesis, so the devnet starts on Gloas immediately
   altair_fork_epoch: 0
   bellatrix_fork_epoch: 0
   capella_fork_epoch: 0
   deneb_fork_epoch: 0
   electra_fork_epoch: 0
+  fulu_fork_epoch: 0
+  gloas_fork_epoch: 0
 
 # Expose beacon and execution ports on fixed local ports for easy access
 port_publisher:

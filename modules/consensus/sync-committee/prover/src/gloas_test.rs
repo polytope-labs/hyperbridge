@@ -1,12 +1,12 @@
-//! Tests against a beacon chain that has already forked to Gloas. Point `CONSENSUS_NODE_URL` and
-//! `EXECUTION_NODE_URL` at an ethpandaops glamsterdam devnet, or a local devnet running the
-//! same preset, and run with `--ignored`. No feature flag: the state shape is chosen from the
-//! fork the beacon api reports.
+//! Tests against a beacon chain that has already forked to Gloas: the Kurtosis devnet CI starts
+//! from `sync-committee-devnet.yaml`, which is on Gloas from genesis. Run with `--ignored` once it
+//! has finalized a few epochs. No feature flag: the state shape is chosen from the fork the beacon
+//! api reports.
 
 use super::*;
 use sync_committee_primitives::{
 	constants::{
-		devnet::GlamsterdamDevnet, ETH1_DATA_VOTES_BOUND_ETH, GLOAS_EXECUTION_PAYLOAD_INDEX,
+		devnet::KurtosisDevnet, ETH1_DATA_VOTES_BOUND_ETH, GLOAS_EXECUTION_PAYLOAD_INDEX,
 		PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM,
 	},
 	execution_header::{execution_block_hash, ExecutionHeader},
@@ -19,7 +19,7 @@ use tree_hash::{
 };
 
 fn setup_prover() -> SyncCommitteeProver<
-	GlamsterdamDevnet,
+	KurtosisDevnet,
 	ETH1_DATA_VOTES_BOUND_ETH,
 	PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM,
 > {
@@ -27,10 +27,10 @@ fn setup_prover() -> SyncCommitteeProver<
 	let consensus_url =
 		std::env::var("CONSENSUS_NODE_URL").unwrap_or("http://localhost:53001".to_string());
 	let execution_url =
-		std::env::var("EXECUTION_NODE_URL").unwrap_or("http://localhost:8545".to_string());
+		std::env::var("EXECUTION_NODE_URL").unwrap_or("http://localhost:52003".to_string());
 
 	SyncCommitteeProver::<
-		GlamsterdamDevnet,
+		KurtosisDevnet,
 		ETH1_DATA_VOTES_BOUND_ETH,
 		PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM,
 	>::new(vec![consensus_url], execution_url)
@@ -67,7 +67,7 @@ async fn execution_header_recovers_the_execution_state_root() {
 	let header = prover.fetch_execution_header(block_hash).await.unwrap();
 
 	let proof = prove_execution_payload::<
-		GlamsterdamDevnet,
+		KurtosisDevnet,
 		ETH1_DATA_VOTES_BOUND_ETH,
 		PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM,
 	>(&finalized_state, Some(header.clone()))
@@ -93,49 +93,47 @@ async fn execution_header_recovers_the_execution_state_root() {
 	assert_eq!(decoded, header);
 }
 
-/// Bootstrap a trusted state from a finalized checkpoint a few epochs back and produce the real
-/// update that advances to the current finalized checkpoint. The older checkpoint is looked up via
-/// the state endpoint, which tolerates skipped slots, and its block is fetched by root, which does
-/// not 404, so this is one shot rather than polling for a fresh finalization.
+/// Trust the current finalized checkpoint and wait for the next one, then produce the real update
+/// that advances to it. Only states from the latest finalized checkpoint onwards are needed, which
+/// is all a node that does not keep historical states can serve.
 async fn bootstrap_trusted_state_and_update(
 	prover: &SyncCommitteeProver<
-		GlamsterdamDevnet,
+		KurtosisDevnet,
 		ETH1_DATA_VOTES_BOUND_ETH,
 		PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM,
 	>,
 ) -> anyhow::Result<(VerifierState, VerifierStateUpdate)> {
 	let block_id = |root: Root| format!("0x{}", hex::encode(root.as_ref()));
 
-	let current = prover.fetch_finalized_checkpoint(None).await?.finalized;
-	let current_header = prover.fetch_header(&block_id(current.root.clone())).await?;
-
-	// A few epochs back, comfortably inside the same sync committee period.
-	let trusted_slot = current_header.slot.saturating_sub(3 * GlamsterdamDevnet::SLOTS_PER_EPOCH);
-	let trusted = prover
-		.fetch_finalized_checkpoint(Some(&trusted_slot.to_string()))
-		.await?
-		.finalized;
-	let trusted_header = prover.fetch_header(&block_id(trusted.root)).await?;
-	let trusted_state_state = prover.fetch_beacon_state(&trusted_header.slot.to_string()).await?;
+	let trusted = prover.fetch_finalized_checkpoint(None).await?.finalized;
+	let trusted_header = prover.fetch_header(&block_id(trusted.root.clone())).await?;
+	let trusted_beacon_state = prover.fetch_beacon_state(&trusted_header.slot.to_string()).await?;
 
 	let trusted_state = VerifierState {
 		finalized_header: trusted_header.clone(),
-		latest_finalized_epoch: compute_epoch_at_slot::<GlamsterdamDevnet>(trusted_header.slot),
-		current_sync_committee: trusted_state_state.current_sync_committee().clone(),
-		next_sync_committee: trusted_state_state.next_sync_committee().clone(),
-		state_period: compute_sync_committee_period_at_slot::<GlamsterdamDevnet>(
-			trusted_header.slot,
-		),
+		latest_finalized_epoch: compute_epoch_at_slot::<KurtosisDevnet>(trusted_header.slot),
+		current_sync_committee: trusted_beacon_state.current_sync_committee().clone(),
+		next_sync_committee: trusted_beacon_state.next_sync_committee().clone(),
+		state_period: compute_sync_committee_period_at_slot::<KurtosisDevnet>(trusted_header.slot),
 	};
 
-	let update = prover
-		.fetch_light_client_update(trusted_state.clone(), current, None)
-		.await?
-		.ok_or_else(|| {
-			anyhow::anyhow!("no update produced between the two finalized checkpoints")
-		})?;
+	let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10 * 60);
+	loop {
+		if std::time::Instant::now() > deadline {
+			anyhow::bail!("no finalization past epoch {} in 10 minutes", trusted.epoch)
+		}
+		tokio::time::sleep(std::time::Duration::from_secs(8)).await;
 
-	Ok((trusted_state, update))
+		let current = prover.fetch_finalized_checkpoint(None).await?.finalized;
+		if current.epoch <= trusted.epoch {
+			continue
+		}
+		if let Some(update) =
+			prover.fetch_light_client_update(trusted_state.clone(), current, None).await?
+		{
+			return Ok((trusted_state, update))
+		}
+	}
 }
 
 /// The one that runs the code that actually ships. The two tests above check the pieces in
@@ -148,7 +146,7 @@ async fn verifier_accepts_a_real_gloas_update() -> anyhow::Result<()> {
 	let (trusted_state, update) = bootstrap_trusted_state_and_update(&prover).await?;
 
 	let (new_state, execution_payload) =
-		verify_sync_committee_attestation::<GlamsterdamDevnet>(trusted_state, update.clone())
+		verify_sync_committee_attestation::<KurtosisDevnet>(trusted_state, update.clone())
 			.map_err(|e| anyhow::anyhow!("verifier rejected a valid gloas update: {e:?}"))?;
 
 	assert_eq!(new_state.finalized_header, update.finalized_header);
@@ -178,7 +176,7 @@ async fn verifier_rejects_tampered_gloas_updates() -> anyhow::Result<()> {
 	tampered_header.execution_payload.execution_header_mut().expect("gloas proof")[0] ^= 0xff;
 	assert!(
 		matches!(
-			verify_sync_committee_attestation::<GlamsterdamDevnet>(
+			verify_sync_committee_attestation::<KurtosisDevnet>(
 				trusted_state.clone(),
 				tampered_header,
 			),
@@ -196,7 +194,7 @@ async fn verifier_rejects_tampered_gloas_updates() -> anyhow::Result<()> {
 	*header_bytes = header.encode();
 	assert!(
 		matches!(
-			verify_sync_committee_attestation::<GlamsterdamDevnet>(trusted_state, tampered_root),
+			verify_sync_committee_attestation::<KurtosisDevnet>(trusted_state, tampered_root),
 			Err(Error::InvalidMerkleBranch(_))
 		),
 		"a state root that disagrees with the block hash must be rejected",
@@ -209,18 +207,19 @@ async fn verifier_rejects_tampered_gloas_updates() -> anyhow::Result<()> {
 /// finalized update against the state the previous one produced. Across the fork the attested
 /// state can already be Gloas while the finalized one is not, and the finality and sync committee
 /// branches are then proven at the Gloas indices while the execution branch still uses the legacy
-/// one. Start a local devnet whose Gloas epoch is a few epochs after genesis, set
-/// `GlamsterdamDevnet` to its genesis root, fork versions and Gloas epoch, point this at it
-/// before the fork, and it returns once it has verified an update on each side and one straddling
-/// the boundary. The first finalized checkpoint after the fork is the one to watch: its state
-/// still commits to the last execution block from before Amsterdam.
+/// one. The CI devnet is on Gloas from genesis, so this needs a local devnet whose Gloas epoch is
+/// a few epochs after genesis instead: set `gloas_fork_epoch` in `sync-committee-devnet.yaml` and
+/// `KurtosisDevnet::GLOAS_FORK_EPOCH` to the same epoch, start this before the fork, and it
+/// returns once it has verified an update on each side and one straddling the boundary. The first
+/// finalized checkpoint after the fork is the one to watch: its state still commits to the last
+/// execution block from before Amsterdam.
 #[tokio::test]
 #[ignore]
 async fn verifier_follows_the_chain_across_the_gloas_fork() -> anyhow::Result<()> {
 	let prover = setup_prover();
 	let block_id = |root: Root| format!("0x{}", hex::encode(root.as_ref()));
 	let is_gloas = |slot: u64| {
-		compute_epoch_at_slot::<GlamsterdamDevnet>(slot) >= GlamsterdamDevnet::GLOAS_FORK_EPOCH
+		compute_epoch_at_slot::<KurtosisDevnet>(slot) >= KurtosisDevnet::GLOAS_FORK_EPOCH
 	};
 
 	let mut trusted_state: Option<VerifierState> = None;
@@ -246,12 +245,10 @@ async fn verifier_follows_the_chain_across_the_gloas_fork() -> anyhow::Result<()
 			let beacon_state = prover.fetch_beacon_state(&header.slot.to_string()).await?;
 			println!("trusting finalized epoch {} at slot {}", current.epoch, header.slot);
 			trusted_state = Some(VerifierState {
-				latest_finalized_epoch: compute_epoch_at_slot::<GlamsterdamDevnet>(header.slot),
+				latest_finalized_epoch: compute_epoch_at_slot::<KurtosisDevnet>(header.slot),
 				current_sync_committee: beacon_state.current_sync_committee().clone(),
 				next_sync_committee: beacon_state.next_sync_committee().clone(),
-				state_period: compute_sync_committee_period_at_slot::<GlamsterdamDevnet>(
-					header.slot,
-				),
+				state_period: compute_sync_committee_period_at_slot::<KurtosisDevnet>(header.slot),
 				finalized_header: header,
 			});
 			continue
@@ -275,7 +272,7 @@ async fn verifier_follows_the_chain_across_the_gloas_fork() -> anyhow::Result<()
 		);
 
 		let (new_state, _) =
-			verify_sync_committee_attestation::<GlamsterdamDevnet>(state, update.clone()).map_err(
+			verify_sync_committee_attestation::<KurtosisDevnet>(state, update.clone()).map_err(
 				|e| {
 					anyhow::anyhow!(
 				"verifier rejected the update attested at slot {} (gloas {attested_gloas}) \

@@ -516,7 +516,8 @@ jobs:
               run: |
                   # Pin ethereum-package to a known-good commit so the devnet (and its
                   # genesis_validators_root, which KurtosisDevnet hardcodes) stays reproducible.
-                  ETH_PKG=github.com/ethpandaops/ethereum-package@d4bd739b78565ca5a9768461a59ad59942e4e941
+                  # It needs a commit that understands gloas_fork_epoch.
+                  ETH_PKG=github.com/ethpandaops/ethereum-package@6dd3f2613d1f9d1a9274864083c692726146c9db
 
                   # Image pulls can still time out transiently; retry a few times before failing.
                   for i in 1 2 3; do
@@ -535,11 +536,29 @@ jobs:
 
                   ./scripts/wait_for_tcp_port_opening.sh localhost 53001
 
+            # Compile while the devnet produces its first epochs.
+            - name: Build Sync Committee Tests
+              run: |
+                  cargo test -p sync-committee-prover --no-run
+
+            # The gloas verifier tests start from the current finalized checkpoint, and the
+            # genesis one has no block to fetch, so wait for the first real finalization.
+            - name: Wait for Finality
+              run: |
+                  for i in $(seq 1 120); do
+                    epoch=$(curl -s localhost:53001/eth/v1/beacon/states/head/finality_checkpoints | jq -r '.data.finalized.epoch // 0')
+                    echo "finalized epoch ${epoch}"
+                    [ "${epoch:-0}" -ge 2 ] && exit 0
+                    sleep 10
+                  done
+                  echo "devnet did not finalize in 20 minutes"; exit 1
+
             - name: Run Sync Committee Tests
               run: |
-                  # The gloas tests need a chain that has already forked to Gloas, which this
-                  # devnet never does. Run those by hand against a glamsterdam devnet.
-                  cargo test -p sync-committee-prover -- --nocapture --ignored --skip gloas_test
+                  # The devnet is on Gloas from genesis, so the one test that needs a fork
+                  # mid chain is left for a local devnet.
+                  cargo test -p sync-committee-prover -- --nocapture --ignored \
+                    --skip verifier_follows_the_chain_across_the_gloas_fork
 
             - name: Cleanup
               if: always()

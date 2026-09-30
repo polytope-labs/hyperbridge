@@ -1,0 +1,114 @@
+---
+title: Remote access
+description: Read the remote access tunnel's state, turn it on or off, and pair and revoke devices over the solver's HTTP API.
+---
+
+# Remote access
+
+These routes manage the remote access tunnel, which lets a paired device reach the dashboard without opening a port. They back the **Remote access** panel on the dashboard's Operations page. [Through the remote access tunnel](/developers/evm/simplex/dashboard#through-the-remote-access-tunnel) explains how the tunnel works.
+
+Every route answers `404` when the filler has no remote access, which is the case for a filler embedded as a library.
+
+<Callout type="info">
+    A device connected through the tunnel can read these routes but not change them. Pairing, revoking
+    and switching the tunnel answer `403` there, so that someone holding one paired key cannot pair
+    another, or move the tunnel to a relay they run. Make these changes on the machine running Simplex.
+</Callout>
+
+## GET /api/tunnel
+
+Returns the tunnel's state, what an SSH app needs to connect, and the paired devices.
+
+```bash lineNumbers
+curl -s $SIMPLEX/api/tunnel
+```
+
+```json lineNumbers
+{
+  "enabled": true,
+  "state": "connected",
+  "relay": "simplex.tunnel.polytope.technology:443",
+  "relayFingerprint": "SHA256:…",
+  "port": 41022,
+  "connectedAt": 1790243521334,
+  "hostFingerprint": "SHA256:…",
+  "operatorFingerprint": "SHA256:…",
+  "devices": [ { "fingerprint": "SHA256:…", "label": "iPhone", "addedAt": 1790200000000 } ],
+  "activeConnections": 1,
+  "connection": {
+    "host": "simplex.tunnel.polytope.technology",
+    "port": 41022,
+    "username": "simplex",
+    "hostFingerprint": "SHA256:…",
+    "localForward": "8686:127.0.0.1:8686"
+  },
+  "readOnly": false
+}
+```
+
+| Field | Description |
+|---|---|
+| `enabled` | Whether the tunnel is turned on. |
+| `state` | `disabled`, `connecting`, `connected`, `reconnecting`, `disconnected` or `error`. |
+| `relay` | The relay in use, as `host:port`. |
+| `relayFingerprint` | The relay's host key, pinned once it is known. |
+| `port` | The public port the relay leased to this solver. Absent until it has one. |
+| `connectedAt`, `lastError` | When the tunnel last connected, and the last error, when there is one. |
+| `hostFingerprint` | The host key of the SSH server inside Simplex. Devices check it when they connect. |
+| `operatorFingerprint` | The key this solver identifies itself to the relay with. |
+| `devices` | Each paired device's key fingerprint, label, and when it was paired. `addedAt` is `0` for a key added to `authorized_keys` by hand. |
+| `activeConnections` | How many device sessions are open right now. |
+| `connection` | What to enter in the device's SSH app: host, port, username, the host key to expect, and the local port forward. |
+| `readOnly` | `true` when this request came through the tunnel, where these settings cannot be changed. |
+
+## PUT /api/tunnel
+
+Turns the tunnel on or off, or points it at another relay. Both fields are optional. The change applies straight away and is saved to `[simplex.tunnel]` in the config.
+
+```bash lineNumbers
+curl -s -X PUT $SIMPLEX/api/tunnel \
+    -H 'Content-Type: application/json' -H 'X-Simplex-UI: 1' \
+    -d '{ "enabled": true }'
+```
+
+| Field | Description |
+|---|---|
+| `enabled` | `true` to open the tunnel, `false` to close it. |
+| `relay` | The relay to use, as `host` or `host:port`. The port defaults to 443. |
+
+Changing the relay drops the `relayHostKey` pinned for the old one. The response is the new [tunnel state](#get-apitunnel), plus `persisted`.
+
+## POST /api/tunnel/devices
+
+Pairs a device. Send the public key from the device's SSH app, and the private key never leaves the device:
+
+```bash lineNumbers
+curl -s -X POST $SIMPLEX/api/tunnel/devices \
+    -H 'Content-Type: application/json' -H 'X-Simplex-UI: 1' \
+    -d '{ "label": "iPhone", "publicKey": "ssh-ed25519 AAAAC3Nz… phone" }'
+```
+
+```json lineNumbers
+{
+  "device": { "fingerprint": "SHA256:…", "label": "iPhone", "addedAt": 1790243521334 },
+  "publicKey": "ssh-ed25519 AAAAC3Nz…",
+  "connection": { "host": "…", "port": 41022, "username": "simplex", "hostFingerprint": "SHA256:…", "localForward": "…" }
+}
+```
+
+It answers `201`. Leave out `publicKey` and Simplex generates the key pair. The response then includes `privateKey`, in OpenSSH format, and this is the only time it is shown. Simplex does not keep it.
+
+`label` is required, and at most 64 characters. A key that is already paired answers `400`.
+
+## POST /api/tunnel/devices/revoke
+
+Revokes a device by its key fingerprint. The device cannot log in again, and any session it has open is closed.
+
+```bash lineNumbers
+curl -s -X POST $SIMPLEX/api/tunnel/devices/revoke \
+    -H 'Content-Type: application/json' -H 'X-Simplex-UI: 1' \
+    -d '{ "fingerprint": "SHA256:…" }'
+# → { "removed": true }
+```
+
+A fingerprint that matches no device answers `404`.

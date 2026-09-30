@@ -54,6 +54,11 @@
       "source": "/developers/evm/simplex/markets",
       "destination": "/developers/evm/simplex/limit-orders",
       "permanent": true
+    },
+    {
+      "source": "/developers/evm/simplex/limit-orders-api",
+      "destination": "/developers/evm/simplex/api/limit-orders",
+      "permanent": true
     }
   ]
 }

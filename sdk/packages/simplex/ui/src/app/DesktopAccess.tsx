@@ -4,14 +4,30 @@ import { isNativeDesktopProtocol } from "../lib/runtime"
 
 type AccessState = {
 	mode: "create" | "unlock" | "reset-password" | "save-recovery" | "unlocked"
-	biometricAvailable: boolean
-	biometricEnabled: boolean
+	passkeyAvailable: boolean
+	passkeyEnabled: boolean
+	passwordEnabled: boolean
 	recoveryEnabled: boolean
 	backgroundResumeAvailable: boolean
 	secureDeviceStorageAvailable: boolean
 	needsRestart: boolean
 }
 type Perform = (route: string, body?: Record<string, unknown>) => Promise<void>
+
+type AccessMethod = "password" | "passkey"
+
+function preferredAccessMethod(access: AccessState): AccessMethod {
+	return access.passkeyEnabled || (access.mode === "create" && access.passkeyAvailable) ? "passkey" : "password"
+}
+
+function isPasskeyRequest(route: string, body?: Record<string, unknown>): boolean {
+	return (
+		route === "reset-passkey" ||
+		body?.method === "passkey" ||
+		body?.method === "create-passkey" ||
+		body?.usePasskey === true
+	)
+}
 
 /** The host enforces these states too; changing renderer state cannot unlock the API. */
 export function DesktopAccess({ children }: { children: ReactNode }) {
@@ -24,6 +40,7 @@ function NativeAccess({ children }: { children: ReactNode }) {
 	const [error, setError] = useState<string>()
 	const [forgot, setForgot] = useState(false)
 	const [pending, setPending] = useState(false)
+	const [passkeyPending, setPasskeyPending] = useState(false)
 	const refresh = useCallback(async () => {
 		const next = await api.get<AccessState>("/api/desktop/security")
 		const recovery =
@@ -36,6 +53,7 @@ function NativeAccess({ children }: { children: ReactNode }) {
 	}, [refresh])
 	const perform: Perform = async (route, body) => {
 		setPending(true)
+		setPasskeyPending(isPasskeyRequest(route, body))
 		setError(undefined)
 		try {
 			await api.post(`/api/desktop/${route}`, body)
@@ -46,6 +64,7 @@ function NativeAccess({ children }: { children: ReactNode }) {
 			setError(message(cause))
 		} finally {
 			setPending(false)
+			setPasskeyPending(false)
 		}
 	}
 	if (access?.mode === "unlocked") return children
@@ -55,8 +74,10 @@ function NativeAccess({ children }: { children: ReactNode }) {
 	return (
 		<main className="desktop-unlock">
 			<section className="card" aria-label="Simplex Desktop access">
-				<img src="./icons/mobile-logo.svg" alt="" width="48" height="48" />
-				<span className="eyebrow">Simplex Desktop</span>
+				<div className="desktop-unlock-brand">
+					<img src="./icons/mobile-logo.svg" alt="" width="36" height="36" />
+					<span className="eyebrow">Simplex Desktop</span>
+				</div>
 				{error && (
 					<p className="desktop-unlock-error" role="alert">
 						{error}
@@ -67,36 +88,59 @@ function NativeAccess({ children }: { children: ReactNode }) {
 						Try again
 					</button>
 				) : (
-					<fieldset disabled={pending}>
-						{access.mode === "save-recovery" ? (
-							<SaveRecovery code={code} perform={perform} cancel={cancel} />
-						) : access.mode === "reset-password" ? (
-							<NewPassword access={access} perform={perform} cancel={cancel} />
-						) : forgot && access.mode === "unlock" ? (
-							<Recover
-								access={access}
-								perform={perform}
-								cancel={() => {
-									setForgot(false)
-									setError(undefined)
-								}}
-							/>
-						) : (
-							<Login
-								access={access}
-								perform={perform}
-								forgot={() => {
-									setForgot(true)
-									setError(undefined)
-								}}
-							/>
+					<>
+						<fieldset disabled={pending} hidden={passkeyPending}>
+							{access.mode === "save-recovery" ? (
+								<SaveRecovery code={code} perform={perform} cancel={cancel} />
+							) : access.mode === "reset-password" ? (
+								<NewPassword access={access} perform={perform} cancel={cancel} />
+							) : forgot && access.mode === "unlock" ? (
+								<Recover
+									access={access}
+									perform={perform}
+									cancel={() => {
+										setForgot(false)
+										setError(undefined)
+									}}
+								/>
+							) : (
+								<Login
+									key={access.mode}
+									access={access}
+									perform={perform}
+									forgot={() => {
+										setForgot(true)
+										setError(undefined)
+									}}
+								/>
+							)}
+							{pending && !passkeyPending && (
+								<p className="hint" role="status">
+									Please wait…
+								</p>
+							)}
+						</fieldset>
+						{passkeyPending && (
+							<div className="desktop-unlock-panel desktop-passkey-waiting">
+								<span className="desktop-passkey-spinner" aria-hidden="true" />
+								<h1>Continue in your browser</h1>
+								<p className="hint" role="status">
+									We opened a browser tab to confirm your passkey. Finish there and Simplex continues
+									automatically.
+								</p>
+								<button
+									type="button"
+									onClick={() =>
+										void api
+											.post("/api/desktop/cancel-passkey", {})
+											.catch((cause) => setError(message(cause)))
+									}
+								>
+									Cancel request
+								</button>
+							</div>
 						)}
-						{pending && (
-							<p className="hint" role="status">
-								Please wait…
-							</p>
-						)}
-					</fieldset>
+					</>
 				)}
 			</section>
 		</main>
@@ -173,13 +217,26 @@ function Login({ access, perform, forgot }: { access: AccessState; perform: Perf
 	const creating = access.mode === "create"
 	const [password, setPassword] = useState("")
 	const [confirmation, setConfirmation] = useState("")
-	const [useBiometrics, setUseBiometrics] = useState(false)
+	const [usePasskey, setUsePasskey] = useState(false)
+	const [selectedMethod, setSelectedMethod] = useState<AccessMethod>()
 	const [restartSolver, setRestartSolver] = useState(false)
 	const unlock = async (method: string) => {
-		await perform("unlock", { method, password, confirmation, useBiometrics, restartSolver })
+		await perform("unlock", { method, password, confirmation, usePasskey, restartSolver })
 		setPassword("")
 		setConfirmation("")
 	}
+	const passkeyFirst = (selectedMethod ?? preferredAccessMethod(access)) === "passkey"
+	if (passkeyFirst)
+		return (
+			<PasskeyLogin
+				access={access}
+				restartSolver={restartSolver}
+				setRestartSolver={setRestartSolver}
+				unlock={unlock}
+				choosePassword={() => setSelectedMethod("password")}
+				forgot={forgot}
+			/>
+		)
 	return (
 		<form
 			onSubmit={(event) => {
@@ -204,41 +261,107 @@ function Login({ access, perform, forgot }: { access: AccessState; perform: Perf
 				</p>
 			)}
 			<PasswordFields {...{ creating, password, confirmation, setPassword, setConfirmation }} />
-			{access.biometricAvailable && !access.biometricEnabled && (
+			{!creating && access.passkeyAvailable && !access.passkeyEnabled && (
 				<label className="desktop-unlock-choice">
 					<input
 						type="checkbox"
-						checked={useBiometrics}
-						onChange={(event) => setUseBiometrics(event.target.checked)}
-					/>{" "}
-					Also enable Touch ID on this Mac
+						checked={usePasskey}
+						onChange={(event) => setUsePasskey(event.target.checked)}
+					/>
+					Create a passkey for future logins
 				</label>
 			)}
 			<RestartConsent required={access.needsRestart} checked={restartSolver} onChange={setRestartSolver} />
 			<button type="submit" className="primary" disabled={access.needsRestart && !restartSolver}>
 				{creating ? "Continue" : "Unlock"}
 			</button>
-			{access.biometricAvailable && access.biometricEnabled && (
-				<button
-					type="button"
-					disabled={access.needsRestart && !restartSolver}
-					onClick={() => void unlock("biometric")}
-				>
-					Unlock with Touch ID
-				</button>
-			)}
-			{!creating && (
-				<button type="button" onClick={forgot}>
-					Forgot password?
-				</button>
-			)}
+			<div className="desktop-unlock-links">
+				{access.passkeyAvailable && (creating || access.passkeyEnabled) && (
+					<button
+						type="button"
+						className="desktop-password-alternative"
+						onClick={() => setSelectedMethod("passkey")}
+					>
+						Use a passkey instead
+					</button>
+				)}
+				{!creating && (
+					<button type="button" className="desktop-password-alternative" onClick={forgot}>
+						Forgot password?
+					</button>
+				)}
+			</div>
 		</form>
 	)
 }
 
+function PasskeyLogin({
+	access,
+	restartSolver,
+	setRestartSolver,
+	unlock,
+	choosePassword,
+	forgot,
+}: {
+	access: AccessState
+	restartSolver: boolean
+	setRestartSolver(value: boolean): void
+	unlock(method: string): Promise<void>
+	choosePassword(): void
+	forgot(): void
+}) {
+	const creating = access.mode === "create"
+	return (
+		<div className="desktop-unlock-panel">
+			<h1>{creating ? "Create a passkey" : "Unlock Simplex"}</h1>
+			{creating && <p className="hint">Sign in with Touch ID or Windows Hello.</p>}
+			{!access.passkeyAvailable && (
+				<p className="hint" role="note">
+					Passkey or secure key storage is unavailable on this device. Use your recovery code or another
+					sign-in method.
+				</p>
+			)}
+			<RestartConsent required={access.needsRestart} checked={restartSolver} onChange={setRestartSolver} />
+			<div className="desktop-unlock-actions">
+				<button
+					type="button"
+					className="primary"
+					disabled={!access.passkeyAvailable || (access.needsRestart && !restartSolver)}
+					onClick={() => void unlock(creating ? "create-passkey" : "passkey")}
+				>
+					{creating ? "Create passkey" : "Unlock with passkey"}
+				</button>
+			</div>
+			<div className="desktop-unlock-links">
+				{(creating || access.passwordEnabled) && (
+					<button type="button" className="desktop-password-alternative" onClick={choosePassword}>
+						Use a password instead
+					</button>
+				)}
+				{!creating && (
+					<button type="button" className="desktop-password-alternative" onClick={forgot}>
+						Recover access
+					</button>
+				)}
+			</div>
+		</div>
+	)
+}
+
+const RECOVERY_CODE_DIGITS = 64
+
+/** Recovery codes are 64 hex digits shown in groups of eight; accept pasted codes in any case or spacing. */
+function formatRecoveryCode(value: string): string {
+	const digits = value
+		.replace(/[^0-9a-f]/gi, "")
+		.slice(0, RECOVERY_CODE_DIGITS)
+		.toUpperCase()
+	return digits.match(/.{1,8}/g)?.join("-") ?? ""
+}
+
 function Recover({ access, perform, cancel }: { access: AccessState; perform: Perform; cancel(): void }) {
 	const [recoveryCode, setRecoveryCode] = useState("")
-	const biometric = access.biometricAvailable && access.biometricEnabled
+	const complete = recoveryCode.replaceAll("-", "").length === RECOVERY_CODE_DIGITS
 	return (
 		<form
 			onSubmit={(event) => {
@@ -246,43 +369,41 @@ function Recover({ access, perform, cancel }: { access: AccessState; perform: Pe
 				void perform("recover", { method: "code", recoveryCode })
 			}}
 		>
-			<h1>Reset your password</h1>
-			<p className="hint">Verify it's you to choose a new password. Your saved settings will stay intact.</p>
+			<h1>{access.passkeyEnabled ? "Recover access" : "Reset your password"}</h1>
 			{access.recoveryEnabled && (
 				<>
+					<p className="hint">Enter the recovery code you saved during setup.</p>
 					<label htmlFor="recovery-code">Recovery code</label>
-					<input
+					<textarea
 						id="recovery-code"
+						className="desktop-recovery-input mono"
 						required
+						autoFocus
+						rows={3}
 						value={recoveryCode}
-						maxLength={256}
+						placeholder="XXXXXXXX-XXXXXXXX-…"
 						autoComplete="off"
+						autoCapitalize="characters"
 						spellCheck={false}
-						onChange={(event) => setRecoveryCode(event.target.value)}
+						onChange={(event) => setRecoveryCode(formatRecoveryCode(event.target.value))}
+						onKeyDown={(event) => {
+							if (event.key !== "Enter") return
+							event.preventDefault()
+							if (complete) event.currentTarget.form?.requestSubmit()
+						}}
 					/>
-					<button type="submit" className="primary">
+					<button type="submit" className="primary" disabled={!complete}>
 						Continue
 					</button>
 				</>
 			)}
-			{biometric && (
-				<button type="button" onClick={() => void perform("recover", { method: "biometric" })}>
-					Verify with Touch ID
-				</button>
-			)}
-			{!access.recoveryEnabled && !biometric && (
+			{!access.recoveryEnabled && (
 				<p className="hint">
 					Recovery wasn't set up for this profile. Sign in with your password to set it up, or restore a
 					backup you can unlock. Your existing data will not be deleted.
 				</p>
 			)}
-			{access.recoveryEnabled && (
-				<p className="hint">
-					Use the code you saved when setting up Simplex. Without a working recovery method, we can't unlock
-					your saved settings.
-				</p>
-			)}
-			<button type="button" onClick={cancel}>
+			<button type="button" className="desktop-password-alternative" onClick={cancel}>
 				Back to login
 			</button>
 		</form>
@@ -290,9 +411,38 @@ function Recover({ access, perform, cancel }: { access: AccessState; perform: Pe
 }
 
 function NewPassword({ access, perform, cancel }: { access: AccessState; perform: Perform; cancel(): void }) {
+	const [selectedMethod, setSelectedMethod] = useState<AccessMethod>()
 	const [password, setPassword] = useState("")
 	const [confirmation, setConfirmation] = useState("")
 	const [restartSolver, setRestartSolver] = useState(false)
+	if (access.passkeyAvailable && (selectedMethod ?? preferredAccessMethod(access)) === "passkey")
+		return (
+			<div className="desktop-unlock-panel">
+				<h1>Create a replacement passkey</h1>
+				<p className="hint">This replaces your current passkey.</p>
+				<RestartConsent required={access.needsRestart} checked={restartSolver} onChange={setRestartSolver} />
+				<div className="desktop-unlock-actions">
+					<button
+						type="button"
+						className="primary"
+						disabled={access.needsRestart && !restartSolver}
+						onClick={() => void perform("reset-passkey", { restartSolver })}
+					>
+						Create replacement passkey
+					</button>
+					<button type="button" onClick={cancel}>
+						Cancel
+					</button>
+				</div>
+				<button
+					type="button"
+					className="desktop-password-alternative"
+					onClick={() => setSelectedMethod("password")}
+				>
+					Use a password instead
+				</button>
+			</div>
+		)
 	return (
 		<form
 			onSubmit={(event) => {
@@ -306,6 +456,11 @@ function NewPassword({ access, perform, cancel }: { access: AccessState; perform
 			<button type="submit" className="primary" disabled={access.needsRestart && !restartSolver}>
 				Save password
 			</button>
+			{access.passkeyAvailable && (
+				<button type="button" onClick={() => setSelectedMethod("passkey")}>
+					Use a passkey instead
+				</button>
+			)}
 			<button type="button" onClick={cancel}>
 				Cancel
 			</button>
@@ -332,10 +487,7 @@ function SaveRecovery({ code, perform, cancel }: { code: string; perform: Perfor
 			}}
 		>
 			<h1>Save your recovery code</h1>
-			<p className="hint">
-				Keep this code in a password manager or somewhere safe. Use it if you forget your password. Keep it
-				private—it can unlock your saved settings.
-			</p>
+			<p className="hint">Store it somewhere safe, like a password manager. You'll need it if you lose access.</p>
 			<span id="recovery-code-label">Your recovery code</span>
 			<pre className="code-block mono desktop-recovery-code" aria-labelledby="recovery-code-label" tabIndex={0}>
 				<code id="saved-recovery-code">{code}</code>

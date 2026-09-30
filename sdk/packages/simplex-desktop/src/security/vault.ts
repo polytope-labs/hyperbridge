@@ -13,27 +13,23 @@ import {
 } from "@hyperbridge/simplex/config-storage"
 import { createRecoveryKey, recoverConfigKey } from "./recovery"
 import type { DeviceKeyStore } from "./device-key-store"
+import { isPasskeyCredential, type PasskeyCredential, type PasskeyUnlock } from "./passkeys"
 
 type VaultRecord = {
-	version: 2
-	salt: string
-	wrappedKey: SealedSecret
-	biometricKey?: string
+	version: 2 | 3
+	salt?: string
+	wrappedKey?: SealedSecret
+	passkey?: PasskeyCredential & { key: string }
 	recoveryKey: SealedSecret
 	deviceKey?: string
 }
 /** Credential wrappers before a recovery code is attached; never persisted in this shape. */
 type Credentials = Omit<VaultRecord, "version" | "recoveryKey">
-export interface BiometricUnlock {
-	available(): Promise<boolean>
-	confirm(): Promise<void>
-	protect(key: Buffer): Promise<string>
-	unprotect(value: string): Promise<Buffer>
-}
 export interface DesktopAccessState {
 	mode: "create" | "unlock" | "reset-password" | "save-recovery" | "unlocked"
-	biometricAvailable: boolean
-	biometricEnabled: boolean
+	passkeyAvailable: boolean
+	passkeyEnabled: boolean
+	passwordEnabled: boolean
 	recoveryEnabled: boolean
 	backgroundResumeAvailable: boolean
 	secureDeviceStorageAvailable: boolean
@@ -43,7 +39,7 @@ type UnlockRequest = {
 	method?: unknown
 	password?: unknown
 	confirmation?: unknown
-	useBiometrics?: unknown
+	usePasskey?: unknown
 	restartSolver?: unknown
 	recoveryCode?: unknown
 }
@@ -59,12 +55,13 @@ export class DesktopVault {
 	private recovery?: AuthorizedRecovery
 	private pending?: PendingSave
 	private expiryTimer?: NodeJS.Timeout
+	private generation = 0
 	private busy = false
 	private nextAttempt = 0
 	constructor(
 		private readonly options: {
 			dataDir: string
-			biometrics: BiometricUnlock
+			passkeys?: PasskeyUnlock
 			deviceKeyStore: DeviceKeyStore
 			needsRestart(): Promise<boolean>
 			prepare(restartAllowed: boolean): Promise<void>
@@ -79,6 +76,8 @@ export class DesktopVault {
 		return this.key !== undefined
 	}
 	lock(): void {
+		this.generation++
+		this.options.passkeys?.cancel()
 		clearTimeout(this.expiryTimer)
 		this.key?.fill(0)
 		this.recovery?.key.fill(0)
@@ -118,20 +117,28 @@ export class DesktopVault {
 		}
 		let record: VaultRecord
 		try {
-			record = JSON.parse(content) as VaultRecord
+			// Profiles from before passkeys may carry a Touch ID wrapper; it is ignored and dropped on the next save.
+			const { biometricKey: _legacyTouchId, ...parsed } = JSON.parse(content) as VaultRecord & {
+				biometricKey?: unknown
+			}
+			record = parsed
 		} catch {
 			throw new Error("Unsupported or invalid desktop security file")
 		}
 		if (
 			!record ||
-			record.version !== 2 ||
-			!/^[a-f0-9]{32}$/.test(record.salt) ||
-			!record.wrappedKey ||
+			(record.version !== 2 && record.version !== 3) ||
+			(record.version === 2 && (!record.salt || !record.wrappedKey)) ||
+			(record.salt !== undefined && (typeof record.salt !== "string" || !/^[a-f0-9]{32}$/.test(record.salt))) ||
+			Boolean(record.salt) !== Boolean(record.wrappedKey) ||
+			(!record.wrappedKey && !record.passkey) ||
+			(record.passkey !== undefined &&
+				(!isPasskeyCredential(record.passkey) ||
+					typeof record.passkey.key !== "string" ||
+					!/^(?:[a-f0-9]{2})+$/.test(record.passkey.key))) ||
 			!record.recoveryKey ||
 			(record.deviceKey !== undefined &&
-				(typeof record.deviceKey !== "string" || !/^(?:[a-f0-9]{2})+$/.test(record.deviceKey))) ||
-			(record.biometricKey !== undefined &&
-				(typeof record.biometricKey !== "string" || !/^(?:[a-f0-9]{2})+$/.test(record.biometricKey)))
+				(typeof record.deviceKey !== "string" || !/^(?:[a-f0-9]{2})+$/.test(record.deviceKey)))
 		)
 			throw new Error("Unsupported or invalid desktop security file")
 		return record
@@ -150,8 +157,9 @@ export class DesktopVault {
 						: record
 							? "unlock"
 							: "create",
-			biometricAvailable: await this.options.biometrics.available(),
-			biometricEnabled: Boolean(record?.biometricKey),
+			passkeyAvailable: Boolean(this.options.passkeys?.available()) && secureDeviceStorageAvailable,
+			passkeyEnabled: Boolean(record?.passkey),
+			passwordEnabled: Boolean(record?.wrappedKey),
 			recoveryEnabled: Boolean(record),
 			backgroundResumeAvailable:
 				Boolean(this.pending?.record.deviceKey ?? record?.deviceKey) && secureDeviceStorageAvailable,
@@ -178,16 +186,30 @@ export class DesktopVault {
 			if (isEncryptedConfig(content)) decryptConfig(content, key)
 		}
 	}
-	private async biometricKey(record: VaultRecord): Promise<Buffer> {
-		if (!record.biometricKey || !(await this.options.biometrics.available()))
-			throw new Error("Touch ID is unavailable. Use your password or recovery code.")
-		await this.options.biometrics.confirm()
-		return this.options.biometrics.unprotect(record.biometricKey)
+	private async requirePasskeys(): Promise<PasskeyUnlock> {
+		if (!this.options.passkeys?.available() || !(await this.options.deviceKeyStore.available()))
+			throw new Error("Passkeys require macOS or Windows with secure OS key storage. Use another sign-in method.")
+		return this.options.passkeys
 	}
-	private async enrollBiometrics(key: Buffer): Promise<string> {
-		if (!(await this.options.biometrics.available())) throw new Error("Touch ID is unavailable on this device")
-		await this.options.biometrics.confirm()
-		return this.options.biometrics.protect(key)
+	private async enrollPasskey(key: Buffer): Promise<NonNullable<VaultRecord["passkey"]>> {
+		const generation = this.generation
+		const passkeys = await this.requirePasskeys()
+		const wrappedKey = await this.options.deviceKeyStore.protect(key)
+		this.checkGeneration(generation)
+		const credential = await passkeys.register()
+		return { ...credential, key: wrappedKey }
+	}
+	private async passkeyKey(record: VaultRecord): Promise<Buffer> {
+		if (!record.passkey) throw new Error("No passkey is enrolled for this profile")
+		const generation = this.generation
+		const passkeys = await this.requirePasskeys()
+		this.checkGeneration(generation)
+		const { key: wrappedKey, ...savedCredential } = record.passkey
+		const credential = await passkeys.authenticate(savedCredential)
+		this.checkGeneration(generation)
+		record.passkey = { ...credential, key: wrappedKey }
+		// Only a verified assertion can release the OS-protected key to the dashboard.
+		return this.options.deviceKeyStore.unprotect(record.passkey.key)
 	}
 	private async wrapDeviceKey(key: Buffer): Promise<string | undefined> {
 		try {
@@ -226,7 +248,7 @@ export class DesktopVault {
 		const { code, wrappedKey } = createRecoveryKey(key)
 		this.pending = {
 			key,
-			record: { ...credentials, version: 2, recoveryKey: wrappedKey },
+			record: { ...credentials, version: credentials.passkey ? 3 : 2, recoveryKey: wrappedKey },
 			revision,
 			code,
 			restartAllowed,
@@ -236,31 +258,41 @@ export class DesktopVault {
 		this.scheduleExpiry()
 	}
 	private async activate(key: Buffer): Promise<void> {
+		const generation = this.generation
 		await this.options.start(key)
+		this.checkGeneration(generation)
 		this.key = key
 		this.options.onUnlocked?.()
+	}
+	private checkGeneration(generation: number): void {
+		if (generation !== this.generation) throw new Error("Sign-in cancelled. Try again.")
 	}
 	async unlock(request: UnlockRequest): Promise<void> {
 		await this.exclusive(async () => {
 			if (this.key) return
 			if (this.pending || this.recovery) throw new Error("Finish or cancel the current recovery step first")
+			const generation = this.generation
 			const revision = this.revision()
 			const record = this.record()
 			let key: Buffer | undefined
 			try {
 				if (!record) {
-					if (request.method !== "create") throw new Error("Create a password to continue")
+					if (request.method !== "create" && request.method !== "create-passkey")
+						throw new Error("Create a passkey or password to continue")
 					key = randomBytes(32)
-					const credentials = await this.wrapPassword(key, request.password, request.confirmation)
+					const credentials: Credentials =
+						request.method === "create-passkey"
+							? { passkey: await this.enrollPasskey(key) }
+							: await this.wrapPassword(key, request.password, request.confirmation)
 					credentials.deviceKey = await this.wrapDeviceKey(key)
 					this.checkConfig(key)
-					if (request.useBiometrics === true) credentials.biometricKey = await this.enrollBiometrics(key)
+					this.checkGeneration(generation)
 					// A new profile commits only after its recovery code is acknowledged.
 					this.stage(key, credentials, revision, request.restartSolver === true)
 					key = undefined
 					return
 				}
-				if (request.method === "biometric") key = await this.biometricKey(record)
+				if (request.method === "passkey") key = await this.passkeyKey(record)
 				else {
 					if (
 						request.method !== "password" ||
@@ -269,6 +301,7 @@ export class DesktopVault {
 						request.password.length > 1024
 					)
 						throw new Error("Enter your password")
+					if (!record.salt || !record.wrappedKey) throw new Error("Use your passkey or recovery code")
 					const wrappingKey = await passwordKey(request.password, record.salt)
 					try {
 						key = openSecret(record.wrappedKey, wrappingKey, "simplex/password/v1")
@@ -279,10 +312,14 @@ export class DesktopVault {
 					}
 				}
 				this.checkConfig(key)
+				if (request.usePasskey === true && request.method !== "passkey") {
+					record.passkey = await this.enrollPasskey(key)
+					record.version = 3
+				}
 				record.deviceKey = (await this.wrapDeviceKey(key)) ?? record.deviceKey
-				if (request.useBiometrics === true && request.method !== "biometric")
-					record.biometricKey = await this.enrollBiometrics(key)
+				this.checkGeneration(generation)
 				await this.persistAndPrepare(record, key, revision, request.restartSolver === true)
+				this.checkGeneration(generation)
 				await this.activate(key)
 				key = undefined
 			} finally {
@@ -294,15 +331,17 @@ export class DesktopVault {
 	async recover(request: UnlockRequest): Promise<void> {
 		await this.exclusive(async () => {
 			if (this.key || this.pending || this.recovery) throw new Error("Finish or cancel the current step first")
+			const generation = this.generation
 			const revision = this.revision()
 			const record = this.record()
 			if (!record) throw new Error("No saved configuration to recover")
 			let key: Buffer | undefined
 			try {
-				if (request.method === "biometric") key = await this.biometricKey(record)
+				if (request.method === "passkey") key = await this.passkeyKey(record)
 				else if (request.method === "code") key = recoverConfigKey(request.recoveryCode, record.recoveryKey)
 				else throw new Error("This recovery method is not available")
 				this.checkConfig(key)
+				this.checkGeneration(generation)
 				this.recovery = { key, record, revision, expiresAt: Date.now() + RECOVERY_SESSION_MS }
 				this.scheduleExpiry()
 				key = undefined
@@ -314,12 +353,29 @@ export class DesktopVault {
 	async resetPassword(request: UnlockRequest): Promise<void> {
 		await this.exclusive(async () => {
 			const recovery = this.recovery
-			if (!recovery) throw new Error("Verify your recovery code or Touch ID again")
+			if (!recovery) throw new Error("Verify your recovery code or sign-in method again")
 			const password = await this.wrapPassword(recovery.key, request.password, request.confirmation)
 			const deviceKey = (await this.wrapDeviceKey(recovery.key)) ?? recovery.record.deviceKey
+			if (this.recovery !== recovery) throw new Error("Recovery cancelled. Verify your recovery code again.")
 			this.stage(
 				recovery.key,
-				{ ...recovery.record, ...password, deviceKey },
+				{ ...recovery.record, ...password, passkey: undefined, deviceKey },
+				recovery.revision,
+				request.restartSolver === true,
+			)
+			this.recovery = undefined
+		})
+	}
+	async resetPasskey(request: UnlockRequest): Promise<void> {
+		await this.exclusive(async () => {
+			const recovery = this.recovery
+			if (!recovery) throw new Error("Verify your recovery code or sign-in method again")
+			const passkey = await this.enrollPasskey(recovery.key)
+			const deviceKey = (await this.wrapDeviceKey(recovery.key)) ?? recovery.record.deviceKey
+			if (this.recovery !== recovery) throw new Error("Recovery cancelled. Verify your recovery code again.")
+			this.stage(
+				recovery.key,
+				{ ...recovery.record, passkey, deviceKey },
 				recovery.revision,
 				request.restartSolver === true,
 			)
@@ -346,9 +402,11 @@ export class DesktopVault {
 		revision: string | undefined,
 		restartAllowed: boolean,
 	): Promise<void> {
+		const generation = this.generation
 		if (this.revision() !== revision) throw new Error("Security settings changed. Cancel and sign in again.")
 		this.checkConfig(key)
 		await this.options.prepare(restartAllowed)
+		this.checkGeneration(generation)
 		if (this.revision() !== revision) throw new Error("Security settings changed. Cancel and sign in again.")
 		mkdirSync(this.options.dataDir, { recursive: true, mode: 0o700 })
 		writeSecretAtomic(this.vaultPath, JSON.stringify(record) + "\n")
@@ -392,7 +450,15 @@ export class DesktopVault {
 				if (!fromUi) return json({ error: "Forbidden" }, 403)
 				return json({ code: this.recoveryCode() })
 			}
-			const routes = ["unlock", "recover", "reset-password", "confirm-recovery", "cancel-recovery"]
+			const routes = [
+				"unlock",
+				"recover",
+				"reset-password",
+				"reset-passkey",
+				"confirm-recovery",
+				"cancel-recovery",
+				"cancel-passkey",
+			]
 			const route = path.replace("/api/desktop/", "")
 			if (!routes.includes(route)) return json({ error: "Not found" }, 404)
 			if (request.method !== "POST") return json({ error: "Method not allowed" }, 405)
@@ -430,6 +496,13 @@ export class DesktopVault {
 					break
 				case "reset-password":
 					await this.resetPassword(body)
+					break
+				case "reset-passkey":
+					await this.resetPasskey(body)
+					break
+				case "cancel-passkey":
+					this.generation++
+					this.options.passkeys?.cancel()
 					break
 				case "confirm-recovery":
 					await this.confirmRecovery(body.saved)

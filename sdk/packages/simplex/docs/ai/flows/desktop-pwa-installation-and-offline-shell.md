@@ -25,9 +25,12 @@ then open Simplex from the desktop/app list. Native prompt cancellation closes n
 inline state; Sonner displays the retry message.
 
 CLI/PWA installs write private keys to `filler-config.toml` in plaintext. Native desktop instead
-requires password setup/unlock (optional Touch ID on macOS) and encrypts its profile config and all
+offers passkey setup/unlock on macOS and Windows and password fallback (default on Linux).
+It encrypts its profile config and all
 subsequent runtime edits. Unix creation is atomic and mode `0600`;
 `simplex.substratePrivateKey` remains required even when the EVM signer is Turnkey or
 MPC Vault. The CLI's TCP dashboard is unauthenticated and loopback is shared by all local users, so a
 shared macOS or Linux host uses `--ui-socket` plus SSH forwarding, or the authenticated tunnel. The
-native desktop path already uses its private socket and opens no TCP listener.
+native desktop dashboard uses its private socket. Passkey ceremonies briefly open a random-port
+loopback HTTP listener for the system browser, with per-request tokens and WebAuthn verification;
+that listener exposes no solver or dashboard APIs and closes when the ceremony ends.

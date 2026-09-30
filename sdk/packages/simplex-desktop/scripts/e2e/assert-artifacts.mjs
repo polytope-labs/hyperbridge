@@ -40,6 +40,9 @@ execFileSync(process.execPath, ["--check", resolve(desktopRoot, "dist/main.js")]
 if (/from ["']electron-updater["']|require\(["']electron-updater["']\)/.test(desktopMain)) {
 	throw new Error("The packaged Electron main process must bundle electron-updater")
 }
+if (/from ["']@simplewebauthn\/server["']|require\(["']@simplewebauthn\/server["']\)/.test(desktopMain)) {
+	throw new Error("The packaged Electron main process must bundle WebAuthn verification")
+}
 
 function pngDimensions(path) {
 	const png = readFileSync(path)

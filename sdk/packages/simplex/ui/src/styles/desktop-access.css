@@ -7,14 +7,88 @@
 
 .desktop-unlock > .card {
 	display: grid;
-	gap: 1rem;
-	width: min(100%, 30rem);
-	padding: 2rem;
+	gap: 1.25rem;
+	width: min(100%, 26rem);
+	margin: 0;
+	padding: 2.25rem;
+	border-radius: 1.25rem;
+	box-shadow: 0 24px 64px rgba(0, 0, 0, 0.35);
 }
 
-.desktop-unlock form {
+.desktop-unlock-brand {
+	display: flex;
+	align-items: center;
+	gap: 0.75rem;
+}
+
+.desktop-unlock-brand img {
+	border-radius: 0.6rem;
+}
+
+.desktop-unlock form,
+.desktop-unlock-panel {
 	display: grid;
 	gap: 0.75rem;
+}
+
+.desktop-unlock-panel > .hint {
+	margin: -0.25rem 0 0.5rem;
+}
+
+.desktop-unlock-actions {
+	display: grid;
+	gap: 0.5rem;
+}
+
+.desktop-unlock-links {
+	display: flex;
+	justify-content: center;
+	gap: 1.5rem;
+}
+
+.desktop-unlock .desktop-password-alternative {
+	justify-self: center;
+	min-height: 2rem;
+	padding: 0;
+	border: 0;
+	border-radius: 0;
+	background: transparent;
+	color: var(--muted);
+	font-size: 0.8125rem;
+	font-weight: 400;
+}
+
+.desktop-unlock .desktop-password-alternative:hover:not(:disabled) {
+	background: transparent;
+	color: var(--text);
+	text-decoration: underline;
+}
+
+.desktop-recovery-input {
+	width: 100%;
+	padding: 0.75rem 0.9rem;
+	border: 1px solid var(--border);
+	border-radius: 0.75rem;
+	outline: none;
+	background: var(--control);
+	color: var(--text);
+	font-family: var(--font-mono);
+	font-size: 0.875rem;
+	line-height: 1.6;
+	letter-spacing: 0.04em;
+	resize: none;
+	transition:
+		border-color 180ms var(--ease-out),
+		box-shadow 180ms var(--ease-out);
+}
+
+.desktop-recovery-input::placeholder {
+	color: #68717e;
+}
+
+.desktop-recovery-input:focus-visible {
+	border-color: rgba(74, 222, 255, 0.8);
+	box-shadow: 0 0 0 3px rgba(74, 222, 255, 0.14);
 }
 
 .desktop-recovery-code {
@@ -29,8 +103,34 @@
 
 .desktop-unlock h1 {
 	margin: 0;
-	font-size: 1.9rem;
-	letter-spacing: -0.04em;
+	font-size: 1.6rem;
+	line-height: 1.2;
+	letter-spacing: -0.03em;
+}
+
+.desktop-unlock fieldset[hidden] {
+	display: none;
+}
+
+.desktop-passkey-spinner {
+	width: 1.75rem;
+	height: 1.75rem;
+	border: 2px solid var(--border-strong);
+	border-top-color: var(--text);
+	border-radius: 50%;
+	animation: desktop-passkey-spin 900ms linear infinite;
+}
+
+@keyframes desktop-passkey-spin {
+	to {
+		transform: rotate(360deg);
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.desktop-passkey-spinner {
+		animation-duration: 2.4s;
+	}
 }
 
 .desktop-unlock fieldset {

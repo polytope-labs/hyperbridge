@@ -53,8 +53,8 @@ under the cap.
 ## Reconciling with the tally
 
 The store's `remaining` can end up above what the account still allows, for example after a fill
-that settled on chain while Simplex was offline. Simplex does not submit its own bids and does not
-see a `LimitOrderExceeded` revert, so it reads the tally with
+that settled on chain while Simplex was offline. The swapper's side sends a selected bid to the
+chain, and Simplex does not see a `LimitOrderExceeded` revert, so it reads the tally with
 `ContractInteractionService.limitOrderSpent(chain, budgetId)` and works out the room left with
 `budgetRoom(budget, spent, decimals)`, in two places:
 

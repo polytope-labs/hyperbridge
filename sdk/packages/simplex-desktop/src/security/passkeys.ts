@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto"
-import { createServer, type IncomingMessage } from "node:http"
+import { createServer, type IncomingMessage, type RequestListener, type Server } from "node:http"
 import {
 	generateAuthenticationOptions,
 	generateRegistrationOptions,
@@ -15,10 +15,12 @@ export interface PasskeyCredential {
 	publicKey: string
 	counter: number
 	transports?: string[]
+	/** WebAuthn user handle; reusing it lets the authenticator replace this profile's passkey. */
+	userId?: string
 }
 export interface PasskeyUnlock {
 	available(): boolean
-	register(): Promise<PasskeyCredential>
+	register(userId?: string): Promise<PasskeyCredential>
 	authenticate(credential: PasskeyCredential): Promise<PasskeyCredential>
 	cancel(): void
 }
@@ -33,6 +35,8 @@ export function isPasskeyCredential(value: unknown): value is PasskeyCredential 
 		/^[A-Za-z0-9_-]{1,4096}$/.test(credential.publicKey) &&
 		Number.isSafeInteger(credential.counter) &&
 		credential.counter >= 0 &&
+		(credential.userId === undefined ||
+			(typeof credential.userId === "string" && /^[A-Za-z0-9_-]{1,86}$/.test(credential.userId))) &&
 		(credential.transports === undefined ||
 			(Array.isArray(credential.transports) &&
 				credential.transports.length <= 8 &&
@@ -51,6 +55,44 @@ async function readBody(request: IncomingMessage): Promise<unknown> {
 		chunks.push(Buffer.from(chunk))
 	}
 	return JSON.parse(Buffer.concat(chunks).toString("utf8"))
+}
+
+function listen(server: Server, port: number, host: string): Promise<void> {
+	return new Promise((resolve, reject) => {
+		server.once("error", reject)
+		server.listen(port, host, () => {
+			server.off("error", reject)
+			resolve()
+		})
+	})
+}
+
+/**
+ * Browsers may resolve localhost to ::1 before 127.0.0.1, so serve both loopbacks on one port.
+ * Another process holding the ::1 port could read the fragment token, so pick a new port instead.
+ */
+async function listenLoopback(handler: RequestListener, servers: Server[]): Promise<number> {
+	for (let attempt = 0; attempt < 5; attempt++) {
+		const ipv4 = createServer(handler)
+		ipv4.requestTimeout = 10_000
+		servers.push(ipv4)
+		await listen(ipv4, 0, "127.0.0.1")
+		const address = ipv4.address()
+		if (!address || typeof address === "string") throw new Error("Could not start passkey login")
+		const ipv6 = createServer(handler)
+		ipv6.requestTimeout = 10_000
+		try {
+			await listen(ipv6, address.port, "::1")
+			servers.push(ipv6)
+			return address.port
+		} catch (error) {
+			const code = (error as NodeJS.ErrnoException).code
+			if (code === "EADDRNOTAVAIL" || code === "EAFNOSUPPORT") return address.port
+			if (code !== "EADDRINUSE") throw error
+			servers.pop()?.close()
+		}
+	}
+	throw new Error("Could not start passkey login")
 }
 
 /**
@@ -75,12 +117,13 @@ export class BrowserPasskeys implements PasskeyUnlock {
 		this.generation++
 		this.abort?.()
 	}
-	async register(): Promise<PasskeyCredential> {
+	async register(userId = randomBytes(16).toString("base64url")): Promise<PasskeyCredential> {
 		const generation = this.generation
 		const options = await generateRegistrationOptions({
 			rpName: "Simplex Desktop",
 			rpID: "localhost",
-			userName: `Simplex ${randomBytes(6).toString("hex")}`,
+			userID: new Uint8Array(Buffer.from(userId, "base64url")),
+			userName: `Simplex ${userId.slice(0, 8)}`,
 			userDisplayName: "Simplex Desktop profile",
 			attestationType: "none",
 			authenticatorSelection: {
@@ -103,7 +146,7 @@ export class BrowserPasskeys implements PasskeyUnlock {
 			})
 			if (!result.verified) throw new Error("Passkey registration failed")
 			const credential = result.registrationInfo.credential
-			return { ...credential, publicKey: Buffer.from(credential.publicKey).toString("base64url") }
+			return { ...credential, publicKey: Buffer.from(credential.publicKey).toString("base64url"), userId }
 		})
 	}
 	async authenticate(credential: PasskeyCredential): Promise<PasskeyCredential> {
@@ -161,7 +204,7 @@ export class BrowserPasskeys implements PasskeyUnlock {
 			if (error) reject(error)
 			else resolve(credential!)
 		}
-		const server = createServer(async (request, response) => {
+		const handler: RequestListener = async (request, response) => {
 			response.setHeader("Cache-Control", "no-store")
 			response.setHeader("Referrer-Policy", "no-referrer")
 			response.setHeader("X-Content-Type-Options", "nosniff")
@@ -208,20 +251,11 @@ export class BrowserPasskeys implements PasskeyUnlock {
 				)
 				send(400, { error: "Passkey verification failed" })
 			}
-		})
-		server.requestTimeout = 10_000
+		}
+		const servers: Server[] = []
 		this.abort = () => finish(new Error("Passkey cancelled. Try again or use another sign-in method."))
 		try {
-			await new Promise<void>((yes, no) => {
-				server.once("error", no)
-				server.listen(0, "127.0.0.1", () => {
-					server.off("error", no)
-					yes()
-				})
-			})
-			const address = server.address()
-			if (!address || typeof address === "string") throw new Error("Could not start passkey login")
-			origin = `http://localhost:${address.port}`
+			origin = `http://localhost:${await listenLoopback(handler, servers)}`
 			timer = setTimeout(
 				() => finish(new Error("Passkey request expired. Try again.")),
 				this.options.timeoutMs ?? 120_000,
@@ -231,8 +265,10 @@ export class BrowserPasskeys implements PasskeyUnlock {
 			return await result
 		} finally {
 			clearTimeout(timer)
-			server.close()
-			server.closeAllConnections()
+			for (const server of servers) {
+				server.close()
+				server.closeAllConnections()
+			}
 			this.abort = undefined
 		}
 	}

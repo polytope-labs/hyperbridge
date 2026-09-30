@@ -1,4 +1,5 @@
 import { request as httpRequest } from "node:http"
+import { networkInterfaces } from "node:os"
 import { createHash, generateKeyPairSync, randomBytes, sign } from "node:crypto"
 import { isoCBOR } from "@simplewebauthn/server/helpers"
 import { describe, expect, it, vi } from "vitest"
@@ -95,6 +96,7 @@ function browser(url: string) {
 describe("browser passkey ceremonies", () => {
 	it("verifies real registration and signed authentication responses, with a fresh origin and challenge each time", async () => {
 		const device = authenticator()
+		const userId = "AAECAwQFBgcICQoLDA0ODw"
 		const challenges: string[] = []
 		const origins: string[] = []
 		const passkeys = new BrowserPasskeys({
@@ -108,12 +110,13 @@ describe("browser passkey ceremonies", () => {
 				if (kind === "register") {
 					expect(options.authenticatorSelection.authenticatorAttachment).toBe("platform")
 					expect(options.authenticatorSelection.residentKey).toBe("required")
+					expect(options.user.id).toBe(userId)
 				}
 				expect((await b.post("/verify", device.response(kind, options.challenge, b.origin))).status).toBe(200)
 			},
 		})
-		const credential = await passkeys.register()
-		expect(credential).toEqual(device.credential)
+		const credential = await passkeys.register(userId)
+		expect(credential).toEqual({ ...device.credential, userId })
 		const authenticated = await passkeys.authenticate(credential)
 		expect(authenticated.counter).toBe(1)
 		expect(new Set(challenges).size).toBe(2)
@@ -206,7 +209,32 @@ describe("browser passkey ceremonies", () => {
 				expect((await b.post("/verify", device.response(kind, options.challenge, b.origin))).status).toBe(200)
 			},
 		})
-		await expect(passkeys.register()).resolves.toEqual(device.credential)
+		await expect(passkeys.register()).resolves.toMatchObject(device.credential)
+	})
+
+	it.runIf(
+		Object.values(networkInterfaces()).some((addresses) => addresses?.some(({ address }) => address === "::1")),
+	)("serves the ceremony on both IPv4 and IPv6 loopback", async () => {
+		const passkeys = new BrowserPasskeys({
+			platform: "darwin",
+			openBrowser: async (url) => {
+				const { port, host } = new URL(url)
+				const status = await new Promise<number>((resolve, reject) => {
+					const request = httpRequest(
+						{ host: "::1", port, path: "/", headers: { Host: host } },
+						(response) => {
+							response.resume()
+							response.on("end", () => resolve(response.statusCode!))
+						},
+					)
+					request.on("error", reject)
+					request.end()
+				})
+				expect(status).toBe(200)
+				passkeys.cancel()
+			},
+		})
+		await expect(passkeys.register()).rejects.toThrow(/cancelled/)
 	})
 
 	it("rejects replayed assertions in a new session", async () => {
@@ -284,5 +312,90 @@ describe("browser passkey ceremonies", () => {
 		expect(openBrowser).not.toHaveBeenCalled()
 		const script = passkeyPage("nonce").match(/<script[^>]*>([\s\S]*)<\/script>/)![1]
 		expect(() => new Function(script)).not.toThrow()
+	})
+})
+
+type Element = {
+	textContent: string
+	disabled: boolean
+	dataset: Record<string, string>
+	onclick?: () => unknown
+	focus(): void
+}
+/** Runs the served page script against a minimal DOM to cover its state transitions. */
+function runPage(hash: string, respond: (path: string) => Promise<Response>, storage = new Map<string, string>()) {
+	const element = (): Element => ({ textContent: "", disabled: false, dataset: {}, focus() {} })
+	const elements: Record<string, Element> = {
+		main: element(),
+		title: element(),
+		status: element(),
+		continue: element(),
+		cancel: element(),
+	}
+	elements.continue.disabled = true
+	const calls: { path: string; authorization: string }[] = []
+	const fetch = vi.fn(async (path: string, init: RequestInit) => {
+		calls.push({ path, authorization: (init.headers as Record<string, string>).Authorization })
+		return respond(path)
+	})
+	const sessionStorage = {
+		getItem: (key: string) => storage.get(key) ?? null,
+		setItem: (key: string, value: string) => storage.set(key, value),
+	}
+	const script = passkeyPage("nonce").match(/<script[^>]*>([\s\S]*)<\/script>/)![1]
+	new Function("document", "location", "history", "sessionStorage", "fetch", "window", script)(
+		{ title: "", querySelector: () => elements.main, getElementById: (id: string) => elements[id] },
+		{ hash },
+		{ replaceState() {} },
+		sessionStorage,
+		fetch,
+		{},
+	)
+	return { elements, calls, storage }
+}
+const settle = () => new Promise((resolve) => setTimeout(resolve, 0))
+
+describe("passkey browser page", () => {
+	it("stays cancelled when options arrive after the user cancels", async () => {
+		let release!: (response: Response) => void
+		const page = runPage("#token", (path) =>
+			path === "/options"
+				? new Promise<Response>((resolve) => (release = resolve))
+				: Promise.resolve(Response.json({ ok: true })),
+		)
+		await page.elements.cancel.onclick!()
+		release(Response.json({ kind: "register", options: { challenge: "AA" } }))
+		await settle()
+		expect(page.elements.main.dataset.state).toBe("fail")
+		expect(page.elements.title.textContent).toBe("Request cancelled")
+		expect(page.elements.continue.disabled).toBe(true)
+		expect(page.calls.map(({ path }) => path)).toContain("/cancel")
+	})
+
+	it("reports an ended request and releases Simplex instead of waiting for the timeout", async () => {
+		const page = runPage("#token", async () => new Response("{}", { status: 403 }))
+		await settle()
+		expect(page.elements.title.textContent).toBe("Request ended")
+		expect(page.elements.continue.disabled).toBe(true)
+		expect(page.calls.map(({ path }) => path)).toEqual(["/options", "/cancel"])
+	})
+
+	it("reports an unreachable app separately from an ended request", async () => {
+		const page = runPage("#token", async () => {
+			throw new TypeError("Failed to fetch")
+		})
+		await settle()
+		expect(page.elements.title.textContent).toBe("Can't reach Simplex")
+	})
+
+	it("keeps the capability across a reload of the same tab", async () => {
+		const options = async () => Response.json({ kind: "authenticate", options: { challenge: "AA" } })
+		const first = runPage("#secret-token", options)
+		await settle()
+		const reloaded = runPage("", options, first.storage)
+		await settle()
+		expect(reloaded.calls[0].authorization).toBe("Bearer secret-token")
+		expect(reloaded.elements.title.textContent).toBe("Unlock Simplex")
+		expect(reloaded.elements.continue.disabled).toBe(false)
 	})
 })

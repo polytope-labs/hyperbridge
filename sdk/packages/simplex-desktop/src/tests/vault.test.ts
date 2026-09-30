@@ -61,7 +61,7 @@ function passkeyFixture(dataDir?: string) {
 	const credential = { id: "test-credential", publicKey: "test-cose-key", counter: 0, transports: ["internal"] }
 	const passkeys: PasskeyUnlock = {
 		available: vi.fn(() => true),
-		register: vi.fn(async () => ({ ...credential })),
+		register: vi.fn(async (userId = "profile-user") => ({ ...credential, userId })),
 		authenticate: vi.fn(async (saved) => ({ ...saved, counter: saved.counter + 1 })),
 		cancel: vi.fn(),
 	}
@@ -168,6 +168,7 @@ describe("passkey desktop vault", () => {
 			counter: 0,
 		})
 		await next.vault.resetPasskey({})
+		expect(next.passkeys.register).toHaveBeenCalledWith("profile-user")
 		expect(next.vault.isUnlocked()).toBe(false)
 		expect(readFileSync(f.metadata, "utf8")).toBe(before)
 		const newCode = next.vault.recoveryCode()
@@ -181,6 +182,63 @@ describe("passkey desktop vault", () => {
 			/Invalid/,
 		)
 		await fixture(f.dataDir).vault.recover({ method: "code", recoveryCode: newCode })
+	})
+
+	it("unlocks with the password when the optional passkey is declined, unless the vault locks", async () => {
+		const f = fixture()
+		await enroll(f)
+		const before = JSON.parse(readFileSync(f.metadata, "utf8"))
+		const declined = passkeyFixture(f.dataDir)
+		vi.mocked(declined.passkeys.register).mockRejectedValue(new Error("cancelled"))
+		await expect(declined.vault.unlock({ method: "password", password, usePasskey: true })).resolves.toMatch(
+			/Passkey not saved/,
+		)
+		expect(declined.vault.isUnlocked()).toBe(true)
+		expect(JSON.parse(readFileSync(f.metadata, "utf8")).passkey).toBeUndefined()
+		expect(JSON.parse(readFileSync(f.metadata, "utf8")).wrappedKey).toEqual(before.wrappedKey)
+		const locked = passkeyFixture(f.dataDir)
+		vi.mocked(locked.passkeys.register).mockImplementation(async () => {
+			locked.vault.lock()
+			throw new Error("cancelled")
+		})
+		await expect(locked.vault.unlock({ method: "password", password, usePasskey: true })).rejects.toThrow(
+			/Sign-in cancelled/,
+		)
+		expect(locked.vault.isUnlocked()).toBe(false)
+		expect(locked.start).not.toHaveBeenCalled()
+	})
+
+	it("reports a pending passkey only while the browser ceremony is open", async () => {
+		const f = fixture()
+		await enroll(f)
+		const next = passkeyFixture(f.dataDir)
+		await expect(
+			next.vault.unlock({ method: "password", password: "wrong password", usePasskey: true }),
+		).rejects.toThrow(/Incorrect password/)
+		expect(next.passkeys.register).not.toHaveBeenCalled()
+		expect(next.vault.isPasskeyPending()).toBe(false)
+		const states: boolean[] = []
+		const retry = passkeyFixture(f.dataDir)
+		vi.mocked(retry.passkeys.register).mockImplementation(async () => {
+			states.push(retry.vault.isPasskeyPending())
+			throw new Error("cancelled")
+		})
+		await retry.vault.unlock({ method: "password", password, usePasskey: true })
+		expect(states).toEqual([true])
+		const status = await retry.vault.handle(new Request("simplex://local/api/desktop/passkey-status"))
+		expect(await status.json()).toEqual({ pending: false })
+		expect(retry.vault.isPasskeyPending()).toBe(false)
+	})
+
+	it("honors a cancel that arrives before the browser ceremony starts", async () => {
+		const f = passkeyFixture()
+		vi.mocked(f.deviceKeyStore.protect).mockImplementation(async (key: Buffer) => {
+			f.vault.cancelPasskey()
+			return key.toString("hex")
+		})
+		await expect(f.vault.unlock({ method: "create-passkey" })).rejects.toThrow(/cancelled/)
+		expect(f.passkeys.register).not.toHaveBeenCalled()
+		expect(readdirSync(f.dataDir)).toEqual([])
 	})
 
 	it("recovers a passkey-only profile to a password when passkeys are unavailable", async () => {

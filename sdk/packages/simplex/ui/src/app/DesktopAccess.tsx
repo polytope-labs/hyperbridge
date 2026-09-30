@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react"
+import { toast } from "sonner"
 import { api } from "../api"
 import { isNativeDesktopProtocol } from "../lib/runtime"
+import { formatRecoveryCode, RECOVERY_CODE_DIGITS } from "../lib/recovery-code"
 
 type AccessState = {
 	mode: "create" | "unlock" | "reset-password" | "save-recovery" | "unlocked"
@@ -20,7 +22,8 @@ function preferredAccessMethod(access: AccessState): AccessMethod {
 	return access.passkeyEnabled || (access.mode === "create" && access.passkeyAvailable) ? "passkey" : "password"
 }
 
-function isPasskeyRequest(route: string, body?: Record<string, unknown>): boolean {
+/** Requests that may open a browser ceremony; the host reports when one is actually open. */
+function mayOpenPasskey(route: string, body?: Record<string, unknown>): boolean {
 	return (
 		route === "reset-passkey" ||
 		body?.method === "passkey" ||
@@ -41,6 +44,7 @@ function NativeAccess({ children }: { children: ReactNode }) {
 	const [forgot, setForgot] = useState(false)
 	const [pending, setPending] = useState(false)
 	const [passkeyPending, setPasskeyPending] = useState(false)
+	const [notice, setNotice] = useState<string>()
 	const refresh = useCallback(async () => {
 		const next = await api.get<AccessState>("/api/desktop/security")
 		const recovery =
@@ -51,23 +55,43 @@ function NativeAccess({ children }: { children: ReactNode }) {
 	useEffect(() => {
 		void refresh().catch((cause) => setError(message(cause)))
 	}, [refresh])
+	const unlocked = access?.mode === "unlocked"
+	useEffect(() => {
+		// Child effects run first, so the app's Toaster is mounted by the time this fires.
+		if (!unlocked || !notice) return
+		toast.warning(notice)
+		setNotice(undefined)
+	}, [unlocked, notice])
 	const perform: Perform = async (route, body) => {
 		setPending(true)
-		setPasskeyPending(isPasskeyRequest(route, body))
 		setError(undefined)
+		let settled = false
+		const poll = mayOpenPasskey(route, body)
+			? setInterval(() => {
+					void api
+						.get<{ pending: boolean }>("/api/desktop/passkey-status")
+						.then(({ pending }) => {
+							if (!settled) setPasskeyPending(pending)
+						})
+						.catch(() => {})
+				}, 400)
+			: undefined
 		try {
-			await api.post(`/api/desktop/${route}`, body)
+			const result = await api.post<{ warning?: string } | undefined>(`/api/desktop/${route}`, body)
+			setNotice(result?.warning)
 			setForgot(false)
 			await refresh()
 		} catch (cause) {
 			await refresh().catch(() => {})
 			setError(message(cause))
 		} finally {
+			settled = true
+			clearInterval(poll)
 			setPending(false)
 			setPasskeyPending(false)
 		}
 	}
-	if (access?.mode === "unlocked") return children
+	if (unlocked) return children
 	const cancel = () => {
 		void perform("cancel-recovery")
 	}
@@ -346,17 +370,6 @@ function PasskeyLogin({
 			</div>
 		</div>
 	)
-}
-
-const RECOVERY_CODE_DIGITS = 64
-
-/** Recovery codes are 64 hex digits shown in groups of eight; accept pasted codes in any case or spacing. */
-function formatRecoveryCode(value: string): string {
-	const digits = value
-		.replace(/[^0-9a-f]/gi, "")
-		.slice(0, RECOVERY_CODE_DIGITS)
-		.toUpperCase()
-	return digits.match(/.{1,8}/g)?.join("-") ?? ""
 }
 
 function Recover({ access, perform, cancel }: { access: AccessState; perform: Perform; cancel(): void }) {

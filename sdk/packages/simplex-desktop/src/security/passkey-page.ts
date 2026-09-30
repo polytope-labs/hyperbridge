@@ -46,7 +46,12 @@ export function passkeyPage(nonce: string): string {
 <p class="foot">This page only talks to Simplex on this computer. Nothing is sent to a website.</p>
 </main>
 <script nonce="${nonce}">
-const token = location.hash.slice(1);
+let token = location.hash.slice(1);
+// Keep the capability for a reload of this tab only; the address bar never shows it again.
+try {
+  if (token) sessionStorage.setItem('token', token);
+  else token = sessionStorage.getItem('token') || '';
+} catch {}
 history.replaceState(null, '', '/');
 const main = document.querySelector('main');
 const title = document.getElementById('title');
@@ -68,15 +73,24 @@ function show(state, heading, text) {
   status.textContent = text;
   proceed.disabled = cancel.disabled = true;
 }
+function failure(heading, text) {
+  return Object.assign(new Error(text), {heading});
+}
 async function request(path, body) {
-  const response = await fetch(path, {method:'POST', headers:{'Content-Type':'application/json', 'Authorization':'Bearer '+token}, body:JSON.stringify(body || {})});
-  if (!response.ok) throw new Error(path === '/verify'
-    ? 'Simplex couldn\\'t verify this passkey. Return to Simplex to try again.'
-    : 'This passkey request has expired. Return to Simplex to start a new one.');
+  let response;
+  try {
+    response = await fetch(path, {method:'POST', headers:{'Content-Type':'application/json', 'Authorization':'Bearer '+token}, body:JSON.stringify(body || {})});
+  } catch {
+    throw failure('Can\\'t reach Simplex', 'Make sure Simplex is still open, then start again from the app.');
+  }
+  if (!response.ok) throw path === '/verify'
+    ? failure('Something went wrong', 'Simplex couldn\\'t verify this passkey. Return to Simplex to try again.')
+    : failure('Request ended', 'This passkey request is no longer active. Return to Simplex to start a new one.');
   return response.json();
 }
 // Load options before the click so the browser still sees the click as the user gesture.
 request('/options').then(result => {
+  if (main.dataset.state) return; // Cancelled while loading.
   ({kind, options} = result);
   const [heading, text, action] = copy[kind];
   document.title = heading + ' · Simplex';
@@ -85,7 +99,12 @@ request('/options').then(result => {
   proceed.textContent = action;
   proceed.disabled = false;
   proceed.focus();
-}, error => show('fail', 'Request expired', error.message));
+}, error => {
+  if (main.dataset.state) return;
+  show('fail', error.heading, error.message);
+  // Release Simplex now rather than leaving it waiting for the timeout.
+  request('/cancel').catch(() => {});
+});
 proceed.onclick = async () => {
   proceed.disabled = true;
   try {
@@ -112,7 +131,7 @@ proceed.onclick = async () => {
       'You\\'re all set. Simplex is continuing in its own window, so you can close this tab.');
   } catch (error) {
     const cancelled = error.name === 'NotAllowedError' || error.name === 'AbortError';
-    show('fail', cancelled ? 'Request cancelled' : 'Something went wrong', cancelled
+    show('fail', cancelled ? 'Request cancelled' : error.heading || 'Something went wrong', cancelled
       ? 'Passkey request cancelled. Nothing changed. Return to Simplex to try again.' : error.message);
     await request('/cancel').catch(() => {});
   }

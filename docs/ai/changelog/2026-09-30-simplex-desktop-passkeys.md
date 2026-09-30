@@ -4,12 +4,16 @@ macOS and Windows offer passwordless first-run setup and login using WebAuthn pl
 through the system browser. Password setup remains available as a small **Use a password instead**
 text action below the passkey controls; Linux retains password login.
 Existing password profiles enroll with **Create a passkey for future logins** during authenticated
-login, preserving their password fallback, recovery code and config key.
+login, preserving their password fallback, recovery code and config key. Declining or failing that
+optional passkey still completes the password unlock, and the dashboard shows a warning toast.
 
 The host verifies registration/authentication with required user verification, a fresh one-use
 challenge, exact expected origin, RP ID `localhost`, credential ID and assertion signature/counter.
-A temporary listener binds only `127.0.0.1` on a random port. Its browser page authenticates requests
-with a random capability carried in the URL fragment and then removed from the address bar.
+A temporary listener binds the same random port on `127.0.0.1` and `::1` (IPv4 only when IPv6 loopback
+is unavailable; a new port when `::1` is taken), because browsers may resolve `localhost` to either.
+Its browser page authenticates requests with a random capability carried in the URL fragment, removed
+from the address bar and kept in that tab's `sessionStorage` so a reload still works. The page reports
+an ended request or unreachable app and cancels the ceremony instead of leaving Simplex waiting.
 It exposes only the ceremony and closes on completion, cancellation, failure or the two-minute
 expiry. The desktop API remains locked until verification and solver activation succeed.
 
@@ -26,6 +30,10 @@ passkey or password. The replacement recovery code must be acknowledged before c
 change. Password recovery removes the current passkey; passkey replacement retains any existing
 password fallback. Cancelling preserves the saved profile. Recovery keeps the config key and an
 already protected solver running; old metadata backups may still unlock with their old wrappers.
+Replacing a passkey therefore does not revoke the old one on this OS account: a restored older
+`desktop-vault.json` still accepts it. Each profile keeps one WebAuthn user handle (`passkey.userId`)
+across replacements, so authenticators that key passkeys by user handle, such as iCloud Keychain,
+overwrite the old passkey instead of accumulating `localhost` entries.
 The standalone Touch ID option is removed: macOS users get Touch ID through passkeys. Existing
 profiles load unchanged, ignore their `biometricKey` Touch ID wrapper, drop it on the next save,
 and unlock with their password or recovery code.
@@ -33,7 +41,9 @@ and unlock with their password or recovery code.
 Desktop security state adds `passkeyAvailable`, `passkeyEnabled` and `passwordEnabled` and drops
 `biometricAvailable`/`biometricEnabled`; unlock no longer accepts `useBiometrics` or `method: "biometric"`.
 `POST /api/desktop/unlock` accepts `create-passkey`, `passkey` and password enrollment via
-`usePasskey: true`; recovery accepts `method: "passkey"`. Authenticated recovery uses
+`usePasskey: true` and returns `warning` when that optional passkey was not saved; recovery accepts
+`method: "passkey"`. `GET /api/desktop/passkey-status` returns `{ pending }`, true only while a browser
+ceremony is open, so the UI shows its browser-waiting screen only after credentials are checked. Authenticated recovery uses
 `POST /api/desktop/reset-passkey`; `POST /api/desktop/cancel-passkey` cancels the active ceremony.
 Both routes enforce the existing native-UI origin and CSRF checks. The existing `reset-password`
 mode represents authorized credential replacement, including passkeys.

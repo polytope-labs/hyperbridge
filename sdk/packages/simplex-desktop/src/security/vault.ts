@@ -56,6 +56,8 @@ export class DesktopVault {
 	private pending?: PendingSave
 	private expiryTimer?: NodeJS.Timeout
 	private generation = 0
+	private passkeyAttempt = 0
+	private passkeyActive = false
 	private busy = false
 	private nextAttempt = 0
 	constructor(
@@ -77,7 +79,7 @@ export class DesktopVault {
 	}
 	lock(): void {
 		this.generation++
-		this.options.passkeys?.cancel()
+		this.cancelPasskey()
 		clearTimeout(this.expiryTimer)
 		this.key?.fill(0)
 		this.recovery?.key.fill(0)
@@ -191,21 +193,42 @@ export class DesktopVault {
 			throw new Error("Passkeys require macOS or Windows with secure OS key storage. Use another sign-in method.")
 		return this.options.passkeys
 	}
-	private async enrollPasskey(key: Buffer): Promise<NonNullable<VaultRecord["passkey"]>> {
+	/** True only while a browser ceremony is open, not while a password or setup step runs first. */
+	isPasskeyPending(): boolean {
+		return this.passkeyActive
+	}
+	cancelPasskey(): void {
+		this.passkeyAttempt++
+		this.options.passkeys?.cancel()
+	}
+	/** Runs one browser ceremony; a cancel before it starts must not be lost. */
+	private async ceremony<T>(attempt: number, run: () => Promise<T>): Promise<T> {
+		if (attempt !== this.passkeyAttempt) throw new Error("Passkey cancelled. Try again.")
+		this.passkeyActive = true
+		try {
+			return await run()
+		} finally {
+			this.passkeyActive = false
+		}
+	}
+	/** Reuses the profile's WebAuthn user handle so a replacement overwrites the old passkey where supported. */
+	private async enrollPasskey(key: Buffer, userId?: string): Promise<NonNullable<VaultRecord["passkey"]>> {
 		const generation = this.generation
+		const attempt = this.passkeyAttempt
 		const passkeys = await this.requirePasskeys()
 		const wrappedKey = await this.options.deviceKeyStore.protect(key)
 		this.checkGeneration(generation)
-		const credential = await passkeys.register()
+		const credential = await this.ceremony(attempt, () => passkeys.register(userId))
 		return { ...credential, key: wrappedKey }
 	}
 	private async passkeyKey(record: VaultRecord): Promise<Buffer> {
 		if (!record.passkey) throw new Error("No passkey is enrolled for this profile")
 		const generation = this.generation
+		const attempt = this.passkeyAttempt
 		const passkeys = await this.requirePasskeys()
 		this.checkGeneration(generation)
 		const { key: wrappedKey, ...savedCredential } = record.passkey
-		const credential = await passkeys.authenticate(savedCredential)
+		const credential = await this.ceremony(attempt, () => passkeys.authenticate(savedCredential))
 		this.checkGeneration(generation)
 		record.passkey = { ...credential, key: wrappedKey }
 		// Only a verified assertion can release the OS-protected key to the dashboard.
@@ -267,7 +290,9 @@ export class DesktopVault {
 	private checkGeneration(generation: number): void {
 		if (generation !== this.generation) throw new Error("Sign-in cancelled. Try again.")
 	}
-	async unlock(request: UnlockRequest): Promise<void> {
+	/** Resolves to a warning when the password unlock succeeded but the optional passkey was not saved. */
+	async unlock(request: UnlockRequest): Promise<string | undefined> {
+		let warning: string | undefined
 		await this.exclusive(async () => {
 			if (this.key) return
 			if (this.pending || this.recovery) throw new Error("Finish or cancel the current recovery step first")
@@ -313,8 +338,14 @@ export class DesktopVault {
 				}
 				this.checkConfig(key)
 				if (request.usePasskey === true && request.method !== "passkey") {
-					record.passkey = await this.enrollPasskey(key)
-					record.version = 3
+					// The password already proved access; a declined passkey must not block this unlock.
+					try {
+						record.passkey = await this.enrollPasskey(key, record.passkey?.userId)
+						record.version = 3
+					} catch {
+						this.checkGeneration(generation)
+						warning = "Passkey not saved. You can create one the next time you sign in with your password."
+					}
 				}
 				record.deviceKey = (await this.wrapDeviceKey(key)) ?? record.deviceKey
 				this.checkGeneration(generation)
@@ -326,6 +357,7 @@ export class DesktopVault {
 				key?.fill(0)
 			}
 		}, true)
+		return warning
 	}
 	/** Verify recovery without unlocking APIs, changing the password, or touching the solver. */
 	async recover(request: UnlockRequest): Promise<void> {
@@ -370,7 +402,7 @@ export class DesktopVault {
 		await this.exclusive(async () => {
 			const recovery = this.recovery
 			if (!recovery) throw new Error("Verify your recovery code or sign-in method again")
-			const passkey = await this.enrollPasskey(recovery.key)
+			const passkey = await this.enrollPasskey(recovery.key, recovery.record.passkey?.userId)
 			const deviceKey = (await this.wrapDeviceKey(recovery.key)) ?? recovery.record.deviceKey
 			if (this.recovery !== recovery) throw new Error("Recovery cancelled. Verify your recovery code again.")
 			this.stage(
@@ -446,6 +478,8 @@ export class DesktopVault {
 		const fromUi = request.headers.get("x-simplex-ui") === "1" && (!origin || origin === "simplex://local")
 		try {
 			if (path === "/api/desktop/security" && request.method === "GET") return json(await this.state())
+			if (path === "/api/desktop/passkey-status" && request.method === "GET")
+				return json({ pending: this.isPasskeyPending() })
 			if (path === "/api/desktop/recovery-code" && request.method === "GET") {
 				if (!fromUi) return json({ error: "Forbidden" }, 403)
 				return json({ code: this.recoveryCode() })
@@ -487,9 +521,10 @@ export class DesktopVault {
 				return json({ error: "Invalid request" }, 400)
 			}
 			if (!body || typeof body !== "object" || Array.isArray(body)) return json({ error: "Invalid request" }, 400)
+			let warning: string | undefined
 			switch (route) {
 				case "unlock":
-					await this.unlock(body)
+					warning = await this.unlock(body)
 					break
 				case "recover":
 					await this.recover(body)
@@ -501,8 +536,7 @@ export class DesktopVault {
 					await this.resetPasskey(body)
 					break
 				case "cancel-passkey":
-					this.generation++
-					this.options.passkeys?.cancel()
+					this.cancelPasskey()
 					break
 				case "confirm-recovery":
 					await this.confirmRecovery(body.saved)
@@ -511,7 +545,7 @@ export class DesktopVault {
 					await this.cancelRecovery()
 					break
 			}
-			return json({ ok: true })
+			return json(warning ? { ok: true, warning } : { ok: true })
 		} catch (error) {
 			return json({ error: error instanceof Error ? error.message : "Could not unlock Simplex" }, 400)
 		}

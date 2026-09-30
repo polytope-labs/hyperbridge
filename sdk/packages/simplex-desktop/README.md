@@ -45,6 +45,7 @@ the existing window does not log out.
 
 Existing password profiles can select **Create a passkey for future logins** while signing in.
 The password remains available as a fallback, and enrollment preserves the config key and recovery code.
+If that passkey is declined or fails, the password unlock still completes with a warning.
 Passkey profiles offer **Unlock with passkey** on subsequent launches.
 
 **Recover access** (or **Forgot password?** on the password screen) accepts the saved recovery code.
@@ -54,7 +55,8 @@ recovery preserves the config and does not restart an already protected solver. 
 after ten minutes. Cancelling before confirmation preserves existing credentials. A password reset
 removes the current passkey; replacing a passkey preserves an existing password fallback.
 Without a working sign-in or recovery method, the app does not delete or reset the profile.
-Old metadata backups and their corresponding password/recovery code may still decrypt the config.
+Old metadata backups and their corresponding password/recovery code may still decrypt the config;
+a restored older backup also still accepts the passkey it recorded, so replacement does not revoke it.
 
 Passkeys require secure OS storage and a browser with platform WebAuthn support. If the browser or
 device prompt is unavailable or cancelled, retry or choose another sign-in method. A request expires

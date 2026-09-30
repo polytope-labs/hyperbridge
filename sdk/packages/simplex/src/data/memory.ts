@@ -440,6 +440,15 @@ class MemoryLimitOrderStore implements LimitOrderStore {
 		return this.patch(id, { remaining: (remaining > 0n ? remaining : 0n).toString() })
 	}
 
+	async clampRemaining(id: string, room: string): Promise<LimitOrder | null> {
+		const order = this.orders.get(id)
+		if (!order || order.status !== "open") return null
+		const sum = BigInt(room) + BigInt(order.reserved)
+		const target = sum > 0n ? sum : 0n
+		if (target >= BigInt(order.remaining)) return null
+		return this.patch(id, { remaining: target.toString() })
+	}
+
 	async release(id: string, amount: string): Promise<void> {
 		const order = this.orders.get(id)
 		if (!order) return

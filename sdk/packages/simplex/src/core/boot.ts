@@ -461,6 +461,7 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		limitOrderService,
 		{
 			reconcileIntervalSecs: config.orderbook?.reconcileIntervalSecs ?? DEFAULT_RECONCILE_INTERVAL_SECS,
+			reconcileTallies: () => intentFiller.reconcileLimitOrderTallies(),
 		},
 		options.loggers,
 	)

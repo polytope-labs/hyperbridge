@@ -36,6 +36,8 @@ export function readEnv() {
 export const GATEWAY = "0x6CF42FA9BecbC5b6a26884964956b113530f7cFA"
 export const HOST = "0x9AA003594d59C62EE17A73A569Fd7B1DbdBd71E1"
 export const FEE_TOKEN = "0xBE97E73126D66188d72fbF99029126D0340a7f18"
+/** ERC-4337 EntryPoint v0.8, the one the SDK submits bids through. */
+export const ENTRY_POINT = "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108"
 
 export const TOKENS = {
 	"EVM-97": {
@@ -98,7 +100,9 @@ export const EXTRA_LEVELS = {
 
 /**
  * Each scenario runs against a freshly posted book: the standing orders, plus the extra
- * solver 1 levels it names. `minFills` is the fewest fill transactions it must take.
+ * solver 1 levels it names. `minFills` is the fewest fill transactions it must take. A scenario
+ * with `check: "limit"` or `check: "refusal"` must also pass the checks of the on-chain limit in
+ * e2e/budget.mjs.
  *
  * `mixedPairs` scenarios put two pairs in one order, which #1311 forbids. They pass only against
  * a gateway without that rule, so they run only when named.
@@ -175,5 +179,27 @@ export const SCENARIOS = {
 			{ tokenIn: "USDC", amountIn: "5.5", tokenOut: "cNGN", minOut: "8658.1" },
 		],
 		minFills: 2,
+	},
+	// The `same-chain` swap again. The limit order that pays it is then read back from its solver's
+	// account, which must have tallied the payout and must refuse, in simulation, one past its size.
+	"onchain-limit": {
+		check: "limit",
+		user: 0,
+		source: "EVM-97",
+		dest: "EVM-97",
+		legs: [{ tokenIn: "USDC", amountIn: "0.5", tokenOut: "cNGN", minOut: "778.5" }],
+		minFills: 1,
+	},
+	// The `same-chain` swap once more. Before the user picks a bid, the best bid's solver uses up
+	// its limit order's room on chain until it is one unit short of what the bid pays. The bid must
+	// then fail the SDK's simulation, revert on chain with `LimitOrderExceeded` when it is sent
+	// anyway, and leave the order to another solver (e2e/refusal.mjs).
+	"onchain-limit-refusal": {
+		check: "refusal",
+		user: 0,
+		source: "EVM-97",
+		dest: "EVM-97",
+		legs: [{ tokenIn: "USDC", amountIn: "0.5", tokenOut: "cNGN", minOut: "778.5" }],
+		minFills: 1,
 	},
 }

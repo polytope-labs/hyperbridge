@@ -8,8 +8,18 @@ import type { FillerConfigService } from "@/services/FillerConfigService"
 import { defaultLoggerContext, type Logger, type LoggerContext } from "@/services/Logger"
 import type { VaultBalancePosition } from "@/funding/types"
 import type { Signer } from "@/services/wallet"
-import { fromHuman, ORDERBOOK_SCALE, rateFrom, signedAmounts, toHuman, toScaled } from "./amounts"
+import {
+	budgetFor,
+	budgetRoom,
+	fromHuman,
+	ORDERBOOK_SCALE,
+	rateFrom,
+	signedAmounts,
+	toHuman,
+	toScaled,
+} from "./amounts"
 import { OrderbookClient, OrderbookRequestError } from "./client"
+import { limitOrderLegs } from "./matching"
 import type {
 	Book,
 	CancelOrderResult,
@@ -766,6 +776,70 @@ export class LimitOrderService {
 		}
 
 		return report
+	}
+
+	/**
+	 * Lowers every open order's `remaining` to what the solver's account will still
+	 * pay for it, and puts the order back on the book at that size.
+	 *
+	 * The account tallies each order's payouts on the fill chain and refuses a fill
+	 * that would take the tally past the order's size. A fill that never settled
+	 * here, or a store restored from an older copy, leaves `remaining` above that
+	 * room and the order posted at a size the account will refuse. A tally behind
+	 * the store changes nothing: `remaining` is never raised.
+	 *
+	 * Answers how many orders were lowered.
+	 */
+	async reconcileTallies(): Promise<number> {
+		let lowered = 0
+		for (const order of await this.store.list({ status: "open" })) {
+			try {
+				const clamped = await this.clampToTally(order)
+				if (!clamped) continue
+				lowered++
+				await this.resize(clamped, BigInt(order.remaining) - BigInt(clamped.remaining))
+			} catch (err) {
+				this.logger.error({ id: order.id, err }, "Could not bring the limit order in line with its on-chain tally")
+			}
+		}
+		return lowered
+	}
+
+	/** The order as the store now holds it when its tally lowered it, null when it was left alone. */
+	private async clampToTally(order: LimitOrder): Promise<LimitOrder | null> {
+		const token = this.assetRegistry.getAddress(limitOrderLegs(order).output, order.fillChain)
+		if (!token) return null
+
+		// The token's own decimals rather than the orderbook's registry: the tally is
+		// kept in the token's units, and the cap each bid carries comes from this read.
+		const decimals = await this.contractService.getTokenDecimals(token, order.fillChain)
+		const budget = budgetFor(order, token, decimals)
+		const spent = await this.contractService.limitOrderSpent(order.fillChain, budget.budgetId)
+		if (spent === null) return null
+
+		// A size finer than the token truncates into the cap, which leaves `remaining`
+		// above the room by less than one unit of the token. No bid could pay that
+		// out, so it is not worth a repost. `reserved` is added back as
+		// `clampRemaining` adds it.
+		const room = budgetRoom(budget, spent, decimals)
+		const over = BigInt(order.remaining) - (room + BigInt(order.reserved))
+		if (over < toScaled(1n, decimals)) return null
+
+		const clamped = await this.store.clampRemaining(order.id, room.toString())
+		if (!clamped) return null
+
+		this.logger.warn(
+			{
+				id: order.id,
+				before: order.remaining,
+				after: clamped.remaining,
+				spent: spent.toString(),
+				cap: budget.cap.toString(),
+				reserved: clamped.reserved,
+			},
+			"Limit order had more left than its on-chain tally allows; lowering it",
+		)
+		return clamped
 	}
 
 	/**

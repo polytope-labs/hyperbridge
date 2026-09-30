@@ -105,4 +105,7 @@ jobs:
                   E2E_SOLVER3_SUBSTRATE_KEY: ${{ secrets.E2E_SOLVER3_SUBSTRATE_KEY }}
                   E2E_USER1_PRIVATE_KEY: ${{ secrets.E2E_USER1_PRIVATE_KEY }}
                   E2E_USER2_PRIVATE_KEY: ${{ secrets.E2E_USER2_PRIVATE_KEY }}
+                  # Tops the solvers' Hyperbridge balances up when a run finds them short of
+                  # BRIDGE, which is otherwise indistinguishable from a solver that would not bid.
+                  SECRET_PHRASE: ${{ secrets.SECRET_PHRASE }}
               run: node e2e/run.mjs

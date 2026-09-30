@@ -21,6 +21,9 @@ export function readEnv() {
 	const missing = Object.values(names).filter((name) => !process.env[name])
 	if (missing.length > 0) throw new Error(`Missing environment variables: ${missing.join(", ")}`)
 	const env = Object.fromEntries(Object.entries(names).map(([key, name]) => [key, process.env[name]]))
+	// The account that tops the solvers' Hyperbridge balances up. Optional: without it a solver
+	// short of BRIDGE is reported rather than funded.
+	env.substrateFunder = process.env.SECRET_PHRASE
 	// A bundler is optional: Alchemy serves ERC-4337 on the same endpoint as the RPC.
 	env.bscBundler = process.env.E2E_BSC_TESTNET_BUNDLER_URL || env.bscRpc
 	env.amoyBundler = process.env.E2E_POLYGON_AMOY_BUNDLER_URL || env.amoyRpc

@@ -59,8 +59,8 @@ function makeGateway(
 describe("IntentGateway order-fee gas-price policy", () => {
 	it.each([
 		["EVM-1", "EVM-42161", 50n],
-		["EVM-56", "EVM-42161", 50n],
-		["EVM-137", "EVM-1", 50n],
+		["EVM-56", "EVM-42161", 25n],
+		["EVM-137", "EVM-1", 25n],
 		["EVM-42161", "EVM-1", 10n],
 		["EVM-42161", "EVM-8453", 10n],
 		["EVM-1", "EVM-1", 0n],

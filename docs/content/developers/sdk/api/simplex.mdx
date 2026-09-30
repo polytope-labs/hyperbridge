@@ -399,7 +399,8 @@ it drew the order down by, 1e18 in the payout token), `transactionHash`, `filled
 
 The binary's operator server exposes the same controller. Mutating requests need the
 `X-Simplex-UI: 1` header. A validation error is a `400`, an unreachable orderbook a `502`, and an
-unknown id a `404`.
+unknown id a `404` on `GET` and a `400` on `DELETE`. The
+[limit orders API reference](/developers/evm/simplex/api/limit-orders) documents each route.
 
 | Route | Controller call | Response |
 |------|-----------------|----------|

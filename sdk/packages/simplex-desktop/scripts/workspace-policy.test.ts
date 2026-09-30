@@ -28,6 +28,7 @@ describe("desktop workspace package policy", () => {
 		const builder = readYaml(join(packageRoot, "electron-builder.yml"))
 		const desktop = JSON.parse(readFileSync(join(packageRoot, "package.json"), "utf8")) as {
 			version: string
+			productName: string
 		}
 		const simplex = JSON.parse(readFileSync(join(packageRoot, "../simplex/package.json"), "utf8")) as {
 			version: string
@@ -41,6 +42,9 @@ describe("desktop workspace package policy", () => {
 			linux: { icon: "resources/icons" },
 		})
 		expect(desktop.version).toBe(simplex.version)
+		// Electron names the data directory from package.json, not the builder
+		// config. Without productName it would use the npm name.
+		expect(desktop.productName).toBe(builder.productName)
 	})
 
 	it("keeps build policy in the supported workspace configuration", () => {

@@ -1,0 +1,93 @@
+---
+title: Logs
+description: Search what the solver has logged since it started, follow new records as a stream, and change the log level.
+---
+
+# Logs
+
+The solver keeps everything it logs from the moment it starts. The most recent 5,000 records stay in memory, and the whole run is also written to a file under `<data-dir>/logs/`, one file per launch, keeping the last five launches. These routes read that history and change the log level. The dashboard's **Logs** page uses them.
+
+## Log records
+
+Each record looks like this:
+
+```json lineNumbers
+{
+  "seq": 20418,
+  "time": 1790243521334,
+  "level": "info",
+  "module": "fx-simplex",
+  "msg": "No limit order matches this order",
+  "detail": "{\"orderId\":\"0x9c…\",\"sourceChain\":\"EVM-56\",\"destChain\":\"EVM-8453\",\"reason\":\"…\"}"
+}
+```
+
+| Field | Description |
+|---|---|
+| `seq` | The record's number in this run. It only increases, and it starts again from 1 at each launch. |
+| `time` | When it was logged, in milliseconds since the Unix epoch. |
+| `level` | `trace`, `debug`, `info`, `warn`, `error` or `fatal`. |
+| `module` | The part of the solver that logged it. Absent for records without one. |
+| `msg` | The message. |
+| `detail` | Every other field on the record, as a JSON string. Absent when there are none. |
+
+## GET /api/logs
+
+Returns the records that match a query, oldest first.
+
+| Parameter | Description |
+|---|---|
+| `level` | The lowest level to include. `warn` returns warnings, errors and fatal records. |
+| `q` | Text to search for, case-insensitively, in the message, module and detail. Up to 200 characters. |
+| `after` | A `seq`. Only newer records are returned. |
+| `limit` | The most recent records to return, up to 2,000, which is also the default. |
+
+```bash lineNumbers
+curl -s "$SIMPLEX/api/logs?level=warn&q=orderbook&limit=100"
+```
+
+```json lineNumbers
+{
+  "level": "info",
+  "capacity": 5000,
+  "captured": 20418,
+  "persisted": true,
+  "path": "/home/operator/.simplex-data/logs/…",
+  "records": [ "…" ]
+}
+```
+
+| Field | Description |
+|---|---|
+| `level` | The solver's current log level. Nothing below it is being recorded. |
+| `capacity` | How many records are kept in memory. |
+| `captured` | How many records have been logged since the solver started. |
+| `persisted` | Whether this run's full history is on disk. When it is, a query searches all of it, not only what is in memory. |
+| `path` | The file this run's history is written to. |
+
+A value that does not parse, such as an unknown `level`, is ignored rather than refused. The route answers `409` when the filler keeps no log history, which is the case for a filler embedded as a library.
+
+## GET /api/logs/stream
+
+A [stream](/developers/evm/simplex/api/overview#streams) of log records. It takes the same parameters as `GET /api/logs`, and each `data:` line is one record.
+
+The stream first replays the history that matches the query, up to `limit` records, then follows new records as they are logged. To pick up where `GET /api/logs` left off, pass the last `seq` you have as `after`. An `after` higher than any record in this run is ignored, since `seq` starts again at each launch.
+
+```bash lineNumbers
+curl -sN "$SIMPLEX/api/logs/stream?level=info&after=20418"
+```
+
+If you read too slowly and more than 5,000 records pile up, the oldest are dropped. The stream then sends an `event: gap` line before the next record, so you know the feed has a hole in it.
+
+## PUT /api/log-level
+
+Changes the log level. It applies straight away, and is saved to `logging` in the config's `[simplex]` block.
+
+```bash lineNumbers
+curl -s -X PUT $SIMPLEX/api/log-level \
+    -H 'Content-Type: application/json' -H 'X-Simplex-UI: 1' \
+    -d '{ "level": "debug" }'
+# → { "level": "debug", "persisted": true }
+```
+
+`level` is one of `trace`, `debug`, `info`, `warn` or `error`.

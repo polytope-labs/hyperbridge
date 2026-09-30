@@ -6,10 +6,16 @@ import type { ScannedOrder } from "@/scanner/types"
 /** What the next endpoint probe answers with. Set per test. */
 let chainIdOfEndpoint = 8453
 
-vi.mock("@/services/FillerConfigService", async (importOriginal) => ({
-	...(await importOriginal<typeof import("@/services/FillerConfigService")>()),
-	fetchChainId: async () => chainIdOfEndpoint,
-}))
+/** When set, probes go through the real `fetchChainId` and a stubbed `fetch`. */
+let realProbe = false
+
+vi.mock("@/services/FillerConfigService", async (importOriginal) => {
+	const original = await importOriginal<typeof import("@/services/FillerConfigService")>()
+	return {
+		...original,
+		fetchChainId: async (url: string) => (realProbe ? original.fetchChainId(url) : chainIdOfEndpoint),
+	}
+})
 
 /**
  * Sharing is explicit: you build a scanner, hand it to the fillers that should
@@ -145,6 +151,48 @@ describe("OrderScanner", () => {
 		const scanner = await OrderScanner.create({ chains: [CHAINS[0]] })
 		await scanner.close()
 		await expect(scanner.close()).resolves.toBeUndefined()
+	})
+})
+
+describe("OrderScanner chain-id resolution", () => {
+	/**
+	 * A config without chain ids is resolved the way boot resolves it. The first
+	 * URL is not special: a default endpoint that one DNS resolver refuses must not
+	 * stop startup while the rest of the list answers.
+	 */
+	it("starts when the first endpoint cannot be reached", async () => {
+		realProbe = true
+		vi.stubGlobal("fetch", async (url: string) => {
+			if (url === "https://dead.example") throw new TypeError("fetch failed")
+			return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: "0x2105" }))
+		})
+		try {
+			const scanner = await OrderScanner.create({
+				chains: [{ rpcUrls: ["https://dead.example", "https://base.example"], gateway: "0xAA" }],
+			})
+			expect(scanner.chains()).toEqual([8453])
+			await scanner.close()
+		} finally {
+			realProbe = false
+			vi.unstubAllGlobals()
+		}
+	})
+
+	it("fails when no endpoint can be reached", async () => {
+		realProbe = true
+		vi.stubGlobal("fetch", async () => {
+			throw new TypeError("fetch failed")
+		})
+		try {
+			await expect(
+				OrderScanner.create({
+					chains: [{ rpcUrls: ["https://dead.example", "https://gone.example"], gateway: "0xAA" }],
+				}),
+			).rejects.toThrow(/No configured RPC endpoint could report its chainId/)
+		} finally {
+			realProbe = false
+			vi.unstubAllGlobals()
+		}
 	})
 })
 

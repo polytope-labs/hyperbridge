@@ -13,3 +13,5 @@
 /developers/evm/intent-gateway/simplex /developers/evm/simplex/overview/ 301!
 # /developers/evm/simplex is a directory with no index page
 /developers/evm/simplex /developers/evm/simplex/overview/ 301!
+# The limit orders API page moved into the Simplex API reference
+/developers/evm/simplex/limit-orders-api /developers/evm/simplex/api/limit-orders/ 301!

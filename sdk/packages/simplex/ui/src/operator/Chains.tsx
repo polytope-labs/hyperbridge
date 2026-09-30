@@ -36,8 +36,8 @@ export function Chains() {
 						Alchemy key
 						<ExternalLinkIcon aria-hidden="true" />
 					</a>{" "}
-					to fill supported RPC and bundler endpoints, or enter providers manually below.
-					Premium endpoints with archive access are recommended for reliable event scanning.
+					to fill supported bundler endpoints, or enter a bundler manually below. New chains start with
+					bundled public RPC endpoints where available. You can edit them or use your own providers.
 				</p>
 				<div className="chain-provider-controls">
 					<input
@@ -72,9 +72,7 @@ export function Chains() {
 							<ChainLogo label={chain.meta.label} />
 							<div>
 								<h2>{chain.meta.label}</h2>
-								{chain.viaAlchemy ? (
-									<span className="chain-source">Configured with Alchemy</span>
-								) : null}
+								{chain.viaAlchemy ? <span className="chain-source">Bundler via Alchemy</span> : null}
 								{chain.enabled && !chain.running ? (
 									<span className="chain-source">Applies after restart</span>
 								) : null}
@@ -121,7 +119,6 @@ export function Chains() {
 													),
 													verificationState: undefined,
 													verificationMessage: undefined,
-													viaAlchemy: index === 0 ? false : chain.viaAlchemy,
 												})
 											}
 										/>
@@ -178,6 +175,7 @@ export function Chains() {
 									onChange={(e) =>
 										patch(chain.meta.chainId, {
 											bundlerUrl: e.target.value,
+											viaAlchemy: false,
 											verificationState: undefined,
 											verificationMessage: undefined,
 										})
@@ -189,14 +187,10 @@ export function Chains() {
 								<div className="chain-verification-control">
 									<button
 										type="button"
-										disabled={
-											!chain.rpcUrls[0]?.trim() || chain.verificationState === "checking"
-										}
+										disabled={!chain.rpcUrls[0]?.trim() || chain.verificationState === "checking"}
 										onClick={() => verifyChain(chain)}
 									>
-										{chain.verificationState === "checking"
-											? "Verifying…"
-											: "Verify endpoints"}
+										{chain.verificationState === "checking" ? "Verifying…" : "Verify endpoints"}
 									</button>
 									<EndpointVerificationStatus
 										state={chain.verificationState}

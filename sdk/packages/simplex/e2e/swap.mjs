@@ -94,6 +94,7 @@ async function main() {
 
 	const result = { scenario, user: user.address, outcome: undefined, fills: [], bidRounds: [] }
 	const deadline = Date.now() + TIMEOUT_MS
+	let placed
 	const stream = gateway.executeBest(order, DEFAULT_GRAFFITI, { auctionTimeMs: 45_000, pollIntervalMs: 5_000 })
 	let step = await nextBefore(stream, deadline)
 	try {
@@ -121,7 +122,12 @@ async function main() {
 				remainingAssets: update?.remainingAssets,
 				error: update?.error,
 			})
-			if (update?.status === "ORDER_PLACED") result.commitment = update.commitment
+			if (update?.status === "ORDER_PLACED") {
+				result.commitment = update.commitment
+				// The order as committed: the gateway takes its protocol fee off each input at
+				// placement, and bids quote what is left in escrow.
+				placed = update.order
+			}
 			if (update?.status === "BIDS_RECEIVED") {
 				result.bidRounds.push(
 					update.bids.map((bid) => ({ solver: bid.solverAddress, outputs: bid.outputs.map((output) => output.amount) })),
@@ -130,7 +136,7 @@ async function main() {
 				if (s.check === "refusal" && !result.refusal) {
 					result.refusal = await refuseBest({
 						bids: update.bids,
-						orderInputs: order.inputs,
+						orderInputs: (placed ?? order).inputs,
 						client: dstPub,
 						chain: dst.viem,
 						rpc: dst.rpc,

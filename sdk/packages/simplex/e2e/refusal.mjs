@@ -48,6 +48,8 @@ async function refusedInSimulation(bid) {
  * Leaves the best bid's limit order one unit short of what the bid pays, then shows the bid is
  * refused. Everything is sent from the solver's own key, as its account calling itself.
  *
+ * `orderInputs` are the inputs as the gateway committed them, after its protocol fee.
+ *
  * Answers what happened, with amounts as decimal strings, or `{ error }` when the scenario could
  * not be set up. The verdict is the runner's: this only acts and records.
  */
@@ -67,7 +69,11 @@ export async function refuseBest({ bids, orderInputs, client, chain, rpc, solver
 	// given here larger than the fill needs.
 	const whole = bid.inputs.length === orderInputs.length && bid.inputs.every((input, i) => input.amount === orderInputs[i].amount)
 	if (debit.fee !== 0n || !whole) {
-		return { error: `the best bid does not take the whole order with no fee (fee ${debit.fee}), so its payout is not what it approved` }
+		const takes = bid.inputs.map((input) => input.amount).join(", ")
+		const escrowed = orderInputs.map((input) => input.amount).join(", ")
+		return {
+			error: `the best bid does not take the whole order with no fee (takes ${takes} of ${escrowed}, fee ${debit.fee}), so its payout is not what it approved`,
+		}
 	}
 	const payout = debit.approved
 	const account = bid.solverAddress

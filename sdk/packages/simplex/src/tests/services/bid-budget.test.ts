@@ -18,7 +18,7 @@ import { ContractInteractionService } from "@/services/ContractInteractionServic
 import { privateKeySigner } from "@/services/wallet"
 
 /**
- * The `settleBudget` call a bid priced by a limit order ends with.
+ * The `debitOrder` call a bid priced by a limit order ends with.
  *
  * The account works out what a fill paid from what the gateway left of the
  * allowance: `used = approved - allowance - fee`. So `approved` has to be exactly
@@ -33,7 +33,7 @@ const ENTRY_POINT = "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108" as HexString
 const USDC = "0x1111111111111111111111111111111111111111" as HexString
 const CNGN = "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd" as HexString
 const ZERO = "0x0000000000000000000000000000000000000000" as HexString
-const SETTLE_BUDGET = "0x391af0f6"
+const DEBIT_ORDER = "0x761f7c67"
 
 const FILL_CHAIN = "EVM-97"
 const OTHER_CHAIN = "EVM-84532"
@@ -43,7 +43,7 @@ const FILL_GAS = 500n
 const RELAYER_FEE = 120n
 const BASE_CALL_GAS = 1_000_000n
 const FUNDING_GAS_PER_CALL = 400_000n
-const SETTLE_BUDGET_GAS = 60_000n
+const DEBIT_ORDER_GAS = 60_000n
 
 const budget: LimitOrderBudget = { budgetId: budgetIdFor("limit-order-1"), cap: 78_000n, token: CNGN }
 
@@ -108,9 +108,9 @@ function settled(batch: ERC7821Call[]) {
 	const last = batch[batch.length - 1]
 	expect(last.target.toLowerCase()).toBe(SOLVER.toLowerCase())
 	expect(last.value).toBe(0n)
-	expect(last.data.slice(0, 10)).toBe(SETTLE_BUDGET)
+	expect(last.data.slice(0, 10)).toBe(DEBIT_ORDER)
 	const { functionName, args } = decodeFunctionData({ abi: SOLVER_ACCOUNT_ABI, data: last.data })
-	if (functionName !== "settleBudget") throw new Error(`the batch ends with ${functionName}`)
+	if (functionName !== "debitOrder") throw new Error(`the batch ends with ${functionName}`)
 	const [budgetId, cap, token, approved, fee] = args
 	return { budgetId, cap, token: token.toLowerCase(), approved, fee }
 }
@@ -339,12 +339,12 @@ describe("preparing a bid", () => {
 		const funding: ERC7821Call = { target: "0x0000000000000000000000000000000000000001", value: 0n, data: "0x01" }
 
 		expect((await prepareBid(contract, sameChain)).callGasLimit).toBe(BASE_CALL_GAS)
-		expect((await prepareBid(contract, sameChain, budget)).callGasLimit).toBe(BASE_CALL_GAS + SETTLE_BUDGET_GAS)
+		expect((await prepareBid(contract, sameChain, budget)).callGasLimit).toBe(BASE_CALL_GAS + DEBIT_ORDER_GAS)
 		expect((await prepareBid(contract, sameChain, { ...budget, token: ZERO })).callGasLimit).toBe(BASE_CALL_GAS)
 
 		contract.cacheService.setFundingPrepends(sameChain.id as string, [funding])
 		expect((await prepareBid(contract, sameChain, budget)).callGasLimit).toBe(
-			BASE_CALL_GAS + FUNDING_GAS_PER_CALL + SETTLE_BUDGET_GAS,
+			BASE_CALL_GAS + FUNDING_GAS_PER_CALL + DEBIT_ORDER_GAS,
 		)
 	})
 })

@@ -94,7 +94,7 @@ async function build(decimals: number, size: string) {
 		})
 
 		const charge = priceLeg(leg, quoted, offered)
-		if (tally + charge.paid > cap) throw new Error(`BudgetExceeded: total ${tally + charge.paid} > cap ${cap}`)
+		if (tally + charge.paid > cap) throw new Error(`LimitOrderExceeded: total ${tally + charge.paid} > cap ${cap}`)
 		tally += charge.paid
 
 		await filler.settleFilledLimitOrder(

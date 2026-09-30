@@ -1,6 +1,6 @@
 # Limit order budget on chain
 
-Every fill bid that a limit order priced ends with a `settleBudget` call on the solver's account.
+Every fill bid that a limit order priced ends with a `debitOrder` call on the solver's account.
 The account keeps a tally of what each limit order has paid out and reverts a fill that would take
 the tally past the order's total size.
 
@@ -26,7 +26,7 @@ same cache entry as the filler outputs, so it is replaced and expires with them.
 ## The call
 
 `buildApprovalAndFillCalldata` appends
-`settleBudget(budgetId, cap, token, approved, fee)` (`SOLVER_ACCOUNT_ABI`) as the last call of the
+`debitOrder(budgetId, cap, token, approved, fee)` (`SOLVER_ACCOUNT_ABI`) as the last call of the
 bid's ERC-7821 batch, after the funding calls, the approvals and `fillOrder`. Its target is the
 solver account itself.
 
@@ -38,7 +38,7 @@ solver account itself.
 - The account counts `approved`, less the allowance the gateway has left, less `fee`, and then
   clears the allowance.
 
-`callGasLimitFor` adds `SETTLE_BUDGET_GAS` (60,000) to the bid's call gas limit when the call is
+`callGasLimitFor` adds `DEBIT_ORDER_GAS` (60,000) to the bid's call gas limit when the call is
 appended.
 
 ## Draw-down
@@ -54,15 +54,15 @@ under the cap.
 
 | Case | Result |
 |------|--------|
-| No limit order priced the bid | The bid carries no budget and its calldata has no `settleBudget` call. |
+| No limit order priced the bid | The bid carries no budget and its calldata has no `debitOrder` call. |
 | The budget's token is the zero address | Nothing is appended. Limit orders cannot pay out the native token. |
 | The batch approves nothing in the budget's token | `buildApprovalAndFillCalldata` throws and the bid is not sent. The filler releases the bid's hold and continues with the order's other bids. |
-| The fill would take the tally past `cap` | The call reverts with `BudgetExceeded(budgetId, total, cap)`. The whole batch reverts, the payout is undone, and the solver pays the gas of the reverted operation. |
+| The fill would take the tally past `cap` | The call reverts with `LimitOrderExceeded(budgetId, total, cap)`. The whole batch reverts, the payout is undone, and the solver pays the gas of the reverted operation. |
 
 The operation built by `prepareLimitOrderUserOp`, which is the signed price posted to the
 orderbook, does not carry the call.
 
 ## Requirement
 
-The solver's EOA must be delegated to a `SolverAccount` implementation that has `settleBudget`. On
+The solver's EOA must be delegated to a `SolverAccount` implementation that has `debitOrder`. On
 an implementation without it, the batch of every bid that a limit order priced reverts.

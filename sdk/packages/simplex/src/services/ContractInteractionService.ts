@@ -47,16 +47,16 @@ Decimal.config({ precision: 28, rounding: 4 })
 const FUNDING_GAS_PER_CALL = 400_000n
 
 /**
- * Call gas allowed for the `settleBudget` call a budgeted bid ends with. An order's first
+ * Call gas allowed for the `debitOrder` call a budgeted bid ends with. An order's first
  * fill writes its tally from zero, about 22k, and the allowance read and reset, the call
  * into the account and its own arithmetic come to roughly 15k more; the rest is headroom.
  */
-const SETTLE_BUDGET_GAS = 60_000n
+const DEBIT_ORDER_GAS = 60_000n
 
 /** What a bid's batch needs to settle its limit order's budget. */
 export interface BudgetSettlement {
 	budget: LimitOrderBudget
-	/** The solver's account, which is the only caller `settleBudget` accepts. */
+	/** The solver's account, which is the only caller `debitOrder` accepts. */
 	solverAccount: HexString
 }
 
@@ -356,7 +356,7 @@ export class ContractInteractionService {
 	private callGasLimitFor(order: Order, baseCallGasLimit: bigint, budget?: LimitOrderBudget | null): bigint {
 		const funding = order.id ? this.cacheService.getFundingPrepends(order.id) : null
 		const fundingGas = FUNDING_GAS_PER_CALL * BigInt(funding?.calls?.length ?? 0)
-		return baseCallGasLimit + fundingGas + (settles(budget) ? SETTLE_BUDGET_GAS : 0n)
+		return baseCallGasLimit + fundingGas + (settles(budget) ? DEBIT_ORDER_GAS : 0n)
 	}
 
 	/**
@@ -1016,10 +1016,10 @@ export class ContractInteractionService {
 	 * gateway never pulls the fee token — its approval is skipped. Only cross-chain
 	 * fills, which dispatch a RedeemEscrow message paid in the fee token, need it.
 	 *
-	 * A bid priced by a limit order ends with `settleBudget`, which works out what the
-	 * fill paid from what is left of the allowance and reverts the whole batch if the
-	 * order's payouts would pass its size. It has to come last, after the gateway has
-	 * drawn on the allowance.
+	 * A bid priced by a limit order ends with `debitOrder`, which takes the budget's id
+	 * as its `orderId`, works out what the fill paid from what is left of the allowance
+	 * and reverts the whole batch if the order's payouts would pass its size. It has to
+	 * come last, after the gateway has drawn on the allowance.
 	 */
 	public async buildApprovalAndFillCalldata(
 		order: Order,
@@ -1096,7 +1096,7 @@ export class ContractInteractionService {
 				value: 0n,
 				data: encodeFunctionData({
 					abi: SOLVER_ACCOUNT_ABI,
-					functionName: "settleBudget",
+					functionName: "debitOrder",
 					args: [budget.budgetId, budget.cap, budgetToken, approved, fee],
 				}) as HexString,
 			})

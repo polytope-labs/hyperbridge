@@ -537,7 +537,9 @@ jobs:
 
             - name: Run Sync Committee Tests
               run: |
-                  cargo test -p sync-committee-prover -- --nocapture --ignored
+                  # The gloas tests need a chain that has already forked to Gloas, which this
+                  # devnet never does. Run those by hand against a glamsterdam devnet.
+                  cargo test -p sync-committee-prover -- --nocapture --ignored --skip gloas_test
 
             - name: Cleanup
               if: always()

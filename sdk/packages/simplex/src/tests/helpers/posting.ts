@@ -19,7 +19,7 @@ import type { Signer } from "@/services/wallet"
 const SUPPORTED_RELEASE = 3n
 
 /** Stands in for Base's deployed SolverAccount, the implementation the release check reads. */
-const SOLVER_ACCOUNT = "0xd5535d4DeB17F050e52B6efda2fDe00435f39279" as HexString
+const SOLVER_ACCOUNT = "0x77c3394CA5881A74f18139AC87D0c11F8Faa90cC" as HexString
 
 /** Anvil's first account, which is the key the orderbook's vectors were signed with. */
 export const SOLVER_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80" as HexString

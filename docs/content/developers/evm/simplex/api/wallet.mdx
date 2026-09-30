@@ -1,0 +1,259 @@
+---
+title: Wallet and treasury
+description: Read balances and wallet history, send tokens out of the solver wallet, and manage the vault treasury and rebalancing.
+---
+
+# Wallet and treasury
+
+These routes read what the solver holds and move it. The dashboard's balances on the **Overview** page, and its **Wallet** page, use them. The [treasury guide](/developers/evm/simplex/treasury) explains the vault treasury and rebalancing themselves.
+
+<Callout type="warn">
+    `POST /api/send` moves real funds to any address. Anyone who can reach the API can call it.
+</Callout>
+
+## GET /api/balances
+
+Returns the solver's balances on every chain, including what it holds in vaults and its Hyperbridge account. Simplex refreshes this snapshot every minute, so the route answers immediately with the latest one.
+
+```bash lineNumbers
+curl -s $SIMPLEX/api/balances
+```
+
+```json lineNumbers
+{
+  "updatedAt": 1790243521334,
+  "status": "fresh",
+  "chains": [
+    {
+      "chainId": 8453,
+      "native": { "symbol": "ETH", "amount": 0.42 },
+      "usdc": 7500.5,
+      "exotics": [ { "symbol": "CNGN", "amount": 8200000 } ],
+      "assets": [
+        {
+          "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          "symbol": "USDC",
+          "wallet": 7500.5,
+          "walletReserve": 3000,
+          "vaultPosition": 5000,
+          "vaultAvailable": 5000,
+          "total": 12500.5,
+          "available": 9500.5,
+          "vaults": [
+            { "address": "0xC768c589647798a6EE01A91FdE98EF2ed046DBD6",
+              "position": 5000, "available": 5000, "acceptsDeposits": true }
+          ],
+          "status": "fresh"
+        }
+      ]
+    }
+  ],
+  "issues": [],
+  "hyperbridge": { "address": "5F…", "free": 120.5, "reserved": 10 }
+}
+```
+
+Amounts are numbers in whole tokens.
+
+| Field | Description |
+|---|---|
+| `updatedAt` | When the snapshot was taken, in milliseconds since the Unix epoch. `null` before the first read finishes. |
+| `status` | `loading` before the first read, `fresh` when every read succeeded, `partial` when some failed, and `unavailable` when none did. |
+| `chains[].native` | The native gas token held in the wallet. |
+| `chains[].usdc`, `usdt`, `exotics` | Wallet balances only, as a quick summary. |
+| `chains[].assets` | The full picture per token, described below. |
+| `issues` | Each read that failed, with the `chainId`, what it was reading (`chain`, `native`, `token` or `vault`) and the error. |
+| `hyperbridge` | The Hyperbridge account's BRIDGE balance, `free` and `reserved`. Reserved BRIDGE includes the deposits locked by live bids. |
+
+In `assets`, each entry adds up one token on one chain:
+
+| Field | Description |
+|---|---|
+| `wallet` | What the wallet holds. `null` when the read failed. |
+| `walletReserve` | The floor the vault settings keep in the wallet. |
+| `vaultPosition` | What the solver's vault shares are worth in the token. |
+| `vaultAvailable` | What can be withdrawn from the vaults right now. |
+| `total` | The wallet plus the vault position. |
+| `available` | What a fill could use now: the wallet above its reserve, plus what the vaults can release. |
+| `vaults` | Each vault's position, what it can release, and whether it is taking deposits. |
+
+## GET /api/wallet/history
+
+Returns what the wallet has done, newest first: operator sends, vault deposits and withdrawals, and order fills.
+
+| Parameter | Default | Description |
+|---|---|---|
+| `limit` | `100` | Entries to return, from 1 to 500. |
+
+```bash lineNumbers
+curl -s "$SIMPLEX/api/wallet/history?limit=50"
+```
+
+```json lineNumbers
+{
+  "txs": [
+    {
+      "id": "wallet-3",
+      "ts": 1790243521334,
+      "kind": "sweep",
+      "chainId": 8453,
+      "token": "USDC",
+      "amount": "2000",
+      "to": "0xC768c589647798a6EE01A91FdE98EF2ed046DBD6",
+      "txHash": "0x…",
+      "sponsored": true,
+      "label": "Aave stataUSDC",
+      "in":  { "symbol": "stataUSDC", "amount": "1911.2", "decimals": null, "icon": "USDC", "vault": true },
+      "out": { "symbol": "USDC", "amount": "2000", "decimals": null, "icon": "USDC", "vault": false }
+    }
+  ]
+}
+```
+
+| Field | Description |
+|---|---|
+| `id` | `wallet-` or `fill-` followed by a number. |
+| `ts` | When it happened, in milliseconds since the Unix epoch. |
+| `kind` | `send`, `sweep` (a deposit into a vault), `redeem` (a withdrawal from a vault) or `fill`. |
+| `chainId`, `txHash` | Where the transaction is. |
+| `token`, `amount`, `to` | For sends, sweeps and redeems: what left the wallet, and where it went. `null` for fills. |
+| `sponsored` | Whether a paymaster paid the gas. `null` for fills. |
+| `label` | The vault's name, for a sweep or redeem into a known vault. |
+| `in`, `out` | What came into the wallet, and what left it. `vault` marks a vault share token, and `icon` names the token whose logo to show. When `decimals` is set, `amount` is in raw units. When it is `null`, `amount` is already in whole tokens. |
+
+## POST /api/send
+
+Sends tokens from the solver wallet to any address. The transaction goes out as a UserOperation with the gas paid by the paymaster, and falls back to a plain transaction when it cannot be sponsored.
+
+```bash lineNumbers
+curl -s -X POST $SIMPLEX/api/send \
+    -H 'Content-Type: application/json' -H 'X-Simplex-UI: 1' \
+    -d '{
+          "chain": "EVM-8453",
+          "token": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          "amount": "250",
+          "to": "0x1234567890abcdef1234567890abcdef12345678"
+        }'
+# → { "txHash": "0x…", "sponsored": true, "redeemed": false }
+```
+
+| Field | Description |
+|---|---|
+| `chain` | The chain's state machine ID. |
+| `token` | `native` for the gas token, or an ERC-20 address. [`GET /api/config`](/developers/evm/simplex/api/configuration#get-apiconfig) lists the tokens the dashboard offers on each chain, as `sendTokens`. |
+| `amount` | Whole tokens, as a decimal string. |
+| `to` | The recipient's address. |
+
+When the wallet is short of an ERC-20 and one of your vaults holds it, the shortfall is withdrawn from the vault in the same transaction. Sending a vault's share token redeems the shares straight to the recipient as the underlying token. Either way, `redeemed` is `true` in the response.
+
+A send that cannot go through answers `400` with the reason, such as an insufficient balance. A send that goes through is recorded in the wallet history.
+
+## PUT /api/vault
+
+Replaces the vault treasury. The body is the whole list of vaults, in the same shape as `[[vault.vaults]]` in the config. An empty list turns the treasury off.
+
+```bash lineNumbers
+curl -s -X PUT $SIMPLEX/api/vault \
+    -H 'Content-Type: application/json' -H 'X-Simplex-UI: 1' \
+    -d '{
+          "vaults": [
+            { "chain": "EVM-8453", "vault": "0xC768c589647798a6EE01A91FdE98EF2ed046DBD6",
+              "threshold": "5000", "minBalance": "3000" }
+          ],
+          "sweepIntervalMs": 300000
+        }'
+# → { "applied": true, "restartNeeded": false, "persisted": true }
+```
+
+| Field | Description |
+|---|---|
+| `vaults` | Each vault's `chain` and `vault` address, and optionally `threshold`, `minBalance` and `redeemOnShutdown`. The [treasury guide](/developers/evm/simplex/treasury#vault-treasury-erc-4626) explains each one. |
+| `sweepIntervalMs` | Optional. How often to check for a sweep. |
+
+Every vault is checked on-chain before anything changes. A bad entry answers `400`, and the previous vaults stay in place.
+
+The response says what happened:
+
+- `applied` is `true` when the new vaults are live. When the solver started without a treasury, they only take effect after a restart, so `applied` is `false` and `restartNeeded` is `true`.
+- `persisted` is `true` when the change was saved to the config file.
+
+## POST /api/vault/sweep
+
+Runs a sweep now, instead of waiting for the timer. Wherever the wallet has reached a vault's `threshold`, it deposits down to that vault's `minBalance`.
+
+```bash lineNumbers
+curl -s -X POST -H 'X-Simplex-UI: 1' $SIMPLEX/api/vault/sweep
+```
+
+```json lineNumbers
+{
+  "ok": true,
+  "submitted": [
+    { "chain": "EVM-8453", "txHash": "0x…", "sponsored": true,
+      "deposits": [ { "vault": "0xC768…", "symbol": "USDC", "amount": "2000" } ] }
+  ],
+  "skipped": [
+    { "chain": "EVM-42161", "vault": "0xa6D1…", "symbol": "USDT",
+      "reason": "below-threshold", "walletBalance": "3100", "threshold": "5000" }
+  ]
+}
+```
+
+`submitted` lists the deposits made, in whole tokens. `skipped` says why each other vault did nothing:
+
+| `reason` | Meaning |
+|---|---|
+| `sweeping-disabled` | The vault has no `threshold`, so it is withdraw-only. |
+| `below-threshold` | The wallet holds less than the `threshold`. |
+| `deposits-closed` | The vault is not accepting deposits right now. |
+
+It answers `409` when no vault is configured, and `500` when the sweep fails.
+
+## POST /api/vault/redeem
+
+Redeems every vault position back to the underlying token, into the wallet. It returns `{ "ok": true }` once done. It answers `409` when no vault is configured, and `500` when a redemption fails.
+
+```bash lineNumbers
+curl -s -X POST -H 'X-Simplex-UI: 1' $SIMPLEX/api/vault/redeem
+```
+
+## GET /api/rebalancing
+
+Returns the rebalancing settings, and which balances are at or below their trigger right now.
+
+```bash lineNumbers
+curl -s $SIMPLEX/api/rebalancing
+```
+
+```json lineNumbers
+{
+  "configured": true,
+  "triggerPercentage": 0.5,
+  "baseBalances": { "USDC": { "1": "10000", "8453": "10000" } },
+  "triggers": {
+    "triggered": true,
+    "triggeredChains": [ { "chain": "EVM-8453", "asset": "USDC", "deficit": 6200 } ]
+  }
+}
+```
+
+`deficit` is how far the balance is below its base, in whole tokens. Without rebalancing, the route returns `{ "configured": false }`.
+
+## PUT /api/rebalancing
+
+Replaces the rebalancing settings.
+
+```bash lineNumbers
+curl -s -X PUT $SIMPLEX/api/rebalancing \
+    -H 'Content-Type: application/json' -H 'X-Simplex-UI: 1' \
+    -d '{ "triggerPercentage": 0.5,
+          "baseBalances": { "USDC": { "1": "10000", "8453": "10000" } } }'
+# → { "applied": true, "restartNeeded": false, "persisted": true }
+```
+
+| Field | Description |
+|---|---|
+| `triggerPercentage` | Between 0 and 1. Rebalancing triggers when a balance falls to `(1 - triggerPercentage) × base`. |
+| `baseBalances` | Base balances for `USDC` and `USDT`, keyed by numeric chain ID, in whole tokens. At least one is required. |
+
+The new settings apply straight away when the solver started with rebalancing. Otherwise they are saved, and `restartNeeded` is `true`.

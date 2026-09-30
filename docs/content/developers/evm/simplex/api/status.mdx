@@ -1,0 +1,118 @@
+---
+title: Status and control
+description: Check that the solver is up, read its status, pause and resume filling, and stop it.
+---
+
+# Status and control
+
+These routes report whether the solver is running, and let you pause it or stop it. The dashboard's header, its filling switch and its **Stop filler** button use them.
+
+## GET /health
+
+Answers whenever the server is up, in either mode. Use it for liveness checks. It lives outside `/api`.
+
+```bash lineNumbers
+curl -s $SIMPLEX/health
+```
+
+```json lineNumbers
+{ "status": "ok", "mode": "operator", "pid": 41822 }
+```
+
+| Field | Description |
+|---|---|
+| `status` | `ok`, `starting` while the setup wizard starts the filler, or `stopping` during a graceful stop. |
+| `mode` | `init` while the setup wizard is open, `operator` once the filler runs. |
+| `pid` | The solver's process ID. |
+| `configEncrypted` | Present, and `true`, only when the config is encrypted on disk, as Simplex Desktop does. |
+
+## GET /api/status
+
+Returns what the dashboard shows about the running solver.
+
+```bash lineNumbers
+curl -s $SIMPLEX/api/status
+```
+
+```json lineNumbers
+{
+  "mode": "operator",
+  "version": "0.16.7",
+  "uptimeSec": 5130,
+  "paused": false,
+  "halted": [],
+  "work": {
+    "queuedEvaluations": 0, "evaluating": 1,
+    "queuedFills": 0, "activeFills": 0,
+    "retractions": 0, "rebalancing": 0
+  },
+  "watchOnly": { "56": false, "8453": false },
+  "chains": [56, 8453],
+  "chainLabels": { "56": "BNB Chain", "8453": "Base" },
+  "strategies": [ { "index": 0, "exotic": "USDC/CNGN" } ],
+  "strategyTypes": ["USDC/CNGN"],
+  "configPath": "/home/operator/filler-config.toml",
+  "addresses": { "evm": "0x…", "substrate": "5F…" }
+}
+```
+
+| Field | Description |
+|---|---|
+| `version` | The Simplex version. |
+| `uptimeSec` | Seconds since the filler started. |
+| `paused` | Whether filling is paused. |
+| `work` | Counts of work in progress: orders waiting to be evaluated and being evaluated, fills queued and running, bid retractions, and rebalances. |
+| `watchOnly` | For each chain ID, whether the chain is watched without being filled on. |
+| `chains` | The chain IDs the filler runs on. |
+| `chainLabels` | A display name for each chain ID. |
+| `strategies`, `strategyTypes` | The [markets](/developers/evm/simplex/api/configuration#get-apistrategies) in the config. |
+| `configPath` | The config file that changes made through the API are saved to. Absent when the filler was started from a config object rather than a file. |
+| `addresses` | The solver's EVM address, and its Hyperbridge account. |
+| `halted` | Always empty. Simplex no longer halts itself. |
+
+While the setup wizard is open, it returns a shorter shape instead:
+
+```json lineNumbers
+{ "mode": "init", "version": "0.16.7", "starting": false }
+```
+
+`starting` is `true` while the wizard starts the filler. `startError` is added when that start failed.
+
+## POST /api/pause
+
+Stops taking new orders. The solver keeps watching its chains, but new orders are not evaluated or filled. The pause is saved, so it survives a restart.
+
+```bash lineNumbers
+curl -s -X POST -H 'X-Simplex-UI: 1' $SIMPLEX/api/pause
+# → { "paused": true }
+```
+
+## POST /api/resume
+
+Starts taking new orders again, and clears the saved pause.
+
+```bash lineNumbers
+curl -s -X POST -H 'X-Simplex-UI: 1' $SIMPLEX/api/resume
+# → { "paused": false }
+```
+
+## POST /api/stop
+
+Stops the solver gracefully. Fills in progress drain, vault positions marked `redeemOnShutdown` are redeemed, and the process exits.
+
+```bash lineNumbers
+curl -s -X POST -H 'X-Simplex-UI: 1' $SIMPLEX/api/stop
+# → 202 { "stopping": true }
+```
+
+It answers `202` straight away, and again if you call it while the solver is stopping. Start the solver again with `simplex run`. A saved pause still applies when it comes back.
+
+Under Docker with `--restart unless-stopped`, the container starts again by itself. Use `docker stop` to keep it stopped.
+
+Stopping does not reclaim bid deposits. Any bid still unretracted at shutdown stays locked until the next run retracts it.
+
+While the setup wizard is open, this route closes the wizard instead. It answers `409` if the wizard is already starting the filler.
+
+## POST /api/reset-halt
+
+Clears a self-halt from overfill protection. Current versions of Simplex never halt themselves, so this does nothing and returns `{ "halted": [] }`.

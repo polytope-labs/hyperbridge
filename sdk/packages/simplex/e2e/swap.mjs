@@ -22,6 +22,29 @@ async function ensureAllowance(pub, wallet, token) {
 	log("approve", { token, hash })
 }
 
+/** Returned in place of a stream step when the scenario's deadline arrives first. */
+const TIMED_OUT = Symbol("timed out")
+
+/**
+ * The stream's next step, or {@link TIMED_OUT} once the deadline passes.
+ *
+ * `executeBest` waits for bids with no deadline of its own, so an order nobody bids on — a solver
+ * out of BRIDGE, say — parks the loop on one `next()` forever. Checking the clock between steps
+ * never gets a turn, the runner eventually kills the process, and what did happen is lost with it.
+ * Racing the clock here reports a timeout with the fills that landed before it.
+ */
+async function nextBefore(stream, deadline, sent) {
+	let timer
+	const expiry = new Promise((resolve) => {
+		timer = setTimeout(() => resolve(TIMED_OUT), Math.max(0, deadline - Date.now()))
+	})
+	try {
+		return await Promise.race([sent === undefined ? stream.next() : stream.next(sent), expiry])
+	} finally {
+		clearTimeout(timer)
+	}
+}
+
 async function main() {
 	const s = SCENARIOS[scenario]
 	if (!s) throw new Error(`Unknown scenario ${scenario}`)
@@ -70,9 +93,9 @@ async function main() {
 	const result = { scenario, user: user.address, outcome: undefined, fills: [], bidRounds: [] }
 	const deadline = Date.now() + TIMEOUT_MS
 	const stream = gateway.executeBest(order, DEFAULT_GRAFFITI, { auctionTimeMs: 45_000, pollIntervalMs: 5_000 })
-	let step = await stream.next()
+	let step = await nextBefore(stream, deadline)
 	try {
-		while (!step.done && Date.now() < deadline) {
+		while (step !== TIMED_OUT && !step.done) {
 			const update = step.value
 			if (update?.status === "AWAITING_PLACE_ORDER") {
 				const request = await srcPub.prepareTransactionRequest({
@@ -85,7 +108,7 @@ async function main() {
 				const signed = await srcWallet.signTransaction(request)
 				result.placementTx = keccak256(signed)
 				log("placement-tx", { hash: result.placementTx })
-				step = await stream.next(signed)
+				step = await nextBefore(stream, deadline, signed)
 				continue
 			}
 			log(update?.status ?? "update", {
@@ -109,13 +132,14 @@ async function main() {
 				result.outcome = update.status
 				break
 			}
-			step = await stream.next()
+			step = await nextBefore(stream, deadline)
 		}
 	} finally {
 		// Not awaited: the executor's teardown can outlive a finished order.
 		void stream.return(undefined).catch(() => {})
 	}
-	result.outcome ??= Date.now() >= deadline ? "TIMEOUT" : "ENDED"
+	if (step === TIMED_OUT) log("timed-out", { fills: result.fills.length })
+	result.outcome ??= step === TIMED_OUT || Date.now() >= deadline ? "TIMEOUT" : "ENDED"
 	const received = {}
 	const dstPub = createPublicClient({ chain: dst.viem, transport: http(dst.rpc) })
 	for (const symbol of new Set(s.legs.map((leg) => leg.tokenOut))) {

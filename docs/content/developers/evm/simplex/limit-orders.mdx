@@ -11,6 +11,11 @@ A limit order goes in one direction. An order that sells USDC for cNGN prices cN
 
 Limit orders live in the solver's database (`bids.db` in the data directory), not in `filler-config.toml`. You create and cancel them while the filler runs, and they survive restarts.
 
+<Callout type="info">
+    This guide uses the [dashboard](/developers/evm/simplex/dashboard). To manage limit orders from a
+    script or a pricing bot instead, use the [limit orders API](/developers/evm/simplex/api/limit-orders).
+</Callout>
+
 ## Before you start
 
 - The filler is running, and its `[orderbook]` section points at the orderbook for your network. The setup wizard writes this section for you. See [Configuration](/developers/evm/simplex/configuration#orderbook).
@@ -234,4 +239,4 @@ Filling both sides in equal volume earns 30 cNGN per USDC. To lean into one side
 
 ## Scripting limit orders
 
-Everything above can also be done without the dashboard, over the solver's HTTP API. This is useful for scripts, scheduled jobs and pricing bots. See [Limit orders API](/developers/evm/simplex/limit-orders-api).
+Everything above can also be done without the dashboard, over the solver's HTTP API. This is useful for scripts, scheduled jobs and pricing bots. The [limit orders API reference](/developers/evm/simplex/api/limit-orders) covers each call, with a repricing script and the same-asset orders only the API can create.

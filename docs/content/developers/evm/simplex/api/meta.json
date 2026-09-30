@@ -1,0 +1,16 @@
+{
+    "title": "API reference",
+    "pages": [
+        "overview",
+        "limit-orders",
+        "status",
+        "activity",
+        "wallet",
+        "configuration",
+        "logs",
+        "notifications",
+        "remote-access",
+        "setup"
+    ],
+    "defaultOpen": false
+}

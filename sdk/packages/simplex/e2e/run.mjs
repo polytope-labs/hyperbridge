@@ -11,6 +11,8 @@ import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
+import { ApiPromise, Keyring, WsProvider } from "@polkadot/api"
+import { cryptoWaitReady, keccakAsU8a } from "@polkadot/util-crypto"
 import { createPublicClient, createWalletClient, erc20Abi, formatEther, formatUnits, http, parseUnits } from "viem"
 import { privateKeyToAccount } from "viem/accounts"
 import { EXTRA_LEVELS, SCENARIOS, SOLVERS, TOKENS, chains, readEnv, standingOrders } from "./env.mjs"
@@ -32,9 +34,15 @@ for (const name of selected) if (!SCENARIOS[name]) throw new Error(`Unknown scen
 // Keys and endpoints never reach a report, whatever an error message quotes: both as given and as
 // `readEnv` completes them (the orderbook URL gains `/graphql`). Longest first, so a value is never
 // half-redacted by one it contains.
-const NOT_SECRET = new Set(["E2E_SCENARIOS", "E2E_WORKDIR", "E2E_SCENARIO_TIMEOUT_MIN"])
+const NOT_SECRET = new Set([
+	"E2E_SCENARIOS",
+	"E2E_WORKDIR",
+	"E2E_SCENARIO_TIMEOUT_MIN",
+	"E2E_MIN_BRIDGE",
+	"E2E_TARGET_BRIDGE",
+])
 const given = Object.entries(process.env)
-	.filter(([name]) => name.startsWith("E2E_") && !NOT_SECRET.has(name))
+	.filter(([name]) => (name.startsWith("E2E_") || name === "SECRET_PHRASE") && !NOT_SECRET.has(name))
 	.map(([, value]) => value)
 const SECRETS = [...new Set([...Object.values(env), ...given])]
 	.filter((value) => value && value.length > 8)
@@ -290,7 +298,99 @@ async function preflight() {
 			}
 		}
 	}
+	problems.push(...(await fundBridge()))
 	if (problems.length > 0) throw new Error(`Fund these wallets first:\n${problems.join("\n")}`)
+}
+
+/**
+ * The BRIDGE a solver needs on Hyperbridge to bid through a run, and what a top-up brings it to.
+ *
+ * A bid is an extrinsic with a tip, and the fee is claimed back after a fill, so this is a float
+ * rather than a spend — but only partly reclaimed, so it does drain over many runs.
+ */
+const MIN_BRIDGE = Number(process.env.E2E_MIN_BRIDGE || 1)
+const TARGET_BRIDGE = Number(process.env.E2E_TARGET_BRIDGE || 10)
+
+/** What the funding account keeps for its own fees and its existential deposit. */
+const FUNDER_RESERVE = 1
+
+/**
+ * Tops up any solver that cannot pay for its bid extrinsics, and reports the ones still short.
+ *
+ * A solver out of BRIDGE bids nothing: the extrinsic is refused with `1010: Inability to pay some
+ * fees` and the order never hears from it. That reads exactly like a solver that chose not to bid,
+ * so it is settled here rather than left to look like a pricing failure — `partial` needs two
+ * solvers, and spent days reporting nothing at all because two of the three were empty.
+ *
+ * `SECRET_PHRASE` is the account it moves BRIDGE from. Without one the balances are only reported,
+ * and a solver below the floor becomes a problem the caller refuses to run on.
+ */
+async function fundBridge() {
+	const mnemonics = [env.solver1Substrate, env.solver2Substrate, env.solver3Substrate]
+	let api
+	try {
+		await cryptoWaitReady()
+		api = await ApiPromise.create({
+			provider: new WsProvider(env.hyperbridge),
+			noInitWarn: true,
+			// Hyperbridge hashes with keccak; the default blake2 registry signs and reads wrongly.
+			typesBundle: { spec: { nexus: { hasher: keccakAsU8a }, gargantua: { hasher: keccakAsU8a } } },
+		})
+		const keyring = new Keyring({ type: "sr25519" })
+		const decimals = api.registry.chainDecimals[0]
+		const symbol = api.registry.chainTokens[0]
+		const unit = 10n ** BigInt(decimals)
+		const human = (raw) => (Number(raw) / 10 ** decimals).toFixed(4)
+		const floor = BigInt(Math.round(MIN_BRIDGE * Number(unit)))
+		const target = BigInt(Math.round(TARGET_BRIDGE * Number(unit)))
+		const free = async (address) => BigInt((await api.query.system.account(address)).data.free.toString())
+
+		const funder = env.substrateFunder ? keyring.addFromUri(env.substrateFunder) : undefined
+		const solvers = mnemonics.map((mnemonic, index) => ({ ...keyring.addFromUri(mnemonic), name: SOLVERS[index].name }))
+		const problems = []
+
+		for (const solver of solvers) {
+			const held = await free(solver.address)
+			log(`${solver.name} ${solver.address} on Hyperbridge: ${human(held)} ${symbol}`)
+			if (held >= floor) continue
+			if (!funder) {
+				problems.push(
+					`${solver.name} ${solver.address} holds ${human(held)} ${symbol} on Hyperbridge and cannot pay for its bids; it needs ${MIN_BRIDGE}, and no SECRET_PHRASE was given to top it up from`,
+				)
+				continue
+			}
+			const amount = target - held
+			const spare = (await free(funder.address)) - BigInt(Math.round(FUNDER_RESERVE * Number(unit)))
+			if (spare < amount) {
+				problems.push(
+					`${solver.name} ${solver.address} holds ${human(held)} ${symbol} on Hyperbridge, and the funder ${funder.address} cannot spare the ${human(amount)} it needs`,
+				)
+				continue
+			}
+			const hash = await transfer(api, funder, solver.address, amount)
+			log(`topped up ${solver.name} with ${human(amount)} ${symbol} on Hyperbridge: ${hash}`)
+		}
+		return problems
+	} catch (error) {
+		// A node that cannot be reached is the run's problem either way, but say which check failed.
+		log(`could not settle the solvers' Hyperbridge balances: ${error?.message ?? error}`)
+		return []
+	} finally {
+		await api?.disconnect().catch(() => {})
+	}
+}
+
+/** One `transferKeepAlive`, resolved at inclusion so the next one signs a nonce this has left. */
+function transfer(api, from, to, amount) {
+	return new Promise((resolve, reject) => {
+		api.tx.balances
+			.transferKeepAlive(to, amount)
+			.signAndSend(from, { nonce: -1 }, ({ status, dispatchError }) => {
+				if (dispatchError) reject(new Error(dispatchError.toString()))
+				else if (status.isInBlock) resolve(status.asInBlock.toHex())
+			})
+			.catch(reject)
+	})
 }
 
 function runScenario(name) {

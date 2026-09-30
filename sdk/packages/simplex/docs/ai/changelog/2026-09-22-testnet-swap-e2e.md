@@ -67,6 +67,7 @@ by another simplex instance.
 | `E2E_SOLVER{1,2,3}_PRIVATE_KEY` | solver EVM keys, funded on both chains |
 | `E2E_SOLVER{1,2,3}_SUBSTRATE_KEY` | solver Hyperbridge accounts (mnemonic or hex seed) holding BRIDGE for bid fees |
 | `E2E_USER{1,2}_PRIVATE_KEY` | user EVM keys with gas on both chains |
+| `SECRET_PHRASE` | optional: the Hyperbridge account solvers are topped up with BRIDGE from |
 
 Optional: `E2E_SCENARIO_TIMEOUT_MIN` (default 10) and `E2E_WORKDIR` (default a temp directory).
 Output is redacted against every `E2E_*` value, both as given and as completed (the orderbook URL

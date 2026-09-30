@@ -147,6 +147,7 @@ async function balanceLimitedBid(ctx: Awaited<ReturnType<typeof build>>, decimal
 				dispatchFee: 0n,
 			}),
 			partialFillsFor: async () => [0n],
+			limitOrderSpent: async () => ctx.tally(),
 			cacheService: cache,
 		} as any,
 		[{ token0: "USDC", token1: "CNGN" }],

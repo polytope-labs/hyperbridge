@@ -566,6 +566,28 @@ export class ContractInteractionService {
 		)
 	}
 
+	/**
+	 * What the solver's account has tallied against a limit order's budget on `chain`, in
+	 * the paid token's own units, or null when it cannot be read.
+	 *
+	 * Null rather than a throw: an account whose implementation keeps no tally answers
+	 * with a revert or with no data, and the caller carries on without the figure either
+	 * way. Not retried, since that answer does not change on a second ask.
+	 */
+	async limitOrderSpent(chain: string, budgetId: HexString): Promise<bigint | null> {
+		try {
+			return await this.clientManager.getPublicClient(chain).readContract({
+				address: this.solverAccountAddress,
+				abi: SOLVER_ACCOUNT_ABI,
+				functionName: "spent",
+				args: [budgetId],
+			})
+		} catch (err) {
+			this.logger.warn({ err, chain, budgetId }, "Could not read the limit order's tally from the solver account")
+			return null
+		}
+	}
+
 	async getSolverEntryPointBalance(chain: string): Promise<bigint> {
 		const entryPointAddress = this.configService.getEntryPointAddress(chain)
 		if (!entryPointAddress) {

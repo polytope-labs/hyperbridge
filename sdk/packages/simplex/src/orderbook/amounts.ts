@@ -52,6 +52,16 @@ export function budgetFor(
 }
 
 /**
+ * What a limit order may still pay out going by the chain's tally, at 1e18.
+ *
+ * Truncated, so for a token finer than 1e18 the room is never overstated, and zero
+ * once the tally has reached the cap.
+ */
+export function budgetRoom(budget: LimitOrderBudget, spent: bigint, decimals: number): bigint {
+	return spent >= budget.cap ? 0n : toScaled(budget.cap - spent, decimals)
+}
+
+/**
  * A human amount ("1000", "1500.25") at 1e18, the unit limit orders are kept in.
  *
  * What an operator states is whole tokens: nobody creating an order should have

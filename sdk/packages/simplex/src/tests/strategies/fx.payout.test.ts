@@ -42,7 +42,12 @@ const configService = {
  * gas priced at zero so the payout under test is the only moving part. Exposes
  * the filler-output and partial-fill caches for assertions.
  */
-function makeEvalContractService(decimals: Record<string, number> = {}): any {
+function makeEvalContractService(
+	decimals: Record<string, number> = {},
+	/** The account's tally for a limit order, in the token's own units. Nothing spent by default. */
+	spent: (budgetId: HexString) => bigint | null = () => 0n,
+): any {
+	const spentReads: HexString[] = []
 	const classifications = new Map<string, unknown>()
 	const outputs = new Map<string, TokenInfo[]>()
 	const inputs = new Map<string, TokenInfo[]>()
@@ -58,6 +63,11 @@ function makeEvalContractService(decimals: Record<string, number> = {}): any {
 		}),
 		// No prior partial fills on-chain: an under-fill stays eligible.
 		partialFillsFor: async () => [0n],
+		limitOrderSpent: async (_chain: string, budgetId: HexString) => {
+			spentReads.push(budgetId)
+			return spent(budgetId)
+		},
+		spentReads,
 		cacheService: {
 			getPairClassifications: (id: string) => classifications.get(id),
 			setPairClassifications: (id: string, pairs: unknown) => classifications.set(id, pairs),
@@ -103,13 +113,17 @@ async function makeFiller(options: {
 	book?: { price: string; size: string; id?: string; side?: "BID" | "ASK" }[]
 	/** A store the case keeps hold of, to work its orders down between evaluations. */
 	limitOrders?: LimitOrderStore
+	/** Collects the strategy's log lines, for the cases that assert why it passed. */
+	logged?: { message: string; fields: Record<string, unknown> }[]
 }): Promise<FXFiller> {
+	const record = (fields: Record<string, unknown>, message: string) => options.logged?.push({ message, fields })
+	const logger = { trace: record, debug: record, info: record, warn: record, error: record, fatal: record }
 	const registry = new AssetRegistry(configService, { EXOTIC: { [CHAIN]: EXOTIC } })
 	const pairs: TradingPair[] = [{ token0: "USDC", token1: "EXOTIC" }]
 	const signer = { address: SOLVER } as any
 	return new FXFiller(
 		signer,
-		configService,
+		options.logged ? { ...configService, loggers: { get: () => logger } } : configService,
 		makeClientManager(options.balances),
 		options.contractService,
 		pairs,
@@ -584,5 +598,136 @@ describe("FXFiller limit order budget", () => {
 		// Worked down to the dust the token cannot express, and not a unit past the cap.
 		expect(BigInt((await limitOrders.get(FIRST))!.remaining)).toBe(5n * 10n ** 11n)
 		expect(paid).toBe(cap)
+	})
+
+	describe("against the account's tally on chain", () => {
+		const NOTHING_LEFT = "Skipping a bid: the limit order has nothing left on chain"
+		const CAP = parseUnits("1000", 6)
+		const plenty = { [EXOTIC.toLowerCase()]: parseUnits("1000000", 6) }
+
+		/** A limit order of 1,000 at 1,500 that the store has worked down to 500. */
+		async function halfDrawn() {
+			const limitOrders = await limitOrderStore([
+				{ id: FIRST, base: "USDC", quote: "EXOTIC", side: "BID", fillChain: CHAIN, price: "1500", size: "1000" },
+			])
+			await limitOrders.drawDown(FIRST, parseUnits("500", 18).toString())
+			return limitOrders
+		}
+
+		/** One evaluation of a swap the order's rate offers 1,500 for, with the tally at `spent`. */
+		async function evaluate(id: string, spent: bigint | null) {
+			const contractService = makeEvalContractService(SIX, () => spent)
+			const logged: { message: string; fields: Record<string, unknown> }[] = []
+			const filler = await makeFiller({ contractService, balances: plenty, limitOrders: await halfDrawn(), logged })
+			const profit = await filler.calculateProfitability(
+				sixDecimalOrder(id, parseUnits("1", 18), parseUnits("1490", 6)),
+			)
+			return { profit, logged, contractService, plans: contractService.plans.get(id) as Plan[] | undefined }
+		}
+
+		it("sizes the bid from the store when the tally leaves at least as much room", async () => {
+			// Equal to the store, and behind it: signed bids that have not executed are in
+			// neither figure, so the chain's room is only ever an upper bound.
+			for (const spent of [parseUnits("500", 6), parseUnits("100", 6), 0n]) {
+				const { plans } = await evaluate(`room-behind-${spent}`, spent)
+				expect(plans).toHaveLength(1)
+				expect(plans![0].fillerOutputs[0].amount).toBe(parseUnits("500", 6))
+			}
+		})
+
+		it("sizes the bid from the chain's room when the tally is ahead of the store", async () => {
+			// The store says 500 is left; the account has tallied 700 of the 1,000, so it
+			// would refuse anything past 300.
+			const { plans } = await evaluate("room-ahead", parseUnits("700", 6))
+
+			expect(plans).toHaveLength(1)
+			expect(plans![0].fillerOutputs[0].amount).toBe(parseUnits("300", 6))
+			expect(plans![0].payout).toBe(parseUnits("300", 18))
+			// The budget the bid carries is the order's, whatever the bid was cut to.
+			expect(plans![0].budget).toEqual({ budgetId: budgetIdFor(FIRST), cap: CAP, token: EXOTIC })
+		})
+
+		it("builds no bid, and says why, when the chain has no room left", async () => {
+			for (const spent of [CAP, CAP + 1n]) {
+				const { plans, profit, logged } = await evaluate(`room-none-${spent}`, spent)
+
+				expect(plans).toBeUndefined()
+				expect(profit).toBe(0)
+				expect(logged.filter((line) => line.message === NOTHING_LEFT).map((line) => line.fields)).toEqual([
+					expect.objectContaining({ limitOrder: FIRST, spent: spent.toString(), cap: CAP.toString() }),
+				])
+			}
+		})
+
+		it("sizes the bid from the store when the tally cannot be read", async () => {
+			const { plans, logged } = await evaluate("room-unread", null)
+
+			expect(plans).toHaveLength(1)
+			expect(plans![0].fillerOutputs[0].amount).toBe(parseUnits("500", 6))
+			expect(logged.some((line) => line.message === NOTHING_LEFT)).toBe(false)
+		})
+
+		it("reads a limit order's tally once per evaluation, however many legs it prices", async () => {
+			// Two legs of 0.12 in, each offered 180 by the one order. The chain has room for
+			// 300: the first leg takes its 180 and the second what that leaves.
+			const contractService = makeEvalContractService(SIX, () => parseUnits("700", 6))
+			const filler = await makeFiller({ contractService, balances: plenty, limitOrders: await halfDrawn() })
+			const leg = { token: bytes20ToBytes32(STABLE), amount: parseUnits("0.12", 18) }
+			const asked = { token: bytes20ToBytes32(EXOTIC), amount: parseUnits("179", 6) }
+			const twoLegs = (id: string) => {
+				const order = sixDecimalOrder(id)
+				return { ...order, inputs: [leg, leg], output: { ...order.output, assets: [asked, asked] } } as Order
+			}
+
+			await filler.calculateProfitability(twoLegs("room-legs"))
+
+			const plans = contractService.plans.get("room-legs") as Plan[]
+			expect(plans.map((plan) => plan.fillerOutputs.map((output) => output.amount))).toEqual([
+				[parseUnits("180", 6), 0n],
+				[0n, parseUnits("120", 6)],
+			])
+			expect(contractService.spentReads).toEqual([budgetIdFor(FIRST)])
+
+			// Nothing is kept for the next evaluation: it reads the tally afresh.
+			await filler.calculateProfitability(twoLegs("room-legs-again"))
+			expect(contractService.spentReads).toEqual([budgetIdFor(FIRST), budgetIdFor(FIRST)])
+		})
+
+		it("reads each limit order's own tally when several price one order", async () => {
+			const spent: Record<string, bigint> = { [budgetIdFor(FIRST)]: parseUnits("400000", 6) }
+			const contractService = makeEvalContractService(SIX, (budgetId) => spent[budgetId] ?? 0n)
+			const filler = await makeFiller({
+				contractService,
+				balances: plenty,
+				book: [
+					{ id: FIRST, price: "1500", size: "500000" },
+					{ id: SECOND, price: "1600", size: "500000" },
+				],
+			})
+
+			await filler.calculateProfitability(sixDecimalOrder("room-two"))
+
+			const plans = contractService.plans.get("room-two") as Plan[]
+			// The better offer is untouched; the other is cut to the 100,000 its tally leaves.
+			expect(plans.map((plan) => [plan.limitOrderId, plan.fillerOutputs[0].amount])).toEqual([
+				[SECOND, parseUnits("160000", 6)],
+				[FIRST, parseUnits("100000", 6)],
+			])
+			expect(contractService.spentReads).toEqual([budgetIdFor(SECOND), budgetIdFor(FIRST)])
+		})
+
+		it("reads no tally for an order no limit order prices", async () => {
+			// Asks for more than the order's rate offers, so nothing matches it.
+			const contractService = makeEvalContractService(SIX)
+			const filler = await makeFiller({ contractService, balances: plenty, limitOrders: await halfDrawn() })
+
+			const profit = await filler.calculateProfitability(
+				sixDecimalOrder("room-unmatched", parseUnits("1", 18), parseUnits("1501", 6)),
+			)
+
+			expect(profit).toBe(0)
+			expect(contractService.plans.get("room-unmatched")).toBeUndefined()
+			expect(contractService.spentReads).toEqual([])
+		})
 	})
 })

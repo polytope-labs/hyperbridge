@@ -124,9 +124,17 @@ export interface SimplexEvents {
 	"limit-order:posted": { order: LimitOrder }
 	"limit-order:rejected": { order: LimitOrder; code: string; message: string }
 	"limit-order:cancelled": { order: LimitOrder }
-	/** A fill worked the order down and it went back on the book at its new size. */
+	/**
+	 * The order was worked down and went back on the book at its new size. A fill does
+	 * this, and so does a correction to the solver account's on-chain tally, for which
+	 * no fill is recorded. `delivered` is what the order went down by either way.
+	 */
 	"limit-order:resized": { order: LimitOrder; delivered: string }
-	/** A fill took the order under the orderbook's dust floor, so it is done. */
+	/**
+	 * The order went under the orderbook's dust floor, so it is done. A fill takes it
+	 * there, and so does a correction to the solver account's on-chain tally, for which
+	 * no fill is recorded.
+	 */
 	"limit-order:filled": { order: LimitOrder }
 }
 

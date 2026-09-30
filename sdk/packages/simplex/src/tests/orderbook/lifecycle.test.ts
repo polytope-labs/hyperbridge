@@ -324,7 +324,7 @@ describe("LimitOrderLifecycle", () => {
 		client.heartbeats.length = 0
 
 		vi.useFakeTimers()
-		const lifecycle = new LimitOrderLifecycle(service, { reconcileIntervalSecs: 300 })
+		const lifecycle = new LimitOrderLifecycle(service, { reconcileIntervalSecs: 300, reconcileTallies: async () => 0 })
 		await lifecycle.start()
 
 		await vi.advanceTimersByTimeAsync(60_000)
@@ -346,11 +346,72 @@ describe("LimitOrderLifecycle", () => {
 			return inner()
 		}
 
-		const lifecycle = new LimitOrderLifecycle(service, { reconcileIntervalSecs: 300 })
+		const lifecycle = new LimitOrderLifecycle(service, { reconcileIntervalSecs: 300, reconcileTallies: async () => 0 })
 		await lifecycle.start()
 		lifecycle.stop()
 
 		await vi.waitFor(() => expect(walks).toBe(1))
+	})
+
+	it("brings the tallies in line before it reconciles, on the way up and on every tick after", async () => {
+		const { service } = makeService(fakeClient([]))
+		const passes: string[] = []
+		const reconcile = service.reconcile.bind(service)
+		service.reconcile = async (now) => {
+			passes.push("reconcile")
+			return reconcile(now)
+		}
+
+		vi.useFakeTimers()
+		const lifecycle = new LimitOrderLifecycle(service, {
+			reconcileIntervalSecs: 300,
+			// Slow, so a reconciliation that did not wait for it would be seen first.
+			reconcileTallies: async () => {
+				await new Promise((resolve) => setTimeout(resolve, 1_000))
+				passes.push("tallies")
+			},
+		})
+		await lifecycle.start()
+
+		await vi.advanceTimersByTimeAsync(999)
+		expect(passes).toEqual([])
+		await vi.advanceTimersByTimeAsync(1)
+		expect(passes).toEqual(["tallies", "reconcile"])
+
+		await vi.advanceTimersByTimeAsync(300_000)
+		expect(passes).toEqual(["tallies", "reconcile", "tallies", "reconcile"])
+
+		await vi.advanceTimersByTimeAsync(300_000)
+		expect(passes).toHaveLength(6)
+		expect(passes.slice(4)).toEqual(["tallies", "reconcile"])
+		lifecycle.stop()
+	})
+
+	it("runs each of the two passes whether or not the other one failed", async () => {
+		const { service } = makeService(fakeClient([]))
+		let tallies = 0
+		let reconciles = 0
+		service.reconcile = async () => {
+			reconciles += 1
+			throw new OrderbookRequestError("connect ECONNREFUSED")
+		}
+
+		vi.useFakeTimers()
+		const lifecycle = new LimitOrderLifecycle(service, {
+			reconcileIntervalSecs: 300,
+			reconcileTallies: async () => {
+				tallies += 1
+				throw new Error("rpc down")
+			},
+		})
+		await lifecycle.start()
+
+		await vi.advanceTimersByTimeAsync(0)
+		expect([tallies, reconciles]).toEqual([1, 1])
+
+		await vi.advanceTimersByTimeAsync(300_000)
+		expect([tallies, reconciles]).toEqual([2, 2])
+		lifecycle.stop()
 	})
 
 	it("starts against an orderbook that is not answering", async () => {
@@ -362,7 +423,7 @@ describe("LimitOrderLifecycle", () => {
 		}
 		const { service } = makeService(client)
 
-		const lifecycle = new LimitOrderLifecycle(service, { reconcileIntervalSecs: 300 })
+		const lifecycle = new LimitOrderLifecycle(service, { reconcileIntervalSecs: 300, reconcileTallies: async () => 0 })
 		await expect(lifecycle.start()).resolves.toBeUndefined()
 		lifecycle.stop()
 	})

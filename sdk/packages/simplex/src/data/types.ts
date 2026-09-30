@@ -478,6 +478,16 @@ export interface LimitOrderStore {
 	 * zero. Returns the order as it now stands, or null when there is none.
 	 */
 	drawDown(id: string, amount: string): Promise<LimitOrder | null>
+	/**
+	 * Lowers an `open` order's `remaining` to `room + reserved`, where `room` is
+	 * what the solver's account on chain will still pay for this order, at 1e18.
+	 * Never raises it. Returns the order when it was lowered, null otherwise.
+	 *
+	 * `reserved` is added back because a fill the chain has already counted, but
+	 * that has not been drawn down here yet, still holds its amount there until it
+	 * settles. Clamping to `room` alone would take that fill off twice.
+	 */
+	clampRemaining(id: string, room: string): Promise<LimitOrder | null>
 	/** Records a fill against its limit order. Called alongside the draw-down it explains. */
 	recordFill(fill: LimitOrderFillInsert): Promise<void>
 	/** A limit order's fills, newest first. */

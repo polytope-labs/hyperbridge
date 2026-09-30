@@ -22,7 +22,7 @@ import type { FundingVenue } from "@/funding/types"
 import type { Signer } from "@/services/wallet"
 import { paymasterReserveForToken } from "@/services/paymaster"
 import type { LimitOrderStore } from "@/data/types"
-import { budgetFor, inputFor, toRaw, toScaled } from "@/orderbook/amounts"
+import { budgetFor, budgetRoom, inputFor, toRaw, toScaled } from "@/orderbook/amounts"
 import { type IncomingOrder, matchLimitOrders, type LimitOrderMatch, whyUnmatched } from "@/orderbook/matching"
 import { limitOrderUsdEdges, usdFactorsFrom, usdValueOf } from "@/orderbook/usd"
 
@@ -287,6 +287,9 @@ export class FXFiller implements FillerStrategy {
 			// availability would find no room and be dropped. Sized from what is left, it
 			// bids a smaller partial instead.
 			const plannedOn = new Map<string, bigint>()
+			// Each limit order's tally on the fill chain, read once per evaluation. Null
+			// when it could not be read.
+			const spentOn = new Map<string, bigint | null>()
 			for (let leg = 0; leg < order.inputs.length; leg++) {
 				const input = order.inputs[leg]
 				const output = order.output.assets[leg]
@@ -323,7 +326,35 @@ export class FXFiller implements FillerStrategy {
 					// `min(offer, remaining)`, less whatever an earlier leg of this order
 					// already planned against it, so one bid never offers more than the order
 					// has left even when the wallet holds more. Other bids' holds do not count.
-					const left = candidate.available - (plannedOn.get(candidate.order.id) ?? 0n)
+					//
+					// The account refuses a fill that takes its tally past the order's cap, so
+					// what is left is also bounded by the room the chain still allows: a store
+					// that has drifted above it would only send bids that revert. Without the
+					// tally the store's own figure stands.
+					const budget = budgetFor(candidate.order, outputToken, outputDecimals)
+					if (!spentOn.has(candidate.order.id)) {
+						spentOn.set(
+							candidate.order.id,
+							await this.contractService.limitOrderSpent(destChain, budget.budgetId),
+						)
+					}
+					const spent = spentOn.get(candidate.order.id) ?? null
+					const room = spent === null ? candidate.available : budgetRoom(budget, spent, outputDecimals)
+					if (room === 0n) {
+						this.logger.info(
+							{
+								orderId: order.id,
+								leg,
+								limitOrder: candidate.order.id,
+								spent: spent?.toString(),
+								cap: budget.cap.toString(),
+							},
+							"Skipping a bid: the limit order has nothing left on chain",
+						)
+						continue
+					}
+					const available = room < candidate.available ? room : candidate.available
+					const left = available - (plannedOn.get(candidate.order.id) ?? 0n)
 					if (left <= 0n) {
 						this.logger.info(
 							{ orderId: order.id, leg, limitOrder: candidate.order.id },
@@ -386,10 +417,7 @@ export class FXFiller implements FillerStrategy {
 							{
 								orderId: order.id,
 								limitOrder: candidate.order.id,
-								available: formatUnits(
-									candidate.available,
-									18,
-								),
+								available: formatUnits(available, 18),
 								userRequested: output.amount.toString(),
 								payout: targetOutput.toString(),
 								crossChain: sourceChain !== destChain,
@@ -734,7 +762,7 @@ export class FXFiller implements FillerStrategy {
 						fundingCalls: [...fundingCalls],
 						partialFill,
 						profit: totalProfit,
-						budget: budgetFor(candidate.order, outputToken, outputDecimals),
+						budget,
 					})
 
 					// An order carrying output calldata takes exactly one bid. The attached

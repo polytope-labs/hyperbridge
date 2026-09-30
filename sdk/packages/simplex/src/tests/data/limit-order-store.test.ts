@@ -232,6 +232,108 @@ describe.each(backends)("%s", (_name, open) => {
 			await close()
 		})
 	})
+
+	describe("clampRemaining", () => {
+		it("lowers remaining to the room the chain has left", async () => {
+			const { store, close } = open()
+			await store.create({ ...ORDER, size: "100" })
+
+			const clamped = await store.clampRemaining(ORDER.id, "60")
+
+			expect(clamped?.id).toBe(ORDER.id)
+			expect(clamped?.remaining).toBe("60")
+			expect((await store.get(ORDER.id))?.remaining).toBe("60")
+			await close()
+		})
+
+		it("never raises remaining", async () => {
+			const { store, close } = open()
+			await store.create({ ...ORDER, size: "100" })
+			await store.drawDown(ORDER.id, "60")
+
+			expect(await store.clampRemaining(ORDER.id, "60")).toBeNull()
+			expect((await store.get(ORDER.id))?.remaining).toBe("40")
+			await close()
+		})
+
+		it("counts what is reserved as room still spoken for", async () => {
+			const { store, close } = open()
+			await store.create({ ...ORDER, size: "100" })
+			await store.reserve(ORDER.id, "30")
+
+			expect(await store.clampRemaining(ORDER.id, "70")).toBeNull()
+			expect((await store.get(ORDER.id))?.remaining).toBe("100")
+
+			expect((await store.clampRemaining(ORDER.id, "60"))?.remaining).toBe("90")
+			expect((await store.get(ORDER.id))?.reserved).toBe("30")
+			await close()
+		})
+
+		it("does not take a fill off twice when the chain counted it before it settled here", async () => {
+			const { store, close } = open()
+			await store.create({ ...ORDER, size: "100" })
+			await store.reserve(ORDER.id, "25")
+
+			expect(await store.clampRemaining(ORDER.id, "75")).toBeNull()
+			expect((await store.get(ORDER.id))?.remaining).toBe("100")
+
+			await store.transaction(async () => {
+				await store.drawDown(ORDER.id, "25")
+				await store.release(ORDER.id, "25")
+			})
+			const settled = await store.get(ORDER.id)
+			expect(settled?.remaining).toBe("75")
+			expect(settled?.reserved).toBe("0")
+
+			expect(await store.clampRemaining(ORDER.id, "75")).toBeNull()
+			expect((await store.get(ORDER.id))?.remaining).toBe("75")
+			await close()
+		})
+
+		it.each(["resizing", "filled", "cancelled", "expired", "rejected"] as const)(
+			"leaves a %s order alone",
+			async (status) => {
+				const { store, close } = open()
+				await store.create({ ...ORDER, size: "100" })
+				await store.reserve(ORDER.id, "10")
+				const before = await store.setStatus(ORDER.id, status)
+
+				expect(await store.clampRemaining(ORDER.id, "0")).toBeNull()
+				expect(await store.get(ORDER.id)).toEqual(before)
+				await close()
+			},
+		)
+
+		it("resolves null for an id it does not know", async () => {
+			const { store, close } = open()
+			expect(await store.clampRemaining("missing", "0")).toBeNull()
+			await close()
+		})
+
+		it("clamps to zero when the chain has no room and nothing is reserved, without closing the order", async () => {
+			const { store, close } = open()
+			await store.create({ ...ORDER, size: "100" })
+
+			const clamped = await store.clampRemaining(ORDER.id, "0")
+
+			expect(clamped?.remaining).toBe("0")
+			expect(clamped?.status).toBe("open")
+			await close()
+		})
+
+		it("changes nothing but remaining, and records no fill", async () => {
+			const { store, close } = open()
+			await store.create({ ...ORDER, size: "100" })
+			await store.reserve(ORDER.id, "30")
+			const before = await store.get(ORDER.id)
+
+			const clamped = await store.clampRemaining(ORDER.id, "20")
+
+			expect(clamped).toEqual({ ...before, remaining: "50", updatedAt: clamped?.updatedAt })
+			expect(await store.fills(ORDER.id)).toEqual([])
+			await close()
+		})
+	})
 })
 
 describe("SqliteLimitOrderStore", () => {

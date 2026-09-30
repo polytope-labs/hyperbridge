@@ -8,6 +8,12 @@ const EXPIRY_SWEEP_MS = 30_000
 export interface LifecycleOptions {
 	/** How often to check the orderbook's copy of the operator's orders. */
 	reconcileIntervalSecs: number
+	/**
+	 * Brings each order's `remaining` in line with its on-chain tally. Handed in
+	 * rather than called on the service, because the filler has to order it against
+	 * the fills it is settling.
+	 */
+	reconcileTallies: () => Promise<unknown>
 }
 
 /**
@@ -16,7 +22,8 @@ export interface LifecycleOptions {
  * Three jobs on three clocks, all of them work {@link LimitOrderService} already
  * knows how to do. The heartbeat stops the orderbook suspending the solver, the
  * expiry sweep takes orders that have outlived their TTL off the book, and
- * reconciliation repairs what a crash or an unanswered request left behind.
+ * reconciliation repairs what a crash or an unanswered request left behind:
+ * first against each order's on-chain tally, then against the orderbook.
  *
  * Nothing renews. An order's TTL is its whole life: when it runs out the posting
  * lapses and the order is done, and the operator posts a fresh one if they still
@@ -58,10 +65,10 @@ export class LimitOrderLifecycle {
 
 		this.every(heartbeatMs, "heartbeat", () => this.service.heartbeat())
 		this.every(EXPIRY_SWEEP_MS, "expiry", () => this.expire())
-		this.every(reconcileMs, "reconciliation", () => this.reconcile())
+		this.every(reconcileMs, "reconciliation", () => this.upkeep())
 
 		this.logger.info({ heartbeatMs, expiryMs: EXPIRY_SWEEP_MS, reconcileMs }, "Orderbook lifecycle started")
-		void this.run("reconciliation", () => this.reconcile())
+		void this.upkeep()
 	}
 
 	stop(): void {
@@ -73,6 +80,15 @@ export class LimitOrderLifecycle {
 	private async expire(): Promise<void> {
 		const expired = await this.service.expireStale()
 		if (expired > 0) this.logger.info({ expired }, "Withdrew limit orders that had outlived their expiry")
+	}
+
+	/**
+	 * The tally pass first, so reconciliation against the orderbook reads the sizes
+	 * it left. Each fails on its own.
+	 */
+	private async upkeep(): Promise<void> {
+		await this.run("tally reconciliation", async () => this.options.reconcileTallies())
+		await this.run("reconciliation", () => this.reconcile())
 	}
 
 	private async reconcile(): Promise<void> {

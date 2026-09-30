@@ -50,6 +50,35 @@ fill. For a token with more than 18 decimals, a bid signs an output that 1e18 ca
 store draws down at least what the tally counted. Either way a bid sized from `remaining` fits
 under the cap.
 
+## Reconciling with the tally
+
+The store's `remaining` can end up above what the account still allows, for example after a fill
+that settled on chain while Simplex was offline. Simplex does not submit its own bids and does not
+see a `LimitOrderExceeded` revert, so it reads the tally with
+`ContractInteractionService.limitOrderSpent(chain, budgetId)` and works out the room left with
+`budgetRoom(budget, spent, decimals)`, in two places:
+
+- **When a bid is sized.** `FXFiller` sizes a bid from the smaller of the order's `remaining` and
+  the room on chain. The tally is read once per limit order per evaluation. When the room is zero
+  no bid is built.
+- **During upkeep.** `LimitOrderService.reconcileTallies()` runs before `reconcile` on every tick of
+  `LimitOrderLifecycle`, including the one at boot. For each open order it calls
+  `LimitOrderStore.clampRemaining(id, room)`, and sends an order that was lowered through `resize`,
+  which reposts it at the new size or closes it under its dust floor. The pass runs on the filler's
+  settlement queue, so it never interleaves with a fill being settled.
+
+`clampRemaining` lowers `remaining` to `room + reserved` and never raises it. A fill that has
+executed but is not settled yet is already in the tally and still holds its amount in `reserved`,
+so it is not subtracted twice. While pending bids hold more than the gap, the pass leaves the order
+alone, and the bid-time read is what keeps bids within the room. A gap smaller than one unit of the
+token is left alone. A lowered order is reported with the same `limit-order:resized` or
+`limit-order:filled` event as a fill, and no fill is recorded for it.
+
+When the read fails, including on an account whose implementation has no `spent`, the bid is sized
+from `remaining` and the upkeep pass skips the order.
+
+A limit order created again after the database is wiped has a new id, so its tally starts at zero.
+
 ## Behaviour
 
 | Case | Result |
@@ -58,6 +87,8 @@ under the cap.
 | The budget's token is the zero address | Nothing is appended. Limit orders cannot pay out the native token. |
 | The batch approves nothing in the budget's token | `buildApprovalAndFillCalldata` throws and the bid is not sent. The filler releases the bid's hold and continues with the order's other bids. |
 | The fill would take the tally past `cap` | The call reverts with `LimitOrderExceeded(budgetId, total, cap)`. The whole batch reverts, the payout is undone, and the solver pays the gas of the reverted operation. |
+| The tally leaves less room than `remaining` | The bid is sized from the room. The next upkeep pass lowers `remaining` to the room plus what is reserved, if that is lower, and resizes or closes the order. |
+| The tally leaves more room than `remaining` | Nothing changes. |
 
 The operation built by `prepareLimitOrderUserOp`, which is the signed price posted to the
 orderbook, does not carry the call.

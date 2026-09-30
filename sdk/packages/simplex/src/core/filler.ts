@@ -247,6 +247,18 @@ export class IntentFiller {
 		this.limitOrderService = service
 	}
 
+	/**
+	 * Brings the limit orders' `remaining` in line with their on-chain tallies.
+	 *
+	 * On the settlement queue, so the pass and a fill never resize the same order at
+	 * once. Resolves when the pass has run.
+	 */
+	public async reconcileLimitOrderTallies(): Promise<void> {
+		await this.settlementQueue.add(async () => {
+			await this.limitOrderService?.reconcileTallies()
+		})
+	}
+
 	/** Whether the given chain id is configured for watch-only (monitor, never fill). */
 	private isChainWatchOnly(chainId: number): boolean {
 		const watchOnly = this.config.watchOnly

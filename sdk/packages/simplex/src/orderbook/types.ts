@@ -39,6 +39,34 @@ export interface Book {
 	quote: string
 }
 
+/** Live price levels. All prices and sizes are decimal integer strings at 1e18. */
+export interface OrderbookLevel {
+	fillChain: string
+	priceBucket: string
+	price: string
+	worstPrice: string
+	baseSize: string
+	quoteSize: string
+	orderCount: number
+	solverCount: number
+}
+
+export interface OrderbookSnapshot extends Book {
+	/** Best first: bids descending, asks ascending. */
+	bids: OrderbookLevel[]
+	asks: OrderbookLevel[]
+	/** True backing liquidity, in quote for bids and base for asks. */
+	bidLiquidity: string
+	askLiquidity: string
+	/** Price bucket width, quote per 1 base at 1e18; null when the orderbook does not report one. */
+	granularity: string | null
+}
+
+export interface OrderbookFilters {
+	sourceChain?: string
+	fillChain?: string
+}
+
 export interface TokenMinSize {
 	symbol: string
 	size: string

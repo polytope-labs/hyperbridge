@@ -1,0 +1,449 @@
+/* Mirrors the HyperFX app's pair page (hyperbridge-fe `components/order-book`), token for token. */
+@font-face {
+	font-family: "Novatica";
+	font-style: normal;
+	font-weight: 500;
+	font-display: swap;
+	src: url("../assets/fonts/Novatica-Medium.ttf") format("truetype");
+}
+
+.orderbook-view,
+.orderbook-skeleton {
+	--ob-buy: oklch(89.39% 0.2249 141.13);
+	--ob-sell: oklch(65.86% 0.231 15.83);
+	--ob-muted: oklch(69.14% 0.0229 252.57);
+	--ob-card: oklch(22.12% 0.0108 260.68 / 0.3);
+	--ob-card-border: #131417;
+	--ob-line: rgba(255, 255, 255, 0.06);
+	--ob-control: oklch(25.93% 0.0144 261.67);
+	--ob-heading: "Novatica", system-ui, Arial, sans-serif;
+	display: grid;
+	gap: 1.5rem;
+	container: orderbook / inline-size;
+}
+
+.orderbook-view p,
+.orderbook-skeleton p {
+	margin: 0;
+}
+
+.orderbook-num,
+.orderbook-level-price,
+.orderbook-stat-value,
+.orderbook-side-count {
+	font-family: var(--font-mono);
+	font-variant-numeric: tabular-nums;
+}
+
+.orderbook-muted,
+.orderbook-caption {
+	color: var(--ob-muted);
+}
+
+.orderbook-caption {
+	font-size: 0.75rem;
+	line-height: 1rem;
+}
+
+/* Cards */
+.orderbook-card {
+	min-width: 0;
+	overflow: hidden;
+	border: 1px solid var(--ob-card-border);
+	border-radius: 1rem;
+	background: var(--ob-card);
+}
+.orderbook-card-title {
+	margin: 0;
+	font-family: var(--ob-heading);
+	font-size: 1rem;
+	font-weight: 500;
+	line-height: 1.5rem;
+	color: #fff;
+}
+.orderbook-card-title-lg {
+	font-size: 1.125rem;
+	line-height: 1.75rem;
+}
+/* Summary */
+.orderbook-summary {
+	padding: 1rem 1.25rem 1.25rem;
+}
+/* The shared page header's divider reads as clutter above this page's own cards. */
+.operator-main[data-tab="orderbook"] .operator-page-header {
+	padding-bottom: 0;
+	border-bottom: 0;
+}
+.orderbook-stat-label {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 0.125rem 0.75rem;
+	white-space: nowrap;
+}
+.orderbook-stat-label > p,
+.orderbook-stat-label:not(:has(p)) {
+	margin: 0;
+	font-size: 0.75rem;
+	font-weight: 500;
+	line-height: 1rem;
+	color: var(--ob-muted);
+}
+.orderbook-live {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.375rem;
+	font-size: 0.75rem;
+	line-height: 1rem;
+	color: var(--ob-muted);
+}
+.orderbook-live > span {
+	width: 0.375rem;
+	height: 0.375rem;
+	border-radius: 999px;
+	background: var(--ob-buy);
+}
+.orderbook-live[data-stale] > span {
+	background: var(--warn);
+}
+.orderbook-stats {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 1rem 2rem;
+	margin-top: 1rem;
+}
+.orderbook-stat-value {
+	margin-top: 0.25rem !important;
+	font-size: 1rem;
+	line-height: 1.5rem;
+	color: #fff;
+	white-space: nowrap;
+}
+.orderbook-stat-value[data-tone="buy"] {
+	color: var(--ob-buy);
+}
+.orderbook-stat-value[data-tone="sell"] {
+	color: var(--ob-sell);
+}
+.orderbook-unit {
+	margin-left: 0.375rem;
+	font-size: 0.75rem;
+	line-height: 1rem;
+	color: var(--ob-muted);
+}
+.orderbook-unit-wide {
+	margin-left: 0.5rem;
+}
+.orderbook-empty-copy {
+	max-width: 36rem;
+	margin-top: 1rem !important;
+	font-size: 0.875rem;
+	line-height: 1.5rem;
+	color: var(--ob-muted);
+}
+
+/* Route filters */
+.orderbook-filters {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr);
+	gap: 0.75rem;
+	padding-bottom: 1rem;
+	border-bottom: 1px solid var(--ob-line);
+}
+.orderbook-filter {
+	display: grid;
+	gap: 0.375rem;
+	min-width: 0;
+}
+.orderbook-filter > span {
+	font-size: 0.75rem;
+	line-height: 1rem;
+	color: var(--ob-muted);
+}
+.orderbook-filter .app-select-trigger {
+	width: 100%;
+	min-width: 0;
+	min-height: 2.5rem;
+	height: 2.5rem;
+	padding: 0.5rem 0.75rem;
+	border-color: rgba(255, 255, 255, 0.1);
+	border-radius: 0.5rem;
+	background: var(--ob-control);
+	font-size: 0.875rem;
+	line-height: 1.25rem;
+}
+.orderbook-filter .app-select-trigger:hover:not(:disabled),
+.orderbook-filter .app-select-trigger[data-state="open"] {
+	border-color: rgba(255, 255, 255, 0.16);
+	background: var(--ob-control);
+}
+.orderbook-filter .app-select-current {
+	gap: 0.5rem;
+}
+.orderbook-pair-icons .token-pair-icons {
+	width: 2rem;
+	min-width: 2rem;
+}
+.orderbook-pair-icons .token-icon {
+	width: 1.25rem;
+	height: 1.25rem;
+}
+.orderbook-pair-icons .token-icon + .token-icon {
+	margin-left: -0.4rem;
+}
+.orderbook-chain-icon {
+	display: inline-flex;
+	flex-shrink: 0;
+}
+.orderbook-chain-icon .chain-logo {
+	width: 1rem;
+	height: 1rem;
+}
+
+/* Ladder */
+.orderbook-ladder {
+	display: flex;
+	flex-direction: column;
+}
+.orderbook-ladder-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.75rem;
+	padding: 1rem;
+	border-bottom: 1px solid var(--ob-line);
+}
+.orderbook-grid {
+	display: grid;
+	grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1fr);
+	align-items: center;
+	gap: 0.5rem;
+	padding: 0 1rem;
+}
+.orderbook-grid > .orderbook-num,
+.orderbook-columns > :not(:first-child) {
+	text-align: right;
+}
+/* Fill chain, orders, and notional only show where the ladder has room for them. */
+.orderbook-col-extra {
+	display: none;
+}
+.orderbook-chain {
+	align-items: center;
+	gap: 0.5rem;
+	min-width: 0;
+	overflow: hidden;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+	color: #fff;
+}
+.orderbook-columns > .orderbook-col-extra:nth-child(2) {
+	text-align: left;
+}
+.orderbook-columns {
+	padding-top: 0.5rem;
+	padding-bottom: 0.5rem;
+	border-bottom: 1px solid var(--ob-line);
+	font-size: 0.6875rem;
+	line-height: 1rem;
+	letter-spacing: 0.025em;
+	text-transform: uppercase;
+	color: var(--ob-muted);
+}
+.orderbook-side-heading {
+	padding: 0.5rem 1rem;
+}
+.orderbook-side-heading > span {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	gap: 0.25rem 0.5rem;
+}
+.orderbook-side-heading > span > span:first-child {
+	font-size: 0.875rem;
+	font-weight: 500;
+	line-height: 1.25rem;
+}
+.orderbook-side-heading[data-side="BID"] > span > span:first-child {
+	color: var(--ob-buy);
+}
+.orderbook-side-heading[data-side="ASK"] > span > span:first-child {
+	color: var(--ob-sell);
+}
+.orderbook-side-count {
+	color: var(--ob-muted);
+}
+.orderbook-level {
+	position: relative;
+	padding-top: 7px;
+	padding-bottom: 7px;
+	font-size: 0.8125rem;
+	line-height: 1.25rem;
+	cursor: default;
+	outline: none;
+	transition: background-color 150ms;
+}
+.orderbook-level:hover {
+	background: rgba(255, 255, 255, 0.045);
+}
+.orderbook-level:focus-visible {
+	background: rgba(255, 255, 255, 0.055);
+	box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.15);
+}
+.orderbook-level > span {
+	position: relative;
+}
+.orderbook-level .orderbook-num {
+	color: #fff;
+}
+.orderbook-level-bar {
+	position: absolute !important;
+	top: 2px;
+	bottom: 2px;
+	left: 0;
+	border-radius: 0 2px 2px 0;
+	pointer-events: none;
+	transition:
+		width 500ms ease-out,
+		background-color 500ms ease-out;
+}
+.orderbook-level[data-side="BID"] .orderbook-level-bar {
+	background: oklch(89.39% 0.2249 141.13 / 0.1);
+}
+.orderbook-level[data-side="ASK"] .orderbook-level-bar {
+	background: oklch(65.86% 0.231 15.83 / 0.1);
+}
+.orderbook-level[data-side="BID"]:is(:hover, :focus-visible) .orderbook-level-bar {
+	background: oklch(89.39% 0.2249 141.13 / 0.2);
+}
+.orderbook-level[data-side="ASK"]:is(:hover, :focus-visible) .orderbook-level-bar {
+	background: oklch(65.86% 0.231 15.83 / 0.2);
+}
+.orderbook-level[data-side="BID"] .orderbook-level-price {
+	color: var(--ob-buy);
+}
+.orderbook-level[data-side="ASK"] .orderbook-level-price {
+	color: var(--ob-sell);
+}
+.orderbook-mid {
+	padding: 0.625rem 1rem;
+	border-top: 1px solid var(--ob-line);
+	border-bottom: 1px solid var(--ob-line);
+	background: rgba(255, 255, 255, 0.02);
+	font-size: 0.75rem;
+	line-height: 1rem;
+}
+.orderbook-mid-cell {
+	display: flex;
+	align-items: center;
+	gap: 0.75rem;
+}
+.orderbook-mid .orderbook-num {
+	color: #fff;
+}
+.orderbook-mid-bps {
+	margin-left: auto;
+	font-size: 0.6875rem;
+	font-variant-numeric: tabular-nums;
+	color: var(--ob-muted);
+}
+.orderbook-empty-side {
+	padding: 1.5rem 1rem;
+	font-size: 0.75rem;
+	text-align: center;
+	color: var(--ob-muted);
+}
+button.orderbook-expand {
+	min-height: 0;
+	margin-top: auto;
+	width: 100%;
+	padding: 0.75rem 1rem;
+	border: 0;
+	border-top: 1px solid var(--ob-line);
+	border-radius: 0;
+	background: transparent;
+	color: var(--ob-muted);
+	font-size: 0.75rem;
+	font-weight: 500;
+	transition: color 150ms;
+}
+button.orderbook-expand:active:not(:disabled) {
+	transform: none;
+}
+button.orderbook-expand:hover:not(:disabled) {
+	background: transparent;
+	color: #fff;
+}
+.orderbook-ladder-foot {
+	padding-bottom: 0.5rem;
+}
+
+/* Empty and loading */
+.orderbook-empty-state {
+	padding: 3rem 1.5rem;
+	font-size: 0.875rem;
+	text-align: center;
+	color: var(--ob-muted);
+}
+.orderbook-pulse {
+	display: block;
+	max-width: 100%;
+	border-radius: 0.375rem;
+	background: rgba(255, 255, 255, 0.055);
+	animation: orderbook-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+.orderbook-skeleton-panel {
+	height: 430px;
+}
+@keyframes orderbook-pulse {
+	50% {
+		opacity: 0.5;
+	}
+}
+
+@container orderbook (min-width: 560px) {
+	.orderbook-stat-value {
+		font-size: 1.125rem;
+		line-height: 1.75rem;
+	}
+	.orderbook-filters {
+		grid-template-columns: repeat(3, minmax(0, 1fr));
+		column-gap: 1rem;
+	}
+	.orderbook-stats {
+		grid-template-columns: repeat(3, minmax(0, 1fr));
+		row-gap: 1.25rem;
+	}
+}
+
+@container orderbook (min-width: 880px) {
+	.orderbook-grid {
+		grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr) minmax(0, 0.8fr) repeat(3, minmax(0, 1fr));
+		gap: 1rem;
+	}
+	.orderbook-col-extra {
+		display: block;
+	}
+	.orderbook-chain {
+		display: flex;
+	}
+}
+
+/* Six across once every value fits on one line: today's values need about 930px, and sizes
+   past a million go compact, so 980px leaves headroom. */
+@container orderbook (min-width: 980px) {
+	.orderbook-stats {
+		grid-template-columns: repeat(6, auto);
+		justify-content: space-between;
+		column-gap: 1.5rem;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.orderbook-level-bar {
+		transition: none;
+	}
+	.orderbook-pulse {
+		animation: none;
+	}
+}

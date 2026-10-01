@@ -179,7 +179,10 @@ export interface OperatorContext {
 	state: StateStore
 	bids?: Pick<BidStore, "recent" | "stats" | "byCommitments">
 	/** The operator's limit orders. Always present: simplex prices from them. */
-	limitOrders: Pick<LimitOrderController, "list" | "get" | "withFills" | "create" | "cancel" | "books">
+	limitOrders: Pick<
+		LimitOrderController,
+		"list" | "get" | "withFills" | "create" | "cancel" | "books" | "orderbookSnapshot"
+	>
 	/** Persists an operator pause so it survives a restart. */
 	setPaused(paused: boolean): Promise<void>
 	/**
@@ -954,6 +957,20 @@ export class UiServer {
 			if (this.mode !== "operator") return sendJson(res, 409, { error: "Filler is not running" })
 			if (method !== "GET") return sendJson(res, 405, { error: "Method not allowed" })
 			return this.handleLimitOrders(res, () => this.operator!.limitOrders.books())
+		}
+
+		if (path === "/api/orderbook/snapshot") {
+			if (this.mode !== "operator") return sendJson(res, 409, { error: "Filler is not running" })
+			if (method !== "GET") return sendJson(res, 405, { error: "Method not allowed" })
+			const params = new URL(req.url ?? "/", "http://localhost").searchParams
+			const book = params.get("book")?.trim()
+			if (!book) return sendJson(res, 400, { error: "A book is required" })
+			return this.handleLimitOrders(res, () =>
+				this.operator!.limitOrders.orderbookSnapshot(book, {
+					sourceChain: params.get("sourceChain") || undefined,
+					fillChain: params.get("fillChain") || undefined,
+				}),
+			)
 		}
 
 		const limitOrderMatch = path.match(/^\/api\/limit-orders\/([\w-]+)$/)
@@ -2208,7 +2225,6 @@ function serializeStrategy(strategy: AdminStrategy): AdminStrategyDto {
 function chainLabel(chainId: number): string {
 	return INIT_CHAINS.find((meta) => meta.chainId === chainId)?.label ?? `chain ${chainId}`
 }
-
 
 /** Wire shape of a sweep pass: base units formatted once here so the dashboard never sees bigints. */
 /** One network per filler: testnet if any running chain is a testnet, else mainnet. */

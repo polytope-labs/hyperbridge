@@ -6,6 +6,8 @@ import type {
 	HeartbeatResult,
 	MessageRejectionCode,
 	OrderbookLimits,
+	OrderbookSnapshot,
+	OrderbookFilters,
 	PostedOrder,
 	PostedOrderPage,
 	RejectionCode,
@@ -27,6 +29,21 @@ const LIMITS_QUERY = `
 		}
 		books { id base quote }
 		chains { id name tokens { symbol decimals } }
+	}
+`
+
+const LEVEL_FIELDS = "fillChain priceBucket price worstPrice baseSize quoteSize orderCount solverCount"
+
+const SNAPSHOT_QUERY = `
+	query OrderbookSnapshot($id: ID!, $sourceChain: String, $fillChain: String) {
+		book(id: $id) {
+			id base quote
+			bids: levels(side: BID, sourceChain: $sourceChain, fillChain: $fillChain) { ${LEVEL_FIELDS} }
+			asks: levels(side: ASK, sourceChain: $sourceChain, fillChain: $fillChain) { ${LEVEL_FIELDS} }
+			bidLiquidity: availableLiquidity(side: BID, sourceChain: $sourceChain, fillChain: $fillChain)
+			askLiquidity: availableLiquidity(side: ASK, sourceChain: $sourceChain, fillChain: $fillChain)
+		}
+		serverInfo { priceGranularities { book granularity } }
 	}
 `
 
@@ -91,6 +108,7 @@ const CANCEL_ORDER_MUTATION = `
  */
 export const ORDERBOOK_DOCUMENTS = {
 	limits: LIMITS_QUERY,
+	snapshot: SNAPSHOT_QUERY,
 	submitOrder: SUBMIT_ORDER_MUTATION,
 	heartbeat: HEARTBEAT_MUTATION,
 	myOrders: MY_ORDERS_QUERY,
@@ -149,6 +167,21 @@ export class OrderbookClient {
 	/** The limits to validate against before posting, plus the books on offer. */
 	async limits(): Promise<OrderbookLimits> {
 		return this.request<OrderbookLimits>(LIMITS_QUERY, {})
+	}
+
+	/** The public book across all solvers, restricted to the selected route. */
+	async snapshot(id: string, filters: OrderbookFilters = {}): Promise<OrderbookSnapshot | null> {
+		const { book, serverInfo } = await this.request<{
+			book: Omit<OrderbookSnapshot, "granularity"> | null
+			serverInfo: { priceGranularities: Array<{ book: string; granularity: string }> }
+		}>(SNAPSHOT_QUERY, {
+			id,
+			sourceChain: filters.sourceChain || null,
+			fillChain: filters.fillChain || null,
+		})
+		if (!book) return null
+		const granularity = serverInfo.priceGranularities.find((entry) => entry.book === book.id)?.granularity ?? null
+		return { ...book, granularity }
 	}
 
 	async submitOrder(userOp: HexString): Promise<SubmitOrderResult> {

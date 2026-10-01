@@ -13,6 +13,7 @@ import { LoggerContext, type LogLevel } from "@/services/Logger"
 import { LogStore } from "@/services/server/LogStore"
 import type { LogRecordDto } from "@/services/server/dto"
 import type { FillerConfigFile } from "@/config/filler-toml"
+import { OrderbookRequestError } from "@/orderbook/client"
 import { SignerType } from "@/services/wallet"
 import type { PairConfig } from "@/config/pairs"
 import type { AssetDefinition } from "@/config/asset-registry"
@@ -254,6 +255,44 @@ describe("UiServer (operator mode)", () => {
 			body: JSON.stringify(body),
 		})
 	}
+
+	it("reads the public order book with route filters and validates the request", async () => {
+		const snapshot = {
+			id: "USDC/cNGN",
+			base: "USDC",
+			quote: "cNGN",
+			bids: [],
+			asks: [],
+			bidLiquidity: "0",
+			askLiquidity: "0",
+			granularity: "10000000000000000",
+		}
+		const read = vi.fn().mockResolvedValue(snapshot)
+		const { base } = await startServer({
+			limitOrders: { orderbookSnapshot: read } as unknown as OperatorContext["limitOrders"],
+		})
+		const response = await fetch(
+			`${base}/api/orderbook/snapshot?book=USDC%2FcNGN&sourceChain=EVM-1&fillChain=EVM-8453`,
+		)
+		expect(response.status).toBe(200)
+		expect(await response.json()).toEqual(snapshot)
+		expect(read).toHaveBeenCalledWith("USDC/cNGN", { sourceChain: "EVM-1", fillChain: "EVM-8453" })
+		expect((await fetch(`${base}/api/orderbook/snapshot`)).status).toBe(400)
+		expect((await fetch(`${base}/api/orderbook/snapshot?book=a`, { method: "POST", headers: CSRF })).status).toBe(
+			405,
+		)
+	})
+
+	it("distinguishes unknown books from unavailable order books", async () => {
+		const read = vi.fn().mockResolvedValueOnce(null).mockRejectedValueOnce(new OrderbookRequestError("offline"))
+		const { base } = await startServer({
+			limitOrders: { orderbookSnapshot: read } as unknown as OperatorContext["limitOrders"],
+		})
+		expect((await fetch(`${base}/api/orderbook/snapshot?book=a`)).status).toBe(404)
+		const response = await fetch(`${base}/api/orderbook/snapshot?book=a`)
+		expect(response.status).toBe(502)
+		expect(await response.json()).toEqual({ error: "offline" })
+	})
 
 	it("serves health and status", async () => {
 		const { base } = await startServer()

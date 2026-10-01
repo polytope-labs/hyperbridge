@@ -95,7 +95,12 @@ export function useOrderbookBooks() {
 	const [loading, setLoading] = useState(true)
 	const [error, setError] = useState<string>()
 
+	const [attempt, setAttempt] = useState(0)
+	const reload = useCallback(() => setAttempt((current) => current + 1), [])
+
 	useEffect(() => {
+		setLoading(true)
+		setError(undefined)
 		let live = true
 		api.get<{ books: OrderbookBook[]; chains?: OrderbookChain[] }>("/api/orderbook/books")
 			.then((body) => {
@@ -114,7 +119,7 @@ export function useOrderbookBooks() {
 		return () => {
 			live = false
 		}
-	}, [])
+	}, [attempt])
 
-	return { books, chains, loading, error }
+	return { books, chains, loading, error, reload }
 }

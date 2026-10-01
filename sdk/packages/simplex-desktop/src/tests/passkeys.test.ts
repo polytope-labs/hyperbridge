@@ -3,7 +3,7 @@ import { networkInterfaces } from "node:os"
 import { createHash, generateKeyPairSync, randomBytes, sign } from "node:crypto"
 import { isoCBOR } from "@simplewebauthn/server/helpers"
 import { describe, expect, it, vi } from "vitest"
-import { BrowserPasskeys, type PasskeyCredential } from "../security/passkeys"
+import { BrowserPasskeys, isPasskeyCredential, type PasskeyCredential } from "../security/passkeys"
 import { passkeyPage } from "../security/passkey-page"
 
 const hash = (data: string | Buffer) => createHash("sha256").update(data).digest()
@@ -32,7 +32,7 @@ function authenticator() {
 		kind: string,
 		challenge: string,
 		origin: string,
-		{ rp = "localhost", uv = true, counter = 1 } = {},
+		{ rp = "localhost", uv = true, counter = 1, transports = ["internal"] } = {},
 	) {
 		const clientData = Buffer.from(
 			JSON.stringify({ type: kind === "register" ? "webauthn.create" : "webauthn.get", challenge, origin }),
@@ -57,7 +57,7 @@ function authenticator() {
 				kind === "register"
 					? {
 							clientDataJSON: clientData.toString("base64url"),
-							transports: ["internal"],
+							transports,
 							attestationObject: Buffer.from(
 								isoCBOR.encode(
 									new Map<string, unknown>([
@@ -122,6 +122,22 @@ describe("browser passkey ceremonies", () => {
 		expect(new Set(challenges).size).toBe(2)
 		expect(new Set(origins).size).toBe(2)
 		await expect(fetch(origins[1])).rejects.toThrow()
+	})
+
+	it("saves only transports the vault accepts when the browser reports unknown ones", async () => {
+		const device = authenticator()
+		const passkeys = new BrowserPasskeys({
+			platform: "darwin",
+			openBrowser: async (url) => {
+				const b = browser(url)
+				const { kind, options } = await (await b.post("/options")).json()
+				const transports = ["internal", "future-transport", ...Array(10).fill("hybrid")]
+				await b.post("/verify", device.response(kind, options.challenge, b.origin, { transports }))
+			},
+		})
+		const credential = await passkeys.register()
+		expect(credential.transports).toEqual(["internal", ...Array(7).fill("hybrid")])
+		expect(isPasskeyCredential(credential)).toBe(true)
 	})
 
 	it.each(["challenge", "origin", "rp", "uv", "signature", "id", "counter"])(

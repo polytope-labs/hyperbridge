@@ -25,6 +25,9 @@ export interface PasskeyUnlock {
 	cancel(): void
 }
 
+const TRANSPORTS = ["ble", "cable", "hybrid", "internal", "nfc", "smart-card", "usb"]
+const MAX_TRANSPORTS = 8
+
 export function isPasskeyCredential(value: unknown): value is PasskeyCredential {
 	if (!value || typeof value !== "object") return false
 	const credential = value as PasskeyCredential
@@ -39,10 +42,8 @@ export function isPasskeyCredential(value: unknown): value is PasskeyCredential 
 			(typeof credential.userId === "string" && /^[A-Za-z0-9_-]{1,86}$/.test(credential.userId))) &&
 		(credential.transports === undefined ||
 			(Array.isArray(credential.transports) &&
-				credential.transports.length <= 8 &&
-				credential.transports.every((transport) =>
-					["ble", "cable", "hybrid", "internal", "nfc", "smart-card", "usb"].includes(transport),
-				)))
+				credential.transports.length <= MAX_TRANSPORTS &&
+				credential.transports.every((transport) => TRANSPORTS.includes(transport))))
 	)
 }
 
@@ -146,7 +147,16 @@ export class BrowserPasskeys implements PasskeyUnlock {
 			})
 			if (!result.verified) throw new Error("Passkey registration failed")
 			const credential = result.registrationInfo.credential
-			return { ...credential, publicKey: Buffer.from(credential.publicKey).toString("base64url"), userId }
+			// Transports are browser-reported hints; save only what isPasskeyCredential accepts when the vault is read back.
+			const transports = credential.transports
+				?.filter((transport) => TRANSPORTS.includes(transport))
+				.slice(0, MAX_TRANSPORTS)
+			return {
+				...credential,
+				publicKey: Buffer.from(credential.publicKey).toString("base64url"),
+				transports,
+				userId,
+			}
 		})
 	}
 	async authenticate(credential: PasskeyCredential): Promise<PasskeyCredential> {

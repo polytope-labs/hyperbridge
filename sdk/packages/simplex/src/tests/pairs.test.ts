@@ -263,6 +263,9 @@ function makeContractService(): any {
 			clearPartialFill: (id: string) => cache.delete(`pf:${id}`),
 			setPartialFill: (id: string, partial: boolean) => cache.set(`pf:${id}`, partial),
 			isPartialFill: (id: string) => cache.get(`pf:${id}`) === true,
+			clearFeeCheckWaived: (id: string) => cache.delete(`fw:${id}`),
+			setFeeCheckWaived: (id: string, waived: boolean) => cache.set(`fw:${id}`, waived),
+			isFeeCheckWaived: (id: string) => cache.get(`fw:${id}`) === true,
 		},
 		getTokenDecimals: async (token: string) => decimals[token.toLowerCase()] ?? 18,
 	}
@@ -462,6 +465,8 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 			balancesByToken?: Record<string, bigint>
 			/** What the operator is offering. Without it the filler prices nothing. */
 			limitOrders?: LimitOrderStore
+			/** `simplex.minOrderSizeUsd`. The default when omitted. */
+			minOrderSizeUsd?: number
 		},
 	) {
 		const cache = new Map<string, unknown>()
@@ -480,6 +485,9 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 				clearPartialFill: (id: string) => cache.delete(`pf:${id}`),
 				setPartialFill: (id: string, partial: boolean) => cache.set(`pf:${id}`, partial),
 				isPartialFill: (id: string) => cache.get(`pf:${id}`) === true,
+				clearFeeCheckWaived: (id: string) => cache.delete(`fw:${id}`),
+				setFeeCheckWaived: (id: string, waived: boolean) => cache.set(`fw:${id}`, waived),
+				isFeeCheckWaived: (id: string) => cache.get(`fw:${id}`) === true,
 			},
 			getFeeTokenWithDecimals: async () => ({ decimals: 6, address: USDC }),
 			getTokenDecimals: async (token: string) => decimalsByAddr[token.toLowerCase()] ?? 18,
@@ -500,11 +508,15 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 				options?.balancesByToken?.[params.address.toLowerCase()] ?? 10n ** 30n, // balanceOf
 		}
 		const clientManager = { getPublicClient: () => destClient } as any
-		return new FXFiller(signer, cfg, clientManager, contractService, pairs, registry, {
+		const config = { ...cfg, getMinOrderSizeUsd: () => options?.minOrderSizeUsd ?? 20 }
+		return new FXFiller(signer, config, clientManager, contractService, pairs, registry, {
 			fundingVenues: (options?.fundingVenues ?? []) as any,
 			limitOrders: options?.limitOrders,
 		})
 	}
+
+	const feeCheckWaived = (filler: FXFiller, id: string): boolean =>
+		(filler as any).contractService.cacheService.isFeeCheckWaived(id)
 
 	function order(id: string, input: TokenInfo, output: TokenInfo, fees: bigint): Order {
 		return {
@@ -557,6 +569,93 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 			parseUnits("10", 6), // fees $10 > $5 exec cost; 1.4M CNGN within the 1450 ask curve
 		)
 		expect(await filler.calculateProfitability(o)).toBeGreaterThan(0)
+	})
+
+	describe("gate 1 applies below `minOrderSizeUsd` only", () => {
+		// Execution costs $5 and every order here carries $4 of fees.
+		const estimate = { fillGas: parseUnits("2", 6), relayer: parseUnits("3", 6) }
+		const book = () =>
+			limitOrderStore([
+				{
+					base: "USDC",
+					quote: "CNGN",
+					side: "BID",
+					fillChain: DST,
+					price: "1450",
+					size: "10000000",
+					acceptedSources: [SRC],
+				},
+			])
+		/** `usd` of USDC in, asking 1400 CNGN per dollar, with fees a dollar short of the cost. */
+		const underpaying = (id: string, usd: string) =>
+			order(
+				id,
+				{ token: bytes20ToBytes32(USDC), amount: parseUnits(usd, 6) },
+				{ token: bytes20ToBytes32(CNGN), amount: parseUnits(usd, 18) * 1400n },
+				parseUnits("4", 6),
+			)
+		const fx = async (minOrderSizeUsd?: number) =>
+			gateFiller([{ token0: "USDC", token1: "CNGN" }], usdcOnBoth(), estimate, {
+				limitOrders: await book(),
+				minOrderSizeUsd,
+			})
+
+		it("rejects an order below it whose fees do not cover execution", async () => {
+			const filler = await fx()
+			const o = underpaying("small", "19.99")
+
+			expect(await filler.calculateProfitability(o)).toBe(0)
+			expect(feeCheckWaived(filler, o.id!)).toBe(false)
+		})
+
+		it("bids on an order at it whatever fees it carries, and scores the shortfall", async () => {
+			const filler = await fx()
+			const o = underpaying("at-min", "20")
+
+			// $4 of fees against $5 of cost.
+			expect(await filler.calculateProfitability(o)).toBe(-1)
+			expect(feeCheckWaived(filler, o.id!)).toBe(true)
+		})
+
+		it("does not mark an order whose fees cover execution", async () => {
+			const filler = await fx()
+			const o = order(
+				"covered",
+				{ token: bytes20ToBytes32(USDC), amount: parseUnits("1000", 6) },
+				{ token: bytes20ToBytes32(CNGN), amount: parseUnits("1400000", 18) },
+				parseUnits("10", 6),
+			)
+
+			expect(await filler.calculateProfitability(o)).toBeGreaterThan(0)
+			expect(feeCheckWaived(filler, o.id!)).toBe(false)
+		})
+
+		it("follows the configured size", async () => {
+			const o = underpaying("configured", "1000")
+
+			expect(await (await fx(5000)).calculateProfitability(o)).toBe(0)
+			expect(await (await fx(1000)).calculateProfitability(o)).toBe(-1)
+		})
+
+		it("checks no order's fees at zero", async () => {
+			const filler = await fx(0)
+			const o = underpaying("no-check", "1")
+
+			expect(await filler.calculateProfitability(o)).toBe(-1)
+			expect(feeCheckWaived(filler, o.id!)).toBe(true)
+		})
+
+		it("clears the mark when a later evaluation refuses the order", async () => {
+			const filler = await fx()
+			const o = underpaying("re-evaluated", "20")
+			await filler.calculateProfitability(o)
+			expect(feeCheckWaived(filler, o.id!)).toBe(true)
+
+			// The same order re-priced against a book with nothing left to match it.
+			;(filler as any).limitOrders = await limitOrderStore([])
+			expect(await filler.calculateProfitability(o)).toBe(0)
+			expect(feeCheckWaived(filler, o.id!)).toBe(false)
+		})
 	})
 
 	it("gate 2: rejects a same-token order whose realized spread is zero", async () => {

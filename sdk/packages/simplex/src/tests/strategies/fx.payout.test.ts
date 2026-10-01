@@ -81,6 +81,8 @@ function makeEvalContractService(
 			getBidPlans: (id: string) => bidPlans.get(id) ?? [],
 			clearBidPlans: (id: string) => bidPlans.delete(id),
 			clearPartialFill: (id: string) => partials.delete(id),
+			clearFeeCheckWaived: () => {},
+			setFeeCheckWaived: () => {},
 			setPartialFill: (id: string, value: boolean) => partials.set(id, value),
 			getPartialFill: (id: string) => partials.get(id),
 			setFundingPrepends: () => {},

@@ -24,7 +24,7 @@ Check the **Limit orders** list on the Overview page. Simplex fills only against
 
 ## **No profitable strategy found**
 
-The order matched, but `order.fees` do not cover gas plus, for cross-chain orders, the relayer fee. Or a same-asset transfer would not net a positive spread. See [How orders are matched and filled](/developers/evm/simplex/limit-orders#how-orders-are-matched-and-filled). This is normal for orders with low fees.
+The order matched, but it is worth less than [`minOrderSizeUsd`](/developers/evm/simplex/configuration#simplex) (default $20) and `order.fees` do not cover gas plus, for cross-chain orders, the relayer fee. Or a same-asset transfer would not net a positive spread. See [How orders are matched and filled](/developers/evm/simplex/limit-orders#how-orders-are-matched-and-filled). This is normal for orders with low fees.
 
 ---
 

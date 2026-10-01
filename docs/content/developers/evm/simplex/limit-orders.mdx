@@ -208,7 +208,7 @@ When a swap arrives, Simplex checks it against every open limit order. An order 
 
 **Every bid must still be profitable.** Rate is not the only test. A matched order is also skipped when any of the following is true:
 
-- `order.fees` do not cover the fill's gas, plus the relayer fee for a cross-chain fill. The relayer fee pays for delivering the escrow-release message back to the source chain, roughly 1M gas priced on that chain. Your rate's margin never counts toward this.
+- The order is worth less than [`minOrderSizeUsd`](/developers/evm/simplex/configuration#simplex) (default $20) and `order.fees` do not cover the fill's gas, plus the relayer fee for a cross-chain fill. The relayer fee pays for delivering the escrow-release message back to the source chain, roughly 1M gas priced on that chain. Your rate's margin never counts toward this. An order at or above that size is not checked: Simplex fills it whatever fees it carries, and your rate's margin pays for the gas.
 - A same-asset transfer, such as USDC to USDC across chains, would not leave the solver with more of the asset than it sent.
 - The wallet on the fill chain cannot cover the payout and the dispatch fee, even after withdrawing from [treasury vaults](/developers/evm/simplex/treasury).
 

@@ -150,6 +150,16 @@ export interface FillerTomlConfig {
 		 */
 		bidValiditySeconds?: number
 		/**
+		 * The order size, in USD, below which `order.fees` must cover the execution cost
+		 * (fill gas plus, cross-chain, the relayer fee). Defaults to 20.
+		 *
+		 * An order worth at least this much is filled whatever fees it carries: the margin
+		 * in the limit order that prices it pays for the gas. On a smaller order that
+		 * margin is too thin to, so the fees have to. Set to 0 to never check fees. An
+		 * order nothing can put a dollar figure on is treated as below it.
+		 */
+		minOrderSizeUsd?: number
+		/**
 		 * Remote access: an outbound SSH tunnel to a rendezvous relay so a phone's
 		 * SSH client can reach the local web UI. Off unless `enabled = true`; the
 		 * relay defaults to the hosted one. Devices are paired from the UI.
@@ -338,6 +348,13 @@ export function validateConfig(config: FillerTomlConfig, cliWatchOnly = false): 
 			throw new Error(
 				`simplex.blockScanIntervalSeconds must be a number >= ${MIN_BLOCK_SCAN_INTERVAL_SECONDS} (seconds); got ${scanInterval}`,
 			)
+		}
+	}
+
+	const minOrderSize = config.simplex.minOrderSizeUsd
+	if (minOrderSize !== undefined) {
+		if (!Number.isFinite(minOrderSize) || minOrderSize < 0) {
+			throw new Error(`simplex.minOrderSizeUsd must be a number >= 0 (USD); got ${minOrderSize}`)
 		}
 	}
 

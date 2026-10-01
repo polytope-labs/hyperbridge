@@ -1021,8 +1021,14 @@ export class IntentFiller {
 		// cannot see and therefore scores at or near zero. The decision to fill at
 		// that curve was made when the curve was configured.
 		const fillsPartially = this.fillsPartially(order)
+		// So is an order at or above `minOrderSizeUsd` whose fees fall short of its gas:
+		// the strategy let it through without the fee check, and it scores the shortfall.
+		const feeCheckWaived = this.feeCheckWaived(order)
 		const validStrategies = eligibleStrategies
-			.filter((s): s is NonNullable<typeof s> => s !== null && (s.profitability > 0 || fillsPartially))
+			.filter(
+				(s): s is NonNullable<typeof s> =>
+					s !== null && (s.profitability > 0 || fillsPartially || feeCheckWaived),
+			)
 			.sort((a, b) => b.profitability - a.profitability)
 
 		const evalDurationSec = (Date.now() - evalStartMs) / 1000
@@ -1085,6 +1091,16 @@ export class IntentFiller {
 	private fillsPartially(order: Order): boolean {
 		if (!order.id) return false
 		return this.contractService.cacheService.isPartialFill(order.id)
+	}
+
+	/**
+	 * Whether the strategy's evaluation let a bid through without the fee check, because
+	 * the order is at or above the operator's minimum size. Read from a flag the strategy
+	 * sets only once it has an answer, as {@link fillsPartially} is.
+	 */
+	private feeCheckWaived(order: Order): boolean {
+		if (!order.id) return false
+		return this.contractService.cacheService.isFeeCheckWaived(order.id)
 	}
 
 	private executeOrder(

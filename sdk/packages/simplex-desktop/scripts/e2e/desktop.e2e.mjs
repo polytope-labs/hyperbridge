@@ -10,7 +10,7 @@ import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import test from "node:test"
 import { promisify } from "node:util"
-import { _electron } from "playwright-core"
+import { _electron, chromium } from "playwright-core"
 import { ActivityRecorder } from "../../../simplex/src/data/recorder.ts"
 import { emitFillerToml } from "../../../simplex/src/cli/init/emit-toml.ts"
 import externalLinks from "../../../simplex/src/config/external-links.json" with { type: "json" }
@@ -20,7 +20,7 @@ import { socketPathFor } from "../../src/desktop-paths.ts"
 import { spawnDaemon } from "../../src/daemon.ts"
 import { blackholeServer } from "./blackhole-server.ts"
 import { desktopArguments, directElectronArguments, electronProcessExit } from "./electron-launch.ts"
-import { decryptedTestConfig, TEST_PASSWORD, unlockDesktop } from "./desktop-access.mjs"
+import { decryptedTestConfig, TEST_PASSWORD, unlockDesktop, usePasswordLogin } from "./desktop-access.mjs"
 
 const execFileAsync = promisify(execFile)
 const require = createRequire(import.meta.url)
@@ -447,7 +447,7 @@ test("a login launch requires unlock before starting a solver and gates the API"
 	t.after(async () => cleanupDesktop(electronApp, userDataDir))
 	let page
 	;({ electronApp, page } = await launchDesktop(userDataDir, { hidden: true, locked: true }))
-	await page.locator("#desktop-password").waitFor()
+	await usePasswordLogin(page)
 	assert.equal(await electronApp.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length), 1)
 	assert.deepEqual(await daemonPids(userDataDir), [])
 	assert.equal(await page.evaluate(async () => (await fetch("/api/status")).status), 423)
@@ -461,7 +461,7 @@ test("a login launch requires unlock before starting a solver and gates the API"
 	electronApp = undefined
 	await waitForHealth(socketPath, "init")
 	;({ electronApp, page } = await launchDesktop(userDataDir, { locked: true }))
-	await page.locator("#desktop-password").waitFor()
+	await usePasswordLogin(page)
 	assert.equal(await page.evaluate(async () => (await fetch("/api/status")).status), 423)
 	await page.locator("#desktop-password").fill("incorrect-password")
 	await page.getByRole("button", { name: "Unlock", exact: true }).click()
@@ -470,6 +470,140 @@ test("a login launch requires unlock before starting a solver and gates the API"
 	await delay(1100)
 	await unlockDesktop(page)
 })
+
+test(
+	"passkeys register, cancel, unlock after relaunch and recover through the desktop UI",
+	{
+		skip: !process.env.SIMPLEX_PASSKEY_BROWSER || !["darwin", "win32"].includes(process.platform),
+	},
+	async (t) => {
+		const userDataDir = await temporaryUserData("passkey")
+		const socketPath = socketPathFor(userDataDir)
+		let electronApp, page
+		const browser = await chromium.launch({ executablePath: process.env.SIMPLEX_PASSKEY_BROWSER, headless: true })
+		t.after(async () => {
+			await browser.close()
+			await cleanupDesktop(electronApp, userDataDir)
+		})
+		const browserPage = await browser.newPage()
+		const cdp = await browserPage.context().newCDPSession(browserPage)
+		await cdp.send("WebAuthn.enable")
+		await cdp.send("WebAuthn.addVirtualAuthenticator", {
+			options: {
+				protocol: "ctap2",
+				transport: "internal",
+				hasResidentKey: true,
+				hasUserVerification: true,
+				isUserVerified: true,
+				automaticPresenceSimulation: true,
+			},
+		})
+		const launch = async () => {
+			;({ electronApp, page } = await launchDesktop(userDataDir, { locked: true }))
+			// Replace only browser opening; the production host still verifies actual WebAuthn signatures.
+			await electronApp.evaluate(({ shell }) => {
+				shell.openExternal = async (url) => {
+					globalThis.__simplexPasskeyUrl = url
+				}
+			})
+		}
+		const ceremony = async (button, cancel = false) => {
+			await electronApp.evaluate(() => {
+				globalThis.__simplexPasskeyUrl = undefined
+			})
+			await page.getByRole("button", { name: button, exact: true }).click()
+			const url = await waitFor(
+				() => electronApp.evaluate(() => globalThis.__simplexPasskeyUrl),
+				"passkey browser URL",
+			)
+			await browserPage.goto(url)
+			await browserPage
+				.getByRole("button", { name: cancel ? /^Cancel$/ : /^(Create|Unlock with) passkey$/ })
+				.click()
+			await browserPage
+				.getByRole("status")
+				.filter({ hasText: cancel ? "Cancelled" : "Simplex is continuing" })
+				.waitFor()
+		}
+		await launch()
+		await page.getByRole("heading", { name: "Create a passkey" }).waitFor()
+		assert.equal(await page.locator("#desktop-password").count(), 0)
+		await ceremony("Create passkey")
+		await page.locator("#saved-recovery-code").waitFor()
+		const recoveryCode = await page.locator("#saved-recovery-code").textContent()
+		assert.equal(await page.evaluate(async () => (await fetch("/api/status")).status), 423)
+		assert.equal(existsSync(join(userDataDir, "desktop-vault.json")), false)
+		await page.getByRole("checkbox", { name: "I've saved my recovery code" }).check()
+		await page.getByRole("button", { name: "Continue", exact: true }).click()
+		await page.locator(".desktop-unlock").waitFor({ state: "detached" })
+		const health = await waitForHealth(socketPath, "init")
+		const metadata = JSON.parse(await readFile(join(userDataDir, "desktop-vault.json"), "utf8"))
+		assert.equal(metadata.version, 3)
+		assert.equal(metadata.wrappedKey, undefined)
+		assert.equal(metadata.salt, undefined)
+		await quitElectron(electronApp)
+		electronApp = undefined
+		await launch()
+		assert.equal(await page.evaluate(async () => (await fetch("/api/status")).status), 423)
+		await ceremony("Unlock with passkey", true)
+		await page.getByRole("alert").filter({ hasText: "cancelled" }).waitFor()
+		assert.equal(await page.evaluate(async () => (await fetch("/api/status")).status), 423)
+		await delay(1100)
+		await ceremony("Unlock with passkey")
+		await page.locator(".desktop-unlock").waitFor({ state: "detached" })
+		assert.equal((await waitForHealth(socketPath, "init")).pid, health.pid)
+		await quitElectron(electronApp)
+		electronApp = undefined
+		await launch()
+		await page.getByRole("button", { name: "Recover access", exact: true }).click()
+		await page.locator("#recovery-code").fill(recoveryCode)
+		await page.getByRole("button", { name: "Continue", exact: true }).click()
+		await ceremony("Create replacement passkey")
+		await page.locator("#saved-recovery-code").waitFor()
+		const replacementCode = await page.locator("#saved-recovery-code").textContent()
+		assert.notEqual(replacementCode, recoveryCode)
+		assert.equal(await page.evaluate(async () => (await fetch("/api/status")).status), 423)
+		await page.getByRole("checkbox", { name: "I've saved my recovery code" }).check()
+		await page.getByRole("button", { name: "Continue", exact: true }).click()
+		await page.locator(".desktop-unlock").waitFor({ state: "detached" })
+		assert.notEqual(
+			JSON.parse(await readFile(join(userDataDir, "desktop-vault.json"), "utf8")).passkey.id,
+			metadata.passkey.id,
+		)
+		assert.equal((await waitForHealth(socketPath, "init")).pid, health.pid)
+		await quitElectron(electronApp)
+		electronApp = undefined
+		await launch()
+		await ceremony("Unlock with passkey")
+		await page.locator(".desktop-unlock").waitFor({ state: "detached" })
+		await quitElectron(electronApp)
+		electronApp = undefined
+		await launch()
+		await page.getByRole("button", { name: "Recover access", exact: true }).click()
+		await page.locator("#recovery-code").fill(replacementCode)
+		await page.getByRole("button", { name: "Continue", exact: true }).click()
+		await page.getByRole("button", { name: "Use a password instead", exact: true }).click()
+		await page.locator("#desktop-password").fill(TEST_PASSWORD)
+		await page.locator("#desktop-confirmation").fill(TEST_PASSWORD)
+		await page.getByRole("button", { name: "Save password", exact: true }).click()
+		await page.getByRole("checkbox", { name: "I've saved my recovery code" }).check()
+		await page.getByRole("button", { name: "Continue", exact: true }).click()
+		await page.locator(".desktop-unlock").waitFor({ state: "detached" })
+		await quitElectron(electronApp)
+		electronApp = undefined
+		await launch()
+		await page.locator("#desktop-password").fill(TEST_PASSWORD)
+		await page.getByRole("checkbox", { name: "Create a passkey for future logins" }).check()
+		await ceremony("Unlock")
+		await page.locator(".desktop-unlock").waitFor({ state: "detached" })
+		await quitElectron(electronApp)
+		electronApp = undefined
+		await launch()
+		await page.getByRole("button", { name: "Use a password instead", exact: true }).waitFor()
+		await ceremony("Unlock with passkey")
+		await page.locator(".desktop-unlock").waitFor({ state: "detached" })
+	},
+)
 
 test("update relaunch and launch at login resume the solver while the dashboard stays locked", async (t) => {
 	const userDataDir = await temporaryUserData("background-resume")
@@ -530,6 +664,8 @@ test("legacy solver migration requires consent and replaces the plaintext writer
 	assert.equal(legacy.configEncrypted, undefined)
 	let page
 	;({ electronApp, page } = await launchDesktop(userDataDir, { locked: true }))
+	// Passkey-capable hosts open on the passkey screen, which has no Continue button.
+	await usePasswordLogin(page)
 	const consent = page.getByRole("checkbox", { name: /Stop and restart the running solver/ })
 	await consent.waitFor()
 	assert.equal(await consent.isChecked(), false)
@@ -548,16 +684,14 @@ test("forgotten passwords recover without the old password or a solver restart",
 	let electronApp, page
 	t.after(async () => cleanupDesktop(electronApp, userDataDir))
 	;({ electronApp, page } = await launchDesktop(userDataDir, { locked: true }))
-	await page.locator("#desktop-password").waitFor()
-	if (process.platform !== "darwin") {
-		assert.equal(await page.getByText("Also enable Touch ID on this Mac").count(), 0)
-	}
+	await usePasswordLogin(page)
 	await page.locator("#desktop-password").fill(TEST_PASSWORD)
 	await page.locator("#desktop-confirmation").fill(TEST_PASSWORD)
 	await page.getByRole("button", { name: "Continue", exact: true }).click()
 	await page.locator("#saved-recovery-code").waitFor()
 	assert.equal(await page.getByRole("button", { name: "Back to login", exact: true }).count(), 0)
 	await page.getByRole("button", { name: "Cancel", exact: true }).click()
+	await usePasswordLogin(page)
 	await page.getByRole("heading", { name: "Create a password", exact: true }).waitFor()
 	assert.equal(existsSync(join(userDataDir, "desktop-vault.json")), false)
 	await delay(1100)
@@ -569,8 +703,6 @@ test("forgotten passwords recover without the old password or a solver restart",
 	;({ electronApp, page } = await launchDesktop(userDataDir, { locked: true }))
 	await page.getByRole("button", { name: "Forgot password?" }).click()
 	assert.equal(await page.locator("#desktop-password").count(), 0, "recovery must not ask for the old password")
-	if (process.platform !== "darwin")
-		assert.equal(await page.getByRole("button", { name: "Verify with Touch ID" }).count(), 0)
 	await page.locator("#recovery-code").fill(code)
 	await page.getByRole("button", { name: "Continue", exact: true }).click()
 	await page.getByRole("heading", { name: "Create a new password" }).waitFor()
@@ -682,7 +814,7 @@ test("configured startup owns the socket before filling and relaunch attaches wh
 	const page = await waitFor(() => electronApp.windows()[0], "the locked Simplex window")
 	await page.waitForURL("simplex://local/**")
 	assert.equal(await electronApp.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length), 1)
-	await page.locator("#desktop-password").waitFor()
+	await usePasswordLogin(page)
 	assert.equal(await page.evaluate(async () => (await fetch("/api/status")).status), 423)
 })
 

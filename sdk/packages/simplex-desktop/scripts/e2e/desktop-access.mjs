@@ -5,10 +5,18 @@ import { decryptConfig, isEncryptedConfig, openSecret, passwordKey } from "../..
 
 export const TEST_PASSWORD = "simplex-test-password-only"
 
+/** Select the password fallback explicitly so legacy-login tests also run on passkey-capable hosts. */
+export async function usePasswordLogin(page) {
+	const passwordFallback = page.getByRole("button", { name: "Use a password instead", exact: true })
+	await page.locator("#desktop-password").or(passwordFallback).waitFor()
+	if (await passwordFallback.isVisible()) await passwordFallback.click()
+	await page.locator("#desktop-password").waitFor()
+}
+
 /** Exercise the actual login form; no production authentication bypass. */
 export async function unlockDesktop(page, { pending = false, restartSolver = false } = {}) {
 	let recoveryCode
-	await page.locator("#desktop-password").waitFor()
+	await usePasswordLogin(page)
 	const creating = (await page.locator("#desktop-confirmation").count()) > 0
 	await page.locator("#desktop-password").fill(TEST_PASSWORD)
 	if (creating) await page.locator("#desktop-confirmation").fill(TEST_PASSWORD)

@@ -11,7 +11,7 @@ export default defineConfig({
 	// Electron is supplied by the host runtime. Bundle electron-updater so the
 	// packaged main process has no undeclared dependency on a workspace symlink.
 	external: ["electron"],
-	noExternal: ["electron-updater", "@hyperbridge/simplex/config-storage"],
+	noExternal: ["electron-updater", "@hyperbridge/simplex/config-storage", "@simplewebauthn/server"],
 	// electron-updater is CommonJS and performs runtime Electron imports. ESM
 	// main processes do not expose require unless we create it explicitly.
 	banner: {

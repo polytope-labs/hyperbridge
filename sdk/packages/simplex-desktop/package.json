@@ -1,7 +1,7 @@
 {
 	"name": "@hyperbridge/simplex-desktop",
 	"productName": "Simplex",
-	"version": "0.16.11",
+	"version": "0.16.12",
 	"private": true,
 	"description": "Native desktop shell for the Simplex intent solver",
 	"author": "Polytope Labs <hello@polytope.technology>",
@@ -24,7 +24,7 @@
 		"stage:solver": "node scripts/stage-solver.mjs",
 		"test": "pnpm run test:unit && pnpm run test:integration",
 		"test:e2e": "pnpm run ensure:electron && node scripts/e2e/assert-artifacts.mjs && tsx --tsconfig ../simplex/tsconfig.json --test --test-timeout=300000 scripts/e2e/desktop.e2e.mjs",
-		"test:unit": "vitest --watch=false src/tests/biometrics.test.ts src/tests/device-key-store.test.ts src/tests/vault.test.ts src/tests/blackhole-server.test.ts src/tests/desktop-paths.test.ts src/tests/daemon.test.ts src/tests/desktop-security.test.ts src/tests/electron-launch.test.ts src/tests/login-item.test.ts src/tests/notification-client.test.ts src/tests/release-provider.test.ts src/tests/solver-supervisor.test.ts src/tests/tray-icon.test.ts src/tests/tray-menu.test.ts src/tests/update-authenticity.test.ts src/tests/update-coordinator.test.ts src/tests/update-store.test.ts scripts/ensure-electron.test.ts scripts/package-release.test.ts scripts/release-signing.test.ts scripts/stage-node.test.ts scripts/stage-solver.test.ts scripts/workspace-policy.test.ts",
+		"test:unit": "vitest --watch=false src/tests/passkeys.test.ts src/tests/device-key-store.test.ts src/tests/vault.test.ts src/tests/blackhole-server.test.ts src/tests/desktop-paths.test.ts src/tests/daemon.test.ts src/tests/desktop-security.test.ts src/tests/electron-launch.test.ts src/tests/login-item.test.ts src/tests/notification-client.test.ts src/tests/release-provider.test.ts src/tests/solver-supervisor.test.ts src/tests/tray-icon.test.ts src/tests/tray-menu.test.ts src/tests/update-authenticity.test.ts src/tests/update-coordinator.test.ts src/tests/update-store.test.ts scripts/ensure-electron.test.ts scripts/package-release.test.ts scripts/release-signing.test.ts scripts/stage-node.test.ts scripts/stage-solver.test.ts scripts/workspace-policy.test.ts",
 		"test:integration": "vitest --watch=false src/tests/protocol.test.ts",
 		"lint": "biome lint src scripts",
 		"format": "prettier --write \"{src,scripts}/**/*.{ts,mjs}\"",
@@ -33,6 +33,7 @@
 	"devDependencies": {
 		"@biomejs/biome": "^1.9.4",
 		"@hyperbridge/simplex": "workspace:*",
+		"@simplewebauthn/server": "14.0.0",
 		"@types/node": "^22.13.5",
 		"electron": "44.3.0",
 		"electron-updater": "6.8.9",

@@ -3,8 +3,9 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { decryptConfig, encryptedConfigStore, isEncryptedConfig } from "@hyperbridge/simplex/config-storage"
-import { DesktopVault, type BiometricUnlock } from "../security/vault"
+import { DesktopVault } from "../security/vault"
 import type { DeviceKeyStore } from "../security/device-key-store"
+import type { PasskeyUnlock } from "../security/passkeys"
 
 const password = "test-only password 1330"
 const directories: string[] = []
@@ -20,12 +21,6 @@ function directory() {
 function fixture(dataDir = directory(), extra: Partial<ConstructorParameters<typeof DesktopVault>[0]> = {}) {
 	const start = vi.fn(async (_key: Buffer) => {})
 	const prepare = vi.fn(async (_restartAllowed: boolean) => {})
-	const biometrics: BiometricUnlock = {
-		available: vi.fn(async () => false),
-		confirm: vi.fn(async () => {}),
-		protect: vi.fn(async () => "aabb"),
-		unprotect: vi.fn(async () => Buffer.alloc(32)),
-	}
 	const deviceKeyStore: DeviceKeyStore = {
 		available: vi.fn(async () => true),
 		protect: vi.fn(async (key: Buffer) => Buffer.from(key.map((byte) => byte ^ 0xa5)).toString("hex")),
@@ -35,7 +30,6 @@ function fixture(dataDir = directory(), extra: Partial<ConstructorParameters<typ
 		dataDir,
 		start,
 		prepare,
-		biometrics,
 		deviceKeyStore,
 		needsRestart: async () => false,
 		...extra,
@@ -49,7 +43,6 @@ function fixture(dataDir = directory(), extra: Partial<ConstructorParameters<typ
 		dataDir,
 		start,
 		prepare,
-		biometrics,
 		deviceKeyStore,
 		path: join(dataDir, "filler-config.toml"),
 		metadata: join(dataDir, "desktop-vault.json"),
@@ -57,12 +50,282 @@ function fixture(dataDir = directory(), extra: Partial<ConstructorParameters<typ
 }
 const create = { method: "create", password, confirmation: password }
 const replacement = { password: "replacement-password-1330", confirmation: "replacement-password-1330" }
-async function enroll(f: ReturnType<typeof fixture>, useBiometrics = false) {
-	await f.vault.unlock({ ...create, useBiometrics })
+async function enroll(f: ReturnType<typeof fixture>) {
+	await f.vault.unlock(create)
 	const code = f.vault.recoveryCode()
 	await f.vault.confirmRecovery(true)
 	return code
 }
+
+function passkeyFixture(dataDir?: string) {
+	const credential = { id: "test-credential", publicKey: "test-cose-key", counter: 0, transports: ["internal"] }
+	const passkeys: PasskeyUnlock = {
+		available: vi.fn(() => true),
+		register: vi.fn(async (userId = "profile-user") => ({ ...credential, userId })),
+		authenticate: vi.fn(async (saved) => ({ ...saved, counter: saved.counter + 1 })),
+		cancel: vi.fn(),
+	}
+	return { ...fixture(dataDir, { passkeys }), passkeys }
+}
+
+describe("passkey desktop vault", () => {
+	it("creates without a password, requires recovery acknowledgement, and verifies before releasing a key", async () => {
+		const f = passkeyFixture()
+		writeFileSync(f.path, "wallet secret")
+		await f.vault.unlock({ method: "create-passkey" })
+		expect(f.vault.isUnlocked()).toBe(false)
+		expect(f.start).not.toHaveBeenCalled()
+		expect(readdirSync(f.dataDir)).toEqual(["filler-config.toml"])
+		const code = f.vault.recoveryCode()
+		await f.vault.confirmRecovery(true)
+		const key = Buffer.from(f.start.mock.calls[0][0])
+		const record = JSON.parse(readFileSync(f.metadata, "utf8"))
+		expect(record.version).toBe(3)
+		expect(record.salt).toBeUndefined()
+		expect(record.wrappedKey).toBeUndefined()
+		expect(readFileSync(f.metadata, "utf8")).not.toContain(key.toString("hex"))
+		expect(readFileSync(f.metadata, "utf8")).not.toContain(code)
+		expect(decryptConfig(readFileSync(f.path, "utf8"), key)).toBe("wallet secret")
+		const next = passkeyFixture(f.dataDir)
+		expect(await next.vault.state()).toMatchObject({
+			mode: "unlock",
+			passkeyEnabled: true,
+			passwordEnabled: false,
+			passkeyAvailable: true,
+		})
+		expect(await next.vault.backgroundKey()).toEqual(key)
+		expect(next.vault.isUnlocked()).toBe(false)
+		vi.mocked(next.deviceKeyStore.unprotect).mockClear()
+		vi.mocked(next.passkeys.authenticate).mockImplementation(async (saved) => {
+			expect(next.deviceKeyStore.unprotect).not.toHaveBeenCalled()
+			expect(next.start).not.toHaveBeenCalled()
+			return { ...saved, counter: 1 }
+		})
+		await next.vault.unlock({ method: "passkey" })
+		expect(next.start).toHaveBeenCalledWith(key)
+		expect(JSON.parse(readFileSync(f.metadata, "utf8")).passkey.counter).toBe(1)
+	})
+
+	it("enrolls password profiles without changing their config key or recovery code", async () => {
+		const f = fixture()
+		writeFileSync(f.path, "wallet secret")
+		const code = await enroll(f)
+		const ciphertext = readFileSync(f.path, "utf8")
+		const before = JSON.parse(readFileSync(f.metadata, "utf8"))
+		const next = passkeyFixture(f.dataDir)
+		await next.vault.unlock({ method: "password", password, usePasskey: true })
+		const after = JSON.parse(readFileSync(f.metadata, "utf8"))
+		expect(after.version).toBe(3)
+		expect(after.wrappedKey).toEqual(before.wrappedKey)
+		expect(after.recoveryKey).toEqual(before.recoveryKey)
+		expect(readFileSync(f.path, "utf8")).toBe(ciphertext)
+		await fixture(f.dataDir).unlock({ method: "password", password })
+		await fixture(f.dataDir).vault.recover({ method: "code", recoveryCode: code })
+		await passkeyFixture(f.dataDir).vault.unlock({ method: "passkey" })
+	})
+
+	it("preserves the profile on cancelled enrollment or unavailable OS storage", async () => {
+		const f = passkeyFixture()
+		vi.mocked(f.passkeys.register).mockRejectedValue(new Error("cancelled"))
+		await expect(f.vault.unlock({ method: "create-passkey" })).rejects.toThrow("cancelled")
+		expect(readdirSync(f.dataDir)).toEqual([])
+		expect(f.start).not.toHaveBeenCalled()
+		const unavailable = passkeyFixture()
+		vi.mocked(unavailable.deviceKeyStore.available).mockResolvedValue(false)
+		expect((await unavailable.vault.state()).passkeyAvailable).toBe(false)
+		await expect(unavailable.vault.unlock({ method: "create-passkey" })).rejects.toThrow(/secure OS/)
+		expect(unavailable.passkeys.register).not.toHaveBeenCalled()
+	})
+
+	it("keeps APIs locked and metadata unchanged after failed assertions", async () => {
+		const f = passkeyFixture()
+		await f.unlock({ method: "create-passkey" })
+		const before = readFileSync(f.metadata, "utf8")
+		const next = passkeyFixture(f.dataDir)
+		vi.mocked(next.passkeys.authenticate).mockRejectedValue(new Error("invalid assertion"))
+		await expect(next.vault.unlock({ method: "passkey" })).rejects.toThrow("invalid assertion")
+		expect(next.deviceKeyStore.unprotect).not.toHaveBeenCalled()
+		expect(next.prepare).not.toHaveBeenCalled()
+		expect(next.start).not.toHaveBeenCalled()
+		expect(next.vault.isUnlocked()).toBe(false)
+		expect(readFileSync(f.metadata, "utf8")).toBe(before)
+	})
+
+	it("replaces a lost passkey with recovery, commits after acknowledgement and retries failed solver startup", async () => {
+		const f = passkeyFixture()
+		writeFileSync(f.path, "wallet secret")
+		await f.vault.unlock({ method: "create-passkey" })
+		const code = f.vault.recoveryCode()
+		await f.vault.confirmRecovery(true)
+		const ciphertext = readFileSync(f.path, "utf8")
+		const before = readFileSync(f.metadata, "utf8")
+		const next = passkeyFixture(f.dataDir)
+		await expect(next.vault.resetPasskey({})).rejects.toThrow(/Verify/)
+		await next.vault.recover({ method: "code", recoveryCode: code })
+		vi.mocked(next.passkeys.register).mockResolvedValue({
+			id: "replacement-passkey",
+			publicKey: "replacement-key",
+			counter: 0,
+		})
+		await next.vault.resetPasskey({})
+		expect(next.passkeys.register).toHaveBeenCalledWith("profile-user")
+		expect(next.vault.isUnlocked()).toBe(false)
+		expect(readFileSync(f.metadata, "utf8")).toBe(before)
+		const newCode = next.vault.recoveryCode()
+		expect(newCode).not.toBe(code)
+		next.start.mockRejectedValueOnce(new Error("boot failed"))
+		await expect(next.vault.confirmRecovery(true)).rejects.toThrow("boot failed")
+		await next.vault.confirmRecovery(true)
+		expect(readFileSync(f.path, "utf8")).toBe(ciphertext)
+		expect(JSON.parse(readFileSync(f.metadata, "utf8")).passkey.id).toBe("replacement-passkey")
+		await expect(fixture(f.dataDir).vault.recover({ method: "code", recoveryCode: code })).rejects.toThrow(
+			/Invalid/,
+		)
+		await fixture(f.dataDir).vault.recover({ method: "code", recoveryCode: newCode })
+	})
+
+	it("unlocks with the password when the optional passkey is declined, unless the vault locks", async () => {
+		const f = fixture()
+		await enroll(f)
+		const before = JSON.parse(readFileSync(f.metadata, "utf8"))
+		const declined = passkeyFixture(f.dataDir)
+		vi.mocked(declined.passkeys.register).mockRejectedValue(new Error("cancelled"))
+		await expect(declined.vault.unlock({ method: "password", password, usePasskey: true })).resolves.toMatch(
+			/Passkey not saved/,
+		)
+		expect(declined.vault.isUnlocked()).toBe(true)
+		expect(JSON.parse(readFileSync(f.metadata, "utf8")).passkey).toBeUndefined()
+		expect(JSON.parse(readFileSync(f.metadata, "utf8")).wrappedKey).toEqual(before.wrappedKey)
+		const locked = passkeyFixture(f.dataDir)
+		vi.mocked(locked.passkeys.register).mockImplementation(async () => {
+			locked.vault.lock()
+			throw new Error("cancelled")
+		})
+		await expect(locked.vault.unlock({ method: "password", password, usePasskey: true })).rejects.toThrow(
+			/Sign-in cancelled/,
+		)
+		expect(locked.vault.isUnlocked()).toBe(false)
+		expect(locked.start).not.toHaveBeenCalled()
+	})
+
+	it("reports a pending passkey only while the browser ceremony is open", async () => {
+		const f = fixture()
+		await enroll(f)
+		const next = passkeyFixture(f.dataDir)
+		await expect(
+			next.vault.unlock({ method: "password", password: "wrong password", usePasskey: true }),
+		).rejects.toThrow(/Incorrect password/)
+		expect(next.passkeys.register).not.toHaveBeenCalled()
+		expect(next.vault.isPasskeyPending()).toBe(false)
+		const states: boolean[] = []
+		const retry = passkeyFixture(f.dataDir)
+		vi.mocked(retry.passkeys.register).mockImplementation(async () => {
+			states.push(retry.vault.isPasskeyPending())
+			throw new Error("cancelled")
+		})
+		await retry.vault.unlock({ method: "password", password, usePasskey: true })
+		expect(states).toEqual([true])
+		const status = await retry.vault.handle(new Request("simplex://local/api/desktop/passkey-status"))
+		expect(await status.json()).toEqual({ pending: false })
+		expect(retry.vault.isPasskeyPending()).toBe(false)
+	})
+
+	it("honors a cancel that arrives before the browser ceremony starts", async () => {
+		const f = passkeyFixture()
+		vi.mocked(f.deviceKeyStore.protect).mockImplementation(async (key: Buffer) => {
+			f.vault.cancelPasskey()
+			return key.toString("hex")
+		})
+		await expect(f.vault.unlock({ method: "create-passkey" })).rejects.toThrow(/cancelled/)
+		expect(f.passkeys.register).not.toHaveBeenCalled()
+		expect(readdirSync(f.dataDir)).toEqual([])
+	})
+
+	it("recovers a passkey-only profile to a password when passkeys are unavailable", async () => {
+		const f = passkeyFixture()
+		await f.vault.unlock({ method: "create-passkey" })
+		const code = f.vault.recoveryCode()
+		await f.vault.confirmRecovery(true)
+		const next = fixture(f.dataDir)
+		await next.vault.recover({ method: "code", recoveryCode: code })
+		await next.vault.resetPassword(replacement)
+		await next.vault.confirmRecovery(true)
+		expect(JSON.parse(readFileSync(f.metadata, "utf8")).passkey).toBeUndefined()
+		await fixture(f.dataDir).unlock({ method: "password", password: replacement.password })
+	})
+
+	it("protects new routes with CSRF checks and cancels pending ceremonies on lock", async () => {
+		const f = passkeyFixture()
+		for (const route of ["unlock", "reset-passkey", "cancel-passkey"]) {
+			const response = await f.vault.handle(
+				new Request(`simplex://local/api/desktop/${route}`, {
+					method: "POST",
+					headers: { "X-Simplex-UI": "1", Origin: "https://evil.example" },
+					body: "{}",
+				}),
+			)
+			expect(response.status).toBe(403)
+		}
+		expect(f.passkeys.register).not.toHaveBeenCalled()
+		expect(f.passkeys.cancel).not.toHaveBeenCalled()
+		f.vault.lock()
+		expect(f.passkeys.cancel).toHaveBeenCalledOnce()
+	})
+
+	it("does not stage late passkey results after locking or early cancellation", async () => {
+		const f = passkeyFixture()
+		let complete!: (credential: Awaited<ReturnType<PasskeyUnlock["register"]>>) => void
+		vi.mocked(f.passkeys.register).mockImplementation(
+			() =>
+				new Promise((resolve) => {
+					complete = resolve
+				}),
+		)
+		const signingIn = f.vault.unlock({ method: "create-passkey" })
+		await vi.waitFor(() => expect(f.passkeys.register).toHaveBeenCalledOnce())
+		f.vault.lock()
+		complete({ id: "late-credential", publicKey: "late-key", counter: 0 })
+		await expect(signingIn).rejects.toThrow(/cancelled/)
+		expect((await f.vault.state()).mode).toBe("create")
+		expect(f.start).not.toHaveBeenCalled()
+		expect(readdirSync(f.dataDir)).toEqual([])
+		const early = passkeyFixture()
+		let resume!: () => void
+		vi.mocked(early.deviceKeyStore.protect).mockImplementationOnce(
+			() =>
+				new Promise((resolve) => {
+					resume = () => resolve("aabb")
+				}),
+		)
+		const pending = early.vault.unlock({ method: "create-passkey" })
+		await vi.waitFor(() => expect(early.deviceKeyStore.protect).toHaveBeenCalledOnce())
+		await early.vault.handle(
+			new Request("simplex://local/api/desktop/cancel-passkey", {
+				method: "POST",
+				headers: { "X-Simplex-UI": "1" },
+				body: "{}",
+			}),
+		)
+		resume()
+		await expect(pending).rejects.toThrow(/cancelled/)
+		expect(early.passkeys.register).not.toHaveBeenCalled()
+	})
+
+	it("rejects malformed passkey records", async () => {
+		const f = passkeyFixture()
+		await f.unlock({ method: "create-passkey" })
+		const record = JSON.parse(readFileSync(f.metadata, "utf8"))
+		for (const passkey of [
+			null,
+			{ ...record.passkey, key: "plaintext" },
+			{ ...record.passkey, counter: -1 },
+			{ ...record.passkey, publicKey: 7 },
+		]) {
+			writeFileSync(f.metadata, JSON.stringify({ ...record, passkey }))
+			await expect(passkeyFixture(f.dataDir).vault.state()).rejects.toThrow(/invalid desktop/)
+		}
+	})
+})
 
 describe("desktop config vault", () => {
 	it("stores a separate OS wrapper and resumes the solver key while the UI stays locked", async () => {
@@ -70,7 +333,6 @@ describe("desktop config vault", () => {
 		const code = await enroll(f)
 		const record = JSON.parse(readFileSync(f.metadata, "utf8"))
 		expect(record.deviceKey).toMatch(/^[a-f0-9]{64}$/)
-		expect(record.deviceKey).not.toBe(record.biometricKey)
 		expect(record.deviceKey).not.toBe(code.replace(/-/g, "").toLowerCase())
 		const relaunch = fixture(f.dataDir)
 		const key = await relaunch.vault.backgroundKey()
@@ -184,30 +446,15 @@ describe("desktop config vault", () => {
 		await expect(fixture(f.dataDir).vault.state()).rejects.toThrow(/invalid desktop security file/)
 	})
 
-	it("recovers with previously enrolled Touch ID without asking for the forgotten password", async () => {
+	it("ignores a legacy Touch ID wrapper and drops it on the next save", async () => {
 		const f = fixture()
-		f.biometrics.available = vi.fn(async () => true)
-		await enroll(f, true)
-		const key = Buffer.from(f.start.mock.calls[0][0])
-		const calls: string[] = []
-		const next = fixture(f.dataDir, {
-			biometrics: {
-				...f.biometrics,
-				confirm: async () => {
-					calls.push("confirm")
-				},
-				unprotect: async () => {
-					calls.push("unprotect")
-					return key
-				},
-			},
-		})
-		await next.vault.recover({ method: "biometric" })
-		expect(calls).toEqual(["confirm", "unprotect"])
-		expect(next.start).not.toHaveBeenCalled()
-		await next.vault.resetPassword(replacement)
-		await next.vault.confirmRecovery(true)
-		await fixture(f.dataDir).unlock({ method: "password", password: replacement.password })
+		await enroll(f)
+		const record = JSON.parse(readFileSync(f.metadata, "utf8"))
+		writeFileSync(f.metadata, JSON.stringify({ ...record, biometricKey: "aabb" }))
+		await expect(fixture(f.dataDir).vault.unlock({ method: "biometric" })).rejects.toThrow("Enter your password")
+		await expect(fixture(f.dataDir).vault.recover({ method: "biometric" })).rejects.toThrow("not available")
+		await fixture(f.dataDir).unlock({ method: "password", password })
+		expect(JSON.parse(readFileSync(f.metadata, "utf8")).biometricKey).toBeUndefined()
 	})
 
 	it("keeps an acknowledged password reset retryable if the solver fails to start", async () => {
@@ -353,26 +600,6 @@ describe("desktop config vault", () => {
 		await expect(fixture(f.dataDir).vault.unlock(create)).rejects.toThrow(/security file is missing/)
 	})
 
-	it("keeps password fallback when Touch ID is unavailable or cancelled", async () => {
-		const f = fixture()
-		f.biometrics.available = vi.fn(async () => true)
-		await f.unlock({ ...create, useBiometrics: true })
-		expect(f.biometrics.confirm).toHaveBeenCalledOnce()
-		const biometrics = {
-			...f.biometrics,
-			confirm: vi.fn(async () => {
-				throw new Error("cancelled")
-			}),
-		}
-		const cancelled = fixture(f.dataDir, { biometrics })
-		await expect(cancelled.vault.unlock({ method: "biometric" })).rejects.toThrow("cancelled")
-		expect(biometrics.unprotect).not.toHaveBeenCalled()
-		expect(cancelled.start).not.toHaveBeenCalled()
-		const unavailable = fixture(f.dataDir)
-		await unavailable.unlock({ method: "password", password })
-		expect(unavailable.vault.isUnlocked()).toBe(true)
-	})
-
 	it("does not migrate before the running solver is safely stopped", async () => {
 		const f = fixture(undefined, {
 			prepare: async (allowed) => {
@@ -390,29 +617,6 @@ describe("desktop config vault", () => {
 		await next.unlock({ ...create, restartSolver: true })
 		expect(next.prepare).toHaveBeenCalledWith(true)
 		expect(isEncryptedConfig(readFileSync(f.path, "utf8"))).toBe(true)
-	})
-
-	it("requires Touch ID confirmation before releasing the stored key", async () => {
-		const f = fixture()
-		f.biometrics.available = vi.fn(async () => true)
-		await f.unlock({ ...create, useBiometrics: true })
-		const key = Buffer.from(f.start.mock.calls[0][0])
-		const calls: string[] = []
-		const next = fixture(f.dataDir, {
-			biometrics: {
-				...f.biometrics,
-				confirm: async () => {
-					calls.push("confirm")
-				},
-				unprotect: async () => {
-					calls.push("unprotect")
-					return key
-				},
-			},
-		})
-		await next.unlock({ method: "biometric" })
-		expect(calls).toEqual(["confirm", "unprotect"])
-		expect(next.start).toHaveBeenCalledWith(key)
 	})
 
 	it("requires CSRF protection and bounds unlock request bodies", async () => {

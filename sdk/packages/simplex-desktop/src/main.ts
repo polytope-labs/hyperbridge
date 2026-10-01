@@ -23,8 +23,8 @@ import { latestLogPath, loginItemExecutable, LoginItemController } from "./login
 import { DesktopNotificationClient, desktopNotificationUrl } from "./notification-client"
 import { handleSimplexProtocol } from "./protocol"
 import { DesktopVault } from "./security/vault"
-import { touchIdUnlock } from "./security/biometrics"
 import { deviceKeyStore } from "./security/device-key-store"
+import { BrowserPasskeys } from "./security/passkeys"
 import { SIMPLEX_UPDATE_FEED } from "./release-provider"
 import {
 	holdsMachineAwake,
@@ -442,7 +442,7 @@ async function prepareDesktop(): Promise<void> {
 	daemonLaunch = { nodePath: resources.node, solverPath: resources.solver, socketPath, dataDir: dataDirectory }
 	vault = new DesktopVault({
 		dataDir: dataDirectory,
-		biometrics: touchIdUnlock,
+		passkeys: new BrowserPasskeys({ openBrowser: (url) => shell.openExternal(url) }),
 		deviceKeyStore,
 		needsRestart: async () => {
 			// A slow or foreign listener must not hide the login screen; prepare()

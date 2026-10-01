@@ -35,27 +35,40 @@ Run `pnpm stage:node` again only when the pinned runtime or the host target chan
 
 ## First run and configuration
 
-On first launch, create a password (at least 12 characters), save the recovery code, then complete the setup wizard.
+On macOS and Windows, first launch offers **Create passkey**. The system browser opens a temporary
+local page; select **Create passkey** and approve the device prompt (Touch ID or Windows Hello).
+Return to Simplex, save the recovery code, and confirm it before completing the setup wizard.
+**Use a password instead** remains available; Linux uses passwords (at least 12 characters).
 The wizard writes an encrypted `filler-config.toml` under Electron's `app.getPath("userData")`.
-Every fresh Electron launch locks the dashboard until the password or previously enabled Touch ID
-is provided.
-**Forgot password?** accepts the saved recovery code or previously enabled Touch ID, without asking
-for the old password. Choose a new password and save the replacement recovery code; changes take
-effect when you confirm that you saved it. Recovery preserves the configuration and does not restart
-an already protected solver. Recovery authorization expires after ten minutes. Cancelling before
-confirmation leaves the existing credentials unchanged. Without either recovery method, the app
-does not delete or reset the profile. A reset keeps the same config key, so it does not revoke old
-credentials: an old `desktop-vault.json` copy plus its password or recovery code still decrypts the config.
+Every fresh Electron launch locks the dashboard until authentication succeeds. Closing and reopening
+the existing window does not log out.
 
-Touch ID is offered only on supported Macs with secure storage available. Windows and Linux use
-passwords and recovery codes; Windows Hello and Linux biometric integrations are not implemented.
+Existing password profiles can select **Create a passkey for future logins** while signing in.
+The password remains available as a fallback, and enrollment preserves the config key and recovery code.
+If that passkey is declined or fails, the password unlock still completes with a warning.
+Passkey profiles offer **Unlock with passkey** on subsequent launches.
+
+**Recover access** (or **Forgot password?** on the password screen) accepts the saved recovery code.
+Replace the passkey or choose a new password,
+then save and acknowledge the replacement recovery code. Changes take effect on acknowledgement;
+recovery preserves the config and does not restart an already protected solver. Authorization expires
+after ten minutes. Cancelling before confirmation preserves existing credentials. A password reset
+removes the current passkey; replacing a passkey preserves an existing password fallback.
+Without a working sign-in or recovery method, the app does not delete or reset the profile.
+Old metadata backups and their corresponding password/recovery code may still decrypt the config;
+a restored older backup also still accepts the passkey it recorded, so replacement does not revoke it.
+
+Passkeys require secure OS storage and a browser with platform WebAuthn support. If the browser or
+device prompt is unavailable or cancelled, retry or choose another sign-in method. A request expires
+after two minutes and can also be cancelled from Simplex. Linux passkey integration is not
+implemented.
 
 Desktop reads and writes only its profile's config, never a working-directory config or
 `$SIMPLEX_HOME/config.toml`. To migrate either legacy external location, stop the old solver and
-place the config at `<userData>/filler-config.toml` before first password setup. External copies and
+place the config at `<userData>/filler-config.toml` before first credential setup. External copies and
 old backups remain plaintext and must be secured separately. The CLI keeps its existing discovery.
 
-Existing plaintext profile configs are encrypted in place after password setup. If the previous
+Existing plaintext profile configs are encrypted in place after credential setup. If the previous
 unencrypted solver is still running, the screen requires consent to stop it gracefully and restart
 with encryption. Migration waits for shutdown and includes its final config writes. No plaintext
 backup or temporary file is created. Config and security metadata writes are atomic and mode `0600`
@@ -116,7 +129,7 @@ Stop, Restart, and both quit choices—is available from the context menu.
 
 **Launch Simplex at login** is opt-in and available only in an installed build. It registers the app,
 which starts or attaches to a protected solver in the background when its OS-protected restart key
-is available. The dashboard still asks for the password or Touch ID. On a system without secure OS
+is available. The dashboard still asks for the passkey or password. On a system without secure OS
 key storage, filling waits for an interactive unlock after a reboot or update. macOS and Windows use
 Electron's login-item API; Linux uses the equivalent per-user XDG autostart entry. Development runs
 do not register the Electron development binary.
@@ -158,16 +171,28 @@ an equivalent portable owner-only guarantee through Node's current APIs; adminis
 same-machine contexts may still be able to inspect or connect to the pipe. On every platform,
 software already running as the same OS user remains inside the trust boundary.
 
-Desktop encrypts `filler-config.toml` with AES-256-GCM using a random 256-bit key. A scrypt-derived
-password key wraps that key in `desktop-vault.json`. A separate `deviceKey` wrapper uses Electron's
-`safeStorage` to resume the solver under the OS user without unlocking the dashboard. It is created
-on setup and refreshed on authentication. The Linux `basic_text` and `unknown` backends are refused;
-there, the app tells the operator an interactive unlock is needed after restart. Optional macOS
-Touch ID authorizes unlock before Electron's `safeStorage` unwraps another copy protected by the
-macOS Keychain. This is an app-level Touch ID gate, not a biometrics-bound Keychain item. Windows
-and Linux use password unlock. Passwords and unwrapped keys are not saved in renderer storage,
+Desktop encrypts `filler-config.toml` with AES-256-GCM using a random 256-bit key.
+Password profiles retain version 2 `desktop-vault.json` records with a scrypt password wrapper.
+Passkey enrollment writes version 3 metadata: the credential ID, COSE public key (base64url), signature
+counter, optional transports, and an OS-protected key wrapper. An existing password wrapper is
+retained during enrollment; new passkey profiles have no password wrapper. Both versions retain the
+recovery wrapper and optional `deviceKey` for background solver restarts.
+
+WebAuthn uses RP ID `localhost` and a temporary HTTP listener bound only to `127.0.0.1` on a random
+port. The browser receives a per-request capability in the URL fragment, removes it from the address
+bar, and sends it only in authorized same-origin requests. The host verifies the exact origin,
+challenge, RP ID, signature and required user verification. Challenges are consumed on verification;
+the listener closes on success, failure, cancellation or timeout. This listener exposes only passkey
+ceremonies, never the dashboard, solver API, config or encryption key. No external authentication
+service is required. Platform prompts are provided by the system browser.
+
+The passkey authenticates app access; Electron's `safeStorage` protects the config-key wrapper at
+rest. It is an app-level gate, not passkey-derived encryption. A synced passkey alone cannot restore
+a profile on another machine or OS account: use the recovery code and back up both config and
+metadata. A separate `deviceKey` resumes the solver without opening the dashboard. Linux
+`basic_text` and `unknown` stores are refused. Passwords and unwrapped keys are not saved in renderer storage,
 logs, argv, environment variables, or temporary files. Electron hands the key to the solver over a
-one-shot stdin pipe. Setup and runtime config edits use the same encrypted writer.
+one-shot stdin pipe. Setup and runtime edits use the same encrypted writer.
 
 The OS-protected restart copy has the trust level of the logged-in OS user: software running as
 that user may be able to use or request it. The UI/API and solver-changing menus stay locked until
@@ -415,3 +440,15 @@ TCP listener and writes a disk log, restarts a real `UiServer` behind the custom
 and external-navigation enforcement, verifies one SSE client remains after twenty reloads, and
 verifies first-run config placement, secret-storage hygiene, and Unix mode `0600`. It uses unreachable
 loopback endpoints for the first-run write and does not start a real filler.
+
+### Passkey browser E2E
+
+`pnpm test:e2e` includes a passkey flow when `SIMPLEX_PASSKEY_BROWSER` is set to a Chromium browser
+executable on macOS or Windows. It uses a virtual platform authenticator and disposable profile,
+while exercising production WebAuthn verification and the desktop UI. For example on macOS:
+
+```sh
+SIMPLEX_PASSKEY_BROWSER="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" pnpm test:e2e
+```
+
+Real Touch ID and Windows Hello prompts still need a manual run on each platform.

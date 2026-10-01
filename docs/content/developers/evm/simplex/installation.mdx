@@ -23,8 +23,10 @@ choose the newest stable `simplex-desktop-v…` release, and download the instal
 | Linux, x64 | `Simplex-<version>-linux-x86_64.AppImage` or `Simplex-<version>-linux-amd64.deb` |
 | Linux, arm64 | `Simplex-<version>-linux-arm64.AppImage` or `Simplex-<version>-linux-arm64.deb` |
 
-Open Simplex after installation. The first launch opens the same setup wizard documented below and
-writes `filler-config.toml` into the app's per-user data directory:
+Open Simplex after installation. On macOS and Windows, select **Create passkey**, then
+**Create passkey** in the browser and approve Touch ID or Windows Hello. Return to Simplex,
+save the recovery code, and confirm it. **Use a password instead** is available; Linux uses passwords.
+The setup wizard then writes an encrypted `filler-config.toml` into the app's per-user data directory:
 
 | Platform | Default desktop config |
 |---|---|
@@ -32,16 +34,22 @@ writes `filler-config.toml` into the app's per-user data directory:
 | Windows | `%APPDATA%\Simplex\filler-config.toml` |
 | Linux | `$XDG_CONFIG_HOME/Simplex/filler-config.toml`, or `~/.config/Simplex/filler-config.toml` |
 
+Every fresh desktop launch requires authentication. Existing password profiles can enable
+**Create a passkey for future logins** while signing in, retaining their password fallback.
+**Recover access** accepts the saved recovery code to replace an unavailable passkey; save the new
+recovery code before continuing. Cancelled prompts leave the dashboard locked and can be retried.
+
 Closing the window leaves the solver running in the tray. Use **Quit Simplex (solver keeps filling)**
 to close only the app, or **Stop solver and quit** to stop both. Simplex Desktop tracks the same
 version as `@hyperbridge/simplex`, so the version shown in the app identifies the bundled solver too.
 
 <Callout type="warn">
-    The config contains private keys and credentials in plaintext. Simplex creates it atomically with
-    mode `0600` on macOS and Linux, but software running as your OS user can still read it. Keep the
-    file out of source control and broadly shared backups. `simplex.substratePrivateKey` is required
-    in every signer mode, including Turnkey and MPC Vault; those operators still have a raw key on
-    disk. See [Configuration](/developers/evm/simplex/configuration#where-the-config-lives-and-what-it-contains).
+    Desktop encrypts its config at rest; CLI and Docker configs contain private keys and credentials
+    in plaintext. Software running as your OS user remains within the desktop's trust boundary.
+    Back up both `filler-config.toml` and `desktop-vault.json` and keep the recovery code somewhere
+    private. A synced passkey alone cannot restore the config on another machine or OS account.
+    `simplex.substratePrivateKey` is required in every signer mode, including Turnkey and MPC Vault.
+    See [Configuration](/developers/evm/simplex/configuration#where-the-config-lives-and-what-it-contains).
 </Callout>
 
 ### What the PWA is for

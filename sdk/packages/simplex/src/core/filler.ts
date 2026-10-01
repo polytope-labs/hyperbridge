@@ -985,6 +985,26 @@ export class IntentFiller {
 			return null
 		}
 
+		const destinationHead = await this.destinationHead(order)
+		// A fill lands in a block after this head, and `fillOrder` reverts `Expired` once the
+		// chain is past the deadline, so a deadline at the head is already out of reach.
+		if (destinationHead !== null && order.deadline <= destinationHead) {
+			this.logger.info(
+				{
+					orderId: order.id,
+					destChain: order.destination,
+					deadline: order.deadline.toString(),
+					head: destinationHead.toString(),
+				},
+				"Skipping order: its deadline has passed on the destination chain",
+			)
+			this.monitor.emit("orderSkipped", {
+				orderId: order.id,
+				reason: "Order deadline has passed on the destination chain",
+			})
+			return null
+		}
+
 		const evalStartMs = Date.now()
 		const eligibleStrategies = await Promise.all(
 			this.strategies.map(async (strategy) => {
@@ -1033,6 +1053,24 @@ export class IntentFiller {
 		)
 
 		return validStrategies[0]
+	}
+
+	/**
+	 * The destination chain's latest block number, the clock `order.deadline` is read on.
+	 *
+	 * Null when the read fails. That is not an answer about the order, so evaluation goes
+	 * on: the gas estimate simulates the same deadline check and refuses an expired order.
+	 */
+	private async destinationHead(order: Order): Promise<bigint | null> {
+		try {
+			return await this.chainClientManager.getPublicClient(order.destination).getBlockNumber()
+		} catch (err) {
+			this.logger.warn(
+				{ orderId: order.id, destChain: order.destination, err },
+				"Could not read the destination head to check the order's deadline",
+			)
+			return null
+		}
 	}
 
 	/**

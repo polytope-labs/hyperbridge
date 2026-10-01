@@ -28,6 +28,14 @@ The order matched, but `order.fees` do not cover gas plus, for cross-chain order
 
 ---
 
+## **An order is skipped before it is priced**
+
+`Skipping order: its deadline has passed on the destination chain` means the order cannot be filled by anyone. An order's deadline is a block number on its destination chain, set when the order is built. An order that takes too long to land on its source chain arrives already expired. The log carries the `deadline` and the destination `head` it was compared with.
+
+`Error estimating gas, not bidding on this order` means the bundler could not simulate the fill, so the fill would revert. Simplex sends no bid without the bundler's estimate. The log carries the bundler's error. If it appears on every order for a chain, check that chain's bundler URL.
+
+---
+
 ## **A limit order is refused when posting**
 
 The form shows the reason. The common ones are:

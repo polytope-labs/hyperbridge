@@ -658,6 +658,7 @@ async estimateFillOrder(params: EstimateFillOrderParams): Promise<FillOrderEstim
 | `params.order` | `Order` | Order to estimate gas for |
 | `params.maxPriorityFeePerGasBumpPercent` | `number` | Optional bump percentage for priority fee |
 | `params.maxFeePerGasBumpPercent` | `number` | Optional bump percentage for max fee |
+| `params.requireBundlerEstimate` | `boolean` | Throw when the configured bundler fails to estimate the fill, instead of returning fixed gas limits. Defaults to `false` |
 
 **Returns:** `Promise<FillOrderEstimate>` — All gas components, EIP-1559 fee values, total cost in wei, and total cost in fee token
 

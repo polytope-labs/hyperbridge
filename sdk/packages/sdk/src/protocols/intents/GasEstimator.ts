@@ -168,7 +168,9 @@ export class GasEstimator {
 	 * ephemeral keypair, applies state overrides, and calls
 	 * `eth_estimateUserOperationGas`. Gas limits are bumped by 5-10% for
 	 * headroom. If the bundler is Pimlico, gas prices are refined with
-	 * `pimlico_getUserOperationGasPrice`.
+	 * `pimlico_getUserOperationGasPrice`. If the bundler rejects the estimate,
+	 * fixed gas limits are returned in its place, or the call throws when
+	 * `params.requireBundlerEstimate` is set.
 	 *
 	 * **Fallback path (no bundler):** uses a fixed budget
 	 * ({@link NO_BUNDLER_FILL_GAS_BASE} plus {@link NO_BUNDLER_FILL_GAS_PER_OUTPUT}
@@ -182,6 +184,8 @@ export class GasEstimator {
 	 * @returns A {@link FillOrderEstimate} containing all gas components,
 	 *   EIP-1559 fee values, total cost in wei, and total cost in the source
 	 *   chain's fee token.
+	 * @throws If `params.requireBundlerEstimate` is set and the bundler fails to
+	 *   estimate the fill.
 	 */
 	async estimateFillOrder(
 		params: EstimateFillOrderParams,
@@ -430,6 +434,11 @@ export class GasEstimator {
 					maxFeePerGas = bufferedBaseFee + maxPriorityFeePerGas
 				}
 			} catch (e) {
+				if (params.requireBundlerEstimate) {
+					throw new Error(`Bundler gas estimation failed: ${e instanceof Error ? e.message : String(e)}`, {
+						cause: e,
+					})
+				}
 				console.warn("Bundler gas estimation failed, using fallback values:", e)
 			}
 		} else {

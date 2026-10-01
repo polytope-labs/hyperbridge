@@ -310,6 +310,9 @@ export class ContractInteractionService {
 				prependCalls: undefined,
 				maxPriorityFeePerGasBumpPercent: gasFeeBumpConfig?.maxPriorityFeePerGasBumpPercent,
 				maxFeePerGasBumpPercent: gasFeeBumpConfig?.maxFeePerGasBumpPercent,
+				// No bid without the bundler's own figures: an op signed with the SDK's
+				// fixed fallback limits does not execute, so a failed estimate skips the order.
+				requireBundlerEstimate: true,
 			})
 
 			this.logger.info({ orderId: order.id }, "Caching gas estimate")
@@ -337,7 +340,7 @@ export class ContractInteractionService {
 				callGasLimit: estimate.callGasLimit,
 			}
 		} catch (error) {
-			this.logger.error({ err: error }, "Error estimating gas, using generous fallback values")
+			this.logger.error({ err: error, orderId: order.id }, "Error estimating gas, not bidding on this order")
 			throw new Error(`Failed to estimate gas: ${error instanceof Error ? error.message : "Unknown error"}`)
 		}
 	}

@@ -10,9 +10,7 @@ import { VolumeService } from "@/services/volume.service"
 import { getPriceDataFromEthereumLog, isERC20TransferEvent, extractAddressFromTopic } from "@/utils/transfer.helpers"
 import { TransferService } from "@/services/transfer.service"
 import { safeArray } from "@/utils/data.helper"
-import HandlerV1Abi from "@/configs/abis/HandlerV1.abi.json"
-import { PostRequestTimeoutMessage } from "@/types/ismp"
-import { Interface } from "@ethersproject/abi"
+import { getHandlerMessageModules } from "@/utils/handler.helpers"
 
 /**
  * Handles the PostRequestTimeoutHandled event
@@ -46,19 +44,7 @@ export const handlePostRequestTimeoutHandledEvent = wrap(async (event: PostReque
 	try {
 		await HyperBridgeService.incrementNumberOfTimedOutMessagesSent(chain)
 
-		let fromAddresses = [] as string[]
-
-		if (transaction?.input) {
-			const { name, args } = new Interface(HandlerV1Abi).parseTransaction({ data: transaction.input })
-
-			if (name === "handlePostRequestTimeouts" && args && args.length > 1) {
-				const { timeouts } = args[1] as PostRequestTimeoutMessage
-				for (const timeout of timeouts) {
-					const { from } = timeout
-					fromAddresses.push(from)
-				}
-			}
-		}
+		const fromAddresses = getHandlerMessageModules(transaction?.input, "handlePostRequestTimeouts")
 
 		for (const [index, log] of safeArray(transaction.logs).entries()) {
 			if (!isERC20TransferEvent(log)) {

@@ -1,124 +1,70 @@
 import "log-timestamp"
 
-import type { HexString, IEvmConfig, ISubstrateConfig } from "@/types"
+import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import type { HexString, StateMachineIdParams } from "@/types"
 import { EvmChain, SubstrateChain } from "@/chain"
 import { chainConfigs } from "@/configs/chain"
 
 const BSC_CHAPEL_HOST = chainConfigs[97].addresses.Host as HexString
 
+const HYPERBRIDGE_ON_BSC: StateMachineIdParams = { stateId: { Kusama: 4009 }, consensusStateId: "PAS0" }
+const BSC_ON_HYPERBRIDGE: StateMachineIdParams = { stateId: { Evm: 97 }, consensusStateId: "BSC0" }
+
 describe.sequential("State Queries", () => {
-	let bscConfig: IEvmConfig
-	let hyperbridgeConfig: ISubstrateConfig
+	let bsc: EvmChain
+	let hyperbridge: SubstrateChain
 
-	beforeAll(() => {
-		bscConfig = {
-			consensusStateId: "BSC0",
+	beforeAll(async () => {
+		bsc = EvmChain.fromParams({
+			chainId: 97,
 			rpcUrl: process.env.BSC_CHAPEL!,
-			stateMachineId: "EVM-97",
 			host: BSC_CHAPEL_HOST,
-		}
-
-		hyperbridgeConfig = {
+			consensusStateId: "BSC0",
+		})
+		hyperbridge = await SubstrateChain.connect({
 			consensusStateId: "PAS0",
 			stateMachineId: "KUSAMA-4009",
 			wsUrl: process.env.HYPERBRIDGE_GARGANTUA!,
 			hasher: "Keccak",
-		}
+		})
+	}, 60_000)
+
+	afterAll(async () => {
+		await hyperbridge?.disconnect()
 	})
 
 	it("should read latest state machine height on EVM", async () => {
-		try {
-			const chain = EvmChain.fromParams({
-				chainId: 97,
-				rpcUrl: bscConfig.rpcUrl,
-				host: bscConfig.host!,
-				consensusStateId: bscConfig.consensusStateId,
-			})
-			const stateMachineId = { stateId: { Kusama: 4009 }, consensusStateId: "PASO" }
-			const latestHeight = await chain.latestStateMachineHeight(stateMachineId)
-			expect(latestHeight).toBeGreaterThan(0)
-
-			console.log(latestHeight)
-		} catch (err) {
-			console.error(err)
-			expect(err).toBeUndefined()
-		}
+		const latestHeight = await bsc.latestStateMachineHeight(HYPERBRIDGE_ON_BSC)
+		expect(latestHeight).toBeGreaterThan(0)
+		console.log(latestHeight)
 	}, 300_000)
 
 	it("should read latest state machine height on Substrate", async () => {
-		try {
-			const chain = await SubstrateChain.connect(hyperbridgeConfig)
-			const stateMachineId = { stateId: { Evm: 97 }, consensusStateId: "BSC0" }
-			const latestHeight = await chain.latestStateMachineHeight(stateMachineId)
-			expect(latestHeight).toBeGreaterThan(0)
-			console.log(latestHeight)
-		} catch (err) {
-			console.error(err)
-			expect(err).toBeUndefined()
-		}
+		const latestHeight = await hyperbridge.latestStateMachineHeight(BSC_ON_HYPERBRIDGE)
+		expect(latestHeight).toBeGreaterThan(0)
+		console.log(latestHeight)
 	}, 300_000)
 
 	it("should read challenge period on Substrate", async () => {
-		try {
-			const chain = await SubstrateChain.connect(hyperbridgeConfig)
-			const stateMachineId = { stateId: { Evm: 97 }, consensusStateId: "BSC0" }
-			const challengePeriod = await chain.challengePeriod(stateMachineId)
-			expect(challengePeriod).toBe(BigInt(0))
-		} catch (err) {
-			console.error(err)
-			expect(err).toBeUndefined()
-		}
+		const challengePeriod = await hyperbridge.challengePeriod(BSC_ON_HYPERBRIDGE)
+		expect(challengePeriod).toBe(BigInt(0))
 	}, 300_000)
 
 	it("should read challenge period on EVM", async () => {
-		try {
-			const chain = EvmChain.fromParams({
-				chainId: 97,
-				rpcUrl: bscConfig.rpcUrl,
-				host: bscConfig.host!,
-				consensusStateId: bscConfig.consensusStateId,
-			})
-			const stateMachineId = { stateId: { Kusama: 4009 }, consensusStateId: "PASO" }
-			const challengePeriod = await chain.challengePeriod(stateMachineId)
-			expect(challengePeriod).toBe(BigInt(0))
-		} catch (err) {
-			console.error(err)
-			expect(err).toBeUndefined()
-		}
+		const challengePeriod = await bsc.challengePeriod(HYPERBRIDGE_ON_BSC)
+		expect(challengePeriod).toBe(BigInt(0))
 	}, 300_000)
 
 	it("should read state machine update time on EVM", async () => {
-		try {
-			const chain = EvmChain.fromParams({
-				chainId: 97,
-				rpcUrl: bscConfig.rpcUrl,
-				host: bscConfig.host!,
-				consensusStateId: bscConfig.consensusStateId,
-			})
-			const stateMachineId = { stateId: { Kusama: 4009 }, consensusStateId: "PASO" }
-			const latestHeight = await chain.latestStateMachineHeight(stateMachineId)
-			const stateMachineheight = { id: stateMachineId, height: latestHeight }
-			const updateTime = await chain.stateMachineUpdateTime(stateMachineheight)
-			expect(updateTime).toBeGreaterThan(0)
-		} catch (err) {
-			console.error(err)
-			expect(err).toBeUndefined()
-		}
+		const latestHeight = await bsc.latestStateMachineHeight(HYPERBRIDGE_ON_BSC)
+		const updateTime = await bsc.stateMachineUpdateTime({ id: HYPERBRIDGE_ON_BSC, height: latestHeight })
+		expect(updateTime).toBeGreaterThan(0)
 	}, 300_000)
 
-	it.skip("should read state machine update time on substrate", async () => {
-		try {
-			const chain = await SubstrateChain.connect(hyperbridgeConfig)
-			const stateMachineId = { stateId: { Evm: 97 }, consensusStateId: "BSC0" }
-			const latestHeight = await chain.latestStateMachineHeight(stateMachineId)
-			const stateMachineheight = { id: stateMachineId, height: latestHeight }
-			const updateTime = await chain.stateMachineUpdateTime(stateMachineheight)
-			expect(updateTime).toBeGreaterThan(0)
-
-			console.log(updateTime)
-		} catch (err) {
-			console.error(err)
-			expect(err).toBeUndefined()
-		}
+	it("should read state machine update time on substrate", async () => {
+		const latestHeight = await hyperbridge.latestStateMachineHeight(BSC_ON_HYPERBRIDGE)
+		const updateTime = await hyperbridge.stateMachineUpdateTime({ id: BSC_ON_HYPERBRIDGE, height: latestHeight })
+		expect(updateTime).toBeGreaterThan(0)
+		console.log(updateTime)
 	}, 300_000)
 })

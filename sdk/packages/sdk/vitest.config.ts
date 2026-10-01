@@ -4,16 +4,14 @@ import tsconfigPaths from "vite-tsconfig-paths"
 export default defineConfig({
 	plugins: [tsconfigPaths()],
 	test: {
-		dangerouslyIgnoreUnhandledErrors: true,
 		globals: true,
-		// mode defines what ".env.{mode}" file to choose if exists
 		setupFiles: ["./src/tests/setup.ts"],
 		reporters: ["verbose"],
 		environment: "node",
 		coverage: {
 			provider: "v8",
 			reporter: ["text", "json", "html"],
-			exclude: ["node_modules/**", "test/**"],
+			exclude: ["node_modules/**", "src/tests/**"],
 		},
 	},
 })

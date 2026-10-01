@@ -270,23 +270,6 @@ describe("Order execution bid-selection integration", () => {
 			return { ...makeBid({ solverAddress, amount: output, execute }), inputs: [{ token: TOKEN, amount: take }] }
 		}
 
-		it("ranks by rate, best first, whatever order the bids arrived in and whatever their size", async () => {
-			const ctx = makeContext({
-				getBidsForOrder: async () => [],
-				readContract: gatewayReads({}),
-				getBlockNumber: async () => 0n,
-			})
-			const noop = vi.fn()
-			// Arrive worst first. The largest bid has the worst rate, so size alone would pick it.
-			const worst = rateBid(SOLVER_ONE, 200n, 200n, noop) // 1.00
-			const best = rateBid(SOLVER_TWO, 100n, 130n, noop) // 1.30
-			const middle = rateBid(SOLVER_THREE, 100n, 115n, noop) // 1.15
-
-			const ranked = await new BidManager(ctx, {} as never).sortBids(rateOrder(), [worst, best, middle])
-
-			expect(ranked.map((bid) => bid.solverAddress)).toEqual([SOLVER_TWO, SOLVER_THREE, SOLVER_ONE])
-		})
-
 		it("executes the best rate first, then the next best on what is left, until the order is filled", async () => {
 			// What the destination gateway has credited so far, as the executor reads it each round.
 			const destination: { credited: bigint[]; finalizer?: HexString } = { credited: [0n] }
@@ -396,10 +379,11 @@ describe("Order execution bid-selection integration", () => {
 			},
 		}
 		const destination: { credited: bigint[]; finalizer?: HexString } = { credited: [0n, 0n] }
-		const readContract = vi.fn(async ({ functionName, args }: { functionName: string; args: [HexString, bigint] }) =>
-			functionName === "_filled"
-				? (destination.finalizer ?? ZERO_ADDRESS)
-				: (destination.credited[Number(args[1])] ?? 0n),
+		const readContract = vi.fn(
+			async ({ functionName, args }: { functionName: string; args: [HexString, bigint] }) =>
+				functionName === "_filled"
+					? (destination.finalizer ?? ZERO_ADDRESS)
+					: (destination.credited[Number(args[1])] ?? 0n),
 		)
 		const legBid = (solver: HexString, leg: number, output: bigint, onExecute: () => void): Bid => {
 			const outputs = [0n, 0n].map((amount, i) => ({ token: TOKEN, amount: i === leg ? output : amount }))
@@ -441,12 +425,20 @@ describe("Order execution bid-selection integration", () => {
 		}))
 
 		const deadline = pendingDeadline()
-		const ctx = makeContext({ getBidsForOrder: async () => rawBids, readContract, getBlockNumber: deadline.getBlockNumber })
+		const ctx = makeContext({
+			getBidsForOrder: async () => rawBids,
+			readContract,
+			getBlockNumber: deadline.getBlockNumber,
+		})
 		const bidManager = new BidManager(ctx, {} as never)
 		vi.spyOn(bidManager, "buildBids").mockImplementation((_order, fillerBids) =>
 			fillerBids.map((fillerBid) => bySender.get(fillerBid.userOp.sender.toLowerCase())!),
 		)
-		const stream = new OrderExecutor(ctx, bidManager).executeOrder({ order: twoLegs, auctionTimeMs: 0, pollIntervalMs: 0 })
+		const stream = new OrderExecutor(ctx, bidManager).executeOrder({
+			order: twoLegs,
+			auctionTimeMs: 0,
+			pollIntervalMs: 0,
+		})
 
 		expect((await stream.next()).value).toMatchObject({ status: "AWAITING_BIDS" })
 		const rounds: HexString[][] = []

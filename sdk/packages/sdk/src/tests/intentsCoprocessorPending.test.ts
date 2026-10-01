@@ -4,7 +4,7 @@ import { IntentsCoprocessor } from "@/chains/intentsCoprocessor"
 import type { BidSubmissionResult, HexString } from "@/types"
 
 /**
- * Regression tests for the "retraction races its own resubmission" incident (#1074).
+ * Regression tests for the "retraction races its own resubmission" incident.
  *
  * A retraction entered the Hyperbridge tx pool but its submitAndWatch handle never confirmed.
  * The retry loop then re-signed the same call: the copies bounced off the pooled original with
@@ -203,6 +203,24 @@ describe("in-flight extrinsic handling", () => {
 		expect(calls.count).toBe(1)
 		expect(result.pending).toBe(true)
 		expect(result.extrinsicHash).toBe("0xextrinsichash")
+	})
+
+	it("pins replacements to the signed extrinsic's nonce when the node has no accountNextIndex to ask", async () => {
+		const { api, calls } = mockApi((_attempt, cb) => {
+			queueMicrotask(() => cb({ dispatchError: undefined, status: readyStatus, events: [] }))
+			return Promise.resolve(() => {})
+		})
+		api.rpc = {}
+		const coproc = IntentsCoprocessor.fromApi(api, "//Alice")
+
+		const result = await retractWithShortTimeout(coproc, 100)
+
+		expect(calls.options.map((opts) => opts.nonce)).toEqual([undefined, SIGNED_NONCE, SIGNED_NONCE])
+		const tips = calls.options.map((opts) => opts.tip)
+		expect(tips[1]).toBe(tips[0]! * 2n)
+		expect(tips[2]).toBe(tips[0]! * 4n)
+		expect(result.success).toBe(false)
+		expect(result.pending).toBe(true)
 	})
 
 	it("keeps a bounced replacement pending, reporting the stalled extrinsic still in flight", async () => {

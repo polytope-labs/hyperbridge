@@ -14,6 +14,7 @@ import {
 	waitForChallengePeriod,
 	retryPromise,
 	sleep,
+	TESTNET_CHAINS,
 } from "@/utils"
 import { LEGACY_STORAGE_KEYS, STORAGE_KEYS } from "@/storage"
 import { MissingConsensusUpdateTimeError } from "@/utils/exceptions"
@@ -37,8 +38,9 @@ import { partialFillSlot } from "./escrowReads"
  * the `EscrowRefunded` event. The order user may submit that transaction
  * through the deadline; strictly after the deadline, any caller may submit it
  * and pay gas while the refund still goes to `order.user`. For cross-chain
- * orders, fetches a destination state proof, submits a GET request, waits for
- * Hyperbridge finalization, and submits the proof to unlock the escrowed funds.
+ * orders, which only the order user may cancel from the source, fetches a
+ * destination state proof, submits a GET request, waits for Hyperbridge
+ * finalization, and submits the proof to unlock the escrowed funds.
  *
  * **Destination-chain cancellation** (`cancelOrderFromDest`):
  * Submits a `cancelOrder` call on the destination chain which dispatches an
@@ -73,9 +75,17 @@ export class OrderCanceller {
 	 * order. Frontends can use `relayerFee` to approve the ERC-20 spend before
 	 * submitting the cancel transaction.
 	 *
+	 * A cross-chain cancel is paid on the chain that receives the cancel
+	 * transaction: the source chain for the source route, the destination chain
+	 * for the destination route. When that chain is a testnet, the quote has no
+	 * native value, since testnet hosts have no router to swap it into the fee
+	 * token. The caller must first approve `relayerFee` of that host's fee token
+	 * to that chain's IntentGateway.
+	 *
 	 * @param order - The order to quote.
 	 * @param options - Choose the initiation side. Defaults to source-side cancellation.
-	 * @returns `{ nativeValue }` — native token amount (wei) to send as `value`;
+	 * @returns `{ nativeValue }` — native token amount (wei) to send as `value`,
+	 *   or `0n` when the relayer fee must be paid in the fee token;
 	 *   `{ relayerFee }` — relayer incentive denominated in the chain's fee token.
 	 */
 	async quoteCancelOrder(order: Order, options: CancelOrderOptions = {}): Promise<CancelQuote> {
@@ -90,11 +100,12 @@ export class OrderCanceller {
 	 *
 	 * Constructs the ISMP GET request the source gateway will dispatch, one
 	 * `_partialFills` key per leg, and calls `quoteNative` on the source host to
-	 * obtain the dispatch fee.
+	 * obtain the dispatch fee. Returns a zero `nativeValue` when the source is a
+	 * testnet chain, leaving the relayer fee to be paid in its fee token.
 	 * Returns 0 for same-chain orders (no ISMP call needed).
 	 *
 	 * @param order - The order to quote.
-	 * @returns The native token dispatch fee in wei.
+	 * @returns The native token dispatch fee in wei and the relayer fee.
 	 */
 	private async quoteCancelFromSource(order: Order): Promise<CancelQuote> {
 		const sourceStateMachine = normalizeStateMachineId(order.source)
@@ -102,6 +113,15 @@ export class OrderCanceller {
 		if (sourceStateMachine === destStateMachine) {
 			return { nativeValue: 0n, relayerFee: 0n }
 		}
+
+		const feeInSourceFeeToken = await convertGasToFeeToken(
+			this.ctx,
+			OrderCanceller.SOURCE_GET_RESPONSE_GAS,
+			"source",
+			sourceStateMachine,
+		)
+		const relayerFee = (feeInSourceFeeToken * 1005n) / 1000n
+		if (TESTNET_CHAINS.has(sourceStateMachine)) return { nativeValue: 0n, relayerFee }
 
 		const height = order.deadline + 1n
 
@@ -113,21 +133,13 @@ export class OrderCanceller {
 		const getRequest: IGetRequest = {
 			source: sourceStateMachine,
 			dest: destStateMachine,
-			from: this.ctx.source.configService.getIntentGatewayAddress(destStateMachine),
+			from: this.ctx.source.configService.getIntentGatewayAddress(sourceStateMachine),
 			nonce: await this.ctx.source.getHostNonce(),
 			height,
 			keys,
 			timeoutTimestamp: 0n,
 			context,
 		}
-
-		const feeInSourceFeeToken = await convertGasToFeeToken(
-			this.ctx,
-			OrderCanceller.SOURCE_GET_RESPONSE_GAS,
-			"source",
-			sourceStateMachine,
-		)
-		const relayerFee = (feeInSourceFeeToken * 1005n) / 1000n
 
 		// getAmountsIn quotes are exact; pool reserves drift between quote and
 		// execution, so pad the swap input or the host's swapETHForExactTokens reverts.
@@ -152,7 +164,10 @@ export class OrderCanceller {
 	 *   cancellation. Same-chain orders always use the direct local route.
 	 * @yields {@link CancelEvent} objects describing each stage of the
 	 *   cancellation lifecycle. The caller signs or broadcasts the yielded
-	 *   transaction, so its signer may differ from `order.user` after expiry.
+	 *   transaction, and the gateway decides who may sign it. A same-chain cancel
+	 *   or a cross-chain cancel from the destination accepts only `order.user`
+	 *   through the deadline and any signer strictly after it. A cross-chain
+	 *   cancel from the source accepts only `order.user`, before or after expiry.
 	 */
 	async *cancelOrder(
 		order: Order,
@@ -414,11 +429,13 @@ export class OrderCanceller {
 	 *
 	 * Estimates the relayer fee for delivering the refund POST request from the
 	 * destination chain back to the source chain, converts it to the destination
-	 * fee token, and calls `quoteNative` on the destination host.
+	 * fee token, and calls `quoteNative` on the destination host. Returns a zero
+	 * `nativeValue` when the destination is a testnet chain, leaving the relayer
+	 * fee to be paid in its fee token.
 	 * Returns 0 for same-chain orders.
 	 *
 	 * @param order - The order to quote.
-	 * @returns The native token dispatch fee in wei.
+	 * @returns The native token dispatch fee in wei and the relayer fee.
 	 */
 	private async quoteCancelFromDest(order: Order): Promise<CancelQuote> {
 		const sourceStateMachine = normalizeStateMachineId(order.source)
@@ -431,6 +448,7 @@ export class OrderCanceller {
 		const sourceIntentGateway = this.ctx.source.configService.getIntentGatewayAddress(sourceStateMachine)
 
 		const relayerFee = await this.estimateRelayerFee(sourceStateMachine, destStateMachine)
+		if (TESTNET_CHAINS.has(destStateMachine)) return { nativeValue: 0n, relayerFee }
 
 		const body = constructRefundEscrowRequestBody(order, order.user as HexString)
 

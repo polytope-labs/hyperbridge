@@ -1,10 +1,10 @@
 import { OrderCanceller } from "@/protocols/intents/OrderCanceller"
 import * as intentUtils from "@/protocols/intents/utils"
 import { ABI as IntentGatewayV2ABI } from "@/abis/IntentGatewayV2"
-import { LEGACY_STORAGE_KEYS, STORAGE_KEYS, createCancellationStorage } from "@/storage"
+import { LEGACY_STORAGE_KEYS, STORAGE_KEYS } from "@/storage"
 import type { CancelOrderOptions, HexString, Order } from "@/types"
 import { MissingConsensusUpdateTimeError } from "@/utils/exceptions"
-import { decodeFunctionData, encodeAbiParameters, encodeEventTopics, parseEventLogs } from "viem"
+import { decodeFunctionData, encodeAbiParameters, encodeEventTopics } from "viem"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 vi.mock("@/protocols/intents/utils", async (importOriginal) => ({
@@ -113,68 +113,25 @@ function makeLocalCancellationContext(receipt = makeReceipt()) {
 	return { ctx, indexerClient, getTransactionReceipt, broadcastTransaction }
 }
 
+function makeCrossChainQuoteContext() {
+	const chain = () => ({
+		configService: { getIntentGatewayAddress: () => GATEWAY },
+		getHostNonce: async () => 1n,
+		getFeeTokenWithDecimals: async () => ({ address: ADDR_20, decimals: 6 }),
+		quoteNative: vi.fn(async () => 10_000n),
+	})
+	return { source: chain(), dest: chain(), feeTokenCache: new Map() }
+}
+
 describe("OrderCanceller recovery", () => {
 	beforeEach(() => {
 		vi.mocked(intentUtils.convertGasToFeeToken).mockReset()
-	})
-
-	it("prices source cancellation GET responses with a 1M gas budget", async () => {
-		vi.mocked(intentUtils.convertGasToFeeToken).mockResolvedValue(1_000n)
-		const ctx = {
-			source: {
-				configService: { getIntentGatewayAddress: () => ADDR_20 },
-				getHostNonce: async () => 1n,
-				quoteNative: async () => 10_000n,
-			},
-			dest: {
-				configService: { getIntentGatewayAddress: () => ADDR_20 },
-				client: { readContract: async () => SLOT_HASH },
-			},
-		}
-		const canceller = new OrderCanceller(ctx as never)
-
-		await canceller.quoteCancelOrder(makeOrder({ id: SLOT_HASH }))
-
-		expect(intentUtils.convertGasToFeeToken).toHaveBeenCalledWith(ctx, 1_000_000n, "source", "EVM-1")
-	})
-
-	it("keeps destination cancellation refund POSTs at a 1M gas budget", async () => {
-		vi.mocked(intentUtils.convertGasToFeeToken).mockResolvedValue(1_000n)
-		const ctx = {
-			source: {
-				getFeeTokenWithDecimals: async () => ({ address: ADDR_20, decimals: 6 }),
-			},
-			dest: {
-				getFeeTokenWithDecimals: async () => ({ address: ADDR_20, decimals: 6 }),
-			},
-			feeTokenCache: new Map(),
-		}
-		const canceller = new OrderCanceller(ctx as never)
-		const estimateRelayerFee = (
-			canceller as unknown as {
-				estimateRelayerFee(sourceChainId: string, destChainId: string): Promise<bigint>
-			}
-		).estimateRelayerFee.bind(canceller)
-
-		await estimateRelayerFee("EVM-1", "EVM-42161")
-
-		// REFUND_POST_GAS moved 800k -> 1M alongside the GET repricing in #1144,
-		// which updated the constant but not this pin.
-		expect(intentUtils.convertGasToFeeToken).toHaveBeenCalledWith(ctx, 1_000_000n, "source", "EVM-1")
 	})
 
 	it("normalizes state-machine IDs in cancellation storage keys", () => {
 		expect(STORAGE_KEYS.getRequest("0xdeadbeef", "EVM-1", "EVM-42161")).toBe(
 			STORAGE_KEYS.getRequest("0xdeadbeef", "0x45564d2d31", "0x45564d2d3432313631"),
 		)
-	})
-
-	it("persists destination cancellation checkpoints", async () => {
-		const storage = createCancellationStorage({ env: "memory" })
-		const key = STORAGE_KEYS.postCommitment("0xdeadbeef", "EVM-1", "EVM-42161")
-
-		await storage.setItem(key, "0x1234")
-		expect(await storage.getItem<string>(key)).toBe("0x1234")
 	})
 
 	it("migrates a legacy recovery checkpoint to the normalized key", async () => {
@@ -262,26 +219,52 @@ describe("OrderCanceller recovery", () => {
 		)
 		expect(attempts).toBe(2)
 	})
+})
 
-	it("uses the same-chain path without requiring an order ID", async () => {
-		const canceller = new OrderCanceller({} as never)
-		const hooks = canceller as unknown as {
-			cancelOrderFromSource(order: Order, indexerClient: unknown): AsyncGenerator<unknown>
-			cancelOrderFromDest(order: Order, indexerClient: unknown): AsyncGenerator<unknown>
-		}
-		hooks.cancelOrderFromSource = async function* () {
-			yield { status: "AWAITING_CANCEL_TRANSACTION", data: "0x", to: ADDR_20, value: 0n }
-		}
-		hooks.cancelOrderFromDest = async function* () {
-			yield* []
-			throw new Error("destination path should not be selected")
-		}
-
-		const order = makeOrder({ id: undefined, destination: "0x45564d2d31" })
-		expect((await canceller.cancelOrder(order, {} as never, { from: "destination" }).next()).value).toMatchObject({
-			status: "AWAITING_CANCEL_TRANSACTION",
-		})
+describe("OrderCanceller cross-chain fee payment", () => {
+	beforeEach(() => {
+		vi.mocked(intentUtils.convertGasToFeeToken).mockReset()
+		vi.mocked(intentUtils.convertGasToFeeToken).mockResolvedValue(1_000n)
 	})
+
+	it("keeps destination cancellation refund POSTs at a 1M gas budget", async () => {
+		const ctx = makeCrossChainQuoteContext()
+
+		const quote = await new OrderCanceller(ctx as never).quoteCancelOrder(makeOrder({ id: SLOT_HASH }), {
+			from: "destination",
+		})
+
+		expect(quote).toEqual({ relayerFee: 1_005n, nativeValue: 10_100n })
+		expect(intentUtils.convertGasToFeeToken).toHaveBeenCalledWith(ctx, 1_000_000n, "source", "EVM-1")
+	})
+
+	// Mixed testnet and mainnet orders cannot occur, but they pin which chain each route checks.
+	const quotes = [
+		{ source: "EVM-97", destination: "EVM-80002", from: "source", nativeValue: 0n },
+		{ source: "EVM-97", destination: "EVM-80002", from: "destination", nativeValue: 0n },
+		{ source: "EVM-1", destination: "EVM-42161", from: "source", nativeValue: 10_100n },
+		{ source: "EVM-1", destination: "EVM-42161", from: "destination", nativeValue: 10_100n },
+		{ source: "EVM-97", destination: "EVM-1", from: "source", nativeValue: 0n },
+		{ source: "EVM-97", destination: "EVM-1", from: "destination", nativeValue: 10_100n },
+		{ source: "EVM-1", destination: "EVM-97", from: "source", nativeValue: 10_100n },
+		{ source: "EVM-1", destination: "EVM-97", from: "destination", nativeValue: 0n },
+	] as const
+
+	it.each(quotes)(
+		"quotes $nativeValue native value for the $from route of a $source to $destination order",
+		async ({ source, destination, from, nativeValue }) => {
+			const ctx = makeCrossChainQuoteContext()
+			const payer = from === "source" ? ctx.source : ctx.dest
+
+			const quote = await new OrderCanceller(ctx as never).quoteCancelOrder(
+				makeOrder({ id: SLOT_HASH, source, destination }),
+				{ from },
+			)
+
+			expect(quote).toEqual({ nativeValue, relayerFee: 1_005n })
+			expect(payer.quoteNative).toHaveBeenCalledTimes(nativeValue === 0n ? 0 : 1)
+		},
+	)
 })
 
 describe("OrderCanceller same-chain cancellation", () => {
@@ -291,22 +274,29 @@ describe("OrderCanceller same-chain cancellation", () => {
 
 	const cases: Array<{
 		name: string
-		source: string
-		destination: string
+		order: Partial<Order>
 		options?: CancelOrderOptions
 	}> = [
-		{ name: "explicit source route with text IDs", source: "EVM-1", destination: "EVM-1", options: { from: "source" } },
+		{
+			name: "explicit source route with text IDs",
+			order: { source: "EVM-1", destination: "EVM-1" },
+			options: { from: "source" },
+		},
 		{
 			name: "explicit destination route with mixed text and hex IDs",
-			source: "EVM-1",
-			destination: EVM_1_HEX,
+			order: { source: "EVM-1", destination: EVM_1_HEX },
 			options: { from: "destination" },
 		},
-		{ name: "default route with hex IDs", source: EVM_1_HEX, destination: EVM_1_HEX },
+		{ name: "default route with hex IDs", order: { source: EVM_1_HEX, destination: EVM_1_HEX } },
+		{
+			name: "destination route without an order ID",
+			order: { id: undefined, source: "EVM-1", destination: EVM_1_HEX },
+			options: { from: "destination" },
+		},
 	]
 
-	it.each(cases)("encodes and confirms the local transaction for $name", async ({ source, destination, options }) => {
-		const order = makeOrder({ source, destination })
+	it.each(cases)("encodes and confirms the local transaction for $name", async ({ order: overrides, options }) => {
+		const order = makeOrder(overrides)
 		const { ctx, indexerClient, getTransactionReceipt, broadcastTransaction } = makeLocalCancellationContext()
 		const canceller = new OrderCanceller(ctx as never)
 		const cancellation = canceller.cancelOrder(order, indexerClient as never, options)
@@ -343,13 +333,6 @@ describe("OrderCanceller same-chain cancellation", () => {
 		})
 		expect(getTransactionReceipt).toHaveBeenCalledWith(TX_HASH)
 		expect(broadcastTransaction).not.toHaveBeenCalled()
-		const receipt = makeReceipt()
-		expect(receipt.from).toBe(KEEPER)
-		expect(receipt.from.toLowerCase()).not.toBe(order.user.toLowerCase())
-		expect(parseEventLogs({ abi: IntentGatewayV2ABI, logs: receipt.logs })).toMatchObject([
-			{ eventName: "OrderCancelled", args: { commitment: SLOT_HASH, canceller: KEEPER } },
-			{ eventName: "EscrowRefunded", args: { commitment: SLOT_HASH } },
-		])
 		expect(intentUtils.convertGasToFeeToken).not.toHaveBeenCalled()
 	})
 

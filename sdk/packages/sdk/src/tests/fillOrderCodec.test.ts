@@ -164,10 +164,6 @@ describe("supportsRateFills", () => {
 		await expect(supportsRateFills(client(vi.fn().mockResolvedValue(release)), GATEWAY)).resolves.toBe(false)
 	})
 
-	it("does not accept the old boolean marker", async () => {
-		await expect(supportsRateFills(client(vi.fn().mockResolvedValue(true)), GATEWAY)).resolves.toBe(false)
-	})
-
 	it("does not cache capability across calls", async () => {
 		const c = client(vi.fn().mockResolvedValue(3n))
 

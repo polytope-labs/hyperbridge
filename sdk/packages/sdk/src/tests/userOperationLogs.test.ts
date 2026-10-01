@@ -3,7 +3,7 @@ import { BidImpl, userOperationLogs } from "@/protocols/intents/Bid"
 import { CryptoUtils } from "@/protocols/intents/CryptoUtils"
 import type { HexString, Order, PackedUserOperation } from "@/types"
 import { encodeAbiParameters, encodeEventTopics, pad, toEventSelector, type Log } from "viem"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 const ENTRY_POINT = "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108" as HexString
 const GATEWAY = "0x6666666666666666666666666666666666666666" as HexString
@@ -103,8 +103,6 @@ describe("BidImpl.execute fill attribution", () => {
 		)
 	}
 
-	afterEach(() => vi.unstubAllGlobals())
-
 	it("credits only the fills its own operation made in the gateway", async () => {
 		let userOpHash = "0x" as HexString
 		// Another solver fills the same order earlier in the bundle, and a foreign contract imitates
@@ -135,7 +133,7 @@ describe("BidImpl.execute fill attribution", () => {
 			ctx,
 			crypto,
 			order,
-			fillerBid: { filler: "solver", userOp, deposit: 0n },
+			fillerBid: { filler: "solver", bid: CryptoUtils.bidId(userOp.callData), userOp, deposit: 0n },
 			fillOptions: {
 				outputs: [{ token: TOKEN, amount: 100n }],
 				inputs: [{ token: TOKEN, amount: 100n }],

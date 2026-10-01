@@ -119,6 +119,8 @@ interface CacheData {
 	bidPlans: Record<string, { plans: BidPlanCache[]; timestamp: number }>
 	/** Orders whose evaluation concluded in a deliberate partial fill. */
 	partialFills: Record<string, { partial: boolean; timestamp: number }>
+	/** Orders whose evaluation let a bid through without the fee check. */
+	feeChecksWaived: Record<string, { waived: boolean; timestamp: number }>
 	feeTokens: Record<string, { address: HexString; decimals: number }>
 	tokenDecimals: Record<string, Record<HexString, number>>
 	solverSelection: Record<string, boolean>
@@ -148,6 +150,7 @@ export class CacheService {
 			matchedLimitOrders: {},
 			bidPlans: {},
 			partialFills: {},
+			feeChecksWaived: {},
 			feeTokens: {},
 			tokenDecimals: {},
 			solverSelection: {},
@@ -219,6 +222,14 @@ export class CacheService {
 
 		stalePartialIds.forEach((orderId) => {
 			delete this.cacheData.partialFills[orderId]
+		})
+
+		const staleWaivedIds = Object.entries(this.cacheData.feeChecksWaived)
+			.filter(([_, data]) => !this.isCacheValid(data.timestamp))
+			.map(([orderId]) => orderId)
+
+		staleWaivedIds.forEach((orderId) => {
+			delete this.cacheData.feeChecksWaived[orderId]
 		})
 	}
 
@@ -578,6 +589,27 @@ export class CacheService {
 
 	clearPartialFill(orderId: string): void {
 		delete this.cacheData.partialFills[orderId]
+	}
+
+	/**
+	 * Whether the strategy's completed evaluation let a bid through without holding
+	 * `order.fees` to the execution cost, because the order is at or above the
+	 * operator's minimum size.
+	 *
+	 * Written and cleared the way {@link isPartialFill} is, for the same reason: the
+	 * caller exempts such an order from its profit floor.
+	 */
+	isFeeCheckWaived(orderId: string): boolean {
+		const cache = this.cacheData.feeChecksWaived[orderId]
+		return cache !== undefined && this.isCacheValid(cache.timestamp) && cache.waived
+	}
+
+	setFeeCheckWaived(orderId: string, waived: boolean): void {
+		this.cacheData.feeChecksWaived[orderId] = { waived, timestamp: Date.now() }
+	}
+
+	clearFeeCheckWaived(orderId: string): void {
+		delete this.cacheData.feeChecksWaived[orderId]
 	}
 
 	getFeeTokenWithDecimals(chain: string): { address: HexString; decimals: number } | null {

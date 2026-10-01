@@ -31,7 +31,7 @@ function build(getBlockNumber: () => Promise<bigint>) {
 			getSubstratePrivateKey: () => undefined,
 		} as never,
 		{ getPublicClient: () => ({ getBlockNumber }) } as never,
-		{ cacheService: { isPartialFill: () => false } } as never,
+		{ cacheService: { isPartialFill: () => false, isFeeCheckWaived: () => false } } as never,
 		{ address: OUR_ADDRESS } as never,
 		{ orders: stubOrderScanner([8453]) },
 	)

@@ -254,13 +254,15 @@ export class FXFiller implements FillerStrategy {
 	 * - Treat a payout below the ask as a partial fill, which only orders
 	 *   without output calldata and without an earlier partial fill allow.
 	 * - Cap each payout by the filler's balance plus funding-venue withdrawals,
-	 *   then gate it on fees (full fills) and the same-asset spread.
+	 *   then gate it on fees (full fills of orders below `minOrderSizeUsd`) and the
+	 *   same-asset spread.
 	 * - Cache the resulting bids for later use in `executeOrder`.
 	 */
 	async calculateProfitability(order: Order): Promise<number> {
 		// Cleared up front: the caller exempts partial fills from its profit floor,
 		// so a stale `true` from an earlier evaluation would let a refusal through.
 		if (order.id) this.contractService.cacheService.clearPartialFill(order.id)
+		if (order.id) this.contractService.cacheService.clearFeeCheckWaived(order.id)
 		if (this.halted) {
 			this.logger.warn({ orderId: order.id }, "FXFiller halted — rejecting order")
 			return 0
@@ -290,6 +292,21 @@ export class FXFiller implements FillerStrategy {
 			// Each limit order's tally on the fill chain, read once per evaluation. Null
 			// when it could not be read.
 			const spentOn = new Map<string, bigint | null>()
+			// `order.fees` are held to the execution cost only on an order below the
+			// operator's minimum size. At or above it, the margin in the limit order
+			// that prices the fill pays for the gas. An order nothing can put a dollar
+			// figure on is treated as below it. Priced once, and only when a bid's fees
+			// fall short.
+			let atOrAboveMinSize: boolean | undefined
+			const feeCheckWaived = async (): Promise<boolean> => {
+				if (atOrAboveMinSize === undefined) {
+					const usd = await this.getOrderUsdValue(order)
+					atOrAboveMinSize = usd !== null && usd.inputUsd.gte(this.configService.getMinOrderSizeUsd())
+				}
+				return atOrAboveMinSize
+			}
+			// Whether any bid planned here got through on that waiver.
+			let feesWaived = false
 			for (let leg = 0; leg < order.inputs.length; leg++) {
 				const input = order.inputs[leg]
 				const output = order.output.assets[leg]
@@ -670,18 +687,25 @@ export class FXFiller implements FillerStrategy {
 					// a partial earns instead is its spread net of gas, which is exactly what
 					// `totalProfit` reports below — and the caller already refuses anything that
 					// does not score above zero.
+					//
+					// Orders below `minOrderSizeUsd` only. A larger order is filled whatever
+					// fees it carries, and the caller exempts it from the profit floor.
 					if (!partialFill && order.fees < executionCost) {
-						this.logger.info(
-							{
-								orderId: order.id,
-								orderFees: formatUnits(order.fees, feeTokenDecimals),
-								fillGas: formatUnits(totalCostInSourceFeeToken, feeTokenDecimals),
-								relayerFee: formatUnits(relayerFeeInSourceFeeToken, feeTokenDecimals),
-								executionCost: formatUnits(executionCost, feeTokenDecimals),
-							},
-							"Skipping order: attached fees do not cover execution cost (fill gas + relayer fee)",
-						)
-						continue
+						if (!(await feeCheckWaived())) {
+							this.logger.info(
+								{
+									orderId: order.id,
+									orderFees: formatUnits(order.fees, feeTokenDecimals),
+									fillGas: formatUnits(totalCostInSourceFeeToken, feeTokenDecimals),
+									relayerFee: formatUnits(relayerFeeInSourceFeeToken, feeTokenDecimals),
+									executionCost: formatUnits(executionCost, feeTokenDecimals),
+									minOrderSizeUsd: this.configService.getMinOrderSizeUsd(),
+								},
+								"Skipping order: attached fees do not cover execution cost (fill gas + relayer fee)",
+							)
+							continue
+						}
+						feesWaived = true
 					}
 
 					// GATE 2 — same-asset spread (independent). A same-asset fill must net the
@@ -745,6 +769,7 @@ export class FXFiller implements FillerStrategy {
 							payoutSurplusUsd: payoutSurplusUsd.toString(),
 							totalProfit,
 							profitable: totalProfit > 0,
+							feeCheckWaived: !partialFill && order.fees < executionCost,
 						},
 						"FX swap profitability evaluation",
 					)
@@ -785,6 +810,7 @@ export class FXFiller implements FillerStrategy {
 					plans[0].budget,
 				)
 				this.contractService.cacheService.setPartialFill(order.id, plans[0].partialFill)
+				this.contractService.cacheService.setFeeCheckWaived(order.id, feesWaived)
 				this.contractService.cacheService.setMatchedLimitOrder(order.id, [
 					{ limitOrderId: plans[0].limitOrderId, payout: plans[0].payout },
 				])

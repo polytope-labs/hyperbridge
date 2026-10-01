@@ -9,6 +9,9 @@ export const DEFAULT_BLOCK_SCAN_INTERVAL_SECONDS = 3
 /** Below this the scanner would hammer the RPC faster than any chain produces blocks. */
 export const MIN_BLOCK_SCAN_INTERVAL_SECONDS = 0.1
 
+/** Order size in USD below which fees must cover execution, when `simplex.minOrderSizeUsd` is not set. */
+export const DEFAULT_MIN_ORDER_SIZE_USD = 20
+
 export interface UserProvidedChainConfig {
 	/** One or more RPC URLs. When multiple are provided, event scans use quorum consensus. */
 	rpcUrls: string[]
@@ -210,6 +213,11 @@ export interface FillerConfig {
 	 * See `bidValiditySeconds` in filler-toml for why this bound matters.
 	 */
 	bidValiditySeconds?: number
+	/**
+	 * Order size in USD below which `order.fees` must cover the execution cost.
+	 * Defaults to 20. See `minOrderSizeUsd` in filler-toml.
+	 */
+	minOrderSizeUsd?: number
 	/**
 	 * Overfill protection knobs. If omitted, defaults are used
 	 * (maxOverfillBps=500, maxConsecutiveClamps=3).
@@ -665,6 +673,14 @@ export class FillerConfigService {
 	 */
 	getBidValiditySeconds(): number {
 		return this.fillerConfig?.bidValiditySeconds ?? 300
+	}
+
+	/**
+	 * The order size, in USD, below which `order.fees` must cover the execution cost.
+	 * Defaults to 20. An order at or above it is filled whatever fees it carries.
+	 */
+	getMinOrderSizeUsd(): number {
+		return this.fillerConfig?.minOrderSizeUsd ?? DEFAULT_MIN_ORDER_SIZE_USD
 	}
 
 	/** Ceiling bps above user-requested output. Default 500 (5%). */

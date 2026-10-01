@@ -77,7 +77,7 @@ your stdout.
 
 Signing is an interface, not a setting. `Signer` is an identity and three operations — sign this
 typed data, this EIP-7702 authorization, this transaction — with no viem types on it, so satisfying
-it never means matching this package's viem version. `privateKeySigner`,
+it never means matching this package's viem version. `privateKeySigner`, `secretPhraseSigner`,
 `turnkeySigner` and `mpcVaultSigner` ship with the package, `viemSigner` adapts any viem account (a
 `toAccount` wrapper around an HSM or a remote signing service included), and your own implementation
 is a first-class citizen. Persistence is pluggable the same way: the default
@@ -111,7 +111,7 @@ With a config present (`./filler-config.toml`, `$SIMPLEX_HOME/config.toml`, or `
 
 The solver serves a local web UI at `127.0.0.1:8686` by default:
 
-- setup wizard (when no config exists) — private key, MPCVault or Turnkey signer, chains and endpoints
+- setup wizard (when no config exists) — private key, secret phrase, MPCVault or Turnkey signer, chains and endpoints
 - status, pause/resume (persists across restarts), graceful stop, balances per chain
 - live activity feed (orders detected/filled/skipped, bids, rebalances) streamed over SSE
 - limit orders: post, inspect with the fills that drew them down, and cancel

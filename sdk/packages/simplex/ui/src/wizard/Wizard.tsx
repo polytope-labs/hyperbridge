@@ -2,7 +2,15 @@ import { useEffect, useState } from "react"
 import { validateConfig } from "@/config/filler-toml"
 import type { SetupDefaults } from "../types"
 import { loadOrderbook } from "./orderbook"
-import { assembleConfig, initialState, orderbookPairs, privateKeyFormatError, type WizardState } from "./state"
+import {
+	accountIndexFormatError,
+	assembleConfig,
+	initialState,
+	orderbookPairs,
+	privateKeyFormatError,
+	secretPhraseFormatError,
+	type WizardState,
+} from "./state"
 import { StepSigner } from "./steps/Signer"
 import { StepSubstrate } from "./steps/Substrate"
 import { StepChains } from "./steps/Chains"
@@ -20,13 +28,21 @@ export interface StepProps {
 	goToStep: (id: string) => void
 }
 
-function signerRequirements(state: WizardState): string[] {
+export function signerRequirements(state: WizardState): string[] {
 	if (state.signerType === "privateKey") {
 		const formatError = privateKeyFormatError(state.signerKey)
 		if (formatError) return [formatError]
 		if (state.signerKeyValidation === "valid" && state.signerAddress) return []
 		if (state.signerKeyValidation === "checking") return ["Checking the EVM private key…"]
 		return [state.signerKeyValidationMessage ?? "Verify the EVM private key before continuing."]
+	}
+	if (state.signerType === "secretPhrase") {
+		const formatError =
+			secretPhraseFormatError(state.signerPhrase) ?? accountIndexFormatError(state.signerAccountIndex)
+		if (formatError) return [formatError]
+		if (state.signerKeyValidation === "valid" && state.signerAddress) return []
+		if (state.signerKeyValidation === "checking") return ["Checking the secret phrase…"]
+		return [state.signerKeyValidationMessage ?? "Verify the secret phrase before continuing."]
 	}
 	if (state.signerType === "mpcVault") {
 		const fields = [

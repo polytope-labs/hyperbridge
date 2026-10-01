@@ -81,8 +81,8 @@ marked `redeemOnShutdown`, and never calls `process.exit`.
 
 ## Signing
 
-Signing is pluggable. `Signer` is the interface; `privateKeySigner`, `turnkeySigner` and
-`mpcVaultSigner` are implementations of it, and so is anything you write.
+Signing is pluggable. `Signer` is the interface; `privateKeySigner`, `secretPhraseSigner`,
+`turnkeySigner` and `mpcVaultSigner` are implementations of it, and so is anything you write.
 
 ```ts lineNumbers
 interface Signer {
@@ -133,12 +133,20 @@ Each method returns something different, and the difference is the part that tri
 ```ts lineNumbers
 import {
     privateKeySigner,
+    secretPhraseSigner,
     turnkeySigner,
     mpcVaultSigner,
 } from "@hyperbridge/simplex"
 
 // A raw key in this process.
 const local = privateKeySigner(process.env.SOLVER_KEY as `0x${string}`)
+
+// A BIP-39 secret phrase in this process.
+const phrase = secretPhraseSigner({
+    phrase: process.env.SOLVER_PHRASE!,
+    // Optional, defaults to 0. The wallet is m/44'/60'/0'/0/accountIndex.
+    accountIndex: 0,
+})
 
 // Turnkey. Async — it fetches the account on creation.
 const turnkey = await turnkeySigner({

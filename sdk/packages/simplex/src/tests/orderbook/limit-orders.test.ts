@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import type { HexString } from "@hyperbridge/sdk"
 import { OrderbookRequestError } from "@/orderbook/client"
 import { initialOrderNonce, LimitOrderValidationError, type CreateLimitOrderRequest } from "@/orderbook/limit-orders"
@@ -498,6 +498,217 @@ describe("LimitOrderService.settleFill", () => {
 		const { settled } = await fill(9_000_000n * ONE)
 		expect(settled.remaining).toBe("0")
 		expect(settled.status).toBe("filled")
+	})
+})
+
+describe("LimitOrderService.reconcileTallies", () => {
+	/** Take in 1,500,000 cNGN, pay out 1,000 USDC: an order paying a 6-decimal token with no dust floor. */
+	const PAYS_USDC: CreateLimitOrderRequest = {
+		...REQUEST,
+		tokenIn: "CNGN",
+		amountIn: "1500000",
+		tokenOut: "USDC",
+		amountOut: "1000",
+	}
+	const USDC_UNIT = 10n ** 6n
+
+	/**
+	 * A service whose solver account answers `tally` for every order, in the paid
+	 * token's own units. The store starts with nothing on it.
+	 */
+	const withTally = (tally: bigint | null, client = fakeClient([])) => {
+		const { service, store } = makeService(client)
+		const spent = vi.fn(async (): Promise<bigint | null> => tally)
+		// The contract service and the logger are private.
+		const internals = service as any
+		internals.contractService.limitOrderSpent = spent
+		const warn = vi.spyOn(internals.logger, "warn")
+		const error = vi.spyOn(internals.logger, "error")
+		return { client, service, store, spent, warn, error }
+	}
+
+	/** An order for 1,000 USDC that the store believes has 500 left. */
+	const halfDrawn = async (ctx: ReturnType<typeof withTally>) => {
+		const { order } = await ctx.service.create(PAYS_USDC)
+		await ctx.store.drawDown(order.id, (500n * ONE).toString())
+		return order.id
+	}
+
+	it("lowers an order that has more left than its tally allows, and reposts it at that size", async () => {
+		// The account has paid out 700 of the 1,000, so it will pay 300 more and no
+		// fill of the 500 the store still advertises could land.
+		const ctx = withTally(700n * USDC_UNIT)
+		const id = await halfDrawn(ctx)
+		const events: string[] = []
+		ctx.service.listen((event) => events.push(`${event.kind}:${event.order.remaining}`))
+
+		expect(await ctx.service.reconcileTallies()).toBe(1)
+
+		const order = (await ctx.store.get(id))!
+		expect(order.remaining).toBe((300n * ONE).toString())
+		expect(order.status).toBe("open")
+		expect(ctx.client.submitted).toEqual(["0x00", "0x01"])
+		expect(order.orderNonce).toBe("1")
+		expect(events).toEqual([`resized:${(300n * ONE).toString()}`])
+		expect(ctx.warn).toHaveBeenCalledTimes(1)
+		expect(ctx.warn).toHaveBeenCalledWith(
+			{
+				id,
+				before: (500n * ONE).toString(),
+				after: (300n * ONE).toString(),
+				spent: (700n * USDC_UNIT).toString(),
+				cap: (1000n * USDC_UNIT).toString(),
+				reserved: "0",
+			},
+			expect.any(String),
+		)
+	})
+
+	it("closes an order whose tally leaves less than the dust floor", async () => {
+		// 1,499,500 of 1,500,000 cNGN paid leaves 500, under the 1,000 floor.
+		const cancelled: string[] = []
+		const client = fakeClient([])
+		const inner = client.cancelOrder
+		client.cancelOrder = async (params) => {
+			cancelled.push(params.commitment)
+			return inner(params)
+		}
+		const ctx = withTally(1_499_500n * ONE, client)
+		const { order: created } = await ctx.service.create(REQUEST)
+		const events: string[] = []
+		ctx.service.listen((event) => events.push(event.kind))
+
+		expect(await ctx.service.reconcileTallies()).toBe(1)
+
+		const order = (await ctx.store.get(created.id))!
+		expect(order.status).toBe("filled")
+		expect(order.remaining).toBe((500n * ONE).toString())
+		expect(order.commitment).toBeNull()
+		// Withdrawn, not reposted.
+		expect(cancelled).toEqual(["0xabc"])
+		expect(ctx.client.submitted).toEqual(["0x00"])
+		expect(events).toEqual(["filled"])
+	})
+
+	it("leaves an order alone when its tally is behind the store", async () => {
+		// Fills from before the account kept a tally were never counted, so the chain
+		// has room for 900 where the store has 500 left. Nothing is ever raised.
+		const ctx = withTally(100n * USDC_UNIT)
+		const id = await halfDrawn(ctx)
+
+		expect(await ctx.service.reconcileTallies()).toBe(0)
+
+		expect((await ctx.store.get(id))?.remaining).toBe((500n * ONE).toString())
+		expect(ctx.client.submitted).toEqual(["0x00"])
+		expect(ctx.warn).not.toHaveBeenCalled()
+	})
+
+	it("leaves an order alone when its tally cannot be read", async () => {
+		const ctx = withTally(null)
+		const id = await halfDrawn(ctx)
+
+		expect(await ctx.service.reconcileTallies()).toBe(0)
+
+		expect(ctx.spent).toHaveBeenCalledTimes(1)
+		expect((await ctx.store.get(id))?.remaining).toBe((500n * ONE).toString())
+		expect(ctx.client.submitted).toEqual(["0x00"])
+		expect(ctx.warn).not.toHaveBeenCalled()
+	})
+
+	it("carries on to the next order when one throws", async () => {
+		const ctx = withTally(700n * USDC_UNIT)
+		const ids = [await halfDrawn(ctx), await halfDrawn(ctx)]
+		// Whichever order the pass reaches first fails its store write.
+		const clamp = ctx.store.clampRemaining.bind(ctx.store)
+		let calls = 0
+		ctx.store.clampRemaining = async (id, room) => {
+			if (++calls === 1) throw new Error("database is locked")
+			return clamp(id, room)
+		}
+
+		expect(await ctx.service.reconcileTallies()).toBe(1)
+
+		const left = await Promise.all(ids.map(async (id) => (await ctx.store.get(id))!.remaining))
+		expect(left.sort()).toEqual([(300n * ONE).toString(), (500n * ONE).toString()])
+		expect(calls).toBe(2)
+		expect(ctx.error).toHaveBeenCalledTimes(1)
+	})
+
+	it("skips an order that is being resized", async () => {
+		const ctx = withTally(700n * USDC_UNIT)
+		const id = await halfDrawn(ctx)
+		await ctx.store.setStatus(id, "resizing")
+
+		expect(await ctx.service.reconcileTallies()).toBe(0)
+
+		const order = (await ctx.store.get(id))!
+		expect(order.remaining).toBe((500n * ONE).toString())
+		expect(order.status).toBe("resizing")
+		expect(ctx.spent).not.toHaveBeenCalled()
+		expect(ctx.client.submitted).toEqual(["0x00"])
+	})
+
+	it("leaves alone a size finer than the token, which sits above the room by less than the token can pay", async () => {
+		// 1000.1234567 USDC is a cap of 1000.123456 in the token's six decimals, so an
+		// order nobody has filled has 0.0000007 more left than the account will pay.
+		const ctx = withTally(0n)
+		const { order: created } = await ctx.service.create({ ...PAYS_USDC, amountOut: "1000.1234567" })
+		const events: string[] = []
+		ctx.service.listen((event) => events.push(event.kind))
+
+		expect(await ctx.service.reconcileTallies()).toBe(0)
+
+		expect((await ctx.store.get(created.id))?.remaining).toBe(((10_001_234_567n * ONE) / 10n ** 7n).toString())
+		expect(ctx.client.submitted).toEqual(["0x00"])
+		expect(ctx.warn).not.toHaveBeenCalled()
+		expect(events).toEqual([])
+	})
+
+	it("lowers an order that is one unit of the token above its room", async () => {
+		const ctx = withTally(1n)
+		const { order: created } = await ctx.service.create(PAYS_USDC)
+
+		expect(await ctx.service.reconcileTallies()).toBe(1)
+
+		expect((await ctx.store.get(created.id))?.remaining).toBe((1000n * ONE - ONE / USDC_UNIT).toString())
+		expect(ctx.client.submitted).toEqual(["0x00", "0x01"])
+		expect(ctx.warn).toHaveBeenCalledTimes(1)
+	})
+
+	it("lowers an order paying an 18-decimal token that is one wei above its room", async () => {
+		// cNGN is as fine as the store's own unit, so there is no drift too small to pay out.
+		const ctx = withTally(1n)
+		const { order: created } = await ctx.service.create(REQUEST)
+
+		expect(await ctx.service.reconcileTallies()).toBe(1)
+
+		expect((await ctx.store.get(created.id))?.remaining).toBe((1_500_000n * ONE - 1n).toString())
+		expect(ctx.client.submitted).toEqual(["0x00", "0x01"])
+		expect(ctx.warn).toHaveBeenCalledTimes(1)
+	})
+
+	it("reposts an order with no dust floor at nothing when its tally has reached the cap, once", async () => {
+		// USDC has no dust floor here, so nothing closes the order: it goes back on the
+		// book at size zero and stays open, and the matcher passes over it from then on.
+		const ctx = withTally(1000n * USDC_UNIT)
+		const id = await halfDrawn(ctx)
+		const events: string[] = []
+		ctx.service.listen((event) => events.push(`${event.kind}:${event.order.remaining}`))
+
+		expect(await ctx.service.reconcileTallies()).toBe(1)
+
+		const order = (await ctx.store.get(id))!
+		expect(order.remaining).toBe("0")
+		expect(order.status).toBe("open")
+		expect(ctx.client.submitted).toEqual(["0x00", "0x01"])
+		expect(events).toEqual(["resized:0"])
+
+		expect(await ctx.service.reconcileTallies()).toBe(0)
+
+		expect(await ctx.store.get(id)).toEqual(order)
+		expect(ctx.client.submitted).toEqual(["0x00", "0x01"])
+		expect(events).toEqual(["resized:0"])
+		expect(ctx.warn).toHaveBeenCalledTimes(1)
 	})
 })
 

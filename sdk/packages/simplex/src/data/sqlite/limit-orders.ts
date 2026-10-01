@@ -292,6 +292,25 @@ export class SqliteLimitOrderStore implements LimitOrderStore {
 		return this.read(id)
 	}
 
+	async clampRemaining(id: string, room: string): Promise<LimitOrder | null> {
+		const order = this.read(id)
+		if (!order || order.status !== "open") return null
+		const sum = BigInt(room) + BigInt(order.reserved)
+		const target = sum > 0n ? sum : 0n
+		if (target >= BigInt(order.remaining)) return null
+
+		// Guarded on everything the decision was read against. A guard that fails
+		// leaves the row as the other writer left it, which is no worse than not
+		// having clamped, so it answers null and the next pass decides afresh.
+		const result = this.db
+			.prepare(`
+				UPDATE limit_orders SET remaining = ?, updated_at = datetime('now')
+				WHERE id = ? AND remaining = ? AND reserved = ? AND status = 'open'
+			`)
+			.run(target.toString(), id, order.remaining, order.reserved)
+		return result.changes === 1 ? this.read(id) : null
+	}
+
 	async release(id: string, amount: string): Promise<void> {
 		const order = this.read(id)
 		if (!order) return

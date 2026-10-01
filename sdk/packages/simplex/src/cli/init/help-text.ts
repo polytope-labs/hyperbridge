@@ -9,6 +9,8 @@ export const WHY = {
 	bundler:
 		"Fills execute as ERC-4337 UserOperations; the bundler submits them on-chain. Alchemy RPC endpoints double as bundlers, or use a dedicated provider like Pimlico.",
 	signer: "This wallet signs every fill and holds your stablecoin float on each chain. It's the identity of your filler.",
+	secretPhrase:
+		"A secret phrase is a BIP-39 mnemonic of 12 to 24 English words. The filler signs with the wallet at m/44'/60'/0'/0/0 unless you pick another account index. The phrase is written to the config file in plain text, protected only by the file's permissions, the same as a private key.",
 	substrateKey:
 		"Solver-selection orders are won by submitting signed bids to Hyperbridge. This Substrate account signs those bid extrinsics and must hold BRIDGE tokens for fees — the fees are claimed back automatically after fills.",
 	hyperbridgeWs: "WebSocket endpoint of the Hyperbridge chain, used to submit and track solver bids.",

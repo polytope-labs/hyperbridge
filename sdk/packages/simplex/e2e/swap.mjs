@@ -6,6 +6,7 @@ import { createPublicClient, createWalletClient, erc20Abi, formatUnits, http, ke
 import { privateKeyToAccount } from "viem/accounts"
 import { DEFAULT_GRAFFITI, EvmChain, IntentGateway, IntentsCoprocessor, bytes20ToBytes32 } from "@hyperbridge/sdk"
 import { FEE_TOKEN, GATEWAY, HOST, SCENARIOS, TOKENS, chains, readEnv } from "./env.mjs"
+import { refuseBest } from "./refusal.mjs"
 
 const [scenario, resultFile] = process.argv.slice(2)
 const TIMEOUT_MS = Number(process.env.E2E_SCENARIO_TIMEOUT_MIN || 10) * 60_000
@@ -56,6 +57,7 @@ async function main() {
 	log("start", { user: user.address, source: s.source, dest: s.dest, legs: s.legs })
 
 	const srcPub = createPublicClient({ chain: src.viem, transport: http(src.rpc) })
+	const dstPub = createPublicClient({ chain: dst.viem, transport: http(dst.rpc) })
 	const srcWallet = createWalletClient({ account: user, chain: src.viem, transport: http(src.rpc) })
 	for (const leg of s.legs) await ensureAllowance(srcPub, srcWallet, TOKENS[s.source][leg.tokenIn].address)
 	await ensureAllowance(srcPub, srcWallet, FEE_TOKEN)
@@ -92,6 +94,7 @@ async function main() {
 
 	const result = { scenario, user: user.address, outcome: undefined, fills: [], bidRounds: [] }
 	const deadline = Date.now() + TIMEOUT_MS
+	let placed
 	const stream = gateway.executeBest(order, DEFAULT_GRAFFITI, { auctionTimeMs: 45_000, pollIntervalMs: 5_000 })
 	let step = await nextBefore(stream, deadline)
 	try {
@@ -119,11 +122,29 @@ async function main() {
 				remainingAssets: update?.remainingAssets,
 				error: update?.error,
 			})
-			if (update?.status === "ORDER_PLACED") result.commitment = update.commitment
+			if (update?.status === "ORDER_PLACED") {
+				result.commitment = update.commitment
+				// The order as committed: the gateway takes its protocol fee off each input at
+				// placement, and bids quote what is left in escrow.
+				placed = update.order
+			}
 			if (update?.status === "BIDS_RECEIVED") {
 				result.bidRounds.push(
 					update.bids.map((bid) => ({ solver: bid.solverAddress, outputs: bid.outputs.map((output) => output.amount) })),
 				)
+				// Once, on the first round: the SDK picks a bid only when the stream is resumed.
+				if (s.check === "refusal" && !result.refusal) {
+					result.refusal = await refuseBest({
+						bids: update.bids,
+						orderInputs: (placed ?? order).inputs,
+						client: dstPub,
+						chain: dst.viem,
+						rpc: dst.rpc,
+						solverKeys: [env.solver1Key, env.solver2Key, env.solver3Key],
+						log,
+					}).catch((error) => ({ error: `could not refuse the best bid: ${String(error?.message ?? error)}` }))
+					log("refusal", result.refusal)
+				}
 			}
 			if (update?.status === "PARTIAL_FILL" || update?.status === "FILLED") {
 				result.fills.push({ solver: update.selectedSolver, transactionHash: update.transactionHash })
@@ -141,7 +162,6 @@ async function main() {
 	if (step === TIMED_OUT) log("timed-out", { fills: result.fills.length })
 	result.outcome ??= step === TIMED_OUT || Date.now() >= deadline ? "TIMEOUT" : "ENDED"
 	const received = {}
-	const dstPub = createPublicClient({ chain: dst.viem, transport: http(dst.rpc) })
 	for (const symbol of new Set(s.legs.map((leg) => leg.tokenOut))) {
 		const token = TOKENS[s.dest][symbol]
 		const balance = await dstPub.readContract({ address: token.address, abi: erc20Abi, functionName: "balanceOf", args: [user.address] })

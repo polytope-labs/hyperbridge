@@ -266,7 +266,8 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 	if (!options.signer && !globalWatchOnly && !allChainsWatchOnly(watchOnlyConfig, resolvedChains)) {
 		throw new Error(
 			"A signer is required unless every chain is watch-only: pass `signer` to Simplex.start " +
-				"(privateKeySigner, turnkeySigner, mpcVaultSigner, viemSigner, or your own Signer implementation). " +
+				"(privateKeySigner, secretPhraseSigner, turnkeySigner, mpcVaultSigner, viemSigner, or your own Signer " +
+				"implementation). " +
 				"Running the binary? Configure it under [simplex.signer].",
 		)
 	}
@@ -460,6 +461,7 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		limitOrderService,
 		{
 			reconcileIntervalSecs: config.orderbook?.reconcileIntervalSecs ?? DEFAULT_RECONCILE_INTERVAL_SECS,
+			reconcileTallies: () => intentFiller.reconcileLimitOrderTallies(),
 		},
 		options.loggers,
 	)

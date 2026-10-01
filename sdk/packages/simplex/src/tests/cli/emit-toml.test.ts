@@ -5,7 +5,9 @@ import { join } from "path"
 import { parse } from "toml"
 import { emitFillerToml, writeConfigFileAtomic } from "@/cli/init/emit-toml"
 import { validateConfig, type FillerConfigFile } from "@/config/filler-toml"
-import { SignerType } from "@/services/wallet"
+import { SignerType, signerFromToml } from "@/services/wallet"
+
+const TEST_PHRASE = "test test test test test test test test test test test junk"
 
 const minimalSameAsset: FillerConfigFile = {
 	orderbook: { url: "https://orderbook.hyperbridge.network/graphql" },
@@ -148,11 +150,26 @@ const kitchenSink: FillerConfigFile = {
 	keeper: { chains: ["EVM-8453"], intervalMinutes: 30, minSwapUsd: 25 },
 }
 
+const secretPhraseDefaultIndex: FillerConfigFile = {
+	...minimalSameAsset,
+	simplex: { ...minimalSameAsset.simplex, signer: { type: SignerType.SecretPhrase, phrase: TEST_PHRASE } },
+}
+
+const secretPhraseWithIndex: FillerConfigFile = {
+	...minimalSameAsset,
+	simplex: {
+		...minimalSameAsset.simplex,
+		signer: { type: SignerType.SecretPhrase, phrase: TEST_PHRASE, accountIndex: 1 },
+	},
+}
+
 describe("emitFillerToml", () => {
 	const fixtures: Array<[string, FillerConfigFile]> = [
 		["minimal same-asset", minimalSameAsset],
 		["cross-asset with curves", crossAssetWithCurves],
 		["kitchen sink", kitchenSink],
+		["secret phrase signer", secretPhraseDefaultIndex],
+		["secret phrase signer with an account index", secretPhraseWithIndex],
 	]
 
 	for (const [name, fixture] of fixtures) {
@@ -174,6 +191,27 @@ describe("emitFillerToml", () => {
 		const parsed = parse(emitted) as FillerConfigFile
 		expect(JSON.parse(JSON.stringify(parsed))).toEqual(JSON.parse(JSON.stringify(signerless)))
 		expect(() => validateConfig(parsed)).not.toThrow()
+	})
+
+	it("emits a secret phrase signer without accountIndex that loads to the first wallet", async () => {
+		const emitted = emitFillerToml(secretPhraseDefaultIndex)
+		expect(emitted).toContain(`[simplex.signer]\ntype = "secretPhrase"\nphrase = "${TEST_PHRASE}"\n`)
+		expect(emitted).not.toContain("accountIndex")
+
+		const parsed = parse(emitted) as FillerConfigFile
+		const signer = await signerFromToml(parsed.simplex.signer)
+		expect(signer?.address).toBe("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266")
+	})
+
+	it("emits a secret phrase signer with accountIndex that loads to that wallet", async () => {
+		const emitted = emitFillerToml(secretPhraseWithIndex)
+		expect(emitted).toContain(
+			`[simplex.signer]\ntype = "secretPhrase"\nphrase = "${TEST_PHRASE}"\naccountIndex = 1\n`,
+		)
+
+		const parsed = parse(emitted) as FillerConfigFile
+		const signer = await signerFromToml(parsed.simplex.signer)
+		expect(signer?.address).toBe("0x70997970C51812dc3A010C7d01b50e0d17dc79C8")
 	})
 
 	it("renders chain comments above each [[chains]] entry", () => {

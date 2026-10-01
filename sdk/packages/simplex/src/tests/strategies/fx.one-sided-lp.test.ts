@@ -45,6 +45,7 @@ function makeContractService(): any {
 	const bidPlans = new Map<string, unknown>()
 	return {
 		getTokenDecimals: async () => 18,
+		limitOrderSpent: async () => 0n,
 		cacheService: {
 			getPairClassifications: (id: string) => cache.get(id),
 			setPairClassifications: (id: string, pairs: unknown) => cache.set(id, pairs),

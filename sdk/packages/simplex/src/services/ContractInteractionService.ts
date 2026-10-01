@@ -22,6 +22,8 @@ import {
 	bytes20ToBytes32,
 } from "@hyperbridge/sdk"
 import { ERC20_ABI } from "@/config/abis/ERC20"
+import { SOLVER_ACCOUNT_ABI } from "@/config/abis/SolverAccount"
+import type { LimitOrderBudget } from "@/orderbook/amounts"
 import type { ChainClientManager } from "./ChainClientManager"
 import type { FillerConfigService } from "./FillerConfigService"
 import { EVM_HOST } from "@/config/abis/EvmHost"
@@ -43,6 +45,25 @@ Decimal.config({ precision: 28, rounding: 4 })
  */
 /** Call gas allowed per funding call a bid prepends: a V4 decrease-liquidity + take costs roughly 200-350k. */
 const FUNDING_GAS_PER_CALL = 400_000n
+
+/**
+ * Call gas allowed for the `debitOrder` call a budgeted bid ends with. An order's first
+ * fill writes its tally from zero, about 22k, and the allowance read and reset, the call
+ * into the account and its own arithmetic come to roughly 15k more; the rest is headroom.
+ */
+const DEBIT_ORDER_GAS = 60_000n
+
+/** What a bid's batch needs to settle its limit order's budget. */
+export interface BudgetSettlement {
+	budget: LimitOrderBudget
+	/** The solver's account, which is the only caller `debitOrder` accepts. */
+	solverAccount: HexString
+}
+
+/** Whether a bid settles this budget. A native payout moves no allowance, so there is nothing to measure it by. */
+function settles(budget: LimitOrderBudget | null | undefined): budget is LimitOrderBudget {
+	return !!budget && budget.token.toLowerCase() !== ADDRESS_ZERO
+}
 
 const LIMIT_ORDER_CALL_GAS_LIMIT = 500_000n
 const LIMIT_ORDER_VERIFICATION_GAS_LIMIT = 150_000n
@@ -323,17 +344,19 @@ export class ContractInteractionService {
 
 	/**
 	 * The call gas a bid needs: the shared estimate plus room for the funding calls
-	 * this bid prepends.
+	 * this bid prepends and for settling its limit order's budget.
 	 *
 	 * Funding calls are not simulated (the V4 PositionManager's flash accounting does
 	 * not resolve in the bundler's estimation context), so each one adds a fixed
 	 * allowance for its modifyLiquidities + take. They differ between the bids on one
 	 * order, since each draws on its own limit order and so on its own funding, which
 	 * is why this is worked out per bid rather than baked into the cached estimate.
+	 * The estimate is of a lone fillOrder, so the budget call is not in it either.
 	 */
-	private callGasLimitFor(order: Order, baseCallGasLimit: bigint): bigint {
+	private callGasLimitFor(order: Order, baseCallGasLimit: bigint, budget?: LimitOrderBudget | null): bigint {
 		const funding = order.id ? this.cacheService.getFundingPrepends(order.id) : null
-		return baseCallGasLimit + FUNDING_GAS_PER_CALL * BigInt(funding?.calls?.length ?? 0)
+		const fundingGas = FUNDING_GAS_PER_CALL * BigInt(funding?.calls?.length ?? 0)
+		return baseCallGasLimit + fundingGas + (settles(budget) ? DEBIT_ORDER_GAS : 0n)
 	}
 
 	/**
@@ -543,6 +566,28 @@ export class ContractInteractionService {
 		)
 	}
 
+	/**
+	 * What the solver's account has tallied against a limit order's budget on `chain`, in
+	 * the paid token's own units, or null when it cannot be read.
+	 *
+	 * Null rather than a throw: an account whose implementation keeps no tally answers
+	 * with a revert or with no data, and the caller carries on without the figure either
+	 * way. Not retried, since that answer does not change on a second ask.
+	 */
+	async limitOrderSpent(chain: string, budgetId: HexString): Promise<bigint | null> {
+		try {
+			return await this.clientManager.getPublicClient(chain).readContract({
+				address: this.solverAccountAddress,
+				abi: SOLVER_ACCOUNT_ABI,
+				functionName: "spent",
+				args: [budgetId],
+			})
+		} catch (err) {
+			this.logger.warn({ err, chain, budgetId }, "Could not read the limit order's tally from the solver account")
+			return null
+		}
+	}
+
 	async getSolverEntryPointBalance(chain: string): Promise<bigint> {
 		const entryPointAddress = this.configService.getEntryPointAddress(chain)
 		if (!entryPointAddress) {
@@ -710,8 +755,12 @@ export class ContractInteractionService {
 			throw new Error(`No cached gas estimate found for order ${order.id}. Call estimateGasFillPost first.`)
 		}
 
+		// Read ahead of the outputs it is cached with: if the entry expires in between, the
+		// outputs are the read that fails, and the bid is dropped rather than sent unbudgeted.
+		const budget = this.cacheService.getBidBudget(order.id!)
+
 		// The funding calls are this bid's own, set by the caller for each bid on the order.
-		const callGasLimit = this.callGasLimitFor(order, cachedEstimate.callGasLimit)
+		const callGasLimit = this.callGasLimitFor(order, cachedEstimate.callGasLimit, budget)
 
 		// Use cached filler outputs (calculated based on bps) for competitive bidding
 		const cachedFillerOutputs = this.cacheService.getFillerOutputs(order.id!)
@@ -746,6 +795,7 @@ export class ContractInteractionService {
 			cachedFillerOutputs,
 			fillOptions,
 			cachedEstimate.totalCostInSourceFeeToken + dispatchFeeTokenAmount,
+			budget ? { budget, solverAccount: solverAccountAddress } : undefined,
 		)
 
 		const commitment = orderCommitment(order)
@@ -987,12 +1037,18 @@ export class ContractInteractionService {
 	 * Same-chain fills release escrow locally with no Hyperbridge dispatch, so the
 	 * gateway never pulls the fee token — its approval is skipped. Only cross-chain
 	 * fills, which dispatch a RedeemEscrow message paid in the fee token, need it.
+	 *
+	 * A bid priced by a limit order ends with `debitOrder`, which takes the budget's id
+	 * as its `orderId`, works out what the fill paid from what is left of the allowance
+	 * and reverts the whole batch if the order's payouts would pass its size. It has to
+	 * come last, after the gateway has drawn on the allowance.
 	 */
 	public async buildApprovalAndFillCalldata(
 		order: Order,
 		fillerOutputs: TokenInfo[],
 		fillOptions: FillOptions,
 		requiredFeeTokenAmount: bigint,
+		settlement?: BudgetSettlement,
 	): Promise<HexString> {
 		const chain = order.destination
 		const intentGatewayV2Address = this.configService.getIntentGatewayAddress(chain)
@@ -1006,9 +1062,10 @@ export class ContractInteractionService {
 			perTokenRequired.set(key, (perTokenRequired.get(key) ?? 0n) + output.amount)
 		}
 
+		let feeKey: string | undefined
 		if (order.source !== order.destination) {
 			const feeToken = await this.getFeeTokenWithDecimals(chain)
-			const feeKey = feeToken.address.toLowerCase()
+			feeKey = feeToken.address.toLowerCase()
 			perTokenRequired.set(feeKey, (perTokenRequired.get(feeKey) ?? 0n) + requiredFeeTokenAmount)
 		}
 
@@ -1041,6 +1098,31 @@ export class ContractInteractionService {
 			value: nativeOutputValue,
 			data: encodeFillOrder(transformOrderForContract(order) as any, fillOptions),
 		})
+
+		if (settlement && settles(settlement.budget)) {
+			const { budget, solverAccount } = settlement
+			const budgetToken = budget.token.toLowerCase() as HexString
+			const approved = perTokenRequired.get(budgetToken) ?? 0n
+			if (approved === 0n) {
+				throw new Error(
+					`Bid on order ${order.id} approves nothing in ${budget.token}, the token budget ${budget.budgetId} is measured in`,
+				)
+			}
+			// Of what was folded into the approval for the fee token, the gateway draws only
+			// the dispatch fee; the rest stays in the allowance. It draws it whatever
+			// `nativeDispatchFee` says: the batch sends no native value for the dispatch,
+			// so the gateway takes the fee in the fee token.
+			const fee = feeKey === budgetToken ? fillOptions.relayerFee : 0n
+			calls.push({
+				target: solverAccount,
+				value: 0n,
+				data: encodeFunctionData({
+					abi: SOLVER_ACCOUNT_ABI,
+					functionName: "debitOrder",
+					args: [budget.budgetId, budget.cap, budgetToken, approved, fee],
+				}) as HexString,
+			})
+		}
 
 		return encodeERC7821ExecuteBatch(calls)
 	}

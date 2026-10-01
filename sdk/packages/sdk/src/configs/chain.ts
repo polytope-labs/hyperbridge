@@ -277,7 +277,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			UniswapV3Quoter: "0x0000000000000000000000000000000000000000",
 			UniswapV4Quoter: "0x0000000000000000000000000000000000000000",
 			EntryPointV08: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
-			SolverAccount: "0x153DB990FE3b761B54ad71D0f1A0987dF11740DB",
+			SolverAccount: "0xf98E484858F59C30e31D2695ac18F92bc7C7b799",
 		},
 		rpcEnvKey: "BSC_CHAPEL",
 		defaultRpcUrl: "https://bnb-testnet.api.onfinality.io/public",
@@ -401,7 +401,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 		},
 		addresses: {
 			IntentGateway: "0xAe041F7B0CB581876832830baeB6a2Aa2a3C9716",
-			SolverAccount: "0xd5535d4DeB17F050e52B6efda2fDe00435f39279",
+			SolverAccount: "0x77c3394CA5881A74f18139AC87D0c11F8Faa90cC",
 			TokenGateway: "0xFd413e3AFe560182C4471F4d143A96d3e259B6dE",
 			Host: "0x620128E2B19193d6Bd244a3AC8D3bBa0541B19c3",
 			UniswapRouter02: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D",
@@ -467,7 +467,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 		},
 		addresses: {
 			IntentGateway: "0xAe041F7B0CB581876832830baeB6a2Aa2a3C9716",
-			SolverAccount: "0xd5535d4DeB17F050e52B6efda2fDe00435f39279",
+			SolverAccount: "0x77c3394CA5881A74f18139AC87D0c11F8Faa90cC",
 			TokenGateway: "0xFd413e3AFe560182C4471F4d143A96d3e259B6dE",
 			Host: "0x620128E2B19193d6Bd244a3AC8D3bBa0541B19c3",
 			UniswapRouter02: "0x10ED43C718714eb63d5aA57B78B54704E256024E",
@@ -528,7 +528,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 		},
 		addresses: {
 			IntentGateway: "0xAe041F7B0CB581876832830baeB6a2Aa2a3C9716",
-			SolverAccount: "0xd5535d4DeB17F050e52B6efda2fDe00435f39279",
+			SolverAccount: "0x77c3394CA5881A74f18139AC87D0c11F8Faa90cC",
 			TokenGateway: "0xFd413e3AFe560182C4471F4d143A96d3e259B6dE",
 			Host: "0x620128E2B19193d6Bd244a3AC8D3bBa0541B19c3",
 			UniswapRouter02: "0x4752ba5DBc23f44D87826276BF6Fd6b1C372aD24",
@@ -600,7 +600,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 		},
 		addresses: {
 			IntentGateway: "0xAe041F7B0CB581876832830baeB6a2Aa2a3C9716",
-			SolverAccount: "0xd5535d4DeB17F050e52B6efda2fDe00435f39279",
+			SolverAccount: "0x77c3394CA5881A74f18139AC87D0c11F8Faa90cC",
 			TokenGateway: "0xFd413e3AFe560182C4471F4d143A96d3e259B6dE",
 			Host: "0x620128E2B19193d6Bd244a3AC8D3bBa0541B19c3",
 			UniswapRouter02: "0x4752ba5DBc23f44D87826276BF6Fd6b1C372aD24",
@@ -673,7 +673,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 		},
 		addresses: {
 			IntentGateway: "0xAe041F7B0CB581876832830baeB6a2Aa2a3C9716",
-			SolverAccount: "0xd5535d4DeB17F050e52B6efda2fDe00435f39279",
+			SolverAccount: "0x77c3394CA5881A74f18139AC87D0c11F8Faa90cC",
 			TokenGateway: "0x8b536105b6Fae2aE9199f5146D3C57Dfe53b614E",
 			Host: "0x620128E2B19193d6Bd244a3AC8D3bBa0541B19c3",
 			UniswapRouter02: "0xd2f9496824951D5237cC71245D659E48d0d5f9E8",
@@ -766,7 +766,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			Calldispatcher: "0x876F1891982E260026630c233A4897160A281Fb8",
 			Permit2: "0x000000000022D473030F116dDEE9F6B43aC78BA3",
 			EntryPointV08: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
-			SolverAccount: "0x153DB990FE3b761B54ad71D0f1A0987dF11740DB",
+			SolverAccount: "0xf98E484858F59C30e31D2695ac18F92bc7C7b799",
 		},
 		rpcEnvKey: "POLYGON_AMOY",
 		defaultRpcUrl: "https://rpc-amoy.polygon.technology",
@@ -790,7 +790,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 		},
 		addresses: {
 			IntentGateway: "0xAe041F7B0CB581876832830baeB6a2Aa2a3C9716",
-			SolverAccount: "0xd5535d4DeB17F050e52B6efda2fDe00435f39279",
+			SolverAccount: "0x77c3394CA5881A74f18139AC87D0c11F8Faa90cC",
 			TokenGateway: "0xFd413e3AFe560182C4471F4d143A96d3e259B6dE",
 			Host: "0x620128E2B19193d6Bd244a3AC8D3bBa0541B19c3",
 			UniswapRouter02: "0x4A7b5Da61326A6379179b40d00F57E5bbDC962c2",
@@ -824,7 +824,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 		},
 		addresses: {
 			IntentGateway: "0xAe041F7B0CB581876832830baeB6a2Aa2a3C9716",
-			SolverAccount: "0xd5535d4DeB17F050e52B6efda2fDe00435f39279",
+			SolverAccount: "0x77c3394CA5881A74f18139AC87D0c11F8Faa90cC",
 			TokenGateway: "0xFd413e3AFe560182C4471F4d143A96d3e259B6dE",
 			Host: "0x620128E2B19193d6Bd244a3AC8D3bBa0541B19c3",
 			UniswapRouter02: "0xB2e26652e4BAd1e56055A051f922E06760cA0BFE", // Mocked
@@ -977,7 +977,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 		},
 		addresses: {
 			IntentGateway: "0xAe041F7B0CB581876832830baeB6a2Aa2a3C9716",
-			SolverAccount: "0xd5535d4DeB17F050e52B6efda2fDe00435f39279",
+			SolverAccount: "0x77c3394CA5881A74f18139AC87D0c11F8Faa90cC",
 			Host: "0x620128E2B19193d6Bd244a3AC8D3bBa0541B19c3",
 			Calldispatcher: "0xE2C7e576E26E0bE7aC97c6fE925bcDAbD87c4bEd",
 		},

@@ -484,6 +484,7 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 			getFeeTokenWithDecimals: async () => ({ decimals: 6, address: USDC }),
 			getTokenDecimals: async (token: string) => decimalsByAddr[token.toLowerCase()] ?? 18,
 			partialFillsFor: async (o: Order) => o.output.assets.map(() => 0n),
+			limitOrderSpent: async () => 0n,
 			estimateGasFillPost: async () => ({
 				totalCostInSourceFeeToken: estimate.fillGas,
 				relayerFeeInSourceFeeToken: estimate.relayer,

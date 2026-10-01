@@ -1,19 +1,24 @@
 import { useRef, useState } from "react"
-import { api } from "../../api"
+import { ApiError, api } from "../../api"
 import { Field } from "../../components/Field"
 import { CheckIcon, CloseIcon, CopyIcon } from "../../components/InterfaceIcons"
 import { PillTabs } from "../../components/PillTabs"
 import {
+	accountIndexFormatError,
 	EVM_PRIVATE_KEY_INVALID_ERROR,
 	normalizeHexKey,
 	privateKeyFormatError,
 	type SignerType,
+	secretPhraseCredentials,
+	secretPhraseFormatError,
+	switchSignerType,
 	type WizardState,
 } from "../state"
 import type { StepProps } from "../Wizard"
 
 const SIGNER_TABS = [
 	{ value: "privateKey", label: "Private key" },
+	{ value: "secretPhrase", label: "Secret phrase" },
 	{ value: "mpcVault", label: "MPCVault" },
 	{ value: "turnkey", label: "Turnkey" },
 ] as const
@@ -22,7 +27,12 @@ const SIGNER_DESCRIPTIONS: Record<SignerType, { title: string; description: stri
 	privateKey: {
 		title: "Direct wallet control",
 		description:
-			"Use a dedicated EVM wallet. The encrypted local config is the only place this credential is stored.",
+			"Use a dedicated EVM wallet. The key is stored in the local config file in plain text, readable only by your user account.",
+	},
+	secretPhrase: {
+		title: "Wallet derived from a secret phrase",
+		description:
+			"Use a dedicated BIP-39 secret phrase. The phrase is stored in the local config file in plain text, readable only by your user account.",
 	},
 	mpcVault: {
 		title: "Institutional MPC custody",
@@ -50,8 +60,23 @@ const TURNKEY_FIELDS: ReadonlyArray<{ key: keyof WizardState["turnkey"]; label: 
 	{ key: "signWith", label: "Wallet address to sign with (0x…)" },
 ]
 
+const PRIVATE_KEY_VALIDATION = {
+	checking: "Checking the EVM private key…",
+	valid: "EVM private key is valid.",
+	empty: "Enter the EVM private key.",
+}
+
+const SECRET_PHRASE_VALIDATION = {
+	checking: "Checking the secret phrase…",
+	valid: "Secret phrase is valid.",
+	empty: "Enter the secret phrase.",
+}
+
+const SECRET_PHRASE_UNCHECKED_ERROR = "Could not check the secret phrase. Try again."
+
 export function StepSigner({ state, setState }: StepProps) {
 	const validationRequest = useRef(0)
+	const [accountIndexOpen] = useState(() => state.signerAccountIndex.trim() !== "")
 	const [copyError, setCopyError] = useState<string>()
 	const [addressCopied, setAddressCopied] = useState(false)
 	const signerDescription = SIGNER_DESCRIPTIONS[state.signerType]
@@ -103,6 +128,63 @@ export function StepSigner({ state, setState }: StepProps) {
 			})
 	}
 
+	const updateSecretPhrase = (signerPhrase: string, signerAccountIndex: string) => {
+		const requestId = ++validationRequest.current
+		setAddressCopied(false)
+		setCopyError(undefined)
+		const formatError = secretPhraseFormatError(signerPhrase) ?? accountIndexFormatError(signerAccountIndex)
+		if (formatError) {
+			setState((s) => ({
+				...s,
+				signerPhrase,
+				signerAccountIndex,
+				signerAddress: undefined,
+				signerKeyValidation: signerPhrase.trim() ? "invalid" : "empty",
+				signerKeyValidationMessage: formatError,
+			}))
+			return
+		}
+
+		setState((s) => ({
+			...s,
+			signerPhrase,
+			signerAccountIndex,
+			signerAddress: undefined,
+			signerKeyValidation: "checking",
+			signerKeyValidationMessage: undefined,
+		}))
+		void api
+			.post<{ address: string }>(
+				"/api/setup/derive-evm-address",
+				secretPhraseCredentials(signerPhrase, signerAccountIndex),
+			)
+			.then(({ address }) => {
+				if (requestId !== validationRequest.current) return
+				setState((s) => ({
+					...s,
+					signerAddress: address,
+					signerKeyValidation: "valid",
+					signerKeyValidationMessage: undefined,
+				}))
+			})
+			.catch((err) => {
+				if (requestId !== validationRequest.current) return
+				setState((s) => ({
+					...s,
+					signerAddress: undefined,
+					signerKeyValidation: "error",
+					signerKeyValidationMessage: err instanceof ApiError ? err.message : SECRET_PHRASE_UNCHECKED_ERROR,
+				}))
+			})
+	}
+
+	const changeSignerType = (signerType: SignerType) => {
+		validationRequest.current++
+		setAddressCopied(false)
+		setCopyError(undefined)
+		setState((s) => switchSignerType(s, signerType))
+	}
+
 	const copyFillerAddress = () => {
 		if (!state.signerAddress) return
 		void navigator.clipboard
@@ -115,13 +197,52 @@ export function StepSigner({ state, setState }: StepProps) {
 	}
 
 	const validation = state.signerKeyValidation ?? "empty"
+	const validationCopy = state.signerType === "secretPhrase" ? SECRET_PHRASE_VALIDATION : PRIVATE_KEY_VALIDATION
 	const validationMessage =
 		state.signerKeyValidationMessage ??
 		(validation === "checking"
-			? "Checking the EVM private key…"
+			? validationCopy.checking
 			: validation === "valid"
-				? "EVM private key is valid."
-				: "Enter the EVM private key.")
+				? validationCopy.valid
+				: validationCopy.empty)
+
+	const validationStatus = (
+		<div className={`signer-key-validation signer-key-validation-${validation}`} role="status" aria-live="polite">
+			<span className="signer-key-validation-icon" aria-hidden="true">
+				{validation === "valid" ? (
+					<CheckIcon />
+				) : validation === "checking" ? (
+					<span className="signer-key-validation-spinner" />
+				) : validation === "empty" ? (
+					<span className="signer-key-validation-dot" />
+				) : (
+					<CloseIcon />
+				)}
+			</span>
+			<span>{validationMessage}</span>
+		</div>
+	)
+
+	const fillerAddress = state.signerAddress && (
+		<aside className="filler-address-callout" aria-labelledby="filler-address-title">
+			<div className="filler-address-heading">
+				<span className="filler-address-status" aria-hidden="true">
+					<CheckIcon />
+				</span>
+				<div>
+					<strong id="filler-address-title">Filler wallet address</strong>
+					<p>Confirm this is the wallet you intend to fund.</p>
+				</div>
+			</div>
+			<div className="filler-address-value">
+				<code>{state.signerAddress}</code>
+				<button type="button" onClick={copyFillerAddress} aria-live="polite">
+					{addressCopied ? <CheckIcon aria-hidden="true" /> : <CopyIcon aria-hidden="true" />}
+					{addressCopied ? "Copied" : "Copy"}
+				</button>
+			</div>
+		</aside>
+	)
 
 	return (
 		<div className="wizard-sections signer-step">
@@ -136,7 +257,7 @@ export function StepSigner({ state, setState }: StepProps) {
 				<PillTabs
 					options={SIGNER_TABS}
 					value={state.signerType}
-					onChange={(signerType: SignerType) => setState((s) => ({ ...s, signerType }))}
+					onChange={changeSignerType}
 					className="signer-tabs"
 					ariaLabel="Filler wallet signing method"
 				/>
@@ -158,48 +279,56 @@ export function StepSigner({ state, setState }: StepProps) {
 							ariaInvalid={validation === "invalid" || validation === "error"}
 							onChange={updateSignerKey}
 						/>
-						<div className={`signer-key-validation signer-key-validation-${validation}`} role="status" aria-live="polite">
-							<span className="signer-key-validation-icon" aria-hidden="true">
-								{validation === "valid" ? (
-									<CheckIcon />
-								) : validation === "checking" ? (
-									<span className="signer-key-validation-spinner" />
-								) : validation === "empty" ? (
-									<span className="signer-key-validation-dot" />
-								) : (
-									<CloseIcon />
-								)}
-							</span>
-							<span>{validationMessage}</span>
-						</div>
+						{validationStatus}
 						<p className="credential-note">
 							Use a dedicated wallet and keep the generated config file protected. The key is checked by the local
 							Simplex server and never persisted by validation.
 						</p>
-						{state.signerAddress && (
-							<aside className="filler-address-callout" aria-labelledby="filler-address-title">
-								<div className="filler-address-heading">
-									<span className="filler-address-status" aria-hidden="true">
-										<CheckIcon />
-									</span>
-									<div>
-										<strong id="filler-address-title">Filler wallet address</strong>
-										<p>Confirm this is the wallet you intend to fund.</p>
-									</div>
-								</div>
-								<div className="filler-address-value">
-									<code>{state.signerAddress}</code>
-									<button type="button" onClick={copyFillerAddress} aria-live="polite">
-										{addressCopied ? (
-											<CheckIcon aria-hidden="true" />
-										) : (
-											<CopyIcon aria-hidden="true" />
-										)}
-										{addressCopied ? "Copied" : "Copy"}
-									</button>
-								</div>
-							</aside>
-						)}
+						{fillerAddress}
+					</div>
+				)}
+
+				{state.signerType === "secretPhrase" && (
+					<div className="signer-credentials">
+						<label className="field">
+							<span className="field-label">
+								Secret phrase (12 to 24 words, separated by spaces)
+								<span className="field-required">Required</span>
+							</span>
+							<input
+								type="password"
+								value={state.signerPhrase}
+								required
+								autoComplete="off"
+								autoCorrect="off"
+								autoCapitalize="off"
+								spellCheck={false}
+								aria-invalid={validation === "invalid" || validation === "error"}
+								onChange={(e) => updateSecretPhrase(e.target.value, state.signerAccountIndex)}
+							/>
+						</label>
+						{validationStatus}
+						<p className="credential-note">
+							Use a dedicated phrase and keep the generated config file protected. The phrase is checked by the
+							local Simplex server and never persisted by validation.
+						</p>
+						<details className="credential-note" open={accountIndexOpen}>
+							<summary style={{ cursor: "pointer" }}>Advanced: account index</summary>
+							<label className="field">
+								<span className="field-label">Account index under the phrase (empty for 0)</span>
+								<input
+									type="text"
+									inputMode="numeric"
+									value={state.signerAccountIndex}
+									placeholder="0"
+									autoComplete="off"
+									aria-invalid={accountIndexFormatError(state.signerAccountIndex) !== undefined}
+									onChange={(e) => updateSecretPhrase(state.signerPhrase, e.target.value)}
+								/>
+							</label>
+							<p>The filler wallet is the account at m/44'/60'/0'/0/index under the phrase.</p>
+						</details>
+						{fillerAddress}
 					</div>
 				)}
 

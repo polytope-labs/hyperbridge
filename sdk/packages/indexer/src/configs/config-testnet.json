@@ -37,7 +37,7 @@
 		"blockConfirmations": 5,
 		"contracts": {
 			"ethereumHost": "0x9AA003594d59C62EE17A73A569Fd7B1DbdBd71E1",
-			"handlerV1": "0x53184b424971d4b5944fdf6f52f18c3fcc4d0925",
+			"handlerV2": "0x53184b424971d4b5944fdf6f52f18c3fcc4d0925",
 			"erc6160ext20": "0xBe97E73126d66188d72FBf99029126d0340a7f18"
 		}
 	},
@@ -48,7 +48,7 @@
 		"stateMachineId": "EVM-421614",
 		"contracts": {
 			"ethereumHost": "0x9AA003594d59C62EE17A73A569Fd7B1DbdBd71E1",
-			"handlerV1": "0x53184b424971d4b5944fdf6f52f18c3fcc4d0925",
+			"handlerV2": "0x53184b424971d4b5944fdf6f52f18c3fcc4d0925",
 			"erc6160ext20": "0xBe97E73126d66188d72FBf99029126d0340a7f18"
 		}
 	},
@@ -59,7 +59,7 @@
 		"stateMachineId": "EVM-11155420",
 		"contracts": {
 			"ethereumHost": "0x9AA003594d59C62EE17A73A569Fd7B1DbdBd71E1",
-			"handlerV1": "0x53184b424971d4b5944fdf6f52f18c3fcc4d0925",
+			"handlerV2": "0x53184b424971d4b5944fdf6f52f18c3fcc4d0925",
 			"erc6160ext20": "0xBe97E73126d66188d72FBf99029126d0340a7f18"
 		}
 	},
@@ -70,7 +70,7 @@
 		"stateMachineId": "EVM-84532",
 		"contracts": {
 			"ethereumHost": "0x9AA003594d59C62EE17A73A569Fd7B1DbdBd71E1",
-			"handlerV1": "0x53184b424971d4b5944fdf6f52f18c3fcc4d0925",
+			"handlerV2": "0x53184b424971d4b5944fdf6f52f18c3fcc4d0925",
 			"erc6160ext20": "0xBe97E73126d66188d72FBf99029126d0340a7f18"
 		}
 	},
@@ -82,10 +82,13 @@
 		"unfinalizedBlocks": false,
 		"contracts": {
 			"ethereumHost": "0x9AA003594d59C62EE17A73A569Fd7B1DbdBd71E1",
-			"handlerV1": "0x53184b424971d4b5944fdf6f52f18c3fcc4d0925",
+			"handlerV2": "0x53184b424971d4b5944fdf6f52f18c3fcc4d0925",
 			"erc6160ext20": "0xBe97E73126d66188d72FBf99029126d0340a7f18",
 			"intentGatewayV3": "0x6CF42FA9BecbC5b6a26884964956b113530f7cFA",
-			"solverAccount": ["0x153DB990FE3b761B54ad71D0f1A0987dF11740DB"],
+			"solverAccount": [
+				"0x153DB990FE3b761B54ad71D0f1A0987dF11740DB",
+				"0xf98E484858F59C30e31D2695ac18F92bc7C7b799"
+			],
 			"yieldVaults": {
 				"0xa801da100bf16d07f668f4a49e1f71fc54d05177": {
 					"description": "USDC — listed so the LP balance sweep tracks the raw ERC-20 balance",
@@ -110,10 +113,13 @@
 		"unfinalizedBlocks": false,
 		"contracts": {
 			"ethereumHost": "0x9AA003594d59C62EE17A73A569Fd7B1DbdBd71E1",
-			"handlerV1": "0x53184b424971d4b5944fdf6f52f18c3fcc4d0925",
+			"handlerV2": "0x53184b424971d4b5944fdf6f52f18c3fcc4d0925",
 			"erc6160ext20": "0xBe97E73126d66188d72FBf99029126d0340a7f18",
 			"intentGatewayV3": "0x6CF42FA9BecbC5b6a26884964956b113530f7cFA",
-			"solverAccount": ["0x153DB990FE3b761B54ad71D0f1A0987dF11740DB"],
+			"solverAccount": [
+				"0x153DB990FE3b761B54ad71D0f1A0987dF11740DB",
+				"0xf98E484858F59C30e31D2695ac18F92bc7C7b799"
+			],
 			"yieldVaults": {
 				"0xbe97e73126d66188d72fbf99029126d0340a7f18": {
 					"description": "USDC — listed so the LP balance sweep tracks the raw ERC-20 balance",
@@ -134,7 +140,7 @@
 		"unfinalizedBlocks": false,
 		"contracts": {
 			"ethereumHost": "0x9AA003594d59C62EE17A73A569Fd7B1DbdBd71E1",
-			"handlerV1": "0x53184b424971d4b5944fdf6f52f18c3fcc4d0925",
+			"handlerV2": "0x53184b424971d4b5944fdf6f52f18c3fcc4d0925",
 			"erc6160ext20": "0xBe97E73126d66188d72FBf99029126d0340a7f18",
 			"yieldVaults": {
 				"0x0dc440cf87830f0af564eb8b62b454b7e0c68a4b": {
@@ -151,7 +157,7 @@
 		"stateMachineId": "EVM-3448148188",
 		"contracts": {
 			"ethereumHost": "0x8af30d750a0be06fa60a3cc61e1ee3ad5766fe86",
-			"handlerV1": "0xda9aa832cf1024862a23f9fdd47cc2358b7d549c",
+			"handlerV2": "0xda9aa832cf1024862a23f9fdd47cc2358b7d549c",
 			"erc6160ext20": "0xECa9bC828A3005B9a3b909f2cc5c2a54794DE05F",
 			"intentGatewayV3": "0xbB6BFF5Cf62cf5a091C29D88FAe88b3010F100D1"
 		}
@@ -163,7 +169,7 @@
 		"stateMachineId": "EVM-688689",
 		"contracts": {
 			"ethereumHost": "0x9AA003594d59C62EE17A73A569Fd7B1DbdBd71E1",
-			"handlerV1": "0x53184b424971d4b5944fdf6f52f18c3fcc4d0925",
+			"handlerV2": "0x53184b424971d4b5944fdf6f52f18c3fcc4d0925",
 			"erc6160ext20": "0xBe97E73126d66188d72FBf99029126d0340a7f18",
 			"intentGatewayV3": "0xb8039832c6c9266F928d038eA49A8a169300C670"
 		}

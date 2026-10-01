@@ -67,6 +67,10 @@ export function emitFillerToml(config: FillerConfigFile, options: EmitOptions = 
 		push("# Gas units to keep deposited at the ERC-4337 EntryPoint on chains without a paymaster.")
 		push(kv("targetGasUnits", config.simplex.targetGasUnits))
 	}
+	if (config.simplex.minOrderSizeUsd !== undefined) {
+		push("# Order size in USD below which an order's fees must cover gas. Default 20.")
+		push(kv("minOrderSizeUsd", config.simplex.minOrderSizeUsd))
+	}
 	push()
 
 	if (config.simplex.signer) {

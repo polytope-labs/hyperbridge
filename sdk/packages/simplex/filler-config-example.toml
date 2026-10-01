@@ -69,6 +69,18 @@ hyperbridgeWsUrl = ""
 # per chain when that is the case).
 # bidValiditySeconds = 300
 
+# Minimum order size (optional)
+# The order size, in USD, below which an order's fees must cover the cost of filling it: the
+# fill gas plus, for a cross-chain order, the relayer fee. Default: 20.
+#
+# An order worth at least this much is filled whatever fees it carries, and the margin in the
+# limit order that prices it pays for the gas. On a smaller order that margin is too thin, so
+# an order below this size whose fees fall short is skipped.
+#
+# Raise it if gas on your chains costs more than your margin earns on a $20 fill. Set it to 0
+# to never check fees. An order Simplex cannot value in dollars is treated as below it.
+# minOrderSizeUsd = 20
+
 # Gas fee bump configuration (optional)
 # These values control how much to bump gas fees for UserOperation submission
 # Both are percentages added ON TOP of the base gasPrice

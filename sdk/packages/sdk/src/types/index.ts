@@ -1336,6 +1336,13 @@ export interface EstimateFillOrderParams {
 	 * Default: 10 (10%)
 	 */
 	maxFeePerGasBumpPercent?: number
+	/**
+	 * Throw when the configured bundler fails to estimate the fill, instead of
+	 * returning fixed gas limits. A solver sets this: an op signed with limits the
+	 * bundler never simulated is a bid that cannot be relied on to execute.
+	 * Default: false
+	 */
+	requireBundlerEstimate?: boolean
 }
 
 export interface FillOrderEstimate {

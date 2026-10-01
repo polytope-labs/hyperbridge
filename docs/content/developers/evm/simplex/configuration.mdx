@@ -49,7 +49,13 @@ substratePrivateKey = "0x.."
 # Hyperbridge WebSocket endpoint
 hyperbridgeWsUrl    = "wss://nexus.rpc.polytope.technology"
 
+# Order size in USD below which an order's fees must cover gas.
+# Optional — defaults to 20. 0 never checks fees.
+minOrderSizeUsd     = 20
+
 ```
+
+`minOrderSizeUsd` decides which orders must pay for their own execution. An order worth less than this is skipped unless its `order.fees` cover the fill gas plus, for a cross-chain order, the relayer fee. An order worth at least this much is filled whatever fees it carries, and the margin in your limit order's rate pays for the gas. Raise it if gas on your chains costs more than that margin earns on a $20 fill. An order Simplex cannot value in dollars is treated as below it.
 
 ## `[orderbook]`
 

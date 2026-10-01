@@ -985,6 +985,26 @@ export class IntentFiller {
 			return null
 		}
 
+		const destinationHead = await this.destinationHead(order)
+		// A fill lands in a block after this head, and `fillOrder` reverts `Expired` once the
+		// chain is past the deadline, so a deadline at the head is already out of reach.
+		if (destinationHead !== null && order.deadline <= destinationHead) {
+			this.logger.info(
+				{
+					orderId: order.id,
+					destChain: order.destination,
+					deadline: order.deadline.toString(),
+					head: destinationHead.toString(),
+				},
+				"Skipping order: its deadline has passed on the destination chain",
+			)
+			this.monitor.emit("orderSkipped", {
+				orderId: order.id,
+				reason: "Order deadline has passed on the destination chain",
+			})
+			return null
+		}
+
 		const evalStartMs = Date.now()
 		const eligibleStrategies = await Promise.all(
 			this.strategies.map(async (strategy) => {
@@ -1001,8 +1021,14 @@ export class IntentFiller {
 		// cannot see and therefore scores at or near zero. The decision to fill at
 		// that curve was made when the curve was configured.
 		const fillsPartially = this.fillsPartially(order)
+		// So is an order at or above `minOrderSizeUsd` whose fees fall short of its gas:
+		// the strategy let it through without the fee check, and it scores the shortfall.
+		const feeCheckWaived = this.feeCheckWaived(order)
 		const validStrategies = eligibleStrategies
-			.filter((s): s is NonNullable<typeof s> => s !== null && (s.profitability > 0 || fillsPartially))
+			.filter(
+				(s): s is NonNullable<typeof s> =>
+					s !== null && (s.profitability > 0 || fillsPartially || feeCheckWaived),
+			)
 			.sort((a, b) => b.profitability - a.profitability)
 
 		const evalDurationSec = (Date.now() - evalStartMs) / 1000
@@ -1036,6 +1062,24 @@ export class IntentFiller {
 	}
 
 	/**
+	 * The destination chain's latest block number, the clock `order.deadline` is read on.
+	 *
+	 * Null when the read fails. That is not an answer about the order, so evaluation goes
+	 * on: the gas estimate simulates the same deadline check and refuses an expired order.
+	 */
+	private async destinationHead(order: Order): Promise<bigint | null> {
+		try {
+			return await this.chainClientManager.getPublicClient(order.destination).getBlockNumber()
+		} catch (err) {
+			this.logger.warn(
+				{ orderId: order.id, destChain: order.destination, err },
+				"Could not read the destination head to check the order's deadline",
+			)
+			return null
+		}
+	}
+
+	/**
 	 * Whether the strategy's evaluation concluded in a deliberate partial fill.
 	 *
 	 * Read from a flag the strategy sets only once it has an answer, never inferred
@@ -1047,6 +1091,16 @@ export class IntentFiller {
 	private fillsPartially(order: Order): boolean {
 		if (!order.id) return false
 		return this.contractService.cacheService.isPartialFill(order.id)
+	}
+
+	/**
+	 * Whether the strategy's evaluation let a bid through without the fee check, because
+	 * the order is at or above the operator's minimum size. Read from a flag the strategy
+	 * sets only once it has an answer, as {@link fillsPartially} is.
+	 */
+	private feeCheckWaived(order: Order): boolean {
+		if (!order.id) return false
+		return this.contractService.cacheService.isFeeCheckWaived(order.id)
 	}
 
 	private executeOrder(

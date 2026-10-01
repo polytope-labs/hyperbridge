@@ -24,7 +24,15 @@ Check the **Limit orders** list on the Overview page. Simplex fills only against
 
 ## **No profitable strategy found**
 
-The order matched, but `order.fees` do not cover gas plus, for cross-chain orders, the relayer fee. Or a same-asset transfer would not net a positive spread. See [How orders are matched and filled](/developers/evm/simplex/limit-orders#how-orders-are-matched-and-filled). This is normal for orders with low fees.
+The order matched, but it is worth less than [`minOrderSizeUsd`](/developers/evm/simplex/configuration#simplex) (default $20) and `order.fees` do not cover gas plus, for cross-chain orders, the relayer fee. Or a same-asset transfer would not net a positive spread. See [How orders are matched and filled](/developers/evm/simplex/limit-orders#how-orders-are-matched-and-filled). This is normal for orders with low fees.
+
+---
+
+## **An order is skipped before it is priced**
+
+`Skipping order: its deadline has passed on the destination chain` means the order cannot be filled by anyone. An order's deadline is a block number on its destination chain, set when the order is built. An order that takes too long to land on its source chain arrives already expired. The log carries the `deadline` and the destination `head` it was compared with.
+
+`Error estimating gas, not bidding on this order` means the bundler could not simulate the fill, so the fill would revert. Simplex sends no bid without the bundler's estimate. The log carries the bundler's error. If it appears on every order for a chain, check that chain's bundler URL.
 
 ---
 

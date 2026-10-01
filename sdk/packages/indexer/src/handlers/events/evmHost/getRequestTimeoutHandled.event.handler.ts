@@ -6,9 +6,7 @@ import { GetRequestService } from "@/services/getRequest.service"
 import { getBlockTimestamp } from "@/utils/rpc.helpers"
 import stringify from "safe-stable-stringify"
 import { wrap } from "@/utils/event.utils"
-import { Interface } from "@ethersproject/abi"
-import HandlerV1Abi from "@/configs/abis/HandlerV1.abi.json"
-import { GetTimeoutMessage } from "@/types/ismp"
+import { getHandlerMessageModules } from "@/utils/handler.helpers"
 import { safeArray } from "@/utils/data.helper"
 import { extractAddressFromTopic, getPriceDataFromEthereumLog, isERC20TransferEvent } from "@/utils/transfer.helpers"
 import { TransferService } from "@/services/transfer.service"
@@ -50,18 +48,7 @@ export const handleGetRequestTimeoutHandledEvent = wrap(async (event: GetRequest
 		await HyperBridgeService.incrementNumberOfTimedOutMessagesSent(chain)
 
 		// Parse transaction to extract addresses
-		let fromAddresses = [] as string[]
-		if (transaction?.input) {
-			const { name, args } = new Interface(HandlerV1Abi).parseTransaction({ data: transaction.input })
-
-			if (name === "handleGetRequestTimeouts" && args && args.length > 1) {
-				const { timeouts } = args[1] as GetTimeoutMessage
-				for (const getRequest of timeouts) {
-					const { from: getRequestFrom } = getRequest
-					fromAddresses.push(getRequestFrom)
-				}
-			}
-		}
+		const fromAddresses = getHandlerMessageModules(transaction?.input, "handleGetRequestTimeouts")
 
 		// Process transfers and update volumes
 		for (const [index, log] of safeArray(transaction.logs).entries()) {

@@ -9,6 +9,7 @@ import {
 	MAX_SYMBOL_LENGTH,
 	PRICE_TTL_MS,
 	fetchOrderbookUsdPrice,
+	fetchTokenUsdPrice,
 	resetOrderbookRates,
 } from "@/services/orderbookRates.service"
 import { safeFetch } from "@/utils/safeFetch"
@@ -92,6 +93,22 @@ test("both stables are asked for in one request, with the symbol as a variable",
 	expect(body.query).not.toContain("cNGN")
 	// The units are read off the entry, not derived from the side.
 	expect(body.query).toContain("{ base quote rate }")
+})
+
+test("a stable and a chain's own symbol for one are $1 without asking the orderbook", async () => {
+	// Polygon's USDT reports USDT0; Arbitrum's and Optimism's report USD₮0.
+	for (const symbol of ["USDC", "usdt", "USDT0", "USD₮0"]) {
+		expect((await fetchTokenUsdPrice(symbol, { url: URL, now: NOW }))?.toFixed(0)).toBe("1")
+	}
+	expect(fetchMock).not.toHaveBeenCalled()
+})
+
+test("an alias of a stable is not a quote currency", async () => {
+	respond(pricedInUsd(e18(3)))
+	await price("cNGN")
+
+	expect(sentBody().query).not.toContain("USDT0")
+	expect(sentBody().query).not.toContain("USD₮0")
 })
 
 test("the second stable answers when the first book does not quote the token", async () => {

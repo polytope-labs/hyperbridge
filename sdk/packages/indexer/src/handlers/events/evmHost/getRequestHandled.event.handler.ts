@@ -10,9 +10,7 @@ import { getPriceDataFromEthereumLog, isERC20TransferEvent, extractAddressFromTo
 import { TransferService } from "@/services/transfer.service"
 import { VolumeService } from "@/services/volume.service"
 import { safeArray } from "@/utils/data.helper"
-import HandlerV1Abi from "@/configs/abis/HandlerV1.abi.json"
-import { GetResponseMessage } from "@/types/ismp"
-import { Interface } from "@ethersproject/abi"
+import { getHandlerMessageModules } from "@/utils/handler.helpers"
 
 /**
  * Handles the GetRequestHandled event from EVMHost
@@ -51,19 +49,7 @@ export const handleGetRequestHandledEvent = wrap(async (event: GetRequestHandled
 		await HyperBridgeService.handleRequestHandledEvent(relayer_id, chain, blockTimestamp, transaction)
 
 		// Parse transaction to extract addresses
-		let fromAddresses = [] as string[]
-		if (transaction?.input) {
-			const { name, args } = new Interface(HandlerV1Abi).parseTransaction({ data: transaction.input })
-
-			if (name === "handleGetResponses" && args && args.length > 1) {
-				const getResponses = args[1] as GetResponseMessage
-				for (const getResponse of getResponses.responses) {
-					const { get } = getResponse.response
-					const { from: getRequestFrom } = get
-					fromAddresses.push(getRequestFrom)
-				}
-			}
-		}
+		const fromAddresses = getHandlerMessageModules(transaction?.input, "handleGetResponses")
 
 		// Process transfers and update volumes
 		for (const [index, log] of safeArray(transaction?.logs).entries()) {

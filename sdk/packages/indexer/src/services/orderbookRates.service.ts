@@ -17,6 +17,19 @@ import { safeFetch } from "@/utils/safeFetch"
  */
 export const STABLE_SYMBOLS = ["USDC", "USDT"]
 
+/**
+ * Symbols under which a chain's own deployment of one of those stables trades, worth the same $1.
+ * USDT0 is Tether's omnichain USDT and reports `USDT0` on Polygon and `USD₮0` on Arbitrum and
+ * Optimism. They are never quote currencies: the orderbook names its books for the stable itself.
+ */
+export const STABLE_SYMBOL_ALIASES = ["USDT0", "USD₮0"]
+
+/** Whether `symbol` is worth exactly $1, as a stable or as one of its aliases. */
+export function isStableSymbol(symbol: string): boolean {
+	const upper = symbol.toUpperCase()
+	return STABLE_SYMBOLS.includes(upper) || STABLE_SYMBOL_ALIASES.includes(upper)
+}
+
 /** A price is read with a handler blocked on it, so a slow orderbook must not hold one up for long. */
 export const FETCH_TIMEOUT_MS = 5_000
 /** How long the orderbook's answer — a rate, or "no book quotes this" — is reused for. */
@@ -114,7 +127,7 @@ export async function fetchOrderbookUsdPrice(
  * alone would ask the orderbook to price a dollar in dollars, which no book trades.
  */
 export async function fetchTokenUsdPrice(symbol: string, options: PriceOptions = {}): Promise<Decimal | null> {
-	if (STABLE_SYMBOLS.includes(symbol.toUpperCase())) return new Decimal(1)
+	if (isStableSymbol(symbol)) return new Decimal(1)
 	return fetchOrderbookUsdPrice(symbol, options)
 }
 

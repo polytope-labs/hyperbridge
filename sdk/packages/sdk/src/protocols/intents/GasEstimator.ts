@@ -1,6 +1,7 @@
 import {
 	encodeAbiParameters,
 	encodeFunctionData,
+	isAddress,
 	toHex,
 	pad,
 	maxUint256,
@@ -139,6 +140,9 @@ interface GasEstimationPricingOptions {
 }
 
 export class GasEstimator {
+	/** Call dispatchers read from a gateway, for chains whose config carries none. */
+	private readonly dispatchers = new Map<string, HexString>()
+
 	/**
 	 * @param ctx - Shared IntentsV2 context providing the source and destination
 	 *   chain clients, config service, bundler URL, and solver-code cache.
@@ -489,6 +493,30 @@ export class GasEstimator {
 	}
 
 	/**
+	 * The call dispatcher the gateway on `chain` uses: the configured address, or the one
+	 * the gateway reports when the chain's config carries none.
+	 *
+	 * {@link buildStateOverride} writes it back into the gateway's params slot. Without an
+	 * address that value is 12 bytes instead of 32, and the bundler rejects the whole
+	 * estimate as `Invalid params`.
+	 */
+	private async callDispatcher(chain: string, gateway: HexString): Promise<HexString> {
+		const configured = this.ctx.dest.configService.getCalldispatcherAddress(chain)
+		if (isAddress(configured)) return configured
+
+		const known = this.dispatchers.get(chain)
+		if (known) return known
+
+		const params = await this.ctx.dest.client.readContract({
+			abi: IntentGatewayV2ABI,
+			address: gateway,
+			functionName: "params",
+		})
+		this.dispatchers.set(chain, params.dispatcher as HexString)
+		return params.dispatcher as HexString
+	}
+
+	/**
 	 * Asks the bundler for the `preVerificationGas` of the bid UserOperation that will
 	 * actually be signed, with every funding call, approval and signature byte in it.
 	 *
@@ -649,7 +677,7 @@ export class GasEstimator {
 			// Written back with that byte cleared, the simulated fill skips the selection check,
 			// which is what lets `estimateFillOrder` simulate the user's real order.
 			const paramsSlot5 = pad(toHex(5n), { size: 32 }) as HexString
-			const dispatcherAddress = this.ctx.dest.configService.getCalldispatcherAddress(chain)
+			const dispatcherAddress = await this.callDispatcher(chain, intentGatewayV2Address)
 			const newSlot5Value = ("0x" + "0".repeat(22) + "00" + dispatcherAddress.slice(2).toLowerCase()) as HexString
 
 			const gatewayDiffs = [{ slot: paramsSlot5, value: newSlot5Value }]

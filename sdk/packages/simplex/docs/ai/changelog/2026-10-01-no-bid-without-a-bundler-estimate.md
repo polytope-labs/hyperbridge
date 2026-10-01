@@ -16,6 +16,18 @@ still get a fee quote when the bundler is unavailable.
 throws, the FX strategy scores the order at zero, and no bid is sent. The service logs
 `Error estimating gas, not bidding on this order` with the order id and the bundler's error.
 
+## Chains with no configured call dispatcher
+
+`GasEstimator.buildStateOverride` rewrites the gateway's params slot 5 with the chain's call
+dispatcher address from `ChainConfigService`. BSC testnet, Gnosis Chiado, Pharos Atlantic and
+Asset Hub Paseo have a gateway but no `Calldispatcher` in their config, so the value written was
+12 bytes instead of 32. The bundler rejected every estimate on those chains as `Invalid params`,
+and fills there only ever went out on the fixed limits.
+
+When the config carries no dispatcher, the estimator now reads `params().dispatcher` from the
+gateway, once per chain. Estimates on those chains succeed, so requiring one does not stop bids
+there.
+
 ## An expired order
 
 `order.deadline` is a block number on the destination chain, and `fillOrder` reverts `Expired()`

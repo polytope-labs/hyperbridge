@@ -62,6 +62,29 @@ export interface OrderbookSnapshot extends Book {
 	granularity: string | null
 }
 
+/** One solver's order inside a price level. Prices and sizes are decimal integer strings at 1e18. */
+export interface OrderbookLevelOrder {
+	solver: string
+	commitment: string
+	fillChain: string
+	price: string
+	/** What the order publishes as depth, in the token its side pays out: quote for bids, base for asks. */
+	advertisedSize: string
+	/** The signed output before any balance cap, in the same token as `advertisedSize`. */
+	quotedAmount: string
+	/** True when the solver's balance, not the quote, binds `advertisedSize`. */
+	resized: boolean
+	expiresAt: string
+	acceptedSources: string[]
+}
+
+export interface OrderbookLevelQuery {
+	side: "BID" | "ASK"
+	fillChain: string
+	priceBucket: string
+	sourceChain?: string
+}
+
 export interface OrderbookFilters {
 	sourceChain?: string
 	fillChain?: string

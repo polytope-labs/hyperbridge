@@ -294,6 +294,32 @@ describe("UiServer (operator mode)", () => {
 		expect(await response.json()).toEqual({ error: "offline" })
 	})
 
+	it("reads one level's orders and validates the level", async () => {
+		const read = vi.fn().mockResolvedValue([])
+		const { base } = await startServer({
+			limitOrders: { orderbookLevelOrders: read } as unknown as OperatorContext["limitOrders"],
+		})
+		const level = "book=USDC-cNGN&side=BID&fillChain=EVM-8453&priceBucket=1357990000000000000000"
+		const response = await fetch(`${base}/api/orderbook/level-orders?${level}&sourceChain=EVM-1`)
+		expect(response.status).toBe(200)
+		expect(await response.json()).toEqual([])
+		expect(read).toHaveBeenCalledWith("USDC-cNGN", {
+			side: "BID",
+			fillChain: "EVM-8453",
+			priceBucket: "1357990000000000000000",
+			sourceChain: "EVM-1",
+		})
+		for (const query of [
+			"side=BID&fillChain=EVM-8453&priceBucket=1",
+			"book=a&side=MID&fillChain=EVM-8453&priceBucket=1",
+			"book=a&side=ASK&priceBucket=1",
+			"book=a&side=ASK&fillChain=EVM-8453&priceBucket=1.5",
+		]) {
+			expect((await fetch(`${base}/api/orderbook/level-orders?${query}`)).status).toBe(400)
+		}
+		expect(read).toHaveBeenCalledTimes(1)
+	})
+
 	it("serves health and status", async () => {
 		const { base } = await startServer()
 		const health = await fetch(`${base}/health`)

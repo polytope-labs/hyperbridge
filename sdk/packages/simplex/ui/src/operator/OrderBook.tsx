@@ -105,7 +105,15 @@ export function OrderBook() {
 				)}
 			</section>
 			{unavailable || isEmpty ? null : top ? (
-				<OrderbookLadder key={state.key} top={top} base={base} quote={quote} chainLabel={chainLabel} />
+				<OrderbookLadder
+					key={state.key}
+					book={book.id}
+					sourceChain={sourceChain}
+					top={top}
+					base={base}
+					quote={quote}
+					chainLabel={chainLabel}
+				/>
 			) : (
 				<div className="orderbook-card orderbook-skeleton-panel" aria-hidden="true" />
 			)}

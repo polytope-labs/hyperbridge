@@ -51,4 +51,59 @@ describe("public order book snapshot", () => {
 			"Book unavailable",
 		)
 	})
+	it("walks a side's orders and keeps only the clicked level's bucket", async () => {
+		const node = (bucket: string, commitment: string) => ({
+			solver: { address: "0xce319986ca4d5d0893751a628d0db3dc8fc91d62" },
+			commitment,
+			fillChain: "EVM-8453",
+			price: "1357999999990173608026",
+			priceBucket: bucket,
+			advertisedSize: "1",
+			quotedAmount: "2",
+			resized: true,
+			expiresAt: "2027-10-01T20:31:55Z",
+			acceptedSources: ["EVM-1", "EVM-8453"],
+		})
+		const page = (nodes: unknown[], endCursor: string | null) => ({
+			data: {
+				book: {
+					orders: { edges: nodes.map((node) => ({ node })), pageInfo: { hasNextPage: !!endCursor, endCursor } },
+				},
+			},
+		})
+		const mock = vi
+			.spyOn(globalThis, "fetch")
+			.mockResolvedValueOnce(new Response(JSON.stringify(page([node("1357", "0xa"), node("1356", "0xb")], "c1"))))
+			.mockResolvedValueOnce(new Response(JSON.stringify(page([node("1357", "0xc")], null))))
+		const orders = await new OrderbookClient("https://book/graphql", 5000).levelOrders("USDC-cNGN", {
+			side: "BID",
+			fillChain: "EVM-8453",
+			priceBucket: "1357",
+			sourceChain: "EVM-1",
+		})
+		expect(orders?.map((order) => order.commitment)).toEqual(["0xa", "0xc"])
+		expect(orders?.[0]).toEqual({
+			solver: "0xce319986ca4d5d0893751a628d0db3dc8fc91d62",
+			commitment: "0xa",
+			fillChain: "EVM-8453",
+			price: "1357999999990173608026",
+			advertisedSize: "1",
+			quotedAmount: "2",
+			resized: true,
+			expiresAt: "2027-10-01T20:31:55Z",
+			acceptedSources: ["EVM-1", "EVM-8453"],
+		})
+		const second = JSON.parse(mock.mock.calls[1][1]!.body as string).variables
+		expect(second).toEqual({ id: "USDC-cNGN", side: "BID", fillChain: "EVM-8453", sourceChain: "EVM-1", after: "c1" })
+	})
+	it("reports a missing book for level orders as null", async () => {
+		vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ data: { book: null } })))
+		expect(
+			await new OrderbookClient("https://book/graphql", 5000).levelOrders("nope", {
+				side: "ASK",
+				fillChain: "EVM-1",
+				priceBucket: "1",
+			}),
+		).toBeNull()
+	})
 })

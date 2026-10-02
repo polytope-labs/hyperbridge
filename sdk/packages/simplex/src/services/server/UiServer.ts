@@ -181,7 +181,7 @@ export interface OperatorContext {
 	/** The operator's limit orders. Always present: simplex prices from them. */
 	limitOrders: Pick<
 		LimitOrderController,
-		"list" | "get" | "withFills" | "create" | "cancel" | "books" | "orderbookSnapshot"
+		"list" | "get" | "withFills" | "create" | "cancel" | "books" | "orderbookSnapshot" | "orderbookLevelOrders"
 	>
 	/** Persists an operator pause so it survives a restart. */
 	setPaused(paused: boolean): Promise<void>
@@ -969,6 +969,29 @@ export class UiServer {
 				this.operator!.limitOrders.orderbookSnapshot(book, {
 					sourceChain: params.get("sourceChain") || undefined,
 					fillChain: params.get("fillChain") || undefined,
+				}),
+			)
+		}
+
+		if (path === "/api/orderbook/level-orders") {
+			if (this.mode !== "operator") return sendJson(res, 409, { error: "Filler is not running" })
+			if (method !== "GET") return sendJson(res, 405, { error: "Method not allowed" })
+			const params = new URL(req.url ?? "/", "http://localhost").searchParams
+			const book = params.get("book")?.trim()
+			const side = params.get("side")
+			const fillChain = params.get("fillChain")?.trim()
+			const priceBucket = params.get("priceBucket")?.trim()
+			if (!book) return sendJson(res, 400, { error: "A book is required" })
+			if (side !== "BID" && side !== "ASK") return sendJson(res, 400, { error: "side must be BID or ASK" })
+			if (!fillChain) return sendJson(res, 400, { error: "A fill chain is required" })
+			if (!priceBucket || !/^\d+$/.test(priceBucket))
+				return sendJson(res, 400, { error: "priceBucket must be an integer" })
+			return this.handleLimitOrders(res, () =>
+				this.operator!.limitOrders.orderbookLevelOrders(book, {
+					side,
+					fillChain,
+					priceBucket,
+					sourceChain: params.get("sourceChain") || undefined,
 				}),
 			)
 		}

@@ -8,6 +8,8 @@ import type {
 	OrderbookLimits,
 	OrderbookSnapshot,
 	OrderbookFilters,
+	OrderbookLevelOrder,
+	OrderbookLevelQuery,
 	PostedOrder,
 	PostedOrderPage,
 	RejectionCode,
@@ -46,6 +48,25 @@ const SNAPSHOT_QUERY = `
 		serverInfo { priceGranularities { book granularity } }
 	}
 `
+
+const LEVEL_ORDERS_QUERY = `
+	query OrderbookLevelOrders($id: ID!, $side: Side!, $fillChain: String, $sourceChain: String, $after: String) {
+		book(id: $id) {
+			orders(side: $side, fillChain: $fillChain, sourceChain: $sourceChain, first: 50, after: $after) {
+				edges {
+					node {
+						solver { address }
+						commitment fillChain price priceBucket advertisedSize quotedAmount resized expiresAt acceptedSources
+					}
+				}
+				pageInfo { hasNextPage endCursor }
+			}
+		}
+	}
+`
+
+/** A level holds a handful of orders; this bounds the walk if a side ever grows very deep. */
+const LEVEL_ORDER_PAGES = 20
 
 const POSTED_ORDER_FIELDS = "commitment side status price quotedAmount advertisedSize expiresAt acceptedSources"
 
@@ -109,6 +130,7 @@ const CANCEL_ORDER_MUTATION = `
 export const ORDERBOOK_DOCUMENTS = {
 	limits: LIMITS_QUERY,
 	snapshot: SNAPSHOT_QUERY,
+	levelOrders: LEVEL_ORDERS_QUERY,
 	submitOrder: SUBMIT_ORDER_MUTATION,
 	heartbeat: HEARTBEAT_MUTATION,
 	myOrders: MY_ORDERS_QUERY,
@@ -182,6 +204,34 @@ export class OrderbookClient {
 		if (!book) return null
 		const granularity = serverInfo.priceGranularities.find((entry) => entry.book === book.id)?.granularity ?? null
 		return { ...book, granularity }
+	}
+
+	/**
+	 * The orders behind one price level. The orderbook filters orders by side and route but not by
+	 * price bucket, so this walks the side's orders on the level's fill chain and keeps the bucket.
+	 * Null when the book does not exist.
+	 */
+	async levelOrders(id: string, level: OrderbookLevelQuery): Promise<OrderbookLevelOrder[] | null> {
+		const found: OrderbookLevelOrder[] = []
+		let after: string | null = null
+		for (let page = 0; page < LEVEL_ORDER_PAGES; page++) {
+			const { book }: { book: { orders: RawLevelOrderPage } | null } = await this.request(LEVEL_ORDERS_QUERY, {
+				id,
+				side: level.side,
+				fillChain: level.fillChain,
+				sourceChain: level.sourceChain || null,
+				after,
+			})
+			if (!book) return null
+			for (const { node } of book.orders.edges) {
+				if (node.priceBucket !== level.priceBucket) continue
+				const { solver, priceBucket: _bucket, ...order } = node
+				found.push({ ...order, solver: solver.address })
+			}
+			if (!book.orders.pageInfo.hasNextPage || !book.orders.pageInfo.endCursor) break
+			after = book.orders.pageInfo.endCursor
+		}
+		return found
 	}
 
 	async submitOrder(userOp: HexString): Promise<SubmitOrderResult> {
@@ -343,4 +393,9 @@ interface RawCancelOrder {
 	commitment?: HexString
 	code?: string
 	message?: string
+}
+
+interface RawLevelOrderPage {
+	edges: { node: Omit<OrderbookLevelOrder, "solver"> & { solver: { address: string }; priceBucket: string } }[]
+	pageInfo: { hasNextPage: boolean; endCursor: string | null }
 }

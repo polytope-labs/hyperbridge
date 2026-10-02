@@ -1,45 +1,38 @@
 import { type ReactNode, useState } from "react"
-import { ChainLogo } from "../../components/ChainLogo"
+import { OrderbookLevelDialog } from "./OrderbookLevelDialog"
 import { formatPrice, formatSize, formatSpreadBps, type DepthLevel, type TopOfBook } from "./orderbookModel"
 
 /** Deep books are the goal, but a ladder taller than this stops being one. */
 const COLLAPSED_LEVEL_COUNT = 8
-const COLUMN_COUNT = 6
+const COLUMN_COUNT = 3
 
-function LevelRow(props: { level: DepthLevel; decimals: number; quote: string; chainLabel: (id: string) => string }) {
-	const { level, decimals, quote, chainLabel } = props
+function LevelRow(props: { level: DepthLevel; decimals: number; onOpen: (level: DepthLevel) => void }) {
+	const { level, decimals, onOpen } = props
 	const price = formatPrice(level.price, decimals)
-	const chain = chainLabel(level.fillChain)
+	const orders = `${level.orderCount} ${level.orderCount === 1 ? "order" : "orders"}`
 
 	return (
-		<div role="row" className="orderbook-grid orderbook-level" data-side={level.side}>
+		<div
+			role="row"
+			tabIndex={0}
+			aria-haspopup="dialog"
+			aria-label={`${level.side === "BID" ? "Buy" : "Sell"} level ${price}, ${orders}. Show solvers and orders`}
+			className="orderbook-grid orderbook-level"
+			data-side={level.side}
+			onClick={() => onOpen(level)}
+			onKeyDown={(event) => {
+				if (event.key !== "Enter" && event.key !== " ") return
+				event.preventDefault()
+				onOpen(level)
+			}}
+		>
 			{/* The depth bar runs from the price column, so size and depth read in one sweep. */}
 			<span aria-hidden="true" className="orderbook-level-bar" style={{ width: `${Math.max(1, level.depthRatio)}%` }} />
-			<span
-				role="cell"
-				className="orderbook-level-price"
-				title={`Worst price ${formatPrice(level.worstPrice, decimals)} ${quote}`}
-			>
+			<span role="cell" className="orderbook-level-price">
 				{price}
-			</span>
-			<span role="cell" className="orderbook-col-extra orderbook-chain">
-				<span className="orderbook-chain-icon" aria-hidden="true">
-					<ChainLogo label={chain} />
-				</span>
-				{chain}
-			</span>
-			<span
-				role="cell"
-				className="orderbook-col-extra orderbook-num orderbook-muted"
-				title={`${level.orderCount} ${level.orderCount === 1 ? "order" : "orders"} from ${level.solverCount} ${level.solverCount === 1 ? "solver" : "solvers"}`}
-			>
-				{level.orderCount} · {level.solverCount}
 			</span>
 			<span role="cell" className="orderbook-num">
 				{formatSize(level.baseSize)}
-			</span>
-			<span role="cell" className="orderbook-col-extra orderbook-num">
-				{formatSize(level.quoteSize)}
 			</span>
 			<span role="cell" className="orderbook-num">
 				{formatSize(level.cumulativeBase)}
@@ -73,19 +66,22 @@ function EmptySide({ children }: { children: ReactNode }) {
 }
 
 export function OrderbookLadder(props: {
+	book: string
+	sourceChain: string
 	top: TopOfBook
 	base: string
 	quote: string
 	chainLabel: (id: string) => string
 }) {
-	const { top, base, quote, chainLabel } = props
+	const { book, sourceChain, top, base, quote, chainLabel } = props
 	const [expanded, setExpanded] = useState(false)
+	const [openLevel, setOpenLevel] = useState<DepthLevel | null>(null)
 	const hiddenCount =
 		Math.max(0, top.asks.length - COLLAPSED_LEVEL_COUNT) + Math.max(0, top.bids.length - COLLAPSED_LEVEL_COUNT)
 	const asks = expanded ? top.asks : top.asks.slice(0, COLLAPSED_LEVEL_COUNT)
 	const bids = expanded ? top.bids : top.bids.slice(0, COLLAPSED_LEVEL_COUNT)
 	const row = (level: DepthLevel) => (
-		<LevelRow key={level.id} level={level} decimals={top.priceDecimals} quote={quote} chainLabel={chainLabel} />
+		<LevelRow key={level.id} level={level} decimals={top.priceDecimals} onOpen={setOpenLevel} />
 	)
 
 	return (
@@ -98,16 +94,7 @@ export function OrderbookLadder(props: {
 			<div role="table" aria-label={`${base}/${quote} bids and asks`}>
 				<div role="row" className="orderbook-grid orderbook-columns">
 					<span role="columnheader">Price ({quote})</span>
-					<span role="columnheader" className="orderbook-col-extra">
-						Fill chain
-					</span>
-					<span role="columnheader" className="orderbook-col-extra">
-						Orders · solvers
-					</span>
 					<span role="columnheader">Size ({base})</span>
-					<span role="columnheader" className="orderbook-col-extra">
-						Total ({quote})
-					</span>
 					<span role="columnheader">Sum ({base})</span>
 				</div>
 
@@ -119,13 +106,15 @@ export function OrderbookLadder(props: {
 					<EmptySide>Nobody is selling {base} on this book.</EmptySide>
 				)}
 
-				<div role="row" className="orderbook-mid">
-					<span role="cell" aria-colspan={COLUMN_COUNT} className="orderbook-mid-cell">
-						<span className="orderbook-muted">Mid</span>
-						<span className="orderbook-num">{formatPrice(top.mid, top.priceDecimals)}</span>
-						<span className="orderbook-mid-bps">
-							Spread {top.crossed ? "crossed" : top.spread ? formatSpreadBps(top.spreadBps) : "—"}
-						</span>
+				<div role="row" className="orderbook-grid orderbook-mid">
+					<span role="cell" className="orderbook-muted">
+						Mid
+					</span>
+					<span role="cell" className="orderbook-num">
+						{formatPrice(top.mid, top.priceDecimals)}
+					</span>
+					<span role="cell" className="orderbook-mid-bps">
+						{top.crossed ? "crossed" : top.spread ? formatSpreadBps(top.spreadBps) : "—"}
 					</span>
 				</div>
 
@@ -149,6 +138,17 @@ export function OrderbookLadder(props: {
 			) : (
 				<div className="orderbook-ladder-foot" />
 			)}
+
+			<OrderbookLevelDialog
+				book={book}
+				level={openLevel}
+				sourceChain={sourceChain}
+				base={base}
+				quote={quote}
+				decimals={top.priceDecimals}
+				chainLabel={chainLabel}
+				onClose={() => setOpenLevel(null)}
+			/>
 		</section>
 	)
 }

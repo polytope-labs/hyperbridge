@@ -27,6 +27,7 @@ import type {
 	HeartbeatResult,
 	OrderbookLimits,
 	OrderbookFilters,
+	OrderbookLevelQuery,
 	PostedOrder,
 	SubmitOrderResult,
 	TokenMinSize,
@@ -360,6 +361,11 @@ export class LimitOrderService {
 	/** Public market levels read through the configured orderbook client. */
 	orderbookSnapshot(book: string, filters: OrderbookFilters = {}) {
 		return this.client.snapshot(book, filters)
+	}
+
+	/** Every solver's order behind one public price level. */
+	orderbookLevelOrders(book: string, level: OrderbookLevelQuery) {
+		return this.client.levelOrders(book, level)
 	}
 
 	/**

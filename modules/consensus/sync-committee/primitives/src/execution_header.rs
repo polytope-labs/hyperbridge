@@ -15,7 +15,7 @@
 //! state at that slot, which is also the first finalized checkpoint after the fork, carries the
 //! hash of the last Prague block, and that header has neither field.
 
-use alloy_primitives::{keccak256, Address, Bloom, Bytes, B256, B64, U256};
+use alloy_primitives::{keccak256, Address, Bloom, Bytes, B256, B64};
 use alloy_rlp_derive::{RlpDecodable, RlpEncodable};
 
 /// Recover the block hash from the rlp encoded header. The bytes are hashed exactly as supplied,

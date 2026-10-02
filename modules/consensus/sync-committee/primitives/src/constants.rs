@@ -1,5 +1,4 @@
 use crate::domains::DomainType;
-use tree_hash::Hash256;
 
 pub type BlsPublicKey = ByteVector<BLS_PUBLIC_KEY_BYTES_LEN>;
 pub type BlsSignature = ByteVector<BLS_SIGNATURE_BYTES_LEN>;
@@ -59,14 +58,6 @@ pub const MAX_EXTRA_DATA_BYTES: usize = 32;
 pub const DEPOSIT_PROOF_LENGTH: usize = 33;
 
 pub const DOMAIN_SYNC_COMMITTEE: DomainType = DomainType::SyncCommittee;
-
-pub const FINALIZED_ROOT_INDEX: u64 = 52;
-pub const EXECUTION_PAYLOAD_INDEX: u64 = 56;
-pub const NEXT_SYNC_COMMITTEE_INDEX: u64 = 55;
-
-pub const FINALIZED_ROOT_INDEX_LOG2: u64 = 5;
-pub const EXECUTION_PAYLOAD_INDEX_LOG2: u64 = 5;
-pub const NEXT_SYNC_COMMITTEE_INDEX_LOG2: u64 = 5;
 
 pub const ETH1_DATA_VOTES_BOUND_ETH: usize = (EPOCHS_PER_ETH1_VOTING_PERIOD * 32) as usize;
 pub const ETH1_DATA_VOTES_BOUND_GNO: usize = (EPOCHS_PER_ETH1_VOTING_PERIOD * 16) as usize;
@@ -176,9 +167,6 @@ pub trait Config {
 	const EXECUTION_PAYLOAD_INDEX: u64;
 	const NEXT_SYNC_COMMITTEE_INDEX: u64;
 	const FINALIZED_ROOT_INDEX: u64;
-	const FINALIZED_ROOT_INDEX_LOG2: u64;
-	const EXECUTION_PAYLOAD_INDEX_LOG2: u64;
-	const NEXT_SYNC_COMMITTEE_INDEX_LOG2: u64;
 	const ELECTRA_FORK_VERSION: Version;
 	const ELECTRA_FORK_EPOCH: Epoch;
 	const FULU_FORK_VERSION: Version;
@@ -248,9 +236,6 @@ pub mod sepolia {
 		const EXECUTION_PAYLOAD_INDEX: u64 = 88;
 		const NEXT_SYNC_COMMITTEE_INDEX: u64 = 87;
 		const FINALIZED_ROOT_INDEX: u64 = 84;
-		const FINALIZED_ROOT_INDEX_LOG2: u64 = 6;
-		const EXECUTION_PAYLOAD_INDEX_LOG2: u64 = 6;
-		const NEXT_SYNC_COMMITTEE_INDEX_LOG2: u64 = 6;
 		const ELECTRA_FORK_VERSION: Version = hex_literal::hex!("90000074");
 		const ELECTRA_FORK_EPOCH: Epoch = 222464;
 		const FULU_FORK_EPOCH: Epoch = 272640;
@@ -287,9 +272,6 @@ pub mod mainnet {
 		const EXECUTION_PAYLOAD_INDEX: u64 = 88;
 		const NEXT_SYNC_COMMITTEE_INDEX: u64 = 87;
 		const FINALIZED_ROOT_INDEX: u64 = 84;
-		const FINALIZED_ROOT_INDEX_LOG2: u64 = 6;
-		const EXECUTION_PAYLOAD_INDEX_LOG2: u64 = 6;
-		const NEXT_SYNC_COMMITTEE_INDEX_LOG2: u64 = 6;
 		const ELECTRA_FORK_VERSION: Version = hex_literal::hex!("05000000");
 		const ELECTRA_FORK_EPOCH: Epoch = 364032;
 		const FULU_FORK_EPOCH: Epoch = 411392;
@@ -326,9 +308,6 @@ pub mod gnosis {
 		const EXECUTION_PAYLOAD_INDEX: u64 = 88;
 		const NEXT_SYNC_COMMITTEE_INDEX: u64 = 87;
 		const FINALIZED_ROOT_INDEX: u64 = 84;
-		const FINALIZED_ROOT_INDEX_LOG2: u64 = 6;
-		const EXECUTION_PAYLOAD_INDEX_LOG2: u64 = 6;
-		const NEXT_SYNC_COMMITTEE_INDEX_LOG2: u64 = 6;
 		const ELECTRA_FORK_VERSION: Version = hex_literal::hex!("05000064");
 		const ELECTRA_FORK_EPOCH: Epoch = 1337856;
 		const FULU_FORK_EPOCH: Epoch = 1714688;
@@ -361,9 +340,6 @@ pub mod gnosis {
 		const EXECUTION_PAYLOAD_INDEX: u64 = 88;
 		const NEXT_SYNC_COMMITTEE_INDEX: u64 = 87;
 		const FINALIZED_ROOT_INDEX: u64 = 84;
-		const FINALIZED_ROOT_INDEX_LOG2: u64 = 6;
-		const EXECUTION_PAYLOAD_INDEX_LOG2: u64 = 6;
-		const NEXT_SYNC_COMMITTEE_INDEX_LOG2: u64 = 6;
 		const ELECTRA_FORK_VERSION: Version = hex_literal::hex!("0500006f");
 		const ELECTRA_FORK_EPOCH: Epoch = 948224;
 		const FULU_FORK_EPOCH: Epoch = 1353216;
@@ -412,9 +388,6 @@ pub mod devnet {
 		const EXECUTION_PAYLOAD_INDEX: u64 = 88;
 		const NEXT_SYNC_COMMITTEE_INDEX: u64 = 87;
 		const FINALIZED_ROOT_INDEX: u64 = 84;
-		const FINALIZED_ROOT_INDEX_LOG2: u64 = 6;
-		const EXECUTION_PAYLOAD_INDEX_LOG2: u64 = 6;
-		const NEXT_SYNC_COMMITTEE_INDEX_LOG2: u64 = 6;
 		const ID: [u8; 4] = BEACON_CONSENSUS_ID;
 	}
 }

@@ -1,14 +1,13 @@
 use super::write_bytes_to_lower_hex;
-use alloc::{vec, vec::Vec};
+use alloc::vec::Vec;
 use core::{
 	fmt,
 	hash::{Hash, Hasher},
 	ops::{Deref, DerefMut},
 };
-use ssz_types::{typenum::Unsigned, FixedVector, VariableList};
-use tree_hash::Hash256;
+use ssz_types::{typenum::Unsigned, VariableList};
 
-#[derive(Default, Clone, codec::Encode, codec::Decode)]
+#[derive(Default, Clone)]
 pub struct ByteList<N: Unsigned>(VariableList<u8, N>);
 
 // Derived `Eq` would demand `N: Eq`, but `N` is a type level integer that never appears in a value.

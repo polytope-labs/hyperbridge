@@ -4,7 +4,6 @@ use crate::{
 	domains::DomainType,
 };
 use anyhow::anyhow;
-use ssz_types::{typenum::Unsigned, FixedVector, VariableList};
 use tree_hash::TreeHash;
 
 /// Returns true if sync committee update is required

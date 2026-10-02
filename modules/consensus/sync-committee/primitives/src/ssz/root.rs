@@ -14,7 +14,7 @@
 //!
 //! Being a plain array also keeps `Root` `Copy`, which is what `Node` was.
 
-use alloc::{vec, vec::Vec};
+use alloc::vec::Vec;
 use core::{
 	cmp::Ordering,
 	fmt,

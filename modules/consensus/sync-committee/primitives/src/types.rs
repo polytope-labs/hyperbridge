@@ -5,7 +5,6 @@ use crate::{
 };
 use alloc::vec::Vec;
 use primitive_types::H256;
-use tree_hash::Hash256;
 
 /// This holds the relevant data required to prove the state root in the execution payload.
 ///

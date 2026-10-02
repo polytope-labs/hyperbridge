@@ -8,12 +8,11 @@
 
 use crate::{
 	constants::{
-		BlsPublicKey, BlsSignature, Bytes32, Epoch, ExecutionAddress, Gwei, Hash32, Root, Slot,
-		ValidatorIndex,
+		BlsPublicKey, Bytes32, Epoch, ExecutionAddress, Gwei, Hash32, Root, Slot, ValidatorIndex,
 	},
 	deneb::KzgCommitment,
 };
-use ssz_types::{typenum::Unsigned, BitVector, FixedVector, ProgressiveList, VariableList};
+use ssz_types::ProgressiveList;
 
 /// Index into the builder registry.
 pub type BuilderIndex = u64;
@@ -25,6 +24,7 @@ pub const PTC_SIZE: usize = 512;
 pub const MAX_PAYLOAD_ATTESTATIONS: usize = 4;
 
 pub const BUILDER_REGISTRY_LIMIT: usize = 2usize.saturating_pow(40);
+
 pub const BUILDER_PENDING_WITHDRAWALS_LIMIT: usize = 2usize.saturating_pow(20);
 
 /// Type level counterparts of the bounds above, sharing their names. See `constants::bounds`.
@@ -143,59 +143,4 @@ pub struct ExecutionPayloadBid {
 	pub execution_payment: Gwei,
 	pub blob_kzg_commitments: ProgressiveList<KzgCommitment>,
 	pub execution_requests_root: Root,
-}
-
-#[derive(
-	Default,
-	Debug,
-	ssz_derive::Encode,
-	ssz_derive::Decode,
-	tree_hash_derive::TreeHash,
-	Clone,
-	PartialEq,
-	Eq,
-)]
-#[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "std", serde(bound = ""))]
-pub struct SignedExecutionPayloadBid {
-	pub message: ExecutionPayloadBid,
-	pub signature: BlsSignature,
-}
-
-#[derive(
-	Default,
-	Debug,
-	ssz_derive::Encode,
-	ssz_derive::Decode,
-	tree_hash_derive::TreeHash,
-	Clone,
-	PartialEq,
-	Eq,
-)]
-#[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
-pub struct PayloadAttestationData {
-	pub beacon_block_root: Root,
-	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::as_string"))]
-	pub slot: Slot,
-	pub payload_present: bool,
-	pub blob_data_available: bool,
-}
-
-/// The payload timeliness committee's vote on whether a payload was revealed in time. It says
-/// nothing about the payload's contents, which is why this client does not rely on it.
-#[derive(
-	Default,
-	Debug,
-	ssz_derive::Encode,
-	ssz_derive::Decode,
-	tree_hash_derive::TreeHash,
-	Clone,
-	PartialEq,
-	Eq,
-)]
-#[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
-pub struct PayloadAttestation {
-	pub aggregation_bits: BitVector<PTC_SIZE>,
-	pub data: PayloadAttestationData,
-	pub signature: BlsSignature,
 }

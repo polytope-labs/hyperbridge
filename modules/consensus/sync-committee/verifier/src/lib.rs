@@ -361,7 +361,7 @@ mod supermajority_tests {
 			execution_payload: ExecutionPayloadProof::default(),
 			finality_proof: FinalityProof {
 				epoch: 1,
-				// Branch length must match `Sepolia::FINALIZED_ROOT_INDEX_LOG2` so the
+				// Branch length must match the depth of `Sepolia::FINALIZED_ROOT_INDEX` so the
 				// finality-branch length check passes; the node contents don't matter for
 				// these tests because the supermajority gate fires before any merkle
 				// verification.

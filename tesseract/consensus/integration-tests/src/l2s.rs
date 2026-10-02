@@ -30,7 +30,7 @@ use subxt_utils::{
 	Hyperbridge, InMemorySigner,
 };
 use sync_committee_primitives::constants::{
-	ETH1_DATA_VOTES_BOUND_ETH, PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM,
+	ETH1_DATA_VOTES_BOUND_ETH, PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM, BUILDER_PENDING_PAYMENTS_LIMIT_ETHEREUM, PTC_WINDOW_LIMIT_ETHEREUM,
 };
 use tesseract_beefy::host::BeefyHost;
 use tesseract_evm::EvmConfig;
@@ -48,7 +48,7 @@ async fn setup_clients() -> Result<
 		SyncCommitteeHost<
 			sync_committee_primitives::constants::sepolia::Sepolia,
 			ETH1_DATA_VOTES_BOUND_ETH,
-			PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM,
+			PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM, BUILDER_PENDING_PAYMENTS_LIMIT_ETHEREUM, PTC_WINDOW_LIMIT_ETHEREUM,
 		>,
 		ArbHost,
 		OpHost,
@@ -114,7 +114,7 @@ async fn setup_clients() -> Result<
 		SyncCommitteeHost::<
 			sync_committee_primitives::constants::sepolia::Sepolia,
 			ETH1_DATA_VOTES_BOUND_ETH,
-			PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM,
+			PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM, BUILDER_PENDING_PAYMENTS_LIMIT_ETHEREUM, PTC_WINDOW_LIMIT_ETHEREUM,
 		>::new(&sync_commitee_config, &config, Default::default())
 		.await?
 	};

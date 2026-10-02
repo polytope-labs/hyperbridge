@@ -15,6 +15,7 @@
 use crate::{GetConsensusStateParams, L2Host, SyncCommitteeHost};
 use alloy::{eips::BlockId, providers::Provider};
 use codec::{Decode, Encode};
+use ssz_types::typenum::Unsigned;
 
 use anyhow::{anyhow, Error};
 use futures::{StreamExt, TryFutureExt};
@@ -34,9 +35,18 @@ use tesseract_primitives::{IsmpHost, IsmpProvider};
 #[async_trait::async_trait]
 impl<
 		T: Config + Send + Sync + 'static,
-		const ETH1_DATA_VOTES_BOUND: usize,
-		const PROPOSER_LOOK_AHEAD_LIMIT: usize,
-	> IsmpHost for SyncCommitteeHost<T, ETH1_DATA_VOTES_BOUND, PROPOSER_LOOK_AHEAD_LIMIT>
+		ETH1_DATA_VOTES_BOUND: Unsigned + Send + Sync + 'static,
+		PROPOSER_LOOK_AHEAD_LIMIT: Unsigned + Send + Sync + 'static,
+		BUILDER_PENDING_PAYMENTS_LIMIT: Unsigned + Send + Sync + 'static,
+		PTC_WINDOW_LIMIT: Unsigned + Send + Sync + 'static,
+	> IsmpHost
+	for SyncCommitteeHost<
+		T,
+		ETH1_DATA_VOTES_BOUND,
+		PROPOSER_LOOK_AHEAD_LIMIT,
+		BUILDER_PENDING_PAYMENTS_LIMIT,
+		PTC_WINDOW_LIMIT,
+	>
 {
 	async fn start_consensus(&self, counterparty: Arc<dyn IsmpProvider>) -> Result<(), Error> {
 		let client = SyncCommitteeHost::clone(&self);

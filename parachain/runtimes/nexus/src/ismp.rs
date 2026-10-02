@@ -150,7 +150,6 @@ impl pallet_ismp::Config for Runtime {
 		ismp_arbitrum::ArbitrumConsensusClient<Ismp, Runtime>,
 		ismp_optimism::OptimismConsensusClient<Ismp, Runtime>,
 		ismp_polygon::PolygonClient<Ismp, Runtime>,
-		ismp_tendermint::TendermintClient<Ismp, Runtime>,
 		ismp_pharos::PharosClient<Ismp, Runtime, ismp_pharos::Mainnet>,
 		ismp_beefy::BeefyConsensusClient<Ismp, Runtime>,
 	);
@@ -236,10 +235,6 @@ impl ismp_optimism::pallet::Config for Runtime {
 
 	type IsmpHost = Ismp;
 	type FishermanBlacklist = Fishermen;
-}
-
-impl ismp_tendermint::pallet::Config for Runtime {
-	type AdminOrigin = EnsureRoot<AccountId>;
 }
 
 #[cfg(feature = "runtime-benchmarks")]

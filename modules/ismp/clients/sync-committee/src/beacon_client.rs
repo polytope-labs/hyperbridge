@@ -90,22 +90,21 @@ impl<
 		let consensus_state = ConsensusState::decode(&mut &trusted_consensus_state[..])
 			.map_err(|_| SyncCommitteeError::DecodeConsensusState)?;
 
-		let new_light_client_state =
+		let (new_light_client_state, execution_payload) =
 			sync_committee_verifier::verify_sync_committee_attestation::<C>(
 				consensus_state.light_client_state,
-				consensus_update.clone(),
-			)
-			?;
+				consensus_update,
+			)?;
 
 		let mut state_machine_map: BTreeMap<StateMachineId, Vec<StateCommitmentHeight>> =
 			BTreeMap::new();
 
-		let state_root = consensus_update.execution_payload.state_root;
+		let state_root = execution_payload.state_root;
 		let intermediate_state = construct_intermediate_state(
 			StateMachine::Evm(consensus_state.chain_id),
 			consensus_state_id.clone(),
-			consensus_update.execution_payload.block_number,
-			consensus_update.execution_payload.timestamp,
+			execution_payload.block_number,
+			execution_payload.timestamp,
 			&state_root[..],
 		)?;
 

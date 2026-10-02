@@ -29,7 +29,8 @@ use std::{cmp::max, sync::Arc, time::Duration};
 
 use crate::{notification::consensus_notification, BscPosHost, KeccakHasher};
 use bsc_prover::get_rotation_block;
-use ssz_rs::{Bitvector, Deserialize};
+use ssz::Decode as _;
+use ssz_types::BitVector;
 use tesseract_primitives::{IsmpHost, IsmpProvider};
 
 /// Maximum number of consensus messages bundled into a single transaction while
@@ -333,12 +334,12 @@ async fn next_consensus_update<C: Config>(
 					let extra_data = parse_extra::<KeccakHasher, C>(&update.attested_header)
 						.expect("Infallible, was parsed before update was generated");
 
-					let validators_bit_set = Bitvector::<VALIDATOR_BIT_SET_SIZE>::deserialize(
+					let validators_bit_set = BitVector::<ssz_types::typenum::U64>::from_ssz_bytes(
 						extra_data.vote_address_set.to_le_bytes().to_vec().as_slice(),
 					)
 					.expect("Infallible, was parsed before update was generated");
 
-					if validators_bit_set.iter().as_bitslice().count_ones() <
+					if validators_bit_set.num_set_bits() <
 						(2 * next_validators.validators.len() / 3)
 					{
 						log::trace!(
@@ -434,12 +435,12 @@ async fn next_consensus_update<C: Config>(
 					let extra_data = parse_extra::<KeccakHasher, C>(&update.attested_header)
 						.expect("Infallible, was parsed before update was generated");
 
-					let validators_bit_set = Bitvector::<VALIDATOR_BIT_SET_SIZE>::deserialize(
+					let validators_bit_set = BitVector::<ssz_types::typenum::U64>::from_ssz_bytes(
 						extra_data.vote_address_set.to_le_bytes().to_vec().as_slice(),
 					)
 					.expect("Infallible, was parsed before update was generated");
 
-					if validators_bit_set.iter().as_bitslice().count_ones() <
+					if validators_bit_set.num_set_bits() <
 						(2 * consensus_state.current_validators.len() / 3)
 					{
 						log::trace!(

@@ -27,11 +27,14 @@ use ismp_sync_committee::{
 use op_host::{OpConfig, OpHost};
 use primitive_types::H160;
 use serde::{Deserialize, Serialize};
+use ssz_types::typenum::Unsigned;
 use std::{collections::BTreeMap, sync::Arc, time::Duration};
 use sync_committee_primitives::{
 	constants::{
-		gnosis, Config, ETH1_DATA_VOTES_BOUND_ETH, ETH1_DATA_VOTES_BOUND_GNO,
+		gnosis, Config, BUILDER_PENDING_PAYMENTS_LIMIT_ETHEREUM,
+		BUILDER_PENDING_PAYMENTS_LIMIT_GNO, ETH1_DATA_VOTES_BOUND_ETH, ETH1_DATA_VOTES_BOUND_GNO,
 		PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM, PROPOSER_LOOK_AHEAD_LIMIT_GNO,
+		PTC_WINDOW_LIMIT_ETHEREUM, PTC_WINDOW_LIMIT_GNO,
 	},
 	types::VerifierState,
 	util::{compute_epoch_at_slot, compute_sync_committee_period_at_slot},
@@ -74,6 +77,8 @@ impl SyncCommitteeConfig {
 			Sepolia,
 			ETH1_DATA_VOTES_BOUND_ETH,
 			PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM,
+			BUILDER_PENDING_PAYMENTS_LIMIT_ETHEREUM,
+			PTC_WINDOW_LIMIT_ETHEREUM,
 		>::new(&self.host, &evm_config, l2_config)
 		.await?;
 
@@ -89,6 +94,8 @@ impl SyncCommitteeConfig {
 			Mainnet,
 			ETH1_DATA_VOTES_BOUND_ETH,
 			PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM,
+			BUILDER_PENDING_PAYMENTS_LIMIT_ETHEREUM,
+			PTC_WINDOW_LIMIT_ETHEREUM,
 		>::new(&self.host, &evm_config, l2_config)
 		.await?;
 
@@ -100,6 +107,8 @@ impl SyncCommitteeConfig {
 			gnosis::Testnet,
 			ETH1_DATA_VOTES_BOUND_GNO,
 			PROPOSER_LOOK_AHEAD_LIMIT_GNO,
+			BUILDER_PENDING_PAYMENTS_LIMIT_GNO,
+			PTC_WINDOW_LIMIT_GNO,
 		>::new(&self.host, &evm_config, Default::default())
 		.await?;
 
@@ -111,6 +120,8 @@ impl SyncCommitteeConfig {
 			gnosis::Mainnet,
 			ETH1_DATA_VOTES_BOUND_GNO,
 			PROPOSER_LOOK_AHEAD_LIMIT_GNO,
+			BUILDER_PENDING_PAYMENTS_LIMIT_GNO,
+			PTC_WINDOW_LIMIT_GNO,
 		>::new(&self.host, &evm_config, Default::default())
 		.await?;
 
@@ -120,8 +131,10 @@ impl SyncCommitteeConfig {
 
 pub struct SyncCommitteeHost<
 	C: Config,
-	const ETH1_DATA_VOTES_BOUND: usize,
-	const PROPOSER_LOOK_AHEAD_LIMIT: usize,
+	ETH1_DATA_VOTES_BOUND: Unsigned + Send + Sync + 'static,
+	PROPOSER_LOOK_AHEAD_LIMIT: Unsigned + Send + Sync + 'static,
+	BUILDER_PENDING_PAYMENTS_LIMIT: Unsigned + Send + Sync + 'static,
+	PTC_WINDOW_LIMIT: Unsigned + Send + Sync + 'static,
 > {
 	/// Consensus state id on counterparty chain
 	pub consensus_state_id: ConsensusStateId,
@@ -130,7 +143,13 @@ pub struct SyncCommitteeHost<
 	/// L2 consensus clients
 	pub l2_clients: BTreeMap<StateMachine, L2Host>,
 	/// Consensus prover
-	pub prover: SyncCommitteeProver<C, ETH1_DATA_VOTES_BOUND, PROPOSER_LOOK_AHEAD_LIMIT>,
+	pub prover: SyncCommitteeProver<
+		C,
+		ETH1_DATA_VOTES_BOUND,
+		PROPOSER_LOOK_AHEAD_LIMIT,
+		BUILDER_PENDING_PAYMENTS_LIMIT,
+		PTC_WINDOW_LIMIT,
+	>,
 	/// Interval in seconds at which consensus updates should happen
 	pub consensus_update_frequency: Duration,
 
@@ -145,15 +164,38 @@ pub struct SyncCommitteeHost<
 	pub retry: again::RetryPolicy,
 }
 
-impl<C: Config, const ETH1_DATA_VOTES_BOUND: usize, const PROPOSER_LOOK_AHEAD_LIMIT: usize>
-	SyncCommitteeHost<C, ETH1_DATA_VOTES_BOUND, PROPOSER_LOOK_AHEAD_LIMIT>
+impl<
+		C: Config,
+		ETH1_DATA_VOTES_BOUND: Unsigned + Send + Sync + 'static,
+		PROPOSER_LOOK_AHEAD_LIMIT: Unsigned + Send + Sync + 'static,
+		BUILDER_PENDING_PAYMENTS_LIMIT: Unsigned + Send + Sync + 'static,
+		PTC_WINDOW_LIMIT: Unsigned + Send + Sync + 'static,
+	>
+	SyncCommitteeHost<
+		C,
+		ETH1_DATA_VOTES_BOUND,
+		PROPOSER_LOOK_AHEAD_LIMIT,
+		BUILDER_PENDING_PAYMENTS_LIMIT,
+		PTC_WINDOW_LIMIT,
+	>
 {
 	pub async fn new(
 		host: &HostConfig,
 		evm: &EvmConfig,
 		l2_config: BTreeMap<StateMachine, L2Config>,
 	) -> Result<Self, anyhow::Error> {
-		let prover = SyncCommitteeProver::new(host.beacon_http_urls.clone());
+		// The prover serves either side of the Gloas fork, and from Gloas the beacon state keeps
+		// only the execution block hash, so an execution rpc is needed to fetch the header that
+		// hash commits to. Required unconditionally: which fork the chain is on is not known until
+		// a state is fetched, and by then it is too late to go looking for an endpoint.
+		let prover = SyncCommitteeProver::new(
+			host.beacon_http_urls.clone(),
+			evm.rpc_urls
+				.first()
+				.ok_or_else(|| anyhow::anyhow!("An execution rpc url is required"))?
+				.clone(),
+		);
+
 		let el = tesseract_evm::create_provider(&evm.rpc_urls)?;
 
 		let provider = Arc::new(EvmClient::new(evm.clone()).await?);
@@ -199,8 +241,8 @@ impl<C: Config, const ETH1_DATA_VOTES_BOUND: usize, const PROPOSER_LOOK_AHEAD_LI
 		let client_state = VerifierState {
 			finalized_header: block_header.clone(),
 			latest_finalized_epoch: compute_epoch_at_slot::<C>(block_header.slot),
-			current_sync_committee: state.current_sync_committee,
-			next_sync_committee: state.next_sync_committee,
+			current_sync_committee: state.current_sync_committee().clone(),
+			next_sync_committee: state.next_sync_committee().clone(),
 			state_period: compute_sync_committee_period_at_slot::<C>(block_header.slot),
 		};
 
@@ -248,8 +290,20 @@ pub enum L2Config {
 	OpStack(OpConfig, EvmConfig),
 }
 
-impl<C: Config, const ETH1_DATA_VOTES_BOUND: usize, const PROPOSER_LOOK_AHEAD_LIMIT: usize> Clone
-	for SyncCommitteeHost<C, ETH1_DATA_VOTES_BOUND, PROPOSER_LOOK_AHEAD_LIMIT>
+impl<
+		C: Config,
+		ETH1_DATA_VOTES_BOUND: Unsigned + Send + Sync + 'static,
+		PROPOSER_LOOK_AHEAD_LIMIT: Unsigned + Send + Sync + 'static,
+		BUILDER_PENDING_PAYMENTS_LIMIT: Unsigned + Send + Sync + 'static,
+		PTC_WINDOW_LIMIT: Unsigned + Send + Sync + 'static,
+	> Clone
+	for SyncCommitteeHost<
+		C,
+		ETH1_DATA_VOTES_BOUND,
+		PROPOSER_LOOK_AHEAD_LIMIT,
+		BUILDER_PENDING_PAYMENTS_LIMIT,
+		PTC_WINDOW_LIMIT,
+	>
 {
 	fn clone(&self) -> Self {
 		Self {

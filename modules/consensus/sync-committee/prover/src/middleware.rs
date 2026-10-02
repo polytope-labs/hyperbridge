@@ -15,6 +15,8 @@ pub struct SwitchProviderMiddleware {
 pub struct LocalState {
 	pub active_url_index: usize,
 	pub prev_stat: HashMap<usize, Option<StatusCode>>,
+	/// How many times this request has already been retried.
+	pub retries: u32,
 }
 
 impl SwitchProviderMiddleware {
@@ -34,6 +36,22 @@ impl Chainer for SwitchProviderMiddleware {
 		request: &mut reqwest::Request,
 	) -> Result<Option<reqwest::Response>, Error> {
 		let mut next_state = |status: Option<StatusCode>| {
+			// Only beacon requests can be moved between providers. `fetch_execution_header` goes to
+			// the execution rpc, which is a separate endpoint that is not in this list, so there is
+			// nothing to switch it to. Retry it where it is instead of rewriting its url.
+			let is_beacon_request = self
+				.providers
+				.iter()
+				.any(|provider| request.url().as_str().starts_with(provider.trim_end_matches('/')));
+			if !is_beacon_request {
+				log::trace!(
+					target: "sync-committee-prover",
+					"Retrying {} against the same endpoint, status {status:?}",
+					request.url(),
+				);
+				return Ok(());
+			}
+
 			let active_index = _state.active_url_index;
 			_state.prev_stat.insert(active_index, status);
 			let mut next_index = _state.active_url_index + 1;
@@ -69,8 +87,13 @@ impl Chainer for SwitchProviderMiddleware {
 				let _ = next_state(None)?;
 			},
 		}
-		// Sleep before retrying the chain
-		tokio::time::sleep(Duration::from_secs(15)).await;
+		// Retry once straight away before backing off. Endpoints that sit behind a proxy tend to
+		// fail the first request after an idle period and serve the one right behind it, so a
+		// delay on every attempt turns a blip into an exhausted chain.
+		_state.retries += 1;
+		if _state.retries > 1 {
+			tokio::time::sleep(Duration::from_secs(15)).await;
+		}
 		Ok(None)
 	}
 

@@ -18,14 +18,23 @@ anyhow = { workspace = true, default-features = false }
 serde-hex-utils = { workspace = true, default-features = false }
 bls-utils = { workspace = true, default-features = false }
 
-ssz-rs = { git = "https://github.com/polytope-labs/ssz-rs", branch = "main", default-features = false }
+ssz = { workspace = true }
+ssz_derive = { workspace = true }
+ssz_types = { workspace = true }
+tree_hash = { workspace = true, features = ["sha2"] }
+tree_hash_derive = { workspace = true }
+
+alloy-primitives = { workspace = true }
+alloy-rlp = { workspace = true }
+alloy-rlp-derive = { workspace = true }
 
 
 [features]
 default = ["std"]
 std = [
-    "ssz-rs/default",
-    "ssz-rs/serde",
+    "ssz/std",
+    "ssz_types/std",
+    "tree_hash/std",
     'codec/std',
     "primitive-types/std",
     "anyhow/std",
@@ -33,5 +42,10 @@ std = [
     "serde",
     "serde-hex-utils/std",
     "bls-utils/std",
+    "alloy-primitives/std",
+    "alloy-primitives/serde",
+    "alloy-rlp/std",
 ]
-nofulu = []
+
+[dev-dependencies]
+serde_json = "1.0.99"

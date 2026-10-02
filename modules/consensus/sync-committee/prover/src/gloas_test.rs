@@ -6,8 +6,9 @@
 use super::*;
 use sync_committee_primitives::{
 	constants::{
-		devnet::KurtosisDevnet, ETH1_DATA_VOTES_BOUND_ETH, GLOAS_EXECUTION_PAYLOAD_INDEX,
-		PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM,
+		devnet::KurtosisDevnet, BUILDER_PENDING_PAYMENTS_LIMIT_ETHEREUM, ETH1_DATA_VOTES_BOUND_ETH,
+		GLOAS_EXECUTION_PAYLOAD_INDEX, PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM,
+		PTC_WINDOW_LIMIT_ETHEREUM,
 	},
 	execution_header::{execution_block_hash, ExecutionHeader},
 	util::compute_epoch_at_slot,
@@ -22,6 +23,8 @@ fn setup_prover() -> SyncCommitteeProver<
 	KurtosisDevnet,
 	ETH1_DATA_VOTES_BOUND_ETH,
 	PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM,
+	BUILDER_PENDING_PAYMENTS_LIMIT_ETHEREUM,
+	PTC_WINDOW_LIMIT_ETHEREUM,
 > {
 	dotenv::dotenv().ok();
 	let consensus_url =
@@ -33,6 +36,8 @@ fn setup_prover() -> SyncCommitteeProver<
 		KurtosisDevnet,
 		ETH1_DATA_VOTES_BOUND_ETH,
 		PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM,
+		BUILDER_PENDING_PAYMENTS_LIMIT_ETHEREUM,
+		PTC_WINDOW_LIMIT_ETHEREUM,
 	>::new(vec![consensus_url], execution_url)
 }
 
@@ -70,6 +75,8 @@ async fn execution_header_recovers_the_execution_state_root() {
 		KurtosisDevnet,
 		ETH1_DATA_VOTES_BOUND_ETH,
 		PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM,
+		BUILDER_PENDING_PAYMENTS_LIMIT_ETHEREUM,
+		PTC_WINDOW_LIMIT_ETHEREUM,
 	>(&finalized_state, Some(header.clone()))
 	.unwrap();
 
@@ -101,6 +108,8 @@ async fn bootstrap_trusted_state_and_update(
 		KurtosisDevnet,
 		ETH1_DATA_VOTES_BOUND_ETH,
 		PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM,
+		BUILDER_PENDING_PAYMENTS_LIMIT_ETHEREUM,
+		PTC_WINDOW_LIMIT_ETHEREUM,
 	>,
 ) -> anyhow::Result<(VerifierState, VerifierStateUpdate)> {
 	let block_id = |root: Root| format!("0x{}", hex::encode(root.as_ref()));

@@ -157,6 +157,8 @@ pub struct BeaconStateGloas<
 	EPOCHS_PER_SLASHINGS_VECTOR: Unsigned,
 	SYNC_COMMITTEE_SIZE: Unsigned,
 	PROPOSER_LOOK_AHEAD_LIMIT: Unsigned,
+	BUILDER_PENDING_PAYMENTS_LIMIT: Unsigned,
+	PTC_WINDOW_LIMIT: Unsigned,
 > {
 	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::as_string"))]
 	pub genesis_time: u64,
@@ -251,6 +253,8 @@ pub enum BeaconState<
 	PENDING_CONSOLIDATIONS_LIMIT: Unsigned,
 	PENDING_PARTIAL_WITHDRAWALS_LIMIT: Unsigned,
 	PROPOSER_LOOK_AHEAD_LIMIT: Unsigned,
+	BUILDER_PENDING_PAYMENTS_LIMIT: Unsigned,
+	PTC_WINDOW_LIMIT: Unsigned,
 > {
 	/// Any fork up to and including Fulu.
 	Electra(
@@ -280,6 +284,8 @@ pub enum BeaconState<
 			EPOCHS_PER_SLASHINGS_VECTOR,
 			SYNC_COMMITTEE_SIZE,
 			PROPOSER_LOOK_AHEAD_LIMIT,
+			BUILDER_PENDING_PAYMENTS_LIMIT,
+			PTC_WINDOW_LIMIT,
 		>,
 	),
 }
@@ -308,6 +314,8 @@ impl<
 		PENDING_CONSOLIDATIONS_LIMIT: Unsigned,
 		PENDING_PARTIAL_WITHDRAWALS_LIMIT: Unsigned,
 		PROPOSER_LOOK_AHEAD_LIMIT: Unsigned,
+		BUILDER_PENDING_PAYMENTS_LIMIT: Unsigned,
+		PTC_WINDOW_LIMIT: Unsigned,
 	>
 	BeaconState<
 		SLOTS_PER_HISTORICAL_ROOT,
@@ -323,6 +331,8 @@ impl<
 		PENDING_CONSOLIDATIONS_LIMIT,
 		PENDING_PARTIAL_WITHDRAWALS_LIMIT,
 		PROPOSER_LOOK_AHEAD_LIMIT,
+		BUILDER_PENDING_PAYMENTS_LIMIT,
+		PTC_WINDOW_LIMIT,
 	>
 {
 	/// True when this is a Gloas state.
@@ -406,4 +416,36 @@ pub struct BeaconBlockSummary<SYNC_COMMITTEE_SIZE: Unsigned> {
 #[cfg_attr(feature = "std", serde(bound = ""))]
 pub struct BeaconBlockBodySummary<SYNC_COMMITTEE_SIZE: Unsigned> {
 	pub sync_aggregate: crate::consensus_types::SyncAggregate<SYNC_COMMITTEE_SIZE>,
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use ssz::{Decode, Encode};
+	use tree_hash::TreeHash;
+
+	type GnosisGloasState = BeaconStateGloas<
+		SLOTS_PER_HISTORICAL_ROOT,
+		HISTORICAL_ROOTS_LIMIT,
+		ETH1_DATA_VOTES_BOUND_GNO,
+		EPOCHS_PER_HISTORICAL_VECTOR,
+		EPOCHS_PER_SLASHINGS_VECTOR,
+		SYNC_COMMITTEE_SIZE,
+		PROPOSER_LOOK_AHEAD_LIMIT_GNO,
+		BUILDER_PENDING_PAYMENTS_LIMIT_GNO,
+		PTC_WINDOW_LIMIT_GNO,
+	>;
+
+	/// Gnosis has 16 slots per epoch, half of ethereum's, so the two vectors sized from it are
+	/// half as long, and a state with them has to round trip and merkleize.
+	#[test]
+	fn gloas_state_takes_the_gnosis_bounds() {
+		let state = GnosisGloasState::default();
+		assert_eq!(state.builder_pending_payments.len(), BUILDER_PENDING_PAYMENTS_LIMIT_GNO);
+		assert_eq!(state.ptc_window.len(), PTC_WINDOW_LIMIT_GNO);
+
+		let decoded = GnosisGloasState::from_ssz_bytes(&state.as_ssz_bytes()).unwrap();
+		assert_eq!(decoded, state);
+		assert_eq!(decoded.tree_hash_root(), state.tree_hash_root());
+	}
 }

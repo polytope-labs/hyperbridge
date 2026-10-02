@@ -12,7 +12,12 @@ use sync_committee_primitives::beacon_state::{BeaconState, BeaconStateElectra, B
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "version", content = "data", rename_all = "lowercase")]
 #[serde(bound = "")]
-pub enum Response<ETH1_DATA_VOTES_BOUND: Unsigned, PROPOSER_LOOK_AHEAD_LIMIT: Unsigned> {
+pub enum Response<
+	ETH1_DATA_VOTES_BOUND: Unsigned,
+	PROPOSER_LOOK_AHEAD_LIMIT: Unsigned,
+	BUILDER_PENDING_PAYMENTS_LIMIT: Unsigned,
+	PTC_WINDOW_LIMIT: Unsigned,
+> {
 	#[serde(
 		alias = "phase0",
 		alias = "altair",
@@ -47,12 +52,24 @@ pub enum Response<ETH1_DATA_VOTES_BOUND: Unsigned, PROPOSER_LOOK_AHEAD_LIMIT: Un
 			sync_committee_primitives::constants::EPOCHS_PER_SLASHINGS_VECTOR,
 			sync_committee_primitives::constants::SYNC_COMMITTEE_SIZE,
 			PROPOSER_LOOK_AHEAD_LIMIT,
+			BUILDER_PENDING_PAYMENTS_LIMIT,
+			PTC_WINDOW_LIMIT,
 		>,
 	),
 }
 
-impl<ETH1_DATA_VOTES_BOUND: Unsigned, PROPOSER_LOOK_AHEAD_LIMIT: Unsigned>
-	Response<ETH1_DATA_VOTES_BOUND, PROPOSER_LOOK_AHEAD_LIMIT>
+impl<
+		ETH1_DATA_VOTES_BOUND: Unsigned,
+		PROPOSER_LOOK_AHEAD_LIMIT: Unsigned,
+		BUILDER_PENDING_PAYMENTS_LIMIT: Unsigned,
+		PTC_WINDOW_LIMIT: Unsigned,
+	>
+	Response<
+		ETH1_DATA_VOTES_BOUND,
+		PROPOSER_LOOK_AHEAD_LIMIT,
+		BUILDER_PENDING_PAYMENTS_LIMIT,
+		PTC_WINDOW_LIMIT,
+	>
 {
 	/// The state, tagged with the fork the node reported.
 	pub fn into_state(
@@ -71,6 +88,8 @@ impl<ETH1_DATA_VOTES_BOUND: Unsigned, PROPOSER_LOOK_AHEAD_LIMIT: Unsigned>
 		sync_committee_primitives::constants::PENDING_CONSOLIDATIONS_LIMIT,
 		sync_committee_primitives::constants::PENDING_PARTIAL_WITHDRAWALS_LIMIT,
 		PROPOSER_LOOK_AHEAD_LIMIT,
+		BUILDER_PENDING_PAYMENTS_LIMIT,
+		PTC_WINDOW_LIMIT,
 	> {
 		match self {
 			Response::Electra(state) => BeaconState::Electra(state),

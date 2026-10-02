@@ -16,7 +16,6 @@
 /// Log/tracing target for this crate.
 pub const LOG_TARGET: &str = "consensus-sync-committee";
 
-use ssz_types::typenum::Unsigned;
 use alloy::providers::Provider;
 use arb_host::{ArbConfig, ArbHost};
 use ismp::{consensus::ConsensusStateId, host::StateMachine};
@@ -28,11 +27,14 @@ use ismp_sync_committee::{
 use op_host::{OpConfig, OpHost};
 use primitive_types::H160;
 use serde::{Deserialize, Serialize};
+use ssz_types::typenum::Unsigned;
 use std::{collections::BTreeMap, sync::Arc, time::Duration};
 use sync_committee_primitives::{
 	constants::{
-		gnosis, Config, ETH1_DATA_VOTES_BOUND_ETH, ETH1_DATA_VOTES_BOUND_GNO,
+		gnosis, Config, BUILDER_PENDING_PAYMENTS_LIMIT_ETHEREUM,
+		BUILDER_PENDING_PAYMENTS_LIMIT_GNO, ETH1_DATA_VOTES_BOUND_ETH, ETH1_DATA_VOTES_BOUND_GNO,
 		PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM, PROPOSER_LOOK_AHEAD_LIMIT_GNO,
+		PTC_WINDOW_LIMIT_ETHEREUM, PTC_WINDOW_LIMIT_GNO,
 	},
 	types::VerifierState,
 	util::{compute_epoch_at_slot, compute_sync_committee_period_at_slot},
@@ -75,6 +77,8 @@ impl SyncCommitteeConfig {
 			Sepolia,
 			ETH1_DATA_VOTES_BOUND_ETH,
 			PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM,
+			BUILDER_PENDING_PAYMENTS_LIMIT_ETHEREUM,
+			PTC_WINDOW_LIMIT_ETHEREUM,
 		>::new(&self.host, &evm_config, l2_config)
 		.await?;
 
@@ -90,6 +94,8 @@ impl SyncCommitteeConfig {
 			Mainnet,
 			ETH1_DATA_VOTES_BOUND_ETH,
 			PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM,
+			BUILDER_PENDING_PAYMENTS_LIMIT_ETHEREUM,
+			PTC_WINDOW_LIMIT_ETHEREUM,
 		>::new(&self.host, &evm_config, l2_config)
 		.await?;
 
@@ -101,6 +107,8 @@ impl SyncCommitteeConfig {
 			gnosis::Testnet,
 			ETH1_DATA_VOTES_BOUND_GNO,
 			PROPOSER_LOOK_AHEAD_LIMIT_GNO,
+			BUILDER_PENDING_PAYMENTS_LIMIT_GNO,
+			PTC_WINDOW_LIMIT_GNO,
 		>::new(&self.host, &evm_config, Default::default())
 		.await?;
 
@@ -112,6 +120,8 @@ impl SyncCommitteeConfig {
 			gnosis::Mainnet,
 			ETH1_DATA_VOTES_BOUND_GNO,
 			PROPOSER_LOOK_AHEAD_LIMIT_GNO,
+			BUILDER_PENDING_PAYMENTS_LIMIT_GNO,
+			PTC_WINDOW_LIMIT_GNO,
 		>::new(&self.host, &evm_config, Default::default())
 		.await?;
 
@@ -123,6 +133,8 @@ pub struct SyncCommitteeHost<
 	C: Config,
 	ETH1_DATA_VOTES_BOUND: Unsigned + Send + Sync + 'static,
 	PROPOSER_LOOK_AHEAD_LIMIT: Unsigned + Send + Sync + 'static,
+	BUILDER_PENDING_PAYMENTS_LIMIT: Unsigned + Send + Sync + 'static,
+	PTC_WINDOW_LIMIT: Unsigned + Send + Sync + 'static,
 > {
 	/// Consensus state id on counterparty chain
 	pub consensus_state_id: ConsensusStateId,
@@ -131,7 +143,13 @@ pub struct SyncCommitteeHost<
 	/// L2 consensus clients
 	pub l2_clients: BTreeMap<StateMachine, L2Host>,
 	/// Consensus prover
-	pub prover: SyncCommitteeProver<C, ETH1_DATA_VOTES_BOUND, PROPOSER_LOOK_AHEAD_LIMIT>,
+	pub prover: SyncCommitteeProver<
+		C,
+		ETH1_DATA_VOTES_BOUND,
+		PROPOSER_LOOK_AHEAD_LIMIT,
+		BUILDER_PENDING_PAYMENTS_LIMIT,
+		PTC_WINDOW_LIMIT,
+	>,
 	/// Interval in seconds at which consensus updates should happen
 	pub consensus_update_frequency: Duration,
 
@@ -146,8 +164,20 @@ pub struct SyncCommitteeHost<
 	pub retry: again::RetryPolicy,
 }
 
-impl<C: Config, ETH1_DATA_VOTES_BOUND: Unsigned + Send + Sync + 'static, PROPOSER_LOOK_AHEAD_LIMIT: Unsigned + Send + Sync + 'static>
-	SyncCommitteeHost<C, ETH1_DATA_VOTES_BOUND, PROPOSER_LOOK_AHEAD_LIMIT>
+impl<
+		C: Config,
+		ETH1_DATA_VOTES_BOUND: Unsigned + Send + Sync + 'static,
+		PROPOSER_LOOK_AHEAD_LIMIT: Unsigned + Send + Sync + 'static,
+		BUILDER_PENDING_PAYMENTS_LIMIT: Unsigned + Send + Sync + 'static,
+		PTC_WINDOW_LIMIT: Unsigned + Send + Sync + 'static,
+	>
+	SyncCommitteeHost<
+		C,
+		ETH1_DATA_VOTES_BOUND,
+		PROPOSER_LOOK_AHEAD_LIMIT,
+		BUILDER_PENDING_PAYMENTS_LIMIT,
+		PTC_WINDOW_LIMIT,
+	>
 {
 	pub async fn new(
 		host: &HostConfig,
@@ -260,8 +290,20 @@ pub enum L2Config {
 	OpStack(OpConfig, EvmConfig),
 }
 
-impl<C: Config, ETH1_DATA_VOTES_BOUND: Unsigned + Send + Sync + 'static, PROPOSER_LOOK_AHEAD_LIMIT: Unsigned + Send + Sync + 'static> Clone
-	for SyncCommitteeHost<C, ETH1_DATA_VOTES_BOUND, PROPOSER_LOOK_AHEAD_LIMIT>
+impl<
+		C: Config,
+		ETH1_DATA_VOTES_BOUND: Unsigned + Send + Sync + 'static,
+		PROPOSER_LOOK_AHEAD_LIMIT: Unsigned + Send + Sync + 'static,
+		BUILDER_PENDING_PAYMENTS_LIMIT: Unsigned + Send + Sync + 'static,
+		PTC_WINDOW_LIMIT: Unsigned + Send + Sync + 'static,
+	> Clone
+	for SyncCommitteeHost<
+		C,
+		ETH1_DATA_VOTES_BOUND,
+		PROPOSER_LOOK_AHEAD_LIMIT,
+		BUILDER_PENDING_PAYMENTS_LIMIT,
+		PTC_WINDOW_LIMIT,
+	>
 {
 	fn clone(&self) -> Self {
 		Self {

@@ -62,27 +62,35 @@ mod test;
 #[cfg(test)]
 mod gloas_test;
 
-pub type BeaconStateType<ETH1_DATA_VOTES_BOUND: Unsigned, PROPOSER_LOOK_AHEAD_LIMIT: Unsigned> =
-	BeaconState<
-		SLOTS_PER_HISTORICAL_ROOT,
-		HISTORICAL_ROOTS_LIMIT,
-		ETH1_DATA_VOTES_BOUND,
-		VALIDATOR_REGISTRY_LIMIT,
-		EPOCHS_PER_HISTORICAL_VECTOR,
-		EPOCHS_PER_SLASHINGS_VECTOR,
-		SYNC_COMMITTEE_SIZE,
-		BYTES_PER_LOGS_BLOOM,
-		MAX_EXTRA_DATA_BYTES,
-		PENDING_DEPOSITS_LIMIT,
-		PENDING_CONSOLIDATIONS_LIMIT,
-		PENDING_PARTIAL_WITHDRAWALS_LIMIT,
-		PROPOSER_LOOK_AHEAD_LIMIT,
-	>;
+pub type BeaconStateType<
+	ETH1_DATA_VOTES_BOUND: Unsigned,
+	PROPOSER_LOOK_AHEAD_LIMIT: Unsigned,
+	BUILDER_PENDING_PAYMENTS_LIMIT: Unsigned,
+	PTC_WINDOW_LIMIT: Unsigned,
+> = BeaconState<
+	SLOTS_PER_HISTORICAL_ROOT,
+	HISTORICAL_ROOTS_LIMIT,
+	ETH1_DATA_VOTES_BOUND,
+	VALIDATOR_REGISTRY_LIMIT,
+	EPOCHS_PER_HISTORICAL_VECTOR,
+	EPOCHS_PER_SLASHINGS_VECTOR,
+	SYNC_COMMITTEE_SIZE,
+	BYTES_PER_LOGS_BLOOM,
+	MAX_EXTRA_DATA_BYTES,
+	PENDING_DEPOSITS_LIMIT,
+	PENDING_CONSOLIDATIONS_LIMIT,
+	PENDING_PARTIAL_WITHDRAWALS_LIMIT,
+	PROPOSER_LOOK_AHEAD_LIMIT,
+	BUILDER_PENDING_PAYMENTS_LIMIT,
+	PTC_WINDOW_LIMIT,
+>;
 
 pub struct SyncCommitteeProver<
 	C: Config,
 	ETH1_DATA_VOTES_BOUND: Unsigned,
 	PROPOSER_LOOK_AHEAD_LIMIT: Unsigned,
+	BUILDER_PENDING_PAYMENTS_LIMIT: Unsigned,
+	PTC_WINDOW_LIMIT: Unsigned,
 > {
 	pub primary_url: String,
 	pub providers: Vec<String>,
@@ -92,11 +100,29 @@ pub struct SyncCommitteeProver<
 	/// Execution rpc. Needed from Gloas, where the payload header is no longer in the state and
 	/// the header has to be fetched to accompany the proof.
 	pub el_rpc_url: String,
-	pub phantom: PhantomData<(C, ETH1_DATA_VOTES_BOUND, PROPOSER_LOOK_AHEAD_LIMIT)>,
+	pub phantom: PhantomData<(
+		C,
+		ETH1_DATA_VOTES_BOUND,
+		PROPOSER_LOOK_AHEAD_LIMIT,
+		BUILDER_PENDING_PAYMENTS_LIMIT,
+		PTC_WINDOW_LIMIT,
+	)>,
 }
 
-impl<C: Config, ETH1_DATA_VOTES_BOUND: Unsigned, PROPOSER_LOOK_AHEAD_LIMIT: Unsigned> Clone
-	for SyncCommitteeProver<C, ETH1_DATA_VOTES_BOUND, PROPOSER_LOOK_AHEAD_LIMIT>
+impl<
+		C: Config,
+		ETH1_DATA_VOTES_BOUND: Unsigned,
+		PROPOSER_LOOK_AHEAD_LIMIT: Unsigned,
+		BUILDER_PENDING_PAYMENTS_LIMIT: Unsigned,
+		PTC_WINDOW_LIMIT: Unsigned,
+	> Clone
+	for SyncCommitteeProver<
+		C,
+		ETH1_DATA_VOTES_BOUND,
+		PROPOSER_LOOK_AHEAD_LIMIT,
+		BUILDER_PENDING_PAYMENTS_LIMIT,
+		PTC_WINDOW_LIMIT,
+	>
 {
 	fn clone(&self) -> Self {
 		Self {
@@ -109,15 +135,33 @@ impl<C: Config, ETH1_DATA_VOTES_BOUND: Unsigned, PROPOSER_LOOK_AHEAD_LIMIT: Unsi
 	}
 }
 
-impl<C: Config, ETH1_DATA_VOTES_BOUND: Unsigned, PROPOSER_LOOK_AHEAD_LIMIT: Unsigned>
-	SyncCommitteeProver<C, ETH1_DATA_VOTES_BOUND, PROPOSER_LOOK_AHEAD_LIMIT>
+impl<
+		C: Config,
+		ETH1_DATA_VOTES_BOUND: Unsigned,
+		PROPOSER_LOOK_AHEAD_LIMIT: Unsigned,
+		BUILDER_PENDING_PAYMENTS_LIMIT: Unsigned,
+		PTC_WINDOW_LIMIT: Unsigned,
+	>
+	SyncCommitteeProver<
+		C,
+		ETH1_DATA_VOTES_BOUND,
+		PROPOSER_LOOK_AHEAD_LIMIT,
+		BUILDER_PENDING_PAYMENTS_LIMIT,
+		PTC_WINDOW_LIMIT,
+	>
 {
 	pub fn new(providers: Vec<String>, el_rpc_url: String) -> Self {
 		let client = ClientBuilder::new(Client::new())
 			.with(ChainMiddleware::new(SwitchProviderMiddleware::_new(providers.clone())))
 			.build();
 
-		SyncCommitteeProver::<C, ETH1_DATA_VOTES_BOUND, PROPOSER_LOOK_AHEAD_LIMIT> {
+		SyncCommitteeProver::<
+			C,
+			ETH1_DATA_VOTES_BOUND,
+			PROPOSER_LOOK_AHEAD_LIMIT,
+			BUILDER_PENDING_PAYMENTS_LIMIT,
+			PTC_WINDOW_LIMIT,
+		> {
 			primary_url: providers.get(0).expect("There must be atleast one provider").clone(),
 			providers,
 			client,
@@ -261,7 +305,15 @@ impl<C: Config, ETH1_DATA_VOTES_BOUND: Unsigned, PROPOSER_LOOK_AHEAD_LIMIT: Unsi
 	pub async fn fetch_beacon_state(
 		&self,
 		state_id: &str,
-	) -> Result<BeaconStateType<ETH1_DATA_VOTES_BOUND, PROPOSER_LOOK_AHEAD_LIMIT>, anyhow::Error> {
+	) -> Result<
+		BeaconStateType<
+			ETH1_DATA_VOTES_BOUND,
+			PROPOSER_LOOK_AHEAD_LIMIT,
+			BUILDER_PENDING_PAYMENTS_LIMIT,
+			PTC_WINDOW_LIMIT,
+		>,
+		anyhow::Error,
+	> {
 		trace!(target: "sync-committee-prover", "Fetching beacon state {state_id}");
 		let path = beacon_state_route(state_id);
 		let full_url = self.generate_route(&path)?;
@@ -277,6 +329,8 @@ impl<C: Config, ETH1_DATA_VOTES_BOUND: Unsigned, PROPOSER_LOOK_AHEAD_LIMIT: Unsi
 			.json::<responses::beacon_state_response::Response<
 				ETH1_DATA_VOTES_BOUND,
 				PROPOSER_LOOK_AHEAD_LIMIT,
+				BUILDER_PENDING_PAYMENTS_LIMIT,
+				PTC_WINDOW_LIMIT,
 			>>()
 			.await
 			.map_err(|e| {
@@ -364,6 +418,8 @@ impl<C: Config, ETH1_DATA_VOTES_BOUND: Unsigned, PROPOSER_LOOK_AHEAD_LIMIT: Unsi
 				C,
 				ETH1_DATA_VOTES_BOUND,
 				PROPOSER_LOOK_AHEAD_LIMIT,
+				BUILDER_PENDING_PAYMENTS_LIMIT,
+				PTC_WINDOW_LIMIT,
 			>(&mut attested_state)?,
 		};
 
@@ -376,10 +432,13 @@ impl<C: Config, ETH1_DATA_VOTES_BOUND: Unsigned, PROPOSER_LOOK_AHEAD_LIMIT: Unsi
 			} else {
 				None
 			};
-			prove_execution_payload::<C, ETH1_DATA_VOTES_BOUND, PROPOSER_LOOK_AHEAD_LIMIT>(
-				&finalized_state,
-				header,
-			)?
+			prove_execution_payload::<
+				C,
+				ETH1_DATA_VOTES_BOUND,
+				PROPOSER_LOOK_AHEAD_LIMIT,
+				BUILDER_PENDING_PAYMENTS_LIMIT,
+				PTC_WINDOW_LIMIT,
+			>(&finalized_state, header)?
 		};
 
 		let signature_period = compute_sync_committee_period_at_slot::<C>(block.slot);
@@ -390,7 +449,7 @@ impl<C: Config, ETH1_DATA_VOTES_BOUND: Unsigned, PROPOSER_LOOK_AHEAD_LIMIT: Unsi
 		let sync_committee_update =
             // We must make sure we switch the sync comittee only when the finalized header has changed sync committees
             if should_have_sync_committee_update(state_period, signature_period) && client_state_next_sync_committee_root == attested_state_current_sync_committee_root {
-                let sync_committee_proof = prove_sync_committee_update::<C, ETH1_DATA_VOTES_BOUND, PROPOSER_LOOK_AHEAD_LIMIT>(&mut attested_state)?;
+                let sync_committee_proof = prove_sync_committee_update::<C, ETH1_DATA_VOTES_BOUND, PROPOSER_LOOK_AHEAD_LIMIT, BUILDER_PENDING_PAYMENTS_LIMIT, PTC_WINDOW_LIMIT>(&mut attested_state)?;
                 Some(SyncCommitteeUpdate {
                     next_sync_committee: attested_state.next_sync_committee().clone(),
                     next_sync_committee_branch: sync_committee_proof,
@@ -477,6 +536,8 @@ impl<C: Config, ETH1_DATA_VOTES_BOUND: Unsigned, PROPOSER_LOOK_AHEAD_LIMIT: Unsi
 				C,
 				ETH1_DATA_VOTES_BOUND,
 				PROPOSER_LOOK_AHEAD_LIMIT,
+				BUILDER_PENDING_PAYMENTS_LIMIT,
+				PTC_WINDOW_LIMIT,
 			>(&mut attested_state)?,
 		};
 
@@ -489,17 +550,23 @@ impl<C: Config, ETH1_DATA_VOTES_BOUND: Unsigned, PROPOSER_LOOK_AHEAD_LIMIT: Unsi
 			} else {
 				None
 			};
-			prove_execution_payload::<C, ETH1_DATA_VOTES_BOUND, PROPOSER_LOOK_AHEAD_LIMIT>(
-				&finalized_state,
-				header,
-			)?
+			prove_execution_payload::<
+				C,
+				ETH1_DATA_VOTES_BOUND,
+				PROPOSER_LOOK_AHEAD_LIMIT,
+				BUILDER_PENDING_PAYMENTS_LIMIT,
+				PTC_WINDOW_LIMIT,
+			>(&finalized_state, header)?
 		};
 
 		let sync_committee_update = {
-			let sync_committee_proof =
-				prove_sync_committee_update::<C, ETH1_DATA_VOTES_BOUND, PROPOSER_LOOK_AHEAD_LIMIT>(
-					&mut attested_state,
-				)?;
+			let sync_committee_proof = prove_sync_committee_update::<
+				C,
+				ETH1_DATA_VOTES_BOUND,
+				PROPOSER_LOOK_AHEAD_LIMIT,
+				BUILDER_PENDING_PAYMENTS_LIMIT,
+				PTC_WINDOW_LIMIT,
+			>(&mut attested_state)?;
 			Some(SyncCommitteeUpdate {
 				next_sync_committee: attested_state.next_sync_committee().clone(),
 				next_sync_committee_branch: sync_committee_proof,
@@ -532,8 +599,15 @@ pub fn prove_execution_payload<
 	C: Config,
 	ETH1_DATA_VOTES_BOUND: Unsigned,
 	PROPOSER_LOOK_AHEAD_LIMIT: Unsigned,
+	BUILDER_PENDING_PAYMENTS_LIMIT: Unsigned,
+	PTC_WINDOW_LIMIT: Unsigned,
 >(
-	beacon_state: &BeaconStateType<ETH1_DATA_VOTES_BOUND, PROPOSER_LOOK_AHEAD_LIMIT>,
+	beacon_state: &BeaconStateType<
+		ETH1_DATA_VOTES_BOUND,
+		PROPOSER_LOOK_AHEAD_LIMIT,
+		BUILDER_PENDING_PAYMENTS_LIMIT,
+		PTC_WINDOW_LIMIT,
+	>,
 	header: Option<ExecutionHeader>,
 ) -> anyhow::Result<ExecutionPayloadProof> {
 	trace!(target: "sync-committee-prover", "Proving execution payload");
@@ -594,8 +668,18 @@ pub fn prove_execution_payload<
 }
 
 /// Pick a field's generalized index for the layout this state actually has.
-fn gindex<ETH1_DATA_VOTES_BOUND: Unsigned, PROPOSER_LOOK_AHEAD_LIMIT: Unsigned>(
-	state: &BeaconStateType<ETH1_DATA_VOTES_BOUND, PROPOSER_LOOK_AHEAD_LIMIT>,
+fn gindex<
+	ETH1_DATA_VOTES_BOUND: Unsigned,
+	PROPOSER_LOOK_AHEAD_LIMIT: Unsigned,
+	BUILDER_PENDING_PAYMENTS_LIMIT: Unsigned,
+	PTC_WINDOW_LIMIT: Unsigned,
+>(
+	state: &BeaconStateType<
+		ETH1_DATA_VOTES_BOUND,
+		PROPOSER_LOOK_AHEAD_LIMIT,
+		BUILDER_PENDING_PAYMENTS_LIMIT,
+		PTC_WINDOW_LIMIT,
+	>,
 	legacy: u64,
 	gloas: u64,
 ) -> u64 {
@@ -609,8 +693,18 @@ fn gindex<ETH1_DATA_VOTES_BOUND: Unsigned, PROPOSER_LOOK_AHEAD_LIMIT: Unsigned>(
 ///
 /// The state is a plain container before Gloas and a progressive one from Gloas, and the two
 /// merkleize differently, so the branch has to be built the matching way.
-fn prove_state_field<ETH1_DATA_VOTES_BOUND: Unsigned, PROPOSER_LOOK_AHEAD_LIMIT: Unsigned>(
-	state: &BeaconStateType<ETH1_DATA_VOTES_BOUND, PROPOSER_LOOK_AHEAD_LIMIT>,
+fn prove_state_field<
+	ETH1_DATA_VOTES_BOUND: Unsigned,
+	PROPOSER_LOOK_AHEAD_LIMIT: Unsigned,
+	BUILDER_PENDING_PAYMENTS_LIMIT: Unsigned,
+	PTC_WINDOW_LIMIT: Unsigned,
+>(
+	state: &BeaconStateType<
+		ETH1_DATA_VOTES_BOUND,
+		PROPOSER_LOOK_AHEAD_LIMIT,
+		BUILDER_PENDING_PAYMENTS_LIMIT,
+		PTC_WINDOW_LIMIT,
+	>,
 	gindex: u64,
 ) -> anyhow::Result<Vec<Root>> {
 	state.prove_gindex(gindex).map_err(Into::into)
@@ -621,8 +715,15 @@ pub fn prove_sync_committee_update<
 	C: Config,
 	ETH1_DATA_VOTES_BOUND: Unsigned,
 	PROPOSER_LOOK_AHEAD_LIMIT: Unsigned,
+	BUILDER_PENDING_PAYMENTS_LIMIT: Unsigned,
+	PTC_WINDOW_LIMIT: Unsigned,
 >(
-	state: &mut BeaconStateType<ETH1_DATA_VOTES_BOUND, PROPOSER_LOOK_AHEAD_LIMIT>,
+	state: &mut BeaconStateType<
+		ETH1_DATA_VOTES_BOUND,
+		PROPOSER_LOOK_AHEAD_LIMIT,
+		BUILDER_PENDING_PAYMENTS_LIMIT,
+		PTC_WINDOW_LIMIT,
+	>,
 ) -> anyhow::Result<Vec<Root>> {
 	trace!(target: "sync-committee-prover", "Proving sync committee update");
 	let index = gindex(state, C::NEXT_SYNC_COMMITTEE_INDEX, GLOAS_NEXT_SYNC_COMMITTEE_INDEX);
@@ -634,8 +735,15 @@ pub fn prove_finalized_header<
 	C: Config,
 	ETH1_DATA_VOTES_BOUND: Unsigned,
 	PROPOSER_LOOK_AHEAD_LIMIT: Unsigned,
+	BUILDER_PENDING_PAYMENTS_LIMIT: Unsigned,
+	PTC_WINDOW_LIMIT: Unsigned,
 >(
-	state: &mut BeaconStateType<ETH1_DATA_VOTES_BOUND, PROPOSER_LOOK_AHEAD_LIMIT>,
+	state: &mut BeaconStateType<
+		ETH1_DATA_VOTES_BOUND,
+		PROPOSER_LOOK_AHEAD_LIMIT,
+		BUILDER_PENDING_PAYMENTS_LIMIT,
+		PTC_WINDOW_LIMIT,
+	>,
 ) -> anyhow::Result<Vec<Root>> {
 	trace!(target: "sync-committee-prover", "Proving finalized head");
 	let index = gindex(state, C::FINALIZED_ROOT_INDEX, GLOAS_FINALIZED_ROOT_INDEX);

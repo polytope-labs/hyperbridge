@@ -26,8 +26,16 @@ pub async fn consensus_notification<
 	T: Config + Send + Sync + 'static,
 	ETH1_DATA_VOTES_BOUND: Unsigned + Send + Sync + 'static,
 	PROPOSER_LOOK_AHEAD_LIMIT: Unsigned + Send + Sync + 'static,
+	BUILDER_PENDING_PAYMENTS_LIMIT: Unsigned + Send + Sync + 'static,
+	PTC_WINDOW_LIMIT: Unsigned + Send + Sync + 'static,
 >(
-	client: &SyncCommitteeHost<T, ETH1_DATA_VOTES_BOUND, PROPOSER_LOOK_AHEAD_LIMIT>,
+	client: &SyncCommitteeHost<
+		T,
+		ETH1_DATA_VOTES_BOUND,
+		PROPOSER_LOOK_AHEAD_LIMIT,
+		BUILDER_PENDING_PAYMENTS_LIMIT,
+		PTC_WINDOW_LIMIT,
+	>,
 	counterparty: Arc<dyn IsmpProvider>,
 	checkpoint: Checkpoint,
 ) -> Result<Option<BeaconClientUpdate>, anyhow::Error> {

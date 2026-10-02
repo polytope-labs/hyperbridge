@@ -2,7 +2,10 @@ use super::*;
 use reqwest_eventsource::EventSource;
 
 use sync_committee_primitives::{
-	constants::{Root, ETH1_DATA_VOTES_BOUND_ETH, PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM},
+	constants::{
+		Root, BUILDER_PENDING_PAYMENTS_LIMIT_ETHEREUM, ETH1_DATA_VOTES_BOUND_ETH,
+		PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM, PTC_WINDOW_LIMIT_ETHEREUM,
+	},
 	types::VerifierState,
 	util::compute_epoch_at_slot,
 };
@@ -117,6 +120,8 @@ async fn test_sync_committee_update_proof() {
 		KurtosisDevnet,
 		ETH1_DATA_VOTES_BOUND_ETH,
 		PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM,
+		BUILDER_PENDING_PAYMENTS_LIMIT_ETHEREUM,
+		PTC_WINDOW_LIMIT_ETHEREUM,
 	>(&mut finalized_state)
 	.unwrap();
 
@@ -251,6 +256,8 @@ async fn test_switch_provider_middleware() {
 		KurtosisDevnet,
 		ETH1_DATA_VOTES_BOUND_ETH,
 		PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM,
+		BUILDER_PENDING_PAYMENTS_LIMIT_ETHEREUM,
+		PTC_WINDOW_LIMIT_ETHEREUM,
 	>::new(providers, "http://localhost:53002".to_string());
 	let res = prover.fetch_finalized_checkpoint(None).await;
 	assert!(res.is_ok())
@@ -268,6 +275,8 @@ fn setup_prover() -> SyncCommitteeProver<
 	KurtosisDevnet,
 	ETH1_DATA_VOTES_BOUND_ETH,
 	PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM,
+	BUILDER_PENDING_PAYMENTS_LIMIT_ETHEREUM,
+	PTC_WINDOW_LIMIT_ETHEREUM,
 > {
 	dotenv::dotenv().ok();
 	let consensus_url =
@@ -279,5 +288,7 @@ fn setup_prover() -> SyncCommitteeProver<
 		KurtosisDevnet,
 		ETH1_DATA_VOTES_BOUND_ETH,
 		PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM,
+		BUILDER_PENDING_PAYMENTS_LIMIT_ETHEREUM,
+		PTC_WINDOW_LIMIT_ETHEREUM,
 	>::new(vec![consensus_url], execution_url)
 }

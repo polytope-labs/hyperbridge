@@ -12,10 +12,10 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-use ssz_types::typenum::Unsigned;
 use crate::{GetConsensusStateParams, L2Host, SyncCommitteeHost};
 use alloy::{eips::BlockId, providers::Provider};
 use codec::{Decode, Encode};
+use ssz_types::typenum::Unsigned;
 
 use anyhow::{anyhow, Error};
 use futures::{StreamExt, TryFutureExt};
@@ -37,7 +37,16 @@ impl<
 		T: Config + Send + Sync + 'static,
 		ETH1_DATA_VOTES_BOUND: Unsigned + Send + Sync + 'static,
 		PROPOSER_LOOK_AHEAD_LIMIT: Unsigned + Send + Sync + 'static,
-	> IsmpHost for SyncCommitteeHost<T, ETH1_DATA_VOTES_BOUND, PROPOSER_LOOK_AHEAD_LIMIT>
+		BUILDER_PENDING_PAYMENTS_LIMIT: Unsigned + Send + Sync + 'static,
+		PTC_WINDOW_LIMIT: Unsigned + Send + Sync + 'static,
+	> IsmpHost
+	for SyncCommitteeHost<
+		T,
+		ETH1_DATA_VOTES_BOUND,
+		PROPOSER_LOOK_AHEAD_LIMIT,
+		BUILDER_PENDING_PAYMENTS_LIMIT,
+		PTC_WINDOW_LIMIT,
+	>
 {
 	async fn start_consensus(&self, counterparty: Arc<dyn IsmpProvider>) -> Result<(), Error> {
 		let client = SyncCommitteeHost::clone(&self);

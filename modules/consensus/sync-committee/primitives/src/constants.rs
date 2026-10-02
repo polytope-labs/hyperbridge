@@ -89,12 +89,13 @@ pub const PROPOSER_LOOK_AHEAD_LIMIT_GNO: usize = 32;
 pub const FAR_FUTURE_EPOCH: Epoch = u64::MAX;
 
 /// `builder_pending_payments` holds `2 * SLOTS_PER_EPOCH` entries and `ptc_window` holds
-/// `(2 + MIN_SEED_LOOKAHEAD) * SLOTS_PER_EPOCH`, with MIN_SEED_LOOKAHEAD of 1. Both are sized for
-/// the ethereum preset, which is every network Gloas runs on today; gnosis halves SLOTS_PER_EPOCH
-/// and has not published a gloas preset, so it will need these threaded through as const generics
-/// the way PROPOSER_LOOK_AHEAD_LIMIT is when it schedules the fork.
-pub const BUILDER_PENDING_PAYMENTS_LIMIT: usize = 64;
-pub const PTC_WINDOW_LIMIT: usize = 96;
+/// `(2 + MIN_SEED_LOOKAHEAD) * SLOTS_PER_EPOCH`, with MIN_SEED_LOOKAHEAD of 1. Both scale with
+/// SLOTS_PER_EPOCH, which gnosis halves, so they are type parameters of the Gloas state like
+/// PROPOSER_LOOK_AHEAD_LIMIT.
+pub const BUILDER_PENDING_PAYMENTS_LIMIT_ETHEREUM: usize = 64;
+pub const BUILDER_PENDING_PAYMENTS_LIMIT_GNO: usize = 32;
+pub const PTC_WINDOW_LIMIT_ETHEREUM: usize = 96;
+pub const PTC_WINDOW_LIMIT_GNO: usize = 48;
 
 /// Type level counterparts of the SSZ bounds above.
 ///
@@ -140,8 +141,10 @@ pub mod bounds {
 	pub type PENDING_CONSOLIDATIONS_LIMIT = U262144;
 	pub type PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM = U64;
 	pub type PROPOSER_LOOK_AHEAD_LIMIT_GNO = U32;
-	pub type BUILDER_PENDING_PAYMENTS_LIMIT = U64;
-	pub type PTC_WINDOW_LIMIT = U96;
+	pub type BUILDER_PENDING_PAYMENTS_LIMIT_ETHEREUM = U64;
+	pub type BUILDER_PENDING_PAYMENTS_LIMIT_GNO = U32;
+	pub type PTC_WINDOW_LIMIT_ETHEREUM = U96;
+	pub type PTC_WINDOW_LIMIT_GNO = U48;
 }
 
 pub use bounds::*;
